@@ -1,0 +1,21 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+*.tsbuildinfo
+
+# local tooling
+.claude/
+
+# run output
+analysis-results/
+logs/
+*.log
+
+# secrets
+.env
+.env.*
+
+# os
+.DS_Store

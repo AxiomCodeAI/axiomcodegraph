@@ -1,0 +1,33 @@
+{
+  "name": "@axiomcode/parser",
+  "version": "1.0.0",
+  "description": "AxiomCode Parser — extracts Java/Gradle/XML/YAML/Properties facts from a codebase.",
+  "main": "dist/extract.js",
+  "types": "dist/extract.d.ts",
+  "scripts": {
+    "clean": "rm -rf dist",
+    "prebuild": "npm run clean",
+    "build": "tsc && tsc-alias",
+    "prepare": "npm run build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "sax": "^1.4.4",
+    "tree-sitter": "^0.21.1",
+    "tree-sitter-groovy": "^0.1.2",
+    "tree-sitter-java": "^0.21.0",
+    "yaml": "^2.8.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/sax": "^1.2.7",
+    "tsc-alias": "^1.8.16",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3",
+    "vitest": "^1.0.4"
+  }
+}
