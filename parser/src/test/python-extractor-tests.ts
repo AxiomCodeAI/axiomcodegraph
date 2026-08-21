@@ -245,7 +245,13 @@ function gate2(oracle: any, facts: ReturnType<typeof extract>): Failure[] {
   const actFns = new Map<string, string[]>();
   for (const m of facts.methods) {
     const r = m.toCsv().split('\t');
-    if (r[11]?.includes('SYNTHETIC')) continue;
+    // The oracle's ast dump visits FunctionDef and AsyncFunctionDef only, so it
+    // lists neither the synthetic initializers nor LAMBDAS. Schema §2.7 puts both
+    // in py_method, so they are excluded here rather than reported as spurious —
+    // a comparison has to be symmetric about what each side claims to enumerate.
+    // Lambdas are covered instead by the invariant asserting that every LAMBDA
+    // scope has exactly one LAMBDA method.
+    if (r[11]?.includes('SYNTHETIC') || r[16] === 'LAMBDA') continue;
     actFns.set(`${r[0]}|${r[5]}`, r);
   }
   for (const [k, exp] of expFns) {
@@ -430,10 +436,47 @@ function invariants(file: string, facts: ReturnType<typeof extract>): Failure[] 
   // its discriminator says it should be. A silently-empty FK is worse than a
   // dangling one, because integrity checks skip empty values — so "always
   // empty" passes invariant #1 while breaking every join that needs it.
+  //
+  // And a polymorphic FK must resolve in the relation its DISCRIMINATOR names,
+  // not merely somewhere. Checking only non-emptiness let a LAMBDA scope point
+  // at a py_module PK: present, non-dangling against the union of all keys, and
+  // wrong. That is what invariant #1 actually says.
+  const modulePks = new Set(facts.module ? [facts.module.getHash()] : []);
+  const typePks = new Set(facts.types.map(t => t.getHash()));
+  const methodPks = new Set(facts.methods.map(m => m.getHash()));
+  const ownerRelationFor: Record<string, Set<string>> = {
+    MODULE: modulePks,
+    TYPE: typePks,
+    METHOD: methodPks,
+    LAMBDA: methodPks,
+    COMPREHENSION: methodPks,
+  };
   for (const scope of facts.scopes) {
-    if (scope.toCsv().split('\t')[7] === '') {
-      failures.push({ gate: 'INVARIANT', detail: `#1 py_scope.ownerHash empty (discriminator claims an owner)` });
+    const cols = scope.toCsv().split('\t');
+    const ownerKind = cols[6]!;
+    const ownerHash = cols[7]!;
+    if (ownerHash === '') {
+      failures.push({ gate: 'INVARIANT', detail: `#1 py_scope.ownerHash empty (discriminator claims ${ownerKind})` });
+      continue;
     }
+    const expected = ownerRelationFor[ownerKind];
+    if (expected && !expected.has(ownerHash)) {
+      failures.push({
+        gate: 'INVARIANT',
+        detail: `#1 py_scope ownerKind=${ownerKind} but ownerHash does not resolve in that relation`,
+      });
+    }
+  }
+  // Every lambda scope must have a py_method of kind LAMBDA — schema §2.7 lists
+  // `lambda` alongside `def`, and the startColumn in the py_method key exists
+  // precisely because two lambdas can share a line.
+  const lambdaScopes = facts.scopes.filter(s => s.toCsv().split('\t')[0] === 'LAMBDA').length;
+  const lambdaMethods = facts.methods.filter(m => m.toCsv().split('\t')[16] === 'LAMBDA').length;
+  if (lambdaScopes !== lambdaMethods) {
+    failures.push({
+      gate: 'INVARIANT',
+      detail: `#7 ${lambdaScopes} LAMBDA scopes but ${lambdaMethods} LAMBDA methods`,
+    });
   }
   for (const binding of facts.bindings) {
     if (binding.toCsv().split('\t')[25] === '') {

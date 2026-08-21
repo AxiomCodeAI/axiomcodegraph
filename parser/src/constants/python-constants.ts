@@ -66,6 +66,15 @@ export const PYTHON_CLASS_INITIALIZER_NAME = '<classbody>';
 /** symtable's name for every lambda scope. Two on one line are distinguished only by column. */
 export const PYTHON_LAMBDA_SCOPE_NAME = 'lambda';
 
+/**
+ * CPython's `__qualname__` for a lambda, and therefore `py_method.name`.
+ *
+ * Deliberately different from {@link PYTHON_LAMBDA_SCOPE_NAME}: symtable calls
+ * the scope `lambda`, while the function object's qualname is `<lambda>`. Each
+ * column follows its own source of truth rather than being forced to agree.
+ */
+export const PYTHON_LAMBDA_METHOD_NAME = '<lambda>';
+
 /** CSV file names for the Python fact tables. */
 export const PYTHON_CSV_FILES = {
   MODULES: 'all-python-modules.csv',

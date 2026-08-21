@@ -60,6 +60,8 @@ export interface PythonExpressionInput {
   classInitHashByNodeId: Map<number, string>;
   /** Converts tree-sitter character columns to CPython UTF-8 byte columns. */
   positions: PythonSourcePositions;
+  /** `lambda` node id -> its `py_method` PK, so a lambda body owns its own facts. */
+  lambdaMethodByNodeId: Map<number, string>;
 }
 
 /**
@@ -1277,9 +1279,14 @@ export class PythonExpressionExtractor {
             }
           }
         }
-        // The body evaluates in the LAMBDA's own scope, not the enclosing one.
+        // The body evaluates in the LAMBDA's own scope AND is owned by the
+        // lambda's own py_method — not by the function the lambda sits in.
+        // Attributing a call inside a lambda to the enclosing function is a real
+        // call-graph error: the lambda is a separate callable that may be invoked
+        // from anywhere it is passed to.
         const body = node.childForFieldName('body');
         const lambdaScope = this.input.scopeHashByNodeId.get(node.id);
+        const lambdaMethod = this.input.lambdaMethodByNodeId.get(node.id);
         if (body && lambdaScope) {
           this.worklist.push({
             ...base,
@@ -1288,6 +1295,16 @@ export class PythonExpressionExtractor {
             position: 0,
             scopeHash: lambdaScope,
             rootContext: PythonRootContext.LAMBDA_BODY,
+            ...(lambdaMethod
+              ? {
+                  ownerHash: lambdaMethod,
+                  ownerKind: PythonExpressionOwnerKind.LAMBDA,
+                  methodHash: lambdaMethod,
+                  // A lambda body is not module-level code even when the lambda
+                  // itself is written at module level.
+                  isModuleLevelCall: false,
+                }
+              : {}),
           });
         }
         return;

@@ -125,6 +125,7 @@ export class PythonFactExtractor {
       moduleMethodHash: declarations.moduleMethodHash,
       classInitHashByNodeId: declarations.classInitHashByNodeId,
       positions: scopeStage.positions,
+      lambdaMethodByNodeId: declarations.lambdaMethodByNodeId,
     });
 
     // ---- back-patching --------------------------------------------------
@@ -161,7 +162,10 @@ export class PythonFactExtractor {
    */
   private linkScopeOwners(
     scopeStage: PythonModuleExtraction,
-    declarations: { scopeOwnerByNodeId: Map<number, string> }
+    declarations: {
+      scopeOwnerByNodeId: Map<number, string>;
+      enclosingMethodByScopeNodeId: Map<number, string>;
+    }
   ): void {
     const ownerByScopeHash = new Map<string, string>();
     for (const [nodeId, ownerHash] of declarations.scopeOwnerByNodeId) {
@@ -176,12 +180,13 @@ export class PythonFactExtractor {
         scope.setOwner(scope.getOwnerKind(), ownerHash);
         continue;
       }
-      // A comprehension or lambda scope has no declaration of its own beyond the
-      // method it sits in, so it inherits that method as its owner.
-      if (
-        scope.getOwnerKind() === PythonScopeOwnerKind.COMPREHENSION ||
-        scope.getOwnerKind() === PythonScopeOwnerKind.LAMBDA
-      ) {
+      // A comprehension scope has no declaration of its own, so it inherits the
+      // nearest enclosing METHOD. Resolving against the owner map instead would
+      // hand a module-level comprehension the py_module hash while its
+      // discriminator says COMPREHENSION — present, non-dangling, and pointing
+      // into the wrong relation. A LAMBDA scope does not come here at all: it has
+      // its own py_method, registered above.
+      if (scope.getOwnerKind() === PythonScopeOwnerKind.COMPREHENSION) {
         const enclosing = this.enclosingMethodFor(scope, scopeStage, declarations);
         if (enclosing) {
           scope.setOwner(scope.getOwnerKind(), enclosing);
@@ -253,14 +258,21 @@ export class PythonFactExtractor {
     }
   }
 
-  /** Walks up the scope chain to the nearest scope that owns a method row. */
+  /**
+   * Walks up the scope chain to the nearest enclosing `py_method`.
+   *
+   * Keyed on the enclosing-METHOD map rather than the owner map, because the
+   * owner of a module scope is the module itself. A comprehension needs a
+   * method, and the synthetic `<module>` / `<classbody>` initializers exist so
+   * that one always exists.
+   */
   private enclosingMethodFor(
     scope: { getParentScopeLinkHash(): string },
     scopeStage: PythonModuleExtraction,
-    declarations: { scopeOwnerByNodeId: Map<number, string> }
+    declarations: { enclosingMethodByScopeNodeId: Map<number, string> }
   ): string | undefined {
     const ownerByScopeHash = new Map<string, string>();
-    for (const [nodeId, ownerHash] of declarations.scopeOwnerByNodeId) {
+    for (const [nodeId, ownerHash] of declarations.enclosingMethodByScopeNodeId) {
       const scopeHash = scopeStage.scopeHashByNodeId.get(nodeId);
       if (scopeHash) {
         ownerByScopeHash.set(scopeHash, ownerHash);

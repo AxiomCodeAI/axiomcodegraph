@@ -10,6 +10,7 @@ import {
 } from '@/analysis-types/python';
 import {
   PYTHON_CLASS_INITIALIZER_NAME,
+  PYTHON_LAMBDA_METHOD_NAME,
   PYTHON_MODULE_INITIALIZER_NAME,
 } from '@/constants/python-constants';
 import { PythonImportKind } from '@/enums/python/imports';
@@ -47,6 +48,14 @@ export interface PythonDeclarationExtraction {
   classInitHashByNodeId: Map<number, string>;
   /** The synthetic `<module>` method PK — the fallback expression owner. */
   moduleMethodHash: string;
+  /**
+   * `lambda` node id -> its `py_method` PK.
+   *
+   * A lambda is a real `py_method` (schema §2.7 lists `lambda` alongside `def`),
+   * so its scope has an owner and its body's expressions and calls are
+   * attributed to IT rather than to the function it happens to sit in.
+   */
+  lambdaMethodByNodeId: Map<number, string>;
   /**
    * `py_method_parameter` PK -> the `startIndex:endIndex` of its default-value
    * expression. Joined against the expression stage's byte-range index, since
@@ -146,6 +155,7 @@ export class PythonDeclarationExtractor {
   private typeHashByNodeId = new Map<number, string>();
   private classInitHashByNodeId = new Map<number, string>();
   private parameterDefaultByteRange = new Map<string, string>();
+  private lambdaMethodByNodeId = new Map<number, string>();
   private scopeOwnerByNodeId = new Map<number, string>();
   private enclosingMethodByScopeNodeId = new Map<number, string>();
 
@@ -160,6 +170,7 @@ export class PythonDeclarationExtractor {
     this.typeHashByNodeId = new Map();
     this.classInitHashByNodeId = new Map();
     this.parameterDefaultByteRange = new Map();
+    this.lambdaMethodByNodeId = new Map();
     this.scopeOwnerByNodeId = new Map();
     this.enclosingMethodByScopeNodeId = new Map();
 
@@ -183,6 +194,9 @@ export class PythonDeclarationExtractor {
       isTypeCheckingOnly: false,
     });
 
+    // Lambdas are expressions, so the statement walk above does not reach them.
+    // They get their own pass, which threads the same owner context.
+    this.emitLambdaMethods(input.rootNode, '', moduleInit.getHash());
     this.propagateCategoriesThroughLocalBases();
 
     return {
@@ -196,6 +210,7 @@ export class PythonDeclarationExtractor {
       classInitHashByNodeId: this.classInitHashByNodeId,
       moduleMethodHash: moduleInit.getHash(),
       parameterDefaultByteRange: this.parameterDefaultByteRange,
+      lambdaMethodByNodeId: this.lambdaMethodByNodeId,
       scopeOwnerByNodeId: this.scopeOwnerByNodeId,
       enclosingMethodByScopeNodeId: this.enclosingMethodByScopeNodeId,
     };
@@ -258,6 +273,183 @@ export class PythonDeclarationExtractor {
       .build();
     this.methods.push(method);
     return method;
+  }
+
+  /**
+   * Emits a `py_method` per `lambda`, in a dedicated pass.
+   *
+   * Lambdas need their own pass because they are **expressions**: they occur in
+   * defaults, decorators, class bases, comprehensions and arbitrary nested
+   * expressions, none of which the statement walk descends into. Schema §2.7
+   * lists `lambda` alongside `def` and `async def`, and the entire reason
+   * `startColumn` is in the `py_method` primary key is that
+   * `g = (lambda: 1, lambda: 2)` produces two rows whose name, qualifiedName,
+   * signature and startLine are all identical.
+   *
+   * Without these rows three things break, all silently: a LAMBDA scope's
+   * `ownerHash` has nothing to point at, a call inside a lambda is attributed to
+   * the enclosing function instead of the lambda, and `methodKind=LAMBDA` is
+   * never emitted at all.
+   *
+   * The walk threads the enclosing type and method itself rather than reusing
+   * the statement walk's context, because a lambda's owner is whatever
+   * definition lexically encloses it — which for a lambda inside a nested def is
+   * that def, and for a lambda in a decorator is the definition OUTSIDE the one
+   * being decorated.
+   */
+  private emitLambdaMethods(
+    node: Parser.SyntaxNode,
+    enclosingTypeHash: string,
+    enclosingMethodHash: string
+  ): void {
+    for (let i = 0; i < node.namedChildCount; i++) {
+      const child = node.namedChild(i);
+      if (!child) {
+        continue;
+      }
+
+      if (child.type === 'class_definition') {
+        const body = child.childForFieldName('body');
+        const typeHash = this.typeHashByNodeId.get(child.id) ?? enclosingTypeHash;
+        const classInit = this.classInitHashByNodeId.get(child.id) ?? enclosingMethodHash;
+        // Bases and decorators are evaluated OUTSIDE the class body, so a lambda
+        // in them belongs to the enclosing owner, not to the class.
+        for (let j = 0; j < child.namedChildCount; j++) {
+          const part = child.namedChild(j);
+          if (part && part.id !== body?.id) {
+            this.emitLambdaMethods(part, enclosingTypeHash, enclosingMethodHash);
+          }
+        }
+        if (body) {
+          this.emitLambdaMethods(body, typeHash, classInit);
+        }
+        continue;
+      }
+
+      if (child.type === 'function_definition') {
+        const body = child.childForFieldName('body');
+        const methodHash = this.methodHashByNodeId.get(child.id) ?? enclosingMethodHash;
+        // Same rule: defaults, annotations and decorators evaluate outside.
+        for (let j = 0; j < child.namedChildCount; j++) {
+          const part = child.namedChild(j);
+          if (part && part.id !== body?.id) {
+            this.emitLambdaMethods(part, enclosingTypeHash, enclosingMethodHash);
+          }
+        }
+        if (body) {
+          this.emitLambdaMethods(body, enclosingTypeHash, methodHash);
+        }
+        continue;
+      }
+
+      if (child.type === 'lambda') {
+        const method = this.emitLambdaMethod(child, enclosingTypeHash, enclosingMethodHash);
+        const parametersNode = child.childForFieldName('parameters');
+        const bodyNode = child.childForFieldName('body');
+        // A lambda's own defaults evaluate in the ENCLOSING scope, so a lambda
+        // nested in a default belongs to the enclosing owner; only the body is
+        // owned by this lambda.
+        if (parametersNode) {
+          this.emitLambdaMethods(parametersNode, enclosingTypeHash, enclosingMethodHash);
+        }
+        if (bodyNode) {
+          this.emitLambdaMethods(bodyNode, enclosingTypeHash, method.getHash());
+        }
+        continue;
+      }
+
+      this.emitLambdaMethods(child, enclosingTypeHash, enclosingMethodHash);
+    }
+  }
+
+  private emitLambdaMethod(
+    node: Parser.SyntaxNode,
+    enclosingTypeHash: string,
+    enclosingMethodHash: string
+  ): PyMethodRegistry {
+    const parametersNode = node.childForFieldName('parameters');
+    const parameters = this.collectParameters(parametersNode);
+    const scopeHash = this.input.scopeHashByNodeId.get(node.id) ?? '';
+    // CPython's __qualname__ for a lambda is `<lambda>`; the scope keeps
+    // symtable's own name, `lambda`. Each column follows its own source of truth.
+    const qualifiedName =
+      (this.input.qualifiedNameByNodeId.get(node.id) ?? '').replace(/\.lambda$/, `.${PYTHON_LAMBDA_METHOD_NAME}`) ||
+      PYTHON_LAMBDA_METHOD_NAME;
+    const end = this.declarationEndPosition(node);
+
+    const method = PyMethodRegistry.builder(
+      PYTHON_LAMBDA_METHOD_NAME,
+      this.buildSignature(PYTHON_LAMBDA_METHOD_NAME, parameters),
+      qualifiedName,
+      this.input.filePath,
+      node.startPosition.row + 1,
+      end.row + 1,
+      this.input.positions.byteColumn(node.startPosition.row, node.startPosition.column),
+      this.input.module.getHash(),
+      this.input.serviceVersionLinkHash
+    )
+      .withDetailedSignature(this.buildDetailedSignature(PYTHON_LAMBDA_METHOD_NAME, parameters, null))
+      .withKindAndAccess(PythonMethodKind.LAMBDA, PythonMethodAccess.PUBLIC_ACCESS)
+      .withParameterShape({
+        parameterCount: parameters.filter(p => p.name !== '').length,
+        posOnlyCount: parameters.filter(p => p.kind === PythonParameterKind.POSITIONAL_ONLY).length,
+        kwOnlyCount: parameters.filter(p => p.kind === PythonParameterKind.KEYWORD_ONLY).length,
+        isVarArgs: parameters.some(p => p.kind === PythonParameterKind.VAR_POSITIONAL),
+        hasKwArgs: parameters.some(p => p.kind === PythonParameterKind.VAR_KEYWORD),
+        // A lambda never has a receiver: it is not bound as a method even when
+        // it is assigned to a class attribute.
+        hasReceiverParameter: false,
+      })
+      .withScopeLinkHash(scopeHash)
+      .withEnclosingMemberLinkHash(enclosingMethodHash)
+      .withEndColumn(this.input.positions.byteColumn(end.row, end.column))
+      .build();
+
+    if (enclosingTypeHash !== '') {
+      // The owning class, when the lambda sits inside a class body.
+      method.setDeclaringBindingLinkHash('');
+    }
+    this.methods.push(method);
+    this.lambdaMethodByNodeId.set(node.id, method.getHash());
+    this.scopeOwnerByNodeId.set(node.id, method.getHash());
+    this.enclosingMethodByScopeNodeId.set(node.id, method.getHash());
+    this.emitLambdaParameters(parameters, method, scopeHash);
+    return method;
+  }
+
+  private emitLambdaParameters(
+    parameters: ParameterEntry[],
+    method: PyMethodRegistry,
+    scopeHash: string
+  ): void {
+    for (const parameter of parameters) {
+      const builder = PyMethodParameterRegistry.builder(
+        parameter.name,
+        parameter.position,
+        method.getHash(),
+        parameter.kind,
+        parameter.node.startPosition.row + 1,
+        parameter.node.endPosition.row + 1,
+        this.input.serviceVersionLinkHash
+      ).withBindingLinkHash(
+        this.input.bindingHashByScopeAndName.get(`${scopeHash}::${parameter.name}`) ?? ''
+      );
+      if (parameter.defaultNode) {
+        builder.withDefault(
+          EntityUtils.normalizeWhitespace(parameter.defaultNode.text),
+          this.defaultValueKindOf(parameter.defaultNode)
+        );
+      }
+      const row = builder.build();
+      if (parameter.defaultNode) {
+        const defaultNode = this.unwrapParentheses(parameter.defaultNode);
+        this.parameterDefaultByteRange.set(
+          row.getHash(),
+          `${defaultNode.startIndex}:${defaultNode.endIndex}`
+        );
+      }
+      this.methodParameters.push(row);
+    }
   }
 
   // ------------------------------------------------------------------ walk
