@@ -426,6 +426,51 @@ function invariants(file: string, facts: ReturnType<typeof extract>): Failure[] 
       failures.push({ gate: 'INVARIANT', detail: `#7 py_call_site does not reach a py_method` });
     }
   }
+  // #7 TRACEABILITY, which is what the deferral strategy rests on. Every one of
+  // the eleven deferred relations points INTO the spine — py_decorator carries
+  // ownerHash, pyMethodLinkHash, pyExpressionLinkHash and pyModuleLinkHash — so
+  // they can only ever attach if the chain from any expression up to its owning
+  // method is unbroken, with the polymorphic owner resolved in the relation its
+  // discriminator names.
+  const moduleInitHash = facts.module.toCsv().split('\t')[19]!;
+  const typesByPk = new Map(facts.types.map(t => [t.getHash(), t.toCsv().split('\t')]));
+  const methodsByPk = new Map(facts.methods.map(m => [m.getHash(), m.toCsv().split('\t')]));
+  const ownerToMethod = (kind: string, hash: string): string | null => {
+    switch (kind) {
+      case 'METHOD':
+      case 'LAMBDA': {
+        return methodsByPk.has(hash) ? hash : null;
+      }
+      case 'TYPE': {
+        // Class-body code is owned by the synthetic <classbody> method.
+        const type = typesByPk.get(hash);
+        return type && methodsByPk.has(type[16]!) ? type[16]! : null;
+      }
+      case 'MODULE': {
+        return hash === facts.module.getHash() && methodsByPk.has(moduleInitHash)
+          ? moduleInitHash
+          : null;
+      }
+      default: {
+        return null;
+      }
+    }
+  };
+  for (const expression of facts.expressions) {
+    const cols = expression.toCsv().split('\t');
+    const owningMethod = ownerToMethod(cols[3]!, cols[5]!);
+    if (owningMethod === null) {
+      failures.push({
+        gate: 'INVARIANT',
+        detail: `#7 py_expression cannot reach a py_method: ownerKind=${cols[3]} kind=${cols[0]} line ${cols[20]}`,
+      });
+      continue;
+    }
+    if (methodsByPk.get(owningMethod)![21] !== facts.module.getHash()) {
+      failures.push({ gate: 'INVARIANT', detail: `#7 py_method does not reach its py_module` });
+    }
+  }
+
   // #8 exactly one scope root per module
   const roots = facts.scopes.filter(s => s.toCsv().split('\t')[4] === '');
   if (roots.length !== 1) {

@@ -1063,6 +1063,38 @@ export class PythonExpressionExtractor {
       }
 
       case PythonExpressionKind.SUBSCRIPT: {
+        if (node.type === 'generic_type') {
+          // `generic_type` = base name + a `type_parameter` holding the args.
+          const genericBase = node.namedChild(0);
+          if (genericBase) {
+            this.worklist.push({
+              ...base,
+              node: genericBase,
+              edgeRole: PythonEdgeRole.SUBSCRIPT_OBJECT,
+              position: 0,
+            });
+          }
+          let argIndex = 1;
+          for (let i = 1; i < node.namedChildCount; i++) {
+            const parameterList = node.namedChild(i);
+            if (parameterList?.type !== 'type_parameter') {
+              continue;
+            }
+            for (let j = 0; j < parameterList.namedChildCount; j++) {
+              const arg = parameterList.namedChild(j);
+              if (!arg || arg.isExtra) {
+                continue;
+              }
+              this.worklist.push({
+                ...base,
+                node: arg,
+                edgeRole: PythonEdgeRole.SUBSCRIPT_INDEX,
+                position: argIndex++,
+              });
+            }
+          }
+          return;
+        }
         const value = node.childForFieldName('value');
         if (value) {
           this.worklist.push({
@@ -1744,7 +1776,14 @@ export class PythonExpressionExtractor {
       case 'attribute': {
         return PythonExpressionKind.ATTRIBUTE_ACCESS;
       }
-      case 'subscript': {
+      case 'subscript':
+      // A subscripted annotation is spelled `generic_type` by this grammar, but
+      // it is the same construct as `d[k]` and must produce the same shape.
+      // Falling through to the transparent fallback flattened
+      // `Optional[Dict[str, int]]` into four siblings all at depth 0 — and
+      // `depth` is a frozen spine column that `type-hierarchy.dl` filters on to
+      // find the OUTERMOST type reference.
+      case 'generic_type': {
         return PythonExpressionKind.SUBSCRIPT;
       }
       case 'slice': {
