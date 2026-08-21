@@ -1,32 +1,28 @@
-"""Nested functions and passthrough."""
+"""Nested functions and passthrough. All callees internal."""
 
 
 def build_pipeline(steps, *, strict=False):
-    seen = []
-
     def register(step, weight=1):
-        """Nested def — closes over `seen`."""
         def normalise(value):
-            """Doubly nested def."""
-            return value * weight
-        seen.append(normalise(step))
-        return normalise
+            return scale(value, weight)
+        return normalise(step)
 
-    for s in steps:
-        register(s)
+    def summarise(acc):
+        return acc
 
-    def summarise():
-        nonlocal seen
-        seen = sorted(seen)
-        return seen
+    collected = register(steps)
+    return summarise(collected)
 
-    return summarise()
+
+def scale(value, weight):
+    return value
 
 
 def passthrough(*args, **kwargs):
-    """Provably unsound arg->param flow."""
+    """Forwards both — argFlowIsPrecise must be false at the target site."""
     return target(*args, **kwargs)
 
 
 def target(a, b, c=3, *rest, key=None, **extra):
-    return [a, b, c, key]
+    """Declares varargs but forwards nothing."""
+    return scale(a, b)

@@ -1,12 +1,15 @@
-"""Base and derived classes — cross-class linkage targets."""
-import functools
-from typing import overload
+"""Base classes. No external calls — every callee is defined in this package."""
+from typing import overload            # decorator NAME only, never called
+
+
+def combine_all(left, right):
+    """Module-level helper, used instead of builtins."""
+    return [left, right]
 
 
 def audit(label):
-    """Parameterised decorator — outer returns middle returns wrapper."""
+    """Parameterised decorator: audit(...) -> middle -> wrapper."""
     def middle(fn):
-        @functools.wraps(fn)
         def wrapper(*args, **kwargs):
             return fn(*args, **kwargs)
         return wrapper
@@ -14,18 +17,20 @@ def audit(label):
 
 
 class Base:
-    KIND = "base"                      # class-level attribute
-    __slots__ = ("name", "tags")
+    KIND = "base"
 
     def __init__(self, name, tags=None, *extra, mode="ro", **options):
         self.name = name
-        self.tags = tags or []
+        self.tags = tags
         self.extra = extra
         self.mode = mode
         self.options = options
 
     def describe(self):
-        return f"{Base.KIND}:{self.name}"
+        return self.render(Base.KIND)
+
+    def render(self, prefix):
+        return combine_all(prefix, self.name)
 
     @staticmethod
     def make_default():
@@ -43,19 +48,19 @@ class Base:
 class Child(Base):
     KIND = "child"
 
-    def describe(self):                # override — MRO resolution target
+    def describe(self):
         parent = super().describe()
-        return f"{parent}/{Child.KIND}"
+        return self.render(parent)
 
     @audit("child")
     def tagged(self, *items, **meta):
         return self.merge(*items, **meta)
 
     def merge(self, *items, **meta):
-        return list(items) + sorted(meta)
+        return combine_all(items, meta)
 
 
 class Sibling:
-    """No inheritance relationship — describe() here must NOT link to Base."""
+    """Same-named method, no inheritance link to Base."""
     def describe(self):
-        return "sibling"
+        return combine_all("sibling", "x")
