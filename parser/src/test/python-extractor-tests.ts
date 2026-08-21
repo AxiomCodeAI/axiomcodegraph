@@ -762,6 +762,95 @@ async function analyzerTests(): Promise<Failure[]> {
   return failures;
 }
 
+/**
+ * Checks the code's column counts against the **schema document itself**.
+ *
+ * This is Appendix B invariant #11 in spirit: the document says 10 relations and
+ * 262 columns, and that claim is worth nothing unless something executes it. The
+ * document's own §2 section headers state an arity, and each has a numbered
+ * column table under it, so all three can be cross-checked — header count,
+ * actual table rows, and the `getCsvHeader()` the parser emits. A column-order
+ * or column-count error is silent and invalidates every golden file, which is
+ * precisely why the schema is frozen.
+ */
+function schemaDocumentTests(): Failure[] {
+  const failures: Failure[] = [];
+  const docPath = 'python-work/PYTHON-FACT-SCHEMA.md';
+  if (!fs.existsSync(docPath)) {
+    // The doc is not owned by the parser, so its absence is not a parser failure.
+    return failures;
+  }
+  const doc = fs.readFileSync(docPath, 'utf8');
+
+  const src = 'import os\nclass K(Base, metaclass=M):\n    def m(self, x=1):\n        return self.m(x)\n';
+  const facts = new PythonFactExtractor().extract({
+    sourceCode: src, filePath: 'a.py', baseMservPath: '/repo',
+    serviceVersionLinkHash: SERVICE_VERSION,
+  });
+  const headers: Record<string, string | undefined> = {
+    py_module: facts.module?.getCsvHeader(),
+    py_scope: facts.scopes[0]?.getCsvHeader(),
+    py_binding: facts.bindings[0]?.getCsvHeader(),
+    py_type: facts.types[0]?.getCsvHeader(),
+    py_type_base: facts.typeBases[0]?.getCsvHeader(),
+    py_method: facts.methods[0]?.getCsvHeader(),
+    py_method_parameter: facts.methodParameters[0]?.getCsvHeader(),
+    py_import: facts.imports[0]?.getCsvHeader(),
+    py_expression: facts.expressions[0]?.getCsvHeader(),
+    py_call_site: facts.callSites[0]?.getCsvHeader(),
+  };
+
+  let documentTotal = 0;
+  for (const section of doc.split('\n### ')) {
+    const match = /^2\.\d+ `(py_\w+)` \/ `lib_py_\w+` — (\d+) columns/.exec(section);
+    if (!match) {
+      continue;
+    }
+    const relation = match[1]!;
+    const stated = Number(match[2]);
+    if (!(relation in SPINE_ARITY)) {
+      continue;
+    }
+    documentTotal += stated;
+
+    if (stated !== SPINE_ARITY[relation]) {
+      failures.push({
+        gate: 'INVARIANT',
+        detail: `#11 ${relation}: document says ${stated} columns, harness constant says ${SPINE_ARITY[relation]}`,
+      });
+    }
+    // The document's numbered column rows must match its own stated arity.
+    const body = section.split('\n## ')[0]!;
+    const rows = body.match(/^\| \d+ \| `[^`]+`/gm) ?? [];
+    if (rows.length > 0 && rows.length !== stated) {
+      failures.push({
+        gate: 'INVARIANT',
+        detail: `#11 ${relation}: document header says ${stated} columns but lists ${rows.length}`,
+      });
+    }
+    // And the emitted header must match too.
+    const header = headers[relation];
+    if (header !== undefined) {
+      const emitted = header.split('\t').length;
+      if (emitted !== stated) {
+        failures.push({
+          gate: 'INVARIANT',
+          detail: `#11 ${relation}: document says ${stated} columns, parser emits ${emitted}`,
+        });
+      }
+    }
+  }
+
+  const FROZEN_SPINE_COLUMNS = 262;
+  if (documentTotal !== FROZEN_SPINE_COLUMNS) {
+    failures.push({
+      gate: 'INVARIANT',
+      detail: `#11 spine total: document sums to ${documentTotal}, expected ${FROZEN_SPINE_COLUMNS}`,
+    });
+  }
+  return failures;
+}
+
 // -------------------------------------------------------------------- runner
 
 function testFile(file: string): FileResult {
@@ -836,10 +925,11 @@ async function main(): Promise<void> {
     ...python2RejectionTests(),
     ...parseLimitTests(),
     ...classificationTests(),
+    ...schemaDocumentTests(),
     ...(await analyzerTests()),
   ];
   console.log(
-    `\nPy2 rejection, parse limit, classification, analyzer: ${standalone.length === 0 ? 'PASS' : `${standalone.length} FAILURES`}`
+    `\nPy2 rejection, parse limit, classification, schema arity, analyzer: ${standalone.length === 0 ? 'PASS' : `${standalone.length} FAILURES`}`
   );
   standalone.forEach(f => console.log(`   ${f.gate} ${f.detail}`));
 
