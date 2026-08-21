@@ -95,6 +95,7 @@ export const LARGE_FILE_LINE_THRESHOLD = 55_000;
 export const FILE_EXTENSIONS = {
   JAVA: '.java',
   PYTHON: '.py',
+  PYTHON_STUB: '.pyi',
   TYPESCRIPT: '.ts',
   JAVASCRIPT: '.js',
   PROPERTIES: '.properties',

@@ -7,6 +7,7 @@ export * from '@/enums/java/expressions';
 export * from '@/enums/java/local-variables';
 export * from '@/enums/java/blocks';
 export * from '@/enums/java/scopes';
+export * from '@/enums/python';
 export { SkippedFileReason } from '@/enums/SkippedFileReason';
 export * from '@/enums/xml';
 export * from '@/enums/yaml';

@@ -27,4 +27,30 @@ export const ENTITY_IDENTIFIERS = {
   GRADLE_BLOCK: 'GRADLE_BLOCK',
   GRADLE_DECLARATION: 'GRADLE_DECLARATION',
   GRADLE_VALUE_REFERENCE: 'GRADLE_VALUE_REFERENCE',
+
+  // ---------------------------------------------------------------- Python
+  // One prefix per PK. Every child key chains off its parent's hash, so these
+  // prefixes also document the FK chain: PY_MODULE is the root, PY_SCOPE is
+  // recursive through itself, and PY_CALL_SITE is a pure 1:1 chain off
+  // PY_EXPRESSION. Schema v6 section 1.
+  PY_MODULE: 'PY_MODULE',
+  PY_SCOPE: 'PY_SCOPE',
+  PY_BINDING: 'PY_BINDING',
+  PY_TYPE: 'PY_TYPE',
+  PY_TYPE_BASE: 'PY_TYPE_BASE',
+  PY_TYPE_REFERENCE: 'PY_TYPE_REFERENCE',
+  PY_METHOD: 'PY_METHOD',
+  PY_METHOD_PARAMETER: 'PY_METHOD_PARAMETER',
+  PY_FIELD: 'PY_FIELD',
+  PY_FIELD_WRITE: 'PY_FIELD_WRITE',
+  PY_DECORATOR: 'PY_DECORATOR',
+  PY_DECORATOR_ARGUMENT: 'PY_DECORATOR_ARGUMENT',
+  PY_IMPORT: 'PY_IMPORT',
+  PY_EXPRESSION: 'PY_EXPRESSION',
+  PY_CALL_SITE: 'PY_CALL_SITE',
+  PY_TYPE_INFERENCE: 'PY_TYPE_INFERENCE',
+  PY_COMMENT: 'PY_COMMENT',
+  PY_BLOCK: 'PY_BLOCK',
+  PY_PARSE_GAP: 'PY_PARSE_GAP',
+  PY_TYPE_PARAMETER: 'PY_TYPE_PARAMETER',
 } as const;

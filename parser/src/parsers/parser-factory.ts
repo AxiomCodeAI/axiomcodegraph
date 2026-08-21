@@ -1,5 +1,6 @@
 import { JavaParser } from '@/parsers/java/java-parser';
 import { LanguageParser } from '@/parsers/language-parser';
+import { PythonParser } from '@/parsers/python/python-parser';
 import { ProjectLanguage } from '@/types/ProjectInfo';
 
 /**
@@ -19,6 +20,7 @@ export class ParserFactory {
    */
   private registerDefaultParsers(): void {
     this.registerParser(new JavaParser());
+    this.registerParser(new PythonParser());
   }
 
   /**
