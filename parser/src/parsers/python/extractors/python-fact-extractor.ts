@@ -146,8 +146,10 @@ export class PythonFactExtractor {
       types: declarations.types,
       typeBases: declarations.typeBases,
       methods: declarations.methods,
+      methodParameters: declarations.methodParameters,
       imports: declarations.imports,
       callSites: expressionStage.callSites,
+      expressions: expressionStage.expressions,
     });
 
     this.linkScopeOwners(scopeStage, declarations);

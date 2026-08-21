@@ -1,13 +1,19 @@
 import {
   PyBindingRegistry,
   PyCallSiteRegistry,
+  PyExpressionRegistry,
   PyImportRegistry,
+  PyMethodParameterRegistry,
   PyMethodRegistry,
   PyScopeRegistry,
   PyTypeBaseRegistry,
   PyTypeRegistry,
 } from '@/analysis-types/python';
 import { PythonReceiverKind, PythonResolvedCalleeKind } from '@/enums/python/call-sites';
+import {
+  PythonExpressionKind,
+  PythonReferencedEntityKind,
+} from '@/enums/python/expressions';
 import { PythonImportTargetKind } from '@/enums/python/imports';
 import { PythonMethodKind } from '@/enums/python/methods';
 
@@ -38,8 +44,10 @@ export interface ResolutionInput {
   types: PyTypeRegistry[];
   typeBases: PyTypeBaseRegistry[];
   methods: PyMethodRegistry[];
+  methodParameters: PyMethodParameterRegistry[];
   imports: PyImportRegistry[];
   callSites: PyCallSiteRegistry[];
+  expressions: PyExpressionRegistry[];
 }
 
 /**
@@ -372,6 +380,15 @@ export class PythonResolutionLinker {
         }
       }
 
+      // Annotations get a second pass too: `a: CustomTypeA` where CustomTypeA is
+      // imported can only resolve once the import graph exists.
+      this.resolveAnnotations(module, typesByName);
+      this.linkNameReferences(module, {
+        entityByBinding,
+        bindingByScopeAndName,
+        parentScopeOf,
+      });
+
       for (const callSite of module.callSites) {
         if (callSite.getResolvedCalleeKind() !== PythonResolvedCalleeKind.UNRESOLVED) {
           continue;
@@ -396,6 +413,127 @@ export class PythonResolutionLinker {
     }
 
     return stats;
+  }
+
+  /**
+   * Links every NAME REFERENCE to the entity it names.
+   *
+   * This is what makes a *use* of a type reach the type's hash — the job Java's
+   * `java_type_reference` does. `py_type_reference` is in the deferred eleven, so
+   * until it lands `py_expression.referencedEntityKind` / `referencedEntityHash`
+   * (frozen columns c14/c15) are where that link lives, and leaving them empty
+   * forced the engine to re-derive names from text.
+   *
+   * It matters most for NESTED annotations. `y: Optional[CustomTypeB]` resolves
+   * its BASE to `Optional`, which is external, so `potentialQualifiedName` is
+   * legitimately empty — but the inner `CustomTypeB` is a NAME_REFERENCE in the
+   * annotation subtree, and this gives it a direct FK to `models.CustomTypeB`.
+   * Going through `bindingLinkHash` instead does not work from inside a class or
+   * method: the binding there is the LOCAL reference row, not the module-level
+   * import that defined the name, so the join dead-ends exactly where it is most
+   * needed.
+   */
+  private linkNameReferences(
+    input: ResolutionInput,
+    ctx: {
+      entityByBinding: Map<string, PyMethodRegistry | PyTypeRegistry>;
+      bindingByScopeAndName: Map<string, PyBindingRegistry>;
+      parentScopeOf: Map<string, string>;
+    }
+  ): void {
+    for (const expression of input.expressions) {
+      if (expression.getKind() !== PythonExpressionKind.NAME_REFERENCE) {
+        continue;
+      }
+      if (expression.getReferencedEntityHash() !== '') {
+        continue;
+      }
+      const name = expression.getLiteralValue();
+      if (name === '') {
+        continue;
+      }
+      const entity = this.lookupInScopeChain(name, expression.getPyScopeLinkHash(), ctx);
+      if (!entity) {
+        continue;
+      }
+      const described = this.describeEntity(entity);
+      expression.setReferencedEntity(
+        described.kind === PythonResolvedCalleeKind.TYPE
+          ? PythonReferencedEntityKind.TYPE
+          : PythonReferencedEntityKind.METHOD,
+        described.hash
+      );
+    }
+  }
+
+  /**
+   * Resolves annotation text to an in-project type, filling
+   * `potentialQualifiedName` on parameters and bindings.
+   *
+   * These are spine columns that exist for exactly this, and leaving them empty
+   * is the same defect as an UNRESOLVED call site: the answer is derivable and
+   * the engine cannot recover it, because re-deriving a type from annotation
+   * TEXT is precisely what the schema forbids it to do.
+   *
+   * Resolution is on the annotation's BASE name — `Optional[CustomTypeB]`
+   * resolves `Optional` — which matches `declaredBaseType`'s stated meaning and
+   * Java's behaviour for `List<String>`. The inner type is not lost: the
+   * annotation is also emitted as a py_expression subtree whose NAME_REFERENCE
+   * nodes carry `bindingLinkHash`, so `CustomTypeB` is reachable by joining that
+   * binding to the `py_import` row that bound it.
+   *
+   * `isAmbiguous` is set when a wildcard import is in scope, because a
+   * same-named class could then come from somewhere unenumerable and the
+   * resolution is a best guess rather than a fact.
+   */
+  private resolveAnnotations(
+    input: ResolutionInput,
+    typeByName: Map<string, PyTypeRegistry | null>
+  ): void {
+    const wildcardScopes = new Set(
+      input.imports.filter(i => i.getIsWildcard()).map(i => i.getPyScopeLinkHash())
+    );
+    const anyWildcard = wildcardScopes.size > 0;
+
+    const baseNameOf = (annotation: string): string => {
+      // Strip subscripts, then take the rightmost dotted segment: `a.b.C[int]`
+      // resolves on `C`.
+      const withoutSubscript = annotation.split('[')[0]!.trim();
+      const parts = withoutSubscript.split('.');
+      return parts[parts.length - 1]!.trim();
+    };
+
+    const methodsByHash = new Map(input.methods.map(m => [m.getHash(), m]));
+
+    for (const parameter of input.methodParameters ?? []) {
+      const annotation = parameter.getParameterTypeName();
+      if (annotation === '') {
+        continue;
+      }
+      const target = typeByName.get(baseNameOf(annotation));
+      if (target) {
+        parameter.setResolvedAnnotation(target.getQualifiedName(), anyWildcard);
+      } else if (anyWildcard) {
+        // Unresolved AND a wildcard import is present: the name may well be a
+        // class we cannot see, so mark the imprecision rather than implying none.
+        parameter.setResolvedAnnotation('', true);
+      }
+      void methodsByHash;
+    }
+
+    for (const binding of input.bindings) {
+      const annotation = binding.getDeclaredTypeName();
+      if (annotation === '') {
+        continue;
+      }
+      const baseName = baseNameOf(annotation);
+      const target = typeByName.get(baseName);
+      binding.setResolvedAnnotation(
+        baseName,
+        target ? target.getQualifiedName() : '',
+        anyWildcard
+      );
+    }
   }
 
   /**
@@ -464,6 +602,7 @@ export class PythonResolutionLinker {
 
     // Bases first: MRO resolution depends on them.
     this.resolveTypeBases(input, typesByName);
+    this.resolveAnnotations(input, typesByName);
 
     const basesByType = new Map<string, PyTypeBaseRegistry[]>();
     for (const base of input.typeBases) {
@@ -513,6 +652,12 @@ export class PythonResolutionLinker {
     const importedModuleNames = new Set(
       input.imports.filter(i => i.getIsModuleImport()).map(i => i.getSimpleName())
     );
+
+    this.linkNameReferences(input, {
+      entityByBinding,
+      bindingByScopeAndName,
+      parentScopeOf,
+    });
 
     const mroCache = new Map<string, string[] | null>();
 

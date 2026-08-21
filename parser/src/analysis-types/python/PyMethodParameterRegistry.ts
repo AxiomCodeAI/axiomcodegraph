@@ -136,6 +136,22 @@ export class PyMethodParameterRegistry implements EntityIdentifiable {
     return this.isMutableDefault;
   }
 
+  getParameterBaseType(): string {
+    return this.parameterBaseType;
+  }
+
+  /**
+   * Records the parser's resolution of the annotation.
+   *
+   * `isAmbiguous` is the honest half: a wildcard import in scope means a
+   * same-named class could come from somewhere unenumerable, so the resolution
+   * is a best guess rather than a fact.
+   */
+  setResolvedAnnotation(potentialQualifiedName: string, isAmbiguous: boolean): void {
+    this.potentialQualifiedName = potentialQualifiedName;
+    this.isAmbiguous = isAmbiguous;
+  }
+
   /** Back-patches the FK to this parameter's binding in the function scope. */
   setBindingLinkHash(bindingLinkHash: string): void {
     this.bindingLinkHash = bindingLinkHash;

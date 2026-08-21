@@ -167,8 +167,10 @@ export class PythonProjectAnalyzer {
         types: facts.types,
         typeBases: facts.typeBases,
         methods: facts.methods,
+        methodParameters: facts.methodParameters,
         imports: facts.imports,
         callSites: facts.callSites,
+        expressions: facts.expressions,
       });
     }
 

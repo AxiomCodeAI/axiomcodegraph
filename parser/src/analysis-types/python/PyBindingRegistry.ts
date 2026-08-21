@@ -186,6 +186,21 @@ export class PyBindingRegistry implements EntityIdentifiable {
     return this.isAssigned || this.isImported || this.isParameter;
   }
 
+  getDeclaredTypeName(): string {
+    return this.declaredTypeName;
+  }
+
+  /** Records the annotation's base type and the parser's resolution of it. */
+  setResolvedAnnotation(
+    declaredBaseType: string,
+    potentialQualifiedName: string,
+    isAmbiguous: boolean
+  ): void {
+    this.declaredBaseType = declaredBaseType;
+    this.potentialQualifiedName = potentialQualifiedName;
+    this.isAmbiguous = isAmbiguous;
+  }
+
   /**
    * Sets the enclosing-method FK.
    *

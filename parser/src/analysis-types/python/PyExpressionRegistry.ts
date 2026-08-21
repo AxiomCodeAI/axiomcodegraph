@@ -201,6 +201,18 @@ export class PyExpressionRegistry implements EntityIdentifiable {
     return this.nameContext;
   }
 
+  getReferencedEntityKind(): PythonReferencedEntityKind {
+    return this.referencedEntityKind;
+  }
+
+  getReferencedEntityHash(): string {
+    return this.referencedEntityHash;
+  }
+
+  getRootContext(): PythonRootContext {
+    return this.rootContext;
+  }
+
   getArgumentKeywordName(): string {
     return this.argumentKeywordName;
   }
