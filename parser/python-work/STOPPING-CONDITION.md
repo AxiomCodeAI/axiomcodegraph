@@ -54,7 +54,8 @@ which also passes when the binding is *missing*. The assertion is:
 Stated that way it is a test of the emission rule (§4.4), and it fails loudly if `.0` is
 dropped — which a whitelist would have hidden.
 
-**Covers 2 of 10 frozen spine relations.**
+**Covers 3 of 10 frozen spine relations** — `py_scope`, `py_binding`, and `py_method_parameter`
+(parameter *names*, adjudicated exactly by `symtable.Function.get_parameters()`).
 
 ---
 
@@ -73,8 +74,8 @@ decorator application order would be encoded identically in both and agree perfe
 > adjudication — a human, or the language reference — decides which side is wrong. Gate 2
 > passing means *no disagreement was surfaced*, which is evidence, not proof.
 
-Covers: `py_expression` (tree shape, `nameContext`, edge roles), `py_method`,
-`py_method_parameter`, `py_type`, `py_type_base` (**ordering**, which C3 depends on),
+Covers: `py_expression` (tree shape, `nameContext`, **edge roles**), `py_method`,
+`py_method_parameter` (posonly/args/vararg/kwonly/defaults/annotations via `ast.arguments`), `py_type`, `py_type_base` (**ordering**, which C3 depends on),
 `py_import`, `py_call_site` (caller attribution, arg counts, keyword names).
 
 **Covers 7 of 10 frozen spine relations.**
@@ -86,36 +87,39 @@ Covers: `py_expression` (tree shape, `nameContext`, edge roles), `py_method`,
 Node-type coverage, reframed: it gates whether we are *entitled to trust* Gates 1–2, since a
 gate is only as good as the inputs exercising it.
 
-**Bar: 116 / 116.** Derivation from the pinned `tree-sitter-python@0.21.0`:
+**Bar: 115 / 115.** Derivation from the pinned `tree-sitter-python@0.21.0`:
 
 | | count |
 |---|---|
 | named node types (the old README bar) | 129 |
 | − 6 supertypes (abstract, never in a concrete tree) | 123 |
 | − 3 Python 2 (`print_statement`, `exec_statement`, `chevron`) — must **never** appear; §6.2 rejects those files | 120 |
-| − 2 PEP 695 (`type_alias_statement`, `constrained_type`) — 3.12, deferred to freeze 2 | 118 |
-| − 1 `member_type` — in grammar 0.21.0 reachable *only* inside PEP 695 `type` contexts (verified: ordinary dotted annotations such as `x: mod.Cls` do **not** produce it) | 117 |
-| − 1 `except_group_clause` (`except*`, 3.11 — above target) | **116** |
+| − 3 rejected by 3.10.4: `type_alias_statement`, `constrained_type`, `splat_type` (verified against the 3.10.4 interpreter — PEP 646 `tuple[*Ts]` is 3.11 and `Callable[**P, int]` is not valid syntax at all) | 117 |
+| − 1 `member_type` — **unreachable**: no probe produces it, including PEP 695 `type` contexts and every dotted-annotation form | 116 |
+| − 1 `except_group_clause` (`except*`, 3.11 — above target) | **115** |
 
-Mining reached **105/116**. The gap is **11**, and it is a
+*Not* deducted: `type_parameter`. `class C[T]` is 3.12, but the same node is produced by
+`x: list[int]` which 3.10.4 accepts — and it is already in the seen set.
+
+Mining reached **105/115**. The gap is **10**, and it is a
 **blocking prerequisite on A1/A2** — no amount of further mining closes it:
 
 - **9 `match`-statement types** (PEP 634): `match_statement`, `case_clause`, `case_pattern`,
   `class_pattern`, `complex_pattern`, `dict_pattern`, `keyword_pattern`, `splat_pattern`,
   `union_pattern`. Legal on 3.10.4; absent because these libraries target ≤3.9.
-- **`splat_type`** — reachable on 3.10 via PEP 612 `Callable[**P, int]` (`ParamSpec` is 3.10).
-  *Not* PEP 695-exclusive, contrary to an earlier draft of mine.
 - **`parenthesized_list_splat`**.
 
-**Gate 3 is not met and cannot be met until those 11 fixtures land.**
+**Gate 3 is not met and cannot be met until those 10 fixtures land.**
 
 ---
 
 ## Spine relations no gate covers
 
-Asked directly, answered directly. Gates 1+2 cover 9 of 10. The remaining one:
+Gates 1+2 cover 9 of 10.
 
-**`py_module` — partially deliberate, partially unavoidable.**
+**`py_module` — ungated, and recorded as DELIBERATE.** It carries no data-flow path; it is
+the key-chaining root, and referential integrity (#1), no-PK-collision (#2), determinism (#5)
+and interpreter pinning (#10) already cover what can go wrong with it.
 
 - *Unavoidable:* `filePath`, `baseMservPath`, `serviceVersionLinkHash`, `targetVersion`,
   `emissionRegime`, `moduleKind`, `isExternal` are **harness-supplied provenance**. No oracle
@@ -127,12 +131,26 @@ Asked directly, answered directly. Gates 1+2 cover 9 of 10. The remaining one:
   `qualifiedName` — *are* ast-derivable and materially load-bearing (Q9's re-export
   resolution depends on `__all__`). They are hereby **in Gate 2**.
 
-**Correction to my own earlier proposal:** I previously listed six relations for Gate 2,
-which left **`py_method_parameter` ungated**. That was an oversight, not a decision. `ast`
-fully models parameters (`posonlyargs`, `args`, `vararg`, `kwonlyargs`, `kw_defaults`,
-`kwarg`, `defaults`, annotations), and with 68.2% of parameters unannotated, argument→
-parameter flow is the primary receiver-typing mechanism — leaving it unchecked would have
-been the worst single omission available. It is now in Gate 2.
+**`py_method_parameter` is now in BOTH gates.** It is the target of argument→parameter flow,
+the primary typing mechanism given 68.2% unannotated parameters, and it is gateable at both
+levels: `symtable.Function.get_parameters()` adjudicates parameter *names* exactly (Gate 1),
+and `ast.arguments` gives posonly/args/vararg/kwonly/defaults/annotations (Gate 2). Leaving
+it ungated was an oversight, not a decision.
+
+**Why Gate 2 is load-bearing and not decorative.** Gate 1 is structurally blind to data-flow
+*direction*. `sink(taint(x))` and `taint(sink(x))` have identical bindings in identical
+scopes, so Gate 1 reports 100% on both; if `edgeRole` mislabels argument vs receiver
+position, or the parent link between nested calls collapses, the taint path inverts and the
+engine reports flow into a sink it never reached. Same shape for the other two data-flow
+carriers: `py_type_base` ordering wrong → MRO picks the wrong method, bindings unaffected;
+`py_call_site` caller mis-attributed → the call-graph edge points at the wrong function,
+bindings unaffected. Gate 2 is the *only* thing looking at any of this — which is exactly why
+its cross-check-not-oracle label matters.
+
+*Known-hazard check against the frozen PK:* nested calls sharing a start offset
+(`super().set_exception(e)` — outer and inner `call` both start at index 0) remain distinct,
+because `PY_EXPRESSION_md5` keys on `parentExpressionHash`, `edgeRole`, `depth` and
+`endColumn` as well as start position. Worth an explicit regression fixture.
 
 ---
 
@@ -147,9 +165,9 @@ been the worst single omission available. It is now in Gate 2.
 >    traversal. This is a second implementation by the same author, so it detects
 >    *disagreement requiring adjudication*, not correctness. Report it separately from Gate 1
 >    and never aggregate the two into one number.
-> 3. **Corpus adequacy** — 116/116 reachable node types for a 3.10.4 target. Currently
->    105/116; the remaining 11 (9 `match`, `splat_type`, `parenthesized_list_splat`) are a
->    blocking fixture prerequisite on A1/A2 and are unreachable by mining.
+> 3. **Corpus adequacy** — 115/115 reachable node types for a 3.10.4 target. Currently
+>    105/115; the remaining 10 (9 `match`, `parenthesized_list_splat`) are a blocking fixture
+>    prerequisite on A1/A2 and are unreachable by mining.
 >
 > Plus the Appendix B invariants — referential integrity, no PK collisions, byte-identical
 > output — which are independent of all three.

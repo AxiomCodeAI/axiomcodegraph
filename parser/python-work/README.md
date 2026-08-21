@@ -134,6 +134,34 @@ problem, and it makes Gate 3 a **blocking prerequisite on A2**: `case_clause`,
 
 Threshold: **115/115** (or 118/118, pending the PEP 695 count).
 
+### Evidence tiers for classification fields
+
+`typeCategory`, `typeModifier`, `methodKind`, and `importKind` are classifications the
+parser *derives*; CPython does not report them. Each value is assigned to a tier, and the
+tiers must never be blurred or aggregated:
+
+| Tier | Adjudicator | Guarantee |
+|---|---|---|
+| 1 | `ast`, structural | Ground truth. Gate 1. |
+| 2 | `inspect`, stdlib-scoped only | Ground truth, with import-side-effect caveat |
+| 3 | An authored spec | **Author separation only** |
+
+**Tier 3 buys author separation, nothing else.** If the spec is wrong, every fixture
+agreeing with it is also wrong, and no green test will say so. Tier 3 is not weak
+evidence — it is *a different kind of thing* from tiers 1 and 2, and a passing tier-3
+check licenses no claim about correctness.
+
+Tier 2 requires importing the module, which executes arbitrary code. Scope it to the
+stdlib; never run it over the mined third-party corpus. Read `cls.__dict__` directly —
+attribute access invokes descriptors.
+
+An evidence-tier emitter must report **all applicable values with a collision flag**,
+never a winner. Choosing a winner is a precedence decision and belongs in tier 3; making
+that choice inside the evidence tier hides collisions and defeats the tiering.
+
+Where a field is undefined or a legal combination is inexpressible in its enum, the
+oracle emits a **residue** so the count stays visible rather than silently collapsing.
+
 ### Independent invariants
 
 Hold regardless of all three gates:

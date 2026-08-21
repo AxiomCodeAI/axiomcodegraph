@@ -141,7 +141,7 @@ that fan-out is dead weight.
 68.2% of parameters carry no annotation. An IR that papers over this produces a call graph
 that looks precise and is wrong — the worst outcome, because nobody notices. So imprecision
 is **first-class data**: `argFlowIsPrecise`, `isArgsKwargsPassthrough`, `receiverKind=UNKNOWN`,
-`resolvedCalleeKind=UNRESOLVED`, `confidence`, `usesStarImport`, `HAS_GETATTR`. The engine can
+`resolvedCalleeKind=UNRESOLVED`, `confidence`, `usesWildcardImport`, `HAS_GETATTR`. The engine can
 then report "unresolvable by construction" instead of silently emitting nothing.
 
 **3. The IR must be exactly verifiable where it claims certainty.** This is what makes the
@@ -270,6 +270,42 @@ descendant hash, which is correct: they are different entities.
 
 ---
 
+### 1.1 Cross-language naming rule
+
+Derived from what the Java parser already does, rather than invented — it looks inconsistent
+at a glance but is principled:
+
+| layer | Java | rule |
+|---|---|---|
+| enum value | `TYPE_ON_DEMAND` | the **language spec's** term (JLS: "import on demand") |
+| column | `isOnDemand` | the language spec's term |
+| **Souffle projection** | **`import_wildcard`** | the **neutral, cross-language** term |
+| doc comments | "Wildcard type import" | neutral |
+
+So: **fact-layer names follow the language; projection-layer names are shared.** That is what
+makes a rule port across languages while each fact table still reads correctly to someone who
+knows that language.
+
+Applied to Python, the two coincide — the Python Language Reference calls `from x import *` a
+**wildcard** import, and Java's projection already uses that word — so there is no tradeoff:
+
+| | Java | Python |
+|---|---|---|
+| enum value | `TYPE_ON_DEMAND` / `STATIC_ON_DEMAND` | `FROM_WILDCARD` / `RELATIVE_WILDCARD` |
+| column c7 | `isOnDemand` | `isWildcard` *(same position, same meaning)* |
+| projection | `import_wildcard` | **`import_wildcard`** — identical |
+
+Column **names** and enum **values** are not the frozen contract; column **order** is. So this
+rename costs nothing post-freeze, and `gen_decls.py --check` is unaffected (the `.dl` carries
+only `c0..cN`).
+
+Where the terms genuinely diverge, the language wins at the fact layer. Python keeps `STARRED`
+/ `DOUBLE_STARRED` / `STAR_ARGUMENT` for `*args` / `**kwargs` and `EXCEPT_STAR` for `except*` —
+those are Python's `*` splat and PEP 654, unrelated to wildcard imports, and renaming them to
+match Java would be false parity.
+
+---
+
 ## 2. The relations
 
 Full ordered column lists. **Position is the contract.** New columns append only.
@@ -379,7 +415,7 @@ precision/recall are well-defined for this schema at all.
 | 9 | `isOptimized` | `SymbolTable.is_optimized()` — **verbatim** |
 | 10 | `hasChildren` | `SymbolTable.has_children()` — **verbatim** |
 | 11 | `symtableId` ★ | `SymbolTable.get_id()` — oracle cross-check handle only; never joined on |
-| 12 | `usesStarImport` | a `from x import *` occurs here → names may be unbound |
+| 12 | `usesWildcardImport` | a `from x import *` occurs here → names may be unbound |
 | 13 | `isGenerator` | *ast-derived*, not symtable (see §7) |
 | 14 | `isCoroutine` | *ast-derived* |
 | 15 | `declaresGlobal` | a `global` statement occurs here |
@@ -822,14 +858,14 @@ relative**.
 
 | # | Column | Meaning |
 |---|---|---|
-| 0 | `importKind` [J] | `MODULE_IMPORT` \| `MODULE_IMPORT_ALIAS` \| `FROM_MEMBER` \| `FROM_MEMBER_ALIAS` \| `FROM_STAR` \| `RELATIVE_MEMBER` \| `RELATIVE_STAR` \| `FUTURE` \| `DYNAMIC` |
+| 0 | `importKind` [J] | `MODULE_IMPORT` \| `MODULE_IMPORT_ALIAS` \| `FROM_MEMBER` \| `FROM_MEMBER_ALIAS` \| `FROM_WILDCARD` \| `RELATIVE_MEMBER` \| `RELATIVE_WILDCARD` \| `FUTURE` \| `DYNAMIC` |
 | 1 | `importedPath` [J] | fully-resolved dotted path of the imported thing |
 | 2 | `packageOrTypeName` [J] | the module the member comes from; `""` for `MODULE_IMPORT` |
 | 3 | `simpleName` [J] | **the name actually bound** in the importing namespace |
 | 4 | `filePath` [J] | |
 | 5 | `lineNumber` [J] | |
 | 6 | `isStatic` [J] | always `false` — parity slot |
-| 7 | `isOnDemand` [J] | `true` for star imports |
+| 7 | `isWildcard` [J] | `true` for `import *`. **Parity slot for `java_import.isOnDemand` (c7)** — same position, same meaning; the name follows Python's own term (see §1.1) |
 | 8 | `isModuleImport` [J] | the bound name refers to a module, not a member |
 | 9 | `relativeLevel` ★ | leading dots; `0` = absolute |
 | 10 | `originalName` ★ | pre-alias name |
@@ -1283,7 +1319,7 @@ of measured value:
 | `isinstance` narrowing | `py_block.conditionExpressionLinkHash` | 2,123 sites |
 | `cast()` | `py_type_reference(context=CAST_TARGET)` | 359 sites |
 | Annotation | `parameterTypeName` / `returnTypeName` | 32% of params, 47% of returns |
-| Explicit imprecision | `argFlowIsPrecise=false`, `isArgsKwargsPassthrough`, `DYNAMIC_CALL`, `usesStarImport`, `HAS_GETATTR` | ~1,600 sites: **report, don't guess** |
+| Explicit imprecision | `argFlowIsPrecise=false`, `isArgsKwargsPassthrough`, `DYNAMIC_CALL`, `usesWildcardImport`, `HAS_GETATTR` | ~1,600 sites: **report, don't guess** |
 
 ---
 
@@ -1462,7 +1498,7 @@ Java schema and I want it acknowledged explicitly.
 
 **Corollary — escape hatches are marked, not modelled.** `getattr`/`setattr` (982),
 `__getattr__`/`__getattribute__` (72 classes), `eval`/`exec` (51), `import *` (22). Each gets
-a marker (`callKind=DYNAMIC_CALL`, `typeModifier` `HAS_GETATTR`, `usesStarImport`) so the
+a marker (`callKind=DYNAMIC_CALL`, `typeModifier` `HAS_GETATTR`, `usesWildcardImport`) so the
 engine can report "unresolvable by construction" rather than silently emitting no edge. At
 1.8% of classes these are not worth redesigning around — but they *are* worth being able to
 name in a report.

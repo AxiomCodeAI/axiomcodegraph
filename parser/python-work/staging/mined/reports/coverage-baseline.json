@@ -1,0 +1,648 @@
+{
+ "ts": "2026-08-21T12:30:00Z",
+ "agent": "A4",
+ "grammar": "tree-sitter-python@0.21.0",
+ "target": "CPython 3.10.4",
+ "corpora": {
+  "anaconda312": {
+   "files": 48853,
+   "cpythonValidAndTsClean": 48836,
+   "tsHasError": 8,
+   "nodeTypesDeclaredCeiling": 111
+  },
+  "repos": {
+   "files": 7784,
+   "cpythonValidAndTsClean": 7747,
+   "tsHasError": 16,
+   "nodeTypesDeclaredCeiling": 113
+  },
+  "sitepkgs310": {
+   "files": 11873,
+   "cpythonValidAndTsClean": 11871,
+   "tsHasError": 2,
+   "nodeTypesDeclaredCeiling": 104
+  },
+  "stdlib310": {
+   "files": 1713,
+   "cpythonValidAndTsClean": 1700,
+   "tsHasError": 2,
+   "nodeTypesDeclaredCeiling": 113
+  }
+ },
+ "totals": {
+  "files": 70223,
+  "cpythonRejected": 56,
+  "tsHasError": 28,
+  "compared": 70154
+ },
+ "declaredCeiling": {
+  "n": 115,
+  "minedReached": 113,
+  "withA4Reductions": 114,
+  "missingAfterReductions": [
+   "parenthesized_list_splat"
+  ]
+ },
+ "proposedCeiling": {
+  "n": 117,
+  "minedReached": 115,
+  "withA4Reductions": 117,
+  "missingAfterReductions": []
+ },
+ "perTypeFileCount": {
+  "aliased_import": 21658,
+  "argument_list": 61844,
+  "as_pattern": 10615,
+  "as_pattern_target": 10610,
+  "assert_statement": 13367,
+  "assignment": 51580,
+  "attribute": 60091,
+  "augmented_assignment": 12273,
+  "await": 1508,
+  "binary_operator": 29471,
+  "block": 60810,
+  "boolean_operator": 22709,
+  "break_statement": 5253,
+  "call": 60747,
+  "case_clause": 50,
+  "case_pattern": 50,
+  "class_definition": 44330,
+  "class_pattern": 22,
+  "comment": 45401,
+  "comparison_operator": 39409,
+  "complex_pattern": 2,
+  "concatenated_string": 14463,
+  "conditional_expression": 14011,
+  "constrained_type": 0,
+  "continue_statement": 6048,
+  "decorated_definition": 24529,
+  "decorator": 24529,
+  "default_parameter": 30264,
+  "delete_statement": 4950,
+  "dict_pattern": 6,
+  "dictionary": 24572,
+  "dictionary_comprehension": 4039,
+  "dictionary_splat": 24106,
+  "dictionary_splat_pattern": 22918,
+  "dotted_name": 64781,
+  "elif_clause": 16276,
+  "ellipsis": 3877,
+  "else_clause": 27125,
+  "escape_interpolation": 378,
+  "escape_sequence": 12974,
+  "except_clause": 14591,
+  "expression_list": 12424,
+  "expression_statement": 65644,
+  "false": 27236,
+  "finally_clause": 3229,
+  "float": 11893,
+  "for_in_clause": 17943,
+  "for_statement": 23653,
+  "format_expression": 61,
+  "format_specifier": 914,
+  "function_definition": 55516,
+  "future_import_statement": 8105,
+  "generator_expression": 9197,
+  "generic_type": 11485,
+  "global_statement": 1224,
+  "identifier": 66518,
+  "if_clause": 6792,
+  "if_statement": 38446,
+  "import_from_statement": 51143,
+  "import_prefix": 16378,
+  "import_statement": 48827,
+  "integer": 40405,
+  "interpolation": 14691,
+  "keyword_argument": 47040,
+  "keyword_pattern": 12,
+  "keyword_separator": 3619,
+  "lambda": 8373,
+  "lambda_parameters": 6973,
+  "line_continuation": 2901,
+  "list": 38350,
+  "list_comprehension": 14062,
+  "list_pattern": 322,
+  "list_splat": 10619,
+  "list_splat_pattern": 8479,
+  "match_statement": 50,
+  "member_type": 0,
+  "module": 67139,
+  "named_expression": 603,
+  "none": 34745,
+  "nonlocal_statement": 458,
+  "not_operator": 22576,
+  "pair": 20074,
+  "parameters": 55516,
+  "parenthesized_expression": 22067,
+  "parenthesized_list_splat": 0,
+  "pass_statement": 10266,
+  "pattern_list": 24106,
+  "positional_separator": 298,
+  "raise_statement": 21107,
+  "relative_import": 16378,
+  "return_statement": 36075,
+  "set": 5215,
+  "set_comprehension": 1531,
+  "slice": 15251,
+  "splat_pattern": 5,
+  "string": 64813,
+  "string_content": 64793,
+  "string_end": 64813,
+  "string_start": 64813,
+  "subscript": 33878,
+  "true": 28420,
+  "try_statement": 15411,
+  "tuple": 30530,
+  "tuple_pattern": 4924,
+  "type": 16853,
+  "type_conversion": 2520,
+  "type_parameter": 11485,
+  "typed_default_parameter": 8166,
+  "typed_parameter": 12970,
+  "unary_operator": 16376,
+  "union_pattern": 18,
+  "union_type": 1501,
+  "while_statement": 5774,
+  "wildcard_import": 1642,
+  "with_clause": 13838,
+  "with_item": 13838,
+  "with_statement": 13838,
+  "yield": 5992
+ },
+ "firstOccurrence": {
+  "aliased_import": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_aix_support.py",
+   "line": 11
+  },
+  "argument_list": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/__future__.py",
+   "line": 104
+  },
+  "as_pattern": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_bootsubprocess.py",
+   "line": 87
+  },
+  "as_pattern_target": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_bootsubprocess.py",
+   "line": 87
+  },
+  "assert_statement": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_compat_pickle.py",
+   "line": 166
+  },
+  "assignment": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/__future__.py",
+   "line": 50
+  },
+  "attribute": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/__future__.py",
+   "line": 84
+  },
+  "augmented_assignment": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_collections_abc.py",
+   "line": 696
+  },
+  "await": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_collections_abc.py",
+   "line": 210
+  },
+  "binary_operator": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/__future__.py",
+   "line": 63
+  },
+  "block": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/__future__.py",
+   "line": 83
+  },
+  "boolean_operator": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_collections_abc.py",
+   "line": 429
+  },
+  "break_statement": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_collections_abc.py",
+   "line": 85
+  },
+  "call": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/__future__.py",
+   "line": 104
+  },
+  "case_clause": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/test/test_patma.py",
+   "line": 31
+  },
+  "case_pattern": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/test/test_patma.py",
+   "line": 31
+  },
+  "class_definition": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/__future__.py",
+   "line": 81
+  },
+  "class_pattern": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/test/test_patma.py",
+   "line": 1416
+  },
+  "comment": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/__future__.py",
+   "line": 65
+  },
+  "comparison_operator": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_aix_support.py",
+   "line": 17
+  },
+  "complex_pattern": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/test/test_patma.py",
+   "line": 1075
+  },
+  "concatenated_string": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_aix_support.py",
+   "line": 87
+  },
+  "conditional_expression": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_aix_support.py",
+   "line": 17
+  },
+  "continue_statement": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_markupbase.py",
+   "line": 205
+  },
+  "decorated_definition": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_collections_abc.py",
+   "line": 94
+  },
+  "decorator": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_collections_abc.py",
+   "line": 94
+  },
+  "default_parameter": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_bootsubprocess.py",
+   "line": 12
+  },
+  "delete_statement": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_collections_abc.py",
+   "line": 16
+  },
+  "dict_pattern": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/test/test_patma.py",
+   "line": 33
+  },
+  "dictionary": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_collections_abc.py",
+   "line": 45
+  },
+  "dictionary_comprehension": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/ast.py",
+   "line": 818
+  },
+  "dictionary_splat": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_compression.py",
+   "line": 53
+  },
+  "dictionary_splat_pattern": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_bootsubprocess.py",
+   "line": 66
+  },
+  "dotted_name": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_aix_support.py",
+   "line": 3
+  },
+  "elif_clause": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_bootsubprocess.py",
+   "line": 47
+  },
+  "ellipsis": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_collections_abc.py",
+   "line": 13
+  },
+  "else_clause": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_bootsubprocess.py",
+   "line": 24
+  },
+  "escape_interpolation": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/dataclasses.py",
+   "line": 592
+  },
+  "escape_sequence": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_aix_support.py",
+   "line": 55
+  },
+  "except_clause": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_aix_support.py",
+   "line": 8
+  },
+  "expression_list": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_collections_abc.py",
+   "line": 462
+  },
+  "expression_statement": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/__future__.py",
+   "line": 1
+  },
+  "false": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_bootsubprocess.py",
+   "line": 50
+  },
+  "finally_clause": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_bootsubprocess.py",
+   "line": 26
+  },
+  "float": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_pydecimal.py",
+   "line": 701
+  },
+  "for_in_clause": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_collections_abc.py",
+   "line": 456
+  },
+  "for_statement": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_bootsubprocess.py",
+   "line": 39
+  },
+  "format_expression": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/idlelib/configdialog.py",
+   "line": 654
+  },
+  "format_specifier": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/asyncio/base_events.py",
+   "line": 846
+  },
+  "function_definition": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/__future__.py",
+   "line": 83
+  },
+  "future_import_statement": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/lib2to3/main.py",
+   "line": 5
+  },
+  "generator_expression": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_collections_abc.py",
+   "line": 501
+  },
+  "generic_type": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/importlib/abc.py",
+   "line": 349
+  },
+  "global_statement": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_osx_support.py",
+   "line": 94
+  },
+  "identifier": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/__future__.py",
+   "line": 50
+  },
+  "if_clause": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_collections_abc.py",
+   "line": 633
+  },
+  "if_statement": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_aix_support.py",
+   "line": 71
+  },
+  "import_from_statement": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_collections_abc.py",
+   "line": 9
+  },
+  "import_prefix": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/asyncio/__init__.py",
+   "line": 8
+  },
+  "import_statement": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_aix_support.py",
+   "line": 3
+  },
+  "integer": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/__future__.py",
+   "line": 69
+  },
+  "interpolation": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_aix_support.py",
+   "line": 88
+  },
+  "keyword_argument": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_aix_support.py",
+   "line": 73
+  },
+  "keyword_pattern": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/test/test_patma.py",
+   "line": 1855
+  },
+  "keyword_separator": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_pyio.py",
+   "line": 2151
+  },
+  "lambda": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_collections_abc.py",
+   "line": 62
+  },
+  "lambda_parameters": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_pydecimal.py",
+   "line": 164
+  },
+  "line_continuation": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_pydecimal.py",
+   "line": 1792
+  },
+  "list": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/__future__.py",
+   "line": 50
+  },
+  "list_comprehension": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_collections_abc.py",
+   "line": 456
+  },
+  "list_pattern": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/email/_parseaddr.py",
+   "line": 97
+  },
+  "list_splat": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_collections_abc.py",
+   "line": 434
+  },
+  "list_splat_pattern": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_collections_abc.py",
+   "line": 78
+  },
+  "match_statement": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/test/test_patma.py",
+   "line": 30
+  },
+  "module": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/__future__.py",
+   "line": 1
+  },
+  "named_expression": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_compression.py",
+   "line": 118
+  },
+  "none": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_bootsubprocess.py",
+   "line": 12
+  },
+  "nonlocal_statement": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/ast.py",
+   "line": 1417
+  },
+  "not_operator": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_aix_support.py",
+   "line": 71
+  },
+  "pair": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_compat_pickle.py",
+   "line": 9
+  },
+  "parameters": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/__future__.py",
+   "line": 83
+  },
+  "parenthesized_expression": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_aix_support.py",
+   "line": 17
+  },
+  "pass_statement": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_bootsubprocess.py",
+   "line": 95
+  },
+  "pattern_list": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_aix_support.py",
+   "line": 25
+  },
+  "positional_separator": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_collections_abc.py",
+   "line": 986
+  },
+  "raise_statement": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_aix_support.py",
+   "line": 72
+  },
+  "relative_import": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/asyncio/__init__.py",
+   "line": 8
+  },
+  "return_statement": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/__future__.py",
+   "line": 93
+  },
+  "set": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_collections_abc.py",
+   "line": 520
+  },
+  "set_comprehension": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_py_abc.py",
+   "line": 38
+  },
+  "slice": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_aix_support.py",
+   "line": 25
+  },
+  "splat_pattern": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/test/test_patma.py",
+   "line": 31
+  },
+  "string": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/__future__.py",
+   "line": 1
+  },
+  "string_content": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/__future__.py",
+   "line": 1
+  },
+  "string_end": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/__future__.py",
+   "line": 48
+  },
+  "string_start": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/__future__.py",
+   "line": 1
+  },
+  "subscript": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_aix_support.py",
+   "line": 19
+  },
+  "true": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_bootsubprocess.py",
+   "line": 62
+  },
+  "try_statement": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_aix_support.py",
+   "line": 6
+  },
+  "tuple": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/__future__.py",
+   "line": 104
+  },
+  "tuple_pattern": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_compat_pickle.py",
+   "line": 165
+  },
+  "type": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/asyncio/staggered.py",
+   "line": 15
+  },
+  "type_conversion": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_aix_support.py",
+   "line": 88
+  },
+  "type_parameter": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/importlib/abc.py",
+   "line": 349
+  },
+  "typed_default_parameter": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/asyncio/staggered.py",
+   "line": 18
+  },
+  "typed_parameter": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/asyncio/staggered.py",
+   "line": 15
+  },
+  "unary_operator": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_aix_support.py",
+   "line": 26
+  },
+  "union_pattern": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/test/test_patma.py",
+   "line": 158
+  },
+  "union_type": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/test/libregrtest/runtest.py",
+   "line": 24
+  },
+  "while_statement": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_collections_abc.py",
+   "line": 259
+  },
+  "wildcard_import": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/ast.py",
+   "line": 28
+  },
+  "with_clause": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_bootsubprocess.py",
+   "line": 87
+  },
+  "with_item": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_bootsubprocess.py",
+   "line": 87
+  },
+  "with_statement": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_bootsubprocess.py",
+   "line": 87
+  },
+  "yield": {
+   "file": "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/_collections_abc.py",
+   "line": 62
+  }
+ },
+ "outOfScopeObservedInValidFiles": {
+  "chevron": {
+   "files": 3,
+   "occ": 7
+  },
+  "print_statement": {
+   "files": 3,
+   "occ": 7
+  },
+  "type_alias_statement": {
+   "files": 19,
+   "occ": 27
+  }
+ }
+}
