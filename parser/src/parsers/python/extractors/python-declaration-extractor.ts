@@ -351,7 +351,7 @@ export class PythonDeclarationExtractor {
       this.input.serviceVersionLinkHash
     )
       .withCategoryAndAccess(
-        this.classifyType(bases, decoratorNames, bodyNode),
+        this.classifyType(bases, decoratorNames),
         this.accessOf(className) as unknown as PythonTypeAccess
       )
       .withModifiers(this.typeModifiersOf(bases, decoratorNames, bodyNode))
@@ -545,8 +545,7 @@ export class PythonDeclarationExtractor {
    */
   private classifyType(
     bases: BaseEntry[],
-    decoratorNames: string[],
-    bodyNode: Parser.SyntaxNode | null
+    decoratorNames: string[]
   ): PythonTypeCategory {
     const baseNames = bases
       .filter(b => b.keywordName === '')
@@ -588,7 +587,6 @@ export class PythonDeclarationExtractor {
     if (baseNames.some(n => n === 'Generic')) {
       return PythonTypeCategory.GENERIC_TYPE;
     }
-    void bodyNode;
     return PythonTypeCategory.CLASS_TYPE;
   }
 
@@ -812,7 +810,6 @@ export class PythonDeclarationExtractor {
       return [];
     }
     const entries: ParameterEntry[] = [];
-    let seenPositionalSeparator = false;
     let seenKeywordSeparator = false;
     let position = 0;
 
@@ -823,7 +820,6 @@ export class PythonDeclarationExtractor {
       }
 
       if (param.type === 'positional_separator') {
-        seenPositionalSeparator = true;
         entries.push(this.markerEntry(param, PythonParameterKind.POSITIONAL_ONLY_MARKER, position++));
         // Everything BEFORE `/` is retroactively positional-only.
         for (const earlier of entries) {
@@ -869,7 +865,6 @@ export class PythonDeclarationExtractor {
       });
     }
 
-    void seenPositionalSeparator;
     return entries;
   }
 

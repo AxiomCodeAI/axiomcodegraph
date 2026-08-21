@@ -871,10 +871,7 @@ export class PythonExpressionExtractor {
       case PythonExpressionKind.SELF_REFERENCE:
       case PythonExpressionKind.CLS_REFERENCE: {
         builder.withName(node.text);
-        builder.withReferencedEntity(
-          this.referencedEntityKindOf(node.text, kind, pending),
-          ''
-        );
+        builder.withReferencedEntity(this.referencedEntityKindOf(node.text, kind), '');
         const bindingHash = this.input.bindingHashByScopeAndName.get(
           `${pending.scopeHash}::${node.text}`
         );
@@ -1965,8 +1962,7 @@ export class PythonExpressionExtractor {
 
   private referencedEntityKindOf(
     name: string,
-    kind: PythonExpressionKind,
-    pending: PendingExpression
+    kind: PythonExpressionKind
   ): PythonReferencedEntityKind {
     if (kind === PythonExpressionKind.SELF_REFERENCE) {
       return PythonReferencedEntityKind.SELF;
@@ -1977,7 +1973,6 @@ export class PythonExpressionExtractor {
     if (name === 'super') {
       return PythonReferencedEntityKind.SUPER;
     }
-    void pending;
     // Anything more specific requires the binding table, which the engine joins
     // through `bindingLinkHash`. Claiming a kind here would be a guess.
     return PythonReferencedEntityKind.UNKNOWN;

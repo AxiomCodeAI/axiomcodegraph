@@ -324,7 +324,7 @@ export class PythonScopeBuilder {
     });
   }
 
-  private addUse(block: SymbolBlock, rawName: string, node: Parser.SyntaxNode): void {
+  private addUse(block: SymbolBlock, rawName: string): void {
     if (!rawName) {
       return;
     }
@@ -341,7 +341,6 @@ export class PythonScopeBuilder {
     ) {
       addSymbolFlags(block, '__class__', SymbolFlags.USE);
     }
-    void node;
   }
 
   /** Detects `from __future__ import annotations` (PEP 563). */
@@ -1160,7 +1159,7 @@ export class PythonScopeBuilder {
         }
         const firstSegment = node.namedChild(0);
         if (firstSegment) {
-          this.addUse(block, firstSegment.text, firstSegment);
+          this.addUse(block, firstSegment.text);
         }
         return;
       }
@@ -1171,7 +1170,7 @@ export class PythonScopeBuilder {
         if (classNameNode?.type === 'dotted_name') {
           const firstSegment = classNameNode.namedChild(0);
           if (firstSegment) {
-            this.addUse(block, firstSegment.text, firstSegment);
+            this.addUse(block, firstSegment.text);
           }
         }
         for (let i = 1; i < node.namedChildCount; i++) {
@@ -1408,7 +1407,7 @@ export class PythonScopeBuilder {
     switch (node.type) {
       case 'identifier': {
         if (context === PythonNameContext.LOAD) {
-          this.addUse(block, node.text, node);
+          this.addUse(block, node.text);
           return;
         }
         this.addDef(block, node.text, SymbolFlags.DEF_LOCAL, PythonBindingOrigin.ASSIGNMENT, node);
