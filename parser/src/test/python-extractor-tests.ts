@@ -58,6 +58,13 @@ interface FileResult {
   file: string;
   failures: Failure[];
   stats: Record<string, number>;
+  /**
+   * Set when CPython itself could not produce ground truth for this file — a
+   * Python 2 file, a 3.11+-only construct, or a deliberately malformed test
+   * fixture. Reported separately and never counted as a pass: "the oracle could
+   * not judge this" is not the same as "this is correct".
+   */
+  oracleUnavailable?: string;
 }
 
 // ---------------------------------------------------------------- extraction
@@ -72,13 +79,29 @@ function extract(file: string) {
   });
 }
 
-function runOracle(file: string): any {
-  const out = execFileSync(
-    PINNED_INTERPRETER,
-    [ORACLE_SCRIPT, '--file', file, '--module-qname', path.basename(file).replace(/\.pyi?$/, '')],
-    { encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 }
-  );
-  return JSON.parse(out);
+/**
+ * Runs the oracle, returning `null` when CPython cannot parse the file.
+ *
+ * The corpus contains files CPython 3.10 itself rejects — Python 2 sources and
+ * deliberately malformed test fixtures — and a harness that dies on the first
+ * one abandons every file after it. That is a worse failure than the thing it
+ * is checking for, so an unusable oracle result is a recorded skip.
+ */
+function runOracle(file: string): any | null {
+  try {
+    const out = execFileSync(
+      PINNED_INTERPRETER,
+      [ORACLE_SCRIPT, '--file', file, '--module-qname', path.basename(file).replace(/\.pyi?$/, '')],
+      { encoding: 'utf8', maxBuffer: 128 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] }
+    );
+    const parsed = JSON.parse(out);
+    if (!Array.isArray(parsed?.scopes) || !Array.isArray(parsed?.bindings)) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
 }
 
 // -------------------------------------------------------------------- gate 1
@@ -516,17 +539,34 @@ function parseLimitTests(): Failure[] {
 // -------------------------------------------------------------------- runner
 
 function testFile(file: string): FileResult {
-  const facts = extract(file);
+  let facts: ReturnType<typeof extract>;
+  try {
+    facts = extract(file);
+  } catch (error) {
+    return {
+      file,
+      failures: [{ gate: 'INVARIANT', detail: `extractor threw: ${String(error).slice(0, 120)}` }],
+      stats: {},
+    };
+  }
+
   const failures: Failure[] = [];
+  let oracleUnavailable: string | undefined;
   if (facts.dialect === PythonDialect.PY3) {
     const oracle = runOracle(file);
-    failures.push(...gate1(file, oracle, facts));
-    failures.push(...gate2(oracle, facts));
+    if (oracle === null) {
+      oracleUnavailable = 'CPython could not produce ground truth';
+    } else {
+      failures.push(...gate1(file, oracle, facts));
+      failures.push(...gate2(oracle, facts));
+    }
   }
+  // Invariants need no oracle, so they run even when ground truth is missing.
   failures.push(...invariants(file, facts));
   return {
     file,
     failures,
+    oracleUnavailable,
     stats: {
       scopes: facts.scopes.length, bindings: facts.bindings.length,
       types: facts.types.length, typeBases: facts.typeBases.length,
@@ -574,15 +614,19 @@ function main(): void {
   const results = files.map(testFile);
 
   const totals: Record<string, number> = {};
-  let byGate = { GATE1: 0, GATE2: 0, INVARIANT: 0 };
+  const byGate = { GATE1: 0, GATE2: 0, INVARIANT: 0 };
   let passed = 0;
+  let unjudged = 0;
   for (const r of results) {
     for (const [k, v] of Object.entries(r.stats)) totals[k] = (totals[k] ?? 0) + v;
     for (const f of r.failures) byGate[f.gate] += 1;
-    if (r.failures.length === 0) passed += 1;
+    if (r.oracleUnavailable) unjudged += 1;
+    if (r.failures.length === 0 && !r.oracleUnavailable) passed += 1;
   }
 
-  console.log(`\nFiles: ${results.length}   fully clean: ${passed}   with failures: ${results.length - passed}`);
+  console.log(`\nFiles: ${results.length}   fully clean: ${passed}   with failures: ${results.filter(r => r.failures.length > 0).length}`);
+  // Never folded into the pass count: an unjudged file is not a passing file.
+  console.log(`  invariant-only (CPython could not produce ground truth): ${unjudged}`);
   console.log('\nReported SEPARATELY — an exact oracle and a self-check are not the same evidence:');
   console.log(`  Gate 1  (symtable, EXACT)          ${byGate.GATE1} disagreements`);
   console.log(`  Gate 2  (ast, cross-check)         ${byGate.GATE2} disagreements`);
