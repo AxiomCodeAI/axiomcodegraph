@@ -20,6 +20,15 @@ import {
   PythonRootContext,
   PythonUnaryFixity,
 } from '@/enums/python/expressions';
+import {
+  PythonInferenceConfidence,
+  PythonInferenceEvidence,
+  PythonInferredTypeKind,
+} from '@/enums/python/inference';
+import {
+  PYTHON_BUILTIN_COLLECTION_TYPES,
+  PYTHON_BUILTIN_SCALAR_TYPES,
+} from '@/constants/python-constants';
 import { EntityUtils } from '@/utils/entity-utils';
 import { PythonSourcePositions } from '@/utils/python';
 
@@ -902,6 +911,7 @@ export class PythonExpressionExtractor {
       .withPyTypeLinkHash(pending.typeHash);
 
     this.applyKindSpecificFields(builder, node, kind, pending);
+    this.applyInference(builder, node, kind, pending);
 
     const expression = builder.build();
     this.expressions.push(expression);
@@ -920,6 +930,264 @@ export class PythonExpressionExtractor {
     if (!this.isLeafKind(kind, node)) {
       this.enqueueChildren(node, kind, expression, pending);
     }
+  }
+
+
+  /**
+   * Fills the four inference columns (schema v7 §2.15 c33-c36).
+   *
+   * These replaced the deleted `py_type_inference` relation, and the reason they
+   * became columns rather than a table is the constraint honoured here: every
+   * inference a PARSER may make is 1:1 with a single node. `3` is an `int`,
+   * `f"{x}"` is a `str` whatever `x` is, `[e for e in xs]` is a `list`. None of
+   * those needs a second fact.
+   *
+   * What this deliberately does NOT do is the interesting half. It never types a
+   * name, a call, or an attribute, because each of those needs resolution — that
+   * a name reaches a class, that a callee is a constructor — and resolution is
+   * the engine's tier. Emitting `Foo()` as type `Foo` here would look like a free
+   * win and would be wrong whenever `Foo` is a factory function rather than a
+   * class. The one exception is `cast(Foo, v)`, where the programmer has asserted
+   * the type in the source and the parser is only reading it back.
+   *
+   * Confidence separates "the syntax admits nothing else" from "the syntax names
+   * a type the runtime need not honour": an annotation is not enforced, so
+   * `x: int` holding a `str` is legal Python.
+   */
+  private applyInference(
+    builder: ReturnType<typeof PyExpressionRegistry.builder>,
+    node: Parser.SyntaxNode,
+    kind: PythonExpressionKind,
+    pending: PendingExpression
+  ): void {
+    const inference = this.inferenceFor(node, kind);
+    if (!inference) {
+      return;
+    }
+    // A parameter default types the parameter by construction, which is a
+    // stronger statement about WHY the type is known than the literal alone.
+    const evidence =
+      pending.edgeRole === PythonEdgeRole.PARAMETER_DEFAULT
+        ? PythonInferenceEvidence.DEFAULT_VALUE
+        : inference.evidence;
+    builder.withInference(
+      inference.typeName,
+      inference.typeKind,
+      evidence,
+      inference.confidence
+    );
+  }
+
+  /** The syntactic type of one node, or `null` when nothing is derivable. */
+  private inferenceFor(
+    node: Parser.SyntaxNode,
+    kind: PythonExpressionKind
+  ): {
+    typeName: string;
+    typeKind: PythonInferredTypeKind;
+    evidence: PythonInferenceEvidence;
+    confidence: PythonInferenceConfidence;
+  } | null {
+    const scalar = (typeName: string) => ({
+      typeName,
+      typeKind: PythonInferredTypeKind.BUILTIN_SCALAR,
+      evidence: PythonInferenceEvidence.LITERAL,
+      confidence: PythonInferenceConfidence.CERTAIN,
+    });
+    const collection = (typeName: string) => ({
+      typeName,
+      typeKind: PythonInferredTypeKind.BUILTIN_COLLECTION,
+      evidence: PythonInferenceEvidence.COLLECTION_LITERAL,
+      confidence: PythonInferenceConfidence.CERTAIN,
+    });
+    const comprehension = (typeName: string) => ({
+      typeName,
+      typeKind: PythonInferredTypeKind.BUILTIN_COLLECTION,
+      evidence: PythonInferenceEvidence.COMPREHENSION,
+      confidence: PythonInferenceConfidence.CERTAIN,
+    });
+
+    switch (node.type) {
+      case 'integer': {
+        return scalar('int');
+      }
+      case 'float': {
+        return scalar('float');
+      }
+      case 'true':
+      case 'false': {
+        return scalar('bool');
+      }
+      case 'none': {
+        return {
+          typeName: 'None',
+          typeKind: PythonInferredTypeKind.NONE_TYPE,
+          evidence: PythonInferenceEvidence.LITERAL,
+          confidence: PythonInferenceConfidence.CERTAIN,
+        };
+      }
+      case 'string':
+      case 'concatenated_string': {
+        // An f-string is a `str` whatever it interpolates, but a BYTES literal is
+        // not a `str` at all, and conflating them is the mistake that makes an
+        // encode/decode rule wrong.
+        if (this.isBytesLiteral(node)) {
+          return scalar('bytes');
+        }
+        if (this.isFormattedString(node)) {
+          return {
+            typeName: 'str',
+            typeKind: PythonInferredTypeKind.BUILTIN_SCALAR,
+            evidence: PythonInferenceEvidence.FSTRING,
+            confidence: PythonInferenceConfidence.CERTAIN,
+          };
+        }
+        return scalar('str');
+      }
+      case 'list': {
+        return collection('list');
+      }
+      case 'dictionary': {
+        return collection('dict');
+      }
+      case 'set': {
+        return collection('set');
+      }
+      case 'tuple': {
+        return collection('tuple');
+      }
+      case 'list_comprehension': {
+        return comprehension('list');
+      }
+      case 'dictionary_comprehension': {
+        return comprehension('dict');
+      }
+      case 'set_comprehension': {
+        return comprehension('set');
+      }
+      case 'generator_expression': {
+        // Not a collection: a genexp is lazy, and treating it as a `list` would
+        // license an indexing rule that raises at runtime.
+        return {
+          typeName: 'Generator',
+          typeKind: PythonInferredTypeKind.CALLABLE,
+          evidence: PythonInferenceEvidence.COMPREHENSION,
+          confidence: PythonInferenceConfidence.CERTAIN,
+        };
+      }
+      case 'lambda': {
+        return {
+          typeName: 'Callable',
+          typeKind: PythonInferredTypeKind.CALLABLE,
+          evidence: PythonInferenceEvidence.LITERAL,
+          confidence: PythonInferenceConfidence.CERTAIN,
+        };
+      }
+      case 'call': {
+        return this.castInference(node);
+      }
+      default: {
+        void kind;
+        return null;
+      }
+    }
+  }
+
+  /**
+   * `typing.cast(Foo, v)` — the only call the parser types.
+   *
+   * It is admissible where `Foo()` is not because the programmer has written the
+   * type down; the parser is reading an assertion, not deducing one. Confidence
+   * is `PROBABLE` rather than `CERTAIN` for the reason `cast` exists at all: it
+   * is a promise to the type checker that the runtime does not verify.
+   */
+  private castInference(node: Parser.SyntaxNode): {
+    typeName: string;
+    typeKind: PythonInferredTypeKind;
+    evidence: PythonInferenceEvidence;
+    confidence: PythonInferenceConfidence;
+  } | null {
+    const callee = node.childForFieldName('function');
+    if (!callee) {
+      return null;
+    }
+    const calleeName = callee.text.split('.').pop() ?? '';
+    if (calleeName !== 'cast') {
+      return null;
+    }
+    const args = node.childForFieldName('arguments');
+    if (!args) {
+      return null;
+    }
+    let first: Parser.SyntaxNode | null = null;
+    for (let index = 0; index < args.namedChildCount; index += 1) {
+      const child = args.namedChild(index);
+      if (child && !child.isExtra) {
+        first = child;
+        break;
+      }
+    }
+    if (!first) {
+      return null;
+    }
+    const typeName =
+      first.type === 'string'
+        ? first.text.replace(/^[a-zA-Z]*['"]|['"]$/g, '')
+        : first.text.replace(/\s+/g, '');
+    if (typeName === '') {
+      return null;
+    }
+    return {
+      typeName,
+      typeKind: this.builtinKindOf(typeName),
+      evidence: PythonInferenceEvidence.CAST,
+      confidence: PythonInferenceConfidence.PROBABLE,
+    };
+  }
+
+  /** Classifies a type NAME, without resolving it. */
+  private builtinKindOf(typeName: string): PythonInferredTypeKind {
+    const head = typeName.split('[')[0] ?? '';
+    if (PYTHON_BUILTIN_SCALAR_TYPES.has(head)) {
+      return PythonInferredTypeKind.BUILTIN_SCALAR;
+    }
+    if (PYTHON_BUILTIN_COLLECTION_TYPES.has(head)) {
+      return PythonInferredTypeKind.BUILTIN_COLLECTION;
+    }
+    if (head === 'None' || head === 'NoneType') {
+      return PythonInferredTypeKind.NONE_TYPE;
+    }
+    if (head === 'Callable') {
+      return PythonInferredTypeKind.CALLABLE;
+    }
+    // A name that is not a builtin MIGHT be a user class, but saying so would
+    // claim a resolution this stage has not done.
+    return PythonInferredTypeKind.UNKNOWN;
+  }
+
+  private isFormattedString(node: Parser.SyntaxNode): boolean {
+    if (node.type === 'concatenated_string') {
+      for (let index = 0; index < node.namedChildCount; index += 1) {
+        const child = node.namedChild(index);
+        if (child && this.isFormattedString(child)) {
+          return true;
+        }
+      }
+      return false;
+    }
+    const start = node.child(0);
+    const prefix = start ? start.text.toLowerCase() : '';
+    return prefix.includes('f');
+  }
+
+  private isBytesLiteral(node: Parser.SyntaxNode): boolean {
+    if (node.type === 'concatenated_string') {
+      const first = node.namedChild(0);
+      return first ? this.isBytesLiteral(first) : false;
+    }
+    const start = node.child(0);
+    const prefix = start ? start.text.toLowerCase() : '';
+    return prefix.includes('b');
   }
 
   /**

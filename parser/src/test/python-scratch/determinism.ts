@@ -22,10 +22,20 @@ function emit(file: string): string {
   ex.imports.forEach(r => parts.push(r.toCsv()));
   ex.expressions.forEach(r => parts.push(r.toCsv()));
   ex.callSites.forEach(r => parts.push(r.toCsv()));
+  ex.typeReferences.forEach(r => parts.push(r.toCsv()));
+  ex.fields.forEach(r => parts.push(r.toCsv()));
+  ex.fieldPositions.forEach(r => parts.push(r.toCsv()));
   return parts.join('\n') + '\n';
 }
 
-const files = process.argv.slice(2);
+const args = process.argv.slice(2);
+// Defaulting to zero files made this report "all 0 byte-identical", which is a
+// pass that proves nothing. A run with no files is now an error.
+const files = args;
+if (files.length === 0) {
+  console.error('determinism: no files given — a zero-file run is not evidence');
+  process.exit(1);
+}
 let bad = 0;
 for (const f of files) {
   // Fresh extractor instances, separate passes — this is the run-to-run check.

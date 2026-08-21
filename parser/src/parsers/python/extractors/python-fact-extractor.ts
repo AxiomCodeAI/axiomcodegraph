@@ -3,6 +3,8 @@ import * as path from 'path';
 import {
   PyBindingRegistry,
   PyCallSiteRegistry,
+  PyFieldPositionRegistry,
+  PyFieldRegistry,
   PyExpressionRegistry,
   PyImportRegistry,
   PyMethodParameterRegistry,
@@ -20,6 +22,7 @@ import { PythonTypeRefOwnerKind } from '@/enums/python/type-references';
 import { SkippedFileReason } from '@/enums/SkippedFileReason';
 import { PythonDeclarationExtractor } from '@/parsers/python/extractors/python-declaration-extractor';
 import { PythonExpressionExtractor } from '@/parsers/python/extractors/python-expression-extractor';
+import { PythonFieldExtractor } from '@/parsers/python/extractors/python-field-extractor';
 import { PythonResolutionLinker } from '@/parsers/python/extractors/python-resolution-linker';
 import { PythonTypeReferenceExtractor } from '@/parsers/python/extractors/python-type-reference-extractor';
 import {
@@ -42,6 +45,23 @@ export interface PythonFactSet {
   imports: PyImportRegistry[];
   expressions: PyExpressionRegistry[];
   callSites: PyCallSiteRegistry[];
+  /**
+   * Class and instance attributes.
+   *
+   * Un-deferred because it is not optional for a call graph: `self.x.m()` is
+   * unresolvable without the type of `x`, and this is the only relation that
+   * carries it. It was 0/2,537 resolved before this existed.
+   */
+  fields: PyFieldRegistry[];
+  /** Class-body declaration order — a generated `__init__` honours it. */
+  fieldPositions: PyFieldPositionRegistry[];
+  /**
+   * `(pyTypeLinkHash, attributeName)` -> `py_field` PK, and `py_method` PK ->
+   * receiver name. Both are indexes the cross-module pass needs to redo the
+   * attribute join it cannot recompute from CSV rows alone.
+   */
+  fieldHashByTypeAndName: Map<string, string>;
+  receiverNameByMethodHash: Map<string, string>;
   /**
    * Type references — the nested tree that links `Dict[TypeA, TypeB]` to all
    * three types with parent/position/depth.
@@ -77,6 +97,7 @@ export class PythonFactExtractor {
   private expressionExtractor: PythonExpressionExtractor;
   private resolutionLinker: PythonResolutionLinker;
   private typeReferenceExtractor: PythonTypeReferenceExtractor;
+  private fieldExtractor: PythonFieldExtractor;
   /** The parameter rows of the file being processed, for default-value linking. */
   private lastParameters: PyMethodParameterRegistry[] = [];
 
@@ -93,6 +114,7 @@ export class PythonFactExtractor {
     this.resolutionLinker = resolutionLinker ?? new PythonResolutionLinker();
     this.typeReferenceExtractor =
       typeReferenceExtractor ?? new PythonTypeReferenceExtractor();
+    this.fieldExtractor = new PythonFieldExtractor();
   }
 
   extract(input: PythonExtractionInput): PythonFactSet {
@@ -109,6 +131,10 @@ export class PythonFactExtractor {
         imports: [],
         expressions: [],
         callSites: [],
+        fields: [],
+        fieldPositions: [],
+        fieldHashByTypeAndName: new Map<string, string>(),
+        receiverNameByMethodHash: new Map<string, string>(),
         typeReferences: [],
         dialect: scopeStage.dialect,
         skippedReason: SkippedFileReason.PY2_CONSTRUCT_DETECTED,
@@ -146,6 +172,20 @@ export class PythonFactExtractor {
       parameterHashByAnnotationRange: declarations.parameterHashByAnnotationRange,
     });
 
+    const fieldStage = this.fieldExtractor.extract({
+      module: scopeStage.module,
+      rootNode: scopeStage.rootNode,
+      filePath: input.filePath,
+      serviceVersionLinkHash: input.serviceVersionLinkHash,
+      types: declarations.types,
+      methods: declarations.methods,
+      typeHashByNodeId: declarations.typeHashByNodeId,
+      methodHashByNodeId: declarations.methodHashByNodeId,
+      scopeHashByNodeId: scopeStage.scopeHashByNodeId,
+      bindingHashByScopeAndName: scopeStage.bindingHashByScopeAndName,
+      positions: scopeStage.positions,
+    });
+
     // ---- back-patching --------------------------------------------------
     // Three FKs cannot be set when their row is minted, because the entity they
     // point at does not exist yet. Accumulate-then-export makes patching free:
@@ -173,6 +213,9 @@ export class PythonFactExtractor {
       callSites: expressionStage.callSites,
       expressions: expressionStage.expressions,
       typeReferences,
+      fields: fieldStage.fields,
+      fieldHashByTypeAndName: fieldStage.fieldHashByTypeAndName,
+      receiverNameByMethodHash: fieldStage.receiverNameByMethodHash,
     });
 
     this.linkScopeOwners(scopeStage, declarations);
@@ -190,6 +233,10 @@ export class PythonFactExtractor {
       imports: declarations.imports,
       expressions: expressionStage.expressions,
       callSites: expressionStage.callSites,
+      fields: fieldStage.fields,
+      fieldPositions: fieldStage.fieldPositions,
+      fieldHashByTypeAndName: fieldStage.fieldHashByTypeAndName,
+      receiverNameByMethodHash: fieldStage.receiverNameByMethodHash,
       typeReferences,
       dialect: scopeStage.dialect,
       python2Findings: [],

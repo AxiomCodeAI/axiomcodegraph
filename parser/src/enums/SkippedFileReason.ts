@@ -30,4 +30,15 @@ export enum SkippedFileReason {
    * merely absent.
    */
   PY2_CONSTRUCT_DETECTED = 'PY2_CONSTRUCT_DETECTED',
+
+  /**
+   * The extractor threw while processing a file that read and parsed fine.
+   *
+   * Distinct from `READ_ERROR` on purpose, and the distinction is not cosmetic:
+   * `READ_ERROR` says the environment failed, which is nobody's bug, while this
+   * says the PARSER failed, which is always a bug. Filing the second as the first
+   * is how a crash in every file of a corpus can produce an empty relation and a
+   * run that still reports success.
+   */
+  EXTRACTION_ERROR = 'EXTRACTION_ERROR',
 }

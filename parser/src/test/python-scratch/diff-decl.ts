@@ -100,7 +100,24 @@ export function diffDecl(file: string, verbose = false): DeclDiff {
       .map(p => `${p.getParamName()}:${p.getParamKind()}`).sort().join(',');
     if (expKinds !== actKinds) problems.push(`FN_PARAM_KINDS ${k}: oracle=[${expKinds}] mine=[${actKinds}]`);
   }
-  for (const k of actFns.keys()) if (!expFns.has(k)) problems.push(`FN_SPURIOUS ${k}`);
+  for (const k of actFns.keys()) {
+    if (expFns.has(k)) {
+      continue;
+    }
+    // The oracle's ast dump enumerates `def`s only — it reports ZERO lambdas,
+    // verified directly (`ast.py` has 19 by `ast.walk`, the dump lists none). So
+    // every lambda `py_method` row looked spurious here, which was a defect in
+    // THIS comparison rather than in the parser: schema §2.7 lists `lambda`
+    // alongside `def`, and CPython agrees the lambdas exist.
+    //
+    // Lambda coverage is not lost by skipping them, because Gate 1 already
+    // checks it EXACTLY: symtable emits a block per lambda, and those blocks are
+    // compared name-for-name. This check is about `def` shape.
+    if (k.startsWith('<lambda>|')) {
+      continue;
+    }
+    problems.push(`FN_SPURIOUS ${k}`);
+  }
 
   // ---- imports: keyed on (bound name, line)
   const expImports = new Map<string, any>();

@@ -2,6 +2,7 @@ import {
   PyBindingRegistry,
   PyCallSiteRegistry,
   PyExpressionRegistry,
+  PyFieldRegistry,
   PyImportRegistry,
   PyMethodParameterRegistry,
   PyMethodRegistry,
@@ -10,7 +11,9 @@ import {
   PyTypeReferenceRegistry,
   PyTypeRegistry,
 } from '@/analysis-types/python';
+import { PYTHON_BUILTIN_TYPE_METHODS } from '@/constants/python-constants';
 import { PythonReceiverKind, PythonResolvedCalleeKind } from '@/enums/python/call-sites';
+import { PythonInitializerKind } from '@/enums/python/fields';
 import {
   PythonExpressionKind,
   PythonReferencedEntityKind,
@@ -50,6 +53,11 @@ export interface ResolutionInput {
   callSites: PyCallSiteRegistry[];
   expressions: PyExpressionRegistry[];
   typeReferences: PyTypeReferenceRegistry[];
+  fields: PyFieldRegistry[];
+  /** `(pyTypeLinkHash, attributeName)` -> `py_field` PK. */
+  fieldHashByTypeAndName: Map<string, string>;
+  /** `py_method` PK -> its receiver parameter name. */
+  receiverNameByMethodHash: Map<string, string>;
 }
 
 /**
@@ -338,6 +346,66 @@ export class PythonResolutionLinker {
     // One cache for the whole project: an MRO does not change per module.
     const mroCache = new Map<string, string[] | null>();
 
+    // Attributes and receiver names, project-wide. Both keys are global — a
+    // `py_type` PK and a `py_method` PK are unique across the analysis — so one
+    // map serves every module, which is what makes a CROSS-MODULE attribute
+    // resolve: `self.transport.close()` where `transport` is annotated with a
+    // class imported from elsewhere.
+    const fieldByTypeAndName = new Map<string, PyFieldRegistry>();
+    const receiverNameByMethodHash = new Map<string, string>();
+    for (const module of modules) {
+      for (const field of module.fields) {
+        const key = `${field.getPyTypeLinkHash()}||${field.getName()}`;
+        const incumbent = fieldByTypeAndName.get(key);
+        if (!incumbent || incumbent.getFieldModifier().includes('CLASS_VAR')) {
+          fieldByTypeAndName.set(key, field);
+        }
+      }
+      for (const [methodHash, receiverName] of module.receiverNameByMethodHash) {
+        receiverNameByMethodHash.set(methodHash, receiverName);
+      }
+    }
+
+    // A field's annotation must resolve in the namespace of the module that
+    // DECLARES the field, not the one calling through it — `self.q: Queue` means
+    // whatever `Queue` meant where the class was written. So the name->type map
+    // is built per module first, and the attribute type is settled before any
+    // cross-module call site consults it.
+    const typesByNameByModule = new Map<string, Map<string, PyTypeRegistry | null>>();
+    for (const module of modules) {
+      const names = this.uniqueByName(module.types, t => t.getName());
+      for (const record of module.imports) {
+        const bindingHash = record.getBindingLinkHash();
+        const entity = bindingHash === '' ? undefined : entityByImportBinding.get(bindingHash);
+        if (entity instanceof PyTypeRegistry) {
+          const bound = record.getSimpleName();
+          names.set(bound, names.has(bound) ? null : entity);
+        }
+      }
+      typesByNameByModule.set(module.moduleHash, names);
+    }
+    const parametersByMethod = new Map<string, PyMethodParameterRegistry[]>();
+    for (const module of modules) {
+      for (const parameter of module.methodParameters) {
+        const list = parametersByMethod.get(parameter.getPyMethodLinkHash()) ?? [];
+        list.push(parameter);
+        parametersByMethod.set(parameter.getPyMethodLinkHash(), list);
+      }
+    }
+    const fieldTypeByHash = new Map<string, PyTypeRegistry>();
+    for (const module of modules) {
+      const names = typesByNameByModule.get(module.moduleHash)!;
+      for (const field of module.fields) {
+        const resolved = this.typeOfField(field, {
+          typesByName: names,
+          parametersByMethod,
+        });
+        if (resolved) {
+          fieldTypeByHash.set(field.getHash(), resolved);
+        }
+      }
+    }
+
     for (const module of modules) {
       const entityByBinding = new Map<string, PyMethodRegistry | PyTypeRegistry>();
       for (const method of module.methods) {
@@ -407,6 +475,9 @@ export class PythonResolutionLinker {
           parentScopeOf,
           boundNames,
           importedModuleNames,
+          fieldByTypeAndName,
+          receiverNameByMethodHash,
+          fieldTypeByHash,
         });
         if (target) {
           callSite.setResolvedCallee(target.kind, target.hash);
@@ -688,6 +759,28 @@ export class PythonResolutionLinker {
 
     const mroCache = new Map<string, string[] | null>();
 
+    // Attributes, indexed the way the schema says to join them: §2.10 deleted
+    // `py_field_write` on the grounds that linking a write to its merged field
+    // row is a resolution rule over `(pyTypeLinkHash, name)`, not a stored fact.
+    const fieldByTypeAndName = new Map<string, PyFieldRegistry>();
+    for (const field of input.fields) {
+      const key = `${field.getPyTypeLinkHash()}||${field.getName()}`;
+      const incumbent = fieldByTypeAndName.get(key);
+      // A class attribute and an instance attribute can share a name. The
+      // instance one wins, because that is what a read through a receiver
+      // actually reaches once `__init__` has run.
+      if (!incumbent || incumbent.getFieldModifier().includes('CLASS_VAR')) {
+        fieldByTypeAndName.set(key, field);
+      }
+    }
+
+    this.linkAttributeExpressionsToFields(input, {
+      typesByHash,
+      basesByType,
+      mroCache,
+      fieldByTypeAndName,
+    });
+
     let resolved = 0;
     for (const callSite of input.callSites) {
       const target = this.resolveCallSite(callSite, {
@@ -701,6 +794,8 @@ export class PythonResolutionLinker {
         parentScopeOf,
         boundNames,
         importedModuleNames,
+        fieldByTypeAndName,
+        receiverNameByMethodHash: input.receiverNameByMethodHash,
       });
       if (target) {
         callSite.setResolvedCallee(target.kind, target.hash);
@@ -755,6 +850,9 @@ export class PythonResolutionLinker {
       parentScopeOf: Map<string, string>;
       boundNames: Set<string>;
       importedModuleNames: Set<string>;
+      fieldByTypeAndName: Map<string, PyFieldRegistry>;
+      receiverNameByMethodHash: Map<string, string>;
+      fieldTypeByHash?: Map<string, PyTypeRegistry>;
     }
   ): { kind: PythonResolvedCalleeKind; hash: string } | null {
     const name = callSite.getCalleeName();
@@ -818,14 +916,317 @@ export class PythonResolutionLinker {
         return method ? { kind: PythonResolvedCalleeKind.METHOD, hash: method.getHash() } : null;
       }
 
-      // An ATTRIBUTE or CALL_RESULT receiver needs the receiver's TYPE, which
-      // comes from attribute typing (py_field) or return typing — both in the
-      // deferred set. Left UNRESOLVED deliberately: guessing by name alone is
-      // exactly the 24-candidate fan-out this column exists to avoid.
+      case PythonReceiverKind.ATTRIBUTE: {
+        return this.resolveAttributeReceiver(callSite, name, ctx);
+      }
+
+      // A CALL_RESULT receiver needs the callee's RETURN type. That is a linker
+      // rule over `py_method.returnTypeName`, not a missing relation, and it is
+      // left for the pass that owns return-type flow. Guessing by callee name
+      // alone is the fan-out this column exists to avoid.
       default: {
         return null;
       }
     }
+  }
+
+
+  /**
+   * Resolves `self.conn.send()` — an ATTRIBUTE receiver.
+   *
+   * This was 0/2,537 before `py_field` existed, and the reason is worth stating
+   * precisely: the call is not hard to resolve, it was *missing a fact*. Reaching
+   * `send` needs the type of `conn`, and no relation carried it.
+   *
+   * The chain is three joins, and it refuses at every one it cannot make:
+   *
+   * 1. The receiver must be rooted at THIS method's receiver parameter, so
+   *    `self.conn` counts and `other.conn` does not — the latter is an attribute
+   *    of a class this call site knows nothing about.
+   * 2. The attribute must resolve to one `py_field` on the enclosing class or its
+   *    MRO, which is where an inherited attribute is found.
+   * 3. That field must name exactly one type IN THIS MODULE, from its annotation
+   *    or from a constructor initialiser.
+   *
+   * A receiver whose head is an imported module (`os.path.join`) is reported as
+   * `IMPORTED` with no hash, matching how a NAME receiver on a module is handled:
+   * the target is outside the analysis, so a hash would be invented, but "reached
+   * through an import" is a fact and beats silence.
+   */
+  private resolveAttributeReceiver(
+    callSite: PyCallSiteRegistry,
+    calleeName: string,
+    ctx: {
+      typesByHash: Map<string, PyTypeRegistry>;
+      typesByName: Map<string, PyTypeRegistry | null>;
+      basesByType: Map<string, PyTypeBaseRegistry[]>;
+      methodsByTypeAndName: Map<string, PyMethodRegistry[]>;
+      mroCache: Map<string, string[] | null>;
+      importedModuleNames: Set<string>;
+      fieldByTypeAndName: Map<string, PyFieldRegistry>;
+      receiverNameByMethodHash: Map<string, string>;
+      fieldTypeByHash?: Map<string, PyTypeRegistry>;
+    }
+  ): { kind: PythonResolvedCalleeKind; hash: string } | null {
+    const receiverText = callSite.getReceiverText();
+    if (receiverText === '') {
+      return null;
+    }
+    const segments = receiverText.split('.');
+
+    // `os.path.join(...)` — the head names an imported module.
+    if (ctx.importedModuleNames.has(segments[0] ?? '')) {
+      return { kind: PythonResolvedCalleeKind.IMPORTED, hash: '' };
+    }
+
+    const ownerType = callSite.getPyTypeLinkHash();
+    if (ownerType === '') {
+      return null;
+    }
+    // Exactly two segments. `self.a.b.c()` needs the type of `self.a.b`, which
+    // needs the type of `self.a` first — a transitive walk this deliberately
+    // does not attempt, because each hop multiplies the chance of a wrong answer
+    // and the schema asks for a single derivable target.
+    if (segments.length !== 2) {
+      return null;
+    }
+    const receiverName = ctx.receiverNameByMethodHash.get(callSite.getPyMethodLinkHash());
+    if (receiverName === undefined || segments[0] !== receiverName) {
+      return null;
+    }
+
+    const field = this.lookupFieldOnTypeAndBases(ownerType, segments[1] ?? '', ctx);
+    if (!field) {
+      return null;
+    }
+    // Prefer the type settled in the DECLARING module's namespace; fall back to
+    // this module's only when the project pass has not run.
+    const fieldType = ctx.fieldTypeByHash?.get(field.getHash()) ?? this.typeOfField(field, ctx);
+    if (fieldType) {
+      const method = this.lookupMethodOnTypeAndBases(fieldType.getHash(), calleeName, ctx);
+      return method ? { kind: PythonResolvedCalleeKind.METHOD, hash: method.getHash() } : null;
+    }
+
+    // No project class, but the attribute may still hold a BUILTIN whose method
+    // set is known exactly.
+    // An attribute written with two different builtin types is not either of
+    // them. `self.result = []` here and `self.result = None` there means
+    // `self.result.append(x)` may well be an AttributeError at runtime, and
+    // reporting it as `list.append` would launder a bug into a fact.
+    const builtinType = field.getIsAmbiguous() ? '' : this.builtinTypeOfField(field);
+    if (builtinType !== '') {
+      const members = PYTHON_BUILTIN_TYPE_METHODS.get(builtinType);
+      if (members?.has(calleeName)) {
+        return { kind: PythonResolvedCalleeKind.BUILTIN, hash: '' };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Finds an attribute on a class or anything it inherits from.
+   *
+   * Walks the MRO rather than the class alone, because an attribute set in a
+   * base's `__init__` is every subclass's attribute too — that is the ordinary
+   * case in a class hierarchy, not an edge one.
+   */
+  private lookupFieldOnTypeAndBases(
+    typeHash: string,
+    attributeName: string,
+    ctx: {
+      typesByHash: Map<string, PyTypeRegistry>;
+      basesByType: Map<string, PyTypeBaseRegistry[]>;
+      mroCache: Map<string, string[] | null>;
+      fieldByTypeAndName: Map<string, PyFieldRegistry>;
+    }
+  ): PyFieldRegistry | null {
+    if (attributeName === '') {
+      return null;
+    }
+    const mro = this.linearize(typeHash, ctx, new Set<string>());
+    if (!mro) {
+      return null;
+    }
+    for (const candidate of mro) {
+      const field = ctx.fieldByTypeAndName.get(`${candidate}||${attributeName}`);
+      if (field) {
+        return field;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * The type an attribute holds, when the source says so unambiguously.
+   *
+   * Two grounds are admitted, in order of strength. An ANNOTATION is the
+   * programmer stating the type. A CONSTRUCTOR INITIALISER is stronger still in
+   * one respect — `self.buf = Buffer()` cannot hold anything else at that
+   * point — but only if the name resolves to a class in this module; if it
+   * resolves to nothing, or to a function, it is a factory whose return type is
+   * unknown and this refuses.
+   *
+   * A literal initialiser (`self.items = []`) types the attribute as a BUILTIN,
+   * which is real information and is recorded on the expression row, but it
+   * yields no `py_type` to look a method up on, so it cannot resolve a call here.
+   */
+  private typeOfField(
+    field: PyFieldRegistry,
+    ctx: {
+      typesByName: Map<string, PyTypeRegistry | null>;
+      parametersByMethod?: Map<string, PyMethodParameterRegistry[]>;
+    }
+  ): PyTypeRegistry | null {
+    const annotated = field.getFieldBaseType();
+    if (annotated !== '') {
+      const byAnnotation = ctx.typesByName.get(annotated);
+      if (byAnnotation) {
+        return byAnnotation;
+      }
+    }
+    if (field.getInitializerKind() === PythonInitializerKind.CALL) {
+      const calleeText = field.getInitializerText().split('(')[0] ?? '';
+      const calleeName = (calleeText.split('.').pop() ?? '').trim();
+      // A dotted callee names something outside this module even when its last
+      // segment collides with a local class.
+      if (calleeName !== '' && !calleeText.includes('.')) {
+        const byConstructor = ctx.typesByName.get(calleeName);
+        if (byConstructor) {
+          return byConstructor;
+        }
+      }
+    }
+    // `self._loop = loop` in `def __init__(self, loop: AbstractEventLoop)`.
+    // The attribute holds whatever was PASSED IN, so the parameter's annotation
+    // is the attribute's type — the single largest bucket in the measurement,
+    // and the one place where argument flow already carries the answer. Only the
+    // declaring method's own parameters are consulted: a same-named parameter on
+    // a different method says nothing about this attribute.
+    if (
+      field.getInitializerKind() === PythonInitializerKind.NAME &&
+      ctx.parametersByMethod !== undefined
+    ) {
+      const parameters = ctx.parametersByMethod.get(field.getDeclaringMethodLinkHash()) ?? [];
+      const source = field.getInitializerText();
+      for (const parameter of parameters) {
+        if (parameter.getParamName() !== source) {
+          continue;
+        }
+        const baseType = parameter.getParameterBaseType();
+        if (baseType === '') {
+          return null;
+        }
+        return ctx.typesByName.get(baseType) ?? null;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * The BUILTIN type an attribute holds, when a literal or a builtin constructor
+   * settles it.
+   *
+   * `self._buffer = bytearray()` then `self._buffer.extend(d)` reaches
+   * `bytearray.extend`. There is no `py_method` row for a builtin, so the hash
+   * stays empty and only the KIND is claimed — the same treatment a bare
+   * `len(x)` already gets, and strictly better than `UNRESOLVED`.
+   *
+   * The method name is checked against that type's real attribute set rather than
+   * assumed. Without the check, `self._items = []` followed by
+   * `self._items.frobnicate()` would be reported as a builtin call, which is both
+   * wrong and hides a genuine bug in the analysed code.
+   */
+  private builtinTypeOfField(field: PyFieldRegistry): string {
+    const inferred = this.builtinLiteralType(field);
+    if (inferred !== '') {
+      return inferred;
+    }
+    if (field.getInitializerKind() !== PythonInitializerKind.CALL) {
+      return '';
+    }
+    const calleeText = field.getInitializerText().split('(')[0] ?? '';
+    const calleeName = (calleeText.split('.').pop() ?? '').trim();
+    return PYTHON_BUILTIN_TYPE_METHODS.has(calleeName) ? calleeName : '';
+  }
+
+  /** The builtin type a literal initialiser produces, from its first character. */
+  private builtinLiteralType(field: PyFieldRegistry): string {
+    if (field.getInitializerKind() !== PythonInitializerKind.LITERAL) {
+      return '';
+    }
+    const text = field.getInitializerText();
+    if (text.startsWith('[')) {
+      return 'list';
+    }
+    if (text.startsWith('(')) {
+      return 'tuple';
+    }
+    // `{}` is a dict and `{1}` is a set — the same opening brace, so the
+    // distinction is the presence of a colon at the top level. A `set` and a
+    // `dict` share almost no methods, so guessing either way would be wrong half
+    // the time.
+    if (text.startsWith('{')) {
+      if (text === '{}') {
+        return 'dict';
+      }
+      return text.includes(':') ? 'dict' : 'set';
+    }
+    if (/^[a-zA-Z]*['"]/.test(text)) {
+      return text.toLowerCase().startsWith('b') ? 'bytes' : 'str';
+    }
+    return '';
+  }
+
+  /**
+   * Links every attribute expression to the `py_field` it reaches.
+   *
+   * Schema §2.10 deleted `py_field_write` because the write facts already live on
+   * `py_expression` and the only thing it added was this join key. So the join is
+   * performed here, as a resolution rule, and written to the polymorphic
+   * `referencedEntityKind`/`referencedEntityHash` pair — which is exactly what
+   * that pair is for.
+   *
+   * Both directions of use are covered by one rule: a STORE is the write that
+   * created the attribute, a LOAD is a read of it, and both point at the same
+   * merged field row.
+   */
+  private linkAttributeExpressionsToFields(
+    input: ResolutionInput,
+    ctx: {
+      typesByHash: Map<string, PyTypeRegistry>;
+      basesByType: Map<string, PyTypeBaseRegistry[]>;
+      mroCache: Map<string, string[] | null>;
+      fieldByTypeAndName: Map<string, PyFieldRegistry>;
+    }
+  ): number {
+    let linked = 0;
+    for (const expression of input.expressions) {
+      if (expression.getKind() !== PythonExpressionKind.ATTRIBUTE_ACCESS) {
+        continue;
+      }
+      if (expression.getReferencedEntityKind() !== PythonReferencedEntityKind.UNKNOWN) {
+        continue;
+      }
+      const ownerType = expression.getPyTypeLinkHash();
+      if (ownerType === '') {
+        continue;
+      }
+      const dotted = expression.getDottedPath();
+      // Only an attribute of the receiver. `self.a.b` names an attribute of
+      // whatever `self.a` is, and pointing it at this class's `b` would be a
+      // confident wrong answer.
+      const segments = dotted === '' ? [] : dotted.split('.');
+      if (segments.length !== 2) {
+        continue;
+      }
+      const field = this.lookupFieldOnTypeAndBases(ownerType, segments[1] ?? '', ctx);
+      if (!field) {
+        continue;
+      }
+      expression.setReferencedEntity(PythonReferencedEntityKind.FIELD, field.getHash());
+      linked += 1;
+    }
+    return linked;
   }
 
   /**

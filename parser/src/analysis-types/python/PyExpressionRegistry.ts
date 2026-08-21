@@ -10,6 +10,11 @@ import {
   PythonRootContext,
   PythonUnaryFixity,
 } from '@/enums/python/expressions';
+import {
+  PythonInferenceConfidence,
+  PythonInferenceEvidence,
+  PythonInferredTypeKind,
+} from '@/enums/python/inference';
 import { EntityIdentifiable } from '@/interfaces/EntityIdentifiable';
 import { EntityUtils } from '@/utils/entity-utils';
 
@@ -88,6 +93,10 @@ export class PyExpressionRegistry implements EntityIdentifiable {
   private isAwaited: boolean;
   private isStarred: boolean;
   private dottedPath: string;
+  private inferredTypeName: string;
+  private inferredTypeKind: PythonInferredTypeKind;
+  private inferenceEvidence: PythonInferenceEvidence;
+  private inferenceConfidence: PythonInferenceConfidence;
   private serviceVersionLinkHash: string;
   private pyExpressionUniqueHash: string = '';
 
@@ -125,6 +134,10 @@ export class PyExpressionRegistry implements EntityIdentifiable {
     this.isAwaited = builder.isAwaited;
     this.isStarred = builder.isStarred;
     this.dottedPath = builder.dottedPath;
+    this.inferredTypeName = builder.inferredTypeName;
+    this.inferredTypeKind = builder.inferredTypeKind;
+    this.inferenceEvidence = builder.inferenceEvidence;
+    this.inferenceConfidence = builder.inferenceConfidence;
     this.serviceVersionLinkHash = builder.serviceVersionLinkHash;
 
     this.generateHash();
@@ -181,6 +194,11 @@ export class PyExpressionRegistry implements EntityIdentifiable {
     return this.parentExpressionHash;
   }
 
+  /** FK→`py_type` — the class this expression sits inside, if any. */
+  getPyTypeLinkHash(): string {
+    return this.pyTypeLinkHash;
+  }
+
   getDottedPath(): string {
     return this.dottedPath;
   }
@@ -233,6 +251,50 @@ export class PyExpressionRegistry implements EntityIdentifiable {
 
   getServiceVersionLinkHash(): string {
     return this.serviceVersionLinkHash;
+  }
+
+  /**
+   * The type of THIS node, when the syntax alone settles it.
+   *
+   * Folded in from the deleted `py_type_inference` relation (schema v7 §2.21):
+   * every inference a PARSER may make is 1:1 with one node, so it is a column,
+   * not a relation. `x = 3; x = "hi"` is two singly-typed nodes, and the union is
+   * a join over the binding rather than something to store.
+   */
+  getInferredTypeName(): string {
+    return this.inferredTypeName;
+  }
+
+  getInferredTypeKind(): PythonInferredTypeKind {
+    return this.inferredTypeKind;
+  }
+
+  /** The syntactic ground for the claim — the parser/engine tier boundary. */
+  getInferenceEvidence(): PythonInferenceEvidence {
+    return this.inferenceEvidence;
+  }
+
+  getInferenceConfidence(): PythonInferenceConfidence {
+    return this.inferenceConfidence;
+  }
+
+  /**
+   * Records a type derived after the row was minted.
+   *
+   * Annotation-based inference needs the resolved type reference, which does not
+   * exist during the expression walk. None of these four columns is in the PK, so
+   * patching one changes no hash.
+   */
+  setInference(
+    inferredTypeName: string,
+    inferredTypeKind: PythonInferredTypeKind,
+    inferenceEvidence: PythonInferenceEvidence,
+    inferenceConfidence: PythonInferenceConfidence
+  ): void {
+    this.inferredTypeName = inferredTypeName;
+    this.inferredTypeKind = inferredTypeKind;
+    this.inferenceEvidence = inferenceEvidence;
+    this.inferenceConfidence = inferenceConfidence;
   }
 
   getPyExpressionUniqueHash(): string {
@@ -306,6 +368,10 @@ export class PyExpressionRegistry implements EntityIdentifiable {
       this.isAwaited.toString(),
       this.isStarred.toString(),
       EntityUtils.escapeTsv(this.dottedPath),
+      this.inferredTypeName,
+      this.inferredTypeKind,
+      this.inferenceEvidence,
+      this.inferenceConfidence,
       this.serviceVersionLinkHash,
       this.pyExpressionUniqueHash,
     ].join('\t');
@@ -346,6 +412,10 @@ export class PyExpressionRegistry implements EntityIdentifiable {
       'isAwaited',
       'isStarred',
       'dottedPath',
+      'inferredTypeName',
+      'inferredTypeKind',
+      'inferenceEvidence',
+      'inferenceConfidence',
       'serviceVersionLinkHash',
       'pyExpressionUniqueHash',
     ].join('\t');
@@ -386,6 +456,10 @@ export class PyExpressionRegistryBuilder {
   isAwaited: boolean = false;
   isStarred: boolean = false;
   dottedPath: string = '';
+  inferredTypeName: string = '';
+  inferredTypeKind: PythonInferredTypeKind = PythonInferredTypeKind.UNKNOWN;
+  inferenceEvidence: PythonInferenceEvidence = PythonInferenceEvidence.NONE;
+  inferenceConfidence: PythonInferenceConfidence = PythonInferenceConfidence.NONE;
   serviceVersionLinkHash: string;
 
   constructor(
@@ -499,6 +573,20 @@ export class PyExpressionRegistryBuilder {
 
   withDottedPath(dottedPath: string): this {
     this.dottedPath = dottedPath;
+    return this;
+  }
+
+  /** Sets the four inference columns (schema v7 §2.15 c33-c36). */
+  withInference(
+    inferredTypeName: string,
+    inferredTypeKind: PythonInferredTypeKind,
+    inferenceEvidence: PythonInferenceEvidence,
+    inferenceConfidence: PythonInferenceConfidence
+  ): this {
+    this.inferredTypeName = inferredTypeName;
+    this.inferredTypeKind = inferredTypeKind;
+    this.inferenceEvidence = inferenceEvidence;
+    this.inferenceConfidence = inferenceConfidence;
     return this;
   }
 

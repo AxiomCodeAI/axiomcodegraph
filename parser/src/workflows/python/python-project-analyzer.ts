@@ -39,6 +39,14 @@ export interface PythonAnalysisSummary {
   filesSeen: number;
   filesAnalysed: number;
   filesRejected: number;
+  /**
+   * Files where the EXTRACTOR threw — always a defect, never a decision.
+   *
+   * Separate from `filesRejected` because a caller that treats them alike cannot
+   * tell a clean run from a parser that crashed on every file and wrote empty
+   * relations.
+   */
+  extractionErrors: number;
   counts: Record<string, number>;
   /** Cross-module resolution results, from the project-level pass. */
   resolution: { importsResolved: number; callSitesResolved: number };
@@ -104,6 +112,8 @@ export class PythonProjectAnalyzer {
       expressions: [] as { toCsv(): string; getCsvHeader(): string }[],
       callSites: [] as { toCsv(): string; getCsvHeader(): string }[],
       typeReferences: [] as { toCsv(): string; getCsvHeader(): string }[],
+      fields: [] as { toCsv(): string; getCsvHeader(): string }[],
+      fieldPositions: [] as { toCsv(): string; getCsvHeader(): string }[],
     };
 
     // Per-module facts, kept so the cross-module pass can run over all of them
@@ -133,7 +143,13 @@ export class PythonProjectAnalyzer {
           emissionRegime: PythonEmissionRegime.PY3_0_11,
         });
       } catch (error) {
-        this.recordSkip(filePath, options, SkippedFileReason.READ_ERROR, [], String(error));
+        this.recordSkip(
+          filePath,
+          options,
+          SkippedFileReason.EXTRACTION_ERROR,
+          [],
+          String(error)
+        );
         continue;
       }
 
@@ -160,6 +176,8 @@ export class PythonProjectAnalyzer {
       accumulated.expressions.push(...facts.expressions);
       accumulated.callSites.push(...facts.callSites);
       accumulated.typeReferences.push(...facts.typeReferences);
+      accumulated.fields.push(...facts.fields);
+      accumulated.fieldPositions.push(...facts.fieldPositions);
 
       perModule.push({
         qualifiedName: facts.module.getQualifiedName(),
@@ -174,6 +192,9 @@ export class PythonProjectAnalyzer {
         callSites: facts.callSites,
         expressions: facts.expressions,
         typeReferences: facts.typeReferences,
+        fields: facts.fields,
+        fieldHashByTypeAndName: facts.fieldHashByTypeAndName,
+        receiverNameByMethodHash: facts.receiverNameByMethodHash,
       });
     }
 
@@ -201,12 +222,25 @@ export class PythonProjectAnalyzer {
       options.outputDir,
       PYTHON_CSV_FILES.TYPE_REFERENCES
     );
+    await this.exportCsv(accumulated.fields, options.outputDir, PYTHON_CSV_FILES.FIELDS);
+    await this.exportCsv(
+      accumulated.fieldPositions,
+      options.outputDir,
+      PYTHON_CSV_FILES.FIELD_POSITIONS
+    );
     await this.exportSkippedFilesCsv(options.outputDir);
 
     return {
       filesSeen: files.length,
       filesAnalysed: analysed,
       filesRejected: this.skippedFiles.length,
+      // Surfaced separately from `filesRejected` because it means something
+      // categorically different: a rejected file is a decision, an extraction
+      // error is a defect. Folding the two together lets a parser that throws on
+      // every file report a clean run with empty relations.
+      extractionErrors: this.skippedFiles.filter(
+        f => f.reason === SkippedFileReason.EXTRACTION_ERROR
+      ).length,
       resolution,
       counts: {
         py_module: accumulated.modules.length,
@@ -220,6 +254,8 @@ export class PythonProjectAnalyzer {
         py_expression: accumulated.expressions.length,
         py_call_site: accumulated.callSites.length,
         py_type_reference: accumulated.typeReferences.length,
+        py_field: accumulated.fields.length,
+        py_field_position: accumulated.fieldPositions.length,
       },
     };
   }

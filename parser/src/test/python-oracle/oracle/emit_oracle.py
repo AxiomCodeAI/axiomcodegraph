@@ -713,8 +713,16 @@ def _txt(node):
 #: of these; anything else is unrecognised and stays residue.
 _STDLIB_METHOD_DECORATORS = {
     "staticmethod": "STATIC", "classmethod": "CLASS", "property": "PROPERTY",
+    # `@x.setter` / `@x.deleter` / `@x.getter` -- the property protocol. Matched
+    # on the TAIL, so any receiver works. Omitting these was a real bug: it made
+    # every property setter in the stdlib look like an unrecognised decorator,
+    # and 21 of 36 measured "default failures" were this, not the default.
+    "setter": "SETTER", "deleter": "DELETER", "getter": "PROPERTY",
     "abstractmethod": "ABSTRACT", "abstractproperty": "ABSTRACT",
     "overload": "OVERLOAD", "final": "FINAL", "cached_property": "CACHED",
+    # Wraps a generator into a plain callable, so the `yield` in the body is an
+    # implementation detail of the CM protocol, not a generator signature.
+    "contextmanager": "CONTEXTMANAGER", "asynccontextmanager": "CONTEXTMANAGER",
 }
 
 
@@ -780,6 +788,15 @@ def method_kind_ast(node, enclosing_kind, enclosing_is_class):
     unrecognised = [d for d in decos if d and d not in _STDLIB_METHOD_DECORATORS]
 
     # async shape is unambiguous and beats everything structural
+    # Python IMPLICITLY converts three dunders regardless of decorators
+    # (verified on 3.10.4): __new__ -> staticmethod, __init_subclass__ and
+    # __class_getitem__ -> classmethod. These are LANGUAGE RULES, not
+    # decorator effects, so they belong in tier 1 and outrank everything.
+    if enclosing_is_class and name in ("__init_subclass__", "__class_getitem__"):
+        return "CLASS_METHOD", ""
+    if enclosing_is_class and name == "__new__":
+        return "ALLOCATOR", ""   # implicitly a staticmethod; ALLOCATOR is more specific
+
     if is_async:
         base = "ASYNC_GENERATOR" if has_yield else "ASYNC_FUNCTION"
     elif has_yield:

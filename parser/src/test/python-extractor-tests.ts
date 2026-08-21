@@ -46,17 +46,25 @@ const SYMBOL_PREDICATES = [
   'is_assigned', 'is_referenced', 'is_declared_global', 'is_annotated', 'is_namespace',
 ] as const;
 
-/** The frozen spine: relation -> column count. 10 relations, 262 columns. */
+/**
+ * The frozen spine: relation -> column count. 10 relations, 266 columns.
+ *
+ * `py_expression` is 39, not 35, as of schema v7: the deleted
+ * `py_type_inference` relation folded into four appended columns (c33-c36). The
+ * append is safe by construction rather than by inspection — the PK is built from
+ * c0-c32 only, so no hash moves, and `serviceVersionLinkHash`/PK shift to c37/c38
+ * exactly as the "append only, hash last" convention does every time.
+ */
 const SPINE_ARITY: Readonly<Record<string, number>> = {
   py_module: 24, py_scope: 25, py_binding: 29, py_type: 25, py_type_base: 16,
-  py_method: 36, py_method_parameter: 22, py_import: 24, py_expression: 35, py_call_site: 26,
+  py_method: 36, py_method_parameter: 22, py_import: 24, py_expression: 39, py_call_site: 26,
 };
 
 /**
  * Relations emitted from the DEFERRED set, with their own arities.
  *
  * Kept separate from {@link SPINE_ARITY} deliberately. The frozen spine is 10
- * relations and 262 columns, and that number must keep verifying against the
+ * relations and 266 columns, and that number must keep verifying against the
  * schema document — folding a deferred relation into it would make the document
  * check report 287 and read as schema drift, when in fact the spine is untouched
  * and an extra relation is being emitted alongside it.
@@ -67,6 +75,11 @@ const SPINE_ARITY: Readonly<Record<string, number>> = {
  */
 const DEFERRED_ARITY: Readonly<Record<string, number>> = {
   py_type_reference: 25,
+  // Un-deferred because a call graph cannot be built without it: `self.x.m()`
+  // needs the type of `x`, and no other relation carries it. It was 0/2,537
+  // resolved before this existed.
+  py_field: 29,
+  py_field_position: 3,
 };
 
 /** Every relation the parser emits, for the per-row arity check. */
@@ -1371,6 +1384,8 @@ async function analyzerTests(): Promise<Failure[]> {
     'all-python-imports.csv': SPINE_ARITY.py_import!,
     'all-python-expressions.csv': SPINE_ARITY.py_expression!,
     'all-python-call-sites.csv': SPINE_ARITY.py_call_site!,
+    'all-python-fields.csv': DEFERRED_ARITY.py_field!,
+    'all-python-field-positions.csv': DEFERRED_ARITY.py_field_position!,
   };
   for (const [name, want] of Object.entries(arityByFile)) {
     const content = fs.readFileSync(path.join(outA, name), 'utf8');
@@ -1543,7 +1558,7 @@ function columnUnitTests(): Failure[] {
  * Checks the code's column counts against the **schema document itself**.
  *
  * This is Appendix B invariant #11 in spirit: the document says 10 relations and
- * 262 columns, and that claim is worth nothing unless something executes it. The
+ * 266 columns, and that claim is worth nothing unless something executes it. The
  * document's own §2 section headers state an arity, and each has a numbered
  * column table under it, so all three can be cross-checked — header count,
  * actual table rows, and the `getCsvHeader()` the parser emits. A column-order
@@ -1618,7 +1633,12 @@ function schemaDocumentTests(): Failure[] {
     }
   }
 
-  const FROZEN_SPINE_COLUMNS = 262;
+  // 266 as of schema v7, up from 262: `py_type_inference` was deleted and folded
+  // into four appended `py_expression` columns. This constant is the ratchet —
+  // it caught the change on the first run after the append, which is what it is
+  // for. Bumping it is a deliberate act recording an approved amendment, not
+  // maintenance.
+  const FROZEN_SPINE_COLUMNS = 266;
   if (documentTotal !== FROZEN_SPINE_COLUMNS) {
     failures.push({
       gate: 'INVARIANT',

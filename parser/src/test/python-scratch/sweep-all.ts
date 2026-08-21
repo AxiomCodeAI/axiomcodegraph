@@ -21,7 +21,7 @@ function walk(dir: string, out: string[]): string[] {
 
 const SPINE_ARITY: Record<string, number> = {
   py_module: 24, py_scope: 25, py_binding: 29, py_type: 25, py_type_base: 16,
-  py_method: 36, py_method_parameter: 22, py_import: 24, py_expression: 35, py_call_site: 26,
+  py_method: 36, py_method_parameter: 22, py_import: 24, py_expression: 39, py_call_site: 26,
 };
 
 /** Appendix B invariants 1-8, checked structurally on one file's output. */

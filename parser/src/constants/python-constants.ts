@@ -88,5 +88,74 @@ export const PYTHON_CSV_FILES = {
   EXPRESSIONS: 'all-python-expressions.csv',
   CALL_SITES: 'all-python-call-sites.csv',
   TYPE_REFERENCES: 'all-python-type-references.csv',
+  FIELDS: 'all-python-fields.csv',
+  FIELD_POSITIONS: 'all-python-field-positions.csv',
   SKIPPED_FILES: 'skipped-python-files.csv',
 } as const;
+
+/**
+ * Builtin scalar type names, for classifying an inferred type without resolving
+ * it (`py_expression.inferredTypeKind`, schema v7 §2.15 c34).
+ *
+ * These are the names that cannot be a user class, because a module cannot
+ * shadow them in a way the parser could see without resolution.
+ */
+export const PYTHON_BUILTIN_SCALAR_TYPES: ReadonlySet<string> = new Set([
+  'int',
+  'float',
+  'complex',
+  'bool',
+  'str',
+  'bytes',
+  'bytearray',
+  'memoryview',
+]);
+
+/** Builtin container type names. */
+export const PYTHON_BUILTIN_COLLECTION_TYPES: ReadonlySet<string> = new Set([
+  'list',
+  'dict',
+  'set',
+  'frozenset',
+  'tuple',
+  'List',
+  'Dict',
+  'Set',
+  'FrozenSet',
+  'Tuple',
+  'Sequence',
+  'Mapping',
+  'MutableMapping',
+  'Iterable',
+  'Iterator',
+]);
+
+/**
+ * The public method set of each builtin container and string type, plus the
+ * `collections` types that behave like them.
+ *
+ * Generated from CPython 3.10.4 itself (`dir(list)` and friends), which is why it
+ * is ground truth rather than a hand-written guess. It exists so an attribute
+ * whose type is known to be a builtin can resolve a call ON that attribute:
+ * `self._buf = bytearray()` followed by `self._buf.extend(d)` reaches
+ * `bytearray.extend`.
+ *
+ * The membership test is the point. Without it, `self._items = []` followed by
+ * `self._items.frobnicate()` would be reported as a builtin call — wrong, and
+ * worse, it would HIDE a real bug in the analysed code. With it, an unknown name
+ * on a known type stays `UNRESOLVED`, which is the honest answer.
+ */
+export const PYTHON_BUILTIN_TYPE_METHODS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  ['list', new Set(['append', 'clear', 'copy', 'count', 'extend', 'index', 'insert', 'pop', 'remove', 'reverse', 'sort'])],
+  ['dict', new Set(['clear', 'copy', 'fromkeys', 'get', 'items', 'keys', 'pop', 'popitem', 'setdefault', 'update', 'values'])],
+  ['set', new Set(['add', 'clear', 'copy', 'difference', 'difference_update', 'discard', 'intersection', 'intersection_update', 'isdisjoint', 'issubset', 'issuperset', 'pop', 'remove', 'symmetric_difference', 'symmetric_difference_update', 'union', 'update'])],
+  ['frozenset', new Set(['copy', 'difference', 'intersection', 'isdisjoint', 'issubset', 'issuperset', 'symmetric_difference', 'union'])],
+  ['tuple', new Set(['count', 'index'])],
+  ['str', new Set(['capitalize', 'casefold', 'center', 'count', 'encode', 'endswith', 'expandtabs', 'find', 'format', 'format_map', 'index', 'isalnum', 'isalpha', 'isascii', 'isdecimal', 'isdigit', 'isidentifier', 'islower', 'isnumeric', 'isprintable', 'isspace', 'istitle', 'isupper', 'join', 'ljust', 'lower', 'lstrip', 'maketrans', 'partition', 'removeprefix', 'removesuffix', 'replace', 'rfind', 'rindex', 'rjust', 'rpartition', 'rsplit', 'rstrip', 'split', 'splitlines', 'startswith', 'strip', 'swapcase', 'title', 'translate', 'upper', 'zfill'])],
+  ['bytes', new Set(['capitalize', 'center', 'count', 'decode', 'endswith', 'expandtabs', 'find', 'fromhex', 'hex', 'index', 'isalnum', 'isalpha', 'isascii', 'isdigit', 'islower', 'isspace', 'istitle', 'isupper', 'join', 'ljust', 'lower', 'lstrip', 'maketrans', 'partition', 'removeprefix', 'removesuffix', 'replace', 'rfind', 'rindex', 'rjust', 'rpartition', 'rsplit', 'rstrip', 'split', 'splitlines', 'startswith', 'strip', 'swapcase', 'title', 'translate', 'upper', 'zfill'])],
+  ['bytearray', new Set(['append', 'capitalize', 'center', 'clear', 'copy', 'count', 'decode', 'endswith', 'expandtabs', 'extend', 'find', 'fromhex', 'hex', 'index', 'insert', 'isalnum', 'isalpha', 'isascii', 'isdigit', 'islower', 'isspace', 'istitle', 'isupper', 'join', 'ljust', 'lower', 'lstrip', 'maketrans', 'partition', 'pop', 'remove', 'removeprefix', 'removesuffix', 'replace', 'reverse', 'rfind', 'rindex', 'rjust', 'rpartition', 'rsplit', 'rstrip', 'split', 'splitlines', 'startswith', 'strip', 'swapcase', 'title', 'translate', 'upper', 'zfill'])],
+  ['deque', new Set(['append', 'appendleft', 'clear', 'copy', 'count', 'extend', 'extendleft', 'index', 'insert', 'maxlen', 'pop', 'popleft', 'remove', 'reverse', 'rotate'])],
+  ['defaultdict', new Set(['clear', 'copy', 'default_factory', 'fromkeys', 'get', 'items', 'keys', 'pop', 'popitem', 'setdefault', 'update', 'values'])],
+  ['OrderedDict', new Set(['clear', 'copy', 'fromkeys', 'get', 'items', 'keys', 'move_to_end', 'pop', 'popitem', 'setdefault', 'update', 'values'])],
+  ['Counter', new Set(['clear', 'copy', 'elements', 'fromkeys', 'get', 'items', 'keys', 'most_common', 'pop', 'popitem', 'setdefault', 'subtract', 'total', 'update', 'values'])],
+]);
