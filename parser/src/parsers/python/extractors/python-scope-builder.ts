@@ -1446,6 +1446,28 @@ export class PythonScopeBuilder {
         return;
       }
 
+      case 'member_type': {
+        // A dotted name in TYPE position whose left side is itself a type, as in
+        // `v: A[int].Inner`. The grammar gives it its own node rather than
+        // reusing `attribute`, so falling through to the generic walk visited the
+        // trailing identifier and invented a binding for `Inner` that CPython
+        // does not have. Only the left side is a name.
+        const leftNode = node.namedChild(0);
+        if (leftNode) {
+          this.visitExpression(block, leftNode, PythonNameContext.LOAD);
+        }
+        return;
+      }
+
+      case 'splat_type': {
+        // `*Ts` in a type position — the name is the operand.
+        const operand = node.namedChild(0);
+        if (operand) {
+          this.visitExpression(block, operand, PythonNameContext.LOAD);
+        }
+        return;
+      }
+
       case 'keyword_argument': {
         // `f(k=v)` — `k` is a parameter name, not a reference.
         const valueNode = node.childForFieldName('value') ?? node.namedChild(1);

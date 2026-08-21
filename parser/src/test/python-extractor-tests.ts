@@ -856,6 +856,88 @@ async function analyzerTests(): Promise<Failure[]> {
 }
 
 /**
+ * Grammar EXTRAS must never become entities, at any of the three sites where a
+ * comma-separated list occurs.
+ *
+ * A comment or line-continuation backslash is a NAMED tree-sitter node, so
+ * iterating named children counts it. This has now bitten in three separate
+ * places — argument lists, parameter lists, and base lists — and the base-list
+ * case is the worst of the three because a base carries an **MRO position**:
+ * `class C(A,  # comment\n B)` put the comment at position 1 and pushed `B` to 2,
+ * silently corrupting C3 linearisation. Reported by A4 as a4-037, on sqlalchemy
+ * and tensorflow.
+ */
+function extraNodeTests(): Failure[] {
+  const failures: Failure[] = [];
+  const check = (label: string, actual: unknown, expected: unknown) => {
+    if (String(actual) !== String(expected)) {
+      failures.push({
+        gate: 'INVARIANT',
+        detail: `extras ${label}: expected ${expected}, got ${actual}`,
+      });
+    }
+  };
+
+  // Base list with a comment between bases.
+  const bases = new PythonFactExtractor().extract({
+    sourceCode: 'class C(A,  # comment\n        B):\n    pass\n',
+    filePath: 'bases.py', baseMservPath: '/repo', serviceVersionLinkHash: SERVICE_VERSION,
+  });
+  check('base count', bases.typeBases.length, 2);
+  check('py_type.baseCount', bases.types[0]?.toCsv().split('\t')[19], '2');
+  const positions = bases.typeBases.map(b => b.toCsv().split('\t')[1]).join(',');
+  check('MRO positions', positions, '0,1');
+  const names = bases.typeBases.map(b => b.toCsv().split('\t')[3]).join(',');
+  check('base names', names, 'A,B');
+
+  // Argument list with a comment, and with a line continuation.
+  const args = new PythonFactExtractor().extract({
+    sourceCode: 'f(a,  # why\n  b, \\\n  c)\n',
+    filePath: 'args.py', baseMservPath: '/repo', serviceVersionLinkHash: SERVICE_VERSION,
+  });
+  check('positional arg count', args.callSites[0]?.getPositionalArgCount(), 3);
+
+  // Parameter list with a trailing comment.
+  const params = new PythonFactExtractor().extract({
+    sourceCode: 'def g(*, a=1, b=2):  # note\n    return a\n',
+    filePath: 'params.py', baseMservPath: '/repo', serviceVersionLinkHash: SERVICE_VERSION,
+  });
+  const g = params.methods.find(m => m.getName() === 'g');
+  check('kwOnlyCount', g?.toCsv().split('\t')[25], '2');
+
+  return failures;
+}
+
+/**
+ * A dotted name in TYPE position is `member_type`, not `attribute`.
+ *
+ * `def f(v: A[int].Inner)` — the grammar gives the dotted type its own node, so
+ * the generic walk visited its trailing identifier and invented a module binding
+ * for `Inner` that CPython does not have. Reported by A4 as a4-035. The trailing
+ * name is an attribute label, exactly as in an ordinary attribute access.
+ */
+function memberTypeTests(): Failure[] {
+  const failures: Failure[] = [];
+  const facts = new PythonFactExtractor().extract({
+    sourceCode: 'def f(v: A[int].Inner):\n    return v\n',
+    filePath: 'membertype.py', baseMservPath: '/repo', serviceVersionLinkHash: SERVICE_VERSION,
+  });
+  const moduleScope = facts.scopes.find(s => s.toCsv().split('\t')[0] === 'MODULE');
+  const moduleBindings = facts.bindings
+    .filter(b => b.getPyScopeLinkHash() === moduleScope?.getHash())
+    .map(b => b.getName())
+    .sort();
+  // CPython's symtable: ['A', 'f', 'int'] — `Inner` is an attribute label.
+  if (moduleBindings.join(',') !== 'A,f,int') {
+    failures.push({
+      gate: 'INVARIANT',
+      detail: `member_type: module bindings should be A,f,int — got ${moduleBindings.join(',')}`,
+    });
+  }
+  return failures;
+}
+
+/**
  * Column units: CPython reports `col_offset` in **UTF-8 bytes**, tree-sitter in
  * characters.
  *
@@ -1069,11 +1151,13 @@ async function main(): Promise<void> {
     ...parseLimitTests(),
     ...classificationTests(),
     ...columnUnitTests(),
+    ...extraNodeTests(),
+    ...memberTypeTests(),
     ...schemaDocumentTests(),
     ...(await analyzerTests()),
   ];
   console.log(
-    `\nPy2 rejection, parse limit, classification, column units, schema arity, analyzer: ${standalone.length === 0 ? 'PASS' : `${standalone.length} FAILURES`}`
+    `\nPy2 rejection, parse limit, classification, column units, extras, member_type, schema arity, analyzer: ${standalone.length === 0 ? 'PASS' : `${standalone.length} FAILURES`}`
   );
   standalone.forEach(f => console.log(`   ${f.gate} ${f.detail}`));
 

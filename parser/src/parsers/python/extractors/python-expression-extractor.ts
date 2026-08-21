@@ -933,7 +933,9 @@ export class PythonExpressionExtractor {
       }
 
       case PythonExpressionKind.ATTRIBUTE_ACCESS: {
-        const attribute = node.childForFieldName('attribute');
+        const attribute =
+          node.childForFieldName('attribute') ??
+          node.namedChild(node.namedChildCount - 1);
         builder.withName(attribute?.text ?? '');
         builder.withDottedPath(this.dottedPathOf(node));
         return;
@@ -1050,7 +1052,8 @@ export class PythonExpressionExtractor {
       }
 
       case PythonExpressionKind.ATTRIBUTE_ACCESS: {
-        const object = node.childForFieldName('object');
+        // `member_type` has no `object` field; its left side is the first child.
+        const object = node.childForFieldName('object') ?? node.namedChild(0);
         if (object) {
           this.worklist.push({
             ...base,
@@ -1773,8 +1776,15 @@ export class PythonExpressionExtractor {
       case 'call': {
         return PythonExpressionKind.CALL;
       }
-      case 'attribute': {
+      case 'attribute':
+      // `member_type` is a dotted name in TYPE position (`A[int].Inner`). Same
+      // construct as an attribute access, so it must produce the same shape —
+      // the generic fallback treated its trailing identifier as a name.
+      case 'member_type': {
         return PythonExpressionKind.ATTRIBUTE_ACCESS;
+      }
+      case 'splat_type': {
+        return PythonExpressionKind.STARRED;
       }
       case 'subscript':
       // A subscripted annotation is spelled `generic_type` by this grammar, but

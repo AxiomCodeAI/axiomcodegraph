@@ -733,7 +733,12 @@ export class PythonDeclarationExtractor {
 
     for (let i = 0; i < argumentsNode.namedChildCount; i++) {
       const child = argumentsNode.namedChild(i);
-      if (!child) {
+      // Grammar extras are NAMED nodes, so a comment inside a base list was
+      // becoming a base — and worse, taking an MRO POSITION. `class C(A,  #
+      // comment\n B)` put the comment at position 1 and pushed B to 2, which
+      // silently corrupts C3 linearisation for any class written that way.
+      // Third site of this root cause, after argument lists and parameter lists.
+      if (!child || child.isExtra) {
         continue;
       }
 
