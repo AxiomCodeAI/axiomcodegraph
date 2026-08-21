@@ -1,0 +1,180 @@
+// ============================================================================
+// Base input relations — PYTHON parser IR. One relation pair per entity kind.
+//
+// GENERATED FROM python-work/PYTHON-FACT-SCHEMA.md BY gen_decls.py — DO NOT HAND-EDIT.
+// Re-run `python3 gen_decls.py --check` in CI; a drift here is a silent schema break.
+//
+// NAMING: one prefix per core language. java_* is Java, py_* is Python, the next
+// language takes its own lan_*. `lib_` remains the EXTERNAL marker layered on top:
+//
+//     py_<entity>       Python source under analysis   <- the PARSER emits only these
+//     lib_py_<entity>   external / third-party Python  <- the ENGINE populates these
+//
+// COLUMN ORDER IS THE CONTRACT. All columns are `symbol`. New columns append ONLY.
+// Convention: the last column is the entity's own unique hash; serviceVersionLinkHash
+// is immediately before it.
+//
+// UNIFIED PYTHON 2 / PYTHON 3 OUTPUT: both dialects emit into these same relations.
+// The dialect is a COLUMN (py_module.pythonDialect, c9); consumers must read it before
+// interpreting py_type.typeCategory, py_type.mroKind, or comprehension scoping.
+//
+// NOT STAGED (declared for symmetry only — library IR is declarations, not bodies):
+//   lib_py_expression, lib_py_call_site, lib_py_block, lib_py_binding,
+//   lib_py_field_write, lib_py_type_inference, lib_py_source_bridge_edit
+// ============================================================================
+
+// ==========================================================================
+// SPINE — proposed for the first freeze (supports all four data-flow paths)
+// ==========================================================================
+// A Python source file or package __init__.py. The unit of import resolution and
+// a first-class runtime namespace. No Java analogue. c9 pythonDialect discriminates
+// Python 2 vs 3 — both dialects emit into THIS relation, never a separate one.
+// (24 columns)
+.decl py_module(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol)
+.decl lib_py_module(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol)
+
+// A lexical scope, mirroring CPython symtable.SymbolTable. c4 parentScopeLinkHash is the
+// spine the name-resolution layer walks upward. c20 startColumn is IN THE KEY: without it
+// two lambdas or two comprehensions on one line collide (measured 0.60% of scopes), which
+// would silently merge two scopes' entire binding sets. No Java analogue.
+// (25 columns)
+.decl py_scope(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol)
+.decl lib_py_scope(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol)
+
+// One row per (scope, name) — CPython symtable.Symbol. Python's local_variable table plus
+// its global / nonlocal / free / import / parameter tables, unified. Cols 4..14 are the
+// COMPLETE symtable.Symbol predicate set (11 on Py3; Py2 lacks is_nonlocal/is_annotated,
+// which are then always "false"). Resolves the 50.7% of calls with a bare-name receiver.
+// (29 columns)
+.decl py_binding(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol)
+.decl lib_py_binding(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol)
+
+// A class statement. Cols 0..11 mirror java_type 0..11. c3 typeCategory and c21 mroKind are
+// dialect-sensitive: a base-less class is OLD_STYLE_CLASS_TYPE / OLD_STYLE_DFS under Py2 and
+// CLASS_TYPE / IMPLICIT_OBJECT under Py3.
+// (25 columns)
+.decl py_type(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol)
+.decl lib_py_type(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol)
+
+// One base-class expression. ORDERED (c1 position) because C3 / MRO depends on it — 12.1% of
+// classes have multiple bases. Also carries keyword bases (metaclass=) and dynamic bases,
+// which a type_reference cannot express.
+// (16 columns)
+.decl py_type_base(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol)
+.decl lib_py_type_base(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol)
+
+// A def / async def / lambda, plus the synthetic <module> and <classbody> initializers that
+// give module-level and class-body code a caller. Cols 0..20 are byte-for-byte java_method
+// 0..20; c32 startColumn is APPENDED (not placed by startLine) to preserve that parity, and
+// is IN THE KEY because two lambdas can share line+qualname+signature.
+// (36 columns)
+.decl py_method(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol,c29:symbol,c30:symbol,c31:symbol,c32:symbol,c33:symbol,c34:symbol,c35:symbol)
+.decl lib_py_method(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol,c29:symbol,c30:symbol,c31:symbol,c32:symbol,c33:symbol,c34:symbol,c35:symbol)
+
+// A formal parameter. Cols 0..11 mirror java_method_parameter 0..11. 68.2% carry no annotation,
+// so argument->parameter flow, not declared type, is the primary receiver-typing mechanism.
+// (22 columns)
+.decl py_method_parameter(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol)
+.decl lib_py_method_parameter(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol)
+
+// An import statement. Cols 0..8 mirror java_import 0..8. 38% of from-imports are relative, so
+// c9 relativeLevel and parser-side in-repo resolution (c12) matter. c15 isExternalTarget means
+// only 'did not resolve in this analysis'.
+// (24 columns)
+.decl py_import(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol)
+.decl lib_py_import(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol)
+
+// An expression AST node — the spine of call resolution. Cols 0..23 mirror java_expression
+// 0..23. c24 pyScopeLinkHash and c26 bindingLinkHash are the key additions: Python resolves
+// names by scope chain, not by file. There is deliberately no OBJECT_CREATION kind —
+// construction is recorded in py_type_inference instead.
+// (35 columns)
+.decl py_expression(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol,c29:symbol,c30:symbol,c31:symbol,c32:symbol,c33:symbol,c34:symbol)
+.decl lib_py_expression(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol,c29:symbol,c30:symbol,c31:symbol,c32:symbol,c33:symbol,c34:symbol)
+
+// A call site. A BASE relation for Python (derived in Java) because the call shape is not
+// recoverable from one positional pattern: keyword args, * / ** spreading, chained receivers,
+// super(), and the receiver's syntactic shape (c4 receiverKind) which is all we honestly know
+// about a duck-typed receiver. 1:1 with its CALL expression, so its key chains off c5.
+// (26 columns)
+.decl py_call_site(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol)
+.decl lib_py_call_site(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol)
+
+// ==========================================================================
+// DEFERRED — proposed for a second freeze
+// ==========================================================================
+// A use of a type: annotation, base class, isinstance / cast target, except or raise type, or
+// a Python 2 '# type:' comment. Cols 0..16 mirror java_type_reference 0..16 so the name->type
+// resolution layer ports as a relation rename.
+// (25 columns)
+.decl py_type_reference(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol)
+.decl lib_py_type_reference(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol)
+
+// A class attribute or an instance attribute recovered from 'self.x = ...'. Cols 0..12 mirror
+// java_field 0..12. Identity is (ownerType, name, origin) — all writes of one attribute merge
+// into one row; see py_field_write for each site.
+// (29 columns)
+.decl py_field(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol)
+.decl lib_py_field(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol)
+
+// One write site of an attribute. Required for data flow: only 67% of self.x writes are in
+// __init__, so cross-method attribute state is common.
+// (10 columns)
+.decl py_field_write(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol)
+.decl lib_py_field_write(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol)
+
+// A field's declaration order within its type. @dataclass / NamedTuple generate __init__ in
+// this order, so positional argument flow depends on it.
+// (3 columns)
+.decl py_field_position(c0:symbol,c1:symbol,c2:symbol)
+.decl lib_py_field_position(c0:symbol,c1:symbol,c2:symbol)
+
+// A decorator applied to a class or function. NOT an annotation: a decorator is a call that
+// REPLACES the decorated object (c17 replacesTarget). Cols 0..3 mirror java_annotation 0..3.
+// (21 columns)
+.decl py_decorator(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol)
+.decl lib_py_decorator(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol)
+
+// A positional or keyword argument of a decorator call — where framework routes and permissions
+// live. Cols 0..9 mirror java_annotation_argument 0..9.
+// (15 columns)
+.decl py_decorator_argument(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol)
+.decl lib_py_decorator_argument(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol)
+
+// A comment, shebang, encoding cookie, '# type:' comment, or docstring. Cols 0..8 mirror
+// java_comment 0..8. c11 typeCommentPayload is Python 2's only annotation channel.
+// (15 columns)
+.decl py_comment(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol)
+.decl lib_py_comment(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol)
+
+// An indentation-delimited suite. Cols 0..16 mirror java_block 0..16. c9 methodOwnerHash is
+// NEVER empty — module-level blocks are owned by the synthetic <module> method. c19 links the
+// if/while condition, which is how isinstance() narrowing reaches the receiver.
+// (27 columns)
+.decl py_block(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol)
+.decl lib_py_block(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol)
+
+// One row per construct the grammar could not represent. RECORDS the gap, does not repair it.
+// Replaces v3's py_source_bridge_edit: tree-sitter parses 99.59% of the CPython 2.7 stdlib
+// unaided, so rewriting source to recover 0.41% of files was the wrong trade. Positions stay
+// measured, never mapped. Zero rows for ~99.6% of modules, Python 2 included.
+// (10 columns)
+.decl py_parse_gap(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol)
+.decl lib_py_parse_gap(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol)
+
+// DEFERRED — PEP 695 (3.12+) only: 'class C[T]' / 'def f[T]()'. Declared now so the column
+// contract is fixed; NOT emitted for <=3.11, where TypeVar is a runtime assignment captured as
+// a py_binding with targetEntityKind=TYPE_VAR.
+// (14 columns)
+.decl py_type_parameter(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol)
+.decl lib_py_type_parameter(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol)
+
+// An inferred type for a binding / expression / field / parameter / return. A RELATION rather
+// than columns because a union is 1:N (c8 unionSize == "1" is the monomorphic test). c5
+// evidence and c6 confidence record HOW we know. The PARSER emits only purely syntactic
+// evidence (LITERAL, COLLECTION_LITERAL, FSTRING, COMPREHENSION, ANNOTATION, CAST,
+// DEFAULT_VALUE); CONSTRUCTOR_CALL / BUILTIN_CALL / ISINSTANCE_GUARD and everything at
+// POSSIBLE need name or call resolution and are the ENGINE's to append.
+// (17 columns)
+.decl py_type_inference(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol)
+.decl lib_py_type_inference(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol)
