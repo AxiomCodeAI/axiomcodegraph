@@ -52,6 +52,29 @@ const SPINE_ARITY: Readonly<Record<string, number>> = {
   py_method: 36, py_method_parameter: 22, py_import: 24, py_expression: 35, py_call_site: 26,
 };
 
+/**
+ * Relations emitted from the DEFERRED set, with their own arities.
+ *
+ * Kept separate from {@link SPINE_ARITY} deliberately. The frozen spine is 10
+ * relations and 262 columns, and that number must keep verifying against the
+ * schema document — folding a deferred relation into it would make the document
+ * check report 287 and read as schema drift, when in fact the spine is untouched
+ * and an extra relation is being emitted alongside it.
+ *
+ * `py_type_reference` is emitted on explicit direction: a composite annotation
+ * like `Dict[TypeA, TypeB]` references three related types, and no single spine
+ * column can carry N of them.
+ */
+const DEFERRED_ARITY: Readonly<Record<string, number>> = {
+  py_type_reference: 25,
+};
+
+/** Every relation the parser emits, for the per-row arity check. */
+const EMITTED_ARITY: Readonly<Record<string, number>> = {
+  ...SPINE_ARITY,
+  ...DEFERRED_ARITY,
+};
+
 interface Failure {
   gate: 'GATE1' | 'GATE2' | 'INVARIANT';
   detail: string;
@@ -497,6 +520,134 @@ function annotationTypeLinkTests(): Failure[] {
 }
 
 /**
+ * `py_type_reference` must be a TREE, with each nested type its own row linked to
+ * its parent by hash and position.
+ *
+ * This is the shape `java_type_reference` uses, and it is the only way to express
+ * a composite annotation: `Dict[TypeA, TypeB]` references three types that are
+ * related to each other, and a single `potentialQualifiedName` slot on the
+ * parameter can carry exactly one of them.
+ *
+ * Note the tree differs deliberately from the `py_expression` tree over the same
+ * text. There, SUBSCRIPT is a node and `Dict` is its first child; here `Dict` IS
+ * the depth-0 reference and the arguments are its children — so "the type being
+ * parameterised" and "its parameters" are a parent/child pair rather than
+ * siblings.
+ */
+function typeReferenceTreeTests(): Failure[] {
+  const failures: Failure[] = [];
+  const source = [
+    'from typing import Callable, Dict, List, Optional, Union',
+    'class TypeA: pass',
+    'class TypeB: pass',
+    'def f(m: Dict[TypeA, List[Optional[TypeB]]]): pass',
+    'def g(z: TypeA | None): pass',
+    'def h(c: Callable[[TypeA, TypeB], TypeA]): pass',
+    '',
+  ].join('\n');
+
+  const facts = new PythonFactExtractor().extract({
+    sourceCode: source, filePath: 'tr.py', baseMservPath: '/repo',
+    serviceVersionLinkHash: SERVICE_VERSION,
+  });
+  const refs = facts.typeReferences;
+  const byHash = new Map(refs.map(r => [r.getHash(), r]));
+
+  // Structural integrity: a parent hash must resolve, and only depth 0 is a root.
+  for (const reference of refs) {
+    const parent = reference.getParentReferenceHash();
+    if (parent === '') {
+      if (reference.getDepth() !== 0) {
+        failures.push({
+          gate: 'INVARIANT',
+          detail: `type reference: depth ${reference.getDepth()} with no parent`,
+        });
+      }
+      continue;
+    }
+    const parentRef = byHash.get(parent);
+    if (!parentRef) {
+      failures.push({ gate: 'INVARIANT', detail: `type reference: dangling parentReferenceHash` });
+      continue;
+    }
+    if (reference.getDepth() !== parentRef.getDepth() + 1) {
+      failures.push({
+        gate: 'INVARIANT',
+        detail: `type reference: depth ${reference.getDepth()} under parent at depth ${parentRef.getDepth()}`,
+      });
+    }
+  }
+
+  /** The chain of typeNames from a reference up to its root. */
+  const pathOf = (reference: (typeof refs)[number]): string => {
+    const names: string[] = [];
+    let current: (typeof refs)[number] | undefined = reference;
+    let guard = 0;
+    while (current && guard++ < 20) {
+      names.unshift(current.getTypeName() || '|');
+      current = byHash.get(current.getParentReferenceHash());
+    }
+    return names.join(' > ');
+  };
+
+  // Dict[TypeA, List[Optional[TypeB]]] — TypeB is four levels down.
+  const deepB = refs.find(r => r.getTypeName() === 'TypeB' && r.getDepth() === 3);
+  if (!deepB) {
+    failures.push({ gate: 'INVARIANT', detail: 'type reference: TypeB not found at depth 3' });
+  } else if (pathOf(deepB) !== 'Dict > List > Optional > TypeB') {
+    failures.push({
+      gate: 'INVARIANT',
+      detail: `type reference: expected path Dict > List > Optional > TypeB, got ${pathOf(deepB)}`,
+    });
+  }
+
+  // Positions must distinguish siblings: TypeA is argument 0 of Dict.
+  const dictArgs = refs
+    .filter(r => byHash.get(r.getParentReferenceHash())?.getTypeName() === 'Dict')
+    .sort((a, b) => a.getPosition() - b.getPosition());
+  if (dictArgs.length !== 2 || dictArgs[0]!.getTypeName() !== 'TypeA') {
+    failures.push({
+      gate: 'INVARIANT',
+      detail: `type reference: Dict should have 2 args with TypeA at position 0, got ` +
+        dictArgs.map(r => `${r.getPosition()}:${r.getTypeName()}`).join(','),
+    });
+  }
+
+  // `TypeA | None` must be marked optional, and Optional[...] likewise.
+  const union = refs.find(r => r.getKind() === 'UNION_PEP604' && r.getDepth() === 0);
+  if (!union?.getIsOptional()) {
+    failures.push({ gate: 'INVARIANT', detail: 'type reference: `TypeA | None` should be isOptional' });
+  }
+  const optional = refs.find(r => r.getKind() === 'OPTIONAL');
+  if (!optional?.getIsOptional()) {
+    failures.push({ gate: 'INVARIANT', detail: 'type reference: Optional[...] should be isOptional' });
+  }
+
+  // Callable[[A, B], R] — the bracketed parameter list is not a type, so its
+  // members are arguments of Callable rather than of an anonymous list.
+  const callableArgs = refs.filter(
+    r => byHash.get(r.getParentReferenceHash())?.getKind() === 'CALLABLE'
+  );
+  if (callableArgs.length !== 3) {
+    failures.push({
+      gate: 'INVARIANT',
+      detail: `type reference: Callable[[A, B], R] should have 3 argument refs, got ${callableArgs.length}`,
+    });
+  }
+
+  // Context must separate the declared type from types mentioned inside it.
+  const roots = refs.filter(r => r.getDepth() === 0);
+  if (!roots.every(r => r.getContext() === 'METHOD_PARAM')) {
+    failures.push({ gate: 'INVARIANT', detail: 'type reference: depth-0 refs should carry their real context' });
+  }
+  if (!refs.filter(r => r.getDepth() > 0).every(r => r.getContext() === 'GENERIC_ARGUMENT')) {
+    failures.push({ gate: 'INVARIANT', detail: 'type reference: nested refs should be GENERIC_ARGUMENT' });
+  }
+
+  return failures;
+}
+
+/**
  * The RESOLUTION gate — a consistency invariant, not an oracle question.
  *
  * This exists because neither existing gate can see resolution at all. Gate 1
@@ -705,6 +856,7 @@ function invariants(file: string, facts: ReturnType<typeof extract>): Failure[] 
     ['py_type', facts.types], ['py_type_base', facts.typeBases], ['py_method', facts.methods],
     ['py_method_parameter', facts.methodParameters], ['py_import', facts.imports],
     ['py_expression', facts.expressions], ['py_call_site', facts.callSites],
+    ['py_type_reference', facts.typeReferences],
   ];
 
   const allPks = new Set<string>();
@@ -712,8 +864,11 @@ function invariants(file: string, facts: ReturnType<typeof extract>): Failure[] 
     const seen = new Set<string>();
     for (const row of rows) {
       const cols = row.toCsv().split('\t');
-      if (cols.length !== SPINE_ARITY[name]) {
-        failures.push({ gate: 'INVARIANT', detail: `#6 ${name} arity ${cols.length} != ${SPINE_ARITY[name]}` });
+      if (cols.length !== EMITTED_ARITY[name]) {
+        failures.push({
+          gate: 'INVARIANT',
+          detail: `#6 ${name} arity ${cols.length} != ${EMITTED_ARITY[name]}`,
+        });
       }
       const pk = cols[cols.length - 1]!;
       if (!/^PY_[A-Z_]+_[0-9a-f]{32}$/.test(pk)) {
@@ -1520,11 +1675,12 @@ async function main(): Promise<void> {
     ...memberTypeTests(),
     ...mroResolutionTests(),
     ...annotationTypeLinkTests(),
+    ...typeReferenceTreeTests(),
     ...schemaDocumentTests(),
     ...(await analyzerTests()),
   ];
   console.log(
-    `\nPy2 rejection, parse limit, classification, column units, extras, member_type, C3 MRO, annotation links, schema arity, analyzer: ${standalone.length === 0 ? 'PASS' : `${standalone.length} FAILURES`}`
+    `\nPy2 rejection, parse limit, classification, column units, extras, member_type, C3 MRO, annotation links, type-ref tree, schema arity, analyzer: ${standalone.length === 0 ? 'PASS' : `${standalone.length} FAILURES`}`
   );
   standalone.forEach(f => console.log(`   ${f.gate} ${f.detail}`));
 

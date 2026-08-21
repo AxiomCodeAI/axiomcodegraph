@@ -7,4 +7,5 @@ export { PyMethodRegistry, PyMethodRegistryBuilder } from '@/analysis-types/pyth
 export { PyModuleRegistry, PyModuleRegistryBuilder } from '@/analysis-types/python/PyModuleRegistry';
 export { PyScopeRegistry, PyScopeRegistryBuilder } from '@/analysis-types/python/PyScopeRegistry';
 export { PyTypeBaseRegistry, PyTypeBaseRegistryBuilder } from '@/analysis-types/python/PyTypeBaseRegistry';
+export { PyTypeReferenceRegistry, PyTypeReferenceRegistryBuilder } from '@/analysis-types/python/PyTypeReferenceRegistry';
 export { PyTypeRegistry, PyTypeRegistryBuilder } from '@/analysis-types/python/PyTypeRegistry';

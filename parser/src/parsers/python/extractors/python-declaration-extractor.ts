@@ -29,6 +29,11 @@ import {
   PythonTypeModifier,
   PythonTypePlacement,
 } from '@/enums/python/types';
+import {
+  PythonTypeRefContext,
+  PythonTypeRefOwnerKind,
+} from '@/enums/python/type-references';
+import { TypePositionInput } from '@/parsers/python/extractors/python-type-reference-extractor';
 import { EntityUtils } from '@/utils/entity-utils';
 import { PythonSourcePositions } from '@/utils/python';
 
@@ -168,6 +173,7 @@ export class PythonDeclarationExtractor {
   private classInitHashByNodeId = new Map<number, string>();
   private parameterDefaultByteRange = new Map<string, string>();
   private parameterHashByAnnotationRange = new Map<string, string>();
+  private typePositions: TypePositionInput[] = [];
   private lambdaMethodByNodeId = new Map<number, string>();
   private scopeOwnerByNodeId = new Map<number, string>();
   private enclosingMethodByScopeNodeId = new Map<number, string>();
@@ -184,6 +190,7 @@ export class PythonDeclarationExtractor {
     this.classInitHashByNodeId = new Map();
     this.parameterDefaultByteRange = new Map();
     this.parameterHashByAnnotationRange = new Map();
+    this.typePositions = [];
     this.lambdaMethodByNodeId = new Map();
     this.scopeOwnerByNodeId = new Map();
     this.enclosingMethodByScopeNodeId = new Map();
@@ -225,6 +232,7 @@ export class PythonDeclarationExtractor {
       moduleMethodHash: moduleInit.getHash(),
       parameterDefaultByteRange: this.parameterDefaultByteRange,
       parameterHashByAnnotationRange: this.parameterHashByAnnotationRange,
+      typePositions: this.typePositions,
       lambdaMethodByNodeId: this.lambdaMethodByNodeId,
       scopeOwnerByNodeId: this.scopeOwnerByNodeId,
       enclosingMethodByScopeNodeId: this.enclosingMethodByScopeNodeId,
@@ -474,6 +482,14 @@ export class PythonDeclarationExtractor {
           `${annotationNode.startIndex}:${annotationNode.endIndex}`,
           row.getHash()
         );
+        this.typePositions.push({
+          node: annotationNode,
+          context: PythonTypeRefContext.METHOD_PARAM,
+          ownerHash: row.getHash(),
+          ownerKind: PythonTypeRefOwnerKind.METHOD_PARAM,
+          enclosingTypeHash: context.enclosingTypeHash,
+          scopeHash,
+        });
       }
       this.methodParameters.push(row);
     }
@@ -534,6 +550,39 @@ export class PythonDeclarationExtractor {
       case 'import_from_statement':
       case 'future_import_statement': {
         this.visitImport(node, context);
+        return;
+      }
+
+      case 'expression_statement': {
+        // An annotated assignment is a type position too: `total: TypeC = None`.
+        // Its owner is the BINDING the name creates, so the engine can go from a
+        // variable to the types its declared type references.
+        for (let i = 0; i < node.namedChildCount; i++) {
+          const inner = node.namedChild(i);
+          if (inner?.type !== 'assignment') {
+            continue;
+          }
+          const target = inner.childForFieldName('left');
+          const annotation = inner.childForFieldName('type');
+          if (!annotation || target?.type !== 'identifier') {
+            continue;
+          }
+          const bindingHash = this.input.bindingHashByScopeAndName.get(
+            `${context.bindingScopeHash}::${target.text}`
+          );
+          if (!bindingHash) {
+            continue;
+          }
+          this.typePositions.push({
+            node: annotation,
+            context: PythonTypeRefContext.VARIABLE_ANNOTATION,
+            ownerHash: bindingHash,
+            ownerKind: PythonTypeRefOwnerKind.BINDING,
+            enclosingTypeHash: context.enclosingTypeHash,
+            scopeHash: context.bindingScopeHash,
+          });
+        }
+        this.visitBody(node, context);
         return;
       }
 
@@ -816,7 +865,19 @@ export class PythonDeclarationExtractor {
       if (base.position !== null) {
         builder.withPosition(base.position);
       }
-      this.typeBases.push(builder.build());
+      const row = builder.build();
+      this.typeBases.push(row);
+      this.typePositions.push({
+        node: base.node,
+        context:
+          base.keywordName === 'metaclass'
+            ? PythonTypeRefContext.METACLASS
+            : PythonTypeRefContext.BASE_CLASS,
+        ownerHash: row.getHash(),
+        ownerKind: PythonTypeRefOwnerKind.TYPE_BASE,
+        enclosingTypeHash: type.getHash(),
+        scopeHash: '',
+      });
     }
   }
 
@@ -1141,6 +1202,19 @@ export class PythonDeclarationExtractor {
 
     this.methods.push(method);
     this.methodHashByNodeId.set(node.id, method.getHash());
+    if (returnTypeNode) {
+      // The one type position that has NO home on the spine: py_method carries
+      // returnTypeName as text with no resolved counterpart, so without this the
+      // return type is reachable only through the expression tree.
+      this.typePositions.push({
+        node: returnTypeNode,
+        context: PythonTypeRefContext.METHOD_RETURN,
+        ownerHash: method.getHash(),
+        ownerKind: PythonTypeRefOwnerKind.METHOD,
+        enclosingTypeHash: context.enclosingTypeHash,
+        scopeHash,
+      });
+    }
     this.scopeOwnerByNodeId.set(node.id, method.getHash());
     this.enclosingMethodByScopeNodeId.set(node.id, method.getHash());
     method.setDeclaringBindingLinkHash(
@@ -1346,6 +1420,14 @@ export class PythonDeclarationExtractor {
           `${annotationNode.startIndex}:${annotationNode.endIndex}`,
           row.getHash()
         );
+        this.typePositions.push({
+          node: annotationNode,
+          context: PythonTypeRefContext.METHOD_PARAM,
+          ownerHash: row.getHash(),
+          ownerKind: PythonTypeRefOwnerKind.METHOD_PARAM,
+          enclosingTypeHash: context.enclosingTypeHash,
+          scopeHash,
+        });
       }
       this.methodParameters.push(row);
     }

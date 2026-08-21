@@ -7,6 +7,7 @@ import {
   PyMethodRegistry,
   PyScopeRegistry,
   PyTypeBaseRegistry,
+  PyTypeReferenceRegistry,
   PyTypeRegistry,
 } from '@/analysis-types/python';
 import { PythonReceiverKind, PythonResolvedCalleeKind } from '@/enums/python/call-sites';
@@ -48,6 +49,7 @@ export interface ResolutionInput {
   imports: PyImportRegistry[];
   callSites: PyCallSiteRegistry[];
   expressions: PyExpressionRegistry[];
+  typeReferences: PyTypeReferenceRegistry[];
 }
 
 /**
@@ -383,6 +385,7 @@ export class PythonResolutionLinker {
       // Annotations get a second pass too: `a: CustomTypeA` where CustomTypeA is
       // imported can only resolve once the import graph exists.
       this.resolveAnnotations(module, typesByName);
+      this.resolveTypeReferences(module, typesByName);
       this.linkNameReferences(module, {
         entityByBinding,
         bindingByScopeAndName,
@@ -413,6 +416,29 @@ export class PythonResolutionLinker {
     }
 
     return stats;
+  }
+
+  /**
+   * Resolves `py_type_reference.referencedTypeLinkHash`.
+   *
+   * Every node in the tree resolves independently, which is the point: for
+   * `Dict[TypeA, TypeB]` the `Dict` row stays unresolved (external) while the two
+   * argument rows each reach their own `py_type`. A single slot on the parameter
+   * could only ever have recorded one of the three.
+   */
+  private resolveTypeReferences(
+    input: ResolutionInput,
+    typeByName: Map<string, PyTypeRegistry | null>
+  ): void {
+    for (const reference of input.typeReferences) {
+      if (reference.getReferencedTypeLinkHash() !== '') {
+        continue;
+      }
+      const target = typeByName.get(reference.getTypeName());
+      if (target) {
+        reference.setReferencedTypeLinkHash(target.getHash());
+      }
+    }
   }
 
   /**
@@ -603,6 +629,7 @@ export class PythonResolutionLinker {
     // Bases first: MRO resolution depends on them.
     this.resolveTypeBases(input, typesByName);
     this.resolveAnnotations(input, typesByName);
+    this.resolveTypeReferences(input, typesByName);
 
     const basesByType = new Map<string, PyTypeBaseRegistry[]>();
     for (const base of input.typeBases) {

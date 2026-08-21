@@ -103,6 +103,7 @@ export class PythonProjectAnalyzer {
       imports: [] as { toCsv(): string; getCsvHeader(): string }[],
       expressions: [] as { toCsv(): string; getCsvHeader(): string }[],
       callSites: [] as { toCsv(): string; getCsvHeader(): string }[],
+      typeReferences: [] as { toCsv(): string; getCsvHeader(): string }[],
     };
 
     // Per-module facts, kept so the cross-module pass can run over all of them
@@ -158,6 +159,7 @@ export class PythonProjectAnalyzer {
       accumulated.imports.push(...facts.imports);
       accumulated.expressions.push(...facts.expressions);
       accumulated.callSites.push(...facts.callSites);
+      accumulated.typeReferences.push(...facts.typeReferences);
 
       perModule.push({
         qualifiedName: facts.module.getQualifiedName(),
@@ -171,6 +173,7 @@ export class PythonProjectAnalyzer {
         imports: facts.imports,
         callSites: facts.callSites,
         expressions: facts.expressions,
+        typeReferences: facts.typeReferences,
       });
     }
 
@@ -193,6 +196,11 @@ export class PythonProjectAnalyzer {
     await this.exportCsv(accumulated.imports, options.outputDir, PYTHON_CSV_FILES.IMPORTS);
     await this.exportCsv(accumulated.expressions, options.outputDir, PYTHON_CSV_FILES.EXPRESSIONS);
     await this.exportCsv(accumulated.callSites, options.outputDir, PYTHON_CSV_FILES.CALL_SITES);
+    await this.exportCsv(
+      accumulated.typeReferences,
+      options.outputDir,
+      PYTHON_CSV_FILES.TYPE_REFERENCES
+    );
     await this.exportSkippedFilesCsv(options.outputDir);
 
     return {
@@ -211,6 +219,7 @@ export class PythonProjectAnalyzer {
         py_import: accumulated.imports.length,
         py_expression: accumulated.expressions.length,
         py_call_site: accumulated.callSites.length,
+        py_type_reference: accumulated.typeReferences.length,
       },
     };
   }

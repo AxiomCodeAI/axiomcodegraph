@@ -87,5 +87,6 @@ export const PYTHON_CSV_FILES = {
   IMPORTS: 'all-python-imports.csv',
   EXPRESSIONS: 'all-python-expressions.csv',
   CALL_SITES: 'all-python-call-sites.csv',
+  TYPE_REFERENCES: 'all-python-type-references.csv',
   SKIPPED_FILES: 'skipped-python-files.csv',
 } as const;

@@ -10,6 +10,7 @@ import {
   PyModuleRegistry,
   PyScopeRegistry,
   PyTypeBaseRegistry,
+  PyTypeReferenceRegistry,
   PyTypeRegistry,
 } from '@/analysis-types/python';
 import { PythonBindingTargetKind } from '@/enums/python/bindings';
@@ -19,6 +20,7 @@ import { SkippedFileReason } from '@/enums/SkippedFileReason';
 import { PythonDeclarationExtractor } from '@/parsers/python/extractors/python-declaration-extractor';
 import { PythonExpressionExtractor } from '@/parsers/python/extractors/python-expression-extractor';
 import { PythonResolutionLinker } from '@/parsers/python/extractors/python-resolution-linker';
+import { PythonTypeReferenceExtractor } from '@/parsers/python/extractors/python-type-reference-extractor';
 import {
   PythonExtractionInput,
   PythonModuleExtraction,
@@ -39,6 +41,11 @@ export interface PythonFactSet {
   imports: PyImportRegistry[];
   expressions: PyExpressionRegistry[];
   callSites: PyCallSiteRegistry[];
+  /**
+   * Type references — the nested tree that links `Dict[TypeA, TypeB]` to all
+   * three types with parent/position/depth.
+   */
+  typeReferences: PyTypeReferenceRegistry[];
 
   dialect: PythonDialect;
   /** Present only for a rejected file. */
@@ -68,6 +75,7 @@ export class PythonFactExtractor {
   private declarationExtractor: PythonDeclarationExtractor;
   private expressionExtractor: PythonExpressionExtractor;
   private resolutionLinker: PythonResolutionLinker;
+  private typeReferenceExtractor: PythonTypeReferenceExtractor;
   /** The parameter rows of the file being processed, for default-value linking. */
   private lastParameters: PyMethodParameterRegistry[] = [];
 
@@ -75,12 +83,15 @@ export class PythonFactExtractor {
     scopeExtractor?: PythonScopeExtractor,
     declarationExtractor?: PythonDeclarationExtractor,
     expressionExtractor?: PythonExpressionExtractor,
-    resolutionLinker?: PythonResolutionLinker
+    resolutionLinker?: PythonResolutionLinker,
+    typeReferenceExtractor?: PythonTypeReferenceExtractor
   ) {
     this.scopeExtractor = scopeExtractor ?? new PythonScopeExtractor();
     this.declarationExtractor = declarationExtractor ?? new PythonDeclarationExtractor();
     this.expressionExtractor = expressionExtractor ?? new PythonExpressionExtractor();
     this.resolutionLinker = resolutionLinker ?? new PythonResolutionLinker();
+    this.typeReferenceExtractor =
+      typeReferenceExtractor ?? new PythonTypeReferenceExtractor();
   }
 
   extract(input: PythonExtractionInput): PythonFactSet {
@@ -97,6 +108,7 @@ export class PythonFactExtractor {
         imports: [],
         expressions: [],
         callSites: [],
+        typeReferences: [],
         dialect: scopeStage.dialect,
         skippedReason: SkippedFileReason.PY2_CONSTRUCT_DETECTED,
         python2Findings: scopeStage.python2Findings,
@@ -141,6 +153,12 @@ export class PythonFactExtractor {
     // Intra-module resolution runs last, once every entity it can point at
     // exists. Cross-module resolution is the project pass's job: it needs the
     // module graph, which a single-file extraction does not have.
+    const typeReferences = this.typeReferenceExtractor.extract({
+      positions: declarations.typePositions,
+      pyModuleLinkHash: scopeStage.module.getHash(),
+      serviceVersionLinkHash: input.serviceVersionLinkHash,
+    });
+
     this.resolutionLinker.link({
       scopes: scopeStage.scopes,
       bindings: scopeStage.bindings,
@@ -151,6 +169,7 @@ export class PythonFactExtractor {
       imports: declarations.imports,
       callSites: expressionStage.callSites,
       expressions: expressionStage.expressions,
+      typeReferences,
     });
 
     this.linkScopeOwners(scopeStage, declarations);
@@ -168,6 +187,7 @@ export class PythonFactExtractor {
       imports: declarations.imports,
       expressions: expressionStage.expressions,
       callSites: expressionStage.callSites,
+      typeReferences,
       dialect: scopeStage.dialect,
       python2Findings: [],
     };
