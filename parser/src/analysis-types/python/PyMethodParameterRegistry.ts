@@ -141,6 +141,17 @@ export class PyMethodParameterRegistry implements EntityIdentifiable {
     this.bindingLinkHash = bindingLinkHash;
   }
 
+  /**
+   * Back-patches the FK to the default value's expression root.
+   *
+   * The parameter row is minted by the declaration stage and the default's
+   * expression tree by the expression stage, so the two are joined afterwards on
+   * the default's byte range.
+   */
+  setPyExpressionLinkHash(pyExpressionLinkHash: string): void {
+    this.pyExpressionLinkHash = pyExpressionLinkHash;
+  }
+
   getServiceVersionLinkHash(): string {
     return this.serviceVersionLinkHash;
   }

@@ -426,6 +426,42 @@ function invariants(file: string, facts: ReturnType<typeof extract>): Failure[] 
     failures.push({ gate: 'INVARIANT', detail: `#8 expected 1 scope root, got ${roots.length}` });
   }
 
+  // #1, strengthened: an FK that is back-patched must be present exactly when
+  // its discriminator says it should be. A silently-empty FK is worse than a
+  // dangling one, because integrity checks skip empty values — so "always
+  // empty" passes invariant #1 while breaking every join that needs it.
+  for (const scope of facts.scopes) {
+    if (scope.toCsv().split('\t')[7] === '') {
+      failures.push({ gate: 'INVARIANT', detail: `#1 py_scope.ownerHash empty (discriminator claims an owner)` });
+    }
+  }
+  for (const binding of facts.bindings) {
+    if (binding.toCsv().split('\t')[25] === '') {
+      failures.push({
+        gate: 'INVARIANT',
+        detail: `#1 py_binding.pyMethodLinkHash empty — local-flow.dl ports through this column`,
+      });
+    }
+  }
+  for (const call of facts.callSites) {
+    const cols = call.toCsv().split('\t');
+    if ((cols[4] !== 'NONE') !== (cols[6] !== '')) {
+      failures.push({
+        gate: 'INVARIANT',
+        detail: `#1 py_call_site receiverKind=${cols[4]} but receiverExpressionLinkHash ${cols[6] ? 'set' : 'empty'}`,
+      });
+    }
+  }
+  for (const parameter of facts.methodParameters) {
+    const cols = parameter.toCsv().split('\t');
+    if ((cols[13] === 'true') !== (cols[19] !== '')) {
+      failures.push({
+        gate: 'INVARIANT',
+        detail: `#1 py_method_parameter hasDefault=${cols[13]} but pyExpressionLinkHash ${cols[19] ? 'set' : 'empty'}`,
+      });
+    }
+  }
+
   // #5 byte-identical output across runs
   const serialize = (f: ReturnType<typeof extract>) => [
     [f.module!], f.scopes, f.bindings, f.types, f.typeBases, f.methods,

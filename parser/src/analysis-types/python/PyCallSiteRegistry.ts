@@ -174,6 +174,18 @@ export class PyCallSiteRegistry implements EntityIdentifiable {
     return this.startLine;
   }
 
+  /**
+   * Back-patches the receiver's expression FK.
+   *
+   * The call site is minted when the CALL node is emitted, which is before its
+   * children exist, so the receiver's PK is not yet known. Patched afterwards
+   * rather than reordering emission, because the call's own PK must be stable
+   * for the children to chain off it.
+   */
+  setReceiverExpressionLinkHash(receiverExpressionLinkHash: string): void {
+    this.receiverExpressionLinkHash = receiverExpressionLinkHash;
+  }
+
   /** Back-patches parser-local callee resolution. */
   setResolvedCallee(
     resolvedCalleeKind: PythonResolvedCalleeKind,

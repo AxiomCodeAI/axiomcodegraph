@@ -46,6 +46,24 @@ export interface PythonDeclarationExtraction {
   classInitHashByNodeId: Map<number, string>;
   /** The synthetic `<module>` method PK — the fallback expression owner. */
   moduleMethodHash: string;
+  /**
+   * `py_method_parameter` PK -> the `startIndex:endIndex` of its default-value
+   * expression. Joined against the expression stage's byte-range index, since
+   * the two stages mint their rows independently.
+   */
+  parameterDefaultByteRange: Map<string, string>;
+  /**
+   * Scope-introducing `node.id` -> the PK of the entity that OWNS that scope: a
+   * `py_type` for a class body, a `py_method` for a function or lambda. Used to
+   * back-patch `py_scope.ownerHash`, which cannot be known when the scope row is
+   * minted because the declaration does not exist yet.
+   */
+  scopeOwnerByNodeId: Map<number, string>;
+  /**
+   * Scope-introducing `node.id` -> the enclosing `py_method` PK, for
+   * `py_binding.pyMethodLinkHash`.
+   */
+  enclosingMethodByScopeNodeId: Map<number, string>;
 }
 
 export interface PythonDeclarationInput {
@@ -124,6 +142,9 @@ export class PythonDeclarationExtractor {
   private methodHashByNodeId = new Map<number, string>();
   private typeHashByNodeId = new Map<number, string>();
   private classInitHashByNodeId = new Map<number, string>();
+  private parameterDefaultByteRange = new Map<string, string>();
+  private scopeOwnerByNodeId = new Map<number, string>();
+  private enclosingMethodByScopeNodeId = new Map<number, string>();
 
   extract(input: PythonDeclarationInput): PythonDeclarationExtraction {
     this.input = input;
@@ -135,10 +156,17 @@ export class PythonDeclarationExtractor {
     this.methodHashByNodeId = new Map();
     this.typeHashByNodeId = new Map();
     this.classInitHashByNodeId = new Map();
+    this.parameterDefaultByteRange = new Map();
+    this.scopeOwnerByNodeId = new Map();
+    this.enclosingMethodByScopeNodeId = new Map();
 
     const moduleScopeHash = input.scopeHashByNodeId.get(input.rootNode.id) ?? '';
     const moduleInit = this.emitModuleInitializer(moduleScopeHash);
     input.module.setModuleInitMethodLinkHash(moduleInit.getHash());
+    // The module scope is owned by the module itself, and module-level bindings
+    // belong to the synthetic <module> method.
+    this.scopeOwnerByNodeId.set(input.rootNode.id, input.module.getHash());
+    this.enclosingMethodByScopeNodeId.set(input.rootNode.id, moduleInit.getHash());
 
     this.visitBody(input.rootNode, {
       enclosingTypeHash: '',
@@ -162,6 +190,9 @@ export class PythonDeclarationExtractor {
       typeHashByNodeId: this.typeHashByNodeId,
       classInitHashByNodeId: this.classInitHashByNodeId,
       moduleMethodHash: moduleInit.getHash(),
+      parameterDefaultByteRange: this.parameterDefaultByteRange,
+      scopeOwnerByNodeId: this.scopeOwnerByNodeId,
+      enclosingMethodByScopeNodeId: this.enclosingMethodByScopeNodeId,
     };
   }
 
@@ -369,6 +400,7 @@ export class PythonDeclarationExtractor {
 
     this.types.push(type);
     this.typeHashByNodeId.set(node.id, type.getHash());
+    this.scopeOwnerByNodeId.set(node.id, type.getHash());
     type.setDeclaringBindingLinkHash(
       this.input.bindingHashByScopeAndName.get(
         `${context.bindingScopeHash}::${className}`
@@ -380,6 +412,8 @@ export class PythonDeclarationExtractor {
     const classInit = this.emitClassInitializer(node, type, classScopeHash);
     type.setClassInitMethodLinkHash(classInit.getHash());
     this.classInitHashByNodeId.set(node.id, classInit.getHash());
+    // Class-body bindings belong to the synthetic <classbody> method.
+    this.enclosingMethodByScopeNodeId.set(node.id, classInit.getHash());
 
     if (!bodyNode) {
       return;
@@ -778,6 +812,8 @@ export class PythonDeclarationExtractor {
 
     this.methods.push(method);
     this.methodHashByNodeId.set(node.id, method.getHash());
+    this.scopeOwnerByNodeId.set(node.id, method.getHash());
+    this.enclosingMethodByScopeNodeId.set(node.id, method.getHash());
     method.setDeclaringBindingLinkHash(
       this.input.bindingHashByScopeAndName.get(
         `${context.bindingScopeHash}::${functionName}`
@@ -954,7 +990,20 @@ export class PythonDeclarationExtractor {
           this.defaultValueKindOf(parameter.defaultNode)
         );
       }
-      this.methodParameters.push(builder.build());
+      const row = builder.build();
+      if (parameter.defaultNode) {
+        // Unwrap parentheses before recording the range. The expression stage
+        // treats a parenthesized_expression as transparent and emits a row for
+        // the expression INSIDE it, so recording the outer node's range here
+        // would make the two stages describe different nodes and the join would
+        // silently find nothing — as it did for `def f(seed=(computed := 42))`.
+        const defaultNode = this.unwrapParentheses(parameter.defaultNode);
+        this.parameterDefaultByteRange.set(
+          row.getHash(),
+          `${defaultNode.startIndex}:${defaultNode.endIndex}`
+        );
+      }
+      this.methodParameters.push(row);
     }
   }
 
@@ -995,6 +1044,19 @@ export class PythonDeclarationExtractor {
     decoratorNames: string[]
   ): boolean {
     return this.receiverIndexOf(parameters, context, decoratorNames) >= 0;
+  }
+
+  /** Strips redundant parentheses, which carry no expression of their own. */
+  private unwrapParentheses(node: Parser.SyntaxNode): Parser.SyntaxNode {
+    let current = node;
+    while (current.type === 'parenthesized_expression') {
+      const inner = current.namedChild(0);
+      if (!inner) {
+        return current;
+      }
+      current = inner;
+    }
+    return current;
   }
 
   private defaultValueKindOf(node: Parser.SyntaxNode): PythonDefaultValueKind {

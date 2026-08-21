@@ -12,12 +12,15 @@ import {
   PyTypeBaseRegistry,
   PyTypeRegistry,
 } from '@/analysis-types/python';
+import { PythonBindingTargetKind } from '@/enums/python/bindings';
 import { PythonDialect } from '@/enums/python/modules';
+import { PythonScopeOwnerKind } from '@/enums/python/scopes';
 import { SkippedFileReason } from '@/enums/SkippedFileReason';
 import { PythonDeclarationExtractor } from '@/parsers/python/extractors/python-declaration-extractor';
 import { PythonExpressionExtractor } from '@/parsers/python/extractors/python-expression-extractor';
 import {
   PythonExtractionInput,
+  PythonModuleExtraction,
   PythonScopeExtractor,
 } from '@/parsers/python/extractors/python-scope-extractor';
 import { Python2Finding } from '@/types/python';
@@ -63,6 +66,8 @@ export class PythonFactExtractor {
   private scopeExtractor: PythonScopeExtractor;
   private declarationExtractor: PythonDeclarationExtractor;
   private expressionExtractor: PythonExpressionExtractor;
+  /** The parameter rows of the file being processed, for default-value linking. */
+  private lastParameters: PyMethodParameterRegistry[] = [];
 
   constructor(
     scopeExtractor?: PythonScopeExtractor,
@@ -106,6 +111,8 @@ export class PythonFactExtractor {
       qualifiedNameByNodeId: scopeStage.qualifiedNameByNodeId,
     });
 
+    this.lastParameters = declarations.methodParameters;
+
     const expressionStage = this.expressionExtractor.extract({
       module: scopeStage.module,
       rootNode: scopeStage.rootNode,
@@ -117,6 +124,15 @@ export class PythonFactExtractor {
       moduleMethodHash: declarations.moduleMethodHash,
       classInitHashByNodeId: declarations.classInitHashByNodeId,
     });
+
+    // ---- back-patching --------------------------------------------------
+    // Three FKs cannot be set when their row is minted, because the entity they
+    // point at does not exist yet. Accumulate-then-export makes patching free:
+    // nothing has been written, and none of these columns is part of a primary
+    // key, so no hash changes.
+    this.linkScopeOwners(scopeStage, declarations);
+    this.linkBindingMethods(scopeStage, declarations);
+    this.linkParameterDefaults(declarations, expressionStage);
 
     return {
       module: scopeStage.module,
@@ -132,5 +148,134 @@ export class PythonFactExtractor {
       dialect: scopeStage.dialect,
       python2Findings: [],
     };
+  }
+
+  /**
+   * Sets `py_scope.ownerHash`, the polymorphic owner FK.
+   *
+   * Without this the discriminator lies: `ownerKind` would say `TYPE` while
+   * `ownerHash` was empty, so invariant #1 could not resolve the FK in the
+   * relation the discriminator names.
+   */
+  private linkScopeOwners(
+    scopeStage: PythonModuleExtraction,
+    declarations: { scopeOwnerByNodeId: Map<number, string> }
+  ): void {
+    const ownerByScopeHash = new Map<string, string>();
+    for (const [nodeId, ownerHash] of declarations.scopeOwnerByNodeId) {
+      const scopeHash = scopeStage.scopeHashByNodeId.get(nodeId);
+      if (scopeHash) {
+        ownerByScopeHash.set(scopeHash, ownerHash);
+      }
+    }
+    for (const scope of scopeStage.scopes) {
+      const ownerHash = ownerByScopeHash.get(scope.getHash());
+      if (ownerHash) {
+        scope.setOwner(scope.getOwnerKind(), ownerHash);
+        continue;
+      }
+      // A comprehension or lambda scope has no declaration of its own beyond the
+      // method it sits in, so it inherits that method as its owner.
+      if (
+        scope.getOwnerKind() === PythonScopeOwnerKind.COMPREHENSION ||
+        scope.getOwnerKind() === PythonScopeOwnerKind.LAMBDA
+      ) {
+        const enclosing = this.enclosingMethodFor(scope, scopeStage, declarations);
+        if (enclosing) {
+          scope.setOwner(scope.getOwnerKind(), enclosing);
+        }
+      }
+    }
+  }
+
+  /**
+   * Sets `py_binding.pyMethodLinkHash` — the enclosing function.
+   *
+   * This is the `java_local_variable` column-13 analogue, which is what lets
+   * `local-flow.dl` port to Python by relation rename alone. Leaving it empty
+   * would silently break that port.
+   */
+  private linkBindingMethods(
+    scopeStage: PythonModuleExtraction,
+    declarations: { enclosingMethodByScopeNodeId: Map<number, string> }
+  ): void {
+    const methodByScopeHash = new Map<string, string>();
+    for (const [nodeId, methodHash] of declarations.enclosingMethodByScopeNodeId) {
+      const scopeHash = scopeStage.scopeHashByNodeId.get(nodeId);
+      if (scopeHash) {
+        methodByScopeHash.set(scopeHash, methodHash);
+      }
+    }
+    // A comprehension or lambda scope has no method row of its own, so its
+    // bindings belong to the nearest enclosing scope that does.
+    const parentByScopeHash = new Map<string, string>();
+    for (const scope of scopeStage.scopes) {
+      parentByScopeHash.set(scope.getHash(), scope.getParentScopeLinkHash());
+    }
+    for (const binding of scopeStage.bindings) {
+      let scopeHash: string | undefined = binding.getPyScopeLinkHash();
+      let methodHash = methodByScopeHash.get(scopeHash);
+      while (!methodHash && scopeHash) {
+        scopeHash = parentByScopeHash.get(scopeHash);
+        methodHash = scopeHash ? methodByScopeHash.get(scopeHash) : undefined;
+      }
+      if (methodHash) {
+        binding.setPyMethodLinkHash(methodHash);
+      }
+    }
+  }
+
+  /**
+   * Sets `py_method_parameter.pyExpressionLinkHash` — the default-value root.
+   *
+   * The two stages mint their rows independently, so they are joined on the
+   * default expression's BYTE RANGE. A byte range identifies a node uniquely,
+   * where a start offset alone does not.
+   */
+  private linkParameterDefaults(
+    declarations: { parameterDefaultByteRange: Map<string, string> },
+    expressionStage: { expressionByByteRange: Map<string, string> }
+  ): void {
+    if (declarations.parameterDefaultByteRange.size === 0) {
+      return;
+    }
+    for (const parameter of this.lastParameters) {
+      const range = declarations.parameterDefaultByteRange.get(parameter.getHash());
+      if (!range) {
+        continue;
+      }
+      const expressionHash = expressionStage.expressionByByteRange.get(range);
+      if (expressionHash) {
+        parameter.setPyExpressionLinkHash(expressionHash);
+      }
+    }
+  }
+
+  /** Walks up the scope chain to the nearest scope that owns a method row. */
+  private enclosingMethodFor(
+    scope: { getParentScopeLinkHash(): string },
+    scopeStage: PythonModuleExtraction,
+    declarations: { scopeOwnerByNodeId: Map<number, string> }
+  ): string | undefined {
+    const ownerByScopeHash = new Map<string, string>();
+    for (const [nodeId, ownerHash] of declarations.scopeOwnerByNodeId) {
+      const scopeHash = scopeStage.scopeHashByNodeId.get(nodeId);
+      if (scopeHash) {
+        ownerByScopeHash.set(scopeHash, ownerHash);
+      }
+    }
+    const parentByScopeHash = new Map<string, string>();
+    for (const s of scopeStage.scopes) {
+      parentByScopeHash.set(s.getHash(), s.getParentScopeLinkHash());
+    }
+    let current: string | undefined = scope.getParentScopeLinkHash();
+    while (current) {
+      const owner = ownerByScopeHash.get(current);
+      if (owner) {
+        return owner;
+      }
+      current = parentByScopeHash.get(current);
+    }
+    return undefined;
   }
 }

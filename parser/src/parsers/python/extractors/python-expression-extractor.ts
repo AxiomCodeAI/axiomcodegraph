@@ -26,6 +26,19 @@ import { EntityUtils } from '@/utils/entity-utils';
 export interface PythonExpressionExtraction {
   expressions: PyExpressionRegistry[];
   callSites: PyCallSiteRegistry[];
+  /**
+   * `startIndex:endIndex` -> the PK of the expression emitted for that byte
+   * range, for EVERY expression rather than only tree roots.
+   *
+   * Keyed on the byte range because that is what identifies a node: a start
+   * offset alone collides for nested calls. Lets a later stage join to an
+   * expression it did not create — a parameter's default-value root, say —
+   * without re-walking the tree or guessing from spans.
+   *
+   * Not restricted to roots: a lambda's parameter default is emitted as a CHILD
+   * of the lambda expression, so a roots-only index silently fails to link it.
+   */
+  expressionByByteRange: Map<string, string>;
 }
 
 export interface PythonExpressionInput {
@@ -124,12 +137,18 @@ export class PythonExpressionExtractor {
   private expressions: PyExpressionRegistry[] = [];
   private callSites: PyCallSiteRegistry[] = [];
   private worklist: PendingExpression[] = [];
+  /** Call-site PK -> the byte range of its receiver, resolved after the walk. */
+  private pendingReceiverLinks: { callSite: PyCallSiteRegistry; range: string }[] = [];
+  /** Byte range -> PK, for every expression emitted. */
+  private expressionByByteRange = new Map<string, string>();
 
   extract(input: PythonExpressionInput): PythonExpressionExtraction {
     this.input = input;
     this.expressions = [];
     this.callSites = [];
     this.worklist = [];
+    this.expressionByByteRange = new Map();
+    this.pendingReceiverLinks = [];
 
     const moduleScopeHash = input.scopeHashByNodeId.get(input.rootNode.id) ?? '';
     this.visitStatements(input.rootNode, {
@@ -145,7 +164,20 @@ export class PythonExpressionExtractor {
       statementRootContext: PythonRootContext.MODULE_LEVEL_STATEMENT,
     });
 
-    return { expressions: this.expressions, callSites: this.callSites };
+    // The receiver's PK does not exist when its call site is minted, so the FK
+    // is resolved here, once every expression has been emitted.
+    for (const link of this.pendingReceiverLinks) {
+      const hash = this.expressionByByteRange.get(link.range);
+      if (hash) {
+        link.callSite.setReceiverExpressionLinkHash(hash);
+      }
+    }
+
+    return {
+      expressions: this.expressions,
+      callSites: this.callSites,
+      expressionByByteRange: this.expressionByByteRange,
+    };
   }
 
   // ---------------------------------------------------------- statement walk
@@ -843,6 +875,11 @@ export class PythonExpressionExtractor {
     const expression = builder.build();
     this.expressions.push(expression);
 
+    this.expressionByByteRange.set(
+      `${node.startIndex}:${node.endIndex}`,
+      expression.getHash()
+    );
+
     if (kind === PythonExpressionKind.CALL) {
       this.emitCallSite(node, expression, pending);
     }
@@ -1469,6 +1506,12 @@ export class PythonExpressionExtractor {
       .build();
 
     this.callSites.push(callSite);
+    if (receiver.node) {
+      this.pendingReceiverLinks.push({
+        callSite,
+        range: `${receiver.node.startIndex}:${receiver.node.endIndex}`,
+      });
+    }
   }
 
   private summarizeArguments(args: Parser.SyntaxNode | null): {
@@ -1537,16 +1580,16 @@ export class PythonExpressionExtractor {
   private classifyReceiver(
     fn: Parser.SyntaxNode | null,
     pending: PendingExpression
-  ): { kind: PythonReceiverKind; text: string } {
+  ): { kind: PythonReceiverKind; text: string; node: Parser.SyntaxNode | null } {
     if (!fn) {
-      return { kind: PythonReceiverKind.UNKNOWN, text: '' };
+      return { kind: PythonReceiverKind.UNKNOWN, text: '', node: null };
     }
     if (fn.type !== 'attribute') {
-      return { kind: PythonReceiverKind.NONE, text: '' };
+      return { kind: PythonReceiverKind.NONE, text: '', node: null };
     }
     let object = fn.childForFieldName('object');
     if (!object) {
-      return { kind: PythonReceiverKind.UNKNOWN, text: '' };
+      return { kind: PythonReceiverKind.UNKNOWN, text: '', node: null };
     }
     const text = EntityUtils.normalizeWhitespace(object.text);
     // A parenthesised receiver is the same receiver. Multi-line string
@@ -1565,24 +1608,25 @@ export class PythonExpressionExtractor {
           return {
             kind: pending.receiverIsClass ? PythonReceiverKind.CLS : PythonReceiverKind.SELF,
             text,
+            node: object,
           };
         }
-        return { kind: PythonReceiverKind.NAME, text };
+        return { kind: PythonReceiverKind.NAME, text, node: object };
       }
       case 'attribute': {
-        return { kind: PythonReceiverKind.ATTRIBUTE, text };
+        return { kind: PythonReceiverKind.ATTRIBUTE, text, node: object };
       }
       case 'call': {
         // `super()` is a call result, but a special one: it is an MRO-ordered
         // lookup sliced after the enclosing class, not virtual dispatch.
         const inner = object.childForFieldName('function');
         if (inner?.text === 'super') {
-          return { kind: PythonReceiverKind.SUPER, text };
+          return { kind: PythonReceiverKind.SUPER, text, node: object };
         }
-        return { kind: PythonReceiverKind.CALL_RESULT, text };
+        return { kind: PythonReceiverKind.CALL_RESULT, text, node: object };
       }
       case 'subscript': {
-        return { kind: PythonReceiverKind.SUBSCRIPT, text };
+        return { kind: PythonReceiverKind.SUBSCRIPT, text, node: object };
       }
       case 'string':
       case 'concatenated_string':
@@ -1595,10 +1639,10 @@ export class PythonExpressionExtractor {
       case 'dictionary':
       case 'set':
       case 'tuple': {
-        return { kind: PythonReceiverKind.LITERAL, text };
+        return { kind: PythonReceiverKind.LITERAL, text, node: object };
       }
       default: {
-        return { kind: PythonReceiverKind.UNKNOWN, text };
+        return { kind: PythonReceiverKind.UNKNOWN, text, node: object };
       }
     }
   }
