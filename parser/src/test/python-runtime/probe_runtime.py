@@ -171,6 +171,25 @@ def _unwrap(raw):
     return raw
 
 
+def _attribute_owners(cls):
+    """For every method visible on the class, the class that actually provides it.
+
+    Walks `__mro__` in order and records the FIRST class whose own `__dict__`
+    carries the name — which is exactly what attribute lookup does, so this is
+    the override-resolution answer rather than an approximation of it. Restricted
+    to callables, since that is what dispatch cares about.
+    """
+    owners = {}
+    for base in getattr(cls, "__mro__", ()):
+        for member_name, raw in vars(base).items():
+            if member_name in owners:
+                continue
+            func = _unwrap(raw)
+            if inspect.isfunction(func) or inspect.iscoroutinefunction(func):
+                owners[member_name] = base.__name__
+    return owners
+
+
 def _line(obj):
     try:
         return inspect.getsourcelines(obj)[1]
@@ -198,6 +217,18 @@ def main():
                 "line": _line(obj),
                 "runtimeCategories": _categories(obj),
                 "runtimeModifiers": sorted(set(_modifiers(obj))),
+                # The MRO by NAME, and where each attribute actually resolves.
+                # This is CPython adjudicating inheritance and polymorphism
+                # directly: it is the real C3 order and the real "which class
+                # wins" answer, computed by the interpreter rather than by a
+                # second static implementation.
+                # Qualified by defining module: two classes in one MRO can share
+                # a NAME (a local `Codec` and an imported `codecs.Codec`), so a
+                # name-only comparison collides and reports [Codec > Codec].
+                "mro": [
+                    f"{b.__module__}.{b.__name__}" for b in getattr(obj, "__mro__", ())
+                ],
+                "attributeOwners": _attribute_owners(obj),
             })
             for member_name, raw in vars(obj).items():
                 func = _unwrap(raw)

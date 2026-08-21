@@ -811,6 +811,58 @@ function resolutionGate(facts: ReturnType<typeof extract>): Failure[] {
     }
   }
 
+  // ---- rule 4: every base that NAMES A TYPE must be linked to its twin
+  // py_type_reference. This is the assertion class that FK integrity cannot
+  // make: an empty FK is skipped by orphan checking, so a designed-but-never-
+  // populated link reports 0 orphans and looks healthy. §2.5 c9 is what
+  // type-hierarchy.dl traverses (base -> type_reference), so a Java rule ported
+  // across finds nothing without it.
+  const referenceByHash = new Map(facts.typeReferences.map(r => [r.getHash(), r]));
+  for (const base of facts.typeBases) {
+    const keyword = base.getKeywordName();
+    // A non-metaclass keyword such as `total=False` names a VALUE, not a type,
+    // so it correctly has no twin.
+    if (keyword !== '' && keyword !== 'metaclass') {
+      continue;
+    }
+    const twinHash = base.getPyTypeReferenceLinkHash();
+    if (twinHash === '') {
+      failures.push({
+        gate: 'INVARIANT',
+        detail: `py_type_base ${base.getBaseSimpleName() || base.getBaseText()} has no pyTypeReferenceLinkHash`,
+      });
+      continue;
+    }
+    const twin = referenceByHash.get(twinHash);
+    if (!twin) {
+      failures.push({
+        gate: 'INVARIANT',
+        detail: `py_type_base.pyTypeReferenceLinkHash does not resolve to a py_type_reference`,
+      });
+      continue;
+    }
+    const expectedContext = keyword === 'metaclass' ? 'METACLASS' : 'BASE_CLASS';
+    if (twin.getContext() !== expectedContext) {
+      failures.push({
+        gate: 'INVARIANT',
+        detail: `py_type_base twin has context ${twin.getContext()}, expected ${expectedContext}`,
+      });
+    }
+    if (base.getBaseSimpleName() !== '' && twin.getTypeName() !== base.getBaseSimpleName()) {
+      failures.push({
+        gate: 'INVARIANT',
+        detail:
+          `py_type_base twin typeName ${twin.getTypeName()} != baseSimpleName ${base.getBaseSimpleName()}`,
+      });
+    }
+    if (twin.getTypeReferenceOwnerHash() !== base.getHash()) {
+      failures.push({
+        gate: 'INVARIANT',
+        detail: `py_type_base twin does not point back at this base row`,
+      });
+    }
+  }
+
   // ---- rule 3: a base naming a class this module can REACH must be resolved
   // to it. Reachable means the same module, or through this module's own
   // py_import rows — which is the shape that was silently at 0%: 43 of 43

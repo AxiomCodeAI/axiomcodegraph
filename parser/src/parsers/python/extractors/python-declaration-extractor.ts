@@ -860,24 +860,58 @@ export class PythonDeclarationExtractor {
       )
         .withKeywordName(base.keywordName)
         .withIsDynamic(base.isDynamic)
-        .withNameParts(this.rightmostName(base.node), this.dottedPathOf(base.node));
+        .withNameParts(this.baseSimpleNameOf(base), this.dottedPathOf(base.node));
 
       if (base.position !== null) {
         builder.withPosition(base.position);
       }
       const row = builder.build();
       this.typeBases.push(row);
-      this.typePositions.push({
-        node: base.node,
-        context:
-          base.keywordName === 'metaclass'
-            ? PythonTypeRefContext.METACLASS
-            : PythonTypeRefContext.BASE_CLASS,
-        ownerHash: row.getHash(),
-        ownerKind: PythonTypeRefOwnerKind.TYPE_BASE,
-        enclosingTypeHash: type.getHash(),
-        scopeHash: '',
-      });
+      // A positional base and `metaclass=` name TYPES. Any other keyword —
+      // `total=False` on a TypedDict — is a value, so it gets no type reference
+      // and correspondingly no twin link.
+      if (base.keywordName === '' || base.keywordName === 'metaclass') {
+        this.typePositions.push({
+          node: base.node,
+          context:
+            base.keywordName === 'metaclass'
+              ? PythonTypeRefContext.METACLASS
+              : PythonTypeRefContext.BASE_CLASS,
+          ownerHash: row.getHash(),
+          ownerKind: PythonTypeRefOwnerKind.TYPE_BASE,
+          enclosingTypeHash: type.getHash(),
+          scopeHash: '',
+        });
+      }
+    }
+  }
+
+  /**
+   * `baseSimpleName` for a base, or `''` when the base is not name-shaped.
+   *
+   * §2.5 c3 says "rightmost identifier — `Mapping`; `\"\"` if not name-shaped",
+   * and a computed base is not name-shaped:
+   *
+   * ```python
+   * class _Method(_namedtuple('_Method', 'name ident')): ...   # CALL
+   * class _swapped_meta(type(Structure)): ...                  # CALL
+   * ```
+   *
+   * Returning the CALLEE's name for those would claim the class inherits from
+   * `_namedtuple` or `type`, when it inherits from whatever the call returned.
+   * The text is not lost — `baseText` keeps `_namedtuple('_Method', …)` verbatim
+   * and `isDynamic` marks it — but the NAME slot has to stay empty, or a
+   * name→type resolver will resolve it to the wrong thing.
+   */
+  private baseSimpleNameOf(base: BaseEntry): string {
+    switch (base.baseKind) {
+      case PythonBaseKind.CALL:
+      case PythonBaseKind.STARRED: {
+        return '';
+      }
+      default: {
+        return this.rightmostName(base.node);
+      }
     }
   }
 

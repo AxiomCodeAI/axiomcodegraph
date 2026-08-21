@@ -16,6 +16,7 @@ import {
 import { PythonBindingTargetKind } from '@/enums/python/bindings';
 import { PythonDialect } from '@/enums/python/modules';
 import { PythonScopeOwnerKind } from '@/enums/python/scopes';
+import { PythonTypeRefOwnerKind } from '@/enums/python/type-references';
 import { SkippedFileReason } from '@/enums/SkippedFileReason';
 import { PythonDeclarationExtractor } from '@/parsers/python/extractors/python-declaration-extractor';
 import { PythonExpressionExtractor } from '@/parsers/python/extractors/python-expression-extractor';
@@ -159,6 +160,8 @@ export class PythonFactExtractor {
       serviceVersionLinkHash: input.serviceVersionLinkHash,
     });
 
+    this.linkTypeBasesToTheirReferences(declarations.typeBases, typeReferences);
+
     this.resolutionLinker.link({
       scopes: scopeStage.scopes,
       bindings: scopeStage.bindings,
@@ -191,6 +194,41 @@ export class PythonFactExtractor {
       dialect: scopeStage.dialect,
       python2Findings: [],
     };
+  }
+
+  /**
+   * Links each `py_type_base` row to its twin `py_type_reference`.
+   *
+   * The two rows are created by different stages, so the FK can only be set
+   * afterwards. Both directions matter: the type-reference row already carries
+   * `typeReferenceOwnerHash` pointing AT the base, but §2.5 c9 is the reverse
+   * link, and `type-hierarchy.dl` traverses base → type_reference — so a rule
+   * ported from Java finds nothing without it.
+   *
+   * Only the DEPTH-0 reference is the twin. A nested argument such as the `T` in
+   * `class Box(Generic[T])` is owned by the same base row but is not the base's
+   * own reference.
+   */
+  private linkTypeBasesToTheirReferences(
+    typeBases: PyTypeBaseRegistry[],
+    typeReferences: PyTypeReferenceRegistry[]
+  ): void {
+    const rootByOwner = new Map<string, PyTypeReferenceRegistry>();
+    for (const reference of typeReferences) {
+      if (reference.getDepth() !== 0) {
+        continue;
+      }
+      if (reference.getReferenceOwnerKind() !== PythonTypeRefOwnerKind.TYPE_BASE) {
+        continue;
+      }
+      rootByOwner.set(reference.getTypeReferenceOwnerHash(), reference);
+    }
+    for (const base of typeBases) {
+      const twin = rootByOwner.get(base.getHash());
+      if (twin) {
+        base.setPyTypeReferenceLinkHash(twin.getHash());
+      }
+    }
   }
 
   /**

@@ -129,6 +129,21 @@ export class PyTypeBaseRegistry implements EntityIdentifiable {
     return this.isResolvedLocally;
   }
 
+  getPyTypeReferenceLinkHash(): string {
+    return this.pyTypeReferenceLinkHash;
+  }
+
+  /**
+   * Links this base to its twin `py_type_reference` row.
+   *
+   * §2.5 c9 calls it "the twin row that feeds the shared name→type resolver",
+   * and it is what `type-hierarchy.dl` traverses — base → type_reference — so a
+   * rule ported from Java finds nothing without it.
+   */
+  setPyTypeReferenceLinkHash(pyTypeReferenceLinkHash: string): void {
+    this.pyTypeReferenceLinkHash = pyTypeReferenceLinkHash;
+  }
+
   /**
    * Records that this base was resolved to a type in the same analysis.
    *
