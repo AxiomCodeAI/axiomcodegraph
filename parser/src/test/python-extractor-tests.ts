@@ -360,6 +360,73 @@ function gate2(oracle: any, facts: ReturnType<typeof extract>): Failure[] {
 }
 
 /**
+ * C3 MRO resolution, with targets verified against CPython's own `__mro__`.
+ *
+ * These are hard expectations rather than a consistency check, because the
+ * resolution gate cannot catch this class of defect: the gate only asserts when
+ * exactly ONE class in the closure declares the name, and every case here has
+ * two, which is precisely what makes the MRO ORDER decide the answer.
+ *
+ * The second case is the one that matters. Depth-first through `B` reaches
+ * `A.m` and stops; CPython's MRO is `D, B, C, A`, so the answer is `C.m` — `A`
+ * cannot come before `C` because it sits in `C`'s tail. An earlier version of
+ * the resolver was depth-first and got exactly this wrong while looking right on
+ * the simpler case above it.
+ */
+function mroResolutionTests(): Failure[] {
+  const failures: Failure[] = [];
+  const source = [
+    'class Base:',
+    '    def describe(self): return "base"',
+    'class Child(Base):',
+    '    def describe(self): return "child"',
+    'class Sibling:',
+    '    def describe(self): return "sibling"',
+    'class Mixed(Child, Sibling):',
+    '    def describe(self): return super().describe()',
+    'class A:',
+    '    def m(self): return "A"',
+    'class B(A):',
+    '    pass',
+    'class C(A):',
+    '    def m(self): return "C"',
+    'class D(B, C):',
+    '    def m(self): return super().m()',
+    '',
+  ].join('\n');
+
+  const facts = new PythonFactExtractor().extract({
+    sourceCode: source, filePath: 'mro.py', baseMservPath: '/repo',
+    serviceVersionLinkHash: SERVICE_VERSION,
+  });
+  const methodByHash = new Map(facts.methods.map(m => [m.getHash(), m.getQualifiedName()]));
+
+  // Verified with CPython: Mixed.__mro__ is (Mixed, Child, Base, Sibling, object)
+  // and D.__mro__ is (D, B, C, A, object).
+  const expected: Record<string, string> = {
+    describe: 'mro.Child.describe',
+    m: 'mro.C.m',
+  };
+  for (const [name, want] of Object.entries(expected)) {
+    const site = facts.callSites.find(
+      c => c.getReceiverKind() === 'SUPER' && c.getCalleeName() === name
+    );
+    if (!site) {
+      failures.push({ gate: 'INVARIANT', detail: `mro: no SUPER call site for ${name}` });
+      continue;
+    }
+    const got = methodByHash.get(site.getResolvedCalleeHash());
+    if (got !== want) {
+      failures.push({
+        gate: 'INVARIANT',
+        detail: `mro: super().${name}() must resolve to ${want} per CPython __mro__, got ${got ?? site.getResolvedCalleeKind()}`,
+      });
+    }
+  }
+  return failures;
+}
+
+/**
  * The RESOLUTION gate — a consistency invariant, not an oracle question.
  *
  * This exists because neither existing gate can see resolution at all. Gate 1
@@ -1372,11 +1439,12 @@ async function main(): Promise<void> {
     ...columnUnitTests(),
     ...extraNodeTests(),
     ...memberTypeTests(),
+    ...mroResolutionTests(),
     ...schemaDocumentTests(),
     ...(await analyzerTests()),
   ];
   console.log(
-    `\nPy2 rejection, parse limit, classification, column units, extras, member_type, schema arity, analyzer: ${standalone.length === 0 ? 'PASS' : `${standalone.length} FAILURES`}`
+    `\nPy2 rejection, parse limit, classification, column units, extras, member_type, C3 MRO, schema arity, analyzer: ${standalone.length === 0 ? 'PASS' : `${standalone.length} FAILURES`}`
   );
   standalone.forEach(f => console.log(`   ${f.gate} ${f.detail}`));
 

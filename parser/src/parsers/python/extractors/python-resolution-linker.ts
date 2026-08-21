@@ -22,6 +22,15 @@ export interface ProjectResolutionStats {
   callSitesResolved: number;
 }
 
+/** Shared lookup context for MRO-based resolution, with the MRO memoised. */
+interface MroContext {
+  typesByHash: Map<string, PyTypeRegistry>;
+  basesByType: Map<string, PyTypeBaseRegistry[]>;
+  methodsByTypeAndName: Map<string, PyMethodRegistry[]>;
+  /** typeHash -> its C3 linearisation, or null when it cannot be computed. */
+  mroCache: Map<string, string[] | null>;
+}
+
 /** Everything the linker needs from one module's fact set. */
 export interface ResolutionInput {
   scopes: PyScopeRegistry[];
@@ -54,10 +63,15 @@ const CALLABLE_BUILTINS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Names whose presence on a class makes attribute lookup undecidable.
+ * Names whose presence on a class makes a NEGATIVE attribute conclusion unsound.
  *
  * A class defining `__getattr__` can answer for attributes that appear nowhere
- * in the source, so "no method of that name" is not a sound conclusion about it.
+ * in the source, so "no method of that name" proves nothing about it. It does
+ * NOT undermine a positive finding: `__getattr__` is consulted only after normal
+ * lookup fails, so an explicitly declared method always wins. (`__getattribute__`
+ * does intercept unconditionally; the schema's position is to MARK that on the
+ * type via HAS_GETATTR rather than redesign around it, and the engine can act on
+ * the marker.)
  */
 const ATTRIBUTE_ESCAPE_HATCHES: ReadonlySet<string> = new Set([
   'HAS_GETATTR',
@@ -311,6 +325,9 @@ export class PythonResolutionLinker {
       methodsByTypeAndName.set(key, list);
     }
 
+    // One cache for the whole project: an MRO does not change per module.
+    const mroCache = new Map<string, string[] | null>();
+
     for (const module of modules) {
       const entityByBinding = new Map<string, PyMethodRegistry | PyTypeRegistry>();
       for (const method of module.methods) {
@@ -364,6 +381,7 @@ export class PythonResolutionLinker {
           typesByName,
           basesByType,
           methodsByTypeAndName,
+          mroCache,
           entityByBinding,
           bindingByScopeAndName,
           parentScopeOf,
@@ -496,6 +514,8 @@ export class PythonResolutionLinker {
       input.imports.filter(i => i.getIsModuleImport()).map(i => i.getSimpleName())
     );
 
+    const mroCache = new Map<string, string[] | null>();
+
     let resolved = 0;
     for (const callSite of input.callSites) {
       const target = this.resolveCallSite(callSite, {
@@ -503,6 +523,7 @@ export class PythonResolutionLinker {
         typesByName,
         basesByType,
         methodsByTypeAndName,
+        mroCache,
         entityByBinding,
         bindingByScopeAndName,
         parentScopeOf,
@@ -556,6 +577,7 @@ export class PythonResolutionLinker {
       typesByName: Map<string, PyTypeRegistry | null>;
       basesByType: Map<string, PyTypeBaseRegistry[]>;
       methodsByTypeAndName: Map<string, PyMethodRegistry[]>;
+      mroCache: Map<string, string[] | null>;
       entityByBinding: Map<string, PyMethodRegistry | PyTypeRegistry>;
       bindingByScopeAndName: Map<string, PyBindingRegistry>;
       parentScopeOf: Map<string, string>;
@@ -674,79 +696,246 @@ export class PythonResolutionLinker {
     return null;
   }
 
-  /** The single method of this name on a type, or inherited through its bases. */
+  /**
+   * The method this name resolves to on a type, following the **C3 MRO**.
+   *
+   * Not depth-first. The two differ, and the difference is not academic:
+   *
+   * ```python
+   * class A:      def m(self): ...
+   * class B(A):   pass
+   * class C(A):   def m(self): ...
+   * class D(B, C):
+   *     def m(self): return super().m()     # CPython: C.m
+   * ```
+   *
+   * Depth-first through B reaches `A.m` and stops. CPython's MRO is
+   * `D, B, C, A`, so the answer is `C.m` — C comes before A because A is in C's
+   * tail. An earlier version of this resolver used depth-first and got exactly
+   * that case wrong while looking correct on simpler ones, which is the worst
+   * shape for a defect.
+   */
   private lookupMethodOnTypeAndBases(
     typeHash: string,
     name: string,
-    ctx: {
-      typesByHash: Map<string, PyTypeRegistry>;
-      basesByType: Map<string, PyTypeBaseRegistry[]>;
-      methodsByTypeAndName: Map<string, PyMethodRegistry[]>;
-    }
+    ctx: MroContext
   ): PyMethodRegistry | null {
-    const own = this.singleMethodOn(typeHash, name, ctx);
-    if (own) {
-      return own;
-    }
-    return this.lookupMethodOnBasesOnly(typeHash, name, ctx);
+    return this.lookupAlongMro(typeHash, name, ctx, 0);
   }
 
   /**
-   * Walks the resolved bases in MRO order, skipping the type itself.
+   * The same lookup, starting **after** the class itself.
    *
-   * Depth-first in `position` order, which is C3's own starting order for
-   * single inheritance and for the common multiple-inheritance shapes. If more
-   * than one base offers the name, nothing is returned: that is a genuine
-   * diamond ambiguity and picking one would be a guess.
+   * `super()` is not virtual dispatch: it is an MRO-ordered lookup beginning at
+   * the position after the enclosing class, which is why `Child.describe`
+   * calling `super().describe()` must reach `Base.describe` and never itself.
    */
   private lookupMethodOnBasesOnly(
     typeHash: string,
     name: string,
-    ctx: {
-      typesByHash: Map<string, PyTypeRegistry>;
-      basesByType: Map<string, PyTypeBaseRegistry[]>;
-      methodsByTypeAndName: Map<string, PyMethodRegistry[]>;
-    }
+    ctx: MroContext
   ): PyMethodRegistry | null {
-    const type = ctx.typesByHash.get(typeHash);
-    if (type && this.hasEscapeHatch(type)) {
-      // __getattr__ can answer for anything, so absence proves nothing and
-      // presence is not exclusive.
+    return this.lookupAlongMro(typeHash, name, ctx, 1);
+  }
+
+  private lookupAlongMro(
+    typeHash: string,
+    name: string,
+    ctx: MroContext,
+    startIndex: number
+  ): PyMethodRegistry | null {
+    // A class is always FIRST in its own MRO, so a declaration on the class
+    // itself needs no linearisation and cannot be shadowed by an opaque base.
+    // Requiring the MRO here refused every `self.m()` in a class with an
+    // external base even when the class declared `m` directly — 1,549 of them
+    // across 400 stdlib files.
+    if (startIndex === 0) {
+      const own = this.singleMethodOn(typeHash, name, ctx);
+      if (own) {
+        return own;
+      }
+    }
+
+    const mro = this.linearize(typeHash, ctx, new Set());
+    if (mro !== null) {
+      for (let i = Math.max(startIndex, 1); i < mro.length; i++) {
+        const found = this.singleMethodOn(mro[i]!, name, ctx);
+        if (found) {
+          return found;
+        }
+      }
       return null;
     }
 
-    const ordered = [...(ctx.basesByType.get(typeHash) ?? [])]
-      .filter(b => b.getKeywordName() === '')
-      .sort((a, b) => Number(a.getPosition()) - Number(b.getPosition()));
+    // Full linearisation failed, but that does not always matter. What a claim
+    // actually needs is the MRO PREFIX up to the declaring class — every class
+    // before it must be known and must not declare the name. Anything after is
+    // irrelevant, because the first declaration wins.
+    //
+    // Under SINGLE inheritance the prefix is just the chain, so it is walkable
+    // without knowing the rest: `_SelectorSocketTransport(_SelectorTransport)`
+    // resolves `_fatal_error` to `_SelectorTransport` even when THAT class's own
+    // bases lie outside the analysis, because `_SelectorTransport` precedes them.
+    // With multiple bases the prefix order genuinely depends on C3, so nothing
+    // is claimed.
+    return this.lookupAlongSingleInheritanceChain(typeHash, name, ctx, startIndex);
+  }
 
-    // Within one inheritance CHAIN the nearest declaration wins, so a chain of
-    // any depth yields exactly one answer — `Lock -> _LoopBoundMixin` reaches
-    // `__init__` two hops up. Across SIBLING bases it does not: which one wins
-    // depends on a C3 linearisation we are not computing, so two different
-    // answers is a genuine ambiguity and nothing is claimed. That is the
-    // difference between resolving a chain and guessing a diamond.
-    const answers: PyMethodRegistry[] = [];
-    for (const base of ordered) {
-      if (!base.getIsResolvedLocally()) {
-        // Opaque position: whatever it declares would take precedence over every
-        // later base, so nothing beyond it is provable.
+  private lookupAlongSingleInheritanceChain(
+    typeHash: string,
+    name: string,
+    ctx: MroContext,
+    startIndex: number
+  ): PyMethodRegistry | null {
+    let current = typeHash;
+    let depth = 0;
+    const seen = new Set<string>();
+
+    while (depth++ < 100 && !seen.has(current)) {
+      seen.add(current);
+      if (depth > startIndex) {
+        const found = this.singleMethodOn(current, name, ctx);
+        if (found) {
+          return found;
+        }
+      }
+      const bases = [...(ctx.basesByType.get(current) ?? [])]
+        .filter(b => b.getKeywordName() === '')
+        .filter(b => !(b.getBaseSimpleName() === 'object' && !b.getIsResolvedLocally()));
+      if (bases.length === 0) {
+        // Reached the implicit root without finding it.
         return null;
       }
-      const baseHash = base.getResolvedTypeLinkHash();
-      const nearest =
-        this.singleMethodOn(baseHash, name, ctx) ??
-        this.lookupMethodOnBasesOnly(baseHash, name, ctx);
-      if (nearest) {
-        answers.push(nearest);
+      if (bases.length > 1) {
+        // The prefix beyond this point depends on a linearisation that failed —
+        // but the FIRST base's head is still provably MRO index 1. C3 always
+        // takes it first: it could only be deferred if it appeared in a later
+        // base's tail, and a later base inheriting from an earlier one is
+        // precisely the inconsistent hierarchy CPython refuses to create. So a
+        // declaration on base 0 itself is certain; anything deeper is not.
+        const first = bases[0]!;
+        if (!first.getIsResolvedLocally()) {
+          return null;
+        }
+        return this.singleMethodOn(first.getResolvedTypeLinkHash(), name, ctx);
+      }
+      const base = bases[0]!;
+      if (!base.getIsResolvedLocally()) {
+        // Opaque position, and it comes BEFORE anything further up.
+        return null;
+      }
+      current = base.getResolvedTypeLinkHash();
+    }
+    return null;
+  }
+
+  /**
+   * C3 linearisation of a type, or `null` when it cannot be computed.
+   *
+   * `null` for two distinct reasons, both of which must block a resolution
+   * claim: a base outside the analysis (its own MRO is unknown, and it could
+   * declare the name), or a genuinely inconsistent hierarchy — the same
+   * condition under which CPython itself raises `TypeError` at class creation.
+   *
+   * Memoised per type: without it the MRO is recomputed for every call site on
+   * the class.
+   */
+  private linearize(
+    typeHash: string,
+    ctx: MroContext,
+    visiting: Set<string>
+  ): string[] | null {
+    const cached = ctx.mroCache.get(typeHash);
+    if (cached !== undefined) {
+      return cached;
+    }
+    if (visiting.has(typeHash)) {
+      // A cycle cannot occur in valid Python, but malformed or partially
+      // resolved input must not hang.
+      return null;
+    }
+    visiting.add(typeHash);
+
+    const bases = [...(ctx.basesByType.get(typeHash) ?? [])]
+      .filter(b => b.getKeywordName() === '')
+      // An explicit `object` base is the implicit root written out longhand, and
+      // `class X(object)` is very common in older code. It is NOT opaque: its
+      // member set is fixed and entirely dunder, so it cannot be the target of
+      // any ordinary name and cannot shadow one. Treating it as an unknown base
+      // refused every inherited lookup under `class X(object)` — which is what
+      // blocked argparse.ArgumentParser, whose two bases both spell it out.
+      .filter(b => !(b.getBaseSimpleName() === 'object' && !b.getIsResolvedLocally()))
+      .sort((a, b) => Number(a.getPosition()) - Number(b.getPosition()));
+
+    let result: string[] | null = [typeHash];
+    if (bases.length > 0) {
+      if (bases.some(b => !b.getIsResolvedLocally())) {
+        result = null;
+      } else {
+        const baseHashes = bases.map(b => b.getResolvedTypeLinkHash());
+        const sequences: string[][] = [];
+        for (const baseHash of baseHashes) {
+          const linear = this.linearize(baseHash, ctx, visiting);
+          if (linear === null) {
+            result = null;
+            break;
+          }
+          sequences.push([...linear]);
+        }
+        if (result !== null) {
+          // The direct base list is itself a constraint sequence, which is what
+          // makes C3 preserve the order bases were written in.
+          sequences.push([...baseHashes]);
+          const merged = this.c3Merge(sequences);
+          result = merged === null ? null : [typeHash, ...merged];
+        }
       }
     }
 
-    const distinct = new Set(answers.map(m => m.getHash()));
-    if (distinct.size !== 1) {
-      // Zero answers, or two sibling bases offering different targets.
-      return null;
+    visiting.delete(typeHash);
+    ctx.mroCache.set(typeHash, result);
+    return result;
+  }
+
+  /**
+   * The C3 merge: repeatedly take the head of the first sequence that appears in
+   * no other sequence's TAIL.
+   *
+   * "Appears in a tail" is the whole rule — it is what makes `C` precede `A` in
+   * `D(B, C)`, since `A` sits in `C`'s tail and so cannot be taken first.
+   * Returning `null` when no candidate qualifies mirrors CPython refusing to
+   * create the class.
+   */
+  private c3Merge(sequences: string[][]): string[] | null {
+    const pending = sequences.map(s => [...s]).filter(s => s.length > 0);
+    const result: string[] = [];
+
+    while (pending.length > 0) {
+      let taken: string | null = null;
+      for (const sequence of pending) {
+        const head = sequence[0]!;
+        const inSomeTail = pending.some(other => other.indexOf(head) > 0);
+        if (!inSomeTail) {
+          taken = head;
+          break;
+        }
+      }
+      if (taken === null) {
+        return null;
+      }
+      result.push(taken);
+      for (const sequence of pending) {
+        if (sequence[0] === taken) {
+          sequence.shift();
+        }
+      }
+      for (let i = pending.length - 1; i >= 0; i--) {
+        if (pending[i]!.length === 0) {
+          pending.splice(i, 1);
+        }
+      }
     }
-    return answers[0] ?? null;
+    return result;
   }
 
   /**
