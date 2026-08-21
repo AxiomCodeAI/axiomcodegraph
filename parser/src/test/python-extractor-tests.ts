@@ -763,6 +763,56 @@ async function analyzerTests(): Promise<Failure[]> {
 }
 
 /**
+ * Column units: CPython reports `col_offset` in **UTF-8 bytes**, tree-sitter in
+ * characters.
+ *
+ * This test exists because the difference is invisible on ASCII-only code — and
+ * so is invisible on almost every fixture — while being wrong on any line
+ * containing a non-ASCII character before the node. It is not cosmetic:
+ * `startColumn` is in the primary key of py_scope, py_method and py_expression,
+ * so the two conventions mint DIFFERENT HASHES for the same entity, and the
+ * schema states that startColumn is ast-derived.
+ *
+ * Found in the wild in jina/logging/profile.py: `f'memory Δ {get_readable_size(n)}'`
+ * shifts every column after the delta by one.
+ */
+function columnUnitTests(): Failure[] {
+  const failures: Failure[] = [];
+  // A one-character, two-byte delta before a call on the same line.
+  const source = "x = f'a \u0394 {foo(1)}'\ny = foo(2)\n";
+  const facts = new PythonFactExtractor().extract({
+    sourceCode: source, filePath: 'units.py', baseMservPath: '/repo',
+    serviceVersionLinkHash: SERVICE_VERSION,
+  });
+
+  // `foo(1)` sits after the delta: 11 characters in, 12 UTF-8 bytes in.
+  const shifted = facts.callSites.find(c => c.getStartLine() === 1);
+  if (!shifted) {
+    failures.push({ gate: 'INVARIANT', detail: 'column units: expected a call on line 1' });
+  } else {
+    const column = Number(shifted.toCsv().split('\t')[22]);
+    if (column !== 12) {
+      failures.push({
+        gate: 'INVARIANT',
+        detail: `column units: call after a 2-byte character should report byte column 12 (ast), got ${column}`,
+      });
+    }
+  }
+  // The ASCII line must be unaffected, so the conversion is not over-applied.
+  const ascii = facts.callSites.find(c => c.getStartLine() === 2);
+  if (ascii) {
+    const column = Number(ascii.toCsv().split('\t')[22]);
+    if (column !== 4) {
+      failures.push({
+        gate: 'INVARIANT',
+        detail: `column units: ASCII-only line should report column 4, got ${column}`,
+      });
+    }
+  }
+  return failures;
+}
+
+/**
  * Checks the code's column counts against the **schema document itself**.
  *
  * This is Appendix B invariant #11 in spirit: the document says 10 relations and
@@ -925,11 +975,12 @@ async function main(): Promise<void> {
     ...python2RejectionTests(),
     ...parseLimitTests(),
     ...classificationTests(),
+    ...columnUnitTests(),
     ...schemaDocumentTests(),
     ...(await analyzerTests()),
   ];
   console.log(
-    `\nPy2 rejection, parse limit, classification, schema arity, analyzer: ${standalone.length === 0 ? 'PASS' : `${standalone.length} FAILURES`}`
+    `\nPy2 rejection, parse limit, classification, column units, schema arity, analyzer: ${standalone.length === 0 ? 'PASS' : `${standalone.length} FAILURES`}`
   );
   standalone.forEach(f => console.log(`   ${f.gate} ${f.detail}`));
 

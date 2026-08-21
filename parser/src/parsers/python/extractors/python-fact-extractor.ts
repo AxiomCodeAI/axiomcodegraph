@@ -109,6 +109,7 @@ export class PythonFactExtractor {
       scopeHashByNodeId: scopeStage.scopeHashByNodeId,
       bindingHashByScopeAndName: scopeStage.bindingHashByScopeAndName,
       qualifiedNameByNodeId: scopeStage.qualifiedNameByNodeId,
+      positions: scopeStage.positions,
     });
 
     this.lastParameters = declarations.methodParameters;
@@ -123,6 +124,7 @@ export class PythonFactExtractor {
       typeHashByNodeId: declarations.typeHashByNodeId,
       moduleMethodHash: declarations.moduleMethodHash,
       classInitHashByNodeId: declarations.classInitHashByNodeId,
+      positions: scopeStage.positions,
     });
 
     // ---- back-patching --------------------------------------------------

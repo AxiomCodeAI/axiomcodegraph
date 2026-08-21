@@ -29,6 +29,7 @@ import {
   SymbolScope,
 } from '@/parsers/python/extractors/python-symbol-table';
 import { Python2Finding, SymbolBlock } from '@/types/python';
+import { PythonSourcePositions } from '@/utils/python';
 
 /** Everything the scope/binding stage produces for one file. */
 export interface PythonModuleExtraction {
@@ -145,22 +146,17 @@ export class PythonScopeExtractor {
         blocksByNodeId: new Map(),
         bindingHashByScopeAndName: new Map(),
         qualifiedNameByNodeId: new Map(),
+        positions: new PythonSourcePositions(input.sourceCode),
       };
     }
 
     const moduleQualifiedName =
       input.moduleQualifiedName ?? this.deriveModuleQualifiedName(input.filePath);
 
-    const lines = input.sourceCode.split('\n');
-    const lastLine = lines.length > 0 ? lines[lines.length - 1] : '';
+    const positions = new PythonSourcePositions(input.sourceCode);
 
     const builder = new PythonScopeBuilder();
-    const rootBlock = builder.build(
-      rootNode,
-      moduleQualifiedName,
-      lines.length,
-      lastLine ? lastLine.length : 0
-    );
+    const rootBlock = builder.build(rootNode, moduleQualifiedName, positions);
     analyzeSymbolTable(rootBlock);
 
     const module = this.buildModuleRow(input, rootNode, moduleQualifiedName, regime);
@@ -191,6 +187,7 @@ export class PythonScopeExtractor {
       blocksByNodeId: builder.getBlocksByNodeId(),
       bindingHashByScopeAndName,
       qualifiedNameByNodeId: this.collectQualifiedNames(builder.getBlocksByNodeId()),
+      positions,
     };
   }
 

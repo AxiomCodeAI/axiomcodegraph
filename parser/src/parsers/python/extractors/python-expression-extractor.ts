@@ -21,6 +21,7 @@ import {
   PythonUnaryFixity,
 } from '@/enums/python/expressions';
 import { EntityUtils } from '@/utils/entity-utils';
+import { PythonSourcePositions } from '@/utils/python';
 
 /** What the expression stage produces for one module. */
 export interface PythonExpressionExtraction {
@@ -57,6 +58,8 @@ export interface PythonExpressionInput {
   moduleMethodHash: string;
   /** Class `node.id` -> its `<classbody>` method PK. */
   classInitHashByNodeId: Map<number, string>;
+  /** Converts tree-sitter character columns to CPython UTF-8 byte columns. */
+  positions: PythonSourcePositions;
 }
 
 /**
@@ -861,9 +864,9 @@ export class PythonExpressionExtractor {
       .withParent(pending.parentHash, pending.position, pending.depth)
       .withSpan(
         node.startPosition.row + 1,
-        node.startPosition.column,
+        this.input.positions.byteColumn(node.startPosition.row, node.startPosition.column),
         node.endPosition.row + 1,
-        node.endPosition.column
+        this.input.positions.byteColumn(node.endPosition.row, node.endPosition.column)
       )
       .withNameContext(pending.nameContext)
       .withArgumentKeywordName(pending.argumentKeywordName)
@@ -1500,7 +1503,7 @@ export class PythonExpressionExtractor {
       })
       .withSpan(
         node.startPosition.row + 1,
-        node.startPosition.column,
+        this.input.positions.byteColumn(node.startPosition.row, node.startPosition.column),
         node.endPosition.row + 1
       )
       .build();

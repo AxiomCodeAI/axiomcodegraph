@@ -15,6 +15,7 @@ import {
   SymbolFlags,
 } from '@/parsers/python/extractors/python-symbol-table';
 import { SymbolBlock } from '@/types/python';
+import { PythonSourcePositions } from '@/utils/python';
 
 /** tree-sitter node types that introduce a new scope. Exactly eight forms. */
 const SCOPE_NODE_TYPES: ReadonlySet<string> = new Set([
@@ -104,6 +105,13 @@ export class PythonScopeBuilder {
   private futureAnnotations = false;
 
   /**
+   * Converts tree-sitter's character columns to CPython's UTF-8 byte columns.
+   * `startColumn` is in the py_scope primary key and the schema states it is
+   * ast-derived, so the two must agree.
+   */
+  private positions: PythonSourcePositions = new PythonSourcePositions('');
+
+  /**
    * Builds the complete block tree for a module.
    *
    * @param rootNode the `module` node
@@ -114,10 +122,10 @@ export class PythonScopeBuilder {
   build(
     rootNode: Parser.SyntaxNode,
     moduleQualifiedName: string,
-    sourceLineCount: number,
-    lastLineLength: number
+    positions: PythonSourcePositions
   ): SymbolBlock {
     this.blocksByNodeId = new Map();
+    this.positions = positions;
     this.futureAnnotations = this.hasFutureAnnotations(rootNode);
 
     const moduleBlock = createSymbolBlock({
@@ -130,8 +138,8 @@ export class PythonScopeBuilder {
       parent: null,
       startLine: 0,
       startColumn: 0,
-      endLine: sourceLineCount,
-      endColumn: lastLineLength,
+      endLine: positions.lineCount(),
+      endColumn: positions.lastLineByteLength(),
       nestingDepth: 0,
       privateNamePrefix: '',
     });
@@ -194,9 +202,9 @@ export class PythonScopeBuilder {
       qualifiedName: this.buildQualifiedName(parent, name),
       parent,
       startLine: node.startPosition.row + 1,
-      startColumn: node.startPosition.column,
+      startColumn: this.positions.byteColumn(node.startPosition.row, node.startPosition.column),
       endLine: node.endPosition.row + 1,
-      endColumn: node.endPosition.column,
+      endColumn: this.positions.byteColumn(node.endPosition.row, node.endPosition.column),
       nestingDepth: parent.nestingDepth + 1,
       // A class body sets the mangling prefix for itself and everything nested
       // inside it; any other block simply inherits whatever was in force.

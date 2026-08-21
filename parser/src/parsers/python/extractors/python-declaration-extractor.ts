@@ -29,6 +29,7 @@ import {
   PythonTypePlacement,
 } from '@/enums/python/types';
 import { EntityUtils } from '@/utils/entity-utils';
+import { PythonSourcePositions } from '@/utils/python';
 
 /** What the declaration stage produces for one module. */
 export interface PythonDeclarationExtraction {
@@ -79,6 +80,8 @@ export interface PythonDeclarationInput {
   bindingHashByScopeAndName: Map<string, string>;
   /** Scope-introducing `node.id` -> the scope's qualified name. */
   qualifiedNameByNodeId: Map<number, string>;
+  /** Converts tree-sitter character columns to CPython UTF-8 byte columns. */
+  positions: PythonSourcePositions;
 }
 
 /** Lexical context threaded through the walk. */
@@ -213,14 +216,14 @@ export class PythonDeclarationExtractor {
       this.input.filePath,
       root.startPosition.row + 1,
       root.endPosition.row + 1,
-      root.startPosition.column,
+      this.input.positions.byteColumn(root.startPosition.row, root.startPosition.column),
       this.input.module.getHash(),
       this.input.serviceVersionLinkHash
     )
       .withKindAndAccess(PythonMethodKind.MODULE_INITIALIZER, PythonMethodAccess.PUBLIC_ACCESS)
       .withModifiers([PythonMethodModifier.SYNTHETIC])
       .withScopeLinkHash(moduleScopeHash)
-      .withEndColumn(root.endPosition.column)
+      .withEndColumn(this.input.positions.byteColumn(root.endPosition.row, root.endPosition.column))
       .build();
     this.methods.push(method);
     return method;
@@ -239,7 +242,7 @@ export class PythonDeclarationExtractor {
       this.input.filePath,
       classNode.startPosition.row + 1,
       classNode.endPosition.row + 1,
-      classNode.startPosition.column,
+      this.input.positions.byteColumn(classNode.startPosition.row, classNode.startPosition.column),
       this.input.module.getHash(),
       this.input.serviceVersionLinkHash
     )
@@ -247,7 +250,9 @@ export class PythonDeclarationExtractor {
       .withModifiers([PythonMethodModifier.SYNTHETIC])
       .withOwner(type.getHash(), type.getName(), type.getQualifiedName())
       .withScopeLinkHash(classScopeHash)
-      .withEndColumn(classNode.endPosition.column)
+      .withEndColumn(
+        this.input.positions.byteColumn(classNode.endPosition.row, classNode.endPosition.column)
+      )
       .build();
     this.methods.push(method);
     return method;
@@ -774,7 +779,7 @@ export class PythonDeclarationExtractor {
       this.input.filePath,
       node.startPosition.row + 1,
       methodEnd.row + 1,
-      node.startPosition.column,
+      this.input.positions.byteColumn(node.startPosition.row, node.startPosition.column),
       this.input.module.getHash(),
       this.input.serviceVersionLinkHash
     )
@@ -807,7 +812,7 @@ export class PythonDeclarationExtractor {
       .withThrowsExceptions(bodyNode ? this.collectRaisedTypeNames(bodyNode) : [])
       .withScopeLinkHash(scopeHash)
       .withEnclosingMemberLinkHash(context.inFunctionBody ? context.enclosingMethodHash : '')
-      .withEndColumn(methodEnd.column)
+      .withEndColumn(this.input.positions.byteColumn(methodEnd.row, methodEnd.column))
       .build();
 
     this.methods.push(method);

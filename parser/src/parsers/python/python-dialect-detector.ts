@@ -2,6 +2,7 @@ import Parser from 'tree-sitter';
 
 import { PythonDialect } from '@/enums/python/modules';
 import { DialectDetectionResult, Python2Finding } from '@/types/python';
+import { PythonSourcePositions } from '@/utils/python';
 
 /**
  * Node types that exist **only** in Python 2 and are first-class in
@@ -73,9 +74,12 @@ export class PythonDialectDetector {
    * @returns The dialect and every finding, in source order
    */
   detect(rootNode: Parser.SyntaxNode, sourceCode: string): DialectDetectionResult {
+    // Positions are reported in CPython's convention (UTF-8 byte columns) so a
+    // recorded rejection can be compared against ast output directly.
+    const positions = new PythonSourcePositions(sourceCode);
     const findings: Python2Finding[] = [
-      ...this.scanTree(rootNode),
-      ...this.scanRawSourceForBackticks(sourceCode),
+      ...this.scanTree(rootNode, positions),
+      ...this.scanRawSourceForBackticks(sourceCode, positions),
     ];
 
     findings.sort(
@@ -96,7 +100,10 @@ export class PythonDialectDetector {
    * deeply enough that a recursive walk risks the call stack on the largest
    * inputs, and this walk must complete for rejection to be trustworthy.
    */
-  private scanTree(rootNode: Parser.SyntaxNode): Python2Finding[] {
+  private scanTree(
+    rootNode: Parser.SyntaxNode,
+    positions: PythonSourcePositions
+  ): Python2Finding[] {
     const findings: Python2Finding[] = [];
     const worklist: Parser.SyntaxNode[] = [rootNode];
 
@@ -108,15 +115,15 @@ export class PythonDialectDetector {
 
       // ---- Tier 1: node types that only Python 2 has ----------------------
       if (PY2_ONLY_NODE_TYPES.has(node.type)) {
-        findings.push(this.toFinding(node, node.type, 1));
+        findings.push(this.toFinding(node, node.type, 1, positions));
       }
 
       // ---- Tier 2: Python-2-only shapes of legal Python 3 node types ------
       if (node.type === 'except_clause' && this.hasDirectCommaChild(node)) {
-        findings.push(this.toFinding(node, 'except_clause_comma_target', 2));
+        findings.push(this.toFinding(node, 'except_clause_comma_target', 2, positions));
       }
       if (node.type === 'tuple_pattern' && this.isInParameterPosition(node)) {
-        findings.push(this.toFinding(node, 'tuple_pattern_parameter', 2));
+        findings.push(this.toFinding(node, 'tuple_pattern_parameter', 2, positions));
       }
 
       for (let i = node.childCount - 1; i >= 0; i--) {
@@ -168,7 +175,10 @@ export class PythonDialectDetector {
    * a backtick inside a docstring — common in reStructuredText and Markdown —
    * does not reject a perfectly good Python 3 file.
    */
-  private scanRawSourceForBackticks(sourceCode: string): Python2Finding[] {
+  private scanRawSourceForBackticks(
+    sourceCode: string,
+    positions: PythonSourcePositions
+  ): Python2Finding[] {
     const findings: Python2Finding[] = [];
     let line = 1;
     let column = 0;
@@ -231,13 +241,14 @@ export class PythonDialectDetector {
       }
 
       if (char === '`') {
+        const byteColumn = positions.byteColumn(line - 1, column);
         findings.push({
           construct: 'backtick_repr',
           tier: 3,
           startLine: line,
-          startColumn: column,
+          startColumn: byteColumn,
           endLine: line,
-          endColumn: column + 1,
+          endColumn: byteColumn + 1,
           sourceText: '`',
         });
       }
@@ -249,14 +260,19 @@ export class PythonDialectDetector {
     return findings;
   }
 
-  private toFinding(node: Parser.SyntaxNode, construct: string, tier: 1 | 2 | 3): Python2Finding {
+  private toFinding(
+    node: Parser.SyntaxNode,
+    construct: string,
+    tier: 1 | 2 | 3,
+    positions: PythonSourcePositions
+  ): Python2Finding {
     return {
       construct,
       tier,
       startLine: node.startPosition.row + 1,
-      startColumn: node.startPosition.column,
+      startColumn: positions.byteColumn(node.startPosition.row, node.startPosition.column),
       endLine: node.endPosition.row + 1,
-      endColumn: node.endPosition.column,
+      endColumn: positions.byteColumn(node.endPosition.row, node.endPosition.column),
       sourceText: node.text.replace(/\s+/g, ' ').trim(),
     };
   }
