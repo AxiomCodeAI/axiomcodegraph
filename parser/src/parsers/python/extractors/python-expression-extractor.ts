@@ -808,7 +808,7 @@ export class PythonExpressionExtractor {
       if (!this.isLeafToken(node)) {
         for (let i = 0; i < node.namedChildCount; i++) {
           const inner = node.namedChild(i);
-          if (inner) {
+          if (inner && !inner.isExtra) {
             this.worklist.push({ ...pending, node: inner });
           }
         }
@@ -1264,7 +1264,7 @@ export class PythonExpressionExtractor {
         let position = 0;
         for (let i = 0; i < node.namedChildCount; i++) {
           const part = node.namedChild(i);
-          if (!part || part.type === 'block') {
+          if (!part || part.type === 'block' || part.isExtra) {
             continue;
           }
           this.worklist.push({ ...base, node: part, edgeRole: role, position: position++ });
@@ -1301,7 +1301,7 @@ export class PythonExpressionExtractor {
     let positional = 0;
     for (let i = 0; i < args.namedChildCount; i++) {
       const arg = args.namedChild(i);
-      if (!arg || arg.type === 'comment') {
+      if (!arg || arg.isExtra) {
         continue;
       }
 
@@ -1499,10 +1499,13 @@ export class PythonExpressionExtractor {
       if (!arg) {
         continue;
       }
-      // A comment is a NAMED node and can sit between arguments, so counting
-      // named children blindly inflates positionalArgCount on any call with an
-      // inline comment — common in long multi-line argument lists.
-      if (arg.type === 'comment') {
+      // Grammar EXTRAS — comments and line-continuation backslashes — are
+      // NAMED nodes that can sit between arguments, so counting named children
+      // blindly inflates positionalArgCount. Both occur in real multi-line
+      // calls (ftplib.py:975 uses a continuation, argparse uses comments).
+      // `isExtra` is the grammar's own answer to "is this syntactically
+      // incidental", which beats maintaining a blacklist of node types.
+      if (arg.isExtra) {
         continue;
       }
       if (arg.type === 'keyword_argument') {
@@ -1807,10 +1810,18 @@ export class PythonExpressionExtractor {
     );
   }
 
-  /** Token-ish nodes that cannot contain an expression. */
+  /**
+   * Token-ish nodes that cannot contain an expression.
+   *
+   * Grammar extras (comments, line continuations) are handled by `isExtra` at
+   * the enqueue sites; this covers string internals, which are named children
+   * of a literal but are not expressions.
+   */
   private isLeafToken(node: Parser.SyntaxNode): boolean {
+    if (node.isExtra) {
+      return true;
+    }
     switch (node.type) {
-      case 'comment':
       case 'string_start':
       case 'string_content':
       case 'string_end':
