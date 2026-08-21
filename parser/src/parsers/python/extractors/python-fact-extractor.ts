@@ -130,6 +130,7 @@ export class PythonFactExtractor {
       classInitHashByNodeId: declarations.classInitHashByNodeId,
       positions: scopeStage.positions,
       lambdaMethodByNodeId: declarations.lambdaMethodByNodeId,
+      parameterHashByAnnotationRange: declarations.parameterHashByAnnotationRange,
     });
 
     // ---- back-patching --------------------------------------------------

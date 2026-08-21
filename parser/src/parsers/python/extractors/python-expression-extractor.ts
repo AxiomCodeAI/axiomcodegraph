@@ -62,6 +62,8 @@ export interface PythonExpressionInput {
   positions: PythonSourcePositions;
   /** `lambda` node id -> its `py_method` PK, so a lambda body owns its own facts. */
   lambdaMethodByNodeId: Map<number, string>;
+  /** Annotation node byte range -> the `py_method_parameter` PK it annotates. */
+  parameterHashByAnnotationRange: Map<string, string>;
 }
 
 /**
@@ -687,9 +689,24 @@ export class PythonExpressionExtractor {
         }
         const type = param.childForFieldName('type');
         if (type) {
+          // A parameter's annotation is OWNED BY THE PARAMETER, which is what
+          // expressionOwnerKind=METHOD_PARAMETER exists for. It is the only way
+          // to get from a parameter row to the N type references in its
+          // annotation: the row has a single potentialQualifiedName slot, so
+          // `Dict[TypeA, TypeB]` cannot be expressed there — it needs one
+          // expression entry per referenced type, joined back through this owner.
+          const parameterHash = this.input.parameterHashByAnnotationRange.get(
+            `${type.startIndex}:${type.endIndex}`
+          );
           this.enqueueRoot(
             type,
-            context,
+            parameterHash
+              ? {
+                  ...context,
+                  ownerHash: parameterHash,
+                  ownerKind: PythonExpressionOwnerKind.METHOD_PARAMETER,
+                }
+              : context,
             PythonRootContext.ANNOTATION,
             PythonEdgeRole.ANNOTATION,
             PythonNameContext.LOAD,

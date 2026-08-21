@@ -63,6 +63,18 @@ export interface PythonDeclarationExtraction {
    */
   parameterDefaultByteRange: Map<string, string>;
   /**
+   * Annotation node `startIndex:endIndex` -> the `py_method_parameter` PK it
+   * annotates.
+   *
+   * Lets the expression stage make a parameter's annotation subtree OWNED by
+   * that parameter, which is what `expressionOwnerKind=METHOD_PARAMETER` exists
+   * for. Without it there is no way to get from a parameter row to the N type
+   * references in its annotation — and a parameter row has only ONE
+   * `potentialQualifiedName` slot, so `Dict[TypeA, TypeB]` cannot be expressed
+   * there at all.
+   */
+  parameterHashByAnnotationRange: Map<string, string>;
+  /**
    * Scope-introducing `node.id` -> the PK of the entity that OWNS that scope: a
    * `py_type` for a class body, a `py_method` for a function or lambda. Used to
    * back-patch `py_scope.ownerHash`, which cannot be known when the scope row is
@@ -155,6 +167,7 @@ export class PythonDeclarationExtractor {
   private typeHashByNodeId = new Map<number, string>();
   private classInitHashByNodeId = new Map<number, string>();
   private parameterDefaultByteRange = new Map<string, string>();
+  private parameterHashByAnnotationRange = new Map<string, string>();
   private lambdaMethodByNodeId = new Map<number, string>();
   private scopeOwnerByNodeId = new Map<number, string>();
   private enclosingMethodByScopeNodeId = new Map<number, string>();
@@ -170,6 +183,7 @@ export class PythonDeclarationExtractor {
     this.typeHashByNodeId = new Map();
     this.classInitHashByNodeId = new Map();
     this.parameterDefaultByteRange = new Map();
+    this.parameterHashByAnnotationRange = new Map();
     this.lambdaMethodByNodeId = new Map();
     this.scopeOwnerByNodeId = new Map();
     this.enclosingMethodByScopeNodeId = new Map();
@@ -210,6 +224,7 @@ export class PythonDeclarationExtractor {
       classInitHashByNodeId: this.classInitHashByNodeId,
       moduleMethodHash: moduleInit.getHash(),
       parameterDefaultByteRange: this.parameterDefaultByteRange,
+      parameterHashByAnnotationRange: this.parameterHashByAnnotationRange,
       lambdaMethodByNodeId: this.lambdaMethodByNodeId,
       scopeOwnerByNodeId: this.scopeOwnerByNodeId,
       enclosingMethodByScopeNodeId: this.enclosingMethodByScopeNodeId,
@@ -446,6 +461,18 @@ export class PythonDeclarationExtractor {
         this.parameterDefaultByteRange.set(
           row.getHash(),
           `${defaultNode.startIndex}:${defaultNode.endIndex}`
+        );
+      }
+      // The annotation node's range, so the expression stage can make this
+      // parameter the OWNER of its annotation subtree. That ownership is the
+      // only route from a parameter row to the N types its annotation
+      // references: the row has one potentialQualifiedName slot, which cannot
+      // express `Dict[TypeA, TypeB]`.
+      const annotationNode = parameter.node.childForFieldName('type');
+      if (annotationNode) {
+        this.parameterHashByAnnotationRange.set(
+          `${annotationNode.startIndex}:${annotationNode.endIndex}`,
+          row.getHash()
         );
       }
       this.methodParameters.push(row);
@@ -1306,6 +1333,18 @@ export class PythonDeclarationExtractor {
         this.parameterDefaultByteRange.set(
           row.getHash(),
           `${defaultNode.startIndex}:${defaultNode.endIndex}`
+        );
+      }
+      // The annotation node's range, so the expression stage can make this
+      // parameter the OWNER of its annotation subtree. That ownership is the
+      // only route from a parameter row to the N types its annotation
+      // references: the row has one potentialQualifiedName slot, which cannot
+      // express `Dict[TypeA, TypeB]`.
+      const annotationNode = parameter.node.childForFieldName('type');
+      if (annotationNode) {
+        this.parameterHashByAnnotationRange.set(
+          `${annotationNode.startIndex}:${annotationNode.endIndex}`,
+          row.getHash()
         );
       }
       this.methodParameters.push(row);

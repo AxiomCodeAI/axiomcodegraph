@@ -427,6 +427,76 @@ function mroResolutionTests(): Failure[] {
 }
 
 /**
+ * A composite annotation must yield ONE LINKED ENTRY PER REFERENCED TYPE,
+ * enumerable from the parameter row.
+ *
+ * `py_method_parameter` has a single `potentialQualifiedName` slot, so
+ * `Dict[TypeA, TypeB]` cannot be expressed there at all — it resolves the BASE,
+ * `Dict`, which is external. The N types live in the annotation's py_expression
+ * subtree, one `referencedEntityHash` each, and the subtree is owned by the
+ * PARAMETER (`expressionOwnerKind=METHOD_PARAMETER`) so it can be enumerated
+ * without matching text or spans.
+ *
+ * Covers the forms that each nest differently: multi-argument generics, nested
+ * generics, `Union`, PEP 604 `A | B` (a BINARY_OPERATION, not a subscript), and
+ * `Callable[[A, B], C]` where the arguments sit inside a LIST one level deeper.
+ */
+function annotationTypeLinkTests(): Failure[] {
+  const failures: Failure[] = [];
+  const source = [
+    'from typing import Callable, Dict, List, Optional, Union',
+    'class TypeA: pass',
+    'class TypeB: pass',
+    'class TypeC: pass',
+    'def multi(m: Dict[TypeA, TypeB]): pass',
+    'def nested(x: Dict[TypeA, List[Optional[TypeB]]]): pass',
+    'def union_old(y: Union[TypeA, TypeB]): pass',
+    'def union_new(z: TypeA | TypeB): pass',
+    'def callables(f: Callable[[TypeA, TypeB], TypeC]): pass',
+    '',
+  ].join('\n');
+
+  const facts = new PythonFactExtractor().extract({
+    sourceCode: source, filePath: 'ann.py', baseMservPath: '/repo',
+    serviceVersionLinkHash: SERVICE_VERSION,
+  });
+  const typeName = new Map(facts.types.map(t => [t.getHash(), t.getName()]));
+
+  const expected: Record<string, string[]> = {
+    m: ['TypeA', 'TypeB'],
+    x: ['TypeA', 'TypeB'],
+    y: ['TypeA', 'TypeB'],
+    z: ['TypeA', 'TypeB'],
+    f: ['TypeA', 'TypeB', 'TypeC'],
+  };
+
+  for (const [paramName, want] of Object.entries(expected)) {
+    const parameter = facts.methodParameters.find(p => p.getParamName() === paramName);
+    if (!parameter) {
+      failures.push({ gate: 'INVARIANT', detail: `annotation link: no parameter ${paramName}` });
+      continue;
+    }
+    const referenced = facts.expressions
+      .filter(e => {
+        const cols = e.toCsv().split('\t');
+        return cols[5] === parameter.getHash() && cols[3] === 'METHOD_PARAMETER';
+      })
+      .map(e => typeName.get(e.getReferencedEntityHash()))
+      .filter((n): n is string => n !== undefined)
+      .sort();
+    if (referenced.join(',') !== [...want].sort().join(',')) {
+      failures.push({
+        gate: 'INVARIANT',
+        detail:
+          `annotation link: parameter ${paramName} should reference [${want.join(', ')}] ` +
+          `through its owned annotation subtree, got [${referenced.join(', ')}]`,
+      });
+    }
+  }
+  return failures;
+}
+
+/**
  * The RESOLUTION gate — a consistency invariant, not an oracle question.
  *
  * This exists because neither existing gate can see resolution at all. Gate 1
@@ -701,11 +771,20 @@ function invariants(file: string, facts: ReturnType<typeof extract>): Failure[] 
   const moduleInitHash = facts.module.toCsv().split('\t')[19]!;
   const typesByPk = new Map(facts.types.map(t => [t.getHash(), t.toCsv().split('\t')]));
   const methodsByPk = new Map(facts.methods.map(m => [m.getHash(), m.toCsv().split('\t')]));
+  const parameterOwner = new Map(
+    facts.methodParameters.map(p => [p.getHash(), p.getPyMethodLinkHash()])
+  );
   const ownerToMethod = (kind: string, hash: string): string | null => {
     switch (kind) {
       case 'METHOD':
       case 'LAMBDA': {
         return methodsByPk.has(hash) ? hash : null;
+      }
+      case 'METHOD_PARAMETER': {
+        // A parameter's annotation subtree is owned by the parameter, which
+        // reaches a method through its own FK.
+        const owningMethod = parameterOwner.get(hash);
+        return owningMethod && methodsByPk.has(owningMethod) ? owningMethod : null;
       }
       case 'TYPE': {
         // Class-body code is owned by the synthetic <classbody> method.
@@ -1440,11 +1519,12 @@ async function main(): Promise<void> {
     ...extraNodeTests(),
     ...memberTypeTests(),
     ...mroResolutionTests(),
+    ...annotationTypeLinkTests(),
     ...schemaDocumentTests(),
     ...(await analyzerTests()),
   ];
   console.log(
-    `\nPy2 rejection, parse limit, classification, column units, extras, member_type, C3 MRO, schema arity, analyzer: ${standalone.length === 0 ? 'PASS' : `${standalone.length} FAILURES`}`
+    `\nPy2 rejection, parse limit, classification, column units, extras, member_type, C3 MRO, annotation links, schema arity, analyzer: ${standalone.length === 0 ? 'PASS' : `${standalone.length} FAILURES`}`
   );
   standalone.forEach(f => console.log(`   ${f.gate} ${f.detail}`));
 
