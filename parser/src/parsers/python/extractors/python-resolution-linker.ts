@@ -154,7 +154,29 @@ export class PythonResolutionLinker {
     for (const module of modules) {
       for (const record of module.imports) {
         const targetName = this.importTargetModule(record, module.qualifiedName);
-        const targetModule = targetName === null ? undefined : moduleByQualifiedName.get(targetName);
+        let targetModule =
+          targetName === null ? undefined : this.findModule(targetName, moduleByQualifiedName);
+
+        // `from . import protocols` and `from pkg import submodule` bind a
+        // MODULE, not a member of one. Without this the target is looked for as a
+        // class or function inside the package and never found — and because
+        // sibling references are then unresolvable, every base spelled
+        // `protocols.Protocol` stays unresolved too, which in turn blocks super()
+        // and self.X resolution on those classes. It cascades from one missing
+        // case, which is why it accounted for the largest single bucket.
+        if (!record.getIsModuleImport() && !record.getIsWildcard()) {
+          const member = record.getOriginalName().split('.').pop() ?? '';
+          const asModule = targetName === null || targetName === ''
+            ? member
+            : `${targetName}.${member}`;
+          const memberModule = this.findModule(asModule, moduleByQualifiedName);
+          if (memberModule) {
+            record.setResolution(memberModule.moduleHash, PythonImportTargetKind.MODULE, '');
+            stats.importsResolved += 1;
+            continue;
+          }
+        }
+
         if (!targetModule) {
           continue;
         }
@@ -194,7 +216,82 @@ export class PythonResolutionLinker {
       }
     }
 
-    // ---- step 2: call sites, with imported names now visible
+    // ---- step 2: bases, now that imports are resolved
+    // Per-module views of what each module's imports brought into scope.
+    const importedTypeByName = new Map<string, Map<string, PyTypeRegistry | null>>();
+    const importedModuleByName = new Map<string, Map<string, ProjectModuleFacts>>();
+    for (const module of modules) {
+      const types = new Map<string, PyTypeRegistry | null>();
+      const mods = new Map<string, ProjectModuleFacts>();
+      for (const record of module.imports) {
+        const bindingHash = record.getBindingLinkHash();
+        const entity = bindingHash === '' ? undefined : entityByImportBinding.get(bindingHash);
+        if (entity instanceof PyTypeRegistry) {
+          const bound = record.getSimpleName();
+          types.set(bound, types.has(bound) ? null : entity);
+        }
+        if (record.getResolvedTargetKind() === PythonImportTargetKind.MODULE) {
+          // The bound name refers to a module. Find which one by matching the
+          // resolved module hash, so `from . import protocols` and
+          // `import pkg.protocols` are handled by the same lookup.
+          const target = modules.find(m => m.moduleHash === record.getResolvedModuleLinkHash());
+          if (target) {
+            mods.set(record.getSimpleName(), target);
+          }
+        }
+      }
+      importedTypeByName.set(module.qualifiedName, types);
+      importedModuleByName.set(module.qualifiedName, mods);
+    }
+
+    for (const module of modules) {
+      const localTypes = this.uniqueByName(module.types, t => t.getName());
+      const imported = importedTypeByName.get(module.qualifiedName)!;
+      const importedModules = importedModuleByName.get(module.qualifiedName)!;
+      for (const base of module.typeBases) {
+        if (
+          base.getKeywordName() !== '' ||
+          base.getIsDynamic() ||
+          base.getIsResolvedLocally()
+        ) {
+          continue;
+        }
+        const simpleName = base.getBaseSimpleName();
+        if (simpleName === '') {
+          continue;
+        }
+        const dotted = base.getBaseDottedPath();
+        if (dotted.includes('.')) {
+          // A dotted base such as `protocols.Protocol`: the leading segment names
+          // a module. In a package this is the ordinary way to reference a
+          // sibling, so skipping dotted bases — correct for a single-module pass,
+          // since the prefix is meaningless there — loses most of them. 44 of 60
+          // unresolved bases in asyncio are exactly this shape.
+          const prefix = dotted.slice(0, dotted.lastIndexOf('.'));
+          const targetModule = importedModules.get(prefix.split('.')[0]!);
+          if (!targetModule) {
+            continue;
+          }
+          const candidates = targetModule.types.filter(
+            t =>
+              t.getName() === simpleName &&
+              t.getEnclosingTypeLinkHash() === '' &&
+              t.getEnclosingMethodLinkHash() === ''
+          );
+          if (candidates.length === 1) {
+            base.setResolution(candidates[0]!.getHash(), true);
+          }
+          continue;
+        }
+        // A bare name: local first, then whatever an import bound.
+        const target = localTypes.get(simpleName) ?? imported.get(simpleName);
+        if (target && target.getHash() !== base.getPyTypeLinkHash()) {
+          base.setResolution(target.getHash(), true);
+        }
+      }
+    }
+
+    // ---- step 3: call sites, with imported names now visible
     const allTypes = modules.flatMap(m => m.types);
     const allMethods = modules.flatMap(m => m.methods);
     const allTypeBases = modules.flatMap(m => m.typeBases);
@@ -291,6 +388,35 @@ export class PythonResolutionLinker {
    * than an edge case. `from .helpers import x` inside `pkg.service` resolves
    * against `pkg`; each extra leading dot strips one more package level.
    */
+  /**
+   * Finds a module by name, tolerating an analysis root placed INSIDE the
+   * package.
+   *
+   * Module names are relative to the analysis root, so analysing `.../email`
+   * directly gives modules `parser`, `message` — while the source says
+   * `from email.parser import Parser`. Progressively dropping leading segments
+   * recovers that, and a candidate is accepted only when exactly ONE module
+   * matches, so an ambiguous suffix resolves to nothing rather than to a guess.
+   */
+  private findModule(
+    name: string,
+    moduleByQualifiedName: Map<string, ProjectModuleFacts>
+  ): ProjectModuleFacts | undefined {
+    const exact = moduleByQualifiedName.get(name);
+    if (exact) {
+      return exact;
+    }
+    const parts = name.split('.');
+    for (let drop = 1; drop < parts.length; drop++) {
+      const candidate = parts.slice(drop).join('.');
+      const matches = [...moduleByQualifiedName.entries()].filter(([q]) => q === candidate);
+      if (matches.length === 1) {
+        return matches[0]![1];
+      }
+    }
+    return undefined;
+  }
+
   private importTargetModule(record: PyImportRegistry, importingModule: string): string | null {
     const level = record.getRelativeLevel();
     const stated = record.getIsModuleImport()
@@ -589,41 +715,38 @@ export class PythonResolutionLinker {
       return null;
     }
 
-    const bases = [...(ctx.basesByType.get(typeHash) ?? [])]
-      .filter(b => b.getKeywordName() === '' && b.getIsResolvedLocally())
+    const ordered = [...(ctx.basesByType.get(typeHash) ?? [])]
+      .filter(b => b.getKeywordName() === '')
       .sort((a, b) => Number(a.getPosition()) - Number(b.getPosition()));
 
-    // An unresolved base means the chain is incomplete: a method might exist
-    // out there that we cannot see, so a hit further down is not provably THE
-    // target. Only claim a resolution when every base is accounted for.
-    const allBasesResolved = (ctx.basesByType.get(typeHash) ?? [])
-      .filter(b => b.getKeywordName() === '')
-      .every(b => b.getIsResolvedLocally());
-    if (!allBasesResolved) {
-      return null;
+    // Within one inheritance CHAIN the nearest declaration wins, so a chain of
+    // any depth yields exactly one answer — `Lock -> _LoopBoundMixin` reaches
+    // `__init__` two hops up. Across SIBLING bases it does not: which one wins
+    // depends on a C3 linearisation we are not computing, so two different
+    // answers is a genuine ambiguity and nothing is claimed. That is the
+    // difference between resolving a chain and guessing a diamond.
+    const answers: PyMethodRegistry[] = [];
+    for (const base of ordered) {
+      if (!base.getIsResolvedLocally()) {
+        // Opaque position: whatever it declares would take precedence over every
+        // later base, so nothing beyond it is provable.
+        return null;
+      }
+      const baseHash = base.getResolvedTypeLinkHash();
+      const nearest =
+        this.singleMethodOn(baseHash, name, ctx) ??
+        this.lookupMethodOnBasesOnly(baseHash, name, ctx);
+      if (nearest) {
+        answers.push(nearest);
+      }
     }
 
-    const found: PyMethodRegistry[] = [];
-    for (const base of bases) {
-      const baseHash = base.getResolvedTypeLinkHash();
-      const direct = this.singleMethodOn(baseHash, name, ctx);
-      if (direct) {
-        found.push(direct);
-        continue;
-      }
-      const inherited = this.lookupMethodOnBasesOnly(baseHash, name, ctx);
-      if (inherited) {
-        found.push(inherited);
-      }
-    }
-    // Depth-first, position order: the first base that offers the name wins,
-    // which is what C3 does when the bases are unrelated. Two DIFFERENT targets
-    // from two bases is a real ambiguity, so nothing is claimed.
-    const distinct = new Set(found.map(m => m.getHash()));
+    const distinct = new Set(answers.map(m => m.getHash()));
     if (distinct.size !== 1) {
-      return found.length > 0 && distinct.size > 1 ? null : null;
+      // Zero answers, or two sibling bases offering different targets.
+      return null;
     }
-    return found[0] ?? null;
+    return answers[0] ?? null;
   }
 
   /**

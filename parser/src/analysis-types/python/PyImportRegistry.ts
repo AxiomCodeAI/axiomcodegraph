@@ -161,6 +161,10 @@ export class PyImportRegistry implements EntityIdentifiable {
     return this.bindingLinkHash;
   }
 
+  getResolvedModuleLinkHash(): string {
+    return this.resolvedModuleLinkHash;
+  }
+
   getIsModuleImport(): boolean {
     return this.isModuleImport;
   }

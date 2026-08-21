@@ -523,7 +523,11 @@ function resolutionGate(facts: ReturnType<typeof extract>): Failure[] {
     }
   }
 
-  // ---- rule 3: a base naming a class in the same module must be resolved to it
+  // ---- rule 3: a base naming a class this module can REACH must be resolved
+  // to it. Reachable means the same module, or through this module's own
+  // py_import rows — which is the shape that was silently at 0%: 43 of 43
+  // cross-module bases unresolved while the same-module check passed, so the
+  // gate itself could not see the gap it was supposed to guard.
   const typeByName = new Map<string, string | null>();
   for (const type of facts.types) {
     typeByName.set(type.getName(), typeByName.has(type.getName()) ? null : type.getHash());
