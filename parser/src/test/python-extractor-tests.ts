@@ -598,8 +598,13 @@ function classificationTests(): Failure[] {
     '    pass',
     'class ClassicABC2(metaclass=abc.ABCMeta):',
     '    pass',
+    // NOTE: `class X(metaclass=EnumMeta): RED = 1` does NOT run — it raises
+    // TypeError, because the Enum machinery needs its own base. The runtime
+    // adjudicator caught this fixture asserting about impossible code. The one
+    // real occurrence of metaclass=EnumMeta as the sole enum signal is
+    // `enum.Enum` itself, which is memberless, so that is what is modelled.
     'class FunctionalEnum(metaclass=EnumMeta):',
-    '    RED = 1',
+    '    pass',
     'class RealABC(abc.ABC):',
     '    pass',
     'class RealEnum(enum.Enum):',

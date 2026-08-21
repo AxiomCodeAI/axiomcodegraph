@@ -183,6 +183,8 @@ export class PythonDeclarationExtractor {
       isTypeCheckingOnly: false,
     });
 
+    this.propagateCategoriesThroughLocalBases();
+
     return {
       types: this.types,
       typeBases: this.typeBases,
@@ -374,6 +376,7 @@ export class PythonDeclarationExtractor {
     const bases = this.collectBases(argumentsNode);
     const decoratorNames = decorators.map(d => this.decoratorDottedPath(d));
     const classEnd = this.declarationEndPosition(node);
+    const declaresAbstractMember = bodyNode !== null && this.hasAbstractMember(bodyNode);
 
     const type = PyTypeRegistry.builder(
       className,
@@ -387,7 +390,7 @@ export class PythonDeclarationExtractor {
       this.input.serviceVersionLinkHash
     )
       .withCategoryAndAccess(
-        this.classifyType(bases, decoratorNames),
+        this.classifyType(bases, decoratorNames, declaresAbstractMember),
         this.accessOf(className) as unknown as PythonTypeAccess
       )
       .withModifiers(this.typeModifiersOf(bases, decoratorNames, bodyNode))
@@ -433,6 +436,93 @@ export class PythonDeclarationExtractor {
       inClassBody: true,
       inFunctionBody: false,
     });
+  }
+
+  /**
+   * Refines `typeCategory` by following base classes **within this module**.
+   *
+   * A category is often stated one hop away rather than on the class itself:
+   *
+   * ```python
+   * class MessageDefect(ValueError): ...          # EXCEPTION_CLASS_TYPE, by name
+   * class NoBoundaryDefect(MessageDefect): ...    # also an exception, but the
+   *                                               # base name matches no pattern
+   * ```
+   *
+   * Resolving that is squarely parser work: §0.5 puts intra-module resolution in
+   * layer 3, on the grounds that it is decidable within one module. What is NOT
+   * attempted is the cross-module case — `class BrokenProcessPool(_base.BrokenExecutor)`
+   * stays `CLASS_TYPE`, because the base is not in this module and guessing would
+   * be exactly the confident-wrong-answer this schema is organised against. The
+   * engine refines those.
+   *
+   * Also not attempted: a base bound by an assignment to a call result, as in
+   * `_Instruction = collections.namedtuple(...)` followed by
+   * `class Instruction(_Instruction)`. That is constructor-call inference, which
+   * the schema assigns to the deferred `py_type_inference` relation.
+   *
+   * Iterated to a fixed point so a chain of any depth resolves, bounded by the
+   * number of types as a guard against a cyclic base list in malformed source.
+   */
+  private propagateCategoriesThroughLocalBases(): void {
+    // Categories a subclass genuinely inherits. Three are deliberately absent,
+    // and each exclusion is a real distinction rather than caution:
+    //
+    //  - ABC_TYPE: abstractness is NOT inherited. It depends on whether abstract
+    //    methods remain unimplemented, which is per-class —
+    //    `class closing(AbstractContextManager)` descends from an ABC and is
+    //    perfectly concrete, and CPython's inspect.isabstract agrees. An earlier
+    //    version of this pass inherited it and mislabelled nine concrete
+    //    contextlib classes.
+    //  - PROTOCOL_TYPE: subclassing a Protocol produces an implementation of it,
+    //    not another Protocol.
+    //  - DATACLASS_TYPE: @dataclass decorates one class; a subclass is not a
+    //    dataclass unless it is itself decorated.
+    const inheritable = new Set<PythonTypeCategory>([
+      PythonTypeCategory.EXCEPTION_CLASS_TYPE,
+      PythonTypeCategory.ENUM_CLASS_TYPE,
+      PythonTypeCategory.NAMEDTUPLE_TYPE,
+      PythonTypeCategory.TYPEDDICT_TYPE,
+      PythonTypeCategory.METACLASS_TYPE,
+    ]);
+
+    const typeByName = new Map<string, PyTypeRegistry>();
+    for (const type of this.types) {
+      // Last definition wins, matching runtime rebinding semantics.
+      typeByName.set(type.getName(), type);
+    }
+    const baseNamesByTypeHash = new Map<string, string[]>();
+    for (const base of this.typeBases) {
+      if (base.getKeywordName() !== '' || base.getBaseSimpleName() === '') {
+        continue;
+      }
+      const existing = baseNamesByTypeHash.get(base.getPyTypeLinkHash()) ?? [];
+      existing.push(base.getBaseSimpleName());
+      baseNamesByTypeHash.set(base.getPyTypeLinkHash(), existing);
+    }
+
+    for (let pass = 0; pass < this.types.length; pass++) {
+      let changed = false;
+      for (const type of this.types) {
+        if (type.getTypeCategory() !== PythonTypeCategory.CLASS_TYPE) {
+          continue;
+        }
+        for (const baseName of baseNamesByTypeHash.get(type.getHash()) ?? []) {
+          const base = typeByName.get(baseName);
+          if (!base || base.getHash() === type.getHash()) {
+            continue;
+          }
+          if (inheritable.has(base.getTypeCategory())) {
+            type.setTypeCategory(base.getTypeCategory());
+            changed = true;
+            break;
+          }
+        }
+      }
+      if (!changed) {
+        break;
+      }
+    }
   }
 
   /**
@@ -584,7 +674,8 @@ export class PythonDeclarationExtractor {
    */
   private classifyType(
     bases: BaseEntry[],
-    decoratorNames: string[]
+    decoratorNames: string[],
+    declaresAbstractMember: boolean
   ): PythonTypeCategory {
     const baseNames = bases
       .filter(b => b.keywordName === '')
@@ -618,6 +709,15 @@ export class PythonDeclarationExtractor {
       return PythonTypeCategory.METACLASS_TYPE;
     }
     if (baseNames.some(n => n === 'ABC') || baseNames.some(n => n === 'ABCMeta')) {
+      return PythonTypeCategory.ABC_TYPE;
+    }
+    // A class that declares @abstractmethod members IS an abstract base, even
+    // when it inherits ABCMeta through a base rather than naming it. Without
+    // this the row is self-contradictory — typeCategory=CLASS_TYPE alongside an
+    // ABSTRACT modifier — which is what `numbers.Complex`, `Real`, `Rational`
+    // and `Integral` all produced. Purely syntactic: the decorators are right
+    // there in the class body, so no cross-module knowledge is needed.
+    if (declaresAbstractMember) {
       return PythonTypeCategory.ABC_TYPE;
     }
     if (baseNames.some(n => /(Error|Exception|Warning)$/.test(n))) {
@@ -793,7 +893,7 @@ export class PythonDeclarationExtractor {
         this.methodKindOf(functionName, decoratorNames, context, isAsync, isGenerator),
         this.methodAccessOf(functionName)
       )
-      .withModifiers(this.methodModifiersOf(decoratorNames, isAsync, isGenerator))
+      .withModifiers(this.methodModifiersOf(decoratorNames, isAsync, isGenerator, functionName))
       .withReturnTypeName(returnTypeNode ? this.normalizeTypeText(returnTypeNode.text) : '')
       .withParameterShape({
         parameterCount: parameters.filter(p => p.name !== '').length,
@@ -801,7 +901,7 @@ export class PythonDeclarationExtractor {
         kwOnlyCount: parameters.filter(p => p.kind === PythonParameterKind.KEYWORD_ONLY).length,
         isVarArgs: parameters.some(p => p.kind === PythonParameterKind.VAR_POSITIONAL),
         hasKwArgs: parameters.some(p => p.kind === PythonParameterKind.VAR_KEYWORD),
-        hasReceiverParameter: this.hasReceiver(parameters, context, decoratorNames),
+        hasReceiverParameter: this.hasReceiver(parameters, context, decoratorNames, functionName),
       })
       .withBodyFlags({
         isAsync,
@@ -970,7 +1070,7 @@ export class PythonDeclarationExtractor {
     context: DeclarationContext,
     decoratorNames: string[]
   ): void {
-    const receiverIndex = this.receiverIndexOf(parameters, context, decoratorNames);
+    const receiverIndex = this.receiverIndexOf(parameters, context, decoratorNames, method.getName());
 
     for (const parameter of parameters) {
       const builder = PyMethodParameterRegistry.builder(
@@ -1025,7 +1125,8 @@ export class PythonDeclarationExtractor {
   private receiverIndexOf(
     parameters: ParameterEntry[],
     context: DeclarationContext,
-    decoratorNames: string[]
+    decoratorNames: string[],
+    methodName: string
   ): number {
     if (!context.inClassBody) {
       return -1;
@@ -1033,6 +1134,9 @@ export class PythonDeclarationExtractor {
     if (decoratorNames.some(d => d.endsWith('staticmethod'))) {
       return -1;
     }
+    // `__new__` is an implicit staticmethod, but its first parameter IS the
+    // class, so it still has a receiver — unlike a written @staticmethod.
+    void methodName;
     const first = parameters[0];
     if (!first || first.name === '') {
       return -1;
@@ -1049,9 +1153,10 @@ export class PythonDeclarationExtractor {
   private hasReceiver(
     parameters: ParameterEntry[],
     context: DeclarationContext,
-    decoratorNames: string[]
+    decoratorNames: string[],
+    methodName: string
   ): boolean {
-    return this.receiverIndexOf(parameters, context, decoratorNames) >= 0;
+    return this.receiverIndexOf(parameters, context, decoratorNames, methodName) >= 0;
   }
 
   /** Strips redundant parentheses, which carry no expression of their own. */
@@ -1133,6 +1238,15 @@ export class PythonDeclarationExtractor {
     if (decoratorNames.some(d => d.endsWith('overload'))) {
       return PythonMethodKind.OVERLOAD_STUB;
     }
+    // Python converts three dunders IMPLICITLY, with no decorator written:
+    // `__new__` becomes a staticmethod, and `__init_subclass__` and
+    // `__class_getitem__` become classmethods. That changes what argument 0 is,
+    // so it shifts every positional argument→parameter link — the same hazard as
+    // a missed @classmethod. `__new__` keeps the more specific ALLOCATOR, which
+    // the schema designates for it.
+    if (name === '__init_subclass__' || name === '__class_getitem__') {
+      return PythonMethodKind.CLASS_METHOD;
+    }
     if (decoratorNames.some(d => d.endsWith('staticmethod'))) {
       return PythonMethodKind.STATIC_METHOD;
     }
@@ -1181,9 +1295,17 @@ export class PythonDeclarationExtractor {
   private methodModifiersOf(
     decoratorNames: string[],
     isAsync: boolean,
-    isGenerator: boolean
+    isGenerator: boolean,
+    methodName: string
   ): PythonMethodModifier[] {
     const modifiers: PythonMethodModifier[] = [];
+    // The implicit conversions Python applies without a decorator.
+    if (methodName === '__init_subclass__' || methodName === '__class_getitem__') {
+      modifiers.push(PythonMethodModifier.CLASS);
+    }
+    if (methodName === '__new__') {
+      modifiers.push(PythonMethodModifier.STATIC);
+    }
     if (isAsync) {
       modifiers.push(PythonMethodModifier.ASYNC);
     }

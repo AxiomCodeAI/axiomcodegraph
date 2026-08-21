@@ -167,6 +167,16 @@ export class PyTypeRegistry implements EntityIdentifiable {
     return this.mroKind;
   }
 
+  /**
+   * Refines the category after same-module base resolution.
+   *
+   * Safe to patch: `typeCategory` is not part of the primary key, which is
+   * derived from module, qualified name, name and line span.
+   */
+  setTypeCategory(typeCategory: PythonTypeCategory): void {
+    this.typeCategory = typeCategory;
+  }
+
   /** Back-patches the synthetic `<classbody>` initializer FK. */
   setClassInitMethodLinkHash(classInitMethodLinkHash: string): void {
     this.classInitMethodLinkHash = classInitMethodLinkHash;
