@@ -384,6 +384,18 @@ export class PythonResolutionLinker {
       }
       typesByNameByModule.set(module.moduleHash, names);
     }
+    // Module-level functions by name, for factory typing. Ambiguous names map to
+    // null: two functions called `make` in one module cannot settle a type.
+    const moduleMethodsByNameByModule = new Map<string, Map<string, PyMethodRegistry | null>>();
+    for (const module of modules) {
+      moduleMethodsByNameByModule.set(
+        module.moduleHash,
+        this.uniqueByName(
+          module.methods.filter(m => m.getPyTypeLinkHash() === ''),
+          m => m.getName()
+        )
+      );
+    }
     const parametersByMethod = new Map<string, PyMethodParameterRegistry[]>();
     for (const module of modules) {
       for (const parameter of module.methodParameters) {
@@ -399,6 +411,7 @@ export class PythonResolutionLinker {
         const resolved = this.typeOfField(field, {
           typesByName: names,
           parametersByMethod,
+          moduleMethodsByName: moduleMethodsByNameByModule.get(module.moduleHash),
         });
         if (resolved) {
           fieldTypeByHash.set(field.getHash(), resolved);
@@ -478,6 +491,8 @@ export class PythonResolutionLinker {
           fieldByTypeAndName,
           receiverNameByMethodHash,
           fieldTypeByHash,
+          parametersByMethod,
+          moduleMethodsByName: moduleMethodsByNameByModule.get(module.moduleHash),
         });
         if (target) {
           callSite.setResolvedCallee(target.kind, target.hash);
@@ -774,6 +789,21 @@ export class PythonResolutionLinker {
       }
     }
 
+    // Parameter flow and factory returns must work in single-file extraction too,
+    // not only in the project pass. They were project-only, which meant the
+    // commonest attribute shape of all — `self.pool = pool` with `pool: Pool` one
+    // line above — resolved for a directory and not for a file.
+    const parametersByMethod = new Map<string, PyMethodParameterRegistry[]>();
+    for (const parameter of input.methodParameters) {
+      const list = parametersByMethod.get(parameter.getPyMethodLinkHash()) ?? [];
+      list.push(parameter);
+      parametersByMethod.set(parameter.getPyMethodLinkHash(), list);
+    }
+    const moduleMethodsByName = this.uniqueByName(
+      input.methods.filter(m => m.getPyTypeLinkHash() === ''),
+      m => m.getName()
+    );
+
     this.linkAttributeExpressionsToFields(input, {
       typesByHash,
       basesByType,
@@ -796,6 +826,8 @@ export class PythonResolutionLinker {
         importedModuleNames,
         fieldByTypeAndName,
         receiverNameByMethodHash: input.receiverNameByMethodHash,
+        parametersByMethod,
+        moduleMethodsByName,
       });
       if (target) {
         callSite.setResolvedCallee(target.kind, target.hash);
@@ -853,6 +885,8 @@ export class PythonResolutionLinker {
       fieldByTypeAndName: Map<string, PyFieldRegistry>;
       receiverNameByMethodHash: Map<string, string>;
       fieldTypeByHash?: Map<string, PyTypeRegistry>;
+      parametersByMethod?: Map<string, PyMethodParameterRegistry[]>;
+      moduleMethodsByName?: Map<string, PyMethodRegistry | null>;
     }
   ): { kind: PythonResolvedCalleeKind; hash: string } | null {
     const name = callSite.getCalleeName();
@@ -920,10 +954,13 @@ export class PythonResolutionLinker {
         return this.resolveAttributeReceiver(callSite, name, ctx);
       }
 
-      // A CALL_RESULT receiver needs the callee's RETURN type. That is a linker
-      // rule over `py_method.returnTypeName`, not a missing relation, and it is
-      // left for the pass that owns return-type flow. Guessing by callee name
-      // alone is the fan-out this column exists to avoid.
+      case PythonReceiverKind.CALL_RESULT: {
+        return this.resolveCallResultReceiver(callSite, name, ctx);
+      }
+
+      // A SUBSCRIPT or UNKNOWN receiver needs an element type, which nothing in
+      // the emitted set carries: `handlers[key]()` reaches whatever was put into
+      // the container, and the container's writes are not tracked per element.
       default: {
         return null;
       }
@@ -966,6 +1003,8 @@ export class PythonResolutionLinker {
       fieldByTypeAndName: Map<string, PyFieldRegistry>;
       receiverNameByMethodHash: Map<string, string>;
       fieldTypeByHash?: Map<string, PyTypeRegistry>;
+      parametersByMethod?: Map<string, PyMethodParameterRegistry[]>;
+      moduleMethodsByName?: Map<string, PyMethodRegistry | null>;
     }
   ): { kind: PythonResolvedCalleeKind; hash: string } | null {
     const receiverText = callSite.getReceiverText();
@@ -1013,7 +1052,9 @@ export class PythonResolutionLinker {
     // them. `self.result = []` here and `self.result = None` there means
     // `self.result.append(x)` may well be an AttributeError at runtime, and
     // reporting it as `list.append` would launder a bug into a fact.
-    const builtinType = field.getIsAmbiguous() ? '' : this.builtinTypeOfField(field);
+    const builtinType = field.getIsAmbiguous()
+      ? ''
+      : this.builtinTypeOfField(field, this.annotationFlowingInto(field, ctx));
     if (builtinType !== '') {
       const members = PYTHON_BUILTIN_TYPE_METHODS.get(builtinType);
       if (members?.has(calleeName)) {
@@ -1021,6 +1062,134 @@ export class PythonResolutionLinker {
       }
     }
     return null;
+  }
+
+  /**
+   * Resolves `make_conn().send()` — a CALL_RESULT receiver.
+   *
+   * Needs no relation that does not already exist: the inner call's callee has a
+   * `-> T` annotation, and `T` names a class. So the rule is to resolve the inner
+   * call FIRST, read its return annotation, and look the method up on that.
+   *
+   * The inner callee is resolved through the same machinery as any other name
+   * rather than matched textually, so `make_conn` means the `make_conn` this
+   * scope actually sees. If the callee has no return annotation the answer is
+   * refused: a function returning an unannotated value could return anything, and
+   * inferring it would require the whole-body return analysis that belongs to the
+   * engine.
+   */
+  private resolveCallResultReceiver(
+    callSite: PyCallSiteRegistry,
+    calleeName: string,
+    ctx: {
+      typesByHash: Map<string, PyTypeRegistry>;
+      typesByName: Map<string, PyTypeRegistry | null>;
+      basesByType: Map<string, PyTypeBaseRegistry[]>;
+      methodsByTypeAndName: Map<string, PyMethodRegistry[]>;
+      mroCache: Map<string, string[] | null>;
+      entityByBinding: Map<string, PyMethodRegistry | PyTypeRegistry>;
+      bindingByScopeAndName: Map<string, PyBindingRegistry>;
+      parentScopeOf: Map<string, string>;
+    }
+  ): { kind: PythonResolvedCalleeKind; hash: string } | null {
+    const receiverText = callSite.getReceiverText();
+
+    // `self._get_loop().create_future()` — the receiver is a call on THIS class,
+    // which is the commonest shape of all: 6 of asyncio's 12 CALL_RESULT sites.
+    // The inner method is found on the MRO, so an inherited one works too.
+    const selfMethod = /^(?:self|cls)\.([A-Za-z_][A-Za-z0-9_]*)\(/.exec(receiverText);
+    if (selfMethod) {
+      const owner = callSite.getPyTypeLinkHash();
+      if (owner === '') {
+        return null;
+      }
+      const innerMethod = this.lookupMethodOnTypeAndBases(owner, selfMethod[1]!, ctx);
+      if (!innerMethod) {
+        return null;
+      }
+      const returnedFromSelf = this.returnedTypeOf(innerMethod, ctx);
+      if (!returnedFromSelf) {
+        return null;
+      }
+      const found = this.lookupMethodOnTypeAndBases(returnedFromSelf.getHash(), calleeName, ctx);
+      return found ? { kind: PythonResolvedCalleeKind.METHOD, hash: found.getHash() } : null;
+    }
+
+    // Otherwise only a direct `name()` receiver. `a.b()` and `f()()` need a
+    // receiver type this rule has not established, and each extra hop compounds
+    // the chance of a wrong answer.
+    const match = /^([A-Za-z_][A-Za-z0-9_]*)\(/.exec(receiverText);
+    if (!match) {
+      return null;
+    }
+    const innerName = match[1]!;
+    const inner = this.lookupInScopeChain(innerName, callSite.getPyScopeLinkHash(), ctx);
+    if (!inner) {
+      return null;
+    }
+    // `Conn().send()` — the inner name is a CLASS, so the receiver is an instance
+    // of it. This is the one case needing no return annotation at all, because
+    // calling a class always yields an instance of that class.
+    if (inner instanceof PyTypeRegistry) {
+      const method = this.lookupMethodOnTypeAndBases(inner.getHash(), calleeName, ctx);
+      return method ? { kind: PythonResolvedCalleeKind.METHOD, hash: method.getHash() } : null;
+    }
+    const returned = this.returnedTypeOf(inner, ctx);
+    if (!returned) {
+      return null;
+    }
+    const method = this.lookupMethodOnTypeAndBases(returned.getHash(), calleeName, ctx);
+    return method ? { kind: PythonResolvedCalleeKind.METHOD, hash: method.getHash() } : null;
+  }
+
+  /**
+   * The class a method's `-> T` annotation names, when it names one.
+   *
+   * `Optional[Conn]` and `Conn | None` both resolve to `Conn`: a call on the
+   * result may raise at runtime if it is `None`, but the only class involved is
+   * `Conn`, and refusing here would lose the common annotated case for a reason
+   * that belongs to null analysis rather than to type resolution.
+   */
+  private returnedTypeOf(
+    method: PyMethodRegistry,
+    ctx: { typesByName: Map<string, PyTypeRegistry | null> }
+  ): PyTypeRegistry | null {
+    const annotation = method.getReturnTypeName();
+    if (annotation === '') {
+      return null;
+    }
+    for (const candidate of this.namedTypesIn(annotation)) {
+      const resolved = ctx.typesByName.get(candidate);
+      if (resolved) {
+        return resolved;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * The class names in an annotation, outermost first.
+   *
+   * `Optional[Conn]` yields `Optional`, `Conn`; the first that resolves to a real
+   * class wins, which lands on `Conn` because `Optional` is not a class in the
+   * analysed code. A container annotation such as `List[Conn]` correctly yields
+   * nothing: the call is on the LIST, not on a `Conn`.
+   */
+  private namedTypesIn(annotation: string): string[] {
+    const heads = annotation
+      .split(/[\[\],|]/)
+      .map(part => (part.split('.').pop() ?? '').trim())
+      .filter(part => part !== '' && part !== 'None');
+    const containers = new Set([
+      'List', 'Dict', 'Set', 'Tuple', 'FrozenSet', 'Sequence', 'Iterable',
+      'Iterator', 'Generator', 'Mapping', 'MutableMapping', 'Awaitable',
+      'Coroutine', 'AsyncIterator', 'AsyncGenerator',
+      'list', 'dict', 'set', 'tuple', 'frozenset',
+    ]);
+    if (heads.length > 0 && containers.has(heads[0]!)) {
+      return [];
+    }
+    return heads;
   }
 
   /**
@@ -1075,13 +1244,20 @@ export class PythonResolutionLinker {
     ctx: {
       typesByName: Map<string, PyTypeRegistry | null>;
       parametersByMethod?: Map<string, PyMethodParameterRegistry[]>;
+      moduleMethodsByName?: Map<string, PyMethodRegistry | null>;
     }
   ): PyTypeRegistry | null {
-    const annotated = field.getFieldBaseType();
-    if (annotated !== '') {
-      const byAnnotation = ctx.typesByName.get(annotated);
-      if (byAnnotation) {
-        return byAnnotation;
+    // `Optional[Conn]` and `Conn | None` must reach `Conn`, so the whole
+    // annotation is scanned rather than just its head. A container annotation
+    // such as `List[Conn]` correctly yields nothing here: a call on the attribute
+    // is a call on the LIST, not on a `Conn`.
+    const annotation = field.getFieldTypeName();
+    if (annotation !== '') {
+      for (const candidate of this.namedTypesIn(annotation)) {
+        const byAnnotation = ctx.typesByName.get(candidate);
+        if (byAnnotation) {
+          return byAnnotation;
+        }
       }
     }
     if (field.getInitializerKind() === PythonInitializerKind.CALL) {
@@ -1093,6 +1269,15 @@ export class PythonResolutionLinker {
         const byConstructor = ctx.typesByName.get(calleeName);
         if (byConstructor) {
           return byConstructor;
+        }
+        // Not a class — but a FACTORY function with a `-> T` annotation says what
+        // it hands back, so `self.pool = make_pool()` types the attribute too.
+        const factory = ctx.moduleMethodsByName?.get(calleeName);
+        if (factory) {
+          const returned = this.returnedTypeOf(factory, ctx);
+          if (returned) {
+            return returned;
+          }
         }
       }
     }
@@ -1112,11 +1297,17 @@ export class PythonResolutionLinker {
         if (parameter.getParamName() !== source) {
           continue;
         }
-        const baseType = parameter.getParameterBaseType();
-        if (baseType === '') {
+        const annotationText = parameter.getParameterTypeName();
+        if (annotationText === '') {
           return null;
         }
-        return ctx.typesByName.get(baseType) ?? null;
+        for (const candidate of this.namedTypesIn(annotationText)) {
+          const resolved = ctx.typesByName.get(candidate);
+          if (resolved) {
+            return resolved;
+          }
+        }
+        return null;
       }
     }
     return null;
@@ -1136,7 +1327,17 @@ export class PythonResolutionLinker {
    * `self._items.frobnicate()` would be reported as a builtin call, which is both
    * wrong and hides a genuine bug in the analysed code.
    */
-  private builtinTypeOfField(field: PyFieldRegistry): string {
+  private builtinTypeOfField(
+    field: PyFieldRegistry,
+    annotationOverride?: string
+  ): string {
+    // An annotation naming a builtin is the strongest evidence available:
+    // `self.label: str` or a parameter annotated `str` flowing into it.
+    const annotation = annotationOverride ?? field.getFieldTypeName();
+    const head = (annotation.split('[')[0] ?? '').split('.').pop()?.trim() ?? '';
+    if (PYTHON_BUILTIN_TYPE_METHODS.has(head)) {
+      return head;
+    }
     const inferred = this.builtinLiteralType(field);
     if (inferred !== '') {
       return inferred;
@@ -1147,6 +1348,31 @@ export class PythonResolutionLinker {
     const calleeText = field.getInitializerText().split('(')[0] ?? '';
     const calleeName = (calleeText.split('.').pop() ?? '').trim();
     return PYTHON_BUILTIN_TYPE_METHODS.has(calleeName) ? calleeName : '';
+  }
+
+  /**
+   * The annotation of the parameter whose value was assigned to this attribute.
+   *
+   * `def __init__(self, name: str): self.label = name` makes `self.label` a
+   * `str`, so `self.label.upper()` reaches `str.upper`. Without this the
+   * attribute has no annotation of its own and the information is simply lost,
+   * even though it is written down one line away.
+   */
+  private annotationFlowingInto(
+    field: PyFieldRegistry,
+    ctx: { parametersByMethod?: Map<string, PyMethodParameterRegistry[]> }
+  ): string | undefined {
+    if (field.getInitializerKind() !== PythonInitializerKind.NAME) {
+      return undefined;
+    }
+    const parameters = ctx.parametersByMethod?.get(field.getDeclaringMethodLinkHash()) ?? [];
+    const source = field.getInitializerText();
+    for (const parameter of parameters) {
+      if (parameter.getParamName() === source) {
+        return parameter.getParameterTypeName();
+      }
+    }
+    return undefined;
   }
 
   /** The builtin type a literal initialiser produces, from its first character. */

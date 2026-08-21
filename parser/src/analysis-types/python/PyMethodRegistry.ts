@@ -157,6 +157,11 @@ export class PyMethodRegistry implements EntityIdentifiable {
     return this.name;
   }
 
+  /** The `-> T` annotation text, or `''`. */
+  getReturnTypeName(): string {
+    return this.returnTypeName;
+  }
+
   getSignature(): string {
     return this.signature;
   }
