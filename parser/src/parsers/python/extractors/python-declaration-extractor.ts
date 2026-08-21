@@ -512,6 +512,37 @@ export class PythonDeclarationExtractor {
     return PythonMroKind.C3_LINEARIZABLE;
   }
 
+  /**
+   * The rightmost name of the `metaclass=` keyword argument, or `''`.
+   *
+   * Extracted separately because a metaclass is a **classification signal** even
+   * though it is not a base. `class C(metaclass=ABCMeta)` and `class C(ABC)` are
+   * the same thing to a reader and to `isinstance`, but only the second is a
+   * positional base — so filtering keyword entries out before classifying makes
+   * the first invisible.
+   */
+  private metaclassSimpleName(bases: BaseEntry[]): string {
+    const metaclass = bases.find(b => b.keywordName === 'metaclass');
+    if (!metaclass) {
+      return '';
+    }
+    // Handles both `metaclass=ABCMeta` and `metaclass=abc.ABCMeta`.
+    return this.rightmostName(metaclass.node) || metaclass.baseText.split('.').pop() || '';
+  }
+
+  /**
+   * Classifies a class.
+   *
+   * **Keyword bases are inspected, not discarded.** The `metaclass=` idiom is
+   * ordinary Python, not a curiosity: `metaclass=ABCMeta` predates the `ABC`
+   * convenience base and is still required when a class needs an unrelated
+   * metaclass mixed in, and `metaclass=EnumMeta` is how you write an Enum-like
+   * class that needs behaviour `Enum.__new__` does not provide. Dropping keyword
+   * entries before the name checks made every such class a plain `CLASS_TYPE`,
+   * and in the ABCMeta case produced an internally inconsistent row —
+   * `typeModifier=ABSTRACT` alongside `typeCategory=CLASS_TYPE` — because the
+   * modifier pass did not filter them and this one did.
+   */
   private classifyType(
     bases: BaseEntry[],
     decoratorNames: string[],
@@ -520,9 +551,18 @@ export class PythonDeclarationExtractor {
     const baseNames = bases
       .filter(b => b.keywordName === '')
       .map(b => this.rightmostName(b.node));
+    const metaclass = this.metaclassSimpleName(bases);
 
     if (decoratorNames.some(d => d.endsWith('dataclass'))) {
       return PythonTypeCategory.DATACLASS_TYPE;
+    }
+    // A metaclass names the kind of class this IS, so it is checked with the
+    // same equality tests applied to positional bases.
+    if (metaclass === 'ABCMeta') {
+      return PythonTypeCategory.ABC_TYPE;
+    }
+    if (metaclass === 'EnumMeta' || metaclass === 'EnumType') {
+      return PythonTypeCategory.ENUM_CLASS_TYPE;
     }
     if (baseNames.some(n => n === 'Protocol')) {
       return PythonTypeCategory.PROTOCOL_TYPE;
@@ -558,7 +598,13 @@ export class PythonDeclarationExtractor {
     bodyNode: Parser.SyntaxNode | null
   ): PythonTypeModifier[] {
     const modifiers: PythonTypeModifier[] = [];
-    const baseNames = bases.map(b => this.rightmostName(b.node));
+    // Positional bases and the metaclass are considered separately, so the two
+    // classification passes cannot disagree about whether a keyword entry
+    // counts — which is exactly the inconsistency this replaced.
+    const baseNames = bases
+      .filter(b => b.keywordName === '')
+      .map(b => this.rightmostName(b.node));
+    const metaclass = this.metaclassSimpleName(bases);
 
     if (decoratorNames.some(d => d.endsWith('final'))) {
       modifiers.push(PythonTypeModifier.FINAL);
@@ -571,7 +617,7 @@ export class PythonDeclarationExtractor {
     if (decoratorNames.some(d => d.endsWith('runtime_checkable'))) {
       modifiers.push(PythonTypeModifier.RUNTIME_CHECKABLE);
     }
-    if (baseNames.some(n => n === 'ABC' || n === 'ABCMeta')) {
+    if (baseNames.some(n => n === 'ABC' || n === 'ABCMeta') || metaclass === 'ABCMeta') {
       modifiers.push(PythonTypeModifier.ABSTRACT);
     }
     if (baseNames.some(n => n === 'Generic' || n === 'Protocol')) {

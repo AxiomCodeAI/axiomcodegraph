@@ -781,7 +781,15 @@ export class PythonExpressionExtractor {
     // Transparent wrappers contribute no row of their own; the inner expression
     // takes the parent's role directly. Emitting them would add a node the
     // source does not contain and break `depth` for every descendant.
-    if (node.type === 'parenthesized_expression' || node.type === 'expression_list') {
+    //
+    // `pair` matters here: a dict literal's children are `pair` nodes, so
+    // dropping them loses every key AND value in the dict — including calls, as
+    // in `{'A': self.__seqToRE(...)}` from _strptime.py.
+    if (
+      node.type === 'parenthesized_expression' ||
+      node.type === 'expression_list' ||
+      node.type === 'pair'
+    ) {
       for (let i = 0; i < node.namedChildCount; i++) {
         const inner = node.namedChild(i);
         if (inner) {
@@ -793,6 +801,18 @@ export class PythonExpressionExtractor {
 
     const kind = this.expressionKindOf(node, pending);
     if (kind === null) {
+      // An unrecognised node is treated as TRANSPARENT, never dropped. Dropping
+      // it would silently discard its whole subtree — which is how a dict's
+      // `pair` nodes took every call in the dict with them. Being transparent
+      // means the worst case is a flatter tree than ideal, not a missing fact.
+      if (!this.isLeafToken(node)) {
+        for (let i = 0; i < node.namedChildCount; i++) {
+          const inner = node.namedChild(i);
+          if (inner) {
+            this.worklist.push({ ...pending, node: inner });
+          }
+        }
+      }
       return;
     }
 
@@ -827,7 +847,11 @@ export class PythonExpressionExtractor {
       this.emitCallSite(node, expression, pending);
     }
 
-    this.enqueueChildren(node, kind, expression, pending);
+    // Leaves have no sub-expressions. A string's string_start/string_content
+    // parts are not expressions, and descending into them would emit noise.
+    if (!this.isLeafKind(kind, node)) {
+      this.enqueueChildren(node, kind, expression, pending);
+    }
   }
 
   /**
@@ -1000,13 +1024,22 @@ export class PythonExpressionExtractor {
             position: 0,
           });
         }
-        const subscript = node.childForFieldName('subscript');
-        if (subscript) {
+        // `d[a, b, c]` has THREE `subscript` field children, and
+        // childForFieldName returns only the first — so indexing by field alone
+        // silently drops every index after the first, including any calls in
+        // them. dataclasses.py depends on this: `_hash_action[bool(a), bool(b),
+        // bool(c), d]` loses three of its four calls.
+        let index = 1;
+        for (let i = 0; i < node.namedChildCount; i++) {
+          const child = node.namedChild(i);
+          if (!child || child.id === value?.id) {
+            continue;
+          }
           this.worklist.push({
             ...base,
-            node: subscript,
+            node: child,
             edgeRole: PythonEdgeRole.SUBSCRIPT_INDEX,
-            position: 1,
+            position: index++,
           });
         }
         return;
@@ -1176,6 +1209,25 @@ export class PythonExpressionExtractor {
       }
 
       case PythonExpressionKind.LAMBDA: {
+        // Parameter defaults are evaluated in the ENCLOSING scope, at the moment
+        // the lambda is created — the same rule as for a `def`. Walking only the
+        // body loses them: `CFUNCTYPE(None)(lambda x=Nasty(): None)` from the
+        // stdlib test suite hides a real call in a lambda default.
+        const parameters = node.childForFieldName('parameters');
+        if (parameters) {
+          for (let i = 0; i < parameters.namedChildCount; i++) {
+            const param = parameters.namedChild(i);
+            const value = param?.childForFieldName('value');
+            if (value) {
+              this.worklist.push({
+                ...base,
+                node: value,
+                edgeRole: PythonEdgeRole.DEFAULT_VALUE,
+                position: i,
+              });
+            }
+          }
+        }
         // The body evaluates in the LAMBDA's own scope, not the enclosing one.
         const body = node.childForFieldName('body');
         const lambdaScope = this.input.scopeHashByNodeId.get(node.id);
@@ -1234,10 +1286,25 @@ export class PythonExpressionExtractor {
    * 12,000 measured keyword arguments.
    */
   private enqueueArguments(args: Parser.SyntaxNode, base: PendingExpression): void {
+    // A sole generator expression is passed WITHOUT an argument_list wrapper:
+    // `tuple(x for x in y)` puts the generator_expression directly in the
+    // `arguments` field. Iterating its children as if it were an argument list
+    // counts the element and each for-clause as separate arguments and loses any
+    // call inside the clause entirely.
+    if (args.type !== 'argument_list') {
+      this.worklist.push({
+        ...base,
+        node: args,
+        edgeRole: PythonEdgeRole.ARGUMENT,
+        position: 0,
+      });
+      return;
+    }
+
     let positional = 0;
     for (let i = 0; i < args.namedChildCount; i++) {
       const arg = args.namedChild(i);
-      if (!arg) {
+      if (!arg || arg.type === 'comment') {
         continue;
       }
 
@@ -1424,9 +1491,21 @@ export class PythonExpressionExtractor {
     if (!args) {
       return summary;
     }
+    // See enqueueArguments: a bare generator expression is one argument, not a
+    // list of its parts.
+    if (args.type !== 'argument_list') {
+      summary.positionalArgCount = 1;
+      return summary;
+    }
     for (let i = 0; i < args.namedChildCount; i++) {
       const arg = args.namedChild(i);
       if (!arg) {
+        continue;
+      }
+      // A comment is a NAMED node and can sit between arguments, so counting
+      // named children blindly inflates positionalArgCount on any call with an
+      // inline comment — common in long multi-line argument lists.
+      if (arg.type === 'comment') {
         continue;
       }
       if (arg.type === 'keyword_argument') {
@@ -1465,11 +1544,20 @@ export class PythonExpressionExtractor {
     if (fn.type !== 'attribute') {
       return { kind: PythonReceiverKind.NONE, text: '' };
     }
-    const object = fn.childForFieldName('object');
+    let object = fn.childForFieldName('object');
     if (!object) {
       return { kind: PythonReceiverKind.UNKNOWN, text: '' };
     }
     const text = EntityUtils.normalizeWhitespace(object.text);
+    // A parenthesised receiver is the same receiver. Multi-line string
+    // construction makes this common: `("a" "b").format(x)`.
+    while (object.type === 'parenthesized_expression') {
+      const inner = object.namedChild(0);
+      if (!inner) {
+        break;
+      }
+      object = inner;
+    }
 
     switch (object.type) {
       case 'identifier': {
@@ -1497,8 +1585,12 @@ export class PythonExpressionExtractor {
         return { kind: PythonReceiverKind.SUBSCRIPT, text };
       }
       case 'string':
+      case 'concatenated_string':
       case 'integer':
       case 'float':
+      case 'true':
+      case 'false':
+      case 'none':
       case 'list':
       case 'dictionary':
       case 'set':
@@ -1555,8 +1647,15 @@ export class PythonExpressionExtractor {
   // ---------------------------------------------------------------- helpers
 
   /**
-   * Maps a tree-sitter node type to an expression kind, or `null` for nodes that
-   * are not expressions and must not produce a row.
+   * Maps a tree-sitter node type to an expression kind, or `null` for a node
+   * that produces no row of its own.
+   *
+   * **This function is pure.** It must never enqueue work, and the rule is worth
+   * stating because breaking it fails silently: an earlier version enqueued the
+   * inner node for an annotation wrapper *and* returned `null`, so the
+   * transparent fallback enqueued it a second time and every annotation
+   * sub-expression was emitted twice with an identical primary key. Classify
+   * here; enqueue in `enqueueChildren` and the fallback, nowhere else.
    */
   private expressionKindOf(
     node: Parser.SyntaxNode,
@@ -1674,23 +1773,73 @@ export class PythonExpressionExtractor {
       case 'case_pattern': {
         return PythonExpressionKind.MATCH_PATTERN;
       }
-      case 'type': {
-        // An annotation wrapper: descend to the annotation expression itself.
-        const inner = node.namedChild(0);
-        if (inner) {
-          this.worklist.push({ ...pending, node: inner });
-        }
-        return null;
-      }
       default: {
+        // Including `type`, `generic_type` and `type_parameter`: annotation
+        // wrappers with no expression of their own, handled by the transparent
+        // fallback in emitExpression.
         return null;
       }
     }
   }
 
+  /**
+   * Kinds with no sub-expressions worth emitting.
+   *
+   * An **implicitly concatenated** string is the exception, and it is a trap:
+   *
+   * ```python
+   * raise TypeError(f'{type(self).__name__}() is deprecated '
+   *                 'and will be removed')
+   * ```
+   *
+   * That is one `concatenated_string` whose parts include an f-string, so
+   * treating it as a plain literal leaf silently discards the `type(self)` call
+   * inside it. Implicit concatenation across lines is extremely common in
+   * error-message construction, so this is not a corner case.
+   */
+  private isLeafKind(kind: PythonExpressionKind, node: Parser.SyntaxNode): boolean {
+    if (node.type === 'concatenated_string') {
+      return false;
+    }
+    return (
+      kind === PythonExpressionKind.NAME_REFERENCE ||
+      kind === PythonExpressionKind.SELF_REFERENCE ||
+      kind === PythonExpressionKind.CLS_REFERENCE ||
+      kind === PythonExpressionKind.LITERAL ||
+      kind === PythonExpressionKind.ELLIPSIS
+    );
+  }
+
+  /** Token-ish nodes that cannot contain an expression. */
+  private isLeafToken(node: Parser.SyntaxNode): boolean {
+    switch (node.type) {
+      case 'comment':
+      case 'string_start':
+      case 'string_content':
+      case 'string_end':
+      case 'escape_sequence':
+      case 'type_conversion':
+      case 'positional_separator':
+      case 'keyword_separator': {
+        return true;
+      }
+      default: {
+        return false;
+      }
+    }
+  }
+
+  /**
+   * Whether a string node is an f-string, looking through implicit
+   * concatenation: `'a' f'{b}'` is one concatenated_string and IS formatted.
+   */
   private isFormatString(node: Parser.SyntaxNode): boolean {
     for (let i = 0; i < node.namedChildCount; i++) {
-      if (node.namedChild(i)?.type === 'interpolation') {
+      const child = node.namedChild(i);
+      if (child?.type === 'interpolation') {
+        return true;
+      }
+      if (child?.type === 'string' && this.isFormatString(child)) {
         return true;
       }
     }
