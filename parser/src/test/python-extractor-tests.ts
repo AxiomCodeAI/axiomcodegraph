@@ -25,11 +25,14 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import * as os from 'os';
+
 import { PythonDialect } from '@/enums/python/modules';
 import { SkippedFileReason } from '@/enums/SkippedFileReason';
 import { PythonFactExtractor } from '@/parsers/python/extractors/python-fact-extractor';
 import { PythonDialectDetector } from '@/parsers/python/python-dialect-detector';
 import { PythonParser } from '@/parsers/python/python-parser';
+import { PythonProjectAnalyzer } from '@/workflows/python/python-project-analyzer';
 
 const PINNED_INTERPRETER =
   '/Library/Frameworks/Python.framework/Versions/3.10/bin/python3';
@@ -536,6 +539,193 @@ function parseLimitTests(): Failure[] {
   return failures;
 }
 
+/**
+ * Classification assertions for `py_type.typeCategory` and `typeModifier`.
+ *
+ * These columns have **no oracle coverage at all** — `emit_oracle.py` emits no
+ * typeCategory field and the ast differ compares only spans and base counts — so
+ * this is a self-check, and it is labelled as one. It exists because a real bug
+ * hid there: `classifyType` filtered keyword bases out before its name checks
+ * while `typeModifiersOf` did not, so `class C(metaclass=ABCMeta)` came out as
+ * CLASS_TYPE carrying an ABSTRACT modifier. The last assertion below is that
+ * internal contradiction, which is checkable without any oracle.
+ */
+function classificationTests(): Failure[] {
+  const failures: Failure[] = [];
+  const source = [
+    'import abc',
+    'import enum',
+    'from abc import ABC, ABCMeta',
+    'from enum import Enum, EnumMeta',
+    '',
+    'class ClassicABC(metaclass=ABCMeta):',
+    '    pass',
+    'class ClassicABC2(metaclass=abc.ABCMeta):',
+    '    pass',
+    'class FunctionalEnum(metaclass=EnumMeta):',
+    '    RED = 1',
+    'class RealABC(abc.ABC):',
+    '    pass',
+    'class RealEnum(enum.Enum):',
+    '    RED = 1',
+    'class Plain:',
+    '    pass',
+    'class PlainWithMeta(metaclass=type):',
+    '    pass',
+    '',
+  ].join('\n');
+
+  const expected: Record<string, { category: string; abstract: boolean }> = {
+    ClassicABC: { category: 'ABC_TYPE', abstract: true },
+    ClassicABC2: { category: 'ABC_TYPE', abstract: true },
+    FunctionalEnum: { category: 'ENUM_CLASS_TYPE', abstract: false },
+    RealABC: { category: 'ABC_TYPE', abstract: true },
+    RealEnum: { category: 'ENUM_CLASS_TYPE', abstract: false },
+    Plain: { category: 'CLASS_TYPE', abstract: false },
+    PlainWithMeta: { category: 'CLASS_TYPE', abstract: false },
+  };
+
+  const facts = new PythonFactExtractor().extract({
+    sourceCode: source, filePath: 'classification.py', baseMservPath: '/repo',
+    serviceVersionLinkHash: SERVICE_VERSION,
+  });
+
+  for (const type of facts.types) {
+    const cols = type.toCsv().split('\t');
+    const [name, , , category, , modifier] = cols;
+    const want = expected[name!];
+    if (!want) {
+      failures.push({ gate: 'INVARIANT', detail: `classification: unexpected class ${name}` });
+      continue;
+    }
+    const abstract = (modifier ?? '').split(',').includes('ABSTRACT');
+    if (category !== want.category) {
+      failures.push({
+        gate: 'INVARIANT',
+        detail: `classification ${name}: typeCategory expected ${want.category}, got ${category}`,
+      });
+    }
+    if (abstract !== want.abstract) {
+      failures.push({
+        gate: 'INVARIANT',
+        detail: `classification ${name}: ABSTRACT expected ${want.abstract}, got ${abstract}`,
+      });
+    }
+    // Internal consistency, checkable with no oracle at all.
+    if (abstract && category === 'CLASS_TYPE') {
+      failures.push({
+        gate: 'INVARIANT',
+        detail: `classification ${name}: ABSTRACT modifier with CLASS_TYPE category`,
+      });
+    }
+  }
+  return failures;
+}
+
+/**
+ * End-to-end analyzer tests: byte-identical CSVs across runs, correct arity on
+ * every row, and total rejection of Python 2.
+ *
+ * Determinism has to hold in the OUTPUT BYTES, not just in an in-memory row
+ * list, which is why this goes through the analyzer and hashes the files.
+ */
+async function analyzerTests(): Promise<Failure[]> {
+  const failures: Failure[] = [];
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'py-analyzer-test-'));
+  const repo = path.join(tmp, 'repo');
+  fs.mkdirSync(path.join(repo, 'pkg'), { recursive: true });
+
+  fs.writeFileSync(path.join(repo, 'pkg', '__init__.py'), '');
+  fs.writeFileSync(
+    path.join(repo, 'pkg', 'good.py'),
+    'class Service:\n    def run(self, x, *, flag=False):\n        return self.helper(x, flag=flag)\n\n    def helper(self, x, flag):\n        return [i for i in range(x) if flag]\n'
+  );
+  // One file per detection tier.
+  fs.writeFileSync(path.join(repo, 'pkg', 'py2_print.py'), 'def main():\n    print "hello"\n');
+  fs.writeFileSync(path.join(repo, 'pkg', 'py2_except.py'), 'try:\n    pass\nexcept E, exc:\n    pass\n');
+  fs.writeFileSync(path.join(repo, 'pkg', 'py2_backtick.py'), 'def show(x):\n    return `x`\n');
+
+  const runAnalyzer = async (outDir: string) =>
+    new PythonProjectAnalyzer().analyze({
+      rootDir: repo, outputDir: outDir, baseMservPath: '/repo',
+      serviceVersionLinkHash: SERVICE_VERSION,
+    });
+
+  const outA = path.join(tmp, 'out-a');
+  const outB = path.join(tmp, 'out-b');
+  const summary = await runAnalyzer(outA);
+  await runAnalyzer(outB);
+
+  if (summary.filesRejected !== 3) {
+    failures.push({ gate: 'INVARIANT', detail: `analyzer: expected 3 rejections, got ${summary.filesRejected}` });
+  }
+  if (summary.counts.py_module !== summary.filesAnalysed) {
+    failures.push({
+      gate: 'INVARIANT',
+      detail: `analyzer: py_module rows (${summary.counts.py_module}) != analysed files (${summary.filesAnalysed})`,
+    });
+  }
+
+  const factFiles = fs.readdirSync(outA).filter(f => f !== 'skipped-python-files.csv');
+
+  // #5 determinism, in the bytes.
+  for (const name of fs.readdirSync(outA)) {
+    const a = crypto.createHash('md5').update(fs.readFileSync(path.join(outA, name))).digest('hex');
+    const b = crypto.createHash('md5').update(fs.readFileSync(path.join(outB, name))).digest('hex');
+    if (a !== b) {
+      failures.push({ gate: 'INVARIANT', detail: `#5 ${name} differs between runs` });
+    }
+  }
+
+  // #6 every ROW, not just the header, has the frozen arity — this is what
+  // catches a value smuggling a tab past escapeTsv.
+  const arityByFile: Record<string, number> = {
+    'all-python-modules.csv': SPINE_ARITY.py_module!,
+    'all-python-scopes.csv': SPINE_ARITY.py_scope!,
+    'all-python-bindings.csv': SPINE_ARITY.py_binding!,
+    'all-python-types.csv': SPINE_ARITY.py_type!,
+    'all-python-type-bases.csv': SPINE_ARITY.py_type_base!,
+    'all-python-methods.csv': SPINE_ARITY.py_method!,
+    'all-python-method-parameters.csv': SPINE_ARITY.py_method_parameter!,
+    'all-python-imports.csv': SPINE_ARITY.py_import!,
+    'all-python-expressions.csv': SPINE_ARITY.py_expression!,
+    'all-python-call-sites.csv': SPINE_ARITY.py_call_site!,
+  };
+  for (const [name, want] of Object.entries(arityByFile)) {
+    const content = fs.readFileSync(path.join(outA, name), 'utf8');
+    if (content === '') {
+      continue;
+    }
+    content.split('\n').filter(Boolean).forEach((line, index) => {
+      const got = line.split('\t').length;
+      if (got !== want) {
+        failures.push({ gate: 'INVARIANT', detail: `#6 ${name} line ${index + 1}: ${got} fields, want ${want}` });
+      }
+    });
+  }
+
+  // Rejection must be TOTAL: no fact anywhere may come from a rejected file,
+  // and no Python-2 node type may appear in any emitted fact.
+  const emitted = factFiles.map(f => fs.readFileSync(path.join(outA, f), 'utf8')).join('\n');
+  for (const nodeType of ['print_statement', 'exec_statement', 'chevron']) {
+    if (emitted.includes(nodeType)) {
+      failures.push({ gate: 'INVARIANT', detail: `py2 node type "${nodeType}" appears in emitted facts` });
+    }
+  }
+  for (const rejected of ['py2_print', 'py2_except', 'py2_backtick']) {
+    if (emitted.includes(rejected)) {
+      failures.push({ gate: 'INVARIANT', detail: `facts emitted for rejected file ${rejected}.py` });
+    }
+  }
+  const skipped = fs.readFileSync(path.join(outA, 'skipped-python-files.csv'), 'utf8');
+  if ((skipped.match(/PY2_CONSTRUCT_DETECTED/g) ?? []).length !== 3) {
+    failures.push({ gate: 'INVARIANT', detail: `skipped CSV missing PY2_CONSTRUCT_DETECTED rows` });
+  }
+
+  fs.rmSync(tmp, { recursive: true, force: true });
+  return failures;
+}
+
 // -------------------------------------------------------------------- runner
 
 function testFile(file: string): FileResult {
@@ -593,7 +783,7 @@ function collect(dir: string): string[] {
   return out.sort();
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const sweepIndex = args.indexOf('--sweep');
   const limitIndex = args.indexOf('--limit');
@@ -606,8 +796,15 @@ function main(): void {
   console.log(`  oracle: CPython 3.10.4, pinned by absolute path`);
   console.log('='.repeat(80));
 
-  const standalone = [...python2RejectionTests(), ...parseLimitTests()];
-  console.log(`\nPython 2 rejection + parse limit: ${standalone.length === 0 ? 'PASS' : `${standalone.length} FAILURES`}`);
+  const standalone = [
+    ...python2RejectionTests(),
+    ...parseLimitTests(),
+    ...classificationTests(),
+    ...(await analyzerTests()),
+  ];
+  console.log(
+    `\nPy2 rejection, parse limit, classification, analyzer: ${standalone.length === 0 ? 'PASS' : `${standalone.length} FAILURES`}`
+  );
   standalone.forEach(f => console.log(`   ${f.gate} ${f.detail}`));
 
   const files = collect(dir).slice(0, limit);
@@ -651,4 +848,7 @@ function main(): void {
   process.exit(total === 0 ? 0 : 1);
 }
 
-main();
+main().catch(error => {
+  console.error(error);
+  process.exit(1);
+});
