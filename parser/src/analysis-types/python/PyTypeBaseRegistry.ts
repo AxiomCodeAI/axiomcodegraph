@@ -117,6 +117,29 @@ export class PyTypeBaseRegistry implements EntityIdentifiable {
     return this.isDynamic;
   }
 
+  getBaseDottedPath(): string {
+    return this.baseDottedPath;
+  }
+
+  getResolvedTypeLinkHash(): string {
+    return this.resolvedTypeLinkHash;
+  }
+
+  getIsResolvedLocally(): boolean {
+    return this.isResolvedLocally;
+  }
+
+  /**
+   * Records that this base was resolved to a type in the same analysis.
+   *
+   * MRO resolution depends on this: `super().m()` can only find the parent's `m`
+   * once the base has an actual `py_type` to walk into.
+   */
+  setResolution(resolvedTypeLinkHash: string, isResolvedLocally: boolean): void {
+    this.resolvedTypeLinkHash = resolvedTypeLinkHash;
+    this.isResolvedLocally = isResolvedLocally;
+  }
+
   getServiceVersionLinkHash(): string {
     return this.serviceVersionLinkHash;
   }

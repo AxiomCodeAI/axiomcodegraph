@@ -18,6 +18,7 @@ import { PythonScopeOwnerKind } from '@/enums/python/scopes';
 import { SkippedFileReason } from '@/enums/SkippedFileReason';
 import { PythonDeclarationExtractor } from '@/parsers/python/extractors/python-declaration-extractor';
 import { PythonExpressionExtractor } from '@/parsers/python/extractors/python-expression-extractor';
+import { PythonResolutionLinker } from '@/parsers/python/extractors/python-resolution-linker';
 import {
   PythonExtractionInput,
   PythonModuleExtraction,
@@ -66,17 +67,20 @@ export class PythonFactExtractor {
   private scopeExtractor: PythonScopeExtractor;
   private declarationExtractor: PythonDeclarationExtractor;
   private expressionExtractor: PythonExpressionExtractor;
+  private resolutionLinker: PythonResolutionLinker;
   /** The parameter rows of the file being processed, for default-value linking. */
   private lastParameters: PyMethodParameterRegistry[] = [];
 
   constructor(
     scopeExtractor?: PythonScopeExtractor,
     declarationExtractor?: PythonDeclarationExtractor,
-    expressionExtractor?: PythonExpressionExtractor
+    expressionExtractor?: PythonExpressionExtractor,
+    resolutionLinker?: PythonResolutionLinker
   ) {
     this.scopeExtractor = scopeExtractor ?? new PythonScopeExtractor();
     this.declarationExtractor = declarationExtractor ?? new PythonDeclarationExtractor();
     this.expressionExtractor = expressionExtractor ?? new PythonExpressionExtractor();
+    this.resolutionLinker = resolutionLinker ?? new PythonResolutionLinker();
   }
 
   extract(input: PythonExtractionInput): PythonFactSet {
@@ -133,6 +137,19 @@ export class PythonFactExtractor {
     // point at does not exist yet. Accumulate-then-export makes patching free:
     // nothing has been written, and none of these columns is part of a primary
     // key, so no hash changes.
+    // Intra-module resolution runs last, once every entity it can point at
+    // exists. Cross-module resolution is the project pass's job: it needs the
+    // module graph, which a single-file extraction does not have.
+    this.resolutionLinker.link({
+      scopes: scopeStage.scopes,
+      bindings: scopeStage.bindings,
+      types: declarations.types,
+      typeBases: declarations.typeBases,
+      methods: declarations.methods,
+      imports: declarations.imports,
+      callSites: expressionStage.callSites,
+    });
+
     this.linkScopeOwners(scopeStage, declarations);
     this.linkBindingMethods(scopeStage, declarations);
     this.linkParameterDefaults(declarations, expressionStage);

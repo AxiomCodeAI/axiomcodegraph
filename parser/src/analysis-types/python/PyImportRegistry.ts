@@ -144,6 +144,39 @@ export class PyImportRegistry implements EntityIdentifiable {
     return this.pyModuleLinkHash;
   }
 
+  getPackageOrTypeName(): string {
+    return this.packageOrTypeName;
+  }
+
+  /** The pre-alias name — what the target is called in the source module. */
+  getOriginalName(): string {
+    return this.originalName;
+  }
+
+  getAliasName(): string {
+    return this.aliasName;
+  }
+
+  getBindingLinkHash(): string {
+    return this.bindingLinkHash;
+  }
+
+  getIsModuleImport(): boolean {
+    return this.isModuleImport;
+  }
+
+  getPyScopeLinkHash(): string {
+    return this.pyScopeLinkHash;
+  }
+
+  getResolvedTargetKind(): PythonImportTargetKind {
+    return this.resolvedTargetKind;
+  }
+
+  getResolvedTargetHash(): string {
+    return this.resolvedTargetHash;
+  }
+
   /** Back-patches the FK to the binding this import creates. */
   setBindingLinkHash(bindingLinkHash: string): void {
     this.bindingLinkHash = bindingLinkHash;

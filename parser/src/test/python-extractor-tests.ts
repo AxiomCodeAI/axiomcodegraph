@@ -60,6 +60,8 @@ interface Failure {
 interface FileResult {
   file: string;
   failures: Failure[];
+  /** Resolved / total call sites, per receiverKind, so a regression is visible. */
+  resolution: Map<string, { resolved: number; total: number }>;
   stats: Record<string, number>;
   /**
    * Set when CPython itself could not produce ground truth for this file — a
@@ -352,6 +354,199 @@ function gate2(oracle: any, facts: ReturnType<typeof extract>): Failure[] {
   }
   for (const k of actCalls.keys()) {
     if (!expCalls.has(k)) failures.push({ gate: 'GATE2', detail: `py_call_site SPURIOUS ${k}` });
+  }
+
+  return failures;
+}
+
+/**
+ * The RESOLUTION gate — a consistency invariant, not an oracle question.
+ *
+ * This exists because neither existing gate can see resolution at all. Gate 1
+ * compares scopes and bindings, which are byte-identical whether resolution runs
+ * or not. Gate 2 checks call-site structure, which was already correct. So 0%
+ * resolution showed green on both, and reached a hand-written sample before
+ * anything caught it.
+ *
+ * The check is self-contained because BOTH sides of the implication are
+ * relations the parser emits. Expectations are recomputed here from `py_binding`,
+ * `py_type_base` and `py_method` — deliberately NOT from the linker — so this
+ * cannot be satisfied by the linker agreeing with itself:
+ *
+ *   receiverKind=NONE calling N in scope S
+ *     if py_binding binds N in S's scope chain to a def/class D
+ *     then resolvedCalleeHash == D
+ *
+ *   receiverKind=SELF calling N inside class T
+ *     if T or T's resolved base closure declares a method N
+ *     then resolvedCalleeHash == that method
+ *
+ *   py_type_base whose baseSimpleName names a py_type in the same module
+ *     then resolvedTypeLinkHash == that type AND isResolvedLocally
+ *
+ * Under-resolution fails it. Over-resolution to the WRONG target fails it too,
+ * since it asserts equality with the independently derived answer rather than
+ * merely "something non-empty".
+ */
+function resolutionGate(facts: ReturnType<typeof extract>): Failure[] {
+  const failures: Failure[] = [];
+  if (!facts.module) {
+    return failures;
+  }
+
+  const parentScopeOf = new Map<string, string>();
+  for (const scope of facts.scopes) {
+    parentScopeOf.set(scope.getHash(), scope.getParentScopeLinkHash());
+  }
+  const bindingAt = new Map<string, ReturnType<typeof facts.bindings.at>>();
+  for (const binding of facts.bindings) {
+    bindingAt.set(`${binding.getPyScopeLinkHash()}::${binding.getName()}`, binding);
+  }
+  const entityByBinding = new Map<string, string>();
+  for (const method of facts.methods) {
+    if (method.getDeclaringBindingLinkHash() !== '') {
+      entityByBinding.set(method.getDeclaringBindingLinkHash(), method.getHash());
+    }
+  }
+  for (const type of facts.types) {
+    if (type.getDeclaringBindingLinkHash() !== '') {
+      entityByBinding.set(type.getDeclaringBindingLinkHash(), type.getHash());
+    }
+  }
+
+  // ---- rule 1: a bare name bound in the scope chain to a def or class
+  for (const callSite of facts.callSites) {
+    if (callSite.getReceiverKind() !== 'NONE') {
+      continue;
+    }
+    let scope: string | undefined = callSite.getPyScopeLinkHash();
+    let expected: string | null = null;
+    let guard = 0;
+    while (scope !== undefined && scope !== '' && guard++ < 200) {
+      const binding = bindingAt.get(`${scope}::${callSite.getCalleeName()}`);
+      if (binding?.isBound()) {
+        expected = entityByBinding.get(binding.getHash()) ?? null;
+        break;
+      }
+      scope = parentScopeOf.get(scope);
+    }
+    if (expected === null) {
+      continue;
+    }
+    if (callSite.getResolvedCalleeHash() !== expected) {
+      failures.push({
+        gate: 'INVARIANT',
+        detail:
+          `resolution: ${callSite.getCalleeName()}() at line ${callSite.getStartLine()} is bound ` +
+          `in its scope chain to a def/class, so resolvedCalleeHash must equal it ` +
+          `(got ${callSite.getResolvedCalleeHash() || 'UNRESOLVED'})`,
+      });
+    }
+  }
+
+  // ---- rule 2: self.N where the class or its resolved bases declare N
+  const basesOf = new Map<string, string[]>();
+  for (const base of facts.typeBases) {
+    if (base.getKeywordName() !== '' || !base.getIsResolvedLocally()) {
+      continue;
+    }
+    const list = basesOf.get(base.getPyTypeLinkHash()) ?? [];
+    list.push(base.getResolvedTypeLinkHash());
+    basesOf.set(base.getPyTypeLinkHash(), list);
+  }
+  const typeByHash = new Map(facts.types.map(t => [t.getHash(), t]));
+  const methodOn = (typeHash: string, name: string): string[] => {
+    const hits = facts.methods.filter(
+      m =>
+        m.getPyTypeLinkHash() === typeHash &&
+        m.getName() === name &&
+        m.isClassBodyMember() &&
+        m.getMethodKind() !== 'OVERLOAD_STUB' &&
+        !m.getBodyIsStub()
+    );
+    return hits.map(m => m.getHash());
+  };
+  const closureLookup = (typeHash: string, name: string, seen: Set<string>): string[] => {
+    if (seen.has(typeHash)) {
+      return [];
+    }
+    seen.add(typeHash);
+    const own = methodOn(typeHash, name);
+    if (own.length > 0) {
+      return own;
+    }
+    // Only claim an inherited target when EVERY base resolved; an unresolved
+    // base means an unseen method might exist and the answer is not provable.
+    const declared = facts.typeBases.filter(
+      b => b.getPyTypeLinkHash() === typeHash && b.getKeywordName() === ''
+    );
+    if (!declared.every(b => b.getIsResolvedLocally())) {
+      return [];
+    }
+    const out: string[] = [];
+    for (const base of basesOf.get(typeHash) ?? []) {
+      out.push(...closureLookup(base, name, seen));
+    }
+    return out;
+  };
+
+  for (const callSite of facts.callSites) {
+    if (callSite.getReceiverKind() !== 'SELF' && callSite.getReceiverKind() !== 'CLS') {
+      continue;
+    }
+    const owner = callSite.getPyTypeLinkHash();
+    if (owner === '') {
+      continue;
+    }
+    // A class with __getattr__ can answer for names that appear nowhere, so
+    // absence proves nothing there and neither does presence.
+    const ownerType = typeByHash.get(owner);
+    const hatch = ownerType
+      ? [...ownerType.getModifiers()].some(m => m === 'HAS_GETATTR' || m === 'HAS_SETATTR')
+      : false;
+    if (hatch) {
+      continue;
+    }
+    const candidates = new Set(closureLookup(owner, callSite.getCalleeName(), new Set()));
+    if (candidates.size !== 1) {
+      continue;
+    }
+    const [expected] = candidates;
+    if (callSite.getResolvedCalleeHash() !== expected) {
+      failures.push({
+        gate: 'INVARIANT',
+        detail:
+          `resolution: self.${callSite.getCalleeName()}() at line ${callSite.getStartLine()} has ` +
+          `exactly one declared target on its class closure, so resolvedCalleeHash must equal it ` +
+          `(got ${callSite.getResolvedCalleeHash() || 'UNRESOLVED'})`,
+      });
+    }
+  }
+
+  // ---- rule 3: a base naming a class in the same module must be resolved to it
+  const typeByName = new Map<string, string | null>();
+  for (const type of facts.types) {
+    typeByName.set(type.getName(), typeByName.has(type.getName()) ? null : type.getHash());
+  }
+  for (const base of facts.typeBases) {
+    if (base.getKeywordName() !== '' || base.getIsDynamic()) {
+      continue;
+    }
+    if (base.getBaseDottedPath().includes('.')) {
+      continue;
+    }
+    const expected = typeByName.get(base.getBaseSimpleName());
+    if (!expected || expected === base.getPyTypeLinkHash()) {
+      continue;
+    }
+    if (base.getResolvedTypeLinkHash() !== expected || !base.getIsResolvedLocally()) {
+      failures.push({
+        gate: 'INVARIANT',
+        detail:
+          `resolution: base ${base.getBaseSimpleName()} names a class in the same module, so ` +
+          `resolvedTypeLinkHash must be that class and isResolvedLocally must be true`,
+      });
+    }
   }
 
   return failures;
@@ -1076,6 +1271,23 @@ function schemaDocumentTests(): Failure[] {
   return failures;
 }
 
+/** Resolution rate per receiverKind — reported so a regression is visible. */
+function countResolution(
+  facts: ReturnType<typeof extract>
+): Map<string, { resolved: number; total: number }> {
+  const out = new Map<string, { resolved: number; total: number }>();
+  for (const callSite of facts.callSites) {
+    const key = callSite.getReceiverKind();
+    const entry = out.get(key) ?? { resolved: 0, total: 0 };
+    entry.total += 1;
+    if (callSite.getResolvedCalleeKind() !== 'UNRESOLVED') {
+      entry.resolved += 1;
+    }
+    out.set(key, entry);
+  }
+  return out;
+}
+
 // -------------------------------------------------------------------- runner
 
 function testFile(file: string): FileResult {
@@ -1086,6 +1298,7 @@ function testFile(file: string): FileResult {
     return {
       file,
       failures: [{ gate: 'INVARIANT', detail: `extractor threw: ${String(error).slice(0, 120)}` }],
+      resolution: new Map(),
       stats: {},
     };
   }
@@ -1103,10 +1316,12 @@ function testFile(file: string): FileResult {
   }
   // Invariants need no oracle, so they run even when ground truth is missing.
   failures.push(...invariants(file, facts));
+  failures.push(...resolutionGate(facts));
   return {
     file,
     failures,
     oracleUnavailable,
+    resolution: countResolution(facts),
     stats: {
       scopes: facts.scopes.length, bindings: facts.bindings.length,
       types: facts.types.length, typeBases: facts.typeBases.length,
@@ -1182,6 +1397,24 @@ async function main(): Promise<void> {
   console.log(`  Gate 1  (symtable, EXACT)          ${byGate.GATE1} disagreements`);
   console.log(`  Gate 2  (ast, cross-check)         ${byGate.GATE2} disagreements`);
   console.log(`  Layer 3 (invariants, no oracle)    ${byGate.INVARIANT} violations`);
+
+  const resolution = new Map<string, { resolved: number; total: number }>();
+  for (const r of results) {
+    for (const [kind, counts] of r.resolution) {
+      const entry = resolution.get(kind) ?? { resolved: 0, total: 0 };
+      entry.resolved += counts.resolved;
+      entry.total += counts.total;
+      resolution.set(kind, entry);
+    }
+  }
+  const totalResolved = [...resolution.values()].reduce((a, c) => a + c.resolved, 0);
+  const totalCalls = [...resolution.values()].reduce((a, c) => a + c.total, 0);
+  console.log(`\nCall-site resolution: ${totalResolved}/${totalCalls}` +
+    (totalCalls > 0 ? ` (${((totalResolved / totalCalls) * 100).toFixed(1)}%)` : ''));
+  for (const kind of [...resolution.keys()].sort()) {
+    const c = resolution.get(kind)!;
+    console.log(`  ${kind.padEnd(12)} ${c.resolved}/${c.total}`);
+  }
 
   console.log('\nRows emitted:');
   for (const [k, v] of Object.entries(totals)) console.log(`  ${k.padEnd(20)} ${v}`);

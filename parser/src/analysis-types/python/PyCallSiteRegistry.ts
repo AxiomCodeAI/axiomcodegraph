@@ -174,6 +174,22 @@ export class PyCallSiteRegistry implements EntityIdentifiable {
     return this.startLine;
   }
 
+  getPyScopeLinkHash(): string {
+    return this.pyScopeLinkHash;
+  }
+
+  getPyTypeLinkHash(): string {
+    return this.pyTypeLinkHash;
+  }
+
+  getResolvedCalleeKind(): PythonResolvedCalleeKind {
+    return this.resolvedCalleeKind;
+  }
+
+  getResolvedCalleeHash(): string {
+    return this.resolvedCalleeHash;
+  }
+
   /**
    * Back-patches the receiver's expression FK.
    *

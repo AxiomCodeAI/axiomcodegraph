@@ -216,6 +216,30 @@ export class PyMethodRegistry implements EntityIdentifiable {
     return this.bodyIsStub;
   }
 
+  getDeclaringBindingLinkHash(): string {
+    return this.declaringBindingLinkHash;
+  }
+
+  getEnclosingMemberLinkHash(): string {
+    return this.enclosingMemberLinkHash;
+  }
+
+  /**
+   * Whether this is a member of its class BODY, as opposed to a function nested
+   * inside one of its methods.
+   *
+   * A nested `def` carries the enclosing class in `pyTypeLinkHash`, so a naive
+   * "methods of this type" lookup would offer `run.<locals>.inner` as a
+   * candidate for `self.inner()` — a target that is not reachable that way.
+   */
+  isClassBodyMember(): boolean {
+    return this.pyTypeLinkHash !== '' && this.enclosingMemberLinkHash === '';
+  }
+
+  getScopeLinkHashValue(): string {
+    return this.scopeLinkHash;
+  }
+
   /** Back-patches the FK to the binding this def creates; `''` for lambdas. */
   setDeclaringBindingLinkHash(declaringBindingLinkHash: string): void {
     this.declaringBindingLinkHash = declaringBindingLinkHash;

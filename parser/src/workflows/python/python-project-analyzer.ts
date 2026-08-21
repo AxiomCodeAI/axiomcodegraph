@@ -5,6 +5,10 @@ import { PYTHON_CSV_FILES, PYTHON_TARGET_VERSION } from '@/constants/python-cons
 import { PythonDialect, PythonEmissionRegime } from '@/enums/python/modules';
 import { SkippedFileReason } from '@/enums/SkippedFileReason';
 import { PythonFactExtractor } from '@/parsers/python/extractors/python-fact-extractor';
+import {
+  ProjectModuleFacts,
+  PythonResolutionLinker,
+} from '@/parsers/python/extractors/python-resolution-linker';
 import { Python2Finding } from '@/types/python';
 
 /** One rejected or unanalysable file. */
@@ -36,6 +40,8 @@ export interface PythonAnalysisSummary {
   filesAnalysed: number;
   filesRejected: number;
   counts: Record<string, number>;
+  /** Cross-module resolution results, from the project-level pass. */
+  resolution: { importsResolved: number; callSitesResolved: number };
 }
 
 /** Directories that never contain source worth analysing. */
@@ -71,10 +77,12 @@ const CHUNK_SIZE = 50_000;
  */
 export class PythonProjectAnalyzer {
   private extractor: PythonFactExtractor;
+  private resolutionLinker: PythonResolutionLinker;
   private skippedFiles: SkippedPythonFile[] = [];
 
-  constructor(extractor?: PythonFactExtractor) {
+  constructor(extractor?: PythonFactExtractor, resolutionLinker?: PythonResolutionLinker) {
     this.extractor = extractor ?? new PythonFactExtractor();
+    this.resolutionLinker = resolutionLinker ?? new PythonResolutionLinker();
   }
 
   async analyze(options: PythonAnalysisOptions): Promise<PythonAnalysisSummary> {
@@ -96,6 +104,12 @@ export class PythonProjectAnalyzer {
       expressions: [] as { toCsv(): string; getCsvHeader(): string }[],
       callSites: [] as { toCsv(): string; getCsvHeader(): string }[],
     };
+
+    // Per-module facts, kept so the cross-module pass can run over all of them
+    // once extraction is complete. Cross-module resolution cannot happen during
+    // extraction: `from .helpers import build_pipeline` needs helpers.py to have
+    // been parsed, and file order is not a dependency order.
+    const perModule: ProjectModuleFacts[] = [];
 
     let analysed = 0;
     for (const filePath of files) {
@@ -144,7 +158,23 @@ export class PythonProjectAnalyzer {
       accumulated.imports.push(...facts.imports);
       accumulated.expressions.push(...facts.expressions);
       accumulated.callSites.push(...facts.callSites);
+
+      perModule.push({
+        qualifiedName: facts.module.getQualifiedName(),
+        moduleHash: facts.module.getHash(),
+        scopes: facts.scopes,
+        bindings: facts.bindings,
+        types: facts.types,
+        typeBases: facts.typeBases,
+        methods: facts.methods,
+        imports: facts.imports,
+        callSites: facts.callSites,
+      });
     }
+
+    // The cross-module pass mutates rows already in `accumulated` — they are the
+    // same objects — so it must run BEFORE export.
+    const resolution = this.resolutionLinker.linkProject(perModule);
 
     await fsp.mkdir(options.outputDir, { recursive: true });
     await this.exportCsv(accumulated.modules, options.outputDir, PYTHON_CSV_FILES.MODULES);
@@ -167,6 +197,7 @@ export class PythonProjectAnalyzer {
       filesSeen: files.length,
       filesAnalysed: analysed,
       filesRejected: this.skippedFiles.length,
+      resolution,
       counts: {
         py_module: accumulated.modules.length,
         py_scope: accumulated.scopes.length,

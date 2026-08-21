@@ -165,6 +165,27 @@ export class PyBindingRegistry implements EntityIdentifiable {
     return this.isNamespace;
   }
 
+  getIsAssigned(): boolean {
+    return this.isAssigned;
+  }
+
+  getIsImported(): boolean {
+    return this.isImported;
+  }
+
+  /**
+   * Whether this row represents a name genuinely BOUND in its scope, as opposed
+   * to merely referenced there.
+   *
+   * symtable emits a Symbol for any name a scope mentions, including one it only
+   * reads — a `GLOBAL_IMPLICIT` reference. Treating such a row as a binding makes
+   * a scope look like it shadows an outer definition when it does not, which
+   * silently halts any outward name lookup at the first mention.
+   */
+  isBound(): boolean {
+    return this.isAssigned || this.isImported || this.isParameter;
+  }
+
   /**
    * Sets the enclosing-method FK.
    *

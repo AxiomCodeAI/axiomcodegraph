@@ -167,6 +167,18 @@ export class PyTypeRegistry implements EntityIdentifiable {
     return this.mroKind;
   }
 
+  getDeclaringBindingLinkHash(): string {
+    return this.declaringBindingLinkHash;
+  }
+
+  getEnclosingTypeLinkHash(): string {
+    return this.enclosingTypeLinkHash;
+  }
+
+  getEnclosingMethodLinkHash(): string {
+    return this.enclosingMethodLinkHash;
+  }
+
   /**
    * Refines the category after same-module base resolution.
    *
