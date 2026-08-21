@@ -37,6 +37,15 @@ export interface PythonDeclarationExtraction {
   methods: PyMethodRegistry[];
   methodParameters: PyMethodParameterRegistry[];
   imports: PyImportRegistry[];
+
+  /** `function_definition` node id -> `py_method` PK, for the expression stage. */
+  methodHashByNodeId: Map<number, string>;
+  /** `class_definition` node id -> `py_type` PK. */
+  typeHashByNodeId: Map<number, string>;
+  /** `class_definition` node id -> its `<classbody>` method PK. */
+  classInitHashByNodeId: Map<number, string>;
+  /** The synthetic `<module>` method PK — the fallback expression owner. */
+  moduleMethodHash: string;
 }
 
 export interface PythonDeclarationInput {
@@ -112,6 +121,9 @@ export class PythonDeclarationExtractor {
   private methods: PyMethodRegistry[] = [];
   private methodParameters: PyMethodParameterRegistry[] = [];
   private imports: PyImportRegistry[] = [];
+  private methodHashByNodeId = new Map<number, string>();
+  private typeHashByNodeId = new Map<number, string>();
+  private classInitHashByNodeId = new Map<number, string>();
 
   extract(input: PythonDeclarationInput): PythonDeclarationExtraction {
     this.input = input;
@@ -120,6 +132,9 @@ export class PythonDeclarationExtractor {
     this.methods = [];
     this.methodParameters = [];
     this.imports = [];
+    this.methodHashByNodeId = new Map();
+    this.typeHashByNodeId = new Map();
+    this.classInitHashByNodeId = new Map();
 
     const moduleScopeHash = input.scopeHashByNodeId.get(input.rootNode.id) ?? '';
     const moduleInit = this.emitModuleInitializer(moduleScopeHash);
@@ -143,6 +158,10 @@ export class PythonDeclarationExtractor {
       methods: this.methods,
       methodParameters: this.methodParameters,
       imports: this.imports,
+      methodHashByNodeId: this.methodHashByNodeId,
+      typeHashByNodeId: this.typeHashByNodeId,
+      classInitHashByNodeId: this.classInitHashByNodeId,
+      moduleMethodHash: moduleInit.getHash(),
     };
   }
 
@@ -349,6 +368,7 @@ export class PythonDeclarationExtractor {
       .build();
 
     this.types.push(type);
+    this.typeHashByNodeId.set(node.id, type.getHash());
     type.setDeclaringBindingLinkHash(
       this.input.bindingHashByScopeAndName.get(
         `${context.bindingScopeHash}::${className}`
@@ -359,6 +379,7 @@ export class PythonDeclarationExtractor {
 
     const classInit = this.emitClassInitializer(node, type, classScopeHash);
     type.setClassInitMethodLinkHash(classInit.getHash());
+    this.classInitHashByNodeId.set(node.id, classInit.getHash());
 
     if (!bodyNode) {
       return;
@@ -712,6 +733,7 @@ export class PythonDeclarationExtractor {
       .build();
 
     this.methods.push(method);
+    this.methodHashByNodeId.set(node.id, method.getHash());
     method.setDeclaringBindingLinkHash(
       this.input.bindingHashByScopeAndName.get(
         `${context.bindingScopeHash}::${functionName}`

@@ -1,4 +1,6 @@
 export { PyBindingRegistry, PyBindingRegistryBuilder } from '@/analysis-types/python/PyBindingRegistry';
+export { PyCallSiteRegistry, PyCallSiteRegistryBuilder } from '@/analysis-types/python/PyCallSiteRegistry';
+export { PyExpressionRegistry, PyExpressionRegistryBuilder } from '@/analysis-types/python/PyExpressionRegistry';
 export { PyImportRegistry, PyImportRegistryBuilder } from '@/analysis-types/python/PyImportRegistry';
 export { PyMethodParameterRegistry, PyMethodParameterRegistryBuilder } from '@/analysis-types/python/PyMethodParameterRegistry';
 export { PyMethodRegistry, PyMethodRegistryBuilder } from '@/analysis-types/python/PyMethodRegistry';

@@ -2,6 +2,8 @@ import * as path from 'path';
 
 import {
   PyBindingRegistry,
+  PyCallSiteRegistry,
+  PyExpressionRegistry,
   PyImportRegistry,
   PyMethodParameterRegistry,
   PyMethodRegistry,
@@ -13,6 +15,7 @@ import {
 import { PythonDialect } from '@/enums/python/modules';
 import { SkippedFileReason } from '@/enums/SkippedFileReason';
 import { PythonDeclarationExtractor } from '@/parsers/python/extractors/python-declaration-extractor';
+import { PythonExpressionExtractor } from '@/parsers/python/extractors/python-expression-extractor';
 import {
   PythonExtractionInput,
   PythonScopeExtractor,
@@ -30,6 +33,8 @@ export interface PythonFactSet {
   methods: PyMethodRegistry[];
   methodParameters: PyMethodParameterRegistry[];
   imports: PyImportRegistry[];
+  expressions: PyExpressionRegistry[];
+  callSites: PyCallSiteRegistry[];
 
   dialect: PythonDialect;
   /** Present only for a rejected file. */
@@ -57,13 +62,16 @@ export interface PythonFactSet {
 export class PythonFactExtractor {
   private scopeExtractor: PythonScopeExtractor;
   private declarationExtractor: PythonDeclarationExtractor;
+  private expressionExtractor: PythonExpressionExtractor;
 
   constructor(
     scopeExtractor?: PythonScopeExtractor,
-    declarationExtractor?: PythonDeclarationExtractor
+    declarationExtractor?: PythonDeclarationExtractor,
+    expressionExtractor?: PythonExpressionExtractor
   ) {
     this.scopeExtractor = scopeExtractor ?? new PythonScopeExtractor();
     this.declarationExtractor = declarationExtractor ?? new PythonDeclarationExtractor();
+    this.expressionExtractor = expressionExtractor ?? new PythonExpressionExtractor();
   }
 
   extract(input: PythonExtractionInput): PythonFactSet {
@@ -78,6 +86,8 @@ export class PythonFactExtractor {
         methods: [],
         methodParameters: [],
         imports: [],
+        expressions: [],
+        callSites: [],
         dialect: scopeStage.dialect,
         skippedReason: SkippedFileReason.PY2_CONSTRUCT_DETECTED,
         python2Findings: scopeStage.python2Findings,
@@ -96,6 +106,18 @@ export class PythonFactExtractor {
       qualifiedNameByNodeId: scopeStage.qualifiedNameByNodeId,
     });
 
+    const expressionStage = this.expressionExtractor.extract({
+      module: scopeStage.module,
+      rootNode: scopeStage.rootNode,
+      serviceVersionLinkHash: input.serviceVersionLinkHash,
+      scopeHashByNodeId: scopeStage.scopeHashByNodeId,
+      bindingHashByScopeAndName: scopeStage.bindingHashByScopeAndName,
+      methodHashByNodeId: declarations.methodHashByNodeId,
+      typeHashByNodeId: declarations.typeHashByNodeId,
+      moduleMethodHash: declarations.moduleMethodHash,
+      classInitHashByNodeId: declarations.classInitHashByNodeId,
+    });
+
     return {
       module: scopeStage.module,
       scopes: scopeStage.scopes,
@@ -105,6 +127,8 @@ export class PythonFactExtractor {
       methods: declarations.methods,
       methodParameters: declarations.methodParameters,
       imports: declarations.imports,
+      expressions: expressionStage.expressions,
+      callSites: expressionStage.callSites,
       dialect: scopeStage.dialect,
       python2Findings: [],
     };

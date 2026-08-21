@@ -3,6 +3,7 @@ export type {
   PythonDeclarationExtraction,
   PythonDeclarationInput,
 } from '@/parsers/python/extractors/python-declaration-extractor';
+export { PythonExpressionExtractor } from '@/parsers/python/extractors/python-expression-extractor';
 export { PythonFactExtractor } from '@/parsers/python/extractors/python-fact-extractor';
 export type { PythonFactSet } from '@/parsers/python/extractors/python-fact-extractor';
 export { PythonScopeBuilder } from '@/parsers/python/extractors/python-scope-builder';
