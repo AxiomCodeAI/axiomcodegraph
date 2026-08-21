@@ -1,7 +1,12 @@
+export { PythonDeclarationExtractor } from '@/parsers/python/extractors/python-declaration-extractor';
+export type {
+  PythonDeclarationExtraction,
+  PythonDeclarationInput,
+} from '@/parsers/python/extractors/python-declaration-extractor';
+export { PythonFactExtractor } from '@/parsers/python/extractors/python-fact-extractor';
+export type { PythonFactSet } from '@/parsers/python/extractors/python-fact-extractor';
 export { PythonScopeBuilder } from '@/parsers/python/extractors/python-scope-builder';
-export {
-  PythonScopeExtractor,
-} from '@/parsers/python/extractors/python-scope-extractor';
+export { PythonScopeExtractor } from '@/parsers/python/extractors/python-scope-extractor';
 export type {
   PythonExtractionInput,
   PythonModuleExtraction,

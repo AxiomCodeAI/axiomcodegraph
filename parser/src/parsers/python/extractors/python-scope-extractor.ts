@@ -30,7 +30,7 @@ import {
 } from '@/parsers/python/extractors/python-symbol-table';
 import { Python2Finding, SymbolBlock } from '@/types/python';
 
-/** Everything the extractor produces for one file. */
+/** Everything the scope/binding stage produces for one file. */
 export interface PythonModuleExtraction {
   /** `undefined` when the file was rejected — no facts are emitted at all. */
   module?: PyModuleRegistry;
@@ -40,6 +40,33 @@ export interface PythonModuleExtraction {
   dialect: PythonDialect;
   /** Python 2 constructs found, for `py_parse_gap` and `skipped-python-files.csv`. */
   python2Findings: Python2Finding[];
+
+  /**
+   * The parsed root, carried so the declaration stage does not re-parse. Files
+   * over 32,767 characters are expensive to parse and re-parsing would also
+   * risk the two stages disagreeing about the tree.
+   */
+  rootNode?: Parser.SyntaxNode;
+  /**
+   * Scope-introducing `node.id` -> the `py_scope` PK for that node.
+   *
+   * This is how declarations link to scopes without re-deriving a qualified
+   * name. Keyed on `node.id` rather than tagged onto the node itself, because
+   * node-tree-sitter's wrapper cache evicts entries and a tag would silently
+   * vanish between stages.
+   */
+  scopeHashByNodeId: Map<number, string>;
+  /** Scope-introducing `node.id` -> the analysed symbol-table block. */
+  blocksByNodeId: Map<number, SymbolBlock>;
+  /** `(scopeHash, name)` -> binding PK, so declarations can link their bindings. */
+  bindingHashByScopeAndName: Map<string, string>;
+  /**
+   * Scope-introducing `node.id` -> the scope's qualified name.
+   *
+   * Declarations reuse this rather than re-deriving `__qualname__`, so a class
+   * and its scope can never disagree about their own name.
+   */
+  qualifiedNameByNodeId: Map<number, string>;
 }
 
 export interface PythonExtractionInput {
@@ -114,6 +141,10 @@ export class PythonScopeExtractor {
         bindings: [],
         dialect: detection.dialect,
         python2Findings: detection.findings,
+        scopeHashByNodeId: new Map(),
+        blocksByNodeId: new Map(),
+        bindingHashByScopeAndName: new Map(),
+        qualifiedNameByNodeId: new Map(),
       };
     }
 
@@ -136,7 +167,12 @@ export class PythonScopeExtractor {
 
     const scopes: PyScopeRegistry[] = [];
     const bindings: PyBindingRegistry[] = [];
-    this.emitBlock(rootBlock, module, '', input, scopes, bindings, { nextSymtableId: 0 });
+    const scopeHashByNodeId = new Map<number, string>();
+    const bindingHashByScopeAndName = new Map<string, string>();
+    this.emitBlock(rootBlock, module, '', input, scopes, bindings, { nextSymtableId: 0 }, {
+      scopeHashByNodeId,
+      bindingHashByScopeAndName,
+    });
 
     // The module row is minted before its scope exists, so the FK is patched in.
     const moduleScope = scopes[0];
@@ -150,7 +186,23 @@ export class PythonScopeExtractor {
       bindings,
       dialect: detection.dialect,
       python2Findings: [],
+      rootNode,
+      scopeHashByNodeId,
+      blocksByNodeId: builder.getBlocksByNodeId(),
+      bindingHashByScopeAndName,
+      qualifiedNameByNodeId: this.collectQualifiedNames(builder.getBlocksByNodeId()),
     };
+  }
+
+  /** Snapshots each block's qualified name, keyed by its introducing node. */
+  private collectQualifiedNames(
+    blocksByNodeId: Map<number, SymbolBlock>
+  ): Map<number, string> {
+    const names = new Map<number, string>();
+    for (const [nodeId, block] of blocksByNodeId) {
+      names.set(nodeId, block.qualifiedName);
+    }
+    return names;
   }
 
   // -------------------------------------------------------------- emission
@@ -168,7 +220,11 @@ export class PythonScopeExtractor {
     input: PythonExtractionInput,
     scopes: PyScopeRegistry[],
     bindings: PyBindingRegistry[],
-    counter: { nextSymtableId: number }
+    counter: { nextSymtableId: number },
+    links: {
+      scopeHashByNodeId: Map<number, string>;
+      bindingHashByScopeAndName: Map<string, string>;
+    }
   ): void {
     const scope = PyScopeRegistry.builder(
       block.scopeKind,
@@ -196,10 +252,11 @@ export class PythonScopeExtractor {
       .build();
 
     scopes.push(scope);
-    this.emitBindings(block, scope, module, input, bindings);
+    links.scopeHashByNodeId.set(block.nodeId, scope.getHash());
+    this.emitBindings(block, scope, module, input, bindings, links.bindingHashByScopeAndName);
 
     for (const child of block.children) {
-      this.emitBlock(child, module, scope.getHash(), input, scopes, bindings, counter);
+      this.emitBlock(child, module, scope.getHash(), input, scopes, bindings, counter, links);
     }
   }
 
@@ -214,7 +271,8 @@ export class PythonScopeExtractor {
     scope: PyScopeRegistry,
     module: PyModuleRegistry,
     input: PythonExtractionInput,
-    bindings: PyBindingRegistry[]
+    bindings: PyBindingRegistry[],
+    bindingHashByScopeAndName: Map<string, string>
   ): void {
     const names = Array.from(block.symbols.keys()).sort();
     const childNames = new Set(block.children.map(child => child.name));
@@ -284,6 +342,7 @@ export class PythonScopeExtractor {
         .build();
 
       bindings.push(binding);
+      bindingHashByScopeAndName.set(`${scope.getHash()}::${name}`, binding.getHash());
     }
   }
 

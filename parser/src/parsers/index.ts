@@ -3,4 +3,10 @@ export type { LanguageParser } from '@/parsers/language-parser';
 export { ParserFactory } from '@/parsers/parser-factory';
 export { CodeExtractor } from '@/parsers/code-extractor';
 export { JavaParser, TypeRegistryExtractor } from '@/parsers/java';
-export { PythonDialectDetector, PythonParser, PythonScopeExtractor } from '@/parsers/python';
+export {
+  PythonDeclarationExtractor,
+  PythonDialectDetector,
+  PythonFactExtractor,
+  PythonParser,
+  PythonScopeExtractor,
+} from '@/parsers/python';
