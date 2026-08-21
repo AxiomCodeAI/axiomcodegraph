@@ -737,7 +737,7 @@ export class PythonScopeBuilder {
   ): void {
     for (let i = 0; i < parametersNode.namedChildCount; i++) {
       const param = parametersNode.namedChild(i);
-      if (!param) {
+      if (!param || param.isExtra) {
         continue;
       }
       if (param.type !== 'default_parameter' && param.type !== 'typed_default_parameter') {
@@ -770,7 +770,7 @@ export class PythonScopeBuilder {
 
     for (let i = 0; i < parametersNode.namedChildCount; i++) {
       const param = parametersNode.namedChild(i);
-      if (!param) {
+      if (!param || param.isExtra) {
         continue;
       }
       if (param.type === 'keyword_separator') {
@@ -832,7 +832,7 @@ export class PythonScopeBuilder {
   ): void {
     for (let i = 0; i < parametersNode.namedChildCount; i++) {
       const param = parametersNode.namedChild(i);
-      if (!param) {
+      if (!param || param.isExtra) {
         continue;
       }
       this.bindParameter(block, param, origin);

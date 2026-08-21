@@ -669,7 +669,7 @@ export class PythonExpressionExtractor {
     if (parametersNode) {
       for (let i = 0; i < parametersNode.namedChildCount; i++) {
         const param = parametersNode.namedChild(i);
-        if (!param) {
+        if (!param || param.isExtra) {
           continue;
         }
         const value = param.childForFieldName('value');
@@ -735,7 +735,16 @@ export class PythonExpressionExtractor {
     if (!parametersNode) {
       return '';
     }
-    const first = parametersNode.namedChild(0);
+    // Skip any leading grammar extra, so a comment before the first parameter
+    // does not make the method look like it has no receiver.
+    let first: Parser.SyntaxNode | null = null;
+    for (let i = 0; i < parametersNode.namedChildCount; i++) {
+      const candidate = parametersNode.namedChild(i);
+      if (candidate && !candidate.isExtra) {
+        first = candidate;
+        break;
+      }
+    }
     if (!first) {
       return '';
     }
@@ -1254,6 +1263,9 @@ export class PythonExpressionExtractor {
         if (parameters) {
           for (let i = 0; i < parameters.namedChildCount; i++) {
             const param = parameters.namedChild(i);
+            if (param?.isExtra) {
+              continue;
+            }
             const value = param?.childForFieldName('value');
             if (value) {
               this.worklist.push({

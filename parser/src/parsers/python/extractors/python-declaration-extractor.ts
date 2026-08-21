@@ -856,7 +856,10 @@ export class PythonDeclarationExtractor {
 
     for (let i = 0; i < parametersNode.namedChildCount; i++) {
       const param = parametersNode.namedChild(i);
-      if (!param) {
+      // Grammar extras — a comment or line continuation inside the parameter
+      // list — are NAMED nodes. Counting them as parameters inflates
+      // kwOnlyCount, which aiohttp's `debug: Any = ...,  # comment` exposes.
+      if (!param || param.isExtra) {
         continue;
       }
 
