@@ -151,18 +151,28 @@ export class PythonScopeBuilder {
   // ------------------------------------------------------------------ blocks
 
   /**
-   * Sorts each block's children into source order and assigns `scopeOrdinal`.
+   * Assigns `scopeOrdinal` in **evaluation order**, which is creation order here.
    *
-   * Source order is (line, column) and is deliberately **not** the order the
-   * blocks were created in: a lambda hidden in a default argument is created
-   * while visiting its parent's signature, so creation order is evaluation
-   * order. CPython's `symtable` children are in evaluation order too, which is
-   * why the oracle reconciles the two by identity rather than by position.
+   * This is emphatically *not* source order, and assuming it was is a mistake
+   * that survives every small test and then disagrees with CPython on real code.
+   * symtable orders a block's children by the order it *constructed* them, and
+   * parts of a signature are evaluated before the function body exists:
+   *
+   * ```python
+   * class SpecLoaderAdapter:
+   *     def __init__(self, spec=lambda: 1): ...
+   * #       ^ column 4                ^ column 37
+   * ```
+   *
+   * The lambda is a *sibling* of `__init__` and is built **first** — ordinal 0
+   * for the lambda, 1 for the method — even though the `def` starts earlier on
+   * the line. Sorting by (line, column) inverts them.
+   *
+   * The traversal therefore visits each construct in exactly CPython's order
+   * (defaults, then kw-defaults, then annotations, then decorators, then the
+   * body) and this pass simply numbers what that produced.
    */
   private finalizeOrdinals(block: SymbolBlock): void {
-    block.children.sort(
-      (a, b) => a.startLine - b.startLine || a.startColumn - b.startColumn
-    );
     block.children.forEach((child, index) => {
       child.scopeOrdinal = index;
       this.finalizeOrdinals(child);
@@ -379,18 +389,35 @@ export class PythonScopeBuilder {
   private visitStatement(block: SymbolBlock, node: Parser.SyntaxNode): void {
     switch (node.type) {
       case 'decorated_definition': {
-        // Decorators are evaluated in the CURRENT scope, before the definition
-        // they wrap exists. A lambda inside one is a sibling of the def.
+        // Decorators are evaluated in the CURRENT scope, so a lambda inside one
+        // is a sibling of the definition it wraps. They are NOT visited here,
+        // though: CPython visits defaults and annotations BEFORE decorators, so
+        // the decorator list is handed down and visited at the right point.
+        // Emitting them here instead misorders scopeOrdinal on any decorated
+        // function with a lambda in its signature.
+        const decorators: Parser.SyntaxNode[] = [];
+        let definition: Parser.SyntaxNode | null = null;
         for (let i = 0; i < node.namedChildCount; i++) {
           const child = node.namedChild(i);
           if (!child) {
             continue;
           }
           if (child.type === 'decorator') {
-            this.visitExpressionChildren(block, child, PythonNameContext.LOAD);
-          } else {
-            this.visitStatement(block, child);
+            decorators.push(child);
+            continue;
           }
+          definition = child;
+        }
+        if (definition?.type === 'function_definition') {
+          this.visitFunctionDefinition(block, definition, decorators);
+          return;
+        }
+        if (definition?.type === 'class_definition') {
+          this.visitClassDefinition(block, definition, decorators);
+          return;
+        }
+        if (definition) {
+          this.visitStatement(block, definition);
         }
         return;
       }
@@ -470,7 +497,11 @@ export class PythonScopeBuilder {
         return;
       }
 
-      case 'try_statement':
+      case 'try_statement': {
+        this.visitTryStatement(block, node);
+        return;
+      }
+
       case 'if_statement':
       case 'while_statement':
       case 'match_statement':
@@ -534,7 +565,30 @@ export class PythonScopeBuilder {
 
   // -------------------------------------------------------------- functions
 
-  private visitFunctionDefinition(block: SymbolBlock, node: Parser.SyntaxNode): void {
+  /**
+   * A `def` / `async def`, in CPython's exact visit order.
+   *
+   * The order is the specification, because it determines `scopeOrdinal` for
+   * every scope hidden in the signature. `symtable.c` does:
+   *
+   * ```
+   * add the function's own name
+   * defaults          (positional and positional-or-keyword)
+   * kw_defaults       (keyword-only)
+   * annotations       (posonly, args, vararg, kwarg, kwonly, THEN returns)
+   * decorators
+   * enter block -> parameters, then body
+   * ```
+   *
+   * Two details are counter-intuitive and taken straight from CPython:
+   * decorators come **after** annotations, and the `*args` / `**kwargs`
+   * annotations are visited **before** the keyword-only ones.
+   */
+  private visitFunctionDefinition(
+    block: SymbolBlock,
+    node: Parser.SyntaxNode,
+    decorators: Parser.SyntaxNode[] = []
+  ): void {
     const nameNode = node.childForFieldName('name');
     const parametersNode = node.childForFieldName('parameters');
     const returnTypeNode = node.childForFieldName('return_type');
@@ -550,13 +604,17 @@ export class PythonScopeBuilder {
       nameNode ?? node
     );
 
-    // Defaults, annotations and the return annotation are all evaluated in the
-    // ENCLOSING scope, so any scope they contain is a sibling of this function.
+    // Defaults, annotations and decorators are all evaluated in the ENCLOSING
+    // scope, so any scope they contain is a sibling of this function.
     if (parametersNode) {
-      this.visitParameterDefaultsAndAnnotations(block, parametersNode);
+      this.visitParameterDefaults(block, parametersNode);
+      this.visitParameterAnnotations(block, parametersNode);
     }
     if (returnTypeNode) {
       this.visitAnnotation(block, returnTypeNode);
+    }
+    for (const decorator of decorators) {
+      this.visitExpressionChildren(block, decorator, PythonNameContext.LOAD);
     }
 
     const child = this.createChildBlock(
@@ -577,7 +635,15 @@ export class PythonScopeBuilder {
     }
   }
 
-  private visitClassDefinition(block: SymbolBlock, node: Parser.SyntaxNode): void {
+  /**
+   * A `class` statement, in CPython's exact visit order: bases, then keyword
+   * arguments such as `metaclass=`, then decorators, then the body.
+   */
+  private visitClassDefinition(
+    block: SymbolBlock,
+    node: Parser.SyntaxNode,
+    decorators: Parser.SyntaxNode[] = []
+  ): void {
     const nameNode = node.childForFieldName('name');
     const argumentsNode = node.childForFieldName('superclasses');
     const bodyNode = node.childForFieldName('body');
@@ -591,10 +657,13 @@ export class PythonScopeBuilder {
       nameNode ?? node
     );
 
-    // Bases and keyword arguments (`metaclass=`) are evaluated in the enclosing
-    // scope — the class body does not exist yet when they run.
+    // Bases and keyword arguments are evaluated in the enclosing scope — the
+    // class body does not exist yet when they run.
     if (argumentsNode) {
       this.visitExpressionChildren(block, argumentsNode, PythonNameContext.LOAD);
+    }
+    for (const decorator of decorators) {
+      this.visitExpressionChildren(block, decorator, PythonNameContext.LOAD);
     }
 
     const child = this.createChildBlock(
@@ -649,10 +718,13 @@ export class PythonScopeBuilder {
   // ------------------------------------------------------------- parameters
 
   /**
-   * Visits only the parts of a parameter list that are evaluated in the
-   * enclosing scope: default values and annotations.
+   * Pass one over a parameter list: **default values only**, in source order.
+   *
+   * Defaults are evaluated once, at definition time, in the enclosing scope —
+   * which is what makes a mutable default shared across calls, and what makes a
+   * lambda in a default a sibling scope.
    */
-  private visitParameterDefaultsAndAnnotations(
+  private visitParameterDefaults(
     block: SymbolBlock,
     parametersNode: Parser.SyntaxNode
   ): void {
@@ -661,33 +733,88 @@ export class PythonScopeBuilder {
       if (!param) {
         continue;
       }
-      switch (param.type) {
-        case 'default_parameter':
-        case 'typed_default_parameter': {
-          const typeNode = param.childForFieldName('type');
-          const valueNode = param.childForFieldName('value');
-          if (typeNode) {
-            this.visitAnnotation(block, typeNode);
-          }
-          // A default value IS evaluated at definition time regardless of
-          // PEP 563, so it is never gated.
-          if (valueNode) {
-            this.visitExpression(block, valueNode, PythonNameContext.LOAD);
-          }
-          break;
-        }
-        case 'typed_parameter': {
-          const typeNode = param.childForFieldName('type');
-          if (typeNode) {
-            this.visitAnnotation(block, typeNode);
-          }
-          break;
-        }
-        default: {
-          break;
-        }
+      if (param.type !== 'default_parameter' && param.type !== 'typed_default_parameter') {
+        continue;
+      }
+      const valueNode = param.childForFieldName('value');
+      if (valueNode) {
+        this.visitExpression(block, valueNode, PythonNameContext.LOAD);
       }
     }
+  }
+
+  /**
+   * Pass two: **annotations only**, in CPython's order.
+   *
+   * CPython visits positional-only, then positional-or-keyword, then the
+   * `*args` annotation, then the `**kwargs` annotation, and only then the
+   * keyword-only annotations. That ordering is observable through
+   * `scopeOrdinal` whenever an annotation contains a lambda, so it is
+   * reproduced rather than approximated.
+   */
+  private visitParameterAnnotations(
+    block: SymbolBlock,
+    parametersNode: Parser.SyntaxNode
+  ): void {
+    const positional: Parser.SyntaxNode[] = [];
+    const splats: Parser.SyntaxNode[] = [];
+    const keywordOnly: Parser.SyntaxNode[] = [];
+    let seenKeywordSeparator = false;
+
+    for (let i = 0; i < parametersNode.namedChildCount; i++) {
+      const param = parametersNode.namedChild(i);
+      if (!param) {
+        continue;
+      }
+      if (param.type === 'keyword_separator') {
+        seenKeywordSeparator = true;
+        continue;
+      }
+      if (param.type === 'list_splat_pattern') {
+        // A bare `*args` also opens the keyword-only section.
+        seenKeywordSeparator = true;
+        continue;
+      }
+      const typeNode = param.childForFieldName('type');
+      if (!typeNode) {
+        continue;
+      }
+      if (this.isSplatParameter(param)) {
+        splats.push(typeNode);
+        // An annotated `*args` opens the keyword-only section too.
+        if (this.splatKind(param) === 'list') {
+          seenKeywordSeparator = true;
+        }
+        continue;
+      }
+      if (seenKeywordSeparator) {
+        keywordOnly.push(typeNode);
+        continue;
+      }
+      positional.push(typeNode);
+    }
+
+    for (const annotation of [...positional, ...splats, ...keywordOnly]) {
+      this.visitAnnotation(block, annotation);
+    }
+  }
+
+  /** Whether a `typed_parameter` wraps a `*args` / `**kwargs` splat. */
+  private isSplatParameter(param: Parser.SyntaxNode): boolean {
+    return this.splatKind(param) !== null;
+  }
+
+  private splatKind(param: Parser.SyntaxNode): 'list' | 'dictionary' | null {
+    for (let i = 0; i < param.namedChildCount; i++) {
+      const child = param.namedChild(i);
+      if (child?.type === 'list_splat_pattern') {
+        return 'list';
+      }
+      if (child?.type === 'dictionary_splat_pattern') {
+        return 'dictionary';
+      }
+    }
+    return null;
   }
 
   /** Binds the parameter *names* in the function's own scope. */
@@ -721,6 +848,21 @@ export class PythonScopeBuilder {
         const nameNode = param.childForFieldName('name') ?? param.namedChild(0);
         if (nameNode?.type === 'identifier') {
           this.addDef(block, nameNode.text, SymbolFlags.DEF_PARAM, origin, nameNode);
+          return;
+        }
+        // An ANNOTATED splat wraps its name one level deeper:
+        // `**kwargs: Any` is typed_parameter > dictionary_splat_pattern >
+        // identifier, where bare `**kwargs` is the splat pattern directly.
+        // Reading only the first named child silently loses the parameter, so
+        // `is_parameter` comes back false for every annotated *args/**kwargs.
+        if (
+          nameNode?.type === 'list_splat_pattern' ||
+          nameNode?.type === 'dictionary_splat_pattern'
+        ) {
+          const inner = nameNode.namedChild(0);
+          if (inner?.type === 'identifier') {
+            this.addDef(block, inner.text, SymbolFlags.DEF_PARAM, origin, inner);
+          }
         }
         return;
       }
@@ -870,6 +1012,66 @@ export class PythonScopeBuilder {
       return;
     }
     this.visitExpression(block, valueNode, PythonNameContext.LOAD);
+  }
+
+  /**
+   * A `try` statement, in symtable's order — which is **not** source order.
+   *
+   * CPython's symbol table visits `body`, then the `else` clause, then the
+   * `except` handlers, then `finally`. The compiler does not use that order, and
+   * source order does not either, but it is observable through `scopeOrdinal`:
+   *
+   * ```python
+   * try:
+   *     CODESET
+   * except NameError:
+   *     def getpreferredencoding(...): ...   # source line 652, ordinal 30
+   * else:
+   *     def getpreferredencoding(...): ...   # source line 657, ordinal 29
+   * ```
+   *
+   * The `else` definition is constructed first despite appearing later. This is
+   * from `locale.py` in the standard library, so it is load-bearing on real code
+   * rather than a curiosity.
+   */
+  private visitTryStatement(block: SymbolBlock, node: Parser.SyntaxNode): void {
+    const handlers: Parser.SyntaxNode[] = [];
+    const elseClauses: Parser.SyntaxNode[] = [];
+    const finallyClauses: Parser.SyntaxNode[] = [];
+    const body: Parser.SyntaxNode[] = [];
+
+    for (let i = 0; i < node.namedChildCount; i++) {
+      const child = node.namedChild(i);
+      if (!child) {
+        continue;
+      }
+      if (child.type === 'except_clause' || child.type === 'except_group_clause') {
+        handlers.push(child);
+        continue;
+      }
+      if (child.type === 'else_clause') {
+        elseClauses.push(child);
+        continue;
+      }
+      if (child.type === 'finally_clause') {
+        finallyClauses.push(child);
+        continue;
+      }
+      body.push(child);
+    }
+
+    for (const part of body) {
+      this.visitStatement(block, part);
+    }
+    for (const part of elseClauses) {
+      this.visitStatement(block, part);
+    }
+    for (const handler of handlers) {
+      this.visitExceptClause(block, handler);
+    }
+    for (const part of finallyClauses) {
+      this.visitStatement(block, part);
+    }
   }
 
   /**
@@ -1141,6 +1343,7 @@ export class PythonScopeBuilder {
       }
 
       case 'pattern_list':
+      case 'expression_list':
       case 'tuple_pattern':
       case 'list_pattern':
       case 'tuple':
@@ -1298,8 +1501,9 @@ export class PythonScopeBuilder {
     const bodyNode = node.childForFieldName('body');
 
     // Lambda defaults are evaluated in the enclosing scope, as with a def.
+    // A lambda cannot carry annotations, so only defaults apply here.
     if (parametersNode) {
-      this.visitParameterDefaultsAndAnnotations(block, parametersNode);
+      this.visitParameterDefaults(block, parametersNode);
     }
 
     const child = this.createChildBlock(

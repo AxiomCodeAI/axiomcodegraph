@@ -222,8 +222,18 @@ export class PythonScopeExtractor {
     for (const name of names) {
       const flags = block.symbols.get(name) ?? 0;
       const symbolScope = block.scopes.get(name) ?? SymbolScope.NONE;
-      const isModuleScope = block.blockType === SymbolBlockType.MODULE;
       const origin = block.origins.get(name);
+
+      // CPython's `symtable.py` decides "is this module scope?" by comparing the
+      // table's NAME to "top", not by checking its type:
+      //
+      //     module_scope = (self._table.name == "top")
+      //
+      // So a function or class literally named `top` gets module-scope
+      // semantics for is_local/is_global. That is surprising, and arguably a
+      // CPython wart, but symtable is the oracle: `poplib.POP3.top` reports its
+      // parameters as is_global=true, and matching CPython means reproducing it.
+      const isModuleScope = block.name === PYTHON_MODULE_SCOPE_NAME;
 
       // The eleven predicates, computed exactly as `symtable.Symbol` does.
       // The module-scope special case in is_local/is_global is CPython's own: a

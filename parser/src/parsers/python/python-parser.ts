@@ -59,8 +59,15 @@ export class PythonParser implements LanguageParser {
    * @throws Error if sourceCode is invalid
    */
   parse(sourceCode: string): Parser.Tree {
-    if (!sourceCode || typeof sourceCode !== 'string') {
-      throw new Error('Invalid source code: must be a non-empty string');
+    if (typeof sourceCode !== 'string') {
+      throw new Error('Invalid source code: must be a string');
+    }
+    // An EMPTY file is deliberately accepted. `__init__.py` is empty in 438 of
+    // the 10,769 files in the local stdlib and site-packages, and every one of
+    // them is a legal module with a real module scope and an empty binding set.
+    // Rejecting them would drop a fact set that CPython produces happily.
+    if (sourceCode.length === 0) {
+      return this.parser.parse('');
     }
 
     // Measured in CHARACTERS, matching the limit's own unit. `.length` is UTF-16
