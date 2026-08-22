@@ -444,6 +444,80 @@ def _end_of(node):
     )
 
 
+
+def _own_bindings(fnode):
+    """Names bound in `fnode`'s OWN scope: parameters, then local writes.
+
+    Does not descend into nested scopes — a name assigned inside a nested def
+    belongs to that def, not to this one.
+    """
+    a = fnode.args
+    params = {p.arg for p in (a.posonlyargs + a.args + a.kwonlyargs
+                              + ([a.vararg] if a.vararg else [])
+                              + ([a.kwarg] if a.kwarg else []))}
+    locals_ = set()
+
+    def rec(n):
+        for c in ast.iter_child_nodes(n):
+            if isinstance(c, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+                continue
+            if isinstance(c, ast.Name) and isinstance(c.ctx, (ast.Store, ast.Del)):
+                locals_.add(c.id)
+            rec(c)
+
+    for stmt in fnode.body:
+        rec(stmt)
+    return params, locals_
+
+
+def _first_param(fnode):
+    a = fnode.args
+    ps = a.posonlyargs + a.args
+    return ps[0].arg if ps else None
+
+
+def _is_classmethod(fnode):
+    for d in fnode.decorator_list:
+        if isinstance(d, ast.Name) and d.id == "classmethod":
+            return True
+    return fnode.name in ("__init_subclass__", "__class_getitem__")
+
+
+def receiver_kind_for_name(name, fn_stack, is_method_flags):
+    """SELF / CLS / NAME for a bare-name receiver, resolved THROUGH THE SCOPE CHAIN.
+
+    The naive rule looks only at the innermost function, so `self` inside a nested
+    helper reads as an ordinary NAME:
+
+        def readline(self):
+            def nreadahead():
+                return self.peek(1)     # <- free variable, still the method's self
+
+    symtable agrees it is not a parameter of nreadahead (is_free=True), and that is
+    exactly why the NAME path cannot resolve it: section 3's bare-name recipe ends at
+    PARAMETER -> argument flow, and `self` is never an explicit argument at any call
+    site, so the walk dead-ends. SELF resolves it, and the invariant that makes SELF
+    safe — "exactly the enclosing class or a subclass" — still holds for a closure,
+    because a closed-over name cannot be rebound to another type without becoming
+    local, which the shadowing check below detects.
+
+    Walks outward and stops at the FIRST scope that binds the name, so both
+    shadowing forms are handled:
+        def inner(self): ...      a parameter of its own -> NAME, could be anything
+        def inner(): self = x     a local write          -> NAME, rebound
+    """
+    for i in range(len(fn_stack) - 1, -1, -1):
+        f = fn_stack[i]
+        params, locals_ = _own_bindings(f)
+        if name in params:
+            if is_method_flags[i] and _first_param(f) == name:
+                return "CLS" if (name == "cls" or _is_classmethod(f)) else "SELF"
+            return "NAME"
+        if name in locals_:
+            return "NAME"          # rebound in an intervening scope
+    return "NAME"
+
+
 class OracleError(Exception):
     pass
 
@@ -667,6 +741,9 @@ class Emitter:
                 self.o = outer
                 self.cls = []
                 self.fn = []
+                # Parallel to self.fn: was this function declared DIRECTLY in a
+                # class body? Only then is its first parameter a receiver.
+                self.method_flags = []
                 # Two independent stacks cannot answer "what is the IMMEDIATELY
                 # enclosing scope" -- a class inside a function makes both
                 # non-empty. Defect #7 was exactly that: `bool(cls) and not fn`
@@ -746,9 +823,10 @@ class Emitter:
                     "decorators": [_txt(d) for d in n.decorator_list],
                     "isGenerator": _has_yield(n),
                 })
+                self.method_flags.append(bool(self.enclosing) and self.enclosing[-1] == 'C')
                 self.fn.append(n); self.enclosing.append('F')
                 self.generic_visit(n)
-                self.enclosing.pop(); self.fn.pop()
+                self.enclosing.pop(); self.fn.pop(); self.method_flags.pop()
 
             def visit_FunctionDef(self, n): self._fn(n, False)
             def visit_AsyncFunctionDef(self, n): self._fn(n, True)
@@ -797,10 +875,8 @@ class Emitter:
                     b = f.value
                     recv_text = _txt(b)
                     if isinstance(b, ast.Name):
-                        first = (self.fn[-1].args.posonlyargs + self.fn[-1].args.args) if self.fn else []
-                        selfn = first[0].arg if (first and self.cls) else None
-                        recv_kind = "SELF" if (selfn and b.id == selfn) else (
-                            "CLS" if b.id == "cls" else "NAME")
+                        recv_kind = receiver_kind_for_name(
+                            b.id, self.fn, self.method_flags)
                     elif isinstance(b, ast.Attribute):
                         recv_kind = "ATTRIBUTE"
                     elif isinstance(b, ast.Call):
