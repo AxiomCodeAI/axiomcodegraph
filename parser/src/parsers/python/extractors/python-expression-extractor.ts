@@ -354,15 +354,31 @@ export class PythonExpressionExtractor {
         ? PythonRootContext.ANNOTATED_ASSIGNMENT
         : PythonRootContext.ASSIGNMENT_VALUE;
 
-      if (right) {
-        this.enqueueRoot(right, context, rootContext, PythonEdgeRole.ASSIGNMENT_VALUE);
+      // A CHAINED assignment. tree-sitter nests `a = b = None` as
+      // assignment(left=a, right=assignment(left=b, right=None)), so the inner
+      // `left` arrives here as a VALUE and was recorded as a read. CPython sees
+      // one `Assign` with targets=[a, b], both Store — and it is plainly right,
+      // since `b` is assigned, not evaluated. Peel the chain so every target in
+      // it is a target, and only the final value is a value.
+      let value = right;
+      const chainedTargets: Parser.SyntaxNode[] = [];
+      while (value && value.type === 'assignment') {
+        const innerLeft = value.childForFieldName('left');
+        if (innerLeft) {
+          chainedTargets.push(innerLeft);
+        }
+        value = value.childForFieldName('right');
+      }
+
+      if (value) {
+        this.enqueueRoot(value, context, rootContext, PythonEdgeRole.ASSIGNMENT_VALUE);
       }
       if (type) {
         this.enqueueRoot(type, context, PythonRootContext.ANNOTATION, PythonEdgeRole.ANNOTATION);
       }
-      if (left) {
+      for (const target of left ? [left, ...chainedTargets] : chainedTargets) {
         this.enqueueRoot(
-          left,
+          target,
           context,
           PythonRootContext.ASSIGNMENT_TARGET,
           PythonEdgeRole.ASSIGNMENT_TARGET,
@@ -862,10 +878,22 @@ export class PythonExpressionExtractor {
       node.type === 'expression_list' ||
       node.type === 'pair'
     ) {
+      // A PARENTHESISED node has one child and is pure grouping, so the child
+      // inherits the parent's position. Renumbering it from the child index
+      // silently reset it to 0 — so in
+      // `re.compile(pattern, (A | B | C))` the second argument reported
+      // position 0, and argument-to-parameter linking would have bound it to the
+      // first parameter. `expression_list` and `pair` are genuine sequences,
+      // where the child index IS the position.
+      const grouping = node.type === 'parenthesized_expression';
       for (let i = 0; i < node.namedChildCount; i++) {
         const inner = node.namedChild(i);
         if (inner) {
-          this.worklist.push({ ...pending, node: inner, position: i });
+          this.worklist.push({
+            ...pending,
+            node: inner,
+            position: grouping ? pending.position : i,
+          });
         }
       }
       return;
@@ -1293,6 +1321,31 @@ export class PythonExpressionExtractor {
    * receiver looks for `RECEIVER`, and one asking for its keyword arguments
    * looks for `KEYWORD_ARGUMENT` plus `argumentKeywordName`.
    */
+  /**
+   * The `nameContext` a child inherits.
+   *
+   * A write target propagates through the SHAPE of an unpacking — tuple, list,
+   * and the starred element inside one — because each leaf of that shape is
+   * itself assigned. It does not propagate through an attribute or a subscript,
+   * whose sub-expressions are evaluated to FIND the thing being written.
+   */
+  private childNameContext(
+    kind: PythonExpressionKind,
+    parentContext: PythonNameContext
+  ): PythonNameContext {
+    if (kind === PythonExpressionKind.NAME_REFERENCE) {
+      return parentContext;
+    }
+    if (parentContext === PythonNameContext.LOAD) {
+      return PythonNameContext.LOAD;
+    }
+    const unpacking =
+      kind === PythonExpressionKind.TUPLE ||
+      kind === PythonExpressionKind.LIST ||
+      kind === PythonExpressionKind.STARRED;
+    return unpacking ? parentContext : PythonNameContext.LOAD;
+  }
+
   private enqueueChildren(
     node: Parser.SyntaxNode,
     kind: PythonExpressionKind,
@@ -1307,11 +1360,17 @@ export class PythonExpressionExtractor {
       isAwaited: false,
       isStarred: false,
       // Only the node itself is a write target; its sub-expressions are reads.
-      // `self.x = 1` writes the attribute but READS `self`.
-      nameContext:
-        kind === PythonExpressionKind.NAME_REFERENCE
-          ? pending.nameContext
-          : PythonNameContext.LOAD,
+      // `self.x = 1` writes the attribute but READS `self`, and `d[k] = 1`
+      // reads both `d` and `k`.
+      //
+      // UNPACKING is the exception, and getting it wrong was silent: in
+      // `a, b = 1, 2` the TUPLE is the target and BOTH elements are writes.
+      // CPython says so directly — `ast.Tuple(ctx=Store)` has elements with
+      // `ctx=Store` — and treating them as reads made 1,472 names across 100
+      // stdlib files look like reads of variables that are in fact assigned
+      // there. Nothing caught it, because every self-consistency invariant still
+      // held: the tree shape was right and only the LOAD/STORE label was wrong.
+      nameContext: this.childNameContext(kind, pending.nameContext),
     };
 
     switch (kind) {

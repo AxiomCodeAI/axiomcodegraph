@@ -215,6 +215,17 @@ export class PyExpressionRegistry implements EntityIdentifiable {
     return this.endLine;
   }
 
+  /**
+   * The end column, in UTF-8 bytes.
+   *
+   * With `startColumn` it makes the BYTE RANGE, which is what identifies a node.
+   * A start offset alone collides: in `super().f()` the outer call and the inner
+   * `super()` share a start, so anything keyed on the start conflates them.
+   */
+  getEndColumn(): number {
+    return this.endColumn;
+  }
+
   getNameContext(): PythonNameContext {
     return this.nameContext;
   }
