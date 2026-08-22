@@ -755,7 +755,8 @@ export class PythonResolutionLinker {
         module,
         methodByHash,
         projectReturnTypes,
-        typesByHash
+        typesByHash,
+        typesByNameByModule.get(module.moduleHash) ?? new Map()
       );
       if (innerCallReturnType.size === 0) {
         continue;
@@ -2284,7 +2285,8 @@ export class PythonResolutionLinker {
     module: ResolutionInput,
     methodByHash: Map<string, PyMethodRegistry>,
     returnedTypeByMethod: Map<string, PyTypeRegistry | null>,
-    typesByHash: Map<string, PyTypeRegistry>
+    typesByHash: Map<string, PyTypeRegistry>,
+    typesByName: Map<string, PyTypeRegistry | null>
   ): Map<string, PyTypeRegistry> {
     const index = new Map<string, PyTypeRegistry>();
     const callSiteByExpression = new Map<string, PyCallSiteRegistry>();
@@ -2348,8 +2350,12 @@ export class PythonResolutionLinker {
       if (!method) {
         continue;
       }
+      // The module's real name->type map, NOT an empty one. Passing an empty
+      // map meant an ANNOTATED return could never resolve — `-> "Node"` looked
+      // up `Node` in nothing and fell through to the inferred index, so the
+      // whole fluent-chain case failed for want of a parameter I had stubbed.
       const returned = this.returnedTypeOf(method, {
-        typesByName: new Map(),
+        typesByName,
         returnedTypeByMethod,
       });
       if (returned) {
