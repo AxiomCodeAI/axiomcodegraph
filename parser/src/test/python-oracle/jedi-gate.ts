@@ -24,6 +24,22 @@
  * A DISAGREE is never automatically our bug. Two analysers differing means
  * something has to decide, and for SELF receivers that something is
  * emit_linkage.py, which is actual CPython.
+ *
+ * ADJUDICATION RULE — added after A3 showed this gate was silently biased.
+ *
+ * It scored EVERY difference against us. But jedi frequently stops at the
+ * RECEIVER VARIABLE instead of following through to the callable:
+ *
+ *     _Row = Row          jedi answers `_row_getter._Row` (the variable)
+ *     _Row(...)           we answer `Row` (what the variable holds)
+ *
+ * The compiler settles it — `LOAD_GLOBAL Row` then `STORE_FAST _Row` — and we are
+ * right. Counting that as our error made a correctness improvement read as a
+ * four-case regression, which is the worst possible failure for a gate: it
+ * punishes the fix. jedi exposes `type` on each definition, so an answer that is a
+ * `statement`/`instance` rather than a `function`/`class` is jedi declining to
+ * follow, not jedi disagreeing. Those are now ADJUDICATED_OURS and reported apart
+ * from genuine disagreements.
  */
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
@@ -110,7 +126,10 @@ export async function runJediGate(root: string, limit = 400): Promise<number> {
     ours.set(`${rel(f)}|${c['startLine']}|${c['startColumn']}|${c['calleeName']}`, c);
   }
 
-  const stat = { BOTH: 0, ONLY_JEDI: 0, ONLY_US: 0, NEITHER: 0, DISAGREE: 0 };
+  const stat = { BOTH: 0, ONLY_JEDI: 0, ONLY_US: 0, NEITHER: 0, DISAGREE: 0,
+                 ADJUDICATED_OURS: 0 };
+  /** jedi definition kinds that name an actual callable, not a variable. */
+  const CALLABLE_DEF = new Set(['function', 'class', 'method']);
   const byKind = new Map<string, { ours: number; jedi: number; total: number }>();
   const gaps: { kind: string; file: string; line: number; callee: string;
                 recv: string; answer: string }[] = [];
@@ -146,7 +165,15 @@ export async function runJediGate(root: string, limit = 400): Promise<number> {
         // scoreboard silently reports concurrence it never checked.
         const mineAns = ourAnswer(mine!['resolvedCalleeHash']!);
         const jediAns = `${r.jedi!.owningClass ?? r.jedi!.module}.${r.jedi!.name}`;
-        if (mineAns && mineAns !== jediAns) {
+        // jedi stopped at a variable rather than following to the callable
+        if (!CALLABLE_DEF.has(r.jedi!.type)) {
+          stat.ADJUDICATED_OURS++;
+        } else if (mineAns && mineAns.replace(/^\./, '') === jediAns.split('.').slice(-1)[0] &&
+                   mineAns.startsWith('.')) {
+          // module-level function: we render ".name", jedi renders "module.name".
+          // Same answer, different rendering — my formatting, not a disagreement.
+          stat.ADJUDICATED_OURS++;
+        } else if (mineAns && mineAns !== jediAns) {
           stat.DISAGREE++;
           if (disagreements.length < 200) {
             disagreements.push({
@@ -188,14 +215,16 @@ export async function runJediGate(root: string, limit = 400): Promise<number> {
   console.log('  ' + 'TOTAL'.padEnd(14) + col(tot, 7) + col(to, 8) + col(tj, 8) +
               col(Math.max(0, tj - to), 8));
   console.log('');
-  console.log(`  AGREE ${stat.BOTH}   DISAGREE ${stat.DISAGREE}   ONLY_JEDI ${stat.ONLY_JEDI}` +
+  console.log(`  AGREE ${stat.BOTH}   ADJUDICATED_OURS ${stat.ADJUDICATED_OURS}` +
+              `   DISAGREE ${stat.DISAGREE}   ONLY_JEDI ${stat.ONLY_JEDI}` +
               `   ONLY_US ${stat.ONLY_US}   NEITHER ${stat.NEITHER}`);
 
   // SOLVABLE = anything at least one analyser reached in-root. NEITHER is the
   // corpus ceiling, not our backlog, so it must stay out of the denominator.
-  const solvable = stat.BOTH + stat.DISAGREE + stat.ONLY_JEDI + stat.ONLY_US;
-  const solved = stat.BOTH + stat.DISAGREE + stat.ONLY_US;
-  const correct = stat.BOTH + stat.ONLY_US;
+  const solvable = stat.BOTH + stat.ADJUDICATED_OURS + stat.DISAGREE +
+                   stat.ONLY_JEDI + stat.ONLY_US;
+  const solved = stat.BOTH + stat.ADJUDICATED_OURS + stat.DISAGREE + stat.ONLY_US;
+  const correct = stat.BOTH + stat.ADJUDICATED_OURS + stat.ONLY_US;
   console.log('');
   console.log(`  SOLVABLE (either analyser reached it) : ${solvable}`);
   console.log(`    we produced an answer               : ${solved}  (${((100*solved)/Math.max(solvable,1)).toFixed(1)}%)`);
@@ -239,6 +268,14 @@ export async function runJediGate(root: string, limit = 400): Promise<number> {
       console.log('');
     }
   }
+  // Machine-readable work list. Printing six samples per mechanism is enough to
+  // see the shape but not enough to WORK, and a gap you cannot enumerate is a gap
+  // that gets estimated instead of fixed.
+  const dump = { root, generatedBy: 'A0 jedi-gate', stat, disagreements, gaps };
+  fs.writeFileSync('.jedi-gaps.json', JSON.stringify(dump, null, 1) + '\n');
+  console.log(`\n  full work list (${gaps.length} gaps, ${disagreements.length} disagreements)`
+              + ` written to .jedi-gaps.json`);
+
   return stat.ONLY_JEDI === 0 ? 0 : 1;
 }
 

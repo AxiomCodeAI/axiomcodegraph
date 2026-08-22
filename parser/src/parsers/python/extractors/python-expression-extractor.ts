@@ -1789,15 +1789,54 @@ export class PythonExpressionExtractor {
       case PythonExpressionKind.FSTRING:
       case PythonExpressionKind.FSTRING_INTERPOLATION:
       default: {
-        const role =
+        const isFstring =
           kind === PythonExpressionKind.FSTRING ||
-          kind === PythonExpressionKind.FSTRING_INTERPOLATION
-            ? PythonEdgeRole.FSTRING_EXPRESSION
+          kind === PythonExpressionKind.FSTRING_INTERPOLATION;
+        const isDisplay =
+          kind === PythonExpressionKind.LIST ||
+          kind === PythonExpressionKind.SET ||
+          kind === PythonExpressionKind.TUPLE ||
+          kind === PythonExpressionKind.DICT;
+        // A collection element is NOT an argument. These used to carry ARGUMENT
+        // because no element role existed, so a rule joining edgeRole=ARGUMENT to
+        // a call site picked up every element of every literal passed to one:
+        // `f([a, b])` has ONE argument, not three.
+        const role = isFstring
+          ? PythonEdgeRole.FSTRING_EXPRESSION
+          : isDisplay
+            ? PythonEdgeRole.ELEMENT
             : PythonEdgeRole.ARGUMENT;
         let position = 0;
         for (let i = 0; i < node.namedChildCount; i++) {
           const part = node.namedChild(i);
           if (!part || part.type === 'block' || part.isExtra) {
+            continue;
+          }
+          // A dict ENTRY is a `pair`, and flattening it lost both the pairing and
+          // the ordinal: `{k: v, k2: v2}` gave k and k2 position 0 and v and v2
+          // position 1, so `position` — the ordinal among siblings in the same
+          // role — identified nothing. Emitting KEY and VALUE with the ENTRY
+          // index as position restores both.
+          if (part.type === 'pair') {
+            const key = part.childForFieldName('key');
+            const value = part.childForFieldName('value');
+            if (key) {
+              this.worklist.push({
+                ...base,
+                node: key,
+                edgeRole: PythonEdgeRole.KEY,
+                position,
+              });
+            }
+            if (value) {
+              this.worklist.push({
+                ...base,
+                node: value,
+                edgeRole: PythonEdgeRole.VALUE,
+                position,
+              });
+            }
+            position += 1;
             continue;
           }
           this.worklist.push({ ...base, node: part, edgeRole: role, position: position++ });

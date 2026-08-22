@@ -25,6 +25,35 @@ export enum PythonEdgeRole {
   /** A positional argument. */
   ARGUMENT = 'ARGUMENT',
 
+  /**
+   * An element of a list, set or tuple DISPLAY — `a` and `b` in `[a, b]`.
+   *
+   * Added because these previously wore {@link ARGUMENT}, which was the closest
+   * available value and still wrong: 17% of argument-role rows on a real corpus
+   * were collection elements, so any rule joining `edgeRole = ARGUMENT` to a call
+   * site picked them up unless it also tested the parent's kind. An element of a
+   * list passed to a call is not an argument of that call — `f([a, b])` has ONE
+   * argument.
+   *
+   * `position` is the element's index within its display.
+   */
+  ELEMENT = 'ELEMENT',
+
+  /**
+   * The key half of a dict entry — `k` in `{k: v}`.
+   *
+   * Split from {@link VALUE} because without it a dict's entries are not merely
+   * mislabelled, they are unpaired AND unordered: `{k: v, k2: v2}` emitted `k`
+   * and `k2` both at position 0 and `v` and `v2` both at position 1, so
+   * `position` — documented as the ordinal among siblings in the same edgeRole —
+   * identified nothing. With the roles split, `position` is the ENTRY index, so
+   * key and value of one entry share it and the pairing is recoverable.
+   */
+  KEY = 'KEY',
+
+  /** The value half of a dict entry. See {@link KEY}. */
+  VALUE = 'VALUE',
+
   /** The value of a `k=v` argument; the name is in `argumentKeywordName`. */
   KEYWORD_ARGUMENT = 'KEYWORD_ARGUMENT',
 
