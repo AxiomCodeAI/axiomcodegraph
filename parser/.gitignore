@@ -28,3 +28,4 @@ python-work/staging/torture-parse-gap/
 .certify-report.txt
 .certify-out/
 .jedi-gaps.json
+python-work/staging/torture-pep695/

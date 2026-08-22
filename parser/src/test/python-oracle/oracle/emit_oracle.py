@@ -36,7 +36,12 @@ import sys
 # under an interpreter whose behaviour differs from the frozen emissionRegime.
 # ---------------------------------------------------------------------------
 
-EMISSION_REGIME = "PY3_0_11"
+#: DERIVED, never asserted. This was the literal "PY3_0_11", which was true only
+#: because the emitter could not run anywhere else. Hard-coding it now would stamp
+#: 3.12 output with a 3.10 regime and make two structurally different fact sets
+#: look comparable — the single worst failure available here, because nothing
+#: downstream would flag it.
+EMISSION_REGIME = "PY3_12_PLUS" if sys.version_info >= (3, 12) else "PY3_0_11"
 
 #: The 11 predicates of symtable.Symbol, in symtable's own declaration order.
 #: py_binding columns 4..14 mirror this list exactly (schema v6 section 2.3).
@@ -61,21 +66,97 @@ SYNTHETIC_ITERATOR = ".0"
 
 COMPREHENSION_SCOPE_NAMES = ("listcomp", "setcomp", "dictcomp", "genexpr")
 
-#: ast node -> (symtable scope type, symtable scope name)
+#: Which emission regime THIS interpreter produces (schema 2.1 c11).
+#:
+#: Not a preference — a measured, structural difference. PEP 709 inlines list, set
+#: and dict comprehensions into the enclosing function from 3.12, so the SAME source
+#: yields a different scope tree:
+#:
+#:   3.10.4   def f(): [x for x in r]   ->  f  ->  listcomp{'.0','x'}
+#:   3.12.8   def f(): [x for x in r]   ->  f{'x','r'}          (no child scope)
+#:
+#: Generator expressions are NOT inlined and keep their scope and their '.0' on both.
+#: Because emissionRegime is inside py_module's PK, a fact set from one regime can
+#: never be compared to the other — they are different answers to different questions,
+#: not agreement and disagreement.
+IS_312_PLUS = sys.version_info >= (3, 12)
+REGIME = "PY3_12_PLUS" if IS_312_PLUS else "PY3_0_11"
+
+#: Comprehension forms that still open a scope under this regime.
+_SCOPED_COMPREHENSIONS = (
+    (ast.GeneratorExp,) if IS_312_PLUS
+    else (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+)
+
+#: ast node -> symtable scope type
 _SCOPE_NODES = {
     ast.FunctionDef: "function",
     ast.AsyncFunctionDef: "function",
     ast.ClassDef: "class",
     ast.Lambda: "function",
-    ast.ListComp: "function",
-    ast.SetComp: "function",
-    ast.DictComp: "function",
     ast.GeneratorExp: "function",
 }
+if not IS_312_PLUS:
+    _SCOPE_NODES[ast.ListComp] = "function"
+    _SCOPE_NODES[ast.SetComp] = "function"
+    _SCOPE_NODES[ast.DictComp] = "function"
+else:
+    # PEP 695. `type X = ...` is a statement that opens its own lazily-evaluated
+    # scope, which symtable reports as "type alias".
+    _SCOPE_NODES[ast.TypeAlias] = "type alias"
+    # A bound is LAZILY EVALUATED and therefore gets a scope of its own, named
+    # after the type parameter: `def f[V: int]` -> TypeVar bound scope "V".
+    # Discovered by running the emitter, not by reading the PEP — it is a third
+    # scope type beyond the wrapper and the subject.
+    _SCOPE_NODES[ast.TypeVar] = "TypeVar bound"
+
+#: PEP 695 introduces a WRAPPER scope around any construct carrying type
+#: parameters, so `class C[T]` is two nested symtable scopes, not one:
+#:     type parameter C {'.type_params','.generic_base','T'}
+#:       class          C {'T','__type_params__','m'}
+#: The schema anticipated this — py_scope.scopeKind already lists TYPE_PARAM and
+#: TYPE_ALIAS (2.2) — so the wrapper is EMITTED as a real scope rather than
+#: skipped. Skipping it would lose where T is bound, which is the one fact
+#: py_type_parameter exists to record.
+TYPE_PARAM_SCOPE = "type parameter"
+TYPEVAR_BOUND_SCOPE = "TypeVar bound"
+
+#: Names CPython itself injects. Held apart from user bindings so a synthetic name
+#: is never reported as a missing or spurious binding.
+SYNTHETIC_NAMES = frozenset({
+    ".0", ".type_params", ".generic_base", ".defaults",
+    "__type_params__", "__classdict__", "__conditional_annotations__",
+})
+
+
+def _opens_scope(node):
+    """Does this ast node actually open a symtable scope?
+
+    Type membership alone is not enough for one case: an ast.TypeVar opens a
+    "TypeVar bound" scope only when it HAS a bound. `class C[T]` has a TypeVar and
+    no scope for it, so a pure type test produced three phantom children and took
+    the whole class subtree down with it.
+    """
+    t = type(node)
+    if t not in _SCOPE_NODES:
+        return False
+    if IS_312_PLUS and t is ast.TypeVar:
+        return node.bound is not None
+    return True
+
+
+def _type_params(node):
+    """PEP 695 type parameters on a node, or () before 3.12."""
+    return tuple(getattr(node, "type_params", ()) or ())
 
 
 def _scope_name_for(node):
     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return node.name
+    # `type X[T] = ...` — ast.TypeAlias.name is a Name node, not a str.
+    if IS_312_PLUS and isinstance(node, ast.TypeAlias):
+        return node.name.id
+    if IS_312_PLUS and isinstance(node, ast.TypeVar):
         return node.name
     return {
         ast.Lambda: "lambda",
@@ -87,6 +168,17 @@ def _scope_name_for(node):
 
 
 def _scope_kind_for(node, st_type):
+    # Checked BEFORE the node type, because one ast node backs two scopes under
+    # PEP 695 and only the symtable type distinguishes them.
+    if st_type == TYPE_PARAM_SCOPE:
+        return "TYPE_PARAM"
+    if st_type == TYPEVAR_BOUND_SCOPE:
+        # NOT in the frozen py_scope.scopeKind enum (2.2 lists TYPE_PARAM and
+        # TYPE_ALIAS only). Emitted under this name and flagged for ratification:
+        # the oracle reports what CPython does, and the schema has to catch up.
+        return "TYPE_PARAM_BOUND"
+    if st_type == "type alias":
+        return "TYPE_ALIAS"
     if st_type == "class":
         return "CLASS"
     if isinstance(node, ast.Lambda):
@@ -104,6 +196,18 @@ def _scope_kind_for(node, st_type):
     return "FUNCTION"
 
 
+def _scope_name_for_st(node, st_type):
+    """Scope name as symtable reports it — the wrapper borrows its subject's name.
+
+    Deliberately just delegates. The first version reached for `node.name`
+    directly, which is a str on FunctionDef and ClassDef but an ast.Name on
+    TypeAlias, so `type Alias[W] = ...` compared a Name object against the string
+    "Alias" and never matched. _scope_name_for already knows that difference;
+    there was nothing here worth re-deriving.
+    """
+    return _scope_name_for(node)
+
+
 def _enclosing_evaluated_parts(scope_node):
     """Sub-parts of a scope-introducing node that are evaluated in the ENCLOSING
     scope, so any scope they contain belongs to the PARENT, not to `scope_node`.
@@ -116,29 +220,110 @@ def _enclosing_evaluated_parts(scope_node):
         [x for x in <iter>]    -> the OUTERMOST iterable is evaluated outside
     """
     parts = []
+    # PEP 695 SPLITS this set. When a construct carries type parameters, some of
+    # its sub-parts move from the parent scope into the type-parameter wrapper,
+    # because they can SEE the type parameters and the parent cannot:
+    #
+    #   def f[U](a=lambda: 2, b: (lambda: 3) = 4)
+    #        defaults  -> parent   (evaluated before U exists; symtable passes
+    #                               them in as '.defaults')
+    #        annotations, returns, bases, keywords -> WRAPPER
+    #
+    # Verified against symtable, not inferred: `class Child[T](Base[lambda: T])`
+    # puts that lambda under `type parameter Child`, and a walk that gave it to
+    # the enclosing function left it unpaired.
+    has_tp = bool(_type_params(scope_node))
     if isinstance(scope_node, (ast.FunctionDef, ast.AsyncFunctionDef)):
         parts.extend(scope_node.decorator_list)
         a = scope_node.args
         parts.extend(a.defaults)
         parts.extend([d for d in a.kw_defaults if d is not None])
-        for arg in a.posonlyargs + a.args + a.kwonlyargs + \
-                ([a.vararg] if a.vararg else []) + ([a.kwarg] if a.kwarg else []):
-            if arg.annotation is not None:
-                parts.append(arg.annotation)
-        if scope_node.returns is not None:
-            parts.append(scope_node.returns)
+        if not has_tp:
+            for arg in a.posonlyargs + a.args + a.kwonlyargs + \
+                    ([a.vararg] if a.vararg else []) + ([a.kwarg] if a.kwarg else []):
+                if arg.annotation is not None:
+                    parts.append(arg.annotation)
+            if scope_node.returns is not None:
+                parts.append(scope_node.returns)
     elif isinstance(scope_node, ast.ClassDef):
         parts.extend(scope_node.decorator_list)
-        parts.extend(scope_node.bases)
-        parts.extend([k.value for k in scope_node.keywords])
+        if not has_tp:
+            parts.extend(scope_node.bases)
+            parts.extend([k.value for k in scope_node.keywords])
     elif isinstance(scope_node, ast.Lambda):
         a = scope_node.args
         parts.extend(a.defaults)
         parts.extend([d for d in a.kw_defaults if d is not None])
-    elif isinstance(scope_node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+    elif isinstance(scope_node, _SCOPED_COMPREHENSIONS):
         if scope_node.generators:
             parts.append(scope_node.generators[0].iter)
+    # PEP 695 bounds and defaults are evaluated in the type-parameter WRAPPER, so
+    # from the subject's point of view they are enclosing-evaluated. Without this
+    # a lambda in a bound is collected twice: once by the wrapper, correctly, and
+    # again when descending into the class or function.
+    # Type parameters are deliberately NOT listed here. "Enclosing-evaluated" means
+    # evaluated in the PARENT scope, and a bound is not: it is evaluated in the PEP
+    # 695 wrapper, which sits between the parent and the subject. Adding them here
+    # attributed every bound to the module instead of to its wrapper. The wrapper
+    # claims them directly, in _type_param_part_scopes.
     return parts
+
+
+def _wrapper_evaluated_parts(node):
+    """Sub-parts evaluated in the PEP 695 wrapper rather than in the subject.
+
+    Annotations, return annotations, bases and class keywords can all see the type
+    parameters, so they are evaluated one level out. Defaults cannot and are not
+    here — symtable passes those in as `.defaults`.
+    """
+    if not _type_params(node):
+        return []
+    parts = []
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        a = node.args
+        for arg in a.posonlyargs + a.args + a.kwonlyargs + \
+                ([a.vararg] if a.vararg else []) + ([a.kwarg] if a.kwarg else []):
+            if arg.annotation is not None:
+                parts.append(arg.annotation)
+        if node.returns is not None:
+            parts.append(node.returns)
+    elif isinstance(node, ast.ClassDef):
+        parts.extend(node.bases)
+        parts.extend([k.value for k in node.keywords])
+    return parts
+
+
+def _type_param_part_scopes(node):
+    """Scope-introducing nodes inside a construct's type-parameter list.
+
+    `class C[T: SomeBound]` evaluates the bound in the WRAPPER scope, so a lambda
+    or comprehension there belongs to the wrapper and not to the class.
+    """
+    found = []
+    # Sub-parts that move INTO the wrapper because they can see the type
+    # parameters — the mirror image of the split in _enclosing_evaluated_parts.
+    for part in _wrapper_evaluated_parts(node):
+        if _opens_scope(part):
+            found.append(part)
+        else:
+            for sub in ast.walk(part):
+                if _opens_scope(sub):
+                    found.append(sub)
+    for tp in _type_params(node):
+        # A bounded TypeVar is ITSELF a scope; an unbounded one is not.
+        if isinstance(tp, ast.TypeVar) and tp.bound is not None:
+            found.append(tp)
+            continue
+        for part in (getattr(tp, "default_value", None),):
+            if part is None:
+                continue
+            if _opens_scope(part):
+                found.append(part)
+            else:
+                for sub in ast.walk(part):
+                    if _opens_scope(sub):
+                        found.append(sub)
+    return found
 
 
 def _owned_scope_nodes(node):
@@ -154,13 +339,35 @@ def _owned_scope_nodes(node):
     # `node`'s OWN enclosing-evaluated parts belong to its PARENT, not to it.
     # Without this the same lambda is collected twice: once by the parent (right)
     # and again when descending into the child (wrong).
+    # Both directions: parts the PARENT evaluates, and — under PEP 695 — parts the
+    # WRAPPER evaluates. Missing the second set let `class Child[T](Base[lambda: T])`
+    # collect its base's lambda twice, once correctly in the wrapper and once here.
     skip = {id(p) for p in _enclosing_evaluated_parts(node)}
+    skip |= {id(p) for p in _wrapper_evaluated_parts(node)}
+
+    def _children_excluding_type_params(n):
+        """ast.iter_child_nodes, minus the PEP 695 type-parameter list.
+
+        A construct's type parameters live in a scope of their own that sits
+        BETWEEN this node and its parent, so neither end of that pair may collect
+        them by walking. ast.iter_child_nodes cannot express "every field but one",
+        which is why this goes through iter_fields.
+        """
+        for field, value in ast.iter_fields(n):
+            if field == "type_params":
+                continue
+            if isinstance(value, ast.AST):
+                yield value
+            elif isinstance(value, list):
+                for item in value:
+                    if isinstance(item, ast.AST):
+                        yield item
 
     def rec(n):
-        for child in ast.iter_child_nodes(n):
+        for child in _children_excluding_type_params(n):
             if id(child) in skip:
                 continue
-            if type(child) in _SCOPE_NODES:
+            if _opens_scope(child):
                 found.append(child)
                 for part in _enclosing_evaluated_parts(child):
                     rec_root(part)
@@ -168,7 +375,7 @@ def _owned_scope_nodes(node):
                 rec(child)
 
     def rec_root(n):
-        if type(n) in _SCOPE_NODES:
+        if _opens_scope(n):
             found.append(n)
             for part in _enclosing_evaluated_parts(n):
                 rec_root(part)
@@ -199,10 +406,20 @@ def _pair_children(ast_nodes, st_children):
     remaining = list(ast_nodes)
     pairs, problems = [], []
     for sc in st_children:
-        cands = [n for n in remaining
-                 if _SCOPE_NODES[type(n)] == sc.get_type()
-                 and _scope_name_for(n) == sc.get_name()
-                 and n.lineno == sc.get_lineno()]
+        st_type = sc.get_type()
+        if st_type == TYPE_PARAM_SCOPE:
+            # PEP 695 wrapper: same ast node as the construct it wraps, matched on
+            # ACTUALLY CARRYING type parameters. Without that last test a plain
+            # `class C` on the same line would be an equally good candidate.
+            cands = [n for n in remaining
+                     if _type_params(n)
+                     and _scope_name_for_st(n, st_type) == sc.get_name()
+                     and n.lineno == sc.get_lineno()]
+        else:
+            cands = [n for n in remaining
+                     if _SCOPE_NODES.get(type(n)) == st_type
+                     and _scope_name_for(n) == sc.get_name()
+                     and n.lineno == sc.get_lineno()]
         if not cands:
             problems.append(
                 "no ast node for symtable child %s:%s@%d" %
@@ -214,7 +431,8 @@ def _pair_children(ast_nodes, st_children):
     for leftover in remaining:
         problems.append(
             "ast node %s:%s@%d:%d has no symtable child" %
-            (_SCOPE_NODES[type(leftover)], _scope_name_for(leftover),
+            (_SCOPE_NODES.get(type(leftover), type(leftover).__name__),
+             _scope_name_for(leftover),
              leftover.lineno, leftover.col_offset))
     return pairs, problems
 
@@ -305,6 +523,12 @@ class Emitter:
         # PK therefore depends on pairing symtable children to ast nodes. That
         # pairing is only valid if symtable's get_children() is in source order.
         ast_children = _owned_scope_nodes(node)
+        if kind == "TYPE_PARAM":
+            # Inside a PEP 695 wrapper the ONLY child construct is the subject
+            # itself, re-entered under its own scope type. Anything else here comes
+            # from a bound or a default, which is evaluated in the wrapper:
+            #     class C[T: (lambda: int)()]   -> the lambda is the wrapper's child
+            ast_children = [node] + _type_param_part_scopes(node)
         st_children = list(st.get_children())
         pairs, problems = _pair_children(ast_children, st_children)
 
@@ -416,7 +640,11 @@ class Emitter:
         # POSITIVE assertion, not a whitelist: a whitelist would also pass when
         # the binding is MISSING. On PY3_0_11 every comprehension / genexpr scope
         # has exactly one `.0`; no other scope kind may have one.
-        is_comp = scope_kind.startswith("COMPREHENSION") or scope_kind == "GENERATOR_EXPRESSION"
+        # Under PY3_12_PLUS only a generator expression still owns a scope, so only
+        # it still owns a '.0'. Asserting the 3.10 rule on 3.12 would report every
+        # inlined comprehension as a missing synthetic iterator.
+        is_comp = scope_kind == "GENERATOR_EXPRESSION" or (
+            not IS_312_PLUS and scope_kind.startswith("COMPREHENSION"))
         count = names.count(SYNTHETIC_ITERATOR)
         if is_comp and count != 1:
             self._err("SYNTHETIC_ITERATOR_MISSING",
@@ -930,20 +1158,42 @@ def selfcheck():
     (PEP 709 inlines comprehensions), so this must fail loudly, not warn.
     """
     problems = []
-    if sys.version_info[:2] != (3, 10):
-        problems.append("expected CPython 3.10.x for %s, got %s"
-                        % (EMISSION_REGIME, ".".join(map(str, sys.version_info[:3]))))
+    # Two SUPPORTED regimes, each pinned to a version range. The check is that the
+    # interpreter and the regime AGREE, not that the interpreter is one blessed
+    # build — pinning to 3.10 alone is what blocked PEP 695 work, because
+    # py_type_parameter cannot be adjudicated by an interpreter that has no
+    # concept of a type parameter.
+    SUPPORTED = {"PY3_0_11": (3, 10), "PY3_12_PLUS": (3, 12)}
+    want = SUPPORTED.get(EMISSION_REGIME)
+    if sys.version_info[:2] != want:
+        problems.append("regime %s expects CPython %d.%d, got %s"
+                        % (EMISSION_REGIME, want[0], want[1],
+                           ".".join(map(str, sys.version_info[:3]))))
 
-    # the regime's defining behaviour: comprehensions get their own scope
+    # The regime's DEFINING behaviour, asserted rather than assumed: which
+    # comprehension forms open a scope. This is the check that would catch a
+    # 3.11 or 3.13 interpreter whose inlining rules differ from both regimes.
     src = "def f(a):\n    return [i for i in a], (j for j in a)\n"
     st = symtable.symtable(src, "<selfcheck>", "exec").get_children()[0]
     kids = sorted(c.get_name() for c in st.get_children())
-    if kids != ["genexpr", "listcomp"]:
-        problems.append("PY3_0_11 requires listcomp AND genexpr child scopes; got %r" % (kids,))
+    expect = ["genexpr"] if IS_312_PLUS else ["genexpr", "listcomp"]
+    if kids != expect:
+        problems.append("%s requires child scopes %r; got %r" % (EMISSION_REGIME, expect, kids))
 
     for c in symtable.symtable(src, "<s>", "exec").get_children()[0].get_children():
         if SYNTHETIC_ITERATOR not in [s.get_name() for s in c.get_symbols()]:
             problems.append("comprehension scope %r lacks %r" % (c.get_name(), SYNTHETIC_ITERATOR))
+
+    # PEP 695 must be modelled where the regime claims to support it, or
+    # py_type_parameter has no ground truth at all.
+    if IS_312_PLUS:
+        tp = symtable.symtable("class C[T]: pass\n", "<s>", "exec").get_children()[0]
+        if tp.get_type() != TYPE_PARAM_SCOPE:
+            problems.append("PY3_12_PLUS expects a %r scope for `class C[T]`; got %r"
+                            % (TYPE_PARAM_SCOPE, tp.get_type()))
+        elif "T" not in tp.get_identifiers():
+            problems.append("type-parameter scope does not bind T: %r"
+                            % (sorted(tp.get_identifiers()),))
 
     missing = [p for p in SYMBOL_PREDICATES
                if not hasattr(symtable.symtable("x=1", "<s>", "exec").get_symbols()[0], p)]

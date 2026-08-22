@@ -27,9 +27,18 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { PINNED_INTERPRETER } from './harness/constants';
+import { INTERPRETERS, PINNED_INTERPRETER } from './harness/constants';
 
 const DEST = 'python-work/staging/torture';
+const DEST_695 = 'python-work/staging/torture-pep695';
+
+/**
+ * PEP 695 lives in the 3.12 stdlib and nowhere else, so it is staged from the
+ * PY3_12_PLUS interpreter into its own directory. Keeping it apart from the 3.10
+ * corpus is not tidiness: the two regimes produce different scope trees for the
+ * same source, so a directory mixing them has no single correct answer.
+ */
+const PEP695_TESTS = ['test_type_params.py', 'test_type_aliases.py'];
 
 /** Files chosen because they stress the GRAMMAR, not a library. */
 const GRAMMAR_TESTS = [
@@ -114,6 +123,32 @@ function stage(): number {
   console.log(`Lib/test overall: ${parses} parse, ${refuses} do not`);
   console.log(`  ${refuses} unparseable file(s) -> ${gapDir}  (py_parse_gap ground truth)`);
   console.log(`interpreter ${manifest.pythonVersion} at ${PINNED_INTERPRETER}`);
+
+  // ---- PEP 695, from the 3.12 interpreter ----------------------------------
+  const py312 = INTERPRETERS.PY3_12_PLUS;
+  if (fs.existsSync(py312)) {
+    const dir312 = path.join(
+      execFileSync(py312, ['-c', 'import sysconfig;print(sysconfig.get_paths()["stdlib"])'],
+        { encoding: 'utf-8' }).trim(), 'test');
+    fs.rmSync(DEST_695, { recursive: true, force: true });
+    fs.mkdirSync(DEST_695, { recursive: true });
+    const got: string[] = [];
+    for (const f of PEP695_TESTS) {
+      const src = path.join(dir312, f);
+      if (fs.existsSync(src)) { fs.copyFileSync(src, path.join(DEST_695, f)); got.push(f); }
+    }
+    const v312 = execFileSync(py312,
+      ['-c', 'import sys;print("%d.%d.%d" % sys.version_info[:3])'], { encoding: 'utf-8' }).trim();
+    fs.writeFileSync(path.join(DEST_695, 'MANIFEST.json'), JSON.stringify({
+      stagedBy: 'A0 torture-corpus.ts', interpreter: py312, pythonVersion: v312,
+      emissionRegime: 'PY3_12_PLUS', files: got,
+      note: 'PEP 695 ground truth for py_type_parameter. MUST be adjudicated under ' +
+            'PY3_12_PLUS; running it against a 3.10 oracle is a category error, not a test.',
+    }, null, 1) + '\n');
+    console.log(`staged ${got.length} PEP 695 file(s) -> ${DEST_695}  (CPython ${v312})`);
+  } else {
+    console.log(`no 3.12 interpreter at ${py312} — PEP 695 corpus NOT staged`);
+  }
   return 0;
 }
 

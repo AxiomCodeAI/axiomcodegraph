@@ -1,22 +1,61 @@
 import * as path from 'path';
 
 /**
- * Pinned interpreter. Appendix B invariant #10.
+ * Pinned interpreters, ONE PER EMISSION REGIME. Appendix B invariant #10.
  *
- * ABSOLUTE PATH, never `python3` and never ambient PATH. This is not fussiness:
+ * ABSOLUTE PATHS, never `python3` and never ambient PATH. This is not fussiness:
  * a conda-activated shell on this machine resolves `python3` to 3.12.4, which
  * inlines comprehensions (PEP 709) and therefore produces a structurally
- * DIFFERENT scope tree from the frozen PY3_0_11 regime. Resolving by name once
- * produced exactly that error during schema work.
+ * DIFFERENT scope tree. Resolving by name once produced exactly that error.
+ *
+ * TWO REGIMES, NOT A MIGRATION. Schema §2.1 c11 always allowed both, and
+ * emissionRegime sits inside py_module's PK precisely so they can coexist. The
+ * difference is measured, not stylistic:
+ *
+ *   PY3_0_11    def f(): [x for x in r]  ->  f -> listcomp{'.0','x'}
+ *   PY3_12_PLUS def f(): [x for x in r]  ->  f{'x','r'}        (inlined, no scope)
+ *
+ * Generator expressions keep their scope and their '.0' under both. So a fact set
+ * from one regime is not comparable with the other at all — they answer different
+ * questions, and treating a difference between them as a disagreement would be a
+ * category error, not a defect.
+ *
+ * 3.12 exists here because PEP 695 (`class C[T]`) cannot be adjudicated by an
+ * interpreter with no concept of a type parameter, which blocked py_type_parameter.
  */
-export const PINNED_INTERPRETER =
-  '/Library/Frameworks/Python.framework/Versions/3.10/bin/python3';
+export const INTERPRETERS = {
+  PY3_0_11: '/Library/Frameworks/Python.framework/Versions/3.10/bin/python3',
+  PY3_12_PLUS: '/Library/Frameworks/Python.framework/Versions/3.12/bin/python3',
+} as const;
 
-/** The frozen emission regime for freeze-1 (schema v6 §2.1 c11). */
-export const EMISSION_REGIME = 'PY3_0_11';
+export type EmissionRegime = keyof typeof INTERPRETERS;
 
-/** Expected interpreter major/minor. Patch is recorded, not enforced. */
-export const EXPECTED_VERSION: readonly [number, number] = [3, 10];
+/** Major/minor each regime requires. The emitter refuses a mismatch. */
+export const REGIME_VERSION: Record<EmissionRegime, readonly [number, number]> = {
+  PY3_0_11: [3, 10],
+  PY3_12_PLUS: [3, 12],
+};
+
+/**
+ * The DEFAULT regime — still 3.10. Unchanged deliberately: every golden file and
+ * every corpus measurement to date was produced under it, and flipping the default
+ * would invalidate all of them at once for a feature only one relation needs.
+ * Callers that want PEP 695 ask for it by name.
+ */
+export const EMISSION_REGIME: EmissionRegime = 'PY3_0_11';
+
+/** Back-compatible alias for the default regime's interpreter. */
+export const PINNED_INTERPRETER = INTERPRETERS[EMISSION_REGIME];
+
+/** Expected interpreter major/minor for the default regime. */
+export const EXPECTED_VERSION: readonly [number, number] = REGIME_VERSION[EMISSION_REGIME];
+
+/** Resolve an interpreter by regime, refusing anything unknown. */
+export function interpreterFor(regime: EmissionRegime): string {
+  const p = INTERPRETERS[regime];
+  if (!p) throw new Error(`no pinned interpreter for regime ${regime}`);
+  return p;
+}
 
 export const ORACLE_SCRIPT = path.join(__dirname, '..', 'oracle', 'emit_oracle.py');
 
