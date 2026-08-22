@@ -62,6 +62,9 @@ export interface PythonFactSet {
    */
   fieldHashByTypeAndName: Map<string, string>;
   receiverNameByMethodHash: Map<string, string>;
+  /** Assignment target byte range -> value byte range; the exact pairing. */
+  assignedValueByTargetRange: Map<string, string>;
+  expressionByByteRange: Map<string, string>;
   /**
    * Type references — the nested tree that links `Dict[TypeA, TypeB]` to all
    * three types with parent/position/depth.
@@ -135,6 +138,8 @@ export class PythonFactExtractor {
         fieldPositions: [],
         fieldHashByTypeAndName: new Map<string, string>(),
         receiverNameByMethodHash: new Map<string, string>(),
+        assignedValueByTargetRange: new Map<string, string>(),
+        expressionByByteRange: new Map<string, string>(),
         typeReferences: [],
         dialect: scopeStage.dialect,
         skippedReason: SkippedFileReason.PY2_CONSTRUCT_DETECTED,
@@ -216,6 +221,11 @@ export class PythonFactExtractor {
       fields: fieldStage.fields,
       fieldHashByTypeAndName: fieldStage.fieldHashByTypeAndName,
       receiverNameByMethodHash: fieldStage.receiverNameByMethodHash,
+      assignedValueByTargetRange: expressionStage.assignedValueByTargetRange,
+      expressionByByteRange: expressionStage.expressionByByteRange,
+      byteRangeByExpression: new Map(
+        [...expressionStage.expressionByByteRange].map(([range, hash]) => [hash, range])
+      ),
     });
 
     this.linkBindingTargets(scopeStage, declarations, fieldStage);
@@ -239,6 +249,8 @@ export class PythonFactExtractor {
       fieldPositions: fieldStage.fieldPositions,
       fieldHashByTypeAndName: fieldStage.fieldHashByTypeAndName,
       receiverNameByMethodHash: fieldStage.receiverNameByMethodHash,
+      assignedValueByTargetRange: expressionStage.assignedValueByTargetRange,
+      expressionByByteRange: expressionStage.expressionByByteRange,
       typeReferences,
       dialect: scopeStage.dialect,
       python2Findings: [],

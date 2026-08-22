@@ -8,7 +8,7 @@
  *
  * A0 harness  src/test/python-oracle/harness/compare.ts
  * A3 harness  src/test/python-extractor-tests.ts :: gate2
- * A3 gate     src/test/python-gates/diff-expr.ts
+ * A3 gate     src/test/python-gates/diff-expr.ts  (expression tree vs ast)
  *
  * DECLINED VERDICTS DO NOT COUNT (A3's finding). A tier-1 classification is
  * authoritative only when `residue` is empty. `methodKind: INSTANCE_METHOD` with
@@ -30,6 +30,10 @@ export const ADJUDICATED: Record<string, { a0?: number[]; a3?: number[] }> = {
   methods:   { a3: [6, 8, 13, 24, 25, 26, 28, 29, 30, 35] },
   imports:   { a3: [9] },
   callSites: { a3: [4, 11, 12, 13, 14, 15, 23] },
+  // A3's python-gates/diff-expr.ts, reading annotations CPython computed itself
+  // (Name.ctx, the index in Call.args) rather than reimplementing the rules.
+  // c1 edgeRole, c6 parentExpressionHash, c7 position, c8 depth, c27 nameContext.
+  expressions: { a3: [1, 6, 7, 8, 27] },
 };
 
 export interface RelationCoverage {

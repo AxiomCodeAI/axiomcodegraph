@@ -238,6 +238,11 @@ export class PyExpressionRegistry implements EntityIdentifiable {
     return this.referencedEntityHash;
   }
 
+  /** FK→the METHOD/TYPE that owns this expression, per `expressionOwnerKind`. */
+  getExpressionOwnerHash(): string {
+    return this.expressionOwnerHash;
+  }
+
   getRootContext(): PythonRootContext {
     return this.rootContext;
   }

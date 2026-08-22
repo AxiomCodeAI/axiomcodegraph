@@ -18,6 +18,7 @@ import {
   PythonEdgeRole,
   PythonExpressionKind,
   PythonReferencedEntityKind,
+  PythonRootContext,
 } from '@/enums/python/expressions';
 import { PythonImportTargetKind } from '@/enums/python/imports';
 import { PythonMethodKind } from '@/enums/python/methods';
@@ -66,6 +67,12 @@ export interface ResolutionInput {
   expressions: PyExpressionRegistry[];
   typeReferences: PyTypeReferenceRegistry[];
   fields: PyFieldRegistry[];
+  /** Assignment target byte range -> value byte range, from the expression stage. */
+  assignedValueByTargetRange?: Map<string, string>;
+  /** Byte range -> expression PK. */
+  expressionByByteRange?: Map<string, string>;
+  /** Expression PK -> byte range, the inverse. */
+  byteRangeByExpression?: Map<string, string>;
   /** `(pyTypeLinkHash, attributeName)` -> `py_field` PK. */
   fieldHashByTypeAndName: Map<string, string>;
   /** `py_method` PK -> its receiver parameter name. */
@@ -412,6 +419,7 @@ export class PythonResolutionLinker {
 
     // One cache for the whole project: an MRO does not change per module.
     const mroCache = new Map<string, string[] | null>();
+    const projectReturnTypes = new Map<string, PyTypeRegistry | null>();
 
     // Attributes and receiver names, project-wide. Both keys are global — a
     // `py_type` PK and a `py_method` PK are unique across the analysis — so one
@@ -486,6 +494,53 @@ export class PythonResolutionLinker {
       }
     }
 
+    // Two passes over the modules for return typing: the first types what each
+    // module can see on its own, the second lets a factory returning another
+    // factory's result resolve once the first is known.
+    for (let pass = 0; pass < 2; pass += 1) {
+      for (const module of modules) {
+        const scopedBindings = new Map<string, PyBindingRegistry>();
+        for (const binding of module.bindings) {
+          scopedBindings.set(`${binding.getPyScopeLinkHash()}::${binding.getName()}`, binding);
+        }
+        const scopedParents = new Map<string, string>();
+        for (const scope of module.scopes) {
+          scopedParents.set(scope.getHash(), scope.getParentScopeLinkHash());
+        }
+        const scopedEntities = new Map<string, PyMethodRegistry | PyTypeRegistry>();
+        for (const method of module.methods) {
+          if (method.getDeclaringBindingLinkHash() !== '') {
+            scopedEntities.set(method.getDeclaringBindingLinkHash(), method);
+          }
+        }
+        for (const type of module.types) {
+          if (type.getDeclaringBindingLinkHash() !== '') {
+            scopedEntities.set(type.getDeclaringBindingLinkHash(), type);
+          }
+        }
+        for (const [bindingHash, entity] of entityByImportBinding) {
+          scopedEntities.set(bindingHash, entity);
+        }
+        const found = this.buildReturnTypeIndex(module, {
+          entityByBinding: scopedEntities,
+          bindingByScopeAndName: scopedBindings,
+          parentScopeOf: scopedParents,
+          typesByName: typesByNameByModule.get(module.moduleHash) ?? new Map(),
+          moduleMethodsByName: moduleMethodsByNameByModule.get(module.qualifiedName),
+          methodsByTypeAndName,
+          typesByHash,
+          basesByType,
+          mroCache,
+          returnedTypeByMethod: projectReturnTypes,
+        });
+        for (const [methodHash, resolved] of found) {
+          if (resolved) {
+            projectReturnTypes.set(methodHash, resolved);
+          }
+        }
+      }
+    }
+
     for (const module of modules) {
       const entityByBinding = new Map<string, PyMethodRegistry | PyTypeRegistry>();
       for (const method of module.methods) {
@@ -540,7 +595,16 @@ export class PythonResolutionLinker {
         parentScopeOf,
       });
 
+      // The return index is PROJECT-WIDE, merged below, because a factory is
+      // usually imported: `reg = make_registry()` in one module needs the return
+      // type of a function declared in another. A per-module index answers
+      // nothing for exactly the calls that cross a file boundary, which is most
+      // of them.
       const localTypeByBinding = this.buildLocalTypeIndex(module, {
+        entityByBinding,
+        bindingByScopeAndName,
+        parentScopeOf,
+        returnedTypeByMethod: projectReturnTypes,
         typesByName,
         moduleMethodsByName: moduleMethodsByNameByModule.get(module.qualifiedName),
         methodsByTypeAndName,
@@ -955,6 +1019,10 @@ export class PythonResolutionLinker {
   private buildLocalTypeIndex(
     module: ResolutionInput,
     ctx: {
+      entityByBinding?: Map<string, PyMethodRegistry | PyTypeRegistry>;
+      bindingByScopeAndName?: Map<string, PyBindingRegistry>;
+      parentScopeOf?: Map<string, string>;
+      returnedTypeByMethod?: Map<string, PyTypeRegistry | null>;
       typesByName: Map<string, PyTypeRegistry | null>;
       moduleMethodsByName?: Map<string, PyMethodRegistry | null>;
       methodsByTypeAndName: Map<string, PyMethodRegistry[]>;
@@ -999,42 +1067,109 @@ export class PythonResolutionLinker {
   }
 
   /** The `ASSIGNMENT_VALUE` sibling of an assignment target. */
+  /**
+   * The `ASSIGNMENT_VALUE` expression whose value flows into this target.
+   *
+   * Uses the EXACT pairing the expression stage recorded while both nodes were
+   * in hand. The previous version matched on (scope, line), which is a guess:
+   * `a = f(); b = g()` on one line pairs both targets with the first value, and
+   * a value continued onto the next line pairs with nothing.
+   */
   private assignedValueFor(
     target: PyExpressionRegistry,
     module: ResolutionInput,
     expressionByHash: Map<string, PyExpressionRegistry>
   ): PyExpressionRegistry | null {
-    void expressionByHash;
-    for (const candidate of module.expressions) {
-      if (candidate.getEdgeRole() !== PythonEdgeRole.ASSIGNMENT_VALUE) {
-        continue;
-      }
-      if (candidate.getDepth() !== 0) {
-        continue;
-      }
-      if (candidate.getPyScopeLinkHash() !== target.getPyScopeLinkHash()) {
-        continue;
-      }
-      // Same statement: the value's span starts after the target's and they
-      // share a line. Cheap and exact enough, since one statement has one
-      // depth-0 value.
-      if (candidate.getStartLine() === target.getStartLine()) {
-        return candidate;
-      }
+    const pairing = module.assignedValueByTargetRange;
+    const byRange = module.expressionByByteRange;
+    if (!pairing || !byRange) {
+      return null;
     }
-    return null;
+    const targetRange = module.byteRangeByExpression?.get(target.getHash());
+    if (!targetRange) {
+      return null;
+    }
+    const valueRange = pairing.get(targetRange);
+    if (!valueRange) {
+      return null;
+    }
+    const valueHash = byRange.get(valueRange);
+    return valueHash ? expressionByHash.get(valueHash) ?? null : null;
   }
 
-  /** The class an assigned expression produces, or `null`. */
-  private typeOfAssignedValue(
-    value: PyExpressionRegistry,
+  /**
+   * Infers each method's return type from its `return` statements.
+   *
+   * Only when EVERY return whose type is derivable agrees on one class. A
+   * function with `return Registry()` on one branch and `return None` on another
+   * is not a `Registry`, and a caller that treats it as one gets a wrong edge on
+   * exactly the path where the value is absent — so disagreement refuses.
+   *
+   * Two passes, because a factory frequently returns the result of another
+   * factory. Two is enough for the common chain and stops well short of the
+   * whole-program fixpoint that belongs to the engine.
+   */
+  private buildReturnTypeIndex(
+    module: ResolutionInput,
     ctx: {
+      returnedTypeByMethod?: Map<string, PyTypeRegistry | null>;
+      entityByBinding?: Map<string, PyMethodRegistry | PyTypeRegistry>;
+      bindingByScopeAndName?: Map<string, PyBindingRegistry>;
+      parentScopeOf?: Map<string, string>;
       typesByName: Map<string, PyTypeRegistry | null>;
       moduleMethodsByName?: Map<string, PyMethodRegistry | null>;
       methodsByTypeAndName: Map<string, PyMethodRegistry[]>;
       typesByHash: Map<string, PyTypeRegistry>;
       basesByType: Map<string, PyTypeBaseRegistry[]>;
       mroCache: Map<string, string[] | null>;
+    }
+  ): Map<string, PyTypeRegistry | null> {
+    const byMethod = new Map<string, PyTypeRegistry | null>();
+    const returnValues = module.expressions.filter(
+      expression =>
+        expression.getRootContext() === PythonRootContext.RETURN_VALUE &&
+        expression.getDepth() === 0
+    );
+    for (let pass = 0; pass < 2; pass += 1) {
+      const working = new Map(byMethod);
+      for (const value of returnValues) {
+        const owner = value.getExpressionOwnerHash();
+        if (owner === '') {
+          continue;
+        }
+        const resolved = this.typeOfAssignedValue(value, {
+          ...ctx,
+          returnedTypeByMethod: working,
+        });
+        if (resolved === null) {
+          // A return this pass cannot type says nothing either way; only a
+          // CONFLICT between two typed returns makes the method untyped.
+          continue;
+        }
+        if (byMethod.has(owner) && byMethod.get(owner) !== resolved) {
+          byMethod.set(owner, null);
+          continue;
+        }
+        byMethod.set(owner, resolved);
+      }
+    }
+    return byMethod;
+  }
+
+  /** The class an assigned expression produces, or `null`. */
+  private typeOfAssignedValue(
+    value: PyExpressionRegistry,
+    ctx: {
+      entityByBinding?: Map<string, PyMethodRegistry | PyTypeRegistry>;
+      bindingByScopeAndName?: Map<string, PyBindingRegistry>;
+      parentScopeOf?: Map<string, string>;
+      typesByName: Map<string, PyTypeRegistry | null>;
+      moduleMethodsByName?: Map<string, PyMethodRegistry | null>;
+      methodsByTypeAndName: Map<string, PyMethodRegistry[]>;
+      typesByHash: Map<string, PyTypeRegistry>;
+      basesByType: Map<string, PyTypeBaseRegistry[]>;
+      mroCache: Map<string, string[] | null>;
+      returnedTypeByMethod?: Map<string, PyTypeRegistry | null>;
     }
   ): PyTypeRegistry | null {
     if (value.getKind() !== PythonExpressionKind.CALL) {
@@ -1044,6 +1179,14 @@ export class PythonResolutionLinker {
     if (callee === '') {
       return null;
     }
+    // `cls(...)` inside a classmethod constructs the class it was called on,
+    // which for a single-class analysis is the enclosing class. This is how a
+    // classmethod factory is written — `return cls(name)` — so without it every
+    // `Builder.of(...)` result stays untyped and the call on it unresolved.
+    if (callee === 'cls' && value.getPyTypeLinkHash() !== '') {
+      return ctx.typesByHash.get(value.getPyTypeLinkHash()) ?? null;
+    }
+
     // `x = Foo()` — calling a class yields an instance of it.
     const asClass = this.resolveDottedTypeName(callee, {
       typesByName: ctx.typesByName,
@@ -1053,22 +1196,62 @@ export class PythonResolutionLinker {
     if (asClass) {
       return asClass;
     }
-    // `x = make_foo()` — a factory whose return annotation names a class.
+    // `x = make_foo()` — a factory. Resolved through the SCOPE CHAIN rather than
+    // the current module's functions, because the factory is usually imported:
+    // `from core.base import make_registry` binds it here, and a module-local
+    // lookup finds nothing. The scope chain already knows about import bindings,
+    // so this reuses the same path a bare call would take.
+    const viaScope =
+      ctx.entityByBinding && ctx.bindingByScopeAndName && ctx.parentScopeOf
+        ? this.lookupInScopeChain(callee, value.getPyScopeLinkHash(), {
+            entityByBinding: ctx.entityByBinding,
+            bindingByScopeAndName: ctx.bindingByScopeAndName,
+            parentScopeOf: ctx.parentScopeOf,
+          })
+        : null;
+    if (viaScope instanceof PyTypeRegistry) {
+      return viaScope;
+    }
+    if (viaScope) {
+      return this.returnedTypeOf(viaScope, ctx);
+    }
     const factory = ctx.moduleMethodsByName?.get(callee.split('.').pop() ?? '');
     if (factory) {
       return this.returnedTypeOf(factory, ctx);
     }
-    // `x = self.make_foo()` — a method on the enclosing class. Common enough to
-    // matter: a factory method is the usual way a class hands out helpers.
+    const segments = value.getDottedPath().split('.');
+    const bare = callee.split('.').pop() ?? '';
+
+    // `x = self.make_foo()` / `x = cls.make_foo()` — a method on the enclosing
+    // class. A factory method is the usual way a class hands out helpers.
     const ownerType = value.getPyTypeLinkHash();
-    if (ownerType !== '' && value.getDottedPath().split('.').length === 2) {
-      const method = this.lookupMethodOnTypeAndBases(
-        ownerType,
-        callee.split('.').pop() ?? '',
-        ctx
-      );
+    if (ownerType !== '' && segments.length === 2) {
+      const receiver = segments[0] ?? '';
+      // `cls(...)` constructs the enclosing class itself.
+      if (receiver === 'cls' && bare === 'cls') {
+        return ctx.typesByHash.get(ownerType) ?? null;
+      }
+      const method = this.lookupMethodOnTypeAndBases(ownerType, bare, ctx);
       if (method) {
         return this.returnedTypeOf(method, ctx);
+      }
+    }
+
+    // `x = Builder.of(...)` — a classmethod on a NAMED class. Its return is
+    // typed the same way any other method's is.
+    if (segments.length === 2) {
+      const onClass = this.resolveDottedTypeName(segments[0] ?? '', {
+        typesByName: ctx.typesByName,
+        qualifiedSuffixIndex: this.qualifiedSuffixIndex,
+        typesByNameByModuleName: this.typesByNameByModuleName,
+      });
+      if (onClass) {
+        const method = this.lookupMethodOnTypeAndBases(onClass.getHash(), bare, ctx);
+        if (method) {
+          // A classmethod returning `cls(...)` returns the class it was called
+          // ON, which is what makes `Builder.of(...)` a Builder.
+          return this.returnedTypeOf(method, ctx) ?? null;
+        }
       }
     }
     return null;
@@ -1346,7 +1529,22 @@ export class PythonResolutionLinker {
       fieldByTypeAndName,
     });
 
+    const returnedTypeByMethod = this.buildReturnTypeIndex(input, {
+      entityByBinding,
+      bindingByScopeAndName,
+      parentScopeOf,
+      typesByName,
+      moduleMethodsByName,
+      methodsByTypeAndName,
+      typesByHash,
+      basesByType,
+      mroCache,
+    });
     const localTypeByBinding = this.buildLocalTypeIndex(input, {
+      entityByBinding,
+      bindingByScopeAndName,
+      parentScopeOf,
+      returnedTypeByMethod,
       typesByName,
       moduleMethodsByName,
       methodsByTypeAndName,
@@ -1373,6 +1571,7 @@ export class PythonResolutionLinker {
         parametersByMethod,
         moduleMethodsByName,
         localTypeByBinding,
+        returnedTypeByMethod,
       });
       if (target) {
         callSite.setResolvedCallee(target.kind, target.hash);
@@ -1442,6 +1641,7 @@ export class PythonResolutionLinker {
       /** Bound module name -> that module's facts, for in-project imports. */
       importedModules?: Map<string, ProjectModuleFacts>;
       localTypeByBinding?: Map<string, PyTypeRegistry | null>;
+      returnedTypeByMethod?: Map<string, PyTypeRegistry | null>;
     }
   ): { kind: PythonResolvedCalleeKind; hash: string } | null {
     const name = callSite.getCalleeName();
@@ -1451,6 +1651,14 @@ export class PythonResolutionLinker {
 
     switch (callSite.getReceiverKind()) {
       case PythonReceiverKind.NONE: {
+        // `cls(...)` inside a classmethod constructs the enclosing class.
+        if (name === 'cls' && callSite.getPyTypeLinkHash() !== '') {
+          const enclosing = ctx.typesByHash.get(callSite.getPyTypeLinkHash());
+          if (enclosing) {
+            return { kind: PythonResolvedCalleeKind.TYPE, hash: enclosing.getHash() };
+          }
+        }
+
         // A bare name: the scope chain decides, and it decides exactly.
         const entity = this.lookupInScopeChain(name, callSite.getPyScopeLinkHash(), ctx);
         if (entity) {
@@ -1774,11 +1982,19 @@ export class PythonResolutionLinker {
    */
   private returnedTypeOf(
     method: PyMethodRegistry,
-    ctx: { typesByName: Map<string, PyTypeRegistry | null> }
+    ctx: {
+      typesByName: Map<string, PyTypeRegistry | null>;
+      returnedTypeByMethod?: Map<string, PyTypeRegistry | null>;
+    }
   ): PyTypeRegistry | null {
     const annotation = method.getReturnTypeName();
     if (annotation === '') {
-      return null;
+      // No `-> T`. The RETURN STATEMENT can still settle it: `def make_registry():
+      // return Registry()` says what it hands back as plainly as an annotation
+      // would. This matters far more than the annotated case on real code — the
+      // CPython stdlib annotates 0.0% of returns, so annotation-only return
+      // typing reads nothing there.
+      return ctx.returnedTypeByMethod?.get(method.getHash()) ?? null;
     }
     for (const candidate of this.namedTypesIn(annotation)) {
       const resolved = ctx.typesByName.get(candidate);

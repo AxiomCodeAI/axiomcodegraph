@@ -1,0 +1,11 @@
+{
+ "sealedBy": "A0",
+ "note": "Holdout corpus. Do not read, tune against, or extend. A changed hash means the result is void and the corpus must be replaced, not repaired.",
+ "files": {
+  "engine/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "engine/events.py": "a72f28049c7afbb96d3d9c3034c0f4402213846254e20775ee1041acc5276cc0",
+  "plugins/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "plugins/pipeline.py": "9f2dc2940dc8697bfbf6f48569382be3d28f2fd37fedf51583345ef30e6c2857",
+  "plugins/registry.py": "16f0b728693bf60c771e22f4ec74dc5172c919d59e7d2ef5b65efb8f74776426"
+ }
+}

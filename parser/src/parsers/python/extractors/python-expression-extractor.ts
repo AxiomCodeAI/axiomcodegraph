@@ -49,6 +49,16 @@ export interface PythonExpressionExtraction {
    * of the lambda expression, so a roots-only index silently fails to link it.
    */
   expressionByByteRange: Map<string, string>;
+  /**
+   * Assignment TARGET byte range -> its VALUE's byte range.
+   *
+   * The exact pairing of `x = f()`, recorded while both nodes are in hand. The
+   * emitted tree cannot express it: target and value are two unrelated depth-0
+   * roots with no parent, so a consumer joining them has to guess from
+   * (scope, line) — which a multi-line or semicolon-separated statement breaks.
+   * A schema gap is filed with A0; this keeps resolution exact meanwhile.
+   */
+  assignedValueByTargetRange: Map<string, string>;
 }
 
 export interface PythonExpressionInput {
@@ -165,6 +175,13 @@ export class PythonExpressionExtractor {
   private pendingReceiverLinks: { callSite: PyCallSiteRegistry; range: string }[] = [];
   /** Byte range -> PK, for every expression emitted. */
   /** Per-method return counter, for `py_expression.returnStatementIndex`. */
+  /**
+   * Assignment TARGET byte range -> its VALUE's byte range.
+   *
+   * The exact pairing, recorded where both nodes are known. Needed because the
+   * target and the value are emitted as two unrelated depth-0 roots.
+   */
+  private assignedValueByTargetRange = new Map<string, string>();
   private returnIndexByMethod = new Map<string, number>();
   /** The index of the return being walked, or `null` outside one. */
   private currentReturnStatementIndex: number | null = null;
@@ -205,6 +222,7 @@ export class PythonExpressionExtractor {
       expressions: this.expressions,
       callSites: this.callSites,
       expressionByByteRange: this.expressionByByteRange,
+      assignedValueByTargetRange: this.assignedValueByTargetRange,
     };
   }
 
@@ -398,6 +416,18 @@ export class PythonExpressionExtractor {
         this.enqueueRoot(type, context, PythonRootContext.ANNOTATION, PythonEdgeRole.ANNOTATION);
       }
       for (const target of left ? [left, ...chainedTargets] : chainedTargets) {
+        // Pair the target with its value by BYTE RANGE while both nodes are in
+        // hand. The two become separate depth-0 roots with no parent, so nothing
+        // in the emitted tree relates them afterwards — recovering the pair from
+        // (scope, line) is a guess that a multi-line or semicolon-separated
+        // statement breaks. See the schema gap filed with A0: the IR has no
+        // column expressing "this value flows into that binding".
+        if (value) {
+          this.assignedValueByTargetRange.set(
+            `${target.startIndex}:${target.endIndex}`,
+            `${value.startIndex}:${value.endIndex}`
+          );
+        }
         this.enqueueRoot(
           target,
           context,

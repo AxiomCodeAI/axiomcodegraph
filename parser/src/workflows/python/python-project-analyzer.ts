@@ -197,6 +197,11 @@ export class PythonProjectAnalyzer {
         fields: facts.fields,
         fieldHashByTypeAndName: facts.fieldHashByTypeAndName,
         receiverNameByMethodHash: facts.receiverNameByMethodHash,
+        assignedValueByTargetRange: facts.assignedValueByTargetRange,
+        expressionByByteRange: facts.expressionByByteRange,
+        byteRangeByExpression: new Map(
+          [...facts.expressionByByteRange].map(([range, hash]) => [hash, range])
+        ),
       });
     }
 
