@@ -218,6 +218,8 @@ export class PythonFactExtractor {
       receiverNameByMethodHash: fieldStage.receiverNameByMethodHash,
     });
 
+    this.linkBindingTargets(scopeStage, declarations, fieldStage);
+    this.linkFieldsToTheirWriteExpressions(fieldStage, expressionStage);
     this.linkScopeOwners(scopeStage, declarations);
     this.linkBindingMethods(scopeStage, declarations);
     this.linkParameterDefaults(declarations, expressionStage);
@@ -274,6 +276,95 @@ export class PythonFactExtractor {
       const twin = rootByOwner.get(base.getHash());
       if (twin) {
         base.setPyTypeReferenceLinkHash(twin.getHash());
+      }
+    }
+  }
+
+  /**
+   * Sets `py_field.pyExpressionLinkHash` — the first write's target node.
+   *
+   * Joined on the target's BYTE RANGE, since the field stage and the expression
+   * stage mint their rows independently. A byte range identifies a node
+   * uniquely where a start offset does not.
+   */
+  private linkFieldsToTheirWriteExpressions(
+    fieldStage: { fields: PyFieldRegistry[]; targetByteRangeByField: Map<string, string> },
+    expressionStage: { expressionByByteRange: Map<string, string> }
+  ): void {
+    for (const field of fieldStage.fields) {
+      const range = fieldStage.targetByteRangeByField.get(field.getHash());
+      if (!range) {
+        continue;
+      }
+      const expressionHash = expressionStage.expressionByByteRange.get(range);
+      if (expressionHash) {
+        field.setPyExpressionLinkHash(expressionHash);
+      }
+    }
+  }
+
+  /**
+   * Sets `py_binding.targetEntityHash` — the entity a binding actually declares.
+   *
+   * `targetEntityKind` was being written on every row while `targetEntityHash`
+   * stayed empty, which is the same failure as the type_base twin FK and just as
+   * invisible: a discriminator saying `METHOD` with nothing to dereference reads
+   * as healthy to an orphan check, because an empty FK is skipped. A consumer
+   * asking "which def does this name bind?" had to fall back to matching names,
+   * which is exactly what the hash exists to avoid — two `def handler` in one
+   * module are different entities with the same name.
+   *
+   * The link is built from the REVERSE direction, which already existed:
+   * declarations record `declaringBindingLinkHash`, so this inverts that rather
+   * than re-deriving the association and risking a different answer.
+   */
+  private linkBindingTargets(
+    scopeStage: PythonModuleExtraction,
+    declarations: PythonDeclarationExtraction,
+    fieldStage: { fields: PyFieldRegistry[] }
+  ): void {
+    const targetByBinding = new Map<string, { kind: PythonBindingTargetKind; hash: string }>();
+    for (const type of declarations.types) {
+      const binding = type.getDeclaringBindingLinkHash();
+      if (binding !== '') {
+        targetByBinding.set(binding, { kind: PythonBindingTargetKind.TYPE, hash: type.getHash() });
+      }
+    }
+    for (const method of declarations.methods) {
+      const binding = method.getDeclaringBindingLinkHash();
+      if (binding !== '') {
+        targetByBinding.set(binding, {
+          kind: PythonBindingTargetKind.METHOD,
+          hash: method.getHash(),
+        });
+      }
+    }
+    for (const record of declarations.imports) {
+      const binding = record.getBindingLinkHash();
+      if (binding !== '') {
+        targetByBinding.set(binding, {
+          kind: PythonBindingTargetKind.IMPORT,
+          hash: record.getHash(),
+        });
+      }
+    }
+    // A parameter binds too, and its entity is the parameter row rather than the
+    // method — `local-flow.dl` needs the parameter to attribute an argument.
+    for (const parameter of declarations.methodParameters) {
+      const binding = parameter.getBindingLinkHash();
+      if (binding !== '' && !targetByBinding.has(binding)) {
+        targetByBinding.set(binding, {
+          kind: PythonBindingTargetKind.PARAMETER,
+          hash: parameter.getHash(),
+        });
+      }
+    }
+    void fieldStage;
+
+    for (const binding of scopeStage.bindings) {
+      const target = targetByBinding.get(binding.getHash());
+      if (target) {
+        binding.setTargetEntity(target.kind, target.hash);
       }
     }
   }

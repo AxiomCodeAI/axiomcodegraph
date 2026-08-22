@@ -153,6 +153,11 @@ export class PyMethodParameterRegistry implements EntityIdentifiable {
   }
 
   /** Back-patches the FK to this parameter's binding in the function scope. */
+  /** FK→`py_binding` — the local this parameter binds in the function's scope. */
+  getBindingLinkHash(): string {
+    return this.bindingLinkHash;
+  }
+
   setBindingLinkHash(bindingLinkHash: string): void {
     this.bindingLinkHash = bindingLinkHash;
   }

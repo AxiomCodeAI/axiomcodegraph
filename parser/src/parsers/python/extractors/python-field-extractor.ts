@@ -30,6 +30,8 @@ export interface PythonFieldExtraction {
    * fact. This is that rule's index.
    */
   fieldHashByTypeAndName: Map<string, string>;
+  /** `py_field` PK -> its first write target's `startIndex:endIndex`. */
+  targetByteRangeByField: Map<string, string>;
   /**
    * `py_field` PK -> the row, so a resolver can read the attribute's type
    * without re-scanning the list.
@@ -149,6 +151,7 @@ export class PythonFieldExtractor {
   private input!: PythonFieldInput;
   private methodByNodeId = new Map<number, PyMethodRegistry>();
   private receiverNameByMethodHash = new Map<string, string>();
+  private targetByteRangeByField = new Map<string, string>();
 
   extract(input: PythonFieldInput): PythonFieldExtraction {
     this.input = input;
@@ -170,10 +173,12 @@ export class PythonFieldExtractor {
       typeByHash.set(type.getHash(), type);
     }
 
+    this.targetByteRangeByField = new Map();
     const fields: PyFieldRegistry[] = [];
     const fieldPositions: PyFieldPositionRegistry[] = [];
     const fieldHashByTypeAndName = new Map<string, string>();
     const fieldByHash = new Map<string, PyFieldRegistry>();
+    const targetByteRangeByField = new Map<string, string>();
     this.receiverNameByMethodHash = new Map();
 
     for (const classNode of this.findClassNodes(input.rootNode)) {
@@ -199,6 +204,7 @@ export class PythonFieldExtractor {
       fieldHashByTypeAndName,
       fieldByHash,
       receiverNameByMethodHash: this.receiverNameByMethodHash,
+      targetByteRangeByField: this.targetByteRangeByField,
     };
   }
 
@@ -760,6 +766,7 @@ export class PythonFieldExtractor {
       }
 
       const field = this.buildField(collection, observation);
+      this.targetByteRangeByField.set(field.getHash(), observation.targetByteRange);
       byKey.set(key, field);
       writtenTypesByKey.set(
         key,

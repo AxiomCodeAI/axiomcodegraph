@@ -87,6 +87,14 @@ export interface PythonExpressionInput {
  */
 interface PendingExpression {
   node: Parser.SyntaxNode;
+  /**
+   * 0-based index of the enclosing `return` within its method, or `null`.
+   *
+   * Carried on the pending record rather than read from a field at emit time
+   * because the walk is DEFERRED — the worklist drains after the statement visit
+   * has moved on, so a field would hold whatever return was visited last.
+   */
+  returnStatementIndex: number | null;
   parentHash: string;
   edgeRole: PythonEdgeRole;
   position: number;
@@ -156,6 +164,10 @@ export class PythonExpressionExtractor {
   /** Call-site PK -> the byte range of its receiver, resolved after the walk. */
   private pendingReceiverLinks: { callSite: PyCallSiteRegistry; range: string }[] = [];
   /** Byte range -> PK, for every expression emitted. */
+  /** Per-method return counter, for `py_expression.returnStatementIndex`. */
+  private returnIndexByMethod = new Map<string, number>();
+  /** The index of the return being walked, or `null` outside one. */
+  private currentReturnStatementIndex: number | null = null;
   private expressionByByteRange = new Map<string, string>();
 
   extract(input: PythonExpressionInput): PythonExpressionExtraction {
@@ -235,7 +247,16 @@ export class PythonExpressionExtractor {
       }
 
       case 'return_statement': {
+        // Java's column 19: the 0-based index of THIS return within its method,
+        // carried by every expression in the returned value. It is what lets a
+        // rule say "the second return leaks the token" rather than only "some
+        // return does", and multi-return functions are the norm — 508 returns in
+        // asyncio alone.
+        const seen = this.returnIndexByMethod.get(context.methodHash) ?? 0;
+        this.returnIndexByMethod.set(context.methodHash, seen + 1);
+        this.currentReturnStatementIndex = seen;
         this.enqueueRoots(node, context, PythonRootContext.RETURN_VALUE, PythonEdgeRole.RETURN_VALUE);
+        this.currentReturnStatementIndex = null;
         return;
       }
 
@@ -835,6 +856,7 @@ export class PythonExpressionExtractor {
       ownerKind: context.ownerKind,
       rootContext,
       nameContext,
+      returnStatementIndex: this.currentReturnStatementIndex,
       argumentKeywordName: '',
       isAwaited: false,
       isStarred: false,
@@ -940,6 +962,9 @@ export class PythonExpressionExtractor {
 
     this.applyKindSpecificFields(builder, node, kind, pending);
     this.applyInference(builder, node, kind, pending);
+    if (pending.returnStatementIndex !== null && pending.returnStatementIndex !== undefined) {
+      builder.withReturnStatementIndex(pending.returnStatementIndex);
+    }
 
     const expression = builder.build();
     this.expressions.push(expression);

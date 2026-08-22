@@ -272,6 +272,19 @@ export class PyFieldRegistry implements EntityIdentifiable {
    * (`java_field` parity), so a disagreement between writes is RECORDED rather
    * than silently resolved by write order.
    */
+  /**
+   * Links the field to the expression node of its FIRST write.
+   *
+   * Set after the fact because the field stage and the expression stage mint
+   * their rows independently and are joined on the target's byte range. §2.10
+   * removed `py_field_write` on the grounds that the write facts already live on
+   * `py_expression`; this is the pointer that makes that true rather than merely
+   * arguable.
+   */
+  setPyExpressionLinkHash(pyExpressionLinkHash: string): void {
+    this.pyExpressionLinkHash = pyExpressionLinkHash;
+  }
+
   markAmbiguous(): void {
     this.isAmbiguous = true;
   }

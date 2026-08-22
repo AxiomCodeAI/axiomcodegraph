@@ -535,16 +535,21 @@ export class PythonScopeExtractor {
     const futures: string[] = [];
     for (let i = 0; i < rootNode.namedChildCount; i++) {
       const child = rootNode.namedChild(i);
-      if (child?.type !== 'import_from_statement') {
+      // tree-sitter-python gives `from __future__ import x` its OWN node type,
+      // `future_import_statement`, rather than the ordinary
+      // `import_from_statement`. Matching only the ordinary one meant this
+      // returned empty for every file in existence — the grammar never produces
+      // the shape it was looking for.
+      if (child?.type !== 'future_import_statement' && child?.type !== 'import_from_statement') {
         continue;
       }
       const moduleName = child.childForFieldName('module_name');
-      if (moduleName?.text !== '__future__') {
+      if (child.type === 'import_from_statement' && moduleName?.text !== '__future__') {
         continue;
       }
       for (let j = 0; j < child.namedChildCount; j++) {
         const member = child.namedChild(j);
-        if (member && member.id !== moduleName.id && member.type === 'dotted_name') {
+        if (member && member.id !== moduleName?.id && member.type === 'dotted_name') {
           futures.push(member.text);
         }
       }
