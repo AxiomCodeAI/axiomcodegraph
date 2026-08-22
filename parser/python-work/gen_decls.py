@@ -270,7 +270,7 @@ def check_enums():
                             "(looked for %s.ts) - add an ALIAS entry"
                             % (rel, col, len(docvals), cls))
             continue
-        seen.add(cls); checked += 1
+        seen.add(cls)   # count DISTINCT enums; several are reached by 2+ columns
         codevals = code_enums[cls]
         docvals = _expand(docvals, codevals)
         only_code, only_doc = sorted(codevals - docvals), sorted(docvals - codevals)
@@ -286,7 +286,7 @@ def check_enums():
     if unguarded:
         problems.append("UNGUARDED - declared in TS, never compared to the doc: %s"
                         % ", ".join(unguarded))
-    return problems, checked, [], len(code_enums)
+    return problems, len(seen), [], len(code_enums)
 
 rels, errors = parse_doc()
 enum_problems, enum_checked, enum_unmapped, enum_total = check_enums()
@@ -303,7 +303,8 @@ if "--check" in sys.argv:
     if cur != txt:
         print("DRIFT: %s is out of date with %s. Re-run gen_decls.py." % (OUT, DOC)); sys.exit(1)
     print("OK: %s matches %s (%d relations)" % (OUT, DOC, len(rels)))
-    print("OK: %d/%d enums agree with the doc" % (enum_checked, enum_total))
+    print("OK: %d/%d enums agree with the doc (%d waived, listed in UNSPECIFIED_OK)"
+          % (enum_checked, enum_total, enum_total - enum_checked))
     if enum_unmapped:
         # Reported, never silent: an enum nobody compares is an enum nobody guards.
         print("NOT COMPARED (%d) - no TS file matched:" % len(enum_unmapped))

@@ -876,7 +876,12 @@ here (`@app.route("/admin/<id>", methods=["POST"])`).
 
 `valueType`: `STRING_LITERAL` \| `NUMBER_LITERAL` \| `BOOLEAN_LITERAL` \| `NONE_LITERAL` \|
 `LIST` \| `DICT` \| `TUPLE` \| `SET` \| `NAME_REFERENCE` \| `ATTRIBUTE_REFERENCE` \| `CALL` \|
-`LAMBDA` \| `FSTRING` \| `UNKNOWN`
+`LAMBDA` \| `FSTRING` \| `CLASS_REFERENCE` \| `ENUM_CONSTANT` \| `UNKNOWN`
+
+`CLASS_REFERENCE` and `ENUM_CONSTANT` were added with the emitter: a decorator argument
+naming a class or an enum member is ordinary in framework code — `@task(base=MyTask)`,
+`@require(Role.ADMIN)` — and collapsing either into `UNKNOWN` discards exactly the
+route-and-permission fact this relation exists to carry.
 
 **PK** `PY_DECORATOR_ARGUMENT_md5(parentDecoratorLinkHash ‖ position ‖ arrayIndex ‖ argumentName ‖ argumentValue)`
 
@@ -929,7 +934,7 @@ changing the hash index 24→34 and adding placeholders.
 |---|---|---|
 | 0 | `kind` [J] | see enum below |
 | 1 | `edgeRole` [J] | role in the parent — see enum below |
-| 2 | `rootContext` [J] | the statement form the root sits in |
+| 2 | `rootContext` [J] | the statement form the root sits in — see enum below |
 | 3 | `expressionOwnerKind` [J] | `MODULE` \| `TYPE` \| `METHOD` \| `LAMBDA` \| `BLOCK` \| `FIELD` \| `BINDING` \| `METHOD_PARAMETER` \| `DECORATOR` \| `IMPORT` \| `COMPREHENSION_SCOPE` |
 | 4 | `pyTypeLinkHash` [J] | FK→`py_type`; `""` at module level |
 | 5 | `expressionOwnerHash` [J] | FK, polymorphic by col 3 |
@@ -987,7 +992,27 @@ changing the hash index 24→34 and adding placeholders.
 `COMPREHENSION_ELEMENT`, `COMPREHENSION_ITERABLE`, `COMPREHENSION_TARGET`,
 `COMPREHENSION_CONDITION`, `FSTRING_EXPRESSION`, `RETURN_VALUE`, `YIELD_VALUE`,
 `AWAIT_OPERAND`, `WITH_CONTEXT`, `WITH_TARGET`, `EXCEPT_TYPE`, `EXCEPT_TARGET`,
-`RAISE_EXC`, `RAISE_CAUSE`, `LAMBDA_BODY`, `MATCH_SUBJECT`, `MATCH_PATTERN`.
+`RAISE_EXC`, `RAISE_CAUSE`, `LAMBDA_BODY`, `MATCH_SUBJECT`, `MATCH_PATTERN`,
+`ELEMENT`, `KEY`, `VALUE`.
+
+**`rootContext` enum:** `EXPRESSION_STATEMENT`, `ASSIGNMENT_VALUE`, `ASSIGNMENT_TARGET`,
+`AUGMENTED_ASSIGNMENT`, `ANNOTATED_ASSIGNMENT`, `RETURN_VALUE`, `YIELD_VALUE`,
+`IF_CONDITION`, `WHILE_CONDITION`, `ASSERT_CONDITION`, `ASSERT_MESSAGE`, `FOR_TARGET`,
+`FOR_ITERABLE`, `WITH_CONTEXT`, `WITH_TARGET`, `RAISE_VALUE`, `EXCEPT_TYPE`,
+`DELETE_TARGET`, `DECORATOR`, `BASE_CLASS_LIST`, `DEFAULT_VALUE`, `ANNOTATION`,
+`MATCH_SUBJECT`, `CASE_PATTERN`, `CASE_GUARD`, `MODULE_LEVEL_STATEMENT`,
+`CLASS_BODY_STATEMENT`, `LAMBDA_BODY`, `COMPREHENSION`, `OTHER_STATEMENT`.
+
+Written down because it was NOT: the column previously said only "the statement form the
+root sits in", so the enum guard had nothing to compare and a mutation injected into
+`PythonRootContext` went undetected. An undocumented enum is an unguarded one.
+
+`ELEMENT` is an element of a list, tuple or set display; `KEY` and `VALUE` are the
+two halves of a dict entry. They exist because without them a display's children had
+to wear `ARGUMENT`, the only structural-child role available — so a rule joining
+`edgeRole = ARGUMENT` to a call site picked up **17% non-arguments** (measured: 44 of
+260 on the flow corpus) unless it also tested the parent's `kind`. Disambiguable, but
+a trap laid for every consumer.
 
 `RECEIVER` is kept as the role name (not `ATTRIBUTE_OBJECT`) for `CALL` nodes specifically,
 so `call-site.dl`'s `java_expression(_, "RECEIVER", …)` pattern ports unchanged.
