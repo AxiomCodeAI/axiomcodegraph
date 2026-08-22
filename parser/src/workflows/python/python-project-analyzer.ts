@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
 
@@ -182,6 +183,7 @@ export class PythonProjectAnalyzer {
       perModule.push({
         qualifiedName: facts.module.getQualifiedName(),
         moduleHash: facts.module.getHash(),
+        isPackage: path.basename(filePath) === '__init__.py',
         scopes: facts.scopes,
         bindings: facts.bindings,
         types: facts.types,
@@ -291,17 +293,58 @@ export class PythonProjectAnalyzer {
   }
 
   /**
-   * Derives a dotted module name from the path, walking up while `__init__.py`
-   * is present so a package's modules get their true importable name.
+   * Derives a module's true importable name by walking up while `__init__.py`
+   * is present.
+   *
+   * The package walk is what makes the name IMPORTABLE rather than merely
+   * unique, and the difference is load-bearing. Deriving the name from the path
+   * relative to `rootDir` — which is what this used to do, despite a comment
+   * claiming otherwise — means analysing `.../lib/python3.10/unittest` names its
+   * modules `case`, `loader` and `__init__`. Three consequences, all measured:
+   *
+   * 1. `class T(unittest.TestCase)` can never resolve, because no module in the
+   *    set is called `unittest`. That base was unresolved 244 times, and it took
+   *    3,201 `self.assertEqual`-style call sites with it, since a method is only
+   *    reachable through the MRO once the base resolves.
+   * 2. `__init__.py` is not a submodule called `__init__`; it IS the package. A
+   *    package's own name is where re-exports live, so losing it loses every
+   *    `from .case import TestCase` alias.
+   * 3. `__init__` is not even unique — every package has one, so analysing two
+   *    packages produced two modules with the same qualified name.
+   *
+   * Walking up from the FILE rather than from `rootDir` also makes the name
+   * independent of where analysis was started, so the same file gets the same
+   * name whether the root is the package or its parent.
    */
   private moduleQualifiedNameFor(rootDir: string, filePath: string): string {
-    const relative = path.relative(rootDir, filePath);
-    const parsed = path.parse(relative);
-    const segments = parsed.dir === '' ? [] : parsed.dir.split(path.sep);
-    const name = parsed.name;
+    const parsed = path.parse(filePath);
+    const segments: string[] = [];
+    let directory = parsed.dir;
+    // Ascend while each directory is a package. `existsSync` is acceptable here:
+    // it runs once per file and the answer is needed before the name is minted.
+    while (directory !== '' && directory !== path.dirname(directory)) {
+      if (!fs.existsSync(path.join(directory, '__init__.py'))) {
+        break;
+      }
+      segments.unshift(path.basename(directory));
+      directory = path.dirname(directory);
+    }
     // `__init__` is the package itself, not a submodule of it.
-    const parts = name === '__init__' ? segments : [...segments, name];
-    return parts.filter(p => p !== '' && p !== '.').join('.') || name;
+    if (parsed.name !== '__init__') {
+      segments.push(parsed.name);
+    }
+    if (segments.length > 0) {
+      return segments.join('.');
+    }
+    // A loose file outside any package falls back to the path relative to the
+    // analysis root, which at least keeps it distinct from its namesakes.
+    const relative = path.relative(rootDir, filePath);
+    const relativeParsed = path.parse(relative);
+    const relativeSegments =
+      relativeParsed.dir === '' ? [] : relativeParsed.dir.split(path.sep);
+    return [...relativeSegments, relativeParsed.name]
+      .filter(part => part !== '' && part !== '.')
+      .join('.') || parsed.name;
   }
 
   private async collectPythonFiles(

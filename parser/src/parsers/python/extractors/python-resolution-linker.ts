@@ -25,6 +25,17 @@ import { PythonMethodKind } from '@/enums/python/methods';
 export interface ProjectModuleFacts extends ResolutionInput {
   qualifiedName: string;
   moduleHash: string;
+  /**
+   * Whether this module is a package's `__init__.py`.
+   *
+   * Needed for relative imports, and the distinction is not cosmetic. For a
+   * submodule `unittest.case`, `from .x import y` means `unittest.x` — drop the
+   * last segment to get the package. For the package's own `__init__.py`,
+   * qualified name `unittest`, the current package IS `unittest`, so dropping a
+   * segment walks one level too far and every `from .case import TestCase`
+   * re-export fails to resolve.
+   */
+  isPackage?: boolean;
 }
 
 export interface ProjectResolutionStats {
@@ -132,6 +143,17 @@ const ATTRIBUTE_ESCAPE_HATCHES: ReadonlySet<string> = new Set([
  */
 export class PythonResolutionLinker {
   /**
+   * Dotted-suffix and per-module type indexes for the pass in flight.
+   *
+   * Held on the instance because the dotted resolver is reached from several
+   * places — bases, type references, annotations — and threading two more
+   * parameters through each of them would obscure the rule rather than clarify
+   * it. Both are rebuilt at the start of every pass, so no state survives a call.
+   */
+  private qualifiedSuffixIndex = new Map<string, PyTypeRegistry | null>();
+  private typesByNameByModuleName = new Map<string, Map<string, PyTypeRegistry | null>>();
+
+  /**
    * Cross-module resolution, run once after every module has been extracted.
    *
    * Separate from {@link link} because it needs the **module graph**, which a
@@ -185,7 +207,7 @@ export class PythonResolutionLinker {
     const entityByImportBinding = new Map<string, PyMethodRegistry | PyTypeRegistry>();
     for (const module of modules) {
       for (const record of module.imports) {
-        const targetName = this.importTargetModule(record, module.qualifiedName);
+        const targetName = this.importTargetModule(record, module.qualifiedName, module.isPackage === true);
         let targetModule =
           targetName === null ? undefined : this.findModule(targetName, moduleByQualifiedName);
 
@@ -276,6 +298,31 @@ export class PythonResolutionLinker {
       importedModuleByName.set(module.qualifiedName, mods);
     }
 
+    // Project-wide dotted resolution, built BEFORE bases are resolved because
+    // bases are the first thing that needs it. The suffix index answers nested
+    // and module-qualified names directly; the per-module map answers
+    // RE-EXPORTS, where `unittest.TestCase` is not a suffix of
+    // `unittest.case.TestCase` because `unittest/__init__.py` imports the name
+    // rather than declaring it.
+    this.qualifiedSuffixIndex = this.buildQualifiedSuffixIndex(modules.flatMap(m => m.types));
+    this.typesByNameByModuleName = new Map();
+    for (const module of modules) {
+      const names = this.uniqueByName(module.types, t => t.getName());
+      for (const record of module.imports) {
+        const bindingHash = record.getBindingLinkHash();
+        const entity = bindingHash === '' ? undefined : entityByImportBinding.get(bindingHash);
+        if (entity instanceof PyTypeRegistry) {
+          const bound = record.getSimpleName();
+          names.set(bound, names.has(bound) ? null : entity);
+        }
+      }
+      this.typesByNameByModuleName.set(module.qualifiedName, names);
+      const last = module.qualifiedName.split('.').pop() ?? '';
+      if (last !== '' && !this.typesByNameByModuleName.has(last)) {
+        this.typesByNameByModuleName.set(last, names);
+      }
+    }
+
     for (const module of modules) {
       const localTypes = this.uniqueByName(module.types, t => t.getName());
       const imported = importedTypeByName.get(module.qualifiedName)!;
@@ -312,6 +359,19 @@ export class PythonResolutionLinker {
           );
           if (candidates.length === 1) {
             base.setResolution(candidates[0]!.getHash(), true);
+            continue;
+          }
+          // The prefix did not name an imported module in THIS file — the usual
+          // reason being a re-export (`import unittest` then
+          // `class T(unittest.TestCase)`, where TestCase is declared in
+          // unittest/case.py). Walk the segments instead of giving up.
+          const walked = this.resolveDottedTypeName(dotted, {
+            typesByName: localTypes,
+            qualifiedSuffixIndex: this.qualifiedSuffixIndex,
+            typesByNameByModuleName: this.typesByNameByModuleName,
+          });
+          if (walked && walked.getHash() !== base.getPyTypeLinkHash()) {
+            base.setResolution(walked.getHash(), true);
           }
           continue;
         }
@@ -512,6 +572,105 @@ export class PythonResolutionLinker {
    * argument rows each reach their own `py_type`. A single slot on the parameter
    * could only ever have recorded one of the three.
    */
+
+  /**
+   * Builds a lookup from every dotted SUFFIX of a type's qualified name to that
+   * type, with collisions mapped to `null`.
+   *
+   * A nested class `TopOne.Inner` in module `pkg.nest` has qualified name
+   * `pkg.nest.TopOne.Inner`, so it is registered under `Inner`,
+   * `TopOne.Inner`, `nest.TopOne.Inner` and the full name. That single structure
+   * answers all three shapes a dotted reference takes — a nested class named from
+   * its outer class, a class named through its module, and a fully qualified
+   * name — without special-casing any of them.
+   *
+   * Collisions map to `null` rather than to a first hit. Two classes named
+   * `Inner` in different outer classes make the bare name ambiguous, and
+   * answering it would be a guess; the longer, unambiguous suffix still resolves.
+   */
+  private buildQualifiedSuffixIndex(
+    types: PyTypeRegistry[]
+  ): Map<string, PyTypeRegistry | null> {
+    const index = new Map<string, PyTypeRegistry | null>();
+    for (const type of types) {
+      const qualified = type.getQualifiedName();
+      if (qualified === '') {
+        continue;
+      }
+      const segments = qualified.split('.');
+      for (let start = segments.length - 1; start >= 0; start -= 1) {
+        const suffix = segments.slice(start).join('.');
+        if (index.has(suffix)) {
+          const incumbent = index.get(suffix);
+          if (incumbent !== type) {
+            index.set(suffix, null);
+          }
+          continue;
+        }
+        index.set(suffix, type);
+      }
+    }
+    return index;
+  }
+
+  /**
+   * Resolves a possibly-dotted type name to a single class.
+   *
+   * Dotted names were previously skipped outright, on the correct reasoning that
+   * `pkg.mod.Cls` names something outside this module even when its last segment
+   * collides with a local class. That reasoning is sound and the conclusion was
+   * still wrong: the fix is to walk the segments, not to refuse the name. The
+   * measured cost of refusing was large — `unittest.TestCase` alone went
+   * unresolved 244 times, taking 3,201 `self.assertEqual`-style calls with it,
+   * because a method reachable through the MRO is only reachable once the base
+   * resolves.
+   *
+   * Two grounds, tried in order of certainty:
+   *
+   * 1. A unique qualified-name suffix. This covers `TopOne.Inner` in the same
+   *    file and `models.Base` across modules, and it is unambiguous by
+   *    construction because a colliding suffix was mapped to `null`.
+   * 2. A module binding. `unittest.TestCase` is not `unittest.case.TestCase` by
+   *    suffix — `unittest/__init__.py` RE-EXPORTS it — so the module is found
+   *    first and the name looked up in what that module binds, imports included.
+   */
+  private resolveDottedTypeName(
+    raw: string,
+    ctx: {
+      typesByName: Map<string, PyTypeRegistry | null>;
+      qualifiedSuffixIndex?: Map<string, PyTypeRegistry | null>;
+      typesByNameByModuleName?: Map<string, Map<string, PyTypeRegistry | null>>;
+    }
+  ): PyTypeRegistry | null {
+    // A PEP 484 forward reference carries its quotes into the complete name:
+    // `-> "TopOne.Inner.Deepest"`. The single-segment path already strips them,
+    // so a dotted forward reference was the ONLY shape that failed — the quotes
+    // made every segment walk miss.
+    const dotted = raw.replace(/^['"]|['"]$/g, '').trim();
+    if (dotted === '') {
+      return null;
+    }
+    if (!dotted.includes('.')) {
+      return ctx.typesByName.get(dotted) ?? null;
+    }
+
+    const bySuffix = ctx.qualifiedSuffixIndex?.get(dotted);
+    if (bySuffix) {
+      return bySuffix;
+    }
+
+    const segments = dotted.split('.');
+    const memberName = segments[segments.length - 1]!;
+    const modulePath = segments.slice(0, -1).join('.');
+    const moduleTypes =
+      ctx.typesByNameByModuleName?.get(modulePath) ??
+      ctx.typesByNameByModuleName?.get(segments[segments.length - 2]!);
+    if (moduleTypes) {
+      return moduleTypes.get(memberName) ?? null;
+    }
+    return null;
+  }
+
   private resolveTypeReferences(
     input: ResolutionInput,
     typeByName: Map<string, PyTypeRegistry | null>
@@ -520,7 +679,17 @@ export class PythonResolutionLinker {
       if (reference.getReferencedTypeLinkHash() !== '') {
         continue;
       }
-      const target = typeByName.get(reference.getTypeName());
+      // The COMPLETE name first: `TopOne.Inner` must reach the nested class, not
+      // the outer one that its first segment happens to name.
+      const complete = reference.getCompleteTypeName();
+      const target =
+        (complete.includes('.')
+          ? this.resolveDottedTypeName(complete, {
+              typesByName: typeByName,
+              qualifiedSuffixIndex: this.qualifiedSuffixIndex,
+              typesByNameByModuleName: this.typesByNameByModuleName,
+            })
+          : null) ?? typeByName.get(reference.getTypeName()) ?? null;
       if (target) {
         reference.setReferencedTypeLinkHash(target.getHash());
       }
@@ -685,7 +854,11 @@ export class PythonResolutionLinker {
     return undefined;
   }
 
-  private importTargetModule(record: PyImportRegistry, importingModule: string): string | null {
+  private importTargetModule(
+    record: PyImportRegistry,
+    importingModule: string,
+    importingIsPackage = false
+  ): string | null {
     const level = record.getRelativeLevel();
     const stated = record.getIsModuleImport()
       ? record.getImportedPath()
@@ -694,9 +867,12 @@ export class PythonResolutionLinker {
     if (level === 0) {
       return stated === '' ? null : stated;
     }
-    // The importing module's own package, then up (level - 1) more.
+    // The importing module's own package, then up (level - 1) more. A package's
+    // `__init__.py` IS its package, so nothing is dropped for it.
     const parts = importingModule.split('.');
-    parts.pop();
+    if (!importingIsPackage) {
+      parts.pop();
+    }
     for (let i = 1; i < level; i++) {
       parts.pop();
     }
@@ -711,6 +887,10 @@ export class PythonResolutionLinker {
   link(input: ResolutionInput): number {
     const typesByHash = new Map(input.types.map(t => [t.getHash(), t]));
     const typesByName = this.uniqueByName(input.types, t => t.getName());
+    // Single-file: only this module's types are visible, so the suffix index
+    // answers nested names (`TopOne.Inner`) and nothing cross-module.
+    this.qualifiedSuffixIndex = this.buildQualifiedSuffixIndex(input.types);
+    this.typesByNameByModuleName = new Map();
 
     // Bases first: MRO resolution depends on them.
     this.resolveTypeBases(input, typesByName);
@@ -856,13 +1036,20 @@ export class PythonResolutionLinker {
       if (simpleName === '') {
         continue;
       }
-      // A dotted base (`pkg.mod.Cls`) names something outside this module even
-      // when its rightmost segment collides with a local class.
+      // A dotted base (`class T(unittest.TestCase)`) is resolved by WALKING the
+      // segments, not by matching its rightmost one against local classes —
+      // which would claim a local `TestCase` that has nothing to do with it. This
+      // used to be skipped outright, and the cost was measured: `unittest.TestCase`
+      // unresolved 244 times, taking 3,201 self.assertEqual-style calls with it,
+      // since a method is only reachable through the MRO once the base resolves.
       const dotted = base.getBaseDottedPath();
-      if (dotted.includes('.')) {
-        continue;
-      }
-      const target = typesByName.get(simpleName);
+      const target = dotted.includes('.')
+        ? this.resolveDottedTypeName(dotted, {
+            typesByName,
+            qualifiedSuffixIndex: this.qualifiedSuffixIndex,
+            typesByNameByModuleName: this.typesByNameByModuleName,
+          })
+        : typesByName.get(simpleName);
       if (target && target.getHash() !== base.getPyTypeLinkHash()) {
         base.setResolution(target.getHash(), true);
       }

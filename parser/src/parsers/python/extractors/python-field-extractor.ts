@@ -794,13 +794,33 @@ export class PythonFieldExtractor {
       if (field.getWriteCount() === 1 && field.getFieldOrigin() !== PythonFieldOrigin.SELF_AUGASSIGN) {
         field.addModifier(PythonFieldModifier.READ_ONLY);
       }
-      const position = positionByKey.get(key);
-      if (position !== undefined) {
-        fieldPositions.push(
-          new PyFieldPositionRegistry(collection.typeHash, field.getHash(), position)
-        );
-      }
+
     }
+
+    // Positions are assigned over ALL fields, class-body declarations first in
+    // declaration order and then method-recovered attributes in first-write
+    // order, so the relation is 1:1 with `py_field` as it is in Java. Restricting
+    // it to class-body fields dropped exactly the rows a constructor-argument
+    // rule needs, since Python's constructor-assigned fields are SELF_ASSIGN.
+    const positioned = [...ordered].sort((left, right) => {
+      const leftDeclared = positionByKey.get(left.getName() + '||' + left.getFieldOrigin());
+      const rightDeclared = positionByKey.get(right.getName() + '||' + right.getFieldOrigin());
+      if (leftDeclared !== undefined && rightDeclared !== undefined) {
+        return leftDeclared - rightDeclared;
+      }
+      if (leftDeclared !== undefined) {
+        return -1;
+      }
+      if (rightDeclared !== undefined) {
+        return 1;
+      }
+      return left.getFirstWriteLine() - right.getFirstWriteLine();
+    });
+    positioned.forEach((field, index) => {
+      fieldPositions.push(
+        new PyFieldPositionRegistry(collection.typeHash, field.getHash(), index)
+      );
+    });
 
     for (const field of ordered) {
       fields.push(field);

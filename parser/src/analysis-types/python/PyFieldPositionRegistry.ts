@@ -15,9 +15,21 @@
  * Point(3, 4)     # 3 -> x, 4 -> y, knowable only from position
  * ```
  *
- * Only class-body declarations get a position. A `self.x` recovered from a
- * method body has no declaration order to report, and inventing one from line
- * number would be a guess that a generated `__init__` does not honour.
+ * EVERY field gets a position, and getting this wrong once is instructive. My
+ * first version gave positions only to class-body declarations, reasoning that a
+ * `self.x` recovered from a method body has no declaration order to report. That
+ * inverted the relation's purpose: Python's constructor-assigned fields are
+ * almost all `SELF_ASSIGN`, so the rows being skipped were exactly the ones a
+ * rule matching constructor arguments to fields needs. It emitted 2 rows for 11
+ * fields where Java is strictly 1:1.
+ *
+ * Order is therefore defined for both, in the order the class actually
+ * establishes its attributes: class-body declarations first, in declaration
+ * order, then attributes recovered from methods, in FIRST-WRITE order. For a
+ * `@dataclass` this is exactly the generated `__init__` signature. For a
+ * hand-written `__init__` it is the order the attributes come into existence,
+ * which is the closest true statement available — and unlike a line number it
+ * stays stable when the class is reformatted.
  *
  * ## Column order (frozen — schema v6 §2.11, 3 columns)
  *
