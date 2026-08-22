@@ -38,5 +38,18 @@ export enum PythonTypeModifier {
   HAS_CALL = 'HAS_CALL',
 
   /** Instances are callable, so a "variable" may in fact be a call target. */
+  /**
+   * **NOT EMITTED — undefined as specified.**
+   *
+   * A class defines `__call__` if and only if its instances are callable, so
+   * this and {@link HAS_CALL} are coextensive as the schema defines them and one
+   * of the two is dead. The parser emits `HAS_CALL` alone rather than inventing a
+   * distinction to justify keeping both.
+   *
+   * A0 owns the resolution: either drop this value, or redefine the pair as
+   * `__call__` declared ON this class versus callable INCLUDING inherited —
+   * both detectable (`in cls.__dict__` versus `hasattr`). Kept in the enum so
+   * the schema and the code stay in step until that call is made.
+   */
   CALLABLE_INSTANCE = 'CALLABLE_INSTANCE',
 }

@@ -1095,8 +1095,21 @@ export class PythonDeclarationExtractor {
         modifiers.push(PythonTypeModifier.HAS_SETATTR);
       }
       if (members.has('__call__')) {
+        // HAS_CALL only. `CALLABLE_INSTANCE` is not emitted: a class defines
+        // `__call__` if and only if its instances are callable, so as the schema
+        // defines them today the two are COEXTENSIVE and emitting both puts the
+        // same fact in the row twice under two names. A consumer counting
+        // modifiers would double-count, and a rule keying on one would silently
+        // depend on which name happened to be written.
+        //
+        // The oracle emits HAS_CALL alone, so emitting both also showed as a
+        // disagreement — the correct outcome for a field with no agreed meaning.
+        // A0 has the schema call open (remove the value, or redefine the pair as
+        // declared-here versus callable-including-inherited, both of which are
+        // detectable). Until that lands, emitting the one value that is defined
+        // is the honest option, and the alternative — inventing a distinction to
+        // justify keeping both — is the thing to avoid.
         modifiers.push(PythonTypeModifier.HAS_CALL);
-        modifiers.push(PythonTypeModifier.CALLABLE_INSTANCE);
       }
       if (this.hasAbstractMember(bodyNode)) {
         modifiers.push(PythonTypeModifier.ABSTRACT);
