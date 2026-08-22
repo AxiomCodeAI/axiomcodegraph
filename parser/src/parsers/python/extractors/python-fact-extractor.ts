@@ -484,6 +484,49 @@ export class PythonFactExtractor {
         binding.setTargetEntity(target.kind, target.hash);
       }
     }
+
+    // A FREE variable closes over a binding in an ENCLOSING scope, and until now
+    // it resolved to nothing — `targetEntityKind=NONE`, empty hash. That broke
+    // the one chain a decorator exists to make traceable:
+    //
+    //   @audit on Impl.run  ->  audit  ->  returns wrapper  ->  wrapper calls fn
+    //
+    // `fn` inside `wrapper` IS `audit`'s parameter, and without this link the
+    // trace dead-ends exactly where it becomes interesting. CPython's symtable
+    // states the relationship outright — a free variable resolves to a cell in
+    // an enclosing scope — so this is reading a fact rather than inferring one.
+    const parentScopeOf = new Map<string, string>();
+    for (const scope of scopeStage.scopes) {
+      parentScopeOf.set(scope.getHash(), scope.getParentScopeLinkHash());
+    }
+    const bindingByScopeAndName = new Map<string, PyBindingRegistry>();
+    for (const binding of scopeStage.bindings) {
+      bindingByScopeAndName.set(
+        `${binding.getPyScopeLinkHash()}::${binding.getName()}`,
+        binding
+      );
+    }
+    for (const binding of scopeStage.bindings) {
+      if (!binding.isFreeVariable() || binding.getTargetEntityHash() !== '') {
+        continue;
+      }
+      let scope: string | undefined = parentScopeOf.get(binding.getPyScopeLinkHash());
+      let guard = 0;
+      while (scope !== undefined && scope !== '' && guard < 200) {
+        guard += 1;
+        const enclosing = bindingByScopeAndName.get(`${scope}::${binding.getName()}`);
+        // Only a binding that actually BINDS terminates the walk; a scope that
+        // merely mentions the name is not where the cell lives.
+        if (enclosing?.isBound() && enclosing.getTargetEntityHash() !== '') {
+          binding.setTargetEntity(
+            enclosing.getTargetEntityKind(),
+            enclosing.getTargetEntityHash()
+          );
+          break;
+        }
+        scope = parentScopeOf.get(scope);
+      }
+    }
   }
 
   /**

@@ -212,6 +212,19 @@ export class PyBindingRegistry implements EntityIdentifiable {
   }
 
   /** Sets the polymorphic target FK, back-patched once declarations exist. */
+  /** `Symbol.is_free()` — the name is bound in an enclosing function scope. */
+  isFreeVariable(): boolean {
+    return this.isFree;
+  }
+
+  getTargetEntityKind(): PythonBindingTargetKind {
+    return this.targetEntityKind;
+  }
+
+  getTargetEntityHash(): string {
+    return this.targetEntityHash;
+  }
+
   setTargetEntity(targetEntityKind: PythonBindingTargetKind, targetEntityHash: string): void {
     this.targetEntityKind = targetEntityKind;
     this.targetEntityHash = targetEntityHash;
