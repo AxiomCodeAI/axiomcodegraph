@@ -19,3 +19,12 @@ logs/
 
 # os
 .DS_Store
+
+# Torture corpus: the SCRIPT is committed, the corpus is regenerated.
+# CPython test files are PSF-licensed and belong to the interpreter, not to us;
+# checking them in would also pin them to one machine's stdlib.
+python-work/staging/torture/
+python-work/staging/torture-parse-gap/
+.certify-report.txt
+.certify-out/
+.jedi-gaps.json

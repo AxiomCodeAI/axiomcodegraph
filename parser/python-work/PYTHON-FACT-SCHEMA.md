@@ -779,6 +779,12 @@ Positions 0–12 mirror `java_field` 0–12. See §4.1 for the identity decision
 
 **PK** `PY_FIELD_md5(pyTypeLinkHash ‖ name ‖ fieldOrigin)` — deliberately **not** line-based.
 
+> **RATIFIED by the human, 2026-08-22.** One row per attribute keyed
+> `(type, name, origin)`; per-write detail stays in `py_expression`. This was raised
+> four times and needed a human because **`symtable` has no opinion on attributes** —
+> there is no CPython ground truth for this, so no test can settle it and more tests
+> only harden whichever guess is in place. It is now a decision, not a default.
+
 ---
 
 ### 2.10 `py_field_write` — **REMOVED, redundant with `py_expression`**
@@ -1167,11 +1173,11 @@ So this becomes **four appended columns on `py_expression`**, not a 17-column re
 
 **Net: one fewer relation, thirteen fewer columns.** `py_expression` goes 35 → 39.
 
-> **FREEZE IMPACT — needs sign-off.** `py_expression` is in the frozen spine. Columns
-> **c0–c32 do not move**; `serviceVersionLinkHash` and the PK shift from c33/c34 to
-> c37/c38, which is what the "append only, hash last" convention does on every append.
-> Spine goes 262 → 266 columns. This is the sanctioned evolution path, but it is still a
-> change to a frozen relation and I am not making it unilaterally.
+> **FREEZE IMPACT — RATIFIED by the human, 2026-08-22.** `py_expression` goes 35 → 39.
+> Columns **c0–c32 do not move**; `serviceVersionLinkHash` and the PK shift from c33/c34
+> to c37/c38, which is what the "append only, hash last" convention does on every
+> append. Spine 262 → 266. This is the sanctioned evolution path and is now approved,
+> not proposed.
 
 The engine still appends its own inferences (`CONSTRUCTOR_CALL`, `BUILTIN_CALL`,
 `ISINSTANCE_GUARD`) — as derived rows, not stored ones. The tier split from

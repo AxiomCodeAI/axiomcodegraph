@@ -128,7 +128,7 @@ export function diffExprComplete(file: string): CompletenessResult {
   const fieldProblems: string[] = [];
   let matched = 0;
   let checked = 0;
-  let excludedTextConstants = 0;
+  const excludedTextConstants = 0;
   for (const [span, node] of expected) {
     const count = oursBySpan.get(span) ?? 0;
     if (count === 0) {
@@ -145,30 +145,42 @@ export function diffExprComplete(file: string): CompletenessResult {
     }
     const where = `${path.basename(file)} ${node.type}@${span}`;
 
-    const allowed = KIND_FOR_AST.get(node.type);
-    if (allowed) {
+    // A DISCRIMINATED expectation where ast supplies one, an admissible SET only
+    // where it genuinely cannot. `self` and an ordinary variable are both
+    // ast.Name, so a set containing both accepts a parser that never tells them
+    // apart — the check would gate nothing. The oracle now reports which Name is
+    // the enclosing method's receiver, so those become exact.
+    const role = node.nameRole as string;
+    if (node.type === 'Name' && role !== '') {
       checked += 1;
-      if (!allowed.has(row.getKind())) {
-        fieldProblems.push(`KIND ${where}: ours=${row.getKind()}`);
+      const expectedKind = role === 'CLS' ? 'CLS_REFERENCE' : 'SELF_REFERENCE';
+      if (row.getKind() !== expectedKind) {
+        fieldProblems.push(`KIND ${where}: ast says ${expectedKind}, ours=${row.getKind()}`);
+      }
+    } else if (node.type === 'Name') {
+      checked += 1;
+      // Not the receiver, so it must NOT claim to be one.
+      if (row.getKind() === 'SELF_REFERENCE' || row.getKind() === 'CLS_REFERENCE') {
+        fieldProblems.push(`KIND ${where}: ast says ordinary name, ours=${row.getKind()}`);
+      }
+    } else {
+      const allowed = KIND_FOR_AST.get(node.type);
+      if (allowed) {
+        checked += 1;
+        if (!allowed.has(row.getKind())) {
+          fieldProblems.push(`KIND ${where}: ours=${row.getKind()}`);
+        }
       }
     }
     // literalValue is the shared NAME SLOT — a callee name, an attribute name,
     // an identifier. Only checked where ast states one.
     //
-    // A STRING or BYTES Constant is deliberately NOT compared, and the exclusion
-    // is declared rather than quietly dropped so it cannot be counted as
-    // adjudicated. The two sides mean different things there: ast reports the
-    // INTERPRETED value, with escapes resolved and bytes repr'd, while we keep
-    // the SOURCE TEXT. Source text is the better fact — `0x0010` is recoverable
-    // to 16 and 16 is not recoverable to `0x0010`, and a rule about permission
-    // masks wants the spelling — so an exact comparison would blame the parser
-    // for a deliberate choice. Numbers are still compared, by value.
-    const isTextConstant =
-      node.type === 'Constant' && !Number.isFinite(Number(node.name));
-    if (isTextConstant) {
-      excludedTextConstants += 1;
-    }
-    if (node.name !== '' && !isTextConstant) {
+    // String and bytes constants are now compared EXACTLY, not excluded. The
+    // oracle asks ast for `get_source_segment`, which returns the SURFACE form
+    // we store — `0x0010` stays `0x0010` — so the earlier exclusion of 5,402
+    // nodes was unnecessary: the same fact was available, I had simply been
+    // asking for the interpreted value instead.
+    if (node.name !== '') {
       checked += 1;
       // Both sides normalised: see the emitter — a TSV cell cannot carry a raw
       // newline, so the parser collapses whitespace and the oracle must too.

@@ -96,15 +96,93 @@ def render(rels):
                        % (DOCS.get(name, name), n, name, cols, name, cols))
     return "\n".join(out)
 
+
+# ---------------------------------------------------------------------------
+# ENUM MEMBERSHIP CHECK
+#
+# Arity alone cannot see this class of drift. ELEMENT, KEY and VALUE were added to
+# PythonEdgeRole.ts and shipped while the frozen doc still listed 42 values; the
+# column COUNT never moved, so --check stayed green and the divergence was found by
+# reading a diff. A guard nobody can rely on for a whole class of change is worse
+# than no guard, because it is trusted.
+#
+# The doc is authoritative. Code holding a value the doc does not name is drift in
+# one direction; the doc naming a value the code cannot emit is drift in the other,
+# and both matter — the first means goldens exist for facts nothing describes, the
+# second means a consumer is written against a value it will never see.
+# ---------------------------------------------------------------------------
+import os, glob
+
+ENUM_DIR = os.path.join("..", "src", "enums", "python")
+
+def _pascal(camel):
+    return "Python" + camel[0].upper() + camel[1:]
+
+def parse_doc_enums():
+    """Enum value sets the doc declares, keyed by the column they belong to."""
+    md = open(DOC).read()
+    found = {}
+    # form 1:  **`edgeRole` enum:** `A`, `B`, `C`.
+    for m in re.finditer(r"\*\*`(\w+)` enum:\*\*(.+?)\.\n", md, re.S):
+        found.setdefault(m.group(1), set()).update(re.findall(r"`([A-Z][A-Z0-9_]*)`", m.group(2)))
+    # form 2:  | 7 | `typeCategory` | `A` \| `B` \| `C` |
+    for m in re.finditer(r"^\| \d+ \| `(\w+)`[^|]*\|(.+?)\|\s*$", md, re.M):
+        vals = re.findall(r"`([A-Z][A-Z0-9_]*)`", m.group(2))
+        if len(vals) >= 3:          # 3+ backticked constants is an enum, not prose
+            found.setdefault(m.group(1), set()).update(vals)
+    return found
+
+def parse_code_enums():
+    """Enum members declared in TypeScript, keyed by file basename."""
+    out = {}
+    for f in glob.glob(os.path.join(ENUM_DIR, "**", "*.ts"), recursive=True):
+        base = os.path.basename(f)[:-3]
+        if base == "index":
+            continue
+        members = set(re.findall(r"^\s+([A-Z][A-Z0-9_]*) = '", open(f).read(), re.M))
+        if members:
+            out[base] = members
+    return out
+
+def check_enums():
+    doc_enums, code_enums = parse_doc_enums(), parse_code_enums()
+    problems, checked, unmapped = [], 0, []
+    for col, docvals in sorted(doc_enums.items()):
+        cls = _pascal(col)
+        if cls not in code_enums:
+            unmapped.append("%s (expected %s.ts)" % (col, cls))
+            continue
+        checked += 1
+        codevals = code_enums[cls]
+        only_code = sorted(codevals - docvals)
+        only_doc = sorted(docvals - codevals)
+        if only_code:
+            problems.append("%s: IN CODE, NOT IN DOC: %s" % (col, ", ".join(only_code)))
+        if only_doc:
+            problems.append("%s: IN DOC, NOT IN CODE: %s" % (col, ", ".join(only_doc)))
+    return problems, checked, unmapped, len(code_enums)
+
 rels, errors = parse_doc()
+enum_problems, enum_checked, enum_unmapped, enum_total = check_enums()
 if errors:
     print("DOC INCONSISTENCIES:"); [print("  -", e) for e in errors]; sys.exit(1)
+if enum_problems:
+    print("ENUM DRIFT between %s and src/enums/python (%d enums compared):" % (DOC, enum_checked))
+    for e in enum_problems: print("  -", e)
+    print("\nThe doc is authoritative. Either sync the doc, or revert the code.")
+    sys.exit(1)
 txt = render(rels)
 if "--check" in sys.argv:
     cur = open(OUT).read() if __import__("os").path.exists(OUT) else ""
     if cur != txt:
         print("DRIFT: %s is out of date with %s. Re-run gen_decls.py." % (OUT, DOC)); sys.exit(1)
-    print("OK: %s matches %s (%d relations)" % (OUT, DOC, len(rels))); sys.exit(0)
+    print("OK: %s matches %s (%d relations)" % (OUT, DOC, len(rels)))
+    print("OK: %d/%d enums agree with the doc" % (enum_checked, enum_total))
+    if enum_unmapped:
+        # Reported, never silent: an enum nobody compares is an enum nobody guards.
+        print("NOT COMPARED (%d) - no TS file matched:" % len(enum_unmapped))
+        for u in enum_unmapped: print("     ", u)
+    sys.exit(0)
 open(OUT,"w").write(txt)
 print("wrote %s: %d relations, %d decls, %d columns total"
       % (OUT, len(rels), len(rels)*2, sum(n for _, n in rels)))
