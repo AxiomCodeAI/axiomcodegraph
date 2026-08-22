@@ -29,8 +29,24 @@
  *   f().m()      the callee's py_method row plus a return annotation or a
  *                RETURN_VALUE expression to infer from.
  *
+ * FEASIBLE MEANS THE CHAIN REACHES A TYPE, NOT THAT IT HAS A FIRST STEP.
+ *
+ * The first version of this gate stopped after one hop: if a local had an
+ * ASSIGNMENT_TARGET with a sibling ASSIGNMENT_VALUE, it called the site feasible.
+ * A3 built an independent gate that followed the chain to the end and got a very
+ * different answer, so I measured the difference: of 840 NAME receivers with a
+ * fully intact hop chain, only 392 reach a value from which a type is derivable.
+ * The other 448 have every fact present and lead nowhere — 316 assigned from a
+ * call whose return type nobody wrote down, 92 from an attribute with no stated
+ * type. "The engine can do this" was wrong about more than half of them, and it
+ * matters because engine-work implies recoverable and NOT_STATIC does not.
+ *
+ * So the walk is now TRANSITIVE, with a depth bound and cycle detection, and a
+ * chain that runs out of facts is NOT_STATIC rather than feasible.
+ *
  * VERDICTS
- *   FEASIBLE      every hop present — the engine can do this, parser is done
+ *   FEASIBLE      the chain reaches a concrete type — engine work, recoverable
+ *   NOT_STATIC    every fact present, and the source never states the type
  *   BLOCKED       a hop is missing — a PARSER defect, and the missing fact is named
  *   UNDECIDABLE   no static answer exists at all (getattr, dynamic base)
  *
@@ -75,7 +91,8 @@ function tsv(f: string): Record<string, string>[] {
   });
 }
 
-interface Verdict { verdict: 'FEASIBLE' | 'BLOCKED' | 'UNDECIDABLE'; reason: string }
+type V = 'FEASIBLE' | 'BLOCKED' | 'UNDECIDABLE' | 'NOT_STATIC';
+interface Verdict { verdict: V; reason: string }
 
 function main(): number {
   const calls = tsv('all-python-call-sites.csv');
@@ -86,7 +103,6 @@ function main(): number {
   const types = tsv('all-python-types.csv');
 
   const exprByHash = new Map(exprs.map((e) => [e['pyExpressionUniqueHash']!, e]));
-  const methodByHash = new Map(methods.map((m) => [m['pyMethodUniqueHash']!, m]));
 
   // binding -> the ASSIGNMENT_TARGET expressions that write it
   const targetsOfBinding = new Map<string, Record<string, string>[]>();
@@ -115,14 +131,8 @@ function main(): number {
   // rather than assumed to be one
   const params = tsv('all-python-method-parameters.csv');
   const paramBindings = new Set(params.map((p) => p['bindingLinkHash']).filter(Boolean) as string[]);
-  const paramsOfMethod = new Map<string, Record<string, string>[]>();
-  for (const p of params) {
-    const k = p['pyMethodLinkHash']!;
-    (paramsOfMethod.get(k) ?? paramsOfMethod.set(k, []).get(k)!).push(p);
-  }
   // scope chain + imports, for bare-name resolution
   const scopes = tsv('all-python-scopes.csv');
-  const scopeByHash = new Map(scopes.map((x) => [x['pyScopeUniqueHash']!, x]));
   const bindings = tsv('all-python-bindings.csv');
   const bindingNamesByScope = new Map<string, Set<string>>();
   for (const b of bindings) {
@@ -137,6 +147,7 @@ function main(): number {
     }
   }
   const methodNames = new Set(methods.map((m) => m['name']!));
+  const typeNamesAll = new Set(types.map((t) => t['name']!));
   const bindingByHash = new Map(bindings.map((b) => [b['pyBindingUniqueHash']!, b]));
   // Fields by NAME, ignoring the owning type. An engine resolving self.x walks the
   // MRO, so a field declared on a BASE class is found — keying strictly on the
@@ -152,11 +163,43 @@ function main(): number {
   const OUTER_SCOPE_KINDS = new Set(['GLOBAL_IMPLICIT', 'GLOBAL_EXPLICIT', 'FREE', 'IMPORTED']);
   const typeNames = new Set(types.map((t) => t['name']!));
 
-  const returnsSomething = new Set<string>();
-  for (const e of exprs) {
-    if (e['edgeRole'] === 'RETURN_VALUE' && e['expressionOwnerHash']) {
-      returnsSomething.add(e['expressionOwnerHash']!);
+
+  /**
+   * Follow an assigned value to a concrete type, transitively.
+   *
+   * Returns the reason it terminated. Depth-bounded and cycle-guarded: `a = b;
+   * b = a` is legal Python and would otherwise spin.
+   */
+  function typeOfValue(v: Record<string, string> | undefined, seen: Set<string>, depth: number): Verdict {
+    if (!v) return { verdict: 'NOT_STATIC', reason: 'assignment has no value expression' };
+    if (depth > 6) return { verdict: 'NOT_STATIC', reason: 'value chain exceeded 6 hops' };
+    const id = v['pyExpressionUniqueHash'] ?? '';
+    if (seen.has(id)) return { verdict: 'NOT_STATIC', reason: 'value chain is cyclic' };
+    seen.add(id);
+
+    if (v['inferredTypeName']) return { verdict: 'FEASIBLE', reason: 'value carries inferredTypeName' };
+    const last = (v['dottedPath'] || '').split('.').pop() ?? '';
+    if (v['kind'] === 'CALL' && typeNamesAll.has(last))
+      return { verdict: 'FEASIBLE', reason: 'value is a constructor call' };
+    if (v['kind'] === 'CALL') {
+      // One more hop: does the callee state a return type anywhere?
+      const m = methods.find((x) => x['name'] === last);
+      if (m && (m['returnTypeName'] || m['returnBaseType']))
+        return { verdict: 'FEASIBLE', reason: 'value is a call whose callee states a return type' };
+      return { verdict: 'NOT_STATIC', reason: 'value is a call whose return type is never stated' };
     }
+    if (v['kind'] === 'NAME_REFERENCE' && v['bindingLinkHash']) {
+      const tg = targetsOfBinding.get(v['bindingLinkHash']!) ?? [];
+      for (const t of tg) {
+        const nxt = valueOfParent.get(t['parentExpressionHash'] ?? '');
+        const r = typeOfValue(nxt, seen, depth + 1);
+        if (r.verdict === 'FEASIBLE') return r;
+      }
+      return { verdict: 'NOT_STATIC', reason: 'value is a name whose own type is never stated' };
+    }
+    if (v['kind'] === 'ATTRIBUTE_ACCESS')
+      return { verdict: 'NOT_STATIC', reason: 'value is an attribute with no stated type' };
+    return { verdict: 'NOT_STATIC', reason: `value is ${v['kind']} — no type stated` };
   }
 
   /** Can an engine type the value a local binding was last assigned? */
@@ -186,17 +229,45 @@ function main(): number {
       const kind = bind?.['bindingKind'] ?? '';
       const origin = bind?.['bindingOrigin'] ?? '';
       if (!bind) return { verdict: 'BLOCKED', reason: 'bindingLinkHash points at no py_binding row' };
-      if (OUTER_SCOPE_KINDS.has(kind))
-        return { verdict: 'FEASIBLE', reason: `${kind} — written in an enclosing scope; scope walk is engine work` };
+      if (OUTER_SCOPE_KINDS.has(kind)) {
+        // Same depth-1 flaw as the local case, one branch over: the scope walk
+        // finds the outer binding, but if THAT binding's value states no type the
+        // chain still ends in nothing. Follow it by name to a module-level write.
+        const nm = bind['name'] ?? '';
+        for (const [bh, tg] of targetsOfBinding) {
+          const ob = bindingByHash.get(bh);
+          if (!ob || ob['name'] !== nm || bh === b) continue;
+          for (const t of tg) {
+            const r = typeOfValue(valueOfParent.get(t['parentExpressionHash'] ?? ''), new Set(), 0);
+            if (r.verdict === 'FEASIBLE')
+              return { verdict: 'FEASIBLE', reason: `${kind} — outer write yields a type` };
+          }
+        }
+        if (kind === 'IMPORTED')
+          return { verdict: 'FEASIBLE', reason: 'IMPORTED — py_import carries the target' };
+        return { verdict: 'NOT_STATIC', reason: `${kind} — outer write states no type` };
+      }
+      if (origin === 'IMPORT')
+        return { verdict: 'FEASIBLE', reason: 'IMPORT origin; py_import carries the target' };
       if (NON_ASSIGN_ORIGINS.has(origin))
-        return { verdict: 'FEASIBLE', reason: `bound by ${origin}; origin names the source for the engine` };
+        // FOR_TARGET, WITH_TARGET, TUPLE_UNPACK and friends bind an ELEMENT. Naming
+        // the mechanism is not the same as knowing the element type, and for an
+        // unannotated iterable nothing in the source states it.
+        return { verdict: 'NOT_STATIC', reason: `bound by ${origin}; element type never stated` };
       return { verdict: 'BLOCKED', reason: `binding ${kind}/${origin} has no assignment, parameter or named origin` };
     }
     const withParent = tgts.filter((t) => t['parentExpressionHash']);
     if (!withParent.length) return { verdict: 'BLOCKED', reason: 'ASSIGNMENT_TARGET has no parent — value unreachable' };
     const withValue = withParent.filter((t) => valueOfParent.has(t['parentExpressionHash']!));
     if (!withValue.length) return { verdict: 'BLOCKED', reason: 'no sibling ASSIGNMENT_VALUE under the parent' };
-    return { verdict: 'FEASIBLE', reason: 'target -> parent -> value chain intact' };
+    // Intact is not enough — follow it to a type or admit it reaches none.
+    let last: Verdict = { verdict: 'NOT_STATIC', reason: 'no assigned value yields a type' };
+    for (const t of withValue) {
+      const r = typeOfValue(valueOfParent.get(t['parentExpressionHash']!), new Set(), 0);
+      if (r.verdict === 'FEASIBLE') return r;
+      last = r;
+    }
+    return last;
   }
 
   const tally = new Map<string, Map<string, number>>();
@@ -206,7 +277,7 @@ function main(): number {
     m.set(k, (m.get(k) ?? 0) + 1);
   };
 
-  let resolved = 0, undecidable = 0, feasible = 0, blocked = 0;
+  let resolved = 0, undecidable = 0, feasible = 0, blocked = 0, notStatic = 0;
   for (const c of calls) {
     if (c['resolvedCalleeHash']) { resolved++; continue; }
     if (c['resolvedCalleeKind'] === 'BUILTIN' || c['callKind'] === 'DYNAMIC_CALL') {
@@ -242,12 +313,16 @@ function main(): number {
         // Not on THIS type is not the same as missing. An engine resolving self.x
         // walks the MRO, so a field declared on a base is reachable — checking only
         // the enclosing type blamed the parser for 145 sites it emits correctly.
-        if (!f && fieldNames.has(m[1]!))
-          v = { verdict: 'FEASIBLE', reason: 'field declared on another type; MRO walk is engine work' };
-        else if (!f) v = { verdict: 'BLOCKED', reason: `no py_field row for self.${m[1]} anywhere` };
-        else if (!f['initializerText'] && !f['fieldTypeName'] && !f['hasAnnotation'])
-          v = { verdict: 'BLOCKED', reason: 'py_field row has no initializer and no annotation' };
-        else v = { verdict: 'FEASIBLE', reason: 'py_field row carries an initializer or annotation' };
+        // Inherited: find the row wherever it lives, then judge it on whether it
+        // states a TYPE. "A field of this name exists somewhere" was the last
+        // over-generous clause here — it let 525 untyped attributes read as engine
+        // work when nothing in the source ever says what they hold.
+        const anyF = f ?? fields.find((x) => x['name'] === m[1]);
+        if (!anyF) v = { verdict: 'BLOCKED', reason: `no py_field row for self.${m[1]} anywhere` };
+        else if (anyF['fieldTypeName'] || anyF['initializerKind'] === 'CONSTRUCTOR_CALL'
+                 || anyF['hasAnnotation'] === 'true')
+          v = { verdict: 'FEASIBLE', reason: 'py_field states a type or a constructor initializer' };
+        else v = { verdict: 'NOT_STATIC', reason: 'py_field exists but states no type' };
         break;
       }
       case 'SUPER': {
@@ -272,11 +347,17 @@ function main(): number {
         // of a declared method or type. Otherwise there is nothing to find and
         // calling it engine work is passing the buck.
         const n = c['calleeName'] ?? '';
-        const boundSomewhere = [...bindingNamesByScope.values()].some((set) => set.has(n));
+        // "A binding with this name exists somewhere in the corpus" was the single
+        // most inflationary clause in this gate — it credited 991 of 1,157 bare
+        // names as engine work. A binding is not a CALLEE: to link `foo()` the
+        // engine needs a declared py_method or py_type named foo, or an import
+        // that resolves to one. Only 166 of the 1,157 qualify.
         if (!n) v = { verdict: 'UNDECIDABLE', reason: 'call with no callee name' };
-        else if (boundSomewhere || importedNames.has(n) || methodNames.has(n) || typeNames.has(n))
-          v = { verdict: 'FEASIBLE', reason: 'name is bound/imported/declared in-root; scope walk is engine work' };
-        else v = { verdict: 'UNDECIDABLE', reason: 'name appears nowhere in the IR — out of root' };
+        else if (methodNames.has(n) || typeNames.has(n))
+          v = { verdict: 'FEASIBLE', reason: 'callee declared in-root; scope walk is engine work' };
+        else if (importedNames.has(n))
+          v = { verdict: 'FEASIBLE', reason: 'callee imported; py_import carries the target' };
+        else v = { verdict: 'UNDECIDABLE', reason: 'no declared callee of that name in-root' };
         break;
       }
       case 'LITERAL':
@@ -289,15 +370,19 @@ function main(): number {
     note(rk, v);
     if (v.verdict === 'FEASIBLE') feasible++;
     else if (v.verdict === 'BLOCKED') blocked++;
+    else if (v.verdict === 'NOT_STATIC') notStatic++;
     else undecidable++;
   }
 
   const tot = calls.length;
   console.log(`ENGINE FEASIBILITY — ${tot} call sites in ${OUT}\n`);
   console.log(`  already resolved by the parser      ${String(resolved).padStart(5)}`);
-  console.log(`  UNDECIDABLE (no static answer)      ${String(undecidable).padStart(5)}`);
+  console.log(`  UNDECIDABLE (no callee can exist)   ${String(undecidable).padStart(5)}`);
+  console.log(`  NOT_STATIC  (source never says)     ${String(notStatic).padStart(5)}   <- nobody can fix`);
   console.log(`  FEASIBLE (hops present, engine's)   ${String(feasible).padStart(5)}`);
   console.log(`  BLOCKED  (a fact is MISSING)        ${String(blocked).padStart(5)}   <- the parser's bill`);
+  // NOT_STATIC leaves the denominator: no engine and no parser can recover a type
+  // the source never states, so counting it as a miss measures the CORPUS.
   const answerable = resolved + feasible + blocked;
   console.log(`\n  Of ${answerable} statically answerable sites, an engine could reach`);
   console.log(`  ${resolved + feasible} = ${((100 * (resolved + feasible)) / answerable).toFixed(1)}% with the facts as they stand today.`);
