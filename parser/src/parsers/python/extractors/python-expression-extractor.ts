@@ -898,7 +898,13 @@ export class PythonExpressionExtractor {
     // in `{'A': self.__seqToRE(...)}` from _strptime.py.
     if (
       node.type === 'parenthesized_expression' ||
-      node.type === 'expression_list' ||
+      // tree-sitter wraps EVERY element of a match pattern in its own
+      // `case_pattern`, so `case (0, 0)` nests case_pattern > tuple_pattern >
+      // case_pattern > integer. ast has no such node — the pattern IS the
+      // expression — so emitting a row for the wrapper duplicated its own child
+      // at an identical span. Ten duplicate rows on one fixture, each
+      // double-counting whatever aggregates over them.
+      node.type === 'case_pattern' ||
       node.type === 'pair'
     ) {
       // A PARENTHESISED node has one child and is pure grouping, so the child
@@ -2295,7 +2301,21 @@ export class PythonExpressionExtractor {
         return PythonExpressionKind.ELLIPSIS;
       }
       case 'tuple':
-      case 'pattern_list': {
+      // `(a, b) = f()` — a PARENTHESISED tuple target. tree-sitter spells this
+      // `tuple_pattern` where the bare form is `expression_list` and the
+      // match-pattern form is `pattern_list`; all three are `Tuple` to ast, and
+      // only two of them were mapped. It was the commonest completeness gap in
+      // the stdlib.
+      case 'tuple_pattern':
+      case 'pattern_list':
+      // A BARE tuple — `return a, b` or `match a, b:` or `del a, b`. tree-sitter
+      // spells it `expression_list` and this used to treat it as a transparent
+      // wrapper, passing the elements through and emitting no row for the tuple
+      // itself. CPython disagrees: ast produces a `Tuple` node there, exactly as
+      // it does for the parenthesised form, so the tuple was a lost fact — a
+      // consumer asking what a function returns saw the last element rather than
+      // a tuple of them.
+      case 'expression_list': {
         return PythonExpressionKind.TUPLE;
       }
       case 'list': {
