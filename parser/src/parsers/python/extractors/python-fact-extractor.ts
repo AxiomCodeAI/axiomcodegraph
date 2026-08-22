@@ -13,6 +13,7 @@ import {
   PyMethodParameterRegistry,
   PyMethodRegistry,
   PyModuleRegistry,
+  PyParseGapRegistry,
   PyScopeRegistry,
   PyTypeBaseRegistry,
   PyTypeReferenceRegistry,
@@ -26,6 +27,7 @@ import { SkippedFileReason } from '@/enums/SkippedFileReason';
 import { PythonDeclarationExtractor } from '@/parsers/python/extractors/python-declaration-extractor';
 import { PythonExpressionExtractor } from '@/parsers/python/extractors/python-expression-extractor';
 import { PythonBlockExtractor } from '@/parsers/python/extractors/python-block-extractor';
+import { PythonParseGapExtractor } from '@/parsers/python/extractors/python-parse-gap-extractor';
 import { PythonDecoratorExtractor } from '@/parsers/python/extractors/python-decorator-extractor';
 import { PythonFieldExtractor } from '@/parsers/python/extractors/python-field-extractor';
 import { PythonResolutionLinker } from '@/parsers/python/extractors/python-resolution-linker';
@@ -76,6 +78,14 @@ export interface PythonFactSet {
    */
   blocks: PyBlockRegistry[];
   /**
+   * Regions the grammar could not represent.
+   *
+   * The one relation whose ABSENCE is invisible: a region the parser gave up on
+   * produces silence, and silence looks identical to "there was nothing there".
+   * Zero rows is the expected state for ~99.6% of modules.
+   */
+  parseGaps: PyParseGapRegistry[];
+  /**
    * `(pyTypeLinkHash, attributeName)` -> `py_field` PK, and `py_method` PK ->
    * receiver name. Both are indexes the cross-module pass needs to redo the
    * attribute join it cannot recompute from CSV rows alone.
@@ -123,6 +133,7 @@ export class PythonFactExtractor {
   private fieldExtractor: PythonFieldExtractor;
   private decoratorExtractor: PythonDecoratorExtractor;
   private blockExtractor: PythonBlockExtractor;
+  private parseGapExtractor: PythonParseGapExtractor;
   /** The parameter rows of the file being processed, for default-value linking. */
   private lastParameters: PyMethodParameterRegistry[] = [];
 
@@ -142,6 +153,7 @@ export class PythonFactExtractor {
     this.fieldExtractor = new PythonFieldExtractor();
     this.decoratorExtractor = new PythonDecoratorExtractor();
     this.blockExtractor = new PythonBlockExtractor();
+    this.parseGapExtractor = new PythonParseGapExtractor();
   }
 
   extract(input: PythonExtractionInput): PythonFactSet {
@@ -163,6 +175,19 @@ export class PythonFactExtractor {
         decorators: [],
         decoratorArguments: [],
         blocks: [],
+        // A REJECTED module still gets its gaps. This is the case the relation
+        // exists for: nothing else is emitted, so without these rows the file is
+        // indistinguishable from one that simply had no facts in it.
+        parseGaps:
+          scopeStage.module && scopeStage.rootNode
+            ? this.parseGapExtractor.extract({
+                module: scopeStage.module,
+                rootNode: scopeStage.rootNode,
+                serviceVersionLinkHash: input.serviceVersionLinkHash,
+                positions: scopeStage.positions,
+                python2Findings: scopeStage.python2Findings,
+              })
+            : [],
         fieldHashByTypeAndName: new Map<string, string>(),
         receiverNameByMethodHash: new Map<string, string>(),
         assignedValueByTargetRange: new Map<string, string>(),
@@ -318,6 +343,13 @@ export class PythonFactExtractor {
       decorators: decoratorStage.decorators,
       decoratorArguments: decoratorStage.decoratorArguments,
       blocks: blockStage.blocks,
+      parseGaps: this.parseGapExtractor.extract({
+        module: scopeStage.module,
+        rootNode: scopeStage.rootNode,
+        serviceVersionLinkHash: input.serviceVersionLinkHash,
+        positions: scopeStage.positions,
+        python2Findings: scopeStage.python2Findings,
+      }),
       fieldHashByTypeAndName: fieldStage.fieldHashByTypeAndName,
       receiverNameByMethodHash: fieldStage.receiverNameByMethodHash,
       assignedValueByTargetRange: expressionStage.assignedValueByTargetRange,

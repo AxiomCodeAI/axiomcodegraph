@@ -198,7 +198,11 @@ export function diffExprComplete(file: string): CompletenessResult {
         Number.isFinite(Number(oursName)) &&
         Number.isFinite(Number(node.name)) &&
         Number(oursName) === Number(node.name);
-      if (oursName !== node.name && !sameNumber) {
+      // Either convention: the surface form, or the evaluated value. See the
+      // emitter — an f-string and an implicit concatenation differ structurally
+      // between the two, and neither is the wrong answer.
+      const alt = (node.nameAlt as string) ?? '';
+      if (oursName !== node.name && oursName !== alt && !sameNumber) {
         fieldProblems.push(
           `NAME ${where}: ast=${JSON.stringify(node.name)} ours=${JSON.stringify(oursName)}`
         );

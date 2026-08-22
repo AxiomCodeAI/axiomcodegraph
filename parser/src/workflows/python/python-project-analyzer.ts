@@ -116,6 +116,7 @@ export class PythonProjectAnalyzer {
       fields: [] as { toCsv(): string; getCsvHeader(): string }[],
       fieldPositions: [] as { toCsv(): string; getCsvHeader(): string }[],
       blocks: [] as { toCsv(): string; getCsvHeader(): string }[],
+      parseGaps: [] as { toCsv(): string; getCsvHeader(): string }[],
       decorators: [] as { toCsv(): string; getCsvHeader(): string }[],
       decoratorArguments: [] as { toCsv(): string; getCsvHeader(): string }[],
     };
@@ -165,6 +166,12 @@ export class PythonProjectAnalyzer {
           facts.python2Findings,
           ''
         );
+        // A REJECTED file still contributes its parse gaps, and this is the case
+        // they exist for: nothing else about the file is emitted, so without
+        // these rows it is indistinguishable from a file that simply had no
+        // facts in it. The skipped-files CSV records the DECISION; these record
+        // WHAT could not be represented and where.
+        accumulated.parseGaps.push(...facts.parseGaps);
         continue;
       }
 
@@ -183,6 +190,7 @@ export class PythonProjectAnalyzer {
       accumulated.fields.push(...facts.fields);
       accumulated.fieldPositions.push(...facts.fieldPositions);
       accumulated.blocks.push(...facts.blocks);
+      accumulated.parseGaps.push(...facts.parseGaps);
       accumulated.decorators.push(...facts.decorators);
       accumulated.decoratorArguments.push(...facts.decoratorArguments);
 
@@ -244,6 +252,7 @@ export class PythonProjectAnalyzer {
       PYTHON_CSV_FILES.FIELD_POSITIONS
     );
     await this.exportCsv(accumulated.blocks, options.outputDir, PYTHON_CSV_FILES.BLOCKS);
+    await this.exportCsv(accumulated.parseGaps, options.outputDir, PYTHON_CSV_FILES.PARSE_GAPS);
     await this.exportCsv(accumulated.decorators, options.outputDir, PYTHON_CSV_FILES.DECORATORS);
     await this.exportCsv(
       accumulated.decoratorArguments,
@@ -279,6 +288,7 @@ export class PythonProjectAnalyzer {
         py_field: accumulated.fields.length,
         py_field_position: accumulated.fieldPositions.length,
         py_block: accumulated.blocks.length,
+        py_parse_gap: accumulated.parseGaps.length,
         py_decorator: accumulated.decorators.length,
         py_decorator_argument: accumulated.decoratorArguments.length,
       },

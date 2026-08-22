@@ -8,6 +8,7 @@ export * from '@/enums/python/inference';
 export * from '@/enums/python/imports';
 export * from '@/enums/python/methods';
 export * from '@/enums/python/modules';
+export * from '@/enums/python/parse-gaps';
 export * from '@/enums/python/scopes';
 export * from '@/enums/python/type-references';
 export * from '@/enums/python/types';

@@ -89,6 +89,9 @@ const DEFERRED_ARITY: Readonly<Record<string, number>> = {
   // Needed for data flow: reachability, and the isinstance narrowing that turns
   // a wide receiver fan into one candidate.
   py_block: 27,
+  // The relation whose ABSENCE is invisible: a region the parser could not read
+  // produces silence, and silence looks identical to "there was nothing there".
+  py_parse_gap: 10,
 };
 
 /** Every relation the parser emits, for the per-row arity check. */
@@ -1667,6 +1670,7 @@ async function analyzerTests(): Promise<Failure[]> {
     'all-python-fields.csv': DEFERRED_ARITY.py_field!,
     'all-python-field-positions.csv': DEFERRED_ARITY.py_field_position!,
     'all-python-blocks.csv': DEFERRED_ARITY.py_block!,
+    'all-python-parse-gaps.csv': DEFERRED_ARITY.py_parse_gap!,
     'all-python-decorators.csv': DEFERRED_ARITY.py_decorator!,
     'all-python-decorator-arguments.csv': DEFERRED_ARITY.py_decorator_argument!,
   };

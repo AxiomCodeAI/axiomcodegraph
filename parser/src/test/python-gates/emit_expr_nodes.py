@@ -26,6 +26,17 @@ import json
 import sys
 
 
+def strip_string_delimiters(text: str) -> str:
+    """`b'''x'''` -> `x`. Prefix letters and matching quotes removed."""
+    body = text
+    while body and body[0] in "rRbBuUfF":
+        body = body[1:]
+    for quote in ('"""', "'''", '"', "'"):
+        if body.startswith(quote) and body.endswith(quote) and len(body) >= 2 * len(quote):
+            return body[len(quote) : -len(quote)]
+    return body
+
+
 def receiver_names(tree):
     """Map each function node to the name of its receiver parameter, or None.
 
@@ -124,6 +135,7 @@ def main(path: str) -> None:
             # NAME_REFERENCE and SELF_REFERENCE accepts a parser that never
             # distinguishes them.
             "nameRole": "",
+            "nameAlt": "",
         }
         if isinstance(node, ast.Name):
             receiver = owner_receiver.get(id(node))
@@ -154,7 +166,23 @@ def main(path: str) -> None:
             raw = segment if segment is not None else (
                 "" if node.value is None else str(node.value)
             )
+            # For a STRING or BYTES the delimiters are not content: we store the
+            # text between the quotes, so `"/admin"` is `/admin` and joins
+            # against a URL without further work. A NUMBER has no such
+            # separation — `0x` is part of how the value is written — so its
+            # surface form is kept whole. Stripping the prefix and quotes here
+            # compares like with like instead of blaming one convention for not
+            # being the other.
+            if isinstance(node.value, (str, bytes)):
+                raw = strip_string_delimiters(raw)
             record["name"] = " ".join(raw.split())
+            # An f-string or an implicit concatenation has a surface form and a
+            # VALUE that differ structurally — `"a" "b"` is two quoted parts on
+            # the page and one value `ab`. Neither convention is wrong, so both
+            # are offered and the comparison accepts either; a genuinely wrong
+            # literal still matches neither.
+            value = "" if node.value is None else str(node.value)
+            record["nameAlt"] = " ".join(value.split())
         elif isinstance(node, (ast.Subscript, ast.List, ast.Tuple, ast.Set, ast.Dict)):
             record["isWrite"] = not isinstance(
                 getattr(node, "ctx", ast.Load()), ast.Load
