@@ -78,6 +78,17 @@ export async function runJediGate(root: string, limit = 400): Promise<number> {
 
   const calls = tsv(path.join(out, 'all-python-call-sites.csv'));
   const modules = tsv(path.join(out, 'all-python-modules.csv'));
+  const methods = tsv(path.join(out, 'all-python-methods.csv'));
+  const types = tsv(path.join(out, 'all-python-types.csv'));
+  const methodByHash = new Map(methods.map((m) => [m['pyMethodUniqueHash']!, m]));
+  const typeByHash = new Map(types.map((t) => [t['pyTypeUniqueHash']!, t]));
+  /** Our answer as "OwningClass.name", comparable with jedi's. */
+  const ourAnswer = (hash: string): string | null => {
+    const m = methodByHash.get(hash);
+    if (!m) return null;
+    const owner = m['pyTypeLinkHash'] ? typeByHash.get(m['pyTypeLinkHash'])?.['name'] : '';
+    return `${owner || m['ownerTypeName'] || ''}.${m['name']}`;
+  };
   const fileOf = new Map(modules.map((m) => [m['pyModuleUniqueHash']!, m['filePath']!]));
 
   // ours, keyed by file|line|col|callee
@@ -103,6 +114,8 @@ export async function runJediGate(root: string, limit = 400): Promise<number> {
   const byKind = new Map<string, { ours: number; jedi: number; total: number }>();
   const gaps: { kind: string; file: string; line: number; callee: string;
                 recv: string; answer: string }[] = [];
+  const disagreements: { file: string; line: number; kind: string; callee: string;
+                         ours: string; jedi: string }[] = [];
 
   for (const f of pyFiles(root, limit)) {
     let payload: { rows?: JediRow[]; fatal?: string };
@@ -128,7 +141,23 @@ export async function runJediGate(root: string, limit = 400): Promise<number> {
       if (jediResolved) k.jedi++;
       byKind.set(r.receiverKind, k);
 
-      if (weResolved && jediResolved) stat.BOTH++;
+      if (weResolved && jediResolved) {
+        // BOTH resolving is not BOTH agreeing. Compare the answers, otherwise the
+        // scoreboard silently reports concurrence it never checked.
+        const mineAns = ourAnswer(mine!['resolvedCalleeHash']!);
+        const jediAns = `${r.jedi!.owningClass ?? r.jedi!.module}.${r.jedi!.name}`;
+        if (mineAns && mineAns !== jediAns) {
+          stat.DISAGREE++;
+          if (disagreements.length < 200) {
+            disagreements.push({
+              file: path.relative(root, f), line: r.callLine, kind: r.receiverKind,
+              callee: r.callee, ours: mineAns, jedi: jediAns,
+            });
+          }
+        } else {
+          stat.BOTH++;
+        }
+      }
       else if (jediResolved) {
         stat.ONLY_JEDI++;
         if (gaps.length < 5000) {
@@ -159,7 +188,29 @@ export async function runJediGate(root: string, limit = 400): Promise<number> {
   console.log('  ' + 'TOTAL'.padEnd(14) + col(tot, 7) + col(to, 8) + col(tj, 8) +
               col(Math.max(0, tj - to), 8));
   console.log('');
-  console.log(`  BOTH ${stat.BOTH}   ONLY_JEDI ${stat.ONLY_JEDI}   ONLY_US ${stat.ONLY_US}   NEITHER ${stat.NEITHER}`);
+  console.log(`  AGREE ${stat.BOTH}   DISAGREE ${stat.DISAGREE}   ONLY_JEDI ${stat.ONLY_JEDI}` +
+              `   ONLY_US ${stat.ONLY_US}   NEITHER ${stat.NEITHER}`);
+
+  // SOLVABLE = anything at least one analyser reached in-root. NEITHER is the
+  // corpus ceiling, not our backlog, so it must stay out of the denominator.
+  const solvable = stat.BOTH + stat.DISAGREE + stat.ONLY_JEDI + stat.ONLY_US;
+  const solved = stat.BOTH + stat.DISAGREE + stat.ONLY_US;
+  const correct = stat.BOTH + stat.ONLY_US;
+  console.log('');
+  console.log(`  SOLVABLE (either analyser reached it) : ${solvable}`);
+  console.log(`    we produced an answer               : ${solved}  (${((100*solved)/Math.max(solvable,1)).toFixed(1)}%)`);
+  console.log(`    and it AGREES with jedi             : ${correct}  (${((100*correct)/Math.max(solvable,1)).toFixed(1)}%)`);
+  console.log(`  unreachable by either (corpus ceiling): ${stat.NEITHER}`);
+
+  if (disagreements.length) {
+    console.log('\n  DISAGREEMENTS — both resolved, different answers. Adjudicate;');
+    console.log('  for SELF receivers emit_linkage.py (actual CPython) settles it:\n');
+    for (const d of disagreements.slice(0, 12)) {
+      console.log(`    ${d.file}:${d.line} ${d.kind} .${d.callee}()`);
+      console.log(`        ours=${d.ours}   jedi=${d.jedi}`);
+    }
+    if (disagreements.length > 12) console.log(`    … ${disagreements.length - 12} more`);
+  }
 
   if (stat.ONLY_US) {
     console.log(`\n  ONLY_US = ${stat.ONLY_US}: we resolved these and jedi did not. Either we are` +

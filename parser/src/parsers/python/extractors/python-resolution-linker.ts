@@ -610,6 +610,19 @@ export class PythonResolutionLinker {
       // type of a function declared in another. A per-module index answers
       // nothing for exactly the calls that cross a file boundary, which is most
       // of them.
+      // Callable aliases join the same binding->entity map the scope-chain
+      // lookup already consults, so `_Row(...)` resolves through the ordinary
+      // bare-name path rather than needing a branch of its own.
+      for (const [bindingHash, target] of this.buildLocalAliasIndex(module, {
+        entityByBinding,
+        bindingByScopeAndName,
+        parentScopeOf,
+      })) {
+        if (!entityByBinding.has(bindingHash)) {
+          entityByBinding.set(bindingHash, target);
+        }
+      }
+
       const localTypeByBinding = this.buildLocalTypeIndex(module, {
         entityByBinding,
         bindingByScopeAndName,
@@ -1141,6 +1154,68 @@ export class PythonResolutionLinker {
   }
 
   /** The `ASSIGNMENT_VALUE` sibling of an assignment target. */
+  /**
+   * Locals that are ALIASES for a callable, mapped to the entity they name.
+   *
+   * `_Row = Row` then `_Row(metadata, ...)`. This is a different question from
+   * local TYPE inference and I had built only the latter: type inference answers
+   * "what does this local HOLD", and an alias needs "what entity does this NAME
+   * REFER TO". CPython settles which case applies — `_Row(1)` compiles to
+   * LOAD_FAST, so the callee is the local binding rather than the global it was
+   * copied from.
+   *
+   * Only a bare NAME on the right-hand side counts. `x = foo()` binds the RESULT
+   * of a call, not an alias for `foo`, and conflating the two would send every
+   * call through `x` to the wrong entity. Any other assignment to the same name
+   * disqualifies it, since a local reassigned elsewhere is no longer reliably
+   * that entity.
+   */
+  private buildLocalAliasIndex(
+    module: ResolutionInput,
+    ctx: {
+      entityByBinding: Map<string, PyMethodRegistry | PyTypeRegistry>;
+      bindingByScopeAndName: Map<string, PyBindingRegistry>;
+      parentScopeOf: Map<string, string>;
+    }
+  ): Map<string, PyMethodRegistry | PyTypeRegistry> {
+    const aliases = new Map<string, PyMethodRegistry | PyTypeRegistry>();
+    const expressionByHash = new Map<string, PyExpressionRegistry>();
+    for (const expression of module.expressions) {
+      expressionByHash.set(expression.getHash(), expression);
+    }
+    const rejected = new Set<string>();
+
+    for (const expression of module.expressions) {
+      if (expression.getEdgeRole() !== PythonEdgeRole.ASSIGNMENT_TARGET) {
+        continue;
+      }
+      if (expression.getKind() !== PythonExpressionKind.NAME_REFERENCE) {
+        continue;
+      }
+      const binding = expression.getBindingLinkHash();
+      if (binding === '' || rejected.has(binding)) {
+        continue;
+      }
+      const value = this.assignedValueFor(expression, module, expressionByHash);
+      const target =
+        value && value.getKind() === PythonExpressionKind.NAME_REFERENCE
+          ? this.lookupInScopeChain(value.getLiteralValue(), value.getPyScopeLinkHash(), ctx)
+          : null;
+      if (!target) {
+        rejected.add(binding);
+        aliases.delete(binding);
+        continue;
+      }
+      const incumbent = aliases.get(binding);
+      if (incumbent && incumbent !== target) {
+        rejected.add(binding);
+        aliases.delete(binding);
+        continue;
+      }
+      aliases.set(binding, target);
+    }
+    return aliases;
+  }
   /**
    * The `ASSIGNMENT_VALUE` expression whose value flows into this target.
    *
