@@ -90,6 +90,8 @@ export const PYTHON_CSV_FILES = {
   TYPE_REFERENCES: 'all-python-type-references.csv',
   FIELDS: 'all-python-fields.csv',
   FIELD_POSITIONS: 'all-python-field-positions.csv',
+  DECORATORS: 'all-python-decorators.csv',
+  DECORATOR_ARGUMENTS: 'all-python-decorator-arguments.csv',
   SKIPPED_FILES: 'skipped-python-files.csv',
 } as const;
 

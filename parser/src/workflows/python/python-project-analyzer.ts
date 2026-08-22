@@ -115,6 +115,8 @@ export class PythonProjectAnalyzer {
       typeReferences: [] as { toCsv(): string; getCsvHeader(): string }[],
       fields: [] as { toCsv(): string; getCsvHeader(): string }[],
       fieldPositions: [] as { toCsv(): string; getCsvHeader(): string }[],
+      decorators: [] as { toCsv(): string; getCsvHeader(): string }[],
+      decoratorArguments: [] as { toCsv(): string; getCsvHeader(): string }[],
     };
 
     // Per-module facts, kept so the cross-module pass can run over all of them
@@ -179,6 +181,8 @@ export class PythonProjectAnalyzer {
       accumulated.typeReferences.push(...facts.typeReferences);
       accumulated.fields.push(...facts.fields);
       accumulated.fieldPositions.push(...facts.fieldPositions);
+      accumulated.decorators.push(...facts.decorators);
+      accumulated.decoratorArguments.push(...facts.decoratorArguments);
 
       perModule.push({
         qualifiedName: facts.module.getQualifiedName(),
@@ -235,6 +239,12 @@ export class PythonProjectAnalyzer {
       options.outputDir,
       PYTHON_CSV_FILES.FIELD_POSITIONS
     );
+    await this.exportCsv(accumulated.decorators, options.outputDir, PYTHON_CSV_FILES.DECORATORS);
+    await this.exportCsv(
+      accumulated.decoratorArguments,
+      options.outputDir,
+      PYTHON_CSV_FILES.DECORATOR_ARGUMENTS
+    );
     await this.exportSkippedFilesCsv(options.outputDir);
 
     return {
@@ -263,6 +273,8 @@ export class PythonProjectAnalyzer {
         py_type_reference: accumulated.typeReferences.length,
         py_field: accumulated.fields.length,
         py_field_position: accumulated.fieldPositions.length,
+        py_decorator: accumulated.decorators.length,
+        py_decorator_argument: accumulated.decoratorArguments.length,
       },
     };
   }

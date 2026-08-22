@@ -3,6 +3,8 @@ import * as path from 'path';
 import {
   PyBindingRegistry,
   PyCallSiteRegistry,
+  PyDecoratorArgumentRegistry,
+  PyDecoratorRegistry,
   PyFieldPositionRegistry,
   PyFieldRegistry,
   PyExpressionRegistry,
@@ -22,6 +24,7 @@ import { PythonTypeRefOwnerKind } from '@/enums/python/type-references';
 import { SkippedFileReason } from '@/enums/SkippedFileReason';
 import { PythonDeclarationExtractor } from '@/parsers/python/extractors/python-declaration-extractor';
 import { PythonExpressionExtractor } from '@/parsers/python/extractors/python-expression-extractor';
+import { PythonDecoratorExtractor } from '@/parsers/python/extractors/python-decorator-extractor';
 import { PythonFieldExtractor } from '@/parsers/python/extractors/python-field-extractor';
 import { PythonResolutionLinker } from '@/parsers/python/extractors/python-resolution-linker';
 import { PythonTypeReferenceExtractor } from '@/parsers/python/extractors/python-type-reference-extractor';
@@ -55,6 +58,15 @@ export interface PythonFactSet {
   fields: PyFieldRegistry[];
   /** Class-body declaration order — a generated `__init__` honours it. */
   fieldPositions: PyFieldPositionRegistry[];
+  /**
+   * Decorator applications, and their arguments.
+   *
+   * A decorator is a call that runs at definition time and rebinds the decorated
+   * name, so `applicationOrder` (bottom-up, the order that runs) and
+   * `replacesTarget` are what a consumer actually needs — not just the name.
+   */
+  decorators: PyDecoratorRegistry[];
+  decoratorArguments: PyDecoratorArgumentRegistry[];
   /**
    * `(pyTypeLinkHash, attributeName)` -> `py_field` PK, and `py_method` PK ->
    * receiver name. Both are indexes the cross-module pass needs to redo the
@@ -101,6 +113,7 @@ export class PythonFactExtractor {
   private resolutionLinker: PythonResolutionLinker;
   private typeReferenceExtractor: PythonTypeReferenceExtractor;
   private fieldExtractor: PythonFieldExtractor;
+  private decoratorExtractor: PythonDecoratorExtractor;
   /** The parameter rows of the file being processed, for default-value linking. */
   private lastParameters: PyMethodParameterRegistry[] = [];
 
@@ -118,6 +131,7 @@ export class PythonFactExtractor {
     this.typeReferenceExtractor =
       typeReferenceExtractor ?? new PythonTypeReferenceExtractor();
     this.fieldExtractor = new PythonFieldExtractor();
+    this.decoratorExtractor = new PythonDecoratorExtractor();
   }
 
   extract(input: PythonExtractionInput): PythonFactSet {
@@ -136,6 +150,8 @@ export class PythonFactExtractor {
         callSites: [],
         fields: [],
         fieldPositions: [],
+        decorators: [],
+        decoratorArguments: [],
         fieldHashByTypeAndName: new Map<string, string>(),
         receiverNameByMethodHash: new Map<string, string>(),
         assignedValueByTargetRange: new Map<string, string>(),
@@ -191,6 +207,14 @@ export class PythonFactExtractor {
       positions: scopeStage.positions,
     });
 
+    const decoratorStage = this.decoratorExtractor.extract({
+      module: scopeStage.module,
+      rootNode: scopeStage.rootNode,
+      serviceVersionLinkHash: input.serviceVersionLinkHash,
+      typeHashByNodeId: declarations.typeHashByNodeId,
+      methodHashByNodeId: declarations.methodHashByNodeId,
+    });
+
     // ---- back-patching --------------------------------------------------
     // Three FKs cannot be set when their row is minted, because the entity they
     // point at does not exist yet. Accumulate-then-export makes patching free:
@@ -230,6 +254,7 @@ export class PythonFactExtractor {
 
     this.linkBindingTargets(scopeStage, declarations, fieldStage);
     this.linkFieldsToTheirWriteExpressions(fieldStage, expressionStage);
+    this.linkDecoratorsToTheirExpressions(decoratorStage, expressionStage);
     this.linkScopeOwners(scopeStage, declarations);
     this.linkBindingMethods(scopeStage, declarations);
     this.linkParameterDefaults(declarations, expressionStage);
@@ -247,6 +272,8 @@ export class PythonFactExtractor {
       callSites: expressionStage.callSites,
       fields: fieldStage.fields,
       fieldPositions: fieldStage.fieldPositions,
+      decorators: decoratorStage.decorators,
+      decoratorArguments: decoratorStage.decoratorArguments,
       fieldHashByTypeAndName: fieldStage.fieldHashByTypeAndName,
       receiverNameByMethodHash: fieldStage.receiverNameByMethodHash,
       assignedValueByTargetRange: expressionStage.assignedValueByTargetRange,
@@ -311,6 +338,40 @@ export class PythonFactExtractor {
       const expressionHash = expressionStage.expressionByByteRange.get(range);
       if (expressionHash) {
         field.setPyExpressionLinkHash(expressionHash);
+      }
+    }
+  }
+
+  /**
+   * Sets `py_decorator.pyExpressionLinkHash` and the same on its arguments.
+   *
+   * Joined on BYTE RANGE, since the decorator stage and the expression stage
+   * mint their rows independently. Without it a consumer can read a decorator's
+   * text but cannot reach the expression tree underneath it — so
+   * `@app.route(PREFIX + "/admin")` would be an opaque string rather than a
+   * concatenation whose operands are already linked to their bindings.
+   */
+  private linkDecoratorsToTheirExpressions(
+    decoratorStage: {
+      decorators: PyDecoratorRegistry[];
+      decoratorArguments: PyDecoratorArgumentRegistry[];
+      expressionRangeByDecorator: Map<string, string>;
+      expressionRangeByArgument: Map<string, string>;
+    },
+    expressionStage: { expressionByByteRange: Map<string, string> }
+  ): void {
+    for (const decorator of decoratorStage.decorators) {
+      const range = decoratorStage.expressionRangeByDecorator.get(decorator.getHash());
+      const expressionHash = range ? expressionStage.expressionByByteRange.get(range) : undefined;
+      if (expressionHash) {
+        decorator.setPyExpressionLinkHash(expressionHash);
+      }
+    }
+    for (const argument of decoratorStage.decoratorArguments) {
+      const range = decoratorStage.expressionRangeByArgument.get(argument.getHash());
+      const expressionHash = range ? expressionStage.expressionByByteRange.get(range) : undefined;
+      if (expressionHash) {
+        argument.setPyExpressionLinkHash(expressionHash);
       }
     }
   }

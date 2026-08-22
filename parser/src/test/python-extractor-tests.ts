@@ -81,6 +81,11 @@ const DEFERRED_ARITY: Readonly<Record<string, number>> = {
   // resolved before this existed.
   py_field: 29,
   py_field_position: 3,
+  // Un-deferred on direction: decorators are Java's annotation relation in the
+  // same slot, and @staticmethod/@classmethod shift every positional parameter,
+  // so py_method_parameter.position cannot be adjudicated without them.
+  py_decorator: 21,
+  py_decorator_argument: 15,
 };
 
 /** Every relation the parser emits, for the per-row arity check. */
@@ -1658,6 +1663,8 @@ async function analyzerTests(): Promise<Failure[]> {
     'all-python-call-sites.csv': SPINE_ARITY.py_call_site!,
     'all-python-fields.csv': DEFERRED_ARITY.py_field!,
     'all-python-field-positions.csv': DEFERRED_ARITY.py_field_position!,
+    'all-python-decorators.csv': DEFERRED_ARITY.py_decorator!,
+    'all-python-decorator-arguments.csv': DEFERRED_ARITY.py_decorator_argument!,
   };
   for (const [name, want] of Object.entries(arityByFile)) {
     const content = fs.readFileSync(path.join(outA, name), 'utf8');
