@@ -708,7 +708,12 @@ export class PythonResolutionLinker {
       });
 
       for (const callSite of module.callSites) {
-        if (callSite.getResolvedCalleeKind() !== PythonResolvedCalleeKind.UNRESOLVED) {
+        // Retry anything WITHOUT A HASH, not merely anything UNRESOLVED. The
+        // single-file pass has no module graph, so it can only say IMPORTED for
+        // a cross-module call — and skipping those here locked in the weaker
+        // answer from the less-informed pass. `core.make_node()` stayed IMPORTED
+        // with no hash even though the project pass can reach the declaration.
+        if (callSite.getResolvedCalleeHash() !== '') {
           continue;
         }
         const target = this.resolveCallSite(callSite, {
@@ -2492,7 +2497,14 @@ export class PythonResolutionLinker {
    * nothing: the call is on the LIST, not on a `Conn`.
    */
   private namedTypesIn(annotation: string): string[] {
+    // A PEP 484 forward reference keeps its quotes in the annotation text:
+    // `def add(self, child) -> "Node"`. Splitting without stripping them left
+    // every segment quoted, so `"Node"` never matched the class `Node` and the
+    // whole fluent-API shape stayed unresolved — `node.add(node).name()` and
+    // every classmethod factory declared `-> "Builder"`. The single-segment
+    // dotted resolver already stripped quotes; this path did not.
     const heads = annotation
+      .replace(/['"]/g, '')
       .split(/[\[\],|]/)
       .map(part => (part.split('.').pop() ?? '').trim())
       .filter(part => part !== '' && part !== 'None');

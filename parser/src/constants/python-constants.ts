@@ -91,6 +91,7 @@ export const PYTHON_CSV_FILES = {
   FIELDS: 'all-python-fields.csv',
   FIELD_POSITIONS: 'all-python-field-positions.csv',
   BLOCKS: 'all-python-blocks.csv',
+  COMMENTS: 'all-python-comments.csv',
   PARSE_GAPS: 'all-python-parse-gaps.csv',
   DECORATORS: 'all-python-decorators.csv',
   DECORATOR_ARGUMENTS: 'all-python-decorator-arguments.csv',

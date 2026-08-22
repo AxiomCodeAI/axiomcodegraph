@@ -92,6 +92,10 @@ const DEFERRED_ARITY: Readonly<Record<string, number>> = {
   // The relation whose ABSENCE is invisible: a region the parser could not read
   // produces silence, and silence looks identical to "there was nothing there".
   py_parse_gap: 10,
+  // Mostly DIRECTIVES rather than prose: an encoding cookie, a `# type:`
+  // annotation, a `# noqa`. Docstrings appear here AND in py_expression, which
+  // §2.17 makes intentional — a recall check must whitelist the duplication.
+  py_comment: 15,
 };
 
 /** Every relation the parser emits, for the per-row arity check. */
@@ -1671,6 +1675,7 @@ async function analyzerTests(): Promise<Failure[]> {
     'all-python-field-positions.csv': DEFERRED_ARITY.py_field_position!,
     'all-python-blocks.csv': DEFERRED_ARITY.py_block!,
     'all-python-parse-gaps.csv': DEFERRED_ARITY.py_parse_gap!,
+    'all-python-comments.csv': DEFERRED_ARITY.py_comment!,
     'all-python-decorators.csv': DEFERRED_ARITY.py_decorator!,
     'all-python-decorator-arguments.csv': DEFERRED_ARITY.py_decorator_argument!,
   };

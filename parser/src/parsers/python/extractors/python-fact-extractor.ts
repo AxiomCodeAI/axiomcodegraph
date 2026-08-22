@@ -4,6 +4,7 @@ import {
   PyBindingRegistry,
   PyBlockRegistry,
   PyCallSiteRegistry,
+  PyCommentRegistry,
   PyDecoratorArgumentRegistry,
   PyDecoratorRegistry,
   PyFieldPositionRegistry,
@@ -27,6 +28,7 @@ import { SkippedFileReason } from '@/enums/SkippedFileReason';
 import { PythonDeclarationExtractor } from '@/parsers/python/extractors/python-declaration-extractor';
 import { PythonExpressionExtractor } from '@/parsers/python/extractors/python-expression-extractor';
 import { PythonBlockExtractor } from '@/parsers/python/extractors/python-block-extractor';
+import { PythonCommentExtractor } from '@/parsers/python/extractors/python-comment-extractor';
 import { PythonParseGapExtractor } from '@/parsers/python/extractors/python-parse-gap-extractor';
 import { PythonDecoratorExtractor } from '@/parsers/python/extractors/python-decorator-extractor';
 import { PythonFieldExtractor } from '@/parsers/python/extractors/python-field-extractor';
@@ -86,6 +88,12 @@ export interface PythonFactSet {
    */
   parseGaps: PyParseGapRegistry[];
   /**
+   * Comments and docstrings. Most are DIRECTIVES rather than prose — an encoding
+   * cookie, a `# type:` annotation, a `# noqa` — and a docstring appears here as
+   * well as in `py_expression`, which §2.17 makes intentional.
+   */
+  comments: PyCommentRegistry[];
+  /**
    * `(pyTypeLinkHash, attributeName)` -> `py_field` PK, and `py_method` PK ->
    * receiver name. Both are indexes the cross-module pass needs to redo the
    * attribute join it cannot recompute from CSV rows alone.
@@ -134,6 +142,7 @@ export class PythonFactExtractor {
   private decoratorExtractor: PythonDecoratorExtractor;
   private blockExtractor: PythonBlockExtractor;
   private parseGapExtractor: PythonParseGapExtractor;
+  private commentExtractor: PythonCommentExtractor;
   /** The parameter rows of the file being processed, for default-value linking. */
   private lastParameters: PyMethodParameterRegistry[] = [];
 
@@ -154,6 +163,7 @@ export class PythonFactExtractor {
     this.decoratorExtractor = new PythonDecoratorExtractor();
     this.blockExtractor = new PythonBlockExtractor();
     this.parseGapExtractor = new PythonParseGapExtractor();
+    this.commentExtractor = new PythonCommentExtractor();
   }
 
   extract(input: PythonExtractionInput): PythonFactSet {
@@ -175,6 +185,7 @@ export class PythonFactExtractor {
         decorators: [],
         decoratorArguments: [],
         blocks: [],
+        comments: [],
         // A REJECTED module still gets its gaps. This is the case the relation
         // exists for: nothing else is emitted, so without these rows the file is
         // indistinguishable from one that simply had no facts in it.
@@ -343,6 +354,18 @@ export class PythonFactExtractor {
       decorators: decoratorStage.decorators,
       decoratorArguments: decoratorStage.decoratorArguments,
       blocks: blockStage.blocks,
+      comments: this.commentExtractor.extract({
+        module: scopeStage.module,
+        rootNode: scopeStage.rootNode,
+        filePath: input.filePath,
+        serviceVersionLinkHash: input.serviceVersionLinkHash,
+        types: declarations.types,
+        methods: declarations.methods,
+        typeHashByNodeId: declarations.typeHashByNodeId,
+        methodHashByNodeId: declarations.methodHashByNodeId,
+        moduleMethodHash: declarations.moduleMethodHash,
+        positions: scopeStage.positions,
+      }),
       parseGaps: this.parseGapExtractor.extract({
         module: scopeStage.module,
         rootNode: scopeStage.rootNode,

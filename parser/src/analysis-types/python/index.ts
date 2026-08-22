@@ -2,6 +2,7 @@ export { PyBindingRegistry, PyBindingRegistryBuilder } from '@/analysis-types/py
 export { PyCallSiteRegistry, PyCallSiteRegistryBuilder } from '@/analysis-types/python/PyCallSiteRegistry';
 export { PyExpressionRegistry, PyExpressionRegistryBuilder } from '@/analysis-types/python/PyExpressionRegistry';
 export { PyBlockRegistry, PyBlockRegistryBuilder } from '@/analysis-types/python/PyBlockRegistry';
+export { PyCommentRegistry } from '@/analysis-types/python/PyCommentRegistry';
 export { PyDecoratorArgumentRegistry } from '@/analysis-types/python/PyDecoratorArgumentRegistry';
 export { PyDecoratorRegistry, PyDecoratorRegistryBuilder } from '@/analysis-types/python/PyDecoratorRegistry';
 export { PyFieldPositionRegistry } from '@/analysis-types/python/PyFieldPositionRegistry';
