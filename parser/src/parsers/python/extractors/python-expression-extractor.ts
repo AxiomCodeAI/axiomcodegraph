@@ -105,6 +105,26 @@ interface PendingExpression {
    * has moved on, so a field would hold whatever return was visited last.
    */
   returnStatementIndex: number | null;
+  /**
+   * A SYNTHETIC node: a row CPython's ast has that tree-sitter does not.
+   *
+   * `d[1, 2]` is a Subscript whose index is a `Tuple` in ast, while tree-sitter
+   * makes the indices direct children of the subscript with no tuple node
+   * between. The tuple is a real expression — `d[1, 2]` and `d[(1, 2)]` are the
+   * same program — so it needs a row, and the row needs a span the grammar does
+   * not give us.
+   */
+  /** Children to enqueue under a synthetic row, since the grammar has none. */
+  syntheticChildren?: Parser.SyntaxNode[];
+  synthetic?: {
+    kind: PythonExpressionKind;
+    startIndex: number;
+    endIndex: number;
+    startRow: number;
+    startColumn: number;
+    endRow: number;
+    endColumn: number;
+  };
   parentHash: string;
   edgeRole: PythonEdgeRole;
   position: number;
@@ -973,7 +993,9 @@ export class PythonExpressionExtractor {
       return;
     }
 
-    const kind = this.expressionKindOf(node, pending);
+    // A SYNTHETIC row short-circuits classification and span: the grammar has no
+    // node here, so both come from the pending record. See `synthetic`.
+    const kind = pending.synthetic ? pending.synthetic.kind : this.expressionKindOf(node, pending);
     if (kind === null) {
       // An unrecognised node is treated as TRANSPARENT, never dropped. Dropping
       // it would silently discard its whole subtree — which is how a dict's
@@ -1002,10 +1024,16 @@ export class PythonExpressionExtractor {
     )
       .withParent(pending.parentHash, pending.position, pending.depth)
       .withSpan(
-        node.startPosition.row + 1,
-        this.input.positions.byteColumn(node.startPosition.row, node.startPosition.column),
-        node.endPosition.row + 1,
-        this.input.positions.byteColumn(node.endPosition.row, node.endPosition.column)
+        (pending.synthetic?.startRow ?? node.startPosition.row) + 1,
+        this.input.positions.byteColumn(
+          pending.synthetic?.startRow ?? node.startPosition.row,
+          pending.synthetic?.startColumn ?? node.startPosition.column
+        ),
+        (pending.synthetic?.endRow ?? node.endPosition.row) + 1,
+        this.input.positions.byteColumn(
+          pending.synthetic?.endRow ?? node.endPosition.row,
+          pending.synthetic?.endColumn ?? node.endPosition.column
+        )
       )
       .withNameContext(pending.nameContext)
       .withArgumentKeywordName(pending.argumentKeywordName)
@@ -1450,6 +1478,22 @@ export class PythonExpressionExtractor {
       nameContext: this.childNameContext(kind, pending.nameContext),
     };
 
+    // A synthetic row's children are carried on the pending record, because the
+    // grammar node it borrows its identity from has different children.
+    if (pending.syntheticChildren) {
+      pending.syntheticChildren.forEach((child, index) => {
+        this.worklist.push({
+          ...base,
+          node: child,
+          edgeRole: PythonEdgeRole.ELEMENT,
+          position: index,
+          synthetic: undefined,
+          syntheticChildren: undefined,
+        });
+      });
+      return;
+    }
+
     switch (kind) {
       case PythonExpressionKind.ASSIGNMENT: {
         const left = node.childForFieldName('left');
@@ -1592,12 +1636,36 @@ export class PythonExpressionExtractor {
         // silently drops every index after the first, including any calls in
         // them. dataclasses.py depends on this: `_hash_action[bool(a), bool(b),
         // bool(c), d]` loses three of its four calls.
-        let index = 1;
+        const indices: Parser.SyntaxNode[] = [];
         for (let i = 0; i < node.namedChildCount; i++) {
           const child = node.namedChild(i);
-          if (!child || child.id === value?.id) {
-            continue;
+          if (child && child.id !== value?.id && !child.isExtra) {
+            indices.push(child);
           }
+        }
+
+        // MORE THAN ONE index, or a trailing comma, means the subscript's index
+        // is a TUPLE — `d[1, 2]` and `d[(1, 2)]` are the same program, and
+        // `d[1,]` is a one-element tuple. tree-sitter has no node for it, so the
+        // row is synthetic and spans the text BETWEEN the brackets, which is what
+        // ast reports.
+        const brackets = this.subscriptBracketSpan(node);
+        // A trailing comma makes a ONE-element tuple: `d[1,]` is `d[(1,)]`.
+        const trailingComma = node.text.trimEnd().endsWith(',]');
+        if (brackets && (indices.length > 1 || trailingComma)) {
+          this.worklist.push({
+            ...base,
+            node,
+            edgeRole: PythonEdgeRole.SUBSCRIPT_INDEX,
+            position: 1,
+            synthetic: { kind: PythonExpressionKind.TUPLE, ...brackets },
+            syntheticChildren: indices,
+          });
+          return;
+        }
+
+        let index = 1;
+        for (const child of indices) {
           this.worklist.push({
             ...base,
             node: child,
@@ -2478,6 +2546,42 @@ export class PythonExpressionExtractor {
    * the enqueue sites; this covers string internals, which are named children
    * of a literal but are not expressions.
    */
+  /**
+   * The span BETWEEN a subscript's brackets, which is what ast reports as the
+   * index tuple's own span. `d[1, 2]` gives the span of `1, 2`.
+   */
+  private subscriptBracketSpan(node: Parser.SyntaxNode): {
+    startIndex: number;
+    endIndex: number;
+    startRow: number;
+    startColumn: number;
+    endRow: number;
+    endColumn: number;
+  } | null {
+    let open: Parser.SyntaxNode | null = null;
+    let close: Parser.SyntaxNode | null = null;
+    for (let index = 0; index < node.childCount; index += 1) {
+      const child = node.child(index);
+      if (child?.type === '[') {
+        open = child;
+      }
+      if (child?.type === ']') {
+        close = child;
+      }
+    }
+    if (!open || !close) {
+      return null;
+    }
+    return {
+      startIndex: open.endIndex,
+      endIndex: close.startIndex,
+      startRow: open.endPosition.row,
+      startColumn: open.endPosition.column,
+      endRow: close.startPosition.row,
+      endColumn: close.startPosition.column,
+    };
+  }
+
   private isLeafToken(node: Parser.SyntaxNode): boolean {
     if (node.isExtra) {
       return true;
