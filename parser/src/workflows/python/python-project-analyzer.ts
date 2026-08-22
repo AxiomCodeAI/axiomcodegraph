@@ -115,6 +115,7 @@ export class PythonProjectAnalyzer {
       typeReferences: [] as { toCsv(): string; getCsvHeader(): string }[],
       fields: [] as { toCsv(): string; getCsvHeader(): string }[],
       fieldPositions: [] as { toCsv(): string; getCsvHeader(): string }[],
+      blocks: [] as { toCsv(): string; getCsvHeader(): string }[],
       decorators: [] as { toCsv(): string; getCsvHeader(): string }[],
       decoratorArguments: [] as { toCsv(): string; getCsvHeader(): string }[],
     };
@@ -181,6 +182,7 @@ export class PythonProjectAnalyzer {
       accumulated.typeReferences.push(...facts.typeReferences);
       accumulated.fields.push(...facts.fields);
       accumulated.fieldPositions.push(...facts.fieldPositions);
+      accumulated.blocks.push(...facts.blocks);
       accumulated.decorators.push(...facts.decorators);
       accumulated.decoratorArguments.push(...facts.decoratorArguments);
 
@@ -241,6 +243,7 @@ export class PythonProjectAnalyzer {
       options.outputDir,
       PYTHON_CSV_FILES.FIELD_POSITIONS
     );
+    await this.exportCsv(accumulated.blocks, options.outputDir, PYTHON_CSV_FILES.BLOCKS);
     await this.exportCsv(accumulated.decorators, options.outputDir, PYTHON_CSV_FILES.DECORATORS);
     await this.exportCsv(
       accumulated.decoratorArguments,
@@ -275,6 +278,7 @@ export class PythonProjectAnalyzer {
         py_type_reference: accumulated.typeReferences.length,
         py_field: accumulated.fields.length,
         py_field_position: accumulated.fieldPositions.length,
+        py_block: accumulated.blocks.length,
         py_decorator: accumulated.decorators.length,
         py_decorator_argument: accumulated.decoratorArguments.length,
       },

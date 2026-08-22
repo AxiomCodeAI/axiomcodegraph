@@ -1,5 +1,6 @@
 export * from '@/enums/python/bindings';
 export * from '@/enums/python/call-sites';
+export * from '@/enums/python/blocks';
 export * from '@/enums/python/decorators';
 export * from '@/enums/python/expressions';
 export * from '@/enums/python/fields';

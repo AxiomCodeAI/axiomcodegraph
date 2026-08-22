@@ -86,6 +86,9 @@ const DEFERRED_ARITY: Readonly<Record<string, number>> = {
   // so py_method_parameter.position cannot be adjudicated without them.
   py_decorator: 21,
   py_decorator_argument: 15,
+  // Needed for data flow: reachability, and the isinstance narrowing that turns
+  // a wide receiver fan into one candidate.
+  py_block: 27,
 };
 
 /** Every relation the parser emits, for the per-row arity check. */
@@ -1663,6 +1666,7 @@ async function analyzerTests(): Promise<Failure[]> {
     'all-python-call-sites.csv': SPINE_ARITY.py_call_site!,
     'all-python-fields.csv': DEFERRED_ARITY.py_field!,
     'all-python-field-positions.csv': DEFERRED_ARITY.py_field_position!,
+    'all-python-blocks.csv': DEFERRED_ARITY.py_block!,
     'all-python-decorators.csv': DEFERRED_ARITY.py_decorator!,
     'all-python-decorator-arguments.csv': DEFERRED_ARITY.py_decorator_argument!,
   };

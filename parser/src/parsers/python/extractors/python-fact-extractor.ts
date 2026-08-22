@@ -2,6 +2,7 @@ import * as path from 'path';
 
 import {
   PyBindingRegistry,
+  PyBlockRegistry,
   PyCallSiteRegistry,
   PyDecoratorArgumentRegistry,
   PyDecoratorRegistry,
@@ -24,6 +25,7 @@ import { PythonTypeRefOwnerKind } from '@/enums/python/type-references';
 import { SkippedFileReason } from '@/enums/SkippedFileReason';
 import { PythonDeclarationExtractor } from '@/parsers/python/extractors/python-declaration-extractor';
 import { PythonExpressionExtractor } from '@/parsers/python/extractors/python-expression-extractor';
+import { PythonBlockExtractor } from '@/parsers/python/extractors/python-block-extractor';
 import { PythonDecoratorExtractor } from '@/parsers/python/extractors/python-decorator-extractor';
 import { PythonFieldExtractor } from '@/parsers/python/extractors/python-field-extractor';
 import { PythonResolutionLinker } from '@/parsers/python/extractors/python-resolution-linker';
@@ -67,6 +69,12 @@ export interface PythonFactSet {
    */
   decorators: PyDecoratorRegistry[];
   decoratorArguments: PyDecoratorArgumentRegistry[];
+  /**
+   * Control-flow blocks. Containment is by SPAN, as in Java; the one FK runs the
+   * other way, from a block to its condition expression, because that is what
+   * `isinstance` narrowing needs.
+   */
+  blocks: PyBlockRegistry[];
   /**
    * `(pyTypeLinkHash, attributeName)` -> `py_field` PK, and `py_method` PK ->
    * receiver name. Both are indexes the cross-module pass needs to redo the
@@ -114,6 +122,7 @@ export class PythonFactExtractor {
   private typeReferenceExtractor: PythonTypeReferenceExtractor;
   private fieldExtractor: PythonFieldExtractor;
   private decoratorExtractor: PythonDecoratorExtractor;
+  private blockExtractor: PythonBlockExtractor;
   /** The parameter rows of the file being processed, for default-value linking. */
   private lastParameters: PyMethodParameterRegistry[] = [];
 
@@ -132,6 +141,7 @@ export class PythonFactExtractor {
       typeReferenceExtractor ?? new PythonTypeReferenceExtractor();
     this.fieldExtractor = new PythonFieldExtractor();
     this.decoratorExtractor = new PythonDecoratorExtractor();
+    this.blockExtractor = new PythonBlockExtractor();
   }
 
   extract(input: PythonExtractionInput): PythonFactSet {
@@ -152,6 +162,7 @@ export class PythonFactExtractor {
         fieldPositions: [],
         decorators: [],
         decoratorArguments: [],
+        blocks: [],
         fieldHashByTypeAndName: new Map<string, string>(),
         receiverNameByMethodHash: new Map<string, string>(),
         assignedValueByTargetRange: new Map<string, string>(),
@@ -215,6 +226,21 @@ export class PythonFactExtractor {
       methodHashByNodeId: declarations.methodHashByNodeId,
     });
 
+    const blockStage = this.blockExtractor.extract({
+      module: scopeStage.module,
+      rootNode: scopeStage.rootNode,
+      filePath: input.filePath,
+      serviceVersionLinkHash: input.serviceVersionLinkHash,
+      types: declarations.types,
+      methods: declarations.methods,
+      typeHashByNodeId: declarations.typeHashByNodeId,
+      methodHashByNodeId: declarations.methodHashByNodeId,
+      classInitHashByNodeId: declarations.classInitHashByNodeId,
+      scopeHashByNodeId: scopeStage.scopeHashByNodeId,
+      moduleMethodHash: declarations.moduleMethodHash,
+      positions: scopeStage.positions,
+    });
+
     // ---- back-patching --------------------------------------------------
     // Three FKs cannot be set when their row is minted, because the entity they
     // point at does not exist yet. Accumulate-then-export makes patching free:
@@ -234,6 +260,17 @@ export class PythonFactExtractor {
     // SCOPE, and the scope is only reachable through this FK. Linking afterwards
     // left every decorator unresolved while looking correct in isolation.
     this.linkDecoratorsToTheirExpressions(decoratorStage, expressionStage);
+    // Joined on BYTE RANGE, like every other cross-stage link here: the block
+    // stage and the expression stage mint rows independently.
+    for (const block of blockStage.blocks) {
+      const range = blockStage.conditionRangeByBlock.get(block.getHash());
+      const expressionHash = range
+        ? expressionStage.expressionByByteRange.get(range)
+        : undefined;
+      if (expressionHash) {
+        block.setConditionExpressionLinkHash(expressionHash);
+      }
+    }
 
     this.resolutionLinker.link({
       scopes: scopeStage.scopes,
@@ -249,6 +286,7 @@ export class PythonFactExtractor {
       fields: fieldStage.fields,
       decorators: decoratorStage.decorators,
       decoratorArguments: decoratorStage.decoratorArguments,
+      blocks: blockStage.blocks,
       fieldHashByTypeAndName: fieldStage.fieldHashByTypeAndName,
       receiverNameByMethodHash: fieldStage.receiverNameByMethodHash,
       assignedValueByTargetRange: expressionStage.assignedValueByTargetRange,
@@ -279,6 +317,7 @@ export class PythonFactExtractor {
       fieldPositions: fieldStage.fieldPositions,
       decorators: decoratorStage.decorators,
       decoratorArguments: decoratorStage.decoratorArguments,
+      blocks: blockStage.blocks,
       fieldHashByTypeAndName: fieldStage.fieldHashByTypeAndName,
       receiverNameByMethodHash: fieldStage.receiverNameByMethodHash,
       assignedValueByTargetRange: expressionStage.assignedValueByTargetRange,
