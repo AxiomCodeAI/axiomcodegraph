@@ -15,6 +15,7 @@ import { PYTHON_BUILTIN_TYPE_METHODS } from '@/constants/python-constants';
 import { PythonReceiverKind, PythonResolvedCalleeKind } from '@/enums/python/call-sites';
 import { PythonInitializerKind } from '@/enums/python/fields';
 import {
+  PythonEdgeRole,
   PythonExpressionKind,
   PythonReferencedEntityKind,
 } from '@/enums/python/expressions';
@@ -151,6 +152,8 @@ export class PythonResolutionLinker {
    * it. Both are rebuilt at the start of every pass, so no state survives a call.
    */
   private qualifiedSuffixIndex = new Map<string, PyTypeRegistry | null>();
+  /** Dotted suffix -> module, for import discovery. See {@link findModule}. */
+  private moduleSuffixIndex = new Map<string, ProjectModuleFacts>();
   private typesByNameByModuleName = new Map<string, Map<string, PyTypeRegistry | null>>();
 
   /**
@@ -202,6 +205,8 @@ export class PythonResolutionLinker {
       exportsByModule.set(module.qualifiedName, exported);
     }
 
+    this.buildModuleSuffixIndex(modules);
+
     // ---- step 1: imports
     /** binding PK -> the entity that import binds, when it resolves in-project. */
     const entityByImportBinding = new Map<string, PyMethodRegistry | PyTypeRegistry>();
@@ -248,7 +253,9 @@ export class PythonResolutionLinker {
           continue;
         }
         const member = record.getOriginalName().split('.').pop() ?? '';
-        const entity = exportsByModule.get(targetModule.qualifiedName)?.get(member);
+        const entity =
+          exportsByModule.get(targetModule.qualifiedName)?.get(member) ??
+          this.followReExport(member, targetModule, exportsByModule, moduleByQualifiedName);
         if (!entity) {
           // The module resolved but the member did not — it may be a variable, a
           // re-export, or genuinely absent. Module link only.
@@ -533,6 +540,15 @@ export class PythonResolutionLinker {
         parentScopeOf,
       });
 
+      const localTypeByBinding = this.buildLocalTypeIndex(module, {
+        typesByName,
+        moduleMethodsByName: moduleMethodsByNameByModule.get(module.qualifiedName),
+        methodsByTypeAndName,
+        typesByHash,
+        basesByType,
+        mroCache,
+      });
+
       for (const callSite of module.callSites) {
         if (callSite.getResolvedCalleeKind() !== PythonResolvedCalleeKind.UNRESOLVED) {
           continue;
@@ -554,6 +570,7 @@ export class PythonResolutionLinker {
           parametersByMethod,
           moduleMethodsByName: moduleMethodsByNameByModule.get(module.moduleHash),
           importedModules: importedModuleByName.get(module.qualifiedName),
+          localTypeByBinding,
         });
         if (target) {
           callSite.setResolvedCallee(target.kind, target.hash);
@@ -836,6 +853,303 @@ export class PythonResolutionLinker {
    * recovers that, and a candidate is accepted only when exactly ONE module
    * matches, so an ambiguous suffix resolves to nothing rather than to a guess.
    */
+  /**
+   * The class a local variable holds, when the source settles it.
+   *
+   * Looks up the binding the receiver name resolves to, then the assignment that
+   * gave it its value. Three grounds, in order of certainty and each refusing
+   * rather than guessing:
+   *
+   *   `x = Foo()`            a constructor naming a class in scope
+   *   `x = make_foo()`       a function whose `-> Foo` says what it returns
+   *   `x = self.make_foo()`  a method on this class, same reasoning
+   *
+   * Deliberately refuses when the name is assigned MORE THAN ONCE with different
+   * types, and when the assignment is a bare name or a call it cannot type. A
+   * local rebound in a loop or reassigned on a branch is not reliably one type,
+   * and claiming otherwise would produce exactly the confident wrong edge this
+   * column exists to avoid.
+   */
+  private typeOfLocalReceiver(
+    callSite: PyCallSiteRegistry,
+    ctx: {
+      typesByHash: Map<string, PyTypeRegistry>;
+      typesByName: Map<string, PyTypeRegistry | null>;
+      basesByType: Map<string, PyTypeBaseRegistry[]>;
+      methodsByTypeAndName: Map<string, PyMethodRegistry[]>;
+      mroCache: Map<string, string[] | null>;
+      localTypeByBinding?: Map<string, PyTypeRegistry | null>;
+      bindingByScopeAndName: Map<string, PyBindingRegistry>;
+      parentScopeOf: Map<string, string>;
+    }
+  ): PyTypeRegistry | null {
+    if (!ctx.localTypeByBinding) {
+      return null;
+    }
+    const receiver = callSite.getReceiverText();
+    if (receiver === '' || receiver.includes('.')) {
+      return null;
+    }
+    // Walk the scope chain so a local declared in an enclosing function is found
+    // where the language would find it.
+    let scope: string | undefined = callSite.getPyScopeLinkHash();
+    let guard = 0;
+    while (scope !== undefined && scope !== '' && guard < 200) {
+      guard += 1;
+      const binding = ctx.bindingByScopeAndName.get(`${scope}::${receiver}`);
+      if (binding?.isBound()) {
+        return ctx.localTypeByBinding.get(binding.getHash()) ?? null;
+      }
+      scope = ctx.parentScopeOf.get(scope);
+    }
+    return null;
+  }
+
+  /**
+   * The class a PARAMETER receiver holds, from its annotation.
+   *
+   * `def run(self, case: TestCase)` then `case.setup()`. The annotation is the
+   * programmer stating the type, and it is the one place a caller's value is
+   * described without any inference at all — which is why it resolves here while
+   * the same receiver in unannotated code correctly does not.
+   */
+  private typeOfParameterReceiver(
+    callSite: PyCallSiteRegistry,
+    ctx: {
+      typesByName: Map<string, PyTypeRegistry | null>;
+      parametersByMethod?: Map<string, PyMethodParameterRegistry[]>;
+    }
+  ): PyTypeRegistry | null {
+    const receiver = callSite.getReceiverText();
+    if (receiver === '' || receiver.includes('.') || !ctx.parametersByMethod) {
+      return null;
+    }
+    const parameters = ctx.parametersByMethod.get(callSite.getPyMethodLinkHash()) ?? [];
+    for (const parameter of parameters) {
+      if (parameter.getParamName() !== receiver) {
+        continue;
+      }
+      const annotation = parameter.getParameterTypeName();
+      if (annotation === '') {
+        return null;
+      }
+      for (const candidate of this.namedTypesIn(annotation)) {
+        const resolved = ctx.typesByName.get(candidate);
+        if (resolved) {
+          return resolved;
+        }
+      }
+      return null;
+    }
+    return null;
+  }
+
+  /**
+   * Types every local that is assigned exactly one derivable type.
+   *
+   * Built once per module from the expression tree: an `ASSIGNMENT_VALUE` whose
+   * parent statement targets a single name. A name assigned two different types
+   * maps to `null` and stays unresolved — that refusal is the point, since a
+   * variable reused for two purposes has no single callee.
+   */
+  private buildLocalTypeIndex(
+    module: ResolutionInput,
+    ctx: {
+      typesByName: Map<string, PyTypeRegistry | null>;
+      moduleMethodsByName?: Map<string, PyMethodRegistry | null>;
+      methodsByTypeAndName: Map<string, PyMethodRegistry[]>;
+      typesByHash: Map<string, PyTypeRegistry>;
+      basesByType: Map<string, PyTypeBaseRegistry[]>;
+      mroCache: Map<string, string[] | null>;
+    }
+  ): Map<string, PyTypeRegistry | null> {
+    const byBinding = new Map<string, PyTypeRegistry | null>();
+    const expressionByHash = new Map<string, PyExpressionRegistry>();
+    for (const expression of module.expressions) {
+      expressionByHash.set(expression.getHash(), expression);
+    }
+
+    for (const expression of module.expressions) {
+      if (expression.getEdgeRole() !== PythonEdgeRole.ASSIGNMENT_TARGET) {
+        continue;
+      }
+      if (expression.getKind() !== PythonExpressionKind.NAME_REFERENCE) {
+        continue;
+      }
+      if (expression.getDepth() !== 0) {
+        continue;
+      }
+      const binding = expression.getBindingLinkHash();
+      if (binding === '') {
+        continue;
+      }
+      const value = this.assignedValueFor(expression, module, expressionByHash);
+      const resolved = value ? this.typeOfAssignedValue(value, ctx) : null;
+      if (byBinding.has(binding)) {
+        // A second assignment. Agreeing is fine; disagreeing makes the name
+        // untyped rather than whichever came first.
+        if (byBinding.get(binding) !== resolved) {
+          byBinding.set(binding, null);
+        }
+        continue;
+      }
+      byBinding.set(binding, resolved);
+    }
+    return byBinding;
+  }
+
+  /** The `ASSIGNMENT_VALUE` sibling of an assignment target. */
+  private assignedValueFor(
+    target: PyExpressionRegistry,
+    module: ResolutionInput,
+    expressionByHash: Map<string, PyExpressionRegistry>
+  ): PyExpressionRegistry | null {
+    void expressionByHash;
+    for (const candidate of module.expressions) {
+      if (candidate.getEdgeRole() !== PythonEdgeRole.ASSIGNMENT_VALUE) {
+        continue;
+      }
+      if (candidate.getDepth() !== 0) {
+        continue;
+      }
+      if (candidate.getPyScopeLinkHash() !== target.getPyScopeLinkHash()) {
+        continue;
+      }
+      // Same statement: the value's span starts after the target's and they
+      // share a line. Cheap and exact enough, since one statement has one
+      // depth-0 value.
+      if (candidate.getStartLine() === target.getStartLine()) {
+        return candidate;
+      }
+    }
+    return null;
+  }
+
+  /** The class an assigned expression produces, or `null`. */
+  private typeOfAssignedValue(
+    value: PyExpressionRegistry,
+    ctx: {
+      typesByName: Map<string, PyTypeRegistry | null>;
+      moduleMethodsByName?: Map<string, PyMethodRegistry | null>;
+      methodsByTypeAndName: Map<string, PyMethodRegistry[]>;
+      typesByHash: Map<string, PyTypeRegistry>;
+      basesByType: Map<string, PyTypeBaseRegistry[]>;
+      mroCache: Map<string, string[] | null>;
+    }
+  ): PyTypeRegistry | null {
+    if (value.getKind() !== PythonExpressionKind.CALL) {
+      return null;
+    }
+    const callee = value.getLiteralValue();
+    if (callee === '') {
+      return null;
+    }
+    // `x = Foo()` — calling a class yields an instance of it.
+    const asClass = this.resolveDottedTypeName(callee, {
+      typesByName: ctx.typesByName,
+      qualifiedSuffixIndex: this.qualifiedSuffixIndex,
+      typesByNameByModuleName: this.typesByNameByModuleName,
+    });
+    if (asClass) {
+      return asClass;
+    }
+    // `x = make_foo()` — a factory whose return annotation names a class.
+    const factory = ctx.moduleMethodsByName?.get(callee.split('.').pop() ?? '');
+    if (factory) {
+      return this.returnedTypeOf(factory, ctx);
+    }
+    // `x = self.make_foo()` — a method on the enclosing class. Common enough to
+    // matter: a factory method is the usual way a class hands out helpers.
+    const ownerType = value.getPyTypeLinkHash();
+    if (ownerType !== '' && value.getDottedPath().split('.').length === 2) {
+      const method = this.lookupMethodOnTypeAndBases(
+        ownerType,
+        callee.split('.').pop() ?? '',
+        ctx
+      );
+      if (method) {
+        return this.returnedTypeOf(method, ctx);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Follows a RE-EXPORT to the module that actually declares the name.
+   *
+   * A package `__init__.py` that says `from .runner import Runner` does not
+   * declare `Runner`; it re-binds it. So `from framework import Runner`
+   * elsewhere resolves to a module and stops, and every call through that name
+   * stays unresolved even though the class is right there in the analysis. This
+   * is the same shape as `unittest.TestCase`, and it is how most packages present
+   * their public API.
+   *
+   * The walk is bounded and refuses on a cycle rather than looping, since
+   * `a` importing from `b` importing from `a` is legal enough to parse.
+   */
+  private followReExport(
+    member: string,
+    fromModule: ProjectModuleFacts,
+    exportsByModule: Map<string, Map<string, PyMethodRegistry | PyTypeRegistry>>,
+    moduleByQualifiedName: Map<string, ProjectModuleFacts>
+  ): PyMethodRegistry | PyTypeRegistry | undefined {
+    let current: ProjectModuleFacts | undefined = fromModule;
+    const visited = new Set<string>();
+    for (let hop = 0; hop < 8 && current; hop += 1) {
+      if (visited.has(current.qualifiedName)) {
+        return undefined;
+      }
+      visited.add(current.qualifiedName);
+
+      const record = current.imports.find(
+        candidate =>
+          !candidate.getIsModuleImport() &&
+          !candidate.getIsWildcard() &&
+          candidate.getSimpleName() === member
+      );
+      if (!record) {
+        return undefined;
+      }
+      const nextName = this.importTargetModule(
+        record,
+        current.qualifiedName,
+        current.isPackage === true
+      );
+      const next = nextName === null ? undefined : this.findModule(nextName, moduleByQualifiedName);
+      if (!next) {
+        return undefined;
+      }
+      const original = record.getOriginalName().split('.').pop() ?? member;
+      const found = exportsByModule.get(next.qualifiedName)?.get(original);
+      if (found) {
+        return found;
+      }
+      current = next;
+    }
+    return undefined;
+  }
+
+  /**
+   * Finds the module an import names — the package-discovery step.
+   *
+   * Python resolves `import framework` against `sys.path`, so the name is
+   * relative to wherever the package ROOT sits. The analyser has no sys.path, and
+   * a module's qualified name depends on where analysis started: rooting at a
+   * directory that is itself a package makes every module carry that package's
+   * name, so `framework` is registered as `myproject.framework` and an exact
+   * match fails. That single mismatch left the base of every cross-package
+   * subclass unresolved, and with it every `self.method()` inherited from it.
+   *
+   * The fix mirrors what already works for types: match on any dotted SUFFIX of
+   * a module's qualified name, with collisions refusing rather than guessing.
+   * `framework` finds `myproject.framework`; `case` finds
+   * `myproject.framework.case`; and if two packages both contain `utils`, the
+   * bare name refuses while `framework.utils` still resolves.
+   *
+   * Dropping leading segments of the SEARCHED name is kept as a second step, for
+   * the mirror-image case where the import is more qualified than the module —
+   * `import myproject.framework` when analysis was rooted inside `myproject`.
+   */
   private findModule(
     name: string,
     moduleByQualifiedName: Map<string, ProjectModuleFacts>
@@ -844,15 +1158,55 @@ export class PythonResolutionLinker {
     if (exact) {
       return exact;
     }
+
+    const bySuffix = this.moduleSuffixIndex.get(name);
+    if (bySuffix) {
+      return bySuffix;
+    }
+
     const parts = name.split('.');
     for (let drop = 1; drop < parts.length; drop++) {
       const candidate = parts.slice(drop).join('.');
-      const matches = [...moduleByQualifiedName.entries()].filter(([q]) => q === candidate);
-      if (matches.length === 1) {
-        return matches[0]![1];
+      const direct = moduleByQualifiedName.get(candidate);
+      if (direct) {
+        return direct;
+      }
+      const suffixed = this.moduleSuffixIndex.get(candidate);
+      if (suffixed) {
+        return suffixed;
       }
     }
     return undefined;
+  }
+
+  /**
+   * Registers every module under every dotted suffix of its qualified name.
+   *
+   * Collisions map to `null` so an ambiguous short name refuses while the longer,
+   * unambiguous one still resolves — the same rule the type index uses, for the
+   * same reason: a guess here silently attaches a subclass to the wrong base.
+   */
+  private buildModuleSuffixIndex(modules: ProjectModuleFacts[]): void {
+    this.moduleSuffixIndex = new Map();
+    const seen = new Map<string, ProjectModuleFacts | null>();
+    for (const module of modules) {
+      const segments = module.qualifiedName.split('.');
+      for (let start = segments.length - 1; start >= 0; start -= 1) {
+        const suffix = segments.slice(start).join('.');
+        if (seen.has(suffix)) {
+          if (seen.get(suffix) !== module) {
+            seen.set(suffix, null);
+          }
+          continue;
+        }
+        seen.set(suffix, module);
+      }
+    }
+    for (const [suffix, module] of seen) {
+      if (module) {
+        this.moduleSuffixIndex.set(suffix, module);
+      }
+    }
   }
 
   private importTargetModule(
@@ -992,6 +1346,15 @@ export class PythonResolutionLinker {
       fieldByTypeAndName,
     });
 
+    const localTypeByBinding = this.buildLocalTypeIndex(input, {
+      typesByName,
+      moduleMethodsByName,
+      methodsByTypeAndName,
+      typesByHash,
+      basesByType,
+      mroCache,
+    });
+
     let resolved = 0;
     for (const callSite of input.callSites) {
       const target = this.resolveCallSite(callSite, {
@@ -1009,6 +1372,7 @@ export class PythonResolutionLinker {
         receiverNameByMethodHash: input.receiverNameByMethodHash,
         parametersByMethod,
         moduleMethodsByName,
+        localTypeByBinding,
       });
       if (target) {
         callSite.setResolvedCallee(target.kind, target.hash);
@@ -1077,6 +1441,7 @@ export class PythonResolutionLinker {
       moduleMethodsByName?: Map<string, PyMethodRegistry | null>;
       /** Bound module name -> that module's facts, for in-project imports. */
       importedModules?: Map<string, ProjectModuleFacts>;
+      localTypeByBinding?: Map<string, PyTypeRegistry | null>;
     }
   ): { kind: PythonResolvedCalleeKind; hash: string } | null {
     const name = callSite.getCalleeName();
@@ -1123,6 +1488,22 @@ export class PythonResolutionLinker {
       }
 
       case PythonReceiverKind.NAME: {
+        // A receiver that names a LOCAL VARIABLE: `runner = Runner()` then
+        // `runner.run()`. The local's type comes from what was assigned to it,
+        // which is the same three grounds an attribute uses — a constructor, a
+        // factory's return annotation, or an annotation. This is the single
+        // largest unresolved bucket in real code, because most receivers are
+        // ordinary locals rather than `self` or a module.
+        const localType =
+          this.typeOfLocalReceiver(callSite, ctx) ??
+          this.typeOfParameterReceiver(callSite, ctx);
+        if (localType) {
+          const onLocal = this.lookupMethodOnTypeAndBases(localType.getHash(), name, ctx);
+          if (onLocal) {
+            return { kind: PythonResolvedCalleeKind.METHOD, hash: onLocal.getHash() };
+          }
+        }
+
         // A receiver that names a class in this module: `Base.make_default()`.
         // The method may be inherited, so the local MRO is walked.
         const receiver = callSite.getReceiverText();

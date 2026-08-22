@@ -438,6 +438,12 @@ class Emitter:
                 self.o = outer
                 self.cls = []
                 self.fn = []
+                # Two independent stacks cannot answer "what is the IMMEDIATELY
+                # enclosing scope" -- a class inside a function makes both
+                # non-empty. Defect #7 was exactly that: `bool(cls) and not fn`
+                # sent every method of a function-local class to NESTED_FUNCTION,
+                # including __init__. Keep the nesting ORDER.
+                self.enclosing = []   # 'C' | 'F', innermost last
 
             def visit_ClassDef(self, n):
                 bases = []
@@ -461,7 +467,9 @@ class Emitter:
                     "decorators": [_txt(d) for d in n.decorator_list],
                     "docstring": ast.get_docstring(n) is not None,
                 })
-                self.cls.append(n); self.generic_visit(n); self.cls.pop()
+                self.cls.append(n); self.enclosing.append('C')
+                self.generic_visit(n)
+                self.enclosing.pop(); self.cls.pop()
 
             def _fn(self, n, is_async):
                 a = n.args
@@ -481,8 +489,12 @@ class Emitter:
                     params.append({"name": a.kwarg.arg, "paramKind": "VAR_KEYWORD",
                                    "annotation": _txt(a.kwarg.annotation) if a.kwarg.annotation else "",
                                    "line": a.kwarg.lineno, "col": a.kwarg.col_offset})
-                encl_is_class = bool(self.cls) and not self.fn
-                encl_kind = "FUNCTION" if self.fn else ("CLASS" if self.cls else "MODULE")
+                # innermost enclosing scope, by nesting order -- not by which
+                # stack happens to be non-empty
+                innermost = self.enclosing[-1] if self.enclosing else None
+                encl_is_class = innermost == 'C'
+                encl_kind = ("CLASS" if innermost == 'C'
+                             else "FUNCTION" if innermost == 'F' else "MODULE")
                 mk, mk_residue = method_kind_ast(n, encl_kind, encl_is_class)
                 classifications.append({
                     "entity": "py_method", "name": n.name,
@@ -505,7 +517,9 @@ class Emitter:
                     "decorators": [_txt(d) for d in n.decorator_list],
                     "isGenerator": _has_yield(n),
                 })
-                self.fn.append(n); self.generic_visit(n); self.fn.pop()
+                self.fn.append(n); self.enclosing.append('F')
+                self.generic_visit(n)
+                self.enclosing.pop(); self.fn.pop()
 
             def visit_FunctionDef(self, n): self._fn(n, False)
             def visit_AsyncFunctionDef(self, n): self._fn(n, True)
@@ -665,12 +679,26 @@ class Emitter:
 
 
 def _has_yield(fn):
-    for n in ast.walk(fn):
-        if isinstance(n, (ast.Yield, ast.YieldFrom)):
-            return True
-        if n is not fn and isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
-            continue
-    return any(isinstance(n, (ast.Yield, ast.YieldFrom)) for n in ast.walk(fn))
+    """Does THIS function body yield -- not a nested one.
+
+    Defect #8: the previous version used ast.walk over the whole subtree, so a
+    `yield` inside a nested def or a comprehension made the OUTER function a
+    generator. A yield binds to the nearest enclosing function scope, so the
+    walk must stop at every scope boundary.
+    """
+    def scan(node):
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.Yield, ast.YieldFrom)):
+                return True
+            # a nested scope owns its own yields
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                  ast.Lambda, ast.ClassDef)):
+                continue
+            if scan(child):
+                return True
+        return False
+
+    return scan(fn)
 
 
 def _base_kind(b):

@@ -247,6 +247,11 @@ export class PyExpressionRegistry implements EntityIdentifiable {
   }
 
   /** Back-patches the binding FK once name resolution has run. */
+  /** FK→`py_binding` — the binding this name reference resolves to. */
+  getBindingLinkHash(): string {
+    return this.bindingLinkHash;
+  }
+
   setBindingLinkHash(bindingLinkHash: string): void {
     this.bindingLinkHash = bindingLinkHash;
   }
