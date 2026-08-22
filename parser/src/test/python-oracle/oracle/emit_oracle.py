@@ -431,6 +431,7 @@ class Emitter:
     def _collect_structure(self, tree):
         classes, functions, imports, calls = [], [], [], []
         classifications = []
+        assignments = []
         writes = []
 
         class V(ast.NodeVisitor):
@@ -599,6 +600,21 @@ class Emitter:
 
             # attribute writes: symtable is structurally blind to these
             def visit_Assign(self, n):
+                # Assignment STRUCTURE, so target<->value pairing is adjudicable.
+                # ast.Assign is one node owning both sides; schema section 2.15
+                # models that as an ASSIGNMENT expression parenting an
+                # ASSIGNMENT_TARGET and an ASSIGNMENT_VALUE child. An IR that
+                # emits the two sides as unrelated roots cannot answer "what was
+                # assigned into this name", which is the join every local-variable
+                # typing rule starts from.
+                assignments.append({
+                    "line": n.lineno, "col": n.col_offset,
+                    "targets": [_txt(t) for t in n.targets],
+                    "targetKinds": [type(t).__name__ for t in n.targets],
+                    "valueKind": type(n.value).__name__,
+                    "valueText": _txt(n.value),
+                    "isChained": len(n.targets) > 1,
+                })
                 for t in n.targets:
                     self._target(t, "ASSIGN")
                 self.generic_visit(n)
@@ -635,6 +651,7 @@ class Emitter:
         self.structure = {
             "classes": classes, "functions": functions,
             "imports": imports, "calls": calls,
+            "assignments": sorted(assignments, key=lambda a: (a["line"], a["col"])),
         }
         self.classifications = sorted(
             classifications, key=lambda c: (c["entity"], c["line"], c["col"], c["name"]))

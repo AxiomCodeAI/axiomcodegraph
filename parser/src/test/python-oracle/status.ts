@@ -158,14 +158,35 @@ function main(): number {
   console.log('='.repeat(78));
 
   // ---- open items, routed -------------------------------------------------
-  const open = all.filter((r) => r.status === 'open');
-  const byOwner = new Map<string, Row[]>();
+  //
+  // A construct is CLOSED if ANY row names it with status "closed", from either
+  // side. Not "the latest row", because there is no trustworthy ordering: the ts
+  // field is fabricated, and sorting files alphabetically made schema-oracle.jsonl
+  // (A0's) always read last, so A0's rows always won. An explicit "closed" is a
+  // deliberate act and the protocol says only the owner writes one, so treating it
+  // as final needs no clock. To reopen something, use a NEW construct name.
+  const settled = new Set<string>();
+  for (const r of all) {
+    if (r.construct && r.status === 'closed') settled.add(r.construct);
+  }
+  const open = all.filter(
+    (r) => r.status === 'open' && !(r.construct && settled.has(r.construct))
+  );
+  // Dedupe: one line per construct, not one per row that mentions it.
+  const firstPerConstruct = new Map<string, Row>();
   for (const r of open) {
+    const k = r.construct ?? `${r.kind}:${String(r.note).slice(0, 40)}`;
+    if (!firstPerConstruct.has(k)) firstPerConstruct.set(k, r);
+  }
+  const openUnique = [...firstPerConstruct.values()];
+
+  const byOwner = new Map<string, Row[]>();
+  for (const r of openUnique) {
     const owner = (r.owner as string) ?? 'unassigned';
     (byOwner.get(owner) ?? byOwner.set(owner, []).get(owner)!).push(r);
   }
   console.log('\nOPEN ITEMS BY OWNER');
-  if (!open.length) console.log('  (none)');
+  if (!openUnique.length) console.log('  (none)');
   for (const [owner, rows] of [...byOwner].sort((a, b) => b[1].length - a[1].length)) {
     if (forAgent && owner !== forAgent) continue;
     const high = rows.filter((r) => r.severity === 'high').length;

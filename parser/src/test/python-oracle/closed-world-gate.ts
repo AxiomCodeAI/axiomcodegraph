@@ -17,6 +17,19 @@
  *
  * This gate exists as a gate rather than a written finding because a message has
  * to be read and a red build does not. See python-work/AGENT-PROTOCOL.md rule 3.
+ *
+ * TWO TIERS, because A3 is right that a permanently red gate is the same failure as
+ * an unpolled channel — both stop carrying information.
+ *
+ *   --hops    (default)  Are the FACTS needed to resolve present and correct?
+ *                        That is the parser's job and must be green.
+ *   --linked             Did the resolution actually happen? That is partly the
+ *                        ENGINE's job (interprocedural arg->param, container
+ *                        element types), so it is TRACKED, not gated.
+ *
+ * Splitting them keeps the bar where it belongs rather than lowering it. A call
+ * that is unlinked but whose every hop is present is not a parser defect; a call
+ * whose hops are missing is one even if something else happens to resolve it.
  */
 import * as fs from 'fs';
 import * as path from 'path';
@@ -74,6 +87,36 @@ export async function runClosedWorldGate(): Promise<number> {
   const unresolved = calls.filter(
     (c) => !c.resolvedCalleeHash && c.resolvedCalleeKind !== 'BUILTIN'
   );
+
+  // ---- HOPS tier: is every fact the engine would need actually emitted? ----
+  // Checked here rather than in the linked tier because these are the parser's
+  // obligation regardless of whether anything resolves.
+  const exprCsv = path.join(OUT, 'all-python-expressions.csv');
+  const hopFailures: string[] = [];
+  if (fs.existsSync(exprCsv)) {
+    const exprs = readTsv(exprCsv);
+    const byHash = new Map(exprs.map((e) => [e['pyExpressionUniqueHash']!, e]));
+    const targets = exprs.filter((e) => e['edgeRole'] === 'ASSIGNMENT_TARGET');
+    const values = exprs.filter((e) => e['edgeRole'] === 'ASSIGNMENT_VALUE');
+    // schema section 2.15: an ASSIGNMENT node parents both sides, and section 2.10
+    // deletes py_field_write on the strength of "the sibling ASSIGNMENT_VALUE
+    // under the same parent". Both require that parent to exist.
+    const orphanTargets = targets.filter((t) => !t['parentExpressionHash']);
+    const orphanValues = values.filter((v) => !v['parentExpressionHash']);
+    if (orphanTargets.length || orphanValues.length) {
+      hopFailures.push(
+        `${orphanTargets.length} ASSIGNMENT_TARGET and ${orphanValues.length} ASSIGNMENT_VALUE ` +
+          `rows have no parent — nothing in the IR relates a name to what was assigned into it`
+      );
+    }
+    const badParent = [...targets, ...values].filter((e) => {
+      const p = e['parentExpressionHash'];
+      return p && byHash.get(p)?.['kind'] !== 'ASSIGNMENT';
+    });
+    if (badParent.length) {
+      hopFailures.push(`${badParent.length} assignment side(s) parented by a non-ASSIGNMENT node`);
+    }
+  }
   const linked = calls.filter((c) => c.resolvedCalleeHash).length;
   const builtin = calls.filter((c) => c.resolvedCalleeKind === 'BUILTIN').length;
 
@@ -84,7 +127,19 @@ export async function runClosedWorldGate(): Promise<number> {
   console.log(`  builtin    : ${builtin}  (correctly unlinkable)`);
   console.log(`  UNRESOLVED : ${unresolved.length}`);
 
-  if (unresolved.length) {
+  if (hopFailures.length) {
+    console.log('\n  HOPS TIER — parser obligation, must be green:');
+    for (const h of hopFailures) console.log(`    FAIL ${h}`);
+    failures.push(`${hopFailures.length} hop failure(s)`);
+  } else {
+    console.log('\n  HOPS TIER: ok — every fact needed to resolve is present');
+  }
+
+  const linkedOnly = process.argv.includes('--linked');
+  if (unresolved.length && !linkedOnly) {
+    console.log(`\n  LINKED TIER (tracked, not gated): ${unresolved.length} unlinked`);
+  }
+  if (unresolved.length && linkedOnly) {
     // group by the mechanism that would fix them, so the output is a work list
     const byMechanism = new Map<string, CallRow[]>();
     for (const c of unresolved) {

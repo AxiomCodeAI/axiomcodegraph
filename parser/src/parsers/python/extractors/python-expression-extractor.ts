@@ -386,56 +386,27 @@ export class PythonExpressionExtractor {
   /** A bare expression statement, or an assignment in one. */
   private visitStatementExpression(node: Parser.SyntaxNode, context: StatementContext): void {
     if (node.type === 'assignment') {
-      const left = node.childForFieldName('left');
-      const type = node.childForFieldName('type');
-      const right = node.childForFieldName('right');
-      const rootContext = type
-        ? PythonRootContext.ANNOTATED_ASSIGNMENT
-        : PythonRootContext.ASSIGNMENT_VALUE;
-
-      // A CHAINED assignment. tree-sitter nests `a = b = None` as
-      // assignment(left=a, right=assignment(left=b, right=None)), so the inner
-      // `left` arrives here as a VALUE and was recorded as a read. CPython sees
-      // one `Assign` with targets=[a, b], both Store — and it is plainly right,
-      // since `b` is assigned, not evaluated. Peel the chain so every target in
-      // it is a target, and only the final value is a value.
-      let value = right;
-      const chainedTargets: Parser.SyntaxNode[] = [];
-      while (value && value.type === 'assignment') {
-        const innerLeft = value.childForFieldName('left');
-        if (innerLeft) {
-          chainedTargets.push(innerLeft);
-        }
-        value = value.childForFieldName('right');
-      }
-
-      if (value) {
-        this.enqueueRoot(value, context, rootContext, PythonEdgeRole.ASSIGNMENT_VALUE);
-      }
-      if (type) {
-        this.enqueueRoot(type, context, PythonRootContext.ANNOTATION, PythonEdgeRole.ANNOTATION);
-      }
-      for (const target of left ? [left, ...chainedTargets] : chainedTargets) {
-        // Pair the target with its value by BYTE RANGE while both nodes are in
-        // hand. The two become separate depth-0 roots with no parent, so nothing
-        // in the emitted tree relates them afterwards — recovering the pair from
-        // (scope, line) is a guess that a multi-line or semicolon-separated
-        // statement breaks. See the schema gap filed with A0: the IR has no
-        // column expressing "this value flows into that binding".
-        if (value) {
-          this.assignedValueByTargetRange.set(
-            `${target.startIndex}:${target.endIndex}`,
-            `${value.startIndex}:${value.endIndex}`
-          );
-        }
-        this.enqueueRoot(
-          target,
-          context,
-          PythonRootContext.ASSIGNMENT_TARGET,
-          PythonEdgeRole.ASSIGNMENT_TARGET,
-          PythonNameContext.STORE
-        );
-      }
+      // Emit the ASSIGNMENT itself as the depth-0 root, with the target(s) and
+      // the value as its depth-1 CHILDREN — exactly as a CALL parents its
+      // arguments.
+      //
+      // Previously target and value were two unrelated depth-0 roots with no
+      // parent, and nothing in the IR related them. That made §2.10's
+      // justification for deleting `py_field_write` — "the value is the sibling
+      // ASSIGNMENT_VALUE under the same parent" — false in the emitted output,
+      // since there was no same parent. A consumer asking what flows into a
+      // binding had to guess from (scope, line), which breaks on `a = f(); b =
+      // g()`. I filed that as a schema gap; A0 adjudicated it as parser
+      // non-compliance and was right: `ASSIGNMENT` has been in the expression
+      // kind enum all along and this simply never emitted it.
+      this.enqueueRoot(
+        node,
+        context,
+        node.childForFieldName('type')
+          ? PythonRootContext.ANNOTATED_ASSIGNMENT
+          : PythonRootContext.ASSIGNMENT_VALUE,
+        PythonEdgeRole.ROOT
+      );
       return;
     }
 
@@ -1429,6 +1400,65 @@ export class PythonExpressionExtractor {
     };
 
     switch (kind) {
+      case PythonExpressionKind.ASSIGNMENT: {
+        const left = node.childForFieldName('left');
+        const type = node.childForFieldName('type');
+        let value = node.childForFieldName('right');
+
+        // A CHAINED assignment. tree-sitter nests `a = b = None` as
+        // assignment(left=a, right=assignment(left=b, ...)), so an inner `left`
+        // would arrive as a VALUE and be recorded as a read. CPython sees one
+        // Assign with targets=[a, b], both Store, and is plainly right: `b` is
+        // assigned, not evaluated. Peel the chain so every target is a target
+        // and only the final value is a value.
+        const chained: Parser.SyntaxNode[] = [];
+        while (value && value.type === 'assignment') {
+          const innerLeft = value.childForFieldName('left');
+          if (innerLeft) {
+            chained.push(innerLeft);
+          }
+          value = value.childForFieldName('right');
+        }
+
+        if (value) {
+          this.worklist.push({
+            ...base,
+            node: value,
+            edgeRole: PythonEdgeRole.ASSIGNMENT_VALUE,
+            position: 0,
+            nameContext: PythonNameContext.LOAD,
+          });
+        }
+        if (type) {
+          this.worklist.push({
+            ...base,
+            node: type,
+            edgeRole: PythonEdgeRole.ANNOTATION,
+            rootContext: PythonRootContext.ANNOTATION,
+            position: 0,
+            nameContext: PythonNameContext.LOAD,
+          });
+        }
+        const targets = left ? [left, ...chained] : chained;
+        targets.forEach((target, index) => {
+          if (value) {
+            this.assignedValueByTargetRange.set(
+              `${target.startIndex}:${target.endIndex}`,
+              `${value.startIndex}:${value.endIndex}`
+            );
+          }
+          this.worklist.push({
+            ...base,
+            node: target,
+            edgeRole: PythonEdgeRole.ASSIGNMENT_TARGET,
+            rootContext: PythonRootContext.ASSIGNMENT_TARGET,
+            position: index,
+            nameContext: PythonNameContext.STORE,
+          });
+        });
+        return;
+      }
+
       case PythonExpressionKind.CALL: {
         const fn = node.childForFieldName('function');
         const args = node.childForFieldName('arguments');

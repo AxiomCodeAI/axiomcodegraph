@@ -634,6 +634,8 @@ export class PythonResolutionLinker {
           parametersByMethod,
           moduleMethodsByName: moduleMethodsByNameByModule.get(module.moduleHash),
           importedModules: importedModuleByName.get(module.qualifiedName),
+          exportsByModule,
+          moduleByQualifiedName,
           localTypeByBinding,
         });
         if (target) {
@@ -1100,7 +1102,12 @@ export class PythonResolutionLinker {
       if (expression.getKind() !== PythonExpressionKind.NAME_REFERENCE) {
         continue;
       }
-      if (expression.getDepth() !== 0) {
+      // Depth 1, not 0: an assignment target is now a CHILD of the ASSIGNMENT
+      // node rather than a root of its own. A depth-0 filter silently matched
+      // nothing after that change and every local went untyped — the kind of
+      // regression a resolution count catches and a structural invariant does
+      // not, since the tree was still perfectly well-formed.
+      if (expression.getDepth() !== 1) {
         continue;
       }
       const binding = expression.getBindingLinkHash();
@@ -1704,6 +1711,8 @@ export class PythonResolutionLinker {
       moduleMethodsByName?: Map<string, PyMethodRegistry | null>;
       /** Bound module name -> that module's facts, for in-project imports. */
       importedModules?: Map<string, ProjectModuleFacts>;
+      exportsByModule?: Map<string, Map<string, PyMethodRegistry | PyTypeRegistry>>;
+      moduleByQualifiedName?: Map<string, ProjectModuleFacts>;
       localTypeByBinding?: Map<string, PyTypeRegistry | null>;
       returnedTypeByMethod?: Map<string, PyTypeRegistry | null>;
       innerCallReturnType?: Map<string, PyTypeRegistry>;
@@ -1790,7 +1799,12 @@ export class PythonResolutionLinker {
           // it is reached through an import is real, and a hash would be invented.
           const inProject = receiver === '' ? undefined : ctx.importedModules?.get(receiver);
           if (inProject) {
-            const member = this.lookupModuleMember(inProject, name);
+            const member = this.lookupModuleMember(
+              inProject,
+              name,
+              ctx.exportsByModule,
+              ctx.moduleByQualifiedName
+            );
             if (member) {
               return this.describeEntity(member);
             }
@@ -1867,6 +1881,8 @@ export class PythonResolutionLinker {
       parametersByMethod?: Map<string, PyMethodParameterRegistry[]>;
       moduleMethodsByName?: Map<string, PyMethodRegistry | null>;
       importedModules?: Map<string, ProjectModuleFacts>;
+      exportsByModule?: Map<string, Map<string, PyMethodRegistry | PyTypeRegistry>>;
+      moduleByQualifiedName?: Map<string, ProjectModuleFacts>;
     }
   ): { kind: PythonResolvedCalleeKind; hash: string } | null {
     const receiverText = callSite.getReceiverText();
@@ -1899,7 +1915,12 @@ export class PythonResolutionLinker {
     // `pkg.mod.function()`. Resolvable to a real entity, unlike a stdlib path.
     const headModule = ctx.importedModules?.get(segments[0] ?? '');
     if (headModule && segments.length === 2) {
-      const member = this.lookupModuleMember(headModule, segments[1] ?? '');
+      const member = this.lookupModuleMember(
+        headModule,
+        segments[1] ?? '',
+        ctx.exportsByModule,
+        ctx.moduleByQualifiedName
+      );
       if (member instanceof PyTypeRegistry) {
         const onMember = this.lookupMethodOnTypeAndBases(member.getHash(), calleeName, ctx);
         if (onMember) {
@@ -2224,7 +2245,9 @@ export class PythonResolutionLinker {
    */
   private lookupModuleMember(
     module: ProjectModuleFacts,
-    name: string
+    name: string,
+    exportsByModule?: Map<string, Map<string, PyMethodRegistry | PyTypeRegistry>>,
+    moduleByQualifiedName?: Map<string, ProjectModuleFacts>
   ): PyMethodRegistry | PyTypeRegistry | null {
     const methods = module.methods.filter(
       m =>
@@ -2238,10 +2261,24 @@ export class PythonResolutionLinker {
         t.getEnclosingTypeLinkHash() === '' &&
         t.getEnclosingMethodLinkHash() === ''
     );
-    if (methods.length + types.length !== 1) {
+    if (methods.length + types.length === 1) {
+      return methods[0] ?? types[0] ?? null;
+    }
+    if (methods.length + types.length > 1) {
       return null;
     }
-    return methods[0] ?? types[0] ?? null;
+    // Nothing DECLARED under that name — but a package almost never declares its
+    // public API, it re-exports it. `util.warn(...)` reaches
+    // sqlalchemy/util/__init__.py, which imports `warn` from langhelpers, so a
+    // declaration-only lookup finds nothing for the commonest shape in a large
+    // codebase. This is the same re-export walk imports already use; it simply
+    // was not reached from here.
+    if (exportsByModule && moduleByQualifiedName) {
+      return (
+        this.followReExport(name, module, exportsByModule, moduleByQualifiedName) ?? null
+      );
+    }
+    return null;
   }
 
   /**

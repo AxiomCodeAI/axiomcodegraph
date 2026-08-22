@@ -1303,6 +1303,29 @@ export class PythonScopeBuilder {
         }
         return;
       }
+      // A PARENTHESISED name is not a simple target, and PEP 526 binds only
+      // simple ones: `(x): int` has `AnnAssign.simple == 0`, and CPython's
+      // symtable creates NO symbol for it — not a local, not even annotated.
+      // Verified directly: for `(y): int` inside a function, symtable reports
+      // y.is_local() False and y.is_annotated() False. Without this the name
+      // became a local and shadowed the global it was meant to annotate, which
+      // is the exact bug `test_var_annot_basic_semantics` exists to pin down.
+      // With a VALUE it is an ordinary assignment and does bind, so only the
+      // annotation-only form is skipped here.
+      // tree-sitter spells the parenthesised form `tuple_pattern`, not
+      // `parenthesized_expression` — `(y): int` parses as a tuple_pattern with a
+      // single identifier child. Checking for the latter matched nothing, so the
+      // first version of this fix changed no behaviour at all.
+      // A genuine tuple target is a SyntaxError here ("only single target (not
+      // tuple) can be annotated"), so a one-child tuple_pattern is always the
+      // parenthesised name.
+      if (leftNode.type === 'tuple_pattern' && !rightNode && leftNode.namedChildCount === 1) {
+        const inner = leftNode.namedChild(0);
+        if (inner && inner.type === 'identifier') {
+          this.visitExpression(block, typeNode, PythonNameContext.LOAD);
+          return;
+        }
+      }
       // `obj.attr: int = 1` binds nothing; the target is still evaluated.
       this.visitTarget(block, leftNode, PythonBindingOrigin.ANNOTATED_ASSIGNMENT, PythonNameContext.STORE);
       return;
