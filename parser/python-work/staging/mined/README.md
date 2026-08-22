@@ -85,10 +85,49 @@ node types — and scored *lower* on its own (111/115) than the 1,713-file stdli
 4. **Parse-failure classification** — every `hasError` file re-parsed by
    CPython. 13 files CPython accepts and tree-sitter rejects; the rest are
    genuinely outside 3.10.4.
-5. **Gate 1 — py_scope / py_binding vs `symtable`** (A3 @ `b800789`, the last
-   *pushed* commit, in a detached worktree). A4's mapping is deliberately its
-   own, not A0's `emit_oracle.py`, so a shared blind spot cannot hide a
-   disagreement.
+5. **Gate 1 — py_scope / py_binding vs `symtable`**, in a detached worktree at
+   the last *pushed* commit. A4's mapping is deliberately its own, not A0's
+   `emit_oracle.py`, so a shared blind spot cannot hide a disagreement.
+6. **py_method / py_method_parameter vs `ast`** — one of the eight relations
+   Gate 1 cannot see. Added when A3 touched the parameter code in `bdcfa3c`;
+   it found a4-034 on its first run.
+
+## Correctness by relation — A3 @ `7946eb7` (last pushed)
+
+The mapping every number below depends on is written out in `MAPPING.md`, and
+`reports/MAPPING-PROOF.txt` prints every row beside the CPython value it is
+compared to. Each lens carries a negative control, so a `0` means the lens ran
+and passed, not that it silently did nothing.
+
+| Relation | Corpus | Result |
+|---|---|---|
+| `py_scope` | 67,193 files | 0 missing, 0 spurious (the only 4+4 were A4's own mapping bug, a4-031) |
+| `py_binding` | 67,193 files | 11/11 predicates exact except 6 filed bugs; **plus 17,990 files carrying `.0`** (a4-026) |
+| `py_method` | 21,370 files | 0 spurious, **15,725 missing — every one a lambda** (a4-034) |
+| `py_method_parameter` | 21,370 files | **0 mismatches** — names, kinds, order, posonly/kwonly boundaries all exact |
+| `py_type` | 21,370 files | **0 missing, 0 spurious, 0 name diffs** |
+| `py_type_base` | 21,370 files | 19 base lists wrong in 6 files — all a4-037, comments taking an MRO position |
+| `py_expression`, `py_import`, `py_call_site`, `py_module`, `py_field`, `py_decorator` | — | **not yet tested by A4** |
+
+## Re-sweep against `bdcfa3c` and `7946eb7` (A3's heads after `b800789`)
+
+| | |
+|---|---|
+| **Fixed** | a4-019 — columns are now UTF-8 bytes, verified in both directions |
+| **Unchanged** | Gate 1 on the stdlib is *byte-identical* to the `b800789` run — same 10 files, same counts, same 2,455 `.0` rows. a4-026…a4-033 all still open; nothing regressed. |
+| **New** | a4-034 (no `py_method` row for any lambda — 15,725 missing rows across 21,370 files, invisible to Gate 1), a4-035 (`member_type`'s trailing name becomes a spurious binding), a4-037 (a comment inside a **base list** becomes a base and takes an MRO position) |
+
+Gate 1 on the stdlib is byte-identical across `b800789`, `bdcfa3c` and
+`7946eb7` — same 10 files, same counts, same 2,455 `.0` rows.
+
+`py_method` / `py_method_parameter` over 21,370 files: **0** spurious methods,
+**0** parameter mismatches — including the comment-in-a-parameter-list shape
+`bdcfa3c` had just fixed — and 15,725 missing methods, every sampled one a
+lambda. The `def`/`async def` path is exact; the entire signal is lambdas.
+
+Each new relation brought under a differential has produced a finding on its
+first run. The eight relations still untested are the live risk, not the two
+that are green.
 
 ## Gate 1 result
 

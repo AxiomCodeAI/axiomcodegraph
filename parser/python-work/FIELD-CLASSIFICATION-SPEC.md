@@ -28,7 +28,7 @@ below and the predicates in `src/test/python-oracle/`.
 | Field | Tier 1 (ast) | Tier 2 (inspect) | Tier 3 (this doc) |
 |---|---|---|---|
 | **importKind** | **8 of 9 values** | — | `DYNAMIC`; two precedence/enum questions |
-| **methodKind** | 11 of 19 values | 6 of 19 values | priority order; the unrecognised-decorator default |
+| **methodKind** | 13 of 19 values | 6 of 19 values | priority order; the unrecognised-decorator default (**measured: 7.1% genuine error**, §2.3) |
 | **typeCategory** | evidence only | **all 10 values** | priority order on collision; functional NamedTuple |
 | **typeModifier** | `FINAL`, `SLOTS` | **8 of 10 values** | `CALLABLE_INSTANCE` (undefined) |
 
@@ -112,7 +112,8 @@ the one thing about it that matters. `aliasName` still carries the alias.
 Tier 1 decides the **structural** answer (`emit_oracle.py :: method_kind_ast`):
 `LAMBDA`, `NESTED_FUNCTION`, `CONSTRUCTOR`, `ALLOCATOR`, `DUNDER_METHOD`,
 `INSTANCE_METHOD`, `FUNCTION`, `GENERATOR`, `ASYNC_FUNCTION`, `ASYNC_GENERATOR`,
-`MODULE_INITIALIZER`, `CLASS_INITIALIZER`.
+`MODULE_INITIALIZER`, `CLASS_INITIALIZER`, and — by LANGUAGE RULE, not decorator —
+`CLASS_METHOD` for `__init_subclass__` / `__class_getitem__`.
 
 Tier 2 decides the **descriptor** answer (`emit_introspection.py :: method_kinds`):
 `STATIC_METHOD`, `CLASS_METHOD`, `PROPERTY_GETTER/SETTER/DELETER`, `ABSTRACT_METHOD`.
@@ -165,32 +166,72 @@ by the ordering above** — a `@property @abstractmethod` is `PROPERTY_GETTER` w
 | nested `def` inside a method | `NESTED_FUNCTION` | Rule 14. Enclosing scope, not enclosing class, decides. |
 | `@overload` stubs | `OVERLOAD_STUB` | **Tier 1 only.** Verified `typing.get_overloads` does not exist on 3.10, so the stubs are *invisible at runtime* — only the final implementation is in `__dict__`. Rule 5 is early because a stub must never become a call target. |
 
-### 2.3 The default for an unrecognised decorator — the case that dominates real corpora
+### 2.3 The default for an unrecognised decorator — MEASURED, not asserted
 
-Measured: **4,503 decorated functions**, of which `property`/`classmethod`/`overload`/
-`staticmethod` account for ~2,300. The rest are a **long framework tail** —
-`hookimpl`, `fixture`, `line_magic`, `memoized_property`, `deprecated`, `observe`, and
-hundreds more. No enumeration will keep up.
+This is the highest-risk decision in the document, and it is the only one that is
+**open-world**: every other tier-3 item is a precedence rule over cases I enumerated,
+whereas this one is applied to decorators nobody has seen. **No fixture can contradict
+it**, because a fixture only ever contains decorators someone thought to write.
 
-**Decision: an unrecognised decorator does NOT change `methodKind`.** Fall through to
-rules 10–15 and classify structurally, exactly as if undecorated.
+So it was measured instead, against a population of decorators this project did not
+author: `oracle/measure_decorator_default.py` parses stdlib source with `ast`, imports
+the module, and compares the structural prediction against what the name **actually
+became** at runtime. Tier 2 is ground truth for exactly this question.
 
-Additionally set **`methodModifier` += `DECORATED`** and record every decorator in
-`py_decorator` (`dottedPath`, `fullText`) so the tail stays queryable.
+**Result over 167 stdlib modules:**
 
-**Why fall through rather than a distinct `DECORATED_UNKNOWN` kind:** the common case
-is a decorator that *preserves* the callable (`@wraps`, `@lru_cache`, logging
-wrappers), so the structural answer is usually right. A distinct kind would make the
-majority case look unresolved and would collapse `INSTANCE_METHOD` and `FUNCTION` into
-one bucket, losing information the engine has. The genuine risk — a decorator that
-**replaces** the object with something else — is already carried by
-`py_decorator.replacesTarget`, which is where that fact belongs.
+| | |
+|---|---|
+| methods governed by the default (no recognised decorator present) | 28 |
+| structural prediction correct | 24 |
+| **wrong** | **4 → 14.3%** |
+| of which measurement artifact (C-implemented class shadows the Python source) | 2 |
+| **genuine failures** | **2 → 7.1%** |
 
-**Known limit, stated rather than hidden:** for a decorator that returns a
-non-callable or a different object, `methodKind` will be structurally right and
-semantically wrong. `replacesTarget` is the only signal; the engine must consult it.
+**Decision, unchanged but now evidenced: an unrecognised decorator does NOT change
+`methodKind`.** Fall through to rules 10–15 and classify structurally. Additionally set
+`methodModifier += DECORATED` and record every decorator in `py_decorator`.
 
----
+**The failure mode is single and nameable: a decorator that returns a non-function
+descriptor.** Both genuine failures are `@DynamicClassAttribute` on `enum.Enum.name`
+and `.value`, where the runtime object is a custom descriptor and the source looks like
+an ordinary method. `@lru_cache`, `@wraps`, `@contextmanager` and the rest of the tail
+all preserve the structural answer.
+
+**This is detectable, and must be reported rather than absorbed.** When tier 2 is
+available (stdlib) and the runtime object is neither a function nor a known descriptor,
+emit `residue = "DECORATOR_RETURNS_DESCRIPTOR:<name>"`. Over the mined corpus tier 2 is
+unavailable by policy, so the residue count is the only signal — which is why §7 asks
+A5 to report it.
+
+**Two things the measurement changed in tier 1, which is the point of measuring:**
+
+1. **`@x.setter` / `@x.deleter` were not recognised.** 21 of the first 36 apparent
+   "default failures" were property setters across the stdlib. That was a bug in my
+   tier-1 table, not evidence about the default — the first measured rate of 62% was
+   mostly my own error.
+2. **Three dunders are implicitly converted by the language**, regardless of
+   decorators (verified on 3.10.4): `__new__` → `staticmethod`,
+   `__init_subclass__` → `classmethod`, `__class_getitem__` → `classmethod`. These are
+   language rules, not decorator effects, so they now sit in tier 1 and outrank
+   everything. Rules 13a–13b below.
+
+Rule 13 is therefore amended:
+
+```
+13. enclosing scope is a class:
+      name in {__init_subclass__, __class_getitem__} -> CLASS_METHOD   (language rule)
+      name == "__new__"                              -> ALLOCATOR      (implicitly static)
+      name == "__init__"                             -> CONSTRUCTOR
+      dunder name                                    -> DUNDER_METHOD
+      otherwise                                      -> INSTANCE_METHOD
+```
+
+**Known limit, stated rather than hidden:** for a decorator that replaces the object
+with a non-callable or a different object, `methodKind` will be structurally right and
+semantically wrong. `py_decorator.replacesTarget` is the signal, and the engine must
+consult it. Measured frequency of that case in the stdlib: **7.1%** of
+default-governed methods.
 
 ## 3. typeCategory — priority order on collision
 
@@ -326,6 +367,30 @@ excluded `ABC_TYPE`/`GENERIC_TYPE` when `_is_protocol` was set — which is a §
 priority decision smuggled into tier 2, and it made collisions read as 0%. Removed;
 tier 2 now reports every predicate that holds and flags the collision, and the real
 rate is 0.9%.
+
+---
+
+## 7. Residue is now load-bearing — it needs a gate
+
+The residue mechanism carries real weight: `DECORATED:<names>`,
+`RELATIVE_MEMBER_ALIAS`, `DECORATOR_RETURNS_DESCRIPTOR`, and the absence of
+`CALLABLE_INSTANCE`. Each marks a place where the oracle declined to answer.
+
+**That is exactly where wrongness will hide.** A residue row is not a failure, so
+nothing currently counts them; a rising residue rate would accumulate silently while
+every gate stayed green.
+
+**Requested of A5** (logged in `coordination/schema-oracle.jsonl`): report **residue
+rate per field** in `coverage-report.jsonl`, alongside node-type coverage, as a
+first-class progress signal:
+
+```
+residueRate = rows with non-empty residue / total rows, per field per sweep
+```
+
+with a per-kind breakdown, and the top unrecognised decorator names by frequency.
+A rise means the corpus grew a construct the spec does not cover — which is
+information, and currently invisible.
 
 ---
 

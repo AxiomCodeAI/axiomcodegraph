@@ -1,14 +1,28 @@
-# Python fact-table schema — proposal v6 (for approval)
+# Python fact-table schema — proposal v7 (for approval)
 
 **Author:** A0 (oracle)  **Status:** PROPOSED — not approved, nothing built against it
 **Scope:** the base-relation contract between the Python parser and the Souffle engine.
-**21 relation pairs, 451 columns** — of which a **10-relation / 265-column spine** is what
+**19 relation pairs, 425 columns** — of which a **10-relation / 266-column spine** is what
 I recommend freezing first (§10). Declarations are **generated from this document** by
 `gen_decls.py`; run `gen_decls.py --check` in CI.
 
 Nothing in `src/` has been written. This document is the thing to approve. Once approved
 it becomes frozen: a later column reorder invalidates every golden file, every projection,
 and every `decls_base.dl` edit.
+
+**Changes in v7** — three simplifications, all from the human pushing back on relations
+I had over-engineered:
+- **`py_field_write` DELETED.** Every column was already on `py_expression` (verified
+  against real parser output); the only addition was a join key, and that join belongs in
+  the resolution layer. −1 relation, −10 columns, no lost facts.
+- **`py_type_inference` DELETED**, folded into 4 appended `py_expression` columns. A union
+  is a property of a *binding*, not an expression — every parser-side inference is 1:1
+  with one node, so the 1:N justification was wrong. −1 relation, −13 columns.
+  **`py_expression` 35 → 39: this touches a frozen spine relation and needs sign-off.**
+- **`py_decorator` restated as Java's annotation relation** — same slot, same columns,
+  shared `annotation_on` projection. Nothing changed but the doc was unclear.
+
+**19 relations / 425 columns.** Spine 10 / 266.
 
 **Changes in v6** — two human decisions:
 - **Target 3.10.4 CONFIRMED, not inverted.** Rationale recorded: 3.0–3.11 is the richer regime,
@@ -767,23 +781,27 @@ Positions 0–12 mirror `java_field` 0–12. See §4.1 for the identity decision
 
 ---
 
-### 2.10 `py_field_write` / `lib_py_field_write` — 10 columns ★
+### 2.10 `py_field_write` — **REMOVED, redundant with `py_expression`**
 
-Per-write granularity, because §2.9 merges. Required for data flow: taint entering
-`self.conn` in one method and read in another is 33% of the `self.*` population.
+Deleted. Every column it carried is already on `py_expression`, verified against the
+real parser output for `self.repo = r` / `self.count = self.count + 1`:
 
-| # | Column | Meaning |
-|---|---|---|
-| 0 | `pyFieldLinkHash` | FK→`py_field` — **parent** |
-| 1 | `writeKind` | `ASSIGN` \| `AUG_ASSIGN` \| `ANN_ASSIGN` \| `DEL` \| `SETATTR` \| `FOR_TARGET` \| `WITH_TARGET` \| `WALRUS` \| `TUPLE_UNPACK` |
-| 2 | `pyMethodLinkHash` | FK→`py_method` — writing method; `""` class body |
-| 3 | `pyExpressionLinkHash` | FK→`py_expression` — the target node |
-| 4 | `valueExpressionLinkHash` | FK→`py_expression` — RHS root; `""` for bare `AnnAssign` |
-| 5 | `receiverName` | |
-| 6 | `startLine` | |
-| 7 | `startColumn` | |
-| 8 | `serviceVersionLinkHash` | |
-| 9 | `pyFieldWriteUniqueHash` | **PK** = `PY_FIELD_WRITE_md5(pyFieldLinkHash ‖ pyExpressionLinkHash)` |
+| it was going to hold | already on `py_expression` |
+|---|---|
+| attribute name | `literalValue` |
+| write vs read | `isWrite`, `nameContext = STORE`, `edgeRole = ASSIGNMENT_TARGET` |
+| receiver | `dottedPath` (`self.repo`) |
+| writing method | `expressionOwnerHash` + `expressionOwnerKind = METHOD` |
+| assigned value | the sibling `ASSIGNMENT_VALUE` under the same parent |
+| write vs read of the same attribute | `self.count` is STORE at depth 0 **and** LOAD at depth 1 |
+
+The only thing it added was `pyFieldLinkHash` — a **join key**, not a fact. Linking a
+write expression to its merged `py_field` row is `(pyTypeLinkHash, literalValue)`, which
+is a **resolution rule**, exactly like Java's `type_ref_resolves`. My earlier argument
+that "projections must be single-relation, so it needs its own table" confused the
+projection layer with the resolution layer, which is allowed to join.
+
+**Net: one fewer relation, ten fewer columns, no lost facts.**
 
 ---
 
@@ -799,7 +817,14 @@ argument flow into a dataclass constructor is undefined without it.
 
 ### 2.12 `py_decorator` / `lib_py_decorator` — 21 columns
 
-Positions 0–3 mirror `java_annotation` 0–3. 22% of functions are decorated. See §4.3 —
+**This IS Java's annotation relation.** It occupies `java_annotation`'s slot, mirrors its
+columns at 0–3, and `py_decorator_argument` mirrors `java_annotation_argument` at 0–9.
+The name follows §1.1's rule — fact-layer names use the language's own word, and Python
+says "decorator" — while the **projection is shared**: both languages project to
+`annotation_on(Prov, Name, Kind, Context, OwnerHash, Hash)`, so the Java rules port
+unchanged. Only the *semantics* differ (§4.3): a Java annotation is inert metadata, a
+Python decorator is a call that replaces the decorated object. That difference lives in
+`replacesTarget` (c17) and `builtinKind` (c16), not in a different relation shape. 22% of functions are decorated. See §4.3 —
 these are **not** annotations.
 
 | # | Column | Meaning |
@@ -889,7 +914,7 @@ bound name. `import a.b.c` emits **one** row with `simpleName="a"`, `importedPat
 
 ---
 
-### 2.15 `py_expression` / `lib_py_expression` — 35 columns
+### 2.15 `py_expression` / `lib_py_expression` — 39 columns
 
 The spine. **Positions 0–23 mirror `java_expression` 0–23**; `expressions.dl` ports by
 changing the hash index 24→34 and adding placeholders.
@@ -929,8 +954,12 @@ changing the hash index 24→34 and adding placeholders.
 | 30 | `isAwaited` | |
 | 31 | `isStarred` | `*x` / `**x` in a call or literal |
 | 32 | `dottedPath` ★ | for attribute chains, the full `a.b.c` text; `""`. 16% of receivers are depth-2 chains |
-| 33 | `serviceVersionLinkHash` | |
-| 34 | `pyExpressionUniqueHash` | **PK** |
+| 33 | `inferredTypeName` ★ | the type of THIS node, when syntactically derivable; `""` otherwise. Folded in from the deleted `py_type_inference` (§2.21) — one expression, one type |
+| 34 | `inferredTypeKind` ★ | `BUILTIN_SCALAR` \| `BUILTIN_COLLECTION` \| `USER_CLASS` \| `NONE_TYPE` \| `CALLABLE` \| `UNKNOWN` |
+| 35 | `inferenceEvidence` ★ | `LITERAL` \| `COLLECTION_LITERAL` \| `FSTRING` \| `COMPREHENSION` \| `ANNOTATION` \| `CAST` \| `DEFAULT_VALUE` \| `NONE`. Parser emits **syntactic evidence only** |
+| 36 | `inferenceConfidence` ★ | `CERTAIN` \| `PROBABLE` \| `NONE` |
+| 37 | `serviceVersionLinkHash` | |
+| 38 | `pyExpressionUniqueHash` | **PK** |
 
 **PK** `PY_EXPRESSION_md5(pyScopeLinkHash ‖ expressionOwnerHash ‖ expressionOwnerKind ‖ rootContext ‖ kind ‖ edgeRole ‖ parentExpressionHash ‖ position ‖ depth ‖ literalValue ‖ startLine ‖ startColumn ‖ endLine ‖ endColumn)` — same construction as `ExpressionReference.generateHash`, with scope added.
 
@@ -1105,87 +1134,48 @@ For ≤3.11, `TypeVar` is a **runtime assignment**, not syntax (255 in corpus). 
 
 ---
 
-### 2.21 `py_type_inference` / `lib_py_type_inference` — 17 columns ★  *(added — Q6)*
+### 2.21 `py_type_inference` — **REMOVED, folded into `py_expression`**
 
-You are right that a great deal is inferable: `x = 3` is an `int`, `x = Foo()` is a `Foo`,
-and `x = 3` followed by `x = "hi"` is `int | str`. With **68.2% of parameters unannotated**,
-inference is not a nicety — it is the main source of type information in a Python codebase.
+Deleted as a relation. The justification for making it 1:N was unions — `x = 3` then
+`x = "hi"`. That reasoning was wrong about *where* the union lives.
 
-**Why a relation and not columns.** A union is 1:N. `x = 3; x = "hi"` yields *two* types for
-one binding, and columns cannot hold a set. One row per (entity, inferred type, evidence)
-makes the union a row set, makes `unionSize = "1"` the monomorphic test the engine already
-performs in `local_monomorphic`, and lets the engine *add* rows (cross-module, return-flow)
-without the parser and engine fighting over the same column.
+**A union is a property of a BINDING, not of an expression.** Every inference the
+**parser** is allowed to make is 1:1 with a single expression node:
+
+| evidence | the expression it types |
+|---|---|
+| `LITERAL` | `3` → that node is `int` |
+| `COLLECTION_LITERAL` | `[1,2]` → that node is `list` |
+| `FSTRING` | `f"{x}"` → that node is `str` |
+| `COMPREHENSION` | `[f(i) for i in y]` → that node is `list` |
+| `ANNOTATION` | the annotation expression names a type |
+| `CAST` | `cast(Foo, v)` → that call node is `Foo` |
+| `DEFAULT_VALUE` | the default expression |
+
+One expression, one type, every time. `x = 3; x = "hi"` is **two** `ASSIGNMENT_VALUE`
+expressions, each singly typed — the union emerges from a join over the binding, which
+is engine work and needs no storage.
+
+So this becomes **four appended columns on `py_expression`**, not a 17-column relation:
 
 | # | Column | Meaning |
 |---|---|---|
-| 0 | `entityKind` | `BINDING` \| `EXPRESSION` \| `FIELD` \| `METHOD_PARAMETER` \| `METHOD_RETURN` |
-| 1 | `entityHash` | FK, polymorphic by c0 — the thing being typed |
-| 2 | `inferredTypeName` | `int`, `str`, `list`, `app.models.User` |
-| 3 | `inferredTypeKind` | `BUILTIN_SCALAR` \| `BUILTIN_COLLECTION` \| `USER_CLASS` \| `MODULE` \| `CALLABLE` \| `NONE_TYPE` \| `UNION` \| `UNKNOWN` |
-| 4 | `resolvedTypeLinkHash` | FK→`py_type`; `""` for builtins and for classes the parser cannot resolve |
-| 5 | `evidence` | how we know — see below |
-| 6 | `confidence` | `CERTAIN` \| `PROBABLE` \| `POSSIBLE` |
-| 7 | `unionOrdinal` | 0-based index of this member within the entity's union |
-| 8 | `unionSize` | total members. **`"1"` = monomorphic** |
-| 9 | `isNarrowed` | came from an `isinstance` / `cast` guard rather than an assignment |
-| 10 | `elementTypeName` | for collections — `list[int]` → `int`; `""` |
-| 11 | `sourceExpressionLinkHash` | FK→`py_expression` — the node that is the evidence |
-| 12 | `narrowingBlockLinkHash` | FK→`py_block` — the guard block this narrowing holds inside; `""` |
-| 13 | `pyScopeLinkHash` | FK→`py_scope` |
-| 14 | `pyModuleLinkHash` | FK→`py_module` |
-| 15 | `serviceVersionLinkHash` | |
-| 16 | `pyTypeInferenceUniqueHash` | **PK** |
+| 33 | `inferredTypeName` | `int`, `str`, `list`, `Foo`; `""` when nothing is derivable |
+| 34 | `inferredTypeKind` | `BUILTIN_SCALAR` \| `BUILTIN_COLLECTION` \| `USER_CLASS` \| `NONE_TYPE` \| `CALLABLE` \| `UNKNOWN` |
+| 35 | `inferenceEvidence` | `LITERAL` \| `COLLECTION_LITERAL` \| `FSTRING` \| `COMPREHENSION` \| `ANNOTATION` \| `CAST` \| `DEFAULT_VALUE` \| `NONE` |
+| 36 | `inferenceConfidence` | `CERTAIN` \| `PROBABLE` \| `NONE` |
 
-**PK** `PY_TYPE_INFERENCE_md5(entityHash ‖ inferredTypeName ‖ evidence ‖ sourceExpressionLinkHash)`
+**Net: one fewer relation, thirteen fewer columns.** `py_expression` goes 35 → 39.
 
-**`evidence` ladder — split by who may emit it.** The reviewer's objection was correct and
-I have tightened this: the earlier draft let the parser emit `CONSTRUCTOR_CALL` at `CERTAIN`,
-which contradicts §1 ("the parser resolves imports only within the repo") and is unverifiable
-whenever the class comes from another module — and `BUILTIN_CALL` is unverifiable outright
-because the name may be shadowed (`def len(x): ...` is legal). Inference is the one part of
-this schema with no CPython arbiter, so the parser's share of it must be **purely
-syntactic**:
+> **FREEZE IMPACT — needs sign-off.** `py_expression` is in the frozen spine. Columns
+> **c0–c32 do not move**; `serviceVersionLinkHash` and the PK shift from c33/c34 to
+> c37/c38, which is what the "append only, hash last" convention does on every append.
+> Spine goes 262 → 266 columns. This is the sanctioned evolution path, but it is still a
+> change to a frozen relation and I am not making it unilaterally.
 
-**PARSER-EMITTED — every row oracle-checkable from `ast` alone, no name resolution:**
-
-| `evidence` | Example | `confidence` | Why it is safe |
-|---|---|---|---|
-| `LITERAL` | `x = 3` → `int` | `CERTAIN` | `ast.Constant` type; no lookup |
-| `COLLECTION_LITERAL` | `x = [1,2]` → `list`, element `int` | `CERTAIN` | node type |
-| `FSTRING` | `x = f"{a}"` → `str` | `CERTAIN` | node type |
-| `COMPREHENSION` | `x = [f(i) for i in y]` → `list` | `CERTAIN` | container only, node type |
-| `ANNOTATION` | `x: User` | `CERTAIN` | records the *written name*; `resolvedTypeLinkHash` stays `""` |
-| `CAST` | `cast(User, x)` | `CERTAIN` | records the written name only (359 sites) |
-| `DEFAULT_VALUE` | `def f(x=3)` → `int` | `CERTAIN` | literal default, node type |
-
-For `ANNOTATION` and `CAST` the parser writes `inferredTypeName` from source text and leaves
-`resolvedTypeLinkHash` empty — it is reporting *what was written*, which `ast` confirms, not
-*what it resolves to*, which it cannot know.
-
-**ENGINE-EMITTED — needs name resolution, call resolution or flow; appended to the same
-relation with higher `unionOrdinal`:**
-
-| `evidence` | Example | `confidence` | Why the parser must not |
-|---|---|---|---|
-| `CONSTRUCTOR_CALL` | `x = Foo()` → `Foo` | `PROBABLE` | needs cross-module name→type resolution |
-| `BUILTIN_CALL` | `x = len(y)` → `int` | `PROBABLE` | the builtin name may be shadowed |
-| `ISINSTANCE_GUARD` | `if isinstance(x, Foo)` | `PROBABLE` | needs flow to attribute the narrowing |
-| `AUGMENTED_OP` | `x += 1` | `POSSIBLE` | `__iadd__` may return anything |
-| `RETURN_OF_LOCAL_METHOD` | `x = self.build()` | `POSSIBLE` | needs call resolution |
-| `UNKNOWN` | anything else | `POSSIBLE` | — |
-
-The shared column layout is what makes the split free: the engine appends rows, nothing is
-reconciled, and `unionSize` is recomputed once at the end. **The invariant this preserves is
-the one the whole document rests on — every parser-emitted row is checkable against CPython.**
-
-**How this resolves the "no `OBJECT_CREATION`" tension in §4.5.** The two layers stay
-separate and both stay honest: `py_expression.kind` remains `CALL`, because syntactically
-`Foo()` *is* a call and `ast` agrees — that keeps the syntax layer exactly oracle-verifiable.
-The knowledge that it constructs a `Foo` lands here, as a `CONSTRUCTOR_CALL` row with
-`resolvedTypeLinkHash` pointing at the class. The engine gets its answer, the oracle can
-still validate the syntax layer byte-for-byte, and a resolution failure degrades to a missing
-inference row rather than a mislabelled expression.
+The engine still appends its own inferences (`CONSTRUCTOR_CALL`, `BUILTIN_CALL`,
+`ISINSTANCE_GUARD`) — as derived rows, not stored ones. The tier split from
+`FIELD-CLASSIFICATION-SPEC.md` is unchanged: the parser emits only syntactic evidence.
 
 ---
 
@@ -1806,7 +1796,7 @@ For the record, the question that used to sit here:
 
 ## 10. Recommendation: freeze the spine first  *(taking Q10's smaller cut)*
 
-21 relations × 451 columns, all `symbol`-typed, position as the only contract, frozen on
+19 relations × 425 columns, all `symbol`-typed, position as the only contract, frozen on
 approval — a column-order error is silent and invalidates every golden file. The `py_scope`
 PK collision is precisely the class of defect a smaller first cut surfaces cheaply, and it
 was found by review rather than by me. That is an argument for reducing what gets frozen in
@@ -1824,13 +1814,12 @@ round one.
 | `py_method` | 36 | callers and callees |
 | `py_method_parameter` | 23 | argument→parameter flow, the primary typing mechanism |
 | `py_import` | 24 | 38% relative; cross-module edges |
-| `py_expression` | 35 | path ③ |
+| `py_expression` | 39 | path ③, and now carries syntactic type inference |
 | `py_call_site` | 26 | path ④ |
 
 **Defer these 11** to a second freeze, once the spine has produced byte-identical, FK-clean
-output on both dialects: `py_type_reference`, `py_field`, `py_field_write`,
-`py_field_position`, `py_decorator`, `py_decorator_argument`, `py_type_inference`,
-`py_comment`, `py_block`, `py_parse_gap`, `py_type_parameter`.
+output on both dialects: `py_type_reference`, `py_field`, `py_field_position`, `py_decorator`,
+`py_decorator_argument`, `py_comment`, `py_block`, `py_parse_gap`, `py_type_parameter`.
 
 Deferring costs little and de-risks a lot. `py_field` carries the §4.1 identity decision that
 `symtable` cannot arbitrate (Q6-adjacent, and the most likely to be re-litigated);
@@ -1855,7 +1844,7 @@ were "verified programmatically" while the `.dl` had in fact fallen behind a ren
 missing a relation entirely. **A verification claim that is not itself executed is worse than
 no claim** — it buys false confidence. This is now invariant #11.
 
-Current state: 21 relations, 42 declarations, 451 columns, 0 unverified.
+Current state: 19 relations, 38 declarations, 425 columns, 0 unverified.
 
 ---
 

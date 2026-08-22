@@ -9,6 +9,13 @@
  *
  *     npx tsx src/test/python-oracle/status.ts            # everything
  *     npx tsx src/test/python-oracle/status.ts --for A3   # only my items
+ *     npx tsx src/test/python-oracle/status.ts --watch --for A3   # stay live
+ *     npx tsx src/test/python-oracle/status.ts --inbox --for A3   # only what is NEW
+ *
+ * `--inbox` is the one that keeps the loop alive without anyone polling: it prints
+ * only rows addressed to you that you have not seen, then advances a per-agent
+ * cursor. Wire it into a git hook (tools/install-hooks.sh) and every commit shows
+ * you what the other agent handed over since your last one.
  *
  * The convention that makes routing work: put `"owner": "A3"` on a row you are
  * handing to someone, and `"status": "open"` until they close it. A row with no
@@ -54,6 +61,47 @@ function readChannel(): { file: string; rows: Row[] }[] {
     });
 }
 
+/** Per-agent cursor: how many rows of each file this agent has already seen. */
+function cursorPath(agent: string): string {
+  return path.join(COORD, `.cursor-${agent}.json`);
+}
+
+function readCursor(agent: string): Record<string, number> {
+  const p = cursorPath(agent);
+  if (!fs.existsSync(p)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(p, 'utf-8')) as Record<string, number>;
+  } catch {
+    return {};
+  }
+}
+
+function writeCursor(agent: string, c: Record<string, number>): void {
+  fs.writeFileSync(cursorPath(agent), JSON.stringify(c, null, 1) + '\n');
+}
+
+/**
+ * Rows addressed to `agent` that it has not seen, then advance the cursor.
+ *
+ * Counting rows per file rather than comparing timestamps is deliberate: the `ts`
+ * field is self-reported and is not a clock (rows claiming 12:00 were written at
+ * 01:09). Row COUNT is monotonic because every channel file is append-only.
+ */
+function inbox(agent: string, channels: { file: string; rows: Row[] }[], commit: boolean) {
+  const cur = readCursor(agent);
+  const fresh: { file: string; row: Row }[] = [];
+  const next: Record<string, number> = {};
+  for (const c of channels) {
+    const seen = cur[c.file] ?? 0;
+    next[c.file] = c.rows.length;
+    for (const row of c.rows.slice(seen)) {
+      if (row.owner === agent) fresh.push({ file: c.file, row });
+    }
+  }
+  if (commit) writeCursor(agent, next);
+  return fresh;
+}
+
 function text(r: Row): string {
   return String(r.note ?? r.detail ?? r.subject ?? '').replace(/\s+/g, ' ');
 }
@@ -62,6 +110,47 @@ function main(): number {
   const argv = process.argv.slice(2);
   const forAgent = argv.includes('--for') ? argv[argv.indexOf('--for') + 1] : undefined;
   const channels = readChannel();
+
+  // ---- --inbox: only what is NEW for me, then advance the cursor ----------
+  if (argv.includes('--inbox')) {
+    if (!forAgent) {
+      console.log('--inbox needs --for <agent>');
+      return 2;
+    }
+    const fresh = inbox(forAgent, channels, true);
+    if (!fresh.length) {
+      console.log(`[${forAgent}] inbox empty`);
+      return 0;
+    }
+    console.log(`\n[${forAgent}] ${fresh.length} NEW item(s) routed to you:`);
+    for (const { row } of fresh) {
+      const sev = row.severity === 'high' ? ' !HIGH' : '';
+      console.log(`\n  from ${row.agent} — ${row.construct ?? row.kind}${sev}`);
+      console.log(`  ${text(row).slice(0, 400)}`);
+    }
+    console.log(`\n  full board: npx tsx src/test/python-oracle/status.ts --for ${forAgent}\n`);
+    return 0;
+  }
+
+  // ---- --watch: stay live, print deltas as they land ---------------------
+  if (argv.includes('--watch')) {
+    if (!forAgent) {
+      console.log('--watch needs --for <agent>');
+      return 2;
+    }
+    console.log(`[${forAgent}] watching the coordination channel — ctrl-c to stop`);
+    inbox(forAgent, readChannel(), true); // start from now
+    setInterval(() => {
+      const fresh = inbox(forAgent, readChannel(), true);
+      for (const { row } of fresh) {
+        const sev = row.severity === 'high' ? ' !HIGH' : '';
+        console.log(`\n[${new Date().toTimeString().slice(0, 8)}] ${row.agent} -> ${forAgent}` +
+                    `  ${row.construct ?? row.kind}${sev}`);
+        console.log(`  ${text(row).slice(0, 300)}`);
+      }
+    }, 5000);
+    return 0;
+  }
   const all = channels.flatMap((c) => c.rows.map((r) => ({ ...r, _file: c.file })));
 
   console.log('='.repeat(78));

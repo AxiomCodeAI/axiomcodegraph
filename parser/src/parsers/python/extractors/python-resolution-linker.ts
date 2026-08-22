@@ -937,6 +937,7 @@ export class PythonResolutionLinker {
   private typeOfLocalReceiver(
     callSite: PyCallSiteRegistry,
     ctx: {
+      receiverOverride?: string;
       typesByHash: Map<string, PyTypeRegistry>;
       typesByName: Map<string, PyTypeRegistry | null>;
       basesByType: Map<string, PyTypeBaseRegistry[]>;
@@ -945,12 +946,13 @@ export class PythonResolutionLinker {
       localTypeByBinding?: Map<string, PyTypeRegistry | null>;
       bindingByScopeAndName: Map<string, PyBindingRegistry>;
       parentScopeOf: Map<string, string>;
-    }
+    },
+    nameOverride?: string
   ): PyTypeRegistry | null {
     if (!ctx.localTypeByBinding) {
       return null;
     }
-    const receiver = callSite.getReceiverText();
+    const receiver = nameOverride ?? callSite.getReceiverText();
     if (receiver === '' || receiver.includes('.')) {
       return null;
     }
@@ -982,9 +984,10 @@ export class PythonResolutionLinker {
     ctx: {
       typesByName: Map<string, PyTypeRegistry | null>;
       parametersByMethod?: Map<string, PyMethodParameterRegistry[]>;
-    }
+    },
+    nameOverride?: string
   ): PyTypeRegistry | null {
-    const receiver = callSite.getReceiverText();
+    const receiver = nameOverride ?? callSite.getReceiverText();
     if (receiver === '' || receiver.includes('.') || !ctx.parametersByMethod) {
       return null;
     }
@@ -1848,19 +1851,30 @@ export class PythonResolutionLinker {
       return { kind: PythonResolvedCalleeKind.IMPORTED, hash: '' };
     }
 
-    const ownerType = callSite.getPyTypeLinkHash();
-    if (ownerType === '') {
-      return null;
-    }
-    // Exactly two segments. `self.a.b.c()` needs the type of `self.a.b`, which
-    // needs the type of `self.a` first — a transitive walk this deliberately
-    // does not attempt, because each hop multiplies the chance of a wrong answer
-    // and the schema asks for a single derivable target.
     if (segments.length !== 2) {
+      // `self.a.b.c()` needs the type of `self.a.b`, which needs `self.a` first.
+      // Each hop multiplies the chance of a wrong answer, and the schema asks for
+      // a single DERIVABLE target — so the parser stops and the engine chains,
+      // which it can do because every individual hop is linked.
       return null;
     }
+
+    // The type the receiver PREFIX holds. `self.x` uses the enclosing class;
+    // `builder.x` uses the type of the local `builder`, which is the same
+    // question one step removed. Handling only `self` meant an attribute of any
+    // other typed receiver was unreachable even when both hops were known.
     const receiverName = ctx.receiverNameByMethodHash.get(callSite.getPyMethodLinkHash());
-    if (receiverName === undefined || segments[0] !== receiverName) {
+    const prefix = segments[0] ?? '';
+    let ownerType = '';
+    if (receiverName !== undefined && prefix === receiverName) {
+      ownerType = callSite.getPyTypeLinkHash();
+    } else {
+      const prefixType =
+        this.typeOfLocalReceiver(callSite, ctx, prefix) ??
+        this.typeOfParameterReceiver(callSite, ctx, prefix);
+      ownerType = prefixType ? prefixType.getHash() : '';
+    }
+    if (ownerType === '') {
       return null;
     }
 

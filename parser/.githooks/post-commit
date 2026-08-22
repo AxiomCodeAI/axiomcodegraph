@@ -1,0 +1,37 @@
+#!/bin/sh
+# Keeps A0 <-> A3 communication ALIVE without either agent remembering to look.
+#
+# The protocol's weak point was never the channel — it was that a channel needs
+# polling. A board nobody runs and a gate nobody runs are the same failure as a
+# JSONL file nobody reads. This runs both after every commit, so the other
+# agent's queue and the other agent's red build arrive on their own.
+#
+# Advisory by design: it never blocks a commit. A hook that blocks gets disabled,
+# and a disabled hook communicates nothing.
+#
+# Install (once, per clone):  git config core.hooksPath .githooks
+
+AGENT="${AXIOM_AGENT:-A3}"
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT" || exit 0
+
+printf '\n────────────────────────────────────────────────────────────\n'
+printf ' post-commit  ·  agent %s\n' "$AGENT"
+printf '────────────────────────────────────────────────────────────\n'
+
+# 1. Whatever the other agent routed to me since I last looked.
+if [ -f src/test/python-oracle/status.ts ]; then
+  npx tsx src/test/python-oracle/status.ts --for "$AGENT" 2>/dev/null \
+    | sed -n '/OPEN ITEMS BY OWNER/,/ADJUDICATION/p' \
+    | head -30
+fi
+
+# 2. The other agent's gate. A red build is the message that cannot be missed.
+if [ -f src/test/python-oracle/closed-world-gate.ts ]; then
+  printf '\nclosed-world gate (A0-owned, ceiling 100%%):\n'
+  npx tsx src/test/python-oracle/closed-world-gate.ts 2>/dev/null \
+    | tail -3 | sed 's/^/  /'
+fi
+
+printf '\n'
+exit 0

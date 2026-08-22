@@ -1,0 +1,120 @@
+====================================================================================================
+py_scope  ->  symtable block          key = (kind, name, startLine)
+====================================================================================================
+OURS: kind|name|line                           | CPYTHON: kind|name|line                  | match
+MODULE|top|0                                   | MODULE|top|0                             | yes
+FUNCTION|outer|3                               | FUNCTION|outer|3                         | yes
+FUNCTION|inner|6                               | FUNCTION|inner|6                         | yes
+COMPREHENSION_LIST|listcomp|11                 | COMPREHENSION|listcomp|11                | yes
+LAMBDA|lambda|12                               | LAMBDA|lambda|12                         | yes
+CLASS|Model|16                                 | CLASS|Model|16                           | yes
+FUNCTION|method|19                             | FUNCTION|method|19                       | yes
+
+====================================================================================================
+py_binding -> symtable Symbol          key = (scopeKey, name);  11 predicate bits, in order:
+   param local global nonlocal free imported assigned referenced declGlobal annotated namespace
+====================================================================================================
+MODULE|top|0|GLOBAL                                  ours=01100010100  cpython=01100010100  yes
+MODULE|top|0|Model                                   ours=01100010001  cpython=01100010001  yes
+MODULE|top|0|outer                                   ours=01100010001  cpython=01100010001  yes
+FUNCTION|outer|3|a                                   ours=11000001000  cpython=11000001000  yes
+FUNCTION|outer|3|args                                ours=11000000000  cpython=11000000000  yes
+FUNCTION|outer|3|b                                   ours=11000001000  cpython=11000001000  yes
+FUNCTION|outer|3|c                                   ours=11000000000  cpython=11000000000  yes
+FUNCTION|outer|3|inner                               ours=01000011001  cpython=01000011001  yes
+FUNCTION|outer|3|kw                                  ours=11000000000  cpython=11000000000  yes
+FUNCTION|outer|3|pick                                ours=01000011000  cpython=01000011000  yes
+FUNCTION|outer|3|range                               ours=00100001000  cpython=00100001000  yes
+FUNCTION|outer|3|squares                             ours=01000011000  cpython=01000011000  yes
+FUNCTION|outer|3|total                               ours=01000010000  cpython=01000010000  yes
+FUNCTION|inner|6|total                               ours=00011011000  cpython=00011011000  yes
+COMPREHENSION|listcomp|11|.0                         ours=11000000000  cpython=11000000000  yes
+COMPREHENSION|listcomp|11|x                          ours=01000011000  cpython=01000011000  yes
+LAMBDA|lambda|12|k                                   ours=11000001000  cpython=11000001000  yes
+LAMBDA|lambda|12|total                               ours=00001001000  cpython=00001001000  yes
+CLASS|Model|16|field                                 ours=01000010010  cpython=01000010010  yes
+CLASS|Model|16|int                                   ours=00100001000  cpython=00100001000  yes
+CLASS|Model|16|method                                ours=01000010001  cpython=01000010001  yes
+FUNCTION|method|19|GLOBAL                            ours=00100010100  cpython=00100010100  yes
+FUNCTION|method|19|self                              ours=11000001000  cpython=11000001000  yes
+
+====================================================================================================
+py_method / py_method_parameter -> ast   key = (startLine, startColumn) of the def/lambda
+====================================================================================================
+at 3:0        ours=["a:POSITIONAL_OR_KEYWORD","b:POSITIONAL_OR_KEYWORD","args:VAR_POSITIONAL","c:KEYWORD_ONLY","kw:VAR_KEYWORD"] cpython=["a:POSITIONAL_OR_KEYWORD","b:POSITIONAL_OR_KEYWORD","args:VAR_POSITIONAL","c:KEYWORD_ONLY","kw:VAR_KEYWORD"] yes
+at 6:4        ours=null                                           cpython=[]                                             yes
+at 19:4       ours=["self:POSITIONAL_OR_KEYWORD"]                 cpython=["self:POSITIONAL_OR_KEYWORD"]                 yes
+at 12:11      ours=null                                           cpython=["k:POSITIONAL_OR_KEYWORD"]                    METHOD MISSING
+
+====================================================================================================
+py_type / py_type_base -> ast   key = startLine of the class (py_type has no startColumn)
+   base order = `position` for positional rows, then keyword rows; IMPLICIT_OBJECT excluded
+====================================================================================================
+line 16   ours=Model [CLASS_TYPE]                 bases=[]                                                  
+         cpython=Model                              bases=[]                                                   yes
+====================================================================================================
+py_scope  ->  symtable block          key = (kind, name, startLine)
+====================================================================================================
+OURS: kind|name|line                           | CPYTHON: kind|name|line                  | match
+MODULE|top|0                                   | MODULE|top|0                             | yes
+CLASS|Plain|6                                  | CLASS|Plain|6                            | yes
+CLASS|Derived|10                               | CLASS|Derived|10                         | yes
+CLASS|Multi|14                                 | CLASS|Multi|14                           | yes
+FUNCTION|__getitem__|15                        | FUNCTION|__getitem__|15                  | yes
+FUNCTION|__iter__|16                           | FUNCTION|__iter__|16                     | yes
+FUNCTION|__len__|17                            | FUNCTION|__len__|17                      | yes
+CLASS|Color|20                                 | CLASS|Color|20                           | yes
+CLASS|Abstract|24                              | CLASS|Abstract|24                        | yes
+FUNCTION|run|26                                | FUNCTION|run|26                          | yes
+CLASS|MyError|29                               | CLASS|MyError|29                         | yes
+
+====================================================================================================
+py_binding -> symtable Symbol          key = (scopeKey, name);  11 predicate bits, in order:
+   param local global nonlocal free imported assigned referenced declGlobal annotated namespace
+====================================================================================================
+MODULE|top|0|Abstract                                ours=01100010001  cpython=01100010001  yes
+MODULE|top|0|Color                                   ours=01100010001  cpython=01100010001  yes
+MODULE|top|0|Derived                                 ours=01100010001  cpython=01100010001  yes
+MODULE|top|0|Multi                                   ours=01100010001  cpython=01100010001  yes
+MODULE|top|0|MyError                                 ours=01100010001  cpython=01100010001  yes
+MODULE|top|0|Plain                                   ours=01100011001  cpython=01100011001  yes
+MODULE|top|0|ValueError                              ours=00100001000  cpython=00100001000  yes
+MODULE|top|0|abc                                     ours=01100101000  cpython=01100101000  yes
+MODULE|top|0|collections                             ours=01100101000  cpython=01100101000  yes
+MODULE|top|0|enum                                    ours=01100101000  cpython=01100101000  yes
+CLASS|Multi|14|__getitem__                           ours=01000010001  cpython=01000010001  yes
+CLASS|Multi|14|__iter__                              ours=01000010001  cpython=01000010001  yes
+CLASS|Multi|14|__len__                               ours=01000010001  cpython=01000010001  yes
+FUNCTION|__getitem__|15|k                            ours=11000000000  cpython=11000000000  yes
+FUNCTION|__getitem__|15|self                         ours=11000000000  cpython=11000000000  yes
+FUNCTION|__iter__|16|self                            ours=11000000000  cpython=11000000000  yes
+FUNCTION|__len__|17|self                             ours=11000000000  cpython=11000000000  yes
+CLASS|Color|20|RED                                   ours=01000010000  cpython=01000010000  yes
+CLASS|Abstract|24|abc                                ours=00100001000  cpython=00100001000  yes
+CLASS|Abstract|24|run                                ours=01000010001  cpython=01000010001  yes
+FUNCTION|run|26|self                                 ours=11000000000  cpython=11000000000  yes
+
+====================================================================================================
+py_method / py_method_parameter -> ast   key = (startLine, startColumn) of the def/lambda
+====================================================================================================
+at 15:4       ours=["self:POSITIONAL_OR_KEYWORD","k:POSITIONAL_OR_KEYWORD"] cpython=["self:POSITIONAL_OR_KEYWORD","k:POSITIONAL_OR_KEYWORD"] yes
+at 16:4       ours=["self:POSITIONAL_OR_KEYWORD"]                 cpython=["self:POSITIONAL_OR_KEYWORD"]                 yes
+at 17:4       ours=["self:POSITIONAL_OR_KEYWORD"]                 cpython=["self:POSITIONAL_OR_KEYWORD"]                 yes
+at 26:4       ours=["self:POSITIONAL_OR_KEYWORD"]                 cpython=["self:POSITIONAL_OR_KEYWORD"]                 yes
+
+====================================================================================================
+py_type / py_type_base -> ast   key = startLine of the class (py_type has no startColumn)
+   base order = `position` for positional rows, then keyword rows; IMPLICIT_OBJECT excluded
+====================================================================================================
+line 6    ours=Plain [CLASS_TYPE]                 bases=[]                                                  
+         cpython=Plain                              bases=[]                                                   yes
+line 10   ours=Derived [CLASS_TYPE]               bases=["Plain"]                                           
+         cpython=Derived                            bases=["Plain"]                                            yes
+line 14   ours=Multi [ABC_TYPE]                   bases=["Plain","collections.abc.Mapping","metaclass=abc.ABCMeta"]
+         cpython=Multi                              bases=["Plain","collections.abc.Mapping","metaclass=abc.ABCMeta"] yes
+line 20   ours=Color [ENUM_CLASS_TYPE]            bases=["enum.Enum"]                                       
+         cpython=Color                              bases=["enum.Enum"]                                        yes
+line 24   ours=Abstract [ABC_TYPE]                bases=["abc.ABC"]                                         
+         cpython=Abstract                           bases=["abc.ABC"]                                          yes
+line 29   ours=MyError [EXCEPTION_CLASS_TYPE]     bases=["ValueError"]                                      
+         cpython=MyError                            bases=["ValueError"]                                       yes
