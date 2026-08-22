@@ -643,6 +643,59 @@ export class PythonResolutionLinker {
       }
     }
 
+    // Second pass for CALL_RESULT chains. The inner call has to be resolved
+    // before its return type can be read, so this cannot happen in one sweep.
+    // Bounded to a single retry: one hop is the parser's share, and a longer
+    // chain is the engine's to walk.
+    const methodByHash = new Map(allMethods.map(m => [m.getHash(), m]));
+    for (const module of modules) {
+      const innerCallReturnType = this.buildInnerCallReturnIndex(
+        module,
+        methodByHash,
+        projectReturnTypes,
+        typesByHash
+      );
+      if (innerCallReturnType.size === 0) {
+        continue;
+      }
+      const typesByName = typesByNameByModule.get(module.moduleHash) ?? new Map();
+      const bindingByScopeAndName = new Map<string, PyBindingRegistry>();
+      for (const binding of module.bindings) {
+        bindingByScopeAndName.set(`${binding.getPyScopeLinkHash()}::${binding.getName()}`, binding);
+      }
+      const parentScopeOf = new Map<string, string>();
+      for (const scope of module.scopes) {
+        parentScopeOf.set(scope.getHash(), scope.getParentScopeLinkHash());
+      }
+      for (const callSite of module.callSites) {
+        if (callSite.getResolvedCalleeKind() !== PythonResolvedCalleeKind.UNRESOLVED) {
+          continue;
+        }
+        if (callSite.getReceiverKind() !== PythonReceiverKind.CALL_RESULT) {
+          continue;
+        }
+        const target = this.resolveCallSite(callSite, {
+          typesByHash,
+          typesByName,
+          basesByType,
+          methodsByTypeAndName,
+          mroCache,
+          entityByBinding: new Map(),
+          bindingByScopeAndName,
+          parentScopeOf,
+          boundNames: new Set(),
+          importedModuleNames: new Set(),
+          fieldByTypeAndName: new Map(),
+          receiverNameByMethodHash: new Map(),
+          innerCallReturnType,
+        });
+        if (target) {
+          callSite.setResolvedCallee(target.kind, target.hash);
+          stats.callSitesResolved += 1;
+        }
+      }
+    }
+
     return stats;
   }
 
@@ -1175,6 +1228,14 @@ export class PythonResolutionLinker {
       returnedTypeByMethod?: Map<string, PyTypeRegistry | null>;
     }
   ): PyTypeRegistry | null {
+    // `return self` types the method as its own class. This is the fluent-API
+    // shape — `def add(self, x): ...; return self` — and without it a chained
+    // call like `node.add(x).count()` has no receiver type even though the
+    // answer is written in the method.
+    if (value.getKind() === PythonExpressionKind.SELF_REFERENCE) {
+      const enclosing = value.getPyTypeLinkHash();
+      return enclosing === '' ? null : ctx.typesByHash.get(enclosing) ?? null;
+    }
     if (value.getKind() !== PythonExpressionKind.CALL) {
       return null;
     }
@@ -1645,6 +1706,7 @@ export class PythonResolutionLinker {
       importedModules?: Map<string, ProjectModuleFacts>;
       localTypeByBinding?: Map<string, PyTypeRegistry | null>;
       returnedTypeByMethod?: Map<string, PyTypeRegistry | null>;
+      innerCallReturnType?: Map<string, PyTypeRegistry>;
     }
   ): { kind: PythonResolvedCalleeKind; hash: string } | null {
     const name = callSite.getCalleeName();
@@ -1909,6 +1971,98 @@ export class PythonResolutionLinker {
   }
 
   /**
+   * Maps each CALL_RESULT call site to the return type of its INNER call.
+   *
+   * Built after a first resolution pass, because it depends on the inner call
+   * already being resolved. The join is structural: the inner call is the
+   * RECEIVER child of the outer call in the expression tree, so this never
+   * matches on receiver text, which would conflate two identical calls on one
+   * line.
+   *
+   * This is the parser doing exactly ONE hop — inner callee to its declared or
+   * inferred return type — and no more. A longer chain stays for the engine,
+   * which can walk it precisely because each hop is linked.
+   */
+  private buildInnerCallReturnIndex(
+    module: ResolutionInput,
+    methodByHash: Map<string, PyMethodRegistry>,
+    returnedTypeByMethod: Map<string, PyTypeRegistry | null>,
+    typesByHash: Map<string, PyTypeRegistry>
+  ): Map<string, PyTypeRegistry> {
+    const index = new Map<string, PyTypeRegistry>();
+    const callSiteByExpression = new Map<string, PyCallSiteRegistry>();
+    for (const site of module.callSites) {
+      callSiteByExpression.set(site.getPyExpressionLinkHash(), site);
+    }
+    // `reg.first().label()` nests as CALL -> ATTRIBUTE_ACCESS(RECEIVER) ->
+    // CALL(ATTRIBUTE_OBJECT), so the inner call is a GRANDCHILD, not a child.
+    // Looking only one level down found nothing and the whole index came back
+    // empty — the rule was right and the tree walk was wrong.
+    const childrenByParent = new Map<string, PyExpressionRegistry[]>();
+    for (const expression of module.expressions) {
+      const parent = expression.getParentExpressionHash();
+      if (parent === '') {
+        continue;
+      }
+      const list = childrenByParent.get(parent) ?? [];
+      list.push(expression);
+      childrenByParent.set(parent, list);
+    }
+    const innerCallOf = (outerHash: string): PyExpressionRegistry | undefined => {
+      for (const child of childrenByParent.get(outerHash) ?? []) {
+        if (child.getEdgeRole() !== PythonEdgeRole.RECEIVER) {
+          continue;
+        }
+        if (child.getKind() === PythonExpressionKind.CALL) {
+          return child;
+        }
+        if (child.getKind() === PythonExpressionKind.ATTRIBUTE_ACCESS) {
+          for (const inner of childrenByParent.get(child.getHash()) ?? []) {
+            if (inner.getKind() === PythonExpressionKind.CALL) {
+              return inner;
+            }
+          }
+        }
+      }
+      return undefined;
+    };
+
+    for (const site of module.callSites) {
+      if (site.getReceiverKind() !== PythonReceiverKind.CALL_RESULT) {
+        continue;
+      }
+      const inner = innerCallOf(site.getPyExpressionLinkHash());
+      if (!inner) {
+        continue;
+      }
+      const innerSite = callSiteByExpression.get(inner.getHash());
+      const innerTarget = innerSite?.getResolvedCalleeHash() ?? '';
+      if (innerTarget === '') {
+        continue;
+      }
+      // The inner call may construct a class, in which case the receiver IS that
+      // class; otherwise it is a method and the receiver is its return type.
+      const constructed = typesByHash.get(innerTarget);
+      if (constructed) {
+        index.set(site.getHash(), constructed);
+        continue;
+      }
+      const method = methodByHash.get(innerTarget);
+      if (!method) {
+        continue;
+      }
+      const returned = this.returnedTypeOf(method, {
+        typesByName: new Map(),
+        returnedTypeByMethod,
+      });
+      if (returned) {
+        index.set(site.getHash(), returned);
+      }
+    }
+    return index;
+  }
+
+  /**
    * Resolves `make_conn().send()` — a CALL_RESULT receiver.
    *
    * Needs no relation that does not already exist: the inner call's callee has a
@@ -1934,6 +2088,7 @@ export class PythonResolutionLinker {
       entityByBinding: Map<string, PyMethodRegistry | PyTypeRegistry>;
       bindingByScopeAndName: Map<string, PyBindingRegistry>;
       parentScopeOf: Map<string, string>;
+      innerCallReturnType?: Map<string, PyTypeRegistry>;
     }
   ): { kind: PythonResolvedCalleeKind; hash: string } | null {
     const receiverText = callSite.getReceiverText();
@@ -1957,6 +2112,23 @@ export class PythonResolutionLinker {
       }
       const found = this.lookupMethodOnTypeAndBases(returnedFromSelf.getHash(), calleeName, ctx);
       return found ? { kind: PythonResolvedCalleeKind.METHOD, hash: found.getHash() } : null;
+    }
+
+    // The receiver is a call that THIS analysis already resolved: `reg.first()`
+    // in `reg.first().label()`. Rather than re-deriving the receiver's type,
+    // take the inner call's own resolved callee and read its return type — one
+    // hop off a link that already exists. The inner site is found through the
+    // expression tree, where it is the RECEIVER child of the outer call, so the
+    // join is structural rather than a text match on the receiver.
+    if (ctx.innerCallReturnType) {
+      const chained = ctx.innerCallReturnType.get(callSite.getHash());
+      if (chained) {
+        const found = this.lookupMethodOnTypeAndBases(chained.getHash(), calleeName, ctx);
+        if (found) {
+          return { kind: PythonResolvedCalleeKind.METHOD, hash: found.getHash() };
+        }
+        return null;
+      }
     }
 
     // Otherwise only a direct `name()` receiver. `a.b()` and `f()()` need a
