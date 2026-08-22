@@ -13,3 +13,4 @@ export * from '@/enums/python/parse-gaps';
 export * from '@/enums/python/scopes';
 export * from '@/enums/python/type-references';
 export * from '@/enums/python/types';
+export * from '@/enums/python/type-parameters';

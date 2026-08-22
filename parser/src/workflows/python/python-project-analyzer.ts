@@ -118,6 +118,7 @@ export class PythonProjectAnalyzer {
       blocks: [] as { toCsv(): string; getCsvHeader(): string }[],
       comments: [] as { toCsv(): string; getCsvHeader(): string }[],
       parseGaps: [] as { toCsv(): string; getCsvHeader(): string }[],
+      typeParameters: [] as { toCsv(): string; getCsvHeader(): string }[],
       decorators: [] as { toCsv(): string; getCsvHeader(): string }[],
       decoratorArguments: [] as { toCsv(): string; getCsvHeader(): string }[],
     };
@@ -192,6 +193,7 @@ export class PythonProjectAnalyzer {
       accumulated.fieldPositions.push(...facts.fieldPositions);
       accumulated.blocks.push(...facts.blocks);
       accumulated.comments.push(...facts.comments);
+      accumulated.typeParameters.push(...facts.typeParameters);
       accumulated.parseGaps.push(...facts.parseGaps);
       accumulated.decorators.push(...facts.decorators);
       accumulated.decoratorArguments.push(...facts.decoratorArguments);
@@ -256,6 +258,11 @@ export class PythonProjectAnalyzer {
     await this.exportCsv(accumulated.blocks, options.outputDir, PYTHON_CSV_FILES.BLOCKS);
     await this.exportCsv(accumulated.comments, options.outputDir, PYTHON_CSV_FILES.COMMENTS);
     await this.exportCsv(accumulated.parseGaps, options.outputDir, PYTHON_CSV_FILES.PARSE_GAPS);
+    await this.exportCsv(
+      accumulated.typeParameters,
+      options.outputDir,
+      PYTHON_CSV_FILES.TYPE_PARAMETERS
+    );
     await this.exportCsv(accumulated.decorators, options.outputDir, PYTHON_CSV_FILES.DECORATORS);
     await this.exportCsv(
       accumulated.decoratorArguments,
@@ -292,6 +299,7 @@ export class PythonProjectAnalyzer {
         py_field_position: accumulated.fieldPositions.length,
         py_block: accumulated.blocks.length,
         py_comment: accumulated.comments.length,
+        py_type_parameter: accumulated.typeParameters.length,
         py_parse_gap: accumulated.parseGaps.length,
         py_decorator: accumulated.decorators.length,
         py_decorator_argument: accumulated.decoratorArguments.length,

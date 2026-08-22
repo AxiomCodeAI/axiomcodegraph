@@ -96,6 +96,9 @@ const DEFERRED_ARITY: Readonly<Record<string, number>> = {
   // annotation, a `# noqa`. Docstrings appear here AND in py_expression, which
   // §2.17 makes intentional — a recall check must whitelist the duplication.
   py_comment: 15,
+  // PEP 695 syntax only. A pre-3.12 TypeVar is a runtime ASSIGNMENT and lands in
+  // py_binding with targetEntityKind=TYPE_VAR instead — a different fact.
+  py_type_parameter: 14,
 };
 
 /** Every relation the parser emits, for the per-row arity check. */
@@ -1676,6 +1679,7 @@ async function analyzerTests(): Promise<Failure[]> {
     'all-python-blocks.csv': DEFERRED_ARITY.py_block!,
     'all-python-parse-gaps.csv': DEFERRED_ARITY.py_parse_gap!,
     'all-python-comments.csv': DEFERRED_ARITY.py_comment!,
+    'all-python-type-parameters.csv': DEFERRED_ARITY.py_type_parameter!,
     'all-python-decorators.csv': DEFERRED_ARITY.py_decorator!,
     'all-python-decorator-arguments.csv': DEFERRED_ARITY.py_decorator_argument!,
   };

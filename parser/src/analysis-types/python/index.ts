@@ -16,3 +16,4 @@ export { PyTypeBaseRegistry, PyTypeBaseRegistryBuilder } from '@/analysis-types/
 export { PyTypeReferenceRegistry, PyTypeReferenceRegistryBuilder } from '@/analysis-types/python/PyTypeReferenceRegistry';
 export { PyTypeRegistry, PyTypeRegistryBuilder } from '@/analysis-types/python/PyTypeRegistry';
 export { PyParseGapRegistry } from '@/analysis-types/python/PyParseGapRegistry';
+export { PyTypeParameterRegistry } from '@/analysis-types/python/PyTypeParameterRegistry';

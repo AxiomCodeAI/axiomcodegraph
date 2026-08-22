@@ -17,6 +17,7 @@ import {
   PyParseGapRegistry,
   PyScopeRegistry,
   PyTypeBaseRegistry,
+  PyTypeParameterRegistry,
   PyTypeReferenceRegistry,
   PyTypeRegistry,
 } from '@/analysis-types/python';
@@ -30,6 +31,7 @@ import { PythonExpressionExtractor } from '@/parsers/python/extractors/python-ex
 import { PythonBlockExtractor } from '@/parsers/python/extractors/python-block-extractor';
 import { PythonCommentExtractor } from '@/parsers/python/extractors/python-comment-extractor';
 import { PythonParseGapExtractor } from '@/parsers/python/extractors/python-parse-gap-extractor';
+import { PythonTypeParameterExtractor } from '@/parsers/python/extractors/python-type-parameter-extractor';
 import { PythonDecoratorExtractor } from '@/parsers/python/extractors/python-decorator-extractor';
 import { PythonFieldExtractor } from '@/parsers/python/extractors/python-field-extractor';
 import { PythonResolutionLinker } from '@/parsers/python/extractors/python-resolution-linker';
@@ -94,6 +96,14 @@ export interface PythonFactSet {
    */
   comments: PyCommentRegistry[];
   /**
+   * PEP 695 type parameters (3.12 syntax only).
+   *
+   * A pre-3.12 `TypeVar` is a runtime ASSIGNMENT, not a declaration, and lands
+   * in `py_binding` with `targetEntityKind=TYPE_VAR` instead — a different fact,
+   * modelled differently.
+   */
+  typeParameters: PyTypeParameterRegistry[];
+  /**
    * `(pyTypeLinkHash, attributeName)` -> `py_field` PK, and `py_method` PK ->
    * receiver name. Both are indexes the cross-module pass needs to redo the
    * attribute join it cannot recompute from CSV rows alone.
@@ -143,6 +153,7 @@ export class PythonFactExtractor {
   private blockExtractor: PythonBlockExtractor;
   private parseGapExtractor: PythonParseGapExtractor;
   private commentExtractor: PythonCommentExtractor;
+  private typeParameterExtractor: PythonTypeParameterExtractor;
   /** The parameter rows of the file being processed, for default-value linking. */
   private lastParameters: PyMethodParameterRegistry[] = [];
 
@@ -164,6 +175,7 @@ export class PythonFactExtractor {
     this.blockExtractor = new PythonBlockExtractor();
     this.parseGapExtractor = new PythonParseGapExtractor();
     this.commentExtractor = new PythonCommentExtractor();
+    this.typeParameterExtractor = new PythonTypeParameterExtractor();
   }
 
   extract(input: PythonExtractionInput): PythonFactSet {
@@ -186,6 +198,7 @@ export class PythonFactExtractor {
         decoratorArguments: [],
         blocks: [],
         comments: [],
+        typeParameters: [],
         // A REJECTED module still gets its gaps. This is the case the relation
         // exists for: nothing else is emitted, so without these rows the file is
         // indistinguishable from one that simply had no facts in it.
@@ -354,6 +367,17 @@ export class PythonFactExtractor {
       decorators: decoratorStage.decorators,
       decoratorArguments: decoratorStage.decoratorArguments,
       blocks: blockStage.blocks,
+      typeParameters: this.typeParameterExtractor.extract({
+        module: scopeStage.module,
+        rootNode: scopeStage.rootNode,
+        filePath: input.filePath,
+        serviceVersionLinkHash: input.serviceVersionLinkHash,
+        types: declarations.types,
+        methods: declarations.methods,
+        typeHashByNodeId: declarations.typeHashByNodeId,
+        methodHashByNodeId: declarations.methodHashByNodeId,
+        scopeHashByNodeId: scopeStage.scopeHashByNodeId,
+      }),
       comments: this.commentExtractor.extract({
         module: scopeStage.module,
         rootNode: scopeStage.rootNode,
