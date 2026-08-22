@@ -427,10 +427,20 @@ export class PythonResolutionLinker {
     // resolve: `self.transport.close()` where `transport` is annotated with a
     // class imported from elsewhere.
     const fieldByTypeAndName = new Map<string, PyFieldRegistry>();
+    // EVERY row for a name, not just the preferred one. An attribute routinely
+    // exists twice — `dialect: Dialect` in the class body and
+    // `self.dialect = ...` in `__init__` — and those are two py_field rows by
+    // design, since fieldOrigin is part of identity. Preferring the instance row
+    // is right for deciding WHICH ROW A READ REACHES and wrong for deciding
+    // WHERE THE TYPE COMES FROM, because the annotation is on the other row.
+    // Keeping only the preferred row is why ATTRIBUTE resolution read 0 of 227
+    // on SQLAlchemy's engine package while an independent resolver got 97.
+    const fieldsByTypeAndName = new Map<string, PyFieldRegistry[]>();
     const receiverNameByMethodHash = new Map<string, string>();
     for (const module of modules) {
       for (const field of module.fields) {
         const key = `${field.getPyTypeLinkHash()}||${field.getName()}`;
+        fieldsByTypeAndName.set(key, [...(fieldsByTypeAndName.get(key) ?? []), field]);
         const incumbent = fieldByTypeAndName.get(key);
         if (!incumbent || incumbent.getFieldModifier().includes('CLASS_VAR')) {
           fieldByTypeAndName.set(key, field);
@@ -629,6 +639,7 @@ export class PythonResolutionLinker {
           boundNames,
           importedModuleNames,
           fieldByTypeAndName,
+          fieldsByTypeAndName,
           receiverNameByMethodHash,
           fieldTypeByHash,
           parametersByMethod,
@@ -1567,8 +1578,12 @@ export class PythonResolutionLinker {
     // `py_field_write` on the grounds that linking a write to its merged field
     // row is a resolution rule over `(pyTypeLinkHash, name)`, not a stored fact.
     const fieldByTypeAndName = new Map<string, PyFieldRegistry>();
+    // See the project pass: an attribute usually has more than one row, and the
+    // annotation may be on a different row from the assignment.
+    const fieldsByTypeAndName = new Map<string, PyFieldRegistry[]>();
     for (const field of input.fields) {
       const key = `${field.getPyTypeLinkHash()}||${field.getName()}`;
+      fieldsByTypeAndName.set(key, [...(fieldsByTypeAndName.get(key) ?? []), field]);
       const incumbent = fieldByTypeAndName.get(key);
       // A class attribute and an instance attribute can share a name. The
       // instance one wins, because that is what a read through a receiver
@@ -1638,6 +1653,7 @@ export class PythonResolutionLinker {
         boundNames,
         importedModuleNames,
         fieldByTypeAndName,
+        fieldsByTypeAndName,
         receiverNameByMethodHash: input.receiverNameByMethodHash,
         parametersByMethod,
         moduleMethodsByName,
@@ -1876,6 +1892,7 @@ export class PythonResolutionLinker {
       mroCache: Map<string, string[] | null>;
       importedModuleNames: Set<string>;
       fieldByTypeAndName: Map<string, PyFieldRegistry>;
+      fieldsByTypeAndName?: Map<string, PyFieldRegistry[]>;
       receiverNameByMethodHash: Map<string, string>;
       fieldTypeByHash?: Map<string, PyTypeRegistry>;
       parametersByMethod?: Map<string, PyMethodParameterRegistry[]>;
@@ -1961,13 +1978,22 @@ export class PythonResolutionLinker {
       return null;
     }
 
-    const field = this.lookupFieldOnTypeAndBases(ownerType, segments[1] ?? '', ctx);
+    const rows = this.lookupFieldRowsOnTypeAndBases(ownerType, segments[1] ?? '', ctx);
+    const field = rows[0] ?? this.lookupFieldOnTypeAndBases(ownerType, segments[1] ?? '', ctx);
     if (!field) {
       return null;
     }
     // Prefer the type settled in the DECLARING module's namespace; fall back to
-    // this module's only when the project pass has not run.
-    const fieldType = ctx.fieldTypeByHash?.get(field.getHash()) ?? this.typeOfField(field, ctx);
+    // this module's only when the project pass has not run. Every row for the
+    // name is tried, because the annotation and the assignment are different
+    // rows and either may carry the answer.
+    let fieldType: PyTypeRegistry | null = null;
+    for (const row of rows.length > 0 ? rows : [field]) {
+      fieldType = ctx.fieldTypeByHash?.get(row.getHash()) ?? this.typeOfField(row, ctx);
+      if (fieldType) {
+        break;
+      }
+    }
     if (fieldType) {
       const method = this.lookupMethodOnTypeAndBases(fieldType.getHash(), calleeName, ctx);
       return method ? { kind: PythonResolvedCalleeKind.METHOD, hash: method.getHash() } : null;
@@ -2325,6 +2351,11 @@ export class PythonResolutionLinker {
     if (attributeName === '') {
       return null;
     }
+    // A class is always first in its own MRO — see lookupFieldRowsOnTypeAndBases.
+    const own = ctx.fieldByTypeAndName.get(`${typeHash}||${attributeName}`);
+    if (own) {
+      return own;
+    }
     const mro = this.linearize(typeHash, ctx, new Set<string>());
     if (!mro) {
       return null;
@@ -2336,6 +2367,69 @@ export class PythonResolutionLinker {
       }
     }
     return null;
+  }
+
+  /**
+   * Every `py_field` row for an attribute name, nearest declaring class first.
+   *
+   * An attribute commonly has more than one row, because `fieldOrigin` is part
+   * of its identity: `dialect: Dialect` in the class body and
+   * `self.dialect = ...` in `__init__` are two facts about one attribute. Typing
+   * has to see BOTH — the annotation is on one and the assignment on the other —
+   * so a lookup that returns only the preferred row can find an attribute and
+   * still fail to type it.
+   */
+  private lookupFieldRowsOnTypeAndBases(
+    typeHash: string,
+    attributeName: string,
+    ctx: {
+      typesByHash: Map<string, PyTypeRegistry>;
+      basesByType: Map<string, PyTypeBaseRegistry[]>;
+      mroCache: Map<string, string[] | null>;
+      fieldsByTypeAndName?: Map<string, PyFieldRegistry[]>;
+    }
+  ): PyFieldRegistry[] {
+    if (attributeName === '' || !ctx.fieldsByTypeAndName) {
+      return [];
+    }
+    // A class is always FIRST in its own MRO, so its own attributes need no
+    // linearisation and cannot be shadowed by an opaque base. Requiring the MRO
+    // here refused every `self.<attr>.m()` in a class with ANY unresolvable base
+    // — and `class Connection(ConnectionEventsTarget, inspection.Inspectable["Inspector"])`
+    // is the ordinary shape in real code, not an edge case. The identical fix
+    // was already made for METHOD lookup; fields never got it, which is why
+    // ATTRIBUTE resolution read 0 of 227 on SQLAlchemy's engine package.
+    const own = ctx.fieldsByTypeAndName.get(`${typeHash}||${attributeName}`);
+    if (own && own.length > 0) {
+      return this.annotatedFirst(own);
+    }
+
+    const mro = this.linearize(typeHash, ctx, new Set<string>());
+    if (!mro) {
+      return [];
+    }
+    for (const candidate of mro) {
+      const rows = ctx.fieldsByTypeAndName.get(`${candidate}||${attributeName}`);
+      if (rows && rows.length > 0) {
+        return this.annotatedFirst(rows);
+      }
+    }
+    return [];
+  }
+
+  /**
+   * Orders field rows so an ANNOTATED one is tried first.
+   *
+   * Which row a READ reaches at runtime is a different question from which row
+   * states the type. `dialect: Dialect` in the class body says what the
+   * attribute holds; `self.dialect = ...` in `__init__` says when it is set.
+   */
+  private annotatedFirst(rows: PyFieldRegistry[]): PyFieldRegistry[] {
+    return [...rows].sort((left, right) => {
+      const l = left.getFieldTypeName() === '' ? 1 : 0;
+      const r = right.getFieldTypeName() === '' ? 1 : 0;
+      return l - r;
+    });
   }
 
   /**
