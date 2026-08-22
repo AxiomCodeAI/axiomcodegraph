@@ -312,6 +312,50 @@ export class PythonResolutionLinker {
       importedModuleByName.set(module.qualifiedName, mods);
     }
 
+    // Module-level class ALIASES, built before bases because a base can be one:
+    // `_Aliased = Base` then `class ViaAlias(_Aliased)`. This needs no evaluation
+    // of module-level code — it is a name bound to a class and never rebound, so
+    // the binding resolves it. An independent resolver agrees, answering
+    // models.Base for exactly this shape.
+    const aliasByModule = new Map<string, Map<string, PyMethodRegistry | PyTypeRegistry>>();
+    for (const module of modules) {
+      const scoped = new Map<string, PyBindingRegistry>();
+      for (const binding of module.bindings) {
+        scoped.set(`${binding.getPyScopeLinkHash()}::${binding.getName()}`, binding);
+      }
+      const parents = new Map<string, string>();
+      for (const scope of module.scopes) {
+        parents.set(scope.getHash(), scope.getParentScopeLinkHash());
+      }
+      const entities = new Map<string, PyMethodRegistry | PyTypeRegistry>();
+      for (const type of module.types) {
+        if (type.getDeclaringBindingLinkHash() !== '') {
+          entities.set(type.getDeclaringBindingLinkHash(), type);
+        }
+      }
+      for (const method of module.methods) {
+        if (method.getDeclaringBindingLinkHash() !== '') {
+          entities.set(method.getDeclaringBindingLinkHash(), method);
+        }
+      }
+      for (const [bindingHash, entity] of entityByImportBinding) {
+        entities.set(bindingHash, entity);
+      }
+      const aliases = this.buildLocalAliasIndex(module, {
+        entityByBinding: entities,
+        bindingByScopeAndName: scoped,
+        parentScopeOf: parents,
+      });
+      const byName = new Map<string, PyMethodRegistry | PyTypeRegistry>();
+      for (const [bindingHash, entity] of aliases) {
+        const binding = module.bindings.find(b => b.getHash() === bindingHash);
+        if (binding) {
+          byName.set(binding.getName(), entity);
+        }
+      }
+      aliasByModule.set(module.qualifiedName, byName);
+    }
+
     // Project-wide dotted resolution, built BEFORE bases are resolved because
     // bases are the first thing that needs it. The suffix index answers nested
     // and module-qualified names directly; the per-module map answers
@@ -389,8 +433,13 @@ export class PythonResolutionLinker {
           }
           continue;
         }
-        // A bare name: local first, then whatever an import bound.
-        const target = localTypes.get(simpleName) ?? imported.get(simpleName);
+        // A bare name: local first, then whatever an import bound, then a
+        // module-level ALIAS — `_Aliased = Base` is a class by another name.
+        const aliased = aliasByModule.get(module.qualifiedName)?.get(simpleName);
+        const target =
+          localTypes.get(simpleName) ??
+          imported.get(simpleName) ??
+          (aliased instanceof PyTypeRegistry ? aliased : undefined);
         if (target && target.getHash() !== base.getPyTypeLinkHash()) {
           base.setResolution(target.getHash(), true);
         }

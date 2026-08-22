@@ -22,6 +22,10 @@ class Mixed(Child, Sibling):          # C3: Mixed -> Child -> Base -> Sibling ->
 
 class ViaAlias(_Aliased):             # base bound by assignment, not import
     def describe(self):
-        return super().describe()     # alias base, not an import   MUST STAY UNRESOLVED
-        # This is the correct answer, not a gap: _Aliased is bound by assignment,
-        # so the base is only knowable by evaluating module-level code.
+        return super().describe()     # alias base, not an import   MUST resolve
+        # Previously asserted MUST STAY UNRESOLVED, on the reasoning that a base
+        # bound by assignment is knowable only by evaluating module-level code.
+        # That reasoning was wrong for this shape: `_Aliased = Base` binds a name
+        # to a class and never rebinds it, so resolving it needs no evaluation,
+        # only the binding. An independent resolver answers models.Base here,
+        # which is what settled it.
