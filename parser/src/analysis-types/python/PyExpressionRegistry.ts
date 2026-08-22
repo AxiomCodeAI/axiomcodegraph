@@ -199,6 +199,20 @@ export class PyExpressionRegistry implements EntityIdentifiable {
     return this.pyTypeLinkHash;
   }
 
+  /** True when this node is an assignment or deletion TARGET, not a read. */
+  getIsWrite(): boolean {
+    return this.isWrite;
+  }
+
+  getIsAwaited(): boolean {
+    return this.isAwaited;
+  }
+
+  /** `*x` / `**x` in a call or a literal. */
+  getIsStarred(): boolean {
+    return this.isStarred;
+  }
+
   getDottedPath(): string {
     return this.dottedPath;
   }

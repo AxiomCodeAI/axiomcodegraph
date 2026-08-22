@@ -2510,16 +2510,38 @@ export class PythonExpressionExtractor {
   }
 
   private literalTextOf(node: Parser.SyntaxNode): string {
+    // `...` carries no text of its own in tree-sitter but IS a value; CPython
+    // names it `Ellipsis`, and an empty literalValue made it indistinguishable
+    // from a literal we failed to read.
+    if (node.type === 'ellipsis') {
+      return 'Ellipsis';
+    }
     if (node.type !== 'string' && node.type !== 'concatenated_string') {
       return node.text;
     }
-    for (let i = 0; i < node.namedChildCount; i++) {
-      const part = node.namedChild(i);
-      if (part?.type === 'string_content') {
-        return EntityUtils.normalizeWhitespace(part.text);
+    // An IMPLICITLY CONCATENATED string is ONE value: `"part-one" "part-two"` is
+    // `part-onepart-two` to CPython. Returning the first part alone — or, when
+    // the parts sit in nested `string` nodes, returning nothing at all — lost the
+    // value entirely, which matters because this is how long SQL and URL
+    // literals are written.
+    const parts: string[] = [];
+    const collect = (current: Parser.SyntaxNode): void => {
+      for (let index = 0; index < current.namedChildCount; index += 1) {
+        const part = current.namedChild(index);
+        if (!part) {
+          continue;
+        }
+        if (part.type === 'string_content') {
+          parts.push(part.text);
+          continue;
+        }
+        if (part.type === 'string' || part.type === 'concatenated_string') {
+          collect(part);
+        }
       }
-    }
-    return '';
+    };
+    collect(node);
+    return EntityUtils.normalizeWhitespace(parts.join(''));
   }
 
   private binaryOperatorOf(node: Parser.SyntaxNode): string {
