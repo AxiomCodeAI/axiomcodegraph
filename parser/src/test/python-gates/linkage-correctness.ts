@@ -69,7 +69,7 @@ const PY='/Library/Frameworks/Python.framework/Versions/3.10/bin/python3';
       const inProj = ourEntities.has(tail(t)) || ourMembers.has(tail(t).split('.').pop() ?? '');
       if(!isNone){ if(inProj) nonNoneInProj++; else nonNoneExternal++; }
       if(inProj){ inProjMiss.set(k,(inProjMiss.get(k)??0)+1);
-        if((k==='NAME'||k==='NONE'||k==='SELF')&&ex.length<12)
+        if((k==='SUPER'||k==='SELF')&&ex.length<10)
           ex.push('    '+k.padEnd(11)+((s.c.receiverText?s.c.receiverText+'.':'')+s.c.calleeName+'()').padEnd(36)+'-> '+t.slice(0,44)); }
     }
     else { neither++; if(isNone) nonel.neither++; }

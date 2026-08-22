@@ -406,18 +406,29 @@ export class PythonResolutionLinker {
           // unresolved bases in asyncio are exactly this shape.
           const prefix = dotted.slice(0, dotted.lastIndexOf('.'));
           const targetModule = importedModules.get(prefix.split('.')[0]!);
-          if (!targetModule) {
-            continue;
-          }
-          const candidates = targetModule.types.filter(
-            t =>
-              t.getName() === simpleName &&
-              t.getEnclosingTypeLinkHash() === '' &&
-              t.getEnclosingMethodLinkHash() === ''
+          // A `continue` used to sit here when the prefix was not an imported
+          // module, which made the fallback below unreachable in exactly the
+          // case its own comment describes. The two paths answer different
+          // questions and both must run.
+          const candidates = (targetModule?.types ?? []).filter(
+            type =>
+              type.getName() === simpleName &&
+              type.getEnclosingTypeLinkHash() === '' &&
+              type.getEnclosingMethodLinkHash() === ''
           );
           if (candidates.length === 1) {
             base.setResolution(candidates[0]!.getHash(), true);
             continue;
+          }
+          // The member may be a module-level ALIAS rather than a declaration:
+          // `_PyFuture = Future` at the foot of asyncio/futures.py, then
+          // `class Task(futures._PyFuture)`. A declaration-only scan misses it.
+          if (targetModule) {
+            const aliased = aliasByModule.get(targetModule.qualifiedName)?.get(simpleName);
+            if (aliased instanceof PyTypeRegistry) {
+              base.setResolution(aliased.getHash(), true);
+              continue;
+            }
           }
           // The prefix did not name an imported module in THIS file — the usual
           // reason being a re-export (`import unittest` then
