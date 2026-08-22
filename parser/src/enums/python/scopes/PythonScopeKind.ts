@@ -55,6 +55,31 @@ export enum PythonScopeKind {
   /** PEP 695 `type` alias scope (3.12). Deferred — declared for forward parity. */
   TYPE_ALIAS = 'TYPE_ALIAS',
 
+  /**
+   * The scope CPython opens for a BOUNDED or CONSTRAINED type parameter (3.12+).
+   *
+   * `class C[T: int]` is three scopes deep, not two, and the middle one is a
+   * distinct block type in CPython's own symtable — `get_type()` returns
+   * `"TypeVar bound"`, not `"type parameter"`. Verified directly on 3.12.4:
+   *
+   * ```
+   * class C[T]        module -> type parameter -> class
+   * class C[T: int]   module -> type parameter -> TypeVar bound -> class
+   * def f[T: (int, str)]()   module -> type parameter -> TypeVar bound -> function
+   * ```
+   *
+   * The bound gets its own scope because it is EVALUATED LAZILY and can refer to
+   * the type parameters around it, so it cannot share the wrapper's namespace.
+   * A constrained parameter — the tuple form — opens it too, so this is not the
+   * rare case it might look like: 18 occurrences in CPython's own PEP 695 tests.
+   *
+   * §2.2 anticipated TYPE_PARAM and TYPE_ALIAS but not this third scope. Merging
+   * it into TYPE_PARAM would report a two-level nesting as flat and lose the
+   * distinction between a name visible to the bound and one visible only to the
+   * body.
+   */
+  TYPE_PARAM_BOUND = 'TYPE_PARAM_BOUND',
+
   /** PEP 649 deferred-annotation scope (3.14). Deferred — declared for forward parity. */
   ANNOTATION = 'ANNOTATION',
 }
