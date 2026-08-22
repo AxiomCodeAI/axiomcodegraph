@@ -140,6 +140,16 @@ interface StatementContext {
   isConditional: boolean;
   receiverName: string;
   receiverIsClass: boolean;
+  /**
+   * True only directly inside a CLASS BODY.
+   *
+   * Cannot be inferred from `ownerKind` or `typeHash`: the class body's owner is
+   * the synthetic `<classbody>` METHOD, and `typeHash` is inherited by
+   * everything lexically inside the class including nested functions. Without an
+   * explicit flag, a `def` nested in a method looked like a method and took its
+   * own first parameter as a receiver.
+   */
+  directClassMember: boolean;
   /** Where a bare expression statement sits, for `rootContext`. */
   statementRootContext: PythonRootContext;
 }
@@ -714,6 +724,7 @@ export class PythonExpressionExtractor {
       scopeHash: this.input.scopeHashByNodeId.get(node.id) ?? context.scopeHash,
       ownerHash: classInitHash,
       ownerKind: PythonExpressionOwnerKind.METHOD,
+      directClassMember: true,
       methodHash: classInitHash,
       typeHash,
       isModuleLevel: false,
@@ -804,8 +815,7 @@ export class PythonExpressionExtractor {
     // A nested function INHERITS the enclosing method's receiver instead, which
     // is what the language does: `self` inside a closure is the enclosing
     // method's `self`, reached as a free variable, so it stays a SELF_REFERENCE.
-    const isDirectClassMember =
-      context.ownerKind === PythonExpressionOwnerKind.TYPE && context.typeHash !== '';
+    const isDirectClassMember = context.directClassMember && context.typeHash !== '';
     const receiverName = isDirectClassMember
       ? isStaticMethod
         ? ''
@@ -822,6 +832,8 @@ export class PythonExpressionExtractor {
       isModuleLevel: false,
       receiverName,
       receiverIsClass,
+      // Anything inside a function body is no longer a direct class member.
+      directClassMember: false,
       statementRootContext: PythonRootContext.EXPRESSION_STATEMENT,
     });
   }
