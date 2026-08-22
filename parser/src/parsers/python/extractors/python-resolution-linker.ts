@@ -553,6 +553,7 @@ export class PythonResolutionLinker {
           fieldTypeByHash,
           parametersByMethod,
           moduleMethodsByName: moduleMethodsByNameByModule.get(module.moduleHash),
+          importedModules: importedModuleByName.get(module.qualifiedName),
         });
         if (target) {
           callSite.setResolvedCallee(target.kind, target.hash);
@@ -1074,6 +1075,8 @@ export class PythonResolutionLinker {
       fieldTypeByHash?: Map<string, PyTypeRegistry>;
       parametersByMethod?: Map<string, PyMethodParameterRegistry[]>;
       moduleMethodsByName?: Map<string, PyMethodRegistry | null>;
+      /** Bound module name -> that module's facts, for in-project imports. */
+      importedModules?: Map<string, ProjectModuleFacts>;
     }
   ): { kind: PythonResolvedCalleeKind; hash: string } | null {
     const name = callSite.getCalleeName();
@@ -1125,13 +1128,30 @@ export class PythonResolutionLinker {
         const receiver = callSite.getReceiverText();
         const type = receiver === '' ? null : ctx.typesByName.get(receiver);
         if (!type) {
-          // A receiver naming an imported MODULE — `functools.wraps(...)`. The
-          // target is outside this analysis, so no hash exists, but "reached
-          // through an import" is a real fact and strictly better than silence.
+          // A receiver naming a module. If that module is IN THIS ANALYSIS the
+          // target is a real entity, so the call gets a concrete hash rather than
+          // a bare `IMPORTED` — `events.get_event_loop()` inside asyncio reaches
+          // the actual function. Only when the module is genuinely outside does
+          // `IMPORTED` with an empty hash remain the honest answer: the fact that
+          // it is reached through an import is real, and a hash would be invented.
+          const inProject = receiver === '' ? undefined : ctx.importedModules?.get(receiver);
+          if (inProject) {
+            const member = this.lookupModuleMember(inProject, name);
+            if (member) {
+              return this.describeEntity(member);
+            }
+          }
           if (receiver !== '' && ctx.importedModuleNames.has(receiver)) {
             return { kind: PythonResolvedCalleeKind.IMPORTED, hash: '' };
           }
           return null;
+        }
+        // A NESTED CLASS constructor: `TopOne.Inner()` names a type, not a
+        // method, so looking only for methods missed it entirely even though the
+        // same dotted name resolves fine in an annotation.
+        const nested = this.lookupNestedType(type, name, ctx);
+        if (nested) {
+          return { kind: PythonResolvedCalleeKind.TYPE, hash: nested.getHash() };
         }
         const method = this.lookupMethodOnTypeAndBases(type.getHash(), name, ctx);
         return method ? { kind: PythonResolvedCalleeKind.METHOD, hash: method.getHash() } : null;
@@ -1192,6 +1212,7 @@ export class PythonResolutionLinker {
       fieldTypeByHash?: Map<string, PyTypeRegistry>;
       parametersByMethod?: Map<string, PyMethodParameterRegistry[]>;
       moduleMethodsByName?: Map<string, PyMethodRegistry | null>;
+      importedModules?: Map<string, ProjectModuleFacts>;
     }
   ): { kind: PythonResolvedCalleeKind; hash: string } | null {
     const receiverText = callSite.getReceiverText();
@@ -1200,7 +1221,40 @@ export class PythonResolutionLinker {
     }
     const segments = receiverText.split('.');
 
-    // `os.path.join(...)` — the head names an imported module.
+    // A dotted receiver naming a TYPE: `TopOne.Inner.Deepest()` constructs a
+    // doubly-nested class. The annotation path already walked these names; the
+    // CALL path did not, so the same name resolved in one position and not the
+    // other.
+    const receiverType = this.resolveDottedTypeName(receiverText, {
+      typesByName: ctx.typesByName,
+      qualifiedSuffixIndex: this.qualifiedSuffixIndex,
+      typesByNameByModuleName: this.typesByNameByModuleName,
+    });
+    if (receiverType) {
+      const nested = this.lookupNestedType(receiverType, calleeName, ctx);
+      if (nested) {
+        return { kind: PythonResolvedCalleeKind.TYPE, hash: nested.getHash() };
+      }
+      const onType = this.lookupMethodOnTypeAndBases(receiverType.getHash(), calleeName, ctx);
+      if (onType) {
+        return { kind: PythonResolvedCalleeKind.METHOD, hash: onType.getHash() };
+      }
+    }
+
+    // A dotted receiver whose head names an IN-PROJECT module:
+    // `pkg.mod.function()`. Resolvable to a real entity, unlike a stdlib path.
+    const headModule = ctx.importedModules?.get(segments[0] ?? '');
+    if (headModule && segments.length === 2) {
+      const member = this.lookupModuleMember(headModule, segments[1] ?? '');
+      if (member instanceof PyTypeRegistry) {
+        const onMember = this.lookupMethodOnTypeAndBases(member.getHash(), calleeName, ctx);
+        if (onMember) {
+          return { kind: PythonResolvedCalleeKind.METHOD, hash: onMember.getHash() };
+        }
+      }
+    }
+
+    // `os.path.join(...)` — the head names a module outside the analysis.
     if (ctx.importedModuleNames.has(segments[0] ?? '')) {
       return { kind: PythonResolvedCalleeKind.IMPORTED, hash: '' };
     }
@@ -1377,6 +1431,58 @@ export class PythonResolutionLinker {
       return [];
     }
     return heads;
+  }
+
+  /**
+   * A module-level function or class of the given name, when exactly one exists.
+   *
+   * Only module-level entities count: a method of some class in that module is
+   * not reachable as `module.name`, and a nested function is not either.
+   */
+  private lookupModuleMember(
+    module: ProjectModuleFacts,
+    name: string
+  ): PyMethodRegistry | PyTypeRegistry | null {
+    const methods = module.methods.filter(
+      m =>
+        m.getName() === name &&
+        m.getPyTypeLinkHash() === '' &&
+        m.getEnclosingMemberLinkHash() === ''
+    );
+    const types = module.types.filter(
+      t =>
+        t.getName() === name &&
+        t.getEnclosingTypeLinkHash() === '' &&
+        t.getEnclosingMethodLinkHash() === ''
+    );
+    if (methods.length + types.length !== 1) {
+      return null;
+    }
+    return methods[0] ?? types[0] ?? null;
+  }
+
+  /**
+   * A class nested directly inside another, by name.
+   *
+   * `TopOne.Inner()` is a constructor call on a nested class. The qualified-name
+   * suffix index answers it directly, but the enclosing-type check is what keeps
+   * it honest: it must be nested in THIS class, not merely share a suffix with
+   * something else.
+   */
+  private lookupNestedType(
+    outer: PyTypeRegistry,
+    name: string,
+    ctx: { typesByHash: Map<string, PyTypeRegistry> }
+  ): PyTypeRegistry | null {
+    for (const candidate of ctx.typesByHash.values()) {
+      if (
+        candidate.getName() === name &&
+        candidate.getEnclosingTypeLinkHash() === outer.getHash()
+      ) {
+        return candidate;
+      }
+    }
+    return null;
   }
 
   /**
