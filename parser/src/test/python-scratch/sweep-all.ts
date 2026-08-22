@@ -9,6 +9,7 @@ import { PythonFactExtractor } from '@/parsers/python/extractors/python-fact-ext
 import { diffCalls } from './diff-calls';
 import { diffDecl } from './diff-decl';
 import { diffFile } from './diff-oracle';
+import { diffExpr } from '@/test/python-gates/diff-expr';
 
 function walk(dir: string, out: string[]): string[] {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -111,6 +112,7 @@ for (const f of files) {
     totals.scopes += g1.scopeExpected; totals.bindings += g1.bindExpected;
     const g2 = diffDecl(f); problems.push(...g2.problems.map(p => 'G2 ' + p));
     const g3 = diffCalls(f); problems.push(...g3.problems.map(p => 'G3 ' + p));
+    problems.push(...diffExpr(f).problems.map(p => 'GX ' + p));
     totals.calls += g3.counts.expected ?? 0; totals.exprs += g3.counts.expressions ?? 0;
     problems.push(...checkInvariants(f, 'SERVICE_VERSION_test').map(p => 'INV ' + p));
   } catch (e: any) {

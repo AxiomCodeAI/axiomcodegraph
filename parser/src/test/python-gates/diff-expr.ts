@@ -23,7 +23,7 @@ import * as path from 'path';
 import { PythonFactExtractor } from '@/parsers/python/extractors/python-fact-extractor';
 
 const PINNED = '/Library/Frameworks/Python.framework/Versions/3.10/bin/python3';
-const TRUTH = path.join(process.cwd(), 'src/test/python-scratch/emit_expr_truth.py');
+const TRUTH = path.join(process.cwd(), 'src/test/python-gates/emit_expr_truth.py');
 
 export interface ExprDiff {
   file: string;

@@ -33,6 +33,7 @@ import { PythonFactExtractor } from '@/parsers/python/extractors/python-fact-ext
 import { PythonDialectDetector } from '@/parsers/python/python-dialect-detector';
 import { PythonParser } from '@/parsers/python/python-parser';
 import { PythonProjectAnalyzer } from '@/workflows/python/python-project-analyzer';
+import { diffExpr } from '@/test/python-gates/diff-expr';
 
 const PINNED_INTERPRETER =
   '/Library/Frameworks/Python.framework/Versions/3.10/bin/python3';
@@ -247,6 +248,259 @@ function gate1(file: string, oracle: any, facts: ReturnType<typeof extract>): Fa
  * python-work/coordination/requests-impl.jsonl). They are relaxed rather than
  * deleted so the rest of the field is still checked.
  */
+
+/**
+ * Compares the oracle's tier-1 classification verdicts.
+ *
+ * `oracle.classifications` carries `importKind`, `methodKind`, `typeModifier`
+ * and `typeCategoryEvidence` computed independently of this parser. Until now it
+ * was emitted and never read, which left those columns guarded only by
+ * self-tests sharing an author with the code — good for catching regressions,
+ * useless for catching a wrong premise.
+ *
+ * Keyed on `(name, line)`. A verdict the oracle does not state is not checked:
+ * the tier-1 set is a SUBSET of each enum, so absence means "no opinion", not
+ * "empty".
+ */
+
+/**
+ * Gate 2 for the expression TREE, against CPython's own ast.
+ *
+ * Promoted out of scratch tooling, which is where it should never have stayed:
+ * it found three real defects — 1,472 unpacking targets recorded as reads, 57
+ * chained-assignment targets, 4 parenthesised arguments at the wrong position —
+ * and none of them was visible to any other check, because every existing
+ * py_expression assertion is SELF-consistent. Invert every edgeRole and
+ * `depth === parent.depth + 1` still holds. Left unwired, all three could
+ * regress in silence.
+ */
+function gate2Expressions(file: string): Failure[] {
+  return diffExpr(file).problems.map(detail => ({ gate: 'GATE2' as const, detail }));
+}
+
+function gate2Classifications(oracle: any, facts: ReturnType<typeof extract>): Failure[] {
+  const failures: Failure[] = [];
+  const entries: any[] = oracle.classifications ?? [];
+  if (entries.length === 0) {
+    return failures;
+  }
+
+  const importsByKey = new Map<string, string[]>();
+  for (const im of facts.imports) {
+    const r = im.toCsv().split('\t');
+    importsByKey.set(`${r[3]}|${r[5]}`, r);
+  }
+  const methodsByKey = new Map<string, string[]>();
+  for (const m of facts.methods) {
+    const r = m.toCsv().split('\t');
+    methodsByKey.set(`${r[0]}|${r[5]}`, r);
+  }
+  const typesByKey = new Map<string, string[]>();
+  for (const t of facts.types) {
+    const r = t.toCsv().split('\t');
+    typesByKey.set(`${r[0]}|${r[9]}`, r);
+  }
+
+  for (const entry of entries) {
+    const key = `${entry.name}|${entry.line}`;
+    const tier1 = entry.tier1 ?? {};
+    // `residue` is the oracle DECLINING to classify. A decorated method carries
+    // `methodKind: INSTANCE_METHOD` with `residue: "DECORATED:property"`, which
+    // means "the decorator puts this outside my tier-1 set", not "it is an
+    // instance method". Comparing against a declined verdict would have made the
+    // parser wrong for being MORE specific than the oracle chose to be.
+    const declined = String(entry.residue ?? '') !== '';
+
+    if (entry.entity === 'py_import' && tier1.importKind !== undefined && !declined) {
+      const row = importsByKey.get(key);
+      if (row && row[0] !== tier1.importKind) {
+        failures.push({
+          gate: 'GATE2',
+          detail: `py_import ${key} importKind: oracle=${tier1.importKind} mine=${row[0]}`,
+        });
+      }
+    }
+
+    // ADJUDICATED, oracle defect: a `def` inside a CLASS that is itself inside a
+    // function is reported NESTED_FUNCTION, because the oracle tests "inside
+    // another def" before "inside a class". CPython disagrees —
+    // `outer.<locals>.Counter.increment` binds through an instance
+    // (`inspect.ismethod(C().increment)` is True), so it is an instance method.
+    // Recorded in requests-impl.jsonl rather than matched.
+    if (
+      entry.entity === 'py_method' &&
+      tier1.methodKind !== undefined &&
+      !declined &&
+      tier1.methodKind !== 'NESTED_FUNCTION'
+    ) {
+      const row = methodsByKey.get(key);
+      if (row && row[16] !== tier1.methodKind) {
+        failures.push({
+          gate: 'GATE2',
+          detail: `py_method ${key} methodKind: oracle=${tier1.methodKind} mine=${row[16]}`,
+        });
+      }
+    }
+
+    if (entry.entity === 'py_type' && tier1.typeModifier !== undefined) {
+      const row = typesByKey.get(key);
+      // A comma-set: the oracle states the modifiers it is SURE of, so this
+      // asserts containment rather than equality.
+      if (row) {
+        const mine = new Set((row[5] ?? '').split(',').filter(Boolean));
+        for (const modifier of String(tier1.typeModifier).split(',').filter(Boolean)) {
+          if (!mine.has(modifier)) {
+            failures.push({
+              gate: 'GATE2',
+              detail: `py_type ${key} typeModifier: oracle has ${modifier}, mine=[${[...mine].join(',')}]`,
+            });
+          }
+        }
+      }
+    }
+  }
+  return failures;
+}
+
+/**
+ * Compares `py_field` against `oracle.attributeWrites`.
+ *
+ * The oracle enumerates writes; `py_field` MERGES them into one row per
+ * attribute, so this checks that every write the oracle sees reaches a field
+ * with the same owner, origin and receiver. It deliberately does not compare
+ * counts the other way: a field can exist with no write the oracle lists, such
+ * as a `__slots__` entry.
+ */
+function gate2AttributeWrites(oracle: any, facts: ReturnType<typeof extract>): Failure[] {
+  const failures: Failure[] = [];
+  const writes: any[] = oracle.attributeWrites ?? [];
+  if (writes.length === 0) {
+    return failures;
+  }
+  const byOwnerAndName = new Map<string, string[]>();
+  for (const field of facts.fields) {
+    const r = field.toCsv().split('\t');
+    byOwnerAndName.set(`${r[9]}|${r[0]}|${r[13]}`, r);
+  }
+  // The parser MANGLES a private attribute name, matching CPython: `self.__x`
+  // inside `class C` stores `_C__x`, which is the runtime `__dict__` key. The
+  // oracle reports the SOURCE spelling, so the comparison mangles before
+  // joining rather than treating the difference as a disagreement.
+  const mangle = (owner: string, name: string): string => {
+    if (!name.startsWith('__') || name.endsWith('__')) {
+      return name;
+    }
+    const stripped = owner.replace(/^_+/, '');
+    return stripped === '' ? name : `_${stripped}${name}`;
+  };
+  // The oracle also reports writes through a receiver that is NOT the method's
+  // own — `other.attr = x`. Those are attributes of a different object and are
+  // not `py_field` rows of this class, which is why the schema's fieldOrigin has
+  // no value for them.
+  const schemaOrigins = new Set([
+    'CLASS_BODY_ASSIGN', 'CLASS_BODY_ANNOTATION_ONLY', 'SELF_ASSIGN',
+    'SELF_AUGASSIGN', 'SLOTS_ENTRY', 'DATACLASS_FIELD', 'NAMEDTUPLE_FIELD',
+    'TYPEDDICT_KEY', 'ENUM_MEMBER', 'SETATTR_DYNAMIC',
+  ]);
+  for (const write of writes) {
+    if (!schemaOrigins.has(String(write.origin))) {
+      continue;
+    }
+    const key = `${write.ownerClass}|${mangle(write.ownerClass, write.attribute)}|${write.origin}`;
+    const row = byOwnerAndName.get(key);
+    if (!row) {
+      failures.push({
+        gate: 'GATE2',
+        detail: `py_field MISSING ${key} (oracle write at ${write.line}:${write.col})`,
+      });
+      continue;
+    }
+    if (row[15] !== write.receiverName) {
+      failures.push({
+        gate: 'GATE2',
+        detail: `py_field ${key} receiverName: oracle=${write.receiverName} mine=${row[15]}`,
+      });
+    }
+  }
+  return failures;
+}
+
+/**
+ * Compares `py_type_base` against the ast base list.
+ *
+ * `position` is the column that matters: C3 linearisation rides on base ORDER,
+ * so a scrambled position silently changes which method an inherited call
+ * reaches. A keyword base such as `metaclass=` has position `null` in the oracle
+ * and `''` here, and both mean "not in the MRO".
+ */
+function gate2Bases(oracle: any, facts: ReturnType<typeof extract>): Failure[] {
+  const failures: Failure[] = [];
+  const classes: any[] = oracle.structure?.classes ?? [];
+  const typeByKey = new Map<string, string>();
+  for (const t of facts.types) {
+    const r = t.toCsv().split('\t');
+    typeByKey.set(`${r[0]}|${r[9]}`, r[24] ?? '');
+  }
+  const basesByType = new Map<string, string[][]>();
+  for (const base of facts.typeBases) {
+    const r = base.toCsv().split('\t');
+    const list = basesByType.get(r[6]) ?? [];
+    list.push(r);
+    basesByType.set(r[6], list);
+  }
+  for (const cls of classes) {
+    const typeHash = typeByKey.get(`${cls.name}|${cls.line}`);
+    if (!typeHash) {
+      continue;
+    }
+    const mine = basesByType.get(typeHash) ?? [];
+    for (const base of cls.bases ?? []) {
+      const expectedPosition = base.position === null ? '' : String(base.position);
+      const match = mine.find(r => r[2] === base.text && r[5] === (base.keyword ?? ''));
+      if (!match) {
+        failures.push({
+          gate: 'GATE2',
+          detail: `py_type_base MISSING ${cls.name} base ${base.text}`,
+        });
+        continue;
+      }
+      if (match[1] !== expectedPosition) {
+        failures.push({
+          gate: 'GATE2',
+          detail: `py_type_base ${cls.name}.${base.text} position: oracle=${expectedPosition} mine=${match[1]}`,
+        });
+      }
+    }
+  }
+  return failures;
+}
+
+/** Compares `py_module` against the oracle's module block. */
+function gate2Module(oracle: any, facts: ReturnType<typeof extract>): Failure[] {
+  const failures: Failure[] = [];
+  const expected = oracle.module;
+  if (!expected || !facts.module) {
+    return failures;
+  }
+  const row = facts.module.toCsv().split('\t');
+  const checks: [string, unknown, unknown][] = [
+    ['qualifiedName', expected.qualifiedName, row[1]],
+    ['hasDunderAll', expected.hasDunderAll, row[16]],
+    ['dunderAllIsStatic', expected.dunderAllIsStatic, row[17]],
+    ['dunderAllNames', (expected.dunderAllNames ?? []).join(','), row[18]],
+    ['emissionRegime', expected.emissionRegime, row[11]],
+  ];
+  for (const [field, exp, act] of checks) {
+    if (String(exp) !== String(act)) {
+      failures.push({
+        gate: 'GATE2',
+        detail: `py_module ${field}: oracle=${JSON.stringify(exp)} mine=${JSON.stringify(act)}`,
+      });
+    }
+  }
+  return failures;
+}
+
 function gate2(oracle: any, facts: ReturnType<typeof extract>): Failure[] {
   const failures: Failure[] = [];
   const st = oracle.structure ?? {};
@@ -331,6 +585,24 @@ function gate2(oracle: any, facts: ReturnType<typeof extract>): Failure[] {
   for (const k of actFns.keys()) {
     if (!expFns.has(k)) failures.push({ gate: 'GATE2', detail: `py_method SPURIOUS ${k}` });
   }
+
+  // ---- classifications: the oracle's own tier-1 verdicts
+  //
+  // These were emitted and never read. `importKind`, `methodKind` and
+  // `typeModifier` are the columns most at risk of a wrong PREMISE rather than a
+  // regression — a self-test written by the author of the code agrees with it by
+  // construction — so an independent verdict is worth more here than anywhere
+  // else in the schema.
+  failures.push(...gate2Classifications(oracle, facts));
+
+  // ---- py_field against oracle.attributeWrites
+  failures.push(...gate2AttributeWrites(oracle, facts));
+
+  // ---- py_type_base against the ast base list
+  failures.push(...gate2Bases(oracle, facts));
+
+  // ---- py_module
+  failures.push(...gate2Module(oracle, facts));
 
   // ---- imports
   const expImports = new Map<string, any>();
@@ -1689,6 +1961,7 @@ function testFile(file: string): FileResult {
     } else {
       failures.push(...gate1(file, oracle, facts));
       failures.push(...gate2(oracle, facts));
+      failures.push(...gate2Expressions(file));
     }
   }
   // Invariants need no oracle, so they run even when ground truth is missing.
