@@ -255,11 +255,30 @@ export class PythonExpressionExtractor {
       }
 
       case 'expression_statement': {
+        // A BARE TUPLE as a statement — `1, 2, 3` or `x, y` — is FLATTENED by
+        // tree-sitter into several direct children of the statement, with no
+        // tuple node at all. CPython sees one `Tuple`, so emitting each child as
+        // its own root lost the tuple entirely: 628 of them on the torture
+        // corpus. The statement's own span is the tuple's span, so it can carry
+        // the row.
+        const parts: Parser.SyntaxNode[] = [];
         for (let i = 0; i < node.namedChildCount; i++) {
           const inner = node.namedChild(i);
-          if (inner) {
-            this.visitStatementExpression(inner, context);
+          if (inner && !inner.isExtra) {
+            parts.push(inner);
           }
+        }
+        if (parts.length > 1) {
+          this.enqueueRoot(
+            node,
+            context,
+            context.statementRootContext,
+            PythonEdgeRole.ROOT
+          );
+          return;
+        }
+        for (const inner of parts) {
+          this.visitStatementExpression(inner, context);
         }
         return;
       }
@@ -775,10 +794,24 @@ export class PythonExpressionExtractor {
     const decoratorText = decorators.map(d => d.text).join(' ');
     const isClassMethod = /@\s*classmethod/.test(decoratorText);
     const isStaticMethod = /@\s*staticmethod/.test(decoratorText);
-    const receiverName =
-      context.typeHash !== '' && !isStaticMethod
-        ? this.firstParameterName(parametersNode)
-        : '';
+    // A receiver belongs to a DIRECT class member. `context.typeHash` is
+    // inherited by everything lexically inside the class, so a nested `def`
+    // inside a method satisfied it too — and took its OWN first parameter as a
+    // receiver. `async def wrap(n)` inside a method made `n` a SELF_REFERENCE,
+    // which is simply false, and 578 nodes on the torture corpus were
+    // misclassified in one direction or the other.
+    //
+    // A nested function INHERITS the enclosing method's receiver instead, which
+    // is what the language does: `self` inside a closure is the enclosing
+    // method's `self`, reached as a free variable, so it stays a SELF_REFERENCE.
+    const isDirectClassMember =
+      context.ownerKind === PythonExpressionOwnerKind.TYPE && context.typeHash !== '';
+    const receiverName = isDirectClassMember
+      ? isStaticMethod
+        ? ''
+        : this.firstParameterName(parametersNode)
+      : context.receiverName;
+    const receiverIsClass = isDirectClassMember ? isClassMethod : context.receiverIsClass;
 
     this.visitStatements(bodyNode, {
       ...context,
@@ -788,7 +821,7 @@ export class PythonExpressionExtractor {
       methodHash,
       isModuleLevel: false,
       receiverName,
-      receiverIsClass: isClassMethod,
+      receiverIsClass,
       statementRootContext: PythonRootContext.EXPRESSION_STATEMENT,
     });
   }
@@ -2306,6 +2339,9 @@ export class PythonExpressionExtractor {
       // match-pattern form is `pattern_list`; all three are `Tuple` to ast, and
       // only two of them were mapped. It was the commonest completeness gap in
       // the stdlib.
+      // See the expression_statement case: a multi-part statement IS a bare
+      // tuple, and the statement node carries its span.
+      case 'expression_statement':
       case 'tuple_pattern':
       case 'pattern_list':
       // A BARE tuple — `return a, b` or `match a, b:` or `del a, b`. tree-sitter

@@ -118,18 +118,113 @@ ENUM_DIR = os.path.join("..", "src", "enums", "python")
 def _pascal(camel):
     return "Python" + camel[0].upper() + camel[1:]
 
+# A doc column name is NOT unique across relations - `kind` means PythonExpressionKind
+# under 2.15 and PythonBlockKind under 2.18 - so enums are keyed by (relation, column)
+# and resolved through this table. Anything unlisted falls back to _pascal(column).
+#
+# This table exists because the naming heuristic alone left 24 of 53 TS enums
+# UNCOMPARED, including PythonExpressionKind. A mutation test proved it: injecting a
+# bogus value into PythonExpressionKind did not trip the guard. A guard with a silent
+# 45% blind spot is worse than none, because it is trusted.
+ALIAS = {
+    ("py_expression", "kind"): "PythonExpressionKind",
+    ("py_expression", "rootContext"): "PythonRootContext",
+    ("py_expression", "unaryFixity"): "PythonUnaryFixity",
+    ("py_expression", "expressionOwnerKind"): "PythonExpressionOwnerKind",
+    ("py_expression", "referencedEntityKind"): "PythonReferencedEntityKind",
+    ("py_block", "kind"): "PythonBlockKind",
+    ("py_decorator", "kind"): "PythonDecoratorKind",
+    ("py_decorator", "context"): "PythonDecoratorContext",
+    ("py_decorator", "builtinKind"): "PythonBuiltinDecoratorKind",
+    ("py_decorator_argument", "valueType"): "PythonDecoratorArgumentValueType",
+    ("py_parse_gap", "kind"): "PythonParseGapKind",
+    ("py_parse_gap", "constructKind"): "PythonParseGapKind",
+    ("py_parse_gap", "disposition"): "PythonParseGapDisposition",
+    ("py_module", "pythonDialect"): "PythonDialect",
+    ("py_module", "emissionRegime"): "PythonEmissionRegime",
+    ("py_scope", "ownerKind"): "PythonScopeOwnerKind",
+    ("py_scope", "blockType"): "SymbolBlockType",
+    ("py_binding", "targetEntityKind"): "PythonBindingTargetKind",
+    ("py_method_parameter", "paramKind"): "PythonParameterKind",
+    ("py_import", "resolvedTargetKind"): "PythonImportTargetKind",
+    ("py_type_reference", "context"): "PythonTypeRefContext",
+    ("py_type_reference", "kind"): "PythonTypeRefKind",
+    ("py_type_reference", "referenceOwnerKind"): "PythonTypeRefOwnerKind",
+    ("py_type", "typeModifier"): "PythonTypeModifier",
+    ("py_field", "fieldModifier"): "PythonFieldModifier",
+    ("py_field", "writeKind"): "PythonFieldWriteKind",
+    ("py_method", "methodModifier"): "PythonMethodModifier",
+    ("py_field", "fieldAccess"): "PythonMethodAccess",   # one access enum serves both
+    ("py_parse_gap", "disposition"): "PythonParseGapDisposition",
+}
+
+# Enums the doc does not spell out, with the reason. Listed so that "not compared"
+# is a decision on the record rather than an accident.
+# Relations the schema declares but the parser does not emit yet. Their enums cannot
+# exist, so their absence is a backlog item, not schema drift.
+NOT_YET_EMITTED = {"py_comment"}
+
+UNSPECIFIED_OK = {
+    # py_expression c2 says only "the statement form the root sits in" - the doc never
+    # enumerates it. That is a DOC DEFECT, tracked rather than waived, but failing the
+    # build on it would block A3 for something only the human can ratify.
+    "PythonRootContext",
+    "SymbolBlockType",        # mirrors CPython symtable block types, defined upstream
+    "PythonFieldWriteKind",   # survivor of the removed py_field_write (2.10)
+}
+
 def parse_doc_enums():
-    """Enum value sets the doc declares, keyed by the column they belong to."""
+    """Enum value sets the doc declares, keyed by (relation, column).
+
+    Sectioned rather than line-by-line. A line-by-line pass read only the FIRST line
+    of `**\u0060edgeRole\u0060 enum:**`, which wraps over nine lines, and then reported all
+    39 of the values on the continuation lines as missing from the doc - a false
+    alarm larger than the real drift it was hunting.
+    """
     md = open(DOC).read()
+    heads = [(m.start(), m.group(1)) for m in re.finditer(r"^### 2\.\d+ `(py_\w+)`", md, re.M)]
     found = {}
-    # form 1:  **`edgeRole` enum:** `A`, `B`, `C`.
-    for m in re.finditer(r"\*\*`(\w+)` enum:\*\*(.+?)\.\n", md, re.S):
-        found.setdefault(m.group(1), set()).update(re.findall(r"`([A-Z][A-Z0-9_]*)`", m.group(2)))
-    # form 2:  | 7 | `typeCategory` | `A` \| `B` \| `C` |
-    for m in re.finditer(r"^\| \d+ \| `(\w+)`[^|]*\|(.+?)\|\s*$", md, re.M):
-        vals = re.findall(r"`([A-Z][A-Z0-9_]*)`", m.group(2))
-        if len(vals) >= 3:          # 3+ backticked constants is an enum, not prose
-            found.setdefault(m.group(1), set()).update(vals)
+    for i, (pos, rel) in enumerate(heads):
+        seg = md[pos: heads[i + 1][0] if i + 1 < len(heads) else len(md)]
+        # form 1: **`edgeRole` enum:** ... up to the terminating '.' at end of line
+        for m in re.finditer(r"\*\*`(\w+)` enum:\*\*(.+?)\.\n", seg, re.S):
+            found.setdefault((rel, m.group(1)), set()).update(
+                re.findall(r"`([A-Z][A-Z0-9_*]*)`", m.group(2)))
+        # form 2: | 7 | `typeCategory` | `A` \| `B` \| `C` |
+        #
+        # Take the cell up to the em-dash and no further. Two wrong cuts before this:
+        # reading the WHOLE cell turned grammarUsed's trailing prose ("`PARTIAL`
+        # means ...") into a phantom missing value, and restricting to a leading
+        # unbroken alternation truncated five enums at their first parenthetical,
+        # because the doc legitimately writes `CONSTRUCTOR` (`__init__`) mid-list.
+        for m in re.finditer(r"^\| \d+ \| `(\w+)`[^|]*\|(.+?)\|\s*$", seg, re.M):
+            col = m.group(1)
+            if (rel, col) in found:      # an explicit enum block always wins
+                continue
+            cell = re.split(r"\s\u2014\s", m.group(2))[0]
+            # A comma-set column is a SET of flags, not an alternation:
+            #   | 5 | `typeModifier` | comma-set: `ABSTRACT,FINAL,SLOTS` |
+            cs = re.search(r"comma-set:\s*`([A-Z][A-Z0-9_,]*)`", cell)
+            if cs:
+                found[(rel, col)] = set(cs.group(1).split(","))
+                continue
+            vals = re.findall(r"`([A-Z][A-Z0-9_*]*)`", cell)
+            # Require a real alternation. Without this, `hasElseClause` reads as a
+            # 3-value enum because its description happens to backtick TRY/FOR/WHILE,
+            # and a boolean column gets guarded as though it were an enum.
+            if len(vals) >= 2 and re.search(r"`\s*\\?\|\s*`", cell):
+                found.setdefault((rel, col), set()).update(vals)
+        # form 3: prose outside any table -  `valueType`: `A` \| `B` \| `C`
+        #
+        # These WRAP. Matching to end-of-line caught the first two values of
+        # py_decorator_argument.valueType and reported the other twelve as missing,
+        # which is a false alarm that looks exactly like real drift. Run to the blank
+        # line that ends the paragraph instead.
+        for m in re.finditer(r"^-?\s*`(\w+)`:\s*(.+?)(?=\n\n|\n-\s*`|\Z)", seg, re.S | re.M):
+            col = m.group(1)
+            vals = re.findall(r"`([A-Z][A-Z0-9_]*)`", m.group(2))
+            if len(vals) >= 2 and (rel, col) not in found:
+                found[(rel, col)] = set(vals)
     return found
 
 def parse_code_enums():
@@ -143,24 +238,55 @@ def parse_code_enums():
         if members:
             out[base] = members
     return out
+def _expand(docvals, codevals):
+    """Resolve `ASYNC_*` style wildcards against what the code actually declares.
+
+    The doc abbreviates four comprehension kinds as ASYNC_*, which is legitimate
+    prose and became a phantom drift when compared literally. A wildcard is satisfied
+    by any code value matching the prefix, and is a real miss only when NOTHING
+    matches - otherwise the doc must be rewritten for every variant added, which is
+    how docs stop being written at all.
+    """
+    out, wild = set(), []
+    for v in docvals:
+        (wild.append(v) if v.endswith("*") else out.add(v))
+    for w in wild:
+        hits = {c for c in codevals if c.startswith(w[:-1])}
+        out |= hits or {w}
+    return out
 
 def check_enums():
     doc_enums, code_enums = parse_doc_enums(), parse_code_enums()
-    problems, checked, unmapped = [], 0, []
-    for col, docvals in sorted(doc_enums.items()):
-        cls = _pascal(col)
+    problems, checked, seen = [], 0, set()
+    for (rel, col), docvals in sorted(doc_enums.items()):
+        cls = ALIAS.get((rel, col), _pascal(col))
         if cls not in code_enums:
-            unmapped.append("%s (expected %s.ts)" % (col, cls))
+            # A relation with no emitter yet has no enum yet, which is expected and
+            # is NOT drift. Distinguish it from a genuinely missing alias, or the
+            # guard cries wolf on work that has simply not started.
+            if rel in NOT_YET_EMITTED:
+                continue
+            problems.append("%s.%s: doc declares %d values but no TS enum found "
+                            "(looked for %s.ts) - add an ALIAS entry"
+                            % (rel, col, len(docvals), cls))
             continue
-        checked += 1
+        seen.add(cls); checked += 1
         codevals = code_enums[cls]
-        only_code = sorted(codevals - docvals)
-        only_doc = sorted(docvals - codevals)
+        docvals = _expand(docvals, codevals)
+        only_code, only_doc = sorted(codevals - docvals), sorted(docvals - codevals)
         if only_code:
-            problems.append("%s: IN CODE, NOT IN DOC: %s" % (col, ", ".join(only_code)))
+            problems.append("%s.%s (%s): IN CODE, NOT IN DOC: %s"
+                            % (rel, col, cls, ", ".join(only_code)))
         if only_doc:
-            problems.append("%s: IN DOC, NOT IN CODE: %s" % (col, ", ".join(only_doc)))
-    return problems, checked, unmapped, len(code_enums)
+            problems.append("%s.%s (%s): IN DOC, NOT IN CODE: %s"
+                            % (rel, col, cls, ", ".join(only_doc)))
+    # An enum nobody compares is an enum nobody guards, so this FAILS rather than
+    # printing a note. A mutation test is what proved the note was not enough.
+    unguarded = sorted(set(code_enums) - seen - UNSPECIFIED_OK)
+    if unguarded:
+        problems.append("UNGUARDED - declared in TS, never compared to the doc: %s"
+                        % ", ".join(unguarded))
+    return problems, checked, [], len(code_enums)
 
 rels, errors = parse_doc()
 enum_problems, enum_checked, enum_unmapped, enum_total = check_enums()
