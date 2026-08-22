@@ -29,3 +29,8 @@ python-work/staging/torture-parse-gap/
 .certify-out/
 .jedi-gaps.json
 python-work/staging/torture-pep695/
+.golden-out/
+.pep695-out/
+.select-out/
+.chain-out/
+.tp-out/
