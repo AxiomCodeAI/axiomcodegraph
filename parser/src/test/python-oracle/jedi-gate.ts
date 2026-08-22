@@ -226,6 +226,26 @@ export async function runJediGate(root: string, limit = 400): Promise<number> {
   const solved = stat.BOTH + stat.ADJUDICATED_OURS + stat.DISAGREE + stat.ONLY_US;
   const correct = stat.BOTH + stat.ADJUDICATED_OURS + stat.ONLY_US;
   console.log('');
+
+  // REFUSE TO SCORE A SILENT PEER.
+  //
+  // A correctness figure is a comparison, so it needs the peer to have answered.
+  // When jedi resolved nothing — which happened for a whole 66-file corpus because
+  // its environment was unpinned and macOS's /tmp symlink defeated the in-root test
+  // — every site landed in ONLY_US, the denominator collapsed to exactly the cases
+  // we answered, and this printed "100.0% correct". A gate that reports its best
+  // possible score when its instrument is broken is worse than no gate.
+  const peerAnswered = stat.BOTH + stat.DISAGREE + stat.ONLY_JEDI + stat.ADJUDICATED_OURS;
+  if (peerAnswered === 0 || peerAnswered < solvable * 0.05) {
+    console.log('  REFUSING TO SCORE — the peer resolved ' +
+                `${peerAnswered} of ${solvable} solvable sites.`);
+    console.log('  Nothing here was verified against anything. Likely causes, in the');
+    console.log('  order they have actually bitten: jedi resolving against a different');
+    console.log("  interpreter's stdlib, or the in-root test comparing unrealpath'd paths.");
+    console.log(`  ONLY_US ${stat.ONLY_US} is a count of UNVERIFIED answers, not correct ones.`);
+    return 1;
+  }
+
   console.log(`  SOLVABLE (either analyser reached it) : ${solvable}`);
   console.log(`    we produced an answer               : ${solved}  (${((100*solved)/Math.max(solvable,1)).toFixed(1)}%)`);
   console.log(`    and it AGREES with jedi             : ${correct}  (${((100*correct)/Math.max(solvable,1)).toFixed(1)}%)`);
