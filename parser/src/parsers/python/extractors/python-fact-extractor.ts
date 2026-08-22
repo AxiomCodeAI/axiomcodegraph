@@ -230,6 +230,10 @@ export class PythonFactExtractor {
     });
 
     this.linkTypeBasesToTheirReferences(declarations.typeBases, typeReferences);
+    // Before resolution, not after: resolving a decorator needs its expression's
+    // SCOPE, and the scope is only reachable through this FK. Linking afterwards
+    // left every decorator unresolved while looking correct in isolation.
+    this.linkDecoratorsToTheirExpressions(decoratorStage, expressionStage);
 
     this.resolutionLinker.link({
       scopes: scopeStage.scopes,
@@ -243,6 +247,8 @@ export class PythonFactExtractor {
       expressions: expressionStage.expressions,
       typeReferences,
       fields: fieldStage.fields,
+      decorators: decoratorStage.decorators,
+      decoratorArguments: decoratorStage.decoratorArguments,
       fieldHashByTypeAndName: fieldStage.fieldHashByTypeAndName,
       receiverNameByMethodHash: fieldStage.receiverNameByMethodHash,
       assignedValueByTargetRange: expressionStage.assignedValueByTargetRange,
@@ -254,7 +260,6 @@ export class PythonFactExtractor {
 
     this.linkBindingTargets(scopeStage, declarations, fieldStage);
     this.linkFieldsToTheirWriteExpressions(fieldStage, expressionStage);
-    this.linkDecoratorsToTheirExpressions(decoratorStage, expressionStage);
     this.linkScopeOwners(scopeStage, declarations);
     this.linkBindingMethods(scopeStage, declarations);
     this.linkParameterDefaults(declarations, expressionStage);

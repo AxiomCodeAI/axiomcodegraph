@@ -199,6 +199,8 @@ export class PythonProjectAnalyzer {
         expressions: facts.expressions,
         typeReferences: facts.typeReferences,
         fields: facts.fields,
+        decorators: facts.decorators,
+        decoratorArguments: facts.decoratorArguments,
         fieldHashByTypeAndName: facts.fieldHashByTypeAndName,
         receiverNameByMethodHash: facts.receiverNameByMethodHash,
         assignedValueByTargetRange: facts.assignedValueByTargetRange,

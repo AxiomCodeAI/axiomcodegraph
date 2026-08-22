@@ -98,6 +98,25 @@ export class PyDecoratorArgumentRegistry implements EntityIdentifiable {
     return this.isKeyword;
   }
 
+  /**
+   * Records that this argument NAMES A TYPE, with the FK to it.
+   *
+   * Java declares the same column and never populates it — `referencedType()`
+   * is not called anywhere in the Java parser — so a rule ported across finds an
+   * empty field on both sides. Populating it here is the difference between a
+   * consumer reading `HandlerClass` as text and reaching the class.
+   */
+  setReferencedType(referencedTypeHash: string, valueType: PythonDecoratorArgumentValueType): void {
+    // No re-hash: the PK is built from parent, position, arrayIndex, name and
+    // VALUE, none of which change here, so resolution cannot move a row.
+    this.referencedTypeHash = referencedTypeHash;
+    this.valueType = valueType;
+  }
+
+  getReferencedTypeHash(): string {
+    return this.referencedTypeHash;
+  }
+
   setPyExpressionLinkHash(pyExpressionLinkHash: string): void {
     this.pyExpressionLinkHash = pyExpressionLinkHash;
   }

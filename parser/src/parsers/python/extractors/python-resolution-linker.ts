@@ -1,6 +1,8 @@
 import {
   PyBindingRegistry,
   PyCallSiteRegistry,
+  PyDecoratorArgumentRegistry,
+  PyDecoratorRegistry,
   PyExpressionRegistry,
   PyFieldRegistry,
   PyImportRegistry,
@@ -13,6 +15,7 @@ import {
 } from '@/analysis-types/python';
 import { PYTHON_BUILTIN_TYPE_METHODS } from '@/constants/python-constants';
 import { PythonReceiverKind, PythonResolvedCalleeKind } from '@/enums/python/call-sites';
+import { PythonDecoratorArgumentValueType } from '@/enums/python/decorators';
 import { PythonInitializerKind } from '@/enums/python/fields';
 import {
   PythonEdgeRole,
@@ -67,6 +70,8 @@ export interface ResolutionInput {
   expressions: PyExpressionRegistry[];
   typeReferences: PyTypeReferenceRegistry[];
   fields: PyFieldRegistry[];
+  decorators?: PyDecoratorRegistry[];
+  decoratorArguments?: PyDecoratorArgumentRegistry[];
   /** Assignment target byte range -> value byte range, from the expression stage. */
   assignedValueByTargetRange?: Map<string, string>;
   /** Byte range -> expression PK. */
@@ -664,6 +669,12 @@ export class PythonResolutionLinker {
         bindingByScopeAndName,
         parentScopeOf,
       });
+      this.resolveDecorators(module, {
+        typesByName,
+        entityByBinding,
+        bindingByScopeAndName,
+        parentScopeOf,
+      });
 
       // The return index is PROJECT-WIDE, merged below, because a factory is
       // usually imported: `reg = make_registry()` in one module needs the return
@@ -890,6 +901,99 @@ export class PythonResolutionLinker {
       return moduleTypes.get(memberName) ?? null;
     }
     return null;
+  }
+
+
+  /**
+   * Resolves decorators and their arguments to the entities they name.
+   *
+   * Two FKs that the schema declares and that would otherwise ship empty —
+   * `py_decorator.resolvedTargetHash` and
+   * `py_decorator_argument.referencedTypeHash`. Java declares the second and
+   * never populates it, so a rule ported across finds nothing on either side;
+   * that is the failure mode this project has now hit four times, and an empty
+   * FK is invisible to orphan checking because there is nothing to dereference.
+   *
+   * The decorator name is resolved through the SAME scope chain a call would
+   * use, so `@app.route` and a call to `app.route` reach the same entity. An
+   * argument that resolves to a class is retyped CLASS_REFERENCE, and a dotted
+   * argument whose base is a class becomes ENUM_CONSTANT — which is what an enum
+   * member is in a language with no enum syntax.
+   */
+  private resolveDecorators(
+    input: ResolutionInput,
+    ctx: {
+      typesByName: Map<string, PyTypeRegistry | null>;
+      entityByBinding: Map<string, PyMethodRegistry | PyTypeRegistry>;
+      bindingByScopeAndName: Map<string, PyBindingRegistry>;
+      parentScopeOf: Map<string, string>;
+    }
+  ): void {
+    const decorators = input.decorators ?? [];
+    const decoratorArguments = input.decoratorArguments ?? [];
+    if (decorators.length === 0) {
+      return;
+    }
+    const scopeByExpression = new Map<string, string>();
+    for (const expression of input.expressions) {
+      scopeByExpression.set(expression.getHash(), expression.getPyScopeLinkHash());
+    }
+
+    const scopeOfDecorator = new Map<string, string>();
+    for (const decorator of decorators) {
+      const scope = scopeByExpression.get(decorator.getPyExpressionLinkHash()) ?? '';
+      scopeOfDecorator.set(decorator.getHash(), scope);
+      const named = decorator.getDottedPath() === ''
+        ? decorator.getDecoratorName()
+        : decorator.getDottedPath();
+      const target = named.includes('.')
+        ? this.resolveDottedTypeName(named, {
+            typesByName: ctx.typesByName,
+            qualifiedSuffixIndex: this.qualifiedSuffixIndex,
+            typesByNameByModuleName: this.typesByNameByModuleName,
+          })
+        : this.lookupInScopeChain(decorator.getDecoratorName(), scope, ctx);
+      if (target) {
+        decorator.setResolvedTargetHash(target.getHash());
+      }
+    }
+
+    for (const argument of decoratorArguments) {
+      const valueType = argument.getValueType();
+      const isName = valueType === PythonDecoratorArgumentValueType.NAME_REFERENCE;
+      const isDotted = valueType === PythonDecoratorArgumentValueType.ATTRIBUTE_REFERENCE;
+      if (!isName && !isDotted) {
+        continue;
+      }
+      const scope = scopeOfDecorator.get(argument.getParentDecoratorLinkHash()) ?? '';
+      const value = argument.getArgumentValue();
+      if (isName) {
+        const entity = this.lookupInScopeChain(value, scope, ctx);
+        if (entity instanceof PyTypeRegistry) {
+          argument.setReferencedType(
+            entity.getHash(),
+            PythonDecoratorArgumentValueType.CLASS_REFERENCE
+          );
+        }
+        continue;
+      }
+      // `Color.RED` — resolve the BASE. If it is a class, this is an enum member
+      // or a class attribute, and either way the FK points at the class.
+      const base = value.slice(0, value.lastIndexOf('.'));
+      const owner = base.includes('.')
+        ? this.resolveDottedTypeName(base, {
+            typesByName: ctx.typesByName,
+            qualifiedSuffixIndex: this.qualifiedSuffixIndex,
+            typesByNameByModuleName: this.typesByNameByModuleName,
+          })
+        : this.lookupInScopeChain(base, scope, ctx);
+      if (owner instanceof PyTypeRegistry) {
+        argument.setReferencedType(
+          owner.getHash(),
+          PythonDecoratorArgumentValueType.ENUM_CONSTANT
+        );
+      }
+    }
   }
 
   private resolveTypeReferences(
@@ -1702,6 +1806,12 @@ export class PythonResolutionLinker {
     );
 
     this.linkNameReferences(input, {
+      entityByBinding,
+      bindingByScopeAndName,
+      parentScopeOf,
+    });
+    this.resolveDecorators(input, {
+      typesByName,
       entityByBinding,
       bindingByScopeAndName,
       parentScopeOf,

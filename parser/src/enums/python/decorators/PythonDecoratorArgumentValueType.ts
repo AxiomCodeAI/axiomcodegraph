@@ -16,8 +16,30 @@ export enum PythonDecoratorArgumentValueType {
   DICT = 'DICT',
   TUPLE = 'TUPLE',
   SET = 'SET',
+  /**
+   * A bare name that does NOT resolve to a class — a constant, a function, a
+   * variable. Kept distinct from {@link CLASS_REFERENCE} so a consumer can tell
+   * "we looked and it is not a class" from "we did not look".
+   */
   NAME_REFERENCE = 'NAME_REFERENCE',
   ATTRIBUTE_REFERENCE = 'ATTRIBUTE_REFERENCE',
+  /**
+   * A name that RESOLVES to a class, mirroring Java's `CLASS_REFERENCE`.
+   *
+   * `@register(HandlerClass)` and `@field(default_factory=OrderedDict)` name a
+   * type, and `referencedTypeHash` carries the FK. Without the distinction a
+   * consumer cannot tell a class argument from any other identifier without
+   * re-resolving the name itself, which is the work this relation exists to
+   * have already done.
+   */
+  CLASS_REFERENCE = 'CLASS_REFERENCE',
+  /**
+   * A dotted name whose base resolves to a class — `Color.RED`, `Mode.STRICT`.
+   *
+   * Java's `ENUM_CONSTANT`. Python has no separate enum syntax, so this is any
+   * attribute access on a resolved class, which is what an enum member is.
+   */
+  ENUM_CONSTANT = 'ENUM_CONSTANT',
   CALL = 'CALL',
   LAMBDA = 'LAMBDA',
   FSTRING = 'FSTRING',

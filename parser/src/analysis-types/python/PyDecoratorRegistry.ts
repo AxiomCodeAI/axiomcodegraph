@@ -160,6 +160,10 @@ export class PyDecoratorRegistry implements EntityIdentifiable {
   }
 
   /** FK→`py_expression` — the decorator expression's root node. */
+  getPyExpressionLinkHash(): string {
+    return this.pyExpressionLinkHash;
+  }
+
   setPyExpressionLinkHash(pyExpressionLinkHash: string): void {
     this.pyExpressionLinkHash = pyExpressionLinkHash;
   }
