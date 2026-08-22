@@ -21,16 +21,29 @@ const PY='/Library/Frameworks/Python.framework/Versions/3.10/bin/python3';
     {encoding:'utf8',maxBuffer:512*1024*1024})).map((r:any)=>[r.id,r]));
   // Compare on the LAST TWO segments — Class.method — since jedi and we spell
   // module prefixes differently and only the declaring class and member matter.
+  const ourEntities=new Set<string>();
+  const ourMembers=new Set<string>();
   const tail=(s:string)=>{const p=String(s).split('.').filter(Boolean);return p.slice(-2).join('.');};
+  for(const v of nameOf.values()){ const p=v.split('.'); ourEntities.add(p.slice(-2).join('.')); ourMembers.add(p[p.length-1]!); }
   let both=0,agree=0,disagree=0,adjudicatedOurs=0,onlyUs=0,onlyJedi=0,neither=0,builtinBoth=0;
   const dis:string[]=[];
   const ex:string[]=[];
   const miss=new Map<string,number>(); const inProjMiss=new Map<string,number>();
+  let jediError=0, noRecord=0;
+  let nonNoneInProj=0, nonNoneExternal=0;
+  const nonel={total:0,both:0,onlyUs:0,onlyJedi:0,neither:0,builtin:0};
+  const kindsOfBuiltin=new Map<string,number>();
   for(const s of sites){
-    const j:any=jedi.get(String(s.i)); if(!j||j.jedi==='ERROR') continue;
+    const isNone = s.c.receiverKind==='NONE';
+    if(isNone) nonel.total++;
+    const j:any=jedi.get(String(s.i));
+    if(!j){ noRecord++; continue; }
+    if(j.jedi==='ERROR'){ jediError++; continue; }
     const ours=s.c.resolvedCalleeHash!==''; const theirs=j.jedi==='RESOLVED';
-    if(j.jedi==='BUILTIN'){ if(s.c.resolvedCalleeKind==='BUILTIN') builtinBoth++; continue; }
-    if(ours&&theirs){ both++;
+    if(j.jedi==='BUILTIN'){ if(s.c.resolvedCalleeKind==='BUILTIN') builtinBoth++;
+      kindsOfBuiltin.set(s.c.receiverKind,(kindsOfBuiltin.get(s.c.receiverKind)??0)+1);
+      if(isNone) nonel.builtin++; continue; }
+    if(ours&&theirs){ both++; if(isNone) nonel.both++;
       const a=tail(nameOf.get(s.c.resolvedCalleeHash)??''), b=tail(j.target);
       if(a===b||a.split('.').pop()===b.split('.').pop()) agree++;
       else {
@@ -44,20 +57,49 @@ const PY='/Library/Frameworks/Python.framework/Versions/3.10/bin/python3';
         else { disagree++; if(dis.length<8) dis.push('  '+((s.c.receiverText?s.c.receiverText+'.':'')+s.c.calleeName+'()').padEnd(36)+'ours='+a.padEnd(30)+'jedi='+b); }
       }
     }
-    else if(ours) onlyUs++;
-    else if(theirs){ onlyJedi++;
+    else if(ours){ onlyUs++; if(isNone) nonel.onlyUs++; }
+    else if(theirs){ onlyJedi++; if(isNone) nonel.onlyJedi++;
       const k=s.c.receiverKind; miss.set(k,(miss.get(k)??0)+1);
-      const t=String(j.target); const inProj = !t.match(/^(typing|asyncio|_pytest|collections|re|os|io|abc|enum|functools|itertools|contextlib|logging|weakref|datetime|decimal|json)\./);
+      const t=String(j.target);
+      // A gap is REACHABLE only if jedi's answer names an entity we actually
+      // emitted a row for. A prefix blacklist was arbitrary and too generous;
+      // this is objective and both sides can compute it identically — if there
+      // is no py_method or py_type with that Class.member tail, no amount of
+      // parser work produces a hash for it.
+      const inProj = ourEntities.has(tail(t)) || ourMembers.has(tail(t).split('.').pop() ?? '');
+      if(!isNone){ if(inProj) nonNoneInProj++; else nonNoneExternal++; }
       if(inProj){ inProjMiss.set(k,(inProjMiss.get(k)??0)+1);
         if((k==='NAME'||k==='NONE'||k==='SELF')&&ex.length<12)
           ex.push('    '+k.padEnd(11)+((s.c.receiverText?s.c.receiverText+'.':'')+s.c.calleeName+'()').padEnd(36)+'-> '+t.slice(0,44)); }
     }
-    else neither++;
+    else { neither++; if(isNone) nonel.neither++; }
   }
-  const solvable=both+onlyJedi+onlyUs;
+  // RECONCILED definition, agreed with A0: a gap is REACHABLE only when the
+  // peer's answer names an entity we emitted a row for. Counting every jedi
+  // answer inflated the denominator with targets no parser work could ever
+  // hash — stdlib symbols, non-callables, and the receiver variable itself.
+  const reachableMisses=[...inProjMiss.values()].reduce((a,b)=>a+b,0);
+  const solvable=both+onlyUs+reachableMisses;
+  const R=(m:Map<string,number>)=>[...m.values()].reduce((a,b)=>a+b,0);
+  console.log('SAME NUMBERS RESTRICTED TO NON-NONE RECEIVERS (A0 universe):');
+  console.log('  total '+(sites.length-(nonel.total))+'   both '+(both-nonel.both)+'   onlyUs '+(onlyUs-nonel.onlyUs)+
+    '   onlyJedi '+(onlyJedi-nonel.onlyJedi)+'   NEITHER '+(neither-nonel.neither)+'   builtin '+(R(kindsOfBuiltin)-nonel.builtin));
+  console.log('  of onlyJedi (non-NONE): target IN-PROJECT '+nonNoneInProj+'   target EXTERNAL '+nonNoneExternal);
+  console.log('  => if EXTERNAL targets count as NOT-RESOLVABLE, NEITHER becomes '+((neither-nonel.neither)+nonNoneExternal+(R(kindsOfBuiltin)-nonel.builtin)));
+  console.log('  NEITHER + builtin + error = '+((neither-nonel.neither)+(R(kindsOfBuiltin)-nonel.builtin)));
+  console.log();
+  console.log('DISPOSITION OF EVERY CALL SITE  (total '+sites.length+')');
+  console.log('  jedi says BUILTIN        '+(builtinBoth+[...kindsOfBuiltin.values()].reduce((a,b)=>a+b,0)-builtinBoth)+'   (excluded from the ratio; no py_method can exist)');
+  console.log('  jedi ERROR / no record   '+(jediError+noRecord)+'   (excluded; cannot adjudicate)');
+  console.log('  both resolve             '+both);
+  console.log('  only we resolve          '+onlyUs);
+  console.log('  only jedi resolves       '+onlyJedi);
+  console.log('  NEITHER resolves         '+neither);
+  console.log('  ---- if BUILTIN and ERROR are folded into NEITHER instead: '+(neither+jediError+noRecord+[...kindsOfBuiltin.values()].reduce((a,b)=>a+b,0)));
+  console.log();
   console.log('CORRECTNESS AND COVERAGE  (root: '+path.basename(root)+')');
-  console.log('  statically solvable (either engine resolves): '+solvable);
-  console.log('  not solvable by either (true ceiling):        '+neither);
+  console.log('  REACHABLE (we link it, or the peer names an entity we emitted): '+solvable);
+  console.log('  not reachable by any parser work:                              '+(sites.length-solvable));
   console.log();
   console.log('  COVERAGE   we link '+(both+onlyUs)+'/'+solvable+' = '+(100*(both+onlyUs)/solvable).toFixed(1)+'% of solvable');
   const correct=agree+adjudicatedOurs;
