@@ -105,20 +105,14 @@ const CALLABLE_BUILTINS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Names whose presence on a class makes a NEGATIVE attribute conclusion unsound.
- *
- * A class defining `__getattr__` can answer for attributes that appear nowhere
- * in the source, so "no method of that name" proves nothing about it. It does
- * NOT undermine a positive finding: `__getattr__` is consulted only after normal
- * lookup fails, so an explicitly declared method always wins. (`__getattribute__`
- * does intercept unconditionally; the schema's position is to MARK that on the
- * type via HAS_GETATTR rather than redesign around it, and the engine can act on
- * the marker.)
+ * NOTE: the HAS_GETATTR / HAS_SETATTR escape-hatch check was removed along with
+ * `hasEscapeHatch`, which nothing called. The reasoning is worth keeping: a
+ * `__getattr__` on a type does NOT undermine a positive attribute finding,
+ * because it is consulted only after normal lookup fails, so an explicitly
+ * declared member always wins. `__getattribute__` does intercept
+ * unconditionally, and the schema marks that on the type via HAS_GETATTR rather
+ * than redesigning around it, leaving the engine to act on the marker.
  */
-const ATTRIBUTE_ESCAPE_HATCHES: ReadonlySet<string> = new Set([
-  'HAS_GETATTR',
-  'HAS_SETATTR',
-]);
 
 /**
  * Resolves the parser-local half of call-site and base-class linkage.
@@ -322,7 +316,7 @@ export class PythonResolutionLinker {
     // of module-level code — it is a name bound to a class and never rebound, so
     // the binding resolves it. An independent resolver agrees, answering
     // models.Base for exactly this shape.
-    const aliasByModule = new Map<string, Map<string, PyMethodRegistry | PyTypeRegistry>>();
+    const aliasByModule = new Map<string, Map<string, PyMethodRegistry | PyTypeRegistry | null>>();
     for (const module of modules) {
       const scoped = new Map<string, PyBindingRegistry>();
       for (const binding of module.bindings) {
@@ -1601,7 +1595,7 @@ export class PythonResolutionLinker {
   private followReExport(
     member: string,
     fromModule: ProjectModuleFacts,
-    exportsByModule: Map<string, Map<string, PyMethodRegistry | PyTypeRegistry>>,
+    exportsByModule: Map<string, Map<string, PyMethodRegistry | PyTypeRegistry | null>>,
     moduleByQualifiedName: Map<string, ProjectModuleFacts>
   ): PyMethodRegistry | PyTypeRegistry | undefined {
     let current: ProjectModuleFacts | undefined = fromModule;
@@ -1863,6 +1857,7 @@ export class PythonResolutionLinker {
     this.linkAttributeExpressionsToFields(input, {
       typesByHash,
       basesByType,
+      methodsByTypeAndName,
       mroCache,
       fieldByTypeAndName,
     });
@@ -1973,13 +1968,19 @@ export class PythonResolutionLinker {
       boundNames: Set<string>;
       importedModuleNames: Set<string>;
       fieldByTypeAndName: Map<string, PyFieldRegistry>;
+      /**
+       * All fields of a name; `fieldByTypeAndName` keeps only the winner.
+       * Both are read — the singular for MRO attribute lookup, the plural where
+       * every declaration matters — and only the singular was declared.
+       */
+      fieldsByTypeAndName?: Map<string, PyFieldRegistry[]>;
       receiverNameByMethodHash: Map<string, string>;
       fieldTypeByHash?: Map<string, PyTypeRegistry>;
       parametersByMethod?: Map<string, PyMethodParameterRegistry[]>;
       moduleMethodsByName?: Map<string, PyMethodRegistry | null>;
       /** Bound module name -> that module's facts, for in-project imports. */
       importedModules?: Map<string, ProjectModuleFacts>;
-      exportsByModule?: Map<string, Map<string, PyMethodRegistry | PyTypeRegistry>>;
+      exportsByModule?: Map<string, Map<string, PyMethodRegistry | PyTypeRegistry | null>>;
       moduleByQualifiedName?: Map<string, ProjectModuleFacts>;
       localTypeByBinding?: Map<string, PyTypeRegistry | null>;
       returnedTypeByMethod?: Map<string, PyTypeRegistry | null>;
@@ -2141,6 +2142,10 @@ export class PythonResolutionLinker {
       typesByName: Map<string, PyTypeRegistry | null>;
       basesByType: Map<string, PyTypeBaseRegistry[]>;
       methodsByTypeAndName: Map<string, PyMethodRegistry[]>;
+      // Required by typeOfLocalReceiver, which this calls: typing a local
+      // receiver means finding its binding and walking out through scopes.
+      bindingByScopeAndName: Map<string, PyBindingRegistry>;
+      parentScopeOf: Map<string, string>;
       mroCache: Map<string, string[] | null>;
       importedModuleNames: Set<string>;
       fieldByTypeAndName: Map<string, PyFieldRegistry>;
@@ -2150,7 +2155,7 @@ export class PythonResolutionLinker {
       parametersByMethod?: Map<string, PyMethodParameterRegistry[]>;
       moduleMethodsByName?: Map<string, PyMethodRegistry | null>;
       importedModules?: Map<string, ProjectModuleFacts>;
-      exportsByModule?: Map<string, Map<string, PyMethodRegistry | PyTypeRegistry>>;
+      exportsByModule?: Map<string, Map<string, PyMethodRegistry | PyTypeRegistry | null>>;
       moduleByQualifiedName?: Map<string, ProjectModuleFacts>;
     }
   ): { kind: PythonResolvedCalleeKind; hash: string } | null {
@@ -2607,7 +2612,7 @@ export class PythonResolutionLinker {
   private lookupModuleMember(
     module: ProjectModuleFacts,
     name: string,
-    exportsByModule?: Map<string, Map<string, PyMethodRegistry | PyTypeRegistry>>,
+    exportsByModule?: Map<string, Map<string, PyMethodRegistry | PyTypeRegistry | null>>,
     moduleByQualifiedName?: Map<string, ProjectModuleFacts>
   ): PyMethodRegistry | PyTypeRegistry | null {
     const methods = module.methods.filter(
@@ -2679,6 +2684,10 @@ export class PythonResolutionLinker {
     ctx: {
       typesByHash: Map<string, PyTypeRegistry>;
       basesByType: Map<string, PyTypeBaseRegistry[]>;
+      // Required by MroContext, which linearize() takes. Declared here rather
+      // than made optional there: one MRO consumer reads it, and the cluster
+      // that passes MroContext around needs it to stay required.
+      methodsByTypeAndName: Map<string, PyMethodRegistry[]>;
       mroCache: Map<string, string[] | null>;
       fieldByTypeAndName: Map<string, PyFieldRegistry>;
     }
@@ -2720,6 +2729,10 @@ export class PythonResolutionLinker {
     ctx: {
       typesByHash: Map<string, PyTypeRegistry>;
       basesByType: Map<string, PyTypeBaseRegistry[]>;
+      // Required by MroContext, which linearize() takes. Declared here rather
+      // than made optional there: one MRO consumer reads it, and the cluster
+      // that passes MroContext around needs it to stay required.
+      methodsByTypeAndName: Map<string, PyMethodRegistry[]>;
       mroCache: Map<string, string[] | null>;
       fieldsByTypeAndName?: Map<string, PyFieldRegistry[]>;
     }
@@ -2963,6 +2976,8 @@ export class PythonResolutionLinker {
     ctx: {
       typesByHash: Map<string, PyTypeRegistry>;
       basesByType: Map<string, PyTypeBaseRegistry[]>;
+      // Passed through to lookupFieldOnTypeAndBases, which linearises the MRO.
+      methodsByTypeAndName: Map<string, PyMethodRegistry[]>;
       mroCache: Map<string, string[] | null>;
       fieldByTypeAndName: Map<string, PyFieldRegistry>;
     }
@@ -3279,39 +3294,7 @@ export class PythonResolutionLinker {
     return result;
   }
 
-  /**
-   * The one method of this name declared directly on a type.
-   *
-   * `@overload` stubs are excluded: the schema says they are declarations and
-   * must never be call targets, so a name with two overload stubs and one real
-   * implementation resolves to the implementation rather than being treated as
-   * ambiguous.
-   */
-  private singleMethodOn(
-    typeHash: string,
-    name: string,
-    ctx: { methodsByTypeAndName: Map<string, PyMethodRegistry[]> }
-  ): PyMethodRegistry | null {
-    const candidates = (ctx.methodsByTypeAndName.get(`${typeHash}::${name}`) ?? []).filter(
-      m =>
-        m.getMethodKind() !== PythonMethodKind.OVERLOAD_STUB &&
-        !m.getBodyIsStub() &&
-        // A function nested inside a method is not reachable as `self.name`,
-        // even though it carries the enclosing class in pyTypeLinkHash.
-        m.isClassBodyMember()
-    );
-    return candidates.length === 1 ? candidates[0]! : null;
-  }
-
-  private hasEscapeHatch(type: PyTypeRegistry): boolean {
-    for (const modifier of type.getModifiers()) {
-      if (ATTRIBUTE_ESCAPE_HATCHES.has(modifier)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
+  
   private describeEntity(
     entity: PyMethodRegistry | PyTypeRegistry
   ): { kind: PythonResolvedCalleeKind; hash: string } {
@@ -3337,5 +3320,29 @@ export class PythonResolutionLinker {
       byName.set(name, byName.has(name) ? null : item);
     }
     return byName;
+  }
+
+  /**
+   * The one method of this name declared directly on a type.
+   *
+   * `@overload` stubs are excluded: the schema says they are declarations and
+   * must never be call targets, so a name with two overload stubs and one real
+   * implementation resolves to the implementation rather than being treated as
+   * ambiguous.
+   */
+  private singleMethodOn(
+    typeHash: string,
+    name: string,
+    ctx: { methodsByTypeAndName: Map<string, PyMethodRegistry[]> }
+  ): PyMethodRegistry | null {
+    const candidates = (ctx.methodsByTypeAndName.get(`${typeHash}::${name}`) ?? []).filter(
+      m =>
+        m.getMethodKind() !== PythonMethodKind.OVERLOAD_STUB &&
+        !m.getBodyIsStub() &&
+        // A function nested inside a method is not reachable as `self.name`,
+        // even though it carries the enclosing class in pyTypeLinkHash.
+        m.isClassBodyMember()
+    );
+    return candidates.length === 1 ? candidates[0]! : null;
   }
 }
