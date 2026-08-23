@@ -199,9 +199,14 @@ export class PythonDecoratorExtractor {
       .withDottedPath(shape.dottedPath)
       .withOwnerLinks(isClass ? ownerHash : '', isClass ? '' : ownerHash);
 
-    if (shape.arguments) {
-      builder.withArgumentCount(String(this.positionalAndKeyword(shape.arguments).length));
-    }
+    // Always set, including the no-call case. Leaving it empty for `@property`
+    // made "zero arguments" and "not known" the same value, so a consumer
+    // filtering for argument-less decorators could not write the query at all.
+    // A decorator that is not a call takes zero arguments; that is a fact, not
+    // an absence.
+    builder.withArgumentCount(
+      shape.arguments ? String(this.positionalAndKeyword(shape.arguments).length) : '0'
+    );
     if (builtin) {
       builder.withBuiltin(builtin.kind, builtin.replaces);
     } else {
@@ -331,7 +336,18 @@ export class PythonDecoratorExtractor {
     if (expression.type === 'call') {
       const callee = expression.childForFieldName('function');
       const args = expression.childForFieldName('arguments');
-      const dotted = callee ? this.normalize(callee.text) : '';
+      const dotted = this.pureDottedName(callee);
+      if (dotted === '') {
+        // PEP 614: the callee can be any expression, as in `@null(null)(null)`
+        // whose callee is itself a call. It is a call, but not a call OF A NAME,
+        // and there is nothing for dottedPath to point at.
+        return {
+          name: this.rightmostName(callee),
+          kind: PythonDecoratorKind.EXPRESSION,
+          dottedPath: '',
+          arguments: args ?? null,
+        };
+      }
       return {
         name: this.rightmostName(callee),
         kind: dotted.includes('.')
@@ -342,10 +358,14 @@ export class PythonDecoratorExtractor {
       };
     }
     if (expression.type === 'attribute') {
+      // KIND stays syntactic and dottedPath carries resolvability: they are
+      // two different facts and collapsing them loses one.
+      // `@[null][0].__call__.__call__` IS an attribute access, and saying so
+      // costs nothing now that dottedPath no longer claims it can be resolved.
       return {
         name: this.rightmostName(expression),
         kind: PythonDecoratorKind.ATTRIBUTE,
-        dottedPath: this.normalize(expression.text),
+        dottedPath: this.pureDottedName(expression),
         arguments: null,
       };
     }
@@ -353,7 +373,11 @@ export class PythonDecoratorExtractor {
       return {
         name: expression.text,
         kind: PythonDecoratorKind.BARE,
-        dottedPath: '',
+        // A single segment IS a dotted path of length one. Leaving it empty
+        // meant `@contextlib.contextmanager` was joinable by dottedPath and
+        // `@classmethod` was not, so every consumer had to special-case the
+        // bare form and fall back to decoratorName.
+        dottedPath: expression.text,
         arguments: null,
       };
     }
@@ -361,7 +385,9 @@ export class PythonDecoratorExtractor {
       return {
         name: this.rightmostName(expression.childForFieldName('value')),
         kind: PythonDecoratorKind.SUBSCRIPT,
-        dottedPath: this.normalize(expression.text),
+        // `@Registry[int]` points at `Registry`; the subscript is not part of
+        // any name. The full text with brackets in it was never resolvable.
+        dottedPath: this.pureDottedName(expression.childForFieldName('value')),
         arguments: null,
       };
     }
@@ -372,6 +398,39 @@ export class PythonDecoratorExtractor {
       dottedPath: '',
       arguments: null,
     };
+  }
+
+  /**
+   * The dotted path, but ONLY when the whole expression is a name chain.
+   *
+   * PEP 614 allows any expression as a decorator, and CPython's own
+   * test_grammar.py exercises `@[null][0].__call__.__call__` and
+   * `@[..., null, ...][1]`. Normalising the raw text put strings like
+   * `[null][0].__call__.__call__` and `null(null)` into dottedPath -- a column
+   * whose only purpose is to be joined against a resolvable entity. Nothing can
+   * ever match those, so they were not a link but the appearance of one, and a
+   * consumer counting resolvable decorators would have counted them.
+   *
+   * Empty means "this decorator has no name to resolve", which is a true and
+   * checkable statement. `decoratorName` still carries the rightmost identifier,
+   * because that is informative without claiming to be resolvable.
+   */
+  private pureDottedName(node: Parser.SyntaxNode | null | undefined): string {
+    if (!node) {
+      return '';
+    }
+    if (node.type === 'identifier') {
+      return node.text;
+    }
+    if (node.type === 'attribute') {
+      const base = this.pureDottedName(node.childForFieldName('object'));
+      if (base === '') {
+        return '';
+      }
+      const attribute = node.childForFieldName('attribute');
+      return attribute ? `${base}.${attribute.text}` : '';
+    }
+    return '';
   }
 
   private rightmostName(node: Parser.SyntaxNode | null | undefined): string {
