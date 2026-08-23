@@ -159,6 +159,6 @@
 // DEFERRED — PEP 695 (3.12+) only: 'class C[T]' / 'def f[T]()'. Declared now so the column
 // contract is fixed; NOT emitted for <=3.11, where TypeVar is a runtime assignment captured as
 // a py_binding with targetEntityKind=TYPE_VAR.
-// (14 columns)
-.decl py_type_parameter(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol)
-.decl lib_py_type_parameter(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol)
+// (15 columns)
+.decl py_type_parameter(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol)
+.decl lib_py_type_parameter(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol)

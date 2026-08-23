@@ -1168,7 +1168,7 @@ make.
 
 ---
 
-### 2.20 `py_type_parameter` / `lib_py_type_parameter` — 14 columns
+### 2.20 `py_type_parameter` / `lib_py_type_parameter` — 15 columns
 
 PEP 695 only (3.12+); **not emitted** for ≤3.11, where `TypeVar` is a runtime assignment
 rather than syntax. No longer deferred: the relation is emitted and adjudicated against
@@ -1178,30 +1178,22 @@ including `TypeVarTuple` (`*Ts`) and `ParamSpec` (`**P`).
 
 `0 paramName · 1 position · 2 ownerName · 3 ownerQualifiedName · 4 filePath · 5 startLine ·
 6 ownerLinkHash [FK→py_type|py_method] · 7 ownerKind · 8 boundText · 9 variance ·
-10 defaultText (PEP 696) · 11 pyScopeLinkHash [FK] · 12 serviceVersionLinkHash ·
-13 pyTypeParameterUniqueHash`
+10 defaultText (PEP 696) · 11 pyScopeLinkHash [FK] · 12 kind · 13 serviceVersionLinkHash ·
+14 pyTypeParameterUniqueHash`
 
-> **OPEN — `kind` has no column, and needs one.** A3 found this and they are right.
-> The relation cannot distinguish PEP 695's three parameter forms: `class C[T, *Ts, **P]`
-> emits three rows identical but for `paramName` and `position`, while CPython's `ast`
-> gives three distinct node types — `TypeVar`, `TypeVarTuple`, `ParamSpec`. The
-> difference is not cosmetic: a `TypeVarTuple` is a *sequence* of types and a `ParamSpec`
-> is a whole *parameter list*, so `Callable[P, R]` and `tuple[*Ts]` are unreadable
-> without it. `PythonTypeParameterKind` already exists in code with `TYPE_VAR`,
-> `TYPE_VAR_TUPLE`, `PARAM_SPEC` and the extractor already recovers the form from source.
->
-> Proposed: **`kind` at position 12**, shifting `serviceVersionLinkHash` to 13 and the PK
-> to 14, arity 14 → 15. That keeps the convention that `serviceVersionLinkHash` sits
-> immediately before the key, and only the trailing pair moves.
->
-> This is safe **now and never again**: `py_type_parameter` was deferred until this week,
-> nothing consumes it positionally, and no golden holds a row of it — `verified/` is a
-> 3.10 corpus with no PEP 695 in it. Once a golden freezes these rows, an insert stops
-> being free and the column has to go on the end, breaking the convention instead.
->
-> Awaiting ratification. Until then the enum is declared and unemitted, and
-> `gen_decls.py --check` reports `PythonTypeParameterKind` as UNGUARDED rather than
-> pretending the column exists.
+`kind`: `TYPE_VAR` \| `TYPE_VAR_TUPLE` \| `PARAM_SPEC` — which of PEP 695's three parameter
+forms this is. Without it `class C[T, *Ts, **P]` emits three rows differing only in
+`paramName` and `position`, while CPython's `ast` returns three distinct node types. The
+distinction is load-bearing rather than cosmetic: a `TypeVarTuple` is a **sequence** of
+types and a `ParamSpec` is an entire **parameter list**, so `tuple[*Ts]` and `Callable[P, R]`
+are unreadable without knowing which is which.
+
+`kind` was added at position 12 after A3 found the relation could not tell `*Ts` from
+`**P`. Inserting rather than appending keeps the convention that `serviceVersionLinkHash`
+sits immediately before the key; only the trailing pair moved. That was free exactly once —
+`py_type_parameter` had been deferred until this week, nothing consumed it positionally,
+and no golden held a row of it, since `verified/` is a 3.10 corpus with no PEP 695 in it.
+After the first golden freezes these rows, a new column has to go on the end instead.
 
 `variance`: `INFERRED` \| `INVARIANT` \| `COVARIANT` \| `CONTRAVARIANT`. PEP 695
 parameters carry no explicit variance, so `INFERRED` is the normal value; the other three

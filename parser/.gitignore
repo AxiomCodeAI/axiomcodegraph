@@ -50,3 +50,15 @@ python-work/staging/torture-pep695/
 src/test/python-gates/xpkg-corpus/
 **/__pycache__/
 *-out/
+
+# A0-owned Python oracle harness and its corpora. Kept on disk so the gates
+# still run locally, kept out of the repo because they are 3.7M of generated
+# and vendored corpus. Mirror: ~/Desktop/axiomcode-python-oracle-handoff
+src/test/python-oracle/
+src/test/python-tests.ts
+src/test-data/python/verified/
+src/test-data/python/verified-py312/
+src/test-data/python/categories/
+src/test-data/python/closed-world/
+src/test-data/python/linkage-sample/
+src/test-data/python/_holdout/

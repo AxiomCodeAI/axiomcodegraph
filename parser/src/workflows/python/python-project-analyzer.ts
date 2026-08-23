@@ -13,7 +13,7 @@ import {
   ProjectModuleFacts,
   PythonResolutionLinker,
 } from '@/parsers/python/extractors/python-resolution-linker';
-import { Python2Finding } from '@/types/python';
+import { Python2Finding } from '@/parsers/python/types';
 
 /** One rejected or unanalysable file. */
 interface SkippedPythonFile {
