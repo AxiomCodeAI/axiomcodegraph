@@ -15,14 +15,11 @@ npx tsx src/test/python-tests.ts     # must be 6/6 before you push
 npx tsx src/test/python-tests.ts
 ```
 
-Six suites, ordered by what they prove. **Fix the first failure before reading the
-rest** — if the arbiter or the schema is wrong, everything below it is measuring
-against a broken reference.
+Four checks, all against expectations checked into `src/test-data/python`. No
+interpreter, no oracle, no network — it runs anywhere the project builds.
 
-| suite | proves |
+| check | proves |
 |---|---|
-| oracle self-test | the arbiter itself is correct — mutation-tested |
-| schema guard | doc, generated `.dl` and all 56 enums agree |
 | golden facts | no frozen fact moved; names the row and column that did |
 | closed-world | every call links or is a builtin, on a corpus whose ceiling is 100% |
 | open-edges ratchet | the known-unresolvable count may fall, never rise |
@@ -33,13 +30,14 @@ against a broken reference.
 **Never hand-write an expected fact.** The parser proposes, the golden records.
 A hand-written expectation only tests whether its author and the implementer read
 the spec the same way. Add source to `src/test-data/python/categories/`, run
-`golden-gate.ts --promote --bless`, and let the tooling write the expectation.
+`../parser-oracle/python && npx tsx bless.ts`, and let the tooling write the expectation.
 
-**`--bless` refuses output CPython disagrees with.** That is deliberate and is why
-`oracle/emit_oracle.py` still exists after the rest of the instruments were
-deleted. Without it a golden records whatever the parser said, and a bug present
-at freeze time becomes permanent — every later fix reads as a regression, and the
-natural response is to re-bless over it.
+**Re-freezing happens in `../parser-oracle/python`, never here.** It runs CPython
+over each fixture and refuses to record facts CPython disagrees with. If it lived
+in this repository the quickest way past a red check would be to re-freeze, and a
+bug present at that moment would become permanent — every later fix would read as
+a regression, and the response would be to freeze over it again. This repository
+can DETECT drift and cannot AUTHORISE it.
 
 **A schema change needs the human's word.** `src/schema/python/PYTHON-FACT-SCHEMA.md`
 is frozen. Column order is the contract; new columns append only. Adding an enum
@@ -51,8 +49,7 @@ nuisance. It has caught five real drifts where the column count never moved.
 | path | what |
 |---|---|
 | `src/schema/python/` | the contract: schema, generated `.dl`, generator, decision specs |
-| `src/test/python-tests.ts` | the one entry point |
-| `src/test/python-oracle/` | the arbiter — nine files, CPython as ground truth |
+| `src/test/python-tests.ts` | the whole suite — four checks, no interpreter |
 | `src/test-data/python/categories/` | fixtures by entity kind, mirroring `test-data/java` |
 | `src/test-data/python/verified/` | the admitted corpus and its frozen `_golden/` |
 

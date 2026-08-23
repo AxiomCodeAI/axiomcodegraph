@@ -62,3 +62,6 @@ src/test-data/python/categories/
 src/test-data/python/closed-world/
 src/test-data/python/linkage-sample/
 src/test-data/python/_holdout/
+
+# Analyzer output from the test runner; deleted at the end of every run.
+.py-test-out/
