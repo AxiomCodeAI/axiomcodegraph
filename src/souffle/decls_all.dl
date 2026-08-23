@@ -89,6 +89,12 @@
 .decl method_return_new(c0:symbol,c1:symbol,c2:symbol)
 .decl method_return_other(c0:symbol)
 .decl method_return_mono(c0:symbol,c1:symbol,c2:symbol)
+.decl sig_declared_in(c0:symbol,c1:symbol,c2:symbol,c3:symbol)  // (type,name,paramCount,method) declared directly
+.decl sig_concrete_in(c0:symbol,c1:symbol,c2:symbol)            // (type,name,paramCount) concrete instance method
+.decl abstract_sig(c0:symbol,c1:symbol,c2:symbol)               // (method,name,paramCount) abstract/interface decl
+.decl type_declares_sig(c0:symbol,c1:symbol,c2:symbol)        // (type, name, paramCount) declared directly
+.decl type_reaches_concrete_sig(c0:symbol,c1:symbol,c2:symbol)  // (type, name, paramCount) concrete impl reachable
+.decl abstract_decl(c0:symbol,c1:symbol,c2:symbol)              // (method, name, paramCount) abstract/interface decl
 .decl shadowed_in_type(c0:symbol,c1:symbol)
 .decl expr_ultimate_method(c0:symbol,c1:symbol,c2:symbol)
 .decl expr_ultimate_type(c0:symbol,c1:symbol,c2:symbol)

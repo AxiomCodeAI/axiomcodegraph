@@ -1,0 +1,6 @@
+oracle=7 engine=12 agree=7 missing=0 extra=5
+  extra    InheritedSatisfaction#viaInterface -> Another#handle(String)
+  extra    InheritedSatisfaction#viaInterface -> Base#handle(String)
+  extra    InheritedSatisfaction#viaInterface -> Direct#handle(String)
+  extra    InheritedSatisfaction#viaParent -> Child#run()
+  extra    InheritedSatisfaction#viaParent -> Sibling#run()

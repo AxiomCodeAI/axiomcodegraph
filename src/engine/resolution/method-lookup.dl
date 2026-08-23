@@ -41,6 +41,44 @@ shadowed_in_type(t, base) :- method_override(concrete, base),
 shadowed_in_type(t, base) :- method_override(concrete, base),
     java_method(_, _, _, _, _, _, _, ct, _, _, _, _, _, _, _, _, _, _, _, _, _, concrete),
     type_ancestor(t, ct).
+// ── FIX-16: two more shadowing laws, both from JLS dispatch ─────────────────
+// Expressed over BASE facts (java_method / lib_method / java_type / type_ancestor) only —
+// deliberately NOT method_declared_in, which sits inside the expr_type fixpoint (lookup_type is
+// seeded from expr_type), so reading it here would make the !shadowed_in_type negation cyclic.
+// java_method / lib_method (22): 1 name  8 owner  17 methodKind  18 parameterCount  22 hash
+sig_declared_in(t, name, pc, m) :- java_method(name, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, _, pc, _, _, _, m), name != "".
+sig_declared_in(t, name, pc, m) :- lib_method(name, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, _, pc, _, _, _, m), name != "".
+sig_concrete_in(t, name, pc) :- java_method(name, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, "INSTANCE_METHOD", pc, _, _, _, _), name != "".
+sig_concrete_in(t, name, pc) :- lib_method(name, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, "INSTANCE_METHOD", pc, _, _, _, _), name != "".
+
+// (a) DECLARED-WINS. If t declares a method of this name+arity, an INHERITED method of the same
+// name+arity can never be the target for a t-typed receiver: Java binds t's own declaration.
+// Without this, `new SBox().set("w")` emitted both SBox.set(String) and the inherited, erased
+// Box.set(Object) (same name, same arity), and an unqualified `sound()` inside a class that
+// overrides sound() emitted the override AND the inherited Base.sound.
+type_declares_sig(t, name, pc) :- sig_declared_in(t, name, pc, _).
+shadowed_in_type(t, base) :- type_ancestor(t, anc),
+    sig_declared_in(anc, name, pc, base),
+    type_declares_sig(t, name, pc).
+
+// (b) CONCRETE-WINS-OVER-ABSTRACT, across unrelated hierarchies. If t reaches a CONCRETE instance
+// method of this name+arity, an ABSTRACT (or interface-declared) method of the same signature
+// reachable in t cannot be the dispatch target. This is `class Impl extends Base implements Handler`
+// where Base is NOT a Handler subtype: method_override never relates Base.handle to Handler.handle,
+// so the abstract Handler.handle survived for an Impl-typed receiver.
+type_reaches_concrete_sig(t, name, pc) :- sig_concrete_in(t, name, pc).
+type_reaches_concrete_sig(t, name, pc) :- type_ancestor(t, anc), sig_concrete_in(anc, name, pc).
+abstract_sig(base, name, pc) :- java_method(name, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "ABSTRACT_METHOD", pc, _, _, _, base).
+abstract_sig(base, name, pc) :- lib_method(name, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "ABSTRACT_METHOD", pc, _, _, _, base).
+abstract_sig(base, name, pc) :- java_type(_, _, _, "INTERFACE_TYPE", _, _, _, _, _, _, _, _, _, iface),
+    sig_declared_in(iface, name, pc, base).
+abstract_sig(base, name, pc) :- lib_type(_, _, _, "INTERFACE_TYPE", _, _, _, _, _, _, _, _, _, iface),
+    sig_declared_in(iface, name, pc, base).
+shadowed_in_type(t, base) :- type_ancestor(t, anc),
+    sig_declared_in(anc, name, pc, base),
+    abstract_sig(base, name, pc),
+    type_reaches_concrete_sig(t, name, pc).
+
 method_name_in_type(name, t, m) :- type_ancestor(t, anc),
     method_declared_in(name, anc, m),
     !shadowed_in_type(t, m).

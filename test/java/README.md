@@ -26,9 +26,23 @@ AXIOM_JDK_IR=/path/to/jdk-ir
    instead of a silent shift. **Fails the case.**
 3. **Bytecode oracle** (`--oracle`, `tools/bytecode_oracle.py`) — ground truth compiled and read with
    **`javac` + `javap` only**, no third-party analyzer: the invoke instructions *are* the answer.
-   Every bytecode-declared client→client edge must be present. **Missing fails the case; extra is
-   reported, not failed** — where dispatch is ambiguous the engine emits the sound set of possible
-   targets, so it is expected to be a superset.
+   Every bytecode-declared client→client edge must be present. **A missing edge fails the case.**
+   Extras do not fail — where dispatch is ambiguous the engine emits the sound set of possible
+   targets, so it is expected to be a superset — but the whole oracle diff is itself pinned as
+   `expected/<case>.oracle`, so an extra that *appears* or *grows* fails the case as a changed
+   golden. "Extras are expected" must never become a place for imprecision to hide.
+
+### What the three failure classes mean
+
+* **`missing`** — a defect. Bytecode's declared targets are facts.
+* **`extra`, inside the sound envelope** — over-approximation. Three sources, all legitimate:
+  class-hierarchy dispatch on an interface- or abstract-typed receiver (cases 08, 09, 11), and
+  edges the *oracle* cannot see: method references and lambda bodies go through `invokedynamic`
+  (skipped) or are marked `ACC_SYNTHETIC` by javac (excluded), so the engine's `handleRef -> readRef`
+  and `handle -> read` edges look "extra" while being demonstrably real — the dynamic JVM trace
+  confirms them.
+* **`extra`, outside any envelope** — a defect of a different kind: an edge no sound
+  over-approximation justifies. These are the ones to hunt.
 
 ## Conventions the goldens encode (deliberate, not defects)
 
@@ -59,7 +73,7 @@ AXIOM_JDK_IR=/path/to/jdk-ir
 | `08-cha-interface-fanout` | class-hierarchy dispatch: abstract class bases, anonymous implementors, bridge methods |
 | `09-cha-interface-injection` | interface-typed field/parameter with the implementation supplied elsewhere |
 | `10-super-invocations` | `super.m()` is non-virtual — exactly one target, never a fan back to the override |
-| `11-cha-inherited-into-implementor` | `class Impl extends Base implements Handler` where **Base is not a Handler** — the real target is declared outside the interface's hierarchy. A dispatch gate keyed on the declaring type wrongly drops it |
+| `11-cha-inherited-into-implementor` | `class Impl extends Base implements Handler` where **Base is not a Handler** — the real target is declared outside the interface's hierarchy. A dispatch gate keyed on the declaring type wrongly drops it; a shadowing rule keyed only on `method_override` wrongly keeps the abstract `Handler.handle` alongside it |
 
 ## Adding a case
 

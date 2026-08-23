@@ -78,6 +78,17 @@ for dir in "$HERE"/cases/*/; do
         echo "FAIL (bytecode oracle: missing edges)"; sed 's/^/    /' "$w/oracle.diff" | head -20
         fail=$((fail+1)); failed+=("$name"); continue
       fi
+      # The extras are PINNED too. Missing edges are a defect; extras are sound over-approximation —
+      # but they must not GROW unnoticed, so the whole oracle diff is a reviewed golden. A rule that
+      # widens the dispatch set now shows up here instead of hiding behind "extras are expected".
+      oexp="$HERE/expected/$name.oracle"
+      if [ "$BLESS" = "1" ]; then cp "$w/oracle.diff" "$oexp"
+      elif [ ! -f "$oexp" ]; then
+        echo "FAIL (no oracle golden — run with --bless)"; fail=$((fail+1)); failed+=("$name"); continue
+      elif ! diff -q "$oexp" "$w/oracle.diff" >/dev/null; then
+        echo "FAIL (over-approximation changed)"; diff -u "$oexp" "$w/oracle.diff" | sed 's/^/    /' | head -24
+        fail=$((fail+1)); failed+=("$name"); continue
+      fi
       orc_summary="  [oracle: $(head -1 "$w/oracle.diff")]"
     else
       orc_summary="  [oracle skipped: $(head -1 "$w/oracle.log")]"
