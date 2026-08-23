@@ -38,7 +38,14 @@ import { diffExpr } from '@/test/python-gates/diff-expr';
 const PINNED_INTERPRETER =
   '/Library/Frameworks/Python.framework/Versions/3.10/bin/python3';
 const ORACLE_SCRIPT = path.join(process.cwd(), 'src/test/python-oracle/oracle/emit_oracle.py');
-const FIXTURE_DIR = '/tmp/py-corpus/native';
+/**
+ * Committed fixtures, laid out like the Java suite's `src/test-data/java`.
+ *
+ * This previously pointed at a /tmp path. The suite passed on the machine that
+ * happened to have that directory and silently exercised nothing anywhere else,
+ * which is the worst failure mode a test harness has: green and empty.
+ */
+const FIXTURE_DIR = path.join(process.cwd(), 'src', 'test-data', 'python', 'fixtures');
 const SERVICE_VERSION = 'SERVICE_VERSION_test';
 
 /** The eleven symtable.Symbol predicates, in symtable's own order. */

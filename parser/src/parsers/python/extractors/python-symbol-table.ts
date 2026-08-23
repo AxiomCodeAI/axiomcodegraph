@@ -1,5 +1,5 @@
 import { SymbolBlockType } from '@/enums/python/scopes';
-import { SymbolBlock } from '@/types/python';
+import { SymbolBlock } from '@/parsers/python/types';
 
 /**
  * CPython's symbol-table flags, verbatim from `Include/internal/pycore_symtable.h`.

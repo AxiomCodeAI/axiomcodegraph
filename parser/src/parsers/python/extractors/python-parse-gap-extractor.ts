@@ -7,7 +7,7 @@ import {
 } from '@/enums/python/parse-gaps';
 import { PythonSourcePositions } from '@/utils/python/python-position-utils';
 import { isMisparsedTypeAlias } from '@/parsers/python/python-soft-keywords';
-import { Python2Finding } from '@/types/python';
+import { Python2Finding } from '@/parsers/python/types';
 
 export interface PythonParseGapInput {
   module: PyModuleRegistry;

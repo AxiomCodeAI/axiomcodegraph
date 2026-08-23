@@ -19,7 +19,7 @@ import {
   createSymbolBlock,
   SymbolFlags,
 } from '@/parsers/python/extractors/python-symbol-table';
-import { SymbolBlock } from '@/types/python';
+import { SymbolBlock } from '@/parsers/python/types';
 import { PythonSourcePositions } from '@/utils/python';
 
 /** tree-sitter node types that introduce a new scope. Exactly eight forms. */

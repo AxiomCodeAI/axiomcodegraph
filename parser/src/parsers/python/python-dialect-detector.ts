@@ -1,7 +1,7 @@
 import Parser from 'tree-sitter';
 
 import { PythonDialect } from '@/enums/python/modules';
-import { DialectDetectionResult, Python2Finding } from '@/types/python';
+import { DialectDetectionResult, Python2Finding } from '@/parsers/python/types';
 import { PythonSourcePositions } from '@/utils/python';
 
 /**

@@ -41,7 +41,7 @@ import {
   PythonModuleExtraction,
   PythonScopeExtractor,
 } from '@/parsers/python/extractors/python-scope-extractor';
-import { Python2Finding } from '@/types/python';
+import { Python2Finding } from '@/parsers/python/types';
 
 /** Every spine relation the parser emits for one file. */
 export interface PythonFactSet {

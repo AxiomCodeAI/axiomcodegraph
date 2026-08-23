@@ -28,7 +28,7 @@ import {
   SymbolFlags,
   SymbolScope,
 } from '@/parsers/python/extractors/python-symbol-table';
-import { Python2Finding, SymbolBlock } from '@/types/python';
+import { Python2Finding, SymbolBlock } from '@/parsers/python/types';
 import { PythonSourcePositions } from '@/utils/python';
 
 /** Everything the scope/binding stage produces for one file. */

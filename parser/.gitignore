@@ -45,3 +45,8 @@ python-work/staging/torture-pep695/
 # Large corpora live outside the repo and are regenerated from the pinned
 # interpreter by torture-corpus.ts / vendor-corpus.ts.
 /tmp/py-corpus/
+
+# generated python gate corpora and scratch output
+src/test/python-gates/xpkg-corpus/
+**/__pycache__/
+*-out/
