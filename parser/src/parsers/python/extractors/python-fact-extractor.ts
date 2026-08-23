@@ -319,7 +319,11 @@ export class PythonFactExtractor {
     });
 
     const typeReferences = this.typeReferenceExtractor.extract({
-      positions: [...declarations.typePositions, ...narrowingPositions],
+      positions: [
+        ...declarations.typePositions,
+        ...fieldStage.fieldTypePositions,
+        ...narrowingPositions,
+      ],
       pyModuleLinkHash: scopeStage.module.getHash(),
       serviceVersionLinkHash: input.serviceVersionLinkHash,
     });

@@ -16,6 +16,11 @@ import {
 } from '@/enums/python/fields';
 import { PythonMethodAccess } from '@/enums/python/methods';
 import { PythonMethodKind } from '@/enums/python/methods';
+import {
+  PythonTypeRefContext,
+  PythonTypeRefOwnerKind,
+} from '@/enums/python/type-references';
+import type { TypePositionInput } from '@/parsers/python/extractors/python-type-reference-extractor';
 import { PythonSourcePositions } from '@/utils/python/python-position-utils';
 
 /** Everything the field stage produces for one module. */
@@ -80,6 +85,8 @@ interface WriteObservation {
   receiverName: string;
   annotationText: string;
   annotationIsString: boolean;
+  /** The annotation NODE, needed to build the py_type_reference tree. */
+  annotationNode: Parser.SyntaxNode | null;
   initializerText: string;
   initializerKind: PythonInitializerKind;
   bindingHash: string;
@@ -151,6 +158,10 @@ export class PythonFieldExtractor {
   private input!: PythonFieldInput;
   private methodByNodeId = new Map<number, PyMethodRegistry>();
   private receiverNameByMethodHash = new Map<string, string>();
+  private annotationByField = new Map<
+    string,
+    { node: Parser.SyntaxNode; typeHash: string; scopeHash: string }
+  >();
   private targetByteRangeByField = new Map<string, string>();
 
   extract(input: PythonFieldInput): PythonFieldExtraction {
@@ -198,8 +209,25 @@ export class PythonFieldExtractor {
       fieldByHash.set(field.getHash(), field);
     }
 
+    const fieldTypePositions: TypePositionInput[] = [];
+    for (const field of fields) {
+      const annotation = this.annotationByField.get(field.getHash());
+      if (annotation === undefined) {
+        continue;
+      }
+      fieldTypePositions.push({
+        node: annotation.node,
+        context: PythonTypeRefContext.FIELD_TYPE,
+        ownerHash: field.getHash(),
+        ownerKind: PythonTypeRefOwnerKind.FIELD,
+        enclosingTypeHash: annotation.typeHash,
+        scopeHash: annotation.scopeHash,
+      });
+    }
+
     return {
       fields,
+      fieldTypePositions,
       fieldPositions,
       fieldHashByTypeAndName,
       fieldByHash,
@@ -378,6 +406,7 @@ export class PythonFieldExtractor {
         receiverName: '',
         annotationText: annotation ? this.normalizeText(annotation.text) : '',
         annotationIsString: annotation ? this.isStringAnnotation(annotation) : false,
+        annotationNode: annotation,
         initializerText: right ? this.normalizeText(right.text) : '',
         initializerKind: right ? this.initializerKindOf(right) : PythonInitializerKind.NONE,
         writtenBuiltinType: right ? this.builtinTypeOfValue(right) : '',
@@ -409,6 +438,7 @@ export class PythonFieldExtractor {
             receiverName: '',
             annotationText: '',
             annotationIsString: false,
+            annotationNode: null,
             initializerText: '',
             initializerKind: PythonInitializerKind.NONE,
             writtenBuiltinType: '',
@@ -670,6 +700,7 @@ export class PythonFieldExtractor {
       receiverName,
       annotationText: '',
       annotationIsString: false,
+      annotationNode: null,
       initializerText: value ? this.normalizeText(value.text) : '',
       initializerKind: value ? this.initializerKindOf(value) : PythonInitializerKind.NONE,
       writtenBuiltinType: value ? this.builtinTypeOfValue(value) : '',
@@ -704,6 +735,7 @@ export class PythonFieldExtractor {
       receiverName,
       annotationText: annotation ? this.normalizeText(annotation.text) : '',
       annotationIsString: annotation ? this.isStringAnnotation(annotation) : false,
+      annotationNode: annotation,
       initializerText: value ? this.normalizeText(value.text) : '',
       initializerKind: value ? this.initializerKindOf(value) : PythonInitializerKind.NONE,
       writtenBuiltinType: value ? this.builtinTypeOfValue(value) : '',
@@ -761,11 +793,13 @@ export class PythonFieldExtractor {
             this.baseTypeOf(observation.annotationText),
             observation.annotationIsString
           );
+          this.recordFieldAnnotation(existing.getHash(), observation, collection);
         }
         continue;
       }
 
       const field = this.buildField(collection, observation);
+      this.recordFieldAnnotation(field.getHash(), observation, collection);
       this.targetByteRangeByField.set(field.getHash(), observation.targetByteRange);
       byKey.set(key, field);
       writtenTypesByKey.set(
@@ -1312,5 +1346,36 @@ export class PythonFieldExtractor {
 
   private normalizeText(text: string): string {
     return text.replace(/\s+/g, ' ').trim();
+  }
+
+  /**
+   * Remembers the annotation that gave a field its declared type, so a
+   * `py_type_reference` can be OWNED BY THE FIELD.
+   *
+   * `class Foo: x: Bar` previously produced a reference owned by the class-body
+   * BINDING with context VARIABLE_ANNOTATION, and nothing owned by the field --
+   * FIELD_TYPE and owner kind FIELD were both dead. So "what type does field x
+   * of Foo declare?" could not be answered by joining from py_field at all: a
+   * consumer had to know that a class attribute is ALSO a binding, find the
+   * class body scope and match on name. That is a join nobody should have to
+   * discover, and getting it wrong returns nothing rather than failing.
+   *
+   * Only the FIRST annotation is kept. A field is observed many times -- the
+   * class-body declaration plus every `self.x = ...` -- and the declaration is
+   * the one that declares the type.
+   */
+  private recordFieldAnnotation(
+    fieldHash: string,
+    observation: WriteObservation,
+    collection: ClassCollection
+  ): void {
+    if (observation.annotationNode === null || this.annotationByField.has(fieldHash)) {
+      return;
+    }
+    this.annotationByField.set(fieldHash, {
+      node: observation.annotationNode,
+      typeHash: collection.typeHash,
+      scopeHash: collection.classScopeHash,
+    });
   }
 }

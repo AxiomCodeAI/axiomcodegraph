@@ -557,6 +557,14 @@ export class PythonDeclarationExtractor {
         // An annotated assignment is a type position too: `total: TypeC = None`.
         // Its owner is the BINDING the name creates, so the engine can go from a
         // variable to the types its declared type references.
+        //
+        // NOT in a class body, though. There the same annotation belongs to a
+        // FIELD, and the field extractor emits it with owner kind FIELD and
+        // context FIELD_TYPE. Emitting both put two rows on one annotation with
+        // different owners, which double-counts every `class Foo: x: Bar` in any
+        // tally of how many type references resolve. The field is the canonical
+        // owner of a class attribute's declared type; the binding remains
+        // reachable through py_field.
         for (let i = 0; i < node.namedChildCount; i++) {
           const inner = node.namedChild(i);
           if (inner?.type !== 'assignment') {
@@ -571,6 +579,9 @@ export class PythonDeclarationExtractor {
             `${context.bindingScopeHash}::${target.text}`
           );
           if (!bindingHash) {
+            continue;
+          }
+          if (context.inClassBody) {
             continue;
           }
           this.typePositions.push({
