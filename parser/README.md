@@ -4,15 +4,17 @@
 
 **A multi-language static analysis front end that compiles source code into a relational intermediate representation.**
 
-<img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/java/java-original.svg" width="44" height="44" alt="Java" title="Java"/>
+<img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/python/python-original.svg" width="46" height="46" alt="Python" title="Python"/>
 &nbsp;&nbsp;
-<img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/python/python-original.svg" width="44" height="44" alt="Python" title="Python"/>
+<img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/java/java-original.svg" width="46" height="46" alt="Java" title="Java"/>
 &nbsp;&nbsp;
-<img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/xml/xml-original.svg" width="44" height="44" alt="XML" title="XML"/>
+<img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/xml/xml-original.svg" width="34" height="34" alt="XML" title="XML"/>
 &nbsp;&nbsp;
-<img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/yaml/yaml-original.svg" width="44" height="44" alt="YAML" title="YAML"/>
+<img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/yaml/yaml-original.svg" width="34" height="34" alt="YAML" title="YAML"/>
 &nbsp;&nbsp;
-<img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/gradle/gradle-original.svg" width="44" height="44" alt="Gradle" title="Gradle"/>
+<img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/gradle/gradle-original.svg" width="34" height="34" alt="Gradle" title="Gradle"/>
+
+<sub>Full semantic resolution for <b>Python</b> and <b>Java</b>. Structural extraction for XML, YAML, Gradle and Properties.</sub>
 
 [What it is](#what-this-is) &nbsp;|&nbsp;
 [The IR](#the-intermediate-representation) &nbsp;|&nbsp;
@@ -71,17 +73,17 @@ same tables and be compared.
 
 | Language | Maturity | Relations | Parser | What is extracted |
 |---|---|---|---|---|
-| **Java** | Stable | 17 | tree-sitter-java | Types, methods, fields, annotations and their arguments, expressions, imports, local variables, blocks, comments, enum constants, generics and type parameters. Covers classes, interfaces, enums, records, and nested types. |
 | **Python** | Stable | 19 | tree-sitter-python | Modules, scopes, bindings, types, base classes, methods, parameters, imports, expressions, call sites, type references, fields, decorators and their arguments, blocks, comments, parse gaps, PEP 695 type parameters. |
+| **Java** | Stable | 17 | tree-sitter-java | Types, methods, fields, annotations and their arguments, expressions, imports, local variables, blocks, comments, enum constants, generics and type parameters. Covers classes, interfaces, enums, records, and nested types. |
 | **XML** | Stable | 3 | sax | Element hierarchy with XPath and namespaces, attributes, and value references including property placeholders and SpEL. |
 | **Properties** | Stable | 2 | custom | Keys and typed value segments, with continuation and comment handling. |
 | **YAML** | Beta | 2 | yaml | Configuration entries with anchor and alias tracking, multi document support. |
 | **Gradle** | Alpha | 3 | tree-sitter-groovy | Blocks, declarations, and value references, oriented toward dependency and version extraction. |
 
-Java and Python are the two languages with full semantic resolution. The configuration formats are
+Python and Java are the two languages with full semantic resolution. The configuration formats are
 extracted structurally so that configuration values can be correlated with the code that reads them.
 
-### Java and Python are modelled differently on purpose
+### Python and Java are modelled differently on purpose
 
 The two do not share a relation set, because a shared one would be the intersection of what each
 language means, and that intersection loses the parts a reasoning engine needs most.
