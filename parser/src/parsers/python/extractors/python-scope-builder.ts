@@ -1662,26 +1662,74 @@ export class PythonScopeBuilder {
       node
     );
 
-    for (let index = 0; index < clauses.length; index++) {
-      const clause = clauses[index];
-      if (!clause) {
+    // Rule 3: the ELEMENT is visited LAST, after every clause -- not in source
+    // order, where it comes first. CPython's order inside the block is:
+    // generators[0].target, generators[0].ifs, then (iter, target, ifs) for each
+    // remaining generator, and only then the element. Verified on 3.10.4 by
+    // giving each position its own lambda and reading back the block order:
+    //
+    //   [ (lambda: ELT)() for x in y if (lambda: IFF)() ]   -> IFF, ELT
+    //   [ (lambda: ELT)() for x in y for z in (lambda: IT2)() ] -> IT2, ELT
+    //
+    // Source order is right often enough to hide this: it only diverges when a
+    // clause and the element BOTH open a scope, and then it swaps their
+    // ordinals -- which is a dict comprehension with a listcomp in its value and
+    // a genexpr in its `if`, exactly what fontTools' subset_glyphs does.
+    const elementParts: Parser.SyntaxNode[] = [];
+    const clauseParts: Parser.SyntaxNode[] = [];
+    let seenClause = false;
+    for (let i = 0; i < node.namedChildCount; i++) {
+      const part = node.namedChild(i);
+      if (!part) {
         continue;
       }
-      const target = clause.childForFieldName('left');
-      const iterable = clause.childForFieldName('right');
-      if (target) {
-        this.visitTarget(child, target, PythonBindingOrigin.COMPREHENSION_TARGET, PythonNameContext.STORE);
+      if (part.type === 'for_in_clause') {
+        seenClause = true;
       }
-      // Every iterable except the first is evaluated inside the comprehension.
-      if (iterable && index > 0) {
-        this.visitExpression(child, iterable, PythonNameContext.LOAD);
+      if (seenClause) {
+        clauseParts.push(part);
+      } else {
+        elementParts.push(part);
       }
     }
 
-    // The element/key/value expressions and every `if` clause run inside.
-    for (let i = 0; i < node.namedChildCount; i++) {
-      const part = node.namedChild(i);
-      if (!part || part.type === 'for_in_clause') {
+    let clauseIndex = -1;
+    for (const part of clauseParts) {
+      if (part.type === 'for_in_clause') {
+        clauseIndex += 1;
+        const iterable = part.childForFieldName('right');
+        // Every iterable except the first is evaluated inside the comprehension.
+        if (iterable && clauseIndex > 0) {
+          this.visitExpression(child, iterable, PythonNameContext.LOAD);
+        }
+        const target = part.childForFieldName('left');
+        if (target) {
+          this.visitTarget(
+            child,
+            target,
+            PythonBindingOrigin.COMPREHENSION_TARGET,
+            PythonNameContext.STORE
+          );
+        }
+        continue;
+      }
+      this.visitExpression(child, part, PythonNameContext.LOAD);
+    }
+
+    for (const part of elementParts) {
+      // A dict comprehension visits its VALUE BEFORE ITS KEY --
+      // symtable_handle_comprehension takes (elt=key, value=value) and emits
+      // `if (value) VISIT(value); VISIT(elt);`. Confirmed on 3.10.4:
+      // `{ (lambda: KEY)() : (lambda: VAL)() for x in y }` gives VAL, KEY.
+      if (part.type === 'pair') {
+        const value = part.childForFieldName('value');
+        const key = part.childForFieldName('key');
+        if (value) {
+          this.visitExpression(child, value, PythonNameContext.LOAD);
+        }
+        if (key) {
+          this.visitExpression(child, key, PythonNameContext.LOAD);
+        }
         continue;
       }
       this.visitExpression(child, part, PythonNameContext.LOAD);
