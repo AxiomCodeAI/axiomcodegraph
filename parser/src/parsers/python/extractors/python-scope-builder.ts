@@ -10,6 +10,7 @@ import {
   decomposeMisparsedTypeAlias,
   isMisparsedTypeAlias,
 } from '@/parsers/python/python-soft-keywords';
+import { normalizePythonIdentifier } from '@/utils/python/python-identifier-utils';
 import { PythonBindingOrigin } from '@/enums/python/bindings';
 import { PythonNameContext } from '@/enums/python/expressions';
 import { PythonScopeKind, SymbolBlockType } from '@/enums/python/scopes';
@@ -264,7 +265,11 @@ export class PythonScopeBuilder {
    * This is applied to bindings *and* references, and it reaches into every
    * nested scope, including comprehensions inside methods.
    */
-  private mangleName(block: SymbolBlock, name: string): string {
+  private mangleName(block: SymbolBlock, rawName: string): string {
+    // NFKC first, then mangling -- CPython normalises in the TOKENISER, so by
+    // the time private-name mangling runs the name is already folded. Doing it
+    // the other way round would leave a fullwidth `__x` unmangled.
+    const name = normalizePythonIdentifier(rawName);
     if (!block.privateNamePrefix) {
       return name;
     }
