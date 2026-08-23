@@ -1,0 +1,38 @@
+// ============================================================================
+// Projections · LOCAL VARIABLES  (pure column views — no joins, no closures)
+//
+// Named views over local variable declarations, for both the client (java_*) and
+// any external library (lib_*). One of the three receiver-typing sources (with
+// fields and method parameters): when a call's receiver is an identifier that
+// refers to a LOCAL_VARIABLE, its declared type is found here.
+//
+// Conventions: views only; one raw base relation per rule body; provenance tag first.
+//
+// java_local_variable / lib_local_variable cols (19):
+//   0 name  1 variableTypeName  2 variableBaseType  3 potentialQualifiedName
+//   4 isAmbiguous  5 filePath  6 startLine  7 endLine  8 scopeKind  9 scopeDepth
+//   10 isFinal  11 isVarInferred  12 typeRegistryLinkHash
+//   13 methodRegistryLinkHash (owner method)  14 ownerTypeName
+//   15 ownerQualifiedName  16 ownerMethodName  17 parentExpressionLinkHash
+//   18 localVariableRegistryUniqueHash
+// ============================================================================
+
+// ── local_decl(Prov, Name, TypeName, OwnerMethodHash, LocalHash) ─────────────
+// A local variable's name, declared type name, and the method that declares it.
+// Bound to OwnerMethodHash: a receiver identifier resolves to the local of the
+// same name in the SAME method.
+//
+// TypeName == "var" means the type was inferred (variableBaseType="var",
+// isVarInferred="true"); those need inference from the initializer in the typing
+// layer rather than a direct name lookup.
+//
+// scopeKind (col 8) locates the declaring scope (LocalVariableScopeKind enum, 27
+// values) — bodies (METHOD_BODY, CONSTRUCTOR_BODY, LAMBDA_BODY, STATIC_INITIALIZER,
+// INSTANCE_INITIALIZER, ANONYMOUS_CLASS_METHOD, RECORD_METHOD, ENUM_METHOD,
+// ENUM_CONSTANT_METHOD); loops (FOR_LOOP, ENHANCED_FOR_LOOP, FOR_BLOCK, WHILE_BLOCK,
+// DO_WHILE_BLOCK); branches (IF_BLOCK, ELSE_IF_BLOCK, ELSE_BLOCK, SWITCH_BLOCK);
+// try/catch (TRY_WITH_RESOURCES, TRY_BLOCK, CATCH_CLAUSE, CATCH_BLOCK, FINALLY_BLOCK);
+// SYNCHRONIZED_BLOCK; patterns (INSTANCEOF_PATTERN, SWITCH_PATTERN, RECORD_PATTERN).
+// Used later by the flow layer, not for receiver typing.
+local_decl("client", name, typeName, methodHash, h) :- java_local_variable(name, typeName, _, _, _, _, _, _, _, _, _, _, _, methodHash, _, _, _, _, h).
+local_decl("lib", name, typeName, methodHash, h) :- lib_local_variable(name, typeName, _, _, _, _, _, _, _, _, _, _, _, methodHash, _, _, _, _, h).

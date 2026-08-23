@@ -1,0 +1,5 @@
+// ============================================================================
+// Export · Expression Resolution
+//
+// Receiver typing and call-site structure — the inputs to callee resolution.
+// ============================================================================

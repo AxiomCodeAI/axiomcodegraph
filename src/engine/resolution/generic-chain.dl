@@ -1,0 +1,121 @@
+// ============================================================================
+// Resolution · CHAINED GENERIC RETURN PROPAGATION  (list.iterator().next().m())
+//
+// The existing type-variable substitution (expr-type.dl) resolves `list.get(0)` when
+// the receiver is a DECLARED var (recv_decl_ref) and the callee returns a BARE type
+// variable. It misses the chained case: `list.iterator().next()` — because
+//   (a) iterator() returns a PARAMETERIZED type Iterator<E> (not a bare E), and
+//   (b) next()'s receiver is the iterator() RESULT (a call, not a declared var).
+//
+// This layer adds an EXPRESSION-LEVEL binding, expr_arg_binding(expr, type, param, arg):
+// "expr's inferred type is `type`, with `type`'s parameter `param` bound to `arg`."
+//   - seeded from declared receivers (recv_decl_ref + type_arg_binding), and
+//   - PROPAGATED through a generic method whose return is a parameterized type carrying
+//     the owner's type variable: List<Dog>.iterator() : Iterator<E=Dog> ⇒ Iterator<Dog>.
+// The bare-tvar substitution then fires off expr_arg_binding (not just recv_decl_ref), so
+// the chained next() (returns Iterator's E) resolves to Dog.
+//
+// STRATIFICATION: all POSITIVE (expr_arg_binding ⇄ expr_call_candidate is positive mutual
+// recursion, like the existing recv_tvar substitution) — no negation added.
+//
+// lib_type_reference (18): 1 context 5 parentRef 6 position 7 depth 8 name 10 tvarName
+//   15 ownerEntity 16 ownerKind 17 uniqueHash
+// lib_type_parameter (8): 0 paramName 1 position 6 owner 7 hash
+// ============================================================================
+
+// A lib method m whose RETURN is a parameterized type `retType<… ownerTv …>`: retType's
+// parameter `retParam` (at position pos) is filled by the owner's type variable `ownerTv`.
+// NOTE: get the resolved base return type from lib_method_return_type (lib-hierarchy.dl
+// already resolves it by name/context) — NOT lib_type_ref_resolves (engine-ii, absent in
+// client-only mode) and NOT a raw completeTypeName match (the IR stores only the SIMPLE
+// name there, e.g. "Iterator", so it won't match lib_type's qualifiedName). The return
+// base ref is used only to reach the depth-1 type-argument.
+// lib_type_reference (18): 1 context 5 parentRef 6 pos 7 depth 10 tvarName 15 owner
+//   16 ownerKind 17 uniqueHash.  lib_type_parameter (8): 0 name 1 pos 6 owner.
+lib_method_ret_param(m, retType, retParam, ownerTv) :-
+    lib_method_return_type(m, retType),
+    lib_type_reference(_, "METHOD_RETURN", _, _, _, _, _, "0", _, _, _, _, _, _, _, m, "METHOD", retRef),
+    lib_type_reference("TYPE_VARIABLE", _, _, _, _, retRef, pos, "1", _, _, ownerTv, _, _, _, _, _, _, _),
+    lib_type_parameter(retParam, pos, _, _, _, _, retType, _).
+
+// ── expr_arg_binding(Expr, Type, Param, Arg) ──
+// (base) a declared receiver's written type arguments.
+expr_arg_binding(recv, bt, param, arg) :- recv_decl_ref(recv, ref, _),
+    type_arg_binding(ref, bt, param, arg).
+// (propagate) recv : owner<ownerTv=arg>; call = recv.m(); m returns retType<ownerTv> ⇒
+// call : retType<retParam = arg>.
+expr_arg_binding(call, retType, retParam, arg) :- call_site(call, _, recv),
+    expr_arg_binding(recv, _, ownerTv, arg),
+    expr_call_candidate(call, callee),
+    lib_method_ret_param(callee, retType, retParam, ownerTv).
+
+// ── INHERITED generics with a CONCRETE super-arg (c9): `class DogBox extends Box<Dog>`.
+// super_tvar_rename (type-arg-binding.dl) climbs type-VARIABLE renames; this is the concrete
+// counterpart — a subtype that fixes its supertype's parameter to a concrete type. Then ANY
+// receiver of that subtype carries the binding (so `new DogBox().get()` → Box.T=Dog → Dog).
+// type_super_ref_h(sub, superName, sref) is defined in type-arg-binding.dl (the extends/implements
+// reference). Depth-1 arg at the parameter's position, kind != TYPE_VARIABLE (a concrete type).
+// java_type_parameter (8): 0 name 1 pos 6 owner.  java_type (14): 0 name 13 hash.
+type_fixes_super(sub, super, superParam, argType) :-
+    type_super_ref_h(sub, superName, sref),
+    type_parent(sub, super),
+    java_type(superName, _, _, _, _, _, _, _, _, _, _, _, _, super),
+    java_type_parameter(superParam, pos, _, _, _, _, super, _),
+    java_type_reference(k, _, _, _, _, sref, pos, "1", _, _, _, _, _, _, _, _, _, argRef),
+    k != "TYPE_VARIABLE",
+    type_ref_resolves(_, argRef, argType).
+type_fixes_super(sub, super, superParam, argType) :-
+    type_super_ref_h(sub, superName, sref),
+    type_parent(sub, super),
+    lib_type(superName, _, _, _, _, _, _, _, _, _, _, _, _, super),
+    lib_type_parameter(superParam, pos, _, _, _, _, super, _),
+    java_type_reference(k, _, _, _, _, sref, pos, "1", _, _, _, _, _, _, _, _, _, argRef),
+    k != "TYPE_VARIABLE",
+    type_ref_resolves(_, argRef, argType).
+// a receiver whose type fixes a supertype parameter carries that binding.
+expr_arg_binding(recv, super, superParam, argType) :-
+    expr_type(_, recv, subType),
+    type_fixes_super(subType, super, superParam, argType).
+
+// ── NESTED generics (c4): `List<Box<Dog>> l; l.get(0).get()`. type_arg_binding only binds
+// TOP-LEVEL (depth-1) args, so the inner Box.T=Dog is lost. arg_ref_at keys on the PARENT
+// reference (any nesting depth) to reach a base ref's child argument REFERENCE, so we can
+// descend into a parameterized argument. java_type_reference (18): 5 parentRef 6 pos 17 uhash.
+arg_ref_at(baseRef, baseType, param, argRef) :- type_ref_resolves(_, baseRef, baseType),
+    java_type_parameter(param, pos, _, _, _, _, baseType, _),
+    java_type_reference(_, _, _, _, _, baseRef, pos, _, _, _, _, _, _, _, _, _, _, argRef).
+arg_ref_at(baseRef, baseType, param, argRef) :- type_ref_resolves(_, baseRef, baseType),
+    lib_type_parameter(param, pos, _, _, _, _, baseType, _),
+    java_type_reference(_, _, _, _, _, baseRef, pos, _, _, _, _, _, _, _, _, _, _, argRef).
+
+// l : Container<Elem<Arg>>; call = l.m() returns Container's tv (the element); the RESULT
+// carries the element type's OWN nested binding (Elem.param = Arg). Two hops down the ref tree:
+// recvRef → element ref (Box<Dog>) → its arg (Dog).
+expr_arg_binding(call, elemBase, elemParam, elemArg) :- call_site(call, _, recv),
+    recv_decl_ref(recv, recvRef, _),
+    expr_call_candidate(call, callee),
+    lib_method_ret_tvar(callee, owner, tv),
+    arg_ref_at(recvRef, owner, tv, elemRef),
+    arg_ref_at(elemRef, elemBase, elemParam, argRef2),
+    type_ref_resolves(_, argRef2, elemArg).
+expr_arg_binding(call, elemBase, elemParam, elemArg) :- call_site(call, _, recv),
+    recv_decl_ref(recv, recvRef, _),
+    expr_call_candidate(call, callee),
+    java_method_ret_tvar(callee, owner, tv),
+    arg_ref_at(recvRef, owner, tv, elemRef),
+    arg_ref_at(elemRef, elemBase, elemParam, argRef2),
+    type_ref_resolves(_, argRef2, elemArg).
+
+// ── substitution: a call whose callee returns a BARE type variable of `owner`, on a
+// receiver bound (owner.tv = arg), types to arg. Generalizes the expr-type.dl rules from
+// recv_decl_ref to expr_arg_binding, so CHAINED-call receivers (iterator() result) work.
+expr_type(prov, call, arg) :- call_site(call, _, recv),
+    expr_arg_binding(recv, owner, tv, arg),
+    expr_call_candidate(call, callee),
+    lib_method_ret_tvar(callee, owner, tv),
+    type_prov(arg, prov).
+expr_type(prov, call, arg) :- call_site(call, _, recv),
+    expr_arg_binding(recv, owner, tv, arg),
+    expr_call_candidate(call, callee),
+    java_method_ret_tvar(callee, owner, tv),
+    type_prov(arg, prov).

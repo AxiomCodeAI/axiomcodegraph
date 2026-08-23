@@ -1,0 +1,404 @@
+// ============================================================================
+// Resolution · TYPE RESOLUTION  (name -> type, client + lib)
+//
+// Resolves a type reference to a concrete type declaration, scoped by the
+// referencing file's imports / same-file types / wildcard imports / same-package
+// visibility, the implicit java.lang, and — for dotted references — nested (line-
+// range) and inline-FQN resolution. Unified over client (java_*) and library
+// (lib_*) with a provenance tag, so a client reference resolves to whichever side
+// declares the type (this is where the client->external TYPE boundary appears).
+//
+// Uses raw imported facts (java_type_reference / java_import / java_type / lib_type)
+// rather than projections — resolution does multi-way joins, and raw facts avoid
+// the two-derived-projection join issue.
+//
+// Two resolution regimes, split by the ref_unqualified guard:
+//   UNQUALIFIED refs (typeName == completeTypeName) use the simple-name file-scoped
+//     rules. Enforced ordering: single-type import (Case 1) and same-file (Case 2)
+//     each suppress the rest; java.lang is a true last resort (!type_ref_file_resolved).
+//     Same-package/default-package (Case 4) RANKS ABOVE wildcard import (Case 3), per
+//     JLS 6.5.5.1: a same-package type shadows on-demand imports. Enforced via the
+//     !type_has_same_pkg_match guard on Case 3, so a name visible via both resolves to
+//     the same-package type alone (not both). Single-type import (Case 1) still
+//     outranks same-package.
+//   QUALIFIED refs (typeName != completeTypeName, e.g. Map.Entry, java.util.Date)
+//     skip the simple-name rules entirely (else the bare inner name spuriously
+//     matches a same-named client type) and resolve via the completeTypeName-keyed
+//     rules below: a recursive member-walk (client) / line-range hop (lib), + inline-FQN.
+//
+// Column maps (0-indexed):
+//   java_type_reference (18): 2 typeRegistryLinkHash(owning type) 8 typeName
+//     9 completeTypeName 17 typeReferenceUniqueHash
+//   java_import (11): 0 importKind 1 importedPath 2 packageOrTypeName 3 simpleName 4 filePath
+//   java_type / lib_type (14): 0 name 1 qualifiedName 6 typePlacement 7 filePath 13 hash
+// ============================================================================
+
+// ── ref_file(RefHash, TypeName, FilePath) ───────────────────────────────────
+// Each client type-reference: its simple name and the file it appears in (the file
+// of the type that owns the reference).
+ref_file(ref, typeName, fp) :- java_type_reference(_, _, ownerType, _, _, _, _, _, typeName, _, _, _, _, _, _, _, _, ref),
+    java_type(_, _, _, _, _, _, _, fp, _, _, _, _, _, ownerType).
+
+// ── helpers for precedence ──────────────────────────────────────────────────
+type_has_explicit_import(name, fp) :- java_import("SINGLE_TYPE", _, _, name, fp, _, _, _, _, _, _).
+type_has_same_file_type(name, fp) :- java_type(name, _, _, _, _, _, _, fp, _, _, _, _, _, _).
+
+// ── type_resolves_in_file(Prov, Name, FilePath, TypeHash) ───────────────────
+// Case 1 — single-type import (import a.b.C): the file imports the FQN; match a
+// client or lib type whose qualifiedName equals the imported path. Restricted to
+// TOP_LEVEL_PLACEMENT (col 6): a nested type's qualifiedName is flattened (drops the
+// outer), so its importedPath never equals its qualifiedName — nested single-type
+// imports resolve via Case 1b instead. Without this filter, a private nested type
+// that flattens to the same qualifiedName (java.util.Arrays.ArrayList → registered
+// as java.util.ArrayList) collides with the real top-level type.
+type_resolves_in_file("client", name, fp, t) :- java_import("SINGLE_TYPE", imp, _, name, fp, _, _, _, _, _, _),
+    java_type(name, imp, _, _, _, _, "TOP_LEVEL_PLACEMENT", _, _, _, _, _, _, t).
+type_resolves_in_file("lib", name, fp, t) :- java_import("SINGLE_TYPE", imp, _, name, fp, _, _, _, _, _, _),
+    lib_type(name, imp, _, _, _, _, "TOP_LEVEL_PLACEMENT", _, _, _, _, _, _, t).
+
+// Case 1b — single-type import of a NESTED type (import a.b.Outer.Inner): the
+// imported simple name (Inner) is then written unqualified. Case 1 cannot match
+// because a nested type's qualifiedName is flattened (Map.Entry is registered as
+// java.util.Entry, not java.util.Map.Entry), so importedPath != qualifiedName.
+// Instead the import's packageOrTypeName (a.b.Outer) names the enclosing type;
+// locate the imported name declared inside it by line-range containment. Top-level
+// imports don't match here (their packageOrTypeName is a package, not a type).
+type_resolves_in_file("client", name, fp, th) :- java_import("SINGLE_TYPE", _, outerQName, name, fp, _, _, _, _, _, _),
+    java_type(_, outerQName, _, _, _, _, _, _, _, _, _, _, _, outer),
+    java_type_lines(name, _, _, _, _, _, _, tfp, _, is, ie, _, _, th),
+    java_type_lines(_, _, _, _, _, _, _, tfp, _, os, oe, _, _, outer),
+    is > os,
+    ie <= oe.
+type_resolves_in_file("lib", name, fp, th) :- java_import("SINGLE_TYPE", _, outerQName, name, fp, _, _, _, _, _, _),
+    lib_type(_, outerQName, _, _, _, _, _, _, _, _, _, _, _, outer),
+    lib_type_lines(name, _, _, _, _, _, _, tfp, _, is, ie, _, _, th),
+    lib_type_lines(_, _, _, _, _, _, _, tfp, _, os, oe, _, _, outer),
+    is > os,
+    ie <= oe.
+
+// Case 2 — same file (no import needed): a type declared in the same file as the
+// reference. Suppressed when an explicit import for the same name wins.
+type_resolves_in_file("client", name, fp, t) :- java_type(name, _, _, _, _, _, _, fp, _, _, _, _, _, t),
+    !type_has_explicit_import(name, fp).
+
+// type_has_same_pkg_match(Name, FilePath) — a TOP_LEVEL type of this simple name is
+// visible in the referencing file's OWN package (i.e. Case 4 resolves it). Per JLS
+// 6.5.5.1 a same-package type shadows on-demand (wildcard) imports, so Case 3 below
+// must yield to it. Equi-join on pkg (via file_pkg/type_pkg) — no cross product.
+type_has_same_pkg_match(name, fp) :- file_pkg(fp, pkg),
+    type_pkg(th, pkg),
+    java_type(name, _, _, _, _, _, "TOP_LEVEL_PLACEMENT", _, _, _, _, _, _, th).
+
+// Case 3 — wildcard import (import a.b.*): a TOP_LEVEL type in the wildcarded
+// package. Suppressed when a single-type import, a same-file type, OR a same-package
+// type wins (the last enforces JLS same-package > on-demand precedence — without it
+// wildcard and same-package are peers and a name in both over-resolves).
+//
+// PERFORMANCE: same trap the Case 4 comment below describes, and it must be avoided
+// here too. The direct form qname = cat(pkg, cat(".", name)) makes the join
+// key a function of BOTH the import's pkg and the type's name, so it cannot be hash-
+// indexed — it degrades to (wildcard imports) × (all types), constructing a string per
+// pair (tens of millions of interned concatenations against the full library). Instead precompute
+// the import's package-with-dot once (import_pkg_dot) and EQUI-JOIN it on pkgDot against
+// each type's precomputed package (type_pkg / lib_type_pkg, which already carry the dot).
+import_pkg_dot(fp, pkgDot) :- java_import("TYPE_ON_DEMAND", _, pkg, _, fp, _, _, _, _, _, _),
+    pkgDot = cat(pkg, ".").
+type_resolves_in_file("client", name, fp, t) :- import_pkg_dot(fp, pkgDot),
+    type_pkg(t, pkgDot),
+    java_type(name, _, _, _, _, _, "TOP_LEVEL_PLACEMENT", _, _, _, _, _, _, t),
+    !type_has_explicit_import(name, fp),
+    !type_has_same_file_type(name, fp),
+    !type_has_same_pkg_match(name, fp).
+type_resolves_in_file("lib", name, fp, t) :- import_pkg_dot(fp, pkgDot),
+    lib_type_pkg(t, pkgDot),
+    lib_type(name, _, _, _, _, _, "TOP_LEVEL_PLACEMENT", _, _, _, _, _, _, t),
+    !type_has_explicit_import(name, fp),
+    !type_has_same_file_type(name, fp),
+    !type_has_same_pkg_match(name, fp).
+
+// Case 4 — same-package visibility (no import): a type in the same package as the
+// referencing file is visible by simple name.
+//
+// PERFORMANCE: the package must be precomputed, then joined as an EQUI-JOIN on a
+// shared pkg variable. A direct form — deriving the prefix on the source side and
+// matching tq = cat(prefix, target) against the target's qualifiedName — makes
+// the join key a function of BOTH sides, which cannot be hash-indexed; it degrades
+// to a java_type × java_type nested-loop cross product (types^2, tens of millions of
+// substr/cat/string-compares — minutes on a real client). Computing each type's
+// package once (linear) and equi-joining on pkg is hash-indexed and ~constant per
+// type.
+//
+// type_pkg(TypeHash, Package) — the package prefix of a type, computed once.
+// Packaged types: qualifiedName minus the trailing simpleName. Default-package
+// types (qualifiedName == simpleName): the empty package "".
+type_pkg(t, pkg) :- java_type(name, qname, _, _, _, _, _, _, _, _, _, _, _, t),
+    plen = strlen(qname) - strlen(name),
+    plen > 0,
+    pkg = substr(qname, 0, plen).
+type_pkg(t, "") :- java_type(name, name, _, _, _, _, _, _, _, _, _, _, _, t).
+
+// file_pkg(FilePath, Package) — a file's package, via any type declared in it (all
+// types in a compilation unit share one package).
+file_pkg(fp, pkg) :- java_type(_, _, _, _, _, _, _, fp, _, _, _, _, _, t),
+    type_pkg(t, pkg).
+
+// Same-package (and default-package) resolution as an equi-join on pkg: a TOP_LEVEL
+// target whose package equals the referencing file's package. Suppressed when a
+// single-type import or a same-file type wins (same-file is Case 2). Client-only:
+// a client reference never resolves to a library type by same-package.
+type_resolves_in_file("client", target, fp, th) :- file_pkg(fp, pkg),
+    type_pkg(th, pkg),
+    java_type(target, _, _, _, _, _, "TOP_LEVEL_PLACEMENT", _, _, _, _, _, _, th),
+    !type_has_explicit_import(target, fp),
+    !type_has_same_file_type(target, fp).
+
+// Case 3b — type-member wildcard (import a.b.Outer.*): a wildcard whose
+// packageOrTypeName is a TYPE (not a package) brings that type's nested types into
+// scope by simple name. Distinguished from Case 3 by packageOrTypeName resolving to
+// a type; the nested member is located by line-range containment (its flattened
+// qualifiedName can't be reconstructed). Suppressed when a single-type import or a
+// same-file type wins.
+type_resolves_in_file("client", name, fp, th) :- java_import("TYPE_ON_DEMAND", _, outerQName, _, fp, _, _, _, _, _, _),
+    java_type(_, outerQName, _, _, _, _, _, _, _, _, _, _, _, outer),
+    java_type_lines(name, _, _, _, _, _, _, tfp, _, is, ie, _, _, th),
+    java_type_lines(_, _, _, _, _, _, _, tfp, _, os, oe, _, _, outer),
+    is > os,
+    ie <= oe,
+    !type_has_explicit_import(name, fp),
+    !type_has_same_file_type(name, fp).
+type_resolves_in_file("lib", name, fp, th) :- java_import("TYPE_ON_DEMAND", _, outerQName, _, fp, _, _, _, _, _, _),
+    lib_type(_, outerQName, _, _, _, _, _, _, _, _, _, _, _, outer),
+    lib_type_lines(name, _, _, _, _, _, _, tfp, _, is, ie, _, _, th),
+    lib_type_lines(_, _, _, _, _, _, _, tfp, _, os, oe, _, _, outer),
+    is > os,
+    ie <= oe,
+    !type_has_explicit_import(name, fp),
+    !type_has_same_file_type(name, fp).
+
+// ── type_resolves_java_lang(Prov, Name, TypeHash) ───────────────────────────
+// Implicit java.lang.* (String, Integer, …) — available to any file, no import.
+type_resolves_java_lang("lib", name, t) :- lib_type(name, qname, _, _, _, _, "TOP_LEVEL_PLACEMENT", _, _, _, _, _, _, t),
+    qname = cat("java.lang.", name).
+
+// ── type_ref_resolves(Prov, RefHash, TypeHash) ──────────────────────────────
+// A type reference resolved to its type. File-scoped resolution first; the
+// implicit java.lang is a fallback only when nothing file-scoped matched (so a
+// same-package/imported type of the same simple name wins over java.lang).
+// A reference whose simple typeName equals its completeTypeName — i.e. written
+// WITHOUT a dotted qualifier. Only unqualified refs may use the simple-name
+// file-scoped rules; a qualified ref (Map.Entry, javax.net.ssl.SSLSocketFactory)
+// must resolve solely via the qualified/FQN rules below, otherwise its bare simple
+// name (Entry, SSLSocketFactory) also matches a same-named client type via
+// same-file/same-package/wildcard and produces a spurious second resolution.
+ref_unqualified(ref) :- java_type_reference(_, _, _, _, _, _, _, _, tn, tn, _, _, _, _, _, _, _, ref).
+
+type_ref_file_resolved(ref) :- ref_file(ref, name, fp),
+    ref_unqualified(ref),
+    type_resolves_in_file(_, name, fp, _).
+
+type_ref_resolves(prov, ref, t) :- ref_file(ref, name, fp),
+    ref_unqualified(ref),
+    type_resolves_in_file(prov, name, fp, t).
+
+type_ref_resolves(prov, ref, t) :- ref_file(ref, name, _),
+    ref_unqualified(ref),
+    !type_ref_file_resolved(ref),
+    type_resolves_java_lang(prov, name, t).
+
+// ── Qualified / nested resolution (completeTypeName-keyed) ───────────────────
+// A reference written with a dotted qualifier — completeTypeName differs from the
+// simple typeName (e.g. "Map.Entry", "Outer.Inner"). The simple-name file-scoped
+// rules above cannot resolve these (they key on the bare inner name), so qualified
+// refs are matched here, keyed on completeTypeName. TWO distinct mechanisms:
+//   CLIENT (member_chain / nested_fqn_path, immediately below): a RECURSIVE member-
+//     type walk to arbitrary depth (A.B.C…), following BOTH physical nesting
+//     (type_direct_parent) AND inheritance (type_ancestor). So it resolves deep
+//     nesting and inherited nested types (Sub.Inner, where Inner is declared in a
+//     supertype — possibly a different file). Uses type_direct_parent + type_ancestor
+//     + java_type; NO *_type_lines, and NO same-file requirement.
+//   LIB (further below): the older single leftmost-qualifier hop + line-range
+//     containment over lib_type_lines — the inner type nested inside the resolved
+//     qualifier in the same file. This disambiguates the JDK's flattened nested
+//     qualifiedNames (every X.Entry registers as "java.util.Entry"; only Map's Entry
+//     sits inside Map's line span).
+//
+// java_type_reference (18): 2 owner  8 typeName  9 completeTypeName  17 refHash
+// java_type (14): 7 filePath  13 hash
+// *_type_lines (14; 9,10 int): 0 name  7 filePath  9 startLine  10 endLine  13 hash
+//   (used only by the LIB rule)
+
+// Client nested — recursive, handles arbitrary depth (A.B.C…) AND inherited nested
+// types (Sub.Inner where Inner is declared in Sub's supertype). Rather than a clause
+// per shape, resolve the leftmost qualifier, then walk member-type segments.
+//
+// member_type(Container, Name, Inner): Inner is a nested type of Container by simple
+// Name — declared directly inside it, OR inherited (declared inside an ancestor).
+// Nested types are inherited just like methods/fields, so a subtype exposes its
+// supertypes' nested types (Sub.Inner). Uses type_direct_parent (line-range nesting)
+// + type_ancestor (inheritance).
+member_type(container, name, inner) :- type_direct_parent(_, inner, container),
+    java_type(name, _, _, _, _, _, _, _, _, _, _, _, _, inner).
+member_type(container, name, inner) :- type_ancestor(container, anc),
+    type_direct_parent(_, inner, anc),
+    java_type(name, _, _, _, _, _, _, _, _, _, _, _, _, inner).
+
+// member_chain(Anchor, DottedName, Inner, Depth): a dotted name built by walking
+// member-type segments DOWN from an anchor container, keyed by the anchor's SIMPLE
+// name (A -> A.B -> A.B.C ; Sub -> Sub.B -> Sub.B.C).
+//
+// GLOBAL — computed ONCE per anchor, NOT per file. The earlier form threaded the
+// file through the recursion, so a container visible in N files (e.g. a same-package
+// outer class seen by every file in its package) had its whole member walk redone N
+// times — the file x container blow-up. Here the walk is file-independent; the file
+// scope is applied once at the match below, as a cheap equi-join. This is the same
+// precompute-then-equi-join move as the same-package (Case 4) fix.
+//
+// Depth (4th arg) is capped at 5 purely as a safety valve against a pathological
+// self-referential nesting/inheritance cycle. Because the walk is global, depth no
+// longer multiplies cost across files, so the cap can be generous.
+// ── demanded_qname(CompleteName) — qualified names actually written as references
+// (completeTypeName != typeName). The member-type walks below build dotted names ONLY
+// to equality-match one of these; because member_type includes INHERITED nested types,
+// a large reached slice makes the walk fan combinatorially, minting a dotted string per
+// nested path to depth 5 — the symbol-table blow-up. Gating the walk to paths that are a
+// PREFIX of some demanded name collapses "all nested paths of all types" to "the names
+// actually referenced". dotted is sliced from the demanded name (substr), not cat-
+// constructed, so the only strings interned are prefixes of demanded names — a handful.
+demanded_qname(ctn) :- java_type_reference(_, _, _, _, _, _, _, _, tn, ctn, _, _, _, _, _, _, _, _),
+    ctn != tn.
+
+// Base — an anchor whose SIMPLE name leads some demanded name (name followed by a dot).
+member_chain(anchor, name, anchor, 1) :- java_type(name, _, _, _, _, _, _, _, _, _, _, _, _, anchor),
+    member_type(anchor, _, _),
+    demanded_qname(ctn),
+    nl = strlen(name),
+    nl < strlen(ctn),
+    substr(ctn, 0, nl) = name,
+    substr(ctn, (nl + 1-1), 1) = ".".
+// Step — extend by seg only when prefix.seg is a prefix of a demanded name; dotted
+// is that prefix sliced from the demanded name, so paths going nowhere mint nothing. The
+// length guard (prefix + "." + seg fits in ctn) keeps every substr start in range.
+member_chain(anchor, dotted, inner, dn) :- member_chain(anchor, prefix, mid, d),
+    d < 5,
+    member_type(mid, seg, inner),
+    demanded_qname(ctn),
+    pl = strlen(prefix),
+    sl = strlen(seg),
+    pl + 1 + sl <= strlen(ctn),
+    substr(ctn, 0, pl) = prefix,
+    substr(ctn, (pl + 1-1), 1) = ".",
+    substr(ctn, (pl + 2-1), sl) = seg,
+    dotted = substr(ctn, 0, pl + 1 + sl),
+    dn = d + 1.
+
+// A qualified client reference resolves when its completeTypeName matches a chain
+// whose anchor's simple name resolves in the referencing file. File scope is a
+// single equi-join here — not threaded through the walk.
+type_ref_resolves("client", ref, inner) :- java_type_reference(_, _, owner, _, _, _, _, _, tn, ctn, _, _, _, _, _, _, _, ref),
+    ctn != tn,
+    member_chain(anchor, ctn, inner, _),
+    java_type(anchorName, _, _, _, _, _, _, _, _, _, _, _, _, anchor),
+    java_type(_, _, _, _, _, _, _, fp, _, _, _, _, _, owner),
+    type_resolves_in_file("client", anchorName, fp, anchor).
+
+// FQN-anchored nested — completeTypeName is a fully-qualified path whose leftmost
+// segment is a PACKAGE, not a file-resolvable simple name (e.g.
+// "a.b.c.Outer.Mid.Inner"). The scoped walk above can't anchor it, so anchor
+// instead on a container type's own qualifiedName and walk member segments. Scope-
+// independent — an FQN reference needs no import.
+//   Base — a container type keyed by its full qualifiedName.
+//   Step — extend by one member-type segment (shares member_type with the walk above).
+// 3rd arg = member-walk depth, capped at 5 (same runaway guard as above).
+nested_fqn_path(t, qname, 1) :- java_type(_, qname, _, _, _, _, _, _, _, _, _, _, _, t),
+    member_type(t, _, _),
+    demanded_qname(ctn),
+    ql = strlen(qname),
+    ql < strlen(ctn),
+    substr(ctn, 0, ql) = qname,
+    substr(ctn, (ql + 1-1), 1) = ".".
+nested_fqn_path(inner, dotted, dn) :- nested_fqn_path(container, prefix, d),
+    d < 5,
+    member_type(container, seg, inner),
+    demanded_qname(ctn),
+    pl = strlen(prefix),
+    sl = strlen(seg),
+    pl + 1 + sl <= strlen(ctn),
+    substr(ctn, 0, pl) = prefix,
+    substr(ctn, (pl + 1-1), 1) = ".",
+    substr(ctn, (pl + 2-1), sl) = seg,
+    dotted = substr(ctn, 0, pl + 1 + sl),
+    dn = d + 1.
+
+type_ref_resolves("client", ref, resolved) :- java_type_reference(_, _, _, _, _, _, _, _, tn, ctn, _, _, _, _, _, _, _, ref),
+    ctn != tn,
+    nested_fqn_path(resolved, ctn, _).
+
+// Library nested (Map.Entry, Outer.Mid.Inner: the reference sits in client code, but
+// the qualifier and the inner type are library types — the client->external boundary
+// at a nested type). Mirrors the client recursive walk so library nesting resolves to
+// arbitrary depth, not just two segments.
+//
+// lib_member_type is DIRECT nesting only (no inherited-nested clause): the client's
+// inherited clause walks type_ancestor and, over the full JDK inheritance lattice,
+// would branch enormously. A library type inheriting a supertype's nested type and
+// naming it by bare simple name is rare; direct nesting covers Outer.Mid.Inner.
+lib_member_type(container, name, inner) :- type_direct_parent("lib", inner, container),
+    lib_type(name, _, _, _, _, _, _, _, _, _, _, _, _, inner).
+
+// lib_member_chain / lib_nested_fqn: the lib twins of member_chain / nested_fqn_path
+// (global walk, depth-capped at 5), one simple-name-anchored, one qualifiedName-
+// anchored.
+lib_member_chain(anchor, name, anchor, 1) :- lib_type(name, _, _, _, _, _, _, _, _, _, _, _, _, anchor),
+    lib_member_type(anchor, _, _).
+lib_member_chain(anchor, dotted, inner, dn) :- lib_member_chain(anchor, prefix, mid, d),
+    d < 5,
+    lib_member_type(mid, seg, inner),
+    dotted = cat(prefix, cat(".", seg)),
+    dn = d + 1.
+
+lib_nested_fqn(t, qname, 1) :- lib_type(_, qname, _, _, _, _, _, _, _, _, _, _, _, t),
+    lib_member_type(t, _, _).
+lib_nested_fqn(inner, dotted, dn) :- lib_nested_fqn(container, prefix, d),
+    d < 5,
+    lib_member_type(container, seg, inner),
+    dotted = cat(prefix, cat(".", seg)),
+    dn = d + 1.
+
+// Simple-name-anchored: the leftmost qualifier resolves as a library type in the
+// referencing file (e.g. `import java.util.Map; Map.Entry`).
+type_ref_resolves("lib", ref, inner) :- java_type_reference(_, _, owner, _, _, _, _, _, tn, ctn, _, _, _, _, _, _, _, ref),
+    ctn != tn,
+    lib_member_chain(anchor, ctn, inner, _),
+    lib_type(anchorName, _, _, _, _, _, _, _, _, _, _, _, _, anchor),
+    java_type(_, _, _, _, _, _, _, fp, _, _, _, _, _, owner),
+    type_resolves_in_file("lib", anchorName, fp, anchor).
+
+// Fully-qualified: completeTypeName is the full library path (`java.util.Map.Entry`).
+type_ref_resolves("lib", ref, resolved) :- java_type_reference(_, _, _, _, _, _, _, _, tn, ctn, _, _, _, _, _, _, _, ref),
+    ctn != tn,
+    lib_nested_fqn(resolved, ctn, _).
+
+// ── Inline fully-qualified library reference ────────────────────────────────
+// A top-level type written with its full package path inline and no import
+// (e.g. "java.util.Date date"): completeTypeName is the full qualifiedName. Match
+// it directly against a library type's qualifiedName — precise, no simple-name
+// explosion across libraries. TOP_LEVEL only: a nested type's qualifiedName is
+// flattened (Arrays.ArrayList registers as java.util.ArrayList, same as the real
+// top-level java.util.ArrayList), so without this filter the inline FQN
+// "java.util.ArrayList" over-resolves to BOTH. A source FQN can only equal a
+// top-level type's qname, so filtering to TOP_LEVEL drops exactly the flattened-
+// nested collisions and nothing legitimate. (Inline-FQN of a genuinely *nested* lib
+// type is a separate, uncovered gap — its written FQN never equals the flattened
+// qname; it needs an import + the dotted rule above.)
+type_ref_resolves("lib", ref, resolved) :- java_type_reference(_, _, _, _, _, _, _, _, tn, ctn, _, _, _, _, _, _, _, ref),
+    ctn != tn,
+    lib_type(tn, ctn, _, _, _, _, "TOP_LEVEL_PLACEMENT", _, _, _, _, _, _, resolved).
+
+// Inline fully-qualified CLIENT reference (e.g. "org.keycloak.X.TokenManager t"):
+// a client type written by its full package path with no import. Mirrors the lib
+// rule above. TOP_LEVEL only (a nested type's flattened qualifiedName drops the
+// outer, so it never equals the written FQN — nested refs use the dotted rule).
+// Without this, the qualified-ref guard leaves FQN client refs unresolved.
+type_ref_resolves("client", ref, resolved) :- java_type_reference(_, _, _, _, _, _, _, _, tn, ctn, _, _, _, _, _, _, _, ref),
+    ctn != tn,
+    java_type(tn, ctn, _, _, _, _, "TOP_LEVEL_PLACEMENT", _, _, _, _, _, _, resolved).

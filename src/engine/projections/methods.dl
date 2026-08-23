@@ -1,0 +1,74 @@
+// ============================================================================
+// Projections · METHODS  (pure column views — no joins, no closures)
+//
+// Named views over method declarations and their parameters, for both the client
+// (java_*) and any external library (lib_*). The first column is a provenance tag
+// ("client" / "lib") so downstream layers can classify an edge as C->C vs C->L.
+//
+// Conventions:
+//   - Views only. Method lookup with ancestors (method_name_in_type) belongs in
+//     resolution/ / dispatch, not here.
+//   - One raw base relation per rule body.
+//
+// java_method / lib_method cols (22):
+//   0 name  1 signature  2 detailedSignature  3 qualifiedName  4 filePath
+//   5 startLine  6 endLine  7 typeRegistryLinkHash (owner type)  8 ownerTypeName
+//   9 ownerQualifiedName  10 methodAccess  11 methodModifier  12 returnTypeName
+//   13 isVarArgs  14 hasReceiverParameter  15 defaultValueExpression
+//   16 methodKind  17 parameterCount  18 hasTypeParameters  19 throwsExceptions
+//   20 enclosingMemberLinkHash  21 methodRegistryUniqueHash
+//
+// java_method_parameter / lib_method_parameter cols (13):
+//   0 paramName  1 position  2 methodRegistryLinkHash (owner method)
+//   3 parameterBaseType  4 parameterTypeName  5 potentialQualifiedName
+//   6 isAmbiguous  7 isFinal  8 isVarArgs  9 isReceiverParameter
+//   10 startLine  11 endLine  12 methodParameterUniqueHash
+//
+// java_method_type_parameter / lib_method_type_parameter cols (10):
+//   0 paramName  1 position  2 ownerMethodName  3 ownerMethodSignature
+//   4 ownerQualifiedMethodName  5 filePath  6 startLine
+//   7 methodRegistryLinkHash (owner method)  8 hasBounds
+//   9 methodTypeParameterUniqueHash
+// ============================================================================
+
+// ── method_decl(Prov, Name, Signature, ReturnTypeName, MethodHash) ───────────
+// A method's identity. Signature carries the parameter shape (overload matching);
+// ReturnTypeName is the declared return type name, used to type a chained call's
+// receiver (A6: a().b() needs a()'s return type).
+method_decl("client", name, sig, ret, h) :- java_method(name, sig, _, _, _, _, _, _, _, _, _, _, ret, _, _, _, _, _, _, _, _, h).
+method_decl("lib", name, sig, ret, h) :- lib_method(name, sig, _, _, _, _, _, _, _, _, _, _, ret, _, _, _, _, _, _, _, _, h).
+
+// ── method_owner(Prov, TypeHash, MethodHash) ────────────────────────────────
+// Which type declares this method — the core "type -> method" mapping that
+// dispatch searches (directly, then across ancestors).
+method_owner("client", typeHash, h) :- java_method(_, _, _, _, _, _, _, typeHash, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+method_owner("lib", typeHash, h) :- lib_method(_, _, _, _, _, _, _, typeHash, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── method_kind(Prov, Kind, ParamCount, MethodHash) ─────────────────────────
+// Kind (methodKind, col 16) — what sort of method this is:
+//   INSTANCE_METHOD       ordinary instance method
+//   STATIC_METHOD         static method (target of a Type.m() / Class::m call)
+//   ABSTRACT_METHOD       abstract — the concrete target lives in an implementor
+//                         (virtual dispatch)
+//   DEFAULT_METHOD        interface default method (a real body on an interface)
+//   CONSTRUCTOR           constructor — target of new T(...) / T::new / super()/this()
+//   COMPACT_CONSTRUCTOR   record compact constructor
+//   STATIC_INITIALIZER    <clinit> body
+//   INSTANCE_INITIALIZER  instance initializer block body
+//   ENUM_CONSTANT_METHOD  method on an enum constant's body
+//   ANNOTATION_ELEMENT    an annotation element (e.g. value())
+// ParamCount (parameterCount, col 17) — declared arity, used for overload/arity matching.
+method_kind("client", kind, pcount, h) :- java_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, kind, pcount, _, _, _, h).
+method_kind("lib", kind, pcount, h) :- lib_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, kind, pcount, _, _, _, h).
+
+// ── param_decl(Prov, Name, Position, TypeName, MethodHash, ParamHash) ────────
+// A method parameter: its name, position, declared type name, and owning method.
+// Used to type a receiver that is a PARAMETER, and for arity/overload matching.
+param_decl("client", name, pos, typeName, methodHash, ph) :- java_method_parameter(name, pos, methodHash, _, typeName, _, _, _, _, _, _, _, ph).
+param_decl("lib", name, pos, typeName, methodHash, ph) :- lib_method_parameter(name, pos, methodHash, _, typeName, _, _, _, _, _, _, _, ph).
+
+// ── method_type_param(Prov, Name, Position, OwnerMethodHash, TypeParamHash) ──
+// A generic method's own type parameter (e.g. <T> in `<T> T first(List<T> xs)`).
+// Used later to substitute a type-variable return type at a call site.
+method_type_param("client", name, pos, methodHash, h) :- java_method_type_parameter(name, pos, _, _, _, _, _, methodHash, _, h).
+method_type_param("lib", name, pos, methodHash, h) :- lib_method_type_parameter(name, pos, _, _, _, _, _, methodHash, _, h).

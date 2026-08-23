@@ -1,0 +1,125 @@
+// ============================================================================
+// Call-edge generation · LAMBDA / METHOD-REF DISPATCH THROUGH A FIELD OR LOCAL
+//
+// A lambda's BODY is not a method in the IR, so nothing can point at it: the body's calls are
+// credited to whichever method lexically CONTAINS the lambda, and the method that later INVOKES it
+// reaches only the functional interface's abstract method. For the CVE-2020-7647 shape
+//
+//     Asset() { this.loader = p -> read(p); }              // built here
+//     String handle(String r) { return loader.apply(r); }  // invoked here
+//
+// the chain used to stop at `handle -> java.util.function.Function#apply` (boundary_lib), while the
+// JVM really executes `handle -> lambda$new$0 -> read` (verified with the dynamic agent). The static
+// bytecode oracle has the same hole, so this is a capability, not a normalization artifact.
+//
+// WHY TYPES ARE NOT ENOUGH: for an anonymous class the value flow collapses into a TYPE (the anon
+// body is a nominal type with a real method), which is why type propagation already handles
+// `Runnable r = new Runnable(){..}; r.run()`. A lambda body has no nominal type — Function<A,B> is
+// shared by every lambda of that shape — so the allocation SITE has to flow. This file is that flow,
+// kept deliberately narrow: keyed on the FIELD or LOCAL that holds the function value, never on the
+// functional-interface type (fanning every Function#apply to every lambda would be catastrophic).
+//
+// EMISSION (schema-safe): the detailed two-hop view (site -> lambda, lambda -> its callees) goes to
+// its own export, lambda_dispatch_edge. The main call_chain_edge stream gets the COLLAPSED
+// method->method edge (invoking method -> what the body calls) stamped Kind="lambda_body", so both
+// ends stay METHOD_REGISTRY hashes, the 7-column schema is unchanged, and everything that traverses
+// call_chain_edge — entry_reachable, and cwe-dataflow's chain.dl — sees through the lambda.
+//
+// java_expression (25): 1 kind 2 edgeRole 3 rootContext 4 expressionOwnerKind 6 expressionOwnerHash
+//   7 parentExpressionHash 11 literalValue 15 referencedEntityKind 25 uniqueHash
+// java_field (14): 1 name 9 typeRegistryLinkHash(owner) 14 hash
+// java_local_variable (19): 1 name 14 method 19 hash
+// ============================================================================
+
+lambda_expr(L) :- java_expression("LAMBDA_EXPRESSION", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, L).
+
+// ── body containment: TWO shapes, both present in the IR ────────────────────
+// (a) expression-bodied `p -> read(p)`: the body is a CHILD of the lambda (edgeRole LAMBDA_BODY).
+lambda_owns(L, e) :- lambda_expr(L),
+    java_expression(_, _, _, _, _, _, L, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e).
+// (b) block-bodied `p -> { audit(p); return read(p); }`: the statements are ROOTS whose
+//     expressionOwnerHash is the lambda itself.
+lambda_owns(L, e) :- lambda_expr(L),
+    java_expression(_, _, _, _, _, L, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e).
+// transitive: anything nested inside an owned expression is also inside the lambda.
+lambda_owns(L, e) :- lambda_owns(L, p),
+    java_expression(_, _, _, _, _, _, p, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e).
+
+lambda_body_call(L, call) :- lambda_owns(L, call), invocation_site(call, _).
+
+// ── where the function value is STORED ──────────────────────────────────────
+// field initializer: `private final Function<..> f = p -> ..;`
+lambda_in_field(field, L) :- java_expression("LAMBDA_EXPRESSION", "ROOT", "FIELD_INITIALIZER", "FIELD", _, field, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, L).
+// assignment in a constructor/method: `this.f = p -> ..;`
+lambda_in_field(field, L) :- java_expression("LAMBDA_EXPRESSION", "ASSIGNMENT_VALUE", _, _, _, _, asgn, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, L),
+    java_expression(_, "ASSIGNMENT_TARGET", _, _, _, _, asgn, _, _, _, fname, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
+    expr_ultimate_type("client", L, encl),
+    java_field(fname, _, _, _, _, _, _, _, encl, _, _, _, _, field).
+// local variable initializer: `Function<..> f = p -> ..;`
+lambda_in_local(local, L) :- java_expression("LAMBDA_EXPRESSION", "ROOT", "LOCAL_VAR_INITIALIZER", "LOCAL_VARIABLE", _, local, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, L).
+// a METHOD REFERENCE in a field needs no body node — it already resolves to a real method.
+mref_in_field(field, R) :- java_expression("METHOD_REFERENCE", "ROOT", "FIELD_INITIALIZER", "FIELD", _, field, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, R).
+mref_in_field(field, R) :- java_expression("METHOD_REFERENCE", "ASSIGNMENT_VALUE", _, _, _, _, asgn, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, R),
+    java_expression(_, "ASSIGNMENT_TARGET", _, _, _, _, asgn, _, _, _, fname, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
+    expr_ultimate_type("client", R, encl),
+    java_field(fname, _, _, _, _, _, _, _, encl, _, _, _, _, field).
+
+// ── where the function value is INVOKED (receiver resolves to that field / local) ──
+recv_is_field(recv, field) :- java_expression(_, "RECEIVER", _, _, _, _, _, _, _, _, fname, _, _, _, "FIELD", _, _, _, _, _, _, _, _, _, recv),
+    expr_ultimate_type("client", recv, encl),
+    java_field(fname, _, _, _, _, _, _, _, encl, _, _, _, _, field).
+recv_is_field(recv, field) :- java_expression("FIELD_ACCESS", "RECEIVER", _, _, _, _, _, _, _, _, fname, _, _, _, _, _, _, _, _, _, _, _, _, _, recv),
+    expr_ultimate_type("client", recv, encl),
+    java_field(fname, _, _, _, _, _, _, _, encl, _, _, _, _, field).
+recv_is_local(recv, local) :- java_expression(_, "RECEIVER", _, _, _, _, _, _, _, _, name, _, _, _, "LOCAL_VARIABLE", _, _, _, _, _, _, _, _, _, recv),
+    expr_ultimate_method("client", recv, m),
+    java_local_variable(name, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, local).
+
+lambda_invoked_at(call, L) :- call_site(call, _, recv), recv_is_field(recv, field), lambda_in_field(field, L).
+lambda_invoked_at(call, L) :- call_site(call, _, recv), recv_is_local(recv, local), lambda_in_local(local, L).
+mref_invoked_at(call, R)   :- call_site(call, _, recv), recv_is_field(recv, field), mref_in_field(field, R).
+
+// ── EXPORT 1: the explicit two-hop view (its own file, nothing else changes) ─
+lambda_dispatch_edge(call, caller, L, "-", "client", "lambda_dispatch", "lambda") :-
+    lambda_invoked_at(call, L), call_from(call, caller).
+lambda_dispatch_edge(bodycall, L, "-", callee, prov, "lambda_body", kind) :-
+    lambda_body_call(L, bodycall), expr_resolves_to_method(bodycall, callee),
+    method_owner(prov, _, callee), invocation_site(bodycall, kind).
+lambda_dispatch_edge(call, caller, R, "-", "client", "mref_dispatch", "ref") :-
+    mref_invoked_at(call, R), call_from(call, caller).
+
+// ── EXPORT 2: the COLLAPSED method->method edge, into the main chain ─────────
+// invoking method -> whatever the lambda body calls. Kind="lambda_body" so a consumer can tell the
+// hop went through a function value; both ends are real methods, so the schema is unchanged.
+//
+// STATUS IS EARNED, NOT ASSUMED. Two independent sources of doubt, and only these two:
+//   (1) how many function values the receiver may hold — `fn_value_count`: one field assigned two
+//       different lambdas is genuinely ambiguous (which one runs?);
+//   (2) whether the body's own call site resolved to a single target — reuse call_target_count.
+// A body that calls TWO methods is NOT ambiguity: those are two CERTAIN edges, so each is judged on
+// its own call site. known_edge only when both counts are 1.
+fn_value_at(call, V) :- lambda_invoked_at(call, V).
+fn_value_at(call, V) :- mref_invoked_at(call, V).
+fn_value_count(call, n) :- fn_value_at(call, _), n = count : { fn_value_at(call, _) }.
+
+// (a) exactly one function value reachable AND the body call resolves to exactly one target
+call_chain_edge(call, caller, "-", callee, prov, "known_edge", "lambda_body") :-
+    lambda_invoked_at(call, L), fn_value_count(call, 1), call_from(call, caller),
+    lambda_body_call(L, bodycall), call_target_count(bodycall, 1),
+    expr_resolves_to_method(bodycall, callee), method_owner(prov, _, callee).
+// (b) several possible function values, or the body call is itself a fan
+call_chain_edge(call, caller, "-", callee, prov, "multi_inferred", "lambda_body") :-
+    lambda_invoked_at(call, L), fn_value_count(call, n), n >= 2, call_from(call, caller),
+    lambda_body_call(L, bodycall), expr_resolves_to_method(bodycall, callee),
+    method_owner(prov, _, callee).
+call_chain_edge(call, caller, "-", callee, prov, "multi_inferred", "lambda_body") :-
+    lambda_invoked_at(call, L), call_from(call, caller),
+    lambda_body_call(L, bodycall), call_target_count(bodycall, k), k >= 2,
+    expr_resolves_to_method(bodycall, callee), method_owner(prov, _, callee).
+// method reference: the target IS the referenced method, so only (1) can introduce doubt.
+call_chain_edge(call, caller, "-", callee, prov, "known_edge", "lambda_body") :-
+    mref_invoked_at(call, R), fn_value_count(call, 1), call_from(call, caller),
+    expr_resolves_to_method(R, callee), method_owner(prov, _, callee).
+call_chain_edge(call, caller, "-", callee, prov, "multi_inferred", "lambda_body") :-
+    mref_invoked_at(call, R), fn_value_count(call, n), n >= 2, call_from(call, caller),
+    expr_resolves_to_method(R, callee), method_owner(prov, _, callee).

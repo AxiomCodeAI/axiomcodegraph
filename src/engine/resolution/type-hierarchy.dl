@@ -1,0 +1,32 @@
+// ============================================================================
+// Resolution · TYPE HIERARCHY  (extends / implements)
+//
+// type_parent — the direct supertype edge; the supertype *reference* is resolved
+// through the normal type resolver (type_ref_resolves), so a client type extending
+// a library type (class MyList extends ArrayList) links straight to the lib type.
+// type_ancestor — transitive closure, used for inherited-method lookup and
+// vulnerable-type inheritance.
+//
+// Client-side hierarchy (the sub type comes from java_type_reference). Library
+// internal hierarchy (lib type extends lib type, e.g. ArrayList -> AbstractList)
+// is added in Engine 2 over lib_type_reference when deeper chains are needed.
+//
+// java_type_reference (18): 1 context  2 typeRegistryLinkHash (the SUB type)
+//   17 typeReferenceUniqueHash
+// ============================================================================
+
+// ── type_parent(SubHash, SuperHash) ─────────────────────────────────────────
+// The reference at context SUPER_TYPE / IMPLEMENTS_INTERFACE is owned by the sub
+// type (col 2); resolving that reference yields the super type (client or lib).
+// Filtered to depth "0" (col 7) — the base super/interface type itself, not its
+// type arguments. Without this, `extends ArrayList<String>` would make String (a
+// depth-1 type-argument ref that shares the SUPER_TYPE context) a parent, and
+// inherited-method dispatch would pull in the type argument's members.
+type_parent(sub, super) :- java_type_reference(_, "SUPER_TYPE", sub, _, _, _, _, "0", _, _, _, _, _, _, _, _, _, ref),
+    type_ref_resolves(_, ref, super).
+type_parent(sub, super) :- java_type_reference(_, "IMPLEMENTS_INTERFACE", sub, _, _, _, _, "0", _, _, _, _, _, _, _, _, _, ref),
+    type_ref_resolves(_, ref, super).
+
+// ── type_ancestor(SubHash, AncestorHash) — transitive closure ───────────────
+type_ancestor(sub, anc) :- type_parent(sub, anc).
+type_ancestor(sub, anc) :- type_parent(sub, mid), type_ancestor(mid, anc).

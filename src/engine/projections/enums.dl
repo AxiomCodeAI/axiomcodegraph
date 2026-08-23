@@ -1,0 +1,27 @@
+// ============================================================================
+// Projections · ENUM CONSTANTS  (pure column views — no joins, no closures)
+//
+// Named views over enum constants, for both the client (java_*) and any external
+// library (lib_*). An enum *type* (enum Color { … }) is a type_decl with
+// typeCategory = ENUM_TYPE (see types.dl); this file covers the *constants*
+// (RED, GREEN) declared inside it.
+//
+// The constants matter because the parser tags an access like SomeEnum.CONSTANT as
+// a FIELD reference with an empty referenced hash; the resolution layer falls back
+// to this view (by constant name + owning enum) to type such a receiver. That
+// fallback rule lives in resolution/, not here.
+//
+// Conventions: views only; one raw base relation per rule body; provenance tag first.
+//
+// java_enum_constant / lib_enum_constant cols (13):
+//   0 name  1 qualifiedName  2 ordinal  3 arguments  4 argumentCount  5 hasBody
+//   6 filePath  7 startLine  8 endLine  9 typeRegistryLinkHash (owner enum type)
+//   10 ownerTypeName  11 ownerQualifiedName  12 enumConstantUniqueHash
+// ============================================================================
+
+// ── enum_decl(Prov, Name, QName, OwnerTypeHash, OwnerQName, EnumConstHash) ────
+// An enum constant: its name, qualified name, and the enum type that owns it
+// (both as a hash and as a qualified name — the resolver matches SomeEnum.CONSTANT
+// by owning qualified name when only the qualifier's name is known).
+enum_decl("client", name, qname, ownerType, ownerQName, h) :- java_enum_constant(name, qname, _, _, _, _, _, _, _, ownerType, _, ownerQName, h).
+enum_decl("lib", name, qname, ownerType, ownerQName, h) :- lib_enum_constant(name, qname, _, _, _, _, _, _, _, ownerType, _, ownerQName, h).

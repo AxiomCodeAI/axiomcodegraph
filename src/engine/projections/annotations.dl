@@ -1,0 +1,75 @@
+// ============================================================================
+// Projections · ANNOTATIONS  (pure column views — no joins, no closures)
+//
+// Named views over annotations and their arguments, for both the client (java_*)
+// and any external library (lib_*). Annotations drive the implicit (framework)
+// edges: the annotation resolves to a library type, and its attach-point + values
+// drive entry points, injection, and taint sources. Grouping arrays, resolving a
+// CLASS_REFERENCE / string value to a type, and recursing into nested annotations
+// are interpretation steps that live in resolution/, not here.
+//
+// Conventions: views only; one raw base relation per rule body; provenance tag first.
+//
+// java_annotation / lib_annotation cols (13):
+//   0 annotationName  1 kind  2 context  3 ownerHash  4 typeRegistryHash
+//   5 typeParameterHash  6 parentAnnotationHash  7 depth  8 position
+//   9 startLine  10 endLine  11 isMetaAnnotation  12 typeAnnotationUniqueHash
+//
+// java_annotation_argument / lib_annotation_argument cols (11):
+//   0 argumentName  1 argumentValue  2 valueType  3 position  4 parentAnnotationHash
+//   5 referencedTypeHash  6 nestedAnnotationHash  7 arrayIndex
+//   8 startLine  9 endLine  10 annotationArgumentReferenceUniqueHash
+// ============================================================================
+
+// ── annotation_on(Prov, Name, Kind, Context, OwnerHash, AnnotationHash) ──────
+// An annotation use: its simple name, argument shape, what it is attached to, and
+// the attach-point entity.
+//
+// Kind (col 1) — the argument shape:
+//   MARKER           no arguments, e.g. @Override
+//   SINGLE_VALUE     one unnamed value, e.g. @RequestMapping("/x")
+//   NAMED_ARGUMENTS  name=value pairs, e.g. @RequestParam(value="q", required=false)
+//   ARRAY_VALUE      an array value, e.g. @Foo({"a","b"})
+//   NESTED           a nested annotation value, e.g. @Table(indexes=@Index(...))
+//
+// Context (col 2) — the attach-point (what the annotation is on). Full set from
+// the parser's AnnotationContext enum (a given project uses only a subset):
+//   declarations:
+//     TYPE_DECLARATION             a type (e.g. @Service / @Entity bean)
+//     FIELD_DECLARATION            a field (e.g. @Autowired injection)
+//     METHOD_DECLARATION           a method (handler / lifecycle / query entry point)
+//     PARAMETER_DECLARATION        a parameter (e.g. @RequestParam taint source)
+//     CONSTRUCTOR_DECLARATION      a constructor (e.g. @Autowired / @JsonCreator)
+//     ANNOTATION_TYPE_DECLARATION  an @interface (meta-annotation)
+//     ENUM_CONSTANT                an enum constant
+//     RECORD_COMPONENT             a record component (Java 14+)
+//     PACKAGE_DECLARATION          a package (package-info.java)
+//     LOCAL_VARIABLE               a local variable
+//   type system:
+//     TYPE_PARAMETER               a generic type parameter (<@NonNull T>)
+//     TYPE_USE                     a type use (List<@NonNull String>)
+//     TYPE_PARAM_BOUND             a class-level type-parameter bound
+//     METHOD_TYPE_PARAM_BOUND      a method-level type-parameter bound
+annotation_on("client", name, kind, context, ownerHash, h) :- java_annotation(name, kind, context, ownerHash, _, _, _, _, _, _, _, _, h).
+annotation_on("lib", name, kind, context, ownerHash, h) :- lib_annotation(name, kind, context, ownerHash, _, _, _, _, _, _, _, _, h).
+
+// ── annotation_arg(Prov, ParentAnnotationHash, ArgName, ArgValue, ValueType, ArrayIndex, ReferencedTypeHash, NestedAnnotationHash, ArgHash) ──
+// One annotation argument (one row per named arg and per array element).
+// ArgName is "value" for a single unnamed argument. Array elements share ArgName
+// and differ by ArrayIndex.
+//
+// ValueType (col 2) — the kind of value. Full set from the parser's
+// ArgumentValueType enum (a given project uses only a subset):
+//   STRING_LITERAL       a string, e.g. "/api"
+//   NUMBER_LITERAL       an integer / floating-point literal
+//   CHAR_LITERAL         a character literal, e.g. ','
+//   BOOLEAN_LITERAL      true / false
+//   NULL                 null
+//   ENUM_CONSTANT        an enum constant OR static final field reference
+//   CONSTANT_EXPRESSION  a compile-time constant expression, e.g. 60 * 1000
+//   CLASS_REFERENCE      a class literal, e.g. Request.class (ArgValue = the name;
+//                        ReferencedTypeHash is empty — resolve the name to a type)
+//   NESTED_ANNOTATION    a nested annotation (see NestedAnnotationHash)
+//   UNKNOWN              unclassified / complex expression (parser fallback)
+annotation_arg("client", parent, argName, argValue, valueType, arrayIndex, refType, nested, h) :- java_annotation_argument(argName, argValue, valueType, _, parent, refType, nested, arrayIndex, _, _, h).
+annotation_arg("lib", parent, argName, argValue, valueType, arrayIndex, refType, nested, h) :- lib_annotation_argument(argName, argValue, valueType, _, parent, refType, nested, arrayIndex, _, _, h).

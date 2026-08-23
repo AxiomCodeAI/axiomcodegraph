@@ -1,0 +1,236 @@
+// ============================================================================
+// ENGINE (client) · LAMBDA-PARAMETER TYPING via functional-interface SAM
+//
+// An inferred lambda param `s -> s.open()` carries no written type; its type is the
+// parameter type of the target functional interface's Single Abstract Method (SAM),
+// so we can only dispatch `s.open()` after inferring it. Three steps:
+//   (1) SAM model     — the single abstract method of an interface, and its param types.
+//   (2) target type   — the functional interface the lambda is being coerced to (here:
+//                       the callee's parameter type when the lambda is a call ARGUMENT).
+//   (3) bind + type   — bind each param decl (by position) to the SAM param type, then
+//                       type every LAMBDA_PARAMETER *use* so its calls resolve.
+//
+// PROV-AGNOSTIC: a client lambda's target FI is very often a LIBRARY interface (e.g. a
+// custom @FunctionalInterface, or Consumer/Function), so the SAM helpers union the client
+// (java_*) and lib (lib_*) sides — a type hash is globally unique, so a `_`-prov lookup
+// picks whichever side declares it. The lambda *site* rules are client-only (java_expression);
+// engine-ii mirrors them over lib_expression for lambdas that live inside library bodies.
+//
+// STRATIFICATION: expr_type ⇄ expr_call_candidate ⇄ lambda_target_fi ⇄ lambda_param_binding
+// ⇄ expr_type is POSITIVE mutual recursion (a lambda body's calls are typed off the param,
+// whose type comes from the enclosing call's resolution) — one fixpoint stratum, no negation.
+// The `count` aggregate (iface_abs_count) sits BELOW the cycle: iface_abs_method depends only
+// on base type/method facts, never on expr_type, so it stratifies cleanly.
+//
+// java_expression (25): 0 kind 1 edgeRole 6 parentExpr 7 position 10 literalValue
+//   14 referencedEntityKind 24 uniqueHash.  java_type/lib_type (14): 3 kind 13 typeHash.
+// ============================================================================
+
+// ── (1) SAM model ───────────────────────────────────────────────────────────
+// An abstract (neither default nor static) method declared in an interface type.
+// (Interface abstract methods may be tagged INSTANCE_METHOD or ABSTRACT_METHOD; the
+// INTERFACE_TYPE anchor + excluding DEFAULT/STATIC is the reliable filter — mirrors the
+// interface-method handling in virtual-dispatch.dl.)
+iface_abs_method("client", fi, m) :-
+    java_type(_, _, _, "INTERFACE_TYPE", _, _, _, _, _, _, _, _, _, fi),
+    method_owner("client", fi, m),
+    method_kind("client", k, _, m), k != "DEFAULT_METHOD", k != "STATIC_METHOD".
+iface_abs_method("lib", fi, m) :-
+    lib_type(_, _, _, "INTERFACE_TYPE", _, _, _, _, _, _, _, _, _, fi),
+    method_owner("lib", fi, m),
+    method_kind("lib", k, _, m), k != "DEFAULT_METHOD", k != "STATIC_METHOD".
+
+// Functional interface = exactly one abstract method → that method is the SAM.
+iface_abs_count(prov, fi, n) :- iface_abs_method(prov, fi, _), n = count : { iface_abs_method(prov, fi, _) }.
+sam_method(prov, fi, m) :- iface_abs_method(prov, fi, m), iface_abs_count(prov, fi, 1).
+
+// Resolved type of a method's pos-th parameter, carrying the type REFERENCE (needed to bind the
+// FI's type arguments for the generic path) alongside the resolved type (client + lib).
+method_param_type_at("client", callee, pos, ref, t) :-
+    param_decl("client", _, pos, _, callee, ph), method_param_type_resolves(_, ph, ref, t).
+method_param_type_at("lib", callee, pos, ref, t) :-
+    param_decl("lib", _, pos, _, callee, ph), lib_method_param_type_resolves(_, ph, ref, t).
+
+// lib_method_param_type_resolves was DECLARED but never DEFINED, so method_param_type_at("lib", …)
+// was always EMPTY and lambda_target_fi_ref could not fire for the whole library-SAM world —
+// coll.forEach(x -> x.m()), stream().map(x -> …), any Consumer/Function/Predicate parameter. The
+// lambda body's receiver stayed untyped and every call inside it died as ambiguous_unknown
+// (verified: lambda_target_fi_ref = 0 rows on a 4-shape lambda construct).
+// Resolution mechanism: the oracle records each lib reference parameter's FULLY-QUALIFIED type in
+// potentialQualifiedName (col 6) — matched to lib_type.qualifiedName, exactly as param_type_hash
+// does in overload.dl. The `ref` slot carries the parameter's depth-0 METHOD_PARAM type REFERENCE,
+// which is what the generic paths (type_arg_binding / fi_tvar_arg) key on.
+// SCOPED for cost, to the positions where a lambda / method reference is actually passed — the
+// only consumer. The unguarded form materializes a row for every reference parameter in the whole
+// JDK IR (hundreds of thousands), which overload.dl measured as runtime-dominating.
+// lib_method_parameter (13): 2 position 3 method 6 potentialQualifiedName 13 hash
+// lib_type_reference (18): 2 context 8 depth 16 ownerHash 17 ownerKind 18 hash
+fn_arg_position(call, pos) :- java_expression("LAMBDA_EXPRESSION", "ARGUMENT", _, _, _, _, call, pos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _).
+fn_arg_position(call, pos) :- java_expression("METHOD_REFERENCE", "ARGUMENT", _, _, _, _, call, pos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _).
+lib_method_param_type_resolves("lib", ph, ref, t) :- fn_arg_position(call, pos),
+    expr_call_candidate(call, callee),
+    lib_method_parameter(_, pos, callee, _, _, pqn, _, _, _, _, _, _, ph),
+    pqn != "",
+    lib_type(_, pqn, _, _, _, _, _, _, _, _, _, _, _, t),
+    lib_type_reference(_, "METHOD_PARAM", _, _, _, _, _, "0", _, _, _, _, _, _, _, ph, "METHOD_PARAM", ref).
+
+// ── (2b) target FI from a DECLARED TYPE, not from a call argument ────────────
+// `Sink s = i -> i.validate(x);`  /  `this.handler = e -> …;`  /  `return x -> …;`
+// The lambda is coerced to the declared type of the thing it is assigned to, so its target FI
+// is that declaration's type. lambda_target_fi_ref only covered the ARGUMENT case, so an
+// initializer/assignment/return lambda had NO target and its body was unresolvable.
+// (i) local-variable initializer: the lambda is the LOCAL_VAR_INITIALIZER root owned by the local;
+//     the local's declared type reference resolves to the FI.
+lambda_target_fi_ref(lam, ref, fi) :-
+    java_expression("LAMBDA_EXPRESSION", "ROOT", "LOCAL_VAR_INITIALIZER", "LOCAL_VARIABLE", _, local, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, lam),
+    java_type_reference(_, "LOCAL_VARIABLE", _, _, _, _, _, "0", _, _, _, _, _, _, _, local, "LOCAL_VARIABLE", ref),
+    type_ref_resolves(_, ref, fi).
+// (ii) field initializer.
+lambda_target_fi_ref(lam, ref, fi) :-
+    java_expression("LAMBDA_EXPRESSION", "ROOT", "FIELD_INITIALIZER", "FIELD", _, field, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, lam),
+    java_type_reference(_, "FIELD_TYPE", _, _, _, _, _, "0", _, _, _, _, _, _, _, field, "FIELD", ref),
+    type_ref_resolves(_, ref, fi).
+// (iii) return statement: target = the enclosing method's declared return type.
+lambda_target_fi_ref(lam, ref, fi) :-
+    java_expression("LAMBDA_EXPRESSION", "ROOT", "RETURN_VALUE", "RETURN_STATEMENT", _, m, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, lam),
+    java_type_reference(_, "METHOD_RETURN", _, _, _, _, _, "0", _, _, _, _, _, _, _, m, "METHOD", ref),
+    type_ref_resolves(_, ref, fi).
+// (iv) assignment to an already-declared local / field: target = the target's declared type.
+lambda_target_fi_ref(lam, ref, fi) :-
+    java_expression("LAMBDA_EXPRESSION", "ASSIGNMENT_VALUE", _, _, _, _, asgn, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, lam),
+    java_expression(_, "ASSIGNMENT_TARGET", _, _, _, _, asgn, _, _, _, name, _, _, _, _, _, _, _, _, _, _, _, _, _, tgt),
+    expr_ultimate_method("client", tgt, m),
+    java_local_variable(name, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, local),
+    java_type_reference(_, "LOCAL_VARIABLE", _, _, _, _, _, "0", _, _, _, _, _, _, _, local, "LOCAL_VARIABLE", ref),
+    type_ref_resolves(_, ref, fi).
+
+// SAM's pos-th parameter — as a concrete type (non-generic SAM), or as a type-VARIABLE name (a
+// generic SAM like Consumer<T>'s accept(T), whose param type doesn't resolve and instead binds to
+// the FI reference's type argument). java_/lib_type_reference (18): 0 kind 1 ctx 8 depth 10 tvarName
+//   15 ownerHash 16 ownerKind 17 ref.
+sam_param_type(prov, fi, pos, t) :- sam_method(prov, fi, m), method_param_type_at(prov, m, pos, _, t).
+sam_param_tvar("client", fi, pos, tv) :- sam_method("client", fi, m), param_decl("client", _, pos, _, m, ph),
+    java_type_reference("TYPE_VARIABLE", "METHOD_PARAM", _, _, _, _, _, "0", _, _, tv, _, _, _, _, ph, "METHOD_PARAM", _), tv != "".
+sam_param_tvar("lib", fi, pos, tv) :- sam_method("lib", fi, m), param_decl("lib", _, pos, _, m, ph),
+    lib_type_reference("TYPE_VARIABLE", "METHOD_PARAM", _, _, _, _, _, "0", _, _, tv, _, _, _, _, ph, "METHOD_PARAM", _), tv != "".
+
+// ── (2) target functional-interface type (ARGUMENT case) ────────────────────
+// A lambda passed as the argpos-th argument of a call is coerced to the callee's argpos-th
+// parameter type. expr_call_candidate is the sound (name-based) candidate set — positive in
+// the resolution SCC; the outer call resolves on its own receiver, independent of the lambda.
+// Carry the FI reference (fiRef) too — the generic binding keys type_arg_binding on it.
+lambda_target_fi_ref(lam, fiRef, fi) :-
+    java_expression("LAMBDA_EXPRESSION", "ARGUMENT", _, _, _, _, call, argpos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, lam),
+    expr_call_candidate(call, callee),
+    method_param_type_at(_, callee, argpos, fiRef, fi).
+lambda_target_fi(lam, fi) :- lambda_target_fi_ref(lam, _, fi).
+
+// ── (3) bind params, then type the uses ─────────────────────────────────────
+// (3a) NON-GENERIC: bind each lambda param decl (position k, name) to the SAM's k-th concrete param type.
+lambda_param_binding(lam, name, t) :-
+    java_expression("IDENTIFIER_REFERENCE", "LAMBDA_PARAMETER", _, _, _, _, lam, k, _, _, name, _, _, _, "LAMBDA_PARAMETER", _, _, _, _, _, _, _, _, _, _),
+    lambda_target_fi(lam, fi),
+    sam_param_type(_, fi, k, t).
+// (3b) GENERIC: the SAM's k-th param is a type variable tv; bind it to the FI reference's type
+// argument for tv (Consumer<LSink>.accept(T) → T=LSink). Two rules for the FI ref's declaring side:
+// type_arg_binding for a client-declared FI param type, lib_type_arg_binding for a lib one (the
+// common case — Consumer/Function/custom lib @FunctionalInterface). Both are lower-stratum.
+lambda_param_binding(lam, name, argT) :-
+    java_expression("IDENTIFIER_REFERENCE", "LAMBDA_PARAMETER", _, _, _, _, lam, k, _, _, name, _, _, _, "LAMBDA_PARAMETER", _, _, _, _, _, _, _, _, _, _),
+    lambda_target_fi_ref(lam, fiRef, fi),
+    sam_param_tvar(_, fi, k, tv),
+    type_arg_binding(fiRef, fi, tv, argT).
+lambda_param_binding(lam, name, argT) :-
+    java_expression("IDENTIFIER_REFERENCE", "LAMBDA_PARAMETER", _, _, _, _, lam, k, _, _, name, _, _, _, "LAMBDA_PARAMETER", _, _, _, _, _, _, _, _, _, _),
+    lambda_target_fi_ref(lam, fiRef, fi),
+    sam_param_tvar(_, fi, k, tv),
+    lib_type_arg_binding(fiRef, fi, tv, argT).
+
+// ── (3c) RECEIVER-BOUND GENERIC (the stream shape) ───────────────────────────
+// `recv.tap(a -> a.open())` where tap's param type is `Op<T>` and T is the ENCLOSING class's
+// type variable — bound not on the param type but by the RECEIVER's generics (Pipe<LSink> → T=LSink).
+// Two composed substitutions: (i) fi_tvar_arg maps the FI's SAM tvar (Op's E) to the class tvar name
+// carried as Op<T>'s type argument (T); (ii) recv_tvar_type resolves that class tvar via the receiver's
+// written type arguments (Pipe<LSink> → T=LSink). All lower-stratum (base-fact type refs + bindings).
+//
+// (i) FI reference's tvar-VALUED type argument: fiRef (Op<T>) fills fi(Op)'s type parameter `pname`
+//     (at pos p) with the type-VARIABLE name classTv (T), rather than a concrete type. Both ref
+//     families (client-written or lib-written FI reference). type_reference (18): 0 kind 5 parentRef
+//     6 pos 7 depth 10 tvarName.
+fi_tvar_arg(fiRef, fi, pname, classTv) :-
+    type_ref_resolves(_, fiRef, fi), type_param(_, pname, p, fi, _),
+    java_type_reference("TYPE_VARIABLE", _, _, _, _, fiRef, p, "1", _, _, classTv, _, _, _, _, _, _, _), classTv != "".
+fi_tvar_arg(fiRef, fi, pname, classTv) :-
+    lib_type_ref_resolves(_, fiRef, fi), type_param(_, pname, p, fi, _),
+    lib_type_reference("TYPE_VARIABLE", _, _, _, _, fiRef, p, "1", _, _, classTv, _, _, _, _, _, _, _), classTv != "".
+
+// (i-b) WILDCARD-WRAPPED type argument — the JDK's dominant style: `forEach(Consumer<? super T>)`,
+// `sort(Comparator<? super E>)`, `map(Function<? super T, ? extends R>)`. The tvar then sits at
+// DEPTH 2 under a depth-1 WILDCARD child of the FI reference, so the depth-1 clauses above see
+// nothing and every JDK higher-order call lost its lambda-parameter type. A wildcard is transparent
+// for this purpose: `? super T` / `? extends T` still identifies T as the argument position's tvar.
+// The (fiRef, fi) PAIR is already established by lambda_target_fi_ref (which resolves the FI from
+// the parameter's recorded FQN), so key on it rather than on *_type_ref_resolves — a lib parameter's
+// type reference is not necessarily resolvable by the file-scoped lib rules, and requiring that was
+// what kept fi_tvar_arg empty (0 rows) for every JDK higher-order method.
+fi_tvar_arg(fiRef, fi, pname, classTv) :- lambda_target_fi_ref(_, fiRef, fi),
+    type_param(_, pname, p, fi, _),
+    lib_type_reference("WILDCARD", _, _, _, _, fiRef, p, "1", _, _, _, _, _, _, _, _, _, wc),
+    lib_type_reference("TYPE_VARIABLE", _, _, _, _, wc, _, "2", _, _, classTv, _, _, _, _, _, _, _), classTv != "".
+fi_tvar_arg(fiRef, fi, pname, classTv) :- lambda_target_fi_ref(_, fiRef, fi),
+    type_param(_, pname, p, fi, _),
+    lib_type_reference("TYPE_VARIABLE", _, _, _, _, fiRef, p, "1", _, _, classTv, _, _, _, _, _, _, _), classTv != "".
+fi_tvar_arg(fiRef, fi, pname, classTv) :- lambda_target_fi_ref(_, fiRef, fi),
+    type_param(_, pname, p, fi, _),
+    java_type_reference("WILDCARD", _, _, _, _, fiRef, p, "1", _, _, _, _, _, _, _, _, _, wc),
+    java_type_reference("TYPE_VARIABLE", _, _, _, _, wc, _, "2", _, _, classTv, _, _, _, _, _, _, _), classTv != "".
+fi_tvar_arg(fiRef, fi, pname, classTv) :- lambda_target_fi_ref(_, fiRef, fi),
+    type_param(_, pname, p, fi, _),
+    java_type_reference("TYPE_VARIABLE", _, _, _, _, fiRef, p, "1", _, _, classTv, _, _, _, _, _, _, _), classTv != "".
+
+// (ii) the receiver's class tvar → concrete. A type-argument reference may be written on the client
+//     (a first-party declaration) or in the library (a lib method's return / param), so union both
+//     bindings. type_arg_binding is client-written args; lib_type_arg_binding is lib-written args.
+tvar_binding(ref, ty, tv, argT) :- type_arg_binding(ref, ty, tv, argT).
+tvar_binding(ref, ty, tv, argT) :- lib_type_arg_binding(ref, ty, tv, argT).
+
+//   (ii-a) LOCAL/FIELD/PARAMETER receiver — recv_decl_ref carries the written declaration ref.
+recv_tvar_type(call, classTv, argT) :-
+    call_site(call, _, recv),
+    recv_decl_ref(recv, declRef, recvType),
+    tvar_binding(declRef, recvType, classTv, argT).
+//   (ii-b) fluent/chained receiver `ofSink().tap()` — the receiver is a call whose declared RETURN
+//     type carries the args (Pipe<LSink>). Client-declared callee (method_return_type_resolves) or
+//     lib-declared callee (METHOD_RETURN ref via lib_type_ref_resolves). NOTE: this resolves the
+//     FIRST fluent hop; a hop whose return re-uses the class tvar (tap returns Pipe<T>) needs
+//     class-tvar propagation through the return and is not yet handled.
+recv_tvar_type(call, classTv, argT) :-
+    call_site(call, _, recv),
+    expr_call_candidate(recv, innerCallee),
+    method_return_type_resolves(_, innerCallee, retRef, recvType),
+    tvar_binding(retRef, recvType, classTv, argT).
+recv_tvar_type(call, classTv, argT) :-
+    call_site(call, _, recv),
+    expr_call_candidate(recv, innerCallee),
+    lib_type_reference(_, "METHOD_RETURN", _, _, _, _, _, "0", _, _, _, _, _, _, _, innerCallee, "METHOD", retRef),
+    lib_type_ref_resolves(_, retRef, recvType),
+    tvar_binding(retRef, recvType, classTv, argT).
+
+// compose: lambda param (SAM tvar tv) → fi's param filled by classTv → receiver binding for classTv.
+lambda_param_binding(lam, name, argT) :-
+    java_expression("IDENTIFIER_REFERENCE", "LAMBDA_PARAMETER", _, _, _, _, lam, k, _, _, name, _, _, _, "LAMBDA_PARAMETER", _, _, _, _, _, _, _, _, _, _),
+    lambda_target_fi_ref(lam, fiRef, fi),
+    sam_param_tvar(_, fi, k, tv),
+    fi_tvar_arg(fiRef, fi, tv, classTv),
+    java_expression("LAMBDA_EXPRESSION", "ARGUMENT", _, _, _, _, call, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, lam),
+    recv_tvar_type(call, classTv, argT).
+
+// Type every LAMBDA_PARAMETER use (receiver/argument) to its bound type, scoped to the same
+// enclosing method as the lambda and matched by name. Feeds the normal typed-receiver dispatch,
+// so `s.open(x)` resolves on the bound type. (Name+method scope; nested same-name lambda params
+// are a known residual — tighten later via body containment if it bites.)
+expr_type("client", use, t) :-
+    java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "LAMBDA_PARAMETER", _, _, _, _, _, _, _, _, _, use),
+    expr_ultimate_method("client", use, m),
+    lambda_param_binding(lam, name, t),
+    expr_ultimate_method("client", lam, m).

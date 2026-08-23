@@ -1,0 +1,45 @@
+// ============================================================================
+// Containment · TYPE NESTING
+//
+// type_in_type / type_has_intermediate_type / type_direct_parent, for both the
+// client and any external library. Derived from type line ranges: a nested type's
+// start/end lies within its enclosing type's, in the same file.
+//
+// Uses the int-typed line imports java_type_lines / lib_type_lines (startLine /
+// endLine as int) from the client and library IR — the projection columns are all
+// strings, so numeric line comparison needs this dedicated typed import.
+// Self-joining a raw import (not two derived projections) is safe.
+//
+// Consumed by resolution: nested type names drop their outer in qualifiedName
+// (Map.Entry is registered as java.util.Entry, and collides), so a nested name is
+// resolved by "the type nested in <enclosing>". type_direct_parent gives the
+// immediate enclosing type; it also lets an inner class's unqualified call resolve
+// in the enclosing type.
+//
+// java_type_lines / lib_type_lines cols (14; 9,10 int):
+//   0 name 1 qualifiedName 2 fileName 3 typeCategory 4 typeAccess 5 typeModifier
+//   6 typePlacement 7 filePath 8 baseMservPath 9 startLine 10 endLine
+//   11 isExternal 12 serviceVersionLinkHash 13 typeRegistryUniqueHash
+// ============================================================================
+
+// ── type_in_type(Prov, ChildTypeHash, ParentTypeHash) ───────────────────────
+// Child's line span lies strictly inside Parent's, same file (transitive: matches
+// every enclosing type, not just the immediate one).
+type_in_type("client", child, parent) :- java_type_lines(_, _, _, _, _, _, _, fp, _, cs, ce, _, _, child),
+    java_type_lines(_, _, _, _, _, _, _, fp, _, ps, pe, _, _, parent),
+    cs > ps,
+    ce <= pe.
+type_in_type("lib", child, parent) :- lib_type_lines(_, _, _, _, _, _, _, fp, _, cs, ce, _, _, child),
+    lib_type_lines(_, _, _, _, _, _, _, fp, _, ps, pe, _, _, parent),
+    cs > ps,
+    ce <= pe.
+
+// ── type_has_intermediate_type(Prov, Child, Grandparent) ────────────────────
+// Helper: there is a Mid type strictly between Child and Grandparent.
+type_has_intermediate_type(prov, child, gp) :- type_in_type(prov, child, mid),
+    type_in_type(prov, mid, gp).
+
+// ── type_direct_parent(Prov, Child, Parent) ─────────────────────────────────
+// The immediate enclosing type: nested in Parent with nothing in between.
+type_direct_parent(prov, child, parent) :- type_in_type(prov, child, parent),
+    !type_has_intermediate_type(prov, child, parent).

@@ -1,0 +1,100 @@
+// ============================================================================
+// Resolution · TYPE-FLOW (VTA) LAYER — client-side, ADDITIVE, LOW-stratum
+//
+// Narrows virtual dispatch by the CONCRETE type that flows INTO a receiver, instead of
+// CHA-fanning to every implementer in the hierarchy. This is a NEW file that only
+// CONTRIBUTES clauses to expr_type / expr_exact_type (both already mutually recursive
+// and POSITIVE with the call graph) — it does NOT edit or override virtual-dispatch.dl
+// or callee-resolution.dl. The existing gate there
+//     call_exact_receiver(call) :- call_site(call,_,recv), expr_exact_type(recv,_).
+//     expr_call_candidate(call,override) :- ..., virtual_override(base,override), !call_exact_receiver(call).
+// then suppresses the CHA fan for any receiver this layer pins to an exact type. So the
+// two layers "resolve each other": type-flow feeds expr_type (→ narrower candidate set)
+// and expr_exact_type (→ fan suppression); resolution feeds expr_type of qualifiers back
+// here. All POSITIVE mutual recursion, monotone fixpoint.
+//
+// STRATIFICATION: everything here is LOW — base facts only (java_field / java_expression
+// / object_creation_type_resolves / type_ancestor), NO dependency on expr_call_candidate
+// or virtual_override. So feeding the negated exact-type gate stays stratified, exactly
+// like the existing monomorphic-LOCAL flow-typing in expr-type.dl.
+//
+// SCOPE of THIS slice: monomorphic FIELD receivers. A `final` field with a `new T()`
+// initializer is provably monomorphic — `final` forbids reassignment, so its runtime
+// type is exactly T with NO assignment-flow analysis required (guaranteed by the
+// language). This is the DI idiom `private final Foo foo = new FooImpl(); foo.bar()`.
+// Deliberately NOT covered yet (documented follow-ups): non-final field stores (need
+// assignment tracking), interprocedural param/return flow (needs the round-iteration
+// wrapper — a single stratified Datalog solve cannot negate an in-cycle relation), and
+// SPI/ServiceLoader dispatch (reflective targets carry NO static type → needs a
+// META-INF/services registry model; that is what the Keycloak ProviderFactory.getId
+// 652-fan actually requires — type-flow alone cannot narrow it).
+//
+// java_field (14): 0 name  8 typeRegistryLinkHash(owner)  12 fieldModifier  13 hash
+// java_expression (25): 0 kind 1 edgeRole 2 rootContext 3 expressionOwnerKind
+//   5 expressionOwnerHash 6 parentExpressionHash 10 literalValue(name)
+//   14 referencedEntityKind 24 uniqueHash
+// ============================================================================
+
+// A `final` field cannot be reassigned → its `new` initializer pins its runtime type.
+field_final(field) :- java_field(_, _, _, _, _, _, _, _, _, _, _, _, mod, field),
+    match(".*FINAL.*", mod).
+
+// The concrete type of a field's `new T()` initializer (OBJECT_CREATION rooted as the
+// field's initializer; expressionOwnerHash col5 = the field).
+field_init_new_type(field, t) :-
+    java_expression("OBJECT_CREATION", "ROOT", "FIELD_INITIALIZER", "FIELD", _, field, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, obj),
+    object_creation_type_resolves(_, obj, _, t).
+
+// Monomorphic field: final, exactly one concrete new-type (a field has one initializer,
+// so field_multi_new only guards against a resolver emitting >1 candidate type).
+field_multi_new(field) :- field_init_new_type(field, t1), field_init_new_type(field, t2), t1 != t2.
+field_mono_type(field, t) :- field_init_new_type(field, t), field_final(field), !field_multi_new(field).
+
+// Keyed by (ownerType, name) so a field-access receiver matches by field lookup.
+field_mono_in_type(owner, name, t) :- field_mono_type(field, t),
+    java_field(name, _, _, _, _, _, _, _, owner, _, _, _, _, field).
+
+// A FIELD_ACCESS node that HAS a QUALIFIER child (obj.f / this.f / a.b.f).
+field_access_qualified(e) :- java_expression(_, "QUALIFIER", _, _, _, _, e, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _).
+
+// ── Qualified field-access receiver (obj.f.m()) → the field's monomorphic type ──
+// Mirrors expr-type.dl's qualified field-access typing (name on the FIELD_ACCESS node,
+// field looked up in the QUALIFIER's type), pinned to the monomorphic concrete type.
+// PREFERRED expr_type only (positive — so method_name_in_type finds the concrete
+// method). NOTE: the fan-SUPPRESSION (expr_exact_type) is deliberately NOT emitted for
+// the QUALIFIED case, because it reads expr_type(qualifier) which is in the call-graph
+// SCC; feeding that into expr_exact_type (which the CHA-fan rule negates) would create
+// an in-cycle negation → non-stratifiable. Qualified-field fan suppression therefore
+// needs the round-iteration wrapper (feed prior-round qualifier types as base facts).
+// The implicit-`this` case below CAN suppress now (it uses expr_ultimate_type, which is
+// containment/low, not the call graph).
+expr_type("client", e, t) :- java_expression("FIELD_ACCESS", _, _, _, _, _, _, _, _, _, name, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    java_expression(_, "QUALIFIER", _, _, _, _, e, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, q),
+    expr_type(_, q, qtype),
+    field_mono_in_type(qtype, name, t).
+expr_type("client", e, t) :- java_expression("FIELD_ACCESS", _, _, _, _, _, _, _, _, _, name, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    java_expression(_, "QUALIFIER", _, _, _, _, e, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, q),
+    expr_type(_, q, qtype),
+    type_ancestor(qtype, anc),
+    field_mono_in_type(anc, name, t).
+
+// ── Implicit-this field receiver (bare `f.m()`, no qualifier) → field in the enclosing
+// type (or a client ancestor of it). expr_ultimate_type gives the enclosing type.
+expr_type("client", e, t) :- java_expression("FIELD_ACCESS", "RECEIVER", _, _, _, _, _, _, _, _, name, _, _, _, "FIELD", _, _, _, _, _, _, _, _, _, e),
+    !field_access_qualified(e),
+    expr_ultimate_type("client", e, encl),
+    field_mono_in_type(encl, name, t).
+expr_type("client", e, t) :- java_expression("FIELD_ACCESS", "RECEIVER", _, _, _, _, _, _, _, _, name, _, _, _, "FIELD", _, _, _, _, _, _, _, _, _, e),
+    !field_access_qualified(e),
+    expr_ultimate_type("client", e, encl),
+    type_ancestor(encl, anc),
+    field_mono_in_type(anc, name, t).
+expr_exact_type(e, t) :- java_expression("FIELD_ACCESS", "RECEIVER", _, _, _, _, _, _, _, _, name, _, _, _, "FIELD", _, _, _, _, _, _, _, _, _, e),
+    !field_access_qualified(e),
+    expr_ultimate_type("client", e, encl),
+    field_mono_in_type(encl, name, t).
+expr_exact_type(e, t) :- java_expression("FIELD_ACCESS", "RECEIVER", _, _, _, _, _, _, _, _, name, _, _, _, "FIELD", _, _, _, _, _, _, _, _, _, e),
+    !field_access_qualified(e),
+    expr_ultimate_type("client", e, encl),
+    type_ancestor(encl, anc),
+    field_mono_in_type(anc, name, t).

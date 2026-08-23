@@ -1,0 +1,132 @@
+// ============================================================================
+// CALL-EDGE-GEN · CALL CHAIN  (confidence-classified, queryable call graph)
+//
+// A classified client call graph for graph queries + change-impact tracing. Every client
+// call site is labeled by HOW WELL it resolved, and every edge is tagged client vs lib —
+// so a chain always terminates at a KNOWN reason: a library boundary, or an unresolved
+// (unknown) target. This is the layer a name-based graph (tree-sitter style, name matching)
+// cannot produce: it distinguishes a CONCRETE edge from a virtual-dispatch FAN-OUT from a
+// DEAD-END, instead of stamping every edge with a flat "extracted".
+//
+// CONSUMES:
+//   call_site                 — every client call site (the universe; incl. unresolved).
+//   expr_resolves_to_method   — the disambiguated callee set per call site (0, 1, or N).
+//   client_calls_client / _lib — provenance-split resolved edges (calls.dl).
+//   expr_ultimate_method      — rolls a call site up to its enclosing caller method
+//                               (containment), giving method→method chains.
+//
+// CONFIDENCE CLASSES (call_class):
+//   known_edge        — exactly ONE resolved target (concrete / monomorphic). Chain continues.
+//   multi_inferred    — 2+ resolved targets (virtual-dispatch / overload fan-out). Chain branches
+//                       across a SOUND set (the true target is among them).
+//   ambiguous_unknown — a real call site that resolved to NOTHING (unresolved receiver, missing
+//                       type, reflection). Chain DEAD-ENDS here — an analysis blind spot.
+//
+// PROVENANCE (call_edge col 3):
+//   "client" — the traversable graph body (carries the confidence class).
+//   "lib"    — a client→lib BOUNDARY edge: marked, and NOT expanded (client-only build). The
+//              chain ENDS at the library here.
+//
+// STRATIFICATION: the count aggregate reads expr_resolves_to_method (a base fact of the
+// resolution pass) — no negation, no cyclic dependency. call_class/call_edge are positive
+// derivations on top. Exports live in export/ (kept out of this rules file).
+// ============================================================================
+
+// ── invocation-site universe: ALL invocation forms, not just method calls ──────────────
+// Method calls (call_site), object creation (new X → constructor), and method references
+// (X::m). expr_resolves_to_method already resolves all three; the SITE universe must match
+// it, or object-creation / method-ref sites get no class and never appear in call_edge.
+// Reuses existing relations: call_site (call-site.dl), object_creation_site (call-site.dl),
+// call_is_method_ref (overload.dl). The kind is carried so queries can filter by form.
+invocation_site(call, "method") :- call_site(call, _, _).                       // obj.m() / Class.m() / super.m()
+// (B) UNQUALIFIED call — m() written with NO receiver (implicit this, a same-class/inherited
+// static, or a static import). call_site is receiver-SHAPED (its 3rd term is the receiver
+// expression, consumed for dispatch), so it structurally cannot represent a receiverless call;
+// the parser/engine model those as call_unqualified (expression-resolution/call-site.dl).
+// Without this clause such a site never enters the site universe, so call_target_count,
+// call_class and every call_chain_edge rule skip it — the call is dropped SILENTLY, not even
+// flagged ambiguous_unknown, even though callee-resolution.dl already resolved it into
+// expr_call_candidate/expr_resolves_to_method. Measured before this fix: cassandra 6.0-alpha2
+// 27,533 unqualified sites -> 0 rows (qualified: 126,269 -> 126,269).
+invocation_site(call, "method") :- call_unqualified(call, _).                   // m() — implicit this / unqualified static
+// (A) seed "new" from the RAW OBJECT_CREATION node, NOT the resolution-gated object_creation_site —
+// otherwise an unresolvable `new ThirdPartyX()` produces no site and is never flagged. Symmetric
+// with method/ref/ctor_delegate (which all seed from raw nodes), so unresolved ctors → ambiguous_unknown.
+invocation_site(call, "new")    :- java_expression("OBJECT_CREATION", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, call).
+// (C) exclude ARRAY_CONSTRUCTOR refs (T[]::new): they resolve as array creation, not a call
+// (callee-resolution.dl — no candidate on purpose), so counting them would mislabel a false blind spot.
+array_ctor_ref(call) :- java_expression("METHOD_REFERENCE", _, _, _, _, _, _, _, _, _, _, "ARRAY_CONSTRUCTOR", _, _, _, _, _, _, _, _, _, _, _, _, call).
+invocation_site(call, "ref")    :- call_is_method_ref(call), !array_ctor_ref(call).  // X::m / obj::m / X::new (not T[]::new)
+// this(...) / super(...) explicit constructor delegation — resolves via expr_call_candidate
+// (callee-resolution.dl); it was resolved but never counted. Now it flows into call_edge.
+invocation_site(call, "ctor_delegate") :- java_expression("CONSTRUCTOR_INVOCATION", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, call).
+// new Runnable(){ ... } anonymous-class instantiation — a DISTINCT kind from OBJECT_CREATION.
+// No candidate rule resolves it yet, so it currently lands as ambiguous_unknown (correctly
+// flagged as an unresolved site, not silently dropped). Resolving it to the anon/super ctor
+// is a callee-resolution follow-up.
+invocation_site(call, "anon_new") :- java_expression("ANONYMOUS_CLASS_CREATION", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, call).
+
+// ── per-site disambiguated target count (0 when the call resolved to nothing) ───────────
+call_target_count(call, n) :- invocation_site(call, _),
+    n = count : { expr_resolves_to_method(call, _) }.
+
+// ── caller of a call site (never blank) ─────────────────────────────────────────────────
+// Normally the enclosing METHOD. But a call in a FIELD / static / instance INITIALIZER has no
+// enclosing named method — the parser leaves the owning local's methodRegistryLinkHash empty, so
+// expr_ultimate_method yields "". For those, fall back to the enclosing TYPE (always present via
+// expr_ultimate_type), so FromMethod is never blank. A TYPE_REGISTRY_ hash in FromMethod therefore
+// means "runs in this type's static/instance initializer" (the JVM's <clinit>/<init>).
+// (Negation is stratified: named_method_call reads expr_ultimate_method, computed before this.)
+named_method_call(call) :- expr_ultimate_method("client", call, m), m != "".
+call_from(call, m) :- expr_ultimate_method("client", call, m), m != "".
+call_from(call, t) :- invocation_site(call, _), !named_method_call(call),
+    expr_ultimate_type("client", call, t).
+
+// ── confidence class of each client call site ──────────────────────────────────────────
+call_class(call, "known_edge")        :- call_target_count(call, 1).
+call_class(call, "multi_inferred")    :- call_target_count(call, n), n >= 2.
+// zero targets — split by REASON: a KNOWN structural gap (anonymous-class creation, which has
+// no candidate rule yet) vs a GENUINE mystery (unresolved receiver / missing type / reflection).
+// Each call site has exactly one invocation kind, so these two rules are disjoint (no negation).
+call_class(call, "ambiguous_anon")    :- call_target_count(call, 0), invocation_site(call, "anon_new").
+call_class(call, "ambiguous_unknown") :- call_target_count(call, 0), invocation_site(call, kind), kind != "anon_new".
+
+// (The method→method call_edge relation was removed — the merged call_chain_edge below is the
+// single source of truth; entry_reachable traverses it directly.)
+
+// ── ambiguous_unknown as a caller-scoped fact too (a call site with no resolvable target),
+// so change-impact/queries can flag the methods that contain analysis blind spots. ─────────
+method_has_unknown_call(caller, call) :- call_class(call, "ambiguous_unknown"),
+    call_from(call, caller).
+
+// ============================================================================
+// MERGED CALL-CHAIN EDGE — one self-describing row per edge (the single export).
+//   call_chain_edge(FromExpr, FromMethod, ToExpr, ToMethod, Prov, EdgeStatus, Kind)
+//     FromExpr   the call-site expression (where the call is written)
+//     FromMethod the method containing the call site (caller)
+//     ToExpr     the callee's anchor — "-" (a method callee has no call-site expression;
+//                reserved for expression-level linkage)
+//     ToMethod   the resolved callee method  ("-" when unresolved)
+//     Prov       "client" | "lib"
+//     EdgeStatus known_edge | multi_inferred | boundary_lib | ambiguous_unknown | ambiguous_anon
+//     Kind       method | new | ref | ctor_delegate | anon_new
+// Every invocation site appears exactly once per (resolved callee); unresolved sites appear once
+// with ToMethod = "-" so the CSV alone shows where each chain ends. Replaces the split
+// call_edge / call_class / invocation_site exports.
+// ============================================================================
+// resolved client→client
+call_chain_edge(call, caller, "-", callee, "client", cls, kind) :-
+    client_calls_client("client", call, "client", callee),
+    call_from(call, caller),
+    call_class(call, cls), invocation_site(call, kind).
+// resolved client→lib (boundary — not expanded)
+call_chain_edge(call, caller, "-", callee, "lib", "boundary_lib", kind) :-
+    client_calls_lib("client", call, "lib", callee),
+    call_from(call, caller), invocation_site(call, kind).
+// unresolved sites — no callee, but keep the row so chain-ends are visible in the one CSV
+call_chain_edge(call, caller, "-", "-", "-", "ambiguous_unknown", kind) :-
+    call_class(call, "ambiguous_unknown"), call_from(call, caller),
+    invocation_site(call, kind).
+call_chain_edge(call, caller, "-", "-", "-", "ambiguous_anon", kind) :-
+    call_class(call, "ambiguous_anon"), call_from(call, caller),
+    invocation_site(call, kind).

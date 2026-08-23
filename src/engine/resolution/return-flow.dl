@@ -1,0 +1,80 @@
+// ============================================================================
+// Resolution · RETURN FLOW (transitive) — resolve a call by its callee's CONCRETE
+// return type through DELEGATION and GETTER-of-field, not just a direct `return new T()`.
+//
+// expr-type.dl already prefers a direct `return new T()` (method_return_mono). The residual
+// dispatch fan comes from INDIRECT returns the fallback punts to the declared interface:
+//   - delegation:  `Resource get(){ return make(); }`  (make() returns concrete)
+//   - getter:      `IVersionedSerializer get(){ return serializer; }` (serializer = new X)
+// Cassandra exposes most serializers via such getters, so this is the 44.8k-edge lever.
+//
+// method_ret_concrete(m, t): m provably returns a single concrete type t, via the transitive
+// closure of method_return_mono over (a) same-class delegation `return dname()` (dname resolved
+// by NAME + enclosing type — LOW, no call graph) and (b) `return field` where field is a
+// monomorphic (final+new) field (field_mono_in_type, LOW). Fed into expr_type POSITIVELY, so it
+// composes with the cap exactly like local/param flow: the concrete type resolves the chained
+// call directly; the residual declared-interface fan is dropped by dispatch-cap.
+//
+// SOUNDNESS GUARD: the delegate is resolved statically to the enclosing type's method (a
+// monomorphic-this assumption). If it is OVERRIDDEN in a subtype, an inherited caller could
+// dispatch to a different concrete return, so we skip narrowing then (ret_delegate_overridden).
+//
+// STRATIFICATION: all LOW — java_method / java_expression / type_ancestor / method_return_mono /
+// field_mono_in_type, none reading expr_call_candidate. So method_ret_concrete stays below the
+// call-graph SCC and its use is a purely positive expr_type contribution.
+//
+// java_method (22): 0 name 7 owner 17 parameterCount 21 hash
+// java_expression (25): 0 kind 1 edgeRole 2 rootContext 3 ownerKind 5 ownerHash 6 parentHash
+//   10 literalValue(name) 24 uniqueHash
+// ============================================================================
+
+method_owner_type(m, t) :- java_method(_, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+
+// m has more than one return-value expression → not a single clean source.
+ret_multi(m) :-
+    java_expression(_, "ROOT", "RETURN_VALUE", "RETURN_STATEMENT", _, m, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e1),
+    java_expression(_, "ROOT", "RETURN_VALUE", "RETURN_STATEMENT", _, m, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e2),
+    e1 != e2.
+
+// ── delegation: sole return is an UNQUALIFIED call `return dname()` (no RECEIVER child) ──
+ret_has_receiver(c) :- java_expression(_, "RECEIVER", _, _, _, _, c, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _).
+ret_unqual_call(m, dname, retCall) :-
+    java_expression("METHOD_INVOCATION", "ROOT", "RETURN_VALUE", "RETURN_STATEMENT", _, m, _, _, _, _, dname, _, _, _, _, _, _, _, _, _, _, _, _, _, retCall),
+    dname != "",
+    !ret_has_receiver(retCall).
+ret_delegate(m, delegate) :-
+    ret_unqual_call(m, dname, _),
+    method_owner_type(m, t),
+    java_method(dname, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, _, _, _, _, _, delegate).
+// override guard: a same-name/arity method in a proper subtype could dispatch elsewhere.
+ret_delegate_overridden(delegate) :-
+    java_method(dname, _, _, _, _, _, _, dtype, _, _, _, _, _, _, _, _, _, dpc, _, _, _, delegate),
+    type_ancestor(sub, dtype), sub != dtype,
+    java_method(dname, _, _, _, _, _, _, sub, _, _, _, _, _, _, _, _, _, dpc, _, _, _, ovr),
+    ovr != delegate.
+
+// ── getter: sole return is a field reference `return f` / `return this.f` (f monomorphic) ──
+ret_field_name(m, fname) :-
+    java_expression("FIELD_ACCESS", "ROOT", "RETURN_VALUE", "RETURN_STATEMENT", _, m, _, _, _, _, fname, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
+    fname != "".
+ret_field_name(m, fname) :-
+    java_expression("IDENTIFIER_REFERENCE", "ROOT", "RETURN_VALUE", "RETURN_STATEMENT", _, m, _, _, _, _, fname, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
+    fname != "".
+
+// ── transitive concrete-return closure (LOW) ──
+method_ret_concrete(m, t) :- method_return_mono(_, m, t).
+method_ret_concrete(m, t) :-
+    ret_delegate(m, delegate),
+    !ret_multi(m),
+    !ret_delegate_overridden(delegate),
+    method_ret_concrete(delegate, t).
+method_ret_concrete(m, t) :-
+    ret_field_name(m, fname),
+    !ret_multi(m),
+    method_owner_type(m, mt),
+    field_mono_in_type(mt, fname, t).
+
+// PREFERRED positive typing: a call resolving to a concrete-return callee types to that
+// concrete type (the cap drops the residual declared-interface fan).
+expr_type("client", call, t) :- expr_call_candidate(call, callee),
+    method_ret_concrete(callee, t).

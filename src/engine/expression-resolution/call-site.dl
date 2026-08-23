@@ -1,0 +1,45 @@
+// ============================================================================
+// Expression Resolution · CALL SITE
+//
+// Decomposes each METHOD_INVOCATION into the pieces callee resolution needs: the
+// invoked method name and its receiver expression. The method name is the node's
+// literalValue (col 10); the receiver is the child expression in the RECEIVER role
+// (parentExpressionHash col 6). An unqualified call (foo(), no receiver written) has
+// no RECEIVER child and dispatches on the enclosing instance (this).
+//
+// Uses raw java_expression rather than the expr_* projections: those projections,
+// once consumed, each materialize one row per expression (hundreds of thousands,
+// mostly irrelevant), whereas the raw import is already loaded and indexed. Same
+// raw-facts discipline as the type-resolution layer.
+//
+// java_expression (25): 0 kind  1 edgeRole  6 parentExpressionHash
+//   10 literalValue  24 expressionUniqueHash
+// ============================================================================
+
+// ── call_site(CallHash, MethodName, ReceiverExprHash) — explicit receiver ───
+call_site(call, name, recv) :- java_expression("METHOD_INVOCATION", _, _, _, _, _, _, _, _, _, name, _, _, _, _, _, _, _, _, _, _, _, _, _, call),
+    java_expression(_, "RECEIVER", _, _, _, _, call, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, recv).
+
+// ── call_unqualified(CallHash, MethodName) — implicit-this receiver ─────────
+call_has_receiver(call) :- java_expression(_, "RECEIVER", _, _, _, _, call, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _).
+call_unqualified(call, name) :- java_expression("METHOD_INVOCATION", _, _, _, _, _, _, _, _, _, name, _, _, _, _, _, _, _, _, _, _, _, _, _, call),
+    !call_has_receiver(call).
+
+// ── object_creation_site(CallHash, CreatedTypeName, ConstructorHash) ─────────
+// `new X(...)` — a constructor invocation is an OBJECT_CREATION node, NOT a
+// METHOD_INVOCATION, so it never appears in call_site (which is method-dispatch-shaped:
+// name + receiver, and is consumed internally for dispatch — must not be polluted).
+// This is the constructor analog of a resolved call site: the creation node, the created
+// type name (literalValue, col 10), and the RESOLVED constructor method hash — the
+// specific overload the argument types actually select. A type X with several
+// constructors (X(), X(long), X(String)) has one METHOD_REGISTRY hash per overload;
+// expr_resolves_to_method (overload.dl) narrows `new X(arg)` to the applicable one,
+// pinned here as ctor. The arguments are the ARGUMENT children (parentExpressionHash =
+// call); the created type hash is expr_type(_, call, _).
+//
+// Requires resolution: a `new X(...)` whose type/constructor does not resolve (e.g. an
+// unloaded third-party X) yields no row — exactly as an unresolvable method call yields
+// no expression-callee row. If the overload set is genuinely ambiguous, the applicable-
+// set semantics of expr_resolves_to_method emit one row per surviving constructor.
+object_creation_site(call, type, ctor) :- java_expression("OBJECT_CREATION", _, _, _, _, _, _, _, _, _, type, _, _, _, _, _, _, _, _, _, _, _, _, _, call),
+    expr_resolves_to_method(call, ctor).

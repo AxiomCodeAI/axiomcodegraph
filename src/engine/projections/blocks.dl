@@ -1,0 +1,37 @@
+// ============================================================================
+// Projections · BLOCKS  (pure column views — no joins, no closures)
+//
+// Named views over CFG blocks (if / for / try / catch / …), for both the client
+// (java_*) and any external library (lib_*). Needed on the call-chain path for
+// CALLER ATTRIBUTION: ~40% of method invocations are owned by a block (they sit
+// inside an if/for/try), so a call's enclosing method is reached via block_owner.
+// block_kind / block_parent additionally feed the later flow phase.
+//
+// Conventions: views only; one raw base relation per rule body; provenance tag first.
+//
+// java_block / lib_block cols (18):
+//   0 kind  1 order  2 filePath  3 startLine  4 endLine  5 startColumn
+//   6 endColumn  7 nestingDepth  8 typeRegistryLinkHash  9 methodOwnerHash
+//   10 parentContainerHash  11 tryStatementHash  12 resourceCount
+//   13 caughtExceptionTypes  14 ownerTypeName  15 ownerQualifiedName
+//   16 ownerMethodName  17 blockRegistryUniqueHash
+// ============================================================================
+
+// ── block_owner(Prov, MethodHash, TypeHash, BlockHash) ──────────────────────
+// The method (and type) that owns this block. Used to attribute a call whose
+// expressionOwnerHash is a block to its enclosing caller method.
+block_owner("client", methodHash, typeHash, h) :- java_block(_, _, _, _, _, _, _, _, typeHash, methodHash, _, _, _, _, _, _, _, h).
+block_owner("lib", methodHash, typeHash, h) :- lib_block(_, _, _, _, _, _, _, _, typeHash, methodHash, _, _, _, _, _, _, _, h).
+
+// ── block_kind(Prov, Kind, BlockHash) ───────────────────────────────────────
+// Kind (col 0, BlockKind enum, 14 values): TRY, TRY_WITH_RESOURCES, CATCH,
+// FINALLY, FOR, ENHANCED_FOR, WHILE, DO_WHILE, IF, ELSE_IF, ELSE, SWITCH_CASE,
+// SWITCH_EXPRESSION_CASE, SYNCHRONIZED. Feeds flow (conditional call context).
+block_kind("client", kind, h) :- java_block(kind, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+block_kind("lib", kind, h) :- lib_block(kind, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── block_parent(Prov, ParentContainerHash, BlockHash) ──────────────────────
+// The immediately enclosing container (another block, a lambda expression, or a
+// local-variable initializer). Base for the transitive block nesting used by flow.
+block_parent("client", parent, h) :- java_block(_, _, _, _, _, _, _, _, _, _, parent, _, _, _, _, _, _, h).
+block_parent("lib", parent, h) :- lib_block(_, _, _, _, _, _, _, _, _, _, parent, _, _, _, _, _, _, h).

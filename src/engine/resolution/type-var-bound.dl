@@ -1,0 +1,63 @@
+// ============================================================================
+// Resolution · TYPE VARIABLE BOUND  (T used as a type -> its declared bound)
+//
+// A type variable used as a type — `T val`, `f(T x)`, `<U extends CharSequence>
+// g(U s)` — is not a concrete type, so type_ref_resolves normally yields nothing
+// and a call on such a receiver (x.compareTo(...), s.length()) can't resolve. When
+// the variable is BOUNDED (<T extends SomeType>) it behaves as SomeType (Java's
+// erasure to the bound), so resolve the use to its bound; the bound is an ordinary
+// CLASS reference the existing resolver already handles, so recurse into
+// type_ref_resolves on it (positive recursion, no negation — fine for the fixpoint).
+//
+// Applies only to explicitly bounded variables: an unbounded <T> emits no *_BOUND
+// reference, so the rule does not match (no implicit java.lang.Object fallback).
+// Concrete use-site arguments (List<Foo>) are handled separately by type_arg_binding;
+// this rule provides the declaration-relative erasure view.
+//
+// DEPTH FILTER (col 7 = "0") ON THE BOUND REFERENCE IS MANDATORY. A bound is itself
+// a type tree: <P extends List<String>> stores List at depth 0 and its argument
+// String at depth 1, sharing the TYPE_PARAM_BOUND context. Without the filter a use
+// of P would resolve to List AND String, flooding a call on P with String's methods.
+// Depth 0 keeps every real bound — crucially INTERSECTION bounds (<S extends A & B>
+// store A and B both at depth 0, so both survive) — while dropping type arguments and
+// F-bound self-references (<R extends Comparable<R>> — the inner R is depth 1).
+//
+// java_type_reference (18): 0 kind 2 typeRegistryLinkHash 3 typeParameterLinkHash
+//   8 typeName 10 typeVariableName 15 typeReferenceOwnerHash 16 referenceOwnerKind
+//   17 uniqueHash
+// java_type_parameter (8): 0 name 6 typeRegistryLinkHash(owner) 7 uniqueHash
+// java_method_type_parameter (10): 0 name 7 methodRegistryLinkHash 9 uniqueHash
+// java_method_parameter (13): 2 methodRegistryLinkHash 12 uniqueHash
+// ============================================================================
+
+// A class type-parameter use appears in two encodings depending on context: in a
+// method signature (return / parameter) as kind=TYPE_VARIABLE with the name in
+// typeVariableName (col 10); in a field type as kind=CLASS with the name in typeName
+// (col 8). Both carry the declaring type in typeRegistryLinkHash (col 2), and both
+// are handled below.
+
+// ── Class type parameter, TYPE_VARIABLE encoding (name in typeVariableName, col 10)
+type_ref_resolves(prov, useRef, boundType) :- java_type_reference("TYPE_VARIABLE", _, enclType, _, _, _, _, _, _, _, tv, _, _, _, _, _, _, useRef),
+    tv != "",
+    java_type_parameter(tv, _, _, _, _, _, enclType, decl),
+    java_type_reference(_, "TYPE_PARAM_BOUND", _, decl, _, _, _, "0", _, _, _, _, _, _, _, _, _, bref),
+    type_ref_resolves(prov, bref, boundType).
+
+// ── Class type parameter, CLASS encoding (name in typeName, col 8) ──────────
+type_ref_resolves(prov, useRef, boundType) :- java_type_reference("CLASS", _, enclType, _, _, _, _, _, name, _, _, _, _, _, _, _, _, useRef),
+    java_type_parameter(name, _, _, _, _, _, enclType, decl),
+    java_type_reference(_, "TYPE_PARAM_BOUND", _, decl, _, _, _, "0", _, _, _, _, _, _, _, _, _, bref),
+    type_ref_resolves(prov, bref, boundType).
+
+// ── Method type parameter (kind=TYPE_VARIABLE, owner is the method or a param) ──
+// tvar_use_method(UseRef, VarName, MethodHash)
+tvar_use_method(useRef, tv, m) :- java_type_reference("TYPE_VARIABLE", _, _, _, _, _, _, _, _, _, tv, _, _, _, _, m, "METHOD", useRef),
+    tv != "".
+tvar_use_method(useRef, tv, m) :- java_type_reference("TYPE_VARIABLE", _, _, _, _, _, _, _, _, _, tv, _, _, _, _, p, "METHOD_PARAM", useRef),
+    tv != "",
+    java_method_parameter(_, _, m, _, _, _, _, _, _, _, _, _, p).
+
+type_ref_resolves(prov, useRef, boundType) :- tvar_use_method(useRef, tv, m),
+    java_method_type_parameter(tv, _, _, _, _, _, _, m, _, decl),
+    java_type_reference(_, "METHOD_TYPE_PARAM_BOUND", _, decl, _, _, _, "0", _, _, _, _, _, _, _, _, _, bref),
+    type_ref_resolves(prov, bref, boundType).

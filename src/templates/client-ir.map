@@ -1,0 +1,26 @@
+# Soufflé input-relation -> client IR CSV basename (the file staged as that relation's facts).
+# One relation per line: <relation><TAB><csv-basename>  (no 'all-' path, no extension handling here).
+java_annotation	all-annotations
+java_annotation_argument	all-annotation-arguments
+java_block	all-blocks
+java_comment	all-comments
+java_enum_constant	all-enum-constants
+java_expression	all-expressions
+java_field	all-fields
+java_field_position	all-field-positions
+java_import	all-imports
+java_local_variable	all-local-variables
+java_method	all-methods
+java_method_parameter	all-method-parameters
+java_method_type_parameter	all-method-type-parameters
+java_property_key	all-property-keys
+java_property_value_segment	all-property-value-segments
+java_type	all-types
+java_type_lines	all-types
+java_type_parameter	all-type-parameters
+java_type_reference	all-type-references
+java_xml_attribute	all-xml-attributes
+java_xml_element	all-xml-elements
+java_xml_value_reference	all-xml-value-references
+java_yaml_property	all-yaml-properties
+java_yaml_value_segment	all-yaml-value-segments

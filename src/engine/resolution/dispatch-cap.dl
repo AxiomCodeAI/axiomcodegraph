@@ -1,0 +1,48 @@
+// ============================================================================
+// Resolution · DISPATCH RESIDUAL CAP  (accuracy-first fallback)
+//
+// Policy: resolve the concrete target whenever possible (expr_exact_type + the
+// type-flow layer suppress the CHA fan precisely); for what remains genuinely
+// ambiguous, DROP the fan rather than guess across many wrong targets. Concretely: a
+// base method whose CHA fan exceeds K distinct overrides is "wide" — when the receiver
+// is NOT exactly typed, we do not fan it (accuracy over completeness: >K unknown paths
+// is a guess, not a resolution). K=2 by policy — tolerate a small ambiguity, never a
+// wide one.
+//
+// This is a RESIDUAL cap: it only bites where precision already failed (the exact-type
+// gate in callee-resolution.dl fires first). Every receiver the type-flow layer pins
+// removes its base from the wide set, so adding precision RECOVERS recall the cap gave
+// up — the two layers are complementary, not competing.
+//
+// GATED by dispatch_cap(K): empty fact = no cap (sound default, unchanged behavior);
+// AXIOM_DISPATCH_CAP=2 enables K=2. RECALL-RISKY (a sink reachable only through a >K
+// ambiguous dispatch is dropped) — opt-in, and the accuracy/recall trade is deliberate.
+//
+// STRATIFICATION: virtual_override is NOT low — its body uses method_name_in_type, which is
+// seeded from lookup_type <- expr_type, so it sits inside the expr_call_candidate SCC. Counting
+// it and negating would create an in-cycle negation. So we recompute the fan width from RAW
+// hierarchy only (java_method + type_ancestor — both below the call-graph SCC), mirroring
+// virtual_override's body but matching the override by (name, parameterCount) declared in a
+// subtype instead of via method_name_in_type. This is a slight UNDER-count (misses overrides
+// satisfied by inheritance from an unrelated ancestor), which is conservative for a cap: it can
+// only fail to mark a base wide, never over-drop. cha_override_low / _count / cha_wide_base are
+// all LOW, so the `!cha_wide_base(base)` guard in callee-resolution.dl stratifies.
+// java_method (22): 0 name  7 typeRegistryLinkHash(owner)  17 parameterCount  21 hash
+// ============================================================================
+
+// override candidates for a base, from raw hierarchy (low — no method_name_in_type / expr_type).
+cha_override_low(base, override) :-
+    java_method(name, _, _, _, _, _, _, baseType, _, _, _, _, _, _, _, _, _, pc, _, _, _, base),
+    name != "", baseType != "",
+    type_ancestor(sub, baseType), sub != baseType,
+    java_method(name, _, _, _, _, _, _, sub, _, _, _, _, _, _, _, _, _, pc, _, _, _, override),
+    override != base.
+
+// number of distinct overrides a base method fans to (low).
+cha_override_count(base, n) :- cha_override_low(base, _),
+    n = count : { cha_override_low(base, _) }.
+
+// a base whose fan exceeds the cap K (only when a dispatch_cap fact is present).
+cha_wide_base(base) :- dispatch_cap(k),
+    cha_override_count(base, n),
+    n > to_number(k).

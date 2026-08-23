@@ -1,0 +1,44 @@
+// ============================================================================
+// Resolution · PARAM FLOW — interprocedural (invocation linking). Type a method's
+// PARAMETER receiver by the CONCRETE types callers actually pass at that argument
+// position, instead of the declared parameter type.
+//
+// `void write(IVersionedSerializer s, ...) { s.serialize(...) }` — the declared param
+// type IVersionedSerializer fans s.serialize() to every serializer. But if callers pass
+// `write(FooSerializer.serializer, ...)`, then at that boundary `s` is FooSerializer.
+// Link each resolved call's ARGUMENT expr type to the callee's parameter at the same
+// position, then type PARAMETER-reference receivers from it.
+//
+// COMPOSES WITH THE CAP, like local-flow: purely POSITIVE additions to expr_type (the
+// concrete type resolves the call directly; the residual declared-interface fan is
+// dropped by dispatch-cap's !cha_wide_base). No negation → stratifies (param_flow_type
+// <- expr_resolves_to_method + expr_type(arg); expr_type(recv) <- param_flow_type: one
+// positive mutual-recursion SCC).
+//
+// Uses expr_call_candidate (the SOUND, pre-overload candidate set) NOT expr_resolves_to_method:
+// the disambiguated relation is computed with overload-pruning NEGATIONS (expr_pruned / dominated
+// / win_*), and reading it here would drag those negations into the expr_type <-> candidate cycle
+// (non-stratifiable). expr_call_candidate is positive, so param_flow_type stays in the positive
+// SCC (like local_flow). Cost: an arg links to the params of ALL name/arity candidates at the site
+// (a sound over-approx across overloads) — extra types are harmless (concrete ones resolve, the
+// residual fan is capped).
+//
+// java_expression (25): 1 edgeRole 6 parentExpressionHash 7 position 10 literalValue(name)
+//   14 referencedEntityKind 24 uniqueHash
+// java_method_parameter (13): 0 name  1 position  2 method  12 hash
+// ============================================================================
+
+// concrete type flowing into callee's parameter at position `pos` (from a candidate call's
+// ARGUMENT at that position).
+param_flow_type(param, t) :-
+    expr_call_candidate(call, callee),
+    java_expression(_, "ARGUMENT", _, _, _, _, call, pos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, argE),
+    expr_type(_, argE, t),
+    java_method_parameter(_, pos, callee, _, _, _, _, _, _, _, _, _, param).
+
+// PARAMETER receiver reference takes the flow-in type(s) (positive; cap drops residual fan).
+expr_type("client", recv, t) :-
+    java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "PARAMETER", _, _, _, _, _, _, _, _, _, recv),
+    expr_ultimate_method("client", recv, m),
+    java_method_parameter(name, _, m, _, _, _, _, _, _, _, _, _, param),
+    param_flow_type(param, t).

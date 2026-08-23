@@ -1,0 +1,7 @@
+// ============================================================================
+// Export · Containment
+//
+// Derived containment relations consumed by later engines. Provenance rides in
+// each row. type_direct_parent is materialized over client + lib type nesting;
+// the ownership relations are client-scoped in Engine 1.
+// ============================================================================

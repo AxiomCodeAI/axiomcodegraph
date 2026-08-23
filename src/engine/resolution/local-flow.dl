@@ -1,0 +1,59 @@
+// ============================================================================
+// Resolution · LOCAL FLOW  — resolve a local receiver by the CONCRETE type flowing into
+// it (its initializer / reassignments), not just its declared type.
+//
+// The existing local flow-typing (expr-type.dl) narrows a local ONLY when its initializer
+// is a direct `new T()` (local_new_type / local_monomorphic). This layer generalizes it:
+// a local's held type is the expr_type of WHATEVER is assigned into it — a method return
+// (`Foo f = makeFoo()`), a cast, another typed local, a generic lookup, etc. Whatever
+// precision exists on the source flows to the local, transitively (expr_type is mutually
+// recursive with call resolution, so `f = getX().narrow()` chains).
+//
+// COMPOSES WITH THE CAP (dispatch-cap.dl), which is the point. This layer only ADDS
+// expr_type(receiver, concreteType) — POSITIVE, so it stratifies (no negation, unlike a
+// suppression gate). The concrete type resolves the call DIRECTLY (method_name_in_type on
+// a concrete type needs no CHA fan). The residual declared-INTERFACE type still enters the
+// candidate set, but its wide CHA fan is dropped by the cap's !cha_wide_base. Net: for
+// `Foo f = makeConcreteFoo(); f.getId()` we resolve FooImpl.getId (concrete, correct)
+// while the 652-wide interface fan is dropped — resolve what's resolvable, drop the rest.
+//
+// SOUNDNESS: reassignments are unioned (a local reassigned across concrete types yields
+// all of them — accurate: it really could hold any). These are concrete DIRECT resolutions
+// (not a fan), so the cap does not touch them; only the declared-interface fan is capped.
+//
+// STRATIFICATION: purely POSITIVE additions to expr_type. local_flow_type <- expr_type(src)
+// and expr_type(recv) <- local_flow_type is positive mutual recursion (like the existing
+// chained-call typing), one monotone SCC. It does NOT feed any negated relation
+// (local_monomorphic / call_exact_receiver / cha_wide_base are untouched), so no new
+// negation enters a cycle.
+//
+// java_expression (25): 0 kind 1 edgeRole 2 rootContext 3 expressionOwnerKind
+//   5 expressionOwnerHash 6 parentExpressionHash 10 literalValue(name)
+//   14 referencedEntityKind 24 uniqueHash
+// java_local_variable (19): 0 name  13 method  18 hash
+// ============================================================================
+
+// The initializer expression of a local (LOCAL_VAR_INITIALIZER root, owned by the local).
+local_init_expr(local, e) :-
+    java_expression(_, "ROOT", "LOCAL_VAR_INITIALIZER", "LOCAL_VARIABLE", _, local, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e).
+
+// A value assigned to a local via `name = value` (IDENTIFIER_REFERENCE target named `name`
+// resolved to a local in the enclosing method; value is the sibling ASSIGNMENT_VALUE child).
+local_assign_value(local, e) :-
+    java_expression("ASSIGNMENT_EXPRESSION", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, asgn),
+    java_expression(_, "ASSIGNMENT_TARGET", _, _, _, _, asgn, _, _, _, name, _, _, _, _, _, _, _, _, _, _, _, _, _, tgt),
+    expr_ultimate_method("client", tgt, m),
+    java_local_variable(name, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, local),
+    java_expression(_, "ASSIGNMENT_VALUE", _, _, _, _, asgn, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e).
+
+// The concrete type(s) flowing into a local = expr_type of what is assigned into it.
+local_flow_type(local, t) :- local_init_expr(local, e), expr_type(_, e, t).
+local_flow_type(local, t) :- local_assign_value(local, e), expr_type(_, e, t).
+
+// PROPAGATE: a LOCAL_VARIABLE receiver reference takes the flow-type(s) of its local
+// (POSITIVE — resolves the concrete method directly; the cap handles the residual fan).
+expr_type("client", recv, t) :-
+    java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "LOCAL_VARIABLE", _, _, _, _, _, _, _, _, _, recv),
+    expr_ultimate_method("client", recv, m),
+    java_local_variable(name, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, local),
+    local_flow_type(local, t).

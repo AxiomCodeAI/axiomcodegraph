@@ -1,0 +1,56 @@
+// ============================================================================
+// Resolution · METHOD LOOKUP  (name in type, with ancestors, overload-aware)
+//
+// Given a type, the methods callable on it — declared directly or inherited. Spans
+// client (java_method) and library (lib_method).
+//
+// SCOPED to keep it from materializing over the whole library: methods are looked
+// up only in `lookup_type` = all client types + the lib types the client actually
+// references (type_ref_resolves) + their ancestors. Everything else in the JDK is
+// never touched.
+//
+// java_method / lib_method (22): 0 name  7 typeRegistryLinkHash (owner)  21 hash
+// java_type (14): 13 hash
+// ============================================================================
+
+// ── lookup_type(TypeHash) — the types we search methods in ──────────────────
+lookup_type(t) :- java_type(_, _, _, _, _, _, _, _, _, _, _, _, _, t).
+lookup_type(t) :- type_ref_resolves(_, _, t).
+lookup_type(t) :- lookup_type(sub), type_ancestor(sub, t).
+
+// ── method_declared_in(Name, TypeHash, MethodHash) — declared directly ──────
+method_declared_in(name, t, m) :- lookup_type(t),
+    java_method(name, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+method_declared_in(name, t, m) :- lookup_type(t),
+    lib_method(name, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+
+// ── method_name_in_type(Name, TypeHash, MethodHash) — declared or inherited ──
+method_name_in_type(name, t, m) :- method_declared_in(name, t, m).
+// OVERRIDE-SHADOWING: an inherited abstract/interface `base` is hidden for `t` when `t`, or an
+// ancestor of `t`, declares a concrete override of it. Without it a concrete type that overrides an
+// interface/abstract method ALSO inherits the abstract decl, which becomes a CHA dispatch base and
+// fans to sibling implementers (over-expansion / false-positive sinks) — even after a chained
+// receiver is narrowed to the concrete type. Mirrors engine-ii's lib_shadowed.
+// SIGNATURE-SAFE via method_override (name+arity, ABSTRACT/interface base ONLY) — a concrete-class
+// method (e.g. OBase.read) is NEVER an override target, so an inherited method is not wrongly hidden
+// when a subtype merely declares an OVERLOAD (different signature). method_override is below the
+// method_name_in_type SCC (built from java_method + type_ancestor), so !shadowed_in_type stratifies.
+// java_method (22): owner=7 hash=21.
+shadowed_in_type(t, base) :- method_override(concrete, base),
+    java_method(_, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, _, _, _, _, _, concrete).
+shadowed_in_type(t, base) :- method_override(concrete, base),
+    java_method(_, _, _, _, _, _, _, ct, _, _, _, _, _, _, _, _, _, _, _, _, _, concrete),
+    type_ancestor(t, ct).
+method_name_in_type(name, t, m) :- type_ancestor(t, anc),
+    method_declared_in(name, anc, m),
+    !shadowed_in_type(t, m).
+
+// ── dispatch-precision helpers ──────────────────────────────────────────────
+// Does a method of this name exist in the type (or an ancestor)?
+method_name_exists_in_type(name, t) :- method_name_in_type(name, t, _).
+
+// More than one method of the same name (overloads) — resolution must pick or
+// fall back to candidates.
+method_name_ambiguous_in_type(name, t) :- method_name_in_type(name, t, m1),
+    method_name_in_type(name, t, m2),
+    m1 != m2.

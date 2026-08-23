@@ -1,0 +1,109 @@
+// ============================================================================
+// Resolution · TYPE ARGUMENT BINDING  (generic type parameter -> concrete type)
+//
+// For a written generic type reference (List<Foo>, Map<String,Long>, extends
+// Base<Foo>), bind each of the generic type's declared type PARAMETERS to the
+// concrete type ARGUMENT supplied at that reference.
+//
+// Keyed by the base reference hash — the SAME hash carried by field_type_resolves /
+// local_var_type_resolves / method_param|return_type_resolves — so a receiver's
+// declaration site joins directly to its bindings. This is per-SITE: List<Foo> and
+// List<Bar> are distinct base refs with distinct bindings; there is no global
+// "List.E -> X" fact.
+//
+// Consumed in expression-resolution to substitute a type-variable member type at a
+// receiver's site: a method whose return type is the type variable E, called on a
+// List<Foo> receiver, returns Foo. The existing per-entity resolutions are left
+// untouched — they resolve concrete written types and simply yield nothing for a
+// TYPE_VARIABLE member, so this sits ON TOP as an additive union branch.
+//
+// Only covers WRITTEN type arguments. Inferred forms (diamond `new ArrayList<>()`,
+// `var`, method type inference, inferred lambda params) supply no argument to bind
+// and require flow / target typing — not handled here.
+//
+// Type-argument reference structure (java_type_reference): the base type is depth
+// "0"; each type argument is a depth-"1" reference whose parentReferenceHash (col 5)
+// is the base ref and whose position (col 6) is the argument index. The argument
+// refs are client references (the generic use is written in client code); the type
+// PARAMETERS come from whichever side declares the generic base type — java_* for a
+// client generic, lib_* for a library generic (List/Map/… — the common case).
+//
+// java_type_reference (18): 5 parentReferenceHash 6 position 7 depth 17 uniqueHash
+// java_type_parameter / lib_type_parameter (8): 0 paramName 1 position
+//   6 typeRegistryLinkHash(owner) 7 typeParameterUniqueHash
+// ============================================================================
+
+// ── type_arg_binding(BaseRefHash, BaseTypeHash, ParamName, ArgTypeHash) ─────
+
+// Client generic base type (a client type declared with <…>).
+type_arg_binding(baseRef, baseType, paramName, argType) :- type_ref_resolves(_, baseRef, baseType),
+    java_type_parameter(paramName, pos, _, _, _, _, baseType, _),
+    java_type_reference(_, _, _, _, _, baseRef, pos, "1", _, _, _, _, _, _, _, _, _, argRef),
+    type_ref_resolves(_, argRef, argType).
+
+// Library generic base type (List, Map, Optional, … — the dominant case).
+type_arg_binding(baseRef, baseType, paramName, argType) :- type_ref_resolves(_, baseRef, baseType),
+    lib_type_parameter(paramName, pos, _, _, _, _, baseType, _),
+    java_type_reference(_, _, _, _, _, baseRef, pos, "1", _, _, _, _, _, _, _, _, _, argRef),
+    type_ref_resolves(_, argRef, argType).
+
+// ── INHERITED generics: climb a binding to the SUPERTYPE that declares the method ─
+//
+// The two rules above bind only the type parameters of the receiver's OWN declared
+// type. But a generic method is usually inherited: `ArrayList<String> l; l.get(0)` —
+// get() is declared on List, returning List's type variable E, not ArrayList's. The
+// binding must reach List. It does, because ArrayList's `implements List<E>` clause
+// records — positionally — that List's parameter at position p is filled by ArrayList's
+// type variable at that position. Following those edges up the hierarchy carries the
+// concrete argument to whichever ancestor actually declares the called method, renaming
+// the type variable at each level (List<E> → Collection<E> → Iterable<T>: E becomes T).
+//
+// super_tvar_rename(Sub, Super, SuperParamName, SubVarName): in Sub's extends/implements
+// clause, Super's type parameter SuperParamName is supplied by Sub's type variable
+// SubVarName (a depth-1 TYPE_VARIABLE argument at the parameter's position). The Super
+// side is always a LIBRARY type here — the only type-variable methods substituted
+// downstream (expr-type.dl) are lib_method_ret_tvar — so Super's parameters come from
+// lib_type_parameter; Sub may be a lib type (ArrayList) or a client subtype of one.
+
+// Supertype references carrying their own hash, so the depth-1 type arguments (whose
+// parentReferenceHash is that hash) can be read back. lib_* for a lib subtype's clause,
+// type_* (client) for a client subtype's clause.
+lib_super_ref_h(sub, superName, sref) :- reached_lib(sub),
+    lib_type_reference(_, "SUPER_TYPE", sub, _, _, _, _, "0", superName, _, _, _, _, _, _, _, _, sref).
+lib_super_ref_h(sub, superName, sref) :- reached_lib(sub),
+    lib_type_reference(_, "IMPLEMENTS_INTERFACE", sub, _, _, _, _, "0", superName, _, _, _, _, _, _, _, _, sref).
+type_super_ref_h(sub, superName, sref) :-
+    java_type_reference(_, "SUPER_TYPE", sub, _, _, _, _, "0", superName, _, _, _, _, _, _, _, _, sref).
+type_super_ref_h(sub, superName, sref) :-
+    java_type_reference(_, "IMPLEMENTS_INTERFACE", sub, _, _, _, _, "0", superName, _, _, _, _, _, _, _, _, sref).
+
+// Positional rename, lib subtype → lib supertype. lib_type_parent pins the resolved
+// super; matching super's simple name to the clause's typeName ties the correct
+// supertype reference (sref) to it. The depth-1 TYPE_VARIABLE argument at Super's
+// parameter position names Sub's type variable that fills it.
+super_tvar_rename(sub, super, superParam, subVar) :- lib_super_ref_h(sub, superName, sref),
+    lib_type_parent(sub, super),
+    lib_type(superName, _, _, _, _, _, _, _, _, _, _, _, _, super),
+    lib_type_parameter(superParam, pos, _, _, _, _, super, _),
+    lib_type_reference("TYPE_VARIABLE", _, _, _, _, sref, pos, "1", _, _, subVar, _, _, _, _, _, _, _).
+// Positional rename, client subtype → lib supertype (class Foo extends ArrayList<String>).
+super_tvar_rename(sub, super, superParam, subVar) :- type_super_ref_h(sub, superName, sref),
+    type_parent(sub, super),
+    lib_type(superName, _, _, _, _, _, _, _, _, _, _, _, _, super),
+    lib_type_parameter(superParam, pos, _, _, _, _, super, _),
+    java_type_reference("TYPE_VARIABLE", _, _, _, _, sref, pos, "1", _, _, subVar, _, _, _, _, _, _, _).
+
+// Transitive climb: a binding on Sub carries to each Super via the positional rename,
+// closing over the whole ancestor chain (bounded — the type hierarchy is a finite DAG).
+type_arg_binding(ref, super, superParam, argType) :- type_arg_binding(ref, sub, subVar, argType),
+    super_tvar_rename(sub, super, superParam, subVar).
+
+// ── CLIENT method returning its owner class's type variable (U getU() on Holder<U,…>) ──
+// The library counterpart is lib_method_ret_tvar (lib-hierarchy.dl); this is the client
+// mirror, so a generic client class instantiated with concrete arguments substitutes its
+// own methods' type-variable returns the same way. Layout matches lib_method_ret_tvar:
+// java_method owner is col 8; the METHOD_RETURN TYPE_VARIABLE reference names the class
+// type variable (col 11) and links back to the method (col 16, kind col 17).
+java_method_ret_tvar(m, owner, tv) :- java_method(_, _, _, _, _, _, _, owner, _, _, _, _, _, _, _, _, _, _, _, _, _, m),
+    java_type_reference("TYPE_VARIABLE", "METHOD_RETURN", _, _, _, _, _, "0", _, _, tv, _, _, _, _, m, "METHOD", _),
+    tv != "".

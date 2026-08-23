@@ -1,0 +1,58 @@
+// ============================================================================
+// CALL-EDGE-GEN · ANNOTATION FLOW  (entry points + injection roots)
+//
+// Whole-program reachability / change-impact needs to know where execution ENTERS the client
+// from outside — methods invoked by the JVM or a framework, NOT by any client call site. Those
+// methods have no incoming call_edge (nothing in the source calls them), so without this layer
+// they look like dead roots and the chain from the real entry (an HTTP request, a CLI run, a
+// test) to the handler is invisible. This marks them as entry points so traversal starts there.
+//
+// Driven by annotation_on (annotations.dl) + method signature. Annotation-agnostic to the
+// framework: the name sets below are the knobs — extend per ecosystem.
+//
+// entry_point(Method, Kind): a client method that is a program/framework entry root.
+//   Kind ∈ { main, test, http, cli, lifecycle }.
+//
+// annotation_on cols: (prov, annotationName, kind, context, ownerHash, hash) — ownerHash is the
+// annotated entity (a method hash for a method-level annotation). java_method: 0 name 16 kind 21 hash.
+// ============================================================================
+
+// ── annotation name sets (the framework knobs) ─────────────────────────────────────────
+junit_entry_ann("Test").         junit_entry_ann("Before").      junit_entry_ann("After").
+junit_entry_ann("BeforeClass").  junit_entry_ann("AfterClass").  junit_entry_ann("BeforeEach").
+junit_entry_ann("AfterEach").    junit_entry_ann("ParameterizedTest"). junit_entry_ann("RepeatedTest").
+
+http_entry_ann("GET").    http_entry_ann("POST").   http_entry_ann("PUT").    http_entry_ann("DELETE").
+http_entry_ann("PATCH").  http_entry_ann("HEAD").   http_entry_ann("OPTIONS"). http_entry_ann("Path").
+http_entry_ann("RequestMapping"). http_entry_ann("GetMapping"). http_entry_ann("PostMapping").
+http_entry_ann("PutMapping").     http_entry_ann("DeleteMapping"). http_entry_ann("PatchMapping").
+
+cli_entry_ann("Command").   cli_entry_ann("Option").   cli_entry_ann("Parameters").
+
+// ── entry points ───────────────────────────────────────────────────────────────────────
+
+// (a) JVM entry: static `main` — the process root. (name=main, kind=STATIC_METHOD.)
+entry_point(m, "main") :-
+    java_method("main", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "STATIC_METHOD", _, _, _, _, m).
+
+// (b) JUnit test methods (and lifecycle hooks) — invoked by the test runner, not by client code.
+entry_point(m, "test") :- annotation_on("client", a, _, _, m, _), junit_entry_ann(a),
+    java_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+
+// (c) HTTP handlers (JAX-RS / Spring MVC) — invoked by the servlet container on a request.
+entry_point(m, "http") :- annotation_on("client", a, _, _, m, _), http_entry_ann(a),
+    java_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+
+// (d) CLI commands (picocli etc.) — invoked by the CLI framework.
+entry_point(m, "cli") :- annotation_on("client", a, _, _, m, _), cli_entry_ann(a),
+    java_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+
+// ── entry-reachable rollup: methods reachable from ANY entry point over the client call graph.
+// A method with an incoming call_edge from an entry-reachable caller is itself entry-reachable.
+// This is the "live from a real entry" set — the true scope for reachability / dead-code / impact.
+entry_reachable(m) :- entry_point(m, _).
+entry_reachable(callee) :- entry_reachable(caller), call_chain_edge(_, caller, _, callee, "client", _, _).
+
+// NOTE — INJECTION (DI) edges (@Autowired / @Inject / @Bean → the injected concrete impl) are the
+// other half of annotation flow, but they need a bean/type→impl model and only matter for
+// Spring-style projects (this codebase has none). Deferred as a per-framework follow-up.

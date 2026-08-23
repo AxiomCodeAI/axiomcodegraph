@@ -1,0 +1,46 @@
+// ============================================================================
+// Resolution · CAST & INSTANCEOF-PATTERN EXACT-TYPING
+//
+// `((FooImpl) x).bar()` and `if (o instanceof FooImpl f) f.bar()` are the programmer
+// *asserting* a concrete type. expr-type.dl already NARROWS the receiver to that type
+// (cast_type_resolves / pattern_var_type). This layer adds the missing piece: mark such
+// a receiver EXACT so the CHA subtype-fan is suppressed (via callee-resolution.dl's
+// existing !call_exact_receiver gate), the same way a monomorphic local / direct `new`
+// is treated. In Java a variable can't be *used* at a narrowed type without a cast or a
+// pattern binding, so these two cases ARE "instanceof narrowing" — there is no separate
+// bare-instanceof receiver to handle.
+//
+// EXACT only when the asserted type is a CONCRETE class (CLASS_TYPE, non-abstract):
+//   - FINAL concrete class  -> fully sound (no subtypes exist).
+//   - non-final concrete    -> a strong type assertion; treated exact (accuracy-first:
+//                              a subtype override could in principle differ = small FN risk,
+//                              acceptable per the accuracy-over-completeness policy).
+//   - INTERFACE / ABSTRACT   -> NOT exact: casting to an interface/abstract type pins no
+//                              single impl, so the fan is still needed and correct.
+//
+// STRATIFICATION: LOW. cast_type_resolves / instanceof_type_resolves / pattern_var_type
+// are type-reference resolutions (no expr_call_candidate dep); concrete_class_type is a
+// base-fact lookup. So feeding the negated exact gate stays stratified, like the existing
+// monomorphic-local rule.
+//
+// java_type (14): 3 typeCategory  5 typeModifier  13 hash
+// java_expression (25): 0 kind 1 edgeRole 10 literalValue(name) 24 uniqueHash
+// cast_type_resolves (4): 0 prov 1 expr 2 ref 3 type
+// ============================================================================
+
+// A concrete, instantiable class type: CLASS_TYPE and not abstract (its runtime type is
+// itself modulo rare subclasses; final ⇒ exactly itself).
+concrete_class_type(t) :- java_type(_, _, _, "CLASS_TYPE", _, mod, _, _, _, _, _, _, _, t),
+    !match(".*ABSTRACT_MODIFIER.*", mod).
+
+// (Foo) x — cast to a concrete class ⇒ EXACT receiver (suppress the subtype fan).
+expr_exact_type(e, t) :- java_expression("CAST_EXPRESSION", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    cast_type_resolves(_, e, _, t),
+    concrete_class_type(t).
+
+// if (o instanceof Foo f) f.m() — pattern-variable use of a concrete class ⇒ EXACT receiver.
+expr_exact_type(e, t) :- java_expression("IDENTIFIER_REFERENCE", _, _, _, _, _, _, _, _, _, name, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    name != "",
+    expr_ultimate_method("client", e, method),
+    pattern_var_type(name, method, _, t),
+    concrete_class_type(t).

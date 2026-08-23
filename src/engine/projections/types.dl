@@ -1,0 +1,88 @@
+// ============================================================================
+// Projections · TYPES  (pure column views — no joins, no closures)
+//
+// Named views over type declarations, type references, and type parameters, for
+// both the client (java_*) and any external library (lib_*). The first column is
+// a provenance tag ("client" / "lib") so downstream layers can classify an edge
+// as C->C vs C->L without re-deriving the source of a hash.
+//
+// Conventions:
+//   - Views only. Relations that require a join or name->type lookup
+//     (type_extends, type_ancestor, type_resolves_in_file) belong in resolution/.
+//   - One raw base relation per rule body. Joining two derived projections in a
+//     single body is avoided.
+//
+// java_type / lib_type cols (14):
+//   0 name  1 qualifiedName  2 fileName  3 typeCategory  4 typeAccess
+//   5 typeModifier  6 typePlacement  7 filePath  8 baseMservPath  9 startLine
+//   10 endLine  11 isExternal  12 serviceVersionLinkHash  13 typeRegistryUniqueHash
+//
+// java_type_reference / lib_type_reference cols (18):
+//   0 kind  1 context  2 typeRegistryLinkHash  3 typeParameterLinkHash
+//   4 referencedTypeRegistryLinkHash  5 parentReferenceHash  6 position  7 depth
+//   8 typeName  9 completeTypeName  10 typeVariableName  11 arrayDimensions
+//   12 wildcardVariance  13 startLine  14 endLine  15 typeReferenceOwnerHash
+//   16 referenceOwnerKind  17 typeReferenceUniqueHash
+//
+// java_type_parameter / lib_type_parameter cols (8):
+//   0 paramName  1 position  2 ownerTypeName  3 ownerQualifiedName  4 filePath
+//   5 startLine  6 typeRegistryLinkHash  7 typeParameterUniqueHash
+// ============================================================================
+
+// ── type_decl(Prov, Name, QName, FilePath, Category, Placement, TypeHash) ────
+// A type declaration: simple name, qualified name, file, category, placement, hash.
+//
+// Category (typeCategory, col 3) — the kind of type declared (TypeCategory enum):
+//   CLASS_TYPE                 a class
+//   INTERFACE_TYPE             an interface — a call on an interface-typed receiver
+//                              dispatches to an implementor (virtual dispatch)
+//   ENUM_TYPE                  an enum
+//   RECORD_TYPE                a record
+//   ANNOTATION_TYPE            an annotation type
+//   ANNOTATION_INTERFACE_TYPE  an annotation interface (@interface)
+//
+// Placement (typePlacement, col 6) — where the type sits (TypePlacement enum):
+//   TOP_LEVEL_PLACEMENT        top-level type in its file
+//   STATIC_NESTED_PLACEMENT    static nested type
+//   INNER_PLACEMENT            (non-static) inner class
+//   LOCAL_PLACEMENT            local class declared inside a method
+//   ANONYMOUS_PLACEMENT        anonymous class body
+type_decl("client", name, qname, filePath, category, placement, h) :- java_type(name, qname, _, category, _, _, placement, filePath, _, _, _, _, _, h).
+type_decl("lib", name, qname, filePath, category, placement, h) :- lib_type(name, qname, _, category, _, _, placement, filePath, _, _, _, _, _, h).
+
+// ── type_ref(Prov, Kind, Context, TypeName, CompleteTypeName, OwnerHash, OwnerKind, RefHash) ──
+// A use of a type: what kind of reference, in what context, the simple name
+// referenced, and which entity owns the reference. Drives name->type resolution,
+// the type hierarchy (resolution/), and annotation linking.
+//
+// Kind (col 0) — the shape of the reference; only some resolve to a named type:
+//   CLASS          a reference to a class/interface        -> resolves to a type
+//   PARAMETERIZED  a generic use, e.g. List<String>        -> resolves to a type
+//   ARRAY          an array type, e.g. String[]            -> element resolves
+//   PRIMITIVE      int, long, boolean, …                   -> no type to resolve
+//   TYPE_VARIABLE  a type variable, e.g. T, E              -> no type to resolve
+//   WILDCARD       a wildcard, e.g. ? extends X            -> no type to resolve
+//
+// Context (col 1) — where the reference appears (TypeRefContext enum, 23 values),
+// grouped by how we use it:
+//   hierarchy:     SUPER_TYPE, IMPLEMENTS_INTERFACE, PERMITS
+//   annotations:   ANNOTATION_TYPE, ANNOTATION_PARAM, TYPE_PARAMETER_ANNOTATION
+//   construction:  OBJECT_CREATION_TYPE, ARRAY_CREATION_TYPE, METHOD_REFERENCE_QUALIFIER
+//   declared type: FIELD_TYPE, LOCAL_VARIABLE, METHOD_PARAM, METHOD_RETURN,
+//                  LAMBDA_PARAMETER_TYPE   (these are the receiver-typing sources)
+//   expression:    CAST_EXPRESSION, INSTANCEOF_TYPE
+//   patterns:      SWITCH_TYPE_PATTERN, PATTERN_BINDING_TYPE, RECORD_PATTERN_TYPE
+//   generics:      TYPE_PARAM_BOUND, METHOD_TYPE_PARAM_BOUND, METHOD_TYPE_ARGUMENT
+//   exceptions:    THROWS_CLAUSE
+//
+// OwnerKind (col 16) — the entity that owns this reference (ReferenceOwnerKind enum):
+//   TYPE, METHOD, METHOD_PARAM, FIELD, LOCAL_VARIABLE, EXPRESSION,
+//   ANNOTATION, ANNOTATION_ARGUMENT, TYPE_PARAMETER
+type_ref("client", kind, ctx, typeName, complete, ownerHash, ownerKind, h) :- java_type_reference(kind, ctx, _, _, _, _, _, _, typeName, complete, _, _, _, _, _, ownerHash, ownerKind, h).
+type_ref("lib", kind, ctx, typeName, complete, ownerHash, ownerKind, h) :- lib_type_reference(kind, ctx, _, _, _, _, _, _, typeName, complete, _, _, _, _, _, ownerHash, ownerKind, h).
+
+// ── type_param(Prov, Name, Position, OwnerTypeHash, ParamHash) ───────────────
+// A declared type parameter (T, E, …) and the type that owns it. Used later for
+// generic return-type substitution; kept here as a pure view.
+type_param("client", name, pos, ownerTypeHash, h) :- java_type_parameter(name, pos, _, _, _, _, ownerTypeHash, h).
+type_param("lib", name, pos, ownerTypeHash, h) :- lib_type_parameter(name, pos, _, _, _, _, ownerTypeHash, h).

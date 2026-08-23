@@ -1,0 +1,429 @@
+// ============================================================================
+// Expression Resolution · OVERLOAD DISAMBIGUATION  (applicable set)
+//
+// Narrows the name-only candidate set (expr_call_candidate, callee-resolution.dl)
+// into expr_resolves_to_method by matching the CALL's actual arguments against each
+// candidate's PARAMETERS, position by position. Two complementary compatibility
+// regimes, both PRUNE-ONLY (a candidate is dropped only when some position has a
+// KNOWN argument type provably incompatible with the parameter type; unknown types
+// never drop the real callee — sound for reachability):
+//
+//   Reference regime — resolved TYPE HASHES.  The argument's expr_type hash vs the
+//     parameter's method_param_type_resolves hash, compatible on identity OR subtype
+//     (type_ancestor): a Widget argument fits a Shape parameter, distinguishing
+//     m(String) from m(Widget). This is the piece plain arity cannot do.
+//   Value regime — primitives / wrappers / String / null by NAME.  Primitives carry
+//     no type hash, so they match by name with autoboxing (Integer <-> int, both
+//     directions) and JLS 5.1.2 widening (int -> long -> ... -> double).
+//
+// Arity (Tier 1) gates both: a call with N arguments only fits an N-parameter method
+// (varargs: a vararg method with P params absorbs argc >= P-1). Every arity clause is
+// GUARDED by expr_call_candidate so matching on the tiny integer count never becomes a
+// cross-product of all N-arg calls x all N-param methods. A METHOD_REFERENCE has no
+// written arguments (arity comes from the functional interface), so its candidate
+// passes through unfiltered.
+//
+// NOTE: applicable-SET semantics — when several overloads genuinely apply to a String
+// argument (m(Object) and m(String)), BOTH are kept. Most-specific (JLS) tie-breaking
+// is a later refinement.
+//
+// java_expression (25): 1 edgeRole  6 parentExpressionHash  7 position  9 literalType
+//   24 uniqueHash
+// java_method_parameter / lib_method_parameter (13): 1 position 2 methodRegistryLinkHash
+//   4 parameterTypeName  8 isVarArgs  12 uniqueHash
+// ============================================================================
+
+// ── Tier 1: arity ───────────────────────────────────────────────────────────
+_agg_call_argc(call, arg) :- java_expression(_, "ARGUMENT", _, _, _, _, call, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, arg).
+call_argc(call, n) :- _agg_call_argc(call, _), n = count : { _agg_call_argc(call, _) }.
+_agg_method_paramc(m, p) :- java_method_parameter(_, _, m, _, _, _, _, _, _, _, _, _, p).
+method_paramc(m, n) :- _agg_method_paramc(m, _), n = count : { _agg_method_paramc(m, _) }.
+_agg_method_paramc(m, p) :- lib_method_parameter(_, _, m, _, _, _, _, _, _, _, _, _, p).
+method_paramc(m, n) :- _agg_method_paramc(m, _), n = count : { _agg_method_paramc(m, _) }.
+
+call_has_args(call) :- call_argc(call, _).
+method_has_params(m) :- method_paramc(m, _).
+
+// A callee is varargs when it has a parameter flagged isVarArgs (col 8).
+method_is_varargs(m) :- java_method_parameter(_, _, m, _, _, _, _, _, "true", _, _, _, _).
+method_is_varargs(m) :- lib_method_parameter(_, _, m, _, _, _, _, _, "true", _, _, _, _).
+
+// arity_match(Call, Callee) — guarded by the candidate set.
+// Exact count.
+arity_match(call, callee) :- expr_call_candidate(call, callee),
+    call_argc(call, n),
+    method_paramc(callee, n).
+// Zero args, zero params (neither side has a count fact).
+arity_match(call, callee) :- expr_call_candidate(call, callee),
+    !call_has_args(call),
+    !method_has_params(callee).
+// Varargs: a vararg callee with P params absorbs argc >= P-1.
+arity_match(call, callee) :- expr_call_candidate(call, callee),
+    method_is_varargs(callee),
+    call_argc(call, argc),
+    method_paramc(callee, pc),
+    pcm1 = pc - 1,
+    argc >= pcm1.
+// Varargs invoked with zero args against a single vararg param (P=1, P-1=0).
+arity_match(call, callee) :- expr_call_candidate(call, callee),
+    method_is_varargs(callee),
+    !call_has_args(call),
+    method_paramc(callee, 1).
+
+// ── Tier 2 (reference regime): argument / parameter resolved TYPE HASHES ────────
+// Argument expression at position pos of call, and its resolved type.
+arg_type_hash(call, pos, t) :- java_expression(_, "ARGUMENT", _, _, _, _, call, pos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, arg),
+    expr_type(_, arg, t).
+// A String / text-block LITERAL argument has no receiver-style expr_type, so give it
+// the java.lang.String type hash directly — this lets a literal string argument feed
+// the hash regime and prune a reference parameter it cannot satisfy (e.g. distinguish
+// new File("p", name) -> File(String,String) from File(File,String)). Primitive
+// literals stay in the value regime (they have no type-registry hash).
+str_type_hash(t) :- lib_type(_, "java.lang.String", _, _, _, _, _, _, _, _, _, _, _, t).
+arg_type_hash(call, pos, t) :- java_expression(_, "ARGUMENT", _, _, _, _, call, pos, _, "STRING", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
+    str_type_hash(t).
+arg_type_hash(call, pos, t) :- java_expression(_, "ARGUMENT", _, _, _, _, call, pos, _, "TEXT_BLOCK", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
+    str_type_hash(t).
+// Parameter at position pos of callee, and its resolved type.
+param_type_hash(callee, pos, t) :- java_method_parameter(_, pos, callee, _, _, _, _, _, _, _, _, _, param),
+    method_param_type_resolves(_, param, _, t).
+param_type_hash(callee, pos, t) :- lib_method_parameter(_, pos, callee, _, _, _, _, _, _, _, _, _, param),
+    method_param_type_resolves(_, param, _, t).
+// Lib param type via its FULLY-QUALIFIED name (potentialQualifiedName, col 5). Lib params
+// are NOT covered by method_param_type_resolves (that is driven by client
+// java_type_reference), but the oracle records each reference param's FQN — matched to a
+// lib_type.qualifiedName, pinning the exact type with no simple-name collision. This is
+// what lets a lib overload set separated only by a reference parameter disambiguate
+// (new File(dir:File, name) -> File(File,String), not File(String,String)).
+//
+// GUARDED by expr_call_candidate — CRITICAL for perf. The earlier unguarded form
+// materialized a hash for EVERY reference parameter in all of jdk-26 (~hundreds of
+// thousands of rows), which dominated runtime and slowed convergence. Scoping to
+// the params of methods that are actually call candidates keeps it to the handful that
+// matter, the same discipline the arity clauses use. Empty pqn = a primitive (value
+// regime) or a generic/unresolvable form (left unpruned).
+param_type_hash(callee, pos, t) :- expr_call_candidate(_, callee),
+    lib_method_parameter(_, pos, callee, _, _, pqn, _, _, _, _, _, _, _),
+    pqn != "",
+    lib_type(_, pqn, _, _, _, _, _, _, _, _, _, _, _, t).
+
+// A position is incompatible when the arg hash and param hash are neither identical
+// (at != pt) nor in a subtype relation (argument is-a parameter). Inlined rather
+// than via a hash_compatible relation, since an identity fact hash_compatible(t,t)
+// would be a non-ground fact, which Souffle rejects.
+//
+// java.lang.Object is the universal supertype: EVERY reference type is assignable to
+// an Object parameter, but the implicit `extends Object` edge is not materialized in
+// type_ancestor, so without this carve-out a reference argument to an Object parameter
+// (equals(Object), Collection.add(E->Object), ...) would falsely mismatch. This was
+// the dominant cause of unsound over-pruning.
+param_is_object(pt) :- lib_type("Object", "java.lang.Object", _, _, _, _, _, _, _, _, _, _, _, pt).
+
+// A lambda / method-reference ARGUMENT is TARGET-TYPED: its type becomes whichever
+// functional-interface parameter it is passed to, so it is compatible with that
+// parameter by construction (the code compiles). It is NOT a declared subtype of the
+// interface, so type_ancestor cannot confirm it; skip the hash check at that position
+// instead of falsely mismatching. Position 7 = arg position, 6 = parent (the call).
+arg_is_target_typed(call, pos) :- java_expression("LAMBDA_EXPRESSION", "ARGUMENT", _, _, _, _, call, pos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _).
+arg_is_target_typed(call, pos) :- java_expression("METHOD_REFERENCE", "ARGUMENT", _, _, _, _, call, pos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _).
+
+hash_mismatch(call, callee) :- expr_call_candidate(call, callee),
+    arg_type_hash(call, pos, at),
+    param_type_hash(callee, pos, pt),
+    at != pt,
+    !param_is_object(pt),
+    !arg_is_target_typed(call, pos),
+    !type_ancestor(at, pt).
+
+// ── Tier 2 (value regime): primitives / wrappers / String / null by NAME ────────
+literal_value_type("INTEGER",    "int").
+literal_value_type("LONG",       "long").
+literal_value_type("FLOAT",      "float").
+literal_value_type("DOUBLE",     "double").
+literal_value_type("BOOLEAN",    "boolean").
+literal_value_type("CHARACTER",  "char").
+literal_value_type("STRING",     "String").
+literal_value_type("TEXT_BLOCK", "String").
+literal_value_type("NULL",       "null").
+
+value_unbox("Integer",   "int").
+value_unbox("Long",    "long").
+value_unbox("Float",     "float").
+value_unbox("Double",  "double").
+value_unbox("Boolean",   "boolean").
+value_unbox("Character","char").
+value_unbox("Short",     "short").
+value_unbox("Byte",    "byte").
+
+// Reduce a value-type name to its primitive (primitive->self, wrapper->primitive).
+value_prim("int","int").
+value_prim("long","long").
+value_prim("float","float").
+value_prim("double","double").
+value_prim("boolean","boolean").
+value_prim("char","char").
+value_prim("short","short").
+value_prim("byte","byte").
+value_prim(w, p) :- value_unbox(w, p).
+value_prim("String","String").
+value_prim("null","null").
+
+value_type_name(n) :- value_prim(n, _).
+value_ref_type("String").
+value_ref_type(w) :- value_unbox(w, _).
+
+// Primitive widening (JLS 5.1.2).
+value_widens("byte","short").
+value_widens("byte","int").
+value_widens("byte","long").
+value_widens("byte","float").
+value_widens("byte","double").
+value_widens("short","int").
+value_widens("short","long").
+value_widens("short","float").
+value_widens("short","double").
+value_widens("char","int").
+value_widens("char","long").
+value_widens("char","float").
+value_widens("char","double").
+value_widens("int","long").
+value_widens("int","float").
+value_widens("int","double").
+value_widens("long","float").
+value_widens("long","double").
+value_widens("float","double").
+
+// value_compatible(ArgType, ParamType): reduce both to primitive, require equality or
+// arg-widens-to-param (both-side reduction covers autoboxing in BOTH directions). A
+// null argument fits any reference target.
+value_compatible(a, b) :- value_prim(a, p), value_prim(b, p).
+value_compatible(a, b) :- value_prim(a, pa), value_prim(b, pb), value_widens(pa, pb).
+value_compatible("null", b) :- value_ref_type(b).
+
+// Literal argument value-type.
+arg_value_type(call, pos, vt) :- java_expression(_, "ARGUMENT", _, _, _, _, call, pos, _, litType, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
+    literal_value_type(litType, vt).
+// Reference argument whose resolved type is a wrapper / String (by simple name).
+type_value_name(h, n) :- java_type(n, _, _, _, _, _, _, _, _, _, _, _, _, h), value_ref_type(n).
+type_value_name(h, n) :- lib_type(n, _, _, _, _, _, _, _, _, _, _, _, _, h), value_ref_type(n).
+arg_value_type(call, pos, vt) :- java_expression(_, "ARGUMENT", _, _, _, _, call, pos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, arg),
+    expr_type(_, arg, argType),
+    type_value_name(argType, vt).
+
+// Primitive-VARIABLE argument — an IDENTIFIER_REFERENCE arg to a local / parameter / field
+// whose DECLARED type is a primitive value type (int/long/…). expr_type never types a
+// primitive (no type hash), so the two rules above miss it — the value regime otherwise
+// keeps every arity match for numeric/arithmetic calls (m(int) vs m(String) vs m(Object)).
+// The parser leaves referencedEntityHash EMPTY for locals/params/fields, so (exactly like
+// recv_decl_ref in expr-type.dl) resolve the declaration by NAME (literalValue, col 10) in
+// the enclosing method (local/param) or enclosing type (field), and read its declared type
+// name. Sound: value_type_name admits only real primitives, and value_widens/value_unbox
+// already model the legal widening+boxing conversions.
+arg_value_type(call, pos, vt) :- java_expression(_, "ARGUMENT", _, _, _, _, call, pos, _, _, name, _, _, _, "LOCAL_VARIABLE", _, _, _, _, _, _, _, _, _, arg),
+    expr_ultimate_method("client", arg, m),
+    java_local_variable(name, vt, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, _), value_type_name(vt).
+arg_value_type(call, pos, vt) :- java_expression(_, "ARGUMENT", _, _, _, _, call, pos, _, _, name, _, _, _, "PARAMETER", _, _, _, _, _, _, _, _, _, arg),
+    expr_ultimate_method("client", arg, m),
+    java_method_parameter(name, _, m, _, vt, _, _, _, _, _, _, _, _), value_type_name(vt).
+arg_value_type(call, pos, vt) :- java_expression(_, "ARGUMENT", _, _, _, _, call, pos, _, _, name, _, _, _, "FIELD", _, _, _, _, _, _, _, _, _, arg),
+    expr_ultimate_type("client", arg, encl),
+    java_field(name, vt, _, _, _, _, _, _, encl, _, _, _, _, _), value_type_name(vt).
+// Parameter value-type (parameterTypeName col 4 is the simple name: int / String / ...).
+param_value_type(callee, pos, vt) :- java_method_parameter(_, pos, callee, _, vt, _, _, _, _, _, _, _, _), value_type_name(vt).
+param_value_type(callee, pos, vt) :- lib_method_parameter(_, pos, callee, _, vt, _, _, _, _, _, _, _, _), value_type_name(vt).
+
+value_mismatch(call, callee) :- expr_call_candidate(call, callee),
+    arg_value_type(call, pos, at),
+    param_value_type(callee, pos, pt),
+    !value_compatible(at, pt).
+
+// A PRIMITIVE parameter cannot accept a REFERENCE argument. JLS 5.3: the only conversion
+// INTO a primitive is unboxing, defined solely from the eight wrapper types — and those are
+// already handled above (type_value_name -> arg_value_type -> value_compatible). Before this
+// rule a primitive parameter was invisible to BOTH regimes — no type hash (primitives have no
+// potentialQualifiedName, so param_type_hash never fires) and no value type on the argument
+// side (the argument is a reference) — so nothing could prune it: `new ArrayList<>(List.of(..))`
+// kept ArrayList(int) next to the real ArrayList(Collection).
+// value_prim(x,x) holds only for the 8 primitives plus String/null, so excluding those two
+// names leaves exactly the primitives (wrappers map to a DIFFERENT name and are excluded).
+prim_param_name(pt) :- value_prim(pt, pt), pt != "String", pt != "null".
+param_is_prim(callee, pos) :- param_value_type(callee, pos, pt), prim_param_name(pt).
+// A reference-only argument: it has a resolved reference type and NO value-regime reading
+// (not a literal, not a wrapper/String) — so no unboxing can apply.
+arg_ref_only(call, pos) :- arg_type_hash(call, pos, _), !arg_value_type(call, pos, _).
+value_mismatch(call, callee) :- expr_call_candidate(call, callee),
+    param_is_prim(callee, pos),
+    arg_ref_only(call, pos),
+    !arg_is_target_typed(call, pos).
+
+// ── Combined: a candidate is contradicted by either regime ──────────────────────
+arg_mismatch(call, callee) :- hash_mismatch(call, callee).
+arg_mismatch(call, callee) :- value_mismatch(call, callee).
+
+// ── expr_resolves_to_method(Call, Callee) — the applicable set ──────────────────
+call_is_method_ref(call) :- java_expression("METHOD_REFERENCE", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, call).
+
+// The type-pruned set: arity matches and no position proves a type mismatch. May be
+// EMPTY for a call when type_ancestor is too incomplete to confirm any candidate
+// (e.g. functional-interface / generic parameters).
+expr_pruned(call, callee) :- expr_call_candidate(call, callee),
+    !call_is_method_ref(call),
+    arity_match(call, callee),
+    !arg_mismatch(call, callee).
+call_has_pruned(call) :- expr_pruned(call, _).
+
+// ── Most-specific selection (JLS §15.12.2.5) ────────────────────────────────
+// expr_pruned is the APPLICABLE set — every overload the arguments could legally
+// invoke, which under widening/subtyping includes less-specific ones: m1(42) applies to
+// BOTH m1(int) (identity) and m1(long) (int->long widening). JLS then keeps only the
+// MOST SPECIFIC: `win` beats `lose` when at EVERY parameter position win's type is
+// more-specific-or-equal to lose's — narrower primitive (win widens to lose) in the
+// value regime, or a subtype (type_ancestor) in the reference regime — and strictly more
+// specific at some position. Dominated candidates are dropped.
+//
+// Scoped to co-pruned pairs of the SAME call, so the pairwise work is bounded by the
+// tiny applicable set per call, never the full name-only candidate set. Positions come
+// from the call's ARGUMENT children (params align positionally with args, as in
+// hash_mismatch). An incomparable position (different regimes, or an unresolved param)
+// makes msoe fail there, which BLOCKS domination — conservative: an ambiguous set is
+// kept whole and a call is never emptied. Domination is asymmetric (widening/subtyping
+// are acyclic), so a non-empty pruned set always leaves ≥1 most-specific candidate.
+//
+// Reference-regime specificity needs param_type_hash, which (after the lib-FQN revert)
+// exists mainly for CLIENT params; lib reference overloads separated only by subtyping
+// are out of reach. Primitive widening (the m1(int)/m1(long) case) works for both.
+// SCOPED to candidates in the SAME declaring type — i.e. genuine OVERLOADS of one
+// another. Most-specific (JLS §15.12.2.5) ranks overloads within a type; it does NOT
+// compare candidates in DIFFERENT types (those are the virtual-dispatch / CHA set — all
+// reachable, none dominates another). Restricting to same-owner is therefore both
+// correct AND the critical perf bound: without it, copruned is O(pruned²) per call and a
+// CHA-heavy call (e.g. an interface getId() with hundreds of implementors) would form
+// hundreds-of-thousands of pairs. Same-owner collapses that to the tiny per-type
+// overload set. method_owner(prov, TypeHash, MethodHash).
+copruned(call, win, lose) :- expr_pruned(call, win),
+    expr_pruned(call, lose),
+    win != lose,
+    method_owner(_, ot, win),
+    method_owner(_, ot, lose).
+
+// Argument positions of the call.
+call_pos(call, pos) :- java_expression(_, "ARGUMENT", _, _, _, _, call, pos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _).
+
+// win's param at pos is more-specific-OR-equal to lose's (value then reference regime).
+msoe(call, win, lose, pos) :- copruned(call, win, lose),
+    param_value_type(win, pos, wv), param_value_type(lose, pos, lv),
+    value_prim(wv, wp), value_prim(lv, lp), wp = lp.
+msoe(call, win, lose, pos) :- copruned(call, win, lose),
+    param_value_type(win, pos, wv), param_value_type(lose, pos, lv),
+    value_prim(wv, wp), value_prim(lv, lp), value_widens(wp, lp).
+msoe(call, win, lose, pos) :- copruned(call, win, lose),
+    param_type_hash(win, pos, t), param_type_hash(lose, pos, t).
+msoe(call, win, lose, pos) :- copruned(call, win, lose),
+    param_type_hash(win, pos, wt), param_type_hash(lose, pos, lt),
+    type_ancestor(wt, lt).
+
+// win is STRICTLY more specific than lose at pos (narrower primitive / proper subtype).
+smore(call, win, lose, pos) :- copruned(call, win, lose),
+    param_value_type(win, pos, wv), param_value_type(lose, pos, lv),
+    value_prim(wv, wp), value_prim(lv, lp), value_widens(wp, lp).
+smore(call, win, lose, pos) :- copruned(call, win, lose),
+    param_type_hash(win, pos, wt), param_type_hash(lose, pos, lt),
+    type_ancestor(wt, lt).
+
+// ── Additional specificity axes (JLS phase order) ──────────────────────────
+// (a) BOXING: an unboxed primitive parameter is strictly more specific than the
+// matching wrapper — an exact primitive call (phase 1) beats a boxed one (phase 2).
+// win's param is the primitive whose wrapper is lose's param (value_unbox lose->win).
+// msoe already holds via the "both reduce to the same primitive" clause above, so only
+// the strict edge is needed. Fixes box(5) -> box(int) over box(Integer).
+smore(call, win, lose, pos) :- copruned(call, win, lose),
+    param_value_type(win, pos, wv), param_value_type(lose, pos, lv),
+    value_unbox(lv, wv).
+
+// (b) OBJECT as the universal top: any parameter is more-specific-or-equal to a
+// java.lang.Object parameter, and STRICTLY more specific when it is not itself Object.
+// The implicit `extends Object` edge is not in type_ancestor (same reason as the
+// applicability carve-out), so rank it explicitly — on both regimes (a primitive param
+// is also strictly under Object). Fixes fmt(int)/fmt(String) beating fmt(Object).
+param_is_object_pos(callee, pos) :- param_type_hash(callee, pos, pt), param_is_object(pt).
+win_param_typed(m, pos) :- param_type_hash(m, pos, _).
+win_param_typed(m, pos) :- param_value_type(m, pos, _).
+msoe(call, win, lose, pos) :- copruned(call, win, lose),
+    call_pos(call, pos),
+    param_is_object_pos(lose, pos).
+smore(call, win, lose, pos) :- copruned(call, win, lose),
+    param_is_object_pos(lose, pos),
+    !param_is_object_pos(win, pos),
+    win_param_typed(win, pos).
+
+// win fails to be more-specific-or-equal at some real argument position.
+win_worse_at(call, win, lose, pos) :- copruned(call, win, lose),
+    call_pos(call, pos),
+    !msoe(call, win, lose, pos).
+win_worse_anywhere(call, win, lose) :- win_worse_at(call, win, lose, _).
+win_strictly_better(call, win, lose) :- smore(call, win, lose, _).
+
+// win is APPLICABLE to the actual argument at pos — arg type KNOWN and compatible with
+// win's param. SOUNDNESS GUARD: a candidate can sit in expr_pruned without being truly
+// applicable at a position whose argument type we don't capture — notably a primitive-
+// typed VARIABLE arg (arg_value_type covers literals and wrapper/String refs, NOT a bare
+// `int i` / `short s`). Without this, most-specific could crown a narrower overload the
+// real argument cannot reach and drop the true callee. So a candidate may only DOMINATE
+// if it is applicable at every argument position; where an arg type is uncaptured, no
+// domination fires and the applicable set is kept whole (sound, less precise).
+win_ok_at(call, win, pos) :- copruned(call, win, _),
+    arg_value_type(call, pos, av),
+    param_value_type(win, pos, pv),
+    value_compatible(av, pv).
+win_ok_at(call, win, pos) :- copruned(call, win, _),
+    arg_type_hash(call, pos, at),
+    param_type_hash(win, pos, at).
+win_ok_at(call, win, pos) :- copruned(call, win, _),
+    arg_type_hash(call, pos, at),
+    param_type_hash(win, pos, pt),
+    type_ancestor(at, pt).
+win_ok_at(call, win, pos) :- copruned(call, win, _),
+    call_pos(call, pos),
+    arg_is_target_typed(call, pos).
+// win is fully applicable iff it is ok at every argument position of the call.
+win_not_ok_somewhere(call, win) :- copruned(call, win, _),
+    call_pos(call, pos),
+    !win_ok_at(call, win, pos).
+win_fully_applicable(call, win) :- copruned(call, win, _),
+    !win_not_ok_somewhere(call, win).
+
+// lose is dominated: a FULLY-APPLICABLE sibling win is strictly better somewhere and
+// worse nowhere.
+dominated(call, lose) :- win_fully_applicable(call, win),
+    win_strictly_better(call, win, lose),
+    !win_worse_anywhere(call, win, lose).
+
+// VARARGS: a fixed-arity applicable candidate always beats the vararg form (JLS tries
+// phase 1/2 — no varargs — before phase 3). So a vararg callee is dominated whenever a
+// NON-vararg sibling of the same call is fully applicable. Fixes pick(1) -> pick(int)
+// over pick(int...), while pick(1,2,3) (no fixed match) keeps the vararg form.
+dominated(call, lose) :- copruned(call, win, lose),
+    method_is_varargs(lose),
+    !method_is_varargs(win),
+    win_fully_applicable(call, win).
+
+// The most-specific applicable set: pruned minus dominated.
+expr_most_specific(call, callee) :- expr_pruned(call, callee),
+    !dominated(call, callee).
+
+// DON'T-EMPTY SAFEGUARD (soundness) — type pruning may only REMOVE candidates, never
+// drop a call to zero. It is a heuristic over an incomplete subtype relation, so when
+// it would eliminate every arity-matched candidate we fall back to the full arity-
+// matched set rather than lose the real callee. This keeps callee resolution sound for
+// reachability; the residual imprecision is extra (never missing) candidates.
+expr_resolves_to_method(call, callee) :- expr_call_candidate(call, callee),
+    call_is_method_ref(call).
+// arity-scoped calls with surviving candidates: keep the MOST-SPECIFIC set (JLS
+// §15.12.2.5). expr_most_specific ⊆ expr_pruned and is non-empty exactly when
+// expr_pruned is, so the !call_has_pruned fallback below still guards emptiness.
+expr_resolves_to_method(call, callee) :- expr_most_specific(call, callee).
+// arity-scoped calls where pruning emptied the call: fall back to arity-matched.
+expr_resolves_to_method(call, callee) :- expr_call_candidate(call, callee),
+    !call_is_method_ref(call),
+    arity_match(call, callee),
+    !call_has_pruned(call).

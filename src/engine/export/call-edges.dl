@@ -1,0 +1,9 @@
+// ============================================================================
+// CALL-EDGE-GEN · EXPORTS
+//
+// Export wiring for the client call-edge relations. Rules are in
+// call-edge-generation/calls.dl. Each row: CallerProv  CallSite  CalleeProv  Callee.
+//   client-to-client-calls.csv : "client"  callSite  "client"  methodHash
+//   client-to-lib-calls.csv    : "client"  callSite  "lib"     methodHash
+// ============================================================================
+

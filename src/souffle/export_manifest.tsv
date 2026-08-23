@@ -1,0 +1,11 @@
+type_ancestor	resolution-type-ancestor.csv
+virtual_override	resolution-virtual-override.csv
+tainted_param	tainted-param.csv
+taint_site_arg	taint-site-arg.csv
+taint_site_recv	taint-site-recv.csv
+reaches_sink	reaches-sink.csv
+corridor_method	corridor-method.csv
+entry_point	entry-point.csv
+entry_reachable	entry-reachable.csv
+call_chain_edge	call-chain-edges.csv
+lambda_dispatch_edge	lambda-dispatch-edges.csv

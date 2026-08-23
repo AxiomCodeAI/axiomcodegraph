@@ -1,0 +1,234 @@
+// ============================================================================
+// Expression Resolution · CALLEE RESOLUTION  (candidate set)
+//
+// expr_call_candidate(CallHash, CalleeHash): the SOUND, name-based candidate set of
+// methods a call site may invoke — BEFORE overload disambiguation. Receiver type
+// (expr_type) + method name -> method_name_in_type, fanned out to concrete overrides
+// via virtual_override (CHA). overload.dl narrows this by arity + full argument-type
+// applicability into expr_resolves_to_method.
+//
+// Deliberately name-only here so the candidate set is a sound over-approximation
+// (never drops the real callee); precision is a strictly-later filtering concern. The
+// callee may be client (java_method) or library (lib_method) — method_name_in_type
+// spans both — so a client call into a library type yields a lib callee (the
+// client->external boundary), using lib SIGNATURES only.
+//
+// Mutually recursive with expr_type: a chained call a().b() types a() (expr-type.dl)
+// off expr_call_candidate here. Positive recursion — monotone fixpoint, terminates.
+//
+// java_expression (25): 0 kind  1 edgeRole  4 typeRegistryLinkHash(enclosing)
+//   6 parentExpressionHash  10 literalValue  11 methodReferenceKind
+//   14 referencedEntityKind  16 anonymousTypeHash  24 uniqueHash
+// java_method / lib_method (22): 7 typeRegistryLinkHash(owner) 16 methodKind
+//   21 methodRegistryUniqueHash
+// ============================================================================
+
+// A receiver type must be searchable by method-lookup. lookup_type is seeded from
+// type references + client types; a static-qualifier receiver (Arrays) has no type
+// reference, only an expression, so add every expr_type target to lookup_type — its
+// methods then populate method_name_in_type. Bounded to types used as receivers.
+lookup_type(t) :- expr_type(_, _, t).
+
+// ── Explicit-receiver call (recv.name(...)): resolve name in the receiver's type ─
+expr_call_candidate(call, callee) :- call_site(call, name, recv),
+    expr_type(_, recv, recvType),
+    method_name_in_type(name, recvType, callee).
+
+// Same join, but KEEPING the receiver type — consumed by the lib-boundary gate in calls.dl, which
+// must suppress an inherited declaration only for the receiver type it is inherited FOR (a site with
+// receiver types List and ArrayList must keep List#add and ArrayList#add, dropping only the
+// intermediate ancestors). Purely positive, so it stays inside the expr_type fixpoint.
+lib_recv_target(call, recvType, callee) :- call_site(call, name, recv),
+    expr_type(_, recv, recvType),
+    method_name_in_type(name, recvType, callee),
+    method_owner("lib", _, callee).
+
+// ── Unqualified call (name(...)): dispatch on the enclosing instance (this) ─────
+expr_call_candidate(call, callee) :- call_unqualified(call, name),
+    expr_ultimate_type("client", call, enclType),
+    method_name_in_type(name, enclType, callee).
+
+// ── Unqualified call inside a NESTED / INNER / ANONYMOUS class that targets a LEXICALLY
+// ENCLOSING class's method. Java resolves an unqualified name outward through the enclosing
+// scopes, but the rule above only searches the immediately enclosing type and its ANCESTORS —
+// so `new FutureCallback(){ public void onSuccess(..){ getIndexNames(x); } }` inside
+// SecondaryIndexManager found nothing (getIndexNames is declared in the OUTER class, which is
+// not a supertype of the anonymous one). Measured: every d1 recall miss on cassandra commit
+// 26d7b166ba (5 of 5) was this shape. type_in_type (containment/type-nesting.dl) is already
+// transitive over enclosing types — its own header says it exists for exactly this purpose;
+// nothing consumed it.
+expr_call_candidate(call, callee) :- call_unqualified(call, name),
+    expr_ultimate_type("client", call, encl),
+    type_in_type("client", encl, outer),
+    method_name_in_type(name, outer, callee).
+
+// ── Static-imported unqualified call (import static C.m; ... m(...)): a receiver-less
+// call whose name is NOT the enclosing instance's method but a static member imported
+// from another type. The parser records the owner type in packageOrTypeName (col 2)
+// and the member name in simpleName (col 3); the import applies to its whole file, so
+// the call's file (its enclosing type's filePath, col 7) must match the import's file.
+// Covers single static imports (C.m) and static-on-demand (C.*).
+// java_import (11): 0 importKind 2 packageOrTypeName 3 simpleName 4 filePath
+static_import_owner(name, ownerType, file) :- java_import("SINGLE_STATIC", _, ownerType, name, file, _, _, _, _, _, _).
+static_import_star_owner(ownerType, file) :- java_import("STATIC_ON_DEMAND", _, ownerType, _, file, _, _, _, _, _, _).
+
+// A static-import owner type must be searchable by method-lookup even if the file
+// never names it as a type reference (the point of a static import is to drop the
+// qualifier). Seed it into lookup_type by qualifiedName (client or lib).
+lookup_type(t) :- static_import_owner(_, ownerType, _), java_type(_, ownerType, _, _, _, _, _, _, _, _, _, _, _, t).
+lookup_type(t) :- static_import_owner(_, ownerType, _), lib_type(_, ownerType, _, _, _, _, _, _, _, _, _, _, _, t).
+lookup_type(t) :- static_import_star_owner(ownerType, _), java_type(_, ownerType, _, _, _, _, _, _, _, _, _, _, _, t).
+lookup_type(t) :- static_import_star_owner(ownerType, _), lib_type(_, ownerType, _, _, _, _, _, _, _, _, _, _, _, t).
+
+expr_call_candidate(call, callee) :- call_unqualified(call, name),
+    expr_ultimate_type("client", call, enclType),
+    java_type(_, _, _, _, _, _, _, file, _, _, _, _, _, enclType),
+    static_import_owner(name, ownerType, file),
+    java_type(_, ownerType, _, _, _, _, _, _, _, _, _, _, _, ownerHash),
+    method_name_in_type(name, ownerHash, callee).
+expr_call_candidate(call, callee) :- call_unqualified(call, name),
+    expr_ultimate_type("client", call, enclType),
+    java_type(_, _, _, _, _, _, _, file, _, _, _, _, _, enclType),
+    static_import_owner(name, ownerType, file),
+    lib_type(_, ownerType, _, _, _, _, _, _, _, _, _, _, _, ownerHash),
+    method_name_in_type(name, ownerHash, callee).
+expr_call_candidate(call, callee) :- call_unqualified(call, name),
+    expr_ultimate_type("client", call, enclType),
+    java_type(_, _, _, _, _, _, _, file, _, _, _, _, _, enclType),
+    static_import_star_owner(ownerType, file),
+    java_type(_, ownerType, _, _, _, _, _, _, _, _, _, _, _, ownerHash),
+    method_name_in_type(name, ownerHash, callee).
+expr_call_candidate(call, callee) :- call_unqualified(call, name),
+    expr_ultimate_type("client", call, enclType),
+    java_type(_, _, _, _, _, _, _, file, _, _, _, _, _, enclType),
+    static_import_star_owner(ownerType, file),
+    lib_type(_, ownerType, _, _, _, _, _, _, _, _, _, _, _, ownerHash),
+    method_name_in_type(name, ownerHash, callee).
+
+// ── CHA fan-out: a call resolved to an interface/abstract base also reaches every
+// concrete override (and enum-constant body). Sound over-approximation; narrowing to
+// the actually-dispatched target is a later data-flow concern.
+// A receiver with an EXACT runtime type (monomorphic local / direct `new`) needs NO
+// CHA fan-out — its runtime type is known, so it dispatches to exactly one method.
+// Gating this off is what collapses x.close() from 127 targets to 1 (flow-typed).
+call_exact_receiver(call) :- call_site(call, _, recv), expr_exact_type(recv, _).
+// !cha_wide_base(base): ACCURACY-FIRST residual cap (resolution/dispatch-cap.dl). When the
+// receiver is not exactly typed AND the base fans to >K overrides (K from dispatch_cap, default
+// off), drop the fan rather than guess across many wrong targets. No-op unless dispatch_cap is set.
+// !call_super_receiver(call): a `super.m()` call is NON-VIRTUAL (invokespecial) — it names
+// exactly ONE target, the inherited implementation, and must never fan to overrides. Without
+// this gate an override that calls super (the single most common override shape) fans back to
+// ITSELF: LoggingList.add -> super.add -> CHA -> LoggingList.add, a phantom self-recursion the
+// bytecode oracle never has.
+call_super_receiver(call) :- call_site(call, _, recv),
+    java_expression("SUPER_REFERENCE", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, recv).
+// FIX-10 (RECEIVER-SUBTYPE GATE): a CHA target is only reachable if it is DECLARED in the
+// receiver's own type or in a SUBTYPE of it — that is what class-hierarchy analysis means.
+// virtual_override matches on (name, parameterCount) alone, so without this gate the fan leaves
+// the receiver's hierarchy entirely and produces pairs no sound over-approximation contains
+// (measured on cassandra 6.0-alpha2: half of multi_inferred fell outside a CHA envelope built
+// from the bytecode hierarchy — e.g. FilteringIterator#close -> SSTableScanner#close,
+// Tables#withSwapped -> Tables#without(TableMetadata)). Receiverless calls are gated on the
+// ENCLOSING type, the receiver they actually dispatch on.
+// PERFORMANCE: keyed on (Override, Type) — NOT on (call, override). The per-call form enumerated
+// every method declared anywhere in the receiver's subtype closure before the name/arity
+// restriction applied, which does not terminate at repo scale. This form is |methods| x |ancestors|
+// (~10 rows per method) and is a hash lookup inside the fan rule, where virtual_override has
+// already pinned name+arity.
+// CORRECTED (FIX-10b): the test is "is the override REACHABLE in the receiver's type or in a
+// SUBTYPE of it", not "is it DECLARED there". Keying on method_owner (the declaring type) rejected
+// the inherited-into-implementor case that virtual_override deliberately supports —
+// `class Impl extends Base implements Handler` where Base (not a Handler subtype) declares handle():
+// the real dispatch target Base.handle is owned by Base, and Base is not in Handler's closure, so
+// the gate dropped a legitimate target. method_name_in_type already includes inherited methods
+// (method-lookup.dl), so it expresses the CHA test exactly.
+override_in_closure(override, rt) :- method_name_in_type(_, rt, override).
+override_in_closure(override, rt) :- type_ancestor(sub, rt), method_name_in_type(_, sub, override).
+expr_call_candidate(call, override) :- expr_call_candidate(call, base),
+    virtual_override(base, override),
+    !call_exact_receiver(call),
+    !call_super_receiver(call),
+    !cha_wide_base(base),
+    call_site(call, _, recv), expr_type(_, recv, rt),
+    override_in_closure(override, rt).
+// receiverless call: the receiver is `this`, so gate on the ENCLOSING type's closure.
+expr_call_candidate(call, override) :- expr_call_candidate(call, base),
+    virtual_override(base, override),
+    !call_exact_receiver(call),
+    !call_super_receiver(call),
+    !cha_wide_base(base),
+    call_unqualified(call, _),
+    expr_ultimate_type("client", call, et),
+    override_in_closure(override, et).
+
+// ── Constructor call: new X(...) invokes X's constructor(s). expr_type gives the
+// created type X; the callee is a CONSTRUCTOR (col 16) owned by X. Client and lib.
+expr_call_candidate(call, ctor) :- java_expression("OBJECT_CREATION", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, call),
+    expr_type(_, call, type),
+    java_method(_, _, _, _, _, _, _, type, _, _, _, _, _, _, _, _, "CONSTRUCTOR", _, _, _, _, ctor).
+expr_call_candidate(call, ctor) :- java_expression("OBJECT_CREATION", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, call),
+    expr_type(_, call, type),
+    lib_method(_, _, _, _, _, _, _, type, _, _, _, _, _, _, _, _, "CONSTRUCTOR", _, _, _, _, ctor).
+
+// new Iface(){...} / new Base(){...} — anonymous class: expr_type resolves the created
+// type to the named super/interface (which may have no constructor), so also route via
+// the ANONYMOUS type (col 16): its own synthetic constructor, if the extractor emits one.
+// FIX: the parser emits anonymous-class creation as its OWN kind ANONYMOUS_CLASS_CREATION (NOT
+// OBJECT_CREATION with an anon hash — 0 such nodes exist), and the anon type has no own constructor.
+// So key on ANONYMOUS_CLASS_CREATION and route to the SUPER/interface constructor via expr_type
+// (anon rule, expr-type.dl → object_creation_type_resolves). Client and lib supers. (Anon-of-
+// interface has no super ctor → stays unresolved, correctly landing as ambiguous_anon downstream.)
+expr_call_candidate(call, ctor) :- java_expression("ANONYMOUS_CLASS_CREATION", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, call),
+    expr_type(_, call, superT),
+    java_method(_, _, _, _, _, _, _, superT, _, _, _, _, _, _, _, _, "CONSTRUCTOR", _, _, _, _, ctor).
+expr_call_candidate(call, ctor) :- java_expression("ANONYMOUS_CLASS_CREATION", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, call),
+    expr_type(_, call, superT),
+    lib_method(_, _, _, _, _, _, _, superT, _, _, _, _, _, _, _, _, "CONSTRUCTOR", _, _, _, _, ctor).
+
+// ── Constructor delegation: this(...) / super(...) (CONSTRUCTOR_INVOCATION). The
+// enclosing type is col 4; referencedEntityKind (col 14) is THIS or SUPER.
+expr_call_candidate(call, ctor) :- java_expression("CONSTRUCTOR_INVOCATION", _, _, _, encl, _, _, _, _, _, _, _, _, _, "THIS", _, _, _, _, _, _, _, _, _, call),
+    java_method(_, _, _, _, _, _, _, encl, _, _, _, _, _, _, _, _, "CONSTRUCTOR", _, _, _, _, ctor).
+expr_call_candidate(call, ctor) :- java_expression("CONSTRUCTOR_INVOCATION", _, _, _, encl, _, _, _, _, _, _, _, _, _, "SUPER", _, _, _, _, _, _, _, _, _, call),
+    type_parent(encl, parent),
+    java_method(_, _, _, _, _, _, _, parent, _, _, _, _, _, _, _, _, "CONSTRUCTOR", _, _, _, _, ctor).
+expr_call_candidate(call, ctor) :- java_expression("CONSTRUCTOR_INVOCATION", _, _, _, encl, _, _, _, _, _, _, _, _, _, "SUPER", _, _, _, _, _, _, _, _, _, call),
+    type_parent(encl, parent),
+    lib_method(_, _, _, _, _, _, _, parent, _, _, _, _, _, _, _, _, "CONSTRUCTOR", _, _, _, _, ctor).
+
+// ── Method reference: Type::m / obj::m / this::m (QUALIFIED_METHOD, col 11). The
+// referenced method is `name` on the qualifier's type (the QUALIFIER child, typed by
+// expr_type). The functional interface invokes it — a genuine deferred call target.
+// A method reference has NO written arguments, so overload.dl passes it through
+// unfiltered (its arity comes from the functional interface, not the :: site).
+expr_call_candidate(mr, callee) :- java_expression("METHOD_REFERENCE", _, _, _, _, _, _, _, _, _, name, "QUALIFIED_METHOD", _, _, _, _, _, _, _, _, _, _, _, _, mr),
+    java_expression(_, "QUALIFIER", _, _, _, _, mr, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, q),
+    expr_type(_, q, qtype),
+    method_name_in_type(name, qtype, callee).
+
+// super::m (SUPER method reference) -> `name` in the super-reference's type. The
+// QUALIFIER child is a SUPER_REFERENCE, which expr_type resolves to the enclosing
+// type's parent (client or lib), so the callee is the inherited method. Statically
+// bound like a super.m() call.
+expr_call_candidate(mr, callee) :- java_expression("METHOD_REFERENCE", _, _, _, _, _, _, _, _, _, name, "SUPER", _, _, _, _, _, _, _, _, _, _, _, _, mr),
+    java_expression(_, "QUALIFIER", _, _, _, _, mr, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, q),
+    expr_type(_, q, qtype),
+    method_name_in_type(name, qtype, callee).
+
+// Type::new (CONSTRUCTOR method reference) -> a constructor of the qualifier type.
+expr_call_candidate(mr, ctor) :- java_expression("METHOD_REFERENCE", _, _, _, _, _, _, _, _, _, _, "CONSTRUCTOR", _, _, _, _, _, _, _, _, _, _, _, _, mr),
+    java_expression(_, "QUALIFIER", _, _, _, _, mr, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, q),
+    expr_type(_, q, qtype),
+    java_method(_, _, _, _, _, _, _, qtype, _, _, _, _, _, _, _, _, "CONSTRUCTOR", _, _, _, _, ctor).
+expr_call_candidate(mr, ctor) :- java_expression("METHOD_REFERENCE", _, _, _, _, _, _, _, _, _, _, "CONSTRUCTOR", _, _, _, _, _, _, _, _, _, _, _, _, mr),
+    java_expression(_, "QUALIFIER", _, _, _, _, mr, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, q),
+    expr_type(_, q, qtype),
+    lib_method(_, _, _, _, _, _, _, qtype, _, _, _, _, _, _, _, _, "CONSTRUCTOR", _, _, _, _, ctor).
+
+// ── Array-constructor method reference (T[]::new). Array allocation (new T[n])
+// invokes NO method or constructor, so there is deliberately no expr_call_candidate
+// edge — a phantom callee would be unsound. Instead it is RECOGNIZED as an array
+// creation of its element type (from the qualifier type reference), a resolved leaf
+// rather than a dangling unresolved call. Element type resolves client or lib.
+expr_array_creation(mr, elem) :- java_expression("METHOD_REFERENCE", _, _, _, _, _, _, _, _, _, _, "ARRAY_CONSTRUCTOR", _, _, _, _, _, _, _, _, _, _, _, _, mr),
+    method_ref_qualifier_resolves(_, mr, _, elem).

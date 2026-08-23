@@ -1,0 +1,62 @@
+// ============================================================================
+// CALL-EDGE-GEN · CLIENT CALL EDGES  (rules)
+//
+// Resolved call-graph edges out of client call sites, split by whether the callee is
+// CLIENT or LIBRARY code. Consumes expr_resolves_to_method (the disambiguated callee
+// set) + method_owner (client/lib provenance, methods.dl). Runs in the engine pass —
+// it needs those relations. Export directives live separately in export/call-edges.dl.
+//
+// Row: CallerProv  CallSiteExprHash  CalleeProv  CalleeMethodHash
+//   client_calls_client : "client"  callSite  "client"  callee   (client → client)
+//   client_calls_lib    : "client"  callSite  "lib"     callee   (client → lib)
+// The provenance tags are baked into each row so a row is self-describing, independent
+// of which file it lives in. CallerProv is "client" today (all call sites are client
+// code); it becomes "lib" once external expansion adds lib call sites.
+//
+// A call site may resolve to MULTIPLE callees (applicable set / CHA fan-out) → multiple
+// rows. Constructors (new Foo(...)) are included — they resolve through the same
+// expr_resolves_to_method relation (call site = OBJECT_CREATION node, callee = ctor).
+// Roll up a call site to its enclosing caller method (for method→method chains) via
+// expr_ultimate_method — kept out of here so this stays the precise per-call-site base.
+// ============================================================================
+
+client_calls_client("client", call, "client", callee) :- expr_resolves_to_method(call, callee),
+    method_owner("client", _, callee).
+
+// ── LIB-BOUNDARY GATE (FIX-12): emit only the NEAREST library declaration, per call site ──
+// method_name_in_type hands callee-resolution EVERY declaration of the name reachable from the
+// receiver's type, so one `list.add(x)` produced java.util.List#add AND AbstractList#add AND
+// Collection#add AND AbstractCollection#add AND ArrayList#add. Java binds exactly one: the
+// declaration NEAREST the receiver's type. Suppress a lib target when another target of the SAME
+// call site has the same name+arity and its owner is a PROPER SUBTYPE of this one's owner — i.e.
+// this declaration is the inherited copy that nothing binds to.
+//
+// Applied HERE, at boundary emission, rather than in callee-resolution: method_name_in_type sits
+// inside the expr_type <-> expr_call_candidate fixpoint (lookup_type is seeded from expr_type), so a
+// negation there is cyclic and souffle refuses to stratify. client_calls_lib is downstream of that
+// fixpoint and nothing reads it back, so the negation is legal in this stratum.
+//
+// Both flow types survive: `List x = new ArrayList<>()` yields receiver types List AND ArrayList,
+// so the site's targets are List#add (nearest for List) and ArrayList#add (nearest for ArrayList);
+// only the intermediate ancestors (AbstractList, Collection, AbstractCollection) are dropped. A
+// GLOBAL most-derived filter would delete List#add too — measured as -0.038 recall / 2,091 correct
+// lib edges lost, because bytecode names the interface for an interface-typed receiver.
+// lib_method (22): 1 name  18 parameterCount  22 hash
+lib_msig(m, name, pc) :- lib_method(name, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, pc, _, _, _, m).
+// shadowed FOR ONE receiver type: a nearer declaration of the same name+arity exists below it in
+// that receiver's own hierarchy.
+lib_shadowed_for(call, rt, m) :- lib_recv_target(call, rt, m), method_owner("lib", o, m),
+    lib_msig(m, name, pc),
+    lib_recv_target(call, rt, m2), m2 != m, method_owner("lib", o2, m2),
+    lib_msig(m2, name, pc),
+    o2 != o,
+    type_ancestor(o2, o).
+// kept when it is the nearest declaration for AT LEAST ONE of the site's receiver types...
+lib_target_kept(call, m) :- lib_recv_target(call, rt, m), !lib_shadowed_for(call, rt, m).
+// ...and unconditionally when it did not come from a receiver-typed lookup at all (static call,
+// constructor, method reference, chained/generic resolution) — those must never be filtered here.
+lib_target_kept(call, m) :- expr_resolves_to_method(call, m), method_owner("lib", _, m),
+    !lib_recv_target(call, _, m).
+client_calls_lib("client", call, "lib", callee) :- expr_resolves_to_method(call, callee),
+    method_owner("lib", _, callee),
+    lib_target_kept(call, callee).

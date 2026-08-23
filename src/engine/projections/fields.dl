@@ -1,0 +1,32 @@
+// ============================================================================
+// Projections · FIELDS  (pure column views — no joins, no closures)
+//
+// Named views over field declarations, for both the client (java_*) and any
+// external library (lib_*). One of the three receiver-typing sources (with locals
+// and method parameters): when a call's receiver is an identifier that refers to a
+// FIELD, its declared type is found here.
+//
+// Conventions: views only; one raw base relation per rule body; provenance tag first.
+//
+// java_field / lib_field cols (14):
+//   0 name  1 fieldTypeName  2 fieldBaseType  3 potentialQualifiedName
+//   4 isAmbiguous  5 filePath  6 startLine  7 endLine
+//   8 typeRegistryLinkHash (owner type)  9 ownerTypeName  10 ownerQualifiedName
+//   11 fieldAccess  12 fieldModifier  13 fieldRegistryUniqueHash
+// ============================================================================
+
+// ── field_decl(Prov, Name, TypeName, OwnerTypeHash, FieldHash) ───────────────
+// A field's name, declared type name, and the type that declares it. TypeName is
+// the raw declared name (resolved to a concrete type in the resolution layer).
+field_decl("client", name, typeName, ownerType, h) :- java_field(name, typeName, _, _, _, _, _, _, ownerType, _, _, _, _, h).
+field_decl("lib", name, typeName, ownerType, h) :- lib_field(name, typeName, _, _, _, _, _, _, ownerType, _, _, _, _, h).
+
+// ── field_modifier(Prov, Access, Modifier, FieldHash) ───────────────────────
+// Access (col 11, TypeAccess enum): PUBLIC_ACCESS, PROTECTED_ACCESS,
+// PRIVATE_ACCESS, PACKAGE_ACCESS.
+// Modifier (col 12): a comma-separated set of the FieldModifier enum flags —
+// STATIC, FINAL, VOLATILE, TRANSIENT (e.g. "STATIC,FINAL"), or "" (none).
+// Static-field access (Type.FIELD) is detected downstream by testing whether
+// Modifier contains "STATIC".
+field_modifier("client", access, modifier, h) :- java_field(_, _, _, _, _, _, _, _, _, _, _, access, modifier, h).
+field_modifier("lib", access, modifier, h) :- lib_field(_, _, _, _, _, _, _, _, _, _, _, access, modifier, h).

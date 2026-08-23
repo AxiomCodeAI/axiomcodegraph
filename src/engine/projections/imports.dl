@@ -1,0 +1,51 @@
+// ============================================================================
+// Projections · IMPORTS  (pure column views — no joins, no closures)
+//
+// Named views over import declarations, for both the client (java_*) and any
+// external library (lib_*). Imports are file-scoped and are the key input for
+// name->type resolution: they map a simple name used in a file to the exact
+// qualified type, which disambiguates identical simple names across libraries.
+//
+// Conventions: views only; one raw base relation per rule body; provenance tag first.
+//
+// java_import / lib_import cols (11):
+//   0 importKind  1 importedPath  2 packageOrTypeName  3 simpleName  4 filePath
+//   5 lineNumber  6 isStatic  7 isOnDemand  8 isModuleImport
+//   9 serviceVersionLinkHash  10 importRegistryUniqueHash
+//
+// importKind values the parser actually emits (4):
+//   SINGLE_TYPE       import a.b.C;            one specific type
+//   TYPE_ON_DEMAND    import a.b.*;            wildcard over a package (isOnDemand)
+//   SINGLE_STATIC     import static a.b.C.m;   one static member (method/field)
+//   STATIC_ON_DEMAND  import static a.b.C.*;   all static members of a class
+//
+// MODULE (import module a.b; Java 23+, JEP 476) is defined in the parser enum but
+// the tree-sitter-java 0.21.0 grammar does not parse it: `import module java.base`
+// is currently mis-emitted as SINGLE_TYPE (importedPath="module java.base"). No
+// import_module view until the parser supports it.
+// ============================================================================
+
+// ── import_single(Prov, SimpleName, ImportedPath, FilePath, ImportHash) ──────
+// import a.b.C  →  the file resolves the simple name C to the qualified type
+// a.b.C. Primary disambiguator when two libraries share a simple name.
+import_single("client", simpleName, importedPath, filePath, h) :- java_import("SINGLE_TYPE", importedPath, _, simpleName, filePath, _, _, _, _, _, h).
+import_single("lib", simpleName, importedPath, filePath, h) :- lib_import("SINGLE_TYPE", importedPath, _, simpleName, filePath, _, _, _, _, _, h).
+
+// ── import_wildcard(Prov, PackageName, FilePath, ImportHash) ─────────────────
+// import a.b.*  →  any simple name in this file may resolve to a type in package
+// a.b (lower precedence than a single-type import).
+import_wildcard("client", pkg, filePath, h) :- java_import("TYPE_ON_DEMAND", _, pkg, _, filePath, _, _, _, _, _, h).
+import_wildcard("lib", pkg, filePath, h) :- lib_import("TYPE_ON_DEMAND", _, pkg, _, filePath, _, _, _, _, _, h).
+
+// ── import_static(Prov, SimpleName, ImportedPath, FilePath, ImportHash) ──────
+// import static a.b.C.m  →  the file may call m(...) with no receiver, resolving
+// to the static member m of a.b.C. Used for receiver-less static call resolution.
+import_static("client", simpleName, importedPath, filePath, h) :- java_import("SINGLE_STATIC", importedPath, _, simpleName, filePath, _, _, _, _, _, h).
+import_static("lib", simpleName, importedPath, filePath, h) :- lib_import("SINGLE_STATIC", importedPath, _, simpleName, filePath, _, _, _, _, _, h).
+
+// ── import_static_wildcard(Prov, OwnerTypeName, FilePath, ImportHash) ────────
+// import static a.b.C.*  →  any unqualified static member (m(), CONST) in this
+// file may resolve to a static member of class a.b.C (OwnerTypeName). Lower
+// precedence than a single static import.
+import_static_wildcard("client", ownerType, filePath, h) :- java_import("STATIC_ON_DEMAND", _, ownerType, _, filePath, _, _, _, _, _, h).
+import_static_wildcard("lib", ownerType, filePath, h) :- lib_import("STATIC_ON_DEMAND", _, ownerType, _, filePath, _, _, _, _, _, h).

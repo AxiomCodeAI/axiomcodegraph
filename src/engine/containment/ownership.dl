@@ -1,0 +1,45 @@
+// ============================================================================
+// Containment · OWNERSHIP  (caller attribution)
+//
+// expr_ultimate_method(Prov, ExprHash, MethodHash) — the method a call site
+// ultimately lives in. A call's stamped owner (expressionOwnerHash) is often NOT
+// a method: ~40% are blocks (if/for/try), plus local-var initializers and lambda
+// bodies. This walks the owner to its enclosing method so call-chains can form a
+// caller -> callee edge.
+//
+// Client-scoped for Engine 1 (only client bodies are imported). Engine 2 adds the
+// "lib" variant over lib_expression when library bodies are imported.
+//
+// Discipline: expr_owner is the one projection per body; the "what kind of owner"
+// test uses a raw imported fact (java_method / java_block / java_local_variable /
+// java_expression). expr_owner(Prov, OwnerHash, OwnerType, ExprHash).
+//
+// java_method col 21 = methodRegistryUniqueHash
+// java_block  col 9  = methodOwnerHash, col 17 = blockRegistryUniqueHash
+// java_local_variable col 13 = methodRegistryLinkHash, col 18 = localVariableRegistryUniqueHash
+// java_expression col 24 = expressionUniqueHash
+// ============================================================================
+
+// Case 1: owner is a method directly.
+expr_ultimate_method("client", e, m) :- expr_owner("client", m, _, e),
+    java_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+
+// Case 2: owner is a block -> the block's method (java_block col 9).
+expr_ultimate_method("client", e, m) :- expr_owner("client", b, _, e),
+    java_block(_, _, _, _, _, _, _, _, _, m, _, _, _, _, _, _, _, b).
+
+// Case 3: owner is a local variable -> the var's method (java_local_variable col 13).
+expr_ultimate_method("client", e, m) :- expr_owner("client", v, _, e),
+    java_local_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, v).
+
+// Case 4: owner is another expression (lambda body) -> recurse to its method.
+expr_ultimate_method("client", e, m) :- expr_owner("client", owner, _, e),
+    java_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, owner),
+    expr_ultimate_method("client", owner, m).
+
+// ── expr_ultimate_type(Prov, ExprHash, TypeHash) ────────────────────────────
+// The type the expression belongs to (its enclosing type), taken directly from
+// the stamped owner type. Used for implicit-this resolution: an unqualified call
+// resolves in this type (and its ancestors / enclosing types).
+expr_ultimate_type("client", e, t) :- expr_owner("client", _, t, e),
+    t != "".

@@ -1,0 +1,24 @@
+{
+  "name": "@axiomcode/reasoning-java",
+  "version": "1.0.0",
+  "description": "AxiomCode reasoning engine (Java) — renders import templates for the external library modules and the client IR, then runs the pruning/call-chain stages. Invoked by @axiomcode/agent-search for --language=java.",
+  "main": "dist/reason.js",
+  "types": "dist/reason.d.ts",
+  "scripts": {
+    "reason": "node dist/index.js",
+    "clean": "rm -rf dist",
+    "prebuild": "npm run clean",
+    "build": "tsc && tsc-alias",
+    "prepare": "npm run build",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "tsc-alias": "^1.8.16",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  }
+}

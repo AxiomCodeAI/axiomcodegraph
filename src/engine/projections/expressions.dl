@@ -1,0 +1,143 @@
+// ============================================================================
+// Projections · EXPRESSIONS  (pure column views — no joins, no closures)
+//
+// The spine of call resolution. Named views over expressions, for both the client
+// (java_*) and any external library (lib_*). A call site is an expression, so these
+// views supply: which form a node is, how it links to its children (receiver /
+// qualifier / argument), the method/type name on it, what a receiver refers to, and
+// the enclosing method (caller). Only the call-resolution subset is projected here;
+// flow / const-eval / reporting columns are left for later layers.
+//
+// Conventions: views only; one raw base relation per rule body; provenance tag first.
+//
+// java_expression / lib_expression cols (25):
+//   0 kind  1 edgeRole  2 rootContext  3 expressionOwnerKind
+//   4 typeRegistryLinkHash (enclosing type)  5 expressionOwnerHash (enclosing owner)
+//   6 parentExpressionHash  7 position  8 depth  9 literalType  10 literalValue
+//   11 methodReferenceKind  12 unaryFixity  13 operatorString
+//   14 referencedEntityKind  15 referencedEntityHash  16 anonymousTypeHash
+//   17 potentialQualifiedName  18 isAmbiguous  19 returnStatementIndex
+//   20 startLine  21 startColumn  22 endLine  23 endColumn  24 expressionUniqueHash
+// ============================================================================
+
+// ── expr_kind(Prov, Kind, EdgeRole, ExprHash) ───────────────────────────────
+// The expression's form and the role it plays in its parent.
+//
+// Kind (col 0, ExpressionKind enum, 30 values) — the call/reference-relevant ones:
+//   METHOD_INVOCATION         a.foo() / foo()            (A1-A7)
+//   METHOD_REFERENCE          a::foo, Type::foo, T::new  (B8-B9)
+//   OBJECT_CREATION           new T(...)                 (C1)
+//   CONSTRUCTOR_INVOCATION    super(...) / this(...)     (C4 delegation)
+//   ANONYMOUS_CLASS_CREATION  new T(){ ... }             (C2)
+//   LAMBDA_EXPRESSION         x -> ...                   (C9)
+//   IDENTIFIER_REFERENCE      a bare name (a receiver / operand)
+//   FIELD_ACCESS              a.b field access
+//   THIS_REFERENCE            this
+//   SUPER_REFERENCE           super
+//   ARRAY_ACCESS              arr[i]  (an array-element receiver)
+// (others — LITERAL, BINARY/UNARY/TERNARY/ASSIGNMENT, CAST_EXPRESSION,
+//  INSTANCEOF_*, SWITCH_*, RECORD_PATTERN, STRING_TEMPLATE, … — not call forms.)
+//
+// EdgeRole (col 1, EdgeRole enum, 33 values) — the roles we link on:
+//   ROOT               a top-level expression (a statement's expression)
+//   RECEIVER           the object before the dot in a.foo()
+//   QUALIFIER          the qualifier of a method reference / static access
+//   ARGUMENT           an argument to a call
+//   ENCLOSING_INSTANCE the outer instance in outer.new Inner()
+//   METHOD_NAME        the method-name node
+//   LAMBDA_BODY        a lambda body expression
+// (other roles — operands, ternary parts, switch parts, patterns — not needed here.)
+expr_kind("client", kind, edgeRole, h) :- java_expression(kind, edgeRole, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+expr_kind("lib", kind, edgeRole, h) :- lib_expression(kind, edgeRole, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── expr_child(Prov, ParentHash, EdgeRole, ChildHash) ───────────────────────
+// Links a child expression to its parent by role. Read as, e.g.,
+// expr_child(_, call, "RECEIVER", recv) to get a call's receiver, or
+// "QUALIFIER" for a method reference, "ARGUMENT" for arguments.
+expr_child("client", parent, edgeRole, child) :- java_expression(_, edgeRole, _, _, _, _, parent, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, child).
+expr_child("lib", parent, edgeRole, child) :- lib_expression(_, edgeRole, _, _, _, _, parent, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, child).
+
+// ── expr_owner(Prov, OwnerHash, OwnerTypeHash, ExprHash) ────────────────────
+// The entity that owns the expression (expressionOwnerHash) and the enclosing
+// type (typeRegistryLinkHash). OwnerHash is the caller for the common case; when
+// it is a block/lambda/field the resolution layer walks it to the method.
+expr_owner("client", ownerHash, ownerType, h) :- java_expression(_, _, _, _, ownerType, ownerHash, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+expr_owner("lib", ownerHash, ownerType, h) :- lib_expression(_, _, _, _, ownerType, ownerHash, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── expr_owner_kind(Prov, OwnerKind, ExprHash) ──────────────────────────────
+// The kind of the owning construct (expressionOwnerKind, ExpressionOwnerKind enum):
+// e.g. EXPRESSION_STATEMENT, RETURN_STATEMENT, IF_STATEMENT, FOR_STATEMENT,
+// TRY_BLOCK, CATCH_BLOCK, STATIC_INIT_BLOCK, INSTANCE_INIT_BLOCK, FIELD,
+// LOCAL_VARIABLE, ENUM_CONSTANT_ARGUMENT, ANNOTATION_ARGUMENT, RECORD_COMPONENT, …
+// Used to route caller attribution (owner is directly a method vs a block/field).
+expr_owner_kind("client", ownerKind, h) :- java_expression(_, _, _, ownerKind, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+expr_owner_kind("lib", ownerKind, h) :- lib_expression(_, _, _, ownerKind, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── expr_literal(Prov, LitValue, ExprHash) ──────────────────────────────────
+// The name/value on the node: the method name on a METHOD_INVOCATION /
+// METHOD_REFERENCE, the type name on an OBJECT_CREATION, or the identifier name on
+// an IDENTIFIER_REFERENCE receiver.
+expr_literal("client", lit, h) :- java_expression(_, _, _, _, _, _, _, _, _, _, lit, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+expr_literal("lib", lit, h) :- lib_expression(_, _, _, _, _, _, _, _, _, _, lit, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── expr_referenced(Prov, RefKind, RefHash, ExprHash) ───────────────────────
+// What entity a reference expression refers to. RefKind routes receiver typing;
+// RefHash is populated only for locally-resolvable refs (often empty otherwise).
+//
+// RefKind (col 14, ReferencedEntityKind enum, 13 values):
+//   TYPE, FIELD, METHOD, CONSTRUCTOR, ENUM_CONSTANT, LOCAL_VARIABLE, PARAMETER,
+//   THIS, SUPER, PATTERN_BINDING, PATTERN_BINDING_VARIABLE, LAMBDA_PARAMETER, UNKNOWN
+expr_referenced("client", refKind, refHash, h) :- java_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, refKind, refHash, _, _, _, _, _, _, _, _, h).
+expr_referenced("lib", refKind, refHash, h) :- lib_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, refKind, refHash, _, _, _, _, _, _, _, _, h).
+
+// ── expr_method_ref_kind(Prov, MRefKind, ExprHash) ──────────────────────────
+// For METHOD_REFERENCE nodes (MethodReferenceKind enum):
+//   QUALIFIED_METHOD   obj::m / Type::m
+//   CONSTRUCTOR        Type::new
+//   ARRAY_CONSTRUCTOR  Type[]::new   (type-only; no method)
+//   SUPER              super::m
+expr_method_ref_kind("client", mrefKind, h) :- java_expression(_, _, _, _, _, _, _, _, _, _, _, mrefKind, _, _, _, _, _, _, _, _, _, _, _, _, h).
+expr_method_ref_kind("lib", mrefKind, h) :- lib_expression(_, _, _, _, _, _, _, _, _, _, _, mrefKind, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── expr_qualified_name(Prov, QName, IsAmbiguous, ExprHash) ─────────────────
+// The potential qualified name on a reference — used for fully-qualified inline
+// references (java.lang.System) and for resolving an enum-constant qualifier.
+expr_qualified_name("client", qname, isAmb, h) :- java_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, qname, isAmb, _, _, _, _, _, h).
+expr_qualified_name("lib", qname, isAmb, h) :- lib_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, qname, isAmb, _, _, _, _, _, h).
+
+// ── expr_anon_type(Prov, AnonTypeHash, ExprHash) ────────────────────────────
+// The anonymous type created by an ANONYMOUS_CLASS_CREATION expression. Its body
+// methods are L->C callback targets (the framework/library invokes them).
+expr_anon_type("client", anonType, h) :- java_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, anonType, _, _, _, _, _, _, _, h).
+expr_anon_type("lib", anonType, h) :- lib_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, anonType, _, _, _, _, _, _, _, h).
+
+// ── expr_location(Prov, StartLine, StartCol, EndLine, EndCol, ExprHash) ──────
+// Source span of the expression — used to report a resolved call chain, not to
+// resolve it.
+expr_location("client", sl, sc, el, ec, h) :- java_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, sl, sc, el, ec, h).
+expr_location("lib", sl, sc, el, ec, h) :- lib_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, sl, sc, el, ec, h).
+
+// ── expr_literal_type(Prov, LitType, ExprHash) ──────────────────────────────
+// For LITERAL nodes (LiteralType enum): INTEGER, LONG, FLOAT, DOUBLE, BOOLEAN,
+// CHARACTER, STRING, TEXT_BLOCK, NULL. Consumed by const-eval (reflection/config
+// string targets), not by call resolution.
+expr_literal_type("client", litType, h) :- java_expression(_, _, _, _, _, _, _, _, _, litType, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+expr_literal_type("lib", litType, h) :- lib_expression(_, _, _, _, _, _, _, _, _, litType, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── expr_operator(Prov, Operator, UnaryFixity, ExprHash) ────────────────────
+// For BINARY / UNARY / ASSIGNMENT nodes: the operator string, and (for unary) the
+// fixity (PREFIX / POSTFIX). Consumed by const-eval / flow, not by call resolution.
+expr_operator("client", op, fixity, h) :- java_expression(_, _, _, _, _, _, _, _, _, _, _, _, fixity, op, _, _, _, _, _, _, _, _, _, _, h).
+expr_operator("lib", op, fixity, h) :- lib_expression(_, _, _, _, _, _, _, _, _, _, _, _, fixity, op, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── expr_tree_pos(Prov, Position, Depth, ExprHash) ──────────────────────────
+// The expression's ordinal position among its siblings and its nesting depth.
+// Consumed by flow (argument ordering / tree walks), not by call resolution.
+expr_tree_pos("client", pos, depth, h) :- java_expression(_, _, _, _, _, _, _, pos, depth, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+expr_tree_pos("lib", pos, depth, h) :- lib_expression(_, _, _, _, _, _, _, pos, depth, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── expr_return_index(Prov, ReturnStatementIndex, ExprHash) ─────────────────
+// For expressions inside a return statement — the return's index. Consumed by
+// flow (return-value tracking), not by call resolution.
+expr_return_index("client", retIdx, h) :- java_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, retIdx, _, _, _, _, h).
+expr_return_index("lib", retIdx, h) :- lib_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, retIdx, _, _, _, _, h).

@@ -1,0 +1,104 @@
+// ============================================================================
+// Resolution · REFERENCE TYPES  (entity -> declared type)
+//
+// The entity->type projections of type_ref_resolves: for each type-bearing entity
+// (field, local, parameter, method return, and the typed expressions cast / new /
+// method-reference qualifier), the concrete DECLARED type its declaration
+// references. These are the core entity-resolution relations.
+//
+// Each is a one-liner — filter java_type_reference by (context, referenceOwnerKind)
+// and join type_ref_resolves on the reference hash. No nested-type disambiguation is
+// needed here: our type_ref_resolves is already precise per
+// reference (the qualified/nested Q-path resolves Map.Entry vs the collisions at the
+// reference level), so a candidate set never reaches this layer.
+//
+// DEPTH FILTER (col 7 = "0") IS MANDATORY. A generic type reference is a tree:
+// the base type is at depth 0, its type arguments at depth >= 1, and ALL of them
+// share the same context and owner. Without the depth="0" filter, a field of type
+// TriConsumer<Session, Map.Entry<K,…>, Update<V>> would map that one field to
+// TriConsumer AND Session AND Entry AND K AND V — so a call on the field would
+// resolve against every type argument, flooding the call graph with spurious
+// callees. Depth 0 is the entity's actual (receiver) type — the only one a call on
+// it dispatches on. Type arguments (depth >= 1) are a separate concern: reachable-
+// type tracking lives in type_ref_resolves (all depths), and type-parameter
+// binding/substitution is handled by type_arg_binding, not here.
+//
+// Provenance (client/lib) rides through from type_ref_resolves — a field/param/etc.
+// typed to a library type carries prov="lib", the receiver-side external boundary.
+//
+// java_type_reference (18): 1 context  7 depth  15 typeReferenceOwnerHash(entity)
+//   16 referenceOwnerKind  17 typeReferenceUniqueHash(ref)
+// ============================================================================
+
+// ── field_type_resolves(Prov, FieldHash, RefHash, TypeHash) ─────────────────
+field_type_resolves(prov, field, ref, t) :- java_type_reference(_, "FIELD_TYPE", _, _, _, _, _, "0", _, _, _, _, _, _, _, field, "FIELD", ref),
+    type_ref_resolves(prov, ref, t).
+
+// ── local_var_type_resolves(Prov, LocalHash, RefHash, TypeHash) ─────────────
+// depth 0 covers the declared type; multi-catch alternatives are separate
+// position-0 references, so each caught type is still captured.
+local_var_type_resolves(prov, local, ref, t) :- java_type_reference(_, "LOCAL_VARIABLE", _, _, _, _, _, "0", _, _, _, _, _, _, _, local, "LOCAL_VARIABLE", ref),
+    type_ref_resolves(prov, ref, t).
+// A `var` local has no written type reference, so the rule above yields nothing. Infer
+// the type from a direct object-creation initializer (var x = new Holder<String>()): the
+// created type — carrying its written type arguments — becomes the local's resolved type,
+// which feeds callee resolution AND type-argument binding uniformly. Gated on the isVar
+// flag (col 12); only the syntactic new-initializer, never dataflow (var x = factory()
+// would need the call's inferred return type — a separate mechanism).
+local_var_type_resolves(prov, local, ref, t) :- java_local_variable(_, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, local),
+    java_expression("OBJECT_CREATION", _, "LOCAL_VAR_INITIALIZER", "LOCAL_VARIABLE", _, local, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, objExpr),
+    object_creation_type_resolves(prov, objExpr, ref, t).
+
+// ── method_param_type_resolves(Prov, ParamHash, RefHash, TypeHash) ──────────
+method_param_type_resolves(prov, param, ref, t) :- java_type_reference(_, "METHOD_PARAM", _, _, _, _, _, "0", _, _, _, _, _, _, _, param, "METHOD_PARAM", ref),
+    type_ref_resolves(prov, ref, t).
+
+// ── method_return_type_resolves(Prov, MethodHash, RefHash, TypeHash) ────────
+// The declared return type — receiver type of a chained call a().b().
+method_return_type_resolves(prov, method, ref, t) :- java_type_reference(_, "METHOD_RETURN", _, _, _, _, _, "0", _, _, _, _, _, _, _, method, "METHOD", ref),
+    type_ref_resolves(prov, ref, t).
+
+// ── cast_type_resolves(Prov, ExprHash, RefHash, TypeHash) ───────────────────
+// (Foo) x — receiver type of ((Foo) x).bar().
+cast_type_resolves(prov, expr, ref, t) :- java_type_reference(_, "CAST_EXPRESSION", _, _, _, _, _, "0", _, _, _, _, _, _, _, expr, "EXPRESSION", ref),
+    type_ref_resolves(prov, ref, t).
+
+// ── object_creation_type_resolves(Prov, ExprHash, RefHash, TypeHash) ────────
+// new Foo() — the created type (constructor target, and the new-expression's type).
+object_creation_type_resolves(prov, expr, ref, t) :- java_type_reference(_, "OBJECT_CREATION_TYPE", _, _, _, _, _, "0", _, _, _, _, _, _, _, expr, "EXPRESSION", ref),
+    type_ref_resolves(prov, ref, t).
+
+// ── method_ref_qualifier_resolves(Prov, ExprHash, RefHash, TypeHash) ────────
+// Foo::bar — the qualifier type carrying the referenced method.
+method_ref_qualifier_resolves(prov, expr, ref, t) :- java_type_reference(_, "METHOD_REFERENCE_QUALIFIER", _, _, _, _, _, "0", _, _, _, _, _, _, _, expr, "EXPRESSION", ref),
+    type_ref_resolves(prov, ref, t).
+
+// ── Pattern / lambda binding types — the OTHER receiver sources ──────────────
+// The bound variables of these expression forms are call receivers too, so their
+// declared types are receiver-typing sources just like locals/params:
+//   lambda      (Foo f) -> f.bar()                         LAMBDA_PARAMETER_TYPE
+//   instanceof  if (o instanceof Foo f) f.bar()            PATTERN_BINDING_TYPE
+//   switch      case Foo f -> f.bar()                      SWITCH_TYPE_PATTERN
+//   record      o instanceof Person(String name) ...       RECORD_PATTERN_TYPE (matched type)
+// All are context on java_type_reference with referenceOwnerKind = EXPRESSION, so
+// each is the same depth-0 join as above. (Inferred lambda params — `s -> …` with no
+// written type — emit no ref; those need functional-interface target typing, deferred.)
+
+// instanceof pattern: `if (o instanceof Foo f) f.bar()` — the tested type is
+// INSTANCEOF_TYPE, and the binding variable f takes that type, so this is the
+// receiver source for instanceof-pattern variables (PATTERN_BINDING_TYPE is only
+// emitted for record-pattern components, not a bare `instanceof Foo f`).
+instanceof_type_resolves(prov, expr, ref, t) :- java_type_reference(_, "INSTANCEOF_TYPE", _, _, _, _, _, "0", _, _, _, _, _, _, _, expr, "EXPRESSION", ref),
+    type_ref_resolves(prov, ref, t).
+
+lambda_param_type_resolves(prov, expr, ref, t) :- java_type_reference(_, "LAMBDA_PARAMETER_TYPE", _, _, _, _, _, "0", _, _, _, _, _, _, _, expr, "EXPRESSION", ref),
+    type_ref_resolves(prov, ref, t).
+
+pattern_binding_type_resolves(prov, expr, ref, t) :- java_type_reference(_, "PATTERN_BINDING_TYPE", _, _, _, _, _, "0", _, _, _, _, _, _, _, expr, "EXPRESSION", ref),
+    type_ref_resolves(prov, ref, t).
+
+switch_type_pattern_resolves(prov, expr, ref, t) :- java_type_reference(_, "SWITCH_TYPE_PATTERN", _, _, _, _, _, "0", _, _, _, _, _, _, _, expr, "EXPRESSION", ref),
+    type_ref_resolves(prov, ref, t).
+
+record_pattern_type_resolves(prov, expr, ref, t) :- java_type_reference(_, "RECORD_PATTERN_TYPE", _, _, _, _, _, "0", _, _, _, _, _, _, _, expr, "EXPRESSION", ref),
+    type_ref_resolves(prov, ref, t).

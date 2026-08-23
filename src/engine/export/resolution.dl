@@ -1,0 +1,8 @@
+// ============================================================================
+// Export · Resolution
+//
+// Name->type resolution, the type hierarchy, the (scoped) method lookup, and the
+// CHA virtual-dispatch relations — the client->client / client->external
+// classification the other engines consume.
+// ============================================================================
+
