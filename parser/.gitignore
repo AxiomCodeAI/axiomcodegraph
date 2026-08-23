@@ -34,3 +34,14 @@ python-work/staging/torture-pep695/
 .select-out/
 .chain-out/
 .tp-out/
+
+# Transient analyzer output. Every gate writes one and none of it is a source
+# artifact — regenerated on each run, never read across runs.
+.*-out/
+.certify-report.txt
+.jedi-gaps.json
+# Agent coordination is process, not product.
+.agent-coordination/
+# Large corpora live outside the repo and are regenerated from the pinned
+# interpreter by torture-corpus.ts / vendor-corpus.ts.
+/tmp/py-corpus/

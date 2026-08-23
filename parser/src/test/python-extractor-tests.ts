@@ -38,7 +38,7 @@ import { diffExpr } from '@/test/python-gates/diff-expr';
 const PINNED_INTERPRETER =
   '/Library/Frameworks/Python.framework/Versions/3.10/bin/python3';
 const ORACLE_SCRIPT = path.join(process.cwd(), 'src/test/python-oracle/oracle/emit_oracle.py');
-const FIXTURE_DIR = 'python-work/staging/native';
+const FIXTURE_DIR = '/tmp/py-corpus/native';
 const SERVICE_VERSION = 'SERVICE_VERSION_test';
 
 /** The eleven symtable.Symbol predicates, in symtable's own order. */
@@ -263,7 +263,7 @@ function gate1(file: string, oracle: any, facts: ReturnType<typeof extract>): Fa
  *
  * Four comparisons are deliberately relaxed, each because the disagreement was
  * ADJUDICATED in the parser's favour with third-party evidence (see
- * python-work/coordination/requests-impl.jsonl). They are relaxed rather than
+ * .agent-coordination/requests-impl.jsonl). They are relaxed rather than
  * deleted so the rest of the field is still checked.
  */
 
@@ -1863,7 +1863,7 @@ function columnUnitTests(): Failure[] {
  */
 function schemaDocumentTests(): Failure[] {
   const failures: Failure[] = [];
-  const docPath = 'python-work/PYTHON-FACT-SCHEMA.md';
+  const docPath = 'src/schema/python/PYTHON-FACT-SCHEMA.md';
   if (!fs.existsSync(docPath)) {
     // The doc is not owned by the parser, so its absence is not a parser failure.
     return failures;

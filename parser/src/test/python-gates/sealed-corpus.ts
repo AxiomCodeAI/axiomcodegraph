@@ -173,7 +173,7 @@ class Service(Leaf):
 }
 
 function main(): void {
-  const outDir = process.argv[2] ?? 'python-work/staging/sealed';
+  const outDir = process.argv[2] ?? '/tmp/py-corpus/sealed';
   fs.rmSync(outDir, { recursive: true, force: true });
   for (const module of buildModules()) {
     const full = path.join(outDir, module.name);

@@ -1,8 +1,0 @@
-{
- "coverage-report.jsonl": 0,
- "findings-audit.jsonl": 84,
- "manifest-flow.jsonl": 30,
- "manifest-native.jsonl": 22,
- "requests-impl.jsonl": 177,
- "schema-oracle.jsonl": 163
-}

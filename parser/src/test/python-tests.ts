@@ -65,7 +65,7 @@ const SUITES: Suite[] = [
   {
     name: 'oracle sweep (torture)',
     proves: 'the oracle is internally consistent on CPython\'s own grammar tests',
-    cmd: ['tsx', path.join(HERE, 'python-oracle/run.ts'), '--sweep', 'python-work/staging/torture'],
+    cmd: ['tsx', path.join(HERE, 'python-oracle/run.ts'), '--sweep', '/tmp/py-corpus/torture'],
     slow: true,
   },
 ];

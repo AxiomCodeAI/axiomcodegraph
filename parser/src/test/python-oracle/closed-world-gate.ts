@@ -16,7 +16,7 @@
  * claim about the parser.
  *
  * This gate exists as a gate rather than a written finding because a message has
- * to be read and a red build does not. See python-work/AGENT-PROTOCOL.md rule 3.
+ * to be read and a red build does not. A failing gate carries further than a memo.
  *
  * TWO TIERS, because A3 is right that a permanently red gate is the same failure as
  * an unpolled channel — both stop carrying information.

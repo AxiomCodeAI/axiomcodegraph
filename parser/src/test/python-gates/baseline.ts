@@ -19,8 +19,8 @@ import * as path from 'path';
 import { PythonProjectAnalyzer } from '@/workflows/python/python-project-analyzer';
 
 const CORPORA = [
-  'python-work/staging/native',
-  'python-work/staging/flow',
+  '/tmp/py-corpus/native',
+  '/tmp/py-corpus/flow',
   'src/test-data/python/linkage-sample',
   'src/test-data/python/inheritance-sample',
   'src/test-data/python/closed-world',

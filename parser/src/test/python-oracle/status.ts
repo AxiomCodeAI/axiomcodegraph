@@ -25,7 +25,7 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const COORD = path.resolve(__dirname, '..', '..', '..', 'python-work', 'coordination');
+const COORD = path.resolve(__dirname, '..', '..', '..', '.agent-coordination');
 
 interface Row {
   ts?: string;

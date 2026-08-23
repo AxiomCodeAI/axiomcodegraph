@@ -23,7 +23,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-const DOC = path.resolve(__dirname, '..', '..', '..', 'python-work', 'PYTHON-FACT-SCHEMA.md');
+const DOC = path.resolve(__dirname, '..', '..', '..', 'src','schema','python','PYTHON-FACT-SCHEMA.md');
 
 type Source =
   | 'SYMTABLE'      // CPython symtable — exact, Gate 1

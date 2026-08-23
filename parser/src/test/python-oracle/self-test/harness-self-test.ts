@@ -455,7 +455,7 @@ cases.push({
 cases.push({
   name: 'invariant #11 delegates to gen_decls.py --check',
   run: () => {
-    const workdir = path.resolve(__dirname, '..', '..', '..', '..', 'python-work');
+    const workdir = path.resolve(__dirname, '..', '..', '..', '..', 'src/schema/python');
     let out = '';
     let code = 0;
     try {

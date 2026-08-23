@@ -6,7 +6,7 @@ import { execFileSync } from 'child_process';
 import * as path from 'path';
 
 function main(): number {
-  const cwd = path.resolve(__dirname, '..', '..', '..', 'python-work');
+  const cwd = path.resolve(__dirname, '..', '..', 'schema', 'python');
   try {
     console.log(execFileSync('python3', ['gen_decls.py', '--check'], { cwd, encoding: 'utf-8' }).trim());
     return 0;

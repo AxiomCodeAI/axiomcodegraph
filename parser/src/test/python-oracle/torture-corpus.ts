@@ -29,8 +29,8 @@ import * as path from 'path';
 
 import { INTERPRETERS, PINNED_INTERPRETER } from './harness/constants';
 
-const DEST = 'python-work/staging/torture';
-const DEST_695 = 'python-work/staging/torture-pep695';
+const DEST = '/tmp/py-corpus/torture';
+const DEST_695 = '/tmp/py-corpus/torture-pep695';
 
 /**
  * PEP 695 lives in the 3.12 stdlib and nowhere else, so it is staged from the

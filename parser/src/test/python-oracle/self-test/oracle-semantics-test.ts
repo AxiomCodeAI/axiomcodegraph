@@ -421,7 +421,7 @@ cases.push({
       uni.scopes.map((s) => s.name).join(','));
 
     // >32767 chars: ast has no such limit, but tree-sitter's direct-string path
-    // does (see python-work/HANDOFF-parser-core-32k.md). The ORACLE must not
+    // does (see the parser handoff notes). The ORACLE must not
     // inherit that constraint, or it cannot adjudicate large files at all.
     const big = 'def f0(): pass\n' + Array.from({ length: 4000 },
       (_, i) => `def g${i}(): return ${i}\n`).join('');

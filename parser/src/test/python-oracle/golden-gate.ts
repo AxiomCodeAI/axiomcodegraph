@@ -45,8 +45,8 @@ const CANDIDATES = [
   // Category fixtures, organised like src/test-data/java: one directory per
   // entity kind, so a failure names the area before it names the fact.
   'src/test-data/python/categories',
-  'python-work/staging/native',
-  'python-work/staging/flow',
+  '/tmp/py-corpus/native',
+  '/tmp/py-corpus/flow',
   'src/test-data/python/closed-world',
 ];
 
@@ -207,6 +207,28 @@ async function bless(): Promise<number> {
   return 0;
 }
 
+/**
+ * Invariants the SPEC states outright, checked apart from the goldens.
+ *
+ * A golden catches UNINTENDED change. It cannot catch a violation that was
+ * present when the facts were frozen, and re-blessing after a real defect would
+ * launder it into the baseline — the next person would see a green gate over a
+ * fact the schema forbids. These are stated rules, checked directly, every run.
+ */
+function specViolations(): string[] {
+  const bad: string[] = [];
+  const decorators = tsv(WORK, 'all-python-decorators.csv');
+  // §2.12 c12: argumentCount is "" for BARE. A bare decorator has no argument
+  // list at all, so 0 asserts "called with nothing", which is a different claim.
+  const bareWithCount = decorators.filter(
+    (d) => d['kind'] === 'BARE' && d['argumentCount'] !== '');
+  if (bareWithCount.length) {
+    bad.push(`${bareWithCount.length} BARE decorator(s) carry argumentCount=` +
+      `${JSON.stringify(bareWithCount[0]!['argumentCount'])}; §2.12 says "" for BARE`);
+  }
+  return bad;
+}
+
 async function check(): Promise<number> {
   if (!fs.existsSync(GOLDEN)) {
     console.log('FAIL no goldens — run --promote then --bless');
@@ -244,8 +266,14 @@ async function check(): Promise<number> {
   for (const rel of now.keys()) {
     if (!files.includes(`${rel}.golden`)) failures.push(`${rel}: relation is NEW since blessing`);
   }
+  const spec = specViolations();
   console.log(`\ngolden gate — ${files.length} relations, ${compared} frozen facts`);
-  if (!failures.length) { console.log('PASS  every frozen fact still holds'); return 0; }
+  if (spec.length) {
+    console.log('\nSPEC VIOLATIONS — true whether or not the goldens moved:');
+    for (const v of spec) console.log('  ' + v);
+  }
+  if (!failures.length && !spec.length) { console.log('PASS  every frozen fact still holds'); return 0; }
+  if (!failures.length) { console.log('FAIL  goldens hold, but the spec does not'); return 1; }
   console.log('FAIL');
   for (const f of failures) console.log('  ' + f);
   console.log('\nIf the change is CORRECT, re-bless. --bless re-runs the oracle first,');
