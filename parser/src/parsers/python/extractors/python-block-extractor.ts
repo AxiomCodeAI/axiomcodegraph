@@ -473,14 +473,35 @@ export class PythonBlockExtractor {
     tryStatementHash?: string,
     handler?: { types: string; target: string }
   ): PyBlockRegistry {
-    const conditionText = condition ? condition.text.replace(/\s+/g, ' ').trim() : '';
+    // The condition UNWRAPPED. `if (a and b):` has a parenthesized_expression as
+    // its condition node, and keeping the parens made conditionText differ from
+    // every other spelling of the same test — `(x)` and `x` are the same
+    // condition. This also matches the node the FK already points at, which is
+    // unwrapped for the same reason.
+    let conditionNode = condition;
+    while (conditionNode && conditionNode.type === 'parenthesized_expression') {
+      const inner = conditionNode.namedChild(0);
+      if (!inner) {
+        break;
+      }
+      conditionNode = inner;
+    }
+    const conditionText = conditionNode
+      ? conditionNode.text.replace(/\s+/g, ' ').trim()
+      : '';
+    // The block ends at its last STATEMENT, not at the grammar node's end. A
+    // trailing comment — `return -1  # incomplete` — sits inside the tree-sitter
+    // `block` node and pushed endColumn past the code, so the span disagreed with
+    // ast on 32 blocks in 25 files. Same defect, same fix, as py_type.endLine.
+    const lastStatement = this.lastStatementOf(body);
+    const endNode = lastStatement ?? body;
     const builder = PyBlockRegistry.builder(
       kind,
       this.input.filePath,
       body.startPosition.row + 1,
       this.input.positions.byteColumn(body.startPosition.row, body.startPosition.column),
-      body.endPosition.row + 1,
-      this.input.positions.byteColumn(body.endPosition.row, body.endPosition.column),
+      endNode.endPosition.row + 1,
+      this.input.positions.byteColumn(endNode.endPosition.row, endNode.endPosition.column),
       context.methodOwnerHash,
       this.input.module.getHash(),
       this.input.serviceVersionLinkHash
@@ -545,6 +566,17 @@ export class PythonBlockExtractor {
   private isAsync(node: Parser.SyntaxNode): boolean {
     const first = node.child(0);
     return first?.text === 'async';
+  }
+
+  /** The last non-comment statement in a body — where ast says the block ends. */
+  private lastStatementOf(body: Parser.SyntaxNode): Parser.SyntaxNode | null {
+    for (let index = body.namedChildCount - 1; index >= 0; index -= 1) {
+      const child = body.namedChild(index);
+      if (child && !child.isExtra && child.type !== 'comment') {
+        return child;
+      }
+    }
+    return null;
   }
 
   private lastBlockChild(node: Parser.SyntaxNode): Parser.SyntaxNode | null {

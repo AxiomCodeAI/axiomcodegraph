@@ -1,4 +1,7 @@
 import * as fs from 'fs';
+
+import { ENTITY_IDENTIFIERS } from '@/constants/entity-constants';
+import { EntityUtils } from '@/utils/entity-utils';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
 
@@ -31,7 +34,24 @@ export interface PythonAnalysisOptions {
   /** Where the CSVs are written. */
   outputDir: string;
   baseMservPath: string;
-  serviceVersionLinkHash: string;
+  /**
+   * The service version IDENTIFIER, as the caller knows it — a tag, a commit,
+   * a release name. It is HASHED here, exactly as the Java analyzer hashes its
+   * `serviceVersionLink`, so the two languages produce joinable values.
+   *
+   * Prefer this over {@link serviceVersionLinkHash}: passing a raw string
+   * straight into a column named `...LinkHash` is what this replaces, and it
+   * meant a rule ported from Java compared a hash against an unhashed string
+   * and matched nothing.
+   */
+  serviceVersionLink?: string;
+  /**
+   * A PRE-COMPUTED hash, for a caller that already has one.
+   *
+   * Kept because some callers legitimately do, but if `serviceVersionLink` is
+   * given it wins — deriving is the correct path and this is the escape hatch.
+   */
+  serviceVersionLinkHash?: string;
   /** Directory names to skip entirely. */
   excludeDirs?: string[];
 }
@@ -87,6 +107,14 @@ const CHUNK_SIZE = 50_000;
 export class PythonProjectAnalyzer {
   private extractor: PythonFactExtractor;
   private resolutionLinker: PythonResolutionLinker;
+  /**
+   * The DERIVED service-version hash for the run in flight.
+   *
+   * Held on the instance because `recordSkip` needs it and is not on the
+   * `analyze` call path — a skipped file still carries the version it was
+   * skipped under.
+   */
+  private serviceVersionLinkHash = '';
   private skippedFiles: SkippedPythonFile[] = [];
 
   constructor(extractor?: PythonFactExtractor, resolutionLinker?: PythonResolutionLinker) {
@@ -95,6 +123,18 @@ export class PythonProjectAnalyzer {
   }
 
   async analyze(options: PythonAnalysisOptions): Promise<PythonAnalysisSummary> {
+    // Derived the same way and with the same prefix as the Java analyzer, so a
+    // rule joining on service version works across both languages. py_module's
+    // PK includes this value, so getting it wrong does not merely mislabel a
+    // column — it changes every module hash and every FK that points at one.
+    this.serviceVersionLinkHash =
+      options.serviceVersionLink !== undefined
+        ? EntityUtils.generateEntityHash(
+            ENTITY_IDENTIFIERS.SERVICE_VERSION,
+            options.serviceVersionLink
+          )
+        : (options.serviceVersionLinkHash ?? '');
+    const serviceVersionLinkHash = this.serviceVersionLinkHash;
     const excludes = new Set(options.excludeDirs ?? DEFAULT_EXCLUDES);
     // Sorted, so the accumulation order — and therefore the output bytes — does
     // not depend on directory enumeration order.
@@ -146,7 +186,7 @@ export class PythonProjectAnalyzer {
           filePath: path.relative(options.rootDir, filePath) || path.basename(filePath),
           baseMservPath: options.baseMservPath,
           moduleQualifiedName: this.moduleQualifiedNameFor(options.rootDir, filePath),
-          serviceVersionLinkHash: options.serviceVersionLinkHash,
+          serviceVersionLinkHash,
           emissionRegime: PythonEmissionRegime.PY3_0_11,
         });
       } catch (error) {
@@ -325,7 +365,7 @@ export class PythonProjectAnalyzer {
     this.skippedFiles.push({
       filePath: path.relative(options.rootDir, filePath) || path.basename(filePath),
       baseMservPath: options.baseMservPath,
-      serviceVersionLinkHash: options.serviceVersionLinkHash,
+      serviceVersionLinkHash: this.serviceVersionLinkHash,
       reason,
       construct: first?.construct ?? '',
       startLine: first?.startLine ?? 0,

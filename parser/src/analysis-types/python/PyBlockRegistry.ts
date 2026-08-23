@@ -134,6 +134,15 @@ export class PyBlockRegistry implements EntityIdentifiable {
     return this.endLine;
   }
 
+  /** UTF-8 byte column, as everywhere else in the schema. */
+  getStartColumn(): number {
+    return this.startColumn;
+  }
+
+  getEndColumn(): number {
+    return this.endColumn;
+  }
+
   getMethodOwnerHash(): string {
     return this.methodOwnerHash;
   }
