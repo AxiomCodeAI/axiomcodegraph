@@ -41,6 +41,13 @@ export interface PythonModuleExtraction {
   dialect: PythonDialect;
   /** Python 2 constructs found, for `py_parse_gap` and `skipped-python-files.csv`. */
   python2Findings: Python2Finding[];
+  /**
+   * Byte-offset to line/column index over this file's source, built once here and
+   * reused by every later stage. Declared because the stages already set and read
+   * it — it was assigned in two places and consumed in seven, and the interface
+   * simply never gained the field.
+   */
+  positions: PythonSourcePositions;
 
   /**
    * The parsed root, carried so the declaration stage does not re-parse. Files

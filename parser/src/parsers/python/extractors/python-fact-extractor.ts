@@ -359,7 +359,6 @@ export class PythonFactExtractor {
       fields: fieldStage.fields,
       decorators: decoratorStage.decorators,
       decoratorArguments: decoratorStage.decoratorArguments,
-      blocks: blockStage.blocks,
       fieldHashByTypeAndName: fieldStage.fieldHashByTypeAndName,
       receiverNameByMethodHash: fieldStage.receiverNameByMethodHash,
       assignedValueByTargetRange: expressionStage.assignedValueByTargetRange,
@@ -390,7 +389,6 @@ export class PythonFactExtractor {
       fieldPositions: fieldStage.fieldPositions,
       decorators: decoratorStage.decorators,
       decoratorArguments: decoratorStage.decoratorArguments,
-      blocks: blockStage.blocks,
       typeParameters: this.typeParameterExtractor.extract({
         module: scopeStage.module,
         rootNode: scopeStage.rootNode,
@@ -402,6 +400,7 @@ export class PythonFactExtractor {
         methodHashByNodeId: declarations.methodHashByNodeId,
         scopeHashByNodeId: scopeStage.scopeHashByNodeId,
       }),
+      blocks: blockStage.blocks,
       comments: this.commentExtractor.extract({
         module: scopeStage.module,
         rootNode: scopeStage.rootNode,
@@ -540,7 +539,7 @@ export class PythonFactExtractor {
    */
   private linkBindingTargets(
     scopeStage: PythonModuleExtraction,
-    declarations: PythonDeclarationExtraction,
+    declarations: ReturnType<PythonDeclarationExtractor['extract']>,
     fieldStage: { fields: PyFieldRegistry[] }
   ): void {
     const targetByBinding = new Map<string, { kind: PythonBindingTargetKind; hash: string }>();
