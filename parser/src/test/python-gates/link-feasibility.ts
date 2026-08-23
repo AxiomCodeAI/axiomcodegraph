@@ -90,6 +90,48 @@ function main(): void {
     }
     return [];
   };
+  /**
+   * True when `name` is not on this class's own MRO, but IS on the MRO of some
+   * class that inherits from it -- the MIXIN pattern.
+   *
+   *     class CallableMixin(Base):        self.call_args_list.append(...)
+   *     class NonCallableMock(Base):      call_args_list = ...
+   *     class Mock(CallableMixin, NonCallableMock): ...
+   *
+   * `call_args_list` genuinely does not exist on CallableMixin or anything it
+   * inherits from. It exists only once a subclass combines the mixin with a
+   * SIBLING base that supplies it, and which sibling that is cannot be known
+   * from the mixin -- there may be several, supplying different types. Linking
+   * it would mean picking one, which is a guess wearing the shape of a fact.
+   *
+   * So this is NOT a parser gap. It is reported as its own verdict rather than
+   * folded into a generic NOT_STATIC, because "unknowable" and "knowable only
+   * from the other side of a combination this parser is not looking at" are
+   * different things and a reader should be able to tell them apart.
+   */
+  const subclassesOf = new Map<string, string[]>();
+  for (const [child, parents] of basesByType) {
+    for (const parent of parents) {
+      subclassesOf.set(parent, [...(subclassesOf.get(parent) ?? []), child]);
+    }
+  }
+  const mixinProvided = (typeHash: string, name: string): boolean => {
+    const queue = [...(subclassesOf.get(typeHash) ?? [])];
+    const seen = new Set<string>();
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      if (seen.has(current)) {
+        continue;
+      }
+      seen.add(current);
+      if (fieldsAlongMro(current, name).length > 0) {
+        return true;
+      }
+      queue.push(...(subclassesOf.get(current) ?? []));
+    }
+    return false;
+  };
+
   const methods = load(dir, 'all-python-methods.csv');
   const propertyByOwnerName = new Map<string, Row>();
   for (const method of methods) {
@@ -122,6 +164,9 @@ function main(): void {
 
   const verdicts = new Map<string, number>();
   const needs = new Map<string, number>();
+  const needSamples: string[] = [];
+  const typeByHash = new Map(types.map(t => [t['pyTypeUniqueHash'] ?? '', t]));
+  const typeNameOf = (hash: string): string => typeByHash.get(hash)?.['name'] ?? '?';
   const bump = (m: Map<string, number>, k: string): void => {
     m.set(k, (m.get(k) ?? 0) + 1);
   };
@@ -159,6 +204,27 @@ function main(): void {
       bump(verdicts, 'NOT_STATIC (target outside the analysis root)');
       continue;
     }
+    // A two-segment attribute receiver is only an attribute OF THE ENCLOSING
+    // CLASS when it is rooted at `self` or `cls`. `mock.call_args.get()` and
+    // `result.errors.append()` are attributes of whatever local `mock` and
+    // `result` hold, and looking those names up in the enclosing class's MRO
+    // finds nothing and then blames the parser for a missing py_field. On
+    // unittest that was 262 of the receivers in this branch against 134 real
+    // ones -- the majority of the NEEDS_FACT total was this mistake.
+    const selfRooted = segments[0] === 'self' || segments[0] === 'cls';
+    if (kind === 'ATTRIBUTE' && segments.length === 2 && !selfRooted) {
+      // Fall through to the local-binding logic below by re-rooting on the
+      // receiver's own base name, which is what actually determines the type.
+      const rootRef = nameRefByScopeAndName.get(`${site.pyScopeLinkHash}||${segments[0]}`);
+      const rootBinding = rootRef ? bindingByHash.get(rootRef.bindingLinkHash!) : undefined;
+      bump(
+        verdicts,
+        rootBinding === undefined
+          ? 'NOT_STATIC (receiver rooted at an unknown local)'
+          : 'NOT_STATIC (attribute of a local whose type is not stated)'
+      );
+      continue;
+    }
     if (kind === 'ATTRIBUTE' && segments.length === 2 && site.pyTypeLinkHash !== '') {
       const rows = fieldsAlongMro(site.pyTypeLinkHash!, segments[1] ?? '');
       if (rows.length === 0) {
@@ -176,7 +242,12 @@ function main(): void {
           );
           continue;
         }
+        if (mixinProvided(site.pyTypeLinkHash!, segments[1] ?? '')) {
+          bump(verdicts, 'NOT_STATIC (mixin: attribute supplied by a sibling base)');
+          continue;
+        }
         bump(needs, 'py_field row absent for the attribute');
+        needSamples.push(`${typeNameOf(site.pyTypeLinkHash!)}.${segments[1]} -> .${site.calleeName}()`);
         bump(verdicts, 'NEEDS_FACT');
         continue;
       }
@@ -185,7 +256,11 @@ function main(): void {
       if (annotated || constructed) {
         bump(verdicts, 'DERIVABLE (field carries a type or constructor)');
       } else {
-        bump(needs, 'py_field exists but states no type — source never says');
+        // NOT counted as NEEDS_FACT. The field row exists and the source never
+        // states a type for it, so there is no fact for the parser to emit --
+        // inventing one would be a guess presented as a link. It was being
+        // booked in BOTH buckets, which is why the parser-owned total read 84
+        // when the parser-owned work was 6.
         bump(verdicts, 'NOT_STATIC (attribute type stated nowhere)');
       }
       continue;
@@ -197,6 +272,7 @@ function main(): void {
       const binding = nameRef ? bindingByHash.get(nameRef.bindingLinkHash!) : undefined;
       if (!binding) {
         bump(needs, 'no py_binding reachable for the receiver name');
+        needSamples.push(`${receiver} -> .${site.calleeName}()`);
         bump(verdicts, 'NEEDS_FACT');
         continue;
       }
@@ -231,6 +307,9 @@ function main(): void {
   console.log(`\n  NEEDS_FACT total: ${needsTotal}  — these are PARSER gaps, not engine work`);
   for (const [reason, count] of [...needs.entries()].sort((a, b) => b[1] - a[1])) {
     console.log(`  ${String(count).padStart(5)}  ${reason}`);
+  for (const sample of [...new Set(needSamples)]) {
+    console.log(`      ${sample}`);
+  }
   }
 }
 

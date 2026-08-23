@@ -158,6 +158,7 @@ export class PythonFieldExtractor {
   private input!: PythonFieldInput;
   private methodByNodeId = new Map<number, PyMethodRegistry>();
   private receiverNameByMethodHash = new Map<string, string>();
+  private dictAliases = new Set<string>();
   private annotationByField = new Map<
     string,
     { node: Parser.SyntaxNode; typeHash: string; scopeHash: string }
@@ -518,6 +519,8 @@ export class PythonFieldExtractor {
     methodName: string,
     receiverName: string
   ): void {
+    this.dictAliases = this.collectDictAliases(methodBody, receiverName);
+
     const worklist: Parser.SyntaxNode[] = [methodBody];
     while (worklist.length > 0) {
       const node = worklist.shift()!;
@@ -551,6 +554,22 @@ export class PythonFieldExtractor {
         const right = node.childForFieldName('right');
         const annotation = node.childForFieldName('type');
         if (!left) {
+          return;
+        }
+        const dictName = this.instanceDictKey(left, receiverName);
+        if (dictName !== '') {
+          this.pushAttributeWrite(
+            left,
+            node,
+            collection,
+            methodHash,
+            methodName,
+            receiverName,
+            annotation ?? null,
+            right ?? null,
+            PythonFieldOrigin.SELF_ASSIGN,
+            dictName
+          );
           return;
         }
         const targets = this.attributeTargets(left, receiverName);
@@ -719,14 +738,15 @@ export class PythonFieldExtractor {
     receiverName: string,
     annotation: Parser.SyntaxNode | null,
     value: Parser.SyntaxNode | null,
-    origin: PythonFieldOrigin
+    origin: PythonFieldOrigin,
+    nameOverride = ''
   ): void {
     const attributeName = target.childForFieldName('attribute');
-    if (!attributeName) {
+    if (!attributeName && nameOverride === '') {
       return;
     }
     collection.observations.push({
-      name: this.mangle(collection.typeName, attributeName.text),
+      name: this.mangle(collection.typeName, nameOverride || attributeName!.text),
       origin,
       line: target.startPosition.row,
       endLine: statement.endPosition.row,
@@ -1377,5 +1397,74 @@ export class PythonFieldExtractor {
       typeHash: collection.typeHash,
       scopeHash: collection.classScopeHash,
     });
+  }
+
+  /**
+   * `self.__dict__['x'] = v` names attribute `x` exactly as `self.x = v` does.
+   *
+   * Classes that must bypass a custom `__setattr__` write through `__dict__`
+   * instead, and they usually alias it first:
+   *
+   *     __dict__ = self.__dict__
+   *     __dict__['_mock_children'] = {}
+   *
+   * Every attribute defined that way had NO py_field row, so a call on it could
+   * not be linked to anything -- on unittest that was every remaining
+   * parser-owned gap but two. The key is a string LITERAL, so this is decided
+   * statically and is not inference: a computed key is skipped rather than
+   * guessed.
+   *
+   * Returns the attribute name, or `''` when the target is not such a write.
+   */
+  private instanceDictKey(left: Parser.SyntaxNode, receiverName: string): string {
+    if (left.type !== 'subscript') {
+      return '';
+    }
+    const value = left.childForFieldName('value');
+    if (!value) {
+      return '';
+    }
+    const isDirect =
+      value.type === 'attribute' &&
+      value.childForFieldName('object')?.text === receiverName &&
+      value.childForFieldName('attribute')?.text === '__dict__';
+    const isAlias = value.type === 'identifier' && this.dictAliases.has(value.text);
+    if (!isDirect && !isAlias) {
+      return '';
+    }
+    const key = left.childForFieldName('subscript') ?? left.namedChild(1);
+    if (!key || key.type !== 'string') {
+      return '';
+    }
+    const content = key.namedChildren.find(c => c.type === 'string_content');
+    return content ? content.text : '';
+  }
+
+  /** Locals bound to `self.__dict__` in this method body. */
+  private collectDictAliases(methodBody: Parser.SyntaxNode, receiverName: string): Set<string> {
+    const aliases = new Set<string>();
+    const worklist: Parser.SyntaxNode[] = [methodBody];
+    while (worklist.length > 0) {
+      const node = worklist.shift()!;
+      if (node.type === 'assignment') {
+        const left = node.childForFieldName('left');
+        const right = node.childForFieldName('right');
+        if (
+          left?.type === 'identifier' &&
+          right?.type === 'attribute' &&
+          right.childForFieldName('object')?.text === receiverName &&
+          right.childForFieldName('attribute')?.text === '__dict__'
+        ) {
+          aliases.add(left.text);
+        }
+      }
+      for (let index = 0; index < node.namedChildCount; index += 1) {
+        const child = node.namedChild(index);
+        if (child && !child.isExtra) {
+          worklist.push(child);
+        }
+      }
+    }
+    return aliases;
   }
 }
