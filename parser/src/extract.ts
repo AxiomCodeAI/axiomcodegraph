@@ -1,10 +1,12 @@
 import * as path from 'path';
 
+import { ANALYSIS_OUTPUT_DIR } from '@/constants/consts';
 import { ProjectInfo, ProjectLanguage } from '@/types/ProjectInfo';
 import { ProjectScanner } from '@/utils/project-scanner';
 import { GradleProjectAnalyzer } from '@/workflows/gradle/gradle-project-analyzer';
 import { JavaProjectAnalyzer } from '@/workflows/java/java-project-analyzer';
 import { PropertiesProjectAnalyzer } from '@/workflows/properties/properties-project-analyzer';
+import { PythonProjectAnalyzer } from '@/workflows/python/python-project-analyzer';
 import { XmlProjectAnalyzer } from '@/workflows/xml/xml-project-analyzer';
 import { YamlProjectAnalyzer } from '@/workflows/yaml/yaml-project-analyzer';
 
@@ -20,7 +22,7 @@ export interface ExtractOptions {
 }
 
 /**
- * Scan a codebase and extract Java/Gradle/XML/YAML/Properties facts.
+ * Scan a codebase and extract Java/Python/Gradle/XML/YAML/Properties facts.
  *
  * This is the parser core — shared by the CLI (`src/cli.ts`) and the legacy
  * positional entry (`src/index.ts`, invoked as `node dist/index.js <dir> <link>
@@ -62,12 +64,14 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
     : [rootEntry, ...allProjects];
 
   const javaProjects = scanner.filterByLanguage(allProjects, ProjectLanguage.JAVA);
+  const pythonProjects = scanner.filterByLanguage(allProjects, ProjectLanguage.PYTHON);
 
   const javaAnalyzer = new JavaProjectAnalyzer(undefined, outputDir);
   const propertiesAnalyzer = new PropertiesProjectAnalyzer(outputDir);
   const xmlAnalyzer = new XmlProjectAnalyzer(outputDir);
   const yamlAnalyzer = new YamlProjectAnalyzer(outputDir);
   const gradleAnalyzer = new GradleProjectAnalyzer(outputDir);
+  const pythonAnalyzer = new PythonProjectAnalyzer();
 
   await Promise.all([
     javaAnalyzer.analyzeJavaProjects(javaProjects, opts.versionLink, excludeTests),
@@ -75,6 +79,28 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
     xmlAnalyzer.analyzeXmlFiles(scanTargets, opts.versionLink),
     yamlAnalyzer.analyzeYamlFiles(scanTargets, opts.versionLink),
     gradleAnalyzer.analyzeGradleFiles(scanTargets, opts.versionLink),
+    // Python takes one root per call where Java takes the whole list, so the
+    // projects are walked here rather than pushing a list-shaped API onto it.
+    // serviceVersionLink is passed UNHASHED on purpose: the analyzer hashes it
+    // the same way Java does, so the two languages produce joinable values.
+    // Passing a raw string into a column named ...LinkHash is the mistake that
+    // option exists to prevent.
+    ...pythonProjects.map((project) =>
+      pythonAnalyzer.analyze({
+        rootDir: project.path,
+        outputDir: outputDir ?? ANALYSIS_OUTPUT_DIR,
+        baseMservPath: absolutePath,
+        serviceVersionLink: opts.versionLink,
+        // Python has no excludeTests flag; test discovery is by convention, so
+        // the equivalent is skipping the directories those conventions use.
+        // The defaults are repeated because excludeDirs REPLACES them rather
+        // than adding to them — passing only the test names would have started
+        // analysing .venv and site-packages as project source.
+        excludeDirs: excludeTests
+          ? ['__pycache__', '.git', 'node_modules', '.venv', 'venv', '.tox',
+             'tests', 'test', '__tests__']
+          : undefined,
+      })),
   ]);
 
   console.log('✨ Analysis complete!\n');
