@@ -19,6 +19,10 @@
 #                                  every bytecode-declared client->client edge must be present.
 #   ./run-tests.sh --keep          keep the per-case work dirs for debugging
 #
+# expected/<case>.known-missing   accepted gaps (one edge per line, # comments allowed). A NEW
+#                                missing edge fails; a known one that starts working ALSO fails, so
+#                                the debt list cannot silently rot.
+#
 # Environment:
 #   AXIOM_PARSER   path to the parser entrypoint   (default ../../../Parser/dist/index.js)
 #   AXIOM_JDK_IR   path to the JDK IR root         (default ../../../jdk-26)
@@ -74,8 +78,10 @@ for dir in "$HERE"/cases/*/; do
   if [ "$ORACLE" = "1" ]; then
     if python3 "$HERE/tools/bytecode_oracle.py" "$dir/src" "$w/oracle" --app-only > "$w/oracle.edges" 2>"$w/oracle.log"; then
       python3 "$HERE/tools/normalize_edges.py" "$w/ir" "$w/out" "$JDK_INDEX" --client-pairs > "$w/engine.pairs"
-      if ! python3 "$HERE/tools/oracle_diff.py" "$w/engine.pairs" "$w/oracle.edges" > "$w/oracle.diff"; then
-        echo "FAIL (bytecode oracle: missing edges)"; sed 's/^/    /' "$w/oracle.diff" | head -20
+      if ! python3 "$HERE/tools/oracle_diff.py" "$w/engine.pairs" "$w/oracle.edges" \
+             "$HERE/expected/$name.known-missing" > "$w/oracle.diff"; then
+        echo "FAIL (bytecode oracle: NEW missing edge, or a known-missing one started working)"
+        sed 's/^/    /' "$w/oracle.diff" | grep -E 'MISSING|NOW-FIXED|oracle=' | head -20
         fail=$((fail+1)); failed+=("$name"); continue
       fi
       # The extras are PINNED too. Missing edges are a defect; extras are sound over-approximation —

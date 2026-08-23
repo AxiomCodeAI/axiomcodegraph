@@ -22,10 +22,26 @@ def norm(line):
     a = re.sub(r'\([^)]*\)$', '', a)          # caller: name level
     return f"{a} -> {b}"
 
+import os
 eng = {norm(l) for l in open(sys.argv[1]) if norm(l)}
 orc = {norm(l) for l in open(sys.argv[2]) if norm(l)}
+# KNOWN-MISSING: gaps we have decided to carry (e.g. a construct the extractor does not emit at
+# all, so no rule can reach it). Listed explicitly so the debt is visible and reviewable — a NEW
+# missing edge still fails, and a known one that starts working also fails, so the list cannot rot.
+known = set()
+kfile = sys.argv[3] if len(sys.argv) > 3 else None
+if kfile and os.path.exists(kfile):
+    for l in open(kfile):
+        l = l.strip()
+        if l and not l.startswith('#'):
+            n = norm(l)
+            if n: known.add(n)
 missing = sorted(orc - eng); extra = sorted(eng - orc)
-print(f"oracle={len(orc)} engine={len(eng)} agree={len(orc & eng)} missing={len(missing)} extra={len(extra)}")
-for m in missing: print(f"  MISSING  {m}")
+new_missing = [m for m in missing if m not in known]
+fixed = sorted(known - (orc - eng))
+print(f"oracle={len(orc)} engine={len(eng)} agree={len(orc & eng)} missing={len(missing)} "
+      f"(known {len(missing) - len(new_missing)}, NEW {len(new_missing)}) extra={len(extra)}")
+for m in missing: print(f"  {'MISSING' if m not in known else 'known-missing'}  {m}")
 for e in extra:   print(f"  extra    {e}")
-sys.exit(1 if missing else 0)
+for f in fixed:   print(f"  NOW-FIXED (remove from known-missing)  {f}")
+sys.exit(1 if (new_missing or fixed) else 0)

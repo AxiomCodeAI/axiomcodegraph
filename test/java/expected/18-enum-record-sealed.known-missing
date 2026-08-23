@@ -1,0 +1,5 @@
+# Accepted gap: RECORD ACCESSORS are implicit. `record Point(int x, int y)` generates x() and y()
+# with no declaration in the source, so the IR has no method entity for them and no rule can
+# produce an edge to one. Closing this needs the extractor to synthesise accessor methods for
+# record components (as it would for an implicit default constructor).
+LangFeatures#viaRecord(Point) -> Point#x()

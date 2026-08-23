@@ -94,6 +94,7 @@ instanceof_type_resolves(prov, expr, ref, t) :- java_type_reference(_, "INSTANCE
 lambda_param_type_resolves(prov, expr, ref, t) :- java_type_reference(_, "LAMBDA_PARAMETER_TYPE", _, _, _, _, _, "0", _, _, _, _, _, _, _, expr, "EXPRESSION", ref),
     type_ref_resolves(prov, ref, t).
 
+
 pattern_binding_type_resolves(prov, expr, ref, t) :- java_type_reference(_, "PATTERN_BINDING_TYPE", _, _, _, _, _, "0", _, _, _, _, _, _, _, expr, "EXPRESSION", ref),
     type_ref_resolves(prov, ref, t).
 

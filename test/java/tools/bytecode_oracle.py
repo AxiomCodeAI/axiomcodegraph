@@ -50,7 +50,7 @@ def compile_case(src, work):
     return classes, sorted(names)
 
 CLASS_HDR = re.compile(r'^(?:(?:public|protected|private|final|abstract|static|sealed|non-sealed|strictfp)\s+)*'
-                       r'(?:class|interface|enum|record|@interface)\s+([\w$.]+)(?:<[^>]*>)?'
+                       r'(class|interface|enum|record|@interface)\s+([\w$.]+)(?:<[^>]*>)?'
                        r'(?:\s+extends\s+([\w$.<>,\s]+?))?(?:\s+implements\s+([\w$.<>,\s]+?))?\s*\{?\s*$')
 INVOKE = re.compile(r'^\s*\d+:\s+(invokevirtual|invokespecial|invokestatic|invokeinterface|invokedynamic)\s+#\d+'
                     r'(?:,\s*\d+)?\s*//\s*(?:Interface)?Method\s+([^\s]+)')
@@ -59,16 +59,16 @@ def parse(classes, names):
     """-> (supers, declared, edges) with edges = [(callerClass, callerName, callerDesc, kind, owner, name, desc)]"""
     out = subprocess.run(['javap', '-p', '-v', '-cp', classes] + names,
                          capture_output=True, text=True).stdout.splitlines()
-    supers = collections.defaultdict(list); declared = collections.defaultdict(set)
+    supers = collections.defaultdict(list); declared = collections.defaultdict(set); is_enum = set()
     edges = []
     cls = None; meth = None; mdesc = None; flags = ''
     pending_decl = None
     for i, raw in enumerate(out):
         line = raw.rstrip(); s = line.strip()
         m = CLASS_HDR.match(s)
-        if m and (m.group(1) in names or '.' in m.group(1)):
-            cls = m.group(1).split('<')[0]; meth = None
-            for g in (m.group(2), m.group(3)):
+        if m and (m.group(2) in names or '.' in m.group(2)):
+            cls = m.group(2).split('<')[0]; meth = None
+            for g in (m.group(3), m.group(4)):
                 if g:
                     for x in re.split(r',\s*(?![^<>]*>)', g):
                         x = re.sub(r'<.*', '', x).strip()
@@ -97,13 +97,16 @@ def parse(classes, names):
             owner, name = owner_name.rsplit('.', 1) if '.' in owner_name else (cls, owner_name)
             name = name.strip('"')
             edges.append((cls, meth, mdesc, flags, kind, owner.replace('/', '.'), name, desc))
-    return supers, declared, edges
+    return supers, declared, edges, is_enum
 
 def main():
     src, work = sys.argv[1], sys.argv[2]
     app_only = '--app-only' in sys.argv
     classes, names = compile_case(src, work)
-    supers, declared, edges = parse(classes, names)
+    supers, declared, edges, _kw = parse(classes, names)
+    # javap prints an enum as `class X extends java.lang.Enum`, with no `enum` keyword, so identify
+    # enums by that supertype — which is the bytecode truth anyway.
+    is_enum = {c for c, ps in supers.items() if any(p == 'java.lang.Enum' for p in ps)}
     app = set(names)
 
     def ancestors(c, seen=None):
@@ -118,12 +121,26 @@ def main():
             ps = supers.get(c, [])
             sp = next((x for x in ps if x != 'java.lang.Object'), 'Object')
             pkg = c[:c.rindex('.')] if '.' in c else ''
-            anon[c] = f"{(pkg + '.') if pkg else ''}{c.split('$')[0].split('.')[-1]}$anon:{sp.split('.')[-1].split('$')[-1]}"
+            # An ENUM CONSTANT BODY (`ADD { int apply(..) {..} }`) is compiled to an anonymous
+            # subclass of the enum, but the IR attributes those methods to the ENUM ITSELF — there is
+            # no separate source type. Map it back to the enum so the two sides agree; keying it as
+            # `$anon:Op` would report every enum-constant method as a caller mismatch.
+            if sp in is_enum:
+                anon[c] = (f"{pkg}." if pkg else '') + sp.split('.')[-1].split('$')[-1]
+            else:
+                anon[c] = f"{(pkg + '.') if pkg else ''}{c.split('$')[0].split('.')[-1]}$anon:{sp.split('.')[-1].split('$')[-1]}"
     def cname(c):
         if c in anon: return anon[c]
         if c in app:
             pkg = c[:c.rindex('.')] if '.' in c else ''
-            return f"{pkg}.{c.split('.')[-1].split('$')[-1]}" if pkg else c.split('$')[-1]
+            simple = c.split('.')[-1].split('$')[-1]
+            # javac prefixes a LOCAL class (declared inside a method body) with an index:
+            # `class Local {}` inside a method compiles to Outer$1Local. The index is a compiler
+            # artefact — the source name is `Local` — so strip it, or every local class reads as a
+            # different type on the two sides.
+            m2 = re.match(r'^\d+([A-Za-z_$].*)$', simple)
+            if m2: simple = m2.group(1)
+            return f"{pkg}.{simple}" if pkg else simple
         return c
     # classes with a SOURCE-declared constructor: javac's implicit ctor has no source twin
     src_txt = ''

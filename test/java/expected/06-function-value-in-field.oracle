@@ -1,4 +1,4 @@
-oracle=8 engine=21 agree=8 missing=0 extra=13
+oracle=8 engine=21 agree=8 missing=0 (known 0, NEW 0) extra=13
   extra    Asset#<init> -> Asset#audit(String)
   extra    Asset#<init> -> Asset#read(String)
   extra    Asset#<init> -> Asset#readBlock(String)

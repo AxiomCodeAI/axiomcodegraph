@@ -73,6 +73,13 @@ AXIOM_JDK_IR=/path/to/jdk-ir
 | `08-cha-interface-fanout` | class-hierarchy dispatch: abstract class bases, anonymous implementors, bridge methods |
 | `09-cha-interface-injection` | interface-typed field/parameter with the implementation supplied elsewhere |
 | `10-super-invocations` | `super.m()` is non-virtual — exactly one target, never a fan back to the override |
+| `15-cross-file-same-package` | four files, one package, no imports: sibling-file instance call, static qualified by a sibling-file type, interface declared in another file |
+| `16-cross-package-imports` | seven files, three packages: single-type import, wildcard import, static import, inline fully-qualified call, and a **simple-name collision** (`core.Config` vs `util.Config`) that a name-keyed resolver gets wrong |
+| `17-nested-outer-access` | unqualified calls resolving OUTWARD: anonymous → outer instance and static, inner class, static nested, local class, and two levels out |
+| `18-enum-record-sealed` | enum constant bodies, records, sealed hierarchy + pattern switch, interface default/static methods |
+| `19-receiver-forms` | every receiver syntax: array element, ternary, cast, `instanceof` pattern, parenthesized, chained, varargs, `new`, string literal |
+| `20-reflection-blind-spot` | reflection is out of scope by construction — asserts the sites are DECLARED unknown, never silently dropped |
+| `21-function-value-blind-spots` | function values arriving via parameter and via a dispatch table (Map/List) — pins exactly which variants resolve |
 | `11-cha-inherited-into-implementor` | `class Impl extends Base implements Handler` where **Base is not a Handler** — the real target is declared outside the interface's hierarchy. A dispatch gate keyed on the declaring type wrongly drops it; a shadowing rule keyed only on `method_override` wrongly keeps the abstract `Handler.handle` alongside it |
 
 ## Adding a case

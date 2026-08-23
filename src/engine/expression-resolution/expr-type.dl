@@ -237,6 +237,40 @@ expr_type("client", e, t) :- java_expression(_, _, _, _, _, _, _, _, _, _, name,
     java_type(_, _, _, _, _, _, _, file, _, _, _, _, _, encl),
     type_resolves_in_file("client", name, file, t).
 
+// ── FIX-18: a potentialQualifiedName that names NO KNOWN TYPE is a GUESS, not a fact ─────
+// For a type reached by WILDCARD import (`import util.*; Strings.trim(x)`) the extractor cannot
+// know the package and stamps the CURRENT one — `app.Strings`, which does not exist. The pqn rules
+// above require an exact qualifiedName match, so they silently produced nothing and the call site
+// died. When the pqn names no type at all, fall back to resolving the SIMPLE name in the file's
+// scope, which is what handles wildcard imports (type_resolves_in_file).
+type_qname_known(q) :- java_type(_, q, _, _, _, _, _, _, _, _, _, _, _, _).
+type_qname_known(q) :- lib_type(_, q, _, _, _, _, _, _, _, _, _, _, _, _).
+expr_type(prov, e, t) :- java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "TYPE", _, _, pqn, _, _, _, _, _, _, e),
+    name != "", pqn != "",
+    !type_qname_known(pqn),
+    expr_ultimate_type("client", e, encl),
+    java_type(_, _, _, _, _, _, _, file, _, _, _, _, _, encl),
+    type_resolves_in_file(prov, name, file, t).
+
+// ── FIX-18b: INLINE FULLY-QUALIFIED type qualifier (`util.Strings.pad(x)`) ────────────────
+// The extractor emits this as a FIELD_ACCESS whose literalValue is the simple type name and whose
+// QUALIFIER chain spells the package, so neither the pqn rules nor the simple-name rules match.
+// Rebuild the dotted name from the chain and match it against a real type's qualifiedName. Works
+// for any package depth because the reconstruction recurses through the qualifier chain.
+dotted_qualifier(e, name) :- java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    name != "",
+    !expr_has_qualifier_child(e).
+expr_has_qualifier_child(e) :- java_expression(_, "QUALIFIER", _, _, _, _, e, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _).
+dotted_qualifier(e, full) :- java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    name != "",
+    java_expression(_, "QUALIFIER", _, _, _, _, e, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, q),
+    dotted_qualifier(q, prefix),
+    full = cat(prefix, cat(".", name)).
+expr_type("client", e, t) :- dotted_qualifier(e, full),
+    java_type(_, full, _, _, _, _, _, _, _, _, _, _, _, t).
+expr_type("lib", e, t) :- dotted_qualifier(e, full),
+    lib_type(_, full, _, _, _, _, _, _, _, _, _, _, _, t).
+
 // ── FIX-13: CONSTANT-LOOKING TYPE QUALIFIER stamped as a FIELD by the extractor ──────
 // `URI.create(..)`, `UUID.randomUUID()`, `JSON.parseObject(..)`, `JWT.decode(..)`: the extractor
 // classifies an ALL-CAPS identifier as a constant, so the receiver arrives as
@@ -317,6 +351,16 @@ expr_type("lib", e, t) :- java_expression("BINARY_EXPRESSION", _, _, _, _, _, _,
 expr_type("lib", e, t) :- java_expression("CLASS_LITERAL", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
     lib_type("Class", "java.lang.Class", _, _, _, _, _, _, _, _, _, _, _, t).
 
+// ── FIX-19: TERNARY receiver `(f ? a : b).m()` — the value is one branch or the other, so the
+// receiver's type is the UNION of the two branch types. Without this the whole call site is
+// unresolved even when both branches are perfectly well typed.
+expr_type(prov, e, t) :- java_expression("TERNARY_EXPRESSION", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    java_expression(_, "TERNARY_TRUE", _, _, _, _, e, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, br),
+    expr_type(prov, br, t).
+expr_type(prov, e, t) :- java_expression("TERNARY_EXPRESSION", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    java_expression(_, "TERNARY_FALSE", _, _, _, _, e, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, br),
+    expr_type(prov, br, t).
+
 // ── Parenthesized receiver ((expr).m()) — the type of the inner expression (the
 // PARENTHESIZED_INNER child). Same recursive shape as ARRAY_ACCESS above.
 expr_type(prov, e, t) :- java_expression("PARENTHESIZED", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
@@ -331,6 +375,16 @@ expr_type(prov, e, t) :- java_expression("PARENTHESIZED", _, _, _, _, _, _, _, _
 // method). Over-approximate (name-scoped, ignores branch scoping); sound for reachability.
 pattern_var_type(name, method, prov, t) :- java_expression("IDENTIFIER_REFERENCE", "PATTERN_VARIABLE", _, _, _, _, inst, _, _, _, name, _, _, _, _, _, _, _, _, _, _, _, _, _, decl),
     instanceof_type_resolves(prov, inst, _, t),
+    expr_ultimate_method("client", decl, method).
+// FIX-20: the same binding for a SWITCH type pattern (`case Circle c -> c.area()`). Every arm's
+// type reference is owned by the SWITCH expression, not by the individual pattern, so the pattern
+// and its type are paired by POSITION within that switch (arm 0 -> Circle/c, arm 1 -> Square/q).
+// Without this, a call on any switch-pattern variable is unresolved.
+// java_expression (25): 7 parentExpressionHash 8 position
+// java_type_reference (18): 7 position 16 ownerHash 17 ownerKind 18 hash
+pattern_var_type(name, method, prov, t) :- java_expression("IDENTIFIER_REFERENCE", "SWITCH_TYPE_PATTERN", _, _, _, _, sw, pos, _, _, name, _, _, _, _, _, _, _, _, _, _, _, _, _, decl),
+    java_type_reference(_, "SWITCH_TYPE_PATTERN", _, _, _, _, pos, "0", _, _, _, _, _, _, _, sw, "EXPRESSION", ref),
+    type_ref_resolves(prov, ref, t),
     expr_ultimate_method("client", decl, method).
 expr_type(prov, e, t) :- java_expression("IDENTIFIER_REFERENCE", _, _, _, _, _, _, _, _, _, name, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
     name != "",

@@ -1,3 +1,3 @@
-oracle=0 engine=2 agree=0 missing=0 extra=2
+oracle=0 engine=2 agree=0 missing=0 (known 0, NEW 0) extra=2
   extra    AnonymousClasses#main -> AnonymousClasses$anon:Runnable#run()
   extra    AnonymousClasses#main -> AnonymousClasses$anon:Thread#run()
