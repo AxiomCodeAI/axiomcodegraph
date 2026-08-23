@@ -6,6 +6,10 @@ import {
   PYTHON_MODULE_SCOPE_NAME,
   PYTHON_SYNTHETIC_ITERATOR,
 } from '@/constants/python-constants';
+import {
+  decomposeMisparsedTypeAlias,
+  isMisparsedTypeAlias,
+} from '@/parsers/python/python-soft-keywords';
 import { PythonBindingOrigin } from '@/enums/python/bindings';
 import { PythonNameContext } from '@/enums/python/expressions';
 import { PythonScopeKind, SymbolBlockType } from '@/enums/python/scopes';
@@ -506,6 +510,35 @@ export class PythonScopeBuilder {
 
       case 'try_statement': {
         this.visitTryStatement(block, node);
+        return;
+      }
+
+      case 'type_alias_statement': {
+        if (!isMisparsedTypeAlias(node)) {
+          this.visitGenericStatement(block, node);
+          return;
+        }
+        // `type(obj).attr = value` is an assignment, not a type alias. The
+        // grammar's greedy soft keyword swallowed the call node outright, so
+        // `type` has no identifier node anywhere in the tree and the reference
+        // has to be synthesised from the keyword token; without it symtable
+        // reports a global that we do not.
+        this.addUse(block, 'type');
+        const parts = decomposeMisparsedTypeAlias(node);
+        if (parts.target !== null) {
+          this.visitTarget(
+            block,
+            parts.target,
+            PythonBindingOrigin.ASSIGNMENT,
+            PythonNameContext.STORE
+          );
+        }
+        if (parts.annotation !== null) {
+          this.visitExpression(block, parts.annotation, PythonNameContext.LOAD);
+        }
+        if (parts.value !== null) {
+          this.visitExpression(block, parts.value, PythonNameContext.LOAD);
+        }
         return;
       }
 

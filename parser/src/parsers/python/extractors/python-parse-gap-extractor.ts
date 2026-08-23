@@ -6,6 +6,7 @@ import {
   PythonParseGapKind,
 } from '@/enums/python/parse-gaps';
 import { PythonSourcePositions } from '@/utils/python/python-position-utils';
+import { isMisparsedTypeAlias } from '@/parsers/python/python-soft-keywords';
 import { Python2Finding } from '@/types/python';
 
 export interface PythonParseGapInput {
@@ -74,7 +75,40 @@ export class PythonParseGapExtractor {
     }
 
     this.collectErrors(input, input.rootNode, gaps, false);
+    this.collectSoftKeywordMisparses(input, input.rootNode, gaps);
     return gaps;
+  }
+
+  /**
+   * A soft keyword applied where it should not have been leaves no ERROR node,
+   * so nothing above would ever find it.
+   */
+  private collectSoftKeywordMisparses(
+    input: PythonParseGapInput,
+    node: Parser.SyntaxNode,
+    gaps: PyParseGapRegistry[]
+  ): void {
+    if (isMisparsedTypeAlias(node)) {
+      gaps.push(
+        new PyParseGapRegistry(
+          input.module.getHash(),
+          PythonParseGapKind.SOFT_KEYWORD_MISPARSE,
+          PythonParseGapDisposition.MISPARSED_SILENTLY,
+          node.startPosition.row + 1,
+          input.positions.byteColumn(node.startPosition.row, node.startPosition.column),
+          node.endPosition.row + 1,
+          input.positions.byteColumn(node.endPosition.row, node.endPosition.column),
+          node.text.replace(/\s+/g, ' ').trim().slice(0, 200),
+          input.serviceVersionLinkHash
+        )
+      );
+    }
+    for (let index = 0; index < node.namedChildCount; index += 1) {
+      const child = node.namedChild(index);
+      if (child) {
+        this.collectSoftKeywordMisparses(input, child, gaps);
+      }
+    }
   }
 
   private collectErrors(

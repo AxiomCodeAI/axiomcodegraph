@@ -29,6 +29,10 @@ import {
   PYTHON_BUILTIN_COLLECTION_TYPES,
   PYTHON_BUILTIN_SCALAR_TYPES,
 } from '@/constants/python-constants';
+import {
+  decomposeMisparsedTypeAlias,
+  isMisparsedTypeAlias,
+} from '@/parsers/python/python-soft-keywords';
 import { EntityUtils } from '@/utils/entity-utils';
 import { PythonSourcePositions } from '@/utils/python';
 
@@ -414,6 +418,47 @@ export class PythonExpressionExtractor {
 
       // Imports bind names but contain no expressions to model; global and
       // nonlocal are declarations, not reads.
+      case 'type_alias_statement': {
+        if (!isMisparsedTypeAlias(node)) {
+          this.visitStatements(node, context);
+          return;
+        }
+        // `type(obj).attr = value` is an assignment. The grammar dropped the
+        // `type(...)` call node, so the outer call cannot be recovered here and
+        // is reported as a py_parse_gap instead. Everything else can be:
+        // without this the value was never walked at all, so a nested
+        // `compute(val)` produced no expression and no call site either.
+        const parts = decomposeMisparsedTypeAlias(node);
+        const value = parts.value;
+        if (value !== null) {
+          this.enqueueRoot(
+            value,
+            context,
+            PythonRootContext.ASSIGNMENT_VALUE,
+            PythonEdgeRole.ASSIGNMENT_VALUE
+          );
+        }
+        if (parts.annotation !== null) {
+          this.enqueueRoot(
+            parts.annotation,
+            context,
+            PythonRootContext.ANNOTATED_ASSIGNMENT,
+            PythonEdgeRole.ROOT
+          );
+        }
+        const target = parts.target;
+        if (target !== null) {
+          this.enqueueRoot(
+            target,
+            context,
+            PythonRootContext.ASSIGNMENT_VALUE,
+            PythonEdgeRole.ASSIGNMENT_TARGET,
+            PythonNameContext.STORE
+          );
+        }
+        return;
+      }
+
       case 'import_statement':
       case 'import_from_statement':
       case 'future_import_statement':
