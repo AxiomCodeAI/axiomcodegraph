@@ -311,9 +311,195 @@ async function compiles(): Promise<number> {
   }
 }
 
+
+// ---------------------------------------------------------------------------
+// structural integrity — Appendix B invariants 1-8, none of which need CPython
+// ---------------------------------------------------------------------------
+
+/** relation file -> the column holding its own primary key. */
+function pkColumnOf(rows: Record<string, string>[]): string | undefined {
+  return Object.keys(rows[0] ?? {}).find((c) => c.endsWith('UniqueHash'));
+}
+
+/**
+ * Every FK resolves, no PK collides, every key is well formed, and the version
+ * hash is on every row.
+ *
+ * These are the checks a golden CANNOT make. A golden proves the facts have not
+ * CHANGED; it says nothing about whether they were coherent when frozen. A
+ * dangling FK blessed on day one stays blessed forever and the diff stays green.
+ */
+async function structuralIntegrity(): Promise<number> {
+  const WORK = '.py-test-out/structure';
+  await analyse(VERIFIED, WORK);
+  const files = fs.readdirSync(WORK).filter((f) => f.startsWith('all-python-'));
+
+  const pkToRelation = new Map<string, string>();   // every PK in the whole set
+  const collisions: string[] = [];
+  const malformed: string[] = [];
+  const versions = new Set<string>();
+  const rowsByFile = new Map<string, Record<string, string>[]>();
+  let rowCount = 0;
+
+  for (const f of files) {
+    const rows = tsv(WORK, f);
+    if (!rows.length) continue;
+    rowsByFile.set(f, rows);
+    rowCount += rows.length;
+    const pkCol = pkColumnOf(rows);
+    for (const r of rows) {
+      if (r['serviceVersionLinkHash'] !== undefined) versions.add(r['serviceVersionLinkHash']);
+      if (!pkCol) continue;
+      const pk = r[pkCol] ?? '';
+      // §1: PREFIX_<md5hex>. A key that is not shaped like one is a key nothing
+      // downstream can join against.
+      if (!/^PY_[A-Z_]+_[0-9a-f]{32}$/.test(pk) && malformed.length < 5) {
+        malformed.push(`${f}: ${pkCol}=${JSON.stringify(pk.slice(0, 40))}`);
+      }
+      const seen = pkToRelation.get(pk);
+      // Same PK twice in ONE relation is a collision: two distinct entities
+      // hashing alike, which silently merges them.
+      if (seen === f && collisions.length < 5) collisions.push(`${f}: duplicate ${pk}`);
+      pkToRelation.set(pk, f);
+    }
+  }
+
+  const dangling: string[] = [];
+  for (const [f, rows] of rowsByFile) {
+    const fkCols = Object.keys(rows[0]!).filter(
+      (c) => c.endsWith('LinkHash') && c !== 'serviceVersionLinkHash');
+    for (const r of rows) {
+      for (const c of fkCols) {
+        const v = r[c] ?? '';
+        if (v === '') continue;                      // optional FK, legitimately unset
+        if (!pkToRelation.has(v) && dangling.length < 5) {
+          dangling.push(`${f}.${c} -> ${v.slice(0, 24)}… (no such row)`);
+        }
+      }
+    }
+  }
+
+  console.log(`  ${rowCount} rows, ${pkToRelation.size} distinct keys`);
+  const problems = [
+    ...collisions.map((c) => `PK COLLISION  ${c}`),
+    ...malformed.map((m) => `MALFORMED KEY ${m}`),
+    ...dangling.map((d) => `DANGLING FK   ${d}`),
+  ];
+  if (versions.size > 1) {
+    problems.push(`${versions.size} distinct serviceVersionLinkHash values; one run must carry one`);
+  }
+  for (const p of problems) console.log(`  ${p}`);
+  return problems.length ? 1 : 0;
+}
+
+/**
+ * Determinism. Two runs over identical input must produce byte-identical facts.
+ *
+ * Worth its own check because the failure is invisible day to day: a Map
+ * iteration or an unstable sort shows up as a golden diff that "goes away when
+ * you re-run", and the natural response is to re-freeze rather than investigate.
+ * symtable's get_id() was exactly this — stable within a process, different
+ * across them.
+ */
+async function determinism(): Promise<number> {
+  const A = '.py-test-out/det-a';
+  const B = '.py-test-out/det-b';
+  await analyse(VERIFIED, A);
+  await analyse(VERIFIED, B);
+  const bad: string[] = [];
+  for (const f of fs.readdirSync(A).filter((x) => x.startsWith('all-python-'))) {
+    const a = fs.readFileSync(path.join(A, f), 'utf-8');
+    const b = fs.existsSync(path.join(B, f)) ? fs.readFileSync(path.join(B, f), 'utf-8') : '';
+    if (a !== b) bad.push(f);
+  }
+  console.log(`  ${fs.readdirSync(A).filter((x) => x.startsWith('all-python-')).length} relations compared across two runs`);
+  for (const f of bad) console.log(`  NON-DETERMINISTIC  ${f}`);
+  return bad.length ? 1 : 0;
+}
+
+/**
+ * Every value in an enum column is one the TypeScript enum declares.
+ *
+ * The schema guard checks doc against code. This checks the DATA against code,
+ * which is a different failure: an extractor writing a literal string that no
+ * enum member matches produces a value every consumer will silently skip.
+ */
+function enumConformance(work: string): string[] {
+  const enumDir = 'src/enums/python';
+  const values = new Map<string, Set<string>>();
+  (function walk(d: string) {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const fp = path.join(d, e.name);
+      if (e.isDirectory()) { walk(fp); continue; }
+      if (!e.name.endsWith('.ts') || e.name === 'index.ts') continue;
+      const members = [...fs.readFileSync(fp, 'utf-8').matchAll(/^\s+([A-Z][A-Z0-9_]*) = '([^']*)'/gm)]
+        .map((m) => m[2]!);
+      if (members.length) values.set(e.name.replace('.ts', ''), new Set(members));
+    }
+  })(enumDir);
+
+  // column -> enum file, only where the mapping is unambiguous
+  const COLUMN_ENUM: Record<string, string> = {
+    scopeKind: 'PythonScopeKind', bindingKind: 'PythonBindingKind',
+    bindingOrigin: 'PythonBindingOrigin', targetEntityKind: 'PythonBindingTargetKind',
+    typeCategory: 'PythonTypeCategory', typeAccess: 'PythonTypeAccess',
+    typePlacement: 'PythonTypePlacement', mroKind: 'PythonMroKind',
+    baseKind: 'PythonBaseKind', methodKind: 'PythonMethodKind',
+    methodAccess: 'PythonMethodAccess', paramKind: 'PythonParameterKind',
+    defaultValueKind: 'PythonDefaultValueKind', fieldOrigin: 'PythonFieldOrigin',
+    initializerKind: 'PythonInitializerKind', importKind: 'PythonImportKind',
+    edgeRole: 'PythonEdgeRole', rootContext: 'PythonRootContext',
+    literalType: 'PythonLiteralType', nameContext: 'PythonNameContext',
+    comprehensionKind: 'PythonComprehensionKind', unaryFixity: 'PythonUnaryFixity',
+    referencedEntityKind: 'PythonReferencedEntityKind',
+    expressionOwnerKind: 'PythonExpressionOwnerKind',
+    inferenceEvidence: 'PythonInferenceEvidence',
+    inferenceConfidence: 'PythonInferenceConfidence',
+    callKind: 'PythonCallKind', receiverKind: 'PythonReceiverKind',
+    resolvedCalleeKind: 'PythonResolvedCalleeKind',
+    moduleKind: 'PythonModuleKind', pythonDialect: 'PythonDialect',
+    emissionRegime: 'PythonEmissionRegime', grammarUsed: 'PythonGrammarUsed',
+  };
+
+  const bad: string[] = [];
+  const checked = new Set<string>();
+  for (const f of fs.readdirSync(work).filter((x) => x.startsWith('all-python-'))) {
+    for (const r of tsv(work, f)) {
+      for (const [col, enumName] of Object.entries(COLUMN_ENUM)) {
+        const v = r[col];
+        if (v === undefined || v === '') continue;
+        const allowed = values.get(enumName);
+        if (!allowed) continue;
+        checked.add(col);
+        if (!allowed.has(v) && bad.length < 8) {
+          bad.push(`${f}.${col} = ${JSON.stringify(v)} is not a member of ${enumName}`);
+        }
+      }
+    }
+  }
+  bad.unshift(`__checked ${checked.size} enum column(s)`);
+  return bad;
+}
+
+async function enumValues(): Promise<number> {
+  const WORK = '.py-test-out/enums';
+  await analyse(VERIFIED, WORK);
+  const out = enumConformance(WORK);
+  const header = out.shift()!;
+  console.log('  ' + header.replace('__checked', 'checked') );
+  for (const b of out) console.log(`  ${b}`);
+  return out.length ? 1 : 0;
+}
+
 const CHECKS: Check[] = [
   { name: 'compiles', run: compiles,
     proves: 'tsc --noEmit is clean — the suite reports on code that actually builds' },
+  { name: 'structural integrity', run: structuralIntegrity,
+    proves: 'every FK resolves, no PK collides, keys are well formed, one version hash' },
+  { name: 'determinism', run: determinism,
+    proves: 'two runs over identical input are byte-identical' },
+  { name: 'enum conformance', run: enumValues,
+    proves: 'every emitted enum value is a member the TypeScript enum declares' },
   { name: 'golden facts', run: goldenFacts,
     proves: 'no frozen fact moved; a failure names the row and the columns' },
   { name: 'closed-world resolution', run: closedWorld,
