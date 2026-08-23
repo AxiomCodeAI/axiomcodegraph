@@ -199,14 +199,16 @@ export class PythonDecoratorExtractor {
       .withDottedPath(shape.dottedPath)
       .withOwnerLinks(isClass ? ownerHash : '', isClass ? '' : ownerHash);
 
-    // Always set, including the no-call case. Leaving it empty for `@property`
-    // made "zero arguments" and "not known" the same value, so a consumer
-    // filtering for argument-less decorators could not write the query at all.
-    // A decorator that is not a call takes zero arguments; that is a fact, not
-    // an absence.
-    builder.withArgumentCount(
-      shape.arguments ? String(this.positionalAndKeyword(shape.arguments).length) : '0'
-    );
+    // EMPTY for a decorator that is not a call, per §2.12. I had set it to '0'
+    // on the reasoning that "zero arguments" is a fact and an empty column is
+    // invisible to a query. A0 corrected it and is right: 0 asserts CALLED WITH
+    // NOTHING, and `@property` was never called at all. There is no argument
+    // list to have a length. `@f()` and `@f` differ in exactly this, and
+    // collapsing them would make the column unable to express the difference --
+    // the reverse of the problem I thought I was fixing.
+    if (shape.arguments) {
+      builder.withArgumentCount(String(this.positionalAndKeyword(shape.arguments).length));
+    }
     if (builtin) {
       builder.withBuiltin(builtin.kind, builtin.replaces);
     } else {

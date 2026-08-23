@@ -40,6 +40,13 @@ def main():
         callee_file = frame.f_code.co_filename
         if not inside(caller_file) or not inside(callee_file):
             return None
+        # A CLASS BODY and a MODULE body are both 'call' events with a frame, but
+        # neither is a call in the sense py_call_site models -- executing
+        # `class Base00:` is not an invocation of anything. Only optimised code
+        # objects (CO_OPTIMIZED) are real function frames; class and module
+        # bodies are not.
+        if not frame.f_code.co_flags & 0x1:
+            return None
         # The callee's qualified name as CPython knows it. co_qualname exists
         # from 3.11; on 3.10 co_name plus the defining module is enough to
         # identify the function unambiguously within a closed corpus.

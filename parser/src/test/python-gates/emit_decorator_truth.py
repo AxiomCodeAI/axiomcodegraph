@@ -114,8 +114,13 @@ def run(path):
                 'kind': classify(dec),
                 'name': name.rsplit('.', 1)[-1] if name else '',
                 'dotted': name,
+                # Empty, not 0, when the decorator is not a call: §2.12
+                # distinguishes `@f()` from `@f`, and 0 would assert the second
+                # was called with no arguments.
                 'argumentCount': (
-                    len(dec.args) + len(dec.keywords) if isinstance(dec, ast.Call) else 0
+                    str(len(dec.args) + len(dec.keywords))
+                    if isinstance(dec, ast.Call)
+                    else ''
                 ),
                 'builtin': name in BUILTIN or name.endswith('.setter')
                 or name.endswith('.getter') or name.endswith('.deleter'),
