@@ -154,6 +154,11 @@
 .decl lib_member_chain(c0:symbol,c1:symbol,c2:symbol,c3:number)
 .decl lib_member_type(c0:symbol,c1:symbol,c2:symbol)
 .decl lib_method_ret_ref(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
+.decl lib_ret_ref_hash(c0:symbol,c1:symbol)                 // (libMethod, its depth-0 return reference)
+.decl lib_ret_arg_tvar(c0:symbol,c1:symbol,c2:symbol)       // (libMethod, argPos, owner tvar used as that arg)
+.decl lib_super_ref_at(c0:symbol,c1:symbol,c2:symbol)       // (subType, superSimpleName, super reference)
+.decl lib_tvar_alias(c0:symbol,c1:symbol,c2:symbol,c3:symbol)      // Collection.E == Iterable.T
+.decl lib_tvar_alias_star(c0:symbol,c1:symbol,c2:symbol,c3:symbol) // transitive closure of the above
 .decl lib_method_ret_tvar(c0:symbol,c1:symbol,c2:symbol)
 .decl lib_method_return_type(c0:symbol,c1:symbol)
 .decl lib_nested_fqn(c0:symbol,c1:symbol,c2:number)

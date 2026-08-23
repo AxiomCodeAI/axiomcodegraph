@@ -1,0 +1,3 @@
+oracle=5 engine=7 agree=5 missing=0 extra=2
+  extra    LibIfaceOverride#viaComparator -> ByLength#compare(String,String)
+  extra    LibIfaceOverride#viaFunction -> Shouty#apply(String)

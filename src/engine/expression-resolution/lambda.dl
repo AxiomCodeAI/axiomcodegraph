@@ -216,6 +216,31 @@ recv_tvar_type(call, classTv, argT) :-
     lib_type_ref_resolves(_, retRef, recvType),
     tvar_binding(retRef, recvType, classTv, argT).
 
+//   (ii-c) FIX-17 — the inner call's return type ARGUMENT is one of the INNER RECEIVER's class
+//     tvars, so substitute through it:  byName.values() where byName : Map<String,Item> returns
+//     Collection<V> with V=Item, hence the element type is Item. The functional interface may name
+//     that position differently (Iterable.forEach uses T where Collection declares E), so the
+//     binding is emitted under the ALIASED name too.
+recv_tvar_type(call, retTv, argT) :-
+    call_site(call, _, recv),
+    expr_call_candidate(recv, innerCallee),
+    lib_method_return_type(innerCallee, retType),
+    lib_ret_arg_tvar(innerCallee, p, ownerTv),
+    type_param("lib", retTv, p, retType, _),
+    call_site(recv, _, innerRecv),
+    recv_decl_ref(innerRecv, declRef, innerRecvType),
+    tvar_binding(declRef, innerRecvType, ownerTv, argT).
+recv_tvar_type(call, aliasTv, argT) :-
+    call_site(call, _, recv),
+    expr_call_candidate(recv, innerCallee),
+    lib_method_return_type(innerCallee, retType),
+    lib_ret_arg_tvar(innerCallee, p, ownerTv),
+    type_param("lib", retTv, p, retType, _),
+    lib_tvar_alias_star(retType, retTv, _, aliasTv),
+    call_site(recv, _, innerRecv),
+    recv_decl_ref(innerRecv, declRef, innerRecvType),
+    tvar_binding(declRef, innerRecvType, ownerTv, argT).
+
 // compose: lambda param (SAM tvar tv) → fi's param filled by classTv → receiver binding for classTv.
 lambda_param_binding(lam, name, argT) :-
     java_expression("IDENTIFIER_REFERENCE", "LAMBDA_PARAMETER", _, _, _, _, lam, k, _, _, name, _, _, _, "LAMBDA_PARAMETER", _, _, _, _, _, _, _, _, _, _),

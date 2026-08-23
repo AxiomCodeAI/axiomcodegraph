@@ -213,6 +213,48 @@ lib_method_return_type(m, rt) :- lib_method_ret_ref(m, _, file, name, _),
     lib_type_pkg(rt, pkgDot),
     lib_type(name, _, _, _, _, _, "TOP_LEVEL_PLACEMENT", _, _, _, _, _, _, rt).
 
+// ── FIX-17: GENERIC RETURN SUBSTITUTION + TVAR ALIASING ─────────────────────
+// Needed for the commonest higher-order shape in real code:
+//     byName.values().forEach(i -> i.validate(t))       // Map<String,Item> -> Collection<V> -> V=Item
+//     items.stream().forEach(i -> i.validate(t))        // List<Item>       -> Stream<E>     -> E=Item
+// The lambda parameter's type is the element type, which is only knowable by substituting the
+// RECEIVER's written type arguments through the callee's generic RETURN type. Two facts are missing
+// to do that, and both are derivable from the staged library signatures:
+//
+//   (1) the return reference's type ARGUMENT when it is one of the OWNER's type variables
+//       (Map.values() : Collection<V> — the arg is V, Map's own variable), and
+//   (2) TVAR ALIASING along the library hierarchy, because the same position is named differently
+//       at each level: Collection<E> extends Iterable<T>, so Collection's E IS Iterable's T. Without
+//       the alias, a binding computed as "Collection.E = Item" never matches the functional
+//       interface reference in Iterable.forEach(Consumer<? super T>).
+//
+// lib_type_reference (18): 1 kind 2 context 3 typeRegistryLinkHash 6 parentReference 7 position
+//   8 depth 9 typeName 10 completeTypeName 11 typeVariableName 18 hash
+lib_ret_ref_hash(m, retRef) :- lib_method(_, _, _, _, _, _, _, owner, _, _, _, _, _, _, _, _, _, _, _, _, _, m),
+    reached_lib(owner),
+    lib_type_reference(_, "METHOD_RETURN", _, _, _, _, _, "0", _, _, _, _, _, _, _, m, "METHOD", retRef).
+lib_ret_arg_tvar(m, p, ownerTv) :- lib_ret_ref_hash(m, retRef),
+    lib_type_reference("TYPE_VARIABLE", _, _, _, _, retRef, p, "1", _, _, ownerTv, _, _, _, _, _, _, _),
+    ownerTv != "".
+
+// the super-type reference WITH its hash, so its type arguments can be read (lib_super_ref drops it)
+lib_super_ref_at(sub, name, supRef) :- reached_lib(sub),
+    lib_type_reference(_, "SUPER_TYPE", sub, _, _, _, _, "0", name, _, _, _, _, _, _, _, _, supRef).
+lib_super_ref_at(sub, name, supRef) :- reached_lib(sub),
+    lib_type_reference(_, "IMPLEMENTS_INTERFACE", sub, _, _, _, _, "0", name, _, _, _, _, _, _, _, _, supRef).
+
+// sub's variable subTv fills sup's type parameter at position p, whose own name is supTv.
+// The parent is paired with THIS reference by simple name, so a type with several supertypes
+// aliases each one through its own reference.
+lib_tvar_alias(sub, subTv, sup, supTv) :- lib_super_ref_at(sub, sname, supRef),
+    lib_type_parent(sub, sup),
+    lib_type(sname, _, _, _, _, _, _, _, _, _, _, _, _, sup),
+    lib_type_reference("TYPE_VARIABLE", _, _, _, _, supRef, p, "1", _, _, subTv, _, _, _, _, _, _, _),
+    type_param("lib", supTv, p, sup, _).
+lib_tvar_alias_star(sub, subTv, sup, supTv) :- lib_tvar_alias(sub, subTv, sup, supTv).
+lib_tvar_alias_star(sub, subTv, sup2, supTv2) :- lib_tvar_alias(sub, subTv, sup, supTv),
+    lib_tvar_alias_star(sup, supTv, sup2, supTv2).
+
 // ── lib_method_ret_tvar(Method, Owner, TypeVarName) — a reached lib method whose
 // return type is a bare TYPE VARIABLE (E get(), T next()). No concrete type here; the
 // real type is the receiver-site's binding for that variable, substituted in
