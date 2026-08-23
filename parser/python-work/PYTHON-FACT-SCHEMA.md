@@ -1178,9 +1178,27 @@ including `TypeVarTuple` (`*Ts`) and `ParamSpec` (`**P`).
 10 defaultText (PEP 696) · 11 pyScopeLinkHash [FK] · 12 serviceVersionLinkHash ·
 13 pyTypeParameterUniqueHash`
 
-`kind`: `TYPE_VAR` \| `TYPE_VAR_TUPLE` \| `PARAM_SPEC` — which of PEP 695's three
-parameter forms this is, distinguishing a plain parameter from a starred one and from a
-parameter specification.
+> **OPEN — `kind` has no column, and needs one.** A3 found this and they are right.
+> The relation cannot distinguish PEP 695's three parameter forms: `class C[T, *Ts, **P]`
+> emits three rows identical but for `paramName` and `position`, while CPython's `ast`
+> gives three distinct node types — `TypeVar`, `TypeVarTuple`, `ParamSpec`. The
+> difference is not cosmetic: a `TypeVarTuple` is a *sequence* of types and a `ParamSpec`
+> is a whole *parameter list*, so `Callable[P, R]` and `tuple[*Ts]` are unreadable
+> without it. `PythonTypeParameterKind` already exists in code with `TYPE_VAR`,
+> `TYPE_VAR_TUPLE`, `PARAM_SPEC` and the extractor already recovers the form from source.
+>
+> Proposed: **`kind` at position 12**, shifting `serviceVersionLinkHash` to 13 and the PK
+> to 14, arity 14 → 15. That keeps the convention that `serviceVersionLinkHash` sits
+> immediately before the key, and only the trailing pair moves.
+>
+> This is safe **now and never again**: `py_type_parameter` was deferred until this week,
+> nothing consumes it positionally, and no golden holds a row of it — `verified/` is a
+> 3.10 corpus with no PEP 695 in it. Once a golden freezes these rows, an insert stops
+> being free and the column has to go on the end, breaking the convention instead.
+>
+> Awaiting ratification. Until then the enum is declared and unemitted, and
+> `gen_decls.py --check` reports `PythonTypeParameterKind` as UNGUARDED rather than
+> pretending the column exists.
 
 `variance`: `INFERRED` \| `INVARIANT` \| `COVARIANT` \| `CONTRAVARIANT`. PEP 695
 parameters carry no explicit variance, so `INFERRED` is the normal value; the other three

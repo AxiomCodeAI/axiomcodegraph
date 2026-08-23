@@ -36,6 +36,20 @@ DOCS = {
 SPINE = ["py_module","py_scope","py_binding","py_type","py_type_base","py_method",
          "py_method_parameter","py_import","py_expression","py_call_site"]
 
+#: relation -> the column NAMES the doc actually declares for it. Populated by
+#: parse_doc and used to reject an enum documented for a column that does not exist.
+COLUMNS_BY_REL = {}
+
+
+def _column_names(seg):
+    """Column names from either table rows or the inline `0 a · 1 b` form."""
+    names = re.findall(r"^\| \d+ \| `(\w+)`", seg, re.M)
+    if names:
+        return set(names)
+    inline = " ".join(re.findall(r"`([^`]*\u00b7[^`]*)`", seg, re.S))
+    return set(re.findall(r"(?:^|\u00b7)\s*\d+\s+(\w+)", inline))
+
+
 def parse_doc():
     md = open(DOC).read()
     rels, errors = [], []
@@ -56,6 +70,7 @@ def parse_doc():
         if idxs and len(idxs) != declared:
             errors.append("%s: header says %d columns, table has %d rows" % (name, declared, len(idxs)))
         rels.append((name, declared))
+        COLUMNS_BY_REL[name] = _column_names(seg)
     return rels, errors
 
 def render(rels):
@@ -262,6 +277,15 @@ def check_enums():
     doc_enums, code_enums = parse_doc_enums(), parse_code_enums()
     problems, checked, seen = [], 0, set()
     for (rel, col), docvals in sorted(doc_enums.items()):
+        # An enum block is only meaningful if the relation HAS that column. I wrote
+        # a `kind` enum into 2.20 during a sync and the relation has no kind column,
+        # so this guard happily compared a phantom against a real TS enum and passed.
+        # Membership agreement is worthless if the column does not exist.
+        known = COLUMNS_BY_REL.get(rel)
+        if known and col not in known:
+            problems.append("%s.%s: enum documented for a column %s DOES NOT HAVE "
+                            "(columns: %s)" % (rel, col, rel, ", ".join(sorted(known)[:8])))
+            continue
         cls = ALIAS.get((rel, col), _pascal(col))
         if cls not in code_enums:
             # A relation with no emitter yet has no enum yet, which is expected and
