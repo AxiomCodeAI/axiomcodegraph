@@ -57,6 +57,8 @@ export interface SymtableDiff {
   scopesMatched: number;
   bindingsExpected: number;
   bindingsMatched: number;
+  /** Scopes skipped because CPython 3.10 reports their column wrongly. */
+  unverifiablePositions: number;
   desync?: string;
   error?: string;
 }
@@ -94,6 +96,7 @@ export function diffFiles(files: string[], root: string): SymtableDiff[] {
     const truth = JSON.parse(line) as {
       file: string;
       scopes?: OracleScope[];
+      unreliableSpans?: number[][];
       desync?: string;
       error?: string;
     };
@@ -103,7 +106,13 @@ export function diffFiles(files: string[], root: string): SymtableDiff[] {
 }
 
 function compareOne(
-  truth: { file: string; scopes?: OracleScope[]; desync?: string; error?: string },
+  truth: {
+    file: string;
+    scopes?: OracleScope[];
+    unreliableSpans?: number[][];
+    desync?: string;
+    error?: string;
+  },
   root: string
 ): SymtableDiff {
   const base: SymtableDiff = {
@@ -113,6 +122,7 @@ function compareOne(
     scopesMatched: 0,
     bindingsExpected: 0,
     bindingsMatched: 0,
+    unverifiablePositions: 0,
   };
   if (truth.error !== undefined) {
     return { ...base, error: truth.error };
@@ -121,6 +131,9 @@ function compareOne(
     return { ...base, desync: truth.desync };
   }
   const oracleScopes = truth.scopes ?? [];
+  const unreliable = truth.unreliableSpans ?? [];
+  const positionUnverifiable = (line: number): boolean =>
+    unreliable.some((span) => line >= span[0]! && line <= span[1]!);
 
   let facts;
   try {
@@ -160,7 +173,12 @@ function compareOne(
   let bindingsExpected = 0;
   let bindingsMatched = 0;
 
+  let unverifiablePositions = 0;
   for (const expected of oracleScopes) {
+    if (positionUnverifiable(expected.line)) {
+      unverifiablePositions += 1;
+      continue;
+    }
     const key = keyOf(expected.kind, expected.line, expected.col);
     bindingsExpected += Object.keys(expected.symbols).length;
     const scope = ours.get(key);
@@ -219,6 +237,9 @@ function compareOne(
     }
   }
   for (const [key, scope] of ours) {
+    if (positionUnverifiable(scope.getStartLine())) {
+      continue;
+    }
     if (!seen.has(key)) {
       problems.push(`SCOPE_SPURIOUS ${scope.getScopeKind()}|${scope.getQualifiedName()}|${key.split('|')[1]}`);
     }
@@ -231,6 +252,7 @@ function compareOne(
     scopesMatched,
     bindingsExpected,
     bindingsMatched,
+    unverifiablePositions,
   };
 }
 
@@ -277,7 +299,9 @@ function main(): void {
   let scopesMatched = 0;
   let bindExpected = 0;
   let bindMatched = 0;
+  let unverifiable = 0;
   for (const result of all) {
+    unverifiable += result.unverifiablePositions;
     scopesExpected += result.scopesExpected;
     scopesMatched += result.scopesMatched;
     bindExpected += result.bindingsExpected;
@@ -312,7 +336,8 @@ function main(): void {
   process.stdout.write(
     `\nfiles: ${all.length}   clean: ${clean}   with problems: ${dirty}   ` +
       `gate-desync: ${desynced}   errored: ${errored}\n` +
-      `scopes: ${scopesMatched}/${scopesExpected}   bindings: ${bindMatched}/${bindExpected}\n\n`
+      `scopes: ${scopesMatched}/${scopesExpected}   bindings: ${bindMatched}/${bindExpected}\n` +
+      `positions unverifiable (CPython 3.10 multi-line f-string columns): ${unverifiable}\n\n`
   );
   if (kinds.size > 0) {
     process.stdout.write('problem kinds:\n');

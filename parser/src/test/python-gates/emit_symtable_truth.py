@@ -194,6 +194,39 @@ def symtable_order(table, qual, depth, out):
         symtable_order(child, cq, depth + 1, out)
 
 
+def unreliable_line_spans(tree):
+    """
+    Line ranges where CPython 3.10 reports the WRONG column.
+
+    Expression positions inside a MULTI-LINE f-string are miscomputed. Reduced:
+
+        a = f<TQ>
+        void impl({', '.join(x.d() for x in ar)});
+        <TQ>
+        b = f"void impl({', '.join(x.d() for x in ar)});"
+
+    (<TQ> stands for a triple quote, which cannot be written inside this
+    docstring.)
+
+    ast puts the genexpr on the single-line form at the `(` of `join(`, which
+    is right and is what tree-sitter gives; on the multi-line form it points
+    into the middle of `x.d()` at a closing paren. The interpreter fixes up
+    f-string sub-expression locations only for the single-line case.
+
+    So the ORACLE is wrong here, not the parser, and scopes on these lines are
+    excluded from position matching and counted rather than being reported as
+    disagreements. Single-line f-strings are left in: they are correct, and
+    they are the common case.
+    """
+    spans = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.JoinedStr):
+            end = getattr(node, 'end_lineno', node.lineno)
+            if end is not None and end > node.lineno:
+                spans.append([node.lineno, end])
+    return spans
+
+
 def run(path, modname):
     src = open(path, 'rb').read()
     top = symtable.symtable(src, path, 'exec')
@@ -234,7 +267,11 @@ def run(path, modname):
             for s in top.get_symbols()
         },
     })
-    return {'file': path, 'scopes': scopes}
+    return {
+        'file': path,
+        'scopes': scopes,
+        'unreliableSpans': unreliable_line_spans(tree),
+    }
 
 
 def main():
