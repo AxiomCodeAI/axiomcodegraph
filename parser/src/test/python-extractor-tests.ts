@@ -98,7 +98,7 @@ const DEFERRED_ARITY: Readonly<Record<string, number>> = {
   py_comment: 15,
   // PEP 695 syntax only. A pre-3.12 TypeVar is a runtime ASSIGNMENT and lands in
   // py_binding with targetEntityKind=TYPE_VAR instead — a different fact.
-  py_type_parameter: 14,
+  py_type_parameter: 15,
 };
 
 /** Every relation the parser emits, for the per-row arity check. */

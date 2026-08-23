@@ -1,6 +1,9 @@
 import { ENTITY_IDENTIFIERS } from '@/constants/entity-constants';
 import { PythonExpressionOwnerKind } from '@/enums/python/expressions';
-import { PythonTypeParameterVariance } from '@/enums/python/type-parameters';
+import {
+  PythonTypeParameterKind,
+  PythonTypeParameterVariance,
+} from '@/enums/python/type-parameters';
 import { EntityIdentifiable } from '@/interfaces/EntityIdentifiable';
 import { EntityUtils } from '@/utils/entity-utils';
 
@@ -40,6 +43,7 @@ export class PyTypeParameterRegistry implements EntityIdentifiable {
   private variance: PythonTypeParameterVariance;
   private defaultText: string;
   private pyScopeLinkHash: string;
+  private kind: PythonTypeParameterKind;
   private serviceVersionLinkHash: string;
   private pyTypeParameterUniqueHash: string = '';
 
@@ -56,6 +60,7 @@ export class PyTypeParameterRegistry implements EntityIdentifiable {
     variance: PythonTypeParameterVariance,
     defaultText: string,
     pyScopeLinkHash: string,
+    kind: PythonTypeParameterKind,
     serviceVersionLinkHash: string
   ) {
     this.paramName = paramName;
@@ -70,6 +75,7 @@ export class PyTypeParameterRegistry implements EntityIdentifiable {
     this.variance = variance;
     this.defaultText = defaultText;
     this.pyScopeLinkHash = pyScopeLinkHash;
+    this.kind = kind;
     this.serviceVersionLinkHash = serviceVersionLinkHash;
 
     this.generateHash();
@@ -81,6 +87,22 @@ export class PyTypeParameterRegistry implements EntityIdentifiable {
 
   getPosition(): number {
     return this.position;
+  }
+
+  /**
+   * TYPE_VAR, TYPE_VAR_TUPLE or PARAM_SPEC.
+   *
+   * Inserted at position 12 rather than appended, on A0's reasoning that the
+   * insert is free ONLY until a golden freezes a row of this relation — after
+   * which the column would have to go on the end and break the convention that
+   * the version hash sits immediately before the key.
+   *
+   * Without it `*Ts` and `**P` were indistinguishable: tree-sitter gives both
+   * `splat_type` with an identifier under it, so the distinction lives in the
+   * source text and nowhere else.
+   */
+  getKind(): PythonTypeParameterKind {
+    return this.kind;
   }
 
   getBoundText(): string {
@@ -126,6 +148,7 @@ export class PyTypeParameterRegistry implements EntityIdentifiable {
       this.variance,
       EntityUtils.escapeTsv(this.defaultText),
       this.pyScopeLinkHash,
+      this.kind,
       this.serviceVersionLinkHash,
       this.pyTypeParameterUniqueHash,
     ].join('\t');
@@ -145,6 +168,7 @@ export class PyTypeParameterRegistry implements EntityIdentifiable {
       'variance',
       'defaultText',
       'pyScopeLinkHash',
+      'kind',
       'serviceVersionLinkHash',
       'pyTypeParameterUniqueHash',
     ].join('\t');

@@ -7,7 +7,10 @@ import {
   PyTypeRegistry,
 } from '@/analysis-types/python';
 import { PythonExpressionOwnerKind } from '@/enums/python/expressions';
-import { PythonTypeParameterVariance } from '@/enums/python/type-parameters';
+import {
+  PythonTypeParameterKind,
+  PythonTypeParameterVariance,
+} from '@/enums/python/type-parameters';
 
 export interface PythonTypeParameterInput {
   module: PyModuleRegistry;
@@ -225,6 +228,7 @@ export class PythonTypeParameterExtractor {
           // than guessed.
           '',
           owner.scopeHash,
+          detail.kind,
           input.serviceVersionLinkHash
         )
       );
@@ -232,27 +236,45 @@ export class PythonTypeParameterExtractor {
   }
 
   /** The parameter's name and bound, from whichever shape the entry has. */
-  private detailOf(entry: Parser.SyntaxNode): { name: string; bound: string } {
+  private detailOf(entry: Parser.SyntaxNode): {
+    name: string;
+    bound: string;
+    kind: PythonTypeParameterKind;
+  } {
     const inner = entry.type === 'type' ? entry.namedChild(0) : entry;
     if (!inner) {
-      return { name: '', bound: '' };
+      return { name: '', bound: '', kind: PythonTypeParameterKind.TYPE_VAR };
     }
     if (inner.type === 'identifier') {
-      return { name: inner.text, bound: '' };
+      return { name: inner.text, bound: '', kind: PythonTypeParameterKind.TYPE_VAR };
     }
     if (inner.type === 'splat_type') {
-      // `*Ts` and `**P` are the same node; the STARS are the only difference,
-      // and they are in the text rather than the tree.
-      return { name: inner.namedChild(0)?.text ?? '', bound: '' };
+      // `*Ts` and `**P` are the SAME node — the stars are the only difference and
+      // they live in the text rather than the tree. A TypeVarTuple stands for a
+      // sequence of types and a ParamSpec for a whole parameter list, so reading
+      // the text is the only way to keep them apart.
+      return {
+        name: inner.namedChild(0)?.text ?? '',
+        bound: '',
+        kind: inner.text.startsWith('**')
+          ? PythonTypeParameterKind.PARAM_SPEC
+          : PythonTypeParameterKind.TYPE_VAR_TUPLE,
+      };
     }
     if (inner.type === 'constrained_type') {
       const nameNode = inner.namedChild(0);
       const boundNode = inner.namedChild(1);
+      const named = this.detailOf(nameNode ?? inner);
       return {
-        name: this.detailOf(nameNode ?? inner).name,
+        name: named.name,
         bound: boundNode ? boundNode.text.replace(/\s+/g, ' ').trim() : '',
+        kind: named.kind,
       };
     }
-    return { name: inner.text.replace(/\s+/g, ' ').trim(), bound: '' };
+    return {
+      name: inner.text.replace(/\s+/g, ' ').trim(),
+      bound: '',
+      kind: PythonTypeParameterKind.TYPE_VAR,
+    };
   }
 }
