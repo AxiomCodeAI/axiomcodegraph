@@ -756,7 +756,8 @@ export class PythonResolutionLinker {
         methodByHash,
         projectReturnTypes,
         typesByHash,
-        typesByNameByModule.get(module.moduleHash) ?? new Map()
+        typesByNameByModule.get(module.moduleHash) ?? new Map(),
+        typesByNameByModule
       );
       if (innerCallReturnType.size === 0) {
         continue;
@@ -2197,6 +2198,60 @@ export class PythonResolutionLinker {
       }
     }
 
+    // The WHOLE receiver may name a module: `import pkg.mod` then
+    // `pkg.mod.Klass()` or `pkg.mod.func()`.
+    //
+    // The block above only tries `importedModules.get(segments[0])`, which for
+    // `import pkg.mod` binds the PACKAGE `pkg` — and `mod` is a submodule, not a
+    // member of the package's exports, so the lookup fails and the next line
+    // declares the whole thing external. It is not external at all: the module
+    // is right there in the corpus. `import pkg.mod` is one of the two ordinary
+    // ways to import, and every call through it was being written off.
+    //
+    // Tried longest-prefix-first so `a.b.c.D()` prefers module `a.b.c` over
+    // module `a.b` with an attribute walk, which is what Python itself does.
+    if (ctx.moduleByQualifiedName !== undefined) {
+      for (let take = segments.length; take >= 1; take -= 1) {
+        const candidate = segments.slice(0, take).join('.');
+        const asModule = this.findModule(candidate, ctx.moduleByQualifiedName);
+        if (asModule === undefined) {
+          continue;
+        }
+        const remainder = segments.slice(take);
+        if (remainder.length === 0) {
+          const member = this.lookupModuleMember(
+            asModule,
+            calleeName,
+            ctx.exportsByModule,
+            ctx.moduleByQualifiedName
+          );
+          if (member instanceof PyTypeRegistry) {
+            return { kind: PythonResolvedCalleeKind.TYPE, hash: member.getHash() };
+          }
+          if (member instanceof PyMethodRegistry) {
+            return { kind: PythonResolvedCalleeKind.MODULE_FUNCTION, hash: member.getHash() };
+          }
+          continue;
+        }
+        // `pkg.mod.Klass.method()` — the remainder names a type in that module
+        // and the callee is a method on it.
+        if (remainder.length === 1) {
+          const owner = this.lookupModuleMember(
+            asModule,
+            remainder[0] ?? '',
+            ctx.exportsByModule,
+            ctx.moduleByQualifiedName
+          );
+          if (owner instanceof PyTypeRegistry) {
+            const onOwner = this.lookupMethodOnTypeAndBases(owner.getHash(), calleeName, ctx);
+            if (onOwner) {
+              return { kind: PythonResolvedCalleeKind.METHOD, hash: onOwner.getHash() };
+            }
+          }
+        }
+      }
+    }
+
     // `os.path.join(...)` — the head names a module outside the analysis.
     if (ctx.importedModuleNames.has(segments[0] ?? '')) {
       return { kind: PythonResolvedCalleeKind.IMPORTED, hash: '' };
@@ -2286,7 +2341,8 @@ export class PythonResolutionLinker {
     methodByHash: Map<string, PyMethodRegistry>,
     returnedTypeByMethod: Map<string, PyTypeRegistry | null>,
     typesByHash: Map<string, PyTypeRegistry>,
-    typesByName: Map<string, PyTypeRegistry | null>
+    typesByName: Map<string, PyTypeRegistry | null>,
+    typesByNameByModule: Map<string, Map<string, PyTypeRegistry | null>>
   ): Map<string, PyTypeRegistry> {
     const index = new Map<string, PyTypeRegistry>();
     const callSiteByExpression = new Map<string, PyCallSiteRegistry>();
@@ -2354,10 +2410,26 @@ export class PythonResolutionLinker {
       // map meant an ANNOTATED return could never resolve — `-> "Node"` looked
       // up `Node` in nothing and fell through to the inferred index, so the
       // whole fluent-chain case failed for want of a parameter I had stubbed.
-      const returned = this.returnedTypeOf(method, {
-        typesByName,
-        returnedTypeByMethod,
-      });
+      //
+      // And it must be the DECLARING module's map, not the caller's. An
+      // annotation is written in the scope of the method that carries it, so
+      // `-> "B"` on a method of p/b.py means p.b.B. A caller doing
+      // `from p.b import B as Alias` has no name `B` at all, so looking the
+      // annotation up in the CALLER's namespace failed for every aliased
+      // import — `Alias.of(1).describe()` broke while `B.of(1).describe()`
+      // worked, which is the same call reached by a different name.
+      const declaringModule = typesByNameByModule.get(method.getPyModuleLinkHash());
+      const returned =
+        (declaringModule !== undefined
+          ? this.returnedTypeOf(method, {
+              typesByName: declaringModule,
+              returnedTypeByMethod,
+            })
+          : null) ??
+        this.returnedTypeOf(method, {
+          typesByName,
+          returnedTypeByMethod,
+        });
       if (returned) {
         index.set(site.getHash(), returned);
       }
