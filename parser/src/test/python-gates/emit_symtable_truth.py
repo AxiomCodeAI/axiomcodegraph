@@ -211,8 +211,15 @@ def run(path, modname):
     if len(walk.out) != len(scopes):
         return {'file': path, 'desync': f'{len(walk.out)} positions vs {len(scopes)} scopes'}
     for pos, sc in zip(walk.out, scopes):
-        if pos[0] != sc['kind'] or (pos[1] != sc['name'] and sc['kind'] != 'FUNCTION'):
+        if pos[1] != sc['name']:
             return {'file': path, 'desync': f'{pos[0]}/{pos[1]} vs {sc["kind"]}/{sc["name"]}'}
+        # KIND comes from the ast walk, not from symtable. symtable's get_type()
+        # is only module/class/function, so a comprehension is identified purely
+        # by the synthetic name `listcomp`/`setcomp`/`dictcomp`/`genexpr` -- and
+        # a file may define `def listcomp():` itself, as test_peepholer.py does,
+        # at which point name-based classification calls a function a
+        # comprehension. The ast node type cannot be spoofed that way.
+        sc['kind'] = pos[0]
         sc['line'], sc['col'] = pos[2], pos[3]
 
     scopes.insert(0, {

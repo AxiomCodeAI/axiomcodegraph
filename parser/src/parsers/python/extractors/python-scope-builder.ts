@@ -1752,6 +1752,20 @@ export class PythonScopeBuilder {
     const isComprehensionBlock = this.isComprehensionScope(block.scopeKind);
     if (isComprehensionBlock) {
       const owner = this.findNamedExpressionOwner(block);
+      // If the owning scope declared the name `global`, the comprehension
+      // INHERITS that and the walrus target is global there too -- not free.
+      //
+      //   def f():
+      //       global G
+      //       [G := 1 for _ in range(1)]   # listcomp: G is global, declared
+      //
+      // Without this the comprehension reported G as free and nonlocal while
+      // symtable reports global and declared-global, and the owner picked up a
+      // spurious local. The name resolves to a module global at runtime, so the
+      // free reading points a consumer at the wrong binding entirely.
+      const mangled = this.mangleName(block, targetNode.text);
+      const ownerDeclaresGlobal =
+        owner !== null && ((owner.symbols.get(mangled) ?? 0) & SymbolFlags.DEF_GLOBAL) !== 0;
       if (owner) {
         this.addDef(
           owner,
@@ -1761,10 +1775,16 @@ export class PythonScopeBuilder {
           targetNode
         );
       }
+      // DEF_LOCAL stays set in the global case: the walrus still ASSIGNS, and
+      // symtable reports is_assigned true while resolving the name to the
+      // module global, so is_local is false. Dropping DEF_LOCAL here would have
+      // fixed the scope columns and broken the assignment column instead.
       this.addDef(
         block,
         targetNode.text,
-        SymbolFlags.DEF_LOCAL | SymbolFlags.DEF_NONLOCAL,
+        ownerDeclaresGlobal
+          ? SymbolFlags.DEF_LOCAL | SymbolFlags.DEF_GLOBAL
+          : SymbolFlags.DEF_LOCAL | SymbolFlags.DEF_NONLOCAL,
         PythonBindingOrigin.WALRUS,
         targetNode
       );
