@@ -42,6 +42,9 @@ const WORK = '.golden-out';
 
 /** Corpora searched for admissible files. */
 const CANDIDATES = [
+  // Category fixtures, organised like src/test-data/java: one directory per
+  // entity kind, so a failure names the area before it names the fact.
+  'src/test-data/python/categories',
   'python-work/staging/native',
   'python-work/staging/flow',
   'src/test-data/python/closed-world',

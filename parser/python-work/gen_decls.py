@@ -139,6 +139,9 @@ ALIAS = {
     ("py_decorator_argument", "valueType"): "PythonDecoratorArgumentValueType",
     ("py_parse_gap", "kind"): "PythonParseGapKind",
     ("py_parse_gap", "constructKind"): "PythonParseGapKind",
+    ("py_type_parameter", "kind"): "PythonTypeParameterKind",
+    ("py_type_parameter", "variance"): "PythonTypeParameterVariance",
+    ("py_comment", "kind"): "PythonCommentKind",
     ("py_parse_gap", "disposition"): "PythonParseGapDisposition",
     ("py_module", "pythonDialect"): "PythonDialect",
     ("py_module", "emissionRegime"): "PythonEmissionRegime",
@@ -162,7 +165,7 @@ ALIAS = {
 # is a decision on the record rather than an accident.
 # Relations the schema declares but the parser does not emit yet. Their enums cannot
 # exist, so their absence is a backlog item, not schema drift.
-NOT_YET_EMITTED = {"py_comment"}
+NOT_YET_EMITTED = set()   # py_comment shipped; nothing is exempt now
 
 UNSPECIFIED_OK = {
     # py_expression c2 says only "the statement form the root sits in" - the doc never

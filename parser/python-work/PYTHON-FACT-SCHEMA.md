@@ -417,7 +417,7 @@ precision/recall are well-defined for this schema at all.
 
 | # | Column | Meaning |
 |---|---|---|
-| 0 | `scopeKind` | `MODULE` \| `CLASS` \| `FUNCTION` \| `LAMBDA` \| `COMPREHENSION_LIST` \| `COMPREHENSION_SET` \| `COMPREHENSION_DICT` \| `GENERATOR_EXPRESSION` \| `TYPE_PARAM` (3.12) \| `TYPE_ALIAS` (3.12) \| `ANNOTATION` (3.14) |
+| 0 | `scopeKind` | `MODULE` \| `CLASS` \| `FUNCTION` \| `LAMBDA` \| `COMPREHENSION_LIST` \| `COMPREHENSION_SET` \| `COMPREHENSION_DICT` \| `GENERATOR_EXPRESSION` \| `TYPE_PARAM` (3.12) \| `TYPE_ALIAS` (3.12) \| `TYPE_PARAM_BOUND` (3.12) \| `ANNOTATION` (3.14) |
 | 1 | `name` | symtable's own name: module name, class name, function name, `lambda`, `listcomp`, `genexpr`, … |
 | 2 | `qualifiedName` | CPython `__qualname__` semantics **including `<locals>`** — `Outer.method.<locals>.inner` |
 | 3 | `nestingDepth` | 0 at module |
@@ -442,6 +442,21 @@ precision/recall are well-defined for this schema at all.
 | 22 | `scopeOrdinal` ★ | 0-based index among sibling scopes of the same parent, source order |
 | 23 | `serviceVersionLinkHash` | |
 | 24 | `pyScopeUniqueHash` | **PK** |
+
+`TYPE_PARAM_BOUND` was **not** anticipated when §2.2 was written and is added by
+ratification. PEP 695 opens a `TypeVar bound` scope per **bounded** parameter, so
+`class C[T: int]` is three scopes deep, not two:
+
+```
+type parameter  C   {'.type_params', '.generic_base', 'T'}
+  TypeVar bound T   {'int'}          <- only when a bound is present
+  class         C   {'T', '__type_params__'}
+```
+
+Measured in CPython's own PEP 695 tests: 18 bound scopes across `test_type_params.py`
+and `test_type_aliases.py`, so it is ordinary rather than exotic. Folding it into
+`TYPE_PARAM` would report a two-level nesting as flat and lose where the bound is
+evaluated — a bound can see the type parameters, and the class body can see the bound.
 
 **PK** `PY_SCOPE_md5(pyModuleLinkHash ‖ parentScopeLinkHash ‖ scopeKind ‖ name ‖ startLine ‖ startColumn)`
 **FKs** 4→`py_scope` (self), 5→`py_module`, 7→ polymorphic.
@@ -1150,15 +1165,30 @@ make.
 
 ---
 
-### 2.20 `py_type_parameter` / `lib_py_type_parameter` — 14 columns — **DEFERRED**
+### 2.20 `py_type_parameter` / `lib_py_type_parameter` — 14 columns
 
-PEP 695 only (3.12+). Declared now so the position contract is fixed, **not emitted** for
-≤3.11. See §6.
+PEP 695 only (3.12+); **not emitted** for ≤3.11, where `TypeVar` is a runtime assignment
+rather than syntax. No longer deferred: the relation is emitted and adjudicated against
+CPython 3.12's own `ast` by `src/test/python-oracle/pep695-gate.ts`, which agrees on all
+12 parameters of the reference corpus — name, position, `boundText` and `ownerKind`,
+including `TypeVarTuple` (`*Ts`) and `ParamSpec` (`**P`).
 
 `0 paramName · 1 position · 2 ownerName · 3 ownerQualifiedName · 4 filePath · 5 startLine ·
 6 ownerLinkHash [FK→py_type|py_method] · 7 ownerKind · 8 boundText · 9 variance ·
 10 defaultText (PEP 696) · 11 pyScopeLinkHash [FK] · 12 serviceVersionLinkHash ·
 13 pyTypeParameterUniqueHash`
+
+`kind`: `TYPE_VAR` \| `TYPE_VAR_TUPLE` \| `PARAM_SPEC` — which of PEP 695's three
+parameter forms this is, distinguishing a plain parameter from a starred one and from a
+parameter specification.
+
+`variance`: `INFERRED` \| `INVARIANT` \| `COVARIANT` \| `CONTRAVARIANT`. PEP 695
+parameters carry no explicit variance, so `INFERRED` is the normal value; the other three
+exist for `TypeVar(..., covariant=True)` recovered from a ≤3.11 runtime assignment.
+
+`pyScopeLinkHash` **must** point at the `TYPE_PARAM` scope that binds the parameter, not
+at the enclosing class or function. That scope is where the name is actually in scope, and
+it is the difference between knowing `T` is visible to a base-class expression and not.
 
 For ≤3.11, `TypeVar` is a **runtime assignment**, not syntax (255 in corpus). It is a
 `py_binding` row with `targetEntityKind=TYPE_VAR`. No relation needed.
