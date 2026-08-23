@@ -1,0 +1,5 @@
+ambiguous_unknown	method	Caps#f() -> -
+boundary_lib	method	Caps#f() -> java.net.URI#create(String)
+boundary_lib	method	Caps#f() -> java.net.URI#getPath()
+boundary_lib	method	Caps#f() -> java.util.UUID#randomUUID()
+known_edge	method	Caps#f() -> JSON#parseObject(String)

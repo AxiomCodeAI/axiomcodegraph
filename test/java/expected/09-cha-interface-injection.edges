@@ -1,0 +1,8 @@
+ambiguous_unknown	new	testcases.engine.InterfaceDI#wire() -> -
+known_edge	new	testcases.engine.InterfaceDI#wire() -> testcases.engine.InterfaceDI#<init>(Handler)
+multi_inferred	method	testcases.engine.InterfaceDI#process(String) -> testcases.engine.FastHandler#handle(String)
+multi_inferred	method	testcases.engine.InterfaceDI#process(String) -> testcases.engine.Handler#handle(String)
+multi_inferred	method	testcases.engine.InterfaceDI#process(String) -> testcases.engine.SlowHandler#handle(String)
+multi_inferred	method	testcases.engine.InterfaceDI#processWith(Handler,String) -> testcases.engine.FastHandler#handle(String)
+multi_inferred	method	testcases.engine.InterfaceDI#processWith(Handler,String) -> testcases.engine.Handler#handle(String)
+multi_inferred	method	testcases.engine.InterfaceDI#processWith(Handler,String) -> testcases.engine.SlowHandler#handle(String)

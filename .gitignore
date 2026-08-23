@@ -188,3 +188,6 @@ $RECYCLE.BIN/
 !src/**/*.sh
 !src/souffle/export_manifest.tsv
 !src/templates/*.map
+
+# ── Java engine test suite: per-run work dirs and the generated JDK index ─────
+test/java/.work/

@@ -1,0 +1,4 @@
+known_edge	method	Probe#a() -> Probe#b()
+known_edge	method	Probe#a() -> Probe#c()
+known_edge	method	Probe#a() -> Probe#s()
+known_edge	new	Probe#a() -> Probe#<init>()
