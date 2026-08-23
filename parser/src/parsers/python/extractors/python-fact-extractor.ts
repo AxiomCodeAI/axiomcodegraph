@@ -304,15 +304,18 @@ export class PythonFactExtractor {
     // do not exist until the expression stage has run.
     const scopeByExpressionHash = new Map<string, string>();
     const typeByExpressionHash = new Map<string, string>();
+    const bindingByExpressionHash = new Map<string, string>();
     for (const expression of expressionStage.expressions) {
       scopeByExpressionHash.set(expression.getHash(), expression.getPyScopeLinkHash());
       typeByExpressionHash.set(expression.getHash(), expression.getPyTypeLinkHash());
+      bindingByExpressionHash.set(expression.getHash(), expression.getBindingLinkHash());
     }
     const narrowingPositions = this.typeReferenceExtractor.collectNarrowingPositions({
       rootNode: scopeStage.rootNode,
       expressionByByteRange: expressionStage.expressionByByteRange,
       scopeByExpressionHash,
       typeByExpressionHash,
+      bindingByExpressionHash,
     });
 
     const typeReferences = this.typeReferenceExtractor.extract({

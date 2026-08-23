@@ -31,6 +31,8 @@ export interface NarrowingInput {
   /** py_expression hash -> its scope and enclosing type, for the owning row. */
   scopeByExpressionHash: Map<string, string>;
   typeByExpressionHash: Map<string, string>;
+  /** py_expression hash -> the binding it resolves to, where it resolves to one. */
+  bindingByExpressionHash: Map<string, string>;
 }
 
 export interface TypeReferenceInput {
@@ -152,6 +154,10 @@ export class PythonTypeReferenceExtractor {
       }
     }
 
+    if (node.type === 'except_clause' || node.type === 'except_group_clause') {
+      this.collectExceptPositions(node, input, positions);
+    }
+
     if (node.type === 'raise_statement') {
       const raised = node.namedChild(0);
       if (raised) {
@@ -181,6 +187,80 @@ export class PythonTypeReferenceExtractor {
       if (child) {
         this.walkNarrowing(child, input, positions);
       }
+    }
+  }
+
+  /**
+   * `except ValueError as e:` is the one narrowing construct that types a
+   * VARIABLE outright, with no inference and no guard to reason about: inside
+   * that handler `e` IS a ValueError. So where the handler binds a name, the
+   * reference is owned by that BINDING rather than by an expression -- which is
+   * what lets a consumer resolve `e.args` without having to notice that an
+   * except clause was involved.
+   *
+   * Where there is no `as` the type is still worth recording, and it is owned by
+   * the exception expression instead.
+   *
+   * `except (A, B) as e:` is flattened to one reference per alternative, as
+   * isinstance is: `e` is one of them and each is separately resolvable.
+   */
+  private collectExceptPositions(
+    node: Parser.SyntaxNode,
+    input: NarrowingInput,
+    positions: TypePositionInput[]
+  ): void {
+    const first = node.namedChild(0);
+    if (!first) {
+      return;
+    }
+    const isAs = first.type === 'as_pattern';
+    const typeNode = isAs ? first.namedChild(0) : first;
+    if (!typeNode || typeNode.type === 'block') {
+      return;
+    }
+
+    let ownerHash = '';
+    let ownerKind = PythonTypeRefOwnerKind.EXPRESSION;
+    if (isAs) {
+      const alias = first.namedChild(1);
+      const target =
+        alias && alias.type === 'as_pattern_target' ? alias.namedChild(0) : alias;
+      const targetExpression = target
+        ? input.expressionByByteRange.get(`${target.startIndex}:${target.endIndex}`)
+        : undefined;
+      const binding =
+        targetExpression !== undefined
+          ? input.bindingByExpressionHash.get(targetExpression)
+          : undefined;
+      if (binding !== undefined && binding !== '') {
+        ownerHash = binding;
+        ownerKind = PythonTypeRefOwnerKind.BINDING;
+      }
+    }
+    if (ownerHash === '') {
+      ownerHash =
+        input.expressionByByteRange.get(`${typeNode.startIndex}:${typeNode.endIndex}`) ?? '';
+      ownerKind = PythonTypeRefOwnerKind.EXPRESSION;
+    }
+    if (ownerHash === '') {
+      return;
+    }
+
+    for (const candidate of this.tupleAlternatives(typeNode)) {
+      positions.push({
+        node: candidate,
+        context: PythonTypeRefContext.EXCEPT_TYPE,
+        ownerHash,
+        ownerKind,
+        enclosingTypeHash:
+          ownerKind === PythonTypeRefOwnerKind.EXPRESSION
+            ? input.typeByExpressionHash.get(ownerHash) ?? ''
+            : '',
+        scopeHash:
+          ownerKind === PythonTypeRefOwnerKind.EXPRESSION
+            ? input.scopeByExpressionHash.get(ownerHash) ?? ''
+            : '',
+      });
     }
   }
 
