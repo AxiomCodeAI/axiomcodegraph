@@ -20,6 +20,19 @@ export interface TypePositionInput {
   scopeHash: string;
 }
 
+/**
+ * Everything needed to recover the type positions that live inside
+ * EXPRESSIONS rather than declarations.
+ */
+export interface NarrowingInput {
+  rootNode: Parser.SyntaxNode;
+  /** `start:end` byte range -> py_expression hash, as the expression stage mints it. */
+  expressionByByteRange: Map<string, string>;
+  /** py_expression hash -> its scope and enclosing type, for the owning row. */
+  scopeByExpressionHash: Map<string, string>;
+  typeByExpressionHash: Map<string, string>;
+}
+
 export interface TypeReferenceInput {
   positions: TypePositionInput[];
   pyModuleLinkHash: string;
@@ -72,6 +85,146 @@ const ANY_NAMES: ReadonlySet<string> = new Set(['Any']);
 export class PythonTypeReferenceExtractor {
   private references: PyTypeReferenceRegistry[] = [];
   private input!: TypeReferenceInput;
+
+  /**
+   * Type positions that appear inside expressions, not declarations.
+   *
+   * These were entirely absent: on 600 stdlib modules the contexts
+   * ISINSTANCE_TYPE, ISSUBCLASS_TYPE and RAISE_TYPE were emitted ZERO times,
+   * and so was the owner kind EXPRESSION, while `isinstance(x, Foo)` and
+   * `raise ValueError(...)` appear in nearly every file. They are declared in
+   * the enums, so nothing about the schema was waiting on a decision -- the
+   * facts were simply never produced.
+   *
+   * They matter more than their column count suggests. A receiver whose type is
+   * unknowable from its declaration is often pinned exactly once by an
+   * `isinstance` guard, and that guard is the only static evidence there will
+   * ever be. Emitting it turns a receiver that no join could resolve into one
+   * that can be, without inventing anything: the reference is resolved by the
+   * same pass that resolves an annotation, so it either names a type in the
+   * corpus or stays empty.
+   *
+   * The owner is the CALL expression rather than the narrowed variable. Both
+   * are defensible, but the call carries the position, and a consumer that
+   * wants the variable can read the call's first argument -- whereas owning by
+   * the variable would throw away WHERE the narrowing holds, which is the part
+   * that makes it sound to use.
+   */
+  collectNarrowingPositions(input: NarrowingInput): TypePositionInput[] {
+    const positions: TypePositionInput[] = [];
+    this.walkNarrowing(input.rootNode, input, positions);
+    return positions;
+  }
+
+  private walkNarrowing(
+    node: Parser.SyntaxNode,
+    input: NarrowingInput,
+    positions: TypePositionInput[]
+  ): void {
+    if (node.type === 'call') {
+      const callee = node.childForFieldName('function');
+      const name = callee && callee.type === 'identifier' ? callee.text : '';
+      if (name === 'isinstance' || name === 'issubclass') {
+        const args = node.childForFieldName('arguments');
+        const second = args ? this.positionalArgument(args, 1) : null;
+        if (second) {
+          const owner = input.expressionByByteRange.get(`${node.startIndex}:${node.endIndex}`);
+          if (owner !== undefined) {
+            const context =
+              name === 'isinstance'
+                ? PythonTypeRefContext.ISINSTANCE_TYPE
+                : PythonTypeRefContext.ISSUBCLASS_TYPE;
+            // `isinstance(x, (A, B))` is a tuple of alternatives, and each is a
+            // separate candidate type rather than one composite type. Flattening
+            // keeps every alternative individually resolvable.
+            for (const candidate of this.tupleAlternatives(second)) {
+              positions.push({
+                node: candidate,
+                context,
+                ownerHash: owner,
+                ownerKind: PythonTypeRefOwnerKind.EXPRESSION,
+                enclosingTypeHash: input.typeByExpressionHash.get(owner) ?? '',
+                scopeHash: input.scopeByExpressionHash.get(owner) ?? '',
+              });
+            }
+          }
+        }
+      }
+    }
+
+    if (node.type === 'raise_statement') {
+      const raised = node.namedChild(0);
+      if (raised) {
+        // `raise ValueError(...)` names the type through the callee; `raise err`
+        // and `raise ValueError` name it directly.
+        const typeNode =
+          raised.type === 'call' ? raised.childForFieldName('function') : raised;
+        const ownerNode = raised;
+        const owner = input.expressionByByteRange.get(
+          `${ownerNode.startIndex}:${ownerNode.endIndex}`
+        );
+        if (typeNode && owner !== undefined) {
+          positions.push({
+            node: typeNode,
+            context: PythonTypeRefContext.RAISE_TYPE,
+            ownerHash: owner,
+            ownerKind: PythonTypeRefOwnerKind.EXPRESSION,
+            enclosingTypeHash: input.typeByExpressionHash.get(owner) ?? '',
+            scopeHash: input.scopeByExpressionHash.get(owner) ?? '',
+          });
+        }
+      }
+    }
+
+    for (let index = 0; index < node.namedChildCount; index += 1) {
+      const child = node.namedChild(index);
+      if (child) {
+        this.walkNarrowing(child, input, positions);
+      }
+    }
+  }
+
+  /** The nth POSITIONAL argument, skipping keywords and splats. */
+  private positionalArgument(args: Parser.SyntaxNode, wanted: number): Parser.SyntaxNode | null {
+    let seen = 0;
+    for (let index = 0; index < args.namedChildCount; index += 1) {
+      const child = args.namedChild(index);
+      if (!child || child.isExtra) {
+        continue;
+      }
+      if (
+        child.type === 'keyword_argument' ||
+        child.type === 'list_splat' ||
+        child.type === 'dictionary_splat'
+      ) {
+        continue;
+      }
+      if (seen === wanted) {
+        return child;
+      }
+      seen += 1;
+    }
+    return null;
+  }
+
+  /** The members of `(A, B)`, or the node itself when it is not a tuple. */
+  private tupleAlternatives(node: Parser.SyntaxNode): Parser.SyntaxNode[] {
+    const inner = this.unwrap(node);
+    if (!inner) {
+      return [];
+    }
+    if (inner.type !== 'tuple') {
+      return [inner];
+    }
+    const members: Parser.SyntaxNode[] = [];
+    for (let index = 0; index < inner.namedChildCount; index += 1) {
+      const child = inner.namedChild(index);
+      if (child && !child.isExtra) {
+        members.push(child);
+      }
+    }
+    return members;
+  }
 
   extract(input: TypeReferenceInput): PyTypeReferenceRegistry[] {
     this.input = input;

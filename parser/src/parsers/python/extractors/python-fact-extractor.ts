@@ -298,8 +298,25 @@ export class PythonFactExtractor {
     // Intra-module resolution runs last, once every entity it can point at
     // exists. Cross-module resolution is the project pass's job: it needs the
     // module graph, which a single-file extraction does not have.
+    // Positions that live inside EXPRESSIONS -- `isinstance(x, Foo)`,
+    // `raise ValueError(...)` -- are collected here rather than in the
+    // declaration walk, because they are owned by py_expression rows and those
+    // do not exist until the expression stage has run.
+    const scopeByExpressionHash = new Map<string, string>();
+    const typeByExpressionHash = new Map<string, string>();
+    for (const expression of expressionStage.expressions) {
+      scopeByExpressionHash.set(expression.getHash(), expression.getPyScopeLinkHash());
+      typeByExpressionHash.set(expression.getHash(), expression.getPyTypeLinkHash());
+    }
+    const narrowingPositions = this.typeReferenceExtractor.collectNarrowingPositions({
+      rootNode: scopeStage.rootNode,
+      expressionByByteRange: expressionStage.expressionByByteRange,
+      scopeByExpressionHash,
+      typeByExpressionHash,
+    });
+
     const typeReferences = this.typeReferenceExtractor.extract({
-      positions: declarations.typePositions,
+      positions: [...declarations.typePositions, ...narrowingPositions],
       pyModuleLinkHash: scopeStage.module.getHash(),
       serviceVersionLinkHash: input.serviceVersionLinkHash,
     });
