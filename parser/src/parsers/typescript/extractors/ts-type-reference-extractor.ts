@@ -74,6 +74,24 @@ export class TsTypeReferenceExtractor {
    * inside type nodes. 1,337 `infer` and 605 mapped types measured, so this is
    * not a corner: without the hook, 1,942 declarations have no row.
    */
+  /**
+   * Called for every MEMBER of an anonymous type literal.
+   *
+   * `{ toCsv(): string }` declares a method that is a real call target — `r.toCsv()`
+   * resolves to it — and a type literal has no `ts_type` row for the member to
+   * hang off, so nothing else in the walk reaches it. Measured on this
+   * repository: 1,052 of 20,313 declaration-bearing nodes had no row, and every
+   * one of them was a type-literal member or a parameter of one.
+   *
+   * Fired from here rather than from the declaration walk because a type literal
+   * can be written anywhere a type can — an annotation, a type alias RHS, a
+   * union member, a type argument — and this is the only traversal that visits
+   * all of those.
+   */
+  onTypeLiteralMember:
+    | ((member: ts.TypeElement, typeLiteralReferenceHash: string) => void)
+    | undefined;
+
   onTypeLevelParameter:
     | ((
         typeParameter: ts.TypeParameterDeclaration,
@@ -160,6 +178,11 @@ export class TsTypeReferenceExtractor {
     this.rows.push(row);
     if (this.onFunctionType && (ts.isFunctionTypeNode(node) || ts.isConstructorTypeNode(node))) {
       this.onFunctionType(node);
+    }
+    if (this.onTypeLiteralMember && ts.isTypeLiteralNode(node)) {
+      for (const member of node.members) {
+        this.onTypeLiteralMember(member, row.getHash());
+      }
     }
     if (this.onTypeLevelParameter) {
       if (ts.isMappedTypeNode(node)) {

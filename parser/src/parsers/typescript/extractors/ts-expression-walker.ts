@@ -188,10 +188,17 @@ export class TsExpressionWalker {
    * factories, and nothing about the output looked wrong: the rows that were
    * emitted were correct, there were just fewer of them.
    */
-  private root(node: ts.Expression | undefined, rootContext: TsRootContext): void {
-    if (!node) {
+  private root(nodeIn: ts.Expression | undefined, rootContext: TsRootContext): void {
+    if (!nodeIn) {
       return;
     }
+    // UNWRAP FIRST. Parentheses produce no expression row — they are
+    // punctuation — so a tree rooted at one is rooted at nothing and dies
+    // before its children are enqueued. `return ( a && b.c() )`, `if ((x))`
+    // and `const y = (f())` all lost their ENTIRE tree, which is why the
+    // decorator path already unwrapped explicitly. Doing it here makes that
+    // special case unnecessary and closes every other position at once.
+    const node = unwrapParenthesesExpression(nodeIn);
     const hash = this.options.extractor.extractRoot(node, this.ownerFor(node), rootContext);
     this.rootHashByNode.set(nodeId(node, this.sf), hash);
     this.descend(node);
@@ -442,8 +449,7 @@ export class TsExpressionWalker {
       // `@(record("x"))` has been legal since TypeScript 5.0. The parentheses
       // are punctuation and produce no row, so a tree rooted at them would be
       // rooted at nothing and the call inside would never be emitted.
-      this.root(unwrapParenthesesExpression(decorator.expression),
-        TsRootContext.DECORATOR_EXPRESSION);
+      this.root(decorator.expression, TsRootContext.DECORATOR_EXPRESSION);
     }
   }
 

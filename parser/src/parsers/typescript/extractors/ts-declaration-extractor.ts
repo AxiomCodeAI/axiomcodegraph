@@ -51,7 +51,7 @@ import {
   TsVariableInitializerKind,
   TsVariableScopeKind,
 } from '@/enums/typescript/variables';
-import { BinderResult, BoundDeclaration, hasModifier, memberName, nodeId } from
+import { BinderResult, BoundDeclaration, escapeName, hasModifier, memberName, nodeId } from
   '@/parsers/typescript/extractors/ts-binder';
 import {
   qualifiedPathOf,
@@ -199,10 +199,191 @@ export class TsDeclarationExtractor {
     // declaration walk reaches — they are inside type NODES. Minting them from
     // the type-reference walk is what guarantees every one gets a row, wherever
     // it was written.
+    // A type literal's members are declarations with no `ts_type` to own them,
+    // and they are real call targets. See `emitAnonymousMember`.
+    this.typeReferenceExtractor.onTypeLiteralMember = (member, typeLiteralHash) => {
+      this.emitAnonymousMember(member, typeLiteralHash);
+    };
     this.typeReferenceExtractor.onTypeLevelParameter = (typeParameter, ownerHash, ownerKind) => {
       this.emitTypeLevelParameter(typeParameter, ownerHash, ownerKind,
         this.options.moduleHash);
     };
+  }
+
+  /** Anonymous members already emitted, so a shared type node is not counted twice. */
+  private readonly anonymousMembers = new Set<string>();
+
+  /**
+   * A member of an anonymous TYPE LITERAL — `{ toCsv(): string; name: string }`.
+   *
+   * ## Why these need rows
+   *
+   * `rows: { toCsv(): string }[]` followed by `r.toCsv()` is a call with a real
+   * target, and the target is this member. A type literal has no `ts_type` row —
+   * 5,015 of them measured, none with a name, a declaration or a merge identity —
+   * so the member has no owner to hang off and no other pass reaches it. It was
+   * the single cause of the entire syntactic-recall shortfall: 1,052 of 20,313
+   * declaration-bearing nodes on this repository, all of them type-literal
+   * members or their parameters.
+   *
+   * ## What these rows can and cannot carry
+   *
+   * `tsTypeLinkHash` is `""`, because the owner genuinely is not a `ts_type`.
+   * The annotation travels as TEXT in `fieldTypeName` / `returnTypeName`, which
+   * is the same mechanism `ts_call_site.receiverTypeName` uses and the same one
+   * the engine already joins on.
+   *
+   * What is NOT here is an FK from the type literal to its members. No column
+   * exists for it: `ts_field.tsTypeLinkHash` points at `ts_type`, and an
+   * anonymous shape has none. Raised with ts-oracle; emitting the rows without
+   * it is still strictly better than emitting nothing, because name, arity,
+   * optionality and position are exactly what a member lookup needs.
+   *
+   * `typeReferenceLinkHash` is left empty ON PURPOSE. The member's annotation is
+   * already in the tree as a `TYPE_ELEMENT` child of the type literal, at the
+   * same position; extracting it again under the member as owner would duplicate
+   * every annotation inside every anonymous shape.
+   */
+  private emitAnonymousMember(member: ts.TypeElement, typeLiteralHash: string): void {
+    const id = nodeId(member, this.sf);
+    if (this.anonymousMembers.has(id)) {
+      return;
+    }
+    this.anonymousMembers.add(id);
+    const startPos = this.sf.getLineAndCharacterOfPosition(member.getStart(this.sf));
+    const endPos = this.sf.getLineAndCharacterOfPosition(member.end);
+    const isOptional = member.questionToken !== undefined;
+    const annotation = (member as { type?: ts.TypeNode }).type;
+    const annotationText = annotation
+      ? EntityUtils.normalizeWhitespace(annotation.getText(this.sf))
+      : '';
+    const ownerText = EntityUtils.normalizeWhitespace(
+      member.parent.getText(this.sf)
+    ).slice(0, 120);
+
+    if (ts.isPropertySignature(member) || ts.isIndexSignatureDeclaration(member)) {
+      const isIndex = ts.isIndexSignatureDeclaration(member);
+      const name = isIndex ? '' : memberName(member) ?? '';
+      const row = new TsFieldRegistry({
+        name,
+        fieldTypeName: annotationText,
+        fieldBaseType: baseTypeOf(annotationText),
+        potentialQualifiedName: '',
+        isAmbiguous: false,
+        filePath: this.options.filePath,
+        startLine: startPos.line + 1,
+        endLine: endPos.line + 1,
+        // No `ts_type` owner exists for an anonymous shape, and inventing one
+        // would create a type that the source does not declare.
+        tsTypeLinkHash: '',
+        ownerTypeName: ownerText,
+        ownerQualifiedName: '',
+        fieldAccess: TsFieldAccess.PUBLIC_ACCESS,
+        fieldModifiers: fieldModifiersOf(member, isOptional),
+        memberKind: isIndex ? TsMemberKind.INDEX_SIGNATURE : TsMemberKind.PROPERTY_SIGNATURE,
+        tsModuleLinkHash: this.options.moduleHash,
+        isOptional,
+        hasDefiniteAssignment: false,
+        isReadonly: hasModifier(member, ts.SyntaxKind.ReadonlyKeyword),
+        isStatic: false,
+        indexKeyTypeName: isIndex
+          ? indexKeyTypeNameOf(member as ts.IndexSignatureDeclaration, this.sf)
+          : '',
+        isTypeOnly: true,
+        // Keyed off the TYPE LITERAL's own reference hash, which is the only
+        // identity an anonymous shape has. Keying off an empty owner would make
+        // every `name: string` in the program one member.
+        memberGroupKey: EntityUtils.generateEntityHash(
+          ENTITY_IDENTIFIERS.TS_DECLARATION_GROUP,
+          `${typeLiteralHash}||${name}||false`
+        ),
+        startColumn: startPos.character + 1,
+        endColumn: endPos.character + 1,
+        serviceVersionLinkHash: this.options.serviceVersionLinkHash,
+      });
+      this.fields.push(row);
+      this.fieldHashByNode.set(id, row.getHash());
+      this.fieldRowByNode.set(id, row);
+      this.recordFieldPosition(typeLiteralHash, row.getHash());
+      return;
+    }
+
+    if (!ts.isMethodSignature(member) && !ts.isCallSignatureDeclaration(member)
+      && !ts.isConstructSignatureDeclaration(member)) {
+      return;
+    }
+    const methodKind = ts.isMethodSignature(member)
+      ? TsMethodKind.METHOD_SIGNATURE
+      : ts.isCallSignatureDeclaration(member)
+        ? TsMethodKind.CALL_SIGNATURE
+        : TsMethodKind.CONSTRUCT_SIGNATURE;
+    const name = ts.isMethodSignature(member)
+      ? memberName(member) ?? ''
+      : methodKind === TsMethodKind.CALL_SIGNATURE
+        ? TS_ANONYMOUS_METHOD_NAMES.CALL_SIGNATURE
+        : TS_ANONYMOUS_METHOD_NAMES.CONSTRUCT_SIGNATURE;
+    const restIndex = member.parameters.findIndex((p) => p.dotDotDotToken !== undefined);
+    const row = new TsMethodRegistry({
+      name,
+      signature: signatureOf(name, member.parameters, this.sf),
+      detailedSignature: detailedSignatureOf(name, member.parameters, member.type, this.sf),
+      qualifiedName: `${this.options.moduleQualifiedName}#${name}@${startPos.line + 1}:${startPos.character + 1}`,
+      filePath: this.options.filePath,
+      startLine: startPos.line + 1,
+      endLine: endPos.line + 1,
+      tsTypeLinkHash: '',
+      ownerTypeName: ownerText,
+      ownerQualifiedName: '',
+      methodAccess: TsMethodAccess.PUBLIC_ACCESS,
+      methodModifiers: methodModifiersOf(member),
+      returnTypeName: annotationText,
+      isVarArgs: restIndex >= 0,
+      hasReceiverParameter: false,
+      methodKind,
+      parameterCount: member.parameters.length,
+      hasTypeParameters: (member.typeParameters?.length ?? 0) > 0,
+      throwsExceptions: new Set(),
+      enclosingMemberLinkHash: '',
+      tsModuleLinkHash: this.options.moduleHash,
+      declarationGroupKey: '',
+      mergeScopeKey: '',
+      escapedName: escapeName(name),
+      signatureRole: TsSignatureRole.SOLE,
+      overloadIndex: 0,
+      // Can NEVER carry a body under any compiler options, so it must never be
+      // read as the code that runs — while still being a legitimate target.
+      bodyPresence: TsBodyPresence.NO_BODY_INTERFACE,
+      isTypeOnly: true,
+      isAsync: false,
+      isGenerator: false,
+      isAbstract: false,
+      isStatic: false,
+      optionalParameterCount: member.parameters.filter((p) => p.questionToken !== undefined).length,
+      restParameterIndex: restIndex >= 0 ? restIndex : undefined,
+      typeParameterCount: member.typeParameters?.length ?? 0,
+      thisParameterTypeName: '',
+      isTypePredicateReturn: member.type !== undefined && ts.isTypePredicateNode(member.type),
+      startColumn: startPos.character + 1,
+      endColumn: endPos.character + 1,
+      serviceVersionLinkHash: this.options.serviceVersionLinkHash,
+    });
+    this.methods.push(row);
+    this.methodHashByNode.set(id, row.getHash());
+    this.methodRowByNode.set(id, row);
+    // The PARAMETERS of an anonymous signature were the other half of the gap:
+    // 48 on this repository, every one a parameter of a type-literal method.
+    this.emitParameters(member.parameters, row, {
+      typeHash: '',
+      methodHash: row.getHash(),
+      blockHash: '',
+      ownerTypeName: ownerText,
+      ownerQualifiedName: this.options.moduleQualifiedName,
+      namePath: [],
+      scopeDepth: 0,
+      isAmbient: true,
+      moduleHash: this.options.moduleHash,
+      moduleQualifiedName: this.options.moduleQualifiedName,
+    });
   }
 
   /** Every function type already given a `ts_method` row, so none is minted twice. */
@@ -282,6 +463,22 @@ export class TsDeclarationExtractor {
     this.methods.push(row);
     this.methodHashByNode.set(id, row.getHash());
     this.methodRowByNode.set(id, row);
+    const signatureContext: EmitContext = {
+      typeHash: '',
+      methodHash: row.getHash(),
+      blockHash: '',
+      ownerTypeName: '',
+      ownerQualifiedName: this.options.moduleQualifiedName,
+      namePath: [],
+      scopeDepth: 0,
+      isAmbient: true,
+      moduleHash: this.options.moduleHash,
+      moduleQualifiedName: this.options.moduleQualifiedName,
+    };
+    // The PARAMETERS of a function type. They were the last of the syntactic
+    // recall gap: a signature row with no parameter rows cannot be arity-matched,
+    // so a call through `(node: N, ctx: C) => boolean` had a target and no shape.
+    this.emitParameters(node.parameters, row, signatureContext, false);
     // A function type can be generic: `<T>(x: T) => T`. Its parameters belong to
     // this signature row, with METHOD_TYPE_PARAM_BOUND bounds like any other
     // function-shaped declaration's.
@@ -289,18 +486,7 @@ export class TsDeclarationExtractor {
       isConstructor
         ? TsTypeParameterOwnerKind.CONSTRUCT_SIGNATURE
         : TsTypeParameterOwnerKind.FUNCTION,
-      {
-        typeHash: '',
-        methodHash: row.getHash(),
-        blockHash: '',
-        ownerTypeName: '',
-        ownerQualifiedName: this.options.moduleQualifiedName,
-        namePath: [],
-        scopeDepth: 0,
-        isAmbient: true,
-        moduleHash: this.options.moduleHash,
-        moduleQualifiedName: this.options.moduleQualifiedName,
-      },
+      signatureContext,
       TsTypeRefContext.METHOD_TYPE_PARAM_BOUND);
   }
 
@@ -1245,10 +1431,22 @@ export class TsDeclarationExtractor {
     return row.getHash();
   }
 
+  /**
+   * @param extractTypeReferences
+   *   `false` when the parameter annotations are ALREADY in the type tree.
+   *
+   *   A `FunctionType` node's `plannedChildren` emits one `METHOD_PARAM` child
+   *   per parameter, owned by the type reference. Extracting them again under
+   *   the parameter row would duplicate every annotation inside every function
+   *   type — 21,956 of them measured in one corpus — so the row is emitted and
+   *   the annotation is not re-walked. The text is still on the row, and the
+   *   tree child sits at the same position and ordinal.
+   */
   private emitParameters(
     parameters: readonly ts.ParameterDeclaration[],
     method: TsMethodRegistry,
-    context: EmitContext
+    context: EmitContext,
+    extractTypeReferences = true
   ): void {
     let position = 0;
     for (const parameter of parameters) {
@@ -1314,7 +1512,7 @@ export class TsDeclarationExtractor {
       // experimentalDecorators these are where DI tokens and taint sources live.
       this.visitDecoratorDeclarations(parameter, context);
 
-      if (parameter.type) {
+      if (parameter.type && extractTypeReferences) {
         row.setTypeReferenceLinkHash(
           this.typeReferenceExtractor.extract(parameter.type, TsTypeRefContext.METHOD_PARAM, {
             ownerHash: row.getHash(),
@@ -1329,6 +1527,17 @@ export class TsDeclarationExtractor {
           node: parameter.initializer,
           link: (hash) => row.setTsExpressionLinkHash(hash),
         });
+        // A default value can BE a declaration: `getUrlParams = () => ({})`.
+        // Same class as the curried arrow — a callable with an expression row
+        // and no `ts_method` — and the same helper closes it.
+        this.emitDeclarationOrDescend(parameter.initializer, context);
+      }
+      // A DESTRUCTURED parameter carries its defaults on the binding elements,
+      // not on the parameter: `constructor({ getUrlParams = () => ({}) })` has
+      // no `parameter.initializer` at all. Every element's default is walked,
+      // recursively, because a pattern can nest.
+      if (!ts.isIdentifier(parameter.name)) {
+        this.emitBindingPatternDefaults(parameter.name, context);
       }
       if (isParameterProperty) {
         // `constructor(private x: T)` declares a FIELD as well as a parameter.
@@ -1337,6 +1546,22 @@ export class TsDeclarationExtractor {
         this.emitParameterProperty(parameter, row, context, typeName);
       }
       position += 1;
+    }
+  }
+
+  /** Defaults on binding-pattern elements, at any nesting depth. */
+  private emitBindingPatternDefaults(name: ts.BindingName, context: EmitContext): void {
+    if (ts.isIdentifier(name)) {
+      return;
+    }
+    for (const element of name.elements) {
+      if (ts.isOmittedExpression(element)) {
+        continue;
+      }
+      if (element.initializer) {
+        this.emitDeclarationOrDescend(element.initializer, context);
+      }
+      this.emitBindingPatternDefaults(element.name, context);
     }
   }
 
