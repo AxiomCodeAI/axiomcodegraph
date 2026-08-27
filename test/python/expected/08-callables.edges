@@ -1,10 +1,10 @@
 boundary_lib	METHOD_CALL	main.main -> external:functools.partial
 boundary_lib	SIMPLE_CALL	main.main -> builtin:print
 known_edge	CHAINED_CALL	main.main -> main.Holder.use
-known_edge	DYNAMIC_CALL	main.main -> main.<lambda>
 known_edge	SELF_CALL	main.Holder.use -> main.add
 known_edge	SIMPLE_CALL	main.<module> -> main.main
 known_edge	SIMPLE_CALL	main.main -> main.Holder.__init__
 known_edge	SIMPLE_CALL	main.main -> main.Multiplier.__call__
 known_edge	SIMPLE_CALL	main.main -> main.Multiplier.__init__
 known_edge	SIMPLE_CALL	main.main -> main.add
+known_edge	SUBSCRIPT_CALL	main.main -> main.<lambda>

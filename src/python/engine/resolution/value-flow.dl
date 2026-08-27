@@ -220,3 +220,35 @@ binding_value_method(p, b, m) :-
     call_of_expr(val, site),
     partial_target(site, m),
     p = "client".
+
+// ── param_arg_class(ParamHash, TypeHash) — a CLASS OBJECT reaching a parameter ─
+// Distinct from param_arg_type on purpose: param_arg_type means "an INSTANCE of this
+// class arrives here", param_arg_class means "the class ITSELF arrives here". Calling
+// through the first dispatches; calling through the second CONSTRUCTS. Conflating them
+// turns `cls()` into a method call on an instance.
+param_arg_class(ph, t) :-
+    call_arg_offset(site, m, off),
+    !call_flow_imprecise(site),
+    call_arg(site, posStr, a),
+    param_decl("client", _, ppos, _, m, ph),
+    to_number(ppos) = to_number(posStr) + off,
+    expr_type_class_object("client", a, t).
+
+// ── a parameter holding a class object denotes that class ────────────────────
+expr_type_class_object("client", e, t) :- expr_names_param("client", e, ph), param_arg_class(ph, t).
+
+// ── binding_value_class(Prov, BindingHash, TypeHash) ─────────────────────────
+// `cls = SERIALIZERS[name]` — a single-binding local holding a CLASS OBJECT, which the
+// next line CONSTRUCTS. Without this the registry lookup resolved (the subscript knows the
+// class) but the name that received it did not, so `cls()` still had no target: the value
+// reached the binding and stopped there.
+binding_value_class(p, b, t) :-
+    binding_rebinding(p, "1", _, _, b),
+    expr_binding(p, b, "STORE", tgt),
+    assign_pair(p, tgt, val),
+    expr_type_class_object(p, val, t).
+
+expr_type_class_object(p, e, t) :-
+    expr_binding(p, bref, ctx, e), ctx != "STORE",
+    binding_lookup(p, bref, b),
+    binding_value_class(p, b, t).

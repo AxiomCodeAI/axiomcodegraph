@@ -39,6 +39,15 @@
 // module, the line as written, and literalValue = the base's rightmost identifier. Two
 // distinct positional bases of one class cannot share a position, and two class
 // statements cannot share a line, so (module, line, position, simple name) is unique.
+// THE SANCTIONED PATH, and it replaces a reconstruction. py_type_base deliberately has no
+// pyExpressionLinkHash — it carries pyTypeReferenceLinkHash on every row and reaches its
+// expression THROUGH the reference, because a second direct edge to the same node could
+// disagree with the first. `py_type_reference.pyExpressionLinkHash` is populated as of
+// Parser@7ed5111, so the (module, line, position, simple name) reconstruction this rule
+// used before — sound, but fragile if a positional base ever shared a name with a keyword
+// value — is no longer needed.
+base_expr(p, bh, e) :- type_base_ref(p, bh, r), type_ref_expr(p, r, e).
+// The reconstruction is KEPT as a fallback, for an IR predating that fill.
 base_expr(p, bh, e) :-
     type_base_slot(p, _, pos, _, simple, _, bh),
     type_base_span(p, bh, mod, sl),

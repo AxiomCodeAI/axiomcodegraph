@@ -35,7 +35,7 @@ mro_lookup_demand("client", t, n) :- call_recv_type(site, t), call_name(site, n)
 // defs (helpers.build_pipeline's `register` / `normalise` / `summarise`), and the
 // DECORATOR_CALL site of a parameterised decorator (`@audit("child")` -> models.audit).
 expr_call_candidate(site, m) :-
-    call_recv_kind(site, "NONE"),
+    call_callee_is_value(site),
     call_callee_expr(site, callee),
     expr_denotes_method("client", callee, m).
 
@@ -46,7 +46,7 @@ expr_call_candidate(site, m) :-
 // own and constructs through Base.__init__, which is a real edge a name-only resolver
 // never sees.
 call_constructs_type(site, t) :-
-    call_recv_kind(site, "NONE"),
+    call_callee_is_value(site),
     call_callee_expr(site, callee),
     expr_type_class_object("client", callee, t).
 expr_call_candidate(site, m) :- call_constructs_type(site, t), type_constructor("client", t, m).
@@ -172,12 +172,12 @@ expr_call_candidate(site, m) :-
 // occur: a bare name holding an instance (`m(5)`) and a construction called directly
 // (`Delegator(target)(1, 2)`).
 expr_call_candidate(site, m) :-
-    call_recv_kind(site, "NONE"),
+    call_callee_is_value(site),
     call_callee_expr(site, callee),
     expr_type("client", callee, t),
     type_call_target("client", t, m).
 expr_call_candidate(site, m) :-
-    call_recv_kind(site, "NONE"),
+    call_callee_is_value(site),
     call_callee_expr(site, callee),
     call_of_expr(callee, inner), call_constructs_type(inner, t),
     type_call_target("client", t, m).
@@ -237,7 +237,7 @@ call_unresolvable(site, "dynamic_call") :- call_is_dynamic(site).
 //     is a free variable bound to `middle`'s parameter, and the only sound statement
 //     about it is that it is whatever the caller passed.
 call_unresolvable(site, "callee_is_parameter") :-
-    call_recv_kind(site, "NONE"),
+    call_callee_is_value(site),
     call_callee_expr(site, callee),
     expr_names_param("client", callee, ph),
     !param_arg_method(ph, _), !param_arg_type(ph, _).
@@ -255,7 +255,7 @@ call_unresolvable(site, "escape_hatch") :-
     call_recv_type(site, t), call_name(site, n), mro_lookup_escape_hatch("client", t, n).
 // (f) the callee name resolved to nothing at all and is not a known builtin.
 call_unresolvable(site, "unbound_name") :-
-    call_recv_kind(site, "NONE"),
+    call_callee_is_value(site),
     call_callee_expr(site, callee),
     expr_binding("client", b, _, callee),
     binding_lookup_unresolved("client", b, n, _),
@@ -270,7 +270,7 @@ call_unresolvable(site, "unbound_name") :-
 // (a) a bare name that resolved to no client declaration but IS a catalogued builtin.
 //     `super()` x 7 on linkage-sample.
 call_hits_builtin(site, label) :-
-    call_recv_kind(site, "NONE"),
+    call_callee_is_value(site),
     call_callee_expr(site, callee),
     expr_binding("client", b, _, callee),
     binding_lookup_unresolved("client", b, n, _),
@@ -311,7 +311,7 @@ call_unresolvable(site, "construction_of_dynamically_extended_class") :-
 // at that point. Reported separately so "we cannot see the body" and "nobody can know
 // what runs" are not the same row.
 call_hits_dynamic_builtin(site, n) :-
-    call_recv_kind(site, "NONE"),
+    call_callee_is_value(site),
     call_callee_expr(site, callee),
     expr_binding("client", b, _, callee),
     binding_lookup_unresolved("client", b, n, _),

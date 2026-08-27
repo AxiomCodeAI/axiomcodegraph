@@ -52,6 +52,10 @@ element_type_of(p, src, t) :- expr_names_param(p, src, ph), param_element_type(p
 element_type_of("client", src, t) :-
     call_of_expr(src, site), expr_call_candidate(site, m),
     method_declared_return_element("client", m, t).
+// (d2) a call whose callee declares `-> List[T]` and whose receiver BINDS T
+//      (resolution/generics.dl). This is what makes one inherited generic method return
+//      Items for an ItemStore and Orders for an OrderStore.
+element_type_of("client", src, t) :- call_of_expr(src, site), call_returns_element(site, t).
 // (e) a LIST / SET / TUPLE display written in place: the element type is the type of its
 //     ELEMENT children. Exact, and it is what `[LineItem(l["key"], l["qty"]) for l in ...]`
 //     produces.

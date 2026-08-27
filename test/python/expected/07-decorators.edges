@@ -15,7 +15,6 @@ known_edge	DECORATOR_BARE	main.<module> -> main.passthrough
 known_edge	DECORATOR_BARE	main.<module> -> main.replacing
 known_edge	DECORATOR_BARE	main.<module> -> main.wrapping
 known_edge	DECORATOR_CALL	main.<module> -> main.route
-known_edge	DYNAMIC_CALL	main.main -> main.handler
 known_edge	SIMPLE_CALL	main.<module> -> main.main
 known_edge	SIMPLE_CALL	main.inner_deco.<locals>.inner_w -> main.stacked
 known_edge	SIMPLE_CALL	main.main -> main.outer_deco.<locals>.outer_w
@@ -24,3 +23,4 @@ known_edge	SIMPLE_CALL	main.main -> main.replacing.<locals>.substitute
 known_edge	SIMPLE_CALL	main.main -> main.wrapping.<locals>.wrapper
 known_edge	SIMPLE_CALL	main.outer_deco.<locals>.outer_w -> main.inner_deco.<locals>.inner_w
 known_edge	SIMPLE_CALL	main.wrapping.<locals>.wrapper -> main.wrapped_target
+known_edge	SUBSCRIPT_CALL	main.main -> main.handler

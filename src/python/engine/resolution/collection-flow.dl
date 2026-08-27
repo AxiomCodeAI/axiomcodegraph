@@ -65,19 +65,26 @@ expr_key_text(p, e, v) :- expr_literal_text(p, e, v).
 expr_key_text(p, e, v) :- expr_names_param(p, e, ph), param_arg_literal(ph, v), p = "client".
 
 // ── param_arg_literal(ParamHash, Text) — a literal reaching a parameter ──────
+// expr_key_text, NOT expr_literal_text: a route string can be handed from one parameter
+// to the next before it is used as a key. `recording.send("get_item", ...)` puts the
+// literal on RecordingTransport.send's `route`, which forwards it to
+// InProcessTransport.send's `route`, which is where the subscript happens. Reading only
+// direct literal arguments stopped at the first hop and the registry resolved to one of
+// its three entries instead of all three. Mutually recursive with expr_key_text, and
+// positive, so it is the transitive closure of literal flow.
 param_arg_literal(ph, v) :-
     call_arg_offset(site, m, off),
     !call_flow_imprecise(site),
     call_arg(site, posStr, a),
     param_decl("client", _, ppos, _, m, ph),
     to_number(ppos) = to_number(posStr) + off,
-    expr_literal_text("client", a, v).
+    expr_key_text("client", a, v).
 param_arg_literal(ph, v) :-
     expr_call_candidate(site, m),
     !call_flow_imprecise(site),
     call_kwarg(site, kw, a), kw != "",
     param_decl("client", kw, _, _, m, ph),
-    expr_literal_text("client", a, v).
+    expr_key_text("client", a, v).
 
 // ============================================================================
 // DICT ENTRIES — from a literal, and from a subscript store
@@ -174,3 +181,134 @@ subscript_dispatch_incomplete(site) :-
     expr_binding("client", ob, _, obj),
     binding_lookup("client", ob, b),
     dict_key_unknown("client", b, _).
+
+// ============================================================================
+// A REGISTRY OF CLASSES — the serializer/plugin table
+//
+// `SERIALIZERS[name] = cls` inside a decorator, then `SERIALIZERS[name]()` at the call
+// site. Same machinery as the callable registry above, but the stored value is a CLASS, so
+// reading it out yields a class object and calling it CONSTRUCTS.
+// ============================================================================
+
+// ── binding_dict_entry_type(Prov, BindingHash, KeyText, TypeHash) ────────────
+binding_dict_entry_type(p, b, k, t) :-
+    binding_rebinding(p, "1", _, _, b),
+    expr_binding(p, b, "STORE", tgt),
+    assign_pair(p, tgt, val),
+    dict_literal_entry(p, val, k, ve),
+    expr_type_class_object(p, ve, t).
+binding_dict_entry_type(p, b, k, t) :-
+    binding_rebinding(p, "1", _, _, b),
+    dict_store_entry(p, b, k, ve),
+    expr_type_class_object(p, ve, t).
+
+// ── a subscript with a pinned key into a class registry denotes that class ────
+expr_type_class_object(p, e, t) :-
+    expr_node(p, "SUBSCRIPT", _, _, e),
+    expr_parent(p, e, "SUBSCRIPT_OBJECT", _, obj),
+    expr_parent(p, e, "SUBSCRIPT_INDEX", _, idx),
+    expr_key_text(p, idx, k),
+    expr_binding(p, ob, ctx, obj), ctx != "STORE",
+    binding_lookup(p, ob, b),
+    binding_dict_entry_type(p, b, k, t).
+
+// ============================================================================
+// A REGISTRY HELD ON AN ATTRIBUTE — the last hop of the cross-service chain
+//
+//     def routes(self):                       # inventory_service/handlers.py
+//         return {"price_quote": self.price_quote, ...}
+//     InProcessTransport(inv_handlers.routes())
+//     def send(self, route, payload):         # shared/transport.py
+//         handler = self._registry[route]
+//         return handler(payload)
+//
+// Four hops: a dict literal of BOUND METHODS, returned from a method, passed as a
+// constructor argument, stored on an attribute, and indexed by a parameter whose literal
+// value flows in from the caller. Every hop is already a mechanism this engine has; what
+// was missing is that dict entries were only ever keyed on a BINDING, so a container held
+// on `self` had none.
+//
+// MEASURED: this was the single remaining missing edge on the two-service project —
+// `InProcessTransport.send -> InventoryHandlers.price_quote`, the far end of the
+// orders -> transport -> inventory chain, and the one the project exists to test.
+// ============================================================================
+
+// ── expr_denotes_bound_method(Prov, ExprHash, MethodHash) ────────────────────
+// `self.price_quote` used as a VALUE rather than called. An attribute access whose name
+// resolves through the receiver's MRO to a method, with NO call wrapping it — which is
+// exactly what distinguishes storing a method from invoking one.
+expr_denotes_bound_method(p, e, m) :-
+    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e),
+    !call_callee_expr(_, e),
+    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_type(p, obj, t),
+    mro_lookup(p, t, n, m).
+// A DECORATED method stored as a value: `{"get_item": self.get_item}` where get_item is
+// @retry-decorated. The registry holds the DECORATOR'S OUTPUT, so routing to that key
+// reaches the wrapper — which is what actually runs. mro_lookup excludes replaced
+// definitions by design; mro_lookup_decorated is where their real target lives.
+expr_denotes_bound_method(p, e, m) :-
+    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e),
+    !call_callee_expr(_, e),
+    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_type(p, obj, t),
+    mro_lookup_decorated(p, t, n, m).
+expr_denotes_method(p, e, m) :- expr_denotes_bound_method(p, e, m).
+
+// ── method_returns_dict_entry(Prov, MethodHash, KeyText, TargetMethodHash) ───
+// A method whose return value is a dict LITERAL mapping literal keys to callables.
+method_returns_dict_entry(p, m, k, target) :-
+    method_return_value_expr(p, m, e),
+    dict_literal_entry(p, e, k, ve),
+    expr_denotes_method(p, ve, target).
+method_returns_dict_entry(p, m, k, target) :-
+    method_return_value_expr(p, m, e),
+    dict_literal_entry(p, e, k, ve),
+    expr_lambda_method(p, ve, target).
+
+// ── field_dict_entry(Prov, FieldHash, KeyText, TargetMethodHash) ─────────────
+// The attribute was written from a parameter, and some call site passed that parameter a
+// registry dict. Sound over the union of call sites, which is the same closed-world
+// argument every other flow rule here makes.
+field_dict_entry(p, f, k, target) :-
+    field_write_value(p, f, val),
+    expr_names_param(p, val, ph),
+    param_arg_dict_entry(ph, k, target),
+    p = "client".
+
+// ── param_arg_dict_entry(ParamHash, KeyText, TargetMethodHash) ───────────────
+// A registry dict reaching a parameter — either written inline at the call site, or
+// returned by the call that produced the argument.
+param_arg_dict_entry(ph, k, target) :-
+    call_arg_offset(site, m, off),
+    !call_flow_imprecise(site),
+    call_arg(site, posStr, a),
+    param_decl("client", _, ppos, _, m, ph),
+    to_number(ppos) = to_number(posStr) + off,
+    dict_literal_entry("client", a, k, ve),
+    expr_denotes_method("client", ve, target).
+param_arg_dict_entry(ph, k, target) :-
+    call_arg_offset(site, m, off),
+    !call_flow_imprecise(site),
+    call_arg(site, posStr, a),
+    param_decl("client", _, ppos, _, m, ph),
+    to_number(ppos) = to_number(posStr) + off,
+    call_of_expr(a, inner), expr_call_candidate(inner, producer),
+    method_returns_dict_entry("client", producer, k, target).
+
+// ── indexing a registry held on an attribute ─────────────────────────────────
+expr_denotes_method(p, e, target) :-
+    expr_node(p, "SUBSCRIPT", _, _, e),
+    expr_parent(p, e, "SUBSCRIPT_OBJECT", _, obj),
+    expr_parent(p, e, "SUBSCRIPT_INDEX", _, idx),
+    expr_key_text(p, idx, k),
+    expr_attr_of_self(p, obj, n, owner),
+    type_attr_field(p, owner, n, f),
+    field_dict_entry(p, f, k, target).
+
+// ── and the local that receives it: `handler = self._registry[route]` ────────
+binding_value_method(p, b, target) :-
+    binding_rebinding(p, "1", _, _, b),
+    expr_binding(p, b, "STORE", tgt),
+    assign_pair(p, tgt, val),
+    expr_denotes_method(p, val, target).

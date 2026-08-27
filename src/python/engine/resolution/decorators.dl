@@ -204,3 +204,43 @@ param_arg_method(ph, in) :-
 decorator_chain_broken(m, d) :-
     deco_stage(m, k, _), deco_at(m, k, d), !deco_stage_advanced(m, k).
 deco_stage_advanced(m, k) :- deco_stage(m, k1, _), k = k1 - 1.
+
+// ============================================================================
+// DECORATED CLASSES — `@serializer("item") class ItemSerializer(...)`
+//
+// 214 decorated classes in the measured corpus, and the shape is the backbone of every
+// plugin/serializer/model registry: the decorator records the CLASS in a table and returns
+// it unchanged, and dispatch later happens by looking the table up and CONSTRUCTING.
+//
+// MEASURED on the two-service project: without this, `cls = SERIALIZERS[name]; cls()` in
+// shared/serialization.py had no target, and with it the chain
+//     serialize -> SERIALIZERS["item"] -> ItemSerializer() -> ItemSerializer.to_dict
+// resolves end to end. deco_stage is keyed on method_decorated and so cannot see a class
+// at all; this is the type-shaped twin of it.
+// ============================================================================
+
+// ── deco_stage_type(TypeHash, Order, InputTypeHash) ──────────────────────────
+deco_stage_type(t, 0, t) :- annotation_on("client", _, _, "TYPE_DECLARATION", t, _).
+// The applied callable returns its own first parameter: the class passes through
+// unchanged, which is what a registering decorator does.
+deco_stage_type(t, k1, in) :-
+    deco_stage_type(t, k, in), deco_at(t, k, d), deco_applied(d, f),
+    method_returns_param("client", f, "0"), k1 = k + 1.
+deco_stage_type(t, k1, in) :-
+    deco_stage_type(t, k, in), deco_at(t, k, d),
+    decorator_builtin("client", bk, d), decorator_transparent(bk), k1 = k + 1.
+
+// ── decorated_class_target(TypeHash, TypeHash) ───────────────────────────────
+// What the decorated CLASS NAME finally denotes. A decorator that returns something other
+// than the class (a proxy, a namedtuple replacement) breaks the chain and the name becomes
+// a declared unknown — the same discipline as for functions.
+decorated_class_target(t, out) :-
+    decorator_max_order("client", t, kmax),
+    deco_stage_type(t, kfinal, out), kfinal = kmax + 1.
+
+// ── the decorated CLASS flows into the applied callable's parameter 0 ────────
+// `register(cls)` receives ItemSerializer. This is what lets `SERIALIZERS[name] = cls`
+// know which class it stored.
+param_arg_class(ph, in) :-
+    deco_stage_type(t, k, in), deco_at(t, k, d), deco_applied(d, f),
+    param_decl("client", _, "0", _, f, ph).

@@ -69,17 +69,41 @@ call_dotted(e, d) :- call_decl("client", _, _, d, e, _), d != "".
 // The node that DENOTES the callee.
 // (a) NO RECEIVER — the CALL's CALLEE child: a NAME_REFERENCE (`combine_all(...)`) or a
 //     CLS_REFERENCE (`cls(name)`).
+// (a) A CALLEE CHILD, whatever the receiver shape. Keyed on the ROLE and not on
+//     receiverKind, because those two disagree for a subscript call: `TABLE["double"](21)`
+//     carries receiverKind=SUBSCRIPT (its receiverText is `TABLE`) while still putting the
+//     SUBSCRIPT node under edgeRole=CALLEE. Switching on receiverKind sent that site to
+//     the RECEIVER branch, found no RECEIVER child, and produced no callee at all — the
+//     08-callables golden caught it the moment the parser started emitting SUBSCRIPT_CALL
+//     instead of DYNAMIC_CALL. The role is the reliable signal.
 call_callee_expr(site, callee) :-
-    call_recv_kind(site, "NONE"),
     expr_parent("client", site, "CALLEE", _, callee).
 // (b) WITH A RECEIVER — the CALL's RECEIVER child, which is the WHOLE
 //     ATTRIBUTE_ACCESS (`self.render`, `Base.make_default`, `super().describe`). Note
 //     this is the schema's deliberate choice of role name so Java's
 //     `java_expression(_, "RECEIVER", ...)` pattern ports unchanged; the actual receiver
 //     OBJECT is one level further down, under ATTRIBUTE_OBJECT.
+// (b) otherwise the RECEIVER child, which for a call IS the whole ATTRIBUTE_ACCESS
+//     (`self.render`, `Base.make_default`, `super().describe`) — the schema keeps that
+//     role name so Java's pattern ports unchanged. The actual receiver OBJECT is one level
+//     further down, under ATTRIBUTE_OBJECT.
 call_callee_expr(site, callee) :-
-    call_recv_kind(site, rk), rk != "NONE",
+    !expr_parent("client", site, "CALLEE", _, _),
     expr_parent("client", site, "RECEIVER", _, callee).
+
+// ── call_callee_is_value(SiteKey) ────────────────────────────────────────────
+// The site's callee is a VALUE EXPRESSION — it has a CALLEE child. True for a bare name
+// (`f(x)`), a CLS_REFERENCE (`cls(x)`), and a SUBSCRIPT (`TABLE["k"](x)`); false for an
+// attribute call, whose callee arrives under RECEIVER instead.
+//
+// THIS, NOT receiverKind, IS THE RIGHT GATE. `TABLE["double"](21)` reports
+// receiverKind=SUBSCRIPT (its receiverText is `TABLE`) while its callee sits under
+// CALLEE, so every value-callee rule keyed on receiverKind="NONE" skipped it — the
+// registry entry resolved and the call site still had no target. The 08-callables golden
+// caught it the moment the parser began classifying that site SUBSCRIPT_CALL rather than
+// DYNAMIC_CALL.
+call_callee_is_value(site) :- expr_parent("client", site, "CALLEE", _, _).
+
 
 // ── call_receiver_object(SiteHash, ObjectExprHash) ───────────────────────────
 // THE RECEIVER OBJECT: `self` in `self.render(x)`, `Base` in `Base.make_default()`,

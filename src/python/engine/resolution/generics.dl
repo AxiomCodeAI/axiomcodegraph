@@ -1,0 +1,147 @@
+// ============================================================================
+// RESOLUTION · GENERICS  (binding a type argument to a type parameter)
+//
+// `class Repository(Generic[T], ABC)` declares T; `class ItemStore(Repository[Item])`
+// binds it. So `Repository.get_all(...) -> List[T]` returns a list of ITEMS when the
+// receiver is an ItemStore and a list of ORDERS when it is an OrderStore — from ONE
+// inherited method with ONE annotation. Without the substitution the annotation reads
+// `List[T]`, T resolves to nothing, and the element type is lost.
+//
+// MEASURED on test/python/projects/two-service-fastapi: that cost the
+// `[order.label for order in self.store.get_all(keys)]` chain in
+// OrderHandlers.describe_all — a property read on a comprehension variable whose
+// container came back from a generic method. It was the only recall gap left that was not
+// a registry indirection.
+//
+// This is the analogue of java/engine/resolution/type-arg-binding.dl, and the shape is
+// simpler here for one reason: Python has no wildcards and no bounded-wildcard variance to
+// propagate, so a binding is a plain (subclass, superclass, parameter name) -> type map.
+//
+// ── WHAT IS DELIBERATELY NOT DONE ────────────────────────────────────────────
+// A TypeVar is NOT a class, and an UNBOUND one stays unbound. `class
+// ItemSerializer(Serializer)` inherits `to_dict(self, obj: T)` without ever saying what T
+// is, so `obj` has no type here and the site is a declared unknown — correctly. Guessing
+// from the one call site would be flow, not generics, and it would be wrong the moment a
+// second caller appeared.
+// ============================================================================
+
+// ── generic_declarator(Name) — the bases that DECLARE parameters ─────────────
+// `Generic[T]` and `Protocol[T]` are the two forms that introduce type parameters. Any
+// other subscripted base (`Repository[Item]`, `Mapping[str, int]`) SUPPLIES arguments.
+generic_declarator("Generic").
+generic_declarator("Protocol").
+
+// ── type_type_param(Prov, TypeHash, Position, ParamName) ─────────────────────
+// The type parameters a class declares, in order. Read off the GENERIC_ARGUMENT children
+// of its `Generic[...]` base — position is the parameter's index, which is what a later
+// `Repository[Item]` matches against.
+type_type_param(p, t, pos, name) :-
+    type_base_slot(p, t, _, "SUBSCRIPT", simple, _, bh), generic_declarator(simple),
+    type_base_ref(p, bh, r),
+    type_ref_nesting(p, r, pos, "1", child),
+    type_ref(p, _, "GENERIC_ARGUMENT", name, _, child), name != "".
+
+// ── type_base_ref(Prov, BaseHash, TypeRefHash) ───────────────────────────────
+// The twin type_reference row of a base slot. THE SANCTIONED PATH: py_type_base carries
+// pyTypeReferenceLinkHash on every row and deliberately does NOT carry a direct
+// pyExpressionLinkHash — a second edge to the same node could disagree with the first.
+// So everything that needs a base's annotation structure goes through the reference.
+type_base_ref("client", h, r) :- py_type_base(_, _, _, _, _, _, _, _, _, r, _, _, _, _, _, h), r != "".
+type_base_ref("lib", h, r) :- lib_py_type_base(_, _, _, _, _, _, _, _, _, r, _, _, _, _, _, h), r != "".
+
+// ── type_generic_binding(Prov, SubType, SuperType, ParamName, ArgType) ───────
+// `class ItemStore(Repository[Item])` binds Repository's T to Item. The argument at
+// position i binds the parameter the SUPERCLASS declared at position i.
+type_generic_binding(p, sub, sup, name, arg) :-
+    type_base_slot(p, sub, _, "SUBSCRIPT", _, _, bh),
+    type_base_resolved_via_ref(p, bh, sup),
+    type_base_ref(p, bh, r),
+    type_ref_nesting(p, r, pos, "1", child),
+    type_ref_resolved(p, arg, child),
+    type_type_param(p, sup, pos, name).
+
+// ── type_base_resolved_via_ref(Prov, BaseHash, SuperTypeHash) ────────────────
+// A subscripted base's class, through the reference. `Repository[Item]`'s reference
+// resolves to Repository — the subscript object, which is the runtime base.
+type_base_resolved_via_ref(p, bh, sup) :- type_base_ref(p, bh, r), type_ref_resolved(p, sup, r).
+// And by NAME, so it survives a library boundary where no hash can match.
+type_base_resolved_via_ref(p, bh, sup) :-
+    type_base_slot(p, sub, _, "SUBSCRIPT", simple, _, bh), simple != "",
+    type_module(p, mod, sub),
+    type_name_in_module(p, mod, simple, sup).
+
+// ── type_generic_binding_inherited ───────────────────────────────────────────
+// A binding is visible to every ancestor that declares the parameter, so a method
+// inherited two levels up still substitutes. `AuditedItemStore(ItemStore)` inherits
+// ItemStore's T=Item without restating it.
+type_generic_binding(p, sub, sup, name, arg) :-
+    type_base_resolved(p, sub, _, mid),
+    type_generic_binding(p, mid, sup, name, arg).
+
+// ── generic_unbound(Prov, TypeHash, SuperType, ParamName) ────────────────────
+// The class inherits a generic base WITHOUT supplying an argument:
+// `class ItemSerializer(Serializer)`. The parameter stays unbound, every annotation
+// mentioning it is untyped, and that is the correct answer — recorded so the cost is a
+// countable row rather than a silent miss.
+generic_unbound(p, sub, sup, name) :-
+    type_base_resolved(p, sub, _, sup),
+    type_type_param(p, sup, _, name),
+    !type_generic_binding(p, sub, sup, name, _).
+
+// ============================================================================
+// SUBSTITUTING A TYPE PARAMETER INTO A RETURN OR PARAMETER ANNOTATION
+// ============================================================================
+
+// ── method_return_typevar(Prov, MethodHash, TypeVarName) ─────────────────────
+// `-> T` and `-> Optional[T]`: the method returns the parameter itself.
+method_return_typevar(p, m, name) :-
+    type_ref_owner(p, m, "METHOD", r),
+    type_ref(p, "TYPE_VAR", "METHOD_RETURN", name, _, r), name != "".
+method_return_typevar(p, m, name) :-
+    type_ref_owner(p, m, "METHOD", r),
+    type_ref(p, k, "METHOD_RETURN", _, _, r), annotation_optional_kind(k),
+    type_ref_nesting(p, r, _, "1", child),
+    type_ref(p, _, "GENERIC_ARGUMENT", name, _, child), name != "",
+    !type_ref_resolved(p, _, child),
+    method_owner_declares_param(p, m, name).
+
+// ── method_return_element_typevar(Prov, MethodHash, TypeVarName) ─────────────
+// `-> List[T]`: the method returns a CONTAINER of the parameter.
+method_return_element_typevar(p, m, name) :-
+    type_ref_owner(p, m, "METHOD", r),
+    type_ref(p, k, "METHOD_RETURN", _, _, r), annotation_container_kind(k),
+    type_ref_nesting(p, r, _, "1", child),
+    type_ref(p, _, "GENERIC_ARGUMENT", name, _, child), name != "",
+    !type_ref_resolved(p, _, child),
+    method_owner_declares_param(p, m, name).
+
+// ── param_typevar(Prov, ParamHash, TypeVarName) ──────────────────────────────
+// `def add(self, item: T)`.
+param_typevar(p, ph, name) :-
+    param_annotation(p, name, _, _, ph), name != "",
+    param_decl(p, _, _, _, m, ph),
+    method_owner_declares_param(p, m, name).
+
+// ── method_owner_declares_param(Prov, MethodHash, ParamName) ─────────────────
+// The guard that keeps a bare class name from being mistaken for a type variable: `T` is
+// only a parameter if the method's OWNING class actually declares it.
+method_owner_declares_param(p, m, name) :-
+    method_owner(p, owner, m), type_type_param(p, owner, _, name).
+
+// ── the substitution, at a call site ─────────────────────────────────────────
+// The receiver's type supplies the argument for the parameter the callee's annotation
+// mentions. `self.store.get_all(keys)` with self.store an OrderStore: get_all is declared
+// on Repository as `-> List[T]`, OrderStore binds Repository's T to Order, so the result
+// is a list of Orders.
+call_returns_type(site, arg) :-
+    expr_call_candidate(site, m),
+    method_return_typevar("client", m, name),
+    method_owner("client", owner, m),
+    call_recv_type(site, recv),
+    type_generic_binding("client", recv, owner, name, arg).
+call_returns_element(site, arg) :-
+    expr_call_candidate(site, m),
+    method_return_element_typevar("client", m, name),
+    method_owner("client", owner, m),
+    call_recv_type(site, recv),
+    type_generic_binding("client", recv, owner, name, arg).

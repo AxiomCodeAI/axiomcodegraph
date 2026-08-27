@@ -74,3 +74,11 @@ type_ref_forward("lib", h) :- lib_py_type_reference(_, _, _, _, _, _, _, _, _, _
 // fabrication, so it is projected separately and never fed to the name->type resolver.
 type_ref_type_var("client", tv, h) :- py_type_reference(_, _, _, _, _, _, _, _, _, _, tv, _, _, _, _, _, _, _, _, _, _, _, _, _, h), tv != "".
 type_ref_type_var("lib", tv, h) :- lib_py_type_reference(_, _, _, _, _, _, _, _, _, _, tv, _, _, _, _, _, _, _, _, _, _, _, _, _, h), tv != "".
+
+// ── type_ref_expr(Prov, RefHash, ExprHash) ───────────────────────────────────
+// The expression node this reference was written as. Populated as of Parser@7ed5111
+// (joined on byte range, as blocks and decorators already are), and it is the SANCTIONED
+// route from a base slot to its expression: py_type_base has no direct expression FK by
+// design, reaching its node through this reference instead.
+type_ref_expr("client", h, e) :- py_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, h), e != "".
+type_ref_expr("lib", h, e) :- lib_py_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, h), e != "".

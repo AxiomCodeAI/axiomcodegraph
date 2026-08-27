@@ -1,16 +1,73 @@
 # Parser defects found by the Python rule set
 
-Filed, not fixed. **The schema is frozen** — column order is the contract, additions append
-only, and a change needs the human's explicit word. Nothing here was worked around in the
-parser or the schema; every one is either derived structurally in the engine (with the
-derivation and its cost documented at the rule) or carried as a declared unknown.
+**STATUS after `Parser@7ed5111` ("Fix five IR gaps found by the type-directed-graph audit"),
+merged to `main` as `#3`.** Five were fixed, four were correctly rejected as artifacts of a
+STALE CHECKED-IN IR, one was rejected on better design grounds, and one is still live.
 
-Each entry: **construct**, **minimal repro**, **the missing or insufficient column**, and
-**the edge it costs**.
+| # | construct | status |
+|---|---|---|
+| PD-1 | `py_binding.targetEntityKind/Hash` empty | **RETRACTED** — stale IR. Fresh parse: 464 of 767 rows populated (203 PARAMETER, 122 IMPORT, 107 METHOD, 32 TYPE). |
+| PD-2 | no `ASSIGNMENT` node | **RETRACTED** — stale IR. Fresh parse of a 19-file project: 78 ASSIGNMENT nodes. |
+| PD-3 | `all-python-decorators.csv` absent | **RETRACTED** — stale IR. Fresh parse: present, 17 rows, matching the source exactly. |
+| PD-4 | `MISPARSED_SILENTLY` on `type(x).a = v` | open; grammar-level, and the parser records it rather than repairing it — the right call. |
+| PD-5 | builtins get `GLOBAL_IMPLICIT`, never `BUILTIN` | **FIXED** — `bindingKind=BUILTIN` now emitted, name list generated from the pinned interpreter, shadowing respected. |
+| PD-6 | `py_field.pyExpressionLinkHash` empty | **RETRACTED** — stale IR. Fresh parse: 29 of 29 populated. |
+| PD-7 | `py_type_base` / `py_type_reference` `pyExpressionLinkHash` empty | **HALF FIXED, HALF REJECTED ON BETTER GROUNDS.** `py_type_reference.pyExpressionLinkHash` is now filled (joined on byte range). `py_type_base` deliberately does NOT get one: it already carries `pyTypeReferenceLinkHash` on every row, so it reaches its expression THROUGH the reference, and a second direct edge could disagree with the first. The engine now uses the sanctioned path (`resolution/generics.dl` `type_base_ref`). |
+| PD-8 | `from . import models` — `isModuleImport=false` | **FIXED** — widened at resolution, the first point that can know. The report ALSO called the empty `resolvedTargetHash` a defect; that was wrong, and the author is right: §2.9 makes it an FK to py_type/py_method/py_binding, and a module has its own `resolvedModuleLinkHash`, populated all along. **Retracted.** |
+| PD-9 | `TABLE["k"](x)` is `DYNAMIC_CALL`, not `SUBSCRIPT_CALL` | **FIXED** — now `SUBSCRIPT_CALL` with `receiverText=TABLE`. |
+| PD-10 | `class C(Base, metaclass=M)` emits two BASE_CLASS expressions at one position | **FIXED** — the value is enqueued directly; the keyword name was never lost (`py_type_base` carries `KEYWORD_METACLASS`). |
+| PD-11 | `from shared.retry import retry` resolves to the MODULE, not the member | **STILL LIVE** — see below. |
 
-Evidence base: `Parser/analysis-results/python/linkage-sample` (7 files, 49 call sites, 195
-bindings, 11 types), the 12 fixtures in `test/python/cases`, and the whole 3.10.4 stdlib IR
-(31 shards, 2,906 classes, 21,236 methods, 2,859 base rows).
+## The lesson I owe the parser author
+
+Four of the ten were measured against `Parser/analysis-results/python/linkage-sample`, a
+CHECKED-IN IR export that predates the parser it was compared to. PD-2 even diagnosed the
+cause — "the two IRs in the tree are not from the same parser build" — and the other three
+were filed anyway instead of being re-measured against a fresh parse. **Every defect below
+is now stated against a fresh parse of `test/python/projects/two-service-fastapi`, produced
+by the parser at the revision named in the heading.** A finding measured against a stale
+export is not a finding.
+
+---
+
+## PD-11 · `from pkg.mod import mod` binds the MODULE, not the member  — STILL LIVE
+
+**Construct** a from-import whose member name equals its own module's last segment.
+
+**Repro** fresh parse, `test/python/projects/two-service-fastapi`:
+
+```
+# shared/retry.py defines BOTH the module `shared.retry` and a function `retry` in it
+# inventory_service/handlers.py:  from shared.retry import audited, retry
+
+importKind=FROM_MEMBER  importedPath=shared.retry.audited  simpleName=audited  resolvedTargetKind=FUNCTION  ✓
+importKind=FROM_MEMBER  importedPath=shared.retry.retry    simpleName=retry    resolvedTargetKind=MODULE    ✗
+```
+
+Two names on one statement; the second resolves to the module `shared.retry` rather than
+to the function `retry` inside it, with an empty `resolvedTargetHash`.
+
+**Column** §2.14 c13 `resolvedTargetKind` / c14 `resolvedTargetHash`.
+
+**Cost** the bound name is a FUNCTION and reads as a MODULE, so every call through it has
+the wrong kind of target. Measured: it silently broke the entire `@retry` decorator chain
+in BOTH services — `handlers.checkout(...)` and `handlers.get_item(...)` had no target at
+all — and the shape is ordinary (`from app.tasks import tasks`,
+`from pkg.logging import logging`).
+
+**Engine mitigation, and why it is better than the FK anyway**
+`resolution/name-resolution.dl` resolves a member import from two columns that ARE exact:
+`packageOrTypeName` ("shared.retry") and `originalName` ("retry") — a module with that
+qualifiedName, and a member of it with that name. No string splitting, no FK, and it works
+identically against the library IR where no hash could ever have matched.
+
+---
+
+## Original filings, kept for the record
+
+The detailed write-ups below are as originally filed. Read them against the status table
+above: where a row says RETRACTED, the measurement was taken from the stale checked-in IR
+and does not hold on a fresh parse.
 
 ---
 
