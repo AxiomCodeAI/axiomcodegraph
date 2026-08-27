@@ -110,10 +110,38 @@ annotation_owner_module(p, ph, "METHOD_PARAM", mod) :-
 annotation_owner_module(p, m, "METHOD", mod) :- method_module(p, mod, m).
 annotation_owner_module(p, f, "FIELD", mod) :- field_decl(p, _, t, _, f), type_module(p, mod, t).
 
+// ── annotation_container_kind(Kind) — a subscript that is a CONTAINER ────────
+// `List[Item]` holds Items; `Optional[Item]` IS an Item (or None). Both are subscripted
+// annotations with a depth-1 GENERIC_ARGUMENT child, and treating them alike would type a
+// list as its element in one direction and an Item as a container in the other. The
+// parser distinguishes them: kind SUBSCRIPT vs kind OPTIONAL, plus isOptional.
+annotation_container_kind("SUBSCRIPT").
+annotation_optional_kind("OPTIONAL").
+annotation_optional_kind("UNION_PEP604").
+
 // ── param_element_type(Prov, ParamHash, TypeHash) ────────────────────────────
+// The ELEMENT of a container annotation — what iterating or indexing it yields.
 param_element_type(p, ph, t) :-
     type_ref_owner(p, ph, "METHOD_PARAM", r),
-    type_ref(p, "SUBSCRIPT", "METHOD_PARAM", _, _, r),
+    type_ref(p, k, "METHOD_PARAM", _, _, r), annotation_container_kind(k),
+    type_ref_element(p, r, t).
+
+// ── Optional[X] IS X ─────────────────────────────────────────────────────────
+// `def get(self, key) -> Optional[Order]` returns an Order or None, so `order.total(...)`
+// on its result is an Order call. Without this the whole checkout chain on the
+// two-service project stopped one hop short — and `Optional[X]` is the most common
+// subscript in the measured corpus (3,517 occurrences).
+param_declared_type(p, ph, t) :-
+    type_ref_owner(p, ph, "METHOD_PARAM", r),
+    type_ref(p, k, "METHOD_PARAM", _, _, r), annotation_optional_kind(k),
+    type_ref_element(p, r, t).
+method_declared_return_type(p, m, t) :-
+    type_ref_owner(p, m, "METHOD", r),
+    type_ref(p, k, "METHOD_RETURN", _, _, r), annotation_optional_kind(k),
+    type_ref_element(p, r, t).
+field_declared_type(p, f, t) :-
+    type_ref_owner(p, f, "FIELD", r),
+    type_ref(p, k, "FIELD_TYPE", _, _, r), annotation_optional_kind(k),
     type_ref_element(p, r, t).
 
 // ── method_declared_return_type(Prov, MethodHash, TypeHash) ──────────────────
@@ -133,7 +161,7 @@ method_declared_return_type_by_parser(p, m, t) :-
 // `-> List[Item]`.
 method_declared_return_element(p, m, t) :-
     type_ref_owner(p, m, "METHOD", r),
-    type_ref(p, "SUBSCRIPT", "METHOD_RETURN", _, _, r),
+    type_ref(p, k, "METHOD_RETURN", _, _, r), annotation_container_kind(k),
     type_ref_element(p, r, t).
 
 // ── field_declared_type / field_declared_element ─────────────────────────────
@@ -144,5 +172,5 @@ field_declared_type(p, f, t) :-
     type_name_in_module(p, mod, base, t).
 field_declared_element(p, f, t) :-
     type_ref_owner(p, f, "FIELD", r),
-    type_ref(p, "SUBSCRIPT", "FIELD_TYPE", _, _, r),
+    type_ref(p, k, "FIELD_TYPE", _, _, r), annotation_container_kind(k),
     type_ref_element(p, r, t).

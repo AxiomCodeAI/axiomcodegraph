@@ -99,7 +99,7 @@ expr_names_lib_module(e, mod) :-
 
 // ── call_constructs_lib_type(SiteHash, LibTypeHash) ──────────────────────────
 call_constructs_lib_type(site, t) :-
-    call_recv_kind(site, "NONE"),
+    call_callee_is_value(site),
     call_callee_expr(site, callee),
     expr_names_lib_type(callee, t).
 call_constructs_lib_type(site, t) :-
@@ -127,7 +127,7 @@ call_recv_lib_type(site, t) :-
 // ── call_hits_lib_method(SiteHash, LibMethodHash) ────────────────────────────
 // (a) a bare-name call to an imported library function.
 call_hits_lib_method(site, m) :-
-    call_recv_kind(site, "NONE"),
+    call_callee_is_value(site),
     call_callee_expr(site, callee),
     expr_names_lib_function(callee, m).
 // (b) `mod.f()` where mod is an imported library module.
@@ -224,7 +224,7 @@ call_hits_external(site, cat("external:", d)) :-
     !expr_call_candidate(site, _),
     !call_hits_lib_method(site, _),
     !call_hits_builtin(site, _),
-    call_recv_kind(site, "NONE"),
+    call_callee_is_value(site),
     call_callee_expr(site, callee),
     expr_binding("client", rb, _, callee),
     binding_lookup("client", rb, rb2),

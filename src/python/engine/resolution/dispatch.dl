@@ -106,7 +106,7 @@ expr_cls_type(p, e, t) :-
 // unknown — the method may be public API invoked from outside the analysed code — and
 // the honest answer is a declared unknown, not "assume the declaring class".
 cls_receiver_unknown(site) :-
-    call_recv_kind(site, "NONE"),
+    call_callee_is_value(site),
     call_callee_expr(site, callee),
     expr_node("client", "CLS_REFERENCE", _, _, callee),
     !expr_cls_type("client", callee, _).

@@ -75,6 +75,11 @@ def main() -> None:
     print("http", InventoryClient(offline_http).quote("w1"))
 
     print("bulk", inv_handlers.bulk_quote({"keys": ["w1", "g1", "b1"]}))
+    # Exercise the @retry-decorated handler so the wrapper->target edge is EXECUTED, not
+    # merely derivable. Both @retry-decorated functions share one `inner` code object, so
+    # this is what tells a sound-but-unexercised edge apart from a wrong one.
+    print("retried", inv_handlers.get_item({"key": "g1"}))
+    print("routed", recording.send("get_item", {"key": "b1"}))
     print("item", serialize("item", inventory.require("w1")))
     print("order", serialize("order", orders.get("o2")))
     print("labels", [inventory.require(k).label for k in ["w1", "g1", "b1"]])

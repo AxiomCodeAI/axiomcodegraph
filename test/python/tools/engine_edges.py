@@ -79,12 +79,26 @@ class IR:
         #
         # An unmodelled decorator must therefore come out `ambiguous_unknown` --
         # never an edge, and never absent.
+        # A CLASS decorator has NO pyMethodLinkHash -- `@serializer("item")` above a
+        # `class` carries pyTypeLinkHash instead. Resolving the file through the method FK
+        # alone left those sites anchored at ":18" with an empty path, so they matched
+        # nothing and were reported as SILENTLY DROPPED even though the engine had emitted
+        # them. MEASURED: 2 false drops on a 19-file project with two class decorators;
+        # the 12 fixture cases decorate only functions, so it never showed there.
+        self.type_file = {}            # type hash -> repo-relative file
+        for t in rows(os.path.join(ir_dir, 'all-python-types.csv')):
+            h = t.get('pyTypeUniqueHash')
+            if h:
+                self.type_file[h] = (t.get('filePath') or '').replace(os.sep, '/')
+
         self.site_pos = {}             # site/expression hash -> "file:line"
         for d in rows(os.path.join(ir_dir, 'all-python-decorators.csv')):
             rel = ''
             mh = d.get('pyMethodLinkHash')
             if mh in self.method_anchor:
                 rel = self.method_anchor[mh].file
+            elif d.get('pyTypeLinkHash') in self.type_file:
+                rel = self.type_file[d['pyTypeLinkHash']]
             try:
                 line = int(d.get('startLine') or 0)
             except ValueError:

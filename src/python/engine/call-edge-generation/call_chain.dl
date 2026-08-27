@@ -137,6 +137,17 @@ method_returns_method(p, m, r) :-
     method_return_value_expr(p, m, e),
     expr_names_method(p, e, r).
 
+// ── decorator_hits_lib(SiteKey, LibMethodHash) ───────────────────────────────
+// `@abstractmethod` names `abc.abstractmethod`, which HAS Python source and is in the
+// staged stdlib IR — it is a library boundary, not a blind spot. A BARE decorator has no
+// py_call_site, so the ordinary library-linking path (which keys on call sites) never sees
+// it; this is the decorator-shaped half of the same mechanism. Measured: 5 of the
+// two-service project's last 16 declared unknowns were @abstractmethod applications.
+decorator_hits_lib(e, m) :-
+    annotation_on("client", _, _, _, _, d), decorator_expr("client", e, d),
+    !decorator_resolves_to(e, _),
+    expr_names_lib_function(e, m).
+
 // ── decorator_hits_builtin(SiteKey, TargetLabel) ─────────────────────────────
 // `@staticmethod` / `@classmethod` / `@property` are BUILTIN types, applied as
 // decorators. Known exactly, C-implemented, no Python source: boundary_lib, exactly as
@@ -209,6 +220,7 @@ site_has_boundary(site) :- client_calls_lib("client", site, "lib", _).
 site_has_boundary(site) :- client_calls_builtin("client", site, _).
 site_has_boundary(site) :- client_calls_external(site, _).
 site_has_boundary(site) :- decorator_hits_builtin(site, _).
+site_has_boundary(site) :- decorator_hits_lib(site, _).
 
 // ── site_class(SiteKey, EdgeStatus) ──────────────────────────────────────────
 // EXACTLY ONE tier per (site, target-class). The four rules are mutually exclusive by
@@ -277,6 +289,9 @@ call_chain_edge(site, caller, "-", label, "external", "boundary_lib", kind) :-
 // client -> CPython builtin (named, C-implemented, no Python source anywhere)
 call_chain_edge(site, caller, "-", label, "builtin", "boundary_lib", kind) :-
     client_calls_builtin("client", site, label),
+    site_caller(site, caller), invocation_site(site, kind).
+call_chain_edge(site, caller, "-", m, "lib", "boundary_lib", kind) :-
+    decorator_hits_lib(site, m),
     site_caller(site, caller), invocation_site(site, kind).
 call_chain_edge(site, caller, "-", label, "builtin", "boundary_lib", kind) :-
     decorator_hits_builtin(site, label),

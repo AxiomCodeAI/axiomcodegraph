@@ -94,6 +94,13 @@ expr_type(p, e, t) :-
     binding_element_type(p, b2, d),
     declared_dispatch(p, d, t).
 
+// (k) an `except NotFound as exc` target — the caught class, widened over subclasses.
+expr_type(p, e, t) :-
+    expr_binding(p, b, ctx, e), ctx != "STORE",
+    binding_lookup(p, b, b2),
+    binding_except_type(p, b2, d),
+    declared_dispatch(p, d, t).
+
 // ── binding_value_type(Prov, BindingHash, TypeHash) ──────────────────────────
 // Single-binding local/module flow. Mirrors Java's local-flow.dl, with the write count
 // coming from symtable instead of from a declared type.

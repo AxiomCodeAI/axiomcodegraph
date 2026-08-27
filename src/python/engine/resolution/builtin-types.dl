@@ -1,0 +1,236 @@
+// ============================================================================
+// RESOLUTION · BUILTIN AND EXTERNAL TYPES  (naming the boundary instead of shrugging)
+//
+// `found.append(item)`, `self._items.get(key)`, `self.describe().upper()`,
+// `app.include_router(router)`. Four calls whose callee is known EXACTLY and whose body is
+// in no staged IR — `list.append` and `dict.get` are C methods, and `FastAPI` is a
+// third-party class this build did not load. Left unhandled they came out
+// `ambiguous_unknown / no_rule`, which says "the analysis has a blind spot here". It does
+// not: it knows precisely what is called and precisely why it cannot follow it.
+//
+// MEASURED on test/python/projects/two-service-fastapi: 9 of 16 remaining declared
+// unknowns were exactly this — 7 builtin container/str methods and 2 calls on a FastAPI
+// instance. Naming them does not change what the engine KNOWS; it changes an unhelpful
+// answer into a reviewable one, and stops them competing for attention with the three that
+// are genuinely unknowable.
+//
+// ── THE EVIDENCE IS THE PARSER'S OWN, AND IT WAS UNUSED ──────────────────────
+// py_expression carries inferredTypeName / inferredTypeKind / inferenceEvidence /
+// inferenceConfidence, populated for literals with evidence LITERAL or COLLECTION_LITERAL
+// and confidence CERTAIN (223 such nodes on this project). That is the schema's "parser
+// emits purely syntactic evidence" channel, and nothing read it before this file. Only
+// CERTAIN is consumed: PROBABLE would be a guess.
+// ============================================================================
+
+// ── builtin_container_alias(TypingName, BuiltinName) ─────────────────────────
+// The CONCRETE typing aliases only. `Iterable`, `Sequence`, `Mapping` and friends are
+// deliberately absent: a call on an `Iterable`-annotated receiver is a genuine protocol
+// call, and mapping it to `list` would be a fabrication about which C method runs.
+builtin_container_alias("List", "list").
+builtin_container_alias("Dict", "dict").
+builtin_container_alias("Set", "set").
+builtin_container_alias("FrozenSet", "frozenset").
+builtin_container_alias("Tuple", "tuple").
+builtin_container_alias("DefaultDict", "dict").
+builtin_container_alias("OrderedDict", "dict").
+builtin_container_alias("list", "list").
+builtin_container_alias("dict", "dict").
+builtin_container_alias("set", "set").
+builtin_container_alias("tuple", "tuple").
+builtin_container_alias("frozenset", "frozenset").
+builtin_container_alias("str", "str").
+builtin_container_alias("bytes", "bytes").
+builtin_container_alias("bytearray", "bytearray").
+builtin_container_alias("int", "int").
+builtin_container_alias("float", "float").
+builtin_container_alias("bool", "bool").
+builtin_container_alias("complex", "complex").
+
+// ── alias_value_builtin / alias_builtin_type ─────────────────────────────────
+// A module-level TYPE ALIAS onto a builtin container: `Payload = Dict[str, Any]`. Bound
+// exactly once (symtable's own count), so the name cannot mean anything else. Without
+// this, every `payload` / `quote` parameter in the two-service project — annotated
+// `Payload` throughout — is untyped and `quote.get("price")` has no callee.
+alias_value_builtin(p, e, b) :-
+    expr_node(p, "NAME_REFERENCE", _, n, e), builtin_container_alias(n, b).
+alias_value_builtin(p, e, b) :-
+    expr_node(p, "SUBSCRIPT", _, _, e),
+    expr_parent(p, e, "SUBSCRIPT_OBJECT", _, obj),
+    expr_node(p, "NAME_REFERENCE", _, n, obj), builtin_container_alias(n, b).
+alias_builtin_type(p, mod, n, b) :-
+    binding_decl(p, n, modScope, _, "ASSIGNMENT", bind),
+    binding_rebinding(p, "1", _, _, bind),
+    binding_owner(p, mod, _, bind),
+    module_init(p, _, modScope, mod),
+    expr_binding(p, bind, "STORE", tgt),
+    assign_pair(p, tgt, val),
+    alias_value_builtin(p, val, b).
+
+// ── annotation_builtin(Prov, OwnerHash, OwnerKind, BuiltinName) ───────────────
+// An annotation naming a builtin, directly or through an alias.
+annotation_builtin(p, ph, "METHOD_PARAM", b) :-
+    param_annotation(p, base, _, _, ph), builtin_container_alias(base, b).
+annotation_builtin(p, ph, "METHOD_PARAM", b) :-
+    param_annotation(p, base, _, _, ph), base != "",
+    param_decl(p, _, _, _, m, ph), method_module(p, mod, m),
+    builtin_alias_visible(p, mod, base, b).
+annotation_builtin(p, f, "FIELD", b) :-
+    field_annotation(p, _, base, _, f), builtin_container_alias(base, b).
+annotation_builtin(p, f, "FIELD", b) :-
+    field_annotation(p, _, base, _, f), base != "",
+    field_decl(p, _, owner, _, f), type_module(p, mod, owner),
+    builtin_alias_visible(p, mod, base, b).
+annotation_builtin(p, m, "METHOD", b) :-
+    method_decl(p, _, _, _, ret, m), builtin_container_alias(ret, b).
+annotation_builtin(p, m, "METHOD", b) :-
+    method_decl(p, _, _, _, ret, m), ret != "",
+    method_module(p, mod, m), builtin_alias_visible(p, mod, ret, b).
+
+// ── expr_builtin_type(Prov, ExprHash, BuiltinName) ───────────────────────────
+// (a) the parser's own CERTAIN literal inference — `[]` is a list, `{}` a dict, `"x"` a str.
+expr_builtin_type(p, e, b) :-
+    expr_inferred_type(p, tn, k, _, "CERTAIN", e),
+    k != "USER_CLASS", k != "UNKNOWN",
+    builtin_container_alias(tn, b).
+// (b) a parameter annotated with a builtin.
+expr_builtin_type(p, e, b) :-
+    expr_names_param(p, e, ph), annotation_builtin(p, ph, "METHOD_PARAM", b).
+// (c) `self.x` annotated with a builtin, or written from a builtin-typed value.
+expr_builtin_type(p, e, b) :-
+    expr_attr_of_self(p, e, n, owner), type_attr_field(p, owner, n, f),
+    annotation_builtin(p, f, "FIELD", b).
+expr_builtin_type(p, e, b) :-
+    expr_attr_of_self(p, e, n, owner), type_attr_field(p, owner, n, f),
+    field_write_value(p, f, val), expr_builtin_type(p, val, b).
+// (d) a call whose callee declares a builtin return type: `def describe(self) -> str`.
+expr_builtin_type("client", e, b) :-
+    call_of_expr(e, site), expr_call_candidate(site, m),
+    annotation_builtin("client", m, "METHOD", b).
+// (e) a single-binding local holding any of the above.
+expr_builtin_type(p, e, b) :-
+    expr_binding(p, bref, ctx, e), ctx != "STORE",
+    binding_lookup(p, bref, bind),
+    binding_rebinding(p, "1", _, _, bind),
+    expr_binding(p, bind, "STORE", tgt),
+    assign_pair(p, tgt, val),
+    expr_builtin_type(p, val, b).
+
+// ── a method call on a builtin-typed receiver is a NAMED builtin boundary ─────
+call_hits_builtin(site, cat("builtin:", cat(b, cat(".", n)))) :-
+    call_recv_kind(site, rk), rk != "NONE", rk != "SUPER",
+    call_receiver_object(site, obj),
+    expr_builtin_type("client", obj, b),
+    call_name(site, n), n != "",
+    !expr_call_candidate(site, _).
+
+// ============================================================================
+// EXTERNAL TYPES — a class from a dependency this build did not load
+// ============================================================================
+
+// ── expr_external_type(Prov, ExprHash, ExternalName) ─────────────────────────
+// (a) constructing an unlinked external name: `app = FastAPI(...)`.
+expr_external_type("client", e, n) :-
+    call_of_expr(e, site),
+    call_callee_is_value(site),
+    call_callee_expr(site, callee),
+    expr_node("client", _, _, n, callee),
+    expr_binding("client", b, _, callee),
+    binding_lookup("client", b, b2),
+    import_unlinked(b2, _).
+// (b) a single-binding local holding one.
+expr_external_type(p, e, n) :-
+    expr_binding(p, bref, ctx, e), ctx != "STORE",
+    binding_lookup(p, bref, bind),
+    binding_rebinding(p, "1", _, _, bind),
+    expr_binding(p, bind, "STORE", tgt),
+    assign_pair(p, tgt, val),
+    expr_external_type(p, val, n).
+// (c) a parameter whose annotation names an unlinked external type.
+expr_external_type("client", e, base) :-
+    expr_names_param("client", e, ph),
+    param_annotation("client", base, _, _, ph), base != "",
+    param_decl("client", _, _, _, m, ph), method_module("client", mod, m),
+    module_init("client", _, modScope, mod),
+    import_scope("client", modScope, mod, i),
+    import_decl("client", _, _, base, i),
+    import_binding("client", b, i),
+    import_unlinked(b, _).
+
+// ── a method call on an external-typed receiver is a NAMED external boundary ──
+call_hits_external(site, cat("external:", cat(en, cat(".", n)))) :-
+    call_recv_kind(site, rk), rk != "NONE", rk != "SUPER",
+    call_receiver_object(site, obj),
+    expr_external_type("client", obj, en),
+    call_name(site, n), n != "",
+    !expr_call_candidate(site, _),
+    !call_hits_builtin(site, _).
+
+// ============================================================================
+// EXCEPT TARGETS — `except NotFound as exc:` types `exc` exactly
+// ============================================================================
+
+// ── except_pair(Prov, TypeExprHash, TargetExprHash) ──────────────────────────
+// Two roots on one line in one scope, carrying edgeRoles EXCEPT_TYPE and EXCEPT_TARGET.
+// Same pairing shape as a for-loop's target and iterable, and the same limitation.
+except_pair(p, typeExpr, tgt) :-
+    expr_parent(p, x, "EXCEPT_TYPE", _, typeExpr), expr_parent(p, x, "EXCEPT_TARGET", _, tgt).
+except_pair(p, typeExpr, tgt) :-
+    expr_position(p, "EXCEPT_TYPE", _, _, typeExpr), !expr_has_parent(p, typeExpr),
+    expr_position(p, "EXCEPT_TARGET", _, _, tgt), !expr_has_parent(p, tgt),
+    expr_scope(p, s, _, typeExpr), expr_scope(p, s, _, tgt),
+    expr_span(p, line, _, typeExpr), expr_span(p, line, _, tgt).
+
+// ── binding_except_type(Prov, BindingHash, TypeHash) ─────────────────────────
+// The caught exception's class, written right there. Exact — the only residual
+// uncertainty is subclassing, which declared_dispatch handles like any other declared type.
+binding_except_type(p, b, t) :-
+    except_pair(p, typeExpr, tgt),
+    expr_binding(p, b, _, tgt),
+    expr_names_type(p, typeExpr, t).
+
+// ── builtin_alias_visible(Prov, ModuleHash, AliasName, BuiltinName) ──────────
+// A builtin type alias as seen FROM a module — defined there, or imported there. Aliases
+// are shared exactly like classes are: `Payload = Dict[str, Any]` lives in
+// shared/transport.py and is imported by both services, so a module-local-only lookup
+// misses every annotation that uses it. Measured: that alone left `quote.get("price")` in
+// orders_service/domain.py without a callee.
+builtin_alias_visible(p, mod, n, b) :- alias_builtin_type(p, mod, n, b).
+builtin_alias_visible(p, mod, n, b) :-
+    module_init(p, _, modScope, mod),
+    import_scope(p, modScope, mod, i),
+    import_decl(p, _, _, n, i),
+    import_relative(p, _, pkg, i), pkg != "",
+    import_alias(p, orig, _, i), orig != "",
+    module_decl(p, _, pkg, _, src),
+    alias_builtin_type(p, src, orig, b).
+
+// ============================================================================
+// A REGISTRY LOOKUP WITH A NON-STATIC KEY — named, not shrugged at
+//
+// `handler = self._registry[route]; handler(payload)` and
+// `cls = SERIALIZERS[name]; cls()`. The key is a PARAMETER, so the callee is data and no
+// static answer exists. That is a different fact from "no rule matched", and it is the
+// one place in the whole two-service project where the cross-service chain genuinely
+// stops: a plugin architecture is unanalysable at its dispatch point by construction.
+// ============================================================================
+
+// ── binding_from_unpinnable_subscript(Prov, BindingHash) ─────────────────────
+binding_from_unpinnable_subscript(p, b) :-
+    binding_rebinding(p, "1", _, _, b),
+    expr_binding(p, b, "STORE", tgt),
+    assign_pair(p, tgt, val),
+    expr_node(p, "SUBSCRIPT", _, _, val),
+    expr_parent(p, val, "SUBSCRIPT_INDEX", _, idx),
+    !expr_key_text(p, idx, _).
+
+call_unresolvable(site, "registry_key_not_static") :-
+    call_callee_expr(site, callee),
+    expr_binding("client", b, ctx, callee), ctx != "STORE",
+    binding_lookup("client", b, b2),
+    binding_from_unpinnable_subscript("client", b2).
+call_unresolvable(site, "registry_key_not_static") :- subscript_dispatch_incomplete(site).
+// The receiver came out of one: `cls().to_dict(obj)`.
+call_unresolvable(site, "registry_key_not_static") :-
+    call_receiver_object(site, obj),
+    call_of_expr(obj, inner),
+    call_unresolvable(inner, "registry_key_not_static").

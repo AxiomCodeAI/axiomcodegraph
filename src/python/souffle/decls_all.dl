@@ -164,6 +164,7 @@
 .decl type_ref_optional(c0:symbol,c1:symbol)
 .decl type_ref_forward(c0:symbol,c1:symbol)
 .decl type_ref_type_var(c0:symbol,c1:symbol,c2:symbol)
+.decl type_ref_expr(c0:symbol,c1:symbol,c2:symbol)
 
 // ---- projections/types.dl --------------------------------------
 .decl type_decl(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
@@ -210,11 +211,13 @@
 .decl annotation_parser_only(c0:symbol,c1:symbol,c2:symbol)
 .decl type_ref_element(c0:symbol,c1:symbol,c2:symbol)
 .decl annotation_owner_module(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl annotation_container_kind(c0:symbol)
+.decl annotation_optional_kind(c0:symbol)
 .decl param_element_type(c0:symbol,c1:symbol,c2:symbol)
 .decl method_declared_return_type(c0:symbol,c1:symbol,c2:symbol)
+.decl field_declared_type(c0:symbol,c1:symbol,c2:symbol)
 .decl method_declared_return_type_by_parser(c0:symbol,c1:symbol,c2:symbol)
 .decl method_declared_return_element(c0:symbol,c1:symbol,c2:symbol)
-.decl field_declared_type(c0:symbol,c1:symbol,c2:symbol)
 .decl field_declared_element(c0:symbol,c1:symbol,c2:symbol)
 
 // ---- resolution/attribute-lookup.dl ----------------------------
@@ -246,6 +249,21 @@
 .decl type_call_target(c0:symbol,c1:symbol,c2:symbol)
 .decl type_property_getter(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 
+// ---- resolution/builtin-types.dl -------------------------------
+.decl builtin_container_alias(c0:symbol,c1:symbol)
+.decl alias_value_builtin(c0:symbol,c1:symbol,c2:symbol)
+.decl alias_builtin_type(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl annotation_builtin(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl expr_builtin_type(c0:symbol,c1:symbol,c2:symbol)
+.decl call_hits_builtin(c0:symbol,c1:symbol)
+.decl expr_external_type(c0:symbol,c1:symbol,c2:symbol)
+.decl call_hits_external(c0:symbol,c1:symbol)
+.decl except_pair(c0:symbol,c1:symbol,c2:symbol)
+.decl binding_except_type(c0:symbol,c1:symbol,c2:symbol)
+.decl builtin_alias_visible(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl binding_from_unpinnable_subscript(c0:symbol,c1:symbol)
+.decl call_unresolvable(c0:symbol,c1:symbol)
+
 // ---- resolution/builtins.dl ------------------------------------
 .decl py_builtin_callable(c0:symbol)
 .decl py_builtin_dynamic(c0:symbol)
@@ -265,6 +283,13 @@
 .decl binding_dict_entry_method(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl expr_denotes_method(c0:symbol,c1:symbol,c2:symbol)
 .decl subscript_dispatch_incomplete(c0:symbol)
+.decl binding_dict_entry_type(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl expr_type_class_object(c0:symbol,c1:symbol,c2:symbol)
+.decl expr_denotes_bound_method(c0:symbol,c1:symbol,c2:symbol)
+.decl method_returns_dict_entry(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl field_dict_entry(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl param_arg_dict_entry(c0:symbol,c1:symbol,c2:symbol)
+.decl binding_value_method(c0:symbol,c1:symbol,c2:symbol)
 
 // ---- resolution/decorators.dl ----------------------------------
 .decl decorator_transparent(c0:symbol)
@@ -285,6 +310,9 @@
 .decl param_arg_method(c0:symbol,c1:symbol)
 .decl decorator_chain_broken(c0:symbol,c1:symbol)
 .decl deco_stage_advanced(c0:symbol,c1:number)
+.decl deco_stage_type(c0:symbol,c1:number,c2:symbol)
+.decl decorated_class_target(c0:symbol,c1:symbol)
+.decl param_arg_class(c0:symbol,c1:symbol)
 
 // ---- resolution/dispatch.dl ------------------------------------
 .decl type_instantiated(c0:symbol,c1:symbol)
@@ -295,7 +323,6 @@
 .decl cls_bound_type(c0:symbol,c1:symbol)
 .decl expr_cls_type(c0:symbol,c1:symbol,c2:symbol)
 .decl cls_receiver_unknown(c0:symbol)
-.decl call_unresolvable(c0:symbol,c1:symbol)
 .decl dispatch_capped_at(c0:number)
 .decl call_candidate_count(c0:symbol,c1:number)
 .decl call_dispatch_over_cap(c0:symbol)
@@ -318,6 +345,20 @@
 .decl field_type_any(c0:symbol,c1:symbol)
 .decl type_attr_field(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl expr_attr_of_self(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+
+// ---- resolution/generics.dl ------------------------------------
+.decl generic_declarator(c0:symbol)
+.decl type_type_param(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl type_base_ref(c0:symbol,c1:symbol,c2:symbol)
+.decl type_generic_binding(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
+.decl type_base_resolved_via_ref(c0:symbol,c1:symbol,c2:symbol)
+.decl generic_unbound(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl method_return_typevar(c0:symbol,c1:symbol,c2:symbol)
+.decl method_return_element_typevar(c0:symbol,c1:symbol,c2:symbol)
+.decl param_typevar(c0:symbol,c1:symbol,c2:symbol)
+.decl method_owner_declares_param(c0:symbol,c1:symbol,c2:symbol)
+.decl call_returns_type(c0:symbol,c1:symbol)
+.decl call_returns_element(c0:symbol,c1:symbol)
 
 // ---- resolution/iteration.dl -----------------------------------
 .decl iter_pair(c0:symbol,c1:symbol,c2:symbol)
@@ -342,7 +383,6 @@
 .decl call_hits_lib_method(c0:symbol,c1:symbol)
 .decl lib_link_missed(c0:symbol,c1:symbol)
 .decl import_unlinked(c0:symbol,c1:symbol)
-.decl call_hits_external(c0:symbol,c1:symbol)
 
 // ---- resolution/mro.dl -----------------------------------------
 .decl mro_prec(c0:symbol,c1:symbol,c2:symbol)
@@ -413,11 +453,11 @@
 .decl param_arg_type(c0:symbol,c1:symbol)
 .decl param_flow_assumes_closed_world(c0:symbol)
 .decl method_returns_param(c0:symbol,c1:symbol,c2:symbol)
-.decl binding_value_method(c0:symbol,c1:symbol,c2:symbol)
 .decl field_holds_method(c0:symbol,c1:symbol,c2:symbol)
 .decl type_attr_method_value(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl expr_type(c0:symbol,c1:symbol,c2:symbol)
 .decl partial_target(c0:symbol,c1:symbol)
+.decl binding_value_class(c0:symbol,c1:symbol,c2:symbol)
 
 // ---- expression-resolution/call-site.dl ------------------------
 .decl csite(c0:symbol,c1:symbol)
@@ -428,6 +468,7 @@
 .decl call_name(c0:symbol,c1:symbol)
 .decl call_dotted(c0:symbol,c1:symbol)
 .decl call_callee_expr(c0:symbol,c1:symbol)
+.decl call_callee_is_value(c0:symbol)
 .decl call_receiver_object(c0:symbol,c1:symbol)
 .decl call_arg(c0:symbol,c1:symbol,c2:symbol)
 .decl call_kwarg(c0:symbol,c1:symbol,c2:symbol)
@@ -448,7 +489,6 @@
 .decl super_recv_type(c0:symbol,c1:symbol)
 .decl call_super_explicit_anchor(c0:symbol,c1:symbol)
 .decl call_recv_type(c0:symbol,c1:symbol)
-.decl call_hits_builtin(c0:symbol,c1:symbol)
 .decl call_hits_dynamic_builtin(c0:symbol,c1:symbol)
 .decl callee_agrees(c0:symbol,c1:symbol)
 .decl callee_differs(c0:symbol,c1:symbol,c2:symbol)
@@ -456,10 +496,8 @@
 .decl callee_parser_only(c0:symbol,c1:symbol)
 
 // ---- expression-resolution/expr-type.dl ------------------------
-.decl expr_type_class_object(c0:symbol,c1:symbol,c2:symbol)
 .decl expr_type_union_only(c0:symbol,c1:symbol,c2:symbol)
 .decl binding_value_type(c0:symbol,c1:symbol,c2:symbol)
-.decl call_returns_type(c0:symbol,c1:symbol)
 .decl expr_any_type(c0:symbol,c1:symbol)
 .decl expr_type_untypable(c0:symbol,c1:symbol,c2:symbol)
 
@@ -468,6 +506,7 @@
 .decl decorator_resolves_to(c0:symbol,c1:symbol)
 .decl method_return_value_expr(c0:symbol,c1:symbol,c2:symbol)
 .decl method_returns_method(c0:symbol,c1:symbol,c2:symbol)
+.decl decorator_hits_lib(c0:symbol,c1:symbol)
 .decl decorator_hits_builtin(c0:symbol,c1:symbol)
 .decl property_read_edge(c0:symbol,c1:symbol,c2:symbol)
 .decl call_receiver_of(c0:symbol)
@@ -489,4 +528,4 @@
 .decl client_calls_builtin(c0:symbol,c1:symbol,c2:symbol)
 .decl client_calls_external(c0:symbol,c1:symbol)
 
-// 394 derived relations + 4 executor knobs.
+// 429 derived relations + 4 executor knobs.
