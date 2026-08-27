@@ -71,6 +71,8 @@
 // 11,599 overload signatures measured, and 44.3% of resolved call targets are BODILESS, so
 // a target must never be read as an implementation without checking c27. c39 startColumn is
 // IN THE KEY: 703 arrow functions, and two on one line share name, signature and line.
+// c7, like ts_field c8, is the owning type OR SHAPE — a ts_type_reference for a
+// TYPE_LITERAL_*, FUNCTION_TYPE_SIGNATURE or CONSTRUCTOR_TYPE_SIGNATURE row.
 // (43 columns)
 .decl ts_method(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol,c29:symbol,c30:symbol,c31:symbol,c32:symbol,c33:symbol,c34:symbol,c35:symbol,c36:symbol,c37:symbol,c38:symbol,c39:symbol,c40:symbol,c41:symbol,c42:symbol)
 .decl lib_ts_method(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol,c29:symbol,c30:symbol,c31:symbol,c32:symbol,c33:symbol,c34:symbol,c35:symbol,c36:symbol,c37:symbol,c38:symbol,c39:symbol,c40:symbol,c41:symbol,c42:symbol)
@@ -86,8 +88,12 @@
 // A class property, interface property signature, index signature, auto-accessor, parameter
 // property, or object-literal property. Cols 0..12 mirror java_field 0..12, and the key
 // chains off c8 tsTypeLinkHash exactly as FieldRegistry chains off typeRegistryLinkHash —
-// never off a re-derived qualified name. c15 isOptional is load-bearing for structural
-// satisfaction: an absent optional member does not break assignability.
+// never off a re-derived qualified name. c8 is the owning type OR SHAPE: it points at a
+// ts_type_reference row when memberKind is a TYPE_LITERAL_* value, because an anonymous
+// { foo(): string } has members and no declaration to own them (schema 4.8.1). PK prefixes
+// differ, so a rule joining c8 against ts_type finds NO MATCH for a shape member rather than
+// a wrong one. c15 isOptional is load-bearing for structural satisfaction: an absent
+// optional member does not break assignability.
 // (29 columns)
 .decl ts_field(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol)
 .decl lib_ts_field(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol)

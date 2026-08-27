@@ -632,7 +632,7 @@ functions in Corpus A with **161** of them appearing as resolved call targets, s
 | 4 | `filePath` [J] | 1 | |
 | 5 | `startLine` [J] | 1 | |
 | 6 | `endLine` [J] | 1 | |
-| 7 | `tsTypeLinkHash` [J] | 1 | FK→`ts_type`; `""` for module-level functions |
+| 7 | `tsTypeLinkHash` [J] | 1 | **the owning type OR shape.** FK→`ts_type` normally; FK→`ts_type_reference` when `methodKind` is a `TYPE_LITERAL_*`, `FUNCTION_TYPE_SIGNATURE` or `CONSTRUCTOR_TYPE_SIGNATURE` value (§4.8.1). `""` only where no owner exists — a module-level function, an arrow, `MODULE_INITIALIZER` |
 | 8 | `ownerTypeName` [J] | 1 | |
 | 9 | `ownerQualifiedName` [J] | 1 | |
 | 10 | `methodAccess` [J] | 1 | `PUBLIC_ACCESS` \| `PRIVATE_ACCESS` \| `PROTECTED_ACCESS` \| `PRIVATE_NAME_ACCESS` (`#m`) \| `EXPORTED_ACCESS` \| `MODULE_LOCAL_ACCESS` |
@@ -641,7 +641,7 @@ functions in Corpus A with **161** of them appearing as resolved call targets, s
 | 13 | `isVarArgs` [J] | 1 | has a rest parameter |
 | 14 | `hasReceiverParameter` [J] | 1 | an explicit `this: T` parameter — same slot, TypeScript meaning |
 | 15 | `defaultValueExpression` [J] | 1 | `""` — parity slot, unused |
-| 16 | `methodKind` [J] | 1/3 | `FUNCTION_DECLARATION` \| `METHOD_DECLARATION` \| `CONSTRUCTOR` \| `GETTER` \| `SETTER` \| `ARROW_FUNCTION` \| `FUNCTION_EXPRESSION` \| `METHOD_SIGNATURE` \| `CALL_SIGNATURE` \| `CONSTRUCT_SIGNATURE` \| `FUNCTION_TYPE_SIGNATURE` \| `CONSTRUCTOR_TYPE_SIGNATURE` \| `OBJECT_LITERAL_METHOD` \| `CLASS_STATIC_BLOCK` \| `MODULE_INITIALIZER` ★. Node-kind-driven (tier 1); the **priority order** is tier 3 (§5) |
+| 16 | `methodKind` [J] | 1/3 | `FUNCTION_DECLARATION` \| `METHOD_DECLARATION` \| `CONSTRUCTOR` \| `GETTER` \| `SETTER` \| `ARROW_FUNCTION` \| `FUNCTION_EXPRESSION` \| `METHOD_SIGNATURE` \| `CALL_SIGNATURE` \| `CONSTRUCT_SIGNATURE` \| `TYPE_LITERAL_METHOD_SIGNATURE` ★ \| `TYPE_LITERAL_CALL_SIGNATURE` ★ \| `TYPE_LITERAL_CONSTRUCT_SIGNATURE` ★ \| `FUNCTION_TYPE_SIGNATURE` \| `CONSTRUCTOR_TYPE_SIGNATURE` \| `OBJECT_LITERAL_METHOD` \| `CLASS_STATIC_BLOCK` \| `MODULE_INITIALIZER` ★. Node-kind-driven (tier 1); the **priority order** is tier 3 (§5) |
 | 17 | `parameterCount` [J] | 1 | |
 | 18 | `hasTypeParameters` [J] | 1 | |
 | 19 | `throwsExceptions` [J] | 1 | comma-set of `throw new X` type names in the body — *inferred*; TypeScript has no `throws` |
@@ -731,12 +731,12 @@ never off a re-derived qualified name.
 | 5 | `filePath` [J] | 1 | |
 | 6 | `startLine` [J] | 1 | |
 | 7 | `endLine` [J] | 1 | |
-| 8 | `tsTypeLinkHash` [J] | 1 | FK→`ts_type` — owner; **parent for key chaining** |
+| 8 | `tsTypeLinkHash` [J] | 1 | **the owning type OR shape**; **parent for key chaining.** FK→`ts_type` normally; FK→`ts_type_reference` when `memberKind` is a `TYPE_LITERAL_*` value (§4.8.1) |
 | 9 | `ownerTypeName` [J] | 1 | |
 | 10 | `ownerQualifiedName` [J] | 1 | |
 | 11 | `fieldAccess` [J] | 1 | `PUBLIC_ACCESS` \| `PRIVATE_ACCESS` \| `PROTECTED_ACCESS` \| `PRIVATE_NAME_ACCESS` (`#x` — a *hard* runtime private, unlike `private`) \| `EXPORTED_ACCESS` \| `MODULE_LOCAL_ACCESS` |
 | 12 | `fieldModifier` [J] | 1 | comma-set: `STATIC`, `READONLY`, `DECLARE`, `ABSTRACT`, `OVERRIDE`, `OPTIONAL`, `DEFINITE_ASSIGNMENT`, `ACCESSOR` |
-| 13 | `memberKind` ★ | 1 | `PROPERTY_DECLARATION` \| `PROPERTY_SIGNATURE` \| `INDEX_SIGNATURE` \| `PARAMETER_PROPERTY` \| `OBJECT_LITERAL_PROPERTY` \| `AUTO_ACCESSOR` |
+| 13 | `memberKind` ★ | 1 | `PROPERTY_DECLARATION` \| `PROPERTY_SIGNATURE` \| `INDEX_SIGNATURE` \| `TYPE_LITERAL_PROPERTY` ★ \| `TYPE_LITERAL_INDEX_SIGNATURE` ★ \| `PARAMETER_PROPERTY` \| `OBJECT_LITERAL_PROPERTY` \| `AUTO_ACCESSOR` |
 | 14 | `tsModuleLinkHash` ★ | 1 | FK→`ts_module` |
 | 15 | `isOptional` ★ | 1 | `?` — **5,196 measured; an absent optional member does not break assignability**, so §3.2 depends on this column |
 | 16 | `hasDefiniteAssignment` ★ | 1 | `x!: T` |
@@ -747,13 +747,80 @@ never off a re-derived qualified name.
 | 21 | `typeReferenceLinkHash` | 1 | FK→`ts_type_reference`; `""` |
 | 22 | `initializerExpressionLinkHash` | 1 | FK→`ts_expression`; `""` |
 | 23 | `originParameterLinkHash` ★ | 1 | FK→`ts_method_parameter` for a parameter property; `""` |
-| 24 | `memberGroupKey` ★ | 2 | `md5(ownerGroupKey ‖ escapedName ‖ isStatic)` — the member's identity across a **merged** owner, so a property declared in an augmentation joins the same member as one declared in the original |
+| 24 | `memberGroupKey` ★ | 2 | `md5(ownerGroupKey ‖ escapedName ‖ isStatic)` — the member's identity across a **merged** owner, so a property declared in an augmentation joins the same member as one declared in the original. **A hash is one-way and must never be the only carrier of a relationship** — see §4.8.1 |
 | 25 | `startColumn` | 1 | |
 | 26 | `endColumn` | 1 | |
 | 27 | `serviceVersionLinkHash` | 1 | |
 | 28 | `tsFieldUniqueHash` | — | **PK** |
 
 **PK** `TS_FIELD_md5(filePath ‖ tsTypeLinkHash ‖ name ‖ fieldTypeName ‖ startLine ‖ startColumn)`
+
+#### 4.8.1 Anonymous shape members — the owner FK  *(raised by `ts-impl`, 2026-08-27)*
+
+**Question asked: does this need another oracle? No. It needs a schema decision, which is
+this section, and one line in an invariant the gate already runs.**
+
+`{ toCsv(): string }` has member rows and nothing links the shape to them. Measured over the
+fixture corpus plus this repository: **337 type literals holding 1,128 members**; **28 calls**
+resolve to a `MethodSignature` inside a type literal and **74** to a `FunctionType`; and
+**1,352 property accesses** resolve to a type-literal member, which is the number that matters
+because property-chain walking is how a receiver gets typed. Real instances in this repo —
+`entity.toCsv()` where the parameter is `{ toCsv(): string; getCsvHeader(): string }[]`. So the
+link is load-bearing, not theoretical.
+
+**Why no oracle.** Type-literal membership is `member.parent === typeLiteralNode` — a parent
+pointer. It is **tier 1, purely syntactic**, and the parser already holds the value: it arrives
+as the `typeLiteralHash` argument to its own `onTypeLiteralMember` callback. An oracle here
+would be asking the TypeChecker to adjudicate a parent pointer. The two questions about
+anonymous shapes that *do* need the checker are already blessed and gated:
+
+| question | oracle call | already blessed? |
+|---|---|---|
+| which member does this call resolve to | `getResolvedSignature` | **yes** — 295 `MethodSignature`, 41 `CallSignature`, 42 `ConstructSignature`, 45 `FunctionType` targets in `EXPECTED_CALL_RESOLUTION` |
+| does a concrete type satisfy this shape | `isTypeAssignableTo` | **yes** — `ts_type_satisfies` (§4.21) |
+| which shape declares this member | *none — it is a parent pointer* | n/a |
+
+**The actual defect is that the information is present and un-joinable.** The parser does carry
+the type literal's identity, inside `memberGroupKey = md5(typeLiteralHash ‖ name ‖ false)`. That
+is a *one-way* hash: nothing can join on it, in either direction. Its reasoning for
+`tsTypeLinkHash: ''` was right — "inventing a `ts_type` would create a type the source does not
+declare" — and §4.2 agrees, which is why anonymous shapes are deliberately absent from
+`ts_type`. The mistake was concluding that the owner therefore had nowhere to go.
+
+**Decision: widen the existing owner FK; do not append, and do not invent a `ts_type` row.**
+
+- `ts_field` c8 and `ts_method` c7 point at `ts_type` **or** `ts_type_reference`.
+- Discriminated by an **existing** column — `memberKind` / `methodKind` — using owner-qualified
+  enum values. That is not a new sin: `OBJECT_LITERAL_PROPERTY`, `PARAMETER_PROPERTY` and
+  `OBJECT_LITERAL_METHOD` are already owner-qualified, so the enum's design already works this
+  way. `FUNCTION_TYPE_SIGNATURE` and `CONSTRUCTOR_TYPE_SIGNATURE` need no new value: a function
+  type node is the only thing that can own them.
+- Enum **values** are free to add — §0: names and values are not the frozen contract, column
+  **order** is. Arity is unchanged, so no golden is invalidated and there is no re-freeze. This
+  is the same mechanism as c16 (§4.14), applied a second time, which is a virtue: one pattern,
+  not two inventions.
+- **It restores key chaining.** `ts_field`'s PK chains off c8. With `""` there, the discipline
+  §1 exists to enforce — child keys chain off the parent, never off a re-derived name — is
+  simply broken for 127 rows. Filling it repairs that.
+
+**The widening cannot mis-join.** PKs are `PREFIX_<md5hex>`, and the prefixes differ
+(`TS_TYPE_…` vs `TS_TYPE_REFERENCE_…`), so an existing rule that joins c8 against `ts_type`
+finds **no match** for a shape member rather than a wrong one. Fail-safe in the only direction
+that matters: absent, never incorrect. A rule wanting class and interface members only should
+filter on `memberKind`, which it should have been doing anyway.
+
+**`""` is still correct for some rows, and the gate must not demand otherwise.** Measured, the
+416 rows with an empty owner are three different things, and a blanket "owner must be non-empty"
+rule would be wrong about two of them:
+
+| category | rows | verdict |
+|---|---|---|
+| **anonymous shape members** — `PROPERTY_SIGNATURE` 124, `FUNCTION_TYPE_SIGNATURE` 115, `CONSTRUCTOR_TYPE_SIGNATURE` 8, `METHOD_SIGNATURE` 5, `INDEX_SIGNATURE` 3, `CALL_SIGNATURE` 3, `CONSTRUCT_SIGNATURE` 1 | **259** | **must be filled** — this section |
+| **no owning type exists** — `MODULE_INITIALIZER` 67, `ARROW_FUNCTION` 43, `FUNCTION_EXPRESSION` 27 | 137 | `""` is **correct**. The module owns the initializer (`ts_module.moduleInitMethodLinkHash`); an arrow is reached by `ts_variable.boundFunctionLinkHash` or c16 |
+| **owner is an object literal EXPRESSION** — `OBJECT_LITERAL_METHOD` 16, plus `GETTER` 2 / `SETTER` 2 if they sit in one | 20 | **a separate gap, not this one.** The owner is a `ts_expression` row, not a type or a shape. Left open deliberately rather than folded in — see OQ-10 |
+
+So the gate asserts the owner is filled **for the enumerated shape-owned kinds only**, ratcheted
+so `ts-impl` is not blocked by a slot that landed after their commit.
 
 ---
 
@@ -1683,7 +1750,23 @@ JSDoc parse (`ts_comment.jsDocTags`), and `ts_type` rows would have to be synthe
 this one. The relations already tolerate it — `ts_module.scriptKind` has `JS`/`JSX`,
 `ts_comment.commentKind` has `JSDOC` — so nothing has to be reserved beyond what is there.
 
-### 10.3 Still open — nothing
+### 10.4 Open — OQ-10, object-literal members  *(surfaced 2026-08-27)*
+
+`{ m() { … } }` as a **value** — an object literal, not a type literal. Its members
+(`OBJECT_LITERAL_METHOD` 16 rows, and any `GETTER`/`SETTER` inside one) have an owner that is
+neither a `ts_type` nor a `ts_type_reference`: it is a `ts_expression` row of kind
+`OBJECT_LITERAL`. The same widening would extend to it — c8/c7 pointing at a third relation,
+discriminated by the same column — and prefixes stay distinct, so it is still fail-safe.
+
+I have **not** taken it, for one reason: unlike the type-literal case, I have no measurement
+that a call ever resolves to an object-literal member through the *fact base* rather than
+through the variable that holds the literal. `const api = { run() {} }; api.run()` may already
+close via `ts_variable` → its type → the member. Before widening a spine FK to a third relation
+I want the count, and getting it means measuring which of those 16 are reachable by an existing
+path. Flagged rather than folded into §4.8.1, because bundling an unmeasured case with a
+measured one is how a schema acquires columns nobody can justify later.
+
+### 10.5 Still open — nothing else
 
 No question in this document is unanswered. Two items are deliberately **deferred with a
 recorded trigger** rather than left ambiguous: TSX (a fixture appears) and `ts_scope` (a

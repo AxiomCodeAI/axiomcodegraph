@@ -746,6 +746,36 @@ function mergePartition(): number {
  * number is 283 and the drop is a POLICY CHANGE, recorded here rather than
  * smoothed over. It may fall again only with the same kind of note.
  */
+/**
+ * Member rows of an anonymous SHAPE whose owner FK is still empty (schema §4.8.1).
+ *
+ * `{ toCsv(): string }` has member rows and, until the schema said where the owner goes,
+ * nowhere to put it. `ts_field` c8 and `ts_method` c7 now point at `ts_type_reference`
+ * when the kind is shape-owned, so this is a parser obligation and may only fall.
+ *
+ * Deliberately NOT a blanket "owner must be non-empty" rule. Measured, 416 rows have an
+ * empty owner and they are three different things: 259 anonymous shape members that must
+ * be filled, 137 where `""` is CORRECT (a MODULE_INITIALIZER is owned by the module, a
+ * free arrow by the variable that binds it), and 20 object-literal members whose owner is
+ * an EXPRESSION — a separate and still unmeasured gap, OQ-10. Asserting non-emptiness
+ * everywhere would demand a wrong answer for 157 of them.
+ */
+const SHAPE_OWNER_UNFILLED_BAR = 259;
+
+/** Kinds whose owner is an anonymous shape, so c8 / c7 must hold a ts_type_reference. */
+const SHAPE_OWNED_FIELD_KINDS = new Set([
+  'TYPE_LITERAL_PROPERTY', 'TYPE_LITERAL_INDEX_SIGNATURE',
+  // Emitted today as the interface-member values even inside a type literal. Both sets
+  // are listed so this works before AND after ts-impl adopts the new enum values.
+  'PROPERTY_SIGNATURE', 'INDEX_SIGNATURE',
+]);
+const SHAPE_OWNED_METHOD_KINDS = new Set([
+  'TYPE_LITERAL_METHOD_SIGNATURE', 'TYPE_LITERAL_CALL_SIGNATURE',
+  'TYPE_LITERAL_CONSTRUCT_SIGNATURE',
+  'FUNCTION_TYPE_SIGNATURE', 'CONSTRUCTOR_TYPE_SIGNATURE',
+  'METHOD_SIGNATURE', 'CALL_SIGNATURE', 'CONSTRUCT_SIGNATURE',
+]);
+
 const SAME_FILE_LINK_FLOOR = 304;
 
 
@@ -979,7 +1009,7 @@ function factBaseInvariants(): number {
   const corpora = extractedCorpora();
   const failures: string[] = [];
   const systemsSeen = new Set<string>();
-  let rows = 0, links = 0;
+  let rows = 0, links = 0, shapeOwnerUnfilled = 0;
 
   for (const [slug, outputDir] of corpora) {
     // DERIVED from the emitted files, never listed. A hand-maintained list goes
@@ -1066,6 +1096,37 @@ function factBaseInvariants(): number {
         'ts_call_site row(s) — the 1:1 chain is broken');
     }
 
+    // 3. An anonymous shape's members carry their owner FK (schema §4.8.1).
+    //
+    // Scoped to the shape-owned kinds, because "" is the CORRECT answer for a
+    // module initializer or a free arrow — see SHAPE_OWNER_UNFILLED_BAR. A row
+    // that IS filled must point at a ts_type_reference and not a ts_type: an
+    // anonymous shape has no declaration, and inventing one would create a type
+    // the source does not declare.
+    for (const row of all.get('all-typescript-fields.csv') ?? []) {
+      if (!SHAPE_OWNED_FIELD_KINDS.has(row.memberKind ?? '')) continue;
+      const owner = row.tsTypeLinkHash ?? '';
+      if (owner === '') { shapeOwnerUnfilled += 1; continue; }
+      if ((row.memberKind ?? '').startsWith('TYPE_LITERAL_')
+        && !owner.startsWith('TS_TYPE_REFERENCE')) {
+        failures.push(`${slug}: ts_field ${row.name} at ${row.startLine}:${row.startColumn} is ` +
+          `${row.memberKind} but its owner is not a ts_type_reference — a type-literal member ` +
+          'is owned by the SHAPE, not by a declaration');
+      }
+    }
+    for (const row of all.get('all-typescript-methods.csv') ?? []) {
+      if (!SHAPE_OWNED_METHOD_KINDS.has(row.methodKind ?? '')) continue;
+      const owner = row.tsTypeLinkHash ?? '';
+      if (owner === '') { shapeOwnerUnfilled += 1; continue; }
+      const kind = row.methodKind ?? '';
+      const mustBeShape = kind.startsWith('TYPE_LITERAL_')
+        || kind === 'FUNCTION_TYPE_SIGNATURE' || kind === 'CONSTRUCTOR_TYPE_SIGNATURE';
+      if (mustBeShape && !owner.startsWith('TS_TYPE_REFERENCE')) {
+        failures.push(`${slug}: ts_method ${row.name} at ${row.startLine}:${row.startColumn} is ` +
+          `${kind} but its owner is not a ts_type_reference`);
+      }
+    }
+
     // 4. The type-only tripwires, restated where the other invariants live.
     for (const row of all.get('all-typescript-call-sites.csv') ?? []) {
       if (row.isTypeOnlyTarget !== 'false') {
@@ -1136,6 +1197,20 @@ function factBaseInvariants(): number {
   console.log(`  decoratorSystem observed: ${[...systemsSeen].sort().join(', ') || 'none'} ` +
     '— read per file from the governing tsconfig');
   console.log('  every callable expression has a declaration row at the same position');
+  if (shapeOwnerUnfilled > SHAPE_OWNER_UNFILLED_BAR) {
+    failures.push(`${shapeOwnerUnfilled} anonymous-shape member(s) have an empty owner FK, ` +
+      `bar is ${SHAPE_OWNER_UNFILLED_BAR}. The slot EXISTS (schema §4.8.1: c8/c7 point at ` +
+      'ts_type_reference for a shape-owned kind), so this is a parser obligation and the ' +
+      'count may only fall');
+  } else if (shapeOwnerUnfilled < SHAPE_OWNER_UNFILLED_BAR) {
+    console.log(`  ${shapeOwnerUnfilled} shape member(s) without an owner FK (< bar ` +
+      `${SHAPE_OWNER_UNFILLED_BAR}) — lower SHAPE_OWNER_UNFILLED_BAR; at 0, delete it and ` +
+      'assert 0 outright');
+  } else if (shapeOwnerUnfilled) {
+    console.log(`  ${shapeOwnerUnfilled} anonymous-shape member(s) await their owner FK ` +
+      '(schema §4.8.1) — until c8/c7 is filled the shape is reachable only through a ' +
+      'one-way memberGroupKey hash');
+  }
   for (const f of failures.slice(0, 10)) console.log(`  ${f}`);
   if (failures.length > 10) console.log(`  … and ${failures.length - 10} more`);
   return failures.length ? 1 : 0;

@@ -56,7 +56,9 @@ DOCS = {
    "// java_method 0..20. c25 signatureRole and c27 bodyPresence carry what Java never needs:\n"
    "// 11,599 overload signatures measured, and 44.3% of resolved call targets are BODILESS, so\n"
    "// a target must never be read as an implementation without checking c27. c39 startColumn is\n"
-   "// IN THE KEY: 703 arrow functions, and two on one line share name, signature and line.",
+   "// IN THE KEY: 703 arrow functions, and two on one line share name, signature and line.\n"
+   "// c7, like ts_field c8, is the owning type OR SHAPE — a ts_type_reference for a\n"
+   "// TYPE_LITERAL_*, FUNCTION_TYPE_SIGNATURE or CONSTRUCTOR_TYPE_SIGNATURE row.",
  "ts_method_parameter":
    "A formal parameter. Cols 0..11 mirror java_method_parameter 0..11. 85.3% carry an annotation\n"
    "// (99.998% in ambient code), the inverse of Python's 31.8%, which is why declared-type\n"
@@ -66,8 +68,12 @@ DOCS = {
    "A class property, interface property signature, index signature, auto-accessor, parameter\n"
    "// property, or object-literal property. Cols 0..12 mirror java_field 0..12, and the key\n"
    "// chains off c8 tsTypeLinkHash exactly as FieldRegistry chains off typeRegistryLinkHash —\n"
-   "// never off a re-derived qualified name. c15 isOptional is load-bearing for structural\n"
-   "// satisfaction: an absent optional member does not break assignability.",
+   "// never off a re-derived qualified name. c8 is the owning type OR SHAPE: it points at a\n"
+   "// ts_type_reference row when memberKind is a TYPE_LITERAL_* value, because an anonymous\n"
+   "// { foo(): string } has members and no declaration to own them (schema 4.8.1). PK prefixes\n"
+   "// differ, so a rule joining c8 against ts_type finds NO MATCH for a shape member rather than\n"
+   "// a wrong one. c15 isOptional is load-bearing for structural satisfaction: an absent\n"
+   "// optional member does not break assignability.",
  "ts_field_position":
    "A field's declaration order within its type. Parity with java_field_position.",
  "ts_enum_member":
