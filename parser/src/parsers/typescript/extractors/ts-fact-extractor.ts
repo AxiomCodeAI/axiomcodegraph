@@ -322,10 +322,12 @@ export function extractTypeScriptFile(options: TsFileExtractionOptions): TsFileF
       pending.link(hash);
     }
   }
-  // `class { }` in a value position: the EXPRESSION row needs the type's hash,
-  // which is the one link that runs the other way.
-  for (const [id, typeHash] of declarations.anonymousTypeByNode) {
-    expressions.rowByNode.get(id)?.setAnonymousTypeHash(typeHash);
+  // c16, the one link that runs the other way: an expression that INTRODUCES a
+  // declaration points at it. A `ts_type` for a class expression, a `ts_method`
+  // for an arrow or function expression — discriminated by the expression's own
+  // kind, which is what the widening made possible.
+  for (const [id, declarationHash] of declarations.anonymousDeclarationByNode) {
+    expressions.rowByNode.get(id)?.setAnonymousDeclarationHash(declarationHash);
   }
   // `import("m")` and `require("m")` are module edges written inside an
   // expression, so the import row points at the call that performs them.

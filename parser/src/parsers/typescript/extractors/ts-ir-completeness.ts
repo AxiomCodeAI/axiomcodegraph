@@ -63,12 +63,6 @@ export interface IrCompletenessReport {
    * nor reported as a gap the parser could close.
    */
   readonly notDerivable: number;
-  /**
-   * An IIFE: the target is in the file and has a `ts_method` row, but no column
-   * links a function-expression `ts_expression` row to it. A SCHEMA gap, raised
-   * with ts-oracle, counted apart from anything the parser can fix.
-   */
-  readonly needsSchemaSlot: number;
   readonly gaps: readonly IrGap[];
   /** Per-shape outcome. PROVENANCE, not a quality measure. */
   readonly byReceiverKind: Record<string, ReceiverShapeCounts>;
@@ -82,7 +76,6 @@ export interface ReceiverShapeCounts {
   readonly incomplete: number;
   readonly inferred: number;
   readonly notDerivable: number;
-  readonly needsSchemaSlot: number;
 }
 
 export interface IrGap {
@@ -256,7 +249,6 @@ export function measureIrCompleteness(
     handedOffIncomplete: 0,
     inferredReceiver: 0,
     notDerivable: 0,
-    needsSchemaSlot: 0,
     gaps: [],
     byReceiverKind: {},
   };
@@ -316,7 +308,7 @@ export function measureIrCompleteness(
       const shape = callSite.receiverKind;
       const bucket = (report.byReceiverKind[shape] ?? {
         total: 0, sameFileLinks: 0, terminals: 0, complete: 0, incomplete: 0, inferred: 0,
-        notDerivable: 0, needsSchemaSlot: 0,
+        notDerivable: 0,
       }) as Mutable<ReceiverShapeCounts>;
       bucket.total += 1;
       report.byReceiverKind[shape] = bucket;
@@ -360,15 +352,19 @@ export function measureIrCompleteness(
             break;
           }
           if (callee.kind === 'ARROW_FUNCTION' || callee.kind === 'FUNCTION_EXPRESSION') {
-            // An IIFE. The target is right there in the file and has a
-            // `ts_method` row — but `ts_expression` has NO FK to it. c16
-            // `anonymousTypeHash` covers a class expression and nothing covers a
-            // function one, so the engine's only route is a position match.
-            // Recorded as its own category and raised with ts-oracle rather than
-            // papered over: it is a schema gap, not a parser gap.
-            report.needsSchemaSlot += 1;
-            bucket.needsSchemaSlot += 1;
-            continue;
+            // An IIFE. The target is right there in the file with its own
+            // `ts_method` row, and c16 now points at it — the widening ts-oracle
+            // made after this parser reported that the two rows existed with no
+            // FK between them and the engine's only route was a position match.
+            //
+            // So this is a checkable hop now, not a category to be excused. An
+            // EMPTY c16 on a callee that introduces a declaration is a parser
+            // gap, and it is reported as one.
+            if (callee.getAnonymousDeclarationHash() === '') {
+              missing.push('an IIFE callee introduces a ts_method but c16 ' +
+                'anonymousDeclarationHash is empty — the engine is back to matching positions');
+            }
+            break;
           }
           if (callee.kind !== 'IDENTIFIER_REFERENCE') {
             // `new (X as any)(…)`, a computed callee. The callee's type is not

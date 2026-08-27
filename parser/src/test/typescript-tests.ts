@@ -748,22 +748,6 @@ function mergePartition(): number {
  */
 const SAME_FILE_LINK_FLOOR = 304;
 
-/**
- * IIFE call sites whose callee expression does not yet carry its `ts_method` FK.
- *
- * These were `needsSchemaSlot` — a real schema gap, correctly raised rather than papered
- * over. **The slot now exists**: §4.14 c16 was WIDENED from `anonymousTypeHash` to the
- * declaration an expression introduces, discriminated by c0 `kind`, so
- * `ARROW_FUNCTION`/`FUNCTION_EXPRESSION` points at `ts_method`. No arity changed and no
- * golden was invalidated, because column meanings are not the frozen contract and column
- * order is.
- *
- * So the count is no longer a schema gap; it is a parser obligation. It is ratcheted
- * rather than gated at zero so `ts-impl` is not blocked by a slot that landed after
- * their commit — but it may only FALL. Lower this bar in the same commit that fills c16;
- * when it reaches 0, delete it and assert 0 outright.
- */
-const UNFILLED_C16_BAR = 3;
 
 /**
  * Every parser-filled `resolvedSignatureLinkHash` equals `getResolvedSignature`.
@@ -1240,7 +1224,7 @@ function irCompleteness(): number {
   if (!index) return fail('no CORPORA.json');
 
   let callSites = 0, links = 0, terminals = 0, complete = 0, incomplete = 0;
-  let inferred = 0, notDerivable = 0, needsSchemaSlot = 0;
+  let inferred = 0, notDerivable = 0;
   const gaps: string[] = [];
   for (const c of index.corpora) {
     const report = completenessByCorpus().get(c.slug);
@@ -1254,31 +1238,17 @@ function irCompleteness(): number {
     incomplete += report.handedOffIncomplete;
     inferred += report.inferredReceiver;
     notDerivable += report.notDerivable;
-    needsSchemaSlot += report.needsSchemaSlot;
     for (const gap of report.gaps) {
       gaps.push(`${c.slug}: ${gap.where} (${gap.detail}) — ${gap.reason}`);
     }
   }
-  const accounted = links + terminals + complete + incomplete + inferred + notDerivable
-    + needsSchemaSlot;
+  const accounted = links + terminals + complete + incomplete + inferred + notDerivable;
 
   console.log(`  ${callSites} call site(s), all accounted for: ${links} same-file links, ` +
     `${terminals} terminals, ${complete} handed off COMPLETE, ${incomplete} handed off ` +
     'INCOMPLETE');
   console.log(`  ${inferred} inferred receiver (no annotation exists), ${notDerivable} not ` +
-    `derivable from syntax, ${needsSchemaSlot} IIFE callee(s) with c16 unfilled`);
-  if (needsSchemaSlot > UNFILLED_C16_BAR) {
-    gaps.push(`${needsSchemaSlot} IIFE callee(s) lack their ts_method FK, bar is ` +
-      `${UNFILLED_C16_BAR}. The schema slot EXISTS (§4.14 c16, widened) — this is now a ` +
-      'parser obligation, and the count may only fall');
-  } else if (needsSchemaSlot < UNFILLED_C16_BAR) {
-    console.log(`  ${needsSchemaSlot} < bar ${UNFILLED_C16_BAR} — lower UNFILLED_C16_BAR to ` +
-      'lock this in; at 0, delete it and assert 0 outright');
-  } else if (needsSchemaSlot) {
-    console.log('  ^ c16 is available to fill (§4.14, widened 2026-08-27): for ARROW_FUNCTION ' +
-      'and FUNCTION_EXPRESSION it points at the ts_method, so the engine no longer needs a ' +
-      'position match');
-  }
+    'derivable from syntax; every IIFE callee reaches its ts_method through c16');
   if (accounted !== callSites) {
     // Every call site must land in exactly one bucket. A total that does not add
     // up means a case is counted twice or not at all, and either way the

@@ -139,8 +139,16 @@ export class TsDeclarationExtractor {
    * nine FKs permanently empty, silently drops nine chains an engine can follow.
    */
   readonly pendingExpressionLinks: { node: ts.Node; link: (hash: string) => void }[] = [];
-  /** Class-expression node -> its `ts_type` hash, for `ts_expression.anonymousTypeHash`. */
-  readonly anonymousTypeByNode = new Map<string, string>();
+  /**
+   * Node -> the DECLARATION HASH that node introduces, for `ts_expression` c16.
+   *
+   * Polymorphic, discriminated by the expression's own `kind`: a `ts_type` hash
+   * for a class expression, a `ts_method` hash for an arrow or a function
+   * expression. c16 was widened for the second case after this parser reported
+   * that an IIFE had a `ts_method` row and an `ts_expression` row with no FK
+   * between them — the engine's only route was a position match.
+   */
+  readonly anonymousDeclarationByNode = new Map<string, string>();
 
   /** Emitted hashes by node identity, so later passes never re-derive a key. */
   readonly typeHashByNode = new Map<string, string>();
@@ -774,9 +782,9 @@ export class TsDeclarationExtractor {
     this.typeRowByNode.set(nodeId(node, this.sf), row);
     if (ts.isClassExpression(node)) {
       // The reverse direction of every other link here: the EXPRESSION row needs
-      // the type's hash, so `class { }` in a value position is joinable to the
-      // declaration it creates.
-      this.anonymousTypeByNode.set(nodeId(node, this.sf), row.getHash());
+      // the DECLARATION's hash, so `class { }` in a value position is joinable to
+      // the type it creates.
+      this.anonymousDeclarationByNode.set(nodeId(node, this.sf), row.getHash());
     }
     return row;
   }
@@ -1183,6 +1191,14 @@ export class TsDeclarationExtractor {
     this.methods.push(row);
     this.methodHashByNode.set(nodeId(node, this.sf), row.getHash());
     this.methodRowByNode.set(nodeId(node, this.sf), row);
+    if (methodKind === TsMethodKind.ARROW_FUNCTION
+      || methodKind === TsMethodKind.FUNCTION_EXPRESSION) {
+      // An arrow or function expression IS a declaration in a value position, so
+      // its expression row points at the `ts_method` it introduces. This is the
+      // half of c16 the widening added: an IIFE's callee is now reachable by FK
+      // rather than by matching positions.
+      this.anonymousDeclarationByNode.set(nodeId(node, this.sf), row.getHash());
+    }
     this.recordOverloadCandidate(row, context, body !== undefined);
 
     // METHOD_TYPE_PARAM_BOUND, not TYPE_PARAM_BOUND: the split Java makes, kept

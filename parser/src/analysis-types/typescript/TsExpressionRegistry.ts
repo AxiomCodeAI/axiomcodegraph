@@ -57,7 +57,7 @@ export class TsExpressionRegistry implements EntityIdentifiable {
   readonly operatorString: string;
   private referencedEntityKind: TsReferencedEntityKind = TsReferencedEntityKind.UNKNOWN;
   private referencedEntityHash = ABSENT;
-  private anonymousTypeHash = ABSENT;
+  private anonymousDeclarationHash = ABSENT;
   private potentialQualifiedName = ABSENT;
   private isAmbiguous = false;
   readonly returnStatementIndex: number;
@@ -185,8 +185,22 @@ export class TsExpressionRegistry implements EntityIdentifiable {
     this.isAmbiguous = true;
   }
 
-  setAnonymousTypeHash(hash: string): void {
-    this.anonymousTypeHash = hash;
+  /**
+   * The DECLARATION this expression introduces — c16, polymorphic on {@link kind}.
+   *
+   * `ts_type` for a `CLASS_EXPRESSION`; `ts_method` for an `ARROW_FUNCTION` or a
+   * `FUNCTION_EXPRESSION`. Widened from Java's `anonymousTypeHash`, which covered
+   * only the class case: an arrow had a `ts_method` row and an expression row
+   * with no FK between them, so an IIFE's target was reachable only by matching
+   * positions — and a position match is exactly the kind of join that breaks
+   * silently when two nodes share an offset.
+   */
+  setAnonymousDeclarationHash(hash: string): void {
+    this.anonymousDeclarationHash = hash;
+  }
+
+  getAnonymousDeclarationHash(): string {
+    return this.anonymousDeclarationHash;
   }
 
   setAssertedTypeReferenceLinkHash(hash: string): void {
@@ -216,7 +230,7 @@ export class TsExpressionRegistry implements EntityIdentifiable {
         text(this.operatorString),
         this.referencedEntityKind,
         this.referencedEntityHash,
-        this.anonymousTypeHash,
+        this.anonymousDeclarationHash,
         text(this.potentialQualifiedName),
         bool(this.isAmbiguous),
         num(this.returnStatementIndex),
@@ -246,7 +260,7 @@ export class TsExpressionRegistry implements EntityIdentifiable {
         'kind', 'edgeRole', 'rootContext', 'expressionOwnerKind', 'tsTypeLinkHash',
         'expressionOwnerHash', 'parentExpressionHash', 'position', 'depth', 'literalType',
         'literalValue', 'methodReferenceKind', 'unaryFixity', 'operatorString',
-        'referencedEntityKind', 'referencedEntityHash', 'anonymousTypeHash',
+        'referencedEntityKind', 'referencedEntityHash', 'anonymousDeclarationHash',
         'potentialQualifiedName', 'isAmbiguous', 'returnStatementIndex', 'startLine',
         'startColumn', 'endLine', 'endColumn', 'tsModuleLinkHash', 'isOptionalChain',
         'isNonNullAsserted', 'assertedTypeReferenceLinkHash', 'isSpread', 'argumentCount',
