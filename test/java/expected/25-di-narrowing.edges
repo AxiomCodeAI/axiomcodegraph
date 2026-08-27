@@ -1,0 +1,6 @@
+known_edge	method	testcases.config.Service1#a(String) -> testcases.config.DbStore#read(String)
+known_edge	method	testcases.config.Service1#c(String) -> testcases.config.JsonCodec#encode(String)
+known_edge	method	testcases.config.Service2#d(String) -> testcases.config.DbStore#read(String)
+multi_inferred	method	testcases.config.Service1#b(String) -> testcases.config.Codec#encode(String)
+multi_inferred	method	testcases.config.Service1#b(String) -> testcases.config.JsonCodec#encode(String)
+multi_inferred	method	testcases.config.Service1#b(String) -> testcases.config.XmlCodec#encode(String)

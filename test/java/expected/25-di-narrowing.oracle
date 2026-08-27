@@ -1,0 +1,9 @@
+oracle=4 engine=6 agree=1 missing=3 (known 3, NEW 0) extra=5
+  known-missing  testcases.config.Service1#a -> testcases.config.Store#read(String)
+  known-missing  testcases.config.Service1#c -> testcases.config.Codec#encode(String)
+  known-missing  testcases.config.Service2#d -> testcases.config.Store#read(String)
+  extra    testcases.config.Service1#a -> testcases.config.DbStore#read(String)
+  extra    testcases.config.Service1#b -> testcases.config.JsonCodec#encode(String)
+  extra    testcases.config.Service1#b -> testcases.config.XmlCodec#encode(String)
+  extra    testcases.config.Service1#c -> testcases.config.JsonCodec#encode(String)
+  extra    testcases.config.Service2#d -> testcases.config.DbStore#read(String)

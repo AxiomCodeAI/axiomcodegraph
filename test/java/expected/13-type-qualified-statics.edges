@@ -1,15 +1,6 @@
+ambiguous_unknown	method	TypeQualifiedStatics#main(String[]) -> -
+ambiguous_unknown	method	TypeQualifiedStatics#viaLibraryType(String) -> -
 ambiguous_unknown	new	TypeQualifiedStatics#main(String[]) -> -
-boundary_lib	method	TypeQualifiedStatics#main(String[]) -> java.io.PrintStream#println(String)
-boundary_lib	method	TypeQualifiedStatics#main(String[]) -> java.io.PrintStream#println(char[])
-boundary_lib	method	TypeQualifiedStatics#viaLibraryType(String) -> java.lang.Integer#parseInt(String)
-boundary_lib	method	TypeQualifiedStatics#viaLibraryType(String) -> java.lang.String#valueOf(Object)
-boundary_lib	method	TypeQualifiedStatics#viaLibraryType(String) -> java.lang.String#valueOf(boolean)
-boundary_lib	method	TypeQualifiedStatics#viaLibraryType(String) -> java.lang.String#valueOf(char)
-boundary_lib	method	TypeQualifiedStatics#viaLibraryType(String) -> java.lang.String#valueOf(char[])
-boundary_lib	method	TypeQualifiedStatics#viaLibraryType(String) -> java.lang.String#valueOf(double)
-boundary_lib	method	TypeQualifiedStatics#viaLibraryType(String) -> java.lang.String#valueOf(float)
-boundary_lib	method	TypeQualifiedStatics#viaLibraryType(String) -> java.lang.String#valueOf(int)
-boundary_lib	method	TypeQualifiedStatics#viaLibraryType(String) -> java.lang.String#valueOf(long)
 known_edge	method	TypeQualifiedStatics#main(String[]) -> TypeQualifiedStatics#viaLibraryType(String)
 known_edge	method	TypeQualifiedStatics#main(String[]) -> TypeQualifiedStatics#viaNestedType(String)
 known_edge	method	TypeQualifiedStatics#main(String[]) -> TypeQualifiedStatics#viaOwnTypeName(String)

@@ -1,14 +1,6 @@
+ambiguous_unknown	method	shop.OrderService#main(String[]) -> -
 ambiguous_unknown	new	shop.OrderService#<type-initializer>() -> -
 ambiguous_unknown	new	shop.OrderService#main(String[]) -> -
-boundary_lib	method	shop.OrderService#main(String[]) -> java.io.PrintStream#println(Object)
-boundary_lib	method	shop.OrderService#main(String[]) -> java.io.PrintStream#println(String)
-boundary_lib	method	shop.OrderService#main(String[]) -> java.io.PrintStream#println(boolean)
-boundary_lib	method	shop.OrderService#main(String[]) -> java.io.PrintStream#println(char)
-boundary_lib	method	shop.OrderService#main(String[]) -> java.io.PrintStream#println(char[])
-boundary_lib	method	shop.OrderService#main(String[]) -> java.io.PrintStream#println(double)
-boundary_lib	method	shop.OrderService#main(String[]) -> java.io.PrintStream#println(float)
-boundary_lib	method	shop.OrderService#main(String[]) -> java.io.PrintStream#println(int)
-boundary_lib	method	shop.OrderService#main(String[]) -> java.io.PrintStream#println(long)
 known_edge	method	shop.OrderService#main(String[]) -> shop.OrderService#total(int)
 known_edge	method	shop.OrderService#main(String[]) -> shop.OrderService#useDiscount(Discount)
 known_edge	method	shop.OrderService#total(int) -> shop.PriceCalculator#subtotal(int)

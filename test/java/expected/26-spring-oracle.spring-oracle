@@ -1,0 +1,6 @@
+── validated against a LIVE SPRING CONTEXT (independent toolchain) ──
+beans          precision 1.000  recall 1.000   (engine 11, spring 11, agree 11)
+field_inject   precision 1.000  recall 1.000   (engine 3, spring 3, agree 3)
+ctor_inject    precision 1.000  recall 1.000   (engine 1, spring 1, agree 1)
+factory_param  precision 1.000  recall 1.000   (engine 1, spring 1, agree 1)
+value_keys     precision 1.000  recall 1.000   (engine 1, spring 1, agree 1)

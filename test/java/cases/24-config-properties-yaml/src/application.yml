@@ -1,0 +1,5 @@
+svc:
+  base: ${app.url}
+  probe: ${svc.base}/health
+  token: ${SECRET_TOKEN}
+  timeout: 30

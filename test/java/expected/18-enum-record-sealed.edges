@@ -1,7 +1,6 @@
+ambiguous_unknown	method	LangFeatures#main(String[]) -> -
 ambiguous_unknown	method	LangFeatures#viaRecord(Point) -> -
 ambiguous_unknown	new	LangFeatures#main(String[]) -> -
-boundary_lib	method	LangFeatures#main(String[]) -> java.io.PrintStream#println(String)
-boundary_lib	method	LangFeatures#main(String[]) -> java.io.PrintStream#println(char[])
 known_edge	method	Greeter#greet() -> Greeter#name()
 known_edge	method	LangFeatures#main(String[]) -> Greeter#of(String)
 known_edge	method	LangFeatures#main(String[]) -> LangFeatures#viaDefault(Greeter)

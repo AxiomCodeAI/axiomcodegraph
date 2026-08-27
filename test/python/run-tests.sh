@@ -9,9 +9,14 @@
 #   4. GOLDEN DIFF: normalized edges vs expected/<name>.edges
 #   5. CPYTHON ORACLE (--oracle): score against the FROZEN ground truth
 #
-# SCOPE IS CLIENT->CLIENT BY DESIGN. Library linking is python-library-linking's
-# problem and is measured separately, so a regression here is never ambiguous
-# about which layer broke.
+# SCOPE IS CLIENT->CLIENT BY DESIGN, AND NO STDLIB IR IS STAGED. Library linking is
+# python-library-linking's problem and is measured separately, so a regression here is
+# never ambiguous about which layer broke. The engine is handed an EMPTY library root,
+# which means:
+#   - nothing outside the repo is needed to run this suite (the stdlib IR is 462 MB);
+#   - a call into the stdlib is reported by NAME (external:functools.wraps) or as
+#     ambiguous_unknown, instead of as an opaque PY_METHOD_<hash> that no reader can
+#     check — so the goldens got more reviewable, not less.
 #
 #   ./run-tests.sh                 every case: coverage guard + golden diff
 #   ./run-tests.sh --oracle        ALSO validate against CPython-built ground truth
@@ -29,15 +34,15 @@
 #
 # Environment:
 #   AXIOM_PARSER      parser entrypoint        (default ../../../Parser/dist/index.js)
-#   AXIOM_PY_IR       stdlib IR root           (default ../../../python/v3.10.4)
-#   AXIOM_PY_ORACLE   harness checkout         (default ../../../callchain-oracle/python)
-#   AXIOM_PY_PYTHON   pinned interpreter       (default python3.10)
+#   AXIOM_PY_ORACLE   harness checkout         (--oracle only; default ../../../callchain-oracle/python)
+#   AXIOM_PY_PYTHON   pinned interpreter       (--oracle only; default python3.10)
+#
+# NO STDLIB IR IS USED OR REQUIRED.
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 PARSER="${AXIOM_PARSER:-$ROOT/../Parser/dist/index.js}"
-PY_IR="${AXIOM_PY_IR:-$ROOT/../python/v3.10.4}"
 ORACLE_HOME="${AXIOM_PY_ORACLE:-$ROOT/../callchain-oracle/python}"
 PY="${AXIOM_PY_PYTHON:-/usr/local/bin/python3.10}"
 WORK="$HERE/.work"
@@ -49,15 +54,25 @@ for a in "$@"; do case "$a" in
   --oracle-only) ORACLE=1; ORACLE_ONLY=1;;
   -h|--help) sed -n '2,36p' "$0"; exit 0;; *) FILTERS+=("$a");; esac; done
 
-command -v "$PY" >/dev/null 2>&1 || { echo "SKIP: pinned interpreter not found at $PY (set AXIOM_PY_PYTHON)"; exit 77; }
-PYVER="$("$PY" -c 'import sys;print("%d.%d.%d"%sys.version_info[:3])')"
-[ "$PYVER" = "3.10.4" ] || echo "NOTE: interpreter is $PYVER, pinned is 3.10.4 — opcode shapes differ; numbers are not comparable across versions."
-[ -d "$ORACLE_HOME/callchain_oracle" ] || { echo "SKIP: callchain-oracle harness not at $ORACLE_HOME (set AXIOM_PY_ORACLE)"; exit 77; }
+# The PINNED interpreter and the CPython oracle harness are required by --oracle ONLY.
+# Gating the whole suite on them made a clone without that external checkout unable to run
+# any of it, which is the opposite of what a regression suite is for. The engine checks
+# (coverage guard + golden diff) need nothing but python3 and the parser.
+if [ "$ORACLE" = "1" ]; then
+  command -v "$PY" >/dev/null 2>&1 || { echo "SKIP: pinned interpreter not found at $PY (set AXIOM_PY_PYTHON)"; exit 77; }
+  PYVER="$("$PY" -c 'import sys;print("%d.%d.%d"%sys.version_info[:3])')"
+  [ "$PYVER" = "3.10.4" ] || echo "NOTE: interpreter is $PYVER, pinned is 3.10.4 — opcode shapes differ; numbers are not comparable across versions."
+  [ -d "$ORACLE_HOME/callchain_oracle" ] || { echo "SKIP: callchain-oracle harness not at $ORACLE_HOME (set AXIOM_PY_ORACLE)"; exit 77; }
+else
+  PY="$(command -v python3)"
+fi
 if [ "$ORACLE_ONLY" = "0" ]; then
   [ -f "$PARSER" ] || { echo "SKIP: parser not found at $PARSER (set AXIOM_PARSER)"; exit 77; }
 fi
 
 mkdir -p "$WORK" "$HERE/expected"
+# Empty library root — see the CLIENT->CLIENT note in the header.
+EMPTY_LIB="$WORK/.empty-library"; mkdir -p "$EMPTY_LIB"
 
 # ── preflight: is there a rule set at all? ──────────────────────────────────
 # The Python rule set is owned by python-callchain and is empty by design until
@@ -106,7 +121,7 @@ for dir in "$HERE"/cases/*/; do
     echo "FAIL (parse — see $w/parse.log)"; fail=$((fail+1)); failed+=("$name"); continue; fi
 
   if ! bash "$ROOT/src/pipeline/run-souffle.sh" --language python \
-        --client-ir "$w/ir" --library "$PY_IR" \
+        --client-ir "$w/ir" --library "$EMPTY_LIB" \
         --intermediate "$w/int" --output "$w/out" >"$w/solve.log" 2>&1; then
     if [ "$ENGINE_READY" = "0" ]; then
       echo "RED (no rule set: $ENGINE_WHY)"

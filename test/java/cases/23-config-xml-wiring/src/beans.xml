@@ -1,0 +1,20 @@
+<beans>
+  <bean id="transport" class="testcases.config.Transport"/>
+
+  <bean id="mailSender" class="testcases.config.MailSender"
+        init-method="start" destroy-method="stop">
+    <constructor-arg ref="transport"/>
+    <property name="endpoint" value="${mail.endpoint}"/>
+  </bean>
+
+  <!-- no id: Spring keys an anonymous bean by its class -->
+  <bean class="testcases.config.MyFilter"/>
+
+  <!-- a ref to a bean that does not exist: a DECLARED unknown, never dropped -->
+  <bean id="broken" class="testcases.config.MyServlet">
+    <property name="missing" ref="nosuchbean"/>
+  </bean>
+
+  <!-- a class that does not exist: a DECLARED unknown, never dropped -->
+  <bean id="ghost" class="com.nope.Missing"/>
+</beans>
