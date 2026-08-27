@@ -383,6 +383,8 @@
 .decl call_hits_lib_method(c0:symbol,c1:symbol)
 .decl lib_link_missed(c0:symbol,c1:symbol)
 .decl import_unlinked(c0:symbol,c1:symbol)
+.decl binding_value_lib_type(c0:symbol,c1:symbol)
+.decl field_lib_type(c0:symbol,c1:symbol)
 
 // ---- resolution/mro.dl -----------------------------------------
 .decl mro_prec(c0:symbol,c1:symbol,c2:symbol)
@@ -532,4 +534,4 @@
 .decl client_calls_builtin(c0:symbol,c1:symbol,c2:symbol)
 .decl client_calls_external(c0:symbol,c1:symbol)
 
-// 433 derived relations + 4 executor knobs.
+// 435 derived relations + 4 executor knobs.

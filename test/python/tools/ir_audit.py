@@ -40,8 +40,17 @@ def rows(path):
     return [dict(zip(hdr, x + [''] * (len(hdr) - len(x)))) for x in r[1:]]
 
 
+# Directories the IR build deliberately excludes (build-stdlib-ir.sh: "the test tree is
+# ~a third of Lib/ and is not library surface"). Counting them made six stdlib shards look
+# catastrophically incomplete -- unittest 2,186 "missing" code objects, ctypes 525,
+# lib2to3 845 -- when EVERY one was under a test/ tree the build never fed the parser.
+# The denominator has to match the build's own policy or the audit invents defects.
+EXCLUDED_DIRS = {'test', 'tests', 'idle_test', '__pycache__', 'site-packages'}
+
+
 def py_files(root):
-    for base, _, names in os.walk(root):
+    for base, dirs, names in os.walk(root):
+        dirs[:] = [d for d in dirs if d not in EXCLUDED_DIRS]
         for n in sorted(names):
             if n.endswith('.py'):
                 p = os.path.join(base, n)
@@ -50,9 +59,17 @@ def py_files(root):
 
 # ── CPython's inventory ──────────────────────────────────────────────────────
 cp_code, cp_class, cp_bind = set(), set(), set()
+unparseable = []
 for path, rel in py_files(SRC):
-    src = open(path, encoding='utf-8').read()
-    tree = ast.parse(src, filename=path)
+    try:
+        src = open(path, encoding='utf-8').read()
+        tree = ast.parse(src, filename=path)
+    except (SyntaxError, UnicodeDecodeError) as exc:
+        # CPython itself cannot compile this file, so it is not a parser gap -- the stdlib
+        # ships deliberately-broken fixtures (lib2to3 grammar tests, encoding samples).
+        # Recorded so the denominator is honest rather than silently smaller.
+        unparseable.append((rel, type(exc).__name__))
+        continue
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             cp_code.add((rel, node.lineno, node.name))
@@ -60,7 +77,10 @@ for path, rel in py_files(SRC):
             cp_code.add((rel, node.lineno, '<lambda>'))
         elif isinstance(node, ast.ClassDef):
             cp_class.add((rel, node.lineno, node.name))
-    st = symtable.symtable(src, path, 'exec')
+    try:
+        st = symtable.symtable(src, path, 'exec')
+    except (SyntaxError, ValueError):
+        continue
 
     def walk(t):
         for s in t.get_symbols():
@@ -111,7 +131,12 @@ def report(label, cpython, ir, limit=12):
     return len(missing)
 
 
-print(f"IR audit: {SRC}\n")
+print(f"IR audit: {SRC}")
+if unparseable:
+    print(f"  ({len(unparseable)} file(s) CPython itself cannot compile, excluded from the "
+          f"denominator: {', '.join(r for r, _ in unparseable[:4])}"
+          f"{' …' if len(unparseable) > 4 else ''})")
+print()
 gaps = 0
 gaps += report('code objects', cp_code, ir_code)
 gaps += report('classes', cp_class, ir_class)
