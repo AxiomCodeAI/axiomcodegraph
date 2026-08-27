@@ -60,9 +60,22 @@ function readJson<T>(file: string): T | undefined {
   return JSON.parse(fs.readFileSync(file, 'utf-8')) as T;
 }
 
-/** Is the extractor there yet? Absence is a fact to report, not a reason to be silent. */
+/**
+ * Is the extractor there yet? Absence is a fact to report, not a reason to be silent.
+ *
+ * The probe is the ANALYZER, not the parser directory. Every check below needs
+ * emitted rows, and rows come from the analyzer — the extractors underneath it
+ * can exist and be individually verified long before there is anything to
+ * compare a CSV against. Probing the directory instead would flip all four
+ * checks to FAIL on the first extractor file, which turns "not built yet" into
+ * a red gate and destroys the value of the ratchet: a suite that is red for
+ * weeks teaches everyone to ignore it.
+ *
+ * The ratchet's intent is unchanged. A check may move from pending to live and
+ * never back, and PENDING_BAR falls in the same commit that makes one runnable.
+ */
 function parserPresent(): boolean {
-  return fs.existsSync('src/parsers/typescript') || fs.existsSync('src/workflows/typescript');
+  return fs.existsSync('src/workflows/typescript/typescript-project-analyzer.ts');
 }
 
 // ---------------------------------------------------------------------------

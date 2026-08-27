@@ -69,3 +69,4 @@ src/test/python-gates/xpkg-corpus/
 
 # Analyzer output from the test runner; deleted at the end of every run.
 .py-test-out/
+.probe/
