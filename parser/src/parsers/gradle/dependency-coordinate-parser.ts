@@ -53,6 +53,14 @@ export class DependencyCoordinateParser {
     const wrapper = this.matchWrapper(text);
     if (wrapper) return this.parseWrapper(wrapper.name, wrapper.inner, text);
 
+    // `projects.core.testing` is a TYPE-SAFE PROJECT ACCESSOR, not a catalog
+    // one — it means `project(":core:testing")`. Both are bare dotted chains,
+    // so a check for "dotted identifier" alone sends every internal module
+    // dependency into the catalog relation, where it matches nothing and
+    // reports no coordinate. Android's Now in Android has 100 of these against
+    // 245 total dependencies; they are most of its own module graph.
+    if (this.isProjectAccessor(text)) return [this.projectAccessorCoordinate(text)];
+
     if (this.isCatalogAccessor(text)) return [this.catalogCoordinate(text)];
 
     if (this.isMapNotation(text)) return [this.parseMapNotation(text)];
@@ -152,6 +160,34 @@ export class DependencyCoordinateParser {
    * not hard-coded — the alias is everything after the first dot, and the
    * linker matches it against the catalogs actually found.
    */
+  /**
+   * Gradle generates these from the settings file when
+   * `enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")` is on, rooted at the
+   * fixed name `projects`.
+   */
+  private static isProjectAccessor(text: string): boolean {
+    return /^projects\.[A-Za-z_][A-Za-z0-9_.]*$/.test(text);
+  }
+
+  /**
+   * `projects.core.dataTest` → a provisional `:core:dataTest`.
+   *
+   * Provisional because Gradle camel-cases the accessor from the project name,
+   * so `:core:data-test` and `:core:dataTest` generate the same accessor and
+   * the mapping cannot be inverted from the text alone. The linker matches it
+   * against the projects the settings file actually declared, which is the
+   * evidence that settles it; until then this is the literal reading.
+   */
+  private static projectAccessorCoordinate(text: string): ParsedCoordinate {
+    const segments = text.split('.').slice(1).filter(Boolean);
+    return {
+      ...this.empty(),
+      notation: GradleDependencyNotation.PROJECT,
+      projectPath: ':' + segments.join(':'),
+      versionSource: GradleVersionSource.ABSENT,
+    };
+  }
+
   private static isCatalogAccessor(text: string): boolean {
     return /^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$/.test(text)
       && !text.includes(':');

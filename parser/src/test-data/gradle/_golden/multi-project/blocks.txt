@@ -1,6 +1,8 @@
 blockType=ALLPROJECTS	blockName=allprojects	expression=	depth=0	childBlockCount=1	declarationCount=0	dslDialect=GROOVY	caughtExceptionTypes=	startLine=16	endLine=22	startColumn=0	endColumn=1
 blockType=CONFIGURATIONS	blockName=configurations	expression=	depth=0	childBlockCount=0	declarationCount=1	dslDialect=GROOVY	caughtExceptionTypes=	startLine=40	endLine=42	startColumn=0	endColumn=1
+blockType=DEPENDENCIES	blockName=dependencies	expression=	depth=0	childBlockCount=0	declarationCount=1	dslDialect=GROOVY	caughtExceptionTypes=	startLine=1	endLine=1	startColumn=0	endColumn=72
 blockType=DEPENDENCIES	blockName=dependencies	expression=	depth=0	childBlockCount=0	declarationCount=1	dslDialect=GROOVY	caughtExceptionTypes=	startLine=2	endLine=4	startColumn=0	endColumn=1
+blockType=DEPENDENCIES	blockName=dependencies	expression=	depth=0	childBlockCount=0	declarationCount=2	dslDialect=GROOVY	caughtExceptionTypes=	startLine=11	endLine=14	startColumn=0	endColumn=1
 blockType=DEPENDENCIES	blockName=dependencies	expression=	depth=0	childBlockCount=0	declarationCount=4	dslDialect=GROOVY	caughtExceptionTypes=	startLine=1	endLine=6	startColumn=0	endColumn=1
 blockType=DEPENDENCIES	blockName=dependencies	expression=	depth=0	childBlockCount=0	declarationCount=4	dslDialect=GROOVY	caughtExceptionTypes=	startLine=24	endLine=29	startColumn=0	endColumn=1
 blockType=DEPENDENCIES	blockName=dependencies	expression=	depth=0	childBlockCount=1	declarationCount=6	dslDialect=GROOVY	caughtExceptionTypes=	startLine=2	endLine=16	startColumn=0	endColumn=1

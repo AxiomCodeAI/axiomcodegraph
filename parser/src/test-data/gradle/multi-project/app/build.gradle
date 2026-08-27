@@ -7,3 +7,8 @@ dependencies {
 
 def ciToken = System.getenv('CI_TOKEN')
 def nexusUser = project.findProperty('nexusUser') ?: 'anonymous'
+
+dependencies {
+    implementation projects.core
+    implementation projects.core.dataTest
+}

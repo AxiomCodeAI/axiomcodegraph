@@ -4,6 +4,13 @@
     "module": "commonjs",
     "lib": ["ES2022"],
     "moduleResolution": "node",
+    // tsc 6 reports `moduleResolution: node10` and `baseUrl` as errors, and a
+    // config error makes tsc exit non-zero. `npm run build` is `tsc &&
+    // tsc-alias`, so the alias rewrite never ran and every emitted file kept
+    // its `@/…` imports — dist existed, and `node dist/index.js` died on the
+    // first require. Silencing the deprecation is what makes the package
+    // buildable; migrating off node10/baseUrl is a separate change.
+    "ignoreDeprecations": "6.0",
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"]

@@ -227,9 +227,16 @@ export class GradleResolutionLinker {
 
   private linkProjectDependencies(facts: GradleProjectFacts): void {
     const byProjectPath = new Map<string, GradleScript>();
+    const byLooseKey = new Map<string, GradleScript>();
     for (const s of facts.scripts) {
       const p = s.getGradleProjectPath();
-      if (p && p !== ':') byProjectPath.set(p, s);
+      if (!p || p === ':') continue;
+      byProjectPath.set(p, s);
+      // A type-safe accessor camel-cases the project name, so `:core:data-test`
+      // is reached as `projects.core.dataTest`. Neither form can be turned
+      // into the other without knowing which projects exist, so both are
+      // reduced to a key that ignores case and separators and compared there.
+      byLooseKey.set(this.looseProjectKey(p), s);
     }
     if (!byProjectPath.size) return;
 
@@ -238,12 +245,25 @@ export class GradleResolutionLinker {
     for (const coord of facts.coordinates) {
       const projectPath = coord.getProjectPath();
       if (!projectPath) continue;
-      const target = byProjectPath.get(projectPath);
+
+      const target = byProjectPath.get(projectPath)
+        ?? byLooseKey.get(this.looseProjectKey(projectPath));
       if (!target) continue;
+
+      // Rewrite the provisional path to the one settings actually declared, so
+      // a project dependency and a settings include join on equal strings.
+      if (target.getGradleProjectPath() !== projectPath) {
+        coord.setProjectPath(target.getGradleProjectPath());
+      }
 
       const decl = declByHash.get(coord.getDeclarationHash());
       if (decl) decl.setResolvedTargetHash(target.getHash());
     }
+  }
+
+  /** `:core:data-test` and `:core:dataTest` reduce to the same key. */
+  private looseProjectKey(projectPath: string): string {
+    return projectPath.replace(/[-_]/g, '').toLowerCase();
   }
 
   // ── version catalogs → the coordinates and references that name them ─────

@@ -176,6 +176,10 @@ Honest list. Each of these is a place where a defect would currently ship.
 - **Groovy slashy strings are not tracked by the comment scanner.** A `//`
   inside `/foo\/bar/` reads as a comment. The failure mode is a spurious
   comment row, not a lost declaration.
+- **The parser takes a path, not a URL.** `node dist/index.js <dir> <link>
+  <excludeTests> [outputDir]` analyses a directory that already exists on disk.
+  Nothing in this repository clones. A caller working from a repository URL
+  clones first and passes the checkout.
 - **Gradle detection is by file presence, not by a detector.** There is no
   `gradle-detector.ts` alongside the Java and Python ones, and
   `ProjectLanguage.GROOVY` is never assigned. The Gradle analyzer is handed

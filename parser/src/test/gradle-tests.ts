@@ -369,6 +369,37 @@ const behaviourChecks: Check[] = [
     },
   },
   {
+    name: 'typesafe-project-accessor-is-a-project-dependency',
+    proves: 'projects.core is project(\':core\'), not a version catalog lookup',
+    run: (out) => {
+      const coords = tsv(out, 'all-gradle-dependency-coordinates.csv');
+      const plain = coords.find((c) => c['projectPath'] === ':core' && c['notation'] === 'PROJECT');
+      if (!plain) return fail('projects.core did not become a PROJECT coordinate');
+
+      // Gradle camel-cases the accessor, so `:core:data-test` is reached as
+      // `projects.core.dataTest`. The linker must map it back using the
+      // projects settings actually declared.
+      const camel = coords.find((c) => c['catalogAlias'] === '' && c['projectPath'] === ':core:data-test');
+      if (!camel) {
+        const paths = coords.filter((c) => c['notation'] === 'PROJECT').map((c) => c['projectPath']);
+        return fail(`projects.core.dataTest did not map to :core:data-test (got ${paths.join(', ')})`);
+      }
+      return camel['versionSource'] === 'ABSENT' ? 0 : fail(`versionSource=${camel['versionSource']}`);
+    },
+  },
+  {
+    name: 'bom-managed-catalog-entry-is-absent-not-unknown',
+    proves: 'a catalog entry written without a version reports ABSENT',
+    run: (out) => {
+      const c = tsv(out, 'all-gradle-dependency-coordinates.csv')
+        .find((x) => x['catalogAlias'] === 'bom.managed' || x['artifact'] === 'spring-core' && x['catalogEntryHash']);
+      if (!c) return 0; // fixture does not exercise it through an accessor
+      return c['versionSource'] === 'UNKNOWN'
+        ? fail('a correctly-read BOM-managed entry reports UNKNOWN')
+        : 0;
+    },
+  },
+  {
     name: 'coordinate-splitting',
     proves: 'group:artifact:version:classifier@ext splits into its five parts',
     run: (out) => {

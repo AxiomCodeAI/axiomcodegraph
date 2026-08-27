@@ -79,6 +79,7 @@ export class GradleScriptClassifier {
    * matters most on exactly these files.
    */
   static detectDialect(filePath: string): GradleDSLDialect {
+    if (filePath.endsWith(FILE_EXTENSIONS.TOML)) return GradleDSLDialect.TOML;
     return filePath.endsWith(FILE_EXTENSIONS.KOTLIN_SCRIPT)
       ? GradleDSLDialect.KOTLIN
       : GradleDSLDialect.GROOVY;

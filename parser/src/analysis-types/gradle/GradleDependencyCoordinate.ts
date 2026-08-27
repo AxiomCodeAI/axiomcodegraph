@@ -152,7 +152,26 @@ export class GradleDependencyCoordinate implements EntityIdentifiable {
     if (entry.version) {
       this.resolvedVersion = entry.version;
       this.versionSource = GradleVersionSource.CATALOG;
+      return;
     }
+    // The entry was found and carries no version. That is not a failure to
+    // read one — a catalog entry written `{ group = "…", name = "…" }` is
+    // deliberately version-less because a BOM or platform supplies it, which
+    // is precisely what ABSENT means. Leaving it UNKNOWN would report a
+    // correctly-read BOM-managed dependency as one the parser could not
+    // handle, and a "which dependencies are unpinned" query would then have
+    // to treat the parser's failures and the build's intent as one bucket.
+    this.versionSource = GradleVersionSource.ABSENT;
+  }
+
+  /**
+   * Replaces the provisional path a type-safe accessor produced with the one
+   * the settings file declared. Does NOT re-key: the coordinate's identity is
+   * its declaration and its parts, and learning how the build spells a project
+   * name did not make it a different dependency.
+   */
+  setProjectPath(projectPath: string): void {
+    this.projectPath = projectPath;
   }
 
   setResolvedVersion(version: string, versionReferenceHash: string, source: GradleVersionSource): void {
