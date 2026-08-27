@@ -1,0 +1,60 @@
+// ============================================================================
+// CONFIG-RESOLUTION · PROPERTIES / YAML  (a key's value naming a class)
+//
+// value-interpretation.dl built the merged key space and the placeholder chain.
+// This file reads the VALUES: a config value that names a handler class is a real
+// edge into code the source never mentions —
+//     spring.kafka.consumer.value-deserializer=com.acme.OrderDeserializer
+//     app.pipeline.handler: com.acme.EnrichStage
+// The container reflects that name into an instance and calls it.
+//
+// SHAPE TEST, NOT A GUESS. Two independent gates must BOTH pass before a value is
+// reported as a class reference:
+//   (1) the KEY ends in a suffix that means "a class goes here" (cfg_handler_key_suffix)
+//       OR the value resolves to an actual type in this program;
+//   (2) the VALUE is FQN-shaped.
+// Gate (1)'s second arm is what stops the suffix list from having to be complete:
+// any value that names a type we can SEE is reported regardless of its key. Gate
+// (1)'s first arm is what lets an UNRESOLVED value still be reported as an unknown
+// (we know a class belonged there and we could not find it).
+// ============================================================================
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. "this key expects a class"
+// ─────────────────────────────────────────────────────────────────────────────
+// A key's LAST dotted segment, so the suffix knobs match `a.b.handler` on "handler".
+cfg_key_dot(k, i) :- config_key_defined(k), contains(".", k),
+    i = range(0, strlen(k)), substr(k, i, 1) = ".".
+cfg_key_dot_last(k, m) :- cfg_key_dot(k, _), m = max i : cfg_key_dot(k, i).
+cfg_key_leaf(k, s) :- cfg_key_dot_last(k, m), s = substr(k, m + 1, strlen(k) - m - 1).
+cfg_key_leaf(k, k) :- config_key_defined(k), !contains(".", k).
+cfg_key_expects_class(k) :- cfg_key_leaf(k, s), cfg_handler_key_suffix(s).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. VALUE -> TYPE
+// ─────────────────────────────────────────────────────────────────────────────
+cfg_name_demand(v) :- config_key_value(_, _, v), cfg_fqn_shaped(v).
+
+config_class_ref(fmt, k, v, t, prov) :- config_key_value(fmt, k, v),
+    cfg_fqn_shaped(v), cfg_name_type(v, prov, t).
+
+// DECLARED UNKNOWN — only where the KEY said a class belonged (gate 1a). A
+// FQN-shaped value under an arbitrary key is far more often a package name, a
+// logger category or a JNDI path than a broken class reference, and reporting
+// those would bury the real ones.
+config_unresolved(fmt, k, v, "unresolved_class") :- config_key_value(fmt, k, v),
+    cfg_key_expects_class(k), cfg_fqn_shaped(v), !cfg_name_resolved(v).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. PLACEHOLDER UNKNOWNS
+// ─────────────────────────────────────────────────────────────────────────────
+// A key referenced by a placeholder but defined in no config file this analysis
+// saw. Legitimate at runtime (an env var, a -D flag, a config server, a profile
+// file outside the scan) — which is exactly why it must be DECLARED rather than
+// dropped: it is the boundary of what the config graph can see.
+config_unresolved("placeholder", k, ref, "undefined_key") :-
+    config_key_ref(k, ref, ""), !config_key_defined(ref).
+// A placeholder WITH a default still terminates, so it is deliberately NOT reported
+// above: config_key_ref already carries the default in its third column, and any
+// consumer that cares can read it there. A separate relation restating that would
+// have no consumer — the defect this whole phase exists to remove.

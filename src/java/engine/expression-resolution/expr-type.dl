@@ -28,7 +28,19 @@
 // ============================================================================
 
 // ── Field receiver (field.m()) — the field declared in the enclosing type ───
+// PREFERRED/FALLBACK, the same shape this file already uses for a monomorphic local
+// and for a monomorphic return: when config-resolution/di.dl has pinned this
+// receiver to the ONE bean the container can inject (di_recv_mono), the DECLARED
+// (usually interface) type is the wrong answer and must not also be emitted —
+// otherwise the site keeps the abstract declaration as a second candidate and stays
+// multi_inferred instead of collapsing to a known_edge.
+// STRATIFICATION: di_recv_mono reads base facts + containment + type_ancestor only
+// (never expr_type / expr_call_candidate), so this negation sits below the expr_type
+// fixpoint — the identical argument made for !method_return_mono further down.
+// NO-OP without a container: di_recv_mono is empty for any project with no
+// injection annotations, so every non-DI receiver keeps its declared type exactly.
 expr_type(prov, e, t) :- java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "FIELD", _, _, _, _, _, _, _, _, _, e),
+    !di_recv_mono(e, _),
     expr_ultimate_type("client", e, encl),
     java_field(name, _, _, _, _, _, _, _, encl, _, _, _, _, field),
     field_type_resolves(prov, field, _, t).
@@ -131,6 +143,7 @@ expr_type(prov, e, t) :- java_expression("CAST_EXPRESSION", _, _, _, _, _, _, _,
 // like methods, so walk type_ancestor. (The same-type case above stays for the
 // common, cheaper path; this adds the ancestor reach.)
 expr_type(prov, e, t) :- java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "FIELD", _, _, _, _, _, _, _, _, _, e),
+    !di_recv_mono(e, _),
     expr_ultimate_type("client", e, encl),
     type_ancestor(encl, anc),
     java_field(name, _, _, _, _, _, _, _, anc, _, _, _, _, field),
@@ -143,6 +156,7 @@ expr_type(prov, e, t) :- java_expression(_, _, _, _, _, _, _, _, _, _, name, _, 
 // is the field analog of the outer-type method lookup; without it a bare `field.m()`
 // inside an inner class, where `field` belongs to the outer class, drops.
 expr_type(prov, e, t) :- java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "FIELD", _, _, _, _, _, _, _, _, _, e),
+    !di_recv_mono(e, _),
     expr_ultimate_type("client", e, encl),
     type_in_type("client", encl, outer),
     java_field(name, _, _, _, _, _, _, _, outer, _, _, _, _, field),
@@ -187,6 +201,7 @@ expr_type(prov, e, t) :- java_expression("FIELD_ACCESS", _, _, _, _, _, _, _, _,
     field_type_resolves(prov, field, _, t).
 // Implicit-this / bare field receiver inheriting from a library ancestor.
 expr_type(prov, e, t) :- java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "FIELD", _, _, _, _, _, _, _, _, _, e),
+    !di_recv_mono(e, _),
     expr_ultimate_type("client", e, encl),
     type_ancestor(encl, anc),
     lib_field(name, _, _, _, _, _, _, _, anc, _, _, _, _, field),

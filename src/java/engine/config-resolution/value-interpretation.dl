@@ -1,0 +1,202 @@
+// ============================================================================
+// CONFIG-RESOLUTION · VALUE INTERPRETATION  (string -> key / string -> type)
+//
+// The projections hand us config VALUES as raw symbols. Nothing downstream can use
+// a raw symbol: `"com.example.Y"` is a class only once it is resolved to a type
+// hash, and `"${a.b}"` is a dependency only once `a.b` is located in some other
+// file. This file is that interpretation step — the one the projection headers
+// each promised ("interpretation ... is a resolution-layer step") and that was
+// never written.
+//
+// THREE JOBS
+//   1. UNQUOTE       the parser stores an annotation argument with its source
+//                    quotes: `@Value("${a.b}")` arrives as the 16-char symbol
+//                    """${a.b}""". Every rule below reads cfg_clean, never the raw.
+//   2. PLACEHOLDERS  scan `${key}` / `${key:default}` out of any value, from ANY
+//                    of the four mechanisms, and link key -> key across files.
+//   3. NAME -> TYPE  resolve a config string that names a class to a type hash,
+//                    by FQN (client or lib), by nested-name, or — for an
+//                    annotation argument, which sits in a .java file and so has
+//                    imports — by simple name through the normal type resolver.
+//
+// UNKNOWNS ARE DECLARED, NEVER DROPPED — same contract as ambiguous_unknown in
+// call_chain.dl. config_unresolved(Mechanism, Site, Detail, Reason) is EXPORTED, so
+// its Reason vocabulary is listed here once rather than left implicit across the
+// five files that derive it:
+//   unresolved_class            a slot whose schema says "a class goes here" named
+//                               one we cannot find (XML class attr/element, an
+//                               FQN-shaped annotation arg, a class-valued key)
+//   undefined_key               a ${...} placeholder whose key is in no scanned
+//                               config file. Legitimate at runtime (env var, -D
+//                               flag, config server, an unscanned profile) — which
+//                               is exactly why it is stated, not dropped: it is the
+//                               boundary of what the config graph can see
+//   unbound_key                 a key nothing in the code binds, so the "which
+//                               methods does this key affect" question has no answer
+//   dangling_bean_ref           <property ref="…"/> naming a bean that is not defined
+//   unsatisfied_injection_point an injection point no bean satisfies (commonly a
+//                               library-typed slot filled by autoconfiguration)
+//   spel_expression             #{...} — can name anything; out of scope by construction
+//   uninterpretable_argument    the parser's own UNKNOWN fallback for an annotation
+//                               argument (concatenation, constant ref, complex expr)
+//
+// COST. Every scan is DEMAND-BOUNDED: cfg_raw holds only the strings a knob in
+// knobs.dl actually selected, so the char-level range() scans never run over
+// arbitrary config. Name->type joins bind the name first (hash lookup on
+// qualifiedName), never enumerating types.
+// ============================================================================
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. UNQUOTE
+// ─────────────────────────────────────────────────────────────────────────────
+// cfg_raw(Raw): every string this layer will inspect. Populated from the four
+// mechanisms below; the ONE entry point for the char-level machinery, so the
+// scans stay bounded to strings a knob selected.
+cfg_raw(v) :- annotation_arg("client", _, _, v, _, _, _, _, _), v != "".
+cfg_raw(v) :- xml_attr("client", _, v, _, _), v != "".
+cfg_raw(v) :- xml_elem("client", _, _, v, _, _, _), v != "".
+cfg_raw(v) :- prop_segment("client", _, v, _, _, _, _), v != "".
+cfg_raw(v) :- yaml_prop("client", _, v, _, _, _, _, _), v != "".
+cfg_raw(v) :- yaml_segment("client", _, v, _, _, _, _), v != "".
+
+// Peel matched leading/trailing double quotes, repeatedly: """x""" -> ""x"" -> "x" -> x.
+cfg_strip(v, v) :- cfg_raw(v).
+cfg_strip(v, inner) :- cfg_strip(v, s),
+    strlen(s) >= 2,
+    substr(s, 0, 1) = "\"",
+    substr(s, strlen(s) - 1, 1) = "\"",
+    inner = substr(s, 1, strlen(s) - 2).
+cfg_quoted(s) :- cfg_strip(_, s), strlen(s) >= 2,
+    substr(s, 0, 1) = "\"", substr(s, strlen(s) - 1, 1) = "\"".
+// cfg_clean(Raw, Clean) — the fully-unquoted form. Exactly one per Raw.
+cfg_clean(v, s) :- cfg_strip(v, s), !cfg_quoted(s).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. PLACEHOLDERS  —  ${key} / ${key:default}, anywhere in a value
+// ─────────────────────────────────────────────────────────────────────────────
+// COST GATE: only strings that actually contain "${" enter the char-level scan.
+// Without it every config string in the repo would be walked character by
+// character; with it the scan is bounded to the handful that hold a placeholder.
+cfg_ph_candidate(s) :- cfg_clean(_, s), contains("${", s).
+// Position of every "${" opener. range(0, n) yields 0..n-1, so this reads every
+// 2-char window of the string.
+cfg_ph_open(s, i) :- cfg_ph_candidate(s), strlen(s) >= 3,
+    i = range(0, strlen(s) - 1),
+    substr(s, i, 2) = "${".
+// The text after an opener, and the FIRST "}" in it — a placeholder never nests.
+cfg_ph_rest(s, r) :- cfg_ph_open(s, i), r = substr(s, i + 2, strlen(s) - i - 2).
+cfg_ph_close(r, i) :- cfg_ph_rest(_, r), i = range(0, strlen(r)), substr(r, i, 1) = "}".
+cfg_ph_close_min(r, m) :- cfg_ph_close(r, _), m = min i : cfg_ph_close(r, i).
+// cfg_ph_body(String, Body) — the text between "${" and "}", still possibly "key:default".
+cfg_ph_body(s, b) :- cfg_ph_rest(s, r), cfg_ph_close_min(r, m), b = substr(r, 0, m).
+
+// Split the body on its FIRST ":" — Spring's default-value separator.
+cfg_ph_colon(b, i) :- cfg_ph_body(_, b), i = range(0, strlen(b)), substr(b, i, 1) = ":".
+cfg_ph_colon_min(b, m) :- cfg_ph_colon(b, _), m = min i : cfg_ph_colon(b, i).
+cfg_ph_has_default(b) :- cfg_ph_colon_min(b, _).
+// cfg_placeholder(String, Key, Default) — the interpreted placeholder.
+cfg_placeholder(s, b, "") :- cfg_ph_body(s, b), !cfg_ph_has_default(b).
+cfg_placeholder(s, k, d) :- cfg_ph_body(s, b), cfg_ph_colon_min(b, m),
+    k = substr(b, 0, m),
+    d = substr(b, m + 1, strlen(b) - m - 1).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. THE UNIFIED KEY SPACE  —  .properties and .yaml behind one relation
+// ─────────────────────────────────────────────────────────────────────────────
+// Spring merges application.properties and application.yml into ONE key space, so
+// a placeholder written in YAML may resolve against a key defined in .properties.
+// Modelling them separately would miss exactly that. Both parsers already emit
+// fully-dotted keys (yaml `svc: {handler: x}` -> key "svc.handler"), so the merge
+// is a union, not a re-derivation.
+//
+// config_key(Format, Key, File, KeyHash)
+config_key("properties", k, f, h) :- prop_key("client", k, "true", f, h).
+config_key("yaml", k, f, h) :- yaml_prop("client", k, v, vt, _, _, f, h),
+    vt != "MAP", vt != "SEQUENCE", v != "".
+config_key_defined(k) :- config_key(_, k, _, _).
+
+// config_key_value(Format, Key, Value) — the value as written (placeholders intact).
+// .properties has no value column; a single-segment value IS the value, and a
+// multi-segment value is reassembled only far enough to carry its placeholders
+// (cfg_placeholder already ran on each segment).
+cfg_prop_seg_count(h, n) :- prop_key("client", _, _, _, h),
+    n = count : { prop_segment("client", h, _, _, _, _, _) }.
+config_key_value("properties", k, v) :- config_key("properties", k, _, h),
+    cfg_prop_seg_count(h, 1),
+    prop_segment("client", h, raw, "LITERAL", _, _, _),
+    cfg_clean(raw, v).
+config_key_value("yaml", k, v) :- config_key("yaml", k, _, h),
+    yaml_prop("client", k, raw, _, _, _, _, h), cfg_clean(raw, v).
+
+// ── key -> key: the PLACEHOLDER CHAIN ────────────────────────────────────────
+// config_key_ref(Key, RefKey, Default): Key's value contains ${RefKey[:Default]}.
+// Reads the SEGMENTS the parser already split (java_*_value_segment exists for
+// exactly this) AND re-scans the raw value, because the two parsers disagree on
+// the segment type for a YAML placeholder (properties says PROPERTY_REFERENCE,
+// yaml says ENV_VARIABLE for the same `${a.b}`) — trusting either one alone
+// silently loses one format. The re-scan is the ground truth; the segments supply
+// the default value.
+config_key_ref(k, ref, d) :- config_key("properties", k, _, h),
+    prop_segment("client", h, raw, st, d, _, _),
+    cfg_ref_segment_type(st),
+    cfg_clean(raw, ref).
+config_key_ref(k, ref, d) :- config_key("yaml", k, _, h),
+    yaml_segment("client", h, raw, st, d, _, _),
+    cfg_ref_segment_type(st),
+    cfg_clean(raw, ref).
+config_key_ref(k, ref, d) :- config_key_value(_, k, v), cfg_placeholder(v, ref, d).
+// Segment types that mean "this is a reference to another key / the environment".
+// Both parsers' vocabularies, in one place — see the disagreement noted above.
+cfg_ref_segment_type("PROPERTY_REFERENCE").
+cfg_ref_segment_type("PROPERTY_REF_WITH_DEFAULT").
+cfg_ref_segment_type("ENV_VARIABLE").
+cfg_ref_segment_type("ENV_WITH_DEFAULT").
+
+// config_key_chain(Key, ReachedKey) — transitive placeholder reachability. Changing
+// ReachedKey changes Key. Positive recursion; a cyclic config yields the cycle's
+// keys, which is the honest answer.
+config_key_chain(k, r) :- config_key_ref(k, r, _).
+config_key_chain(k, r) :- config_key_ref(k, mid, _), config_key_chain(mid, r).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. NAME -> TYPE
+// ─────────────────────────────────────────────────────────────────────────────
+// cfg_name_demand(Name): a string some knob says should name a class. Bounds every
+// join below — without it the FQN lookup would run against every string in every
+// config file.
+// cfg_fqn_shaped(V): V LOOKS like a Java FQN — lowercase package segments, a final
+// segment starting uppercase. Two jobs: it decides which arbitrary config strings
+// are worth a type lookup at all, and it decides whether a FAILED lookup is worth
+// reporting as an unknown (the value "8080" is not a broken class reference).
+cfg_fqn_shaped(v) :- cfg_clean(_, v),
+    match("[a-z_][a-zA-Z0-9_]*(\\.[a-zA-Z0-9_]+)*\\.[A-Z][A-Za-z0-9_$]*", v).
+
+// (a) exact qualifiedName — the normal case for every config format.
+cfg_name_type(n, "client", t) :- cfg_name_demand(n),
+    java_type(_, n, _, _, _, _, _, _, _, _, _, _, _, t).
+cfg_name_type(n, "lib", t) :- cfg_name_demand(n),
+    lib_type(_, n, _, _, _, _, _, _, _, _, _, _, _, t).
+
+// (b) NESTED type written with the binary `$` separator (com.x.Outer$Inner), which
+// is what a config file must use for a nested class. The IR flattens a nested
+// type's qualifiedName to package + simple name, so match on that instead.
+cfg_dollar(n, i) :- cfg_name_demand(n), contains("$", n),
+    i = range(0, strlen(n)), substr(n, i, 1) = "$".
+cfg_dollar_last(n, m) :- cfg_dollar(n, _), m = max i : cfg_dollar(n, i).
+cfg_nested_simple(n, s) :- cfg_dollar_last(n, m),
+    s = substr(n, m + 1, strlen(n) - m - 1).
+cfg_name_type(n, "client", t) :- cfg_nested_simple(n, s),
+    java_type(s, _, _, _, _, _, _, _, _, _, _, _, _, t).
+cfg_name_type(n, "lib", t) :- cfg_nested_simple(n, s),
+    lib_type(s, _, _, _, _, _, _, _, _, _, _, _, _, t).
+
+// (c) SIMPLE name resolved through IMPORTS. Only meaningful for an annotation
+// argument, which lives in a .java file: `@JsonDeserialize(using = FooDeser.class)`
+// records the argument value as the bare name `FooDeser`. A config FILE has no
+// imports, so this clause is keyed on the annotation's file, never fired for
+// XML/YAML/properties.
+cfg_name_type(n, prov, t) :- cfg_ann_name_in_file(n, f),
+    type_resolves_in_file(prov, n, f, t).
+
+// cfg_name_resolved(Name) — guard for the unknown-reporting rules.
+cfg_name_resolved(n) :- cfg_name_type(n, _, _).

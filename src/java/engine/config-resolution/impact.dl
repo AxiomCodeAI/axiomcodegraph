@@ -1,0 +1,167 @@
+// ============================================================================
+// CONFIG-RESOLUTION · CONFIG -> METHOD IMPACT   (the deliverable)
+//
+// Answers: "I changed this key in application.yml — which methods are affected?"
+//
+// The path, end to end:
+//     key  --binding-->  field | parameter | bean property
+//          --owner-->    the method that reads/receives it
+//          --callers-->  existing call_chain_edge closure
+// and, before all of that, the PLACEHOLDER CHAIN: if `a.url` is `${a.host}/x`, then
+// changing `a.host` changes everything bound to `a.url`. config_key_chain, computed
+// in value-interpretation.dl, already IS that closure, so the binding is simply
+// lifted along it.
+//
+// FOUR BINDING MECHANISMS, reported separately (a per-mechanism precision/recall
+// number is the only kind that says WHICH mechanism is broken):
+//   value_annotation   @Value("${a.b}")                      field or parameter
+//   config_properties  @ConfigurationProperties(prefix="a")  every field of the type
+//   xml_property       <property name="p" value="${a.b}"/>   the bean's setP setter
+//   class_binding      a key whose value NAMES a class       that class's methods
+//
+// DIRECTION. config_affects_method closes over CALLERS, not callees: if the key
+// changes, the reading method's behaviour changes, and so does that of everything
+// that calls it. That is the change-impact direction the repo's existing
+// validation measures.
+// ============================================================================
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 0. name helpers
+// ─────────────────────────────────────────────────────────────────────────────
+cfg_upper("a","A"). cfg_upper("b","B"). cfg_upper("c","C"). cfg_upper("d","D").
+cfg_upper("e","E"). cfg_upper("f","F"). cfg_upper("g","G"). cfg_upper("h","H").
+cfg_upper("i","I"). cfg_upper("j","J"). cfg_upper("k","K"). cfg_upper("l","L").
+cfg_upper("m","M"). cfg_upper("n","N"). cfg_upper("o","O"). cfg_upper("p","P").
+cfg_upper("q","Q"). cfg_upper("r","R"). cfg_upper("s","S"). cfg_upper("t","T").
+cfg_upper("u","U"). cfg_upper("v","V"). cfg_upper("w","W"). cfg_upper("x","X").
+cfg_upper("y","Y"). cfg_upper("z","Z").
+
+// setter name for a bean property:  url -> setUrl
+cfg_setter_name(p, s) :- cfg_setter_demand(p), strlen(p) > 0,
+    cfg_upper(substr(p, 0, 1), up),
+    s = cat("set", cat(up, substr(p, 1, strlen(p) - 1))).
+
+// RELAXED BINDING. Spring accepts `max-retries` in config for a field named
+// `maxRetries`. Matching only the exact spelling would score near-zero recall on
+// any YAML that follows the documented convention, so the camel -> kebab form is
+// generated and both are accepted. (Underscore and upper-case-env forms are a
+// documented gap, not a silent one — see config_unresolved "unbound_key".)
+cfg_is_upper_char(c) :- cfg_lower(c, _).
+cfg_kebab_step(n, 0, "") :- cfg_kebab_demand(n).
+cfg_kebab_step(n, j, a2) :- cfg_kebab_step(n, i, a), i < strlen(n),
+    cfg_lower(substr(n, i, 1), lo), j = i + 1, a2 = cat(a, cat("-", lo)).
+cfg_kebab_step(n, j, a2) :- cfg_kebab_step(n, i, a), i < strlen(n),
+    c = substr(n, i, 1), !cfg_is_upper_char(c), j = i + 1, a2 = cat(a, c).
+cfg_kebab(n, k) :- cfg_kebab_step(n, i, k), i = strlen(n).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. BINDINGS
+// ─────────────────────────────────────────────────────────────────────────────
+// config_binding(Key, Mechanism, TargetKind, Target, OwnerType)
+//   TargetKind ∈ { field, param, setter, type }
+
+// (a) @Value("${a.b}") on a FIELD. The annotation's own string is scanned by
+// cfg_placeholder, so `@Value("${a.b:30}")`, `@Value("prefix-${a.b}")` and a bare
+// `@Value("literal")` are all handled: only the first two produce a binding.
+cfg_value_site_field(f, owner, v) :- ann_on_field(a, n, f, owner), cfg_value_ann(n),
+    ann_arg_value(a, v).
+config_binding(k, "value_annotation", "field", f, owner) :-
+    cfg_value_site_field(f, owner, v), cfg_placeholder(v, k, _).
+
+// (b) @Value on a PARAMETER (constructor or setter injection of a config key).
+cfg_value_site_param(p, m, v) :- ann_on_param(a, n, p, m), cfg_value_ann(n),
+    ann_arg_value(a, v).
+config_binding(k, "value_annotation", "param", p, m) :-
+    cfg_value_site_param(p, m, v), cfg_placeholder(v, k, _).
+
+// (c) @ConfigurationProperties(prefix="svc") on a TYPE: every field of that type
+// binds to prefix + "." + fieldName, and a field whose own type is another client
+// type nests one more level. Bounded to depth 3 — deep enough for every real
+// binding tree, shallow enough that a self-referential type cannot diverge.
+cfg_props_prefix(t, pre) :- ann_on_type(a, n, t), cfg_props_ann(n), ann_arg_value(a, pre).
+cfg_props_prefix(t, pre) :- ann_on_type(a, n, t), cfg_props_ann(n), ann_arg(a, "prefix", pre, _, _).
+cfg_props_scope(t, pre, 0) :- cfg_props_prefix(t, pre).
+cfg_props_scope(ft, sub, d1) :- cfg_props_scope(t, pre, d), d < 3, d1 = d + 1,
+    java_field(fn, _, _, _, _, _, _, _, t, _, _, _, _, f),
+    field_type_resolves("client", f, _, ft),
+    sub = cat(pre, cat(".", fn)).
+cfg_kebab_demand(fn) :- cfg_props_scope(t, _, _),
+    java_field(fn, _, _, _, _, _, _, _, t, _, _, _, _, _).
+// exact spelling …
+config_binding(k, "config_properties", "field", f, t) :- cfg_props_scope(t, pre, _),
+    java_field(fn, _, _, _, _, _, _, _, t, _, _, _, _, f),
+    k = cat(pre, cat(".", fn)), config_key_defined(k).
+// … and the relaxed (kebab) spelling.
+config_binding(k, "config_properties", "field", f, t) :- cfg_props_scope(t, pre, _),
+    java_field(fn, _, _, _, _, _, _, _, t, _, _, _, _, f),
+    cfg_kebab(fn, kb), k = cat(pre, cat(".", kb)), config_key_defined(k).
+
+// (d) XML <property name="url" value="${svc.url}"/> -> the bean class's setUrl.
+cfg_setter_demand(p) :- xml_prop_value_key(_, p, _, _).
+config_binding(k, "xml_property", "setter", m, t) :- xml_prop_value_key(elem, p, k, _),
+    xml_bean(elem, _, t, _), cfg_setter_name(p, sn),
+    method_name_in_type(sn, t, m), method_owner("client", _, m).
+
+// (e) a key whose VALUE names a class: changing the key swaps the implementation,
+// so every method of that class is in the blast radius.
+config_binding(k, "class_binding", "type", t, t) :- config_class_ref(fmt, k, _, t, "client"),
+    fmt != "annotation", config_key_defined(k).
+
+// ── lift bindings along the PLACEHOLDER CHAIN ────────────────────────────────
+// config_binding_effective(Key, Mechanism, TargetKind, Target, Owner): Key is the
+// bound key OR any key it transitively dereferences.
+config_binding_effective(k, mech, tk, tgt, o) :- config_binding(k, mech, tk, tgt, o).
+config_binding_effective(r, mech, tk, tgt, o) :- config_binding(k, mech, tk, tgt, o),
+    config_key_chain(k, r).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. BINDING -> METHOD
+// ─────────────────────────────────────────────────────────────────────────────
+// A field read. referencedEntityHash is not populated by the parser, so a read is
+// matched the way the rest of the engine matches one: by NAME within the owning
+// type or a descendant of it.
+// java_expression (25): 4 enclosingType  10 literalValue  14 referencedEntityKind  24 hash
+cfg_field_read(f, m) :- java_field(name, _, _, _, _, _, _, _, owner, _, _, _, _, f),
+    java_expression(_, _, _, _, owner, _, _, _, _, _, name, _, _, _, "FIELD", _, _, _, _, _, _, _, _, _, e),
+    expr_ultimate_method("client", e, m).
+cfg_field_read(f, m) :- java_field(name, _, _, _, _, _, _, _, owner, _, _, _, _, f),
+    type_ancestor(sub, owner),
+    java_expression(_, _, _, _, sub, _, _, _, _, _, name, _, _, _, "FIELD", _, _, _, _, _, _, _, _, _, e),
+    expr_ultimate_method("client", e, m).
+
+// config_bound_method(Key, Method, Via) — DISTANCE 0. The method that directly
+// touches the bound value.
+config_bound_method(k, m, "reads_field") :- config_binding_effective(k, _, "field", f, _),
+    cfg_field_read(f, m).
+config_bound_method(k, m, "receives_param") :- config_binding_effective(k, _, "param", _, m).
+config_bound_method(k, m, "setter") :- config_binding_effective(k, _, "setter", m, _).
+config_bound_method(k, m, "class_binding") :- config_binding_effective(k, _, "type", t, _),
+    method_owner("client", t, m).
+// NOTE — deliberately NOT here: "every method of the type that declares the bound
+// field". That would make `svc.host` affect a sibling method which never touches
+// `host`, and the 22-* golden showed exactly that noise. Selecting an
+// IMPLEMENTATION by config genuinely does move a whole type, and that case is
+// covered precisely by the class_binding clause above.
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. THE CLOSURE  —  config_affects_method
+// ─────────────────────────────────────────────────────────────────────────────
+// Seeded at distance 0, then closed over the EXISTING call graph in the caller
+// direction. call_chain_edge is used unchanged; nothing in this closure feeds back
+// into resolution, so it sits above every negation in the engine.
+config_affects_method(k, m, via) :- config_bound_method(k, m, via).
+config_affects_method(k, caller, "caller") :- config_affects_method(k, m, _),
+    call_chain_edge(_, caller, _, m, "client", _, _), caller != m.
+
+// ── DECLARED UNKNOWN: a config key nothing binds ─────────────────────────────
+// Not necessarily a defect — an unused key, a key read reflectively through
+// Environment.getProperty(), a key consumed by a library. But it is precisely the
+// set this analysis cannot answer the impact question for, so it is stated.
+cfg_key_bound(k) :- config_binding_effective(k, _, _, _, _).
+config_unresolved("binding", k, "", "unbound_key") :- config_key_defined(k), !cfg_key_bound(k).
+
+// ── DECLARED UNKNOWN: a @Value placeholder whose key is in no config file ─────
+config_unresolved("value_annotation", f, k, "undefined_key") :-
+    cfg_value_site_field(f, _, v), cfg_placeholder(v, k, ""), !config_key_defined(k).
+config_unresolved("value_annotation", p, k, "undefined_key") :-
+    cfg_value_site_param(p, _, v), cfg_placeholder(v, k, ""), !config_key_defined(k).

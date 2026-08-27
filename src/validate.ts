@@ -1,20 +1,34 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { CLIENT_REQUIRED_ENTITIES, JDK_REQUIRED_ENTITIES } from '@/constants/schema';
-import { IR_MARKER } from '@/constants/paths';
+import {
+  JAVA_CLIENT_REQUIRED_ENTITIES,
+  JDK_REQUIRED_ENTITIES,
+  PYTHON_CLIENT_REQUIRED_ENTITIES,
+} from '@/constants/schema';
+import { IR_MARKER, IR_MARKER_BY_LANGUAGE } from '@/constants/paths';
+
+/**
+ * Required client blocks per language. Java and Python do not share filenames,
+ * so validating Python IR against the Java list rejects every valid Python
+ * project — it would look for `all-types.csv` and find `all-python-modules.csv`.
+ */
+const CLIENT_REQUIRED_BY_LANGUAGE: Record<string, readonly string[]> = {
+  java: JAVA_CLIENT_REQUIRED_ENTITIES,
+  python: PYTHON_CLIENT_REQUIRED_ENTITIES,
+};
 
 /**
  * Immediate sub-folders of the library path that are IR modules (contain
  * all-types.csv), sorted. `fs.existsSync` follows symlinks. If the path itself
  * holds the IR (single module), it is the sole module.
  */
-function discoverModules(libraryDir: string): string[] {
-  if (fs.existsSync(path.join(libraryDir, IR_MARKER))) return [libraryDir];
+function discoverModules(libraryDir: string, marker: string = IR_MARKER): string[] {
+  if (fs.existsSync(path.join(libraryDir, marker))) return [libraryDir];
   return fs
     .readdirSync(libraryDir)
     .map((name) => path.join(libraryDir, name))
-    .filter((dir) => fs.existsSync(path.join(dir, IR_MARKER)))
+    .filter((dir) => fs.existsSync(path.join(dir, marker)))
     .sort();
 }
 
@@ -33,11 +47,23 @@ function discoverModules(libraryDir: string): string[] {
  * Any missing block means the path doesn't point at valid IR — throw with a
  * clear message so the phase stops instead of producing empty output.
  */
-export function validateRequiredEntities(clientIrDir: string, libraryRoots: string[]): void {
+export function validateRequiredEntities(
+  clientIrDir: string,
+  libraryRoots: string[],
+  language = 'java',
+): void {
   const problems: string[] = [];
+  const clientRequired = CLIENT_REQUIRED_BY_LANGUAGE[language];
+  if (!clientRequired) {
+    throw new Error(`validateRequiredEntities: unknown --language=${language}`);
+  }
+  const marker = IR_MARKER_BY_LANGUAGE[language] ?? IR_MARKER;
 
   // ── Client IR: client-required files present directly ────────────────────
-  for (const entity of CLIENT_REQUIRED_ENTITIES) {
+  // PRESENCE, not non-emptiness. A zero-byte block is a real answer: a module
+  // that calls nothing has an empty call-sites file, and an empty `__init__.py`
+  // empties bindings and expressions too.
+  for (const entity of clientRequired) {
     if (!fs.existsSync(path.join(clientIrDir, entity))) {
       problems.push(`client-ir is missing required block: ${entity}`);
     }
@@ -47,11 +73,14 @@ export function validateRequiredEntities(clientIrDir: string, libraryRoots: stri
   // ≥1 module across ALL roots. When no library was passed (client-only scan), skip entirely —
   // an empty library is valid; the forward chain simply stays within first-party code.
   if (libraryRoots.length > 0) {
-    const modules = libraryRoots.flatMap(discoverModules);
+    const modules = libraryRoots.flatMap((root) => discoverModules(root, marker));
     if (modules.length === 0) {
-      problems.push(`no library IR modules found (no folder with all-types.csv) in: ${libraryRoots.join(', ')}`);
+      problems.push(`no library IR modules found (no folder with ${marker}) in: ${libraryRoots.join(', ')}`);
     } else {
-      for (const entity of JDK_REQUIRED_ENTITIES) {
+      // The JDK-required list is Java-specific; Python's library is the stdlib
+      // IR and is validated by the same client-required blocks.
+      const libRequired = language === 'java' ? JDK_REQUIRED_ENTITIES : clientRequired;
+      for (const entity of libRequired) {
         const present = modules.some((m) => fs.existsSync(path.join(m, entity)));
         if (!present) {
           problems.push(`library is missing required block in every module: ${entity}`);

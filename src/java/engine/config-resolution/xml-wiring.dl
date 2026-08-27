@@ -1,0 +1,123 @@
+// ============================================================================
+// CONFIG-RESOLUTION · XML  (beans, wiring, container registrations)
+//
+// java_xml_element / java_xml_attribute / java_xml_value_reference had ZERO
+// consumers. XML is the one mechanism that names a class the source never
+// mentions: nothing in the .java files refers to `com.x.MyServlet`, so without
+// this file that class is unreachable, uncalled and indistinguishable from dead
+// code — while the container instantiates it on every request.
+//
+// Three shapes, all knob-driven (knobs.dl), none hard-coded to Spring:
+//   <bean class="…">                       a bean definition        -> di.dl
+//   <property ref="…"/> <constructor-arg>  a wiring edge            -> di.dl
+//   <servlet-class>…</servlet-class>       a container registration -> entry-points.dl
+//
+// xml_elem(Prov, Tag, XPath, Text, ParentElemHash, FilePath, ElemHash)
+// xml_attr(Prov, Name, Value, ParentElemHash, AttrHash)
+// xml_vref(Prov, Expr, RefType, Default, OwnerElem, OwnerAttr, VRefHash)
+// ============================================================================
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. CLASS NAMES IN XML
+// ─────────────────────────────────────────────────────────────────────────────
+// (a) on an attribute:  <bean class="com.x.Y"/>
+xml_class_attr_ref(elem, attrName, v, h) :- xml_attr("client", attrName, raw, elem, h),
+    cfg_xml_class_attr(attrName), cfg_clean(raw, v), v != "".
+// (b) as element text:  <servlet-class>com.x.Y</servlet-class>
+xml_class_text_ref(elem, tag, v) :- xml_elem("client", tag, _, raw, _, _, elem),
+    cfg_xml_class_elem(tag), cfg_clean(raw, v), v != "".
+
+cfg_name_demand(v) :- xml_class_attr_ref(_, _, v, _).
+cfg_name_demand(v) :- xml_class_text_ref(_, _, v).
+
+config_class_ref("xml", h, v, t, prov) :- xml_class_attr_ref(_, _, v, h), cfg_name_type(v, prov, t).
+config_class_ref("xml", elem, v, t, prov) :- xml_class_text_ref(elem, _, v), cfg_name_type(v, prov, t).
+
+// DECLARED UNKNOWN: an XML slot whose whole purpose is to name a class, and the
+// name resolves to nothing. Unlike a properties value, no shape test is needed —
+// the schema says this attribute IS a class, so a miss is always reportable.
+config_unresolved("xml", h, v, "unresolved_class") :-
+    xml_class_attr_ref(_, _, v, h), !cfg_name_resolved(v).
+config_unresolved("xml", elem, v, "unresolved_class") :-
+    xml_class_text_ref(elem, _, v), !cfg_name_resolved(v).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. BEAN DEFINITIONS
+// ─────────────────────────────────────────────────────────────────────────────
+// xml_bean(BeanElem, BeanId, TypeHash, File): a <bean id="…" class="…"/>. The id
+// is optional in Spring (an anonymous bean is keyed by its class), so a bean with
+// no id gets its class name as its identity — which is exactly what Spring's own
+// generated bean name falls back to.
+xml_bean_id(elem, id) :- xml_elem("client", tag, _, _, _, _, elem), cfg_xml_bean_elem(tag),
+    xml_attr("client", "id", raw, elem, _), cfg_clean(raw, id), id != "".
+xml_bean_id(elem, id) :- xml_elem("client", tag, _, _, _, _, elem), cfg_xml_bean_elem(tag),
+    xml_attr("client", "name", raw, elem, _), cfg_clean(raw, id), id != "".
+xml_bean_has_id(elem) :- xml_bean_id(elem, _).
+
+xml_bean(elem, id, t, f) :- xml_elem("client", tag, _, _, _, f, elem), cfg_xml_bean_elem(tag),
+    xml_class_attr_ref(elem, "class", v, _), cfg_name_type(v, _, t),
+    xml_bean_id(elem, id).
+xml_bean(elem, v, t, f) :- xml_elem("client", tag, _, _, _, f, elem), cfg_xml_bean_elem(tag),
+    xml_class_attr_ref(elem, "class", v, _), cfg_name_type(v, _, t),
+    !xml_bean_has_id(elem).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. WIRING EDGES INSIDE A BEAN
+// ─────────────────────────────────────────────────────────────────────────────
+// <property name="dep" ref="other"/>  and  <constructor-arg ref="other"/>.
+// The child element's parentElementHash is the <bean>, so the owning bean is a
+// direct lookup — no XPath string surgery.
+// Carries BOTH elements: the owning <bean> (which bean is being wired) and the
+// <property>/<constructor-arg> itself (which line to report).
+xml_wire(ownerElem, wireElem, wireKind, propName, refId) :-
+    xml_elem("client", tag, _, _, ownerElem, _, wireElem), cfg_xml_wire_elem(tag, wireKind),
+    xml_attr("client", "ref", rawRef, wireElem, _), cfg_clean(rawRef, refId),
+    xml_wire_name(wireElem, propName).
+// The `name` attribute is optional on <constructor-arg>; "" then means positional.
+// xml_wire_named is derived from the RAW attribute, not from xml_wire_name: deriving
+// it from the relation it guards would be a cyclic negation (souffle rejects it,
+// correctly — the default clause would be defined in terms of its own output).
+xml_wire_name(wireElem, n) :- xml_attr("client", "name", raw, wireElem, _), cfg_clean(raw, n).
+xml_wire_named(wireElem) :- xml_attr("client", "name", _, wireElem, _).
+xml_wire_name(wireElem, "") :- xml_elem("client", tag, _, _, _, _, wireElem),
+    cfg_xml_wire_elem(tag, _), !xml_wire_named(wireElem).
+
+// <property name="url" value="${svc.url}"/> — a bean property fed from a CONFIG KEY
+// rather than another bean. This is the XML half of @Value, and the reason
+// java_xml_value_reference exists.
+xml_prop_value_key(ownerElem, propName, key, default) :-
+    xml_elem("client", tag, _, _, ownerElem, _, wireElem), cfg_xml_wire_elem(tag, "property"),
+    xml_wire_name(wireElem, propName), propName != "",
+    xml_vref("client", key, "PROPERTY_PLACEHOLDER", default, wireElem, "value", _).
+xml_prop_value_key(ownerElem, propName, key, default) :-
+    xml_elem("client", tag, _, _, ownerElem, _, wireElem), cfg_xml_wire_elem(tag, "property"),
+    xml_wire_name(wireElem, propName), propName != "",
+    xml_vref("client", key, "PLACEHOLDER_WITH_DEFAULT", default, wireElem, "value", _).
+// Fallback: some parsers emit the placeholder only as the raw attribute value and
+// never materialise an xml_value_reference row. Re-scan, exactly as
+// value-interpretation.dl does for the YAML/properties segment-type disagreement.
+xml_prop_value_key(ownerElem, propName, key, default) :-
+    xml_elem("client", tag, _, _, ownerElem, _, wireElem), cfg_xml_wire_elem(tag, "property"),
+    xml_wire_name(wireElem, propName), propName != "",
+    xml_attr("client", "value", raw, wireElem, _), cfg_clean(raw, v),
+    cfg_placeholder(v, key, default).
+
+// A SpEL expression in XML is a declared blind spot: `#{...}` can name anything.
+config_unresolved("xml", vh, expr, "spel_expression") :-
+    xml_vref("client", expr, "SPEL_EXPRESSION", _, _, _, vh).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. CONTAINER REGISTRATIONS (web.xml and friends)
+// ─────────────────────────────────────────────────────────────────────────────
+// xml_container_class(EntryKind, TypeHash, ElemHash): <servlet-class>,
+// <filter-class>, <listener-class> — a class the container instantiates and calls
+// into. Consumed by entry-points.dl.
+xml_container_class(kind, t, elem) :- xml_class_text_ref(elem, tag, v),
+    cfg_xml_container_elem(tag, kind), cfg_name_type(v, "client", t).
+
+// xml_lifecycle_method(TypeHash, MethodName, EntryKind): init-method /
+// destroy-method / factory-method on a <bean>. The container calls that method by
+// NAME; nothing in the source calls it.
+xml_lifecycle_method(t, mname, kind) :- xml_bean(elem, _, t, _),
+    xml_attr("client", attr, raw, elem, _), cfg_xml_lifecycle_attr(attr, kind),
+    cfg_clean(raw, mname), mname != "".

@@ -1,0 +1,109 @@
+// ============================================================================
+// CONFIG-RESOLUTION · KNOBS  (framework name lists — the only per-ecosystem edit)
+//
+// Every framework-specific NAME lives here and nowhere else, grouped by role and
+// commented, the way call-edge-generation/annotation_flow.dl does it. Adding an
+// ecosystem (Guice, CDI, Micronaut, Jakarta, a house framework) is a matter of
+// adding facts to these relations — no rule in value-interpretation.dl,
+// annotation-args.dl, xml-wiring.dl or config-keys.dl mentions a framework by name.
+//
+// A name is matched on its SIMPLE name (the parser records @org.x.Bean as "Bean"),
+// so the same fact covers javax./jakarta./org.springframework. spellings.
+// ============================================================================
+
+// ── (1) STEREOTYPES: an annotation that makes its TYPE a bean ────────────────
+// Spring stereotypes …
+cfg_bean_ann("Component").      cfg_bean_ann("Service").        cfg_bean_ann("Repository").
+cfg_bean_ann("Controller").     cfg_bean_ann("RestController"). cfg_bean_ann("Configuration").
+cfg_bean_ann("ControllerAdvice"). cfg_bean_ann("RestControllerAdvice").
+// … Spring Boot auto-config / test stereotypes …
+cfg_bean_ann("SpringBootApplication"). cfg_bean_ann("TestConfiguration").
+// … JSR-330 / CDI / Jakarta.
+cfg_bean_ann("Named").          cfg_bean_ann("Singleton").      cfg_bean_ann("ManagedBean").
+cfg_bean_ann("ApplicationScoped"). cfg_bean_ann("RequestScoped"). cfg_bean_ann("SessionScoped").
+
+// ── (2) FACTORY METHODS: an annotation that makes a METHOD produce a bean ────
+// The bean's type is the method's declared return type.
+cfg_factory_ann("Bean").        // Spring @Bean
+cfg_factory_ann("Produces").    // CDI @Produces
+cfg_factory_ann("Provides").    // Guice @Provides
+
+// ── (3) INJECTION POINTS: an annotation that requests a bean ─────────────────
+cfg_inject_ann("Autowired").    cfg_inject_ann("Inject").       cfg_inject_ann("Resource").
+cfg_inject_ann("Value").        // @Value("${k}") — a CONFIG-KEY injection (impact.dl)
+cfg_inject_ann("PersistenceContext").
+
+// ── (4) QUALIFIERS: narrows a candidate set to a named bean ──────────────────
+cfg_qualifier_ann("Qualifier"). cfg_qualifier_ann("Named").     cfg_qualifier_ann("Resource").
+
+// ── (4b) PRIMARY: breaks a tie between several candidates of the same type ───
+// Not a name filter but a RANK. Without it, every real multi-implementation
+// codebase — the exact case where narrowing pays — scores as ambiguous, while the
+// container resolves it deterministically.
+cfg_primary_ann("Primary").     cfg_primary_ann("Default").
+
+// ── (5) CONFIG-KEY BINDINGS ─────────────────────────────────────────────────
+cfg_value_ann("Value").                             // @Value("${a.b:default}")
+cfg_props_ann("ConfigurationProperties").           // @ConfigurationProperties(prefix="a.b")
+cfg_props_ann("ConfigurationProperties").
+
+// ── (6) CONTAINER-INVOKED METHODS (entry points sourced from annotations that
+//        carry a config VALUE — the name-only cases stay in annotation_flow.dl) ──
+cfg_lifecycle_ann("PostConstruct").  cfg_lifecycle_ann("PreDestroy").
+cfg_scheduled_ann("Scheduled").
+cfg_listener_ann("EventListener").   cfg_listener_ann("KafkaListener").
+cfg_listener_ann("RabbitListener").  cfg_listener_ann("JmsListener").
+cfg_listener_ann("SqsListener").     cfg_listener_ann("StreamListener").
+cfg_listener_ann("RabbitHandler").   cfg_listener_ann("SqsHandler").
+
+// ── (7) XML: element/attribute names that NAME A CLASS ───────────────────────
+// (a) attribute carrying a class name:  <bean class="com.x.Y"/>
+cfg_xml_class_attr("class").          cfg_xml_class_attr("value-type").
+cfg_xml_class_attr("key-type").       cfg_xml_class_attr("factory-bean-class").
+// (b) element whose TEXT is a class name: <servlet-class>com.x.Y</servlet-class>
+cfg_xml_class_elem("servlet-class").  cfg_xml_class_elem("filter-class").
+cfg_xml_class_elem("listener-class"). cfg_xml_class_elem("resource-class").
+cfg_xml_class_elem("provider-class"). cfg_xml_class_elem("handler-class").
+cfg_xml_class_elem("ejb-class").      cfg_xml_class_elem("mapper-class").
+// (c) the element that DEFINES a bean (its class comes from cfg_xml_class_attr)
+cfg_xml_bean_elem("bean").            cfg_xml_bean_elem("alias").
+
+// ── (8) XML: attributes naming a METHOD the container invokes ────────────────
+// cfg_xml_lifecycle_attr(AttributeName, EntryKind)
+cfg_xml_lifecycle_attr("init-method",    "lifecycle_init").
+cfg_xml_lifecycle_attr("destroy-method", "lifecycle_destroy").
+cfg_xml_lifecycle_attr("factory-method", "lifecycle_factory").
+
+// ── (9) XML: the servlet/filter/listener triple in web.xml ───────────────────
+// cfg_xml_container_elem(ClassElementTag, EntryKind)
+cfg_xml_container_elem("servlet-class",  "web_servlet").
+cfg_xml_container_elem("filter-class",   "web_filter").
+cfg_xml_container_elem("listener-class", "web_listener").
+
+// ── (10) XML: wiring elements (a bean depends on another bean) ───────────────
+// cfg_xml_wire_elem(Tag, WireKind)
+cfg_xml_wire_elem("property",        "property").
+cfg_xml_wire_elem("constructor-arg", "constructor_arg").
+cfg_xml_wire_elem("lookup-method",   "lookup").
+
+// ── (11) CONFIG KEYS whose VALUE names a handler class ───────────────────────
+// A key SUFFIX. `x.y.handler: com.acme.H` and `x.y.class=com.acme.H` are the two
+// idioms; the suffix list keeps this from firing on every string in the file.
+cfg_handler_key_suffix("class").      cfg_handler_key_suffix("handler").
+cfg_handler_key_suffix("handler-class"). cfg_handler_key_suffix("handlerClass").
+cfg_handler_key_suffix("listener").   cfg_handler_key_suffix("processor").
+cfg_handler_key_suffix("factory").    cfg_handler_key_suffix("provider").
+cfg_handler_key_suffix("serializer"). cfg_handler_key_suffix("deserializer").
+cfg_handler_key_suffix("converter").  cfg_handler_key_suffix("filter").
+cfg_handler_key_suffix("interceptor"). cfg_handler_key_suffix("impl").
+cfg_handler_key_suffix("implementation").
+
+// ── (12) DI NARROWING SWITCH ─────────────────────────────────────────────────
+// Present  = an injection point satisfied by exactly one bean collapses from
+//            multi_inferred to known_edge (di.dl, section 5).
+// Comment out this ONE line to keep every reporting relation (bean_def, di_edge,
+// config_binding, config_affects_method, config_entry_point) and drop only the
+// call-graph narrowing — the setting to use if a project registers beans
+// programmatically, which is the one construct that can make the narrowing
+// over-narrow. Modelled on dispatch_cap: a policy knob, stated in one place.
+cfg_di_narrowing_enabled().

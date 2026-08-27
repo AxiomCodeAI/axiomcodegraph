@@ -1,0 +1,86 @@
+// ============================================================================
+// CONFIG-RESOLUTION · CONFIG-DRIVEN ENTRY POINTS
+//
+// annotation_flow.dl's premise, restated from config: a method the framework calls
+// and no client call site calls has NO incoming call_edge, so without an entry_point
+// row it looks like a dead root and everything downstream of it is invisible to
+// reachability, dead-code and change-impact.
+//
+// annotation_flow.dl covers the cases decidable from an annotation NAME (main,
+// test, http, cli). This file covers the ones that need a config VALUE:
+//   web.xml <servlet-class>/<filter-class>/<listener-class>   -> web_servlet/…
+//   <bean init-method="start"/>                               -> lifecycle_init
+//   @PostConstruct / @PreDestroy                              -> lifecycle_*
+//   @Scheduled / @KafkaListener / @JmsListener / …            -> scheduled / queue
+//   a config key whose value names a handler class            -> config_handler
+//   @Bean factory methods and bean constructors               -> factory / bean_ctor
+//
+// Same relation and same shape as annotation_flow.dl: entry_point(Method, Kind).
+// config_entry_point additionally records the SITE, so a reported entry point can
+// be traced back to the line of config that caused it.
+// ============================================================================
+
+// ── knob: methods a container invokes BY NAME on a registered class ──────────
+// Needed because the servlet/JMS APIs are usually NOT in the analysed library set
+// (the JDK IR alone has no javax.servlet), so the "overrides a library method"
+// test below finds nothing. Keeping both paths means the rule degrades to this
+// name list instead of to silence.
+cfg_container_callback_name("init").              cfg_container_callback_name("destroy").
+cfg_container_callback_name("service").           cfg_container_callback_name("doFilter").
+cfg_container_callback_name("doGet").             cfg_container_callback_name("doPost").
+cfg_container_callback_name("doPut").             cfg_container_callback_name("doDelete").
+cfg_container_callback_name("doHead").            cfg_container_callback_name("doOptions").
+cfg_container_callback_name("contextInitialized").cfg_container_callback_name("contextDestroyed").
+cfg_container_callback_name("sessionCreated").    cfg_container_callback_name("sessionDestroyed").
+cfg_container_callback_name("onMessage").         cfg_container_callback_name("onEvent").
+cfg_container_callback_name("run").               cfg_container_callback_name("call").
+cfg_container_callback_name("handle").            cfg_container_callback_name("execute").
+
+// cfg_registered_type(TypeHash, Kind): a type the container instantiates because
+// config named it. Everything below fans out from here.
+cfg_registered_type(t, kind) :- xml_container_class(kind, t, _).
+cfg_registered_type(t, "config_handler") :- config_class_ref(fmt, k, _, t, "client"),
+    fmt != "annotation", cfg_key_expects_class(k).
+
+// (1) callbacks on a registered type — by name …
+config_entry_point(m, kind, t) :- cfg_registered_type(t, kind),
+    java_method(name, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, "INSTANCE_METHOD", _, _, _, _, m),
+    cfg_container_callback_name(name).
+// … and by "overrides something declared in a library supertype", which is what a
+// servlet/filter/listener actually is. Independent of the name list, so a container
+// API that IS in the library set is covered exactly rather than approximately.
+config_entry_point(m, kind, t) :- cfg_registered_type(t, kind),
+    type_ancestor(t, libT), lib_type(_, _, _, _, _, _, _, _, _, _, _, _, _, libT),
+    lib_method(name, _, _, _, _, _, _, libT, _, _, _, _, _, _, _, _, _, pc, _, _, _, _),
+    java_method(name, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, "INSTANCE_METHOD", pc, _, _, _, m).
+// (2) the registered type's constructor — the container calls `new` on it.
+config_entry_point(m, kind, t) :- cfg_registered_type(t, kind),
+    method_kind("client", "CONSTRUCTOR", _, m), method_owner("client", t, m).
+
+// (3) XML lifecycle callbacks: <bean init-method="start"/> names `start` on the
+// bean's class. Looked up through method_name_in_type so an INHERITED init method
+// is found too — which is how Spring resolves it.
+config_entry_point(m, kind, t) :- xml_lifecycle_method(t, mname, kind),
+    method_name_in_type(mname, t, m), method_owner("client", _, m).
+
+// (4) annotation-driven container callbacks that annotation_flow.dl does not cover.
+config_entry_point(m, "lifecycle", m) :- ann_on_method(_, n, m, _), cfg_lifecycle_ann(n).
+config_entry_point(m, "scheduled", m) :- ann_on_method(_, n, m, _), cfg_scheduled_ann(n).
+config_entry_point(m, "queue", m)     :- ann_on_method(_, n, m, _), cfg_listener_ann(n).
+// A listener/scheduler annotation on the TYPE (@KafkaListener on a class, with
+// @KafkaHandler methods) registers the type, not one method.
+config_entry_point(m, "queue", t) :- ann_on_type(_, n, t), cfg_listener_ann(n),
+    java_method(_, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, "INSTANCE_METHOD", _, _, _, _, m).
+
+// (5) beans the container builds: a @Bean factory method is invoked by the
+// container, and a bean class's constructor is invoked by the container. Without
+// these, a @Configuration class's whole method set is unreachable.
+config_entry_point(m, "factory", m) :- cfg_factory(_, m, _).
+config_entry_point(m, "bean_ctor", t) :- bean_def(_, t, "stereotype", _),
+    method_kind("client", "CONSTRUCTOR", _, m), method_owner("client", t, m).
+config_entry_point(m, "bean_ctor", t) :- bean_def(_, t, "xml", _),
+    method_kind("client", "CONSTRUCTOR", _, m), method_owner("client", t, m).
+
+// ── feed the EXISTING entry_point relation ───────────────────────────────────
+// One line. entry_reachable, and everything that reads it, needs no change.
+entry_point(m, kind) :- config_entry_point(m, kind, _).
