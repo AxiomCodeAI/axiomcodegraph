@@ -723,7 +723,7 @@ function mergePartition(): number {
  * not be traded against each other, because the cheapest way to raise this
  * number is to start guessing. Lower it only with a recorded reason.
  */
-const RESOLUTION_FLOOR = 293;
+const RESOLUTION_FLOOR = 310;
 
 /**
  * Every parser-filled `resolvedSignatureLinkHash` equals `getResolvedSignature`.

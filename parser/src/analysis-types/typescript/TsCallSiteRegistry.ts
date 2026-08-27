@@ -181,6 +181,20 @@ export class TsCallSiteRegistry implements EntityIdentifiable {
     return this.resolvedSignatureLinkHash;
   }
 
+  getResolutionEvidence(): TsResolutionEvidence {
+    return this.resolutionEvidence;
+  }
+
+  /**
+   * The size of the overload set that was CONSIDERED.
+   *
+   * Above 1 with an empty target means a real set was seen and none was picked —
+   * an honest outcome that a rule can tell apart from "nothing was found".
+   */
+  getOverloadCandidateCount(): number {
+    return this.overloadCandidateCount;
+  }
+
   getEntryCombined(): string {
     return `ts_call_site[kind=${this.callKind}, callee=${this.calleeName}, receiver=${this.receiverKind}, target=${this.resolvedTargetKind}, hash=${this.tsCallSiteUniqueHash}]`;
   }

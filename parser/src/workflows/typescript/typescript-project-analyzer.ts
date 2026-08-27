@@ -4,7 +4,6 @@ import * as path from 'path';
 
 import * as ts from 'typescript';
 
-import { TsMethodRegistry } from '@/analysis-types/typescript/TsMethodRegistry';
 import { ENTITY_IDENTIFIERS } from '@/constants/entity-constants';
 import {
   TS_CSV_CHUNK_SIZE,
@@ -14,14 +13,13 @@ import {
 } from '@/constants/typescript-constants';
 import { SkippedFileReason } from '@/enums/SkippedFileReason';
 import {
-  TsResolutionEvidence,
-  TsResolvedTargetKind,
-} from '@/enums/typescript/call-sites';
-import { TsBodyPresence } from '@/enums/typescript/methods';
-import {
   extractTypeScriptFile,
   TsFileFacts,
 } from '@/parsers/typescript/extractors/ts-fact-extractor';
+import {
+  ProjectResolutionReport,
+  TsProjectResolver,
+} from '@/parsers/typescript/extractors/ts-project-resolver';
 import { moduleHashFor } from '@/parsers/typescript/extractors/ts-module-extractor';
 import { TsConfigResolver } from '@/parsers/typescript/tsconfig-resolver';
 import { EntityUtils } from '@/utils/entity-utils';
@@ -75,22 +73,15 @@ export interface TypeScriptAnalysisSummary {
   readonly resolution: ResolutionReport;
 }
 
-export interface ResolutionReport {
-  readonly callSites: number;
-  readonly resolvedToSignature: number;
-  readonly externalTerminal: number;
-  readonly synthesized: number;
-  readonly unresolved: number;
-  /**
-   * Resolution rate per RECEIVER SHAPE.
-   *
-   * Reported per shape and not only in aggregate, because an aggregate hides
-   * the failure that matters: a parser can resolve every unqualified call and
-   * no method call at all and still show a respectable total. In Python a
-   * fixture-only win read as a corpus win for exactly this reason.
-   */
-  readonly byReceiverKind: Record<string, { total: number; resolved: number }>;
-}
+/**
+ * Resolution outcome, reported per RECEIVER SHAPE and not only in aggregate.
+ *
+ * The aggregate hides the failure that matters: a parser can resolve every
+ * unqualified call and no method call at all and still show a respectable
+ * total. In Python a fixture-only win read as a corpus win for exactly this
+ * reason, and it took a hand-built sample to catch.
+ */
+export type ResolutionReport = ProjectResolutionReport;
 
 interface SkippedTypeScriptFile {
   filePath: string;
@@ -204,8 +195,11 @@ export class TypeScriptProjectAnalyzer {
     }
 
     // The cross-module pass MUTATES rows already accumulated — they are the same
-    // objects — so it must run before export.
-    const crossModule = linkAcrossModules(perFile);
+    // objects — so it must run before export. It is also where the PRIMARY
+    // resolution mechanism actually lives: a receiver's declared type is almost
+    // always declared in another file, so a per-file resolver reaches almost
+    // none of it.
+    const crossModule = new TsProjectResolver(perFile).run();
 
     await fsp.mkdir(options.outputDir, { recursive: true });
     await this.exportCsv(accumulated.modules!, options.outputDir, TYPESCRIPT_CSV_FILES.MODULES);
@@ -306,206 +300,10 @@ export class TypeScriptProjectAnalyzer {
 }
 
 /**
- * Finishes the calls whose target is in another module.
- *
- * Cannot happen during extraction: `import { build } from "./helpers"` needs
- * helpers.ts to have been parsed, and a sorted file list is not a dependency
- * order. Path 2 of the resolution layer, and 52.0% of measured targets are
- * outside the project entirely — those become `LIB_SIGNATURE`, an honest
- * terminal the engine closes from `lib_ts_*`, not a failure.
- */
-function linkAcrossModules(perFile: readonly TsFileFacts[]): ResolutionReport {
-  // Exported declarations by module, so a deferred call is one map hit.
-  const methodsByModuleAndName = new Map<string, Map<string, TsMethodRegistry[]>>();
-  const constructorsByModuleAndTypeName = new Map<string, Map<string, TsMethodRegistry[]>>();
-  const typeHashToName = new Map<string, string>();
-
-  for (const facts of perFile) {
-    for (const type of facts.types) {
-      typeHashToName.set(type.getHash(), type.name);
-    }
-  }
-  for (const facts of perFile) {
-    const byName = new Map<string, TsMethodRegistry[]>();
-    const constructors = new Map<string, TsMethodRegistry[]>();
-    for (const method of facts.methods) {
-      if (method.tsTypeLinkHash === '') {
-        const list = byName.get(method.escapedName);
-        if (list) {
-          list.push(method);
-        } else {
-          byName.set(method.escapedName, [method]);
-        }
-        continue;
-      }
-      if (method.name === '<constructor>') {
-        const ownerName = typeHashToName.get(method.tsTypeLinkHash) ?? '';
-        const list = constructors.get(ownerName);
-        if (list) {
-          list.push(method);
-        } else {
-          constructors.set(ownerName, [method]);
-        }
-      }
-    }
-    methodsByModuleAndName.set(facts.fileModuleHash, byName);
-    constructorsByModuleAndTypeName.set(facts.fileModuleHash, constructors);
-  }
-
-  const report: ResolutionReport = {
-    callSites: 0,
-    resolvedToSignature: 0,
-    externalTerminal: 0,
-    synthesized: 0,
-    unresolved: 0,
-    byReceiverKind: {},
-  };
-  const mutable = report as {
-    callSites: number; resolvedToSignature: number; externalTerminal: number;
-    synthesized: number; unresolved: number;
-    byReceiverKind: Record<string, { total: number; resolved: number }>;
-  };
-
-  for (const facts of perFile) {
-    for (const deferred of facts.deferredCalls) {
-      const importRow = facts.importByLocalName.get(deferred.importedLocalName);
-      if (!importRow) {
-        continue;
-      }
-      const targetModuleHash = importRow.getResolvedModuleLinkHash();
-      if (targetModuleHash === '') {
-        // Resolved to a file outside the analysis, or not at all. The first is
-        // a terminal; the second is honest ignorance and stays UNRESOLVED.
-        if (importRow.resolvedFilePath !== '' || importRow.importedPath.startsWith('node:')) {
-          deferred.callSite.setExternalTarget(TsResolvedTargetKind.LIB_SIGNATURE,
-            TsResolutionEvidence.IMPORT_BINDING);
-        }
-        continue;
-      }
-      if (deferred.memberName === '<constructor>') {
-        const constructors = constructorsByModuleAndTypeName.get(targetModuleHash)
-          ?.get(importRow.originalName !== '' ? importRow.originalName
-            : deferred.importedLocalName);
-        applyCrossModule(deferred.callSite, constructors);
-        continue;
-      }
-      const lookupName = deferred.memberName !== ''
-        // `import * as ns; ns.fn()` — the member is a top-level export of the
-        // target module. A NON-namespace import needs the value's type instead,
-        // which is the checker's answer, so it is left alone.
-        ? (importRow.isWildcard ? deferred.memberName : '')
-        : (importRow.originalName !== '' ? importRow.originalName : deferred.importedLocalName);
-      if (lookupName === '') {
-        continue;
-      }
-      const candidates = methodsByModuleAndName.get(targetModuleHash)?.get(lookupName);
-      applyCrossModule(deferred.callSite, candidates, deferred.argumentCount);
-    }
-  }
-
-  for (const facts of perFile) {
-    mutable.callSites += facts.stats.callSites;
-    for (const [shape, bucket] of facts.stats.byReceiverKind) {
-      const existing = mutable.byReceiverKind[shape] ?? { total: 0, resolved: 0 };
-      existing.total += bucket.total;
-      mutable.byReceiverKind[shape] = existing;
-    }
-  }
-  // Counted from the ROWS rather than from the per-file tallies, so the cross-
-  // module pass is included and the numbers describe what was actually emitted.
-  for (const facts of perFile) {
-    for (const callSite of facts.callSites) {
-      const kind = callSite.getResolvedTargetKind();
-      if (callSite.getResolvedSignatureLinkHash() !== '') {
-        mutable.resolvedToSignature += 1;
-        const bucket = mutable.byReceiverKind[callSite.receiverKind];
-        if (bucket) {
-          bucket.resolved += 1;
-        }
-      } else if (kind === TsResolvedTargetKind.SYNTHESIZED_NO_DECLARATION) {
-        mutable.synthesized += 1;
-        const bucket = mutable.byReceiverKind[callSite.receiverKind];
-        if (bucket) {
-          bucket.resolved += 1;
-        }
-      } else if (kind === TsResolvedTargetKind.LIB_SIGNATURE
-        || kind === TsResolvedTargetKind.AMBIENT_SIGNATURE) {
-        mutable.externalTerminal += 1;
-        const bucket = mutable.byReceiverKind[callSite.receiverKind];
-        if (bucket) {
-          bucket.resolved += 1;
-        }
-      } else {
-        mutable.unresolved += 1;
-      }
-    }
-  }
-  return report;
-}
-
-function applyCrossModule(
-  callSite: { setResolution: (props: {
-    resolvedSignatureLinkHash: string;
-    resolvedGroupKey: string;
-    resolvedTargetKind: TsResolvedTargetKind;
-    resolvedOverloadIndex: number | undefined;
-    overloadCandidateCount: number;
-    isOverloadResolved: boolean;
-    resolutionEvidence: TsResolutionEvidence;
-    isAmbientTarget: boolean;
-  }) => void },
-  candidates: TsMethodRegistry[] | undefined,
-  argumentCount = -1
-): void {
-  if (!candidates || candidates.length === 0) {
-    return;
-  }
-  const viable = argumentCount < 0 ? candidates : candidates.filter((candidate) => {
-    const required = candidate.parameterCount - candidate.optionalParameterCount;
-    if (argumentCount < required) {
-      return false;
-    }
-    return candidate.restParameterIndex !== undefined
-      || argumentCount <= candidate.parameterCount;
-  });
-  const chosen = viable.length === 1 ? viable[0] : candidates.length === 1
-    ? candidates[0] : undefined;
-  if (!chosen) {
-    // A real overload set that arity cannot narrow. Recorded, not guessed.
-    callSite.setResolution({
-      resolvedSignatureLinkHash: '',
-      resolvedGroupKey: '',
-      resolvedTargetKind: TsResolvedTargetKind.UNRESOLVED,
-      resolvedOverloadIndex: undefined,
-      overloadCandidateCount: candidates.length,
-      isOverloadResolved: false,
-      resolutionEvidence: TsResolutionEvidence.NONE,
-      isAmbientTarget: false,
-    });
-    return;
-  }
-  const bodiless = chosen.bodyPresence !== TsBodyPresence.HAS_BODY;
-  callSite.setResolution({
-    resolvedSignatureLinkHash: chosen.getHash(),
-    resolvedGroupKey: chosen.declarationGroupKey,
-    resolvedTargetKind: chosen.bodyPresence === TsBodyPresence.NO_BODY_AMBIENT
-      ? TsResolvedTargetKind.AMBIENT_SIGNATURE
-      : bodiless
-        ? TsResolvedTargetKind.PROJECT_SIGNATURE
-        : TsResolvedTargetKind.PROJECT_IMPLEMENTATION,
-    resolvedOverloadIndex: candidates.length > 1 ? candidates.indexOf(chosen) : undefined,
-    overloadCandidateCount: candidates.length,
-    isOverloadResolved: candidates.length > 1,
-    resolutionEvidence: TsResolutionEvidence.IMPORT_BINDING,
-    isAmbientTarget: bodiless,
-  });
-}
-
-/**
  * The files of the program rooted at `rootDir`, or `undefined` if it declares none.
  *
  * `undefined` and an empty list are different answers and must stay different:
- * no tsconfig means "walk the directory", while a tsconfig claiming nothing
+ * no tsconfig means "walk the directory", while a tsconfig that claims nothing
  * means "this program is empty" and walking anyway would analyse files the
  * program deliberately excludes.
  */

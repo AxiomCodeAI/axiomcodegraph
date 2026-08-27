@@ -215,10 +215,6 @@ export function extractTypeScriptFile(options: TsFileExtractionOptions): TsFileF
     callNodes: expressions.getCallNodes(),
     typeAliasTargetByName: declarations.typeAliasTargetByName,
   });
-  // Heritage walking needs to get from a `ts_type` row back to its declaration
-  // node. Primed from the binder's own list rather than kept on the node, per
-  // the standing rule against storing state on parser node objects.
-  resolver.primeNodeCache(binder.declarationsInOrder.map((d) => d.node));
   const resolution = resolver.run();
 
   return {

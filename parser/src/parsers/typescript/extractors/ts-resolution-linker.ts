@@ -77,15 +77,57 @@ export interface LocalResolutionInput {
   readonly typeAliasTargetByName: ReadonlyMap<string, ts.TypeNode>;
 }
 
-/** What a call could not be resolved to locally, for the project pass to finish. */
-export interface DeferredCall {
-  readonly callSite: TsCallSiteRegistry;
-  /** The local name bound by an import, when the callee came through one. */
-  readonly importedLocalName: string;
-  /** The member being called on an imported namespace or value; `""` for a direct call. */
-  readonly memberName: string;
-  readonly argumentCount: number;
-}
+/**
+ * What the LOCAL pass could not finish, described precisely enough for the
+ * project pass to finish it without re-deriving anything.
+ *
+ * A discriminated union rather than a bag of optional fields, because each
+ * variant needs a different traversal and a shared shape would let the project
+ * pass take the wrong one for a row that happened to have the right fields set.
+ */
+export type DeferredCall =
+  /** `import { f } from "x"; f()` — Path 2. */
+  | { readonly kind: 'IMPORTED_CALLEE'; readonly callSite: TsCallSiteRegistry;
+      readonly localName: string; readonly argumentCount: number;
+      readonly declaringModuleHash: string }
+  /** `import { C } from "x"; new C()` — including the implicit-constructor case. */
+  | { readonly kind: 'IMPORTED_CONSTRUCTION'; readonly callSite: TsCallSiteRegistry;
+      readonly localName: string; readonly argumentCount: number;
+      readonly declaringModuleHash: string }
+  /** `super()`, and any construction whose class is named rather than bound locally. */
+  | { readonly kind: 'TYPE_CONSTRUCTION'; readonly callSite: TsCallSiteRegistry;
+      readonly typeName: string; readonly argumentCount: number;
+      readonly declaringModuleHash: string }
+  /** `import * as ns from "x"; ns.f()`. */
+  | { readonly kind: 'NAMESPACE_MEMBER'; readonly callSite: TsCallSiteRegistry;
+      readonly localName: string; readonly member: string;
+      readonly argumentCount: number; readonly declaringModuleHash: string }
+  /**
+   * PATH 1 across a module boundary — the primary mechanism, and the one the
+   * declared-type receiver machinery exists for.
+   *
+   * `rootTypeName` names the receiver's declared type as written, and `members`
+   * is the chain of property hops from there: `this.repo.session.close()` is
+   * root = the enclosing class, members = [repo, session], member = close. The
+   * hops are carried rather than resolved locally because each one may land in a
+   * different file, and only the project pass has them all.
+   */
+  | { readonly kind: 'RECEIVER_TYPE_MEMBER'; readonly callSite: TsCallSiteRegistry;
+      readonly rootTypeName: string;
+      /**
+       * The leftmost segment of a DOTTED annotation — `Parser` in
+       * `Parser.SyntaxNode`.
+       *
+       * Carried separately because the two halves are bound differently: the
+       * import binds `Parser`, while the type is `SyntaxNode`. Without the
+       * qualifier there is no way to ask where `SyntaxNode` was declared, and
+       * 336 call sites on this repository's own source get classified as a
+       * resolution GAP when they are really an external TERMINAL.
+       */
+      readonly rootTypeQualifier: string;
+      readonly members: readonly string[];
+      readonly member: string; readonly isStatic: boolean;
+      readonly argumentCount: number; readonly declaringModuleHash: string };
 
 export interface LocalResolutionResult {
   readonly deferredCalls: readonly DeferredCall[];
@@ -407,10 +449,11 @@ export class TsLocalResolver {
       // The target is in another module, which may not be parsed yet. Deferred
       // rather than guessed — the project pass has the whole file set.
       this.deferred.push({
+        kind: 'IMPORTED_CALLEE',
         callSite,
-        importedLocalName: callee.text,
-        memberName: '',
+        localName: callee.text,
         argumentCount,
+        declaringModuleHash: this.input.moduleHash,
       });
       return;
     }
@@ -482,10 +525,11 @@ export class TsLocalResolver {
     }
     if (binding.kind === TsBoundKind.ImportBinding) {
       this.deferred.push({
+        kind: 'IMPORTED_CONSTRUCTION',
         callSite,
-        importedLocalName: callee.text,
-        memberName: CONSTRUCTOR_MEMBER,
+        localName: callee.text,
         argumentCount,
+        declaringModuleHash: this.input.moduleHash,
       });
       return;
     }
@@ -539,11 +583,41 @@ export class TsLocalResolver {
     callSite: TsCallSiteRegistry,
     argumentCount: number
   ): void {
-    const baseType = this.baseClassOf(node);
-    if (!baseType) {
+    // The base class NAME as written, not a resolved row: a base class is
+    // frequently imported, and only the project pass can follow the import.
+    const baseName = this.extendsBaseNameOf(node);
+    if (baseName === '') {
       return;
     }
-    this.resolveConstructorOf(baseType.getHash(), callSite, argumentCount);
+    callSite.setReceiverTypeName(bareTypeName(baseName));
+    this.deferred.push({
+      kind: 'TYPE_CONSTRUCTION',
+      callSite,
+      typeName: bareTypeName(baseName),
+      argumentCount,
+      declaringModuleHash: this.input.moduleHash,
+    });
+  }
+
+  /** The `extends` clause's base NAME as written, for the class enclosing `node`. */
+  private extendsBaseNameOf(node: ts.Node): string {
+    let current: ts.Node | undefined = node.parent;
+    while (current) {
+      if (ts.isClassLike(current)) {
+        for (const clause of current.heritageClauses ?? []) {
+          if (clause.token !== ts.SyntaxKind.ExtendsKeyword) {
+            continue;
+          }
+          const first = clause.types[0];
+          if (first) {
+            return first.expression.getText(this.sf);
+          }
+        }
+        return '';
+      }
+      current = current.parent;
+    }
+    return '';
   }
 
   private resolveMemberCall(
@@ -556,26 +630,77 @@ export class TsLocalResolver {
 
     if (receiver.kind === ts.SyntaxKind.ThisKeyword) {
       const owner = this.enclosingType(callee);
-      if (owner) {
-        callSite.setReceiverTypeName(owner.name);
-        this.resolveMemberOfType(owner, member, callSite, argumentCount,
-          TsResolutionEvidence.THIS_MEMBER);
+      if (!owner) {
+        return;
+      }
+      callSite.setReceiverTypeName(owner.name);
+      // Deferred even though the type is RIGHT HERE, because the MEMBER may not
+      // be: `this.create()` on a class extending a base declared in another
+      // file resolves through that base. Measured on a third-party corpus,
+      // 383 of 568 call sites are `this.x()` and the local pass closed 4.4% of
+      // them — the base classes were all one import away.
+      this.deferred.push({
+        kind: 'RECEIVER_TYPE_MEMBER',
+        callSite,
+        rootTypeName: owner.name,
+        rootTypeQualifier: '',
+        members: [],
+        member,
+        isStatic: false,
+        argumentCount,
+        declaringModuleHash: this.input.moduleHash,
+      });
+      return;
+    }
+    if (ts.isPropertyAccessExpression(receiver) || ts.isNonNullExpression(receiver)) {
+      // A property CHAIN: `this.repo.find()`, `config.db.connect()`. Each hop
+      // needs the previous hop's DECLARED type, and each of those may live in a
+      // different file — so the path is described and handed to the project
+      // pass rather than abandoned. On this repository's own source, chains are
+      // 1,765 of 11,529 call sites; treating them as unresolvable by
+      // construction throws away 15% of the call graph.
+      const chain = this.receiverPathOf(receiver);
+      if (chain) {
+        callSite.setReceiverTypeName(chain.rootTypeName);
+        this.deferred.push({
+          kind: 'RECEIVER_TYPE_MEMBER',
+          callSite,
+          rootTypeName: chain.rootTypeName,
+          rootTypeQualifier: chain.qualifier,
+          members: chain.members,
+          member,
+          isStatic: chain.isStatic,
+          argumentCount,
+          declaringModuleHash: this.input.moduleHash,
+        });
       }
       return;
     }
     if (receiver.kind === ts.SyntaxKind.SuperKeyword) {
-      const base = this.baseClassOf(callee);
-      if (base) {
-        callSite.setReceiverTypeName(base.name);
-        this.resolveMemberOfType(base, member, callSite, argumentCount,
-          TsResolutionEvidence.SUPER_MEMBER);
+      // The base class NAME as written, not a resolved row: the base is
+      // frequently imported, and the project pass is the only place that can
+      // follow the import.
+      const baseName = this.extendsBaseNameOf(callee);
+      if (baseName === '') {
+        return;
       }
+      callSite.setReceiverTypeName(baseName);
+      this.deferred.push({
+        kind: 'RECEIVER_TYPE_MEMBER',
+        callSite,
+        rootTypeName: bareTypeName(baseName),
+        rootTypeQualifier: qualifierOf(baseName),
+        members: [],
+        member,
+        isStatic: false,
+        argumentCount,
+        declaringModuleHash: this.input.moduleHash,
+      });
       return;
     }
     if (!ts.isIdentifier(receiver)) {
-      // A property chain, a call result, an element access. Each needs the
-      // receiver's INFERRED type, which is the checker's answer and not the
-      // parser's.
+      // A call result, an element access, an IIFE. Each needs the receiver's
+      // INFERRED type, which is the checker's answer and not the parser's.
       return;
     }
 
@@ -591,10 +716,12 @@ export class TsLocalResolver {
     }
     if (binding.kind === TsBoundKind.ImportBinding) {
       this.deferred.push({
+        kind: 'NAMESPACE_MEMBER',
         callSite,
-        importedLocalName: receiver.text,
-        memberName: member,
+        localName: receiver.text,
+        member,
         argumentCount,
+        declaringModuleHash: this.input.moduleHash,
       });
       return;
     }
@@ -622,13 +749,18 @@ export class TsLocalResolver {
     if (binding.kind === TsBoundKind.EnumDeclaration
       || binding.kind === TsBoundKind.ClassDeclaration) {
       // A STATIC member call: the receiver names the type itself.
-      const typeHash = this.input.typeHashByNode.get(nodeId(binding.node, this.sf));
-      const type = typeHash ? this.typeByHash(typeHash) : undefined;
-      if (type) {
-        callSite.setReceiverTypeName(type.name);
-        this.resolveMemberOfType(type, member, callSite, argumentCount,
-          TsResolutionEvidence.DECLARED_RECEIVER_TYPE, true);
-      }
+      callSite.setReceiverTypeName(binding.name);
+      this.deferred.push({
+        kind: 'RECEIVER_TYPE_MEMBER',
+        callSite,
+        rootTypeName: binding.name,
+        rootTypeQualifier: '',
+        members: [],
+        member,
+        isStatic: true,
+        argumentCount,
+        declaringModuleHash: this.input.moduleHash,
+      });
       return;
     }
 
@@ -639,13 +771,85 @@ export class TsLocalResolver {
     if (declaredTypeName === '') {
       return;
     }
-    callSite.setReceiverTypeName(declaredTypeName);
-    const type = this.typeByName.get(bareTypeName(declaredTypeName));
-    if (!type) {
-      return;
+    const bare = bareTypeName(declaredTypeName);
+    callSite.setReceiverTypeName(bare);
+    // Always deferred, whether or not the type is in this file. On real code
+    // the type is usually imported — measured on this repository before the
+    // hand-off existed, 26 of 11,529 call sites used the declared-receiver-type
+    // path at all — and even a LOCAL type inherits from bases that are not, so
+    // one traversal in the project pass is both simpler and strictly better
+    // informed than two that must agree.
+    this.deferred.push({
+      kind: 'RECEIVER_TYPE_MEMBER',
+      callSite,
+      rootTypeName: bare,
+      rootTypeQualifier: qualifierOf(declaredTypeName),
+      members: [],
+      member,
+      isStatic: false,
+      argumentCount,
+      declaringModuleHash: this.input.moduleHash,
+    });
+  }
+
+  /**
+   * Describes a receiver chain as a root TYPE NAME plus property hops.
+   *
+   * `this.repo.session` becomes root = the enclosing class, members =
+   * [repo, session]. Nothing is resolved here: each hop's type may be declared
+   * in another file, and only the project pass has them all. Returning the
+   * description rather than a resolution is what lets one traversal serve both
+   * the same-file and the cross-file case.
+   */
+  private receiverPathOf(
+    node: ts.Node
+  ): { rootTypeName: string; qualifier: string; members: string[]; isStatic: boolean }
+    | undefined {
+    const members: string[] = [];
+    let current: ts.Node = node;
+    for (;;) {
+      if (ts.isNonNullExpression(current)) {
+        current = unwrapParentheses(current.expression);
+        continue;
+      }
+      if (ts.isPropertyAccessExpression(current)) {
+        if (ts.isPrivateIdentifier(current.name)) {
+          members.unshift(current.name.text);
+        } else {
+          members.unshift(current.name.text);
+        }
+        current = unwrapParentheses(current.expression);
+        continue;
+      }
+      break;
     }
-    this.resolveMemberOfType(type, member, callSite, argumentCount,
-      TsResolutionEvidence.DECLARED_RECEIVER_TYPE);
+    if (current.kind === ts.SyntaxKind.ThisKeyword) {
+      const owner = this.enclosingType(current);
+      return owner
+        ? { rootTypeName: owner.name, qualifier: '', members, isStatic: false }
+        : undefined;
+    }
+    if (!ts.isIdentifier(current)) {
+      return undefined;
+    }
+    const binding = this.lookup(current, current.text);
+    if (!binding) {
+      return undefined;
+    }
+    if (binding.kind === TsBoundKind.ClassDeclaration
+      || binding.kind === TsBoundKind.EnumDeclaration) {
+      // The chain starts at the TYPE itself, so the first hop is a static member.
+      return { rootTypeName: binding.name, qualifier: '', members, isStatic: true };
+    }
+    const declared = this.declaredTypeNameOf(binding);
+    return declared === ''
+      ? undefined
+      : {
+          rootTypeName: bareTypeName(declared),
+          qualifier: qualifierOf(declared),
+          members,
+          isStatic: false,
+        };
   }
 
   /**
@@ -655,83 +859,6 @@ export class TsLocalResolver {
    * `implements` inherits nothing, so a member found through it does not exist
    * on the receiver. That single distinction is what `inheritsMembers` is for.
    */
-  private resolveMemberOfType(
-    type: TsTypeRegistry,
-    member: string,
-    callSite: TsCallSiteRegistry,
-    argumentCount: number,
-    evidence: TsResolutionEvidence,
-    staticOnly = false
-  ): void {
-    const seenGroups = new Set<string>();
-    let group: string | undefined = type.declarationGroupKey;
-    while (group !== undefined && !seenGroups.has(group)) {
-      seenGroups.add(group);
-      // Over the MERGED type, so an overload contributed by a second
-      // declaration — or by a module augmentation in another file — is a
-      // candidate like any other.
-      const candidates = (this.methodsByOwnerGroup.get(group) ?? [])
-        .filter((m) => m.escapedName === escapeName(member) && m.isStatic === staticOnly);
-      if (candidates.length > 0) {
-        const chosen = chooseByArity(candidates, argumentCount);
-        if (chosen) {
-          this.applyTarget(callSite, chosen,
-            candidates.length > 1 ? candidates.indexOf(chosen) : undefined,
-            candidates.length, candidates.length > 1, evidence);
-          return;
-        }
-        this.recordCandidatesOnly(callSite, candidates.length);
-        return;
-      }
-      group = this.extendsBaseGroupOf(group);
-    }
-  }
-
-  /**
-   * The `extends` base of a MERGED type, following `extends` and only `extends`.
-   *
-   * Walking an `IMPLEMENTS_CLAUSE` edge here is correct in Java and WRONG here:
-   * `implements` inherits nothing, so a member found through it does not exist
-   * on the receiver. That single distinction is what `inheritsMembers` records.
-   */
-  private extendsBaseGroupOf(group: string): string | undefined {
-    for (const declaration of this.typeDeclarationsByGroup.get(group) ?? []) {
-      const node = this.declarationNodeFor(declaration);
-      if (!node) {
-        continue;
-      }
-      const clauses = (node as { heritageClauses?: ts.NodeArray<ts.HeritageClause> })
-        .heritageClauses;
-      for (const clause of clauses ?? []) {
-        if (clause.token !== ts.SyntaxKind.ExtendsKeyword) {
-          continue;
-        }
-        for (const type of clause.types) {
-          if (!ts.isIdentifier(type.expression)) {
-            continue;
-          }
-          const baseGroup = this.groupKeyByTypeName.get(type.expression.text);
-          if (baseGroup !== undefined && baseGroup !== group) {
-            return baseGroup;
-          }
-        }
-      }
-    }
-    return undefined;
-  }
-
-  private extendsBaseOf(type: TsTypeRegistry): TsTypeRegistry | undefined {
-    const group = this.extendsBaseGroupOf(type.declarationGroupKey);
-    return group === undefined
-      ? undefined
-      : this.typeDeclarationsByGroup.get(group)?.[0];
-  }
-
-  private baseClassOf(node: ts.Node): TsTypeRegistry | undefined {
-    const owner = this.enclosingType(node);
-    return owner ? this.extendsBaseOf(owner) : undefined;
-  }
-
   private enclosingType(node: ts.Node): TsTypeRegistry | undefined {
     let current: ts.Node | undefined = node.parent;
     while (current) {
@@ -751,25 +878,6 @@ export class TsLocalResolver {
       }
     }
     return undefined;
-  }
-
-  /** The AST node a `ts_type` row came from, matched on the recorded identity map. */
-  private declarationNodeFor(type: TsTypeRegistry): ts.Node | undefined {
-    for (const [id, hash] of this.input.typeHashByNode) {
-      if (hash === type.getHash()) {
-        return this.nodeByIdCache.get(id);
-      }
-    }
-    return undefined;
-  }
-
-  /** Node identity -> node, populated lazily from the binder's declaration list. */
-  private readonly nodeByIdCache = new Map<string, ts.Node>();
-
-  primeNodeCache(nodes: Iterable<ts.Node>): void {
-    for (const node of nodes) {
-      this.nodeByIdCache.set(nodeId(node, this.sf), node);
-    }
   }
 
   /**
@@ -896,8 +1004,6 @@ export class TsLocalResolver {
   }
 }
 
-const CONSTRUCTOR_MEMBER = '<constructor>';
-
 function enclosingVariableDeclaration(node: ts.Node): ts.Node | undefined {
   let current: ts.Node | undefined = node;
   while (current) {
@@ -948,12 +1054,47 @@ function chooseByArity(
   return viable.length === 1 ? viable[0] : undefined;
 }
 
+/**
+ * The type an annotation NAMES, reduced to a single identifier.
+ *
+ * `T[]` becomes `Array`, NOT `T`. Stripping the brackets claims the receiver of
+ * `rows.map(…)` is a `Row`, and a project type with a colliding member name
+ * would then take a call that belongs to `Array`. The project resolver carries
+ * the same rule and the same reasoning.
+ */
+/**
+ * The leftmost segment of a dotted annotation — `Parser` in `Parser.SyntaxNode`.
+ *
+ * That segment is what an import BINDS; the rightmost is the type. Asking where
+ * the type was declared means asking about the qualifier, so both are kept.
+ */
+function qualifierOf(annotation: string): string {
+  const bare = annotation.trim().replace(/^readonly\s+/, '');
+  const generic = bare.indexOf('<');
+  const base = generic < 0 ? bare : bare.slice(0, generic);
+  const dot = base.indexOf('.');
+  return dot < 0 ? '' : base.slice(0, dot).trim();
+}
+
 function bareTypeName(annotation: string): string {
-  const trimmed = annotation.trim();
+  let trimmed = annotation.trim();
+  // `T | null` narrows to `T`; a union of two real types resolves to nothing.
+  if (trimmed.includes('|')) {
+    const parts = trimmed.split('|').map((p) => p.trim())
+      .filter((p) => p !== 'null' && p !== 'undefined' && p !== '');
+    if (parts.length !== 1) {
+      return '';
+    }
+    trimmed = parts[0] ?? '';
+  }
+  trimmed = trimmed.replace(/^readonly\s+/, '');
+  if (trimmed.endsWith('[]')) {
+    return 'Array';
+  }
   const generic = trimmed.indexOf('<');
   const base = generic < 0 ? trimmed : trimmed.slice(0, generic);
   const dot = base.lastIndexOf('.');
-  return (dot < 0 ? base : base.slice(dot + 1)).replace(/\[\]$/, '').trim();
+  return (dot < 0 ? base : base.slice(dot + 1)).trim();
 }
 
 /**

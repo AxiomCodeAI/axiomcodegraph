@@ -4,6 +4,7 @@ import * as path from 'path';
 import { JavaDetector } from '@/language-detectors/java-detector';
 import { LanguageDetector } from '@/language-detectors/language-detector';
 import { PythonDetector } from '@/language-detectors/python-detector';
+import { TypeScriptDetector } from '@/language-detectors/typescript-detector';
 import { ProjectLanguage, ProjectInfo } from '@/types/ProjectInfo';
 
 /**
@@ -19,6 +20,11 @@ export class ProjectDetector {
     // directory of .py files is a valid Python project and would otherwise be a
     // greedy match on mixed repositories.
     this.registerDetector(new JavaDetector());
+    // TypeScript before Python: `tsconfig.json` DEFINES a program, so it is a
+    // stronger claim than any Python manifest, and a repository holding both
+    // should not have its TypeScript swallowed by a bare directory of .py files
+    // matching first.
+    this.registerDetector(new TypeScriptDetector());
     this.registerDetector(new PythonDetector());
   }
 
