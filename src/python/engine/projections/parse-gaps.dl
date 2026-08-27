@@ -1,0 +1,34 @@
+// ============================================================================
+// Projections · PARSE GAPS  (pure column views — no joins, no closures)
+//
+// py_parse_gap is one row per construct the grammar could not represent. It RECORDS
+// the gap; it never repairs it. That is a deliberate contract: positions stay measured,
+// never mapped, because every cross-stage join keys on real node byte ranges — so
+// synthesising a node from a keyword's byte range would corrupt the joins it was meant
+// to fix.
+//
+// MEASURED ACROSS THE WHOLE 3.10.4 STDLIB (31 shards, ~200k lines): 2 rows, both in
+// unittest/mock.py, both SOFT_KEYWORD_MISPARSE / MISPARSED_SILENTLY on
+// `type(mock).__signature__ = sig` and `type(mock)._mock_check_sig = checksig`.
+// MISPARSED_SILENTLY is the disposition that matters: hasError is FALSE, so the facts
+// are WRONG rather than MISSING, and nothing downstream can notice. See
+// .claude/python/parser-defects.md PD-4 for the repro and the edge it costs.
+//
+// py_parse_gap / lib_py_parse_gap cols (10):
+//   0 pyModuleLinkHash  1 constructKind  2 disposition  3 startLine  4 startColumn
+//   5 endLine  6 endColumn  7 sourceText  8 serviceVersionLinkHash  9 pyParseGapUniqueHash
+// ============================================================================
+
+// ── parse_gap(Prov, ModuleHash, ConstructKind, Disposition, SourceText, GapHash) ──
+parse_gap("client", m, ck, disp, txt, h) :- py_parse_gap(m, ck, disp, _, _, _, _, txt, _, h).
+parse_gap("lib", m, ck, disp, txt, h) :- lib_py_parse_gap(m, ck, disp, _, _, _, _, txt, _, h).
+
+// ── parse_gap_span(Prov, StartLine, StartColumn, EndLine, EndColumn, GapHash) ──
+parse_gap_span("client", sl, sc, el, ec, h) :- py_parse_gap(_, _, _, sl, sc, el, ec, _, _, h).
+parse_gap_span("lib", sl, sc, el, ec, h) :- lib_py_parse_gap(_, _, _, sl, sc, el, ec, _, _, h).
+
+// ── parse_gap_misparsed_silently(Prov, ModuleHash, ConstructKind, SourceText, GapHash) ──
+// The one disposition that produces WRONG facts rather than absent ones. Exported so a
+// consumer can subtract the affected modules rather than trust them silently.
+parse_gap_misparsed_silently("client", m, ck, txt, h) :- py_parse_gap(m, ck, "MISPARSED_SILENTLY", _, _, _, _, txt, _, h).
+parse_gap_misparsed_silently("lib", m, ck, txt, h) :- lib_py_parse_gap(m, ck, "MISPARSED_SILENTLY", _, _, _, _, txt, _, h).

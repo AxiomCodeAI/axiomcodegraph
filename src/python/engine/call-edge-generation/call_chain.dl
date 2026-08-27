@@ -1,0 +1,331 @@
+// ============================================================================
+// CALL-EDGE-GEN · CALL CHAIN  (the four tiers, and conservation)
+//
+// One classified row per (site, target), plus one row for every site that resolved to
+// nothing, so the CSV alone shows where each chain ends and WHY.
+//
+//   call_chain_edge(Site, Caller, ToExpr, Callee, Prov, EdgeStatus, Kind)
+//
+// FOUR TIERS, ALWAYS:
+//   known_edge        exactly ONE resolved client target. The chain continues.
+//   multi_inferred    2+ targets that form a SOUND dispatch set — the true target is
+//                     among them. Every rule that can produce this states its argument:
+//                       * self-dispatch over CONSTRUCTED subclasses (a language
+//                         guarantee plus RTA — resolution/dispatch.dl)
+//                       * a multi-write attribute's write union (resolution/field-flow.dl)
+//                       * two incomparable MRO definers, where C3's tie-break would
+//                         choose one and this engine declines to (resolution/mro.dl)
+//                     Nothing else is allowed to widen a site. Fanning to every
+//                     same-named method because a receiver is untyped is
+//                     over-approximation dressed as recall, and it is not done here.
+//   boundary_lib      the callee is outside the analysed code and is NAMED: a library
+//                     method reached by import path, or a catalogued CPython builtin.
+//   ambiguous_unknown a real site with no resolvable target. A DECLARED blind spot,
+//                     carrying a reason string. Never dropped.
+//
+// CONSERVATION IS THE HARD CONSTRAINT. The universe is py_call_site UNION py_decorator:
+// a decorator application IS a call site — `@deco` invokes `deco(fn)`, and CPython emits
+// a CALL for it — the parser just records it in a different relation. Counting only
+// call sites made CPython see 15 sites in 02-methods against the IR's 12, and 30
+// against 21 in 07-decorators; the shortfall was exactly the decorator rows. So both
+// are enumerated here, every one appears in the output, and test/python's coverage
+// guard asserts the count is exact.
+// ============================================================================
+
+// ── invocation_site — DECORATOR APPLICATIONS ─────────────────────────────────
+//
+// A PARENTHESISED DECORATOR IS TWO CALLS, NOT ONE, and CPython's own compiler says so:
+//
+//     @route("go")            ->  CALL route("go")            builds the decorator
+//     def handler(): ...          CALL <that result>(handler)  applies it
+//
+// The first is written in the source and the parser records it as an ordinary
+// py_call_site with callKind=DECORATOR_CALL. The second is written NOWHERE — the `@`
+// syntax is the only trace of it — and the parser records it as the py_decorator row.
+// MEASURED: treating them as one site left case 07-decorators at 26 of 30 accounted,
+// with the four shortfalls being exactly the three @functools.wraps(fn) and the one
+// @route("go"); CPython reports each as `<call-result> (via CALL_RESULT)`.
+//
+// A BARE decorator (`@staticmethod`, `@passthrough`) is ONE call: the application. There
+// is no factory call, so there is no py_call_site, and the decorator row is the site.
+//
+// (a) the APPLICATION of a parenthesised decorator — keyed on the DECORATOR hash, since
+//     the expression hash already belongs to the factory call.
+invocation_site(d, "DECORATOR_APPLICATION") :-
+    annotation_on("client", _, _, _, _, d),
+    decorator_expr("client", e, d), call_of_expr(e, _).
+// (b) a decorator with no factory call — the application IS the whole site.
+invocation_site(e, cat("DECORATOR_", kind)) :-
+    annotation_on("client", _, kind, _, _, d),
+    decorator_expr("client", e, d),
+    !call_of_expr(e, _).
+invocation_site(d, cat("DECORATOR_", kind)) :-
+    annotation_on("client", _, kind, _, _, d),
+    !decorator_expr("client", _, d).
+
+// ── decorator_site_from(SiteKey, CallerMethodHash) ───────────────────────────
+// A decorator runs at DEFINITION time, in the scope that contains the `def`/`class` —
+// so the caller is the enclosing method: <module> for a module-level def, <classbody>
+// for a method. Both are synthetic owners the parser mints (schema §4.2), which is why
+// there is never an empty caller to fall back from.
+decorator_site_from(e, caller) :-
+    annotation_on("client", _, _, _, _, d), decorator_expr("client", e, d),
+    decorator_target("client", _, m, d), m != "",
+    method_enclosing_member("client", caller, m).
+decorator_site_from(e, caller) :-
+    annotation_on("client", _, _, "METHOD_DECLARATION", _, d), decorator_expr("client", e, d),
+    decorator_target("client", _, m, d), m != "",
+    method_owner("client", t, m), type_scope("client", _, caller, t).
+decorator_site_from(e, caller) :-
+    annotation_on("client", _, _, _, _, d), decorator_expr("client", e, d),
+    decorator_target("client", _, m, d), m != "",
+    method_top_level("client", mod, m), module_init("client", caller, _, mod).
+decorator_site_from(e, caller) :-
+    annotation_on("client", _, _, "TYPE_DECLARATION", _, d), decorator_expr("client", e, d),
+    decorator_target("client", t, "", d), t != "",
+    type_module("client", mod, t), module_init("client", caller, _, mod).
+// The DECORATOR-HASH-keyed variants. These serve both the application site of a
+// parenthesised decorator (a) and a decorator with no expression node at all.
+decorator_site_from(d, caller) :-
+    annotation_on("client", _, _, _, _, d),
+    decorator_target("client", _, m, d), m != "",
+    method_enclosing_member("client", caller, m).
+decorator_site_from(d, caller) :-
+    annotation_on("client", _, _, "METHOD_DECLARATION", _, d),
+    decorator_target("client", _, m, d), m != "",
+    method_owner("client", t, m), type_scope("client", _, caller, t).
+decorator_site_from(d, caller) :-
+    annotation_on("client", _, _, _, _, d),
+    decorator_target("client", _, m, d), m != "",
+    method_top_level("client", mod, m), module_init("client", caller, _, mod).
+decorator_site_from(d, caller) :-
+    annotation_on("client", _, _, "TYPE_DECLARATION", _, d),
+    decorator_target("client", t, "", d), t != "",
+    type_module("client", mod, t), module_init("client", caller, _, mod).
+
+// ── decorator_resolves_to(SiteKey, MethodHash) ───────────────────────────────
+// A BARE decorator names a callable directly. `@audit("child")` is different: it has
+// its own DECORATOR_CALL py_call_site, resolved by the ordinary machinery, and this
+// rule deliberately does not duplicate it.
+decorator_resolves_to(e, m) :-
+    annotation_on("client", _, "BARE", _, _, d), decorator_expr("client", e, d),
+    expr_names_method("client", e, m).
+decorator_resolves_to(e, m) :-
+    annotation_on("client", _, "ATTRIBUTE", _, _, d), decorator_expr("client", e, d),
+    expr_attr_names_method("client", e, m).
+
+// ── THE APPLICATION OF A PARAMETERISED DECORATOR ─────────────────────────────
+// `@audit("child")` calls audit("child"), which RETURNS `middle`, and it is `middle`
+// that is then applied to the decorated function. So the application's target is the
+// factory's RETURN VALUE — real return flow, not a name match.
+//
+// Sound because the multiplicity is preserved: a factory with two `return` statements
+// naming two different defs yields two rows, and the site becomes multi_inferred. A
+// factory whose return the engine cannot type (a LIBRARY factory such as
+// functools.wraps) yields NO row, and the site is ambiguous_unknown with a reason —
+// which is the honest answer, since the object applied is library-internal.
+decorator_resolves_to(d, r) :- deco_applied(d, r), decorator_expr("client", e, d), call_of_expr(e, _).
+
+// ── method_return_value_expr / method_returns_method ─────────────────────────
+// A function that returns a bare name denoting a `def`. This is what a parameterised
+// decorator IS, and Python's first-class functions make it an ordinary idiom rather
+// than a special case — Java has no analogue to port.
+method_return_value_expr(p, m, e) :-
+    expr_root_context(p, "RETURN_VALUE", e),
+    expr_ultimate_method(p, e, m).
+method_returns_method(p, m, r) :-
+    method_return_value_expr(p, m, e),
+    expr_names_method(p, e, r).
+
+// ── decorator_hits_builtin(SiteKey, TargetLabel) ─────────────────────────────
+// `@staticmethod` / `@classmethod` / `@property` are BUILTIN types, applied as
+// decorators. Known exactly, C-implemented, no Python source: boundary_lib, exactly as
+// for any other builtin call.
+decorator_hits_builtin(e, label) :-
+    annotation_on("client", n, _, _, _, d), decorator_expr("client", e, d),
+    !decorator_resolves_to(e, _),
+    builtin_target(n, label).
+// DELIBERATELY NOT: "any decorator with a known builtinKind is a builtin boundary".
+// @functools.wraps has builtinKind=WRAPS and IS a real library function with Python
+// source, which the library IR resolves — so that clause emitted BOTH a lib edge and a
+// spurious `builtin:wraps` for the same site. Only the catalogued C-level callables
+// (the clause above) are builtin boundaries.
+
+// ============================================================================
+// CALLER
+// ============================================================================
+
+// ============================================================================
+// PROPERTY READS — an EDGE that is not a SITE
+//
+// `print(w.doubled)` invokes the @property getter, and CPython's own compiler emits no
+// CALL for it: the descriptor protocol runs inside LOAD_ATTR. So there is no
+// py_call_site, no bytecode CALL, and nothing to conserve — but there IS a real
+// method->method edge, and 02-methods expects it (main -> Widget.doubled).
+//
+// It is therefore added to the exported graph and NOT to invocation_site. That keeps the
+// conservation denominator equal to CPython's own on both sides: adding it as a "site"
+// would invent a site the compiler never emitted, which normalisation Rule 10 exists to
+// prevent.
+// ============================================================================
+
+// ── property_read_edge(ReadExprHash, CallerMethodHash, GetterMethodHash) ─────
+property_read_edge(e, caller, getter) :-
+    expr_node("client", "ATTRIBUTE_ACCESS", _, n, e),
+    expr_name_context("client", "LOAD", e),
+    !call_receiver_of(e),
+    expr_parent("client", e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_type("client", obj, t),
+    type_property_getter("client", t, n, getter),
+    expr_ultimate_method("client", e, caller).
+
+// An ATTRIBUTE_ACCESS that IS a call's callee is not a property read — it is the call.
+call_receiver_of(e) :- call_callee_expr(_, e).
+
+// ── site_caller(SiteKey, CallerMethodHash) ───────────────────────────────────
+// NEVER "". A module-level call belongs to the synthetic <module> MODULE_INITIALIZER
+// and a class-body call to <classbody>, so Java's enclosing-type fallback has no
+// analogue — and if that ever stopped being true, the conservation guard would say so
+// on the next run rather than at some later date.
+site_caller(site, caller) :- call_from(site, caller).
+site_caller(site, caller) :- decorator_site_from(site, caller).
+
+// ============================================================================
+// PER-SITE TARGET COUNT AND TIER
+// ============================================================================
+
+// ── site_client_target(SiteKey, MethodHash) ──────────────────────────────────
+site_client_target(site, m) :- client_calls_client("client", site, "client", m).
+site_client_target(site, m) :- decorator_resolves_to(site, m).
+
+// ── site_client_target_count(SiteKey, N) ─────────────────────────────────────
+// Aggregate in its own stratum; no negation inside the resolution fixpoint.
+site_client_target_count(site, n) :-
+    invocation_site(site, _),
+    n = count : { site_client_target(site, _) }.
+
+// ── site_has_boundary(SiteKey) ───────────────────────────────────────────────
+site_has_boundary(site) :- client_calls_lib("client", site, "lib", _).
+site_has_boundary(site) :- client_calls_builtin("client", site, _).
+site_has_boundary(site) :- client_calls_external(site, _).
+site_has_boundary(site) :- decorator_hits_builtin(site, _).
+
+// ── site_class(SiteKey, EdgeStatus) ──────────────────────────────────────────
+// EXACTLY ONE tier per (site, target-class). The four rules are mutually exclusive by
+// construction: the count partitions known/multi, and the zero case is split by whether
+// a NAMED boundary target exists.
+site_class(site, "known_edge")     :- site_client_target_count(site, 1).
+site_class(site, "multi_inferred") :- site_client_target_count(site, n), n >= 2.
+site_class(site, "boundary_lib")   :- site_client_target_count(site, 0), site_has_boundary(site).
+site_class(site, "ambiguous_unknown") :-
+    site_client_target_count(site, 0), !site_has_boundary(site).
+
+// A site can have BOTH client and boundary targets (a dispatch set spanning a client
+// override and a library base). The client tier governs the client rows; the boundary
+// rows are always labelled boundary_lib, below.
+
+// ── site_reason(SiteKey, Reason) ─────────────────────────────────────────────
+// WHY a site is unresolved. This is the difference between a report and a shrug, and it
+// is what makes an ambiguous_unknown auditable rather than a dumping ground.
+site_reason(site, r) :- call_unresolvable(site, r), site_class(site, "ambiguous_unknown").
+site_reason(site, "unmodelled_decorator") :-
+    site_class(site, "ambiguous_unknown"),
+    annotation_on("client", _, _, _, _, d), decorator_expr("client", site, d).
+// The APPLICATION of a parenthesised decorator whose factory return the engine cannot
+// type — a library factory such as functools.wraps. Named, not shrugged at.
+site_reason(site, "decorator_factory_result_untyped") :-
+    site_class(site, "ambiguous_unknown"),
+    invocation_site(site, "DECORATOR_APPLICATION").
+site_reason(site, "unmodelled_decorator") :-
+    site_class(site, "ambiguous_unknown"),
+    annotation_on("client", _, _, _, _, site), !decorator_expr("client", _, site),
+    !invocation_site(site, "DECORATOR_APPLICATION").
+site_reason(site, "no_rule") :-
+    site_class(site, "ambiguous_unknown"), !call_unresolvable(site, _),
+    !site_is_decorator(site).
+site_is_decorator(site) :- annotation_on("client", _, _, _, _, d), decorator_expr("client", site, d).
+site_is_decorator(site) :- annotation_on("client", _, _, _, _, site).
+
+// ============================================================================
+// THE EXPORT — one self-describing row per edge
+// ============================================================================
+//   Site        the call site (py_call_site expression hash, or a decorator's)
+//   Caller      the enclosing method — never blank
+//   ToExpr      "-" (a method callee has no call-site expression; reserved)
+//   Callee      the resolved target, or a builtin: label, or "-"
+//   Prov        "client" | "lib" | "builtin" | "-"
+//   EdgeStatus  known_edge | multi_inferred | boundary_lib | ambiguous_unknown
+//   Kind        the schema's callKind, or DECORATOR_<kind>
+
+// resolved client -> client
+call_chain_edge(site, caller, "-", callee, "client", cls, kind) :-
+    site_client_target(site, callee),
+    site_caller(site, caller),
+    site_class(site, cls), cls != "boundary_lib", cls != "ambiguous_unknown",
+    invocation_site(site, kind).
+
+// client -> library (named by import path; not expanded)
+call_chain_edge(site, caller, "-", callee, "lib", "boundary_lib", kind) :-
+    client_calls_lib("client", site, "lib", callee),
+    site_caller(site, caller), invocation_site(site, kind).
+
+// client -> EXTERNAL (named by the written import path; outside every staged IR)
+call_chain_edge(site, caller, "-", label, "external", "boundary_lib", kind) :-
+    client_calls_external(site, label),
+    site_caller(site, caller), invocation_site(site, kind).
+
+// client -> CPython builtin (named, C-implemented, no Python source anywhere)
+call_chain_edge(site, caller, "-", label, "builtin", "boundary_lib", kind) :-
+    client_calls_builtin("client", site, label),
+    site_caller(site, caller), invocation_site(site, kind).
+call_chain_edge(site, caller, "-", label, "builtin", "boundary_lib", kind) :-
+    decorator_hits_builtin(site, label),
+    site_caller(site, caller), invocation_site(site, kind).
+
+// unresolved — the row is KEPT, with the reason in the callee slot's place taken by "-"
+// and the reason exported separately (call_site_unresolved). Conservation lives here.
+call_chain_edge(site, caller, "-", "-", "-", "ambiguous_unknown", kind) :-
+    site_class(site, "ambiguous_unknown"),
+    site_caller(site, caller), invocation_site(site, kind).
+
+// METACLASS CREATION — `class X(metaclass=M)` invokes M.__new__ / M.__init__ at import
+// time. An edge with no written call site (resolution/type-hierarchy.dl), kind
+// METACLASS_CREATION.
+call_chain_edge(t, caller, "-", m, "client", "known_edge", "METACLASS_CREATION") :-
+    metaclass_of("client", t, mcls),
+    class_creation_caller("client", t, caller),
+    mro_lookup("client", mcls, "__new__", m).
+call_chain_edge(t, caller, "-", m, "client", "known_edge", "METACLASS_CREATION") :-
+    metaclass_of("client", t, mcls),
+    class_creation_caller("client", t, caller),
+    mro_lookup("client", mcls, "__init__", m).
+
+// PROPERTY READ — an edge with no call site. Kind PROPERTY_READ, so it is filterable
+// and can never be mistaken for a written call.
+call_chain_edge(e, caller, "-", getter, "client", "known_edge", "PROPERTY_READ") :-
+    property_read_edge(e, caller, getter).
+
+// A site whose caller could not be determined AT ALL would vanish from every rule
+// above. That must be impossible (the parser guarantees a non-empty owner), so it is
+// asserted rather than assumed: any such site is emitted with caller "-" so the
+// coverage guard sees it and the defect surfaces as a visible row.
+call_chain_edge(site, "-", "-", "-", "-", "ambiguous_unknown", kind) :-
+    invocation_site(site, kind), !site_caller(site, _).
+
+// ── call_site_unresolved(SiteKey, CallerMethodHash, Reason, Kind) ─────────────
+// The declared blind spots, with reasons, as their own export. A blind spot you can
+// name is a work item; one you cannot is a mystery.
+call_site_unresolved(site, caller, r, kind) :-
+    site_class(site, "ambiguous_unknown"), site_caller(site, caller),
+    site_reason(site, r), invocation_site(site, kind).
+
+// ── method_has_unknown_call(CallerMethodHash, SiteKey) ───────────────────────
+method_has_unknown_call(caller, site) :-
+    site_class(site, "ambiguous_unknown"), site_caller(site, caller).
+
+// ── call_chain_summary(EdgeStatus, N) ────────────────────────────────────────
+// The conservation ledger, as a relation: the tier counts must sum to the site count.
+call_chain_summary(cls, n) :-
+    site_class(_, cls),
+    n = count : { site_class(_, cls) }.
+call_chain_summary("_total_sites", n) :- n = count : { invocation_site(_, _) }, n > 0.

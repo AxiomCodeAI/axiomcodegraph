@@ -1,0 +1,16 @@
+boundary_lib	SIMPLE_CALL	main.Both.greet -> builtin:super
+boundary_lib	SIMPLE_CALL	main.Left.greet -> builtin:super
+boundary_lib	SIMPLE_CALL	main.Left.greet_explicit -> builtin:super
+boundary_lib	SIMPLE_CALL	main.Right.greet -> builtin:super
+boundary_lib	SIMPLE_CALL	main.main -> builtin:object.__init__
+boundary_lib	SIMPLE_CALL	main.main -> builtin:print
+known_edge	CHAINED_CALL	main.main -> main.Both.greet
+known_edge	CHAINED_CALL	main.main -> main.Left.greet
+known_edge	CHAINED_CALL	main.main -> main.Left.greet_explicit
+known_edge	SIMPLE_CALL	main.<module> -> main.main
+known_edge	SUPER_CALL	main.Both.greet -> main.Left.greet
+known_edge	SUPER_CALL	main.Right.greet -> main.Root.greet
+multi_inferred	SUPER_CALL	main.Left.greet -> main.Right.greet
+multi_inferred	SUPER_CALL	main.Left.greet -> main.Root.greet
+multi_inferred	SUPER_CALL	main.Left.greet_explicit -> main.Right.greet
+multi_inferred	SUPER_CALL	main.Left.greet_explicit -> main.Root.greet

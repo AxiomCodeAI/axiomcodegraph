@@ -1,0 +1,146 @@
+// ============================================================================
+// RESOLUTION · DISPATCH  (how wide a receiver's type set is allowed to get)
+//
+// DUCK TYPING WIDENS DISPATCH, so --dispatch-cap carries far more weight here than in
+// Java. The measured baseline for the naive alternative is stark: name-based CHA gives
+// 24.63 candidate classes per attribute call and 1.22M candidate edges over 49k sites,
+// with 21% of sites fanning wider than 10. This file is the reason the engine does not
+// produce that.
+//
+// THREE MECHANISMS, each with its own soundness statement:
+//
+// 1. SELF DISPATCH. Inside a method of class K, `self` is an instance of K or of a
+//    subclass of K. That is a language guarantee, so fanning over subclasses is SOUND.
+//    It is bounded by RTA: a subclass that is NEVER CONSTRUCTED anywhere in the analysed
+//    program cannot be self's class. K ITSELF IS ALWAYS INCLUDED, unconditionally —
+//    without that, a method of a class that is only ever reached via super() would get
+//    an EMPTY receiver set and lose a target it actually has. (That is not a theoretical
+//    worry: on linkage-sample, Extended, Deep, Mixed, ViaAlias, DottedChild and
+//    DottedDeep are never constructed, yet every one of them has a live super() site.)
+//
+//    THE CLOSED-WORLD ASSUMPTION IS STATED, NOT HIDDEN: RTA is only sound if every
+//    construction is visible. For a client analysed as an application it is; for a
+//    library whose subclasses live in someone else's code it is not, and
+//    self_dispatch_assumes_closed_world records that per site.
+//
+// 2. CLS FLOW. `cls` in a classmethod is the class the method was REACHED THROUGH, so
+//    it is derived from the call sites that reach it — not assumed to be the declaring
+//    class, and not fanned to every subclass. On linkage-sample this resolves
+//    `return cls(name)` in Base.of exactly: the only call is Child.of("x"), so cls is
+//    Child, and Child's MRO takes __init__ to Base.__init__.
+//
+// 3. THE CAP. A fan wider than --dispatch-cap is refused rather than emitted, exactly
+//    as in Java. A capped site is a DECLARED unknown, never a silent drop.
+// ============================================================================
+
+// ── type_instantiated(Prov, TypeHash) ────────────────────────────────────────
+// Some call site in the client constructs this class. Reads call_constructs_type (the
+// pre-cap candidate relation) on purpose: an over-approximate instantiation set is the
+// SAFE direction for a dispatch bound, and it keeps the cap out of the fixpoint.
+type_instantiated("client", t) :- call_constructs_type(_, t).
+
+// ── type_instantiated_or_self(Prov, TypeHash) ────────────────────────────────
+// Bases of an instantiated class are instantiated in the sense that matters here: if
+// Child is constructed, a `self` inside Base can be that Child.
+type_instantiated_reachable("client", t) :- type_instantiated("client", t).
+
+// ── call_self_dispatch_type(SiteHash, TypeHash) ──────────────────────────────
+// (a) the enclosing class itself — always.
+call_self_dispatch_type(site, k) :-
+    call_recv_kind(site, "SELF"),
+    call_enclosing_type(site, k).
+// (b) every CONSTRUCTED subclass of it. Sound (self may be any subclass), bounded (only
+//     the ones the program actually builds).
+call_self_dispatch_type(site, s) :-
+    call_recv_kind(site, "SELF"),
+    call_enclosing_type(site, k),
+    type_subclass("client", k, s),
+    type_instantiated_reachable("client", s).
+
+// ── self_dispatch_assumes_closed_world(SiteHash) ──────────────────────────────
+// This site's receiver set was bounded by RTA, so it is only complete if every
+// construction is inside the analysed code. Exported: the assumption is a row, not a
+// footnote.
+self_dispatch_assumes_closed_world(site) :-
+    call_recv_kind(site, "SELF"),
+    call_enclosing_type(site, k),
+    type_subclass("client", k, s),
+    !type_instantiated_reachable("client", s).
+
+// ============================================================================
+// CLS FLOW
+// ============================================================================
+
+// ── method_is_classmethod(Prov, MethodHash) ──────────────────────────────────
+method_is_classmethod(p, m) :- method_kind(p, "CLASS_METHOD", _, m).
+
+// ── cls_bound_type(MethodHash, TypeHash) ─────────────────────────────────────
+// The classes through which this classmethod is reached.
+// (a) named explicitly at the call site: `Child.of("x")`.
+cls_bound_type(m, t) :-
+    expr_call_candidate(site, m),
+    method_is_classmethod("client", m),
+    call_receiver_object(site, obj),
+    expr_type_class_object("client", obj, t).
+// (b) reached through an INSTANCE: `self.of(...)` / `obj.of(...)` — cls is type(obj).
+cls_bound_type(m, t) :-
+    expr_call_candidate(site, m),
+    method_is_classmethod("client", m),
+    call_recv_type(site, t).
+// (c) reached from inside another classmethod through `cls`: propagate that method's set.
+cls_bound_type(m, t) :-
+    expr_call_candidate(site, m),
+    method_is_classmethod("client", m),
+    call_receiver_object(site, obj),
+    expr_cls_type("client", obj, t).
+
+// ── expr_cls_type(Prov, ExprHash, TypeHash) ──────────────────────────────────
+// A CLS_REFERENCE node yields the class the enclosing classmethod was reached through.
+expr_cls_type(p, e, t) :-
+    expr_node(p, "CLS_REFERENCE", _, _, e),
+    expr_ultimate_method(p, e, m),
+    cls_bound_type(m, t).
+
+// ── cls_receiver_unknown(SiteHash) ───────────────────────────────────────────
+// `cls(...)` in a classmethod that NO visible call site reaches. Then cls is genuinely
+// unknown — the method may be public API invoked from outside the analysed code — and
+// the honest answer is a declared unknown, not "assume the declaring class".
+cls_receiver_unknown(site) :-
+    call_recv_kind(site, "NONE"),
+    call_callee_expr(site, callee),
+    expr_node("client", "CLS_REFERENCE", _, _, callee),
+    !expr_cls_type("client", callee, _).
+call_unresolvable(site, "classmethod_receiver_unknown") :- cls_receiver_unknown(site).
+
+// ============================================================================
+// THE CAP
+// ============================================================================
+
+// ── dispatch_capped_at(N) ────────────────────────────────────────────────────
+// dispatch_cap is an INPUT relation staged by the executor: empty means uncapped
+// (sound), a value switches the cap on. Default 20, --dispatch-cap off to disable.
+dispatch_capped_at(n) :- dispatch_cap(s), n = to_number(s).
+
+// ── call_candidate_count(SiteHash, N) ────────────────────────────────────────
+// Aggregate over the candidate relation, in its own stratum — the same discipline as
+// java/engine/resolution/dispatch-cap.dl, and the reason nothing in the fixpoint reads
+// the post-cap relation.
+call_candidate_count(site, n) :-
+    invocation_site(site, _),
+    n = count : { expr_call_candidate(site, _) }.
+
+// ── call_dispatch_over_cap(SiteHash) ─────────────────────────────────────────
+call_dispatch_over_cap(site) :-
+    call_candidate_count(site, n), dispatch_capped_at(cap), n > cap.
+
+// ── expr_resolves_to_method(SiteHash, MethodHash) ────────────────────────────
+// THE DISAMBIGUATED CALLEE SET the edge layer consumes. Same relation name as Java's,
+// so the call-edge rules port unchanged.
+expr_resolves_to_method(site, m) :-
+    expr_call_candidate(site, m), !call_dispatch_over_cap(site).
+
+// ── call_dropped_by_cap(SiteHash, N) ─────────────────────────────────────────
+// A site whose fan the cap refused. RECALL-RISKY BY DESIGN and therefore reported: the
+// site becomes a declared unknown with this reason, so the cost of the knob is visible.
+call_dropped_by_cap(site, n) :- call_dispatch_over_cap(site), call_candidate_count(site, n).
+call_unresolvable(site, "dispatch_cap_exceeded") :- call_dispatch_over_cap(site).

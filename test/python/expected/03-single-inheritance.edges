@@ -1,0 +1,9 @@
+boundary_lib	SIMPLE_CALL	main.main -> builtin:object.__init__
+boundary_lib	SIMPLE_CALL	main.main -> builtin:print
+known_edge	CHAINED_CALL	main.main -> main.Base.run
+known_edge	CHAINED_CALL	main.main -> main.Derived.only_here
+known_edge	SELF_CALL	main.Base.run -> main.Base.fixed
+known_edge	SELF_CALL	main.Derived.only_here -> main.Base.run
+known_edge	SIMPLE_CALL	main.<module> -> main.main
+multi_inferred	SELF_CALL	main.Base.run -> main.Base.step
+multi_inferred	SELF_CALL	main.Base.run -> main.Derived.step

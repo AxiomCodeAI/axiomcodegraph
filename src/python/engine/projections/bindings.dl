@@ -1,0 +1,74 @@
+// ============================================================================
+// Projections · BINDINGS  (pure column views — no joins, no closures)
+//
+// py_binding is one row per (scope, name) — exactly symtable.Symbol. It is Python's
+// local_variable table PLUS its global / nonlocal / free / import / parameter tables,
+// unified. 50.7% of attribute calls have a BARE NAME receiver, so this relation is
+// the spine of receiver typing, not an auxiliary.
+//
+// MEASURED ON linkage-sample (49 call sites, 195 bindings): targetEntityKind is
+//   "NONE" and targetEntityHash is "" on 195 of 195 rows.
+// The schema declares those columns as TYPE|METHOD|IMPORT|PARAMETER|... FKs, so the
+// pre-resolution channel they were meant to provide is EMPTY in practice. Filed as a
+// parser defect (see .claude/python/parser-defects.md, PD-1); the engine therefore
+// derives name->entity itself, from py_method/py_type.declaringBindingLinkHash and
+// py_import.bindingLinkHash — structural links, which are populated.
+//
+// py_binding / lib_py_binding cols (29):
+//   0 name  1 pyScopeLinkHash  2 bindingKind  3 bindingOrigin  4 isParameter
+//   5 isLocal  6 isGlobal  7 isNonlocal  8 isFree  9 isImported  10 isAssigned
+//   11 isReferenced  12 isDeclaredGlobal  13 isAnnotated  14 isNamespace
+//   15 bindingCount  16 firstBindingLine  17 lastBindingLine  18 declaredTypeName
+//   19 declaredBaseType  20 potentialQualifiedName  21 isAmbiguous
+//   22 targetEntityKind  23 targetEntityHash  24 pyModuleLinkHash
+//   25 pyMethodLinkHash  26 filePath  27 serviceVersionLinkHash  28 pyBindingUniqueHash
+// ============================================================================
+
+// ── binding_decl(Prov, Name, ScopeHash, BindingKind, BindingOrigin, BindingHash) ──
+// The identity of a bound name. BindingKind says HOW the name is visible
+// (LOCAL/FREE/CELL/PARAMETER/IMPORTED/GLOBAL_*/BUILTIN/...); BindingOrigin says WHAT
+// syntax bound it (FUNCTION_DEF/CLASS_DEF/IMPORT/ASSIGNMENT/PARAMETER/...). Both are
+// needed: a name bound by CLASS_DEF resolves to a type, by PARAMETER to nothing static.
+binding_decl("client", name, scope, kind, origin, h) :- py_binding(name, scope, kind, origin, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+binding_decl("lib", name, scope, kind, origin, h) :- lib_py_binding(name, scope, kind, origin, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── binding_predicates(Prov, IsParameter, IsLocal, IsGlobal, IsFree, IsImported, BindingHash) ──
+// A subset of the 11 verbatim symtable.Symbol predicates — the five that change how a
+// name must be resolved. isFree is the closure case (5.3% of functions nest), which
+// Java has no equivalent of at all.
+binding_predicates("client", isP, isL, isG, isF, isI, h) :- py_binding(_, _, _, _, isP, isL, isG, _, isF, isI, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+binding_predicates("lib", isP, isL, isG, isF, isI, h) :- lib_py_binding(_, _, _, _, isP, isL, isG, _, isF, isI, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── binding_is_namespace(Prov, BindingHash) ──────────────────────────────────
+// Symbol.is_namespace(): the name binds a `def` or a `class` HERE. This is the
+// precise gate for "this name refers to a declaration in this scope", and it is what
+// makes the declaringBindingLinkHash join in resolution/ safe.
+binding_is_namespace("client", h) :- py_binding(_, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+binding_is_namespace("lib", h) :- lib_py_binding(_, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── binding_rebinding(Prov, BindingCount, FirstLine, LastLine, BindingHash) ──
+// bindingCount is the number of DISTINCT binding sites for this name in this scope.
+// == 1 is the precondition for treating a name as single-valued (the alias case
+// `_Aliased = Base`); > 1 means the name is rebound and a single-value inference is
+// unsound. Consumed by resolution/name-resolution.dl.
+binding_rebinding("client", n, first, last, h) :- py_binding(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, n, first, last, _, _, _, _, _, _, _, _, _, _, h).
+binding_rebinding("lib", n, first, last, h) :- lib_py_binding(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, n, first, last, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── binding_annotation(Prov, DeclaredTypeName, DeclaredBaseType, PotentialQName, BindingHash) ──
+// "" on 68.2% of parameters, which is exactly why declared-type receiver typing —
+// Java's primary mechanism — cannot be Python's primary mechanism.
+binding_annotation("client", tn, bt, pq, h) :- py_binding(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, tn, bt, pq, _, _, _, _, _, _, _, h).
+binding_annotation("lib", tn, bt, pq, h) :- lib_py_binding(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, tn, bt, pq, _, _, _, _, _, _, _, h).
+
+// ── binding_pre_target(Prov, TargetEntityKind, TargetEntityHash, BindingHash) ──
+// The parser's own name->entity answer. Projected so the CROSS-CHECK in
+// resolution/name-resolution.dl can measure agreement — NOT consumed as the primary
+// source, because it is empty on every row measured (see the header note).
+binding_pre_target("client", k, t, h) :- py_binding(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, k, t, _, _, _, _, h).
+binding_pre_target("lib", k, t, h) :- lib_py_binding(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, k, t, _, _, _, _, h).
+
+// ── binding_owner(Prov, ModuleHash, MethodHash, BindingHash) ─────────────────
+// pyMethodLinkHash is the enclosing function ("" at module/class scope) and is the
+// java_local_variable col-13 analogue, so Java's local-flow rules port directly.
+binding_owner("client", mod, meth, h) :- py_binding(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, mod, meth, _, _, h).
+binding_owner("lib", mod, meth, h) :- lib_py_binding(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, mod, meth, _, _, h).

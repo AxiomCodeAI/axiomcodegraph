@@ -1,0 +1,97 @@
+// ============================================================================
+// Projections · IMPORTS  (pure column views — no joins, no closures)
+//
+// From-imports outnumber module-imports 6:1 and 38% are relative. An import is the
+// ONLY thing that connects a client name to a library declaration, so this relation
+// carries the whole cross-module story.
+//
+// MEASURED ON linkage-sample (15 imports): resolvedTargetKind/Hash is populated for
+// all 13 in-repo imports (TYPE x 6, MODULE x 1, FUNCTION x 3, plus duplicates across
+// files) and UNRESOLVED for the 2 stdlib ones (`from typing import overload`). So the
+// parser resolves IN-REPO imports and honestly declines on external ones — which is
+// exactly the boundary name-based library linking has to cross.
+//
+// py_import / lib_py_import cols (24):
+//   0 importKind  1 importedPath  2 packageOrTypeName  3 simpleName  4 filePath
+//   5 lineNumber  6 isStatic  7 isWildcard  8 isModuleImport  9 relativeLevel
+//   10 originalName  11 aliasName  12 resolvedModuleLinkHash  13 resolvedTargetKind
+//   14 resolvedTargetHash  15 isExternalTarget  16 distributionName
+//   17 isTypeCheckingOnly  18 isConditional  19 pyScopeLinkHash  20 pyModuleLinkHash
+//   21 bindingLinkHash  22 serviceVersionLinkHash  23 pyImportUniqueHash
+// ============================================================================
+
+// ── import_decl(Prov, ImportKind, ImportedPath, SimpleName, ImportHash) ──────
+// SimpleName is THE NAME ACTUALLY BOUND in the importing namespace. `import a.b.c`
+// emits ONE row with simpleName="a", importedPath="a.b.c" — because that statement
+// binds only `a`. ImportedPath is the dotted path of the imported thing and is the
+// key that library linking matches against a lib module/type/method qualifiedName.
+import_decl("client", k, path, simple, h) :- py_import(k, path, _, simple, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+import_decl("lib", k, path, simple, h) :- lib_py_import(k, path, _, simple, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── import_binding(Prov, BindingHash, ImportHash) ────────────────────────────
+// The binding this import creates. THE STRUCTURAL KEY for cross-module bare-name
+// calls: a NAME_REFERENCE callee carries bindingLinkHash; this says the binding came
+// from an import, and import_resolved_target says what it points at.
+import_binding("client", b, h) :- py_import(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, b, _, h), b != "".
+import_binding("lib", b, h) :- lib_py_import(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, b, _, h), b != "".
+
+// ── import_resolved_target(Prov, ResolvedTargetKind, ResolvedTargetHash, ImportHash) ──
+// MODULE | TYPE | FUNCTION | VARIABLE | PACKAGE | UNRESOLVED | AMBIGUOUS, resolved
+// WITHIN the repo. This is an in-run FK and therefore trustworthy inside one parse;
+// it is what makes `from .models import Base` a real edge rather than a name match.
+import_resolved_target("client", k, t, h) :- py_import(_, _, _, _, _, _, _, _, _, _, _, _, _, k, t, _, _, _, _, _, _, _, _, h), t != "".
+import_resolved_target("lib", k, t, h) :- lib_py_import(_, _, _, _, _, _, _, _, _, _, _, _, _, k, t, _, _, _, _, _, _, _, _, h), t != "".
+
+// ── import_resolved_kind(Prov, ResolvedTargetKind, ImportHash) ───────────────
+// The KIND alone, with NO requirement that the hash be present — and that is not
+// pedantry. `from . import models` resolves with resolvedTargetKind="MODULE" and
+// resolvedTargetHash="" (the module hash is in resolvedModuleLinkHash instead, c12), so
+// a rule keyed on the hash misses every relative module import — which is asyncio's
+// house style and 38% of from-imports corpus-wide. Filed as PD-8.
+import_resolved_kind("client", k, h) :- py_import(_, _, _, _, _, _, _, _, _, _, _, _, _, k, _, _, _, _, _, _, _, _, _, h), k != "", k != "UNRESOLVED".
+import_resolved_kind("lib", k, h) :- lib_py_import(_, _, _, _, _, _, _, _, _, _, _, _, _, k, _, _, _, _, _, _, _, _, _, h), k != "", k != "UNRESOLVED".
+
+// ── import_resolved_module(Prov, ResolvedModuleHash, ImportHash) ─────────────
+import_resolved_module("client", m, h) :- py_import(_, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, _, _, _, _, _, _, h), m != "".
+import_resolved_module("lib", m, h) :- lib_py_import(_, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, _, _, _, _, _, _, h), m != "".
+
+// ── import_relative(Prov, RelativeLevel, PackageOrTypeName, ImportHash) ──────
+// Leading dots; 0 = absolute. 38% of from-imports are relative, so a resolver that
+// only handles absolute paths loses more than a third of the cross-module edges.
+import_relative("client", lvl, pkg, h) :- py_import(_, _, pkg, _, _, _, _, _, _, lvl, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+import_relative("lib", lvl, pkg, h) :- lib_py_import(_, _, pkg, _, _, _, _, _, _, lvl, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── import_alias(Prov, OriginalName, AliasName, ImportHash) ──────────────────
+import_alias("client", orig, alias, h) :- py_import(_, _, _, _, _, _, _, _, _, _, orig, alias, _, _, _, _, _, _, _, _, _, _, _, h).
+import_alias("lib", orig, alias, h) :- lib_py_import(_, _, _, _, _, _, _, _, _, _, orig, alias, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── import_is_module(Prov, ImportHash) ───────────────────────────────────────
+// The bound name refers to a MODULE, not a member — so `models.Base` is a two-step
+// resolution (name -> module, then attribute -> type in that module), which is what
+// asyncio's house style (`class X(models.Base)`) requires.
+import_is_module("client", h) :- py_import(_, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+import_is_module("lib", h) :- lib_py_import(_, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── import_wildcard(Prov, ScopeHash, ImportHash) ─────────────────────────────
+// `from x import *`. Every unresolved bare name in that scope becomes a DECLARED
+// unknown rather than a mystery — the scope is marked, so the report can say why.
+import_wildcard("client", s, h) :- py_import(_, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, s, _, _, _, h).
+import_wildcard("lib", s, h) :- lib_py_import(_, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, s, _, _, _, h).
+
+// ── import_external(Prov, DistributionName, ImportHash) ──────────────────────
+// isExternalTarget means ONLY "did not resolve in this analysis" — it is not a claim
+// that the target is third-party. The frontier for library linking.
+import_external("client", dist, h) :- py_import(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", dist, _, _, _, _, _, _, h).
+import_external("lib", dist, h) :- lib_py_import(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", dist, _, _, _, _, _, _, h).
+
+// ── import_type_checking_only(Prov, ImportHash) ──────────────────────────────
+// Under `if TYPE_CHECKING:`. CALLING one of these at runtime is a BUG, i.e. a finding
+// in its own right — so the name is bound for annotations but must not back a call edge.
+import_type_checking_only("client", h) :- py_import(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, h).
+import_type_checking_only("lib", h) :- lib_py_import(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, h).
+
+// ── import_scope(Prov, ScopeHash, ModuleHash, ImportHash) ────────────────────
+// Imports can be FUNCTION-LOCAL, so the binding they create is not necessarily
+// module-scoped. Java has no analogue.
+import_scope("client", s, m, h) :- py_import(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, s, m, _, _, h).
+import_scope("lib", s, m, h) :- lib_py_import(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, s, m, _, _, h).

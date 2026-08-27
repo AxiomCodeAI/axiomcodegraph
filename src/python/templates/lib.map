@@ -1,0 +1,22 @@
+# Soufflé input-relation -> library IR CSV basename (concatenated across all library modules).
+# run-souffle.sh scopes these to the signature relations named in staging.conf (LIB_SIG);
+# bodies (expressions / call sites / blocks / bindings / scopes) are never staged wholesale.
+lib_py_binding	all-python-bindings
+lib_py_block	all-python-blocks
+lib_py_call_site	all-python-call-sites
+lib_py_comment	all-python-comments
+lib_py_decorator	all-python-decorators
+lib_py_decorator_argument	all-python-decorator-arguments
+lib_py_expression	all-python-expressions
+lib_py_field	all-python-fields
+lib_py_field_position	all-python-field-positions
+lib_py_import	all-python-imports
+lib_py_method	all-python-methods
+lib_py_method_parameter	all-python-method-parameters
+lib_py_module	all-python-modules
+lib_py_parse_gap	all-python-parse-gaps
+lib_py_scope	all-python-scopes
+lib_py_type	all-python-types
+lib_py_type_base	all-python-type-bases
+lib_py_type_parameter	all-python-type-parameters
+lib_py_type_reference	all-python-type-references

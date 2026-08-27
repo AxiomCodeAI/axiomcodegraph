@@ -45,10 +45,18 @@ for dir in "$HERE"/cases/*/; do
   fi
 
   if [ -f "$w/engine.sites" ]; then
-    if ! "$PY" "$HERE/tools/oracle_check.py" "$name" "$dir/src" \
-           --pairs "$w/engine.pairs" --sites "$w/engine.sites" 2>&1 \
-           | grep -q 'SILENTLY DROPPED (OK)'; then
-      echo "FAIL (silent drop)"; rc=1; continue
+    # CAPTURE FIRST, THEN GREP. `set -o pipefail` is on, and oracle_check.py exits
+    # non-zero for a SCORING failure (a missing or fabricated edge) as well as for a
+    # dropped site -- so piping it straight into grep made the pipeline status 1 even
+    # when the conservation line said OK, and this gate reported a silent drop that had
+    # not happened. That defeats the one thing this file exists for: "no site vanished"
+    # must stay checkable while goldens churn and scores move.
+    out=$("$PY" "$HERE/tools/oracle_check.py" "$name" "$dir/src" \
+            --pairs "$w/engine.pairs" --sites "$w/engine.sites" 2>&1) || true
+    if ! printf '%s\n' "$out" | grep -q 'SILENTLY DROPPED (OK)'; then
+      echo "FAIL (silent drop)"
+      printf '%s\n' "$out" | grep -E 'SILENTLY DROPPED|DROP ' | sed 's/^/    /' | head -8
+      rc=1; continue
     fi
     echo "ok (conservation held)"
   else

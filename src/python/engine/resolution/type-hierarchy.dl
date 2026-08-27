@@ -1,0 +1,192 @@
+// ============================================================================
+// RESOLUTION · TYPE HIERARCHY  (base-class expression -> class)
+//
+// Resolves each ORDERED base slot to a class, keeping the position, because the MRO
+// depends on it. Java's type-hierarchy.dl produces a SET (type_ancestor); this one
+// must produce a SEQUENCE, so the position travels with every row from here on.
+//
+// FOUR BASE SHAPES, measured on linkage-sample (8 base rows over 11 classes):
+//   NAME         5 rows  `class Child(Base)`      -> through the binding
+//   DOTTED_NAME  2 rows  `class D(models.Base)`   -> module member lookup
+//   NAME (alias) 1 row   `class ViaAlias(_Aliased)` where `_Aliased = Base`
+//                        -> the ONE the parser could not resolve
+//                           (isResolvedLocally=false, resolvedTypeLinkHash="")
+//   SUBSCRIPT / CALL / STARRED — Generic[T] (14.6% of bases corpus-wide) and dynamic
+//                        factories. The dynamic ones are a DECLARED unknown.
+//
+// IMPLICIT OBJECT IS NOT A ROW. A class with no explicit base emits NO py_type_base at
+// all; mroKind = IMPLICIT_OBJECT is the only signal (3 of 11 classes here: Holder, Base,
+// Sibling, Service — 4). A rule that reads only py_type_base therefore treats such a
+// class as having no ancestors, which is correct for the client hierarchy but means the
+// MRO tail (`object`) is outside the IR entirely: `object` is a C-level builtin and has
+// no Python source in the 3.10.4 stdlib IR (verified: 0 py_type rows named `object`).
+// That is why a constructor call on a class with no `__init__` anywhere in its MRO is a
+// boundary_lib edge to a builtin, not a resolved client edge. See resolution/builtins.dl.
+// ============================================================================
+
+// ── base_expr(Prov, BaseHash, BaseExpressionHash) ────────────────────────────
+// The base slot's expression node.
+//
+// PD-7: THE DOCUMENTED FK DOES NOT EXIST IN PRACTICE. py_type_base.pyExpressionLinkHash
+// (c8) is "" on 8 of 8 rows on linkage-sample, and py_type_reference.pyExpressionLinkHash
+// (c22) — the twin row the schema says feeds the shared name->type resolver — is "" on
+// 12 of 12. Without either, EVERY base-shape rule below is unreachable and the whole
+// hierarchy would come from the parser's own resolvedTypeLinkHash fallback, which is
+// exactly the run-local dependency this engine exists to avoid.
+//
+// It is recoverable exactly, and here is why the key is sound: a base expression carries
+// edgeRole=BASE_CLASS, its own `position` (which IS the MRO position), the enclosing
+// module, the line as written, and literalValue = the base's rightmost identifier. Two
+// distinct positional bases of one class cannot share a position, and two class
+// statements cannot share a line, so (module, line, position, simple name) is unique.
+base_expr(p, bh, e) :-
+    type_base_slot(p, _, pos, _, simple, _, bh),
+    type_base_span(p, bh, mod, sl),
+    expr_position(p, "BASE_CLASS", pos, _, e),
+    expr_scope(p, _, mod, e),
+    expr_span(p, sl, _, e),
+    expr_node(p, _, "BASE_CLASS", simple, e).
+// And the FK, when a future parser version populates it.
+base_expr(p, bh, e) :- type_base_expr(p, bh, e, _), e != "".
+
+// ── type_base_resolved(Prov, SubTypeHash, Position, SuperTypeHash) ───────────
+// (a) NAME base — the base expression is a NAME_REFERENCE; walk its binding. Covers
+//     the same-module case (`Deep(Extended)`), the imported case (`Extended(Child)`
+//     via `from .models import Child`), AND the assignment-alias case, because
+//     expr_names_type already unions binding_alias_type in.
+type_base_resolved(p, sub, pos, sup) :-
+    type_base_slot(p, sub, pos, "NAME", _, _, bh),
+    base_expr(p, bh, expr),
+    expr_names_type(p, expr, sup).
+// (b) DOTTED_NAME base — `models.Base`. The base expression is an ATTRIBUTE_ACCESS whose
+//     ATTRIBUTE_OBJECT denotes a module; the attribute name selects a class in it.
+type_base_resolved(p, sub, pos, sup) :-
+    type_base_slot(p, sub, pos, "DOTTED_NAME", _, _, bh),
+    base_expr(p, bh, expr),
+    expr_attr_names_type(p, expr, sup).
+// (c) SUBSCRIPT base — `class C(Generic[T])`, `class C(Mapping[K, V])`. The RUNTIME base
+//     is the subscripted class, not the subscript. The subscript object is the
+//     ATTRIBUTE_OBJECT/SUBSCRIPT_OBJECT child; take whichever resolves.
+type_base_resolved(p, sub, pos, sup) :-
+    type_base_slot(p, sub, pos, "SUBSCRIPT", _, _, bh),
+    base_expr(p, bh, expr),
+    expr_parent(p, expr, "SUBSCRIPT_OBJECT", _, obj),
+    expr_names_type(p, obj, sup).
+type_base_resolved(p, sub, pos, sup) :-
+    type_base_slot(p, sub, pos, "SUBSCRIPT", _, _, bh),
+    base_expr(p, bh, expr),
+    expr_parent(p, expr, "SUBSCRIPT_OBJECT", _, obj),
+    expr_attr_names_type(p, obj, sup).
+// (d) The parser's OWN base resolution, as a FALLBACK for a shape (a)-(c) miss. Kept
+//     last and kept separate (type_base_resolved_by_parser below) so the engine's own
+//     coverage stays measurable: if this clause is the only one firing for a shape, the
+//     engine has a gap even though the number looks fine.
+type_base_resolved(p, sub, pos, sup) :- type_base_resolved_by_parser(p, sub, pos, sup).
+
+type_base_resolved_by_parser(p, sub, pos, sup) :-
+    type_base_slot(p, sub, pos, _, _, _, bh),
+    type_base_pre_resolved(p, bh, sup),
+    !type_base_resolved_by_engine(p, sub, pos, sup).
+
+// The engine-only answer, so agreement/coverage is a measurable relation rather than a
+// claim. (Same clause bodies as (a)-(c); kept as one relation for the negation above.)
+type_base_resolved_by_engine(p, sub, pos, sup) :-
+    type_base_slot(p, sub, pos, "NAME", _, _, bh), base_expr(p, bh, expr), expr_names_type(p, expr, sup).
+type_base_resolved_by_engine(p, sub, pos, sup) :-
+    type_base_slot(p, sub, pos, "DOTTED_NAME", _, _, bh), base_expr(p, bh, expr), expr_attr_names_type(p, expr, sup).
+type_base_resolved_by_engine(p, sub, pos, sup) :-
+    type_base_slot(p, sub, pos, "SUBSCRIPT", _, _, bh), base_expr(p, bh, expr),
+    expr_parent(p, expr, "SUBSCRIPT_OBJECT", _, obj), expr_names_type(p, obj, sup).
+type_base_resolved_by_engine(p, sub, pos, sup) :-
+    type_base_slot(p, sub, pos, "SUBSCRIPT", _, _, bh), base_expr(p, bh, expr),
+    expr_parent(p, expr, "SUBSCRIPT_OBJECT", _, obj), expr_attr_names_type(p, obj, sup).
+
+// ── type_base_unresolved(Prov, SubTypeHash, Position, BaseText) ───────────────
+// A positional base that resolved to NOTHING. Emitted so the MRO of the subclass can be
+// marked incomplete rather than silently treated as if the base did not exist — the
+// difference between "no ancestors" and "an ancestor we cannot see".
+type_base_unresolved(p, sub, pos, text) :-
+    type_base_slot(p, sub, pos, _, _, _, bh),
+    type_base_expr(p, bh, _, text),
+    !type_base_any_resolved(p, sub, pos).
+type_base_any_resolved(p, sub, pos) :- type_base_resolved(p, sub, pos, _).
+
+// ── type_hierarchy_incomplete(Prov, TypeHash) ────────────────────────────────
+// The class has at least one base the engine cannot see: unresolved, or dynamic
+// (`class C(mixin_factory())`), or a declared DYNAMIC_UNKNOWN mroKind, or a metaclass
+// that may synthesise members no `def` declares. A DECLARED blind spot: attribute
+// lookup through such a class must not report a miss as a negative.
+type_hierarchy_incomplete(p, t) :- type_base_unresolved(p, t, _, _).
+type_hierarchy_incomplete(p, t) :- type_base_dynamic(p, t, _).
+type_hierarchy_incomplete(p, t) :- type_mro_shape(p, _, _, "DYNAMIC_UNKNOWN", t).
+type_hierarchy_incomplete(p, t) :- type_mro_shape(p, _, "true", _, t).
+type_hierarchy_incomplete(p, t) :- type_metaclass(p, mc, t), mc != "".
+// A class whose attributes are assigned from OUTSIDE its body — monkey patching, or
+// `Synthesised.__init__ = _ns["__init__"]` where the method has no `def` in the source at
+// all. Its member set is not what the class body says, so a MISS on it is not a negative.
+type_hierarchy_incomplete(p, t) :- type_attr_rebound(p, t, _).
+// HAS_GETATTR / HAS_SETATTR — a failed attribute lookup on this type is an ESCAPE
+// HATCH, not a negative result (schema §4.5: 72 classes corpus-wide).
+type_hierarchy_incomplete(p, t) :- type_modifier(p, m, t), contains("HAS_GETATTR", m).
+type_hierarchy_incomplete(p, t) :- type_modifier(p, m, t), contains("HAS_SETATTR", m).
+
+// ── type_implicit_object(Prov, TypeHash) ─────────────────────────────────────
+// No explicit base: the MRO is [T, object] and `object` is outside every IR. NOT an
+// incomplete hierarchy — the hierarchy is fully known, it just ends at a builtin.
+type_implicit_object(p, t) :- type_mro_shape(p, _, _, "IMPLICIT_OBJECT", t).
+
+// ── type_ancestor(Prov, TypeHash, AncestorTypeHash) — the SET, for reachability ──
+// Kept for the queries that genuinely want a set (subclass tests, dispatch fan-out
+// bounds). It is NOT sufficient for method lookup, which is what mro.dl is for.
+// Named to match Java's exported relation so the same graph queries work.
+type_ancestor(p, t, a) :- type_base_resolved(p, t, _, a).
+type_ancestor(p, t, a) :- type_base_resolved(p, t, _, mid), type_ancestor(p, mid, a).
+
+// ── type_subclass(Prov, AncestorTypeHash, SubTypeHash) — the reverse direction ──
+// What CHA fan-out enumerates.
+type_subclass(p, a, t) :- type_ancestor(p, t, a).
+
+// ── type_self_or_ancestor(Prov, TypeHash, TypeHash-or-Ancestor) ──────────────
+// The candidate set an attribute lookup searches, reflexively closed.
+type_self_or_ancestor(p, t, t) :- type_decl(p, _, _, _, t).
+type_self_or_ancestor(p, t, a) :- type_ancestor(p, t, a).
+
+// ============================================================================
+// METACLASSES — the class statement is itself a call
+//
+// `class Built(metaclass=Installer)` does not merely record a name: at import time it
+// CALLS Installer, which runs Installer.__new__ and Installer.__init__. CPython's own
+// compiler emits that as an implicit `__build_class__` site, so 12-blind-spots expects
+// the edge `<module> -> Installer.__new__` and this engine had no rule for it.
+//
+// It is an EDGE WITHOUT A SITE, like a property read: the author wrote no call, and
+// normalisation Rule 10 excludes compiler-synthesised sites from the conservation
+// denominator on both sides. So it goes into the graph and NOT into invocation_site.
+//
+// NOTE ON THE IR (PD-10). For `class Built(metaclass=Installer)` the parser emits TWO
+// BASE_CLASS expressions on that line — one for the keyword NAME `metaclass` and one for
+// its VALUE `Installer` — both with position 0 and both with argumentKeywordName empty.
+// So role and position cannot tell them apart, and the join below has to key on
+// literalValue against py_type_base.baseText. It is exact for this shape; it would be
+// ambiguous only if a positional base were itself named `metaclass`.
+// ============================================================================
+
+// ── metaclass_of(Prov, TypeHash, MetaclassTypeHash) ──────────────────────────
+metaclass_of(p, sub, mcls) :-
+    type_base_keyword(p, sub, "metaclass", text, bh),
+    type_base_span(p, bh, mod, sl),
+    expr_node(p, _, "BASE_CLASS", text, e),
+    expr_scope(p, _, mod, e),
+    expr_span(p, sl, _, e),
+    expr_names_type(p, e, mcls).
+
+// ── class_creation_caller(Prov, TypeHash, CallerMethodHash) ──────────────────
+// The class statement runs where it is written: a top-level class in the module
+// initializer, a nested class in the enclosing <classbody>, a local class in the
+// enclosing function. All three owners exist because the parser mints the synthetic ones.
+class_creation_caller(p, t, caller) :-
+    type_nesting_decl(p, "", "", t), type_module(p, mod, t), module_init(p, caller, _, mod).
+class_creation_caller(p, t, caller) :-
+    type_nesting_decl(p, enc, _, t), enc != "", type_scope(p, _, caller, enc).
+class_creation_caller(p, t, caller) :-
+    type_nesting_decl(p, _, m, t), m != "", caller = m.

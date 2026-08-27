@@ -1,0 +1,222 @@
+// ============================================================================
+// RESOLUTION · VALUE FLOW  (argument -> parameter, return -> caller, function values)
+//
+// THE SCHEMA SAYS THIS IS THE PRIMARY MECHANISM, and the measurement is why:
+// 68.2% of Python parameters carry NO annotation (30,745 of 45,092), so
+// declared-type receiver typing — Java's primary mechanism — covers under a third of
+// the language. Argument->parameter flow has to carry the rest, which is also why
+// py_call_site records keyword names: without argumentKeywordName the 12,000 keyword
+// arguments in the corpus could only be linked positionally and would be lost.
+//
+// FUNCTIONS ARE VALUES, and unlike Java that is ordinary rather than exotic: a `def`
+// returning a `def` is what a decorator IS, a function stored on an attribute is not a
+// bound method, and a closure over a parameter is 5.3% of functions. So this file tracks
+// two kinds of value with equal weight — INSTANCES (expr_type) and CALLABLES
+// (expr_denotes_method) — and keeps them separate, because calling through one
+// dispatches and calling through the other does not.
+//
+// ── WHY expr_names_method IS NOT EXTENDED HERE ────────────────────────────────
+// expr_names_method is the pure NAME answer and must stay outside the resolution
+// fixpoint: type_base_resolved_by_parser negates type_base_resolved_by_engine, which
+// reads expr_names_type, so pulling either into the same SCC as expr_call_candidate
+// makes that negation cyclic and souffle refuses the whole program. Value flow
+// therefore lands in expr_denotes_method / expr_type, both of which are already inside
+// the fixpoint and are never negated from within it.
+//
+// ── THE CLOSED-WORLD ASSUMPTION, STATED ──────────────────────────────────────
+// A parameter's type set is the union over the call sites the engine can see. That is
+// sound for an application and an over-approximation-in-the-wrong-direction for a
+// library whose callers live elsewhere. Same assumption Java's CHA makes; recorded
+// per-parameter in param_flow_assumes_closed_world rather than left implicit.
+// ============================================================================
+
+// ── call_flow_imprecise(SiteKey) ─────────────────────────────────────────────
+// argFlowIsPrecise=false — the site spreads * or **, so positional
+// argument->parameter linking is PROVABLY unsound. Every flow rule below excludes it.
+// The schema exists to make this a fact rather than a silent wrong answer, and
+// 09-args-forwarding is built entirely out of this shape.
+call_flow_imprecise(site) :- csite(site, s), call_arg_flow_imprecise("client", s).
+
+// ── call_arg_offset(SiteKey, CalleeMethodHash, Offset) ───────────────────────
+// How many parameter slots the receiver consumes before argument 0 lands. Getting this
+// wrong shifts EVERY argument by one, which is exactly what @staticmethod and
+// @classmethod change (schema §4.3).
+//
+// All clauses are POSITIVE. The tempting formulation — "offset 1 unless this is an
+// unbound Class.method(obj) call" — negates a relation that lives inside this same
+// fixpoint, and souffle will not stratify it. Emitting both offsets where the shape is
+// genuinely ambiguous over-approximates the flow, which is the safe direction.
+// (a) a receiver-taking method reached through an INSTANCE.
+call_arg_offset(site, m, 1) :-
+    expr_call_candidate(site, m),
+    method_kind("client", "INSTANCE_METHOD", _, m),
+    call_recv_type(site, _).
+// (b) any other method with a receiver parameter (classmethod, dunder, property getter,
+//     constructor) — `cls`/`self` is always bound for these.
+call_arg_offset(site, m, 1) :-
+    expr_call_candidate(site, m),
+    method_receiver_shape("client", "true", _, _, m),
+    method_kind("client", k, _, m), k != "INSTANCE_METHOD".
+// (c) CONSTRUCTION: `T(x)` calls T.__init__(self, x).
+call_arg_offset(site, m, 1) :-
+    call_constructs_type(site, t), type_constructor("client", t, m).
+// (d) no receiver parameter at all — a module function, a nested def, a lambda, a
+//     @staticmethod.
+call_arg_offset(site, m, 0) :-
+    expr_call_candidate(site, m),
+    method_receiver_shape("client", "false", _, _, m).
+// (e) the UNBOUND form `Class.method(obj, x)`: the receiver is written as the first
+//     argument, so nothing is implicit.
+call_arg_offset(site, m, 0) :-
+    expr_call_candidate(site, m),
+    method_kind("client", "INSTANCE_METHOD", _, m),
+    call_receiver_object(site, obj),
+    expr_type_class_object("client", obj, _).
+
+// ── param_arg_type(ParamHash, TypeHash) — an INSTANCE reaching a parameter ───
+// Positional.
+param_arg_type(ph, t) :-
+    call_arg_offset(site, m, off),
+    !call_flow_imprecise(site),
+    call_arg(site, posStr, a),
+    param_decl("client", _, ppos, _, m, ph),
+    to_number(ppos) = to_number(posStr) + off,
+    expr_type("client", a, t).
+// By KEYWORD. Position-independent, and the only way a keyword argument links at all.
+param_arg_type(ph, t) :-
+    expr_call_candidate(site, m),
+    !call_flow_imprecise(site),
+    call_kwarg(site, kw, a), kw != "",
+    param_decl("client", kw, _, _, m, ph),
+    expr_type("client", a, t).
+// Into a CONSTRUCTOR by keyword.
+param_arg_type(ph, t) :-
+    call_constructs_type(site, ty), type_constructor("client", ty, m),
+    !call_flow_imprecise(site),
+    call_kwarg(site, kw, a), kw != "",
+    param_decl("client", kw, _, _, m, ph),
+    expr_type("client", a, t).
+
+// ── param_arg_method(ParamHash, MethodHash) — a CALLABLE reaching a parameter ──
+// `Delegator(target)` puts the FUNCTION `target` into the parameter `fn`. Java would
+// need a functional interface for this; in Python it is an ordinary assignment.
+param_arg_method(ph, r) :-
+    call_arg_offset(site, m, off),
+    !call_flow_imprecise(site),
+    call_arg(site, posStr, a),
+    param_decl("client", _, ppos, _, m, ph),
+    to_number(ppos) = to_number(posStr) + off,
+    expr_denotes_method("client", a, r).
+param_arg_method(ph, r) :-
+    expr_call_candidate(site, m),
+    !call_flow_imprecise(site),
+    call_kwarg(site, kw, a), kw != "",
+    param_decl("client", kw, _, _, m, ph),
+    expr_denotes_method("client", a, r).
+param_arg_method(ph, r) :-
+    call_constructs_type(site, ty), type_constructor("client", ty, m),
+    !call_flow_imprecise(site),
+    call_arg(site, posStr, a),
+    param_decl("client", _, ppos, _, m, ph),
+    to_number(ppos) = to_number(posStr) + 1,
+    expr_denotes_method("client", a, r).
+
+// ── param_flow_assumes_closed_world(ParamHash) ───────────────────────────────
+param_flow_assumes_closed_world(ph) :- param_arg_type(ph, _).
+param_flow_assumes_closed_world(ph) :- param_arg_method(ph, _).
+
+// ============================================================================
+// RETURN FLOW — a function that returns a function
+// ============================================================================
+
+// ── method_returns_param(Prov, MethodHash, Position) ─────────────────────────
+// `def passthrough(fn): return fn` — the IDENTITY decorator, and the shape that keeps a
+// decorated name meaning the `def` written under it. Without this rule @passthrough is
+// indistinguishable from @replacing, and one of the two answers is always wrong.
+method_returns_param(p, m, pos) :-
+    method_return_value_expr(p, m, e),
+    expr_names_param(p, e, ph),
+    param_decl(p, _, pos, _, m, ph).
+
+// ── binding_value_method(Prov, BindingHash, MethodHash) ──────────────────────
+// `adder = make_adder(3)` then `adder(4)`. The binding holds the FUNCTION that
+// make_adder returned. Same single-binding guard as the type-valued case: symtable
+// itself reports one binding site, so there is no second assignment for the name to
+// mean something else.
+binding_value_method(p, b, r) :-
+    binding_rebinding(p, "1", _, _, b),
+    expr_binding(p, b, "STORE", tgt),
+    assign_pair(p, tgt, val),
+    call_of_expr(val, site),
+    expr_call_candidate(site, f),
+    method_returns_method(p, f, r).
+// `handler = do_work` — a direct function alias.
+binding_value_method(p, b, r) :-
+    binding_rebinding(p, "1", _, _, b),
+    expr_binding(p, b, "STORE", tgt),
+    assign_pair(p, tgt, val),
+    expr_denotes_method(p, val, r).
+
+// ============================================================================
+// FUNCTION-VALUED ATTRIBUTES — `self.op = add`, and calling through it
+// ============================================================================
+
+// ── field_holds_method(Prov, FieldHash, MethodHash) ──────────────────────────
+// An attribute holding a FUNCTION is NOT a method of the class: no `self` is bound, so
+// `self.op(1, 2)` passes 1 and 2 as the first two parameters. Keeping this separate from
+// field_type is what makes that distinction survive into argument flow.
+field_holds_method(p, f, m) :-
+    field_write_value(p, f, val),
+    expr_denotes_method(p, val, m).
+
+// ── type_attr_method_value(Prov, TypeHash, Name, MethodHash) ─────────────────
+// The same, found through the MRO like any other member.
+type_attr_method_value(p, t, n, m) :-
+    type_attr_field(p, t, n, f), field_holds_method(p, f, m).
+
+// ============================================================================
+// THE UNION — what a callee EXPRESSION denotes, name and value flow together
+// ============================================================================
+
+// ── expr_denotes_method(Prov, ExprHash, MethodHash) ──────────────────────────
+// (a) the static name.
+expr_denotes_method(p, e, m) :- expr_names_method(p, e, m).
+// (b) a dotted module member.
+expr_denotes_method(p, e, m) :- expr_attr_names_method(p, e, m).
+// (c) a parameter that some call site put a function into.
+expr_denotes_method(p, e, m) :- expr_names_param(p, e, ph), param_arg_method(ph, m).
+// (d) a single-binding local or module name holding a function.
+expr_denotes_method(p, e, m) :-
+    expr_binding(p, b, ctx, e), ctx != "STORE", binding_lookup(p, b, b2), binding_value_method(p, b2, m).
+// (e) a decorated name, which denotes whatever the decorator stack returned rather than
+//     the `def` written under it (resolution/decorators.dl).
+expr_denotes_method(p, e, m) :-
+    expr_binding(p, b, ctx, e), ctx != "STORE", binding_lookup(p, b, b2),
+    binding_binds_replaced_method(p, b2, def), decorated_name_target(def, m).
+
+// ── expr_type from a parameter ───────────────────────────────────────────────
+// The duck-typing answer, and the reason it is a DISPATCH SET rather than a guess: the
+// set is the union over the arguments actually passed at the call sites the engine
+// resolved. `render(Circle())` and `render(Square())` make `thing` a Circle or a Square,
+// and `thing.draw()` then has a sound two-element dispatch set — not "every class with a
+// method called draw", which is the 24.63-candidates-per-site over-approximation this
+// engine refuses.
+expr_type(p, e, t) :- expr_names_param(p, e, ph), param_arg_type(ph, t), p = "client".
+
+// ── partial_target(SiteKey, MethodHash) — what a partial will call ───────────
+// The callable is argument 0. The remaining arguments are bound, which shifts the
+// eventual parameter positions — recorded but not yet propagated, so this produces the
+// EDGE without claiming anything about argument flow through it.
+partial_target(site, m) :-
+    call_is_partial(site),
+    call_arg(site, "0", a),
+    expr_denotes_method("client", a, m).
+
+// ── a name holding a partial denotes the partial's target ────────────────────
+binding_value_method(p, b, m) :-
+    binding_rebinding(p, "1", _, _, b),
+    expr_binding(p, b, "STORE", tgt),
+    assign_pair(p, tgt, val),
+    call_of_expr(val, site),
+    partial_target(site, m),
+    p = "client".

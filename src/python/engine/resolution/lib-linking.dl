@@ -1,0 +1,231 @@
+// ============================================================================
+// RESOLUTION · LIBRARY LINKING  (name-based, because hashes cannot cross a parse)
+//
+// THE MEASUREMENT THIS FILE IS BUILT ON, and it is the single most important fact about
+// the Python IR: py_call_site.resolvedCalleeHash IS RUN-LOCAL. On linkage-sample, 39 of
+// 49 sites carry one and every one resolves inside that same parse. The 3.10.4 stdlib IR
+// was parsed as a separate run, so its hashes CANNOT match a client run's — not because
+// the staging is wrong (staging the library correctly took the relation count from 13 to
+// 25 and changed nothing), but by construction of the hash.
+//
+// So consuming the parser's pre-resolution buys client->client edges and NOTHING across
+// a library boundary. Cross-module linking must go through NAMES, and the durable names
+// are exactly two:
+//   py_import.importedPath      the client's view of what it imported
+//   qualifiedName               the library's view of what it declares
+// (Library qualifiedNames are plain dotted paths — verified: `typing.overload`,
+// `_aix_support._aix_tag`, `_collections_abc.Hashable`.)
+//
+// THE DISCIPLINE. Name matching is where a resolver gets things quietly wrong, so every
+// rule here is anchored on an IMPORT the client actually wrote. Nothing matches a bare
+// simple name against the library, ever: `from .models import Base` and
+// `from thirdparty import Base` are different edges and only the import statement
+// distinguishes them. A match that is not unique is emitted as a set, never picked from.
+// ============================================================================
+
+// ── lib_module_qname(QualifiedName, LibModuleHash) ───────────────────────────
+lib_module_qname(q, h) :- module_decl("lib", _, q, _, h).
+
+// ── lib_type_qname(QualifiedName, LibTypeHash) ───────────────────────────────
+lib_type_qname(q, h) :- type_decl("lib", _, q, _, h).
+
+// ── lib_function_qname(QualifiedName, LibMethodHash) ─────────────────────────
+// MODULE-LEVEL library functions only. A method's qualifiedName includes its class, so
+// restricting to method_module_level keeps `from x import f` from matching a class
+// method that happens to share the dotted path.
+lib_function_qname(q, h) :- method_top_level("lib", _, h), method_decl("lib", _, _, q, _, h).
+
+// ── client_external_import(ImportHash, ImportedPath, BindingHash) ────────────
+// THE FRONTIER: an import the parser could not resolve inside the repo. Everything in
+// this file starts here, which is what keeps name matching honest — an in-repo import
+// never reaches these rules, so a same-named local class can never be shadowed by a
+// library one.
+client_external_import(i, path, b) :-
+    import_decl("client", _, path, _, i),
+    import_binding("client", b, i),
+    !import_resolved_target("client", _, _, i),
+    !import_resolved_kind("client", _, i).
+
+// ── import_links_lib_function(BindingHash, LibMethodHash) ────────────────────
+// `from typing import overload` -> importedPath "typing.overload" -> the library's
+// module-level `overload`.
+import_links_lib_function(b, m) :- client_external_import(_, path, b), lib_function_qname(path, m).
+
+// ── import_links_lib_type(BindingHash, LibTypeHash) ──────────────────────────
+import_links_lib_type(b, t) :- client_external_import(_, path, b), lib_type_qname(path, t).
+
+// ── import_links_lib_module(BindingHash, LibModuleHash) ──────────────────────
+// `import os` / `from . import models` where the target is a library module. Note
+// py_import's own rule: `import a.b.c` binds only `a`, and importedPath is the full
+// path, so the bound name and the matched path are different columns on purpose.
+import_links_lib_module(b, mod) :- client_external_import(_, path, b), lib_module_qname(path, mod).
+
+// ── import_link_ambiguous(BindingHash, ImportedPath, N) ──────────────────────
+// The same dotted path matched more than one library declaration (shadowed modules, a
+// re-export). Counted rather than arbitrated.
+import_link_ambiguous(b, path, n) :-
+    client_external_import(_, path, b),
+    n = count : { lib_function_qname(path, _) },
+    n > 1.
+
+// ============================================================================
+// FROM A LINKED IMPORT TO A CALL TARGET
+// ============================================================================
+
+// ── expr_names_lib_function(ClientExprHash, LibMethodHash) ───────────────────
+// A client NAME_REFERENCE whose LEGB walk lands on an externally-imported binding that
+// matched a library function.
+expr_names_lib_function(e, m) :-
+    expr_binding("client", b, ctx, e), ctx != "STORE",
+    binding_lookup("client", b, b2),
+    import_links_lib_function(b2, m).
+expr_names_lib_function(e, m) :-
+    expr_binding("client", b, ctx, e), ctx != "STORE",
+    import_links_lib_function(b, m).
+
+// ── expr_names_lib_type(ClientExprHash, LibTypeHash) ─────────────────────────
+expr_names_lib_type(e, t) :-
+    expr_binding("client", b, ctx, e), ctx != "STORE",
+    binding_lookup("client", b, b2), import_links_lib_type(b2, t).
+expr_names_lib_type(e, t) :-
+    expr_binding("client", b, ctx, e), ctx != "STORE", import_links_lib_type(b, t).
+
+// ── expr_names_lib_module(ClientExprHash, LibModuleHash) ─────────────────────
+expr_names_lib_module(e, mod) :-
+    expr_binding("client", b, ctx, e), ctx != "STORE",
+    binding_lookup("client", b, b2), import_links_lib_module(b2, mod).
+expr_names_lib_module(e, mod) :-
+    expr_binding("client", b, ctx, e), ctx != "STORE", import_links_lib_module(b, mod).
+
+// ── call_constructs_lib_type(SiteHash, LibTypeHash) ──────────────────────────
+call_constructs_lib_type(site, t) :-
+    call_recv_kind(site, "NONE"),
+    call_callee_expr(site, callee),
+    expr_names_lib_type(callee, t).
+call_constructs_lib_type(site, t) :-
+    call_recv_kind(site, rk), rk != "NONE", rk != "SUPER",
+    call_receiver_object(site, obj),
+    expr_names_lib_module(obj, mod),
+    call_name(site, n),
+    module_member_type("lib", mod, n, t).
+
+// ── call_recv_lib_type(SiteHash, LibTypeHash) ────────────────────────────────
+// The receiver object denotes a library class (a class object being attribute-accessed,
+// or a construction of one, or `mod.Class`).
+call_recv_lib_type(site, t) :-
+    call_receiver_object(site, obj), expr_names_lib_type(obj, t).
+call_recv_lib_type(site, t) :-
+    call_receiver_object(site, obj),
+    call_of_expr(obj, inner), call_constructs_lib_type(inner, t).
+call_recv_lib_type(site, t) :-
+    call_receiver_object(site, obj),
+    expr_node("client", "ATTRIBUTE_ACCESS", _, n, obj),
+    expr_parent("client", obj, "ATTRIBUTE_OBJECT", _, modExpr),
+    expr_names_lib_module(modExpr, mod),
+    module_member_type("lib", mod, n, t).
+
+// ── call_hits_lib_method(SiteHash, LibMethodHash) ────────────────────────────
+// (a) a bare-name call to an imported library function.
+call_hits_lib_method(site, m) :-
+    call_recv_kind(site, "NONE"),
+    call_callee_expr(site, callee),
+    expr_names_lib_function(callee, m).
+// (b) `mod.f()` where mod is an imported library module.
+call_hits_lib_method(site, m) :-
+    call_recv_kind(site, rk), rk != "NONE", rk != "SUPER",
+    call_receiver_object(site, obj),
+    expr_names_lib_module(obj, mod),
+    call_name(site, n),
+    module_member_method("lib", mod, n, m).
+// (c) an attribute call whose receiver type is a LIBRARY class, resolved THROUGH THE
+//     LIBRARY'S OWN MRO. That MRO comes from lib_py_type_base.resolvedTypeLinkHash,
+//     which is a within-library-run FK and therefore valid (1,409 of 2,859 library base
+//     rows carry one).
+call_hits_lib_method(site, m) :-
+    call_recv_kind(site, rk), rk != "NONE", rk != "SUPER",
+    call_recv_lib_type(site, t),
+    call_name(site, n),
+    mro_lookup("lib", t, n, m).
+// (d) construction of a library class -> its __init__/__new__ through the library MRO.
+call_hits_lib_method(site, m) :- call_constructs_lib_type(site, t), type_constructor("lib", t, m).
+
+// ── lib_link_missed(SiteHash, CalleeDottedPath) ───────────────────────────────
+// A call whose written dotted path names something outside the client, and which no
+// import link explained. THE MEASURABLE GAP for python-library-linking: the size of this
+// relation is the size of the remaining work, stated rather than absorbed.
+// A call is a LIBRARY-LINKING miss only if its callee name resolved to nothing in the
+// client at all. A callee that resolves to a PARAMETER (`fn(*args)`) or to a
+// classmethod's unknown `cls` is unresolved for a reason that has nothing to do with
+// library linking, and counting it here would inflate another owner's backlog with work
+// that is not theirs.
+lib_link_missed(site, d) :-
+    call_dotted(site, d),
+    !expr_call_candidate(site, _),
+    !call_hits_lib_method(site, _),
+    !call_hits_builtin(site, _),
+    call_callee_expr(site, callee),
+    expr_binding("client", b, _, callee),
+    binding_lookup_unresolved("client", b, _, _).
+// The attribute-call form: a dotted callee whose receiver the engine could not type and
+// which no import link explained.
+lib_link_missed(site, d) :-
+    call_dotted(site, d),
+    !expr_call_candidate(site, _),
+    !call_hits_lib_method(site, _),
+    !call_hits_builtin(site, _),
+    call_recv_kind(site, rk), rk != "NONE",
+    call_receiver_object(site, obj),
+    !expr_any_type("client", obj).
+
+// ============================================================================
+// THE EXTERNAL BOUNDARY — a callee that is provably outside every staged IR
+//
+// `import math` then `math.sqrt(16)`. `math` is a C extension: no Python source, so no
+// py_module in the stdlib IR and nothing for an import link to match. The call is not a
+// blind spot — the written path names it exactly — it is a boundary this build cannot
+// cross, which is what 12-blind-spots means by "it must read boundary/native; a
+// 'resolved' one is a fabrication".
+//
+// The label carries the WRITTEN PATH and is prefixed `external:` so it can never be
+// confused with a py_method FK. Gated on the root name being bound by an import that
+// resolved neither in-repo NOR against the library, so a local name can never fall in
+// here by accident.
+// ============================================================================
+
+// ── import_unlinked(BindingHash, ImportedPath) ───────────────────────────────
+import_unlinked(b, path) :-
+    client_external_import(_, path, b),
+    !import_links_lib_function(b, _),
+    !import_links_lib_type(b, _),
+    !import_links_lib_module(b, _).
+
+// ── call_hits_external(SiteKey, TargetLabel) ─────────────────────────────────
+call_hits_external(site, cat("external:", d)) :-
+    call_dotted(site, d), d != "",
+    !expr_call_candidate(site, _),
+    !call_hits_lib_method(site, _),
+    !call_hits_builtin(site, _),
+    call_receiver_object(site, obj),
+    expr_parent("client", obj, "ATTRIBUTE_OBJECT", _, root),
+    expr_binding("client", rb, _, root),
+    binding_lookup("client", rb, rb2),
+    import_unlinked(rb2, _).
+call_hits_external(site, cat("external:", d)) :-
+    call_dotted(site, d), d != "",
+    !expr_call_candidate(site, _),
+    !call_hits_lib_method(site, _),
+    !call_hits_builtin(site, _),
+    call_receiver_object(site, obj),
+    expr_binding("client", rb, _, obj),
+    binding_lookup("client", rb, rb2),
+    import_unlinked(rb2, _).
+call_hits_external(site, cat("external:", d)) :-
+    call_dotted(site, d), d != "",
+    !expr_call_candidate(site, _),
+    !call_hits_lib_method(site, _),
+    !call_hits_builtin(site, _),
+    call_recv_kind(site, "NONE"),
+    call_callee_expr(site, callee),
+    expr_binding("client", rb, _, callee),
+    binding_lookup("client", rb, rb2),
+    import_unlinked(rb2, _).
