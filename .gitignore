@@ -136,13 +136,7 @@ test-results/
 # ── Claude Code / agent local state ──────────────────────────────────────────
 # .claude/agents/*.md are project source and stay tracked; personal settings,
 # session state, and agent scratch output do not.
-.claude/settings.local.json
-.claude/local/
-.claude/sessions/
-.claude/todos/
-.claude/shell-snapshots/
-.claude/statsig/
-.claude/artifacts/
+.claude/
 CLAUDE.local.md
 
 # ── Editor & IDE ─────────────────────────────────────────────────────────────
@@ -191,3 +185,7 @@ $RECYCLE.BIN/
 
 # ── Java engine test suite: per-run work dirs and the generated JDK index ─────
 test/java/.work/
+
+# Python bytecode from the test tools
+__pycache__/
+*.pyc

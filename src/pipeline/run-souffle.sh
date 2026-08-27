@@ -18,6 +18,7 @@ DISPATCH_CAP="${DISPATCH_CAP:-20}"   # fan-width cap on virtual dispatch. DEFAUL
               # TURN IT OFF (--dispatch-cap off) for UNBOUNDED reachability — sink/taint traversal —
               # where a sink behind a wide dispatch would be dropped: entry_reachable falls 21.5%
               # (32,229 -> 25,288) under the cap. Bounded-depth impact queries are unaffected.
+LANG_ARG=""   # which rule set under src/<lang>/ to run. Default java.
 TAINT=""      # --taint on → gate lib→lib GROW on client-seeded data flow (dataflow/taint.dl). Also
               # settable via env AXIOM_TAINT_GATING=on. Empty = ungated (default behavior).
 while [ $# -gt 0 ]; do case "$1" in
@@ -27,11 +28,49 @@ while [ $# -gt 0 ]; do case "$1" in
   --dispatch-cap) DISPATCH_CAP="$2"; shift 2;;
   --lib-depth) LIB_DEPTH="$2"; shift 2;;
   --taint) TAINT="$2"; shift 2;;
-  --language) shift 2;; *) shift;; esac; done
+  --language) LANG_ARG="$2"; shift 2;; *) shift;; esac; done
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
-ENG="$SRC/engine"; ENG2="$SRC/engine-ii"; DL="$SRC/souffle"; TPL="$SRC/templates"
-INNER="/opt/homebrew/Cellar/souffle/2.5/include/souffle"
+# Rules are PER-LANGUAGE and live under src/<lang>/; the executor itself is shared.
+LANG_ARG="${LANG_ARG:-java}"
+ENG="$SRC/$LANG_ARG/engine"; ENG2="$SRC/$LANG_ARG/engine-ii"; DL="$SRC/$LANG_ARG/souffle"; TPL="$SRC/$LANG_ARG/templates"
+[ -d "$ENG" ] || { echo "no rule set for --language=$LANG_ARG (looked in $ENG)" >&2; exit 1; }
+# Soufflé's C++ headers. DERIVED, never hardcoded — the path is version- and
+# platform-specific (Homebrew ARM vs Intel vs Linux), so pinning one Cellar path makes the
+# engine unbuildable everywhere else. Resolve the binary, walk to its prefix, then fall back.
+# Override with AXIOM_SOUFFLE_INCLUDE if souffle lives somewhere unusual.
+find_souffle_include(){
+  local b p
+  [ -n "${AXIOM_SOUFFLE_INCLUDE:-}" ] && { echo "$AXIOM_SOUFFLE_INCLUDE"; return; }
+  b="$(command -v souffle 2>/dev/null)" || true
+  if [ -n "$b" ]; then
+    # Resolve symlinks WITHOUT depending on an interpreter or GNU coreutils:
+    # readlink -f where supported (GNU, and macOS 12.3+), else walk the links by hand.
+    r="$(readlink -f "$b" 2>/dev/null)" || r=""
+    if [ -z "$r" ]; then
+      r="$b"; while [ -L "$r" ]; do
+        t="$(readlink "$r")"
+        case "$t" in /*) r="$t";; *) r="$(dirname "$r")/$t";; esac
+      done
+    fi
+    p="$(cd "$(dirname "$r")/.." && pwd)"
+    [ -d "$p/include/souffle" ] && { echo "$p/include/souffle"; return; }
+  fi
+  for p in "$(brew --prefix souffle 2>/dev/null)" /usr/local /usr /opt/homebrew; do
+    [ -n "$p" ] && [ -d "$p/include/souffle" ] && { echo "$p/include/souffle"; return; }
+  done
+}
+INNER="$(find_souffle_include)"
+if [ -z "$INNER" ] || [ ! -d "$INNER" ]; then
+  echo "❌ soufflé headers not found. Install soufflé, or set AXIOM_SOUFFLE_INCLUDE." >&2
+  echo "   macOS: brew install souffle     Debian/Ubuntu: apt-get install souffle" >&2
+  exit 1
+fi
 FACTS="$INT/souffle-facts"; rm -rf "$FACTS"; mkdir -p "$FACTS" "$OUT"
+# Shared, machine-scoped cache root. Holds BOTH project-independent artefacts: the
+# compiled engine binary, and the staged library signature facts. Default in-repo so a
+# checkout is self-contained (.souffle-cache/ is gitignored); point AXIOM_SOUFFLE_CACHE
+# at a shared dir to amortise it across clones.
+CACHE_ROOT="${AXIOM_SOUFFLE_CACHE:-$SRC/../.souffle-cache}"; mkdir -p "$CACHE_ROOT"
 START_EPOCH=$(date +%s); START_TS=$(date '+%Y-%m-%d %H:%M:%S')
 
 # read an import map (relation<TAB>csv-basename per line), skipping comments (#) and blanks
@@ -43,34 +82,86 @@ read_map(){ grep -vE '^[[:space:]]*(#|$)' "$1"; }
 IFS=',' read -ra LIB_ROOTS <<< "$LIB"
 # lib_modules ROOT -> the module dirs to stage from (the root itself if it holds the IR,
 # else its immediate sub-folders — mirrors how the JDK ships sharded modules).
-lib_modules(){ if [ -f "$1/all-types.csv" ]; then printf '%s\n' "$1"; else for m in "$1"/*/; do [ -d "$m" ] && printf '%s\n' "${m%/}"; done; fi; }
+# Staging config is PER-LANGUAGE (IR marker + which relations are signatures vs bodies).
+# Keeping it here would hardcode Java's entity set into a shared executor.
+[ -f "$TPL/staging.conf" ] || { echo "missing $TPL/staging.conf for --language=$LANG_ARG" >&2; exit 1; }
+. "$TPL/staging.conf"
 
-# Lib SIGNATURES: staged fully, always. Lib BODIES (expression/local/block) are GB-scale and
-# staged SCOPED, on demand, by the stage↔solve loop below — only the bodies of methods the
-# engine-ii frontier actually reaches.
-LIB_SIG="type type_lines type_reference type_parameter method method_parameter method_type_parameter field field_position import enum_constant"
-LIB_BODY="lib_expression lib_local_variable lib_block"
+lib_modules(){ if [ -f "$1/$IR_MARKER" ]; then printf '%s\n' "$1"; else for m in "$1"/*/; do [ -d "$m" ] && printf '%s\n' "${m%/}"; done; fi; }
 
-# --- CLIENT: stage all mapped relations present, emit .input ---
+# --- CLIENT: stage EVERY mapped relation, empty when the project has no such file ---
+# ALWAYS creating the .facts file (even empty) is what makes the compiled binary
+# REUSABLE ACROSS PROJECTS. The program text embeds one .input line per staged
+# relation, and the cache key is a hash of that text — so if a project with no XML
+# skipped java_xml_element, its program differed from one that has XML and it paid a
+# full ~70s C++ recompile. That is per-INPUT-SHAPE, not per-project: the 26-case Java
+# suite was falling into many shapes and recompiling for each (132 binaries had
+# accumulated in the cache), which is why a suite of tiny projects took ~20 minutes
+# to run and ~2 minutes to actually solve.
+# An empty relation is semantically identical to an absent one — every rule reading it
+# simply derives nothing — so this costs nothing but an empty file per relation.
+# (The same trick is already used for LIB_BODY below; this just applies it uniformly.)
 CLIENT_INPUTS=""
 while IFS=$'\t' read -r rel csv; do
-  [ -f "$CLIENT/$csv.csv" ] || continue
-  awk 'NR>1' "$CLIENT/$csv.csv" > "$FACTS/$rel.facts"
+  if [ -f "$CLIENT/$csv.csv" ]; then awk 'NR>1' "$CLIENT/$csv.csv" > "$FACTS/$rel.facts"
+  else : > "$FACTS/$rel.facts"; fi
   CLIENT_INPUTS="$CLIENT_INPUTS$rel"$'\n'
 done < <(read_map "$TPL/client-ir.map")
 
-# --- LIB: only signature relations, concatenated across every module of every root ---
-LIB_INPUTS=""
+# --- LIB: signature relations, concatenated across every module of every root ---
+# CACHED. This concatenation reads the ENTIRE library IR (the JDK alone is 2.0 GB in,
+# 456 MB out) and its result depends ONLY on the library roots and the LIB_SIG list —
+# never on the client project. Redoing it per run cost 12s of the 19s a five-file test
+# project took, i.e. most of the wall time of the whole Java suite was re-copying the
+# same unchanged JDK facts 26 times.
+# Keyed on the roots plus each module's size+mtime, so a rebuilt or swapped library IR
+# misses the cache and re-stages. Built into a .tmp and renamed atomically, so a
+# concurrent or aborted run never leaves a half-written set (same discipline as the
+# compiled-binary cache below). Files are SYMLINKED into $FACTS: souffle opens them by
+# name, and linking keeps the per-run facts dir cheap instead of copying 456 MB again.
+LIB_SIG_RELS=""
 while IFS=$'\t' read -r rel csv; do
-  case " $LIB_SIG " in *" ${rel#lib_} "*) ;; *) continue;; esac   # signatures only
-  : > "$FACTS/$rel.facts"
-  for root in "${LIB_ROOTS[@]}"; do
-    while IFS= read -r mod; do
-      [ -f "$mod/$csv.csv" ] && awk 'NR>1' "$mod/$csv.csv" >> "$FACTS/$rel.facts"
-    done < <(lib_modules "$root")
-  done
-  [ -s "$FACTS/$rel.facts" ] && LIB_INPUTS="$LIB_INPUTS$rel"$'\n' || rm -f "$FACTS/$rel.facts"
+  case " $LIB_SIG " in *" ${rel#lib_} "*) ;; *) continue;; esac
+  LIB_SIG_RELS="$LIB_SIG_RELS$rel:$csv"$'\n'
 done < <(read_map "$TPL/lib.map")
+
+lib_cache_key(){
+  { printf '%s\n' "$LIB" "$LIB_SIG"
+    for root in "${LIB_ROOTS[@]}"; do
+      while IFS= read -r mod; do
+        # size+mtime of each module's CSVs — cheap, and changes whenever the IR does.
+        find "$mod" -maxdepth 1 -name '*.csv' -exec stat -f '%N %z %m' {} \; 2>/dev/null \
+          || find "$mod" -maxdepth 1 -name '*.csv' -printf '%p %s %T@\n' 2>/dev/null
+      done < <(lib_modules "$root")
+    done
+  } | sort | shasum | cut -d' ' -f1
+}
+LIBKEY="$(lib_cache_key)"
+LIBDIR="$CACHE_ROOT/libfacts-$LIBKEY"
+if [ ! -d "$LIBDIR" ]; then
+  echo "▶ staging library signatures (cache miss — this is the 2GB read, done once)..."
+  TMPDIR_L="$LIBDIR.tmp.$$"; rm -rf "$TMPDIR_L"; mkdir -p "$TMPDIR_L"
+  while IFS= read -r pair; do
+    [ -n "$pair" ] || continue
+    rel="${pair%%:*}"; csv="${pair#*:}"
+    : > "$TMPDIR_L/$rel.facts"
+    for root in "${LIB_ROOTS[@]}"; do
+      while IFS= read -r mod; do
+        [ -f "$mod/$csv.csv" ] && awk 'NR>1' "$mod/$csv.csv" >> "$TMPDIR_L/$rel.facts"
+      done < <(lib_modules "$root")
+    done
+  done < <(printf '%s' "$LIB_SIG_RELS")
+  mv -f "$TMPDIR_L" "$LIBDIR" 2>/dev/null || rm -rf "$TMPDIR_L"
+else echo "▶ reusing staged library signatures"; fi
+
+LIB_INPUTS=""
+while IFS= read -r pair; do
+  [ -n "$pair" ] || continue
+  rel="${pair%%:*}"
+  if [ -f "$LIBDIR/$rel.facts" ]; then ln -sf "$LIBDIR/$rel.facts" "$FACTS/$rel.facts"
+  else : > "$FACTS/$rel.facts"; fi
+  LIB_INPUTS="$LIB_INPUTS$rel"$'\n'
+done < <(printf '%s' "$LIB_SIG_RELS")
 echo "▶ staged $(ls "$FACTS" | wc -l | tr -d ' ') relations (client + full lib signatures from ${#LIB_ROOTS[@]} library root(s))"
 
 # Empty body facts up front so the compiled program has their .input directives; the stage↔solve
@@ -120,8 +211,11 @@ PROG="$INT/souffle-program.dl"
 {
   echo "#include \"$DL/decls_base.dl\""; echo "#include \"$DL/decls_all.dl\""
   for ff in "$FACTS"/*.facts; do r=$(basename "$ff" .facts); printf '.input %s(IO=file, filename="%s.facts", delimiter="\\t")\n' "$r" "$r"; done
-  for d in projections containment resolution expression-resolution call-edge-generation; do
-    for f in "$ENG/$d/"*.dl; do echo "#include \"$f\""; done
+  for d in projections containment resolution config-resolution expression-resolution call-edge-generation; do
+    # [ -f ] guard: a phase directory that is empty (or absent for a language that has
+    # not implemented that layer yet) leaves the glob unexpanded, and souffle's C
+    # preprocessor then fails on a literal '*.dl' include.
+    for f in "$ENG/$d/"*.dl; do [ -f "$f" ] && echo "#include \"$f\""; done
   done
   # engine-ii: the first→third forward-chain engine (mirrors engine/, lib-seeded). Same solve,
   # included AFTER engine/ so it reads engine/'s relations (client_calls_lib seed). Glob its
@@ -148,7 +242,11 @@ PROG="$INT/souffle-program.dl"
 # .dl, so any rule/decl change → new hash → new binary; unchanged → instant reuse. Default
 # ~/.cache/AxiomCode-Souffle (XDG-aware); delete it to force a clean rebuild, or override
 # with AXIOM_SOUFFLE_CACHE.
-CACHE_DIR="${AXIOM_SOUFFLE_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/AxiomCode-Souffle}"; mkdir -p "$CACHE_DIR"
+# Default IN-REPO so a checkout is self-contained and nothing is written outside it
+# (.souffle-cache/ is gitignored). Content-addressed, so branches sharing rule text share the
+# binary; a fresh clone rebuilds once. Point AXIOM_SOUFFLE_CACHE at a shared machine-scoped
+# dir to amortise that across clones.
+CACHE_DIR="$CACHE_ROOT"
 NEW="$(cat "$PROG" "$DL/decls_base.dl" "$DL/decls_all.dl" "$ENG"/*/*.dl "$ENG"/*/*/*.dl "$ENG2"/*/*.dl "$ENG2"/*/*/*.dl 2>/dev/null | shasum | cut -d' ' -f1)"
 BIN="$CACHE_DIR/souffle-engine-$NEW"
 if [ ! -x "$BIN" ]; then
@@ -162,7 +260,13 @@ if [ ! -x "$BIN" ]; then
     cat "$INT/.souffle-gen.log" >&2; exit 1
   fi
   awk '/No rules\/facts defined/{skip=2;next} skip>0{skip--;next} {print}' "$INT/.souffle-gen.log" >&2
-  c++ -std=c++17 -O3 -march=native -w -I "$INNER" "$INT/souffle-program.cpp" -o "$BIN.tmp.$$"
+  # Platform-conditional compile flags. On Cygwin the COFF object format caps a single
+  # object at 32768 sections, and soufflé's generated translation unit for this rule set
+  # (338 relations, 42 .dl files → a 5.6 MB binary) blows past it. -Wa,-mbig-obj lifts the
+  # cap. Reported working upstream, though on soufflé 1.5.1 — untested here on 2.5.
+  CXX_PLATFORM=""
+  case "$(uname -s)" in CYGWIN*) CXX_PLATFORM="-Wa,-mbig-obj";; esac
+  c++ -std=c++17 -O3 -march=native -w $CXX_PLATFORM -I "$INNER" "$INT/souffle-program.cpp" -o "$BIN.tmp.$$"
   mv -f "$BIN.tmp.$$" "$BIN"
 else echo "▶ reusing cached binary"; fi
 # --- STAGE↔SOLVE loop: solve → stage the bodies of methods reached so far → re-solve, until

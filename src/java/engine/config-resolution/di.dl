@@ -1,0 +1,380 @@
+// ============================================================================
+// CONFIG-RESOLUTION · WIRING / DEPENDENCY INJECTION
+//
+// The only piece here that can make the call graph SMALLER rather than larger —
+// and, measured, the one whose payoff depends entirely on the codebase (see
+// MEASURED below before quoting this file as a precision win).
+//
+// THE CLAIM. An injection point typed as an interface currently fans to every
+// implementor (multi_inferred) — that is what resolution/virtual-dispatch.dl means
+// by "narrowing to the single injected implementation is a data-flow / points-to
+// concern for a later engine". This is that later engine, for the one case a
+// container makes decidable: if exactly ONE bean satisfies the injection point,
+// the container will inject that bean, so the receiver's runtime type is known and
+// the CHA fan is wrong, not merely imprecise.
+//
+// MEASURED — the claim above holds on constructed cases and FAILS TO PAY at scale.
+// Recorded here because a claim this file opens with must carry its own evidence.
+//
+//   test/java/cases/25-di-narrowing, 4 interface-typed call sites:
+//       CHA only   12 targets (3 per site)
+//       with DI     6 targets — three sites collapse to known_edge, one keeps its
+//                   full fan (the control: two beans satisfy it, so narrowing it
+//                   would be a guess).
+//
+//   spring-cloud-config-server (276 files, 40,649 LOC), narrowing ON vs OFF —
+//   toggled with the cfg_di_narrowing_enabled() fact in knobs.dl:
+//       known_edge 3,990 and multi_inferred 2,781 in BOTH runs. ZERO edges changed.
+//
+// The bean/DI model is not what failed: it found 169 beans, 96 injection points and
+// 45 uniquely-resolved ones. What failed is the POPULATION — where those injection
+// points point:
+//       57  client CONCRETE class (44 uniquely resolved) — no fan existed to remove
+//       23  client INTERFACE                             — but only 1 resolves to a
+//                                                          single bean; 164 di_edge
+//                                                          rows are multi_bean
+//       16  library / unknown type                       — gate (1) blocks it, and
+//                                                          all 16 are unsatisfied
+// So the population the narrowing exists for — an interface-typed injection point
+// with exactly one candidate bean — is 1 of 96 here. A Spring Cloud module injects
+// FRAMEWORK interfaces whose implementations are contributed by
+// spring-boot-autoconfigure's own @Configuration classes, which are not in the
+// scanned set, so those points read unsatisfied or multi_bean instead of resolving.
+//
+// WHAT THIS POINTS AT. Every rule in this folder is scoped to "client".
+// lib_annotation / lib_annotation_argument are already staged and carry the
+// framework's own stereotypes and @Bean methods. Reading them would populate the
+// bean set with the autoconfiguration beans and move most of those 16 unsatisfied
+// and 164 multi_bean rows. Until that is done the honest statement is: the
+// narrowing is correct and validated (live-context precision/recall 1.000 across
+// beans, field, constructor, @Bean-parameter and @Value injection — see
+// test/java/expected/26-spring-oracle.spring-oracle), and on a framework-heavy
+// module it is currently INERT.
+//
+// HOW THE NARROWING ATTACHES. Nothing here edits virtual-dispatch.dl or
+// callee-resolution.dl. resolution/type-flow.dl already established the hook:
+//     field_mono_in_type(OwnerType, FieldName, ConcreteType)
+//        -> expr_type      (the concrete method becomes findable)
+//        -> expr_exact_type (call_exact_receiver suppresses the CHA fan)
+// A DI-resolved field is monomorphic for exactly the reason a `final` field with a
+// `new` initializer is: the language/container guarantees one runtime type. So this
+// file contributes clauses to field_mono_in_type and stops. Same mechanism, new
+// evidence source.
+//
+// STRATIFICATION. field_mono_in_type feeds expr_exact_type, which is NEGATED by
+// the CHA-fan rule. Everything reaching it must therefore be LOW — base facts,
+// type_ancestor, and the declared-type resolvers (field/param/return_type_resolves,
+// all built on type_ref_resolves). Nothing here reads expr_type, expr_call_candidate
+// or call_chain_edge. The impact closure that DOES read call_chain_edge lives in
+// impact.dl and feeds nothing back.
+//
+// SOUNDNESS OF THE NARROWING — stated, not assumed. Three gates:
+//   (1) the declared type is a CLIENT type. A library-typed injection point can be
+//       satisfied by a library/auto-configuration bean this analysis never sees, so
+//       "exactly one client bean" would not mean "exactly one bean".
+//   (2) exactly one bean satisfies it, AFTER any @Qualifier filter.
+//   (3) the field is not also initialised with `new` (no competing evidence).
+// The residual assumption is that the bean set is complete for client-typed points:
+// stereotype + @Bean + XML <bean>. Programmatic registration (registerBean,
+// BeanDefinitionRegistryPostProcessor) is NOT modelled and is the one construct
+// that can make this over-narrow. Turn the narrowing off by commenting out the
+// single cfg_di_narrowing_enabled() fact in knobs.dl; every REPORTING relation
+// (di_edge, bean_def, …) is unaffected by that switch.
+// ============================================================================
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 0. bean-name helper: Spring's Introspector.decapitalize
+// ─────────────────────────────────────────────────────────────────────────────
+// The default bean name is the decapitalized simple class name — UNLESS the first
+// two characters are both uppercase, in which case the name is left alone (so
+// `URLHandler` stays `URLHandler`, not `uRLHandler`). Reproducing it exactly is
+// what makes bean_def comparable, name for name, against a live context's
+// getBeanDefinitionNames() — the runtime oracle.
+cfg_lower("A","a"). cfg_lower("B","b"). cfg_lower("C","c"). cfg_lower("D","d").
+cfg_lower("E","e"). cfg_lower("F","f"). cfg_lower("G","g"). cfg_lower("H","h").
+cfg_lower("I","i"). cfg_lower("J","j"). cfg_lower("K","k"). cfg_lower("L","l").
+cfg_lower("M","m"). cfg_lower("N","n"). cfg_lower("O","o"). cfg_lower("P","p").
+cfg_lower("Q","q"). cfg_lower("R","r"). cfg_lower("S","s"). cfg_lower("T","t").
+cfg_lower("U","u"). cfg_lower("V","v"). cfg_lower("W","w"). cfg_lower("X","x").
+cfg_lower("Y","y"). cfg_lower("Z","z").
+cfg_upper_at(s, i) :- cfg_decap_demand(s), strlen(s) > i, i = range(0, 2),
+    cfg_lower(substr(s, i, 1), _).
+cfg_two_caps(s) :- cfg_upper_at(s, 0), cfg_upper_at(s, 1).
+cfg_decap(s, s) :- cfg_decap_demand(s), cfg_two_caps(s).
+cfg_decap(s, s) :- cfg_decap_demand(s), strlen(s) > 0, !cfg_upper_at(s, 0).
+// A single leading capital is lowercased — Introspector.decapitalize("Foo") is
+// "foo". There is deliberately NO separate one-character clause: adding one made a
+// 1-char type name produce BOTH "A" and "a", i.e. two bean names for one bean.
+cfg_decap(s, d) :- cfg_decap_demand(s), cfg_upper_at(s, 0), !cfg_two_caps(s),
+    cfg_lower(substr(s, 0, 1), lo),
+    d = cat(lo, substr(s, 1, strlen(s) - 1)).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. BEAN DEFINITIONS  —  what the container can inject
+// ─────────────────────────────────────────────────────────────────────────────
+// bean_def(BeanName, TypeHash, Mechanism, Site)
+//   Mechanism ∈ { stereotype, factory_method, xml }
+//   Site      the annotation / method / xml element that declares it
+
+// (a) STEREOTYPE on a type. An explicit name — @Service("orders") — wins; otherwise
+// the decapitalized simple name, matching Spring's generator.
+cfg_stereotype(a, t) :- ann_on_type(a, n, t), cfg_bean_ann(n).
+cfg_stereotype_named(t, name) :- cfg_stereotype(a, t), ann_arg_value(a, name), name != "".
+cfg_stereotype_has_name(t) :- cfg_stereotype_named(t, _).
+cfg_decap_demand(sn) :- cfg_stereotype(_, t),
+    java_type(sn, _, _, _, _, _, _, _, _, _, _, _, _, t).
+
+bean_def(name, t, "stereotype", a) :- cfg_stereotype(a, t), cfg_stereotype_named(t, name).
+bean_def(name, t, "stereotype", a) :- cfg_stereotype(a, t), !cfg_stereotype_has_name(t),
+    java_type(sn, _, _, _, _, _, _, _, _, _, _, _, _, t), cfg_decap(sn, name).
+
+// (b) FACTORY METHOD: @Bean / @Produces / @Provides. The bean's type is the
+// method's DECLARED RETURN type; its name is the method name unless given.
+cfg_factory(a, m, owner) :- ann_on_method(a, n, m, owner), cfg_factory_ann(n).
+cfg_factory_named(m, name) :- cfg_factory(a, m, _), ann_arg_value(a, name), name != "".
+cfg_factory_has_name(m) :- cfg_factory_named(m, _).
+// The bean's TYPE is the method's DECLARED return type — EXCEPT when the body
+// returns a single `new T()`, in which case T is the object the container actually
+// holds. Measured against a live context: reporting the declared type scored
+// beans precision/recall 0.818 (`clock` typed Clock, not SystemClock); preferring
+// the concrete return takes it to 1.000. method_return_mono (expr-type.dl) is the
+// existing relation for exactly this and is LOW-stratum, so it is safe to read here.
+cfg_factory_type(m, t) :- cfg_factory(_, m, _), method_return_mono("client", m, t).
+cfg_factory_type(m, t) :- cfg_factory(_, m, _), !method_return_mono("client", m, _),
+    method_return_type_resolves("client", m, _, t).
+bean_def(name, t, "factory_method", m) :- cfg_factory_type(m, t), cfg_factory_named(m, name).
+bean_def(name, t, "factory_method", m) :- cfg_factory_type(m, t), !cfg_factory_has_name(m),
+    java_method(name, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+
+// (c) XML <bean class="…"/>  (xml-wiring.dl)
+bean_def(id, t, "xml", elem) :- xml_bean(elem, id, t, _).
+
+// bean_type_is_client(BeanType) — gate (1) of the narrowing, applied on the
+// injection point's declared type below.
+cfg_client_type(t) :- java_type(_, _, _, _, _, _, _, _, _, _, _, _, _, t).
+
+// ── QUALIFIERS: the name a site may demand ───────────────────────────────────
+// A bean answers to its own name, and to any @Qualifier on its type.
+bean_qualifier(name, name) :- bean_def(name, _, _, _).
+bean_qualifier(name, q) :- bean_def(name, t, "stereotype", _),
+    ann_on_type(a, an, t), cfg_qualifier_ann(an), ann_arg_value(a, q), q != "".
+
+// ── PRIMARY: the tie-break the container applies before declaring an ambiguity ─
+bean_primary(name) :- bean_def(name, t, "stereotype", _),
+    ann_on_type(_, an, t), cfg_primary_ann(an).
+bean_primary(name) :- bean_def(name, _, "factory_method", m),
+    ann_on_method(_, an, m, _), cfg_primary_ann(an).
+bean_primary(name) :- bean_def(name, _, "xml", elem),
+    xml_attr("client", "primary", "true", elem, _).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. INJECTION POINTS  —  what asks for a bean
+// ─────────────────────────────────────────────────────────────────────────────
+// inject_point(SiteKind, Site, DeclaredType, OwnerType, Method)
+//   SiteKind ∈ { field, ctor_param, setter_param, factory_param, xml_property,
+//                xml_constructor_arg }
+//   Method   the method that receives it, "-" for a field.
+
+// (a) FIELD injection: @Autowired / @Inject / @Resource on a field. @Value is
+// excluded — it asks for a config KEY, not a bean, and is handled in impact.dl.
+cfg_inject_field(f, owner) :- ann_on_field(_, n, f, owner), cfg_inject_ann(n), !cfg_value_ann(n).
+inject_point("field", f, dt, owner, "-") :- cfg_inject_field(f, owner),
+    field_type_resolves(_, f, _, dt).
+
+// (b) CONSTRUCTOR injection, explicit: @Autowired/@Inject on a constructor.
+cfg_inject_ctor(m, owner) :- ann_on_method(_, n, m, owner), cfg_inject_ann(n), !cfg_value_ann(n),
+    method_kind("client", "CONSTRUCTOR", _, m).
+// (b') CONSTRUCTOR injection, IMPLICIT (Spring 4.3+): a bean class with exactly one
+// constructor, and that constructor takes arguments, is autowired without any
+// annotation. This is the dominant modern idiom; omitting it would make the whole
+// mechanism score near-zero recall on any recent codebase.
+//
+// ONLY for beans the container CONSTRUCTS. A class that is a bean because a @Bean
+// factory method RETURNS it was built by that method's own `new` — the container
+// never resolved its constructor arguments, so treating its parameters as injection
+// points invents a resolution that did not happen. Caught by the live-context oracle:
+// LoggingAuditSink (returned by AppConfig#auditSink) was reported as
+// constructor-injected and Spring disagreed — ctor_inject precision 0.500 -> 1.000.
+cfg_container_constructed(t) :- bean_def(_, t, "stereotype", _).
+cfg_container_constructed(t) :- bean_def(_, t, "xml", _).
+cfg_type_ctor(t, m) :- method_kind("client", "CONSTRUCTOR", _, m), method_owner("client", t, m).
+cfg_type_ctor_count(t, n) :- cfg_container_constructed(t), n = count : { cfg_type_ctor(t, _) }.
+cfg_inject_ctor(m, t) :- cfg_type_ctor_count(t, 1), cfg_type_ctor(t, m),
+    method_kind("client", "CONSTRUCTOR", pc, m), pc != "0".
+inject_point("ctor_param", p, dt, owner, m) :- cfg_inject_ctor(m, owner),
+    param_decl("client", _, _, _, m, p), method_param_type_resolves(_, p, _, dt),
+    !cfg_value_param(p).
+
+// (c) SETTER / method injection: @Autowired on a non-constructor method.
+cfg_inject_setter(m, owner) :- ann_on_method(_, n, m, owner), cfg_inject_ann(n), !cfg_value_ann(n),
+    method_kind("client", k, _, m), k != "CONSTRUCTOR".
+inject_point("setter_param", p, dt, owner, m) :- cfg_inject_setter(m, owner),
+    param_decl("client", _, _, _, m, p), method_param_type_resolves(_, p, _, dt),
+    !cfg_value_param(p).
+
+// (d) FACTORY-METHOD parameters: a @Bean method's parameters are resolved from the
+// context exactly like constructor arguments.
+inject_point("factory_param", p, dt, owner, m) :- cfg_factory(_, m, owner),
+    param_decl("client", _, _, _, m, p), method_param_type_resolves(_, p, _, dt),
+    !cfg_value_param(p).
+
+// A parameter carrying @Value is a config-key injection, not a bean injection.
+cfg_value_param(p) :- ann_on_param(_, n, p, _), cfg_value_ann(n).
+
+// (e) XML wiring is NOT an inject_point: <property ref="other"/> names its target
+// bean DIRECTLY, so there is no type matching to do and no candidate set to count.
+// It goes straight to di_edge below, resolved or dangling.
+
+// ── explicit qualifier on a site ─────────────────────────────────────────────
+inject_qualifier(f, q) :- cfg_inject_field(f, _), ann_on_field(a, n, f, _),
+    cfg_qualifier_ann(n), ann_arg_value(a, q), q != "".
+inject_qualifier(p, q) :- ann_on_param(a, n, p, _), cfg_qualifier_ann(n),
+    ann_arg_value(a, q), q != "".
+inject_has_qualifier(s) :- inject_qualifier(s, _).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. SATISFACTION  —  which beans could land in this slot
+// ─────────────────────────────────────────────────────────────────────────────
+// A bean satisfies a point if its type IS the declared type or a subtype of it.
+// type_ancestor is not reflexive, hence the two clauses.
+cfg_bean_fits(site, name, bt) :- inject_point(_, site, dt, _, _), dt != "-",
+    bean_def(name, bt, _, _), bt = dt.
+cfg_bean_fits(site, name, bt) :- inject_point(_, site, dt, _, _), dt != "-",
+    bean_def(name, bt, _, _), type_ancestor(bt, dt).
+// A @Qualifier narrows the candidate set to beans answering to that name; it
+// OUTRANKS @Primary, exactly as the container orders them.
+bean_satisfies(site, name, bt) :- cfg_bean_fits(site, name, bt),
+    inject_qualifier(site, q), bean_qualifier(name, q).
+// No qualifier: every fitting bean, UNLESS exactly one of them is @Primary — in
+// which case the container picks that one deterministically and so do we. Two
+// primaries is a startup error in Spring, so "exactly one" is the only case where
+// the rank decides anything; with 0 or 2+, the full candidate set stands.
+cfg_site_primary(site, name) :- cfg_bean_fits(site, name, _), bean_primary(name).
+cfg_site_primary_count(site, n) :- inject_point(_, site, _, _, _),
+    n = count : { cfg_site_primary(site, _) }.
+cfg_site_primary_unique(site) :- cfg_site_primary_count(site, 1).
+bean_satisfies(site, name, bt) :- cfg_bean_fits(site, name, bt),
+    !inject_has_qualifier(site), !cfg_site_primary_unique(site).
+bean_satisfies(site, name, bt) :- cfg_bean_fits(site, name, bt),
+    !inject_has_qualifier(site), cfg_site_primary_unique(site), bean_primary(name).
+
+// Count DISTINCT bean TYPES, not bean names: two names for one type (an alias, or a
+// stereotype whose class is also declared in XML) is still one injectable object,
+// and counting names would refuse to narrow a case the container resolves fine.
+cfg_satisfying_type(site, bt) :- bean_satisfies(site, _, bt).
+inject_bean_count(site, n) :- inject_point(_, site, _, _, _),
+    n = count : { cfg_satisfying_type(site, _) }.
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. di_edge  —  THE EXPORT
+// ─────────────────────────────────────────────────────────────────────────────
+// di_edge(Site, SiteKind, DeclaredType, BeanName, BeanType, Status)
+//   Status ∈ { known_bean, multi_bean, unsatisfied, xml_ref, xml_ref_dangling }
+// Deliberately mirrors call_chain.dl's vocabulary: one resolved target is a known
+// edge, several is a sound fan, none is a DECLARED dead end that is never dropped.
+di_edge(site, kind, dt, name, bt, "known_bean") :- inject_point(kind, site, dt, _, _),
+    inject_bean_count(site, 1), bean_satisfies(site, name, bt).
+di_edge(site, kind, dt, name, bt, "multi_bean") :- inject_point(kind, site, dt, _, _),
+    inject_bean_count(site, n), n >= 2, bean_satisfies(site, name, bt).
+di_edge(site, kind, dt, "-", "-", "unsatisfied") :- inject_point(kind, site, dt, _, _),
+    dt != "-", inject_bean_count(site, 0).
+config_unresolved("di", site, dt, "unsatisfied_injection_point") :-
+    inject_point(_, site, dt, _, _), dt != "-", inject_bean_count(site, 0).
+
+// XML wiring resolves by NAME, so it needs no type matching — but a dangling ref is
+// a defect worth surfacing.
+di_edge(wireElem, wireKind, "-", refId, bt, "xml_ref") :-
+    xml_bean(ownerElem, _, _, _), xml_wire(ownerElem, wireElem, wireKind, _, refId),
+    bean_def(refId, bt, _, _).
+cfg_xml_ref_resolved(refId) :- bean_def(refId, _, _, _).
+di_edge(wireElem, wireKind, "-", refId, "-", "xml_ref_dangling") :-
+    xml_bean(ownerElem, _, _, _), xml_wire(ownerElem, wireElem, wireKind, _, refId),
+    !cfg_xml_ref_resolved(refId).
+config_unresolved("xml", wireElem, refId, "dangling_bean_ref") :-
+    xml_bean(ownerElem, _, _, _), xml_wire(ownerElem, wireElem, _, _, refId),
+    !cfg_xml_ref_resolved(refId).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. THE NARROWING  —  where the graph gets smaller
+// ─────────────────────────────────────────────────────────────────────────────
+// di_field_mono(Field, ConcreteType): this field provably holds one runtime type.
+//
+// (a) FIELD injection with a unique bean.
+di_field_mono(f, bt) :- cfg_di_narrowing_enabled(),
+    inject_point("field", f, dt, _, _),
+    cfg_client_type(dt),                       // gate (1): client-typed slot
+    inject_bean_count(f, 1),                   // gate (2): exactly one bean
+    bean_satisfies(f, _, bt),
+    !field_init_new_type(f, _).                // gate (3): no competing `new`
+
+// (b) CONSTRUCTOR injection into a FINAL field — `private final H h; Ctor(H h){...}`.
+// `final` is what makes this sound: the field cannot be reassigned, so if the only
+// value that can reach it is the injected one, its runtime type is the bean's. The
+// constructor parameter is matched BY TYPE, which is how the container matches it.
+cfg_ctor_injected_field(f, dt) :- field_final(f),
+    java_field(_, _, _, _, _, _, _, _, owner, _, _, _, _, f),
+    field_type_resolves(_, f, _, dt),
+    cfg_inject_ctor(m, owner),
+    param_decl("client", _, _, _, m, p),
+    method_param_type_resolves(_, p, _, dt),
+    !cfg_value_param(p).
+di_field_mono(f, bt) :- cfg_di_narrowing_enabled(),
+    cfg_ctor_injected_field(f, dt),
+    cfg_client_type(dt),
+    inject_point("ctor_param", p, dt, _, _), inject_bean_count(p, 1),
+    bean_satisfies(p, _, bt),
+    !field_init_new_type(f, _).
+
+// Refuse to narrow if two different concrete types were derived for one field —
+// contradictory evidence must widen, never pick.
+di_field_multi(f) :- di_field_mono(f, t1), di_field_mono(f, t2), t1 != t2.
+
+// ── THE HOOK ────────────────────────────────────────────────────────────────
+// Contributing to field_mono_in_type (resolution/type-flow.dl) rather than
+// duplicating its six expr_type / expr_exact_type clauses: a DI-resolved field is
+// monomorphic in exactly the sense that file already defines, so it should enter
+// through the same door. Every consumer — qualified receiver, implicit-this
+// receiver, ancestor lookup, fan suppression — then works with no further change.
+field_mono_in_type(owner, name, t) :- di_field_mono(f, t), !di_field_multi(f),
+    java_field(name, _, _, _, _, _, _, _, owner, _, _, _, _, f).
+
+// ── the OTHER receiver spelling ──────────────────────────────────────────────
+// field_mono_in_type is consumed by resolution/type-flow.dl only for FIELD_ACCESS
+// nodes — `this.store.read()`. A BARE `store.read()` is emitted by the parser as
+// IDENTIFIER_REFERENCE / edgeRole RECEIVER / referencedEntityKind FIELD, which
+// those clauses never match, so the narrowing would silently do nothing for the
+// single most common way a field receiver is written. (The same hole affects the
+// pre-existing `final Foo f = new FooImpl()` narrowing; it is left alone here
+// rather than widened, so no existing edge changes.)
+//
+// These clauses are DI-scoped on purpose: they key on di_field_in_type, not on
+// field_mono_in_type, so a project with no container annotations derives nothing
+// from them and every existing golden is untouched.
+di_field_in_type(owner, name, t) :- di_field_mono(f, t), !di_field_multi(f),
+    java_field(name, _, _, _, _, _, _, _, owner, _, _, _, _, f).
+
+// Shadow guard: a local or parameter of the same name in the same method is NOT
+// the field, whatever the parser stamped. Reads containment + base facts only, so
+// it stays in the low stratum that expr_exact_type requires.
+di_recv_shadowed(e) :- java_expression("IDENTIFIER_REFERENCE", "RECEIVER", _, _, _, _, _, _, _, _, name, _, _, _, "FIELD", _, _, _, _, _, _, _, _, _, e),
+    expr_ultimate_method("client", e, m),
+    java_local_variable(name, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, _).
+di_recv_shadowed(e) :- java_expression("IDENTIFIER_REFERENCE", "RECEIVER", _, _, _, _, _, _, _, _, name, _, _, _, "FIELD", _, _, _, _, _, _, _, _, _, e),
+    expr_ultimate_method("client", e, m),
+    java_method_parameter(name, _, m, _, _, _, _, _, _, _, _, _, _).
+
+di_recv_mono(e, t) :- java_expression("IDENTIFIER_REFERENCE", "RECEIVER", _, _, _, _, _, _, _, _, name, _, _, _, "FIELD", _, _, _, _, _, _, _, _, _, e),
+    !di_recv_shadowed(e),
+    expr_ultimate_type("client", e, encl),
+    di_field_in_type(encl, name, t).
+di_recv_mono(e, t) :- java_expression("IDENTIFIER_REFERENCE", "RECEIVER", _, _, _, _, _, _, _, _, name, _, _, _, "FIELD", _, _, _, _, _, _, _, _, _, e),
+    !di_recv_shadowed(e),
+    expr_ultimate_type("client", e, encl),
+    type_ancestor(encl, anc),
+    di_field_in_type(anc, name, t).
+
+// expr_type makes the concrete method findable; expr_exact_type makes
+// call_exact_receiver true, which is what suppresses the CHA fan. Both are needed —
+// either one alone leaves the edge set unchanged.
+expr_type("client", e, t) :- di_recv_mono(e, t).
+expr_exact_type(e, t) :- di_recv_mono(e, t).
