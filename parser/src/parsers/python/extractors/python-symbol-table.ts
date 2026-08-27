@@ -1,3 +1,4 @@
+import { PythonScopeKind } from '@/enums/python/scopes/PythonScopeKind';
 import { SymbolBlockType } from '@/enums/python/scopes';
 import { SymbolBlock } from '@/parsers/python/types';
 

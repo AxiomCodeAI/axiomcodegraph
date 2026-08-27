@@ -3,6 +3,7 @@ import * as path from 'path';
 
 import { JavaDetector } from '@/language-detectors/java-detector';
 import { LanguageDetector } from '@/language-detectors/language-detector';
+import { PythonDetector } from '@/language-detectors/python-detector';
 import { ProjectLanguage, ProjectInfo } from '@/types/ProjectInfo';
 
 /**
@@ -13,7 +14,12 @@ export class ProjectDetector {
   private detectors: LanguageDetector[] = [];
 
   constructor() {
+    // Order matters: detectors are tried in turn and the first match wins. Java
+    // first because its manifests are unambiguous, Python second because a bare
+    // directory of .py files is a valid Python project and would otherwise be a
+    // greedy match on mixed repositories.
     this.registerDetector(new JavaDetector());
+    this.registerDetector(new PythonDetector());
   }
 
   /**

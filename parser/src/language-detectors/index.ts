@@ -1,3 +1,4 @@
 export type { LanguageDetector } from '@/language-detectors/language-detector';
 export { JavaDetector } from '@/language-detectors/java-detector';
 export { FileSystemHelper } from '@/language-detectors/file-system-helper';
+export { PythonDetector } from './python-detector';

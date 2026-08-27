@@ -51,14 +51,21 @@ src/test/python-gates/xpkg-corpus/
 **/__pycache__/
 *-out/
 
-# A0-owned Python oracle harness and its corpora. Kept on disk so the gates
-# still run locally, kept out of the repo because they are 3.7M of generated
-# and vendored corpus. Mirror: ~/Desktop/axiomcode-python-oracle-handoff
-src/test/python-oracle/
-src/test/python-tests.ts
-src/test-data/python/verified/
-src/test-data/python/verified-py312/
-src/test-data/python/categories/
-src/test-data/python/closed-world/
-src/test-data/python/linkage-sample/
+# The Python suite and its expectations ARE the deliverable and must ship.
+#
+# A blanket ignore here left python-tests.ts, the gates, every fixture and all
+# 4,127 frozen facts untracked — a fresh clone had no Python tests at all, and
+# the suite would have reported "no goldens" as though the corpus were missing
+# rather than never committed. Only genuinely regenerable corpora are excluded:
+#
+#   torture / vendored / mined   rebuilt from the pinned interpreter on demand
+#   _holdout                     retired
+src/test-data/python/torture/
+src/test-data/python/torture-pep695/
+src/test-data/python/torture-parse-gap/
+src/test-data/python/staging/
 src/test-data/python/_holdout/
+src/test/python-gates/xpkg-corpus/
+
+# Analyzer output from the test runner; deleted at the end of every run.
+.py-test-out/

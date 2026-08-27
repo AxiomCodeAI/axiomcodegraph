@@ -54,6 +54,12 @@ export interface PythonDeclarationExtraction {
   /** The synthetic `<module>` method PK — the fallback expression owner. */
   moduleMethodHash: string;
   /**
+   * Type references found in declarations — bases, annotations, return types —
+   * handed to the type-reference stage rather than resolved here. Set on the way
+   * out and consumed by the fact extractor; the interface never declared it.
+   */
+  typePositions: TypePositionInput[];
+  /**
    * `lambda` node id -> its `py_method` PK.
    *
    * A lambda is a real `py_method` (schema §2.7 lists `lambda` alongside `def`),
@@ -436,14 +442,22 @@ export class PythonDeclarationExtractor {
     this.lambdaMethodByNodeId.set(node.id, method.getHash());
     this.scopeOwnerByNodeId.set(node.id, method.getHash());
     this.enclosingMethodByScopeNodeId.set(node.id, method.getHash());
-    this.emitLambdaParameters(parameters, method, scopeHash);
+    this.emitLambdaParameters(parameters, method, scopeHash, enclosingTypeHash);
     return method;
   }
 
   private emitLambdaParameters(
     parameters: ParameterEntry[],
     method: PyMethodRegistry,
-    scopeHash: string
+    scopeHash: string,
+    /**
+     * Threaded through like every other emitter here. The annotation branch below
+     * referenced a `context` that does not exist in this scope — the method has no
+     * such parameter — so the file did not compile. Python forbids annotations on
+     * lambda parameters, which is why the branch never ran and the error went
+     * unnoticed: it is unreachable, not merely untested.
+     */
+    enclosingTypeHash: string
   ): void {
     for (const parameter of parameters) {
       const builder = PyMethodParameterRegistry.builder(
@@ -487,7 +501,7 @@ export class PythonDeclarationExtractor {
           context: PythonTypeRefContext.METHOD_PARAM,
           ownerHash: row.getHash(),
           ownerKind: PythonTypeRefOwnerKind.METHOD_PARAM,
-          enclosingTypeHash: context.enclosingTypeHash,
+          enclosingTypeHash,
           scopeHash,
         });
       }

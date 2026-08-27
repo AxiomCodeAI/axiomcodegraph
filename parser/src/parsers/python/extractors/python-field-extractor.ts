@@ -28,6 +28,11 @@ export interface PythonFieldExtraction {
   fields: PyFieldRegistry[];
   fieldPositions: PyFieldPositionRegistry[];
   /**
+   * Type references found on field annotations, handed to the type-reference
+   * stage. Built and returned by the stage; the interface never declared it.
+   */
+  fieldTypePositions: TypePositionInput[];
+  /**
    * `(pyTypeLinkHash, attributeName)` -> `py_field` PK.
    *
    * The join key schema §2.10 names when it deleted `py_field_write`: linking a
@@ -190,7 +195,6 @@ export class PythonFieldExtractor {
     const fieldPositions: PyFieldPositionRegistry[] = [];
     const fieldHashByTypeAndName = new Map<string, string>();
     const fieldByHash = new Map<string, PyFieldRegistry>();
-    const targetByteRangeByField = new Map<string, string>();
     this.receiverNameByMethodHash = new Map();
 
     for (const classNode of this.findClassNodes(input.rootNode)) {
@@ -842,7 +846,7 @@ export class PythonFieldExtractor {
     // Modifiers that depend on the whole class are applied after the merge:
     // whether a `@property` of the same name exists, and whether the name is a
     // slot, are facts about the class rather than about one write.
-    for (const [key, field] of byKey) {
+    for (const [, field] of byKey) {
       if (collection.propertyNames.has(field.getName())) {
         field.addModifier(PythonFieldModifier.PROPERTY_BACKED);
       }

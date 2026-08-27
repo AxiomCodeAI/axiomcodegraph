@@ -241,6 +241,8 @@ export class PythonExpressionExtractor {
       receiverName: '',
       receiverIsClass: false,
       statementRootContext: PythonRootContext.MODULE_LEVEL_STATEMENT,
+      // Module level is by definition not inside a class body.
+      directClassMember: false,
     });
 
     // The receiver's PK does not exist when its call site is minted, so the FK
@@ -1145,7 +1147,7 @@ export class PythonExpressionExtractor {
     // A parameter default types the parameter by construction, which is a
     // stronger statement about WHY the type is known than the literal alone.
     const evidence =
-      pending.edgeRole === PythonEdgeRole.PARAMETER_DEFAULT
+      pending.edgeRole === PythonEdgeRole.DEFAULT_VALUE
         ? PythonInferenceEvidence.DEFAULT_VALUE
         : inference.evidence;
     builder.withInference(
