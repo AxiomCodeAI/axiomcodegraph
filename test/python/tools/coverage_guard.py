@@ -22,7 +22,6 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from oracle_path import harness_root                       # noqa: E402
 from engine_edges import IR, edge_rows, rows               # noqa: E402
 
 
@@ -59,8 +58,8 @@ def main() -> int:
 
     oracle_absent = []
     if use_oracle:
-        harness_root()
-        from callchain_oracle import Normalizer, sites_for_tree      # noqa: E402
+        from vendor.normalize import Normalizer                       # noqa: E402
+        from vendor.tier1_sites import sites_for_tree                 # noqa: E402
         norm = Normalizer(src)
         covered = set()
         for c in parser_sites:
