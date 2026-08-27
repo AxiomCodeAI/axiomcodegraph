@@ -11,8 +11,10 @@ import {
   TsDecoratorSemantics,
   TsDecoratorSystem,
 } from '@/enums/typescript/decorators';
+import { TsReferenceOwnerKind, TsTypeRefContext } from '@/enums/typescript/type-references';
 import { nodeId } from '@/parsers/typescript/extractors/ts-binder';
 import { unwrapParentheses } from '@/parsers/typescript/extractors/ts-expression-extractor';
+import { TsTypeReferenceExtractor } from '@/parsers/typescript/extractors/ts-type-reference-extractor';
 import { EntityUtils } from '@/utils/entity-utils';
 
 /**
@@ -50,6 +52,17 @@ export interface DecoratorExtractorOptions {
   readonly fieldHashByNode: ReadonlyMap<string, string>;
   readonly parameterHashByNode: ReadonlyMap<string, string>;
   readonly expressionRowByNode: ReadonlyMap<string, TsExpressionRegistry>;
+  /**
+   * So a decorator can contribute to the TYPE graph as well as the call graph.
+   *
+   * Java emits `ANNOTATION_TYPE` for the annotation a usage names and
+   * `ANNOTATION_PARAM` for types inside its arguments. Both port directly: a
+   * decorator names a function or class, and `@Inject(UserRepository)` names a
+   * type as a DI token. Without them a decorator is a call with no type edge,
+   * and the DI pattern the relation exists to surface is unqueryable from the
+   * type side.
+   */
+  readonly typeReferenceExtractor: TsTypeReferenceExtractor;
 }
 
 export interface DecoratorExtractionResult {
@@ -111,6 +124,23 @@ export function extractDecorators(
         serviceVersionLinkHash: options.serviceVersionLinkHash,
       });
       decorators.push(row);
+
+      // The type the decorator NAMES — Java's ANNOTATION_TYPE. Links the usage
+      // to the declaration that implements it.
+      const decoratorTypeNode = synthesiseDecoratorTypeNode(callee);
+      if (decoratorTypeNode) {
+        options.typeReferenceExtractor.extract(
+          decoratorTypeNode,
+          TsTypeRefContext.DECORATOR_TYPE,
+          {
+            ownerHash: row.getHash(),
+            ownerKind: TsReferenceOwnerKind.DECORATOR,
+            tsTypeLinkHash: typeHash,
+            tsModuleLinkHash: options.moduleHash,
+          },
+          false
+        );
+      }
 
       let argumentPosition = 0;
       for (const argument of argumentsList ?? []) {
@@ -206,6 +236,27 @@ function emitArgument(
     return;
   }
 
+  // A capitalised bare name in a decorator argument is the DI-token pattern —
+  // Java's ANNOTATION_PARAM. Emitting it into the type graph is what makes
+  // `@Inject(UserRepository)` joinable from the type side rather than only as
+  // free text in `argumentValue`.
+  if (ts.isIdentifier(argument) && /^[A-Z]/.test(argument.text)) {
+    const tokenType = synthesiseDecoratorTypeNode(argument);
+    if (tokenType) {
+      options.typeReferenceExtractor.extract(
+        tokenType,
+        TsTypeRefContext.DECORATOR_ARGUMENT_TYPE,
+        {
+          ownerHash: decorator.getHash(),
+          ownerKind: TsReferenceOwnerKind.DECORATOR,
+          tsTypeLinkHash: '',
+          tsModuleLinkHash: options.moduleHash,
+        },
+        false
+      );
+    }
+  }
+
   out.push(new TsDecoratorArgumentRegistry({
     argumentName: '',
     argumentValue: EntityUtils.normalizeWhitespace(argument.getText(sf)),
@@ -219,6 +270,53 @@ function emitArgument(
     tsExpressionLinkHash: expressionHash,
     serviceVersionLinkHash: options.serviceVersionLinkHash,
   }));
+}
+
+/**
+ * A type node over the name a decorator uses, borrowing its source range.
+ *
+ * The decorator's callee is an EXPRESSION, so there is no `TypeNode` in the tree
+ * to point at. The synthesised node reuses the original identifiers and their
+ * positions, so the emitted row names real source text rather than an empty
+ * string at offset zero.
+ */
+function synthesiseDecoratorTypeNode(callee: ts.Node): ts.TypeNode | undefined {
+  if (!ts.isIdentifier(callee) && !ts.isPropertyAccessExpression(callee)) {
+    return undefined;
+  }
+  const name = entityNameOf(callee);
+  if (!name) {
+    return undefined;
+  }
+  const node = ts.factory.createTypeReferenceNode(name, undefined) as ts.TypeNode & {
+    pos: number; end: number; parent: ts.Node;
+  };
+  node.pos = callee.pos;
+  node.end = callee.end;
+  node.parent = callee.parent;
+  return node;
+}
+
+function entityNameOf(
+  expression: ts.Identifier | ts.PropertyAccessExpression
+): ts.EntityName | undefined {
+  if (ts.isIdentifier(expression)) {
+    return expression;
+  }
+  const left = unwrapParentheses(expression.expression);
+  if (!ts.isIdentifier(left) && !ts.isPropertyAccessExpression(left)) {
+    return undefined;
+  }
+  const qualifier = entityNameOf(left);
+  if (!qualifier || ts.isPrivateIdentifier(expression.name)) {
+    return undefined;
+  }
+  const qualified = ts.factory.createQualifiedName(qualifier, expression.name) as
+    ts.QualifiedName & { pos: number; end: number; parent: ts.Node };
+  qualified.pos = expression.pos;
+  qualified.end = expression.end;
+  qualified.parent = expression.parent;
+  return qualified;
 }
 
 function decoratorNameOf(callee: ts.Node): string {

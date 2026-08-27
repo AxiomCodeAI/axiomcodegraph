@@ -2,11 +2,12 @@ import * as ts from 'typescript';
 
 import { TsTypeReferenceRegistry } from '@/analysis-types/typescript/TsTypeReferenceRegistry';
 import { TS_TYPE_REFERENCE_MAX_DEPTH } from '@/constants/typescript-constants';
+import { TsTypeParameterOwnerKind } from '@/enums/typescript/type-parameters';
 import {
   TsReferenceOwnerKind,
   TsTypeRefContext,
   TsTypeRefKind,
-  TsTypeRefVariance,
+  TsWildcardVariance,
 } from '@/enums/typescript/type-references';
 import { EntityUtils } from '@/utils/entity-utils';
 
@@ -64,6 +65,22 @@ export class TsTypeReferenceExtractor {
    * `getResolvedSignature` on every such call.
    */
   onFunctionType: ((node: ts.FunctionTypeNode | ts.ConstructorTypeNode) => void) | undefined;
+
+  /**
+   * Called for every type parameter a TYPE-LEVEL construct declares.
+   *
+   * `[K in keyof T]` and `infer U` declare real parameters with real scopes and
+   * have no Java analogue, so no declaration walk reaches them — they live
+   * inside type nodes. 1,337 `infer` and 605 mapped types measured, so this is
+   * not a corner: without the hook, 1,942 declarations have no row.
+   */
+  onTypeLevelParameter:
+    | ((
+        typeParameter: ts.TypeParameterDeclaration,
+        ownerHash: string,
+        ownerKind: TsTypeParameterOwnerKind
+      ) => void)
+    | undefined;
 
   constructor(
     private readonly sourceFile: ts.SourceFile,
@@ -143,6 +160,15 @@ export class TsTypeReferenceExtractor {
     this.rows.push(row);
     if (this.onFunctionType && (ts.isFunctionTypeNode(node) || ts.isConstructorTypeNode(node))) {
       this.onFunctionType(node);
+    }
+    if (this.onTypeLevelParameter) {
+      if (ts.isMappedTypeNode(node)) {
+        this.onTypeLevelParameter(node.typeParameter, row.getHash(),
+          TsTypeParameterOwnerKind.MAPPED_TYPE);
+      } else if (ts.isInferTypeNode(node)) {
+        this.onTypeLevelParameter(node.typeParameter, row.getHash(),
+          TsTypeParameterOwnerKind.INFER_TYPE);
+      }
     }
 
     if (isTruncated) {
@@ -265,7 +291,7 @@ function plannedChildren(node: ts.TypeNode): PlannedChild[] {
     return out;
   }
   if (ts.isInferTypeNode(node)) {
-    push(node.typeParameter.constraint, TsTypeRefContext.TYPE_PARAM_CONSTRAINT);
+    push(node.typeParameter.constraint, TsTypeRefContext.TYPE_PARAM_BOUND);
     return out;
   }
   if (ts.isTypeLiteralNode(node)) {
@@ -475,10 +501,10 @@ function varianceOf(node: ts.TypeNode): string {
     return '';
   }
   if (node.operator === ts.SyntaxKind.ReadonlyKeyword) {
-    return TsTypeRefVariance.READONLY;
+    return TsWildcardVariance.READONLY;
   }
   if (node.operator === ts.SyntaxKind.UniqueKeyword) {
-    return TsTypeRefVariance.UNIQUE;
+    return TsWildcardVariance.UNIQUE;
   }
   return '';
 }

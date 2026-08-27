@@ -9,7 +9,7 @@ import {
   TsModuleKind,
   TsModuleResolutionMode,
   TsScriptKind,
-  TS_MERGE_SCOPE,
+  TsMergeScopePrefix,
 } from '@/enums/typescript/modules';
 import { nodeId } from '@/parsers/typescript/extractors/ts-binder';
 
@@ -82,8 +82,8 @@ export function extractModules(input: ModuleExtractionInput): ModuleExtractionRe
     // MODULE_EXPORTS; a global script contributes to GLOBAL and mints nothing
     // of its own, which is exactly why two scripts' declarations merge.
     mergeTableKey: isExternalModule
-      ? `${TS_MERGE_SCOPE.MODULE_EXPORTS}:${''}`
-      : TS_MERGE_SCOPE.GLOBAL,
+      ? `${TsMergeScopePrefix.MODULE_EXPORTS}:${''}`
+      : TsMergeScopePrefix.GLOBAL,
     moduleResolutionMode: input.moduleResolutionMode,
     tsConfigPath: input.tsConfigPath,
     targetTsVersion: TS_TARGET_VERSION,
@@ -113,8 +113,8 @@ export function extractModules(input: ModuleExtractionInput): ModuleExtractionRe
     isAmbient: fileModule.isAmbient,
     packageName: fileModule.packageName,
     mergeTableKey: isExternalModule
-      ? `${TS_MERGE_SCOPE.MODULE_EXPORTS}:${fileModule.getHash()}`
-      : TS_MERGE_SCOPE.GLOBAL,
+      ? `${TsMergeScopePrefix.MODULE_EXPORTS}:${fileModule.getHash()}`
+      : TsMergeScopePrefix.GLOBAL,
     moduleResolutionMode: fileModule.moduleResolutionMode,
     tsConfigPath: fileModule.tsConfigPath,
     targetTsVersion: fileModule.targetTsVersion,
@@ -159,7 +159,7 @@ export function extractModules(input: ModuleExtractionInput): ModuleExtractionRe
           isExternalModule: false,
           isAmbient: true,
           packageName: input.packageName,
-          mergeTableKey: isGlobalAugmentation ? TS_MERGE_SCOPE.GLOBAL : '',
+          mergeTableKey: isGlobalAugmentation ? TsMergeScopePrefix.GLOBAL : '',
           moduleResolutionMode: input.moduleResolutionMode,
           tsConfigPath: input.tsConfigPath,
           targetTsVersion: TS_TARGET_VERSION,

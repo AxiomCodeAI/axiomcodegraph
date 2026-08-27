@@ -140,7 +140,14 @@ export interface ResolutionStats {
 
 export class TsLocalResolver {
   private readonly sf: ts.SourceFile;
-  /** Declared type name -> the local `ts_type` row, for Path 1's last hop. */
+  /**
+   * Declared type name -> a local `ts_type` row.
+   *
+   * Used ONLY for the same-file `extends` chain, where the base name was written
+   * in the same declaration and no shadowing question arises. Never for a
+   * receiver's type: see {@link localTypeAt} for why a flat table is the wrong
+   * instrument there.
+   */
   private readonly typeByName = new Map<string, TsTypeRegistry>();
   /** `ts_type` hash -> its methods, so a member lookup is one map hit. */
   private readonly methodsByOwner = new Map<string, TsMethodRegistry[]>();
@@ -593,7 +600,7 @@ export class TsLocalResolver {
     // is everything the engine needs; whether the base is in this file or
     // imported is its join to make.
     callSite.setReceiverTypeName(baseName);
-    const local = this.localTypeNameOf(baseName);
+    const local = this.localTypeAt(node, baseName);
     if (local) {
       this.resolveConstructorOf(local.getHash(), callSite, argumentCount);
       return;
@@ -681,7 +688,7 @@ export class TsLocalResolver {
         return;
       }
       callSite.setReceiverTypeName(baseName);
-      const base = this.localTypeNameOf(baseName);
+      const base = this.localTypeAt(callee, baseName);
       if (base && this.resolveMemberOfType(base, member, callSite, argumentCount,
         TsResolutionEvidence.SUPER_MEMBER)) {
         return;
@@ -774,7 +781,7 @@ export class TsLocalResolver {
     // expression and reducing it here is what produced the one wrong link this
     // parser has ever emitted.
     callSite.setReceiverTypeName(declaredTypeName);
-    const type = this.localTypeNameOf(declaredTypeName);
+    const type = this.localTypeAt(receiver, declaredTypeName);
     if (type && this.resolveMemberOfType(type, member, callSite, argumentCount,
       TsResolutionEvidence.DECLARED_RECEIVER_TYPE)) {
       return;
@@ -789,28 +796,56 @@ export class TsLocalResolver {
   }
 
   /**
-   * The `ts_type` declared IN THIS FILE that an annotation names — or nothing.
+   * The `ts_type` an annotation names, resolved THROUGH THE SCOPE CHAIN.
    *
-   * Deliberately strict, and the strictness is the generalised fix for the one
-   * wrong link this parser emitted. Only a BARE IDENTIFIER counts. `Row[]`,
-   * `readonly Row[]`, `Promise<Row>`, `Map<K, Row>`, `Row | null`,
-   * `Parser.SyntaxNode` and `string` all return nothing, because none of them
-   * NAMES a declaration in this file — they name `Array`, `Promise`, `Map`, a
-   * union, an imported namespace member, and a primitive respectively.
+   * Two guards, and each closes a whole class of wrong link.
    *
-   * The earlier version reduced `Row[]` to `Row` and then looked `Row` up, so a
-   * project type with a member colliding with an `Array` method would have taken
-   * a call belonging to `Array`. Extending a list of lib names would have fixed
-   * the cases on the list; refusing anything that is not a bare identifier fixes
-   * the class, including `string`, `Promise`, `Map` and `Set`, and needs no list
-   * to be maintained.
+   * **Only a bare identifier counts.** `Row[]`, `readonly Row[]`,
+   * `Promise<Row>`, `Map<K, Row>`, `Row | null`, `Parser.SyntaxNode` and
+   * `string` all return nothing, because none of them NAMES a declaration —
+   * they name `Array`, `Promise`, `Map`, a union, an imported namespace member
+   * and a primitive. An earlier version reduced `Row[]` to `Row` and looked
+   * `Row` up, so a project type with a member colliding with an `Array` method
+   * would have taken a call belonging to `Array`. Refusing anything that is not
+   * a bare identifier fixes the class with no list to maintain.
+   *
+   * **The name is resolved from the RECEIVER'S POSITION, not from a flat table.**
+   * This is the guard the corpus caught:
+   *
+   * ```ts
+   * const map = new Map<string, Row>();   // the GLOBAL Map
+   * map.get("k");                          // → lib Map.get
+   *
+   * function elsewhere() {
+   *     class Map { get(k: string) { … } } // a LOCAL Map, in another scope
+   * }
+   * ```
+   *
+   * A per-file map keyed by name finds the local `class Map` and resolves
+   * `map.get` to it — a wrong target that looks exactly like a right one. Asking
+   * the binder what `Map` means AT THAT POSITION gives the answer tsc gives,
+   * and makes shadowing correct by construction rather than by exclusion list.
    */
-  private localTypeNameOf(annotation: string): TsTypeRegistry | undefined {
+  private localTypeAt(node: ts.Node, annotation: string): TsTypeRegistry | undefined {
     const text = annotation.trim();
     if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(text)) {
       return undefined;
     }
-    return this.typeByName.get(text);
+    const binding = this.lookup(node, text);
+    if (!binding) {
+      return undefined;
+    }
+    // Only a TYPE-space declaration can be a receiver's type. A variable or a
+    // parameter of the same name shadows the type for VALUE lookups and must
+    // not be mistaken for one here.
+    if (binding.kind !== TsBoundKind.ClassDeclaration
+      && binding.kind !== TsBoundKind.InterfaceDeclaration
+      && binding.kind !== TsBoundKind.TypeAliasDeclaration
+      && binding.kind !== TsBoundKind.EnumDeclaration) {
+      return undefined;
+    }
+    const hash = this.input.typeHashByNode.get(nodeId(binding.node, this.sf));
+    return hash ? this.typeByHash(hash) : undefined;
   }
 
   /**

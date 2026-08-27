@@ -746,7 +746,7 @@ function mergePartition(): number {
  * number is 283 and the drop is a POLICY CHANGE, recorded here rather than
  * smoothed over. It may fall again only with the same kind of note.
  */
-const SAME_FILE_LINK_FLOOR = 283;
+const SAME_FILE_LINK_FLOOR = 304;
 
 /**
  * IIFE call sites whose callee expression does not yet carry its `ts_method` FK.
@@ -998,17 +998,16 @@ function factBaseInvariants(): number {
   let rows = 0, links = 0;
 
   for (const [slug, outputDir] of corpora) {
+    // DERIVED from the emitted files, never listed. A hand-maintained list goes
+    // stale the moment a relation is added, and the way it goes stale is the
+    // worst available: the new relation's PKs are absent from `known`, so every
+    // FK pointing at them is reported as DANGLING. A real check then produces a
+    // false failure, which is how a correct parser gets debugged for an hour.
     const all = new Map<string, Record<string, string>[]>();
-    for (const file of [
-      'all-typescript-modules.csv', 'all-typescript-types.csv',
-      'all-typescript-type-heritages.csv', 'all-typescript-type-references.csv',
-      'all-typescript-methods.csv', 'all-typescript-method-parameters.csv',
-      'all-typescript-fields.csv', 'all-typescript-variables.csv',
-      'all-typescript-imports.csv', 'all-typescript-expressions.csv',
-      'all-typescript-call-sites.csv', 'all-typescript-blocks.csv',
-      'all-typescript-decorators.csv', 'all-typescript-decorator-arguments.csv',
-    ]) {
-      all.set(file, relation(outputDir, file));
+    for (const file of fs.readdirSync(outputDir)) {
+      if (file.startsWith('all-typescript-') && file.endsWith('.csv')) {
+        all.set(file, relation(outputDir, file));
+      }
     }
 
     // 2. Every PK is unique within its relation.

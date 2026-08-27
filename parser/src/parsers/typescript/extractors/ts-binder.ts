@@ -2,7 +2,7 @@ import * as ts from 'typescript';
 
 import { ENTITY_IDENTIFIERS } from '@/constants/entity-constants';
 import { TS_DEFAULT_EXPORT_NAME } from '@/constants/typescript-constants';
-import { TS_MERGE_SCOPE } from '@/enums/typescript/modules';
+import { TsMergeScopePrefix } from '@/enums/typescript/modules';
 import { TsDeclarationSpace } from '@/enums/typescript/types';
 import { EntityUtils } from '@/utils/entity-utils';
 
@@ -215,11 +215,11 @@ class Binder {
       true,
       true,
       this.options.isExternalModule
-        ? `${TS_MERGE_SCOPE.MODULE_EXPORTS}:${this.options.moduleHash}`
-        : TS_MERGE_SCOPE.GLOBAL,
+        ? `${TsMergeScopePrefix.MODULE_EXPORTS}:${this.options.moduleHash}`
+        : TsMergeScopePrefix.GLOBAL,
       this.options.isExternalModule
-        ? `${TS_MERGE_SCOPE.MODULE_LOCALS}:${this.options.moduleHash}`
-        : TS_MERGE_SCOPE.GLOBAL,
+        ? `${TsMergeScopePrefix.MODULE_LOCALS}:${this.options.moduleHash}`
+        : TsMergeScopePrefix.GLOBAL,
       ''
     );
     this.scopeByNode.set(nodeId(this.sf, this.sf), fileScope);
@@ -274,7 +274,7 @@ class Binder {
   private makeLocalScope(node: ts.Node, kind: TsScopeKind, parent: TsScope,
                          isVarScope: boolean, isBlockScope: boolean): TsScope {
     const scope = this.makeScope(node, kind, parent, isVarScope, isBlockScope, '', '', '');
-    const key = `${TS_MERGE_SCOPE.LOCALS}:${scope.scopeHash}`;
+    const key = `${TsMergeScopePrefix.LOCALS}:${scope.scopeHash}`;
     const withKeys: TsScope = { ...scope, exportedMergeScopeKey: key, localMergeScopeKey: key };
     this.scopeByNode.set(nodeId(node, this.sf), withKeys);
     return withKeys;
@@ -435,8 +435,8 @@ class Binder {
         nearest,
         true,
         true,
-        `${TS_MERGE_SCOPE.MODULE_EXPORTS}:${targetHash}`,
-        `${TS_MERGE_SCOPE.MODULE_EXPORTS}:${targetHash}`,
+        `${TsMergeScopePrefix.MODULE_EXPORTS}:${targetHash}`,
+        `${TsMergeScopePrefix.MODULE_EXPORTS}:${targetHash}`,
         ''
       );
       this.scopeByNode.set(nodeId(node, this.sf), scope);
@@ -473,8 +473,8 @@ class Binder {
         nearest,
         true,
         true,
-        TS_MERGE_SCOPE.GLOBAL,
-        TS_MERGE_SCOPE.GLOBAL,
+        TsMergeScopePrefix.GLOBAL,
+        TsMergeScopePrefix.GLOBAL,
         ''
       );
       this.scopeByNode.set(nodeId(node, this.sf), scope);
@@ -514,7 +514,7 @@ class Binder {
       // Exported members belong to the NAMESPACE's table, keyed by the
       // namespace's own group key, so a member survives the namespace merging
       // with a class, a function or an enum of the same name.
-      `${TS_MERGE_SCOPE.NS}:${binding?.declarationGroupKey ?? ''}`,
+      `${TsMergeScopePrefix.NS}:${binding?.declarationGroupKey ?? ''}`,
       '',
       binding?.declarationGroupKey ?? ''
     );
@@ -522,7 +522,7 @@ class Binder {
     // namespace symbol, so they can never be reached by qualified name.
     const withLocal: TsScope = {
       ...scope,
-      localMergeScopeKey: `${TS_MERGE_SCOPE.LOCALS}:${scope.scopeHash}`,
+      localMergeScopeKey: `${TsMergeScopePrefix.LOCALS}:${scope.scopeHash}`,
     };
     this.scopeByNode.set(nodeId(body, this.sf), withLocal);
     for (const statement of body.statements) {
@@ -787,8 +787,8 @@ class Binder {
         undefined,
         true,
         true,
-        TS_MERGE_SCOPE.GLOBAL,
-        TS_MERGE_SCOPE.GLOBAL,
+        TsMergeScopePrefix.GLOBAL,
+        TsMergeScopePrefix.GLOBAL,
         ''
       );
     }

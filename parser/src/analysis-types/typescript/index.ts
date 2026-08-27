@@ -10,6 +10,7 @@ export * from './TsMethodParameterRegistry';
 export * from './TsMethodRegistry';
 export * from './TsModuleRegistry';
 export * from './TsTypeHeritageRegistry';
+export * from './TsTypeParameterRegistry';
 export * from './TsTypeReferenceRegistry';
 export * from './TsTypeRegistry';
 export * from './TsVariableRegistry';

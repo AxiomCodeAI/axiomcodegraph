@@ -135,7 +135,7 @@ export class TypeScriptProjectAnalyzer {
 
     this.skippedFiles = [];
     const accumulated: Record<string, CsvRow[]> = {
-      modules: [], types: [], typeHeritages: [], typeReferences: [], methods: [],
+      modules: [], types: [], typeHeritages: [], typeParameters: [], typeReferences: [], methods: [],
       methodParameters: [], fields: [], variables: [], imports: [], expressions: [],
       callSites: [], blocks: [], decorators: [], decoratorArguments: [],
     };
@@ -187,6 +187,7 @@ export class TypeScriptProjectAnalyzer {
       accumulated.modules!.push(...facts.modules);
       accumulated.types!.push(...facts.types);
       accumulated.typeHeritages!.push(...facts.heritages);
+      accumulated.typeParameters!.push(...facts.typeParameters);
       accumulated.typeReferences!.push(...facts.typeReferences);
       accumulated.methods!.push(...facts.methods);
       accumulated.methodParameters!.push(...facts.methodParameters);
@@ -217,6 +218,8 @@ export class TypeScriptProjectAnalyzer {
     await this.exportCsv(accumulated.types!, options.outputDir, TYPESCRIPT_CSV_FILES.TYPES);
     await this.exportCsv(accumulated.typeHeritages!, options.outputDir,
       TYPESCRIPT_CSV_FILES.TYPE_HERITAGES);
+    await this.exportCsv(accumulated.typeParameters!, options.outputDir,
+      TYPESCRIPT_CSV_FILES.TYPE_PARAMETERS);
     await this.exportCsv(accumulated.typeReferences!, options.outputDir,
       TYPESCRIPT_CSV_FILES.TYPE_REFERENCES);
     await this.exportCsv(accumulated.methods!, options.outputDir, TYPESCRIPT_CSV_FILES.METHODS);
@@ -247,6 +250,7 @@ export class TypeScriptProjectAnalyzer {
         ts_module: accumulated.modules!.length,
         ts_type: accumulated.types!.length,
         ts_type_heritage: accumulated.typeHeritages!.length,
+        ts_type_parameter: accumulated.typeParameters!.length,
         ts_type_reference: accumulated.typeReferences!.length,
         ts_method: accumulated.methods!.length,
         ts_method_parameter: accumulated.methodParameters!.length,

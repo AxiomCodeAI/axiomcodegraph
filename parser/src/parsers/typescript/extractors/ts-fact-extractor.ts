@@ -11,6 +11,7 @@ import { TsMethodParameterRegistry } from '@/analysis-types/typescript/TsMethodP
 import { TsMethodRegistry } from '@/analysis-types/typescript/TsMethodRegistry';
 import { TsModuleRegistry } from '@/analysis-types/typescript/TsModuleRegistry';
 import { TsTypeHeritageRegistry } from '@/analysis-types/typescript/TsTypeHeritageRegistry';
+import { TsTypeParameterRegistry } from '@/analysis-types/typescript/TsTypeParameterRegistry';
 import { TsTypeReferenceRegistry } from '@/analysis-types/typescript/TsTypeReferenceRegistry';
 import { TsTypeRegistry } from '@/analysis-types/typescript/TsTypeRegistry';
 import { TsVariableRegistry } from '@/analysis-types/typescript/TsVariableRegistry';
@@ -91,6 +92,7 @@ export interface TsFileFacts {
   readonly fields: readonly TsFieldRegistry[];
   readonly variables: readonly TsVariableRegistry[];
   readonly heritages: readonly TsTypeHeritageRegistry[];
+  readonly typeParameters: readonly TsTypeParameterRegistry[];
   readonly typeReferences: readonly TsTypeReferenceRegistry[];
   readonly imports: readonly TsImportRegistry[];
   readonly expressions: readonly TsExpressionRegistry[];
@@ -251,6 +253,7 @@ export function extractTypeScriptFile(options: TsFileExtractionOptions): TsFileF
     fieldHashByNode: declarations.fieldHashByNode,
     parameterHashByNode: declarations.parameterHashByNode,
     expressionRowByNode: expressions.rowByNode,
+    typeReferenceExtractor: declarations.typeReferenceExtractor,
   });
 
   return {
@@ -261,6 +264,7 @@ export function extractTypeScriptFile(options: TsFileExtractionOptions): TsFileF
     fields: declarations.fields,
     variables: declarations.variables,
     heritages: declarations.heritages,
+    typeParameters: declarations.typeParameters,
     typeReferences: declarations.typeReferenceExtractor.getRows(),
     imports: importResult.imports,
     expressions: expressions.expressions,

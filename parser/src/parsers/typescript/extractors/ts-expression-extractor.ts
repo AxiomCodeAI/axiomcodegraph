@@ -198,20 +198,60 @@ export class TsExpressionExtractor {
         )
       );
     }
-    // Explicit type arguments at a call or new site sit in a VALUE-bearing
-    // position, which is the one case where `isTypeOnlyPosition` is false.
+    // ---- type references written in VALUE positions -----------------------
+    //
+    // Java emits all of these and an earlier version of this parser emitted
+    // none, which was a recall gap rather than a design choice: `new Repo()`,
+    // `x instanceof Widget` and `makeList<string>()` all NAME A TYPE, and the
+    // name is evaluated at runtime. They are the only contexts for which
+    // `isTypeOnlyPosition` is false.
+    const owner = {
+      ownerHash: row.getHash(),
+      ownerKind: TsReferenceOwnerKind.EXPRESSION,
+      tsTypeLinkHash: item.owner.typeHash,
+      tsModuleLinkHash: item.owner.moduleHash,
+    };
+
+    // `makeList<string>()` — Java's METHOD_TYPE_ARGUMENT, distinguished from a
+    // type argument in a TYPE position because this one appears in an expression.
     for (const typeArgument of typeArgumentsOf(item.node) ?? []) {
       this.options.typeReferenceExtractor.extract(
         typeArgument,
-        TsTypeRefContext.TYPE_ARGUMENT,
-        {
-          ownerHash: row.getHash(),
-          ownerKind: TsReferenceOwnerKind.EXPRESSION,
-          tsTypeLinkHash: item.owner.typeHash,
-          tsModuleLinkHash: item.owner.moduleHash,
-        },
+        TsTypeRefContext.METHOD_TYPE_ARGUMENT,
+        owner,
         false
       );
+    }
+
+    // `new Repo()` — Java's OBJECT_CREATION_TYPE. The constructed type is named
+    // in the source, so it is a type reference AND a value reference. Without it
+    // the type graph has no edge for the single most common way a class is used.
+    if (ts.isNewExpression(item.node)) {
+      const constructed = constructedTypeNodeOf(item.node);
+      if (constructed) {
+        this.options.typeReferenceExtractor.extract(
+          constructed,
+          TsTypeRefContext.OBJECT_CREATION_TYPE,
+          owner,
+          false
+        );
+      }
+    }
+
+    // `x instanceof Widget` — Java's INSTANCEOF_TYPE, and the main narrowing
+    // lever the engine has. The right operand is a VALUE expression in the
+    // grammar (a constructor), and it names a type; both facts are recorded.
+    if (ts.isBinaryExpression(item.node)
+      && item.node.operatorToken.kind === ts.SyntaxKind.InstanceOfKeyword) {
+      const tested = instanceofTypeNodeOf(item.node);
+      if (tested) {
+        this.options.typeReferenceExtractor.extract(
+          tested,
+          TsTypeRefContext.INSTANCEOF_TYPE,
+          owner,
+          false
+        );
+      }
     }
 
     if (item.depth >= TS_EXPRESSION_MAX_DEPTH) {
@@ -575,6 +615,82 @@ function argumentsOf(node: ts.Node): readonly ts.Expression[] {
     return node.arguments ?? [];
   }
   return [];
+}
+
+/**
+ * The type node a `new` expression constructs, synthesised from its callee.
+ *
+ * `new Repo()` has no `TypeNode` in the tree — the callee is an EXPRESSION, and
+ * `ts.factory` is the only way to obtain a type node for it. The synthesised node
+ * is given the callee's position so the emitted row points at the source text
+ * that named the type, not at a position of nothing.
+ *
+ * Returns nothing for a computed callee (`new registry[name]()`): there is no
+ * name to record, and inventing one would be a claim about a value the parser
+ * cannot read.
+ */
+function constructedTypeNodeOf(node: ts.NewExpression): ts.TypeNode | undefined {
+  const callee = unwrapParentheses(node.expression);
+  if (!ts.isIdentifier(callee) && !ts.isPropertyAccessExpression(callee)) {
+    return undefined;
+  }
+  return synthesiseTypeReference(callee);
+}
+
+/** The type node tested by `x instanceof C`, synthesised from the right operand. */
+function instanceofTypeNodeOf(node: ts.BinaryExpression): ts.TypeNode | undefined {
+  const right = unwrapParentheses(node.right);
+  if (!ts.isIdentifier(right) && !ts.isPropertyAccessExpression(right)) {
+    return undefined;
+  }
+  return synthesiseTypeReference(right);
+}
+
+/**
+ * Builds a `TypeReferenceNode` over an existing name expression.
+ *
+ * The synthesised node borrows the source node's `pos`/`end` and parent so that
+ * `getStart`, `getText` and `getLineAndCharacterOfPosition` all answer about the
+ * REAL source range. Without that the row would carry position 0 and text `""`,
+ * which is worse than not emitting it: a row that names nothing still joins.
+ */
+function synthesiseTypeReference(
+  name: ts.Identifier | ts.PropertyAccessExpression
+): ts.TypeNode | undefined {
+  const entityName = toEntityName(name);
+  if (!entityName) {
+    return undefined;
+  }
+  const node = ts.factory.createTypeReferenceNode(entityName, undefined) as ts.TypeNode & {
+    pos: number; end: number; parent: ts.Node;
+  };
+  node.pos = name.pos;
+  node.end = name.end;
+  node.parent = name.parent;
+  return node;
+}
+
+/** `a.b.C` as an entity name, reusing the ORIGINAL identifier nodes so text survives. */
+function toEntityName(
+  expression: ts.Identifier | ts.PropertyAccessExpression
+): ts.EntityName | undefined {
+  if (ts.isIdentifier(expression)) {
+    return expression;
+  }
+  const left = unwrapParentheses(expression.expression);
+  if (!ts.isIdentifier(left) && !ts.isPropertyAccessExpression(left)) {
+    return undefined;
+  }
+  const qualifier = toEntityName(left);
+  if (!qualifier || ts.isPrivateIdentifier(expression.name)) {
+    return undefined;
+  }
+  const qualified = ts.factory.createQualifiedName(qualifier, expression.name) as
+    ts.QualifiedName & { pos: number; end: number; parent: ts.Node };
+  qualified.pos = expression.pos;
+  qualified.end = expression.end;
+  qualified.parent = expression.parent;
+  return qualified;
 }
 
 function typeArgumentsOf(node: ts.Node): readonly ts.TypeNode[] | undefined {

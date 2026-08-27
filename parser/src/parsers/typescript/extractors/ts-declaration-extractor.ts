@@ -5,6 +5,7 @@ import { TsFieldRegistry } from '@/analysis-types/typescript/TsFieldRegistry';
 import { TsMethodParameterRegistry } from '@/analysis-types/typescript/TsMethodParameterRegistry';
 import { TsMethodRegistry } from '@/analysis-types/typescript/TsMethodRegistry';
 import { TsTypeHeritageRegistry } from '@/analysis-types/typescript/TsTypeHeritageRegistry';
+import { TsTypeParameterRegistry } from '@/analysis-types/typescript/TsTypeParameterRegistry';
 import { TsTypeRegistry } from '@/analysis-types/typescript/TsTypeRegistry';
 import { TsVariableRegistry } from '@/analysis-types/typescript/TsVariableRegistry';
 import { ENTITY_IDENTIFIERS } from '@/constants/entity-constants';
@@ -27,6 +28,10 @@ import {
   TsMethodModifier,
   TsSignatureRole,
 } from '@/enums/typescript/methods';
+import {
+  TsTypeParameterOwnerKind,
+  TsVarianceAnnotation,
+} from '@/enums/typescript/type-parameters';
 import {
   TsReferenceOwnerKind,
   TsTypeRefContext,
@@ -72,6 +77,7 @@ export interface DeclarationExtractionResult {
   readonly fields: readonly TsFieldRegistry[];
   readonly variables: readonly TsVariableRegistry[];
   readonly heritages: readonly TsTypeHeritageRegistry[];
+  readonly typeParameters: readonly TsTypeParameterRegistry[];
   readonly blocks: readonly TsBlockRegistry[];
   readonly typeReferenceExtractor: TsTypeReferenceExtractor;
 }
@@ -112,6 +118,7 @@ export class TsDeclarationExtractor {
   readonly fields: TsFieldRegistry[] = [];
   readonly variables: TsVariableRegistry[] = [];
   readonly heritages: TsTypeHeritageRegistry[] = [];
+  readonly typeParameters: TsTypeParameterRegistry[] = [];
   readonly blocks: TsBlockRegistry[] = [];
   readonly typeReferenceExtractor: TsTypeReferenceExtractor;
 
@@ -122,6 +129,7 @@ export class TsDeclarationExtractor {
   readonly variableHashByNode = new Map<string, string>();
   readonly parameterHashByNode = new Map<string, string>();
   readonly blockHashByNode = new Map<string, string>();
+  readonly typeParameterHashByNode = new Map<string, string>();
   /** Rows by node identity, for back-patching FKs that only exist later. */
   readonly typeRowByNode = new Map<string, TsTypeRegistry>();
   readonly methodRowByNode = new Map<string, TsMethodRegistry>();
@@ -157,6 +165,14 @@ export class TsDeclarationExtractor {
     // argument. Enumerating those positions by hand would miss one.
     this.typeReferenceExtractor.onFunctionType = (node) => {
       this.emitFunctionTypeSignature(node);
+    };
+    // `[K in keyof T]` and `infer U` declare real type parameters that no
+    // declaration walk reaches — they are inside type NODES. Minting them from
+    // the type-reference walk is what guarantees every one gets a row, wherever
+    // it was written.
+    this.typeReferenceExtractor.onTypeLevelParameter = (typeParameter, ownerHash, ownerKind) => {
+      this.emitTypeLevelParameter(typeParameter, ownerHash, ownerKind,
+        this.options.moduleHash);
     };
   }
 
@@ -237,6 +253,26 @@ export class TsDeclarationExtractor {
     this.methods.push(row);
     this.methodHashByNode.set(id, row.getHash());
     this.methodRowByNode.set(id, row);
+    // A function type can be generic: `<T>(x: T) => T`. Its parameters belong to
+    // this signature row, with METHOD_TYPE_PARAM_BOUND bounds like any other
+    // function-shaped declaration's.
+    this.emitTypeParameters(node.typeParameters, row.getHash(),
+      isConstructor
+        ? TsTypeParameterOwnerKind.CONSTRUCT_SIGNATURE
+        : TsTypeParameterOwnerKind.FUNCTION,
+      {
+        typeHash: '',
+        methodHash: row.getHash(),
+        blockHash: '',
+        ownerTypeName: '',
+        ownerQualifiedName: this.options.moduleQualifiedName,
+        namePath: [],
+        scopeDepth: 0,
+        isAmbient: true,
+        moduleHash: this.options.moduleHash,
+        moduleQualifiedName: this.options.moduleQualifiedName,
+      },
+      TsTypeRefContext.METHOD_TYPE_PARAM_BOUND);
   }
 
   run(): void {
@@ -403,7 +439,8 @@ export class TsDeclarationExtractor {
     }
     const inner = this.contextForType(row, node, context);
     this.pushTypeParameters(node.typeParameters);
-    this.emitTypeParameterReferences(node.typeParameters, row.getHash());
+    this.emitTypeParameters(node.typeParameters, row.getHash(),
+      TsTypeParameterOwnerKind.CLASS, inner, TsTypeRefContext.TYPE_PARAM_BOUND);
     this.emitHeritage(node, row, context);
 
     let memberCount = 0;
@@ -439,7 +476,8 @@ export class TsDeclarationExtractor {
     }
     const inner = this.contextForType(row, node, context);
     this.pushTypeParameters(node.typeParameters);
-    this.emitTypeParameterReferences(node.typeParameters, row.getHash());
+    this.emitTypeParameters(node.typeParameters, row.getHash(),
+      TsTypeParameterOwnerKind.INTERFACE, inner, TsTypeRefContext.TYPE_PARAM_BOUND);
     this.emitHeritage(node, row, context);
 
     let memberCount = 0;
@@ -478,7 +516,9 @@ export class TsDeclarationExtractor {
     // without re-walking the tree.
     this.typeAliasTargetByName.set(row.name, node.type);
     this.pushTypeParameters(node.typeParameters);
-    this.emitTypeParameterReferences(node.typeParameters, row.getHash());
+    this.emitTypeParameters(node.typeParameters, row.getHash(),
+      TsTypeParameterOwnerKind.TYPE_ALIAS, this.contextForType(row, node, context),
+      TsTypeRefContext.TYPE_PARAM_BOUND);
     // The RHS hangs off `aliasTargetReferenceLinkHash` into the type-reference
     // tree. A type alias gets a `ts_type` row because it is a named declaration
     // that merges and can be extended — 2,491 measured — but it gets no path
@@ -707,7 +747,7 @@ export class TsDeclarationExtractor {
         heritage.setTsTypeReferenceLinkHash(
           this.typeReferenceExtractor.extract(
             type,
-            isExtends ? TsTypeRefContext.SUPER_TYPE : TsTypeRefContext.IMPLEMENTS_CLAUSE,
+            isExtends ? TsTypeRefContext.SUPER_TYPE : TsTypeRefContext.IMPLEMENTS_INTERFACE,
             {
               ownerHash: heritage.getHash(),
               ownerKind: TsReferenceOwnerKind.HERITAGE,
@@ -1007,7 +1047,12 @@ export class TsDeclarationExtractor {
     this.methodRowByNode.set(nodeId(node, this.sf), row);
     this.recordOverloadCandidate(row, context, body !== undefined);
 
-    this.emitTypeParameterReferences(typeParameters, row.getHash());
+    // METHOD_TYPE_PARAM_BOUND, not TYPE_PARAM_BOUND: the split Java makes, kept
+    // so a query about method type parameters does not have to join back to the
+    // owner to find out what kind it was.
+    this.emitTypeParameters(typeParameters, row.getHash(),
+      typeParameterOwnerKindFor(methodKind), context,
+      TsTypeRefContext.METHOD_TYPE_PARAM_BOUND);
     if (returnType) {
       row.setReturnTypeReferenceLinkHash(
         this.typeReferenceExtractor.extract(returnType, TsTypeRefContext.METHOD_RETURN, {
@@ -1555,37 +1600,122 @@ export class TsDeclarationExtractor {
     return all;
   }
 
-  /** `ts_type_parameter` is second-freeze; the CONSTRAINTS still enter the type graph. */
-  private emitTypeParameterReferences(
+  /**
+   * Emits `ts_type_parameter` rows, their BOUNDS and their DEFAULTS.
+   *
+   * The bound's context is `TYPE_PARAM_BOUND` for a type owner and
+   * `METHOD_TYPE_PARAM_BOUND` for a function-shaped one — the same split Java
+   * makes, so "every bound on a method type parameter" stays one predicate even
+   * though the declaration rows share a relation.
+   *
+   * `T extends A & B` produces ONE parameter row whose bound is an
+   * `INTERSECTION` reference with two `TYPE_ELEMENT` children, rather than two
+   * bound rows. That is the tree this schema uses everywhere, and it keeps
+   * `A & B` distinguishable from `A | B`, which two flat rows would not.
+   */
+  private emitTypeParameters(
     typeParameters: ts.NodeArray<ts.TypeParameterDeclaration> | undefined,
-    ownerHash: string
+    ownerHash: string,
+    ownerKind: TsTypeParameterOwnerKind,
+    context: EmitContext,
+    boundContext: TsTypeRefContext
   ): void {
+    let position = 0;
     for (const typeParameter of typeParameters ?? []) {
+      const startPos = this.sf.getLineAndCharacterOfPosition(typeParameter.getStart(this.sf));
+      const row = new TsTypeParameterRegistry({
+        paramName: typeParameter.name.text,
+        position,
+        ownerTypeName: context.ownerTypeName,
+        ownerQualifiedName: context.ownerQualifiedName,
+        filePath: this.options.filePath,
+        startLine: startPos.line + 1,
+        tsTypeLinkHash: ownerKind === TsTypeParameterOwnerKind.CLASS
+          || ownerKind === TsTypeParameterOwnerKind.INTERFACE
+          || ownerKind === TsTypeParameterOwnerKind.TYPE_ALIAS
+          ? ownerHash
+          : context.typeHash,
+        ownerKind,
+        ownerLinkHash: ownerHash,
+        constraintText: typeParameter.constraint
+          ? EntityUtils.normalizeWhitespace(typeParameter.constraint.getText(this.sf))
+          : '',
+        defaultText: typeParameter.default
+          ? EntityUtils.normalizeWhitespace(typeParameter.default.getText(this.sf))
+          : '',
+        varianceAnnotation: varianceAnnotationOf(typeParameter),
+        isConst: hasModifier(typeParameter, ts.SyntaxKind.ConstKeyword),
+        startColumn: startPos.character + 1,
+        serviceVersionLinkHash: this.options.serviceVersionLinkHash,
+      });
+      this.typeParameters.push(row);
+      this.typeParameterHashByNode.set(nodeId(typeParameter, this.sf), row.getHash());
+
+      const owner = {
+        ownerHash: row.getHash(),
+        ownerKind: TsReferenceOwnerKind.TYPE_PARAMETER,
+        tsTypeLinkHash: context.typeHash,
+        tsModuleLinkHash: context.moduleHash,
+      };
       if (typeParameter.constraint) {
-        this.typeReferenceExtractor.extract(
-          typeParameter.constraint,
-          TsTypeRefContext.TYPE_PARAM_CONSTRAINT,
-          {
-            ownerHash,
-            ownerKind: TsReferenceOwnerKind.TYPE_PARAMETER,
-            tsTypeLinkHash: '',
-            tsModuleLinkHash: this.options.moduleHash,
-          }
+        row.setConstraintReferenceLinkHash(
+          this.typeReferenceExtractor.extract(typeParameter.constraint, boundContext, owner)
         );
       }
       if (typeParameter.default) {
-        this.typeReferenceExtractor.extract(
-          typeParameter.default,
-          TsTypeRefContext.TYPE_PARAM_DEFAULT,
-          {
-            ownerHash,
-            ownerKind: TsReferenceOwnerKind.TYPE_PARAMETER,
-            tsTypeLinkHash: '',
-            tsModuleLinkHash: this.options.moduleHash,
-          }
+        row.setDefaultReferenceLinkHash(
+          this.typeReferenceExtractor.extract(
+            typeParameter.default,
+            TsTypeRefContext.TYPE_PARAM_DEFAULT,
+            owner
+          )
         );
       }
+      position += 1;
     }
+  }
+
+  /**
+   * Emits the type parameters a TYPE-LEVEL construct declares.
+   *
+   * `[K in keyof T]` and `infer U` declare real parameters with real scopes, and
+   * neither has a Java analogue — so neither is reachable from the declaration
+   * walk. They are minted from inside the type-reference walk, which is the only
+   * traversal that visits every type node wherever it was written.
+   */
+  emitTypeLevelParameter(
+    typeParameter: ts.TypeParameterDeclaration,
+    ownerHash: string,
+    ownerKind: TsTypeParameterOwnerKind,
+    moduleHash: string
+  ): void {
+    const id = nodeId(typeParameter, this.sf);
+    if (this.typeParameterHashByNode.has(id)) {
+      return;
+    }
+    const startPos = this.sf.getLineAndCharacterOfPosition(typeParameter.getStart(this.sf));
+    const row = new TsTypeParameterRegistry({
+      paramName: typeParameter.name.text,
+      position: 0,
+      ownerTypeName: '',
+      ownerQualifiedName: this.options.moduleQualifiedName,
+      filePath: this.options.filePath,
+      startLine: startPos.line + 1,
+      tsTypeLinkHash: '',
+      ownerKind,
+      ownerLinkHash: ownerHash,
+      constraintText: typeParameter.constraint
+        ? EntityUtils.normalizeWhitespace(typeParameter.constraint.getText(this.sf))
+        : '',
+      defaultText: '',
+      varianceAnnotation: '',
+      isConst: false,
+      startColumn: startPos.character + 1,
+      serviceVersionLinkHash: this.options.serviceVersionLinkHash,
+    });
+    this.typeParameters.push(row);
+    this.typeParameterHashByNode.set(id, row.getHash());
+    void moduleHash;
   }
 }
 
@@ -1632,6 +1762,53 @@ const TYPE_ONLY_METHOD_KINDS = new Set<TsMethodKind>([
   TsMethodKind.CONSTRUCT_SIGNATURE,
   TsMethodKind.FUNCTION_TYPE_SIGNATURE,
 ]);
+
+/** `in` / `out` on a type parameter. TypeScript 4.7; 562 measured. */
+function varianceAnnotationOf(
+  typeParameter: ts.TypeParameterDeclaration
+): TsVarianceAnnotation | '' {
+  const hasIn = hasModifier(typeParameter, ts.SyntaxKind.InKeyword);
+  const hasOut = hasModifier(typeParameter, ts.SyntaxKind.OutKeyword);
+  if (hasIn && hasOut) {
+    return TsVarianceAnnotation.IN_OUT;
+  }
+  if (hasIn) {
+    return TsVarianceAnnotation.IN;
+  }
+  if (hasOut) {
+    return TsVarianceAnnotation.OUT;
+  }
+  return '';
+}
+
+/**
+ * Which of the nine owner kinds a function-shaped declaration is.
+ *
+ * The distinction is what lets one relation stand in for Java's two: a
+ * projection filters on it instead of choosing a relation.
+ */
+function typeParameterOwnerKindFor(methodKind: TsMethodKind): TsTypeParameterOwnerKind {
+  switch (methodKind) {
+    case TsMethodKind.FUNCTION_DECLARATION:
+    case TsMethodKind.FUNCTION_EXPRESSION:
+    case TsMethodKind.FUNCTION_TYPE_SIGNATURE: {
+      return TsTypeParameterOwnerKind.FUNCTION;
+    }
+    case TsMethodKind.ARROW_FUNCTION: {
+      return TsTypeParameterOwnerKind.ARROW;
+    }
+    case TsMethodKind.CALL_SIGNATURE: {
+      return TsTypeParameterOwnerKind.CALL_SIGNATURE;
+    }
+    case TsMethodKind.CONSTRUCT_SIGNATURE:
+    case TsMethodKind.CONSTRUCTOR_TYPE_SIGNATURE: {
+      return TsTypeParameterOwnerKind.CONSTRUCT_SIGNATURE;
+    }
+    default: {
+      return TsTypeParameterOwnerKind.METHOD;
+    }
+  }
+}
 
 function methodNameOf(
   node: ts.Node,

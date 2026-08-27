@@ -94,6 +94,7 @@ export const TYPESCRIPT_CSV_FILES = {
   MODULES: 'all-typescript-modules.csv',
   TYPES: 'all-typescript-types.csv',
   TYPE_HERITAGES: 'all-typescript-type-heritages.csv',
+  TYPE_PARAMETERS: 'all-typescript-type-parameters.csv',
   TYPE_REFERENCES: 'all-typescript-type-references.csv',
   METHODS: 'all-typescript-methods.csv',
   METHOD_PARAMETERS: 'all-typescript-method-parameters.csv',
