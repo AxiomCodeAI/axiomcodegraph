@@ -173,7 +173,7 @@
   },
   {
    "path": "type-system/keyof-typeof-indexed.ts",
-   "digest": "bcc2166507a83d4e22039b4ce165b0248bca880f"
+   "digest": "219052ae32113fd7e81b85db31ea985f25d7d42c"
   },
   {
    "path": "type-system/mapped-types.ts",
@@ -212,8 +212,16 @@
    "digest": "93d911e01ad67c143575c4c6e75fc7f6ce7d119b"
   },
   {
+   "path": "type-system/structural/collision-support.ts",
+   "digest": "1300185638eaaf985b70cca8c8281fc5b13306b3"
+  },
+  {
    "path": "type-system/structural/implicit-implements.ts",
    "digest": "ead8e0aa0c0eaa2b828928d1437d7dc2d13dd7af"
+  },
+  {
+   "path": "type-system/structural/name-collisions.ts",
+   "digest": "75441c4b5e2e0658b9a3cdcf99defae6b0464290"
   },
   {
    "path": "type-system/template-literal-types.ts",
@@ -225,11 +233,15 @@
   },
   {
    "path": "type-system/type-only/erased-exports.ts",
-   "digest": "aca3ec0b4655551996a95629b4df1fb1e6b41103"
+   "digest": "ae6c873dc5dcd8f4e02b62cb33cb9d41278bde35"
   },
   {
    "path": "type-system/type-only/erasure-boundary.ts",
    "digest": "1e31504c0830d69c5c6931242fb1d0278c00e227"
+  },
+  {
+   "path": "type-system/typeof-subjects.ts",
+   "digest": "83d2889a715a4157ad205d465ac25cb5299ca077"
   },
   {
    "path": "type-system/unions-and-intersections.ts",
@@ -270,7 +282,7 @@
    "reason": "excluded from the corpus tsconfig — needs its own tsconfig and its own gate run"
   }
  ],
- "declarationSites": 1268,
+ "declarationSites": 1314,
  "groups": [
   {
    "name": "ClassValues",
@@ -10767,42 +10779,6 @@
    ]
   },
   {
-   "name": "UserValue",
-   "spaces": [
-    "TYPE"
-   ],
-   "kinds": [
-    "TypeAliasDeclaration"
-   ],
-   "sites": [
-    "type-system/keyof-typeof-indexed.ts:101:1"
-   ]
-  },
-  {
-   "name": "PluckedEmail",
-   "spaces": [
-    "TYPE"
-   ],
-   "kinds": [
-    "TypeAliasDeclaration"
-   ],
-   "sites": [
-    "type-system/keyof-typeof-indexed.ts:102:1"
-   ]
-  },
-  {
-   "name": "RoleElement",
-   "spaces": [
-    "TYPE"
-   ],
-   "kinds": [
-    "TypeAliasDeclaration"
-   ],
-   "sites": [
-    "type-system/keyof-typeof-indexed.ts:103:1"
-   ]
-  },
-  {
    "name": "User",
    "spaces": [
     "TYPE"
@@ -10811,7 +10787,7 @@
     "InterfaceDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:12:1"
+    "type-system/keyof-typeof-indexed.ts:18:1"
    ]
   },
   {
@@ -10823,7 +10799,7 @@
     "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:23:1"
+    "type-system/keyof-typeof-indexed.ts:29:1"
    ]
   },
   {
@@ -10835,7 +10811,7 @@
     "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:24:1"
+    "type-system/keyof-typeof-indexed.ts:30:1"
    ]
   },
   {
@@ -10847,7 +10823,7 @@
     "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:25:1"
+    "type-system/keyof-typeof-indexed.ts:31:1"
    ]
   },
   {
@@ -10859,7 +10835,7 @@
     "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:26:1"
+    "type-system/keyof-typeof-indexed.ts:32:1"
    ]
   },
   {
@@ -10871,7 +10847,7 @@
     "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:27:1"
+    "type-system/keyof-typeof-indexed.ts:33:1"
    ]
   },
   {
@@ -10883,7 +10859,7 @@
     "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:28:1"
+    "type-system/keyof-typeof-indexed.ts:34:1"
    ]
   },
   {
@@ -10895,7 +10871,7 @@
     "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:29:1"
+    "type-system/keyof-typeof-indexed.ts:35:1"
    ]
   },
   {
@@ -10907,70 +10883,7 @@
     "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:30:1"
-   ]
-  },
-  {
-   "name": "defaultUser",
-   "spaces": [
-    "VALUE"
-   ],
-   "kinds": [
-    "VariableDeclaration"
-   ],
-   "sites": [
-    "type-system/keyof-typeof-indexed.ts:34:14"
-   ]
-  },
-  {
-   "name": "routes",
-   "spaces": [
-    "VALUE"
-   ],
-   "kinds": [
-    "VariableDeclaration"
-   ],
-   "sites": [
-    "type-system/keyof-typeof-indexed.ts:42:14"
-   ]
-  },
-  {
-   "name": "makeUser",
-   "spaces": [
-    "VALUE"
-   ],
-   "kinds": [
-    "FunctionDeclaration"
-   ],
-   "sites": [
-    "type-system/keyof-typeof-indexed.ts:44:1"
-   ]
-  },
-  {
-   "name": "Service",
-   "spaces": [
-    "TYPE",
-    "VALUE"
-   ],
-   "kinds": [
-    "ClassDeclaration"
-   ],
-   "sites": [
-    "type-system/keyof-typeof-indexed.ts:48:1"
-   ]
-  },
-  {
-   "name": "Status",
-   "spaces": [
-    "NAMESPACE",
-    "TYPE",
-    "VALUE"
-   ],
-   "kinds": [
-    "EnumDeclaration"
-   ],
-   "sites": [
-    "type-system/keyof-typeof-indexed.ts:58:1"
+    "type-system/keyof-typeof-indexed.ts:36:1"
    ]
   },
   {
@@ -10982,7 +10895,7 @@
     "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:63:1"
+    "type-system/keyof-typeof-indexed.ts:44:1"
    ]
   },
   {
@@ -10994,7 +10907,7 @@
     "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:64:1"
+    "type-system/keyof-typeof-indexed.ts:45:1"
    ]
   },
   {
@@ -11006,7 +10919,7 @@
     "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:65:1"
+    "type-system/keyof-typeof-indexed.ts:46:1"
    ]
   },
   {
@@ -11018,7 +10931,7 @@
     "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:66:1"
+    "type-system/keyof-typeof-indexed.ts:47:1"
    ]
   },
   {
@@ -11030,7 +10943,7 @@
     "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:67:1"
+    "type-system/keyof-typeof-indexed.ts:48:1"
    ]
   },
   {
@@ -11042,7 +10955,7 @@
     "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:68:1"
+    "type-system/keyof-typeof-indexed.ts:49:1"
    ]
   },
   {
@@ -11054,7 +10967,7 @@
     "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:69:1"
+    "type-system/keyof-typeof-indexed.ts:50:1"
    ]
   },
   {
@@ -11066,7 +10979,7 @@
     "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:70:1"
+    "type-system/keyof-typeof-indexed.ts:51:1"
    ]
   },
   {
@@ -11078,7 +10991,7 @@
     "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:71:1"
+    "type-system/keyof-typeof-indexed.ts:52:1"
    ]
   },
   {
@@ -11090,7 +11003,7 @@
     "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:72:1"
+    "type-system/keyof-typeof-indexed.ts:53:1"
    ]
   },
   {
@@ -11102,7 +11015,7 @@
     "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:76:1"
+    "type-system/keyof-typeof-indexed.ts:57:1"
    ]
   },
   {
@@ -11114,7 +11027,7 @@
     "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:77:1"
+    "type-system/keyof-typeof-indexed.ts:58:1"
    ]
   },
   {
@@ -11126,7 +11039,7 @@
     "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:78:1"
+    "type-system/keyof-typeof-indexed.ts:59:1"
    ]
   },
   {
@@ -11138,7 +11051,7 @@
     "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:79:1"
+    "type-system/keyof-typeof-indexed.ts:60:1"
    ]
   },
   {
@@ -11150,7 +11063,7 @@
     "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:80:1"
+    "type-system/keyof-typeof-indexed.ts:61:1"
    ]
   },
   {
@@ -11162,7 +11075,7 @@
     "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:81:1"
+    "type-system/keyof-typeof-indexed.ts:62:1"
    ]
   },
   {
@@ -11174,7 +11087,7 @@
     "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:82:1"
+    "type-system/keyof-typeof-indexed.ts:63:1"
    ]
   },
   {
@@ -11186,7 +11099,7 @@
     "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:83:1"
+    "type-system/keyof-typeof-indexed.ts:64:1"
    ]
   },
   {
@@ -11198,7 +11111,7 @@
     "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:84:1"
+    "type-system/keyof-typeof-indexed.ts:65:1"
    ]
   },
   {
@@ -11210,7 +11123,7 @@
     "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:85:1"
+    "type-system/keyof-typeof-indexed.ts:66:1"
    ]
   },
   {
@@ -11222,7 +11135,7 @@
     "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:89:1"
+    "type-system/keyof-typeof-indexed.ts:70:1"
    ]
   },
   {
@@ -11234,7 +11147,7 @@
     "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:90:1"
+    "type-system/keyof-typeof-indexed.ts:71:1"
    ]
   },
   {
@@ -11246,31 +11159,67 @@
     "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:91:1"
+    "type-system/keyof-typeof-indexed.ts:72:1"
    ]
   },
   {
-   "name": "getProperty",
+   "name": "GetProperty",
    "spaces": [
-    "VALUE"
+    "TYPE"
    ],
    "kinds": [
-    "FunctionDeclaration"
+    "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:93:1"
+    "type-system/keyof-typeof-indexed.ts:76:1"
    ]
   },
   {
-   "name": "setProperty",
+   "name": "SetProperty",
    "spaces": [
-    "VALUE"
+    "TYPE"
    ],
    "kinds": [
-    "FunctionDeclaration"
+    "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/keyof-typeof-indexed.ts:97:1"
+    "type-system/keyof-typeof-indexed.ts:77:1"
+   ]
+  },
+  {
+   "name": "UserValue",
+   "spaces": [
+    "TYPE"
+   ],
+   "kinds": [
+    "TypeAliasDeclaration"
+   ],
+   "sites": [
+    "type-system/keyof-typeof-indexed.ts:79:1"
+   ]
+  },
+  {
+   "name": "PluckedEmail",
+   "spaces": [
+    "TYPE"
+   ],
+   "kinds": [
+    "TypeAliasDeclaration"
+   ],
+   "sites": [
+    "type-system/keyof-typeof-indexed.ts:80:1"
+   ]
+  },
+  {
+   "name": "RoleElement",
+   "spaces": [
+    "TYPE"
+   ],
+   "kinds": [
+    "TypeAliasDeclaration"
+   ],
+   "sites": [
+    "type-system/keyof-typeof-indexed.ts:81:1"
    ]
   },
   {
@@ -13991,6 +13940,30 @@
    ]
   },
   {
+   "name": "makeRow",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "FunctionDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/collision-support.ts:12:1"
+   ]
+  },
+  {
+   "name": "Row",
+   "spaces": [
+    "TYPE"
+   ],
+   "kinds": [
+    "InterfaceDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/collision-support.ts:8:1"
+   ]
+  },
+  {
    "name": "RichLogger",
    "spaces": [
     "TYPE",
@@ -14355,6 +14328,539 @@
    ],
    "sites": [
     "type-system/structural/implicit-implements.ts:97:1"
+   ]
+  },
+  {
+   "name": "Path",
+   "spaces": [
+    "TYPE",
+    "VALUE"
+   ],
+   "kinds": [
+    "ClassDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:129:1"
+   ]
+  },
+  {
+   "name": "callLocalCollisions",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "FunctionDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:155:1"
+   ]
+  },
+  {
+   "name": "pipeline",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:156:11"
+   ]
+  },
+  {
+   "name": "ids",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:159:11"
+   ]
+  },
+  {
+   "name": "count",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:164:11"
+   ]
+  },
+  {
+   "name": "folded",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:165:11"
+   ]
+  },
+  {
+   "name": "deferred",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:169:11"
+   ]
+  },
+  {
+   "name": "params",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:173:11"
+   ]
+  },
+  {
+   "name": "got",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:174:11"
+   ]
+  },
+  {
+   "name": "present",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:175:11"
+   ]
+  },
+  {
+   "name": "size",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:177:11"
+   ]
+  },
+  {
+   "name": "path",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:180:11"
+   ]
+  },
+  {
+   "name": "parts",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:181:11"
+   ]
+  },
+  {
+   "name": "callBuiltinsForContrast",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "FunctionDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:189:1"
+   ]
+  },
+  {
+   "name": "array",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:190:11"
+   ]
+  },
+  {
+   "name": "map",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:191:11"
+   ]
+  },
+  {
+   "name": "text",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:192:11"
+   ]
+  },
+  {
+   "name": "ids",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:195:11"
+   ]
+  },
+  {
+   "name": "viaMap",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:197:11"
+   ]
+  },
+  {
+   "name": "present",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:198:11"
+   ]
+  },
+  {
+   "name": "parts",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:199:11"
+   ]
+  },
+  {
+   "name": "promised",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:200:11"
+   ]
+  },
+  {
+   "name": "shadowedByLocalBinding",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "FunctionDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:209:1"
+   ]
+  },
+  {
+   "name": "map",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:210:11"
+   ]
+  },
+  {
+   "name": "get",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:211:11"
+   ]
+  },
+  {
+   "name": "shadowedBuiltinTypes",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "FunctionDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:220:1"
+   ]
+  },
+  {
+   "name": "Map",
+   "spaces": [
+    "TYPE",
+    "VALUE"
+   ],
+   "kinds": [
+    "ClassDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:222:5"
+   ]
+  },
+  {
+   "name": "parseInt",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "FunctionDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:229:5"
+   ]
+  },
+  {
+   "name": "local",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:233:11"
+   ]
+  },
+  {
+   "name": "Row",
+   "spaces": [
+    "TYPE"
+   ],
+   "kinds": [
+    "InterfaceDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:240:1"
+   ]
+  },
+  {
+   "name": "localVersusImportedRow",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "FunctionDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:245:1"
+   ]
+  },
+  {
+   "name": "localRow",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:246:11"
+   ]
+  },
+  {
+   "name": "unresolvableReceivers",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "FunctionDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:254:1"
+   ]
+  },
+  {
+   "name": "asArray",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:256:11"
+   ]
+  },
+  {
+   "name": "asFrozen",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:257:11"
+   ]
+  },
+  {
+   "name": "asPromise",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:259:11"
+   ]
+  },
+  {
+   "name": "Pipeline",
+   "spaces": [
+    "TYPE",
+    "VALUE"
+   ],
+   "kinds": [
+    "ClassDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:26:1"
+   ]
+  },
+  {
+   "name": "anonymous",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:261:11"
+   ]
+  },
+  {
+   "name": "structural",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:263:11"
+   ]
+  },
+  {
+   "name": "item",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:41:20"
+   ]
+  },
+  {
+   "name": "acc",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:49:13"
+   ]
+  },
+  {
+   "name": "item",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:50:20"
+   ]
+  },
+  {
+   "name": "Deferred",
+   "spaces": [
+    "TYPE",
+    "VALUE"
+   ],
+   "kinds": [
+    "ClassDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:74:1"
+   ]
+  },
+  {
+   "name": "Params",
+   "spaces": [
+    "TYPE",
+    "VALUE"
+   ],
+   "kinds": [
+    "ClassDeclaration"
+   ],
+   "sites": [
+    "type-system/structural/name-collisions.ts:97:1"
    ]
   },
   {
@@ -14754,6 +15260,18 @@
    ]
   },
   {
+   "name": "Contract",
+   "spaces": [
+    "TYPE"
+   ],
+   "kinds": [
+    "InterfaceDeclaration"
+   ],
+   "sites": [
+    "type-system/type-only/erased-exports.ts:12:1"
+   ]
+  },
+  {
    "name": "Handler",
    "spaces": [
     "TYPE"
@@ -14762,7 +15280,7 @@
     "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/type-only/erased-exports.ts:11:1"
+    "type-system/type-only/erased-exports.ts:16:1"
    ]
   },
   {
@@ -14774,7 +15292,7 @@
     "TypeAliasDeclaration"
    ],
    "sites": [
-    "type-system/type-only/erased-exports.ts:13:1"
+    "type-system/type-only/erased-exports.ts:18:1"
    ]
   },
   {
@@ -14787,7 +15305,7 @@
     "ClassDeclaration"
    ],
    "sites": [
-    "type-system/type-only/erased-exports.ts:17:1"
+    "type-system/type-only/erased-exports.ts:22:1"
    ]
   },
   {
@@ -14799,19 +15317,7 @@
     "VariableDeclaration"
    ],
    "sites": [
-    "type-system/type-only/erased-exports.ts:21:14"
-   ]
-  },
-  {
-   "name": "Contract",
-   "spaces": [
-    "TYPE"
-   ],
-   "kinds": [
-    "InterfaceDeclaration"
-   ],
-   "sites": [
-    "type-system/type-only/erased-exports.ts:7:1"
+    "type-system/type-only/erased-exports.ts:26:14"
    ]
   },
   {
@@ -14872,6 +15378,69 @@
    ],
    "sites": [
     "type-system/type-only/erasure-boundary.ts:52:11"
+   ]
+  },
+  {
+   "name": "defaultUser",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "type-system/typeof-subjects.ts:11:14"
+   ]
+  },
+  {
+   "name": "routes",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "type-system/typeof-subjects.ts:19:14"
+   ]
+  },
+  {
+   "name": "makeUser",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "FunctionDeclaration"
+   ],
+   "sites": [
+    "type-system/typeof-subjects.ts:21:1"
+   ]
+  },
+  {
+   "name": "Service",
+   "spaces": [
+    "TYPE",
+    "VALUE"
+   ],
+   "kinds": [
+    "ClassDeclaration"
+   ],
+   "sites": [
+    "type-system/typeof-subjects.ts:25:1"
+   ]
+  },
+  {
+   "name": "Status",
+   "spaces": [
+    "NAMESPACE",
+    "TYPE",
+    "VALUE"
+   ],
+   "kinds": [
+    "EnumDeclaration"
+   ],
+   "sites": [
+    "type-system/typeof-subjects.ts:37:1"
    ]
   },
   {

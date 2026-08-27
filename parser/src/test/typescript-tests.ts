@@ -749,6 +749,23 @@ function mergePartition(): number {
 const SAME_FILE_LINK_FLOOR = 283;
 
 /**
+ * IIFE call sites whose callee expression does not yet carry its `ts_method` FK.
+ *
+ * These were `needsSchemaSlot` — a real schema gap, correctly raised rather than papered
+ * over. **The slot now exists**: §4.14 c16 was WIDENED from `anonymousTypeHash` to the
+ * declaration an expression introduces, discriminated by c0 `kind`, so
+ * `ARROW_FUNCTION`/`FUNCTION_EXPRESSION` points at `ts_method`. No arity changed and no
+ * golden was invalidated, because column meanings are not the frozen contract and column
+ * order is.
+ *
+ * So the count is no longer a schema gap; it is a parser obligation. It is ratcheted
+ * rather than gated at zero so `ts-impl` is not blocked by a slot that landed after
+ * their commit — but it may only FALL. Lower this bar in the same commit that fills c16;
+ * when it reaches 0, delete it and assert 0 outright.
+ */
+const UNFILLED_C16_BAR = 3;
+
+/**
  * Every parser-filled `resolvedSignatureLinkHash` equals `getResolvedSignature`.
  *
  * Position-precise, and the asymmetry is deliberate: a filled target that
@@ -1214,7 +1231,19 @@ function irCompleteness(): number {
     `${terminals} terminals, ${complete} handed off COMPLETE, ${incomplete} handed off ` +
     'INCOMPLETE');
   console.log(`  ${inferred} inferred receiver (no annotation exists), ${notDerivable} not ` +
-    `derivable from syntax, ${needsSchemaSlot} awaiting a schema slot`);
+    `derivable from syntax, ${needsSchemaSlot} IIFE callee(s) with c16 unfilled`);
+  if (needsSchemaSlot > UNFILLED_C16_BAR) {
+    gaps.push(`${needsSchemaSlot} IIFE callee(s) lack their ts_method FK, bar is ` +
+      `${UNFILLED_C16_BAR}. The schema slot EXISTS (§4.14 c16, widened) — this is now a ` +
+      'parser obligation, and the count may only fall');
+  } else if (needsSchemaSlot < UNFILLED_C16_BAR) {
+    console.log(`  ${needsSchemaSlot} < bar ${UNFILLED_C16_BAR} — lower UNFILLED_C16_BAR to ` +
+      'lock this in; at 0, delete it and assert 0 outright');
+  } else if (needsSchemaSlot) {
+    console.log('  ^ c16 is available to fill (§4.14, widened 2026-08-27): for ARROW_FUNCTION ' +
+      'and FUNCTION_EXPRESSION it points at the ts_method, so the engine no longer needs a ' +
+      'position match');
+  }
   if (accounted !== callSites) {
     // Every call site must land in exactly one bucket. A total that does not add
     // up means a case is counted twice or not at all, and either way the

@@ -964,7 +964,7 @@ resolution.
 | 13 | `operatorString` [J] | 1 | `+`, `??`, `&&=`, … |
 | 14 | `referencedEntityKind` [J] | 2 | `TYPE` \| `METHOD` \| `FIELD` \| `VARIABLE` \| `PARAMETER` \| `ENUM_MEMBER` \| `IMPORT_BINDING` \| `NAMESPACE` \| `THIS` \| `SUPER` \| `AMBIENT_GLOBAL` \| `UNKNOWN` |
 | 15 | `referencedEntityHash` [J] | 2 | FK to the resolved declaration; `""`. **The oracle checks this against `getSymbolAtLocation`** |
-| 16 | `anonymousTypeHash` [J] | 1 | FK→`ts_type` for a class expression; `""` |
+| 16 | `anonymousDeclarationHash` [J] | 1 | **the declaration this expression introduces.** Polymorphic, discriminated by c0 `kind`: FK→`ts_type` for `CLASS_EXPRESSION`; **FK→`ts_method` for `ARROW_FUNCTION` / `FUNCTION_EXPRESSION`**; `""` otherwise. Widened from Java's `anonymousTypeHash` — see below |
 | 17 | `potentialQualifiedName` [J] | 2 | |
 | 18 | `isAmbiguous` [J] | 2 | |
 | 19 | `returnStatementIndex` [J] | 1 | |
@@ -984,6 +984,54 @@ resolution.
 | 33 | `tsExpressionUniqueHash` | — | **PK** |
 
 **PK** `TS_EXPRESSION_md5(tsModuleLinkHash ‖ expressionOwnerHash ‖ parentExpressionHash ‖ edgeRole ‖ position ‖ startLine ‖ startColumn)`
+
+#### Why c16 was WIDENED and not appended  *(raised by `ts-impl`, 2026-08-27)*
+
+`ts-impl` found that an IIFE — `(function () { … })()` or `(() => { … })()` — has a callee
+`ts_expression` row and a `ts_method` row, **and no FK between them.** c16 covered a class
+expression and nothing covered a function one, so the engine's only route from the call to its
+target was to match positions. Three call sites in the corpus, and it was classified
+`needsSchemaSlot` and raised rather than papered over, which is the right call: it is a schema
+gap, not a parser gap.
+
+**It is a Java gap that TypeScript inherited.** Verified, not assumed:
+`src/parsers/java/extractors/type-method-extractor.ts` builds
+`posKey = ${startLine}:${startCol}:${endLine}:${endCol}` in `collectLambdaHashes` to link a
+Java lambda to its method — the position match, done inside the extractor, three times over.
+So Java has the same hole and hides it in extraction code, which is exactly what a fact schema
+exists to prevent: §0.5's rule is that the engine joins by key and never by re-deriving or
+text-matching.
+
+**Widened, not appended, and the distinction matters.**
+
+- Appending a column changes `ts_expression`'s arity from 34, and `ts_expression` is a frozen
+  spine relation whose columns 0–24 are byte-for-byte `java_expression`. That is a re-freeze:
+  every golden file, every projection, every `decls_base.dl` edit. Python paid this exact cost
+  once (`py_expression` 35 → 39) and flagged it as needing sign-off.
+- Widening c16 costs **nothing**: same arity, same order, no golden invalidated. Column *names
+  and meanings* are not the frozen contract; column *order* is (§0).
+- A polymorphic FK needs a discriminator, and **c0 `kind` already is one.** The mapping is
+  total and closed, so there is nothing to keep in sync:
+
+  | `kind` | c16 points at |
+  |---|---|
+  | `CLASS_EXPRESSION` | `ts_type` |
+  | `ARROW_FUNCTION`, `FUNCTION_EXPRESSION` | `ts_method` |
+  | anything else | `""` |
+
+  Every other polymorphic FK in this schema is paired with a discriminator
+  (`typeReferenceOwnerHash`/`referenceOwnerKind`, `expressionOwnerHash`/`expressionOwnerKind`,
+  `ownerLinkHash`/`ownerKind`). This one gets its discriminator for free.
+
+The Java projection keeps working: `anonymousTypeHash` read as "the anonymous type" is still
+correct for `CLASS_EXPRESSION`, which is the only kind Java's own extractor ever fills it for.
+A rule that wants only types filters on `kind = CLASS_EXPRESSION`, which it should have been
+doing anyway.
+
+**Consequence for `ts_method`:** no reverse column is needed. `ts_variable.boundFunctionLinkHash`
+already covers `const f = () => …`, and with c16 filled the IIFE's callee expression reaches its
+`ts_method` directly. One direction closes the call graph; two would be redundant state to keep
+consistent.
 
 ---
 

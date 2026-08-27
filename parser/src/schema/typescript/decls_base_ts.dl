@@ -122,7 +122,11 @@
 .decl lib_ts_import(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol)
 
 // An expression AST node — the spine of call resolution. Cols 0..24 are byte-for-byte
-// java_expression 0..24, so expr_kind / expr_child / expr_owner port as renames. c27
+// java_expression 0..24, so expr_kind / expr_child / expr_owner port as renames. c16 is
+// WIDENED from Java: it is the declaration this expression INTRODUCES, discriminated by c0 —
+// ts_type for CLASS_EXPRESSION, ts_method for ARROW_FUNCTION / FUNCTION_EXPRESSION. Without
+// that an IIFE's target is reachable only by matching positions, which is what Java's own
+// extractor does for lambdas and what a fact schema exists to prevent. c27
 // assertedTypeReferenceLinkHash is the ONLY expression->type edge (`as` / `satisfies`), and
 // it is a TYPE FK, so no call-graph rule can cross it. c28 isSpread marks where positional
 // argument flow is PROVABLY imprecise rather than silently wrong.

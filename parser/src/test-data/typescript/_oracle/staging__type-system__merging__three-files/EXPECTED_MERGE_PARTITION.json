@@ -17,15 +17,15 @@
   },
   {
    "path": "registry-cache.ts",
-   "digest": "599c6dcd036d4683fab3a82934685a7fb169bb5a"
+   "digest": "6d07705baa79226d3642e4d7f9784fcc076762c8"
   },
   {
    "path": "registry-core.ts",
-   "digest": "566a26d1ef9b7fdf8abc34ed7412f28c642179b3"
+   "digest": "7fa4f1d59a9f0e4c03dbab7b90de312f388ac3f6"
   },
   {
    "path": "registry-http.ts",
-   "digest": "6e25013f49f76052a4c4e6fbeb79d433b42028b6"
+   "digest": "dc0a8140dc134362aa20a8ecfd50045ddee1f7ab"
   }
  ],
  "quarantinedFiles": [],
@@ -68,6 +68,20 @@
    ]
   },
   {
+   "name": "Registry",
+   "spaces": [
+    "TYPE"
+   ],
+   "kinds": [
+    "InterfaceDeclaration"
+   ],
+   "sites": [
+    "registry-cache.ts:12:1",
+    "registry-core.ts:15:1",
+    "registry-http.ts:12:1"
+   ]
+  },
+  {
    "name": "Plugins",
    "spaces": [
     "NAMESPACE",
@@ -77,9 +91,9 @@
     "ModuleDeclaration"
    ],
    "sites": [
-    "registry-cache.ts:13:1",
-    "registry-core.ts:16:1",
-    "registry-http.ts:14:1"
+    "registry-cache.ts:18:1",
+    "registry-core.ts:21:1",
+    "registry-http.ts:19:1"
    ]
   },
   {
@@ -91,7 +105,7 @@
     "InterfaceDeclaration"
    ],
    "sites": [
-    "registry-cache.ts:14:5"
+    "registry-cache.ts:19:5"
    ]
   },
   {
@@ -103,21 +117,7 @@
     "VariableDeclaration"
    ],
    "sites": [
-    "registry-cache.ts:17:18"
-   ]
-  },
-  {
-   "name": "Registry",
-   "spaces": [
-    "TYPE"
-   ],
-   "kinds": [
-    "InterfaceDeclaration"
-   ],
-   "sites": [
-    "registry-cache.ts:7:1",
-    "registry-core.ts:10:1",
-    "registry-http.ts:7:1"
+    "registry-cache.ts:22:18"
    ]
   },
   {
@@ -129,7 +129,7 @@
     "InterfaceDeclaration"
    ],
    "sites": [
-    "registry-core.ts:17:5"
+    "registry-core.ts:22:5"
    ]
   },
   {
@@ -141,7 +141,7 @@
     "VariableDeclaration"
    ],
    "sites": [
-    "registry-core.ts:20:18"
+    "registry-core.ts:25:18"
    ]
   },
   {
@@ -153,7 +153,7 @@
     "InterfaceDeclaration"
    ],
    "sites": [
-    "registry-http.ts:15:5"
+    "registry-http.ts:20:5"
    ]
   },
   {
@@ -165,7 +165,7 @@
     "VariableDeclaration"
    ],
    "sites": [
-    "registry-http.ts:18:18"
+    "registry-http.ts:23:18"
    ]
   }
  ]

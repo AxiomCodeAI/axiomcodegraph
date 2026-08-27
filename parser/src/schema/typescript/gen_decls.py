@@ -95,7 +95,11 @@ DOCS = {
    "// set this row cannot name; the engine expands it from the source module's exports.",
  "ts_expression":
    "An expression AST node — the spine of call resolution. Cols 0..24 are byte-for-byte\n"
-   "// java_expression 0..24, so expr_kind / expr_child / expr_owner port as renames. c27\n"
+   "// java_expression 0..24, so expr_kind / expr_child / expr_owner port as renames. c16 is\n"
+   "// WIDENED from Java: it is the declaration this expression INTRODUCES, discriminated by c0 —\n"
+   "// ts_type for CLASS_EXPRESSION, ts_method for ARROW_FUNCTION / FUNCTION_EXPRESSION. Without\n"
+   "// that an IIFE's target is reachable only by matching positions, which is what Java's own\n"
+   "// extractor does for lambdas and what a fact schema exists to prevent. c27\n"
    "// assertedTypeReferenceLinkHash is the ONLY expression->type edge (`as` / `satisfies`), and\n"
    "// it is a TYPE FK, so no call-graph rule can cross it. c28 isSpread marks where positional\n"
    "// argument flow is PROVABLY imprecise rather than silently wrong.",
