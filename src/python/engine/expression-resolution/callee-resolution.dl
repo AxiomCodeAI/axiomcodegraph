@@ -37,7 +37,7 @@ mro_lookup_demand("client", t, n) :- call_recv_type(site, t), call_name(site, n)
 expr_call_candidate(site, m) :-
     call_recv_kind(site, "NONE"),
     call_callee_expr(site, callee),
-    expr_names_method("client", callee, m).
+    expr_denotes_method("client", callee, m).
 
 // ── a bare name that denotes a CLASS — CONSTRUCTION ──────────────────────────
 // `Base("b")`, `Sibling()`. Python construction is syntactically a call and the schema
@@ -86,10 +86,32 @@ call_super_has_args(site) :-
     call_receiver_object(site, superCall),
     call_of_expr(superCall, superSite),
     call_arg(superSite, _, _).
-call_super_anchor(site, k, k) :-
+// THE RECEIVER TYPE IS NOT THE ANCHOR, and 05-super exists to prove it. `super()`
+// written in Left means "the class after Left in the MRO of TYPE(SELF)", and type(self)
+// is not Left. With self a `Both`, MRO(Both) = [Both, Left, Right, Root] and the lookup
+// after Left reaches Right.greet — a class that is not a base of Left and appears nowhere
+// in Left's own bases. Any rule that reads super() as "my base class" gets this wrong,
+// and this engine did until the receiver type was widened here: it answered Root.greet
+// and missed Right.greet on both of that case's super sites.
+//
+// So the receiver type ranges over the same set as ordinary self-dispatch — the
+// enclosing class plus every CONSTRUCTED subclass of it (resolution/dispatch.dl) —
+// while the ANCHOR stays the class the method is defined in, which is what CPython's
+// implicit __class__ cell holds.
+call_super_anchor(site, t, k) :-
     call_recv_kind(site, "SUPER"),
     call_enclosing_type(site, k),
-    !call_super_has_args(site).
+    !call_super_has_args(site),
+    super_recv_type(site, t).
+
+// ── super_recv_type(SiteKey, TypeHash) ───────────────────────────────────────
+// (a) the enclosing class itself — always, so a class that is only ever reached through
+//     another class's super() chain still resolves.
+super_recv_type(site, k) :- call_recv_kind(site, "SUPER"), call_enclosing_type(site, k).
+// (b) every CONSTRUCTED subclass of it.
+super_recv_type(site, sub) :-
+    call_recv_kind(site, "SUPER"), call_enclosing_type(site, k),
+    type_subclass("client", k, sub), type_instantiated_reachable("client", sub).
 // (b) EXPLICIT `super(A, self)` — still valid Python 3. The anchor is written as the
 //     first ARGUMENT of the inner `super` call, so no extra schema column is needed
 //     (the schema says so). The inner call is the receiver OBJECT of this site.
@@ -99,7 +121,10 @@ call_super_explicit_anchor(site, a) :-
     call_of_expr(superCall, superSite),
     call_arg(superSite, "0", argExpr),
     expr_type_class_object("client", argExpr, a).
-call_super_anchor(site, a, a) :- call_super_explicit_anchor(site, a).
+// The explicit form `super(Left, self)` names its own anchor, and the receiver still
+// ranges over the constructed subclasses — the two forms must resolve identically, or
+// the rule is keying on syntax rather than on the MRO.
+call_super_anchor(site, t, a) :- call_super_explicit_anchor(site, a), super_recv_type(site, t).
 
 // ── the super() target ───────────────────────────────────────────────────────
 // mro_lookup_after searches only the part of the MRO strictly after the anchor, using
@@ -131,6 +156,31 @@ expr_call_candidate(site, m) :-
     expr_names_module("client", obj, mod),
     call_name(site, n),
     module_member_method("client", mod, n, m).
+
+// ── a FUNCTION-VALUED ATTRIBUTE — `self.op(1, 2)` where `self.op = add` ───────
+// The attribute holds a plain function, so NO `self` is bound and argument 0 lands on
+// parameter 0. That is why type_attr_method_value is separate from mro_lookup: reading
+// this as a method call would shift every argument by one.
+expr_call_candidate(site, m) :-
+    call_recv_kind(site, rk), rk != "NONE", rk != "SUPER",
+    call_recv_type(site, t),
+    call_name(site, n),
+    type_attr_method_value("client", t, n, m).
+
+// ── A CALLABLE INSTANCE — `m(5)` where m is an object with __call__ ───────────
+// The call site names the instance and never names __call__. Both receiver shapes
+// occur: a bare name holding an instance (`m(5)`) and a construction called directly
+// (`Delegator(target)(1, 2)`).
+expr_call_candidate(site, m) :-
+    call_recv_kind(site, "NONE"),
+    call_callee_expr(site, callee),
+    expr_type("client", callee, t),
+    type_call_target("client", t, m).
+expr_call_candidate(site, m) :-
+    call_recv_kind(site, "NONE"),
+    call_callee_expr(site, callee),
+    call_of_expr(callee, inner), call_constructs_type(inner, t),
+    type_call_target("client", t, m).
 
 // ── the receiver names a MODULE and the attribute is a CLASS: `mod.C()` ──────
 call_constructs_type(site, t) :-
@@ -179,7 +229,8 @@ call_unresolvable(site, "dynamic_call") :- call_is_dynamic(site).
 call_unresolvable(site, "callee_is_parameter") :-
     call_recv_kind(site, "NONE"),
     call_callee_expr(site, callee),
-    expr_names_param("client", callee, _).
+    expr_names_param("client", callee, ph),
+    !param_arg_method(ph, _), !param_arg_type(ph, _).
 // (c) the receiver has no type the engine can derive.
 call_unresolvable(site, cat("untyped_receiver:", reason)) :-
     call_recv_kind(site, rk), rk != "NONE", rk != "SUPER",
@@ -221,6 +272,29 @@ call_hits_builtin(site, label) :-
     type_constructor_absent("client", t),
     !type_hierarchy_incomplete("client", t),
     builtin_object_init_target(label).
+
+// (c) a super() call whose anchor's MRO leaves the IR at a NAMED BUILTIN base.
+//     `class Installer(type)` then `super().__new__(...)`: `type` is a C-level class with
+//     no Python source anywhere, so the lookup after Installer runs off the end of every
+//     staged IR. The target IS nameable — type.__new__ — so this is a boundary, not the
+//     blind spot it otherwise reads as.
+call_hits_builtin(site, cat("builtin:", cat(baseText, cat(".", n)))) :-
+    call_recv_kind(site, "SUPER"),
+    call_super_anchor(site, _, anchor),
+    call_name(site, n),
+    !expr_call_candidate(site, _),
+    type_base_unresolved("client", anchor, _, baseText),
+    py_builtin_callable(baseText).
+
+// (d) construction of a class whose member set is DYNAMICALLY EXTENDED — a monkey patch,
+//     a metaclass, an exec-synthesised __init__ — and which defines no constructor the
+//     engine can see. The target genuinely may not exist in this source (12-blind-spots'
+//     `Synthesised` has no `def __init__` anywhere), so it is a declared unknown WITH A
+//     REASON rather than a claimed edge to object.__init__.
+call_unresolvable(site, "construction_of_dynamically_extended_class") :-
+    call_constructs_type(site, t),
+    type_constructor_absent("client", t),
+    type_hierarchy_incomplete("client", t).
 
 // ── call_hits_dynamic_builtin(SiteHash, Name) ────────────────────────────────
 // getattr / eval / exec: not merely outside the IR — they make the program unanalysable

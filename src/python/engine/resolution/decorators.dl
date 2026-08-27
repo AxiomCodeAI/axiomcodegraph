@@ -114,3 +114,93 @@ decorator_outermost(p, owner, d) :-
 decorator_call_site(p, site, d) :-
     decorator_expr(p, e, d),
     call_decl(p, "DECORATOR_CALL", _, _, e, site).
+
+// ============================================================================
+// WHAT A DECORATED NAME ACTUALLY DENOTES — the application chain
+//
+// `@outer_deco @inner_deco def stacked` means outer_deco(inner_deco(stacked)), so the
+// name `stacked` denotes outer_deco's return value. Reading `position` (top-down source
+// order) instead of `applicationOrder` (bottom-up) inverts that and attributes the
+// replacement to the wrong decorator — which is why the schema carries both columns and
+// why this chain uses only applicationOrder.
+//
+// MEASURED ON 07-decorators. Without this chain the engine resolved `never_runs()`,
+// `wrapped_target()` and `stacked()` to the `def`s written under the decorators — three
+// FABRICATED edges, because none of those three functions is what its own name means.
+// CPython's answer is `substitute`, `wrapper` and `outer_w`. With the chain, all three
+// agree and the fabrications go to zero.
+//
+// FOUR STEP SHAPES, and each one is a different real idiom:
+//   returns a def          @replacing -> substitute            the def never runs
+//   returns its param 0    @passthrough -> the input unchanged  the def DOES run
+//   transparent builtin    @staticmethod, @functools.wraps      identity
+//   anything else          NO ROW — the chain breaks and the name becomes a declared
+//                          unknown. That is the honest outcome for a library factory
+//                          whose return value is library-internal.
+// ============================================================================
+
+// ── deco_at(OwnerHash, ApplicationOrder, DecoratorHash) ──────────────────────
+deco_at(owner, k, d) :-
+    annotation_on("client", _, _, _, owner, d),
+    decorator_order("client", _, ostr, d), ostr != "",
+    k = to_number(ostr).
+
+// ── deco_factory(DecoratorHash, MethodHash) — the callable the `@` names ──────
+// For a PARENTHESISED decorator the named callable is the FACTORY (`route` in
+// `@route("go")`), which is called first and whose RESULT is then applied. For a bare
+// decorator the named callable is applied directly.
+deco_factory(d, f) :-
+    decorator_expr("client", e, d), call_of_expr(e, s), expr_call_candidate(s, f).
+deco_factory(d, f) :-
+    decorator_expr("client", e, d), !call_of_expr(e, _), expr_names_method("client", e, f).
+deco_factory(d, f) :-
+    decorator_expr("client", e, d), !call_of_expr(e, _), expr_attr_names_method("client", e, f).
+
+// ── deco_applied(DecoratorHash, MethodHash) — the callable APPLIED to the target ──
+// The distinction that `@route("go")` exists to test: route is not applied to `handler`,
+// route("go") is. So for a parenthesised decorator the applied callable is the factory's
+// RETURN, and for a bare one it is the factory itself.
+deco_applied(d, f) :- deco_factory(d, f), decorator_expr("client", e, d), !call_of_expr(e, _).
+deco_applied(d, r) :-
+    deco_factory(d, f), decorator_expr("client", e, d), call_of_expr(e, _),
+    method_returns_method("client", f, r).
+
+// ── deco_stage(MethodHash, Order, InputMethodHash) ───────────────────────────
+// The object entering application stage `Order`. Stage 0's input is the `def` itself.
+deco_stage(m, 0, m) :- method_decorated("client", _, m).
+// (a) the applied callable returns a def: that def is the next stage's input.
+deco_stage(m, k1, out) :-
+    deco_stage(m, k, _), deco_at(m, k, d), deco_applied(d, f),
+    method_returns_method("client", f, out), k1 = k + 1.
+// (b) the applied callable returns its own first parameter: identity.
+deco_stage(m, k1, in) :-
+    deco_stage(m, k, in), deco_at(m, k, d), deco_applied(d, f),
+    method_returns_param("client", f, "0"), k1 = k + 1.
+// (c) a transparent builtin (@staticmethod, @classmethod, @property, @functools.wraps):
+//     identity, and no client factory is needed.
+deco_stage(m, k1, in) :-
+    deco_stage(m, k, in), deco_at(m, k, d),
+    decorator_builtin("client", bk, d), decorator_transparent(bk), k1 = k + 1.
+
+// ── decorated_name_target(MethodHash, MethodHash) ────────────────────────────
+// The output of the LAST stage: what the decorated name finally denotes. If any stage
+// broke, no row exists for the final index and the name stays a declared unknown.
+decorated_name_target(m, out) :-
+    decorator_max_order("client", m, kmax),
+    deco_stage(m, kfinal, out), kfinal = kmax + 1.
+
+// ── DECORATOR ARGUMENT FLOW ──────────────────────────────────────────────────
+// The decorated object is passed as argument 0 of the applied callable. That is how
+// `fn` inside `wrapping`'s `wrapper` comes to mean `wrapped_target` — and it is the ONLY
+// thing that resolves the three closure_local sites in 07-decorators and the `fn(...)`
+// site in linkage-sample's models.audit.
+param_arg_method(ph, in) :-
+    deco_stage(m, k, in), deco_at(m, k, d), deco_applied(d, f),
+    param_decl("client", _, "0", _, f, ph).
+
+// ── decorator_chain_broken(MethodHash, DecoratorHash) ────────────────────────
+// The decorator this engine could not follow, named. The cost of not fabricating,
+// as a countable row.
+decorator_chain_broken(m, d) :-
+    deco_stage(m, k, _), deco_at(m, k, d), !deco_stage_advanced(m, k).
+deco_stage_advanced(m, k) :- deco_stage(m, k1, _), k = k1 - 1.

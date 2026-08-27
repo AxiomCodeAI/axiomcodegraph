@@ -99,7 +99,13 @@ mro_tie(p, t, n) :-
 // method. The winner class must define the name AS A METHOD; a winner that defines it
 // only as data means the attribute is not callable through this path (see
 // mro_lookup_data_shadow below), which is a real negative and not a miss.
-mro_lookup(p, t, n, m) :- mro_winner(p, t, n, c), type_defines_method(p, c, n, m).
+mro_lookup(p, t, n, m) :-
+    mro_winner(p, t, n, c), type_defines_method(p, c, n, m),
+    !type_attr_rebound(p, c, n).
+// The winning class had this name REBOUND from outside its body (monkey patching); the
+// value that replaced it is the target. See the section on monkey patching below.
+mro_lookup(p, t, n, m) :-
+    mro_winner(p, t, n, c), type_attr_monkey_patched(p, c, n, m).
 
 // ── mro_lookup_data_shadow(Prov, ReceiverType, Name, FieldHash) ──────────────
 // The winning definition is a DATA attribute, so a call through this name is a call on
@@ -177,3 +183,66 @@ type_constructor(p, t, m) :- mro_lookup(p, t, "__new__", m).
 // shape twice (`Sibling()` in deferred.py and service.py).
 type_constructor_absent(p, t) :- type_decl(p, _, _, _, t), !type_constructor_any(p, t).
 type_constructor_any(p, t) :- type_constructor(p, t, _).
+
+// ============================================================================
+// MONKEY PATCHING — a class attribute rebound from OUTSIDE the class body
+//
+// `Target.replaced_later = patched` at module level means that after import, the name
+// resolves to `patched` and NOT to the `def` in the class body. The parser records no
+// py_field row for it — a foreign attribute write cannot be attributed to a class the
+// parser has not typed (schema §4.1, 1,620 such sites in the corpus) — so it is
+// recovered from py_expression, where it is fully present with nameContext=STORE.
+//
+// MEASURED: 12-blind-spots emitted `main -> Target.replaced_later` (the class-body def)
+// as its one fabricated edge. CPython's answer is `patched`. The class-body def is not
+// merely a second candidate; after line 40 it is unreachable through that name.
+//
+// SOUNDNESS. The rebinding is unconditional module-level code, so it has run before any
+// other module's code can call the method — the same argument as the single-binding alias
+// rule, and the reason this REPLACES rather than ADDS TO the class-body definition. A
+// rebinding inside a function or a conditional is a different shape and gets no row here.
+// ============================================================================
+
+// ── type_attr_foreign_write(Prov, TypeHash, Name, ExprHash) ──────────────────
+// Any `T.name = ...` written where T is a resolvable class and the write is not in T's
+// own body. Emitted even when the assigned value cannot be typed, because the mere
+// existence of the write means the class's member set is not what its body says.
+type_attr_foreign_write(p, t, n, e) :-
+    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e),
+    expr_name_context(p, "STORE", e),
+    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_names_type(p, obj, t).
+
+// ── type_attr_monkey_patched(Prov, TypeHash, Name, MethodHash) ───────────────
+type_attr_monkey_patched(p, t, n, m) :-
+    type_attr_foreign_write(p, t, n, e),
+    assign_pair(p, e, val),
+    expr_names_method(p, val, m).
+
+// ── type_attr_rebound(Prov, TypeHash, Name) ──────────────────────────────────
+// The name is rebound from outside, whether or not the new value could be typed.
+type_attr_rebound(p, t, n) :- type_attr_foreign_write(p, t, n, _).
+
+// ============================================================================
+// CALLABLE INSTANCES — `m(5)` where m is an object, not a function
+// ============================================================================
+
+// ── type_call_target(Prov, TypeHash, MethodHash) ─────────────────────────────
+// Calling an INSTANCE runs type(instance).__call__, looked up through the MRO like any
+// other member. The call site names the instance and never names __call__, so this is
+// the only way the edge exists at all — and `typeModifier` carries HAS_CALL /
+// CALLABLE_INSTANCE precisely so it can be recognised.
+type_call_target(p, t, m) :- mro_lookup(p, t, "__call__", m).
+
+// ============================================================================
+// PROPERTY READS — an attribute access that is really a call
+// ============================================================================
+
+// ── type_property_getter(Prov, TypeHash, Name, MethodHash) ───────────────────
+// @property turns `obj.x` from an attribute read into a METHOD CALL (1,014 in the
+// corpus). There is no call site spelling `x()` anywhere, so no py_call_site exists and
+// the edge has to come from the attribute access itself. It is therefore an EDGE without
+// being a SITE — it is added to the exported graph but NOT to the conserved site
+// universe, because CPython's own compiler emits no CALL for it either.
+type_property_getter(p, t, n, m) :-
+    mro_lookup(p, t, n, m), method_kind(p, "PROPERTY_GETTER", _, m).
