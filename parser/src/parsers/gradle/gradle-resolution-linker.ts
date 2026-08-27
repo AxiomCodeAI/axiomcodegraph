@@ -53,6 +53,7 @@ export class GradleResolutionLinker {
     for (const s of facts.scripts) byPath.set(this.norm(s.getFilePath()), s);
 
     this.linkIncludes(facts, byPath);
+    this.demoteUnincludedScripts(facts);
     this.linkAppliedScripts(facts, byPath);
     this.linkProjectDependencies(facts);
     this.linkCatalogs(facts);
@@ -140,6 +141,59 @@ export class GradleResolutionLinker {
       out.add(decl.getScriptHash());
     }
     return out;
+  }
+
+  /**
+   * Strips the provisional project path from a build script that the build's
+   * own settings file never includes.
+   *
+   * The classifier derives a project path from directory layout, which is the
+   * convention. Once a settings file has been read, the convention is no
+   * longer the best evidence available: a settings file is the complete and
+   * authoritative list of a build's projects, so a `build.gradle` sitting in a
+   * directory it does not name configures nothing. Such directories are
+   * common — an example, a fixture, an abandoned module, a template.
+   *
+   * Left alone, each of those becomes a project the build does not have, and a
+   * downstream "which projects depend on X" query answers for projects Gradle
+   * would never create. Gradle's own `projects` task disagreeing with this
+   * relation is how the case was found.
+   *
+   * Only applies where a settings file for that build root is actually in the
+   * corpus. With no settings file there is no authority to defer to, and the
+   * layout-derived path remains the best available answer.
+   */
+  private demoteUnincludedScripts(facts: GradleProjectFacts): void {
+    const settingsDirs = new Set(
+      facts.scripts
+        .filter((s) => s.getScriptKind() === GradleScriptKind.SETTINGS)
+        .map((s) => path.dirname(s.getFilePath()))
+    );
+    if (!settingsDirs.size) return;
+
+    // Every script an include actually reached.
+    const included = new Set(
+      facts.declarations
+        .filter((d) => d.getDeclarationType() === GradleDeclarationType.INCLUDE && d.getResolvedTargetHash())
+        .map((d) => d.getResolvedTargetHash())
+    );
+
+    for (const script of facts.scripts) {
+      if (script.getScriptKind() !== GradleScriptKind.PROJECT_BUILD) continue;
+      if (included.has(script.getHash())) continue;
+
+      // Is this script under a build root whose settings we actually read?
+      const governed = [...settingsDirs].some((dir) => this.isUnder(script.getFilePath(), dir));
+      if (!governed) continue;
+
+      script.setScriptKind(GradleScriptKind.SCRIPT_PLUGIN);
+      script.setGradleProjectPath('');
+    }
+  }
+
+  private isUnder(filePath: string, dir: string): boolean {
+    const rel = path.relative(dir, filePath);
+    return !!rel && !rel.startsWith('..') && !path.isAbsolute(rel);
   }
 
   // ── apply from: → the script plugin it pulls in ──────────────────────────
