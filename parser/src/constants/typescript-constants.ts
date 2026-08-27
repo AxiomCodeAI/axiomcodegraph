@@ -106,6 +106,11 @@ export const TYPESCRIPT_CSV_FILES = {
   BLOCKS: 'all-typescript-blocks.csv',
   DECORATORS: 'all-typescript-decorators.csv',
   DECORATOR_ARGUMENTS: 'all-typescript-decorator-arguments.csv',
+  EXPORTS: 'all-typescript-exports.csv',
+  ENUM_MEMBERS: 'all-typescript-enum-members.csv',
+  FIELD_POSITIONS: 'all-typescript-field-positions.csv',
+  COMMENTS: 'all-typescript-comments.csv',
+  PARSE_GAPS: 'all-typescript-parse-gaps.csv',
   SKIPPED_FILES: 'skipped-typescript-files.csv',
 } as const;
 

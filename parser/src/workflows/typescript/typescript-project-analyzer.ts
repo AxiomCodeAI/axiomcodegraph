@@ -19,6 +19,7 @@ import {
 import {
   IrCompletenessReport,
   linkAmbientModuleImports,
+  linkReExportSources,
   measureIrCompleteness,
 } from '@/parsers/typescript/extractors/ts-ir-completeness';
 import { moduleHashFor } from '@/parsers/typescript/extractors/ts-module-extractor';
@@ -138,6 +139,7 @@ export class TypeScriptProjectAnalyzer {
       modules: [], types: [], typeHeritages: [], typeParameters: [], typeReferences: [], methods: [],
       methodParameters: [], fields: [], variables: [], imports: [], expressions: [],
       callSites: [], blocks: [], decorators: [], decoratorArguments: [],
+      enumMembers: [], fieldPositions: [], exports: [], comments: [], parseGaps: [],
     };
     const perFile: TsFileFacts[] = [];
     let analysed = 0;
@@ -199,6 +201,11 @@ export class TypeScriptProjectAnalyzer {
       accumulated.blocks!.push(...facts.blocks);
       accumulated.decorators!.push(...facts.decorators);
       accumulated.decoratorArguments!.push(...facts.decoratorArguments);
+      accumulated.enumMembers!.push(...facts.enumMembers);
+      accumulated.fieldPositions!.push(...facts.fieldPositions);
+      accumulated.exports!.push(...facts.exports);
+      accumulated.comments!.push(...facts.comments);
+      accumulated.parseGaps!.push(...facts.parseGaps);
     }
 
     // The MODULE graph is the parser's, and it needs every file: an import of
@@ -206,6 +213,10 @@ export class TypeScriptProjectAnalyzer {
     // been read. This stops one hop short of the call graph, at the module,
     // which is where `type-resolution.dl` takes over.
     linkAmbientModuleImports(perFile);
+    // A re-export's source module may be parsed after the file that re-exports
+    // from it, so the link is made here. Still the MODULE graph, and
+    // ts_export.resolvedSourceModuleLinkHash is the parser's own column.
+    linkReExportSources(perFile);
     // Reads the accumulated rows and mutates nothing. Cross-file CALL resolution
     // used to happen here and has been retracted: following an import to a
     // declaring file is `type-resolution.dl` rewritten in TypeScript. What runs
@@ -238,6 +249,16 @@ export class TypeScriptProjectAnalyzer {
       TYPESCRIPT_CSV_FILES.DECORATORS);
     await this.exportCsv(accumulated.decoratorArguments!, options.outputDir,
       TYPESCRIPT_CSV_FILES.DECORATOR_ARGUMENTS);
+    await this.exportCsv(accumulated.enumMembers!, options.outputDir,
+      TYPESCRIPT_CSV_FILES.ENUM_MEMBERS);
+    await this.exportCsv(accumulated.fieldPositions!, options.outputDir,
+      TYPESCRIPT_CSV_FILES.FIELD_POSITIONS);
+    await this.exportCsv(accumulated.exports!, options.outputDir,
+      TYPESCRIPT_CSV_FILES.EXPORTS);
+    await this.exportCsv(accumulated.comments!, options.outputDir,
+      TYPESCRIPT_CSV_FILES.COMMENTS);
+    await this.exportCsv(accumulated.parseGaps!, options.outputDir,
+      TYPESCRIPT_CSV_FILES.PARSE_GAPS);
     await this.exportSkippedFilesCsv(options.outputDir);
 
     return {
@@ -262,6 +283,11 @@ export class TypeScriptProjectAnalyzer {
         ts_block: accumulated.blocks!.length,
         ts_decorator: accumulated.decorators!.length,
         ts_decorator_argument: accumulated.decoratorArguments!.length,
+        ts_enum_member: accumulated.enumMembers!.length,
+        ts_field_position: accumulated.fieldPositions!.length,
+        ts_export: accumulated.exports!.length,
+        ts_comment: accumulated.comments!.length,
+        ts_parse_gap: accumulated.parseGaps!.length,
       },
       irCompleteness: completeness,
     };

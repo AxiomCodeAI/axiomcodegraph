@@ -1,6 +1,8 @@
 import * as ts from 'typescript';
 
 import { TsBlockRegistry } from '@/analysis-types/typescript/TsBlockRegistry';
+import { TsEnumMemberRegistry } from '@/analysis-types/typescript/TsEnumMemberRegistry';
+import { TsFieldPositionRegistry } from '@/analysis-types/typescript/TsFieldPositionRegistry';
 import { TsFieldRegistry } from '@/analysis-types/typescript/TsFieldRegistry';
 import { TsMethodParameterRegistry } from '@/analysis-types/typescript/TsMethodParameterRegistry';
 import { TsMethodRegistry } from '@/analysis-types/typescript/TsMethodRegistry';
@@ -14,6 +16,7 @@ import {
   TS_MODULE_INITIALIZER_NAME,
 } from '@/constants/typescript-constants';
 import { TsBlockKind } from '@/enums/typescript/blocks';
+import { TsEnumMemberValueKind } from '@/enums/typescript/enum-members';
 import { TsFieldAccess, TsFieldModifier, TsMemberKind } from '@/enums/typescript/fields';
 import { TsClauseToken, TsHeritageKind } from '@/enums/typescript/heritage';
 import {
@@ -78,6 +81,8 @@ export interface DeclarationExtractionResult {
   readonly variables: readonly TsVariableRegistry[];
   readonly heritages: readonly TsTypeHeritageRegistry[];
   readonly typeParameters: readonly TsTypeParameterRegistry[];
+  readonly enumMembers: readonly TsEnumMemberRegistry[];
+  readonly fieldPositions: readonly TsFieldPositionRegistry[];
   readonly blocks: readonly TsBlockRegistry[];
   readonly typeReferenceExtractor: TsTypeReferenceExtractor;
 }
@@ -119,6 +124,8 @@ export class TsDeclarationExtractor {
   readonly variables: TsVariableRegistry[] = [];
   readonly heritages: TsTypeHeritageRegistry[] = [];
   readonly typeParameters: TsTypeParameterRegistry[] = [];
+  readonly enumMembers: TsEnumMemberRegistry[] = [];
+  readonly fieldPositions: TsFieldPositionRegistry[] = [];
   readonly blocks: TsBlockRegistry[] = [];
   readonly typeReferenceExtractor: TsTypeReferenceExtractor;
 
@@ -130,6 +137,7 @@ export class TsDeclarationExtractor {
   readonly parameterHashByNode = new Map<string, string>();
   readonly blockHashByNode = new Map<string, string>();
   readonly typeParameterHashByNode = new Map<string, string>();
+  readonly enumMemberHashByNode = new Map<string, string>();
   /** Rows by node identity, for back-patching FKs that only exist later. */
   readonly typeRowByNode = new Map<string, TsTypeRegistry>();
   readonly methodRowByNode = new Map<string, TsMethodRegistry>();
@@ -545,12 +553,49 @@ export class TsDeclarationExtractor {
     if (!row) {
       return;
     }
-    // `ts_enum_member` is in the second freeze, so members are counted into the
-    // shape but not emitted as rows. Counting them keeps `memberCount` honest
-    // rather than reporting an enum as an empty shape, which would make it a
-    // structural-satisfaction candidate for everything.
     row.setShape(node.members.length, node.members.length,
       shapeDigestOf(node.members.map((m) => `${memberName(m) ?? ''}:ENUM_MEMBER:0:false`)));
+
+    // An implicit member's value continues from the previous one, so the running
+    // ordinal is not enough — `Closed = 3` followed by `Archived` makes Archived
+    // 4, not 2. Tracking the last known numeric value is what keeps
+    // `constantValue` right, and a COMPUTED member breaks the chain because
+    // nothing after it is knowable either.
+    let ordinal = 0;
+    let nextImplicit: number | undefined = 0;
+    for (const member of node.members) {
+      const name = memberName(member) ?? '';
+      const startPos = this.sf.getLineAndCharacterOfPosition(member.getStart(this.sf));
+      const endPos = this.sf.getLineAndCharacterOfPosition(member.end);
+      const value = enumMemberValueOf(member, nextImplicit, this.sf);
+      const memberRow = new TsEnumMemberRegistry({
+        name,
+        qualifiedName: `${row.qualifiedName}.${name}`,
+        ordinal,
+        initializerText: member.initializer
+          ? EntityUtils.normalizeWhitespace(member.initializer.getText(this.sf))
+          : '',
+        filePath: this.options.filePath,
+        startLine: startPos.line + 1,
+        endLine: endPos.line + 1,
+        tsTypeLinkHash: row.getHash(),
+        ownerTypeName: row.name,
+        ownerQualifiedName: row.qualifiedName,
+        valueKind: value.kind,
+        constantValue: value.value,
+        // A `const enum` member is INLINED at use sites, so a reference to it may
+        // have no runtime member to link to at all.
+        isConstEnumMember: isConst,
+        serviceVersionLinkHash: this.options.serviceVersionLinkHash,
+      });
+      this.enumMembers.push(memberRow);
+      this.enumMemberHashByNode.set(nodeId(member, this.sf), memberRow.getHash());
+      nextImplicit = value.kind === TsEnumMemberValueKind.COMPUTED
+        || value.kind === TsEnumMemberValueKind.EXPLICIT_STRING
+        ? undefined
+        : Number(value.value) + 1;
+      ordinal += 1;
+    }
   }
 
   private emitModuleDeclaration(node: ts.ModuleDeclaration, context: EmitContext): void {
@@ -888,6 +933,7 @@ export class TsDeclarationExtractor {
     this.fields.push(row);
     this.fieldHashByNode.set(nodeId(node, this.sf), row.getHash());
     this.fieldRowByNode.set(nodeId(node, this.sf), row);
+    this.recordFieldPosition(owner.getHash(), row.getHash());
 
     if (annotation) {
       row.setTypeReferenceLinkHash(
@@ -1225,6 +1271,21 @@ export class TsDeclarationExtractor {
     row.setOriginParameterLinkHash(parameterRow.getHash());
     parameterRow.setDeclaredFieldLinkHash(row.getHash());
     this.fields.push(row);
+    // A parameter property is exactly why this relation exists: the field ORDER
+    // is the constructor's positional shape.
+    this.recordFieldPosition(owner.getHash(), row.getHash());
+  }
+
+  /** Next declaration index per owning type, so field order survives one-line declarations. */
+  private readonly fieldCountByOwner = new Map<string, number>();
+
+  private recordFieldPosition(ownerHash: string, fieldHash: string): void {
+    const position = this.fieldCountByOwner.get(ownerHash) ?? 0;
+    this.fieldPositions.push(new TsFieldPositionRegistry({
+      tsFieldLinkHash: fieldHash,
+      position,
+    }));
+    this.fieldCountByOwner.set(ownerHash, position + 1);
   }
 
   // -------------------------------------------------------------------------
@@ -1761,6 +1822,87 @@ const TYPE_ONLY_METHOD_KINDS = new Set<TsMethodKind>([
   TsMethodKind.CALL_SIGNATURE,
   TsMethodKind.CONSTRUCT_SIGNATURE,
   TsMethodKind.FUNCTION_TYPE_SIGNATURE,
+]);
+
+/**
+ * An enum member's value kind, and its value when statically known.
+ *
+ * `CONSTANT_EXPRESSION` is separated from `COMPUTED` because the compiler FOLDS
+ * the former and refuses the latter in a `const enum` — so the distinction
+ * decides whether a reference to the member can have a runtime target at all.
+ * Folding is not attempted here: `1 << 0` is recorded as a constant expression
+ * with no value, because evaluating it would be running the program.
+ */
+function enumMemberValueOf(
+  member: ts.EnumMember,
+  nextImplicit: number | undefined,
+  sourceFile: ts.SourceFile
+): { kind: TsEnumMemberValueKind; value: string } {
+  const initializer = member.initializer;
+  if (!initializer) {
+    return nextImplicit === undefined
+      ? { kind: TsEnumMemberValueKind.COMPUTED, value: '' }
+      : { kind: TsEnumMemberValueKind.IMPLICIT_NUMERIC, value: String(nextImplicit) };
+  }
+  if (ts.isNumericLiteral(initializer)) {
+    return { kind: TsEnumMemberValueKind.EXPLICIT_NUMERIC, value: initializer.text };
+  }
+  if (ts.isPrefixUnaryExpression(initializer)
+    && initializer.operator === ts.SyntaxKind.MinusToken
+    && ts.isNumericLiteral(initializer.operand)) {
+    return {
+      kind: TsEnumMemberValueKind.EXPLICIT_NUMERIC,
+      value: `-${initializer.operand.text}`,
+    };
+  }
+  if (ts.isStringLiteral(initializer) || ts.isNoSubstitutionTemplateLiteral(initializer)) {
+    return { kind: TsEnumMemberValueKind.EXPLICIT_STRING, value: initializer.text };
+  }
+  if (isFoldableConstantExpression(initializer)) {
+    return {
+      kind: TsEnumMemberValueKind.CONSTANT_EXPRESSION,
+      value: '',
+    };
+  }
+  void sourceFile;
+  return { kind: TsEnumMemberValueKind.COMPUTED, value: '' };
+}
+
+/**
+ * Is this an expression the compiler will fold?
+ *
+ * Numeric literals, references to other enum members, and the arithmetic and
+ * bitwise operators over them. A call, a property access outside the enum, or a
+ * template with substitutions is COMPUTED — and the difference is what decides
+ * whether the member is legal in a `const enum`.
+ */
+function isFoldableConstantExpression(node: ts.Expression): boolean {
+  if (ts.isNumericLiteral(node) || ts.isIdentifier(node)) {
+    return true;
+  }
+  if (ts.isParenthesizedExpression(node)) {
+    return isFoldableConstantExpression(node.expression);
+  }
+  if (ts.isPrefixUnaryExpression(node)) {
+    return isFoldableConstantExpression(node.operand);
+  }
+  if (ts.isPropertyAccessExpression(node)) {
+    return ts.isIdentifier(node.expression);
+  }
+  if (ts.isBinaryExpression(node)) {
+    return FOLDABLE_OPERATORS.has(node.operatorToken.kind)
+      && isFoldableConstantExpression(node.left)
+      && isFoldableConstantExpression(node.right);
+  }
+  return false;
+}
+
+const FOLDABLE_OPERATORS = new Set<ts.SyntaxKind>([
+  ts.SyntaxKind.PlusToken, ts.SyntaxKind.MinusToken, ts.SyntaxKind.AsteriskToken,
+  ts.SyntaxKind.SlashToken, ts.SyntaxKind.PercentToken, ts.SyntaxKind.AsteriskAsteriskToken,
+  ts.SyntaxKind.AmpersandToken, ts.SyntaxKind.BarToken, ts.SyntaxKind.CaretToken,
+  ts.SyntaxKind.LessThanLessThanToken, ts.SyntaxKind.GreaterThanGreaterThanToken,
+  ts.SyntaxKind.GreaterThanGreaterThanGreaterThanToken,
 ]);
 
 /** `in` / `out` on a type parameter. TypeScript 4.7; 562 measured. */

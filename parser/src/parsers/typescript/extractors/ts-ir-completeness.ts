@@ -158,6 +158,82 @@ export function linkAmbientModuleImports(files: readonly TsFileFacts[]): number 
   return linked;
 }
 
+/**
+ * Links every re-export to the module it re-exports FROM.
+ *
+ * `export { Thing } from "./m"` names a module, and the file declaring `Thing`
+ * may be parsed after this one — so like ambient module imports, the link is made
+ * once every file is in. Matching is by the specifier's resolved path, which the
+ * import extractor already computed for the same specifier when one exists;
+ * otherwise the relative path is resolved against the re-exporting module.
+ *
+ * Still the MODULE graph. `ts_export.resolvedSourceModuleLinkHash` is the
+ * parser's own column (§4.13 c8), and this stops one hop short of the call
+ * graph — at the module, which is where `type-resolution.dl` takes over.
+ */
+export function linkReExportSources(files: readonly TsFileFacts[]): number {
+  const modulesByPath = new Map<string, string>();
+  for (const facts of files) {
+    for (const module of facts.modules) {
+      if (module.declaredSpecifier === '') {
+        modulesByPath.set(stripKnownExtension(module.filePath), module.getHash());
+      }
+    }
+  }
+  let linked = 0;
+  for (const facts of files) {
+    // The import extractor already resolved every specifier this file mentions,
+    // so a re-export from the same specifier reuses that answer rather than
+    // resolving it a second time and risking a different one.
+    const resolvedBySpecifier = new Map<string, string>();
+    for (const importRow of facts.imports) {
+      if (importRow.resolvedFilePath !== '') {
+        resolvedBySpecifier.set(importRow.importedPath,
+          stripKnownExtension(importRow.resolvedFilePath));
+      }
+    }
+    for (const exportRow of facts.exports) {
+      if (exportRow.sourceSpecifier === ''
+        || exportRow.getResolvedSourceModuleLinkHash() !== '') {
+        continue;
+      }
+      const viaImport = resolvedBySpecifier.get(exportRow.sourceSpecifier);
+      const target = viaImport !== undefined
+        ? modulesByPath.get(viaImport)
+        : modulesByPath.get(resolveRelative(facts.filePath, exportRow.sourceSpecifier));
+      if (target !== undefined) {
+        exportRow.setResolvedSourceModuleLinkHash(target);
+        linked += 1;
+      }
+    }
+  }
+  return linked;
+}
+
+/** A project-relative path minus its extension, so `./a.js` and `a.ts` compare equal. */
+function stripKnownExtension(filePath: string): string {
+  return filePath.replace(/\.(d\.ts|tsx?|mts|cts|js|jsx|mjs|cjs)$/, '');
+}
+
+/** A relative specifier resolved against the re-exporting file, without touching disk. */
+function resolveRelative(fromFilePath: string, specifier: string): string {
+  if (!specifier.startsWith('.')) {
+    return specifier;
+  }
+  const base = fromFilePath.split('/').slice(0, -1);
+  for (const part of stripKnownExtension(specifier).split('/')) {
+    if (part === '.' || part === '') {
+      continue;
+    }
+    if (part === '..') {
+      base.pop();
+      continue;
+    }
+    base.push(part);
+  }
+  return base.join('/');
+}
+
 export function measureIrCompleteness(
   files: readonly TsFileFacts[]
 ): IrCompletenessReport {

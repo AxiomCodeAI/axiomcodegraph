@@ -1,5 +1,6 @@
 export * from '@/enums/typescript/blocks';
 export * from '@/enums/typescript/call-sites';
+export * from '@/enums/typescript/comments';
 export * from '@/enums/typescript/decorators';
 export * from '@/enums/typescript/enum-members';
 export * from '@/enums/typescript/exports';
@@ -9,6 +10,7 @@ export * from '@/enums/typescript/heritage';
 export * from '@/enums/typescript/imports';
 export * from '@/enums/typescript/method-parameters';
 export * from '@/enums/typescript/methods';
+export * from '@/enums/typescript/parse-gaps';
 export * from '@/enums/typescript/modules';
 export * from '@/enums/typescript/type-parameters';
 export * from '@/enums/typescript/type-references';

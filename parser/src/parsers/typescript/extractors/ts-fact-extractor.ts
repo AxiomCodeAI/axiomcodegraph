@@ -3,6 +3,11 @@ import * as path from 'path';
 import * as ts from 'typescript';
 
 import { TsBlockRegistry } from '@/analysis-types/typescript/TsBlockRegistry';
+import { TsCommentRegistry } from '@/analysis-types/typescript/TsCommentRegistry';
+import { TsEnumMemberRegistry } from '@/analysis-types/typescript/TsEnumMemberRegistry';
+import { TsExportRegistry } from '@/analysis-types/typescript/TsExportRegistry';
+import { TsFieldPositionRegistry } from '@/analysis-types/typescript/TsFieldPositionRegistry';
+import { TsParseGapRegistry } from '@/analysis-types/typescript/TsParseGapRegistry';
 import { TsCallSiteRegistry } from '@/analysis-types/typescript/TsCallSiteRegistry';
 import { TsExpressionRegistry } from '@/analysis-types/typescript/TsExpressionRegistry';
 import { TsFieldRegistry } from '@/analysis-types/typescript/TsFieldRegistry';
@@ -19,11 +24,15 @@ import { TsDecoratorArgumentRegistry } from
   '@/analysis-types/typescript/TsDecoratorArgumentRegistry';
 import { TsDecoratorRegistry } from '@/analysis-types/typescript/TsDecoratorRegistry';
 import { TsDecoratorSystem } from '@/enums/typescript/decorators';
+import { TsExportedEntityKind } from '@/enums/typescript/exports';
+import { TsParseGapKind } from '@/enums/typescript/parse-gaps';
 import { TsModuleResolutionMode } from '@/enums/typescript/modules';
 import { bindSourceFile, BinderResult } from '@/parsers/typescript/extractors/ts-binder';
 import { TsDeclarationExtractor } from
   '@/parsers/typescript/extractors/ts-declaration-extractor';
+import { extractComments } from '@/parsers/typescript/extractors/ts-comment-extractor';
 import { extractDecorators } from '@/parsers/typescript/extractors/ts-decorator-extractor';
+import { extractExports } from '@/parsers/typescript/extractors/ts-export-extractor';
 import { TsExpressionExtractor } from
   '@/parsers/typescript/extractors/ts-expression-extractor';
 import { TsExpressionWalker } from '@/parsers/typescript/extractors/ts-expression-walker';
@@ -100,6 +109,11 @@ export interface TsFileFacts {
   readonly blocks: readonly TsBlockRegistry[];
   readonly decorators: readonly TsDecoratorRegistry[];
   readonly decoratorArguments: readonly TsDecoratorArgumentRegistry[];
+  readonly enumMembers: readonly TsEnumMemberRegistry[];
+  readonly fieldPositions: readonly TsFieldPositionRegistry[];
+  readonly exports: readonly TsExportRegistry[];
+  readonly comments: readonly TsCommentRegistry[];
+  readonly parseGaps: readonly TsParseGapRegistry[];
   /**
    * Calls the parser deliberately left to the engine, with the hop it needs.
    *
@@ -256,6 +270,106 @@ export function extractTypeScriptFile(options: TsFileExtractionOptions): TsFileF
     typeReferenceExtractor: declarations.typeReferenceExtractor,
   });
 
+  // Exports need every local declaration's hash, so this runs after the
+  // declaration pass. A re-export chain is the only path from an importer to the
+  // real declaration, which is why the relation is not optional.
+  const declarationByName = new Map<
+    string,
+    { hash: string; groupKey: string; kind: TsExportedEntityKind }
+  >();
+  for (const type of declarations.types) {
+    if (type.name !== '') {
+      declarationByName.set(type.name, {
+        hash: type.getHash(),
+        groupKey: type.declarationGroupKey,
+        kind: TsExportedEntityKind.TYPE,
+      });
+    }
+  }
+  for (const method of declarations.methods) {
+    if (method.tsTypeLinkHash === '' && method.escapedName !== ''
+      && !declarationByName.has(method.escapedName)) {
+      declarationByName.set(method.escapedName, {
+        hash: method.getHash(),
+        groupKey: method.declarationGroupKey,
+        kind: TsExportedEntityKind.METHOD,
+      });
+    }
+  }
+  for (const variable of declarations.variables) {
+    if (variable.name !== '' && !declarationByName.has(variable.name)) {
+      declarationByName.set(variable.name, {
+        hash: variable.getHash(),
+        groupKey: variable.declarationGroupKey,
+        kind: TsExportedEntityKind.VARIABLE,
+      });
+    }
+  }
+  const exports = extractExports({
+    sourceFile,
+    tsModuleLinkHash: fileModuleHash,
+    isDeclarationFile: sourceFile.isDeclarationFile,
+    serviceVersionLinkHash: options.serviceVersionLinkHash,
+    declarationByName,
+    typeHashByNode: declarations.typeHashByNode,
+    methodHashByNode: declarations.methodHashByNode,
+    variableHashByNode: declarations.variableHashByNode,
+  });
+  for (const row of exports) {
+    if (row.exportKind === 'DEFAULT_EXPORT' || row.exportKind === 'DEFAULT_EXPRESSION') {
+      modules.fileModule.setDefaultExportLinkHash(row.getHash());
+    }
+    if (row.exportKind === 'EXPORT_ASSIGNMENT') {
+      modules.fileModule.setExportAssignmentLinkHash(row.getHash());
+    }
+  }
+
+  // Comments are TRIVIA: not in the AST, so no walk reaches them. The owner map
+  // is keyed by a declaration's start OFFSET, because that is what the comment
+  // scan knows about the node it precedes.
+  const ownerHashByStart = new Map<number, string>();
+  for (const [id, hash] of declarations.typeHashByNode) {
+    recordOwnerStart(ownerHashByStart, id, hash);
+  }
+  for (const [id, hash] of declarations.methodHashByNode) {
+    recordOwnerStart(ownerHashByStart, id, hash);
+  }
+  for (const [id, hash] of declarations.fieldHashByNode) {
+    recordOwnerStart(ownerHashByStart, id, hash);
+  }
+  for (const [id, hash] of declarations.variableHashByNode) {
+    recordOwnerStart(ownerHashByStart, id, hash);
+  }
+  const comments = extractComments({
+    sourceFile,
+    filePath: options.filePath,
+    tsModuleLinkHash: fileModuleHash,
+    serviceVersionLinkHash: options.serviceVersionLinkHash,
+    ownerHashByStart,
+  });
+
+  // Should always be empty: zero parse failures measured over 25.9 MB. Emitted
+  // anyway, because an always-empty relation that suddenly has rows is a signal
+  // and a missing relation is a silence.
+  const parseGaps: TsParseGapRegistry[] = [];
+  for (const diagnostic of parseDiagnosticsOf(sourceFile)) {
+    const at = sourceFile.getLineAndCharacterOfPosition(diagnostic.start ?? 0);
+    const end = sourceFile.getLineAndCharacterOfPosition(
+      (diagnostic.start ?? 0) + (diagnostic.length ?? 0)
+    );
+    parseGaps.push(new TsParseGapRegistry({
+      gapKind: TsParseGapKind.PARSE_DIAGNOSTIC,
+      diagnosticCode: String(diagnostic.code),
+      message: ts.flattenDiagnosticMessageText(diagnostic.messageText, ' '),
+      filePath: options.filePath,
+      startLine: at.line + 1,
+      startColumn: at.character + 1,
+      endLine: end.line + 1,
+      tsModuleLinkHash: fileModuleHash,
+      serviceVersionLinkHash: options.serviceVersionLinkHash,
+    }));
+  }
+
   return {
     modules: [modules.fileModule, ...modules.nestedModules],
     types: declarations.types,
@@ -272,6 +386,11 @@ export function extractTypeScriptFile(options: TsFileExtractionOptions): TsFileF
     blocks: declarations.blocks,
     decorators: decorators.decorators,
     decoratorArguments: decorators.decoratorArguments,
+    enumMembers: declarations.enumMembers,
+    fieldPositions: declarations.fieldPositions,
+    exports,
+    comments,
+    parseGaps,
     engineHandoffs: resolution.handoffs,
     importByLocalName: importResult.importByLocalName,
     resolvedTargetByLocalName: importResult.resolvedTargetByLocalName,
@@ -290,6 +409,37 @@ export function extractTypeScriptFile(options: TsFileExtractionOptions): TsFileF
  * different module resolution, which `ts_module.scriptKind` records separately.
  * Only `.tsx` changes how the file PARSES.
  */
+/**
+ * A node identity is `kind:start:end`; the comment scan knows only the start.
+ *
+ * Recorded first-wins, because several nodes can begin at one offset — a
+ * declaration and its own name — and the OUTERMOST is the one a preceding
+ * comment documents.
+ */
+function recordOwnerStart(
+  target: Map<number, string>,
+  nodeIdentity: string,
+  hash: string
+): void {
+  const start = Number(nodeIdentity.split(':')[1] ?? '');
+  if (!Number.isNaN(start) && !target.has(start)) {
+    target.set(start, hash);
+  }
+}
+
+/**
+ * Parse diagnostics, without a Program.
+ *
+ * `ts.createSourceFile` records syntactic diagnostics on the source file itself,
+ * under an internal property. Reading it is the only way to see them without a
+ * Program — and the alternative, reporting no gaps ever, would make the relation
+ * a decoration rather than a signal.
+ */
+function parseDiagnosticsOf(sourceFile: ts.SourceFile): readonly ts.Diagnostic[] {
+  return (sourceFile as unknown as { parseDiagnostics?: ts.Diagnostic[] })
+    .parseDiagnostics ?? [];
+}
+
 function scriptKindFor(filePath: string): ts.ScriptKind {
   return filePath.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
 }
