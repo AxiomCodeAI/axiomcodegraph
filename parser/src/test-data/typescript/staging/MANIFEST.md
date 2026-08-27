@@ -35,7 +35,7 @@ and the table below repeats it so the harness need not parse comments.
 |---|---|---|
 | `standard-decorators.ts` | runtime-bearing | `Decorator`, `ClassDeclaration`, `ClassExpression`, `MethodDeclaration`, `GetAccessor`, `SetAccessor`, `PropertyDeclaration`, `AccessorKeyword` (auto-accessor), `PrivateIdentifier`, `CallExpression`, `ArrowFunction`, `FunctionDeclaration`, `TypeReference` (`ClassMethodDecoratorContext`, `ClassFieldDecoratorContext`, `ClassGetterDecoratorContext`, `ClassSetterDecoratorContext`, `ClassAccessorDecoratorContext`), `ExportAssignment` (default) |
 | `decorator-arguments.ts` | runtime-bearing | `Decorator` with `CallExpression`, `PropertyAccessExpression` and `ParenthesizedExpression` callees; `ObjectLiteralExpression`, `ArrayLiteralExpression`, `SpreadElement`, `SpreadAssignment`, `TemplateExpression`, `BigIntLiteral`, `NumericLiteral` with separators, `EnumMember` reference, `Identifier` class reference, `FunctionExpression`, `ClassExpression`, `ArrowFunction` as decorator arguments |
-| `legacy/legacy-decorators.ts.quarantined` | runtime-bearing | as above plus **`Parameter` decorators** and constructor-parameter decorators, `PropertyDescriptor`-shaped method decorators, `ParameterPropertyDeclaration` |
+| `legacy/legacy-decorators.ts` | runtime-bearing | as above plus **`Parameter` decorators** and constructor-parameter decorators, `PropertyDescriptor`-shaped method decorators, `ParameterPropertyDeclaration` |
 
 **Java correspondence.** Java annotations are inert metadata; decorators are
 functions **called at class-definition time**, so each decoration is a call site
@@ -43,12 +43,17 @@ and every decorator fixture is runtime-bearing. Java's `@interface` declaration
 ports to the decorator function declaration itself, typed by its context
 parameter.
 
-**Quarantine.** `legacy/` is parked on a non-compiled extension and has its own
-README. The root project compiles `src/**/*` without `experimentalDecorators`,
-so a legacy-dialect file there reddens the shared gate — including the *Python*
-suite, which runs a project-wide `tsc --noEmit`. The one-line remedy, and the
-coverage cost of dropping legacy decorators instead (parameter decorators exist
-in no other dialect), are in `annotations/legacy/README.md`.
+**Legacy dialect is in scope and stays.** `legacy/` compiles under its own
+`tsconfig.json` with `experimentalDecorators: true`; the two decorator dialects
+cannot share one project, which is why `staging/tsconfig.json` excludes that
+directory. It does not need to typecheck under the root program and no longer
+can, since the root `tsconfig.json` excludes `src/test-data/typescript`.
+
+Legacy decorators are where **taint sources are declared** in real TypeScript
+backends: NestJS `@Body()` / `@Query()` / `@Param()`, Angular `@Injectable`,
+TypeORM `@Column` are the analogue of Spring's `@RequestParam` /
+`@RequestMapping`, which Java CWE detection already keys on. Parameter
+decorators exist in no other dialect.
 
 ## Category 2 — `blocks`
 
@@ -251,23 +256,15 @@ Java constructs with **no TypeScript port**, recorded rather than invented:
 
 ## Open items for the human — not mine to decide
 
-1. **Exclude the staging tree from the root project.** The root `tsconfig.json`
-   compiles `src/**/*`, which sweeps in parser *inputs* as application source.
-   Three concrete consequences observed: the legacy-decorator fixture reddened
-   the **Python** suite; `using` declarations cannot be added because the root
-   `lib` lacks `ESNext.Disposable`; and `npm run build` emits **80 fixture files
-   into `dist/`**, shipping test data in the published package.
-2. **The coupling itself.** `src/test/python-tests.ts` runs a project-wide
-   `tsc --noEmit` as its first check, so either language effort can redden the
-   other's suite. Two parallel branches with one shared project is the design
-   worth revisiting; item 1 is the cheap mitigation.
-3. **Legacy decorators: restore or drop.** `annotations/legacy/README.md` sets
-   out both paths and the specific coverage lost by dropping (parameter
-   decorators exist in no other dialect; Angular and NestJS DI depend on them).
-4. **`experimentalDecorators` longevity.** It still compiles under 6.0.3 and is
+1. ~~Exclude the staging tree from the root project.~~ **Done** by `ts-oracle`
+   in `d4fb5fb`; `exclude` now carries `src/test-data/typescript`. This also
+   unblocks `using` / `await using`, which need `"ESNext.Disposable"` in `lib`.
+2. ~~Legacy decorators: restore or drop.~~ **Restored**, by decision: they carry
+   the taint-source declarations of real TypeScript backends.
+3. **`experimentalDecorators` longevity.** It still compiles under 6.0.3 and is
    a plausible removal candidate in the 7.x line. If it goes, retire that
    fixture deliberately rather than discovering it through a red gate.
-5. **Oracle ceiling, for the schema doc** (owner: `ts-oracle`): 6.x is the last
+4. **Oracle ceiling, for the schema doc** (owner: `ts-oracle`): 6.x is the last
    line with a usable compiler API. If 7.x becomes the only maintained line the
    oracle must drive `tsserver` out of process.
 
