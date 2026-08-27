@@ -9,9 +9,37 @@ git pull
 npx tsx src/test/typescript-tests.ts     # must be green before you push
 ```
 
-Python work is merged and lives on `main`. Read `CONTRIBUTING-python.md` first —
-the structure here mirrors it deliberately, and the three rules carry over
-unchanged. What follows is what is *different* about TypeScript.
+## Read Java for structure, Python for process
+
+TypeScript is **structurally much closer to Java than to Python.** Types are
+declared at declaration sites — parameters, returns, fields, type parameters with
+bounds — so a syntax-directed extractor recovers most of the semantic model from
+the tree alone. That is precisely why Java needed no binder pass and Python did.
+
+Port from Java:
+
+| Java | TypeScript |
+|---|---|
+| `TypeAccess`, `TypeModifier` | `public`/`private`/`protected`, `abstract`/`readonly` |
+| `TypeCategory` | class / interface / enum — the same keywords |
+| `MethodAccess`, `MethodKind`, `MethodModifier` | same |
+| `FieldModifier` | `readonly`, `static`, `private` |
+| `TypeRefContext`, `TypeRefKind` | maps closely |
+| `WildcardVariance` | `in` / `out`, since TS 4.7 |
+| `BlockKind`, `EdgeRole`, `ExpressionKind` | largely portable |
+| `src/test-data/java/` 12 categories | port far more directly than Python could |
+| `type-registry` / `type-method` / `field` / `method-parameter` extractors | near 1:1 |
+
+Take from Python only the **process**: oracle-first, never hand-write an expected
+fact, re-freezing lives outside this repository, the branch and gate structure,
+and the staging-then-consolidate agent pattern. `CONTRIBUTING-python.md` carries
+those three rules unchanged — read them there.
+
+Where TypeScript exceeds **both**: its type system. Unions, intersections,
+conditional and mapped and template-literal types, and structural satisfaction
+have no analogue in either language. That, not runtime semantics, is the hard part
+here — the inverse of Python, where runtime semantics were hard and the type
+system barely existed.
 
 ## TypeScript ships a stronger oracle than Python did
 
