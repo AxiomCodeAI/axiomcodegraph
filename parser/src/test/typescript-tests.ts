@@ -398,6 +398,120 @@ function mergeShapeCoverage(): number {
 }
 
 // ---------------------------------------------------------------------------
+// 5b. the resolution expectations are usable and can tell a wrong parser apart
+// ---------------------------------------------------------------------------
+
+interface CallExpectation {
+  site: string; callKind: string; callee: string; target: string;
+  targetProvenance: string; targetKind: string; targetHasBody: boolean;
+  candidateCount: number; chosenIndex: number; choseNonFirst: boolean;
+}
+/** Declaration kinds that cannot carry a body. Grammar, not policy. */
+const BODILESS_BY_CONSTRUCTION = new Set([
+  'MethodSignature', 'CallSignature', 'ConstructSignature', 'FunctionType',
+  'ConstructorType', 'PropertySignature', 'IndexSignature',
+]);
+
+interface Resolution {
+  emissionRegime: string; compilerVersion: string;
+  callSites: number; resolved: number; synthesized: number;
+  overloadedCalls: number; choseNonFirst: number; calls: CallExpectation[];
+}
+
+/**
+ * The flagship expectation, checked for the one property that makes it worth gating:
+ * can it distinguish a correct parser from the most likely wrong one?
+ *
+ * The likely wrong implementation resolves a call by NAME and takes the first
+ * declaration it finds. Measured on real code, that is wrong on 77.6% of overloaded
+ * calls — so an expectation containing no call that resolves to a non-first declaration
+ * would be green for exactly that parser. Counting call sites does not detect this;
+ * counting NON-FIRST resolutions does.
+ *
+ * Two further properties are checked because they encode schema decisions that a
+ * plausible-looking expectation could quietly violate:
+ *
+ *   bodiless targets  44.3% of real targets are `MethodSignature` — a declaration with
+ *                     no body. If the expectation had none, `bodyPresence` would be
+ *                     untested and the engine could read a .d.ts line as an implementation.
+ *   external targets  must be SYMBOLIC (`lib:...#Owner.member`), never a position inside
+ *                     node_modules, or every expectation churns on a dependency bump.
+ */
+function resolutionExpectationsUsable(): number {
+  const index = readJson<{ corpora: { slug: string; dir: string }[] }>(path.join(ORACLE, 'CORPORA.json'));
+  if (!index) return fail('no CORPORA.json — bless from ../parser-oracle/typescript');
+
+  const failures: string[] = [];
+  let calls = 0, nonFirst = 0, overloaded = 0, synth = 0, bodiless = 0, external = 0;
+
+  for (const c of index.corpora) {
+    const file = path.join(ORACLE, c.slug, 'EXPECTED_CALL_RESOLUTION.json');
+    const r = readJson<Resolution>(file);
+    if (!r) { failures.push(`${c.slug}: no EXPECTED_CALL_RESOLUTION.json — re-bless`); continue; }
+    if (r.compilerVersion !== COMPILER_VERSION) {
+      failures.push(`${c.slug}: blessed under typescript@${r.compilerVersion}, gate pins ${COMPILER_VERSION}`);
+    }
+    if (r.emissionRegime !== EMISSION_REGIME) {
+      failures.push(`${c.slug}: emissionRegime ${r.emissionRegime} != ${EMISSION_REGIME}`);
+    }
+    calls += r.callSites; nonFirst += r.choseNonFirst;
+    overloaded += r.overloadedCalls; synth += r.synthesized;
+
+    const dir = path.join(FIXTURES, c.dir);
+    for (const call of r.calls) {
+      if (!call.targetHasBody) bodiless++;
+      // Call sites are always positions in the corpus, and must check out.
+      const m = /^(.+):(\d+):(\d+)$/.exec(call.site);
+      if (!m) { failures.push(`${c.slug}: call site ${call.site} is not file:line:col`); continue; }
+      const abs = path.join(dir, m[1]!);
+      if (!fs.existsSync(abs)) { failures.push(`${c.slug}: ${call.site} names a missing file`); continue; }
+      const line = fs.readFileSync(abs, 'utf-8').split('\n')[Number(m[2]) - 1];
+      if (line === undefined) { failures.push(`${c.slug}: ${call.site} is past end of file`); continue; }
+
+      // Internal consistency — rules the schema states outright, checkable with no
+      // compiler. A gate that can only compare cannot notice an expectation that
+      // contradicts itself, and the oracle is not infallible; it is merely better
+      // informed. §4.6 c27: these kinds have no body BY CONSTRUCTION.
+      if (BODILESS_BY_CONSTRUCTION.has(call.targetKind) && call.targetHasBody) {
+        failures.push(`${c.slug}: ${call.site} -> ${call.targetKind} cannot have a body ` +
+          '(§4.6 bodyPresence), yet targetHasBody is true');
+      }
+      if ((call.targetKind === 'NONE') !== (call.target === 'SYNTHESIZED_NO_DECLARATION')) {
+        failures.push(`${c.slug}: ${call.site} has targetKind ${call.targetKind} but target ` +
+          `${call.target} — a synthesized signature has no declaration node, and only those`);
+      }
+
+      if (call.target === 'SYNTHESIZED_NO_DECLARATION') continue;
+      if (call.targetProvenance === 'PROJECT') {
+        if (!/^.+:\d+:\d+$/.test(call.target)) {
+          failures.push(`${c.slug}: project target ${call.target} is not a position`);
+        }
+      } else {
+        external++;
+        if (!/^(lib|pkg):[^#]+#.+/.test(call.target)) {
+          failures.push(`${c.slug}: external target ${JSON.stringify(call.target)} is not ` +
+            'symbolic — a node_modules position churns on every dependency bump');
+        }
+      }
+    }
+  }
+
+  console.log(`  ${calls} call site(s): ${overloaded} overloaded, ${nonFirst} resolve to a ` +
+    `NON-FIRST declaration, ${synth} synthesized, ${bodiless} bodiless target(s), ` +
+    `${external} external`);
+  if (!nonFirst) {
+    failures.push('VACUOUS: no call resolves to a non-first declaration, so a parser that ' +
+      'resolves by name and takes the first would pass — wrong on 77.6% of real overloaded calls');
+  }
+  if (!bodiless) {
+    failures.push('no bodiless target: 44.3% of real targets are MethodSignature, so ' +
+      'bodyPresence would be untested and a .d.ts line could be read as an implementation');
+  }
+  for (const f of failures) console.log(`  ${f}`);
+  return failures.length ? 1 : 0;
+}
+
+// ---------------------------------------------------------------------------
 // 6-9. parser-dependent checks
 // ---------------------------------------------------------------------------
 
@@ -412,7 +526,8 @@ function mergePartition(): number {
 function tscAdjudicatedResolution(): number {
   if (!parserPresent()) {
     return pendingCheck('tsc-adjudicated resolution',
-      'no extractor yet. 100% of 9,627 measured call sites have a getResolvedSignature ' +
+      'no extractor yet; the expectations are blessed and verified. 100% of 9,627 measured ' +
+      'call sites have a getResolvedSignature ' +
       'answer, and 77.6% of overloaded calls resolve to a NON-first declaration, so this ' +
       'check is the one that turns resolution into a measurement');
   }
@@ -445,6 +560,7 @@ const CHECKS: Check[] = [
   { name: 'schema and generated .dl agree', proves: 'the column contract in the doc is the one the engine reads', run: schemaMatchesDl },
   { name: 'frozen expectations are usable', proves: 'blessed under the pinned compiler, still about THIS corpus, non-vacuous, every site checks out', run: expectationsUsable },
   { name: 'merge-shape coverage', proves: 'which merge shapes the corpus actually exercises', run: mergeShapeCoverage },
+  { name: 'resolution expectations are usable', proves: 'the flagship expectation can tell a correct parser from one that always picks the first overload', run: resolutionExpectationsUsable },
   { name: 'merge partition', proves: 'the parser\'s declarationGroupKey partition equals tsc\'s symbol partition', run: mergePartition },
   { name: 'tsc-adjudicated resolution', proves: 'every resolved call target equals getResolvedSignature', run: tscAdjudicatedResolution },
   { name: 'type-only isolation', proves: 'no type-only construct reaches the call graph', run: typeOnlyIsolation },
