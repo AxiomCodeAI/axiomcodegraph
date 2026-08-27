@@ -119,10 +119,19 @@ resolution is oracle-adjudicated rather than spec-adjudicated.
 
 | agent | owns | runs |
 |---|---|---|
-| `ts-oracle` | `src/schema/typescript/`, `../parser-oracle/typescript` | first, alone; stops for schema approval |
+| `ts-oracle` | `src/schema/typescript/`, `src/test/typescript-tests.ts`, `../parser-oracle/typescript` | first, alone; stops for schema approval, then returns for the gate |
 | `ts-impl` | `src/parsers/typescript/`, `src/analysis-types/typescript/` | continuous, in its own worktree |
 | `ts-fixtures` | `src/test-data/typescript/staging/` | continuous |
 | `ts-corpus` | `src/test-data/typescript/categories/`, `verified/` | batched |
+
+`ts-oracle` writes no fixtures. `ts-fixtures` supplies source; the oracle harness
+decides what the facts should be. A test case therefore always has two authors, which
+is the point — a hand-written expectation tests only whether its author and the
+implementer read the spec alike.
+
+The oracle owns **both halves of correctness**: `../parser-oracle/typescript`
+authorises expectations, and `src/test/typescript-tests.ts` detects drift without being
+able to re-bless. The in-repo gate takes no `ts.Program` and no network.
 
 `ts-oracle` and `ts-impl` stay separate deliberately. If the implementer authors the
 expectations, the suite catches regressions and never a wrong premise — the failure
