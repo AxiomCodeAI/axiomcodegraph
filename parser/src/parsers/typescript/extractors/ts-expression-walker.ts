@@ -60,6 +60,17 @@ export interface ExpressionWalkerOptions {
 }
 
 export class TsExpressionWalker {
+  /**
+   * Node identity -> the hash of the expression tree ROOTED at it.
+   *
+   * The schema defines nine FKs from a declaration to an expression — a
+   * variable's initializer, a field's, a parameter default, a block's guard, a
+   * mixin base, an enum member's value, `export default <expr>`, a dynamic
+   * import. Each one is a chain an engine can follow and every one of them was
+   * empty, because the declaration pass runs BEFORE expressions exist and had no
+   * way to learn the hash afterwards. This map is that way.
+   */
+  readonly rootHashByNode = new Map<string, string>();
   private readonly sf: ts.SourceFile;
 
   constructor(private readonly options: ExpressionWalkerOptions) {
@@ -181,7 +192,8 @@ export class TsExpressionWalker {
     if (!node) {
       return;
     }
-    this.options.extractor.extractRoot(node, this.ownerFor(node), rootContext);
+    const hash = this.options.extractor.extractRoot(node, this.ownerFor(node), rootContext);
+    this.rootHashByNode.set(nodeId(node, this.sf), hash);
     this.descend(node);
   }
 

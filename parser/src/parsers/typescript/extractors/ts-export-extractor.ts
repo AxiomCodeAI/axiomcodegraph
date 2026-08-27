@@ -43,6 +43,8 @@ export interface ExportExtractorOptions {
   readonly typeHashByNode: ReadonlyMap<string, string>;
   readonly methodHashByNode: ReadonlyMap<string, string>;
   readonly variableHashByNode: ReadonlyMap<string, string>;
+  /** Queued so `export default compute()` can point at the expression it exports. */
+  readonly pendingExpressionLinks: { node: ts.Node; link: (hash: string) => void }[];
 }
 
 export function extractExports(options: ExportExtractorOptions): TsExportRegistry[] {
@@ -169,7 +171,7 @@ export function extractExports(options: ExportExtractorOptions): TsExportRegistr
       const named = ts.isIdentifier(statement.expression)
         ? options.declarationByName.get(statement.expression.text)
         : undefined;
-      emit({
+      const assignment = emit({
         node: statement,
         exportedName: isDefaultExport ? TS_DEFAULT_EXPORT_NAME : '',
         localName: ts.isIdentifier(statement.expression) ? statement.expression.text : '',
@@ -182,6 +184,12 @@ export function extractExports(options: ExportExtractorOptions): TsExportRegistr
         entityKind: named?.kind ?? TsExportedEntityKind.EXPRESSION,
         entityHash: named?.hash,
         entityGroupKey: named?.groupKey,
+      });
+      // `export default compute()` exports the VALUE of an expression, so the
+      // expression is the only thing there is to point at.
+      options.pendingExpressionLinks.push({
+        node: statement.expression,
+        link: (hash) => assignment.setTsExpressionLinkHash(hash),
       });
       continue;
     }

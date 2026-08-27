@@ -27,7 +27,7 @@ import { TsDecoratorSystem } from '@/enums/typescript/decorators';
 import { TsExportedEntityKind } from '@/enums/typescript/exports';
 import { TsParseGapKind } from '@/enums/typescript/parse-gaps';
 import { TsModuleResolutionMode } from '@/enums/typescript/modules';
-import { bindSourceFile, BinderResult } from '@/parsers/typescript/extractors/ts-binder';
+import { bindSourceFile, BinderResult, nodeId } from '@/parsers/typescript/extractors/ts-binder';
 import { TsDeclarationExtractor } from
   '@/parsers/typescript/extractors/ts-declaration-extractor';
 import { extractComments } from '@/parsers/typescript/extractors/ts-comment-extractor';
@@ -213,63 +213,6 @@ export function extractTypeScriptFile(options: TsFileExtractionOptions): TsFileF
   declarations.run();
   modules.fileModule.setModuleInitMethodLinkHash(declarations.moduleInitMethodHash);
 
-  const expressions = new TsExpressionExtractor({
-    sourceFile,
-    serviceVersionLinkHash: options.serviceVersionLinkHash,
-    typeReferenceExtractor: declarations.typeReferenceExtractor,
-  });
-  new TsExpressionWalker({
-    sourceFile,
-    extractor: expressions,
-    moduleHash: fileModuleHash,
-    moduleInitMethodHash: declarations.moduleInitMethodHash,
-    moduleHashForNode: modules.moduleHashForNode,
-    methodHashByNode: declarations.methodHashByNode,
-    typeHashByNode: declarations.typeHashByNode,
-    blockHashByNode: declarations.blockHashByNode,
-    variableHashByNode: declarations.variableHashByNode,
-    fieldHashByNode: declarations.fieldHashByNode,
-    parameterHashByNode: declarations.parameterHashByNode,
-  }).run();
-
-  const resolver = new TsLocalResolver({
-    sourceFile,
-    binder,
-    moduleHash: fileModuleHash,
-    types: declarations.types,
-    methods: declarations.methods,
-    fields: declarations.fields,
-    variables: declarations.variables,
-    imports: importResult.importByLocalName,
-    typeHashByNode: declarations.typeHashByNode,
-    methodHashByNode: declarations.methodHashByNode,
-    variableHashByNode: declarations.variableHashByNode,
-    fieldHashByNode: declarations.fieldHashByNode,
-    parameterHashByNode: declarations.parameterHashByNode,
-    importRowByNode: importResult.importRowByNode,
-    emittedExpressions: expressions.emitted,
-    expressionRowByNode: expressions.rowByNode,
-    callSiteByNode: expressions.callSiteByNode,
-    callNodes: expressions.getCallNodes(),
-    typeAliasTargetByName: declarations.typeAliasTargetByName,
-  });
-  const resolution = resolver.run();
-
-  // After expressions, because a decorator IS an expression that runs and its
-  // FK must point at a row that already exists.
-  const decorators = extractDecorators({
-    sourceFile,
-    moduleHash: fileModuleHash,
-    serviceVersionLinkHash: options.serviceVersionLinkHash,
-    decoratorSystem: options.decoratorSystem,
-    typeHashByNode: declarations.typeHashByNode,
-    methodHashByNode: declarations.methodHashByNode,
-    fieldHashByNode: declarations.fieldHashByNode,
-    parameterHashByNode: declarations.parameterHashByNode,
-    expressionRowByNode: expressions.rowByNode,
-    typeReferenceExtractor: declarations.typeReferenceExtractor,
-  });
-
   // Exports need every local declaration's hash, so this runs after the
   // declaration pass. A re-export chain is the only path from an importer to the
   // real declaration, which is why the relation is not optional.
@@ -314,6 +257,7 @@ export function extractTypeScriptFile(options: TsFileExtractionOptions): TsFileF
     typeHashByNode: declarations.typeHashByNode,
     methodHashByNode: declarations.methodHashByNode,
     variableHashByNode: declarations.variableHashByNode,
+    pendingExpressionLinks: declarations.pendingExpressionLinks,
   });
   for (const row of exports) {
     if (row.exportKind === 'DEFAULT_EXPORT' || row.exportKind === 'DEFAULT_EXPRESSION') {
@@ -323,6 +267,95 @@ export function extractTypeScriptFile(options: TsFileExtractionOptions): TsFileF
       modules.fileModule.setExportAssignmentLinkHash(row.getHash());
     }
   }
+
+  const expressions = new TsExpressionExtractor({
+    sourceFile,
+    serviceVersionLinkHash: options.serviceVersionLinkHash,
+    typeReferenceExtractor: declarations.typeReferenceExtractor,
+  });
+  const walker = new TsExpressionWalker({
+    sourceFile,
+    extractor: expressions,
+    moduleHash: fileModuleHash,
+    moduleInitMethodHash: declarations.moduleInitMethodHash,
+    moduleHashForNode: modules.moduleHashForNode,
+    methodHashByNode: declarations.methodHashByNode,
+    typeHashByNode: declarations.typeHashByNode,
+    blockHashByNode: declarations.blockHashByNode,
+    variableHashByNode: declarations.variableHashByNode,
+    fieldHashByNode: declarations.fieldHashByNode,
+    parameterHashByNode: declarations.parameterHashByNode,
+  });
+  walker.run();
+
+  const resolver = new TsLocalResolver({
+    sourceFile,
+    binder,
+    moduleHash: fileModuleHash,
+    types: declarations.types,
+    methods: declarations.methods,
+    fields: declarations.fields,
+    variables: declarations.variables,
+    imports: importResult.importByLocalName,
+    typeHashByNode: declarations.typeHashByNode,
+    methodHashByNode: declarations.methodHashByNode,
+    variableHashByNode: declarations.variableHashByNode,
+    fieldHashByNode: declarations.fieldHashByNode,
+    parameterHashByNode: declarations.parameterHashByNode,
+    importRowByNode: importResult.importRowByNode,
+    emittedExpressions: expressions.emitted,
+    expressionRowByNode: expressions.rowByNode,
+    callSiteByNode: expressions.callSiteByNode,
+    callNodes: expressions.getCallNodes(),
+    typeAliasTargetByName: declarations.typeAliasTargetByName,
+  });
+  const resolution = resolver.run();
+
+  // Close the declaration-to-expression FKs. Nine of them: a variable's
+  // initializer, a field's, a parameter default, a block's GUARD (the narrowing
+  // lever — 440 type predicates measured), a mixin base, an enum member's value,
+  // `export default <expr>`, a dynamic import. Each is a chain an engine can
+  // follow, and each was empty until the hash existed to fill it.
+  for (const pending of declarations.pendingExpressionLinks) {
+    const hash = walker.rootHashByNode.get(nodeId(pending.node, sourceFile));
+    if (hash !== undefined && hash !== '') {
+      pending.link(hash);
+    }
+  }
+  // `class { }` in a value position: the EXPRESSION row needs the type's hash,
+  // which is the one link that runs the other way.
+  for (const [id, typeHash] of declarations.anonymousTypeByNode) {
+    expressions.rowByNode.get(id)?.setAnonymousTypeHash(typeHash);
+  }
+  // `import("m")` and `require("m")` are module edges written inside an
+  // expression, so the import row points at the call that performs them.
+  for (const importRow of importResult.imports) {
+    if (importRow.importKind !== 'DYNAMIC_IMPORT' && importRow.importKind !== 'REQUIRE_CALL') {
+      continue;
+    }
+    const call = importResult.dynamicImportNodeByRow.get(importRow.getHash());
+    if (call) {
+      const hash = expressions.rowByNode.get(nodeId(call, sourceFile))?.getHash();
+      if (hash !== undefined) {
+        importRow.setTsExpressionLinkHash(hash);
+      }
+    }
+  }
+
+  // After expressions, because a decorator IS an expression that runs and its
+  // FK must point at a row that already exists.
+  const decorators = extractDecorators({
+    sourceFile,
+    moduleHash: fileModuleHash,
+    serviceVersionLinkHash: options.serviceVersionLinkHash,
+    decoratorSystem: options.decoratorSystem,
+    typeHashByNode: declarations.typeHashByNode,
+    methodHashByNode: declarations.methodHashByNode,
+    fieldHashByNode: declarations.fieldHashByNode,
+    parameterHashByNode: declarations.parameterHashByNode,
+    expressionRowByNode: expressions.rowByNode,
+    typeReferenceExtractor: declarations.typeReferenceExtractor,
+  });
 
   // Comments are TRIVIA: not in the AST, so no walk reaches them. The owner map
   // is keyed by a declaration's start OFFSET, because that is what the comment

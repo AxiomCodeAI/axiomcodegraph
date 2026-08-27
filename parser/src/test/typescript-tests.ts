@@ -1089,6 +1089,41 @@ function factBaseInvariants(): number {
       }
     }
 
+    // Every CALLABLE OR CONSTRUCTABLE expression must have a declaration row at
+    // the same position.
+    //
+    // An arrow, a function expression and a class expression are all
+    // declarations as well as expressions, and the declaration is what carries
+    // the parameters, the members and the signature a call site resolves to. A
+    // row on one side and nothing on the other is a callable with expression
+    // identity and no declaration — invisible in every count, because both
+    // relations look healthy on their own.
+    //
+    // Two real gaps had exactly this shape: declarations inside a DECORATOR
+    // ARGUMENT (`@record((v) => v, class Inline {})`), which the declaration
+    // walk never reached, and the inner arrow of a CURRIED arrow
+    // (`(a) => (b) => c`), which a `forEachChild` descent steps straight past.
+    const declaredAt = new Set<string>();
+    for (const file of ['all-typescript-methods.csv', 'all-typescript-types.csv']) {
+      for (const row of all.get(file) ?? []) {
+        declaredAt.add(`${row.filePath}:${row.startLine}:${row.startColumn}`);
+      }
+    }
+    const filePathByModule = new Map((all.get('all-typescript-modules.csv') ?? [])
+      .map((m) => [m.tsModuleUniqueHash ?? '', m.filePath ?? '']));
+    for (const row of all.get('all-typescript-expressions.csv') ?? []) {
+      if (row.kind !== 'ARROW_FUNCTION' && row.kind !== 'FUNCTION_EXPRESSION'
+        && row.kind !== 'CLASS_EXPRESSION') {
+        continue;
+      }
+      const where = `${filePathByModule.get(row.tsModuleLinkHash ?? '') ?? '?'}:` +
+        `${row.startLine}:${row.startColumn}`;
+      if (!declaredAt.has(where)) {
+        failures.push(`${slug}: a ${row.kind} at ${where} has an expression row but NO ` +
+          'declaration row — a callable with expression identity and no declaration');
+      }
+    }
+
     // A PARAMETER decorator is legal ONLY under experimentalDecorators. That is
     // grammar, not policy, so a parameter decorator stamped STANDARD_TC39 means
     // the decorator system was read from somewhere other than the tsconfig that
@@ -1116,6 +1151,7 @@ function factBaseInvariants(): number {
     'every type-node tree well-formed, call sites 1:1');
   console.log(`  decoratorSystem observed: ${[...systemsSeen].sort().join(', ') || 'none'} ` +
     '— read per file from the governing tsconfig');
+  console.log('  every callable expression has a declaration row at the same position');
   for (const f of failures.slice(0, 10)) console.log(`  ${f}`);
   if (failures.length > 10) console.log(`  … and ${failures.length - 10} more`);
   return failures.length ? 1 : 0;

@@ -129,6 +129,19 @@ export class TsDeclarationExtractor {
   readonly blocks: TsBlockRegistry[] = [];
   readonly typeReferenceExtractor: TsTypeReferenceExtractor;
 
+  /**
+   * Declaration-to-expression FKs, resolved after the expression pass.
+   *
+   * A declaration row is minted before any expression exists, so its FK to the
+   * expression that initialises or guards it cannot be filled in place. Queuing
+   * the setter with the NODE is what lets the fact extractor close the link once
+   * the walker has recorded a root hash for it — and the alternative, leaving
+   * nine FKs permanently empty, silently drops nine chains an engine can follow.
+   */
+  readonly pendingExpressionLinks: { node: ts.Node; link: (hash: string) => void }[] = [];
+  /** Class-expression node -> its `ts_type` hash, for `ts_expression.anonymousTypeHash`. */
+  readonly anonymousTypeByNode = new Map<string, string>();
+
   /** Emitted hashes by node identity, so later passes never re-derive a key. */
   readonly typeHashByNode = new Map<string, string>();
   readonly methodHashByNode = new Map<string, string>();
@@ -384,6 +397,36 @@ export class TsDeclarationExtractor {
   }
 
   /**
+   * Emits `node` itself if it is a declaration, otherwise descends into it.
+   *
+   * The distinction matters for a CURRIED arrow: `(a) => (b) => c` has an arrow
+   * whose entire body is another arrow, and
+   * {@link visitNestedFunctionsAndClasses} descends through `forEachChild`, which
+   * visits a node's CHILDREN and therefore steps straight past the node itself.
+   * The inner arrow got an expression row and no `ts_method` — a callable with
+   * expression identity and no declaration, which is exactly the shape the
+   * decorator-argument gap had.
+   *
+   * Every caller that passes a node which might ITSELF be a declaration goes
+   * through here rather than through the descent.
+   */
+  private emitDeclarationOrDescend(node: ts.Node, context: EmitContext): void {
+    if (ts.isArrowFunction(node)) {
+      this.emitFunctionLike(node, context, TsMethodKind.ARROW_FUNCTION);
+      return;
+    }
+    if (ts.isFunctionExpression(node)) {
+      this.emitFunctionLike(node, context, TsMethodKind.FUNCTION_EXPRESSION);
+      return;
+    }
+    if (ts.isClassExpression(node)) {
+      this.emitClassLike(node, context, TsTypeCategory.CLASS_EXPRESSION_TYPE);
+      return;
+    }
+    this.visitNestedFunctionsAndClasses(node, context);
+  }
+
+  /**
    * Descends into a statement looking only for function- and class-shaped
    * declarations.
    *
@@ -450,6 +493,7 @@ export class TsDeclarationExtractor {
     this.emitTypeParameters(node.typeParameters, row.getHash(),
       TsTypeParameterOwnerKind.CLASS, inner, TsTypeRefContext.TYPE_PARAM_BOUND);
     this.emitHeritage(node, row, context);
+    this.visitDecoratorDeclarations(node, context);
 
     let memberCount = 0;
     let requiredMemberCount = 0;
@@ -590,6 +634,12 @@ export class TsDeclarationExtractor {
       });
       this.enumMembers.push(memberRow);
       this.enumMemberHashByNode.set(nodeId(member, this.sf), memberRow.getHash());
+      if (member.initializer) {
+        this.pendingExpressionLinks.push({
+          node: member.initializer,
+          link: (hash) => memberRow.setTsExpressionLinkHash(hash),
+        });
+      }
       nextImplicit = value.kind === TsEnumMemberValueKind.COMPUTED
         || value.kind === TsEnumMemberValueKind.EXPLICIT_STRING
         ? undefined
@@ -722,6 +772,12 @@ export class TsDeclarationExtractor {
     this.types.push(row);
     this.typeHashByNode.set(nodeId(node, this.sf), row.getHash());
     this.typeRowByNode.set(nodeId(node, this.sf), row);
+    if (ts.isClassExpression(node)) {
+      // The reverse direction of every other link here: the EXPRESSION row needs
+      // the type's hash, so `class { }` in a value position is joinable to the
+      // declaration it creates.
+      this.anonymousTypeByNode.set(nodeId(node, this.sf), row.getHash());
+    }
     return row;
   }
 
@@ -801,6 +857,14 @@ export class TsDeclarationExtractor {
             }
           )
         );
+        if (isExtends && !ts.isInterfaceDeclaration(node)) {
+          // A class `extends` clause is EVALUATED, including the mixin form, so
+          // the base has an expression row and the heritage row can point at it.
+          this.pendingExpressionLinks.push({
+            node: type.expression,
+            link: (hash) => heritage.setTsExpressionLinkHash(hash),
+          });
+        }
         this.heritages.push(heritage);
         position += 1;
       }
@@ -811,11 +875,35 @@ export class TsDeclarationExtractor {
   // members
   // -------------------------------------------------------------------------
 
+  /**
+   * Declarations written inside a DECORATOR EXPRESSION.
+   *
+   * `@record((v) => v.trim(), function named() {}, class Inline {})` declares an
+   * arrow, a function and a class — three callable or constructable entities —
+   * and no other path in this walk reaches them. The expression pass emitted
+   * rows for all three while the declaration pass emitted none, so they had
+   * expression identity and no declaration: an arrow with no `ts_method`, a
+   * class with no `ts_type`, and therefore no members, no parameters and no
+   * `anonymousTypeHash` to link back to.
+   *
+   * A decorator is an expression that RUNS, so anything declared inside one is
+   * as real as anything declared anywhere else.
+   */
+  private visitDecoratorDeclarations(node: ts.Node, context: EmitContext): void {
+    if (!ts.canHaveDecorators(node)) {
+      return;
+    }
+    for (const decorator of ts.getDecorators(node) ?? []) {
+      this.emitDeclarationOrDescend(decorator, context);
+    }
+  }
+
   private emitClassMember(
     member: ts.ClassElement,
     context: EmitContext,
     owner: TsTypeRegistry
   ): MemberSummary | undefined {
+    this.visitDecoratorDeclarations(member, context);
     if (ts.isPropertyDeclaration(member)) {
       const isAccessor = hasModifier(member, ts.SyntaxKind.AccessorKeyword);
       return this.emitField(member, context, owner,
@@ -949,6 +1037,10 @@ export class TsDeclarationExtractor {
     // target, so the walk continues rather than stopping at the field row.
     const initializer = (node as { initializer?: ts.Expression }).initializer;
     if (initializer) {
+      this.pendingExpressionLinks.push({
+        node: initializer,
+        link: (hash) => row.setInitializerExpressionLinkHash(hash),
+      });
       this.visitNestedFunctionsAndClasses(node, context);
     }
     return {
@@ -1129,9 +1221,9 @@ export class TsDeclarationExtractor {
         this.visitStatement(statement, bodyContext);
       }
     } else if (body) {
-      // A concise arrow body: an expression, so no block row, but it can still
-      // contain a nested arrow or class expression.
-      this.visitNestedFunctionsAndClasses(body, inner);
+      // A concise arrow body: an expression, so no block row — and it may BE a
+      // declaration rather than merely contain one, as in `(a) => (b) => c`.
+      this.emitDeclarationOrDescend(body, inner);
     }
     this.popTypeParameters();
     return row.getHash();
@@ -1202,6 +1294,9 @@ export class TsDeclarationExtractor {
       });
       this.methodParameters.push(row);
       this.parameterHashByNode.set(nodeId(parameter, this.sf), row.getHash());
+      // A PARAMETER decorator can declare a function too, and under
+      // experimentalDecorators these are where DI tokens and taint sources live.
+      this.visitDecoratorDeclarations(parameter, context);
 
       if (parameter.type) {
         row.setTypeReferenceLinkHash(
@@ -1212,6 +1307,12 @@ export class TsDeclarationExtractor {
             tsModuleLinkHash: context.moduleHash,
           })
         );
+      }
+      if (parameter.initializer) {
+        this.pendingExpressionLinks.push({
+          node: parameter.initializer,
+          link: (hash) => row.setTsExpressionLinkHash(hash),
+        });
       }
       if (isParameterProperty) {
         // `constructor(private x: T)` declares a FIELD as well as a parameter.
@@ -1362,6 +1463,10 @@ export class TsDeclarationExtractor {
     if (!initializer) {
       return;
     }
+    this.pendingExpressionLinks.push({
+      node: initializer,
+      link: (hash) => row.setInitializerExpressionLinkHash(hash),
+    });
     // THE link that makes `const f = () => {}; f()` resolvable. 161 measured
     // call targets are arrow functions, and an arrow has no name of its own for
     // a call site to match — it is reached only through the variable.
@@ -1381,7 +1486,7 @@ export class TsDeclarationExtractor {
       this.emitClassLike(initializer, context, TsTypeCategory.CLASS_EXPRESSION_TYPE);
       return;
     }
-    this.visitNestedFunctionsAndClasses(initializer, context);
+    this.emitDeclarationOrDescend(initializer, context);
   }
 
   // -------------------------------------------------------------------------
@@ -1427,6 +1532,29 @@ export class TsDeclarationExtractor {
     return row.getHash();
   }
 
+  /**
+   * Links a block to the expression that GUARDS it.
+   *
+   * This is the column the engine narrows on: `typeof x === "string"`,
+   * `x instanceof C`, and a type-predicate call — 440 predicates measured, and
+   * every one of them is a fact about the receiver inside the block. Without the
+   * link the guard is an expression floating next to a block with nothing
+   * connecting them.
+   */
+  private linkGuard(node: ts.Node, blockHash: string, guard: ts.Expression | undefined): void {
+    if (!guard) {
+      return;
+    }
+    const row = this.blockRowByNode.get(nodeId(node, this.sf));
+    if (!row || row.getHash() !== blockHash) {
+      return;
+    }
+    this.pendingExpressionLinks.push({
+      node: guard,
+      link: (hash) => row.setConditionExpressionLinkHash(hash),
+    });
+  }
+
   private emitIfStatement(node: ts.IfStatement, context: EmitContext): void {
     // The CONDITION, not just the branches. `if (xs.some((e) => e.ok))` puts an
     // arrow in the header, and an arrow is a `ts_method` row whose parameters
@@ -1434,8 +1562,8 @@ export class TsDeclarationExtractor {
     // `e` resolving to a PARAMETER with an empty hash — a break in the hop chain
     // that no resolution percentage would show, because the OUTER call resolved
     // fine. The IR-completeness measure is what found it.
-    this.visitNestedFunctionsAndClasses(node.expression, context);
-    this.emitBranch(node.thenStatement, TsBlockKind.IF, context);
+    this.emitDeclarationOrDescend(node.expression, context);
+    this.emitBranch(node.thenStatement, TsBlockKind.IF, context, node.expression);
     const elseStatement = node.elseStatement;
     if (!elseStatement) {
       return;
@@ -1443,7 +1571,8 @@ export class TsDeclarationExtractor {
     if (ts.isIfStatement(elseStatement)) {
       // `else if` is a nested IfStatement in the AST, and flattening it would
       // lose which guard governs which body.
-      this.emitBranch(elseStatement.thenStatement, TsBlockKind.ELSE_IF, context);
+      this.emitBranch(elseStatement.thenStatement, TsBlockKind.ELSE_IF, context,
+        elseStatement.expression);
       const tail = elseStatement.elseStatement;
       if (tail) {
         this.emitIfTail(tail, context);
@@ -1461,8 +1590,14 @@ export class TsDeclarationExtractor {
     this.emitBranch(node, TsBlockKind.ELSE, context);
   }
 
-  private emitBranch(node: ts.Statement, kind: TsBlockKind, context: EmitContext): void {
+  private emitBranch(
+    node: ts.Statement,
+    kind: TsBlockKind,
+    context: EmitContext,
+    guard?: ts.Expression
+  ): void {
     const hash = this.emitBlock(node, kind, context, '');
+    this.linkGuard(node, hash, guard);
     const inner = { ...context, blockHash: hash, scopeDepth: context.scopeDepth + 1 };
     if (ts.isBlock(node)) {
       for (const statement of node.statements) {
@@ -1476,11 +1611,12 @@ export class TsDeclarationExtractor {
   private emitLoop(node: ts.IterationStatement, context: EmitContext): void {
     const kind = loopBlockKindOf(node);
     const hash = this.emitBlock(node, kind, context, '');
+    this.linkGuard(node, hash, loopGuardOf(node));
     const inner = { ...context, blockHash: hash, scopeDepth: context.scopeDepth + 1 };
     // Loop HEADERS hold expressions too, and the same reasoning applies as for
     // an `if` condition.
     for (const part of loopHeaderExpressionsOf(node)) {
-      this.visitNestedFunctionsAndClasses(part, inner);
+      this.emitDeclarationOrDescend(part, inner);
     }
     if (ts.isForStatement(node) && node.initializer
       && ts.isVariableDeclarationList(node.initializer)) {
@@ -1544,10 +1680,10 @@ export class TsDeclarationExtractor {
   }
 
   private emitSwitch(node: ts.SwitchStatement, context: EmitContext): void {
-    this.visitNestedFunctionsAndClasses(node.expression, context);
+    this.emitDeclarationOrDescend(node.expression, context);
     for (const clause of node.caseBlock.clauses) {
       if (ts.isCaseClause(clause)) {
-        this.visitNestedFunctionsAndClasses(clause.expression, context);
+        this.emitDeclarationOrDescend(clause.expression, context);
       }
     }
     for (const clause of node.caseBlock.clauses) {
@@ -1555,6 +1691,7 @@ export class TsDeclarationExtractor {
         ? TsBlockKind.SWITCH_CASE
         : TsBlockKind.SWITCH_DEFAULT;
       const hash = this.emitBlock(clause, kind, context, '');
+      this.linkGuard(clause, hash, ts.isCaseClause(clause) ? clause.expression : undefined);
       const inner = { ...context, blockHash: hash, scopeDepth: context.scopeDepth + 1 };
       for (const statement of clause.statements) {
         this.visitStatement(statement, inner);
@@ -2303,6 +2440,18 @@ function loopHeaderExpressionsOf(node: ts.IterationStatement): ts.Expression[] {
     out.push(node.expression);
   }
   return out;
+}
+
+/** The expression a loop tests or iterates — the guard, for narrowing purposes. */
+function loopGuardOf(node: ts.IterationStatement): ts.Expression | undefined {
+  if (ts.isForStatement(node)) {
+    return node.condition;
+  }
+  if (ts.isForInStatement(node) || ts.isForOfStatement(node)
+    || ts.isWhileStatement(node) || ts.isDoStatement(node)) {
+    return node.expression;
+  }
+  return undefined;
 }
 
 function loopBlockKindOf(node: ts.IterationStatement): TsBlockKind {

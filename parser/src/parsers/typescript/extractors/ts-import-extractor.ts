@@ -47,6 +47,8 @@ export interface ImportExtractionResult {
   /** Bound local name -> the resolved absolute file, when it resolved at all. */
   readonly resolvedTargetByLocalName: ReadonlyMap<string, string>;
   readonly importRowByNode: ReadonlyMap<string, TsImportRegistry>;
+  /** Import row hash -> the `import()`/`require()` call node, for its expression FK. */
+  readonly dynamicImportNodeByRow: ReadonlyMap<string, ts.Node>;
 }
 
 export class TsImportExtractor {
@@ -54,6 +56,9 @@ export class TsImportExtractor {
   private readonly importByLocalName = new Map<string, TsImportRegistry>();
   private readonly resolvedTargetByLocalName = new Map<string, string>();
   private readonly importRowByNode = new Map<string, TsImportRegistry>();
+  private readonly dynamicImportNodeByRow = new Map<string, ts.Node>();
+  /** The `import()`/`require()` call whose row is being minted, for its expression FK. */
+  private pendingDynamicImport: ts.Node | undefined;
   /** One resolution per specifier per file; the same specifier repeats often. */
   private readonly resolutionCache = new Map<string, ResolvedSpecifier>();
 
@@ -78,6 +83,7 @@ export class TsImportExtractor {
       importByLocalName: this.importByLocalName,
       resolvedTargetByLocalName: this.resolvedTargetByLocalName,
       importRowByNode: this.importRowByNode,
+      dynamicImportNodeByRow: this.dynamicImportNodeByRow,
     };
   }
 
@@ -99,6 +105,7 @@ export class TsImportExtractor {
         const isRequire = ts.isIdentifier(node.expression) && node.expression.text === 'require';
         const first = node.arguments[0];
         if ((isDynamicImport || isRequire) && first && ts.isStringLiteral(first)) {
+          this.pendingDynamicImport = node;
           this.emit(node, node, first.text,
             isDynamicImport ? TsImportKind.DYNAMIC_IMPORT : TsImportKind.REQUIRE_CALL,
             '', '', '', {
@@ -325,6 +332,10 @@ export class TsImportExtractor {
     }
     this.imports.push(row);
     this.importRowByNode.set(nodeId(bindingNode, sf), row);
+    if (this.pendingDynamicImport) {
+      this.dynamicImportNodeByRow.set(row.getHash(), this.pendingDynamicImport);
+      this.pendingDynamicImport = undefined;
+    }
     if (simpleName !== '') {
       this.importByLocalName.set(simpleName, row);
       if (resolved.absolutePath !== '') {
