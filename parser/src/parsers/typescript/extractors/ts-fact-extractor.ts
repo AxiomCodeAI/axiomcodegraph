@@ -14,10 +14,15 @@ import { TsTypeHeritageRegistry } from '@/analysis-types/typescript/TsTypeHerita
 import { TsTypeReferenceRegistry } from '@/analysis-types/typescript/TsTypeReferenceRegistry';
 import { TsTypeRegistry } from '@/analysis-types/typescript/TsTypeRegistry';
 import { TsVariableRegistry } from '@/analysis-types/typescript/TsVariableRegistry';
+import { TsDecoratorArgumentRegistry } from
+  '@/analysis-types/typescript/TsDecoratorArgumentRegistry';
+import { TsDecoratorRegistry } from '@/analysis-types/typescript/TsDecoratorRegistry';
+import { TsDecoratorSystem } from '@/enums/typescript/decorators';
 import { TsModuleResolutionMode } from '@/enums/typescript/modules';
 import { bindSourceFile, BinderResult } from '@/parsers/typescript/extractors/ts-binder';
 import { TsDeclarationExtractor } from
   '@/parsers/typescript/extractors/ts-declaration-extractor';
+import { extractDecorators } from '@/parsers/typescript/extractors/ts-decorator-extractor';
 import { TsExpressionExtractor } from
   '@/parsers/typescript/extractors/ts-expression-extractor';
 import { TsExpressionWalker } from '@/parsers/typescript/extractors/ts-expression-walker';
@@ -62,6 +67,14 @@ export interface TsFileExtractionOptions {
   readonly serviceVersionLinkHash: string;
   readonly tsConfigPath: string;
   readonly moduleResolutionMode: TsModuleResolutionMode;
+  /**
+   * From the tsconfig that GOVERNS this file — never a run-wide constant.
+   *
+   * Two files three directories apart can legitimately compile under different
+   * decorator systems, and the source is identical either way. See
+   * `ts-decorator-extractor.ts`.
+   */
+  readonly decoratorSystem: TsDecoratorSystem;
   readonly compilerOptions: ts.CompilerOptions;
   readonly packageName: string;
   /** Absolute path -> `ts_module` hash for every file in the analysis. */
@@ -83,6 +96,8 @@ export interface TsFileFacts {
   readonly expressions: readonly TsExpressionRegistry[];
   readonly callSites: readonly TsCallSiteRegistry[];
   readonly blocks: readonly TsBlockRegistry[];
+  readonly decorators: readonly TsDecoratorRegistry[];
+  readonly decoratorArguments: readonly TsDecoratorArgumentRegistry[];
   /** Calls whose target is in another module; finished by the project pass. */
   readonly deferredCalls: readonly DeferredCall[];
   /** Local name -> the row that binds it, for the project pass. */
@@ -217,6 +232,20 @@ export function extractTypeScriptFile(options: TsFileExtractionOptions): TsFileF
   });
   const resolution = resolver.run();
 
+  // After expressions, because a decorator IS an expression that runs and its
+  // FK must point at a row that already exists.
+  const decorators = extractDecorators({
+    sourceFile,
+    moduleHash: fileModuleHash,
+    serviceVersionLinkHash: options.serviceVersionLinkHash,
+    decoratorSystem: options.decoratorSystem,
+    typeHashByNode: declarations.typeHashByNode,
+    methodHashByNode: declarations.methodHashByNode,
+    fieldHashByNode: declarations.fieldHashByNode,
+    parameterHashByNode: declarations.parameterHashByNode,
+    expressionRowByNode: expressions.rowByNode,
+  });
+
   return {
     modules: [modules.fileModule, ...modules.nestedModules],
     types: declarations.types,
@@ -230,6 +259,8 @@ export function extractTypeScriptFile(options: TsFileExtractionOptions): TsFileF
     expressions: expressions.expressions,
     callSites: expressions.callSites,
     blocks: declarations.blocks,
+    decorators: decorators.decorators,
+    decoratorArguments: decorators.decoratorArguments,
     deferredCalls: resolution.deferredCalls,
     importByLocalName: importResult.importByLocalName,
     resolvedTargetByLocalName: importResult.resolvedTargetByLocalName,

@@ -137,7 +137,7 @@ export class TypeScriptProjectAnalyzer {
     const accumulated: Record<string, CsvRow[]> = {
       modules: [], types: [], typeHeritages: [], typeReferences: [], methods: [],
       methodParameters: [], fields: [], variables: [], imports: [], expressions: [],
-      callSites: [], blocks: [],
+      callSites: [], blocks: [], decorators: [], decoratorArguments: [],
     };
     const perFile: TsFileFacts[] = [];
     let analysed = 0;
@@ -165,6 +165,10 @@ export class TypeScriptProjectAnalyzer {
             ? ''
             : toRelative(rootDir, governing.configPath),
           moduleResolutionMode: governing.moduleResolutionMode,
+          // Per file, from the config that actually claims it. `legacy/` in the
+          // fixture corpus compiles under experimentalDecorators while its
+          // siblings do not, and the source is identical either way.
+          decoratorSystem: governing.decoratorSystem,
           compilerOptions: governing.options,
           packageName: '',
           projectModuleHashes,
@@ -192,6 +196,8 @@ export class TypeScriptProjectAnalyzer {
       accumulated.expressions!.push(...facts.expressions);
       accumulated.callSites!.push(...facts.callSites);
       accumulated.blocks!.push(...facts.blocks);
+      accumulated.decorators!.push(...facts.decorators);
+      accumulated.decoratorArguments!.push(...facts.decoratorArguments);
     }
 
     // The cross-module pass MUTATES rows already accumulated — they are the same
@@ -220,6 +226,10 @@ export class TypeScriptProjectAnalyzer {
     await this.exportCsv(accumulated.callSites!, options.outputDir,
       TYPESCRIPT_CSV_FILES.CALL_SITES);
     await this.exportCsv(accumulated.blocks!, options.outputDir, TYPESCRIPT_CSV_FILES.BLOCKS);
+    await this.exportCsv(accumulated.decorators!, options.outputDir,
+      TYPESCRIPT_CSV_FILES.DECORATORS);
+    await this.exportCsv(accumulated.decoratorArguments!, options.outputDir,
+      TYPESCRIPT_CSV_FILES.DECORATOR_ARGUMENTS);
     await this.exportSkippedFilesCsv(options.outputDir);
 
     return {
@@ -241,6 +251,8 @@ export class TypeScriptProjectAnalyzer {
         ts_expression: accumulated.expressions!.length,
         ts_call_site: accumulated.callSites!.length,
         ts_block: accumulated.blocks!.length,
+        ts_decorator: accumulated.decorators!.length,
+        ts_decorator_argument: accumulated.decoratorArguments!.length,
       },
       resolution: crossModule,
     };

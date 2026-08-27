@@ -950,6 +950,7 @@ function factBaseInvariants(): number {
   }
   const corpora = extractedCorpora();
   const failures: string[] = [];
+  const systemsSeen = new Set<string>();
   let rows = 0, links = 0;
 
   for (const [slug, outputDir] of corpora) {
@@ -961,6 +962,7 @@ function factBaseInvariants(): number {
       'all-typescript-fields.csv', 'all-typescript-variables.csv',
       'all-typescript-imports.csv', 'all-typescript-expressions.csv',
       'all-typescript-call-sites.csv', 'all-typescript-blocks.csv',
+      'all-typescript-decorators.csv', 'all-typescript-decorator-arguments.csv',
     ]) {
       all.set(file, relation(outputDir, file));
     }
@@ -1043,10 +1045,34 @@ function factBaseInvariants(): number {
         failures.push(`${slug}: ts_call_site.isTypeOnlyTarget is not false`);
       }
     }
+
+    // A PARAMETER decorator is legal ONLY under experimentalDecorators. That is
+    // grammar, not policy, so a parameter decorator stamped STANDARD_TC39 means
+    // the decorator system was read from somewhere other than the tsconfig that
+    // governs the file — which is the failure this column exists to prevent.
+    for (const row of all.get('all-typescript-decorators.csv') ?? []) {
+      systemsSeen.add(row.decoratorSystem ?? '');
+      if (row.context === 'PARAMETER_DECLARATION'
+        && row.decoratorSystem !== 'LEGACY_EXPERIMENTAL') {
+        failures.push(`${slug}: parameter decorator at ${row.startLine}:${row.startColumn} is ` +
+          `stamped ${row.decoratorSystem} — parameter decorators exist only under ` +
+          'experimentalDecorators, so decoratorSystem did not come from the governing tsconfig');
+      }
+    }
+  }
+
+  // Both systems must actually be exercised, or the column is untested: a
+  // parser hard-coding either value would pass a corpus that only uses that one.
+  if (systemsSeen.size > 0 && !(systemsSeen.has('STANDARD_TC39')
+    && systemsSeen.has('LEGACY_EXPERIMENTAL'))) {
+    console.log(`  VACUOUS for decoratorSystem: only ${[...systemsSeen].join(', ')} observed, ` +
+      'so a parser assuming one system per run would pass');
   }
 
   console.log(`  ${rows} row(s), ${links} foreign key(s): every PK unique, every FK resolves, ` +
     'every type-node tree well-formed, call sites 1:1');
+  console.log(`  decoratorSystem observed: ${[...systemsSeen].sort().join(', ') || 'none'} ` +
+    '— read per file from the governing tsconfig');
   for (const f of failures.slice(0, 10)) console.log(`  ${f}`);
   if (failures.length > 10) console.log(`  … and ${failures.length - 10} more`);
   return failures.length ? 1 : 0;
