@@ -1,0 +1,76 @@
+// ============================================================================
+// Projections · TYPE REFERENCES  (pure column views — no joins, no closures)
+//
+// A USE of a type: an annotation, a base class, an isinstance/cast target, an except or
+// raise type. Positions 0..16 mirror java_type_reference 0..16, so Java's name->type
+// resolution layer ports as a relation rename.
+//
+// WHY THIS MATTERS MORE THAN THE 68.2% HEADLINE SUGGESTS. That figure — 68.2% of
+// parameters carry no annotation — is a corpus average over ten projects of mixed vintage.
+// A modern typed service is the other tail: on the two-service FastAPI project in
+// test/python/projects, 107 of 193 parameters (55%) ARE annotated, and every piece of
+// cross-service plumbing is annotated (`store: ItemStore`, `transport: Transport`,
+// `client: InventoryClient`). An engine that only does flow leaves all of it on the floor.
+//
+// A declared annotation is the most reliable evidence there is — but it is a DECLARED
+// type, so the receiver may be any subtype, and resolution must widen accordingly
+// (resolution/annotations.dl). Reading it as exact would be unsound in the one direction
+// that matters.
+//
+// py_type_reference / lib_py_type_reference cols (25):
+//   0 kind  1 context  2 pyTypeLinkHash  3 typeParameterLinkHash
+//   4 referencedTypeLinkHash  5 parentReferenceHash  6 position  7 depth  8 typeName
+//   9 completeTypeName  10 typeVariableName  11 arrayDimensions  12 wildcardVariance
+//   13 startLine  14 endLine  15 typeReferenceOwnerHash  16 referenceOwnerKind
+//   17 pyScopeLinkHash  18 pyModuleLinkHash  19 isStringForwardRef
+//   20 isTypeCommentDerived  21 isOptional  22 pyExpressionLinkHash
+//   23 serviceVersionLinkHash  24 pyTypeReferenceUniqueHash
+// ============================================================================
+
+// ── type_ref(Prov, Kind, Context, TypeName, CompleteTypeName, RefHash) ───────
+// Context in {BASE_CLASS, METACLASS, METHOD_PARAM, METHOD_RETURN, FIELD_TYPE,
+// VARIABLE_ANNOTATION, CAST_TARGET, ISINSTANCE_TYPE, GENERIC_ARGUMENT, ...}.
+// TypeName is the rightmost simple name; CompleteTypeName is the full written text, so
+// `Optional[app.models.User]` keeps both `User` and the whole thing.
+type_ref("client", k, ctx, tn, complete, h) :- py_type_reference(k, ctx, _, _, _, _, _, _, tn, complete, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+type_ref("lib", k, ctx, tn, complete, h) :- lib_py_type_reference(k, ctx, _, _, _, _, _, _, tn, complete, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── type_ref_owner(Prov, OwnerHash, OwnerKind, RefHash) ──────────────────────
+// OwnerKind in {TYPE, METHOD, METHOD_PARAM, FIELD, BINDING, EXPRESSION, DECORATOR,
+// TYPE_BASE, BLOCK}; OwnerHash is polymorphic by it. This is the join back to the
+// declaration the annotation belongs to.
+type_ref_owner("client", owner, ok, h) :- py_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, owner, ok, _, _, _, _, _, _, _, h).
+type_ref_owner("lib", owner, ok, h) :- lib_py_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, owner, ok, _, _, _, _, _, _, _, h).
+
+// ── type_ref_nesting(Prov, ParentRefHash, Position, Depth, RefHash) ──────────
+// `List[Item]` is a depth-0 SUBSCRIPT with a depth-1 GENERIC_ARGUMENT child. That child
+// is the ELEMENT type, and it is the only way to get from a container annotation to what
+// iterating it yields. Measured on the two-service project: 71 depth-1 rows and 3 depth-2.
+type_ref_nesting("client", parent, pos, d, h) :- py_type_reference(_, _, _, _, _, parent, pos, d, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+type_ref_nesting("lib", parent, pos, d, h) :- lib_py_type_reference(_, _, _, _, _, parent, pos, d, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── type_ref_resolved(Prov, ReferencedTypeHash, RefHash) ─────────────────────
+// The parser's own annotation resolution, within-run. Populated for every in-repo type at
+// every depth on the measured project. Kept as a CROSS-CHECK and a fallback, exactly like
+// py_type_base.resolvedTypeLinkHash — the engine derives its own answer by name so the
+// mechanism survives a library boundary, where no hash can.
+type_ref_resolved("client", rt, h) :- py_type_reference(_, _, _, _, rt, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), rt != "".
+type_ref_resolved("lib", rt, h) :- lib_py_type_reference(_, _, _, _, rt, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), rt != "".
+
+// ── type_ref_optional(Prov, RefHash) ─────────────────────────────────────────
+// The annotation admits None — `Optional[X]` is the #1 subscript in the corpus (3,517).
+// A receiver typed this way can be None at runtime, which is a different fact from its
+// element type and is kept separate.
+type_ref_optional("client", h) :- py_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, h).
+type_ref_optional("lib", h) :- lib_py_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, h).
+
+// ── type_ref_forward(Prov, RefHash) ──────────────────────────────────────────
+// A string forward reference (573 in the corpus). Resolvable, but only by name.
+type_ref_forward("client", h) :- py_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, h).
+type_ref_forward("lib", h) :- lib_py_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, h).
+
+// ── type_ref_type_var(Prov, TypeVariableName, RefHash) ───────────────────────
+// `T` in `Repository[T]`. A TypeVar is NOT a class: resolving it to one would be a
+// fabrication, so it is projected separately and never fed to the name->type resolver.
+type_ref_type_var("client", tv, h) :- py_type_reference(_, _, _, _, _, _, _, _, _, _, tv, _, _, _, _, _, _, _, _, _, _, _, _, _, h), tv != "".
+type_ref_type_var("lib", tv, h) :- lib_py_type_reference(_, _, _, _, _, _, _, _, _, _, tv, _, _, _, _, _, _, _, _, _, _, _, _, _, h), tv != "".

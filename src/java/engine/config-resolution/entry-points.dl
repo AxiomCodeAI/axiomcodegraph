@@ -81,6 +81,32 @@ config_entry_point(m, "bean_ctor", t) :- bean_def(_, t, "stereotype", _),
 config_entry_point(m, "bean_ctor", t) :- bean_def(_, t, "xml", _),
     method_kind("client", "CONSTRUCTOR", _, m), method_owner("client", t, m).
 
+// (6) GENERATED-STUB OVERRIDES — the gRPC shape. A method that OVERRIDES one declared
+// in a supertype whose simple name matches a stub-base suffix (GreeterImplBase) is
+// invoked by the server, never by client code. Keyed on the SUPERTYPE's name because
+// the generated class name comes from the .proto and cannot be listed.
+// Matching is name + arity against the ancestor's declaration, which is what "overrides"
+// means at this layer (resolution/virtual-dispatch.dl uses the same test).
+cfg_stub_base(base, kind) :- java_type(name, _, _, _, _, _, _, _, _, _, _, _, _, base),
+    cfg_stub_base_suffix(suffix, kind),
+    strlen(name) >= strlen(suffix),
+    substr(name, strlen(name) - strlen(suffix), strlen(suffix)) = suffix.
+config_entry_point(m, kind, t) :- cfg_stub_base(base, kind),
+    type_ancestor(t, base),
+    java_method(name, _, _, _, _, _, _, base, _, _, _, _, _, _, _, _, _, pc, _, _, _, _),
+    name != "",
+    java_method(name, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, "INSTANCE_METHOD", pc, _, _, _, m).
+
+// (7) A REGISTERED type's overrides, generalised. cfg_registered_type covers web.xml
+// and config-named handlers; clause (1) matched a knob name list or a LIBRARY supertype.
+// A generated base is neither — it is a CLIENT type in the same project — so an
+// override of it was missed. Any override of any ancestor's declaration counts.
+config_entry_point(m, kind, t) :- cfg_registered_type(t, kind),
+    type_ancestor(t, anc),
+    java_method(name, _, _, _, _, _, _, anc, _, _, _, _, _, _, _, _, _, pc, _, _, _, _),
+    name != "",
+    java_method(name, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, "INSTANCE_METHOD", pc, _, _, _, m).
+
 // ── feed the EXISTING entry_point relation ───────────────────────────────────
 // One line. entry_reachable, and everything that reads it, needs no change.
 entry_point(m, kind) :- config_entry_point(m, kind, _).

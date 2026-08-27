@@ -1,0 +1,80 @@
+// ============================================================================
+// RESOLUTION · ITERATION  (what a loop or comprehension variable holds)
+//
+// `for line in self.lines: ...` and `sum(line.subtotal(c) for line in self.lines)` bind
+// `line` to an ELEMENT of the container. Nothing in the expression tree says what that
+// element is; the container's annotation does — `List[LineItem]` — and the GENERIC_ARGUMENT
+// child of that annotation is the only place it is written down.
+//
+// MEASURED ON test/python/projects/two-service-fastapi: without this, `line.subtotal(...)`
+// inside `Order.total` resolved to nothing, and since that generator expression IS the
+// order-total chain, the project's most interesting cross-service path stopped at its
+// first hop. Comprehensions are not a corner case in Python — 8 of them in this project's
+// 736 lines, and 2,056 comprehension scopes in the measured corpus.
+//
+// ── HOW THE TARGET IS LINKED TO THE ITERABLE ─────────────────────────────────
+// A comprehension's target and iterable are CHILDREN OF THE SAME node
+// (COMPREHENSION_TARGET / COMPREHENSION_ITERABLE), so the pairing is exact. A `for`
+// statement's are two separate ROOTs carrying rootContext FOR_TARGET / FOR_ITERABLE, so
+// they are paired by (scope, line) — the same limitation, and the same reason, as pairing
+// an assignment target with its value in the no-ASSIGNMENT-node IR shape (PD-2).
+//
+// Under the PY3_0_11 emission regime a comprehension also gets its OWN scope, so the
+// target binding lives there rather than in the enclosing function — which is why the
+// LEGB walk has to run before this is asked.
+// ============================================================================
+
+// ── iter_pair(Prov, TargetExprHash, IterableExprHash) ────────────────────────
+iter_pair(p, tgt, src) :-
+    expr_parent(p, c, "COMPREHENSION_TARGET", _, tgt),
+    expr_parent(p, c, "COMPREHENSION_ITERABLE", _, src).
+iter_pair(p, tgt, src) :-
+    expr_root_context(p, "FOR_TARGET", tgt), !expr_has_parent(p, tgt),
+    expr_root_context(p, "FOR_ITERABLE", src), !expr_has_parent(p, src),
+    expr_scope(p, s, _, tgt), expr_scope(p, s, _, src),
+    expr_span(p, line, _, tgt), expr_span(p, line, _, src).
+
+// ── element_type_of(Prov, IterableExprHash, ElementTypeHash) ─────────────────
+// Every clause is an ANNOTATION or a literal — never a guess about what a container holds.
+// (a) `self.lines` where the attribute came from a `List[LineItem]` parameter.
+element_type_of(p, src, t) :-
+    expr_attr_of_self(p, src, n, owner),
+    type_attr_field(p, owner, n, f),
+    field_element_from_param(p, f, t).
+// (b) `self.lines` with its own `List[LineItem]` annotation.
+element_type_of(p, src, t) :-
+    expr_attr_of_self(p, src, n, owner),
+    type_attr_field(p, owner, n, f),
+    field_declared_element(p, f, t).
+// (c) a parameter annotated `List[Item]` / `Iterable[Item]` / `Dict[str, Item]`.
+element_type_of(p, src, t) :- expr_names_param(p, src, ph), param_element_type(p, ph, t).
+// (d) a call whose callee declares `-> List[Item]`.
+element_type_of("client", src, t) :-
+    call_of_expr(src, site), expr_call_candidate(site, m),
+    method_declared_return_element("client", m, t).
+// (e) a LIST / SET / TUPLE display written in place: the element type is the type of its
+//     ELEMENT children. Exact, and it is what `[LineItem(l["key"], l["qty"]) for l in ...]`
+//     produces.
+element_type_of(p, src, t) :-
+    expr_node(p, "LIST", _, _, src), expr_parent(p, src, "ELEMENT", _, el), expr_type(p, el, t).
+element_type_of(p, src, t) :-
+    expr_node(p, "SET", _, _, src), expr_parent(p, src, "ELEMENT", _, el), expr_type(p, el, t).
+element_type_of(p, src, t) :-
+    expr_node(p, "TUPLE", _, _, src), expr_parent(p, src, "ELEMENT", _, el), expr_type(p, el, t).
+// (f) a list COMPREHENSION being iterated: its element is whatever the comprehension yields.
+element_type_of(p, src, t) :-
+    expr_node(p, "LIST_COMPREHENSION", _, _, src),
+    expr_parent(p, src, "COMPREHENSION_ELEMENT", _, el), expr_type(p, el, t).
+
+// ── binding_element_type(Prov, BindingHash, ElementTypeHash) ─────────────────
+// The binding a loop or comprehension target creates, and what it holds. A DECLARED
+// element type, so the consumer widens it over constructed subclasses like any other.
+binding_element_type(p, b, t) :-
+    iter_pair(p, tgt, src),
+    expr_binding(p, b, _, tgt),
+    element_type_of(p, src, t).
+
+// ── iteration_untyped(Prov, TargetExprHash, IterableExprHash) ────────────────
+// A loop whose container the engine could not type. Emitted so the cost is countable
+// rather than absorbed into a general "receiver untyped".
+iteration_untyped(p, tgt, src) :- iter_pair(p, tgt, src), !element_type_of(p, src, _).

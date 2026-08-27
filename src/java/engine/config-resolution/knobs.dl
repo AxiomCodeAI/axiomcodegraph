@@ -18,6 +18,8 @@ cfg_bean_ann("Controller").     cfg_bean_ann("RestController"). cfg_bean_ann("Co
 cfg_bean_ann("ControllerAdvice"). cfg_bean_ann("RestControllerAdvice").
 // … Spring Boot auto-config / test stereotypes …
 cfg_bean_ann("SpringBootApplication"). cfg_bean_ann("TestConfiguration").
+// … gRPC (grpc-spring-boot-starter and friends) …
+cfg_bean_ann("GrpcService").
 // … JSR-330 / CDI / Jakarta.
 cfg_bean_ann("Named").          cfg_bean_ann("Singleton").      cfg_bean_ann("ManagedBean").
 cfg_bean_ann("ApplicationScoped"). cfg_bean_ann("RequestScoped"). cfg_bean_ann("SessionScoped").
@@ -55,6 +57,7 @@ cfg_listener_ann("EventListener").   cfg_listener_ann("KafkaListener").
 cfg_listener_ann("RabbitListener").  cfg_listener_ann("JmsListener").
 cfg_listener_ann("SqsListener").     cfg_listener_ann("StreamListener").
 cfg_listener_ann("RabbitHandler").   cfg_listener_ann("SqsHandler").
+cfg_listener_ann("KafkaHandler").    cfg_listener_ann("JmsHandler").
 
 // ── (7) XML: element/attribute names that NAME A CLASS ───────────────────────
 // (a) attribute carrying a class name:  <bean class="com.x.Y"/>
@@ -107,3 +110,15 @@ cfg_handler_key_suffix("implementation").
 // programmatically, which is the one construct that can make the narrowing
 // over-narrow. Modelled on dispatch_cap: a policy knob, stated in one place.
 cfg_di_narrowing_enabled().
+
+// ── (13) GENERATED-STUB BASE CLASSES (gRPC, and anything shaped like it) ─────
+// A gRPC service is a class extending a GENERATED abstract base (GreeterImplBase)
+// and overriding its rpc methods. The container/server calls those overrides; no
+// client call site does, and there is no annotation on the METHOD to key on — so
+// without this the whole service body looks like dead code.
+// Matched on the SUPERTYPE's simple-name suffix, because the generated name is
+// derived from the .proto service name and cannot be enumerated.
+// cfg_stub_base_suffix(Suffix, EntryKind)
+cfg_stub_base_suffix("ImplBase", "grpc_service").      // gRPC (protoc java)
+cfg_stub_base_suffix("Grpc", "grpc_service").          // gRPC outer holder
+cfg_stub_base_suffix("Skeleton", "rpc_service").       // older RPC generators

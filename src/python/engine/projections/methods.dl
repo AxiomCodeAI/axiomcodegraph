@@ -146,6 +146,14 @@ method_span("lib", p, sl, el, h) :- lib_py_method(_, _, _, _, p, sl, el, _, _, _
 param_decl("client", name, pos, tn, m, h) :- py_method_parameter(name, pos, m, _, tn, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
 param_decl("lib", name, pos, tn, m, h) :- lib_py_method_parameter(name, pos, m, _, tn, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
 
+// ── param_annotation(Prov, BaseType, FullType, PotentialQName, ParamHash) ────
+// BaseType is the annotation MINUS SUBSCRIPTS (`Optional[User]` -> `Optional`), FullType
+// is the text as written, PotentialQName is the parser's dotted guess. All three are
+// needed: the base name is what a name->type lookup can resolve, the full text is what a
+// report shows, and the qualified name is the cross-check.
+param_annotation("client", base, full, pq, h) :- py_method_parameter(_, _, _, base, full, pq, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+param_annotation("lib", base, full, pq, h) :- lib_py_method_parameter(_, _, _, base, full, pq, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
 // ── param_kind(Prov, ParamKind, IsVarArgs, IsReceiver, ParamHash) ────────────
 // POSITIONAL_OR_KEYWORD | POSITIONAL_ONLY | KEYWORD_ONLY | VAR_POSITIONAL |
 // VAR_KEYWORD | POSITIONAL_ONLY_MARKER | KEYWORD_ONLY_MARKER. The two MARKER kinds

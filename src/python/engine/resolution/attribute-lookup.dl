@@ -116,10 +116,30 @@ mro_lookup_data_shadow(p, t, n, f) :-
     mro_winner(p, t, n, c), type_defines_field(p, c, n, f),
     !type_defines_method(p, c, n, _).
 
+// ── ATTRIBUTE ACCESS TO A DECORATED METHOD ───────────────────────────────────
+// `handlers.checkout(...)` where `checkout` is @retry-decorated. The name denotes the
+// decorator's OUTPUT, and resolution/decorators.dl already computed it — this clause is
+// what makes that answer reachable through an ATTRIBUTE and not only through a bare name.
+// MEASURED: without it, a call to a decorated METHOD was a declared unknown even where the
+// chain had been followed successfully, which on the two-service project was both
+// @retry-decorated handlers.
+// A SEPARATE relation, not a clause of mro_lookup. decorated_name_target sits inside the
+// resolution fixpoint (the chain needs expr_call_candidate to identify the decorator's
+// factory), while mro_lookup is upstream of it and uses negation — folding this in makes
+// that negation cyclic and souffle refuses the program. Consumed by
+// expression-resolution/callee-resolution.dl, which is downstream of both.
+mro_lookup_decorated(p, t, n, r) :-
+    mro_winner(p, t, n, c),
+    method_owner(p, c, def), method_decl(p, n, _, _, _, def),
+    method_target_replaced(p, def),
+    decorated_name_target(def, r).
+
 // ── mro_lookup_opaque(Prov, ReceiverType, Name) ──────────────────────────────
-// The MRO winner for this name is a decorator-replaced def. Callable, but not through a
-// target this engine can name — ambiguous_unknown with a reason.
-mro_lookup_opaque(p, t, n) :- mro_winner(p, t, n, c), type_name_opaque(p, c, n).
+// The MRO winner is a decorator-replaced def AND the chain could NOT be followed — an
+// unmodelled framework decorator. ambiguous_unknown with a reason, never an edge.
+mro_lookup_opaque(p, t, n) :-
+    mro_winner(p, t, n, c), type_name_opaque(p, c, n),
+    !mro_lookup_decorated(p, t, n, _).
 
 // ── mro_lookup_after(Prov, ReceiverType, AnchorType, Name, MethodHash) ───────
 // super()'s lookup: search only the part of A(ReceiverType) that comes AFTER the anchor

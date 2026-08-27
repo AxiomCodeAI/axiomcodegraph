@@ -85,6 +85,37 @@ binding_binds_type(p, b, t) :- type_declaring_binding(p, b, t), b != "".
 // simply failing to match.
 binding_binds_param(p, b, prm) :- param_binding(p, b, prm).
 
+// ── MEMBER IMPORTS, RESOLVED BY NAME RATHER THAN BY THE PARSER'S FK ──────────
+//
+// PD-11, and it is a live bug rather than a theoretical one. `from shared.retry import
+// retry` — a member whose name equals its own module's last segment — resolves to
+// resolvedTargetKind=MODULE with an EMPTY resolvedTargetHash: the parser preferred the
+// module `shared.retry` over the function `retry` inside it. `from shared.retry import
+// audited`, two names later on the same statement, resolves correctly to FUNCTION. The
+// shape is ordinary (`from app.tasks import tasks`, `from pkg.logging import logging`),
+// and on the two-service project it silently broke the entire @retry decorator chain in
+// BOTH services: the decorated name resolved to a module, so `handlers.checkout(...)` and
+// `handlers.get_item(...)` had no target at all.
+//
+// So the member is resolved from two columns that ARE exact:
+//   packageOrTypeName  the module the member comes from  ("shared.retry")
+//   originalName       the member's own name              ("retry")
+// A module with that qualifiedName, and a member of it with that name. No string
+// splitting, no FK, and it works identically against the library IR — where no hash could
+// ever have matched.
+import_binds_method(p, b, m) :-
+    import_binding(p, b, i),
+    import_relative(p, _, pkg, i), pkg != "",
+    import_alias(p, orig, _, i), orig != "",
+    module_decl(p, _, pkg, _, mod),
+    module_member_method(p, mod, orig, m).
+import_binds_type(p, b, t) :-
+    import_binding(p, b, i),
+    import_relative(p, _, pkg, i), pkg != "",
+    import_alias(p, orig, _, i), orig != "",
+    module_decl(p, _, pkg, _, mod),
+    module_member_type(p, mod, orig, t).
+
 // ── import-bound names ───────────────────────────────────────────────────────
 // py_import.resolvedTargetKind/Hash is an IN-REPO FK and is trustworthy inside one
 // parse (13 of 13 in-repo imports resolved on linkage-sample). An import that did

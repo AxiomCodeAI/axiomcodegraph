@@ -202,6 +202,16 @@ expr_call_candidate(site, m) :-
     call_name(site, n),
     mro_lookup("client", t, n, m).
 
+// ── a DECORATED method reached through an attribute ──────────────────────────
+// `handlers.checkout(...)` where `checkout` is @retry-decorated: the name denotes the
+// decorator's OUTPUT, so the target is `inner`, not the `def`. Same answer the bare-name
+// path gets from expr_denotes_method; this is the attribute half of it.
+expr_call_candidate(site, m) :-
+    call_recv_kind(site, rk), rk != "NONE", rk != "SUPER",
+    call_recv_type(site, t),
+    call_name(site, n),
+    mro_lookup_decorated("client", t, n, m).
+
 // ── call_recv_type(SiteHash, TypeHash) — the receiver's instance type(s) ─────
 // (a) SELF: the enclosing class, plus the dispatch widening (resolution/dispatch.dl).
 call_recv_type(site, t) :- call_self_dispatch_type(site, t).
