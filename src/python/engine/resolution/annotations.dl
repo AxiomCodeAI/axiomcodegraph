@@ -1,0 +1,148 @@
+// ============================================================================
+// RESOLUTION · ANNOTATIONS  (declared types, resolved by NAME and widened by subtyping)
+//
+// THE MEASUREMENT THAT PUT THIS FILE HERE. The schema's headline is that 68.2% of
+// parameters carry no annotation, and the engine was built on that: flow first,
+// annotations nowhere. Then a modern typed service went through it —
+// `test/python/projects/two-service-fastapi`, 19 files, 206 call sites — and 27 of its 68
+// declared unknowns were receivers whose type was WRITTEN DOWN one line above:
+//
+//     def to_dict(self, obj: Item) -> Payload:        # obj.unit_price() unresolved
+//     def subtotal(self, client: InventoryClient):    # client.quote()   unresolved
+//     def __init__(self, store: ItemStore):           # self.store.get() unresolved
+//
+// 107 of that project's 193 parameters are annotated, and EVERY cross-service seam is.
+// The 68.2% is a corpus average over projects of mixed vintage; the annotated tail is
+// where dependency-injected service code lives, and it was the single largest gap.
+//
+// ── A DECLARED TYPE IS NOT AN EXACT TYPE ─────────────────────────────────────
+// `transport: Transport` says the receiver is a Transport OR ANY SUBCLASS. Reading it as
+// exact would resolve `self.transport.send(...)` to the abstract method and miss all
+// three implementations — unsound in the one direction that matters. So every declared
+// type is widened by `declared_dispatch`: the type itself, plus every subclass the
+// program actually CONSTRUCTS (RTA, same bound as self-dispatch). On the measured project
+// that turns `Transport.send` into a sound 3-element set and `handlers:
+// InventoryHandlers` (no subclasses) into a single known_edge — the width tracks the
+// hierarchy rather than the name.
+//
+// ── RESOLVED BY NAME, NOT BY THE PARSER'S FK ─────────────────────────────────
+// `py_type_reference.referencedTypeLinkHash` is populated for every in-repo annotation on
+// the measured project, and it is deliberately NOT the primary source: it is run-local,
+// so it cannot cross into the library IR. The engine resolves the annotation's base name
+// in the annotated declaration's own module — types declared there plus types imported
+// there — which is the same mechanism that will work against a library. The FK is kept as
+// `annotation_agrees` / `annotation_differs` so the two are comparable.
+// ============================================================================
+
+// ── type_name_in_module(Prov, ModuleHash, Name, TypeHash) ────────────────────
+// What a bare type name means INSIDE one module: a class declared there, or a class
+// imported there at module level. This is the whole of annotation resolution, and it is
+// scope-correct rather than global — which is what keeps `Item` in two different modules
+// from collapsing into one answer.
+type_name_in_module(p, mod, n, t) :- module_member_type(p, mod, n, t).
+type_name_in_module(p, mod, n, t) :-
+    module_init(p, _, modScope, mod),
+    import_scope(p, modScope, mod, i),
+    import_decl(p, _, _, n, i),
+    import_binding(p, b, i),
+    import_binds_type(p, b, t).
+
+// ── declared_dispatch(Prov, DeclaredType, PossibleRuntimeType) ───────────────
+// The declared type itself, plus every CONSTRUCTED subclass. Bounded by RTA, so an
+// abstract base with twelve implementations of which two are built fans to three, not
+// thirteen. The closed-world assumption is the same one self-dispatch makes and is
+// recorded the same way.
+declared_dispatch(p, d, d) :- type_decl(p, _, _, _, d).
+declared_dispatch(p, d, s) :- type_subclass(p, d, s), type_instantiated_reachable(p, s).
+
+// ── param_declared_type(Prov, ParamHash, TypeHash) ───────────────────────────
+// The annotation's base name, resolved in the owning method's module. A subscripted
+// annotation (`List[Item]`, `Optional[Item]`) has base `List`/`Optional`, which is not a
+// client class and yields NO row here — the payload comes through
+// param_element_type below instead, and conflating the two would type a list AS its
+// element.
+param_declared_type(p, ph, t) :-
+    param_annotation(p, base, _, _, ph), base != "",
+    param_decl(p, _, _, _, m, ph),
+    method_module(p, mod, m),
+    type_name_in_module(p, mod, base, t).
+
+// ── param_declared_type_by_parser / annotation cross-check ───────────────────
+// The parser's own answer for the same parameter, via the METHOD_PARAM type reference
+// whose owner is this parameter.
+param_declared_type_by_parser(p, ph, t) :-
+    type_ref_owner(p, ph, "METHOD_PARAM", r),
+    type_ref(p, _, "METHOD_PARAM", _, _, r),
+    type_ref_resolved(p, t, r).
+annotation_agrees(p, ph, t) :- param_declared_type(p, ph, t), param_declared_type_by_parser(p, ph, t).
+annotation_differs(p, ph, mine, theirs) :-
+    param_declared_type(p, ph, mine), param_declared_type_by_parser(p, ph, theirs), theirs != mine.
+// The parser saw an annotation the engine's name lookup could not resolve — a
+// function-local import, a forward reference, a re-export. Counted so the gap is a number.
+annotation_parser_only(p, ph, t) :-
+    param_declared_type_by_parser(p, ph, t), !param_declared_type(p, ph, _).
+
+// ── ELEMENT TYPES — `List[Item]`, `Dict[str, Item]`, `Optional[Item]` ─────────
+// The GENERIC_ARGUMENT children of a subscripted annotation. This is what iterating a
+// container yields, and without it `for line in self.lines` types nothing — which on the
+// measured project cost every `line.subtotal(...)` edge, i.e. the whole order-total chain.
+//
+// The LAST generic argument is taken for a mapping (`Dict[str, Item]` iterates keys but
+// `.values()` yields Item, and indexing yields Item), and it is the only argument for a
+// sequence. Both are emitted; a `Dict[str, Item]` therefore contributes `str` and `Item`,
+// which over-approximates iteration and is the safe direction.
+type_ref_element(p, parentRef, t) :-
+    type_ref_nesting(p, parentRef, _, "1", child),
+    type_ref(p, _, "GENERIC_ARGUMENT", _, _, child),
+    type_ref_resolved(p, t, child).
+// The name-based twin, so the mechanism survives a library boundary.
+type_ref_element(p, parentRef, t) :-
+    type_ref_nesting(p, parentRef, _, "1", child),
+    type_ref(p, _, "GENERIC_ARGUMENT", tn, _, child), tn != "",
+    type_ref_owner(p, owner, ok, parentRef),
+    annotation_owner_module(p, owner, ok, mod),
+    type_name_in_module(p, mod, tn, t).
+
+// ── annotation_owner_module(Prov, OwnerHash, OwnerKind, ModuleHash) ──────────
+// The module an annotation was written in, whatever kind of declaration owns it.
+annotation_owner_module(p, ph, "METHOD_PARAM", mod) :-
+    param_decl(p, _, _, _, m, ph), method_module(p, mod, m).
+annotation_owner_module(p, m, "METHOD", mod) :- method_module(p, mod, m).
+annotation_owner_module(p, f, "FIELD", mod) :- field_decl(p, _, t, _, f), type_module(p, mod, t).
+
+// ── param_element_type(Prov, ParamHash, TypeHash) ────────────────────────────
+param_element_type(p, ph, t) :-
+    type_ref_owner(p, ph, "METHOD_PARAM", r),
+    type_ref(p, "SUBSCRIPT", "METHOD_PARAM", _, _, r),
+    type_ref_element(p, r, t).
+
+// ── method_declared_return_type(Prov, MethodHash, TypeHash) ──────────────────
+// `-> Item`. Resolved by the same name-in-module lookup, so `def require(...) -> Item` in
+// a module that merely IMPORTS Item still resolves — which the previous
+// module-members-only rule did not, and that alone cost the `store.require(...)` chain.
+method_declared_return_type(p, m, t) :-
+    method_decl(p, _, _, _, ret, m), ret != "",
+    method_module(p, mod, m),
+    type_name_in_module(p, mod, ret, t).
+method_declared_return_type_by_parser(p, m, t) :-
+    type_ref_owner(p, m, "METHOD", r),
+    type_ref(p, _, "METHOD_RETURN", _, _, r),
+    type_ref_resolved(p, t, r).
+
+// ── method_declared_return_element(Prov, MethodHash, TypeHash) ───────────────
+// `-> List[Item]`.
+method_declared_return_element(p, m, t) :-
+    type_ref_owner(p, m, "METHOD", r),
+    type_ref(p, "SUBSCRIPT", "METHOD_RETURN", _, _, r),
+    type_ref_element(p, r, t).
+
+// ── field_declared_type / field_declared_element ─────────────────────────────
+// `self._items: Dict[str, Item]` — the field annotation and its payload.
+field_declared_type(p, f, t) :-
+    field_annotation(p, _, base, _, f), base != "",
+    field_decl(p, _, owner, _, f), type_module(p, mod, owner),
+    type_name_in_module(p, mod, base, t).
+field_declared_element(p, f, t) :-
+    type_ref_owner(p, f, "FIELD", r),
+    type_ref(p, "SUBSCRIPT", "FIELD_TYPE", _, _, r),
+    type_ref_element(p, r, t).

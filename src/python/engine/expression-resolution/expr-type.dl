@@ -62,6 +62,38 @@ expr_type(p, e, t) :- expr_type_union_only(p, e, t).
 //     uses and carries the same argument — symtable itself says the name is bound once.
 expr_type(p, e, t) :- expr_binding(p, b, ctx, e), ctx != "STORE", binding_lookup(p, b, b2), binding_value_type(p, b2, t).
 
+// (g) A parameter with a DECLARED ANNOTATION, widened over constructed subclasses. This
+//     is the mechanism that carries a dependency-injected service: `def __init__(self,
+//     store: ItemStore)` and `def subtotal(self, client: InventoryClient)` are the whole
+//     of the cross-service plumbing on the measured project, and flow alone never sees
+//     them because the constructor is called once, at module import, from a different
+//     module.
+expr_type(p, e, t) :-
+    expr_names_param(p, e, ph),
+    param_declared_type(p, ph, d),
+    declared_dispatch(p, d, t).
+// (h) `self.x` where the attribute was written FROM a parameter — the DI shape.
+//     `self.store = store` carries the annotation of `store` onto the attribute.
+expr_type(p, e, t) :-
+    expr_attr_of_self(p, e, n, owner),
+    type_attr_field(p, owner, n, f),
+    field_type_from_param(p, f, d),
+    declared_dispatch(p, d, t).
+// (i) `self.x` with its OWN annotation.
+expr_type(p, e, t) :-
+    expr_attr_of_self(p, e, n, owner),
+    type_attr_field(p, owner, n, f),
+    field_declared_type(p, f, d),
+    declared_dispatch(p, d, t).
+// (j) A loop or comprehension variable over a container whose ELEMENT type is declared:
+//     `for line in self.lines` where lines is List[LineItem]. Without this the whole
+//     order-total chain on the measured project stopped at the generator expression.
+expr_type(p, e, t) :-
+    expr_binding(p, b, ctx, e), ctx != "STORE",
+    binding_lookup(p, b, b2),
+    binding_element_type(p, b2, d),
+    declared_dispatch(p, d, t).
+
 // ── binding_value_type(Prov, BindingHash, TypeHash) ──────────────────────────
 // Single-binding local/module flow. Mirrors Java's local-flow.dl, with the write count
 // coming from symtable instead of from a declared type.
@@ -75,11 +107,26 @@ binding_value_type(p, b, t) :-
 // The callee's `-> X` annotation, resolved as a member of the CALLEE's own module. A
 // within-module lookup, so no cross-module name matching sneaks in. Restricted to
 // candidates rather than the post-cap set so the type flow does not depend on the cap.
+// (a) a DECLARED return type, resolved by name in the callee's own module and widened
+//     over constructed subclasses. The previous version looked only at types DECLARED in
+//     that module, so `def require(...) -> Item` in a module that merely imports Item
+//     resolved to nothing.
 call_returns_type(site, t) :-
     expr_call_candidate(site, m),
-    method_decl("client", _, _, _, ret, m), ret != "",
-    method_module("client", mod, m),
-    module_member_type("client", mod, ret, t).
+    method_declared_return_type("client", m, d),
+    declared_dispatch("client", d, t).
+// (b) RETURN-OF-PARAMETER flow: `def seed(store): ...; return store` gives the call the
+//     type of the argument that was passed in. Python's builder idiom, and Java has no
+//     analogue to port — a Java method's return type is declared, so this shape cannot
+//     arise there.
+call_returns_type(site, t) :-
+    expr_call_candidate(site, m),
+    method_returns_param("client", m, pos),
+    call_arg_offset(site, m, off),
+    !call_flow_imprecise(site),
+    call_arg(site, argPos, a),
+    to_number(pos) = to_number(argPos) + off,
+    expr_type("client", a, t).
 
 // ── expr_any_type(Prov, ExprHash) — typed at all ─────────────────────────────
 // Used to distinguish "the engine has no type for this receiver" from "the engine has

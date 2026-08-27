@@ -102,6 +102,23 @@ config_binding(k, "xml_property", "setter", m, t) :- xml_prop_value_key(elem, p,
     xml_bean(elem, _, t, _), cfg_setter_name(p, sn),
     method_name_in_type(sn, t, m), method_owner("client", _, m).
 
+// (d2) A PLACEHOLDER IN ANY ANNOTATION ARGUMENT, not just @Value. Measured gap:
+// `@KafkaListener(topics = "${app.topics.orders}")` and
+// `@RabbitListener(queues = "${app.queues.mail}")` name the topic/queue the method
+// subscribes to, so changing that key changes what the method receives — yet the key
+// reported as `unbound_key` and the impact query answered nothing. @Value is excluded
+// here because clauses (a)/(b) already bind it with a more specific mechanism.
+cfg_ann_placeholder(a, k) :- ann_arg(a, _, v, _, _), cfg_placeholder(v, k, _).
+cfg_value_annotated(a) :- annotation_on("client", n, _, _, _, a), cfg_value_ann(n).
+config_binding(k, "annotation_argument", "method", m, owner) :-
+    cfg_ann_placeholder(a, k), !cfg_value_annotated(a), ann_on_method(a, _, m, owner).
+config_binding(k, "annotation_argument", "type", t, t) :-
+    cfg_ann_placeholder(a, k), !cfg_value_annotated(a), ann_on_type(a, _, t).
+config_binding(k, "annotation_argument", "param", p, m) :-
+    cfg_ann_placeholder(a, k), !cfg_value_annotated(a), ann_on_param(a, _, p, m).
+config_binding(k, "annotation_argument", "field", f, owner) :-
+    cfg_ann_placeholder(a, k), !cfg_value_annotated(a), ann_on_field(a, _, f, owner).
+
 // (e) a key whose VALUE names a class: changing the key swaps the implementation,
 // so every method of that class is in the blast radius.
 config_binding(k, "class_binding", "type", t, t) :- config_class_ref(fmt, k, _, t, "client"),
@@ -137,6 +154,9 @@ config_bound_method(k, m, "receives_param") :- config_binding_effective(k, _, "p
 config_bound_method(k, m, "setter") :- config_binding_effective(k, _, "setter", m, _).
 config_bound_method(k, m, "class_binding") :- config_binding_effective(k, _, "type", t, _),
     method_owner("client", t, m).
+// An annotation argument on a METHOD binds the key straight to that method — the
+// listener whose topic/queue the key names.
+config_bound_method(k, m, "annotated_method") :- config_binding_effective(k, _, "method", m, _).
 // NOTE — deliberately NOT here: "every method of the type that declares the bound
 // field". That would make `svc.host` affect a sibling method which never touches
 // `host`, and the 22-* golden showed exactly that noise. Selecting an

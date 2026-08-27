@@ -1,0 +1,5 @@
+app:
+  topics:
+    orders: orders-v1
+  queues:
+    mail: mail-q

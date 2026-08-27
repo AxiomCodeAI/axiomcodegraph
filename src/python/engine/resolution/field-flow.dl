@@ -85,6 +85,37 @@ field_type_holds_class(p, f, t) :-
     expr_node(p, "NAME_REFERENCE", _, _, val),
     expr_names_type(p, val, t).
 
+// ── field_type_from_param(Prov, FieldHash, TypeHash) ─────────────────────────
+// `self.store = store` — the DEPENDENCY-INJECTION shape, and by far the most common way a
+// service attribute gets its value. The type comes from the parameter: its declared
+// annotation if it has one, otherwise whatever argument flow put there.
+//
+// MEASURED: 15 of the two-service project's 68 declared unknowns were receivers of exactly
+// this form (`self.store.get(...)`, `self.transport.send(...)`,
+// `self.handlers.price_quote(...)`, `self.inner.send(...)`). Construction-based field
+// typing cannot see them, because the value is not constructed here — it is handed in.
+//
+// The result is a DECLARED type, not an exact one, so the consumer widens it over
+// constructed subclasses. That is what makes `self.transport.send(...)` a sound
+// three-element set rather than a single edge to an abstract method.
+field_type_from_param(p, f, t) :-
+    field_write_value(p, f, val),
+    expr_names_param(p, val, ph),
+    param_declared_type(p, ph, t).
+field_type_from_param(p, f, t) :-
+    field_write_value(p, f, val),
+    expr_names_param(p, val, ph),
+    param_arg_type(ph, t),
+    p = "client".
+
+// ── field_element_from_param(Prov, FieldHash, TypeHash) ──────────────────────
+// `self.lines = lines` where `lines: List[LineItem]` — the attribute is a container and
+// this is what iterating it yields.
+field_element_from_param(p, f, t) :-
+    field_write_value(p, f, val),
+    expr_names_param(p, val, ph),
+    param_element_type(p, ph, t).
+
 // ── field_single_write(Prov, FieldHash) ──────────────────────────────────────
 field_single_write(p, f) :- field_writes(p, "1", _, _, f).
 
@@ -128,6 +159,8 @@ field_type_unknown(p, f) :- field_decl(p, _, _, _, f), !field_type_any(p, f).
 field_type_any(p, f) :- field_type(p, f, _).
 field_type_any(p, f) :- field_type_union(p, f, _).
 field_type_any(p, f) :- field_type_holds_class(p, f, _).
+field_type_any(p, f) :- field_type_from_param(p, f, _).
+field_type_any(p, f) :- field_declared_type(p, f, _).
 
 // ============================================================================
 // ATTRIBUTE LOOKUP ON A TYPE — `self.base` -> the field row

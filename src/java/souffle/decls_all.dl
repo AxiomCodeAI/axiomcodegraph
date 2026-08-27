@@ -514,3 +514,7 @@
 .decl cfg_site_primary_unique(c0:symbol)
 .decl cfg_factory_type(c0:symbol,c1:symbol)
 .decl cfg_container_constructed(c0:symbol)
+.decl cfg_stub_base_suffix(c0:symbol,c1:symbol)
+.decl cfg_stub_base(c0:symbol,c1:symbol)
+.decl cfg_ann_placeholder(c0:symbol,c1:symbol)
+.decl cfg_value_annotated(c0:symbol)
