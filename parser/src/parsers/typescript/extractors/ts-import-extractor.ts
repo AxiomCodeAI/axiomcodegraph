@@ -72,12 +72,50 @@ export class TsImportExtractor {
       }
     }
     this.emitTripleSlashReferences();
+    this.emitDynamicImports();
     return {
       imports: this.imports,
       importByLocalName: this.importByLocalName,
       resolvedTargetByLocalName: this.resolvedTargetByLocalName,
       importRowByNode: this.importRowByNode,
     };
+  }
+
+  /**
+   * `import("./x")` and `require("./x")` anywhere in the file.
+   *
+   * Real module edges that no top-level statement declares, so a pass that only
+   * walks statements misses them entirely — and with them the only record that
+   * the target file is reachable. `ts_import` has enum values and an expression
+   * FK for exactly this (`DYNAMIC_IMPORT`, `REQUIRE_CALL`, c22), because a lazy
+   * route is still a route.
+   */
+  private emitDynamicImports(): void {
+    const sf = this.options.sourceFile;
+    let index = 0;
+    const visit = (node: ts.Node): void => {
+      if (ts.isCallExpression(node)) {
+        const isDynamicImport = node.expression.kind === ts.SyntaxKind.ImportKeyword;
+        const isRequire = ts.isIdentifier(node.expression) && node.expression.text === 'require';
+        const first = node.arguments[0];
+        if ((isDynamicImport || isRequire) && first && ts.isStringLiteral(first)) {
+          this.emit(node, node, first.text,
+            isDynamicImport ? TsImportKind.DYNAMIC_IMPORT : TsImportKind.REQUIRE_CALL,
+            '', '', '', {
+              isTypeOnly: false,
+              isWildcard: false,
+              isDefaultImport: false,
+              isSideEffectOnly: false,
+              // Its own index space: a dynamic import shares no clause with the
+              // static imports, and the PK includes the clause index.
+              clauseIndex: 1000 + index,
+            });
+          index += 1;
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    ts.forEachChild(sf, visit);
   }
 
   private emitImportDeclaration(node: ts.ImportDeclaration): void {
@@ -306,7 +344,14 @@ export class TsImportExtractor {
   }
 
   private doResolve(specifier: string): ResolvedSpecifier {
-    if (specifier.startsWith('node:')) {
+    // A Node builtin, with or without the `node:` prefix. Both forms must be
+    // classified, and the unprefixed form is the common one: `import * as path
+    // from "path"` accounts for 241 of the 259 incomplete hand-offs measured on
+    // this repository's own source. Without the classification the engine sees
+    // an empty `resolvedFilePath` and cannot tell a Node builtin from a project
+    // import that failed to resolve — which are different facts needing
+    // different treatment, and only one of them is a problem.
+    if (specifier.startsWith('node:') || NODE_BUILTIN_SPECIFIERS.has(specifier)) {
       return { ...UNRESOLVED, kind: TsImportResolutionKind.BUILTIN_NODE };
     }
     const resolved = ts.resolveModuleName(
@@ -350,6 +395,24 @@ interface ResolvedSpecifier {
   readonly extension: string;
   readonly packageName: string;
 }
+
+/**
+ * Node's builtin module specifiers, unprefixed.
+ *
+ * Enumerated rather than pattern-matched because there is no pattern: `path` is
+ * a builtin and `pathe` is a package, and guessing from the absence of a slash
+ * or a dot would misclassify every bare package name in the ecosystem.
+ */
+const NODE_BUILTIN_SPECIFIERS = new Set([
+  'assert', 'assert/strict', 'async_hooks', 'buffer', 'child_process', 'cluster', 'console',
+  'constants', 'crypto', 'dgram', 'diagnostics_channel', 'dns', 'dns/promises', 'domain',
+  'events', 'fs', 'fs/promises', 'http', 'http2', 'https', 'inspector', 'inspector/promises',
+  'module', 'net', 'os', 'path', 'path/posix', 'path/win32', 'perf_hooks', 'process',
+  'punycode', 'querystring', 'readline', 'readline/promises', 'repl', 'stream',
+  'stream/consumers', 'stream/promises', 'stream/web', 'string_decoder', 'timers',
+  'timers/promises', 'tls', 'trace_events', 'tty', 'url', 'util', 'util/types', 'v8', 'vm',
+  'wasi', 'worker_threads', 'zlib',
+]);
 
 const UNRESOLVED: ResolvedSpecifier = {
   absolutePath: '',

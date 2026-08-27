@@ -50,7 +50,7 @@ export class TsImportRegistry implements EntityIdentifiable {
   readonly tsModuleLinkHash: string;
   private resolvedModuleLinkHash = ABSENT;
   readonly resolvedFilePath: string;
-  readonly resolutionKind: TsImportResolutionKind;
+  private resolutionKind: TsImportResolutionKind;
   readonly resolvedExtension: string;
   readonly isExternalTarget: boolean;
   readonly packageName: string;
@@ -137,6 +137,23 @@ export class TsImportRegistry implements EntityIdentifiable {
 
   getResolvedModuleLinkHash(): string {
     return this.resolvedModuleLinkHash;
+  }
+
+  /**
+   * The specifier named an AMBIENT MODULE declared in this analysis.
+   *
+   * `ts.resolveModuleName` returns nothing for `declare module "x"` because
+   * there is no file — so `resolvedFilePath` stays empty and correct, while
+   * `resolvedModuleLinkHash` and this kind carry the answer. Distinguishing the
+   * two is the point: an empty path with an AMBIENT_MODULE kind is a resolved
+   * import, and an empty path with an UNRESOLVED kind is not.
+   */
+  setAmbientModuleResolution(): void {
+    this.resolutionKind = TsImportResolutionKind.AMBIENT_MODULE;
+  }
+
+  getResolutionKind(): TsImportResolutionKind {
+    return this.resolutionKind;
   }
 
   setTsExpressionLinkHash(hash: string): void {

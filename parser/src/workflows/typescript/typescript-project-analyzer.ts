@@ -17,9 +17,10 @@ import {
   TsFileFacts,
 } from '@/parsers/typescript/extractors/ts-fact-extractor';
 import {
-  ProjectResolutionReport,
-  TsProjectResolver,
-} from '@/parsers/typescript/extractors/ts-project-resolver';
+  IrCompletenessReport,
+  linkAmbientModuleImports,
+  measureIrCompleteness,
+} from '@/parsers/typescript/extractors/ts-ir-completeness';
 import { moduleHashFor } from '@/parsers/typescript/extractors/ts-module-extractor';
 import { TsConfigResolver } from '@/parsers/typescript/tsconfig-resolver';
 import { EntityUtils } from '@/utils/entity-utils';
@@ -70,18 +71,17 @@ export interface TypeScriptAnalysisSummary {
   readonly filesAnalysed: number;
   readonly extractionErrors: number;
   readonly counts: Record<string, number>;
-  readonly resolution: ResolutionReport;
+  /**
+   * IR COMPLETENESS, not a resolution rate.
+   *
+   * Named for what it measures. The parser emits IR and the engine builds the
+   * call graph, so "what fraction did the parser resolve" is the wrong question
+   * — Java resolves 0 of its 67,938 type references and that is the design. The
+   * right question is whether every hop an engine needs was emitted.
+   */
+  readonly irCompleteness: IrCompletenessReport;
 }
 
-/**
- * Resolution outcome, reported per RECEIVER SHAPE and not only in aggregate.
- *
- * The aggregate hides the failure that matters: a parser can resolve every
- * unqualified call and no method call at all and still show a respectable
- * total. In Python a fixture-only win read as a corpus win for exactly this
- * reason, and it took a hand-built sample to catch.
- */
-export type ResolutionReport = ProjectResolutionReport;
 
 interface SkippedTypeScriptFile {
   filePath: string;
@@ -200,12 +200,17 @@ export class TypeScriptProjectAnalyzer {
       accumulated.decoratorArguments!.push(...facts.decoratorArguments);
     }
 
-    // The cross-module pass MUTATES rows already accumulated — they are the same
-    // objects — so it must run before export. It is also where the PRIMARY
-    // resolution mechanism actually lives: a receiver's declared type is almost
-    // always declared in another file, so a per-file resolver reaches almost
-    // none of it.
-    const crossModule = new TsProjectResolver(perFile).run();
+    // The MODULE graph is the parser's, and it needs every file: an import of
+    // `declare module "x"` can only be linked once the file declaring it has
+    // been read. This stops one hop short of the call graph, at the module,
+    // which is where `type-resolution.dl` takes over.
+    linkAmbientModuleImports(perFile);
+    // Reads the accumulated rows and mutates nothing. Cross-file CALL resolution
+    // used to happen here and has been retracted: following an import to a
+    // declaring file is `type-resolution.dl` rewritten in TypeScript. What runs
+    // instead asks whether the facts an engine needs to make those joins were
+    // emitted.
+    const completeness = measureIrCompleteness(perFile);
 
     await fsp.mkdir(options.outputDir, { recursive: true });
     await this.exportCsv(accumulated.modules!, options.outputDir, TYPESCRIPT_CSV_FILES.MODULES);
@@ -254,7 +259,7 @@ export class TypeScriptProjectAnalyzer {
         ts_decorator: accumulated.decorators!.length,
         ts_decorator_argument: accumulated.decoratorArguments!.length,
       },
-      resolution: crossModule,
+      irCompleteness: completeness,
     };
   }
 

@@ -1322,6 +1322,13 @@ export class TsDeclarationExtractor {
   }
 
   private emitIfStatement(node: ts.IfStatement, context: EmitContext): void {
+    // The CONDITION, not just the branches. `if (xs.some((e) => e.ok))` puts an
+    // arrow in the header, and an arrow is a `ts_method` row whose parameters
+    // other passes resolve against. Skipping it left the arrow with no row and
+    // `e` resolving to a PARAMETER with an empty hash — a break in the hop chain
+    // that no resolution percentage would show, because the OUTER call resolved
+    // fine. The IR-completeness measure is what found it.
+    this.visitNestedFunctionsAndClasses(node.expression, context);
     this.emitBranch(node.thenStatement, TsBlockKind.IF, context);
     const elseStatement = node.elseStatement;
     if (!elseStatement) {
@@ -1364,6 +1371,11 @@ export class TsDeclarationExtractor {
     const kind = loopBlockKindOf(node);
     const hash = this.emitBlock(node, kind, context, '');
     const inner = { ...context, blockHash: hash, scopeDepth: context.scopeDepth + 1 };
+    // Loop HEADERS hold expressions too, and the same reasoning applies as for
+    // an `if` condition.
+    for (const part of loopHeaderExpressionsOf(node)) {
+      this.visitNestedFunctionsAndClasses(part, inner);
+    }
     if (ts.isForStatement(node) && node.initializer
       && ts.isVariableDeclarationList(node.initializer)) {
       for (const declaration of node.initializer.declarations) {
@@ -1426,6 +1438,12 @@ export class TsDeclarationExtractor {
   }
 
   private emitSwitch(node: ts.SwitchStatement, context: EmitContext): void {
+    this.visitNestedFunctionsAndClasses(node.expression, context);
+    for (const clause of node.caseBlock.clauses) {
+      if (ts.isCaseClause(clause)) {
+        this.visitNestedFunctionsAndClasses(clause.expression, context);
+      }
+    }
     for (const clause of node.caseBlock.clauses) {
       const kind = ts.isCaseClause(clause)
         ? TsBlockKind.SWITCH_CASE
@@ -1934,6 +1952,37 @@ function thrownTypeNamesOf(body: ts.Node | undefined, sourceFile: ts.SourceFile)
   };
   ts.forEachChild(body, walk);
   void sourceFile;
+  return out;
+}
+
+/**
+ * The expressions in a loop header.
+ *
+ * Enumerated rather than reached by a generic descent, because the loop's BODY
+ * is walked separately and a generic descent would visit it twice — emitting
+ * every nested function in it under two owners.
+ */
+function loopHeaderExpressionsOf(node: ts.IterationStatement): ts.Expression[] {
+  const out: ts.Expression[] = [];
+  if (ts.isForStatement(node)) {
+    if (node.initializer && !ts.isVariableDeclarationList(node.initializer)) {
+      out.push(node.initializer);
+    }
+    if (node.condition) {
+      out.push(node.condition);
+    }
+    if (node.incrementor) {
+      out.push(node.incrementor);
+    }
+    return out;
+  }
+  if (ts.isForInStatement(node) || ts.isForOfStatement(node)) {
+    out.push(node.expression);
+    return out;
+  }
+  if (ts.isWhileStatement(node) || ts.isDoStatement(node)) {
+    out.push(node.expression);
+  }
   return out;
 }
 

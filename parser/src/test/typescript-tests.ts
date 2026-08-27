@@ -30,6 +30,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
+import { IrCompletenessReport } from '@/parsers/typescript/extractors/ts-ir-completeness';
 import { TypeScriptProjectAnalyzer } from '@/workflows/typescript/typescript-project-analyzer';
 
 const FIXTURES = 'src/test-data/typescript';
@@ -547,6 +548,7 @@ function resolutionExpectationsUsable(): number {
  * were blessed under.
  */
 let extractionCache: Map<string, string> | undefined;
+let completenessCache: Map<string, IrCompletenessReport> | undefined;
 
 /**
  * Runs the extractor over every corpus, ONCE, before any check reads a row.
@@ -560,6 +562,7 @@ let extractionCache: Map<string, string> | undefined;
  */
 async function extractAllCorpora(): Promise<void> {
   const cache = new Map<string, string>();
+  const completeness = new Map<string, IrCompletenessReport>();
   const index = readJson<{ corpora: { slug: string; dir: string }[] }>(
     path.join(ORACLE, 'CORPORA.json'));
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ts-gate-'));
@@ -567,15 +570,24 @@ async function extractAllCorpora(): Promise<void> {
     const outputDir = path.join(root, c.slug);
     fs.mkdirSync(outputDir, { recursive: true });
     const rootDir = path.join(FIXTURES, c.dir);
-    await new TypeScriptProjectAnalyzer().analyze({
+    const summary = await new TypeScriptProjectAnalyzer().analyze({
       rootDir,
       outputDir,
       baseMservPath: rootDir,
       serviceVersionLink: 'ts-gate',
     });
     cache.set(c.slug, outputDir);
+    completeness.set(c.slug, summary.irCompleteness);
   }
   extractionCache = cache;
+  completenessCache = completeness;
+}
+
+function completenessByCorpus(): Map<string, IrCompletenessReport> {
+  if (!completenessCache) {
+    throw new Error('extraction has not run — extractAllCorpora() must be awaited first');
+  }
+  return completenessCache;
 }
 
 function extractedCorpora(): Map<string, string> {
@@ -716,14 +728,25 @@ function mergePartition(): number {
 // ---------------------------------------------------------------------------
 
 /**
- * The RATCHET on parser-filled targets. May rise; may never fall.
+ * A NON-REGRESSION guard on same-file links. Emphatically not a target.
  *
- * Separate from the correctness assertion on purpose. A wrong target is a hard
- * failure at any count, while a MISSING one is a measurement — and the two must
- * not be traded against each other, because the cheapest way to raise this
- * number is to start guessing. Lower it only with a recorded reason.
+ * The parser emits IR; the engine builds the call graph. Java resolves **0** of
+ * its 67,938 type references — no Java extractor contains a statement that fills
+ * `referencedTypeRegistryLinkHash` — so a resolution percentage is not a quality
+ * measure here and driving this number up is not progress. The quality measure
+ * is IR COMPLETENESS, checked separately and gated hard.
+ *
+ * What this guards is narrower and still worth guarding: the links the parser
+ * DOES emit, all of them resolvable inside one file with no import following,
+ * are strictly more than Java provides and save the engine a lookup. Losing them
+ * by accident should be visible.
+ *
+ * It was 310 while the parser followed imports across files. That was
+ * `type-resolution.dl` rewritten in TypeScript and has been retracted, so the
+ * number is 283 and the drop is a POLICY CHANGE, recorded here rather than
+ * smoothed over. It may fall again only with the same kind of note.
  */
-const RESOLUTION_FLOOR = 310;
+const SAME_FILE_LINK_FLOOR = 283;
 
 /**
  * Every parser-filled `resolvedSignatureLinkHash` equals `getResolvedSignature`.
@@ -815,14 +838,18 @@ function tscAdjudicatedResolution(): number {
     .map(([shape, b]) => `${shape} ${b.filled}/${b.total}`)
     .join('  ');
   console.log(`  ${emittedCalls} call site(s) emitted for ${expectedCalls} tsc sees; ` +
-    `${projectTargets} project targets: ${agreed} agree, ${unfilled} unfilled, ` +
+    `${projectTargets} project targets: ${agreed} agree, ${unfilled} left to the engine, ` +
     `${failures.length} disagree`);
-  console.log(`  filled by receiver shape: ${shapes}`);
-  if (agreed < RESOLUTION_FLOOR) {
-    failures.push(`RATCHET: ${agreed} adjudicated targets, floor is ${RESOLUTION_FLOOR}. ` +
-      'The known-resolvable count may rise and never fall.');
-  } else if (agreed > RESOLUTION_FLOOR) {
-    console.log(`  ${agreed} > floor ${RESOLUTION_FLOOR} — raise RESOLUTION_FLOOR to lock it in`);
+  // PROVENANCE, not a score. The unfilled column is where the ENGINE resolves,
+  // which is the design; see `IR completeness` for the number that matters.
+  console.log(`  provenance — same-file links by receiver shape: ${shapes}`);
+  if (agreed < SAME_FILE_LINK_FLOOR) {
+    failures.push(`REGRESSION: ${agreed} adjudicated same-file links, floor is ` +
+      `${SAME_FILE_LINK_FLOOR}. Losing a link the parser used to emit is a defect; note that ` +
+      'the floor is a non-regression guard and NOT a target — see its comment.');
+  } else if (agreed > SAME_FILE_LINK_FLOOR) {
+    console.log(`  ${agreed} > floor ${SAME_FILE_LINK_FLOOR} — raise SAME_FILE_LINK_FLOOR if ` +
+      'this is meant to stay');
   }
   for (const f of failures.slice(0, 12)) console.log(`  ${f}`);
   if (failures.length > 12) console.log(`  … and ${failures.length - 12} more`);
@@ -1130,6 +1157,78 @@ function tsxReservedButEmpty(): number {
 }
 
 // ---------------------------------------------------------------------------
+// 11. IR completeness — the primary quality measure
+// ---------------------------------------------------------------------------
+
+/**
+ * Every hop an engine needs in order to resolve is present.
+ *
+ * THIS is the measure, and resolution rate is not. The parser emits IR; the
+ * engine builds the call graph. Java's own numbers settle it: 0 of 67,938
+ * `java_type_reference` rows carry a resolved link, and no Java extractor
+ * contains a statement that would fill one. `type-resolution.dl` does the work.
+ *
+ * So the question is not "what fraction did the parser resolve" but "for every
+ * call the parser left alone, can the engine finish?" For a receiver whose
+ * declared type lives in another file that means three facts and no more: the
+ * declared type NAME as written, the importing module, and
+ * `ts_import.resolvedFilePath`. The measure verifies those, plus the hop chain
+ * from the call site to the declaration that carries the annotation.
+ *
+ * Gated on `handedOffIncomplete == 0`. A call the parser did not resolve is
+ * fine; a call the ENGINE cannot resolve because a fact is missing is not.
+ */
+function irCompleteness(): number {
+  if (!parserPresent()) {
+    return pendingCheck('IR completeness',
+      'no extractor yet. Asserts that every hop an engine needs in order to resolve is emitted');
+  }
+  const index = readJson<{ corpora: { slug: string; dir: string }[] }>(
+    path.join(ORACLE, 'CORPORA.json'));
+  if (!index) return fail('no CORPORA.json');
+
+  let callSites = 0, links = 0, terminals = 0, complete = 0, incomplete = 0;
+  let inferred = 0, notDerivable = 0, needsSchemaSlot = 0;
+  const gaps: string[] = [];
+  for (const c of index.corpora) {
+    const report = completenessByCorpus().get(c.slug);
+    if (!report) {
+      return fail(`${c.slug}: no completeness report — extraction did not run`);
+    }
+    callSites += report.callSites;
+    links += report.sameFileLinks;
+    terminals += report.terminals;
+    complete += report.handedOffComplete;
+    incomplete += report.handedOffIncomplete;
+    inferred += report.inferredReceiver;
+    notDerivable += report.notDerivable;
+    needsSchemaSlot += report.needsSchemaSlot;
+    for (const gap of report.gaps) {
+      gaps.push(`${c.slug}: ${gap.where} (${gap.detail}) — ${gap.reason}`);
+    }
+  }
+  const accounted = links + terminals + complete + incomplete + inferred + notDerivable
+    + needsSchemaSlot;
+
+  console.log(`  ${callSites} call site(s), all accounted for: ${links} same-file links, ` +
+    `${terminals} terminals, ${complete} handed off COMPLETE, ${incomplete} handed off ` +
+    'INCOMPLETE');
+  console.log(`  ${inferred} inferred receiver (no annotation exists), ${notDerivable} not ` +
+    `derivable from syntax, ${needsSchemaSlot} awaiting a schema slot`);
+  if (accounted !== callSites) {
+    // Every call site must land in exactly one bucket. A total that does not add
+    // up means a case is counted twice or not at all, and either way the
+    // headline number is meaningless — which is how a double-count survived one
+    // revision of this measure.
+    gaps.push(`buckets sum to ${accounted} for ${callSites} call sites — a call site is ` +
+      'counted twice or not at all, so no number here can be trusted');
+  }
+  for (const gap of gaps.slice(0, 12)) console.log(`  ${gap}`);
+  if (gaps.length > 12) console.log(`  … and ${gaps.length - 12} more`);
+  return gaps.length ? 1 : 0;
+}
+
+// ---------------------------------------------------------------------------
 
 const CHECKS: Check[] = [
   { name: 'compiles', proves: 'tsc --noEmit is clean — the suite reports on code that actually builds', run: compiles },
@@ -1143,6 +1242,7 @@ const CHECKS: Check[] = [
   { name: 'type-only isolation', proves: 'no type-only construct reaches the call graph', run: typeOnlyIsolation },
   { name: 'TSX reserved but empty', proves: 'reserved enum values carry no rows until TSX is switched on', run: tsxReservedButEmpty },
   { name: 'fact-base invariants', proves: 'every PK unique, every FK resolves, every tree well-formed — the failures that load cleanly and count wrong', run: factBaseInvariants },
+  { name: 'IR completeness', proves: 'every hop an engine needs in order to resolve is present — the measure that replaced resolution rate', run: irCompleteness },
 ];
 
 async function main(): Promise<number> {

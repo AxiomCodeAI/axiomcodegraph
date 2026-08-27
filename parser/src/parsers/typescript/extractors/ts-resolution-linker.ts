@@ -28,31 +28,51 @@ import {
 } from '@/parsers/typescript/extractors/ts-expression-extractor';
 
 /**
- * Fills the resolution columns the PARSER can defend, and no others.
+ * Fills the SAME-FILE resolution links, and stops there.
  *
- * ## The asymmetry this class exists to preserve
+ * ## The scope of this class is a settled boundary, not a limitation
+ *
+ * The parser emits IR. Building the call graph is the engine's job. The Java
+ * precedent settles it and is worth stating precisely, because it is stronger
+ * than a count: `java_type_reference.referencedTypeRegistryLinkHash` is not
+ * merely empty in every output on disk — **no Java extractor contains a single
+ * statement that fills it.** There is no code path. The column is a slot the
+ * engine populates by joining `typeName` against `java_type`, in
+ * `type-resolution.dl`.
+ *
+ * Following an import to a declaring file, walking an `extends` chain across
+ * modules, or hopping `a.b.c` through three files' annotations is
+ * `type-resolution.dl` rewritten in TypeScript. It was attempted here and is
+ * retracted. What remains is the set of links that need ONE lookup inside one
+ * file and no import resolution:
+ *
+ *   - a call to a function declared in this file
+ *   - a call through a variable bound to an arrow in this file
+ *   - `this.m()` where `m` is declared on the enclosing class in this file
+ *   - `new C()` where `C` is declared in this file, including its implicit
+ *     constructor
+ *   - a namespace-qualified call inside the namespace's own file
+ *
+ * These are kept because they are strictly more than Java provides and they save
+ * the engine a lookup. They are not kept because resolution is the goal.
+ *
+ * ## What the parser owes the engine instead
+ *
+ * For everything else — and it is the majority — the obligation is COMPLETENESS,
+ * not resolution. A receiver whose declared type lives in another file needs
+ * three facts present and nothing more: the receiver's declared type name AS
+ * WRITTEN (`ts_call_site.receiverTypeName`), the importing module
+ * (`tsModuleLinkHash`), and `ts_import.resolvedFilePath`. With those three the
+ * engine joins. `ts-ir-completeness.ts` measures whether they are there.
+ *
+ * ## Where a link IS emitted, it must be right
  *
  * A parser-filled `resolvedSignatureLinkHash` that disagrees with
- * `getResolvedSignature` is a HARD FAILURE at the gate. An unfilled one is a
- * measured rate. Those costs are not symmetric, so the rule is: fill it only
- * where syntax decides it, and leave it empty everywhere else. The guess
- * declined becomes a number instead of a silence.
- *
- * §4.15 names the decidable cases and this implements exactly them: a call to a
- * name with one signature in scope, a call on a receiver whose DECLARED type is
- * a locally declared class, `this.m()`, `super.m()`, `new C()`, and a
- * namespace-qualified call. Anything needing an inferred type — a call on a
- * call result, an element access, a generic instantiation — is left
- * `UNRESOLVED`, because deciding it needs the checker.
- *
- * ## Overloads are chosen by ARITY or not at all
- *
- * 77.6% of overloaded calls resolve to a non-first declaration, so picking the
- * first is wrong four times in five and is worse than picking nothing. Where
- * argument count admits exactly one signature the parser takes it; where it
- * admits several it records `overloadCandidateCount` and leaves the target
- * empty. Choosing between same-arity overloads needs argument TYPES, which is
- * the checker's job.
+ * `getResolvedSignature` is a hard failure at the gate; an unfilled one is not a
+ * failure at all. So overloads are chosen by ARITY or not at all — picking the
+ * first is wrong on 77.6% of real overloaded calls — and a receiver annotation
+ * that is not a BARE IDENTIFIER naming a declaration in this file resolves to
+ * nothing (see {@link localTypeNameOf}).
  */
 export interface LocalResolutionInput {
   readonly sourceFile: ts.SourceFile;
@@ -78,59 +98,33 @@ export interface LocalResolutionInput {
 }
 
 /**
- * What the LOCAL pass could not finish, described precisely enough for the
- * project pass to finish it without re-deriving anything.
+ * A call the parser deliberately left for the engine, with the hop it needs named.
  *
- * A discriminated union rather than a bag of optional fields, because each
- * variant needs a different traversal and a shared shape would let the project
- * pass take the wrong one for a row that happened to have the right fields set.
+ * Not a work queue any more. It was one when this parser tried to follow imports
+ * itself; now it exists so `ts-ir-completeness.ts` can ask, per call site,
+ * whether the FACTS an engine needs to finish the join were actually emitted.
+ * The distinction matters: an unresolved call with a complete hop chain is the
+ * parser working as designed, and an unresolved call with a missing hop is a
+ * parser bug. Only the second is worth fixing here.
  */
-export type DeferredCall =
-  /** `import { f } from "x"; f()` — Path 2. */
-  | { readonly kind: 'IMPORTED_CALLEE'; readonly callSite: TsCallSiteRegistry;
-      readonly localName: string; readonly argumentCount: number;
-      readonly declaringModuleHash: string }
-  /** `import { C } from "x"; new C()` — including the implicit-constructor case. */
-  | { readonly kind: 'IMPORTED_CONSTRUCTION'; readonly callSite: TsCallSiteRegistry;
-      readonly localName: string; readonly argumentCount: number;
-      readonly declaringModuleHash: string }
-  /** `super()`, and any construction whose class is named rather than bound locally. */
-  | { readonly kind: 'TYPE_CONSTRUCTION'; readonly callSite: TsCallSiteRegistry;
-      readonly typeName: string; readonly argumentCount: number;
-      readonly declaringModuleHash: string }
-  /** `import * as ns from "x"; ns.f()`. */
-  | { readonly kind: 'NAMESPACE_MEMBER'; readonly callSite: TsCallSiteRegistry;
-      readonly localName: string; readonly member: string;
-      readonly argumentCount: number; readonly declaringModuleHash: string }
+export interface EngineHandoff {
+  readonly callSite: TsCallSiteRegistry;
+  /** Which hop the engine has to make. */
+  readonly hop: 'IMPORTED_NAME' | 'RECEIVER_DECLARED_TYPE' | 'INFERRED_RECEIVER';
+  /** The locally bound name the engine starts from — an import binding, or `""`. */
+  readonly localName: string;
   /**
-   * PATH 1 across a module boundary — the primary mechanism, and the one the
-   * declared-type receiver machinery exists for.
-   *
-   * `rootTypeName` names the receiver's declared type as written, and `members`
-   * is the chain of property hops from there: `this.repo.session.close()` is
-   * root = the enclosing class, members = [repo, session], member = close. The
-   * hops are carried rather than resolved locally because each one may land in a
-   * different file, and only the project pass has them all.
+   * The receiver's declared type AS WRITTEN — `Row[]`, `Promise<User>`,
+   * `Parser.SyntaxNode`. Not reduced: reduction is what produced the one wrong
+   * link this parser has emitted, and it is the engine that knows how to read a
+   * type expression.
    */
-  | { readonly kind: 'RECEIVER_TYPE_MEMBER'; readonly callSite: TsCallSiteRegistry;
-      readonly rootTypeName: string;
-      /**
-       * The leftmost segment of a DOTTED annotation — `Parser` in
-       * `Parser.SyntaxNode`.
-       *
-       * Carried separately because the two halves are bound differently: the
-       * import binds `Parser`, while the type is `SyntaxNode`. Without the
-       * qualifier there is no way to ask where `SyntaxNode` was declared, and
-       * 336 call sites on this repository's own source get classified as a
-       * resolution GAP when they are really an external TERMINAL.
-       */
-      readonly rootTypeQualifier: string;
-      readonly members: readonly string[];
-      readonly member: string; readonly isStatic: boolean;
-      readonly argumentCount: number; readonly declaringModuleHash: string };
+  readonly receiverTypeName: string;
+  readonly declaringModuleHash: string;
+}
 
 export interface LocalResolutionResult {
-  readonly deferredCalls: readonly DeferredCall[];
+  readonly handoffs: readonly EngineHandoff[];
   readonly stats: ResolutionStats;
 }
 
@@ -170,7 +164,7 @@ export class TsLocalResolver {
   /** Group key -> every declaration of the merged type, for heritage walking. */
   private readonly typeDeclarationsByGroup = new Map<string, TsTypeRegistry[]>();
   private readonly methodByHash = new Map<string, TsMethodRegistry>();
-  private readonly deferred: DeferredCall[] = [];
+  private readonly handoffs: EngineHandoff[] = [];
   private readonly stats: ResolutionStats = {
     callSites: 0,
     resolvedLocally: 0,
@@ -242,7 +236,7 @@ export class TsLocalResolver {
   run(): LocalResolutionResult {
     this.resolveIdentifierReferences();
     this.resolveCalls();
-    return { deferredCalls: this.deferred, stats: this.stats };
+    return { handoffs: this.handoffs, stats: this.stats };
   }
 
   // -------------------------------------------------------------------------
@@ -341,7 +335,12 @@ export class TsLocalResolver {
           hash: this.input.parameterHashByNode.get(id) ?? '',
         };
       }
-      case TsBoundKind.FunctionDeclaration: {
+      case TsBoundKind.FunctionDeclaration:
+      // A NAMED function expression's own name, visible only inside its body.
+      // It has a `ts_method` row like any other function-shaped declaration, so
+      // it resolves to one — without this case the recursive call in
+      // `(function scan(d) { … scan(d) … })(root)` resolves to nothing.
+      case TsBoundKind.FunctionExpression: {
         return {
           kind: TsReferencedEntityKind.METHOD,
           hash: this.input.methodHashByNode.get(id) ?? '',
@@ -446,18 +445,21 @@ export class TsLocalResolver {
       return;
     }
     if (binding.kind === TsBoundKind.ImportBinding) {
-      // The target is in another module, which may not be parsed yet. Deferred
-      // rather than guessed — the project pass has the whole file set.
-      this.deferred.push({
-        kind: 'IMPORTED_CALLEE',
+      // Handed to the engine, NOT followed. The `ts_expression` row for this
+      // identifier already points at the `ts_import` row, and that row carries
+      // `resolvedFilePath` from `ts.resolveModuleName` — which is the whole hop.
+      // Chasing it here is `type-resolution.dl` in TypeScript.
+      this.handoffs.push({
         callSite,
+        hop: 'IMPORTED_NAME',
         localName: callee.text,
-        argumentCount,
+        receiverTypeName: '',
         declaringModuleHash: this.input.moduleHash,
       });
       return;
     }
-    if (binding.kind === TsBoundKind.FunctionDeclaration) {
+    if (binding.kind === TsBoundKind.FunctionDeclaration
+      || binding.kind === TsBoundKind.FunctionExpression) {
       const hash = this.input.methodHashByNode.get(nodeId(binding.node, this.sf));
       const method = hash ? this.methodByHash.get(hash) : undefined;
       if (method) {
@@ -524,11 +526,11 @@ export class TsLocalResolver {
       return;
     }
     if (binding.kind === TsBoundKind.ImportBinding) {
-      this.deferred.push({
-        kind: 'IMPORTED_CONSTRUCTION',
+      this.handoffs.push({
         callSite,
+        hop: 'IMPORTED_NAME',
         localName: callee.text,
-        argumentCount,
+        receiverTypeName: '',
         declaringModuleHash: this.input.moduleHash,
       });
       return;
@@ -583,18 +585,24 @@ export class TsLocalResolver {
     callSite: TsCallSiteRegistry,
     argumentCount: number
   ): void {
-    // The base class NAME as written, not a resolved row: a base class is
-    // frequently imported, and only the project pass can follow the import.
     const baseName = this.extendsBaseNameOf(node);
     if (baseName === '') {
       return;
     }
-    callSite.setReceiverTypeName(bareTypeName(baseName));
-    this.deferred.push({
-      kind: 'TYPE_CONSTRUCTION',
+    // The base class NAME AS WRITTEN. That plus this module and the import row
+    // is everything the engine needs; whether the base is in this file or
+    // imported is its join to make.
+    callSite.setReceiverTypeName(baseName);
+    const local = this.localTypeNameOf(baseName);
+    if (local) {
+      this.resolveConstructorOf(local.getHash(), callSite, argumentCount);
+      return;
+    }
+    this.handoffs.push({
       callSite,
-      typeName: bareTypeName(baseName),
-      argumentCount,
+      hop: 'RECEIVER_DECLARED_TYPE',
+      localName: '',
+      receiverTypeName: baseName,
       declaringModuleHash: this.input.moduleHash,
     });
   }
@@ -634,66 +642,55 @@ export class TsLocalResolver {
         return;
       }
       callSite.setReceiverTypeName(owner.name);
-      // Deferred even though the type is RIGHT HERE, because the MEMBER may not
-      // be: `this.create()` on a class extending a base declared in another
-      // file resolves through that base. Measured on a third-party corpus,
-      // 383 of 568 call sites are `this.x()` and the local pass closed 4.4% of
-      // them — the base classes were all one import away.
-      this.deferred.push({
-        kind: 'RECEIVER_TYPE_MEMBER',
-        callSite,
-        rootTypeName: owner.name,
-        rootTypeQualifier: '',
-        members: [],
-        member,
-        isStatic: false,
-        argumentCount,
-        declaringModuleHash: this.input.moduleHash,
-      });
-      return;
-    }
-    if (ts.isPropertyAccessExpression(receiver) || ts.isNonNullExpression(receiver)) {
-      // A property CHAIN: `this.repo.find()`, `config.db.connect()`. Each hop
-      // needs the previous hop's DECLARED type, and each of those may live in a
-      // different file — so the path is described and handed to the project
-      // pass rather than abandoned. On this repository's own source, chains are
-      // 1,765 of 11,529 call sites; treating them as unresolvable by
-      // construction throws away 15% of the call graph.
-      const chain = this.receiverPathOf(receiver);
-      if (chain) {
-        callSite.setReceiverTypeName(chain.rootTypeName);
-        this.deferred.push({
-          kind: 'RECEIVER_TYPE_MEMBER',
+      // Same file, one lookup: the member is on the enclosing class or on a base
+      // declared alongside it. When it is on a base that is IMPORTED, this finds
+      // nothing and the call is handed off — the engine follows the heritage row
+      // and the import, which is what `ts_type_heritage.inheritsMembers` is for.
+      if (!this.resolveMemberOfType(owner, member, callSite, argumentCount,
+        TsResolutionEvidence.THIS_MEMBER)) {
+        this.handoffs.push({
           callSite,
-          rootTypeName: chain.rootTypeName,
-          rootTypeQualifier: chain.qualifier,
-          members: chain.members,
-          member,
-          isStatic: chain.isStatic,
-          argumentCount,
+          hop: 'RECEIVER_DECLARED_TYPE',
+          localName: '',
+          receiverTypeName: owner.name,
           declaringModuleHash: this.input.moduleHash,
         });
       }
       return;
     }
+    if (ts.isPropertyAccessExpression(receiver) || ts.isNonNullExpression(receiver)) {
+      // A property CHAIN: `this.repo.find()`, `config.db.connect()`. Every hop
+      // is a join from a declared type name to a declaration and then to the
+      // next annotation — which is exactly what the engine's name-to-type layer
+      // does, over a fact base that has all the files. The parser's job is to
+      // make sure the hops are PRESENT: the receiver expression row, its
+      // `referencedEntityHash`, and the field's `typeReferenceLinkHash` are all
+      // emitted, so the chain is walkable without the parser walking it.
+      this.handoffs.push({
+        callSite,
+        hop: 'RECEIVER_DECLARED_TYPE',
+        localName: '',
+        receiverTypeName: '',
+        declaringModuleHash: this.input.moduleHash,
+      });
+      return;
+    }
     if (receiver.kind === ts.SyntaxKind.SuperKeyword) {
-      // The base class NAME as written, not a resolved row: the base is
-      // frequently imported, and the project pass is the only place that can
-      // follow the import.
       const baseName = this.extendsBaseNameOf(callee);
       if (baseName === '') {
         return;
       }
       callSite.setReceiverTypeName(baseName);
-      this.deferred.push({
-        kind: 'RECEIVER_TYPE_MEMBER',
+      const base = this.localTypeNameOf(baseName);
+      if (base && this.resolveMemberOfType(base, member, callSite, argumentCount,
+        TsResolutionEvidence.SUPER_MEMBER)) {
+        return;
+      }
+      this.handoffs.push({
         callSite,
-        rootTypeName: bareTypeName(baseName),
-        rootTypeQualifier: qualifierOf(baseName),
-        members: [],
-        member,
-        isStatic: false,
-        argumentCount,
+        hop: 'RECEIVER_DECLARED_TYPE',
+        localName: '',
+        receiverTypeName: baseName,
         declaringModuleHash: this.input.moduleHash,
       });
       return;
@@ -715,12 +712,11 @@ export class TsLocalResolver {
       return;
     }
     if (binding.kind === TsBoundKind.ImportBinding) {
-      this.deferred.push({
-        kind: 'NAMESPACE_MEMBER',
+      this.handoffs.push({
         callSite,
+        hop: 'IMPORTED_NAME',
         localName: receiver.text,
-        member,
-        argumentCount,
+        receiverTypeName: '',
         declaringModuleHash: this.input.moduleHash,
       });
       return;
@@ -750,15 +746,17 @@ export class TsLocalResolver {
       || binding.kind === TsBoundKind.ClassDeclaration) {
       // A STATIC member call: the receiver names the type itself.
       callSite.setReceiverTypeName(binding.name);
-      this.deferred.push({
-        kind: 'RECEIVER_TYPE_MEMBER',
+      const typeHash = this.input.typeHashByNode.get(nodeId(binding.node, this.sf));
+      const type = typeHash ? this.typeByHash(typeHash) : undefined;
+      if (type && this.resolveMemberOfType(type, member, callSite, argumentCount,
+        TsResolutionEvidence.DECLARED_RECEIVER_TYPE, true)) {
+        return;
+      }
+      this.handoffs.push({
         callSite,
-        rootTypeName: binding.name,
-        rootTypeQualifier: '',
-        members: [],
-        member,
-        isStatic: true,
-        argumentCount,
+        hop: 'RECEIVER_DECLARED_TYPE',
+        localName: '',
+        receiverTypeName: binding.name,
         declaringModuleHash: this.input.moduleHash,
       });
       return;
@@ -771,94 +769,120 @@ export class TsLocalResolver {
     if (declaredTypeName === '') {
       return;
     }
-    const bare = bareTypeName(declaredTypeName);
-    callSite.setReceiverTypeName(bare);
-    // Always deferred, whether or not the type is in this file. On real code
-    // the type is usually imported — measured on this repository before the
-    // hand-off existed, 26 of 11,529 call sites used the declared-receiver-type
-    // path at all — and even a LOCAL type inherits from bases that are not, so
-    // one traversal in the project pass is both simpler and strictly better
-    // informed than two that must agree.
-    this.deferred.push({
-      kind: 'RECEIVER_TYPE_MEMBER',
+    // AS WRITTEN. `Row[]`, `Promise<User>` and `Parser.SyntaxNode` go into the
+    // column verbatim, because the engine is what knows how to read a type
+    // expression and reducing it here is what produced the one wrong link this
+    // parser has ever emitted.
+    callSite.setReceiverTypeName(declaredTypeName);
+    const type = this.localTypeNameOf(declaredTypeName);
+    if (type && this.resolveMemberOfType(type, member, callSite, argumentCount,
+      TsResolutionEvidence.DECLARED_RECEIVER_TYPE)) {
+      return;
+    }
+    this.handoffs.push({
       callSite,
-      rootTypeName: bare,
-      rootTypeQualifier: qualifierOf(declaredTypeName),
-      members: [],
-      member,
-      isStatic: false,
-      argumentCount,
+      hop: 'RECEIVER_DECLARED_TYPE',
+      localName: '',
+      receiverTypeName: declaredTypeName,
       declaringModuleHash: this.input.moduleHash,
     });
   }
 
   /**
-   * Describes a receiver chain as a root TYPE NAME plus property hops.
+   * The `ts_type` declared IN THIS FILE that an annotation names — or nothing.
    *
-   * `this.repo.session` becomes root = the enclosing class, members =
-   * [repo, session]. Nothing is resolved here: each hop's type may be declared
-   * in another file, and only the project pass has them all. Returning the
-   * description rather than a resolution is what lets one traversal serve both
-   * the same-file and the cross-file case.
+   * Deliberately strict, and the strictness is the generalised fix for the one
+   * wrong link this parser emitted. Only a BARE IDENTIFIER counts. `Row[]`,
+   * `readonly Row[]`, `Promise<Row>`, `Map<K, Row>`, `Row | null`,
+   * `Parser.SyntaxNode` and `string` all return nothing, because none of them
+   * NAMES a declaration in this file — they name `Array`, `Promise`, `Map`, a
+   * union, an imported namespace member, and a primitive respectively.
+   *
+   * The earlier version reduced `Row[]` to `Row` and then looked `Row` up, so a
+   * project type with a member colliding with an `Array` method would have taken
+   * a call belonging to `Array`. Extending a list of lib names would have fixed
+   * the cases on the list; refusing anything that is not a bare identifier fixes
+   * the class, including `string`, `Promise`, `Map` and `Set`, and needs no list
+   * to be maintained.
    */
-  private receiverPathOf(
-    node: ts.Node
-  ): { rootTypeName: string; qualifier: string; members: string[]; isStatic: boolean }
-    | undefined {
-    const members: string[] = [];
-    let current: ts.Node = node;
-    for (;;) {
-      if (ts.isNonNullExpression(current)) {
-        current = unwrapParentheses(current.expression);
-        continue;
-      }
-      if (ts.isPropertyAccessExpression(current)) {
-        if (ts.isPrivateIdentifier(current.name)) {
-          members.unshift(current.name.text);
-        } else {
-          members.unshift(current.name.text);
-        }
-        current = unwrapParentheses(current.expression);
-        continue;
-      }
-      break;
-    }
-    if (current.kind === ts.SyntaxKind.ThisKeyword) {
-      const owner = this.enclosingType(current);
-      return owner
-        ? { rootTypeName: owner.name, qualifier: '', members, isStatic: false }
-        : undefined;
-    }
-    if (!ts.isIdentifier(current)) {
+  private localTypeNameOf(annotation: string): TsTypeRegistry | undefined {
+    const text = annotation.trim();
+    if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(text)) {
       return undefined;
     }
-    const binding = this.lookup(current, current.text);
-    if (!binding) {
-      return undefined;
-    }
-    if (binding.kind === TsBoundKind.ClassDeclaration
-      || binding.kind === TsBoundKind.EnumDeclaration) {
-      // The chain starts at the TYPE itself, so the first hop is a static member.
-      return { rootTypeName: binding.name, qualifier: '', members, isStatic: true };
-    }
-    const declared = this.declaredTypeNameOf(binding);
-    return declared === ''
-      ? undefined
-      : {
-          rootTypeName: bareTypeName(declared),
-          qualifier: qualifierOf(declared),
-          members,
-          isStatic: false,
-        };
+    return this.typeByName.get(text);
   }
 
   /**
-   * Finds a member on a type, following `extends` and ONLY `extends`.
+   * Finds a member on a type declared IN THIS FILE, over the merged group and
+   * the part of the `extends` chain that is also in this file.
    *
-   * Walking an `IMPLEMENTS_CLAUSE` edge here is correct in Java and WRONG here:
-   * `implements` inherits nothing, so a member found through it does not exist
-   * on the receiver. That single distinction is what `inheritsMembers` is for.
+   * Returns whether it resolved, so the caller can hand the call to the engine
+   * instead of leaving it silently empty. A base class one import away is the
+   * common miss and it is not a gap: `ts_type_heritage.inheritsMembers` plus the
+   * import row is the hop, and the engine makes it.
+   *
+   * Walking an `IMPLEMENTS_CLAUSE` row here would be correct in Java and wrong
+   * here — `implements` inherits nothing — so only `extends` is followed.
    */
+  private resolveMemberOfType(
+    type: TsTypeRegistry,
+    member: string,
+    callSite: TsCallSiteRegistry,
+    argumentCount: number,
+    evidence: TsResolutionEvidence,
+    staticOnly = false
+  ): boolean {
+    const escaped = escapeName(member);
+    const seen = new Set<string>();
+    let group: string | undefined = type.declarationGroupKey;
+    while (group !== undefined && !seen.has(group)) {
+      seen.add(group);
+      // Over the MERGED type: an overload contributed by a second declaration of
+      // the same interface in this file is a candidate like any other.
+      const candidates = (this.methodsByOwnerGroup.get(group) ?? [])
+        .filter((m) => m.escapedName === escaped && m.isStatic === staticOnly);
+      if (candidates.length > 0) {
+        const chosen = chooseByArity(candidates, argumentCount);
+        if (!chosen) {
+          this.recordCandidatesOnly(callSite, candidates.length);
+          return true;
+        }
+        this.applyTarget(callSite, chosen,
+          candidates.length > 1 ? candidates.indexOf(chosen) : undefined,
+          candidates.length, candidates.length > 1, evidence);
+        return true;
+      }
+      group = this.extendsGroupInThisFile(group);
+    }
+    return false;
+  }
+
+  /** The `extends` base of a merged type, only when that base is declared in this file. */
+  private extendsGroupInThisFile(group: string): string | undefined {
+    for (const declaration of this.typeDeclarationsByGroup.get(group) ?? []) {
+      const node = this.input.binder.declarationsInOrder
+        .find((d) => d.declarationGroupKey === declaration.declarationGroupKey)?.node;
+      const clauses = (node as { heritageClauses?: ts.NodeArray<ts.HeritageClause> } | undefined)
+        ?.heritageClauses;
+      for (const clause of clauses ?? []) {
+        if (clause.token !== ts.SyntaxKind.ExtendsKeyword) {
+          continue;
+        }
+        for (const type of clause.types) {
+          if (!ts.isIdentifier(type.expression)) {
+            continue;
+          }
+          const base = this.typeByName.get(type.expression.text);
+          if (base && base.declarationGroupKey !== group) {
+            return base.declarationGroupKey;
+          }
+        }
+      }
+    }
+    return undefined;
+  }
+
   private enclosingType(node: ts.Node): TsTypeRegistry | undefined {
     let current: ts.Node | undefined = node.parent;
     while (current) {
@@ -1054,48 +1078,6 @@ function chooseByArity(
   return viable.length === 1 ? viable[0] : undefined;
 }
 
-/**
- * The type an annotation NAMES, reduced to a single identifier.
- *
- * `T[]` becomes `Array`, NOT `T`. Stripping the brackets claims the receiver of
- * `rows.map(…)` is a `Row`, and a project type with a colliding member name
- * would then take a call that belongs to `Array`. The project resolver carries
- * the same rule and the same reasoning.
- */
-/**
- * The leftmost segment of a dotted annotation — `Parser` in `Parser.SyntaxNode`.
- *
- * That segment is what an import BINDS; the rightmost is the type. Asking where
- * the type was declared means asking about the qualifier, so both are kept.
- */
-function qualifierOf(annotation: string): string {
-  const bare = annotation.trim().replace(/^readonly\s+/, '');
-  const generic = bare.indexOf('<');
-  const base = generic < 0 ? bare : bare.slice(0, generic);
-  const dot = base.indexOf('.');
-  return dot < 0 ? '' : base.slice(0, dot).trim();
-}
-
-function bareTypeName(annotation: string): string {
-  let trimmed = annotation.trim();
-  // `T | null` narrows to `T`; a union of two real types resolves to nothing.
-  if (trimmed.includes('|')) {
-    const parts = trimmed.split('|').map((p) => p.trim())
-      .filter((p) => p !== 'null' && p !== 'undefined' && p !== '');
-    if (parts.length !== 1) {
-      return '';
-    }
-    trimmed = parts[0] ?? '';
-  }
-  trimmed = trimmed.replace(/^readonly\s+/, '');
-  if (trimmed.endsWith('[]')) {
-    return 'Array';
-  }
-  const generic = trimmed.indexOf('<');
-  const base = generic < 0 ? trimmed : trimmed.slice(0, generic);
-  const dot = base.lastIndexOf('.');
-  return (dot < 0 ? base : base.slice(dot + 1)).trim();
-}
 
 /**
  * A namespace member's group key.
@@ -1130,4 +1112,16 @@ const AMBIENT_GLOBALS = new Set([
   'process', 'Buffer', 'require', 'module', 'exports', '__dirname', '__filename',
   'fetch', 'URL', 'URLSearchParams', 'TextEncoder', 'TextDecoder', 'AbortController',
   'AbortSignal', 'Event', 'EventTarget', 'performance', 'crypto',
+  // Web/DOM globals. A curated set is the ONLY mechanism available for globals —
+  // unlike a type name, a global has no import row to point at — so this list
+  // exists where the equivalent list for TYPE names was deliberately removed.
+  // Measured on a third-party corpus: `btoa`, `atob` and `Headers` were 7 of 12
+  // reported gaps, and all three are globals with nothing for the parser to link.
+  'btoa', 'atob', 'Headers', 'Request', 'Response', 'FormData', 'Blob', 'File',
+  'FileReader', 'ReadableStream', 'WritableStream', 'TransformStream', 'WebSocket',
+  'BroadcastChannel', 'MessageChannel', 'MessagePort', 'Worker', 'navigator', 'window',
+  'document', 'location', 'history', 'localStorage', 'sessionStorage', 'indexedDB',
+  'alert', 'confirm', 'prompt', 'requestAnimationFrame', 'cancelAnimationFrame',
+  'requestIdleCallback', 'MutationObserver', 'IntersectionObserver', 'ResizeObserver',
+  'CustomEvent', 'DOMException', 'reportError', 'Image', 'Audio', 'XMLHttpRequest',
 ]);

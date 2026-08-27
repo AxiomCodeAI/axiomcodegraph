@@ -29,7 +29,7 @@ import { TsExpressionWalker } from '@/parsers/typescript/extractors/ts-expressio
 import { TsImportExtractor } from '@/parsers/typescript/extractors/ts-import-extractor';
 import { extractModules } from '@/parsers/typescript/extractors/ts-module-extractor';
 import {
-  DeferredCall,
+  EngineHandoff,
   ResolutionStats,
   TsLocalResolver,
 } from '@/parsers/typescript/extractors/ts-resolution-linker';
@@ -98,8 +98,14 @@ export interface TsFileFacts {
   readonly blocks: readonly TsBlockRegistry[];
   readonly decorators: readonly TsDecoratorRegistry[];
   readonly decoratorArguments: readonly TsDecoratorArgumentRegistry[];
-  /** Calls whose target is in another module; finished by the project pass. */
-  readonly deferredCalls: readonly DeferredCall[];
+  /**
+   * Calls the parser deliberately left to the engine, with the hop it needs.
+   *
+   * Not a work queue. It is what `ts-ir-completeness.ts` reads to ask whether
+   * the FACTS the engine needs were emitted — which is the parser's actual
+   * obligation.
+   */
+  readonly engineHandoffs: readonly EngineHandoff[];
   /** Local name -> the row that binds it, for the project pass. */
   readonly importByLocalName: ReadonlyMap<string, TsImportRegistry>;
   readonly resolvedTargetByLocalName: ReadonlyMap<string, string>;
@@ -107,6 +113,7 @@ export interface TsFileFacts {
   readonly binder: BinderResult;
   readonly sourceFile: ts.SourceFile;
   readonly fileModuleHash: string;
+  readonly filePath: string;
 }
 
 export function extractTypeScriptFile(options: TsFileExtractionOptions): TsFileFacts {
@@ -261,13 +268,14 @@ export function extractTypeScriptFile(options: TsFileExtractionOptions): TsFileF
     blocks: declarations.blocks,
     decorators: decorators.decorators,
     decoratorArguments: decorators.decoratorArguments,
-    deferredCalls: resolution.deferredCalls,
+    engineHandoffs: resolution.handoffs,
     importByLocalName: importResult.importByLocalName,
     resolvedTargetByLocalName: importResult.resolvedTargetByLocalName,
     stats: resolution.stats,
     binder,
     sourceFile,
     fileModuleHash,
+    filePath: options.filePath,
   };
 }
 

@@ -572,6 +572,14 @@ class Binder {
   private visitFunctionLike(node: ts.SignatureDeclaration | ts.ClassStaticBlockDeclaration,
                             nearest: TsScope): void {
     const scope = this.makeLocalScope(node, TsScopeKind.FUNCTION, nearest, true, true);
+    // A NAMED function expression binds its own name inside its own body and
+    // nowhere else — that is how `(function scan(d) { … scan(d) … })(root)`
+    // recurses. Without it the recursive call resolves to nothing, which is a
+    // break in the hop chain rather than a wrong answer.
+    if (ts.isFunctionExpression(node) && node.name) {
+      this.bindLocal(node, node.name.text, TsBoundKind.FunctionExpression, scope, node,
+        new Set([TsDeclarationSpace.VALUE]), false);
+    }
     if (!ts.isClassStaticBlockDeclaration(node)) {
       for (const typeParameter of node.typeParameters ?? []) {
         this.bindLocal(typeParameter, typeParameter.name.text, TsBoundKind.TypeParameter, scope,
