@@ -1,0 +1,25 @@
+# NOT a gap — a DELIBERATE substitution, listed here because the bytecode oracle and the DI
+# layer answer two different questions and this is where they diverge.
+#
+# javap records the DECLARED target of `store.read(k)`: `invokeinterface Store.read`. That is
+# what the compiler emitted, and it is a fact. The DI layer answers the STRONGER question —
+# which object is actually in that field — and for these three sites the container's answer is
+# unique (exactly one bean satisfies the injection point, or a @Qualifier names one). So the
+# engine emits the resolved implementation INSTEAD of the abstract declaration, and the abstract
+# declaration then reads as "missing" against a declared-target oracle.
+#
+# The three edges below are exactly the three sites config-resolution/di.dl narrowed:
+#   Service1#a  @Autowired Store store            -> one bean (DbStore)
+#   Service1#c  @Autowired @Qualifier Codec picked -> named bean (JsonCodec)
+#   Service2#d  constructor-injected final Store  -> one bean (DbStore)
+# Service1#b (two beans satisfy Codec) is deliberately NOT here: it stays multi_inferred and
+# keeps Codec#encode, so it still agrees with the oracle. If it ever appears in this file, the
+# narrowing has started guessing.
+#
+# To restore literal agreement with the oracle, remove the `!di_recv_mono(e, _)` guard from the
+# four field-receiver rules in expression-resolution/expr-type.dl: the interface declaration
+# comes back, the wrong implementors stay suppressed, and the sites read multi_inferred with 2
+# targets instead of known_edge with 1.
+testcases.config.Service1#a -> testcases.config.Store#read(String)
+testcases.config.Service1#c -> testcases.config.Codec#encode(String)
+testcases.config.Service2#d -> testcases.config.Store#read(String)

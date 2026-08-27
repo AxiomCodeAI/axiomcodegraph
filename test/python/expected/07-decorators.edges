@@ -1,9 +1,9 @@
 ambiguous_unknown	DECORATOR_APPLICATION	main.inner_deco -> -
 ambiguous_unknown	DECORATOR_APPLICATION	main.outer_deco -> -
 ambiguous_unknown	DECORATOR_APPLICATION	main.wrapping -> -
-boundary_lib	DECORATOR_CALL	main.inner_deco -> PY_METHOD_e21c711bdb4973925eea740bbc8c6c15
-boundary_lib	DECORATOR_CALL	main.outer_deco -> PY_METHOD_e21c711bdb4973925eea740bbc8c6c15
-boundary_lib	DECORATOR_CALL	main.wrapping -> PY_METHOD_e21c711bdb4973925eea740bbc8c6c15
+boundary_lib	DECORATOR_CALL	main.inner_deco -> external:functools.wraps
+boundary_lib	DECORATOR_CALL	main.outer_deco -> external:functools.wraps
+boundary_lib	DECORATOR_CALL	main.wrapping -> external:functools.wraps
 boundary_lib	SIMPLE_CALL	main.inner_deco.<locals>.inner_w -> builtin:str
 boundary_lib	SIMPLE_CALL	main.main -> builtin:print
 boundary_lib	SIMPLE_CALL	main.outer_deco.<locals>.outer_w -> builtin:str

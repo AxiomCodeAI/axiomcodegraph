@@ -1,6 +1,5 @@
+ambiguous_unknown	method	InheritedSatisfaction#main(String[]) -> -
 ambiguous_unknown	new	InheritedSatisfaction#main(String[]) -> -
-boundary_lib	method	InheritedSatisfaction#main(String[]) -> java.io.PrintStream#println(String)
-boundary_lib	method	InheritedSatisfaction#main(String[]) -> java.io.PrintStream#println(char[])
 known_edge	method	Child#run() -> Parent#run()
 known_edge	method	InheritedSatisfaction#main(String[]) -> InheritedSatisfaction#viaImpl(Impl,String)
 known_edge	method	InheritedSatisfaction#main(String[]) -> InheritedSatisfaction#viaInterface(Handler,String)

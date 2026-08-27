@@ -1,0 +1,17 @@
+<web-app>
+  <servlet>
+    <servlet-name>main</servlet-name>
+    <servlet-class>testcases.config.MyServlet</servlet-class>
+  </servlet>
+  <servlet-mapping>
+    <servlet-name>main</servlet-name>
+    <url-pattern>/api/*</url-pattern>
+  </servlet-mapping>
+  <filter>
+    <filter-name>auth</filter-name>
+    <filter-class>testcases.config.MyFilter</filter-class>
+  </filter>
+  <listener>
+    <listener-class>testcases.config.MyListener</listener-class>
+  </listener>
+</web-app>

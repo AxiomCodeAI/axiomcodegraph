@@ -5,17 +5,46 @@ breaking change to the rules cannot land silently.
 
 ```bash
 ./run-tests.sh                 # every case: golden-diff + coverage guard
-./run-tests.sh --oracle        # ALSO validate against ground truth built from the JDK itself
+./run-tests.sh --oracle        # ALSO validate against ground truth built with javac + javap
 ./run-tests.sh 04 11           # only cases matching those substrings
 ./run-tests.sh --bless         # regenerate goldens from the current engine (REVIEW the diff)
 ./run-tests.sh --keep          # keep .work/<case>/ for debugging
 
 # environment (defaults assume a sibling checkout layout)
 AXIOM_PARSER=/path/to/parser/dist/index.js
-AXIOM_JDK_IR=/path/to/jdk-ir
 ```
 
-## Three independent checks per case
+## No external IR — client → client only
+
+This suite stages **no library IR at all**: not the JDK, not anything else. Two reasons.
+
+A library IR is ~2 GB, so it cannot live in the repo — any test that needed one would be
+unrunnable for anybody who clones the project. And what these cases pin down is the engine's
+resolution of the *client's own* code: overload selection, dispatch, shadowing, nesting, config
+and DI wiring. A client→library boundary edge mostly exercises the library IR, not the rules.
+
+A call into a library therefore resolves to nothing and is recorded as `ambiguous_unknown` —
+the honest answer for a client-only analysis — and the coverage guard still proves the site was
+not silently dropped. `19-receiver-forms` used to chain through `java.util.List`; it now chains
+through a client generic (`Box<Node>`), which pins the same rule (a chained call is typed by the
+return type of the call it is chained onto, with the type argument substituted) without the
+dependency.
+
+The whole suite, including the bytecode oracle, runs in **~40 s** (it was ~20 min). Two bugs in
+`src/pipeline/run-souffle.sh` accounted for that:
+
+* **A C++ recompile per case (~70 s each).** The compiled-engine cache is keyed on the generated
+  program text, which embeds one `.input` line per *staged* relation — so a project with no XML
+  staged no `java_xml_element`, its program differed, and it missed the cache. 132 near-identical
+  binaries (666 MB) had accumulated. Every mapped relation is now staged, empty when the project
+  has no such file, so the program text is identical for every project and the engine compiles once.
+* **Re-staging library signatures per case.** Concatenating a library IR into facts depends only
+  on the library roots, never on the client, so it is now cached under
+  `.souffle-cache/libfacts-<key>` and symlinked in. (Unused by this suite, which stages no
+  library — it matters when the engine runs against a real project.)
+
+
+## Five independent checks per case
 
 1. **Coverage guard** (`tools/coverage_guard.py`) — every invocation-shaped expression in the IR must
    appear in `call-chain-edges.csv`, resolved *or* explicitly flagged ambiguous. A call site that
@@ -24,7 +53,20 @@ AXIOM_JDK_IR=/path/to/jdk-ir
 2. **Golden diff** — the normalized edge list (`status · kind · caller -> callee`, sorted) is compared
    against `expected/<case>.edges`. Any change in resolution power shows up as a reviewable diff
    instead of a silent shift. **Fails the case.**
-3. **Bytecode oracle** (`--oracle`, `tools/bytecode_oracle.py`) — ground truth compiled and read with
+3. **Config golden** (`tools/config_report.py`) — the edge golden says nothing about beans, DI
+   edges, config bindings, config entry points or config-side declared unknowns, so those get
+   their own golden (`expected/<case>.config`). A case that derives config rows with no golden
+   fails; a golden whose rows disappear fails too. Neither gaining nor losing interpretation
+   power can land silently. **Fails the case.**
+4. **Live Spring context** (`--oracle`, `tools/spring_oracle.sh` + `spring_oracle_diff.py`) — for a
+   case carrying a `spring-oracle.conf`, the same sources are compiled against the real Spring
+   jars and booted in an `AnnotationConfigApplicationContext`. Spring is then asked for
+   `getBeanDefinitionNames()` and for the object actually sitting in each `@Autowired` field, and
+   the engine's `bean_def` / `di_edge` / `config_binding` are scored against that answer —
+   precision and recall **per mechanism**, because an aggregate hides which one is broken. The
+   report is itself a golden. Needs the Spring jars in the local Maven cache; absent, the check
+   **skips** (like a missing parser), it does not fail. **Fails the case on a score change.**
+5. **Bytecode oracle** (`--oracle`, `tools/bytecode_oracle.py`) — ground truth compiled and read with
    **`javac` + `javap` only**, no third-party analyzer: the invoke instructions *are* the answer.
    Every bytecode-declared client→client edge must be present. **A missing edge fails the case.**
    Extras do not fail — where dispatch is ambiguous the engine emits the sound set of possible
@@ -81,6 +123,11 @@ AXIOM_JDK_IR=/path/to/jdk-ir
 | `20-reflection-blind-spot` | reflection is out of scope by construction — asserts the sites are DECLARED unknown, never silently dropped |
 | `21-function-value-blind-spots` | function values arriving via parameter and via a dispatch table (Map/List) — pins exactly which variants resolve |
 | `11-cha-inherited-into-implementor` | `class Impl extends Base implements Handler` where **Base is not a Handler** — the real target is declared outside the interface's hierarchy. A dispatch gate keyed on the declaring type wrongly drops it; a shadowing rule keyed only on `method_override` wrongly keeps the abstract `Handler.handle` alongside it |
+| `22-config-annotation-args` | annotation argument **values**: `@Value` with a placeholder, with a default, and with a key defined nowhere; `@ConfigurationProperties` binding exact, relaxed (kebab) and one nested level; a `CLASS_REFERENCE` argument, an **array** of them, and one inside a **nested** annotation |
+| `23-config-xml-wiring` | `beans.xml` + `web.xml`: bean definitions (with and without an `id`), `<constructor-arg ref>`, `<property ref>`, `<property value="${k}">` bound to its setter, `init-method`/`destroy-method`, servlet/filter/listener registrations, a **dangling** bean ref and a **missing** class |
+| `24-config-properties-yaml` | `.properties` and `.yml` as **one** key space: a placeholder chain inside one file, a chain **crossing formats** (YAML → properties), a two-hop chain, `${k:default}`, a key defined nowhere, and a value that names a handler class (vs one that merely looks FQN-shaped and must NOT resolve) |
+| `25-di-narrowing` | the only place config makes the graph **smaller**. One bean satisfying an injection point collapses `multi_inferred` to `known_edge`; **two** beans must stay a fan (the soundness guard); `@Qualifier` narrows again; a constructor-injected `final` field narrows |
+| `26-spring-oracle` | the same constructs graded by **Spring itself** — `@Primary`, `@Qualifier` outranking it, an explicit `@Component("name")`, `@Bean` factory methods and their parameters, and the two-leading-capitals bean-name rule (`URLHandler` is *not* decapitalized) |
 
 ## Adding a case
 
@@ -88,6 +135,9 @@ AXIOM_JDK_IR=/path/to/jdk-ir
 2. `./run-tests.sh --bless NN` and **read the generated golden** — it is the specification, so a wrong
    golden is worse than no test.
 3. `./run-tests.sh --oracle NN` to confirm bytecode agrees.
+4. If the case exercises config, **read `expected/<case>.config` too** — same rule: a wrong golden
+   is worse than no test. If it exercises Spring specifically, add a `spring-oracle.conf`
+   (`<scan-package> [key=value ...]`) and let a real container grade it.
 
 ## Is the suite actually able to fail?
 

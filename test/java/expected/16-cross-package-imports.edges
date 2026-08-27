@@ -1,8 +1,7 @@
+ambiguous_unknown	method	app.Main#main(String[]) -> -
+ambiguous_unknown	method	util.Strings#trim(String) -> -
 ambiguous_unknown	new	app.Main#main(String[]) -> -
 ambiguous_unknown	new	core.Engine#<type-initializer>() -> -
-boundary_lib	method	app.Main#main(String[]) -> java.io.PrintStream#println(String)
-boundary_lib	method	app.Main#main(String[]) -> java.io.PrintStream#println(char[])
-boundary_lib	method	util.Strings#trim(String) -> java.lang.String#trim()
 known_edge	method	app.Main#main(String[]) -> core.Config#load()
 known_edge	method	app.Main#main(String[]) -> core.Engine#run(String)
 known_edge	method	app.Main#main(String[]) -> util.Strings#pad(String)

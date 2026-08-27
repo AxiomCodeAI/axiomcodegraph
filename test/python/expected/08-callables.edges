@@ -1,4 +1,4 @@
-boundary_lib	METHOD_CALL	main.main -> PY_METHOD_3e5895f27a66678a742ac66c0981e191
+boundary_lib	METHOD_CALL	main.main -> external:functools.partial
 boundary_lib	SIMPLE_CALL	main.main -> builtin:print
 known_edge	CHAINED_CALL	main.main -> main.Holder.use
 known_edge	DYNAMIC_CALL	main.main -> main.<lambda>

@@ -1,0 +1,9 @@
+ambiguous_unknown	new	testcases.springoracle.AppConfig#clock() -> -
+known_edge	method	testcases.springoracle.OrderService#broadcast() -> testcases.springoracle.EmailNotifier#notifyOf(String)
+known_edge	method	testcases.springoracle.OrderService#lookup(String) -> testcases.springoracle.JdbcOrderRepo#find(String)
+known_edge	method	testcases.springoracle.OrderService#ping() -> testcases.springoracle.SmsNotifier#notifyOf(String)
+known_edge	method	testcases.springoracle.ReportService#report(String) -> testcases.springoracle.JdbcOrderRepo#find(String)
+known_edge	new	testcases.springoracle.AppConfig#auditSink(OrderRepo) -> testcases.springoracle.LoggingAuditSink#<init>(OrderRepo)
+multi_inferred	method	testcases.springoracle.LoggingAuditSink#record(String) -> testcases.springoracle.JdbcOrderRepo#find(String)
+multi_inferred	method	testcases.springoracle.LoggingAuditSink#record(String) -> testcases.springoracle.NoopOrderRepo#find(String)
+multi_inferred	method	testcases.springoracle.LoggingAuditSink#record(String) -> testcases.springoracle.OrderRepo#find(String)

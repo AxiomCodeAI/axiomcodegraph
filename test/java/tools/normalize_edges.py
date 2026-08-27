@@ -11,10 +11,11 @@ CONVENTIONS (deliberate, not defects):
   * ANONYMOUS classes are keyed by their SUPERTYPE (`Outer$anon:Runnable`), because javac and the
     engine number anonymous classes differently — numbering would make goldens brittle.
   * TYPE VARIABLES are erased to their bound (default Object), so `add(E)` reads `add(Object)`.
-  * Library callees keep their fully-qualified owner; unresolved sites are emitted with target `-`
-    so a golden records *declared unknowns* too (a silently dropped site can never look "expected").
+  * CLIENT -> CLIENT ONLY. No library IR is staged by this suite, so a call into a library
+    resolves to nothing and is emitted with target `-` as ambiguous_unknown. Declared unknowns
+    are part of the golden (a silently dropped site can never look "expected").
 
-usage: normalize_edges.py <IR-dir> <OUT-dir> [<jdk-method-index.tsv>]
+usage: normalize_edges.py <IR-dir> <OUT-dir>
 """
 import csv, os, re, sys
 
@@ -40,7 +41,7 @@ def simple(t):
     return t.split('.')[-1].split('$')[-1] + arr
 
 class Names:
-    def __init__(self, ir, jdk_index=None):
+    def __init__(self, ir):
         self.m = {}
         tvars, mtvars = set(), set()
         for r in rows(f'{ir}/all-type-parameters.csv'):
@@ -75,24 +76,10 @@ class Names:
             nm = '<init>' if r.get('methodKind') == 'CONSTRUCTOR' else r.get('name')
             self.m[h] = f"{self.anon.get(cls, cls)}#{nm}({','.join(ps)})"
         self.types = {t['typeRegistryUniqueHash']: t['qualifiedName'] for t in rows(f'{ir}/all-types.csv')}
-        self.jdk = {}
-        if jdk_index and os.path.exists(jdk_index):
-            for line in open(jdk_index, encoding='utf-8', errors='replace'):
-                p = line.rstrip('\n').split('\t')
-                if len(p) >= 3:
-                    nm = p[2].split('(')[0]
-                    if nm == p[1].split('.')[-1]: nm = '<init>'
-                    args = p[2][p[2].index('(') + 1:p[2].rindex(')')] if '(' in p[2] else ''
-                    ps = [simple(x) for x in args.split(',') if x.strip()]
-                    ps = ['Object' if re.fullmatch(r'[A-Z]\d?', x) else x for x in ps]
-                    if len(p) > 5 and p[5] == 'true' and ps and not ps[-1].endswith('[]'):
-                        ps[-1] += '[]'
-                    self.jdk[p[0]] = f"{p[1]}#{nm}({','.join(ps)})"
 
     def label(self, h):
         if h in ('-', ''): return '-'
         if h in self.m: return self.m[h]
-        if h in self.jdk: return self.jdk[h]
         if h in self.types: return f"{self.types[h]}#<type-initializer>()"
         return f"<unresolved:{h[:24]}>"
 
@@ -100,8 +87,7 @@ def main():
     args = [a for a in sys.argv[1:] if not a.startswith('--')]
     client_only = '--client-pairs' in sys.argv     # for the bytecode-oracle comparison
     ir, out = args[0], args[1]
-    jdk = args[2] if len(args) > 2 else None
-    n = Names(ir, jdk)
+    n = Names(ir)
     seen = set()
     for line in open(f'{out}/call-chain-edges.csv', encoding='utf-8', errors='replace'):
         f = line.rstrip('\n').split('\t')
