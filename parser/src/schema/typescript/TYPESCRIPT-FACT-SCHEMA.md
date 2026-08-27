@@ -1,6 +1,6 @@
 # TypeScript fact-table schema — proposal v1 (for approval)
 
-**Author:** `ts-oracle`  **Status:** PROPOSED — nothing built against it, no source written.
+**Author:** `ts-oracle`  **Status:** **APPROVED 2026-08-27** — spine frozen, building against it.
 **Scope:** the base-relation contract between the TypeScript parser and the Souffle engine.
 
 **21 relation pairs, 481 columns** — of which a **10-relation / 295-column spine** is what I
@@ -12,9 +12,9 @@ Once approved this is frozen: **column order is the contract.** A later reorder 
 every golden file, every projection, and every `decls_base.dl` edit. Column *names* and enum
 *values* are not frozen (the `.dl` carries only `c0..cN`); column *positions* are.
 
-Two things need your ruling before any code — **§0.1 the parse layer** and **§10 the open
-questions**. Everything else in this document is a decision I am taking, with the measurement
-that drove it.
+**§10 records every decision**, including the four approved rulings and the six questions I
+closed myself with measurement. Nothing in this document is unanswered; two items are deferred
+with a recorded trigger and a gate check that will raise them.
 
 ---
 
@@ -405,8 +405,8 @@ boundary between module scope and global scope.
 | 12 | `mergeTableKey` ★ | 2 | `GLOBAL` \| `MODULE_EXPORTS:<hash>` \| `MODULE_LOCALS:<hash>` — the §3.1 scope-key prefix minted by this module |
 | 13 | `moduleResolutionMode` | 1 | `NODE16` \| `NODENEXT` \| `BUNDLER` \| `NODE10` \| `CLASSIC` — from the governing tsconfig |
 | 14 | `tsConfigPath` | 1 | which tsconfig governs this file (resolution differs per project) |
-| 15 | `targetTsVersion` ★ | 1 | exact compiler version at emit — `6.0.3`. Provenance |
-| 16 | `emissionRegime` ★ | 1 | `TS6_JS_API` \| (future) `TS7_TSSERVER` — **in the PK**, per §0.2 |
+| 15 | `targetTsVersion` ★ | 1 | exact compiler version at emit — `6.0.3`. **Provenance only, deliberately NOT in the PK** (see below) |
+| 16 | `emissionRegime` ★ | 1 | **coarse token, never a version string**: `ts6-inproc` \| (future) `ts7-tsserver`. **In the PK**, per §0.2 and the note below |
 | 17 | `startLine` | 1 | 1 for a file; the `declare module` line for an ambient row |
 | 18 | `endLine` | 1 | |
 | 19 | `hasTopLevelAwait` | 1 | forces module semantics |
@@ -422,10 +422,22 @@ boundary between module scope and global scope.
 **FKs** 21→`ts_method`, 22/23→`ts_export` (back-patched after those rows are minted;
 accumulate-then-export makes this free).
 
-`emissionRegime` is in the PK for the same reason Python put it there: every child key chains
-off the module hash, so a 6.x fact base and a 7.x fact base for the same file can never
-collide, even if both are loaded at once. §0.2 makes that a live possibility rather than a
-hypothetical.
+#### Why `emissionRegime` is a coarse token and `targetTsVersion` is not in the key
+
+`emissionRegime` is in the PK for the reason Python put it there: every child key chains off
+the module hash, so a 6.x fact base and a 7.x fact base for the same file can never collide
+even if both are loaded at once. §0.2 makes that live rather than hypothetical.
+
+But it must be **coarse**. `targetTsVersion` (`6.0.3`) is the wrong granularity for a key:
+a patch bump to `6.0.4` would change the module hash, and therefore **every child hash in the
+entire fact base**, and therefore every golden file — for a release that cannot change a single
+fact. The regime token names the *emission mechanism*, which is what actually changes fact
+shape: `ts6-inproc` is "parsed in-process by the TypeScript 6 JS API"; `ts7-tsserver` would be
+"obtained from a 7.x compiler over a pipe". Two mechanisms, two regimes, and every patch
+release inside one mechanism shares a token.
+
+`targetTsVersion` stays as a **non-key provenance column** so the exact compiler is still
+recorded and a golden-file mismatch is still explainable — it just cannot cascade.
 
 ---
 
@@ -977,7 +989,7 @@ exists because **the flagship gate lives here**: every resolved target is compar
 
 | # | Column | T | Meaning |
 |---|---|---|---|
-| 0 | `callKind` | 1 | `FUNCTION_CALL` \| `METHOD_CALL` \| `CONSTRUCTOR_CALL` \| `SUPER_CALL` \| `TAGGED_TEMPLATE_CALL` \| `INDEX_CALL` (through an index signature) \| `DYNAMIC_IMPORT_CALL` \| `DECORATOR_CALL` \| `OPTIONAL_CALL` |
+| 0 | `callKind` | 1 | `FUNCTION_CALL` \| `METHOD_CALL` \| `CONSTRUCTOR_CALL` \| `SUPER_CALL` \| `TAGGED_TEMPLATE_CALL` \| `INDEX_CALL` (through an index signature) \| `DYNAMIC_IMPORT_CALL` \| `DECORATOR_CALL` \| `OPTIONAL_CALL` \| `JSX_COMPONENT_CALL` (**reserved, emitted by nothing in freeze 1** — §4.15.1) |
 | 1 | `calleeName` | 1 | the simple name at the call site; `""` for a computed callee |
 | 2 | `receiverKind` | 1 | `NONE` \| `IDENTIFIER` \| `THIS` \| `SUPER` \| `PROPERTY_CHAIN` \| `CALL_RESULT` \| `ELEMENT_ACCESS` \| `PARENTHESIZED` \| `NON_NULL` \| `AS_EXPRESSION` \| `AWAIT_RESULT` \| `UNKNOWN` |
 | 3 | `receiverExpressionLinkHash` | 1 | FK→`ts_expression`; `""` |
@@ -1004,6 +1016,31 @@ exists because **the flagship gate lives here**: every resolved target is compar
 | 24 | `tsCallSiteUniqueHash` | — | **PK** |
 
 **PK** `TS_CALL_SITE_md5(tsExpressionLinkHash)` — a pure chain; a call site *is* an expression.
+
+#### 4.15.1 TSX — representation reserved now, emitted by nothing (RULED)
+
+TSX is **out of the first freeze**. Corpus A has zero `.tsx` files, so there is nothing to
+measure and no fixture to authorise against. But the representation is stated now, because
+deciding it later would mean choosing under pressure from whatever the first TSX fixture
+happens to look like.
+
+**A JSX element is a call to its component.** `<Button size="lg">text</Button>` is
+`Button({ size: "lg", children: "text" })` — not an analogy, that is the emit. So:
+
+- `ts_call_site.callKind = JSX_COMPONENT_CALL`, `calleeName` = the tag name.
+- The **whole props object is argument 0**, not one argument per attribute. `argumentCount` is
+  1, or 0 for `<Button />` with no attributes and no children. Attributes are `ts_expression`
+  rows with `edgeRole = JSX_ATTRIBUTE_VALUE` under that argument; children fold into the
+  reserved `children` prop as `JSX_CHILD`. Mapping attributes to parameters positionally would
+  be wrong — a component has exactly one parameter.
+- A **lowercase** tag (`<div>`) is an intrinsic element, not a component: it resolves to a
+  member of `JSX.IntrinsicElements` in an ambient declaration, so its target is an
+  `AMBIENT_SIGNATURE` and it never links to project code.
+- `ts_module.scriptKind = TSX` and `hasJsxContent` already carry the file-level facts.
+
+**Freeze-1 obligation:** the enum values exist and **zero rows carry them**. The gate asserts
+that emptiness, so the day TSX is switched on, the change shows up as a gate failure rather
+than as new rows appearing unremarked.
 
 **Who fills columns 12–18.** The parser fills them **only where resolution is syntactically
 decidable**: a call to an imported name with a single signature, a call on a receiver whose
@@ -1498,9 +1535,9 @@ its own expectations it would have a failure mode indistinguishable from success
 
 ---
 
-## 9. Recommendation: freeze the spine first
+## 9. The spine — frozen first
 
-**10 relations / 295 columns**, in build order. Each stage is independently testable and the
+**10 relations / 295 columns — FROZEN.** In build order. Each stage is independently testable and the
 first three cover the measured majority of the call graph.
 
 | # | Relation | Cols | Why it is spine |
@@ -1533,61 +1570,68 @@ suggests — `ts_export` (re-export chains are needed to finish Path 2) and `ts_
 
 ---
 
-## 10. Open questions — I need your ruling
+## 10. Decisions — approved, and the six I closed myself
 
-**OQ-1 — the parse layer (§0.1).** My recommendation is `ts.createSourceFile` from
-`typescript@6.0.3`: measured 10.5 MB/s, zero parse failures over 25.9 MB, no Program needed, and
-it avoids a 4.7% file-truncation rate that would land squarely on the `.d.ts` files supplying
-52% of the call graph. Cost: a `LanguageParser` that is not tree-sitter backed. **Everything
-downstream waits on this.**
+### 10.1 Approved (2026-08-27)
 
-**OQ-2 — does `ts_type_satisfies` belong in the parser's output at all?** I have it declared and
-engine-populated (§4.21). The alternative is to leave it out of the schema entirely and make
-satisfaction a pure engine derivation with no base relation. I prefer declaring it, because
-`oracleAgreement` gives the disagreement a place to live inside the fact base rather than in a
-report. But it is the one relation the parser will never write a row to, and you may consider
-that a smell.
+| # | Ruling |
+|---|---|
+| **OQ-1** | **`ts.createSourceFile`.** The 32,767-char truncation landing on the `.d.ts` files that carry 52% of call targets settles it |
+| **OQ-2** | Ship the 10-relation / 295-column spine. `ts_type_satisfies` stays declared and engine-populated |
+| **OQ-4** | `emissionRegime` in the module PK, **as a coarse token** (`ts6-inproc`), never a version string — `6.0.3` in a key would invalidate every hash on a patch bump. `targetTsVersion` stays as non-key provenance (§4.1) |
+| **OQ-7** | TSX out of the first freeze; representation stated now, emitted by nothing (§4.15.1) |
 
-**OQ-3 — how far should `lib_ts_*` extend?** Corpus B is 1,113 declaration files for six
-packages; `lib.dom.d.ts` alone is 2.3 MB. Staging all of `@types/*` plus the full `lib.*.d.ts`
-set is a large fact base for a benefit that is 42.3% lib + 9.7% node_modules of call targets. Do
-we stage (a) only reachable declarations — closure over what the project actually imports,
-(b) whole packages that are imported, or (c) everything on disk? I recommend (a), and note it
-needs the engine to compute reachability before staging.
+Build order confirmed: **merge-partition gate first** — until §3.1's partition is proven
+against tsc by set equality, nothing downstream is trustworthy — then the harness, then
+`src/test/typescript-tests.ts`.
 
-**OQ-4 — `emissionRegime` in the module PK.** I put it there (§4.1) for the reason Python did.
-It costs nothing today and buys 7.x-vs-6.x separation later (§0.2). Confirm, since it
-propagates into every child key and cannot be added later without a re-freeze.
+### 10.2 Closed by measurement (OQ-3, OQ-5, OQ-6, OQ-8)
 
-**OQ-5 — depth cap of 20 (§3.4).** Measured max is 19, so 20 admits everything I saw but is
-one node from truncating. A cap of 32 is free at emit time and costs only fact volume on
-pathological `type-fest`-style types. Do you want 20 with `isTruncated`, or 32?
+**OQ-3 — `lib_ts_*` staging: DECIDED (a), the reachability closure.** Measured on the `Parser`
+repo: the program pulls in **146 of the 590 `.d.ts` files on disk (24.7%)**, and **2.9 MB of
+7.8 MB (37%)**; of the 114 shipped `lib.*.d.ts` files it loads **57**. So (c) "everything on
+disk" is a 4× file / 2.7× byte penalty for declarations no call site can reach, and (b) "whole
+imported packages" still drags in every unreferenced entry point of `@types/node`. The closure
+is not a heuristic — it is the set the compiler itself resolved, so the engine gets it by
+walking `ts_import.resolvedModuleLinkHash` transitively from project modules. Recorded as an
+engine obligation: compute reachability *before* staging, and stage `lib_ts_*` declarations
+only for modules in the closure.
 
-**OQ-6 — no `ts_scope` relation (§4.11).** I resolve names per reference on `ts_expression` and
-recover the lexical chain from `ts_block` → `ts_method` → `ts_type` → `ts_module`, which is
-Java-shaped and lets the oracle check something stronger than Python's scope-set equality. The
-risk is a shadowing or closure case the chain cannot express. I would rather add `ts_scope`
-additively if measurement demands it than carry it speculatively — but it is a spine-shaped
-decision, so I want it on the record.
+**OQ-5 — depth cap: DECIDED 32, not 20.** Measured max type-node depth is **19**, so 20 admits
+everything observed and sits one node from truncating on the next `type-fest` release. The cost
+of 32 is zero: no node in 25.9 MB of real TypeScript reaches depth 20, so the extra headroom
+emits no extra rows. `isTruncated` stays, because a cap that can never fire is a cap nobody
+maintains — and if it ever fires, the row says so.
 
-**OQ-7 — JSX/TSX.** Corpus A has zero `.tsx`. I have reserved `ts_expression` kinds
-(`JSX_ELEMENT`, `JSX_SELF_CLOSING`) and edge roles, and `ts_module.hasJsxContent` /
-`scriptKind = TSX`, but no JSX-specific relation. A JSX element is a *call* to a component in
-every meaningful sense, and the schema currently does not say so. Is TSX in scope for the first
-freeze? If yes, `ts_call_site.callKind` needs `JSX_COMPONENT_CALL` and I should say how a
-component's props map to parameters.
+**OQ-6 — no `ts_scope` relation: DECIDED, and measured rather than asserted.** Over Corpus A,
+**34,798** identifier references resolve to a declaration, and the
+`ts_block → ts_method → ts_type → ts_module` chain reaches **every one of them**:
 
-**OQ-8 — `.js`/`.jsx` with `allowJs`.** Out of scope in this proposal. JSDoc-typed JavaScript is
-a real TypeScript input and the checker handles it, but it changes tier assignments materially
-(annotations move from AST to comments). Confirm out of scope for the first freeze.
+| route to the declaration | count |
+|---|---|
+| same file, enclosing lexical container (the chain) | 32,743 |
+| another project file (via `ts_import`) | 18 |
+| ambient — `lib.*.d.ts` or `node_modules` | 2,037 |
+| **unreachable by the chain** | **0** |
 
-**OQ-9 — the repo-wide TypeScript bump.** Done and verified as a prerequisite, uncommitted until
-you say: `package.json` `^5.3.3` → `^6.0.0` (resolves 6.0.3), plus
-`"ignoreDeprecations": "6.0"` in `tsconfig.json` (6.0.3 errors on `moduleResolution: node` and
-`baseUrl`, both of which **stop functioning in 7.0** — so the `@/*` aliasing needs migrating
-before any 7.x move), plus the fixture exclusion from §8.3. Verified green: build 0,
-`python-tests.ts` 8/8, `java-extractor-tests.ts` 75/75, fixtures compile under their own
-tsconfig.
+Zero. So the chain is sufficient in fact, not just in principle, and `ts_scope` would be a
+relation carrying no information the FKs do not already carry. It stays additive: if a future
+corpus produces a non-zero unreachable count, that number is the argument for adding it, and
+the gate will report it because the check is now written down.
+
+**OQ-8 — `allowJs` / JSDoc-typed JavaScript: DECIDED out of scope for the first freeze.** It is
+not a syntax gap but a **tier** change: in a `.js` file the type annotations live in comments,
+so `parameterTypeName`, `returnTypeName` and `fieldTypeName` move from tier 1 (a node) to a
+JSDoc parse (`ts_comment.jsDocTags`), and `ts_type` rows would have to be synthesised from
+`@typedef` with no declaration node to key on. That is a second schema, not an extension of
+this one. The relations already tolerate it — `ts_module.scriptKind` has `JS`/`JSX`,
+`ts_comment.commentKind` has `JSDOC` — so nothing has to be reserved beyond what is there.
+
+### 10.3 Still open — nothing
+
+No question in this document is unanswered. Two items are deliberately **deferred with a
+recorded trigger** rather than left ambiguous: TSX (a fixture appears) and `ts_scope` (a
+non-zero unreachable count). Both have a gate check that will raise them.
 
 ---
 
