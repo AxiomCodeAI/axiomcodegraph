@@ -16,6 +16,7 @@ import { GradleTaskStyle } from '@/enums/gradle/declarations/GradleTaskStyle';
 import { GradleVersionSource } from '@/enums/gradle/dependencies/GradleVersionSource';
 import { GradleDSLDialect } from '@/enums/gradle/files/GradleDSLDialect';
 import { GradleParseStatus } from '@/enums/gradle/files/GradleParseStatus';
+import { GradleScriptKind } from '@/enums/gradle/files/GradleScriptKind';
 import { GradleParseGapReason } from '@/enums/gradle/parse-gaps/GradleParseGapReason';
 import { GradleReferenceResolution } from '@/enums/gradle/value-references/GradleReferenceResolution';
 import { GradleValueReferenceType } from '@/enums/gradle/value-references/GradleValueReferenceType';
@@ -42,6 +43,12 @@ export interface GradleExtractionContext {
   dialect: GradleDSLDialect;
   /** GRADLE_SCRIPT hash. Every emitted row chains off it. */
   scriptHash: string;
+  /**
+   * What role the file plays. Needed because the same method name means
+   * different things in different scripts — `include` declares a project in a
+   * settings file and filters filenames in a copy spec.
+   */
+  scriptKind: GradleScriptKind;
   serviceVersionHash: string;
 }
 
@@ -100,6 +107,7 @@ export class GradleFileExtractor implements BaseExtractor<GradleBlock> {
   private baseMservPath: string = '';
   private dialect: GradleDSLDialect = GradleDSLDialect.GROOVY;
   private scriptHash: string = '';
+  private scriptKind: GradleScriptKind = GradleScriptKind.PROJECT_BUILD;
   private serviceVersionHash: string = '';
 
   /** Args stripped by the trailing-closure rewrite, keyed by 1-indexed line number. */
@@ -153,6 +161,7 @@ export class GradleFileExtractor implements BaseExtractor<GradleBlock> {
       baseMservPath: this.extractBaseMservPath(filePath),
       dialect: this.detectDialect(filePath),
       scriptHash: '',
+      scriptKind: GradleScriptKind.PROJECT_BUILD,
       serviceVersionHash,
     }).blocks;
   }
@@ -275,6 +284,7 @@ export class GradleFileExtractor implements BaseExtractor<GradleBlock> {
     this.baseMservPath = context.baseMservPath;
     this.dialect = context.dialect;
     this.scriptHash = context.scriptHash;
+    this.scriptKind = context.scriptKind;
     this.serviceVersionHash = context.serviceVersionHash;
   }
 
@@ -1312,11 +1322,16 @@ export class GradleFileExtractor implements BaseExtractor<GradleBlock> {
     }
 
     // Include: include ':core', ':auth'
-    if (methodName === 'include' || methodName === 'includeBuild') {
+    //
+    // Only in a settings script. `include` is a method on Settings there, but
+    // in a build script it is a CopySpec filter — `from('src') { include
+    // '*.txt' }` — and treating those as project includes invents projects
+    // that do not exist. Spring Framework alone produced three.
+    if (this.isSettingsScript() && (methodName === 'include' || methodName === 'includeBuild')) {
       // One row per included path. `include ':a', ':b'` declares two projects,
       // and packing both into one row makes the project graph unqueryable.
       for (const piece of DependencyCoordinateParser.splitTopLevel(args, ',')) {
-        const projectPath = this.stripQuotes(piece.trim());
+        const projectPath = this.normalizeProjectPath(this.stripQuotes(piece.trim()));
         if (!projectPath) continue;
         const decl = GradleDeclaration.builder(
           GradleDeclarationType.INCLUDE, projectPath, dialect, parentBlockHash,
@@ -1414,10 +1429,10 @@ export class GradleFileExtractor implements BaseExtractor<GradleBlock> {
       return;
     }
 
-    // Include: include ':core', ':auth'
-    if (methodName === 'include' || methodName === 'includeBuild') {
+    // Include: include ':core', ':auth' — settings scripts only, see above.
+    if (this.isSettingsScript() && (methodName === 'include' || methodName === 'includeBuild')) {
       for (const piece of DependencyCoordinateParser.splitTopLevel(args, ',')) {
-        const projectPath = this.stripQuotes(piece.trim());
+        const projectPath = this.normalizeProjectPath(this.stripQuotes(piece.trim()));
         if (!projectPath) continue;
         const decl = GradleDeclaration.builder(
           GradleDeclarationType.INCLUDE, projectPath, dialect, parentBlockHash,
@@ -1829,6 +1844,26 @@ export class GradleFileExtractor implements BaseExtractor<GradleBlock> {
     // Scan plugin name + version for value references (e.g., version from variable)
     this.extractValueReferences(node, pluginId + ' ' + versionValue, decl.getHash(), parentBlockHash, filePath, baseMservPath, serviceVersionHash);
     return consumed;
+  }
+
+  private isSettingsScript(): boolean {
+    return this.scriptKind === GradleScriptKind.SETTINGS
+      || this.scriptKind === GradleScriptKind.BUILD_SRC_SETTINGS;
+  }
+
+  /**
+   * Gradle accepts `include 'core'` and `include ':core'` as the same project.
+   * The relation stores the canonical colon-prefixed form so that a settings
+   * include and a `project(':core')` dependency join on equal strings — most
+   * real settings files use the bare form and every dependency uses the other.
+   */
+  private normalizeProjectPath(raw: string): string {
+    const trimmed = raw.trim();
+    if (!trimmed) return '';
+    if (trimmed.startsWith(':')) return trimmed;
+    // A path with a separator is a directory spec, not a project name.
+    if (trimmed.includes('/') || trimmed.includes('\\')) return '';
+    return ':' + trimmed;
   }
 
   /**

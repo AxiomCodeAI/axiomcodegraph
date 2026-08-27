@@ -139,6 +139,19 @@ export class GradleScript implements EntityIdentifiable {
     this.gradleProjectPath = projectPath;
   }
 
+  /**
+   * Upgrades the path-derived kind once the settings file has been read.
+   *
+   * A build that renames its build files — `buildFileName = "${name}.gradle"`,
+   * which Spring Framework does — leaves every subproject script looking like
+   * a script plugin from its path alone. When a settings `include` actually
+   * resolves to it, that is direct evidence of what it is, and the evidence
+   * beats the convention.
+   */
+  setScriptKind(kind: GradleScriptKind): void {
+    this.scriptKind = kind;
+  }
+
   getHash(): string {
     return this.gradleScriptUniqueHash;
   }

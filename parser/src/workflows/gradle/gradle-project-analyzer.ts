@@ -2,41 +2,89 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 
 import { GradleBlock } from '@/analysis-types/gradle/GradleBlock';
+import { GradleCatalogEntry } from '@/analysis-types/gradle/GradleCatalogEntry';
+import { GradleComment } from '@/analysis-types/gradle/GradleComment';
 import { GradleDeclaration } from '@/analysis-types/gradle/GradleDeclaration';
+import { GradleDependencyCoordinate } from '@/analysis-types/gradle/GradleDependencyCoordinate';
+import { GradleParseGap } from '@/analysis-types/gradle/GradleParseGap';
+import { GradleScript } from '@/analysis-types/gradle/GradleScript';
 import { GradleValueReference } from '@/analysis-types/gradle/GradleValueReference';
-import { EXCLUDED_DIRS, ANALYSIS_OUTPUT_DIR, OUTPUT_GRADLE_BLOCK_CSV_FILENAME, OUTPUT_GRADLE_DECLARATION_CSV_FILENAME, OUTPUT_GRADLE_VALUE_REFERENCE_CSV_FILENAME, OUTPUT_SKIPPED_GRADLE_FILES_CSV_FILENAME, FILE_EXTENSIONS, LARGE_FILE_LINE_THRESHOLD } from '@/constants/consts';
+import {
+  EXCLUDED_DIRS, ANALYSIS_OUTPUT_DIR,
+  OUTPUT_GRADLE_BLOCK_CSV_FILENAME, OUTPUT_GRADLE_DECLARATION_CSV_FILENAME,
+  OUTPUT_GRADLE_VALUE_REFERENCE_CSV_FILENAME, OUTPUT_GRADLE_SCRIPT_CSV_FILENAME,
+  OUTPUT_GRADLE_DEPENDENCY_COORDINATE_CSV_FILENAME, OUTPUT_GRADLE_CATALOG_ENTRY_CSV_FILENAME,
+  OUTPUT_GRADLE_COMMENT_CSV_FILENAME, OUTPUT_GRADLE_PARSE_GAP_CSV_FILENAME,
+  OUTPUT_SKIPPED_GRADLE_FILES_CSV_FILENAME, LARGE_FILE_LINE_THRESHOLD,
+} from '@/constants/consts';
 import { ENTITY_IDENTIFIERS } from '@/constants/entity-constants';
 import { SkippedFileReason } from '@/enums/SkippedFileReason';
+import { GradleParseStatus } from '@/enums/gradle/files/GradleParseStatus';
+import { GradleScriptKind } from '@/enums/gradle/files/GradleScriptKind';
+import { GradleParseGapReason } from '@/enums/gradle/parse-gaps/GradleParseGapReason';
+import { GradleCatalogExtractor } from '@/parsers/gradle/extractors/gradle-catalog-extractor';
 import { GradleFileExtractor } from '@/parsers/gradle/extractors/gradle-file-extractor';
+import { GradleResolutionLinker } from '@/parsers/gradle/gradle-resolution-linker';
+import { GradleScriptClassifier } from '@/parsers/gradle/gradle-script-classifier';
 import { ProjectInfo } from '@/types/ProjectInfo';
 import { EntityUtils } from '@/utils/entity-utils';
 
+interface SkippedGradleFile {
+  filePath: string;
+  baseMservPath: string;
+  serviceVersionHash: string;
+  reason: SkippedFileReason;
+  uniqueFileHash: string;
+}
+
 /**
- * Analyzes Gradle build files within projects and extracts
- * GradleBlock, GradleDeclaration, and GradleValueReference entities to CSV.
+ * Analyses a codebase's Gradle build and writes eight relations.
  *
- * Handles .gradle (Groovy DSL) files. Follows the same workflow pattern
- * as JavaProjectAnalyzer and XmlProjectAnalyzer.
+ * ## Discovery runs in two passes, and has to
+ *
+ * The first pass finds every candidate file and notes which directories hold a
+ * settings script. Only then can the second pass classify anything: a
+ * `build.gradle` beside a settings file is a ROOT_BUILD that may configure
+ * every project in the build, and the identical file one directory down is a
+ * PROJECT_BUILD that configures exactly one. Classifying on the way through
+ * the tree would have to guess, and the guess is wrong for every multi-project
+ * build — which is every build large enough to matter.
+ *
+ * Version catalogs are read before build scripts within the second pass, so
+ * the catalog entries exist by the time the linker runs.
+ *
+ * ## What discovery now includes that it did not
+ *
+ * `*.gradle.kts` was never found at all. The scan matched `.gradle`, and
+ * `build.gradle.kts` does not end in `.gradle`, so every Kotlin DSL build in
+ * every corpus produced zero rows — silently, and despite the extractor
+ * carrying several hundred lines of Kotlin-specific handling. Version catalogs
+ * were not read either, which in a catalog-based build means every dependency
+ * row had an alias and no coordinate.
  */
 export class GradleProjectAnalyzer {
+  private allScripts: GradleScript[] = [];
   private allBlocks: GradleBlock[] = [];
   private allDeclarations: GradleDeclaration[] = [];
   private allValueReferences: GradleValueReference[] = [];
-  private skippedFiles: { filePath: string; baseMservPath: string; serviceVersionHash: string; reason: SkippedFileReason; uniqueFileHash: string }[] = [];
+  private allCoordinates: GradleDependencyCoordinate[] = [];
+  private allCatalogEntries: GradleCatalogEntry[] = [];
+  private allComments: GradleComment[] = [];
+  private allParseGaps: GradleParseGap[] = [];
+  private skippedFiles: SkippedGradleFile[] = [];
+
   private extractor: GradleFileExtractor;
+  private catalogExtractor: GradleCatalogExtractor;
+  private linker: GradleResolutionLinker;
   private outputDir: string;
 
   constructor(outputDir?: string) {
     this.extractor = new GradleFileExtractor();
+    this.catalogExtractor = new GradleCatalogExtractor();
+    this.linker = new GradleResolutionLinker();
     this.outputDir = outputDir || ANALYSIS_OUTPUT_DIR;
   }
 
-  /**
-   * Analyzes Gradle files across all provided projects.
-   *
-   * @param projects Array of projects to scan for Gradle files
-   * @param serviceVersionLink Service version identifier string
-   */
   async analyzeGradleFiles(
     projects: ProjectInfo[],
     serviceVersionLink: string
@@ -57,138 +105,237 @@ export class GradleProjectAnalyzer {
 
     await this.ensureOutputDirectory();
 
-    await Promise.all(
-      projects.map((project) => this.analyzeProject(project, serviceVersionHash))
-    );
+    // Projects are analysed one at a time. The extractor keeps per-file state
+    // and is reset at the start of each extractScript call, so interleaving
+    // two files through it would mix their rows together.
+    for (const project of projects) {
+      await this.analyzeProject(project, serviceVersionHash);
+    }
 
-    await this.exportBlocksCsv();
-    await this.exportDeclarationsCsv();
-    await this.exportValueReferencesCsv();
-    await this.exportSkippedFilesCsv();
+    // The project pass: everything one file could not decide alone.
+    this.linker.link({
+      scripts: this.allScripts,
+      declarations: this.allDeclarations,
+      valueReferences: this.allValueReferences,
+      coordinates: this.allCoordinates,
+      catalogEntries: this.allCatalogEntries,
+    });
 
-    const endTime = Date.now();
-    const durationSeconds = ((endTime - startTime) / 1000).toFixed(2);
+    await this.exportAll();
 
-    console.log(`\n📊 Total Gradle blocks extracted: ${this.allBlocks.length}`);
-    console.log(`📊 Total Gradle declarations extracted: ${this.allDeclarations.length}`);
-    console.log(`📊 Total Gradle value references extracted: ${this.allValueReferences.length}`);
-    console.log(`📊 Total skipped Gradle files: ${this.skippedFiles.length}`);
+    const durationSeconds = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.log(`\n📊 Gradle scripts:              ${this.allScripts.length}`);
+    console.log(`📊 Gradle blocks:               ${this.allBlocks.length}`);
+    console.log(`📊 Gradle declarations:         ${this.allDeclarations.length}`);
+    console.log(`📊 Gradle dependency coords:    ${this.allCoordinates.length}`);
+    console.log(`📊 Gradle catalog entries:      ${this.allCatalogEntries.length}`);
+    console.log(`📊 Gradle value references:     ${this.allValueReferences.length}`);
+    console.log(`📊 Gradle comments:             ${this.allComments.length}`);
+    console.log(`📊 Gradle parse gaps:           ${this.allParseGaps.length}`);
+    console.log(`📊 Skipped Gradle files:        ${this.skippedFiles.length}`);
     console.log(`⏱️  Gradle analysis completed in ${durationSeconds}s`);
   }
 
-  /**
-   * Analyzes a single project for Gradle files.
-   */
-  private async analyzeProject(
+  private async analyzeProject(project: ProjectInfo, serviceVersionHash: string): Promise<void> {
+    const files = await this.findGradleFiles(project.path);
+    if (files.length === 0) return;
+
+    // Pass one: where do settings files live. Nothing can be classified
+    // before this is known.
+    const settingsDirs = new Set(
+      files
+        .filter((f) => GradleScriptClassifier.isSettingsFile(path.basename(f)))
+        .map((f) => path.dirname(f))
+    );
+
+    console.log(`📦 Gradle in: ${project.name}`);
+    console.log(`   🔍 Found ${files.length} Gradle file(s), ${settingsDirs.size} settings root(s)`);
+
+    // Catalogs first, so their entries exist before anything references them.
+    const catalogs = files.filter((f) => GradleScriptClassifier.isCatalogFile(path.basename(f)));
+    const scripts = files.filter((f) => !GradleScriptClassifier.isCatalogFile(path.basename(f)));
+
+    for (const filePath of [...catalogs, ...scripts]) {
+      await this.analyzeFile(filePath, project, settingsDirs, serviceVersionHash);
+    }
+  }
+
+  private async analyzeFile(
+    filePath: string,
     project: ProjectInfo,
+    settingsDirs: Set<string>,
     serviceVersionHash: string
   ): Promise<void> {
-    const gradleFiles = await this.findGradleFiles(project.path);
-
-    if (gradleFiles.length === 0) {
+    let content: string;
+    try {
+      content = await fs.readFile(filePath, 'utf-8');
+    } catch (error) {
+      console.error(`   ❌ Error reading Gradle ${filePath}:`, error);
+      this.skip(filePath, project.path, serviceVersionHash, SkippedFileReason.READ_ERROR);
       return;
     }
 
-    console.log(`📦 Gradle in: ${project.name}`);
-    console.log(`   🔍 Found ${gradleFiles.length} .gradle file(s)`);
-
-    for (const filePath of gradleFiles) {
-      try {
-        const content = await fs.readFile(filePath, 'utf-8');
-
-        if (!content || content.trim().length === 0) {
-          const reason = SkippedFileReason.EMPTY_CONTENT as SkippedFileReason;
-          const uniqueFileHash = EntityUtils.generateEntityHash(
-            ENTITY_IDENTIFIERS.SKIPPED_FILE,
-            `${filePath}||${project.path}||${serviceVersionHash}||${reason}`
-          );
-          this.skippedFiles.push({
-            filePath,
-            baseMservPath: project.path,
-            serviceVersionHash,
-            reason,
-            uniqueFileHash,
-          });
-          continue;
-        }
-
-        const lineCount = content.split('\n').length;
-        if (lineCount > LARGE_FILE_LINE_THRESHOLD) {
-          console.log(`   ⏭️  Skipping very large file (${lineCount} lines): ${filePath}`);
-          const reason = SkippedFileReason.FILE_TOO_LARGE;
-          const uniqueFileHash = EntityUtils.generateEntityHash(
-            ENTITY_IDENTIFIERS.SKIPPED_FILE,
-            `${filePath}||${project.path}||${serviceVersionHash}||${reason}`
-          );
-          this.skippedFiles.push({ filePath, baseMservPath: project.path, serviceVersionHash, reason, uniqueFileHash });
-          continue;
-        }
-
-        // Extract blocks (primary entity)
-        const blocks = this.extractor.extract(filePath, content, serviceVersionHash);
-        this.allBlocks.push(...blocks);
-
-        // Collect declarations from this file
-        const declarations = this.extractor.getExtractedDeclarations();
-        this.allDeclarations.push(...declarations);
-
-        // Collect value references from this file
-        const valueRefs = this.extractor.getExtractedValueReferences();
-        this.allValueReferences.push(...valueRefs);
-
-      } catch (error) {
-        console.error(`   ❌ Error parsing Gradle ${filePath}:`, error);
-        const reason = SkippedFileReason.READ_ERROR;
-        const uniqueFileHash = EntityUtils.generateEntityHash(
-          ENTITY_IDENTIFIERS.SKIPPED_FILE,
-          `${filePath}||${project.path}||${serviceVersionHash}||${reason}`
-        );
-        this.skippedFiles.push({
-          filePath,
-          baseMservPath: project.path,
-          serviceVersionHash,
-          reason,
-          uniqueFileHash,
-        });
-      }
+    if (!content || content.trim().length === 0) {
+      this.skip(filePath, project.path, serviceVersionHash, SkippedFileReason.EMPTY_CONTENT);
+      return;
     }
 
-    console.log(`   ✅ Extracted ${this.allBlocks.length} blocks, ${this.allDeclarations.length} declarations`);
+    const identity = GradleScriptClassifier.classify(filePath, settingsDirs);
+    const lineCount = content.split('\n').length;
+
+    const script = GradleScript.builder(
+      identity.scriptKind, identity.dialect, filePath, project.path, serviceVersionHash
+    )
+      .withGradleProjectPath(identity.gradleProjectPath)
+      .withRelativePath(identity.relativePath)
+      .withFileName(identity.fileName)
+      .withLineCount(lineCount)
+      .build();
+
+    this.allScripts.push(script);
+
+    // A file too large to parse still gets its script row and a gap saying so.
+    // Dropping it entirely is what makes an unanalysed build indistinguishable
+    // from an empty one.
+    if (lineCount > LARGE_FILE_LINE_THRESHOLD) {
+      console.log(`   ⏭️  Skipping very large file (${lineCount} lines): ${filePath}`);
+      script.setParseStatus(GradleParseStatus.FAILED);
+      this.allParseGaps.push(
+        GradleParseGap.builder(
+          GradleParseGapReason.FILE_TOO_LARGE, script.getHash(), filePath, project.path,
+          1, lineCount, 0, 0, serviceVersionHash
+        )
+          .withNodeType('file')
+          .withOriginalText(`${lineCount} lines exceeds the ${LARGE_FILE_LINE_THRESHOLD} line threshold`)
+          .build()
+      );
+      script.setCounts({ blocks: 0, declarations: 0, valueReferences: 0, coordinates: 0, comments: 0, parseGaps: 1 });
+      this.skip(filePath, project.path, serviceVersionHash, SkippedFileReason.FILE_TOO_LARGE);
+      return;
+    }
+
+    if (identity.scriptKind === GradleScriptKind.VERSION_CATALOG) {
+      this.analyzeCatalog(script, filePath, content, project.path, serviceVersionHash);
+      return;
+    }
+
+    const result = this.extractor.extractScript(content, {
+      filePath,
+      baseMservPath: project.path,
+      dialect: identity.dialect,
+      scriptHash: script.getHash(),
+      scriptKind: identity.scriptKind,
+      serviceVersionHash,
+    });
+
+    this.allBlocks.push(...result.blocks);
+    this.allDeclarations.push(...result.declarations);
+    this.allValueReferences.push(...result.valueReferences);
+    this.allCoordinates.push(...result.coordinates);
+    this.allComments.push(...result.comments);
+    this.allParseGaps.push(...result.parseGaps);
+
+    script.setParseStatus(result.parseStatus);
+    script.setCounts({
+      blocks: result.blocks.length,
+      declarations: result.declarations.length,
+      valueReferences: result.valueReferences.length,
+      coordinates: result.coordinates.length,
+      comments: result.comments.length,
+      parseGaps: result.parseGaps.length,
+    });
   }
 
-  /**
-   * Recursively finds all .gradle files in a directory.
-   */
+  private analyzeCatalog(
+    script: GradleScript,
+    filePath: string,
+    content: string,
+    baseMservPath: string,
+    serviceVersionHash: string
+  ): void {
+    const result = this.catalogExtractor.extract(
+      filePath, content, script.getHash(), baseMservPath, serviceVersionHash
+    );
+
+    this.allCatalogEntries.push(...result.entries);
+    this.allParseGaps.push(...result.parseGaps);
+
+    script.setParseStatus(result.parseGaps.length ? GradleParseStatus.PARTIAL : GradleParseStatus.OK);
+    script.setCounts({
+      blocks: 0, declarations: 0, valueReferences: 0,
+      coordinates: result.entries.length, comments: 0,
+      parseGaps: result.parseGaps.length,
+    });
+  }
+
+  private skip(
+    filePath: string,
+    baseMservPath: string,
+    serviceVersionHash: string,
+    reason: SkippedFileReason
+  ): void {
+    this.skippedFiles.push({
+      filePath,
+      baseMservPath,
+      serviceVersionHash,
+      reason,
+      uniqueFileHash: EntityUtils.generateEntityHash(
+        ENTITY_IDENTIFIERS.SKIPPED_FILE,
+        `${filePath}||${baseMservPath}||${serviceVersionHash}||${reason}`
+      ),
+    });
+  }
+
+  // ─── Discovery ───────────────────────────────────────────────
+
   private async findGradleFiles(dirPath: string): Promise<string[]> {
     const files: string[] = [];
     await this.scanForGradleFiles(dirPath, files);
-    return files;
+    // Sorted so the emitted row order is a property of the corpus rather than
+    // of the filesystem, which readdir does not promise to keep stable.
+    return files.sort();
   }
 
   private async scanForGradleFiles(dirPath: string, files: string[]): Promise<void> {
+    let entries;
     try {
-      const entries = await fs.readdir(dirPath, { withFileTypes: true });
-
-      for (const entry of entries) {
-        if (entry.isDirectory()) {
-          if (!EXCLUDED_DIRS.has(entry.name) && !entry.name.startsWith('.')) {
-            const subPath = path.join(dirPath, entry.name);
-            await this.scanForGradleFiles(subPath, files);
-          }
-        } else if (entry.isFile() && entry.name.endsWith(FILE_EXTENSIONS.GRADLE)) {
-          files.push(path.join(dirPath, entry.name));
-        }
-      }
+      entries = await fs.readdir(dirPath, { withFileTypes: true });
     } catch (error) {
       console.error(`Error scanning directory ${dirPath}:`, error);
+      return;
+    }
+
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        // `.gradle` is Gradle's own cache directory and holds generated
+        // scripts that describe nothing about the project. It is excluded by
+        // the leading-dot rule; `buildSrc` deliberately is NOT, because its
+        // build script is a real fact about how the build is assembled.
+        if (!EXCLUDED_DIRS.has(entry.name) && !entry.name.startsWith('.')) {
+          await this.scanForGradleFiles(path.join(dirPath, entry.name), files);
+        }
+      } else if (entry.isFile() && GradleScriptClassifier.isGradleFile(entry.name)) {
+        files.push(path.join(dirPath, entry.name));
+      }
     }
   }
 
   // ─── CSV Export ──────────────────────────────────────────────
 
-  /**
-   * Generic CSV export helper.
-   */
+  private async exportAll(): Promise<void> {
+    await Promise.all([
+      this.exportEntitiesToCsv(this.allScripts, OUTPUT_GRADLE_SCRIPT_CSV_FILENAME, 'Gradle scripts'),
+      this.exportEntitiesToCsv(this.allBlocks, OUTPUT_GRADLE_BLOCK_CSV_FILENAME, 'Gradle blocks'),
+      this.exportEntitiesToCsv(this.allDeclarations, OUTPUT_GRADLE_DECLARATION_CSV_FILENAME, 'Gradle declarations'),
+      this.exportEntitiesToCsv(this.allCoordinates, OUTPUT_GRADLE_DEPENDENCY_COORDINATE_CSV_FILENAME, 'Gradle dependency coordinates'),
+      this.exportEntitiesToCsv(this.allCatalogEntries, OUTPUT_GRADLE_CATALOG_ENTRY_CSV_FILENAME, 'Gradle catalog entries'),
+      this.exportEntitiesToCsv(this.allValueReferences, OUTPUT_GRADLE_VALUE_REFERENCE_CSV_FILENAME, 'Gradle value references'),
+      this.exportEntitiesToCsv(this.allComments, OUTPUT_GRADLE_COMMENT_CSV_FILENAME, 'Gradle comments'),
+      this.exportEntitiesToCsv(this.allParseGaps, OUTPUT_GRADLE_PARSE_GAP_CSV_FILENAME, 'Gradle parse gaps'),
+      this.exportSkippedFilesCsv(),
+    ]);
+  }
+
   private async exportEntitiesToCsv<T extends { getCsvHeader(): string; toCsv(): string }>(
     entities: T[],
     filename: string,
@@ -203,51 +350,20 @@ export class GradleProjectAnalyzer {
     const firstEntity = entities[0];
     if (!firstEntity) return;
 
-    const header = firstEntity.getCsvHeader();
-    const rows = entities.map((entity) => entity.toCsv());
-    const csvContent = [header, ...rows].join('\n');
-
+    const csvContent = [firstEntity.getCsvHeader(), ...entities.map((e) => e.toCsv())].join('\n');
     await fs.writeFile(outputPath, csvContent, 'utf-8');
     console.log(`💾 ${entityTypeName} CSV exported to: ${outputPath}`);
   }
 
-  private async exportBlocksCsv(): Promise<void> {
-    await this.exportEntitiesToCsv(
-      this.allBlocks,
-      OUTPUT_GRADLE_BLOCK_CSV_FILENAME,
-      'Gradle blocks'
-    );
-  }
-
-  private async exportDeclarationsCsv(): Promise<void> {
-    await this.exportEntitiesToCsv(
-      this.allDeclarations,
-      OUTPUT_GRADLE_DECLARATION_CSV_FILENAME,
-      'Gradle declarations'
-    );
-  }
-
-  private async exportValueReferencesCsv(): Promise<void> {
-    await this.exportEntitiesToCsv(
-      this.allValueReferences,
-      OUTPUT_GRADLE_VALUE_REFERENCE_CSV_FILENAME,
-      'Gradle value references'
-    );
-  }
-
   private async exportSkippedFilesCsv(): Promise<void> {
-    if (this.skippedFiles.length === 0) {
-      return;
-    }
+    if (this.skippedFiles.length === 0) return;
 
     const outputPath = path.join(this.outputDir, OUTPUT_SKIPPED_GRADLE_FILES_CSV_FILENAME);
     const header = 'filePath\tbaseMservPath\tserviceVersionHash\treason\tuniqueFileHash';
     const rows = this.skippedFiles.map(
       (f) => `${f.filePath}\t${f.baseMservPath}\t${f.serviceVersionHash}\t${f.reason}\t${f.uniqueFileHash}`
     );
-    const csvContent = [header, ...rows].join('\n');
-
-    await fs.writeFile(outputPath, csvContent, 'utf-8');
+    await fs.writeFile(outputPath, [header, ...rows].join('\n'), 'utf-8');
     console.log(`💾 Skipped Gradle files CSV exported to: ${outputPath}`);
   }
 
