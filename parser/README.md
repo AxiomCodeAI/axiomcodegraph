@@ -6,6 +6,8 @@
 
 <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/python/python-original.svg" width="46" height="46" alt="Python" title="Python"/>
 &nbsp;&nbsp;
+<img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/typescript/typescript-original.svg" width="46" height="46" alt="TypeScript" title="TypeScript — in development"/>
+&nbsp;&nbsp;
 <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/java/java-original.svg" width="46" height="46" alt="Java" title="Java"/>
 &nbsp;&nbsp;
 <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/xml/xml-original.svg" width="34" height="34" alt="XML" title="XML"/>
@@ -14,7 +16,7 @@
 &nbsp;&nbsp;
 <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/gradle/gradle-original.svg" width="34" height="34" alt="Gradle" title="Gradle"/>
 
-<sub>Full semantic resolution for <b>Python</b> and <b>Java</b>. Structural extraction for XML, YAML, Gradle and Properties.</sub>
+<sub>Full semantic resolution for <b>Python</b> and <b>Java</b>. <b>TypeScript</b> in development. Structural extraction for XML, YAML, Gradle and Properties.</sub>
 
 [What it is](#what-this-is) &nbsp;|&nbsp;
 [The IR](#the-intermediate-representation) &nbsp;|&nbsp;
