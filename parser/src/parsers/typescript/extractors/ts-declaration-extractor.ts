@@ -379,9 +379,7 @@ export class TsDeclarationExtractor {
     this.methods.push(row);
     this.methodHashByNode.set(id, row.getHash());
     this.methodRowByNode.set(id, row);
-    // The PARAMETERS of an anonymous signature were the other half of the gap:
-    // 48 on this repository, every one a parameter of a type-literal method.
-    this.emitParameters(member.parameters, row, {
+    const memberContext: EmitContext = {
       typeHash: '',
       methodHash: row.getHash(),
       blockHash: '',
@@ -392,7 +390,20 @@ export class TsDeclarationExtractor {
       isAmbient: true,
       moduleHash: this.options.moduleHash,
       moduleQualifiedName: this.options.moduleQualifiedName,
-    });
+    };
+    // The PARAMETERS of an anonymous signature were the other half of the gap:
+    // 48 on this repository, every one a parameter of a type-literal method.
+    this.emitParameters(member.parameters, row, memberContext);
+    // An anonymous signature can be GENERIC — `{ new<T>(x: T): C<T> }`, which is
+    // how `declare var CustomEvent` is written in lib.dom.d.ts. 25 such
+    // signatures in the holdout corpus and none in application code.
+    this.emitTypeParameters(member.typeParameters, row.getHash(),
+      ts.isConstructSignatureDeclaration(member)
+        ? TsTypeParameterOwnerKind.CONSTRUCT_SIGNATURE
+        : ts.isCallSignatureDeclaration(member)
+          ? TsTypeParameterOwnerKind.CALL_SIGNATURE
+          : TsTypeParameterOwnerKind.METHOD,
+      memberContext, TsTypeRefContext.METHOD_TYPE_PARAM_BOUND);
   }
 
   /** Every function type already given a `ts_method` row, so none is minted twice. */
@@ -1167,6 +1178,21 @@ export class TsDeclarationExtractor {
       this.emitFunctionLike(member, context, TsMethodKind.CONSTRUCT_SIGNATURE);
       return undefined;
     }
+    // `get x(): T` / `set x(v: T)` INSIDE AN INTERFACE — legal since TypeScript
+    // 5.1, and a `GetAccessorDeclaration` is both a ClassElement and a
+    // TypeElement, so it turns up here as well as in a class body.
+    //
+    // 65 of them in `lib.dom.d.ts` alone, and not one in 1,084 files of
+    // application code — which is exactly why a holdout corpus of declaration
+    // files finds what application code cannot.
+    if (ts.isGetAccessor(member)) {
+      const hash = this.emitFunctionLike(member, context, TsMethodKind.GETTER);
+      return methodSummary(member, hash);
+    }
+    if (ts.isSetAccessor(member)) {
+      const hash = this.emitFunctionLike(member, context, TsMethodKind.SETTER);
+      return methodSummary(member, hash);
+    }
     return undefined;
   }
 
@@ -1373,7 +1399,10 @@ export class TsDeclarationExtractor {
       signatureRole: TsSignatureRole.SOLE,
       overloadIndex: 0,
       bodyPresence: bodyPresenceOf(node, methodKind, body !== undefined, isAmbient),
-      isTypeOnly: TYPE_ONLY_METHOD_KINDS.has(methodKind),
+      // A GETTER or SETTER is type-only when it sits in a TYPE position — an
+      // interface or a type literal — and runtime-bearing in a class. The kind
+      // alone cannot say which, so the owner decides.
+      isTypeOnly: TYPE_ONLY_METHOD_KINDS.has(methodKind) || isTypePositionMember(node),
       isAsync: hasModifier(node, ts.SyntaxKind.AsyncKeyword),
       isGenerator: (node as { asteriskToken?: ts.AsteriskToken }).asteriskToken !== undefined,
       isAbstract: hasModifier(node, ts.SyntaxKind.AbstractKeyword),
@@ -2310,6 +2339,19 @@ const FOLDABLE_OPERATORS = new Set<ts.SyntaxKind>([
   ts.SyntaxKind.GreaterThanGreaterThanGreaterThanToken,
 ]);
 
+/**
+ * Is this member written in a TYPE position — an interface or a type literal?
+ *
+ * The question the KIND cannot answer. `get x(): T` is runtime-bearing in a class
+ * and type-only in an interface, and the same `GetAccessorDeclaration` node type
+ * serves both since TypeScript 5.1.
+ */
+function isTypePositionMember(node: ts.Node): boolean {
+  const parent = node.parent;
+  return parent !== undefined
+    && (ts.isInterfaceDeclaration(parent) || ts.isTypeLiteralNode(parent));
+}
+
 /** `in` / `out` on a type parameter. TypeScript 4.7; 562 measured. */
 function varianceAnnotationOf(
   typeParameter: ts.TypeParameterDeclaration
@@ -2432,7 +2474,10 @@ function bodyPresenceOf(
   if (hasBody) {
     return TsBodyPresence.HAS_BODY;
   }
-  if (TYPE_ONLY_METHOD_KINDS.has(methodKind)) {
+  // The OWNER first, then the kind. An accessor in an interface can never carry
+  // a body under any compiler options, which is a stronger statement than
+  // "it happens to be in a .d.ts" — so NO_BODY_INTERFACE, not NO_BODY_AMBIENT.
+  if (TYPE_ONLY_METHOD_KINDS.has(methodKind) || isTypePositionMember(node)) {
     return TsBodyPresence.NO_BODY_INTERFACE;
   }
   if (hasModifier(node, ts.SyntaxKind.AbstractKeyword)) {
