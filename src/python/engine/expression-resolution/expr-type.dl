@@ -68,10 +68,11 @@ expr_type(p, e, t) :- expr_binding(p, b, ctx, e), ctx != "STORE", binding_lookup
 //     of the cross-service plumbing on the measured project, and flow alone never sees
 //     them because the constructor is called once, at module import, from a different
 //     module.
-expr_type(p, e, t) :-
-    expr_names_param(p, e, ph),
-    param_declared_type(p, ph, d),
-    declared_dispatch(p, d, t).
+//     param_type carries BOTH halves: the annotation where there is one (widened over
+//     constructed subclasses), and flow only where there is not. That is what stops a
+//     shared funnel's imprecision leaking through a declaration —
+//     resolution/value-flow.dl.
+expr_type(p, e, t) :- expr_names_param(p, e, ph), param_type(ph, t), p = "client".
 // (h) `self.x` where the attribute was written FROM a parameter — the DI shape.
 //     `self.store = store` carries the annotation of `store` onto the attribute.
 expr_type(p, e, t) :-

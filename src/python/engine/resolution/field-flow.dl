@@ -98,15 +98,12 @@ field_type_holds_class(p, f, t) :-
 // The result is a DECLARED type, not an exact one, so the consumer widens it over
 // constructed subclasses. That is what makes `self.transport.send(...)` a sound
 // three-element set rather than a single edge to an abstract method.
-field_type_from_param(p, f, t) :-
-    field_write_value(p, f, val),
-    expr_names_param(p, val, ph),
-    param_declared_type(p, ph, t).
-field_type_from_param(p, f, t) :-
-    field_write_value(p, f, val),
-    expr_names_param(p, val, ph),
-    param_arg_type(ph, t),
-    p = "client".
+// param_type carries both halves: the annotation where there is one, flow where there is
+// not, and never flow widening past an annotation (resolution/value-flow.dl).
+field_type_from_param("client", f, t) :-
+    field_write_value("client", f, val),
+    expr_names_param("client", val, ph),
+    param_type(ph, t).
 
 // ── field_element_from_param(Prov, FieldHash, TypeHash) ──────────────────────
 // `self.lines = lines` where `lines: List[LineItem]` — the attribute is a container and
