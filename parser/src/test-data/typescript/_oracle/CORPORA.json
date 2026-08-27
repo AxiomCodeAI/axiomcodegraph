@@ -1,0 +1,31 @@
+{
+ "compilerVersion": "6.0.3",
+ "emissionRegime": "ts6-inproc",
+ "corpora": [
+  {
+   "slug": "staging",
+   "dir": "staging",
+   "files": 56,
+   "mergedGroups": 23
+  },
+  {
+   "slug": "staging__annotations__legacy",
+   "dir": "staging/annotations/legacy",
+   "files": 1,
+   "mergedGroups": 0
+  },
+  {
+   "slug": "staging__type-system__merging__three-files",
+   "dir": "staging/type-system/merging/three-files",
+   "files": 4,
+   "mergedGroups": 2
+  },
+  {
+   "slug": "staging__type-system__merging__two-files",
+   "dir": "staging/type-system/merging/two-files",
+   "files": 3,
+   "mergedGroups": 2
+  }
+ ],
+ "unclaimedFiles": []
+}
