@@ -79,7 +79,7 @@ decorator_site_from(e, caller) :-
 decorator_site_from(e, caller) :-
     annotation_on("client", _, _, _, _, d), decorator_expr("client", e, d),
     decorator_target("client", _, m, d), m != "",
-    method_module_level("client", mod, m), module_init("client", caller, _, mod).
+    method_top_level("client", mod, m), module_init("client", caller, _, mod).
 decorator_site_from(e, caller) :-
     annotation_on("client", _, _, "TYPE_DECLARATION", _, d), decorator_expr("client", e, d),
     decorator_target("client", t, "", d), t != "",
@@ -97,7 +97,7 @@ decorator_site_from(d, caller) :-
 decorator_site_from(d, caller) :-
     annotation_on("client", _, _, _, _, d),
     decorator_target("client", _, m, d), m != "",
-    method_module_level("client", mod, m), module_init("client", caller, _, mod).
+    method_top_level("client", mod, m), module_init("client", caller, _, mod).
 decorator_site_from(d, caller) :-
     annotation_on("client", _, _, "TYPE_DECLARATION", _, d),
     decorator_target("client", t, "", d), t != "",
@@ -124,12 +124,7 @@ decorator_resolves_to(e, m) :-
 // factory whose return the engine cannot type (a LIBRARY factory such as
 // functools.wraps) yields NO row, and the site is ambiguous_unknown with a reason —
 // which is the honest answer, since the object applied is library-internal.
-decorator_resolves_to(d, r) :-
-    annotation_on("client", _, _, _, _, d),
-    decorator_expr("client", e, d),
-    call_of_expr(e, factorySite),
-    expr_call_candidate(factorySite, factory),
-    method_returns_method("client", factory, r).
+decorator_resolves_to(d, r) :- deco_applied(d, r), decorator_expr("client", e, d), call_of_expr(e, _).
 
 // ── method_return_value_expr / method_returns_method ─────────────────────────
 // A function that returns a bare name denoting a `def`. This is what a parameterised
@@ -150,16 +145,42 @@ decorator_hits_builtin(e, label) :-
     annotation_on("client", n, _, _, _, d), decorator_expr("client", e, d),
     !decorator_resolves_to(e, _),
     builtin_target(n, label).
-decorator_hits_builtin(e, label) :-
-    annotation_on("client", n, _, _, _, d), decorator_expr("client", e, d),
-    !decorator_resolves_to(e, _),
-    !builtin_target(n, _),
-    decorator_builtin("client", bk, d), bk != "NONE",
-    label = cat("builtin:", n).
+// DELIBERATELY NOT: "any decorator with a known builtinKind is a builtin boundary".
+// @functools.wraps has builtinKind=WRAPS and IS a real library function with Python
+// source, which the library IR resolves — so that clause emitted BOTH a lib edge and a
+// spurious `builtin:wraps` for the same site. Only the catalogued C-level callables
+// (the clause above) are builtin boundaries.
 
 // ============================================================================
 // CALLER
 // ============================================================================
+
+// ============================================================================
+// PROPERTY READS — an EDGE that is not a SITE
+//
+// `print(w.doubled)` invokes the @property getter, and CPython's own compiler emits no
+// CALL for it: the descriptor protocol runs inside LOAD_ATTR. So there is no
+// py_call_site, no bytecode CALL, and nothing to conserve — but there IS a real
+// method->method edge, and 02-methods expects it (main -> Widget.doubled).
+//
+// It is therefore added to the exported graph and NOT to invocation_site. That keeps the
+// conservation denominator equal to CPython's own on both sides: adding it as a "site"
+// would invent a site the compiler never emitted, which normalisation Rule 10 exists to
+// prevent.
+// ============================================================================
+
+// ── property_read_edge(ReadExprHash, CallerMethodHash, GetterMethodHash) ─────
+property_read_edge(e, caller, getter) :-
+    expr_node("client", "ATTRIBUTE_ACCESS", _, n, e),
+    expr_name_context("client", "LOAD", e),
+    !call_receiver_of(e),
+    expr_parent("client", e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_type("client", obj, t),
+    type_property_getter("client", t, n, getter),
+    expr_ultimate_method("client", e, caller).
+
+// An ATTRIBUTE_ACCESS that IS a call's callee is not a property read — it is the call.
+call_receiver_of(e) :- call_callee_expr(_, e).
 
 // ── site_caller(SiteKey, CallerMethodHash) ───────────────────────────────────
 // NEVER "". A module-level call belongs to the synthetic <module> MODULE_INITIALIZER
@@ -186,6 +207,7 @@ site_client_target_count(site, n) :-
 // ── site_has_boundary(SiteKey) ───────────────────────────────────────────────
 site_has_boundary(site) :- client_calls_lib("client", site, "lib", _).
 site_has_boundary(site) :- client_calls_builtin("client", site, _).
+site_has_boundary(site) :- client_calls_external(site, _).
 site_has_boundary(site) :- decorator_hits_builtin(site, _).
 
 // ── site_class(SiteKey, EdgeStatus) ──────────────────────────────────────────
@@ -247,6 +269,11 @@ call_chain_edge(site, caller, "-", callee, "lib", "boundary_lib", kind) :-
     client_calls_lib("client", site, "lib", callee),
     site_caller(site, caller), invocation_site(site, kind).
 
+// client -> EXTERNAL (named by the written import path; outside every staged IR)
+call_chain_edge(site, caller, "-", label, "external", "boundary_lib", kind) :-
+    client_calls_external(site, label),
+    site_caller(site, caller), invocation_site(site, kind).
+
 // client -> CPython builtin (named, C-implemented, no Python source anywhere)
 call_chain_edge(site, caller, "-", label, "builtin", "boundary_lib", kind) :-
     client_calls_builtin("client", site, label),
@@ -260,6 +287,23 @@ call_chain_edge(site, caller, "-", label, "builtin", "boundary_lib", kind) :-
 call_chain_edge(site, caller, "-", "-", "-", "ambiguous_unknown", kind) :-
     site_class(site, "ambiguous_unknown"),
     site_caller(site, caller), invocation_site(site, kind).
+
+// METACLASS CREATION — `class X(metaclass=M)` invokes M.__new__ / M.__init__ at import
+// time. An edge with no written call site (resolution/type-hierarchy.dl), kind
+// METACLASS_CREATION.
+call_chain_edge(t, caller, "-", m, "client", "known_edge", "METACLASS_CREATION") :-
+    metaclass_of("client", t, mcls),
+    class_creation_caller("client", t, caller),
+    mro_lookup("client", mcls, "__new__", m).
+call_chain_edge(t, caller, "-", m, "client", "known_edge", "METACLASS_CREATION") :-
+    metaclass_of("client", t, mcls),
+    class_creation_caller("client", t, caller),
+    mro_lookup("client", mcls, "__init__", m).
+
+// PROPERTY READ — an edge with no call site. Kind PROPERTY_READ, so it is filterable
+// and can never be mistaken for a written call.
+call_chain_edge(e, caller, "-", getter, "client", "known_edge", "PROPERTY_READ") :-
+    property_read_edge(e, caller, getter).
 
 // A site whose caller could not be determined AT ALL would vanish from every rule
 // above. That must be impossible (the parser guarantees a non-empty owner), so it is

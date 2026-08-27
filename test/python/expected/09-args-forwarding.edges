@@ -1,0 +1,12 @@
+boundary_lib	SIMPLE_CALL	main.main -> builtin:print
+boundary_lib	SIMPLE_CALL	main.target -> builtin:len
+known_edge	DYNAMIC_CALL	main.main -> main.Delegator.__call__
+known_edge	SELF_CALL	main.Delegator.__call__ -> main.target
+known_edge	SIMPLE_CALL	main.<module> -> main.main
+known_edge	SIMPLE_CALL	main.forward -> main.target
+known_edge	SIMPLE_CALL	main.forward_augmented -> main.target
+known_edge	SIMPLE_CALL	main.forward_twice -> main.forward
+known_edge	SIMPLE_CALL	main.main -> main.Delegator.__init__
+known_edge	SIMPLE_CALL	main.main -> main.forward
+known_edge	SIMPLE_CALL	main.main -> main.forward_augmented
+known_edge	SIMPLE_CALL	main.main -> main.forward_twice

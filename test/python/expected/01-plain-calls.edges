@@ -1,0 +1,10 @@
+boundary_lib	SIMPLE_CALL	main.main -> builtin:print
+known_edge	SIMPLE_CALL	main.<module> -> main.main
+known_edge	SIMPLE_CALL	main.main -> main.make_adder
+known_edge	SIMPLE_CALL	main.main -> main.make_adder.<locals>.add
+known_edge	SIMPLE_CALL	main.main -> main.module_function
+known_edge	SIMPLE_CALL	main.main -> main.with_nested
+known_edge	SIMPLE_CALL	main.make_adder.<locals>.add -> main.helper
+known_edge	SIMPLE_CALL	main.module_function -> main.leaf
+known_edge	SIMPLE_CALL	main.with_nested -> main.with_nested.<locals>.inner
+known_edge	SIMPLE_CALL	main.with_nested.<locals>.inner -> main.leaf

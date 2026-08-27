@@ -134,3 +134,27 @@ builtin_target(n, cat("builtin:", n)) :- py_builtin_callable(n).
 // The implicit constructor: `Sibling()` where nothing in A(Sibling) defines __init__ or
 // __new__. The target is object.__init__, a C slot.
 builtin_object_init_target("builtin:object.__init__").
+
+// ============================================================================
+// STDLIB CALLABLES WHOSE SEMANTICS ARE PART OF THE LANGUAGE CONTRACT
+//
+// A tiny, EXPLICIT model — the same discipline as the builtin catalog above and as
+// Java's per-ecosystem knob lists. Nothing is inferred; a function is modelled only if
+// it is named here, so the model can only ever move a site from unknown to known, never
+// silently change an answer.
+//
+// functools.partial(f, ...) returns a callable that calls f. That is not a heuristic:
+// it is the documented contract, and CPython exposes it as `.func`, which is how the
+// oracle itself names the target. Without it, `add_ten = functools.partial(add, 10)`
+// followed by `add_ten(5)` is a dead end even though the callee is written two lines
+// above.
+// ============================================================================
+
+// ── partial_factory_path(DottedPath) ─────────────────────────────────────────
+partial_factory_path("functools.partial").
+partial_factory_path("partial").
+
+// ── call_is_partial(SiteKey) ─────────────────────────────────────────────────
+// The site is a functools.partial application, recognised by the written dotted path
+// against the catalog — never by simple name alone unless the name IS the whole path.
+call_is_partial(site) :- call_dotted(site, d), partial_factory_path(d).

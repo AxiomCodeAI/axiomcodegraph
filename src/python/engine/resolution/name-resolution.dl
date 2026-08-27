@@ -57,7 +57,23 @@ assign_pair(p, tgt, val) :-
 // ============================================================================
 
 // ── binding_binds_method(Prov, BindingHash, MethodHash) ──────────────────────
-binding_binds_method(p, b, m) :- method_declaring_binding(p, b, m).
+// A `def` binds its name — UNLESS a decorator replaced what that name means.
+//
+// MEASURED, and it was three fabricated edges: 07-decorators has @replacing, @wrapping
+// and @outer_deco/@inner_deco, all with replacesTarget=true and builtinKind=NONE. Left
+// ungated, `never_runs()` resolved to the `def never_runs` that CPython never calls.
+// The replacement's real target comes back through
+// resolution/decorators.dl's application chain, via binding_binds_replaced_method below;
+// where that chain cannot be followed the name is a declared unknown, which is the
+// correct answer rather than a convenient one.
+binding_binds_method(p, b, m) :-
+    method_declaring_binding(p, b, m), !method_target_replaced(p, m).
+
+// ── binding_binds_replaced_method(Prov, BindingHash, MethodHash) ──────────────
+// The complement: the `def` this binding was written for, whose name no longer denotes
+// it. resolution/value-flow.dl chains this through decorated_name_target.
+binding_binds_replaced_method(p, b, m) :-
+    method_declaring_binding(p, b, m), method_target_replaced(p, m).
 
 // ── binding_binds_type(Prov, BindingHash, TypeHash) ──────────────────────────
 binding_binds_type(p, b, t) :- type_declaring_binding(p, b, t), b != "".
@@ -79,6 +95,17 @@ import_binds_method(p, b, m) :- import_binding(p, b, i), import_resolved_target(
 import_binds_module(p, b, mod) :- import_binding(p, b, i), import_resolved_target(p, "MODULE", mod, i).
 import_binds_module(p, b, mod) :- import_binding(p, b, i), import_resolved_target(p, "PACKAGE", mod, i).
 import_binds_module(p, b, mod) :- import_binding(p, b, i), import_is_module(p, i), import_resolved_module(p, mod, i).
+// `import pkg.core` BINDS ONLY `pkg` — the schema states this rule explicitly, and it is
+// the one place where importedPath and the bound name genuinely disagree. So the name is
+// bound to the TOP PACKAGE, found by matching the module's qualifiedName against the
+// bound simple name; the rest of the dotted path is resolved as submodule attribute
+// access (expr_names_module, above). Aliased module imports are unaffected: their
+// aliasName is the bound name and resolvedModuleLinkHash already points at the right
+// module, which the clause above handles.
+import_binds_module(p, b, mod) :-
+    import_binding(p, b, i),
+    import_decl(p, "MODULE_IMPORT", _, simple, i),
+    module_decl(p, _, simple, _, mod).
 // `from . import models` — resolvedTargetKind is MODULE but resolvedTargetHash is "" and
 // isModuleImport is false, so neither of the clauses above fires. The module hash lives
 // in resolvedModuleLinkHash. PD-8.
@@ -138,12 +165,19 @@ binding_is_free_kind(p, b) :- binding_decl(p, _, _, "NONLOCAL", _, b).
 // (a) bound here.
 binding_lookup(p, b, b) :- binding_is_local_kind(p, b).
 // (b) GLOBAL — resolve at the module scope of the module the reference is in.
+// b2 != b MATTERS. A GLOBAL_IMPLICIT binding created AT module scope — which is what a
+// module-level `exec(...)` or `print(...)` produces — would otherwise resolve to itself,
+// report as "found", and never reach the builtin catalog. Measured: `exec` at module
+// level in 12-blind-spots came out ambiguous_unknown/no_rule instead of a named builtin
+// boundary, while the identical call inside a function resolved correctly. A
+// GLOBAL_IMPLICIT binding IS the "referenced here, bound elsewhere" marker, so a
+// self-match carries no information.
 binding_lookup(p, b, b2) :-
     binding_is_global_kind(p, b),
     binding_decl(p, n, _, _, _, b),
     binding_owner(p, mod, _, b),
     module_init(p, _, modScope, mod),
-    binding_decl(p, n, modScope, _, _, b2).
+    binding_decl(p, n, modScope, _, _, b2), b2 != b.
 // (c) FREE / NONLOCAL — nearest enclosing scope that binds the name. Candidate set
 //     first, then the max-depth filter in the next stratum.
 binding_free_candidate(p, b, b2, d) :-
@@ -245,10 +279,38 @@ expr_names_param(p, e, prm) :- expr_binding(p, b, ctx, e), ctx != "STORE", bindi
 // matching is involved.
 module_member_type(p, mod, n, t) :- type_module(p, mod, t), type_decl(p, n, _, _, t).
 
+// ── method_top_level(Prov, ModuleHash, MethodHash) ───────────────────────────
+// A function at MODULE level — no owning class AND no enclosing function. The second
+// half is not pedantry: py_method.pyTypeLinkHash is "" for a nested def too, so
+// method_module_level alone admits every closure. Without this, `register` inside
+// `build_pipeline` becomes addressable as `helpers.register`, and a module-attribute
+// call could resolve to a function that is not reachable through the module at all.
+method_top_level(p, mod, m) :- method_module_level(p, mod, m), !method_enclosing_member(p, _, m).
+
 // ── module_member_method(Prov, ModuleHash, Name, MethodHash) ─────────────────
-// A module-level function, addressable as `mod.name`. Restricted to method_module_level
-// so a CLASS method is never mistaken for a module member.
-module_member_method(p, mod, n, m) :- method_module_level(p, mod, m), method_decl(p, n, _, _, _, m).
+// A module-level function, addressable as `mod.name`.
+module_member_method(p, mod, n, m) :- method_top_level(p, mod, m), method_decl(p, n, _, _, _, m).
+
+// ── module_member_module(Prov, ParentModuleHash, Name, ChildModuleHash) ──────
+// A SUBMODULE, addressable as `pkg.core`. py_module.packageQualifiedName names the
+// containing package, so this is a join on two columns of one relation and needs no
+// path arithmetic.
+module_member_module(p, parent, n, child) :-
+    module_decl(p, n, _, _, child),
+    module_package(p, pkgq, _, child), pkgq != "",
+    module_decl(p, _, pkgq, _, parent).
+
+// ── expr_names_module — the DOTTED form, recursively ─────────────────────────
+// `pkg.core` in `pkg.core.process(3)`. `import pkg.core` binds only `pkg` (the schema
+// is explicit about this), so the second segment is an ATTRIBUTE_ACCESS that has to be
+// resolved as a submodule lookup. Without this, case 11's `call_qualified` has no
+// receiver at all — and case 11 is precisely the collision case where THREE modules
+// define `process` and only the import path decides which one a site means.
+expr_names_module(p, e, child) :-
+    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e),
+    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_names_module(p, obj, parent),
+    module_member_module(p, parent, n, child).
 
 // ── expr_attr_names_type(Prov, ExprHash, TypeHash) ───────────────────────────
 // An ATTRIBUTE_ACCESS whose object denotes a module and whose attribute name is a

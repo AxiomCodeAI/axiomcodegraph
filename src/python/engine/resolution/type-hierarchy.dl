@@ -121,6 +121,10 @@ type_hierarchy_incomplete(p, t) :- type_base_dynamic(p, t, _).
 type_hierarchy_incomplete(p, t) :- type_mro_shape(p, _, _, "DYNAMIC_UNKNOWN", t).
 type_hierarchy_incomplete(p, t) :- type_mro_shape(p, _, "true", _, t).
 type_hierarchy_incomplete(p, t) :- type_metaclass(p, mc, t), mc != "".
+// A class whose attributes are assigned from OUTSIDE its body — monkey patching, or
+// `Synthesised.__init__ = _ns["__init__"]` where the method has no `def` in the source at
+// all. Its member set is not what the class body says, so a MISS on it is not a negative.
+type_hierarchy_incomplete(p, t) :- type_attr_rebound(p, t, _).
 // HAS_GETATTR / HAS_SETATTR — a failed attribute lookup on this type is an ESCAPE
 // HATCH, not a negative result (schema §4.5: 72 classes corpus-wide).
 type_hierarchy_incomplete(p, t) :- type_modifier(p, m, t), contains("HAS_GETATTR", m).
@@ -146,3 +150,43 @@ type_subclass(p, a, t) :- type_ancestor(p, t, a).
 // The candidate set an attribute lookup searches, reflexively closed.
 type_self_or_ancestor(p, t, t) :- type_decl(p, _, _, _, t).
 type_self_or_ancestor(p, t, a) :- type_ancestor(p, t, a).
+
+// ============================================================================
+// METACLASSES — the class statement is itself a call
+//
+// `class Built(metaclass=Installer)` does not merely record a name: at import time it
+// CALLS Installer, which runs Installer.__new__ and Installer.__init__. CPython's own
+// compiler emits that as an implicit `__build_class__` site, so 12-blind-spots expects
+// the edge `<module> -> Installer.__new__` and this engine had no rule for it.
+//
+// It is an EDGE WITHOUT A SITE, like a property read: the author wrote no call, and
+// normalisation Rule 10 excludes compiler-synthesised sites from the conservation
+// denominator on both sides. So it goes into the graph and NOT into invocation_site.
+//
+// NOTE ON THE IR (PD-10). For `class Built(metaclass=Installer)` the parser emits TWO
+// BASE_CLASS expressions on that line — one for the keyword NAME `metaclass` and one for
+// its VALUE `Installer` — both with position 0 and both with argumentKeywordName empty.
+// So role and position cannot tell them apart, and the join below has to key on
+// literalValue against py_type_base.baseText. It is exact for this shape; it would be
+// ambiguous only if a positional base were itself named `metaclass`.
+// ============================================================================
+
+// ── metaclass_of(Prov, TypeHash, MetaclassTypeHash) ──────────────────────────
+metaclass_of(p, sub, mcls) :-
+    type_base_keyword(p, sub, "metaclass", text, bh),
+    type_base_span(p, bh, mod, sl),
+    expr_node(p, _, "BASE_CLASS", text, e),
+    expr_scope(p, _, mod, e),
+    expr_span(p, sl, _, e),
+    expr_names_type(p, e, mcls).
+
+// ── class_creation_caller(Prov, TypeHash, CallerMethodHash) ──────────────────
+// The class statement runs where it is written: a top-level class in the module
+// initializer, a nested class in the enclosing <classbody>, a local class in the
+// enclosing function. All three owners exist because the parser mints the synthetic ones.
+class_creation_caller(p, t, caller) :-
+    type_nesting_decl(p, "", "", t), type_module(p, mod, t), module_init(p, caller, _, mod).
+class_creation_caller(p, t, caller) :-
+    type_nesting_decl(p, enc, _, t), enc != "", type_scope(p, _, caller, enc).
+class_creation_caller(p, t, caller) :-
+    type_nesting_decl(p, _, m, t), m != "", caller = m.

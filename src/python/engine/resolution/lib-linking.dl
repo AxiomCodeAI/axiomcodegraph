@@ -33,7 +33,7 @@ lib_type_qname(q, h) :- type_decl("lib", _, q, _, h).
 // MODULE-LEVEL library functions only. A method's qualifiedName includes its class, so
 // restricting to method_module_level keeps `from x import f` from matching a class
 // method that happens to share the dotted path.
-lib_function_qname(q, h) :- method_module_level("lib", _, h), method_decl("lib", _, _, q, _, h).
+lib_function_qname(q, h) :- method_top_level("lib", _, h), method_decl("lib", _, _, q, _, h).
 
 // ── client_external_import(ImportHash, ImportedPath, BindingHash) ────────────
 // THE FRONTIER: an import the parser could not resolve inside the repo. Everything in
@@ -176,3 +176,56 @@ lib_link_missed(site, d) :-
     call_recv_kind(site, rk), rk != "NONE",
     call_receiver_object(site, obj),
     !expr_any_type("client", obj).
+
+// ============================================================================
+// THE EXTERNAL BOUNDARY — a callee that is provably outside every staged IR
+//
+// `import math` then `math.sqrt(16)`. `math` is a C extension: no Python source, so no
+// py_module in the stdlib IR and nothing for an import link to match. The call is not a
+// blind spot — the written path names it exactly — it is a boundary this build cannot
+// cross, which is what 12-blind-spots means by "it must read boundary/native; a
+// 'resolved' one is a fabrication".
+//
+// The label carries the WRITTEN PATH and is prefixed `external:` so it can never be
+// confused with a py_method FK. Gated on the root name being bound by an import that
+// resolved neither in-repo NOR against the library, so a local name can never fall in
+// here by accident.
+// ============================================================================
+
+// ── import_unlinked(BindingHash, ImportedPath) ───────────────────────────────
+import_unlinked(b, path) :-
+    client_external_import(_, path, b),
+    !import_links_lib_function(b, _),
+    !import_links_lib_type(b, _),
+    !import_links_lib_module(b, _).
+
+// ── call_hits_external(SiteKey, TargetLabel) ─────────────────────────────────
+call_hits_external(site, cat("external:", d)) :-
+    call_dotted(site, d), d != "",
+    !expr_call_candidate(site, _),
+    !call_hits_lib_method(site, _),
+    !call_hits_builtin(site, _),
+    call_receiver_object(site, obj),
+    expr_parent("client", obj, "ATTRIBUTE_OBJECT", _, root),
+    expr_binding("client", rb, _, root),
+    binding_lookup("client", rb, rb2),
+    import_unlinked(rb2, _).
+call_hits_external(site, cat("external:", d)) :-
+    call_dotted(site, d), d != "",
+    !expr_call_candidate(site, _),
+    !call_hits_lib_method(site, _),
+    !call_hits_builtin(site, _),
+    call_receiver_object(site, obj),
+    expr_binding("client", rb, _, obj),
+    binding_lookup("client", rb, rb2),
+    import_unlinked(rb2, _).
+call_hits_external(site, cat("external:", d)) :-
+    call_dotted(site, d), d != "",
+    !expr_call_candidate(site, _),
+    !call_hits_lib_method(site, _),
+    !call_hits_builtin(site, _),
+    call_recv_kind(site, "NONE"),
+    call_callee_expr(site, callee),
+    expr_binding("client", rb, _, callee),
+    binding_lookup("client", rb, rb2),
+    import_unlinked(rb2, _).

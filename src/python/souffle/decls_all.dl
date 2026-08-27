@@ -212,10 +212,17 @@
 .decl type_constructor(c0:symbol,c1:symbol,c2:symbol)
 .decl type_constructor_absent(c0:symbol,c1:symbol)
 .decl type_constructor_any(c0:symbol,c1:symbol)
+.decl type_attr_foreign_write(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl type_attr_monkey_patched(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl type_attr_rebound(c0:symbol,c1:symbol,c2:symbol)
+.decl type_call_target(c0:symbol,c1:symbol,c2:symbol)
+.decl type_property_getter(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 
 // ---- resolution/builtins.dl --------------------------------------
 .decl py_builtin_callable(c0:symbol)
 .decl py_builtin_dynamic(c0:symbol)
+.decl partial_factory_path(c0:symbol)
+.decl call_is_partial(c0:symbol)
 .decl builtin_target(c0:symbol,c1:symbol)
 .decl builtin_object_init_target(c0:symbol)
 
@@ -230,6 +237,14 @@
 .decl decorator_max_order(c0:symbol,c1:symbol,c2:number)
 .decl decorator_outermost(c0:symbol,c1:symbol,c2:symbol)
 .decl decorator_call_site(c0:symbol,c1:symbol,c2:symbol)
+.decl deco_at(c0:symbol,c1:number,c2:symbol)
+.decl deco_factory(c0:symbol,c1:symbol)
+.decl deco_applied(c0:symbol,c1:symbol)
+.decl deco_stage(c0:symbol,c1:number,c2:symbol)
+.decl decorated_name_target(c0:symbol,c1:symbol)
+.decl param_arg_method(c0:symbol,c1:symbol)
+.decl decorator_chain_broken(c0:symbol,c1:symbol)
+.decl deco_stage_advanced(c0:symbol,c1:number)
 
 // ---- resolution/dispatch.dl --------------------------------------
 .decl type_instantiated(c0:symbol,c1:symbol)
@@ -277,6 +292,8 @@
 .decl call_constructs_lib_type(c0:symbol,c1:symbol)
 .decl call_recv_lib_type(c0:symbol,c1:symbol)
 .decl call_hits_lib_method(c0:symbol,c1:symbol)
+.decl import_unlinked(c0:symbol,c1:symbol)
+.decl call_hits_external(c0:symbol,c1:symbol)
 .decl lib_link_missed(c0:symbol,c1:symbol)
 
 // ---- resolution/mro.dl -------------------------------------------
@@ -294,6 +311,7 @@
 .decl expr_has_parent(c0:symbol,c1:symbol)
 .decl assign_pair(c0:symbol,c1:symbol,c2:symbol)
 .decl binding_binds_method(c0:symbol,c1:symbol,c2:symbol)
+.decl binding_binds_replaced_method(c0:symbol,c1:symbol,c2:symbol)
 .decl binding_binds_type(c0:symbol,c1:symbol,c2:symbol)
 .decl binding_binds_param(c0:symbol,c1:symbol,c2:symbol)
 .decl import_binds_type(c0:symbol,c1:symbol,c2:symbol)
@@ -317,7 +335,9 @@
 .decl expr_names_method(c0:symbol,c1:symbol,c2:symbol)
 .decl expr_names_module(c0:symbol,c1:symbol,c2:symbol)
 .decl expr_names_param(c0:symbol,c1:symbol,c2:symbol)
+.decl module_member_module(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl module_member_type(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl method_top_level(c0:symbol,c1:symbol,c2:symbol)
 .decl module_member_method(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl expr_attr_names_type(c0:symbol,c1:symbol,c2:symbol)
 .decl expr_attr_names_method(c0:symbol,c1:symbol,c2:symbol)
@@ -336,10 +356,36 @@
 .decl type_ancestor(c0:symbol,c1:symbol,c2:symbol)
 .decl type_subclass(c0:symbol,c1:symbol,c2:symbol)
 .decl type_self_or_ancestor(c0:symbol,c1:symbol,c2:symbol)
+.decl metaclass_of(c0:symbol,c1:symbol,c2:symbol)
+.decl class_creation_caller(c0:symbol,c1:symbol,c2:symbol)
+
+// ---- resolution/value-flow.dl ------------------------------------
+.decl call_flow_imprecise(c0:symbol)
+.decl call_arg_offset(c0:symbol,c1:symbol,c2:number)
+.decl param_arg_type(c0:symbol,c1:symbol)
+.decl partial_target(c0:symbol,c1:symbol)
+.decl param_flow_assumes_closed_world(c0:symbol)
+.decl method_returns_param(c0:symbol,c1:symbol,c2:symbol)
+.decl binding_value_method(c0:symbol,c1:symbol,c2:symbol)
+.decl field_holds_method(c0:symbol,c1:symbol,c2:symbol)
+.decl type_attr_method_value(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl expr_denotes_method(c0:symbol,c1:symbol,c2:symbol)
+.decl expr_type(c0:symbol,c1:symbol,c2:symbol)
+
+// ---- resolution/collection-flow.dl ---------------------------------
+.decl expr_literal_text(c0:symbol,c1:symbol,c2:symbol)
+.decl expr_lambda_method(c0:symbol,c1:symbol,c2:symbol)
+.decl expr_key_text(c0:symbol,c1:symbol,c2:symbol)
+.decl param_arg_literal(c0:symbol,c1:symbol)
+.decl dict_literal_entry(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl dict_store_entry(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl dict_key_unknown(c0:symbol,c1:symbol,c2:symbol)
+.decl binding_dict_entry_method(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl subscript_dispatch_incomplete(c0:symbol)
 
 // ---- expression-resolution/call-site.dl --------------------------
-.decl invocation_site(c0:symbol,c1:symbol)
 .decl csite(c0:symbol,c1:symbol)
+.decl invocation_site(c0:symbol,c1:symbol)
 .decl call_recv_kind(c0:symbol,c1:symbol)
 .decl call_expr(c0:symbol,c1:symbol)
 .decl call_of_expr(c0:symbol,c1:symbol)
@@ -361,9 +407,10 @@
 .decl mro_lookup_demand(c0:symbol,c1:symbol,c2:symbol)
 .decl expr_call_candidate(c0:symbol,c1:symbol)
 .decl call_constructs_type(c0:symbol,c1:symbol)
-.decl call_super_anchor(c0:symbol,c1:symbol,c2:symbol)
-.decl call_super_explicit_anchor(c0:symbol,c1:symbol)
 .decl call_super_has_args(c0:symbol)
+.decl call_super_anchor(c0:symbol,c1:symbol,c2:symbol)
+.decl super_recv_type(c0:symbol,c1:symbol)
+.decl call_super_explicit_anchor(c0:symbol,c1:symbol)
 .decl call_recv_type(c0:symbol,c1:symbol)
 .decl call_hits_builtin(c0:symbol,c1:symbol)
 .decl call_hits_dynamic_builtin(c0:symbol,c1:symbol)
@@ -374,7 +421,6 @@
 
 // ---- expression-resolution/expr-type.dl --------------------------
 .decl expr_type_class_object(c0:symbol,c1:symbol,c2:symbol)
-.decl expr_type(c0:symbol,c1:symbol,c2:symbol)
 .decl expr_type_union_only(c0:symbol,c1:symbol,c2:symbol)
 .decl binding_value_type(c0:symbol,c1:symbol,c2:symbol)
 .decl call_returns_type(c0:symbol,c1:symbol)
@@ -387,6 +433,8 @@
 .decl method_return_value_expr(c0:symbol,c1:symbol,c2:symbol)
 .decl method_returns_method(c0:symbol,c1:symbol,c2:symbol)
 .decl decorator_hits_builtin(c0:symbol,c1:symbol)
+.decl property_read_edge(c0:symbol,c1:symbol,c2:symbol)
+.decl call_receiver_of(c0:symbol)
 .decl site_caller(c0:symbol,c1:symbol)
 .decl site_client_target(c0:symbol,c1:symbol)
 .decl site_client_target_count(c0:symbol,c1:number)
@@ -402,6 +450,7 @@
 // ---- call-edge-generation/calls.dl -------------------------------
 .decl client_calls_client(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl client_calls_lib(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl client_calls_external(c0:symbol,c1:symbol)
 .decl client_calls_builtin(c0:symbol,c1:symbol,c2:symbol)
 
-// 307 derived relations + 4 executor knobs.
+// 345 derived relations + 4 executor knobs.
