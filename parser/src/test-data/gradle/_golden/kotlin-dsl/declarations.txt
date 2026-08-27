@@ -1,0 +1,22 @@
+declarationType=DEPENDENCY	name="""org.springframework:spring-core:$springVersion"""	value="""org.springframework:spring-core:$springVersion"""	notation=STRING_NOTATION	qualifier=implementation	hasConfigBlock=false	reason=	dslDialect=KOTLIN	startLine=24	endLine=24	startColumn=4	endColumn=68
+declarationType=DEPENDENCY	name="kotlin(""test"")"	value="kotlin(""test"")"	notation=STRING_NOTATION	qualifier=testImplementation	hasConfigBlock=false	reason=	dslDialect=KOTLIN	startLine=26	endLine=26	startColumn=4	endColumn=38
+declarationType=DEPENDENCY	name="platform(""org.springframework.boot:spring-boot-dependencies:3.2.2"")"	value="platform(""org.springframework.boot:spring-boot-dependencies:3.2.2"")"	notation=PLATFORM	qualifier=implementation	hasConfigBlock=false	reason=	dslDialect=KOTLIN	startLine=25	endLine=25	startColumn=4	endColumn=87
+declarationType=DEPENDENCY	name=libs.jackson.databind	value=libs.jackson.databind	notation=VERSION_CATALOG_ACCESSOR	qualifier=implementation	hasConfigBlock=false	reason=	dslDialect=KOTLIN	startLine=27	endLine=27	startColumn=4	endColumn=41
+declarationType=INCLUDE	name=:service	value=:service	notation=	qualifier=include	hasConfigBlock=false	reason=	dslDialect=KOTLIN	startLine=3	endLine=3	startColumn=0	endColumn=19
+declarationType=PLUGIN	name=org.springframework.boot	value=3.2.2	notation=PLUGINS_BLOCK_ID	qualifier=id	hasConfigBlock=false	reason=	dslDialect=KOTLIN	startLine=3	endLine=4	startColumn=4	endColumn=0
+declarationType=PROPERTY	name=buildNumber	value="(findProperty(""buildNumber"")) || ""0"""	notation=	qualifier=LOCAL_VARIABLE	hasConfigBlock=false	reason=	dslDialect=KOTLIN	startLine=40	endLine=41	startColumn=0	endColumn=0
+declarationType=PROPERTY	name=group	value="""com.example"""	notation=	qualifier=PROJECT	hasConfigBlock=false	reason=	dslDialect=KOTLIN	startLine=10	endLine=11	startColumn=0	endColumn=0
+declarationType=PROPERTY	name=java	value=	notation=	qualifier=LOCAL_VARIABLE	hasConfigBlock=false	reason=	dslDialect=KOTLIN	startLine=2	endLine=3	startColumn=4	endColumn=0
+declarationType=PROPERTY	name=name	value="""Authorization"""	notation=	qualifier=PROJECT	hasConfigBlock=false	reason=	dslDialect=KOTLIN	startLine=18	endLine=19	startColumn=12	endColumn=0
+declarationType=PROPERTY	name=nexusUrl	value=project	notation=	qualifier=LOCAL_VARIABLE	hasConfigBlock=false	reason=	dslDialect=KOTLIN	startLine=8	endLine=10	startColumn=0	endColumn=0
+declarationType=PROPERTY	name=rootProject.name	value="""kotlin-fixture"""	notation=	qualifier=PROJECT	hasConfigBlock=false	reason=	dslDialect=KOTLIN	startLine=1	endLine=3	startColumn=0	endColumn=0
+declarationType=PROPERTY	name=springVersion	value="extra(""6.1.3"")"	notation=	qualifier=LOCAL_VARIABLE	hasConfigBlock=false	reason=	dslDialect=KOTLIN	startLine=7	endLine=8	startColumn=0	endColumn=0
+declarationType=PROPERTY	name=url	value="uri(""https://repo.example.com/releases"")"	notation=	qualifier=PROJECT	hasConfigBlock=false	reason=	dslDialect=KOTLIN	startLine=16	endLine=17	startColumn=8	endColumn=0
+declarationType=PROPERTY	name=version	value="""2.0.0"""	notation=	qualifier=PROJECT	hasConfigBlock=false	reason=	dslDialect=KOTLIN	startLine=11	endLine=13	startColumn=0	endColumn=0
+declarationType=REPOSITORY	name=https://repo.example.com/releases	value=https://repo.example.com/releases	notation=MAVEN_CUSTOM	qualifier=maven	hasConfigBlock=true	reason=	dslDialect=KOTLIN	startLine=15	endLine=20	startColumn=4	endColumn=5
+declarationType=REPOSITORY	name=mavenCentral	value=	notation=MAVEN_CENTRAL	qualifier=	hasConfigBlock=false	reason=	dslDialect=KOTLIN	startLine=14	endLine=14	startColumn=4	endColumn=18
+declarationType=STATEMENT	name=alias	value=libs.plugins.boot	notation=	qualifier=	hasConfigBlock=false	reason=	dslDialect=KOTLIN	startLine=4	endLine=4	startColumn=4	endColumn=28
+declarationType=STATEMENT	name=credentials	value=HttpHeaderCredentials	notation=	qualifier=	hasConfigBlock=false	reason=	dslDialect=KOTLIN	startLine=17	endLine=19	startColumn=8	endColumn=9
+declarationType=STATEMENT	name=from	value="""build/reports"""	notation=	qualifier=	hasConfigBlock=false	reason=	dslDialect=KOTLIN	startLine=37	endLine=37	startColumn=4	endColumn=25
+declarationType=STATEMENT	name=useJUnitPlatform	value=	notation=	qualifier=	hasConfigBlock=false	reason=	dslDialect=KOTLIN	startLine=32	endLine=32	startColumn=4	endColumn=22
+declarationType=TASK	name=test	value="""test"""	notation=TASKS_NAMED	qualifier=	hasConfigBlock=true	reason=	dslDialect=KOTLIN	startLine=30	endLine=33	startColumn=0	endColumn=1

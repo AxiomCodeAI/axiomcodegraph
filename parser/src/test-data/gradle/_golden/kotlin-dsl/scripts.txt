@@ -1,0 +1,2 @@
+scriptKind=ROOT_BUILD	dslDialect=KOTLIN	gradleProjectPath=:	relativePath=build.gradle.kts	fileName=build.gradle.kts	parseStatus=PARTIAL	lineCount=39	blockCount=7	declarationCount=20	valueReferenceCount=3	coordinateCount=4	commentCount=0	parseGapCount=5
+scriptKind=SETTINGS	dslDialect=KOTLIN	gradleProjectPath=:	relativePath=settings.gradle.kts	fileName=settings.gradle.kts	parseStatus=OK	lineCount=4	blockCount=0	declarationCount=2	valueReferenceCount=0	coordinateCount=0	commentCount=0	parseGapCount=0

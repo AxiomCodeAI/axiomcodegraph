@@ -332,6 +332,7 @@ export class GradleFileExtractor implements BaseExtractor<GradleBlock> {
     out = this.stripNonAsciiCharacters(out);         // LOSSY
     out = this.convertNamedParamQuotes(out);         // round-trips
     out = this.normalizeDependencyWrapperCalls(out); // round-trips
+    out = this.normalizeCatalogAccessorCalls(out);   // round-trips
     out = this.stripClosureParameters(out);          // LOSSY
     return out;
   }
@@ -545,6 +546,7 @@ export class GradleFileExtractor implements BaseExtractor<GradleBlock> {
    */
   private restorePreprocessedValues(): void {
     const restored: GradleDeclaration[] = [];
+    const remap = new Map<string, string>();
     for (const decl of this.extractedDeclarations) {
       const name = decl.getName();
       const value = decl.getValue();
@@ -599,9 +601,44 @@ export class GradleFileExtractor implements BaseExtractor<GradleBlock> {
         .withReason(decl.getReason())
         .build();
 
+      // Rebuilding changes the declaration's content and therefore its key.
+      // Any value reference created during the walk still points at the old
+      // one, and would be left dangling — a foreign key into a row that no
+      // longer exists, which is strictly worse than an empty one. Remap them.
+      remap.set(decl.getHash(), rebuilt.getHash());
       restored.push(rebuilt);
     }
     this.extractedDeclarations = restored;
+
+    if (remap.size) this.remapDeclarationHashes(remap);
+  }
+
+  /**
+   * Re-points every child row at a declaration's new key.
+   *
+   * Value references are rebuilt rather than mutated because the owning
+   * declaration's hash is part of THEIR key too — chaining means a parent
+   * re-key cascades, and quietly leaving the child's own key derived from the
+   * dead parent would make two runs of the same file disagree.
+   */
+  private remapDeclarationHashes(remap: Map<string, string>): void {
+    this.extractedValueReferences = this.extractedValueReferences.map((ref) => {
+      const next = remap.get(ref.getOwnerDeclarationHash());
+      if (!next) return ref;
+
+      const rebuilt = GradleValueReference.builder(
+        ref.getReferenceExpression(), ref.getReferenceType(), ref.getRawFragment(),
+        ref.getScriptHash(), ref.getFilePath(), ref.getBaseMservPath(),
+        ref.getStartLine(), ref.getEndLine(), ref.getStartColumn(), ref.getEndColumn(),
+        ref.getServiceVersionLinkHash()
+      )
+        .withOwnerDeclarationHash(next)
+        .withOwnerBlockHash(ref.getOwnerBlockHash())
+        .withDefaultValue(ref.getDefaultValue())
+        .withResolutionKind(ref.getResolutionKind())
+        .build();
+      return rebuilt;
+    });
   }
 
   /**
@@ -1085,6 +1122,8 @@ export class GradleFileExtractor implements BaseExtractor<GradleBlock> {
     if (!saved) return;
 
     const { args } = saved;
+    // The stashed name carries the receiver (`tasks.register`); the block's own
+    // name is just the last segment, so the stashed one is what classifies.
     const endLine = node.endPosition.row + 1;
     const startCol = node.startPosition.column;
     const endCol = node.endPosition.column;
@@ -1102,7 +1141,31 @@ export class GradleFileExtractor implements BaseExtractor<GradleBlock> {
         .withNotation(notation)
         .build();
       this.extractedDeclarations.push(decl);
-    } else {
+      return;
+    }
+
+    // `tasks.register('copyDocs', Copy) { }` reaches here rather than the
+    // declaration path, because the trailing-closure rewrite turned it into
+    // `tasks.register { }` — a block. Without this the task is a STATEMENT and
+    // TASKS_REGISTER is a style nothing ever produces.
+    const task = this.classifyTask(saved.methodName, args, false);
+    if (task && task.taskName) {
+      const decl = GradleDeclaration.builder(
+        GradleDeclarationType.TASK, task.taskName, dialect, block.getHash(),
+        this.scriptHash,
+        filePath, baseMservPath, startLine, endLine, startCol, endCol,
+        serviceVersionHash
+      )
+        .withValue(args)
+        .withNotation(task.style)
+        .withQualifier(task.taskType)
+        .withHasConfigBlock(true)
+        .build();
+      this.extractedDeclarations.push(decl);
+      return;
+    }
+
+    {
       // Non-dep-config: emit as STATEMENT linked to the block
       const decl = GradleDeclaration.builder(
         GradleDeclarationType.STATEMENT, saved.methodName, dialect, block.getHash(),
@@ -1625,7 +1688,7 @@ export class GradleFileExtractor implements BaseExtractor<GradleBlock> {
     this.extractValueReferences(rhs, value, decl.getHash(), parentBlockHash, filePath, baseMservPath, serviceVersionHash);
 
     // Decompose Groovy map literals: versions = [awsSdk: '2.21.29', ...] → individual properties
-    this.decomposeMapLiteral(name, value, decl.getHash(), parentBlockHash, filePath, baseMservPath, dialect, serviceVersionHash, startLine, endLine);
+    this.decomposeMapLiteral(name, value, decl.getHash(), parentBlockHash, filePath, baseMservPath, dialect, serviceVersionHash, startLine);
   }
 
   // ─── Local Variable Declaration ─────────────────────────────────
@@ -1676,7 +1739,7 @@ export class GradleFileExtractor implements BaseExtractor<GradleBlock> {
     }
 
     // Decompose Groovy map literals: def versions = [awsSdk: '2.21.29', ...] → individual properties
-    this.decomposeMapLiteral(name, value, decl.getHash(), parentBlockHash, filePath, baseMservPath, dialect, serviceVersionHash, startLine, endLine);
+    this.decomposeMapLiteral(name, value, decl.getHash(), parentBlockHash, filePath, baseMservPath, dialect, serviceVersionHash, startLine);
   }
 
   // ─── Map Literal Decomposition ─────────────────────────────────
@@ -1699,8 +1762,7 @@ export class GradleFileExtractor implements BaseExtractor<GradleBlock> {
     baseMservPath: string,
     dialect: GradleDSLDialect,
     serviceVersionHash: string,
-    startLine: number,
-    endLine: number
+    startLine: number
   ): void {
     const trimmed = value.trim();
     // Must look like a Groovy map literal: starts with [ and ends with ]
@@ -1709,9 +1771,23 @@ export class GradleFileExtractor implements BaseExtractor<GradleBlock> {
     if (!trimmed.includes(':')) return;
 
     const inner = trimmed.slice(1, -1); // strip [ ]
+
+    // A LIST of maps is not a map, and decomposing one as if it were produces
+    // a row per repeated key rather than a row per entry:
+    //
+    //     commonExcludes = [[group: 'a', module: 'x'], [group: 'b', module: 'y']]
+    //
+    // yields two `commonExcludes.group` properties with different values and
+    // no way to tell which belonged to which element. Elasticsearch has one of
+    // these with dozens of elements, and the collapsed rows collided on their
+    // own key. A nested bracket is the signal, and the outer PROPERTY row
+    // still carries the whole literal.
+    if (inner.includes('[')) return;
+
     // Match key: value entries — value can be quoted string or bare identifier/number
     const entryPattern = /(\w+)\s*:\s*('[^']*'|"[^"]*"|[^,\]\n]+)/g;
     let match: RegExpExecArray | null;
+    const seenKeys = new Set<string>();
 
     while ((match = entryPattern.exec(inner)) !== null) {
       const key = match[1];
@@ -1720,10 +1796,23 @@ export class GradleFileExtractor implements BaseExtractor<GradleBlock> {
       const cleanVal = val.endsWith(',') ? val.slice(0, -1).trim() : val;
       const qualifiedName = `${parentName}.${key}`;
 
+      // A duplicate key in one map literal is not two properties — Groovy
+      // keeps the last. Emitting both produces two rows with one key.
+      if (!key || seenKeys.has(key)) continue;
+      seenKeys.add(key);
+
+      // Each entry gets its own offset so entries on the same line stay
+      // distinct rows rather than colliding on a shared 0:0 position.
+      const before = inner.slice(0, match.index);
+      const entryLine = startLine + (before.match(/\n/g) || []).length;
+      const lastNl = before.lastIndexOf('\n');
+      const entryColumn = lastNl < 0 ? match.index : match.index - lastNl - 1;
+
       const decl = GradleDeclaration.builder(
         GradleDeclarationType.PROPERTY, qualifiedName, dialect, parentBlockHash,
         this.scriptHash,
-        filePath, baseMservPath, startLine, endLine, 0, 0,
+        filePath, baseMservPath, entryLine, entryLine,
+        entryColumn, entryColumn + match[0].length,
         serviceVersionHash
       )
         .withValue(cleanVal)
@@ -2545,12 +2634,20 @@ export class GradleFileExtractor implements BaseExtractor<GradleBlock> {
     // recoverStrippedClosureArgs when the block is built, so nothing is lost.
     return this.rewrite(
       source,
-      /\b(\w+)\([^)\n]*\)[^\S\n]*\{/g,
+      // The receiver is captured too. `tasks.register('x', Copy) { }` is a
+      // task and a bare `register('x') { }` on some other object is not, and
+      // the two are indistinguishable once the `tasks.` is dropped.
+      /(?:^|[^\w.])([A-Za-z_][\w.]*)\([^)\n]*\)[^\S\n]*\{/gm,
       (m) => {
         const match = m[0];
         const name = m[1] ?? '';
+        const leading = match.slice(0, match.indexOf(name));
         if (GradleFileExtractor.CONTROL_FLOW_KEYWORDS.has(name)) return match;
-        const lineNumber = this.lineOf(source, m.index);
+        if (name.split('.').some((seg) => GradleFileExtractor.CONTROL_FLOW_KEYWORDS.has(seg))) return match;
+        // From the name's own offset, not the match's: the leading character
+        // the pattern consumes to prove the name is unqualified is often the
+        // preceding newline, which would file the args under the line above.
+        const lineNumber = this.lineOf(source, m.index + leading.length);
         const openParen = match.indexOf('(');
         const closeParen = match.lastIndexOf(')');
         if (openParen >= 0 && closeParen > openParen) {
@@ -2559,7 +2656,7 @@ export class GradleFileExtractor implements BaseExtractor<GradleBlock> {
             args: match.substring(openParen + 1, closeParen),
           });
         }
-        return name + ' {';
+        return leading + name + ' {';
       },
       null
     );
@@ -2728,6 +2825,40 @@ export class GradleFileExtractor implements BaseExtractor<GradleBlock> {
 
     result += source.substring(lastIndex);
     return result;
+  }
+
+  /**
+   * Wraps a bare version catalog accessor in parentheses.
+   *
+   * tree-sitter-groovy splits `implementation libs.spring.boot.starter.web`
+   * into `juxt_function_call(implementation, libs)` and a separate
+   * `expression_statement(spring.boot.starter.web)`. The dependency row that
+   * falls out of that names `libs` — every catalog dependency in the corpus
+   * collapsing to the same meaningless coordinate — and the rest of the
+   * accessor becomes an unrelated statement.
+   *
+   * Wrapping it makes the grammar read one method invocation, which is the
+   * same shape it already handles for `implementation project(':core')`.
+   *
+   * Round-trips: only parentheses are added, and the accessor text inside them
+   * is untouched, so nothing is lost and no gap is warranted.
+   *
+   * Anchored to end-of-line and restricted to pure dotted identifiers so it
+   * cannot touch `implementation group: 'x', name: 'y'` (has a colon),
+   * `implementation project(':a')` (has parens), or a trailing closure.
+   */
+  private normalizeCatalogAccessorCalls(source: string): string {
+    const configs = GradleFileExtractor.DEPENDENCY_CONFIGS;
+    return this.rewrite(
+      source,
+      /^([ \t]*)([A-Za-z_]\w*)[ \t]+([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+)[ \t]*$/gm,
+      (m) => {
+        const config = m[2] ?? '';
+        if (!configs.has(config)) return m[0];
+        return `${m[1]}${config}(${m[3]})`;
+      },
+      null
+    );
   }
 
   /**
@@ -2983,6 +3114,62 @@ export class GradleFileExtractor implements BaseExtractor<GradleBlock> {
   /**
    * Scans a string value for GString patterns: ${expr}, $var, ${-> expr}.
    */
+  /**
+   * Resolves where a matched fragment actually sits, rather than handing every
+   * reference the whole enclosing node's range.
+   *
+   * That shortcut is not merely imprecise, it breaks identity. A reference's
+   * key is its owner plus its byte range, so three `$ES_HOME` occurrences in
+   * one 80-line declaration all produced the SAME key and collapsed into one
+   * row — 88 collisions in Elasticsearch alone, each one a reference the
+   * relation simply did not contain.
+   *
+   * The fragment is located inside the node's own text, with a cursor so the
+   * second occurrence is found after the first rather than matching it again.
+   * When it cannot be located — the scanned text was derived rather than taken
+   * verbatim from the node — the ordinal keeps the key unique and the position
+   * degrades to the node's start, which is where it already was.
+   */
+  private locateFragment(
+    node: Parser.SyntaxNode,
+    fragment: string,
+    cursor: { at: number; ordinal: number }
+  ): { startLine: number; endLine: number; startColumn: number; endColumn: number } {
+    const nodeText = node.text;
+    const found = fragment ? nodeText.indexOf(fragment, cursor.at) : -1;
+    cursor.ordinal++;
+
+    if (found < 0) {
+      // Ordinal offset keeps two unlocatable fragments in one declaration from
+      // sharing a key. It is a discriminator, not a claim about position.
+      const column = node.startPosition.column + cursor.ordinal;
+      return {
+        startLine: node.startPosition.row + 1,
+        endLine: node.startPosition.row + 1,
+        startColumn: column,
+        endColumn: column + fragment.length,
+      };
+    }
+
+    cursor.at = found + fragment.length;
+
+    const before = nodeText.slice(0, found);
+    const newlines = (before.match(/\n/g) || []).length;
+    const lastNl = before.lastIndexOf('\n');
+    const column = newlines === 0
+      ? node.startPosition.column + found
+      : found - lastNl - 1;
+
+    const inner = (fragment.match(/\n/g) || []).length;
+    const line = node.startPosition.row + 1 + newlines;
+    return {
+      startLine: line,
+      endLine: line + inner,
+      startColumn: column,
+      endColumn: column + (inner ? fragment.length - fragment.lastIndexOf('\n') - 1 : fragment.length),
+    };
+  }
+
   private scanStringForGStringRefs(
     text: string,
     node: Parser.SyntaxNode,
@@ -2992,10 +3179,7 @@ export class GradleFileExtractor implements BaseExtractor<GradleBlock> {
     baseMservPath: string,
     serviceVersionHash: string
   ): void {
-    const startLine = node.startPosition.row + 1;
-    const endLine = node.endPosition.row + 1;
-    const startColumn = node.startPosition.column;
-    const endColumn = node.endPosition.column;
+    const cursor = { at: 0, ordinal: 0 };
 
     // Match ${-> ...} (lazy GString) first — must come before ${...}
     const lazyPattern = /\$\{->\s*([^}]+)\}/g;
@@ -3005,13 +3189,14 @@ export class GradleFileExtractor implements BaseExtractor<GradleBlock> {
     while ((match = lazyPattern.exec(text)) !== null) {
       processedRanges.push([match.index, match.index + match[0].length]);
       const lazyExpr = match[1] ?? '';
+      const at = this.locateFragment(node, match[0], cursor);
       const ref = GradleValueReference.builder(
         lazyExpr.trim(),
         GradleValueReferenceType.LAZY_GSTRING,
         match[0],
         this.scriptHash,
         filePath, baseMservPath,
-        startLine, endLine, startColumn, endColumn,
+        at.startLine, at.endLine, at.startColumn, at.endColumn,
         serviceVersionHash
       )
         .withOwnerDeclarationHash(ownerDeclarationHash)
@@ -3030,13 +3215,14 @@ export class GradleFileExtractor implements BaseExtractor<GradleBlock> {
         ? GradleValueReferenceType.EXT_PROPERTY_ACCESS
         : GradleValueReferenceType.GSTRING_INTERPOLATION;
 
+      const at = this.locateFragment(node, match[0], cursor);
       const ref = GradleValueReference.builder(
         expr,
         refType,
         match[0],
         this.scriptHash,
         filePath, baseMservPath,
-        startLine, endLine, startColumn, endColumn,
+        at.startLine, at.endLine, at.startColumn, at.endColumn,
         serviceVersionHash
       )
         .withOwnerDeclarationHash(ownerDeclarationHash)
@@ -3062,13 +3248,14 @@ export class GradleFileExtractor implements BaseExtractor<GradleBlock> {
         ? GradleValueReferenceType.EXT_PROPERTY_ACCESS
         : GradleValueReferenceType.GSTRING_SIMPLE;
 
+      const at = this.locateFragment(node, match[0], cursor);
       const ref = GradleValueReference.builder(
         simpleExpr,
         refType,
         match[0],
         this.scriptHash,
         filePath, baseMservPath,
-        startLine, endLine, startColumn, endColumn,
+        at.startLine, at.endLine, at.startColumn, at.endColumn,
         serviceVersionHash
       )
         .withOwnerDeclarationHash(ownerDeclarationHash)
@@ -3105,16 +3292,19 @@ export class GradleFileExtractor implements BaseExtractor<GradleBlock> {
     serviceVersionHash: string
   ): void {
     const text = node.text;
-    const startLine = node.startPosition.row + 1;
-    const endLine = node.endPosition.row + 1;
-    const startColumn = node.startPosition.column;
-    const endColumn = node.endPosition.column;
+    const cursor = { at: 0, ordinal: 0 };
 
     for (const { pattern, type } of GradleFileExtractor.METHOD_REF_PATTERNS) {
-      const match = pattern.exec(text);
-      if (match) {
+      // Global, so a block reading three environment variables yields three
+      // rows. The non-global exec only ever found the first, and the other two
+      // were simply absent from the relation.
+      const global = new RegExp(pattern.source, pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g');
+      let match: RegExpExecArray | null;
+      while ((match = global.exec(text)) !== null) {
+        if (match[0].length === 0) { global.lastIndex++; continue; }
         const extractedName = match[1] || match[0];
         const defaultValueMatch = text.match(/\?:\s*['"]([^'"]*)['"]/);
+        const at = this.locateFragment(node, match[0], cursor);
 
         const ref = GradleValueReference.builder(
           extractedName,
@@ -3122,7 +3312,7 @@ export class GradleFileExtractor implements BaseExtractor<GradleBlock> {
           match[0],
           this.scriptHash,
           filePath, baseMservPath,
-          startLine, endLine, startColumn, endColumn,
+          at.startLine, at.endLine, at.startColumn, at.endColumn,
           serviceVersionHash
         )
           .withOwnerDeclarationHash(ownerDeclarationHash)
