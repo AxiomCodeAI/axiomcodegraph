@@ -70,6 +70,18 @@ export interface TypeScriptAnalysisOptions {
 export interface TypeScriptAnalysisSummary {
   readonly filesSeen: number;
   readonly filesAnalysed: number;
+  /**
+   * TypeScript files under `rootDir` that belong to a DIFFERENT program,
+   * because a nested tsconfig claims them, and so were not analysed here.
+   *
+   * Not an error: a nested tsconfig is a separate program with its own global
+   * scope, and analysing its files under this root would merge two scopes tsc
+   * keeps apart. But it is not nothing either. NestJS nests 30 tsconfigs inside
+   * a root whose `include` also covers them, and 534 of its 1,015 files landed
+   * here -- silently, because nothing counted them. Each such subtree has to be
+   * analysed as its own root to be covered at all.
+   */
+  readonly filesInOtherPrograms: number;
   readonly extractionErrors: number;
   readonly counts: Record<string, number>;
   /**
@@ -118,8 +130,9 @@ export class TypeScriptProjectAnalyzer {
     // would merge two global scopes that tsc keeps apart. The fixture corpus
     // relies on exactly that — `staging/tsconfig.json` excludes three subtrees,
     // each of which has its own config and its own expectations.
-    const programFiles = filesOfRootProgram(rootDir, configResolver);
-    const files = (programFiles ?? collectTypeScriptFiles(rootDir, excludes)).sort();
+    const rootProgram = filesOfRootProgram(rootDir, configResolver);
+    const files = (rootProgram?.files ?? collectTypeScriptFiles(rootDir, excludes)).sort();
+    const filesInOtherPrograms = rootProgram?.others.length ?? 0;
 
     // Every module hash up front, from PATHS ALONE. This is what lets a module
     // augmentation in file B key its declarations under file A's hash without
@@ -264,6 +277,7 @@ export class TypeScriptProjectAnalyzer {
     return {
       filesSeen: files.length,
       filesAnalysed: analysed,
+      filesInOtherPrograms,
       extractionErrors: this.skippedFiles.filter(
         (f) => f.reason === SkippedFileReason.EXTRACTION_ERROR
       ).length,
@@ -357,19 +371,22 @@ export class TypeScriptProjectAnalyzer {
 function filesOfRootProgram(
   rootDir: string,
   configResolver: TsConfigResolver
-): string[] | undefined {
+): { readonly files: string[]; readonly others: string[] } | undefined {
   const configPath = path.join(rootDir, 'tsconfig.json');
   if (!fs.existsSync(configPath)) {
     return undefined;
   }
-  const out: string[] = [];
+  const files: string[] = [];
+  const others: string[] = [];
   for (const file of collectTypeScriptFiles(rootDir, new Set(TS_SKIP_DIRECTORIES))) {
     const governing = configResolver.resolve(file);
     if (path.resolve(governing.configPath) === path.resolve(configPath)) {
-      out.push(file);
+      files.push(file);
+    } else {
+      others.push(file);
     }
   }
-  return out;
+  return { files, others };
 }
 
 function collectTypeScriptFiles(dir: string, excludes: ReadonlySet<string>): string[] {

@@ -343,6 +343,17 @@ export function measureIrCompleteness(
             // `import("./x")` has no callee EXPRESSION — the callee is a
             // keyword. Its target is a MODULE, and the hop is the `ts_import`
             // row the parser emits for it with `resolvedFilePath` filled.
+            //
+            // Unless the specifier is COMPUTED. `await import(packageName)`
+            // names its module at runtime, so there is no module edge for any
+            // parser to emit and no `ts_import` row to point at. That is not an
+            // incomplete hand-off, it is not derivable from syntax — the same
+            // bucket as a `new (X as any)()` callee.
+            if (!hasLiteralSpecifier(callSite, expressionByHash, childrenByParent)) {
+              report.notDerivable += 1;
+              bucket.notDerivable += 1;
+              continue;
+            }
             checkDynamicImportHop(callSite, dynamicImportSpecifiers, missing);
             break;
           }
@@ -566,6 +577,27 @@ function checkImportHop(
  * position exactly. Matching on it is not a heuristic — it is the same identity
  * both rows were keyed from.
  */
+/**
+ * Whether a dynamic import's specifier is a STRING LITERAL written in source.
+ *
+ * `import("./x")` names a module the parser can resolve; `import(name)` names
+ * one only the runtime knows.
+ */
+function hasLiteralSpecifier(
+  callSite: CallSiteRow,
+  expressionByHash: ReadonlyMap<string, ExpressionRow>,
+  childrenByParent: ReadonlyMap<string, readonly ExpressionRow[]>
+): boolean {
+  const callRow = expressionByHash.get(callSite.tsExpressionLinkHash);
+  if (!callRow) {
+    return false;
+  }
+  const args = (childrenByParent.get(callRow.getHash()) ?? [])
+    .filter((c) => c.edgeRole === 'ARGUMENT');
+  const first = args[0];
+  return first !== undefined && first.kind === 'LITERAL';
+}
+
 function checkDynamicImportHop(
   callSite: CallSiteRow,
   dynamicImports: ReadonlyMap<string, TsImportRegistry>,
