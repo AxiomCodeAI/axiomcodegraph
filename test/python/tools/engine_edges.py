@@ -26,11 +26,11 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from oracle_path import harness_root                      # noqa: E402
-
-harness_root()
-from callchain_oracle.normalize import (Anchor, Normalizer,   # noqa: E402
-                                        ir_anchor_line)
+# Vendored copy — see tools/vendor/__init__.py for why the engine side no longer
+# imports the out-of-repo harness (the suite must run in a bare clone), and how the
+# two are kept from drifting (tools/check_vendor.py).
+from vendor.normalize import (Anchor, Normalizer,             # noqa: E402
+                              ir_anchor_line)
 
 EDGES = 'call-chain-edges.csv'
 

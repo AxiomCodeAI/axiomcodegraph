@@ -70,6 +70,11 @@ if [ "$ORACLE_ONLY" = "0" ]; then
   [ -f "$PARSER" ] || { echo "SKIP: parser not found at $PARSER (set AXIOM_PARSER)"; exit 77; }
 fi
 
+# The engine side uses VENDORED copies of the harness's normalizer so the suite runs in a
+# bare clone; this fails the run if a harness IS present and has drifted from them, which is
+# the only place the "engine and oracle agree on call-site identity" property can be checked.
+python3 "$HERE/tools/check_vendor.py" || exit 1
+
 mkdir -p "$WORK" "$HERE/expected"
 # Empty library root — see the CLIENT->CLIENT note in the header.
 EMPTY_LIB="$WORK/.empty-library"; mkdir -p "$EMPTY_LIB"
