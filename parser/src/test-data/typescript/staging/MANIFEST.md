@@ -296,6 +296,7 @@ is where a parser most easily leaks phantom call-graph rows.
 | `conditional-types.ts` | type-only | `ConditionalType`, nested ladders, `InferType` in return / parameter / element / property / construct position, multiple `infer` sites, `infer ... extends`, distributive vs bracketed non-distributive, recursive conditionals (`DeepAwaited`, `Flatten`, `DeepReadonly`, `PathOf`), tuple recursion (`Reverse`), `KeysMatching` |
 | `mapped-types.ts` | type-only | `MappedType`, `+`/`-` on `readonly` and `?`, mapping over a key union, **key remapping with `as`**, remap-to-`never` filtering, remapping over a union member into an event map, conditional value positions, homomorphic tuple/array mapping, `Pick`/`Omit`/`Record` rebuilt |
 | `template-literal-types.ts` | type-only | `TemplateLiteralType`, cross-product over unions, `number`/`boolean` interpolation, all four intrinsics (`Uppercase`, `Lowercase`, `Capitalize`, `Uncapitalize`), nested templates, `infer` from a template (`SplitOn`, `Trim`, `ParamNames`), templates as mapped-type keys |
+| `typeof-subjects.ts` | **runtime-bearing** | the values `keyof-typeof-indexed.ts` queries: `const`, `as const` array, function, class, enum — split out so the query file can be honestly type-only |
 | `keyof-typeof-indexed.ts` | type-only | `KeyOfType`, `TypeQuery` (`typeof` in **type** position, distinct from the runtime operator), `IndexedAccessType`, `T[number]`, `keyof typeof Enum`, `(typeof x)[keyof typeof x]`, `InstanceType<typeof Class>`, generic `T[K]` accessors |
 | `satisfies-and-const.ts` | **runtime-bearing** | `SatisfiesExpression` on object / array / tuple / function, `as const` on literals, objects, tuples, a single property and an argument, `as const satisfies` combined, annotation-vs-`satisfies` widening contrast, `const` type parameter |
 | `narrowing.ts` | **runtime-bearing** | discriminated union + `switch` + `assertNever` exhaustiveness, boolean discriminant, narrowing by `typeof` / `instanceof` / `in` / truthiness / literal equality, `TypePredicate` (incl. generic and `this is`), `asserts value is T`, `asserts condition`, narrowing preserved into a closure, `unknown` narrowed structurally |
@@ -303,12 +304,13 @@ is where a parser most easily leaks phantom call-graph rows.
 | `structural/assignable-without-syntax.ts` | **runtime-bearing** | mutually assignable unrelated classes, class→alias, object literal→class type, unrelated interface subtyping, function assignability (fewer params, covariant return, contravariant param), method **bivariance** vs property contravariance, readonly-array variance, generic structural satisfaction, `#private` **nominality**, `unique symbol` brands, excess-property freshness |
 | `merging/same-file-merges.ts` | **runtime-bearing** | interface+interface (×3), interface merge adding an overload, namespace+function, namespace+class, namespace+enum, namespace+namespace, interface+class |
 | `merging/two-files/` | type-only ×2, runtime-bearing consumer | one interface declared in **two files**, merged in global scope; a second interface merged the same way; consumer reading members from both |
-| `merging/three-files/` | type-only ×3, runtime-bearing consumer | one interface and one namespace each declared in **three files**; consumer reading all three contributions of each |
+| `merging/three-files/` | **runtime-bearing** ×3 + consumer | one interface and one namespace each declared in **three files**; consumer reading all three contributions of each |
 | `merging/module-augmentation.ts` + `augmented-base.ts` | **runtime-bearing** | `declare module "./specifier"` adding members to another module's interface, a second interface augmented in the same block, a new type introduced into the other module's namespace, and `declare global` augmenting `Array<T>` and adding a `var` |
 | `ambient-declarations.ts` | type-only | `declare` const/let/var, ambient function + ambient overload set, `declare class`, `declare enum`, `declare namespace` with nesting |
 | `ambient-module.d.ts` | type-only | a **declaration file**: `declare module "pkg"`, wildcard `declare module "*.svg"`, scoped package with `export =` |
 | `ambient-consumers.ts`, `ambient-module-consumer.ts` | **runtime-bearing** | call sites whose targets are ambient: ambient function calls, ambient overload resolution, `new` on a `declare class`, calls through an ambient namespace, imports resolved only by ambient module declarations |
 | `namespaces.ts` | **runtime-bearing** | type-only namespace (erased) **and** value namespace (emits an IIFE) in one file, nested namespaces of both kinds, non-exported namespace members, `import X = Ns.Member` aliases, qualified value and type references |
+| `structural/name-collisions.ts` + `collision-support.ts` | **runtime-bearing** | local classes whose members shadow `Array`/`Promise`/`Map`/`String` prototype names (`map`, `filter`, `then`, `catch`, `get`, `has`, `split`, `join`, `length`, `reduce`, `slice`), the same names called on genuine built-in receivers for contrast, local bindings named after methods, built-in *names* shadowed by local declarations in a nested scope, a local `Row` beside an imported `Row`, and receivers naming nothing local (`Row[]`, `readonly Row[]`, `Promise<Row>`, anonymous object type) |
 | `type-only/erasure-boundary.ts` | **runtime-bearing** | `import type` (named, default, namespace), inline `type` specifiers beside value ones, a type-only import of a class whose value import also appears, `export type { }`, `export { type X }`, value re-export alongside |
 | `overload-resolution.ts` | **runtime-bearing** | call sites resolved by literal argument type, arity, argument type at equal arity, boolean-literal return selection, generic-vs-non-generic declaration order, a nested overloaded call, and resolution through an alias |
 
@@ -351,3 +353,32 @@ All four projects typecheck clean under TypeScript 6.0.3.
 - **`using` / `await using`** — now unblocked (the root project no longer
   compiles staging), so these can be added to `blocks/` whenever wanted; they
   need `"ESNext.Disposable"` in the staging `lib`.
+
+## Nature audit — a mistake of mine, and the rule that catches it
+
+`ts-impl` caught `keyof-typeof-indexed.ts` declaring `nature: type-only` while
+containing a class, a const, a function and an enum. Auditing every type-only
+fixture the same way found the fault was **systematic, not isolated — five files**:
+
+| file | what emitted | fix |
+|---|---|---|
+| `type-system/keyof-typeof-indexed.ts` | `const`, `function`, `class`, `enum` | values split into `typeof-subjects.ts`; the query file now reaches them through `import type` and is genuinely type-only |
+| `merging/three-files/registry-core.ts` | `namespace` with `export const` | relabelled runtime-bearing |
+| `merging/three-files/registry-http.ts` | `namespace` with `export const` | relabelled runtime-bearing |
+| `merging/three-files/registry-cache.ts` | `namespace` with `export const` | relabelled runtime-bearing |
+| `type-system/type-only/erased-exports.ts` | `class`, `const` | relabelled runtime-bearing; the mixture is deliberate and the header now says so |
+
+The rule the audit applies, which is worth enforcing in the gate rather than
+leaving to fixture authors (owner: `ts-oracle`):
+
+> A file may declare `nature: type-only` only if it contains no top-level
+> `const`/`let`/`var`/`function`/`class`/`enum` that is not `declare`, and no
+> namespace exporting a value. `.d.ts` files are type-only by construction.
+
+`namespace` is the trap: its nature follows its **contents**. A namespace of
+types is erased; a namespace exporting one `const` emits an IIFE. `namespaces.ts`
+covers both kinds in one file and is labelled runtime-bearing for that reason.
+
+That check is mechanical, and a mislabelled fixture silently weakens the very
+invariant the label exists to prove — a type-only fixture that emits cannot
+detect a parser leaking call-graph rows, because the rows would be legitimate.

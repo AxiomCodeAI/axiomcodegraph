@@ -8,6 +8,12 @@
 // `typeof` here is the type-level operator, not the runtime one in
 // expressions/operators.ts. The two share a keyword and share nothing else --
 // a parser that treats them alike will emit runtime edges for type queries.
+//
+// Nothing in this file emits. The values being queried are imported with
+// `import type` from typeof-subjects.ts, which is runtime-bearing; an earlier
+// revision declared them here and mislabelled the file as a result.
+
+import type { Service, Status, defaultUser, makeUser, routes } from "./typeof-subjects";
 
 export interface User {
     readonly id: string;
@@ -30,35 +36,10 @@ export type NeverKeys = keyof unknown;
 export type StringOnlyKeys = Extract<keyof User, string>;
 
 // --- typeof, applied to values ------------------------------------------
-
-export const defaultUser = {
-    id: "u1",
-    email: "a@example.com",
-    age: 30,
-    roles: ["admin", "viewer"],
-    nested: { enabled: true },
-};
-
-export const routes = ["/users", "/orders", "/health"] as const;
-
-export function makeUser(id: string): { readonly id: string; readonly createdAt: number } {
-    return { id, createdAt: 0 };
-}
-
-export class Service {
-    readonly name = "svc";
-    run(): number {
-        return 1;
-    }
-    static create(): Service {
-        return new Service();
-    }
-}
-
-export enum Status {
-    Active = "active",
-    Archived = "archived",
-}
+//
+// The subjects live in typeof-subjects.ts and arrive here through `import
+// type`, so that this file stays genuinely type-only. `typeof X` on a
+// type-only imported binding is legal precisely because the query is erased.
 
 export type DefaultUser = typeof defaultUser;
 export type Routes = typeof routes;
@@ -90,13 +71,10 @@ export type ValueOf<T> = T[keyof T];
 export type Pluck<T, K extends keyof T> = T[K];
 export type PickPaths<T> = { [K in keyof T]: T[K] };
 
-export function getProperty<T, K extends keyof T>(source: T, key: K): T[K] {
-    return source[key];
-}
-
-export function setProperty<T, K extends keyof T>(target: T, key: K, value: T[K]): void {
-    target[key] = value;
-}
+// the signatures these operators are used in, as types rather than as
+// implementations, so this file keeps no runtime footprint
+export type GetProperty = <T, K extends keyof T>(source: T, key: K) => T[K];
+export type SetProperty = <T, K extends keyof T>(target: T, key: K, value: T[K]) => void;
 
 export type UserValue = ValueOf<User>;
 export type PluckedEmail = Pluck<User, "email">;
