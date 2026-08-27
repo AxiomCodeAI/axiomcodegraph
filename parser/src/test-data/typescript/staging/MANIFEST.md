@@ -278,3 +278,76 @@ augmentation; namespaces; JSX/TSX; and the two that break the ported Java model
 outright — **structural satisfaction** (a class satisfies an interface without
 declaring it) and **declaration merging** (one name, several declarations,
 across two files, three files, and a module boundary).
+
+---
+
+# Half two — the type system
+
+Constructs that exist in neither Java nor Python. Same rules: source only, no
+expected facts, every fixture declares its nature. TSX is out of the first
+freeze and is absent by decision.
+
+Ten of these fourteen fixtures are **type-only**, which is the point: this half
+is where a parser most easily leaks phantom call-graph rows.
+
+| fixture | nature | node kinds exercised |
+|---|---|---|
+| `unions-and-intersections.ts` | type-only | `UnionType`, `IntersectionType`, literal-type members, recursive union (`JsonValue`), unions of object / function / array / tuple types, intersection producing `never`, callable intersection with properties, union-of-intersections vs intersection-of-unions, `never`/`unknown` absorption, optional member vs `\| undefined` |
+| `conditional-types.ts` | type-only | `ConditionalType`, nested ladders, `InferType` in return / parameter / element / property / construct position, multiple `infer` sites, `infer ... extends`, distributive vs bracketed non-distributive, recursive conditionals (`DeepAwaited`, `Flatten`, `DeepReadonly`, `PathOf`), tuple recursion (`Reverse`), `KeysMatching` |
+| `mapped-types.ts` | type-only | `MappedType`, `+`/`-` on `readonly` and `?`, mapping over a key union, **key remapping with `as`**, remap-to-`never` filtering, remapping over a union member into an event map, conditional value positions, homomorphic tuple/array mapping, `Pick`/`Omit`/`Record` rebuilt |
+| `template-literal-types.ts` | type-only | `TemplateLiteralType`, cross-product over unions, `number`/`boolean` interpolation, all four intrinsics (`Uppercase`, `Lowercase`, `Capitalize`, `Uncapitalize`), nested templates, `infer` from a template (`SplitOn`, `Trim`, `ParamNames`), templates as mapped-type keys |
+| `keyof-typeof-indexed.ts` | type-only | `KeyOfType`, `TypeQuery` (`typeof` in **type** position, distinct from the runtime operator), `IndexedAccessType`, `T[number]`, `keyof typeof Enum`, `(typeof x)[keyof typeof x]`, `InstanceType<typeof Class>`, generic `T[K]` accessors |
+| `satisfies-and-const.ts` | **runtime-bearing** | `SatisfiesExpression` on object / array / tuple / function, `as const` on literals, objects, tuples, a single property and an argument, `as const satisfies` combined, annotation-vs-`satisfies` widening contrast, `const` type parameter |
+| `narrowing.ts` | **runtime-bearing** | discriminated union + `switch` + `assertNever` exhaustiveness, boolean discriminant, narrowing by `typeof` / `instanceof` / `in` / truthiness / literal equality, `TypePredicate` (incl. generic and `this is`), `asserts value is T`, `asserts condition`, narrowing preserved into a closure, `unknown` narrowed structurally |
+| `structural/implicit-implements.ts` | **runtime-bearing** | classes satisfying interfaces with **no `implements` clause**, used in assignment / argument / return / array / `Map` value / generic-inference positions; a declared clause for contrast; satisfaction with extra members; method vs arrow-property satisfaction; object literal satisfying an interface |
+| `structural/assignable-without-syntax.ts` | **runtime-bearing** | mutually assignable unrelated classes, class→alias, object literal→class type, unrelated interface subtyping, function assignability (fewer params, covariant return, contravariant param), method **bivariance** vs property contravariance, readonly-array variance, generic structural satisfaction, `#private` **nominality**, `unique symbol` brands, excess-property freshness |
+| `merging/same-file-merges.ts` | **runtime-bearing** | interface+interface (×3), interface merge adding an overload, namespace+function, namespace+class, namespace+enum, namespace+namespace, interface+class |
+| `merging/two-files/` | type-only ×2, runtime-bearing consumer | one interface declared in **two files**, merged in global scope; a second interface merged the same way; consumer reading members from both |
+| `merging/three-files/` | type-only ×3, runtime-bearing consumer | one interface and one namespace each declared in **three files**; consumer reading all three contributions of each |
+| `merging/module-augmentation.ts` + `augmented-base.ts` | **runtime-bearing** | `declare module "./specifier"` adding members to another module's interface, a second interface augmented in the same block, a new type introduced into the other module's namespace, and `declare global` augmenting `Array<T>` and adding a `var` |
+| `ambient-declarations.ts` | type-only | `declare` const/let/var, ambient function + ambient overload set, `declare class`, `declare enum`, `declare namespace` with nesting |
+| `ambient-module.d.ts` | type-only | a **declaration file**: `declare module "pkg"`, wildcard `declare module "*.svg"`, scoped package with `export =` |
+| `ambient-consumers.ts`, `ambient-module-consumer.ts` | **runtime-bearing** | call sites whose targets are ambient: ambient function calls, ambient overload resolution, `new` on a `declare class`, calls through an ambient namespace, imports resolved only by ambient module declarations |
+| `namespaces.ts` | **runtime-bearing** | type-only namespace (erased) **and** value namespace (emits an IIFE) in one file, nested namespaces of both kinds, non-exported namespace members, `import X = Ns.Member` aliases, qualified value and type references |
+| `type-only/erasure-boundary.ts` | **runtime-bearing** | `import type` (named, default, namespace), inline `type` specifiers beside value ones, a type-only import of a class whose value import also appears, `export type { }`, `export { type X }`, value re-export alongside |
+| `overload-resolution.ts` | **runtime-bearing** | call sites resolved by literal argument type, arity, argument type at equal arity, boolean-literal return selection, generic-vs-non-generic declaration order, a nested overloaded call, and resolution through an alias |
+
+## The two that break the ported Java model
+
+**Structural satisfaction.** Java's `IMPLEMENTS_INTERFACE` is authoritative
+because a Java class implements an interface only if it says so. In TypeScript
+the clause is optional and the checker never consults it. `implicit-implements.ts`
+puts every satisfaction in a load-bearing position with no clause anywhere;
+`assignable-without-syntax.ts` goes further, to pairs that exist in **no syntax
+at all** — no clause, no heritage, no import. Both files also mark where
+structural typing *stops*: `#private` fields and `unique symbol` brands are
+nominal, and two identically-shaped classes are then not interchangeable.
+
+**Declaration merging.** `name -> single entity` is false. Coverage is at three
+distances, as asked: **same file** (seven merge kinds), **two files**, **three
+files**, and **across a module boundary** via `declare module "./specifier"` plus
+`declare global`. The cross-file cases are global scripts, which is the only way
+two plain files can merge — and that forces `isolatedModules: false`, so those
+two directories carry their own `tsconfig.json` and are excluded from
+`staging/tsconfig.json`. Same reason as `annotations/legacy`: a fixture whose
+construct requires different compiler options needs its own project.
+
+## Subprojects in staging
+
+`staging/tsconfig.json` excludes three directories, each because its construct
+cannot share a project with the rest:
+
+| directory | why | option |
+|---|---|---|
+| `annotations/legacy` | the two decorator dialects are mutually exclusive | `experimentalDecorators: true` |
+| `type-system/merging/two-files` | global scripts cannot be modules | `isolatedModules: false` |
+| `type-system/merging/three-files` | global scripts cannot be modules | `isolatedModules: false` |
+
+All four projects typecheck clean under TypeScript 6.0.3.
+
+## Still deferred
+
+- **TSX** — out of the first freeze by decision.
+- **`using` / `await using`** — now unblocked (the root project no longer
+  compiles staging), so these can be added to `blocks/` whenever wanted; they
+  need `"ESNext.Disposable"` in the staging `lib`.

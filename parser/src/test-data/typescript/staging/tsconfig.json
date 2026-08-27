@@ -16,5 +16,9 @@
     "skipLibCheck": true
   },
   "include": ["**/*.ts", "**/*.tsx"],
-  "exclude": ["annotations/legacy"]
+  "exclude": [
+    "annotations/legacy",
+    "type-system/merging/two-files",
+    "type-system/merging/three-files"
+  ]
 }
