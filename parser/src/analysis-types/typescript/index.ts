@@ -1,4 +1,5 @@
 export * from './ts-row';
+export * from './TsBlockRegistry';
 export * from './TsCallSiteRegistry';
 export * from './TsExpressionRegistry';
 export * from './TsFieldRegistry';

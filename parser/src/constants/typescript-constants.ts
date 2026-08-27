@@ -61,6 +61,17 @@ export const TS_ANONYMOUS_METHOD_NAMES = {
   CONSTRUCT_SIGNATURE: '<construct-signature>',
   STATIC_BLOCK: '<static-block>',
   INDEX_SIGNATURE: '<index-signature>',
+  /**
+   * A `(a: T) => R` written in TYPE position.
+   *
+   * It gets a `ts_method` row because it is a real call target: a variable
+   * annotated with a function type resolves its calls to THIS signature, not to
+   * whatever arrow was assigned to it. 21,956 function types were measured in
+   * the ecosystem corpus, and the ones in project code are the reason
+   * `const f: (x: T) => R = (x) => …; f(x)` has a declared target at all.
+   */
+  FUNCTION_TYPE: '<function-type>',
+  CONSTRUCTOR_TYPE: '<constructor-type>',
 } as const;
 
 /**

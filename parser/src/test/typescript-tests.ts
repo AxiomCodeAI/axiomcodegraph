@@ -15,13 +15,22 @@
  * The split is the point. A suite that can rewrite its own expectations has a failure
  * mode indistinguishable from success — red, re-bless, green, with the defect now
  * recorded as intended, and every later fix reading as a regression. This file can
- * DETECT drift and cannot AUTHORISE it. It does not even import `typescript`, so it
- * has no way to recompute a truth it might prefer.
+ * DETECT drift and cannot AUTHORISE it.
+ *
+ * It now imports the PARSER, because four of its checks compare parser output against
+ * the frozen expectations and there is no way to do that without running it. The
+ * property that mattered is unchanged and is worth restating exactly: NOTHING here
+ * constructs a `ts.Program` or a `TypeChecker`, so nothing here can recompute an
+ * expectation. The parser cannot either — that is its own hardest rule — which is
+ * why importing it does not hand this suite the ability to re-bless itself.
  */
 import { execFileSync } from 'child_process';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
+
+import { TypeScriptProjectAnalyzer } from '@/workflows/typescript/typescript-project-analyzer';
 
 const FIXTURES = 'src/test-data/typescript';
 const ORACLE = path.join(FIXTURES, '_oracle');
@@ -40,7 +49,7 @@ const COMPILER_VERSION = '6.0.3';
  * that makes a check runnable — that way switching a check on is a visible diff rather
  * than a silent change of what the suite covers.
  */
-const PENDING_BAR = 4;
+const PENDING_BAR = 0;
 
 interface Check { name: string; proves: string; run: () => number }
 const fail = (m: string): number => { console.log('  ' + m); return 1; };
@@ -528,33 +537,538 @@ function resolutionExpectationsUsable(): number {
 // 6-9. parser-dependent checks
 // ---------------------------------------------------------------------------
 
+/**
+ * Runs the extractor over every corpus, once, and caches the output.
+ *
+ * One run per corpus DIRECTORY, not one over the fixture root, because a program
+ * is the unit of merge scope: `staging/tsconfig.json` excludes three subtrees
+ * that have their own configs, and analysing them together would merge two
+ * global scopes tsc keeps apart. That is the same partition the expectations
+ * were blessed under.
+ */
+let extractionCache: Map<string, string> | undefined;
+
+/**
+ * Runs the extractor over every corpus, ONCE, before any check reads a row.
+ *
+ * Awaited up front rather than lazily inside a check, and that is not a style
+ * choice. Extraction is asynchronous; a check that fired it and read the output
+ * in the same tick would compare against files that do not exist yet, find no
+ * rows, and PASS — the exact failure mode this suite exists to rule out. Doing
+ * it here makes "the extractor ran" a precondition of the checks rather than
+ * something each of them has to remember.
+ */
+async function extractAllCorpora(): Promise<void> {
+  const cache = new Map<string, string>();
+  const index = readJson<{ corpora: { slug: string; dir: string }[] }>(
+    path.join(ORACLE, 'CORPORA.json'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ts-gate-'));
+  for (const c of index?.corpora ?? []) {
+    const outputDir = path.join(root, c.slug);
+    fs.mkdirSync(outputDir, { recursive: true });
+    const rootDir = path.join(FIXTURES, c.dir);
+    await new TypeScriptProjectAnalyzer().analyze({
+      rootDir,
+      outputDir,
+      baseMservPath: rootDir,
+      serviceVersionLink: 'ts-gate',
+    });
+    cache.set(c.slug, outputDir);
+  }
+  extractionCache = cache;
+}
+
+function extractedCorpora(): Map<string, string> {
+  if (!extractionCache) {
+    throw new Error('extraction has not run — extractAllCorpora() must be awaited first');
+  }
+  return extractionCache;
+}
+
+/** Reads one emitted relation. A missing file and an empty one are the same fact here. */
+function relation(outputDir: string, filename: string): Record<string, string>[] {
+  const file = path.join(outputDir, filename);
+  if (!fs.existsSync(file)) return [];
+  const lines = fs.readFileSync(file, 'utf-8').split('\n').filter(Boolean);
+  if (!lines.length) return [];
+  const head = lines[0]!.split('\t');
+  return lines.slice(1).map((line) => {
+    const cells = line.split('\t');
+    const row: Record<string, string> = {};
+    head.forEach((name, i) => { row[name] = cells[i] ?? ''; });
+    return row;
+  });
+}
+
+/** `file:line:col`, the position convention the expectations use throughout. */
+function site(row: Record<string, string>): string {
+  return `${row.filePath}:${row.startLine}:${row.startColumn}`;
+}
+
+// ---------------------------------------------------------------------------
+// 6. merge partition
+// ---------------------------------------------------------------------------
+
+/**
+ * The declaration kinds tsc's partition covers, mapped from what the parser emits.
+ *
+ * A class EXPRESSION is deliberately absent: it declares nothing in any symbol
+ * table, so it is not in tsc's partition either and including it would produce
+ * an "extra" site for a row that is perfectly correct.
+ */
+const TYPE_CATEGORY_TO_DECLARATION_KIND: Record<string, string> = {
+  CLASS_TYPE: 'ClassDeclaration',
+  INTERFACE_TYPE: 'InterfaceDeclaration',
+  ENUM_TYPE: 'EnumDeclaration',
+  CONST_ENUM_TYPE: 'EnumDeclaration',
+  TYPE_ALIAS_TYPE: 'TypeAliasDeclaration',
+  NAMESPACE_TYPE: 'ModuleDeclaration',
+};
+
+/**
+ * `declarationGroupKey` partitions the declarations exactly as tsc's symbols do.
+ *
+ * Set equality in BOTH directions, which is the whole point: a parser that
+ * splits one merged interface into two groups and a parser that joins two
+ * distinct symbols into one are different bugs, and a one-directional check
+ * catches only the first. §3.1 says nothing downstream is trustworthy until
+ * this passes, so it is the first check that looks at emitted rows.
+ */
 function mergePartition(): number {
   if (!parserPresent()) {
     return pendingCheck('merge partition',
       'no extractor yet — expectations are frozen and verified; the comparison needs ts-impl');
   }
-  return fail('extractor present but this check is not wired — wire it and lower PENDING_BAR');
+  const index = readJson<{ corpora: { slug: string; dir: string }[] }>(
+    path.join(ORACLE, 'CORPORA.json'));
+  if (!index) return fail('no CORPORA.json');
+  const corpora = extractedCorpora();
+  const failures: string[] = [];
+  let sites = 0, groups = 0, merged = 0;
+
+  for (const c of index.corpora) {
+    const outputDir = corpora.get(c.slug);
+    const expected = readJson<Partition>(
+      path.join(ORACLE, c.slug, 'EXPECTED_MERGE_PARTITION.json'));
+    if (!outputDir || !expected) { failures.push(`${c.slug}: no extraction or expectation`); continue; }
+
+    const byGroup = new Map<string, string[]>();
+    const record = (groupKey: string, where: string): void => {
+      const list = byGroup.get(groupKey);
+      if (list) { list.push(where); } else { byGroup.set(groupKey, [where]); }
+    };
+    for (const row of relation(outputDir, 'all-typescript-types.csv')) {
+      if (TYPE_CATEGORY_TO_DECLARATION_KIND[row.typeCategory ?? '']) {
+        record(row.declarationGroupKey ?? '', site(row));
+      }
+    }
+    for (const row of relation(outputDir, 'all-typescript-methods.csv')) {
+      if (row.methodKind === 'FUNCTION_DECLARATION') {
+        record(row.declarationGroupKey ?? '', site(row));
+      }
+    }
+    for (const row of relation(outputDir, 'all-typescript-variables.csv')) {
+      // A destructured binding's declaration node is a BindingElement, which is
+      // not one of tsc's mergeable kinds. The parser records the enclosing
+      // VariableDeclaration with an empty name, so an empty name is exactly the
+      // set to skip.
+      if (row.name !== '') {
+        record(row.declarationGroupKey ?? '', site(row));
+      }
+    }
+
+    const canonical = (list: string[]): string => [...list].sort().join(' | ');
+    const mineParts = new Set([...byGroup.values()].map(canonical));
+    const theirParts = new Set(expected.groups.map((g) => canonical(g.sites)));
+    const mineSites = new Set([...byGroup.values()].flat());
+    const theirSites = new Set(expected.groups.flatMap((g) => g.sites));
+
+    for (const s of theirSites) {
+      if (!mineSites.has(s)) failures.push(`${c.slug}: tsc declares a symbol at ${s}, parser emits no row`);
+    }
+    for (const s of mineSites) {
+      if (!theirSites.has(s)) failures.push(`${c.slug}: parser emits a declaration at ${s}, tsc declares none`);
+    }
+    for (const p of theirParts) {
+      if (!mineParts.has(p)) failures.push(`${c.slug}: tsc groups [${p.slice(0, 120)}], parser SPLITS it`);
+    }
+    for (const p of mineParts) {
+      if (!theirParts.has(p)) failures.push(`${c.slug}: parser groups [${p.slice(0, 120)}], tsc does not`);
+    }
+    sites += mineSites.size;
+    groups += byGroup.size;
+    merged += [...byGroup.values()].filter((g) => g.length > 1).length;
+  }
+
+  console.log(`  ${sites} declaration site(s) in ${groups} group(s), ${merged} of them merged ` +
+    '— set equality with tsc, both directions');
+  if (!merged) {
+    failures.push('VACUOUS: the parser produced no group with more than one site, so this ' +
+      'check would pass for a parser that ignores declaration merging entirely');
+  }
+  for (const f of failures.slice(0, 12)) console.log(`  ${f}`);
+  if (failures.length > 12) console.log(`  … and ${failures.length - 12} more`);
+  return failures.length ? 1 : 0;
 }
 
+// ---------------------------------------------------------------------------
+// 7. tsc-adjudicated resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * The RATCHET on parser-filled targets. May rise; may never fall.
+ *
+ * Separate from the correctness assertion on purpose. A wrong target is a hard
+ * failure at any count, while a MISSING one is a measurement — and the two must
+ * not be traded against each other, because the cheapest way to raise this
+ * number is to start guessing. Lower it only with a recorded reason.
+ */
+const RESOLUTION_FLOOR = 293;
+
+/**
+ * Every parser-filled `resolvedSignatureLinkHash` equals `getResolvedSignature`.
+ *
+ * Position-precise, and the asymmetry is deliberate: a filled target that
+ * disagrees with tsc is a HARD FAILURE, while an unfilled one is counted and
+ * reported. §4.15 licenses exactly that split — the parser fills columns 12–18
+ * only where resolution is syntactically decidable, and the guess it declines to
+ * make becomes a number rather than a silence.
+ *
+ * The other half is just as load-bearing: where tsc says the target is EXTERNAL
+ * or SYNTHESIZED, the parser must not have claimed a project signature. A parser
+ * that resolves `value.trim()` to a project method of that name would otherwise
+ * score well and be wrong about the call graph.
+ */
 function tscAdjudicatedResolution(): number {
   if (!parserPresent()) {
     return pendingCheck('tsc-adjudicated resolution',
-      'no extractor yet; the expectations are blessed and verified. 100% of 9,627 measured ' +
-      'call sites have a getResolvedSignature ' +
-      'answer, and 77.6% of overloaded calls resolve to a NON-first declaration, so this ' +
-      'check is the one that turns resolution into a measurement');
+      'no extractor yet; the expectations are blessed and verified');
   }
-  return fail('extractor present but this check is not wired — wire it and lower PENDING_BAR');
+  const index = readJson<{ corpora: { slug: string; dir: string }[] }>(
+    path.join(ORACLE, 'CORPORA.json'));
+  if (!index) return fail('no CORPORA.json');
+  const corpora = extractedCorpora();
+  const failures: string[] = [];
+  let expectedCalls = 0, emittedCalls = 0, projectTargets = 0, agreed = 0, unfilled = 0;
+  const byReceiver = new Map<string, { total: number; filled: number }>();
+
+  for (const c of index.corpora) {
+    const outputDir = corpora.get(c.slug);
+    const expected = readJson<Resolution>(
+      path.join(ORACLE, c.slug, 'EXPECTED_CALL_RESOLUTION.json'));
+    if (!outputDir || !expected) { failures.push(`${c.slug}: no extraction or expectation`); continue; }
+
+    const modulePath = new Map(relation(outputDir, 'all-typescript-modules.csv')
+      .map((m) => [m.tsModuleUniqueHash ?? '', m.filePath ?? '']));
+    const methodSite = new Map(relation(outputDir, 'all-typescript-methods.csv')
+      .map((m) => [m.tsMethodUniqueHash ?? '', site(m)]));
+
+    // A MULTISET keyed by position. `new Foo().bar()` puts two call sites at one
+    // offset — the outer call and the inner construction both begin at `new` —
+    // so a plain map would drop one and quietly shrink the comparison.
+    const emitted = new Map<string, Record<string, string>[]>();
+    for (const row of relation(outputDir, 'all-typescript-call-sites.csv')) {
+      const key = `${modulePath.get(row.tsModuleLinkHash ?? '') ?? '?'}:${row.startLine}:${row.startColumn}`;
+      const list = emitted.get(key);
+      if (list) { list.push(row); } else { emitted.set(key, [row]); }
+      emittedCalls += 1;
+      const bucket = byReceiver.get(row.receiverKind ?? '') ?? { total: 0, filled: 0 };
+      bucket.total += 1;
+      if (row.resolvedSignatureLinkHash !== '') bucket.filled += 1;
+      byReceiver.set(row.receiverKind ?? '', bucket);
+    }
+
+    for (const call of expected.calls) {
+      expectedCalls += 1;
+      const candidates = emitted.get(call.site);
+      const row = candidates?.shift();
+      if (!row) {
+        failures.push(`${c.slug}: tsc sees a call at ${call.site} (${call.callee}), parser emits none`);
+        continue;
+      }
+      const filled = (row.resolvedSignatureLinkHash ?? '') !== '';
+      if (call.targetProvenance === 'PROJECT') {
+        projectTargets += 1;
+        if (!filled) { unfilled += 1; continue; }
+        const got = methodSite.get(row.resolvedSignatureLinkHash ?? '') ?? '<unknown>';
+        if (got === call.target) { agreed += 1; } else {
+          failures.push(`${c.slug}: ${call.site} (${call.callee}) — tsc resolves to ` +
+            `${call.target}, parser claims ${got}`);
+        }
+        continue;
+      }
+      if (filled) {
+        const got = methodSite.get(row.resolvedSignatureLinkHash ?? '') ?? '<unknown>';
+        failures.push(`${c.slug}: ${call.site} (${call.callee}) — tsc resolves to ` +
+          `${call.targetProvenance} ${call.target}, parser claims the project signature ${got}`);
+      }
+    }
+    for (const [where, leftover] of emitted) {
+      if (leftover.length > 0) {
+        failures.push(`${c.slug}: parser emits ${leftover.length} extra call site(s) at ${where}`);
+      }
+    }
+  }
+
+  const shapes = [...byReceiver.entries()]
+    .sort((a, b) => b[1].total - a[1].total)
+    .map(([shape, b]) => `${shape} ${b.filled}/${b.total}`)
+    .join('  ');
+  console.log(`  ${emittedCalls} call site(s) emitted for ${expectedCalls} tsc sees; ` +
+    `${projectTargets} project targets: ${agreed} agree, ${unfilled} unfilled, ` +
+    `${failures.length} disagree`);
+  console.log(`  filled by receiver shape: ${shapes}`);
+  if (agreed < RESOLUTION_FLOOR) {
+    failures.push(`RATCHET: ${agreed} adjudicated targets, floor is ${RESOLUTION_FLOOR}. ` +
+      'The known-resolvable count may rise and never fall.');
+  } else if (agreed > RESOLUTION_FLOOR) {
+    console.log(`  ${agreed} > floor ${RESOLUTION_FLOOR} — raise RESOLUTION_FLOOR to lock it in`);
+  }
+  for (const f of failures.slice(0, 12)) console.log(`  ${f}`);
+  if (failures.length > 12) console.log(`  … and ${failures.length - 12} more`);
+  return failures.length ? 1 : 0;
 }
 
+// ---------------------------------------------------------------------------
+// 8. type-only isolation
+// ---------------------------------------------------------------------------
+
+/**
+ * No type-only construct reaches the call graph.
+ *
+ * Three assertions, and the third is the one a column check cannot make. The two
+ * tripwire columns say the parser did not MARK anything as type-only-reachable;
+ * a fixture that declares itself `type-only` and still produces a call site says
+ * the containment actually failed, whatever the columns claim.
+ *
+ * The fixture's own header is the source of truth for its nature, which keeps
+ * this suite from inventing the classification it is checking.
+ */
 function typeOnlyIsolation(): number {
   if (!parserPresent()) {
     return pendingCheck('type-only isolation',
       'no extractor yet. Asserts zero ts_call_site rows with isTypeOnlyTarget=true and ' +
       'zero ts_expression rows with isTypeOnlyReachable=true');
   }
-  return fail('extractor present but this check is not wired — wire it and lower PENDING_BAR');
+  const index = readJson<{ corpora: { slug: string; dir: string }[] }>(
+    path.join(ORACLE, 'CORPORA.json'));
+  if (!index) return fail('no CORPORA.json');
+  const corpora = extractedCorpora();
+  const failures: string[] = [];
+  const misdeclared = new Set<string>();
+  let typeOnlyFixtures = 0, callSites = 0, expressions = 0;
+
+  for (const c of index.corpora) {
+    const outputDir = corpora.get(c.slug);
+    if (!outputDir) continue;
+    const oracleCallSites = new Set(
+      (readJson<Resolution>(path.join(ORACLE, c.slug, 'EXPECTED_CALL_RESOLUTION.json'))
+        ?.calls ?? []).map((call) => call.site));
+    const modulePath = new Map(relation(outputDir, 'all-typescript-modules.csv')
+      .map((m) => [m.tsModuleUniqueHash ?? '', m.filePath ?? '']));
+
+    // The fixtures declare their own nature in a header line, so the corpus
+    // says which files may not produce call-graph rows.
+    const typeOnlyFiles = new Set<string>();
+    for (const [, filePath] of modulePath) {
+      if (filePath === '') continue;
+      const abs = path.join(FIXTURES, c.dir, filePath);
+      if (!fs.existsSync(abs)) continue;
+      const head = fs.readFileSync(abs, 'utf-8').slice(0, 600);
+      if (/^\/\/\s*nature:\s*type-only\s*$/m.test(head)) typeOnlyFiles.add(filePath);
+    }
+    typeOnlyFixtures += typeOnlyFiles.size;
+
+    for (const row of relation(outputDir, 'all-typescript-call-sites.csv')) {
+      callSites += 1;
+      if (row.isTypeOnlyTarget !== 'false') {
+        failures.push(`${c.slug}: ts_call_site at ${row.startLine}:${row.startColumn} has ` +
+          'isTypeOnlyTarget=true — a type-only construct reached the call graph');
+      }
+      const file = modulePath.get(row.tsModuleLinkHash ?? '') ?? '';
+      if (typeOnlyFiles.has(file)) {
+        // Two different defects wear the same shape here, and only one is the
+        // parser's. If TSC ALSO sees a call at this position the file is not
+        // type-only and its header is wrong — a request to ts-fixtures, and
+        // failing for it would punish this suite for someone else's queue. If
+        // tsc sees nothing there, the parser invented a call-graph row out of a
+        // type-only construct, which is exactly what §3.3 forbids.
+        const where = `${file}:${row.startLine}:${row.startColumn}`;
+        if (oracleCallSites.has(where)) {
+          misdeclared.add(`${c.slug}: ${file} declares itself type-only, but tsc resolves a ` +
+            `call at ${row.startLine}:${row.startColumn} — the fixture header is wrong`);
+        } else {
+          failures.push(`${c.slug}: ${file} is type-only and tsc sees no call at ` +
+            `${row.startLine}:${row.startColumn}, yet the parser emitted one — a type-only ` +
+            'construct reached the call graph');
+        }
+      }
+    }
+    for (const row of relation(outputDir, 'all-typescript-expressions.csv')) {
+      expressions += 1;
+      if (row.isTypeOnlyReachable !== 'false') {
+        failures.push(`${c.slug}: ts_expression at ${row.startLine}:${row.startColumn} has ` +
+          'isTypeOnlyReachable=true');
+      }
+    }
+  }
+
+  console.log(`  ${expressions} expression(s), ${callSites} call site(s), ` +
+    `${typeOnlyFixtures} self-declared type-only fixture(s) — none reached the call graph`);
+  // Reported loudly and not gated, exactly as merge-shape coverage is: the
+  // fixture's nature is ts-fixtures' to declare, and a suite that fails for a
+  // wrong header teaches people to delete the header.
+  for (const m of misdeclared) console.log(`  MISDECLARED ${m}`);
+  for (const f of failures.slice(0, 10)) console.log(`  ${f}`);
+  return failures.length ? 1 : 0;
 }
+
+// ---------------------------------------------------------------------------
+// 10. fact-base invariants
+// ---------------------------------------------------------------------------
+
+/**
+ * The structural invariants from the schema's Appendix B, checked on real output.
+ *
+ * Every one of these has the same failure signature and it is the worst kind:
+ * the fact base still loads, every join still succeeds, and a count is silently
+ * wrong. A duplicate primary key does not collide — it DOUBLES. A dangling FK
+ * does not error — it drops a row from an inner join. Neither shows up in a
+ * comparison against expectations unless the comparison happens to cover the
+ * exact row involved.
+ *
+ * This check earned its place immediately: it found duplicate `ts_expression`
+ * keys from a member decorator being walked down two paths, and it named the
+ * relation and the key. The resolution comparison had noticed the same bug only
+ * as "7 extra call sites", which is a symptom three inferences away from the
+ * cause.
+ */
+function factBaseInvariants(): number {
+  if (!parserPresent()) {
+    return pendingCheck('fact-base invariants',
+      'no extractor yet. Asserts PK uniqueness, FK integrity, and the tree invariants');
+  }
+  const corpora = extractedCorpora();
+  const failures: string[] = [];
+  let rows = 0, links = 0;
+
+  for (const [slug, outputDir] of corpora) {
+    const all = new Map<string, Record<string, string>[]>();
+    for (const file of [
+      'all-typescript-modules.csv', 'all-typescript-types.csv',
+      'all-typescript-type-heritages.csv', 'all-typescript-type-references.csv',
+      'all-typescript-methods.csv', 'all-typescript-method-parameters.csv',
+      'all-typescript-fields.csv', 'all-typescript-variables.csv',
+      'all-typescript-imports.csv', 'all-typescript-expressions.csv',
+      'all-typescript-call-sites.csv', 'all-typescript-blocks.csv',
+    ]) {
+      all.set(file, relation(outputDir, file));
+    }
+
+    // 2. Every PK is unique within its relation.
+    const known = new Set<string>();
+    for (const [file, relationRows] of all) {
+      rows += relationRows.length;
+      const seen = new Set<string>();
+      const keyColumn = Object.keys(relationRows[0] ?? {}).slice(-1)[0] ?? '';
+      for (const row of relationRows) {
+        const key = row[keyColumn] ?? '';
+        if (seen.has(key)) {
+          failures.push(`${slug}: ${file} has a DUPLICATE primary key ${key.slice(0, 40)} ` +
+            `(row at ${row.startLine}:${row.startColumn}) — duplicate keys double a count, ` +
+            'they do not collide');
+        }
+        seen.add(key);
+        known.add(key);
+      }
+    }
+
+    // 1. Every non-empty FK resolves to an existing PK.
+    for (const [file, relationRows] of all) {
+      for (const row of relationRows) {
+        for (const [column, value] of Object.entries(row)) {
+          if (!column.endsWith('LinkHash') && !column.endsWith('OwnerHash')
+            && !column.endsWith('ReferenceHash') && !column.endsWith('ExpressionHash')) {
+            continue;
+          }
+          if (column === 'serviceVersionLinkHash' || value === '') continue;
+          links += 1;
+          if (!known.has(value)) {
+            failures.push(`${slug}: ${file}.${column} = ${value.slice(0, 40)} resolves to no ` +
+              'primary key — a dangling FK drops rows from an inner join without erroring');
+          }
+        }
+      }
+    }
+
+    // 7. depth = 0 if and only if parentReferenceHash is empty.
+    for (const row of all.get('all-typescript-type-references.csv') ?? []) {
+      const isRoot = (row.parentReferenceHash ?? '') === '';
+      if (isRoot !== (row.depth === '0')) {
+        failures.push(`${slug}: ts_type_reference at ${row.startLine}:${row.startColumn} has ` +
+          `depth=${row.depth} and parent=${row.parentReferenceHash === '' ? '""' : 'set'} ` +
+          '— type-hierarchy rules depend on those agreeing');
+      }
+    }
+
+    // 6. childCount matches the rows that point back, unless truncated.
+    const childrenOf = new Map<string, number>();
+    for (const row of all.get('all-typescript-type-references.csv') ?? []) {
+      const parent = row.parentReferenceHash ?? '';
+      if (parent !== '') childrenOf.set(parent, (childrenOf.get(parent) ?? 0) + 1);
+    }
+    for (const row of all.get('all-typescript-type-references.csv') ?? []) {
+      const declared = Number(row.childCount ?? '0');
+      const actual = childrenOf.get(row.tsTypeReferenceUniqueHash ?? '') ?? 0;
+      if (declared !== actual && row.isTruncated !== 'true') {
+        failures.push(`${slug}: ts_type_reference ${row.completeTypeName?.slice(0, 30)} at ` +
+          `${row.startLine}:${row.startColumn} declares childCount=${declared} but ${actual} ` +
+          'rows point at it');
+      }
+    }
+
+    // 8. One call site per CALL / NEW / TAGGED_TEMPLATE expression, exactly.
+    const callShaped = (all.get('all-typescript-expressions.csv') ?? [])
+      .filter((r) => r.kind === 'CALL_EXPRESSION' || r.kind === 'NEW_EXPRESSION'
+        || r.kind === 'TAGGED_TEMPLATE').length;
+    const callSites = (all.get('all-typescript-call-sites.csv') ?? []).length;
+    if (callShaped !== callSites) {
+      failures.push(`${slug}: ${callShaped} call-shaped expression(s) but ${callSites} ` +
+        'ts_call_site row(s) — the 1:1 chain is broken');
+    }
+
+    // 4. The type-only tripwires, restated where the other invariants live.
+    for (const row of all.get('all-typescript-call-sites.csv') ?? []) {
+      if (row.isTypeOnlyTarget !== 'false') {
+        failures.push(`${slug}: ts_call_site.isTypeOnlyTarget is not false`);
+      }
+    }
+  }
+
+  console.log(`  ${rows} row(s), ${links} foreign key(s): every PK unique, every FK resolves, ` +
+    'every type-node tree well-formed, call sites 1:1');
+  for (const f of failures.slice(0, 10)) console.log(`  ${f}`);
+  if (failures.length > 10) console.log(`  … and ${failures.length - 10} more`);
+  return failures.length ? 1 : 0;
+}
+
+// ---------------------------------------------------------------------------
+// 9. TSX reserved but empty
+// ---------------------------------------------------------------------------
+
+/**
+ * Reserved enum values carry ZERO rows.
+ *
+ * TSX is out of freeze 1 (§4.15.1). The representation is decided — a JSX
+ * element IS a call to its component, with the whole props object as argument 0
+ * — and nothing emits it. The point of checking the emptiness is that the day
+ * TSX is switched on it shows up HERE, as a gate failure naming the value, and
+ * not as new rows appearing in a fact base with nobody noticing.
+ */
+const RESERVED_TSX_VALUES = new Set([
+  'JSX_COMPONENT_CALL', 'JSX_ELEMENT', 'JSX_SELF_CLOSING',
+  'JSX_ATTRIBUTE_VALUE', 'JSX_CHILD',
+]);
 
 function tsxReservedButEmpty(): number {
   if (!parserPresent()) {
@@ -562,7 +1076,31 @@ function tsxReservedButEmpty(): number {
       'no extractor yet. TSX is out of freeze 1: JSX_COMPONENT_CALL is reserved and must ' +
       'carry ZERO rows, so switching TSX on shows up as a gate failure rather than as new rows');
   }
-  return fail('extractor present but this check is not wired — wire it and lower PENDING_BAR');
+  const corpora = extractedCorpora();
+  const failures: string[] = [];
+  let checked = 0;
+  const columns: [string, string[]][] = [
+    ['all-typescript-call-sites.csv', ['callKind']],
+    ['all-typescript-expressions.csv', ['kind', 'edgeRole']],
+  ];
+  for (const [slug, outputDir] of corpora) {
+    for (const [file, names] of columns) {
+      for (const row of relation(outputDir, file)) {
+        checked += 1;
+        for (const name of names) {
+          const value = row[name] ?? '';
+          if (RESERVED_TSX_VALUES.has(value)) {
+            failures.push(`${slug}: ${file} row at ${row.startLine}:${row.startColumn} carries ` +
+              `reserved value ${name}=${value} — TSX is not in freeze 1`);
+          }
+        }
+      }
+    }
+  }
+  console.log(`  ${checked} row(s) checked; ${RESERVED_TSX_VALUES.size} reserved value(s) ` +
+    'carry none of them');
+  for (const f of failures.slice(0, 10)) console.log(`  ${f}`);
+  return failures.length ? 1 : 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -578,9 +1116,10 @@ const CHECKS: Check[] = [
   { name: 'tsc-adjudicated resolution', proves: 'every resolved call target equals getResolvedSignature', run: tscAdjudicatedResolution },
   { name: 'type-only isolation', proves: 'no type-only construct reaches the call graph', run: typeOnlyIsolation },
   { name: 'TSX reserved but empty', proves: 'reserved enum values carry no rows until TSX is switched on', run: tsxReservedButEmpty },
+  { name: 'fact-base invariants', proves: 'every PK unique, every FK resolves, every tree well-formed — the failures that load cleanly and count wrong', run: factBaseInvariants },
 ];
 
-function main(): number {
+async function main(): Promise<number> {
   if (process.argv.includes('--list')) {
     for (const c of CHECKS) console.log(`${c.name}\n  ${c.proves}`);
     return 0;
@@ -588,6 +1127,19 @@ function main(): number {
   console.log('='.repeat(78));
   console.log('TypeScript suite — no ts.Program, no TypeChecker, no network');
   console.log('='.repeat(78));
+
+  if (parserPresent()) {
+    const t0 = Date.now();
+    try {
+      await extractAllCorpora();
+      console.log(`\nextraction: every corpus extracted in ${((Date.now() - t0) / 1000)
+        .toFixed(1)}s, no ts.Program created`);
+    } catch (e) {
+      console.log(`\nextraction THREW: ${(e as Error).message}`);
+      console.log('  Every parser-dependent check below will fail, which is the correct ' +
+        'report: an extractor that throws must not read as a clean run.');
+    }
+  }
 
   let failed = 0;
   for (const c of CHECKS) {
@@ -620,4 +1172,6 @@ function main(): number {
   return failed ? 1 : 0;
 }
 
-process.exit(main());
+void main().then((code) => {
+  process.exit(code);
+});

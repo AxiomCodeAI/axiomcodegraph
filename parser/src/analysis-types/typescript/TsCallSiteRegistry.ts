@@ -45,7 +45,8 @@ export class TsCallSiteRegistry implements EntityIdentifiable {
   readonly calleeName: string;
   readonly receiverKind: TsReceiverKind;
   readonly receiverExpressionLinkHash: string;
-  readonly receiverTypeName: string;
+  /** The receiver's DECLARED type name, filled by the resolution pass. */
+  private receiverTypeName: string;
   readonly tsExpressionLinkHash: string;
   readonly tsModuleLinkHash: string;
   readonly callerMethodLinkHash: string;
@@ -158,6 +159,18 @@ export class TsCallSiteRegistry implements EntityIdentifiable {
     this.resolvedTargetKind = kind;
     this.resolutionEvidence = evidence;
     this.isAmbientTarget = true;
+  }
+
+  /**
+   * The receiver's DECLARED type name.
+   *
+   * Declared, never inferred: this is the annotation a declaration site wrote,
+   * which is the whole mechanism Path 1 runs on and the reason 85.3% annotation
+   * coverage makes this schema Java-shaped. An inferred value here would be the
+   * checker's answer, and the parser does not have one.
+   */
+  setReceiverTypeName(name: string): void {
+    this.receiverTypeName = name;
   }
 
   getResolvedTargetKind(): TsResolvedTargetKind {
