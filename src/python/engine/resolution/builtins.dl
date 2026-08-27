@@ -1,0 +1,136 @@
+// ============================================================================
+// RESOLUTION · BUILTINS  (a named library boundary, not a blind spot)
+//
+// THE DISTINCTION THIS FILE EXISTS TO MAKE. A call to `super()` and a call through an
+// untyped parameter both fail to produce a client callee, but they are not the same
+// kind of failure:
+//
+//   super()          the callee is known EXACTLY. It is CPython's `super` type, written
+//                    in C. There is no Python source anywhere to point at, in the client
+//                    or in the stdlib IR — VERIFIED: the 3.10.4 stdlib IR (31 shards,
+//                    2,906 classes) contains ZERO py_type rows named `super`, `object`
+//                    or `type`, because those live in Objects/*.c. So the chain ENDS at
+//                    a library boundary, and that is what boundary_lib means.
+//   f(x) where f is a parameter
+//                    the callee is genuinely unknown. ambiguous_unknown.
+//
+// Collapsing the first into the second would report 7 of linkage-sample's 49 sites as
+// analysis blind spots when the analysis knows precisely what they are. Promoting it to
+// known_edge would be a fabrication, because there is no target hash to name.
+//
+// THE CATALOG IS EXPLICIT AND SMALL, in the same spirit as Java's junit_entry_ann /
+// http_entry_ann knob lists: a builtin is only treated as a boundary if it is NAMED
+// here. An unlisted unresolved name stays ambiguous_unknown, so the catalog can only
+// ever move a site from "unknown" to "known boundary" — never the other way, and never
+// silently.
+// ============================================================================
+
+// ── py_builtin_callable(Name) — CPython C-level callables ────────────────────
+// The subset that appears as a CALL callee in real code. Types (which construct) and
+// functions are both here because both are callable and neither has Python source.
+py_builtin_callable("super").
+py_builtin_callable("object").
+py_builtin_callable("type").
+py_builtin_callable("isinstance").
+py_builtin_callable("issubclass").
+py_builtin_callable("getattr").
+py_builtin_callable("setattr").
+py_builtin_callable("delattr").
+py_builtin_callable("hasattr").
+py_builtin_callable("len").
+py_builtin_callable("repr").
+py_builtin_callable("str").
+py_builtin_callable("bytes").
+py_builtin_callable("bytearray").
+py_builtin_callable("int").
+py_builtin_callable("float").
+py_builtin_callable("complex").
+py_builtin_callable("bool").
+py_builtin_callable("list").
+py_builtin_callable("tuple").
+py_builtin_callable("dict").
+py_builtin_callable("set").
+py_builtin_callable("frozenset").
+py_builtin_callable("iter").
+py_builtin_callable("next").
+py_builtin_callable("enumerate").
+py_builtin_callable("zip").
+py_builtin_callable("map").
+py_builtin_callable("filter").
+py_builtin_callable("range").
+py_builtin_callable("reversed").
+py_builtin_callable("sorted").
+py_builtin_callable("sum").
+py_builtin_callable("min").
+py_builtin_callable("max").
+py_builtin_callable("abs").
+py_builtin_callable("round").
+py_builtin_callable("divmod").
+py_builtin_callable("pow").
+py_builtin_callable("print").
+py_builtin_callable("input").
+py_builtin_callable("open").
+py_builtin_callable("hash").
+py_builtin_callable("id").
+py_builtin_callable("callable").
+py_builtin_callable("format").
+py_builtin_callable("vars").
+py_builtin_callable("dir").
+py_builtin_callable("globals").
+py_builtin_callable("locals").
+py_builtin_callable("staticmethod").
+py_builtin_callable("classmethod").
+py_builtin_callable("property").
+py_builtin_callable("slice").
+py_builtin_callable("memoryview").
+py_builtin_callable("compile").
+py_builtin_callable("eval").
+py_builtin_callable("exec").
+py_builtin_callable("chr").
+py_builtin_callable("ord").
+py_builtin_callable("hex").
+py_builtin_callable("oct").
+py_builtin_callable("bin").
+py_builtin_callable("ascii").
+py_builtin_callable("any").
+py_builtin_callable("all").
+py_builtin_callable("iter").
+py_builtin_callable("StopIteration").
+py_builtin_callable("Exception").
+py_builtin_callable("BaseException").
+py_builtin_callable("ValueError").
+py_builtin_callable("TypeError").
+py_builtin_callable("KeyError").
+py_builtin_callable("IndexError").
+py_builtin_callable("AttributeError").
+py_builtin_callable("RuntimeError").
+py_builtin_callable("NotImplementedError").
+py_builtin_callable("OSError").
+py_builtin_callable("IOError").
+
+// ── py_builtin_dynamic(Name) — the escape hatches ────────────────────────────
+// These do not merely lack Python source; they make the PROGRAM unanalysable at that
+// point. A call to getattr/eval/exec means the engine cannot know what runs, and the
+// schema marks the sites (callKind=DYNAMIC_CALL) precisely so it can be said out loud.
+// Reported separately from an ordinary builtin boundary.
+py_builtin_dynamic("getattr").
+py_builtin_dynamic("setattr").
+py_builtin_dynamic("delattr").
+py_builtin_dynamic("eval").
+py_builtin_dynamic("exec").
+py_builtin_dynamic("compile").
+py_builtin_dynamic("__import__").
+py_builtin_dynamic("globals").
+py_builtin_dynamic("locals").
+py_builtin_dynamic("vars").
+
+// ── builtin_target(Name, TargetLabel) — how a boundary edge is written ────────
+// The label is NOT a hash and is not shaped like one, deliberately: it must be
+// impossible to mistake for a py_method FK, because no such entity exists in any IR.
+// It names the CPython callable so a chain ending here says why it ended.
+builtin_target(n, cat("builtin:", n)) :- py_builtin_callable(n).
+
+// ── builtin_object_init_target(TargetLabel) ──────────────────────────────────
+// The implicit constructor: `Sibling()` where nothing in A(Sibling) defines __init__ or
+// __new__. The target is object.__init__, a C slot.
+builtin_object_init_target("builtin:object.__init__").

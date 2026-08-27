@@ -1,0 +1,256 @@
+// ============================================================================
+// EXPRESSION RESOLUTION · CALLEE RESOLUTION
+//
+// One rule family per receiverKind, because the schema records the receiver's SHAPE and
+// says explicitly that the shape is all we honestly know about a duck-typed receiver.
+// Turning a shape into a target is this file's whole job.
+//
+// EVERY RULE HERE PRODUCES expr_call_candidate(Site, Method). Nothing here narrows —
+// narrowing is resolution/dispatch.dl (the cap) and the tier assignment is
+// call-edge-generation/call_chain.dl. Keeping candidate generation monotone and
+// negation-free is what lets construction, dispatch and cls-flow be mutually recursive
+// without breaking stratification.
+//
+// WHAT IS DELIBERATELY NOT DONE HERE. If a receiver has no type, this file emits
+// NOTHING. It does not fan to every method of that name in the program. On the measured
+// corpus that fan is 24.63 candidates per attribute call and 1.22M candidate edges over
+// 49k sites, and it has no soundness argument: two unrelated classes sharing a method
+// name are not a dispatch set, they are a coincidence. ambiguous_unknown is the honest
+// answer and the tier system is built to carry it.
+// ============================================================================
+
+// ── mro_lookup_demand(Prov, ReceiverType, Name) ──────────────────────────────
+// The (type, name) pairs some call site actually asks about — bounds mro_lookup_miss to
+// real questions instead of the cross product of every class and every name.
+mro_lookup_demand("client", t, n) :- call_recv_type(site, t), call_name(site, n).
+
+// ============================================================================
+// (1) NO RECEIVER — `f(x)`. 30 of linkage-sample's 49 sites.
+// ============================================================================
+
+// ── a bare name that denotes a FUNCTION or METHOD ────────────────────────────
+// Scope-correct by construction: the LEGB walk in resolution/name-resolution.dl already
+// decided WHICH `register` this is, so a nested def and a module-level function of the
+// same name cannot be confused. Covers module functions, imported functions, nested
+// defs (helpers.build_pipeline's `register` / `normalise` / `summarise`), and the
+// DECORATOR_CALL site of a parameterised decorator (`@audit("child")` -> models.audit).
+expr_call_candidate(site, m) :-
+    call_recv_kind(site, "NONE"),
+    call_callee_expr(site, callee),
+    expr_names_method("client", callee, m).
+
+// ── a bare name that denotes a CLASS — CONSTRUCTION ──────────────────────────
+// `Base("b")`, `Sibling()`. Python construction is syntactically a call and the schema
+// has no OBJECT_CREATION kind on purpose, so this is the join that decides it. The
+// TARGET is __init__/__new__ FOUND THROUGH THE MRO — `Child("c")` has no __init__ of its
+// own and constructs through Base.__init__, which is a real edge a name-only resolver
+// never sees.
+call_constructs_type(site, t) :-
+    call_recv_kind(site, "NONE"),
+    call_callee_expr(site, callee),
+    expr_type_class_object("client", callee, t).
+expr_call_candidate(site, m) :- call_constructs_type(site, t), type_constructor("client", t, m).
+
+// ── `cls(...)` inside a classmethod — construction through the reached class ──
+// The callee is a CLS_REFERENCE, so it is a no-receiver call whose callee denotes a
+// class object; the clause above already covers it once expr_cls_type answers.
+
+// ============================================================================
+// (2) SELF — `self.m(x)`. Typed from the enclosing class, widened by dispatch.
+// ============================================================================
+expr_call_candidate(site, m) :-
+    call_recv_kind(site, "SELF"),
+    call_recv_type(site, t),
+    call_name(site, n),
+    mro_lookup("client", t, n, m).
+
+// ============================================================================
+// (3) SUPER — an MRO-ordered lookup starting AFTER the anchor class.
+//     NOT virtual dispatch. 7 of linkage-sample's 49 sites are the `super()` call
+//     itself and 7 more are the method call on its result.
+// ============================================================================
+
+// ── call_super_anchor(SiteHash, ReceiverType, AnchorType) ────────────────────
+// (a) ZERO-ARGUMENT `super()` — 98% of uses. CPython compiles it with an implicit
+//     __class__ cell, so the anchor is the class the enclosing method is DEFINED IN,
+//     which is exactly py_call_site.pyTypeLinkHash. The receiver type is
+//     type(self), which is statically unknown; the standard approximation is the anchor
+//     itself, and that is what the sample's ground truth expects.
+// The two forms are separated by a PURELY STRUCTURAL test — does the inner `super`
+// call have arguments — rather than by negating the resolved-anchor relation. That
+// matters: call_super_explicit_anchor needs expr_type_class_object, which sits inside
+// the resolution fixpoint, so negating it here would be cyclic negation and souffle
+// refuses to stratify it. call_super_has_args reads only the AST.
+call_super_has_args(site) :-
+    call_recv_kind(site, "SUPER"),
+    call_receiver_object(site, superCall),
+    call_of_expr(superCall, superSite),
+    call_arg(superSite, _, _).
+call_super_anchor(site, k, k) :-
+    call_recv_kind(site, "SUPER"),
+    call_enclosing_type(site, k),
+    !call_super_has_args(site).
+// (b) EXPLICIT `super(A, self)` — still valid Python 3. The anchor is written as the
+//     first ARGUMENT of the inner `super` call, so no extra schema column is needed
+//     (the schema says so). The inner call is the receiver OBJECT of this site.
+call_super_explicit_anchor(site, a) :-
+    call_recv_kind(site, "SUPER"),
+    call_receiver_object(site, superCall),
+    call_of_expr(superCall, superSite),
+    call_arg(superSite, "0", argExpr),
+    expr_type_class_object("client", argExpr, a).
+call_super_anchor(site, a, a) :- call_super_explicit_anchor(site, a).
+
+// ── the super() target ───────────────────────────────────────────────────────
+// mro_lookup_after searches only the part of the MRO strictly after the anchor, using
+// the same prec-minimality argument as an ordinary lookup. This is what a set-valued
+// ancestor relation cannot express: the anchor is a POSITION in an order, not a subtree.
+expr_call_candidate(site, m) :-
+    call_super_anchor(site, t, anchor),
+    call_name(site, n),
+    mro_lookup_after("client", t, anchor, n, m).
+
+// ============================================================================
+// (4) NAME receiver — `Base.make_default()`, `Child.of("x")`, `mod.f()`, `obj.m()`
+// ============================================================================
+
+// ── the receiver names a CLASS: an unbound / static / class method ────────────
+// `Child.of("x")` resolves through MRO to Base.of — inherited, and named on the
+// SUBCLASS at the call site. That inheritance hop is the point.
+expr_call_candidate(site, m) :-
+    call_recv_kind(site, rk), rk != "NONE", rk != "SUPER",
+    call_receiver_object(site, obj),
+    expr_type_class_object("client", obj, t),
+    call_name(site, n),
+    mro_lookup("client", t, n, m).
+
+// ── the receiver names a MODULE: `mod.f()` ───────────────────────────────────
+expr_call_candidate(site, m) :-
+    call_recv_kind(site, rk), rk != "NONE", rk != "SUPER",
+    call_receiver_object(site, obj),
+    expr_names_module("client", obj, mod),
+    call_name(site, n),
+    module_member_method("client", mod, n, m).
+
+// ── the receiver names a MODULE and the attribute is a CLASS: `mod.C()` ──────
+call_constructs_type(site, t) :-
+    call_recv_kind(site, rk), rk != "NONE", rk != "SUPER",
+    call_receiver_object(site, obj),
+    expr_names_module("client", obj, mod),
+    call_name(site, n),
+    module_member_type("client", mod, n, t).
+
+// ============================================================================
+// (5) INSTANCE receivers — ATTRIBUTE, CALL_RESULT, NAME-holding-an-instance,
+//     SUBSCRIPT. All go through the SAME rule, because once the receiver
+//     expression has a type the shape stops mattering. That is the payoff of
+//     typing the receiver EXPRESSION rather than special-casing each syntax.
+// ============================================================================
+expr_call_candidate(site, m) :-
+    call_recv_kind(site, rk), rk != "NONE", rk != "SUPER",
+    call_recv_type(site, t),
+    call_name(site, n),
+    mro_lookup("client", t, n, m).
+
+// ── call_recv_type(SiteHash, TypeHash) — the receiver's instance type(s) ─────
+// (a) SELF: the enclosing class, plus the dispatch widening (resolution/dispatch.dl).
+call_recv_type(site, t) :- call_self_dispatch_type(site, t).
+// (b) any other receiver shape: the type of the receiver OBJECT expression.
+//     `self.base.describe()`  -> field type of Holder.base   -> Base
+//     `Sibling().describe()`  -> construction return type    -> Sibling
+//     `d.describe()`          -> single-binding local flow
+call_recv_type(site, t) :-
+    call_recv_kind(site, rk), rk != "NONE", rk != "SUPER", rk != "SELF",
+    call_receiver_object(site, obj),
+    expr_type("client", obj, t).
+
+// ============================================================================
+// (6) DECLARED UNKNOWNS — emitted as POSITIVE facts with a reason.
+//     Conservation is not "we forgot to drop it"; it is a classification.
+// ============================================================================
+
+// ── call_unresolvable(SiteHash, Reason) ──────────────────────────────────────
+// (a) dynamic by construction.
+call_unresolvable(site, "dynamic_call") :- call_is_dynamic(site).
+// (b) the callee is a bare name that resolves to a PARAMETER — the 68.2% shape.
+//     `return fn(*args, **kwargs)` in models.audit.middle.wrapper is exactly this: `fn`
+//     is a free variable bound to `middle`'s parameter, and the only sound statement
+//     about it is that it is whatever the caller passed.
+call_unresolvable(site, "callee_is_parameter") :-
+    call_recv_kind(site, "NONE"),
+    call_callee_expr(site, callee),
+    expr_names_param("client", callee, _).
+// (c) the receiver has no type the engine can derive.
+call_unresolvable(site, cat("untyped_receiver:", reason)) :-
+    call_recv_kind(site, rk), rk != "NONE", rk != "SUPER",
+    call_receiver_object(site, obj),
+    expr_type_untypable("client", obj, reason).
+// (d) the MRO winner for the name is a decorator-replaced def.
+call_unresolvable(site, "decorator_replaced_target") :-
+    call_recv_type(site, t), call_name(site, n), mro_lookup_opaque("client", t, n).
+// (e) the receiver type is known but nothing in its MRO defines the name, AND the
+//     hierarchy has a hole (unresolved base, dynamic base, metaclass, __getattr__).
+call_unresolvable(site, "escape_hatch") :-
+    call_recv_type(site, t), call_name(site, n), mro_lookup_escape_hatch("client", t, n).
+// (f) the callee name resolved to nothing at all and is not a known builtin.
+call_unresolvable(site, "unbound_name") :-
+    call_recv_kind(site, "NONE"),
+    call_callee_expr(site, callee),
+    expr_binding("client", b, _, callee),
+    binding_lookup_unresolved("client", b, n, _),
+    !py_builtin_callable(n).
+
+// ============================================================================
+// (7) BUILTIN BOUNDARY — the callee is known exactly, and is C code.
+//     resolution/builtins.dl explains why this is boundary_lib and not a blind spot.
+// ============================================================================
+
+// ── call_hits_builtin(SiteHash, TargetLabel) ─────────────────────────────────
+// (a) a bare name that resolved to no client declaration but IS a catalogued builtin.
+//     `super()` x 7 on linkage-sample.
+call_hits_builtin(site, label) :-
+    call_recv_kind(site, "NONE"),
+    call_callee_expr(site, callee),
+    expr_binding("client", b, _, callee),
+    binding_lookup_unresolved("client", b, n, _),
+    builtin_target(n, label).
+// (b) a construction of a class with no __init__ and no __new__ anywhere in its MRO:
+//     the target is object.__init__, a C slot. `Sibling()` x 2 on linkage-sample.
+call_hits_builtin(site, label) :-
+    call_constructs_type(site, t),
+    type_constructor_absent("client", t),
+    !type_hierarchy_incomplete("client", t),
+    builtin_object_init_target(label).
+
+// ── call_hits_dynamic_builtin(SiteHash, Name) ────────────────────────────────
+// getattr / eval / exec: not merely outside the IR — they make the program unanalysable
+// at that point. Reported separately so "we cannot see the body" and "nobody can know
+// what runs" are not the same row.
+call_hits_dynamic_builtin(site, n) :-
+    call_recv_kind(site, "NONE"),
+    call_callee_expr(site, callee),
+    expr_binding("client", b, _, callee),
+    binding_lookup_unresolved("client", b, n, _),
+    py_builtin_dynamic(n).
+
+// ============================================================================
+// CROSS-CHECK against the parser's own (run-local) answer
+// ============================================================================
+
+// ── callee_agrees / callee_differs / callee_engine_only / callee_parser_only ──
+// py_call_site.resolvedCalleeHash is run-local: 39 of 49 sites on linkage-sample, all
+// resolving within that one parse, and STRUCTURALLY incapable of matching a library
+// hash. Comparing instead of consuming it means the engine's independence is measured,
+// and a regression in either direction shows up as a diff rather than as a number that
+// happens to stay the same.
+callee_agrees(site, m) :- expr_call_candidate(site, m), csite(site, cs), call_pre_resolved("client", "METHOD", m, cs).
+callee_agrees(site, m) :- expr_call_candidate(site, m), csite(site, cs), call_pre_resolved("client", "MODULE_FUNCTION", m, cs).
+callee_differs(site, mine, theirs) :-
+    expr_call_candidate(site, mine),
+    csite(site, cs), call_pre_resolved("client", k, theirs, cs), theirs != "", theirs != mine,
+    k != "TYPE",
+    !expr_call_candidate(site, theirs).
+callee_engine_only(site) :- expr_call_candidate(site, _), csite(site, cs), call_pre_resolved("client", "UNRESOLVED", _, cs).
+callee_parser_only(site, theirs) :-
+    csite(site, cs), call_pre_resolved("client", k, theirs, cs), theirs != "", k != "TYPE",
+    !expr_call_candidate(site, _).

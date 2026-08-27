@@ -1,0 +1,66 @@
+// ============================================================================
+// EXPORT CONTRACT — DOCUMENTATION ONLY. THIS FILE IS NEVER COMPILED.
+//
+// src/pipeline/run-souffle.sh includes only the five phase directories
+// (projections, containment, resolution, expression-resolution,
+// call-edge-generation). engine/export/ is deliberately outside that loop, and
+// export_manifest.tsv is the ONLY source of .output directives. Putting a
+// `.output` here does nothing — which is exactly the trap this comment exists to
+// close.
+//
+// ── call-chain-edges.csv  (call_chain_edge) ─────────────────────────────────
+// THE primary export. No header row (souffle writes none), tab-separated, 7 columns:
+//
+//   0 Site        the call site. A py_call_site's CALL-expression hash, or — for a
+//                 decorator application, which is a call the parser records in a
+//                 different relation — the decorator's expression hash (or the
+//                 decorator hash when it has no expression node).
+//   1 Caller      the enclosing method. NEVER blank: module-level code is owned by
+//                 the synthetic <module> MODULE_INITIALIZER and class-body code by
+//                 <classbody> (schema §4.2). A "-" here means the parser's
+//                 guarantee broke, and is emitted on purpose so it is visible.
+//   2 ToExpr      "-" — reserved for expression-level linkage. Kept so the column
+//                 count matches Java's call_chain_edge exactly.
+//   3 Callee      a py_method hash (Prov=client), a lib_py_method hash (Prov=lib),
+//                 a `builtin:NAME` label (Prov=builtin), or "-" (unresolved).
+//                 THE LABEL IS DELIBERATELY NOT HASH-SHAPED: no such entity exists
+//                 in any IR, and it must be impossible to mistake for an FK.
+//   4 Prov        client | lib | builtin | -
+//   5 EdgeStatus  known_edge | multi_inferred | boundary_lib | ambiguous_unknown
+//   6 Kind        the schema's own callKind (SIMPLE_CALL, METHOD_CALL, SELF_CALL,
+//                 SUPER_CALL, CHAINED_CALL, DECORATOR_CALL, DYNAMIC_CALL, ...) or
+//                 DECORATOR_<kind> for a decorator application.
+//
+// CONSERVATION IS THE CONTRACT. Every row of py_call_site and every row of
+// py_decorator appears at least once as column 0. test/python/tools/coverage_guard.py
+// asserts it against both inventories, and test/python/ci-conservation.sh gates on it
+// independently of the goldens — because a golden file full of correct edges is
+// perfectly consistent with an engine that quietly discards what it does not
+// understand, and that engine reports excellent precision.
+//
+// ── the four tiers, and what each one PROMISES ──────────────────────────────
+//   known_edge         exactly one resolved client target.
+//   multi_inferred     a SOUND set: the true target is among them. Only three rules
+//                      may produce it, each with a stated argument —
+//                      self-dispatch over constructed subclasses, a multi-write
+//                      attribute's write union, and two incomparable MRO definers
+//                      where C3's tie-break would decide. Nothing else widens a site.
+//   boundary_lib       the callee is named and outside the analysed code.
+//   ambiguous_unknown  a declared blind spot, with a reason in
+//                      call-site-unresolved.csv.
+//
+// ── the companion exports ───────────────────────────────────────────────────
+// call-site-unresolved.csv    every blind spot WITH ITS REASON. A blind spot you can
+//                             name is a work item; one you cannot is a mystery.
+// call-chain-summary.csv      the tier counts and the site total — the conservation
+//                             ledger as data, so the invariant is queryable.
+// resolution-mro-position.csv the ORDERED linearisation, where the engine's
+//                             precedence order is total. resolution-mro-tie.csv is
+//                             where it is not, i.e. exactly where this engine is less
+//                             precise than real C3.
+// crosscheck-*.csv            agreement with the parser's own (run-local)
+//                             pre-resolution. Measured, not assumed.
+// lib-link-missed.csv         calls whose written dotted path names something outside
+//                             the client that no import link explained — the size of
+//                             python-library-linking's remaining work, as a number.
+// ============================================================================

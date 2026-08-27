@@ -1,0 +1,131 @@
+// ============================================================================
+// Projections · TYPES  (pure column views — no joins, no closures)
+//
+// py_type is a `class` statement; py_type_base is ONE BASE-CLASS EXPRESSION and is
+// ORDERED. The order is load-bearing and is the reason this file exists separately
+// from Java's: 12.1% of classes have more than one base, so C3 / MRO is not optional
+// and `position` decides which definition wins.
+//
+// Conventions: views only, one raw base relation per rule body. Base-name RESOLUTION
+// (NAME / DOTTED_NAME / alias / dynamic) is resolution/type-hierarchy.dl's job, and
+// the linearisation itself is resolution/mro.dl's.
+//
+// py_type / lib_py_type cols (25):
+//   0 name  1 qualifiedName  2 fileName  3 typeCategory  4 typeAccess  5 typeModifier
+//   6 typePlacement  7 filePath  8 baseMservPath  9 startLine  10 endLine  11 isExternal
+//   12 pyModuleLinkHash  13 enclosingTypeLinkHash  14 enclosingMethodLinkHash
+//   15 scopeLinkHash  16 classInitMethodLinkHash  17 declaringBindingLinkHash
+//   18 metaclassName  19 baseCount  20 hasDynamicBase  21 mroKind  22 docstring
+//   23 serviceVersionLinkHash  24 pyTypeUniqueHash
+//
+// py_type_base / lib_py_type_base cols (16):
+//   0 baseKind  1 position  2 baseText  3 baseSimpleName  4 baseDottedPath
+//   5 keywordName  6 pyTypeLinkHash  7 pyModuleLinkHash  8 pyExpressionLinkHash
+//   9 pyTypeReferenceLinkHash  10 resolvedTypeLinkHash  11 isResolvedLocally
+//   12 isDynamic  13 startLine  14 serviceVersionLinkHash  15 pyTypeBaseUniqueHash
+// ============================================================================
+
+// ── type_decl(Prov, Name, QualifiedName, TypeCategory, TypeHash) ─────────────
+// QualifiedName is module qname + __qualname__, and is the durable cross-run key
+// that name-based library linking joins on.
+type_decl("client", name, qname, tcat, h) :- py_type(name, qname, _, tcat, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+type_decl("lib", name, qname, tcat, h) :- lib_py_type(name, qname, _, tcat, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── type_module(Prov, ModuleHash, TypeHash) ──────────────────────────────────
+type_module("client", mod, h) :- py_type(_, _, _, _, _, _, _, _, _, _, _, _, mod, _, _, _, _, _, _, _, _, _, _, _, h).
+type_module("lib", mod, h) :- lib_py_type(_, _, _, _, _, _, _, _, _, _, _, _, mod, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── type_scope(Prov, ScopeHash, ClassInitMethodHash, TypeHash) ───────────────
+// The class-body scope and the synthetic <classbody> CLASS_INITIALIZER that owns
+// class-body statements (schema §4.2) — the analogue of Java's <clinit>.
+type_scope("client", scope, initM, h) :- py_type(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, scope, initM, _, _, _, _, _, _, _, h).
+type_scope("lib", scope, initM, h) :- lib_py_type(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, scope, initM, _, _, _, _, _, _, _, h).
+
+// ── type_declaring_binding(Prov, BindingHash, TypeHash) ──────────────────────
+// The name this class binds in its PARENT scope. This is the structural link that
+// makes name->type resolution possible without name matching: a NAME_REFERENCE
+// carries bindingLinkHash, and this says which class that binding declares.
+type_declaring_binding("client", b, h) :- py_type(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, b, _, _, _, _, _, _, h).
+type_declaring_binding("lib", b, h) :- lib_py_type(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, b, _, _, _, _, _, _, h).
+
+// ── type_nesting_decl(Prov, EnclosingTypeHash, EnclosingMethodHash, TypeHash) ──
+// EXPLICIT, unlike Java's — no type_lines line-range trick is needed. A class defined
+// inside a function (60 in the measured corpus) carries the method instead.
+type_nesting_decl("client", encT, encM, h) :- py_type(_, _, _, _, _, _, _, _, _, _, _, _, _, encT, encM, _, _, _, _, _, _, _, _, _, h).
+type_nesting_decl("lib", encT, encM, h) :- lib_py_type(_, _, _, _, _, _, _, _, _, _, _, _, _, encT, encM, _, _, _, _, _, _, _, _, _, h).
+
+// ── type_mro_shape(Prov, BaseCount, HasDynamicBase, MroKind, TypeHash) ───────
+// mroKind in {C3_LINEARIZABLE, SINGLE_INHERITANCE, IMPLICIT_OBJECT, DYNAMIC_UNKNOWN}.
+// IMPLICIT_OBJECT means "no explicit base" — there is NO py_type_base row for the
+// implicit `object`, so a rule that only reads py_type_base would treat such a class
+// as having no ancestors at all. DYNAMIC_UNKNOWN / hasDynamicBase=true is a DECLARED
+// blind spot: the MRO cannot be linearised and any lookup through it must degrade.
+type_mro_shape("client", n, dyn, kind, h) :- py_type(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, n, dyn, kind, _, _, h).
+type_mro_shape("lib", n, dyn, kind, h) :- lib_py_type(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, n, dyn, kind, _, _, h).
+
+// ── type_modifier(Prov, TypeModifier, TypeHash) ──────────────────────────────
+// Comma-set. HAS_GETATTR / HAS_SETATTR / HAS_CALL / CALLABLE_INSTANCE are the
+// dispatch-relevant ones: HAS_GETATTR means a failed attribute lookup on this type is
+// NOT a blind spot in the engine — it is a documented dynamic escape hatch.
+type_modifier("client", m, h) :- py_type(_, _, _, _, _, m, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+type_modifier("lib", m, h) :- lib_py_type(_, _, _, _, _, m, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── type_metaclass(Prov, MetaclassName, TypeHash) ────────────────────────────
+// A metaclass may synthesise methods that no `def` declares. Projected so the
+// resolution layer can mark such a class as dynamically extended rather than assume
+// its method set is complete.
+type_metaclass("client", mc, h) :- py_type(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, mc, _, _, _, _, _, h).
+type_metaclass("lib", mc, h) :- lib_py_type(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, mc, _, _, _, _, _, h).
+
+// ── type_span(Prov, FilePath, StartLine, EndLine, TypeHash) ──────────────────
+type_span("client", p, sl, el, h) :- py_type(_, _, _, _, _, _, _, p, _, sl, el, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+type_span("lib", p, sl, el, h) :- lib_py_type(_, _, _, _, _, _, _, p, _, sl, el, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ============================================================================
+// BASE-CLASS EXPRESSIONS — ordered
+// ============================================================================
+
+// ── type_base_slot(Prov, SubTypeHash, Position, BaseKind, BaseSimpleName, BaseDottedPath, BaseHash) ──
+// ONE POSITIONAL BASE, with its 0-based MRO position. This is the fact C3 needs and
+// that a set-valued ancestor relation cannot express: `class Mixed(Child, Sibling)`
+// and `class Mixed(Sibling, Child)` have the same ancestor SET and different MROs.
+// Keyword rows (metaclass=, total=) carry position "" and are excluded here — they
+// are syntactically bases but semantically are not, so they must not enter the merge.
+type_base_slot("client", sub, pos, kind, simple, dotted, h) :- py_type_base(kind, pos, _, simple, dotted, "", sub, _, _, _, _, _, _, _, _, h), pos != "".
+type_base_slot("lib", sub, pos, kind, simple, dotted, h) :- lib_py_type_base(kind, pos, _, simple, dotted, "", sub, _, _, _, _, _, _, _, _, h), pos != "".
+
+// ── type_base_expr(Prov, BaseHash, BaseExpressionHash, BaseText) ─────────────
+// The base expression node. Needed for the ALIAS case: `class ViaAlias(_Aliased)`
+// where `_Aliased = Base` — the base is name-shaped but resolves through a BINDING,
+// not through an import, so the parser leaves resolvedTypeLinkHash empty and the
+// engine must walk the expression's bindingLinkHash instead.
+type_base_expr("client", h, expr, text) :- py_type_base(_, _, text, _, _, _, _, _, expr, _, _, _, _, _, _, h).
+type_base_expr("lib", h, expr, text) :- lib_py_type_base(_, _, text, _, _, _, _, _, expr, _, _, _, _, _, _, h).
+
+// ── type_base_span(Prov, BaseHash, ModuleHash, StartLine) ────────────────────
+// Module and line of the base expression as WRITTEN. Needed because the documented FK
+// from a base slot to its expression node is empty in practice (see PD-7): with
+// (module, line, position, simple name) the expression is recoverable exactly, and those
+// four are all present.
+type_base_span("client", h, mod, sl) :- py_type_base(_, _, _, _, _, _, _, mod, _, _, _, _, _, sl, _, h).
+type_base_span("lib", h, mod, sl) :- lib_py_type_base(_, _, _, _, _, _, _, mod, _, _, _, _, _, sl, _, h).
+
+// ── type_base_pre_resolved(Prov, BaseHash, ResolvedTypeHash) ─────────────────
+// The parser's OWN base resolution, parser-local. Populated for 7 of 8 bases on
+// linkage-sample (the miss is the assignment alias). Kept as a corroborating source
+// and a cross-check target; resolution/type-hierarchy.dl derives its own answer, so a
+// disagreement is measurable rather than invisible.
+type_base_pre_resolved("client", h, rt) :- py_type_base(_, _, _, _, _, _, _, _, _, _, rt, _, _, _, _, h), rt != "".
+type_base_pre_resolved("lib", h, rt) :- lib_py_type_base(_, _, _, _, _, _, _, _, _, _, rt, _, _, _, _, h), rt != "".
+
+// ── type_base_dynamic(Prov, SubTypeHash, BaseHash) ───────────────────────────
+// baseKind CALL or STARRED — `class C(mixin_factory())`. isDynamic=true. The MRO is
+// unknowable statically; every lookup through this class is a DECLARED unknown.
+type_base_dynamic("client", sub, h) :- py_type_base(_, _, _, _, _, _, sub, _, _, _, _, _, "true", _, _, h).
+type_base_dynamic("lib", sub, h) :- lib_py_type_base(_, _, _, _, _, _, sub, _, _, _, _, _, "true", _, _, h).
+
+// ── type_base_keyword(Prov, SubTypeHash, KeywordName, BaseText, BaseHash) ────
+// metaclass= / total= — carried by py_type_base because a type_reference cannot
+// express them, and excluded from the positional merge above.
+type_base_keyword("client", sub, kw, text, h) :- py_type_base(_, _, text, _, _, kw, sub, _, _, _, _, _, _, _, _, h), kw != "".
+type_base_keyword("lib", sub, kw, text, h) :- lib_py_type_base(_, _, text, _, _, kw, sub, _, _, _, _, _, _, _, _, h), kw != "".

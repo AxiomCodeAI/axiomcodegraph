@@ -1,0 +1,146 @@
+// ============================================================================
+// Projections · EXPRESSIONS  (pure column views — no joins, no closures)
+//
+// py_expression is the spine of call resolution. Cols 0..23 mirror java_expression
+// 0..23; the hash index moves 24 -> 38 and the Python-specific columns append.
+//
+// TWO STRUCTURAL FACTS THAT DIFFER FROM JAVA AND CHANGE EVERY DOWNSTREAM RULE:
+//
+// 1. THERE IS NO OBJECT_CREATION KIND (schema §4.5). `Foo(...)` is syntactically
+//    identical to a call, and `ast` cannot tell a constructor from a function call, so
+//    the parser refuses to guess: kind stays CALL. Construction is therefore something
+//    the ENGINE decides, by resolving the callee to a py_type
+//    (expression-resolution/callee-resolution.dl), not something a projection can read
+//    off a column. Java's `invocation_site(call,"new")` clause has no analogue here.
+//
+// 2. `pyScopeLinkHash` (c24) and `bindingLinkHash` (c26) are the key additions. Java
+//    resolves a name by file; Python resolves it by scope chain. Measured on
+//    linkage-sample: bindingLinkHash is populated on 118 of 118 NAME_REFERENCE nodes,
+//    21 of 21 SELF_REFERENCE and 1 of 1 CLS_REFERENCE — so this, not the (empty)
+//    py_binding.targetEntityHash, is the channel that resolves a bare-name receiver.
+//
+// py_expression / lib_py_expression cols (39):
+//   0 kind  1 edgeRole  2 rootContext  3 expressionOwnerKind  4 pyTypeLinkHash
+//   5 expressionOwnerHash  6 parentExpressionHash  7 position  8 depth  9 literalType
+//   10 literalValue  11 comprehensionKind  12 unaryFixity  13 operatorString
+//   14 referencedEntityKind  15 referencedEntityHash  16 lambdaScopeHash
+//   17 potentialQualifiedName  18 isAmbiguous  19 returnStatementIndex  20 startLine
+//   21 startColumn  22 endLine  23 endColumn  24 pyScopeLinkHash  25 pyModuleLinkHash
+//   26 bindingLinkHash  27 nameContext  28 isWrite  29 argumentKeywordName
+//   30 isAwaited  31 isStarred  32 dottedPath  33 inferredTypeName  34 inferredTypeKind
+//   35 inferenceEvidence  36 inferenceConfidence  37 serviceVersionLinkHash
+//   38 pyExpressionUniqueHash
+// ============================================================================
+
+// ── expr_node(Prov, Kind, EdgeRole, LiteralValue, ExprHash) ──────────────────
+// LiteralValue is THE NAME SLOT (same contract as Java col 10): method name on CALL,
+// attribute name on ATTRIBUTE_ACCESS, identifier on NAME_REFERENCE, literal text on
+// LITERAL.
+expr_node("client", kind, role, lit, h) :- py_expression(kind, role, _, _, _, _, _, _, _, _, lit, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+expr_node("lib", kind, role, lit, h) :- lib_py_expression(kind, role, _, _, _, _, _, _, _, _, lit, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── expr_parent(Prov, ParentExprHash, EdgeRole, Position, ExprHash) ──────────
+// The AST edge. EdgeRole is how the child sits in the parent — RECEIVER, ARGUMENT,
+// KEYWORD_ARGUMENT, STAR_ARGUMENT, DOUBLE_STAR_ARGUMENT, ATTRIBUTE_OBJECT, CALLEE, ...
+// NOTE the trap the schema documents: ELEMENT / KEY / VALUE exist precisely so that a
+// list/tuple/dict display's children do NOT wear ARGUMENT. A rule that joins
+// edgeRole=ARGUMENT to a call site WITHOUT also testing the parent's kind picked up 17%
+// non-arguments on the flow corpus. Every argument rule below tests the parent kind.
+expr_parent("client", parent, role, pos, h) :- py_expression(_, role, _, _, _, _, parent, pos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), parent != "".
+expr_parent("lib", parent, role, pos, h) :- lib_py_expression(_, role, _, _, _, _, parent, pos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), parent != "".
+
+// ── expr_owner(Prov, OwnerKind, OwnerHash, TypeHash, ExprHash) ───────────────
+// OwnerKind in {MODULE, TYPE, METHOD, LAMBDA, BLOCK, FIELD, BINDING,
+// METHOD_PARAMETER, DECORATOR, IMPORT, COMPREHENSION_SCOPE}; OwnerHash polymorphic.
+expr_owner("client", ok, oh, t, h) :- py_expression(_, _, _, ok, t, oh, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+expr_owner("lib", ok, oh, t, h) :- lib_py_expression(_, _, _, ok, t, oh, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── expr_scope(Prov, ScopeHash, ModuleHash, ExprHash) ────────────────────────
+// THE SCOPE THIS EXPRESSION EVALUATES IN. The single most important added column.
+expr_scope("client", s, m, h) :- py_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, s, m, _, _, _, _, _, _, _, _, _, _, _, _, h).
+expr_scope("lib", s, m, h) :- lib_py_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, s, m, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── expr_binding(Prov, BindingHash, NameContext, ExprHash) ───────────────────
+// This node reads or writes a bound name. NameContext mirrors ast.Load/Store/Del
+// exactly, so a STORE node is an assignment TARGET and must never be read as a use.
+expr_binding("client", b, ctx, h) :- py_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, b, ctx, _, _, _, _, _, _, _, _, _, _, h), b != "".
+expr_binding("lib", b, ctx, h) :- lib_py_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, b, ctx, _, _, _, _, _, _, _, _, _, _, h), b != "".
+
+// ── expr_ref_entity(Prov, ReferencedEntityKind, ReferencedEntityHash, ExprHash) ──
+// The parser's own name->entity answer for this node. KINDS THAT MATTER TO DISPATCH:
+//   SELF / CLS   the receiver of an instance / class method
+//   SUPER        a reference to the `super` builtin — how a super() site is recognised
+//   TYPE         a class reference (populated with a real py_type FK: measured
+//                present on every capitalised base/receiver name in linkage-sample)
+//   FIELD        an attribute access resolved to a py_field
+// Projected as-is; interpretation is resolution/'s.
+expr_ref_entity("client", k, t, h) :- py_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, k, t, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+expr_ref_entity("lib", k, t, h) :- lib_py_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, k, t, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── expr_name_context(Prov, NameContext, ExprHash) ───────────────────────────
+// LOAD | STORE | DEL, mirroring ast.Load/Store/Del. Projected UNCONDITIONALLY, unlike
+// expr_binding which needs a binding: an ATTRIBUTE_ACCESS has no binding at all
+// (`self.base` binds no name), so a STORE-side attribute write is only reachable
+// through this view. That is what makes `self.x = ...` recoverable as a write site.
+expr_name_context("client", ctx, h) :- py_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ctx, _, _, _, _, _, _, _, _, _, _, h).
+expr_name_context("lib", ctx, h) :- lib_py_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ctx, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── expr_position(Prov, EdgeRole, Position, Depth, ExprHash) ─────────────────
+// The node's ordinal among siblings in the same edgeRole, projected WITHOUT requiring a
+// parent. expr_parent only covers non-root nodes, and a BASE_CLASS expression is a ROOT
+// in this IR (parentExpressionHash "") while still carrying the position that says WHICH
+// base it is — which is the ordering C3 depends on.
+expr_position("client", role, pos, d, h) :- py_expression(_, role, _, _, _, _, _, pos, d, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+expr_position("lib", role, pos, d, h) :- lib_py_expression(_, role, _, _, _, _, _, pos, d, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── expr_dotted_path(Prov, DottedPath, ExprHash) ─────────────────────────────
+// The full `a.b.c` text of an attribute chain. 16% of receivers are depth-2 chains.
+// This is what name-based LIBRARY linking matches against a lib qualifiedName, since
+// no hash can cross a parser-run boundary.
+expr_dotted_path("client", d, h) :- py_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, d, _, _, _, _, _, h), d != "".
+expr_dotted_path("lib", d, h) :- lib_py_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, d, _, _, _, _, _, h), d != "".
+
+// ── expr_inferred_type(Prov, InferredTypeName, InferredTypeKind, Evidence, Confidence, ExprHash) ──
+// The parser's SYNTACTIC-ONLY inference (folded in from the deleted py_type_inference).
+// Evidence is LITERAL / COLLECTION_LITERAL / FSTRING / COMPREHENSION / ANNOTATION /
+// CAST / DEFAULT_VALUE — never CONSTRUCTOR_CALL, because deciding that `Foo(...)`
+// constructs requires resolving Foo, which is the engine's job. Confidence CERTAIN
+// means `ast` proves it (`x = 3` -> int).
+expr_inferred_type("client", tn, tk, ev, conf, h) :- py_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, tn, tk, ev, conf, _, h), tn != "".
+expr_inferred_type("lib", tn, tk, ev, conf, h) :- lib_py_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, tn, tk, ev, conf, _, h), tn != "".
+
+// ── expr_keyword_arg(Prov, KeywordName, ExprHash) ────────────────────────────
+// The `k` in `f(k=v)`. 12,000 keyword arguments in the corpus: without this column,
+// argument->parameter flow can only link positionally and silently loses them.
+expr_keyword_arg("client", k, h) :- py_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, k, _, _, _, _, _, _, _, _, h), k != "".
+expr_keyword_arg("lib", k, h) :- lib_py_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, k, _, _, _, _, _, _, _, _, h), k != "".
+
+// ── expr_starred(Prov, ExprHash) ─────────────────────────────────────────────
+// `*x` / `**x` in a call or a literal. A starred argument makes positional
+// argument->parameter flow unsound at this site (see py_call_site.argFlowIsPrecise).
+expr_starred("client", h) :- py_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, h).
+expr_starred("lib", h) :- lib_py_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, h).
+
+// ── expr_lambda_scope(Prov, LambdaScopeHash, ExprHash) ───────────────────────
+// The scope a LAMBDA or comprehension node introduces (Java's anonymousTypeHash slot).
+// Lambdas are first-class call targets in Python, so this is a dispatch edge, not
+// decoration.
+expr_lambda_scope("client", s, h) :- py_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, s, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), s != "".
+expr_lambda_scope("lib", s, h) :- lib_py_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, s, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), s != "".
+
+// ── expr_root_context(Prov, RootContext, ExprHash) ───────────────────────────
+// The statement form the root sits in. MODULE_LEVEL_STATEMENT marks import-time
+// execution; DECORATOR marks a decorator application, which is a CALL that replaces
+// its target rather than an ordinary call.
+expr_root_context("client", rc, h) :- py_expression(_, _, rc, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+expr_root_context("lib", rc, h) :- lib_py_expression(_, _, rc, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── expr_span(Prov, StartLine, StartColumn, ExprHash) ────────────────────────
+expr_span("client", sl, sc, h) :- py_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, sl, sc, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+expr_span("lib", sl, sc, h) :- lib_py_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, sl, sc, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── expr_is_ambiguous(Prov, ExprHash) ────────────────────────────────────────
+// The parser could not decide what this node refers to. A DECLARED uncertainty:
+// downstream must not treat a resolution over an ambiguous node as known.
+expr_is_ambiguous("client", h) :- py_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+expr_is_ambiguous("lib", h) :- lib_py_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).

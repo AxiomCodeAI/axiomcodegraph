@@ -1,0 +1,28 @@
+// ============================================================================
+// CONTAINMENT · TYPE NESTING
+//
+// Python's nesting is EXPLICIT: py_type carries enclosingTypeLinkHash (c13) and
+// enclosingMethodLinkHash (c14). Java has to reconstruct it from line ranges
+// (java_type_lines), and this file exists mainly to say that the trick is unnecessary
+// here — and to close the relation transitively, which is the part that is still work.
+//
+// A class defined inside a FUNCTION (60 in the measured corpus) is not a Java shape at
+// all: it is local to one invocation, so its methods are reachable only through that
+// function.
+// ============================================================================
+
+// ── type_enclosing(Prov, TypeHash, EnclosingTypeHash) ────────────────────────
+type_enclosing(p, t, enc) :- type_nesting_decl(p, enc, _, t), enc != "".
+
+// ── type_enclosed_in_method(Prov, TypeHash, EnclosingMethodHash) ─────────────
+// LOCAL_PLACEMENT — the class exists only while that call frame does.
+type_enclosed_in_method(p, t, m) :- type_nesting_decl(p, _, m, t), m != "".
+
+// ── type_nest_ancestor(Prov, TypeHash, OuterTypeHash) ────────────────────────
+type_nest_ancestor(p, t, o) :- type_enclosing(p, t, o).
+type_nest_ancestor(p, t, o) :- type_enclosing(p, t, mid), type_nest_ancestor(p, mid, o).
+
+// ── type_top_level(Prov, TypeHash) ───────────────────────────────────────────
+// No enclosing type and no enclosing method. Stratified negation: type_nesting_decl is
+// a projection, computed before this.
+type_top_level(p, t) :- type_nesting_decl(p, "", "", t).

@@ -1,0 +1,39 @@
+// ============================================================================
+// CALL-EDGE-GEN · CLIENT CALL EDGES  (provenance-split resolved edges)
+//
+// Mirrors java/engine/call-edge-generation/calls.dl: consume the disambiguated callee
+// set and split it by whether the callee is CLIENT or LIBRARY code, so a row is
+// self-describing.
+//
+// WHAT IS NOT PORTED, and why. Java's lib-boundary gate (lib_shadowed_for /
+// lib_target_kept) exists because method_name_in_type hands callee-resolution EVERY
+// declaration of a name reachable from the receiver's type, and Java binds exactly the
+// NEAREST one. Python's equivalent narrowing happens EARLIER and differently: the MRO's
+// prec-minimality (resolution/attribute-lookup.dl) already selects the winner, and it
+// does so on an ORDER rather than on a subtype test — which is the whole reason C3 is
+// needed. So there is nothing left to suppress at boundary-emission time, and a copy of
+// Java's gate here would be dead code pretending to be a safeguard.
+// ============================================================================
+
+// ── client_calls_client(CallerProv, SiteHash, CalleeProv, CalleeMethodHash) ──
+client_calls_client("client", site, "client", callee) :-
+    expr_resolves_to_method(site, callee),
+    method_owner("client", _, callee).
+// Module-level and nested functions have no owning class, so method_owner does not
+// cover them — and they are 16% of functions plus every closure. Java has no analogue
+// of this clause because Java has no code outside a class.
+client_calls_client("client", site, "client", callee) :-
+    expr_resolves_to_method(site, callee),
+    method_module_level("client", _, callee).
+
+// ── client_calls_lib(CallerProv, SiteHash, CalleeProv, LibMethodHash) ────────
+// Reached by NAME, never by hash (resolution/lib-linking.dl). Not expanded: the chain
+// ENDS at the library in a client-only build.
+client_calls_lib("client", site, "lib", callee) :- call_hits_lib_method(site, callee).
+
+// ── client_calls_builtin(CallerProv, SiteHash, TargetLabel) ──────────────────
+// A CPython C-level callable: `super()`, `object.__init__` for a class with no
+// constructor anywhere in its MRO. The callee is known exactly and has no Python source
+// in ANY IR, so the target is a LABEL, not a hash — deliberately not hash-shaped, so it
+// can never be mistaken for a py_method FK.
+client_calls_builtin("client", site, label) :- call_hits_builtin(site, label).

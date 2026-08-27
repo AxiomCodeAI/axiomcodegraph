@@ -1,0 +1,65 @@
+// ============================================================================
+// Projections · MODULES  (pure column views — no joins, no closures)
+//
+// A Python module is a first-class runtime namespace and the unit of import
+// resolution; Java has no analogue (its package is implicit in qualifiedName).
+// These views are what the import/name-resolution layer joins against — the join
+// itself lives in resolution/, never here.
+//
+// Conventions (identical to java/engine/projections):
+//   - Views only. One raw base relation per rule body. No joins.
+//   - First column is a provenance tag ("client" / "lib") so a downstream layer
+//     can classify an edge as C->C vs C->L without re-deriving where a row came from.
+//
+// py_module / lib_py_module cols (24):
+//   0 name  1 qualifiedName  2 fileName  3 filePath  4 baseMservPath  5 moduleKind
+//   6 packageQualifiedName  7 isPackage  8 isStub  9 pythonDialect  10 targetVersion
+//   11 emissionRegime  12 grammarUsed  13 futureImports  14 encodingDeclared
+//   15 hasModuleDocstring  16 hasDunderAll  17 dunderAllIsStatic  18 dunderAllNames
+//   19 moduleInitMethodLinkHash  20 moduleScopeLinkHash  21 isExternal
+//   22 serviceVersionLinkHash  23 pyModuleUniqueHash
+// ============================================================================
+
+// ── module_decl(Prov, Name, QualifiedName, ModuleKind, ModuleHash) ───────────
+// The module's identity. QualifiedName is the dotted path and is the ONLY durable
+// cross-run key: a hash minted by one parser run cannot match another's (the
+// library IR is parsed separately), so name-based linking keys on this.
+module_decl("client", name, qname, kind, h) :- py_module(name, qname, _, _, _, kind, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+module_decl("lib", name, qname, kind, h) :- lib_py_module(name, qname, _, _, _, kind, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── module_package(Prov, PackageQualifiedName, IsPackage, ModuleHash) ────────
+// Which package contains this module, and whether the module IS a package
+// (__init__.py). Relative-import resolution walks this.
+module_package("client", pkg, isPkg, h) :- py_module(_, _, _, _, _, _, pkg, isPkg, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+module_package("lib", pkg, isPkg, h) :- lib_py_module(_, _, _, _, _, _, pkg, isPkg, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── module_init(Prov, ModuleInitMethodHash, ModuleScopeHash, ModuleHash) ─────
+// The synthetic <module> initializer (schema §4.2) and the module scope. Every
+// module-level statement is owned by that method, which is why the containment
+// layer never sees an empty owner and Java's ownership rules port unchanged.
+module_init("client", initM, scope, h) :- py_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, initM, scope, _, _, h).
+module_init("lib", initM, scope, h) :- lib_py_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, initM, scope, _, _, h).
+
+// ── module_regime(Prov, Dialect, EmissionRegime, ModuleHash) ─────────────────
+// Dialect is a DETECTION signal (PY2_DETECTED_REJECTED means no facts are trustworthy);
+// emissionRegime is a property of the analysis RUN and decides comprehension scoping
+// (PY3_0_11 emits a comprehension scope, PY3_12_PLUS does not — schema §4.4).
+module_regime("client", dialect, regime, h) :- py_module(_, _, _, _, _, _, _, _, _, dialect, _, regime, _, _, _, _, _, _, _, _, _, _, _, h).
+module_regime("lib", dialect, regime, h) :- lib_py_module(_, _, _, _, _, _, _, _, _, dialect, _, regime, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── module_exports(Prov, HasDunderAll, DunderAllIsStatic, DunderAllNames, ModuleHash) ──
+// __all__. dunderAllNames is authoritative ONLY when dunderAllIsStatic is true
+// (2 of 65 in the measured corpus are dynamically built); a re-export check that
+// ignores the flag silently hides public API.
+module_exports("client", has, isStatic, names, h) :- py_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, has, isStatic, names, _, _, _, _, h).
+module_exports("lib", has, isStatic, names, h) :- lib_py_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, has, isStatic, names, _, _, _, _, h).
+
+// ── module_file(Prov, FilePath, ModuleHash) ──────────────────────────────────
+module_file("client", path, h) :- py_module(_, _, _, path, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+module_file("lib", path, h) :- lib_py_module(_, _, _, path, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── module_wildcard_marker(Prov, GrammarUsed, ModuleHash) ────────────────────
+// TS_PYTHON3_PARTIAL means at least one py_parse_gap row exists for this module —
+// i.e. some construct was recorded as unrepresentable. Reported, never repaired.
+module_grammar("client", g, h) :- py_module(_, _, _, _, _, _, _, _, _, _, _, _, g, _, _, _, _, _, _, _, _, _, _, h).
+module_grammar("lib", g, h) :- lib_py_module(_, _, _, _, _, _, _, _, _, _, _, _, g, _, _, _, _, _, _, _, _, _, _, h).

@@ -1,0 +1,280 @@
+// ============================================================================
+// RESOLUTION · NAME RESOLUTION  (name -> declaration, scope-correct)
+//
+// This is the layer the projections deliberately refuse to be: it JOINS. Python
+// resolves a name by walking a scope chain, so "which declaration does this name
+// mean" is a graph question, not a column read.
+//
+// WHY THIS EXISTS AT ALL — the measurement that decided it:
+//   py_binding.targetEntityKind / targetEntityHash are the schema's designated
+//   name->entity channel. On linkage-sample they are "NONE" / "" on 195 of 195 rows.
+//   So the channel is empty and the engine must derive the answer itself.
+//   (Filed as PD-1. binding_pre_target is projected anyway, purely so the agreement
+//   rate is measurable instead of assumed.)
+//
+// WHAT IS USED INSTEAD — four STRUCTURAL links, all populated:
+//   py_method.declaringBindingLinkHash (c23)  a `def` -> the binding it creates
+//   py_type.declaringBindingLinkHash   (c17)  a `class` -> the binding it creates
+//   py_import.bindingLinkHash          (c21)  an import -> the binding it creates
+//   py_expression.bindingLinkHash      (c26)  a NAME_REFERENCE -> the binding it reads
+//
+// Composing those four gives name resolution WITH NO NAME MATCHING: the scope chain is
+// already baked into the binding identity (PK is md5(scope || name)), so a nested
+// `register` cannot be confused with a module-level function of the same name, and a
+// same-named method in two unrelated classes cannot collide. That property is what a
+// name-keyed resolver gets wrong, and it is why this is worth deriving rather than
+// approximating.
+// ============================================================================
+
+expr_has_parent(p, e) :- expr_parent(p, _, _, _, e).
+
+// ── assign_pair(Prov, TargetExprHash, ValueExprHash) ─────────────────────────
+// `target = value`. TWO CLAUSES BECAUSE TWO IR SHAPES ARE IN CIRCULATION and both are
+// valid instances of the frozen schema:
+//   (a) CURRENT — an ASSIGNMENT node parents an ASSIGNMENT_TARGET and an
+//       ASSIGNMENT_VALUE child. Present in the 3.10.4 library IR (20,531 ASSIGNMENT
+//       nodes in the _stdlib_base shard alone).
+//   (b) LEGACY — no ASSIGNMENT node: target and value are separate ROOTS
+//       (parentExpressionHash = "") carrying rootContext ASSIGNMENT_TARGET /
+//       ASSIGNMENT_VALUE. This is what Parser/analysis-results/python/linkage-sample
+//       contains: 0 ASSIGNMENT nodes, 24 target roots, 24 value roots.
+// The clauses are naturally disjoint — in shape (a) neither node is a root — so
+// supporting both costs nothing and the engine is not hostage to one parser version.
+// Filed as PD-2: shape (b) can only pair a target with its value by (scope, line),
+// which a tuple unpack or two assignments on one line makes ambiguous.
+assign_pair(p, tgt, val) :-
+    expr_node(p, "ASSIGNMENT", _, _, a),
+    expr_parent(p, a, "ASSIGNMENT_TARGET", _, tgt),
+    expr_parent(p, a, "ASSIGNMENT_VALUE", _, val).
+assign_pair(p, tgt, val) :-
+    expr_root_context(p, "ASSIGNMENT_TARGET", tgt), !expr_has_parent(p, tgt),
+    expr_root_context(p, "ASSIGNMENT_VALUE", val), !expr_has_parent(p, val),
+    expr_scope(p, s, _, tgt), expr_scope(p, s, _, val),
+    expr_span(p, line, _, tgt), expr_span(p, line, _, val).
+
+// ============================================================================
+// BINDING -> DECLARATION
+// ============================================================================
+
+// ── binding_binds_method(Prov, BindingHash, MethodHash) ──────────────────────
+binding_binds_method(p, b, m) :- method_declaring_binding(p, b, m).
+
+// ── binding_binds_type(Prov, BindingHash, TypeHash) ──────────────────────────
+binding_binds_type(p, b, t) :- type_declaring_binding(p, b, t), b != "".
+
+// ── binding_binds_param(Prov, BindingHash, ParamHash) ────────────────────────
+// A parameter. THE HONEST DEAD END: 68.2% of parameters carry no annotation, so a
+// call through one is not resolvable from the declaration alone. Recorded as a
+// positive fact so callee-resolution can say WHY a site is unresolved rather than
+// simply failing to match.
+binding_binds_param(p, b, prm) :- param_binding(p, b, prm).
+
+// ── import-bound names ───────────────────────────────────────────────────────
+// py_import.resolvedTargetKind/Hash is an IN-REPO FK and is trustworthy inside one
+// parse (13 of 13 in-repo imports resolved on linkage-sample). An import that did
+// NOT resolve in-repo is the frontier for name-based library linking, handled in
+// resolution/lib-linking.dl — never guessed here.
+import_binds_type(p, b, t) :- import_binding(p, b, i), import_resolved_target(p, "TYPE", t, i).
+import_binds_method(p, b, m) :- import_binding(p, b, i), import_resolved_target(p, "FUNCTION", m, i).
+import_binds_module(p, b, mod) :- import_binding(p, b, i), import_resolved_target(p, "MODULE", mod, i).
+import_binds_module(p, b, mod) :- import_binding(p, b, i), import_resolved_target(p, "PACKAGE", mod, i).
+import_binds_module(p, b, mod) :- import_binding(p, b, i), import_is_module(p, i), import_resolved_module(p, mod, i).
+// `from . import models` — resolvedTargetKind is MODULE but resolvedTargetHash is "" and
+// isModuleImport is false, so neither of the clauses above fires. The module hash lives
+// in resolvedModuleLinkHash. PD-8.
+import_binds_module(p, b, mod) :-
+    import_binding(p, b, i), import_resolved_kind(p, "MODULE", i), import_resolved_module(p, mod, i).
+import_binds_module(p, b, mod) :-
+    import_binding(p, b, i), import_resolved_kind(p, "PACKAGE", i), import_resolved_module(p, mod, i).
+
+// ============================================================================
+// LEGB — the reference-side binding is NOT the declaration-side binding
+// ============================================================================
+//
+// THE TRAP THAT MAKES THIS SECTION NECESSARY. py_binding is one row per (SCOPE, name),
+// exactly symtable.Symbol — so `combine_all` referenced inside `Base.render` is a
+// DIFFERENT binding row from the `combine_all` that models.py's module scope declares.
+// The reference-side row has bindingKind=GLOBAL_IMPLICIT and bindingCount=0; the
+// declaration-side row has origin=FUNCTION_DEF and carries the
+// method.declaringBindingLinkHash link. Joining an expression's bindingLinkHash
+// straight to declaringBindingLinkHash therefore resolves NOTHING for any
+// cross-scope reference — measured on linkage-sample: 6 of 7 `combine_all` bindings,
+// 5 of 8 `Base` bindings and every `super` binding are reference-side rows.
+//
+// So the chain is: expression -> reference-side binding -> LEGB WALK -> declaration-side
+// binding -> declaration. The walk is driven by symtable's OWN classification of the
+// name, not by a guess, which is what makes it exact:
+//
+//   LOCAL, PARAMETER, CELL, MODULE_LEVEL, CLASS_ATTRIBUTE, IMPORTED, ANNOTATED_ONLY
+//       the name is bound HERE. Reflexive.
+//   GLOBAL_IMPLICIT, GLOBAL_EXPLICIT
+//       CPython resolves it at MODULE scope — directly, not by nearest-enclosing. Using
+//       a nearest-enclosing walk here would be wrong: an intervening function that
+//       happens to bind the same name is exactly what GLOBAL means to skip.
+//   FREE, NONLOCAL
+//       the closure case: the NEAREST ENCLOSING scope that binds the name. This is the
+//       one place a distance comparison is needed, and it is done with a max aggregate
+//       over nestingDepth in a separate stratum.
+//   BUILTIN, UNKNOWN
+//       no client declaration exists. Deliberately produces NO row, so the site falls
+//       through to resolution/builtins.dl instead of being silently dropped.
+
+// ── binding_is_local_kind(Prov, BindingHash) ─────────────────────────────────
+binding_is_local_kind(p, b) :- binding_decl(p, _, _, "LOCAL", _, b).
+binding_is_local_kind(p, b) :- binding_decl(p, _, _, "PARAMETER", _, b).
+binding_is_local_kind(p, b) :- binding_decl(p, _, _, "CELL", _, b).
+binding_is_local_kind(p, b) :- binding_decl(p, _, _, "MODULE_LEVEL", _, b).
+binding_is_local_kind(p, b) :- binding_decl(p, _, _, "CLASS_ATTRIBUTE", _, b).
+binding_is_local_kind(p, b) :- binding_decl(p, _, _, "IMPORTED", _, b).
+binding_is_local_kind(p, b) :- binding_decl(p, _, _, "ANNOTATED_ONLY", _, b).
+
+// ── binding_is_global_kind / binding_is_free_kind ────────────────────────────
+binding_is_global_kind(p, b) :- binding_decl(p, _, _, "GLOBAL_IMPLICIT", _, b).
+binding_is_global_kind(p, b) :- binding_decl(p, _, _, "GLOBAL_EXPLICIT", _, b).
+binding_is_free_kind(p, b) :- binding_decl(p, _, _, "FREE", _, b).
+binding_is_free_kind(p, b) :- binding_decl(p, _, _, "NONLOCAL", _, b).
+
+// ── binding_lookup(Prov, ReferenceBinding, DeclarationBinding) ───────────────
+// (a) bound here.
+binding_lookup(p, b, b) :- binding_is_local_kind(p, b).
+// (b) GLOBAL — resolve at the module scope of the module the reference is in.
+binding_lookup(p, b, b2) :-
+    binding_is_global_kind(p, b),
+    binding_decl(p, n, _, _, _, b),
+    binding_owner(p, mod, _, b),
+    module_init(p, _, modScope, mod),
+    binding_decl(p, n, modScope, _, _, b2).
+// (c) FREE / NONLOCAL — nearest enclosing scope that binds the name. Candidate set
+//     first, then the max-depth filter in the next stratum.
+binding_free_candidate(p, b, b2, d) :-
+    binding_is_free_kind(p, b),
+    binding_decl(p, n, s, _, _, b),
+    scope_ancestor(p, s, anc),
+    binding_decl(p, n, anc, _, _, b2),
+    scope_depth(p, dstr, _, anc),
+    d = to_number(dstr).
+binding_free_nearest_depth(p, b, dmax) :-
+    binding_free_candidate(p, b, _, _),
+    dmax = max d : { binding_free_candidate(p, b, _, d) }.
+binding_lookup(p, b, b2) :-
+    binding_free_nearest_depth(p, b, dmax),
+    binding_free_candidate(p, b, b2, dmax).
+
+// ── binding_lookup_unresolved(Prov, ReferenceBinding, Name, BindingKind) ─────
+// A reference-side binding whose LEGB walk found no declaration. THE HONEST FRONTIER:
+// a builtin (`super`, `len`, `object`), a name from `from x import *`, or a genuine
+// NameError. Emitted as a positive fact so a call through it can be classified by
+// REASON rather than simply failing to match. `super` accounts for 7 of these on
+// linkage-sample and is picked up by resolution/builtins.dl.
+binding_lookup_unresolved(p, b, n, kind) :-
+    binding_decl(p, n, _, kind, _, b), !binding_lookup(p, b, _).
+
+// ── expr_names_*_direct — the non-aliasing half, to break the recursion ──────
+// binding_alias_type reads expr_names_type_direct rather than expr_names_type, so an
+// alias chain (`A = B; C = A`) resolves one hop and does not recurse through itself.
+// One hop is what the measured corpus needs; a longer chain degrades to unresolved,
+// which is a declared gap rather than a wrong answer.
+expr_names_type_direct(p, e, t) :- expr_binding(p, b, ctx, e), ctx != "STORE", binding_lookup(p, b, b2), binding_binds_type(p, b2, t).
+expr_names_type_direct(p, e, t) :- expr_binding(p, b, ctx, e), ctx != "STORE", binding_lookup(p, b, b2), import_binds_type(p, b2, t).
+expr_names_method_direct(p, e, m) :- expr_binding(p, b, ctx, e), ctx != "STORE", binding_lookup(p, b, b2), binding_binds_method(p, b2, m).
+expr_names_method_direct(p, e, m) :- expr_binding(p, b, ctx, e), ctx != "STORE", binding_lookup(p, b, b2), import_binds_method(p, b2, m).
+
+// ── binding_alias_type(Prov, BindingHash, TypeHash) ──────────────────────────
+// `_Aliased = Base` — a name bound to a CLASS by assignment, not by class statement
+// and not by import. This is the shape that made the linkage-sample's ViaAlias base
+// unresolvable for the parser (isResolvedLocally=false, resolvedTypeLinkHash="").
+//
+// SOUNDNESS ARGUMENT, and why this is not evaluation-in-disguise:
+//   the rule is guarded on bindingCount = "1", i.e. symtable itself reports exactly ONE
+//   binding site for this name in this scope. A name bound once, to a NAME_REFERENCE
+//   that resolves to a class, cannot afterwards refer to anything else — so the answer
+//   needs the binding, not an interpreter. A name bound twice gets NO row here and
+//   falls through to ambiguous_unknown, which is the honest outcome for
+//   `X = A if cond else B`.
+binding_alias_type(p, b, t) :-
+    binding_decl(p, _, _, _, "ASSIGNMENT", b),
+    binding_rebinding(p, "1", _, _, b),
+    expr_binding(p, b, "STORE", tgt),
+    assign_pair(p, tgt, val),
+    expr_names_type_direct(p, val, t).
+
+// ── binding_alias_method(Prov, BindingHash, MethodHash) ──────────────────────
+// The same shape for a function value: `handler = do_work`. Python treats functions as
+// first-class, so this is an ordinary idiom, not a corner case.
+binding_alias_method(p, b, m) :-
+    binding_decl(p, _, _, _, "ASSIGNMENT", b),
+    binding_rebinding(p, "1", _, _, b),
+    expr_binding(p, b, "STORE", tgt),
+    assign_pair(p, tgt, val),
+    expr_names_method_direct(p, val, m).
+
+// ============================================================================
+// NAME -> DECLARATION, the union the rest of the engine consumes
+// ============================================================================
+
+name_binding_type(p, b, t) :- binding_binds_type(p, b, t).
+name_binding_type(p, b, t) :- import_binds_type(p, b, t).
+name_binding_type(p, b, t) :- binding_alias_type(p, b, t).
+name_binding_method(p, b, m) :- binding_binds_method(p, b, m).
+name_binding_method(p, b, m) :- import_binds_method(p, b, m).
+name_binding_method(p, b, m) :- binding_alias_method(p, b, m).
+name_binding_module(p, b, mod) :- import_binds_module(p, b, mod).
+
+// ── expr_names_type(Prov, ExprHash, TypeHash) ────────────────────────────────
+// This expression NODE denotes a class. nameContext != "STORE" excludes assignment
+// targets: `Base = something` reads the name in the wrong direction.
+expr_names_type(p, e, t) :- expr_binding(p, b, ctx, e), ctx != "STORE", binding_lookup(p, b, b2), name_binding_type(p, b2, t).
+
+// ── expr_names_method(Prov, ExprHash, MethodHash) ────────────────────────────
+expr_names_method(p, e, m) :- expr_binding(p, b, ctx, e), ctx != "STORE", binding_lookup(p, b, b2), name_binding_method(p, b2, m).
+
+// ── expr_names_module(Prov, ExprHash, ModuleHash) ────────────────────────────
+expr_names_module(p, e, mod) :- expr_binding(p, b, ctx, e), ctx != "STORE", binding_lookup(p, b, b2), name_binding_module(p, b2, mod).
+
+// ── expr_names_param(Prov, ExprHash, ParamHash) ──────────────────────────────
+// The declared blind spot, made explicit.
+expr_names_param(p, e, prm) :- expr_binding(p, b, ctx, e), ctx != "STORE", binding_lookup(p, b, b2), binding_binds_param(p, b2, prm).
+
+// ============================================================================
+// MODULE MEMBER LOOKUP — `models.Base`, the asyncio house style
+// ============================================================================
+
+// ── module_member_type(Prov, ModuleHash, Name, TypeHash) ─────────────────────
+// A class declared in a module, addressable as `mod.Name`. Uses the TYPE's own module
+// FK plus its simple name — a join within one module, so no cross-module name
+// matching is involved.
+module_member_type(p, mod, n, t) :- type_module(p, mod, t), type_decl(p, n, _, _, t).
+
+// ── module_member_method(Prov, ModuleHash, Name, MethodHash) ─────────────────
+// A module-level function, addressable as `mod.name`. Restricted to method_module_level
+// so a CLASS method is never mistaken for a module member.
+module_member_method(p, mod, n, m) :- method_module_level(p, mod, m), method_decl(p, n, _, _, _, m).
+
+// ── expr_attr_names_type(Prov, ExprHash, TypeHash) ───────────────────────────
+// An ATTRIBUTE_ACCESS whose object denotes a module and whose attribute name is a
+// class in it: `models.Base`. The two-step resolution a MODULE_IMPORT requires, and
+// the reason `class DottedChild(models.Base)` links without a name match.
+expr_attr_names_type(p, e, t) :-
+    expr_node(p, "ATTRIBUTE_ACCESS", _, attrName, e),
+    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_names_module(p, obj, mod),
+    module_member_type(p, mod, attrName, t).
+
+// ── expr_attr_names_method(Prov, ExprHash, MethodHash) ───────────────────────
+expr_attr_names_method(p, e, m) :-
+    expr_node(p, "ATTRIBUTE_ACCESS", _, attrName, e),
+    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_names_module(p, obj, mod),
+    module_member_method(p, mod, attrName, m).
+
+// ============================================================================
+// CROSS-CHECK — measurable agreement with the parser's own answers
+// ============================================================================
+
+// ── name_resolution_agrees / name_resolution_differs(Prov, ExprHash, ...) ────
+// py_expression.referencedEntityKind/Hash carries the parser's answer for a name node.
+// Comparing rather than consuming it means a divergence is a reportable row instead of
+// an invisible assumption. Exported, so a regression in either direction is a diff.
+name_resolution_agrees(p, e, t) :- expr_names_type(p, e, t), expr_ref_entity(p, "TYPE", t, e).
+name_resolution_differs(p, e, mine, theirs) :-
+    expr_names_type(p, e, mine), expr_ref_entity(p, "TYPE", theirs, e), theirs != "", theirs != mine.
