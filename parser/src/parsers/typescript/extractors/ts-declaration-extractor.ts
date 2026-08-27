@@ -192,8 +192,8 @@ export class TsDeclarationExtractor {
     // walk — is what guarantees EVERY function type gets one, wherever it was
     // written: an annotation, a type alias RHS, a nested union member, a type
     // argument. Enumerating those positions by hand would miss one.
-    this.typeReferenceExtractor.onFunctionType = (node) => {
-      this.emitFunctionTypeSignature(node);
+    this.typeReferenceExtractor.onFunctionType = (node, selfReferenceHash) => {
+      this.emitFunctionTypeSignature(node, selfReferenceHash);
     };
     // `[K in keyof T]` and `infer U` declare real type parameters that no
     // declaration walk reaches — they are inside type NODES. Minting them from
@@ -273,14 +273,22 @@ export class TsDeclarationExtractor {
         filePath: this.options.filePath,
         startLine: startPos.line + 1,
         endLine: endPos.line + 1,
-        // No `ts_type` owner exists for an anonymous shape, and inventing one
-        // would create a type that the source does not declare.
-        tsTypeLinkHash: '',
+        // The SHAPE owns it — §4.8.1. Not a `ts_type`: an anonymous shape has no
+        // declaration and §4.2 forbids inventing one. The FK points at the type
+        // literal's own `ts_type_reference` row, and the differing PK prefixes
+        // (`TS_TYPE_` vs `TS_TYPE_REFERENCE_`) make a rule that joins against
+        // `ts_type` find NO match rather than a wrong one.
+        tsTypeLinkHash: typeLiteralHash,
         ownerTypeName: ownerText,
         ownerQualifiedName: '',
         fieldAccess: TsFieldAccess.PUBLIC_ACCESS,
         fieldModifiers: fieldModifiersOf(member, isOptional),
-        memberKind: isIndex ? TsMemberKind.INDEX_SIGNATURE : TsMemberKind.PROPERTY_SIGNATURE,
+        // Owner-qualified, because this column IS the discriminator for where
+        // `tsTypeLinkHash` points. An interface member keeps
+        // PROPERTY_SIGNATURE / INDEX_SIGNATURE and a `ts_type` owner.
+        memberKind: isIndex
+          ? TsMemberKind.TYPE_LITERAL_INDEX_SIGNATURE
+          : TsMemberKind.TYPE_LITERAL_PROPERTY,
         tsModuleLinkHash: this.options.moduleHash,
         isOptional,
         hasDefiniteAssignment: false,
@@ -313,13 +321,13 @@ export class TsDeclarationExtractor {
       return;
     }
     const methodKind = ts.isMethodSignature(member)
-      ? TsMethodKind.METHOD_SIGNATURE
+      ? TsMethodKind.TYPE_LITERAL_METHOD_SIGNATURE
       : ts.isCallSignatureDeclaration(member)
-        ? TsMethodKind.CALL_SIGNATURE
-        : TsMethodKind.CONSTRUCT_SIGNATURE;
+        ? TsMethodKind.TYPE_LITERAL_CALL_SIGNATURE
+        : TsMethodKind.TYPE_LITERAL_CONSTRUCT_SIGNATURE;
     const name = ts.isMethodSignature(member)
       ? memberName(member) ?? ''
-      : methodKind === TsMethodKind.CALL_SIGNATURE
+      : methodKind === TsMethodKind.TYPE_LITERAL_CALL_SIGNATURE
         ? TS_ANONYMOUS_METHOD_NAMES.CALL_SIGNATURE
         : TS_ANONYMOUS_METHOD_NAMES.CONSTRUCT_SIGNATURE;
     const restIndex = member.parameters.findIndex((p) => p.dotDotDotToken !== undefined);
@@ -331,7 +339,8 @@ export class TsDeclarationExtractor {
       filePath: this.options.filePath,
       startLine: startPos.line + 1,
       endLine: endPos.line + 1,
-      tsTypeLinkHash: '',
+      // The SHAPE owns it — §4.8.1, same reasoning as the field case above.
+      tsTypeLinkHash: typeLiteralHash,
       ownerTypeName: ownerText,
       ownerQualifiedName: '',
       methodAccess: TsMethodAccess.PUBLIC_ACCESS,
@@ -400,7 +409,8 @@ export class TsDeclarationExtractor {
    * of real targets are bodiless — and the two facts are not in tension.
    */
   private emitFunctionTypeSignature(
-    node: ts.FunctionTypeNode | ts.ConstructorTypeNode
+    node: ts.FunctionTypeNode | ts.ConstructorTypeNode,
+    selfReferenceHash: string
   ): void {
     const id = nodeId(node, this.sf);
     if (this.functionTypeSignatures.has(id)) {
@@ -422,7 +432,12 @@ export class TsDeclarationExtractor {
       filePath: this.options.filePath,
       startLine: startPos.line + 1,
       endLine: endPos.line + 1,
-      tsTypeLinkHash: '',
+      // The type NODE owns the signature — §4.8.1. A function type has no
+      // declaration to belong to, and it is the only thing that can own one, so
+      // the owner FK is its own `ts_type_reference` row. `""` here left
+      // `ts_method`'s key chaining broken, which is the §1 discipline this
+      // repairs rather than a cosmetic fill.
+      tsTypeLinkHash: selfReferenceHash,
       ownerTypeName: '',
       ownerQualifiedName: this.options.moduleQualifiedName,
       methodAccess: TsMethodAccess.PUBLIC_ACCESS,
@@ -2195,11 +2210,23 @@ function shapeDigestOf(parts: readonly string[]): string {
   );
 }
 
+/**
+ * Kinds that have no runtime existence, so no call-graph rule may traverse them
+ * as an implementation (§3.3).
+ *
+ * The `TYPE_LITERAL_*` twins belong here for the same reason as their interface
+ * counterparts: they are written in type position and can never carry a body.
+ * Omitting them would leave 259 rows claiming runtime existence they do not have.
+ */
 const TYPE_ONLY_METHOD_KINDS = new Set<TsMethodKind>([
   TsMethodKind.METHOD_SIGNATURE,
   TsMethodKind.CALL_SIGNATURE,
   TsMethodKind.CONSTRUCT_SIGNATURE,
+  TsMethodKind.TYPE_LITERAL_METHOD_SIGNATURE,
+  TsMethodKind.TYPE_LITERAL_CALL_SIGNATURE,
+  TsMethodKind.TYPE_LITERAL_CONSTRUCT_SIGNATURE,
   TsMethodKind.FUNCTION_TYPE_SIGNATURE,
+  TsMethodKind.CONSTRUCTOR_TYPE_SIGNATURE,
 ]);
 
 /**
