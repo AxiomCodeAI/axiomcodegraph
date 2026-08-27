@@ -1,0 +1,142 @@
+// ============================================================================
+// EXPRESSION RESOLUTION · CALL SITE  (decomposition, and the conserved universe)
+//
+// In Java this layer DERIVES call sites from METHOD_INVOCATION nodes. In Python
+// py_call_site is a base relation, so this file does the opposite job: it takes the
+// given site and pulls out the pieces callee resolution needs, and it fixes the
+// UNIVERSE over which conservation is asserted.
+//
+// THE UNIVERSE IS py_call_site, ONE ROW PER SITE. Every row must appear in
+// call_chain_edge — resolved, or flagged. That is the invariant test/python's coverage
+// guard checks, and it is the one failure mode a golden-file diff cannot see: you
+// cannot notice the absence of something never recorded.
+//
+// THE ARGUMENT-ROLE TRAP, straight from the schema. edgeRole ARGUMENT is NOT unique to
+// calls — a list/tuple/set display's children would wear it too if ELEMENT/KEY/VALUE
+// did not exist, and a rule that joins edgeRole="ARGUMENT" to a call site WITHOUT also
+// testing the parent's kind picked up 17% non-arguments (44 of 260) on the flow corpus.
+// Every argument rule below is anchored on expr_node(_, "CALL", ...).
+// ============================================================================
+
+// ============================================================================
+// THE SITE KEY IS THE CALL EXPRESSION HASH, NOT THE py_call_site HASH.
+//
+// py_call_site is 1:1 with its CALL expression (its PK chains off
+// pyExpressionLinkHash), so either would identify a site. The expression hash is chosen
+// because it is the ONLY key common to BOTH conserved inventories: py_call_site carries
+// it in pyExpressionLinkHash and py_decorator carries it in its own
+// pyExpressionLinkHash — and for a decorator written WITH parentheses
+// (`@functools.wraps(fn)`, `@route("go")`) the two are THE SAME HASH.
+//
+// MEASURED CONSEQUENCE. Keyed on pyCallSiteUniqueHash instead, case 07-decorators
+// dropped 4 sites — three @functools.wraps and one @route. The engine had resolved
+// every one of them; the rows were simply filed under a key that neither the decorator
+// inventory nor the coverage guard looks for. One key serves both inventories, and a
+// parenthesised decorator then produces exactly ONE site instead of two.
+// ============================================================================
+
+// ── csite(SiteKey, PyCallSiteHash) — the bridge back to the base row ─────────
+csite(e, s) :- call_decl("client", _, _, _, e, s).
+
+// ── invocation_site(SiteKey, CallKind) ───────────────────────────────────────
+// The conserved universe, tagged with the schema's own callKind so a report can filter
+// by call shape without a second join. Client-only: a library call site is never
+// staged (LIB_BODY), so there is nothing to enumerate on that side.
+invocation_site(e, ck) :- call_decl("client", ck, _, _, e, _).
+
+// ── call_recv_kind(SiteKey, ReceiverKind) ────────────────────────────────────
+// The receiver SHAPE, rekeyed onto the site key. Every dispatch rule switches on this.
+call_recv_kind(e, rk) :- csite(e, s), call_receiver("client", rk, _, _, s).
+
+// ── call_expr(SiteHash, CallExprHash) / call_of_expr(CallExprHash, SiteHash) ──
+// The 1:1 bridge between a site and its CALL expression node. Both directions, because
+// half the joins start from the AST and half from the site.
+// Identities now that the site key IS the expression hash — kept so every downstream
+// rule reads unchanged, and so a future re-keying is a one-line change here.
+call_expr(e, e) :- csite(e, _).
+call_of_expr(e, e) :- csite(e, _).
+
+// ── call_name(SiteHash, CalleeName) ──────────────────────────────────────────
+call_name(e, n) :- call_decl("client", _, n, _, e, _).
+
+// ── call_dotted(SiteHash, CalleeDottedPath) ──────────────────────────────────
+// The full written path. THE ONLY DURABLE CROSS-RUN KEY for a callee, and therefore the
+// input to name-based library linking: no hash minted by the client parse can match one
+// minted by the library parse.
+call_dotted(e, d) :- call_decl("client", _, _, d, e, _), d != "".
+
+// ── call_callee_expr(SiteHash, CalleeExprHash) ───────────────────────────────
+// The node that DENOTES the callee.
+// (a) NO RECEIVER — the CALL's CALLEE child: a NAME_REFERENCE (`combine_all(...)`) or a
+//     CLS_REFERENCE (`cls(name)`).
+call_callee_expr(site, callee) :-
+    call_recv_kind(site, "NONE"),
+    expr_parent("client", site, "CALLEE", _, callee).
+// (b) WITH A RECEIVER — the CALL's RECEIVER child, which is the WHOLE
+//     ATTRIBUTE_ACCESS (`self.render`, `Base.make_default`, `super().describe`). Note
+//     this is the schema's deliberate choice of role name so Java's
+//     `java_expression(_, "RECEIVER", ...)` pattern ports unchanged; the actual receiver
+//     OBJECT is one level further down, under ATTRIBUTE_OBJECT.
+call_callee_expr(site, callee) :-
+    call_recv_kind(site, rk), rk != "NONE",
+    expr_parent("client", site, "RECEIVER", _, callee).
+
+// ── call_receiver_object(SiteHash, ObjectExprHash) ───────────────────────────
+// THE RECEIVER OBJECT: `self` in `self.render(x)`, `Base` in `Base.make_default()`,
+// `super()` in `super().describe()`, `self.base` in `self.base.describe()`,
+// `Sibling()` in `Sibling().describe()`. This is the expression whose TYPE decides
+// dispatch, and getting it from the attribute node rather than from
+// receiverExpressionLinkHash keeps the rule independent of which node the parser chose
+// to point that FK at.
+call_receiver_object(site, obj) :-
+    call_callee_expr(site, callee),
+    expr_parent("client", callee, "ATTRIBUTE_OBJECT", _, obj).
+
+// ── call_arg(SiteHash, Position, ArgExprHash) ────────────────────────────────
+// Positional arguments, anchored on the parent being a CALL (see the header).
+call_arg(site, pos, a) :-
+    call_expr(site, e), expr_node("client", "CALL", _, _, e),
+    expr_parent("client", e, "ARGUMENT", pos, a).
+
+// ── call_kwarg(SiteHash, KeywordName, ArgExprHash) ───────────────────────────
+// 12,000 keyword arguments corpus-wide. Without argumentKeywordName these could only be
+// linked positionally, and would be silently lost.
+call_kwarg(site, k, a) :-
+    call_expr(site, e), expr_node("client", "CALL", _, _, e),
+    expr_parent("client", e, "KEYWORD_ARGUMENT", _, a),
+    expr_keyword_arg("client", k, a).
+
+// ── call_star_arg / call_dstar_arg(SiteHash, ArgExprHash) ────────────────────
+// `f(*args)` / `f(**kwargs)`. Their presence is exactly what makes argFlowIsPrecise
+// false, so they are projected as sites of PROVABLE imprecision.
+call_star_arg(site, a) :-
+    call_expr(site, e), expr_node("client", "CALL", _, _, e),
+    expr_parent("client", e, "STAR_ARGUMENT", _, a).
+call_dstar_arg(site, a) :-
+    call_expr(site, e), expr_node("client", "CALL", _, _, e),
+    expr_parent("client", e, "DOUBLE_STAR_ARGUMENT", _, a).
+
+// ── call_from(SiteHash, CallerMethodHash) ────────────────────────────────────
+// The enclosing method. NEVER "" — a module-level call is owned by the synthetic
+// <module> MODULE_INITIALIZER and a class-body call by <classbody>, so unlike Java
+// there is no type fallback to write here. The conservation guard would surface it
+// immediately if that ever changed.
+call_from(site, caller) :- csite(site, s), call_context("client", _, caller, _, _, s), caller != "".
+
+// ── call_enclosing_type(SiteHash, TypeHash) ──────────────────────────────────
+// The class the call is written inside; "" outside a class. THIS IS THE super() SLICE
+// POINT — the schema says so explicitly (col 9 gives the slice point, type_base.position
+// gives the order).
+call_enclosing_type(site, t) :- csite(site, s), call_context("client", _, _, t, _, s), t != "".
+
+// ── call_module(SiteHash, ModuleHash) ────────────────────────────────────────
+call_module(site, m) :- csite(site, s), call_context("client", _, _, _, m, s).
+
+// ── call_scope(SiteHash, ScopeHash) ──────────────────────────────────────────
+call_scope(site, sc) :- csite(site, s), call_context("client", sc, _, _, _, s).
+
+// ── call_is_dynamic(SiteHash) ────────────────────────────────────────────────
+// callKind=DYNAMIC_CALL: getattr / setattr / eval / exec. UNRESOLVABLE BY
+// CONSTRUCTION, and the schema marks it so the engine can report exactly that rather
+// than silently emitting no edge (982 getattr/setattr sites, 51 eval/exec corpus-wide).
+call_is_dynamic(site) :- call_decl("client", "DYNAMIC_CALL", _, _, site, _).

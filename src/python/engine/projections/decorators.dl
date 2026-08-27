@@ -1,0 +1,109 @@
+// ============================================================================
+// Projections · DECORATORS  (pure column views — no joins, no closures)
+//
+// py_decorator OCCUPIES java_annotation's slot and mirrors its columns at 0..3, so the
+// shared `annotation_on(Prov, Name, Kind, Context, OwnerHash, Hash)` projection is a
+// literal rename — and Java's annotation-driven entry-point rules port unchanged.
+//
+// BUT THE SEMANTICS ARE NOT ANNOTATION SEMANTICS. A Java annotation is inert metadata.
+// A Python decorator is a FUNCTION APPLICATION THAT REPLACES THE DECORATED OBJECT:
+// `@lru_cache def f()` means the name `f` now refers to a functools wrapper, not to the
+// def. That difference lives in replacesTarget (c17) and builtinKind (c16).
+//
+// THESE RELATIONS WERE READ BY NOTHING BEFORE THIS RULE SET. 22% of functions are
+// decorated, and an unmodelled decorator that replaces its target makes every edge
+// through that name a fabrication. The rule is therefore: an UNMODELLED decorator makes
+// the site ambiguous_unknown, never a direct edge (resolution/decorators.dl).
+//
+// py_decorator / lib_py_decorator cols (21):
+//   0 decoratorName  1 kind  2 context  3 ownerHash  4 pyTypeLinkHash
+//   5 pyMethodLinkHash  6 position  7 applicationOrder  8 startLine  9 endLine
+//   10 dottedPath  11 fullText  12 argumentCount  13 pyExpressionLinkHash
+//   14 resolvedTargetHash  15 isKnownBuiltin  16 builtinKind  17 replacesTarget
+//   18 pyModuleLinkHash  19 serviceVersionLinkHash  20 pyDecoratorUniqueHash
+//
+// py_decorator_argument / lib_py_decorator_argument cols (15):
+//   0 argumentName  1 argumentValue  2 valueType  3 position
+//   4 parentDecoratorLinkHash  5 referencedTypeHash  6 nestedDecoratorHash
+//   7 arrayIndex  8 startLine  9 endLine  10 isKeyword  11 isStarred
+//   12 pyExpressionLinkHash  13 serviceVersionLinkHash  14 pyDecoratorArgumentUniqueHash
+// ============================================================================
+
+// ── annotation_on(Prov, Name, Kind, Context, OwnerHash, DecoratorHash) ───────
+// The SHARED shape with Java's annotation_on, deliberately named the same so any rule
+// written against Java's annotation layer works here without edit.
+//   Kind    BARE | CALL | ATTRIBUTE | ATTRIBUTE_CALL | SUBSCRIPT | EXPRESSION (PEP 614)
+//   Context TYPE_DECLARATION | METHOD_DECLARATION | NESTED_FUNCTION_DECLARATION
+//   OwnerHash is polymorphic BY CONTEXT: py_type for TYPE_DECLARATION, else py_method.
+annotation_on("client", name, kind, ctx, owner, h) :- py_decorator(name, kind, ctx, owner, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+annotation_on("lib", name, kind, ctx, owner, h) :- lib_py_decorator(name, kind, ctx, owner, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── decorator_order(Prov, Position, ApplicationOrder, DecoratorHash) ─────────
+// TWO orders, both needed and NOT interchangeable:
+//   Position          0-based SOURCE order, top-down — what a report shows
+//   ApplicationOrder  0-based BOTTOM-UP — THE ORDER THEY ACTUALLY EXECUTE
+// For a stacked pair, applicationOrder 0 is the decorator nearest the `def`, and it is
+// the one whose return value the next one receives. Reading `position` as the
+// application order inverts a stack and attributes the replacement to the wrong call.
+decorator_order("client", pos, appOrder, h) :- py_decorator(_, _, _, _, _, _, pos, appOrder, _, _, _, _, _, _, _, _, _, _, _, _, h).
+decorator_order("lib", pos, appOrder, h) :- lib_py_decorator(_, _, _, _, _, _, pos, appOrder, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── decorator_target(Prov, TypeHash, MethodHash, DecoratorHash) ──────────────
+// The decorated entity, split so a rule does not have to switch on Context.
+decorator_target("client", t, m, h) :- py_decorator(_, _, _, _, t, m, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+decorator_target("lib", t, m, h) :- lib_py_decorator(_, _, _, _, t, m, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── decorator_text(Prov, DottedPath, FullText, ArgumentCount, DecoratorHash) ──
+// DottedPath is the text BEFORE the parens (`app.route`); FullText is the normalized
+// whole thing. These two plus py_decorator_argument keep the framework tail
+// (hookimpl, fixture, line_magic, memoized_property, ...) queryable WITHOUT an
+// ever-growing enum — enumerating it would mean a schema change per framework.
+decorator_text("client", dp, ft, argc, h) :- py_decorator(_, _, _, _, _, _, _, _, _, _, dp, ft, argc, _, _, _, _, _, _, _, h).
+decorator_text("lib", dp, ft, argc, h) :- lib_py_decorator(_, _, _, _, _, _, _, _, _, _, dp, ft, argc, _, _, _, _, _, _, _, h).
+
+// ── decorator_expr(Prov, DecoratorExprHash, DecoratorHash) ───────────────────
+// The decorator expression node. For a CALL-kind decorator (`@audit("child")`) there is
+// ALSO a py_call_site for it, with callKind=DECORATOR_CALL — so the decorator's own
+// invocation is part of the conserved site universe and gets a real edge.
+decorator_expr("client", e, h) :- py_decorator(_, _, _, _, _, _, _, _, _, _, _, _, _, e, _, _, _, _, _, _, h), e != "".
+decorator_expr("lib", e, h) :- lib_py_decorator(_, _, _, _, _, _, _, _, _, _, _, _, _, e, _, _, _, _, _, _, h), e != "".
+
+// ── decorator_builtin(Prov, BuiltinKind, DecoratorHash) ──────────────────────
+// The ones that change DISPATCH rather than behaviour:
+//   STATICMETHOD / CLASSMETHOD  shift whether arg 0 is the receiver — every positional
+//                               argument->parameter link moves by one
+//   PROPERTY / SETTER / DELETER turn `obj.x` from an attribute READ into a METHOD CALL
+//   ABSTRACTMETHOD              the concrete target is in an implementor
+//   OVERLOAD                    bodyIsStub=true — a DECLARATION, never a call target
+//   CACHED_PROPERTY / LRU_CACHE / CONTEXTMANAGER / WRAPS / DATACLASS / FINAL
+//   NONE                        not a known builtin — the framework tail
+decorator_builtin("client", bk, h) :- py_decorator(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, bk, _, _, _, h).
+decorator_builtin("lib", bk, h) :- lib_py_decorator(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, bk, _, _, _, h).
+
+// ── decorator_replaces_target(Prov, DecoratorHash) ───────────────────────────
+// replacesTarget=true: THE DECORATED NAME NO LONGER REFERS TO THE `def`. Any rule that
+// resolves a name to a def must consult this, or it emits an edge to a body that the
+// name cannot reach.
+decorator_replaces_target("client", h) :- py_decorator(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, h).
+decorator_replaces_target("lib", h) :- lib_py_decorator(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, h).
+
+// ── decorator_known_builtin(Prov, DecoratorHash) ─────────────────────────────
+decorator_known_builtin("client", h) :- py_decorator(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, h).
+decorator_known_builtin("lib", h) :- lib_py_decorator(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, h).
+
+// ── decorator_module(Prov, ModuleHash, DecoratorHash) ────────────────────────
+decorator_module("client", m, h) :- py_decorator(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m, _, h).
+decorator_module("lib", m, h) :- lib_py_decorator(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m, _, h).
+
+// ── annotation_arg(Prov, Name, Value, ValueType, Position, IsKeyword, ParentDecoratorHash, ArgHash) ──
+// Framework routes and permissions live here (`@app.route("/admin", methods=["POST"])`).
+// Same slot as java_annotation_argument 0..9.
+annotation_arg("client", n, v, vt, pos, kw, parent, h) :- py_decorator_argument(n, v, vt, pos, parent, _, _, _, _, _, kw, _, _, _, h).
+annotation_arg("lib", n, v, vt, pos, kw, parent, h) :- lib_py_decorator_argument(n, v, vt, pos, parent, _, _, _, _, _, kw, _, _, _, h).
+
+// ── annotation_arg_type_ref(Prov, ReferencedTypeHash, ArgHash) ───────────────
+// A decorator argument naming a class or enum member — `@task(base=MyTask)`,
+// `@require(Role.ADMIN)`. Ordinary in framework code, so collapsing it into UNKNOWN
+// would discard exactly the fact this relation exists to carry.
+annotation_arg_type_ref("client", t, h) :- py_decorator_argument(_, _, _, _, _, t, _, _, _, _, _, _, _, _, h), t != "".
+annotation_arg_type_ref("lib", t, h) :- lib_py_decorator_argument(_, _, _, _, _, t, _, _, _, _, _, _, _, _, h), t != "".

@@ -1,0 +1,16 @@
+ambiguous_unknown	METHOD_CALL	main.fetch -> -
+ambiguous_unknown	METHOD_CALL	main.main -> -
+boundary_lib	SIMPLE_CALL	main.counter -> builtin:range
+boundary_lib	SIMPLE_CALL	main.drain -> builtin:sum
+boundary_lib	SIMPLE_CALL	main.main -> builtin:print
+boundary_lib	SIMPLE_CALL	main.uses_comprehensions -> builtin:len
+boundary_lib	SIMPLE_CALL	main.uses_comprehensions -> builtin:sum
+known_edge	SIMPLE_CALL	main.<module> -> main.main
+known_edge	SIMPLE_CALL	main.counter -> main.scale
+known_edge	SIMPLE_CALL	main.drain -> main.counter
+known_edge	SIMPLE_CALL	main.fetch -> main.scale
+known_edge	SIMPLE_CALL	main.gather_all -> main.fetch
+known_edge	SIMPLE_CALL	main.main -> main.drain
+known_edge	SIMPLE_CALL	main.main -> main.gather_all
+known_edge	SIMPLE_CALL	main.main -> main.uses_comprehensions
+known_edge	SIMPLE_CALL	main.uses_comprehensions -> main.scale

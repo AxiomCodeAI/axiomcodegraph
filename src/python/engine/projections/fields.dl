@@ -1,0 +1,95 @@
+// ============================================================================
+// Projections · FIELDS  (pure column views — no joins, no closures)
+//
+// py_field is a class attribute OR an instance attribute recovered from `self.x = ...`.
+// Cols 0..12 mirror java_field 0..12.
+//
+// THE IDENTITY IS NOT LINE-BASED (schema §4.1, ratified): one row per
+// (ownerType, name, origin), so all writes of one attribute merge, and the per-write
+// detail stays in py_expression. Java's field is one declaration with one type at one
+// line; Python's attribute is a SET OF WRITES scattered across methods — only 67% of
+// `self.x = ...` writes are in __init__.
+//
+// writeCount (c17) and writtenInMethodCount (c18) are what make an honest attribute
+// TYPE possible: a field with exactly ONE write whose RHS is a resolvable construction
+// has a single-valued type, and that is a known_edge; a field with several writes, or a
+// write the engine cannot type, is not. That gate lives in resolution/field-flow.dl.
+//
+// A CLASS VAR AND AN INSTANCE VAR OF THE SAME NAME ARE TWO ROWS (CLASS_BODY_ASSIGN and
+// SELF_ASSIGN) — different objects, different lifetimes, resolved differently by
+// CPython. Two rows = the engine sees both candidates = sound over-approximation.
+//
+// FOREIGN ATTRIBUTE WRITES GET NO ROW. `other.attr = v` (1,620 sites in the corpus)
+// produces no py_field, because the parser cannot know `other`'s class. It is fully
+// present in py_expression with nameContext=STORE. The parser does not guess; the
+// engine may promote it once it types `other`.
+//
+// py_field / lib_py_field cols (29):
+//   0 name  1 fieldTypeName  2 fieldBaseType  3 potentialQualifiedName  4 isAmbiguous
+//   5 filePath  6 startLine  7 endLine  8 pyTypeLinkHash  9 ownerTypeName
+//   10 ownerQualifiedName  11 fieldAccess  12 fieldModifier  13 fieldOrigin
+//   14 declaringMethodLinkHash  15 receiverName  16 isDeclaredInInit  17 writeCount
+//   18 writtenInMethodCount  19 firstWriteLine  20 hasAnnotation
+//   21 annotationIsString  22 initializerText  23 initializerKind  24 pyModuleLinkHash
+//   25 bindingLinkHash  26 pyExpressionLinkHash  27 serviceVersionLinkHash
+//   28 pyFieldUniqueHash
+//
+// py_field_position / lib_py_field_position cols (3): 0 typeHash  1 position  2 fieldHash
+// (@dataclass / NamedTuple generate __init__ in this order, so positional argument flow
+// depends on it.)
+// ============================================================================
+
+// ── field_decl(Prov, Name, OwnerTypeHash, FieldOrigin, FieldHash) ────────────
+// FieldOrigin is part of the IDENTITY: CLASS_BODY_ASSIGN | CLASS_BODY_ANNOTATION_ONLY |
+// SELF_ASSIGN | SELF_AUGASSIGN | SLOTS_ENTRY | DATACLASS_FIELD | NAMEDTUPLE_FIELD |
+// TYPEDDICT_KEY | ENUM_MEMBER | SETATTR_DYNAMIC. SLOTS_ENTRY is AUTHORITATIVE — a
+// slotted class cannot gain other attributes, so a failed lookup there is a real
+// negative, not an unknown.
+field_decl("client", n, t, origin, h) :- py_field(n, _, _, _, _, _, _, _, t, _, _, _, _, origin, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+field_decl("lib", n, t, origin, h) :- lib_py_field(n, _, _, _, _, _, _, _, t, _, _, _, _, origin, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── field_annotation(Prov, FieldTypeName, FieldBaseType, PotentialQName, FieldHash) ──
+field_annotation("client", tn, bt, pq, h) :- py_field(_, tn, bt, pq, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+field_annotation("lib", tn, bt, pq, h) :- lib_py_field(_, tn, bt, pq, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── field_writes(Prov, WriteCount, WrittenInMethodCount, IsDeclaredInInit, FieldHash) ──
+// WriteCount == "1" is the precondition for a single-valued attribute type.
+// WrittenInMethodCount > 1 means cross-method state.
+field_writes("client", wc, wmc, inInit, h) :- py_field(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, inInit, wc, wmc, _, _, _, _, _, _, _, _, _, h).
+field_writes("lib", wc, wmc, inInit, h) :- lib_py_field(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, inInit, wc, wmc, _, _, _, _, _, _, _, _, _, h).
+
+// ── field_initializer(Prov, InitializerKind, InitializerText, FieldHash) ─────
+// The normalized RHS of the FIRST write. InitializerKind CALL is the construction case
+// (`self.base = Base("b")`); resolution/field-flow.dl types it by resolving that call's
+// callee to a py_type, which is the only honest way given there is no OBJECT_CREATION kind.
+field_initializer("client", k, txt, h) :- py_field(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, txt, k, _, _, _, _, h).
+field_initializer("lib", k, txt, h) :- lib_py_field(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, txt, k, _, _, _, _, h).
+
+// ── field_write_expr(Prov, FirstWriteExprHash, FieldHash) ────────────────────
+// The FIRST write's TARGET node (the `self.base` ATTRIBUTE_ACCESS with edgeRole
+// ASSIGNMENT_TARGET). The assigned VALUE is its sibling under the same parent — a join
+// the resolution layer makes, not this projection.
+field_write_expr("client", e, h) :- py_field(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, h), e != "".
+field_write_expr("lib", e, h) :- lib_py_field(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, h), e != "".
+
+// ── field_declaring_method(Prov, DeclaringMethodHash, ReceiverName, FieldHash) ──
+// The method containing the first `self.x = ...`; "" for class-body fields.
+field_declaring_method("client", m, recv, h) :- py_field(_, _, _, _, _, _, _, _, _, _, _, _, _, _, m, recv, _, _, _, _, _, _, _, _, _, _, _, _, h).
+field_declaring_method("lib", m, recv, h) :- lib_py_field(_, _, _, _, _, _, _, _, _, _, _, _, _, _, m, recv, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── field_modifier(Prov, FieldModifier, FieldHash) ───────────────────────────
+// Comma-set: CLASS_VAR,INSTANCE_VAR,SLOT,FINAL,CLASSVAR_ANNOTATED,PROPERTY_BACKED,
+// DATACLASS_FIELD,ENUM_MEMBER,READ_ONLY. PROPERTY_BACKED means BOTH a py_field and a
+// py_method (PROPERTY_GETTER) exist for the name — the engine must see both candidates.
+field_modifier("client", m, h) :- py_field(_, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+field_modifier("lib", m, h) :- lib_py_field(_, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── field_binding(Prov, BindingHash, FieldHash) ──────────────────────────────
+// Populated for CLASS-BODY fields only; "" for every `self.*` attribute — because no
+// binding exists for one, which IS the modelling problem this relation documents.
+field_binding("client", b, h) :- py_field(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, b, _, _, h), b != "".
+field_binding("lib", b, h) :- lib_py_field(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, b, _, _, h), b != "".
+
+// ── field_position(Prov, OwnerTypeHash, Position, FieldHash) ─────────────────
+field_position("client", t, pos, h) :- py_field_position(t, pos, h).
+field_position("lib", t, pos, h) :- lib_py_field_position(t, pos, h).

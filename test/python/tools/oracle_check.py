@@ -111,10 +111,17 @@ def main() -> int:
             a, _, b = line.rstrip('\n').partition('\t')
             if b:
                 pairs.append((a, b))
+    # A MULTISET, NOT A SET. score() compares per-line COUNTS on purpose -- its own
+    # comment says so, and so does engine_edges.py, which emits one line per SITE and
+    # deliberately does not deduplicate. Reading it into a set here collapsed two calls
+    # on one source line into one entry, so an engine that emitted BOTH was reported as
+    # having dropped one. Measured: that alone accounted for 12 of the 16 "silently
+    # dropped" sites across the suite (01-plain-calls read 9/12 while the engine had in
+    # fact emitted all 12).
     sites = None
     if args.sites and os.path.exists(args.sites):
         with open(args.sites) as fh:
-            sites = {l.strip() for l in fh if l.strip()}
+            sites = [l.strip() for l in fh if l.strip()]
 
     report = score(oracle, pairs, sites)
     print(report.text())

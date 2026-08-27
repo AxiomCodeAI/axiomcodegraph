@@ -1,0 +1,8 @@
+boundary_lib	SIMPLE_CALL	main.main -> builtin:object.__init__
+boundary_lib	SIMPLE_CALL	main.main -> builtin:print
+known_edge	METHOD_CALL	main.render_unique -> main.Circle.only_circle
+known_edge	SIMPLE_CALL	main.<module> -> main.main
+known_edge	SIMPLE_CALL	main.main -> main.render
+known_edge	SIMPLE_CALL	main.main -> main.render_unique
+multi_inferred	METHOD_CALL	main.render -> main.Circle.draw
+multi_inferred	METHOD_CALL	main.render -> main.Square.draw

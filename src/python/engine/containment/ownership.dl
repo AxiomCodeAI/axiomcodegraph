@@ -1,0 +1,78 @@
+// ============================================================================
+// CONTAINMENT · OWNERSHIP
+//
+// Rolls an expression up to the METHOD and the TYPE that contain it, and closes the
+// LEXICAL SCOPE CHAIN. Mirrors java/engine/containment/ownership.dl; two things differ
+// and both are Python being Python.
+//
+// 1. THE OWNER IS NEVER EMPTY. Java needs a fallback because a call in a field or
+//    static initializer has no enclosing named method. Python's parser mints a
+//    synthetic <module> MODULE_INITIALIZER per module and a <classbody>
+//    CLASS_INITIALIZER per class (schema §4.2), and py_call_site.pyMethodLinkHash is
+//    documented as never "". So expr_ultimate_method needs no type fallback — and the
+//    conservation guard would catch it immediately if that ever stopped being true.
+//
+// 2. THE SCOPE CHAIN IS THE SPINE, NOT THE FILE. Java resolves a name by file + class.
+//    Python resolves it by walking parentScopeLinkHash outward (LEGB). scope_ancestor
+//    is that closure, and it is what makes closures and nested functions first-class:
+//    `register` inside `build_pipeline` is reachable only through it.
+// ============================================================================
+
+// ── expr_ultimate_method(Prov, ExprHash, MethodHash) ─────────────────────────
+// Walk parentExpressionHash to the root, then take the root's owner. Done in two rules
+// so the recursion stays on the parent edge only.
+// (a) an expression whose owner IS a method (or lambda) already answers.
+expr_ultimate_method(p, e, m) :- expr_owner(p, "METHOD", m, _, e).
+expr_ultimate_method(p, e, m) :- expr_owner(p, "LAMBDA", m, _, e).
+// (b) otherwise inherit the parent's answer — covers BLOCK / FIELD / BINDING /
+//     METHOD_PARAMETER / DECORATOR / IMPORT / COMPREHENSION_SCOPE owners, whose own
+//     owner hash is not a method.
+expr_ultimate_method(p, e, m) :- expr_parent(p, parent, _, _, e), expr_ultimate_method(p, parent, m).
+
+// ── expr_ultimate_type(Prov, ExprHash, TypeHash) ─────────────────────────────
+// py_expression carries pyTypeLinkHash directly (c4), "" at module level. Projected
+// through so a rule can ask for the enclosing class without switching on owner kind.
+expr_ultimate_type(p, e, t) :- expr_owner(p, _, _, t, e), t != "".
+
+// ── expr_module(Prov, ExprHash, ModuleHash) ──────────────────────────────────
+expr_module(p, e, m) :- expr_scope(p, _, m, e).
+
+// ── scope_ancestor(Prov, ScopeHash, AncestorScopeHash) ───────────────────────
+// The LEGB chain, transitively closed. Positive recursion, no negation.
+scope_ancestor(p, s, a) :- scope_parent(p, a, s), a != "".
+scope_ancestor(p, s, a) :- scope_parent(p, mid, s), mid != "", scope_ancestor(p, mid, a).
+
+// ── scope_or_self(Prov, ScopeHash, ScopeHash-or-Ancestor) ────────────────────
+// Reflexive-transitive form; the shape a name lookup wants ("this scope, then outward").
+scope_or_self(p, s, s) :- scope_decl(p, _, _, _, s).
+scope_or_self(p, s, a) :- scope_ancestor(p, s, a).
+
+// ── scope_lookup_step(Prov, FromScope, Distance-marker, CandidateScope) ──────
+// Python's name lookup SKIPS CLASS SCOPES when resolving from a nested function: a
+// method body cannot see its class's attributes as bare names. Encoding that here keeps
+// every name-resolution rule from having to remember it.
+// (a) the scope itself is always a candidate.
+scope_lookup_scope(p, s, s) :- scope_decl(p, _, _, _, s).
+// (b) an ancestor is a candidate UNLESS it is a CLASS scope reached from a different
+//     scope — the class-scope skip rule. (A class body CAN see its own names, which is
+//     clause (a).)
+scope_lookup_scope(p, s, a) :- scope_ancestor(p, s, a), scope_decl(p, kind, _, _, a), kind != "CLASS".
+
+// ── method_scope_owner(Prov, ScopeHash, MethodHash) ──────────────────────────
+// A scope owned by a method, in the direction "scope -> method" (scope_owner is the
+// projection; this is the filtered view the resolution layer joins on).
+method_scope_owner(p, s, m) :- scope_owner(p, "METHOD", m, s).
+method_scope_owner(p, s, m) :- scope_owner(p, "LAMBDA", m, s).
+
+// ── type_scope_owner(Prov, ScopeHash, TypeHash) ──────────────────────────────
+type_scope_owner(p, s, t) :- scope_owner(p, "TYPE", t, s).
+
+// ── module_scope_owner(Prov, ScopeHash, ModuleHash) ──────────────────────────
+module_scope_owner(p, s, m) :- scope_owner(p, "MODULE", m, s).
+
+// ── method_ancestor_method(Prov, MethodHash, EnclosingMethodHash) ─────────────
+// Closure nesting, transitively closed: `normalise` -> `register` -> `build_pipeline`.
+// Java has nothing to port here; nested functions are 5.3% of functions and are real
+// call targets.
+method_ancestor_method(p, m, e) :- method_enclosing_member(p, e, m).
+method_ancestor_method(p, m, e) :- method_enclosing_member(p, mid, m), method_ancestor_method(p, mid, e).

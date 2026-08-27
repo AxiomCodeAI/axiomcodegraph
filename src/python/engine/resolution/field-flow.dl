@@ -1,0 +1,148 @@
+// ============================================================================
+// RESOLUTION · FIELD FLOW  (typing `self.x`, which has no declaration site)
+//
+// Java types a field from its declared type. Python has none: an attribute is a SET OF
+// WRITES scattered across methods, and only 67% of `self.x = ...` writes are even in
+// __init__. So the type has to come from the writes, and the honesty of the answer
+// depends entirely on how many there are.
+//
+// THE GATE, and the reason it is the gate:
+//   writeCount == 1  the attribute is written EXACTLY ONCE in the whole class. If that
+//                    one write's right-hand side resolves to a construction of a known
+//                    class, the attribute's type set is that single class — there is no
+//                    second assignment for it to be anything else. That is a known_edge.
+//   writeCount > 1   the attribute holds one of several things. The engine emits the
+//                    UNION (sound), which makes the site multi_inferred, or nothing if
+//                    it cannot type the writes.
+//
+// WHAT THIS DOES NOT CLAIM. A foreign write (`holder.base = X()`) produces no py_field
+// row at all — the parser cannot know `holder`'s class, and refuses to guess (schema
+// §4.1, 1,620 such sites in the corpus). So a single-write attribute could still be
+// rebound from outside the class. field_type_assumes_no_foreign_write records that
+// assumption per field rather than burying it, and a class carrying HAS_SETATTR is
+// excluded outright.
+//
+// MEASURED ON linkage-sample: Holder.base and Holder.child are both writeCount=1 with
+// initializerKind=CALL, so `self.base.describe()` and `self.child.merge(1, k=2)` — the
+// two sites the sample's own docstring calls "expected UNRESOLVED, needs attribute
+// typing" — resolve exactly.
+// ============================================================================
+
+// ── field_write_target(Prov, FieldHash, TargetExprHash) ──────────────────────
+// The write's TARGET node — the `self.base` in `self.base = Base("b")`.
+//
+// PD-6: THE DOCUMENTED FK IS EMPTY. py_field.pyExpressionLinkHash (c26) is described as
+// "first write's target node" and is "" on 11 of 11 rows on linkage-sample. Without it
+// there is no path from a field row to the value it was written from, so attribute typing
+// — the mechanism that resolves the two sites the sample's own docstring calls
+// "expected UNRESOLVED, needs attribute typing" — is unreachable.
+//
+// Derived instead, and note this needs expr_name_context rather than expr_binding: an
+// ATTRIBUTE_ACCESS binds no name, so it has no binding row at all, and STORE is the only
+// signal that distinguishes a write from a read.
+// (a) `self.x = ...` — an attribute write inside a method of the owning class.
+field_write_target(p, f, e) :-
+    field_decl(p, n, owner, origin, f),
+    origin != "CLASS_BODY_ASSIGN", origin != "CLASS_BODY_ANNOTATION_ONLY",
+    expr_attr_of_self(p, e, n, owner),
+    expr_name_context(p, "STORE", e).
+// (b) `x = ...` in a CLASS BODY — a bare name in the class-body scope.
+field_write_target(p, f, e) :-
+    field_decl(p, n, owner, "CLASS_BODY_ASSIGN", f),
+    type_scope(p, cscope, _, owner),
+    expr_node(p, "NAME_REFERENCE", _, n, e),
+    expr_scope(p, cscope, _, e),
+    expr_name_context(p, "STORE", e).
+// (c) the FK, when a future parser version populates it.
+field_write_target(p, f, e) :- field_write_expr(p, e, f).
+
+// ── field_write_value(Prov, FieldHash, ValueExprHash) ────────────────────────
+// The right-hand side of the write.
+field_write_value(p, f, val) :- field_write_target(p, f, e), assign_pair(p, e, val).
+
+// ── field_type_from_construction(Prov, FieldHash, TypeHash) ──────────────────
+// `self.base = Base("b")`. There is no OBJECT_CREATION kind in this schema (§4.5), so
+// "this is a construction" is a conclusion the engine reaches by resolving the CALL's
+// callee to a py_type — not a column it can read.
+field_type_from_construction(p, f, t) :-
+    field_write_value(p, f, val),
+    expr_node(p, "CALL", _, _, val),
+    expr_parent(p, val, "CALLEE", _, callee),
+    expr_names_type(p, callee, t).
+// The dotted form: `self.base = models.Base("b")`.
+field_type_from_construction(p, f, t) :-
+    field_write_value(p, f, val),
+    expr_node(p, "CALL", _, _, val),
+    expr_parent(p, val, "RECEIVER", _, recv),
+    expr_attr_names_type(p, recv, t).
+
+// ── field_type_from_name(Prov, FieldHash, TypeHash) ──────────────────────────
+// `self.factory = Base` — the attribute holds the CLASS OBJECT, not an instance. Kept
+// separate from the construction case because calling through it constructs, while
+// calling through an instance dispatches.
+field_type_holds_class(p, f, t) :-
+    field_write_value(p, f, val),
+    expr_node(p, "NAME_REFERENCE", _, _, val),
+    expr_names_type(p, val, t).
+
+// ── field_single_write(Prov, FieldHash) ──────────────────────────────────────
+field_single_write(p, f) :- field_writes(p, "1", _, _, f).
+
+// ── field_owner_allows_static_typing(Prov, TypeHash) ─────────────────────────
+// A class declaring __setattr__ can rebind anything at any time, so no write count is
+// evidence of anything. Excluded outright.
+field_owner_dynamic(p, t) :- type_modifier(p, m, t), contains("HAS_SETATTR", m).
+
+// ── field_type(Prov, FieldHash, TypeHash) ────────────────────────────────────
+// THE ANSWER. Single-write, construction-typed, on a class that does not rewrite
+// attribute assignment.
+field_type(p, f, t) :-
+    field_single_write(p, f),
+    field_type_from_construction(p, f, t),
+    field_decl(p, _, owner, _, f),
+    !field_owner_dynamic(p, owner).
+
+// ── field_type_union(Prov, FieldHash, TypeHash) ──────────────────────────────
+// A MULTI-WRITE attribute, typed by the union of the writes the engine can type. SOUND
+// (every write is included, so the true type is in the set) but not precise, so a call
+// through it is multi_inferred, never known_edge. Kept as a separate relation so the two
+// confidences cannot be confused downstream.
+field_type_union(p, f, t) :-
+    field_type_from_construction(p, f, t),
+    !field_single_write(p, f),
+    field_decl(p, _, owner, _, f),
+    !field_owner_dynamic(p, owner).
+
+// ── field_type_assumes_no_foreign_write(Prov, FieldHash) ─────────────────────
+// The recorded assumption: this field's type came from a write count that only covers
+// writes THROUGH `self` inside the owning class. Exported.
+field_type_assumes_no_foreign_write(p, f) :- field_type(p, f, _).
+
+// ── field_type_unknown(Prov, FieldHash) ──────────────────────────────────────
+// Written from something the engine cannot type: a parameter, a call result it cannot
+// resolve, a literal collection, a comprehension. The honest answer for
+// `Service.__init__(self, base, child)` where both attributes come from unannotated
+// parameters — and note the sample's Service does exactly that, which is why
+// `self.base` in Service is NOT typed while `self.base` in Holder is.
+field_type_unknown(p, f) :- field_decl(p, _, _, _, f), !field_type_any(p, f).
+field_type_any(p, f) :- field_type(p, f, _).
+field_type_any(p, f) :- field_type_union(p, f, _).
+field_type_any(p, f) :- field_type_holds_class(p, f, _).
+
+// ============================================================================
+// ATTRIBUTE LOOKUP ON A TYPE — `self.base` -> the field row
+// ============================================================================
+
+// ── type_attr_field(Prov, TypeHash, Name, FieldHash) ─────────────────────────
+// An attribute name on a receiver type, found through the MRO like any other member.
+// Derived rather than read off py_expression.referencedEntityHash so it works for a
+// receiver whose type the engine inferred (not just for a literal `self.x`).
+type_attr_field(p, t, n, f) :- mro_winner(p, t, n, c), type_defines_field(p, c, n, f).
+
+// ── expr_attr_of_self(Prov, ExprHash, Name, EnclosingTypeHash) ───────────────
+// `self.NAME` written inside a method of EnclosingTypeHash.
+expr_attr_of_self(p, e, n, t) :-
+    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e),
+    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_node(p, "SELF_REFERENCE", _, _, obj),
+    expr_owner(p, _, _, t, e), t != "".
