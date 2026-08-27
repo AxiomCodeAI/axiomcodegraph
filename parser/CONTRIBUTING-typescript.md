@@ -115,6 +115,25 @@ so `lib_ts_*` gets declarations only, exactly as `lib_py_*` does.
 resolved by the compiler. `getResolvedSignature` names the winner, so overload
 resolution is oracle-adjudicated rather than spec-adjudicated.
 
+## The four agents
+
+| agent | owns | runs |
+|---|---|---|
+| `ts-oracle` | `src/schema/typescript/`, `../parser-oracle/typescript` | first, alone; stops for schema approval |
+| `ts-impl` | `src/parsers/typescript/`, `src/analysis-types/typescript/` | continuous, in its own worktree |
+| `ts-fixtures` | `src/test-data/typescript/staging/` | continuous |
+| `ts-corpus` | `src/test-data/typescript/categories/`, `verified/` | batched |
+
+`ts-oracle` and `ts-impl` stay separate deliberately. If the implementer authors the
+expectations, the suite catches regressions and never a wrong premise — the failure
+Python paid for twice.
+
+`ts-corpus` carries two jobs that pull against each other: mining wants more fixtures,
+consolidating wants fewer. They were separate agents so neither could quietly win.
+Merged, the guard is explicit — never prune the sole cover for a node kind, and report
+every prune declined for that reason, so the human sees the tension instead of its
+resolution.
+
 ## The gate before merging to main
 
 ```
