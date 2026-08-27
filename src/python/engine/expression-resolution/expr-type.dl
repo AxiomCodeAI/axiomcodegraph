@@ -136,6 +136,28 @@ call_returns_type(site, t) :-
     to_number(pos) = to_number(argPos) + off,
     expr_type("client", a, t).
 
+// ── (c2) THE TYPE OF THE RETURN EXPRESSION ITSELF ────────────────────────────
+// A method's result is whatever its `return` yields, and that is derivable without any
+// annotation:
+//
+//     @classmethod
+//     def square(cls, side): return cls(side)      # 02-methods
+//     Widget.square(4).area()                      # -> Widget.area
+//
+// `cls` is bound to Widget by the call site, so the construction types the return, so the
+// chained `.area()` resolves. Subsumes the declared-return and return-of-parameter paths
+// wherever an annotation is absent, and generalises past both: a method with two returns
+// contributes both types, which is the sound union.
+//
+// MEASURED: this was the only genuinely wrong site left in the whole regression suite --
+// `Widget.square(4).area()` emitted the classmethod but not the method called on its
+// result, because nothing typed a return value that was neither annotated nor a bare
+// parameter.
+call_returns_type(site, t) :-
+    expr_call_candidate(site, m),
+    method_return_value_expr("client", m, e),
+    expr_type("client", e, t).
+
 // ── expr_any_type(Prov, ExprHash) — typed at all ─────────────────────────────
 // Used to distinguish "the engine has no type for this receiver" from "the engine has
 // several", which are different confidences and must not be merged.
