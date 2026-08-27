@@ -736,10 +736,15 @@ function checkPropertyChain(
       return;
     }
     const children: ExpressionRow[] = childrenByParent.get(current.getHash()) ?? [];
+    // `x!.y()` -- a non-null assertion is a postfix UNARY, so its operand
+    // carries UNARY_OPERAND, not RECEIVER. Looking only for RECEIVER reported
+    // the emitted row as an unwalkable chain: the IR was right and this check
+    // was wrong, which is the more dangerous direction of the two.
+    const nextRole: string = current.kind === 'NON_NULL_EXPRESSION' ? 'UNARY_OPERAND' : 'RECEIVER';
     const next: ExpressionRow | undefined =
-      children.find((c) => c.edgeRole === 'RECEIVER');
+      children.find((c) => c.edgeRole === nextRole);
     if (!next) {
-      missing.push(`a ${current.kind} row in a property chain has no RECEIVER child, so the ` +
+      missing.push(`a ${current.kind} row in a property chain has no ${nextRole} child, so the ` +
         'chain cannot be walked');
       return;
     }

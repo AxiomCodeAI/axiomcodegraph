@@ -326,14 +326,24 @@ export class TsLocalResolver {
       }
       case TsBoundKind.BindingElement: {
         // A destructured name's declaration node is a BindingElement, which has
-        // no row of its own. It resolves to the VariableDeclaration that binds
-        // it, which is the declaration site the fact base actually records.
-        const owner = enclosingVariableDeclaration(binding.node);
+        // no row of its own. It resolves to whichever declaration binds the
+        // pattern -- a VariableDeclaration for `const {a} = x`, a Parameter for
+        // `({a}) => ...`. Both forms occur, and a walk that looks only for the
+        // former does not stop at the arrow: `([k]) => ...` inside
+        // `const values = ...` resolved `k` to `values`.
+        const owner = enclosingBindingOwner(binding.node);
+        if (owner === undefined) {
+          return { kind: TsReferencedEntityKind.VARIABLE, hash: '' };
+        }
+        if (ts.isParameter(owner)) {
+          return {
+            kind: TsReferencedEntityKind.PARAMETER,
+            hash: this.input.parameterHashByNode.get(nodeId(owner, this.sf)) ?? '',
+          };
+        }
         return {
           kind: TsReferencedEntityKind.VARIABLE,
-          hash: owner
-            ? this.input.variableHashByNode.get(nodeId(owner, this.sf)) ?? ''
-            : '',
+          hash: this.input.variableHashByNode.get(nodeId(owner, this.sf)) ?? '',
         };
       }
       case TsBoundKind.Parameter: {
@@ -1063,11 +1073,28 @@ export class TsLocalResolver {
   }
 }
 
-function enclosingVariableDeclaration(node: ts.Node): ts.Node | undefined {
-  let current: ts.Node | undefined = node;
+/**
+ * The declaration that owns a binding pattern: a VariableDeclaration or a
+ * Parameter.
+ *
+ * The walk crosses ONLY binding-pattern nodes, so it cannot leave the
+ * declaration it started inside. An unbounded walk to the nearest
+ * VariableDeclaration leaves the function entirely when the pattern belongs to
+ * a parameter, and attributes the name to an unrelated outer variable.
+ */
+function enclosingBindingOwner(node: ts.Node): ts.VariableDeclaration | ts.ParameterDeclaration | undefined {
+  let current: ts.Node | undefined = node.parent;
   while (current) {
     if (ts.isVariableDeclaration(current)) {
       return current;
+    }
+    if (ts.isParameter(current)) {
+      return current;
+    }
+    if (!ts.isBindingElement(current)
+      && !ts.isObjectBindingPattern(current)
+      && !ts.isArrayBindingPattern(current)) {
+      return undefined;
     }
     current = current.parent;
   }
