@@ -7,6 +7,7 @@ import { GradleProjectAnalyzer } from '@/workflows/gradle/gradle-project-analyze
 import { JavaProjectAnalyzer } from '@/workflows/java/java-project-analyzer';
 import { PropertiesProjectAnalyzer } from '@/workflows/properties/properties-project-analyzer';
 import { PythonProjectAnalyzer } from '@/workflows/python/python-project-analyzer';
+import { TypeScriptProjectAnalyzer } from '@/workflows/typescript/typescript-project-analyzer';
 import { XmlProjectAnalyzer } from '@/workflows/xml/xml-project-analyzer';
 import { YamlProjectAnalyzer } from '@/workflows/yaml/yaml-project-analyzer';
 
@@ -22,7 +23,7 @@ export interface ExtractOptions {
 }
 
 /**
- * Scan a codebase and extract Java/Python/Gradle/XML/YAML/Properties facts.
+ * Scan a codebase and extract Java/Python/TypeScript/Gradle/XML/YAML/Properties facts.
  *
  * This is the parser core — shared by the CLI (`src/cli.ts`) and the legacy
  * positional entry (`src/index.ts`, invoked as `node dist/index.js <dir> <link>
@@ -65,6 +66,7 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
 
   const javaProjects = scanner.filterByLanguage(allProjects, ProjectLanguage.JAVA);
   const pythonProjects = scanner.filterByLanguage(allProjects, ProjectLanguage.PYTHON);
+  const typescriptProjects = scanner.filterByLanguage(allProjects, ProjectLanguage.TYPESCRIPT);
 
   const javaAnalyzer = new JavaProjectAnalyzer(undefined, outputDir);
   const propertiesAnalyzer = new PropertiesProjectAnalyzer(outputDir);
@@ -72,6 +74,7 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
   const yamlAnalyzer = new YamlProjectAnalyzer(outputDir);
   const gradleAnalyzer = new GradleProjectAnalyzer(outputDir);
   const pythonAnalyzer = new PythonProjectAnalyzer();
+  const typescriptAnalyzer = new TypeScriptProjectAnalyzer();
 
   await Promise.all([
     javaAnalyzer.analyzeJavaProjects(javaProjects, opts.versionLink, excludeTests),
@@ -85,6 +88,26 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
     // the same way Java does, so the two languages produce joinable values.
     // Passing a raw string into a column named ...LinkHash is the mistake that
     // option exists to prevent.
+    // TypeScript takes one root per call, as Python does. serviceVersionLink is
+    // passed UNHASHED on purpose: the analyzer hashes it exactly as Java and
+    // Python do, so the three languages produce joinable values. Passing a raw
+    // string into a column named ...LinkHash is the mistake that option exists
+    // to prevent.
+    //
+    // One call per PROJECT, not one over the repository root, because a
+    // TypeScript program is the unit of merge scope: two programs have two
+    // global scopes, and analysing them together merges symbols tsc keeps apart.
+    ...typescriptProjects.map((project) =>
+      typescriptAnalyzer.analyze({
+        rootDir: project.path,
+        outputDir: outputDir ?? ANALYSIS_OUTPUT_DIR,
+        baseMservPath: absolutePath,
+        serviceVersionLink: opts.versionLink,
+        excludeDirs: excludeTests
+          ? ['node_modules', '.git', 'dist', 'build', 'out', 'coverage',
+             'test', 'tests', '__tests__', '.next', '.turbo']
+          : undefined,
+      })),
     ...pythonProjects.map((project) =>
       pythonAnalyzer.analyze({
         rootDir: project.path,

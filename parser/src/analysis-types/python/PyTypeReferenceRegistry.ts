@@ -248,6 +248,11 @@ export class PyTypeReferenceRegistry implements EntityIdentifiable {
     ].join('\t');
   }
 
+  /** Set by the fact extractor once the expression stage has minted rows. */
+  setPyExpressionLinkHash(pyExpressionLinkHash: string): void {
+    this.pyExpressionLinkHash = pyExpressionLinkHash;
+  }
+
   getCsvHeader(): string {
     return [
       'kind',

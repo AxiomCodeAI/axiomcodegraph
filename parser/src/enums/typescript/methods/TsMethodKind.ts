@@ -1,0 +1,96 @@
+/**
+ * What kind of function-shaped declaration a `ts_method` row describes.
+ *
+ * Wider than Java's `MethodKind` because TypeScript has more shapes that are
+ * callable, and — the part that matters — because **every bodiless signature is a
+ * row here**. 44.3% of resolved call targets in the measured corpus are
+ * `MethodSignature`: an interface member with no body. A relation holding only
+ * implementations would be missing nearly half the call graph's leaves.
+ *
+ * ## Examples
+ *
+ * ```ts
+ * function f() { }                              // FUNCTION_DECLARATION
+ * class C {
+ *     m() { }                                   // METHOD_DECLARATION
+ *     constructor() { }                         // CONSTRUCTOR
+ *     get x() { return 1 }                      // GETTER
+ *     set x(v: number) { }                      // SETTER
+ *     static { }                                // CLASS_STATIC_BLOCK
+ * }
+ * const a = () => { };                          // ARROW_FUNCTION
+ * const b = function () { };                    // FUNCTION_EXPRESSION
+ * interface I {
+ *     m(): void;                                // METHOD_SIGNATURE
+ *     (x: number): string;                      // CALL_SIGNATURE
+ *     new (x: number): I;                       // CONSTRUCT_SIGNATURE
+ * }
+ * type H = (e: Event) => void;                  // FUNCTION_TYPE_SIGNATURE
+ * type K = new (x: number) => I;                // CONSTRUCTOR_TYPE_SIGNATURE
+ * const o = { m() { } };                        // OBJECT_LITERAL_METHOD
+ * ```
+ *
+ * ## Two members that exist for measured reasons
+ *
+ * **ARROW_FUNCTION.** 703 arrows in one corpus, 161 of them resolved call
+ * targets. An arrow has no name a call site could match, so it is reached only
+ * through the variable that binds it — which is why arrows are rows here rather
+ * than expression detail, and why `ts_variable.boundFunctionLinkHash` exists.
+ *
+ * **FUNCTION_TYPE_SIGNATURE.** `const f: (s: S) => string = (s) => s.id` resolves
+ * its calls to the ANNOTATION's signature, not to the arrow assigned to it. A
+ * parser offering only the arrow disagrees with `getResolvedSignature` on every
+ * such call, so a function type written in type position gets its own row.
+ *
+ * **MODULE_INITIALIZER** is synthetic: top-level executable statements need an
+ * owner, and inventing one lazily would make a file with no top-level code
+ * structurally different from one with it.
+ *
+ * Schema §4.6 c16.
+ */
+export enum TsMethodKind {
+  /** `function f() { }`. */
+  FUNCTION_DECLARATION = 'FUNCTION_DECLARATION',
+
+  /** A method on a class. */
+  METHOD_DECLARATION = 'METHOD_DECLARATION',
+
+  /** `constructor(…)`. Named `<constructor>`. */
+  CONSTRUCTOR = 'CONSTRUCTOR',
+
+  /** `get x() { }`. */
+  GETTER = 'GETTER',
+
+  /** `set x(v) { }`. */
+  SETTER = 'SETTER',
+
+  /** `() => …`. Named `<arrow>`; 161 measured call targets. */
+  ARROW_FUNCTION = 'ARROW_FUNCTION',
+
+  /** `function () { }` in an expression position. A NAMED one binds its own name inside its body. */
+  FUNCTION_EXPRESSION = 'FUNCTION_EXPRESSION',
+
+  /** `m(): void;` on an interface or type literal. Bodiless by construction. */
+  METHOD_SIGNATURE = 'METHOD_SIGNATURE',
+
+  /** `(x: number): string;` — the type is callable. Named `<call-signature>`. */
+  CALL_SIGNATURE = 'CALL_SIGNATURE',
+
+  /** `new (x: number): I;` — the type is constructable. Named `<construct-signature>`. */
+  CONSTRUCT_SIGNATURE = 'CONSTRUCT_SIGNATURE',
+
+  /** `(e: Event) => void` written in TYPE position. A real call target. */
+  FUNCTION_TYPE_SIGNATURE = 'FUNCTION_TYPE_SIGNATURE',
+
+  /** `new (x: number) => I` written in TYPE position. */
+  CONSTRUCTOR_TYPE_SIGNATURE = 'CONSTRUCTOR_TYPE_SIGNATURE',
+
+  /** `{ m() { } }` — callable, and reached through no other path. */
+  OBJECT_LITERAL_METHOD = 'OBJECT_LITERAL_METHOD',
+
+  /** `static { }` — runs once at class-definition time. Named `<static-block>`. */
+  CLASS_STATIC_BLOCK = 'CLASS_STATIC_BLOCK',
+
+  /** Synthetic owner of top-level executable statements. Named `<module>`. */
+  MODULE_INITIALIZER = 'MODULE_INITIALIZER',
+}

@@ -329,6 +329,24 @@ export class PythonFactExtractor {
     });
 
     this.linkTypeBasesToTheirReferences(declarations.typeBases, typeReferences);
+    // py_type_reference.pyExpressionLinkHash was declared and never filled, so
+    // every row carried "". The type stage and the expression stage mint rows
+    // independently, so the join is on byte range, as it is for blocks and
+    // decorators.
+    //
+    // py_type_base is deliberately NOT given the same link. It already carries
+    // pyTypeReferenceLinkHash on every row, so a base reaches its expression
+    // through its reference. A second, direct edge to the same node would be a
+    // redundant path that can disagree with the first one.
+    for (const reference of typeReferences) {
+      const range = this.typeReferenceExtractor.byteRangeByReference.get(reference.getHash());
+      const expressionHash = range
+        ? expressionStage.expressionByByteRange.get(range)
+        : undefined;
+      if (expressionHash) {
+        reference.setPyExpressionLinkHash(expressionHash);
+      }
+    }
     // Before resolution, not after: resolving a decorator needs its expression's
     // SCOPE, and the scope is only reachable through this FK. Linking afterwards
     // left every decorator unresolved while looking correct in isolation.

@@ -86,6 +86,8 @@ const ANY_NAMES: ReadonlySet<string> = new Set(['Any']);
  */
 export class PythonTypeReferenceExtractor {
   private references: PyTypeReferenceRegistry[] = [];
+  /** reference PK -> `start:end` of the node it came from, for the expression join. */
+  readonly byteRangeByReference = new Map<string, string>();
   private input!: TypeReferenceInput;
 
   /**
@@ -309,6 +311,7 @@ export class PythonTypeReferenceExtractor {
   extract(input: TypeReferenceInput): PyTypeReferenceRegistry[] {
     this.input = input;
     this.references = [];
+    this.byteRangeByReference.clear();
 
     for (const position of input.positions) {
       const node = this.unwrap(position.node);
@@ -384,6 +387,7 @@ export class PythonTypeReferenceExtractor {
       .build();
 
     this.references.push(reference);
+    this.byteRangeByReference.set(reference.getHash(), `${node.startIndex}:${node.endIndex}`);
 
     // Children: subscript arguments, or the operands of a PEP 604 union.
     const children = this.argumentsOf(node);
