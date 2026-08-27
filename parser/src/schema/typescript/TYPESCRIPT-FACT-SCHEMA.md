@@ -759,8 +759,16 @@ never off a re-derived qualified name.
 
 ### 4.9 `ts_field_position` / `lib_ts_field_position` — 3 columns
 
-Parity with `java_field_position`, unchanged: `(tsFieldLinkHash, position, tsFieldPositionUniqueHash)`.
-Declaration order within the owner. Tier 1.
+Parity with `java_field_position`, unchanged. Declaration order within the owner — load-bearing
+because a class's field order determines a parameter-property constructor's positional shape.
+
+| # | Column | T | Meaning |
+|---|---|---|---|
+| 0 | `tsFieldLinkHash` | 1 | FK→`ts_field` — **parent** |
+| 1 | `position` | 1 | 0-based declaration order within the owning type |
+| 2 | `tsFieldPositionUniqueHash` | — | **PK** |
+
+**PK** `TS_FIELD_POSITION_md5(tsFieldLinkHash ‖ position)`
 
 ---
 
