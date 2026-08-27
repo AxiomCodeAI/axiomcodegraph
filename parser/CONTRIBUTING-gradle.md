@@ -107,7 +107,7 @@ reads. Do not compute one.
 ## Running the checks
 
 ```bash
-# fixtures — no Gradle, no JVM, no network
+# fixtures and the entry point — no Gradle, no JVM, no network
 npx tsx src/test/gradle-tests.ts
 npx tsx src/test/gradle-tests.ts --list      # what each check proves
 npx tsx src/test/gradle-tests.ts --bless     # rewrite goldens (read below first)
@@ -118,6 +118,24 @@ npx tsx src/test/gradle-gates/corpus-invariants.ts <repo> [<repo> …]
 # the external oracle
 npx tsx src/test/gradle-gates/diff-gradle-model.ts <repo>
 ```
+
+### One suite runs through `extractProject()`, and it has to
+
+Four of the five fixture suites drive `GradleProjectAnalyzer` directly. The
+`entry-point` suite does not — it calls `extractProject()`, the function a
+caller actually uses.
+
+That is not ceremony. `extractProject` runs project detection first and hands
+the analyzer scan targets that OVERLAP by construction: the repository root is
+prepended so root-level config is never missed, and every detected project
+underneath it is added as well. A test that builds its own single target never
+sees this, and the overlap broke three things at once — every file analysed
+twice, one build script emitted as both `PROJECT_BUILD` and `SCRIPT_PLUGIN`,
+and the duplicate rows carrying different `baseMservPath` values so their keys
+differed and a uniqueness check saw nothing wrong.
+
+If you change discovery, ownership, or anything that reads `baseMservPath`,
+this is the suite that will tell you.
 
 ### `--bless` is not a fix
 
@@ -158,6 +176,13 @@ Honest list. Each of these is a place where a defect would currently ship.
 - **Groovy slashy strings are not tracked by the comment scanner.** A `//`
   inside `/foo\/bar/` reads as a comment. The failure mode is a spurious
   comment row, not a lost declaration.
+- **Gradle detection is by file presence, not by a detector.** There is no
+  `gradle-detector.ts` alongside the Java and Python ones, and
+  `ProjectLanguage.GROOVY` is never assigned. The Gradle analyzer is handed
+  every scan target and finds build files by name, which is why it works on a
+  repository the project scanner classifies as Java, or as nothing at all. It
+  also means a Gradle build is never reported in the "Projects by language"
+  summary.
 - **`stripKotlinTypeCasts` is over-eager.** It matches any ` as Word`, so a
   Groovy string containing the English word "as" before a capitalised word is
   rewritten. It emits a `DROPPED_TYPE_CAST` gap either way, so the damage is

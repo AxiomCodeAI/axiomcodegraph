@@ -34,6 +34,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { GradleCatalogEntry } from '@/analysis-types/gradle/GradleCatalogEntry';
+import { extractProject } from '@/extract';
 import { GradleProjectAnalyzer } from '@/workflows/gradle/gradle-project-analyzer';
 
 const DATA = 'src/test-data/gradle';
@@ -575,10 +576,160 @@ const behaviourChecks: Check[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// 5. the entry point — the path a caller actually uses
+// ---------------------------------------------------------------------------
+
+/**
+ * Everything above drives GradleProjectAnalyzer directly, which is not how the
+ * parser is used. `extractProject()` runs project detection first and hands
+ * the analyzer a list of scan targets that OVERLAP: the repository root is
+ * prepended so root-level config is never missed, and every detected project
+ * underneath it is added as well.
+ *
+ * That overlap is invisible to a test that constructs its own single target,
+ * and it broke three things at once — every file analysed twice, one build
+ * script emitted as both PROJECT_BUILD and SCRIPT_PLUGIN, and the duplicate
+ * rows carrying different `baseMservPath` values so they had different keys
+ * and slipped past the uniqueness check.
+ *
+ * So these run the real entry point, over a fixture shaped like the case that
+ * triggers it: a directory that is not itself a project, holding two that are.
+ */
+async function analyseViaEntryPoint(rootDir: string, outputDir: string): Promise<string> {
+  fs.rmSync(outputDir, { recursive: true, force: true });
+  fs.mkdirSync(outputDir, { recursive: true });
+  const silence = console.log;
+  console.log = () => {};
+  try {
+    await extractProject({
+      projectPath: rootDir,
+      versionLink: 'GRADLE_ENTRY_POINT_TEST',
+      excludeTests: false,
+      outputDir,
+    });
+  } finally {
+    console.log = silence;
+  }
+  return outputDir;
+}
+
+const entryPointChecks: Check[] = [
+  {
+    name: 'entry:gradle-is-detected-automatically',
+    proves: 'extractProject finds the Gradle builds with no Gradle-specific configuration',
+    run: (out) => {
+      const scripts = tsv(out, 'all-gradle-scripts.csv');
+      if (!scripts.length) return fail('extractProject emitted no Gradle scripts at all');
+      const names = new Set(scripts.map((s) => s['fileName']));
+      let bad = 0;
+      for (const want of ['settings.gradle', 'build.gradle', 'build.gradle.kts']) {
+        if (!names.has(want)) bad += fail(`${want} was not discovered through the entry point`);
+      }
+      return bad;
+    },
+  },
+  {
+    name: 'entry:each-file-produces-exactly-one-script',
+    proves: 'overlapping scan targets do not analyse the same file twice',
+    run: (out) => {
+      const scripts = tsv(out, 'all-gradle-scripts.csv');
+      const byPath = new Map<string, number>();
+      for (const s of scripts) {
+        const p = s['filePath'] ?? '';
+        byPath.set(p, (byPath.get(p) ?? 0) + 1);
+      }
+      let bad = 0;
+      for (const [p, n] of byPath) {
+        if (n > 1) bad += fail(`${path.basename(p)} produced ${n} script rows`);
+      }
+      return bad;
+    },
+  },
+  {
+    name: 'entry:one-file-one-classification',
+    proves: 'a build script is not both PROJECT_BUILD and SCRIPT_PLUGIN',
+    run: (out) => {
+      const kinds = new Map<string, Set<string>>();
+      for (const s of tsv(out, 'all-gradle-scripts.csv')) {
+        const p = s['filePath'] ?? '';
+        if (!kinds.has(p)) kinds.set(p, new Set());
+        kinds.get(p)!.add(s['scriptKind'] ?? '');
+      }
+      let bad = 0;
+      for (const [p, set] of kinds) {
+        if (set.size > 1) bad += fail(`${path.basename(p)} classified as ${[...set].join(' and ')}`);
+      }
+      return bad;
+    },
+  },
+  {
+    name: 'entry:no-duplicate-facts',
+    proves: 'no relation gains duplicate rows from the overlap',
+    run: (out) => {
+      let bad = 0;
+      for (const f of fs.readdirSync(out).filter((x) => x.startsWith('all-gradle-'))) {
+        const rows = tsv(out, f);
+        if (!rows.length) continue;
+        // Compare on content rather than key: the duplicate rows the overlap
+        // produced differed in baseMservPath, so their KEYS differed and a
+        // uniqueness check saw nothing wrong. Identity is the file plus the
+        // position, which is what a reader would call the same fact.
+        const seen = new Set<string>();
+        for (const r of rows) {
+          const id = [r['filePath'], r['startLine'], r['startColumn'], r['name'] ?? r['blockName'] ?? r['alias'] ?? '', r['declarationType'] ?? r['blockType'] ?? ''].join('|');
+          if (seen.has(id)) { bad += fail(`${f}: duplicate fact ${id.slice(0, 90)}`); break; }
+          seen.add(id);
+        }
+      }
+      return bad;
+    },
+  },
+  {
+    name: 'entry:kotlin-and-groovy-both-yield-coordinates',
+    proves: 'both dialects survive the real entry point, including one-line blocks',
+    run: (out) => {
+      const coords = tsv(out, 'all-gradle-dependency-coordinates.csv');
+      const artifacts = new Set(coords.map((c) => c['artifact']));
+      let bad = 0;
+      // guava: Groovy, one-line block. slf4j: Groovy, multi-line.
+      // commons-lang3: Kotlin DSL, one-line block.
+      for (const want of ['guava', 'slf4j-api', 'commons-lang3']) {
+        if (!artifacts.has(want)) bad += fail(`${want} produced no coordinate`);
+      }
+      return bad;
+    },
+  },
+  {
+    name: 'entry:single-line-blocks-are-not-statements',
+    proves: "`dependencies { implementation('x') }` on one line is a DEPENDENCY",
+    run: (out) => {
+      const leaked = tsv(out, 'all-gradle-declarations.csv')
+        .filter((d) => d['declarationType'] === 'STATEMENT'
+          && /^(method_invocation|string_fragment|juxt_function_call):/.test(d['name'] ?? ''));
+      if (leaked.length) {
+        return fail(`${leaked.length} call(s) fell to the catch-all, e.g. ${leaked[0]!['name']?.slice(0, 60)}`);
+      }
+      const plugins = tsv(out, 'all-gradle-declarations.csv').filter((d) => d['declarationType'] === 'PLUGIN');
+      return plugins.length ? 0 : fail("`plugins { id 'java' }` produced no PLUGIN row");
+    },
+  },
+  {
+    name: 'entry:other-languages-still-run',
+    proves: 'the Gradle analyzer does not suppress the rest of the pipeline',
+    run: (out) => {
+      const emitted = fs.readdirSync(out);
+      return emitted.some((f) => f.startsWith('all-') && !f.startsWith('all-gradle-'))
+        ? 0
+        : fail(`only Gradle relations were written: ${emitted.join(', ')}`);
+    },
+  },
+];
+
+// ---------------------------------------------------------------------------
 // runner
 // ---------------------------------------------------------------------------
 
-interface Suite { fixture: string; checks: Check[] }
+interface Suite { fixture: string; checks: Check[]; viaEntryPoint?: boolean }
 
 const SUITES: Suite[] = [
   { fixture: 'multi-project', checks: [
@@ -599,6 +750,10 @@ const SUITES: Suite[] = [
     goldenCheck('catalogs'), arityCheck, integrityCheck,
     ...behaviourChecks.filter((c) => ['malformed-catalog-line-is-a-gap', 'catalog-accessor-mapping', 'keys-are-unique'].includes(c.name)),
   ] },
+  { fixture: 'entry-point', viaEntryPoint: true, checks: [
+    arityCheck, integrityCheck, ...entryPointChecks,
+    ...behaviourChecks.filter((c) => ['keys-are-unique', 'block-tree-is-acyclic', 'include-resolves-to-subproject'].includes(c.name)),
+  ] },
 ];
 
 async function main(): Promise<void> {
@@ -615,7 +770,11 @@ async function main(): Promise<void> {
 
   for (const suite of SUITES) {
     console.log(`\n▸ ${suite.fixture}`);
-    const out = await analyse(path.join(DATA, suite.fixture), path.join(tmp, suite.fixture));
+    const root = path.join(DATA, suite.fixture);
+    const dest = path.join(tmp, suite.fixture);
+    const out = suite.viaEntryPoint
+      ? await analyseViaEntryPoint(root, dest)
+      : await analyse(root, dest);
     for (const check of suite.checks) {
       const bad = check.run(out);
       failures += bad;

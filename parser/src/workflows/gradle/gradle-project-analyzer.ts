@@ -105,11 +105,32 @@ export class GradleProjectAnalyzer {
 
     await this.ensureOutputDirectory();
 
-    // Projects are analysed one at a time. The extractor keeps per-file state
-    // and is reset at the start of each extractScript call, so interleaving
-    // two files through it would mix their rows together.
-    for (const project of projects) {
-      await this.analyzeProject(project, serviceVersionHash);
+    // Discovery first, across every scan target at once, because the targets
+    // overlap. See resolveOwnership.
+    const owned = await this.discover(projects);
+
+    // Settings directories are computed over the WHOLE corpus rather than per
+    // target. A settings file and the subproject it includes can arrive from
+    // two different scan targets, and a per-target set would classify the
+    // subproject without knowing its settings file exists.
+    const settingsDirs = new Set(
+      [...owned.keys()]
+        .filter((f) => GradleScriptClassifier.isSettingsFile(path.basename(f)))
+        .map((f) => path.dirname(f))
+    );
+
+    console.log(`   🔍 ${owned.size} Gradle file(s), ${settingsDirs.size} settings root(s)`);
+
+    // Catalogs first, so their entries exist before anything references them.
+    const files = [...owned.keys()].sort();
+    const catalogs = files.filter((f) => GradleScriptClassifier.isCatalogFile(path.basename(f)));
+    const scripts = files.filter((f) => !GradleScriptClassifier.isCatalogFile(path.basename(f)));
+
+    // One at a time: the extractor keeps per-file state and resets it at the
+    // start of each extractScript call, so interleaving two files through it
+    // would mix their rows together.
+    for (const filePath of [...catalogs, ...scripts]) {
+      await this.analyzeFile(filePath, owned.get(filePath)!, settingsDirs, serviceVersionHash);
     }
 
     // The project pass: everything one file could not decide alone.
@@ -136,34 +157,58 @@ export class GradleProjectAnalyzer {
     console.log(`⏱️  Gradle analysis completed in ${durationSeconds}s`);
   }
 
-  private async analyzeProject(project: ProjectInfo, serviceVersionHash: string): Promise<void> {
-    const files = await this.findGradleFiles(project.path);
-    if (files.length === 0) return;
+  /**
+   * Finds every Gradle file across all scan targets, once, and decides which
+   * target owns each one.
+   *
+   * ## Why ownership has to be resolved rather than assumed
+   *
+   * The scan targets `extractProject` supplies OVERLAP by construction. It
+   * prepends the repository root so root-level `settings.gradle` and `pom.xml`
+   * are never missed, and then adds every project the scanner detected
+   * underneath it. A file inside a detected project is therefore reachable
+   * from two targets.
+   *
+   * Scanning per target independently analyses each such file twice. The two
+   * rows are not even identical — `baseMservPath` differs, so they get
+   * different keys and slip past a uniqueness check — and they can disagree:
+   * a subproject build script was emitted once as PROJECT_BUILD and once as
+   * SCRIPT_PLUGIN, because only one of the two could win the include edge.
+   *
+   * The most specific containing target wins, since that is the project the
+   * file actually belongs to and therefore the correct `baseMservPath`.
+   */
+  private async discover(projects: ProjectInfo[]): Promise<Map<string, ProjectInfo>> {
+    const owned = new Map<string, ProjectInfo>();
 
-    // Pass one: where do settings files live. Nothing can be classified
-    // before this is known.
-    const settingsDirs = new Set(
-      files
-        .filter((f) => GradleScriptClassifier.isSettingsFile(path.basename(f)))
-        .map((f) => path.dirname(f))
-    );
+    for (const project of projects) {
+      const files = await this.findGradleFiles(project.path);
+      if (!files.length) continue;
 
-    console.log(`📦 Gradle in: ${project.name}`);
-    console.log(`   🔍 Found ${files.length} Gradle file(s), ${settingsDirs.size} settings root(s)`);
-
-    // Catalogs first, so their entries exist before anything references them.
-    const catalogs = files.filter((f) => GradleScriptClassifier.isCatalogFile(path.basename(f)));
-    const scripts = files.filter((f) => !GradleScriptClassifier.isCatalogFile(path.basename(f)));
-
-    for (const filePath of [...catalogs, ...scripts]) {
-      await this.analyzeFile(filePath, project, settingsDirs, serviceVersionHash);
+      for (const filePath of files) {
+        const current = owned.get(filePath);
+        if (!current || this.isMoreSpecific(project, current)) {
+          owned.set(filePath, project);
+        }
+      }
     }
+
+    if (owned.size) {
+      const names = [...new Set([...owned.values()].map((p) => p.name))];
+      console.log(`📦 Gradle in: ${names.join(', ')}`);
+    }
+    return owned;
+  }
+
+  /** The deeper project path is the one the file really belongs to. */
+  private isMoreSpecific(candidate: ProjectInfo, current: ProjectInfo): boolean {
+    return path.resolve(candidate.path).length > path.resolve(current.path).length;
   }
 
   private async analyzeFile(
     filePath: string,
     project: ProjectInfo,
-    settingsDirs: Set<string>,
+    settingsDirs: ReadonlySet<string>,
     serviceVersionHash: string
   ): Promise<void> {
     let content: string;

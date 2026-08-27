@@ -785,6 +785,28 @@ export class GradleFileExtractor implements BaseExtractor<GradleBlock> {
           );
           break;
 
+        // A one-line closure — `dependencies { implementation("a:b:1.0") }` —
+        // puts the call directly under the closure, where a multi-line one
+        // wraps it in an expression_statement. Without these cases the call
+        // fell to the catch-all and became a STATEMENT named
+        // `method_invocation: implementation(...)`, so a build that writes its
+        // dependencies on one line reported none at all.
+        case 'method_invocation':
+        case 'function_call':
+          this.processMethodInvocation(
+            child, blocks, filePath, baseMservPath, dialect,
+            serviceVersionHash, parentBlockHash, depth
+          );
+          break;
+
+        case 'assignment':
+        case 'assignment_expression':
+          this.processAssignment(
+            child, child, filePath, baseMservPath, dialect,
+            serviceVersionHash, parentBlockHash
+          );
+          break;
+
         case 'if_statement':
           this.processControlFlow(
             child, GradleBlockType.IF, blocks, filePath, baseMservPath,
@@ -1475,6 +1497,26 @@ export class GradleFileExtractor implements BaseExtractor<GradleBlock> {
         .withValue(args)
         .withQualifier(methodName)
         .withNotation(notation)
+        .build();
+
+      this.extractedDeclarations.push(decl);
+      this.extractValueReferences(node, args, decl.getHash(), parentBlockHash, filePath, baseMservPath, serviceVersionHash);
+      return;
+    }
+
+    // Plugin: id 'org.springframework.boot' (inside a plugins block).
+    // The method-call path recognised this; the no-paren path did not, so
+    // `plugins { id 'java' }` produced a STATEMENT named `id` and the build's
+    // plugins were absent from the plugin relation.
+    if (methodName === 'id') {
+      const pluginId = this.stripQuotes(args.trim());
+      const decl = GradleDeclaration.builder(
+        GradleDeclarationType.PLUGIN, pluginId, dialect, parentBlockHash,
+        this.scriptHash,
+        filePath, baseMservPath, startLine, endLine, startColumn, endColumn,
+        serviceVersionHash
+      )
+        .withNotation(GradlePluginSyntax.PLUGINS_BLOCK_ID)
         .build();
 
       this.extractedDeclarations.push(decl);
