@@ -1,0 +1,104 @@
+// ============================================================================
+// Projections · CALL SITES  (pure column views — no joins, no closures)
+//
+// py_call_site is a BASE relation for Python where Java DERIVES it in
+// expression-resolution/call-site.dl. The reason is in the schema: the call shape is
+// not recoverable from one positional pattern — keyword args, * / ** spreading,
+// chained receivers, super(), and the receiver's syntactic shape (receiverKind), which
+// is all we honestly know about a duck-typed receiver.
+//
+// It is 1:1 with its CALL expression (PK chains off pyExpressionLinkHash), so the
+// SITE UNIVERSE for conservation is exactly this relation. Every row here must appear
+// in the output, resolved or explicitly flagged — that is the testable invariant.
+//
+// MEASURED ON linkage-sample — the numbers the rule set is built against:
+//   49 call sites. resolvedCalleeHash present on 39 (79.6%), of which 21 distinct
+//   hashes are py_method and 3 are py_type; 0 dangling WITHIN this run.
+//   The 10 with no pre-resolution: 7 x `super` (BUILTIN), 1 SUPER_CALL through an
+//   assignment-alias base, 1 call through a parameter (`fn`), 1 through `cls`.
+//   BUT resolvedCalleeHash IS RUN-LOCAL BY CONSTRUCTION — the stdlib IR was parsed in
+//   a separate run, so its hashes cannot match a client run's. It therefore buys
+//   client->client edges and NOTHING across a library boundary; cross-module linking
+//   goes through calleeDottedPath vs qualifiedName (resolution/lib-linking.dl).
+//
+// py_call_site / lib_py_call_site cols (26):
+//   0 callKind  1 calleeName  2 calleeDottedPath  3 receiverText  4 receiverKind
+//   5 pyExpressionLinkHash  6 receiverExpressionLinkHash  7 pyScopeLinkHash
+//   8 pyMethodLinkHash  9 pyTypeLinkHash  10 pyModuleLinkHash  11 positionalArgCount
+//   12 keywordArgCount  13 hasStarArgs  14 hasDoubleStarArgs  15 keywordNames
+//   16 argFlowIsPrecise  17 resolvedCalleeKind  18 resolvedCalleeHash
+//   19 isModuleLevelCall  20 isConditional  21 startLine  22 startColumn  23 endLine
+//   24 serviceVersionLinkHash  25 pyCallSiteUniqueHash
+// ============================================================================
+
+// ── call_decl(Prov, CallKind, CalleeName, CalleeDottedPath, CallExprHash, SiteHash) ──
+// callKind:
+//   SIMPLE_CALL    bare name — `f(x)`                 METHOD_CALL   `obj.m(x)`
+//   SELF_CALL      `self.m(x)`                        CLS_CALL      `cls.m(x)`
+//   SUPER_CALL     `super().m(x)`                     CHAINED_CALL  `f().m(x)`
+//   MODULE_CALL    `mod.f(x)`                         SUBSCRIPT_CALL `d[k](x)`
+//   DYNAMIC_CALL   getattr/eval/exec — UNRESOLVABLE BY CONSTRUCTION, and marked so
+//   DECORATOR_CALL a decorator application            INSTANCE_CALL  `obj(x)` via __call__
+//   BUILTIN_CALL   a CPython builtin                  UNKNOWN_CALLEE_CALL
+// CalleeName is the invoked simple name; CalleeDottedPath is the full written path
+// (`self.repo.get_user`) and is the durable key for library linking.
+call_decl("client", ck, name, dotted, expr, h) :- py_call_site(ck, name, dotted, _, _, expr, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+call_decl("lib", ck, name, dotted, expr, h) :- lib_py_call_site(ck, name, dotted, _, _, expr, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── call_receiver(Prov, ReceiverKind, ReceiverText, ReceiverExprHash, SiteHash) ──
+// THE DUCK-TYPING ANSWER: record the receiver's SHAPE, let the engine do the typing.
+//   NONE        no receiver written — bare `f(x)`. 30 of 49 sites on linkage-sample.
+//   SELF / CLS  the enclosing instance / class — typed from pyTypeLinkHash (col 9)
+//   SUPER       an MRO-ordered lookup starting AFTER the enclosing class — NOT
+//               virtual dispatch. col 9 gives the slice point, type_base.position the order
+//   NAME        a bare name — resolve through the binding (50.7% of attribute calls)
+//   ATTRIBUTE   `self.repo.m()` — needs attribute typing
+//   CALL_RESULT `f().m()` — needs return typing
+//   SUBSCRIPT / LITERAL / MODULE / TYPE / UNKNOWN
+call_receiver("client", rk, rtext, rexpr, h) :- py_call_site(_, _, _, rtext, rk, _, rexpr, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+call_receiver("lib", rk, rtext, rexpr, h) :- lib_py_call_site(_, _, _, rtext, rk, _, rexpr, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── call_context(Prov, ScopeHash, CallerMethodHash, EnclosingTypeHash, ModuleHash, SiteHash) ──
+// CallerMethodHash is NEVER "": a module-level call is owned by the synthetic <module>
+// initializer (schema §4.2), which is exactly why Java's ownership rules port with no
+// empty-owner special case. EnclosingTypeHash is "" outside a class and is the slice
+// point for super().
+call_context("client", s, caller, t, m, h) :- py_call_site(_, _, _, _, _, _, _, s, caller, t, m, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+call_context("lib", s, caller, t, m, h) :- lib_py_call_site(_, _, _, _, _, _, _, s, caller, t, m, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── call_arity(Prov, PositionalArgCount, KeywordArgCount, KeywordNames, SiteHash) ──
+call_arity("client", pa, ka, kn, h) :- py_call_site(_, _, _, _, _, _, _, _, _, _, _, pa, ka, _, _, kn, _, _, _, _, _, _, _, _, _, h).
+call_arity("lib", pa, ka, kn, h) :- lib_py_call_site(_, _, _, _, _, _, _, _, _, _, _, pa, ka, _, _, kn, _, _, _, _, _, _, _, _, _, h).
+
+// ── call_spread(Prov, HasStarArgs, HasDoubleStarArgs, SiteHash) ──────────────
+call_spread("client", star, dstar, h) :- py_call_site(_, _, _, _, _, _, _, _, _, _, _, _, _, star, dstar, _, _, _, _, _, _, _, _, _, _, h).
+call_spread("lib", star, dstar, h) :- lib_py_call_site(_, _, _, _, _, _, _, _, _, _, _, _, _, star, dstar, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── call_arg_flow_imprecise(Prov, SiteHash) ──────────────────────────────────
+// argFlowIsPrecise=false: * or ** spreading, so positional argument->parameter flow is
+// PROVABLY unsound here. Emitted as a POSITIVE fact about imprecision so the engine can
+// report it rather than silently produce a wrong link.
+call_arg_flow_imprecise("client", h) :- py_call_site(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "false", _, _, _, _, _, _, _, _, h).
+call_arg_flow_imprecise("lib", h) :- lib_py_call_site(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "false", _, _, _, _, _, _, _, _, h).
+
+// ── call_pre_resolved(Prov, ResolvedCalleeKind, ResolvedCalleeHash, SiteHash) ──
+// The parser's own callee answer: METHOD | TYPE | MODULE_FUNCTION | BUILTIN | IMPORTED |
+// UNRESOLVED. RUN-LOCAL (see the header). Projected for CROSS-CHECKING the engine's
+// independently derived answer, not as the primary source — otherwise the whole engine
+// would be a client-only rename of the parser and would produce zero library edges.
+call_pre_resolved("client", k, t, h) :- py_call_site(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, k, t, _, _, _, _, _, _, h).
+call_pre_resolved("lib", k, t, h) :- lib_py_call_site(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, k, t, _, _, _, _, _, _, h).
+
+// ── call_is_module_level(Prov, SiteHash) ─────────────────────────────────────
+// Executed at IMPORT time, so it is reachable from every importer — the Python
+// analogue of a static initializer and a genuine entry point.
+call_is_module_level("client", h) :- py_call_site(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, h).
+call_is_module_level("lib", h) :- lib_py_call_site(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, h).
+
+// ── call_is_conditional(Prov, SiteHash) ──────────────────────────────────────
+call_is_conditional("client", h) :- py_call_site(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, h).
+call_is_conditional("lib", h) :- lib_py_call_site(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, h).
+
+// ── call_span(Prov, StartLine, StartColumn, SiteHash) ────────────────────────
+call_span("client", sl, sc, h) :- py_call_site(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, sl, sc, _, _, h).
+call_span("lib", sl, sc, h) :- lib_py_call_site(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, sl, sc, _, _, h).

@@ -1,0 +1,116 @@
+// ============================================================================
+// RESOLUTION · DECORATORS
+//
+// py_decorator / py_decorator_argument were STAGED AND READ BY NOTHING before this
+// file. 22% of functions are decorated, so that was not a small omission: a decorator
+// is a call that REPLACES the decorated object, and an engine that ignores it emits
+// edges to bodies the decorated name can no longer reach.
+//
+// THE RULE: an UNMODELLED decorator that replaces its target makes every call through
+// that name ambiguous_unknown. NEVER a direct edge. That is a deliberate loss of
+// recall in exchange for not fabricating, and it is countable — method_target_replaced
+// is exported, so the cost is visible rather than assumed.
+//
+// applicationOrder IS BOTTOM-UP. For a stacked pair, applicationOrder 0 is the
+// decorator nearest the `def`, and its return value is what the next one receives. So
+// the object the NAME finally refers to is produced by the decorator with the HIGHEST
+// applicationOrder. Reading `position` (top-down source order) instead inverts the
+// stack and attributes the replacement to the wrong call — which is why both columns
+// exist and why this file uses only applicationOrder.
+//
+// NOTE ON linkage-sample: the IR at
+// Parser/analysis-results/python/linkage-sample contains NO all-python-decorators.csv
+// at all, although the source has 6 decorators (@overload x2, @staticmethod,
+// @classmethod, @property, @audit("child")). So py_decorator is empty there and none of
+// these rules can fire on it. Filed as PD-3. The rules are exercised against the 3.10.4
+// library IR, which does ship the relation (598 decorator rows in _stdlib_base alone).
+// ============================================================================
+
+// ── decorator_transparent(BuiltinKind) — the modelled set ────────────────────
+// A decorator is TRANSPARENT when calling the decorated NAME still reaches the
+// decorated `def`, so resolving the name to the def is correct:
+//   STATICMETHOD / CLASSMETHOD  descriptors — they change which object arg 0 is, which
+//                               argument flow must account for, but the callee body is
+//                               the same function.
+//   PROPERTY / SETTER / DELETER descriptors — they turn an attribute ACCESS into a call
+//                               on this exact function.
+//   ABSTRACTMETHOD / FINAL      metadata only.
+//   OVERLOAD                    the stub is excluded from lookup by bodyIsStub already.
+//   WRAPS                       applied to the WRAPPER, and only copies metadata.
+//   LRU_CACHE / CACHED_PROPERTY / CONTEXTMANAGER / DATACLASS
+//                               a library wrapper that CALLS THROUGH. The direct edge
+//                               skips one library hop; it does not point at the wrong
+//                               body. Recorded as decorator_hop_elided so the elision is
+//                               a fact rather than an omission.
+decorator_transparent("STATICMETHOD").
+decorator_transparent("CLASSMETHOD").
+decorator_transparent("PROPERTY").
+decorator_transparent("SETTER").
+decorator_transparent("DELETER").
+decorator_transparent("ABSTRACTMETHOD").
+decorator_transparent("FINAL").
+decorator_transparent("OVERLOAD").
+decorator_transparent("WRAPS").
+decorator_transparent("LRU_CACHE").
+decorator_transparent("CACHED_PROPERTY").
+decorator_transparent("CONTEXTMANAGER").
+decorator_transparent("DATACLASS").
+
+// ── decorator_elides_hop(BuiltinKind) — transparent, but through a wrapper ───
+decorator_elides_hop("LRU_CACHE").
+decorator_elides_hop("CACHED_PROPERTY").
+decorator_elides_hop("CONTEXTMANAGER").
+
+// ── decorator_opaque(Prov, DecoratorHash) ────────────────────────────────────
+// replacesTarget=true AND the builtinKind is not in the modelled set. `@audit("child")`
+// is exactly this: `audit` returns `middle`, `middle(tagged)` returns `wrapper`, and the
+// name `tagged` now refers to `wrapper`.
+decorator_opaque(p, d) :-
+    decorator_replaces_target(p, d),
+    decorator_builtin(p, bk, d),
+    !decorator_transparent(bk).
+
+// ── method_target_replaced(Prov, MethodHash) ─────────────────────────────────
+// This `def` is no longer what its own name means. Subtracted from type_defines_method
+// in resolution/attribute-lookup.dl, which is what turns a call through the name into
+// ambiguous_unknown rather than a fabricated edge.
+method_target_replaced(p, m) :- decorator_target(p, _, m, d), m != "", decorator_opaque(p, d).
+
+// ── type_target_replaced(Prov, TypeHash) ─────────────────────────────────────
+// A decorated CLASS whose decorator replaces it (`@register class C` returning a
+// proxy). 214 decorated classes in the measured corpus.
+type_target_replaced(p, t) :- decorator_target(p, t, "", d), t != "", decorator_opaque(p, d).
+
+// ── decorator_hop_elided(Prov, MethodHash, BuiltinKind) ──────────────────────
+// A direct edge to this method skips one library wrapper frame. Exported so the graph's
+// depth can be read honestly.
+decorator_hop_elided(p, m, bk) :-
+    decorator_target(p, _, m, d), m != "",
+    decorator_builtin(p, bk, d), decorator_elides_hop(bk).
+
+// ── decorator_outermost(Prov, OwnerHash, DecoratorHash) ──────────────────────
+// The decorator that produces the object the name finally refers to: the one with the
+// HIGHEST applicationOrder. Max aggregate over a projection, outside any recursion.
+// decorator_order_num exists only so the aggregate has a number-typed column to
+// maximise over: souffle cannot deduce the type of a variable bound by
+// `o = to_number(...)` INSIDE a max body, and the error it gives names the aggregate,
+// not the conversion.
+decorator_order_num(p, owner, d, n) :-
+    annotation_on(p, _, _, _, owner, d),
+    decorator_order(p, _, ostr, d), ostr != "",
+    n = to_number(ostr).
+decorator_max_order(p, owner, omax) :-
+    decorator_order_num(p, owner, _, _),
+    omax = max n : { decorator_order_num(p, owner, _, n) }.
+decorator_outermost(p, owner, d) :-
+    decorator_max_order(p, owner, omax),
+    decorator_order_num(p, owner, d, omax).
+
+// ── decorator_call_site(Prov, SiteHash, DecoratorHash) ───────────────────────
+// A CALL-kind decorator (`@audit("child")`) has its OWN py_call_site with
+// callKind=DECORATOR_CALL. That call is part of the conserved site universe and gets a
+// real edge like any other — the decorator being unmodelled affects what the DECORATED
+// NAME resolves to, not whether the decorator's own invocation resolves.
+decorator_call_site(p, site, d) :-
+    decorator_expr(p, e, d),
+    call_decl(p, "DECORATOR_CALL", _, _, e, site).

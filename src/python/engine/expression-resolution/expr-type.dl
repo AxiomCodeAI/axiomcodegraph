@@ -1,0 +1,99 @@
+// ============================================================================
+// EXPRESSION RESOLUTION · EXPRESSION TYPE
+//
+// What class of object does this expression yield. Java answers this from declared
+// types; 68.2% of Python parameters have none, so the answer has to come from flow, and
+// the honest set of shapes it can come from is small and worth naming explicitly:
+//
+//   self                      the enclosing class            (exact, plus dispatch)
+//   cls                       the class the classmethod was reached through
+//   Foo(...)                  a construction                 (exact)
+//   self.x                    a single-write attribute       (resolution/field-flow.dl)
+//   f()                       the callee's declared return   (47% have one)
+//   x  (a local)              single-binding local flow
+//
+// TWO DISTINCT KINDS OF ANSWER, and conflating them is the classic Python mistake:
+//   expr_type              the expression yields an INSTANCE of this class
+//   expr_type_class_object the expression yields the CLASS ITSELF
+// `Base.make_default()` and `Base("x")` differ only in that: in the first, `Base` is a
+// class object being attribute-accessed; in the second it is being CALLED, which
+// constructs. Since there is no OBJECT_CREATION expression kind (schema §4.5), that
+// distinction is entirely the engine's to make.
+// ============================================================================
+
+// ── expr_type_class_object(Prov, ExprHash, TypeHash) — yields the CLASS ──────
+// (a) a bare name that denotes a class: `Base`, `Child`, `_Aliased`.
+expr_type_class_object(p, e, t) :- expr_names_type(p, e, t).
+// (b) a dotted name into a module: `models.Base`.
+expr_type_class_object(p, e, t) :- expr_attr_names_type(p, e, t).
+// (c) `cls` inside a classmethod — the class the method was REACHED THROUGH, not
+//     necessarily the class that declares it. See cls_bound_type below.
+expr_type_class_object(p, e, t) :- expr_cls_type(p, e, t).
+
+// ── expr_type(Prov, ExprHash, TypeHash) — yields an INSTANCE ──────────────────
+// (a) `self`. The STATIC answer is the enclosing class; widening to subclasses is
+//     dispatch's job (resolution/dispatch.dl), not typing's, so the two stay separable
+//     and the dispatch cap has something to cap.
+expr_type(p, e, t) :-
+    expr_node(p, "SELF_REFERENCE", _, _, e),
+    expr_owner(p, _, _, t, e), t != "".
+// (b) A CALL whose callee denotes a CLASS: a construction. This is where "there is no
+//     OBJECT_CREATION kind" is paid for, and it is one join.
+expr_type(p, e, t) :- call_of_expr(e, site), call_constructs_type(site, t), p = "client".
+// (c) A CALL whose resolved callee has a declared return type that names a class in the
+//     callee's own module. 53% of functions have no `-> X` at all, so this is a bonus
+//     path, not the mechanism.
+expr_type(p, e, t) :- call_of_expr(e, site), call_returns_type(site, t), p = "client".
+// (d) `self.x` where the attribute is single-write and construction-typed.
+expr_type(p, e, t) :-
+    expr_attr_of_self(p, e, n, owner),
+    type_attr_field(p, owner, n, f),
+    field_type(p, f, t).
+// (e) `self.x` where the attribute has SEVERAL writes — the sound union. Feeds
+//     multi_inferred, never known_edge, because the set is an over-approximation of one
+//     runtime value.
+expr_type_union_only(p, e, t) :-
+    expr_attr_of_self(p, e, n, owner),
+    type_attr_field(p, owner, n, f),
+    field_type_union(p, f, t).
+expr_type(p, e, t) :- expr_type_union_only(p, e, t).
+// (f) A local name bound exactly once to something the engine can type: `d = Base(...)`
+//     then `d.describe()`. The bindingCount == 1 guard is the same one the alias rule
+//     uses and carries the same argument — symtable itself says the name is bound once.
+expr_type(p, e, t) :- expr_binding(p, b, ctx, e), ctx != "STORE", binding_lookup(p, b, b2), binding_value_type(p, b2, t).
+
+// ── binding_value_type(Prov, BindingHash, TypeHash) ──────────────────────────
+// Single-binding local/module flow. Mirrors Java's local-flow.dl, with the write count
+// coming from symtable instead of from a declared type.
+binding_value_type(p, b, t) :-
+    binding_rebinding(p, "1", _, _, b),
+    expr_binding(p, b, "STORE", tgt),
+    assign_pair(p, tgt, val),
+    expr_type(p, val, t).
+
+// ── call_returns_type(SiteHash, TypeHash) ────────────────────────────────────
+// The callee's `-> X` annotation, resolved as a member of the CALLEE's own module. A
+// within-module lookup, so no cross-module name matching sneaks in. Restricted to
+// candidates rather than the post-cap set so the type flow does not depend on the cap.
+call_returns_type(site, t) :-
+    expr_call_candidate(site, m),
+    method_decl("client", _, _, _, ret, m), ret != "",
+    method_module("client", mod, m),
+    module_member_type("client", mod, ret, t).
+
+// ── expr_any_type(Prov, ExprHash) — typed at all ─────────────────────────────
+// Used to distinguish "the engine has no type for this receiver" from "the engine has
+// several", which are different confidences and must not be merged.
+expr_any_type(p, e) :- expr_type(p, e, _).
+expr_any_type(p, e) :- expr_type_class_object(p, e, _).
+
+// ── expr_type_untypable(Prov, ExprHash, Reason) ──────────────────────────────
+// A receiver expression the engine cannot type, WITH THE REASON — which is the whole
+// difference between a report and a shrug.
+expr_type_untypable(p, e, "parameter") :- expr_names_param(p, e, _), !expr_any_type(p, e).
+expr_type_untypable(p, e, "attribute_untyped") :-
+    expr_attr_of_self(p, e, n, owner), type_attr_field(p, owner, n, f),
+    field_type_unknown(p, f), !expr_any_type(p, e).
+expr_type_untypable(p, e, "unresolved_name") :-
+    expr_binding(p, b, ctx, e), ctx != "STORE",
+    binding_lookup_unresolved(p, b, _, _), !expr_any_type(p, e).

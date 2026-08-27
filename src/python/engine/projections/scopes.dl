@@ -1,0 +1,73 @@
+// ============================================================================
+// Projections · SCOPES  (pure column views — no joins, no closures)
+//
+// py_scope mirrors CPython symtable.SymbolTable. There is no Java analogue: Java
+// resolves a name by file + class, Python resolves it by walking a scope chain.
+// The chain WALK is a containment-layer closure (containment/ownership.dl); this
+// file only names the columns.
+//
+// py_scope / lib_py_scope cols (25):
+//   0 scopeKind  1 name  2 qualifiedName  3 nestingDepth  4 parentScopeLinkHash
+//   5 pyModuleLinkHash  6 ownerKind  7 ownerHash  8 isNested  9 isOptimized
+//   10 hasChildren  11 symtableId  12 usesWildcardImport  13 isGenerator
+//   14 isCoroutine  15 declaresGlobal  16 declaresNonlocal  17 filePath
+//   18 startLine  19 startColumn  20 endLine  21 endColumn  22 scopeOrdinal
+//   23 serviceVersionLinkHash  24 pyScopeUniqueHash
+//
+// c11 symtableId is an oracle cross-check handle ONLY and is deliberately not
+// projected — joining on it would couple the engine to one interpreter run.
+// ============================================================================
+
+// ── scope_decl(Prov, ScopeKind, Name, QualifiedName, ScopeHash) ──────────────
+// qualifiedName carries CPython __qualname__ semantics INCLUDING <locals>, e.g.
+// Outer.method.<locals>.inner — which is what makes closures addressable at all.
+scope_decl("client", kind, name, qname, h) :- py_scope(kind, name, qname, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+scope_decl("lib", kind, name, qname, h) :- lib_py_scope(kind, name, qname, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── scope_parent(Prov, ParentScopeHash, ScopeHash) ───────────────────────────
+// THE SPINE. "" at module scope. resolution/ closes this transitively to get the
+// lexical chain a bare name is looked up along (LEGB).
+scope_parent("client", parent, h) :- py_scope(_, _, _, _, parent, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+scope_parent("lib", parent, h) :- lib_py_scope(_, _, _, _, parent, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── scope_owner(Prov, OwnerKind, OwnerHash, ScopeHash) ───────────────────────
+// OwnerKind in {MODULE, TYPE, METHOD, LAMBDA, COMPREHENSION}; OwnerHash is
+// polymorphic by it. This is the bridge from a scope back to the declaration that
+// introduced it — how a method's own scope is found, and vice versa.
+scope_owner("client", ownerKind, owner, h) :- py_scope(_, _, _, _, _, _, ownerKind, owner, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+scope_owner("lib", ownerKind, owner, h) :- lib_py_scope(_, _, _, _, _, _, ownerKind, owner, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── scope_module(Prov, ModuleHash, ScopeHash) ────────────────────────────────
+scope_module("client", mod, h) :- py_scope(_, _, _, _, _, mod, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+scope_module("lib", mod, h) :- lib_py_scope(_, _, _, _, _, mod, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── scope_depth(Prov, NestingDepth, ScopeOrdinal, ScopeHash) ─────────────────
+scope_depth("client", d, sord, h) :- py_scope(_, _, _, d, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, sord, _, h).
+scope_depth("lib", d, sord, h) :- lib_py_scope(_, _, _, d, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, sord, _, h).
+
+// ── scope_flags(Prov, IsNested, IsOptimized, HasChildren, ScopeHash) ─────────
+// Cols 8..10 verbatim from symtable. isOptimized=false marks a scope whose names
+// are NOT statically resolvable by CPython itself (class bodies, exec).
+scope_flags("client", nested, opt, kids, h) :- py_scope(_, _, _, _, _, _, _, _, nested, opt, kids, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+scope_flags("lib", nested, opt, kids, h) :- lib_py_scope(_, _, _, _, _, _, _, _, nested, opt, kids, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── scope_wildcard_import(Prov, ScopeHash) ───────────────────────────────────
+// `from x import *` occurred here, so an unresolved bare name in this scope may
+// legitimately come from anywhere. A DECLARED blind spot, not a silent one: the
+// callee-resolution layer must degrade to ambiguous_unknown rather than guess.
+scope_wildcard_import("client", h) :- py_scope(_, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, h).
+scope_wildcard_import("lib", h) :- lib_py_scope(_, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── scope_declares_global(Prov, ScopeHash) / scope_declares_nonlocal ─────────
+// A `global` / `nonlocal` statement occurs here, so a LOCAL-looking assignment in
+// this scope may rebind an outer name. Consumed by resolution/name-resolution.dl.
+scope_declares_global("client", h) :- py_scope(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, h).
+scope_declares_global("lib", h) :- lib_py_scope(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, h).
+scope_declares_nonlocal("client", h) :- py_scope(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, h).
+scope_declares_nonlocal("lib", h) :- lib_py_scope(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, h).
+
+// ── scope_span(Prov, FilePath, StartLine, StartColumn, ScopeHash) ────────────
+// startColumn is IN THE PK (0.60% of scopes collide on line alone — two lambdas or
+// two comprehensions on one line), so it is projected alongside for reporting.
+scope_span("client", path, sl, sc, h) :- py_scope(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, path, sl, sc, _, _, _, _, h).
+scope_span("lib", path, sl, sc, h) :- lib_py_scope(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, path, sl, sc, _, _, _, _, h).
