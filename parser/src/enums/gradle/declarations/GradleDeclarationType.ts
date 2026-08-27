@@ -63,8 +63,13 @@ export enum GradleDeclarationType {
    *  name: path, qualifier: "include" or "includeBuild" */
   INCLUDE = 'INCLUDE',
 
-  /** Everything else: method calls, excludes, artifacts, resolution rules,
-   *  catalog entries, imports, return, throw, class defs, etc.
+  /** Dependency exclusions — exclude group:/module:, and the transitive/
+   *  changing/force flags that ride alongside them.
+   *  name: excluded coordinate, qualifier: owning configuration or dependency */
+  EXCLUDE = 'EXCLUDE',
+
+  /** Everything else: method calls, artifacts, resolution rules,
+   *  imports, return, throw, class defs, etc.
    *  name: statement kind or method name, value: arguments/expression */
   STATEMENT = 'STATEMENT',
 }

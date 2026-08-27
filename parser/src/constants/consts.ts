@@ -67,6 +67,11 @@ export const OUTPUT_YAML_VALUE_SEGMENT_CSV_FILENAME = 'all-yaml-value-segments.c
 export const OUTPUT_GRADLE_BLOCK_CSV_FILENAME = 'all-gradle-blocks.csv';
 export const OUTPUT_GRADLE_DECLARATION_CSV_FILENAME = 'all-gradle-declarations.csv';
 export const OUTPUT_GRADLE_VALUE_REFERENCE_CSV_FILENAME = 'all-gradle-value-references.csv';
+export const OUTPUT_GRADLE_SCRIPT_CSV_FILENAME = 'all-gradle-scripts.csv';
+export const OUTPUT_GRADLE_DEPENDENCY_COORDINATE_CSV_FILENAME = 'all-gradle-dependency-coordinates.csv';
+export const OUTPUT_GRADLE_CATALOG_ENTRY_CSV_FILENAME = 'all-gradle-catalog-entries.csv';
+export const OUTPUT_GRADLE_COMMENT_CSV_FILENAME = 'all-gradle-comments.csv';
+export const OUTPUT_GRADLE_PARSE_GAP_CSV_FILENAME = 'all-gradle-parse-gaps.csv';
 
 /**
  * Java entity type identifiers used for extractor registration
@@ -104,4 +109,14 @@ export const FILE_EXTENSIONS = {
   YAML_LONG: '.yaml',
   GRADLE: '.gradle',
   GRADLE_KTS: '.gradle.kts',
+  KOTLIN_SCRIPT: '.kts',
+  TOML: '.toml',
 } as const;
+
+/**
+ * The conventional location of a Gradle version catalog. Gradle also accepts
+ * catalogs declared explicitly in settings via
+ * `versionCatalogs { create("libs") { from(files("...")) } }`; those are picked
+ * up from the settings declaration rather than by path.
+ */
+export const GRADLE_DEFAULT_VERSION_CATALOG = 'gradle/libs.versions.toml';

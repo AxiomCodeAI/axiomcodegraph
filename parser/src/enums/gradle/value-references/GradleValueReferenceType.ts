@@ -97,6 +97,18 @@ export enum GradleValueReferenceType {
   /** requested.version (inside eachPlugin / eachDependency blocks) */
   REQUESTED_VERSION = 'REQUESTED_VERSION',
 
+  /** libs.spring.boot.starter / libs.versions.spring — version catalog accessor */
+  VERSION_CATALOG_ACCESSOR = 'VERSION_CATALOG_ACCESSOR',
+
+  /** libs.bundles.spring — version catalog bundle accessor */
+  VERSION_CATALOG_BUNDLE = 'VERSION_CATALOG_BUNDLE',
+
+  /** libs.plugins.spring.boot — version catalog plugin accessor */
+  VERSION_CATALOG_PLUGIN = 'VERSION_CATALOG_PLUGIN',
+
+  /** rootProject.someProperty / rootProject.ext.someProperty */
+  ROOT_PROJECT_PROPERTY = 'ROOT_PROJECT_PROPERTY',
+
   /** Variable reference that couldn't be classified further */
   VARIABLE_REFERENCE = 'VARIABLE_REFERENCE',
 }
