@@ -3346,14 +3346,27 @@ export class PythonResolutionLinker {
    * implementation resolves to the implementation rather than being treated as
    * ambiguous.
    *
-   * A method whose BODY is a stub is NOT excluded, and used to be. The two
-   * share a word and are unrelated: OVERLOAD_STUB is a declaration that has no
-   * implementation, while bodyIsStub just means the body is `pass` or `...`.
-   * The second is the normal shape of an overridable hook, and Python is full
-   * of them: ParserBase.unknown_decl, Bdb.user_line, Cmd.preloop, every
-   * abstract base's default. Excluding them made `self.user_line(frame)`
-   * resolve to nothing even though the method is declared on the very class
-   * making the call, which was 159 of the stdlib's unresolved self-dispatches.
+   * ABSTRACT methods are excluded for the same reason: `@abstractmethod def
+   * send(...): ...` never runs, the override does, so naming it as the target
+   * is a dead end one hop in.
+   *
+   * A method whose BODY is a stub but which is CONCRETE is NOT excluded, and
+   * used to be. That was the original bug and then I over-corrected it. Three
+   * different properties share the word "stub":
+   *
+   *   OVERLOAD_STUB    a declaration with no implementation      -> not a target
+   *   ABSTRACT_METHOD  an implementation the subclass supplies   -> not a target
+   *   bodyIsStub       the body is `pass` or `...`               -> SAYS NOTHING
+   *
+   * The third is the normal shape of an overridable hook, and Python is full of
+   * them: ParserBase.unknown_decl, Bdb.user_line, Cmd.preloop. Those really do
+   * run when nothing overrides them. Filtering on bodyIsStub made
+   * `self.user_line(frame)` resolve to nothing though the method is on the very
+   * class making the call -- 159 of the stdlib's unresolved self-dispatches.
+   * Dropping the filter entirely then made `self.send(...)` resolve to the
+   * abstract declaration, which the engine correctly reports as the concrete
+   * implementation. Abstractness is the axis that matters, and the parser
+   * already records it as ABSTRACT_METHOD / ABSTRACT.
    */
   private singleMethodOn(
     typeHash: string,
@@ -3363,6 +3376,7 @@ export class PythonResolutionLinker {
     const candidates = (ctx.methodsByTypeAndName.get(`${typeHash}::${name}`) ?? []).filter(
       m =>
         m.getMethodKind() !== PythonMethodKind.OVERLOAD_STUB &&
+        m.getMethodKind() !== PythonMethodKind.ABSTRACT_METHOD &&
         // A function nested inside a method is not reachable as `self.name`,
         // even though it carries the enclosing class in pyTypeLinkHash.
         m.isClassBodyMember()
