@@ -485,6 +485,22 @@ export class TsExpressionWalker {
         // §3.3 restated at the one place a walk could violate it.
         return;
       }
+      // A JSX brace holds an ordinary expression. This recursion already ran
+      // THROUGH JSX -- which is why an arrow in `onClick={() => save()}` has
+      // always been walked -- but a `{t(msg)}` container is not a function, so
+      // nothing ever rooted it and the call vanished. Rooting it here covers
+      // attribute values, children, and spreads at once, wherever the JSX sits.
+      //
+      // The tag is deliberately NOT walked: `<Badge/>` as a call to Badge is
+      // JSX_COMPONENT_CALL, which is reserved and stays at zero rows.
+      if (ts.isJsxExpression(child)) {
+        this.root(child.expression, TsRootContext.JSX_EMBEDDED_EXPRESSION);
+        return;
+      }
+      if (ts.isJsxSpreadAttribute(child)) {
+        this.root(child.expression, TsRootContext.JSX_EMBEDDED_EXPRESSION);
+        return;
+      }
       this.visitNestedFunctions(child);
     });
   }
