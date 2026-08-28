@@ -471,6 +471,17 @@ export class TsExpressionWalker {
         this.visitClassLike(child);
         return;
       }
+      // An object literal's COMPUTED KEY is an expression that runs.
+      // `{ [Symbol.for("k")]: v }` calls Symbol.for before the object exists.
+      // visitComputedName covers class members already; object-literal members
+      // are reached only through this recursion, which walked method BODIES and
+      // never member NAMES, so every computed key in a literal was dropped --
+      // property, method and accessor alike.
+      if (child.parent && ts.isObjectLiteralExpression(child.parent)
+        && (ts.isPropertyAssignment(child) || ts.isMethodDeclaration(child)
+          || ts.isGetAccessor(child) || ts.isSetAccessor(child))) {
+        this.visitComputedName(child.name);
+      }
       // An object-literal method has its own `ts_method` row, so its body is
       // walked under that owner rather than descended into as part of the
       // enclosing expression tree.

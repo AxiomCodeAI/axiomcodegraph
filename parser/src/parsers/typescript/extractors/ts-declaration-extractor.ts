@@ -604,6 +604,10 @@ export class TsDeclarationExtractor {
         return;
       }
       case ts.SyntaxKind.LabeledStatement: {
+        // `outer: for (…) { … break outer; }` -- the label is the only thing
+        // that makes a non-local break or continue readable, so the block gets
+        // its own row rather than being flattened into the loop it labels.
+        this.emitBlock(node, TsBlockKind.LABELED, context, '');
         this.visitStatement((node as ts.LabeledStatement).statement, context);
         return;
       }
@@ -891,6 +895,12 @@ export class TsDeclarationExtractor {
           isAmbient: true,
           namePath: [],
         };
+        // MODULE_BODY, not NAMESPACE_BODY. `declare module "pkg" { }` and
+        // `declare global { }` are importable/global scopes keyed by specifier;
+        // `namespace N { }` is an ordinary named scope. They are separate kinds
+        // because a consumer walking blocks must not treat an ambient module's
+        // contents as if they were nested under a namespace name.
+        this.emitBlock(body, TsBlockKind.MODULE_BODY, inner, '');
         for (const statement of body.statements) {
           this.visitStatement(statement, inner);
         }
@@ -922,6 +932,17 @@ export class TsDeclarationExtractor {
     if (!ts.isModuleBlock(body)) {
       return;
     }
+    // A namespace body and an ambient module body are both scopes that hold
+    // statements, so both get a block row. They are distinguished because
+    // `declare module "x" { }` is a MODULE declaration keyed by specifier while
+    // `namespace N { }` is an ordinary named scope, and a consumer walking
+    // blocks must not confuse the two.
+    this.emitBlock(
+      body,
+      ts.isStringLiteral(node.name) ? TsBlockKind.MODULE_BODY : TsBlockKind.NAMESPACE_BODY,
+      inner,
+      ''
+    );
     for (const statement of body.statements) {
       this.visitStatement(statement, inner);
     }

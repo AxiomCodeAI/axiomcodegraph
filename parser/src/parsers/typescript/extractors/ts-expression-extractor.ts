@@ -853,9 +853,31 @@ export function calleeNameOf(callee: ts.Node | undefined): string {
   return '';
 }
 
+/**
+ * Whether this call IS the decorator, rather than a call inside one.
+ *
+ * `@Get("/x")` runs at class-definition time, which is the fact the kind
+ * carries; `@Foo(bar())` contains an ordinary call as an argument, and that one
+ * is not a decorator call. So only the IMMEDIATE parent counts -- parentheses
+ * unwrapped, since `@(record("x"))` has been legal since TypeScript 5.0.
+ */
+function isDecoratorCall(node: ts.Node): boolean {
+  let current: ts.Node | undefined = node.parent;
+  while (current !== undefined && ts.isParenthesizedExpression(current)) {
+    current = current.parent;
+  }
+  return current !== undefined && ts.isDecorator(current);
+}
+
 function callKindOf(node: ts.Node, callee: ts.Node | undefined): TsCallKind {
   if (ts.isNewExpression(node)) {
     return TsCallKind.CONSTRUCTOR_CALL;
+  }
+  // Checked before the callee shape, because `@a.b.Get("/x")` is a decorator
+  // call first and a property-access callee second. Which one wins decides
+  // whether an engine sees a call that happens at class-definition time.
+  if (isDecoratorCall(node)) {
+    return TsCallKind.DECORATOR_CALL;
   }
   if (ts.isTaggedTemplateExpression(node)) {
     return TsCallKind.TAGGED_TEMPLATE_CALL;
