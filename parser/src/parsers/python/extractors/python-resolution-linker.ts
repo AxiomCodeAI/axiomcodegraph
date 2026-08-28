@@ -228,14 +228,33 @@ export class PythonResolutionLinker {
         // case, which is why it accounted for the largest single bucket.
         if (!record.getIsModuleImport() && !record.getIsWildcard()) {
           const member = record.getOriginalName().split('.').pop() ?? '';
-          const asModule = targetName === null || targetName === ''
-            ? member
-            : `${targetName}.${member}`;
-          const memberModule = this.findModule(asModule, moduleByQualifiedName);
-          if (memberModule) {
-            record.setResolution(memberModule.moduleHash, PythonImportTargetKind.MODULE, '');
-            stats.importsResolved += 1;
-            continue;
+          // MEMBER FIRST, submodule second. That is the interpreter's order:
+          // `from pkg.mod import name` looks for an attribute `name` on
+          // pkg.mod and only falls back to a submodule pkg.mod.name if there
+          // is none.
+          //
+          // Doing it the other way round broke exactly when the member shares
+          // its name with the module's own last segment. `from shared.retry
+          // import audited, retry` resolved `audited` to the function and
+          // `retry` to a MODULE with an empty hash, because findModule matches
+          // by SUFFIX and so `shared.retry.retry` matched the module
+          // `shared.retry`. The submodule shared.retry.retry does not exist.
+          // One import statement, two names, and only the colliding one broke.
+          const declared =
+            targetModule === undefined
+              ? undefined
+              : exportsByModule.get(targetModule.qualifiedName)?.get(member) ??
+                this.followReExport(member, targetModule, exportsByModule, moduleByQualifiedName);
+          if (declared === undefined || declared === null) {
+            const asModule = targetName === null || targetName === ''
+              ? member
+              : `${targetName}.${member}`;
+            const memberModule = this.findModule(asModule, moduleByQualifiedName);
+            if (memberModule) {
+              record.setResolution(memberModule.moduleHash, PythonImportTargetKind.MODULE, '');
+              stats.importsResolved += 1;
+              continue;
+            }
           }
         }
 
