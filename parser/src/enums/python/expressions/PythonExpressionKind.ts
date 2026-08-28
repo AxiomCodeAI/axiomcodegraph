@@ -14,6 +14,25 @@
  *
  * Schema v6 §2.15 c0, §4.5.
  */
+/**
+ * RESERVED, and deliberately never emitted. Audited on a corpus exercising every
+ * construct: 32 of the 35 kinds below carry rows; these three do not, because the
+ * information they would carry is already on another column and a second
+ * representation could disagree with the first.
+ *
+ *   STARRED / DOUBLE_STARRED  `f(*a, **k)` emits the OPERAND with
+ *                             edgeRole=STAR_ARGUMENT / DOUBLE_STAR_ARGUMENT and
+ *                             isStarred=true. A wrapper row would duplicate the
+ *                             operand at an identical span.
+ *   MATCH_PATTERN             a pattern emits its own expression with
+ *                             edgeRole=MATCH_PATTERN. tree-sitter wraps every
+ *                             pattern element in its own `case_pattern`, so a row
+ *                             per wrapper duplicated its child at an identical
+ *                             span -- ten duplicates on one fixture.
+ *
+ * If you are auditing for declared-but-unemitted enum values, these three are the
+ * answer; the rest should all carry rows.
+ */
 export enum PythonExpressionKind {
   /** Any call, including construction — see the note above. */
   CALL = 'CALL',
