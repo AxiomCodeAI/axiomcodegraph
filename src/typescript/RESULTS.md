@@ -18,10 +18,10 @@ own `typescript`, out of process.
 
 | project | call sites | oracle sites | decidable | **EXACT** | in engine set | WRONG | envelope precision |
 |---|---|---|---|---|---|---|---|
-| AxiomCode Parser (418 modules) | 14,090 | 14,090 | 14,007 | **0.737** | 0.826 | 115 | 0.879 |
-| remeda (531 modules) | 23,011 | 23,011 | 8,042 | **0.801** | 0.839 | 491 | 0.950 |
-| zustand (37 modules, React + vitest) | 4,200 | 4,346 | 4,176 | **0.460** | 0.500 | 5 | 0.932 |
-| this repository | 84 | 84 | 84 | **0.762** | 0.869 | 1 | 0.814 |
+| AxiomCode Parser (418 modules) | 14,090 | 14,090 | 14,007 | **0.806** | 0.896 | 123 | 0.956 |
+| remeda (531 modules) | 23,011 | 23,011 | 8,042 | **0.812** | 0.850 | 572 | 0.971 |
+| zustand (37 modules, React + vitest) | 4,200 | 4,346 | 4,176 | **0.475** | 0.516 | 14 | 0.958 |
+| this repository | 84 | 84 | 84 | **0.786** | 0.893 | 1 | 0.879 |
 
 * **EXACT** — the engine named ONE target and it is the declaration the compiler
   selected. Position-precise, so picking a different overload of the same function
@@ -58,14 +58,14 @@ Nothing else, on any project, differs.
 
 ---
 
-## Reading zustand's 0.460
+## Reading zustand's 0.475
 
 It is the lowest number here and it is the most informative one.
 
 zustand is 37 modules of deliberately extreme TypeScript — a store library whose
 public surface is `type Create = { <T, Mos>(initializer): UseBoundStore<Mutate<S, Mos>> }`
 — plus a test suite written against vitest, React and testing-library. Its remaining
-2,082 missed sites are almost entirely two populations:
+2,007 missed sites are almost entirely two populations:
 
 * **generic inference through a callback and through a conditional type.**
   `create(...)` returns `UseBoundStore<Mutate<StoreApi<T>, Mos>>`, and the type of
@@ -75,7 +75,7 @@ public surface is `type Create = { <T, Mos>(initializer): UseBoundStore<Mutate<S
   unresolved and countable.
 * **JSX**, absent from the IR entirely.
 
-WRONG is **5**. The engine is not wrong about zustand; it declines to answer, which is
+WRONG is **14** of 4,176. The engine is not wrong about zustand; it declines to answer, which is
 the failure mode a call graph can survive.
 
 ---
@@ -88,10 +88,10 @@ most calls resolve to a synthesized instantiation rather than a written declarat
 Those are excluded from the denominator on both sides: the oracle has nothing to point
 at, so neither engine nor score can be right or wrong about them.
 
-Its 491 WRONG are overload selection inside one function — `add.ts:32` where the
+Its 572 WRONG are overload selection inside one function — `add.ts:32` where the
 compiler chose `add.ts:33`. The envelope, which counts an overload of the same
 function as a dispatch possibility rather than a wrong target, puts precision at
-**0.950**.
+**0.971**.
 
 ---
 
@@ -107,9 +107,12 @@ where it was fixed:
 | `export = ns` exposes the namespace's members | the entire TypeScript compiler API became reachable |
 | `for (const x of xs)` binding typing | 1,055 of 6,251 client variables were untyped |
 | staging only the lib files the program loads | 0.686 → 0.737 on the Parser corpus, WRONG 384 → 115. Staging all of them put DOM globals into a Node project |
-| staging the libraries' own dependencies, one round | zustand 0.209 → 0.460. `it` and `describe` live in `@vitest/runner`, which the client never imports |
+| staging the libraries' own dependencies, one round | zustand 0.209 → 0.460 (0.475 after the later fixes). `it` and `describe` live in `@vitest/runner`, which the client never imports |
 | namespace members must NOT be global | zustand WRONG 97 → 5. `Reflect.set` was answering every bare `set(...)` |
 | primitives compared by NAME | remeda's `bigint`/`number` overloads were indistinguishable when `lib.es2020.bigint` was not staged |
+| barrel longest-match taken over MATCHING candidates | 0.737 → 0.778 on the Parser corpus. The longest tail of `@/a/b/C` is the whole specifier, which the alias prefix guarantees will never match, so the rule derived nothing while looking correct. `export_specifier_unresolved` 181 → 0 |
+| an arrow function must be SELECTABLE | 0.778 → 0.806. Every arrow carries signatureRole = IMPLEMENTATION and an EMPTY declarationGroupKey — 955 of them here — so the overload-selection rule could not fire for any, and `const fail = (m) => …; fail(x)` resolved to nothing |
+| the implicit `Object` base | `x.toString()` found no member on a perfectly typed receiver: no type declares `extends Object` and nothing in the IR does either. 101 sites, all reported as `member_absent`, which was the right diagnosis |
 
 ---
 
@@ -119,7 +122,7 @@ The question this was built to answer — *given the IR of a dependency, do we k
 exactly where to go* — is `client-to-lib-navigation.csv`: one row per boundary edge
 with the package or specifier, the file and the line.
 
-Measured on the Parser repository, **8,929 client→library edges**, for example:
+Measured on the Parser repository, **8,929 client→library edges** at the time of that reading, for example:
 
 ```
 src/parsers/typescript/.../ts-binder.ts:404  isStringLiteral()  ->  typescript.d.ts:8966

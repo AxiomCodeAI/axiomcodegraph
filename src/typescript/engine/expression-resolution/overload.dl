@@ -294,6 +294,18 @@ overload_selectable(ce, m) :- expr_pruned(ce, m),
     method_signature_role_of(m, "IMPLEMENTATION"),
     method_group_of(m, g),
     !group_has_overload_signature(g).
+// AN IMPLEMENTATION WITH NO GROUP AT ALL. Every arrow function the parser emits
+// carries signatureRole = IMPLEMENTATION and an EMPTY declarationGroupKey — 928 of
+// them on this repository's own source — so the clause above cannot fire for any of
+// them and `const fail = (m) => …; fail(x)` resolved to NOTHING despite the binder
+// naming the arrow directly. `fail` alone was 93 sites.
+overload_selectable(ce, m) :- expr_pruned(ce, m),
+    method_signature_role_of(m, "IMPLEMENTATION"),
+    !method_group_of(m, _).
+// And a declaration with no signatureRole at all, for the same reason: an absence of
+// evidence must not remove a candidate the arity test already accepted.
+overload_selectable(ce, m) :- expr_pruned(ce, m),
+    !method_signature_role_of(m, _).
 group_has_overload_signature(g) :- method_group_of(m, g),
     method_signature_role_of(m, "OVERLOAD_SIGNATURE").
 
@@ -310,6 +322,14 @@ overload_beaten(ce, m) :- overload_selectable(ce, m),
 // ── expr_resolves_to_method(CallExpr, Callee) — the answer ──────────────────
 expr_resolves_to_method(ce, m) :- overload_selectable(ce, m),
     !overload_beaten(ce, m).
+
+// The same safeguard one level up: if NOTHING was selectable but something survived
+// pruning, take the pruned set. Selectability is a model of TypeScript's overload
+// rules, and a model that rejects every candidate is this engine's error rather than
+// the program's.
+call_has_selectable(ce) :- overload_selectable(ce, _).
+expr_resolves_to_method(ce, m) :- expr_pruned(ce, m),
+    !call_has_selectable(ce).
 
 // DON'T-EMPTY SAFEGUARD. Pruning is a weak nominal test over a structural language,
 // so where it removes every candidate the arity-matched set is restored rather than

@@ -203,6 +203,36 @@ field_is_callable(scope, name, m) :- field_in_scope(scope, name, _, f),
     ref_type_target(r, _, ft),
     call_signature_in_scope(ft, m).
 
+// ── THE IMPLICIT `Object` BASE ──────────────────────────────────────────────
+// Every object type in TypeScript has `toString`, `valueOf`, `hasOwnProperty` and the
+// rest of `Object.prototype`, and NO type declares that relationship — there is no
+// `extends Object` anywhere in the IR to walk. So a call to `x.toString()` on a
+// perfectly well-typed receiver found no member at all: 101 sites on this repository's
+// own source, reported as `member_absent`, which is the bucket that means "engine
+// defect" rather than "staging gap". It was right about that.
+//
+// This is the same carve-out the Java engine makes for `java.lang.Object`, and it is
+// sound for the same reason: the relationship is real and simply not written down.
+//
+// SHADOWED BY ANYTHING DECLARED. A type that declares its own `toString`, or inherits
+// one, keeps that and does not also get Object's — otherwise every such call goes
+// multi_inferred across two unrelated declarations. `member_declared_anywhere` reads
+// only declared_method / scope_sibling / ancestor_of_merged_group, all of which sit
+// below the expr_type fixpoint, so the negation stratifies even though lookup_scope
+// does not.
+object_prototype_member(name, m) :- global_decl("Object", "TYPE", _, ot),
+    scope_sibling(ot, sib),
+    declared_method(sib, name, "false", m).
+member_declared_anywhere(scope, name, st) :- scope_sibling(scope, sib),
+    declared_method(sib, name, st, _).
+member_declared_anywhere(scope, name, st) :- group_of(scope, g),
+    ancestor_of_merged_group(_, g, anc),
+    scope_sibling(anc, asib),
+    declared_method(asib, name, st, _).
+method_in_scope(scope, name, "false", m) :- lookup_scope(scope),
+    object_prototype_member(name, m),
+    !member_declared_anywhere(scope, name, "false").
+
 // ── member_name_exists(Scope, Name) — a precision helper ────────────────────
 // Whether ANY member of that name is visible. Distinguishes "the receiver type was
 // resolved and has no such member" (a parser or engine defect worth seeing) from
