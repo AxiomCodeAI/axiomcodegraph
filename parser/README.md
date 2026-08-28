@@ -16,7 +16,7 @@
 &nbsp;&nbsp;
 <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/gradle/gradle-original.svg" width="34" height="34" alt="Gradle" title="Gradle"/>
 
-<sub>Full semantic resolution for <b>Python</b> and <b>Java</b>. <b>TypeScript</b> in development. Structural extraction for XML, YAML, Gradle and Properties.</sub>
+<sub>Full semantic resolution for <b>Python</b> and <b>Java</b>. <b>TypeScript</b> in development. Build-graph and dependency resolution for <b>Gradle</b>. Structural extraction for XML, YAML and Properties.</sub>
 
 [What it is](#what-this-is) &nbsp;|&nbsp;
 [The IR](#the-intermediate-representation) &nbsp;|&nbsp;
@@ -80,10 +80,30 @@ same tables and be compared.
 | **XML** | Stable | 3 | sax | Element hierarchy with XPath and namespaces, attributes, and value references including property placeholders and SpEL. |
 | **Properties** | Stable | 2 | custom | Keys and typed value segments, with continuation and comment handling. |
 | **YAML** | Beta | 2 | yaml | Configuration entries with anchor and alias tracking, multi document support. |
-| **Gradle** | Alpha | 3 | tree-sitter-groovy | Blocks, declarations, and value references, oriented toward dependency and version extraction. |
+| **Gradle** | Beta | 8 | tree-sitter-groovy | Scripts and their role in the build, blocks, declarations, dependency coordinates split into group/artifact/version, version catalogs, value references with resolution, comments, and parse gaps. Groovy and Kotlin DSL. |
 
 Python and Java are the two languages with full semantic resolution. The configuration formats are
 extracted structurally so that configuration values can be correlated with the code that reads them.
+
+Gradle sits between the two. There is no type system to consult, so it is not semantically resolved
+in the sense Java is, but it is more than structural: the settings file's project graph, `apply
+from:` edges, `project(':core')` dependencies and version catalog accessors are all resolved to the
+scripts and entries they name. "Which project declares this dependency, at which version, and where
+did that version come from" is a join rather than a text search.
+
+### Gradle is parsed by a grammar that is not its own
+
+This is the one front end where the grammar does not match the language. `tree-sitter-groovy` parses
+Groovy; it is handed Kotlin DSL as well, plus Groovy constructs it has no rule for. An `ERROR` node
+in this grammar swallows the rest of the enclosing block, so a single unparseable operator can delete
+every dependency below it with no signal at all.
+
+The extractor therefore rewrites the source before parsing, under two rules. Every rewrite preserves
+line count, so a position reported against the rewritten text is a real line in the original file.
+And every rewrite that deletes information emits a row in the parse gap relation, against the
+original offsets. That second rule is what keeps "this block declares no dependency" from reading
+identically to "this block was rewritten and never parsed" — both produce zero rows, and only one of
+them is true. See [CONTRIBUTING-gradle.md](CONTRIBUTING-gradle.md).
 
 ### Python and Java are modelled differently on purpose
 
@@ -182,6 +202,7 @@ Every gate therefore uses something not written for this purpose.
 | CPython bytecode | Every call the compiler emitted, and how each name resolves | The compiler has already decided whether a name is local, global, a cell, or an attribute, and records it in the opcode. |
 | CPython `sys.settrace` | Which function a call actually reaches | Ground truth for target correctness, not merely call discovery. |
 | JVM bytecode | Java call edges | The same role for the Java front end. |
+| Gradle `projects` | The build's project graph | Gradle is the implementation that decides which projects a settings file creates. On its first real run it found a directory this parser was reporting as a project and Gradle was not. |
 
 Call graph quality is measured at three increasing strictnesses, because each answers a question the
 previous cannot. **Discovery** asks whether a call site was found at all, against the compiled
@@ -214,6 +235,12 @@ once a subclass combines them, and several combinations may supply different typ
 
 **Chains beyond one hop.** Each individual hop is linked. Composing them is a reaching definition
 join, which belongs to the engine.
+
+**Gradle versions held outside the build scripts.** A build may keep its versions in a properties
+file and read them as `versions.netty`. Those keys land in the Properties relations, and nothing
+joins the two relation sets, so such references stay unresolved. This is the Gradle front end's
+largest coverage gap, and it is real rather than a measurement artefact: the reference is resolvable,
+just not from Gradle files alone.
 
 **Grammar level hazards.** tree-sitter-python applies the PEP 695 soft `type` keyword greedily, so
 `type(obj).attr = value` parses cleanly as a type alias and the call node disappears. That statement
@@ -251,7 +278,8 @@ Both call the same core in `src/extract.ts`.
 ### Output
 
 Tab separated files, one per relation. Java relations are named `all-*.csv`, Python relations
-`all-python-*.csv`, and configuration formats are prefixed by format. `skipped-files.csv` and
+`all-python-*.csv`, Gradle relations `all-gradle-*.csv`, and the other configuration formats are
+prefixed by format. `skipped-files.csv` and
 `skipped-python-files.csv` record every file that was not analysed and why, so a consumer can
 distinguish an empty result from an unanalysed one.
 
@@ -269,7 +297,11 @@ frozen schema, and referential integrity across every foreign key in the emitted
 ```bash
 npx tsx src/test/java-extractor-tests.ts
 npx tsx src/test/python-extractor-tests.ts
+npx tsx src/test/gradle-tests.ts
 ```
+
+The Gradle suite adds a fourth layer: twenty checks written from the Gradle DSL's documented
+semantics rather than from parser output, so they do not move when the parser does.
 
 Differential gates compare emitted rows against the oracles above.
 
@@ -284,7 +316,19 @@ npx tsx src/test/python-gates/diff-runtime-calls.ts /tmp/xpkg /tmp/edges.jsonl
 
 npx tsx src/test/python-gates/cha-rta-substrate.ts <csv-dir>
 npx tsx src/test/python-gates/link-coverage.ts     <corpus>
+
+npx tsx src/test/gradle-gates/corpus-invariants.ts <repo> [<repo> …]
+npx tsx src/test/gradle-gates/diff-gradle-model.ts <repo>
 ```
+
+The Gradle corpus gate asserts nothing about what a given build should contain. It checks properties
+true of any correct relational output — every foreign key resolves, no two rows share a key, the
+block tree terminates, a script reporting a clean parse really produced no gaps — over repositories
+nobody wrote for this parser. It found four defects the fixtures did not, including a key collision
+that had merged 88 distinct references into single rows.
+
+`diff-gradle-model.ts` is the external oracle. It needs a JVM and a resolvable build, and when it
+cannot run it exits non-zero saying NOT VERIFIED rather than reporting a pass.
 
 The frozen Python relation schema is in
 [src/schema/python/PYTHON-FACT-SCHEMA.md](src/schema/python/PYTHON-FACT-SCHEMA.md).

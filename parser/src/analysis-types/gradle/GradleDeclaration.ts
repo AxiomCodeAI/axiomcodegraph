@@ -16,10 +16,24 @@ import { GradleDSLDialect } from '@/enums/gradle/files/GradleDSLDialect';
  * 1. declarationType, name, value, notation, qualifier
  * 2. hasConfigBlock, reason
  * 3. dslDialect
- * 4. parentBlockHash
+ * 4. parentBlockHash, scriptHash, resolvedTargetHash
  * 5. filePath, baseMservPath, startLine, endLine
  * 6. serviceVersionLinkHash
  * 7. gradleDeclarationUniqueHash (LAST)
+ *
+ * ## resolvedTargetHash
+ *
+ * A Gradle declaration can name another script: `include ':core'` names the
+ * script that configures `:core`, `apply from: 'gradle/deps.gradle'` names the
+ * script it pulls in, and `implementation project(':core')` names the same
+ * subproject a second way. Where the named script is present in the analysed
+ * corpus, its GRADLE_SCRIPT hash goes here, and the build's project graph
+ * becomes an ordinary join.
+ *
+ * Where it is not present, this stays empty. It is never filled with a guess
+ * or with the raw path: an unresolved edge and an edge to something outside
+ * the corpus are both "no target", and a downstream traversal must be able to
+ * stop rather than follow a fabricated one.
  */
 export class GradleDeclaration implements EntityIdentifiable {
   private declarationType: GradleDeclarationType;
@@ -31,6 +45,8 @@ export class GradleDeclaration implements EntityIdentifiable {
   private reason: string;
   private dslDialect: GradleDSLDialect;
   private parentBlockHash: string;
+  private scriptHash: string;
+  private resolvedTargetHash: string;
   private filePath: string;
   private baseMservPath: string;
   private startLine: number;
@@ -50,6 +66,8 @@ export class GradleDeclaration implements EntityIdentifiable {
     this.reason = builder.reason;
     this.dslDialect = builder.dslDialect;
     this.parentBlockHash = builder.parentBlockHash;
+    this.scriptHash = builder.scriptHash;
+    this.resolvedTargetHash = builder.resolvedTargetHash;
     this.filePath = builder.filePath;
     this.baseMservPath = builder.baseMservPath;
     this.startLine = builder.startLine;
@@ -66,6 +84,7 @@ export class GradleDeclaration implements EntityIdentifiable {
     name: string,
     dslDialect: GradleDSLDialect,
     parentBlockHash: string,
+    scriptHash: string,
     filePath: string,
     baseMservPath: string,
     startLine: number,
@@ -75,7 +94,7 @@ export class GradleDeclaration implements EntityIdentifiable {
     serviceVersionLinkHash: string
   ): GradleDeclarationBuilder {
     return new GradleDeclarationBuilder(
-      declarationType, name, dslDialect, parentBlockHash,
+      declarationType, name, dslDialect, parentBlockHash, scriptHash,
       filePath, baseMservPath, startLine, endLine,
       startColumn, endColumn, serviceVersionLinkHash
     );
@@ -90,6 +109,8 @@ export class GradleDeclaration implements EntityIdentifiable {
   getReason(): string { return this.reason; }
   getDslDialect(): GradleDSLDialect { return this.dslDialect; }
   getParentBlockHash(): string { return this.parentBlockHash; }
+  getScriptHash(): string { return this.scriptHash; }
+  getResolvedTargetHash(): string { return this.resolvedTargetHash; }
   getFilePath(): string { return this.filePath; }
   getBaseMservPath(): string { return this.baseMservPath; }
   getStartLine(): number { return this.startLine; }
@@ -98,20 +119,32 @@ export class GradleDeclaration implements EntityIdentifiable {
   getEndColumn(): number { return this.endColumn; }
   getServiceVersionLinkHash(): string { return this.serviceVersionLinkHash; }
 
+  /**
+   * Filled by the project pass, which is the only pass that can. A single-file
+   * pass sees `include ':core'` and can conclude nothing except that ':core'
+   * is not in this file — which is the weaker answer, and freezing it would
+   * lock out the stronger one the project pass is about to produce.
+   */
+  setResolvedTargetHash(hash: string): void { this.resolvedTargetHash = hash; }
+
   getHash(): string {
     return this.gradleDeclarationUniqueHash;
   }
 
   generateHash(): void {
+    // Chains off the owning block, which chains off the script. The byte range
+    // rather than the start line, because `exclude group: 'a'; exclude group:
+    // 'b'` is two declarations on one line, and a `dependencies` block can
+    // hold two textually identical `implementation` lines that a name+value
+    // key would fold into one row.
     const content =
-      this.declarationType +
+      this.scriptHash +
+      '||' + this.parentBlockHash +
+      '||' + this.declarationType +
       '||' + this.name +
       '||' + this.value +
-      '||' + this.filePath +
-      '||' + this.baseMservPath +
-      '||' + this.startLine +
-      '||' + this.endLine +
-      '||' + this.serviceVersionLinkHash;
+      '||' + this.startLine + ':' + this.startColumn +
+      '||' + this.endLine + ':' + this.endColumn;
 
     this.gradleDeclarationUniqueHash = EntityUtils.generateEntityHash(
       ENTITY_IDENTIFIERS.GRADLE_DECLARATION,
@@ -134,6 +167,8 @@ export class GradleDeclaration implements EntityIdentifiable {
       EntityUtils.escapeTsv(this.reason),
       this.dslDialect,
       this.parentBlockHash,
+      this.scriptHash,
+      this.resolvedTargetHash,
       this.filePath,
       this.baseMservPath,
       this.startLine.toString(),
@@ -156,6 +191,8 @@ export class GradleDeclaration implements EntityIdentifiable {
       'reason',
       'dslDialect',
       'parentBlockHash',
+      'scriptHash',
+      'resolvedTargetHash',
       'filePath',
       'baseMservPath',
       'startLine',
@@ -178,6 +215,8 @@ class GradleDeclarationBuilder {
   reason: string = '';
   dslDialect: GradleDSLDialect;
   parentBlockHash: string;
+  scriptHash: string;
+  resolvedTargetHash: string = '';
   filePath: string;
   baseMservPath: string;
   startLine: number;
@@ -191,6 +230,7 @@ class GradleDeclarationBuilder {
     name: string,
     dslDialect: GradleDSLDialect,
     parentBlockHash: string,
+    scriptHash: string,
     filePath: string,
     baseMservPath: string,
     startLine: number,
@@ -203,6 +243,7 @@ class GradleDeclarationBuilder {
     this.name = name;
     this.dslDialect = dslDialect;
     this.parentBlockHash = parentBlockHash;
+    this.scriptHash = scriptHash;
     this.filePath = filePath;
     this.baseMservPath = baseMservPath;
     this.startLine = startLine;
@@ -234,6 +275,11 @@ class GradleDeclarationBuilder {
 
   withReason(reason: string): GradleDeclarationBuilder {
     this.reason = reason;
+    return this;
+  }
+
+  withResolvedTargetHash(hash: string): GradleDeclarationBuilder {
+    this.resolvedTargetHash = hash;
     return this;
   }
 

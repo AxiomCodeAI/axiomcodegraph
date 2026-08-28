@@ -24,9 +24,21 @@ export const ENTITY_IDENTIFIERS = {
   XML_VALUE_REFERENCE: 'XML_VALUE_REFERENCE',
   YAML_PROPERTY: 'YAML_PROPERTY',
   YAML_VALUE_SEGMENT: 'YAML_VALUE_SEGMENT',
+  // ---------------------------------------------------------------- Gradle
+  // GRADLE_SCRIPT is the root of the chain. Every other Gradle key mixes in
+  // its parent's hash rather than re-deriving one from a qualified name,
+  // because a Gradle name collides constantly: every subproject has a
+  // `dependencies` block, every one of those has an `implementation`, and two
+  // `mavenCentral()` calls differ only by which repositories block they sit in.
+  GRADLE_SCRIPT: 'GRADLE_SCRIPT',
   GRADLE_BLOCK: 'GRADLE_BLOCK',
   GRADLE_DECLARATION: 'GRADLE_DECLARATION',
   GRADLE_VALUE_REFERENCE: 'GRADLE_VALUE_REFERENCE',
+  /** A 1:1 chain off GRADLE_DECLARATION — a coordinate IS a parsed dependency. */
+  GRADLE_DEPENDENCY_COORDINATE: 'GRADLE_DEPENDENCY_COORDINATE',
+  GRADLE_CATALOG_ENTRY: 'GRADLE_CATALOG_ENTRY',
+  GRADLE_COMMENT: 'GRADLE_COMMENT',
+  GRADLE_PARSE_GAP: 'GRADLE_PARSE_GAP',
 
   // ---------------------------------------------------------------- Python
   // One prefix per PK. Every child key chains off its parent's hash, so these

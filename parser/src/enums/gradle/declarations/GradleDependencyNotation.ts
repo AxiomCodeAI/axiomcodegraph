@@ -68,4 +68,20 @@ export enum GradleDependencyNotation {
 
   /** libs.spring.boot.starter (version catalog accessor) */
   VERSION_CATALOG_ACCESSOR = 'VERSION_CATALOG_ACCESSOR',
+
+  /** libs.bundles.spring — a whole bundle of coordinates at once */
+  VERSION_CATALOG_BUNDLE = 'VERSION_CATALOG_BUNDLE',
+
+  /** implementation depString — the coordinate is behind a variable */
+  VARIABLE_REFERENCE = 'VARIABLE_REFERENCE',
+
+  /** implementation "com.example:lib:${springVersion}" — resolves once the ref does */
+  INTERPOLATED_STRING = 'INTERPOLATED_STRING',
+
+  /**
+   * The argument is a dependency but its shape matched none of the above.
+   * Deliberately NOT folded into STRING_NOTATION: a consumer that splits on
+   * ':' would otherwise be handed something that was never a coordinate.
+   */
+  UNKNOWN = 'UNKNOWN',
 }

@@ -1,0 +1,5 @@
+reason=DROPPED_CLASS_REFERENCE	nodeType=preprocessor	originalText=::class	startLine=17	endLine=17	startColumn=41	endColumn=48
+reason=DROPPED_TYPE_ARGUMENTS	nodeType=preprocessor	originalText=named<Test>(	startLine=30	endLine=30	startColumn=6	endColumn=18
+reason=DROPPED_TYPE_ARGUMENTS	nodeType=preprocessor	originalText=register<Copy>(	startLine=34	endLine=34	startColumn=6	endColumn=21
+reason=DROPPED_TYPE_CAST	nodeType=preprocessor	originalText= as String?	startLine=38	endLine=38	startColumn=46	endColumn=57
+reason=REWRITTEN_ELVIS	nodeType=preprocessor	originalText=?:	startLine=40	endLine=40	startColumn=48	endColumn=50

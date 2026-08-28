@@ -1,6 +1,7 @@
 import { ENTITY_IDENTIFIERS } from '@/constants/entity-constants';
 import { EntityIdentifiable } from '@/interfaces/EntityIdentifiable';
 import { EntityUtils } from '@/utils/entity-utils';
+import { GradleReferenceResolution } from '@/enums/gradle/value-references/GradleReferenceResolution';
 import { GradleValueReferenceType } from '@/enums/gradle/value-references/GradleValueReferenceType';
 
 /**
@@ -13,20 +14,37 @@ import { GradleValueReferenceType } from '@/enums/gradle/value-references/Gradle
  * ## CSV Export Format
  *
  * Column order:
- * 1. referenceExpression, referenceType, rawFragment, resolvedContext, defaultValue
- * 2. ownerDeclarationHash, ownerBlockHash
- * 3. filePath, baseMservPath, startLine, endLine
- * 4. serviceVersionLinkHash
- * 5. gradleValueReferenceUniqueHash (LAST)
+ * 1. referenceExpression, referenceType, rawFragment, defaultValue
+ * 2. resolutionKind, resolvedContext
+ * 3. ownerDeclarationHash, ownerBlockHash, scriptHash
+ * 4. filePath, baseMservPath, startLine, endLine, startColumn, endColumn
+ * 5. serviceVersionLinkHash
+ * 6. gradleValueReferenceUniqueHash (LAST)
+ *
+ * ## resolutionKind and resolvedContext are a pair
+ *
+ * `resolvedContext` carries the hash of whatever the reference resolved to and
+ * is empty when nothing was found. `resolutionKind` says what kind of thing
+ * that was — or, when the hash is empty, WHY it is empty.
+ *
+ * That second case is the one that matters. `UNRESOLVED_IN_CORPUS` means a
+ * declaration by that name exists in the analysed files and the link was still
+ * not made: the parser's gap, and the only bucket that should shrink as it
+ * improves. `EXTERNAL` means nothing by that name exists anywhere in the
+ * corpus — `System.getenv('CI')` has no declaration to point at and never
+ * will. Collapsing the two makes a coverage number that tracks how many
+ * environment variables a build reads.
  */
 export class GradleValueReference implements EntityIdentifiable {
   private referenceExpression: string;
   private referenceType: GradleValueReferenceType;
   private rawFragment: string;
   private resolvedContext: string;
+  private resolutionKind: GradleReferenceResolution;
   private defaultValue: string;
   private ownerDeclarationHash: string;
   private ownerBlockHash: string;
+  private scriptHash: string;
   private filePath: string;
   private baseMservPath: string;
   private startLine: number;
@@ -41,9 +59,11 @@ export class GradleValueReference implements EntityIdentifiable {
     this.referenceType = builder.referenceType;
     this.rawFragment = builder.rawFragment;
     this.resolvedContext = builder.resolvedContext;
+    this.resolutionKind = builder.resolutionKind;
     this.defaultValue = builder.defaultValue;
     this.ownerDeclarationHash = builder.ownerDeclarationHash;
     this.ownerBlockHash = builder.ownerBlockHash;
+    this.scriptHash = builder.scriptHash;
     this.filePath = builder.filePath;
     this.baseMservPath = builder.baseMservPath;
     this.startLine = builder.startLine;
@@ -59,6 +79,7 @@ export class GradleValueReference implements EntityIdentifiable {
     referenceExpression: string,
     referenceType: GradleValueReferenceType,
     rawFragment: string,
+    scriptHash: string,
     filePath: string,
     baseMservPath: string,
     startLine: number,
@@ -68,7 +89,7 @@ export class GradleValueReference implements EntityIdentifiable {
     serviceVersionLinkHash: string
   ): GradleValueReferenceBuilder {
     return new GradleValueReferenceBuilder(
-      referenceExpression, referenceType, rawFragment,
+      referenceExpression, referenceType, rawFragment, scriptHash,
       filePath, baseMservPath, startLine, endLine,
       startColumn, endColumn, serviceVersionLinkHash
     );
@@ -78,6 +99,8 @@ export class GradleValueReference implements EntityIdentifiable {
   getReferenceType(): GradleValueReferenceType { return this.referenceType; }
   getRawFragment(): string { return this.rawFragment; }
   getResolvedContext(): string { return this.resolvedContext; }
+  getResolutionKind(): GradleReferenceResolution { return this.resolutionKind; }
+  getScriptHash(): string { return this.scriptHash; }
   getDefaultValue(): string { return this.defaultValue; }
   getOwnerDeclarationHash(): string { return this.ownerDeclarationHash; }
   getOwnerBlockHash(): string { return this.ownerBlockHash; }
@@ -89,8 +112,14 @@ export class GradleValueReference implements EntityIdentifiable {
   getEndColumn(): number { return this.endColumn; }
   getServiceVersionLinkHash(): string { return this.serviceVersionLinkHash; }
 
-  setResolvedContext(context: string): void {
-    this.resolvedContext = context;
+  /**
+   * Both halves are written together so a hash can never be recorded without
+   * saying what kind of thing it points at, and a kind can never claim a
+   * resolution that left no target behind.
+   */
+  setResolution(kind: GradleReferenceResolution, targetHash: string = ''): void {
+    this.resolutionKind = kind;
+    this.resolvedContext = targetHash;
   }
 
   getHash(): string {
@@ -98,15 +127,16 @@ export class GradleValueReference implements EntityIdentifiable {
   }
 
   generateHash(): void {
+    // Chains off the owning declaration. The byte range is part of the key
+    // because one declaration routinely holds several references —
+    // `"$group:$name:$version"` is three — and they differ only by position.
     const content =
-      this.referenceExpression +
+      this.ownerDeclarationHash +
       '||' + this.referenceType +
+      '||' + this.referenceExpression +
       '||' + this.rawFragment +
-      '||' + this.ownerDeclarationHash +
-      '||' + this.filePath +
-      '||' + this.startLine +
-      '||' + this.endLine +
-      '||' + this.serviceVersionLinkHash;
+      '||' + this.startLine + ':' + this.startColumn +
+      '||' + this.endLine + ':' + this.endColumn;
 
     this.gradleValueReferenceUniqueHash = EntityUtils.generateEntityHash(
       ENTITY_IDENTIFIERS.GRADLE_VALUE_REFERENCE,
@@ -123,10 +153,12 @@ export class GradleValueReference implements EntityIdentifiable {
       EntityUtils.escapeTsv(this.referenceExpression),
       this.referenceType,
       EntityUtils.escapeTsv(this.rawFragment),
-      this.resolvedContext,
       EntityUtils.escapeTsv(this.defaultValue),
+      this.resolutionKind,
+      this.resolvedContext,
       this.ownerDeclarationHash,
       this.ownerBlockHash,
+      this.scriptHash,
       this.filePath,
       this.baseMservPath,
       this.startLine.toString(),
@@ -143,10 +175,12 @@ export class GradleValueReference implements EntityIdentifiable {
       'referenceExpression',
       'referenceType',
       'rawFragment',
-      'resolvedContext',
       'defaultValue',
+      'resolutionKind',
+      'resolvedContext',
       'ownerDeclarationHash',
       'ownerBlockHash',
+      'scriptHash',
       'filePath',
       'baseMservPath',
       'startLine',
@@ -164,9 +198,11 @@ class GradleValueReferenceBuilder {
   referenceType: GradleValueReferenceType;
   rawFragment: string;
   resolvedContext: string = '';
+  resolutionKind: GradleReferenceResolution = GradleReferenceResolution.UNRESOLVED_IN_CORPUS;
   defaultValue: string = '';
   ownerDeclarationHash: string = '';
   ownerBlockHash: string = '';
+  scriptHash: string;
   filePath: string;
   baseMservPath: string;
   startLine: number;
@@ -179,6 +215,7 @@ class GradleValueReferenceBuilder {
     referenceExpression: string,
     referenceType: GradleValueReferenceType,
     rawFragment: string,
+    scriptHash: string,
     filePath: string,
     baseMservPath: string,
     startLine: number,
@@ -190,6 +227,7 @@ class GradleValueReferenceBuilder {
     this.referenceExpression = referenceExpression;
     this.referenceType = referenceType;
     this.rawFragment = rawFragment;
+    this.scriptHash = scriptHash;
     this.filePath = filePath;
     this.baseMservPath = baseMservPath;
     this.startLine = startLine;
@@ -201,6 +239,11 @@ class GradleValueReferenceBuilder {
 
   withResolvedContext(context: string): GradleValueReferenceBuilder {
     this.resolvedContext = context;
+    return this;
+  }
+
+  withResolutionKind(kind: GradleReferenceResolution): GradleValueReferenceBuilder {
+    this.resolutionKind = kind;
     return this;
   }
 
