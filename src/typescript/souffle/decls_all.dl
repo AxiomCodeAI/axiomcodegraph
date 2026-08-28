@@ -190,6 +190,7 @@
 .decl lib_module_origin(c0:symbol,c1:symbol,c2:symbol)
 .decl lib_name_binds(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
 .decl lib_name_bound_locally(c0:symbol,c1:symbol)
+.decl lib_specifier_global_target(c0:symbol,c1:symbol,c2:symbol)
 .decl literal_kind_global(c0:symbol,c1:symbol)
 .decl literal_primitive(c0:symbol,c1:symbol)
 .decl literal_type_global(c0:symbol,c1:symbol)
