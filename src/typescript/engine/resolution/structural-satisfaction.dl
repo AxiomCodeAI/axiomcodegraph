@@ -1,0 +1,120 @@
+// ============================================================================
+// Resolution · STRUCTURAL SATISFACTION  (the edge that exists in no syntax)
+//
+// TypeScript is STRUCTURALLY typed, and the schema's measurements say what that
+// costs a nominal engine: 60.4% of classes satisfy their interfaces with NO
+// `implements` clause, and 21.5% of assignable pairs appear in no syntax anywhere.
+// So the `IMPLEMENTS_INTERFACE` model that works in Java sees, at best, two fifths
+// of the conformance graph here.
+//
+// ── WHY THIS IS NOT ON THE PRIMARY RESOLUTION PATH ──────────────────────────
+// A call on an interface-typed receiver resolves NOMINALLY to the interface's own
+// signature, and that is the CORRECT answer against the oracle: `getResolvedSignature`
+// names the declaration the compiler selected, not the implementation that will run.
+// So satisfaction is not needed to be right about the target — it is needed to
+// continue the CHAIN past a signature into a body, and to widen an argument
+// compatibility test that a nominal subtype relation would wrongly reject.
+//
+// Keeping it off the primary path is deliberate. It is the one relation in this
+// engine that could FABRICATE rather than over-approximate, because it is name-based
+// and does not compare member TYPES; a class with a `read()` that takes different
+// arguments would still be counted as satisfying `Readable`. That is acceptable for
+// widening a prune-only test and for a labelled reachability fan; it would not be
+// acceptable as the answer to "what does this call resolve to".
+//
+// ── THE SOUNDNESS ARGUMENT, STATED ──────────────────────────────────────────
+// Direction: SOURCE is assignable to TARGET when the source has a member for every
+// REQUIRED member of the target. Optional members are excluded because an absent
+// optional member does not break assignability — `ts_field.isOptional` (col 15) is
+// load-bearing here and nowhere else in the engine. This is a NECESSARY condition
+// for assignability, not a sufficient one, so the relation is an OVER-approximation
+// of the true satisfies-set and every consumer treats it as such.
+//
+// ── THE COST BOUND ──────────────────────────────────────────────────────────
+// Unbounded, this is |classes| x |interfaces| x |members|. Two bounds keep it
+// linear-ish: a TARGET must be an interface actually used as an annotation
+// (satisfaction_target), and a PAIR must already share at least one required member
+// name to be considered at all (sat_pair_seed) — which turns the cross product into
+// a name-keyed index join.
+//
+// ── STRATIFICATION ──────────────────────────────────────────────────────────
+// Reads member-lookup.dl and type-hierarchy.dl. `member_name_exists` sits inside the
+// expr_type fixpoint via lookup_scope, so this relation is inside it too — which is
+// why there is NO negation anywhere in this file. The counting aggregate is positive
+// and monotone; the equality test between the two counts is a comparison, not a
+// negation, and stratifies.
+// ============================================================================
+
+// ── satisfaction_target(TypeHash) — interfaces worth testing against ────────
+// An interface that some annotation actually names. An interface nothing is typed by
+// cannot be the receiver of any call, so testing conformance to it buys nothing.
+satisfaction_target(t) :- ref_type_target(_, _, t),
+    interface_type(t).
+
+// ── satisfaction_source(TypeHash) — classes worth testing ───────────────────
+// Only instantiable client types: a value of an interface type at runtime is an
+// instance of some class, and a library type conforming to a client interface cannot
+// be constructed by the client anyway.
+satisfaction_source(t) :- type_decl("client", _, _, _, _, _, t),
+    instantiable_type(t).
+
+// ── target_required_member(TargetTypeHash, Name) ────────────────────────────
+// The members a conforming value MUST have. Optional members are excluded — see the
+// header; including them would make almost nothing satisfy anything.
+target_required_member(t, name) :- satisfaction_target(t),
+    field_in_scope(t, name, "false", f),
+    field_kind(_, _, _, "false", f).
+target_required_member(t, name) :- satisfaction_target(t),
+    method_in_scope(t, name, "false", m),
+    method_decl(_, _, name, _, m).
+
+target_required_count(t, n) :- satisfaction_target(t),
+    n = count : { target_required_member(t, _) }.
+
+// ── sat_pair_seed(Source, Target) — the pairs worth counting ────────────────
+// Sharing one required member name is the cheap precondition. A class that shares
+// none cannot satisfy the interface, and this is what stops the relation being a
+// cross product.
+sat_pair_seed(s, t) :- target_required_member(t, name),
+    satisfaction_source(s),
+    member_name_exists(s, name).
+
+// ── sat_covered(Source, Target, Name) / sat_cover_count ─────────────────────
+sat_covered(s, t, name) :- sat_pair_seed(s, t),
+    target_required_member(t, name),
+    member_name_exists(s, name).
+sat_cover_count(s, t, n) :- sat_pair_seed(s, t),
+    n = count : { sat_covered(s, t, _) }.
+
+// ── type_satisfies(SourceTypeHash, TargetTypeHash) ──────────────────────────
+// Every required member covered. `k > 0` excludes the empty interface, which
+// everything satisfies and which therefore carries no information — admitting it
+// would make every class an implementor of every marker interface in the tree.
+type_satisfies(s, t) :- sat_cover_count(s, t, k),
+    target_required_count(t, k),
+    k > 0.
+
+// A nominal implements clause is satisfaction too, and it is the authoritative kind:
+// the programmer asserted it and the compiler checked it. Included here so consumers
+// have ONE relation to read rather than having to union two.
+type_satisfies(s, t) :- type_subtype_star(s, t).
+
+// ── structural_implementor(TargetTypeHash, SourceTypeHash) ──────────────────
+// The reachability fan, and the reason to be careful. Restricted to targets with NO
+// nominal implementor at all: where the codebase does declare `implements`, that
+// declaration is better evidence than a name match, and mixing the two would bury a
+// precise answer under a heuristic one.
+target_has_nominal_implementor(t) :- implementors(t, _).
+structural_implementor(t, s) :- type_satisfies(s, t),
+    satisfaction_target(t),
+    s != t,
+    !target_has_nominal_implementor(t).
+
+// ── satisfaction_unmeasured(TargetTypeHash, Name) ───────────────────────────
+// EVERY SUPPRESSION COUNTABLE. A required member of a tested interface that NO
+// candidate source has — the reason a satisfies edge was not derived. Reading this
+// is how "why is nothing implementing this interface" gets an answer instead of a
+// shrug.
+member_covered_by_someone(t, name) :- sat_covered(_, t, name).
+satisfaction_unmeasured(t, name) :- target_required_member(t, name),
+    !member_covered_by_someone(t, name).

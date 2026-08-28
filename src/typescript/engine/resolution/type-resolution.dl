@@ -1,0 +1,318 @@
+// ============================================================================
+// Resolution · TYPE RESOLUTION  (a type reference denotes a type)
+//
+// `ts_type_reference.resolvedGroupKey` is EMPTY in every row the parser emits —
+// measured on this repository's own source: 18,192 references, 0 resolved. That is
+// deliberate (rule four: the parser has no checker), and it makes this file the
+// entire name->type layer. Nothing upstream did any of it.
+//
+// Two relations come out, and they answer different questions:
+//
+//   type_ref_resolves(Prov, RefHash, TypeHash)
+//       the NAMED type a TYPE_REFERENCE node denotes. One row per DECLARATION, so a
+//       merged interface with three declarations yields three rows — which is
+//       correct, because each declaration owns different members.
+//
+//   ref_type_target(RefHash, Prov, TypeHash)
+//       the type(s) a receiver ANNOTATED by this reference may actually have. This
+//       descends composites: `A | B` yields A and B, `Foo[]` yields the global
+//       Array, `string` yields the global String. A call dispatches on THIS, never
+//       on the raw reference.
+//
+// ── THE COMPOSITE DESCENT IS NOT OPTIONAL ───────────────────────────────────
+// Java's `type_ref_resolves` can stop at depth 0 because a Java type reference IS
+// its base type. Here a union is N rows joined by parentReferenceHash (max arity
+// measured across the ecosystem: 208), so `string | Buffer` at depth 0 is a UNION
+// node with no name of its own. A depth-0-only rule resolves it to nothing and every
+// call on such a receiver dies. Descending yields the sound set: the value is one of
+// the members, so a call on it reaches one of their methods.
+//
+// ── PRIMITIVES ARE NOT PRIMITIVE ────────────────────────────────────────────
+// `s.trim()` where `s: string` is the single most common library call shape in any
+// TypeScript codebase, and `string` is a PRIMITIVE reference with no declaration.
+// The compiler dispatches it against the `String` interface in lib.es5.d.ts. So the
+// primitive names are mapped to their global interface names, and the mapping pays
+// off only when the TypeScript lib IR is staged — which is why an unstaged lib shows
+// up as a large, specific, countable population of unresolved receivers rather than
+// as a diffuse loss.
+//
+// ── STRATIFICATION ──────────────────────────────────────────────────────────
+// Reads name-resolution.dl, module-graph.dl and projections. Nothing reads expr_type
+// or expr_call_candidate. The recursion (composite descent, alias following) is
+// positive and monotone; the depth cap on alias following is a runaway guard, not a
+// correctness device.
+// ============================================================================
+
+// ── ref_base_name(RefHash, BaseName) — completeTypeName WITHOUT type arguments ──
+// `completeTypeName` carries the type ARGUMENTS as written: measured on this
+// repository's own source, `Map` appears 648 times and 353 of those spell their
+// complete name `Map<string, string>` and friends. So `typeName == completeTypeName`
+// is NOT the qualified/unqualified discriminator it looks like — under it every
+// generic reference is misfiled as qualified, and 334 of 648 `Map` references
+// resolved to nothing while the other 314 resolved fine, which is exactly the kind
+// of half-working that is hard to see and easy to mis-attribute to staging.
+//
+// The discriminator is the complete name truncated at the first "<". Souffle has no
+// index-of, so the "<" is found by the same linear scan the path machinery uses,
+// bounded here to the ~2,000 complete names that differ from their simple name.
+tname_key(ctn) :- type_ref(_, _, _, tn, ctn, _, _, _), ctn != "", ctn != tn.
+tname_pos(c, 0) :- tname_key(c), strlen(c) > 0.
+tname_pos(c, j) :- tname_pos(c, i), i < strlen(c) - 1, j = i + 1.
+tname_lt(c, i) :- tname_pos(c, i), substr(c, i, 1) = "<".
+tname_first_lt(c, n) :- tname_lt(c, _), n = min i : { tname_lt(c, i) }.
+tname_base(c, b) :- tname_first_lt(c, i), i > 0, b = substr(c, 0, i).
+tname_base(c, c) :- tname_key(c), !tname_lt(c, _).
+
+ref_base_name(ref, tn) :- type_ref(_, _, _, tn, tn, _, _, ref), tn != "".
+ref_base_name(ref, b) :- type_ref(_, _, _, tn, ctn, _, _, ref),
+    ctn != tn,
+    tname_base(ctn, b).
+
+// ── type_ref_resolves(Prov, RefHash, TypeHash) — the named cases ────────────
+// (1) UNQUALIFIED name — the base name equals the simple name, so any difference
+// between them was type arguments and not a qualifier.
+type_ref_resolves(prov, ref, t) :- type_ref(rp, "TYPE_REFERENCE", _, tn, _, _, _, ref),
+    tn != "",
+    ref_base_name(ref, tn),
+    type_ref_module(rp, mod, ref),
+    scope_name_binds(rp, mod, tn, prov, "TYPE", t).
+
+// (2) QUALIFIED name — `ts.SourceFile`, `Parser.SyntaxNode`, `N.M.C`. Resolved
+// through the namespace / namespace-import walk, keyed on the BASE name. The
+// unqualified rule must not also fire for these: its bare inner name would match an
+// unrelated same-named type in the module, producing a second, wrong resolution with
+// no way to tell them apart. Measured: `Parser.SyntaxNode` alone is 768 references.
+type_ref_resolves(prov, ref, t) :- type_ref("client", "TYPE_REFERENCE", _, tn, _, _, _, ref),
+    ref_base_name(ref, base),
+    base != tn,
+    type_ref_module("client", mod, ref),
+    qualified_name_binds(mod, base, prov, "TYPE", t).
+// A LIBRARY reference written with a namespace qualifier — `ts.Node` inside
+// typescript.d.ts, `Parser.Tree` inside tree-sitter.d.ts. Its LAST segment resolves
+// in the library's own module scope, because module_local_decl already admits
+// namespace members: a name written inside `namespace ts` is a module-level name of
+// the file that declares it. Cheaper and no less precise than re-walking the
+// namespace chain, since the qualifier can only name a namespace in that same file.
+type_ref_resolves(prov, ref, t) :- type_ref("lib", "TYPE_REFERENCE", _, tn, _, _, _, ref),
+    ref_base_name(ref, base),
+    base != tn,
+    tn != "",
+    type_ref_module("lib", mod, ref),
+    scope_name_binds("lib", mod, tn, prov, "TYPE", t).
+
+// (3) `import("./m").Foo` — an IMPORT_TYPE carries its own module specifier inline
+// (col 22) instead of relying on the file's imports. The only type reference that
+// does, and the only one this rule covers.
+type_ref_resolves(prov, ref, t) :- type_ref("client", "IMPORT_TYPE", _, tn, _, _, _, ref),
+    type_ref_import_specifier("client", spec, ref),
+    module_ambient_specifier(prov, spec, m),
+    module_export_any(prov, m, tn, "TYPE", t).
+
+// (4) PRIMITIVE -> its global interface. See the header: this is the `s.trim()` path.
+type_ref_resolves(prov, ref, t) :- type_ref(rp, "PRIMITIVE", _, tn, _, _, _, ref),
+    primitive_global_type(tn, gname),
+    type_ref_module(rp, mod, ref),
+    scope_name_binds(rp, mod, gname, prov, "TYPE", t).
+
+// A string / numeric / boolean LITERAL type behaves as its primitive for dispatch:
+// `type Mode = "r" | "w"` still answers `.toUpperCase()`.
+type_ref_resolves(prov, ref, t) :- type_ref("client", "LITERAL", _, _, _, _, _, ref),
+    ts_type_reference("LITERAL", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, lv, _, _, _, ref),
+    literal_type_global(lv, gname),
+    type_ref_module("client", mod, ref),
+    scope_name_binds("client", mod, gname, prov, "TYPE", t).
+
+// The five primitive types that carry an apparent interface, plus the two ES2015+
+// ones. `any`, `unknown`, `never`, `void`, `null` and `undefined` are deliberately
+// ABSENT: they have no members, and inventing one would fabricate call targets.
+// Enumerated rather than matched inline so a new primitive is one visible row.
+primitive_global_type("string", "String").
+primitive_global_type("number", "Number").
+primitive_global_type("boolean", "Boolean").
+primitive_global_type("symbol", "Symbol").
+primitive_global_type("bigint", "BigInt").
+primitive_global_type("object", "Object").
+literal_type_global("string", "String").
+literal_type_global("number", "Number").
+literal_type_global("boolean", "Boolean").
+
+// ── ARRAY / TUPLE -> the global Array interface ─────────────────────────────
+// `items.map(f)` dispatches on Array, not on the element type. The element type is
+// reached separately, through ref_element_target, for `items[i].m()`.
+type_ref_resolves(prov, ref, t) :- type_ref(rp, k, _, _, _, _, _, ref),
+    ref_kind_is_array(k),
+    type_ref_module(rp, mod, ref),
+    scope_name_binds(rp, mod, "Array", prov, "TYPE", t).
+ref_kind_is_array("ARRAY").
+ref_kind_is_array("TUPLE").
+
+// ============================================================================
+// COMPOSITE DESCENT — what a receiver annotated by this reference can be
+// ============================================================================
+
+// ── ref_type_target(RefHash, Prov, TypeHash) ────────────────────────────────
+// Base: a reference that resolves to a name IS its own target.
+ref_type_target(ref, prov, t) :- type_ref_resolves(prov, ref, t).
+
+// UNION — the value is one member or another, so the sound receiver set is the union
+// of the members' targets. This is an over-approximation and it is labelled as one:
+// a call on a union-typed receiver comes out `multi_inferred`, never `known_edge`.
+ref_type_target(parent, prov, t) :- type_ref(rp, k, _, _, _, _, _, parent),
+    ref_kind_descends_to_members(k),
+    type_ref_parent(rp, parent, _, child),
+    ref_type_target(child, prov, t).
+ref_kind_descends_to_members("UNION").
+ref_kind_descends_to_members("INTERSECTION").
+
+// TRANSPARENT wrappers — a parenthesised, optional, rest or named-tuple reference
+// has exactly one meaningful child and no identity of its own.
+ref_type_target(parent, prov, t) :- type_ref(rp, k, _, _, _, _, _, parent),
+    ref_kind_is_transparent(k),
+    type_ref_parent(rp, parent, _, child),
+    ref_type_target(child, prov, t).
+ref_kind_is_transparent("PARENTHESIZED").
+ref_kind_is_transparent("OPTIONAL").
+ref_kind_is_transparent("REST").
+ref_kind_is_transparent("NAMED_TUPLE_MEMBER").
+
+// TYPE ALIAS — `type Handler = RequestHandler` — follow the alias to its right-hand
+// side. Not following it strands every aliased receiver, and aliasing an imported
+// type is the standard way a codebase renames a dependency's surface.
+// Depth-capped at 8 purely as a runaway guard against a pathological alias cycle;
+// nothing in a compiling program approaches it.
+alias_step(ref, prov, target, 1) :- type_ref_resolves(prov, ref, t),
+    type_alias_target(prov, rhs, t),
+    ref_type_target(rhs, prov, target).
+alias_step(ref, prov, target, n) :- alias_step(ref, prov, mid, d),
+    d < 8,
+    type_alias_target(prov, rhs, mid),
+    ref_type_target(rhs, prov, target),
+    n = d + 1.
+ref_type_target(ref, prov, t) :- alias_step(ref, prov, t, _).
+
+// A TYPE ALIAS TO AN ANONYMOUS SHAPE — `type Create = { <T>(x): Store<T> }`. THE
+// idiom of modern functional TypeScript, and the one that made zustand score 0.08:
+// `export const create = ((...) => ...) as Create` binds a callable value whose
+// entire signature lives in a TYPE_LITERAL on the right of an alias. Following the
+// alias to a NAMED type finds nothing, because the right-hand side has no name — the
+// members are owned by the type-reference row itself. 116 `create(...)` sites, 152
+// `createStore(...)`, and every call through a library exported this way.
+ref_shape_target(ref, shape) :- type_ref_resolves(prov, ref, t),
+    type_alias_target(prov, rhs, t),
+    ref_shape_target(rhs, shape).
+
+// TYPE VARIABLE — `<T extends HasId>` — the CONSTRAINT is the only thing a call on a
+// T-typed receiver can dispatch against. An unconstrained T has no members, and
+// emitting a target for it would be fabrication rather than over-approximation.
+ref_type_target(ref, prov, t) :- type_ref(_, "TYPE_VARIABLE", _, tn, _, owner, _, ref),
+    type_var_constraint_in_scope(owner, tn, cref),
+    ref_type_target(cref, prov, t).
+// The type parameter of the same name, declared on the owner or on any owner in its
+// lexical chain. Kept name-keyed because a type reference names a variable, not a
+// declaration hash — the parser leaves typeParameterLinkHash empty for uses.
+type_var_constraint_in_scope(owner, name, cref) :- type_param(p, name, _, _, owner, tp),
+    type_param_constraint(p, cref, tp).
+type_var_constraint_in_scope(owner, name, cref) :- method_owner(p, ot, owner),
+    type_param(p, name, _, _, ot, tp),
+    type_param_constraint(p, cref, tp).
+
+// THIS_TYPE — `this` as a return type, the fluent-builder idiom. The receiver is the
+// declaring type itself.
+ref_type_target(ref, "client", t) :- type_ref("client", "THIS_TYPE", _, _, _, _, _, ref),
+    ts_type_reference("THIS_TYPE", _, t, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ref),
+    t != "".
+
+// ── ref_shape_target(RefHash, ShapeRefHash) ─────────────────────────────────
+// An anonymous object type — `{ read(): string }` — has members and NO declaration
+// to own them, so ts_field/ts_method point at the TYPE_REFERENCE row itself. Member
+// lookup therefore has to accept a shape as an owner, which it does through this
+// relation rather than by pretending the shape is a ts_type.
+ref_shape_target(ref, ref) :- type_ref(_, k, _, _, _, _, _, ref),
+    ref_kind_is_shape(k).
+ref_shape_target(parent, shape) :- type_ref(rp, k, _, _, _, _, _, parent),
+    ref_kind_descends_to_members(k),
+    type_ref_parent(rp, parent, _, child),
+    ref_shape_target(child, shape).
+ref_shape_target(parent, shape) :- type_ref(rp, k, _, _, _, _, _, parent),
+    ref_kind_is_transparent(k),
+    type_ref_parent(rp, parent, _, child),
+    ref_shape_target(child, shape).
+ref_kind_is_shape("TYPE_LITERAL").
+ref_kind_is_shape("FUNCTION_TYPE").
+ref_kind_is_shape("CONSTRUCTOR_TYPE").
+
+// ── ref_element_target(RefHash, Prov, TypeHash) — an array's ELEMENT type ───
+// `items[i].m()` and `for (const x of items) x.m()` dispatch on the element, not on
+// Array. The element is the ARRAY node's single child.
+ref_element_target(ref, prov, t) :- type_ref(rp, k, _, _, _, _, _, ref),
+    ref_kind_is_array(k),
+    type_ref_parent(rp, ref, _, child),
+    ref_type_target(child, prov, t).
+// `Array<T>` / `ReadonlyArray<T>` / `Promise<T>` written as a named generic keep
+// their element in a TYPE_ARGUMENT child at position 0.
+ref_element_target(ref, prov, t) :- type_ref(rp, "TYPE_REFERENCE", _, tn, _, _, _, ref),
+    ref_name_is_container(tn),
+    type_ref_parent(rp, ref, "0", child),
+    ref_type_target(child, prov, t).
+ref_name_is_container("Array").
+ref_name_is_container("ReadonlyArray").
+ref_name_is_container("Iterable").
+ref_name_is_container("AsyncIterable").
+ref_name_is_container("Set").
+ref_name_is_container("ReadonlySet").
+
+// ── ref_awaited_target(RefHash, Prov, TypeHash) — unwrap a Promise ──────────
+// `(await client.get()).body` — the receiver is the AWAITED type, not the Promise.
+// `async` functions make this ubiquitous, and typing the receiver as Promise instead
+// resolves every such call to `then`/`catch` or to nothing at all.
+ref_awaited_target(ref, prov, t) :- type_ref(rp, "TYPE_REFERENCE", _, tn, _, _, _, ref),
+    ref_name_is_promise(tn),
+    type_ref_parent(rp, ref, "0", child),
+    ref_type_target(child, prov, t).
+ref_name_is_promise("Promise").
+ref_name_is_promise("PromiseLike").
+// Awaiting a non-Promise is the identity, per the language.
+ref_awaited_target(ref, prov, t) :- ref_type_target(ref, prov, t),
+    !ref_is_promise(ref).
+ref_is_promise(ref) :- type_ref(_, "TYPE_REFERENCE", _, tn, _, _, _, ref),
+    ref_name_is_promise(tn).
+
+// ── primitive_has_no_members(Name) ──────────────────────────────────────────
+// `void`, `any`, `unknown`, `never`, `null` and `undefined` have no members by
+// definition, so a reference to one resolving to nothing is the CORRECT answer.
+// Counting them as blind spots inflates the unresolved figure with rows that could
+// never have produced an edge — measured, 584 `void` + 257 `undefined` + 46 `any` +
+// 32 `unknown` on this repository's own source, which is a fifth of the total.
+primitive_has_no_members("void").
+primitive_has_no_members("any").
+primitive_has_no_members("unknown").
+primitive_has_no_members("never").
+primitive_has_no_members("null").
+primitive_has_no_members("undefined").
+primitive_has_no_members("this").
+
+// ── type_ref_unresolved(RefHash, Kind, TypeName) — a DECLARED blind spot ────
+// A named type reference in a receiver-typing position that reached no declaration.
+// Exported: this is the relation that says WHICH dependency is missing, by name, and
+// it is the first thing to read when client->lib recall is lower than expected.
+ref_has_target(ref) :- ref_type_target(ref, _, _).
+ref_has_target(ref) :- ref_shape_target(ref, _).
+type_ref_unresolved(ref, k, tn) :- type_ref("client", k, ctx, tn, _, _, _, ref),
+    ref_context_types_a_value(ctx),
+    tn != "",
+    !primitive_has_no_members(tn),
+    !ref_has_target(ref).
+
+// The contexts whose references actually type something a call can be written on.
+// A reference in CONDITIONAL_TRUE or MAPPED_TEMPLATE types nothing at runtime, so
+// counting it as a blind spot would inflate the number with rows that could never
+// have produced an edge.
+ref_context_types_a_value("FIELD_TYPE").
+ref_context_types_a_value("METHOD_PARAM").
+ref_context_types_a_value("METHOD_RETURN").
+ref_context_types_a_value("VARIABLE_TYPE").
+ref_context_types_a_value("TYPE_ELEMENT").
+ref_context_types_a_value("AS_TARGET").
+ref_context_types_a_value("SATISFIES_TARGET").
+ref_context_types_a_value("TYPE_ASSERTION").
+ref_context_types_a_value("OBJECT_CREATION_TYPE").

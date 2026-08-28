@@ -1,0 +1,400 @@
+// ============================================================================
+// Expression Resolution · EXPRESSION TYPE  (receiver typing)
+//
+// What a receiver expression denotes, so a call on it can be dispatched. FOUR
+// relations come out, not one, and the split is the point:
+//
+//   expr_type(Expr, Prov, TypeHash)        the value has this named type
+//   expr_shape(Expr, ShapeRef)             the value has this ANONYMOUS object type
+//   expr_namespace(Expr, Prov, ModuleHash) the "value" is a MODULE — `import * as fs`
+//   expr_callable(Expr, MethodHash)        the value IS a function, directly
+//
+// Java needs only the first, because a Java expression always has a named type, a
+// package is not a value, and a method is not a value either. All three of those are
+// false here, and forcing them through expr_type would mean inventing a type for
+// something that has none — the fabrication failure mode, not the
+// over-approximation one.
+//
+// ── WHAT THE PARSER ALREADY DID, AND WHAT IT DID NOT ────────────────────────
+// `referencedEntityHash` is populated: 18,147 VARIABLE, 14,386 PARAMETER, 5,410
+// IMPORT_BINDING, 359 METHOD, 193 TYPE, measured on this repository's own source.
+// So there is NO name-based re-binding here — no `java_local_variable(name, …, m)`
+// keyed on the enclosing method, and none of the scoping errors that entails. The
+// binder's answer is read directly.
+//
+// What is NOT populated: 123,348 expressions carry referencedEntityKind = UNKNOWN,
+// and those are the property accesses. `a.b` has no binding until `a`'s type is
+// known, which is precisely the work below.
+//
+// ── THE RECURSION, AND WHY IT IS MONOTONE ───────────────────────────────────
+// expr_type is mutually recursive with callee resolution: `a().b()` needs a()'s
+// callee to know a()'s type. The recursion runs through expr_call_candidate — the
+// SOUND, name-only candidate set — and never through expr_resolves_to_method, which
+// negates a mismatch predicate that itself reads expr_type. Feeding the disambiguated
+// result back would place a negation inside the fixpoint and Soufflé would refuse to
+// stratify. Same choice, same reason, as the Java engine.
+//
+// ── DECLARED WINS ───────────────────────────────────────────────────────────
+// Where a declaration gives a type, that is the answer. Flow speaks only where no
+// annotation does, and the negations that enforce it live in reference-types.dl, in
+// a stratum below this one.
+// ============================================================================
+
+// ============================================================================
+// BASE CASES — the binder's answer, read directly
+// ============================================================================
+
+// ── a VARIABLE reference ────────────────────────────────────────────────────
+expr_type(e, prov, t) :- expr_referenced("client", "VARIABLE", v, e),
+    var_type(v, prov, t).
+expr_shape(e, s) :- expr_referenced("client", "VARIABLE", v, e),
+    var_shape(v, s).
+// `const f = () => {}` used as a callee: the value IS the arrow function.
+expr_callable(e, m) :- expr_referenced("client", "VARIABLE", v, e),
+    var_is_function(v, m).
+
+// ── a PARAMETER reference — the primary mechanism, 85.3% annotated ──────────
+expr_type(e, prov, t) :- expr_referenced("client", "PARAMETER", p, e),
+    param_type(p, prov, t).
+expr_shape(e, s) :- expr_referenced("client", "PARAMETER", p, e),
+    param_shape_target(p, s).
+
+// ── a METHOD reference — `helper()` where helper is a module function ───────
+expr_callable(e, m) :- expr_referenced("client", "METHOD", m, e),
+    method_decl("client", _, _, _, m).
+
+// ── a TYPE reference used as a VALUE — `C.parse()`, `new C()` ───────────────
+// The receiver is the class itself, so the lookup is against its STATIC members.
+// Kept in its own relation: a class used as a value and an instance of that class
+// are different member tables, and merging them is a wrong edge at every call on a
+// class that has both a static and an instance method of one name.
+expr_static_type(e, "client", t) :- expr_referenced("client", "TYPE", t, e),
+    type_decl("client", _, _, _, _, _, t).
+
+// ── an IMPORT_BINDING reference — the client->lib hinge ─────────────────────
+// The import is followed to the declaration it binds. Everything downstream — the
+// receiver's type, the callee, the provenance of the resulting edge — comes from
+// what this lands on, so an unstaged dependency shows up here as a missing binding
+// rather than as a diffuse loss further down.
+expr_type(e, prov, t) :- expr_referenced("client", "IMPORT_BINDING", ih, e),
+    import_binds(ih, prov, "TYPE", t).
+expr_static_type(e, prov, t) :- expr_referenced("client", "IMPORT_BINDING", ih, e),
+    import_binds(ih, prov, "TYPE", t).
+expr_callable(e, m) :- expr_referenced("client", "IMPORT_BINDING", ih, e),
+    import_binds(ih, _, "METHOD", m).
+// An imported `const` — either a value with a type, or a bound function.
+expr_type(e, prov, t) :- expr_referenced("client", "IMPORT_BINDING", ih, e),
+    import_binds(ih, _, "VARIABLE", v),
+    var_type(v, prov, t).
+expr_callable(e, m) :- expr_referenced("client", "IMPORT_BINDING", ih, e),
+    import_binds(ih, _, "VARIABLE", v),
+    var_is_function(v, m).
+// An imported const whose type is an ANONYMOUS CALLABLE SHAPE —
+// `export const create = ((...) => ...) as Create` where `type Create = { <T>(x): S }`.
+// The shape has to travel with the binding: without this clause the import resolves,
+// the variable resolves, its shape resolves, and the call site still sees nothing,
+// because expr_shape had no rule for an import binding at all. This is the dominant
+// shape in functional TypeScript libraries — measured on zustand, `create` and
+// `createStore` account for 268 unresolved sites between them.
+expr_shape(e, s) :- expr_referenced("client", "IMPORT_BINDING", ih, e),
+    import_binds(ih, _, "VARIABLE", v),
+    var_shape(v, s).
+// `import * as fs from "fs"` — the binding is a MODULE. Not a type, and not given
+// one: `fs.readFile` is an export-table lookup, which is what expr_namespace exists
+// to route.
+expr_namespace(e, prov, m) :- expr_referenced("client", "IMPORT_BINDING", ih, e),
+    import_binds_namespace(ih, prov, m).
+
+// ── `this` ──────────────────────────────────────────────────────────────────
+expr_type(e, "client", t) :- expr_referenced("client", "THIS", _, e),
+    expr_enclosing_type(e, t).
+expr_type(e, "client", t) :- expr_kind("client", "THIS_REFERENCE", _, e),
+    expr_enclosing_type(e, t).
+
+// ── `super` — the enclosing type's `extends` parent ─────────────────────────
+// Only the extends parent: `implements` inherits nothing, so a super call can never
+// reach an implemented interface's declaration.
+expr_type(e, prov, t) :- expr_kind("client", "SUPER_REFERENCE", _, e),
+    expr_enclosing_type(e, encl),
+    type_inherits(encl, t),
+    type_prov(t, prov).
+expr_type(e, prov, t) :- expr_referenced("client", "SUPER", _, e),
+    expr_enclosing_type(e, encl),
+    type_inherits(encl, t),
+    type_prov(t, prov).
+
+type_prov(t, "client") :- type_decl("client", _, _, _, _, _, t).
+type_prov(t, "lib") :- type_decl("lib", _, _, _, _, _, t).
+
+// ── an AMBIENT_GLOBAL reference — `console`, `process`, `JSON` ──────────────
+// The binder could not give a hash because the declaration is outside the run; the
+// name is resolved against the staged global scope instead. Measured: 1,346 such
+// references on this repository's own source, all of which stay unresolved until the
+// TypeScript lib IR is staged — which makes them a countable staging gap rather than
+// an engine gap.
+expr_type(e, prov, t) :- expr_referenced("client", "AMBIENT_GLOBAL", "", e),
+    expr_name("client", n, e),
+    n != "",
+    expr_module("client", mod, e),
+    name_binds(mod, n, prov, "VARIABLE", v),
+    var_type(v, prov, t).
+expr_static_type(e, prov, t) :- expr_referenced("client", "AMBIENT_GLOBAL", "", e),
+    expr_name("client", n, e),
+    n != "",
+    expr_module("client", mod, e),
+    name_binds(mod, n, prov, "TYPE", t).
+expr_callable(e, m) :- expr_referenced("client", "AMBIENT_GLOBAL", "", e),
+    expr_name("client", n, e),
+    n != "",
+    expr_module("client", mod, e),
+    name_binds(mod, n, _, "METHOD", m).
+
+// ============================================================================
+// COMPOSED EXPRESSIONS
+// ============================================================================
+
+// ── `x as Foo` / `x satisfies Foo` / `<Foo>x` — the assertion WINS ──────────
+// An assertion is the programmer overriding the inferred type, so it is preferred
+// over whatever the operand's own type would be. `assertedTypeReferenceLinkHash` is
+// the only expression->type edge in the schema and it is a TYPE FK, so nothing can
+// cross it into the type graph by accident.
+expr_type(e, prov, t) :- expr_asserted_type("client", r, e),
+    ref_type_target(r, prov, t).
+expr_shape(e, s) :- expr_asserted_type("client", r, e),
+    ref_shape_target(r, s).
+expr_is_asserted(e) :- expr_asserted_type("client", _, e).
+
+// ── transparent wrappers — `(x)`, `x!` ──────────────────────────────────────
+// The type of the operand. `expr_asserted_type` already covers AS/SATISFIES, so
+// those are excluded here: taking the operand's type as well would put the
+// pre-assertion type back into the set the assertion exists to replace.
+expr_type(e, prov, t) :- expr_kind("client", k, _, e),
+    expr_kind_is_transparent(k),
+    !expr_is_asserted(e),
+    expr_child("client", e, r, _, inner),
+    edge_role_is_operand(r),
+    expr_type(inner, prov, t).
+expr_shape(e, s) :- expr_kind("client", k, _, e),
+    expr_kind_is_transparent(k),
+    !expr_is_asserted(e),
+    expr_child("client", e, r, _, inner),
+    edge_role_is_operand(r),
+    expr_shape(inner, s).
+expr_kind_is_transparent("NON_NULL_EXPRESSION").
+expr_kind_is_transparent("AS_EXPRESSION").
+expr_kind_is_transparent("SATISFIES_EXPRESSION").
+expr_kind_is_transparent("TYPE_ASSERTION").
+edge_role_is_operand("UNARY_OPERAND").
+edge_role_is_operand("AS_OPERAND").
+edge_role_is_operand("SATISFIES_OPERAND").
+
+// ── a TERNARY — the value is one branch or the other ────────────────────────
+expr_type(e, prov, t) :- expr_kind("client", "TERNARY_EXPRESSION", _, e),
+    expr_child("client", e, r, _, br),
+    edge_role_is_ternary_branch(r),
+    expr_type(br, prov, t).
+edge_role_is_ternary_branch("TERNARY_THEN").
+edge_role_is_ternary_branch("TERNARY_ELSE").
+
+// ── an ARROW / FUNCTION expression — the value IS the function ──────────────
+// `anonymousDeclarationHash` gives the ts_method the expression introduces. Java
+// matches lambdas to their bodies by source POSITION; here it is a column, so an
+// IIFE's target is a join instead of a coincidence.
+expr_callable(e, m) :- expr_anon_decl("client", m, e),
+    method_decl("client", _, _, _, m).
+
+// ── a STRING / numeric literal receiver — `"a,b".split(",")` ───────────────
+// name_binds_ANY, not name_binds. `Array`, `String` and `Number` are INTERFACES, so
+// they are type-only and the VALUE surface excludes them by design (§3.3). What is
+// wanted here is the TYPE a literal HAS, not a value named `Array` — and using the
+// value surface silently returned nothing: `const parts = cond ? [] : s.split(",")`
+// left `parts.join()` with no receiver type at all, and `join` alone was 298 missed
+// sites. The distinction is exactly the one the two tables exist for, and getting it
+// backwards fails quietly in both directions.
+expr_type(e, prov, t) :- expr_kind("client", "LITERAL", _, e),
+    expr_literal_type("client", lt, e),
+    literal_kind_global(lt, gname),
+    expr_module("client", mod, e),
+    name_binds_any(mod, gname, prov, "TYPE", t).
+expr_type(e, prov, t) :- expr_kind("client", "TEMPLATE_EXPRESSION", _, e),
+    expr_module("client", mod, e),
+    name_binds_any(mod, "String", prov, "TYPE", t).
+
+// ── STRING CONCATENATION — `(prefix + name).trim()` ────────────────────────
+// If either operand of `+` is a string, the result is a string. Without it a concat
+// receiver has no type, and concatenation is the single most common way a string is
+// built: 43 sites on this repository's own source whose target is in lib.es5.d.ts
+// have a BINARY_EXPRESSION receiver. Left-nested concats fall out by positive
+// recursion — the inner `+` is typed String first, and the outer then sees a
+// String-typed operand.
+string_typed(e) :- expr_type(e, prov, t),
+    expr_module("client", mod, e),
+    name_binds_any(mod, "String", prov, "TYPE", st),
+    t = st.
+expr_type(e, prov, t) :- expr_kind("client", "BINARY_EXPRESSION", _, e),
+    expr_operator("client", "+", e),
+    expr_child("client", e, r, _, operand),
+    edge_role_is_binary_operand(r),
+    string_typed(operand),
+    expr_module("client", mod, e),
+    name_binds_any(mod, "String", prov, "TYPE", t).
+edge_role_is_binary_operand("LEFT_OPERAND").
+edge_role_is_binary_operand("RIGHT_OPERAND").
+
+// ── an ARRAY literal receiver — `[1,2].map(f)` ─────────────────────────────
+expr_type(e, prov, t) :- expr_kind("client", "ARRAY_LITERAL", _, e),
+    expr_module("client", mod, e),
+    name_binds_any(mod, "Array", prov, "TYPE", t).
+
+// ── `await p` — unwrap one Promise layer ───────────────────────────────────
+// The receiver of the next hop is the awaited value. An `async` function's declared
+// return is `Promise<T>`; typing an await site as Promise resolves the whole chained
+// I/O surface of a modern codebase to `then` or to nothing.
+expr_type(e, prov, t) :- expr_kind("client", "AWAIT_EXPRESSION", _, e),
+    expr_child("client", e, "UNARY_OPERAND", _, inner),
+    expr_awaited_type(inner, prov, t).
+// Unwrapping is driven off the DECLARATION's type reference, never off a negation
+// over expr_type. A rule of the shape "the operand's own type, unless it is a
+// promise" would put a negation inside the expr_type fixpoint, and Soufflé rejects
+// it — the cyclic-negation error names expr_call_returns_awaited by line. Every
+// clause below is positive and keyed on a reference, and `ref_awaited_target`
+// already returns the identity for a non-Promise reference, so the "unless" is
+// expressed once, low in the stratification, instead of here.
+expr_awaited_type(e, prov, t) :- expr_call_returns_awaited(e, prov, t).
+expr_awaited_type(e, prov, t) :- expr_referenced("client", "VARIABLE", v, e),
+    var_type_ref(_, r, v),
+    ref_awaited_target(r, prov, t).
+expr_awaited_type(e, prov, t) :- expr_referenced("client", "PARAMETER", p, e),
+    param_type_ref(_, r, p),
+    ref_awaited_target(r, prov, t).
+expr_awaited_type(e, prov, t) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
+    property_access_name(e, n),
+    expr_child("client", e, "RECEIVER", _, q),
+    expr_type(q, _, qt),
+    field_in_scope(qt, n, "false", f),
+    field_type_ref(_, r, f),
+    ref_awaited_target(r, prov, t).
+
+// ── property_access_name(ExprHash, Name) ───────────────────────────────────
+// THE PROPERTY NAME IS NOT ON THE NODE. A PROPERTY_ACCESS row has an EMPTY
+// literalValue; the name sits on its PROPERTY_NAME child, alongside the RECEIVER
+// child — measured, 32,649 of each on this repository's own source. Reading the name
+// off the access node itself yields "" and every rule keyed on it silently derives
+// nothing: `this.rows.push(x)` had no receiver type at all, and `push` alone was 478
+// unresolved sites of which 428 were exactly this shape.
+property_access_name(e, n) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
+    expr_child("client", e, "PROPERTY_NAME", _, pn),
+    expr_name("client", n, pn),
+    n != "".
+
+// ── PROPERTY ACCESS — `a.b`, where the parser had nothing ──────────────────
+// The 123k UNKNOWN references. The qualifier is typed first, then the member is
+// looked up on it, and the member's own declared type becomes the access's type.
+// Both member tables are searched by the shape of the qualifier: a VALUE qualifier
+// searches instance members, a TYPE qualifier (a class name) searches statics.
+expr_type(e, prov, t) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
+    property_access_name(e, n),
+    expr_child("client", e, "RECEIVER", _, q),
+    expr_type(q, _, qt),
+    field_in_scope(qt, n, "false", f),
+    field_type(f, prov, t).
+expr_type(e, prov, t) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
+    property_access_name(e, n),
+    expr_child("client", e, "RECEIVER", _, q),
+    expr_static_type(q, _, qt),
+    field_in_scope(qt, n, "true", f),
+    field_type(f, prov, t).
+expr_type(e, prov, t) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
+    property_access_name(e, n),
+    expr_child("client", e, "RECEIVER", _, q),
+    expr_shape(q, qs),
+    field_in_scope(qs, n, _, f),
+    field_type(f, prov, t).
+expr_shape(e, s) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
+    property_access_name(e, n),
+    expr_child("client", e, "RECEIVER", _, q),
+    expr_type(q, _, qt),
+    field_in_scope(qt, n, "false", f),
+    field_shape(f, s).
+
+// A property access on a NAMESPACE — `fs.promises`, `ts.SyntaxKind`. The member
+// comes from the module's export table, not from a member table.
+expr_type(e, prov, t) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
+    property_access_name(e, n),
+    expr_child("client", e, "RECEIVER", _, q),
+    expr_namespace(q, mprov, m),
+    module_export(mprov, m, n, "VARIABLE", v),
+    var_type(v, prov, t).
+expr_static_type(e, prov, t) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
+    property_access_name(e, n),
+    expr_child("client", e, "RECEIVER", _, q),
+    expr_namespace(q, prov, m),
+    module_export(prov, m, n, "TYPE", t).
+expr_callable(e, cm) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
+    property_access_name(e, n),
+    expr_child("client", e, "RECEIVER", _, q),
+    expr_namespace(q, _, m),
+    module_export(_, m, n, "METHOD", cm).
+
+// A property access on a namespace TYPE — `N.Inner` where N is a namespace
+// declaration rather than an imported module.
+expr_static_type(e, prov, t) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
+    property_access_name(e, n),
+    expr_child("client", e, "RECEIVER", _, q),
+    expr_static_type(q, prov, ns),
+    namespace_member(prov, ns, n, "TYPE", t).
+
+// ── ELEMENT ACCESS — `items[i].m()` ────────────────────────────────────────
+// The element type of the indexed value. Reached through the declaration that typed
+// the qualifier, because an array's element is a type ARGUMENT and not a member.
+expr_type(e, prov, t) :- expr_kind("client", "ELEMENT_ACCESS", _, e),
+    expr_child("client", e, "RECEIVER", _, q),
+    expr_element_type(q, prov, t).
+expr_element_type(e, prov, t) :- expr_referenced("client", "VARIABLE", v, e),
+    var_type_ref(_, r, v),
+    ref_element_target(r, prov, t).
+expr_element_type(e, prov, t) :- expr_referenced("client", "PARAMETER", p, e),
+    param_type_ref(_, r, p),
+    ref_element_target(r, prov, t).
+expr_element_type(e, prov, t) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
+    property_access_name(e, n),
+    expr_child("client", e, "RECEIVER", _, q),
+    expr_type(q, _, qt),
+    field_in_scope(qt, n, "false", f),
+    field_type_ref(_, r, f),
+    ref_element_target(r, prov, t).
+// An element access whose qualifier has an INDEX SIGNATURE — `registry["key"].run()`
+// — takes the signature's value type. Distinct from an array element and just as
+// common in configuration-shaped code.
+expr_element_type(e, prov, t) :- expr_type(e, _, qt),
+    index_signature_in_scope(qt, f),
+    field_type(f, prov, t).
+
+// ── `new C()` — the constructed type ───────────────────────────────────────
+expr_type(e, prov, t) :- expr_kind("client", "NEW_EXPRESSION", _, e),
+    new_expression_type(e, prov, t).
+// The receiver of `new C().m()` has an EXACT runtime type — it is a C and nothing
+// else — so dispatch must not fan it across implementations of anything C conforms
+// to. This relation is what callee-resolution.dl gates the fan on.
+expr_exact_type(e, t) :- expr_kind("client", "NEW_EXPRESSION", _, e),
+    new_expression_type(e, _, t).
+
+// ── a CALL result — `a().b()` ──────────────────────────────────────────────
+// The chained-receiver case, and the one that closes the recursion. The SOUND
+// candidate set is used, never the disambiguated one; see the header.
+expr_type(e, prov, t) :- expr_call_candidate(e, callee),
+    method_return_type(callee, prov, t).
+expr_shape(e, s) :- expr_call_candidate(e, callee),
+    method_return_shape(callee, s).
+expr_call_returns_awaited(e, prov, t) :- expr_call_candidate(e, callee),
+    method_return_awaited(callee, prov, t).
+expr_element_type(e, prov, t) :- expr_call_candidate(e, callee),
+    method_return_element(callee, prov, t).
+// A call whose callee returns `this` — the fluent-builder idiom — keeps the
+// receiver's type rather than taking the declaring type's.
+expr_type(e, prov, t) :- ts_call_site(_, _, _, recv, _, e, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
+    recv != "",
+    expr_call_candidate(e, callee),
+    method_return_ref("client", r, callee),
+    type_ref("client", "THIS_TYPE", _, _, _, _, _, r),
+    expr_type(recv, prov, t).
