@@ -196,6 +196,19 @@ export class PyImportRegistry implements EntityIdentifiable {
     this.resolvedTargetKind = resolvedTargetKind;
     this.resolvedTargetHash = resolvedTargetHash;
     this.isExternalTarget = resolvedModuleLinkHash.length === 0;
+    // §2.9 defines isModuleImport as "the bound name refers to a MODULE, not a
+    // member". It was set at parse time from `!isFrom`, which answers a
+    // different question: whether the STATEMENT was a bare `import`. So
+    // `from . import models` bound a module and reported false, contradicting
+    // its own resolvedTargetKind=MODULE on the same row.
+    //
+    // Resolution is the first point that knows, since at parse time
+    // `from pkg import x` could bind either a module or a class. Only widened
+    // here, never cleared: a bare `import a.b.c` is already true before
+    // resolution runs and stays true even if the module is external.
+    if (resolvedTargetKind === PythonImportTargetKind.MODULE) {
+      this.isModuleImport = true;
+    }
   }
 
   getServiceVersionLinkHash(): string {

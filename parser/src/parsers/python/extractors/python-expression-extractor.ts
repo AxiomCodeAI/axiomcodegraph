@@ -765,16 +765,27 @@ export class PythonExpressionExtractor {
     if (argumentsNode) {
       for (let i = 0; i < argumentsNode.namedChildCount; i++) {
         const base = argumentsNode.namedChild(i);
-        if (base) {
-          this.enqueueRoot(
-            base,
-            context,
-            PythonRootContext.BASE_CLASS_LIST,
-            PythonEdgeRole.BASE_CLASS,
-            PythonNameContext.LOAD,
-            i
-          );
+        if (!base) {
+          continue;
         }
+        // `class C(Base, metaclass=M)` — enqueue the VALUE of a keyword base,
+        // not the `keyword_argument` wrapper. Enqueuing the wrapper emitted a
+        // BASE_CLASS row for it AND another for its value, both at the same
+        // position, so a consumer reading (edgeRole, position) as a key saw two
+        // rows claiming to be base 1. The keyword NAME is not lost: py_type_base
+        // carries it as KEYWORD_METACLASS with keywordName="metaclass".
+        const keywordValue =
+          base.type === 'keyword_argument'
+            ? base.childForFieldName('value') ?? base.namedChild(1)
+            : null;
+        this.enqueueRoot(
+          keywordValue ?? base,
+          context,
+          PythonRootContext.BASE_CLASS_LIST,
+          PythonEdgeRole.BASE_CLASS,
+          PythonNameContext.LOAD,
+          i
+        );
       }
     }
 
@@ -2284,6 +2295,20 @@ export class PythonExpressionExtractor {
   ): { kind: PythonReceiverKind; text: string; node: Parser.SyntaxNode | null } {
     if (!fn) {
       return { kind: PythonReceiverKind.UNKNOWN, text: '', node: null };
+    }
+    if (fn.type === 'subscript') {
+      // `HANDLERS[k](a)` — the CALLEE is a subscript, not a receiver-dot-method.
+      // This used to fall through to NONE and then to DYNAMIC_CALL, which says
+      // "unresolvable by construction" and drops the container name. It is not
+      // unresolvable: the container is written down, so an engine that can type
+      // HANDLERS can type its elements. Naming the container is the difference
+      // between a lead and a dead end.
+      const container = fn.childForFieldName('value');
+      return {
+        kind: PythonReceiverKind.SUBSCRIPT,
+        text: container ? EntityUtils.normalizeWhitespace(container.text) : '',
+        node: container ?? null,
+      };
     }
     if (fn.type !== 'attribute') {
       return { kind: PythonReceiverKind.NONE, text: '', node: null };

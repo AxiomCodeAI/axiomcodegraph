@@ -1,5 +1,7 @@
 import * as path from 'path';
 
+import { PYTHON_BUILTIN_NAMES } from '@/constants/python-constants';
+
 import Parser from 'tree-sitter';
 
 import { PyBindingRegistry, PyModuleRegistry, PyScopeRegistry } from '@/analysis-types/python';
@@ -333,7 +335,7 @@ export class PythonScopeExtractor {
         input.serviceVersionLinkHash
       )
         .withKindAndOrigin(
-          this.bindingKindFor(block, flags, symbolScope, predicates.isParameter),
+          this.bindingKindFor(block, name, flags, symbolScope, predicates.isParameter),
           this.bindingOriginFor(origin)
         )
         .withSymbolPredicates(predicates)
@@ -356,8 +358,22 @@ export class PythonScopeExtractor {
    * The order of these tests matters: a parameter is also `LOCAL` by scope, and
    * an imported name is also bound, so the more specific answer has to win.
    */
+  /** True when the module's own top-level block binds this name, shadowing a builtin. */
+  private moduleBinds(block: SymbolBlock, name: string): boolean {
+    let current: SymbolBlock | null = block;
+    while (current !== null && current.parent !== null) {
+      current = current.parent;
+    }
+    if (current === null) {
+      return false;
+    }
+    const flags = current.symbols.get(name) ?? 0;
+    return (flags & DEF_BOUND) !== 0;
+  }
+
   private bindingKindFor(
     block: SymbolBlock,
+    name: string,
     flags: number,
     symbolScope: number,
     isParameter: boolean
@@ -366,6 +382,16 @@ export class PythonScopeExtractor {
       return PythonBindingKind.GLOBAL_EXPLICIT;
     }
     if (symbolScope === SymbolScope.GLOBAL_IMPLICIT) {
+      // A builtin, unless the module shadows it. symtable reports both as
+      // "global" because LOAD_GLOBAL checks module globals first and builtins
+      // second, and which one wins is a runtime fact. The module block is the
+      // one place that settles it statically: if nothing in this module binds
+      // the name, the reference reaches the builtin. Without this the BUILTIN
+      // kind was declared and never emitted, and `len` was indistinguishable
+      // from a global someone defined.
+      if (PYTHON_BUILTIN_NAMES.has(name) && !this.moduleBinds(block, name)) {
+        return PythonBindingKind.BUILTIN;
+      }
       return PythonBindingKind.GLOBAL_IMPLICIT;
     }
     if ((flags & SymbolFlags.DEF_NONLOCAL) !== 0) {

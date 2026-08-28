@@ -65,4 +65,39 @@ export const ENTITY_IDENTIFIERS = {
   PY_BLOCK: 'PY_BLOCK',
   PY_PARSE_GAP: 'PY_PARSE_GAP',
   PY_TYPE_PARAMETER: 'PY_TYPE_PARAMETER',
+
+  // ------------------------------------------------------------ TypeScript
+  // One prefix per PK, and the list doubles as the FK chain: TS_MODULE is the
+  // root and every child key chains off its parent's hash (schema section 1),
+  // never off a re-derived qualified name. That discipline is not stylistic
+  // here — with declaration merging a qualified name collides BY DESIGN
+  // (1,986 multi-declaration symbols measured, max 43 for one name).
+  TS_MODULE: 'TS_MODULE',
+  TS_TYPE: 'TS_TYPE',
+  TS_TYPE_HERITAGE: 'TS_TYPE_HERITAGE',
+  TS_TYPE_PARAMETER: 'TS_TYPE_PARAMETER',
+  TS_TYPE_REFERENCE: 'TS_TYPE_REFERENCE',
+  TS_METHOD: 'TS_METHOD',
+  TS_METHOD_PARAMETER: 'TS_METHOD_PARAMETER',
+  TS_FIELD: 'TS_FIELD',
+  TS_FIELD_POSITION: 'TS_FIELD_POSITION',
+  TS_ENUM_MEMBER: 'TS_ENUM_MEMBER',
+  TS_VARIABLE: 'TS_VARIABLE',
+  TS_IMPORT: 'TS_IMPORT',
+  TS_EXPORT: 'TS_EXPORT',
+  TS_EXPRESSION: 'TS_EXPRESSION',
+  /** A pure 1:1 chain off TS_EXPRESSION — a call site IS an expression. */
+  TS_CALL_SITE: 'TS_CALL_SITE',
+  TS_BLOCK: 'TS_BLOCK',
+  TS_COMMENT: 'TS_COMMENT',
+  TS_DECORATOR: 'TS_DECORATOR',
+  TS_DECORATOR_ARGUMENT: 'TS_DECORATOR_ARGUMENT',
+  TS_PARSE_GAP: 'TS_PARSE_GAP',
+  TS_TYPE_SATISFIES: 'TS_TYPE_SATISFIES',
+  /**
+   * Not a fact-relation prefix: the group key is deliberately NOT UNIQUE, so it
+   * is never a PK. It gets its own prefix so a group key can never be mistaken
+   * for an entity hash in a join.
+   */
+  TS_DECLARATION_GROUP: 'TS_DECLARATION_GROUP',
 } as const;

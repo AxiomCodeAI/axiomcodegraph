@@ -165,3 +165,41 @@ export const PYTHON_BUILTIN_TYPE_METHODS: ReadonlyMap<string, ReadonlySet<string
   ['OrderedDict', new Set(['clear', 'copy', 'fromkeys', 'get', 'items', 'keys', 'move_to_end', 'pop', 'popitem', 'setdefault', 'update', 'values'])],
   ['Counter', new Set(['clear', 'copy', 'elements', 'fromkeys', 'get', 'items', 'keys', 'most_common', 'pop', 'popitem', 'setdefault', 'subtract', 'total', 'update', 'values'])],
 ]);
+
+/**
+ * Every name in CPython's `builtins` module, generated from the pinned 3.10
+ * interpreter rather than hand-listed.
+ *
+ * Used to separate a reference to a builtin from a reference to a module-level
+ * global. CPython's own symtable cannot make that distinction, because
+ * LOAD_GLOBAL checks module globals first and builtins second and the decision
+ * is a runtime one, so both come back as "global". That is why py_binding
+ * carries its own BUILTIN kind: without it a consumer cannot tell `len` from a
+ * global someone defined, and the two need different handling when resolving a
+ * call.
+ */
+export const PYTHON_BUILTIN_NAMES: ReadonlySet<string> = new Set([
+  'ArithmeticError', 'AssertionError', 'AttributeError', 'BaseException', 'BlockingIOError',
+  'BrokenPipeError', 'BufferError', 'BytesWarning', 'ChildProcessError',
+  'ConnectionAbortedError', 'ConnectionError', 'ConnectionRefusedError',
+  'ConnectionResetError', 'DeprecationWarning', 'EOFError', 'Ellipsis', 'EncodingWarning',
+  'EnvironmentError', 'Exception', 'False', 'FileExistsError', 'FileNotFoundError',
+  'FloatingPointError', 'FutureWarning', 'GeneratorExit', 'IOError', 'ImportError',
+  'ImportWarning', 'IndentationError', 'IndexError', 'InterruptedError', 'IsADirectoryError',
+  'KeyError', 'KeyboardInterrupt', 'LookupError', 'MemoryError', 'ModuleNotFoundError',
+  'NameError', 'None', 'NotADirectoryError', 'NotImplemented', 'NotImplementedError',
+  'OSError', 'OverflowError', 'PendingDeprecationWarning', 'PermissionError',
+  'ProcessLookupError', 'RecursionError', 'ReferenceError', 'ResourceWarning', 'RuntimeError',
+  'RuntimeWarning', 'StopAsyncIteration', 'StopIteration', 'SyntaxError', 'SyntaxWarning',
+  'SystemError', 'SystemExit', 'TabError', 'TimeoutError', 'True', 'TypeError',
+  'UnboundLocalError', 'UnicodeDecodeError', 'UnicodeEncodeError', 'UnicodeError',
+  'UnicodeTranslateError', 'UnicodeWarning', 'UserWarning', 'ValueError', 'Warning',
+  'ZeroDivisionError', 'abs', 'aiter', 'all', 'anext', 'any', 'ascii', 'bin', 'bool',
+  'breakpoint', 'bytearray', 'bytes', 'callable', 'chr', 'classmethod', 'compile', 'complex',
+  'copyright', 'credits', 'delattr', 'dict', 'dir', 'divmod', 'enumerate', 'eval', 'exec',
+  'exit', 'filter', 'float', 'format', 'frozenset', 'getattr', 'globals', 'hasattr', 'hash',
+  'help', 'hex', 'id', 'input', 'int', 'isinstance', 'issubclass', 'iter', 'len', 'license',
+  'list', 'locals', 'map', 'max', 'memoryview', 'min', 'next', 'object', 'oct', 'open', 'ord',
+  'pow', 'print', 'property', 'quit', 'range', 'repr', 'reversed', 'round', 'set', 'setattr',
+  'slice', 'sorted', 'staticmethod', 'str', 'sum', 'super', 'tuple', 'type', 'vars', 'zip',
+]);

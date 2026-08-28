@@ -1,0 +1,241 @@
+// ============================================================================
+// Base input relations — TYPESCRIPT parser IR. One relation pair per entity kind.
+//
+// GENERATED FROM TYPESCRIPT-FACT-SCHEMA.md BY gen_decls.py — DO NOT HAND-EDIT.
+// Re-run `python3 gen_decls.py --check` in CI; drift here is a silent schema break.
+//
+// NAMING: one prefix per core language; `lib_` is the EXTERNAL marker on top of it.
+// java_*/lib_* is PROVENANCE, not language: the project under analysis vs everything
+// else. So:
+//
+//     ts_<entity>       TypeScript under analysis      <- the PARSER emits only these
+//     lib_ts_<entity>   external / third-party         <- the ENGINE stages these
+//
+// COLUMN ORDER IS THE CONTRACT. All columns are `symbol`. New columns append ONLY.
+// The last column is always the entity's own unique hash; serviceVersionLinkHash is
+// immediately before it. Column NAMES live only in the schema doc, so a rename is
+// free after the freeze and a reorder is not.
+//
+// THREE THINGS AN ENGINE AUTHOR MUST READ BEFORE JOINING ANYTHING:
+//
+//  1. `name -> single entity` IS FALSE. TypeScript merges declarations: one interface
+//     name can have N declarations across N files (max 43 measured) that are ONE type.
+//     ts_type/ts_method/ts_field are keyed PER DECLARATION SITE; the merged entity is
+//     `declarationGroupKey`, which is deliberately NOT UNIQUE. Group on it. A rule that
+//     assumes one row per name is wrong by construction.
+//
+//  2. INHERITANCE EDGES DO NOT CAPTURE SUBTYPING. TypeScript is structural: 60.4% of
+//     classes satisfy their interfaces with no `implements` clause, and 21.5% of
+//     assignable pairs appear in no syntax at all. ts_type_heritage.inheritsMembers
+//     tells you whether an edge inherits members (`extends`) or merely asserts
+//     (`implements`). For subtyping use ts_type_satisfies, which the ENGINE derives.
+//
+//  3. THE TYPE GRAPH IS NOT THE CALL GRAPH. Type aliases, interfaces, conditional /
+//     mapped / template-literal types and `import type` have no runtime existence.
+//     They are confined to ts_type_reference and flagged isTypeOnly wherever they can
+//     be reached. ts_call_site.isTypeOnlyTarget must always be "false".
+//
+// NOT STAGED (declared for symmetry only — library IR is declarations, not bodies):
+//   lib_ts_expression, lib_ts_call_site, lib_ts_block, lib_ts_variable, lib_ts_parse_gap
+//
+// ENGINE-POPULATED (the parser writes no row, in either provenance):
+//   ts_type_satisfies
+// ============================================================================
+
+// ==========================================================================
+// SPINE — the frozen first cut. Supports all four resolution paths.
+// ==========================================================================
+
+// A .ts/.tsx/.d.ts file, OR an ambient `declare module "x"`, OR `declare global`.
+// The unit of import resolution AND the symbol merge table (c12 mergeTableKey), which is
+// why it is a relation at all: Java's package is implicit in a qualified name, a TypeScript
+// module is not. c16 emissionRegime is a COARSE token (ts6-inproc) and is IN THE KEY — a
+// version string there would cascade every child hash on a patch bump.
+// (27 columns)
+.decl ts_module(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol)
+.decl lib_ts_module(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol)
+
+// A type DECLARATION — class / interface / enum / type alias / namespace. Cols 0..11 mirror
+// java_type 0..11. Anonymous structural types are NOT here (21,956 function types measured):
+// only declarations, which is what keeps this relation key-able. c15 declarationGroupKey is
+// the MERGED entity and is deliberately NOT UNIQUE — one interface name, N declarations, one
+// type (max 43 measured). Group on c15; key on the last column. c20 isTypeOnly is true for
+// INTERFACE_TYPE and TYPE_ALIAS_TYPE: no call-graph rule may traverse those rows.
+// (33 columns)
+.decl ts_type(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol,c29:symbol,c30:symbol,c31:symbol,c32:symbol)
+.decl lib_ts_type(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol,c29:symbol,c30:symbol,c31:symbol,c32:symbol)
+
+// Every function-shaped declaration: function, method, constructor, accessor, arrow, function
+// expression, static block, AND every bodiless signature. Cols 0..20 are byte-for-byte
+// java_method 0..20. c25 signatureRole and c27 bodyPresence carry what Java never needs:
+// 11,599 overload signatures measured, and 44.3% of resolved call targets are BODILESS, so
+// a target must never be read as an implementation without checking c27. c39 startColumn is
+// IN THE KEY: 703 arrow functions, and two on one line share name, signature and line.
+// c7, like ts_field c8, is the owning type OR SHAPE — a ts_type_reference for a
+// TYPE_LITERAL_*, FUNCTION_TYPE_SIGNATURE or CONSTRUCTOR_TYPE_SIGNATURE row.
+// (43 columns)
+.decl ts_method(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol,c29:symbol,c30:symbol,c31:symbol,c32:symbol,c33:symbol,c34:symbol,c35:symbol,c36:symbol,c37:symbol,c38:symbol,c39:symbol,c40:symbol,c41:symbol,c42:symbol)
+.decl lib_ts_method(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol,c29:symbol,c30:symbol,c31:symbol,c32:symbol,c33:symbol,c34:symbol,c35:symbol,c36:symbol,c37:symbol,c38:symbol,c39:symbol,c40:symbol,c41:symbol,c42:symbol)
+
+// A formal parameter. Cols 0..11 mirror java_method_parameter 0..11. 85.3% carry an annotation
+// (99.998% in ambient code), the inverse of Python's 31.8%, which is why declared-type
+// receiver typing is the primary mechanism here. c13 isOptional changes ARITY MATCHING, and
+// c17 isParameterProperty means this parameter also DECLARES A FIELD (c19 links it).
+// (27 columns)
+.decl ts_method_parameter(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol)
+.decl lib_ts_method_parameter(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol)
+
+// A class property, interface property signature, index signature, auto-accessor, parameter
+// property, or object-literal property. Cols 0..12 mirror java_field 0..12, and the key
+// chains off c8 tsTypeLinkHash exactly as FieldRegistry chains off typeRegistryLinkHash —
+// never off a re-derived qualified name. c8 is the owning type OR SHAPE: it points at a
+// ts_type_reference row when memberKind is a TYPE_LITERAL_* value, because an anonymous
+// { foo(): string } has members and no declaration to own them (schema 4.8.1). PK prefixes
+// differ, so a rule joining c8 against ts_type finds NO MATCH for a shape member rather than
+// a wrong one. c15 isOptional is load-bearing for structural satisfaction: an absent
+// optional member does not break assignability.
+// (29 columns)
+.decl ts_field(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol)
+.decl lib_ts_field(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol)
+
+// The TYPE-NODE TREE. Cols 0..16 mirror java_type_reference 0..16, so the whole name->type
+// resolution layer ports as a rename. Every type-level construct lives here and NOWHERE
+// else — conditional, mapped, template-literal, infer, keyof, typeof, indexed-access
+// (10,436 nodes measured) — which is the structural guarantee that they cannot reach the
+// call graph. A union is N ROWS with c5 parentReferenceHash, not one row with a list:
+// max arity measured is 208. c6 position is SOURCE order; the checker reorders and
+// normalises boolean to true|false, so never compare against checker members.
+// (30 columns)
+.decl ts_type_reference(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol,c29:symbol)
+.decl lib_ts_type_reference(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol,c29:symbol)
+
+// One `extends` / `implements` clause entry, ORDERED (c2 position). c7 inheritsMembers is the
+// column Java does not need: `extends` inherits members, `implements` asserts and inherits
+// NOTHING, and 60.4% of classes declare no implements at all. Walking an IMPLEMENTS_CLAUSE
+// row as a subtyping edge is correct in Java and WRONG here — see ts_type_satisfies.
+// (20 columns)
+.decl ts_type_heritage(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol)
+.decl lib_ts_type_heritage(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol)
+
+// An import. Cols 0..8 mirror java_import 0..8 with two slots repurposed: c6 isStatic ->
+// isTypeOnly, c7 isOnDemand -> isWildcard (the projection stays import_wildcard). 45.6% of
+// ecosystem imports are type-only, so c6 is a first-class column, not a flag. c14/c15 are
+// filled by ts.resolveModuleName, which needs NO Program and is therefore parser-legal.
+// One declaration with N named specifiers emits N ROWS: each binds a name and each may be
+// individually type-only.
+// (27 columns)
+.decl ts_import(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol)
+.decl lib_ts_import(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol)
+
+// An expression AST node — the spine of call resolution. Cols 0..24 are byte-for-byte
+// java_expression 0..24, so expr_kind / expr_child / expr_owner port as renames. c16 is
+// WIDENED from Java: it is the declaration this expression INTRODUCES, discriminated by c0 —
+// ts_type for CLASS_EXPRESSION, ts_method for ARROW_FUNCTION / FUNCTION_EXPRESSION. Without
+// that an IIFE's target is reachable only by matching positions, which is what Java's own
+// extractor does for lambdas and what a fact schema exists to prevent. c27
+// assertedTypeReferenceLinkHash is the ONLY expression->type edge (`as` / `satisfies`), and
+// it is a TYPE FK, so no call-graph rule can cross it. c28 isSpread marks where positional
+// argument flow is PROVABLY imprecise rather than silently wrong.
+// (34 columns)
+.decl ts_expression(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol,c29:symbol,c30:symbol,c31:symbol,c32:symbol,c33:symbol)
+.decl lib_ts_expression(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol,c29:symbol,c30:symbol,c31:symbol,c32:symbol,c33:symbol)
+
+// A call site — 1:1 with its CALL / NEW / TAGGED_TEMPLATE expression, so the key is a pure
+// chain off c5. This is where the flagship gate lives: 100% of measured call sites have a
+// getResolvedSignature answer, and 77.6% of overloaded calls resolve to a NON-FIRST
+// declaration — so c12 points at ONE SIGNATURE, never at a name. c14 resolvedTargetKind
+// admits SYNTHESIZED_NO_DECLARATION (2.3% measured: implicit constructors) as an honest
+// terminal. c19 isTypeOnlyTarget must ALWAYS be false; a true row is a parser bug.
+// (25 columns)
+.decl ts_call_site(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol)
+.decl lib_ts_call_site(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol)
+
+// ==========================================================================
+// SECOND FREEZE — declared now so the column contract is fixed.
+// ==========================================================================
+
+// A generic type parameter. Cols 0..6 mirror java_type_parameter 0..6. ONE relation where Java
+// has two, because TypeScript attaches type parameters to seven owner kinds (c7 ownerKind).
+// c13 varianceAnnotation is in/out (TS 4.7, 562 measured); c14 isConst is TS 5.0 (87).
+// (20 columns)
+.decl ts_type_parameter(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol)
+.decl lib_ts_type_parameter(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol)
+
+// A field's declaration order within its type. Parity with java_field_position.
+// (3 columns)
+.decl ts_field_position(c0:symbol,c1:symbol,c2:symbol)
+.decl lib_ts_field_position(c0:symbol,c1:symbol,c2:symbol)
+
+// An enum member. Cols 0..11 mirror java_enum_constant 0..11. c12 valueKind admits COMPUTED
+// (the value is not always statically known) and c14 isConstEnumMember marks a member that
+// is INLINED at use sites, so a reference to it may have no runtime target.
+// (18 columns)
+.decl ts_enum_member(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol)
+.decl lib_ts_enum_member(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol)
+
+// A variable declaration, at module, function, block or global scope. Cols 0..8 mirror
+// java_local_variable 0..8, widened because a module-level const is a first-class
+// declaration here. c19 boundFunctionLinkHash is the link that makes `const f = () => {}`
+// callable: 161 resolved call targets were arrow functions.
+// There is deliberately NO ts_scope relation — measured, 34,798 identifier references and
+// the ts_block -> ts_method -> ts_type -> ts_module chain reaches every one of them.
+// (29 columns)
+.decl ts_variable(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol)
+.decl lib_ts_variable(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol)
+
+// An export or re-export. NO JAVA ANALOGUE — Java visibility is a modifier and there is no
+// re-export, but here a re-export chain is the only path from an importer to the real
+// declaration (1,251 export declarations, 86 `export *` measured). c2 EXPORT_STAR exports a
+// set this row cannot name; the engine expands it from the source module's exports.
+// (21 columns)
+.decl ts_export(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol)
+.decl lib_ts_export(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol)
+
+// A statement block. Cols 0..17 mirror java_block 0..17. Needed for caller attribution, as in
+// Java, AND as the lexical scope of a let/const, which is what lets ts_variable do without a
+// scope relation. c13 caughtExceptionTypes is near-always "": a TypeScript catch binding is
+// unknown and cannot be typed. c17 links the guard, so typeof/instanceof/type-predicate
+// narrowing (440 predicates measured) reaches the receiver.
+// (21 columns)
+.decl ts_block(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol)
+.decl lib_ts_block(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol)
+
+// A comment, JSDoc block, triple-slash directive, or ts-directive. Cols 0..9 mirror
+// java_comment 0..9. c11 REFERENCE_* directives are real module edges and also feed
+// ts_import.
+// (14 columns)
+.decl ts_comment(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol)
+.decl lib_ts_comment(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol)
+
+// A decorator. Java's annotation relation, same slot, SHARED annotation_on projection: cols
+// 0..12 mirror java_annotation. But a decorator is not an annotation — it is an expression
+// that RUNS and may REPLACE its target (c14, c15). c13 decoratorSystem distinguishes the two
+// incompatible systems (TC39 standard vs legacy experimental); without it a fact base mixes
+// two evaluation semantics under one relation.
+// (21 columns)
+.decl ts_decorator(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol)
+.decl lib_ts_decorator(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol)
+
+// A positional or named argument of a decorator call — where framework routes and DI tokens
+// live. Cols 0..10 mirror java_annotation_argument 0..10.
+// (13 columns)
+.decl ts_decorator_argument(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol)
+.decl lib_ts_decorator_argument(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol)
+
+// One row per construct that could not be parsed. RECORDS the gap, never rewrites source.
+// Measured ZERO rows over 25.9 MB with ts.createSourceFile — which is exactly why it must
+// exist: an always-empty relation that suddenly has rows is a signal, a missing relation is
+// a silence.
+// (10 columns)
+.decl ts_parse_gap(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol)
+.decl lib_ts_parse_gap(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol)
+
+// Structural satisfaction. DECLARED BUT NEVER STAGED BY THE PARSER: satisfaction needs
+// isTypeAssignableTo, the parser has no checker, and a parser-emitted row would be a guess
+// dressed as a fact. The ENGINE derives it from ts_field/ts_method/ts_type_heritage; the
+// ORACLE adjudicates it. 21.5% of measured assignable pairs exist in NO SYNTAX anywhere and
+// 15.4% are bidirectional, so c4 direction is required and mutual assignability is NOT
+// identity. c11 oracleAgreement carries the relation's own error term.
+// (16 columns)
+.decl ts_type_satisfies(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol)
+.decl lib_ts_type_satisfies(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol)
