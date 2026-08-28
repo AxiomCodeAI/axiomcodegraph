@@ -1,4 +1,8 @@
 # dependencies
+# Both forms. `node_modules/` matches a DIRECTORY only, so a symlink named
+# node_modules slips past it -- which is how the tracked absolute-path symlink
+# came back in a121b77 after 5bf2db4 had already removed it once.
+node_modules
 node_modules/
 
 # build output
