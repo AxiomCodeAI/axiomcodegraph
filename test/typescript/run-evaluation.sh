@@ -92,18 +92,25 @@ echo "   $MODS modules, $CS call sites"
 # `console` have no declaration anywhere and the receiver of every call on one is
 # untyped.
 LIBS=""
+# Returns 0 when it staged something, 1 when the directory declared nothing. The
+# caller uses that to decide whether to look deeper, because staging BOTH a package
+# root and its dist/ duplicates every declaration — and a duplicate is not harmless:
+# the engine emits both, the site goes multi_inferred, and the copy the compiler did
+# not name is scored as a wrong target. Measured on the Parser repository, staging
+# `typescript` and `typescript/lib` as separate roots took WRONG from 115 to 384.
 add_lib() { # $1 = source dir, $2 = ir subdir name
   local src="$1" name="$2"
-  [ -d "$src" ] || return 0
+  [ -d "$src" ] || return 1
   [ -d "$WORK/libir/$name" ] && { LIBS="${LIBS:+$LIBS,}$WORK/libir/$name"; return 0; }
   mkdir -p "$WORK/libir/$name"
   node "$PARSER_DIST" "$src" "lib-$name" false "$WORK/libir/$name" >>"$WORK/libir.log" 2>&1 || true
   if [ -s "$WORK/libir/$name/all-typescript-modules.csv" ]; then
     LIBS="${LIBS:+$LIBS,}$WORK/libir/$name"
     echo "   + $name ($(( $(wc -l < "$WORK/libir/$name/all-typescript-modules.csv") - 1 )) modules)"
-  else
-    rm -rf "$WORK/libir/$name"
+    return 0
   fi
+  rm -rf "$WORK/libir/$name"
+  return 1
 }
 
 echo "▶ staging libraries..."
@@ -127,6 +134,12 @@ if [ -n "$NM_ROOTS" ]; then
   awk -F'\t' 'NR>1 && $20!=""{print $20}' "$WORK/ir/all-typescript-imports.csv" | sort -u > "$WORK/packages.txt"
   while IFS= read -r pkg; do
     [ -n "$pkg" ] || continue
+    # `typescript` is staged twice below on purpose — lib.*.d.ts as the global scope,
+    # typescript.d.ts as the compiler API — and staging the PACKAGE as well would be a
+    # third copy of both. A duplicate declaration is scored as a wrong target, so this
+    # skip is worth the special case: it took WRONG on the Parser repository from 384
+    # back to 115.
+    [ "$pkg" = "typescript" ] && continue
     safe="$(printf '%s' "$pkg" | tr '/@' '__')"
     d="$(find_in_nm "@types/$pkg" || true)"; [ -n "$d" ] && add_lib "$d" "types_$safe"
     d="$(find_in_nm "$pkg" || true)"
