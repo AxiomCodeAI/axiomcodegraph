@@ -507,25 +507,25 @@ export class PythonExpressionExtractor {
     }
 
     if (node.type === 'augmented_assignment') {
-      const left = node.childForFieldName('left');
-      const right = node.childForFieldName('right');
-      if (right) {
-        this.enqueueRoot(
-          right,
-          context,
-          PythonRootContext.AUGMENTED_ASSIGNMENT,
-          PythonEdgeRole.ASSIGNMENT_VALUE
-        );
-      }
-      if (left) {
-        this.enqueueRoot(
-          left,
-          context,
-          PythonRootContext.AUGMENTED_ASSIGNMENT,
-          PythonEdgeRole.ASSIGNMENT_TARGET,
-          PythonNameContext.STORE
-        );
-      }
+      // The NODE itself is the depth-0 root, exactly as for a plain assignment,
+      // and the target and value become its depth-1 children.
+      //
+      // They used to be two unrelated depth-0 roots with no parent, which loses
+      // the pairing entirely. Recovering it by joining on (scope, line,
+      // rootContext) is not safe: `a += 1; b += 2` puts four such rows on one
+      // line in one scope, and the join yields four pairs of which two are
+      // wrong — `a` paired with `2`, `b` with `1`. That invents value flow
+      // rather than losing it, which is the worse direction. The wrapper makes
+      // the pairing explicit and the join unnecessary.
+      //
+      // Mirrors Java's COMPOUND_ASSIGNMENT: one wrapper carrying
+      // ASSIGNMENT_TARGET / ASSIGNMENT_VALUE, not one kind per operator.
+      this.enqueueRoot(
+        node,
+        context,
+        PythonRootContext.AUGMENTED_ASSIGNMENT,
+        PythonEdgeRole.ROOT
+      );
       return;
     }
 
@@ -1028,6 +1028,11 @@ export class PythonExpressionExtractor {
       // at an identical span. Ten duplicate rows on one fixture, each
       // double-counting whatever aggregates over them.
       node.type === 'case_pattern' ||
+      // `case Point(x=px)` nests keyword_pattern(identifier x, dotted_name px).
+      // The first child is the ATTRIBUTE LABEL, not a reference to anything --
+      // emitting it invented a read of a name `x` that does not exist, the same
+      // trap as a keyword argument's name. Only the value is a sub-pattern.
+      node.type === 'keyword_pattern' ||
       node.type === 'pair'
     ) {
       // A PARENTHESISED node has one child and is pure grouping, so the child
@@ -1041,10 +1046,30 @@ export class PythonExpressionExtractor {
       for (let i = 0; i < node.namedChildCount; i++) {
         const inner = node.namedChild(i);
         if (inner) {
+          // PEP 634: a BARE name in a pattern is a CAPTURE, which binds, while a
+          // DOTTED name is a value pattern, which reads. Every pattern name was
+          // reported LOAD, contradicting py_binding, which correctly records the
+          // same names with origin MATCH_CAPTURE. `_` is the wildcard and binds
+          // nothing.
+          // tree-sitter wraps even a BARE capture in a `dotted_name`, so
+          // `case other:` is case_pattern > dotted_name > identifier. A
+          // dotted_name with one child is a bare name and therefore a capture;
+          // with two or more it is a value pattern and reads.
+          const bareName =
+            inner.type === 'identifier' ||
+            (inner.type === 'dotted_name' && inner.namedChildCount === 1);
+          const inPattern = node.type === 'case_pattern' || node.type === 'keyword_pattern';
+          const isCapture = inPattern && bareName && inner.text !== '_';
+          // Skip the keyword LABEL of `x=px`; it names an attribute of the
+          // matched class, not a binding or a read.
+          if (node.type === 'keyword_pattern' && i === 0) {
+            continue;
+          }
           this.worklist.push({
             ...pending,
             node: inner,
             position: grouping ? pending.position : i,
+            ...(isCapture ? { nameContext: PythonNameContext.STORE } : {}),
           });
         }
       }
@@ -1553,6 +1578,34 @@ export class PythonExpressionExtractor {
     }
 
     switch (kind) {
+      case PythonExpressionKind.AUGMENTED_ASSIGNMENT: {
+        // `a += f()` READS a and WRITES a. The target keeps STORE so the
+        // binding side is right; the read is recoverable because the same node
+        // is the target of an augmented assignment, which is what distinguishes
+        // it from a plain one.
+        const augTarget = node.childForFieldName('left');
+        const augValue = node.childForFieldName('right');
+        if (augValue) {
+          this.worklist.push({
+            ...base,
+            node: augValue,
+            edgeRole: PythonEdgeRole.ASSIGNMENT_VALUE,
+            position: 1,
+          });
+        }
+        if (augTarget) {
+          this.worklist.push({
+            ...base,
+            node: augTarget,
+            edgeRole: PythonEdgeRole.ASSIGNMENT_TARGET,
+            position: 0,
+            nameContext: PythonNameContext.STORE,
+          });
+        }
+        return;
+      }
+
+      case PythonExpressionKind.ANNOTATED_ASSIGNMENT:
       case PythonExpressionKind.ASSIGNMENT: {
         const left = node.childForFieldName('left');
         const type = node.childForFieldName('type');
@@ -2566,13 +2619,31 @@ export class PythonExpressionExtractor {
           : PythonExpressionKind.YIELD;
       }
       case 'assignment': {
-        return PythonExpressionKind.ASSIGNMENT;
+        // `x: int = 0` is an ANNOTATED assignment and says something a plain
+        // one does not: the name has a declared type. Both reported kind
+        // ASSIGNMENT, so the two were indistinguishable in the fact base and
+        // ANNOTATED_ASSIGNMENT was declared but never emitted. The annotation
+        // is the `type` field, which is exactly the test the root context
+        // already uses.
+        return node.childForFieldName('type')
+          ? PythonExpressionKind.ANNOTATED_ASSIGNMENT
+          : PythonExpressionKind.ASSIGNMENT;
       }
       case 'augmented_assignment': {
         return PythonExpressionKind.AUGMENTED_ASSIGNMENT;
       }
       case 'case_pattern': {
         return PythonExpressionKind.MATCH_PATTERN;
+      }
+      case 'dotted_name': {
+        // In a match pattern tree-sitter gives `cls.SHORT` as a `dotted_name`
+        // with two identifier children, NOT an `attribute`. With no kind it
+        // fell to the generic walk and emitted `cls` and `SHORT` as two
+        // unrelated depth-0 rows, so a value pattern was indistinguishable from
+        // two capture names. A single identifier under it is just a name.
+        return node.namedChildCount > 1
+          ? PythonExpressionKind.ATTRIBUTE_ACCESS
+          : PythonExpressionKind.NAME_REFERENCE;
       }
       default: {
         // Including `type`, `generic_type` and `type_parameter`: annotation
