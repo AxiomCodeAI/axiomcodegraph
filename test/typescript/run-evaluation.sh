@@ -114,14 +114,29 @@ add_lib() { # $1 = source dir, $2 = ir subdir name
 }
 
 echo "▶ staging libraries..."
+TS_MOD="$(find_in_nm typescript || true)"
+export TS_MODULE_PATH="$TS_MOD"
 TSLIB_DIR="$(find_in_nm typescript/lib || true)"
 if [ -n "$TSLIB_DIR" ]; then
   # The global scope. Copied to a flat directory because the parser treats a
   # directory as a project and `typescript/lib` also holds the compiler API, which
   # is a different library with a different reason to be staged.
   mkdir -p "$WORK/tslib-src"
-  cp "$TSLIB_DIR"/lib.*.d.ts "$WORK/tslib-src/" 2>/dev/null || true
-  add_lib "$WORK/tslib-src" "tslib"
+  # ONLY the lib files this project's program actually loads. `target` and `lib` in the
+  # tsconfig decide which of the ~110 shipped declaration files are in scope, and
+  # staging all of them puts DOM globals into a Node program: `console.log` then
+  # resolves to the DOM's Console rather than @types/node's. The compiler already
+  # decided; lib-files.mjs reads its answer back.
+  ( cd "$MIRROR" && node "$HERE/ground-truth/lib-files.mjs" . ) > "$WORK/libfiles.txt" 2>/dev/null || true
+  if [ -s "$WORK/libfiles.txt" ]; then
+    while IFS= read -r f; do [ -f "$f" ] && cp "$f" "$WORK/tslib-src/"; done < "$WORK/libfiles.txt"
+    echo "   (standard library: $(wc -l < "$WORK/libfiles.txt" | tr -d ' ') lib.*.d.ts files in this program)"
+  else
+    cp "$TSLIB_DIR"/lib.*.d.ts "$WORK/tslib-src/" 2>/dev/null || true
+    echo "   ! could not read the program's lib list; staging ALL lib.*.d.ts, which"
+    echo "     will put DOM globals into a Node project"
+  fi
+  add_lib "$WORK/tslib-src" "tslib" || true
 else
   echo "   ! no typescript/lib found — the global scope will be EMPTY and every"
   echo "     call on a string, an array or a promise will be unresolved"
@@ -144,24 +159,33 @@ if [ -n "$NM_ROOTS" ]; then
     d="$(find_in_nm "@types/$pkg" || true)"; [ -n "$d" ] && add_lib "$d" "types_$safe"
     d="$(find_in_nm "$pkg" || true)"
     if [ -n "$d" ]; then
-      add_lib "$d" "$safe"
-      # A published package ships its declarations under dist/ or lib/, and the
-      # parser's TypeScript detector SKIPS those directory names as build output —
-      # correct for a project, wrong for a library. Measured on vitest: the package
-      # root yields 21 shim modules and none of the real declarations, so `expect`,
-      # `it` and `describe` are unreachable. Staging the declaration directory as its
-      # own root is the harness's job, not the parser's; filed as a defect either way.
-      # ONLY when the package root itself declares nothing. Staging both the root
-      # and dist/ duplicates every declaration, and a duplicate declaration is not
-      # harmless: the engine emits both, the site becomes multi_inferred, and the
-      # copy the compiler did not name is scored as a wrong target.
-      if ! ls "$d"/*.d.ts >/dev/null 2>&1; then
-        for sub in dist lib types esm build out; do
-          [ -d "$d/$sub" ] && add_lib "$d/$sub" "${safe}_$sub"
-        done
-      fi
+      add_lib "$d" "$safe" || true
+      # A published package keeps its real declarations in a directory the parser
+      # SKIPS BY NAME — `dist`, `build` and `out` are in TS_SKIP_DIRECTORIES. So the
+      # package root and those directories can never overlap, and BOTH must be staged:
+      # the root holds the shims (vitest ships an `index.d.ts` that re-exports
+      # `./dist/index.js`) and dist holds the declarations the shim points at.
+      # Measured: staging only the root gave vitest 20 shim modules and no `expect`,
+      # `it` or `describe` at all — 1,637 unresolved sites on zustand.
+      #
+      # Directories the parser does NOT skip (`lib`, `types`, `esm`) are deliberately
+      # absent here: the root staging already walked into them, and a second copy of a
+      # declaration is scored as a wrong target rather than being harmless.
+      for sub in dist build out; do
+        [ -d "$d/$sub" ] && { add_lib "$d/$sub" "${safe}_$sub" || true; }
+      done
+      true
     fi
   done < "$WORK/packages.txt"
+  # @types/node is reached by AMBIENT SPECIFIER (`import * as fs from "fs"`), and a
+  # builtin import carries no packageName at all — so the loop above never discovers
+  # it. Node builtins are the most-called library in any server-side project, so this
+  # is not a corner: on the Parser repository the whole `fs`/`path` surface was
+  # missing until this was added.
+  if grep -q 'BUILTIN_NODE' "$WORK/ir/all-typescript-imports.csv" 2>/dev/null; then
+    d="$(find_in_nm "@types/node" || true)"; [ -n "$d" ] && { add_lib "$d" "types_node" || true; }
+  fi
+
   # `typescript` imported as a library (the compiler API) is a separate root from the
   # lib.*.d.ts global scope above.
   if grep -qx 'typescript' "$WORK/packages.txt" 2>/dev/null && [ -n "$TSLIB_DIR" ] && [ -f "$TSLIB_DIR/typescript.d.ts" ]; then
@@ -169,6 +193,36 @@ if [ -n "$NM_ROOTS" ]; then
     add_lib "$WORK/tsc-src" "tscompiler"
   fi
 fi
+# ── 2b. the libraries' OWN dependencies, one transitive round ────────────────
+# A modern package presents itself by re-exporting its siblings: vitest's barrel is
+# `export * from "@vitest/runner"` and friends, so `it` and `describe` are not in
+# vitest at all. The client never imports @vitest/runner, so the client-driven
+# discovery above cannot find it, and the barrel exports almost nothing.
+#
+# One round, not a closure. Two would pull in the whole dependency tree for a
+# diminishing return, and the point of staging is to answer client call sites — a
+# dependency three hops from anything the client names is not going to.
+if [ -n "$NM_ROOTS" ]; then
+  echo "▶ staging the libraries' own dependencies (one round)..."
+  cat "$WORK"/libir/*/all-typescript-imports.csv 2>/dev/null \
+    | awk -F'\t' '$20!="" && $20!="packageName"{print $20}' | sort -u > "$WORK/lib-packages.txt"
+  while IFS= read -r pkg; do
+    [ -n "$pkg" ] || continue
+    [ "$pkg" = "typescript" ] && continue
+    safe="$(printf '%s' "$pkg" | tr '/@' '__')"
+    [ -d "$WORK/libir/$safe" ] && continue
+    d="$(find_in_nm "@types/$pkg" || true)"; [ -n "$d" ] && { add_lib "$d" "types_$safe" || true; }
+    d="$(find_in_nm "$pkg" || true)"
+    if [ -n "$d" ]; then
+      add_lib "$d" "$safe" || true
+      for sub in dist build out; do
+        [ -d "$d/$sub" ] && { add_lib "$d/$sub" "${safe}_$sub" || true; }
+      done
+      true
+    fi
+  done < "$WORK/lib-packages.txt"
+fi
+
 [ -n "$LIBS" ] || echo "   (no libraries staged — every library call will be unresolved)"
 
 # ── 3. solve ─────────────────────────────────────────────────────────────────
@@ -183,10 +237,6 @@ grep -E '^Elapsed' "$WORK/solve.log" | tail -1
 # Run from inside the project so module resolution sees the project's own
 # node_modules rather than the caller's — measured: running from elsewhere resolved
 # @types/node to a DIFFERENT copy, and every position in it was a mismatch.
-# The oracle needs a `typescript` it can require. The workspace root usually has one
-# even when the package does not, so the harness passes the copy it already found.
-TS_MOD="$(find_in_nm typescript || true)"
-export TS_MODULE_PATH="$TS_MOD"
 echo "▶ oracle..."
 ( cd "$MIRROR" && node "$HERE/ground-truth/tsc-oracle.mjs" . "$WORK/oracle.tsv" ) 2>&1 | tail -1
 ( cd "$MIRROR" && node --max-old-space-size=6144 "$HERE/ground-truth/tsc-envelope.mjs" . "$WORK/envelope.tsv" ) 2>&1 | tail -1

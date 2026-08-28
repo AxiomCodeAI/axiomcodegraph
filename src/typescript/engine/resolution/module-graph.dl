@@ -313,6 +313,23 @@ lib_export_relative_base(h, stem) :- export_source("lib", spec, "", h),
     l = strlen(spec),
     substr(spec, l - 3, 3) = ".js",
     stem = substr(spec, 2, l - 5).
+// A LIBRARY re-exporting from ANOTHER PACKAGE — `export * from "@vitest/runner"` in
+// vitest's barrel. Non-relative, so the mapping is project-wide and any import of the
+// same specifier anywhere in the staged library set answers it. Without this a
+// package that presents itself by re-exporting its siblings exports only what it
+// declares itself, which for a modern monorepo-published package is almost nothing:
+// measured on vitest, `it` and `describe` come from @vitest/runner and were
+// unreachable while `expect` (declared locally) resolved.
+lib_specifier_global_target(spec, prov, m) :- import_specifier("lib", spec, ih),
+    !specifier_is_relative(spec),
+    lib_import_target(ih, prov, m).
+export_target_module(h, prov, m) :- export_source("lib", spec, "", h),
+    spec != "",
+    lib_specifier_global_target(spec, prov, m).
+export_target_module(h, "lib", m) :- export_source("lib", spec, "", h),
+    spec != "",
+    module_ambient_specifier("lib", spec, m).
+
 export_target_module(h, "lib", m) :- lib_export_relative_base(h, base),
     lib_ts_export(_, _, _, _, _, _, _, emod, _, _, _, _, _, _, _, _, _, _, _, _, h),
     module_file("lib", epath, emod),
@@ -344,6 +361,8 @@ export_target_module(h, "client", m) :- export_source("client", spec, "", h),
 // per-directory and must NOT use this route — hence the leading-character test.
 specifier_is_relative(spec) :- import_specifier("client", spec, _), spec != "", substr(spec, 0, 1) = ".".
 specifier_is_relative(spec) :- export_source("client", spec, _, _), spec != "", substr(spec, 0, 1) = ".".
+specifier_is_relative(spec) :- import_specifier("lib", spec, _), spec != "", substr(spec, 0, 1) = ".".
+specifier_is_relative(spec) :- export_source("lib", spec, _, _), spec != "", substr(spec, 0, 1) = ".".
 specifier_global_target(spec, prov, m) :- import_specifier("client", spec, ih),
     !specifier_is_relative(spec),
     import_target_module(ih, prov, m).
