@@ -1463,6 +1463,21 @@ export class PythonExpressionExtractor {
         return;
       }
 
+      case PythonExpressionKind.AUGMENTED_ASSIGNMENT: {
+        // PD-12. The wrapper shipped with operatorString empty on every row,
+        // while the column is populated on every other operator-bearing kind,
+        // so `a += b` and `d |= other` were indistinguishable. They are not the
+        // same operation: `|=` on a dict is a MERGE, which a value-flow pass
+        // resolves differently from an arithmetic accumulate. tree-sitter puts
+        // the operator in its own field, so nothing had to be recovered from
+        // text.
+        builder.withOperator(
+          node.childForFieldName('operator')?.text ?? '',
+          PythonUnaryFixity.NONE
+        );
+        return;
+      }
+
       case PythonExpressionKind.UNARY_OPERATION: {
         const operator = node.child(0);
         builder.withOperator(operator?.text ?? '', PythonUnaryFixity.PREFIX);
