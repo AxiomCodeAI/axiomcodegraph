@@ -66,9 +66,25 @@ function pendingCheck(name: string, why: string): number {
   return 0;
 }
 
+/**
+ * tsconfig.json is JSONC, not JSON.
+ *
+ * `tsc` accepts comments and trailing commas, so a config carrying either builds
+ * fine and then fails here on `JSON.parse` — the gate reports a broken fixture
+ * when the fixture is valid. Stripping both makes this reader agree with the
+ * compiler about what the file format is.
+ */
+function parseJsonc<T>(text: string): T {
+  const withoutComments = text
+    .replace(/"(?:[^"\\]|\\.)*"|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g,
+      (m) => (m.startsWith('"') ? m : ''))       // keep strings, drop comments
+    .replace(/,(\s*[}\]])/g, '$1');              // trailing commas
+  return JSON.parse(withoutComments) as T;
+}
+
 function readJson<T>(file: string): T | undefined {
   if (!fs.existsSync(file)) return undefined;
-  return JSON.parse(fs.readFileSync(file, 'utf-8')) as T;
+  return parseJsonc<T>(fs.readFileSync(file, 'utf-8'));
 }
 
 /**
@@ -182,7 +198,7 @@ function fixturesCompile(): number {
   }
 
   // Isolation: the root program must not contain fixtures.
-  const root = JSON.parse(fs.readFileSync('tsconfig.json', 'utf-8')) as { exclude?: string[] };
+  const root = parseJsonc<{ exclude?: string[] }>(fs.readFileSync('tsconfig.json', 'utf-8'));
   const excluded = (root.exclude ?? []).some((x) => x.replace(/\\/g, '/').includes('test-data/typescript'));
   if (!excluded) {
     failures.push('root tsconfig.json does not exclude src/test-data/typescript — one ' +

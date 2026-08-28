@@ -1,0 +1,1 @@
+scriptKind=VERSION_CATALOG	dslDialect=TOML	gradleProjectPath=	relativePath=libs.versions.toml	fileName=libs.versions.toml	parseStatus=PARTIAL	lineCount=29	blockCount=0	declarationCount=0	valueReferenceCount=0	coordinateCount=14	commentCount=0	parseGapCount=1

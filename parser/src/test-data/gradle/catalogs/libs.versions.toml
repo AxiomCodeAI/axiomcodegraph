@@ -1,0 +1,28 @@
+# Every catalog notation, plus two lines that are not valid entries.
+
+[versions]
+plain = "1.0.0"
+rich = { strictly = "[1.0, 2.0[", reject = "1.5" }
+with-equals = "1.0=beta"
+
+[libraries]
+shorthand = "com.example:shorthand:1.0"
+module-literal = { module = "com.example:module-literal", version = "2.0" }
+module-ref = { module = "com.example:module-ref", version.ref = "plain" }
+module-no-version = { module = "com.example:bom-managed" }
+group-name-literal = { group = "com.example", name = "gn-literal", version = "3.0" }
+group-name-ref = { group = "com.example", name = "gn-ref", version.ref = "plain" }
+wrapped = { module = "com.example:wrapped",
+            version.ref = "plain" }
+this line is not an entry
+
+[bundles]
+everything = ["shorthand", "module-literal"]
+
+[plugins]
+id-literal = { id = "com.example.plugin", version = "1.2.3" }
+id-ref = { id = "com.example.refplugin", version.ref = "plain" }
+shorthand-plugin = "com.example.short:4.5.6"
+
+[unknown-table]
+ignored = "should not appear"

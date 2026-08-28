@@ -1,0 +1,17 @@
+declarationType=CONFIGURATION	name=config	value=	notation=	qualifier=	hasConfigBlock=false	reason=	dslDialect=GROOVY	startLine=14	endLine=14	startColumn=4	endColumn=66
+declarationType=DEPENDENCY	name="""com.example:lib:${-> project.version}"""	value="""com.example:lib:${-> project.version}"""	notation=STRING_NOTATION	qualifier=implementation	hasConfigBlock=false	reason=	dslDialect=GROOVY	startLine=24	endLine=24	startColumn=4	endColumn=47
+declarationType=DEPENDENCY	name='com.example:multi:1.0:linux-x86@zip'	value='com.example:multi:1.0:linux-x86@zip'	notation=STRING_WITH_EXTENSION	qualifier=implementation	hasConfigBlock=false	reason=	dslDialect=GROOVY	startLine=25	endLine=25	startColumn=4	endColumn=56
+declarationType=PLUGIN	name=ci.gradle	value=	notation=APPLY_FROM_LOCAL	qualifier=	hasConfigBlock=false	reason=	dslDialect=GROOVY	startLine=29	endLine=29	startColumn=4	endColumn=27
+declarationType=PROPERTY	name=emptyDefault	value=project.findProperty('missing') || ''	notation=	qualifier=LOCAL_VARIABLE	hasConfigBlock=false	reason=	dslDialect=GROOVY	startLine=4	endLine=6	startColumn=0	endColumn=0
+declarationType=PROPERTY	name=envToken	value=System.getenv('BUILD_TOKEN')	notation=	qualifier=LOCAL_VARIABLE	hasConfigBlock=false	reason=	dslDialect=GROOVY	startLine=6	endLine=7	startColumn=0	endColumn=0
+declarationType=PROPERTY	name=ext.ciBuild	value=true	notation=	qualifier=EXT_SINGLE	hasConfigBlock=false	reason=	dslDialect=GROOVY	startLine=1	endLine=2	startColumn=0	endColumn=0
+declarationType=PROPERTY	name=ext.optionalApplied	value=true	notation=	qualifier=EXT_SINGLE	hasConfigBlock=false	reason=	dslDialect=GROOVY	startLine=1	endLine=2	startColumn=0	endColumn=0
+declarationType=PROPERTY	name=sysProp	value=System.getProperty('java.version')	notation=	qualifier=LOCAL_VARIABLE	hasConfigBlock=false	reason=	dslDialect=GROOVY	startLine=7	endLine=8	startColumn=0	endColumn=0
+declarationType=PROPERTY	name=unicodeNote	value='h_llo w_rld'	notation=	qualifier=LOCAL_VARIABLE	hasConfigBlock=false	reason=	dslDialect=GROOVY	startLine=11	endLine=13	startColumn=0	endColumn=0
+declarationType=PROPERTY	name=viaProvider	value=providers.gradleProperty('nexusUser')	notation=	qualifier=LOCAL_VARIABLE	hasConfigBlock=false	reason=	dslDialect=GROOVY	startLine=8	endLine=10	startColumn=0	endColumn=0
+declarationType=STATEMENT	name="expression_statement: ""optional.gradle"""	value="""optional.gradle"""	notation=	qualifier=	hasConfigBlock=false	reason=	dslDialect=GROOVY	startLine=35	endLine=36	startColumn=16	endColumn=0
+declarationType=STATEMENT	name=logger	value="""optional.gradle missing"""	notation=	qualifier=	hasConfigBlock=false	reason=	dslDialect=GROOVY	startLine=37	endLine=37	startColumn=4	endColumn=42
+declarationType=STATEMENT	name=logger	value='done'	notation=	qualifier=	hasConfigBlock=false	reason=	dslDialect=GROOVY	startLine=39	endLine=39	startColumn=4	endColumn=23
+declarationType=STATEMENT	name=proj.tasks.withType	value=Test	notation=	qualifier=	hasConfigBlock=false	reason=	dslDialect=GROOVY	startLine=18	endLine=20	startColumn=4	endColumn=5
+declarationType=STATEMENT	name=t	value=	notation=	qualifier=	hasConfigBlock=false	reason=	dslDialect=GROOVY	startLine=19	endLine=19	startColumn=8	endColumn=28
+declarationType=STATEMENT	name=type_identifier: apply	value=apply	notation=	qualifier=	hasConfigBlock=false	reason=	dslDialect=GROOVY	startLine=35	endLine=35	startColumn=4	endColumn=9
