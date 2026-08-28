@@ -199,6 +199,21 @@ for (const sf of program.getSourceFiles()) {
       if (ts.isNewExpression(node)) {
         callKind = 'CONSTRUCTOR_CALL';
         calleeName = expr ? expr.getText() : '';
+        // EVERY construct signature of the constructed value's type. `new Error(msg)`
+        // has three across lib.es5 and lib.es2022; the compiler names one, and an
+        // engine that cannot separate them is over-approximating within one entity
+        // rather than naming a different one. That belongs inside the envelope, the
+        // same way an overload set does.
+        try {
+          const ctorType = expr ? checker.getTypeAtLocation(expr) : undefined;
+          for (const sig of ctorType?.getConstructSignatures?.() ?? []) {
+            if (sig.declaration) {
+              const sd = siteOf(sig.declaration);
+              cha.add(sd);
+              rta.add(sd);
+            }
+          }
+        } catch { /* no construct signatures to add */ }
       } else if (expr && ts.isPropertyAccessExpression(expr)) {
         callKind = 'METHOD_CALL';
         calleeName = expr.name.getText();

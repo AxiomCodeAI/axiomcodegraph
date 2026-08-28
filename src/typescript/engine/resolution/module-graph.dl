@@ -272,6 +272,27 @@ module_export_recovered(mod, "no_export_rows") :- module_decl(_, _, _, _, _, mod
 module_export_any(prov, mod, name, k, h) :- module_export_recovered(mod, _),
     module_local_decl(prov, mod, name, k, h).
 
+// ── ENTITY KINDS NORMALISED BY WHAT THE HASH IS ─────────────────────────────
+// `ts_export.exportedEntityKind` distinguishes ENUM and NAMESPACE from TYPE, which is
+// faithful to the source and wrong for a lookup: an enum IS a type, and a rule asking
+// for "TYPE" finds none of them. Measured on this repository's own source, 168 of 471
+// type declarations are enums, and `GradleDSLDialect`, `LocalVariableScopeKind`,
+// `TypeRefContext` and 200-odd more references resolved to nothing purely because the
+// column said ENUM.
+//
+// So the kind is re-derived from WHAT THE HASH IS rather than what the column claims.
+// The `k != …` guard makes each rule fire once — the head's kind can never re-enter
+// its own body — so this terminates in one step and is not a real recursion.
+module_export_any(prov, mod, name, "TYPE", ent) :- module_export_any(prov, mod, name, k, ent),
+    k != "TYPE",
+    type_decl(prov, _, _, _, _, _, ent).
+module_export_any(prov, mod, name, "METHOD", ent) :- module_export_any(prov, mod, name, k, ent),
+    k != "METHOD",
+    method_decl(prov, _, _, _, ent).
+module_export_any(prov, mod, name, "VARIABLE", ent) :- module_export_any(prov, mod, name, k, ent),
+    k != "VARIABLE",
+    var_decl(prov, _, _, _, _, _, ent).
+
 // ── the runtime subset ──────────────────────────────────────────────────────
 // A name whose export row is type-only is removed from the call-graph surface. The
 // negation reads only base export rows (never module_export_any), so it stratifies
@@ -440,11 +461,24 @@ export_spec_cand(h, cand, l) :- export_source("client", spec, "", h),
     cand = cat(t, ext),
     l = strlen(t).
 module_tail("client", t, m) :- module_file("client", p, m), path_tail(p, t).
-export_spec_best(h, n) :- export_spec_cand(h, _, _),
-    n = max l : { export_spec_cand(h, _, l) }.
-export_target_module(h, "client", m) :- export_spec_cand(h, cand, l),
-    export_spec_best(h, l),
+// The longest match is taken over the candidates that MATCH, not over all candidates
+// generated. Taking it over all of them picks the full specifier —
+// `@/analysis-types/python/PyTypeRegistry`, which is the longest tail and matches
+// nothing because of the alias prefix — and the rule then derives NOTHING while
+// looking as though it works. Measured cost: every barrel file in the corpus exported
+// zero names, 181 specifiers unresolved, and `getHash` alone was 262 missed sites.
+export_spec_hit(h, m, l) :- export_spec_cand(h, cand, l),
     module_tail("client", cand, m).
+export_spec_hit(h, m, l) :- export_spec_cand(h, cand, l),
+    module_tail("lib", cand, m).
+export_spec_best(h, n) :- export_spec_hit(h, _, _),
+    n = max l : { export_spec_hit(h, _, l) }.
+export_target_module(h, "client", m) :- export_spec_hit(h, m, l),
+    export_spec_best(h, l),
+    module_file("client", _, m).
+export_target_module(h, "lib", m) :- export_spec_hit(h, m, l),
+    export_spec_best(h, l),
+    module_file("lib", _, m).
 
 // ── export_specifier_unresolved(ExportHash, Specifier) ──────────────────────
 // EVERY SUPPRESSION COUNTABLE. A re-export whose source module was not located, with
