@@ -29,6 +29,61 @@ export interface ExtractOptions {
  * positional entry (`src/index.ts`, invoked as `node dist/index.js <dir> <link>
  * <excludeTests> <outputDir>` by the orchestrator pipeline).
  */
+/** Runs a promise and returns its value alongside how long it took, in seconds. */
+async function timed<T>(work: Promise<T>): Promise<{ value: T; seconds: number }> {
+  const startedAt = Date.now();
+  const value = await work;
+  return { value, seconds: (Date.now() - startedAt) / 1000 };
+}
+
+/**
+ * Prints what a per-project analyzer produced.
+ *
+ * Java, XML, YAML, Gradle and Properties each print their own tallies from
+ * inside their workflow. Python and TypeScript return a summary object instead,
+ * which nothing was reading, so those two languages were silent even on a run
+ * that analysed hundreds of files. `filesRejected` and `extractionErrors` are
+ * printed separately and only when non-zero: a rejection is a decision, an
+ * extraction error is always a defect, and a caller that cannot tell them apart
+ * cannot tell a clean run from a parser that crashed on every file.
+ */
+function reportLanguage(
+  label: string,
+  seconds: number,
+  summaries: ReadonlyArray<{
+    filesSeen: number;
+    filesAnalysed: number;
+    filesRejected?: number;
+    extractionErrors?: number;
+    counts?: Record<string, number>;
+  }>
+): void {
+  if (summaries.length === 0) {
+    return;
+  }
+  const total = (pick: (s: (typeof summaries)[number]) => number | undefined): number =>
+    summaries.reduce((sum, s) => sum + (pick(s) ?? 0), 0);
+  const analysed = total((s) => s.filesAnalysed);
+  const rows = summaries.reduce(
+    (sum, s) => sum + Object.values(s.counts ?? {}).reduce((a, b) => a + b, 0),
+    0
+  );
+  // Padded to the same column the other languages use, so a run reads as one
+  // report rather than two formats.
+  const field = (text: string): string => `${label} ${text}:`.padEnd(30);
+  console.log(`\n📊 ${field('files analysed')}${analysed}`);
+  console.log(`📊 ${field('rows extracted')}${rows}`);
+  const rejected = total((s) => s.filesRejected);
+  const errored = total((s) => s.extractionErrors);
+  if (rejected > 0) {
+    console.log(`   ⏭  ${rejected} file(s) skipped — see the skipped-files report`);
+  }
+  if (errored > 0) {
+    console.log(`   ❌ ${errored} file(s) errored during extraction`);
+  }
+  console.log(`⏱️  ${label} analysis completed in ${seconds.toFixed(2)}s`);
+}
+
 export async function extractProject(opts: ExtractOptions): Promise<void> {
   const excludeTests = opts.excludeTests ?? false;
   const outputDir = opts.outputDir ? path.resolve(opts.outputDir) : undefined;
@@ -37,6 +92,7 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
     console.log('🚫 Test directories ("test", "tests") will be excluded from analysis\n');
   }
 
+  const startedAt = Date.now();
   const absolutePath = path.resolve(opts.projectPath);
   const scanner = new ProjectScanner();
 
@@ -76,7 +132,10 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
   const pythonAnalyzer = new PythonProjectAnalyzer();
   const typescriptAnalyzer = new TypeScriptProjectAnalyzer();
 
-  await Promise.all([
+  // Positions matter: java, properties, xml, yaml, gradle, typescript, python.
+  // Counting them wrong bound typescriptSummaries to gradle's void return, and
+  // the mistake surfaced only as a type error.
+  const [, , , , , typescriptSummaries, pythonSummaries] = await Promise.all([
     javaAnalyzer.analyzeJavaProjects(javaProjects, opts.versionLink, excludeTests),
     propertiesAnalyzer.analyzePropertiesFiles(scanTargets, opts.versionLink),
     xmlAnalyzer.analyzeXmlFiles(scanTargets, opts.versionLink),
@@ -97,7 +156,7 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
     // One call per PROJECT, not one over the repository root, because a
     // TypeScript program is the unit of merge scope: two programs have two
     // global scopes, and analysing them together merges symbols tsc keeps apart.
-    ...typescriptProjects.map((project) =>
+    timed(Promise.all(typescriptProjects.map((project) =>
       typescriptAnalyzer.analyze({
         rootDir: project.path,
         outputDir: outputDir ?? ANALYSIS_OUTPUT_DIR,
@@ -107,8 +166,8 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
           ? ['node_modules', '.git', 'dist', 'build', 'out', 'coverage',
              'test', 'tests', '__tests__', '.next', '.turbo']
           : undefined,
-      })),
-    ...pythonProjects.map((project) =>
+      })))),
+    timed(Promise.all(pythonProjects.map((project) =>
       pythonAnalyzer.analyze({
         rootDir: project.path,
         outputDir: outputDir ?? ANALYSIS_OUTPUT_DIR,
@@ -123,8 +182,22 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
           ? ['__pycache__', '.git', 'node_modules', '.venv', 'venv', '.tox',
              'tests', 'test', '__tests__']
           : undefined,
-      })),
+      })))),
   ]);
 
+  // Python and TypeScript ran and wrote their CSVs but reported nothing, while
+  // every other language printed counts and a duration. A run over a Python
+  // project ended on "Found 0 Java project(s)" and a string of empty XML and
+  // Gradle tallies, with no sign the Python analysis had happened at all. The
+  // summaries were already returned by the analyzers and simply discarded.
+  reportLanguage('Python', pythonSummaries.seconds, pythonSummaries.value);
+  reportLanguage('TypeScript', typescriptSummaries.seconds, typescriptSummaries.value);
+
+  // Wall clock for the whole run. The per-language figures above will NOT sum to
+  // it: the analyzers run concurrently, so their durations overlap. Reporting
+  // both is the point -- the per-language number says which parser is slow, the
+  // total says what the caller actually waited.
+  const elapsed = ((Date.now() - startedAt) / 1000).toFixed(2);
+  console.log(`\n⏱️  TOTAL analysis time: ${elapsed}s`);
   console.log('✨ Analysis complete!\n');
 }
