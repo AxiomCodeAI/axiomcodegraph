@@ -1,0 +1,144 @@
+// ============================================================================
+// Resolution · TYPE HIERARCHY  (extends / implements, and what each one means)
+//
+// THE ONE COLUMN THAT MAKES JAVA'S MODEL WRONG HERE. `ts_type_heritage.inheritsMembers`
+// (col 7) says whether an edge inherits members. `extends` does; `implements` does
+// NOT — it asserts conformance and inherits nothing. In Java, walking an
+// `IMPLEMENTS_INTERFACE` edge to find an inherited method is CORRECT, because a Java
+// class implementing an interface really does acquire its abstract declarations.
+// Doing the same here invents members: a TypeScript class that `implements Logger`
+// and does not declare `warn()` has no `warn()`, and a rule that inherits it emits an
+// edge to a method that does not exist.
+//
+// So there are two closures and they are deliberately different:
+//
+//   type_inherits(Sub, Super)   -- `extends` only. What member lookup walks.
+//   type_subtype(Sub, Super)    -- `extends` AND `implements`. What DISPATCH walks,
+//                                  to fan an interface-typed receiver to the classes
+//                                  that declare themselves conformant.
+//
+// Neither captures TypeScript's real subtyping, which is structural — 60.4% of
+// classes satisfy their interfaces with no `implements` clause at all, and 21.5% of
+// assignable pairs appear in NO syntax anywhere. That gap is closed, partially and
+// with an explicit soundness argument, in structural-satisfaction.dl. It is not
+// closed here, and pretending otherwise is how a hierarchy relation becomes a source
+// of fabricated edges.
+//
+// ── DECLARATION MERGING RUNS THROUGH ALL OF IT ──────────────────────────────
+// A heritage clause is written on ONE declaration of a merged interface, and it
+// applies to the whole entity. So every edge is lifted to the GROUP on both ends: an
+// `extends` on declaration 2 of 3 is inherited by all three. Keying on the
+// declaration hash instead would give a different answer depending on which
+// declaration a receiver happened to resolve to, which is the merging bug the schema
+// warns about in its first numbered note.
+//
+// ── STRATIFICATION ──────────────────────────────────────────────────────────
+// Reads type-resolution.dl and projections only — no expr_type, no
+// expr_call_candidate. Both closures are positive. Downstream negations over
+// type_inherits / type_subtype are therefore legal inside the resolution fixpoint,
+// which is exactly what member-lookup.dl's shadowing laws need.
+// ============================================================================
+
+// ── heritage_target(SubTypeHash, Prov, SuperTypeHash, InheritsMembers) ──────
+// The heritage clause's type reference resolved to a declaration. The parser leaves
+// resolvedTypeLinkHash and resolvedGroupKey empty (measured: 84 rows, 0 resolved),
+// so the reference goes through the ordinary resolver like any other.
+heritage_target(sub, prov, sup, inh) :- ts_type_heritage(_, _, _, _, _, _, _, inh, sub, _, _, tref, _, _, _, _, _, _, _, _),
+    tref != "",
+    ref_type_target(tref, prov, sup).
+
+// LIBRARY-INTERNAL heritage. Measured: 1,167 clauses in the TypeScript lib and 416 in
+// @types/node — `Array extends ...`, every DOM interface chain, every Node stream
+// class. Omitting them leaves type_ancestor with ONE row on a full staging, which
+// silently removes every inherited member from every library receiver: `stream.on()`
+// is declared on EventEmitter, not on Readable, and without this clause it is not
+// found at all. The lib side resolves its own references through lib_name_binds,
+// which is scoped to the library's own modules.
+heritage_target(sub, prov, sup, inh) :- lib_ts_type_heritage(_, _, _, _, name, _, _, inh, sub, lmod, _, _, _, _, _, _, _, _, _, _),
+    name != "",
+    lib_heritage_name_target(lmod, name, prov, sup).
+
+// ── lib_heritage_name_target(LibModule, Name, Prov, TypeHash) ───────────────
+// A library heritage clause resolved by NAME within the library's own scope: the
+// declaring module first, then the library's global scope. Deliberately NOT through
+// ref_type_target, which is driven by CLIENT type references — a library's own
+// references are not in that relation, and routing them through it would resolve a
+// library supertype against the client's imports.
+lib_heritage_name_target(lmod, name, "lib", t) :- module_local_decl("lib", lmod, name, "TYPE", t).
+lib_heritage_name_target(lmod, name, "lib", t) :- lib_ts_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, lmod),
+    global_decl(name, "TYPE", "lib", t),
+    !module_local_decl("lib", lmod, name, "TYPE", _).
+
+// `class C extends mixin(Base)` — an EXTENDS_EXPRESSION whose superclass is computed.
+// isDynamic marks it; there is no static answer, so it is RECORDED as a declared
+// blind spot rather than guessed at. A mixin's members are genuinely not decidable
+// without evaluating the expression.
+heritage_dynamic(sub, txt) :- ts_type_heritage("EXTENDS_EXPRESSION", _, _, txt, _, _, _, _, sub, _, _, _, _, _, _, _, _, _, _, _).
+heritage_unresolved(sub, name) :- ts_type_heritage(_, _, _, _, name, _, _, _, sub, _, _, tref, _, _, _, _, _, _, _, _),
+    tref != "",
+    !ref_type_target(tref, _, _).
+
+// ── type_inherits(SubHash, SuperHash) — MEMBERS flow along this edge ────────
+// Lifted to groups on both ends, then projected back to every declaration, so a
+// clause written on one declaration of a merged type applies to all of them.
+type_inherits(sub, sup) :- heritage_target(subDecl, _, supDecl, "true"),
+    type_group(_, sg, subDecl),
+    type_group(_, sg, sub),
+    type_group(_, pg, supDecl),
+    type_group(_, pg, sup).
+
+// ── type_subtype(SubHash, SuperHash) — CONFORMANCE, members do not flow ─────
+// Every heritage edge regardless of inheritsMembers. Used only to fan dispatch
+// downward from a supertype-typed receiver to declared implementations.
+type_subtype(sub, sup) :- heritage_target(subDecl, _, supDecl, _),
+    type_group(_, sg, subDecl),
+    type_group(_, sg, sub),
+    type_group(_, pg, supDecl),
+    type_group(_, pg, sup).
+
+// ── transitive closures ─────────────────────────────────────────────────────
+// `sub != anc` on the base case is a cycle guard, not an optimisation: declaration
+// merging can make a type's own group appear on both ends of an edge when an
+// interface extends another declaration of itself, and without the guard the closure
+// derives every type as its own ancestor and member lookup becomes unbounded.
+type_inherits_star(sub, anc) :- type_inherits(sub, anc), sub != anc.
+type_inherits_star(sub, anc) :- type_inherits(sub, mid), mid != sub, type_inherits_star(mid, anc), anc != sub.
+type_subtype_star(sub, anc) :- type_subtype(sub, anc), sub != anc.
+type_subtype_star(sub, anc) :- type_subtype(sub, mid), mid != sub, type_subtype_star(mid, anc), anc != sub.
+
+// ── type_ancestor(SubHash, AncestorHash) ────────────────────────────────────
+// The name the rest of the engine uses, and it means MEMBER inheritance — the
+// `extends` closure. Every rule that looks a member up in an ancestor must read
+// this one and not type_subtype_star; the two are separated precisely so that
+// choice has to be made deliberately.
+type_ancestor(sub, anc) :- type_inherits_star(sub, anc).
+
+// ── implementors(SuperHash, SubHash) — the DISPATCH fan ─────────────────────
+// The inverse of the conformance closure: given a supertype-typed receiver, the
+// declared types whose values can flow into it. Sound only for what the syntax
+// states; structural satisfaction adds the rest, separately and labelled.
+implementors(sup, sub) :- type_subtype_star(sub, sup).
+
+// ── ancestor_of_merged_group(Prov, GroupKey, AncestorHash) ──────────────────
+// The ancestors of a merged entity, keyed by group rather than by declaration —
+// consumed by member lookup, which searches the whole entity.
+ancestor_of_merged_group(prov, g, anc) :- type_group(prov, g, t),
+    type_ancestor(t, anc).
+
+// ── class_type(TypeHash) / interface_type(TypeHash) ─────────────────────────
+// Enumerated through relations rather than matched as literals, per the kind-split
+// law: TsTypeCategory has gained CONST_ENUM_TYPE and CLASS_EXPRESSION_TYPE since the
+// Java model was written, and a bare literal match silently stops covering each new
+// one.
+category_is_class("CLASS_TYPE").
+category_is_class("CLASS_EXPRESSION_TYPE").
+category_is_instantiable("CLASS_TYPE").
+category_is_instantiable("CLASS_EXPRESSION_TYPE").
+category_is_instantiable("ENUM_TYPE").
+category_is_instantiable("CONST_ENUM_TYPE").
+category_is_shape_only("INTERFACE_TYPE").
+category_is_shape_only("TYPE_ALIAS_TYPE").
+
+class_type(t) :- type_decl(_, _, _, _, categ, _, t), category_is_class(categ).
+interface_type(t) :- type_decl(_, _, _, _, categ, _, t), category_is_shape_only(categ).
+instantiable_type(t) :- type_decl(_, _, _, _, categ, _, t), category_is_instantiable(categ).

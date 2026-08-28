@@ -1,0 +1,257 @@
+// ============================================================================
+// Projections · EXPRESSIONS AND CALL SITES  (pure column views)
+//
+// The spine. Two things here are materially better than the Java front end gives,
+// and both change how much work the resolution layer has to do:
+//
+//  1. `referencedEntityHash` (col 15) IS POPULATED. The parser's binder already
+//     resolved identifier references to the exact declaration — measured on this
+//     repository's own source: 18,147 VARIABLE, 14,386 PARAMETER, 5,410
+//     IMPORT_BINDING, 359 METHOD, 193 TYPE, all with a hash. Java's IR leaves this
+//     empty, which is why `expr-type.dl` there re-binds receivers by NAME within
+//     the enclosing method and inherits every scoping error that entails. None of
+//     that machinery is needed here, and none of it is written.
+//
+//  2. `ts_call_site` already decomposes the call — callee name, receiver
+//     expression, caller method — so there is no `call_site` derivation to write.
+//     Java has to reconstruct all three from expression shape.
+//
+// What the parser does NOT give: the receiver's TYPE (only its declaration), and
+// the target of any property access. Those are this engine's job.
+//
+// ts_expression / lib_ts_expression cols (34):
+//   0 kind  1 edgeRole  2 rootContext  3 expressionOwnerKind  4 tsTypeLinkHash
+//   5 expressionOwnerHash  6 parentExpressionHash  7 position  8 depth
+//   9 literalType  10 literalValue  11 methodReferenceKind  12 unaryFixity
+//   13 operatorString  14 referencedEntityKind  15 referencedEntityHash
+//   16 anonymousDeclarationHash  17 potentialQualifiedName  18 isAmbiguous
+//   19 returnStatementIndex  20 startLine  21 startColumn  22 endLine  23 endColumn
+//   24 tsModuleLinkHash  25 isOptionalChain  26 isNonNullAsserted
+//   27 assertedTypeReferenceLinkHash  28 isSpread  29 argumentCount
+//   30 typeArgumentCount  31 isTypeOnlyReachable  32 serviceVersionLinkHash
+//   33 tsExpressionUniqueHash
+//
+// ts_call_site / lib_ts_call_site cols (25):
+//   0 callKind  1 calleeName  2 receiverKind  3 receiverExpressionLinkHash
+//   4 receiverTypeName  5 tsExpressionLinkHash  6 tsModuleLinkHash
+//   7 callerMethodLinkHash  8 callerTypeLinkHash  9 argumentCount
+//   10 spreadArgumentIndex  11 typeArgumentCount  12 resolvedSignatureLinkHash
+//   13 resolvedGroupKey  14 resolvedTargetKind  15 resolvedOverloadIndex
+//   16 overloadCandidateCount  17 isOverloadResolved  18 resolutionEvidence
+//   19 isTypeOnlyTarget  20 isAmbientTarget  21 startLine  22 startColumn
+//   23 serviceVersionLinkHash  24 tsCallSiteUniqueHash
+// ============================================================================
+
+// ── expr_kind(Prov, Kind, EdgeRole, ExprHash) ───────────────────────────────
+// Kind (col 0, TsExpressionKind) — the call/receiver-relevant ones:
+//   CALL_EXPRESSION      f() / a.f()          NEW_EXPRESSION      new C()
+//   TAGGED_TEMPLATE      tag`x`               DYNAMIC_IMPORT      import("m")
+//   PROPERTY_ACCESS      a.b                  ELEMENT_ACCESS      a[b]
+//   IDENTIFIER_REFERENCE a bare name          THIS_REFERENCE / SUPER_REFERENCE
+//   ARROW_FUNCTION / FUNCTION_EXPRESSION / CLASS_EXPRESSION
+//                        introduce a DECLARATION — see expr_anon_decl
+//   AS_EXPRESSION / SATISFIES_EXPRESSION / TYPE_ASSERTION
+//                        carry a type ASSERTION — see expr_asserted_type
+//   NON_NULL_EXPRESSION  a!                   AWAIT_EXPRESSION    await p
+//   OBJECT_LITERAL / ARRAY_LITERAL / LITERAL / TEMPLATE_EXPRESSION
+//   BINARY_EXPRESSION / UNARY_EXPRESSION / TERNARY_EXPRESSION
+//   ASSIGNMENT_EXPRESSION / COMPOUND_ASSIGNMENT / SEQUENCE_EXPRESSION
+//   SPREAD_ELEMENT / YIELD_EXPRESSION / DELETE_TYPEOF_VOID
+//   JSX_ELEMENT / JSX_SELF_CLOSING
+//
+// EdgeRole (col 1, TsEdgeRole): ROOT | RECEIVER | QUALIFIER | ARGUMENT |
+//   METHOD_NAME | PROPERTY_NAME | INDEX_ARGUMENT | LEFT_OPERAND | RIGHT_OPERAND |
+//   TERNARY_CONDITION | TERNARY_THEN | TERNARY_ELSE | UNARY_OPERAND | AS_OPERAND |
+//   SATISFIES_OPERAND | SPREAD_OPERAND | TEMPLATE_SPAN | ARROW_BODY |
+//   OBJECT_PROPERTY_VALUE | ARRAY_ELEMENT | TAG_EXPRESSION | JSX_ATTRIBUTE_VALUE |
+//   JSX_CHILD.
+expr_kind("client", k, r, h) :- ts_expression(k, r, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+expr_kind("lib", k, r, h) :- lib_ts_expression(k, r, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── expr_child(Prov, ParentHash, EdgeRole, Position, ChildHash) ─────────────
+// Position is projected alongside the role because TypeScript needs it where Java
+// does not: an argument list is matched positionally against a parameter list that
+// may be optional or rest, so "the ARGUMENT children" is not enough — the rules
+// need to know WHICH argument.
+expr_child("client", p, r, pos, h) :- ts_expression(_, r, _, _, _, _, p, pos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), p != "".
+expr_child("lib", p, r, pos, h) :- lib_ts_expression(_, r, _, _, _, _, p, pos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), p != "".
+
+// ── expr_owner(Prov, OwnerKind, OwnerHash, OwnerTypeHash, ExprHash) ─────────
+// OwnerKind (col 3, TsExpressionOwnerKind): METHOD | FIELD | VARIABLE | BLOCK |
+//   TYPE | MODULE_INIT | DECORATOR | EXPORT | ENUM_MEMBER | PARAMETER_DEFAULT.
+// MODULE_INIT is the one Java has no room for: an expression written at module
+// top level. Caller attribution routes it to the module's synthetic initializer.
+expr_owner("client", ok, oh, ot, h) :- ts_expression(_, _, _, ok, ot, oh, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+expr_owner("lib", ok, oh, ot, h) :- lib_ts_expression(_, _, _, ok, ot, oh, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── expr_root_context(Prov, RootContext, ExprHash) ──────────────────────────
+// RootContext (col 2, TsRootContext): where a ROOT expression sits —
+//   EXPRESSION_STATEMENT | VARIABLE_INITIALIZER | FIELD_INITIALIZER | RETURN_VALUE |
+//   CONDITION | ARGUMENT_LIST | THROW_VALUE | SWITCH_SUBJECT | CASE_LABEL |
+//   LOOP_HEADER | PARAMETER_DEFAULT | DECORATOR_EXPRESSION | EXPORT_VALUE |
+//   ENUM_MEMBER_VALUE | HERITAGE_EXPRESSION | ARROW_BODY_EXPRESSION |
+//   COMPUTED_PROPERTY_NAME | YIELD_OR_AWAIT_OPERAND | JSX_EMBEDDED_EXPRESSION |
+//   UNKNOWN_CONTEXT.
+// RETURN_VALUE and VARIABLE_INITIALIZER are the flow-typing hooks.
+expr_root_context("client", rc, h) :- ts_expression(_, _, rc, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+expr_root_context("lib", rc, h) :- lib_ts_expression(_, _, rc, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── expr_name(Prov, LiteralValue, ExprHash) ─────────────────────────────────
+// The identifier name on an IDENTIFIER_REFERENCE, the property name on a
+// PROPERTY_ACCESS, the literal text on a LITERAL.
+expr_name("client", n, h) :- ts_expression(_, _, _, _, _, _, _, _, _, _, n, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+expr_name("lib", n, h) :- lib_ts_expression(_, _, _, _, _, _, _, _, _, _, n, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── expr_referenced(Prov, RefKind, RefHash, ExprHash) ───────────────────────
+// THE ONE THAT MAKES THIS ENGINE SHORTER THAN THE JAVA ONE. RefKind (col 14,
+// TsReferencedEntityKind): TYPE | METHOD | FIELD | VARIABLE | PARAMETER |
+//   ENUM_MEMBER | IMPORT_BINDING | NAMESPACE | THIS | SUPER | AMBIENT_GLOBAL |
+//   UNKNOWN.
+//
+// RefHash is a real FK for VARIABLE (-> ts_variable), PARAMETER
+// (-> ts_method_parameter), IMPORT_BINDING (-> ts_import), METHOD (-> ts_method)
+// and TYPE (-> ts_type). AMBIENT_GLOBAL and UNKNOWN carry no hash by construction:
+// the first names something declared outside the run (`console`), the second is a
+// property access whose target depends on a type the binder cannot compute.
+// Resolving those two is precisely what the resolution layer is for.
+expr_referenced("client", rk, rh, h) :- ts_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, rk, rh, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+expr_referenced("lib", rk, rh, h) :- lib_ts_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, rk, rh, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── expr_anon_decl(Prov, DeclHash, ExprHash) ────────────────────────────────
+// The declaration this expression INTRODUCES, discriminated by kind (col 0):
+// a ts_method for ARROW_FUNCTION / FUNCTION_EXPRESSION, a ts_type for
+// CLASS_EXPRESSION. Java's extractor makes the same connection by matching source
+// POSITIONS, which is exactly the class of bug a fact schema exists to prevent —
+// here it is a column, so an IIFE's target is a join and not a coincidence.
+expr_anon_decl("client", d, h) :- ts_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, d, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), d != "".
+expr_anon_decl("lib", d, h) :- lib_ts_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, d, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), d != "".
+
+// ── expr_asserted_type(Prov, TypeRefHash, ExprHash) ─────────────────────────
+// `x as Foo` / `x satisfies Foo` / `<Foo>x`. THE ONLY expression->type edge in the
+// schema, and it is a TYPE FK — so no call-graph rule can cross it into the type
+// graph by accident. An assertion is authoritative for the receiver's type in a way
+// the declaration is not, which makes it a PREFERRED source in expr-type.dl.
+expr_asserted_type("client", r, h) :- ts_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, r, _, _, _, _, _, h), r != "".
+expr_asserted_type("lib", r, h) :- lib_ts_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, r, _, _, _, _, _, h), r != "".
+
+// ── expr_literal_type(Prov, LiteralType, ExprHash) ──────────────────────────
+expr_literal_type("client", lt, h) :- ts_expression(_, _, _, _, _, _, _, _, _, lt, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), lt != "".
+expr_literal_type("lib", lt, h) :- lib_ts_expression(_, _, _, _, _, _, _, _, _, lt, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), lt != "".
+
+// ── expr_operator(Prov, Operator, ExprHash) ─────────────────────────────────
+expr_operator("client", op, h) :- ts_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, op, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), op != "".
+expr_operator("lib", op, h) :- lib_ts_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, op, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), op != "".
+
+// ── expr_spread(Prov, ExprHash) ─────────────────────────────────────────────
+// isSpread (col 28) marks where positional argument flow is PROVABLY imprecise
+// rather than silently wrong: `f(...args)` has no per-position argument types, so
+// arity and per-position pruning must both stand down at that site.
+expr_spread("client", h) :- ts_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, h).
+expr_spread("lib", h) :- lib_ts_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, h).
+
+// ── expr_type_only_reachable(Prov, ExprHash) ────────────────────────────────
+// The expression sits under a type-only construct. §3.3's tripwire at the
+// expression level: nothing marked here may produce a runtime edge.
+expr_type_only_reachable("client", h) :- ts_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, h).
+expr_type_only_reachable("lib", h) :- lib_ts_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, h).
+
+// ── expr_module(Prov, ModuleHash, ExprHash) / expr_location(...) ────────────
+expr_module("client", m, h) :- ts_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, _, _, _, _, h).
+expr_module("lib", m, h) :- lib_ts_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, _, _, _, _, h).
+expr_location("client", sl, sc, el, ec, h) :- ts_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, sl, sc, el, ec, _, _, _, _, _, _, _, _, _, h).
+expr_location("lib", sl, sc, el, ec, h) :- lib_ts_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, sl, sc, el, ec, _, _, _, _, _, _, _, _, _, h).
+
+// ============================================================================
+// CALL SITES
+// ============================================================================
+
+// ── call_site(Prov, CallKind, CalleeName, ReceiverKind, ReceiverExpr, CallExpr, CallSiteHash) ──
+// CallKind (col 0, TsCallKind): FUNCTION_CALL | METHOD_CALL | CONSTRUCTOR_CALL |
+//   SUPER_CALL | TAGGED_TEMPLATE_CALL | INDEX_CALL | DYNAMIC_IMPORT_CALL |
+//   DECORATOR_CALL | OPTIONAL_CALL | JSX_COMPONENT_CALL.
+//
+// JSX_COMPONENT_CALL is a real emitted kind, not a reservation: `<Button size="lg">`
+// IS a call to Button with the whole props object as argument 0 (argumentCount is 1,
+// or 0 for `<Button/>` with no attributes). A lowercase tag is an intrinsic element
+// and resolves into `JSX.IntrinsicElements` in an ambient declaration, so it never
+// links to project code — a correct terminal, and one the accuracy report must not
+// count as a miss.
+//
+// ReceiverKind (col 2, TsReceiverKind): NONE | IDENTIFIER | THIS | SUPER |
+//   PROPERTY_CHAIN | CALL_RESULT | ELEMENT_ACCESS | PARENTHESIZED | NON_NULL |
+//   AS_EXPRESSION | AWAIT_RESULT | UNKNOWN.
+call_site("client", ck, cn, rk, recv, ce, h) :- ts_call_site(ck, cn, rk, recv, _, ce, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+call_site("lib", ck, cn, rk, recv, ce, h) :- lib_ts_call_site(ck, cn, rk, recv, _, ce, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── call_caller(Prov, CallerMethodHash, CallerTypeHash, ModuleHash, CallSiteHash) ──
+// The parser already walked block -> method, so caller attribution is a column here
+// and a whole containment file in the Java engine. Still projected through
+// containment/ownership.dl, which supplies the module-initializer fallback for the
+// residue where callerMethodLinkHash is empty.
+call_caller("client", m, t, mod, h) :- ts_call_site(_, _, _, _, _, _, mod, m, t, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+call_caller("lib", m, t, mod, h) :- lib_ts_call_site(_, _, _, _, _, _, mod, m, t, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── call_shape(Prov, ArgumentCount, SpreadArgumentIndex, TypeArgumentCount, CallSiteHash) ──
+call_shape("client", ac, si, tac, h) :- ts_call_site(_, _, _, _, _, _, _, _, _, ac, si, tac, _, _, _, _, _, _, _, _, _, _, _, _, h).
+call_shape("lib", ac, si, tac, h) :- lib_ts_call_site(_, _, _, _, _, _, _, _, _, ac, si, tac, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── call_recv_type_name(Prov, ReceiverTypeName, CallSiteHash) ───────────────
+// The receiver's DECLARED type name when a declaration site gives it. A NAME, not a
+// link — useful as a tie-break and as a diagnostic, never as a resolution.
+call_recv_type_name("client", tn, h) :- ts_call_site(_, _, _, _, tn, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), tn != "".
+call_recv_type_name("lib", tn, h) :- lib_ts_call_site(_, _, _, _, tn, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), tn != "".
+
+// ── parser_resolved(Prov, SignatureHash, GroupKey, TargetKind, Evidence, CallSiteHash) ──
+// WHAT THE PARSER ALREADY DECIDED, and the single most valuable relation in this
+// file — not because the engine consumes it, but because it does NOT.
+//
+// The parser fills columns 12-18 only where resolution is syntactically decidable
+// and leaves everything else UNRESOLVED. Measured on this repository's own source:
+// 4,252 of 14,076 call sites (30.2%) arrive pre-resolved. Those rows are a free
+// oracle — the engine derives its own answer for the same site from independent
+// rules, and any disagreement is a defect in one of the two. So this relation is
+// projected, exported, and never joined into the resolution path: consuming it
+// would make the check circular and the agreement meaningless.
+//
+// TargetKind (col 14, TsResolvedTargetKind): PROJECT_IMPLEMENTATION |
+//   PROJECT_SIGNATURE | AMBIENT_SIGNATURE | LIB_SIGNATURE |
+//   SYNTHESIZED_NO_DECLARATION | INDEX_SIGNATURE | UNRESOLVED.
+// Evidence (col 18, TsResolutionEvidence): DECLARED_RECEIVER_TYPE | IMPORT_BINDING |
+//   LOCAL_BINDING | THIS_MEMBER | SUPER_MEMBER | NAMESPACE_QUALIFIED |
+//   INDEX_SIGNATURE | AMBIENT_GLOBAL | NONE.
+parser_resolved("client", sig, gk, tk, ev, h) :- ts_call_site(_, _, _, _, _, _, _, _, _, _, _, _, sig, gk, tk, _, _, _, ev, _, _, _, _, _, h).
+parser_resolved("lib", sig, gk, tk, ev, h) :- lib_ts_call_site(_, _, _, _, _, _, _, _, _, _, _, _, sig, gk, tk, _, _, _, ev, _, _, _, _, _, h).
+
+// ── call_type_only_target(Prov, CallSiteHash) ───────────────────────────────
+// isTypeOnlyTarget (col 19) must ALWAYS be "false". A row here at all is a parser
+// bug, so the relation exists to make that bug LOUD instead of letting a phantom
+// edge into the graph unremarked. Exported and asserted empty.
+call_type_only_target("client", h) :- ts_call_site(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, h).
+call_type_only_target("lib", h) :- lib_ts_call_site(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, h).
+
+// ── call_location(Prov, StartLine, StartColumn, CallSiteHash) ───────────────
+call_location("client", sl, sc, h) :- ts_call_site(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, sl, sc, _, h).
+call_location("lib", sl, sc, h) :- lib_ts_call_site(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, sl, sc, _, h).
+
+// ============================================================================
+// BLOCKS  (ts_block cols 21: 0 blockKind 1 order 2 filePath 3 startLine 4 endLine
+//   5 startColumn 6 endColumn 7 nestingDepth 8 tsTypeLinkHash 9 methodOwnerHash
+//   10 parentContainerHash 11 tryStatementHash 12 resourceCount
+//   13 caughtExceptionTypes 14 ownerTypeName 15 ownerQualifiedName
+//   16 ownerMethodName 17 conditionExpressionLinkHash 18 tsModuleLinkHash
+//   19 serviceVersionLinkHash 20 tsBlockUniqueHash)
+// ============================================================================
+
+// ── block_owner(Prov, MethodHash, TypeHash, BlockHash) ──────────────────────
+block_owner("client", m, t, h) :- ts_block(_, _, _, _, _, _, _, _, t, m, _, _, _, _, _, _, _, _, _, _, h).
+block_owner("lib", m, t, h) :- lib_ts_block(_, _, _, _, _, _, _, _, t, m, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── block_kind(Prov, Kind, BlockHash) / block_parent(Prov, ParentHash, BlockHash) ──
+// Kind (col 0, TsBlockKind): FUNCTION_BODY | ARROW_BODY | IF | ELSE_IF | ELSE | FOR |
+//   FOR_OF | FOR_IN | FOR_AWAIT_OF | WHILE | DO_WHILE | TRY | CATCH | FINALLY |
+//   SWITCH_CASE | SWITCH_DEFAULT | LABELED | BARE_BLOCK | STATIC_BLOCK |
+//   MODULE_BODY | NAMESPACE_BODY.
+block_kind("client", k, h) :- ts_block(k, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+block_kind("lib", k, h) :- lib_ts_block(k, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+block_parent("client", p, h) :- ts_block(_, _, _, _, _, _, _, _, _, _, p, _, _, _, _, _, _, _, _, _, h), p != "".
+block_parent("lib", p, h) :- lib_ts_block(_, _, _, _, _, _, _, _, _, _, p, _, _, _, _, _, _, _, _, _, h), p != "".

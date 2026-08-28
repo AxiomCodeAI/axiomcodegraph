@@ -1,0 +1,144 @@
+// ============================================================================
+// Projections · METHODS  (pure column views — no joins, no closures)
+//
+// "Method" here covers every function-shaped declaration: function, method,
+// constructor, accessor, arrow, function expression, static block, module
+// initializer, AND every bodiless signature. That last group is not an edge case —
+// 44.3% of measured resolved call targets are BODILESS, and 99.6% of those are
+// ambient. A rule that treats a resolved target as an implementation without
+// checking bodyPresence is wrong about the near-half of the call graph that ends at
+// a declaration.
+//
+// ts_method / lib_ts_method cols (43):
+//   0 name  1 signature  2 detailedSignature  3 qualifiedName  4 filePath
+//   5 startLine  6 endLine  7 tsTypeLinkHash (owning type OR SHAPE)  8 ownerTypeName
+//   9 ownerQualifiedName  10 methodAccess  11 methodModifier  12 returnTypeName
+//   13 isVarArgs  14 hasReceiverParameter  15 defaultValueExpression  16 methodKind
+//   17 parameterCount  18 hasTypeParameters  19 throwsExceptions
+//   20 enclosingMemberLinkHash  21 tsModuleLinkHash  22 declarationGroupKey
+//   23 mergeScopeKey  24 escapedName  25 signatureRole  26 overloadIndex
+//   27 bodyPresence  28 isTypeOnly  29 isAsync  30 isGenerator  31 isAbstract
+//   32 isStatic  33 optionalParameterCount  34 restParameterIndex
+//   35 typeParameterCount  36 thisParameterTypeName  37 returnTypeReferenceLinkHash
+//   38 isTypePredicateReturn  39 startColumn  40 endColumn
+//   41 serviceVersionLinkHash  42 tsMethodUniqueHash
+//
+// ts_method_parameter / lib_ts_method_parameter cols (27):
+//   0 paramName  1 position  2 tsMethodLinkHash  3 parameterBaseType
+//   4 parameterTypeName  5 potentialQualifiedName  6 isAmbiguous  7 isFinal
+//   8 isVarArgs  9 isReceiverParameter  10 startLine  11 endLine  12 paramKind
+//   13 isOptional  14 hasDefault  15 defaultValueText  16 defaultValueKind
+//   17 isParameterProperty  18 parameterPropertyModifier  19 declaredFieldLinkHash
+//   20 bindingPatternText  21 typeReferenceLinkHash  22 tsExpressionLinkHash
+//   23 decoratorCount  24 startColumn  25 serviceVersionLinkHash
+//   26 tsMethodParameterUniqueHash
+// ============================================================================
+
+// ── method_decl(Prov, Name, EscapedName, ReturnTypeName, MethodHash) ────────
+// EscapedName is the lookup key (see types.dl); Name is for display. Both are
+// projected so a rule never has to choose the wrong one for convenience.
+method_decl("client", name, en, ret, h) :- ts_method(name, _, _, _, _, _, _, _, _, _, _, _, ret, _, _, _, _, _, _, _, _, _, _, _, en, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+method_decl("lib", name, en, ret, h) :- lib_ts_method(name, _, _, _, _, _, _, _, _, _, _, _, ret, _, _, _, _, _, _, _, _, _, _, _, en, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── method_owner(Prov, OwnerHash, MethodHash) ───────────────────────────────
+// Col 7 is the owning type OR SHAPE — it points at a ts_type for a class/interface
+// member, and at a ts_type_reference row for a member of an anonymous
+// `{ foo(): string }`. The PK prefixes differ (TS_TYPE_ vs TS_TYPE_REFERENCE_), so
+// a rule joining this against ts_type finds NO MATCH for a shape member rather than
+// a wrong one — the mis-join is structurally impossible, which is why both live in
+// one column safely.
+method_owner("client", owner, h) :- ts_method(_, _, _, _, _, _, _, owner, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+method_owner("lib", owner, h) :- lib_ts_method(_, _, _, _, _, _, _, owner, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── method_module(Prov, ModuleHash, MethodHash) ─────────────────────────────
+// A top-level `function f()` has NO owning type, so col 7 is empty and the module
+// is the only scope it belongs to. In Java every method has an owner; here the
+// module-level function is the common case and this column is how it is reached.
+method_module("client", m, h) :- ts_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+method_module("lib", m, h) :- lib_ts_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── method_group(Prov, GroupKey, MethodHash) ────────────────────────────────
+// The overload set. `resolvedGroupKey` on a call site names this, not a single
+// signature — an overloaded function is N declarations and one entity.
+method_group("client", g, h) :- ts_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, g, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), g != "".
+method_group("lib", g, h) :- lib_ts_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, g, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), g != "".
+
+// ── method_kind(Prov, Kind, ParamCount, MethodHash) ─────────────────────────
+// Kind (col 16, TsMethodKind):
+//   FUNCTION_DECLARATION  METHOD_DECLARATION  CONSTRUCTOR  GETTER  SETTER
+//   ARROW_FUNCTION  FUNCTION_EXPRESSION  OBJECT_LITERAL_METHOD  CLASS_STATIC_BLOCK
+//   MODULE_INITIALIZER                                  <- have (or may have) bodies
+//   METHOD_SIGNATURE  CALL_SIGNATURE  CONSTRUCT_SIGNATURE
+//   TYPE_LITERAL_METHOD_SIGNATURE  TYPE_LITERAL_CALL_SIGNATURE
+//   TYPE_LITERAL_CONSTRUCT_SIGNATURE  FUNCTION_TYPE_SIGNATURE
+//   CONSTRUCTOR_TYPE_SIGNATURE                          <- never have bodies
+method_kind("client", k, pc, h) :- ts_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, k, pc, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+method_kind("lib", k, pc, h) :- lib_ts_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, k, pc, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── method_signature_role(Prov, Role, OverloadIndex, BodyPresence, MethodHash) ──
+// Role (col 25, TsSignatureRole):
+//   SOLE                one declaration, no overloads
+//   OVERLOAD_SIGNATURE  a bodiless overload declaration — CALLABLE, never runs
+//   IMPLEMENTATION      the body that every overload signature actually enters
+//   AMBIENT             a `declare` signature
+// BodyPresence (col 27): HAS_BODY | NO_BODY_OVERLOAD | NO_BODY_AMBIENT |
+//   NO_BODY_INTERFACE | NO_BODY_ABSTRACT.
+//
+// This distinction has no Java analogue and it decides what a call chain means. A
+// call resolved to an OVERLOAD_SIGNATURE has found the right ENTITY and the wrong
+// ROW to continue from: the code that runs is the IMPLEMENTATION of the same group.
+// See resolution/overload-sets.dl, which re-points exactly those.
+method_signature_role("client", role, oi, bp, h) :- ts_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, role, oi, bp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+method_signature_role("lib", role, oi, bp, h) :- lib_ts_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, role, oi, bp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── method_flags(Prov, IsStatic, IsAbstract, IsAsync, MethodHash) ───────────
+// isStatic (col 32) separates the two member tables of a class: `C.m()` searches
+// statics, `new C().m()` searches instance members, and conflating them is the
+// classic source of a plausible-looking wrong edge.
+method_flags("client", st, ab, asy, h) :- ts_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, asy, _, ab, st, _, _, _, _, _, _, _, _, _, h).
+method_flags("lib", st, ab, asy, h) :- lib_ts_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, asy, _, ab, st, _, _, _, _, _, _, _, _, _, h).
+
+// ── method_arity(Prov, ParamCount, OptionalCount, RestIndex, MethodHash) ────
+// Arity matching in TypeScript is a RANGE, not an equality: `f(a, b?, ...rest)`
+// accepts 1..infinity. optionalParameterCount (col 33) and restParameterIndex
+// (col 34) are what make that computable. restParameterIndex is legitimately 0, so
+// it is "" — never -1 — when absent; the arity rules test for "" explicitly.
+method_arity("client", pc, oc, ri, h) :- ts_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, pc, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, oc, ri, _, _, _, _, _, _, _, h).
+method_arity("lib", pc, oc, ri, h) :- lib_ts_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, pc, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, oc, ri, _, _, _, _, _, _, _, h).
+
+// ── method_return_ref(Prov, ReturnTypeRefHash, MethodHash) ──────────────────
+// The declared return type as a reference — the receiver type of a chained call.
+method_return_ref("client", r, h) :- ts_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, r, _, _, _, _, h), r != "".
+method_return_ref("lib", r, h) :- lib_ts_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, r, _, _, _, _, h), r != "".
+
+// ── method_lines(Prov, FilePath, StartLine, StartColumn, MethodHash) ────────
+// startColumn is IN THE KEY upstream (703 arrow functions measured; two on one line
+// share name, signature and line), so it is projected here rather than derived.
+method_lines("client", fp, sl, sc, h) :- ts_method(_, _, _, _, fp, sl, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, sc, _, _, h).
+method_lines("lib", fp, sl, sc, h) :- lib_ts_method(_, _, _, _, fp, sl, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, sc, _, _, h).
+
+// ── param_decl(Prov, Name, Position, TypeName, MethodHash, ParamHash) ───────
+param_decl("client", n, pos, tn, m, h) :- ts_method_parameter(n, pos, m, _, tn, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+param_decl("lib", n, pos, tn, m, h) :- lib_ts_method_parameter(n, pos, m, _, tn, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── param_shape(Prov, ParamKind, IsOptional, HasDefault, ParamHash) ─────────
+// ParamKind (col 12, TsParamKind): REQUIRED | OPTIONAL | REST | THIS |
+//   BINDING_OBJECT | BINDING_ARRAY | PARAMETER_PROPERTY.
+// THIS is not a real parameter — `function f(this: Window, x: number)` has arity 1,
+// not 2 — so arity rules must exclude it or every such signature is off by one.
+param_shape("client", pk, opt, def, h) :- ts_method_parameter(_, _, _, _, _, _, _, _, _, _, _, _, pk, opt, def, _, _, _, _, _, _, _, _, _, _, _, h).
+param_shape("lib", pk, opt, def, h) :- lib_ts_method_parameter(_, _, _, _, _, _, _, _, _, _, _, _, pk, opt, def, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── param_type_ref(Prov, TypeRefHash, ParamHash) ────────────────────────────
+// 85.3% of parameters carry an annotation (99.998% in ambient code) — the inverse
+// of Python's 31.8%. That single number is why declared-type receiver typing is the
+// primary resolution mechanism here and was hopeless there.
+param_type_ref("client", r, h) :- ts_method_parameter(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, r, _, _, _, _, h), r != "".
+param_type_ref("lib", r, h) :- lib_ts_method_parameter(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, r, _, _, _, _, h), r != "".
+
+// ── param_declares_field(Prov, FieldHash, ParamHash) ────────────────────────
+// `constructor(private readonly repo: Repo)` — a parameter property DECLARES a
+// field. Without this link `this.repo.find()` has an undeclared receiver, and the
+// idiom is ubiquitous in decorator-DI codebases (Angular, NestJS).
+param_declares_field("client", f, h) :- ts_method_parameter(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, f, _, _, _, _, _, _, h), f != "".
+param_declares_field("lib", f, h) :- lib_ts_method_parameter(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, f, _, _, _, _, _, _, h), f != "".

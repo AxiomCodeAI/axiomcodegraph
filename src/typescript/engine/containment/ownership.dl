@@ -1,0 +1,114 @@
+// ============================================================================
+// Containment · OWNERSHIP  (caller attribution, and the enclosing type)
+//
+// Java needs a whole walk here — ~40% of its call sites are owned by a block, so
+// `expr_ultimate_method` recurses owner -> block -> method -> lambda. TypeScript's
+// parser already did that walk: `ts_call_site.callerMethodLinkHash` (col 7) is the
+// enclosing function for every call site, blocks resolved.
+//
+// So this file exists for the RESIDUE, and the residue is real. A call written at
+// module top level has no enclosing function at all — `import { run } from "./x";
+// run();` is the entire body of a CLI entry point — and for those the caller column
+// is empty. Attributing them to the module's synthetic MODULE_INITIALIZER is what
+// keeps the chain rooted; dropping them would silently delete every top-level call
+// in the corpus, which is the conservation failure the engine notes warn about.
+//
+// STRATIFICATION: everything here reads projections of base facts only
+// (call_caller, expr_owner, block_owner, module_init). Nothing reads expr_type or
+// expr_call_candidate, so `!call_has_named_caller` is in a stratum far below the
+// resolution fixpoint and stays legal wherever it is negated downstream.
+// ============================================================================
+
+// ── call_caller_method(CallSiteHash, MethodHash) ────────────────────────────
+// The function a call site runs inside. Never blank by construction: the parser's
+// answer when it has one, the module initializer when it does not.
+call_has_named_caller(cs) :- call_caller("client", m, _, _, cs), m != "".
+call_caller_method(cs, m) :- call_caller("client", m, _, _, cs), m != "".
+
+// Module-scope fallback. `module_init` is the module's own synthetic method, so a
+// top-level call becomes an edge from that initializer — the same modelling Java
+// uses for a static initializer, and for the same reason: the JVM's <clinit> and a
+// module's evaluation are both "code that runs with no named caller".
+call_caller_method(cs, init) :- call_caller("client", "", _, mod, cs),
+    !call_has_named_caller(cs),
+    module_init("client", init, mod).
+
+// Last resort: the module hash itself. A MODULE hash in the caller column means
+// "runs at module scope in a module whose initializer the parser did not emit" —
+// an honest, greppable marker rather than a blank that silently drops the row.
+// Every invocation site must reach call_from() with SOMETHING; see the conservation
+// contract in call-edge-generation/call_chain.dl.
+call_module_init_missing(cs) :- call_caller("client", "", _, mod, cs),
+    !call_has_named_caller(cs),
+    !module_init("client", _, mod).
+call_caller_method(cs, mod) :- call_caller("client", "", _, mod, cs),
+    call_module_init_missing(cs).
+
+// ── call_enclosing_type(CallSiteHash, TypeHash) ─────────────────────────────
+// The class/interface a call site sits inside, "" at module scope. `this.m()`
+// dispatches on this, and an unqualified `m()` inside a class body does NOT (unlike
+// Java, where an unqualified call IS an implicit-this call — in TypeScript a bare
+// `m()` inside a method is a lexically scoped FUNCTION reference, never a member).
+// That difference is the single most common way a Java-shaped rule goes wrong here,
+// so the two are kept in separate relations and never merged.
+call_enclosing_type(cs, t) :- call_caller("client", _, t, _, cs), t != "".
+
+// ── call_module(CallSiteHash, ModuleHash) ───────────────────────────────────
+// The module a call site is written in — the scope its unqualified names resolve
+// in, and the file whose imports are visible to it.
+call_module(cs, mod) :- call_caller("client", _, _, mod, cs), mod != "".
+
+// ── expr_enclosing_method(ExprHash, MethodHash) ─────────────────────────────
+// The same attribution for an arbitrary expression rather than a call site — needed
+// by argument typing and by return-value flow, which walk from an expression rather
+// than from a call. Owner kinds (TsExpressionOwnerKind) route as:
+//   METHOD           the owner IS the function
+//   BLOCK            walk the block to its owning function
+//   VARIABLE         a variable initializer -> the variable's function, else module
+//   FIELD            a field initializer -> the class's module scope
+//   MODULE_INIT      the module's synthetic initializer
+//   TYPE / DECORATOR / EXPORT / ENUM_MEMBER / PARAMETER_DEFAULT
+//                    module-level positions; routed to the module initializer
+expr_enclosing_method(e, m) :- expr_owner("client", "METHOD", m, _, e), m != "".
+expr_enclosing_method(e, m) :- expr_owner("client", "BLOCK", b, _, e),
+    block_owner("client", m, _, b), m != "".
+expr_enclosing_method(e, m) :- expr_owner("client", "VARIABLE", v, _, e),
+    var_decl("client", _, _, _, m, _, v), m != "".
+expr_enclosing_method(e, init) :- expr_owner("client", "MODULE_INIT", _, _, e),
+    expr_module("client", mod, e),
+    module_init("client", init, mod).
+expr_enclosing_method(e, init) :- expr_owner("client", "VARIABLE", v, _, e),
+    var_decl("client", _, _, _, "", _, v),
+    expr_module("client", mod, e),
+    module_init("client", init, mod).
+expr_enclosing_method(e, init) :- expr_owner("client", ok, _, _, e),
+    owner_kind_is_module_level(ok),
+    expr_module("client", mod, e),
+    module_init("client", init, mod).
+
+// Enumerated rather than matched as bare literals, per the kind-split law in
+// .claude/building-an-engine.md: a new TsExpressionOwnerKind that belongs at module
+// level is then one row here, in a visible place, instead of a rule that silently
+// stops covering a case.
+owner_kind_is_module_level("FIELD").
+owner_kind_is_module_level("TYPE").
+owner_kind_is_module_level("DECORATOR").
+owner_kind_is_module_level("EXPORT").
+owner_kind_is_module_level("ENUM_MEMBER").
+owner_kind_is_module_level("PARAMETER_DEFAULT").
+
+// ── expr_enclosing_type(ExprHash, TypeHash) ─────────────────────────────────
+// The type an expression is written inside, straight off the stamped owner type.
+expr_enclosing_type(e, t) :- expr_owner("client", _, _, t, e), t != "".
+
+// ── method_enclosing_type(MethodHash, TypeHash) — a method's own class ──────
+// `this` inside a method body types to this. Reads ts_method col 7, which is the
+// owning type OR a shape; the join against type_decl misses for a shape member,
+// which is the correct answer (a shape member has no class to be `this` in).
+method_enclosing_type(m, t) :- method_owner("client", t, m),
+    type_decl("client", _, _, _, _, _, t).
+
+// ── method_module_scope(MethodHash, ModuleHash) ─────────────────────────────
+// Every function belongs to exactly one module, whether or not it has an owning
+// type. This is the scope its free identifiers resolve in.
+method_module_scope(m, mod) :- method_module("client", mod, m), mod != "".
