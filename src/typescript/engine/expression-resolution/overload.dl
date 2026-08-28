@@ -168,6 +168,92 @@ arg_mismatch(ce, m) :- expr_call_candidate(ce, m),
     param_type_at(m, pos, _),
     !arg_compatible_at(ce, m, pos).
 
+// ── THE PRIMITIVE REGIME, compared by NAME ──────────────────────────────────
+// The rule above compares resolved TYPE HASHES, and a primitive only has one when its
+// global interface happens to be staged. `BigInt` is declared in lib.es2020.bigint.d.ts
+// and a project targeting an older lib does not have it — so on remeda,
+// `export function add(addend: bigint)` and `export function add(addend: number)` were
+// INDISTINGUISHABLE, the first won on declaration order, and `add(5)` resolved to the
+// bigint overload. 503 wrong targets, almost all of this shape.
+//
+// So primitives are compared the way Java's engine compares them: by name, off the
+// declaration, with no dependency on anything being staged. Only a DIRECT primitive
+// reference on both sides — a union containing the primitive never reaches this rule,
+// which is what keeps it prune-only.
+primitive_name("string").
+primitive_name("number").
+primitive_name("boolean").
+primitive_name("bigint").
+primitive_name("symbol").
+primitive_name("void").
+primitive_name("undefined").
+primitive_name("null").
+primitive_name("object").
+// `any`, `unknown` and `never` are deliberately absent: `any` accepts everything and
+// `never` accepts nothing, so neither carries a distinction worth pruning on.
+
+// A literal argument's primitive type.
+literal_primitive("STRING", "string").
+literal_primitive("TEMPLATE", "string").
+literal_primitive("NO_SUBSTITUTION_TEMPLATE", "string").
+literal_primitive("NUMBER", "number").
+literal_primitive("BIGINT", "bigint").
+literal_primitive("BOOLEAN", "boolean").
+literal_primitive("NULL", "null").
+literal_primitive("UNDEFINED", "undefined").
+
+arg_primitive(ce, pos, n) :- expr_child("client", ce, "ARGUMENT", pos, a),
+    expr_literal_type("client", lt, a),
+    literal_primitive(lt, n).
+// A UNARY expression over a literal — `add(-5)`. Measured on remeda: negative numeric
+// literals are how half the arithmetic tests are written, and treating them as
+// untyped left `add(-5)` picking the `bigint` overload over the `number` one.
+// The operator decides: `-`, `+` and `~` keep the operand's primitive, `!` is always
+// boolean, `typeof` is always string. Enumerated rather than assumed, because
+// `!5` is a boolean and inheriting the operand's type there would be wrong.
+unary_keeps_operand("-").
+unary_keeps_operand("+").
+unary_keeps_operand("~").
+unary_yields("!", "boolean").
+unary_yields("typeof", "string").
+unary_yields("void", "undefined").
+arg_primitive(ce, pos, n) :- expr_child("client", ce, "ARGUMENT", pos, a),
+    expr_kind("client", "UNARY_EXPRESSION", _, a),
+    expr_operator("client", op, a),
+    unary_keeps_operand(op),
+    expr_child("client", a, "UNARY_OPERAND", _, inner),
+    expr_literal_type("client", lt, inner),
+    literal_primitive(lt, n).
+arg_primitive(ce, pos, n) :- expr_child("client", ce, "ARGUMENT", pos, a),
+    expr_kind("client", "UNARY_EXPRESSION", _, a),
+    expr_operator("client", op, a),
+    unary_yields(op, n).
+
+// An argument whose DECLARATION is annotated with a bare primitive.
+arg_primitive(ce, pos, n) :- expr_child("client", ce, "ARGUMENT", pos, a),
+    expr_decl_ref(a, r),
+    type_ref(_, "PRIMITIVE", _, n, _, _, _, r),
+    primitive_name(n).
+
+param_primitive(m, pos, n) :- expr_call_candidate(_, m),
+    param_decl(_, _, pos, _, m, p),
+    param_type_ref(_, r, p),
+    type_ref(_, "PRIMITIVE", _, n, _, _, _, r),
+    primitive_name(n).
+
+// Identical names only. No widening: TypeScript has none — `number` and `bigint` do
+// not convert, and a `string` parameter never accepts a number. `null` and
+// `undefined` are accepted by any primitive parameter, because a non-strict project
+// permits it and pruning must never be stricter than the compiler.
+primitive_compatible(n, n) :- primitive_name(n).
+primitive_compatible("null", n) :- primitive_name(n).
+primitive_compatible("undefined", n) :- primitive_name(n).
+
+arg_mismatch(ce, m) :- expr_call_candidate(ce, m),
+    arg_primitive(ce, pos, a),
+    param_primitive(m, pos, b),
+    !primitive_compatible(a, b).
+
 // ── expr_pruned(CallExpr, Callee) — arity-matched and not contradicted ──────
 expr_pruned(ce, m) :- arity_match(ce, m),
     !arg_mismatch(ce, m).
