@@ -14,6 +14,7 @@ import {
   PyTypeRegistry,
 } from '@/analysis-types/python';
 import { PYTHON_BUILTIN_TYPE_METHODS } from '@/constants/python-constants';
+import { PYTHON_BUILTIN_NAMES } from '@/constants/python-constants';
 import { PythonReceiverKind, PythonResolvedCalleeKind } from '@/enums/python/call-sites';
 import { PythonDecoratorArgumentValueType } from '@/enums/python/decorators';
 import { PythonInitializerKind } from '@/enums/python/fields';
@@ -92,17 +93,13 @@ export interface ResolutionInput {
  * better than `UNRESOLVED`. A name is only treated as a builtin when no local
  * binding shadows it, which is checked before this set is consulted.
  */
-const CALLABLE_BUILTINS: ReadonlySet<string> = new Set([
-  'abs', 'aiter', 'all', 'anext', 'any', 'ascii', 'bin', 'bool', 'breakpoint',
-  'bytearray', 'bytes', 'callable', 'chr', 'classmethod', 'compile', 'complex',
-  'delattr', 'dict', 'dir', 'divmod', 'enumerate', 'eval', 'exec', 'filter',
-  'float', 'format', 'frozenset', 'getattr', 'globals', 'hasattr', 'hash',
-  'help', 'hex', 'id', 'input', 'int', 'isinstance', 'issubclass', 'iter',
-  'len', 'list', 'locals', 'map', 'max', 'memoryview', 'min', 'next', 'object',
-  'oct', 'open', 'ord', 'pow', 'print', 'property', 'range', 'repr', 'reversed',
-  'round', 'set', 'setattr', 'slice', 'sorted', 'staticmethod', 'str', 'sum',
-  'super', 'tuple', 'type', 'vars', 'zip',
-]);
+// Every builtin name, generated from the pinned interpreter. This was a
+// hand-written list of ~60 callables and it omitted EVERY exception type, so
+// `raise ValueError(...)` was reported as an unresolved name rather than a call
+// to a builtin. On the stdlib that was the single largest category of
+// "unresolved": 1011 ValueError, 516 TypeError, 165 RuntimeError. A hand-listed
+// set of a language's builtins drifts the moment the language adds one.
+const CALLABLE_BUILTINS: ReadonlySet<string> = PYTHON_BUILTIN_NAMES;
 
 /**
  * NOTE: the HAS_GETATTR / HAS_SETATTR escape-hatch check was removed along with
@@ -231,14 +228,33 @@ export class PythonResolutionLinker {
         // case, which is why it accounted for the largest single bucket.
         if (!record.getIsModuleImport() && !record.getIsWildcard()) {
           const member = record.getOriginalName().split('.').pop() ?? '';
-          const asModule = targetName === null || targetName === ''
-            ? member
-            : `${targetName}.${member}`;
-          const memberModule = this.findModule(asModule, moduleByQualifiedName);
-          if (memberModule) {
-            record.setResolution(memberModule.moduleHash, PythonImportTargetKind.MODULE, '');
-            stats.importsResolved += 1;
-            continue;
+          // MEMBER FIRST, submodule second. That is the interpreter's order:
+          // `from pkg.mod import name` looks for an attribute `name` on
+          // pkg.mod and only falls back to a submodule pkg.mod.name if there
+          // is none.
+          //
+          // Doing it the other way round broke exactly when the member shares
+          // its name with the module's own last segment. `from shared.retry
+          // import audited, retry` resolved `audited` to the function and
+          // `retry` to a MODULE with an empty hash, because findModule matches
+          // by SUFFIX and so `shared.retry.retry` matched the module
+          // `shared.retry`. The submodule shared.retry.retry does not exist.
+          // One import statement, two names, and only the colliding one broke.
+          const declared =
+            targetModule === undefined
+              ? undefined
+              : exportsByModule.get(targetModule.qualifiedName)?.get(member) ??
+                this.followReExport(member, targetModule, exportsByModule, moduleByQualifiedName);
+          if (declared === undefined || declared === null) {
+            const asModule = targetName === null || targetName === ''
+              ? member
+              : `${targetName}.${member}`;
+            const memberModule = this.findModule(asModule, moduleByQualifiedName);
+            if (memberModule) {
+              record.setResolution(memberModule.moduleHash, PythonImportTargetKind.MODULE, '');
+              stats.importsResolved += 1;
+              continue;
+            }
           }
         }
 
@@ -3329,6 +3345,15 @@ export class PythonResolutionLinker {
    * must never be call targets, so a name with two overload stubs and one real
    * implementation resolves to the implementation rather than being treated as
    * ambiguous.
+   *
+   * A method whose BODY is a stub is NOT excluded, and used to be. The two
+   * share a word and are unrelated: OVERLOAD_STUB is a declaration that has no
+   * implementation, while bodyIsStub just means the body is `pass` or `...`.
+   * The second is the normal shape of an overridable hook, and Python is full
+   * of them: ParserBase.unknown_decl, Bdb.user_line, Cmd.preloop, every
+   * abstract base's default. Excluding them made `self.user_line(frame)`
+   * resolve to nothing even though the method is declared on the very class
+   * making the call, which was 159 of the stdlib's unresolved self-dispatches.
    */
   private singleMethodOn(
     typeHash: string,
@@ -3338,7 +3363,6 @@ export class PythonResolutionLinker {
     const candidates = (ctx.methodsByTypeAndName.get(`${typeHash}::${name}`) ?? []).filter(
       m =>
         m.getMethodKind() !== PythonMethodKind.OVERLOAD_STUB &&
-        !m.getBodyIsStub() &&
         // A function nested inside a method is not reachable as `self.name`,
         // even though it carries the enclosing class in pyTypeLinkHash.
         m.isClassBodyMember()

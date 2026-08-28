@@ -192,8 +192,8 @@ export class TsDeclarationExtractor {
     // walk — is what guarantees EVERY function type gets one, wherever it was
     // written: an annotation, a type alias RHS, a nested union member, a type
     // argument. Enumerating those positions by hand would miss one.
-    this.typeReferenceExtractor.onFunctionType = (node) => {
-      this.emitFunctionTypeSignature(node);
+    this.typeReferenceExtractor.onFunctionType = (node, selfReferenceHash) => {
+      this.emitFunctionTypeSignature(node, selfReferenceHash);
     };
     // `[K in keyof T]` and `infer U` declare real type parameters that no
     // declaration walk reaches — they are inside type NODES. Minting them from
@@ -273,14 +273,22 @@ export class TsDeclarationExtractor {
         filePath: this.options.filePath,
         startLine: startPos.line + 1,
         endLine: endPos.line + 1,
-        // No `ts_type` owner exists for an anonymous shape, and inventing one
-        // would create a type that the source does not declare.
-        tsTypeLinkHash: '',
+        // The SHAPE owns it — §4.8.1. Not a `ts_type`: an anonymous shape has no
+        // declaration and §4.2 forbids inventing one. The FK points at the type
+        // literal's own `ts_type_reference` row, and the differing PK prefixes
+        // (`TS_TYPE_` vs `TS_TYPE_REFERENCE_`) make a rule that joins against
+        // `ts_type` find NO match rather than a wrong one.
+        tsTypeLinkHash: typeLiteralHash,
         ownerTypeName: ownerText,
         ownerQualifiedName: '',
         fieldAccess: TsFieldAccess.PUBLIC_ACCESS,
         fieldModifiers: fieldModifiersOf(member, isOptional),
-        memberKind: isIndex ? TsMemberKind.INDEX_SIGNATURE : TsMemberKind.PROPERTY_SIGNATURE,
+        // Owner-qualified, because this column IS the discriminator for where
+        // `tsTypeLinkHash` points. An interface member keeps
+        // PROPERTY_SIGNATURE / INDEX_SIGNATURE and a `ts_type` owner.
+        memberKind: isIndex
+          ? TsMemberKind.TYPE_LITERAL_INDEX_SIGNATURE
+          : TsMemberKind.TYPE_LITERAL_PROPERTY,
         tsModuleLinkHash: this.options.moduleHash,
         isOptional,
         hasDefiniteAssignment: false,
@@ -313,13 +321,13 @@ export class TsDeclarationExtractor {
       return;
     }
     const methodKind = ts.isMethodSignature(member)
-      ? TsMethodKind.METHOD_SIGNATURE
+      ? TsMethodKind.TYPE_LITERAL_METHOD_SIGNATURE
       : ts.isCallSignatureDeclaration(member)
-        ? TsMethodKind.CALL_SIGNATURE
-        : TsMethodKind.CONSTRUCT_SIGNATURE;
+        ? TsMethodKind.TYPE_LITERAL_CALL_SIGNATURE
+        : TsMethodKind.TYPE_LITERAL_CONSTRUCT_SIGNATURE;
     const name = ts.isMethodSignature(member)
       ? memberName(member) ?? ''
-      : methodKind === TsMethodKind.CALL_SIGNATURE
+      : methodKind === TsMethodKind.TYPE_LITERAL_CALL_SIGNATURE
         ? TS_ANONYMOUS_METHOD_NAMES.CALL_SIGNATURE
         : TS_ANONYMOUS_METHOD_NAMES.CONSTRUCT_SIGNATURE;
     const restIndex = member.parameters.findIndex((p) => p.dotDotDotToken !== undefined);
@@ -331,7 +339,8 @@ export class TsDeclarationExtractor {
       filePath: this.options.filePath,
       startLine: startPos.line + 1,
       endLine: endPos.line + 1,
-      tsTypeLinkHash: '',
+      // The SHAPE owns it — §4.8.1, same reasoning as the field case above.
+      tsTypeLinkHash: typeLiteralHash,
       ownerTypeName: ownerText,
       ownerQualifiedName: '',
       methodAccess: TsMethodAccess.PUBLIC_ACCESS,
@@ -370,9 +379,7 @@ export class TsDeclarationExtractor {
     this.methods.push(row);
     this.methodHashByNode.set(id, row.getHash());
     this.methodRowByNode.set(id, row);
-    // The PARAMETERS of an anonymous signature were the other half of the gap:
-    // 48 on this repository, every one a parameter of a type-literal method.
-    this.emitParameters(member.parameters, row, {
+    const memberContext: EmitContext = {
       typeHash: '',
       methodHash: row.getHash(),
       blockHash: '',
@@ -383,7 +390,20 @@ export class TsDeclarationExtractor {
       isAmbient: true,
       moduleHash: this.options.moduleHash,
       moduleQualifiedName: this.options.moduleQualifiedName,
-    });
+    };
+    // The PARAMETERS of an anonymous signature were the other half of the gap:
+    // 48 on this repository, every one a parameter of a type-literal method.
+    this.emitParameters(member.parameters, row, memberContext);
+    // An anonymous signature can be GENERIC — `{ new<T>(x: T): C<T> }`, which is
+    // how `declare var CustomEvent` is written in lib.dom.d.ts. 25 such
+    // signatures in the holdout corpus and none in application code.
+    this.emitTypeParameters(member.typeParameters, row.getHash(),
+      ts.isConstructSignatureDeclaration(member)
+        ? TsTypeParameterOwnerKind.CONSTRUCT_SIGNATURE
+        : ts.isCallSignatureDeclaration(member)
+          ? TsTypeParameterOwnerKind.CALL_SIGNATURE
+          : TsTypeParameterOwnerKind.METHOD,
+      memberContext, TsTypeRefContext.METHOD_TYPE_PARAM_BOUND);
   }
 
   /** Every function type already given a `ts_method` row, so none is minted twice. */
@@ -400,7 +420,8 @@ export class TsDeclarationExtractor {
    * of real targets are bodiless — and the two facts are not in tension.
    */
   private emitFunctionTypeSignature(
-    node: ts.FunctionTypeNode | ts.ConstructorTypeNode
+    node: ts.FunctionTypeNode | ts.ConstructorTypeNode,
+    selfReferenceHash: string
   ): void {
     const id = nodeId(node, this.sf);
     if (this.functionTypeSignatures.has(id)) {
@@ -422,7 +443,12 @@ export class TsDeclarationExtractor {
       filePath: this.options.filePath,
       startLine: startPos.line + 1,
       endLine: endPos.line + 1,
-      tsTypeLinkHash: '',
+      // The type NODE owns the signature — §4.8.1. A function type has no
+      // declaration to belong to, and it is the only thing that can own one, so
+      // the owner FK is its own `ts_type_reference` row. `""` here left
+      // `ts_method`'s key chaining broken, which is the §1 discipline this
+      // repairs rather than a cosmetic fill.
+      tsTypeLinkHash: selfReferenceHash,
       ownerTypeName: '',
       ownerQualifiedName: this.options.moduleQualifiedName,
       methodAccess: TsMethodAccess.PUBLIC_ACCESS,
@@ -1152,6 +1178,21 @@ export class TsDeclarationExtractor {
       this.emitFunctionLike(member, context, TsMethodKind.CONSTRUCT_SIGNATURE);
       return undefined;
     }
+    // `get x(): T` / `set x(v: T)` INSIDE AN INTERFACE — legal since TypeScript
+    // 5.1, and a `GetAccessorDeclaration` is both a ClassElement and a
+    // TypeElement, so it turns up here as well as in a class body.
+    //
+    // 65 of them in `lib.dom.d.ts` alone, and not one in 1,084 files of
+    // application code — which is exactly why a holdout corpus of declaration
+    // files finds what application code cannot.
+    if (ts.isGetAccessor(member)) {
+      const hash = this.emitFunctionLike(member, context, TsMethodKind.GETTER);
+      return methodSummary(member, hash);
+    }
+    if (ts.isSetAccessor(member)) {
+      const hash = this.emitFunctionLike(member, context, TsMethodKind.SETTER);
+      return methodSummary(member, hash);
+    }
     return undefined;
   }
 
@@ -1358,7 +1399,10 @@ export class TsDeclarationExtractor {
       signatureRole: TsSignatureRole.SOLE,
       overloadIndex: 0,
       bodyPresence: bodyPresenceOf(node, methodKind, body !== undefined, isAmbient),
-      isTypeOnly: TYPE_ONLY_METHOD_KINDS.has(methodKind),
+      // A GETTER or SETTER is type-only when it sits in a TYPE position — an
+      // interface or a type literal — and runtime-bearing in a class. The kind
+      // alone cannot say which, so the owner decides.
+      isTypeOnly: TYPE_ONLY_METHOD_KINDS.has(methodKind) || isTypePositionMember(node),
       isAsync: hasModifier(node, ts.SyntaxKind.AsyncKeyword),
       isGenerator: (node as { asteriskToken?: ts.AsteriskToken }).asteriskToken !== undefined,
       isAbstract: hasModifier(node, ts.SyntaxKind.AbstractKeyword),
@@ -2195,11 +2239,23 @@ function shapeDigestOf(parts: readonly string[]): string {
   );
 }
 
+/**
+ * Kinds that have no runtime existence, so no call-graph rule may traverse them
+ * as an implementation (§3.3).
+ *
+ * The `TYPE_LITERAL_*` twins belong here for the same reason as their interface
+ * counterparts: they are written in type position and can never carry a body.
+ * Omitting them would leave 259 rows claiming runtime existence they do not have.
+ */
 const TYPE_ONLY_METHOD_KINDS = new Set<TsMethodKind>([
   TsMethodKind.METHOD_SIGNATURE,
   TsMethodKind.CALL_SIGNATURE,
   TsMethodKind.CONSTRUCT_SIGNATURE,
+  TsMethodKind.TYPE_LITERAL_METHOD_SIGNATURE,
+  TsMethodKind.TYPE_LITERAL_CALL_SIGNATURE,
+  TsMethodKind.TYPE_LITERAL_CONSTRUCT_SIGNATURE,
   TsMethodKind.FUNCTION_TYPE_SIGNATURE,
+  TsMethodKind.CONSTRUCTOR_TYPE_SIGNATURE,
 ]);
 
 /**
@@ -2282,6 +2338,19 @@ const FOLDABLE_OPERATORS = new Set<ts.SyntaxKind>([
   ts.SyntaxKind.LessThanLessThanToken, ts.SyntaxKind.GreaterThanGreaterThanToken,
   ts.SyntaxKind.GreaterThanGreaterThanGreaterThanToken,
 ]);
+
+/**
+ * Is this member written in a TYPE position — an interface or a type literal?
+ *
+ * The question the KIND cannot answer. `get x(): T` is runtime-bearing in a class
+ * and type-only in an interface, and the same `GetAccessorDeclaration` node type
+ * serves both since TypeScript 5.1.
+ */
+function isTypePositionMember(node: ts.Node): boolean {
+  const parent = node.parent;
+  return parent !== undefined
+    && (ts.isInterfaceDeclaration(parent) || ts.isTypeLiteralNode(parent));
+}
 
 /** `in` / `out` on a type parameter. TypeScript 4.7; 562 measured. */
 function varianceAnnotationOf(
@@ -2405,7 +2474,10 @@ function bodyPresenceOf(
   if (hasBody) {
     return TsBodyPresence.HAS_BODY;
   }
-  if (TYPE_ONLY_METHOD_KINDS.has(methodKind)) {
+  // The OWNER first, then the kind. An accessor in an interface can never carry
+  // a body under any compiler options, which is a stronger statement than
+  // "it happens to be in a .d.ts" — so NO_BODY_INTERFACE, not NO_BODY_AMBIENT.
+  if (TYPE_ONLY_METHOD_KINDS.has(methodKind) || isTypePositionMember(node)) {
     return TsBodyPresence.NO_BODY_INTERFACE;
   }
   if (hasModifier(node, ts.SyntaxKind.AbstractKeyword)) {

@@ -70,19 +70,42 @@ export enum TsMethodKind {
   /** `function () { }` in an expression position. A NAMED one binds its own name inside its body. */
   FUNCTION_EXPRESSION = 'FUNCTION_EXPRESSION',
 
-  /** `m(): void;` on an interface or type literal. Bodiless by construction. */
+  /** `m(): void;` on an INTERFACE. Bodiless by construction; owned by a `ts_type`. */
   METHOD_SIGNATURE = 'METHOD_SIGNATURE',
 
-  /** `(x: number): string;` — the type is callable. Named `<call-signature>`. */
+  /** `(x: number): string;` on an interface. Named `<call-signature>`. */
   CALL_SIGNATURE = 'CALL_SIGNATURE',
 
-  /** `new (x: number): I;` — the type is constructable. Named `<construct-signature>`. */
+  /** `new (x: number): I;` on an interface. Named `<construct-signature>`. */
   CONSTRUCT_SIGNATURE = 'CONSTRUCT_SIGNATURE',
 
-  /** `(e: Event) => void` written in TYPE position. A real call target. */
+  /**
+   * `m(): void` inside an ANONYMOUS type literal — `{ m(): void }`.
+   *
+   * Owner-qualified because `tsTypeLinkHash` points at a `ts_type_reference`
+   * here: an anonymous shape has no declaration. 28 measured calls resolve to
+   * one of these, and 1,352 property accesses land on a type-literal member —
+   * the number that matters, because property-chain walking is how a receiver
+   * gets typed.
+   */
+  TYPE_LITERAL_METHOD_SIGNATURE = 'TYPE_LITERAL_METHOD_SIGNATURE',
+
+  /** `(x: T): R` inside an anonymous type literal. Owner is the shape. */
+  TYPE_LITERAL_CALL_SIGNATURE = 'TYPE_LITERAL_CALL_SIGNATURE',
+
+  /** `new (x: T): R` inside an anonymous type literal. Owner is the shape. */
+  TYPE_LITERAL_CONSTRUCT_SIGNATURE = 'TYPE_LITERAL_CONSTRUCT_SIGNATURE',
+
+  /**
+   * `(e: Event) => void` written in TYPE position. A real call target.
+   *
+   * Needs no owner-qualified twin: a function type node is the ONLY thing that
+   * can own one, so `tsTypeLinkHash` is always the node's own
+   * `ts_type_reference` row.
+   */
   FUNCTION_TYPE_SIGNATURE = 'FUNCTION_TYPE_SIGNATURE',
 
-  /** `new (x: number) => I` written in TYPE position. */
+  /** `new (x: number) => I` written in TYPE position. Owned by its own type node. */
   CONSTRUCTOR_TYPE_SIGNATURE = 'CONSTRUCTOR_TYPE_SIGNATURE',
 
   /** `{ m() { } }` — callable, and reached through no other path. */

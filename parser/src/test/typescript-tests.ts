@@ -28,6 +28,7 @@ import { execFileSync } from 'child_process';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
+import * as ts from 'typescript';
 import * as path from 'path';
 
 import { IrCompletenessReport } from '@/parsers/typescript/extractors/ts-ir-completeness';
@@ -52,7 +53,7 @@ const COMPILER_VERSION = '6.0.3';
  */
 const PENDING_BAR = 0;
 
-interface Check { name: string; proves: string; run: () => number }
+interface Check { name: string; proves: string; run: () => number | Promise<number> }
 const fail = (m: string): number => { console.log('  ' + m); return 1; };
 
 /** PENDING is not a pass. It is counted, ratcheted, and reported separately. */
@@ -762,21 +763,6 @@ function mergePartition(): number {
  * number is 283 and the drop is a POLICY CHANGE, recorded here rather than
  * smoothed over. It may fall again only with the same kind of note.
  */
-/**
- * Member rows of an anonymous SHAPE whose owner FK is still empty (schema §4.8.1).
- *
- * `{ toCsv(): string }` has member rows and, until the schema said where the owner goes,
- * nowhere to put it. `ts_field` c8 and `ts_method` c7 now point at `ts_type_reference`
- * when the kind is shape-owned, so this is a parser obligation and may only fall.
- *
- * Deliberately NOT a blanket "owner must be non-empty" rule. Measured, 416 rows have an
- * empty owner and they are three different things: 259 anonymous shape members that must
- * be filled, 137 where `""` is CORRECT (a MODULE_INITIALIZER is owned by the module, a
- * free arrow by the variable that binds it), and 20 object-literal members whose owner is
- * an EXPRESSION — a separate and still unmeasured gap, OQ-10. Asserting non-emptiness
- * everywhere would demand a wrong answer for 157 of them.
- */
-const SHAPE_OWNER_UNFILLED_BAR = 259;
 
 /** Kinds whose owner is an anonymous shape, so c8 / c7 must hold a ts_type_reference. */
 const SHAPE_OWNED_FIELD_KINDS = new Set([
@@ -1115,7 +1101,8 @@ function factBaseInvariants(): number {
     // 3. An anonymous shape's members carry their owner FK (schema §4.8.1).
     //
     // Scoped to the shape-owned kinds, because "" is the CORRECT answer for a
-    // module initializer or a free arrow — see SHAPE_OWNER_UNFILLED_BAR. A row
+    // module initializer or a free arrow: the module owns the initializer and a
+    // variable owns a free arrow, so "" is the right answer there. A row
     // that IS filled must point at a ts_type_reference and not a ts_type: an
     // anonymous shape has no declaration, and inventing one would create a type
     // the source does not declare.
@@ -1213,19 +1200,14 @@ function factBaseInvariants(): number {
   console.log(`  decoratorSystem observed: ${[...systemsSeen].sort().join(', ') || 'none'} ` +
     '— read per file from the governing tsconfig');
   console.log('  every callable expression has a declaration row at the same position');
-  if (shapeOwnerUnfilled > SHAPE_OWNER_UNFILLED_BAR) {
-    failures.push(`${shapeOwnerUnfilled} anonymous-shape member(s) have an empty owner FK, ` +
-      `bar is ${SHAPE_OWNER_UNFILLED_BAR}. The slot EXISTS (schema §4.8.1: c8/c7 point at ` +
-      'ts_type_reference for a shape-owned kind), so this is a parser obligation and the ' +
-      'count may only fall');
-  } else if (shapeOwnerUnfilled < SHAPE_OWNER_UNFILLED_BAR) {
-    console.log(`  ${shapeOwnerUnfilled} shape member(s) without an owner FK (< bar ` +
-      `${SHAPE_OWNER_UNFILLED_BAR}) — lower SHAPE_OWNER_UNFILLED_BAR; at 0, delete it and ` +
-      'assert 0 outright');
-  } else if (shapeOwnerUnfilled) {
-    console.log(`  ${shapeOwnerUnfilled} anonymous-shape member(s) await their owner FK ` +
-      '(schema §4.8.1) — until c8/c7 is filled the shape is reachable only through a ' +
-      'one-way memberGroupKey hash');
+  console.log('  every anonymous-shape member carries its owner FK (§4.8.1)');
+  if (shapeOwnerUnfilled > 0) {
+    // Asserted at 0 outright, per the retired bar's own instruction. It stood at
+    // 259 while §4.8.1 was landing; every one is filled, so a ratchet here would
+    // only be a number nobody reads.
+    failures.push(`${shapeOwnerUnfilled} anonymous-shape member(s) have an empty owner FK. ` +
+      'The slot exists (§4.8.1: c8/c7 point at ts_type_reference for a shape-owned kind), so ' +
+      'the shape is reachable only through the one-way memberGroupKey hash');
   }
   for (const f of failures.slice(0, 10)) console.log(`  ${f}`);
   if (failures.length > 10) console.log(`  … and ${failures.length - 10} more`);
@@ -1355,6 +1337,111 @@ function irCompleteness(): number {
 
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// 10. JSX brace expressions are walked
+// ---------------------------------------------------------------------------
+
+/**
+ * A call written inside a JSX brace is an ordinary call site.
+ *
+ * `{t(msg)}` and `label={t(msg)}` are not JSX constructs -- the braces are
+ * punctuation around an ordinary expression. The walker recursed THROUGH JSX
+ * from the start, which is why an arrow in `onClick={() => save()}` was always
+ * walked, but nothing rooted the brace itself, so every call inside one was
+ * dropped: 4,488 of admin-ui's 14,335 call sites, invisible because the recall
+ * probe of the day measured declarations only.
+ *
+ * The corpus cannot carry this. Corpus A has no `.tsx` file and its
+ * expectations are blessed, so the fixture is built here and thrown away.
+ *
+ * What must NOT appear is the component call. `<Badge/>` as `Badge({...})` is
+ * JSX_COMPONENT_CALL and stays at zero until TSX is switched on -- so this
+ * check asserts both directions at once: every ordinary call present, every
+ * reserved value still empty.
+ */
+async function jsxBraceExpressionsWalked(): Promise<number> {
+  if (!parserPresent()) {
+    return pendingCheck('JSX brace expressions are walked',
+      'no extractor yet. A call inside a JSX brace is an ordinary call site; only the ' +
+      'component invocation itself is reserved');
+  }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ts-jsx-'));
+  const source = [
+    'declare function t(k: string): string;',
+    'declare function fmt(s: string): string;',
+    'declare function save(): void;',
+    'declare function rows(): string[];',
+    'declare const props: Record<string, unknown>;',
+    'declare class Box { constructor(v: string); }',
+    'function Badge(p: { label: string }) { return <span>{p.label}</span>; }',
+    'export function Panel(msg: string, flag: boolean) {',
+    '  return (',
+    '    <div className={fmt(msg)} onClick={() => save()} {...props}>',
+    '      {t(msg)}',
+    '      <Badge label={t(msg)} />',
+    '      {flag ? <Badge label={fmt(msg)} /> : <span>{t("none")}</span>}',
+    '      {rows().map((r) => <Badge key={r} label={fmt(r)} />)}',
+    '      {new Box(t(msg)).toString()}',
+    '    </div>',
+    '  );',
+    '}',
+  ].join('\n');
+  fs.writeFileSync(path.join(root, 'panel.tsx'), source);
+  fs.writeFileSync(path.join(root, 'tsconfig.json'), JSON.stringify({
+    compilerOptions: { jsx: 'react-jsx', target: 'ES2022', module: 'ESNext', strict: true },
+    include: ['*.tsx'],
+  }));
+  const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ts-jsx-out-'));
+  await new TypeScriptProjectAnalyzer().analyze({
+    rootDir: root, outputDir, baseMservPath: root, serviceVersionLink: 'jsx-check',
+  });
+
+  const modulePath = new Map(relation(outputDir, 'all-typescript-modules.csv')
+    .map((m) => [m.tsModuleUniqueHash ?? '', m.filePath ?? '']));
+  const emitted = new Set(relation(outputDir, 'all-typescript-call-sites.csv')
+    .map((r) => `${modulePath.get(r.tsModuleLinkHash ?? '') ?? '?'}:${r.startLine}:${r.startColumn}`));
+
+  const sf = ts.createSourceFile(path.join(root, 'panel.tsx'), source,
+    ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const failures: string[] = [];
+  let expected = 0;
+  const walk = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
+      expected += 1;
+      const p = sf.getLineAndCharacterOfPosition(node.getStart(sf));
+      const key = `panel.tsx:${p.line + 1}:${p.character + 1}`;
+      if (!emitted.has(key)) {
+        failures.push(`no ts_call_site at ${key} for \`${node.getText(sf).slice(0, 44)}\``);
+      }
+    }
+    ts.forEachChild(node, walk);
+  };
+  ts.forEachChild(sf, walk);
+
+  // The other direction: the component invocation must still be absent.
+  for (const [file, names] of [
+    ['all-typescript-call-sites.csv', ['callKind']],
+    ['all-typescript-expressions.csv', ['kind', 'edgeRole']],
+  ] as [string, string[]][]) {
+    for (const row of relation(outputDir, file)) {
+      for (const name of names) {
+        if (RESERVED_TSX_VALUES.has(row[name] ?? '')) {
+          failures.push(`${file} carries reserved ${name}=${row[name]} — the component call ` +
+            'must stay empty while only the braces are walked');
+        }
+      }
+    }
+  }
+
+  console.log(`  ${expected} call/new node(s) in JSX attributes, children, spreads and a ` +
+    `nested map; ${expected - failures.length} emitted, ${RESERVED_TSX_VALUES.size} reserved ` +
+    'value(s) still empty');
+  for (const f of failures.slice(0, 10)) console.log(`  ${f}`);
+  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(outputDir, { recursive: true, force: true });
+  return failures.length ? 1 : 0;
+}
+
 const CHECKS: Check[] = [
   { name: 'compiles', proves: 'tsc --noEmit is clean — the suite reports on code that actually builds', run: compiles },
   { name: 'fixtures compile and are isolated', proves: 'a fixture is a valid input, and cannot break another language\'s gate', run: fixturesCompile },
@@ -1366,6 +1453,7 @@ const CHECKS: Check[] = [
   { name: 'tsc-adjudicated resolution', proves: 'every resolved call target equals getResolvedSignature', run: tscAdjudicatedResolution },
   { name: 'type-only isolation', proves: 'no type-only construct reaches the call graph', run: typeOnlyIsolation },
   { name: 'TSX reserved but empty', proves: 'reserved enum values carry no rows until TSX is switched on', run: tsxReservedButEmpty },
+  { name: 'JSX brace expressions are walked', proves: 'a call inside a JSX brace is an ordinary call site; only the component invocation is reserved', run: jsxBraceExpressionsWalked },
   { name: 'fact-base invariants', proves: 'every PK unique, every FK resolves, every tree well-formed — the failures that load cleanly and count wrong', run: factBaseInvariants },
   { name: 'IR completeness', proves: 'every hop an engine needs in order to resolve is present — the measure that replaced resolution rate', run: irCompleteness },
 ];
@@ -1398,7 +1486,7 @@ async function main(): Promise<number> {
     const t0 = Date.now();
     let rc: number;
     try {
-      rc = c.run();
+      rc = await c.run();
     } catch (e) {
       rc = fail(`threw: ${(e as Error).message}`);
     }

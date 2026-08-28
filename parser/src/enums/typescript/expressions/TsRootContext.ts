@@ -56,5 +56,19 @@ export enum TsRootContext {
   /** The operand of a top-level `await` or `yield`. */
   YIELD_OR_AWAIT_OPERAND = 'YIELD_OR_AWAIT_OPERAND',
   /** A position not otherwise named. Recorded rather than guessed at. */
+  /**
+   * The expression inside a JSX brace: `{t(msg)}` as a child, or
+   * `label={t(msg)}` as an attribute value.
+   *
+   * NOT one of the reserved TSX values. Those describe the component CALL --
+   * `<Badge/>` as `Badge({...})`, with attributes as JSX_ATTRIBUTE_VALUE edges
+   * under argument 0 -- and that whole structure stays empty in freeze 1.
+   * This is narrower and independent: a call written inside a brace is an
+   * ordinary call that happens to sit in JSX, and dropping it cost 4,488 of
+   * admin-ui's 14,335 call sites. It is a ROOT because the JSX element above
+   * it emits no row to be a child of.
+   */
+  JSX_EMBEDDED_EXPRESSION = 'JSX_EMBEDDED_EXPRESSION',
+
   UNKNOWN_CONTEXT = 'UNKNOWN_CONTEXT',
 }

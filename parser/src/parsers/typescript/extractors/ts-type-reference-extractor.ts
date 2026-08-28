@@ -64,7 +64,19 @@ export class TsTypeReferenceExtractor {
    * the arrow. A parser that offers only the arrow disagrees with
    * `getResolvedSignature` on every such call.
    */
-  onFunctionType: ((node: ts.FunctionTypeNode | ts.ConstructorTypeNode) => void) | undefined;
+  onFunctionType:
+    | ((
+        node: ts.FunctionTypeNode | ts.ConstructorTypeNode,
+        /**
+         * This node's OWN `ts_type_reference` hash — the signature's owner.
+         *
+         * A function type node is the only thing that can own a
+         * `FUNCTION_TYPE_SIGNATURE`, so the owner FK is the node itself rather
+         * than any enclosing declaration (§4.8.1).
+         */
+        selfReferenceHash: string
+      ) => void)
+    | undefined;
 
   /**
    * Called for every type parameter a TYPE-LEVEL construct declares.
@@ -177,7 +189,7 @@ export class TsTypeReferenceExtractor {
     });
     this.rows.push(row);
     if (this.onFunctionType && (ts.isFunctionTypeNode(node) || ts.isConstructorTypeNode(node))) {
-      this.onFunctionType(node);
+      this.onFunctionType(node, row.getHash());
     }
     if (this.onTypeLiteralMember && ts.isTypeLiteralNode(node)) {
       for (const member of node.members) {
