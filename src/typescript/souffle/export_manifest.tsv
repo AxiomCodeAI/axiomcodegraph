@@ -33,3 +33,10 @@ export_specifier_unresolved	export-specifier-unresolved.csv
 module_export_recovered	module-export-recovered.csv
 import_binds_interop	import-binds-interop.csv
 global_decl	diag-global-decl.csv
+import_binds	diag-import-binds.csv
+var_type	diag-var-type.csv
+var_shape	diag-var-shape.csv
+expr_shape	diag-expr-shape.csv
+call_signature_in_scope	diag-call-sig.csv
+ref_shape_target	diag-ref-shape.csv
+alias_step	diag-alias-step.csv

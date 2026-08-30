@@ -200,6 +200,60 @@ ref_type_target(ref, prov, t) :- alias_step(ref, prov, t, _).
 ref_shape_target(ref, shape) :- type_ref_resolves(prov, ref, t),
     type_alias_target(prov, rhs, t),
     ref_shape_target(rhs, shape).
+// …AND AT EVERY FURTHER HOP. One level is not enough, because a library's callable
+// surface is usually a CHAIN of aliases: vitest declares `const describe: SuiteAPI`,
+// `type SuiteAPI = ChainableFunction<…>`, and only ChainableFunction's right-hand side
+// is the intersection that carries the call signature. Stopping after one hop finds a
+// named type at every step and never reaches the shape, so `describe(...)`,
+// `it(...)`, `expectTypeOf(...)` and `act(...)` — 473 sites on zustand — resolved to
+// nothing while every link in the chain resolved fine.
+ref_shape_target(ref, shape) :- alias_step(ref, prov, mid, _),
+    type_alias_target(prov, rhs, mid),
+    ref_shape_target(rhs, shape).
+
+// ── TYPE-ARGUMENT SUBSTITUTION THROUGH AN ALIAS ─────────────────────────────
+// THE MECHANISM MODERN LIBRARY SURFACES ARE BUILT ON, and without it their callable
+// types are opaque. vitest declares
+//
+//   const it: TestAPI
+//   type TestAPI<C> = ChainableTestAPI<C> & { … }
+//   type ChainableTestAPI<C> = ChainableFunction<'only'|…, TestCollectorCallable<C>, …>
+//   type ChainableFunction<T, F, C> = F & { [x in T]: … } & { fn: … } & C
+//
+// The callable part is `F` — a TYPE VARIABLE — and the declaration the compiler names
+// for `it(...)` is a call signature of `TestCollectorCallable`, which is the ARGUMENT
+// bound to F two aliases up. Following the alias chain reaches a type variable and
+// stops; the answer is one substitution away and every link resolved fine. Measured on
+// zustand: 219 `it(...)`, 157 `expectTypeOf(...)`, 53 `describe(...)`, 44 `act(...)`.
+//
+// The substitution is exact, not inferred: the argument is WRITTEN at the reference
+// that instantiates the alias, and type_arg_binding (generics.dl) already relates the
+// two positionally. A reference with no arguments binds nothing, so a bare `SuiteAPI`
+// substitutes nothing and the walk continues to the reference that does carry them.
+alias_rhs(ref, prov, rhs) :- type_ref_resolves(prov, ref, t),
+    type_alias_target(prov, rhs, t).
+
+// A TYPE_VARIABLE reachable from a reference through the transparent composites — an
+// intersection member, a union member, a parenthesis. Not through a type ARGUMENT:
+// `Foo<T>` mentions T in a position that is Foo's business, not this reference's.
+tvar_under(r, n) :- type_ref(_, "TYPE_VARIABLE", _, n, _, _, _, r), n != "".
+tvar_under(p, n) :- type_ref(rp, k, _, _, _, _, _, p),
+    ref_kind_descends_to_members(k),
+    type_ref_parent(rp, p, _, c),
+    tvar_under(c, n).
+tvar_under(p, n) :- type_ref(rp, k, _, _, _, _, _, p),
+    ref_kind_is_transparent(k),
+    type_ref_parent(rp, p, _, c),
+    tvar_under(c, n).
+
+ref_type_target(ref, prov, t) :- alias_rhs(ref, _, rhs),
+    tvar_under(rhs, pname),
+    type_arg_binding(ref, pname, argRef),
+    ref_type_target(argRef, prov, t).
+ref_shape_target(ref, shape) :- alias_rhs(ref, _, rhs),
+    tvar_under(rhs, pname),
+    type_arg_binding(ref, pname, argRef),
+    ref_shape_target(argRef, shape).
 
 // TYPE VARIABLE — `<T extends HasId>` — the CONSTRAINT is the only thing a call on a
 // T-typed receiver can dispatch against. An unconstrained T has no members, and
@@ -207,6 +261,13 @@ ref_shape_target(ref, shape) :- type_ref_resolves(prov, ref, t),
 ref_type_target(ref, prov, t) :- type_ref(_, "TYPE_VARIABLE", _, tn, _, owner, _, ref),
     type_var_constraint_in_scope(owner, tn, cref),
     ref_type_target(cref, prov, t).
+// A constraint that is an anonymous FUNCTION TYPE — `<F extends (...args: any) => any>`
+// — is DELIBERATELY NOT followed to its shape. It makes the variable look callable and
+// carries no information: `(...args: any) => any` accepts everything. Where the
+// substitution above succeeds it gives the real signature, and adding the constraint
+// alongside it turned an EXACT answer into a two-way multi_inferred at every `it(...)`
+// and `describe(...)` site on zustand. The NAMED constraint route above stays — a
+// `<T extends HasId>` receiver really does dispatch on HasId.
 // The type parameter of the same name, declared on the owner or on any owner in its
 // lexical chain. Kept name-keyed because a type reference names a variable, not a
 // declaration hash — the parser leaves typeParameterLinkHash empty for uses.
