@@ -82,6 +82,15 @@ export interface TypeScriptAnalysisSummary {
    * analysed as its own root to be covered at all.
    */
   readonly filesInOtherPrograms: number;
+  /**
+   * The roots of those other programs, so a caller can analyse them.
+   *
+   * A count alone says work is missing without saying where. These are the
+   * directories to point another run at: on a monorepo they are the package
+   * and integration-test roots, and running each one covers the files this run
+   * deliberately left out. Ordered by how many files each accounts for.
+   */
+  readonly nestedProgramRoots: readonly string[];
   readonly extractionErrors: number;
   readonly counts: Record<string, number>;
   /**
@@ -133,6 +142,7 @@ export class TypeScriptProjectAnalyzer {
     const rootProgram = filesOfRootProgram(rootDir, configResolver);
     const files = (rootProgram?.files ?? collectTypeScriptFiles(rootDir, excludes)).sort();
     const filesInOtherPrograms = rootProgram?.others.length ?? 0;
+    const nestedProgramRoots = programRootsOf(rootProgram?.others ?? [], configResolver);
 
     // Every module hash up front, from PATHS ALONE. This is what lets a module
     // augmentation in file B key its declarations under file A's hash without
@@ -278,6 +288,7 @@ export class TypeScriptProjectAnalyzer {
       filesSeen: files.length,
       filesAnalysed: analysed,
       filesInOtherPrograms,
+      nestedProgramRoots,
       extractionErrors: this.skippedFiles.filter(
         (f) => f.reason === SkippedFileReason.EXTRACTION_ERROR
       ).length,
@@ -440,6 +451,31 @@ function filesOfRootProgram(
     }
   }
   return { files, others };
+}
+
+/**
+ * The distinct program roots that own `files`, busiest first.
+ *
+ * Reporting a count of excluded files tells a caller that something is missing
+ * without telling them what to do about it. These are the directories to point
+ * a further run at.
+ */
+function programRootsOf(
+  files: readonly string[],
+  configResolver: TsConfigResolver
+): string[] {
+  const counts = new Map<string, number>();
+  for (const file of files) {
+    const governing = configResolver.resolve(file);
+    if (governing.configPath === '') {
+      continue;
+    }
+    const root = path.dirname(path.resolve(governing.configPath));
+    counts.set(root, (counts.get(root) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([root]) => root);
 }
 
 /** Every module specifier a file imports, re-exports, or imports dynamically. */
