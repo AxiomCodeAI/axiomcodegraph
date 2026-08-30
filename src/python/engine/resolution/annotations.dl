@@ -47,6 +47,32 @@ type_name_in_module(p, mod, n, t) :-
     import_binding(p, b, i),
     import_binds_type(p, b, t).
 
+// ── type_name_in_module_lib(ClientModuleHash, Name, LibTypeHash) ─────────────
+// THE SAME LOOKUP, ACROSS THE BOUNDARY. A client module that imports a LIBRARY class:
+// `from tlib import Square` makes the bare name `Square` mean a staged library type
+// inside that module, and every annotation in it is entitled to that meaning.
+//
+// PROVENANCE IS MIXED ON PURPOSE, and this is the Java convention rather than an
+// invention: java/engine/resolution/type-resolution.dl writes
+//   type_resolves_in_file("client", name, fp, t) :- java_import(...), java_type(...)
+//   type_resolves_in_file("lib",    name, fp, t) :- java_import(...), lib_type(...)
+// — the import is always client-side and the TAG names where the TYPE came from. The
+// two clauses sit next to each other in the layer that owns the semantics. Python had
+// only the client half, which is why a parameter annotated with a library class got no
+// type at all while the identical annotation on a local class resolved.
+//
+// A SEPARATE RELATION rather than a "lib"-tagged row in type_name_in_module, because
+// every existing consumer joins that relation prov-UNIFORMLY (method and type share
+// one variable). Widening it in place would silently let a client module read a
+// library module's members. The split keeps the client path exactly as it was, which
+// is the no-second-resolution-path requirement.
+type_name_in_module_lib(mod, n, t) :-
+    module_init("client", _, modScope, mod),
+    import_scope("client", modScope, mod, i),
+    import_decl("client", _, _, n, i),
+    import_binding("client", b, i),
+    import_links_lib_type(b, t).
+
 // ── declared_dispatch(Prov, DeclaredType, PossibleRuntimeType) ───────────────
 // The declared type itself, plus every CONSTRUCTED subclass. Bounded by RTA, so an
 // abstract base with twelve implementations of which two are built fans to three, not
@@ -66,6 +92,14 @@ param_declared_type(p, ph, t) :-
     param_decl(p, _, _, _, m, ph),
     method_module(p, mod, m),
     type_name_in_module(p, mod, base, t).
+
+// ── param_declared_type_lib(ParamHash, LibTypeHash) ──────────────────────────
+// `def handle(s: Square)` in the client, Square declared in the library.
+param_declared_type_lib(ph, t) :-
+    param_annotation("client", base, _, _, ph), base != "",
+    param_decl("client", _, _, _, m, ph),
+    method_module("client", mod, m),
+    type_name_in_module_lib(mod, base, t).
 
 // ── param_declared_type_by_parser / annotation cross-check ───────────────────
 // The parser's own answer for the same parameter, via the METHOD_PARAM type reference
@@ -152,6 +186,14 @@ method_declared_return_type(p, m, t) :-
     method_decl(p, _, _, _, ret, m), ret != "",
     method_module(p, mod, m),
     type_name_in_module(p, mod, ret, t).
+
+// ── method_declared_return_type_lib(MethodHash, LibTypeHash) ─────────────────
+// `def make() -> Square` in the client, Square declared in the library. Same shape as
+// the clause above, same layer, differing only in which side the TYPE lives on.
+method_declared_return_type_lib(m, t) :-
+    method_decl("client", _, _, _, ret, m), ret != "",
+    method_module("client", mod, m),
+    type_name_in_module_lib(mod, ret, t).
 method_declared_return_type_by_parser(p, m, t) :-
     type_ref_owner(p, m, "METHOD", r),
     type_ref(p, _, "METHOD_RETURN", _, _, r),

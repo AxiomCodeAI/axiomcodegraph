@@ -234,3 +234,24 @@ call_unresolvable(site, "registry_key_not_static") :-
     call_receiver_object(site, obj),
     call_of_expr(obj, inner),
     call_unresolvable(inner, "registry_key_not_static").
+
+// ── call_hits_builtin — the boundary case, in the file that owns builtins ────
+// A call whose receiver is a library object of a type with no Python source: it is
+// a builtin, not a library method. Kept beside the other builtin rules rather than
+// in the library file, which owns linking and not semantics.
+// ── A LIBRARY CONSTRUCTION WHOSE CLASS HAS NO VISIBLE __init__ ────────────────
+// `pickle.PicklingError(msg)`. The class IS resolved — pickle.PicklingError is in the
+// library IR — but it declares no __init__ and its MRO ends at `Exception`, a C-level
+// builtin with no Python source, so type_constructor("lib", …) is empty and the site
+// produced no edge and no boundary either: it read `no_rule`, i.e. a blind spot, for a
+// class the engine had NAMED.
+//
+// This is the same shape already handled for a CLIENT class with no constructor
+// (resolution/builtins.dl) and it was simply never mirrored onto the library side.
+// MEASURED on the stdlib: `mod.SomeError(...)` is one of the most common call shapes in
+// `logging`, `http` and `json`, and every one of them landed in no_rule.
+call_hits_builtin(site, label) :-
+    call_constructs_lib_type(site, t),
+    !type_constructor("lib", t, _),
+    !type_hierarchy_incomplete("lib", t),
+    builtin_object_init_target(label).
