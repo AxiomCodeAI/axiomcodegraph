@@ -870,7 +870,7 @@ may be **computed** (so the value is not always statically known), and a `const 
 
 ---
 
-### 4.11 `ts_variable` / `lib_ts_variable` — 29 columns
+### 4.11 `ts_variable` / `lib_ts_variable` — 31 columns
 
 `java_local_variable`'s analogue, **widened to module and global scope**, because in TypeScript
 a module-level `const` is a first-class declaration and — measured — **161 resolved call
@@ -905,10 +905,12 @@ never needed that; Python folded it into `py_binding`. Positions 0–8 mirror
 | 22 | `isExported` | 1 | |
 | 23 | `isAmbientDeclare` | 1 | |
 | 24 | `isDestructuring` | 1 | |
-| 25 | `declarationGroupKey` ★ | 2 | module-scope variables can merge with a namespace of the same name, so they carry the §3.1 key too |
-| 26 | `startColumn` | 1 | |
-| 27 | `serviceVersionLinkHash` | 1 | |
-| 28 | `tsVariableUniqueHash` | — | **PK** |
+| 25 | `bindingSourceKind` ★ | 1 | `NONE` \| `PROPERTY` \| `INDEX` \| `OBJECT_REST` \| `ARRAY_REST` — what a destructured name binds. `NONE` for every ordinary declaration |
+| 26 | `bindingSource` ★ | 1 | the property name for `PROPERTY`, the index for `INDEX`, the index a rest starts at for `ARRAY_REST`; `""` otherwise |
+| 27 | `declarationGroupKey` ★ | 2 | module-scope variables can merge with a namespace of the same name, so they carry the §3.1 key too |
+| 28 | `startColumn` | 1 | |
+| 29 | `serviceVersionLinkHash` | 1 | |
+| 30 | `tsVariableUniqueHash` | — | **PK** |
 
 **PK** `TS_VARIABLE_md5(tsModuleLinkHash ‖ tsMethodLinkHash ‖ tsBlockLinkHash ‖ name ‖ startLine ‖ startColumn)`
 

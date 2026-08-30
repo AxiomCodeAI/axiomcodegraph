@@ -49,6 +49,7 @@ import {
 import {
   TsVariableDeclarationKind,
   TsVariableInitializerKind,
+  TsBindingSourceKind,
   TsVariableScopeKind,
 } from '@/enums/typescript/variables';
 import { BinderResult, BoundDeclaration, escapeName, hasModifier, memberName, nodeId } from
@@ -1729,12 +1730,31 @@ export class TsDeclarationExtractor {
     if (ts.isIdentifier(pattern)) {
       return;
     }
+    const isArray = ts.isArrayBindingPattern(pattern);
+    let index = -1;
     for (const element of pattern.elements) {
+      index += 1;
+      // A hole in `const [, second] = xs` still advances the position, so the
+      // index is counted before the skip rather than after it.
       if (ts.isOmittedExpression(element)) {
         continue;
       }
+      // What this element reads from the thing being destructured. The name
+      // alone cannot say: `{ a: renamed }` and `[renamed]` produce the same
+      // name from completely different sources, and shorthand `{ a }` only
+      // looks recoverable because the two coincide there.
+      const isRest = element.dotDotDotToken !== undefined;
+      const sourceKind = isRest
+        ? (isArray ? TsBindingSourceKind.ARRAY_REST : TsBindingSourceKind.OBJECT_REST)
+        : (isArray ? TsBindingSourceKind.INDEX : TsBindingSourceKind.PROPERTY);
+      const source = isArray
+        ? String(index)
+        : isRest
+          ? ''
+          : propertyNameTextOf(element, this.sf);
       if (!ts.isIdentifier(element.name)) {
-        // `const { a: { b } } = o` -- recurse; only leaves bind a name.
+        // `const { a: { b } } = o` -- recurse; only leaves bind a name, and the
+        // leaf's source is its own property within the INNER pattern.
         this.emitBoundNames(element.name, list, context, isExported, isAmbient,
           scopeKind, declarationKindOverride);
         continue;
@@ -1767,6 +1787,8 @@ export class TsDeclarationExtractor {
         isExported,
         isAmbientDeclare: isAmbient,
         isDestructuring: true,
+        bindingSourceKind: sourceKind,
+        bindingSource: source,
         declarationGroupKey: '',
         startColumn: startPos.character + 1,
         serviceVersionLinkHash: this.options.serviceVersionLinkHash,
@@ -2954,6 +2976,24 @@ function variableDeclarationKindOf(
     return TsVariableDeclarationKind.LET;
   }
   return TsVariableDeclarationKind.VAR;
+}
+
+/**
+ * The property a binding element reads, as written.
+ *
+ * `{ a }` and `{ a: renamed }` both read `a`; the shorthand simply has no
+ * propertyName node, so the element's own name is the property. A computed key
+ * `{ [k]: v }` has no static answer, and returns the text rather than a guess.
+ */
+function propertyNameTextOf(element: ts.BindingElement, sf: ts.SourceFile): string {
+  const property = element.propertyName;
+  if (property === undefined) {
+    return ts.isIdentifier(element.name) ? element.name.text : '';
+  }
+  if (ts.isIdentifier(property) || ts.isStringLiteral(property) || ts.isNumericLiteral(property)) {
+    return property.text;
+  }
+  return EntityUtils.normalizeWhitespace(property.getText(sf));
 }
 
 function variableScopeKindOf(

@@ -1,4 +1,5 @@
 import { ABSENT, bool, joinHeader, joinRow, keyOf, num, text } from './ts-row';
+import { TsBindingSourceKind } from '@/enums/typescript/variables/TsBindingSourceKind';
 
 import { ENTITY_IDENTIFIERS } from '@/constants/entity-constants';
 import {
@@ -34,7 +35,7 @@ import { EntityUtils } from '@/utils/entity-utils';
  * lexical link that makes that true for `let`/`const`.
  */
 export class TsVariableRegistry implements EntityIdentifiable {
-  static readonly ARITY = 29;
+  static readonly ARITY = 31;
 
   readonly name: string;
   readonly variableTypeName: string;
@@ -61,6 +62,8 @@ export class TsVariableRegistry implements EntityIdentifiable {
   readonly isExported: boolean;
   readonly isAmbientDeclare: boolean;
   readonly isDestructuring: boolean;
+  readonly bindingSourceKind: TsBindingSourceKind;
+  readonly bindingSource: string;
   readonly declarationGroupKey: string;
   readonly startColumn: number;
   readonly serviceVersionLinkHash: string;
@@ -89,6 +92,8 @@ export class TsVariableRegistry implements EntityIdentifiable {
     isExported: boolean;
     isAmbientDeclare: boolean;
     isDestructuring: boolean;
+    bindingSourceKind?: TsBindingSourceKind;
+    bindingSource?: string;
     declarationGroupKey: string;
     startColumn: number;
     serviceVersionLinkHash: string;
@@ -115,6 +120,8 @@ export class TsVariableRegistry implements EntityIdentifiable {
     this.isExported = props.isExported;
     this.isAmbientDeclare = props.isAmbientDeclare;
     this.isDestructuring = props.isDestructuring;
+    this.bindingSourceKind = props.bindingSourceKind ?? TsBindingSourceKind.NONE;
+    this.bindingSource = props.bindingSource ?? '';
     this.declarationGroupKey = props.declarationGroupKey;
     this.startColumn = props.startColumn;
     this.serviceVersionLinkHash = props.serviceVersionLinkHash;
@@ -193,6 +200,8 @@ export class TsVariableRegistry implements EntityIdentifiable {
         bool(this.isExported),
         bool(this.isAmbientDeclare),
         bool(this.isDestructuring),
+        this.bindingSourceKind,
+        text(this.bindingSource),
         this.declarationGroupKey,
         num(this.startColumn),
         this.serviceVersionLinkHash,
@@ -211,7 +220,8 @@ export class TsVariableRegistry implements EntityIdentifiable {
         'isTypeInferred', 'tsTypeLinkHash', 'tsMethodLinkHash', 'tsModuleLinkHash',
         'tsBlockLinkHash', 'declarationKind', 'hasInitializer', 'initializerKind',
         'boundFunctionLinkHash', 'typeReferenceLinkHash', 'initializerExpressionLinkHash',
-        'isExported', 'isAmbientDeclare', 'isDestructuring', 'declarationGroupKey',
+        'isExported', 'isAmbientDeclare', 'isDestructuring', 'bindingSourceKind', 'bindingSource',
+        'declarationGroupKey',
         'startColumn', 'serviceVersionLinkHash', 'tsVariableUniqueHash',
       ],
       TsVariableRegistry.ARITY,
