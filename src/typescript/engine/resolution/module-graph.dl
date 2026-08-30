@@ -304,9 +304,19 @@ module_export(prov, mod, en, k, h) :- module_export_any(prov, mod, en, k, h),
 
 export_kind_is_star("EXPORT_STAR").
 export_kind_is_star("EXPORT_STAR_AS_NAMESPACE").
+export_kind_is_star("TYPE_ONLY_STAR").
 export_kind_is_local_name("NAMED_EXPORT").
 export_kind_is_local_name("NAMED_ALIAS").
 export_kind_is_local_name("EXPORT_IMPORT_EQUALS").
+// TYPE-ONLY re-exports belong on the TYPE surface and were missing from it. They flow
+// into module_export_any like any other named export and are then removed from the
+// runtime surface by module_export_type_only — which is the whole reason the two
+// tables exist. Leaving them out did not merely lose type-only names: it made
+// `export type { Circle, Square } from './shapes'` export NOTHING, so a receiver
+// annotated `Circle` through a barrel had no type, and the overload set it was meant
+// to disambiguate stayed ambiguous. Caught by the overload fixture on ten lines of
+// code, and invisible on a corpus where the same names also arrive by another route.
+export_kind_is_local_name("TYPE_ONLY_NAMED").
 
 // ── export_target_module(ExportHash, Prov, ModuleHash) ──────────────────────
 // Where a re-export points. Same three routes as an import, for the same reason:

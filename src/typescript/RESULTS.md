@@ -18,10 +18,36 @@ own `typescript`, out of process.
 
 | project | call sites | oracle sites | decidable | **EXACT** | in engine set | WRONG | envelope precision |
 |---|---|---|---|---|---|---|---|
-| AxiomCode Parser (418 modules) | 14,090 | 14,090 | 14,007 | **0.806** | 0.896 | 123 | 0.956 |
-| remeda (531 modules) | 23,011 | 23,011 | 8,042 | **0.809** | 0.847 | 595 | 0.971 |
-| zustand (37 modules, React + vitest) | 4,200 | 4,346 | 4,176 | **0.540** | 0.581 | 14 | 0.962 |
+| AxiomCode Parser (418 modules) | 14,090 | 14,090 | 14,007 | **0.810** | 0.906 | 55 | 0.956 |
+| remeda (531 modules) | 23,011 | 23,011 | 8,042 | **0.811** | 0.854 | 591 | 0.971 |
+| zustand (37 modules, React + vitest) | 4,200 | 4,346 | 4,176 | **0.540** | 0.581 | 13 | 0.962 |
 | this repository | 84 | 84 | 84 | **0.786** | 0.893 | 1 | 0.879 |
+| overload fixture (`test/typescript/fixtures/overloads`) | 83 | 83 | 83 | **1.000** | 1.000 | 0 | 1.000 |
+
+## Overload resolution, on its own
+
+"Did the engine find the right function" and "did it find the right SIGNATURE" are
+different questions, and the second is the hard one: across these projects the compiler
+chooses a NON-FIRST declaration most of the time, so an engine that took declaration 0
+would look respectable on names and be wrong wherever it mattered. The oracle now
+reports which declaration of the resolved symbol was chosen, so the slice is measurable.
+
+| project | overload sites | compiler chose non-first | **EXACT** | superset | wrong | missed |
+|---|---|---|---|---|---|---|
+| overload fixture | 35 | 24 | **1.000** | 0 | 0 | 0 |
+| remeda | 4,796 | 2,393 | **0.842** | 201 | 547 | 10 |
+| zustand | 1,414 | 421 | **0.413** | 95 | 12 | 723 |
+| AxiomCode Parser | 873 | 648 | **0.062** | 724 | 44 | 51 |
+
+The spread is the finding. Where the overloads differ by ARITY, by PRIMITIVE type or by
+NAMED OBJECT type — the fixture, and most of remeda's own API — the engine picks the
+right signature, including on 24 of 24 non-first choices in the fixture and 78% of
+remeda's 2,393. Where they differ by GENERIC INSTANTIATION — which is what almost all
+of the Parser repository's 873 sites are, since they are calls into `Array.map`,
+`Array.reduce` and `String.replace` — it emits the overload set and does not narrow.
+That is the honest behaviour for a test that cannot compare `reduce(cb): T` against
+`reduce<U>(cb, init): U`, and it is why the Parser corpus reads 0.062 while its overall
+`in engine set` is 0.906.
 
 * **EXACT** — the engine named ONE target and it is the declaration the compiler
   selected. Position-precise, so picking a different overload of the same function
@@ -136,6 +162,8 @@ where it was fixed:
 | an arrow function must be SELECTABLE | 0.778 → 0.806. Every arrow carries signatureRole = IMPLEMENTATION and an EMPTY declarationGroupKey — 955 of them here — so the overload-selection rule could not fire for any, and `const fail = (m) => …; fail(x)` resolved to nothing |
 | alias type-argument substitution | zustand 0.475 → 0.540. `type TestAPI = ChainableFunction<…, TestCollectorCallable<C>, …>` puts the callable part in a type VARIABLE two aliases up; every link resolved and the chain stopped one substitution short |
 | a callback argument only fits a CALLABLE parameter | strengthened the applicability test instead of guessing an overload order. See the note in `overload.dl` on the tie-break that was tried and removed |
+| overload fixture, built to be decidable | found four bugs in ten lines: type-only re-exports exported NOTHING, a class method's IMPLEMENTATION was selectable beside its own overloads, `readonly T[]` had no resolved type at all, and types were compared by DECLARATION rather than by merged entity |
+| types compared by merged ENTITY | `Array` has eight declarations and `String` four; an argument resolved to one and a parameter to another are the same type and were scored as a mismatch |
 | the implicit `Object` base | `x.toString()` found no member on a perfectly typed receiver: no type declares `extends Object` and nothing in the IR does either. 101 sites, all reported as `member_absent`, which was the right diagnosis |
 
 ---

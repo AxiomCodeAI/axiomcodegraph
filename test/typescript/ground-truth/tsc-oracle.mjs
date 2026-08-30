@@ -22,6 +22,15 @@
  *
  *   callFile  callLine  callCol  callEndLine  callEndCol  callKind  calleeName
  *   targetFile  targetLine  targetCol  targetName  targetKind
+ *   overloadCount  chosenIndex
+
+ * `overloadCount` is how many declarations the resolved symbol has, and `chosenIndex`
+ * is WHICH of them the compiler picked, in declaration order. Together they turn
+ * "did the engine find the right function" into "did the engine find the right
+ * SIGNATURE" — a strictly harder question, and the one the schema's own measurement
+ * says matters: 77.6% of overloaded calls resolve to a NON-FIRST declaration, so an
+ * engine that always took the first would look almost right on a name-level score and
+ * be wrong three times in four on the population that has more than one answer.
  *
  * targetKind distinguishes the terminals that are CORRECT answers rather than
  * failures — an ambient declaration with no body, a synthesized implicit
@@ -149,6 +158,8 @@ function isBodiless(decl) {
 const rows = [];
 let considered = 0;
 let resolvedCount = 0;
+let overloadedSites = 0;
+let nonFirstOverload = 0;
 
 for (const sf of program.getSourceFiles()) {
   if (sf.isDeclarationFile) continue;
@@ -182,6 +193,8 @@ for (const sf of program.getSourceFiles()) {
       let targetCol = '';
       let targetName = '';
       let targetKind = 'unresolved';
+      let overloadCount = '1';
+      let chosenIndex = '0';
       try {
         const sig = checker.getResolvedSignature(node);
         const decl = sig?.declaration;
@@ -199,6 +212,16 @@ for (const sf of program.getSourceFiles()) {
           targetName = declName(decl);
           targetKind = isBodiless(decl) ? 'bodiless' : 'implementation';
           resolvedCount += 1;
+          // Which signature of the overload set, in declaration order. The symbol's
+          // declaration list IS that order, so the index is read rather than inferred.
+          const decls = decl.symbol?.getDeclarations?.() ?? [];
+          if (decls.length > 1) {
+            overloadCount = String(decls.length);
+            const i = decls.indexOf(decl);
+            chosenIndex = i >= 0 ? String(i) : '';
+            if (i > 0) nonFirstOverload += 1;
+            overloadedSites += 1;
+          }
         }
       } catch {
         targetKind = 'oracle_error';
@@ -217,6 +240,8 @@ for (const sf of program.getSourceFiles()) {
           targetCol,
           targetName.replace(/\t|\n/g, ' '),
           targetKind,
+          overloadCount,
+          chosenIndex,
         ].join('\t')
       );
     }
@@ -238,11 +263,15 @@ const header = [
   'targetCol',
   'targetName',
   'targetKind',
+  'overloadCount',
+  'chosenIndex',
 ].join('\t');
 fs.writeFileSync(outPath, `${header}\n${rows.join('\n')}\n`);
 
 const diags = program.getSemanticDiagnostics().length;
 console.error(
   `oracle: ${considered} call sites, ${resolvedCount} with a declaration, ` +
-    `${rows.length} rows -> ${outPath}  (${diags} semantic diagnostics in the program)`
+    `${overloadedSites} into an overload set (${nonFirstOverload} choosing a non-first ` +
+    `declaration), ${rows.length} rows -> ${outPath}  ` +
+    `(${diags} semantic diagnostics in the program)`
 );
