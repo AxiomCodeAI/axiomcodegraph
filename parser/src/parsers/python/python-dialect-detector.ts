@@ -11,7 +11,6 @@ import { PythonSourcePositions } from '@/utils/python';
 const PY2_ONLY_NODE_TYPES: ReadonlySet<string> = new Set([
   'print_statement',
   'exec_statement',
-  'chevron',
 ]);
 
 /**
@@ -28,14 +27,24 @@ const PY2_ONLY_NODE_TYPES: ReadonlySet<string> = new Set([
  *
  * ## Three tiers, because one is not enough
  *
- * **Tier 1 — Py2-only node types.** `print_statement`, `exec_statement`,
- * `chevron`. Unambiguous: none can occur in valid Python 3.
+ * **Tier 1 — Py2-only node types.** `print_statement` and `exec_statement`,
+ * but only where the same bytes could not also be valid Python 3.
  *
  * ```python
- * print "x"                  # print_statement
- * print >>sys.stderr, "x"    # chevron
- * exec "code"                # exec_statement
+ * print "x"                  # print_statement  -> SyntaxError in Python 3
+ * exec "code"                # exec_statement   -> SyntaxError in Python 3
  * ```
+ *
+ * `chevron` is deliberately NOT in this set, and its presence *exonerates* a
+ * `print_statement` rather than condemning it. `print >>sys.stderr, "x"` is
+ * byte-identical in the two dialects: Python 2 reads a print statement, and
+ * Python 3 reads the tuple `(print.__rshift__(sys.stderr), "x")`, which is
+ * syntactically valid and merely raises TypeError when evaluated. CPython 3.10
+ * accepts the line, and Lib/test/test_print.py contains it precisely to assert
+ * that TypeError. Rejecting on `chevron` therefore threw out a valid Python 3
+ * file. No tree query can separate the two readings, because there is nothing
+ * to separate -- the grammar is ambiguous here and only the runtime differs, so
+ * the tie goes to the dialect we support.
  *
  * **Tier 2 — Py2-only *shapes* of node types that are legal in Python 3.** The
  * node type alone proves nothing here; the shape does.
@@ -114,7 +123,7 @@ export class PythonDialectDetector {
       }
 
       // ---- Tier 1: node types that only Python 2 has ----------------------
-      if (PY2_ONLY_NODE_TYPES.has(node.type)) {
+      if (PY2_ONLY_NODE_TYPES.has(node.type) && !this.isValidPython3Chevron(node)) {
         findings.push(this.toFinding(node, node.type, 1, positions));
       }
 
@@ -145,6 +154,28 @@ export class PythonDialectDetector {
    * produces a comma at this level. Checked on the **direct** children only:
    * a comma nested inside a tuple or a call argument list is irrelevant.
    */
+  /**
+   * True when a `print_statement` is really a Python 3 right-shift expression.
+   *
+   * The grammar builds `print_statement` with a `chevron` as
+   * `seq('print', $.chevron, repeat(seq(',', $.expression)))`, so a chevron
+   * guarantees the remainder is comma-separated and the whole line re-reads as
+   * a tuple of expressions under Python 3 rules. Chevron presence is therefore
+   * sufficient on its own; no further shape check is needed.
+   */
+  private isValidPython3Chevron(node: Parser.SyntaxNode): boolean {
+    if (node.type !== 'print_statement') {
+      return false;
+    }
+    for (let i = 0; i < node.childCount; i += 1) {
+      const child = node.child(i);
+      if (child && child.type === 'chevron') {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private hasDirectCommaChild(exceptClause: Parser.SyntaxNode): boolean {
     for (let i = 0; i < exceptClause.childCount; i++) {
       if (exceptClause.child(i)?.type === ',') {

@@ -391,7 +391,19 @@ export class PythonFieldExtractor {
       return 0;
     }
 
+    // `a = b = c = 1` nests rightward: left is `a`, right is the assignment
+    // `b = c = 1`. Walk the spine so every target in the chain is declared, and
+    // take the value from the innermost right-hand side, which all of them share.
     const targets = this.assignmentTargets(left);
+    let value = right;
+    while (value && value.type === 'assignment') {
+      const chainedLeft = value.childForFieldName('left');
+      if (chainedLeft) {
+        targets.push(...this.assignmentTargets(chainedLeft));
+      }
+      value = value.childForFieldName('right');
+    }
+
     let consumed = 0;
     for (const target of targets) {
       const rawName = target.text;
@@ -399,7 +411,7 @@ export class PythonFieldExtractor {
         continue;
       }
       const name = this.mangle(collection.typeName, rawName);
-      const hasValue = right !== null && right !== undefined;
+      const hasValue = value !== null && value !== undefined;
       const origin = this.classBodyOrigin(collection, hasValue, annotation !== null);
       collection.observations.push({
         name,
@@ -412,9 +424,9 @@ export class PythonFieldExtractor {
         annotationText: annotation ? this.normalizeText(annotation.text) : '',
         annotationIsString: annotation ? this.isStringAnnotation(annotation) : false,
         annotationNode: annotation,
-        initializerText: right ? this.normalizeText(right.text) : '',
-        initializerKind: right ? this.initializerKindOf(right) : PythonInitializerKind.NONE,
-        writtenBuiltinType: right ? this.builtinTypeOfValue(right) : '',
+        initializerText: value ? this.normalizeText(value.text) : '',
+        initializerKind: value ? this.initializerKindOf(value) : PythonInitializerKind.NONE,
+        writtenBuiltinType: value ? this.builtinTypeOfValue(value) : '',
         bindingHash: this.classBodyBinding(collection, name),
         targetByteRange: `${target.startIndex}:${target.endIndex}`,
         declarationPosition: startPosition + consumed,
