@@ -203,12 +203,21 @@ binding_lookup(p, b, b) :- binding_is_local_kind(p, b).
 // boundary, while the identical call inside a function resolved correctly. A
 // GLOBAL_IMPLICIT binding IS the "referenced here, bound elsewhere" marker, so a
 // self-match carries no information.
+// THE TARGET MUST ACTUALLY BIND SOMETHING. bindingCount == 0 marks a REFERENCE-side row:
+// the name is used in that scope and bound nowhere in it. A module scope carries such a row
+// for every builtin the module mentions — `logging`'s module scope has `hasattr` as
+// GLOBAL_IMPLICIT with bindingCount 0 — so an unguarded walk "succeeded" onto a row that
+// declares nothing, binding_lookup_unresolved never fired, and the builtin catalog never
+// got a chance. MEASURED on the stdlib: `hasattr(...)`, `isinstance(...)` and
+// `ValueError(...)` came out ambiguous_unknown/no_rule instead of the named builtin
+// boundary they are — 25 sites in `logging`, 38 in `http`, 26 in `json`.
 binding_lookup(p, b, b2) :-
     binding_is_global_kind(p, b),
     binding_decl(p, n, _, _, _, b),
     binding_owner(p, mod, _, b),
     module_init(p, _, modScope, mod),
-    binding_decl(p, n, modScope, _, _, b2), b2 != b.
+    binding_decl(p, n, modScope, _, _, b2), b2 != b,
+    binding_rebinding(p, cnt, _, _, b2), cnt != "0".
 // (c) FREE / NONLOCAL — nearest enclosing scope that binds the name. Candidate set
 //     first, then the max-depth filter in the next stratum.
 binding_free_candidate(p, b, b2, d) :-
@@ -216,6 +225,7 @@ binding_free_candidate(p, b, b2, d) :-
     binding_decl(p, n, s, _, _, b),
     scope_ancestor(p, s, anc),
     binding_decl(p, n, anc, _, _, b2),
+    binding_rebinding(p, cnt, _, _, b2), cnt != "0",
     scope_depth(p, dstr, _, anc),
     d = to_number(dstr).
 binding_free_nearest_depth(p, b, dmax) :-

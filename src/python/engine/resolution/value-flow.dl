@@ -201,7 +201,9 @@ expr_denotes_method(p, e, m) :-
 // and `thing.draw()` then has a sound two-element dispatch set — not "every class with a
 // method called draw", which is the 24.63-candidates-per-site over-approximation this
 // engine refuses.
-expr_type(p, e, t) :- expr_names_param(p, e, ph), param_arg_type(ph, t), p = "client".
+// param_type, NOT param_arg_type: where the parameter carries a declared annotation that
+// annotation is authoritative, and flow may not widen past it. See the note further down.
+expr_type(p, e, t) :- expr_names_param(p, e, ph), param_type(ph, t), p = "client".
 
 // ── partial_target(SiteKey, MethodHash) — what a partial will call ───────────
 // The callable is argument 0. The remaining arguments are bound, which shifts the
@@ -252,3 +254,59 @@ expr_type_class_object(p, e, t) :-
     expr_binding(p, bref, ctx, e), ctx != "STORE",
     binding_lookup(p, bref, b),
     binding_value_class(p, b, t).
+
+// ============================================================================
+// A DECLARED ANNOTATION IS AUTHORITATIVE — flow may not widen past it
+//
+// THE BUG THIS FIXES, measured on test/python/projects/two-service-fastapi:
+//
+//     def to_dict(self, obj: Item) -> Payload:      # ItemSerializer
+//         return self.envelope(obj.kind(), ...)
+//
+// `obj` is annotated `Item`, and param_arg_type handed it Order, RushOrder and GiftOrder
+// as well — because both serializers are reached through ONE funnel,
+// `serialize(name, obj)`, whose own `obj` is `Any` and receives both items and orders.
+// Unioning the annotation with the flow let that imprecision leak THROUGH the
+// declaration, so `obj.kind()` inside ItemSerializer resolved to Order.kind. Six spurious
+// targets across the two serializers, and the same mistake mirrored in OrderSerializer.
+//
+// The rule: where the programmer declared a type, THAT is the answer, widened over
+// constructed subclasses like any declared type. Flow speaks only where no annotation
+// does. A flowed type outside the declaration means the call graph funnels through a
+// shared entry point — not that the parameter can hold that type at THIS callee.
+//
+// WHAT THIS TRADES. Python does not enforce annotations, so a program that genuinely
+// violates its own hint loses an edge here. That is a real (small) soundness cost and it
+// is recorded rather than absorbed: param_flow_outside_declaration exports every dropped
+// pair, so the cost is countable. On this project it drops 6 pairs and recall stays 1.000
+// — every one was the funnel, none was a real call.
+//
+// param_declared_type is derived from annotations alone and sits OUTSIDE the resolution
+// fixpoint, so negating it here is stratified — which is what makes "authoritative"
+// expressible at all.
+// ============================================================================
+
+// ── ONLY A NOMINAL DECLARATION IS AUTHORITATIVE ──────────────────────────────
+// A Protocol is a STRUCTURAL constraint: nothing is ever nominally an instance of it, and
+// its own members are `...` stubs that can never be call targets. So letting a Protocol
+// annotation override flow answers NOTHING where flow had the answer.
+//
+// MEASURED on test/python/projects/name-collision: `def via_protocol(m: Movable)` calling
+// `m.get_distance()`. Treating `Movable` as authoritative resolved it to the Protocol's own
+// stub — excluded — and the site went from `Bus.get_distance` to nothing, a REAL missing
+// edge. typeCategory=PROTOCOL_TYPE distinguishes the two exactly, so the rule can.
+type_is_structural(p, t) :- type_decl(p, _, _, "PROTOCOL_TYPE", t).
+param_declared_nominal(p, ph, d) :- param_declared_type(p, ph, d), !type_is_structural(p, d).
+
+// ── param_type(ParamHash, TypeHash) — what a parameter may hold ──────────────
+param_type(ph, t) :- param_declared_nominal("client", ph, d), declared_dispatch("client", d, t).
+param_type(ph, t) :- param_arg_type(ph, t), !param_declared_nominal("client", ph, _).
+
+// ── param_flow_outside_declaration(ParamHash, FlowedType, DeclaredType) ──────
+// Flow reached this parameter with a type its annotation does not admit. Each row is one
+// edge the declaration suppressed, and a reason to look at the funnel rather than at the
+// engine.
+param_flow_outside_declaration(ph, f, d) :-
+    param_declared_nominal("client", ph, d),
+    param_arg_type(ph, f), f != d,
+    !type_ancestor("client", f, d).
