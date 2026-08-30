@@ -152,6 +152,12 @@ type_ref_module("lib", m, h) :- lib_ts_type_reference(_, _, _, _, _, _, _, _, _,
 type_ref_import_specifier("client", spec, h) :- ts_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, spec, _, _, _, _, _, _, h), spec != "".
 type_ref_import_specifier("lib", spec, h) :- lib_ts_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, spec, _, _, _, _, _, _, h), spec != "".
 
+// ── type_ref_literal_value(Prov, Value, RefHash) ────────────────────────────
+// A LITERAL type reference's text, quotes included — `'expectTypeOf'`. The index half of
+// an indexed access is one of these.
+type_ref_literal_value("client", v, h) :- ts_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, v, _, _, _, h), v != "".
+type_ref_literal_value("lib", v, h) :- lib_ts_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, v, _, _, _, h), v != "".
+
 // ── type_param(Prov, Name, Position, OwnerKind, OwnerHash, ParamHash) ───────
 // ONE relation where Java has two, because TypeScript attaches type parameters to
 // seven owner kinds (col 7). Consumed by generic substitution, not by dispatch.

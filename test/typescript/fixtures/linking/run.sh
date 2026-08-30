@@ -32,3 +32,51 @@ cp -R "$WORK/project/vendor/." "$WORK/project/node_modules/"
 rm -rf "$WORK/project/vendor"
 
 bash "$REPO/test/typescript/run-evaluation.sh" "$WORK/project" "$WORK/eval"
+
+# ── the gate ─────────────────────────────────────────────────────────────────
+# Until this block existed the fixture only PRINTED: every mechanism below could
+# regress to "no answer" and the run still exited 0. These are the sites whose
+# resolution is the whole point of a package this fixture ships, so a break here
+# names the mechanism that broke rather than moving a corpus percentage.
+#
+# The list is deliberately (file, callee) and not a full edge golden: an edge golden
+# over library declarations moves whenever a vendored .d.ts is edited, and a gate that
+# is re-blessed routinely stops being a gate.
+MISSED="$WORK/eval/missed.tsv"
+SCORE="$WORK/eval/score.txt"
+fail=0
+
+require_resolved() {  # <file-fragment> <calleeName> <why>
+  if awk -F'\t' -v f="$1" -v c="$2" 'NR>1 && index($1,f) && $5==c {found=1} END{exit !found}' "$MISSED"; then
+    echo "FAIL  $1  $2()  — unresolved.  $3"
+    fail=1
+  fi
+}
+
+# Cross-package re-export: @tt/probe reaches @tt/probe-core with `export ... from`
+# and never imports it, so the package is discoverable ONLY by scanning export rows,
+# and its specifier is linkable ONLY by matching the staged package root.
+require_resolved link-crosspkg-reexport.ts probeOf \
+  "staging must discover a package named only by a re-export specifier"
+require_resolved link-crosspkg-reexport.ts probeCount \
+  "export * across a package boundary"
+require_resolved link-crosspkg-reexport.ts toBeAssignableTo \
+  "a method on a class re-exported across a package boundary"
+require_resolved link-crosspkg-reexport.ts probeLocal \
+  "the control: declared in the barrel itself"
+
+# `declare const g: typeof import('@tt/probe')['probeOf']` — vitest's globals.d.ts
+# shape. Needs the INDEXED_ACCESS annotation read as an export lookup.
+require_resolved link-crosspkg-reexport.ts globalProbe \
+  "typeof import(M)[K] must bind the const to the exported function"
+
+# The fixture answers only where it is sure: a WRONG answer here is a rule that
+# manufactures confidence, which is worse than the missing edge it replaces.
+if ! grep -qE '^WRONG \(engine named, oracle disagrees\)[[:space:]]+0$' "$SCORE"; then
+  echo "FAIL  the fixture produced WRONG answers:"
+  grep -E '^WRONG' "$SCORE"
+  fail=1
+fi
+
+[ "$fail" -eq 0 ] && echo "linking fixture: gate ok"
+exit $fail
