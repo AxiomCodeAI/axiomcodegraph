@@ -8,6 +8,7 @@ import f05_decorators as f5
 import f06_flow as f6
 import f07_imports as f7
 import f08_dynamic as f8
+import f09_adversarial as f9
 from tlib import Square
 
 
@@ -28,6 +29,9 @@ def main() -> None:
     print(f7.via_from_declaring_module(), f7.via_module_function())
     print(f8.dict_dispatch_static_key(), f8.dict_dispatch_computed_key("ci"))
     print(f8.getattr_call(Square()), f8.conditional_type(True))
+    print(f9.shadowed_method_name(), f9.override_of_an_inherited_method())
+    print(f9.inherited_through_a_silent_class(), f9.rebound_attribute())
+    print(f9.shadowed_against_a_library_name())
 
 
 if __name__ == "__main__":
