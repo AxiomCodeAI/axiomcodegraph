@@ -1,6 +1,3 @@
-ambiguous_unknown	CHAINED_CALL	f03_generics.bound_generic -> -
-ambiguous_unknown	CHAINED_CALL	f03_generics.bound_generic_other -> -
-ambiguous_unknown	CHAINED_CALL	f03_generics.chained_generic -> -
 ambiguous_unknown	CHAINED_CALL	f08_dynamic.dict_dispatch_computed_key -> -
 ambiguous_unknown	CHAINED_CALL	f08_dynamic.dict_dispatch_static_key -> -
 ambiguous_unknown	DECORATOR_APPLICATION	f05_decorators.<module> -> -
@@ -17,6 +14,11 @@ boundary_lib	CHAINED_CALL	f01_inheritance.lib_diamond -> lib:tlib.shapes.Diamond
 boundary_lib	CHAINED_CALL	f01_inheritance.lib_diamond -> lib:tlib.shapes.DiamondL.name
 boundary_lib	CHAINED_CALL	f01_inheritance.lib_template_method -> lib:tlib.shapes.Base.template
 boundary_lib	CHAINED_CALL	f02_callables.registry_dispatch -> lib:tlib.callables.Registry.dispatch
+boundary_lib	CHAINED_CALL	f03_generics.bound_generic -> lib:tlib.generics.Payload.tag
+boundary_lib	CHAINED_CALL	f03_generics.bound_generic_other -> lib:tlib.generics.Marker.tag
+boundary_lib	CHAINED_CALL	f03_generics.chained_generic -> lib:tlib.generics.Payload.tag
+boundary_lib	CHAINED_CALL	f03_generics.class_named_like_a_typevar -> lib:tlib.generics.Plain.make
+boundary_lib	CHAINED_CALL	f03_generics.class_named_like_a_typevar -> lib:tlib.generics.T.marker
 boundary_lib	CHAINED_CALL	f06_flow.uses_return -> lib:tlib.shapes.Square.name
 boundary_lib	CHAINED_CALL	f07_imports.via_from_declaring_module -> lib:tlib.shapes.Circle.name
 boundary_lib	CHAINED_CALL	f07_imports.via_from_reexport -> lib:tlib.shapes.Square.name
@@ -73,6 +75,7 @@ boundary_lib	SIMPLE_CALL	f03_generics.bound_generic_other -> builtin:object.__in
 boundary_lib	SIMPLE_CALL	f03_generics.bound_generic_other -> lib:tlib.generics.Box.__init__
 boundary_lib	SIMPLE_CALL	f03_generics.chained_generic -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f03_generics.chained_generic -> lib:tlib.generics.Box.__init__
+boundary_lib	SIMPLE_CALL	f03_generics.class_named_like_a_typevar -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f03_generics.unbound_generic -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f03_generics.unbound_generic -> lib:tlib.generics.Box.__init__
 boundary_lib	SIMPLE_CALL	f04_descriptors.LocalCfg.make -> builtin:object.__init__
@@ -109,6 +112,7 @@ known_edge	METHOD_CALL	main.main -> f02_callables.registry_dispatch
 known_edge	METHOD_CALL	main.main -> f03_generics.bound_generic
 known_edge	METHOD_CALL	main.main -> f03_generics.bound_generic_other
 known_edge	METHOD_CALL	main.main -> f03_generics.chained_generic
+known_edge	METHOD_CALL	main.main -> f03_generics.class_named_like_a_typevar
 known_edge	METHOD_CALL	main.main -> f03_generics.unbound_generic
 known_edge	METHOD_CALL	main.main -> f04_descriptors.client_descriptors
 known_edge	METHOD_CALL	main.main -> f04_descriptors.lib_classmethod_on_class

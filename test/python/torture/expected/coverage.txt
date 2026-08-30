@@ -1,24 +1,21 @@
-=== per-family coverage (tier-4, 62 scored sites) ===
+=== per-family coverage (tier-4, 64 scored sites) ===
   f01 inheritance & MRO        links= 10  found= 10 (100.0%)  missed= 0  over-claimed= 0
   f02 callables & closures     links= 10  found=  9 (90.0%)  missed= 1  over-claimed= 0
-  f03 generics                 links= 12  found=  9 (75.0%)  missed= 3  over-claimed= 0
+  f03 generics                 links= 14  found= 14 (100.0%)  missed= 0  over-claimed= 0
   f04 descriptors              links=  9  found=  8 (88.9%)  missed= 1  over-claimed= 0
   f05 decorators               links=  6  found=  1 (16.7%)  missed= 5  over-claimed= 0
   f06 value flow               links=  8  found=  7 (87.5%)  missed= 1  over-claimed= 0
   f07 imports & re-export      links=  5  found=  5 (100.0%)  missed= 0  over-claimed= 0
   f08 dynamic                  links=  2  found=  0 ( 0.0%)  missed= 2  over-claimed= 0
 
-  TOTAL                         links= 62  found= 49 (79.0%)  missed=13  over-claimed= 0
-  recall      49/62 = 79.0%  of the links that actually ran
+  TOTAL                         links= 64  found= 54 (84.4%)  missed=10  over-claimed= 0
+  recall      54/64 = 84.4%  of the links that actually ran
   over-claims 0  edges asserted from an executed caller that never ran
 
   EXPECTED-MISS cases: {'FOUND': 5, 'MISSED': 3}   (a CONCRETE here means a known blind spot closed)
 
 --- non-concrete sites ---
   f02_callables.py:31   MISSED     true=[('lib', 'callables.py', 22)] engine=[]
-  f03_generics.py:8    MISSED     true=[('lib', 'generics.py', 8)] engine=[('lib', 'generics.py', 24)]
-  f03_generics.py:14   MISSED     true=[('lib', 'generics.py', 13)] engine=[('lib', 'generics.py', 24)]
-  f03_generics.py:20   MISSED     true=[('lib', 'generics.py', 8)] engine=[('lib', 'generics.py', 24)]
   f04_descriptors.py:24   MISSED     true=[('lib', 'descriptors.py', 31)] engine=[]
   f05_decorators.py:18   MISSED     true=[('lib', 'decorated.py', 18)] engine=[]
   f05_decorators.py:22   MISSED     true=[('lib', 'decorated.py', 10)] engine=[]
