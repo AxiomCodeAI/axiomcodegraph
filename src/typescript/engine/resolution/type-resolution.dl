@@ -170,7 +170,43 @@ ref_type_target(parent, prov, t) :- type_ref(rp, k, _, _, _, _, _, parent),
     ref_kind_is_transparent(k),
     type_ref_parent(rp, parent, _, child),
     ref_type_target(child, prov, t).
+// A `readonly` operator, identified by its written form. Without it a
+// `readonly string[]` parameter has NO resolved type, param_untestable fires, and the
+// overload it belongs to survives every prune: measured on the fixture,
+// `new Registry("seed")` kept the `readonly string[]` constructor as a second target.
+ref_is_readonly_operator(ref) :- type_ref(_, "TYPE_OPERATOR", _, _, ctn, _, _, ref),
+    strlen(ctn) > 9,
+    substr(ctn, 0, 9) = "readonly ".
+// `readonly T[]` is `ReadonlyArray<T>`, NOT `Array<T>`, and the difference is
+// observable: `join` is declared on both, and the compiler names ReadonlyArray's for a
+// readonly receiver. Descending straight to the ARRAY child resolved it to Array and
+// scored as a wrong target. Only when ReadonlyArray is absent from the staged library
+// does the array child stand in.
+readonly_over_array(parent) :- ref_is_readonly_operator(parent),
+    type_ref_parent(rp, parent, _, child),
+    type_ref(rp, k, _, _, _, _, _, child),
+    ref_kind_is_array(k).
+ref_type_target(parent, prov, t) :- readonly_over_array(parent),
+    type_ref_module(_, mod, parent),
+    scope_name_binds(_, mod, "ReadonlyArray", prov, "TYPE", t).
+readonly_array_resolved(parent) :- readonly_over_array(parent),
+    type_ref_module(_, mod, parent),
+    scope_name_binds(_, mod, "ReadonlyArray", _, "TYPE", _).
+ref_type_target(parent, prov, t) :- ref_is_readonly_operator(parent),
+    !readonly_array_resolved(parent),
+    type_ref_parent(_, parent, _, child),
+    ref_type_target(child, prov, t).
+ref_shape_target(parent, shape) :- ref_is_readonly_operator(parent),
+    type_ref_parent(_, parent, _, child),
+    ref_shape_target(child, shape).
+ref_element_target(parent, prov, t) :- ref_is_readonly_operator(parent),
+    type_ref_parent(_, parent, _, child),
+    ref_element_target(child, prov, t).
 ref_kind_is_transparent("PARENTHESIZED").
+// `readonly T[]` is a TYPE_OPERATOR wrapping the array, and it denotes the same
+// members. Only `readonly` — `keyof T` denotes the KEYS and `unique symbol` denotes
+// something else again, so both are excluded by the completeTypeName test in
+// ref_is_readonly_operator below rather than by admitting the whole kind.
 ref_kind_is_transparent("OPTIONAL").
 ref_kind_is_transparent("REST").
 ref_kind_is_transparent("NAMED_TUPLE_MEMBER").

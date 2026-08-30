@@ -120,7 +120,9 @@ def main():
     for row in read_tsv(oracle_path):
         key = (row[0], row[1], row[2], row[3], row[4])
         tf, tl, tc, tkind = row[7], row[8], row[9], row[11]
-        oracle[key] = (base(tf), tl, tc, tkind, row[6], row[5])
+        ocount = int(row[12]) if len(row) > 12 and row[12].isdigit() else 1
+        oidx = int(row[13]) if len(row) > 13 and row[13].isdigit() else 0
+        oracle[key] = (base(tf), tl, tc, tkind, row[6], row[5], ocount, oidx)
 
     # ---- join on position ----
     buckets = defaultdict(int)
@@ -130,6 +132,12 @@ def main():
     missed_by_target = defaultdict(int)
     missed_rows = []
 
+    # THE OVERLOAD SLICE. "Did the engine find the right function" and "did it find the
+    # right SIGNATURE" are different questions, and only the second is hard: the schema
+    # measures 77.6% of overloaded calls resolving to a NON-FIRST declaration, so an
+    # engine that always took declaration 0 would score well on names and be wrong three
+    # times in four exactly where it matters.
+    ov = defaultdict(int)
     matched = 0
     for ce, (f, line, col, eline, ecol, ckind, cname) in call_pos.items():
         key = (f, line, col, eline, ecol)
@@ -163,6 +171,12 @@ def main():
                 wrong_examples.append((f, line, col, ckind, cname, otarget, sorted(eng)[:3]))
         buckets[b] += 1
         by_kind[ckind][b] += 1
+        if len(o) > 6 and o[6] > 1:
+            ov['sites'] += 1
+            ov[f'bucket:{b}'] += 1
+            if o[7] > 0:
+                ov['non_first'] += 1
+                ov[f'non_first:{b}'] += 1
 
     total = sum(buckets.values())
     decidable = sum(
@@ -188,6 +202,22 @@ def main():
     print(f'target in engine set        {right:>7}   {right_rate:.3f}')
     print(f'WRONG (engine named, oracle disagrees)  {buckets["WRONG"]}')
     print()
+    if ov['sites']:
+        dec = ov['bucket:EXACT'] + ov['bucket:SOUND_SUPERSET'] + ov['bucket:WRONG'] + ov['bucket:MISSED']
+        print('overload sites (the resolved symbol has more than one declaration):')
+        print(f'  sites                       {ov["sites"]}')
+        print(f'  of which the compiler chose a NON-FIRST declaration   {ov["non_first"]}')
+        print(f'  EXACT                       {ov["bucket:EXACT"]}   '
+              f'{ov["bucket:EXACT"] / dec if dec else 0:.3f}')
+        print(f'  SOUND_SUPERSET              {ov["bucket:SOUND_SUPERSET"]}')
+        print(f'  WRONG                       {ov["bucket:WRONG"]}')
+        print(f'  MISSED                      {ov["bucket:MISSED"]}')
+        nf = ov['non_first:EXACT'] + ov['non_first:SOUND_SUPERSET'] + ov['non_first:WRONG'] + ov['non_first:MISSED']
+        if nf:
+            print(f'  on NON-FIRST choices only:  EXACT {ov["non_first:EXACT"]}   '
+                  f'{ov["non_first:EXACT"] / nf if nf else 0:.3f}   '
+                  f'(WRONG {ov["non_first:WRONG"]}, MISSED {ov["non_first:MISSED"]})')
+        print()
     print('by call kind:')
     for k in sorted(by_kind, key=lambda k: -sum(by_kind[k].values())):
         d = by_kind[k]
@@ -258,6 +288,34 @@ def main():
         print('top missed by ORACLE TARGET FILE (which declaration family is unreachable):')
         for name, n in sorted(missed_by_target.items(), key=lambda x: -x[1])[:20]:
             print(f'  {n:>6}  {name}')
+    site_dump = os.environ.get('SITE_DUMP')
+    if site_dump:
+        # Every site, with the compiler's answer beside the engine's. On a small
+        # fixture this IS the validation — a reader checks 83 rows against the source
+        # rather than trusting an aggregate.
+        with open(site_dump, 'w', encoding='utf-8') as fh:
+            fh.write('verdict\tcallFile\tline\tcol\tkind\tcallee\toverloads\tchosen\toracleTarget\tengineTargets\n')
+            for ce, (f, line, col, eline, ecol, ckind, cname) in sorted(
+                    call_pos.items(), key=lambda kv: (kv[1][0], int(kv[1][1]), int(kv[1][2]))):
+                o = oracle.get((f, line, col, eline, ecol))
+                if not o:
+                    continue
+                eng = sorted(f'{t[0]}:{t[1]}:{t[2]}' for t in engine_targets.get(ce, set()))
+                ot = f'{o[0]}:{o[1]}:{o[2]}'
+                if o[3] == 'synthesized':
+                    v = 'SYNTHESIZED'
+                elif not eng:
+                    v = 'MISSED'
+                elif ot in eng:
+                    v = 'EXACT' if len(eng) == 1 else 'SUPERSET'
+                else:
+                    v = 'WRONG'
+                fh.write('\t'.join([v, f, line, col, ckind, cname,
+                                    str(o[6]) if len(o) > 6 else '1',
+                                    str(o[7]) if len(o) > 7 else '0',
+                                    ot, ';'.join(eng)]) + '\n')
+        print(f'\nper-site detail written to {site_dump}')
+
     dump = os.environ.get('MISSED_DUMP')
     if dump and missed_rows:
         with open(dump, 'w', encoding='utf-8') as fh:

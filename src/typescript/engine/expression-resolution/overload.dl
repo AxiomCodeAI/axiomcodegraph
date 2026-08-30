@@ -118,8 +118,23 @@ arg_is_target_typed(ce, pos) :- expr_child("client", ce, "ARGUMENT", pos, a),
 expr_kind_is_target_typed("ARROW_FUNCTION").
 expr_kind_is_target_typed("FUNCTION_EXPRESSION").
 expr_kind_is_target_typed("OBJECT_LITERAL").
-expr_kind_is_target_typed("ARRAY_LITERAL").
 expr_kind_is_target_typed("SPREAD_ELEMENT").
+// ARRAY_LITERAL stays target-typed, and treating it as ordinarily typed was tried and
+// REVERTED. It does have a type — `Array` — but `Array` is assignable to `Iterable<T>`,
+// `ArrayLike<T>` and `ReadonlyArray<T>` through relationships that exist in the
+// checker and NOT in the IR: lib.es5 declares no heritage between them. So a nominal
+// test rejects `new Set([...])` against `new <T>(iterable: Iterable<T>)` and prunes the
+// overload the compiler actually chose. Measured on the Parser repository: it turned
+// `new Set(EXCLUDED_DIRS)` from an honest two-way set into a wrong single answer.
+expr_kind_is_target_typed("ARRAY_LITERAL").
+
+// What CAN be said about an array literal is that it is not a primitive. That
+// contradiction is decidable with nothing but the parameter's own annotation, and it is
+// what separates `constructor(seed: readonly string[])` from `constructor(seed: string)`.
+arg_mismatch(ce, m) :- expr_call_candidate(ce, m),
+    expr_child("client", ce, "ARGUMENT", pos, a),
+    expr_kind("client", "ARRAY_LITERAL", _, a),
+    param_primitive(m, pos, _).
 
 // ── param_type_at(Callee, Position, TypeHash) ───────────────────────────────
 // GUARDED by the candidate set, the same discipline the Java engine needed: without
@@ -150,6 +165,15 @@ param_untestable(m, pos) :- expr_call_candidate(_, m),
 // satisfaction, a numeric widening) never needs this rule touched.
 arg_compatible_at(ce, m, pos) :- arg_type(ce, pos, at),
     param_type_at(m, pos, at).
+// SAME MERGED ENTITY, not same declaration. `Array` has eight declarations across the
+// standard library and `String` four; an argument resolved to one and a parameter
+// resolved to another are the SAME TYPE and were being scored as a mismatch, because
+// the test compared declaration hashes. This is the merging rule the schema states in
+// its first numbered note, applied where it actually bites.
+arg_compatible_at(ce, m, pos) :- arg_type(ce, pos, at),
+    param_type_at(m, pos, pt),
+    same_type_entity(at, pt).
+same_type_entity(a, b) :- type_group(_, g, a), type_group(_, g, b).
 arg_compatible_at(ce, m, pos) :- arg_type(ce, pos, at),
     param_type_at(m, pos, pt),
     type_subtype_star(at, pt).
@@ -341,9 +365,28 @@ overload_selectable(ce, m) :- expr_pruned(ce, m),
 // them on this repository's own source — so the clause above cannot fire for any of
 // them and `const fail = (m) => …; fail(x)` resolved to NOTHING despite the binder
 // naming the arrow directly. `fail` alone was 93 sites.
+//
+// …EXCEPT where the OWNER already declares overload signatures of that name. A CLASS
+// METHOD's overloads carry no group either — measured on the overload fixture, all
+// five `add` declarations have an empty declarationGroupKey — so without this guard
+// the implementation is selectable alongside the signature the compiler chose, and
+// every overloaded method call is multi_inferred by exactly one spurious target.
+// The group is missing; the owner and the name are not, and together they identify
+// the overload set just as well.
 overload_selectable(ce, m) :- expr_pruned(ce, m),
     method_signature_role_of(m, "IMPLEMENTATION"),
-    !method_group_of(m, _).
+    !method_group_of(m, _),
+    method_owner(_, ow, m),
+    method_decl(_, _, en, _, m),
+    !owner_name_has_overload_signature(ow, en).
+overload_selectable(ce, m) :- expr_pruned(ce, m),
+    method_signature_role_of(m, "IMPLEMENTATION"),
+    !method_group_of(m, _),
+    !method_owner(_, _, m).
+owner_name_has_overload_signature(ow, en) :- method_owner(_, ow, m),
+    ow != "",
+    method_decl(_, _, en, _, m),
+    method_signature_role_of(m, "OVERLOAD_SIGNATURE").
 // And a declaration with no signatureRole at all, for the same reason: an absence of
 // evidence must not remove a candidate the arity test already accepted.
 overload_selectable(ce, m) :- expr_pruned(ce, m),
