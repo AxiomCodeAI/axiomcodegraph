@@ -1,0 +1,4 @@
+oracle=4 engine=7 agree=4 missing=0 (known 0, NEW 0) extra=3
+  extra    duck#consume(Reader) -> FileReader#read()
+  extra    duck#consume(Reader) -> NetReader#read()
+  extra    duck#useLibrary() -> FileReader#close()

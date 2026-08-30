@@ -1,0 +1,135 @@
+// ============================================================================
+// Resolution · VALUE FLOW  (what a receiver HOLDS, not what it is declared as)
+//
+// The port of Java's local-flow.dl and type-flow.dl, and the layer this engine was
+// missing. Without it a receiver declared by an INTERFACE dispatches to every
+// implementation of that interface even when the line above says exactly which class
+// it holds:
+//
+//     const h: Handler = new LowerHandler();
+//     h.handle(x);          // four targets, and three of them cannot run
+//
+// ── THE SHAPE OF THE JAVA LAYER, AND WHAT I HAD WRONG ───────────────────────
+// Java ADDS the flowed type to expr_type POSITIVELY, alongside the declared one, and
+// lets the dispatch cap drop the wide interface fan. My first cut instead gated
+// flow-typing behind `!var_has_declared_type`, so an ANNOTATED local never narrowed at
+// all — which is the majority of them, since TypeScript annotations are the norm.
+// "Declared wins over flowed" is the right law for what a receiver IS; it is the wrong
+// law for what it HOLDS, and dispatch asks the second question.
+//
+// ── TYPESCRIPT'S `const` IS A STRONGER GUARANTEE THAN JAVA'S `final` ────────
+// Java's type-flow.dl can only pin a FINAL FIELD, and has to leave locals to an
+// assignment scan. Here `const` forbids rebinding outright and the parser records it
+// directly (measured: 5,541 of 6,254 client variables are const), so a const
+// initialised with `new C()` is provably monomorphic with no scan at all. That is what
+// lets this file emit expr_exact_type — the relation callee-resolution.dl negates to
+// suppress the fan — for a case Java needs a whole extra layer to reach.
+//
+// A `let` gets the flowed type but NOT exactness: it can be reassigned, so its
+// initializer is evidence and not proof. Reassignments are unioned in, which is
+// accurate — the receiver really can hold any of them.
+//
+// ── STRATIFICATION ──────────────────────────────────────────────────────────
+// expr_type additions are POSITIVE and join the existing monotone fixpoint. The
+// expr_exact_type additions are the delicate part: that relation is NEGATED by the fan
+// rule, so anything feeding it must sit BELOW the fixpoint. Both exactness clauses
+// here read new_expression_type only — base facts plus ref_type_target — and never
+// expr_type, which is why the monomorphic-const case can suppress the fan and the
+// qualified-field case (which would need expr_type of the qualifier) deliberately
+// cannot. Java's type-flow.dl records the identical split for the identical reason.
+// ============================================================================
+
+// ── var_flow_type(VarHash, Prov, TypeHash) — what is assigned into a variable ──
+// ADDITIVE, and deliberately not gated on the absence of an annotation.
+var_flow_type(v, prov, t) :- var_initializer("client", _, e, v),
+    e != "",
+    expr_type(e, prov, t).
+var_flow_type(v, prov, t) :- var_reassigned_value(v, e),
+    expr_type(e, prov, t).
+
+// `name = value` where `name` resolves to a variable. TypeScript writes this as an
+// ASSIGNMENT_EXPRESSION with LEFT_OPERAND / RIGHT_OPERAND children — not Java's
+// ASSIGNMENT_TARGET / ASSIGNMENT_VALUE — and the left operand carries the binder's own
+// answer, so the target does not have to be re-bound by name as Java's rule does.
+var_reassigned_value(v, val) :- expr_kind("client", "ASSIGNMENT_EXPRESSION", _, asgn),
+    expr_child("client", asgn, "LEFT_OPERAND", _, tgt),
+    expr_referenced("client", "VARIABLE", v, tgt),
+    expr_child("client", asgn, "RIGHT_OPERAND", _, val).
+var_reassigned(v) :- var_reassigned_value(v, _).
+
+// ── the receiver takes what its variable holds ──────────────────────────────
+expr_type(e, prov, t) :- expr_referenced("client", "VARIABLE", v, e),
+    var_flow_type(v, prov, t).
+expr_shape(e, s) :- expr_referenced("client", "VARIABLE", v, e),
+    var_initializer("client", _, init, v),
+    init != "",
+    expr_shape(init, s).
+
+// ── var_monomorphic(VarHash, TypeHash) — provably one runtime type ──────────
+// A `const` whose initializer is a direct `new C()`. No reassignment is possible, and
+// no other value flows in, so the receiver IS a C. Two guards: exactly one created
+// type (a resolver emitting two candidates is not proof), and the initializer kind is
+// NEW rather than anything that merely returns an object.
+var_new_type(v, t) :- var_initializer("client", "NEW", e, v),
+    e != "",
+    new_expression_type(e, _, t).
+var_multi_new(v) :- var_new_type(v, t1), var_new_type(v, t2), t1 != t2.
+var_monomorphic(v, t) :- var_new_type(v, t),
+    var_flags("client", "true", _, _, v),
+    !var_multi_new(v),
+    !var_reassigned(v).
+
+// THE FAN SUPPRESSION. expr_exact_type is what callee-resolution.dl negates, so this
+// is the clause that turns `const h: Handler = new LowerHandler(); h.handle(x)` from a
+// four-way fan into one target.
+expr_exact_type(e, t) :- expr_referenced("client", "VARIABLE", v, e),
+    var_monomorphic(v, t).
+expr_type(e, "client", t) :- expr_referenced("client", "VARIABLE", v, e),
+    var_monomorphic(v, t),
+    type_decl("client", _, _, _, _, _, t).
+expr_type(e, "lib", t) :- expr_referenced("client", "VARIABLE", v, e),
+    var_monomorphic(v, t),
+    type_decl("lib", _, _, _, _, _, t).
+
+// ── field_monomorphic(FieldHash, TypeHash) — the readonly-field idiom ───────
+// `private readonly repo = new SqlRepo()` and `private readonly repo: Repo = new
+// SqlRepo()`. readonly forbids reassignment outside the constructor, which is the same
+// guarantee Java gets from `final` — measured, 801 of 4,272 client fields are readonly.
+field_new_type(f, t) :- field_initializer("client", e, f),
+    new_expression_type(e, _, t).
+field_multi_new(f) :- field_new_type(f, t1), field_new_type(f, t2), t1 != t2.
+field_is_readonly(f) :- ts_field(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, f).
+field_monomorphic(f, t) :- field_new_type(f, t),
+    field_is_readonly(f),
+    !field_multi_new(f).
+
+// A field's flowed type, additive, whether or not it is readonly — the same
+// declared-vs-held distinction as for a variable.
+field_flow_type(f, prov, t) :- field_initializer("client", e, f),
+    expr_type(e, prov, t).
+
+// ── the receiver takes what its field holds ─────────────────────────────────
+// `this.repo.find()`: the property access is typed by the field's flowed type as well
+// as its declared one.
+expr_type(e, prov, t) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
+    property_access_name(e, n),
+    expr_child("client", e, "RECEIVER", _, q),
+    expr_type(q, _, qt),
+    field_in_scope(qt, n, "false", f),
+    field_flow_type(f, prov, t).
+
+// EXACTNESS for a readonly field reached through `this`. Restricted to a THIS_REFERENCE
+// qualifier on purpose: the enclosing type comes from containment, which is below the
+// fixpoint, whereas an arbitrary qualifier's type comes from expr_type and feeding that
+// into a negated relation would put the negation inside its own cycle. Java's
+// type-flow.dl draws the identical line and records the identical reason.
+expr_exact_type(e, t) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
+    property_access_name(e, n),
+    expr_child("client", e, "RECEIVER", _, q),
+    expr_kind("client", "THIS_REFERENCE", _, q),
+    expr_enclosing_type(q, encl),
+    field_in_enclosing(encl, n, f),
+    field_monomorphic(f, t).
+field_in_enclosing(encl, n, f) :- field_decl("client", n, _, encl, f).
+field_in_enclosing(encl, n, f) :- type_ancestor(encl, anc),
+    field_decl("client", n, _, anc, f).

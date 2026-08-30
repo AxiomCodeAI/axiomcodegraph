@@ -1,0 +1,116 @@
+// ============================================================================
+// Resolution · CONTEXTUAL PARAMETER TYPING  (the callback's parameter)
+//
+// `xs.filter((a) => a.tag())` — `a` carries no written type. Its type is the type of
+// the parameter of the SIGNATURE the arrow is being passed to, with the callee's type
+// variables substituted from the RECEIVER. Without it the arrow's body is untyped and
+// every call inside it dies: 12 sites in the typeflow fixture, and `map` / `filter` /
+// `reduce` / `forEach` callbacks are the most common higher-order shape there is.
+//
+// generics.dl already substitutes on the RETURN side — `find(): T | undefined` bound
+// from the receiver's declared reference — and its header excludes the parameter side
+// by name. This is that other side, built from the same four relations it uses:
+// expr_decl_ref, type_arg_binding, owner_declares_param, ref_type_target.
+//
+// ── WHY IT IS MODELLED ON THE JAVA ENGINE ───────────────────────────────────
+// java/expression-resolution/lambda.dl solves the identical problem and has already
+// paid for the mistakes. Its shape is (1) find the target signature from the callee's
+// parameter at the argument's position, (2) take that signature's k-th parameter, and
+// (3) where that parameter is a type VARIABLE rather than a concrete type, bind it —
+// its clause (3c) notes the variable is usually bound "not on the param type but by the
+// RECEIVER's generics (Pipe<LSink> → T=LSink)", which is exactly `Array<Alpha>.filter`.
+// Both clauses below are kept for the same reason Java keeps both: a concrete signature
+// parameter needs no binding, and a generic one cannot resolve without it.
+//
+// Java's clause (i-b) is the warning worth repeating. The JDK writes
+// `forEach(Consumer<? super T>)`, so the variable sits a level deeper than the obvious
+// one and their depth-1 rule matched NOTHING — `fi_tvar_arg` was 0 rows for every JDK
+// higher-order method until the wildcard was made transparent. TypeScript's equivalent
+// is `readonly T[]` and `ReadonlyArray<T>` in a parameter position; if this file
+// measures as no-change, that nesting is the first thing to look at.
+//
+// ── STRATIFICATION ──────────────────────────────────────────────────────────
+// Positive throughout — no negation. expr_type ⇄ expr_call_candidate ⇄
+// lambda_param_type ⇄ expr_type is mutual recursion in one stratum, the same shape
+// generics.dl already sits in.
+// ============================================================================
+
+// ── the argument that is a function value, and the declaration it introduces ─
+fn_value_kind("ARROW_FUNCTION").
+fn_value_kind("FUNCTION_EXPRESSION").
+
+callback_arg(ce, argpos, lm) :- expr_child("client", ce, "ARGUMENT", argpos, lam),
+    expr_kind("client", k, _, lam),
+    fn_value_kind(k),
+    expr_anon_decl("client", lm, lam).
+
+// ── the signature the callback is passed to, read off the TYPE REFERENCE ───
+// An inline `(value: T, index: number, array: T[]) => unknown` is NOT a declaration:
+// it has no resolved type, no shape, and no call-signature method — measured, there are
+// ZERO call-signature methods in the whole staged standard library. Routing through
+// call_signature_in_scope therefore produced nothing at all, twice, before this was
+// checked. What the parser does emit is the function type as a FUNCTION_TYPE reference
+// whose PARAMETER TYPES are its positional children:
+//
+//   FUNCTION_TYPE  ─ 0 TYPE_VARIABLE T   ─ 1 PRIMITIVE number
+//                  ─ 2 ARRAY             ─ 3 PRIMITIVE unknown   ← the RETURN type
+//
+// So the k-th parameter is the k-th child. The last child is the return and is not a
+// parameter, which needs no guard: TypeScript forbids a callback with more parameters
+// than its target signature, so a lambda parameter's position can never reach it.
+callee_fn_param_ref(callee, argpos, fref) :- param_decl(_, _, argpos, _, callee, p),
+    param_type_ref(_, fref, p),
+    type_ref(_, "FUNCTION_TYPE", _, _, _, _, _, fref).
+
+fn_param_tvar(fref, k, pname) :- type_ref_parent(_, fref, k, child),
+    type_ref(_, "TYPE_VARIABLE", _, pname, _, _, _, child),
+    pname != "".
+fn_param_type(fref, k, prov, t) :- type_ref_parent(_, fref, k, child),
+    ref_type_target(child, prov, t).
+
+// ── bind the callback's parameters ──────────────────────────────────────────
+// (a) CONCRETE — the signature names a real type, so no substitution is needed.
+lambda_param_type(lp, prov, t) :- callback_arg(ce, argpos, lm),
+    expr_call_candidate(ce, callee),
+    callee_fn_param_ref(callee, argpos, fref),
+    fn_param_type(fref, k, prov, t),
+    param_decl(_, _, k, _, lm, lp).
+
+// (b) GENERIC — the signature's k-th parameter is a type VARIABLE, bound by the
+// RECEIVER's own type arguments. This is java/lambda.dl clause (3c): the variable is
+// bound "not on the param type but by the RECEIVER's generics".
+lambda_param_type(lp, prov, t) :- callback_arg(ce, argpos, lm),
+    ts_call_site(_, _, _, recv, _, ce, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
+    recv != "",
+    expr_decl_ref(recv, rref),
+    expr_call_candidate(ce, callee),
+    callee_fn_param_ref(callee, argpos, fref),
+    fn_param_tvar(fref, k, pname),
+    owner_declares_param(callee, pname),
+    type_arg_binding(rref, pname, argRef),
+    ref_type_target(argRef, prov, t),
+    param_decl(_, _, k, _, lm, lp).
+
+// (c) GENERIC THROUGH THE ARRAY SHORTHAND — the TypeScript form of the trap
+// java/lambda.dl records at (i-b), where the variable hid under `Consumer<? super T>`
+// and their depth-1 rule matched nothing. Here it hides under `T[]`: `xs: Alpha[]` is an
+// ARRAY reference, never resolves to the Array declaration, and clause (b) finds no
+// parameter to bind. ref_element_target already knows an array's element type.
+// owner_declares_param keeps it honest — `filter`'s callback parameter is Array's own
+// variable T and binds; `reduce`'s first is U, declared on the method, and does not.
+lambda_param_type(lp, prov, t) :- callback_arg(ce, argpos, lm),
+    ts_call_site(_, _, _, recv, _, ce, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
+    recv != "",
+    expr_decl_ref(recv, rref),
+    expr_call_candidate(ce, callee),
+    callee_fn_param_ref(callee, argpos, fref),
+    fn_param_tvar(fref, k, pname),
+    owner_declares_param(callee, pname),
+    ref_element_target(rref, prov, t),
+    param_decl(_, _, k, _, lm, lp).
+
+// ── and type the uses inside the body ───────────────────────────────────────
+// The arrow's parameter has no annotation, so param_type is empty for it and this adds
+// rather than competes. A parameter that IS annotated keeps its declared type.
+expr_type(e, prov, t) :- expr_referenced("client", "PARAMETER", p, e),
+    lambda_param_type(p, prov, t).

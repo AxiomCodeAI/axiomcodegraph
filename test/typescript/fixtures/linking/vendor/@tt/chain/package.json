@@ -1,0 +1,1 @@
+{ "name": "@tt/chain", "version": "1.0.0", "main": "chain-top.js", "types": "chain-top.d.ts" }

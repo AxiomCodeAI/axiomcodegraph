@@ -1,0 +1,6 @@
+{
+  "name": "typeflow-fixture",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Every way a receiver's type is arrived at other than being written on the declaration."
+}

@@ -1,0 +1,1 @@
+{ "name": "@tt/named", "version": "1.0.0", "main": "named-api.js", "types": "named-api.d.ts" }

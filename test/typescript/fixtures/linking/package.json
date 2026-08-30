@@ -1,0 +1,6 @@
+{
+  "name": "linking-fixture",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Client-to-library linking: every module form a published package can present itself in, and the one declaration each call must land on."
+}

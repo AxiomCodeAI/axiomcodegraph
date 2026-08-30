@@ -1,0 +1,127 @@
+// ============================================================================
+// Resolution · GENERIC SUBSTITUTION  (T, bound at the receiver's declaration)
+//
+// `items.find(p)` where `items: GradleDeclaration[]` returns `T | undefined`, and T
+// is Array's type parameter. Without substitution the result has no named type, so
+// the NEXT hop dies: `items.find(p).getHash()` was 298 unresolved sites on this
+// corpus, and `filter`, `slice`, `pop`, `at` and `map` add several hundred more. The
+// Java engine records the same gap in its README — "generic substitution through
+// library-written type arguments is incomplete" — and it is the single largest
+// remaining structural hole here too.
+//
+// ── THE MECHANISM ───────────────────────────────────────────────────────────
+// The type ARGUMENTS live on the reference, not on the type: `Map<string, Handler>`
+// is one TYPE_REFERENCE row for Map with two children at positions 0 and 1. The type
+// PARAMETERS live on the declaration, each with a position. So binding is a
+// positional join between the two, keyed on the reference the RECEIVER was declared
+// with — which is why expr_decl_ref exists: the receiver's TYPE is not enough, the
+// reference that produced it is needed.
+//
+// ── WHAT IS AND IS NOT COVERED ──────────────────────────────────────────────
+// Covered: a return type that IS a type variable (`get(): T`), a UNION containing one
+// (`find(): T | undefined`), and an ARRAY of one (`filter(): T[]`) — which is the
+// shape of essentially every collection accessor.
+//
+// NOT covered, deliberately: a return type expressed through the method's OWN type
+// parameter inferred from a callback (`map<U>(f: (t: T) => U): U[]`). U is bound by
+// the argument's return type, which is inference rather than substitution, and
+// guessing it would fabricate. Those sites stay unresolved and countable.
+//
+// ── STRATIFICATION ──────────────────────────────────────────────────────────
+// Inside the expr_type fixpoint (expr_decl_ref reads expr_type for the chained case)
+// and entirely positive — no negation anywhere in this file.
+// ============================================================================
+
+// ── type_arg_binding(RefHash, ParamName, ArgRefHash) ────────────────────────
+// The reference `X<A0, A1>` binds X's parameter at position i to its child at
+// position i. Bounded by references that actually resolve to a generic declaration.
+type_arg_binding(ref, pname, argRef) :- type_ref_resolves(_, ref, t),
+    type_param(_, pname, pos, _, t, _),
+    pname != "",
+    type_ref_parent(_, ref, pos, argRef).
+
+// ── expr_decl_ref(ExprHash, RefHash) ────────────────────────────────────────
+// The type REFERENCE a receiver expression was declared with — where its type
+// arguments are written. Distinct from expr_type, which has already thrown the
+// arguments away by resolving to a declaration.
+expr_decl_ref(e, r) :- expr_referenced("client", "VARIABLE", v, e),
+    var_type_ref(_, r, v).
+expr_decl_ref(e, r) :- expr_referenced("client", "PARAMETER", p, e),
+    param_type_ref(_, r, p).
+expr_decl_ref(e, r) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
+    property_access_name(e, n),
+    expr_child("client", e, "RECEIVER", _, q),
+    expr_type(q, _, qt),
+    field_in_scope(qt, n, "false", f),
+    field_type_ref(_, r, f).
+// A chained receiver: `getItems().find(p)` — the reference is the callee's declared
+// RETURN type, which carries its own arguments.
+expr_decl_ref(e, r) :- expr_call_candidate(e, callee),
+    method_return_ref(_, r, callee).
+// An un-annotated variable takes its initializer's reference, so
+// `const xs = getItems(); xs.find(p)` substitutes exactly as the direct form does.
+expr_decl_ref(e, r) :- expr_referenced("client", "VARIABLE", v, e),
+    !var_has_declared_type(v),
+    var_initializer("client", _, init, v),
+    init != "",
+    expr_decl_ref(init, r).
+
+// ── return_type_variable(MethodHash, ParamName) — the three covered shapes ──
+// (1) the return type IS the variable.
+return_type_variable(m, pname) :- method_return_ref(_, r, m),
+    type_ref(_, "TYPE_VARIABLE", _, pname, _, _, _, r),
+    pname != "".
+// (2) a UNION or PARENTHESIZED wrapper around it — `T | undefined`, the shape of
+// every partial accessor in the standard library.
+return_type_variable(m, pname) :- method_return_ref(_, r, m),
+    type_ref(rp, k, _, _, _, _, _, r),
+    return_wrapper_kind(k),
+    type_ref_parent(rp, r, _, child),
+    type_ref(_, "TYPE_VARIABLE", _, pname, _, _, _, child),
+    pname != "".
+return_wrapper_kind("UNION").
+return_wrapper_kind("PARENTHESIZED").
+return_wrapper_kind("OPTIONAL").
+
+// (3) `T[]` — the return is an ARRAY of the variable. The call's own type is Array
+// (already resolved by the ordinary rules); what this adds is the ELEMENT, so a
+// further `[0]` or `for…of` reaches the substituted type.
+return_element_type_variable(m, pname) :- method_return_ref(_, r, m),
+    type_ref(rp, k, _, _, _, _, _, r),
+    ref_kind_is_array(k),
+    type_ref_parent(rp, r, _, child),
+    type_ref(_, "TYPE_VARIABLE", _, pname, _, _, _, child),
+    pname != "".
+
+// ── the substituted type of a call ──────────────────────────────────────────
+// The type variable is resolved on the method's DECLARING type, and the binding is
+// taken from the receiver's own reference. `owner_declares_param` requires the
+// parameter to belong to the callee's owner (or a declaration merged with it), which
+// is what keeps an unrelated `T` on some other type from being substituted here.
+owner_declares_param(m, pname) :- method_owner(_, ot, m),
+    scope_sibling(ot, sib),
+    type_param(_, pname, _, _, sib, _).
+
+expr_type(ce, prov, t) :- ts_call_site(_, _, _, recv, _, ce, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
+    recv != "",
+    expr_decl_ref(recv, rref),
+    expr_call_candidate(ce, callee),
+    return_type_variable(callee, pname),
+    owner_declares_param(callee, pname),
+    type_arg_binding(rref, pname, argRef),
+    ref_type_target(argRef, prov, t).
+
+expr_element_type(ce, prov, t) :- ts_call_site(_, _, _, recv, _, ce, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
+    recv != "",
+    expr_decl_ref(recv, rref),
+    expr_call_candidate(ce, callee),
+    return_element_type_variable(callee, pname),
+    owner_declares_param(callee, pname),
+    type_arg_binding(rref, pname, argRef),
+    ref_type_target(argRef, prov, t).
+
+// ── an ELEMENT ACCESS on a generic container — `map.get(k)!`, `xs[0]` ───────
+// The element of `X<A>` where X's element parameter is bound: this is what makes
+// `items[0].getHash()` resolve when `items: Item[]` is written as `Array<Item>`.
+expr_element_type(e, prov, t) :- expr_decl_ref(e, r),
+    ref_element_target(r, prov, t).

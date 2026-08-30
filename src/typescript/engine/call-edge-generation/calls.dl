@@ -1,0 +1,128 @@
+// ============================================================================
+// CALL-EDGE-GEN · CLIENT CALL EDGES
+//
+// Resolved call-graph edges out of client call sites, split by whether the callee is
+// CLIENT or LIBRARY code. This is the layer the user's question lands on: "if
+// someone provides the IR of the external libraries, do we know exactly where to
+// go" — client_calls_lib is that answer, and it is a real method hash in the library
+// IR, not a name or a package.
+//
+// Row: CallerProv  CallSiteExpr  CalleeProv  CalleeMethod
+//   client_calls_client : "client"  callExpr  "client"  callee
+//   client_calls_lib    : "client"  callExpr  "lib"     callee
+//
+// ── THE NEAREST-DECLARATION GATE, AND WHY IT IS SMALLER HERE ────────────────
+// Java needs an elaborate boundary gate because `method_name_in_type` hands it EVERY
+// declaration of a name reachable from the receiver — `list.add(x)` produces
+// List#add and AbstractList#add and Collection#add and ArrayList#add, and the JVM
+// binds exactly one. Here member lookup already suppresses inherited declarations
+// when the type declares its own (member-lookup.dl's `method_shadowed_for`), so the
+// set arriving at this layer is already nearest-declaration per receiver type. What
+// remains is the MERGED-DECLARATION case, which Java cannot have: one interface, N
+// declarations, the same member name written in two of them. Those are genuinely two
+// declaration sites of one entity, so both are kept and the site is multi_inferred —
+// which is honest, because a reader does have two places to look.
+//
+// ── STRATIFICATION ──────────────────────────────────────────────────────────
+// Downstream of the whole resolution fixpoint and feeds nothing back. Negations here
+// are legal for that reason, and this file must stay a leaf: anything that reads it
+// back into resolution would make the fixpoint non-stratifiable.
+// ============================================================================
+
+method_prov(m, "client") :- method_decl("client", _, _, _, m).
+method_prov(m, "lib") :- method_decl("lib", _, _, _, m).
+
+client_calls_client("client", ce, "client", callee) :- expr_resolves_to_method(ce, callee),
+    method_prov(callee, "client").
+
+client_calls_lib("client", ce, "lib", callee) :- expr_resolves_to_method(ce, callee),
+    method_prov(callee, "lib").
+
+// ── client_calls_lib_detail — the navigation row ────────────────────────────
+// The library edge with everything a consumer needs to GO THERE: the package, the
+// module specifier that reached it, the file, and the line. A hash alone is enough
+// to join, and not enough to open an editor at the right place — and "where exactly
+// do I go" is the question this engine exists to answer.
+client_calls_lib_detail(ce, callee, pkg, spec, file, line) :- client_calls_lib(_, ce, _, callee),
+    method_module("lib", lmod, callee),
+    lib_module_origin(lmod, pkg, spec),
+    method_lines("lib", file, line, _, callee).
+
+// A library module's identity as a client would name it: the npm package if the IR
+// carries one, else the ambient specifier it declares, else its file.
+lib_module_origin(m, pkg, spec) :- module_package("lib", pkg, m),
+    module_ambient_specifier("lib", spec, m).
+lib_module_origin(m, "", spec) :- module_ambient_specifier("lib", spec, m),
+    !module_package("lib", _, m).
+lib_module_origin(m, pkg, "") :- module_package("lib", pkg, m),
+    !module_ambient_specifier("lib", _, m).
+// Neither an npm package nor an ambient specifier — a plain declaration file, which
+// is what every `lib.es*.d.ts` is. Its own qualified name is then the only identity it
+// has, and an empty column here would make the navigation row unusable for exactly the
+// targets that are most common: measured on this repository, 8,929 client->lib rows and
+// the majority of them land in the TypeScript standard library.
+lib_module_origin(m, "", qname) :- module_decl("lib", _, qname, _, _, m),
+    qname != "",
+    !module_package("lib", _, m),
+    !module_ambient_specifier("lib", _, m).
+lib_module_origin(m, "", "") :- module_decl("lib", _, "", _, _, m),
+    !module_package("lib", _, m),
+    !module_ambient_specifier("lib", _, m).
+
+// ── lib_boundary_reason(CallExpr, Reason) ───────────────────────────────────
+// WHY a chain stopped at the library. The three reasons need different follow-ups —
+// stage more IR, look in an implementing class, or accept a native terminal — and a
+// single `boundary_lib` label collapses them into one unactionable bucket.
+lib_boundary_reason(ce, "ambient_no_body") :- client_calls_lib(_, ce, _, _),
+    call_target_is_ambient(ce).
+lib_boundary_reason(ce, "signature_dispatch") :- client_calls_lib(_, ce, _, _),
+    call_target_is_signature(ce).
+lib_boundary_reason(ce, "lib_body_available") :- client_calls_lib(_, ce, _, callee),
+    method_body_presence(callee, bp),
+    body_presence_has_body(bp).
+
+// ── unresolved_receiver(CallExpr, CalleeName, ReceiverKind, Reason) ─────────
+// A DECLARED blind spot with its cause attached, per the "declared unknowns are
+// output" contract. The three reasons are the three different fixes:
+//
+//   receiver_untyped   the receiver expression got no type at all. Usually an
+//                      unstaged dependency or an unresolved import.
+//   member_absent      the receiver WAS typed and the type has no member of that
+//                      name. That is an engine or parser defect, not a staging gap,
+//                      and it is the row worth reading first.
+//   no_receiver        a receiverless call whose name bound to nothing.
+call_receiver_typed(ce) :- call_site("client", _, _, _, recv, ce, _), expr_type(recv, _, _).
+call_receiver_typed(ce) :- call_site("client", _, _, _, recv, ce, _), expr_shape(recv, _).
+call_receiver_typed(ce) :- call_site("client", _, _, _, recv, ce, _), expr_namespace(recv, _, _).
+call_receiver_typed(ce) :- call_site("client", _, _, _, recv, ce, _), expr_static_type(recv, _, _).
+call_resolved(ce) :- expr_resolves_to_method(ce, _).
+
+unresolved_receiver(ce, cn, rk, "receiver_untyped") :- call_site("client", _, cn, rk, _, ce, _),
+    receiver_kind_is_value(rk),
+    !call_resolved(ce),
+    !call_receiver_typed(ce).
+unresolved_receiver(ce, cn, rk, "member_absent") :- call_site("client", _, cn, rk, _, ce, _),
+    receiver_kind_is_value(rk),
+    !call_resolved(ce),
+    call_receiver_typed(ce).
+unresolved_receiver(ce, cn, "NONE", "no_receiver") :- call_site("client", ck, cn, "NONE", _, ce, _),
+    call_kind_is_plain_call(ck),
+    !call_resolved(ce).
+// EVERY unresolved site must appear here, including the forms the three reasons above
+// do not cover — a tagged template, a dynamic import, an index call, a JSX tag. The
+// conservation contract applies to the diagnostic table too: an unresolved site that
+// is not in it is invisible, and invisible is exactly what the four-status scheme
+// exists to prevent. Measured before this clause: 283 sites on this repository's own
+// source were unresolved AND absent from every diagnostic relation.
+// Written over the CONDITIONS of the three rules above, never over their head: a
+// negation of unresolved_receiver from inside a rule that derives it is a cycle, and
+// Souffle names it as one.
+unresolved_covered(ce) :- call_site("client", _, _, rk, _, ce, _),
+    receiver_kind_is_value(rk),
+    !call_resolved(ce).
+unresolved_covered(ce) :- call_site("client", ck, _, "NONE", _, ce, _),
+    call_kind_is_plain_call(ck),
+    !call_resolved(ce).
+unresolved_receiver(ce, cn, rk, "other_form") :- call_site("client", _, cn, rk, _, ce, _),
+    !call_resolved(ce),
+    !unresolved_covered(ce).
