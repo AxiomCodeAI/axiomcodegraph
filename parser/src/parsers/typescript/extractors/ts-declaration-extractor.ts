@@ -2853,16 +2853,26 @@ function variableDeclarationKindOf(
   if (!list) {
     return TsVariableDeclarationKind.CATCH;
   }
-  if ((list.flags & ts.NodeFlags.AwaitUsing) !== 0) {
+  // AwaitUsing is a COMPOSITE flag -- Const | Using, the value 6 -- not a bit of
+  // its own. `flags & AwaitUsing` is therefore non-zero for an ordinary `const`
+  // (2 & 6 === 2), so every const in the corpus was labelled AWAIT_USING and
+  // CONST was emitted zero times. `let` and `var` were unaffected, which is why
+  // it looked like a rare-construct bug rather than the common case being wrong.
+  //
+  // Masking to the block-scope bits and comparing for EQUALITY is what a
+  // composite flag requires; a truthiness test cannot distinguish a compound
+  // value from either of its parts.
+  const blockScoped = list.flags & ts.NodeFlags.BlockScoped;
+  if (blockScoped === ts.NodeFlags.AwaitUsing) {
     return TsVariableDeclarationKind.AWAIT_USING;
   }
-  if ((list.flags & ts.NodeFlags.Using) !== 0) {
+  if (blockScoped === ts.NodeFlags.Using) {
     return TsVariableDeclarationKind.USING;
   }
-  if ((list.flags & ts.NodeFlags.Const) !== 0) {
+  if (blockScoped === ts.NodeFlags.Const) {
     return TsVariableDeclarationKind.CONST;
   }
-  if ((list.flags & ts.NodeFlags.Let) !== 0) {
+  if (blockScoped === ts.NodeFlags.Let) {
     return TsVariableDeclarationKind.LET;
   }
   return TsVariableDeclarationKind.VAR;
