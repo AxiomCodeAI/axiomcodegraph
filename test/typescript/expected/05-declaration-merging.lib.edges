@@ -1,0 +1,10 @@
+ambiguous_unknown	METHOD_CALL	merged#drive(Config) @L34 -> -
+boundary_lib	FUNCTION_CALL	merged#useLibrary(Client) @L42 -> merged-lib#build()
+boundary_lib	METHOD_CALL	merged#useLibrary(Client) @L42 -> Client#get()
+boundary_lib	METHOD_CALL	merged#useLibrary(Client) @L42 -> Client#put()
+boundary_lib	METHOD_CALL	merged#useLibrary(Client) @L42 -> build#withDefaults()
+known_edge	FUNCTION_CALL	merged#drive(Config) @L34 -> merged#helper()
+multi_inferred	METHOD_CALL	merged#drive(Config) @L34 -> AppConfig#host()
+multi_inferred	METHOD_CALL	merged#drive(Config) @L34 -> AppConfig#port()
+multi_inferred	METHOD_CALL	merged#drive(Config) @L34 -> Config#host()
+multi_inferred	METHOD_CALL	merged#drive(Config) @L34 -> Config#port()

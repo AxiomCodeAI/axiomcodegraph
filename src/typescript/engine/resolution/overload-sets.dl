@@ -1,0 +1,85 @@
+// ============================================================================
+// Resolution · OVERLOAD SETS  (the signature selected vs the body that runs)
+//
+// 44.3% of measured resolved call targets are BODILESS, and 99.6% of those are
+// ambient. That number is not an anomaly to be fixed — it is what a call into a
+// typed library IS. But it means a call chain that stops at whatever the resolver
+// selected stops at a DECLARATION, and a consumer asking "what code runs" gets a row
+// with no body behind it.
+//
+// Java has nothing like this. A Java call resolves to a method that either has a
+// body or is abstract, and abstract-to-concrete is virtual dispatch. Here there are
+// three distinct reasons a target has no body, and they need three different answers:
+//
+//   NO_BODY_OVERLOAD   an overload signature. The body EXISTS, in the same file, as
+//                      the IMPLEMENTATION row of the same declarationGroupKey. This
+//                      file re-points to it. Purely mechanical, no inference.
+//   NO_BODY_INTERFACE  an interface method signature. The body is in some
+//                      implementing class, reached by dispatch — a different
+//                      question, answered in callee-resolution.dl.
+//   NO_BODY_AMBIENT    a `declare`d signature. There IS no body in any staged IR;
+//                      the implementation is native or in JavaScript that was never
+//                      typed. An honest terminal, and the correct end of a chain.
+//
+// Conflating the three is how a call graph either loses the overload body it had all
+// along, or invents a body for `fs.readFile` that does not exist in any TypeScript.
+//
+// ── STRATIFICATION ──────────────────────────────────────────────────────────
+// Reads projections and overload.dl's output. Feeds only the call-edge layer, never
+// expr_type or expr_call_candidate, so it is a leaf on the resolution side and its
+// negations cannot reach back into the fixpoint.
+// ============================================================================
+
+// ── group_implementation(GroupKey, MethodHash) ──────────────────────────────
+// The one row of an overload set that has a body.
+group_implementation(g, m) :- method_group("client", g, m),
+    method_signature_role("client", "IMPLEMENTATION", _, _, m).
+group_implementation(g, m) :- method_group("lib", g, m),
+    method_signature_role("lib", "IMPLEMENTATION", _, _, m).
+
+// ── method_body_presence(MethodHash, BodyPresence) ──────────────────────────
+method_body_presence(m, bp) :- method_signature_role("client", _, _, bp, m).
+method_body_presence(m, bp) :- method_signature_role("lib", _, _, bp, m).
+
+body_presence_has_body("HAS_BODY").
+// The three bodiless reasons, enumerated so a new one shows up as an unclassified
+// target rather than silently joining whichever bucket a literal happened to match.
+body_presence_is_overload("NO_BODY_OVERLOAD").
+body_presence_is_signature("NO_BODY_INTERFACE").
+body_presence_is_signature("NO_BODY_ABSTRACT").
+body_presence_is_ambient("NO_BODY_AMBIENT").
+
+// ── call_runs_method(CallExprHash, MethodHash) ──────────────────────────────
+// What actually executes. Identity where the resolved target has a body; the
+// group's implementation where it is an overload signature.
+call_runs_method(ce, m) :- expr_resolves_to_method(ce, m),
+    method_body_presence(m, bp),
+    body_presence_has_body(bp).
+call_runs_method(ce, impl) :- expr_resolves_to_method(ce, m),
+    method_body_presence(m, bp),
+    body_presence_is_overload(bp),
+    method_group_of(m, g),
+    group_implementation(g, impl).
+
+// ── call_target_is_ambient(CallExprHash) ────────────────────────────────────
+// The chain ends here and that is the right answer. Classified rather than left as a
+// gap, because a report that counts `fs.readFile` as an unresolved call site is
+// wrong about the program, not merely pessimistic about it.
+call_target_is_ambient(ce) :- expr_resolves_to_method(ce, m),
+    method_body_presence(m, bp),
+    body_presence_is_ambient(bp).
+
+// ── call_target_is_signature(CallExprHash) ──────────────────────────────────
+// Resolved to an interface or abstract declaration. The body is reachable only
+// through dispatch, so a consumer that wants the implementation must read the
+// multi_inferred fan rather than this edge.
+call_target_is_signature(ce) :- expr_resolves_to_method(ce, m),
+    method_body_presence(m, bp),
+    body_presence_is_signature(bp).
+
+// ── method_is_client_body(MethodHash) — a chain can continue through it ─────
+// A target worth expanding: client code, with a body. This is the frontier for
+// reachability and change-impact, and the reason a boundary_lib edge is marked and
+// not followed.
+method_is_client_body(m) :- method_signature_role("client", _, _, bp, m),
+    body_presence_has_body(bp).

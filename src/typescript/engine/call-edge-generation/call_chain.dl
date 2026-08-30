@@ -1,0 +1,154 @@
+// ============================================================================
+// CALL-EDGE-GEN · CALL CHAIN  (the confidence-classified, queryable call graph)
+//
+// ── THE CONSERVATION CONTRACT ───────────────────────────────────────────────
+// EVERY call site in, every call site out. A silently dropped site is the one
+// failure a golden-file diff cannot see, because you cannot notice an absence you
+// never recorded. The Java engine paid for this: `call_site` there is
+// receiver-shaped, so it structurally could not represent a receiverless call, and
+// 27,533 unqualified sites on cassandra went to ZERO rows while qualified sites went
+// 126,269 -> 126,269. Not flagged. Not counted. Gone.
+//
+// TypeScript makes that specific mistake hard — `ts_call_site` is one row per call
+// regardless of receiver shape, so the site universe is seeded from that ONE raw
+// relation and cannot miss a form. But the law still binds: the universe is seeded
+// from the RAW relation, never from the resolution-gated one, so an unresolvable
+// `new ThirdPartyX()` still produces a row.
+//
+// ── CONFIDENCE CLASSES ──────────────────────────────────────────────────────
+//   known_edge         exactly ONE resolved target. The chain continues.
+//   multi_inferred     2+ targets — an overload set spread across merged
+//                      declarations, or a dispatch fan. SOUND: the true target is in
+//                      the set.
+//   boundary_lib       client -> library. Marked, not expanded.
+//   ambient_terminal   resolved to a `declare`d signature with no body in ANY IR.
+//                      A CORRECT end, not a blind spot — `fs.readFile` has no
+//                      TypeScript body to find, and counting it as a failure would
+//                      make every I/O call in every project look like one.
+//   intrinsic_terminal a lowercase JSX tag resolving into JSX.IntrinsicElements.
+//                      `<div/>` is a call that correctly reaches no project code.
+//   ambiguous_unknown  a real site that resolved to NOTHING. The declared blind spot.
+//
+// The two terminal classes exist because the Java model's four are not enough here:
+// 44.3% of resolved targets are bodiless, and a scheme that cannot say "correctly
+// ended" reports nearly half the graph as a gap.
+//
+// ── STRATIFICATION ──────────────────────────────────────────────────────────
+// A leaf. Reads the resolution output and feeds nothing back. The count aggregate
+// reads expr_resolves_to_method, which is complete before this file runs.
+// ============================================================================
+
+// ── the site universe, seeded from the RAW relation ─────────────────────────
+invocation_site(ce, ck) :- call_site("client", ck, _, _, _, ce, _).
+
+// ── per-site resolved target count ──────────────────────────────────────────
+call_target_count(ce, n) :- invocation_site(ce, _),
+    n = count : { expr_resolves_to_method(ce, _) }.
+
+// ── the caller, never blank ─────────────────────────────────────────────────
+// containment/ownership.dl guarantees a caller for every site: the parser's answer,
+// the module initializer for top-level code, or the module hash itself as a
+// greppable marker. A blank here would silently drop the row from every downstream
+// join, which is the conservation failure again in a different costume.
+call_from(ce, caller) :- call_site("client", _, _, _, _, ce, cs),
+    call_caller_method(cs, caller).
+
+// ── confidence class ────────────────────────────────────────────────────────
+call_class(ce, "known_edge") :- call_target_count(ce, 1),
+    !call_target_is_ambient(ce).
+call_class(ce, "ambient_terminal") :- call_target_count(ce, 1),
+    call_target_is_ambient(ce).
+call_class(ce, "multi_inferred") :- call_target_count(ce, n), n >= 2.
+
+// Zero targets, split by REASON. A lowercase JSX tag is an intrinsic element: it
+// resolves into an ambient `JSX.IntrinsicElements` member and never into project
+// code, so it is a correct terminal. Without this split every `<div>` in a React
+// codebase is counted as an analysis failure, which would make the headline number
+// meaningless on exactly the projects the JSX support was built for.
+jsx_intrinsic_site(ce) :- call_site("client", "JSX_COMPONENT_CALL", cn, _, _, ce, _),
+    cn != "",
+    lower = substr(cn, 0, 1),
+    ord(lower) >= 97,
+    ord(lower) <= 122.
+call_class(ce, "intrinsic_terminal") :- call_target_count(ce, 0),
+    jsx_intrinsic_site(ce).
+
+// A dynamic import is a MODULE load, not a function call: there is no callee to
+// resolve and never was. Classified rather than counted as a miss.
+dynamic_import_site(ce) :- call_site("client", "DYNAMIC_IMPORT_CALL", _, _, _, ce, _).
+call_class(ce, "intrinsic_terminal") :- call_target_count(ce, 0),
+    dynamic_import_site(ce).
+
+call_class(ce, "ambiguous_unknown") :- call_target_count(ce, 0),
+    !jsx_intrinsic_site(ce),
+    !dynamic_import_site(ce).
+
+// ── method_has_unknown_call(Caller, CallExpr) ───────────────────────────────
+// Blind spots, attributed to the method that contains them, so a change-impact query
+// can tell a consumer which answers are incomplete and where.
+method_has_unknown_call(caller, ce) :- call_class(ce, "ambiguous_unknown"),
+    call_from(ce, caller).
+
+// ============================================================================
+// THE MERGED EDGE — one self-describing row per edge, the single export
+//   call_chain_edge(FromExpr, FromMethod, ToExpr, ToMethod, Prov, EdgeStatus, Kind)
+//     FromExpr    the call-site expression (where the call is written)
+//     FromMethod  the function containing it (a MODULE_INITIALIZER for top-level code)
+//     ToExpr      "-" — reserved for expression-level linkage
+//     ToMethod    the resolved callee, or "-" when unresolved
+//     Prov        "client" | "lib" | "-"
+//     EdgeStatus  known_edge | multi_inferred | boundary_lib | ambient_terminal |
+//                 intrinsic_terminal | ambiguous_unknown
+//     Kind        the TsCallKind of the site
+// Every site appears at least once. A resolved site appears once per callee; an
+// unresolved one appears once with ToMethod = "-", so the CSV alone shows where each
+// chain ends and why.
+// ============================================================================
+
+call_chain_edge(ce, caller, "-", callee, "client", cls, kind) :-
+    client_calls_client("client", ce, "client", callee),
+    call_from(ce, caller),
+    call_class(ce, cls),
+    invocation_site(ce, kind).
+
+call_chain_edge(ce, caller, "-", callee, "lib", "boundary_lib", kind) :-
+    client_calls_lib("client", ce, "lib", callee),
+    call_from(ce, caller),
+    invocation_site(ce, kind).
+
+call_chain_edge(ce, caller, "-", "-", "-", cls, kind) :-
+    call_class(ce, cls),
+    class_is_terminal(cls),
+    call_from(ce, caller),
+    invocation_site(ce, kind).
+class_is_terminal("ambiguous_unknown").
+class_is_terminal("intrinsic_terminal").
+
+// ── call_runs_edge(FromMethod, ToMethod, Prov) ──────────────────────────────
+// The chain a consumer should WALK: overload signatures re-pointed to the body that
+// actually executes (resolution/overload-sets.dl). Kept separate from
+// call_chain_edge, which records what the compiler SELECTED — the two answer
+// different questions and a single relation cannot be right for both.
+call_runs_edge(caller, runs, prov) :- call_runs_method(ce, runs),
+    call_from(ce, caller),
+    method_prov(runs, prov).
+
+// ── method_call_edge(FromMethod, ToMethod) — the method->method graph ───────
+// Rolled up from call sites, for reachability and change impact.
+method_call_edge(caller, callee) :- call_chain_edge(_, caller, _, callee, "client", _, _),
+    callee != "-".
+
+// ── entry-point reachability ────────────────────────────────────────────────
+// A TypeScript entry point is not an annotation, as it is in Java. It is a module
+// nothing imports — the root of the import graph — plus anything exported from one.
+// That is a structural definition, computable with no framework knowledge, and it is
+// the honest one for a language with no `main`.
+module_imported(target) :- import_target_module(_, "client", target).
+entry_module(m) :- module_decl("client", _, _, _, _, m),
+    !module_imported(m).
+entry_point(init, "unimported_module") :- entry_module(m),
+    module_init("client", init, m).
+
+entry_reachable(m) :- entry_point(m, _).
+entry_reachable(callee) :- entry_reachable(caller),
+    method_call_edge(caller, callee).

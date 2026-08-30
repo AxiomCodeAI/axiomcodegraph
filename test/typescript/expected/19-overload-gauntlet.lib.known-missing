@@ -1,0 +1,22 @@
+# ACCEPTED GAPS, each one a stated defect rather than a shrug. This case holds the
+# collision that produced every regression in this session — improved argument typing
+# meeting a library-declared overload set — so its failures are the point of it.
+#
+# A MAPPED TYPE DOES NOT DISCRIMINATE A NAMED-OBJECT OVERLOAD.
+# `shape(r)` where `r: Required<Row>` answers `shape(Cell)`. The mapped type resolves to
+# Row for MEMBER LOOKUP — that is what the mapped-type work bought — but the argument's
+# own type hash is still the alias, so it matches neither branch, both survive, and
+# nothing separates them.
+consumer#viaRequired(Required) -> api#shape(Row)
+#
+# RESOLVED, and recorded because the next person to touch overload_beaten needs it:
+#
+#   * an INFERRED RETURN now discriminates a primitive overload. arg_primitive used to
+#     reach a primitive only through a literal, a unary over one, or a declaration
+#     annotated with one — an argument that is a CALL was none of those. It now derives
+#     from the callee's return type, declared or inferred.
+#   * a CONSTRAINED signature no longer beats its concrete sibling by position.
+#     `widen(s)` with `s: string` reaches `widen(string)`, not `widen<T extends Row>`.
+#     That pair is load-bearing: it shows a type-variable parameter, made unrejectable by
+#     the param_untestable guard, must still be able to LOSE — and that the answer was to
+#     RANK on positive evidence, never to reject.
