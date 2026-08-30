@@ -38,11 +38,12 @@
 // a name-keyed index join.
 //
 // ── STRATIFICATION ──────────────────────────────────────────────────────────
-// Reads member-lookup.dl and type-hierarchy.dl. `member_name_exists` sits inside the
-// expr_type fixpoint via lookup_scope, so this relation is inside it too — which is
-// why there is NO negation anywhere in this file. The counting aggregate is positive
-// and monotone; the equality test between the two counts is a comparison, not a
-// negation, and stratifies.
+// Everything here reads LOW relations only — declared_method, declared_field,
+// scope_sibling, ancestor_of_merged_group, ref_type_target — and never the in-scope
+// member relations, which lookup_scope ties to expr_type. That is what lets
+// structural_implementor feed the dispatch cap, whose negation the fan rule performs.
+// The counting aggregate is positive and monotone; comparing the two counts is a
+// comparison, not a negation.
 // ============================================================================
 
 // ── satisfaction_target(TypeHash) — interfaces worth testing against ────────
@@ -61,12 +62,23 @@ satisfaction_source(t) :- type_decl("client", _, _, _, _, _, t),
 // ── target_required_member(TargetTypeHash, Name) ────────────────────────────
 // The members a conforming value MUST have. Optional members are excluded — see the
 // header; including them would make almost nothing satisfy anything.
+// LOW-STRATUM member reads, not field_in_scope / method_in_scope — see the note on
+// member_name_declared in member-lookup.dl. This whole file feeds the dispatch cap,
+// which the fan rule negates, so every relation it touches has to sit below the
+// resolution fixpoint. Reading the in-scope relations instead made the cap's negation
+// cyclic and Souffle named 33 relations in one unstratifiable component.
 target_required_member(t, name) :- satisfaction_target(t),
-    field_in_scope(t, name, "false", f),
+    scope_sibling(t, sib),
+    declared_field(sib, name, "false", f),
     field_kind(_, _, _, "false", f).
 target_required_member(t, name) :- satisfaction_target(t),
-    method_in_scope(t, name, "false", m),
-    method_decl(_, _, name, _, m).
+    scope_sibling(t, sib),
+    declared_method(sib, name, "false", _).
+target_required_member(t, name) :- satisfaction_target(t),
+    group_of(t, g),
+    ancestor_of_merged_group(_, g, anc),
+    scope_sibling(anc, asib),
+    declared_method(asib, name, "false", _).
 
 target_required_count(t, n) :- satisfaction_target(t),
     n = count : { target_required_member(t, _) }.
@@ -77,12 +89,12 @@ target_required_count(t, n) :- satisfaction_target(t),
 // cross product.
 sat_pair_seed(s, t) :- target_required_member(t, name),
     satisfaction_source(s),
-    member_name_exists(s, name).
+    member_name_declared(s, name).
 
 // ── sat_covered(Source, Target, Name) / sat_cover_count ─────────────────────
 sat_covered(s, t, name) :- sat_pair_seed(s, t),
     target_required_member(t, name),
-    member_name_exists(s, name).
+    member_name_declared(s, name).
 sat_cover_count(s, t, n) :- sat_pair_seed(s, t),
     n = count : { sat_covered(s, t, _) }.
 

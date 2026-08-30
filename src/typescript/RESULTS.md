@@ -24,6 +24,40 @@ own `typescript`, out of process.
 | this repository | 84 | 84 | 84 | **0.786** | 0.893 | 1 | 0.879 |
 | overload fixture (`test/typescript/fixtures/overloads`) | 83 | 83 | 83 | **1.000** | 1.000 | 0 | 1.000 |
 
+## Is it type-directed, and does it fan?
+
+Yes to both, and `test/typescript/fixtures/dispatch/` makes each half checkable by
+construction rather than by description. `t1.m1()` resolves `t1`'s TYPE first
+(`expr-type.dl`), then looks `m1` up on that type and its `extends` ancestors across
+all merged declarations (`member-lookup.dl`), then fans to the bodies that can run
+(`callee-resolution.dl`). Every row below is the engine's actual output.
+
+| case | receiver | engine emits |
+|---|---|---|
+| interface parameter | `h: Handler` | the interface signature **+ all three nominal implementations** |
+| exact receiver | `new UpperHandler().handle(x)` | **one target.** The fan is gated off — a known runtime type is not a dispatch question |
+| flowed local | `const h: Handler = new LowerHandler()` | the signature **+ LowerHandler only.** Value flow narrows three implementations to one |
+| structural | `const h: Handler = new SilentHandler()` | the signature **+ SilentHandler**, which declares no `implements` |
+| structural parameter | `p: Probe`, nothing declares `implements Probe` | the signature **+ Ruler + Caliper**, reached by structural satisfaction |
+| abstract base | `n: Node` | the base's own body |
+| subclassed class | `l: LeafNode` | LeafNode **+ TaggedLeaf**, the override |
+| `super.m()` | `super.describe()` | **one target.** Non-virtual, and a fan here would invent self-recursion |
+
+Two things that make this work are ports of Java layers this engine was missing until
+they were measured:
+
+* **Value flow** (`value-flow.dl`, from Java's `local-flow.dl` + `type-flow.dl`). The
+  flowed type is ADDED to `expr_type` positively, alongside the declared one — gating
+  it behind "no annotation" meant an annotated local never narrowed, which in
+  TypeScript is most of them. TypeScript's `const` is a stronger guarantee than Java's
+  `final`: it forbids rebinding outright, so a `const` initialised with `new C()` is
+  provably monomorphic with no assignment scan, and that is what lets the fan be
+  suppressed outright.
+* **Structural satisfaction wired into the fan.** It was derived and consumed by
+  nothing. It is restricted to interfaces with NO nominal implementor, to client
+  classes, and to the dispatch cap — measured, 2,191 pairs on the Parser repository and
+  12 on zustand, with no change to WRONG on any project.
+
 ## Overload resolution, on its own
 
 "Did the engine find the right function" and "did it find the right SIGNATURE" are

@@ -292,6 +292,30 @@ expr_call_dispatch(ce, m) :- call_site("client", _, cn, rk, recv, ce, _),
     implementors(rt, sub),
     declared_method_direct(sub, cn, "false", m).
 
+// ── THE STRUCTURAL FAN ──────────────────────────────────────────────────────
+// 60.4% of TypeScript classes satisfy their interfaces with NO `implements` clause, so
+// the nominal fan above sees at best two fifths of conformance. `interface Probe { … }`
+// with two classes that happen to have `measure()` and say nothing about it is the
+// ordinary case, not a corner, and a nominal-only fan reaches neither.
+//
+// Restricted three ways, because this is the one rule in the engine that could
+// FABRICATE rather than over-approximate — it matches member NAMES, not member types:
+//   * the target has NO nominal implementor. Where a codebase does declare
+//     `implements`, that declaration is better evidence than a name match and mixing
+//     the two buries a precise answer under a heuristic one.
+//   * the source is a CLIENT class that could actually be constructed.
+//   * the same dispatch cap as the nominal fan, so a wide structural match is dropped
+//     rather than guessed across.
+expr_call_dispatch(ce, m) :- call_site("client", _, cn, rk, recv, ce, _),
+    receiver_kind_is_value(rk),
+    cn != "",
+    expr_type(recv, _, rt),
+    !call_exact_receiver(ce),
+    !call_super_receiver(ce),
+    !dispatch_too_wide(rt, cn),
+    structural_implementor(rt, sub),
+    declared_method_direct(sub, cn, "false", m).
+
 // Declared DIRECTLY on the implementor — not inherited into it. An inherited method
 // is already reachable through the supertype's own resolution, and admitting it here
 // would re-derive the whole chain once per implementor.
@@ -310,6 +334,8 @@ call_super_receiver(ce) :- call_site("client", _, _, "SUPER", _, ce, _).
 dispatch_width(rt, cn, n) :- implementor_member(rt, cn, _),
     n = count : { implementor_member(rt, cn, _) }.
 implementor_member(rt, cn, m) :- implementors(rt, sub),
+    declared_method_direct(sub, cn, "false", m).
+implementor_member(rt, cn, m) :- structural_implementor(rt, sub),
     declared_method_direct(sub, cn, "false", m).
 dispatch_too_wide(rt, cn) :- dispatch_width(rt, cn, n),
     dispatch_cap(c),

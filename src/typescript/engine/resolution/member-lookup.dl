@@ -233,6 +233,27 @@ method_in_scope(scope, name, "false", m) :- lookup_scope(scope),
     object_prototype_member(name, m),
     !member_declared_anywhere(scope, name, "false").
 
+// ── member_name_declared(Scope, Name) — the LOW-STRATUM member test ─────────
+// The same question as member_name_exists and deliberately NOT the same relation.
+// member_name_exists reads method_in_scope, which is guarded by lookup_scope, which is
+// seeded from expr_type — so it lives inside the resolution fixpoint. Anything that
+// feeds a NEGATED relation must sit below that fixpoint, and structural satisfaction
+// does: it feeds the dispatch cap, which the fan rule negates. Written over
+// declared_method / declared_field / scope_sibling / ancestor_of_merged_group only, all
+// of which are base-fact projections and the type hierarchy.
+member_name_declared(scope, name) :- scope_sibling(scope, sib),
+    declared_method(sib, name, _, _).
+member_name_declared(scope, name) :- scope_sibling(scope, sib),
+    declared_field(sib, name, _, _).
+member_name_declared(scope, name) :- group_of(scope, g),
+    ancestor_of_merged_group(_, g, anc),
+    scope_sibling(anc, asib),
+    declared_method(asib, name, _, _).
+member_name_declared(scope, name) :- group_of(scope, g),
+    ancestor_of_merged_group(_, g, anc),
+    scope_sibling(anc, asib),
+    declared_field(asib, name, _, _).
+
 // ── member_name_exists(Scope, Name) — a precision helper ────────────────────
 // Whether ANY member of that name is visible. Distinguishes "the receiver type was
 // resolved and has no such member" (a parser or engine defect worth seeing) from
