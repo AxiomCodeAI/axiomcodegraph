@@ -52,6 +52,17 @@ expr_has_parent(p, e) :- expr_parent(p, _, _, _, e).
 // way to be wrong.
 assign_kind("ASSIGNMENT").
 assign_kind("ANNOTATED_ASSIGNMENT").
+//   `x += f()` is the THIRD kind, and this is the loud failure the enumeration was
+//   written to produce rather than a silent default. Parser@main emits it in shape (a)
+//   like the other two — an AUGMENTED_ASSIGNMENT root parenting ASSIGNMENT_TARGET and
+//   ASSIGNMENT_VALUE children — so it needs no new clause, only the name.
+//   MEASURED before this line existed: 1,276 augmented assignments on
+//   TheAlgorithms/Python produced ZERO assign_pair rows, 159 of them with a call on the
+//   right-hand side, so every value flowing out of `total += compute(x)` was lost.
+//   NOTE the shape matters: an earlier IR emitted target and value as two orphan
+//   depth-0 roots, and the tempting fallback — pair them by (scope, line) — is WRONG,
+//   because `a += 1; b += 2` on one line yields four pairs, two of them crossed.
+assign_kind("AUGMENTED_ASSIGNMENT").
 
 // AUGMENTED_ASSIGNMENT IS DELIBERATELY ABSENT, and must stay absent. `a += b` is a UNION
 // with a's existing value, not a replacement, so pairing it here would claim `a` now holds
@@ -419,3 +430,41 @@ module_member_module(p, mod, n, child) :-
     import_decl(p, _, _, n, i), n != "",
     import_resolved_module(p, child, i),
     import_is_module(p, i).
+
+// ── module_member_type: RE-EXPORTED members, beside the declared ones ─────
+// A module exposes what it DECLARES plus what it RE-EXPORTS. The declared half is
+// above; this is the re-export half, and it lives here because this file owns what a
+// name means inside a module. Restricted to "lib" only because a client re-export is
+// already resolved by the parser, so no client clause is needed -- not because the
+// semantics differ.
+// ── module_member_type / _method via an explicit member re-export ────────────
+// `from .linear import Linear` in nn/modules/__init__.py makes Linear a member of
+// nn.modules. Keyed on the ALIAS where there is one, the original name otherwise,
+// because `from .x import y as z` re-exports z and not y.
+module_member_type("lib", mod, n, t) :-
+    import_scope("lib", _, mod, i), mod != "",
+    import_resolved_target("lib", "TYPE", t, i),
+    import_alias("lib", n, "", i), n != "".
+module_member_type("lib", mod, n, t) :-
+    import_scope("lib", _, mod, i), mod != "",
+    import_resolved_target("lib", "TYPE", t, i),
+    import_alias("lib", _, n, i), n != "".
+module_member_type("lib", mod, n, t) :-
+    module_reexports_all("lib", mod, src), module_member_type("lib", src, n, t).
+
+// ── module_member_method: RE-EXPORTED members, beside the declared ones ─────
+// A module exposes what it DECLARES plus what it RE-EXPORTS. The declared half is
+// above; this is the re-export half, and it lives here because this file owns what a
+// name means inside a module. Restricted to "lib" only because a client re-export is
+// already resolved by the parser, so no client clause is needed -- not because the
+// semantics differ.
+module_member_method("lib", mod, n, m) :-
+    import_scope("lib", _, mod, i), mod != "",
+    import_resolved_target("lib", "FUNCTION", m, i),
+    import_alias("lib", n, "", i), n != "".
+module_member_method("lib", mod, n, m) :-
+    import_scope("lib", _, mod, i), mod != "",
+    import_resolved_target("lib", "FUNCTION", m, i),
+    import_alias("lib", _, n, i), n != "".
+module_member_method("lib", mod, n, m) :-
+    module_reexports_all("lib", mod, src), module_member_method("lib", src, n, m).

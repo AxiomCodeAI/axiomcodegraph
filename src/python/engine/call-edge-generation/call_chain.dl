@@ -189,6 +189,22 @@ property_read_edge(e, caller, getter) :-
     expr_type("client", obj, t),
     type_property_getter("client", t, n, getter),
     expr_ultimate_method("client", e, caller).
+// ── THE LIB HALF, alongside the client one ───────────────────────────────────
+// A property read on a LIBRARY object: `Config("x").tag` invokes tag's getter, which
+// lives in the staged library. type_property_getter is ALREADY prov-parametric
+// (attribute-lookup.dl: mro_lookup(p,t,n,m) + method_kind(p,"PROPERTY_GETTER",_,m)),
+// and py_method / py_type_base are both LIB_SIG -- so the facts were there and only
+// this consumer pinned them out. The expression stays client (it is written in client
+// source); only the TYPE and the getter are library-side, which is the same split Java
+// uses. No new lookup path: the getter is found by the same MRO walk as the client case.
+property_read_edge(e, caller, getter) :-
+    expr_node("client", "ATTRIBUTE_ACCESS", _, n, e),
+    expr_name_context("client", "LOAD", e),
+    !call_receiver_of(e),
+    expr_parent("client", e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_lib_type(obj, t),
+    type_property_getter("lib", t, n, getter),
+    expr_ultimate_method("client", e, caller).
 
 // An ATTRIBUTE_ACCESS that IS a call's callee is not a property read — it is the call.
 call_receiver_of(e) :- call_callee_expr(_, e).

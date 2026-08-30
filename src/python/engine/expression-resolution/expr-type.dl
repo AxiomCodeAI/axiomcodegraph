@@ -30,6 +30,32 @@ expr_type_class_object(p, e, t) :- expr_attr_names_type(p, e, t).
 //     necessarily the class that declares it. See cls_bound_type below.
 expr_type_class_object(p, e, t) :- expr_cls_type(p, e, t).
 
+// ── expr_lib_type(ClientExprHash, LibTypeHash) — yields a LIBRARY instance ───
+// THE LIB COUNTERPART OF expr_type, and it lives here because this file owns the
+// question "what class of object does this expression yield" regardless of which side
+// the class was declared on. Java does the same: expr-type.dl there is 45 client / 15
+// lib rather than a separate library typing engine.
+//
+// WHY IT IS A SEPARATE RELATION rather than a "lib"-tagged expr_type row. Every
+// expr_type clause above joins provenance UNIFORMLY -- expr_node(p,...) with
+// expr_owner(p,...) -- because the expression and the type it yields are both client
+// facts. A library-typed row would be read by those joins as though the EXPRESSION were
+// a library expression, and library expressions are staged empty by design
+// (templates/staging.conf, LIB_BODY), so such a row would be silently unsound. The
+// split keeps the client-expression invariant intact: the expression is always client,
+// only the TYPE crosses.
+//
+// The four seeds are the shapes the boundary establishes; none of them re-implements a
+// lookup, they consume what resolution/lib-linking.dl mapped across the import.
+expr_lib_type(e, t) :- call_of_expr(e, s), call_constructs_lib_type(s, t).
+expr_lib_type(e, t) :-
+    expr_binding("client", b, ctx, e), ctx != "STORE",
+    binding_lookup("client", b, b2), binding_value_lib_type(b2, t).
+expr_lib_type(e, t) :-
+    expr_attr_of_self("client", e, n, owner),
+    type_attr_field("client", owner, n, f), field_lib_type(f, t).
+expr_lib_type(e, t) :- expr_names_param("client", e, ph), param_lib_type(ph, t).
+
 // ── expr_type(Prov, ExprHash, TypeHash) — yields an INSTANCE ──────────────────
 // (a) `self`. The STATIC answer is the enclosing class; widening to subclasses is
 //     dispatch's job (resolution/dispatch.dl), not typing's, so the two stay separable
