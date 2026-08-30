@@ -92,6 +92,37 @@ type_base_resolved(p, sub, pos, sup) :-
 //     engine has a gap even though the number looks fine.
 type_base_resolved(p, sub, pos, sup) :- type_base_resolved_by_parser(p, sub, pos, sup).
 
+// ── (e) A CLIENT class extending a LIBRARY class ─────────────────────────────
+// `class Overrider(Mid)` where Mid is declared in a staged library. Clauses (a)-(c)
+// bottom out in expr_names_type / expr_attr_names_type, which resolve to CLIENT types
+// only, so the base came back unresolved and the subtype had no ancestors at all --
+// nothing inherited from the library half of the hierarchy could be reached.
+//
+// This is the ordinary shape for any framework subclass: the client declares the class,
+// its base lives in a dependency. The lib counterparts of both name resolutions already
+// exist (resolution/lib-linking.dl); only the hierarchy never consulted them.
+//
+// The row is tagged "client" -- the SUBTYPE's provenance -- so mro.dl and the ancestor
+// closure walk it like any other base. That is the same convention java's
+// type-resolution.dl uses: the tag names the side the relation is being read from, and
+// a supertype from the other side is still a supertype.
+type_base_resolved("client", sub, pos, sup) :-
+    type_base_slot("client", sub, pos, "NAME", _, _, bh),
+    base_expr("client", bh, expr),
+    expr_names_lib_type(expr, sup).
+type_base_resolved("client", sub, pos, sup) :-
+    type_base_slot("client", sub, pos, "DOTTED_NAME", _, _, bh),
+    base_expr("client", bh, expr),
+    expr_node("client", "ATTRIBUTE_ACCESS", _, n, expr),
+    expr_parent("client", expr, "ATTRIBUTE_OBJECT", _, modExpr),
+    expr_names_lib_module(modExpr, mod),
+    module_member_type("lib", mod, n, sup).
+type_base_resolved("client", sub, pos, sup) :-
+    type_base_slot("client", sub, pos, "SUBSCRIPT", _, _, bh),
+    base_expr("client", bh, expr),
+    expr_parent("client", expr, "SUBSCRIPT_OBJECT", _, obj),
+    expr_names_lib_type(obj, sup).
+
 type_base_resolved_by_parser(p, sub, pos, sup) :-
     type_base_slot(p, sub, pos, _, _, _, bh),
     type_base_pre_resolved(p, bh, sup),
@@ -150,6 +181,18 @@ type_implicit_object(p, t) :- type_mro_shape(p, _, _, "IMPLICIT_OBJECT", t).
 // Named to match Java's exported relation so the same graph queries work.
 type_ancestor(p, t, a) :- type_base_resolved(p, t, _, a).
 type_ancestor(p, t, a) :- type_base_resolved(p, t, _, mid), type_ancestor(p, mid, a).
+// ── the closure must CONTINUE once it crosses into the library ───────────────
+// A client class extending a library class reaches its immediate base by clause (e)
+// above, tagged "client" because that is the subtype's side. Its own bases, however,
+// are library rows tagged "lib", so the prov-uniform step stops dead at the boundary
+// and everything above the first library ancestor is invisible.
+// MEASURED on test/python/torture: `class Overrider(Mid)` reached Mid and nothing
+// further, so `Overrider().only_base()` -- declared on Base, with Mid declaring
+// nothing -- resolved to nothing. Walking one link into a dependency and stopping is
+// the least useful place to stop: it is exactly where the inherited members live.
+type_ancestor("client", t, a) :-
+    type_base_resolved("client", t, _, mid),
+    type_ancestor("lib", mid, a).
 
 // ── type_subclass(Prov, AncestorTypeHash, SubTypeHash) — the reverse direction ──
 // What CHA fan-out enumerates.

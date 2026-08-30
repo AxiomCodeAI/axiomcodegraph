@@ -66,6 +66,25 @@ mro_prec(p, bi, bj) :-
     to_number(posI) < to_number(posJ).
 // (3) TRANSITIVITY.
 mro_prec(p, x, z) :- mro_prec(p, x, y), mro_prec(p, y, z).
+// (3b) TRANSITIVITY ACROSS THE LIBRARY BOUNDARY. A client class extending a library
+//      class contributes a "client"-tagged constraint for its immediate base; every
+//      constraint above that base is a "lib" row, so the step above cannot chain them.
+//      Left alone, the client subtype and its grandparent are UNORDERED, which makes
+//      mro_prec non-total, which suppresses mro_position entirely -- the class ends up
+//      with no linearisation at all rather than a partial one.
+//      MEASURED: `class Overrider(Mid)` over a library Mid(Base) produced zero
+//      mro_position rows, so nothing inherited from Base could be looked up.
+mro_prec("client", x, z) :- mro_prec("client", x, y), mro_prec("lib", y, z).
+//      And the library's OWN order between two ancestors must be lifted as well.
+//      Chaining the subtype to its grandparent is not enough: Mid and Base are both
+//      members of A(Overrider) and, without this, unordered WITH RESPECT TO EACH OTHER,
+//      which leaves the pair incomparable and mro_total false. Restricted to pairs that
+//      actually appear in some client class's ancestry, so the whole library order is
+//      not lifted wholesale.
+mro_prec("client", y, z) :-
+    mro_member("client", t, y), mro_member("client", t, z),
+    type_decl("client", _, _, _, t),
+    mro_prec("lib", y, z).
 
 // ── mro_member(Prov, TypeHash, MemberTypeHash) ───────────────────────────────
 // A(T): the class itself plus every ancestor the engine can see. This is the SET the

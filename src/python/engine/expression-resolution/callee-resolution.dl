@@ -408,6 +408,20 @@ call_hits_lib_method(site, m) :-
     call_recv_lib_type(site, t),
     call_name(site, n),
     mro_lookup("lib", t, n, m).
+// ── a CLIENT receiver whose MRO winner is a LIBRARY method ───────────────────
+// `class Overrider(Mid)` over a library Mid: the receiver type is a CLIENT class, so
+// the clause above (which keys on call_recv_lib_type) never applies, while the client
+// path produces an expr_call_candidate that call-edge generation cannot use because the
+// method is a library row. The linearisation, the definer set and the lookup were all
+// correct by this point and the edge still did not exist.
+// This is the ordinary framework-subclass shape: the client declares the class, the
+// method it inherits lives in a dependency.
+call_hits_lib_method(site, m) :-
+    call_recv_kind(site, rk), rk != "NONE", rk != "SUPER",
+    call_recv_type(site, t),
+    call_name(site, n),
+    mro_lookup("client", t, n, m),
+    method_decl("lib", _, _, _, _, m).
 // (d) construction of a library class -> its __init__/__new__ through the library MRO.
 call_hits_lib_method(site, m) :- call_constructs_lib_type(site, t), type_constructor("lib", t, m).
 
