@@ -72,6 +72,12 @@ type_defines_any(p, t, n) :- type_name_opaque(p, t, n).
 // ── mro_definer(Prov, ReceiverType, Name, DefiningType) ──────────────────────
 // A class in A(ReceiverType) that defines Name.
 mro_definer(p, t, n, c) :- mro_member(p, t, c), type_defines_any(p, c, n).
+// A member of a CLIENT class's MRO may be a LIBRARY class, and what it defines is a
+// library fact. Without this the definer set is empty for every inherited library
+// member, so mro_winner has nothing to rank and the lookup returns nothing however
+// correct the linearisation is. type-hierarchy.dl puts those members in A(T); this is
+// what makes them count as definers.
+mro_definer("client", t, n, c) :- mro_member("client", t, c), type_defines_any("lib", c, n).
 
 // ── mro_definer_shadowed(Prov, ReceiverType, Name, DefiningType) ─────────────
 // Another definer of the SAME name is ordered STRICTLY BEFORE this one in the MRO of
@@ -102,6 +108,19 @@ mro_tie(p, t, n) :-
 mro_lookup(p, t, n, m) :-
     mro_winner(p, t, n, c), type_defines_method(p, c, n, m),
     !type_attr_rebound(p, c, n).
+// ── the winning class may live in the LIBRARY ────────────────────────────────
+// A client class extending a library class has library types in its MRO
+// (resolution/type-hierarchy.dl continues the ancestor closure across the boundary), so
+// the class that WINS a name is often a library class. Its methods are library rows, and
+// the prov-uniform clause above cannot read them -- the linearisation was correct and
+// the lookup still returned nothing.
+// MEASURED on test/python/torture: `class Overrider(Mid)` linearises to
+// [Overrider, Mid, Base] and `Overrider().only_base()` still resolved to nothing,
+// because only_base is declared by the library's Base.
+// The rebound guard is applied on the LIBRARY side, where that class's body lives.
+mro_lookup("client", t, n, m) :-
+    mro_winner("client", t, n, c), type_defines_method("lib", c, n, m),
+    !type_attr_rebound("lib", c, n).
 // The winning class had this name REBOUND from outside its body (monkey patching); the
 // value that replaced it is the target. See the section on monkey patching below.
 mro_lookup(p, t, n, m) :-
