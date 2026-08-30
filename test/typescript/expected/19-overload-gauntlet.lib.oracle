@@ -1,0 +1,8 @@
+oracle=12 engine=11 agree=8 missing=4 (known 4, NEW 0) extra=3
+  known    consumer#viaConcreteSibling(string) -> api#widen(string)
+  known    consumer#viaInferredReturn() -> api#tag(number)
+  known    consumer#viaInferredReturn() -> api#tag(string)
+  known    consumer#viaRequired(Required) -> api#shape(Row)
+  extra    consumer#viaConcreteSibling(string) -> api#widen(T)
+  extra    consumer#viaInferredReturn() -> api#tag(boolean)
+  extra    consumer#viaRequired(Required) -> api#shape(Cell)

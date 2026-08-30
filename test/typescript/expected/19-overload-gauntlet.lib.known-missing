@@ -1,0 +1,29 @@
+# ACCEPTED GAPS, each one a stated defect rather than a shrug. This case exists to hold
+# the collision that produced every regression in this session — improved argument typing
+# meeting a library-declared overload set — so its failures are the point of it.
+#
+# 1-2. AN INFERRED RETURN TYPE DOES NOT DISCRIMINATE A PRIMITIVE OVERLOAD.
+# `tag(makeCount())` where `makeCount()` has no annotation: return inference gives the
+# argument the type `number`, and the engine still answers `tag(boolean)` — declaration 0.
+# arg_primitive derives only from a literal, a unary over a literal, or a declaration
+# annotated with a bare primitive. An argument that is a CALL has none of those, so the
+# primitive regime never fires and order decides. The fix is to derive arg_primitive from
+# the argument's resolved expr_type as well.
+consumer#viaInferredReturn() -> api#tag(number)
+consumer#viaInferredReturn() -> api#tag(string)
+#
+# 3. A MAPPED TYPE DOES NOT DISCRIMINATE A NAMED-OBJECT OVERLOAD.
+# `shape(r)` where `r: Required<Row>` answers `shape(Cell)`. The mapped type resolves to
+# Row for MEMBER LOOKUP — that is what the mapped-type work bought — but the argument's
+# type hash is still the alias, so it matches neither branch and both survive pruning.
+consumer#viaRequired(Required) -> api#shape(Row)
+#
+# 4. A CONSTRAINED SIGNATURE ALWAYS BEATS ITS CONCRETE SIBLING.
+# `widen(s)` where `s: string` answers `widen(T extends Row)` rather than `widen(string)`.
+# This is the direct and known cost of the param_untestable guard in overload.dl: a
+# type-variable parameter can no longer be REJECTED, which is what keeps the guard sound,
+# and it therefore also can never lose — so it wins on declaration order. The corpus did
+# not show this (remeda WRONG was flat at 558), and this fixture does, which is the whole
+# reason to hand-build one. Removing the guard re-opens the 534-site regression; the real
+# fix is an applicability test that can separate the two, not a change of tie-break.
+consumer#viaConcreteSibling(string) -> api#widen(string)
