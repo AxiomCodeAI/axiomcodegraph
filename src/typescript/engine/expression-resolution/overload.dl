@@ -254,6 +254,48 @@ arg_mismatch(ce, m) :- expr_call_candidate(ce, m),
     param_primitive(m, pos, b),
     !primitive_compatible(a, b).
 
+// ── A CALLBACK ARGUMENT ONLY FITS A CALLABLE PARAMETER ─────────────────────
+// `arg_is_target_typed` makes an arrow compatible with ANY parameter, which is right
+// as far as it goes — an arrow is not a nominal subtype of anything — and far too
+// weak. `it("x", () => {})` against
+//   <C>(name, fn?: TestFunction, options?: number): void
+//   <C>(name, options?: TestCollectorOptions, fn?: TestFunction): void
+// leaves both applicable, and the compiler picks the first because an arrow is not a
+// `TestCollectorOptions`. That is a decidable question: a function value fits a
+// parameter only if the parameter's type is CALLABLE.
+//
+// PRUNE-ONLY, so it fires only where the parameter's type is known AND known to have
+// members: an unresolved annotation, a type variable, `any` and `unknown` all leave
+// param_type empty and the rule stands down. `Object` and `Function` are excluded by
+// name because a function IS an object and IS a Function, and pruning there would
+// reject an assignment the compiler accepts.
+param_call_signature(m, pos) :- param_decl(_, _, pos, _, m, p),
+    param_type(p, _, t),
+    call_signature_in_scope(t, _).
+param_call_signature(m, pos) :- param_decl(_, _, pos, _, m, p),
+    param_shape_target(p, s),
+    call_signature_in_scope(s, _).
+param_is_universal(m, pos) :- param_decl(_, _, pos, _, m, p),
+    param_type(p, _, t),
+    type_decl(_, n, _, _, _, _, t),
+    universal_param_type_name(n).
+universal_param_type_name("Object").
+universal_param_type_name("Function").
+universal_param_type_name("CallableFunction").
+universal_param_type_name("NewableFunction").
+
+arg_is_function_value(ce, pos) :- expr_child("client", ce, "ARGUMENT", pos, a),
+    expr_kind("client", k, _, a),
+    expr_kind_is_function_value(k).
+expr_kind_is_function_value("ARROW_FUNCTION").
+expr_kind_is_function_value("FUNCTION_EXPRESSION").
+
+arg_mismatch(ce, m) :- expr_call_candidate(ce, m),
+    arg_is_function_value(ce, pos),
+    param_type_at(m, pos, _),
+    !param_call_signature(m, pos),
+    !param_is_universal(m, pos).
+
 // ── expr_pruned(CallExpr, Callee) — arity-matched and not contradicted ──────
 expr_pruned(ce, m) :- arity_match(ce, m),
     !arg_mismatch(ce, m).
@@ -318,6 +360,20 @@ overload_beaten(ce, m) :- overload_selectable(ce, m),
     method_group_of(m2, g),
     overload_index_of(m2, j),
     j < i.
+
+// ── WHY THERE IS NO "FIRST APPLICABLE" TIE-BREAK ───────────────────────────
+// TypeScript's own rule is that the first APPLICABLE overload wins, and implementing
+// it as "lowest declaration line among the survivors" was tried and REMOVED. Measured:
+// it bought +335 EXACT on zustand and cost +506 WRONG on the Parser repository; scoped
+// to nameless call signatures only, +65 EXACT and +207 WRONG. Both are bad trades,
+// because ordering on top of a weak applicability test converts an honest two-way set
+// into a confident wrong answer — and `target in engine set`, the number a
+// reachability consumer relies on, went DOWN (0.896 -> 0.881) while EXACT went up.
+//
+// The fix for a tie is a STRONGER APPLICABILITY TEST, not a tie-break. The
+// callable-parameter rule above is one instalment of that; comparing generic
+// instantiations would be the next. Until the test can separate two signatures, the
+// honest answer is both.
 
 // ── expr_resolves_to_method(CallExpr, Callee) — the answer ──────────────────
 expr_resolves_to_method(ce, m) :- overload_selectable(ce, m),

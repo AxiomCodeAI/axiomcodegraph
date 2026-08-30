@@ -19,8 +19,8 @@ own `typescript`, out of process.
 | project | call sites | oracle sites | decidable | **EXACT** | in engine set | WRONG | envelope precision |
 |---|---|---|---|---|---|---|---|
 | AxiomCode Parser (418 modules) | 14,090 | 14,090 | 14,007 | **0.806** | 0.896 | 123 | 0.956 |
-| remeda (531 modules) | 23,011 | 23,011 | 8,042 | **0.812** | 0.850 | 572 | 0.971 |
-| zustand (37 modules, React + vitest) | 4,200 | 4,346 | 4,176 | **0.475** | 0.516 | 14 | 0.958 |
+| remeda (531 modules) | 23,011 | 23,011 | 8,042 | **0.809** | 0.847 | 595 | 0.971 |
+| zustand (37 modules, React + vitest) | 4,200 | 4,346 | 4,176 | **0.540** | 0.581 | 14 | 0.962 |
 | this repository | 84 | 84 | 84 | **0.786** | 0.893 | 1 | 0.879 |
 
 * **EXACT** — the engine named ONE target and it is the declaration the compiler
@@ -58,25 +58,47 @@ Nothing else, on any project, differs.
 
 ---
 
-## Reading zustand's 0.475
+## Reading zustand's 0.540 — the attribution
 
 It is the lowest number here and it is the most informative one.
 
-zustand is 37 modules of deliberately extreme TypeScript — a store library whose
-public surface is `type Create = { <T, Mos>(initializer): UseBoundStore<Mutate<S, Mos>> }`
-— plus a test suite written against vitest, React and testing-library. Its remaining
-2,007 missed sites are almost entirely two populations:
+First, which number is which. **0.540 is not precision — it is exactness.** zustand's
+PRECISION is 0.962 against the dispatch envelope, and WRONG is **14 of 4,176**. The
+engine is not wrong about zustand; it declines to answer. That is the failure mode a
+call graph can survive, and it is the opposite of the one it cannot.
 
-* **generic inference through a callback and through a conditional type.**
-  `create(...)` returns `UseBoundStore<Mutate<StoreApi<T>, Mos>>`, and the type of
-  `useBoundStore.getState()` is only knowable by instantiating a conditional type.
-  The engine substitutes type ARGUMENTS (`generics.dl`) and does not do INFERENCE;
-  guessing there would fabricate rather than over-approximate, so those sites stay
-  unresolved and countable.
-* **JSX**, absent from the IR entirely.
+zustand is 37 modules of deliberately extreme TypeScript — a store library whose public
+surface is `type Create = { <T, Mos>(initializer): UseBoundStore<Mutate<S, Mos>> }` —
+plus a test suite written against vitest, React and testing-library.
 
-WRONG is **14** of 4,176. The engine is not wrong about zustand; it declines to answer, which is
-the failure mode a call graph can survive.
+**Where the 1,735 missed sites go, measured:**
+
+| population | sites | parser or engine |
+|---|---|---|
+| receiverless call, callee bound to an IMPORT | 358 | engine — generic instantiation through a library's alias chain |
+| receiverless call, callee bound to a local VARIABLE | 355 | engine — `const s = create(…)`, needs the conditional type `Mutate<S, Mos>` instantiated |
+| receiver typed to a client declaration that resolved to nothing | 388 | engine — same conditional-type instantiation |
+| receiver typed to a library declaration that resolved to nothing | 164 | engine |
+| receiver typed, member genuinely absent from the resolved type | 152 | engine — usually the same instantiation gap one hop earlier |
+| callee bound to a callback PARAMETER | 110 | engine — contextual typing of `(set, get) => …`, not built |
+| unclassified / other call forms | 208 | mixed |
+
+**Not in this table, because it is not in the denominator: 144 JSX component calls
+plus 2 index calls the parser does not emit at all.** They are excluded from both
+sides of the comparison, so they do not explain the 0.540 — counting them would make
+it worse, not better.
+
+So: **almost all of zustand's gap is the engine, and almost all of the engine's gap is
+one missing capability — instantiating a generic type through a conditional or mapped
+type.** `create(…)` returns `UseBoundStore<Mutate<StoreApi<T>, Mos>>` and the type of
+`store.getState()` is only knowable by evaluating `Mutate`. The engine substitutes
+type ARGUMENTS (`generics.dl`, and the alias-substitution rule in
+`type-resolution.dl`) and does not evaluate conditional types. Guessing there would
+fabricate rather than over-approximate, so those sites stay unresolved and countable.
+
+The binder is not the problem: of the 824 receiverless misses, **823 have a real
+`referencedEntityHash`** on the callee. The parser bound every one of them; the engine
+could not get from the binding to a callable signature.
 
 ---
 
@@ -88,7 +110,7 @@ most calls resolve to a synthesized instantiation rather than a written declarat
 Those are excluded from the denominator on both sides: the oracle has nothing to point
 at, so neither engine nor score can be right or wrong about them.
 
-Its 572 WRONG are overload selection inside one function — `add.ts:32` where the
+Its 595 WRONG are overload selection inside one function — `add.ts:32` where the
 compiler chose `add.ts:33`. The envelope, which counts an overload of the same
 function as a dispatch possibility rather than a wrong target, puts precision at
 **0.971**.
@@ -112,6 +134,8 @@ where it was fixed:
 | primitives compared by NAME | remeda's `bigint`/`number` overloads were indistinguishable when `lib.es2020.bigint` was not staged |
 | barrel longest-match taken over MATCHING candidates | 0.737 → 0.778 on the Parser corpus. The longest tail of `@/a/b/C` is the whole specifier, which the alias prefix guarantees will never match, so the rule derived nothing while looking correct. `export_specifier_unresolved` 181 → 0 |
 | an arrow function must be SELECTABLE | 0.778 → 0.806. Every arrow carries signatureRole = IMPLEMENTATION and an EMPTY declarationGroupKey — 955 of them here — so the overload-selection rule could not fire for any, and `const fail = (m) => …; fail(x)` resolved to nothing |
+| alias type-argument substitution | zustand 0.475 → 0.540. `type TestAPI = ChainableFunction<…, TestCollectorCallable<C>, …>` puts the callable part in a type VARIABLE two aliases up; every link resolved and the chain stopped one substitution short |
+| a callback argument only fits a CALLABLE parameter | strengthened the applicability test instead of guessing an overload order. See the note in `overload.dl` on the tie-break that was tried and removed |
 | the implicit `Object` base | `x.toString()` found no member on a perfectly typed receiver: no type declares `extends Object` and nothing in the IR does either. 101 sites, all reported as `member_absent`, which was the right diagnosis |
 
 ---
