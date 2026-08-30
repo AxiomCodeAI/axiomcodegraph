@@ -143,7 +143,7 @@ literal_kind_global("REGEX", "RegExp").
 // ref_element_target and for a generic container is the substituted type argument
 // (generics.dl). A `for…in` binding is a STRING key, not an element, so only FOR_OF
 // and FOR_AWAIT_OF are admitted here — enumerated rather than matched inline.
-for_binding_iterable(v, e) :- ts_variable(_, _, _, _, _, _, _, _, "FOR_BINDING", _, _, _, _, _, _, b, _, _, _, _, _, _, _, _, _, _, _, _, v),
+for_binding_iterable(v, e) :- ts_variable(_, _, _, _, _, _, _, _, "FOR_BINDING", _, _, _, _, _, _, b, _, _, _, _, _, _, _, _, _, _, _, _, _, _, v),
     b != "",
     ts_block(bk, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, _, b),
     block_kind_iterates_elements(bk),
