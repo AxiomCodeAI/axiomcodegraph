@@ -169,6 +169,39 @@ method_return_type(m, prov, t) :- method_return_ref(_, r, m),
 method_return_shape(m, s) :- method_return_ref(_, r, m),
     ref_shape_target(r, s).
 
+// ── …AND WHERE NOTHING IS DECLARED, THE TYPE OF WHAT IT RETURNS ─────────────
+// Between 50% and 86% of client methods in the corpus carry no return annotation
+// (zustand 86.2%, remeda 75.6%, trpc 73.0%, nest 58.0%). Reading only the declaration
+// leaves every one of them with no return type, so every call ON THE RESULT of such a
+// function has an untyped receiver — 2,191 sites diagnosed receiver_untyped, and the
+// reason 83% of missed chained calls sit behind an inner call that itself missed.
+//
+// The compiler infers these, which needs the checker and is therefore not something the
+// parser may do. It does not have to: the returned EXPRESSION is a syntactic fact, the
+// parser already marks it, and this engine can already resolve it. So the inference is
+// one join — what the function returns, typed by the rules that type everything else.
+//
+// BOTH return forms, which is not optional. A concise arrow body is a return with no
+// `return` keyword and carries ARROW_BODY_EXPRESSION, not RETURN_VALUE: on remeda the
+// two are 214 and 213, so matching only the first would silently lose half of them.
+return_context("RETURN_VALUE").
+return_context("ARROW_BODY_EXPRESSION").
+// The enclosing function comes from ownership.dl's call_caller_method, which the parser
+// records on the call-site row directly. Reaching it through the expression's OWNER
+// instead takes two hops and breaks on the shape that matters most here: a concise arrow
+// body's owner is the VARIABLE it is assigned to rather than a block, so
+// `const f = () => make()` would never join.
+method_returns_expr(m, e) :- call_caller_method(cs, m),
+    call_site(prov, _, _, _, _, e, cs),
+    expr_root_context(prov, rc, e),
+    return_context(rc).
+// Guarded so a declaration always wins: an annotation is what the function PROMISES,
+// and inferring past it would let one branch of a widened return narrow the answer.
+method_declares_return(m) :- method_return_ref(_, _, m).
+method_return_type(m, prov, t) :- method_returns_expr(m, e),
+    expr_type(e, prov, t),
+    !method_declares_return(m).
+
 // ── method_return_awaited(MethodHash, Prov, TypeHash) ───────────────────────
 // `await client.get()` — the receiver of the next hop is the AWAITED type, not the
 // Promise. An `async` function's declared return is `Promise<T>` and the value at an

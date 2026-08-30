@@ -374,6 +374,33 @@ overload_index_of(m, 0) :- method_signature_role("lib", _, "", _, m).
 method_group_of(m, g) :- method_group("client", g, m).
 method_group_of(m, g) :- method_group("lib", g, m).
 
+// ── AMBIENT OVERLOAD SETS ARE UNGROUPED, AND STAY THAT WAY FOR NOW ─────────
+// An overload set declared in a .d.ts arrives with its overloadIndex CORRECT and its
+// declarationGroupKey EMPTY — 819 same-name sets sharing one owning type in the staged
+// standard library, 5 of them grouped. `Array.concat` is two rows at lib.es5:1208 and
+// :1213, roles AMBIENT, indices 0 and 1, group "". Every rule here keys the set on that
+// group, so nothing can beat anything and each library overload set is returned whole:
+// 710 of nest's sites and 1,557 of its false-positive edges.
+//
+// Synthesising the group from OWNER and NAME — the substitution the IMPLEMENTATION
+// clauses below already make for client class methods — was implemented and MEASURED,
+// and is deliberately not kept:
+//
+//   EXACT 14,539 -> 14,851   SUPER 1,542 -> 1,047   FP 3,338 -> 2,626
+//   WRONG   591  ->    774   exact 0.688 -> 0.703   edgeP 0.828 -> 0.858
+//
+// Precision up, and 183 more confidently wrong answers. They are not spread thin: they
+// land on `Array.filter` (a type-guard overload the applicability test cannot separate
+// from its plain sibling), `Array.reduce`, and the `Map` constructor — the same
+// generic-first shape that fails everywhere else. Turning grouping on hands declaration
+// order authority over the whole ambient surface while the test that is supposed to
+// justify it still cannot discriminate, which is the trade this file's own header
+// warns against. The typeflow fixture pins it: grouping takes it from WRONG 0 to 2.
+//
+// The prerequisite is applicability that separates these sets, not the group key.
+// Scoping the group to one module was also tried: WRONG 128 -> 113 on nest and
+// false-positive edges 1,169 -> 1,364 — fifteen answers for 195 edges.
+
 // An IMPLEMENTATION row is not a callable overload: when a function has overload
 // signatures, the implementation signature is deliberately invisible to callers. So
 // it never competes for the first-applicable slot — it is re-pointed to, later, by
