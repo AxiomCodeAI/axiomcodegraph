@@ -61,11 +61,11 @@
 .decl prim_param_name(c0:symbol)
 .decl param_is_prim(c0:symbol,c1:symbol)
 .decl arg_ref_only(c0:symbol,c1:symbol)
-.decl fn_arg_position(c0:symbol,c1:symbol)   // (call,pos) where a lambda/method-ref is passed
-.decl str_concat_type(c0:symbol)      // java.lang.String type hash (string-concat result type)
-.decl lib_msig(c0:symbol,c1:symbol,c2:symbol)              // (libMethod, name, paramCount)
-.decl fn_value_at(c0:symbol,c1:symbol)      // (call, lambda|methodref reachable there)
-.decl fn_value_count(c0:symbol,c1:number)  // how many function values that receiver may hold
+.decl fn_arg_position(c0:symbol,c1:symbol)
+.decl str_concat_type(c0:symbol)
+.decl lib_msig(c0:symbol,c1:symbol,c2:symbol)
+.decl fn_value_at(c0:symbol,c1:symbol)
+.decl fn_value_count(c0:symbol,c1:number)
 .decl lambda_expr(c0:symbol)
 .decl lambda_owns(c0:symbol,c1:symbol)
 .decl lambda_body_call(c0:symbol,c1:symbol)
@@ -77,24 +77,24 @@
 .decl lambda_invoked_at(c0:symbol,c1:symbol)
 .decl mref_invoked_at(c0:symbol,c1:symbol)
 .decl lambda_dispatch_edge(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol)
-.decl ident_field_recv(c0:symbol,c1:symbol)   // FIELD-stamped identifier used as a receiver/qualifier
-.decl recv_name_is_field(c0:symbol)          // ...and a real field of that name IS visible
-.decl recv_name_is_local(c0:symbol)          // ...or a local/param of that name is in scope
-.decl lib_recv_target(c0:symbol,c1:symbol,c2:symbol)       // (call, receiverType, libMethod)
-.decl lib_shadowed_for(c0:symbol,c1:symbol,c2:symbol)      // (call, receiverType, libMethod) hidden for that receiver
-.decl lib_target_kept(c0:symbol,c1:symbol)                 // (call, libMethod) survives the boundary gate
-.decl override_in_closure(c0:symbol,c1:symbol)   // (method, type): method is declared in that type or a supertype of it
-.decl call_super_receiver(c0:symbol)   // super.m() — non-virtual, never CHA-fanned
+.decl ident_field_recv(c0:symbol,c1:symbol)
+.decl recv_name_is_field(c0:symbol)
+.decl recv_name_is_local(c0:symbol)
+.decl lib_recv_target(c0:symbol,c1:symbol,c2:symbol)
+.decl lib_shadowed_for(c0:symbol,c1:symbol,c2:symbol)
+.decl lib_target_kept(c0:symbol,c1:symbol)
+.decl override_in_closure(c0:symbol,c1:symbol)
+.decl call_super_receiver(c0:symbol)
 .decl call_exact_receiver(c0:symbol)
 .decl method_return_new(c0:symbol,c1:symbol,c2:symbol)
 .decl method_return_other(c0:symbol)
 .decl method_return_mono(c0:symbol,c1:symbol,c2:symbol)
-.decl sig_declared_in(c0:symbol,c1:symbol,c2:symbol,c3:symbol)  // (type,name,paramCount,method) declared directly
-.decl sig_concrete_in(c0:symbol,c1:symbol,c2:symbol)            // (type,name,paramCount) concrete instance method
-.decl abstract_sig(c0:symbol,c1:symbol,c2:symbol)               // (method,name,paramCount) abstract/interface decl
-.decl type_declares_sig(c0:symbol,c1:symbol,c2:symbol)        // (type, name, paramCount) declared directly
-.decl type_reaches_concrete_sig(c0:symbol,c1:symbol,c2:symbol)  // (type, name, paramCount) concrete impl reachable
-.decl abstract_decl(c0:symbol,c1:symbol,c2:symbol)              // (method, name, paramCount) abstract/interface decl
+.decl sig_declared_in(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl sig_concrete_in(c0:symbol,c1:symbol,c2:symbol)
+.decl abstract_sig(c0:symbol,c1:symbol,c2:symbol)
+.decl type_declares_sig(c0:symbol,c1:symbol,c2:symbol)
+.decl type_reaches_concrete_sig(c0:symbol,c1:symbol,c2:symbol)
+.decl abstract_decl(c0:symbol,c1:symbol,c2:symbol)
 .decl shadowed_in_type(c0:symbol,c1:symbol)
 .decl expr_ultimate_method(c0:symbol,c1:symbol,c2:symbol)
 .decl expr_ultimate_type(c0:symbol,c1:symbol,c2:symbol)
@@ -157,11 +157,11 @@
 .decl lib_member_chain(c0:symbol,c1:symbol,c2:symbol,c3:number)
 .decl lib_member_type(c0:symbol,c1:symbol,c2:symbol)
 .decl lib_method_ret_ref(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
-.decl lib_ret_ref_hash(c0:symbol,c1:symbol)                 // (libMethod, its depth-0 return reference)
-.decl lib_ret_arg_tvar(c0:symbol,c1:symbol,c2:symbol)       // (libMethod, argPos, owner tvar used as that arg)
-.decl lib_super_ref_at(c0:symbol,c1:symbol,c2:symbol)       // (subType, superSimpleName, super reference)
-.decl lib_tvar_alias(c0:symbol,c1:symbol,c2:symbol,c3:symbol)      // Collection.E == Iterable.T
-.decl lib_tvar_alias_star(c0:symbol,c1:symbol,c2:symbol,c3:symbol) // transitive closure of the above
+.decl lib_ret_ref_hash(c0:symbol,c1:symbol)
+.decl lib_ret_arg_tvar(c0:symbol,c1:symbol,c2:symbol)
+.decl lib_super_ref_at(c0:symbol,c1:symbol,c2:symbol)
+.decl lib_tvar_alias(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl lib_tvar_alias_star(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl lib_method_ret_tvar(c0:symbol,c1:symbol,c2:symbol)
 .decl lib_method_return_type(c0:symbol,c1:symbol)
 .decl lib_nested_fqn(c0:symbol,c1:symbol,c2:number)
@@ -315,7 +315,7 @@
 .decl value_type_name(c0:symbol)
 .decl value_unbox(c0:symbol,c1:symbol)
 .decl value_widens(c0:symbol,c1:symbol)
-.decl client_overridden_lib_type(c0:symbol)   // lib types the client extends/implements (CHA fan anchor)
+.decl client_overridden_lib_type(c0:symbol)
 .decl virtual_override(c0:symbol,c1:symbol)
 .decl win_fully_applicable(c0:symbol,c1:symbol)
 .decl win_not_ok_somewhere(c0:symbol,c1:symbol)
@@ -370,17 +370,6 @@
 .decl expr_arg_binding(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl type_fixes_super(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl arg_ref_at(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
-
-// ============================================================================
-// CONFIG-RESOLUTION  (engine/config-resolution/) — annotation arguments, XML,
-// .properties and YAML: value interpretation, wiring/DI, config-driven entry
-// points, and config -> method impact.
-//
-// cfg_* / ann_* / xml_*   internal to the phase (scans, name lists, helpers)
-// bean_def, inject_point, di_edge, config_class_ref, config_binding,
-// config_affects_method, config_entry_point, config_key_ref, config_unresolved
-//                         the phase's exports (src/java/souffle/export_manifest.tsv)
-// ============================================================================
 .decl ann_arg(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
 .decl ann_arg_value(c0:symbol,c1:symbol)
 .decl ann_file(c0:symbol,c1:symbol)
