@@ -1,0 +1,120 @@
+// ============================================================================
+// Projections · FIELDS, VARIABLES, ENUM MEMBERS  (pure column views)
+//
+// The three declaration kinds a receiver identifier can bind to that are not
+// functions. In Java these are two (field, local) and a local is always inside a
+// method; here a `const` at module scope is a first-class exported declaration, so
+// ts_variable spans what Java splits between java_field and java_local_variable.
+//
+// ts_field / lib_ts_field cols (29):
+//   0 name  1 fieldTypeName  2 fieldBaseType  3 potentialQualifiedName  4 isAmbiguous
+//   5 filePath  6 startLine  7 endLine  8 tsTypeLinkHash (owning type OR SHAPE)
+//   9 ownerTypeName  10 ownerQualifiedName  11 fieldAccess  12 fieldModifier
+//   13 memberKind  14 tsModuleLinkHash  15 isOptional  16 hasDefiniteAssignment
+//   17 isReadonly  18 isStatic  19 indexKeyTypeName  20 isTypeOnly
+//   21 typeReferenceLinkHash  22 initializerExpressionLinkHash
+//   23 originParameterLinkHash  24 memberGroupKey  25 startColumn  26 endColumn
+//   27 serviceVersionLinkHash  28 tsFieldUniqueHash
+//
+// ts_variable / lib_ts_variable cols (29):
+//   0 name  1 variableTypeName  2 variableBaseType  3 potentialQualifiedName
+//   4 isAmbiguous  5 filePath  6 startLine  7 endLine  8 scopeKind  9 scopeDepth
+//   10 isConst  11 isTypeInferred  12 tsTypeLinkHash  13 tsMethodLinkHash
+//   14 tsModuleLinkHash  15 tsBlockLinkHash  16 declarationKind  17 hasInitializer
+//   18 initializerKind  19 boundFunctionLinkHash  20 typeReferenceLinkHash
+//   21 initializerExpressionLinkHash  22 isExported  23 isAmbientDeclare
+//   24 isDestructuring  25 declarationGroupKey  26 startColumn
+//   27 serviceVersionLinkHash  28 tsVariableUniqueHash
+//
+// ts_enum_member / lib_ts_enum_member cols (18):
+//   0 name  1 qualifiedName  2 ordinal  3 initializerText  4 hasInitializer
+//   5 hasBody  6 filePath  7 startLine  8 endLine  9 tsTypeLinkHash (owning enum)
+//   10 ownerTypeName  11 ownerQualifiedName  12 valueKind  13 constantValue
+//   14 isConstEnumMember  15 tsExpressionLinkHash  16 serviceVersionLinkHash
+//   17 tsEnumMemberUniqueHash
+// ============================================================================
+
+// ── field_decl(Prov, Name, TypeName, OwnerHash, FieldHash) ──────────────────
+// OwnerHash (col 8) is the owning type OR SHAPE, exactly as ts_method col 7 is: it
+// points at a ts_type_reference row when memberKind is a TYPE_LITERAL_* value,
+// because an anonymous `{ foo(): string }` has members and no declaration to own
+// them. Same protection as there — the PK prefixes differ, so a join against
+// ts_type simply misses rather than matching the wrong thing.
+field_decl("client", n, tn, owner, h) :- ts_field(n, tn, _, _, _, _, _, _, owner, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+field_decl("lib", n, tn, owner, h) :- lib_ts_field(n, tn, _, _, _, _, _, _, owner, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── field_kind(Prov, MemberKind, IsStatic, IsOptional, FieldHash) ───────────
+// MemberKind (col 13, TsMemberKind): PROPERTY_DECLARATION | PROPERTY_SIGNATURE |
+//   INDEX_SIGNATURE | TYPE_LITERAL_PROPERTY | TYPE_LITERAL_INDEX_SIGNATURE |
+//   PARAMETER_PROPERTY | OBJECT_LITERAL_PROPERTY | AUTO_ACCESSOR.
+// isOptional (col 15) is load-bearing for structural satisfaction: an ABSENT
+// optional member does not break assignability, so the satisfaction rule must
+// require only the REQUIRED members of the target.
+field_kind("client", mk, st, opt, h) :- ts_field(_, _, _, _, _, _, _, _, _, _, _, _, _, mk, _, opt, _, _, st, _, _, _, _, _, _, _, _, _, h).
+field_kind("lib", mk, st, opt, h) :- lib_ts_field(_, _, _, _, _, _, _, _, _, _, _, _, _, mk, _, opt, _, _, st, _, _, _, _, _, _, _, _, _, h).
+
+// ── field_type_ref(Prov, TypeRefHash, FieldHash) ────────────────────────────
+field_type_ref("client", r, h) :- ts_field(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, r, _, _, _, _, _, _, h), r != "".
+field_type_ref("lib", r, h) :- lib_ts_field(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, r, _, _, _, _, _, _, h), r != "".
+
+// ── field_initializer(Prov, InitExprHash, FieldHash) ────────────────────────
+// `private repo = new SqlRepo()` — an initializer pins a concrete type where the
+// declared type is an interface. Same flow-typing win Java gets from a local's
+// `new`, and the same reason to prefer it over the declaration.
+field_initializer("client", e, h) :- ts_field(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, _, _, _, _, h), e != "".
+field_initializer("lib", e, h) :- lib_ts_field(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, _, _, _, _, h), e != "".
+
+// ── field_module(Prov, ModuleHash, FieldHash) ───────────────────────────────
+field_module("client", m, h) :- ts_field(_, _, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+field_module("lib", m, h) :- lib_ts_field(_, _, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── var_decl(Prov, Name, TypeName, ScopeKind, MethodHash, ModuleHash, VarHash) ──
+// ScopeKind (col 8, TsVariableScopeKind): MODULE_SCOPE | GLOBAL_SCOPE |
+//   FUNCTION_BODY | ARROW_BODY | BLOCK_SCOPE | FOR_BINDING | CATCH_BINDING |
+//   NAMESPACE_SCOPE | AMBIENT_SCOPE.
+// MethodHash (col 13) is "" for a module-scope declaration; ModuleHash (col 14) is
+// always present. Binding by NAME is never needed — expressions carry
+// referencedEntityHash — so both are here for scope reporting, not lookup.
+var_decl("client", n, tn, sk, m, mod, h) :- ts_variable(n, tn, _, _, _, _, _, _, sk, _, _, _, _, m, mod, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+var_decl("lib", n, tn, sk, m, mod, h) :- lib_ts_variable(n, tn, _, _, _, _, _, _, sk, _, _, _, _, m, mod, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── var_type_ref(Prov, TypeRefHash, VarHash) ────────────────────────────────
+var_type_ref("client", r, h) :- ts_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, r, _, _, _, _, _, _, _, h), r != "".
+var_type_ref("lib", r, h) :- lib_ts_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, r, _, _, _, _, _, _, _, h), r != "".
+
+// ── var_bound_function(Prov, MethodHash, VarHash) ───────────────────────────
+// `const f = () => {}` — THE link that makes a const callable. 161 measured
+// resolved call targets are arrow functions reached only this way. Java's nearest
+// equivalent (a lambda in a field) needs a whole dispatch file; here it is a
+// column, because the parser's binder already made the connection.
+var_bound_function("client", f, h) :- ts_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, f, _, _, _, _, _, _, _, _, h), f != "".
+var_bound_function("lib", f, h) :- lib_ts_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, f, _, _, _, _, _, _, _, _, h), f != "".
+
+// ── var_initializer(Prov, InitKind, InitExprHash, VarHash) ──────────────────
+// InitKind (col 18, TsVariableInitializerKind): ARROW | FUNCTION_EXPRESSION | NEW |
+//   CALL | OBJECT_LITERAL | ARRAY_LITERAL | LITERAL | IDENTIFIER | AS_EXPRESSION |
+//   SATISFIES | AWAIT | TEMPLATE | CLASS_EXPRESSION | NONE | UNKNOWN.
+// NEW is the flow-typing case: `const c: Conn = new SqlConn()` holds a SqlConn, and
+// typing the receiver by the declaration instead fans every call on it across every
+// implementer of Conn.
+var_initializer("client", ik, e, h) :- ts_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ik, _, _, e, _, _, _, _, _, _, h).
+var_initializer("lib", ik, e, h) :- lib_ts_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ik, _, _, e, _, _, _, _, _, _, h).
+
+// ── var_flags(Prov, IsConst, IsTypeInferred, IsExported, VarHash) ───────────
+// isConst matters for flow typing in a way Java's `final` does not: a `const` can
+// never be reassigned, so its initializer type IS its type for the whole scope, with
+// no reassignment scan needed. A `let` needs the scan.
+var_flags("client", c, inf, exp, h) :- ts_variable(_, _, _, _, _, _, _, _, _, _, c, inf, _, _, _, _, _, _, _, _, _, _, exp, _, _, _, _, _, h).
+var_flags("lib", c, inf, exp, h) :- lib_ts_variable(_, _, _, _, _, _, _, _, _, _, c, inf, _, _, _, _, _, _, _, _, _, _, exp, _, _, _, _, _, h).
+
+// ── enum_member_decl(Prov, Name, OwnerEnumHash, IsConstMember, EnumMemberHash) ──
+// isConstEnumMember (col 14) marks a member that is INLINED at its use sites, so a
+// reference to it may have no runtime target — an honest terminal, not a miss.
+enum_member_decl("client", n, owner, cm, h) :- ts_enum_member(n, _, _, _, _, _, _, _, _, owner, _, _, _, _, cm, _, _, h).
+enum_member_decl("lib", n, owner, cm, h) :- lib_ts_enum_member(n, _, _, _, _, _, _, _, _, owner, _, _, _, _, cm, _, _, h).
+
+// ── field_position(Prov, FieldHash, Position) ───────────────────────────────
+// Declaration order within the owning type. Parity with java_field_position;
+// consumed by reporting, not by resolution.
+field_position("client", f, pos) :- ts_field_position(f, pos, _).
+field_position("lib", f, pos) :- lib_ts_field_position(f, pos, _).

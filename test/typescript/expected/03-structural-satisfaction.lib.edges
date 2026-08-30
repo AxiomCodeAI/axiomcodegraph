@@ -1,0 +1,10 @@
+ambiguous_unknown	CONSTRUCTOR_CALL	duck#drive() @L36 -> -
+ambiguous_unknown	CONSTRUCTOR_CALL	duck#drive() @L37 -> -
+ambiguous_unknown	CONSTRUCTOR_CALL	duck#useLibrary() @L46 -> -
+boundary_lib	FUNCTION_CALL	duck#useLibrary() @L51 -> io#drain({ read(): string })
+boundary_lib	METHOD_CALL	duck#useLibrary() @L50 -> Closeable#close()
+known_edge	FUNCTION_CALL	duck#drive() @L39 -> duck#consume(Reader)
+multi_inferred	METHOD_CALL	duck#consume(Reader) @L32 -> FileReader#read()
+multi_inferred	METHOD_CALL	duck#consume(Reader) @L32 -> NetReader#read()
+multi_inferred	METHOD_CALL	duck#consume(Reader) @L32 -> Reader#read()
+multi_inferred	METHOD_CALL	duck#useLibrary() @L50 -> FileReader#close()

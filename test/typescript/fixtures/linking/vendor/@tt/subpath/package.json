@@ -1,0 +1,8 @@
+{
+  "name": "@tt/subpath",
+  "version": "1.0.0",
+  "exports": {
+    ".":      { "types": "./subpath-root.d.ts",  "default": "./subpath-root.js" },
+    "./deep": { "types": "./subpath-deep.d.ts",  "default": "./subpath-deep.js" }
+  }
+}

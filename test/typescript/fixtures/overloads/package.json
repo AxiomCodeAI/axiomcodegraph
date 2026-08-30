@@ -1,0 +1,6 @@
+{
+  "name": "overload-fixture",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Cross-file overload resolution, for the TypeScript engine's oracle gate."
+}

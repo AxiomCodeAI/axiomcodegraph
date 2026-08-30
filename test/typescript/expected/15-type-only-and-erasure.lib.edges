@@ -1,0 +1,9 @@
+ambiguous_unknown	CONSTRUCTOR_CALL	consumer#drive(Spec,Alias) @L7 -> -
+ambiguous_unknown	CONSTRUCTOR_CALL	consumer#useLibrary(Contract) @L19 -> -
+ambiguous_unknown	FUNCTION_CALL	consumer#drive(Spec,Alias) @L9 -> -
+ambiguous_unknown	FUNCTION_CALL	consumer#useLibrary(Contract) @L19 -> -
+boundary_lib	METHOD_CALL	consumer#useLibrary(Contract) @L19 -> Contract#verify()
+boundary_lib	METHOD_CALL	consumer#useLibrary(Contract) @L19 -> Verifier#verify()
+known_edge	METHOD_CALL	consumer#drive(Spec,Alias) @L9 -> Impl#check()
+multi_inferred	METHOD_CALL	consumer#drive(Spec,Alias) @L9 -> Impl#check()
+multi_inferred	METHOD_CALL	consumer#drive(Spec,Alias) @L9 -> Spec#check()

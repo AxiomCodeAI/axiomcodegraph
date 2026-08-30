@@ -1,0 +1,12 @@
+ambiguous_unknown	FUNCTION_CALL	consumer#viaArityOnly(readonly Row[]) @L29 -> -
+ambiguous_unknown	FUNCTION_CALL	consumer#viaConcreteSibling(string) @L47 -> -
+ambiguous_unknown	FUNCTION_CALL	consumer#viaConstrained(T) @L43 -> -
+ambiguous_unknown	FUNCTION_CALL	consumer#viaContextualCallback(readonly Row[]) @L23 -> -
+ambiguous_unknown	FUNCTION_CALL	consumer#viaInferredReturn() @L16 -> -
+ambiguous_unknown	FUNCTION_CALL	consumer#viaInferredReturn() @L17 -> -
+ambiguous_unknown	FUNCTION_CALL	consumer#viaMappedType(Readonly) @L34 -> -
+ambiguous_unknown	FUNCTION_CALL	consumer#viaRequired(Required) @L38 -> -
+ambiguous_unknown	METHOD_CALL	consumer#viaReceiver(Store,Row,Cell) @L52 -> -
+ambiguous_unknown	METHOD_CALL	consumer#viaReceiver(Store,Row,Cell) @L53 -> -
+known_edge	FUNCTION_CALL	consumer#viaInferredReturn() @L16 -> consumer#makeCount()
+known_edge	FUNCTION_CALL	consumer#viaInferredReturn() @L17 -> consumer#makeLabel()
