@@ -346,9 +346,24 @@ type_var_constraint_in_scope(owner, name, cref) :- method_owner(p, ot, owner),
 // a `T`-typed receiver stayed memberless even though every piece of the answer was
 // present: the parser emits TYPE_VARIABLE, the constraint reference, and the parameter's
 // method link. The rule existed; the join was one hop short.
-type_var_constraint_in_scope(powner, name, cref) :- param_decl(p, _, _, _, m, powner),
-    type_param(p, name, _, _, m, tp),
-    type_param_constraint(p, cref, tp).
+// A THIRD SCOPE — PARAMETER UP TO ITS METHOD — IS REVERTED, AND HERE IS WHY.
+// `function tagOf<T extends Alpha>(v: T)` puts the type variable's reference on the
+// PARAMETER while the type parameter is declared on the METHOD, so neither clause above
+// bridges them and a `T`-typed parameter receiver stays memberless. Adding that hop is
+// correct TypeScript and it fixed the case — and it cost 592 exact answers on remeda
+// while adding 534 wrong ones, because remeda writes `<T extends IterableContainer>` on
+// nearly every signature.
+//
+// The hop is not what is wrong. A CONSTRAINT IS A LOWER BOUND: `T extends X` says every
+// T is an X, not that T IS X. Using it to establish MEMBERS is sound; letting
+// arg_mismatch use it to REJECT a candidate is not, because the real T may be narrower
+// and match. Once those parameters had members, the nominal pruning test began rejecting
+// the true signatures and left only the wide-parameter IMPLEMENTATION, which the
+// don't-empty safeguard then handed back — the engine answered `prop.ts:452
+// IMPLEMENTATION` where the compiler named the signature at `prop.ts:71`.
+//
+// Re-land it behind a param_untestable guard for constraint-derived types, so the
+// constraint informs member lookup and never informs pruning.
 
 // THIS_TYPE — `this` as a return type, the fluent-builder idiom. The receiver is the
 // declaring type itself.
