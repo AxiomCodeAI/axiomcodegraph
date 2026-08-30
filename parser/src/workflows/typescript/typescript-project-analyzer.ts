@@ -373,9 +373,25 @@ export class TypeScriptProjectAnalyzer {
     await this.writeAtomically(outputPath, parts);
   }
 
-  /** One handle, then an atomic rename: the path never names a partial file. */
+  /**
+   * One handle, verified, then an atomic rename.
+   *
+   * The temporary name is UNIQUE per write. A fixed `<file>.partial` is shared
+   * by every writer aimed at the same output directory: two of them open it
+   * with 'w', each keeps its own offset, and the bytes interleave -- so the
+   * published file begins mid-value rather than being truncated at the end.
+   * The same collision also makes the rename itself race, and the loser fails
+   * with ENOENT because the winner already moved the file away.
+   *
+   * The read-back is what makes "fail if a row is torn" a promise to every
+   * consumer rather than an assertion the gate makes over its own fixtures. It
+   * costs one extra read per relation and turns a bad file into a loud failure
+   * instead of a shipped artefact -- which is the whole point, since a torn row
+   * loads cleanly and counts wrong.
+   */
   private async writeAtomically(outputPath: string, parts: readonly string[]): Promise<void> {
-    const temporaryPath = `${outputPath}.partial`;
+    const temporaryPath = `${outputPath}.${process.pid}.${this.writeSequence}.partial`;
+    this.writeSequence += 1;
     const handle = await fsp.open(temporaryPath, 'w');
     try {
       for (const part of parts) {
@@ -389,8 +405,17 @@ export class TypeScriptProjectAnalyzer {
     } finally {
       await handle.close();
     }
+    try {
+      verifyRelationFile(temporaryPath, outputPath);
+    } catch (error) {
+      await fsp.rm(temporaryPath, { force: true });
+      throw error;
+    }
     await fsp.rename(temporaryPath, outputPath);
   }
+
+  /** Distinguishes concurrent writes within one process; the pid does the rest. */
+  private writeSequence = 0;
 
   private async exportSkippedFilesCsv(outputDir: string): Promise<void> {
     const header = ['filePath', 'baseMservPath', 'serviceVersionLinkHash', 'reason', 'detail']
@@ -535,6 +560,41 @@ function importSpecifiersOf(sf: ts.SourceFile): string[] {
   };
   ts.forEachChild(sf, visit);
   return out;
+}
+
+/**
+ * Every row is exactly as wide as the header, and the file ends in a newline.
+ *
+ * Read back from what was actually written, not from the strings that were
+ * meant to be written -- a check over the in-memory rows cannot see a short
+ * write, and a short write is the failure being guarded against.
+ */
+function verifyRelationFile(temporaryPath: string, outputPath: string): void {
+  const text = fs.readFileSync(temporaryPath, 'utf-8');
+  if (text === '') {
+    return;
+  }
+  if (!text.endsWith('\n')) {
+    throw new Error(`${path.basename(outputPath)}: the write did not end in a newline, so the `
+      + 'last row is truncated');
+  }
+  const lines = text.split('\n');
+  const header = lines[0];
+  if (header === undefined || header === '') {
+    return;
+  }
+  const width = header.split('\t').length;
+  for (let i = 1; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (line === undefined || line === '') {
+      continue;
+    }
+    const got = line.split('\t').length;
+    if (got !== width) {
+      throw new Error(`${path.basename(outputPath)}: line ${i + 1} has ${got} field(s) where the `
+        + `header has ${width} — the row is torn: ${JSON.stringify(line.slice(0, 60))}`);
+    }
+  }
 }
 
 function collectTypeScriptFiles(dir: string, excludes: ReadonlySet<string>): string[] {
