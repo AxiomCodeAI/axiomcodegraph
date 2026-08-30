@@ -25,12 +25,14 @@
 // is written once, and the value is a function this engine can name. Reporting them as
 // blind spots would be conceding a resolvable edge.
 //
-// A NOTE ON HOW THE PARSER CLASSIFIES THEM. `TABLE["double"](21)` arrives as
-// callKind=DYNAMIC_CALL with calleeName="" — not as SUBSCRIPT_CALL, which the schema's
-// own enum provides for exactly this shape. DYNAMIC_CALL is documented as
-// getattr/eval/exec, i.e. "unresolvable by construction", so the two are conflated and a
-// consumer that trusts the kind will refuse to try. Filed as PD-9; this file keys on the
-// callee's expression SHAPE instead, which is unambiguous.
+// A NOTE ON HOW THE PARSER CLASSIFIES THEM. `TABLE["double"](21)` USED TO arrive as
+// callKind=DYNAMIC_CALL with calleeName="" — conflated with the getattr/eval/exec marker
+// that §4.5 documents as "unresolvable by construction", so a consumer trusting the kind
+// would refuse to try a fully resolvable site. Filed as PD-9 and FIXED in Parser@7ed5111:
+// re-measured on 08-callables, the site is now SUBSCRIPT_CALL with receiverText=TABLE.
+// This file still keys on the callee's expression SHAPE rather than on callKind, and that
+// is deliberate rather than left over: the shape is what makes the three guards below
+// checkable, and it kept working across the kind change without an edit.
 //
 // ── WHAT MAKES THIS SOUND RATHER THAN CLEVER ─────────────────────────────────
 // Three guards, all of them structural:

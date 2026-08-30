@@ -296,3 +296,10 @@ call_recv_lib_type(site, t) :-
     expr_attr_of_self("client", obj, n, owner),
     type_attr_field("client", owner, n, f),
     field_lib_type(f, t).
+
+// ── expr_names_lib_module — the DOTTED form: `os.path` -> the posixpath module.
+expr_names_lib_module(e, child) :-
+    expr_node("client", "ATTRIBUTE_ACCESS", _, n, e),
+    expr_parent("client", e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_names_lib_module(obj, parent),
+    module_member_module("lib", parent, n, child).
