@@ -1,0 +1,4 @@
+oracle=5 engine=2 agree=2 missing=3 (known 3, NEW 0) extra=0
+  known    components#App() -> components#Badge()
+  known    components#App() -> components#Panel(Props)
+  known    components#LibApp() -> ui#Card(CardProps)

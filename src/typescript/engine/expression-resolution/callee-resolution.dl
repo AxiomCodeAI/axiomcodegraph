@@ -55,6 +55,23 @@ lookup_scope(t) :- expr_static_type(_, _, t).
 expr_call_candidate(ce, m) :- call_callee_expr(_, ce, ne),
     expr_callable(ne, m).
 
+// (1b) …WIDENED TO THE WHOLE OVERLOAD GROUP. The binder names exactly ONE
+// declaration, and for an overloaded function that is not the answer to "what may
+// this call reach" — it is one arbitrary member of the set the applicability test is
+// supposed to choose from. Without this widening the set never HAS the other
+// signatures, so arity cannot prune them and `overload_beaten` hands the win to
+// whichever declaration the binder recorded.
+//
+// Measured on cases/04-overload-selection: `format(1, 2)` — two arguments — resolved
+// to the ONE-parameter `format(value: string)`, because that single candidate was
+// also the only candidate, and emptying a site restores it. A class method never hit
+// this: member lookup returns every declaration on the type, which is why
+// `Registry.add` was right while a module-scope function of the same shape was wrong.
+expr_call_candidate(ce, m2) :- call_callee_expr(_, ce, ne),
+    expr_callable(ne, m),
+    method_group_of(m, g),
+    method_group_of(m2, g).
+
 // (2) The name reached no binding hash — an ambient global, or a name the binder
 // left UNKNOWN — so it is resolved against the module scope by name. `calleeName` is
 // used rather than the expression's literalValue because the call site's column is

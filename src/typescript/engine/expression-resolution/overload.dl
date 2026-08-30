@@ -158,6 +158,34 @@ param_untestable(m, pos) :- expr_call_candidate(_, m),
     param_decl(_, _, pos, _, m, p),
     param_shape_target(p, _).
 
+// ── A REST PARAMETER'S TYPE IS THE ARRAY; THE ARGUMENT IS AN ELEMENT ───────
+// `push(...items: T[])` declares ONE parameter, of type `T[]`, at position 0 — and
+// `res.push(line)` passes a `string` there. Comparing the two says `string` is not an
+// `Array` and prunes the callee the compiler selected.
+//
+// Measured on this corpus: `Array.push` was type-rejected at 415 sites on vue-core, and
+// the site then resolved to an unrelated `push` declared elsewhere in the project. The
+// shape is not particular to that project or to arrays — it covers `console.log`,
+// `Math.max`, `arr.concat`, `Array.of`, and every function anyone writes with
+// `...args: Foo[]`.
+//
+// Arity already models rest correctly: method_max_arity is unbounded for these, and only
+// the DECLARED index carries an annotation at all, so positions past it never reach a
+// comparison. What was missing is that the type comparison must not read the array
+// annotation as the element's. Standing down at that one position is the prune-only
+// answer — the engine holds no element type to compare against, and absence of evidence
+// may not remove the real callee. Comparing against the rest parameter's ELEMENT type is
+// a strictly better rule, keeps the power to separate `...xs: string[]` from
+// `...xs: number[]`, and needs the type reference's argument, which is a separate change.
+// The index is used AS THE SYMBOL the parameter relations are keyed by, not converted:
+// `param_decl` and `param_type_at` carry a position as a symbol, and restParameterIndex
+// arrives in the same form ("0" for `push`), so a numeric round-trip would only risk
+// disagreeing with them on formatting.
+param_rest_at(m, ri) :- expr_call_candidate(_, m),
+    method_arity_raw(m, _, _, ri),
+    ri != "".
+param_untestable(m, pos) :- param_rest_at(m, pos).
+
 // ── arg_mismatch(CallExpr, Callee) ──────────────────────────────────────────
 // A position where the argument's type is known, the parameter's types are all
 // known, and NONE of them accepts it. `arg_compatible_at` is the positive test and
@@ -318,7 +346,11 @@ arg_mismatch(ce, m) :- expr_call_candidate(ce, m),
     arg_is_function_value(ce, pos),
     param_type_at(m, pos, _),
     !param_call_signature(m, pos),
-    !param_is_universal(m, pos).
+    !param_is_universal(m, pos),
+    // A REST position for the same reason as above: the annotation on
+    // `f(...handlers: Handler[])` is the ARRAY, which has no call signature, so an arrow
+    // argument would be rejected against the one parameter that accepts it.
+    !param_rest_at(m, pos).
 
 // ── expr_pruned(CallExpr, Callee) — arity-matched and not contradicted ──────
 expr_pruned(ce, m) :- arity_match(ce, m),

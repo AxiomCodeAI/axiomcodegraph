@@ -22,7 +22,7 @@
  *
  *   callFile  callLine  callCol  callEndLine  callEndCol  callKind  calleeName
  *   targetFile  targetLine  targetCol  targetName  targetKind
- *   overloadCount  chosenIndex
+ *   overloadCount  chosenIndex  enclLine  enclCol  enclName
 
  * `overloadCount` is how many declarations the resolved symbol has, and `chosenIndex`
  * is WHICH of them the compiler picked, in declaration order. Together they turn
@@ -31,6 +31,12 @@
  * says matters: 77.6% of overloaded calls resolve to a NON-FIRST declaration, so an
  * engine that always took the first would look almost right on a name-level score and
  * be wrong three times in four on the population that has more than one answer.
+ *
+ * `enclLine`/`enclCol`/`enclName` are the FUNCTION the call site sits inside, which turns
+ * a bag of sites into a graph: with a caller on every row the oracle answers chain
+ * questions — does the engine still have the edge four hops from an entry point, and does
+ * the chain cross into the library at the hop the compiler says it does — and answers
+ * them from the compiler rather than from the engine's own containment facts.
  *
  * targetKind distinguishes the terminals that are CORRECT answers rather than
  * failures — an ambient declaration with no body, a synthesized implicit
@@ -148,6 +154,41 @@ function declName(decl) {
   return '';
 }
 
+/**
+ * The FUNCTION-LIKE DECLARATION a call site sits inside, as a position — the caller
+ * half of a call-graph edge.
+ *
+ * A per-site score never needs this: it adjudicates one site against one declaration and
+ * the caller is irrelevant. A CHAIN does. "entryPoint reaches encode in four hops" is a
+ * claim about edges joined end to end, and without the caller there are no edges to join
+ * — only a bag of sites. Emitting it here rather than reading containment out of the
+ * engine's own IR is the whole point: a chain checked against a graph the engine built is
+ * checking the engine against itself.
+ *
+ * The INNERMOST function-like wins, so a call inside a callback is attributed to the
+ * callback and not to the function that contains it. A call at module top level has no
+ * enclosing function and reports the file itself, which is a real caller — module
+ * initialisation — and not a gap.
+ */
+function enclosingDeclOf(node, sf) {
+  for (let n = node.parent; n; n = n.parent) {
+    if (
+      ts.isFunctionDeclaration(n) ||
+      ts.isMethodDeclaration(n) ||
+      ts.isConstructorDeclaration(n) ||
+      ts.isGetAccessorDeclaration(n) ||
+      ts.isSetAccessorDeclaration(n) ||
+      ts.isFunctionExpression(n) ||
+      ts.isArrowFunction(n) ||
+      ts.isClassStaticBlockDeclaration(n)
+    ) {
+      const [l, c] = pos(sf, n.getStart(sf));
+      return [String(l), String(c), declName(n) || '<anonymous>'];
+    }
+  }
+  return ['0', '0', '<module>'];
+}
+
 /** true when the declaration has no body — an honest terminal, not a failure. */
 function isBodiless(decl) {
   if (!decl) return true;
@@ -188,6 +229,7 @@ for (const sf of program.getSourceFiles()) {
       // (file, line, column) is NOT unique — measured, 14,076 sites collapse to
       // 13,271 distinct start positions. The span is unique; the start is not.
       const [endLine, endCol] = pos(sf, node.getEnd());
+      const [enclLine, enclCol, enclName] = enclosingDeclOf(node, sf);
       let targetFile = '';
       let targetLine = '';
       let targetCol = '';
@@ -242,6 +284,9 @@ for (const sf of program.getSourceFiles()) {
           targetKind,
           overloadCount,
           chosenIndex,
+          enclLine,
+          enclCol,
+          enclName.replace(/\t|\n/g, ' '),
         ].join('\t')
       );
     }
@@ -265,6 +310,9 @@ const header = [
   'targetKind',
   'overloadCount',
   'chosenIndex',
+  'enclLine',
+  'enclCol',
+  'enclName',
 ].join('\t');
 fs.writeFileSync(outPath, `${header}\n${rows.join('\n')}\n`);
 

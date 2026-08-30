@@ -248,3 +248,12 @@ echo "▶ score:"
 MISSED_DUMP="$WORK/missed.tsv" python3 "$HERE/ground-truth/score.py" \
   "$WORK/ir" "$WORK/out" "$WORK/oracle.tsv" --envelope="$WORK/envelope.tsv" $LIBARGS \
   | tee "$WORK/score.txt"
+
+# ── 6. chains, and the client/library boundary ───────────────────────────────
+# score.py adjudicates one site against one declaration and is structurally blind to
+# two things: whether the edges still join end to end into a chain, and whether the
+# engine's client/library split agrees with the compiler's. Both need the CALLER of each
+# site, which the oracle now emits.
+echo "▶ chains:"
+python3 "$HERE/ground-truth/chain-check.py" \
+  "$WORK/ir" "$WORK/out" "$WORK/oracle.tsv" $LIBARGS | tee "$WORK/chains.txt"

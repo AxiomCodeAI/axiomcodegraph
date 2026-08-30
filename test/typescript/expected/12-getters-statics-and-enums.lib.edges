@@ -1,0 +1,8 @@
+ambiguous_unknown	CONSTRUCTOR_CALL	Counter#static make() @L19 -> -
+ambiguous_unknown	CONSTRUCTOR_CALL	members#<arrow@1>() @L10 -> -
+ambiguous_unknown	FUNCTION_CALL	members#drive() @L31 -> -
+ambiguous_unknown	FUNCTION_CALL	members#useLibrary() @L40 -> -
+boundary_lib	METHOD_CALL	members#useLibrary() @L39 -> Gauge#static create()
+boundary_lib	METHOD_CALL	members#useLibrary() @L40 -> Gauge#record(number)
+known_edge	METHOD_CALL	members#drive() @L29 -> Counter#static make()
+known_edge	METHOD_CALL	members#drive() @L31 -> Counter#bump()

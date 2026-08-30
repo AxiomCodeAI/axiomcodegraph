@@ -284,6 +284,7 @@
 .decl param_type(c0:symbol,c1:symbol,c2:symbol)
 .decl param_type_at(c0:symbol,c1:symbol,c2:symbol)
 .decl param_type_ref(c0:symbol,c1:symbol,c2:symbol)
+.decl param_rest_at(c0:symbol,c1:symbol)
 .decl param_untestable(c0:symbol,c1:symbol)
 .decl parser_resolved(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol)
 .decl path_base(c0:symbol,c1:symbol)
