@@ -120,6 +120,47 @@ export class TsImportExtractor {
           index += 1;
         }
       }
+      // `import("m").T` and `typeof import("m")["x"]` in a TYPE position.
+      //
+      // A real module edge that no statement declares. TYPE_IMPORT_NODE has
+      // existed in the enum for exactly this and carried zero rows, so the
+      // specifier survived only inside `completeTypeName` as text -- a consumer
+      // had to find the substring and resolve it themselves, with no
+      // resolvedFilePath and no way to tell a project file from a package.
+      // `const expect: typeof import('vitest')['expect']` is the shape ambient
+      // test globals take, and it is common enough to matter.
+      if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)
+        && ts.isStringLiteral(node.argument.literal)) {
+        const qualifier = node.qualifier;
+        // Two spellings of the same thing, and the member name lives in a
+        // different node for each. `import("m").T` puts it on the qualifier;
+        // `typeof import("m")["T"]` puts it on the INDEXED ACCESS above, so
+        // reading only the qualifier names the module and not the member --
+        // which is the half that a consumer actually needs.
+        const indexed = node.parent;
+        const indexedName = indexed !== undefined
+          && ts.isIndexedAccessTypeNode(indexed)
+          && indexed.objectType === node
+          && ts.isLiteralTypeNode(indexed.indexType)
+          && ts.isStringLiteral(indexed.indexType.literal)
+          ? indexed.indexType.literal.text
+          : '';
+        const name = qualifier !== undefined
+          ? (ts.isIdentifier(qualifier) ? qualifier.text : qualifier.getText(sf))
+          : indexedName;
+        this.emit(node, node, node.argument.literal.text,
+          TsImportKind.TYPE_IMPORT_NODE, name, name, '', {
+            // Erased by construction: a type position emits nothing at runtime.
+            isTypeOnly: true,
+            isWildcard: false,
+            isDefaultImport: false,
+            isSideEffectOnly: false,
+            // Its own index space, like the dynamic imports above, because the
+            // clause index is in the primary key and these share no clause.
+            clauseIndex: 2000 + index,
+          });
+        index += 1;
+      }
       ts.forEachChild(node, visit);
     };
     ts.forEachChild(sf, visit);
