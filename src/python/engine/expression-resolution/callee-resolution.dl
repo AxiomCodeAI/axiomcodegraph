@@ -470,6 +470,21 @@ call_hits_lib_method(site, m) :-
     field_lib_type(f, t),
     type_call_target("lib", t, m).
 
+// ── THE CLIENT MIRROR of clause (c) ──────────────────────────────────────────
+// `self.own_call(9)` where the attribute holds a CLIENT callable. The three clauses
+// above were written for library types and this counterpart was never added, so an
+// attribute holding a client instance with __call__ resolved while the identical
+// library one did not -- the same one-provenance-only asymmetry this file has been
+// converging away from, just pointing the other way.
+// field_type is the client counterpart of field_lib_type (resolution/field-flow.dl)
+// and type_call_target is already prov-parametric (resolution/attribute-lookup.dl).
+expr_call_candidate(site, m) :-
+    call_name(site, n),
+    call_self_dispatch_type(site, owner),
+    type_attr_field("client", owner, n, f),
+    field_type("client", f, t),
+    type_call_target("client", t, m).
+
 // ── `returns_instance().name()` where the callee declares `-> Square` ────────
 call_returns_lib_type(site, t) :-
     expr_call_candidate(site, m),
