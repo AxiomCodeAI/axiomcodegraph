@@ -1,0 +1,1 @@
+{ "name": "@tt/cond", "version": "1.0.0", "main": "cond-api.js", "types": "cond-api.d.ts" }
