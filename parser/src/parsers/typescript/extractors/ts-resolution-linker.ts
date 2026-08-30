@@ -1,4 +1,5 @@
 import * as ts from 'typescript';
+import { TsSignatureRole } from '@/enums/typescript/methods/TsSignatureRole';
 
 import { TsCallSiteRegistry } from '@/analysis-types/typescript/TsCallSiteRegistry';
 import { TsExpressionRegistry } from '@/analysis-types/typescript/TsExpressionRegistry';
@@ -1121,9 +1122,26 @@ function callArgumentCount(node: ts.Node): number {
  * can question.
  */
 function chooseByArity(
-  candidates: readonly TsMethodRegistry[],
+  candidatesIn: readonly TsMethodRegistry[],
   argumentCount: number
 ): TsMethodRegistry | undefined {
+  if (candidatesIn.length === 1) {
+    return candidatesIn[0];
+  }
+  // The IMPLEMENTATION is never the answer. §4.6: "it is NOT the signature a
+  // call resolves to -- tsc resolves to one of the overload signatures." Its
+  // parameter list is the UNION of the overloads it serves, so it admits every
+  // arity any of them admits, and counting it as a candidate makes an
+  // unambiguous set look ambiguous: `pick(a: string)` and
+  // `pick(a: string, b?: number)` both admit one argument, so a call with one
+  // argument resolved to nothing when exactly one real signature accepted it.
+  //
+  // Only dropped when a real signature remains -- a lone function is SOLE, not
+  // IMPLEMENTATION, so an ordinary call is untouched.
+  const withoutImplementation = candidatesIn.filter(
+    (candidate) => candidate.getSignatureRole() !== TsSignatureRole.IMPLEMENTATION
+  );
+  const candidates = withoutImplementation.length > 0 ? withoutImplementation : candidatesIn;
   if (candidates.length === 1) {
     return candidates[0];
   }

@@ -1019,6 +1019,37 @@ function factBaseInvariants(): number {
     // worst available: the new relation's PKs are absent from `known`, so every
     // FK pointing at them is reported as DANGLING. A real check then produces a
     // false failure, which is how a correct parser gets debugged for an hour.
+    // EVERY row is exactly as wide as its header.
+    //
+    // joinRow asserts arity when a row is BUILT; this asserts it after the row
+    // has been written and read back, which is a different failure. A relation
+    // written across several append operations can be interrupted between them,
+    // and the result parses as a table whose rows silently disagree in width --
+    // a fact base that loads cleanly and counts wrong.
+    for (const file of fs.readdirSync(outputDir)) {
+      if (!file.startsWith('all-typescript-') || !file.endsWith('.csv')) {
+        continue;
+      }
+      const text = fs.readFileSync(path.join(outputDir, file), 'utf-8');
+      const lines = text.split('\n').filter((l) => l !== '');
+      const head = lines[0];
+      if (head === undefined) {
+        continue;
+      }
+      const width = head.split('\t').length;
+      for (let i = 1; i < lines.length; i += 1) {
+        const got = lines[i]!.split('\t').length;
+        if (got !== width) {
+          failures.push(`${slug}: ${file} line ${i + 1} has ${got} fields, header has ` +
+            `${width} — the row was torn, not merely wrong`);
+          break;
+        }
+      }
+      if (!text.endsWith('\n') && lines.length > 0) {
+        failures.push(`${slug}: ${file} does not end in a newline — the write was truncated`);
+      }
+    }
+
     const all = new Map<string, Record<string, string>[]>();
     for (const file of fs.readdirSync(outputDir)) {
       if (file.startsWith('all-typescript-') && file.endsWith('.csv')) {
