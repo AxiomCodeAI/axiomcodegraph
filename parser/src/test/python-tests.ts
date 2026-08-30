@@ -24,6 +24,8 @@ import * as path from 'path';
 
 import { PythonProjectAnalyzer } from '@/workflows/python/python-project-analyzer';
 
+import { constructPositions } from './python-gates/construct-positions';
+
 const VERIFIED = 'src/test-data/python/verified';
 const GOLDEN = path.join(VERIFIED, '_golden');
 const CLOSED_WORLD = 'src/test-data/python/closed-world';
@@ -508,6 +510,8 @@ const CHECKS: Check[] = [
     proves: 'shapes resolvable in principle keep resolving; the count may fall, never rise' },
   { name: 'PEP 695 type parameters', run: pep695,
     proves: 'py_type_parameter matches frozen CPython 3.12 truth' },
+  { name: 'construct x position', run: constructPositions,
+    proves: 'constructs hold in EVERY syntactic position, not just the one the corpus uses' },
 ];
 
 async function main(): Promise<number> {
