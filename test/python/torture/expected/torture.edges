@@ -6,10 +6,8 @@ ambiguous_unknown	CHAINED_CALL	f08_dynamic.dict_dispatch_static_key -> -
 ambiguous_unknown	DECORATOR_APPLICATION	f05_decorators.<module> -> -
 ambiguous_unknown	DYNAMIC_CALL	f08_dynamic.getattr_call -> -
 ambiguous_unknown	METHOD_CALL	f04_descriptors.lib_classmethod_on_class -> -
-ambiguous_unknown	METHOD_CALL	f06_flow.list_of_instances -> -
 ambiguous_unknown	METHOD_CALL	f06_flow.takes_unannotated -> -
 ambiguous_unknown	METHOD_CALL	f08_dynamic.conditional_type -> -
-ambiguous_unknown	SELF_CALL	f02_callables.HoldsCallables.run -> -
 ambiguous_unknown	SIMPLE_CALL	f02_callables.closure_target -> -
 ambiguous_unknown	SIMPLE_CALL	f05_decorators.call_client_decorated -> -
 ambiguous_unknown	SIMPLE_CALL	f05_decorators.decorator_factory_applied -> -
@@ -49,6 +47,8 @@ boundary_lib	METHOD_CALL	f04_descriptors.lib_classmethod_on_class -> lib:tlib.de
 boundary_lib	METHOD_CALL	f04_descriptors.lib_classmethod_on_class -> lib:tlib.descriptors.Factory.from_config
 boundary_lib	METHOD_CALL	f04_descriptors.lib_staticmethod -> lib:tlib.descriptors.Config.helper
 boundary_lib	METHOD_CALL	f06_flow.list_of_instances -> builtin:str.join
+boundary_lib	METHOD_CALL	f06_flow.list_of_instances -> lib:tlib.shapes.Circle.name
+boundary_lib	METHOD_CALL	f06_flow.list_of_instances -> lib:tlib.shapes.Square.name
 boundary_lib	METHOD_CALL	f06_flow.takes_annotated -> lib:tlib.shapes.Square.name
 boundary_lib	METHOD_CALL	f07_imports.via_module_alias -> builtin:object.__init__
 boundary_lib	METHOD_CALL	f07_imports.via_module_function -> lib:tlib.callables.module_fn
@@ -134,6 +134,7 @@ known_edge	METHOD_CALL	main.main -> f08_dynamic.dict_dispatch_static_key
 known_edge	METHOD_CALL	main.main -> f08_dynamic.getattr_call
 known_edge	PROPERTY_READ	f04_descriptors.client_descriptors -> f04_descriptors.LocalCfg.label
 known_edge	PROPERTY_READ	f04_descriptors.lib_property_read -> lib:tlib.descriptors.Config.tag
+known_edge	SELF_CALL	f02_callables.HoldsCallables.run -> f02_callables.LocalCallable.__call__
 known_edge	SIMPLE_CALL	f02_callables.attribute_callables -> f02_callables.HoldsCallables.__init__
 known_edge	SIMPLE_CALL	f06_flow.passes_through -> f06_flow.takes_annotated
 known_edge	SIMPLE_CALL	f06_flow.uses_return -> f06_flow.returns_instance

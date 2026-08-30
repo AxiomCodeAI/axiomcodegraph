@@ -330,3 +330,14 @@ binding_value_lib_type(b, t) :-
     assign_pair("client", tgt, val),
     call_of_expr(val, site),
     call_constructs_lib_type(site, t).
+// ── and from a call that RETURNS a library instance ──────────────────────────
+// `f = Factory.from_config(cfg)` -- a factory method, not a constructor. The clause
+// above covers `f = Factory(...)` only, so the result of every library factory,
+// classmethod-constructor and `-> "Self"` builder was untyped and the next call on it
+// went unresolved. Same single-write gate.
+binding_value_lib_type(b, t) :-
+    binding_rebinding("client", "1", _, _, b),
+    expr_binding("client", b, "STORE", tgt),
+    assign_pair("client", tgt, val),
+    call_of_expr(val, site),
+    call_returns_lib_type(site, t).
