@@ -24,15 +24,16 @@ logs/
 # os
 .DS_Store
 
-# Torture corpus: the SCRIPT is committed, the corpus is regenerated.
-# CPython test files are PSF-licensed and belong to the interpreter, not to us;
-# checking them in would also pin them to one machine's stdlib.
-python-work/staging/torture/
-python-work/staging/torture-parse-gap/
+# python-work is a LOCAL validation scratch area: oracles, staging corpora and
+# repro harnesses. None of it ships. Listing individual subfolders let new ones
+# through, so the whole tree is ignored and the checks that matter live as gates
+# in src/test instead, where they survive the folder being deleted.
+# CPython test files are also PSF-licensed and belong to the interpreter, not to
+# us; checking them in would pin them to one machine's stdlib.
+python-work/
 .certify-report.txt
 .certify-out/
 .jedi-gaps.json
-python-work/staging/torture-pep695/
 .golden-out/
 .pep695-out/
 .select-out/
