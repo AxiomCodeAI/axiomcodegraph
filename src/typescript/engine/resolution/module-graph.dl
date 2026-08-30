@@ -590,6 +590,21 @@ import_binds_namespace(h, prov, m) :- import_binds_namespace_any(h, prov, m),
 import_kind_binds_namespace("NAMESPACE").
 import_kind_binds_namespace("TYPE_ONLY_NAMESPACE").
 import_kind_binds_namespace("IMPORT_EQUALS_REQUIRE").
+// `typeof import("M")` and `import("M").Foo` — a module named in TYPE position. The
+// parser began emitting rows for this kind; before that it was a declared enum value
+// with no rows, so the closed enumeration above silently dropped every one of them
+// rather than erroring, and `typeof import("M")["x"]` had no module to index into.
+//
+// It belongs in the namespace family and nowhere else: the import node denotes the
+// MODULE, carries no local or original name for the named/default rules to key on, and
+// its members are reached by looking in an export table rather than by a member lookup
+// on a type — which is the exact distinction this relation exists to draw.
+//
+// Being type-only, it reaches `import_binds_namespace_any` and is held out of the
+// runtime `import_binds_namespace` by the existing guard, which is the two-table split
+// this file already applies to TYPE_ONLY_NAMESPACE. It is likewise absent from
+// import_kind_is_runtime, so it raises no unresolved-binding diagnostic.
+import_kind_binds_namespace("TYPE_IMPORT_NODE").
 
 // ── import_binding_unresolved(ImportHash, Kind, LocalName) ──────────────────
 // A runtime binding that reached a module and found no export of that name — a
