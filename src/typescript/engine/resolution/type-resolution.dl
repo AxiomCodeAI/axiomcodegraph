@@ -382,6 +382,38 @@ ref_shape_target(parent, shape) :- type_ref(rp, k, _, _, _, _, _, parent),
     ref_kind_is_transparent(k),
     type_ref_parent(rp, parent, _, child),
     ref_shape_target(child, shape).
+// ── CONDITIONAL — THE BRANCHES, NEVER THE TEST ─────────────────────────────
+// `type ExpectTypeOf<A, O> = O['positive'] extends true ? Positive<A> : Negative<A>`.
+// The engine cannot evaluate the test — that is real type-level computation — so the
+// conditional resolved to NOTHING and every member call on the result died. Measured
+// on remeda: 2,513 sites, 73% of all remaining unresolved sites, one declaration.
+//
+// This is the same move Java's `type-var-bound.dl` makes for a type variable it
+// cannot pin: resolve the use to something WEAKER rather than to nothing (there,
+// erasure to the declared bound). And it accepts the same imprecision on purpose —
+// an intersection bound `<S extends A & B>` yields A and B both, and both survive.
+// Here both branches survive, so a call on the result is a two-candidate SET rather
+// than an exact answer. Under this engine's prune-only discipline that is the right
+// trade: the truth is in the set, and nothing is asserted that the compiler denies.
+//
+// ONLY THE BRANCHES, and this is the load-bearing part. A CONDITIONAL has four
+// children — CHECK, EXTENDS, TRUE, FALSE — and descending to all four is exactly the
+// failure Java's mandatory depth filter exists to prevent (`<P extends List<String>>`
+// flooding P with String's members). Here it would type the receiver as `true` and as
+// `O['positive']` as well as the two real branches. The parser labels the children by
+// CONTEXT, so the filter reads as what it means rather than as a position.
+ref_conditional_branch(parent, child) :- type_ref(rp, "CONDITIONAL", _, _, _, _, _, parent),
+    type_ref_parent(rp, parent, _, child),
+    type_ref(rp, _, ctx, _, _, _, _, child),
+    conditional_branch_context(ctx).
+conditional_branch_context("CONDITIONAL_TRUE").
+conditional_branch_context("CONDITIONAL_FALSE").
+
+ref_type_target(parent, prov, t) :- ref_conditional_branch(parent, child),
+    ref_type_target(child, prov, t).
+ref_shape_target(parent, shape) :- ref_conditional_branch(parent, child),
+    ref_shape_target(child, shape).
+
 ref_kind_is_shape("TYPE_LITERAL").
 ref_kind_is_shape("FUNCTION_TYPE").
 ref_kind_is_shape("CONSTRUCTOR_TYPE").
