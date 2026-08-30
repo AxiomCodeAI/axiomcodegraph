@@ -318,6 +318,7 @@
 .decl import_unlinked(c0:symbol,c1:symbol)
 .decl binding_value_lib_type(c0:symbol,c1:symbol)
 .decl field_lib_type(c0:symbol,c1:symbol)
+.decl field_lib_type_union(c0:symbol,c1:symbol)
 .decl mro_prec(c0:symbol,c1:symbol,c2:symbol)
 .decl mro_member(c0:symbol,c1:symbol,c2:symbol)
 .decl mro_incomparable(c0:symbol,c1:symbol,c2:symbol,c3:symbol)

@@ -469,6 +469,14 @@ call_hits_lib_method(site, m) :-
     type_attr_field("client", owner, n, f),
     field_lib_type(f, t),
     type_call_target("lib", t, m).
+// the multi-write case: every write's type contributes, so the site gets the SOUND SET
+// rather than one arbitrary member. resolution/field-flow.dl keeps the two apart.
+call_hits_lib_method(site, m) :-
+    call_name(site, n),
+    call_self_dispatch_type(site, owner),
+    type_attr_field("client", owner, n, f),
+    field_lib_type_union(f, t),
+    type_call_target("lib", t, m).
 
 // ── THE CLIENT MIRROR of clause (c) ──────────────────────────────────────────
 // `self.own_call(9)` where the attribute holds a CLIENT callable. The three clauses

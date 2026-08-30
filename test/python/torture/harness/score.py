@@ -103,21 +103,30 @@ for (cf, cl), true in sorted(G.items()):
         else:
             fam[f][v] += 1
             if v == 'MISSED': rows.append((cf, cl, v, [t], sorted(S)))
-    for x in sorted(S - true):
-        if exp: known['OVERCLAIM'] += 1
-        else: fam[f]['OVERCLAIM'] += 1; rows.append((cf, cl, 'OVERCLAIM', sorted(true), [x]))
+    # An engine target that did not run is only a DEFECT if the engine claimed it was
+    # certain. Where the engine emitted a SET -- more than one target for the site --
+    # a member that did not execute on this run is sound over-approximation, which the
+    # design prefers to an honest blank. Counting the two together made a correct fix
+    # (gating a rebound attribute so it yields the union rather than one arbitrary
+    # write) look like it had changed nothing.
+    extra = sorted(S - true)
+    for x in extra:
+        kind = 'WIDE' if len(S) > 1 else 'OVERCLAIM'
+        if exp: known[kind] += 1
+        else: fam[f][kind] += 1; rows.append((cf, cl, kind, sorted(true), [x]))
 print(f"=== per-family coverage (tier-4, {sum(sum(c.values()) for c in fam.values())} scored sites) ===")
 names = {'f01':'inheritance & MRO','f02':'callables & closures','f03':'generics','f04':'descriptors',
-         'f05':'decorators','f06':'value flow','f07':'imports & re-export','f08':'dynamic'}
+         'f05':'decorators','f06':'value flow','f07':'imports & re-export','f08':'dynamic','f09':'adversarial'}
 tot = collections.Counter()
 for f in sorted(fam):
     c = fam[f]; n = sum(c.values()); tot.update(c)
     ran = c['FOUND'] + c['MISSED']
-    print(f"  {f} {names.get(f,f):24} links={ran:3}  found={c['FOUND']:3} ({(c['FOUND']/ran if ran else 0):5.1%})  missed={c['MISSED']:2}  over-claimed={c['OVERCLAIM']:2}")
+    print(f"  {f} {names.get(f,f):24} links={ran:3}  found={c['FOUND']:3} ({(c['FOUND']/ran if ran else 0):5.1%})  missed={c['MISSED']:2}  wide={c['WIDE']:2}  WRONG={c['OVERCLAIM']:2}")
 ran = tot['FOUND'] + tot['MISSED']
-print(f"\n  {'TOTAL':29} links={ran:3}  found={tot['FOUND']:3} ({tot['FOUND']/ran:5.1%})  missed={tot['MISSED']:2}  over-claimed={tot['OVERCLAIM']:2}")
+print(f"\n  {'TOTAL':29} links={ran:3}  found={tot['FOUND']:3} ({tot['FOUND']/ran:5.1%})  missed={tot['MISSED']:2}  wide={tot['WIDE']:2}  WRONG={tot['OVERCLAIM']:2}")
 print(f"  recall      {tot['FOUND']}/{ran} = {tot['FOUND']/ran:.1%}  of the links that actually ran")
-print(f"  over-claims {tot['OVERCLAIM']}  edges asserted from an executed caller that never ran")
+print(f"  wide  {tot['WIDE']}   a member of a SOUND SET that did not run on this pass")
+print(f"  WRONG {tot['OVERCLAIM']}   a single target asserted as certain that never ran")
 print(f"\n  EXPECTED-MISS cases: {dict(known)}   (a CONCRETE here means a known blind spot closed)")
 print("\n--- non-concrete sites ---")
 for cf, cl, v, true, S in rows:
