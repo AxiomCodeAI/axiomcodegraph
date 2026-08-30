@@ -70,6 +70,23 @@ element_type_of(p, src, t) :-
     expr_node(p, "LIST_COMPREHENSION", _, _, src),
     expr_parent(p, src, "COMPREHENSION_ELEMENT", _, el), expr_type(p, el, t).
 
+// ── (g) a NAME bound to a container: `items = [Square(), Circle()]; for i in items` ──
+// Every clause above types the container where it is WRITTEN -- a display in place, an
+// annotation, a call's declared return. None of them cross a local binding, so the
+// single most ordinary shape in Python (build a list, then iterate the variable) had no
+// element type at all. MEASURED on test/python/torture: f06_flow.list_of_instances is
+// exactly this and was scored MISSED for both of its links.
+// Mirrors binding_value_type (expression-resolution/expr-type.dl): a SINGLE-write
+// binding takes the element type of the container assigned to it. The single-write gate
+// is what keeps a rebound name from inheriting a stale element type.
+element_type_of(p, src, t) :-
+    expr_binding(p, b, ctx, src), ctx != "STORE",
+    binding_lookup(p, b, b2),
+    binding_rebinding(p, "1", _, _, b2),
+    expr_binding(p, b2, "STORE", tgt),
+    assign_pair(p, tgt, val),
+    element_type_of(p, val, t).
+
 // ── element_lib_type_of(IterableExprHash, LibTypeHash) ───────────────────────
 // THE LIB HALF, FLOW-TYPED rather than widened. `for s in (Square(), Circle())` where
 // Square and Circle are library classes: the element type is the type of the element
@@ -103,6 +120,15 @@ element_lib_type_of(src, t) :-
 element_lib_type_of(src, t) :-
     expr_node("client", "LIST_COMPREHENSION", _, _, src),
     expr_parent("client", src, "COMPREHENSION_ELEMENT", _, el), expr_lib_type(el, t).
+
+// the same hop for a container of LIBRARY instances
+element_lib_type_of(src, t) :-
+    expr_binding("client", b, ctx, src), ctx != "STORE",
+    binding_lookup("client", b, b2),
+    binding_rebinding("client", "1", _, _, b2),
+    expr_binding("client", b2, "STORE", tgt),
+    assign_pair("client", tgt, val),
+    element_lib_type_of(val, t).
 
 // ── binding_element_lib_type(BindingHash, LibTypeHash) ───────────────────────
 binding_element_lib_type(b, t) :-

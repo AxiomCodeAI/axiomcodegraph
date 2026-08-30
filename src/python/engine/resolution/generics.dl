@@ -161,6 +161,19 @@ call_returns_element(site, arg) :-
 //
 // The receiver comes from the boundary (call_recv_lib_type); the SUBSTITUTION is here,
 // because that is the semantics this file owns.
+// ── a LIBRARY method's own declared return type ──────────────────────────────
+// `Factory.from_config(cfg) -> "Factory"`, then `.build()` on the result. The clause in
+// lib-linking.dl covers a CLIENT method declaring a library return; this is the other
+// half -- a library method declaring a library return -- and without it the result of
+// any library factory method is untyped.
+// BLOCKED BY #21 for a STRING forward reference (`-> "Factory"`): fact staging reads
+// the IR as TSV, so a CSV-quoted returnTypeName reaches Souffle still escaped and the
+// name never matches. The rule is correct and fires for a plain `-> Factory`.
+call_returns_lib_type(site, t) :-
+    call_hits_lib_method(site, m),
+    method_declared_return_type("lib", m, d),
+    declared_dispatch("lib", d, t).
+
 call_returns_lib_type(site, arg) :-
     call_hits_lib_method(site, m),
     method_return_typevar("lib", m, name),
