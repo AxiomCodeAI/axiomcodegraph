@@ -1,0 +1,222 @@
+# Measured accuracy, four projects
+
+Every number below comes from `test/typescript/run-evaluation.sh`, which extracts the
+IR, discovers and stages the libraries, solves, runs the compiler as an oracle, and
+scores — in one pass, with no hand-staging and no per-project tuning. Re-runnable:
+
+```bash
+bash test/typescript/run-evaluation.sh <project-dir> <work-dir>
+```
+
+**Engine revision:** this branch. **Parser revision:** `Parser@b26271a`, rebuilt
+immediately before the run. **Oracle:** `checker.getResolvedSignature`, the project's
+own `typescript`, out of process.
+
+---
+
+## The headline
+
+| project | call sites | oracle sites | decidable | **EXACT** | in engine set | WRONG | envelope precision |
+|---|---|---|---|---|---|---|---|
+| AxiomCode Parser (418 modules) | 14,090 | 14,090 | 14,007 | **0.810** | 0.906 | 55 | 0.956 |
+| remeda (531 modules) | 23,011 | 23,011 | 8,042 | **0.811** | 0.854 | 591 | 0.971 |
+| zustand (37 modules, React + vitest) | 4,200 | 4,346 | 4,176 | **0.540** | 0.581 | 13 | 0.962 |
+| this repository | 84 | 84 | 84 | **0.786** | 0.893 | 1 | 0.879 |
+| overload fixture (`test/typescript/fixtures/overloads`) | 83 | 83 | 83 | **1.000** | 1.000 | 0 | 1.000 |
+
+## Is it type-directed, and does it fan?
+
+Yes to both, and `test/typescript/fixtures/dispatch/` makes each half checkable by
+construction rather than by description. `t1.m1()` resolves `t1`'s TYPE first
+(`expr-type.dl`), then looks `m1` up on that type and its `extends` ancestors across
+all merged declarations (`member-lookup.dl`), then fans to the bodies that can run
+(`callee-resolution.dl`). Every row below is the engine's actual output.
+
+| case | receiver | engine emits |
+|---|---|---|
+| interface parameter | `h: Handler` | the interface signature **+ all three nominal implementations** |
+| exact receiver | `new UpperHandler().handle(x)` | **one target.** The fan is gated off — a known runtime type is not a dispatch question |
+| flowed local | `const h: Handler = new LowerHandler()` | the signature **+ LowerHandler only.** Value flow narrows three implementations to one |
+| structural | `const h: Handler = new SilentHandler()` | the signature **+ SilentHandler**, which declares no `implements` |
+| structural parameter | `p: Probe`, nothing declares `implements Probe` | the signature **+ Ruler + Caliper**, reached by structural satisfaction |
+| abstract base | `n: Node` | the base's own body |
+| subclassed class | `l: LeafNode` | LeafNode **+ TaggedLeaf**, the override |
+| `super.m()` | `super.describe()` | **one target.** Non-virtual, and a fan here would invent self-recursion |
+
+Two things that make this work are ports of Java layers this engine was missing until
+they were measured:
+
+* **Value flow** (`value-flow.dl`, from Java's `local-flow.dl` + `type-flow.dl`). The
+  flowed type is ADDED to `expr_type` positively, alongside the declared one — gating
+  it behind "no annotation" meant an annotated local never narrowed, which in
+  TypeScript is most of them. TypeScript's `const` is a stronger guarantee than Java's
+  `final`: it forbids rebinding outright, so a `const` initialised with `new C()` is
+  provably monomorphic with no assignment scan, and that is what lets the fan be
+  suppressed outright.
+* **Structural satisfaction wired into the fan.** It was derived and consumed by
+  nothing. It is restricted to interfaces with NO nominal implementor, to client
+  classes, and to the dispatch cap — measured, 2,191 pairs on the Parser repository and
+  12 on zustand, with no change to WRONG on any project.
+
+## Overload resolution, on its own
+
+"Did the engine find the right function" and "did it find the right SIGNATURE" are
+different questions, and the second is the hard one: across these projects the compiler
+chooses a NON-FIRST declaration most of the time, so an engine that took declaration 0
+would look respectable on names and be wrong wherever it mattered. The oracle now
+reports which declaration of the resolved symbol was chosen, so the slice is measurable.
+
+| project | overload sites | compiler chose non-first | **EXACT** | superset | wrong | missed |
+|---|---|---|---|---|---|---|
+| overload fixture | 35 | 24 | **1.000** | 0 | 0 | 0 |
+| remeda | 4,796 | 2,393 | **0.842** | 201 | 547 | 10 |
+| zustand | 1,414 | 421 | **0.413** | 95 | 12 | 723 |
+| AxiomCode Parser | 873 | 648 | **0.062** | 724 | 44 | 51 |
+
+The spread is the finding. Where the overloads differ by ARITY, by PRIMITIVE type or by
+NAMED OBJECT type — the fixture, and most of remeda's own API — the engine picks the
+right signature, including on 24 of 24 non-first choices in the fixture and 78% of
+remeda's 2,393. Where they differ by GENERIC INSTANTIATION — which is what almost all
+of the Parser repository's 873 sites are, since they are calls into `Array.map`,
+`Array.reduce` and `String.replace` — it emits the overload set and does not narrow.
+That is the honest behaviour for a test that cannot compare `reduce(cb): T` against
+`reduce<U>(cb, init): U`, and it is why the Parser corpus reads 0.062 while its overall
+`in engine set` is 0.906.
+
+* **EXACT** — the engine named ONE target and it is the declaration the compiler
+  selected. Position-precise, so picking a different overload of the same function
+  counts as a miss, not a pass.
+* **in engine set** — EXACT plus SOUND_SUPERSET: the compiler's target is among
+  several the engine emitted.
+* **WRONG** — the engine named targets and the compiler's is not among them. The one
+  bucket that is a defect rather than imprecision.
+* **envelope precision** — the share of emitted edges inside the CHA dispatch envelope
+  computed with `isTypeAssignableTo`. An edge outside it is a demonstrable false
+  positive, not an over-approximation.
+
+Scoring is **per call site**, not per edge: a twelve-way dispatch set is one site a
+reader cannot trust, not one agreement and eleven over-approximations.
+
+---
+
+## The site universes agree exactly
+
+| project | parser IR | `getResolvedSignature` | joined on span |
+|---|---|---|---|
+| AxiomCode Parser | 14,090 | 14,090 | 14,090 |
+| remeda | 23,011 | 23,011 | 23,011 |
+| this repository | 84 | 84 | 84 |
+| zustand | 4,200 | 4,346 | 4,200 |
+
+Two independent toolchains finding the identical set of call sites, joined on exact
+source spans, is the strongest evidence a conservation contract can have — and it is
+what makes the accuracy figures mean anything at all.
+
+zustand is the one divergence and its cause is known and single: **144 JSX component
+calls the parser does not emit** (PARSER-DEFECTS.md, PD-TS-1) plus 2 index calls.
+Nothing else, on any project, differs.
+
+---
+
+## Reading zustand's 0.540 — the attribution
+
+It is the lowest number here and it is the most informative one.
+
+First, which number is which. **0.540 is not precision — it is exactness.** zustand's
+PRECISION is 0.962 against the dispatch envelope, and WRONG is **14 of 4,176**. The
+engine is not wrong about zustand; it declines to answer. That is the failure mode a
+call graph can survive, and it is the opposite of the one it cannot.
+
+zustand is 37 modules of deliberately extreme TypeScript — a store library whose public
+surface is `type Create = { <T, Mos>(initializer): UseBoundStore<Mutate<S, Mos>> }` —
+plus a test suite written against vitest, React and testing-library.
+
+**Where the 1,735 missed sites go, measured:**
+
+| population | sites | parser or engine |
+|---|---|---|
+| receiverless call, callee bound to an IMPORT | 358 | engine — generic instantiation through a library's alias chain |
+| receiverless call, callee bound to a local VARIABLE | 355 | engine — `const s = create(…)`, needs the conditional type `Mutate<S, Mos>` instantiated |
+| receiver typed to a client declaration that resolved to nothing | 388 | engine — same conditional-type instantiation |
+| receiver typed to a library declaration that resolved to nothing | 164 | engine |
+| receiver typed, member genuinely absent from the resolved type | 152 | engine — usually the same instantiation gap one hop earlier |
+| callee bound to a callback PARAMETER | 110 | engine — contextual typing of `(set, get) => …`, not built |
+| unclassified / other call forms | 208 | mixed |
+
+**Not in this table, because it is not in the denominator: 144 JSX component calls
+plus 2 index calls the parser does not emit at all.** They are excluded from both
+sides of the comparison, so they do not explain the 0.540 — counting them would make
+it worse, not better.
+
+So: **almost all of zustand's gap is the engine, and almost all of the engine's gap is
+one missing capability — instantiating a generic type through a conditional or mapped
+type.** `create(…)` returns `UseBoundStore<Mutate<StoreApi<T>, Mos>>` and the type of
+`store.getState()` is only knowable by evaluating `Mutate`. The engine substitutes
+type ARGUMENTS (`generics.dl`, and the alias-substitution rule in
+`type-resolution.dl`) and does not evaluate conditional types. Guessing there would
+fabricate rather than over-approximate, so those sites stay unresolved and countable.
+
+The binder is not the problem: of the 824 receiverless misses, **823 have a real
+`referencedEntityHash`** on the callee. The parser bound every one of them; the engine
+could not get from the binding to a callable signature.
+
+---
+
+## Reading remeda's 14,936 synthesized
+
+remeda's decidable set is 8,042 of 23,011 because `getResolvedSignature` returns a
+signature with **no declaration** for 14,936 sites — its data-last curried API means
+most calls resolve to a synthesized instantiation rather than a written declaration.
+Those are excluded from the denominator on both sides: the oracle has nothing to point
+at, so neither engine nor score can be right or wrong about them.
+
+Its 595 WRONG are overload selection inside one function — `add.ts:32` where the
+compiler chose `add.ts:33`. The envelope, which counts an overload of the same
+function as a dispatch possibility rather than a wrong target, puts precision at
+**0.971**.
+
+---
+
+## What moved the numbers
+
+Each of these was found by measurement, not by reading rules, and each is recorded
+where it was fixed:
+
+| change | effect |
+|---|---|
+| library-side type resolution (`lib-scope.dl`) | 0.588 → 0.735 on the Parser corpus. `console` had no members, `Set` had no constructor, `path.join` did not exist |
+| the property name is on the child, not the node | +1,356 sites. `this.rows.push(x)` had no receiver type |
+| `export = ns` exposes the namespace's members | the entire TypeScript compiler API became reachable |
+| `for (const x of xs)` binding typing | 1,055 of 6,251 client variables were untyped |
+| staging only the lib files the program loads | 0.686 → 0.737 on the Parser corpus, WRONG 384 → 115. Staging all of them put DOM globals into a Node project |
+| staging the libraries' own dependencies, one round | zustand 0.209 → 0.460 (0.475 after the later fixes). `it` and `describe` live in `@vitest/runner`, which the client never imports |
+| namespace members must NOT be global | zustand WRONG 97 → 5. `Reflect.set` was answering every bare `set(...)` |
+| primitives compared by NAME | remeda's `bigint`/`number` overloads were indistinguishable when `lib.es2020.bigint` was not staged |
+| barrel longest-match taken over MATCHING candidates | 0.737 → 0.778 on the Parser corpus. The longest tail of `@/a/b/C` is the whole specifier, which the alias prefix guarantees will never match, so the rule derived nothing while looking correct. `export_specifier_unresolved` 181 → 0 |
+| an arrow function must be SELECTABLE | 0.778 → 0.806. Every arrow carries signatureRole = IMPLEMENTATION and an EMPTY declarationGroupKey — 955 of them here — so the overload-selection rule could not fire for any, and `const fail = (m) => …; fail(x)` resolved to nothing |
+| alias type-argument substitution | zustand 0.475 → 0.540. `type TestAPI = ChainableFunction<…, TestCollectorCallable<C>, …>` puts the callable part in a type VARIABLE two aliases up; every link resolved and the chain stopped one substitution short |
+| a callback argument only fits a CALLABLE parameter | strengthened the applicability test instead of guessing an overload order. See the note in `overload.dl` on the tie-break that was tried and removed |
+| overload fixture, built to be decidable | found four bugs in ten lines: type-only re-exports exported NOTHING, a class method's IMPLEMENTATION was selectable beside its own overloads, `readonly T[]` had no resolved type at all, and types were compared by DECLARATION rather than by merged entity |
+| types compared by merged ENTITY | `Array` has eight declarations and `String` four; an argument resolved to one and a parameter to another are the same type and were scored as a mismatch |
+| the implicit `Object` base | `x.toString()` found no member on a perfectly typed receiver: no type declares `extends Object` and nothing in the IR does either. 101 sites, all reported as `member_absent`, which was the right diagnosis |
+
+---
+
+## Client → library navigation
+
+The question this was built to answer — *given the IR of a dependency, do we know
+exactly where to go* — is `client-to-lib-navigation.csv`: one row per boundary edge
+with the package or specifier, the file and the line.
+
+Measured on the Parser repository, **8,929 client→library edges** at the time of that reading, for example:
+
+```
+src/parsers/typescript/.../ts-binder.ts:404  isStringLiteral()  ->  typescript.d.ts:8966
+src/parsers/gradle/.../gradle-file-extractor.ts:562  has()      ->  lib.es2015.collection.d.ts:38
+src/parsers/python/.../python-symbol-table.ts:291   delete()    ->  lib.es2015.collection.d.ts:103
+src/language-detectors/python-detector.ts:50        some()      ->  lib.es5.d.ts:1456
+```
+
+`lib_boundary_reason` says why each chain stopped — `ambient_no_body` (there is no
+TypeScript body to find), `signature_dispatch` (look in an implementation),
+`lib_body_available` (the body is staged and expandable).

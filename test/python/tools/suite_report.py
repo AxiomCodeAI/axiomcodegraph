@@ -115,7 +115,7 @@ def main() -> int:
         print('  MISSING and every site above is currently DROPPED — precision is')
         print('  undefined (no edges emitted), recall is 0.000, conservation FAILS.')
         print()
-        print('  Baseline to beat, from the deleted prototype (.claude/python/engine.md):')
+        print('  Baseline to beat, from the deleted prototype:')
         print('    34 of 49 sites known, all 49 accounted for.')
         print('  Note that "all accounted for" is the part that must hold from the first')
         print('  rule onwards; the 34 is what the rules have to improve on.')

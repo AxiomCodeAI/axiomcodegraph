@@ -1,0 +1,9 @@
+oracle=6 engine=2 agree=0 missing=6 (known 6, NEW 0) extra=2
+  known    consumer#drive() -> Node#visit()
+  known    consumer#drive() -> legacy#deepPack()
+  known    consumer#drive() -> legacy#pack()
+  known    consumer#useLibrary() -> Node#visit()
+  known    consumer#useLibrary() -> legacy-lib#deepPack()
+  known    consumer#useLibrary() -> legacy-lib#pack()
+  extra    consumer#drive() -> outer#pack()
+  extra    consumer#useLibrary() -> vendor#pack()

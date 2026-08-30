@@ -1,0 +1,120 @@
+// ============================================================================
+// Resolution · LIBRARY SCOPE  (a name, inside a library, denotes a declaration)
+//
+// THE GAP THIS CLOSES, MEASURED. Every type-resolution rule was keyed on
+// `type_ref("client", …)`, so a LIBRARY's own type references were never resolved.
+// That is not a corner: it means a library declaration's own annotations are opaque,
+// and three whole families of call site die because of it —
+//
+//   `console.log(x)`      `declare var console: Console` — the VARIABLE resolves, its
+//                         TYPE does not, so the receiver has no members. 313 sites.
+//   `new Set()`           `declare var Set: SetConstructor` — same shape. The
+//                         constructor lives on SetConstructor, and without the lib
+//                         reference resolved there is nothing to construct. 825 of
+//                         1,019 constructor sites were missed.
+//   `path.join(a, b)`     the module exports a VALUE whose TYPE carries the members.
+//                         176 sites.
+//
+// and, less visibly but more broadly, every CHAINED call into a library: a lib
+// method's declared return type is a lib type reference, so `s.split(",").map(f)`
+// could type `split` but not its result.
+//
+// ── WHY A SEPARATE SCOPE AND NOT THE CLIENT ONE ─────────────────────────────
+// A library's names resolve in ITS OWN module, not in the client's. Routing a lib
+// reference through `name_binds_any` would resolve a library's supertype against the
+// client's imports — which is not merely imprecise, it is a different program.
+//
+// ── STRATIFICATION ──────────────────────────────────────────────────────────
+// Reads module-graph.dl projections only. No expr_type, no expr_call_candidate, so
+// `!lib_name_bound_locally` and `!lib_import_has_target` sit below the resolution
+// fixpoint exactly as their client twins do.
+// ============================================================================
+
+// ── lib_import_target(ImportHash, Prov, ModuleHash) ─────────────────────────
+// Libraries import each other: @types/node alone has 123 import rows, and its
+// `stream`, `events` and `buffer` modules are threaded together by them. The same
+// two name-based routes as the client side — the specifier, and the resolved file
+// path matched at a segment boundary — because the same hash rule applies: a
+// library's resolvedModuleLinkHash can only name a module from ITS OWN extraction
+// run, which for a multi-root staging is not the run the target is in.
+lib_import_target(h, "lib", m) :- import_resolved_module("lib", m, h),
+    module_decl("lib", _, _, _, _, m).
+lib_import_target(h, "lib", m) :- import_specifier("lib", spec, h),
+    module_ambient_specifier("lib", spec, m).
+
+lib_import_full_path(h, full) :- import_resolved_file("lib", fp, _, h),
+    lib_ts_import(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, fp, _, ext, _, _, _, _, _, _, _, _, h),
+    full = cat(fp, ext).
+path_key(p) :- lib_import_full_path(_, p).
+path_key(p) :- module_file("lib", p, _).
+module_tail("lib", t, m) :- module_file("lib", p, m), path_tail(p, t).
+lib_import_path_cand(h, m, l) :- lib_import_full_path(h, p),
+    path_tail(p, t),
+    module_tail("lib", t, m),
+    l = strlen(t).
+lib_import_path_best(h, n) :- lib_import_path_cand(h, _, _),
+    n = max l : { lib_import_path_cand(h, _, l) }.
+lib_import_target(h, "lib", m) :- lib_import_path_cand(h, m, l),
+    lib_import_path_best(h, l).
+
+// ── lib_import_binds(ImportHash, Prov, Kind, EntityHash) ────────────────────
+// No type-only filter: this feeds the TYPE surface only. A library's runtime call
+// graph is not built here — library bodies are not staged — so there is nothing a
+// type-only binding could contaminate.
+lib_import_binds(h, prov, k, ent) :- import_binding("lib", ik, _, orig, _, h),
+    import_kind_binds_named(ik),
+    orig != "",
+    lib_import_target(h, prov, m),
+    module_export_any(prov, m, orig, k, ent).
+lib_import_binds(h, prov, k, ent) :- import_binding("lib", ik, _, _, _, h),
+    import_kind_binds_default(ik),
+    lib_import_target(h, prov, m),
+    module_export_any(prov, m, "default", k, ent).
+lib_import_binds_namespace(h, prov, m) :- import_binding("lib", ik, _, _, _, h),
+    import_kind_binds_namespace(ik),
+    lib_import_target(h, prov, m).
+
+// ── lib_name_binds(ModuleHash, Name, Prov, Kind, EntityHash) ────────────────
+// (1) declared in the same library module. A namespace member counts: a name written
+// inside `namespace ts { … }` resolves against its siblings, and module_local_decl
+// already admits NAMESPACE_PLACEMENT for exactly that reason.
+lib_name_binds(mod, name, "lib", k, ent) :- module_local_decl("lib", mod, name, k, ent).
+
+// (1b) declared inside a NAMESPACE of the same library module. A name written inside
+// `declare namespace ts { … }` resolves against its siblings — `Node`, `SourceFile`,
+// `SyntaxKind` all refer to each other unqualified — and that is a LEXICAL scope, not
+// a global one. Keeping it here rather than in module_local_decl is the whole point:
+// module_local_decl feeds global_decl, and putting namespace members there made every
+// bare `set(...)` in a program resolve to `Reflect.set` (94 wrong targets measured on
+// zustand). A library's own internal references need the scope; the global scope must
+// not have it.
+lib_name_binds(mod, name, "lib", k, ent) :- type_module("lib", mod, ns),
+    type_decl("lib", _, _, _, "NAMESPACE_TYPE", _, ns),
+    namespace_member("lib", ns, name, k, ent).
+
+// (2) imported into this library module.
+lib_name_binds(mod, local, prov, k, ent) :- import_binding("lib", _, local, _, mod, ih),
+    local != "",
+    lib_import_binds(ih, prov, k, ent).
+
+// (3) the global scope, when the module does not bind the name itself. `Array`,
+// `Promise`, `Buffer` — a library's own annotations lean on the globals as heavily as
+// a client's do.
+lib_name_bound_locally(mod, name) :- module_local_decl("lib", mod, name, _, _).
+lib_name_bound_locally(mod, name) :- import_binding("lib", _, name, _, mod, _), name != "".
+lib_name_binds(mod, name, prov, k, ent) :- module_decl("lib", _, _, _, _, mod),
+    lib_global_name_demanded(name),
+    global_decl(name, k, prov, ent),
+    !lib_name_bound_locally(mod, name).
+
+// ── lib_global_name_demanded(Name) — the bound that keeps this affordable ───
+// Without it the global fallback is |library modules| x |global declarations|, and
+// the two staged libraries here alone make that millions of rows that no rule will
+// ever read. Gated to names a library reference actually writes.
+lib_global_name_demanded(tn) :- type_ref("lib", _, _, tn, _, _, _, _), tn != "".
+
+// ── scope_name_binds(RefProv, ModuleHash, Name, TargetProv, Kind, Entity) ───
+// THE ONE RELATION type-resolution.dl reads, so that file resolves a reference the
+// same way whichever side wrote it, and neither scope can leak into the other.
+scope_name_binds("client", mod, name, prov, k, ent) :- name_binds_any(mod, name, prov, k, ent).
+scope_name_binds("lib", mod, name, prov, k, ent) :- lib_name_binds(mod, name, prov, k, ent).

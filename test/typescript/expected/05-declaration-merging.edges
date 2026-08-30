@@ -1,0 +1,8 @@
+ambiguous_unknown	FUNCTION_CALL	merged#useLibrary(Client) @L42 -> -
+ambiguous_unknown	METHOD_CALL	merged#drive(Config) @L34 -> -
+ambiguous_unknown	METHOD_CALL	merged#useLibrary(Client) @L42 -> -
+known_edge	FUNCTION_CALL	merged#drive(Config) @L34 -> merged#helper()
+multi_inferred	METHOD_CALL	merged#drive(Config) @L34 -> AppConfig#host()
+multi_inferred	METHOD_CALL	merged#drive(Config) @L34 -> AppConfig#port()
+multi_inferred	METHOD_CALL	merged#drive(Config) @L34 -> Config#host()
+multi_inferred	METHOD_CALL	merged#drive(Config) @L34 -> Config#port()

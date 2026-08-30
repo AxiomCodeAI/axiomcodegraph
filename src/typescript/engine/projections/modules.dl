@@ -1,0 +1,110 @@
+// ============================================================================
+// Projections · MODULES  (pure column views — no joins, no closures)
+//
+// A TypeScript module is the unit Java's *package* is not. In Java a type's
+// package is recoverable from its qualified name, so no relation is needed; here
+// the module is the resolution unit, the export table, and the symbol merge table
+// all at once, and none of those are derivable from a name. So this projection is
+// load-bearing in a way `file_pkg` never was.
+//
+// The first column is a provenance tag ("client" / "lib") so downstream layers can
+// classify an edge as C->C vs C->L without re-deriving where a hash came from.
+//
+// ts_module / lib_ts_module cols (27):
+//   0 name  1 qualifiedName  2 fileName  3 filePath  4 baseMservPath  5 moduleKind
+//   6 scriptKind  7 declaredSpecifier  8 isDeclarationFile  9 isExternalModule
+//   10 isAmbient  11 packageName  12 mergeTableKey  13 moduleResolutionMode
+//   14 tsConfigPath  15 targetTsVersion  16 emissionRegime  17 startLine  18 endLine
+//   19 hasTopLevelAwait  20 hasJsxContent  21 moduleInitMethodLinkHash
+//   22 exportAssignmentLinkHash  23 defaultExportLinkHash  24 isExternal
+//   25 serviceVersionLinkHash  26 tsModuleUniqueHash
+// ============================================================================
+
+// ── module_decl(Prov, Name, QName, FilePath, ModuleKind, ModuleHash) ─────────
+// ModuleKind (col 5, TsModuleKind): SOURCE_MODULE | SCRIPT_GLOBAL |
+// DECLARATION_FILE | AMBIENT_MODULE_DECLARATION | MODULE_AUGMENTATION |
+// GLOBAL_AUGMENTATION | JSON_MODULE.
+//
+// SCRIPT_GLOBAL and GLOBAL_AUGMENTATION are the ones that change a lookup rule:
+// their declarations are in the GLOBAL scope, visible with no import, which is how
+// `lib.es5.d.ts` puts `Array` and `Promise` in scope. Every other kind requires an
+// import edge, and a rule that forgets the distinction either loses every builtin
+// or makes every module's private declarations globally visible.
+module_decl("client", name, qname, fp, kind, h) :- ts_module(name, qname, _, fp, _, kind, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+module_decl("lib", name, qname, fp, kind, h) :- lib_ts_module(name, qname, _, fp, _, kind, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── module_file(Prov, FilePath, ModuleHash) ─────────────────────────────────
+// The file path a module was read from. This is the JOIN KEY for import linking:
+// `ts_import.resolvedFilePath` is produced by `ts.resolveModuleName` (the
+// compiler's own resolver, run at parse time) and names a FILE, not a hash — the
+// target file may not even have been in the same extraction run. So a client
+// import reaches a client module here, and a LIBRARY module by the identical join
+// against the library IR. That symmetry is what makes `--library` work at all.
+module_file("client", fp, h) :- ts_module(_, _, _, fp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), fp != "".
+module_file("lib", fp, h) :- lib_ts_module(_, _, _, fp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), fp != "".
+
+// ── module_is_global(Prov, ModuleHash) ──────────────────────────────────────
+// A module whose top-level declarations land in the GLOBAL scope: a non-module
+// script (no import/export), or an explicit `declare global`. Every ambient
+// builtin — `console`, `Array`, `JSON`, `Promise` — arrives this way, so this is
+// the relation that decides whether an unimported name can resolve at all.
+module_is_global("client", h) :- ts_module(_, _, _, _, _, "SCRIPT_GLOBAL", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+module_is_global("client", h) :- ts_module(_, _, _, _, _, "GLOBAL_AUGMENTATION", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+module_is_global("lib", h) :- lib_ts_module(_, _, _, _, _, "SCRIPT_GLOBAL", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+module_is_global("lib", h) :- lib_ts_module(_, _, _, _, _, "GLOBAL_AUGMENTATION", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── module_ambient_specifier(Prov, Specifier, ModuleHash) ───────────────────
+// `declare module "foo/bar" { ... }` — an ambient module declaration claims a
+// SPECIFIER rather than a file. A client `import x from "foo/bar"` whose
+// resolvedFilePath is empty (nothing on disk) still links here, which is how a
+// package that ships only ambient declarations is reachable.
+module_ambient_specifier("client", spec, h) :- ts_module(_, _, _, _, _, "AMBIENT_MODULE_DECLARATION", _, spec, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), spec != "".
+module_ambient_specifier("lib", spec, h) :- lib_ts_module(_, _, _, _, _, "AMBIENT_MODULE_DECLARATION", _, spec, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), spec != "".
+
+// ── module_package(Prov, PackageName, ModuleHash) ───────────────────────────
+// The npm package a module belongs to ("" for first-party files). Reporting and
+// per-dependency accuracy slicing; not consumed by resolution.
+module_package("client", pkg, h) :- ts_module(_, _, _, _, _, _, _, _, _, _, _, pkg, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), pkg != "".
+module_package("lib", pkg, h) :- lib_ts_module(_, _, _, _, _, _, _, _, _, _, _, pkg, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), pkg != "".
+
+// ── module_init(Prov, ModuleInitMethodHash, ModuleHash) ─────────────────────
+// The synthetic method that owns a module's TOP-LEVEL statements. Java has no
+// analogue (a compilation unit executes nothing), and without it every call
+// written at module scope — the whole of a script-style entry point — has no
+// caller and drops out of the chain.
+module_init("client", init, h) :- ts_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, init, _, _, _, _, h), init != "".
+module_init("lib", init, h) :- lib_ts_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, init, _, _, _, _, h), init != "".
+
+// ── module_default_export(Prov, EntityHash, ModuleHash) / module_export_assignment ──
+// `export default X` and `export = X`. The second has no Java or Python analogue at
+// all: `export =` makes the module ITSELF one entity, so `import x = require("m")`
+// binds x to that entity rather than to a member of a namespace. Most `@types`
+// packages for CommonJS libraries are written this way, so a client->lib rule that
+// only understands named exports misses that whole class of dependency.
+module_default_export("client", ent, h) :- ts_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ent, _, _, h), ent != "".
+module_default_export("lib", ent, h) :- lib_ts_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ent, _, _, h), ent != "".
+module_export_assignment("client", ent, h) :- ts_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ent, _, _, _, h), ent != "".
+module_export_assignment("lib", ent, h) :- lib_ts_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ent, _, _, _, h), ent != "".
+
+// ── module_is_external(Prov, ModuleHash) ────────────────────────────────────
+// isExternalModule (col 9) — the file has a top-level import or export, so it IS a
+// module and its declarations are private unless exported. When it is false the
+// declarations are GLOBAL, which is how `lib.dom.d.ts` puts `document` in scope.
+// This flag, not moduleKind, is the discriminator the export table branches on:
+// measured on @types/node, 60 of 66 DECLARATION_FILE modules are NOT external
+// modules and 6 are, and treating the two alike loses one group or invents the other.
+module_is_external("client", h) :- ts_module(_, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+module_is_external("lib", h) :- lib_ts_module(_, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── module_kind_is_ambient(ModuleKind) ──────────────────────────────────────
+// Enumerated rather than matched inline, per the kind-split law: a module kind whose
+// members are implicitly its exports is a row here, in a visible place, instead of a
+// literal buried in a rule body that silently stops covering a new case.
+//
+// An AMBIENT_MODULE_DECLARATION carries NO ts_export rows at all — measured on
+// @types/node: 198 modules, 0 exports, 6,929 methods. Its members ARE its export
+// surface. A rule that requires an export row therefore resolves nothing at all
+// against the entire Node type surface, which is the single largest client->lib
+// population in any TypeScript project.
+module_kind_is_ambient("AMBIENT_MODULE_DECLARATION").
+module_kind_is_ambient("MODULE_AUGMENTATION").

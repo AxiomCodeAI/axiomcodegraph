@@ -1,0 +1,2 @@
+{ "name": "specificity-fixture", "private": true, "version": "0.0.0",
+  "description": "Generic-first overload sets, in both directions, so an ordering rule is falsifiable." }

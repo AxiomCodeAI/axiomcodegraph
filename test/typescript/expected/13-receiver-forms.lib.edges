@@ -1,0 +1,27 @@
+ambiguous_unknown	CONSTRUCTOR_CALL	Holder#make() @L16 -> -
+ambiguous_unknown	CONSTRUCTOR_CALL	receivers#<arrow@1>() @L12 -> -
+ambiguous_unknown	CONSTRUCTOR_CALL	receivers#drive(Holder,Node | undefined) @L29 -> -
+ambiguous_unknown	CONSTRUCTOR_CALL	receivers#useLibrary(Graph,Vertex | undefined) @L42 -> -
+ambiguous_unknown	METHOD_CALL	receivers#drive(Holder,Node | undefined) @L22 -> -
+ambiguous_unknown	METHOD_CALL	receivers#drive(Holder,Node | undefined) @L23 -> -
+ambiguous_unknown	METHOD_CALL	receivers#drive(Holder,Node | undefined) @L24 -> -
+ambiguous_unknown	METHOD_CALL	receivers#drive(Holder,Node | undefined) @L25 -> -
+ambiguous_unknown	METHOD_CALL	receivers#drive(Holder,Node | undefined) @L26 -> -
+ambiguous_unknown	METHOD_CALL	receivers#drive(Holder,Node | undefined) @L27 -> -
+ambiguous_unknown	METHOD_CALL	receivers#drive(Holder,Node | undefined) @L28 -> -
+ambiguous_unknown	METHOD_CALL	receivers#drive(Holder,Node | undefined) @L29 -> -
+ambiguous_unknown	METHOD_CALL	receivers#drive(Holder,Node | undefined) @L30 -> -
+ambiguous_unknown	METHOD_CALL	receivers#useLibrary(Graph,Vertex | undefined) @L38 -> -
+boundary_lib	METHOD_CALL	receivers#useLibrary(Graph,Vertex | undefined) @L39 -> Graph#find()
+boundary_lib	METHOD_CALL	receivers#useLibrary(Graph,Vertex | undefined) @L39 -> Vertex#touch()
+boundary_lib	METHOD_CALL	receivers#useLibrary(Graph,Vertex | undefined) @L40 -> Vertex#touch()
+boundary_lib	METHOD_CALL	receivers#useLibrary(Graph,Vertex | undefined) @L41 -> Vertex#touch()
+boundary_lib	METHOD_CALL	receivers#useLibrary(Graph,Vertex | undefined) @L42 -> Vertex#touch()
+known_edge	METHOD_CALL	receivers#drive(Holder,Node | undefined) @L22 -> Node#visit()
+known_edge	METHOD_CALL	receivers#drive(Holder,Node | undefined) @L23 -> Holder#make()
+known_edge	METHOD_CALL	receivers#drive(Holder,Node | undefined) @L23 -> Node#visit()
+known_edge	METHOD_CALL	receivers#drive(Holder,Node | undefined) @L24 -> Node#visit()
+known_edge	METHOD_CALL	receivers#drive(Holder,Node | undefined) @L26 -> Node#visit()
+known_edge	METHOD_CALL	receivers#drive(Holder,Node | undefined) @L27 -> Node#visit()
+known_edge	METHOD_CALL	receivers#drive(Holder,Node | undefined) @L28 -> Node#visit()
+known_edge	METHOD_CALL	receivers#drive(Holder,Node | undefined) @L29 -> Node#visit()

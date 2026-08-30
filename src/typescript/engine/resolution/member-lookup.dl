@@ -1,0 +1,263 @@
+// ============================================================================
+// Resolution · MEMBER LOOKUP  (a name, on a type, is these members)
+//
+// Given a receiver's type, the members callable on it. Three things make this
+// materially different from Java's `method_name_in_type`, and each one is a wrong
+// answer if it is skipped:
+//
+//  1. THE ENTITY IS THE GROUP, NOT THE DECLARATION. A merged interface's members are
+//     spread across its declarations (max 43 measured). A receiver resolves to ONE
+//     declaration; searching only that one returns an arbitrary subset of the type's
+//     members, and which subset depends on which file the resolver happened to pick.
+//     Every lookup therefore fans to the whole declarationGroupKey first.
+//
+//  2. STATIC AND INSTANCE ARE TWO TABLES. `C.parse()` and `new C().parse()` are
+//     different methods that may both exist. Java's IR carries the same distinction
+//     but its engine can lean on `methodKind = STATIC_METHOD`; here it is the
+//     `isStatic` column (ts_method col 32, ts_field col 18) and a receiver that is a
+//     TYPE reference searches one table while a receiver that is a VALUE searches the
+//     other. Merging them is a plausible-looking wrong edge at every call on a class
+//     that has both.
+//
+//  3. A SHAPE OWNS MEMBERS. `{ read(): string }` has methods and no declaration, so
+//     ts_method col 7 points at a ts_type_reference row. Lookup accepts a shape as an
+//     owner — the "scope" of a lookup is a type hash OR a shape reference hash, and
+//     because the two PK prefixes differ (TS_TYPE_ vs TS_TYPE_REFERENCE_), a scope can
+//     never be mistaken for the other kind.
+//
+// SCOPED, as Java's is, so this never materialises over the whole library:
+// `lookup_scope` holds client types plus the library types a client reference
+// actually reached plus their ancestors. On a staged @types/node that is a few
+// hundred types out of 1,378, and the rest of the package is never touched.
+//
+// ── STRATIFICATION ──────────────────────────────────────────────────────────
+// The shadowing laws below are written over BASE facts (ts_method / lib_ts_method /
+// type_decl / type_ancestor) and deliberately NOT over member_in_scope, which sits
+// inside the expr_type fixpoint because lookup_scope is seeded from expr_type. Reading
+// it there would make `!member_shadowed` cyclic and Soufflé would refuse to
+// stratify. This is the identical argument the Java engine records for
+// `shadowed_in_type`, and it is why these rules look more verbose than they need to.
+// ============================================================================
+
+// ── lookup_scope(Scope) — where members are searched ────────────────────────
+lookup_scope(t) :- type_decl("client", _, _, _, _, _, t).
+lookup_scope(t) :- ref_type_target(_, _, t).
+lookup_scope(anc) :- lookup_scope(t), type_ancestor(t, anc).
+lookup_scope(s) :- ref_shape_target(_, s).
+
+// ── group_of(Scope, GroupKey) ───────────────────────────────────────────────
+// A shape has no group; it is its own scope. A declaration has one.
+group_of(t, g) :- type_group(_, g, t).
+
+// ── scope_sibling(Scope, SiblingScope) — the merged entity ──────────────────
+// Every declaration that shares this one's group, including itself. For a shape,
+// itself alone.
+scope_sibling(t, t2) :- group_of(t, g), group_of(t2, g).
+scope_sibling(s, s) :- ref_shape_target(_, s).
+
+// ============================================================================
+// DECLARED MEMBERS  (on one scope, not inherited)
+// ============================================================================
+
+// ── declared_method(Scope, Name, IsStatic, MethodHash) ──────────────────────
+// Keyed on escapedName, not on the display name: the compiler's symbol table escapes
+// `__proto__` and friends, and matching the raw name lets a member called
+// `constructor` collide with the intrinsic of the same spelling.
+declared_method(owner, en, st, m) :- method_owner(prov, owner, m),
+    owner != "",
+    method_decl(prov, _, en, _, m),
+    en != "",
+    method_flags(prov, st, _, _, m).
+
+// ── declared_field(Scope, Name, IsStatic, FieldHash) ────────────────────────
+declared_field(owner, n, st, f) :- field_decl(prov, n, _, owner, f),
+    owner != "",
+    n != "",
+    field_kind(prov, _, st, _, f).
+
+// ── declared_index_signature(Scope, FieldHash) ──────────────────────────────
+// `[key: string]: Handler` — a member reached by ANY name. A lookup that misses on
+// name but hits an index signature is resolved, not unresolved, and calling it
+// UNRESOLVED would report a blind spot the program does not have.
+declared_index_signature(owner, f) :- field_decl(prov, _, _, owner, f),
+    owner != "",
+    field_kind(prov, mk, _, _, f),
+    member_kind_is_index(mk).
+member_kind_is_index("INDEX_SIGNATURE").
+member_kind_is_index("TYPE_LITERAL_INDEX_SIGNATURE").
+
+// ============================================================================
+// MEMBER LOOKUP  (merged, then inherited)
+// ============================================================================
+
+// ── method_in_scope(Scope, Name, IsStatic, MethodHash) ──────────────────────
+// (1) declared on any declaration of the same merged entity.
+method_in_scope(scope, name, st, m) :- lookup_scope(scope),
+    scope_sibling(scope, sib),
+    declared_method(sib, name, st, m).
+
+// (2) inherited through `extends` — and ONLY through `extends`. See the header of
+// type-hierarchy.dl: walking an implements edge here would invent members.
+// !member_shadowed keeps a subclass's own declaration from being joined by the
+// superclass's, which is what makes an override collapse to one target instead of
+// staying multi_inferred across the whole chain.
+method_in_scope(scope, name, st, m) :- lookup_scope(scope),
+    group_of(scope, g),
+    ancestor_of_merged_group(_, g, anc),
+    scope_sibling(anc, asib),
+    declared_method(asib, name, st, m),
+    !method_shadowed_for(scope, name, st).
+
+// A subclass declaration of the same name and staticness hides every inherited one.
+// Written over declared_method + group_of + ancestor_of_merged_group, all of which
+// are below the expr_type fixpoint — see the stratification note in the header.
+method_shadowed_for(scope, name, st) :- scope_sibling(scope, sib),
+    declared_method(sib, name, st, _).
+
+// ── field_in_scope(Scope, Name, IsStatic, FieldHash) ────────────────────────
+field_in_scope(scope, name, st, f) :- lookup_scope(scope),
+    scope_sibling(scope, sib),
+    declared_field(sib, name, st, f).
+field_in_scope(scope, name, st, f) :- lookup_scope(scope),
+    group_of(scope, g),
+    ancestor_of_merged_group(_, g, anc),
+    scope_sibling(anc, asib),
+    declared_field(asib, name, st, f),
+    !field_shadowed_for(scope, name, st).
+field_shadowed_for(scope, name, st) :- scope_sibling(scope, sib),
+    declared_field(sib, name, st, _).
+
+// ── index_signature_in_scope(Scope, FieldHash) ──────────────────────────────
+index_signature_in_scope(scope, f) :- lookup_scope(scope),
+    scope_sibling(scope, sib),
+    declared_index_signature(sib, f).
+index_signature_in_scope(scope, f) :- lookup_scope(scope),
+    group_of(scope, g),
+    ancestor_of_merged_group(_, g, anc),
+    scope_sibling(anc, asib),
+    declared_index_signature(asib, f).
+
+// ── constructor_in_scope(Scope, MethodHash) ─────────────────────────────────
+// `new C()`. A class with no declared constructor still constructs — the implicit
+// one — which the parser records as SYNTHESIZED_NO_DECLARATION on the call site
+// (2.3% of sites measured). That is an honest terminal and NOT a resolution failure,
+// so it is classified separately downstream rather than counted as a blind spot.
+constructor_in_scope(scope, m) :- lookup_scope(scope),
+    scope_sibling(scope, sib),
+    method_owner(prov, sib, m),
+    method_kind(prov, k, _, m),
+    method_kind_is_constructor(k).
+// An inherited constructor: `class B extends A {}` with no constructor of its own
+// runs A's.
+constructor_in_scope(scope, m) :- lookup_scope(scope),
+    group_of(scope, g),
+    ancestor_of_merged_group(_, g, anc),
+    scope_sibling(anc, asib),
+    method_owner(prov, asib, m),
+    method_kind(prov, k, _, m),
+    method_kind_is_constructor(k),
+    !scope_declares_constructor(scope).
+scope_declares_constructor(scope) :- scope_sibling(scope, sib),
+    method_owner(prov, sib, m),
+    method_kind(prov, k, _, m),
+    method_kind_is_constructor(k).
+
+method_kind_is_constructor("CONSTRUCTOR").
+method_kind_is_constructor("CONSTRUCT_SIGNATURE").
+method_kind_is_constructor("TYPE_LITERAL_CONSTRUCT_SIGNATURE").
+method_kind_is_constructor("CONSTRUCTOR_TYPE_SIGNATURE").
+
+// ── call_signature_in_scope(Scope, MethodHash) ──────────────────────────────
+// A type that is itself callable — `interface Middleware { (req, res): void }` — or
+// a bare function type. The target of calling a value of that type, and the shape
+// every callback parameter takes. Java has no analogue at all: a functional
+// interface there is a named single abstract method, so `sam_method` can find it by
+// counting; here the call signature is an unnamed member with its own row.
+call_signature_in_scope(scope, m) :- lookup_scope(scope),
+    scope_sibling(scope, sib),
+    method_owner(prov, sib, m),
+    method_kind(prov, k, _, m),
+    method_kind_is_call_signature(k).
+call_signature_in_scope(scope, m) :- lookup_scope(scope),
+    group_of(scope, g),
+    ancestor_of_merged_group(_, g, anc),
+    scope_sibling(anc, asib),
+    method_owner(prov, asib, m),
+    method_kind(prov, k, _, m),
+    method_kind_is_call_signature(k).
+method_kind_is_call_signature("CALL_SIGNATURE").
+method_kind_is_call_signature("TYPE_LITERAL_CALL_SIGNATURE").
+method_kind_is_call_signature("FUNCTION_TYPE_SIGNATURE").
+
+// ── field_is_callable(Scope, Name, MethodHash) ──────────────────────────────
+// `obj.handler()` where `handler: (x: number) => void` is a PROPERTY, not a method.
+// Extremely common in TypeScript and impossible in Java, where a field is never
+// callable. Without this the call resolves to nothing and the site is reported as a
+// blind spot that the type system actually answers completely.
+field_is_callable(scope, name, m) :- field_in_scope(scope, name, _, f),
+    field_type_ref(_, r, f),
+    ref_shape_target(r, shape),
+    call_signature_in_scope(shape, m).
+field_is_callable(scope, name, m) :- field_in_scope(scope, name, _, f),
+    field_type_ref(_, r, f),
+    ref_type_target(r, _, ft),
+    call_signature_in_scope(ft, m).
+
+// ── THE IMPLICIT `Object` BASE ──────────────────────────────────────────────
+// Every object type in TypeScript has `toString`, `valueOf`, `hasOwnProperty` and the
+// rest of `Object.prototype`, and NO type declares that relationship — there is no
+// `extends Object` anywhere in the IR to walk. So a call to `x.toString()` on a
+// perfectly well-typed receiver found no member at all: 101 sites on this repository's
+// own source, reported as `member_absent`, which is the bucket that means "engine
+// defect" rather than "staging gap". It was right about that.
+//
+// This is the same carve-out the Java engine makes for `java.lang.Object`, and it is
+// sound for the same reason: the relationship is real and simply not written down.
+//
+// SHADOWED BY ANYTHING DECLARED. A type that declares its own `toString`, or inherits
+// one, keeps that and does not also get Object's — otherwise every such call goes
+// multi_inferred across two unrelated declarations. `member_declared_anywhere` reads
+// only declared_method / scope_sibling / ancestor_of_merged_group, all of which sit
+// below the expr_type fixpoint, so the negation stratifies even though lookup_scope
+// does not.
+object_prototype_member(name, m) :- global_decl("Object", "TYPE", _, ot),
+    scope_sibling(ot, sib),
+    declared_method(sib, name, "false", m).
+member_declared_anywhere(scope, name, st) :- scope_sibling(scope, sib),
+    declared_method(sib, name, st, _).
+member_declared_anywhere(scope, name, st) :- group_of(scope, g),
+    ancestor_of_merged_group(_, g, anc),
+    scope_sibling(anc, asib),
+    declared_method(asib, name, st, _).
+method_in_scope(scope, name, "false", m) :- lookup_scope(scope),
+    object_prototype_member(name, m),
+    !member_declared_anywhere(scope, name, "false").
+
+// ── member_name_declared(Scope, Name) — the LOW-STRATUM member test ─────────
+// The same question as member_name_exists and deliberately NOT the same relation.
+// member_name_exists reads method_in_scope, which is guarded by lookup_scope, which is
+// seeded from expr_type — so it lives inside the resolution fixpoint. Anything that
+// feeds a NEGATED relation must sit below that fixpoint, and structural satisfaction
+// does: it feeds the dispatch cap, which the fan rule negates. Written over
+// declared_method / declared_field / scope_sibling / ancestor_of_merged_group only, all
+// of which are base-fact projections and the type hierarchy.
+member_name_declared(scope, name) :- scope_sibling(scope, sib),
+    declared_method(sib, name, _, _).
+member_name_declared(scope, name) :- scope_sibling(scope, sib),
+    declared_field(sib, name, _, _).
+member_name_declared(scope, name) :- group_of(scope, g),
+    ancestor_of_merged_group(_, g, anc),
+    scope_sibling(anc, asib),
+    declared_method(asib, name, _, _).
+member_name_declared(scope, name) :- group_of(scope, g),
+    ancestor_of_merged_group(_, g, anc),
+    scope_sibling(anc, asib),
+    declared_field(asib, name, _, _).
+
+// ── member_name_exists(Scope, Name) — a precision helper ────────────────────
+// Whether ANY member of that name is visible. Distinguishes "the receiver type was
+// resolved and has no such member" (a parser or engine defect worth seeing) from
+// "the receiver type was never resolved" (a staging gap). The two have completely
+// different fixes and collapsing them wastes the diagnosis.
+member_name_exists(scope, name) :- method_in_scope(scope, name, _, _).
+member_name_exists(scope, name) :- field_in_scope(scope, name, _, _).

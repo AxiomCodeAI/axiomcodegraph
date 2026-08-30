@@ -1,0 +1,196 @@
+// ============================================================================
+// Resolution · REFERENCE TYPES  (declaration -> the type it declares)
+//
+// The entity->type projections of ref_type_target: for each declaration a receiver
+// can bind to, the type its ANNOTATION gives it. Java's file of the same name is a
+// list of one-liners because a Java annotation is a single named type; here each one
+// also has to decide what to do when the annotation is a shape, a union, or absent.
+//
+// ── DECLARED WINS OVER FLOWED, AND IS NOT UNIONED WITH IT ───────────────────
+// A law paid for in the Python engine: unioning
+// an annotation with flowed types lets imprecision leak THROUGH the declaration and
+// cost six spurious targets on one funnel. Where the programmer wrote a type, that
+// is the answer. Flow speaks only where no annotation does — which here is the 14.7%
+// of parameters and the inferred `const`s, not the majority case Python faced.
+//
+// Every fallback below therefore carries an explicit negation of its preferred
+// source. Emitting both would leave the site multi_inferred across a declared type
+// and a flowed one instead of collapsing to the declaration.
+//
+// ── STRATIFICATION ──────────────────────────────────────────────────────────
+// Reads type-resolution.dl and projections. The negations (!field_has_declared_type
+// and friends) are over relations derived in this same file from base facts and
+// ref_type_target only — never from expr_type — so they sit below the expr_type
+// fixpoint and stay legal when expr-type.dl reads them.
+// ============================================================================
+
+// ── field_type(FieldHash, Prov, TypeHash) / field_shape(FieldHash, ShapeRef) ──
+field_type(f, prov, t) :- field_type_ref(_, r, f),
+    ref_type_target(r, prov, t).
+field_shape(f, s) :- field_type_ref(_, r, f),
+    ref_shape_target(r, s).
+// Written over the ANNOTATION rather than over field_type, which field_type itself
+// negates: reading it back would put the negation inside its own fixpoint and
+// Soufflé refuses to stratify. "Has a declared type" means the annotation RESOLVED —
+// an annotation that reached no declaration leaves the initializer as the only
+// evidence, and using it there is recovery, not the leak the declared-wins law
+// forbids (there is no resolved declaration for imprecision to leak through).
+field_has_declared_type(f) :- field_type_ref(_, r, f), ref_type_target(r, _, _).
+field_has_declared_type(f) :- field_type_ref(_, r, f), ref_shape_target(r, _).
+
+// A field with NO annotation, initialised by `new C()`. `private repo = new SqlRepo()`
+// is the standard shape and the declared type is absent by design, so flow is the
+// only source — and it is a CONCRETE type, which makes the receiver monomorphic and
+// collapses the call to one target instead of fanning the interface.
+field_type(f, prov, t) :- field_initializer("client", e, f),
+    !field_has_declared_type(f),
+    new_expression_type(e, prov, t).
+// And the general case, for the same reason as the variable rule below: an
+// un-annotated field takes its initializer's type whatever that initializer is.
+field_type(f, prov, t) :- field_initializer("client", e, f),
+    !field_has_declared_type(f),
+    expr_type(e, prov, t).
+field_shape(f, s) :- field_initializer("client", e, f),
+    !field_has_declared_type(f),
+    expr_shape(e, s).
+
+// A parameter property — `constructor(private readonly repo: Repo)` — declares a
+// field whose type is the parameter's. Ubiquitous in decorator-DI codebases, and
+// without it every `this.repo.x()` in such a class has an untyped receiver.
+field_type(f, prov, t) :- param_declares_field("client", f, p),
+    param_type(p, prov, t).
+field_shape(f, s) :- param_declares_field("client", f, p),
+    param_shape_target(p, s).
+
+// ── param_type(ParamHash, Prov, TypeHash) ───────────────────────────────────
+// 85.3% of parameters carry an annotation, and 99.998% in ambient code. This is the
+// primary receiver-typing mechanism in TypeScript, the one Python could not have.
+param_type(p, prov, t) :- param_type_ref(_, r, p),
+    ref_type_target(r, prov, t).
+param_shape_target(p, s) :- param_type_ref(_, r, p),
+    ref_shape_target(r, s).
+
+// ── var_type(VarHash, Prov, TypeHash) ───────────────────────────────────────
+var_type(v, prov, t) :- var_type_ref(_, r, v),
+    ref_type_target(r, prov, t).
+var_shape(v, s) :- var_type_ref(_, r, v),
+    ref_shape_target(r, s).
+// Same stratification argument as field_has_declared_type above.
+var_has_declared_type(v) :- var_type_ref(_, r, v), ref_type_target(r, _, _).
+var_has_declared_type(v) :- var_type_ref(_, r, v), ref_shape_target(r, _).
+
+// ── FLOW TYPING for an inferred variable ────────────────────────────────────
+// `const conn = new SqlConn()` — no annotation, so the initializer IS the type, and
+// it is exact. A `const` can never be reassigned, so no reassignment scan is needed;
+// a `let` gets the same treatment here, which is an over-approximation bounded by
+// the initializer and is labelled as such rather than claimed exact.
+var_type(v, prov, t) :- var_initializer("client", "NEW", e, v),
+    !var_has_declared_type(v),
+    new_expression_type(e, prov, t).
+
+// ── THE INITIALIZER IS THE TYPE, whatever shape it has ─────────────────────
+// Measured on this repository's own source: 5,830 of 6,251 variables carry NO type
+// annotation, and 2,658 of those are initialised by a CALL. That one population is
+// the largest single cause of an untyped receiver in the whole engine — `const parts
+// = split(x); parts.push(y)` had no receiver type at all, and `push` alone accounted
+// for 478 unresolved sites.
+//
+// So the general rule is the initializer's own type, for every initializer kind at
+// once rather than one clause per TsVariableInitializerKind. That covers CALL, the
+// ternary the parser reports as UNKNOWN, IDENTIFIER, AS_EXPRESSION and AWAIT with one
+// rule, and a new initializer kind needs no change here at all.
+//
+// STRATIFICATION: this puts var_type inside the expr_type fixpoint, which is fine —
+// the recursion is positive. The negation is over var_has_declared_type, which reads
+// var_type_ref and ref_type_target only and therefore stays in a lower stratum. That
+// is precisely why var_has_declared_type is defined over the ANNOTATION and not over
+// var_type itself.
+var_type(v, prov, t) :- var_initializer("client", _, e, v),
+    e != "",
+    !var_has_declared_type(v),
+    expr_type(e, prov, t).
+var_shape(v, s) :- var_initializer("client", _, e, v),
+    e != "",
+    !var_has_declared_type(v),
+    expr_shape(e, s).
+
+// `const s = "text"` and friends — a literal initializer types the variable by its
+// global interface, which is what makes `s.trim()` resolve on an un-annotated const.
+var_type(v, prov, t) :- var_initializer("client", "LITERAL", e, v),
+    !var_has_declared_type(v),
+    expr_literal_type("client", lt, e),
+    literal_kind_global(lt, gname),
+    var_decl("client", _, _, _, _, mod, v),
+    name_binds_any(mod, gname, prov, "TYPE", t).
+
+// TsLiteralType values, enumerated rather than matched inline.
+literal_kind_global("STRING", "String").
+literal_kind_global("TEMPLATE", "String").
+literal_kind_global("NUMBER", "Number").
+literal_kind_global("BIGINT", "BigInt").
+literal_kind_global("BOOLEAN", "Boolean").
+literal_kind_global("REGEX", "RegExp").
+
+// ── `for (const x of xs)` — the FOR_BINDING variable ───────────────────────
+// 1,055 of 6,251 client variables on this corpus are for-of bindings, and they have
+// NO annotation and NO initializer expression: the value comes from the iterable, and
+// the parser records that iterable as the enclosing FOR_OF block's
+// conditionExpression. Without this rule every loop variable is untyped, which is why
+// `for (const block of blocks) block.getHash()` was 287 unresolved sites — the single
+// largest remaining client->client gap.
+//
+// The binding takes the iterable's ELEMENT type, which for an array-typed iterable is
+// ref_element_target and for a generic container is the substituted type argument
+// (generics.dl). A `for…in` binding is a STRING key, not an element, so only FOR_OF
+// and FOR_AWAIT_OF are admitted here — enumerated rather than matched inline.
+for_binding_iterable(v, e) :- ts_variable(_, _, _, _, _, _, _, _, "FOR_BINDING", _, _, _, _, _, _, b, _, _, _, _, _, _, _, _, _, _, _, _, v),
+    b != "",
+    ts_block(bk, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, _, b),
+    block_kind_iterates_elements(bk),
+    e != "".
+block_kind_iterates_elements("FOR_OF").
+block_kind_iterates_elements("FOR_AWAIT_OF").
+
+var_type(v, prov, t) :- for_binding_iterable(v, e),
+    !var_has_declared_type(v),
+    expr_element_type(e, prov, t).
+
+// ── var_is_function(VarHash, MethodHash) ────────────────────────────────────
+// `const f = () => {}`. THE link that makes a const callable — 161 measured resolved
+// call targets are arrow functions reached only this way. The parser's binder made
+// the connection, so this is a column read rather than a position match.
+var_is_function(v, m) :- var_bound_function("client", m, v).
+var_is_function(v, m) :- var_bound_function("lib", m, v).
+
+// ── method_return_type(MethodHash, Prov, TypeHash) ──────────────────────────
+// The receiver type of a chained call `a().b()`.
+method_return_type(m, prov, t) :- method_return_ref(_, r, m),
+    ref_type_target(r, prov, t).
+method_return_shape(m, s) :- method_return_ref(_, r, m),
+    ref_shape_target(r, s).
+
+// ── method_return_awaited(MethodHash, Prov, TypeHash) ───────────────────────
+// `await client.get()` — the receiver of the next hop is the AWAITED type, not the
+// Promise. An `async` function's declared return is `Promise<T>` and the value at an
+// await site is T; typing it as Promise resolves every chained call to `then` or to
+// nothing, which on a modern codebase is most of the I/O surface.
+method_return_awaited(m, prov, t) :- method_return_ref(_, r, m),
+    ref_awaited_target(r, prov, t).
+
+// ── method_return_element(MethodHash, Prov, TypeHash) ───────────────────────
+// `getItems()[0].m()` and `for (const x of getItems())` — the element of an
+// array-returning call.
+method_return_element(m, prov, t) :- method_return_ref(_, r, m),
+    ref_element_target(r, prov, t).
+
+// ── new_expression_type(ExprHash, Prov, TypeHash) ───────────────────────────
+// `new C()` — the constructed type, from the OBJECT_CREATION_TYPE reference the
+// parser hangs on the expression. Kept in this file rather than in expr-type.dl
+// because the flow-typing rules above depend on it and must stay in a stratum below
+// the expr_type fixpoint.
+new_expression_type(e, prov, t) :- ts_type_reference(_, "OBJECT_CREATION_TYPE", _, _, _, _, _, "0", _, _, _, _, _, _, _, e, "EXPRESSION", _, _, _, _, _, _, _, _, _, _, _, _, ref),
+    ref_type_target(ref, prov, t).
+
+// ── enum_member_type(EnumMemberHash, Prov, TypeHash) ────────────────────────
+// `Color.RED.toString()` — an enum member's type is its owning enum.
+enum_member_type(em, prov, t) :- enum_member_decl(prov, _, t, _, em), t != "".
