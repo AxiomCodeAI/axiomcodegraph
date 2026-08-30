@@ -1478,6 +1478,104 @@ async function jsxBraceExpressionsWalked(): Promise<number> {
   return failures.length ? 1 : 0;
 }
 
+// ---------------------------------------------------------------------------
+// 14. Destructuring records what each name binds
+// ---------------------------------------------------------------------------
+
+/**
+ * A destructured name says WHERE it came from, not just what it is called.
+ *
+ * `const { b: renamed } = o` and `const [renamed] = xs` produce the same name
+ * from completely different sources, and for a long while the fact base carried
+ * neither -- the bound names were not emitted at all, and once they were, they
+ * arrived without their origin. Shorthand `{ a }` hides both bugs, because
+ * there the name and the property coincide, which is exactly why this needs a
+ * fixture that is not shorthand.
+ *
+ * Built here and thrown away: Corpus A's expectations are blessed, and every
+ * form below would have to be added to them to test the same thing.
+ */
+async function destructuringRecordsItsSource(): Promise<number> {
+  if (!parserPresent()) {
+    return pendingCheck('destructuring records its source',
+      'no extractor yet. A bound name must carry the property or index it binds');
+  }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ts-bind-'));
+  const source = [
+    'export function shapes(o: { a: number; b: number; c: number }, xs: number[]) {',
+    '  const { a } = o;',
+    '  const { b: renamed } = o;',
+    '  const { a: p, ...others } = o;',
+    '  const [first, second] = xs;',
+    '  const [, skipped] = xs;',
+    '  const [head, ...tail] = xs;',
+    '  const key = "c";',
+    '  const { [key]: computed } = o;',
+    '  const plain = 1;',
+    '  return [a, renamed, p, others, first, second, skipped, head, tail, computed, plain];',
+    '}',
+  ].join('\n');
+  fs.writeFileSync(path.join(root, 'bind.ts'), source);
+  fs.writeFileSync(path.join(root, 'tsconfig.json'), JSON.stringify({
+    compilerOptions: { target: 'ES2022', module: 'ESNext', strict: true },
+    include: ['*.ts'],
+  }));
+  const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ts-bind-out-'));
+  await new TypeScriptProjectAnalyzer().analyze({
+    rootDir: root, outputDir, baseMservPath: root, serviceVersionLink: 'bind-check',
+  });
+
+  const byName = new Map<string, Record<string, string>>();
+  for (const row of relation(outputDir, 'all-typescript-variables.csv')) {
+    if ((row.name ?? '') !== '') {
+      byName.set(row.name!, row);
+    }
+  }
+
+  // name -> [bindingSourceKind, bindingSource]
+  const expected: [string, string, string][] = [
+    ['a', 'PROPERTY', 'a'],            // shorthand: name and property coincide
+    ['renamed', 'PROPERTY', 'b'],      // the case the engine could not recover
+    ['p', 'PROPERTY', 'a'],
+    ['others', 'OBJECT_REST', ''],
+    ['first', 'INDEX', '0'],
+    ['second', 'INDEX', '1'],
+    ['skipped', 'INDEX', '1'],         // the hole ahead of it still counts
+    ['head', 'INDEX', '0'],
+    ['tail', 'ARRAY_REST', '1'],
+    ['computed', 'PROPERTY', '[key]'], // text, never a guess
+    ['plain', 'NONE', ''],             // an ordinary declaration binds nothing
+  ];
+
+  const failures: string[] = [];
+  for (const [name, kind, src] of expected) {
+    const row = byName.get(name);
+    if (!row) {
+      failures.push(`no ts_variable row named ${name} — the bound name was not emitted`);
+      continue;
+    }
+    const gotKind = row.bindingSourceKind ?? '';
+    const gotSource = row.bindingSource ?? '';
+    if (gotKind !== kind || gotSource !== src) {
+      failures.push(`${name}: expected ${kind}/"${src}", got ${gotKind}/"${gotSource}"`);
+    }
+  }
+  // Nothing that is not a destructuring may claim a source.
+  for (const row of relation(outputDir, 'all-typescript-variables.csv')) {
+    if (row.isDestructuring !== 'true' && (row.bindingSourceKind ?? '') !== 'NONE') {
+      failures.push(`${row.name}: not a destructuring but carries ` +
+        `bindingSourceKind=${row.bindingSourceKind}`);
+    }
+  }
+
+  console.log(`  ${expected.length} binding form(s) checked: shorthand, renamed, object rest, ` +
+    'positional, hole, array rest, computed key, and an ordinary declaration');
+  for (const f of failures.slice(0, 10)) console.log(`  ${f}`);
+  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(outputDir, { recursive: true, force: true });
+  return failures.length ? 1 : 0;
+}
+
 const CHECKS: Check[] = [
   { name: 'compiles', proves: 'tsc --noEmit is clean — the suite reports on code that actually builds', run: compiles },
   { name: 'fixtures compile and are isolated', proves: 'a fixture is a valid input, and cannot break another language\'s gate', run: fixturesCompile },
@@ -1490,6 +1588,7 @@ const CHECKS: Check[] = [
   { name: 'type-only isolation', proves: 'no type-only construct reaches the call graph', run: typeOnlyIsolation },
   { name: 'TSX reserved but empty', proves: 'reserved enum values carry no rows until TSX is switched on', run: tsxReservedButEmpty },
   { name: 'JSX brace expressions are walked', proves: 'a call inside a JSX brace is an ordinary call site; only the component invocation is reserved', run: jsxBraceExpressionsWalked },
+  { name: 'destructuring records its source', proves: 'a bound name carries the property or index it binds, so a renamed or positional binding is recoverable', run: destructuringRecordsItsSource },
   { name: 'fact-base invariants', proves: 'every PK unique, every FK resolves, every tree well-formed — the failures that load cleanly and count wrong', run: factBaseInvariants },
   { name: 'IR completeness', proves: 'every hop an engine needs in order to resolve is present — the measure that replaced resolution rate', run: irCompleteness },
 ];
