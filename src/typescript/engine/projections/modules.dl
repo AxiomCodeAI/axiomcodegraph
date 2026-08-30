@@ -61,6 +61,16 @@ module_is_global("lib", h) :- lib_ts_module(_, _, _, _, _, "GLOBAL_AUGMENTATION"
 module_ambient_specifier("client", spec, h) :- ts_module(_, _, _, _, _, "AMBIENT_MODULE_DECLARATION", _, spec, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), spec != "".
 module_ambient_specifier("lib", spec, h) :- lib_ts_module(_, _, _, _, _, "AMBIENT_MODULE_DECLARATION", _, spec, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), spec != "".
 
+// ── module_base_path(Prov, BasePath, ModuleHash) ────────────────────────────
+// The PACKAGE ROOT a module was read from (`.../node_modules/@scope/name`), which
+// is the only package identity a standalone-parsed dependency carries: measured on
+// every staged library in the corpus, `packageName` (col 11) is EMPTY, because the
+// parser fills it from a resolved IMPORT and a package parsed on its own has none.
+// So a bare specifier in a re-export can only be matched back to a staged package
+// through this path.
+module_base_path("client", bp, h) :- ts_module(_, _, _, _, bp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), bp != "".
+module_base_path("lib", bp, h) :- lib_ts_module(_, _, _, _, bp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), bp != "".
+
 // ── module_package(Prov, PackageName, ModuleHash) ───────────────────────────
 // The npm package a module belongs to ("" for first-party files). Reporting and
 // per-dependency accuracy slicing; not consumed by resolution.

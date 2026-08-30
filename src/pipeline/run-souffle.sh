@@ -103,7 +103,12 @@ lib_modules(){ if [ -f "$1/$IR_MARKER" ]; then printf '%s\n' "$1"; else for m in
 # (The same trick is already used for LIB_BODY below; this just applies it uniformly.)
 CLIENT_INPUTS=""
 while IFS=$'\t' read -r rel csv; do
-  if [ -f "$CLIENT/$csv.csv" ]; then awk 'NR>1' "$CLIENT/$csv.csv" > "$FACTS/$rel.facts"
+  # A TORN ROW MUST NOT KILL THE WHOLE EVALUATION. Souffle rejects an entire fact file for
+  # one malformed line, so a single row cut mid-write — which has been observed repeatedly,
+  # deterministically on some inputs — takes down a run of tens of thousands of sites. The
+  # header's field count is the contract; a row that does not meet it is dropped and
+  # COUNTED, so the loss is visible rather than fatal and never silent.
+  if [ -f "$CLIENT/$csv.csv" ]; then awk -F'\t' 'NR==1{n=NF; next} NF==n{print; next} {bad++} END{if(bad>0) printf "  ! dropped %d malformed row(s) from %s\n", bad, FILENAME > "/dev/stderr"}'  "$CLIENT/$csv.csv" > "$FACTS/$rel.facts"
   else : > "$FACTS/$rel.facts"; fi
   CLIENT_INPUTS="$CLIENT_INPUTS$rel"$'\n'
 done < <(read_map "$TPL/client-ir.map")
@@ -147,7 +152,7 @@ if [ ! -d "$LIBDIR" ]; then
     : > "$TMPDIR_L/$rel.facts"
     for root in "${LIB_ROOTS[@]}"; do
       while IFS= read -r mod; do
-        [ -f "$mod/$csv.csv" ] && awk 'NR>1' "$mod/$csv.csv" >> "$TMPDIR_L/$rel.facts"
+        [ -f "$mod/$csv.csv" ] && awk -F'\t' 'NR==1{n=NF; next} NF==n{print; next} {bad++} END{if(bad>0) printf "  ! dropped %d malformed row(s) from %s\n", bad, FILENAME > "/dev/stderr"}'  "$mod/$csv.csv" >> "$TMPDIR_L/$rel.facts"
       done < <(lib_modules "$root")
     done
   done < <(printf '%s' "$LIB_SIG_RELS")

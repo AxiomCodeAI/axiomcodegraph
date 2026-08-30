@@ -250,8 +250,25 @@ fi
 # dependency three hops from anything the client names is not going to.
 if [ -n "$NM_ROOTS" ]; then
   echo "▶ staging the libraries' own dependencies (one round)..."
-  cat "$WORK"/libir/*/all-typescript-imports.csv 2>/dev/null \
-    | awk -F'\t' '$20!="" && $20!="packageName"{print $20}' | sort -u > "$WORK/lib-packages.txt"
+  # Two sources, not one. A package is reached by IMPORT (`import { x } from "pkg"`,
+  # packageName on the import row) or by RE-EXPORT (`export { x } from "pkg"`), and
+  # the two are disjoint: vitest's dist barrel says `export { expectTypeOf } from
+  # "expect-type"` and never imports it, so an import-only scan leaves expect-type
+  # unstaged, the re-export's resolvedSourceModuleLinkHash EMPTY, and every
+  # `expectTypeOf(...)` in a test suite unresolvable. Export rows carry no
+  # packageName column, so the package is cut off the specifier: `@scope/name/sub`
+  # -> `@scope/name`, `name/sub` -> `name`. Relative and `node:` specifiers are not
+  # packages. Measured on remeda: 7 of 29 unresolved re-export specifiers name a
+  # package that is on disk, is a declared dependency, and was never staged.
+  { cat "$WORK"/libir/*/all-typescript-imports.csv 2>/dev/null \
+      | awk -F'\t' '$20!="" && $20!="packageName"{print $20}'
+    cat "$WORK"/libir/*/all-typescript-exports.csv 2>/dev/null \
+      | awk -F'\t' '$7!="" && $7!="sourceSpecifier" && substr($7,1,1)!="." && substr($7,1,5)!="node:" {
+            n=split($7,a,"/")
+            if (substr($7,1,1)=="@") { if (n>=2) print a[1]"/"a[2] }
+            else print a[1]
+          }'
+  } | sort -u > "$WORK/lib-packages.txt"
   while IFS= read -r pkg; do
     [ -n "$pkg" ] || continue
     [ "$pkg" = "typescript" ] && continue
