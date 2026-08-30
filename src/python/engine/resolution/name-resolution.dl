@@ -34,23 +34,40 @@ expr_has_parent(p, e) :- expr_parent(p, _, _, _, e).
 //   (a) CURRENT — an ASSIGNMENT node parents an ASSIGNMENT_TARGET and an
 //       ASSIGNMENT_VALUE child. Present in the 3.10.4 library IR (20,531 ASSIGNMENT
 //       nodes in the _stdlib_base shard alone).
-//   (b) LEGACY — no ASSIGNMENT node: target and value are separate ROOTS
-//       (parentExpressionHash = "") carrying rootContext ASSIGNMENT_TARGET /
-//       ASSIGNMENT_VALUE. This is what Parser/analysis-results/python/linkage-sample
-//       contains: 0 ASSIGNMENT nodes, 24 target roots, 24 value roots.
-// The clauses are naturally disjoint — in shape (a) neither node is a root — so
-// supporting both costs nothing and the engine is not hostage to one parser version.
-// Filed as PD-2: shape (b) can only pair a target with its value by (scope, line),
-// which a tuple unpack or two assignments on one line makes ambiguous.
+//       `x: T = value` is the SAME SHAPE under a different kind. Parser@19e4463 split
+//       ANNOTATED_ASSIGNMENT out of ASSIGNMENT so that a consumer can tell a declared
+//       type from an inferred one — the edgeRoles, the children and the parent are
+//       byte-identical, only c0 changed. MEASURED before this clause existed: on
+//       two-service-fastapi 5 of 78 assignments (6.4%) carried the new kind, and
+//       `AUDIT_LOG: List[str] = []` losing its pair cost the `AUDIT_LOG.append` edge —
+//       builtin:list.append became ambiguous_unknown. The kinds are enumerated rather
+//       than defaulted so a THIRD assignment kind fails loudly instead of silently.
+// A SECOND CLAUSE USED TO LIVE HERE, pairing orphan ASSIGNMENT_TARGET / ASSIGNMENT_VALUE
+// roots by (scope, line) — the shape the parser emitted before it wrapped assignments in a
+// node. It was filed as PD-2 because (scope, line) cannot separate a tuple unpack or two
+// assignments written on one line, so it was a guess wherever it fired. It is now REMOVED:
+// the parser parents both children under the wrapper, measured 0 orphan roots of 5,932
+// targets and 5,879 values across a 75-file stdlib corpus, and 0 across every corpus in
+// this suite. Keeping a heuristic alive for a shape that no longer occurs only preserves a
+// way to be wrong.
+assign_kind("ASSIGNMENT").
+assign_kind("ANNOTATED_ASSIGNMENT").
+
+// AUGMENTED_ASSIGNMENT IS DELIBERATELY ABSENT, and must stay absent. `a += b` is a UNION
+// with a's existing value, not a replacement, so pairing it here would claim `a` now holds
+// only `b`. The parser wraps it identically to a plain assignment (same two edge roles), so
+// nothing but this whitelist prevents it — which is why the kinds are enumerated rather than
+// defaulted, and why this note sits next to them. `operatorString` now carries which of the
+// thirteen operators it is (PD-12, fixed in Parser@027c9a0; verified 0 empty of 160 rows),
+// so a future rule CAN treat `d |= other` as a dict merge. Measured before writing one:
+// across that corpus the value side is 130 `+=`, 24 `-=`, 4 `|=`, 2 `&=`, every |= and &=
+// an integer bit-flag, and ZERO augmented assignments put a callable into a container. The
+// call-graph yield today is nil, so the operator is available and unused on purpose.
 assign_pair(p, tgt, val) :-
-    expr_node(p, "ASSIGNMENT", _, _, a),
+    assign_kind(k),
+    expr_node(p, k, _, _, a),
     expr_parent(p, a, "ASSIGNMENT_TARGET", _, tgt),
     expr_parent(p, a, "ASSIGNMENT_VALUE", _, val).
-assign_pair(p, tgt, val) :-
-    expr_root_context(p, "ASSIGNMENT_TARGET", tgt), !expr_has_parent(p, tgt),
-    expr_root_context(p, "ASSIGNMENT_VALUE", val), !expr_has_parent(p, val),
-    expr_scope(p, s, _, tgt), expr_scope(p, s, _, val),
-    expr_span(p, line, _, tgt), expr_span(p, line, _, val).
 
 // ============================================================================
 // BINDING -> DECLARATION
@@ -381,3 +398,24 @@ expr_attr_names_method(p, e, m) :-
 name_resolution_agrees(p, e, t) :- expr_names_type(p, e, t), expr_ref_entity(p, "TYPE", t, e).
 name_resolution_differs(p, e, mine, theirs) :-
     expr_names_type(p, e, mine), expr_ref_entity(p, "TYPE", theirs, e), theirs != "", theirs != mine.
+
+// ── A MODULE ATTRIBUTE THE MODULE IMPORTED RATHER THAN DECLARED ──────────────
+// Goes through py_import's OWN scope/module columns rather than through a binding,
+// because lib_py_binding is a BODY relation: it is staged EMPTY at signature time, so
+// any binding-mediated rule is dead on the library side by construction.
+module_member_type(p, mod, n, t) :-
+    module_init(p, _, modScope, mod),
+    import_scope(p, modScope, mod, i),
+    import_decl(p, _, _, n, i), n != "",
+    import_resolved_target(p, "TYPE", t, i).
+module_member_method(p, mod, n, m) :-
+    module_init(p, _, modScope, mod),
+    import_scope(p, modScope, mod, i),
+    import_decl(p, _, _, n, i), n != "",
+    import_resolved_target(p, "FUNCTION", m, i).
+module_member_module(p, mod, n, child) :-
+    module_init(p, _, modScope, mod),
+    import_scope(p, modScope, mod, i),
+    import_decl(p, _, _, n, i), n != "",
+    import_resolved_module(p, child, i),
+    import_is_module(p, i).

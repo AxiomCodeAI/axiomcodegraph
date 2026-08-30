@@ -108,6 +108,45 @@ py_builtin_callable("NotImplementedError").
 py_builtin_callable("OSError").
 py_builtin_callable("IOError").
 
+// ── py_builtin_callable, DERIVED — whatever the pinned interpreter says ──────
+// THE CATALOG ABOVE IS NOW A FLOOR, NOT THE WHOLE ANSWER, and the reason is that a
+// hand-listed set of a language's builtins drifts the moment the language adds one.
+// The parser hit exactly this and fixed it on its own side (Parser@2c2396f): its
+// CALLABLE_BUILTINS was ~60 names and omitted EVERY exception type, so `raise
+// ValueError(...)` read as an unresolved name — 2,235 stdlib sites in the gap bucket.
+// It now generates the list from the pinned interpreter and emits `bindingKind=BUILTIN`
+// (PD-5), so the engine no longer has to guess, and keeping a second hand list here
+// would just reproduce the bug one layer up.
+//
+// MEASURED on a 77-file stdlib corpus (asyncio, json, http, email, logging, typing,
+// dataclasses): the parser labels 98 distinct names BUILTIN; the explicit catalog above
+// carries 78 and MISSES 29, almost all of them exception types — ConnectionError,
+// ImportError, KeyboardInterrupt, FileNotFoundError, TimeoutError, UnicodeDecodeError.
+// That is 23 of 9,130 call sites (0.25%) which were reported as `unbound_name` — an
+// analysis blind spot — when the callee is in fact known exactly and is C code. They
+// become boundary_lib, which is what they are.
+//
+// The explicit facts are KEPT rather than deleted. They are the floor: an IR produced by
+// a parser build that does not emit BUILTIN still gets `super`, `len` and the common
+// exceptions rather than silently losing every builtin boundary at once. Widening can
+// only ever move a site from "unknown" to "known boundary", never the other way, so the
+// direction of a mistake here is bounded.
+//
+// NOT EVERY BUILTIN NAME IS CALLABLE. `True`, `False`, `None`, `Ellipsis` and
+// `NotImplemented` are BUILTIN bindings and are not callables, so they are excluded by
+// name — the relation means what it says. The exclusion is exhaustive: those five are
+// the complete set of non-callable public builtins in the pinned interpreter.
+py_builtin_noncallable("True").
+py_builtin_noncallable("False").
+py_builtin_noncallable("None").
+py_builtin_noncallable("Ellipsis").
+py_builtin_noncallable("NotImplemented").
+
+py_builtin_callable(n) :-
+    binding_decl(_, n, _, "BUILTIN", _, _),
+    n != "",
+    !py_builtin_noncallable(n).
+
 // ── py_builtin_dynamic(Name) — the escape hatches ────────────────────────────
 // These do not merely lack Python source; they make the PROGRAM unanalysable at that
 // point. A call to getattr/eval/exec means the engine cannot know what runs, and the
