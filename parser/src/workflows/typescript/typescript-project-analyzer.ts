@@ -376,17 +376,94 @@ function filesOfRootProgram(
   if (!fs.existsSync(configPath)) {
     return undefined;
   }
-  const files: string[] = [];
+  const claimed: string[] = [];
+  const unclaimed: string[] = [];
   const others: string[] = [];
   for (const file of collectTypeScriptFiles(rootDir, new Set(TS_SKIP_DIRECTORIES))) {
     const governing = configResolver.resolve(file);
     if (path.resolve(governing.configPath) === path.resolve(configPath)) {
-      files.push(file);
+      claimed.push(file);
+    } else if (governing.configPath === '') {
+      unclaimed.push(file);
     } else {
       others.push(file);
     }
   }
+
+  // A program is its roots PLUS everything they import.
+  //
+  // `files: ["./src/immer.ts", …]` names ENTRY POINTS, not a file list; tsc
+  // then follows imports transitively. Reading the config literally gave immer
+  // 4 files where the real program has 17, so 13 files and 61% of its call
+  // sites were invisible. Nothing reported it, because a file that no config
+  // claims is not an error — it simply never arrives.
+  //
+  // The closure only pulls in files that NO OTHER config claims. A file owned
+  // by a nested tsconfig stays in that program, which is what keeps a nested
+  // project's separate global scope separate.
+  const rootOptions = configResolver.resolve(claimed[0] ?? configPath).options;
+  const included = new Set(claimed.map((f) => path.normalize(f)));
+  const available = new Map(unclaimed.map((f) => [path.normalize(f), f]));
+  const queue = [...claimed];
+  while (queue.length > 0) {
+    const current = queue.pop()!;
+    let text: string;
+    try {
+      text = fs.readFileSync(current, 'utf-8');
+    } catch {
+      continue;
+    }
+    // No parent pointers and no type nodes needed: this pass only reads
+    // specifiers, so the cheapest possible parse is the right one.
+    const sf = ts.createSourceFile(current, text, ts.ScriptTarget.Latest, false,
+      current.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+    for (const specifier of importSpecifiersOf(sf)) {
+      const resolved = ts.resolveModuleName(specifier, current, rootOptions, ts.sys)
+        .resolvedModule?.resolvedFileName;
+      if (resolved === undefined) {
+        continue;
+      }
+      const key = path.normalize(resolved);
+      if (included.has(key) || !available.has(key)) {
+        continue;
+      }
+      included.add(key);
+      queue.push(available.get(key)!);
+    }
+  }
+
+  const files = [...included].map((f) => available.get(f) ?? f);
+  const pulled = new Set(files.map((f) => path.normalize(f)));
+  for (const f of unclaimed) {
+    if (!pulled.has(path.normalize(f))) {
+      others.push(f);
+    }
+  }
   return { files, others };
+}
+
+/** Every module specifier a file imports, re-exports, or imports dynamically. */
+function importSpecifiersOf(sf: ts.SourceFile): string[] {
+  const out: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
+      && node.moduleSpecifier !== undefined
+      && ts.isStringLiteral(node.moduleSpecifier)) {
+      out.push(node.moduleSpecifier.text);
+    } else if (ts.isImportEqualsDeclaration(node)
+      && ts.isExternalModuleReference(node.moduleReference)
+      && ts.isStringLiteral(node.moduleReference.expression)) {
+      out.push(node.moduleReference.expression.text);
+    } else if (ts.isCallExpression(node)
+      && node.expression.kind === ts.SyntaxKind.ImportKeyword
+      && node.arguments.length > 0
+      && ts.isStringLiteral(node.arguments[0]!)) {
+      out.push((node.arguments[0] as ts.StringLiteral).text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sf, visit);
+  return out;
 }
 
 function collectTypeScriptFiles(dir: string, excludes: ReadonlySet<string>): string[] {
