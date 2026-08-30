@@ -183,6 +183,32 @@ var_type(v, prov, t) :- for_binding_iterable(v, e),
 var_is_function(v, m) :- var_bound_function("client", m, v).
 var_is_function(v, m) :- var_bound_function("lib", m, v).
 
+// ── A TYPE-LEVEL SIGNATURE'S RETURN, RECOVERED FROM ITS REFERENCE ──────────
+// A signature declared inside a TYPE — `(x: A) => B` — is emitted with an EMPTY
+// returnTypeReferenceLinkHash: measured across the 55 staged libraries of the corpus,
+// 7,182 of 7,182 FUNCTION_TYPE_SIGNATURE rows carry no return reference, against
+// 3,692 of 3,701 FUNCTION_DECLARATION rows that do. So the call resolved, got an
+// exact target, and then the chain stopped dead because the call had no type.
+//
+// The reference IS emitted; it simply is not linked back from the signature row. For
+// a FUNCTION_TYPE it hangs off the reference as a child, labelled by CONTEXT the same
+// way a conditional's branches are, so it is read by what it means and not by
+// counting children: `contextual-params.dl` observes that the last child is the
+// return, and that happens to be true, but METHOD_RETURN says so outright.
+//
+// This covers FUNCTION_TYPE and CONSTRUCTOR_TYPE only. A TYPE_LITERAL call signature
+// keeps its return reference on the ENCLOSING type rather than on the literal, where
+// two overloaded signatures in one literal are indistinguishable and the engine would
+// have to guess which return belongs to which. That half needs the parser link (#34)
+// and is deliberately not attempted here.
+method_return_ref(prov, r, m) :- method_owner(prov, fref, m),
+    type_ref(prov, k, _, _, _, _, _, fref),
+    ref_kind_carries_signature(k),
+    type_ref_parent(prov, fref, _, r),
+    type_ref(prov, _, "METHOD_RETURN", _, _, _, _, r).
+ref_kind_carries_signature("FUNCTION_TYPE").
+ref_kind_carries_signature("CONSTRUCTOR_TYPE").
+
 // ── method_return_type(MethodHash, Prov, TypeHash) ──────────────────────────
 // The receiver type of a chained call `a().b()`.
 method_return_type(m, prov, t) :- method_return_ref(_, r, m),
