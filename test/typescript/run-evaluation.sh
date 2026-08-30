@@ -81,6 +81,7 @@ FIRST_NM="$(echo $NM_ROOTS | awk '{print $1}')"
 echo "▶ extracting client IR..."
 node "$PARSER_DIST" "$MIRROR" "$NAME" false "$WORK/ir" >"$WORK/parser.log" 2>&1 || {
   echo "   parser failed; see $WORK/parser.log" >&2; exit 1; }
+printf '%s\n' "$MIRROR" > "$WORK/ir/.source-root"
 CS=$(( $(wc -l < "$WORK/ir/all-typescript-call-sites.csv") - 1 ))
 MODS=$(( $(wc -l < "$WORK/ir/all-typescript-modules.csv") - 1 ))
 echo "   $MODS modules, $CS call sites"
@@ -105,6 +106,13 @@ add_lib() { # $1 = source dir, $2 = ir subdir name
   mkdir -p "$WORK/libir/$name"
   node "$PARSER_DIST" "$src" "lib-$name" false "$WORK/libir/$name" >>"$WORK/libir.log" 2>&1 || true
   if [ -s "$WORK/libir/$name/all-typescript-modules.csv" ]; then
+    # WHERE THIS ROOT CAME FROM. A library IR records file paths RELATIVE to the
+    # directory it was extracted from, while the oracle reports absolute paths, so
+    # without this the only identity both sides can compute is the file's basename —
+    # and a basename is not unique. Measured on axios: 17% of adjudicated targets land
+    # on a key two different `index.d.ts` files share. Recording the root makes the
+    # relative path absolute again, which makes the identity exact.
+    printf '%s\n' "$(cd "$src" && pwd)" > "$WORK/libir/$name/.source-root"
     LIBS="${LIBS:+$LIBS,}$WORK/libir/$name"
     echo "   + $name ($(( $(wc -l < "$WORK/libir/$name/all-typescript-modules.csv") - 1 )) modules)"
     return 0
@@ -137,6 +145,11 @@ if [ -n "$TSLIB_DIR" ]; then
     echo "     will put DOM globals into a Node project"
   fi
   add_lib "$WORK/tslib-src" "tslib" || true
+  # The staged directory is a COPY, so the root add_lib recorded points at the copy while
+  # the compiler names the ORIGINAL. Same declaration, two absolute paths, and every
+  # standard-library target then fails an exact-path comparison. Point it back at the
+  # real one — the copy exists only so the parser sees a flat project.
+  [ -d "$WORK/libir/tslib" ] && printf '%s\n' "$(cd "$TSLIB_DIR" && pwd)" > "$WORK/libir/tslib/.source-root"
 else
   echo "   ! no typescript/lib found — the global scope will be EMPTY and every"
   echo "     call on a string, an array or a promise will be unresolved"
@@ -191,6 +204,7 @@ if [ -n "$NM_ROOTS" ]; then
   if grep -qx 'typescript' "$WORK/packages.txt" 2>/dev/null && [ -n "$TSLIB_DIR" ] && [ -f "$TSLIB_DIR/typescript.d.ts" ]; then
     mkdir -p "$WORK/tsc-src"; cp "$TSLIB_DIR/typescript.d.ts" "$WORK/tsc-src/"
     add_lib "$WORK/tsc-src" "tscompiler"
+    [ -d "$WORK/libir/tscompiler" ] && printf '%s\n' "$(cd "$TSLIB_DIR" && pwd)" > "$WORK/libir/tscompiler/.source-root"
   fi
 fi
 # ── 2b. the libraries' OWN dependencies, one transitive round ────────────────

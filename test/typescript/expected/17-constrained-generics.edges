@@ -1,0 +1,13 @@
+ambiguous_unknown	FUNCTION_CALL	consumer#dataFirst() @L15 -> -
+ambiguous_unknown	FUNCTION_CALL	consumer#dataLast() @L19 -> -
+ambiguous_unknown	FUNCTION_CALL	consumer#keyedFirst(Row) @L23 -> -
+ambiguous_unknown	FUNCTION_CALL	consumer#keyedLast() @L27 -> -
+ambiguous_unknown	FUNCTION_CALL	consumer#widestFirst() @L31 -> -
+ambiguous_unknown	FUNCTION_CALL	consumer#widestLast() @L35 -> -
+ambiguous_unknown	METHOD_CALL	consumer#ownConstraintNamed(T) @L46 -> -
+ambiguous_unknown	METHOD_CALL	curried-local#pluck(unknown,unknown) @L33 -> -
+ambiguous_unknown	METHOD_CALL	curried-local#widest(unknown) @L49 -> -
+known_edge	FUNCTION_CALL	consumer#localDataFirst() @L56 -> curried-local#pluck(readonly T[],'name')
+known_edge	FUNCTION_CALL	consumer#localDataLast() @L59 -> curried-local#pluck('name')
+known_edge	FUNCTION_CALL	consumer#localKeyed(Row) @L62 -> curried-local#at(T,T)
+known_edge	FUNCTION_CALL	consumer#localWidest() @L65 -> curried-local#widest(readonly T[])
