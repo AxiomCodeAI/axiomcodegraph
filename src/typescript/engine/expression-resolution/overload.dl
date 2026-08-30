@@ -158,6 +158,25 @@ param_untestable(m, pos) :- expr_call_candidate(_, m),
     param_decl(_, _, pos, _, m, p),
     param_shape_target(p, _).
 
+// ── A TYPE-VARIABLE PARAMETER IS NOT TESTABLE, EVEN ONCE IT HAS MEMBERS ─────
+// `<T extends Container>(items: T)` — resolving T through its constraint gives the
+// parameter members, which is right for LOOKUP and wrong for REJECTION. A constraint is
+// a LOWER BOUND: it says every T is a Container, not that T IS Container, so an argument
+// that fails against Container may still be a perfectly good T. Letting arg_mismatch act
+// on it rejects the true signatures.
+//
+// Measured, without this guard: remeda 6,586 exact / 558 wrong became 5,994 / 1,092,
+// because once the constrained signatures were pruned the only candidate left was the
+// wide-parameter IMPLEMENTATION and the don't-empty safeguard returned it — the engine
+// naming `prop.ts:452` where the compiler names `prop.ts:71`.
+//
+// Keyed on the parameter's own annotation being a type variable, so it holds whether or
+// not the constraint resolved. A parameter written as a concrete type is unaffected.
+param_untestable(m, pos) :- expr_call_candidate(_, m),
+    param_decl(_, _, pos, _, m, p),
+    param_type_ref(_, r, p),
+    type_ref(_, "TYPE_VARIABLE", _, _, _, _, _, r).
+
 // ── A REST PARAMETER'S TYPE IS THE ARRAY; THE ARGUMENT IS AN ELEMENT ───────
 // `push(...items: T[])` declares ONE parameter, of type `T[]`, at position 0 — and
 // `res.push(line)` passes a `string` there. Comparing the two says `string` is not an
