@@ -282,6 +282,33 @@ tvar_under(p, n) :- type_ref(rp, k, _, _, _, _, _, p),
     type_ref_parent(rp, p, _, c),
     tvar_under(c, n).
 
+// A MAPPED type's members come from its TEMPLATE, not its constraint.
+// `Partial<T> = { [P in keyof T]?: T[P] }` arrives as a MAPPED reference with two
+// children: the constraint `keyof T` at 0 and the template `T[P]` at 1. Descending into
+// the CONSTRAINT would be wrong for half the family — `Record<K, V> = { [P in K]: V }`
+// has K there, so `Record<string, Alpha>` would resolve to `string`. The TEMPLATE is
+// right for both: `T[P]` yields T, and `V` yields V.
+//
+// This is sound for the homomorphic family precisely because the modifiers a mapped type
+// applies — `?` and `readonly` — change whether a member is optional, never WHICH
+// declaration a call on it resolves to. `Partial<Alpha>` has Alpha's members; that is the
+// whole of what member lookup needs.
+//
+// The mapped parameter itself (`P`) is also found under the template and binds to
+// nothing, because P is not a type parameter of the alias — harmless rather than guarded.
+tvar_under(p, n) :- type_ref(rp, "MAPPED", _, _, _, _, _, p),
+    type_ref_parent(rp, p, "1", c),
+    tvar_under(c, n).
+
+// `T[P]` — an INDEXED ACCESS takes its members from the OBJECT being indexed, at
+// position 0, never from the index at position 1. Without this the walk stops dead on
+// `Partial`'s template and never reaches T, which is why the MAPPED clause above changed
+// nothing on its own. Descending indiscriminately would also collect `P`, the mapped
+// type's own parameter, which belongs to no alias and would bind to nothing.
+tvar_under(p, n) :- type_ref(rp, "INDEXED_ACCESS", _, _, _, _, _, p),
+    type_ref_parent(rp, p, "0", c),
+    tvar_under(c, n).
+
 ref_type_target(ref, prov, t) :- alias_rhs(ref, _, rhs),
     tvar_under(rhs, pname),
     type_arg_binding(ref, pname, argRef),
@@ -311,6 +338,16 @@ type_var_constraint_in_scope(owner, name, cref) :- type_param(p, name, _, _, own
     type_param_constraint(p, cref, tp).
 type_var_constraint_in_scope(owner, name, cref) :- method_owner(p, ot, owner),
     type_param(p, name, _, _, ot, tp),
+    type_param_constraint(p, cref, tp).
+// …AND FROM A PARAMETER UP TO ITS METHOD. `function tagOf<T extends Alpha>(v: T)` puts
+// the type variable's reference on the PARAMETER — ownerKind is METHOD_PARAM and the
+// owner is the parameter's hash — while the type parameter it names is declared on the
+// METHOD. Neither clause above bridges those two, so the constraint was never found and
+// a `T`-typed receiver stayed memberless even though every piece of the answer was
+// present: the parser emits TYPE_VARIABLE, the constraint reference, and the parameter's
+// method link. The rule existed; the join was one hop short.
+type_var_constraint_in_scope(powner, name, cref) :- param_decl(p, _, _, _, m, powner),
+    type_param(p, name, _, _, m, tp),
     type_param_constraint(p, cref, tp).
 
 // THIS_TYPE — `this` as a return type, the fluent-builder idiom. The receiver is the
