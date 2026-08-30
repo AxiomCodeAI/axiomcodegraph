@@ -340,20 +340,56 @@ export class TypeScriptProjectAnalyzer {
   }
 
   /** Writes one relation, chunked — a single joined string overflows V8's string limit. */
+  /**
+   * Writes a relation so that a reader sees ALL of it or NONE of it.
+   *
+   * The previous shape was `writeFile` for the header and then one `appendFile`
+   * per 50,000-row chunk. Each append is its own open/write/close, so a relation
+   * larger than one chunk was written across several independent operations with
+   * nothing tying them together: a reader arriving mid-write, or a run that died
+   * between chunks, saw a file that looked complete and was not. Only the
+   * relations that cross the chunk boundary can tear, which is why it showed up
+   * on `ts_expression` and only on the larger projects.
+   *
+   * Now: one handle, opened once, and a rename into place. Rename is atomic on
+   * POSIX, so the destination path only ever names a finished file. Chunking is
+   * kept -- it bounds the string built at once -- but every chunk goes through
+   * the same handle rather than reopening the file.
+   */
   private async exportCsv(rows: CsvRow[], outputDir: string, filename: string): Promise<void> {
     const outputPath = path.join(outputDir, filename);
     const first = rows[0];
     if (!first) {
       // An empty relation still gets its file, so a consumer can tell "no rows"
       // from "the parser never ran".
-      await fsp.writeFile(outputPath, '', 'utf-8');
+      await this.writeAtomically(outputPath, ['']);
       return;
     }
-    await fsp.writeFile(outputPath, first.getCsvHeader() + '\n', 'utf-8');
+    const parts: string[] = [first.getCsvHeader() + '\n'];
     for (let i = 0; i < rows.length; i += TS_CSV_CHUNK_SIZE) {
       const chunk = rows.slice(i, i + TS_CSV_CHUNK_SIZE);
-      await fsp.appendFile(outputPath, chunk.map((r) => r.toCsv()).join('\n') + '\n', 'utf-8');
+      parts.push(chunk.map((r) => r.toCsv()).join('\n') + '\n');
     }
+    await this.writeAtomically(outputPath, parts);
+  }
+
+  /** One handle, then an atomic rename: the path never names a partial file. */
+  private async writeAtomically(outputPath: string, parts: readonly string[]): Promise<void> {
+    const temporaryPath = `${outputPath}.partial`;
+    const handle = await fsp.open(temporaryPath, 'w');
+    try {
+      for (const part of parts) {
+        if (part !== '') {
+          await handle.write(part, null, 'utf-8');
+        }
+      }
+      // Durable before the rename, so a crash cannot leave the destination
+      // pointing at a file whose bytes never reached the disk.
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await fsp.rename(temporaryPath, outputPath);
   }
 
   private async exportSkippedFilesCsv(outputDir: string): Promise<void> {
@@ -363,10 +399,9 @@ export class TypeScriptProjectAnalyzer {
       .sort((a, b) => a.filePath.localeCompare(b.filePath))
       .map((f) => [f.filePath, f.baseMservPath, f.serviceVersionLinkHash, f.reason, f.detail]
         .join('\t'));
-    await fsp.writeFile(
+    await this.writeAtomically(
       path.join(outputDir, TYPESCRIPT_CSV_FILES.SKIPPED_FILES),
-      [header, ...rows].join('\n') + '\n',
-      'utf-8'
+      [[header, ...rows].join('\n') + '\n']
     );
   }
 }
