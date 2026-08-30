@@ -578,7 +578,13 @@ function verifyRelationFile(temporaryPath: string, outputPath: string): void {
     throw new Error(`${path.basename(outputPath)}: the write did not end in a newline, so the `
       + 'last row is truncated');
   }
-  const lines = text.split('\n');
+  // Split the way a CONSUMER splits, not the way JavaScript does. Python's
+  // str.splitlines() breaks on U+000B, U+000C, U+001C-1E, U+0085, U+2028 and
+  // U+2029; `split('\n')` does not. A value carrying one of those produced a
+  // file this check called well formed and the reader called torn -- the worst
+  // available disagreement, because the parser certified an artefact it could
+  // not read the same way as its consumer.
+  const lines = text.split(/[\u000A\u000B\u000C\u000D\u001C\u001D\u001E\u0085\u2028\u2029]/);
   const header = lines[0];
   if (header === undefined || header === '') {
     return;
