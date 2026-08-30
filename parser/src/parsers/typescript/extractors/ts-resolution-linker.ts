@@ -326,8 +326,15 @@ export class TsLocalResolver {
         };
       }
       case TsBoundKind.BindingElement: {
-        // A destructured name's declaration node is a BindingElement, which has
-        // no row of its own. It resolves to whichever declaration binds the
+        // A destructured VARIABLE name now has a row of its own, so resolve to
+        // it: `const { a } = o` gives a reference to `a` the declaration of `a`
+        // rather than the whole pattern.
+        const own = this.input.variableHashByNode.get(id);
+        if (own !== undefined && own !== '') {
+          return { kind: TsReferencedEntityKind.VARIABLE, hash: own };
+        }
+        // A PARAMETER pattern still has no per-element row -- parameters are a
+        // different relation -- so it resolves to the parameter that binds it. It resolves to whichever declaration binds the
         // pattern -- a VariableDeclaration for `const {a} = x`, a Parameter for
         // `({a}) => ...`. Both forms occur, and a walk that looks only for the
         // former does not stop at the arrow: `([k]) => ...` inside

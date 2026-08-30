@@ -1709,6 +1709,74 @@ export class TsDeclarationExtractor {
     }
   }
 
+  /**
+   * One row per name a binding pattern binds, nested patterns included.
+   *
+   * Carries NO declarationGroupKey. A BindingElement is not one of tsc's
+   * mergeable declaration kinds, so these names take no part in the merge
+   * partition -- they are declarations, but not ones that can merge with
+   * anything.
+   */
+  private emitBoundNames(
+    pattern: ts.BindingName,
+    list: ts.VariableDeclarationList | undefined,
+    context: EmitContext,
+    isExported: boolean,
+    isAmbient: boolean,
+    scopeKind: TsVariableScopeKind,
+    declarationKindOverride?: TsVariableDeclarationKind
+  ): void {
+    if (ts.isIdentifier(pattern)) {
+      return;
+    }
+    for (const element of pattern.elements) {
+      if (ts.isOmittedExpression(element)) {
+        continue;
+      }
+      if (!ts.isIdentifier(element.name)) {
+        // `const { a: { b } } = o` -- recurse; only leaves bind a name.
+        this.emitBoundNames(element.name, list, context, isExported, isAmbient,
+          scopeKind, declarationKindOverride);
+        continue;
+      }
+      const startPos = this.sf.getLineAndCharacterOfPosition(element.getStart(this.sf));
+      const endPos = this.sf.getLineAndCharacterOfPosition(element.end);
+      const row = new TsVariableRegistry({
+        name: element.name.text,
+        variableTypeName: '',
+        variableBaseType: '',
+        potentialQualifiedName: '',
+        isAmbiguous: false,
+        filePath: this.options.filePath,
+        startLine: startPos.line + 1,
+        endLine: endPos.line + 1,
+        scopeKind,
+        scopeDepth: context.scopeDepth,
+        isConst: list !== undefined
+          && (list.flags & ts.NodeFlags.BlockScoped) === ts.NodeFlags.Const,
+        // A binding element never carries an annotation of its own.
+        isTypeInferred: true,
+        tsTypeLinkHash: context.typeHash,
+        tsMethodLinkHash: context.methodHash,
+        tsModuleLinkHash: context.moduleHash,
+        tsBlockLinkHash: context.blockHash,
+        declarationKind: declarationKindOverride ?? variableDeclarationKindOf(list),
+        // `= fallback` on the element, not on the declaration.
+        hasInitializer: element.initializer !== undefined,
+        initializerKind: initializerKindOf(element.initializer),
+        isExported,
+        isAmbientDeclare: isAmbient,
+        isDestructuring: true,
+        declarationGroupKey: '',
+        startColumn: startPos.character + 1,
+        serviceVersionLinkHash: this.options.serviceVersionLinkHash,
+      });
+      this.variables.push(row);
+      this.variableHashByNode.set(nodeId(element, this.sf), row.getHash());
+      this.variableRowByNode.set(nodeId(element, this.sf), row);
+    }
+  }
+
   emitVariable(
     declaration: ts.VariableDeclaration,
     list: ts.VariableDeclarationList | undefined,
@@ -1755,6 +1823,16 @@ export class TsDeclarationExtractor {
     this.variables.push(row);
     this.variableHashByNode.set(nodeId(declaration, this.sf), row.getHash());
     this.variableRowByNode.set(nodeId(declaration, this.sf), row);
+
+    // `const { a, b: renamed } = o` declares a and renamed. Only the enclosing
+    // VariableDeclaration was emitted, with an empty name, so the bound names
+    // existed nowhere in the fact base -- the binder knew them, because
+    // resolution needs them, and nothing ever wrote them down. A consumer could
+    // not tell that a variable called `a` exists at all.
+    if (isDestructuring) {
+      this.emitBoundNames(declaration.name, list, context, isExported, isAmbient,
+        variableScopeKindOf(context, declaration), declarationKindOverride);
+    }
 
     if (declaration.type) {
       row.setTypeReferenceLinkHash(
