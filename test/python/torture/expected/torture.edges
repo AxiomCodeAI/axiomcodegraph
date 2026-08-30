@@ -2,7 +2,6 @@ ambiguous_unknown	CHAINED_CALL	f08_dynamic.dict_dispatch_computed_key -> -
 ambiguous_unknown	CHAINED_CALL	f08_dynamic.dict_dispatch_static_key -> -
 ambiguous_unknown	DECORATOR_APPLICATION	f05_decorators.<module> -> -
 ambiguous_unknown	DYNAMIC_CALL	f08_dynamic.getattr_call -> -
-ambiguous_unknown	METHOD_CALL	f04_descriptors.lib_classmethod_on_class -> -
 ambiguous_unknown	METHOD_CALL	f06_flow.takes_unannotated -> -
 ambiguous_unknown	METHOD_CALL	f08_dynamic.conditional_type -> -
 ambiguous_unknown	SIMPLE_CALL	f02_callables.closure_target -> -
@@ -46,6 +45,7 @@ boundary_lib	METHOD_CALL	f03_generics.chained_generic -> lib:tlib.generics.Box.p
 boundary_lib	METHOD_CALL	f03_generics.unbound_generic -> lib:tlib.generics.Box.get
 boundary_lib	METHOD_CALL	f03_generics.unbound_generic -> lib:tlib.generics.Box.put
 boundary_lib	METHOD_CALL	f04_descriptors.lib_classmethod_on_class -> lib:tlib.descriptors.Config.default
+boundary_lib	METHOD_CALL	f04_descriptors.lib_classmethod_on_class -> lib:tlib.descriptors.Factory.build
 boundary_lib	METHOD_CALL	f04_descriptors.lib_classmethod_on_class -> lib:tlib.descriptors.Factory.from_config
 boundary_lib	METHOD_CALL	f04_descriptors.lib_staticmethod -> lib:tlib.descriptors.Config.helper
 boundary_lib	METHOD_CALL	f06_flow.list_of_instances -> builtin:str.join

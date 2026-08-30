@@ -210,7 +210,14 @@ echo "▶ engine-ii = $( [ "$ENGINE_II_MODE" = "on" ] && echo 'ON (lib frontier 
 PROG="$INT/souffle-program.dl"
 {
   echo "#include \"$DL/decls_base.dl\""; echo "#include \"$DL/decls_all.dl\""
-  for ff in "$FACTS"/*.facts; do r=$(basename "$ff" .facts); printf '.input %s(IO=file, filename="%s.facts", delimiter="\\t")\n' "$r" "$r"; done
+  # rfc4180=true: the IR is CSV, not TSV. The parser quotes any field containing a
+  # quote, tab or newline and doubles the inner quotes, so reading it as plain TSV hands
+  # the rules the ESCAPED text. It only bites where a JOINED column contains a quote --
+  # which is why it went unnoticed -- but a string forward reference (`-> "Factory"`)
+  # lands squarely on one, and a field carrying a tab would shift every column after it.
+  # Souffle parses RFC4180 itself, so this costs one flag rather than a re-encode of
+  # GB-scale input.
+  for ff in "$FACTS"/*.facts; do r=$(basename "$ff" .facts); printf '.input %s(IO=file, filename="%s.facts", delimiter="\\t", rfc4180=true)\n' "$r" "$r"; done
   for d in projections containment resolution config-resolution expression-resolution call-edge-generation; do
     # [ -f ] guard: a phase directory that is empty (or absent for a language that has
     # not implemented that layer yet) leaves the glob unexpanded, and souffle's C
