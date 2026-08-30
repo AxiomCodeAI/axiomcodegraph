@@ -1,30 +1,33 @@
-=== per-family coverage (tier-4, 44 scored sites) ===
-  f01 inheritance & MRO        n=  5  concrete=  5 (100.0%)  partial= 0  superset= 0  WRONG= 0  missed= 0
-  f02 callables & closures     n=  7  concrete=  5 (71.4%)  partial= 1  superset= 0  WRONG= 0  missed= 1
-  f03 generics                 n=  9  concrete=  6 (66.7%)  partial= 3  superset= 0  WRONG= 0  missed= 0
-  f04 descriptors              n=  6  concrete=  5 (83.3%)  partial= 0  superset= 0  WRONG= 0  missed= 1
-  f05 decorators               n=  5  concrete=  1 (20.0%)  partial= 0  superset= 0  WRONG= 0  missed= 4
-  f06 value flow               n=  5  concrete=  4 (80.0%)  partial= 0  superset= 0  WRONG= 0  missed= 1
-  f07 imports & re-export      n=  5  concrete=  5 (100.0%)  partial= 0  superset= 0  WRONG= 0  missed= 0
-  f08 dynamic                  n=  2  concrete=  0 ( 0.0%)  partial= 0  superset= 0  WRONG= 0  missed= 2
+=== per-family coverage (tier-4, 62 scored sites) ===
+  f01 inheritance & MRO        links= 10  found= 10 (100.0%)  missed= 0  over-claimed= 0
+  f02 callables & closures     links= 10  found=  8 (80.0%)  missed= 2  over-claimed= 0
+  f03 generics                 links= 12  found=  9 (75.0%)  missed= 3  over-claimed= 0
+  f04 descriptors              links=  9  found=  8 (88.9%)  missed= 1  over-claimed= 0
+  f05 decorators               links=  6  found=  1 (16.7%)  missed= 5  over-claimed= 0
+  f06 value flow               links=  8  found=  5 (62.5%)  missed= 3  over-claimed= 0
+  f07 imports & re-export      links=  5  found=  5 (100.0%)  missed= 0  over-claimed= 0
+  f08 dynamic                  links=  2  found=  0 ( 0.0%)  missed= 2  over-claimed= 0
 
-  TOTAL                         n= 44  concrete= 31 (70.5%)  partial= 4  superset= 0  WRONG= 0  missed= 9
-  recall (fully concrete)      31/44 = 70.5%
-  emitted nothing incorrect    44/44 = 100.0%   <- WRONG is the only real error class
+  TOTAL                         links= 62  found= 46 (74.2%)  missed=16  over-claimed= 0
+  recall      46/62 = 74.2%  of the links that actually ran
+  over-claims 0  edges asserted from an executed caller that never ran
 
-  EXPECTED-MISS cases: {'CONCRETE': 4, 'MISSED': 3}   (a CONCRETE here means a known blind spot closed)
+  EXPECTED-MISS cases: {'FOUND': 5, 'MISSED': 3}   (a CONCRETE here means a known blind spot closed)
 
 --- non-concrete sites ---
-  f02_callables.py:16   PARTIAL   true=[('client', 'f02_callables.py', 6), ('lib', 'callables.py', 5)] engine=[('lib', 'callables.py', 5)]
-  f02_callables.py:31   MISSED    true=[('lib', 'callables.py', 22)] engine=[]
-  f03_generics.py:8    PARTIAL   true=[('lib', 'generics.py', 8), ('lib', 'generics.py', 24)] engine=[('lib', 'generics.py', 24)]
-  f03_generics.py:14   PARTIAL   true=[('lib', 'generics.py', 13), ('lib', 'generics.py', 24)] engine=[('lib', 'generics.py', 24)]
-  f03_generics.py:20   PARTIAL   true=[('lib', 'generics.py', 8), ('lib', 'generics.py', 24)] engine=[('lib', 'generics.py', 24)]
-  f04_descriptors.py:24   MISSED    true=[('lib', 'descriptors.py', 31)] engine=[]
-  f05_decorators.py:18   MISSED    true=[('lib', 'decorated.py', 18)] engine=[]
-  f05_decorators.py:22   MISSED    true=[('lib', 'decorated.py', 10), ('lib', 'decorated.py', 18)] engine=[]
-  f05_decorators.py:27   MISSED    true=[('lib', 'decorated.py', 8)] engine=[]
-  f05_decorators.py:28   MISSED    true=[('lib', 'decorated.py', 10)] engine=[]
-  f06_flow.py:28   MISSED    true=[('client', 'f06_flow.py', 28), ('lib', 'shapes.py', 33), ('lib', 'shapes.py', 38)] engine=[]
-  f08_dynamic.py:8    MISSED    true=[('lib', 'shapes.py', 33)] engine=[]
-  f08_dynamic.py:24   MISSED    true=[('lib', 'shapes.py', 33)] engine=[]
+  f02_callables.py:16   MISSED     true=[('client', 'f02_callables.py', 6)] engine=[('lib', 'callables.py', 5)]
+  f02_callables.py:31   MISSED     true=[('lib', 'callables.py', 22)] engine=[]
+  f03_generics.py:8    MISSED     true=[('lib', 'generics.py', 8)] engine=[('lib', 'generics.py', 24)]
+  f03_generics.py:14   MISSED     true=[('lib', 'generics.py', 13)] engine=[('lib', 'generics.py', 24)]
+  f03_generics.py:20   MISSED     true=[('lib', 'generics.py', 8)] engine=[('lib', 'generics.py', 24)]
+  f04_descriptors.py:24   MISSED     true=[('lib', 'descriptors.py', 31)] engine=[]
+  f05_decorators.py:18   MISSED     true=[('lib', 'decorated.py', 18)] engine=[]
+  f05_decorators.py:22   MISSED     true=[('lib', 'decorated.py', 10)] engine=[]
+  f05_decorators.py:22   MISSED     true=[('lib', 'decorated.py', 18)] engine=[]
+  f05_decorators.py:27   MISSED     true=[('lib', 'decorated.py', 8)] engine=[]
+  f05_decorators.py:28   MISSED     true=[('lib', 'decorated.py', 10)] engine=[]
+  f06_flow.py:28   MISSED     true=[('client', 'f06_flow.py', 28)] engine=[]
+  f06_flow.py:28   MISSED     true=[('lib', 'shapes.py', 33)] engine=[]
+  f06_flow.py:28   MISSED     true=[('lib', 'shapes.py', 38)] engine=[]
+  f08_dynamic.py:8    MISSED     true=[('lib', 'shapes.py', 33)] engine=[]
+  f08_dynamic.py:24   MISSED     true=[('lib', 'shapes.py', 33)] engine=[]

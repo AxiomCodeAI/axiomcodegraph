@@ -74,39 +74,51 @@ for line in open(f'{OUT}/call-chain-edges.csv'):
     k = eline.get(f[0])
     if k and f[3] in M: byline[k].add(M[f[3]])
 
+# ── SCORED PER LINK THAT ACTUALLY RAN ────────────────────────────────────────
+# Two earlier keyings were both incoherent and it is worth recording why.
+#   (file,line) on BOTH sides -- collapses `a() + b()` into one site. MEASURED: 16 of 51
+#       lines here hold more than one callee, hiding 27% of the work from the score.
+#   (file,line,calleeName) for TRUTH but (file,line) for the ENGINE -- compares one
+#       site's true target against the union of every engine answer on the line, so a
+#       three-call line reports three SUPERSETs and `get`'s answer is judged against
+#       `tag`'s truth as WRONG. Pure artifact; it read 50.0% where nothing had changed.
+# Per-SITE matching on both sides is not available: the engine names a site by what the
+# SOURCE WRITES (`Point` for a construction, the attribute for a callable instance,
+# nothing at all for a property read) while the trace names it by the runtime __name__.
+# Those do not correspond without a mapping layer that would itself be a defect source.
+# So ask the question that IS well posed on both sides: for each link that actually ran,
+# did the engine emit it? Same quantity harness/scorecard.py reports in aggregate,
+# broken down per construct family. Over-claims are counted separately.
 G = collections.defaultdict(set)
 for e in gt:
-    if e['callerProv'] != 'client': continue
+    if e['callerProv'] != 'client' or e['callerFile'] == 'main.py': continue
     G[(e['callerFile'], e['callerLine'])].add(canon(e['calleeProv'], e['calleeFile'], e['calleeLine']))
 fam = collections.defaultdict(lambda: collections.Counter()); known = collections.Counter(); rows = []
 for (cf, cl), true in sorted(G.items()):
-    if cf == 'main.py': continue
-    S = byline.get((cf, cl), set())
-    # A line can hold several calls, so S and true are UNIONS. Distinguish
-    # PARTIAL (engine got some, invented nothing) from WRONG (engine named a
-    # target that never ran). Collapsing the two overstates error badly.
-    if not S: v = 'MISSED'
-    elif S == true: v = 'CONCRETE'
-    elif true <= S: v = 'SUPERSET'
-    elif S <= true: v = 'PARTIAL'
-    else: v = 'WRONG'
-    f = cf.split('_')[0]
-    if (cf, enc.get((cf, cl))) in expect: known[v] += 1
-    else: fam[f][v] += 1; rows.append((cf, cl, v, sorted(true), sorted(S)))
+    S = byline.get((cf, cl), set()); f = cf.split('_')[0]
+    exp = (cf, enc.get((cf, cl))) in expect
+    for t in sorted(true):
+        v = 'FOUND' if t in S else 'MISSED'
+        if exp: known[v] += 1
+        else:
+            fam[f][v] += 1
+            if v == 'MISSED': rows.append((cf, cl, v, [t], sorted(S)))
+    for x in sorted(S - true):
+        if exp: known['OVERCLAIM'] += 1
+        else: fam[f]['OVERCLAIM'] += 1; rows.append((cf, cl, 'OVERCLAIM', sorted(true), [x]))
 print(f"=== per-family coverage (tier-4, {sum(sum(c.values()) for c in fam.values())} scored sites) ===")
 names = {'f01':'inheritance & MRO','f02':'callables & closures','f03':'generics','f04':'descriptors',
          'f05':'decorators','f06':'value flow','f07':'imports & re-export','f08':'dynamic'}
 tot = collections.Counter()
 for f in sorted(fam):
     c = fam[f]; n = sum(c.values()); tot.update(c)
-    print(f"  {f} {names.get(f,f):24} n={n:3}  concrete={c['CONCRETE']:3} ({c['CONCRETE']/n:5.1%})  partial={c['PARTIAL']:2}  superset={c['SUPERSET']:2}  WRONG={c['WRONG']:2}  missed={c['MISSED']:2}")
-n = sum(tot.values())
-print(f"\n  {'TOTAL':29} n={n:3}  concrete={tot['CONCRETE']:3} ({tot['CONCRETE']/n:5.1%})  partial={tot['PARTIAL']:2}  superset={tot['SUPERSET']:2}  WRONG={tot['WRONG']:2}  missed={tot['MISSED']:2}")
-ans = n - tot['MISSED']
-clean = n - tot['WRONG']
-print(f"  recall (fully concrete)      {tot['CONCRETE']}/{n} = {tot['CONCRETE']/n:.1%}")
-print(f"  emitted nothing incorrect    {clean}/{n} = {clean/n:.1%}   <- WRONG is the only real error class")
+    ran = c['FOUND'] + c['MISSED']
+    print(f"  {f} {names.get(f,f):24} links={ran:3}  found={c['FOUND']:3} ({(c['FOUND']/ran if ran else 0):5.1%})  missed={c['MISSED']:2}  over-claimed={c['OVERCLAIM']:2}")
+ran = tot['FOUND'] + tot['MISSED']
+print(f"\n  {'TOTAL':29} links={ran:3}  found={tot['FOUND']:3} ({tot['FOUND']/ran:5.1%})  missed={tot['MISSED']:2}  over-claimed={tot['OVERCLAIM']:2}")
+print(f"  recall      {tot['FOUND']}/{ran} = {tot['FOUND']/ran:.1%}  of the links that actually ran")
+print(f"  over-claims {tot['OVERCLAIM']}  edges asserted from an executed caller that never ran")
 print(f"\n  EXPECTED-MISS cases: {dict(known)}   (a CONCRETE here means a known blind spot closed)")
 print("\n--- non-concrete sites ---")
 for cf, cl, v, true, S in rows:
-    if v != 'CONCRETE': print(f"  {cf}:{cl:<4} {v:9} true={true} engine={S}")
+    print(f"  {cf}:{cl:<4} {v:10} true={true} engine={S}")
