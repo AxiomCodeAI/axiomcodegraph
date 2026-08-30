@@ -176,3 +176,13 @@ expr_attr_of_self(p, e, n, t) :-
     expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
     expr_node(p, "SELF_REFERENCE", _, _, obj),
     expr_owner(p, _, _, t, e), t != "".
+
+// ── field_lib_type(FieldHash, LibTypeHash) — the LIB half of field typing ────
+// `self.lock = threading.RLock()`. Beside field_type, because this file owns what an
+// attribute holds. Java keeps the equivalent in type-flow.dl, not in lib-hierarchy.
+// ── field_lib_type(FieldHash, LibTypeHash) ───────────────────────────────────
+// `self.lock = threading.RLock()`.
+field_lib_type(f, t) :-
+    field_write_value("client", f, val),
+    call_of_expr(val, site),
+    call_constructs_lib_type(site, t).

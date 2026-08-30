@@ -300,6 +300,13 @@ param_declared_nominal(p, ph, d) :- param_declared_type(p, ph, d), !type_is_stru
 
 // ── param_type(ParamHash, TypeHash) — what a parameter may hold ──────────────
 param_type(ph, t) :- param_declared_nominal("client", ph, d), declared_dispatch("client", d, t).
+// ── the LIB half, in the layer that owns parameter typing ────────────────────
+// A client parameter annotated with a LIBRARY class. declared_dispatch is already
+// prov-parametric (annotations.dl) and widens over CONSTRUCTED subclasses on whichever
+// side the type lives, so the library half needs no new widening logic -- only the
+// declared type, which annotations.dl now resolves. Kept as its own relation because a
+// lib type must not flow into client-typed joins unexamined; the boundary consumes it.
+param_lib_type(ph, t) :- param_declared_type_lib(ph, d), declared_dispatch("lib", d, t).
 param_type(ph, t) :- param_arg_type(ph, t), !param_declared_nominal("client", ph, _).
 
 // ── param_flow_outside_declaration(ParamHash, FlowedType, DeclaredType) ──────
@@ -310,3 +317,16 @@ param_flow_outside_declaration(ph, f, d) :-
     param_declared_nominal("client", ph, d),
     param_arg_type(ph, f), f != d,
     !type_ancestor("client", f, d).
+
+// ── binding_value_lib_type(BindingHash, LibTypeHash) — LIB half of binding flow ──
+// `c = Doubler()` where Doubler is a library class. Beside the client binding flow,
+// for the same reason: this file owns what a name holds.
+// ── binding_value_lib_type(BindingHash, LibTypeHash) ─────────────────────────
+// Same single-binding guard as the client-side rule: symtable reports one binding site,
+// so the name cannot be holding anything else.
+binding_value_lib_type(b, t) :-
+    binding_rebinding("client", "1", _, _, b),
+    expr_binding("client", b, "STORE", tgt),
+    assign_pair("client", tgt, val),
+    call_of_expr(val, site),
+    call_constructs_lib_type(site, t).

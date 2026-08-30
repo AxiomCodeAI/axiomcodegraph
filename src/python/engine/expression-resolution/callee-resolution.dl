@@ -338,3 +338,140 @@ callee_engine_only(site) :- expr_call_candidate(site, _), csite(site, cs), call_
 callee_parser_only(site, theirs) :-
     csite(site, cs), call_pre_resolved("client", k, theirs, cs), theirs != "", k != "TYPE",
     !expr_call_candidate(site, _).
+
+// ============================================================================
+// THE LIBRARY HALF OF CALLEE RESOLUTION
+// ============================================================================
+// Same question as everything above -- WHICH callable does this site invoke -- for a
+// site whose receiver or callee resolves into the staged library. It lives here, beside
+// the client clauses, because this file owns callee resolution; it does not belong in
+// the library file.
+//
+// STRUCTURAL REFERENCE, and the reason this moved: neither sibling engine puts call
+// resolution in its library file. java/engine/resolution/lib-hierarchy.dl owns
+// library-side FACTS (lib_type_parent, lib_method_return_type, lib_super_ref) and
+// resolves calls in this file; typescript/engine/resolution/lib-scope.dl owns import and
+// name binding only (lib_import_binds, lib_name_binds). Python's lib-linking.dl had
+// grown a second method-lookup implementation -- MRO walks, callable-instance dispatch,
+// constructor resolution -- duplicating what this file already does for the client.
+//
+// The MRO walk below is `mro_lookup("lib", ...)` -- the SAME relation the client path
+// uses (resolution/mro.dl is prov-parametric), not a library-specific reimplementation.
+// That is the property that keeps the two paths from disagreeing.
+
+// ── call_constructs_lib_type(SiteHash, LibTypeHash) ──────────────────────────
+call_constructs_lib_type(site, t) :-
+    call_callee_is_value(site),
+    call_callee_expr(site, callee),
+    expr_names_lib_type(callee, t).
+call_constructs_lib_type(site, t) :-
+    call_recv_kind(site, rk), rk != "NONE", rk != "SUPER",
+    call_receiver_object(site, obj),
+    expr_names_lib_module(obj, mod),
+    call_name(site, n),
+    module_member_type("lib", mod, n, t).
+
+// ── call_recv_lib_type(SiteHash, LibTypeHash) ────────────────────────────────
+// The receiver object denotes a library class (a class object being attribute-accessed,
+// or a construction of one, or `mod.Class`).
+call_recv_lib_type(site, t) :-
+    call_receiver_object(site, obj), expr_names_lib_type(obj, t).
+call_recv_lib_type(site, t) :-
+    call_receiver_object(site, obj),
+    call_of_expr(obj, inner), call_constructs_lib_type(inner, t).
+call_recv_lib_type(site, t) :-
+    call_receiver_object(site, obj),
+    expr_node("client", "ATTRIBUTE_ACCESS", _, n, obj),
+    expr_parent("client", obj, "ATTRIBUTE_OBJECT", _, modExpr),
+    expr_names_lib_module(modExpr, mod),
+    module_member_type("lib", mod, n, t).
+
+// ── call_hits_lib_method(SiteHash, LibMethodHash) ────────────────────────────
+// (a) a bare-name call to an imported library function.
+call_hits_lib_method(site, m) :-
+    call_callee_is_value(site),
+    call_callee_expr(site, callee),
+    expr_names_lib_function(callee, m).
+// (b) `mod.f()` where mod is an imported library module.
+call_hits_lib_method(site, m) :-
+    call_recv_kind(site, rk), rk != "NONE", rk != "SUPER",
+    call_receiver_object(site, obj),
+    expr_names_lib_module(obj, mod),
+    call_name(site, n),
+    module_member_method("lib", mod, n, m).
+// (c) an attribute call whose receiver type is a LIBRARY class, resolved THROUGH THE
+//     LIBRARY'S OWN MRO. That MRO comes from lib_py_type_base.resolvedTypeLinkHash,
+//     which is a within-library-run FK and therefore valid (1,409 of 2,859 library base
+//     rows carry one).
+call_hits_lib_method(site, m) :-
+    call_recv_kind(site, rk), rk != "NONE", rk != "SUPER",
+    call_recv_lib_type(site, t),
+    call_name(site, n),
+    mro_lookup("lib", t, n, m).
+// (d) construction of a library class -> its __init__/__new__ through the library MRO.
+call_hits_lib_method(site, m) :- call_constructs_lib_type(site, t), type_constructor("lib", t, m).
+
+// ── a receiver whose EXPRESSION has a library type ───────────────────────────
+// One clause over expr_lib_type_of, rather than one per shape. It subsumes the bare
+// name, the self-attribute and the declared annotation; the construction and dotted
+// forms stay separate above because they key off the site, not the receiver expression.
+call_recv_lib_type(site, t) :-
+    call_receiver_object(site, obj), expr_lib_type(obj, t).
+
+// ── the chain: `IntBox().get().tag()` ────────────────────────────────────────
+// The receiver of `.tag()` is the CALL `get()`, whose type generics.dl substituted.
+call_recv_lib_type(site, t) :-
+    call_receiver_object(site, obj),
+    call_of_expr(obj, inner),
+    call_returns_lib_type(inner, t).
+
+// ============================================================================
+// A CALLABLE INSTANCE OF A LIBRARY CLASS — `self.q_proj(x)`
+// ============================================================================
+//
+// THE LARGEST UNRESOLVED SHAPE ON THE MEASURED CORPUS. On transformers, SELF_CALL
+// is 32,455 sites at 30.5% resolved, and 22,505 of the 22,561 misses are this: an
+// attribute holding a library instance, then called. `self.q_proj = nn.Linear(...)`
+// followed by `self.q_proj(x)` invokes Linear.__call__ — the site never writes
+// `__call__`, and `q_proj` is a FIELD, so method lookup on the owner finds nothing.
+//
+// expression-resolution/callee-resolution.dl already has both value-callee clauses,
+// and resolution/attribute-lookup.dl derives type_call_target for EITHER provenance
+// (`mro_lookup(p, t, "__call__", m)`, 2 rows on the torture corpus, both lib). Only
+// the consumers were pinned to "client", so a library callable had no path. Same
+// defect class as the re-export and generic-substitution fixes above.
+//
+// STOPS AT `__call__`. It does not chain on to nn.Module.__call__'s dispatch to
+// `forward` — that is inside the library, engine-ii's problem, and LIB_BODY is
+// staged empty so the statements are not even loaded.
+//
+// (a) a bare name holding a library instance: `c1 = Callable1(); c1(5)`.
+call_hits_lib_method(site, m) :-
+    call_callee_is_value(site),
+    call_callee_expr(site, callee),
+    expr_binding("client", b, ctx, callee), ctx != "STORE",
+    binding_lookup("client", b, b2),
+    binding_value_lib_type(b2, t),
+    type_call_target("lib", t, m).
+// (b) a construction called directly: `Callable1()(5)`.
+call_hits_lib_method(site, m) :-
+    call_callee_is_value(site),
+    call_callee_expr(site, callee),
+    call_of_expr(callee, inner),
+    call_constructs_lib_type(inner, t),
+    type_call_target("lib", t, m).
+// (c) `self.ATTR(x)` where ATTR is a field holding a library instance. The site is a
+//     SELF_CALL naming the ATTRIBUTE, not a value-callee, so neither clause above can
+//     reach it: call_receiver_object is bare `self` and call_name is the field name.
+call_hits_lib_method(site, m) :-
+    call_name(site, n),
+    call_self_dispatch_type(site, owner),
+    type_attr_field("client", owner, n, f),
+    field_lib_type(f, t),
+    type_call_target("lib", t, m).
+
+// ── `returns_instance().name()` where the callee declares `-> Square` ────────
+call_returns_lib_type(site, t) :-
+    expr_call_candidate(site, m),
+    method_declared_return_type_lib(m, d),
+    declared_dispatch("lib", d, t).
