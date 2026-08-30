@@ -551,6 +551,11 @@ export class PythonScopeBuilder {
       case 'while_statement':
       case 'match_statement':
       case 'block':
+      case 'print_statement': {
+        this.visitPrintStatement(block, node);
+        return;
+      }
+
       case 'expression_statement':
       case 'return_statement':
       case 'raise_statement':
@@ -561,13 +566,43 @@ export class PythonScopeBuilder {
       case 'case_clause':
       case 'try_clause':
       case 'with_clause':
-      case 'print_statement':
       case 'exec_statement':
       default: {
         this.visitGenericStatement(block, node);
         return;
       }
     }
+  }
+
+  /**
+   * `print >> stream, value` under Python 3 rules.
+   *
+   * The dialect detector lets this shape through because it is valid Python 3 --
+   * the tuple `(print.__rshift__(stream), value)` -- and only a `print_statement`
+   * WITHOUT a chevron is rejected. Having accepted it, we owe it correct facts;
+   * accepting a file and then under-reporting it is the same silent wrong answer
+   * that rejection exists to prevent.
+   *
+   * The generic walk already covers the operands, since they are named children.
+   * What it cannot see is `print` itself: the grammar emits it as an ANONYMOUS
+   * keyword token, not an `identifier`, so no name visitor ever fires on it. Yet
+   * CPython reads it as an ordinary global load -- `f|print: global,referenced`.
+   * So the use is synthesized here from the token, and only when a chevron is
+   * present, which is the sole shape that reaches this code as valid Python 3.
+   */
+  private visitPrintStatement(block: SymbolBlock, node: Parser.SyntaxNode): void {
+    let hasChevron = false;
+    for (let i = 0; i < node.childCount; i += 1) {
+      const child = node.child(i);
+      if (child && child.type === 'chevron') {
+        hasChevron = true;
+        break;
+      }
+    }
+    if (hasChevron) {
+      this.addUse(block, 'print');
+    }
+    this.visitGenericStatement(block, node);
   }
 
   /**
@@ -1047,8 +1082,25 @@ export class PythonScopeBuilder {
     }
   }
 
+  /**
+   * One `with` item, unwrapping the parentheses PEP 617 allows around it.
+   *
+   * `with (m() as x):` wraps the `as_pattern` in a `parenthesized_expression`,
+   * so a direct type test misses it and the target never binds. Only the SINGLE
+   * item form wraps: `with (a as x, b as y):` is split by the grammar into two
+   * plain `with_item`s, and `with (a, b):` into two items whose values are the
+   * expressions, so neither is affected by this. Nested parentheses are why the
+   * unwrap is a loop rather than one step.
+   */
   private visitWithItem(block: SymbolBlock, item: Parser.SyntaxNode): void {
-    const valueNode = item.childForFieldName('value') ?? item.namedChild(0);
+    let valueNode = item.childForFieldName('value') ?? item.namedChild(0);
+    while (valueNode && valueNode.type === 'parenthesized_expression') {
+      const inner = valueNode.namedChild(0);
+      if (!inner) {
+        break;
+      }
+      valueNode = inner;
+    }
     if (!valueNode) {
       return;
     }
@@ -1797,6 +1849,24 @@ export class PythonScopeBuilder {
       return;
     }
 
+    // `f"{value:=10}"` is NOT a walrus. Inside an f-string replacement field the
+    // first `:` opens the format specifier, so CPython reads `=10` as the spec
+    // -- sign-aware padding to width 10 -- and `value` as a plain load. The
+    // tokenizer here is greedier and takes `:=` as one operator, inventing a
+    // binding that assigns something the program never assigns. A real walrus in
+    // an f-string requires parentheses, `f"{(value := 10)}"`, which arrives
+    // wrapped in a parenthesized_expression and so does not match this test.
+    // Even `f"{value := 10}"` with spaces is a format specifier to CPython.
+    //
+    // The value is still visited as an expression, which is what the nested
+    // replacement field case needs: `f"{x:={w}}"` parses its spec as a set
+    // literal, and walking it reports `w` as referenced, exactly as CPython
+    // reports the nested field.
+    if (node.parent?.type === 'interpolation') {
+      this.visitExpression(block, targetNode, PythonNameContext.LOAD);
+      return;
+    }
+
     const isComprehensionBlock = this.isComprehensionScope(block.scopeKind);
     if (isComprehensionBlock) {
       const owner = this.findNamedExpressionOwner(block);
@@ -1812,13 +1882,24 @@ export class PythonScopeBuilder {
       // spurious local. The name resolves to a module global at runtime, so the
       // free reading points a consumer at the wrong binding entirely.
       const mangled = this.mangleName(block, targetNode.text);
+      // Two ways the target lands in the global namespace. The owning function
+      // may have declared it `global`, or the owner may simply BE the module,
+      // which needs no declaration at all. symtable.c treats both as global but
+      // reaches them by different paths, and only the first was handled here.
+      const ownerIsModule = owner !== null && owner.scopeKind === PythonScopeKind.MODULE;
       const ownerDeclaresGlobal =
         owner !== null && ((owner.symbols.get(mangled) ?? 0) & SymbolFlags.DEF_GLOBAL) !== 0;
+      const targetIsGlobal = ownerIsModule || ownerDeclaresGlobal;
       if (owner) {
+        // symtable_extend_namedexpr_scope returns straight after recording the
+        // directive for a ModuleBlock, never reaching the add_def_helper that
+        // sets DEF_LOCAL. So the module records the name as global and declared
+        // global but NOT as assigned -- the assignment is charged to the
+        // comprehension. A function owner does fall through and take DEF_LOCAL.
         this.addDef(
           owner,
           targetNode.text,
-          SymbolFlags.DEF_LOCAL,
+          ownerIsModule ? SymbolFlags.DEF_GLOBAL : SymbolFlags.DEF_LOCAL,
           PythonBindingOrigin.WALRUS,
           targetNode
         );
@@ -1830,7 +1911,7 @@ export class PythonScopeBuilder {
       this.addDef(
         block,
         targetNode.text,
-        ownerDeclaresGlobal
+        targetIsGlobal
           ? SymbolFlags.DEF_LOCAL | SymbolFlags.DEF_GLOBAL
           : SymbolFlags.DEF_LOCAL | SymbolFlags.DEF_NONLOCAL,
         PythonBindingOrigin.WALRUS,
