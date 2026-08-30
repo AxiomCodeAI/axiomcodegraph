@@ -70,6 +70,46 @@ element_type_of(p, src, t) :-
     expr_node(p, "LIST_COMPREHENSION", _, _, src),
     expr_parent(p, src, "COMPREHENSION_ELEMENT", _, el), expr_type(p, el, t).
 
+// ── element_lib_type_of(IterableExprHash, LibTypeHash) ───────────────────────
+// THE LIB HALF, FLOW-TYPED rather than widened. `for s in (Square(), Circle())` where
+// Square and Circle are library classes: the element type is the type of the element
+// expressions, which are constructions the CLIENT wrote.
+//
+// PORTED FROM JAVA, and deliberately not the other thing it could have been.
+// java/engine/expression-resolution/expr-type.dl types a receiver from what FLOWS into
+// it (local_new_type, off the `new` initializer) and gates CHA fan-out OFF once the
+// exact type is known, because "RTA/CHA answers the wrong question: the DECLARED type
+// Closeable fans x.close() to all 127 implementers, but x HOLDS a
+// FileImageInputStream -- one target."
+//
+// MEASURED, and it is why the shortcut was rejected: with the library split off,
+// type_instantiated is "client 5, lib 0" -- no library class is ever recorded as
+// constructed, because the construction is client-side. The tempting fix is to add lib
+// rows there and let declared_dispatch widen over them. That imports exactly the
+// fan-out Java warns about. The construction already names the concrete type, so
+// reading it is both tighter and sound.
+//
+// Only the DISPLAY clauses need a lib mirror; the others bottom out in an annotation,
+// which resolution/annotations.dl already resolves across the boundary.
+element_lib_type_of(src, t) :-
+    expr_node("client", "LIST", _, _, src),
+    expr_parent("client", src, "ELEMENT", _, el), expr_lib_type(el, t).
+element_lib_type_of(src, t) :-
+    expr_node("client", "SET", _, _, src),
+    expr_parent("client", src, "ELEMENT", _, el), expr_lib_type(el, t).
+element_lib_type_of(src, t) :-
+    expr_node("client", "TUPLE", _, _, src),
+    expr_parent("client", src, "ELEMENT", _, el), expr_lib_type(el, t).
+element_lib_type_of(src, t) :-
+    expr_node("client", "LIST_COMPREHENSION", _, _, src),
+    expr_parent("client", src, "COMPREHENSION_ELEMENT", _, el), expr_lib_type(el, t).
+
+// ── binding_element_lib_type(BindingHash, LibTypeHash) ───────────────────────
+binding_element_lib_type(b, t) :-
+    iter_pair("client", tgt, src),
+    expr_binding("client", b, _, tgt),
+    element_lib_type_of(src, t).
+
 // ── binding_element_type(Prov, BindingHash, ElementTypeHash) ─────────────────
 // The binding a loop or comprehension target creates, and what it holds. A DECLARED
 // element type, so the consumer widens it over constructed subclasses like any other.

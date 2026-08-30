@@ -1,5 +1,5 @@
 === per-family coverage (tier-4, 44 scored sites) ===
-  f01 inheritance & MRO        n=  5  concrete=  4 (80.0%)  partial= 0  superset= 0  WRONG= 0  missed= 1
+  f01 inheritance & MRO        n=  5  concrete=  5 (100.0%)  partial= 0  superset= 0  WRONG= 0  missed= 0
   f02 callables & closures     n=  7  concrete=  5 (71.4%)  partial= 1  superset= 0  WRONG= 0  missed= 1
   f03 generics                 n=  9  concrete=  6 (66.7%)  partial= 3  superset= 0  WRONG= 0  missed= 0
   f04 descriptors              n=  6  concrete=  5 (83.3%)  partial= 0  superset= 0  WRONG= 0  missed= 1
@@ -8,14 +8,13 @@
   f07 imports & re-export      n=  5  concrete=  5 (100.0%)  partial= 0  superset= 0  WRONG= 0  missed= 0
   f08 dynamic                  n=  2  concrete=  0 ( 0.0%)  partial= 0  superset= 0  WRONG= 0  missed= 2
 
-  TOTAL                         n= 44  concrete= 30 (68.2%)  partial= 4  superset= 0  WRONG= 0  missed=10
-  recall (fully concrete)      30/44 = 68.2%
+  TOTAL                         n= 44  concrete= 31 (70.5%)  partial= 4  superset= 0  WRONG= 0  missed= 9
+  recall (fully concrete)      31/44 = 70.5%
   emitted nothing incorrect    44/44 = 100.0%   <- WRONG is the only real error class
 
   EXPECTED-MISS cases: {'CONCRETE': 4, 'MISSED': 3}   (a CONCRETE here means a known blind spot closed)
 
 --- non-concrete sites ---
-  f01_inheritance.py:39   MISSED    true=[('lib', 'shapes.py', 33), ('lib', 'shapes.py', 38)] engine=[]
   f02_callables.py:16   PARTIAL   true=[('client', 'f02_callables.py', 6), ('lib', 'callables.py', 5)] engine=[('lib', 'callables.py', 5)]
   f02_callables.py:31   MISSED    true=[('lib', 'callables.py', 22)] engine=[]
   f03_generics.py:8    PARTIAL   true=[('lib', 'generics.py', 8), ('lib', 'generics.py', 24)] engine=[('lib', 'generics.py', 24)]
