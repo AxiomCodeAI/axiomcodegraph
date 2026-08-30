@@ -7,10 +7,10 @@
   f06 value flow               links=  8  found=  7 (87.5%)  missed= 1  wide= 0  WRONG= 0
   f07 imports & re-export      links=  5  found=  5 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f08 dynamic                  links=  2  found=  0 ( 0.0%)  missed= 2  wide= 0  WRONG= 0
-  f09 adversarial              links=  9  found=  8 (88.9%)  missed= 1  wide= 1  WRONG= 0
+  f09 adversarial              links=  9  found=  9 (100.0%)  missed= 0  wide= 1  WRONG= 0
 
-  TOTAL                         links= 73  found= 63 (86.3%)  missed=10  wide= 1  WRONG= 0
-  recall      63/73 = 86.3%  of the links that actually ran
+  TOTAL                         links= 73  found= 64 (87.7%)  missed= 9  wide= 1  WRONG= 0
+  recall      64/73 = 87.7%  of the links that actually ran
   wide  1   a member of a SOUND SET that did not run on this pass
   WRONG 0   a single target asserted as certain that never ran
 
@@ -27,4 +27,3 @@
   f08_dynamic.py:8    MISSED     true=[('lib', 'shapes.py', 33)] engine=[]
   f08_dynamic.py:24   MISSED     true=[('lib', 'shapes.py', 33)] engine=[]
   f09_adversarial.py:41   WIDE       true=[('lib', 'callables.py', 13)] engine=[('lib', 'callables.py', 5)]
-  f09_adversarial.py:59   MISSED     true=[('lib', 'shapes.py', 8)] engine=[]
