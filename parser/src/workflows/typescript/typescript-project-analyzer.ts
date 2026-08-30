@@ -82,6 +82,15 @@ export interface TypeScriptAnalysisSummary {
    * analysed as its own root to be covered at all.
    */
   readonly filesInOtherPrograms: number;
+  /**
+   * The roots of those other programs, so a caller can analyse them.
+   *
+   * A count alone says work is missing without saying where. These are the
+   * directories to point another run at: on a monorepo they are the package
+   * and integration-test roots, and running each one covers the files this run
+   * deliberately left out. Ordered by how many files each accounts for.
+   */
+  readonly nestedProgramRoots: readonly string[];
   readonly extractionErrors: number;
   readonly counts: Record<string, number>;
   /**
@@ -133,6 +142,7 @@ export class TypeScriptProjectAnalyzer {
     const rootProgram = filesOfRootProgram(rootDir, configResolver);
     const files = (rootProgram?.files ?? collectTypeScriptFiles(rootDir, excludes)).sort();
     const filesInOtherPrograms = rootProgram?.others.length ?? 0;
+    const nestedProgramRoots = programRootsOf(rootProgram?.others ?? [], configResolver);
 
     // Every module hash up front, from PATHS ALONE. This is what lets a module
     // augmentation in file B key its declarations under file A's hash without
@@ -278,6 +288,7 @@ export class TypeScriptProjectAnalyzer {
       filesSeen: files.length,
       filesAnalysed: analysed,
       filesInOtherPrograms,
+      nestedProgramRoots,
       extractionErrors: this.skippedFiles.filter(
         (f) => f.reason === SkippedFileReason.EXTRACTION_ERROR
       ).length,
@@ -376,17 +387,119 @@ function filesOfRootProgram(
   if (!fs.existsSync(configPath)) {
     return undefined;
   }
-  const files: string[] = [];
+  const claimed: string[] = [];
+  const unclaimed: string[] = [];
   const others: string[] = [];
   for (const file of collectTypeScriptFiles(rootDir, new Set(TS_SKIP_DIRECTORIES))) {
     const governing = configResolver.resolve(file);
     if (path.resolve(governing.configPath) === path.resolve(configPath)) {
-      files.push(file);
+      claimed.push(file);
+    } else if (governing.configPath === '') {
+      unclaimed.push(file);
     } else {
       others.push(file);
     }
   }
+
+  // A program is its roots PLUS everything they import.
+  //
+  // `files: ["./src/immer.ts", …]` names ENTRY POINTS, not a file list; tsc
+  // then follows imports transitively. Reading the config literally gave immer
+  // 4 files where the real program has 17, so 13 files and 61% of its call
+  // sites were invisible. Nothing reported it, because a file that no config
+  // claims is not an error — it simply never arrives.
+  //
+  // The closure only pulls in files that NO OTHER config claims. A file owned
+  // by a nested tsconfig stays in that program, which is what keeps a nested
+  // project's separate global scope separate.
+  const rootOptions = configResolver.resolve(claimed[0] ?? configPath).options;
+  const included = new Set(claimed.map((f) => path.normalize(f)));
+  const available = new Map(unclaimed.map((f) => [path.normalize(f), f]));
+  const queue = [...claimed];
+  while (queue.length > 0) {
+    const current = queue.pop()!;
+    let text: string;
+    try {
+      text = fs.readFileSync(current, 'utf-8');
+    } catch {
+      continue;
+    }
+    // No parent pointers and no type nodes needed: this pass only reads
+    // specifiers, so the cheapest possible parse is the right one.
+    const sf = ts.createSourceFile(current, text, ts.ScriptTarget.Latest, false,
+      current.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+    for (const specifier of importSpecifiersOf(sf)) {
+      const resolved = ts.resolveModuleName(specifier, current, rootOptions, ts.sys)
+        .resolvedModule?.resolvedFileName;
+      if (resolved === undefined) {
+        continue;
+      }
+      const key = path.normalize(resolved);
+      if (included.has(key) || !available.has(key)) {
+        continue;
+      }
+      included.add(key);
+      queue.push(available.get(key)!);
+    }
+  }
+
+  const files = [...included].map((f) => available.get(f) ?? f);
+  const pulled = new Set(files.map((f) => path.normalize(f)));
+  for (const f of unclaimed) {
+    if (!pulled.has(path.normalize(f))) {
+      others.push(f);
+    }
+  }
   return { files, others };
+}
+
+/**
+ * The distinct program roots that own `files`, busiest first.
+ *
+ * Reporting a count of excluded files tells a caller that something is missing
+ * without telling them what to do about it. These are the directories to point
+ * a further run at.
+ */
+function programRootsOf(
+  files: readonly string[],
+  configResolver: TsConfigResolver
+): string[] {
+  const counts = new Map<string, number>();
+  for (const file of files) {
+    const governing = configResolver.resolve(file);
+    if (governing.configPath === '') {
+      continue;
+    }
+    const root = path.dirname(path.resolve(governing.configPath));
+    counts.set(root, (counts.get(root) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([root]) => root);
+}
+
+/** Every module specifier a file imports, re-exports, or imports dynamically. */
+function importSpecifiersOf(sf: ts.SourceFile): string[] {
+  const out: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
+      && node.moduleSpecifier !== undefined
+      && ts.isStringLiteral(node.moduleSpecifier)) {
+      out.push(node.moduleSpecifier.text);
+    } else if (ts.isImportEqualsDeclaration(node)
+      && ts.isExternalModuleReference(node.moduleReference)
+      && ts.isStringLiteral(node.moduleReference.expression)) {
+      out.push(node.moduleReference.expression.text);
+    } else if (ts.isCallExpression(node)
+      && node.expression.kind === ts.SyntaxKind.ImportKeyword
+      && node.arguments.length > 0
+      && ts.isStringLiteral(node.arguments[0]!)) {
+      out.push((node.arguments[0] as ts.StringLiteral).text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sf, visit);
+  return out;
 }
 
 function collectTypeScriptFiles(dir: string, excludes: ReadonlySet<string>): string[] {
