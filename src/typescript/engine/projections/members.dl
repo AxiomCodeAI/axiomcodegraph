@@ -75,20 +75,20 @@ field_module("lib", m, h) :- lib_ts_field(_, _, _, _, _, _, _, _, _, _, _, _, _,
 // MethodHash (col 13) is "" for a module-scope declaration; ModuleHash (col 14) is
 // always present. Binding by NAME is never needed — expressions carry
 // referencedEntityHash — so both are here for scope reporting, not lookup.
-var_decl("client", n, tn, sk, m, mod, h) :- ts_variable(n, tn, _, _, _, _, _, _, sk, _, _, _, _, m, mod, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
-var_decl("lib", n, tn, sk, m, mod, h) :- lib_ts_variable(n, tn, _, _, _, _, _, _, sk, _, _, _, _, m, mod, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+var_decl("client", n, tn, sk, m, mod, h) :- ts_variable(n, tn, _, _, _, _, _, _, sk, _, _, _, _, m, mod, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+var_decl("lib", n, tn, sk, m, mod, h) :- lib_ts_variable(n, tn, _, _, _, _, _, _, sk, _, _, _, _, m, mod, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
 
 // ── var_type_ref(Prov, TypeRefHash, VarHash) ────────────────────────────────
-var_type_ref("client", r, h) :- ts_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, r, _, _, _, _, _, _, _, h), r != "".
-var_type_ref("lib", r, h) :- lib_ts_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, r, _, _, _, _, _, _, _, h), r != "".
+var_type_ref("client", r, h) :- ts_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, r, _, _, _, _, _, _, _, _, _, h), r != "".
+var_type_ref("lib", r, h) :- lib_ts_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, r, _, _, _, _, _, _, _, _, _, h), r != "".
 
 // ── var_bound_function(Prov, MethodHash, VarHash) ───────────────────────────
 // `const f = () => {}` — THE link that makes a const callable. 161 measured
 // resolved call targets are arrow functions reached only this way. Java's nearest
 // equivalent (a lambda in a field) needs a whole dispatch file; here it is a
 // column, because the parser's binder already made the connection.
-var_bound_function("client", f, h) :- ts_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, f, _, _, _, _, _, _, _, _, h), f != "".
-var_bound_function("lib", f, h) :- lib_ts_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, f, _, _, _, _, _, _, _, _, h), f != "".
+var_bound_function("client", f, h) :- ts_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, f, _, _, _, _, _, _, _, _, _, _, h), f != "".
+var_bound_function("lib", f, h) :- lib_ts_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, f, _, _, _, _, _, _, _, _, _, _, h), f != "".
 
 // ── var_initializer(Prov, InitKind, InitExprHash, VarHash) ──────────────────
 // InitKind (col 18, TsVariableInitializerKind): ARROW | FUNCTION_EXPRESSION | NEW |
@@ -97,15 +97,15 @@ var_bound_function("lib", f, h) :- lib_ts_variable(_, _, _, _, _, _, _, _, _, _,
 // NEW is the flow-typing case: `const c: Conn = new SqlConn()` holds a SqlConn, and
 // typing the receiver by the declaration instead fans every call on it across every
 // implementer of Conn.
-var_initializer("client", ik, e, h) :- ts_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ik, _, _, e, _, _, _, _, _, _, h).
-var_initializer("lib", ik, e, h) :- lib_ts_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ik, _, _, e, _, _, _, _, _, _, h).
+var_initializer("client", ik, e, h) :- ts_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ik, _, _, e, _, _, _, _, _, _, _, _, h).
+var_initializer("lib", ik, e, h) :- lib_ts_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ik, _, _, e, _, _, _, _, _, _, _, _, h).
 
 // ── var_flags(Prov, IsConst, IsTypeInferred, IsExported, VarHash) ───────────
 // isConst matters for flow typing in a way Java's `final` does not: a `const` can
 // never be reassigned, so its initializer type IS its type for the whole scope, with
 // no reassignment scan needed. A `let` needs the scan.
-var_flags("client", c, inf, exp, h) :- ts_variable(_, _, _, _, _, _, _, _, _, _, c, inf, _, _, _, _, _, _, _, _, _, _, exp, _, _, _, _, _, h).
-var_flags("lib", c, inf, exp, h) :- lib_ts_variable(_, _, _, _, _, _, _, _, _, _, c, inf, _, _, _, _, _, _, _, _, _, _, exp, _, _, _, _, _, h).
+var_flags("client", c, inf, exp, h) :- ts_variable(_, _, _, _, _, _, _, _, _, _, c, inf, _, _, _, _, _, _, _, _, _, _, exp, _, _, _, _, _, _, _, h).
+var_flags("lib", c, inf, exp, h) :- lib_ts_variable(_, _, _, _, _, _, _, _, _, _, c, inf, _, _, _, _, _, _, _, _, _, _, exp, _, _, _, _, _, _, _, h).
 
 // ── enum_member_decl(Prov, Name, OwnerEnumHash, IsConstMember, EnumMemberHash) ──
 // isConstEnumMember (col 14) marks a member that is INLINED at its use sites, so a

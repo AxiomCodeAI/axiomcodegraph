@@ -46,7 +46,14 @@ def read_tsv(path, header=True):
         return []
     with open(path, newline='', encoding='utf-8', errors='replace') as fh:
         rows = list(csv.reader(fh, delimiter='\t', quoting=csv.QUOTE_NONE))
-    return rows[1:] if header and rows else rows
+    if header and rows:
+        # A ROW THAT DOES NOT MEET THE HEADER'S FIELD COUNT IS DROPPED, not indexed into.
+        # A torn write leaves a short row behind; reading it raises IndexError deep inside a
+        # join and takes down a scorer that had nothing to do with the fault. The header is
+        # the contract, and a row that breaks it is not data.
+        n = len(rows[0])
+        return [r for r in rows[1:] if len(r) == n]
+    return rows
 
 
 def base(p):

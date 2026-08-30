@@ -71,6 +71,27 @@ param_shape_target(p, s) :- param_type_ref(_, r, p),
     ref_shape_target(r, s).
 
 // ── var_type(VarHash, Prov, TypeHash) ───────────────────────────────────────
+// `declare const f: typeof import('M')['x']` — a CALLABLE published under a name
+// that no declaration in this file spells. vitest's globals.d.ts is exactly this
+// shape, and it is how `expectTypeOf` reaches a test suite.
+//
+// The target is a FUNCTION, so this belongs on `var_is_function` and not on
+// `var_type`: there is no variable type to inherit, and the earlier attempt to route
+// it through `var_type` could never fire because `probeOf`/`expectTypeOf` is a method
+// row, not a variable row. The INDEXED_ACCESS node carries its object at child
+// position 0 (an IMPORT_TYPE holding the specifier) and its key at position 1 (a
+// LITERAL whose value keeps its quotes, so the two are stripped).
+var_is_function(v, m) :- var_type_ref(_, r, v),
+    type_ref(rp, "INDEXED_ACCESS", _, _, _, _, _, r),
+    type_ref_parent(rp, r, "0", impref),
+    type_ref_import_specifier(rp, spec, impref),
+    type_ref_parent(rp, r, "1", keyref),
+    type_ref_literal_value(rp, lit, keyref),
+    strlen(lit) > 2,
+    name = substr(lit, 1, strlen(lit) - 2),
+    import_type_module(spec, mod),
+    module_export_any("lib", mod, name, "METHOD", m).
+
 var_type(v, prov, t) :- var_type_ref(_, r, v),
     ref_type_target(r, prov, t).
 var_shape(v, s) :- var_type_ref(_, r, v),
@@ -143,7 +164,7 @@ literal_kind_global("REGEX", "RegExp").
 // ref_element_target and for a generic container is the substituted type argument
 // (generics.dl). A `for…in` binding is a STRING key, not an element, so only FOR_OF
 // and FOR_AWAIT_OF are admitted here — enumerated rather than matched inline.
-for_binding_iterable(v, e) :- ts_variable(_, _, _, _, _, _, _, _, "FOR_BINDING", _, _, _, _, _, _, b, _, _, _, _, _, _, _, _, _, _, _, _, v),
+for_binding_iterable(v, e) :- ts_variable(_, _, _, _, _, _, _, _, "FOR_BINDING", _, _, _, _, _, _, b, _, _, _, _, _, _, _, _, _, _, _, _, _, _, v),
     b != "",
     ts_block(bk, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, _, b),
     block_kind_iterates_elements(bk),
