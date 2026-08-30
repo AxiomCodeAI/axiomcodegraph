@@ -38,3 +38,20 @@ class StrBox(Box[Marker]):
 
 class RawBox(Box):
     """T never bound -- get() must stay untyped. The control."""
+
+
+class T:
+    """A CLASS literally named T, in the same module as the TypeVar T.
+
+    The disambiguator under test: `-> T` on Box means the type PARAMETER, while
+    `-> T` on Plain means THIS class. Only method_owner_declares_param separates
+    them, and a rule that keyed on the written name alone would conflate the two.
+    """
+
+    def marker(self) -> str:
+        return "T.marker"
+
+
+class Plain:
+    def make(self) -> T:            # a real class named T, NOT a type variable
+        return T()
