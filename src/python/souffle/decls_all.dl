@@ -150,6 +150,7 @@
 .decl param_declared_type_lib(c0:symbol,c1:symbol)
 .decl type_name_in_module_lib(c0:symbol,c1:symbol,c2:symbol)
 .decl method_declared_return_type_lib(c0:symbol,c1:symbol)
+.decl annotation_unquoted(c0:symbol,c1:symbol)
 .decl param_lib_type(c0:symbol,c1:symbol)
 .decl expr_lib_type(c0:symbol,c1:symbol)
 .decl element_lib_type_of(c0:symbol,c1:symbol)

@@ -187,6 +187,35 @@ method_declared_return_type(p, m, t) :-
     method_module(p, mod, m),
     type_name_in_module(p, mod, ret, t).
 
+// ── PEP 484 STRING ANNOTATIONS: `-> "Factory"` ───────────────────────────────
+// An annotation may be a string so a class can name itself, or name something declared
+// later. returnTypeName then holds the source text INCLUDING the quotes, which is
+// faithful -- the annotation really is a string literal -- so `"Factory"` never matches
+// the class `Factory`.
+//
+// TWO LAYERS SIT ON TOP OF EACH OTHER HERE and untangling them mattered: the IR is CSV,
+// so the field also arrives with RFC4180 escaping applied. Reading the file as TSV made
+// the value look doubly quoted and led to the wrong conclusion that the quotes were
+// purely a serialisation artefact. Staging now reads RFC4180, which strips that layer;
+// this strips the remaining one, which is real Python syntax and the engine's to
+// interpret.
+//
+// A quoted union such as `"str | bytes"` simply fails to match a single name, which is
+// the right outcome -- only the bare-name form resolves here.
+annotation_unquoted(raw, inner) :-
+    method_decl(_, _, _, _, raw, _), strlen(raw) > 2,
+    substr(raw, 0, 1) = "\"", substr(raw, strlen(raw) - 1, 1) = "\"",
+    inner = substr(raw, 1, strlen(raw) - 2).
+annotation_unquoted(raw, inner) :-
+    method_decl(_, _, _, _, raw, _), strlen(raw) > 2,
+    substr(raw, 0, 1) = "'", substr(raw, strlen(raw) - 1, 1) = "'",
+    inner = substr(raw, 1, strlen(raw) - 2).
+method_declared_return_type(p, m, t) :-
+    method_decl(p, _, _, _, ret, m), ret != "",
+    annotation_unquoted(ret, inner),
+    method_module(p, mod, m),
+    type_name_in_module(p, mod, inner, t).
+
 // ── method_declared_return_type_lib(MethodHash, LibTypeHash) ─────────────────
 // `def make() -> Square` in the client, Square declared in the library. Same shape as
 // the clause above, same layer, differing only in which side the TYPE lives on.
