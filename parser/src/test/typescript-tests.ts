@@ -698,10 +698,15 @@ function mergePartition(): number {
     }
     for (const row of relation(outputDir, 'all-typescript-variables.csv')) {
       // A destructured binding's declaration node is a BindingElement, which is
-      // not one of tsc's mergeable kinds. The parser records the enclosing
-      // VariableDeclaration with an empty name, so an empty name is exactly the
-      // set to skip.
-      if (row.name !== '') {
+      // not one of tsc's mergeable kinds, and neither is the pattern that
+      // encloses it. The mergeable set is exactly the rows that CARRY a
+      // declarationGroupKey, so test that rather than a stand-in for it.
+      //
+      // An empty NAME used to select the same rows, back when a destructuring
+      // emitted only its unnamed pattern. Now that each bound name is emitted
+      // too, the proxy admits rows it never meant to -- named, unmergeable, and
+      // all colliding under the empty key.
+      if ((row.declarationGroupKey ?? '') !== '') {
         record(row.declarationGroupKey ?? '', site(row));
       }
     }
