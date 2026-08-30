@@ -1,8 +1,8 @@
-ambiguous_unknown	CHAINED_CALL	main.main -> -
 boundary_lib	DECORATOR_BARE	main.Widget.<classbody> -> builtin:classmethod
 boundary_lib	DECORATOR_BARE	main.Widget.<classbody> -> builtin:property
 boundary_lib	DECORATOR_BARE	main.Widget.<classbody> -> builtin:staticmethod
 boundary_lib	SIMPLE_CALL	main.main -> builtin:print
+known_edge	CHAINED_CALL	main.main -> main.Widget.area
 known_edge	METHOD_CALL	main.main -> main.Widget.area
 known_edge	METHOD_CALL	main.main -> main.Widget.describe
 known_edge	METHOD_CALL	main.main -> main.Widget.square

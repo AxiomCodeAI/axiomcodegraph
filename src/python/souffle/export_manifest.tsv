@@ -76,3 +76,5 @@ method_returns_dict_entry	resolution-returns-dict-entry.csv
 field_dict_entry	resolution-field-dict-entry.csv
 param_arg_dict_entry	resolution-param-dict-entry.csv
 mro_lookup_decorated	resolution-mro-lookup-decorated.csv
+param_type	resolution-param-type.csv
+param_flow_outside_declaration	assumption-flow-outside-declaration.csv

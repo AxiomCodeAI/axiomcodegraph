@@ -229,3 +229,70 @@ call_hits_external(site, cat("external:", d)) :-
     expr_binding("client", rb, _, callee),
     binding_lookup("client", rb, rb2),
     import_unlinked(rb2, _).
+
+// ── A LIBRARY CONSTRUCTION WHOSE CLASS HAS NO VISIBLE __init__ ────────────────
+// `pickle.PicklingError(msg)`. The class IS resolved — pickle.PicklingError is in the
+// library IR — but it declares no __init__ and its MRO ends at `Exception`, a C-level
+// builtin with no Python source, so type_constructor("lib", …) is empty and the site
+// produced no edge and no boundary either: it read `no_rule`, i.e. a blind spot, for a
+// class the engine had NAMED.
+//
+// This is the same shape already handled for a CLIENT class with no constructor
+// (resolution/builtins.dl) and it was simply never mirrored onto the library side.
+// MEASURED on the stdlib: `mod.SomeError(...)` is one of the most common call shapes in
+// `logging`, `http` and `json`, and every one of them landed in no_rule.
+call_hits_builtin(site, label) :-
+    call_constructs_lib_type(site, t),
+    !type_constructor("lib", t, _),
+    !type_hierarchy_incomplete("lib", t),
+    builtin_object_init_target(label).
+
+// And when the hierarchy IS incomplete — an unresolved or dynamic base somewhere above it
+// — the constructor may exist where the engine cannot see it. A declared unknown WITH a
+// reason, rather than silence.
+call_unresolvable(site, "lib_construction_no_visible_constructor") :-
+    call_constructs_lib_type(site, t),
+    !type_constructor("lib", t, _),
+    type_hierarchy_incomplete("lib", t).
+
+// ============================================================================
+// A LOCAL OR ATTRIBUTE HOLDING A LIBRARY INSTANCE
+//
+//     _lock = threading.RLock()          # module level
+//     def _acquireLock(): _lock.acquire()
+//
+// The construction resolves (threading.RLock is in the library IR) and the name that
+// receives it did not, so `.acquire()` had no receiver type. This is the library twin of
+// binding_value_type / field_type_from_construction, which only ever tracked CLIENT
+// classes — measured as the single largest remaining bucket on the stdlib shards, where
+// `x = somelib.Thing()` followed by `x.method()` is the dominant call shape.
+// ============================================================================
+
+// ── binding_value_lib_type(BindingHash, LibTypeHash) ─────────────────────────
+// Same single-binding guard as the client-side rule: symtable reports one binding site,
+// so the name cannot be holding anything else.
+binding_value_lib_type(b, t) :-
+    binding_rebinding("client", "1", _, _, b),
+    expr_binding("client", b, "STORE", tgt),
+    assign_pair("client", tgt, val),
+    call_of_expr(val, site),
+    call_constructs_lib_type(site, t).
+
+// ── field_lib_type(FieldHash, LibTypeHash) ───────────────────────────────────
+// `self.lock = threading.RLock()`.
+field_lib_type(f, t) :-
+    field_write_value("client", f, val),
+    call_of_expr(val, site),
+    call_constructs_lib_type(site, t).
+
+// ── and the receiver types they give a call site ─────────────────────────────
+call_recv_lib_type(site, t) :-
+    call_receiver_object(site, obj),
+    expr_binding("client", b, ctx, obj), ctx != "STORE",
+    binding_lookup("client", b, b2),
+    binding_value_lib_type(b2, t).
+call_recv_lib_type(site, t) :-
+    call_receiver_object(site, obj),
+    expr_attr_of_self("client", obj, n, owner),
+    type_attr_field("client", owner, n, f),
+    field_lib_type(f, t).
