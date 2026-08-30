@@ -145,3 +145,31 @@ call_returns_element(site, arg) :-
     method_owner("client", owner, m),
     call_recv_type(site, recv),
     type_generic_binding("client", recv, owner, name, arg).
+
+// ── THE LIB HALF, alongside the client one ───────────────────────────────────
+// PORTED FROM JAVA, which solved this first and solved it by writing every generic
+// rule TWICE: generic-chain.dl's type_fixes_super has a java_type clause and a
+// lib_type clause side by side, in the layer that owns generics rather than in a
+// separate library engine.
+//
+// Everything above this line is already prov-parametric and DID derive the library
+// answers -- measured on test/python/torture: `ItemRepo -> Box, T = Payload` and
+// `StrBox -> Box, T = Marker`, both tagged "lib", plus generic_unbound for the class
+// that supplies no argument. Only the substitution pinned "client" on all three of its
+// premises, so a correct binding on a library type had no consumer and
+// `IntBox().get().tag()` died one hop short.
+//
+// The receiver comes from the boundary (call_recv_lib_type); the SUBSTITUTION is here,
+// because that is the semantics this file owns.
+call_returns_lib_type(site, arg) :-
+    call_hits_lib_method(site, m),
+    method_return_typevar("lib", m, name),
+    method_owner("lib", owner, m),
+    call_recv_lib_type(site, recv),
+    type_generic_binding("lib", recv, owner, name, arg).
+call_returns_lib_element(site, arg) :-
+    call_hits_lib_method(site, m),
+    method_return_element_typevar("lib", m, name),
+    method_owner("lib", owner, m),
+    call_recv_lib_type(site, recv),
+    type_generic_binding("lib", recv, owner, name, arg).

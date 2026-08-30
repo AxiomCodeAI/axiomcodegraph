@@ -126,6 +126,16 @@ class IR:
     def anchor(self, h):
         return self.method_anchor.get(h)
 
+    def add_lib(self, lib_ir: str):
+        """Label library methods as `lib:<qualifiedName>`. A STABLE name -- module
+        path and qualified name, never a hash -- so the golden is portable."""
+        for m in rows(os.path.join(lib_ir, 'all-python-methods.csv')):
+            h = m.get('pyMethodUniqueHash')
+            if not h or h in self.method_label:
+                continue
+            qn = m.get('qualifiedName') or m.get('name') or '?'
+            self.method_label[h] = f'lib:{qn}'
+
 
 def edge_rows(out_dir: str):
     path = os.path.join(out_dir, EDGES)
@@ -148,9 +158,16 @@ def main() -> int:
     ap.add_argument('out')
     ap.add_argument('src')
     ap.add_argument('--mode', choices=('pairs', 'sites', 'golden'), default='golden')
+    # A case linked with --library has callees in a SECOND IR. Without this the golden
+    # falls back to a raw PY_METHOD_<hash>, and those hashes derive from baseMservPath --
+    # so the file would differ per checkout and the test could only ever pass on the
+    # machine that blessed it. Optional, so the 12 library-free cases are untouched.
+    ap.add_argument('--library', default=None)
     args = ap.parse_args()
 
     ir = IR(args.ir, args.src)
+    if args.library:
+        ir.add_lib(args.library)
     edges = edge_rows(args.out)
     if edges is None:
         sys.stderr.write(f'no {EDGES} in {args.out} -- the engine produced no edge export\n')

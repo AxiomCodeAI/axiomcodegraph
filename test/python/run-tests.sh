@@ -44,7 +44,19 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 PARSER="${AXIOM_PARSER:-$ROOT/../Parser/dist/index.js}"
 ORACLE_HOME="${AXIOM_PY_ORACLE:-$ROOT/../callchain-oracle/python}"
-PY="${AXIOM_PY_PYTHON:-/usr/local/bin/python3.10}"
+# The oracle is PINNED to 3.10.4 because opcode shapes are not stable across minor
+# versions -- but pinning an absolute PATH is a different thing, and the wrong one: a
+# Homebrew-on-Intel-macOS location makes --oracle unrunnable on Linux, Apple Silicon,
+# pyenv, or any CI image, reported as a "not found" that reads like a broken checkout.
+# Resolve it the way src/pipeline/run-souffle.sh resolves the souffle headers: search
+# PATH, never hardcode a prefix. AXIOM_PY_PYTHON still overrides for an unusual install.
+find_pinned_python() {
+  local c p
+  for c in python3.10 python3; do
+    p="$(command -v "$c" 2>/dev/null)" && [ -n "$p" ] && { printf '%s\n' "$p"; return; }
+  done
+}
+PY="${AXIOM_PY_PYTHON:-$(find_pinned_python)}"
 WORK="$HERE/.work"
 export AXIOM_PY_ORACLE="$ORACLE_HOME"
 
@@ -173,6 +185,23 @@ for dir in "$HERE"/cases/*/; do
     fail=$((fail+1)); failed+=("$name")
   fi
 done
+
+# ── THE TORTURE CASE ─────────────────────────────────────────────────────────
+# Runs last and separately because it is the only case with a LIBRARY: two IRs, linked
+# with --library, which the loop above cannot express (it parses one src tree and stages
+# an empty library by design). Everything else is shared -- the same normalizer
+# (tools/engine_edges.py) produces its .edges, and its .oracle is the same shape as
+# Java's, so the suite has one convention rather than two.
+if [ "$ORACLE_ONLY" = "0" ] && [ -d "$HERE/torture" ]; then
+  printf '%-26s ' "torture (client+lib)"
+  if out=$(AXIOM_PARSER="$PARSER" bash "$HERE/torture/harness/run.sh" 2>&1); then
+    echo "ok ($(echo "$out" | grep -oE 'oracle=[0-9]+ engine=[0-9]+ agree=[0-9]+ missing=[0-9]+ extra=[0-9]+' | head -1))"
+    pass=$((pass+1))
+  else
+    echo "FAIL"; echo "$out" | tail -20 | sed 's/^/    /'
+    fail=$((fail+1)); failed+=("torture")
+  fi
+fi
 
 [ "$KEEP" = "1" ] || rm -rf "$WORK"
 echo "─────────────────────────────────────────────"
