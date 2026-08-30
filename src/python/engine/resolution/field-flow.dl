@@ -182,7 +182,29 @@ expr_attr_of_self(p, e, n, t) :-
 // attribute holds. Java keeps the equivalent in type-flow.dl, not in lib-hierarchy.
 // ── field_lib_type(FieldHash, LibTypeHash) ───────────────────────────────────
 // `self.lock = threading.RLock()`.
+// GATED EXACTLY AS field_type IS, and it was not. An attribute written more than once
+// took a type from A write rather than from the only write, so `self.op = Doubler()`
+// followed by `self.op = Tripler()` asserted an edge to Doubler.__call__ -- a call that
+// never happens. A fabricated edge is worse than a missing one: it cannot be told apart
+// from a real one downstream.
+// The union of a multi-write attribute belongs in field_lib_type_union below, where the
+// consumer treats it as a set rather than as a single certain answer.
 field_lib_type(f, t) :-
+    field_single_write("client", f),
     field_write_value("client", f, val),
     call_of_expr(val, site),
-    call_constructs_lib_type(site, t).
+    call_constructs_lib_type(site, t),
+    field_decl("client", _, owner, _, f),
+    !field_owner_dynamic("client", owner).
+
+// ── field_lib_type_union(FieldHash, LibTypeHash) ─────────────────────────────
+// A MULTI-WRITE attribute, typed by the union of the writes that can be typed. Sound --
+// the live value is in the set -- but not exact, so a call through it must be a set and
+// never a known_edge. Mirrors field_type_union.
+field_lib_type_union(f, t) :-
+    field_write_value("client", f, val),
+    call_of_expr(val, site),
+    call_constructs_lib_type(site, t),
+    !field_single_write("client", f),
+    field_decl("client", _, owner, _, f),
+    !field_owner_dynamic("client", owner).
