@@ -97,6 +97,25 @@ generic_unbound(p, sub, sup, name) :-
 method_return_typevar(p, m, name) :-
     type_ref_owner(p, m, "METHOD", r),
     type_ref(p, "TYPE_VAR", "METHOD_RETURN", name, _, r), name != "".
+// A bare `-> T` is emitted with kind NAME, not TYPE_VAR -- the reference records what
+// was WRITTEN, and `T` is syntactically indistinguishable from a class of that name.
+// The clause above therefore never fires for the ordinary form, which is the only form
+// most generic code uses, so a method returning its own type parameter had no row and
+// the substitution below had nothing to consume.
+// Telling the two apart is the engine's job and the guard already exists:
+// method_owner_declares_param holds only when the OWNING class actually declares that
+// name as a parameter, which is what stops a class named `T` being read as a variable.
+method_return_typevar(p, m, name) :-
+    type_ref_owner(p, m, "METHOD", r),
+    type_ref(p, "NAME", "METHOD_RETURN", name, _, r), name != "",
+    method_owner_declares_param(p, m, name).
+// NOTE the guard that is deliberately NOT here. An earlier version also required
+// !type_ref_resolved -- "if the parser resolved it to a class it cannot be a variable".
+// test/python/torture/lib/tlib/generics.py breaks that: it declares a CLASS named T
+// beside the TypeVar T, so the parser resolves `-> T` on Box.get to the class and the
+// guard suppressed the very case it was meant to allow. Ownership is the whole test:
+// Box declares T as a parameter so `-> T` there is the variable; Plain does not, so
+// `-> T` there is the class.
 method_return_typevar(p, m, name) :-
     type_ref_owner(p, m, "METHOD", r),
     type_ref(p, k, "METHOD_RETURN", _, _, r), annotation_optional_kind(k),

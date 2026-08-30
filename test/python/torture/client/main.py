@@ -18,6 +18,7 @@ def main() -> None:
     print(f2.module_level_fn(), f2.registry_dispatch(), f2.attribute_callables())
     print(f3.bound_generic(), f3.bound_generic_other(), f3.chained_generic())
     print(f3.unbound_generic())
+    print(f3.class_named_like_a_typevar())
     print(f4.lib_classmethod_on_class(), f4.lib_property_read())
     print(f4.lib_staticmethod(), f4.client_descriptors())
     print(f5.call_lib_decorated(), f5.call_client_decorated(), f5.decorator_factory_applied())
