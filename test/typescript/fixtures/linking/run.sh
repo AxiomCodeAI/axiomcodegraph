@@ -77,6 +77,12 @@ require_resolved link-crosspkg-reexport.ts globalProbe \
 require_resolved link-conditional.ts shared \
   "a conditional return must resolve to its branches"
 
+# A signature declared inside a TYPE carries no return reference, so the result type
+# of `make(...)` has to come off the FUNCTION_TYPE reference's METHOD_RETURN child.
+# `finish` is the second hop and is unreachable without it.
+require_resolved link-conditional.ts finish \
+  "a function-typed member's return must type the chained call"
+
 # The fixture answers only where it is sure: a WRONG answer here is a rule that
 # manufactures confidence, which is worse than the missing edge it replaces.
 if ! grep -qE '^WRONG \(engine named, oracle disagrees\)[[:space:]]+0$' "$SCORE"; then

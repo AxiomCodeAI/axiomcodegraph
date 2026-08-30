@@ -21,3 +21,17 @@ export declare function condPick<K>(key: K): K extends string ? CondAlpha : Cond
 // mandatory depth filter in type-var-bound.dl exists to prevent.
 export interface Marker { markerOnly(): void }
 export declare function condGuarded<K>(key: K): K extends Marker ? CondAlpha : CondBeta;
+
+// A FUNCTION TYPE used as a member's type. The signature is declared inside a TYPE,
+// so its row carries no return reference at all (7,182 of 7,182 such rows across the
+// staged corpus) — the return has to be read off the FUNCTION_TYPE reference's
+// METHOD_RETURN child instead. Without that, `make(...)` resolves and the chain then
+// stops dead because the call has no result type.
+export interface FnHandle {
+  finish(label: string): string;
+}
+export interface FnRegistry {
+  make: (name: string) => FnHandle;
+  build: (name: string) => FnHandle[];
+}
+export declare const fnRegistry: FnRegistry;

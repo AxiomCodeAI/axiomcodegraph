@@ -13,3 +13,11 @@ export function callShared(tag: string): string {
 export function callGuarded(tag: string): string {
   return condGuarded('k').shared(tag);     // -> CondAlpha.shared / CondBeta.shared
 }
+
+// A call THROUGH a function-typed member, then a call on its result. The second hop
+// is the one that needs the type-level signature's return type.
+import { fnRegistry } from '@tt/cond';
+
+export function callThroughFunctionType(name: string, label: string): string {
+  return fnRegistry.make(name).finish(label);   // -> CondApi FnHandle.finish
+}
