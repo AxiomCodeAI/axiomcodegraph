@@ -1,0 +1,13 @@
+ambiguous_unknown	CONSTRUCTOR_CALL	generic#fromReceiver() @L21 -> -
+ambiguous_unknown	CONSTRUCTOR_CALL	generic#inferredFromArgument() @L32 -> -
+ambiguous_unknown	CONSTRUCTOR_CALL	generic#useLibrary() @L42 -> -
+ambiguous_unknown	FUNCTION_CALL	generic#useLibrary() @L45 -> -
+ambiguous_unknown	METHOD_CALL	generic#fromReceiver() @L24 -> -
+ambiguous_unknown	METHOD_CALL	generic#inferredFromArgument() @L35 -> -
+ambiguous_unknown	METHOD_CALL	generic#useLibrary() @L45 -> -
+known_edge	CONSTRUCTOR_CALL	Box#map((t: T) =) @L16 -> Box#<new>(T)
+known_edge	CONSTRUCTOR_CALL	generic#fromReceiver() @L21 -> Box#<new>(T)
+known_edge	FUNCTION_CALL	Box#map((t: T) =) @L16 -> generic#<arrow@15>(T)
+known_edge	FUNCTION_CALL	generic#fromArgument(T[],(x: T) =) @L28 -> generic#<arrow@27>(T)
+known_edge	FUNCTION_CALL	generic#inferredFromArgument() @L35 -> generic#fromArgument(T[],(x: T) =)
+known_edge	METHOD_CALL	generic#fromReceiver() @L24 -> Box#get()

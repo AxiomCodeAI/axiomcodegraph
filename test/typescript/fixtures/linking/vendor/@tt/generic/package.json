@@ -1,0 +1,1 @@
+{ "name": "@tt/generic", "version": "1.0.0", "main": "generic-lib.js", "types": "generic-lib.d.ts" }

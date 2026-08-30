@@ -1,0 +1,23 @@
+# Soufflé input-relation -> library IR CSV basename (concatenated across all library modules).
+# run-souffle.sh scopes these to the signature relations named in staging.conf (LIB_SIG);
+# bodies (expressions / call sites / blocks) are never staged wholesale.
+lib_ts_block	all-typescript-blocks
+lib_ts_call_site	all-typescript-call-sites
+lib_ts_comment	all-typescript-comments
+lib_ts_decorator	all-typescript-decorators
+lib_ts_decorator_argument	all-typescript-decorator-arguments
+lib_ts_enum_member	all-typescript-enum-members
+lib_ts_export	all-typescript-exports
+lib_ts_expression	all-typescript-expressions
+lib_ts_field	all-typescript-fields
+lib_ts_field_position	all-typescript-field-positions
+lib_ts_import	all-typescript-imports
+lib_ts_method	all-typescript-methods
+lib_ts_method_parameter	all-typescript-method-parameters
+lib_ts_module	all-typescript-modules
+lib_ts_parse_gap	all-typescript-parse-gaps
+lib_ts_type	all-typescript-types
+lib_ts_type_heritage	all-typescript-type-heritages
+lib_ts_type_parameter	all-typescript-type-parameters
+lib_ts_type_reference	all-typescript-type-references
+lib_ts_variable	all-typescript-variables

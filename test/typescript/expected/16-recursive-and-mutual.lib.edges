@@ -1,0 +1,9 @@
+ambiguous_unknown	CONSTRUCTOR_CALL	cycle#drive() @L27 -> -
+ambiguous_unknown	CONSTRUCTOR_CALL	cycle#useLibrary() @L36 -> -
+boundary_lib	FUNCTION_CALL	cycle#useLibrary() @L36 -> walker#bounce(number)
+boundary_lib	METHOD_CALL	cycle#useLibrary() @L36 -> Walker#step(number)
+known_edge	FUNCTION_CALL	cycle#drive() @L27 -> cycle#ping(number)
+known_edge	FUNCTION_CALL	cycle#ping(number) @L6 -> cycle#pong(number)
+known_edge	FUNCTION_CALL	cycle#pong(number) @L11 -> cycle#ping(number)
+known_edge	METHOD_CALL	Tree#size() @L20 -> Tree#size()
+known_edge	METHOD_CALL	cycle#drive() @L27 -> Tree#size()

@@ -1,0 +1,1 @@
+{ "name": "@tt/collide", "version": "1.0.0", "main": "collide-api.js", "types": "collide-api.d.ts" }

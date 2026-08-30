@@ -1,0 +1,6 @@
+oracle=12 engine=9 agree=8 missing=4 (known 4, NEW 0) extra=1
+  known    Box#map((t: T) =) -> Box#<arrow@15>(T)
+  known    generic#fromReceiver() -> Item#ping()
+  known    generic#inferredFromArgument() -> Item#ping()
+  known    generic#useLibrary() -> Item#ping()
+  extra    Box#map((t: T) =) -> generic#<arrow@15>(T)
