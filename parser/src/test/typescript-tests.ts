@@ -1036,7 +1036,9 @@ function factBaseInvariants(): number {
         continue;
       }
       const text = fs.readFileSync(path.join(outputDir, file), 'utf-8');
-      const lines = text.split('\n').filter((l) => l !== '');
+      // Same split as the consumer -- see verifyRelationFile.
+      const lines = text.split(/[\u000A\u000B\u000C\u000D\u001C\u001D\u001E\u0085\u2028\u2029]/)
+        .filter((l) => l !== '');
       const head = lines[0];
       if (head === undefined) {
         continue;
@@ -1576,6 +1578,81 @@ async function destructuringRecordsItsSource(): Promise<number> {
   return failures.length ? 1 : 0;
 }
 
+// ---------------------------------------------------------------------------
+// 15. No emitted value can split a row for any reader
+// ---------------------------------------------------------------------------
+
+/**
+ * A value must not contain anything a CONSUMER treats as a line break.
+ *
+ * `split('\n')` and Python's `str.splitlines()` disagree: the latter also
+ * breaks on U+000B, U+000C, U+001C-U+001E, U+0085, U+2028 and U+2029. A string
+ * literal carrying one of those -- legal JavaScript, and real in published
+ * bundles -- produced a file that was well formed to the parser and torn to the
+ * reader. It surfaced as `11 field(s) where the header has 34` on a LITERAL row,
+ * and nothing on our side could see it, because every check split the JS way.
+ *
+ * This asserts the property directly rather than the symptom: no raw break
+ * character survives into any relation, and every row is the header's width
+ * under the READER's definition of a line.
+ */
+async function noValueCanSplitARow(): Promise<number> {
+  if (!parserPresent()) {
+    return pendingCheck('no emitted value can split a row',
+      'no extractor yet. A value must not contain anything a consumer treats as a line break');
+  }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ts-break-'));
+  // Each literal carries one break character that split('\n') does NOT see.
+  const breaks = ['\u000B', '\u000C', '\u001C', '\u001D', '\u001E', '\u0085', '\u2028', '\u2029'];
+  const lines = ['export const values = ['];
+  breaks.forEach((c, i) => { lines.push(`  " rolldown${c}runtime ${i}",`); });
+  lines.push('];');
+  lines.push('export const tabbed = "a\\tb";');
+  fs.writeFileSync(path.join(root, 'breaks.ts'), lines.join('\n'));
+  fs.writeFileSync(path.join(root, 'tsconfig.json'), JSON.stringify({
+    compilerOptions: { target: 'ES2022', module: 'ESNext' }, include: ['*.ts'],
+  }));
+  const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ts-break-out-'));
+  await new TypeScriptProjectAnalyzer().analyze({
+    rootDir: root, outputDir, baseMservPath: root, serviceVersionLink: 'break-check',
+  });
+
+  const READER_BREAKS = /[\u000A\u000B\u000C\u000D\u001C\u001D\u001E\u0085\u2028\u2029]/;
+  const RAW_IN_VALUE = /[\u000B\u000C\u001C\u001D\u001E\u0085\u2028\u2029]/;
+  const failures: string[] = [];
+  let checked = 0;
+  for (const file of fs.readdirSync(outputDir)) {
+    if (!file.startsWith('all-typescript-') || !file.endsWith('.csv')) {
+      continue;
+    }
+    const text = fs.readFileSync(path.join(outputDir, file), 'utf-8');
+    if (RAW_IN_VALUE.test(text)) {
+      failures.push(`${file} contains a raw break character — a reader will split the row there`);
+    }
+    const rows = text.split(READER_BREAKS).filter((l) => l !== '');
+    const head = rows[0];
+    if (head === undefined) {
+      continue;
+    }
+    const width = head.split('\t').length;
+    for (let i = 1; i < rows.length; i += 1) {
+      checked += 1;
+      const got = rows[i]!.split('\t').length;
+      if (got !== width) {
+        failures.push(`${file} row ${i + 1}: ${got} field(s) where the header has ${width}`);
+        break;
+      }
+    }
+  }
+
+  console.log(`  ${breaks.length} break character(s) embedded in string literals; ${checked} row(s) ` +
+    "checked under the reader's definition of a line, not JavaScript's");
+  for (const f of failures.slice(0, 10)) console.log(`  ${f}`);
+  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(outputDir, { recursive: true, force: true });
+  return failures.length ? 1 : 0;
+}
+
 const CHECKS: Check[] = [
   { name: 'compiles', proves: 'tsc --noEmit is clean — the suite reports on code that actually builds', run: compiles },
   { name: 'fixtures compile and are isolated', proves: 'a fixture is a valid input, and cannot break another language\'s gate', run: fixturesCompile },
@@ -1589,6 +1666,7 @@ const CHECKS: Check[] = [
   { name: 'TSX reserved but empty', proves: 'reserved enum values carry no rows until TSX is switched on', run: tsxReservedButEmpty },
   { name: 'JSX brace expressions are walked', proves: 'a call inside a JSX brace is an ordinary call site; only the component invocation is reserved', run: jsxBraceExpressionsWalked },
   { name: 'destructuring records its source', proves: 'a bound name carries the property or index it binds, so a renamed or positional binding is recoverable', run: destructuringRecordsItsSource },
+  { name: 'no emitted value can split a row', proves: 'no value contains a character a consumer treats as a line break, so a row cannot tear', run: noValueCanSplitARow },
   { name: 'fact-base invariants', proves: 'every PK unique, every FK resolves, every tree well-formed — the failures that load cleanly and count wrong', run: factBaseInvariants },
   { name: 'IR completeness', proves: 'every hop an engine needs in order to resolve is present — the measure that replaced resolution rate', run: irCompleteness },
 ];
