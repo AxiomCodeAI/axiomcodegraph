@@ -68,8 +68,40 @@ find_in_nm() { for r in $NM_ROOTS; do [ -e "$r/$1" ] && { echo "$r/$1"; return 0
 # The mirror needs its own node_modules for BOTH the parser's tsconfig `paths`
 # resolution and the oracle's module resolution. A symlink to the real one keeps the
 # two toolchains looking at identical bytes.
-FIRST_NM="$(echo $NM_ROOTS | awk '{print $1}')"
-[ -n "$FIRST_NM" ] && [ ! -e "$MIRROR/node_modules" ] && ln -sfn "$FIRST_NM" "$MIRROR/node_modules"
+# EVERY ROOT, NOT THE FIRST. NM_ROOTS above is the whole chain precisely because a
+# workspace hoists shared dependencies to the repository root — and then the mirror was
+# given a symlink to the FIRST root only, which is the package-local one. On remeda that
+# directory holds 2 entries while the repository root holds 972 including `vitest`, so the
+# parser could not resolve `vitest` at all: 833 import rows came back UNRESOLVED with an
+# empty packageName, discovery reads packageName and therefore found nothing, and the
+# project was analysed with 1 staged package. Every `test(...)` and `expect(...)` call in
+# it was unresolvable, and none of that was ever the engine.
+#
+# One symlink cannot express several roots, so the mirror gets a real directory of
+# per-package symlinks, filled NEAREST-FIRST so a package-local copy still shadows a
+# hoisted one exactly as Node resolves it. Scoped names get their @scope directory.
+if [ -n "$NM_ROOTS" ] && [ ! -e "$MIRROR/node_modules" ]; then
+  mkdir -p "$MIRROR/node_modules"
+  for root in $NM_ROOTS; do
+    for entry in "$root"/*; do
+      [ -e "$entry" ] || continue
+      base="$(basename "$entry")"
+      case "$base" in
+        .*) continue;;
+        @*)  # a scope directory: link the packages inside it, not the scope itself
+          mkdir -p "$MIRROR/node_modules/$base"
+          for pkg in "$entry"/*; do
+            [ -e "$pkg" ] || continue
+            t="$MIRROR/node_modules/$base/$(basename "$pkg")"
+            [ -e "$t" ] || ln -sfn "$pkg" "$t"
+          done;;
+        *)
+          t="$MIRROR/node_modules/$base"
+          [ -e "$t" ] || ln -sfn "$entry" "$t";;
+      esac
+    done
+  done
+fi
 
 # ── 1. client IR ─────────────────────────────────────────────────────────────
 # The node_modules symlink MUST exist before this runs. The parser resolves module
