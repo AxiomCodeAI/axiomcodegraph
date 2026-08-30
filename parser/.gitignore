@@ -75,3 +75,8 @@ src/test/python-gates/xpkg-corpus/
 # Analyzer output from the test runner; deleted at the end of every run.
 .py-test-out/
 .probe/
+
+# per-language contributing drafts — superseded by a single CONTRIBUTING.md.
+# The dash matters: this ignores CONTRIBUTING-<lang>.md and leaves the eventual
+# CONTRIBUTING.md tracked.
+CONTRIBUTING-*.md
