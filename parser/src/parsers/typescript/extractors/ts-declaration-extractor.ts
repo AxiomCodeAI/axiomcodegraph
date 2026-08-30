@@ -379,6 +379,7 @@ export class TsDeclarationExtractor {
     this.methods.push(row);
     this.methodHashByNode.set(id, row.getHash());
     this.methodRowByNode.set(id, row);
+    this.recordAnonymousOverloadCandidate(row, typeLiteralHash);
     const memberContext: EmitContext = {
       typeHash: '',
       methodHash: row.getHash(),
@@ -2009,6 +2010,32 @@ export class TsDeclarationExtractor {
   // overload identity
   // -------------------------------------------------------------------------
 
+  /**
+   * Registers a member of an anonymous SHAPE, which has no EmitContext.
+   *
+   * `declare var Promise: { resolve(): …; resolve<T>(v: T): … }` is two
+   * signatures of one member, and every one of them shipped as SOLE -- "the
+   * only declaration of its name in its table" -- which is false whenever there
+   * are two. A consumer reading SOLE treats each row as a complete member and
+   * fans out across them. Keyed on the shape hash, so two literals that each
+   * declare `resolve` stay separate sets.
+   */
+  private recordAnonymousOverloadCandidate(
+    row: TsMethodRegistry,
+    typeLiteralHash: string
+  ): void {
+    if (row.escapedName === '' || typeLiteralHash === '') {
+      return;
+    }
+    const key = `${typeLiteralHash}||shape||${row.escapedName}`;
+    const existing = this.overloadSets.get(key);
+    if (existing) {
+      existing.push({ row, hasBody: false });
+    } else {
+      this.overloadSets.set(key, [{ row, hasBody: false }]);
+    }
+  }
+
   private recordOverloadCandidate(
     row: TsMethodRegistry,
     context: EmitContext,
@@ -2052,6 +2079,7 @@ export class TsDeclarationExtractor {
           : only.row.bodyPresence === TsBodyPresence.NO_BODY_AMBIENT
             ? TsSignatureRole.AMBIENT
             : TsSignatureRole.SOLE;
+        // A lone shape member keeps SOLE: there is genuinely no set to be one of.
         only.row.setOverloadIdentity(role, 0);
         continue;
       }
