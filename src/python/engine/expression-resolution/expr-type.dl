@@ -55,6 +55,13 @@ expr_lib_type(e, t) :-
     expr_attr_of_self("client", e, n, owner),
     type_attr_field("client", owner, n, f), field_lib_type(f, t).
 expr_lib_type(e, t) :- expr_names_param("client", e, ph), param_lib_type(ph, t).
+// a loop or comprehension variable over a container of LIBRARY instances:
+// `for s in (Square(), Circle()): s.name()`. resolution/iteration.dl types the element
+// from the constructions; this carries it to the loop variable, mirroring clause (j).
+expr_lib_type(e, t) :-
+    expr_binding("client", b, ctx, e), ctx != "STORE",
+    binding_lookup("client", b, b2),
+    binding_element_lib_type(b2, t).
 
 // ── expr_type(Prov, ExprHash, TypeHash) — yields an INSTANCE ──────────────────
 // (a) `self`. The STATIC answer is the enclosing class; widening to subclasses is

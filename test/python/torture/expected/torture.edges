@@ -5,7 +5,6 @@ ambiguous_unknown	CHAINED_CALL	f08_dynamic.dict_dispatch_computed_key -> -
 ambiguous_unknown	CHAINED_CALL	f08_dynamic.dict_dispatch_static_key -> -
 ambiguous_unknown	DECORATOR_APPLICATION	f05_decorators.<module> -> -
 ambiguous_unknown	DYNAMIC_CALL	f08_dynamic.getattr_call -> -
-ambiguous_unknown	METHOD_CALL	f01_inheritance.virtual_over_constructed -> -
 ambiguous_unknown	METHOD_CALL	f04_descriptors.lib_classmethod_on_class -> -
 ambiguous_unknown	METHOD_CALL	f06_flow.list_of_instances -> -
 ambiguous_unknown	METHOD_CALL	f06_flow.takes_unannotated -> -
@@ -36,6 +35,8 @@ boundary_lib	METHOD_CALL	f01_inheritance.lib_deep_chain -> lib:tlib.shapes.Leaf.
 boundary_lib	METHOD_CALL	f01_inheritance.lib_deep_chain -> lib:tlib.shapes.Leaf.via_super
 boundary_lib	METHOD_CALL	f01_inheritance.virtual_over_constructed -> builtin:list.append
 boundary_lib	METHOD_CALL	f01_inheritance.virtual_over_constructed -> builtin:str.join
+boundary_lib	METHOD_CALL	f01_inheritance.virtual_over_constructed -> lib:tlib.shapes.Circle.name
+boundary_lib	METHOD_CALL	f01_inheritance.virtual_over_constructed -> lib:tlib.shapes.Square.name
 boundary_lib	METHOD_CALL	f03_generics.bound_generic -> lib:tlib.generics.Box.get
 boundary_lib	METHOD_CALL	f03_generics.bound_generic -> lib:tlib.generics.Box.put
 boundary_lib	METHOD_CALL	f03_generics.bound_generic_other -> lib:tlib.generics.Box.get
