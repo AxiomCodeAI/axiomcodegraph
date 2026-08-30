@@ -14,9 +14,8 @@
 // definition a different run, so that column is structurally incapable of crossing
 // the client->lib boundary — staging more library relations does not help, because
 // no hash on either side was ever computed from the other's inputs. (This is the
-// same trap `.claude/building-an-engine.md` records for Python's
-// `resolvedCalleeHash`: 24 resolved callees, 3 dangling, and staging 13 -> 25
-// relations changed nothing.)
+// same trap the Python engine hit with its `resolvedCalleeHash`: 24 resolved callees,
+// 3 dangling, and staging 13 -> 25 relations changed nothing.)
 //
 // So cross-run linking goes through NAMES, and TypeScript supplies two good ones:
 //

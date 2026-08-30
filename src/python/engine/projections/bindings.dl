@@ -10,7 +10,7 @@
 //   "NONE" and targetEntityHash is "" on 195 of 195 rows.
 // The schema declares those columns as TYPE|METHOD|IMPORT|PARAMETER|... FKs, so the
 // pre-resolution channel they were meant to provide is EMPTY in practice. Filed as a
-// parser defect (see .claude/python/parser-defects.md, PD-1); the engine therefore
+// parser defect (see src/python/PARSER-DEFECTS.md, PD-1); the engine therefore
 // derives name->entity itself, from py_method/py_type.declaringBindingLinkHash and
 // py_import.bindingLinkHash — structural links, which are populated.
 //

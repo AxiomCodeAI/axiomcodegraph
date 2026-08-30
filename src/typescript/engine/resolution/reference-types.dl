@@ -7,7 +7,7 @@
 // also has to decide what to do when the annotation is a shape, a union, or absent.
 //
 // ── DECLARED WINS OVER FLOWED, AND IS NOT UNIONED WITH IT ───────────────────
-// `.claude/building-an-engine.md` records this as a law paid for in Python: unioning
+// A law paid for in the Python engine: unioning
 // an annotation with flowed types lets imprecision leak THROUGH the declaration and
 // cost six spurious targets on one funnel. Where the programmer wrote a type, that
 // is the answer. Flow speaks only where no annotation does — which here is the 14.7%

@@ -5,7 +5,7 @@
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../../../.." && pwd)"
-WORK="${1:-/tmp/ts-overload-fixture}"
+WORK="${1:-/tmp/ts-dispatch-fixture}"
 NM="${2:-/Users/swapnilpaliwal/Documents/AxiomCode/Parser/node_modules}"
 
 rm -rf "$WORK"; mkdir -p "$WORK"

@@ -4,7 +4,7 @@
  * every call site in a project, which signature it selected.
  *
  * ── WHY THIS ONE AND NOT A STATIC ANALYSER ──────────────────────────────────
- * `.claude/building-an-engine.md`, rule "never self-certify": ground truth must come
+ * The rule is never to self-certify: ground truth must come
  * from a DIFFERENT toolchain, and never from a third-party analyser whose own
  * resolution choices would contaminate it. Java uses the platform's class-file
  * parser; Python uses CPython's `dis` and `symtable`. TypeScript's equivalent is the

@@ -86,10 +86,11 @@ expr_enclosing_method(e, init) :- expr_owner("client", ok, _, _, e),
     expr_module("client", mod, e),
     module_init("client", init, mod).
 
-// Enumerated rather than matched as bare literals, per the kind-split law in
-// .claude/building-an-engine.md: a new TsExpressionOwnerKind that belongs at module
-// level is then one row here, in a visible place, instead of a rule that silently
-// stops covering a case.
+// Enumerated rather than matched as bare literals. A node kind can be SPLIT without
+// any other signal changing — same children, same edge roles, same byte range — so a
+// rule that matches one inline stops firing silently. This way a new
+// TsExpressionOwnerKind that belongs at module level is one row here, in a visible
+// place, instead of a quiet loss.
 owner_kind_is_module_level("FIELD").
 owner_kind_is_module_level("TYPE").
 owner_kind_is_module_level("DECORATOR").

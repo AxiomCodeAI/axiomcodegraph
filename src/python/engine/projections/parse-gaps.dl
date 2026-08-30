@@ -12,7 +12,7 @@
 // `type(mock).__signature__ = sig` and `type(mock)._mock_check_sig = checksig`.
 // MISPARSED_SILENTLY is the disposition that matters: hasError is FALSE, so the facts
 // are WRONG rather than MISSING, and nothing downstream can notice. See
-// .claude/python/parser-defects.md PD-4 for the repro and the edge it costs.
+// src/python/PARSER-DEFECTS.md PD-4 for the repro and the edge it costs.
 //
 // py_parse_gap / lib_py_parse_gap cols (10):
 //   0 pyModuleLinkHash  1 constructKind  2 disposition  3 startLine  4 startColumn

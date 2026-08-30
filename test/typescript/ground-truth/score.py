@@ -3,9 +3,9 @@
 Score the TypeScript engine against the tsc oracle, PER CALL SITE.
 
 ── WHY PER SITE AND NOT PER EDGE ────────────────────────────────────────────
-`.claude/building-an-engine.md`: "an engine can have perfect edge recall while being
-wrong at individual sites. A dispatch set of 12 where 1 target runs scores as 1
-agreed + 11 over-approximations per edge, but it is one site a reader cannot trust."
+An engine can have perfect edge recall while being wrong at individual sites. A
+dispatch set of 12 where one target runs scores as 1 agreed plus 11
+over-approximations PER EDGE, but it is one site a reader cannot trust.
 So the unit here is the call site, and a site with a 12-way fan counts once — as a
 SOUND SUPERSET, which is a different and weaker answer than EXACT.
 

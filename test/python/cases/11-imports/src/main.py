@@ -7,7 +7,7 @@ candidates for each site and no way to choose; the module a name was IMPORTED
 FROM is the only thing that decides it, and that is recorded in the import table,
 not at the call site.
 
-`.claude/python/engine.md` records why this matters beyond aesthetics:
+Why this matters beyond aesthetics:
 `resolvedCalleeHash` is only meaningful inside a single parser run, so
 cross-module linking must go through NAMES -- which makes name collisions the
 exact failure mode the resolution layer has to survive.
