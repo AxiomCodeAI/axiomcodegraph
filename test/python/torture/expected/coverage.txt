@@ -2,21 +2,20 @@
   f01 inheritance & MRO        links= 10  found= 10 (100.0%)  missed= 0  over-claimed= 0
   f02 callables & closures     links= 10  found=  9 (90.0%)  missed= 1  over-claimed= 0
   f03 generics                 links= 14  found= 14 (100.0%)  missed= 0  over-claimed= 0
-  f04 descriptors              links=  9  found=  8 (88.9%)  missed= 1  over-claimed= 0
+  f04 descriptors              links=  9  found=  9 (100.0%)  missed= 0  over-claimed= 0
   f05 decorators               links=  6  found=  1 (16.7%)  missed= 5  over-claimed= 0
   f06 value flow               links=  8  found=  7 (87.5%)  missed= 1  over-claimed= 0
   f07 imports & re-export      links=  5  found=  5 (100.0%)  missed= 0  over-claimed= 0
   f08 dynamic                  links=  2  found=  0 ( 0.0%)  missed= 2  over-claimed= 0
 
-  TOTAL                         links= 64  found= 54 (84.4%)  missed=10  over-claimed= 0
-  recall      54/64 = 84.4%  of the links that actually ran
+  TOTAL                         links= 64  found= 55 (85.9%)  missed= 9  over-claimed= 0
+  recall      55/64 = 85.9%  of the links that actually ran
   over-claims 0  edges asserted from an executed caller that never ran
 
   EXPECTED-MISS cases: {'FOUND': 5, 'MISSED': 3}   (a CONCRETE here means a known blind spot closed)
 
 --- non-concrete sites ---
   f02_callables.py:31   MISSED     true=[('lib', 'callables.py', 22)] engine=[]
-  f04_descriptors.py:24   MISSED     true=[('lib', 'descriptors.py', 31)] engine=[]
   f05_decorators.py:18   MISSED     true=[('lib', 'decorated.py', 18)] engine=[]
   f05_decorators.py:22   MISSED     true=[('lib', 'decorated.py', 10)] engine=[]
   f05_decorators.py:22   MISSED     true=[('lib', 'decorated.py', 18)] engine=[]
