@@ -23,6 +23,11 @@ precision / recall:
   ambiguity     (hedged sites)                    3   mean 2.33  median 2  p90 3  max 3
   edge-precision (TP / (TP+FP), FP = extras)     81   0.953
 
+signature-level vs edge-level:
+  signature-correct (exact declaration)          81   0.910
+  overload sibling (same function)                0
+  edge-correct      (right function)             81   0.910
+
 overload sites (the resolved symbol has more than one declaration):
   sites                       13
   of which the compiler chose a NON-FIRST declaration   8
