@@ -221,7 +221,7 @@ expr_type_class_object(p, e, t) :-
 // resolution/value-flow.dl.
 expr_type_class_object(p, e, t) :-
     call_of_expr(e, site),
-    call_name(site, "get"),
+    call_name(site, cn), dict_lookup_method(cn),
     call_receiver_object(site, obj),
     call_arg(site, "0", idx),
     expr_key_text(p, idx, k),
@@ -247,7 +247,7 @@ field_dict_entry_class(p, f, t) :-
 
 expr_type_class_object(p, e, t) :-
     call_of_expr(e, site),
-    call_name(site, "get"),
+    call_name(site, cn), dict_lookup_method(cn),
     call_receiver_object(site, obj),
     expr_attr_of_self(p, obj, n, owner),
     type_attr_field(p, owner, n, f),
@@ -270,7 +270,7 @@ expr_type_class_object(p, e, t) :-
 // exact single answer.
 expr_type_class_object(p, e, t) :-
     call_of_expr(e, site),
-    call_name(site, "get"),
+    call_name(site, cn), dict_lookup_method(cn),
     call_receiver_object(site, obj),
     call_arg(site, "0", idx),
     expr_node(p, ik, _, _, idx), ik != "LITERAL",

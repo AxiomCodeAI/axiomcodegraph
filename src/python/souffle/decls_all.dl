@@ -215,6 +215,7 @@
 .decl py_builtin_noncallable(c0:symbol)
 .decl py_builtin_callable(c0:symbol)
 .decl py_builtin_dynamic(c0:symbol)
+.decl dict_lookup_method(c0:symbol)
 .decl builtin_target(c0:symbol,c1:symbol)
 .decl builtin_object_init_target(c0:symbol)
 .decl partial_factory_path(c0:symbol)

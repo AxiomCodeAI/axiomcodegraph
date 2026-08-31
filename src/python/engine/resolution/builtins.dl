@@ -197,3 +197,22 @@ partial_factory_path("partial").
 // The site is a functools.partial application, recognised by the written dotted path
 // against the catalog — never by simple name alone unless the name IS the whole path.
 call_is_partial(site) :- call_dotted(site, d), partial_factory_path(d).
+
+
+// ── dict_lookup_method(Name) — a mapping method that RETURNS A VALUE ─────────
+// The mapping API is named, so reading a registry through it is unavoidably name-based —
+// but it belongs in a declared catalogue beside the builtins rather than as a literal
+// buried in a rule body, for the same reason py_builtin_callable does: the set is a
+// property of the language, it is reviewable in one place, and adding a spelling is a
+// one-line change rather than an edit to resolution logic.
+//
+// Only the members that yield a VALUE of the mapping. `keys`, `items` and `values` yield
+// something else and must not be here; `popitem` yields a pair, not a value.
+//
+// A mapping type that spells its lookup differently is NOT covered, and that limit is
+// real rather than hidden: a custom container with `.fetch(k)` reads as an ordinary
+// method call. Every use of this relation is additionally gated on the receiver already
+// being a known registry, so an unrelated `.get` cannot pick up a class from it.
+dict_lookup_method("get").
+dict_lookup_method("pop").
+dict_lookup_method("setdefault").
