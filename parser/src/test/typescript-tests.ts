@@ -1751,6 +1751,244 @@ async function signaturesLinkTheirReturnType(): Promise<number> {
   return failures.length ? 1 : 0;
 }
 
+/** Runs the analyzer over an inline fixture and returns its output directory. */
+async function analyseInline(
+  prefix: string,
+  files: Record<string, string>,
+  compilerOptions: Record<string, unknown> = {}
+): Promise<{ outputDir: string; cleanup: () => void }> {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  for (const [name, text] of Object.entries(files)) {
+    const target = path.join(root, name);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, text);
+  }
+  if (files['tsconfig.json'] === undefined) {
+    fs.writeFileSync(path.join(root, 'tsconfig.json'), JSON.stringify({
+      compilerOptions: { target: 'ES2022', module: 'ESNext', strict: true, ...compilerOptions },
+      include: ['**/*.ts', '**/*.tsx'],
+    }));
+  }
+  const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), `${prefix}out-`));
+  await new TypeScriptProjectAnalyzer().analyze({
+    rootDir: root, outputDir, baseMservPath: root, serviceVersionLink: 'regression',
+  });
+  return {
+    outputDir,
+    cleanup: () => {
+      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 17. Kinds that were wrong once
+// ---------------------------------------------------------------------------
+
+/**
+ * Every enum value below was emitted incorrectly at some point, and none of the
+ * failures lost a row -- a correctly-positioned row with the WRONG KIND passes
+ * recall, completeness and compiler adjudication alike, so nothing else here
+ * can see it.
+ *
+ *   declarationKind   every `const` read AWAIT_USING, because NodeFlags.
+ *                     AwaitUsing is the COMPOSITE Const|Using and the test was
+ *                     a truthiness one. CONST was emitted zero times.
+ *   DECORATOR_CALL    `@Get("/x")` read FUNCTION_CALL, losing the fact that a
+ *                     decorator runs at class-definition time.
+ *   LABELED           a labelled loop emitted the loop and dropped the label.
+ *   NAMESPACE_BODY    namespace and ambient-module bodies emitted no block row.
+ *   MODULE_BODY       at all, on two separate code paths.
+ *   TYPE_IMPORT_NODE  `import("m").T` emitted no module edge, leaving the
+ *                     specifier as text inside a type name.
+ */
+async function kindsThatWereWrongOnce(): Promise<number> {
+  if (!parserPresent()) {
+    return pendingCheck('kinds that were wrong once',
+      'no extractor yet. Asserts the enum values that have been emitted incorrectly before');
+  }
+  const { outputDir, cleanup } = await analyseInline('ts-kinds-', {
+    'k.ts': [
+      'declare function Injectable(): ClassDecorator;',
+      'export type Q = typeof import("./other")["thing"];',
+      'export namespace NS { export const inside = 1; }',
+      '@Injectable()',
+      'export class C {',
+      '  m(xs: number[]) {',
+      '    const c = 1;',
+      '    let l = 2;',
+      '    var v = 3;',
+      '    outer: for (const x of xs) { if (x) { break outer; } }',
+      '    for (const k in { a: 1 }) { void k; }',
+      '    try { void 0; } catch (e) { void e; }',
+      '    return [c, l, v];',
+      '  }',
+      '}',
+    ].join('\n'),
+    'other.ts': 'export const thing = 1;\n',
+    'ambient.d.ts': 'declare module "legacy-pkg" { export function go(): void; }\n',
+  }, { experimentalDecorators: true });
+
+  const failures: string[] = [];
+  const has = (file: string, column: string, value: string): boolean =>
+    relation(outputDir, file).some((r) => (r[column] ?? '') === value);
+  const expectations: [string, string, string, string][] = [
+    ['all-typescript-variables.csv', 'declarationKind', 'CONST', 'const must not read AWAIT_USING'],
+    ['all-typescript-variables.csv', 'declarationKind', 'LET', 'let'],
+    ['all-typescript-variables.csv', 'declarationKind', 'VAR', 'var'],
+    ['all-typescript-variables.csv', 'declarationKind', 'FOR_OF', 'for-of binding'],
+    ['all-typescript-variables.csv', 'declarationKind', 'FOR_IN', 'for-in binding'],
+    ['all-typescript-variables.csv', 'declarationKind', 'CATCH', 'catch binding'],
+    ['all-typescript-call-sites.csv', 'callKind', 'DECORATOR_CALL', 'a decorator runs; it is not a plain function call'],
+    ['all-typescript-blocks.csv', 'blockKind', 'LABELED', 'a labelled statement keeps its label'],
+    ['all-typescript-blocks.csv', 'blockKind', 'NAMESPACE_BODY', 'a namespace body is a block'],
+    ['all-typescript-blocks.csv', 'blockKind', 'MODULE_BODY', 'an ambient module body is a block'],
+    ['all-typescript-imports.csv', 'importKind', 'TYPE_IMPORT_NODE', 'import() in a type position is a module edge'],
+  ];
+  for (const [file, column, value, why] of expectations) {
+    if (!has(file, column, value)) {
+      failures.push(`${file}: no row with ${column}=${value} — ${why}`);
+    }
+  }
+  // AWAIT_USING must appear only for the construct that is actually one.
+  for (const row of relation(outputDir, 'all-typescript-variables.csv')) {
+    if (row.declarationKind === 'AWAIT_USING') {
+      failures.push(`${row.name}: read AWAIT_USING, but the fixture declares no \`await using\``);
+    }
+  }
+
+  console.log(`  ${expectations.length} enum value(s) asserted across variables, call sites, ` +
+    'blocks and imports — each one emitted wrongly at some point');
+  for (const f of failures.slice(0, 10)) console.log(`  ${f}`);
+  cleanup();
+  return failures.length ? 1 : 0;
+}
+
+// ---------------------------------------------------------------------------
+// 18. Overload resolution never names the implementation
+// ---------------------------------------------------------------------------
+
+/**
+ * §4.6: the IMPLEMENTATION "is NOT the signature a call resolves to".
+ *
+ * Its parameter list is the UNION of the overloads it serves, so it admits
+ * every arity they do. Counting it as a candidate made an unambiguous set look
+ * ambiguous and the column was left empty -- a silent loss, because an empty
+ * column is indistinguishable from "syntax cannot decide".
+ *
+ * The second half is the shape member: `{ resolve(); resolve(v) }` had every
+ * signature marked SOLE -- "the only declaration of its name in its table" --
+ * which is false whenever there are two, and makes a consumer fan across them.
+ */
+async function overloadsNeverNameTheImplementation(): Promise<number> {
+  if (!parserPresent()) {
+    return pendingCheck('overloads never name the implementation',
+      'no extractor yet. A call resolves to an overload signature, never to the implementation');
+  }
+  const { outputDir, cleanup } = await analyseInline('ts-ovl-', {
+    'o.ts': [
+      'export function pick(a: string): string;',
+      'export function pick(a: string, b: number): number;',
+      'export function pick(a: string, b?: number): string | number { return b ?? a; }',
+      'export declare const shape: { resolve(): void; resolve(v: number): void };',
+      'export declare const single: { only(): void };',
+      'export function run() { return pick("x"); }',
+    ].join('\n'),
+  });
+
+  const failures: string[] = [];
+  const methods = relation(outputDir, 'all-typescript-methods.csv');
+  const byHash = new Map(methods.map((m) => [m.tsMethodUniqueHash ?? '', m]));
+
+  const call = relation(outputDir, 'all-typescript-call-sites.csv')
+    .find((c) => c.calleeName === 'pick');
+  if (!call) {
+    failures.push('no call site for pick("x")');
+  } else {
+    const target = byHash.get(call.resolvedSignatureLinkHash ?? '');
+    if (!target) {
+      failures.push('pick("x") resolved to nothing — one signature accepts one argument, so ' +
+        'arity decides it; the implementation is not a candidate');
+    } else if (target.signatureRole === 'IMPLEMENTATION') {
+      failures.push('pick("x") resolved to the IMPLEMENTATION, which is never what tsc names');
+    }
+  }
+
+  const resolves = methods.filter((m) => m.name === 'resolve');
+  if (resolves.length !== 2) {
+    failures.push(`expected 2 shape signatures named resolve, found ${resolves.length}`);
+  }
+  for (const row of resolves) {
+    if (row.signatureRole === 'SOLE') {
+      failures.push('a shape member with two signatures claims SOLE — "the only declaration of ' +
+        'its name in its table" is false when there are two');
+    }
+  }
+  const only = methods.find((m) => m.name === 'only');
+  if (only && only.signatureRole !== 'SOLE') {
+    failures.push(`a lone shape member should stay SOLE, got ${only.signatureRole}`);
+  }
+
+  console.log(`  arity picks the signature over the implementation; ${resolves.length} shape ` +
+    'signatures of one name are not SOLE, and a lone one still is');
+  for (const f of failures.slice(0, 10)) console.log(`  ${f}`);
+  cleanup();
+  return failures.length ? 1 : 0;
+}
+
+// ---------------------------------------------------------------------------
+// 19. Discovery follows the import closure
+// ---------------------------------------------------------------------------
+
+/**
+ * `"files": [...]` names ENTRY POINTS, not a file list.
+ *
+ * tsc follows imports transitively. Reading the config literally gave immer 4
+ * files where the real program has 17, so 13 files and 61% of its call sites
+ * were invisible -- and nothing reported it, because a file that no config
+ * claims is not an error, it simply never arrives.
+ */
+async function discoveryFollowsTheImportClosure(): Promise<number> {
+  if (!parserPresent()) {
+    return pendingCheck('discovery follows the import closure',
+      'no extractor yet. A program is its roots plus everything they import');
+  }
+  const { outputDir, cleanup } = await analyseInline('ts-closure-', {
+    // Only entry.ts is named. helper.ts and deep.ts arrive only by being imported.
+    'tsconfig.json': JSON.stringify({
+      compilerOptions: { target: 'ES2022', module: 'ESNext', strict: true },
+      files: ['./entry.ts'],
+    }),
+    'entry.ts': 'import { helper } from "./helper";\nexport const a = helper();\n',
+    'helper.ts': 'import { deep } from "./deep";\nexport function helper() { return deep(); }\n',
+    'deep.ts': 'export function deep() { return 1; }\n',
+    'unreachable.ts': 'export function never() { return 0; }\n',
+  });
+
+  const analysed = new Set(relation(outputDir, 'all-typescript-modules.csv')
+    .map((m) => m.filePath ?? ''));
+  const failures: string[] = [];
+  for (const expected of ['entry.ts', 'helper.ts', 'deep.ts']) {
+    if (!analysed.has(expected)) {
+      failures.push(`${expected} was not analysed — "files" names entry points, and tsc follows ` +
+        'imports transitively from them');
+    }
+  }
+  // The closure must not become "walk everything": a file nothing imports and
+  // no config claims still belongs to no program.
+  if (analysed.has('unreachable.ts')) {
+    failures.push('unreachable.ts was analysed — it is imported by nothing and named by nothing, ' +
+      'so the closure has become a directory walk');
+  }
+
+  console.log(`  ${analysed.size} module(s) from one named entry point: the closure reaches ` +
+    'transitively imported files and stops at unreachable ones');
+  for (const f of failures.slice(0, 10)) console.log(`  ${f}`);
+  cleanup();
+  return failures.length ? 1 : 0;
+}
+
 const CHECKS: Check[] = [
   { name: 'compiles', proves: 'tsc --noEmit is clean — the suite reports on code that actually builds', run: compiles },
   { name: 'fixtures compile and are isolated', proves: 'a fixture is a valid input, and cannot break another language\'s gate', run: fixturesCompile },
@@ -1766,6 +2004,9 @@ const CHECKS: Check[] = [
   { name: 'destructuring records its source', proves: 'a bound name carries the property or index it binds, so a renamed or positional binding is recoverable', run: destructuringRecordsItsSource },
   { name: 'no emitted value can split a row', proves: 'no value contains a character a consumer treats as a line break, so a row cannot tear', run: noValueCanSplitARow },
   { name: 'signatures link their return type', proves: 'a call through any callable shape reaches a result type, so a chain does not stop at it', run: signaturesLinkTheirReturnType },
+  { name: 'kinds that were wrong once', proves: 'a row in the right place with the wrong kind is invisible to every count-based check', run: kindsThatWereWrongOnce },
+  { name: 'overloads never name the implementation', proves: 'a call resolves to an overload signature, and a shape member with two signatures is not SOLE', run: overloadsNeverNameTheImplementation },
+  { name: 'discovery follows the import closure', proves: 'a program is its roots plus everything they import, and nothing more', run: discoveryFollowsTheImportClosure },
   { name: 'fact-base invariants', proves: 'every PK unique, every FK resolves, every tree well-formed — the failures that load cleanly and count wrong', run: factBaseInvariants },
   { name: 'IR completeness', proves: 'every hop an engine needs in order to resolve is present — the measure that replaced resolution rate', run: irCompleteness },
 ];
