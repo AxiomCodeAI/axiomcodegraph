@@ -202,19 +202,65 @@ method_declared_return_type(p, m, t) :-
 //
 // A quoted union such as `"str | bytes"` simply fails to match a single name, which is
 // the right outcome -- only the bare-name form resolves here.
-annotation_unquoted(raw, inner) :-
-    method_decl(_, _, _, _, raw, _), strlen(raw) > 2,
-    substr(raw, 0, 1) = "\"", substr(raw, strlen(raw) - 1, 1) = "\"",
-    inner = substr(raw, 1, strlen(raw) - 2).
-annotation_unquoted(raw, inner) :-
-    method_decl(_, _, _, _, raw, _), strlen(raw) > 2,
-    substr(raw, 0, 1) = "'", substr(raw, strlen(raw) - 1, 1) = "'",
-    inner = substr(raw, 1, strlen(raw) - 2).
+// WIDENED FROM RETURN TYPES TO EVERY ANNOTATION SURFACE, and moved to the chokepoint.
+// This originally read method_decl only, so `-> "Factory"` resolved while
+// `options: "ConsoleOptions"` did not -- and a string forward reference is the standard
+// way to annotate against a class imported under `if TYPE_CHECKING:`, which is in turn the
+// standard way to break an import cycle. The shape therefore concentrates in exactly the
+// modules with the most cross-type calls, where the receiver was annotated, nameable, and
+// still untyped.
+//
+// A SECOND SPELLING has to normalise too. The base type is derived by truncating the
+// annotation at the first `[`, so a subscripted forward reference keeps an UNBALANCED
+// LEADING QUOTE: `"Union[RenderableType, Text]"` arrives as `"Union`. Requiring both
+// quotes -- as the previous version did -- silently skipped every one of those. So the
+// lead is stripped on its own, and the tail only when it is actually there.
+annotation_raw(b) :- param_annotation(_, b, _, _, _), b != "".
+annotation_raw(b) :- method_decl(_, _, _, _, b, _), b != "".
+annotation_raw(b) :- field_annotation(_, _, b, _, _), b != "".
+// Only these three. Widening annotation_raw to type_ref / binding / base-slot names was
+// tried and MEASURED TO CHANGE NOTHING: a fully quoted `"List[Holder]"` is one opaque
+// string to the parser, which emits no GENERIC_ARGUMENT inside it, so there is no inner
+// name for a quote-stripping rule to reach. That element type is unavailable for reasons
+// this layer cannot fix, and f10_forward_refs.quoted_generic_element records it.
+
+annotation_lead_stripped(raw, s) :-
+    annotation_raw(raw), strlen(raw) > 1,
+    substr(raw, 0, 1) = "\"",
+    s = substr(raw, 1, strlen(raw) - 1).
+annotation_lead_stripped(raw, s) :-
+    annotation_raw(raw), strlen(raw) > 1,
+    substr(raw, 0, 1) = "'",
+    s = substr(raw, 1, strlen(raw) - 1).
+
+annotation_unquoted(raw, t) :-
+    annotation_lead_stripped(raw, s), strlen(s) > 1,
+    substr(s, strlen(s) - 1, 1) = "\"",
+    t = substr(s, 0, strlen(s) - 1).
+annotation_unquoted(raw, t) :-
+    annotation_lead_stripped(raw, s), strlen(s) > 1,
+    substr(s, strlen(s) - 1, 1) = "'",
+    t = substr(s, 0, strlen(s) - 1).
+annotation_unquoted(raw, s) :-
+    annotation_lead_stripped(raw, s), strlen(s) > 0,
+    substr(s, strlen(s) - 1, 1) != "\"",
+    substr(s, strlen(s) - 1, 1) != "'".
+
+// ONE clause instead of one per surface. param_declared_type,
+// method_declared_return_type and field_declared_type all look their name up through
+// type_name_in_module, so normalising here reaches all three -- and the _lib twin carries
+// it across the client/library boundary -- with no consumer changing.
+type_name_in_module(p, mod, raw, t) :-
+    annotation_unquoted(raw, inner),
+    type_name_in_module(p, mod, inner, t).
+type_name_in_module_lib(mod, raw, t) :-
+    annotation_unquoted(raw, inner),
+    type_name_in_module_lib(mod, inner, t).
+
 method_declared_return_type(p, m, t) :-
     method_decl(p, _, _, _, ret, m), ret != "",
-    annotation_unquoted(ret, inner),
     method_module(p, mod, m),
-    type_name_in_module(p, mod, inner, t).
+    type_name_in_module(p, mod, ret, t).
 
 // ── method_declared_return_type_lib(MethodHash, LibTypeHash) ─────────────────
 // `def make() -> Square` in the client, Square declared in the library. Same shape as

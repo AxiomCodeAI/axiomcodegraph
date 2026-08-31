@@ -4,6 +4,7 @@ ambiguous_unknown	DECORATOR_APPLICATION	f05_decorators.<module> -> -
 ambiguous_unknown	DYNAMIC_CALL	f08_dynamic.getattr_call -> -
 ambiguous_unknown	METHOD_CALL	f06_flow.takes_unannotated -> -
 ambiguous_unknown	METHOD_CALL	f08_dynamic.conditional_type -> -
+ambiguous_unknown	METHOD_CALL	f10_forward_refs.quoted_generic_element -> -
 ambiguous_unknown	SIMPLE_CALL	f02_callables.closure_target -> -
 ambiguous_unknown	SIMPLE_CALL	f05_decorators.call_client_decorated -> -
 ambiguous_unknown	SIMPLE_CALL	f05_decorators.decorator_factory_applied -> -
@@ -57,6 +58,10 @@ boundary_lib	METHOD_CALL	f06_flow.takes_annotated -> lib:tlib.shapes.Square.name
 boundary_lib	METHOD_CALL	f07_imports.via_module_alias -> builtin:object.__init__
 boundary_lib	METHOD_CALL	f07_imports.via_module_function -> lib:tlib.callables.module_fn
 boundary_lib	METHOD_CALL	f07_imports.via_package_attribute -> builtin:object.__init__
+boundary_lib	METHOD_CALL	f10_forward_refs.quoted_generic_element -> builtin:str.join
+boundary_lib	METHOD_CALL	f10_forward_refs.quoted_lib_param -> lib:tlib.shapes.Base.name
+boundary_lib	METHOD_CALL	f10_forward_refs.type_checking_only_param -> lib:tlib.shapes.Mid.name
+boundary_lib	METHOD_CALL	main.main -> builtin:object.__init__
 boundary_lib	SELF_CALL	f02_callables.HoldsCallables.run -> lib:tlib.callables.Doubler.__call__
 boundary_lib	SELF_CALL	f09_adversarial.Rebound.use -> lib:tlib.callables.Doubler.__call__
 boundary_lib	SELF_CALL	f09_adversarial.Rebound.use -> lib:tlib.callables.Tripler.__call__
@@ -100,6 +105,7 @@ boundary_lib	SIMPLE_CALL	f09_adversarial.inherited_through_a_silent_class -> bui
 boundary_lib	SIMPLE_CALL	f09_adversarial.override_of_an_inherited_method -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f09_adversarial.shadowed_against_a_library_name -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f09_adversarial.shadowed_method_name -> builtin:object.__init__
+boundary_lib	SIMPLE_CALL	f10_forward_refs.quoted_return -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	main.main -> builtin:print
 known_edge	CHAINED_CALL	f01_inheritance.client_chain -> f01_inheritance.LocalBase.kind
@@ -110,8 +116,14 @@ known_edge	CHAINED_CALL	f09_adversarial.rebound_attribute -> f09_adversarial.Reb
 known_edge	CHAINED_CALL	f09_adversarial.shadowed_against_a_library_name -> f09_adversarial.Overrider.name
 known_edge	CHAINED_CALL	f09_adversarial.shadowed_method_name -> f09_adversarial.Shadow.run
 known_edge	CHAINED_CALL	f09_adversarial.shadowed_method_name -> f09_adversarial.Unrelated.run
+known_edge	CHAINED_CALL	f10_forward_refs.uses_quoted_return -> f10_forward_refs.Holder.tag
+known_edge	CHAINED_CALL	main.main -> f10_forward_refs.Boxed.read
 known_edge	METHOD_CALL	f04_descriptors.client_descriptors -> f04_descriptors.LocalCfg.make
 known_edge	METHOD_CALL	f04_descriptors.client_descriptors -> f04_descriptors.LocalCfg.util
+known_edge	METHOD_CALL	f10_forward_refs.Boxed.read -> f10_forward_refs.Holder.tag
+known_edge	METHOD_CALL	f10_forward_refs.quoted_optional -> f10_forward_refs.Holder.tag
+known_edge	METHOD_CALL	f10_forward_refs.quoted_param -> f10_forward_refs.Holder.tag
+known_edge	METHOD_CALL	f10_forward_refs.single_quoted_param -> f10_forward_refs.Holder.tag
 known_edge	METHOD_CALL	main.main -> f01_inheritance.client_chain
 known_edge	METHOD_CALL	main.main -> f01_inheritance.lib_deep_chain
 known_edge	METHOD_CALL	main.main -> f01_inheritance.lib_diamond
@@ -155,6 +167,14 @@ known_edge	METHOD_CALL	main.main -> f09_adversarial.override_of_an_inherited_met
 known_edge	METHOD_CALL	main.main -> f09_adversarial.rebound_attribute
 known_edge	METHOD_CALL	main.main -> f09_adversarial.shadowed_against_a_library_name
 known_edge	METHOD_CALL	main.main -> f09_adversarial.shadowed_method_name
+known_edge	METHOD_CALL	main.main -> f10_forward_refs.Boxed.__init__
+known_edge	METHOD_CALL	main.main -> f10_forward_refs.quoted_generic_element
+known_edge	METHOD_CALL	main.main -> f10_forward_refs.quoted_lib_param
+known_edge	METHOD_CALL	main.main -> f10_forward_refs.quoted_optional
+known_edge	METHOD_CALL	main.main -> f10_forward_refs.quoted_param
+known_edge	METHOD_CALL	main.main -> f10_forward_refs.single_quoted_param
+known_edge	METHOD_CALL	main.main -> f10_forward_refs.type_checking_only_param
+known_edge	METHOD_CALL	main.main -> f10_forward_refs.uses_quoted_return
 known_edge	PROPERTY_READ	f04_descriptors.client_descriptors -> f04_descriptors.LocalCfg.label
 known_edge	PROPERTY_READ	f04_descriptors.lib_property_read -> lib:tlib.descriptors.Config.tag
 known_edge	SELF_CALL	f02_callables.HoldsCallables.run -> f02_callables.LocalCallable.__call__
@@ -162,4 +182,5 @@ known_edge	SIMPLE_CALL	f02_callables.attribute_callables -> f02_callables.HoldsC
 known_edge	SIMPLE_CALL	f06_flow.passes_through -> f06_flow.takes_annotated
 known_edge	SIMPLE_CALL	f06_flow.uses_return -> f06_flow.returns_instance
 known_edge	SIMPLE_CALL	f09_adversarial.rebound_attribute -> f09_adversarial.Rebound.__init__
+known_edge	SIMPLE_CALL	f10_forward_refs.uses_quoted_return -> f10_forward_refs.quoted_return
 known_edge	SIMPLE_CALL	main.<module> -> main.main
