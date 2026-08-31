@@ -131,6 +131,7 @@ boundary_lib	SIMPLE_CALL	f12_value_flow.method_alias_on_instance -> builtin:obje
 boundary_lib	SIMPLE_CALL	f13_declared_dispatch.exact_receiver_is_not_widened -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f14_class_objects.Element.create -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f15_attribute_chains.Middle.__init__ -> builtin:object.__init__
+boundary_lib	SIMPLE_CALL	f16_element_types.via_comprehension -> builtin:sum
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	main.main -> builtin:print
@@ -173,6 +174,11 @@ known_edge	METHOD_CALL	f15_attribute_chains.Holder.via_self_two_hops -> f15_attr
 known_edge	METHOD_CALL	f15_attribute_chains.via_local -> f15_attribute_chains.Leaf.emit
 known_edge	METHOD_CALL	f15_attribute_chains.via_parameter -> f15_attribute_chains.Leaf.emit
 known_edge	METHOD_CALL	f15_attribute_chains.via_parameter_one_hop -> f15_attribute_chains.Leaf.emit
+known_edge	METHOD_CALL	f16_element_types.Engine.via_self -> f16_element_types.Hook.process
+known_edge	METHOD_CALL	f16_element_types.via_comprehension -> f16_element_types.Hook.process
+known_edge	METHOD_CALL	f16_element_types.via_local -> f16_element_types.Hook.process
+known_edge	METHOD_CALL	f16_element_types.via_parameter -> f16_element_types.Hook.process
+known_edge	METHOD_CALL	f16_element_types.via_parameter_from_param_field -> f16_element_types.Hook.process
 known_edge	METHOD_CALL	main.main -> f01_inheritance.client_chain
 known_edge	METHOD_CALL	main.main -> f01_inheritance.lib_deep_chain
 known_edge	METHOD_CALL	main.main -> f01_inheritance.lib_diamond
@@ -253,6 +259,12 @@ known_edge	METHOD_CALL	main.main -> f15_attribute_chains.Middle.__init__
 known_edge	METHOD_CALL	main.main -> f15_attribute_chains.via_local
 known_edge	METHOD_CALL	main.main -> f15_attribute_chains.via_parameter
 known_edge	METHOD_CALL	main.main -> f15_attribute_chains.via_parameter_one_hop
+known_edge	METHOD_CALL	main.main -> f16_element_types.Engine.__init__
+known_edge	METHOD_CALL	main.main -> f16_element_types.Engine.via_self
+known_edge	METHOD_CALL	main.main -> f16_element_types.via_comprehension
+known_edge	METHOD_CALL	main.main -> f16_element_types.via_local
+known_edge	METHOD_CALL	main.main -> f16_element_types.via_parameter
+known_edge	METHOD_CALL	main.main -> f16_element_types.via_parameter_from_param_field
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator_in_for
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_plain
