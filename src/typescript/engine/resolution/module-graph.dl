@@ -382,11 +382,25 @@ pkg_specifier_wanted(spec) :- export_source("lib", spec, "", _),
 pkg_specifier_wanted(spec) :- type_ref_import_specifier(_, spec, _),
     spec != "", !specifier_is_relative(spec).
 
+// The package ROOT and the published subdirectories both count. A package keeps its
+// real declarations in a directory the parser skips by name, so staging takes the root
+// AND `dist`/`build`/`out` as separate modules — and the name a specifier asks for
+// usually lives in the subdirectory, not the root: `import('<pkg>')` resolves to the
+// root's shim, which re-exports the subdirectory by a RELATIVE path that cannot be
+// joined across two separately-staged trees (each is parsed with paths relative to its
+// own root). Matching the root alone therefore finds the shim and none of its exports.
+// The suffix list mirrors exactly what staging creates, so this widens to the package
+// and never past it.
 lib_package_root_target(spec, m) :- pkg_specifier_wanted(spec),
-    suffix = cat("node_modules/", spec),
+    pkg_staged_subdir(sub),
+    suffix = cat(cat("node_modules/", spec), sub),
     module_base_path("lib", bp, m),
     strlen(bp) > strlen(suffix),
     substr(bp, strlen(bp) - strlen(suffix), strlen(suffix)) = suffix.
+pkg_staged_subdir("").
+pkg_staged_subdir("/dist").
+pkg_staged_subdir("/build").
+pkg_staged_subdir("/out").
 
 export_target_module(h, "lib", m) :- export_source("lib", spec, "", h),
     lib_package_root_target(spec, m).

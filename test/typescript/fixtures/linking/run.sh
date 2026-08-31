@@ -31,6 +31,21 @@ mkdir -p "$WORK/project/node_modules"
 cp -R "$WORK/project/vendor/." "$WORK/project/node_modules/"
 rm -rf "$WORK/project/vendor"
 
+# A NON-FLAT (pnpm) INSTALL, built by hand because it cannot be expressed by copying a
+# directory. @tt/shallow is hoisted; @tt/deep is reachable ONLY from inside the store,
+# exactly as pnpm lays out a transitive dependency. Copying both to the top level would
+# make the fixture pass for the wrong reason, so @tt/deep must never appear there.
+NM="$WORK/project/node_modules"
+PS="$NM/.pnpm"
+mkdir -p "$PS/@tt+shallow@1.0.0/node_modules/@tt" "$PS/@tt+deep@1.0.0/node_modules/@tt"
+cp -R "$WORK/project/pnpm-vendor/@tt/shallow" "$PS/@tt+shallow@1.0.0/node_modules/@tt/shallow"
+cp -R "$WORK/project/pnpm-vendor/@tt/deep"    "$PS/@tt+deep@1.0.0/node_modules/@tt/deep"
+# the dependent sees its dependency; the project sees only the dependent
+ln -sfn "$PS/@tt+deep@1.0.0/node_modules/@tt/deep" "$PS/@tt+shallow@1.0.0/node_modules/@tt/deep"
+mkdir -p "$NM/@tt"
+ln -sfn "$PS/@tt+shallow@1.0.0/node_modules/@tt/shallow" "$NM/@tt/shallow"
+rm -rf "$WORK/project/pnpm-vendor"
+
 bash "$REPO/test/typescript/run-evaluation.sh" "$WORK/project" "$WORK/eval"
 
 # ── the gate ─────────────────────────────────────────────────────────────────
@@ -42,13 +57,24 @@ bash "$REPO/test/typescript/run-evaluation.sh" "$WORK/project" "$WORK/eval"
 # The list is deliberately (file, callee) and not a full edge golden: an edge golden
 # over library declarations moves whenever a vendored .d.ts is edited, and a gate that
 # is re-blessed routinely stops being a gate.
-MISSED="$WORK/eval/missed.tsv"
+SITES="$WORK/eval/sites.tsv"
 SCORE="$WORK/eval/score.txt"
 fail=0
 
+# Assert on the SITE dump, not the missed list. A check that only reads missed.tsv
+# passes VACUOUSLY when the call site does not exist at all — delete the fixture file
+# and every assertion about it goes green, which is the precise failure this gate was
+# added to prevent. So existence is asserted first, and separately.
 require_resolved() {  # <file-fragment> <calleeName> <why>
-  if awk -F'\t' -v f="$1" -v c="$2" 'NR>1 && index($1,f) && $5==c {found=1} END{exit !found}' "$MISSED"; then
-    echo "FAIL  $1  $2()  — unresolved.  $3"
+  present=$(awk -F'\t' -v f="$1" -v c="$2" 'NR>1 && index($2,f) && $6==c {n++} END{print n+0}' "$SITES")
+  if [ "$present" -eq 0 ]; then
+    echo "FAIL  $1  $2()  — NO SUCH CALL SITE. The fixture that exercised this is gone"
+    echo "      or renamed, so the check was passing without testing anything.  $3"
+    fail=1; return
+  fi
+  bad=$(awk -F'\t' -v f="$1" -v c="$2" 'NR>1 && index($2,f) && $6==c && $1=="MISSED" {n++} END{print n+0}' "$SITES")
+  if [ "$bad" -gt 0 ]; then
+    echo "FAIL  $1  $2()  — $bad of $present unresolved.  $3"
     fail=1
   fi
 }
@@ -82,6 +108,18 @@ require_resolved link-conditional.ts shared \
 # `finish` is the second hop and is unreachable without it.
 require_resolved link-conditional.ts finish \
   "a function-typed member's return must type the chained call"
+
+# A transitive dependency that exists ONLY in a pnpm store. `deepCall` and
+# `deepStatic` are unreachable unless the package is resolved from the DEPENDENT's
+# real directory; `shallowLocal` is the hoisted control and must keep resolving.
+require_resolved link-pnpm-store.ts deepCall \
+  "a non-hoisted transitive package must be resolved from the dependent's directory"
+require_resolved link-pnpm-store.ts deepStatic \
+  "a const whose type carries the call signature is callable"
+require_resolved link-pnpm-store.ts extend \
+  "a member on a callable const"
+require_resolved link-pnpm-store.ts shallowLocal \
+  "the control: declared in the hoisted package"
 
 # The fixture answers only where it is sure: a WRONG answer here is a rule that
 # manufactures confidence, which is worse than the missing edge it replaces.
