@@ -119,6 +119,40 @@ expr_type(p, e, t) :-
     type_attr_field(p, owner, n, f),
     field_declared_type(p, f, d),
     declared_dispatch(p, d, t).
+// (i2) `<anything>.x` — the SAME hop, with the object's own type instead of self's.
+//
+// Every attribute-typing rule above goes through expr_attr_of_self, which is defined to
+// require the object expression to be a SELF_REFERENCE. So `self.x` was typed three ways
+// and `anything_else.x` was typed no way, even where the object's type is perfectly well
+// known -- `def render(layout: Layout)` then `layout.splitter.divide(...)`.
+//
+// It also truncated every chain longer than one attribute, including on self: `self.a`
+// resolves, but `self.a.b` is an attribute whose object is not self.
+//
+// So the self clauses become a special case of this rather than the only case, and a chain
+// of any length follows by recursion, since the object's type is derived the same way.
+// Same two field-type sources and the same declared_dispatch widening as the self clauses,
+// so no new precision assumption is introduced.
+expr_type(p, e, t) :-
+    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
+    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_type(p, obj, ot),
+    type_attr_field(p, ot, n, f),
+    field_declared_type(p, f, d),
+    declared_dispatch(p, d, t).
+expr_type(p, e, t) :-
+    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
+    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_type(p, obj, ot),
+    type_attr_field(p, ot, n, f),
+    field_type_from_param(p, f, d),
+    declared_dispatch(p, d, t).
+expr_type(p, e, t) :-
+    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
+    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_type(p, obj, ot),
+    type_attr_field(p, ot, n, f),
+    field_type_from_construction(p, f, t).
 // (j) A loop or comprehension variable over a container whose ELEMENT type is declared:
 //     `for line in self.lines` where lines is List[LineItem]. Without this the whole
 //     order-total chain on the measured project stopped at the generator expression.
