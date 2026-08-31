@@ -14,6 +14,7 @@ from pkgmod import user as pkguser
 import f11_multiwrite as f11
 import f12_value_flow as f12
 import f13_declared_dispatch as f13
+import f14_class_objects as f14
 from tlib import Square
 from tlib.shapes import Base, Mid
 
@@ -56,6 +57,10 @@ def main() -> None:
     for ld in (f13.FileLoader(), f13.DictLoader()):
         print(f13.Engine(ld).run("t"), f13.via_parameter(ld, "t"), f13.via_parameter_inherited(ld))
     print(f13.StepA().run(), f13.StepB().run(), f13.exact_receiver_is_not_widened())
+    print(f14.via_binding(), f14.via_or(None), f14.via_ternary(True), f14.via_ternary(False))
+    print(f14.via_type_annotation(f14.Para))
+    r = f14.Registry()
+    print(r.build_get("h"), r.build_get("zz"), r.build_subscript("p"))
 
 
 if __name__ == "__main__":

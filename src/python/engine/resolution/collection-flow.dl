@@ -214,6 +214,70 @@ expr_type_class_object(p, e, t) :-
     binding_lookup(p, ob, b),
     binding_dict_entry_type(p, b, k, t).
 
+// ── `REGISTRY.get(key)` is the same lookup as `REGISTRY[key]` ────────────────
+// The dict method spelling of the clause above. `.get` is the form a registry lookup
+// actually takes, because the caller wants a default rather than a KeyError — and the
+// `or <default>` that usually follows is carried by the boolean-operation rules in
+// resolution/value-flow.dl.
+expr_type_class_object(p, e, t) :-
+    call_of_expr(e, site),
+    call_name(site, "get"),
+    call_receiver_object(site, obj),
+    call_arg(site, "0", idx),
+    expr_key_text(p, idx, k),
+    expr_binding(p, ob, ctx, obj), ctx != "STORE",
+    binding_lookup(p, ob, b),
+    binding_dict_entry_type(p, b, k, t).
+
+// ── A CLASS REGISTRY HELD ON A CLASS-LEVEL ATTRIBUTE ────────────────────────
+// The canonical registry declaration:
+//
+//     class Markdown:
+//         elements: ClassVar[dict[str, type[Element]]] = {"h": Heading, "p": Para}
+//         ...
+//         cls = self.elements.get(token.type) or Unknown
+//
+// dict entries were only ever keyed on a BINDING, so a registry declared in a class body
+// and read through `self.` had none — which is where registries actually live, since the
+// table is shared by every instance.
+field_dict_entry_class(p, f, t) :-
+    field_write_value(p, f, val),
+    dict_literal_entry(p, val, _, ve),
+    expr_type_class_object(p, ve, t).
+
+expr_type_class_object(p, e, t) :-
+    call_of_expr(e, site),
+    call_name(site, "get"),
+    call_receiver_object(site, obj),
+    expr_attr_of_self(p, obj, n, owner),
+    type_attr_field(p, owner, n, f),
+    field_dict_entry_class(p, f, t).
+expr_type_class_object(p, e, t) :-
+    expr_node(p, "SUBSCRIPT", _, _, e),
+    expr_parent(p, e, "SUBSCRIPT_OBJECT", _, obj),
+    expr_attr_of_self(p, obj, n, owner),
+    type_attr_field(p, owner, n, f),
+    field_dict_entry_class(p, f, t).
+
+// ── an UNPINNED key into a registry yields the UNION of what it holds ────────
+// `REGISTRY.get(token.type)` — the key is computed, so no single entry is implied, but
+// the set of classes the registry was BUILT from is known exactly and the answer is
+// inside it. That is the same sound-set trade made everywhere else, and it is the shape
+// a real dispatch table takes: the key is data, the values are not.
+//
+// Keyed on the index NOT being a literal rather than on the absence of a pinned key, so
+// this stays a comparison rather than a negation and the pinned clause above keeps its
+// exact single answer.
+expr_type_class_object(p, e, t) :-
+    call_of_expr(e, site),
+    call_name(site, "get"),
+    call_receiver_object(site, obj),
+    call_arg(site, "0", idx),
+    expr_node(p, ik, _, _, idx), ik != "LITERAL",
+    expr_binding(p, ob, ctx, obj), ctx != "STORE",
+    binding_lookup(p, ob, b),
+    binding_dict_entry_type(p, b, _, t).
+
 // ============================================================================
 // A REGISTRY HELD ON AN ATTRIBUTE — the last hop of the cross-service chain
 //
