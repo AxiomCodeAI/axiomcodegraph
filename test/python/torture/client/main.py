@@ -10,6 +10,7 @@ import f07_imports as f7
 import f08_dynamic as f8
 import f09_adversarial as f9
 import f10_forward_refs as f10
+from pkgmod import user as pkguser
 from tlib import Square
 from tlib.shapes import Base, Mid
 
@@ -39,6 +40,8 @@ def main() -> None:
     print(f10.quoted_optional(h), f10.quoted_generic_element([h]))
     print(f10.quoted_lib_param(Base()), f10.type_checking_only_param(Mid()))
     print(f10.Boxed(h).read())
+    print(pkguser.run_generator([1, 2]), pkguser.run_generator_in_for([3, 4]))
+    print(pkguser.run_plain([5]))
 
 
 if __name__ == "__main__":
