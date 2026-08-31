@@ -31,3 +31,35 @@ export function callTypeofAlias(x: unknown): boolean {
 export function callAssignAlias(a: object, b: object): object {
   return assignAlias(a, b);                  // -> lib.es2015.core  ObjectConstructor.assign
 }
+
+// ── the compiler names the SIGNATURE, the engine names the IMPLEMENTATION ────
+// The shape that produces the divergence, taken from real code: a factory returns a
+// value typed as an INTERFACE, the caller DESTRUCTURES a member off it, and calls the
+// binding. tsc types the binding from the interface member, so it resolves to the
+// bodiless METHOD_SIGNATURE. The engine follows the value flow into the object literal
+// the factory actually returned, and names the method that runs.
+//
+// Both answers are defensible and they are not the same declaration. For a call graph
+// the implementation is the useful one, so it is scored IMPLEMENTATION_OF_SIGNATURE
+// rather than WRONG — and this fixture exists so that verdict cannot silently regress:
+// if it does, these sites become WRONG and the gate's "WRONG must be 0" assertion
+// fires. A directly-visible object literal does NOT reproduce it — tsc names the
+// implementation there too — which is why the factory is not incidental.
+interface EmitCtx {
+  emit(code: string): void;
+  finish(): string;
+}
+
+function createEmitCtx(): EmitCtx {
+  const ctx: EmitCtx = {
+    emit(code) { void code; },
+    finish() { return ''; },
+  };
+  return ctx;
+}
+
+export function useDestructuredFromFactory(code: string): string {
+  const { emit, finish } = createEmitCtx();
+  emit(code);
+  return finish();
+}
