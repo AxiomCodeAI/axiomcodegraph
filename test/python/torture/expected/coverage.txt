@@ -1,4 +1,4 @@
-=== per-family coverage (tier-4, 147 scored sites) ===
+=== per-family coverage (tier-4, 153 scored sites) ===
   f01 inheritance & MRO        links= 10  found= 10 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f02 callables & closures     links= 10  found=  9 (90.0%)  missed= 1  wide= 0  WRONG= 0
   f03 generics                 links= 14  found= 14 (100.0%)  missed= 0  wide= 0  WRONG= 0
@@ -13,10 +13,11 @@
   f12 value flow               links=  8  found=  8 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f13 declared dispatch        links=  8  found=  8 (100.0%)  missed= 0  wide= 3  WRONG= 0
   f14 class objects            links= 14  found= 14 (100.0%)  missed= 0  wide=16  WRONG= 0
+  f15 attribute chains         links=  6  found=  6 (100.0%)  missed= 0  wide= 0  WRONG= 0
   pkgmod relative imports (subpackage) links=  3  found=  3 (100.0%)  missed= 0  wide= 0  WRONG= 0
 
-  TOTAL                         links=126  found=118 (93.7%)  missed= 8  wide=21  WRONG= 0
-  recall      118/126 = 93.7%  of the links that actually ran
+  TOTAL                         links=132  found=124 (93.9%)  missed= 8  wide=21  WRONG= 0
+  recall      124/132 = 93.9%  of the links that actually ran
   wide  21   a member of a SOUND SET that did not run on this pass
   WRONG 0   a single target asserted as certain that never ran
 

@@ -130,6 +130,7 @@ boundary_lib	SIMPLE_CALL	f12_value_flow.getattr_with_default -> builtin:object._
 boundary_lib	SIMPLE_CALL	f12_value_flow.method_alias_on_instance -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f13_declared_dispatch.exact_receiver_is_not_widened -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f14_class_objects.Element.create -> builtin:object.__init__
+boundary_lib	SIMPLE_CALL	f15_attribute_chains.Middle.__init__ -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	main.main -> builtin:print
@@ -167,6 +168,11 @@ known_edge	METHOD_CALL	f14_class_objects.via_binding -> f14_class_objects.Elemen
 known_edge	METHOD_CALL	f14_class_objects.via_or -> f14_class_objects.Element.create
 known_edge	METHOD_CALL	f14_class_objects.via_ternary -> f14_class_objects.Element.create
 known_edge	METHOD_CALL	f14_class_objects.via_type_annotation -> f14_class_objects.Element.create
+known_edge	METHOD_CALL	f15_attribute_chains.Holder.via_self_construction -> f15_attribute_chains.Leaf.emit
+known_edge	METHOD_CALL	f15_attribute_chains.Holder.via_self_two_hops -> f15_attribute_chains.Leaf.emit
+known_edge	METHOD_CALL	f15_attribute_chains.via_local -> f15_attribute_chains.Leaf.emit
+known_edge	METHOD_CALL	f15_attribute_chains.via_parameter -> f15_attribute_chains.Leaf.emit
+known_edge	METHOD_CALL	f15_attribute_chains.via_parameter_one_hop -> f15_attribute_chains.Leaf.emit
 known_edge	METHOD_CALL	main.main -> f01_inheritance.client_chain
 known_edge	METHOD_CALL	main.main -> f01_inheritance.lib_deep_chain
 known_edge	METHOD_CALL	main.main -> f01_inheritance.lib_diamond
@@ -240,6 +246,13 @@ known_edge	METHOD_CALL	main.main -> f14_class_objects.via_binding
 known_edge	METHOD_CALL	main.main -> f14_class_objects.via_or
 known_edge	METHOD_CALL	main.main -> f14_class_objects.via_ternary
 known_edge	METHOD_CALL	main.main -> f14_class_objects.via_type_annotation
+known_edge	METHOD_CALL	main.main -> f15_attribute_chains.Holder.__init__
+known_edge	METHOD_CALL	main.main -> f15_attribute_chains.Holder.via_self_construction
+known_edge	METHOD_CALL	main.main -> f15_attribute_chains.Holder.via_self_two_hops
+known_edge	METHOD_CALL	main.main -> f15_attribute_chains.Middle.__init__
+known_edge	METHOD_CALL	main.main -> f15_attribute_chains.via_local
+known_edge	METHOD_CALL	main.main -> f15_attribute_chains.via_parameter
+known_edge	METHOD_CALL	main.main -> f15_attribute_chains.via_parameter_one_hop
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator_in_for
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_plain
@@ -255,6 +268,7 @@ known_edge	SIMPLE_CALL	f12_value_flow.getattr_default_callable -> f12_value_flow
 known_edge	SIMPLE_CALL	f12_value_flow.getattr_literal -> f12_value_flow.Widget.emit
 known_edge	SIMPLE_CALL	f12_value_flow.method_alias_on_class -> f12_value_flow.Widget.make
 known_edge	SIMPLE_CALL	f12_value_flow.method_alias_on_instance -> f12_value_flow.Widget.emit
+known_edge	SIMPLE_CALL	f15_attribute_chains.Holder.__init__ -> f15_attribute_chains.Middle.__init__
 known_edge	SIMPLE_CALL	main.<module> -> main.main
 known_edge	SIMPLE_CALL	pkgmod.user.run_generator -> pkgmod._gen.each
 known_edge	SIMPLE_CALL	pkgmod.user.run_generator_in_for -> pkgmod._gen.each_first
