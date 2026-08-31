@@ -202,6 +202,14 @@ expr_call_candidate(site, m) :-
     call_name(site, n),
     mro_lookup("client", t, n, m).
 
+// ── the OVERRIDES, where the receiver is known only by declaration (#43) ─────
+// One join against a relation computed entirely in the resolution layer.
+expr_call_candidate(site, m) :-
+    call_recv_declared(site),
+    call_recv_type(site, t),
+    call_name(site, n),
+    dispatch_override("client", t, n, m).
+
 // ── a DECORATED method reached through an attribute ──────────────────────────
 // `handlers.checkout(...)` where `checkout` is @retry-decorated: the name denotes the
 // decorator's OUTPUT, so the target is `inner`, not the `def`. Same answer the bare-name

@@ -126,6 +126,7 @@ boundary_lib	SIMPLE_CALL	f12_value_flow.getattr_literal -> builtin:object.__init
 boundary_lib	SIMPLE_CALL	f12_value_flow.getattr_with_default -> builtin:getattr
 boundary_lib	SIMPLE_CALL	f12_value_flow.getattr_with_default -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f12_value_flow.method_alias_on_instance -> builtin:object.__init__
+boundary_lib	SIMPLE_CALL	f13_declared_dispatch.exact_receiver_is_not_widened -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	main.main -> builtin:print
@@ -145,6 +146,8 @@ known_edge	CHAINED_CALL	main.main -> f10_forward_refs.Boxed.read
 known_edge	CHAINED_CALL	main.main -> f11_multiwrite.HoldsOr.run
 known_edge	CHAINED_CALL	main.main -> f11_multiwrite.HoldsTernary.run
 known_edge	CHAINED_CALL	main.main -> f12_value_flow.UsesFactory.run
+known_edge	CHAINED_CALL	main.main -> f13_declared_dispatch.Base.run
+known_edge	CHAINED_CALL	main.main -> f13_declared_dispatch.Engine.run
 known_edge	METHOD_CALL	f04_descriptors.client_descriptors -> f04_descriptors.LocalCfg.make
 known_edge	METHOD_CALL	f04_descriptors.client_descriptors -> f04_descriptors.LocalCfg.util
 known_edge	METHOD_CALL	f10_forward_refs.Boxed.read -> f10_forward_refs.Holder.tag
@@ -153,6 +156,8 @@ known_edge	METHOD_CALL	f10_forward_refs.quoted_param -> f10_forward_refs.Holder.
 known_edge	METHOD_CALL	f10_forward_refs.single_quoted_param -> f10_forward_refs.Holder.tag
 known_edge	METHOD_CALL	f12_value_flow.UsesFactory.run -> f12_value_flow.Widget.emit
 known_edge	METHOD_CALL	f12_value_flow.getattr_with_default -> f12_value_flow.Widget.emit
+known_edge	METHOD_CALL	f13_declared_dispatch.exact_receiver_is_not_widened -> f13_declared_dispatch.FileLoader.load
+known_edge	METHOD_CALL	f13_declared_dispatch.via_parameter_inherited -> f13_declared_dispatch.Loader.describe
 known_edge	METHOD_CALL	main.main -> f01_inheritance.client_chain
 known_edge	METHOD_CALL	main.main -> f01_inheritance.lib_deep_chain
 known_edge	METHOD_CALL	main.main -> f01_inheritance.lib_diamond
@@ -216,6 +221,10 @@ known_edge	METHOD_CALL	main.main -> f12_value_flow.getattr_literal
 known_edge	METHOD_CALL	main.main -> f12_value_flow.getattr_with_default
 known_edge	METHOD_CALL	main.main -> f12_value_flow.method_alias_on_class
 known_edge	METHOD_CALL	main.main -> f12_value_flow.method_alias_on_instance
+known_edge	METHOD_CALL	main.main -> f13_declared_dispatch.Engine.__init__
+known_edge	METHOD_CALL	main.main -> f13_declared_dispatch.exact_receiver_is_not_widened
+known_edge	METHOD_CALL	main.main -> f13_declared_dispatch.via_parameter
+known_edge	METHOD_CALL	main.main -> f13_declared_dispatch.via_parameter_inherited
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator_in_for
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_plain
@@ -245,3 +254,12 @@ multi_inferred	METHOD_CALL	f11_multiwrite.ternary -> f11_multiwrite.Fancy.emit
 multi_inferred	METHOD_CALL	f11_multiwrite.ternary -> f11_multiwrite.Plain.emit
 multi_inferred	METHOD_CALL	f11_multiwrite.two_writes -> f11_multiwrite.Fancy.emit
 multi_inferred	METHOD_CALL	f11_multiwrite.two_writes -> f11_multiwrite.Plain.emit
+multi_inferred	METHOD_CALL	f13_declared_dispatch.Engine.run -> f13_declared_dispatch.DictLoader.load
+multi_inferred	METHOD_CALL	f13_declared_dispatch.Engine.run -> f13_declared_dispatch.FileLoader.load
+multi_inferred	METHOD_CALL	f13_declared_dispatch.Engine.run -> f13_declared_dispatch.Loader.load
+multi_inferred	METHOD_CALL	f13_declared_dispatch.via_parameter -> f13_declared_dispatch.DictLoader.load
+multi_inferred	METHOD_CALL	f13_declared_dispatch.via_parameter -> f13_declared_dispatch.FileLoader.load
+multi_inferred	METHOD_CALL	f13_declared_dispatch.via_parameter -> f13_declared_dispatch.Loader.load
+multi_inferred	SELF_CALL	f13_declared_dispatch.Base.run -> f13_declared_dispatch.Base.step
+multi_inferred	SELF_CALL	f13_declared_dispatch.Base.run -> f13_declared_dispatch.StepA.step
+multi_inferred	SELF_CALL	f13_declared_dispatch.Base.run -> f13_declared_dispatch.StepB.step

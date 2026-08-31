@@ -144,3 +144,37 @@ expr_resolves_to_method(site, m) :-
 // site becomes a declared unknown with this reason, so the cost of the knob is visible.
 call_dropped_by_cap(site, n) :- call_dispatch_over_cap(site), call_candidate_count(site, n).
 call_unresolvable(site, "dispatch_cap_exceeded") :- call_dispatch_over_cap(site).
+
+
+// ── dispatch_override(Prov, DeclaredType, Name, OverridingMethod) ────────────
+// For a type and a NAME, the implementations a SUBCLASS provides. Pure hierarchy facts,
+// computed wholly inside the resolution layer, so expression-resolution consumes it with
+// a single join and nothing here depends on how a receiver came to be typed.
+// Only subclasses that DEFINE the name, never all subclasses: the fan is otherwise
+// dominated by classes that merely inherit.
+dispatch_override(p, d, n, m) :-
+    type_subclass(p, d, s),
+    type_defines_any(p, s, n),
+    mro_lookup(p, s, n, m).
+
+// ── call_recv_declared(SiteHash) — a receiver known only by DECLARATION ──────
+// declared_dispatch already widens a declared type over its subclasses, but only those
+// satisfying type_instantiated_reachable — classes CONSTRUCTED in the analysed code. That
+// is right for an application and wrong for a library analysed alone, whose subclasses are
+// DEFINED in-package and constructed by callers, so the instantiation set is empty for
+// exactly the classes that matter and the answer collapses to the base — which for an
+// abstract base is the one method that provably never runs, reported as known_edge.
+//
+// Stated POSITIVELY rather than as the negation of exactness: negating exactness is not
+// stratifiable, since exactness rests on call_constructs_type, which reaches expr_type and
+// so depends on expr_call_candidate — the relation the guard would sit in.
+call_recv_declared(site) :- call_recv_kind(site, "SELF").
+call_recv_declared(site) :-
+    call_receiver_object(site, obj),
+    expr_names_param("client", obj, ph),
+    param_declared_nominal("client", ph, _).
+call_recv_declared(site) :-
+    call_receiver_object(site, obj),
+    expr_attr_of_self("client", obj, n, owner),
+    type_attr_field("client", owner, n, f),
+    field_declared_type("client", f, _).
