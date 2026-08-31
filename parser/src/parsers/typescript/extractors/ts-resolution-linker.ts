@@ -333,6 +333,13 @@ export class TsLocalResolver {
         if (own !== undefined && own !== '') {
           return { kind: TsReferencedEntityKind.VARIABLE, hash: own };
         }
+        // A destructured PARAMETER name now has a row of its own too, so
+        // `function f({ helper }: Ctx)` gives a reference to `helper` the
+        // declaration of `helper` rather than the pattern that contains it.
+        const ownParameter = this.input.parameterHashByNode.get(id);
+        if (ownParameter !== undefined && ownParameter !== '') {
+          return { kind: TsReferencedEntityKind.PARAMETER, hash: ownParameter };
+        }
         // A PARAMETER pattern still has no per-element row -- parameters are a
         // different relation -- so it resolves to the parameter that binds it. It resolves to whichever declaration binds the
         // pattern -- a VariableDeclaration for `const {a} = x`, a Parameter for

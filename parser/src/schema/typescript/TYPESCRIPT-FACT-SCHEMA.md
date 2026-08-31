@@ -673,7 +673,7 @@ functions in Corpus A with **161** of them appearing as resolved call targets, s
 
 ---
 
-### 4.7 `ts_method_parameter` / `lib_ts_method_parameter` — 27 columns
+### 4.7 `ts_method_parameter` / `lib_ts_method_parameter` — 29 columns
 
 Positions 0–11 mirror `java_method_parameter` 0–11 (the hash moves to the end).
 **85.3%** of project parameters and **99.998%** of ambient parameters carry an annotation, so
@@ -703,12 +703,14 @@ had none and argument flow had to carry the load.
 | 18 | `parameterPropertyModifier` ★ | 1 | comma-set `PRIVATE`, `PROTECTED`, `PUBLIC`, `READONLY` |
 | 19 | `declaredFieldLinkHash` ★ | 1 | FK→`ts_field` — the field this parameter declares; `""`. A cross-FK, **not** a duplicated row |
 | 20 | `bindingPatternText` ★ | 1 | source of the destructuring pattern; `""` |
-| 21 | `typeReferenceLinkHash` | 1 | FK→`ts_type_reference`; `""` |
-| 22 | `tsExpressionLinkHash` | 1 | FK→`ts_expression` — default-value root; `""` |
-| 23 | `decoratorCount` ★ | 1 | parameter decorators (legacy DI pattern) |
-| 24 | `startColumn` | 1 | |
-| 25 | `serviceVersionLinkHash` | 1 | |
-| 26 | `tsMethodParameterUniqueHash` | — | **PK** |
+| 21 | `bindingSourceKind` ★ | 1 | `NONE` \| `PROPERTY` \| `INDEX` \| `OBJECT_REST` \| `ARRAY_REST` — what a name bound by a pattern parameter binds. `NONE` for an ordinary parameter and for the pattern row itself |
+| 22 | `bindingSource` ★ | 1 | the property name for `PROPERTY`, the index for `INDEX`, the index a rest starts at for `ARRAY_REST`; `""` otherwise |
+| 23 | `typeReferenceLinkHash` | 1 | FK→`ts_type_reference`; `""` |
+| 24 | `tsExpressionLinkHash` | 1 | FK→`ts_expression` — default-value root; `""` |
+| 25 | `decoratorCount` ★ | 1 | parameter decorators (legacy DI pattern) |
+| 26 | `startColumn` | 1 | |
+| 27 | `serviceVersionLinkHash` | 1 | |
+| 28 | `tsMethodParameterUniqueHash` | — | **PK** |
 
 **PK** `TS_METHOD_PARAMETER_md5(tsMethodLinkHash ‖ position ‖ paramName ‖ paramKind)`
 
