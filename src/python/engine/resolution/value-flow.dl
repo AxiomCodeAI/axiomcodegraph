@@ -341,3 +341,14 @@ binding_value_lib_type(b, t) :-
     assign_pair("client", tgt, val),
     call_of_expr(val, site),
     call_returns_lib_type(site, t).
+
+// ── ANY value the lib layer can type, and EVERY write ────────────────────────
+// The two clauses above require the value to be a CALL, so `s = Mid() if flag else Base()`
+// -- both library classes -- left the name untyped even though each branch is a
+// construction the lib layer already types. Deferring to expr_lib_type covers the ternary
+// and `or` shapes without restating what they mean, and dropping the write-count gate
+// gives a rebound name the UNION for the same reason the client half does.
+binding_value_lib_type(b, t) :-
+    expr_binding("client", b, "STORE", tgt),
+    assign_pair("client", tgt, val),
+    expr_lib_type(val, t).
