@@ -135,6 +135,11 @@ def main():
     buckets = defaultdict(int)
     by_kind = defaultdict(lambda: defaultdict(int))
     wrong_examples = []
+    committed = 0
+    committed_wrong = 0
+    hedged_wrong = 0
+    hedged_sizes = []
+    fan = 0
     missed_by_callee = defaultdict(int)
     missed_by_target = defaultdict(int)
     missed_rows = []
@@ -176,6 +181,20 @@ def main():
             b = 'WRONG'
             if len(wrong_examples) < 40:
                 wrong_examples.append((f, line, col, ckind, cname, otarget, sorted(eng)[:3]))
+        # The DECISIVENESS axis, orthogonal to correctness. A single confident answer
+        # and a six-candidate set are both "the truth is in the set", and they are
+        # worth very different amounts to anything consuming the graph — so the
+        # committed answers are counted separately, right and wrong.
+        if eng:
+            if len(eng) == 1:
+                committed += 1
+                if b == 'WRONG':
+                    committed_wrong += 1
+            else:
+                hedged_sizes.append(len(eng))
+                if b == 'WRONG':
+                    hedged_wrong += 1
+            fan += len(eng) - 1
         buckets[b] += 1
         by_kind[ckind][b] += 1
         if len(o) > 6 and o[6] > 1:
@@ -208,6 +227,44 @@ def main():
     print(f'EXACT target                {buckets["EXACT"]:>7}   {exact_rate:.3f}')
     print(f'target in engine set        {right:>7}   {right_rate:.3f}')
     print(f'WRONG (engine named, oracle disagrees)  {buckets["WRONG"]}')
+    print()
+
+    # ── PRECISION vs RECALL, and the decisiveness split ─────────────────────
+    # `target in engine set` above is recall over POSSIBILITIES: it counts a site as
+    # answered when the truth is anywhere in the set, however large. That is the right
+    # number for "can a consumer find the callee", and the wrong one for "can a
+    # consumer trust the callee", so both are reported rather than one standing in for
+    # the other.
+    answered = buckets['EXACT'] + buckets['SOUND_SUPERSET'] + buckets['WRONG']
+    hedged = len(hedged_sizes)
+    committed_right = buckets['EXACT']
+    print('precision / recall:')
+    print(f'  coverage      (answered / decidable)      {answered:>7}   '
+          f'{answered / decidable if decidable else 0:.3f}')
+    print(f'  recall-any    (truth anywhere in the set) {right:>7}   '
+          f'{right_rate:.3f}')
+    print(f'  precision     (truth in set | answered)   {right:>7}   '
+          f'{right / answered if answered else 0:.3f}')
+    print(f'  decisiveness  (single answer | answered)  {committed:>7}   '
+          f'{committed / answered if answered else 0:.3f}')
+    # THE TRUST NUMBER. When the engine commits to exactly one target, how often is it
+    # right? A rule that converts hedged sets into confident guesses moves recall not
+    # at all and moves this sharply, which is the trade the prune-only discipline
+    # exists to refuse.
+    print(f'  commit-accuracy (right | single answer)   {committed_right:>7}   '
+          f'{committed_right / committed if committed else 0:.3f}')
+    print(f'    committed and WRONG                     {committed_wrong:>7}')
+    print(f'    hedged and wrong                        {hedged_wrong:>7}')
+    if hedged_sizes:
+        srt = sorted(hedged_sizes)
+        mean = sum(srt) / len(srt)
+        med = srt[len(srt) // 2]
+        p90 = srt[min(len(srt) - 1, int(len(srt) * 0.9))]
+        print(f'  ambiguity     (hedged sites)              {hedged:>7}   '
+              f'mean {mean:.2f}  median {med}  p90 {p90}  max {srt[-1]}')
+    # What a call-graph consumer actually pays: every extra candidate is a false edge.
+    print(f'  edge-precision (TP / (TP+FP), FP = extras) {right:>6}   '
+          f'{right / (right + fan) if (right + fan) else 0:.3f}')
     print()
     if ov['sites']:
         dec = ov['bucket:EXACT'] + ov['bucket:SOUND_SUPERSET'] + ov['bucket:WRONG'] + ov['bucket:MISSED']
