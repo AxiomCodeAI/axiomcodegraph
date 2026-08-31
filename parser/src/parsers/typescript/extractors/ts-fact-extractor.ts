@@ -287,6 +287,10 @@ export function extractTypeScriptFile(options: TsFileExtractionOptions): TsFileF
     parameterHashByNode: declarations.parameterHashByNode,
   });
   walker.run();
+  // After the walk: a function type used as a type ARGUMENT has its return
+  // reference emitted by the expression pass, so the signature rows can only be
+  // linked once that has run.
+  declarations.linkSignatureReturnTypes();
 
   const resolver = new TsLocalResolver({
     sourceFile,

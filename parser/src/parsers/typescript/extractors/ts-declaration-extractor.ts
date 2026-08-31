@@ -181,6 +181,17 @@ export class TsDeclarationExtractor {
    */
   private readonly overloadSets = new Map<string, { row: TsMethodRegistry; hasBody: boolean }[]>();
 
+  /**
+   * Signature rows whose return reference is emitted by someone else.
+   *
+   * A signature declared INSIDE a type -- a call signature, a function type, a
+   * type-literal method -- does not create its own return reference; the
+   * enclosing type's tree does, at depth 1. Linked after the walk rather than
+   * during it, because the reference may be emitted before or after the
+   * signature row depending on which side of the tree the walk reaches first.
+   */
+  private readonly pendingReturnLinks: { row: TsMethodRegistry; node: ts.TypeNode }[] = [];
+
   constructor(private readonly options: DeclarationExtractorOptions) {
     this.sf = options.sourceFile;
     this.typeReferenceExtractor = new TsTypeReferenceExtractor(
@@ -378,6 +389,9 @@ export class TsDeclarationExtractor {
       serviceVersionLinkHash: this.options.serviceVersionLinkHash,
     });
     this.methods.push(row);
+    // The return reference belongs to the enclosing type's tree, so it is
+    // linked after the walk rather than created here.
+    if (annotation) { this.pendingReturnLinks.push({ row, node: annotation }); }
     this.methodHashByNode.set(id, row.getHash());
     this.methodRowByNode.set(id, row);
     this.recordAnonymousOverloadCandidate(row, typeLiteralHash);
@@ -489,6 +503,9 @@ export class TsDeclarationExtractor {
       serviceVersionLinkHash: this.options.serviceVersionLinkHash,
     });
     this.methods.push(row);
+    // The return reference belongs to the enclosing type's tree, so it is
+    // linked after the walk rather than created here.
+    if (node.type) { this.pendingReturnLinks.push({ row, node: node.type }); }
     this.methodHashByNode.set(id, row.getHash());
     this.methodRowByNode.set(id, row);
     const signatureContext: EmitContext = {
@@ -2164,6 +2181,27 @@ export class TsDeclarationExtractor {
    * back-patch because neither column is in the primary key — which is exactly
    * why the key deliberately excludes them.
    */
+  /**
+   * Points each type-level signature at the return reference already emitted.
+   *
+   * Without it, a call resolving to a callable shape found its exact target and
+   * then had no result type, so every chained call through one died. The
+   * reference was always there -- 8,528 signature rows simply never named it.
+   *
+   * Called by the orchestrator AFTER the expression walk, not at the end of
+   * `run()`. A function type can appear as a type ARGUMENT -- `vi.fn<(x: string)
+   * => string>(…)` -- and that reference is emitted by the expression pass, so
+   * linking any earlier finds nothing for exactly those rows.
+   */
+  linkSignatureReturnTypes(): void {
+    for (const pending of this.pendingReturnLinks) {
+      const hash = this.typeReferenceExtractor.hashForTypeNode(pending.node);
+      if (hash !== '') {
+        pending.row.setReturnTypeReferenceLinkHash(hash);
+      }
+    }
+  }
+
   private assignOverloadIdentities(): void {
     for (const set of this.overloadSets.values()) {
       if (set.length === 1) {
