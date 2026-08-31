@@ -116,6 +116,75 @@ annotation_differs(p, ph, mine, theirs) :-
 annotation_parser_only(p, ph, t) :-
     param_declared_type_by_parser(p, ph, t), !param_declared_type(p, ph, _).
 
+// ============================================================================
+// THE TYPE-REFERENCE TABLE IS THE BETTER SOURCE (issue #47)
+//
+// Everything above resolves an annotation from the ENTITY tables --
+// parameterBaseType, returnTypeName, fieldBaseType. Those columns are derived by
+// truncating the annotation at the first `[`, which keeps the quote characters of a
+// string forward reference and leaves a leading quote unbalanced when the annotation was
+// also subscripted. Both problems are artefacts of the column choice.
+//
+// py_type_reference has neither. It reports typeName ALREADY UNQUOTED, states the kind
+// outright (STRING_FORWARD_REF / OPTIONAL / SUBSCRIPT / UNION_PEP604 ...) rather than
+// leaving it to be inferred from punctuation, and resolves a large share of references to
+// a hash directly. The engine was already computing that resolved answer -- as
+// param_declared_type_by_parser -- and using it ONLY to cross-check, then discarding it.
+// annotation_parser_only above literally counts the annotations the parser resolved and
+// the engine did not, and nothing consumed the count.
+//
+// So: take the FK where the parser has one, and otherwise look up the CLEAN name.
+// ============================================================================
+
+field_declared_type_by_parser(p, f, t) :-
+    type_ref_owner(p, f, "FIELD", r),
+    type_ref(p, _, "FIELD_TYPE", _, _, r),
+    type_ref_resolved(p, t, r).
+
+// ── (1) the parser's own resolved link, where it has one ─────────────────────
+param_declared_type(p, ph, t)          :- param_declared_type_by_parser(p, ph, t).
+method_declared_return_type(p, m, t)   :- method_declared_return_type_by_parser(p, m, t).
+field_declared_type(p, f, t)           :- field_declared_type_by_parser(p, f, t).
+
+// ── (2) otherwise the CLEAN name, looked up in the owning module ─────────────
+// Same lookup as the entity-table clauses, keyed on the column that does not carry
+// quotes. NAME and STRING_FORWARD_REF only: a SUBSCRIPT or a UNION names no single type
+// and is served by the element/Optional rules instead.
+annotation_single_name_kind("NAME").
+annotation_single_name_kind("STRING_FORWARD_REF").
+
+param_declared_type(p, ph, t) :-
+    type_ref_owner(p, ph, "METHOD_PARAM", r),
+    type_ref(p, k, "METHOD_PARAM", tn, _, r), annotation_single_name_kind(k), tn != "",
+    annotation_owner_module(p, ph, "METHOD_PARAM", mod),
+    type_name_in_module(p, mod, tn, t).
+method_declared_return_type(p, m, t) :-
+    type_ref_owner(p, m, "METHOD", r),
+    type_ref(p, k, "METHOD_RETURN", tn, _, r), annotation_single_name_kind(k), tn != "",
+    method_module(p, mod, m),
+    type_name_in_module(p, mod, tn, t).
+field_declared_type(p, f, t) :-
+    type_ref_owner(p, f, "FIELD", r),
+    type_ref(p, k, "FIELD_TYPE", tn, _, r), annotation_single_name_kind(k), tn != "",
+    annotation_owner_module(p, f, "FIELD", mod),
+    type_name_in_module(p, mod, tn, t).
+
+// ── (3) and the LIB twins, on the same clean name ────────────────────────────
+// The client/library boundary needs this as much as the client side does: a quoted
+// annotation naming a LIBRARY class was resolved only by the quote-stripping that this
+// change removes. f10_forward_refs caught the omission -- the two cases that name a
+// library class went MISSED while every client-side case still passed.
+param_declared_type_lib(ph, t) :-
+    type_ref_owner("client", ph, "METHOD_PARAM", r),
+    type_ref("client", k, "METHOD_PARAM", tn, _, r), annotation_single_name_kind(k), tn != "",
+    annotation_owner_module("client", ph, "METHOD_PARAM", mod),
+    type_name_in_module_lib(mod, tn, t).
+method_declared_return_type_lib(m, t) :-
+    type_ref_owner("client", m, "METHOD", r),
+    type_ref("client", k, "METHOD_RETURN", tn, _, r), annotation_single_name_kind(k), tn != "",
+    method_module("client", mod, m),
+    type_name_in_module_lib(mod, tn, t).
+
 // ── ELEMENT TYPES — `List[Item]`, `Dict[str, Item]`, `Optional[Item]` ─────────
 // The GENERIC_ARGUMENT children of a subscripted annotation. This is what iterating a
 // container yields, and without it `for line in self.lines` types nothing — which on the
@@ -202,60 +271,12 @@ method_declared_return_type(p, m, t) :-
 //
 // A quoted union such as `"str | bytes"` simply fails to match a single name, which is
 // the right outcome -- only the bare-name form resolves here.
-// WIDENED FROM RETURN TYPES TO EVERY ANNOTATION SURFACE, and moved to the chokepoint.
-// This originally read method_decl only, so `-> "Factory"` resolved while
-// `options: "ConsoleOptions"` did not -- and a string forward reference is the standard
-// way to annotate against a class imported under `if TYPE_CHECKING:`, which is in turn the
-// standard way to break an import cycle. The shape therefore concentrates in exactly the
-// modules with the most cross-type calls, where the receiver was annotated, nameable, and
-// still untyped.
-//
-// A SECOND SPELLING has to normalise too. The base type is derived by truncating the
-// annotation at the first `[`, so a subscripted forward reference keeps an UNBALANCED
-// LEADING QUOTE: `"Union[RenderableType, Text]"` arrives as `"Union`. Requiring both
-// quotes -- as the previous version did -- silently skipped every one of those. So the
-// lead is stripped on its own, and the tail only when it is actually there.
-annotation_raw(b) :- param_annotation(_, b, _, _, _), b != "".
-annotation_raw(b) :- method_decl(_, _, _, _, b, _), b != "".
-annotation_raw(b) :- field_annotation(_, _, b, _, _), b != "".
-// Only these three. Widening annotation_raw to type_ref / binding / base-slot names was
-// tried and MEASURED TO CHANGE NOTHING: a fully quoted `"List[Holder]"` is one opaque
-// string to the parser, which emits no GENERIC_ARGUMENT inside it, so there is no inner
-// name for a quote-stripping rule to reach. That element type is unavailable for reasons
-// this layer cannot fix, and f10_forward_refs.quoted_generic_element records it.
+// Quote normalisation used to live here: the entity-table columns keep the quotes of a
+// PEP 484 string forward reference, so the name never matched. It is gone because the
+// lookup no longer reads those columns -- py_type_reference.typeName arrives unquoted and
+// kind=STRING_FORWARD_REF says so outright. f10_forward_refs is the guard that this is a
+// simplification and not a regression.
 
-annotation_lead_stripped(raw, s) :-
-    annotation_raw(raw), strlen(raw) > 1,
-    substr(raw, 0, 1) = "\"",
-    s = substr(raw, 1, strlen(raw) - 1).
-annotation_lead_stripped(raw, s) :-
-    annotation_raw(raw), strlen(raw) > 1,
-    substr(raw, 0, 1) = "'",
-    s = substr(raw, 1, strlen(raw) - 1).
-
-annotation_unquoted(raw, t) :-
-    annotation_lead_stripped(raw, s), strlen(s) > 1,
-    substr(s, strlen(s) - 1, 1) = "\"",
-    t = substr(s, 0, strlen(s) - 1).
-annotation_unquoted(raw, t) :-
-    annotation_lead_stripped(raw, s), strlen(s) > 1,
-    substr(s, strlen(s) - 1, 1) = "'",
-    t = substr(s, 0, strlen(s) - 1).
-annotation_unquoted(raw, s) :-
-    annotation_lead_stripped(raw, s), strlen(s) > 0,
-    substr(s, strlen(s) - 1, 1) != "\"",
-    substr(s, strlen(s) - 1, 1) != "'".
-
-// ONE clause instead of one per surface. param_declared_type,
-// method_declared_return_type and field_declared_type all look their name up through
-// type_name_in_module, so normalising here reaches all three -- and the _lib twin carries
-// it across the client/library boundary -- with no consumer changing.
-type_name_in_module(p, mod, raw, t) :-
-    annotation_unquoted(raw, inner),
-    type_name_in_module(p, mod, inner, t).
-type_name_in_module_lib(mod, raw, t) :-
-    annotation_unquoted(raw, inner),
-    type_name_in_module_lib(mod, inner, t).
 
 method_declared_return_type(p, m, t) :-
     method_decl(p, _, _, _, ret, m), ret != "",
