@@ -1,4 +1,5 @@
 import * as ts from 'typescript';
+import { nodeId } from '@/parsers/typescript/extractors/ts-binder';
 
 import { TsTypeReferenceRegistry } from '@/analysis-types/typescript/TsTypeReferenceRegistry';
 import { TS_TYPE_REFERENCE_MAX_DEPTH } from '@/constants/typescript-constants';
@@ -124,6 +125,21 @@ export class TsTypeReferenceExtractor {
   }
 
   /**
+   * The row emitted for a type NODE, by node identity.
+   *
+   * A signature declared inside a type -- a call signature, a function type, a
+   * type-literal method -- does not create its own return reference: the
+   * reference is emitted as part of the ENCLOSING type's tree, at depth 1. The
+   * signature row therefore has nothing to link to unless the row that was
+   * already emitted can be found again, which is what this is for.
+   */
+  hashForTypeNode(node: ts.TypeNode): string {
+    return this.hashByTypeNode.get(nodeId(node, this.sourceFile)) ?? '';
+  }
+
+  private readonly hashByTypeNode = new Map<string, string>();
+
+  /**
    * Emits the whole tree rooted at `node` and returns the ROOT row's hash.
    *
    * The root always has `depth = 0` and an empty `parentReferenceHash`, which is
@@ -188,6 +204,9 @@ export class TsTypeReferenceExtractor {
       serviceVersionLinkHash: this.serviceVersionLinkHash,
     });
     this.rows.push(row);
+    // Keyed on the byte range, so the two nodes that share a start offset --
+    // a type and the first type inside it -- do not collide.
+    this.hashByTypeNode.set(nodeId(node, this.sourceFile), row.getHash());
     if (this.onFunctionType && (ts.isFunctionTypeNode(node) || ts.isConstructorTypeNode(node))) {
       this.onFunctionType(node, row.getHash());
     }

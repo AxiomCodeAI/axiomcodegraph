@@ -1653,6 +1653,104 @@ async function noValueCanSplitARow(): Promise<number> {
   return failures.length ? 1 : 0;
 }
 
+// ---------------------------------------------------------------------------
+// 16. Every signature links the return reference it declares
+// ---------------------------------------------------------------------------
+
+/**
+ * A signature that declares a return type must NAME the reference for it.
+ *
+ * A signature declared inside a type does not create its own return reference:
+ * the enclosing type's tree emits it, at depth 1. So the five type-level kinds
+ * had a correct reference sitting in the fact base and no way to reach it --
+ * 8,528 rows, none linked -- while FUNCTION_DECLARATION and the class kinds
+ * were fine, which is what made it look like a niche gap rather than every
+ * callable shape in the language.
+ *
+ * The consequence was not a missing row but a dead end: a call through a
+ * callable shape resolved to its exact target and then produced no result type,
+ * so every chain through one stopped there.
+ *
+ * The type-ARGUMENT case is in the fixture on purpose. `vi.fn<(x: string) =>
+ * string>(…)` has its reference emitted by the EXPRESSION pass, so a link
+ * performed at the end of the declaration walk finds nothing for exactly those
+ * rows -- 210 of remeda's 990 -- and the ordering is invisible unless a fixture
+ * forces it.
+ */
+async function signaturesLinkTheirReturnType(): Promise<number> {
+  if (!parserPresent()) {
+    return pendingCheck('signatures link their return type',
+      'no extractor yet. A signature that declares a return type must name its reference');
+  }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ts-ret-'));
+  const source = [
+    'export type Cond<A> = { ok: A };',
+    'declare function generic<T>(x: unknown): T;',
+    'export type CallSig = { <A>(actual: A): Cond<A> };',          // TYPE_LITERAL_CALL_SIGNATURE
+    'export type FnType = (x: number) => Cond<number>;',            // FUNCTION_TYPE_SIGNATURE
+    'export type CtorType = new (x: number) => Cond<number>;',      // CONSTRUCTOR_TYPE_SIGNATURE
+    'export type Lit = { m(x: string): Cond<string> };',            // TYPE_LITERAL_METHOD_SIGNATURE
+    'export type Ctor = { new (y: number): Cond<number> };',        // TYPE_LITERAL_CONSTRUCT_SIGNATURE
+    'export type Prim = (x: number) => void;',                      // a primitive return still links
+    'export const viaTypeArgument = generic<(x: string) => string>(1);',
+    'export interface I { sig(x: string): Cond<string> }',
+    'export function decl(x: string): Cond<string> { return { ok: x }; }',
+    'export class C { m(): Cond<number> { return { ok: 1 }; } }',
+  ].join('\n');
+  fs.writeFileSync(path.join(root, 'ret.ts'), source);
+  fs.writeFileSync(path.join(root, 'tsconfig.json'), JSON.stringify({
+    compilerOptions: { target: 'ES2022', module: 'ESNext', strict: true }, include: ['*.ts'],
+  }));
+  const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ts-ret-out-'));
+  await new TypeScriptProjectAnalyzer().analyze({
+    rootDir: root, outputDir, baseMservPath: root, serviceVersionLink: 'ret-check',
+  });
+
+  const references = new Map(relation(outputDir, 'all-typescript-type-references.csv')
+    .map((r) => [r.tsTypeReferenceUniqueHash ?? '', r]));
+  const failures: string[] = [];
+  const seen = new Set<string>();
+  let linked = 0;
+  for (const row of relation(outputDir, 'all-typescript-methods.csv')) {
+    if ((row.returnTypeName ?? '') === '' || row.name === '<module>') {
+      continue;
+    }
+    seen.add(row.methodKind ?? '');
+    const hash = row.returnTypeReferenceLinkHash ?? '';
+    if (hash === '') {
+      failures.push(`${row.methodKind} returning ${row.returnTypeName} has no ` +
+        'returnTypeReferenceLinkHash — the reference exists but nothing names it');
+      continue;
+    }
+    const reference = references.get(hash);
+    if (!reference) {
+      failures.push(`${row.methodKind}: returnTypeReferenceLinkHash is DANGLING`);
+    } else if (reference.context !== 'METHOD_RETURN') {
+      failures.push(`${row.methodKind}: links a reference whose context is ` +
+        `${reference.context}, not METHOD_RETURN`);
+    } else {
+      linked += 1;
+    }
+  }
+
+  // The five type-level kinds are the ones that were broken; assert the fixture
+  // actually produced them, so this cannot pass by not exercising them.
+  for (const kind of ['FUNCTION_TYPE_SIGNATURE', 'CONSTRUCTOR_TYPE_SIGNATURE',
+    'TYPE_LITERAL_CALL_SIGNATURE', 'TYPE_LITERAL_METHOD_SIGNATURE',
+    'TYPE_LITERAL_CONSTRUCT_SIGNATURE']) {
+    if (!seen.has(kind)) {
+      failures.push(`the fixture produced no ${kind} row — the check is vacuous for it`);
+    }
+  }
+
+  console.log(`  ${linked} signature(s) link a METHOD_RETURN reference across ` +
+    `${seen.size} method kind(s), including a function type used as a type argument`);
+  for (const f of failures.slice(0, 10)) console.log(`  ${f}`);
+  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(outputDir, { recursive: true, force: true });
+  return failures.length ? 1 : 0;
+}
+
 const CHECKS: Check[] = [
   { name: 'compiles', proves: 'tsc --noEmit is clean — the suite reports on code that actually builds', run: compiles },
   { name: 'fixtures compile and are isolated', proves: 'a fixture is a valid input, and cannot break another language\'s gate', run: fixturesCompile },
@@ -1667,6 +1765,7 @@ const CHECKS: Check[] = [
   { name: 'JSX brace expressions are walked', proves: 'a call inside a JSX brace is an ordinary call site; only the component invocation is reserved', run: jsxBraceExpressionsWalked },
   { name: 'destructuring records its source', proves: 'a bound name carries the property or index it binds, so a renamed or positional binding is recoverable', run: destructuringRecordsItsSource },
   { name: 'no emitted value can split a row', proves: 'no value contains a character a consumer treats as a line break, so a row cannot tear', run: noValueCanSplitARow },
+  { name: 'signatures link their return type', proves: 'a call through any callable shape reaches a result type, so a chain does not stop at it', run: signaturesLinkTheirReturnType },
   { name: 'fact-base invariants', proves: 'every PK unique, every FK resolves, every tree well-formed — the failures that load cleanly and count wrong', run: factBaseInvariants },
   { name: 'IR completeness', proves: 'every hop an engine needs in order to resolve is present — the measure that replaced resolution rate', run: irCompleteness },
 ];
