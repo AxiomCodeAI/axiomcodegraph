@@ -46,6 +46,27 @@ element_type_of(p, src, t) :-
     expr_attr_of_self(p, src, n, owner),
     type_attr_field(p, owner, n, f),
     field_declared_element(p, f, t).
+// (b2) THE SAME TWO, through ANY object whose type is known -- not only self.
+// Clauses (a) and (b) read the container through expr_attr_of_self, which by definition
+// requires the object to be a SELF_REFERENCE. So iterating `self.hooks` resolved and
+// iterating the identical field through any other object did not, leaving the loop
+// variable unbound and every call on it unresolved.
+//
+// Same shape as the attribute-typing fix, one layer down: there the ATTRIBUTE's type was
+// self-only, here the ELEMENT type of a container held on an attribute is. The self
+// clauses stay as the special case; nothing about what an element type means changes.
+element_type_of(p, src, t) :-
+    expr_node(p, "ATTRIBUTE_ACCESS", _, n, src), n != "",
+    expr_parent(p, src, "ATTRIBUTE_OBJECT", _, obj),
+    expr_type(p, obj, ot),
+    type_attr_field(p, ot, n, f),
+    field_declared_element(p, f, t).
+element_type_of(p, src, t) :-
+    expr_node(p, "ATTRIBUTE_ACCESS", _, n, src), n != "",
+    expr_parent(p, src, "ATTRIBUTE_OBJECT", _, obj),
+    expr_type(p, obj, ot),
+    type_attr_field(p, ot, n, f),
+    field_element_from_param(p, f, t).
 // (c) a parameter annotated `List[Item]` / `Iterable[Item]` / `Dict[str, Item]`.
 element_type_of(p, src, t) :- expr_names_param(p, src, ph), param_element_type(p, ph, t).
 // (d) a call whose callee declares `-> List[Item]`.
