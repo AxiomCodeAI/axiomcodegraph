@@ -65,7 +65,7 @@ export enum TsRootContext {
    * under argument 0 -- and that whole structure stays empty in freeze 1.
    * This is narrower and independent: a call written inside a brace is an
    * ordinary call that happens to sit in JSX, and dropping it cost 4,488 of
-   * admin-ui's 14,335 call sites. It is a ROOT because the JSX element above
+   * one React application's 14,335 call sites. It is a ROOT because the JSX element above
    * it emits no row to be a child of.
    */
   JSX_EMBEDDED_EXPRESSION = 'JSX_EMBEDDED_EXPRESSION',

@@ -1386,7 +1386,7 @@ function irCompleteness(): number {
  * punctuation around an ordinary expression. The walker recursed THROUGH JSX
  * from the start, which is why an arrow in `onClick={() => save()}` was always
  * walked, but nothing rooted the brace itself, so every call inside one was
- * dropped: 4,488 of admin-ui's 14,335 call sites, invisible because the recall
+ * dropped: 4,488 of a React application's 14,335 call sites, invisible because the recall
  * probe of the day measured declarations only.
  *
  * The corpus cannot carry this. Corpus A has no `.tsx` file and its
@@ -1605,7 +1605,7 @@ async function noValueCanSplitARow(): Promise<number> {
   // Each literal carries one break character that split('\n') does NOT see.
   const breaks = ['\u000B', '\u000C', '\u001C', '\u001D', '\u001E', '\u0085', '\u2028', '\u2029'];
   const lines = ['export const values = ['];
-  breaks.forEach((c, i) => { lines.push(`  " rolldown${c}runtime ${i}",`); });
+  breaks.forEach((c, i) => { lines.push(`  " pkg${c}runtime ${i}",`); });
   lines.push('];');
   lines.push('export const tabbed = "a\\tb";');
   fs.writeFileSync(path.join(root, 'breaks.ts'), lines.join('\n'));
@@ -1674,7 +1674,7 @@ async function noValueCanSplitARow(): Promise<number> {
  * The type-ARGUMENT case is in the fixture on purpose. `vi.fn<(x: string) =>
  * string>(…)` has its reference emitted by the EXPRESSION pass, so a link
  * performed at the end of the declaration walk finds nothing for exactly those
- * rows -- 210 of remeda's 990 -- and the ordering is invisible unless a fixture
+ * rows -- 210 of 990 on one library -- and the ordering is invisible unless a fixture
  * forces it.
  */
 async function signaturesLinkTheirReturnType(): Promise<number> {
@@ -1944,7 +1944,7 @@ async function overloadsNeverNameTheImplementation(): Promise<number> {
 /**
  * `"files": [...]` names ENTRY POINTS, not a file list.
  *
- * tsc follows imports transitively. Reading the config literally gave immer 4
+ * tsc follows imports transitively. Reading the config literally gave one library 4
  * files where the real program has 17, so 13 files and 61% of its call sites
  * were invisible -- and nothing reported it, because a file that no config
  * claims is not an error, it simply never arrives.
