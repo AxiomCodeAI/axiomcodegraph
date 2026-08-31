@@ -1,0 +1,1 @@
+{ "name": "@tt/shallow", "version": "1.0.0", "main": "shallow.js", "types": "shallow.d.ts", "dependencies": { "@tt/deep": "1.0.0" } }
