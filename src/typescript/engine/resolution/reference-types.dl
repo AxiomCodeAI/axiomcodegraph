@@ -81,7 +81,7 @@ param_shape_target(p, s) :- param_type_ref(_, r, p),
 // row, not a variable row. The INDEXED_ACCESS node carries its object at child
 // position 0 (an IMPORT_TYPE holding the specifier) and its key at position 1 (a
 // LITERAL whose value keeps its quotes, so the two are stripped).
-var_is_function(v, m) :- var_type_ref(_, r, v),
+indexed_import_name(v, mod, name) :- var_type_ref(_, r, v),
     type_ref(rp, "INDEXED_ACCESS", _, _, _, _, _, r),
     type_ref_parent(rp, r, "0", impref),
     type_ref_import_specifier(rp, spec, impref),
@@ -89,8 +89,24 @@ var_is_function(v, m) :- var_type_ref(_, r, v),
     type_ref_literal_value(rp, lit, keyref),
     strlen(lit) > 2,
     name = substr(lit, 1, strlen(lit) - 2),
-    import_type_module(spec, mod),
+    import_type_module(spec, mod).
+
+// (a) the export is a FUNCTION — the target is the method row itself.
+var_is_function(v, m) :- indexed_import_name(v, mod, name),
     module_export_any("lib", mod, name, "METHOD", m).
+
+// (b) the export is a VARIABLE whose TYPE carries the call signature — the shape a
+// fluent assertion API takes: `declare const expect: ExpectStatic`, where
+// ExpectStatic is an interface with a call signature rather than a function. Clause
+// (a) cannot see it: there is no method row to name, and the callable lives one hop
+// further on, on the exported variable's type. Both hops are needed because a
+// globals file publishes BOTH shapes side by side.
+var_type(v, prov, t) :- indexed_import_name(v, mod, name),
+    module_export_any("lib", mod, name, "VARIABLE", ent),
+    var_type(ent, prov, t).
+var_shape(v, sh) :- indexed_import_name(v, mod, name),
+    module_export_any("lib", mod, name, "VARIABLE", ent),
+    var_shape(ent, sh).
 
 var_type(v, prov, t) :- var_type_ref(_, r, v),
     ref_type_target(r, prov, t).

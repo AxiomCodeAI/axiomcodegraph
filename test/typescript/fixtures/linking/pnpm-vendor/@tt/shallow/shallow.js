@@ -1,0 +1,1 @@
+exports.shallowLocal = function () { return ''; };

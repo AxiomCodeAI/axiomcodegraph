@@ -1,0 +1,104 @@
+callFile	callLine	callCol	callEndLine	callEndCol	callKind	calleeName	mustTarget	chaCount	rtaCount	chaTargets	rtaTargets
+src/link-barrel.ts	12	10	12	22	FUNCTION_CALL	alpha	barrel-inner-a.d.ts:1:1	1	1	barrel-inner-a.d.ts:1:1	barrel-inner-a.d.ts:1:1
+src/link-barrel.ts	16	10	16	33	METHOD_CALL	ring	barrel-inner-b.d.ts:2:3	1	1	barrel-inner-b.d.ts:2:3	barrel-inner-b.d.ts:2:3
+src/link-barrel.ts	16	10	16	21	CONSTRUCTOR_CALL	Bravo		0	0		
+src/link-barrel.ts	20	10	20	26	METHOD_CALL	charlie	barrel-inner-c.d.ts:1:1	1	1	barrel-inner-c.d.ts:1:1	barrel-inner-c.d.ts:1:1
+src/link-barrel.ts	25	10	25	22	FUNCTION_CALL	topFn	chain-leaf.d.ts:1:1	1	1	chain-leaf.d.ts:1:1	chain-leaf.d.ts:1:1
+src/link-barrel.ts	29	10	29	41	METHOD_CALL	forward	chain-leaf.d.ts:3:3	1	1	chain-leaf.d.ts:3:3	chain-leaf.d.ts:3:3
+src/link-barrel.ts	29	10	29	24	CONSTRUCTOR_CALL	TopRelay		0	0		
+src/link-basic.ts	12	10	12	23	FUNCTION_CALL	encode	named-api.d.ts:7:1	1	1	named-api.d.ts:7:1	named-api.d.ts:7:1
+src/link-basic.ts	16	10	16	29	FUNCTION_CALL	encodeNumber	collide-api.d.ts:4:1	1	1	collide-api.d.ts:4:1	collide-api.d.ts:4:1
+src/link-basic.ts	22	10	22	27	METHOD_CALL	write	named-api.d.ts:13:3	1	1	named-api.d.ts:13:3	named-api.d.ts:13:3
+src/link-basic.ts	26	10	26	27	METHOD_CALL	write	collide-api.d.ts:9:3	1	1	collide-api.d.ts:9:3	collide-api.d.ts:9:3
+src/link-basic.ts	32	16	32	26	CONSTRUCTOR_CALL	Sink		0	0		
+src/link-basic.ts	33	3	33	15	METHOD_CALL	close	named-api.d.ts:14:3	1	1	named-api.d.ts:14:3	named-api.d.ts:14:3
+src/link-chains.ts	17	10	17	23	FUNCTION_CALL	encode	named-api.d.ts:7:1	1	1	named-api.d.ts:7:1	named-api.d.ts:7:1
+src/link-chains.ts	21	10	21	34	FUNCTION_CALL	stageThree	link-chains.ts:16:1	1	1	link-chains.ts:16:1	link-chains.ts:16:1
+src/link-chains.ts	21	21	21	33	METHOD_CALL	trim	lib.es5.d.ts:512:5	1	1	lib.es5.d.ts:512:5	lib.es5.d.ts:512:5
+src/link-chains.ts	25	10	25	25	FUNCTION_CALL	stageTwo	link-chains.ts:20:1	1	1	link-chains.ts:20:1	link-chains.ts:20:1
+src/link-chains.ts	29	10	29	25	FUNCTION_CALL	stageOne	link-chains.ts:24:1	1	1	link-chains.ts:24:1	link-chains.ts:24:1
+src/link-chains.ts	35	22	35	40	METHOD_CALL	write	named-api.d.ts:13:3	1	1	named-api.d.ts:13:3	named-api.d.ts:13:3
+src/link-chains.ts	36	10	36	32	FUNCTION_CALL	countDown	link-chains.ts:34:1	1	1	link-chains.ts:34:1	link-chains.ts:34:1
+src/link-chains.ts	41	25	41	40	FUNCTION_CALL	pongPing	link-chains.ts:43:1	1	1	link-chains.ts:43:1	link-chains.ts:43:1
+src/link-chains.ts	44	25	44	40	FUNCTION_CALL	pingPong	link-chains.ts:40:1	1	1	link-chains.ts:40:1	link-chains.ts:40:1
+src/link-chains.ts	51	10	51	19	FUNCTION_CALL	fn	link-chains.ts:50:27	1	1	link-chains.ts:50:27	link-chains.ts:50:27
+src/link-chains.ts	55	10	55	30	FUNCTION_CALL	apply	link-chains.ts:50:1	1	1	link-chains.ts:50:1	link-chains.ts:50:1
+src/link-chains.ts	59	10	59	34	FUNCTION_CALL	apply	link-chains.ts:50:1	1	1	link-chains.ts:50:1	link-chains.ts:50:1
+src/link-chains.ts	65	17	65	38	METHOD_CALL	bind	lib.es5.d.ts:355:5	2	2	lib.es5.d.ts:355:5;lib.es5.d.ts:363:5	lib.es5.d.ts:355:5;lib.es5.d.ts:363:5
+src/link-chains.ts	66	10	66	27	FUNCTION_CALL	write	named-api.d.ts:13:3	1	1	named-api.d.ts:13:3	named-api.d.ts:13:3
+src/link-conditional.ts	7	10	7	35	METHOD_CALL	shared	cond-api.d.ts:9:3	1	1	cond-api.d.ts:9:3	cond-api.d.ts:9:3
+src/link-conditional.ts	7	10	7	23	FUNCTION_CALL	condPick	cond-api.d.ts:16:1	1	1	cond-api.d.ts:16:1	cond-api.d.ts:16:1
+src/link-conditional.ts	14	10	14	38	METHOD_CALL	shared	cond-api.d.ts:13:3	1	1	cond-api.d.ts:13:3	cond-api.d.ts:13:3
+src/link-conditional.ts	14	10	14	26	FUNCTION_CALL	condGuarded	cond-api.d.ts:23:1	1	1	cond-api.d.ts:23:1	cond-api.d.ts:23:1
+src/link-conditional.ts	22	10	22	45	METHOD_CALL	finish	cond-api.d.ts:31:3	1	1	cond-api.d.ts:31:3	cond-api.d.ts:31:3
+src/link-conditional.ts	22	10	22	31	METHOD_CALL	make	cond-api.d.ts:34:9	1	1	cond-api.d.ts:34:9	cond-api.d.ts:34:9
+src/link-crosspkg-reexport.ts	17	10	17	26	FUNCTION_CALL	probeOf	probe-core.d.ts:4:1	1	1	probe-core.d.ts:4:1	probe-core.d.ts:4:1
+src/link-crosspkg-reexport.ts	21	10	21	27	FUNCTION_CALL	probeCount	probe-core.d.ts:9:1	1	1	probe-core.d.ts:9:1	probe-core.d.ts:9:1
+src/link-crosspkg-reexport.ts	25	10	25	50	METHOD_CALL	toBeAssignableTo	probe-core.d.ts:6:3	1	1	probe-core.d.ts:6:3	probe-core.d.ts:6:3
+src/link-crosspkg-reexport.ts	25	10	25	26	FUNCTION_CALL	probeOf	probe-core.d.ts:4:1	1	1	probe-core.d.ts:4:1	probe-core.d.ts:4:1
+src/link-crosspkg-reexport.ts	31	10	31	25	FUNCTION_CALL	probeLocal	probe-index.d.ts:14:1	1	1	probe-index.d.ts:14:1	probe-index.d.ts:14:1
+src/link-crosspkg-reexport.ts	40	10	40	24	FUNCTION_CALL	globalProbe	probe-core.d.ts:4:1	1	1	probe-core.d.ts:4:1	probe-core.d.ts:4:1
+src/link-default.ts	9	17	9	28	CONSTRUCTOR_CALL	Codec		0	0		
+src/link-default.ts	10	10	10	32	METHOD_CALL	transform	default-codec.d.ts:6:3	1	1	default-codec.d.ts:6:3	default-codec.d.ts:6:3
+src/link-default.ts	16	10	16	43	METHOD_CALL	transform	default-codec.d.ts:6:3	1	1	default-codec.d.ts:6:3	default-codec.d.ts:6:3
+src/link-default.ts	16	10	16	26	METHOD_CALL	of	default-codec.d.ts:7:3	1	1	default-codec.d.ts:7:3	default-codec.d.ts:7:3
+src/link-default.ts	20	10	20	36	FUNCTION_CALL	describeCodec	default-codec.d.ts:12:1	1	1	default-codec.d.ts:12:1	default-codec.d.ts:12:1
+src/link-default.ts	20	24	20	35	CONSTRUCTOR_CALL	Codec		0	0		
+src/link-generic.ts	34	10	34	33	METHOD_CALL	run	link-generic.ts:13:3	3	3	link-generic.ts:13:3;link-generic.ts:19:3;link-generic.ts:27:3	link-generic.ts:13:3;link-generic.ts:19:3;link-generic.ts:27:3
+src/link-generic.ts	34	10	34	24	FUNCTION_CALL	first	generic-lib.d.ts:5:1	1	1	generic-lib.d.ts:5:1	generic-lib.d.ts:5:1
+src/link-generic.ts	40	10	40	33	METHOD_CALL	run	generic-lib.d.ts:18:3	4	4	link-generic.ts:13:3;link-generic.ts:19:3;link-generic.ts:27:3;generic-lib.d.ts:18:3	link-generic.ts:13:3;link-generic.ts:19:3;link-generic.ts:27:3;generic-lib.d.ts:18:3
+src/link-generic.ts	40	10	40	24	FUNCTION_CALL	first	generic-lib.d.ts:5:1	1	1	generic-lib.d.ts:5:1	generic-lib.d.ts:5:1
+src/link-generic.ts	45	34	45	56	FUNCTION_CALL	wrap	generic-lib.d.ts:13:1	1	1	generic-lib.d.ts:13:1	generic-lib.d.ts:13:1
+src/link-generic.ts	45	39	45	55	CONSTRUCTOR_CALL	FastRunner		0	0		
+src/link-generic.ts	46	10	46	29	METHOD_CALL	run	link-generic.ts:13:3	3	3	link-generic.ts:13:3;link-generic.ts:19:3;link-generic.ts:27:3	link-generic.ts:13:3;link-generic.ts:19:3;link-generic.ts:27:3
+src/link-generic.ts	46	10	46	20	METHOD_CALL	get	generic-lib.d.ts:9:3	1	1	generic-lib.d.ts:9:3	generic-lib.d.ts:9:3
+src/link-generic.ts	51	10	51	55	METHOD_CALL	map	generic-lib.d.ts:10:3	1	1	generic-lib.d.ts:10:3	generic-lib.d.ts:10:3
+src/link-generic.ts	51	10	51	32	FUNCTION_CALL	wrap	generic-lib.d.ts:13:1	1	1	generic-lib.d.ts:13:1	generic-lib.d.ts:13:1
+src/link-generic.ts	51	15	51	31	CONSTRUCTOR_CALL	SlowRunner		0	0		
+src/link-generic.ts	51	44	51	54	METHOD_CALL	run	link-generic.ts:19:3	3	3	link-generic.ts:13:3;link-generic.ts:19:3;link-generic.ts:27:3	link-generic.ts:13:3;link-generic.ts:19:3;link-generic.ts:27:3
+src/link-generic.ts	56	24	56	37	FUNCTION_CALL	fetchRunner	generic-lib.d.ts:23:1	1	1	generic-lib.d.ts:23:1	generic-lib.d.ts:23:1
+src/link-generic.ts	57	10	57	25	METHOD_CALL	run	generic-lib.d.ts:18:3	4	4	link-generic.ts:13:3;link-generic.ts:19:3;link-generic.ts:27:3;generic-lib.d.ts:18:3	link-generic.ts:13:3;link-generic.ts:19:3;link-generic.ts:27:3;generic-lib.d.ts:18:3
+src/link-generic.ts	63	10	63	78	FUNCTION_CALL	runAll	generic-lib.d.ts:20:1	1	1	generic-lib.d.ts:20:1	generic-lib.d.ts:20:1
+src/link-generic.ts	63	18	63	34	CONSTRUCTOR_CALL	FastRunner		0	0		
+src/link-generic.ts	63	36	63	52	CONSTRUCTOR_CALL	SlowRunner		0	0		
+src/link-generic.ts	63	54	63	71	CONSTRUCTOR_CALL	QuietRunner		0	0		
+src/link-legacy.ts	14	10	14	28	METHOD_CALL	pack	legacy-pack.d.ts:6:3	1	1	legacy-pack.d.ts:6:3	legacy-pack.d.ts:6:3
+src/link-legacy.ts	18	10	18	32	METHOD_CALL	pack	legacy-pack.d.ts:6:3	1	1	legacy-pack.d.ts:6:3	legacy-pack.d.ts:6:3
+src/link-legacy.ts	22	18	22	37	CONSTRUCTOR_CALL	legacy.Bundle		0	0		
+src/link-legacy.ts	23	29	23	45	METHOD_CALL	add	legacy-pack.d.ts:9:5	1	1	legacy-pack.d.ts:9:5	legacy-pack.d.ts:9:5
+src/link-legacy.ts	24	10	24	24	METHOD_CALL	count	legacy-pack.d.ts:10:5	1	1	legacy-pack.d.ts:10:5	legacy-pack.d.ts:10:5
+src/link-legacy.ts	29	10	29	39	METHOD_CALL	deepPack	legacy-pack.d.ts:14:5	1	1	legacy-pack.d.ts:14:5	legacy-pack.d.ts:14:5
+src/link-merged.ts	20	10	20	28	METHOD_CALL	read	merged-lib.d.ts:6:3	1	1	merged-lib.d.ts:6:3	merged-lib.d.ts:6:3
+src/link-merged.ts	20	10	20	21	CONSTRUCTOR_CALL	Gauge		0	0		
+src/link-merged.ts	24	10	24	35	METHOD_CALL	read	merged-lib.d.ts:6:3	1	1	merged-lib.d.ts:6:3	merged-lib.d.ts:6:3
+src/link-merged.ts	24	10	24	28	METHOD_CALL	calibrate	merged-lib.d.ts:9:3	1	1	merged-lib.d.ts:9:3	merged-lib.d.ts:9:3
+src/link-merged.ts	30	19	30	32	FUNCTION_CALL	takeReading	merged-lib.d.ts:21:1	1	1	merged-lib.d.ts:21:1	merged-lib.d.ts:21:1
+src/link-merged.ts	31	10	31	23	METHOD_CALL	low	merged-lib.d.ts:16:3	1	1	merged-lib.d.ts:16:3	merged-lib.d.ts:16:3
+src/link-merged.ts	31	26	31	40	METHOD_CALL	high	merged-lib.d.ts:19:3	1	1	merged-lib.d.ts:19:3	merged-lib.d.ts:19:3
+src/link-merged.ts	35	10	35	29	FUNCTION_CALL	atLevel	merged-lib.d.ts:30:1	1	1	merged-lib.d.ts:30:1	merged-lib.d.ts:30:1
+src/link-merged.ts	40	3	40	18	METHOD_CALL	write	named-api.d.ts:13:3	1	1	named-api.d.ts:13:3	named-api.d.ts:13:3
+src/link-merged.ts	41	10	41	22	METHOD_CALL	flush	link-merged.ts:13:5	1	1	link-merged.ts:13:5	link-merged.ts:13:5
+src/link-merged.ts	47	10	47	21	FUNCTION_CALL	ping	ambient-virtual.d.ts:6:3	1	1	ambient-virtual.d.ts:6:3	ambient-virtual.d.ts:6:3
+src/link-overload.ts	18	5	18	24	FUNCTION_CALL	convert	overload-lib.d.ts:8:1	3	3	overload-lib.d.ts:8:1;overload-lib.d.ts:9:1;overload-lib.d.ts:10:1	overload-lib.d.ts:8:1;overload-lib.d.ts:9:1;overload-lib.d.ts:10:1
+src/link-overload.ts	19	5	19	21	FUNCTION_CALL	convert	overload-lib.d.ts:9:1	3	3	overload-lib.d.ts:9:1;overload-lib.d.ts:8:1;overload-lib.d.ts:10:1	overload-lib.d.ts:9:1;overload-lib.d.ts:8:1;overload-lib.d.ts:10:1
+src/link-overload.ts	20	5	20	18	FUNCTION_CALL	convert	overload-lib.d.ts:10:1	3	3	overload-lib.d.ts:10:1;overload-lib.d.ts:8:1;overload-lib.d.ts:9:1	overload-lib.d.ts:10:1;overload-lib.d.ts:8:1;overload-lib.d.ts:9:1
+src/link-overload.ts	26	5	26	14	FUNCTION_CALL	join	overload-lib.d.ts:13:1	3	3	overload-lib.d.ts:13:1;overload-lib.d.ts:14:1;overload-lib.d.ts:15:1	overload-lib.d.ts:13:1;overload-lib.d.ts:14:1;overload-lib.d.ts:15:1
+src/link-overload.ts	27	5	27	19	FUNCTION_CALL	join	overload-lib.d.ts:14:1	3	3	overload-lib.d.ts:14:1;overload-lib.d.ts:13:1;overload-lib.d.ts:15:1	overload-lib.d.ts:14:1;overload-lib.d.ts:13:1;overload-lib.d.ts:15:1
+src/link-overload.ts	28	5	28	24	FUNCTION_CALL	join	overload-lib.d.ts:15:1	3	3	overload-lib.d.ts:15:1;overload-lib.d.ts:13:1;overload-lib.d.ts:14:1	overload-lib.d.ts:15:1;overload-lib.d.ts:13:1;overload-lib.d.ts:14:1
+src/link-overload.ts	36	19	36	38	CONSTRUCTOR_CALL	Painter	overload-lib.d.ts:35:3	3	3	overload-lib.d.ts:34:3;overload-lib.d.ts:35:3;overload-lib.d.ts:36:3	overload-lib.d.ts:34:3;overload-lib.d.ts:35:3;overload-lib.d.ts:36:3
+src/link-overload.ts	37	18	37	35	CONSTRUCTOR_CALL	Painter	overload-lib.d.ts:36:3	3	3	overload-lib.d.ts:34:3;overload-lib.d.ts:35:3;overload-lib.d.ts:36:3	overload-lib.d.ts:34:3;overload-lib.d.ts:35:3;overload-lib.d.ts:36:3
+src/link-overload.ts	39	5	39	24	METHOD_CALL	draw	overload-lib.d.ts:29:3	3	3	overload-lib.d.ts:29:3;overload-lib.d.ts:30:3;overload-lib.d.ts:31:3	overload-lib.d.ts:29:3;overload-lib.d.ts:30:3;overload-lib.d.ts:31:3
+src/link-overload.ts	40	5	40	24	METHOD_CALL	draw	overload-lib.d.ts:30:3	3	3	overload-lib.d.ts:30:3;overload-lib.d.ts:29:3;overload-lib.d.ts:31:3	overload-lib.d.ts:30:3;overload-lib.d.ts:29:3;overload-lib.d.ts:31:3
+src/link-overload.ts	41	5	41	26	METHOD_CALL	draw	overload-lib.d.ts:31:3	3	3	overload-lib.d.ts:31:3;overload-lib.d.ts:29:3;overload-lib.d.ts:30:3	overload-lib.d.ts:31:3;overload-lib.d.ts:29:3;overload-lib.d.ts:30:3
+src/link-overload.ts	42	5	42	23	METHOD_CALL	draw	overload-lib.d.ts:29:3	3	3	overload-lib.d.ts:29:3;overload-lib.d.ts:30:3;overload-lib.d.ts:31:3	overload-lib.d.ts:29:3;overload-lib.d.ts:30:3;overload-lib.d.ts:31:3
+src/link-pnpm-store.ts	11	10	11	23	FUNCTION_CALL	deepCall	deep.d.ts:5:1	1	1	deep.d.ts:5:1	deep.d.ts:5:1
+src/link-pnpm-store.ts	17	10	17	23	FUNCTION_CALL	deepStatic	deep.d.ts:12:3	1	1	deep.d.ts:12:3	deep.d.ts:12:3
+src/link-pnpm-store.ts	21	3	21	26	METHOD_CALL	extend	deep.d.ts:13:3	1	1	deep.d.ts:13:3	deep.d.ts:13:3
+src/link-pnpm-store.ts	27	10	27	27	FUNCTION_CALL	shallowLocal	shallow.d.ts:5:1	1	1	shallow.d.ts:5:1	shallow.d.ts:5:1
+src/link-subpath.ts	12	10	12	26	FUNCTION_CALL	rootEntry	subpath-root.d.ts:3:1	1	1	subpath-root.d.ts:3:1	subpath-root.d.ts:3:1
+src/link-subpath.ts	16	10	16	26	FUNCTION_CALL	deepEntry	subpath-deep.d.ts:4:1	1	1	subpath-deep.d.ts:4:1	subpath-deep.d.ts:4:1
+src/link-subpath.ts	20	10	20	34	METHOD_CALL	spin	subpath-deep.d.ts:6:3	1	1	subpath-deep.d.ts:6:3	subpath-deep.d.ts:6:3
+src/link-subpath.ts	20	10	20	26	CONSTRUCTOR_CALL	DeepWorker		0	0		
+src/link-subpath.ts	24	10	24	22	FUNCTION_CALL	shout	plain-types.d.ts:5:1	1	1	plain-types.d.ts:5:1	plain-types.d.ts:5:1
+src/link-subpath.ts	28	10	28	43	METHOD_CALL	amplify	plain-types.d.ts:7:3	1	1	plain-types.d.ts:7:3	plain-types.d.ts:7:3
+src/link-subpath.ts	28	10	28	25	CONSTRUCTOR_CALL	Megaphone		0	0		

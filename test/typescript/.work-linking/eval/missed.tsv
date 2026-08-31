@@ -1,0 +1,9 @@
+callFile	callLine	callCol	callKind	calleeName	targetFile	targetLine	targetName
+src/link-barrel.ts	20	10	METHOD_CALL	charlie	barrel-inner-c.d.ts	1	charlie
+src/link-chains.ts	65	17	METHOD_CALL	bind	lib.es5.d.ts	355	bind
+src/link-chains.ts	66	10	FUNCTION_CALL	write	named-api.d.ts	13	write
+src/link-default.ts	16	10	METHOD_CALL	transform	default-codec.d.ts	6	transform
+src/link-generic.ts	34	10	METHOD_CALL	run	link-generic.ts	13	run
+src/link-generic.ts	40	10	METHOD_CALL	run	generic-lib.d.ts	18	run
+src/link-generic.ts	51	44	METHOD_CALL	run	link-generic.ts	19	run
+src/link-legacy.ts	29	10	METHOD_CALL	deepPack	legacy-pack.d.ts	14	deepPack

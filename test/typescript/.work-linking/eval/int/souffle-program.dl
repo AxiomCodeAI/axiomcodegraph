@@ -1,0 +1,112 @@
+#include "/tmp/tdg-wt/src/typescript/souffle/decls_base.dl"
+#include "/tmp/tdg-wt/src/typescript/souffle/decls_all.dl"
+.input dispatch_cap(IO=file, filename="dispatch_cap.facts", delimiter="\t", rfc4180=true)
+.input jdk_max_depth(IO=file, filename="jdk_max_depth.facts", delimiter="\t", rfc4180=true)
+.input lib_max_depth(IO=file, filename="lib_max_depth.facts", delimiter="\t", rfc4180=true)
+.input lib_ts_block(IO=file, filename="lib_ts_block.facts", delimiter="\t", rfc4180=true)
+.input lib_ts_call_site(IO=file, filename="lib_ts_call_site.facts", delimiter="\t", rfc4180=true)
+.input lib_ts_comment(IO=file, filename="lib_ts_comment.facts", delimiter="\t", rfc4180=true)
+.input lib_ts_decorator(IO=file, filename="lib_ts_decorator.facts", delimiter="\t", rfc4180=true)
+.input lib_ts_decorator_argument(IO=file, filename="lib_ts_decorator_argument.facts", delimiter="\t", rfc4180=true)
+.input lib_ts_enum_member(IO=file, filename="lib_ts_enum_member.facts", delimiter="\t", rfc4180=true)
+.input lib_ts_export(IO=file, filename="lib_ts_export.facts", delimiter="\t", rfc4180=true)
+.input lib_ts_expression(IO=file, filename="lib_ts_expression.facts", delimiter="\t", rfc4180=true)
+.input lib_ts_field(IO=file, filename="lib_ts_field.facts", delimiter="\t", rfc4180=true)
+.input lib_ts_field_position(IO=file, filename="lib_ts_field_position.facts", delimiter="\t", rfc4180=true)
+.input lib_ts_import(IO=file, filename="lib_ts_import.facts", delimiter="\t", rfc4180=true)
+.input lib_ts_method(IO=file, filename="lib_ts_method.facts", delimiter="\t", rfc4180=true)
+.input lib_ts_method_parameter(IO=file, filename="lib_ts_method_parameter.facts", delimiter="\t", rfc4180=true)
+.input lib_ts_module(IO=file, filename="lib_ts_module.facts", delimiter="\t", rfc4180=true)
+.input lib_ts_parse_gap(IO=file, filename="lib_ts_parse_gap.facts", delimiter="\t", rfc4180=true)
+.input lib_ts_type(IO=file, filename="lib_ts_type.facts", delimiter="\t", rfc4180=true)
+.input lib_ts_type_heritage(IO=file, filename="lib_ts_type_heritage.facts", delimiter="\t", rfc4180=true)
+.input lib_ts_type_parameter(IO=file, filename="lib_ts_type_parameter.facts", delimiter="\t", rfc4180=true)
+.input lib_ts_type_reference(IO=file, filename="lib_ts_type_reference.facts", delimiter="\t", rfc4180=true)
+.input lib_ts_variable(IO=file, filename="lib_ts_variable.facts", delimiter="\t", rfc4180=true)
+.input taint_gating(IO=file, filename="taint_gating.facts", delimiter="\t", rfc4180=true)
+.input ts_block(IO=file, filename="ts_block.facts", delimiter="\t", rfc4180=true)
+.input ts_call_site(IO=file, filename="ts_call_site.facts", delimiter="\t", rfc4180=true)
+.input ts_comment(IO=file, filename="ts_comment.facts", delimiter="\t", rfc4180=true)
+.input ts_decorator(IO=file, filename="ts_decorator.facts", delimiter="\t", rfc4180=true)
+.input ts_decorator_argument(IO=file, filename="ts_decorator_argument.facts", delimiter="\t", rfc4180=true)
+.input ts_enum_member(IO=file, filename="ts_enum_member.facts", delimiter="\t", rfc4180=true)
+.input ts_export(IO=file, filename="ts_export.facts", delimiter="\t", rfc4180=true)
+.input ts_expression(IO=file, filename="ts_expression.facts", delimiter="\t", rfc4180=true)
+.input ts_field(IO=file, filename="ts_field.facts", delimiter="\t", rfc4180=true)
+.input ts_field_position(IO=file, filename="ts_field_position.facts", delimiter="\t", rfc4180=true)
+.input ts_import(IO=file, filename="ts_import.facts", delimiter="\t", rfc4180=true)
+.input ts_method(IO=file, filename="ts_method.facts", delimiter="\t", rfc4180=true)
+.input ts_method_parameter(IO=file, filename="ts_method_parameter.facts", delimiter="\t", rfc4180=true)
+.input ts_module(IO=file, filename="ts_module.facts", delimiter="\t", rfc4180=true)
+.input ts_parse_gap(IO=file, filename="ts_parse_gap.facts", delimiter="\t", rfc4180=true)
+.input ts_type(IO=file, filename="ts_type.facts", delimiter="\t", rfc4180=true)
+.input ts_type_heritage(IO=file, filename="ts_type_heritage.facts", delimiter="\t", rfc4180=true)
+.input ts_type_parameter(IO=file, filename="ts_type_parameter.facts", delimiter="\t", rfc4180=true)
+.input ts_type_reference(IO=file, filename="ts_type_reference.facts", delimiter="\t", rfc4180=true)
+.input ts_variable(IO=file, filename="ts_variable.facts", delimiter="\t", rfc4180=true)
+#include "/tmp/tdg-wt/src/typescript/engine/projections/expressions.dl"
+#include "/tmp/tdg-wt/src/typescript/engine/projections/imports-exports.dl"
+#include "/tmp/tdg-wt/src/typescript/engine/projections/members.dl"
+#include "/tmp/tdg-wt/src/typescript/engine/projections/methods.dl"
+#include "/tmp/tdg-wt/src/typescript/engine/projections/modules.dl"
+#include "/tmp/tdg-wt/src/typescript/engine/projections/types.dl"
+#include "/tmp/tdg-wt/src/typescript/engine/containment/ownership.dl"
+#include "/tmp/tdg-wt/src/typescript/engine/resolution/contextual-params.dl"
+#include "/tmp/tdg-wt/src/typescript/engine/resolution/generics.dl"
+#include "/tmp/tdg-wt/src/typescript/engine/resolution/lib-scope.dl"
+#include "/tmp/tdg-wt/src/typescript/engine/resolution/member-lookup.dl"
+#include "/tmp/tdg-wt/src/typescript/engine/resolution/module-graph.dl"
+#include "/tmp/tdg-wt/src/typescript/engine/resolution/name-resolution.dl"
+#include "/tmp/tdg-wt/src/typescript/engine/resolution/overload-sets.dl"
+#include "/tmp/tdg-wt/src/typescript/engine/resolution/reference-types.dl"
+#include "/tmp/tdg-wt/src/typescript/engine/resolution/structural-satisfaction.dl"
+#include "/tmp/tdg-wt/src/typescript/engine/resolution/type-hierarchy.dl"
+#include "/tmp/tdg-wt/src/typescript/engine/resolution/type-resolution.dl"
+#include "/tmp/tdg-wt/src/typescript/engine/resolution/value-flow.dl"
+#include "/tmp/tdg-wt/src/typescript/engine/expression-resolution/callee-resolution.dl"
+#include "/tmp/tdg-wt/src/typescript/engine/expression-resolution/expr-type.dl"
+#include "/tmp/tdg-wt/src/typescript/engine/expression-resolution/overload.dl"
+#include "/tmp/tdg-wt/src/typescript/engine/call-edge-generation/call_chain.dl"
+#include "/tmp/tdg-wt/src/typescript/engine/call-edge-generation/calls.dl"
+.output alias_step(IO=file, filename="diag-alias-step.csv", delimiter="\t")
+.output arity_rejected(IO=file, filename="arity-rejected.csv", delimiter="\t")
+.output call_chain_edge(IO=file, filename="call-chain-edges.csv", delimiter="\t")
+.output call_class(IO=file, filename="call-class.csv", delimiter="\t")
+.output call_runs_edge(IO=file, filename="call-runs-edges.csv", delimiter="\t")
+.output call_signature_in_scope(IO=file, filename="diag-call-sig.csv", delimiter="\t")
+.output call_type_only_target(IO=file, filename="call-type-only-target.csv", delimiter="\t")
+.output client_calls_client(IO=file, filename="client-to-client-calls.csv", delimiter="\t")
+.output client_calls_lib(IO=file, filename="client-to-lib-calls.csv", delimiter="\t")
+.output client_calls_lib_detail(IO=file, filename="client-to-lib-navigation.csv", delimiter="\t")
+.output entry_point(IO=file, filename="entry-point.csv", delimiter="\t")
+.output entry_reachable(IO=file, filename="entry-reachable.csv", delimiter="\t")
+.output export_specifier_unresolved(IO=file, filename="export-specifier-unresolved.csv", delimiter="\t")
+.output expr_call_candidate(IO=file, filename="expr-call-candidate.csv", delimiter="\t")
+.output expr_resolves_to_method(IO=file, filename="expr-resolves-to-method.csv", delimiter="\t")
+.output expr_shape(IO=file, filename="diag-expr-shape.csv", delimiter="\t")
+.output global_decl(IO=file, filename="diag-global-decl.csv", delimiter="\t")
+.output heritage_dynamic(IO=file, filename="heritage-dynamic.csv", delimiter="\t")
+.output heritage_unresolved(IO=file, filename="heritage-unresolved.csv", delimiter="\t")
+.output implementors(IO=file, filename="resolution-implementors.csv", delimiter="\t")
+.output import_binding_unresolved(IO=file, filename="import-binding-unresolved.csv", delimiter="\t")
+.output import_binds(IO=file, filename="diag-import-binds.csv", delimiter="\t")
+.output import_binds_interop(IO=file, filename="import-binds-interop.csv", delimiter="\t")
+.output import_target_module(IO=file, filename="import-target-module.csv", delimiter="\t")
+.output import_unresolved(IO=file, filename="import-unresolved.csv", delimiter="\t")
+.output invocation_site(IO=file, filename="invocation-site.csv", delimiter="\t")
+.output lib_boundary_reason(IO=file, filename="lib-boundary-reason.csv", delimiter="\t")
+.output method_call_edge(IO=file, filename="method-call-edge.csv", delimiter="\t")
+.output method_has_unknown_call(IO=file, filename="method-has-unknown-call.csv", delimiter="\t")
+.output module_export(IO=file, filename="module-export.csv", delimiter="\t")
+.output module_export_recovered(IO=file, filename="module-export-recovered.csv", delimiter="\t")
+.output parser_resolved(IO=file, filename="parser-resolved.csv", delimiter="\t")
+.output ref_shape_target(IO=file, filename="diag-ref-shape.csv", delimiter="\t")
+.output satisfaction_unmeasured(IO=file, filename="satisfaction-unmeasured.csv", delimiter="\t")
+.output structural_implementor(IO=file, filename="structural-implementor.csv", delimiter="\t")
+.output type_ancestor(IO=file, filename="resolution-type-ancestor.csv", delimiter="\t")
+.output type_ref_unresolved(IO=file, filename="type-ref-unresolved.csv", delimiter="\t")
+.output type_rejected(IO=file, filename="type-rejected.csv", delimiter="\t")
+.output type_satisfies(IO=file, filename="type-satisfies.csv", delimiter="\t")
+.output unresolved_receiver(IO=file, filename="unresolved-receiver.csv", delimiter="\t")
+.output var_shape(IO=file, filename="diag-var-shape.csv", delimiter="\t")
+.output var_type(IO=file, filename="diag-var-type.csv", delimiter="\t")
