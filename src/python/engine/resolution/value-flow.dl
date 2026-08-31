@@ -285,6 +285,23 @@ expr_type_class_object(p, e, t) :-
     expr_node(p, "BOOLEAN_OPERATION", _, _, e),
     expr_parent(p, e, "OPERAND_RIGHT", _, o), expr_type_class_object(p, o, t).
 
+// ── `type[X]` / `Type[X]` HOLDS THE CLASS, not an instance ───────────────────
+// The declared spelling of the same idea, and the one a registry's own signature uses
+// (`def register(kind: str, cls: type[Element])`). Distinct from every other annotation:
+// the parameter holds the CLASS, so it belongs in expr_type_class_object and NOT in
+// expr_type — typing it as an instance of X would resolve `cls.create()` to X's
+// instance methods, which is the wrong answer rather than a missing one.
+annotation_names_a_class("type").
+annotation_names_a_class("Type").
+
+expr_type_class_object("client", e, t) :-
+    expr_names_param("client", e, ph),
+    type_ref_owner("client", ph, "METHOD_PARAM", r),
+    type_ref("client", _, "METHOD_PARAM", tn, _, r),
+    annotation_names_a_class(tn),
+    type_ref_nesting("client", r, _, "1", child),
+    type_ref_resolved("client", t, child).
+
 // A name written MORE THAN ONCE takes the union, for the same reason the instance side
 // does: a sound set beats a blank, and the tier follows from the target count.
 expr_type_class_object(p, e, t) :-

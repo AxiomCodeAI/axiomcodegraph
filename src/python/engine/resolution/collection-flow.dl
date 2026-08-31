@@ -229,6 +229,25 @@ expr_type_class_object(p, e, t) :-
     binding_lookup(p, ob, b),
     binding_dict_entry_type(p, b, k, t).
 
+// ── an UNPINNED key into a registry yields the UNION of what it holds ────────
+// `REGISTRY.get(token.type)` — the key is computed, so no single entry is implied, but
+// the set of classes the registry was BUILT from is known exactly and the answer is
+// inside it. That is the same sound-set trade made everywhere else, and it is the shape
+// a real dispatch table takes: the key is data, the values are not.
+//
+// Keyed on the index NOT being a literal rather than on the absence of a pinned key, so
+// this stays a comparison rather than a negation and the pinned clause above keeps its
+// exact single answer.
+expr_type_class_object(p, e, t) :-
+    call_of_expr(e, site),
+    call_name(site, "get"),
+    call_receiver_object(site, obj),
+    call_arg(site, "0", idx),
+    expr_node(p, ik, _, _, idx), ik != "LITERAL",
+    expr_binding(p, ob, ctx, obj), ctx != "STORE",
+    binding_lookup(p, ob, b),
+    binding_dict_entry_type(p, b, _, t).
+
 // ============================================================================
 // A REGISTRY HELD ON AN ATTRIBUTE — the last hop of the cross-service chain
 //
