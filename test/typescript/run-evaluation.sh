@@ -365,6 +365,17 @@ MISSED_DUMP="$WORK/missed.tsv" SITE_DUMP="$WORK/sites.tsv" python3 "$HERE/ground
   "$WORK/ir" "$WORK/out" "$WORK/oracle.tsv" --envelope="$WORK/envelope.tsv" $LIBARGS \
   | tee "$WORK/score.txt"
 
+# ── 5b. CONSERVATION, loudly ────────────────────────────────────────────────
+# A shortfall here invalidates every rate above it, so it is repeated after the score
+# rather than left to be spotted in the header. Measured cause on this corpus: a
+# MONOREPO ROOT whose tsconfig lists directories in `include` — the compiler expands
+# them, project discovery does not, and the run then scores a few hundred sites out of
+# tens of thousands while reporting a perfectly plausible accuracy.
+if grep -q '^CONSERVATION LOSS' "$WORK/score.txt" 2>/dev/null; then
+  echo "   ⚠ $(grep '^CONSERVATION LOSS' "$WORK/score.txt")"
+  echo "     if this project is a monorepo, point the harness at the PACKAGE, not the root"
+fi
+
 # ── 6. chains, and the client/library boundary ───────────────────────────────
 # score.py adjudicates one site against one declaration and is structurally blind to
 # two things: whether the edges still join end to end into a chain, and whether the

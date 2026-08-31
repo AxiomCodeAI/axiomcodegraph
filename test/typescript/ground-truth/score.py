@@ -244,6 +244,27 @@ def main():
     print(f'call sites (parser IR)      {len(call_pos)}')
     print(f'call sites (oracle)         {len(oracle)}')
     print(f'joined on position          {matched}')
+
+    # ── CONSERVATION ────────────────────────────────────────────────────────
+    # The one invariant a score structurally cannot check: you cannot notice the
+    # absence of something that was never recorded. Every rate below is computed over
+    # sites the IR CONTAINS, so a site the extraction never emitted is not counted as
+    # missed — it is not counted at all, and the accuracy it would have dragged down
+    # simply disappears.
+    #
+    # This is not hypothetical. Measured on the corpus: one project reported 204 call
+    # sites where the compiler saw 27,821, and scored 0.326 exact on the 0.7% that
+    # survived. Two more were short by 32% and 9%. Nothing failed, because nothing
+    # was looking. Borrowed from the Python suite, which gates exactly this.
+    lost = len(oracle) - matched
+    if lost > 0:
+        pct = lost / len(oracle)
+        flag = 'CONSERVATION LOSS'
+        print(f'{flag:<27} {lost:>7}   {pct:.1%} of the compiler\'s sites are absent '
+              f'from the IR and are NOT in any figure below')
+        if pct >= 0.02:
+            print('  ^ above 2%: treat every rate in this report as unsound until the '
+                  'extraction covers the project')
     print()
     for b in (
         'EXACT', 'SOUND_SUPERSET', 'OVERLOAD_SIBLING', 'WRONG', 'MISSED',
