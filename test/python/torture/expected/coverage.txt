@@ -1,4 +1,4 @@
-=== per-family coverage (tier-4, 106 scored sites) ===
+=== per-family coverage (tier-4, 117 scored sites) ===
   f01 inheritance & MRO        links= 10  found= 10 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f02 callables & closures     links= 10  found=  9 (90.0%)  missed= 1  wide= 0  WRONG= 0
   f03 generics                 links= 14  found= 14 (100.0%)  missed= 0  wide= 0  WRONG= 0
@@ -11,11 +11,12 @@
   f10 forward references       links=  8  found=  8 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f11 multi-write & union      links= 12  found= 12 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f12 value flow               links=  8  found=  8 (100.0%)  missed= 0  wide= 0  WRONG= 0
+  f13 declared dispatch        links=  8  found=  8 (100.0%)  missed= 0  wide= 3  WRONG= 0
   pkgmod relative imports (subpackage) links=  3  found=  3 (100.0%)  missed= 0  wide= 0  WRONG= 0
 
-  TOTAL                         links=104  found= 96 (92.3%)  missed= 8  wide= 2  WRONG= 0
-  recall      96/104 = 92.3%  of the links that actually ran
-  wide  2   a member of a SOUND SET that did not run on this pass
+  TOTAL                         links=112  found=104 (92.9%)  missed= 8  wide= 5  WRONG= 0
+  recall      104/112 = 92.9%  of the links that actually ran
+  wide  5   a member of a SOUND SET that did not run on this pass
   WRONG 0   a single target asserted as certain that never ran
 
   EXPECTED-MISS cases: {'FOUND': 5, 'MISSED': 5}   (a CONCRETE here means a known blind spot closed)
@@ -31,3 +32,6 @@
   f08_dynamic.py:8    MISSED     true=[('lib', 'shapes.py', 33)] engine=[]
   f08_dynamic.py:24   WIDE       true=[('lib', 'shapes.py', 33)] engine=[('lib', 'shapes.py', 38)]
   f09_adversarial.py:41   WIDE       true=[('lib', 'callables.py', 13)] engine=[('lib', 'callables.py', 5)]
+  f13_declared_dispatch.py:39   WIDE       true=[('client', 'f13_declared_dispatch.py', 23), ('client', 'f13_declared_dispatch.py', 28)] engine=[('client', 'f13_declared_dispatch.py', 15)]
+  f13_declared_dispatch.py:43   WIDE       true=[('client', 'f13_declared_dispatch.py', 23), ('client', 'f13_declared_dispatch.py', 28)] engine=[('client', 'f13_declared_dispatch.py', 15)]
+  f13_declared_dispatch.py:52   WIDE       true=[('client', 'f13_declared_dispatch.py', 59), ('client', 'f13_declared_dispatch.py', 64)] engine=[('client', 'f13_declared_dispatch.py', 54)]
