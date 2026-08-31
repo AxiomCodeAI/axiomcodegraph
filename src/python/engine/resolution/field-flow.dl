@@ -69,6 +69,18 @@ field_type_from_construction(p, f, t) :-
     expr_node(p, "CALL", _, _, val),
     expr_parent(p, val, "CALLEE", _, callee),
     expr_names_type(p, callee, t).
+// A ternary or an `or` in the write position. The write COUNT is still 1, so the
+// single-write gate was never the obstacle here -- the value simply had no type until
+// expression-resolution/expr-type.dl learned to read those two nodes. Deferring to
+// expr_type rather than re-walking the branches keeps one definition of what they mean.
+field_type_from_construction(p, f, t) :-
+    field_write_value(p, f, val),
+    expr_node(p, "CONDITIONAL_EXPRESSION", _, _, val),
+    expr_type(p, val, t).
+field_type_from_construction(p, f, t) :-
+    field_write_value(p, f, val),
+    expr_node(p, "BOOLEAN_OPERATION", _, _, val),
+    expr_type(p, val, t).
 // The dotted form: `self.base = models.Base("b")`.
 field_type_from_construction(p, f, t) :-
     field_write_value(p, f, val),

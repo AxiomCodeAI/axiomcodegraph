@@ -11,6 +11,7 @@ import f08_dynamic as f8
 import f09_adversarial as f9
 import f10_forward_refs as f10
 from pkgmod import user as pkguser
+import f11_multiwrite as f11
 from tlib import Square
 from tlib.shapes import Base, Mid
 
@@ -42,6 +43,11 @@ def main() -> None:
     print(f10.Boxed(h).read())
     print(pkguser.run_generator([1, 2]), pkguser.run_generator_in_for([3, 4]))
     print(pkguser.run_plain([5]))
+    print(f11.two_writes(True), f11.two_writes(False))
+    print(f11.ternary(True), f11.ternary(False), f11.boolean_or(None))
+    print(f11.boolean_or(f11.Fancy()), f11.ternary_over_lib(True), f11.ternary_over_lib(False))
+    print(f11.HoldsTernary(True).run(), f11.HoldsTernary(False).run())
+    print(f11.HoldsOr().run(), f11.HoldsOr(f11.Fancy()).run())
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-=== per-family coverage (tier-4, 85 scored sites) ===
+=== per-family coverage (tier-4, 98 scored sites) ===
   f01 inheritance & MRO        links= 10  found= 10 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f02 callables & closures     links= 10  found=  9 (90.0%)  missed= 1  wide= 0  WRONG= 0
   f03 generics                 links= 14  found= 14 (100.0%)  missed= 0  wide= 0  WRONG= 0
@@ -6,14 +6,15 @@
   f05 decorators               links=  6  found=  1 (16.7%)  missed= 5  wide= 0  WRONG= 0
   f06 value flow               links=  8  found=  7 (87.5%)  missed= 1  wide= 0  WRONG= 0
   f07 imports & re-export      links=  5  found=  5 (100.0%)  missed= 0  wide= 0  WRONG= 0
-  f08 dynamic                  links=  2  found=  0 ( 0.0%)  missed= 2  wide= 0  WRONG= 0
+  f08 dynamic                  links=  2  found=  1 (50.0%)  missed= 1  wide= 1  WRONG= 0
   f09 adversarial              links=  9  found=  9 (100.0%)  missed= 0  wide= 1  WRONG= 0
   f10 forward references       links=  8  found=  8 (100.0%)  missed= 0  wide= 0  WRONG= 0
+  f11 multi-write & union      links= 12  found= 12 (100.0%)  missed= 0  wide= 0  WRONG= 0
   pkgmod relative imports (subpackage) links=  3  found=  3 (100.0%)  missed= 0  wide= 0  WRONG= 0
 
-  TOTAL                         links= 84  found= 75 (89.3%)  missed= 9  wide= 1  WRONG= 0
-  recall      75/84 = 89.3%  of the links that actually ran
-  wide  1   a member of a SOUND SET that did not run on this pass
+  TOTAL                         links= 96  found= 88 (91.7%)  missed= 8  wide= 2  WRONG= 0
+  recall      88/96 = 91.7%  of the links that actually ran
+  wide  2   a member of a SOUND SET that did not run on this pass
   WRONG 0   a single target asserted as certain that never ran
 
   EXPECTED-MISS cases: {'FOUND': 5, 'MISSED': 5}   (a CONCRETE here means a known blind spot closed)
@@ -27,5 +28,5 @@
   f05_decorators.py:28   MISSED     true=[('lib', 'decorated.py', 10)] engine=[]
   f06_flow.py:28   MISSED     true=[('client', 'f06_flow.py', 28)] engine=[('lib', 'shapes.py', 33), ('lib', 'shapes.py', 38)]
   f08_dynamic.py:8    MISSED     true=[('lib', 'shapes.py', 33)] engine=[]
-  f08_dynamic.py:24   MISSED     true=[('lib', 'shapes.py', 33)] engine=[]
+  f08_dynamic.py:24   WIDE       true=[('lib', 'shapes.py', 33)] engine=[('lib', 'shapes.py', 38)]
   f09_adversarial.py:41   WIDE       true=[('lib', 'callables.py', 13)] engine=[('lib', 'callables.py', 5)]
