@@ -510,3 +510,70 @@ module_member_method("lib", mod, n, m) :-
     import_alias("lib", _, n, i), n != "".
 module_member_method("lib", mod, n, m) :-
     module_reexports_all("lib", mod, src), module_member_method("lib", src, n, m).
+
+
+// ============================================================================
+// VALUE-BORNE CALLEES — a name whose VALUE names a method (issue #46)
+// ============================================================================
+
+// ── a local that ALIASES a method ────────────────────────────────────────────
+//     get_measurement = Measurement.get
+//     widths = [get_measurement(x).maximum for x in items]
+// Aliasing a method to a local is routine Python, and often deliberate in a hot loop.
+// The bare-name path resolves a name that DENOTES a method; a name whose binding VALUE is
+// an attribute naming one did not, so both the call and the type of its result were lost.
+// The parser resolves `name = <a def>` to a METHOD entity already, but not this shape --
+// the value is an ATTRIBUTE_ACCESS, and py_binding.targetEntityKind stays NONE.
+//
+// Single-write only: a rebound alias is a different question, and the union belongs with
+// the other multi-write flow rather than here.
+expr_denotes_method(p, e, m) :-
+    expr_binding(p, b, ctx, e), ctx != "STORE",
+    binding_lookup(p, b, b2),
+    binding_rebinding(p, "1", _, _, b2),
+    expr_binding(p, b2, "STORE", tgt),
+    assign_pair(p, tgt, val),
+    expr_node(p, "ATTRIBUTE_ACCESS", _, n, val),
+    expr_parent(p, val, "ATTRIBUTE_OBJECT", _, obj),
+    expr_type_class_object(p, obj, t),
+    mro_lookup(p, t, n, m).
+expr_denotes_method(p, e, m) :-
+    expr_binding(p, b, ctx, e), ctx != "STORE",
+    binding_lookup(p, b, b2),
+    binding_rebinding(p, "1", _, _, b2),
+    expr_binding(p, b2, "STORE", tgt),
+    assign_pair(p, tgt, val),
+    expr_node(p, "ATTRIBUTE_ACCESS", _, n, val),
+    expr_parent(p, val, "ATTRIBUTE_OBJECT", _, obj),
+    expr_type(p, obj, t),
+    mro_lookup(p, t, n, m).
+
+// ── getattr(obj, "literal") IS an attribute lookup ───────────────────────────
+//     cast_method = getattr(renderable, "__rich__")
+//     result = cast_method()
+// The attribute name is a string LITERAL and the receiver's type is often known, so this
+// is an ordinary lookup wearing a dynamic spelling. py_expression.literalValue carries the
+// name already unquoted, so the match is exact rather than reconstructed.
+// Only the two-argument form: with a default the result may be the default instead, which
+// the clause below handles as a type rather than as a resolved method.
+expr_denotes_method("client", e, m) :-
+    call_of_expr(e, site),
+    call_name(site, "getattr"),
+    call_arg(site, "0", obj),
+    call_arg(site, "1", nameArg),
+    !call_arg(site, "2", _),
+    expr_node("client", "LITERAL", _, n, nameArg), n != "",
+    expr_type("client", obj, t),
+    mro_lookup("client", t, n, m).
+
+// ── getattr(obj, name, default) IS AT LEAST the default ──────────────────────
+//     h = getattr(record, "highlighter", self.highlighter)
+//     if h: text = h(text)
+// The result is the named attribute or the default, so its type INCLUDES the default's
+// whatever the dynamic half turns out to be. Sound without deciding anything about the
+// lookup, and on its own enough to resolve the call that follows.
+expr_type("client", e, t) :-
+    call_of_expr(e, site),
+    call_name(site, "getattr"),
+    call_arg(site, "2", def),
+    expr_type("client", def, t).
