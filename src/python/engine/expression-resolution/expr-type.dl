@@ -144,6 +144,73 @@ binding_value_type(p, b, t) :-
     assign_pair(p, tgt, val),
     expr_type(p, val, t).
 
+// ── MORE THAN ONE WRITE: the UNION, rather than nothing ──────────────────────
+// The single-write gate above is deliberate -- it stops a rebound name inheriting a
+// stale type -- but its fallback was silence, and "build a value, conditionally replace
+// it, then use it" is one of the most ordinary shapes in Python:
+//
+//     out = PlainWriter()
+//     if flag:
+//         out = HtmlWriter()
+//     out.emit()            <- no target at all
+//
+// So a multi-write name takes the type of EVERY value assigned to it. This is
+// FLOW-INSENSITIVE on purpose: both writes reach both uses, and the answer is a set the
+// true target is inside rather than a blank. It is the same trade the design already
+// makes elsewhere, and the tier follows on its own -- site_class reads the target count,
+// so a union of two emits multi_inferred, never known_edge.
+//
+// It cannot dilute an existing answer: every site it reaches emits nothing today.
+binding_value_type(p, b, t) :-
+    binding_rebinding(p, n, _, _, b), n != "1",
+    expr_binding(p, b, "STORE", tgt),
+    assign_pair(p, tgt, val),
+    expr_type(p, val, t).
+
+// ── A CONDITIONAL EXPRESSION IS EITHER BRANCH ────────────────────────────────
+// `w = HtmlWriter() if flag else PlainWriter()`. CONDITIONAL_EXPRESSION was present in
+// the IR with BODY / CONDITION / ORELSE children and NO rule read it, so a ternary had
+// no type -- which also swallowed the single-write FIELD case `self.x = A() if c else B()`,
+// where the write count is 1 and the value is simply untypeable. The CONDITION is not a
+// value of the expression and is deliberately not read.
+expr_type(p, e, t) :-
+    expr_node(p, "CONDITIONAL_EXPRESSION", _, _, e),
+    expr_parent(p, e, "BODY", _, br),
+    expr_type(p, br, t).
+expr_type(p, e, t) :-
+    expr_node(p, "CONDITIONAL_EXPRESSION", _, _, e),
+    expr_parent(p, e, "ORELSE", _, br),
+    expr_type(p, br, t).
+
+// ── `a or b` IS EITHER OPERAND ───────────────────────────────────────────────
+// The standard Python default-argument idiom, `self.writer = writer or PlainWriter()`.
+// Same shape, same reason, and both operands are genuinely reachable values.
+expr_type(p, e, t) :-
+    expr_node(p, "BOOLEAN_OPERATION", _, _, e),
+    expr_parent(p, e, "OPERAND_LEFT", _, o),
+    expr_type(p, o, t).
+expr_type(p, e, t) :-
+    expr_node(p, "BOOLEAN_OPERATION", _, _, e),
+    expr_parent(p, e, "OPERAND_RIGHT", _, o),
+    expr_type(p, o, t).
+
+// ── the LIB twin of both, so a branch holding a LIBRARY instance survives ────
+// `s = Mid() if flag else Base()` where both classes are declared in the library: the
+// constructions are client-side, so the branch types live in expr_lib_type rather than
+// expr_type and need the same union.
+expr_lib_type(e, t) :-
+    expr_node("client", "CONDITIONAL_EXPRESSION", _, _, e),
+    expr_parent("client", e, "BODY", _, br), expr_lib_type(br, t).
+expr_lib_type(e, t) :-
+    expr_node("client", "CONDITIONAL_EXPRESSION", _, _, e),
+    expr_parent("client", e, "ORELSE", _, br), expr_lib_type(br, t).
+expr_lib_type(e, t) :-
+    expr_node("client", "BOOLEAN_OPERATION", _, _, e),
+    expr_parent("client", e, "OPERAND_LEFT", _, o), expr_lib_type(o, t).
+expr_lib_type(e, t) :-
+    expr_node("client", "BOOLEAN_OPERATION", _, _, e),
+    expr_parent("client", e, "OPERAND_RIGHT", _, o), expr_lib_type(o, t).
+
 // ── call_returns_type(SiteHash, TypeHash) ────────────────────────────────────
 // The callee's `-> X` annotation, resolved as a member of the CALLEE's own module. A
 // within-module lookup, so no cross-module name matching sneaks in. Restricted to
