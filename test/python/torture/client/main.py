@@ -15,6 +15,7 @@ import f11_multiwrite as f11
 import f12_value_flow as f12
 import f13_declared_dispatch as f13
 import f14_class_objects as f14
+import f15_attribute_chains as f15
 from tlib import Square
 from tlib.shapes import Base, Mid
 
@@ -61,6 +62,9 @@ def main() -> None:
     print(f14.via_type_annotation(f14.Para))
     r = f14.Registry()
     print(r.build_get("h"), r.build_get("zz"), r.build_subscript("p"))
+    mid = f15.Middle(); hold = f15.Holder(mid)
+    print(hold.via_self_two_hops(), hold.via_self_construction())
+    print(f15.via_parameter(hold), f15.via_parameter_one_hop(mid), f15.via_local(hold))
 
 
 if __name__ == "__main__":
