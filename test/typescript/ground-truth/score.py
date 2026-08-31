@@ -165,6 +165,7 @@ def main():
     # engine that always took declaration 0 would score well on names and be wrong three
     # times in four exactly where it matters.
     ov = defaultdict(int)
+    site_verdict = {}
     matched = 0
     for ce, (f, line, col, eline, ecol, ckind, cname) in call_pos.items():
         key = (f, line, col, eline, ecol)
@@ -216,6 +217,12 @@ def main():
                 if b == 'WRONG':
                     hedged_wrong += 1
             fan += len(eng) - 1
+        # ONE verdict, computed once. The per-site dump used to re-derive its own,
+        # which drifted: different labels, no OVERLOAD_SIBLING, no MISSED_UNLOCATABLE,
+        # and a different synthesized rule — so the dump and the summary disagreed by
+        # thousands of sites on the same run, and any analysis built on the dump was
+        # measuring something the headline numbers did not.
+        site_verdict[ce] = b
         buckets[b] += 1
         by_kind[ckind][b] += 1
         if len(o) > 6 and o[6] > 1:
@@ -407,14 +414,7 @@ def main():
                     continue
                 eng = sorted(f'{t[0]}:{t[1]}:{t[2]}' for t in engine_targets.get(ce, set()))
                 ot = f'{o[0]}:{o[1]}:{o[2]}'
-                if o[3] == 'synthesized':
-                    v = 'SYNTHESIZED'
-                elif not eng:
-                    v = 'MISSED'
-                elif ot in eng:
-                    v = 'EXACT' if len(eng) == 1 else 'SUPERSET'
-                else:
-                    v = 'WRONG'
+                v = site_verdict.get(ce, 'NO_ORACLE_ROW')
                 fh.write('\t'.join([v, f, line, col, ckind, cname,
                                     str(o[6]) if len(o) > 6 else '1',
                                     str(o[7]) if len(o) > 7 else '0',
