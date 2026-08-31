@@ -34,6 +34,9 @@ src/link-conditional.ts	22	10	22	45	METHOD_CALL	finish	cond-api.d.ts:31:3	1	1	co
 src/link-conditional.ts	22	10	22	31	METHOD_CALL	make	cond-api.d.ts:34:9	1	1	cond-api.d.ts:34:9	cond-api.d.ts:34:9
 src/link-conditional.ts	29	10	29	25	FUNCTION_CALL	isArrayAlias	lib.es5.d.ts:1518:5	1	1	lib.es5.d.ts:1518:5	lib.es5.d.ts:1518:5
 src/link-conditional.ts	32	10	32	27	FUNCTION_CALL	assignAlias	lib.es2015.core.d.ts:284:5	4	4	lib.es2015.core.d.ts:284:5;lib.es2015.core.d.ts:293:5;lib.es2015.core.d.ts:303:5;lib.es2015.core.d.ts:311:5	lib.es2015.core.d.ts:284:5;lib.es2015.core.d.ts:293:5;lib.es2015.core.d.ts:303:5;lib.es2015.core.d.ts:311:5
+src/link-conditional.ts	62	28	62	43	FUNCTION_CALL	createEmitCtx	link-conditional.ts:53:1	1	1	link-conditional.ts:53:1	link-conditional.ts:53:1
+src/link-conditional.ts	63	3	63	13	FUNCTION_CALL	emit	link-conditional.ts:49:3	1	1	link-conditional.ts:49:3	link-conditional.ts:49:3
+src/link-conditional.ts	64	10	64	18	FUNCTION_CALL	finish	link-conditional.ts:50:3	1	1	link-conditional.ts:50:3	link-conditional.ts:50:3
 src/link-crosspkg-reexport.ts	17	10	17	26	FUNCTION_CALL	probeOf	probe-core.d.ts:4:1	1	1	probe-core.d.ts:4:1	probe-core.d.ts:4:1
 src/link-crosspkg-reexport.ts	21	10	21	27	FUNCTION_CALL	probeCount	probe-core.d.ts:9:1	1	1	probe-core.d.ts:9:1	probe-core.d.ts:9:1
 src/link-crosspkg-reexport.ts	25	10	25	50	METHOD_CALL	toBeAssignableTo	probe-core.d.ts:6:3	1	1	probe-core.d.ts:6:3	probe-core.d.ts:6:3

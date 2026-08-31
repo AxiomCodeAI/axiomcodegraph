@@ -87,6 +87,7 @@ def main():
     # ---- method hash -> position, over the client and every staged library ----
     meth_pos = {}
     pos_group = {}
+    pos_meta = {}
     def load_methods(d):
         mf = {}
         mpath = os.path.join(d, 'all-typescript-modules.csv')
@@ -100,6 +101,10 @@ def main():
             h = row[42]
             f = row[4] or mf.get(row[21], '')
             meth_pos[h] = (f, row[5], row[39], row[0])
+            # name + methodKind BY POSITION, so a target the oracle names can be
+            # compared against a target we name without going back through hashes.
+            if len(row) > 16:
+                pos_meta[(base(f), row[5], row[39])] = (row[0], row[16])
             # declarationGroupKey (col 22) — every OVERLOAD SIGNATURE of one function
             # shares it. TypeScript overloads are compile-time only: N signatures, ONE
             # implementation, so a call that reaches any of them reaches the same code.
@@ -139,6 +144,32 @@ def main():
         ocount = int(row[12]) if len(row) > 12 and row[12].isdigit() else 1
         oidx = int(row[13]) if len(row) > 13 and row[13].isdigit() else 0
         oracle[key] = (base(tf), tl, tc, tkind, row[6], row[5], ocount, oidx)
+
+    # A declaration with NO BODY: it describes a callable, it is not one.
+    bodiless_kinds = {
+        'METHOD_SIGNATURE', 'TYPE_LITERAL_METHOD_SIGNATURE', 'CALL_SIGNATURE',
+        'TYPE_LITERAL_CALL_SIGNATURE', 'FUNCTION_TYPE_SIGNATURE',
+        'CONSTRUCT_SIGNATURE', 'TYPE_LITERAL_CONSTRUCT_SIGNATURE',
+        'CONSTRUCTOR_TYPE_SIGNATURE',
+    }
+    implementation_kinds = {
+        'OBJECT_LITERAL_METHOD', 'METHOD_DECLARATION', 'FUNCTION_DECLARATION',
+        'FUNCTION_EXPRESSION', 'ARROW_FUNCTION', 'GETTER', 'SETTER', 'CONSTRUCTOR',
+    }
+
+    def _implements_signature(otarget, eng):
+        om = pos_meta.get(otarget)
+        if not om or om[1] not in bodiless_kinds:
+            return False
+        # SAME FILE is required, not merely the same name. A name match alone would let
+        # any unrelated `push` or `get` in the program answer for an interface member,
+        # which manufactures agreement instead of measuring it. Every case observed in
+        # the corpus is same-file, so this costs nothing and cannot over-credit.
+        for t in eng:
+            em = pos_meta.get(t)
+            if em and em[0] == om[0] and em[1] in implementation_kinds and t[0] == otarget[0]:
+                return True
+        return False
 
     def _same_group(otarget, eng):
         og = pos_group.get(otarget)
@@ -193,6 +224,19 @@ def main():
                     missed_rows.append((f, line, col, ckind, cname, o[0], o[1], o[4]))
         elif otarget in eng:
             b = 'EXACT' if len(eng) == 1 else 'SOUND_SUPERSET'
+        elif _implements_signature(otarget, eng):
+            # tsc named a BODILESS declaration — an interface method signature, which
+            # has no body and cannot run — and we named an implementation of the same
+            # member. Measured: every instance in the corpus is METHOD_SIGNATURE on an
+            # interface against OBJECT_LITERAL_METHOD in a literal annotated with it.
+            #
+            # For a CALL GRAPH ours is the better answer: the object literal's method is
+            # the code that executes; the signature is a type-level assertion about it.
+            # Scoring it WRONG penalised the engine for resolving THROUGH to the concrete
+            # implementation, which is what a consumer of this graph wants. Kept as its
+            # own verdict rather than folded into EXACT, because it remains a real
+            # disagreement with the compiler about which declaration is meant.
+            b = 'IMPLEMENTATION_OF_SIGNATURE'
         elif _same_group(otarget, eng):
             # Same function, different overload SIGNATURE. A correct call-graph edge
             # and an incorrect signature choice — reported as its own verdict rather
@@ -234,7 +278,8 @@ def main():
 
     total = sum(buckets.values())
     decidable = sum(
-        buckets[b] for b in ('EXACT', 'SOUND_SUPERSET', 'OVERLOAD_SIBLING', 'WRONG',
+        buckets[b] for b in ('EXACT', 'SOUND_SUPERSET', 'OVERLOAD_SIBLING',
+                             'IMPLEMENTATION_OF_SIGNATURE', 'WRONG',
                              'MISSED', 'MISSED_UNLOCATABLE')
     )
     right = buckets['EXACT'] + buckets['SOUND_SUPERSET']
@@ -267,8 +312,8 @@ def main():
                   'extraction covers the project')
     print()
     for b in (
-        'EXACT', 'SOUND_SUPERSET', 'OVERLOAD_SIBLING', 'WRONG', 'MISSED',
-        'MISSED_UNLOCATABLE',
+        'EXACT', 'SOUND_SUPERSET', 'OVERLOAD_SIBLING', 'IMPLEMENTATION_OF_SIGNATURE',
+        'WRONG', 'MISSED', 'MISSED_UNLOCATABLE',
         'SYNTHESIZED_OK', 'SYNTHESIZED_EXTRA', 'ORACLE_UNRESOLVED', 'NO_ORACLE_ROW',
     ):
         if buckets[b]:
@@ -287,7 +332,8 @@ def main():
     # consumer trust the callee", so both are reported rather than one standing in for
     # the other.
     answered = (buckets['EXACT'] + buckets['SOUND_SUPERSET']
-                + buckets['OVERLOAD_SIBLING'] + buckets['WRONG'])
+                + buckets['OVERLOAD_SIBLING'] + buckets['IMPLEMENTATION_OF_SIGNATURE']
+                + buckets['WRONG'])
     hedged = len(hedged_sizes)
     committed_right = buckets['EXACT']
     print('precision / recall:')
@@ -327,11 +373,13 @@ def main():
     # signature accuracy governs parameter and return precision, edge accuracy governs
     # whether the call graph points at the right function.
     sib = buckets['OVERLOAD_SIBLING']
-    edge_right = right + sib
+    impl = buckets['IMPLEMENTATION_OF_SIGNATURE']
+    edge_right = right + sib + impl
     print('signature-level vs edge-level:')
     print(f'  signature-correct (exact declaration)     {right:>7}   '
           f'{right_rate:.3f}')
     print(f'  overload sibling (same function)          {sib:>7}')
+    print(f'  implementation of tsc\'s signature        {impl:>7}')
     print(f'  edge-correct      (right function)        {edge_right:>7}   '
           f'{edge_right / decidable if decidable else 0:.3f}')
     print()

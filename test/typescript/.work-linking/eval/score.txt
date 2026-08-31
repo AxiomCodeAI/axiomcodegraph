@@ -1,32 +1,34 @@
-call sites (parser IR)      105
-call sites (oracle)         105
-joined on position          105
+call sites (parser IR)      108
+call sites (oracle)         108
+joined on position          108
 
-EXACT                       79
+EXACT                       80
 SOUND_SUPERSET               4
+IMPLEMENTATION_OF_SIGNATURE       2
 MISSED                       8
 SYNTHESIZED_OK              14
 
-decidable                   91
-EXACT target                     79   0.868
-target in engine set             83   0.912
+decidable                   94
+EXACT target                     80   0.851
+target in engine set             84   0.894
 WRONG (engine named, oracle disagrees)  0
 
 precision / recall:
-  coverage      (answered / decidable)           83   0.912
-  recall-any    (truth anywhere in the set)      83   0.912
-  precision     (truth in set | answered)        83   1.000
-  decisiveness  (single answer | answered)       79   0.952
-  commit-accuracy (right | single answer)        79   1.000
+  coverage      (answered / decidable)           86   0.915
+  recall-any    (truth anywhere in the set)      84   0.894
+  precision     (truth in set | answered)        84   0.977
+  decisiveness  (single answer | answered)       82   0.953
+  commit-accuracy (right | single answer)        80   0.976
     committed and WRONG                           0
     hedged and wrong                              0
   ambiguity     (hedged sites)                    4   mean 2.25  median 2  p90 3  max 3
-  edge-precision (TP / (TP+FP), FP = extras)     83   0.943
+  edge-precision (TP / (TP+FP), FP = extras)     84   0.944
 
 signature-level vs edge-level:
-  signature-correct (exact declaration)          83   0.912
+  signature-correct (exact declaration)          84   0.894
   overload sibling (same function)                0
-  edge-correct      (right function)             83   0.912
+  implementation of tsc's signature              2
+  edge-correct      (right function)             86   0.915
 
 overload sites (the resolved symbol has more than one declaration):
   sites                       14
@@ -38,7 +40,7 @@ overload sites (the resolved symbol has more than one declaration):
   on NON-FIRST choices only:  EXACT 8   1.000   (WRONG 0, MISSED 0)
 
 by call kind:
-  FUNCTION_CALL          exact=    44 superset=    1 wrong=    0 missed=     1  acc=0.978
+  FUNCTION_CALL          exact=    45 superset=    1 wrong=    0 missed=     1  acc=0.979
   METHOD_CALL            exact=    33 superset=    3 wrong=    0 missed=     7  acc=0.837
   CONSTRUCTOR_CALL       exact=     2 superset=    0 wrong=    0 missed=     0  acc=1.000
 
@@ -51,14 +53,16 @@ top missed callees:
        1  deepPack
 
 dispatch envelope (edges, not sites):
-  engine edges emitted            88
-  inside CHA envelope             86   precision 0.977
-  inside RTA envelope             86   precision 0.977
-  CHA envelope size (total)       131   recall vs CHA 0.656
-  RTA envelope size (total)       131   recall vs RTA 0.656
+  engine edges emitted            91
+  inside CHA envelope             87   precision 0.956
+  inside RTA envelope             87   precision 0.956
+  CHA envelope size (total)       134   recall vs CHA 0.649
+  RTA envelope size (total)       134   recall vs RTA 0.649
   edges OUTSIDE the CHA envelope (demonstrable false positives):
     src/link-conditional.ts:7:10 shared() -> cond-api.d.ts:13:3   envelope ['cond-api.d.ts:9:3']
     src/link-conditional.ts:14:10 shared() -> cond-api.d.ts:9:3   envelope ['cond-api.d.ts:13:3']
+    src/link-conditional.ts:63:3 emit() -> link-conditional.ts:55:5   envelope ['link-conditional.ts:49:3']
+    src/link-conditional.ts:64:10 finish() -> link-conditional.ts:56:5   envelope ['link-conditional.ts:50:3']
 
 top missed by ORACLE TARGET FILE (which declaration family is unreachable):
        2  link-generic.ts
