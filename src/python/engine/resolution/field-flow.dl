@@ -77,6 +77,19 @@ field_type_from_construction(p, f, t) :-
     field_write_value(p, f, val),
     expr_node(p, "CONDITIONAL_EXPRESSION", _, _, val),
     expr_type(p, val, t).
+// ── and from ANY value expr_type can name ────────────────────────────────────
+// The clauses above enumerate value SHAPES -- a bare construction, a dotted
+// construction, a ternary, an `or` -- and a field written from anything else stayed
+// untyped. `self.type = self._pick_type(spec)` is the common miss: an ordinary factory
+// call whose return type call_returns_type already knows.
+//
+// The parser marks these outright (py_field.initializerKind = CALL / ATTRIBUTE / NAME),
+// so nothing here is guesswork about what the value is. Deferring to expr_type stops this
+// file re-deciding what a value means and subsumes every shape-specific clause above;
+// they are kept only because they also reach values expr_type does not.
+field_type_from_construction(p, f, t) :-
+    field_write_value(p, f, val),
+    expr_type(p, val, t).
 field_type_from_construction(p, f, t) :-
     field_write_value(p, f, val),
     expr_node(p, "BOOLEAN_OPERATION", _, _, val),

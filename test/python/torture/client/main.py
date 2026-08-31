@@ -12,6 +12,7 @@ import f09_adversarial as f9
 import f10_forward_refs as f10
 from pkgmod import user as pkguser
 import f11_multiwrite as f11
+import f12_value_flow as f12
 from tlib import Square
 from tlib.shapes import Base, Mid
 
@@ -48,6 +49,9 @@ def main() -> None:
     print(f11.boolean_or(f11.Fancy()), f11.ternary_over_lib(True), f11.ternary_over_lib(False))
     print(f11.HoldsTernary(True).run(), f11.HoldsTernary(False).run())
     print(f11.HoldsOr().run(), f11.HoldsOr(f11.Fancy()).run())
+    print(f12.UsesFactory().run(), f12.method_alias_on_class())
+    print(f12.method_alias_on_instance(), f12.getattr_literal())
+    print(f12.getattr_with_default(object()), f12.getattr_default_callable(object()))
 
 
 if __name__ == "__main__":
