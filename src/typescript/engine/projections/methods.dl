@@ -118,27 +118,55 @@ method_lines("client", fp, sl, sc, h) :- ts_method(_, _, _, _, fp, sl, _, _, _, 
 method_lines("lib", fp, sl, sc, h) :- lib_ts_method(_, _, _, _, fp, sl, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, sc, _, _, h).
 
 // ── param_decl(Prov, Name, Position, TypeName, MethodHash, ParamHash) ───────
-param_decl("client", n, pos, tn, m, h) :- ts_method_parameter(n, pos, m, _, tn, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
-param_decl("lib", n, pos, tn, m, h) :- lib_ts_method_parameter(n, pos, m, _, tn, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+// POSITIONAL PARAMETERS ONLY, and the filter is load-bearing. A destructuring-pattern
+// parameter also emits a row per BOUND NAME — `{ helper, nested }: Ctx` yields rows for
+// `helper` and `nested` — and those rows carry the SAME `position` as the pattern they
+// came from. They are not arguments; they are names bound out of one. Letting them in
+// puts several types in a single positional slot, and argument matching then selects a
+// type that was never at that position.
+//
+// Measured when they were not filtered: 191 (method, position) slots held more than one
+// row, the worst holding 23, and on one project exact resolution fell from 0.730 to
+// 0.633 on production code while wrong answers went from 19 to 272. Losing an answer is
+// survivable; inventing a confident wrong one is not.
+//
+// `bindingSourceKind` (col 22) discriminates exactly — NONE for a real parameter or for
+// the pattern itself, PROPERTY or INDEX for a bound name — so no new column is required
+// from the parser to separate them.
+param_decl("client", n, pos, tn, m, h) :- ts_method_parameter(n, pos, m, _, tn, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, bk, _, _, _, _, _, _, h),
+    param_kind_is_positional(bk).
+param_decl("lib", n, pos, tn, m, h) :- lib_ts_method_parameter(n, pos, m, _, tn, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, bk, _, _, _, _, _, _, h),
+    param_kind_is_positional(bk).
+param_kind_is_positional("NONE").
+param_kind_is_positional("").
+
+// ── param_binding(Prov, Name, SourceKind, Source, ParamHash, BindingHash) ───
+// The names bound OUT of a destructuring pattern, kept apart from the positional
+// sequence above. This is what makes `{ helper }: Ctx` resolvable: the bound name takes
+// the type of the property it names on the type of the pattern.
+param_binding("client", n, sk, src, m, h) :- ts_method_parameter(n, _, m, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, sk, src, _, _, _, _, _, h),
+    !param_kind_is_positional(sk).
+param_binding("lib", n, sk, src, m, h) :- lib_ts_method_parameter(n, _, m, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, sk, src, _, _, _, _, _, h),
+    !param_kind_is_positional(sk).
 
 // ── param_shape(Prov, ParamKind, IsOptional, HasDefault, ParamHash) ─────────
 // ParamKind (col 12, TsParamKind): REQUIRED | OPTIONAL | REST | THIS |
 //   BINDING_OBJECT | BINDING_ARRAY | PARAMETER_PROPERTY.
 // THIS is not a real parameter — `function f(this: Window, x: number)` has arity 1,
 // not 2 — so arity rules must exclude it or every such signature is off by one.
-param_shape("client", pk, opt, def, h) :- ts_method_parameter(_, _, _, _, _, _, _, _, _, _, _, _, pk, opt, def, _, _, _, _, _, _, _, _, _, _, _, h).
-param_shape("lib", pk, opt, def, h) :- lib_ts_method_parameter(_, _, _, _, _, _, _, _, _, _, _, _, pk, opt, def, _, _, _, _, _, _, _, _, _, _, _, h).
+param_shape("client", pk, opt, def, h) :- ts_method_parameter(_, _, _, _, _, _, _, _, _, _, _, _, pk, opt, def, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+param_shape("lib", pk, opt, def, h) :- lib_ts_method_parameter(_, _, _, _, _, _, _, _, _, _, _, _, pk, opt, def, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
 
 // ── param_type_ref(Prov, TypeRefHash, ParamHash) ────────────────────────────
 // 85.3% of parameters carry an annotation (99.998% in ambient code) — the inverse
 // of Python's 31.8%. That single number is why declared-type receiver typing is the
 // primary resolution mechanism here and was hopeless there.
-param_type_ref("client", r, h) :- ts_method_parameter(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, r, _, _, _, _, h), r != "".
-param_type_ref("lib", r, h) :- lib_ts_method_parameter(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, r, _, _, _, _, h), r != "".
+param_type_ref("client", r, h) :- ts_method_parameter(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, r, _, _, _, _, h), r != "".
+param_type_ref("lib", r, h) :- lib_ts_method_parameter(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, r, _, _, _, _, h), r != "".
 
 // ── param_declares_field(Prov, FieldHash, ParamHash) ────────────────────────
 // `constructor(private readonly repo: Repo)` — a parameter property DECLARES a
 // field. Without this link `this.repo.find()` has an undeclared receiver, and the
 // idiom is ubiquitous in decorator-DI codebases (Angular, NestJS).
-param_declares_field("client", f, h) :- ts_method_parameter(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, f, _, _, _, _, _, _, h), f != "".
-param_declares_field("lib", f, h) :- lib_ts_method_parameter(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, f, _, _, _, _, _, _, h), f != "".
+param_declares_field("client", f, h) :- ts_method_parameter(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, f, _, _, _, _, _, _, _, _, h), f != "".
+param_declares_field("lib", f, h) :- lib_ts_method_parameter(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, f, _, _, _, _, _, _, _, _, h), f != "".
