@@ -108,6 +108,7 @@ boundary_lib	SIMPLE_CALL	f09_adversarial.shadowed_method_name -> builtin:object.
 boundary_lib	SIMPLE_CALL	f10_forward_refs.quoted_return -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	main.main -> builtin:print
+boundary_lib	SIMPLE_CALL	pkgmod._gen.plain -> builtin:list
 known_edge	CHAINED_CALL	f01_inheritance.client_chain -> f01_inheritance.LocalBase.kind
 known_edge	CHAINED_CALL	f01_inheritance.client_chain -> f01_inheritance.LocalLeaf.kind
 known_edge	CHAINED_CALL	f02_callables.attribute_callables -> f02_callables.HoldsCallables.run
@@ -175,6 +176,9 @@ known_edge	METHOD_CALL	main.main -> f10_forward_refs.quoted_param
 known_edge	METHOD_CALL	main.main -> f10_forward_refs.single_quoted_param
 known_edge	METHOD_CALL	main.main -> f10_forward_refs.type_checking_only_param
 known_edge	METHOD_CALL	main.main -> f10_forward_refs.uses_quoted_return
+known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator
+known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator_in_for
+known_edge	METHOD_CALL	main.main -> pkgmod.user.run_plain
 known_edge	PROPERTY_READ	f04_descriptors.client_descriptors -> f04_descriptors.LocalCfg.label
 known_edge	PROPERTY_READ	f04_descriptors.lib_property_read -> lib:tlib.descriptors.Config.tag
 known_edge	SELF_CALL	f02_callables.HoldsCallables.run -> f02_callables.LocalCallable.__call__
@@ -184,3 +188,6 @@ known_edge	SIMPLE_CALL	f06_flow.uses_return -> f06_flow.returns_instance
 known_edge	SIMPLE_CALL	f09_adversarial.rebound_attribute -> f09_adversarial.Rebound.__init__
 known_edge	SIMPLE_CALL	f10_forward_refs.uses_quoted_return -> f10_forward_refs.quoted_return
 known_edge	SIMPLE_CALL	main.<module> -> main.main
+known_edge	SIMPLE_CALL	pkgmod.user.run_generator -> pkgmod._gen.each
+known_edge	SIMPLE_CALL	pkgmod.user.run_generator_in_for -> pkgmod._gen.each_first
+known_edge	SIMPLE_CALL	pkgmod.user.run_plain -> pkgmod._gen.plain

@@ -95,7 +95,9 @@ for e in gt:
     G[(e['callerFile'], e['callerLine'])].add(canon(e['calleeProv'], e['calleeFile'], e['calleeLine']))
 fam = collections.defaultdict(lambda: collections.Counter()); known = collections.Counter(); rows = []
 for (cf, cl), true in sorted(G.items()):
-    S = byline.get((cf, cl), set()); f = cf.split('_')[0]
+    S = byline.get((cf, cl), set())
+    # a fixture in a SUBPACKAGE is keyed by its package, not by an f-number prefix
+    f = cf.split('/')[0] if '/' in cf else cf.split('_')[0]
     exp = (cf, enc.get((cf, cl))) in expect
     for t in sorted(true):
         v = 'FOUND' if t in S else 'MISSED'
@@ -116,7 +118,7 @@ for (cf, cl), true in sorted(G.items()):
         else: fam[f][kind] += 1; rows.append((cf, cl, kind, sorted(true), [x]))
 print(f"=== per-family coverage (tier-4, {sum(sum(c.values()) for c in fam.values())} scored sites) ===")
 names = {'f01':'inheritance & MRO','f02':'callables & closures','f03':'generics','f04':'descriptors',
-         'f05':'decorators','f06':'value flow','f07':'imports & re-export','f08':'dynamic','f09':'adversarial','f10':'forward references'}
+         'f05':'decorators','f06':'value flow','f07':'imports & re-export','f08':'dynamic','f09':'adversarial','f10':'forward references','pkgmod':'relative imports (subpackage)'}
 tot = collections.Counter()
 for f in sorted(fam):
     c = fam[f]; n = sum(c.values()); tot.update(c)

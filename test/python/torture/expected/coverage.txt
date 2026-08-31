@@ -1,4 +1,4 @@
-=== per-family coverage (tier-4, 82 scored sites) ===
+=== per-family coverage (tier-4, 85 scored sites) ===
   f01 inheritance & MRO        links= 10  found= 10 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f02 callables & closures     links= 10  found=  9 (90.0%)  missed= 1  wide= 0  WRONG= 0
   f03 generics                 links= 14  found= 14 (100.0%)  missed= 0  wide= 0  WRONG= 0
@@ -9,9 +9,10 @@
   f08 dynamic                  links=  2  found=  0 ( 0.0%)  missed= 2  wide= 0  WRONG= 0
   f09 adversarial              links=  9  found=  9 (100.0%)  missed= 0  wide= 1  WRONG= 0
   f10 forward references       links=  8  found=  8 (100.0%)  missed= 0  wide= 0  WRONG= 0
+  pkgmod relative imports (subpackage) links=  3  found=  3 (100.0%)  missed= 0  wide= 0  WRONG= 0
 
-  TOTAL                         links= 81  found= 72 (88.9%)  missed= 9  wide= 1  WRONG= 0
-  recall      72/81 = 88.9%  of the links that actually ran
+  TOTAL                         links= 84  found= 75 (89.3%)  missed= 9  wide= 1  WRONG= 0
+  recall      75/84 = 89.3%  of the links that actually ran
   wide  1   a member of a SOUND SET that did not run on this pass
   WRONG 0   a single target asserted as certain that never ran
 
