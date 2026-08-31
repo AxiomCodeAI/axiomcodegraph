@@ -148,6 +148,19 @@ MODS=$(( $(wc -l < "$WORK/ir/all-typescript-modules.csv") - 1 ))
 echo "   $MODS modules, $CS call sites"
 [ "$CS" -gt 0 ] || { echo "   no TypeScript call sites — is this a TypeScript project?" >&2; exit 1; }
 
+# ── 1b. SCHEMA DRIFT ────────────────────────────────────────────────────────
+# Checked before a single rule runs, because the failure it catches is silent and
+# total: a relation declared one column short reads a line number as the unique hash,
+# and every join on that key then finds nothing, for every row. Measured twice on this
+# repository — a variable table and a parameter table each gained two columns, and each
+# cost hundreds of resolutions with no warning anywhere. The malformed-row guard in the
+# pipeline cannot see it: rows are consistent with their own HEADER, and the header is
+# not what drifted.
+python3 "$HERE/tools/schema_drift.py" "$WORK/ir" \
+  "$REPO/src/typescript/souffle/decls_base.dl" \
+  "$REPO/src/typescript/souffle/decls_all.dl" || {
+  echo "   ! refusing to measure against a drifted schema" >&2; exit 1; }
+
 # ── 2. library IR, DISCOVERED from the client's own resolved imports ─────────
 # Two sources, and the first is not optional: TypeScript's own lib.*.d.ts files
 # ARE the global scope. Without them `string`, `Array`, `Promise`, `Map` and
