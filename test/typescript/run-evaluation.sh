@@ -65,6 +65,35 @@ for cand in "$PROJECT/node_modules" "$PROJECT/../node_modules" "$PROJECT/../../n
   [ -d "$cand" ] && NM_ROOTS="$NM_ROOTS $(cd "$cand" && pwd)"
 done
 find_in_nm() { for r in $NM_ROOTS; do [ -e "$r/$1" ] && { echo "$r/$1"; return 0; }; done; return 1; }
+# Resolve a package the way NODE does — from the IMPORTER's directory, walking up its
+# ancestors and looking in each `node_modules`. NM_ROOTS alone is only correct for a
+# FLAT install, where every transitive package is hoisted to the top level.
+#
+# Under pnpm nothing transitive is hoisted: a direct dependency is a symlink at the top
+# level, and everything it depends on exists ONLY inside the store, at
+# `.pnpm/<name>@<version>/node_modules/<pkg>`. So a package that discovery correctly
+# identified is simply not found on disk, and is silently not staged. Measured on one
+# corpus project: the test framework's matcher package was named in the discovery list,
+# was present in the store, and never staged — 20,224 unresolved call sites against a
+# single declaration file, the largest single loss in the whole corpus.
+#
+# Walking up from the dependent works because `.pnpm/<dep>@<version>` is an ANCESTOR of
+# the dependent's own directory, and its `node_modules` holds exactly that dependent's
+# resolved dependencies — one version, no ambiguity, no version guessing across the
+# store. `.source-root` is the realpath, so the symlink at the top level has already
+# been resolved and the walk starts inside the store.
+find_from() {  # $1 = dependent directory, $2 = package name
+  # PHYSICAL path, not logical. A pnpm top-level entry is a SYMLINK into the store, and
+  # `cd` + `pwd` reports the link path — walking up from there stays outside the store
+  # and finds nothing. `pwd -P` resolves it so the walk starts where the real files are.
+  d="$(cd "$1" 2>/dev/null && pwd -P)" || return 1
+  [ -n "$d" ] || return 1
+  while [ -n "$d" ] && [ "$d" != "/" ]; do
+    [ -e "$d/node_modules/$2" ] && { echo "$d/node_modules/$2"; return 0; }
+    d="$(dirname "$d")"
+  done
+  return 1
+}
 # The mirror needs its own node_modules for BOTH the parser's tsconfig `paths`
 # resolution and the oracle's module resolution. A symlink to the real one keeps the
 # two toolchains looking at identical bytes.
@@ -260,22 +289,46 @@ if [ -n "$NM_ROOTS" ]; then
   # -> `@scope/name`, `name/sub` -> `name`. Relative and `node:` specifiers are not
   # packages. Measured on remeda: 7 of 29 unresolved re-export specifiers name a
   # package that is on disk, is a declared dependency, and was never staged.
-  { cat "$WORK"/libir/*/all-typescript-imports.csv 2>/dev/null \
-      | awk -F'\t' '$20!="" && $20!="packageName"{print $20}'
-    cat "$WORK"/libir/*/all-typescript-exports.csv 2>/dev/null \
-      | awk -F'\t' '$7!="" && $7!="sourceSpecifier" && substr($7,1,1)!="." && substr($7,1,5)!="node:" {
+  # PER STAGED LIBRARY, not over the concatenation. Which library named a package is
+  # not bookkeeping — it is the only thing that says WHERE to resolve it from. Reading
+  # every library's rows into one list throws that away, and under a non-flat install
+  # the package then cannot be found at all.
+  : > "$WORK/lib-packages.txt"
+  for ldir in "$WORK"/libir/*/; do
+    [ -d "$ldir" ] || continue
+    from="$(cat "$ldir/.source-root" 2>/dev/null)"
+    { awk -F'\t' '$20!="" && $20!="packageName"{print $20}' "$ldir/all-typescript-imports.csv" 2>/dev/null
+      awk -F'\t' '$7!="" && $7!="sourceSpecifier" && substr($7,1,1)!="." && substr($7,1,5)!="node:" {
             n=split($7,a,"/")
             if (substr($7,1,1)=="@") { if (n>=2) print a[1]"/"a[2] }
             else print a[1]
-          }'
-  } | sort -u > "$WORK/lib-packages.txt"
-  while IFS= read -r pkg; do
+          }' "$ldir/all-typescript-exports.csv" 2>/dev/null
+    } | sort -u | while IFS= read -r pkg; do
+      [ -n "$pkg" ] || continue
+      [ "$pkg" = "typescript" ] && continue
+      printf '%s\t%s\n' "$pkg" "$from"
+    done >> "$WORK/lib-packages.txt"
+  done
+
+  # One line per (package, resolve-from) pair, deduped. A package named by two
+  # libraries is resolved from the first that can see it, which under pnpm is the one
+  # that actually depends on it.
+  # Redirect, never a pipe: `add_lib` appends to LIBS, and a pipeline would run the
+  # loop in a subshell where every staged library is discarded on exit.
+  sort -u "$WORK/lib-packages.txt" > "$WORK/lib-packages.sorted"
+  while IFS="$(printf '\t')" read -r pkg from; do
     [ -n "$pkg" ] || continue
-    [ "$pkg" = "typescript" ] && continue
     safe="$(printf '%s' "$pkg" | tr '/@' '__')"
     [ -d "$WORK/libir/$safe" ] && continue
-    d="$(find_in_nm "@types/$pkg" || true)"; [ -n "$d" ] && { add_lib "$d" "types_$safe" || true; }
-    d="$(find_in_nm "$pkg" || true)"
+    # The importer's own directory first (correct under any layout), then the
+    # project-level roots as the flat-install fallback.
+    d=""
+    [ -n "$from" ] && d="$(find_from "$from" "@types/$pkg" || true)"
+    [ -z "$d" ] && d="$(find_in_nm "@types/$pkg" || true)"
+    [ -n "$d" ] && { add_lib "$d" "types_$safe" || true; }
+    d=""
+    [ -n "$from" ] && d="$(find_from "$from" "$pkg" || true)"
+    [ -z "$d" ] && d="$(find_in_nm "$pkg" || true)"
     if [ -n "$d" ]; then
       add_lib "$d" "$safe" || true
       for sub in dist build out; do
@@ -283,7 +336,7 @@ if [ -n "$NM_ROOTS" ]; then
       done
       true
     fi
-  done < "$WORK/lib-packages.txt"
+  done < "$WORK/lib-packages.sorted"
 fi
 
 [ -n "$LIBS" ] || echo "   (no libraries staged — every library call will be unresolved)"
@@ -308,7 +361,7 @@ echo "▶ oracle..."
 LIBARGS=""
 for d in ${LIBS//,/ }; do LIBARGS="$LIBARGS --lib=$d"; done
 echo "▶ score:"
-MISSED_DUMP="$WORK/missed.tsv" python3 "$HERE/ground-truth/score.py" \
+MISSED_DUMP="$WORK/missed.tsv" SITE_DUMP="$WORK/sites.tsv" python3 "$HERE/ground-truth/score.py" \
   "$WORK/ir" "$WORK/out" "$WORK/oracle.tsv" --envelope="$WORK/envelope.tsv" $LIBARGS \
   | tee "$WORK/score.txt"
 

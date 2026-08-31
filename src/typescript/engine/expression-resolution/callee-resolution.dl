@@ -89,6 +89,29 @@ expr_call_candidate(ce, m) :- call_site("client", ck, cn, "NONE", _, ce, cs),
     !callee_expr_bound(ce),
     name_binds(mod, cn, _, "VARIABLE", v),
     var_is_function(v, m).
+// The same bound name, where the value is not a function declaration but a VARIABLE
+// whose TYPE carries the call signature — `declare const expect: ExpectStatic`, with
+// ExpectStatic an interface holding `<T>(actual: T): Assertion<T>`. `var_is_function`
+// above cannot see it: there is no method row to name, the callable is a member of the
+// variable's type. This is the exact shape rule (9b) already handles for `new`, and it
+// is how a test framework publishes its API into global scope.
+expr_call_candidate(ce, m) :- call_site("client", ck, cn, "NONE", _, ce, cs),
+    call_kind_is_plain_call(ck),
+    cn != "",
+    call_module(cs, mod),
+    !callee_expr_bound(ce),
+    name_binds(mod, cn, _, "VARIABLE", v),
+    var_type(v, _, t),
+    call_signature_in_scope(t, m).
+expr_call_candidate(ce, m) :- call_site("client", ck, cn, "NONE", _, ce, cs),
+    call_kind_is_plain_call(ck),
+    cn != "",
+    call_module(cs, mod),
+    !callee_expr_bound(ce),
+    name_binds(mod, cn, _, "VARIABLE", v),
+    var_shape(v, sh),
+    call_signature_in_scope(sh, m).
+
 callee_expr_bound(ce) :- call_callee_expr(_, ce, ne), expr_callable(ne, _).
 
 call_kind_is_plain_call("FUNCTION_CALL").

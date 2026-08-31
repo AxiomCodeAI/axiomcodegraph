@@ -154,6 +154,28 @@ for dir in "$HERE"/cases/*/; do
   echo "ok (${n1} edges, ${n2} with lib)${orc}"; pass=$((pass+1))
 done
 
+# ── the LINKING gate ─────────────────────────────────────────────────────────
+# Run here rather than left to be remembered. The golden cases above parse a case's
+# own `lib/` directory; they never install a PACKAGE, so nothing in them exercises
+# module resolution, staging discovery, or a non-flat node_modules — the whole
+# client->library boundary. That gate lived in fixtures/linking/run.sh and was not
+# invoked by anything, so this suite could report 20/20 green while every linking
+# mechanism was broken. A gate nobody runs is not a gate.
+#
+# Skipped, loudly, when the fixture cannot build (it needs a real `typescript` to
+# symlink); never silently passed.
+if [ "$BLESS" != "1" ]; then
+  echo
+  echo "── linking fixture ──"
+  if bash "$HERE/fixtures/linking/run.sh" "${WORK:-/tmp/ts-linking-fixture}-linking" >"$WORK-linking.log" 2>&1; then
+    echo "linking fixture: ok"
+  else
+    echo "linking fixture: FAILED"
+    grep -E '^FAIL' "$WORK-linking.log" | sed 's/^/  /' || tail -5 "$WORK-linking.log" | sed 's/^/  /'
+    fail=$((fail+1)); failed+=("linking-fixture")
+  fi
+fi
+
 [ "$KEEP" = "1" ] || rm -rf "$WORK"
 echo
 echo "passed $pass, failed $fail"

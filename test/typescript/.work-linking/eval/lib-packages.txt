@@ -1,0 +1,2 @@
+@tt/probe-core	/tmp/tdg-wt/test/typescript/.work-linking/project/node_modules/@tt/probe
+@tt/deep	/tmp/tdg-wt/test/typescript/.work-linking/project/node_modules/@tt/shallow
