@@ -34,7 +34,7 @@ export const TS_EMISSION_REGIME = 'ts6-inproc';
  * **32, not 20 and not 5.** Java and Python cap at 5, which truncates real
  * `.d.ts`: the measured maximum over 1,113 declaration files is 19. A cap of 20
  * admits everything observed and sits one node from truncating on the next
- * `type-fest` release, so the ruling took 32. The extra headroom costs nothing —
+ * a deeply-generic library, so the ruling took 32. The extra headroom costs nothing —
  * no node in 25.9 MB of TypeScript reaches depth 20, so no extra row is emitted
  * — and `isTruncated` stays, because a cap that can never fire is a cap nobody
  * maintains.

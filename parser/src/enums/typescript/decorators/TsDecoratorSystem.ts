@@ -40,6 +40,6 @@
 export enum TsDecoratorSystem {
   /** TS 5.0+, ECMAScript stage 3. The default when `experimentalDecorators` is off. */
   STANDARD_TC39 = 'STANDARD_TC39',
-  /** `experimentalDecorators: true`. Angular, NestJS, TypeORM. Parameter decorators legal. */
+  /** `experimentalDecorators: true`. The DI and ORM frameworks. Parameter decorators legal. */
   LEGACY_EXPERIMENTAL = 'LEGACY_EXPERIMENTAL',
 }

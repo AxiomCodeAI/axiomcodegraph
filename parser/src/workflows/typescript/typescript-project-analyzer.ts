@@ -76,7 +76,7 @@ export interface TypeScriptAnalysisSummary {
    *
    * Not an error: a nested tsconfig is a separate program with its own global
    * scope, and analysing its files under this root would merge two scopes tsc
-   * keeps apart. But it is not nothing either. NestJS nests 30 tsconfigs inside
+   * keeps apart. But it is not nothing either. One monorepo nests 30 tsconfigs inside
    * a root whose `include` also covers them, and 534 of its 1,015 files landed
    * here -- silently, because nothing counted them. Each such subtree has to be
    * analysed as its own root to be covered at all.

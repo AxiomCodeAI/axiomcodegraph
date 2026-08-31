@@ -21,7 +21,7 @@
  * tsconfig.
  *
  * They are also where taint SOURCES are declared in real TypeScript backends —
- * NestJS `@Body()`, `@Query()`, `@Param()` — the direct analogue of Spring's
+ * A DI framework's `@Body()`, `@Query()`, `@Param()` — the direct analogue of Spring's
  * `@RequestParam`, which Java CWE detection already keys on.
  *
  * Schema §4.18 c2.
