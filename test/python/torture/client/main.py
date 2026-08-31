@@ -9,7 +9,9 @@ import f06_flow as f6
 import f07_imports as f7
 import f08_dynamic as f8
 import f09_adversarial as f9
+import f10_forward_refs as f10
 from tlib import Square
+from tlib.shapes import Base, Mid
 
 
 def main() -> None:
@@ -32,6 +34,11 @@ def main() -> None:
     print(f9.shadowed_method_name(), f9.override_of_an_inherited_method())
     print(f9.inherited_through_a_silent_class(), f9.rebound_attribute())
     print(f9.shadowed_against_a_library_name())
+    h = f10.Holder()
+    print(f10.quoted_param(h), f10.single_quoted_param(h), f10.uses_quoted_return())
+    print(f10.quoted_optional(h), f10.quoted_generic_element([h]))
+    print(f10.quoted_lib_param(Base()), f10.type_checking_only_param(Mid()))
+    print(f10.Boxed(h).read())
 
 
 if __name__ == "__main__":
