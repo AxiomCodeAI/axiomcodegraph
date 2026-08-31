@@ -146,6 +146,8 @@
 .decl type_top_level(c0:symbol,c1:symbol)
 .decl type_name_in_module(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl declared_dispatch(c0:symbol,c1:symbol,c2:symbol)
+.decl dispatch_override(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl call_recv_declared(c0:symbol)
 .decl param_declared_type(c0:symbol,c1:symbol,c2:symbol)
 .decl param_declared_type_lib(c0:symbol,c1:symbol)
 .decl type_name_in_module_lib(c0:symbol,c1:symbol,c2:symbol)

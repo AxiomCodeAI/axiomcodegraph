@@ -13,6 +13,7 @@ import f10_forward_refs as f10
 from pkgmod import user as pkguser
 import f11_multiwrite as f11
 import f12_value_flow as f12
+import f13_declared_dispatch as f13
 from tlib import Square
 from tlib.shapes import Base, Mid
 
@@ -52,6 +53,9 @@ def main() -> None:
     print(f12.UsesFactory().run(), f12.method_alias_on_class())
     print(f12.method_alias_on_instance(), f12.getattr_literal())
     print(f12.getattr_with_default(object()), f12.getattr_default_callable(object()))
+    for ld in (f13.FileLoader(), f13.DictLoader()):
+        print(f13.Engine(ld).run("t"), f13.via_parameter(ld, "t"), f13.via_parameter_inherited(ld))
+    print(f13.StepA().run(), f13.StepB().run(), f13.exact_receiver_is_not_widened())
 
 
 if __name__ == "__main__":
