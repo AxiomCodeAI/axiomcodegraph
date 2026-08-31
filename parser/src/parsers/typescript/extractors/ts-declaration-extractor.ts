@@ -1526,6 +1526,58 @@ export class TsDeclarationExtractor {
    *   the annotation is not re-walked. The text is still on the row, and the
    *   tree child sits at the same position and ordinal.
    */
+  /**
+   * One row per name a parameter's binding pattern binds, nested included.
+   *
+   * Shares `position` with the pattern row it came from -- they are the same
+   * argument, and a bound name has no argument position of its own. The PK
+   * separates them by name and column, so the rows do not collide.
+   */
+  private emitBoundParameterNames(
+    pattern: ts.BindingName,
+    parameterProps: ConstructorParameters<typeof TsMethodParameterRegistry>[0],
+    position: number
+  ): void {
+    if (ts.isIdentifier(pattern)) {
+      return;
+    }
+    const isArray = ts.isArrayBindingPattern(pattern);
+    let index = -1;
+    for (const element of pattern.elements) {
+      index += 1;
+      if (ts.isOmittedExpression(element)) {
+        continue;
+      }
+      if (!ts.isIdentifier(element.name)) {
+        this.emitBoundParameterNames(element.name, parameterProps, position);
+        continue;
+      }
+      const isRest = element.dotDotDotToken !== undefined;
+      const sourceKind = isRest
+        ? (isArray ? TsBindingSourceKind.ARRAY_REST : TsBindingSourceKind.OBJECT_REST)
+        : (isArray ? TsBindingSourceKind.INDEX : TsBindingSourceKind.PROPERTY);
+      const source = isArray
+        ? String(index)
+        : isRest ? '' : propertyNameTextOf(element, this.sf);
+      const startPos = this.sf.getLineAndCharacterOfPosition(element.getStart(this.sf));
+      const row = new TsMethodParameterRegistry({
+        ...parameterProps,
+        paramName: element.name.text,
+        // The pattern's annotation types the WHOLE object; the bound name is
+        // one member of it, and naming which member is `bindingSource`'s job.
+        bindingPatternText: '',
+        bindingSourceKind: sourceKind,
+        bindingSource: source,
+        hasDefault: element.initializer !== undefined,
+        startLine: startPos.line + 1,
+        startColumn: startPos.character + 1,
+        position,
+      });
+      this.methodParameters.push(row);
+      this.parameterHashByNode.set(nodeId(element, this.sf), row.getHash());
+    }
+  }
+
   private emitParameters(
     parameters: readonly ts.ParameterDeclaration[],
     method: TsMethodRegistry,
@@ -1558,7 +1610,7 @@ export class TsDeclarationExtractor {
                   ? TsParamKind.OPTIONAL
                   : TsParamKind.REQUIRED;
 
-      const row = new TsMethodParameterRegistry({
+      const parameterProps = {
         // `""` for a binding pattern: a destructured parameter binds several
         // names and none of them is the parameter's name.
         paramName: ts.isIdentifier(parameter.name) ? parameter.name.text : '',
@@ -1589,9 +1641,19 @@ export class TsDeclarationExtractor {
         decoratorCount: (ts.getDecorators(parameter) ?? []).length,
         startColumn: startPos.character + 1,
         serviceVersionLinkHash: this.options.serviceVersionLinkHash,
-      });
+      };
+      const row = new TsMethodParameterRegistry(parameterProps);
       this.methodParameters.push(row);
       this.parameterHashByNode.set(nodeId(parameter, this.sf), row.getHash());
+      // `function f({ helper, nested }: Ctx)` declares helper and nested. Only
+      // the pattern was emitted, with an empty name, so neither binding existed
+      // anywhere -- and unlike the variable case there was nothing to fall back
+      // on, because a consumer cannot resolve a name that was never recorded.
+      // The pattern row stays: it is the parameter, and it carries the position
+      // and the annotated type the bound names are read out of.
+      if (!ts.isIdentifier(parameter.name)) {
+        this.emitBoundParameterNames(parameter.name, parameterProps, position);
+      }
       // A PARAMETER decorator can declare a function too, and under
       // experimentalDecorators these are where DI tokens and taint sources live.
       this.visitDecoratorDeclarations(parameter, context);

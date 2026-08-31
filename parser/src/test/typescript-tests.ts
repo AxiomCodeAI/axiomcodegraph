@@ -1989,6 +1989,95 @@ async function discoveryFollowsTheImportClosure(): Promise<number> {
   return failures.length ? 1 : 0;
 }
 
+// ---------------------------------------------------------------------------
+// 20. A pattern parameter emits the names it binds
+// ---------------------------------------------------------------------------
+
+/**
+ * `function f({ helper }: Ctx)` declares `helper`.
+ *
+ * Only the pattern was emitted, with an empty name, so the binding existed
+ * nowhere -- and unlike the variable case there was nothing to fall back on: a
+ * consumer cannot resolve a name that was never recorded, so every call through
+ * one was unresolvable with no partial answer available.
+ *
+ * The pattern row is KEPT. It is the parameter -- it holds the argument
+ * position and the annotation the bound names are read out of -- so the bound
+ * names are additional rows, not replacements, and they share its position
+ * because they are the same argument.
+ */
+async function patternParametersBindNames(): Promise<number> {
+  if (!parserPresent()) {
+    return pendingCheck('pattern parameters bind names',
+      'no extractor yet. A destructured parameter must emit the names it binds');
+  }
+  const { outputDir, cleanup } = await analyseInline('ts-param-', {
+    'p.ts': [
+      'export interface Ctx { helper(name: string): string; nested: { deep(n: number): number } }',
+      'export function obj({ helper, nested }: Ctx): string { nested.deep(1); return helper("x"); }',
+      'export function renamed({ helper: h }: Ctx): string { return h("y"); }',
+      'export function rest({ helper, ...others }: Ctx): unknown { void others; return helper("z"); }',
+      'export function arr([first, second]: number[]): number { return first + second; }',
+      'export function arrRest([head, ...tail]: number[]): unknown { void tail; return head; }',
+      'export function plain(c: Ctx): string { return c.helper("w"); }',
+    ].join('\n'),
+  });
+
+  const methods = new Map(relation(outputDir, 'all-typescript-methods.csv')
+    .map((m) => [m.tsMethodUniqueHash ?? '', m.name ?? '']));
+  const byOwnerAndName = new Map<string, Record<string, string>>();
+  for (const row of relation(outputDir, 'all-typescript-method-parameters.csv')) {
+    byOwnerAndName.set(`${methods.get(row.tsMethodLinkHash ?? '')}|${row.paramName}`, row);
+  }
+
+  // owner|name -> [bindingSourceKind, bindingSource]
+  const expected: [string, string, string][] = [
+    ['obj|helper', 'PROPERTY', 'helper'],
+    ['obj|nested', 'PROPERTY', 'nested'],
+    ['renamed|h', 'PROPERTY', 'helper'],       // the name differs from the property
+    ['rest|helper', 'PROPERTY', 'helper'],
+    ['rest|others', 'OBJECT_REST', ''],
+    ['arr|first', 'INDEX', '0'],
+    ['arr|second', 'INDEX', '1'],
+    ['arrRest|head', 'INDEX', '0'],
+    ['arrRest|tail', 'ARRAY_REST', '1'],
+    ['plain|c', 'NONE', ''],                    // an ordinary parameter binds nothing
+  ];
+  const failures: string[] = [];
+  for (const [key, kind, source] of expected) {
+    const row = byOwnerAndName.get(key);
+    if (!row) {
+      failures.push(`no parameter row for ${key} — the bound name was not emitted`);
+      continue;
+    }
+    if ((row.bindingSourceKind ?? '') !== kind || (row.bindingSource ?? '') !== source) {
+      failures.push(`${key}: expected ${kind}/"${source}", got ` +
+        `${row.bindingSourceKind}/"${row.bindingSource}"`);
+    }
+  }
+  // The pattern row survives, and still carries the position and the annotation.
+  const pattern = relation(outputDir, 'all-typescript-method-parameters.csv')
+    .find((r) => methods.get(r.tsMethodLinkHash ?? '') === 'obj' && r.paramName === '');
+  if (!pattern) {
+    failures.push('the pattern row itself was dropped — it is the parameter, and it carries the ' +
+      'argument position and the annotation the bound names are read out of');
+  } else if ((pattern.parameterTypeName ?? '') !== 'Ctx') {
+    failures.push(`the pattern row lost its annotation: ${pattern.parameterTypeName}`);
+  }
+  // A bound name shares the pattern's argument position; it has none of its own.
+  const boundHelper = byOwnerAndName.get('obj|helper');
+  if (boundHelper && pattern && boundHelper.position !== pattern.position) {
+    failures.push(`a bound name reports position ${boundHelper.position} where the pattern is at ` +
+      `${pattern.position} — they are the same argument`);
+  }
+
+  console.log(`  ${expected.length} binding form(s) on parameters: shorthand, renamed, object ` +
+    'rest, positional, array rest, and an ordinary parameter; the pattern row survives');
+  for (const f of failures.slice(0, 10)) console.log(`  ${f}`);
+  cleanup();
+  return failures.length ? 1 : 0;
+}
+
 const CHECKS: Check[] = [
   { name: 'compiles', proves: 'tsc --noEmit is clean — the suite reports on code that actually builds', run: compiles },
   { name: 'fixtures compile and are isolated', proves: 'a fixture is a valid input, and cannot break another language\'s gate', run: fixturesCompile },
@@ -2007,6 +2096,7 @@ const CHECKS: Check[] = [
   { name: 'kinds that were wrong once', proves: 'a row in the right place with the wrong kind is invisible to every count-based check', run: kindsThatWereWrongOnce },
   { name: 'overloads never name the implementation', proves: 'a call resolves to an overload signature, and a shape member with two signatures is not SOLE', run: overloadsNeverNameTheImplementation },
   { name: 'discovery follows the import closure', proves: 'a program is its roots plus everything they import, and nothing more', run: discoveryFollowsTheImportClosure },
+  { name: 'pattern parameters bind names', proves: 'a destructured parameter emits the names it binds, so a call through one can resolve', run: patternParametersBindNames },
   { name: 'fact-base invariants', proves: 'every PK unique, every FK resolves, every tree well-formed — the failures that load cleanly and count wrong', run: factBaseInvariants },
   { name: 'IR completeness', proves: 'every hop an engine needs in order to resolve is present — the measure that replaced resolution rate', run: irCompleteness },
 ];

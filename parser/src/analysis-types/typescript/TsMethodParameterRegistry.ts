@@ -8,6 +8,7 @@ import {
 } from '@/enums/typescript/method-parameters';
 import { EntityIdentifiable } from '@/interfaces/EntityIdentifiable';
 import { EntityUtils } from '@/utils/entity-utils';
+import { TsBindingSourceKind } from '@/enums/typescript/variables/TsBindingSourceKind';
 
 /**
  * A formal parameter — schema §4.7, 27 columns. Positions 0–11 mirror
@@ -33,7 +34,7 @@ import { EntityUtils } from '@/utils/entity-utils';
  *   duplicated row, so the field is counted once in the type's shape.
  */
 export class TsMethodParameterRegistry implements EntityIdentifiable {
-  static readonly ARITY = 27;
+  static readonly ARITY = 29;
 
   readonly paramName: string;
   readonly position: number;
@@ -57,6 +58,8 @@ export class TsMethodParameterRegistry implements EntityIdentifiable {
   readonly parameterPropertyModifiers: ReadonlySet<TsParameterPropertyModifier>;
   private declaredFieldLinkHash = ABSENT;
   readonly bindingPatternText: string;
+  readonly bindingSourceKind: TsBindingSourceKind;
+  readonly bindingSource: string;
   private typeReferenceLinkHash = ABSENT;
   private tsExpressionLinkHash = ABSENT;
   readonly decoratorCount: number;
@@ -84,6 +87,8 @@ export class TsMethodParameterRegistry implements EntityIdentifiable {
     isParameterProperty: boolean;
     parameterPropertyModifiers: ReadonlySet<TsParameterPropertyModifier>;
     bindingPatternText: string;
+    bindingSourceKind?: TsBindingSourceKind;
+    bindingSource?: string;
     decoratorCount: number;
     startColumn: number;
     serviceVersionLinkHash: string;
@@ -107,6 +112,8 @@ export class TsMethodParameterRegistry implements EntityIdentifiable {
     this.isParameterProperty = props.isParameterProperty;
     this.parameterPropertyModifiers = props.parameterPropertyModifiers;
     this.bindingPatternText = props.bindingPatternText;
+    this.bindingSourceKind = props.bindingSourceKind ?? TsBindingSourceKind.NONE;
+    this.bindingSource = props.bindingSource ?? '';
     this.decoratorCount = props.decoratorCount;
     this.startColumn = props.startColumn;
     this.serviceVersionLinkHash = props.serviceVersionLinkHash;
@@ -172,6 +179,8 @@ export class TsMethodParameterRegistry implements EntityIdentifiable {
         commaSet(this.parameterPropertyModifiers),
         this.declaredFieldLinkHash,
         text(this.bindingPatternText),
+        this.bindingSourceKind,
+        text(this.bindingSource),
         this.typeReferenceLinkHash,
         this.tsExpressionLinkHash,
         num(this.decoratorCount),
@@ -191,7 +200,7 @@ export class TsMethodParameterRegistry implements EntityIdentifiable {
         'potentialQualifiedName', 'isAmbiguous', 'isFinal', 'isVarArgs', 'isReceiverParameter',
         'startLine', 'endLine', 'paramKind', 'isOptional', 'hasDefault', 'defaultValueText',
         'defaultValueKind', 'isParameterProperty', 'parameterPropertyModifier',
-        'declaredFieldLinkHash', 'bindingPatternText', 'typeReferenceLinkHash',
+        'declaredFieldLinkHash', 'bindingPatternText', 'bindingSourceKind', 'bindingSource', 'typeReferenceLinkHash',
         'tsExpressionLinkHash', 'decoratorCount', 'startColumn', 'serviceVersionLinkHash',
         'tsMethodParameterUniqueHash',
       ],
