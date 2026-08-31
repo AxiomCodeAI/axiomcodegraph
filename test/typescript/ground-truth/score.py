@@ -86,6 +86,7 @@ def main():
 
     # ---- method hash -> position, over the client and every staged library ----
     meth_pos = {}
+    pos_group = {}
     def load_methods(d):
         mf = {}
         mpath = os.path.join(d, 'all-typescript-modules.csv')
@@ -99,6 +100,14 @@ def main():
             h = row[42]
             f = row[4] or mf.get(row[21], '')
             meth_pos[h] = (f, row[5], row[39], row[0])
+            # declarationGroupKey (col 22) — every OVERLOAD SIGNATURE of one function
+            # shares it. TypeScript overloads are compile-time only: N signatures, ONE
+            # implementation, so a call that reaches any of them reaches the same code.
+            # Without this the harness scores "chose signature 3 instead of signature 1"
+            # identically to "reached a completely different function", and the two are
+            # not remotely the same defect.
+            if len(row) > 22 and row[22]:
+                pos_group[(base(f), row[5], row[39])] = row[22]
     load_methods(ir_dir)
     for d in lib_dirs:
         load_methods(d)
@@ -130,6 +139,12 @@ def main():
         ocount = int(row[12]) if len(row) > 12 and row[12].isdigit() else 1
         oidx = int(row[13]) if len(row) > 13 and row[13].isdigit() else 0
         oracle[key] = (base(tf), tl, tc, tkind, row[6], row[5], ocount, oidx)
+
+    def _same_group(otarget, eng):
+        og = pos_group.get(otarget)
+        if not og:
+            return False
+        return any(pos_group.get(t) == og for t in eng)
 
     # ---- join on position ----
     buckets = defaultdict(int)
@@ -177,6 +192,12 @@ def main():
                     missed_rows.append((f, line, col, ckind, cname, o[0], o[1], o[4]))
         elif otarget in eng:
             b = 'EXACT' if len(eng) == 1 else 'SOUND_SUPERSET'
+        elif _same_group(otarget, eng):
+            # Same function, different overload SIGNATURE. A correct call-graph edge
+            # and an incorrect signature choice — reported as its own verdict rather
+            # than folded into EXACT, because collapsing it would hide a real loss of
+            # parameter and return precision that downstream inference depends on.
+            b = 'OVERLOAD_SIBLING'
         else:
             b = 'WRONG'
             if len(wrong_examples) < 40:
@@ -206,7 +227,8 @@ def main():
 
     total = sum(buckets.values())
     decidable = sum(
-        buckets[b] for b in ('EXACT', 'SOUND_SUPERSET', 'WRONG', 'MISSED', 'MISSED_UNLOCATABLE')
+        buckets[b] for b in ('EXACT', 'SOUND_SUPERSET', 'OVERLOAD_SIBLING', 'WRONG',
+                             'MISSED', 'MISSED_UNLOCATABLE')
     )
     right = buckets['EXACT'] + buckets['SOUND_SUPERSET']
     exact_rate = buckets['EXACT'] / decidable if decidable else 0.0
@@ -217,7 +239,8 @@ def main():
     print(f'joined on position          {matched}')
     print()
     for b in (
-        'EXACT', 'SOUND_SUPERSET', 'WRONG', 'MISSED', 'MISSED_UNLOCATABLE',
+        'EXACT', 'SOUND_SUPERSET', 'OVERLOAD_SIBLING', 'WRONG', 'MISSED',
+        'MISSED_UNLOCATABLE',
         'SYNTHESIZED_OK', 'SYNTHESIZED_EXTRA', 'ORACLE_UNRESOLVED', 'NO_ORACLE_ROW',
     ):
         if buckets[b]:
@@ -235,7 +258,8 @@ def main():
     # number for "can a consumer find the callee", and the wrong one for "can a
     # consumer trust the callee", so both are reported rather than one standing in for
     # the other.
-    answered = buckets['EXACT'] + buckets['SOUND_SUPERSET'] + buckets['WRONG']
+    answered = (buckets['EXACT'] + buckets['SOUND_SUPERSET']
+                + buckets['OVERLOAD_SIBLING'] + buckets['WRONG'])
     hedged = len(hedged_sizes)
     committed_right = buckets['EXACT']
     print('precision / recall:')
@@ -265,6 +289,23 @@ def main():
     # What a call-graph consumer actually pays: every extra candidate is a false edge.
     print(f'  edge-precision (TP / (TP+FP), FP = extras) {right:>6}   '
           f'{right / (right + fan) if (right + fan) else 0:.3f}')
+    print()
+    # ── SIGNATURE-level vs EDGE-level ───────────────────────────────────────
+    # Every rate above is SIGNATURE-level: it asks whether the engine named the exact
+    # declaration the compiler chose. For a CALL GRAPH that is stricter than the truth,
+    # because TypeScript overloads are compile-time only — N signatures share ONE
+    # implementation, so reaching any sibling reaches the same code. Both are reported
+    # because they answer different questions and neither substitutes for the other:
+    # signature accuracy governs parameter and return precision, edge accuracy governs
+    # whether the call graph points at the right function.
+    sib = buckets['OVERLOAD_SIBLING']
+    edge_right = right + sib
+    print('signature-level vs edge-level:')
+    print(f'  signature-correct (exact declaration)     {right:>7}   '
+          f'{right_rate:.3f}')
+    print(f'  overload sibling (same function)          {sib:>7}')
+    print(f'  edge-correct      (right function)        {edge_right:>7}   '
+          f'{edge_right / decidable if decidable else 0:.3f}')
     print()
     if ov['sites']:
         dec = ov['bucket:EXACT'] + ov['bucket:SOUND_SUPERSET'] + ov['bucket:WRONG'] + ov['bucket:MISSED']
