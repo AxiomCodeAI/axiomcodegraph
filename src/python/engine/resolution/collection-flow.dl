@@ -229,6 +229,36 @@ expr_type_class_object(p, e, t) :-
     binding_lookup(p, ob, b),
     binding_dict_entry_type(p, b, k, t).
 
+// ── A CLASS REGISTRY HELD ON A CLASS-LEVEL ATTRIBUTE ────────────────────────
+// The canonical registry declaration:
+//
+//     class Markdown:
+//         elements: ClassVar[dict[str, type[Element]]] = {"h": Heading, "p": Para}
+//         ...
+//         cls = self.elements.get(token.type) or Unknown
+//
+// dict entries were only ever keyed on a BINDING, so a registry declared in a class body
+// and read through `self.` had none — which is where registries actually live, since the
+// table is shared by every instance.
+field_dict_entry_class(p, f, t) :-
+    field_write_value(p, f, val),
+    dict_literal_entry(p, val, _, ve),
+    expr_type_class_object(p, ve, t).
+
+expr_type_class_object(p, e, t) :-
+    call_of_expr(e, site),
+    call_name(site, "get"),
+    call_receiver_object(site, obj),
+    expr_attr_of_self(p, obj, n, owner),
+    type_attr_field(p, owner, n, f),
+    field_dict_entry_class(p, f, t).
+expr_type_class_object(p, e, t) :-
+    expr_node(p, "SUBSCRIPT", _, _, e),
+    expr_parent(p, e, "SUBSCRIPT_OBJECT", _, obj),
+    expr_attr_of_self(p, obj, n, owner),
+    type_attr_field(p, owner, n, f),
+    field_dict_entry_class(p, f, t).
+
 // ── an UNPINNED key into a registry yields the UNION of what it holds ────────
 // `REGISTRY.get(token.type)` — the key is computed, so no single entry is implied, but
 // the set of classes the registry was BUILT from is known exactly and the answer is

@@ -232,6 +232,7 @@
 .decl binding_dict_entry_type(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl expr_type_class_object(c0:symbol,c1:symbol,c2:symbol)
 .decl annotation_names_a_class(c0:symbol)
+.decl field_dict_entry_class(c0:symbol,c1:symbol,c2:symbol)
 .decl expr_denotes_bound_method(c0:symbol,c1:symbol,c2:symbol)
 .decl method_returns_dict_entry(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl field_dict_entry(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
