@@ -81,6 +81,51 @@ param_shape_target(p, s) :- param_type_ref(_, r, p),
 // row, not a variable row. The INDEXED_ACCESS node carries its object at child
 // position 0 (an IMPORT_TYPE holding the specifier) and its key at position 1 (a
 // LITERAL whose value keeps its quotes, so the two are stripped).
+// ── `const f: typeof Qualified.member = ...` ────────────────────────────────
+// The idiom a library uses to re-export a native static under its own name:
+// `export const isArray: typeof Array.isArray = Array.isArray`. Measured across the
+// corpus PRODUCTION code, 8 such declarations account for 182 unresolved call sites,
+// because each alias is called from everywhere — the highest ratio of sites to
+// declarations of any gap found.
+//
+// The parser emits a TYPE_QUERY whose `name` is already the MEMBER (`isArray`) and
+// whose completeTypeName is the whole text (`typeof Array.isArray`), with NO children
+// — so the qualifier is only available as a string and has to be cut out. It is the
+// text between the `typeof ` prefix and the final `.`, and since the member is given
+// separately the arithmetic is exact rather than a search for the last dot.
+//
+// The qualifier resolves as a VALUE, not a type: `Array` names the ArrayConstructor
+// variable, and `isArray` is a member of it. That is the same path rule (9b) in
+// callee-resolution takes for `new Set()`, and for the same reason — the constructor
+// and the instance type are different declarations.
+typeof_query_member(v, qual, member) :- var_type_ref(_, r, v),
+    type_ref(rp, "TYPE_QUERY", _, member, complete, _, _, r),
+    member != "",
+    strlen(complete) > 8,
+    substr(complete, 0, 7) = "typeof ",
+    qlen = strlen(complete) - 7 - strlen(member) - 1,
+    qlen > 0,
+    qual = substr(complete, 7, qlen),
+    substr(complete, 7 + qlen, 1) = ".".
+
+// The qualifier's type is read through ref_type_target, NOT var_type: var_type is
+// reachable from expression typing, and pulling it in here drags var_is_function into
+// the expression fixpoint. The global is a plain annotated declaration
+// (`declare var Array: ArrayConstructor`), so its type reference resolves without any
+// value-level reasoning at all.
+//
+// declared_method / scope_sibling rather than method_in_scope: the latter is guarded
+// by lookup_scope, which is seeded from expr_type, so reading it here would put
+// var_is_function inside the expression fixpoint and Souffle rejects the SCC — it
+// carries the `!callee_expr_bound` negation. These two sit below that fixpoint, which
+// is the same reason `member_declared_anywhere` is built from them.
+var_is_function(v, m) :- typeof_query_member(v, qual, member),
+    global_decl(qual, "VARIABLE", _, gv),
+    var_type_ref(_, qr, gv),
+    ref_type_target(qr, _, qt),
+    scope_sibling(qt, sib),
+    declared_method(sib, member, _, m).
+
 indexed_import_name(v, mod, name) :- var_type_ref(_, r, v),
     type_ref(rp, "INDEXED_ACCESS", _, _, _, _, _, r),
     type_ref_parent(rp, r, "0", impref),

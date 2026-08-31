@@ -32,6 +32,8 @@ src/link-conditional.ts	14	10	14	38	METHOD_CALL	shared	/private/tmp/tdg-wt/test/
 src/link-conditional.ts	14	10	14	26	FUNCTION_CALL	condGuarded	/private/tmp/tdg-wt/test/typescript/.work-linking/project/node_modules/@tt/cond/cond-api.d.ts	23	1	condGuarded	bodiless	1	0	13	1	callGuarded
 src/link-conditional.ts	22	10	22	45	METHOD_CALL	finish	/private/tmp/tdg-wt/test/typescript/.work-linking/project/node_modules/@tt/cond/cond-api.d.ts	31	3	finish	bodiless	1	0	21	1	callThroughFunctionType
 src/link-conditional.ts	22	10	22	31	METHOD_CALL	make	/private/tmp/tdg-wt/test/typescript/.work-linking/project/node_modules/@tt/cond/cond-api.d.ts	34	9	__type	bodiless	1	0	21	1	callThroughFunctionType
+src/link-conditional.ts	29	10	29	25	FUNCTION_CALL	isArrayAlias	/Users/swapnilpaliwal/Documents/AxiomCode/Parser/node_modules/typescript/lib/lib.es5.d.ts	1518	5	isArray	bodiless	1	0	28	1	callTypeofAlias
+src/link-conditional.ts	32	10	32	27	FUNCTION_CALL	assignAlias	/Users/swapnilpaliwal/Documents/AxiomCode/Parser/node_modules/typescript/lib/lib.es2015.core.d.ts	284	5	assign	bodiless	4	0	31	1	callAssignAlias
 src/link-crosspkg-reexport.ts	17	10	17	26	FUNCTION_CALL	probeOf	/private/tmp/tdg-wt/test/typescript/.work-linking/project/node_modules/@tt/probe-core/probe-core.d.ts	4	1	probeOf	bodiless	1	0	16	1	callAcrossPackages
 src/link-crosspkg-reexport.ts	21	10	21	27	FUNCTION_CALL	probeCount	/private/tmp/tdg-wt/test/typescript/.work-linking/project/node_modules/@tt/probe-core/probe-core.d.ts	9	1	probeCount	bodiless	1	0	20	1	callStarAcrossPackages
 src/link-crosspkg-reexport.ts	25	10	25	50	METHOD_CALL	toBeAssignableTo	/private/tmp/tdg-wt/test/typescript/.work-linking/project/node_modules/@tt/probe-core/probe-core.d.ts	6	3	toBeAssignableTo	bodiless	1	0	24	1	callHandleMethod
