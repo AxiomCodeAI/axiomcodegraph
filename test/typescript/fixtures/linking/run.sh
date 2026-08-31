@@ -121,6 +121,14 @@ require_resolved link-pnpm-store.ts extend \
 require_resolved link-pnpm-store.ts shallowLocal \
   "the control: declared in the hoisted package"
 
+# A `typeof Qualified.member` alias to a native static. The qualifier is only present
+# as text in completeTypeName, so a regression here means the string split or the
+# global-value lookup broke.
+require_resolved link-conditional.ts isArrayAlias \
+  "typeof Array.isArray must reach the native static"
+require_resolved link-conditional.ts assignAlias \
+  "the same through a different global"
+
 # The fixture answers only where it is sure: a WRONG answer here is a rule that
 # manufactures confidence, which is worse than the missing edge it replaces.
 if ! grep -qE '^WRONG \(engine named, oracle disagrees\)[[:space:]]+0$' "$SCORE"; then

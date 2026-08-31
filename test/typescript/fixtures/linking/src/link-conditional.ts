@@ -21,3 +21,13 @@ import { fnRegistry } from '@tt/cond';
 export function callThroughFunctionType(name: string, label: string): string {
   return fnRegistry.make(name).finish(label);   // -> CondApi FnHandle.finish
 }
+
+// A native static reached through a `typeof Qualified.member` alias.
+import { isArrayAlias, assignAlias } from '@tt/cond';
+
+export function callTypeofAlias(x: unknown): boolean {
+  return isArrayAlias(x);                    // -> lib.es5  ArrayConstructor.isArray
+}
+export function callAssignAlias(a: object, b: object): object {
+  return assignAlias(a, b);                  // -> lib.es2015.core  ObjectConstructor.assign
+}
