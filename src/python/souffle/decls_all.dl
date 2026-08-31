@@ -359,6 +359,7 @@
 .decl module_member_type(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl method_top_level(c0:symbol,c1:symbol,c2:symbol)
 .decl module_member_method(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl import_relative_base(c0:symbol,c1:symbol,c2:symbol)
 .decl module_member_module(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl module_reexports_all(c0:symbol,c1:symbol,c2:symbol)
 .decl expr_attr_names_type(c0:symbol,c1:symbol,c2:symbol)

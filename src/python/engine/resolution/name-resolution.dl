@@ -144,6 +144,48 @@ import_binds_type(p, b, t) :-
     module_decl(p, _, pkg, _, mod),
     module_member_type(p, mod, orig, t).
 
+// ── the same hop, with the RELATIVE NAME ACTUALLY RESOLVED ───────────────────
+// The two clauses above match packageOrTypeName against a module's QUALIFIED name. For a
+// relative import those are different strings: `from ._loop import loop_last` carries
+// packageOrTypeName = "_loop" while the module's qualifiedName is "rich._loop". The join
+// is unsatisfiable for every relative member import in a normally-rooted parse.
+//
+// It went unseen because the LIBRARY IR is rooted AT the package directory, which makes a
+// library module's qualifiedName coincide with the relative name — the one corpus that
+// exercised the rule is the one where the bug cancels out. Parsed the ordinary way (root
+// above the package) it never fires, and a bound name that the parser also failed to
+// resolve by FK — which is every generator, since resolvedTargetKind carries only
+// UNRESOLVED/TYPE/MODULE/FUNCTION — has no target at all.
+//
+// So resolve the relative name the way Python does: against the package CONTAINING the
+// importing module. For a regular module that is packageQualifiedName; for a package's own
+// __init__ the base is the package itself (`rich/__init__.py` has packageQualifiedName ""
+// and `from .console import Console` means rich.console, not .console).
+// Level 1 only — `..` needs a parent walk the IR does not spell out, and guessing it would
+// be the same class of error this clause exists to fix.
+import_relative_base(p, i, base) :-
+    import_scope(p, _, im, i),
+    module_package(p, base, "false", im), base != "".
+import_relative_base(p, i, base) :-
+    import_scope(p, _, im, i),
+    module_package(p, _, "true", im),
+    module_decl(p, _, base, _, im), base != "".
+
+import_binds_method(p, b, m) :-
+    import_binding(p, b, i),
+    import_relative(p, "1", rel, i), rel != "",
+    import_alias(p, orig, _, i), orig != "",
+    import_relative_base(p, i, base),
+    module_decl(p, _, cat(base, cat(".", rel)), _, mod),
+    module_member_method(p, mod, orig, m).
+import_binds_type(p, b, t) :-
+    import_binding(p, b, i),
+    import_relative(p, "1", rel, i), rel != "",
+    import_alias(p, orig, _, i), orig != "",
+    import_relative_base(p, i, base),
+    module_decl(p, _, cat(base, cat(".", rel)), _, mod),
+    module_member_type(p, mod, orig, t).
+
 // ── import-bound names ───────────────────────────────────────────────────────
 // py_import.resolvedTargetKind/Hash is an IN-REPO FK and is trustworthy inside one
 // parse (13 of 13 in-repo imports resolved on linkage-sample). An import that did
