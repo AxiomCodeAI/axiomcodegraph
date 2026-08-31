@@ -214,6 +214,21 @@ expr_type_class_object(p, e, t) :-
     binding_lookup(p, ob, b),
     binding_dict_entry_type(p, b, k, t).
 
+// ── `REGISTRY.get(key)` is the same lookup as `REGISTRY[key]` ────────────────
+// The dict method spelling of the clause above. `.get` is the form a registry lookup
+// actually takes, because the caller wants a default rather than a KeyError — and the
+// `or <default>` that usually follows is carried by the boolean-operation rules in
+// resolution/value-flow.dl.
+expr_type_class_object(p, e, t) :-
+    call_of_expr(e, site),
+    call_name(site, "get"),
+    call_receiver_object(site, obj),
+    call_arg(site, "0", idx),
+    expr_key_text(p, idx, k),
+    expr_binding(p, ob, ctx, obj), ctx != "STORE",
+    binding_lookup(p, ob, b),
+    binding_dict_entry_type(p, b, k, t).
+
 // ============================================================================
 // A REGISTRY HELD ON AN ATTRIBUTE — the last hop of the cross-service chain
 //

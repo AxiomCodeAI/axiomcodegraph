@@ -255,6 +255,46 @@ expr_type_class_object(p, e, t) :-
     binding_lookup(p, bref, b),
     binding_value_class(p, b, t).
 
+// ── CARRIERS FOR A CLASS OBJECT (issue #57) ──────────────────────────────────
+// A class travelling through a value is the registry / plugin / factory shape:
+//
+//     element_class = REGISTRY.get(kind) or Element
+//     return element_class.create(spec)        # and `cls()` inside create
+//
+// The clauses above already carry a class through a SINGLE-WRITE binding and through a
+// dict subscript with a pinned key. What was missing is every other carrier an INSTANCE
+// type already has — so a class fell out of the flow at the first `or`, ternary or
+// rebinding, and with it went the call on the class, the binding of `cls` inside a
+// classmethod, and the construction that classmethod performs. The loss compounds, which
+// is why so few links survive the shape.
+//
+// These mirror the instance-side rules exactly, and stay additive: every site they reach
+// resolves to nothing today.
+
+// `Element if flag else Other`, and `REGISTRY.get(k) or Element`.
+expr_type_class_object(p, e, t) :-
+    expr_node(p, "CONDITIONAL_EXPRESSION", _, _, e),
+    expr_parent(p, e, "BODY", _, br), expr_type_class_object(p, br, t).
+expr_type_class_object(p, e, t) :-
+    expr_node(p, "CONDITIONAL_EXPRESSION", _, _, e),
+    expr_parent(p, e, "ORELSE", _, br), expr_type_class_object(p, br, t).
+expr_type_class_object(p, e, t) :-
+    expr_node(p, "BOOLEAN_OPERATION", _, _, e),
+    expr_parent(p, e, "OPERAND_LEFT", _, o), expr_type_class_object(p, o, t).
+expr_type_class_object(p, e, t) :-
+    expr_node(p, "BOOLEAN_OPERATION", _, _, e),
+    expr_parent(p, e, "OPERAND_RIGHT", _, o), expr_type_class_object(p, o, t).
+
+// A name written MORE THAN ONCE takes the union, for the same reason the instance side
+// does: a sound set beats a blank, and the tier follows from the target count.
+expr_type_class_object(p, e, t) :-
+    expr_binding(p, b, ctx, e), ctx != "STORE",
+    binding_lookup(p, b, b2),
+    binding_rebinding(p, n, _, _, b2), n != "1",
+    expr_binding(p, b2, "STORE", tgt),
+    assign_pair(p, tgt, val),
+    expr_type_class_object(p, val, t).
+
 // ============================================================================
 // A DECLARED ANNOTATION IS AUTHORITATIVE — flow may not widen past it
 //
