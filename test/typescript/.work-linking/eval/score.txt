@@ -12,6 +12,17 @@ EXACT target                     78   0.876
 target in engine set             81   0.910
 WRONG (engine named, oracle disagrees)  0
 
+precision / recall:
+  coverage      (answered / decidable)           81   0.910
+  recall-any    (truth anywhere in the set)      81   0.910
+  precision     (truth in set | answered)        81   1.000
+  decisiveness  (single answer | answered)       78   0.963
+  commit-accuracy (right | single answer)        78   1.000
+    committed and WRONG                           0
+    hedged and wrong                              0
+  ambiguity     (hedged sites)                    3   mean 2.33  median 2  p90 3  max 3
+  edge-precision (TP / (TP+FP), FP = extras)     81   0.953
+
 overload sites (the resolved symbol has more than one declaration):
   sites                       13
   of which the compiler chose a NON-FIRST declaration   8
