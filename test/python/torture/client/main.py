@@ -17,6 +17,7 @@ import f13_declared_dispatch as f13
 import f14_class_objects as f14
 import f15_attribute_chains as f15
 import f16_element_types as f16
+import f18_lambda_dispatch as f18
 from tlib import Square
 from tlib.shapes import Base, Mid
 
@@ -69,6 +70,9 @@ def main() -> None:
     eng = f16.Engine([f16.Hook()])
     print(eng.via_self(0), f16.via_parameter(eng, 0), f16.via_parameter_from_param_field(eng, 0))
     print(f16.via_comprehension(eng), f16.via_local(eng, 0))
+    r = f18.Renderer()
+    print(r.dispatch_computed("a", 1), r.dispatch_computed("b", 2), r.dispatch_pinned(3))
+    print(f18.via_other_receiver(4))
 
 
 if __name__ == "__main__":
