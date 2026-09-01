@@ -37,6 +37,28 @@ fi
 python3 ../tools/library_monotonicity.py out-nolib out
 rm -rf out-nolib int-nolib emptylib
 
+# ── the SAME invariant against a STUB library ────────────────────────────────
+# The first version of this guard ran only against a source-parsed library, and that is
+# how the construction hole in the floor survived: the classes involved are C-implemented,
+# so a source parse omits them, they stay external, and they keep their name. A stub
+# library declares them, which is what exposes the gap. One library input does not
+# exercise the boundary logic; two do.
+if [ -d "${AXIOM_STUB_IR:-}" ]; then
+  bash "$ENG/src/pipeline/run-souffle.sh" --language python \
+       --client-ir client-ir --library "$AXIOM_STUB_IR" \
+       --intermediate int-stub --output out-stub >/dev/null 2>&1
+  if ! python3 ../tools/library_monotonicity.py out-nolib-stub out-stub 2>/dev/null; then :; fi
+  mkdir -p emptylib2
+  bash "$ENG/src/pipeline/run-souffle.sh" --language python \
+       --client-ir client-ir --library emptylib2 \
+       --intermediate int-nolib2 --output out-nolib2 >/dev/null 2>&1
+  if ! python3 ../tools/library_monotonicity.py out-nolib2 out-stub; then
+    echo "FAIL (library monotonicity, stub library)"; rm -rf out-stub int-stub out-nolib2 int-nolib2 emptylib2; exit 1
+  fi
+  python3 ../tools/library_monotonicity.py out-nolib2 out-stub
+  rm -rf out-stub int-stub out-nolib2 int-nolib2 emptylib2
+fi
+
 python3 harness/score.py out > actual.txt 2>&1
 cat actual.txt
 if [ -f expected/coverage.txt ]; then

@@ -294,6 +294,42 @@ call_hits_lib_unresolved(site, cat("lib:", d)) :-
     !call_hits_builtin(site, _),
     call_receiver_object(site, obj),
     expr_lib_type(obj, _).
+
+// ── CONSTRUCTING a library class, where no library initializer resolved ──────
+// `Counter(opts)`, `deque(args)`, `ExitStack()`. Every clause above keys on a RECEIVER;
+// a construction has none, because the callee IS the class. So the floor never fired, and
+// once the class is present in the library `import_unlinked` is false and the external
+// clause that used to supply the name stops.
+//
+// This is the monotonicity invariant of #72 violated by a shape that fix did not reach,
+// and it was invisible there because #72 was validated against a library parsed from
+// standard-library SOURCE, where these classes -- being C-implemented -- are absent and so
+// stayed external. Staging stubs makes them present, and the hole appears.
+//
+// NOTE on the guards: !call_constructs_lib_type was tried here and is WRONG. That relation
+// fires as soon as the callee names a library class, whether or not an initializer was
+// found in the library -- so a construction whose __init__ the stubs do not expose has a
+// lib TYPE and no target, and guarding on it suppressed the floor at exactly the sites
+// that need it. The three remaining guards already establish that the site has no answer,
+// which is the only precondition the floor requires.
+call_hits_lib_unresolved(site, cat("lib:", d)) :-
+    call_dotted(site, d), d != "",
+    !expr_call_candidate(site, _),
+    !call_hits_lib_method(site, _),
+    !call_hits_builtin(site, _),
+    call_callee_is_value(site),
+    call_callee_expr(site, callee),
+    expr_names_lib_type(callee, _).
+call_hits_lib_unresolved(site, cat("lib:", d)) :-
+    call_dotted(site, d), d != "",
+    !expr_call_candidate(site, _),
+    !call_hits_lib_method(site, _),
+    !call_hits_builtin(site, _),
+    call_callee_is_value(site),
+    call_callee_expr(site, callee),
+    expr_binding("client", cb, _, callee),
+    binding_lookup("client", cb, cb2),
+    import_links_lib_type(cb2, _).
 call_hits_external(site, cat("external:", d)) :-
     call_dotted(site, d), d != "",
     !expr_call_candidate(site, _),
