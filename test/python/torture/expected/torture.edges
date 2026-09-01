@@ -205,6 +205,9 @@ known_edge	METHOD_CALL	f18_lambda_dispatch.Renderer.<lambda> -> f18_lambda_dispa
 known_edge	METHOD_CALL	f18_lambda_dispatch.Renderer.<lambda> -> f18_lambda_dispatch.Renderer.render_b
 known_edge	METHOD_CALL	f19_reexports.via_reexported_function -> repkg.inner.leaf.make_widget
 known_edge	METHOD_CALL	f21_module_alias.call_function_through_alias -> aliaspkg.deep.impl.build_node
+known_edge	METHOD_CALL	f22_typeref_fk.build_via_dotted -> aliaspkg.deep.impl.Node.label
+known_edge	METHOD_CALL	f22_typeref_fk.build_via_dotted -> aliaspkg.deep.impl.build_node
+known_edge	METHOD_CALL	f22_typeref_fk.label_via_dotted -> aliaspkg.deep.impl.Node.label
 known_edge	METHOD_CALL	main.main -> f01_inheritance.client_chain
 known_edge	METHOD_CALL	main.main -> f01_inheritance.lib_deep_chain
 known_edge	METHOD_CALL	main.main -> f01_inheritance.lib_diamond
@@ -306,6 +309,8 @@ known_edge	METHOD_CALL	main.main -> f20_builtin_flow.non_self_attribute_containe
 known_edge	METHOD_CALL	main.main -> f20_builtin_flow.split_then_index
 known_edge	METHOD_CALL	main.main -> f21_module_alias.call_function_through_alias
 known_edge	METHOD_CALL	main.main -> f21_module_alias.construct_through_alias
+known_edge	METHOD_CALL	main.main -> f22_typeref_fk.build_via_dotted
+known_edge	METHOD_CALL	main.main -> f22_typeref_fk.label_via_dotted
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator_in_for
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_plain
