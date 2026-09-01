@@ -117,8 +117,22 @@ export class TsTypeReferenceExtractor {
     private readonly sourceFile: ts.SourceFile,
     private readonly serviceVersionLinkHash: string,
     /** Type-parameter names in lexical scope, so `T` is a TYPE_VARIABLE and not a TYPE_REFERENCE. */
-    private readonly typeParametersInScope: () => ReadonlySet<string>
+    private readonly typeParametersInScope: () => ReadonlySet<string>,
+    /** The declaration a type-variable name refers to, innermost scope first. */
+    private readonly typeParameterDeclarationFor:
+      (name: string) => ts.TypeParameterDeclaration | undefined = () => undefined
   ) {}
+
+  /**
+   * Type-variable references awaiting their declaration's hash.
+   *
+   * Linked after the walk, because a reference can precede the row for the
+   * parameter it names -- `B extends A` mentions `A` while both are still being
+   * emitted -- and a link made too early would silently be empty for exactly
+   * the shadowing cases that matter.
+   */
+  readonly pendingTypeVariableLinks:
+    { row: TsTypeReferenceRegistry; declaration: ts.TypeParameterDeclaration }[] = [];
 
   getRows(): readonly TsTypeReferenceRegistry[] {
     return this.rows;
@@ -208,6 +222,17 @@ export class TsTypeReferenceExtractor {
     // Keyed on the byte range, so the two nodes that share a start offset --
     // a type and the first type inside it -- do not collide.
     this.hashByTypeNode.set(nodeId(node, this.sourceFile), row.getHash());
+    // A type-variable reference names the parameter that declares it. Recorded
+    // for a back-patch rather than resolved here, because the row for that
+    // parameter may not exist yet.
+    if (ts.isTypeReferenceNode(node)
+      && ts.isIdentifier(node.typeName)
+      && this.typeParametersInScope().has(node.typeName.text)) {
+      const declaration = this.typeParameterDeclarationFor(node.typeName.text);
+      if (declaration !== undefined) {
+        this.pendingTypeVariableLinks.push({ row, declaration });
+      }
+    }
     if (this.onFunctionType && (ts.isFunctionTypeNode(node) || ts.isConstructorTypeNode(node))) {
       this.onFunctionType(node, row.getHash());
     }

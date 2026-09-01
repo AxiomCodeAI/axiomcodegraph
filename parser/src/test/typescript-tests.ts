@@ -2635,6 +2635,98 @@ async function constrainedTypeParametersNameTheirBound(): Promise<number> {
   return failures.length ? 1 : 0;
 }
 
+// ---------------------------------------------------------------------------
+// 27. A type variable names the parameter that declares it
+// ---------------------------------------------------------------------------
+
+/**
+ * `typeVariableName` is a string. Substitution starts from the DECLARATION.
+ *
+ * A reference to `T` carried the name and nothing pointing at the parameter row
+ * -- 4,772 references on one library. The column for it exists and is documented
+ * ("FK to ts_type_parameter when this reference IS a type variable"); it was
+ * simply never filled, so no new column is needed and no consumer has to remap.
+ *
+ * The name alone is not enough, which is the whole point: a method's `T`
+ * SHADOWS its class's `T` and they are different entities. Resolving by name
+ * against a flat set would pick one arbitrarily, so the fixture puts the two in
+ * one class and asserts each reference reaches its own declaration.
+ */
+async function typeVariablesNameTheirParameter(): Promise<number> {
+  if (!parserPresent()) {
+    return pendingCheck('type variables name their parameter',
+      'no extractor yet. A type-variable reference must link the parameter that declares it');
+  }
+  const { outputDir, cleanup } = await analyseInline('ts-tvar-', {
+    's.ts': [
+      'export class Box<T> {',
+      '  outer(v: T): T { return v; }',
+      '  inner<T>(v: T): T { return v; }',           // shadows the class T
+      '  two<A, B extends A>(a: A, b: B) { return [a, b]; }',  // B's bound names A
+      '}',
+      'export interface Repo<T, S = T[]> { all(): S }',
+      'export type Keys<T> = { [K in keyof T]: T[K] };',
+      'export function free<U>(u: U): U { return u; }',
+    ].join('\n'),
+  });
+
+  const parameters = new Map(relation(outputDir, 'all-typescript-type-parameters.csv')
+    .map((r) => [r.tsTypeParameterUniqueHash ?? '', r]));
+  const references = relation(outputDir, 'all-typescript-type-references.csv')
+    .filter((r) => r.kind === 'TYPE_VARIABLE');
+  const failures: string[] = [];
+  const owners = new Set<string>();
+
+  if (references.length === 0) {
+    failures.push('the fixture produced no TYPE_VARIABLE reference at all');
+  }
+  for (const row of references) {
+    const hash = row.typeParameterLinkHash ?? '';
+    if (hash === '') {
+      failures.push(`${row.typeVariableName} at line ${row.startLine}: no typeParameterLinkHash ` +
+        '— the reference names a string and nothing else');
+      continue;
+    }
+    const declaration = parameters.get(hash);
+    if (!declaration) {
+      failures.push(`${row.typeVariableName}: typeParameterLinkHash is DANGLING`);
+      continue;
+    }
+    owners.add(declaration.ownerKind ?? '');
+    if (declaration.paramName !== row.typeVariableName) {
+      failures.push(`${row.typeVariableName} at line ${row.startLine} links a parameter named ` +
+        `${declaration.paramName}`);
+    }
+  }
+
+  // SHADOWING. `outer` uses the class T (line 1); `inner` declares its own on
+  // line 3 and must reach that one. Getting this wrong is invisible without it.
+  const outerT = references.filter((r) => r.startLine === '2');
+  const innerT = references.filter((r) => r.startLine === '3');
+  for (const [label, rows, wantOwner] of [
+    ['outer', outerT, 'CLASS'], ['inner', innerT, 'METHOD'],
+  ] as [string, Record<string, string>[], string][]) {
+    if (rows.length === 0) {
+      failures.push(`no TYPE_VARIABLE reference on the ${label} line — the shadowing case is ` +
+        'not being exercised');
+      continue;
+    }
+    for (const row of rows) {
+      const owner = parameters.get(row.typeParameterLinkHash ?? '')?.ownerKind;
+      if (owner !== wantOwner) {
+        failures.push(`${label}: T resolves to a ${owner} parameter, expected ${wantOwner} — a ` +
+          "method's T shadows its class's T and they are different entities");
+      }
+    }
+  }
+
+  console.log(`  ${references.length} type-variable reference(s) name their declaration across ` +
+    `${owners.size} owner kind(s); a shadowed T reaches the inner one`);
+  for (const f of failures.slice(0, 10)) console.log(`  ${f}`);
+  cleanup();
+  return failures.length ? 1 : 0;
+}
+
 const CHECKS: Check[] = [
   { name: 'compiles', proves: 'tsc --noEmit is clean — the suite reports on code that actually builds', run: compiles },
   { name: 'fixtures compile and are isolated', proves: 'a fixture is a valid input, and cannot break another language\'s gate', run: fixturesCompile },
@@ -2659,6 +2751,7 @@ const CHECKS: Check[] = [
   { name: 'annotated declarations name their type', proves: 'a declared type is reachable as a row, not only readable as text, so type flow can be followed', run: annotatedDeclarationsNameTheirType },
   { name: 'type references name their entity', proves: 'a reference carries the written name without type arguments, so a scope lookup needs no string surgery', run: typeReferencesNameTheirEntity },
   { name: 'constrained type parameters name their bound', proves: 'a bound and a default are reachable as rows for every owner kind, type-level ones included', run: constrainedTypeParametersNameTheirBound },
+  { name: 'type variables name their parameter', proves: 'a type-variable reference links the parameter that declares it, shadowing respected, so substitution has a starting point', run: typeVariablesNameTheirParameter },
   { name: 'column order is append-only', proves: 'a column is never inserted mid-table, because Souffle binds by position and misbinds silently', run: columnOrderIsAppendOnly },
   { name: 'fact-base invariants', proves: 'every PK unique, every FK resolves, every tree well-formed — the failures that load cleanly and count wrong', run: factBaseInvariants },
   { name: 'IR completeness', proves: 'every hop an engine needs in order to resolve is present — the measure that replaced resolution rate', run: irCompleteness },
