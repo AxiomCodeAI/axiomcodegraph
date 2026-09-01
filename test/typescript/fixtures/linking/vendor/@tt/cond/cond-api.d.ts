@@ -43,3 +43,13 @@ export declare const fnRegistry: FnRegistry;
 // code, 8 declarations of this shape accounted for 182 unresolved call sites.
 export declare const isArrayAlias: typeof Array.isArray;
 export declare const assignAlias: typeof Object.assign;
+
+// A NAMESPACE declared inside `declare global` — how a reflection or metadata library
+// publishes its API. The receiver is neither a value nor a type, so the binder leaves
+// the identifier UNKNOWN and the name is all there is to resolve on.
+declare global {
+  namespace TtMeta {
+    function defineMeta(key: string, target: object): void;
+    function getMeta(key: string, target: object): unknown;
+  }
+}

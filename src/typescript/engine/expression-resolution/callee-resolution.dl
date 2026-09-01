@@ -393,3 +393,27 @@ expr_call_candidate(ce, m) :- expr_call_dispatch(ce, m).
 expr_call_candidate(ce, m) :- call_callee_expr(_, ce, ne),
     expr_referenced("client", "PARAMETER", bh, ne),
     param_binding_method(bh, m).
+
+// (2d) `N.f(...)` where N is a NAMESPACE, not a value. A namespace declared inside
+// `declare global` is how a reflection or metadata library publishes its API —
+// `Reflect.getMetadata(key, target)` and friends — and it is the shape decorator-driven
+// frameworks are built on, so it appears in PRODUCTION code rather than only in tests.
+//
+// The receiver is an IDENTIFIER whose referencedEntityKind is UNKNOWN: a namespace is
+// neither a value nor a type in the position it is written, so the binder has nothing to
+// point at and the name is all there is. It resolves as a global TYPE row whose category
+// is NAMESPACE_TYPE, and the callee is one of its members.
+//
+// Guarded on NAMESPACE_TYPE rather than on the name alone: without it any global type
+// sharing a name with a local receiver would answer, which is how a lookup by name
+// manufactures wrong answers where there were none.
+expr_call_candidate(ce, m) :- call_site("client", ck, cn, "IDENTIFIER", recv, ce, _),
+    call_kind_is_member_call(ck),
+    cn != "",
+    expr_name("client", nsname, recv),
+    nsname != "",
+    global_decl(nsname, "TYPE", prov, ns),
+    type_decl(prov, _, _, _, "NAMESPACE_TYPE", _, ns),
+    namespace_member(prov, ns, cn, "METHOD", m).
+call_kind_is_member_call("METHOD_CALL").
+call_kind_is_member_call("OPTIONAL_CALL").
