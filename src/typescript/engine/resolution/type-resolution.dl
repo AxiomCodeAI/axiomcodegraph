@@ -117,7 +117,7 @@ type_ref_resolves(prov, ref, t) :- type_ref(rp, "PRIMITIVE", _, tn, _, _, _, ref
 // A string / numeric / boolean LITERAL type behaves as its primitive for dispatch:
 // `type Mode = "r" | "w"` still answers `.toUpperCase()`.
 type_ref_resolves(prov, ref, t) :- type_ref("client", "LITERAL", _, _, _, _, _, ref),
-    ts_type_reference("LITERAL", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, lv, _, _, _, ref),
+    ts_type_reference("LITERAL", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, lv, _, _, _, ref),
     literal_type_global(lv, gname),
     type_ref_module("client", mod, ref),
     scope_name_binds("client", mod, gname, prov, "TYPE", t).
@@ -364,7 +364,7 @@ type_var_constraint_in_scope(powner, name, cref) :- param_decl(p, _, _, _, m, po
 // THIS_TYPE — `this` as a return type, the fluent-builder idiom. The receiver is the
 // declaring type itself.
 ref_type_target(ref, "client", t) :- type_ref("client", "THIS_TYPE", _, _, _, _, _, ref),
-    ts_type_reference("THIS_TYPE", _, t, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ref),
+    ts_type_reference("THIS_TYPE", _, t, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ref),
     t != "".
 
 // ── ref_shape_target(RefHash, ShapeRefHash) ─────────────────────────────────

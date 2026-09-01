@@ -37,10 +37,13 @@ SOUND_SUPERSET	src/link-conditional.ts	32	10	FUNCTION_CALL	assignAlias	4	0	lib.e
 EXACT	src/link-conditional.ts	62	28	FUNCTION_CALL	createEmitCtx	1	0	link-conditional.ts:53:1	link-conditional.ts:53:1
 SOUND_SUPERSET	src/link-conditional.ts	63	3	FUNCTION_CALL	emit	1	0	link-conditional.ts:49:3	link-conditional.ts:49:3;link-conditional.ts:55:5
 SOUND_SUPERSET	src/link-conditional.ts	64	10	FUNCTION_CALL	finish	1	0	link-conditional.ts:50:3	link-conditional.ts:50:3;link-conditional.ts:56:5
-EXACT	src/link-conditional.ts	79	3	FUNCTION_CALL	emitOne	1	0	link-conditional.ts:74:3	link-conditional.ts:74:3
+SOUND_SUPERSET	src/link-conditional.ts	79	3	FUNCTION_CALL	emitOne	1	0	link-conditional.ts:74:3	link-conditional.ts:102:24;link-conditional.ts:74:3
 EXACT	src/link-conditional.ts	80	10	METHOD_CALL	deeper	1	0	link-conditional.ts:75:12	link-conditional.ts:75:12
 EXACT	src/link-conditional.ts	85	3	METHOD_CALL	defineMeta	1	0	cond-api.d.ts:52:5	cond-api.d.ts:52:5
 EXACT	src/link-conditional.ts	86	3	METHOD_CALL	getMeta	1	0	cond-api.d.ts:53:5	cond-api.d.ts:53:5
+EXACT	src/link-conditional.ts	96	30	FUNCTION_CALL	makeBindCtx	1	0	link-conditional.ts:101:1	link-conditional.ts:101:1
+SOUND_SUPERSET	src/link-conditional.ts	97	3	FUNCTION_CALL	emitOne	1	0	link-conditional.ts:74:3	link-conditional.ts:102:24;link-conditional.ts:74:3
+EXACT	src/link-conditional.ts	98	10	METHOD_CALL	deeper	1	0	link-conditional.ts:75:12	link-conditional.ts:75:12
 EXACT	src/link-crosspkg-reexport.ts	17	10	FUNCTION_CALL	probeOf	1	0	probe-core.d.ts:4:1	probe-core.d.ts:4:1
 EXACT	src/link-crosspkg-reexport.ts	21	10	FUNCTION_CALL	probeCount	1	0	probe-core.d.ts:9:1	probe-core.d.ts:9:1
 EXACT	src/link-crosspkg-reexport.ts	25	10	METHOD_CALL	toBeAssignableTo	1	0	probe-core.d.ts:6:3	probe-core.d.ts:6:3

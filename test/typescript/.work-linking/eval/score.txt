@@ -1,33 +1,33 @@
-call sites (parser IR)      112
-call sites (oracle)         112
-joined on position          112
+call sites (parser IR)      115
+call sites (oracle)         115
+joined on position          115
 
-EXACT                       84
-SOUND_SUPERSET               6
+EXACT                       85
+SOUND_SUPERSET               8
 MISSED                       8
 SYNTHESIZED_OK              14
 
-decidable                   98
-EXACT target                     84   0.857
-target in engine set             90   0.918
+decidable                   101
+EXACT target                     85   0.842
+target in engine set             93   0.921
 WRONG (engine named, oracle disagrees)  0
 
 precision / recall:
-  coverage      (answered / decidable)           90   0.918
-  recall-any    (truth anywhere in the set)      90   0.918
-  precision     (truth in set | answered)        90   1.000
-  decisiveness  (single answer | answered)       84   0.933
-  commit-accuracy (right | single answer)        84   1.000
+  coverage      (answered / decidable)           93   0.921
+  recall-any    (truth anywhere in the set)      93   0.921
+  precision     (truth in set | answered)        93   1.000
+  decisiveness  (single answer | answered)       85   0.914
+  commit-accuracy (right | single answer)        85   1.000
     committed and WRONG                           0
     hedged and wrong                              0
-  ambiguity     (hedged sites)                    6   mean 2.17  median 2  p90 3  max 3
-  edge-precision (TP / (TP+FP), FP = extras)     90   0.928
+  ambiguity     (hedged sites)                    8   mean 2.12  median 2  p90 3  max 3
+  edge-precision (TP / (TP+FP), FP = extras)     93   0.912
 
 signature-level vs edge-level:
-  signature-correct (exact declaration)          90   0.918
+  signature-correct (exact declaration)          93   0.921
   overload sibling (same function)                0
   implementation of tsc's signature              0
-  edge-correct      (right function)             90   0.918
+  edge-correct      (right function)             93   0.921
 
 overload sites (the resolved symbol has more than one declaration):
   sites                       14
@@ -39,8 +39,8 @@ overload sites (the resolved symbol has more than one declaration):
   on NON-FIRST choices only:  EXACT 8   1.000   (WRONG 0, MISSED 0)
 
 by call kind:
-  FUNCTION_CALL          exact=    46 superset=    3 wrong=    0 missed=     1  acc=0.980
-  METHOD_CALL            exact=    36 superset=    3 wrong=    0 missed=     7  acc=0.848
+  FUNCTION_CALL          exact=    46 superset=    5 wrong=    0 missed=     1  acc=0.981
+  METHOD_CALL            exact=    37 superset=    3 wrong=    0 missed=     7  acc=0.851
   CONSTRUCTOR_CALL       exact=     2 superset=    0 wrong=    0 missed=     0  acc=1.000
 
 top missed callees:
@@ -52,16 +52,18 @@ top missed callees:
        1  deepPack
 
 dispatch envelope (edges, not sites):
-  engine edges emitted            97
-  inside CHA envelope             93   precision 0.959
-  inside RTA envelope             93   precision 0.959
-  CHA envelope size (total)       138   recall vs CHA 0.674
-  RTA envelope size (total)       138   recall vs RTA 0.674
+  engine edges emitted            102
+  inside CHA envelope             96   precision 0.941
+  inside RTA envelope             96   precision 0.941
+  CHA envelope size (total)       141   recall vs CHA 0.681
+  RTA envelope size (total)       141   recall vs RTA 0.681
   edges OUTSIDE the CHA envelope (demonstrable false positives):
     src/link-conditional.ts:7:10 shared() -> cond-api.d.ts:13:3   envelope ['cond-api.d.ts:9:3']
     src/link-conditional.ts:14:10 shared() -> cond-api.d.ts:9:3   envelope ['cond-api.d.ts:13:3']
     src/link-conditional.ts:63:3 emit() -> link-conditional.ts:55:5   envelope ['link-conditional.ts:49:3']
     src/link-conditional.ts:64:10 finish() -> link-conditional.ts:56:5   envelope ['link-conditional.ts:50:3']
+    src/link-conditional.ts:79:3 emitOne() -> link-conditional.ts:102:24   envelope ['link-conditional.ts:74:3']
+    src/link-conditional.ts:97:3 emitOne() -> link-conditional.ts:102:24   envelope ['link-conditional.ts:74:3']
 
 top missed by ORACLE TARGET FILE (which declaration family is unreachable):
        2  link-generic.ts
