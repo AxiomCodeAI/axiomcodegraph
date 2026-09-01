@@ -2078,6 +2078,132 @@ async function patternParametersBindNames(): Promise<number> {
   return failures.length ? 1 : 0;
 }
 
+// ---------------------------------------------------------------------------
+// 21. A destructured name reaches the value it came from
+// ---------------------------------------------------------------------------
+
+/**
+ * `const { helper } = createContext()` reads `helper` out of what the call
+ * returned.
+ *
+ * The bound name carried the property it binds and the pattern row carried the
+ * initializer, and the two shared no key -- `declarationGroupKey` is empty on
+ * both, deliberately, because neither is a mergeable declaration. So a bound
+ * name was a declaration with a property name and nothing to apply it to, and
+ * every call through one was unresolvable.
+ *
+ * The parameter form has never had this problem: a bound name shares the
+ * pattern's `position` within the same method, which is an exact join. Variables
+ * have no equivalent, so the initializer is copied onto each bound name
+ * instead.
+ *
+ * A NESTED leaf gets the ROOT initializer, and that is the right answer rather
+ * than an approximation: `const { a: { b } } = ctx()` means b comes out of
+ * ctx() by way of `a`, and the intermediate pattern has no name to key on.
+ */
+async function destructuredNamesReachTheirValue(): Promise<number> {
+  if (!parserPresent()) {
+    return pendingCheck('destructured names reach their value',
+      'no extractor yet. A bound name must link the initializer it was destructured from');
+  }
+  const { outputDir, cleanup } = await analyseInline('ts-init-', {
+    'v.ts': [
+      'export interface Ctx { helper(n: string): string; nested: { deep(n: number): number } }',
+      'declare function createContext(): Ctx;',
+      'export function inBody(): string {',
+      '  const { helper: h2, nested: n2 } = createContext();',
+      '  n2.deep(2);',
+      '  return h2("y");',
+      '}',
+      'export function nestedPattern(c: { a: { b: (x: number) => number } }) {',
+      '  const { a: { b } } = c;',
+      '  return b(1);',
+      '}',
+      'export function positional(xs: (() => number)[]) {',
+      '  const [first] = xs;',
+      '  return first();',
+      '}',
+      'export function noInitializer(o: { z: number }) {',
+      '  let z: number;',
+      '  ({ z } = o);',
+      '  return z;',
+      '}',
+      'export function iterating(pairs: [string, number][]) {',
+      '  for (const [key, value] of pairs) { void key; void value; }',
+      '}',
+    ].join('\n'),
+  });
+
+  const expressions = new Map(relation(outputDir, 'all-typescript-expressions.csv')
+    .map((e) => [e.tsExpressionUniqueHash ?? '', e]));
+  const variables = relation(outputDir, 'all-typescript-variables.csv');
+  const byName = new Map(variables.filter((v) => v.name !== '').map((v) => [v.name!, v]));
+
+  const failures: string[] = [];
+  // name -> the expression kind its initializer must be
+  const expected: [string, string][] = [
+    ['h2', 'CALL_EXPRESSION'],        // out of createContext()
+    ['n2', 'CALL_EXPRESSION'],
+    ['b', 'IDENTIFIER_REFERENCE'],    // a nested leaf gets the ROOT initializer
+    ['first', 'IDENTIFIER_REFERENCE'],
+  ];
+  for (const [name, kind] of expected) {
+    const row = byName.get(name);
+    if (!row) {
+      failures.push(`no variable row named ${name}`);
+      continue;
+    }
+    const hash = row.initializerExpressionLinkHash ?? '';
+    if (hash === '') {
+      failures.push(`${name}: no initializerExpressionLinkHash — it knows which property it ` +
+        'binds and not what it binds it out of, so a call through it cannot resolve');
+      continue;
+    }
+    const initializer = expressions.get(hash);
+    if (!initializer) {
+      failures.push(`${name}: initializerExpressionLinkHash is DANGLING`);
+    } else if (initializer.kind !== kind) {
+      failures.push(`${name}: links a ${initializer.kind}, expected ${kind}`);
+    }
+  }
+  // The bound name and its pattern must name the SAME value, not merely both
+  // have one -- that is what makes the join exact.
+  const pattern = variables.find((v) => v.name === '' && v.isDestructuring === 'true');
+  const h2 = byName.get('h2');
+  if (pattern && h2 && pattern.initializerExpressionLinkHash !== h2.initializerExpressionLinkHash) {
+    failures.push('a bound name links a DIFFERENT initializer from its pattern; they are the ' +
+      'same value and must be the same row');
+  }
+  // A destructuring assignment has no initializer, and must not invent one.
+  const z = byName.get('z');
+  if (z && (z.initializerExpressionLinkHash ?? '') !== '') {
+    failures.push('`let z` with no initializer reports one');
+  }
+  // A for-of binding has no initializer either -- the iterable belongs to the
+  // for-of STATEMENT, not to the declaration. Asserted so the empty column
+  // there is a recorded expectation rather than something that looks like this
+  // fix having missed a case: on one library it is 60 of 152 bound names, and
+  // every one of them is correct.
+  for (const name of ['key', 'value']) {
+    const row = byName.get(name);
+    if (!row) {
+      failures.push(`no variable row named ${name}`);
+    } else if (row.declarationKind !== 'FOR_OF') {
+      failures.push(`${name}: expected FOR_OF, got ${row.declarationKind}`);
+    } else if ((row.initializerExpressionLinkHash ?? '') !== '') {
+      failures.push(`${name}: a for-of binding reports an initializer, but the iterable belongs ` +
+        'to the statement and the declaration has none');
+    }
+  }
+
+  console.log(`  ${expected.length} bound name(s) reach their initializer, nested and positional ` +
+    'included; a for-of binding correctly reports none, and a bound name names the same ' +
+    'expression row as its pattern');
+  for (const f of failures.slice(0, 10)) console.log(`  ${f}`);
+  cleanup();
+  return failures.length ? 1 : 0;
+}
+
 const CHECKS: Check[] = [
   { name: 'compiles', proves: 'tsc --noEmit is clean — the suite reports on code that actually builds', run: compiles },
   { name: 'fixtures compile and are isolated', proves: 'a fixture is a valid input, and cannot break another language\'s gate', run: fixturesCompile },
@@ -2097,6 +2223,7 @@ const CHECKS: Check[] = [
   { name: 'overloads never name the implementation', proves: 'a call resolves to an overload signature, and a shape member with two signatures is not SOLE', run: overloadsNeverNameTheImplementation },
   { name: 'discovery follows the import closure', proves: 'a program is its roots plus everything they import, and nothing more', run: discoveryFollowsTheImportClosure },
   { name: 'pattern parameters bind names', proves: 'a destructured parameter emits the names it binds, so a call through one can resolve', run: patternParametersBindNames },
+  { name: 'destructured names reach their value', proves: 'a bound name links the initializer it was destructured from, so a call through one can resolve', run: destructuredNamesReachTheirValue },
   { name: 'fact-base invariants', proves: 'every PK unique, every FK resolves, every tree well-formed — the failures that load cleanly and count wrong', run: factBaseInvariants },
   { name: 'IR completeness', proves: 'every hop an engine needs in order to resolve is present — the measure that replaced resolution rate', run: irCompleteness },
 ];
