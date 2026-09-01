@@ -38,7 +38,7 @@ import { EntityUtils } from '@/utils/entity-utils';
  * reporting only.
  */
 export class TsTypeReferenceRegistry implements EntityIdentifiable {
-  static readonly ARITY = 30;
+  static readonly ARITY = 31;
 
   readonly kind: TsTypeRefKind;
   readonly context: TsTypeRefContext;
@@ -50,6 +50,7 @@ export class TsTypeReferenceRegistry implements EntityIdentifiable {
   readonly depth: number;
   readonly typeName: string;
   readonly completeTypeName: string;
+  readonly entityName: string;
   readonly typeVariableName: string;
   readonly arrayDimensions: string;
   readonly wildcardVariance: string;
@@ -80,6 +81,7 @@ export class TsTypeReferenceRegistry implements EntityIdentifiable {
     depth: number;
     typeName: string;
     completeTypeName: string;
+    entityName?: string;
     typeVariableName: string;
     arrayDimensions: string;
     wildcardVariance: string;
@@ -106,6 +108,7 @@ export class TsTypeReferenceRegistry implements EntityIdentifiable {
     this.depth = props.depth;
     this.typeName = props.typeName;
     this.completeTypeName = props.completeTypeName;
+    this.entityName = props.entityName ?? '';
     this.typeVariableName = props.typeVariableName;
     this.arrayDimensions = props.arrayDimensions;
     this.wildcardVariance = props.wildcardVariance;
@@ -189,6 +192,7 @@ export class TsTypeReferenceRegistry implements EntityIdentifiable {
         num(this.depth),
         text(this.typeName),
         text(this.completeTypeName),
+        text(this.entityName),
         text(this.typeVariableName),
         text(this.arrayDimensions),
         this.wildcardVariance,
@@ -219,7 +223,7 @@ export class TsTypeReferenceRegistry implements EntityIdentifiable {
     return joinHeader(
       [
         'kind', 'context', 'tsTypeLinkHash', 'typeParameterLinkHash', 'referencedTypeLinkHash',
-        'parentReferenceHash', 'position', 'depth', 'typeName', 'completeTypeName',
+        'parentReferenceHash', 'position', 'depth', 'typeName', 'completeTypeName', 'entityName',
         'typeVariableName', 'arrayDimensions', 'wildcardVariance', 'startLine', 'endLine',
         'typeReferenceOwnerHash', 'referenceOwnerKind', 'tsModuleLinkHash', 'childCount',
         'isTypeOnlyPosition', 'resolvedGroupKey', 'isResolvedLocally', 'importSpecifier',

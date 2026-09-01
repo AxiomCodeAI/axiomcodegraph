@@ -183,6 +183,7 @@ export class TsTypeReferenceExtractor {
       depth,
       typeName: simpleNameOf(node),
       completeTypeName: EntityUtils.normalizeWhitespace(node.getText(this.sourceFile)),
+      entityName: entityNameOf(node, this.sourceFile),
       typeVariableName: typeVariableNameOf(node, this.typeParametersInScope()),
       arrayDimensions: arrayDimensionsOf(node),
       wildcardVariance: varianceOf(node),
@@ -559,6 +560,35 @@ function varianceOf(node: ts.TypeNode): string {
   }
   if (node.operator === ts.SyntaxKind.UniqueKeyword) {
     return TsWildcardVariance.UNIQUE;
+  }
+  return '';
+}
+
+/**
+ * The name a reference writes, WITHOUT its type arguments.
+ *
+ * `typeName` is only the rightmost segment (`Node`) and `completeTypeName`
+ * carries the arguments (`Outer.Inner.Node<T>`), so neither is the qualified
+ * name a scope lookup needs. The AST holds it directly: a TypeReferenceNode's
+ * `typeName` is an EntityName and its `typeArguments` are a separate property,
+ * so this is a read rather than a derivation.
+ *
+ * Deriving it downstream means finding the first "<" by hand, and the obvious
+ * shortcut -- treating `typeName == completeTypeName` as the
+ * qualified/unqualified test -- misfiles every generic reference, because
+ * `Map<string, User>` differs from `Map` for a reason that has nothing to do
+ * with qualification.
+ */
+function entityNameOf(node: ts.TypeNode, sourceFile: ts.SourceFile): string {
+  if (ts.isTypeReferenceNode(node)) {
+    return EntityUtils.normalizeWhitespace(node.typeName.getText(sourceFile));
+  }
+  if (ts.isExpressionWithTypeArguments(node)) {
+    return EntityUtils.normalizeWhitespace(node.expression.getText(sourceFile));
+  }
+  // An import type writes its entity after the specifier: `import("m").T`.
+  if (ts.isImportTypeNode(node) && node.qualifier !== undefined) {
+    return EntityUtils.normalizeWhitespace(node.qualifier.getText(sourceFile));
   }
   return '';
 }
