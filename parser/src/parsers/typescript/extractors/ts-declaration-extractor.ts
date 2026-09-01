@@ -202,6 +202,10 @@ export class TsDeclarationExtractor {
    */
   private readonly pendingMemberTypeLinks: { row: TsFieldRegistry; node: ts.TypeNode }[] = [];
 
+  /** Type-level parameters whose constraint the enclosing type's tree emits. */
+  private readonly pendingConstraintLinks:
+    { row: TsTypeParameterRegistry; node: ts.TypeNode }[] = [];
+
   constructor(private readonly options: DeclarationExtractorOptions) {
     this.sf = options.sourceFile;
     this.typeReferenceExtractor = new TsTypeReferenceExtractor(
@@ -2303,6 +2307,12 @@ export class TsDeclarationExtractor {
         pending.row.setTypeReferenceLinkHash(hash);
       }
     }
+    for (const pending of this.pendingConstraintLinks) {
+      const hash = this.typeReferenceExtractor.hashForTypeNode(pending.node);
+      if (hash !== '') {
+        pending.row.setConstraintReferenceLinkHash(hash);
+      }
+    }
   }
 
   private assignOverloadIdentities(): void {
@@ -2487,6 +2497,16 @@ export class TsDeclarationExtractor {
       serviceVersionLinkHash: this.options.serviceVersionLinkHash,
     });
     this.typeParameters.push(row);
+    // `{ [K in keyof T]: … }` and `infer U extends string` declare a constraint
+    // that the ENCLOSING type's tree emits -- as MAPPED_CONSTRAINT or inside the
+    // infer node -- so the parameter row had the constraint as TEXT and nothing
+    // pointing at the reference. Same shape as the signature-return and shape-
+    // member cases, and it uses the same back-patch: the extractor records a row
+    // per type node, and this registers the constraint for linking after the
+    // walk. 57 of 928 constrained parameters on one library.
+    if (typeParameter.constraint) {
+      this.pendingConstraintLinks.push({ row, node: typeParameter.constraint });
+    }
     this.typeParameterHashByNode.set(id, row.getHash());
     void moduleHash;
   }
