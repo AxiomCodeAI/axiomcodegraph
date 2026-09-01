@@ -146,6 +146,13 @@ boundary_lib	SIMPLE_CALL	f14_class_objects.Element.create -> builtin:object.__in
 boundary_lib	SIMPLE_CALL	f15_attribute_chains.Middle.__init__ -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f16_element_types.via_comprehension -> builtin:sum
 boundary_lib	SIMPLE_CALL	f18_lambda_dispatch.via_other_receiver -> builtin:object.__init__
+boundary_lib	SIMPLE_CALL	f23_typevar_bound.<module> -> external:TypeVar
+boundary_lib	SIMPLE_CALL	f23_typevar_bound.class_object_bounded -> builtin:object.__init__
+boundary_lib	SIMPLE_CALL	f23_typevar_bound.constrained -> builtin:str
+boundary_lib	SIMPLE_CALL	f23_typevar_bound.flowed_class_object -> builtin:object.__init__
+boundary_lib	SIMPLE_CALL	f23_typevar_bound.via_concrete_argument -> builtin:object.__init__
+boundary_lib	SIMPLE_CALL	f23_typevar_bound.via_opaque_value -> builtin:object.__init__
+boundary_lib	SIMPLE_CALL	f23_typevar_bound.via_opaque_value -> lib:tlib.callables.passthrough
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	main.main -> builtin:print
@@ -311,6 +318,9 @@ known_edge	METHOD_CALL	main.main -> f21_module_alias.call_function_through_alias
 known_edge	METHOD_CALL	main.main -> f21_module_alias.construct_through_alias
 known_edge	METHOD_CALL	main.main -> f22_typeref_fk.build_via_dotted
 known_edge	METHOD_CALL	main.main -> f22_typeref_fk.label_via_dotted
+known_edge	METHOD_CALL	main.main -> f23_typevar_bound.constrained
+known_edge	METHOD_CALL	main.main -> f23_typevar_bound.via_concrete_argument
+known_edge	METHOD_CALL	main.main -> f23_typevar_bound.via_opaque_value
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator_in_for
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_plain
@@ -327,6 +337,10 @@ known_edge	SIMPLE_CALL	f12_value_flow.getattr_literal -> f12_value_flow.Widget.e
 known_edge	SIMPLE_CALL	f12_value_flow.method_alias_on_class -> f12_value_flow.Widget.make
 known_edge	SIMPLE_CALL	f12_value_flow.method_alias_on_instance -> f12_value_flow.Widget.emit
 known_edge	SIMPLE_CALL	f15_attribute_chains.Holder.__init__ -> f15_attribute_chains.Middle.__init__
+known_edge	SIMPLE_CALL	f23_typevar_bound.via_concrete_argument -> f23_typevar_bound.flowed_bounded
+known_edge	SIMPLE_CALL	f23_typevar_bound.via_concrete_argument -> f23_typevar_bound.flowed_class_object
+known_edge	SIMPLE_CALL	f23_typevar_bound.via_opaque_value -> f23_typevar_bound.bare_bounded
+known_edge	SIMPLE_CALL	f23_typevar_bound.via_opaque_value -> f23_typevar_bound.class_object_bounded
 known_edge	SIMPLE_CALL	main.<module> -> main.main
 known_edge	SIMPLE_CALL	pkgmod.user.run_generator -> pkgmod._gen.each
 known_edge	SIMPLE_CALL	pkgmod.user.run_generator_in_for -> pkgmod._gen.each_first
@@ -357,6 +371,10 @@ multi_inferred	CHAINED_CALL	f14_class_objects.via_type_annotation -> f14_class_o
 multi_inferred	CHAINED_CALL	f14_class_objects.via_type_annotation -> f14_class_objects.Heading.render
 multi_inferred	CHAINED_CALL	f14_class_objects.via_type_annotation -> f14_class_objects.Para.render
 multi_inferred	CHAINED_CALL	f14_class_objects.via_type_annotation -> f14_class_objects.Unknown.render
+multi_inferred	CHAINED_CALL	f23_typevar_bound.class_object_bounded -> f23_typevar_bound.Base.label
+multi_inferred	CHAINED_CALL	f23_typevar_bound.class_object_bounded -> f23_typevar_bound.Derived.label
+multi_inferred	CHAINED_CALL	f23_typevar_bound.flowed_class_object -> f23_typevar_bound.Base.label
+multi_inferred	CHAINED_CALL	f23_typevar_bound.flowed_class_object -> f23_typevar_bound.Derived.label
 multi_inferred	METHOD_CALL	f11_multiwrite.HoldsOr.run -> f11_multiwrite.Fancy.emit
 multi_inferred	METHOD_CALL	f11_multiwrite.HoldsOr.run -> f11_multiwrite.Plain.emit
 multi_inferred	METHOD_CALL	f11_multiwrite.HoldsTernary.run -> f11_multiwrite.Fancy.emit
@@ -373,6 +391,10 @@ multi_inferred	METHOD_CALL	f13_declared_dispatch.Engine.run -> f13_declared_disp
 multi_inferred	METHOD_CALL	f13_declared_dispatch.via_parameter -> f13_declared_dispatch.DictLoader.load
 multi_inferred	METHOD_CALL	f13_declared_dispatch.via_parameter -> f13_declared_dispatch.FileLoader.load
 multi_inferred	METHOD_CALL	f13_declared_dispatch.via_parameter -> f13_declared_dispatch.Loader.load
+multi_inferred	METHOD_CALL	f23_typevar_bound.bare_bounded -> f23_typevar_bound.Base.label
+multi_inferred	METHOD_CALL	f23_typevar_bound.bare_bounded -> f23_typevar_bound.Derived.label
+multi_inferred	METHOD_CALL	f23_typevar_bound.flowed_bounded -> f23_typevar_bound.Base.label
+multi_inferred	METHOD_CALL	f23_typevar_bound.flowed_bounded -> f23_typevar_bound.Derived.label
 multi_inferred	SELF_CALL	f13_declared_dispatch.Base.run -> f13_declared_dispatch.Base.step
 multi_inferred	SELF_CALL	f13_declared_dispatch.Base.run -> f13_declared_dispatch.StepA.step
 multi_inferred	SELF_CALL	f13_declared_dispatch.Base.run -> f13_declared_dispatch.StepB.step
