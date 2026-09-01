@@ -145,6 +145,14 @@ require_resolved link-conditional.ts defineMeta \
 require_resolved link-conditional.ts getMeta \
   "the same, second member"
 
+# A destructured VARIABLE, the body form. Distinct from the parameter form above: the
+# binding's type comes from the initializer EXPRESSION rather than from an annotation,
+# which is why it resolves on a different path.
+require_resolved link-conditional.ts emitOne \
+  "a method member reached through a destructured variable or parameter"
+require_resolved link-conditional.ts deeper \
+  "a field member reached through a destructured variable or parameter"
+
 # The fixture answers only where it is sure: a WRONG answer here is a rule that
 # manufactures confidence, which is worse than the missing edge it replaces.
 if ! grep -qE '^WRONG \(engine named, oracle disagrees\)[[:space:]]+0$' "$SCORE"; then

@@ -187,9 +187,17 @@ var_type(v, prov, t) :- var_initializer("client", "NEW", e, v),
 // var_type_ref and ref_type_target only and therefore stays in a lower stratum. That
 // is precisely why var_has_declared_type is defined over the ANNOTATION and not over
 // var_type itself.
+// NOT a destructured name. Since the parser began linking a bound name to the value it
+// was destructured from, `const { helper } = ctx` gives `helper` an initializer of
+// `ctx` — and typing the binding as the WHOLE object is wrong in a way that can produce
+// a confident wrong answer wherever the object happens to carry a member of the same
+// name as the one being called. The binding takes the type of the PROPERTY it names,
+// which is the rule below.
+var_is_destructured(v) :- var_binding(_, _, _, _, _, v).
 var_type(v, prov, t) :- var_initializer("client", _, e, v),
     e != "",
     !var_has_declared_type(v),
+    !var_is_destructured(v),
     expr_type(e, prov, t).
 var_shape(v, s) :- var_initializer("client", _, e, v),
     e != "",
@@ -378,3 +386,36 @@ param_binding_method(bh, m2) :- param_binding(_, _, _, "PROPERTY", src, _, bh),
     binding_pattern_type(bh, _, t),
     scope_sibling(t, sib),
     declared_method(sib, src, _, m2).
+
+
+// ── a DESTRUCTURED VARIABLE takes the type of the member it names ───────────
+// `const { helper, nested } = ctx` — the mirror of the parameter case, and the more
+// common one in practice: a context object is usually destructured in the BODY rather
+// than in the signature. The property is named on the bound row; the object comes from
+// the initializer expression the parser now links.
+var_binding_target(v, prov, t) :- var_binding("client", _, "PROPERTY", _, e, v),
+    e != "",
+    expr_type(e, prov, t).
+
+// (a) the name binds a FIELD — the binding takes that field's type.
+var_type(v, prov, ft) :- var_binding("client", _, "PROPERTY", src, _, v),
+    var_binding_target(v, _, t),
+    scope_sibling(t, sib),
+    declared_field(sib, src, _, f),
+    field_type(f, prov, ft).
+var_shape(v, sh) :- var_binding("client", _, "PROPERTY", src, _, v),
+    var_binding_target(v, _, t),
+    scope_sibling(t, sib),
+    declared_field(sib, src, _, f),
+    field_shape(f, sh).
+
+// (b) the name binds a METHOD. This one CANNOT go on `var_is_function`: that relation
+// feeds callee resolution, and the binding's type comes from the initializer
+// EXPRESSION, which is produced by the same fixpoint — Souffle rejects the SCC because
+// it carries a negation. The parameter case escapes this because a parameter's type
+// comes from a type reference, below the fixpoint; a variable's does not. So the method
+// case is expressed at the call site instead, in callee-resolution.dl.
+var_binding_method(v, m) :- var_binding("client", _, "PROPERTY", src, _, v),
+    var_binding_target(v, _, t),
+    scope_sibling(t, sib),
+    declared_method(sib, src, _, m).

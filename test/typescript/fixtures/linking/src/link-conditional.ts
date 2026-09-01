@@ -85,3 +85,20 @@ export function callGlobalNamespace(t: object): void {
   TtMeta.defineMeta('k', t);   // -> the namespace's own function member
   TtMeta.getMeta('k', t);
 }
+
+// ── a DESTRUCTURED VARIABLE, typed from the value it was destructured FROM ──
+// The mirror of the parameter case and the more common one: a context object is
+// usually destructured in the BODY. The binding must take the type of the PROPERTY it
+// names — typing it as the whole object is not merely imprecise, it produces a
+// confident WRONG answer wherever the object carries a member of the same name as the
+// one being called.
+export function useDestructuredVar(code: string): number {
+  const { emitOne, inner } = makeBindCtx();
+  emitOne(code);              // -> BindCtx.emitOne
+  return inner.deeper(2);     // -> the field's type, then .deeper
+}
+
+function makeBindCtx(): BindCtx {
+  const c: BindCtx = { emitOne(x) { void x; }, inner: { deeper(n) { return n; } } };
+  return c;
+}

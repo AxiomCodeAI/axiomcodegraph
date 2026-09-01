@@ -100,6 +100,16 @@ var_bound_function("lib", f, h) :- lib_ts_variable(_, _, _, _, _, _, _, _, _, _,
 var_initializer("client", ik, e, h) :- ts_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ik, _, _, e, _, _, _, _, _, _, _, _, h).
 var_initializer("lib", ik, e, h) :- lib_ts_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ik, _, _, e, _, _, _, _, _, _, _, _, h).
 
+// ── var_binding(Prov, Name, SourceKind, Source, InitializerExpr, VarHash) ───
+// A variable bound OUT of a destructuring pattern — `const { helper: h2 } = ctx`. The
+// parser records the property each name binds and, since the initializer link was
+// added, the expression the pattern was destructured from. Both are needed: the name
+// alone says nothing about which value it came from.
+var_binding("client", n, sk, src, e, h) :- ts_variable(n, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, _, _, sk, src, _, _, _, h),
+    sk != "NONE", sk != "".
+var_binding("lib", n, sk, src, e, h) :- lib_ts_variable(n, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, _, _, sk, src, _, _, _, h),
+    sk != "NONE", sk != "".
+
 // ── var_flags(Prov, IsConst, IsTypeInferred, IsExported, VarHash) ───────────
 // isConst matters for flow typing in a way Java's `final` does not: a `const` can
 // never be reassigned, so its initializer type IS its type for the whole scope, with
