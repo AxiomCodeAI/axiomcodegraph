@@ -396,16 +396,8 @@ expr_names_lib_module(e, child) :-
 // carry resolvedTargetHash. Nothing here matches on a name across parses.
 
 
-// ── module_reexports_all(Prov, ModuleHash, SourceModuleHash) ─────────────────
-// `from .modules import *`. BOUNDED IN PRACTICE, and that is a measurement rather
-// than a hope: all of torch contains 61 RELATIVE_WILDCARD and 25 FROM_WILDCARD rows.
-// A star import re-exports __all__ where the module defines one and every public name
-// otherwise; the engine does not read __all__ here, so this is the WIDER of the two
-// readings — sound for reachability, and it can name a member that `import *` would
-// actually have hidden behind a leading underscore. Recorded rather than silently
-// assumed. Recursive because `import *` chains (nn -> nn.modules -> nn.modules.linear).
-module_reexports_all("lib", mod, src) :-
-    import_scope("lib", _, mod, i), mod != "",
-    import_wildcard("lib", _, i),
-    import_resolved_module("lib", src, i), src != "", src != mod.
+// module_reexports_all moved to resolution/name-resolution.dl and generalised over
+// provenance (issue #77). It states what a module EXPOSES, which is a fact about module
+// structure rather than about the client/library boundary, and the client half is needed
+// whenever a package is analysed on its own.
 

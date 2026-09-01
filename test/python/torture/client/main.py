@@ -18,6 +18,7 @@ import f14_class_objects as f14
 import f15_attribute_chains as f15
 import f16_element_types as f16
 import f18_lambda_dispatch as f18
+import f19_reexports as f19
 from tlib import Square
 from tlib.shapes import Base, Mid
 
@@ -73,6 +74,7 @@ def main() -> None:
     r = f18.Renderer()
     print(r.dispatch_computed("a", 1), r.dispatch_computed("b", 2), r.dispatch_pinned(3))
     print(f18.via_other_receiver(4))
+    print(f19.via_package_attribute(), f19.via_reexported_function(), f19.via_submodule_alias())
 
 
 if __name__ == "__main__":
