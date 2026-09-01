@@ -1,4 +1,4 @@
-=== per-family coverage (tier-4, 168 scored sites) ===
+=== per-family coverage (tier-4, 171 scored sites) ===
   f01 inheritance & MRO        links= 10  found= 10 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f02 callables & closures     links= 10  found=  9 (90.0%)  missed= 1  wide= 0  WRONG= 0
   f03 generics                 links= 14  found= 14 (100.0%)  missed= 0  wide= 0  WRONG= 0
@@ -17,10 +17,11 @@
   f16 element types            links=  4  found=  4 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f18 lambda dispatch          links=  7  found=  7 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f19 package re-exports       links=  4  found=  4 (100.0%)  missed= 0  wide= 0  WRONG= 0
+  f21 module alias             links=  3  found=  3 (100.0%)  missed= 0  wide= 0  WRONG= 0
   pkgmod relative imports (subpackage) links=  3  found=  3 (100.0%)  missed= 0  wide= 0  WRONG= 0
 
-  TOTAL                         links=147  found=139 (94.6%)  missed= 8  wide=21  WRONG= 0
-  recall      139/147 = 94.6%  of the links that actually ran
+  TOTAL                         links=150  found=142 (94.7%)  missed= 8  wide=21  WRONG= 0
+  recall      142/150 = 94.7%  of the links that actually ran
   wide  21   a member of a SOUND SET that did not run on this pass
   WRONG 0   a single target asserted as certain that never ran
 

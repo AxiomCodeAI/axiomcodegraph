@@ -20,6 +20,7 @@ import f16_element_types as f16
 import f18_lambda_dispatch as f18
 import f19_reexports as f19
 import f20_builtin_flow as f20
+import f21_module_alias as f21
 from tlib import Square
 from tlib.shapes import Base, Mid
 
@@ -79,6 +80,7 @@ def main() -> None:
     h = f20.Holder()
     print(f20.chained_str("_a-b_"), f20.split_then_index("a,b"), f20.local_keeps_type(" c "))
     print(f20.non_self_attribute(h), f20.non_self_attribute_container(h), f20.UsesSelf().via_self())
+    print(f21.construct_through_alias(), f21.call_function_through_alias())
 
 
 if __name__ == "__main__":
