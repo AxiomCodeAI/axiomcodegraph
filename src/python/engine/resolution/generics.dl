@@ -205,3 +205,80 @@ call_returns_lib_element(site, arg) :-
     method_owner("lib", owner, m),
     call_recv_lib_type(site, recv),
     type_generic_binding("lib", recv, owner, name, arg).
+
+
+// ============================================================================
+// A TYPE VARIABLE'S DECLARED BOUND (issue #93)
+//
+//     CmdType = TypeVar("CmdType", bound=Command)
+//     def decorate(cls: type[CmdType]): cmd = cls(name=..., callback=f)
+//
+// The bound arrives as a type reference with context=TYPEVAR_BOUND owned by the BINDING of
+// the variable itself, and a kind=TYPE_VAR reference carries the variable's name in
+// typeName -- so the two sides join directly with no new projection. Until the parser
+// emitted it there was nothing to read, which is why the `cls` population was measured and
+// set aside rather than fixed.
+//
+// An upper bound is a DECLARED type, not an exact one. Everything typed here is therefore
+// registered with call_recv_declared below; without that the bound goes out ALONE as
+// known_edge and the change manufactures confident-wrong answers at every site it newly
+// resolves. That has already happened twice, on tuple unpacking and on container element
+// types, and it is the first thing to get right rather than the last.
+//
+// OUT OF SCOPE, and not guessed at:
+//   - constraints. `TypeVar("C", int, str)` is a closed set of alternatives, not an upper
+//     bound; the parser reports nothing for it and inventing one would be a wrong answer.
+//   - a function-scoped TypeVar's bound, which the parser skips rather than mis-owning, so
+//     no bound arrives and the annotation stays opaque.
+//   - PEP 695 `class C[T: Base]`, not emitted.
+// ============================================================================
+
+// ── typevar_bound(Prov, VariableName, BoundTypeHash) ─────────────────────────
+// Keyed on the variable's NAME, deliberately, and not on its module or scope. A type
+// variable is routinely declared in one module and imported into others -- a bounded name
+// used outside its declaring module is observed on a real corpus -- so a module-scoped
+// join would silently drop those uses, which is the failure this rule exists to fix.
+//
+// The cost of the name join is that two modules declaring the same name with different
+// bounds would contribute both. That is a WIDENING, not a wrong answer: both bounds are
+// declared types, both feed call_recv_declared, and the site becomes multi_inferred with
+// the true target still in the set. A scope-keyed join would trade an observed loss for
+// protection against a collision that does not appear on any corpus measured here.
+typevar_bound(p, name, t) :-
+    type_ref_owner(p, b, "BINDING", r),
+    type_ref(p, _, "TYPEVAR_BOUND", _, _, r),
+    type_ref_resolved(p, t, r),
+    binding_decl(p, name, _, _, _, b), name != "".
+
+// ── a bare bounded variable in an annotation position takes the bound ────────
+param_declared_type(p, ph, t) :-
+    type_ref_owner(p, ph, "METHOD_PARAM", r),
+    type_ref(p, "TYPE_VAR", "METHOD_PARAM", tn, _, r), tn != "",
+    typevar_bound(p, tn, t).
+method_declared_return_type(p, m, t) :-
+    type_ref_owner(p, m, "METHOD", r),
+    type_ref(p, "TYPE_VAR", "METHOD_RETURN", tn, _, r), tn != "",
+    typevar_bound(p, tn, t).
+field_declared_type(p, f, t) :-
+    type_ref_owner(p, f, "FIELD", r),
+    type_ref(p, "TYPE_VAR", "FIELD_TYPE", tn, _, r), tn != "",
+    typevar_bound(p, tn, t).
+
+// ── `type[T]` where T is bounded holds the CLASS, not an instance ────────────
+// The same distinction type[X] already required: typing it as an instance of the bound
+// would resolve `cls.create()` to the bound's instance methods, which is a wrong answer
+// rather than a missing one.
+// Named rather than inlined because dispatch.dl has to gate on the SAME condition: an
+// instance CONSTRUCTED from this class object is an instance of an upper bound, not an
+// exact type, and the site that receives it has to widen. Duplicating this join there
+// would let the two drift apart, which is precisely how a declared type escapes the gate.
+param_class_object_bound("client", ph, t) :-
+    type_ref_owner("client", ph, "METHOD_PARAM", r),
+    type_ref("client", _, "METHOD_PARAM", tn, _, r),
+    annotation_names_a_class(tn),
+    type_ref_nesting("client", r, _, "1", child),
+    type_ref("client", "TYPE_VAR", _, vn, _, child), vn != "",
+    typevar_bound("client", vn, t).
+expr_type_class_object("client", e, t) :-
+    expr_names_param("client", e, ph),
+    param_class_object_bound("client", ph, t).
