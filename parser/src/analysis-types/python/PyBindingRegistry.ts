@@ -157,6 +157,10 @@ export class PyBindingRegistry implements EntityIdentifiable {
     return this.isGlobal;
   }
 
+  getIsNonlocal(): boolean {
+    return this.isNonlocal;
+  }
+
   getIsFree(): boolean {
     return this.isFree;
   }

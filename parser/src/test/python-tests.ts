@@ -27,6 +27,7 @@ import { PythonProjectAnalyzer } from '@/workflows/python/python-project-analyze
 import { constructPositions } from './python-gates/construct-positions';
 import { enumEmission } from './python-gates/enum-emission';
 import { relationLoadability } from './python-gates/relation-loadability';
+import { referenceClassification } from './python-gates/reference-classification';
 import { stubModuleNames } from './python-gates/stub-module-names';
 
 const VERIFIED = 'src/test-data/python/verified';
@@ -513,6 +514,8 @@ const CHECKS: Check[] = [
     proves: 'shapes resolvable in principle keep resolving; the count may fall, never rise' },
   { name: 'PEP 695 type parameters', run: pep695,
     proves: 'py_type_parameter matches frozen CPython 3.12 truth' },
+  { name: 'reference classification', run: referenceClassification,
+    proves: 'a name reference carries what the name is, not UNKNOWN' },
   { name: 'relation loadability', run: relationLoadability,
     proves: 'every relation survives a strict RFC4180 reader; one bad cell would drop the whole relation' },
   { name: 'enum emission', run: enumEmission,

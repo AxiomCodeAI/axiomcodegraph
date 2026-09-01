@@ -70,6 +70,8 @@ export interface PythonModuleExtraction {
   blocksByNodeId: Map<number, SymbolBlock>;
   /** `(scopeHash, name)` -> binding PK, so declarations can link their bindings. */
   bindingHashByScopeAndName: Map<string, string>;
+  /** Same key, the whole record: the classification lives in its predicates. */
+  bindingByScopeAndName: Map<string, PyBindingRegistry>;
   /**
    * Scope-introducing `node.id` -> the scope's qualified name.
    *
@@ -154,6 +156,7 @@ export class PythonScopeExtractor {
         scopeHashByNodeId: new Map(),
         blocksByNodeId: new Map(),
         bindingHashByScopeAndName: new Map(),
+        bindingByScopeAndName: new Map(),
         qualifiedNameByNodeId: new Map(),
         positions: new PythonSourcePositions(input.sourceCode),
       };
@@ -185,6 +188,17 @@ export class PythonScopeExtractor {
       module.setModuleScopeLinkHash(moduleScope.getHash());
     }
 
+    // Keyed exactly as the hash map is, so a consumer that has one has the
+    // other. Built here rather than in the expression stage because this is
+    // where the scope a binding belongs to is still known.
+    const bindingByScopeAndName = new Map<string, PyBindingRegistry>();
+    for (const binding of bindings) {
+      bindingByScopeAndName.set(
+        `${binding.getPyScopeLinkHash()}::${binding.getName()}`,
+        binding
+      );
+    }
+
     return {
       module,
       scopes,
@@ -195,6 +209,7 @@ export class PythonScopeExtractor {
       scopeHashByNodeId,
       blocksByNodeId: builder.getBlocksByNodeId(),
       bindingHashByScopeAndName,
+      bindingByScopeAndName,
       qualifiedNameByNodeId: this.collectQualifiedNames(builder.getBlocksByNodeId()),
       positions,
     };

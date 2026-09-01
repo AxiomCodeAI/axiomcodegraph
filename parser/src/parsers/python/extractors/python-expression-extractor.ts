@@ -1,5 +1,6 @@
 import Parser from 'tree-sitter';
 
+import { PyBindingRegistry } from '@/analysis-types/python';
 import {
   PyCallSiteRegistry,
   PyExpressionRegistry,
@@ -9,6 +10,7 @@ import {
   PythonCallKind,
   PythonReceiverKind,
 } from '@/enums/python/call-sites';
+import { PythonBindingKind, PythonBindingOrigin } from '@/enums/python/bindings';
 import {
   PythonComprehensionKind,
   PythonEdgeRole,
@@ -73,6 +75,8 @@ export interface PythonExpressionInput {
   scopeHashByNodeId: Map<number, string>;
   /** `(scopeHash, name)` -> `py_binding` PK. */
   bindingHashByScopeAndName: Map<string, string>;
+  /** Same key, the whole record. The classification lives in its predicates. */
+  bindingByScopeAndName: Map<string, PyBindingRegistry>;
   /** Scope-introducing `node.id` -> owning `py_method` PK. */
   methodHashByNodeId: Map<number, string>;
   /** Class `node.id` -> `py_type` PK. */
@@ -1423,7 +1427,10 @@ export class PythonExpressionExtractor {
       case PythonExpressionKind.SELF_REFERENCE:
       case PythonExpressionKind.CLS_REFERENCE: {
         builder.withName(node.text);
-        builder.withReferencedEntity(this.referencedEntityKindOf(node.text, kind), '');
+        builder.withReferencedEntity(
+          this.referencedEntityKindOf(node.text, kind, pending.scopeHash, pending.nameContext),
+          ''
+        );
         const bindingHash = this.input.bindingHashByScopeAndName.get(
           `${pending.scopeHash}::${node.text}`
         );
@@ -2916,9 +2923,45 @@ export class PythonExpressionExtractor {
     return false;
   }
 
+  /**
+   * What a name reference points at.
+   *
+   * This used to stop at UNKNOWN for everything that was not `self`, `cls` or
+   * `super`, on the reasoning that anything finer needed the binding table and
+   * would otherwise be a guess. The premise was right and the conclusion was
+   * not: the binding table is available HERE, and the classification is a
+   * lookup rather than an inference.
+   *
+   * py_binding mirrors CPython's symtable, so the referencing scope has an
+   * entry for every name used in it -- a global read from inside a function has
+   * a row in the FUNCTION's scope with is_global set. So the lookup by
+   * `scope::name` hits for reads of enclosing names too, not only for names
+   * bound locally, and its predicates match symtable exactly. Leaving the
+   * column UNKNOWN forced every consumer to re-derive by joining expression to
+   * scope to binding, reconstructing something already computed.
+   *
+   * Order matters, and follows how specific each answer is:
+   *
+   * - a builtin, an import and a parameter each say more than "local";
+   * - `nonlocal x` is checked before free, because a declared nonlocal is also
+   *   free and the declaration is the stronger statement;
+   * - global is checked before local because at MODULE scope symtable reports
+   *   both, and a module-level name is a global. Inside a function the two are
+   *   mutually exclusive, so the order only decides the module case.
+   *
+   * A walrus target is reported only at the STORE. `(n := f())` binds `n`, but
+   * a later read of `n` is an ordinary local read, and calling every occurrence
+   * a target would describe the binding where the reference was asked about.
+   *
+   * The linker still overrides this with TYPE or METHOD when the name resolves
+   * to an entity, because it guards on the HASH being empty rather than on the
+   * kind. So a class used by name ends up TYPE, not GLOBAL_VARIABLE.
+   */
   private referencedEntityKindOf(
     name: string,
-    kind: PythonExpressionKind
+    kind: PythonExpressionKind,
+    scopeHash: string,
+    nameContext: PythonNameContext
   ): PythonReferencedEntityKind {
     if (kind === PythonExpressionKind.SELF_REFERENCE) {
       return PythonReferencedEntityKind.SELF;
@@ -2929,8 +2972,44 @@ export class PythonExpressionExtractor {
     if (name === 'super') {
       return PythonReferencedEntityKind.SUPER;
     }
-    // Anything more specific requires the binding table, which the engine joins
-    // through `bindingLinkHash`. Claiming a kind here would be a guess.
+
+    const binding = this.input.bindingByScopeAndName.get(`${scopeHash}::${name}`);
+    if (!binding) {
+      return PythonReferencedEntityKind.UNKNOWN;
+    }
+    if (binding.getBindingKind() === PythonBindingKind.BUILTIN) {
+      return PythonReferencedEntityKind.BUILTIN;
+    }
+    if (binding.getIsImported()) {
+      return PythonReferencedEntityKind.IMPORT;
+    }
+    if (binding.getIsParameter()) {
+      return PythonReferencedEntityKind.PARAMETER;
+    }
+
+    const origin = binding.getBindingOrigin();
+    if (origin === PythonBindingOrigin.WALRUS && nameContext !== PythonNameContext.LOAD) {
+      return PythonReferencedEntityKind.WALRUS_TARGET;
+    }
+    if (origin === PythonBindingOrigin.EXCEPT_TARGET) {
+      return PythonReferencedEntityKind.EXCEPT_VARIABLE;
+    }
+    if (origin === PythonBindingOrigin.COMPREHENSION_TARGET) {
+      return PythonReferencedEntityKind.COMPREHENSION_VARIABLE;
+    }
+
+    if (binding.getIsNonlocal()) {
+      return PythonReferencedEntityKind.NONLOCAL_VARIABLE;
+    }
+    if (binding.getIsFree()) {
+      return PythonReferencedEntityKind.FREE_VARIABLE;
+    }
+    if (binding.getIsGlobal()) {
+      return PythonReferencedEntityKind.GLOBAL_VARIABLE;
+    }
+    if (binding.getIsLocal()) {
+      return PythonReferencedEntityKind.LOCAL_VARIABLE;
+    }
     return PythonReferencedEntityKind.UNKNOWN;
   }
 

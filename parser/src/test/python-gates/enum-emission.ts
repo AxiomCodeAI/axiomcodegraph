@@ -88,25 +88,13 @@ const KNOWN_UNPRODUCED: Record<string, string[]> = {
   PythonParseGapDisposition: ['SKIPPED'],
   PythonParseGapKind: ['EXEC_COMPLEX_EXPR'],
   PythonReceiverKind: ['MODULE', 'TYPE'],
-  // The largest single gap. Every variable reference is emitted as UNKNOWN --
-  // 86% of expression references on a stdlib slice -- so none of the precise
-  // classifications is ever used. The parser already HAS the answer: py_binding
-  // carries isLocal/isGlobal/isFree/isNonlocal at full CPython parity. The
-  // classification exists in one relation and is dropped in another.
-  PythonReferencedEntityKind: [
-    'ATTRIBUTE',
-    'BUILTIN',
-    'COMPREHENSION_VARIABLE',
-    'EXCEPT_VARIABLE',
-    'FREE_VARIABLE',
-    'GLOBAL_VARIABLE',
-    'IMPORT',
-    'LOCAL_VARIABLE',
-    'MODULE',
-    'NONLOCAL_VARIABLE',
-    'PARAMETER',
-    'WALRUS_TARGET',
-  ],
+  // Was the largest single gap: every variable reference came out UNKNOWN, 86%
+  // of expression references on a stdlib slice, while py_binding already held
+  // the answer at full CPython parity -- computed in one relation and dropped
+  // in another. Ten now resolve from the binding. The two that remain name
+  // something the binding table does not describe: an attribute belongs to a
+  // type, and a module is not a name bound in the referencing scope.
+  PythonReferencedEntityKind: ['ATTRIBUTE', 'MODULE'],
   PythonRootContext: ['OTHER_STATEMENT', 'YIELD_VALUE'],
   // PEP 695, already reported as a known gap by the type-parameter check.
   PythonScopeKind: ['ANNOTATION', 'TYPE_ALIAS', 'TYPE_PARAM', 'TYPE_PARAM_BOUND'],

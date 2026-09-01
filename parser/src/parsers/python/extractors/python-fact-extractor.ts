@@ -244,6 +244,7 @@ export class PythonFactExtractor {
       serviceVersionLinkHash: input.serviceVersionLinkHash,
       scopeHashByNodeId: scopeStage.scopeHashByNodeId,
       bindingHashByScopeAndName: scopeStage.bindingHashByScopeAndName,
+      bindingByScopeAndName: scopeStage.bindingByScopeAndName,
       methodHashByNodeId: declarations.methodHashByNodeId,
       typeHashByNodeId: declarations.typeHashByNodeId,
       moduleMethodHash: declarations.moduleMethodHash,
