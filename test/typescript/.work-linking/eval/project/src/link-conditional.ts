@@ -79,3 +79,9 @@ export function useDestructuredParam({ emitOne, inner }: BindCtx, code: string):
   emitOne(code);              // -> BindCtx.emitOne   (a METHOD member)
   return inner.deeper(1);     // -> the field's type, then .deeper
 }
+
+// A call on a namespace declared inside `declare global`, from a LIBRARY package.
+export function callGlobalNamespace(t: object): void {
+  TtMeta.defineMeta('k', t);   // -> the namespace's own function member
+  TtMeta.getMeta('k', t);
+}
