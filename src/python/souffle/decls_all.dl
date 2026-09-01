@@ -200,6 +200,7 @@
 .decl type_call_target(c0:symbol,c1:symbol,c2:symbol)
 .decl type_property_getter(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl builtin_container_alias(c0:symbol,c1:symbol)
+.decl builtin_method_returns(c0:symbol,c1:symbol,c2:symbol)
 .decl alias_value_builtin(c0:symbol,c1:symbol,c2:symbol)
 .decl alias_builtin_type(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl annotation_builtin(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
