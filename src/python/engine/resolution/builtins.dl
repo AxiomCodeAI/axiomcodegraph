@@ -216,3 +216,56 @@ call_is_partial(site) :- call_dotted(site, d), partial_factory_path(d).
 dict_lookup_method("get").
 dict_lookup_method("pop").
 dict_lookup_method("setdefault").
+
+
+// ── builtin_method_returns(ReceiverBuiltin, MethodName, ReturnBuiltin) ───────
+// A builtin type does not survive a method call without this: `key.strip("_").lower()`
+// typed the first hop and lost the second, and any local assigned from such a call was
+// untyped from that point on. Measured as the dominant shape underneath `no_rule`, which
+// is 72.5% of all unresolved sites.
+//
+// A CATALOGUE beside the other language facts rather than literals in a rule body, for
+// the same reasons py_builtin_callable is one: it is a property of the language, it is
+// reviewable in one place, and adding a member is a one-line change.
+//
+// ONLY members whose return type is unambiguous. Deliberately absent:
+//   - anything returning an ELEMENT (`list.pop`, `dict.get`, `next`) -- the element type
+//     is the container's payload, not a builtin, and asserting one would be a fabrication;
+//   - `dict.keys` / `.values` / `.items` -- these are views, not list, and calling a list
+//     method on the result would then resolve wrongly;
+//   - `str.encode` -> bytes IS included, since that one is exact.
+// A member left out costs a missing name; a member guessed wrong costs a wrong answer.
+builtin_method_returns("str", "lower", "str").
+builtin_method_returns("str", "upper", "str").
+builtin_method_returns("str", "strip", "str").
+builtin_method_returns("str", "lstrip", "str").
+builtin_method_returns("str", "rstrip", "str").
+builtin_method_returns("str", "replace", "str").
+builtin_method_returns("str", "format", "str").
+builtin_method_returns("str", "join", "str").
+builtin_method_returns("str", "title", "str").
+builtin_method_returns("str", "capitalize", "str").
+builtin_method_returns("str", "casefold", "str").
+builtin_method_returns("str", "expandtabs", "str").
+builtin_method_returns("str", "removeprefix", "str").
+builtin_method_returns("str", "removesuffix", "str").
+builtin_method_returns("str", "zfill", "str").
+builtin_method_returns("str", "ljust", "str").
+builtin_method_returns("str", "rjust", "str").
+builtin_method_returns("str", "center", "str").
+builtin_method_returns("str", "split", "list").
+builtin_method_returns("str", "rsplit", "list").
+builtin_method_returns("str", "splitlines", "list").
+builtin_method_returns("str", "partition", "tuple").
+builtin_method_returns("str", "rpartition", "tuple").
+builtin_method_returns("str", "encode", "bytes").
+builtin_method_returns("bytes", "decode", "str").
+builtin_method_returns("bytes", "hex", "str").
+builtin_method_returns("list", "copy", "list").
+builtin_method_returns("dict", "copy", "dict").
+builtin_method_returns("set", "copy", "set").
+builtin_method_returns("frozenset", "copy", "frozenset").
+builtin_method_returns("set", "union", "set").
+builtin_method_returns("set", "intersection", "set").
+builtin_method_returns("set", "difference", "set").
+builtin_method_returns("set", "symmetric_difference", "set").

@@ -106,6 +106,38 @@ expr_builtin_type(p, e, b) :-
 expr_builtin_type("client", e, b) :-
     call_of_expr(e, site), expr_call_candidate(site, m),
     annotation_builtin("client", m, "METHOD", b).
+// (c2) `<anything>.x` — the SAME hop with the object's own type, not only self.
+// Clause (c) reads expr_attr_of_self, which by definition requires a SELF_REFERENCE, so
+// `self.buffer.append(x)` typed and `other.buffer.append(x)` did not.
+//
+// THIS IS THE THIRD TIME this pattern has been fixed: #61 generalised expr_type and #63
+// generalised element types, and expr_builtin_type was left behind by both. Any relation
+// keyed on expr_attr_of_self is self-only by construction and needs the general form
+// beside it.
+expr_builtin_type(p, e, b) :-
+    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
+    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_type(p, obj, ot),
+    type_attr_field(p, ot, n, f),
+    annotation_builtin(p, f, "FIELD", b).
+expr_builtin_type(p, e, b) :-
+    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
+    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_type(p, obj, ot),
+    type_attr_field(p, ot, n, f),
+    field_write_value(p, f, val), expr_builtin_type(p, val, b).
+
+// (d2) A BUILTIN METHOD'S RETURN. `key.strip("_")` is a str, so `.lower()` on it resolves
+// and a local assigned from it stays typed. Without this a builtin type died at the first
+// method call, which is what left most chained calls with no receiver type at all.
+expr_builtin_type(p, e, b) :-
+    call_of_expr(e, site),
+    call_recv_kind(site, rk), rk != "NONE", rk != "SUPER",
+    call_receiver_object(site, obj),
+    expr_builtin_type(p, obj, rb),
+    call_name(site, n),
+    builtin_method_returns(rb, n, b).
+
 // (e) a single-binding local holding any of the above.
 expr_builtin_type(p, e, b) :-
     expr_binding(p, bref, ctx, e), ctx != "STORE",
