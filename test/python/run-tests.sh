@@ -86,6 +86,10 @@ fi
 # bare clone; this fails the run if a harness IS present and has drifted from them, which is
 # the only place the "engine and oracle agree on call-site identity" property can be checked.
 python3 "$HERE/tools/check_vendor.py" || exit 1
+# Refuse a project-specific string literal in a rule body -- the engine is developed
+# against a handful of codebases, and a literal copied out of one would score well here
+# and generalise to nothing (issue #91).
+python3 "$HERE/tools/literal_gate.py" || exit 1
 
 mkdir -p "$WORK" "$HERE/expected"
 # Empty library root — see the CLIENT->CLIENT note in the header.

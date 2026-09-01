@@ -225,7 +225,7 @@ type_self_or_ancestor(p, t, a) :- type_ancestor(p, t, a).
 
 // ── metaclass_of(Prov, TypeHash, MetaclassTypeHash) ──────────────────────────
 metaclass_of(p, sub, mcls) :-
-    type_base_keyword(p, sub, "metaclass", text, bh),
+    type_base_keyword(p, sub, kw, text, bh), class_definition_keyword(kw),
     type_base_span(p, bh, mod, sl),
     expr_node(p, _, "BASE_CLASS", text, e),
     expr_scope(p, _, mod, e),
