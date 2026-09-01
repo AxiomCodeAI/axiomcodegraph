@@ -192,6 +192,16 @@ export class TsDeclarationExtractor {
    */
   private readonly pendingReturnLinks: { row: TsMethodRegistry; node: ts.TypeNode }[] = [];
 
+  /**
+   * Shape members whose declared type is emitted by the enclosing type's tree.
+   *
+   * The same shape as pendingReturnLinks and for the same reason: a member of an
+   * anonymous type literal does not create its own type reference, so it had the
+   * type only as TEXT and a consumer had to parse `Record<string, X>` out of a
+   * string to follow it anywhere.
+   */
+  private readonly pendingMemberTypeLinks: { row: TsFieldRegistry; node: ts.TypeNode }[] = [];
+
   constructor(private readonly options: DeclarationExtractorOptions) {
     this.sf = options.sourceFile;
     this.typeReferenceExtractor = new TsTypeReferenceExtractor(
@@ -321,6 +331,7 @@ export class TsDeclarationExtractor {
         endColumn: endPos.character + 1,
         serviceVersionLinkHash: this.options.serviceVersionLinkHash,
       });
+      if (annotation) { this.pendingMemberTypeLinks.push({ row, node: annotation }); }
       this.fields.push(row);
       this.fieldHashByNode.set(id, row.getHash());
       this.fieldRowByNode.set(id, row);
@@ -1758,6 +1769,12 @@ export class TsDeclarationExtractor {
     });
     row.setOriginParameterLinkHash(parameterRow.getHash());
     parameterRow.setDeclaredFieldLinkHash(row.getHash());
+    // `constructor(private dep: Dep)` declares a field whose type is the
+    // parameter's. The parameter already carries the reference and the two rows
+    // are linked both ways, so a consumer COULD reach it -- but only this field
+    // kind would need the extra hop, and "every annotated field names its type"
+    // is a better invariant than one with an exception in it.
+    row.setTypeReferenceLinkHash(parameterRow.getTypeReferenceLinkHash());
     this.fields.push(row);
     // A parameter property is exactly why this relation exists: the field ORDER
     // is the constructor's positional shape.
@@ -2278,6 +2295,12 @@ export class TsDeclarationExtractor {
       const hash = this.typeReferenceExtractor.hashForTypeNode(pending.node);
       if (hash !== '') {
         pending.row.setReturnTypeReferenceLinkHash(hash);
+      }
+    }
+    for (const pending of this.pendingMemberTypeLinks) {
+      const hash = this.typeReferenceExtractor.hashForTypeNode(pending.node);
+      if (hash !== '') {
+        pending.row.setTypeReferenceLinkHash(hash);
       }
     }
   }
