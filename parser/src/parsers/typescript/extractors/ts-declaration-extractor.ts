@@ -170,7 +170,15 @@ export class TsDeclarationExtractor {
   moduleInitMethodHash = '';
 
   private readonly sf: ts.SourceFile;
-  private readonly typeParameterStack: Set<string>[] = [];
+  /**
+   * Type parameters in lexical scope, innermost frame last.
+   *
+   * Holds the DECLARATIONS, not just their names, so a reference to `T` can name
+   * the row that declares it. A method's `T` shadows its class's `T` and they
+   * are different entities, so the innermost frame must win -- searching from
+   * the end is what makes that true.
+   */
+  private readonly typeParameterStack: Map<string, ts.TypeParameterDeclaration>[] = [];
   private blockOrder = 0;
   /**
    * Overload sets, keyed by `(owner hash, escaped name, static-ness)`.
@@ -211,7 +219,8 @@ export class TsDeclarationExtractor {
     this.typeReferenceExtractor = new TsTypeReferenceExtractor(
       this.sf,
       options.serviceVersionLinkHash,
-      () => this.typeParametersInScope()
+      () => this.typeParametersInScope(),
+      (name) => this.typeParameterDeclarationFor(name)
     );
     // A function type is a callable signature as well as a type node, so it
     // gets a `ts_method` row. Minting it here — from inside the type-reference
@@ -2313,6 +2322,14 @@ export class TsDeclarationExtractor {
         pending.row.setConstraintReferenceLinkHash(hash);
       }
     }
+    // A reference to `T` names the parameter that declares it. Linked here
+    // because a reference can precede that parameter's own row.
+    for (const pending of this.typeReferenceExtractor.pendingTypeVariableLinks) {
+      const hash = this.typeParameterHashByNode.get(nodeId(pending.declaration, this.sf));
+      if (hash !== undefined && hash !== '') {
+        pending.row.setTypeParameterLinkHash(hash);
+      }
+    }
   }
 
   private assignOverloadIdentities(): void {
@@ -2355,11 +2372,11 @@ export class TsDeclarationExtractor {
   private pushTypeParameters(
     typeParameters: ts.NodeArray<ts.TypeParameterDeclaration> | undefined
   ): void {
-    const names = new Set<string>();
+    const frame = new Map<string, ts.TypeParameterDeclaration>();
     for (const typeParameter of typeParameters ?? []) {
-      names.add(typeParameter.name.text);
+      frame.set(typeParameter.name.text, typeParameter);
     }
-    this.typeParameterStack.push(names);
+    this.typeParameterStack.push(frame);
   }
 
   private popTypeParameters(): void {
@@ -2376,11 +2393,29 @@ export class TsDeclarationExtractor {
   private typeParametersInScope(): ReadonlySet<string> {
     const all = new Set<string>();
     for (const frame of this.typeParameterStack) {
-      for (const name of frame) {
+      for (const name of frame.keys()) {
         all.add(name);
       }
     }
     return all;
+  }
+
+  /**
+   * The declaration a type-variable reference names, innermost scope first.
+   *
+   * `typeVariableName` gave the name and nothing pointed at the declaration, so
+   * 4,772 references on one library named a string. A generic substitution has
+   * to start from the parameter row, and the name alone cannot distinguish a
+   * method's `T` from the class `T` it shadows.
+   */
+  private typeParameterDeclarationFor(name: string): ts.TypeParameterDeclaration | undefined {
+    for (let i = this.typeParameterStack.length - 1; i >= 0; i -= 1) {
+      const found = this.typeParameterStack[i]!.get(name);
+      if (found !== undefined) {
+        return found;
+      }
+    }
+    return undefined;
   }
 
   /**
