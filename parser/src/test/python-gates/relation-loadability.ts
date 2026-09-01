@@ -148,6 +148,13 @@ export async function relationLoadability(): Promise<number> {
   const source = path.join(root, 'src');
   fs.mkdirSync(source, { recursive: true });
   fs.writeFileSync(path.join(source, 'adversarial.py'), ADVERSARIAL);
+  // A literal NUL. CPython rejects such a file outright, but it parses here and
+  // the recorded parse gap quotes the offending text -- so without escaping,
+  // the relation that exists to record unreadable input is itself unreadable.
+  fs.writeFileSync(
+    path.join(source, 'nul_byte.py'),
+    'VIRTUAL = "\u0000rolldown/runtime.js"\nOTHER = "plain"\n'
+  );
 
   const outputDir = path.join(root, 'out');
   await new PythonProjectAnalyzer().analyze({
@@ -174,6 +181,21 @@ export async function relationLoadability(): Promise<number> {
       continue;
     }
     checked += 1;
+
+    // A NUL does not split a row, so every byte-level check passes: the tab
+    // count is right, the text is valid UTF-8, there is no line break. But awk
+    // and Souffle use C string semantics and stop at the first NUL, so they see
+    // a fraction of the fields and call the row malformed. The disagreement
+    // between the two readers is the only symptom, so it is what gets asserted.
+    const nulAt = text.indexOf('\u0000');
+    if (nulAt >= 0) {
+      const line = text.slice(0, nulAt).split('\n').length;
+      problems.push(
+        `${file}: line ${line} carries a NUL, so a C-string reader sees ` +
+        'fewer fields than a byte-safe one and rejects the row'
+      );
+    }
+
     const width = rows[0]!.length;
     for (let index = 1; index < rows.length; index += 1) {
       if (rows[index]!.length !== width) {
