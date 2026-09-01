@@ -5,7 +5,13 @@ import { EntityUtils } from '@/utils/entity-utils';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
 
-import { PYTHON_CSV_FILES, PYTHON_TARGET_VERSION } from '@/constants/python-constants';
+import {
+  isPythonPackageInitFileName,
+  PYTHON_CSV_FILES,
+  PYTHON_PACKAGE_INIT_FILENAMES,
+  PYTHON_PACKAGE_INIT_STEM,
+  PYTHON_TARGET_VERSION,
+} from '@/constants/python-constants';
 import { PythonDialect, PythonEmissionRegime } from '@/enums/python/modules';
 import { SkippedFileReason } from '@/enums/SkippedFileReason';
 import { PythonFactExtractor } from '@/parsers/python/extractors/python-fact-extractor';
@@ -241,7 +247,7 @@ export class PythonProjectAnalyzer {
       perModule.push({
         qualifiedName: facts.module.getQualifiedName(),
         moduleHash: facts.module.getHash(),
-        isPackage: path.basename(filePath) === '__init__.py',
+        isPackage: isPythonPackageInitFileName(path.basename(filePath)),
         scopes: facts.scopes,
         bindings: facts.bindings,
         types: facts.types,
@@ -408,14 +414,14 @@ export class PythonProjectAnalyzer {
     // Ascend while each directory is a package. `existsSync` is acceptable here:
     // it runs once per file and the answer is needed before the name is minted.
     while (directory !== '' && directory !== path.dirname(directory)) {
-      if (!fs.existsSync(path.join(directory, '__init__.py'))) {
+      if (!this.directoryIsPackage(directory)) {
         break;
       }
       segments.unshift(path.basename(directory));
       directory = path.dirname(directory);
     }
     // `__init__` is the package itself, not a submodule of it.
-    if (parsed.name !== '__init__') {
+    if (parsed.name !== PYTHON_PACKAGE_INIT_STEM) {
       segments.push(parsed.name);
     }
     if (segments.length > 0) {
@@ -427,9 +433,27 @@ export class PythonProjectAnalyzer {
     const relativeParsed = path.parse(relative);
     const relativeSegments =
       relativeParsed.dir === '' ? [] : relativeParsed.dir.split(path.sep);
-    return [...relativeSegments, relativeParsed.name]
+    // Still drop a trailing `__init__` here. With the ascent fixed this is not
+    // reachable for a regular package, but the invariant is worth holding
+    // unconditionally: no module is ever NAMED `__init__`, so nothing
+    // downstream has to special-case it.
+    const relativeName =
+      relativeParsed.name === PYTHON_PACKAGE_INIT_STEM ? [] : [relativeParsed.name];
+    return [...relativeSegments, ...relativeName]
       .filter(part => part !== '' && part !== '.')
       .join('.') || parsed.name;
+  }
+
+  /**
+   * Whether a directory is a regular package.
+   *
+   * `existsSync` is acceptable here: it runs once per directory per file and
+   * the answer is needed before the name is minted.
+   */
+  private directoryIsPackage(directory: string): boolean {
+    return PYTHON_PACKAGE_INIT_FILENAMES.some(marker =>
+      fs.existsSync(path.join(directory, marker))
+    );
   }
 
   private async collectPythonFiles(

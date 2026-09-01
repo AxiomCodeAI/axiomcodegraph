@@ -18,6 +18,8 @@
  * Three of five stdlib packages fail to parse without the callback path, so it
  * is the common path for real code, not an edge case.
  */
+import { FILE_EXTENSIONS } from '@/constants/consts';
+
 export const TREE_SITTER_MAX_PARSE_CHARS = 32_767;
 
 /**
@@ -52,6 +54,35 @@ export const PYTHON_TARGET_VERSION = '3.10.4';
 export const PYTHON_SYNTHETIC_ITERATOR = '.0';
 
 /** symtable's own name for the module scope. */
+/**
+ * The base name of a package's initialiser, without extension.
+ *
+ * A module is never NAMED for this file: `pkg/__init__.py` is the module `pkg`,
+ * not `pkg.__init__`. Both are checked when asking whether a directory is a
+ * package, because a stub-only distribution ships `__init__.pyi` and no `.py`
+ * at all. Treating only `.py` as the marker makes a stub package invisible, and
+ * every module under it is then named as though it sat at the top level, so
+ * `collections/abc.pyi` and `abc.pyi` collapse onto the same name.
+ */
+export const PYTHON_PACKAGE_INIT_STEM = '__init__';
+
+/** Every file name that marks a directory as a regular package. */
+export const PYTHON_PACKAGE_INIT_FILENAMES: readonly string[] = [
+  `${PYTHON_PACKAGE_INIT_STEM}${FILE_EXTENSIONS.PYTHON}`,
+  `${PYTHON_PACKAGE_INIT_STEM}${FILE_EXTENSIONS.PYTHON_STUB}`,
+];
+
+/**
+ * Whether a file name is a package initialiser, in either dialect of the tree.
+ *
+ * The extension decides nothing about a module's identity: a stub tree must be
+ * named exactly as the source tree in the same position would be, or a library
+ * parsed separately cannot be linked to by name.
+ */
+export function isPythonPackageInitFileName(fileName: string): boolean {
+  return PYTHON_PACKAGE_INIT_FILENAMES.includes(fileName);
+}
+
 export const PYTHON_MODULE_SCOPE_NAME = 'top';
 
 /** The `<locals>` marker CPython inserts into `__qualname__` inside functions. */

@@ -1,3 +1,4 @@
+import { PYTHON_PACKAGE_INIT_FILENAMES } from '@/constants/python-constants';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -51,7 +52,9 @@ export class PythonDetector implements LanguageDetector {
         return true;
       }
       // A package directory is a strong signal even with no manifest above it.
-      if (files.includes('__init__.py')) {
+      // Both extensions count: a stub-only distribution ships `__init__.pyi`
+      // and no `.py` at all.
+      if (PYTHON_PACKAGE_INIT_FILENAMES.some((marker) => files.includes(marker))) {
         return true;
       }
       // SHALLOW on purpose. The scanner stops descending as soon as a directory
