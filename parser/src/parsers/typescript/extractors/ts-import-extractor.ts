@@ -417,7 +417,14 @@ export class TsImportExtractor {
       // `undefined` is an honest answer, not a failure to try. It is also the
       // right answer for a wildcard ambient specifier like `"*.svg"`, which
       // names no file anywhere.
-      return UNRESOLVED;
+      //
+      // The PACKAGE is still knowable. `packageName` normally comes from the
+      // resolved module's packageId, which exists only when node_modules was
+      // present -- so on a client-only run it was empty on every unresolved
+      // import, and a consumer had to re-derive it from the specifier to answer
+      // "which package would close these hops". The name is pure syntax, so it
+      // is filled here whether resolution succeeded or not.
+      return { ...UNRESOLVED, packageName: packageNameOf(specifier) };
     }
     const absolute = path.normalize(module.resolvedFileName);
     const moduleHash = this.options.projectModuleHashes.get(absolute) ?? '';
@@ -465,6 +472,29 @@ const NODE_BUILTIN_SPECIFIERS = new Set([
   'timers/promises', 'tls', 'trace_events', 'tty', 'url', 'util', 'util/types', 'v8', 'vm',
   'wasi', 'worker_threads', 'zlib',
 ]);
+
+/**
+ * The package a bare specifier names, from syntax alone.
+ *
+ * `@scope/name/deep` is the package `@scope/name` -- a scoped name is the FIRST
+ * TWO segments, and taking one would give `@scope`, which is not a package.
+ * `name/deep` is `name`. A relative or absolute specifier names no package, and
+ * neither does a wildcard ambient one like `*.svg`.
+ *
+ * Node builtins never reach this: they are classified BUILTIN_NODE before
+ * resolution is attempted, and they are not packages to stage.
+ */
+function packageNameOf(specifier: string): string {
+  if (specifier === '' || specifier.startsWith('.') || specifier.startsWith('/')
+    || specifier.includes('*')) {
+    return '';
+  }
+  const segments = specifier.split('/');
+  if (specifier.startsWith('@')) {
+    return segments.length >= 2 ? `${segments[0]}/${segments[1]}` : '';
+  }
+  return segments[0] ?? '';
+}
 
 const UNRESOLVED: ResolvedSpecifier = {
   absolutePath: '',

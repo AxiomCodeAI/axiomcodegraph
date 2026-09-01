@@ -2204,6 +2204,81 @@ async function destructuredNamesReachTheirValue(): Promise<number> {
   return failures.length ? 1 : 0;
 }
 
+// ---------------------------------------------------------------------------
+// 22. An unresolved import still names its package
+// ---------------------------------------------------------------------------
+
+/**
+ * A client-only run must be able to say WHAT to stage.
+ *
+ * `packageName` normally comes from the resolved module's packageId, which
+ * exists only when node_modules was present. So on a run without dependencies
+ * -- which is the ordinary case for a client-only analysis -- it was empty on
+ * every unresolved import, and a consumer had to re-derive it from the
+ * specifier to answer "which package would close these hops". On one library
+ * that is 992 imports, and two packages account for 977 of them.
+ *
+ * The name is pure syntax, so it is available whether resolution succeeded or
+ * not. The scoped form is the part worth testing: `@scope/name/deep` is the
+ * package `@scope/name`, and taking one segment gives `@scope`, which is not a
+ * package and would send a caller looking for something that does not exist.
+ */
+async function unresolvedImportsNameTheirPackage(): Promise<number> {
+  if (!parserPresent()) {
+    return pendingCheck('unresolved imports name their package',
+      'no extractor yet. An unresolved import must still say which package it names');
+  }
+  const { outputDir, cleanup } = await analyseInline('ts-pkg-', {
+    'p.ts': [
+      'import a from "absent-package";',
+      'import b from "absent-package/deep/path";',
+      'import c from "@scope/absent";',
+      'import d from "@scope/absent/deep";',
+      'import e from "node:fs/promises";',
+      'import f from "path";',
+      'import g from "./local";',
+      'export const used = [a, b, c, d, e, f, g];',
+    ].join('\n'),
+    'local.ts': 'export default 1;\n',
+  });
+
+  const byPath = new Map(relation(outputDir, 'all-typescript-imports.csv')
+    .map((r) => [r.importedPath ?? '', r]));
+  // specifier -> [resolutionKind, packageName]
+  const expected: [string, string, string][] = [
+    ['absent-package', 'UNRESOLVED', 'absent-package'],
+    ['absent-package/deep/path', 'UNRESOLVED', 'absent-package'],
+    ['@scope/absent', 'UNRESOLVED', '@scope/absent'],
+    // the scoped case: two segments, not one
+    ['@scope/absent/deep', 'UNRESOLVED', '@scope/absent'],
+    // a builtin is not a package to stage, and must not claim to be one
+    ['node:fs/promises', 'BUILTIN_NODE', ''],
+    ['path', 'BUILTIN_NODE', ''],
+    // a relative import names no package
+    ['./local', 'RELATIVE_FILE', ''],
+  ];
+  const failures: string[] = [];
+  for (const [specifier, kind, pkg] of expected) {
+    const row = byPath.get(specifier);
+    if (!row) {
+      failures.push(`no ts_import row for ${specifier}`);
+      continue;
+    }
+    if ((row.resolutionKind ?? '') !== kind) {
+      failures.push(`${specifier}: resolutionKind ${row.resolutionKind}, expected ${kind}`);
+    }
+    if ((row.packageName ?? '') !== pkg) {
+      failures.push(`${specifier}: packageName "${row.packageName}", expected "${pkg}"`);
+    }
+  }
+
+  console.log(`  ${expected.length} specifier(s): a bare and a deep import name their package, a ` +
+    'scoped one names both segments, and builtins and relatives name none');
+  for (const f of failures.slice(0, 10)) console.log(`  ${f}`);
+  cleanup();
+  return failures.length ? 1 : 0;
+}
+
 const CHECKS: Check[] = [
   { name: 'compiles', proves: 'tsc --noEmit is clean — the suite reports on code that actually builds', run: compiles },
   { name: 'fixtures compile and are isolated', proves: 'a fixture is a valid input, and cannot break another language\'s gate', run: fixturesCompile },
@@ -2224,6 +2299,7 @@ const CHECKS: Check[] = [
   { name: 'discovery follows the import closure', proves: 'a program is its roots plus everything they import, and nothing more', run: discoveryFollowsTheImportClosure },
   { name: 'pattern parameters bind names', proves: 'a destructured parameter emits the names it binds, so a call through one can resolve', run: patternParametersBindNames },
   { name: 'destructured names reach their value', proves: 'a bound name links the initializer it was destructured from, so a call through one can resolve', run: destructuredNamesReachTheirValue },
+  { name: 'unresolved imports name their package', proves: 'a client-only run can say which packages to stage, without needing node_modules present', run: unresolvedImportsNameTheirPackage },
   { name: 'fact-base invariants', proves: 'every PK unique, every FK resolves, every tree well-formed — the failures that load cleanly and count wrong', run: factBaseInvariants },
   { name: 'IR completeness', proves: 'every hop an engine needs in order to resolve is present — the measure that replaced resolution rate', run: irCompleteness },
 ];
