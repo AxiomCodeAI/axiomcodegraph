@@ -483,16 +483,25 @@ module_member_module(p, mod, n, child) :-
 // `from .linear import Linear` in nn/modules/__init__.py makes Linear a member of
 // nn.modules. Keyed on the ALIAS where there is one, the original name otherwise,
 // because `from .x import y as z` re-exports z and not y.
-module_member_type("lib", mod, n, t) :-
-    import_scope("lib", _, mod, i), mod != "",
-    import_resolved_target("lib", "TYPE", t, i),
-    import_alias("lib", n, "", i), n != "".
-module_member_type("lib", mod, n, t) :-
-    import_scope("lib", _, mod, i), mod != "",
-    import_resolved_target("lib", "TYPE", t, i),
-    import_alias("lib", _, n, i), n != "".
-module_member_type("lib", mod, n, t) :-
-    module_reexports_all("lib", mod, src), module_member_type("lib", src, n, t).
+// ── module_reexports_all(Prov, ModuleHash, SourceModuleHash) ─────────────────
+// `from .core import *` in a package __init__. Moved here from resolution/lib-linking.dl
+// and generalised over provenance: what a module exposes is a fact about module
+// structure, not about the client/library boundary.
+module_reexports_all(p, mod, src) :-
+    import_scope(p, _, mod, i), mod != "",
+    import_wildcard(p, _, i),
+    import_resolved_module(p, src, i), src != "", src != mod.
+
+module_member_type(p, mod, n, t) :-
+    import_scope(p, _, mod, i), mod != "",
+    import_resolved_target(p, "TYPE", t, i),
+    import_alias(p, n, "", i), n != "".
+module_member_type(p, mod, n, t) :-
+    import_scope(p, _, mod, i), mod != "",
+    import_resolved_target(p, "TYPE", t, i),
+    import_alias(p, _, n, i), n != "".
+module_member_type(p, mod, n, t) :-
+    module_reexports_all(p, mod, src), module_member_type(p, src, n, t).
 
 // ── module_member_method: RE-EXPORTED members, beside the declared ones ─────
 // A module exposes what it DECLARES plus what it RE-EXPORTS. The declared half is
@@ -500,16 +509,16 @@ module_member_type("lib", mod, n, t) :-
 // name means inside a module. Restricted to "lib" only because a client re-export is
 // already resolved by the parser, so no client clause is needed -- not because the
 // semantics differ.
-module_member_method("lib", mod, n, m) :-
-    import_scope("lib", _, mod, i), mod != "",
-    import_resolved_target("lib", "FUNCTION", m, i),
-    import_alias("lib", n, "", i), n != "".
-module_member_method("lib", mod, n, m) :-
-    import_scope("lib", _, mod, i), mod != "",
-    import_resolved_target("lib", "FUNCTION", m, i),
-    import_alias("lib", _, n, i), n != "".
-module_member_method("lib", mod, n, m) :-
-    module_reexports_all("lib", mod, src), module_member_method("lib", src, n, m).
+module_member_method(p, mod, n, m) :-
+    import_scope(p, _, mod, i), mod != "",
+    import_resolved_target(p, "FUNCTION", m, i),
+    import_alias(p, n, "", i), n != "".
+module_member_method(p, mod, n, m) :-
+    import_scope(p, _, mod, i), mod != "",
+    import_resolved_target(p, "FUNCTION", m, i),
+    import_alias(p, _, n, i), n != "".
+module_member_method(p, mod, n, m) :-
+    module_reexports_all(p, mod, src), module_member_method(p, src, n, m).
 
 
 // ============================================================================
