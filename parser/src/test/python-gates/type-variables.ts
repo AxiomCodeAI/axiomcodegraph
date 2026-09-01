@@ -1,0 +1,135 @@
+/**
+ * A type variable is distinguishable from a class of the same name.
+ *
+ * `T = TypeVar("T")` used in `List[T]` emitted `kind=NAME`, exactly as
+ * `List[Options]` does, and `typeVariableName` was never populated. A consumer
+ * resolving the element type therefore looked for a class called `T`, found
+ * nothing, and recorded an unresolved reference -- or, worse, found an
+ * unrelated class that happened to share the name.
+ *
+ * What is asserted, and why each case is here:
+ *
+ *   - only a BARE name is reclassified. In `List[T]` the head is `List` and the
+ *     variable is the argument, each with its own row, so a change that
+ *     reclassified the head would be caught;
+ *   - variance comes from the declaration, not the use, so all three readings
+ *     are exercised from one file;
+ *   - a class named like a type variable is NOT reclassified, which is the
+ *     failure that would make this worse than doing nothing;
+ *   - a TypeVar declared inside a function still counts, because nothing
+ *     requires the conventional module-level declaration.
+ */
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+
+import { PythonProjectAnalyzer } from '@/workflows/python/python-project-analyzer';
+
+const SOURCE = `from typing import TypeVar, Generic, List, Optional
+
+T = TypeVar("T")
+CO = TypeVar("CO", covariant=True)
+CONTRA = TypeVar("CONTRA", contravariant=True)
+
+
+class Options:
+    pass
+
+
+def scoped():
+    Inner = TypeVar("Inner")
+
+    def use(value: Inner) -> Inner:
+        return value
+
+    return use
+
+
+class Holder(Generic[T, CO, CONTRA]):
+    items: List[T]
+    plain: Options
+    nested: Optional[List[T]]
+    out: CO
+    inp: CONTRA
+
+    def get(self, index: int) -> T:
+        return self.items[index]
+`;
+
+/** name -> [kind, typeVariableName, wildcardVariance] */
+const EXPECTED: Record<string, [string, string, string]> = {
+  T: ['TYPE_VAR', 'T', 'INVARIANT'],
+  CO: ['TYPE_VAR', 'CO', 'COVARIANT'],
+  CONTRA: ['TYPE_VAR', 'CONTRA', 'CONTRAVARIANT'],
+  Inner: ['TYPE_VAR', 'Inner', 'INVARIANT'],
+  // Not type variables. `List` and `Optional` are heads of a subscript, and
+  // Options is an ordinary class; reclassifying any of them would be worse
+  // than the original defect, since it would be confidently wrong.
+  Options: ['NAME', '', ''],
+  int: ['NAME', '', ''],
+  List: ['SUBSCRIPT', '', ''],
+  Optional: ['OPTIONAL', '', ''],
+};
+
+export async function typeVariables(): Promise<number> {
+  const problems: string[] = [];
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'py-typevar-'));
+  const source = path.join(root, 'src');
+  fs.mkdirSync(source, { recursive: true });
+  fs.writeFileSync(path.join(source, 'tv.py'), SOURCE);
+
+  const outputDir = path.join(root, 'out');
+  await new PythonProjectAnalyzer().analyze({
+    rootDir: source,
+    outputDir,
+    baseMservPath: '/repo',
+    serviceVersionLinkHash: 'SERVICE_VERSION_' + '0'.repeat(32),
+  });
+
+  const lines = fs
+    .readFileSync(path.join(outputDir, 'all-python-type-references.csv'), 'utf-8')
+    .split('\n')
+    .filter(Boolean);
+  const header = lines[0]!.split('\t');
+  const at = (name: string): number => header.indexOf(name);
+
+  const seen = new Map<string, Set<string>>();
+  for (const line of lines.slice(1)) {
+    const cells = line.split('\t');
+    const name = cells[at('typeName')] ?? '';
+    const shape = [
+      cells[at('kind')] ?? '',
+      cells[at('typeVariableName')] ?? '',
+      cells[at('wildcardVariance')] ?? '',
+    ].join('|');
+    if (!seen.has(name)) {
+      seen.set(name, new Set());
+    }
+    seen.get(name)!.add(shape);
+  }
+
+  for (const [name, expected] of Object.entries(EXPECTED)) {
+    const shapes = seen.get(name);
+    if (!shapes) {
+      problems.push(`${name}: no type reference emitted`);
+      continue;
+    }
+    const want = expected.join('|');
+    if (!shapes.has(want)) {
+      problems.push(`${name}: expected ${want}, got ${[...shapes].sort().join(' and ')}`);
+    }
+    // A type variable must be classified CONSISTENTLY. One row saying TYPE_VAR
+    // and another saying NAME for the same name is worse than either alone,
+    // because a consumer joining on the name sees both.
+    if (expected[0] === 'TYPE_VAR' && shapes.size > 1) {
+      problems.push(`${name}: classified inconsistently as ${[...shapes].sort().join(' and ')}`);
+    }
+  }
+
+  fs.rmSync(root, { recursive: true, force: true });
+  console.log(`  ${seen.size} distinct type names checked across ${lines.length - 1} references`);
+  for (const problem of problems) {
+    console.log(`  FAIL  ${problem}`);
+  }
+  return problems.length === 0 ? 0 : 1;
+}

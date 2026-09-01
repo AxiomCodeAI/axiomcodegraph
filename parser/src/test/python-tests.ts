@@ -28,6 +28,7 @@ import { constructPositions } from './python-gates/construct-positions';
 import { enumEmission } from './python-gates/enum-emission';
 import { relationLoadability } from './python-gates/relation-loadability';
 import { referenceClassification } from './python-gates/reference-classification';
+import { typeVariables } from './python-gates/type-variables';
 import { stubModuleNames } from './python-gates/stub-module-names';
 
 const VERIFIED = 'src/test-data/python/verified';
@@ -514,6 +515,8 @@ const CHECKS: Check[] = [
     proves: 'shapes resolvable in principle keep resolving; the count may fall, never rise' },
   { name: 'PEP 695 type parameters', run: pep695,
     proves: 'py_type_parameter matches frozen CPython 3.12 truth' },
+  { name: 'type variables', run: typeVariables,
+    proves: 'a TypeVar is distinguishable from a class of the same name' },
   { name: 'reference classification', run: referenceClassification,
     proves: 'a name reference carries what the name is, not UNKNOWN' },
   { name: 'relation loadability', run: relationLoadability,

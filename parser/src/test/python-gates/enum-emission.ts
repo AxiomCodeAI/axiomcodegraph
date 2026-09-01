@@ -106,12 +106,11 @@ const KNOWN_UNPRODUCED: Record<string, string[]> = {
     'TYPE_ALIAS',
     'TYPE_COMMENT',
   ],
-  // A type variable is indistinguishable from an ordinary class reference:
-  // `T = TypeVar("T")` is emitted with kind NAME, and typeVariableName is never
-  // populated. The variance enums below are the same gap seen from two angles.
-  PythonTypeRefKind: ['TYPE_VAR'],
+  // TypeVar now emits with its name and variance, so PythonTypeRefKind and
+  // PythonWildcardVariance are fully produced and have left this list.
+  // TYPEVAR_BOUND stays: the bound needs a type POSITION for its expression,
+  // which is collected elsewhere, and that is a wider change than the kind.
   PythonTypeRefOwnerKind: ['BLOCK', 'DECORATOR'],
-  PythonWildcardVariance: ['CONTRAVARIANT', 'COVARIANT', 'INVARIANT'],
 };
 
 /** Total pinned today. May fall, never rise. */

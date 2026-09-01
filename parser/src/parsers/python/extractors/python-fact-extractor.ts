@@ -320,6 +320,7 @@ export class PythonFactExtractor {
     });
 
     const typeReferences = this.typeReferenceExtractor.extract({
+      rootNode: scopeStage.rootNode,
       positions: [
         ...declarations.typePositions,
         ...fieldStage.fieldTypePositions,

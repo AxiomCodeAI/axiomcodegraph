@@ -5,6 +5,7 @@ import {
   PythonTypeRefContext,
   PythonTypeRefKind,
   PythonTypeRefOwnerKind,
+  PythonWildcardVariance,
 } from '@/enums/python/type-references';
 import { EntityUtils } from '@/utils/entity-utils';
 
@@ -37,6 +38,8 @@ export interface NarrowingInput {
 
 export interface TypeReferenceInput {
   positions: TypePositionInput[];
+  /** The module root, scanned once for `X = TypeVar("X")` declarations. */
+  rootNode: Parser.SyntaxNode;
   pyModuleLinkHash: string;
   serviceVersionLinkHash: string;
 }
@@ -48,6 +51,17 @@ const CALLABLE_NAMES: ReadonlySet<string> = new Set(['Callable']);
 const TUPLE_NAMES: ReadonlySet<string> = new Set(['Tuple', 'tuple']);
 const LITERAL_NAMES: ReadonlySet<string> = new Set(['Literal']);
 const ANY_NAMES: ReadonlySet<string> = new Set(['Any']);
+
+/**
+ * Calls that DECLARE a type variable.
+ *
+ * `typing.TypeVar` and a bare `TypeVar` are the same declaration, and an alias
+ * from `import typing as t` reaches here as `t.TypeVar`, so the comparison is
+ * on the simple name. PEP 612 `ParamSpec` and PEP 646 `TypeVarTuple` declare
+ * related things with different arity rules and are deliberately not folded in
+ * here -- they need their own kinds, not this one.
+ */
+const TYPE_VAR_FACTORIES: ReadonlySet<string> = new Set(['TypeVar']);
 
 /**
  * Builds the `py_type_reference` tree for every type position in a module.
@@ -308,7 +322,10 @@ export class PythonTypeReferenceExtractor {
     return members;
   }
 
+  private typeVariables: Map<string, string> = new Map();
+
   extract(input: TypeReferenceInput): PyTypeReferenceRegistry[] {
+    this.typeVariables = this.collectTypeVariables(input.rootNode);
     this.input = input;
     this.references = [];
     this.byteRangeByReference.clear();
@@ -358,8 +375,15 @@ export class PythonTypeReferenceExtractor {
     }
 
     const base = this.subscriptBase(node);
-    const kind = this.kindOf(node, base);
     const typeName = this.simpleNameOf(base ?? node);
+    // A name bound by TypeVar() is a type VARIABLE, not a reference to a class
+    // of that name. Only a bare name is reclassified: in `List[T]` the head is
+    // List and the variable is the argument, each of which gets its own row.
+    const declaredVariance = base === null ? this.typeVariables.get(typeName) : undefined;
+    const kind =
+      declaredVariance !== undefined
+        ? PythonTypeRefKind.TYPE_VAR
+        : this.kindOf(node, base);
     const complete = EntityUtils.normalizeWhitespace(node.text)
       .replace(/\[\s+/g, '[')
       .replace(/\s+\]/g, ']')
@@ -384,6 +408,10 @@ export class PythonTypeReferenceExtractor {
         isStringForwardRef: kind === PythonTypeRefKind.STRING_FORWARD_REF,
         isOptional: this.admitsNone(node, kind),
       })
+      .withTypeVariable(
+        declaredVariance !== undefined ? typeName : '',
+        declaredVariance ?? ''
+      )
       .build();
 
     this.references.push(reference);
@@ -487,6 +515,73 @@ export class PythonTypeReferenceExtractor {
       return node.childForFieldName('value') ?? node.namedChild(0);
     }
     return null;
+  }
+
+  /**
+   * Names bound by `X = TypeVar("X")`, mapped to their declared variance.
+   *
+   * Without this a type variable is indistinguishable from an ordinary class:
+   * `List[T]` and `List[Options]` both emit `kind=NAME`, so a consumer
+   * resolving the element type looks for a class named `T`, finds nothing, and
+   * records an unresolved reference -- or worse, finds an unrelated class that
+   * happens to share the name.
+   *
+   * The whole module is scanned rather than only its top level. A TypeVar is
+   * conventionally declared at module scope, but nothing requires it, and one
+   * declared inside a function is still a type variable everywhere it is used.
+   */
+  private collectTypeVariables(root: Parser.SyntaxNode): Map<string, string> {
+    const found = new Map<string, string>();
+    const worklist: Parser.SyntaxNode[] = [root];
+    while (worklist.length > 0) {
+      const node = worklist.pop();
+      if (!node) {
+        continue;
+      }
+      if (node.type === 'assignment') {
+        const left = node.childForFieldName('left');
+        const right = node.childForFieldName('right');
+        if (left?.type === 'identifier' && right?.type === 'call') {
+          const fn = right.childForFieldName('function');
+          if (fn && TYPE_VAR_FACTORIES.has(this.simpleNameOf(fn))) {
+            found.set(left.text, this.varianceOf(right));
+          }
+        }
+      }
+      for (let i = 0; i < node.namedChildCount; i += 1) {
+        const child = node.namedChild(i);
+        if (child) {
+          worklist.push(child);
+        }
+      }
+    }
+    return found;
+  }
+
+  /** `covariant=True` / `contravariant=True`; invariant is the default. */
+  private varianceOf(call: Parser.SyntaxNode): string {
+    const args = call.childForFieldName('arguments');
+    if (!args) {
+      return PythonWildcardVariance.INVARIANT;
+    }
+    for (let i = 0; i < args.namedChildCount; i += 1) {
+      const arg = args.namedChild(i);
+      if (arg?.type !== 'keyword_argument') {
+        continue;
+      }
+      const name = arg.childForFieldName('name')?.text ?? '';
+      const value = arg.childForFieldName('value')?.text ?? '';
+      if (value !== 'True') {
+        continue;
+      }
+      if (name === 'covariant') {
+        return PythonWildcardVariance.COVARIANT;
+      }
+      if (name === 'contravariant') {
+        return PythonWildcardVariance.CONTRAVARIANT;
+      }
+    }
+    return PythonWildcardVariance.INVARIANT;
   }
 
   private kindOf(
