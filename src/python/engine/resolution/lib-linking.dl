@@ -207,6 +207,93 @@ call_hits_external(site, cat("external:", d)) :-
     expr_binding("client", rb, _, obj),
     binding_lookup("client", rb, rb2),
     import_unlinked(rb2, _).
+
+// ── call_hits_lib_unresolved(SiteKey, TargetLabel) ───────────────────────────
+// THE FLOOR: a call whose root DID link to a staged library module, but for which the
+// library produced no member.
+//
+// Every clause above requires import_unlinked — "this import linked to nothing". Staging
+// a library makes that false, correctly, and the clauses stop firing. But the replacement
+// does not always arrive: library BODIES are staged empty by design, so a member reached
+// through the library's own value flow (`os.environ.get`) cannot be resolved. The site
+// then had a name with no library and NO name with one, so supplying more information
+// made the answer strictly worse.
+//
+// That non-monotonicity is the defect. A bigger library IR could lower the linked rate,
+// which inverts the incentive to supply one and makes measurements taken against
+// different library inputs incomparable.
+//
+// These mirror the external clauses exactly and keep every guard, so they fire only where
+// the library was consulted and yielded nothing — a member that DOES resolve keeps its
+// concrete answer.
+//
+// Labelled `lib:` rather than `external:` on purpose. With the library staged the call is
+// not external: the engine knows which staged library it lands in and failed only to
+// resolve the member. Reusing `external:` would assert something untrue and merge two
+// cases that need telling apart, since this one is a resolvable gap and that one is not.
+call_hits_lib_unresolved(site, cat("lib:", d)) :-
+    call_dotted(site, d), d != "",
+    !expr_call_candidate(site, _),
+    !call_hits_lib_method(site, _),
+    !call_hits_builtin(site, _),
+    call_receiver_object(site, obj),
+    expr_parent("client", obj, "ATTRIBUTE_OBJECT", _, root),
+    expr_binding("client", rb, _, root),
+    binding_lookup("client", rb, rb2),
+    import_links_lib_any(rb2).
+call_hits_lib_unresolved(site, cat("lib:", d)) :-
+    call_dotted(site, d), d != "",
+    !expr_call_candidate(site, _),
+    !call_hits_lib_method(site, _),
+    !call_hits_builtin(site, _),
+    call_receiver_object(site, obj),
+    expr_binding("client", rb, _, obj),
+    binding_lookup("client", rb, rb2),
+    import_links_lib_any(rb2).
+
+// ── import_links_lib_any(BindingHash) ────────────────────────────────────────
+// The import linked into the staged library by ANY of the three routes. Stated as one
+// relation because it is the exact complement of import_unlinked, which negates the same
+// three: covering fewer of them leaves the floor with holes that look arbitrary — a
+// module-qualified call kept its name while a call on an imported FUNCTION's result, or
+// on an imported TYPE, still lost one.
+import_links_lib_any(b) :- import_links_lib_module(b, _).
+import_links_lib_any(b) :- import_links_lib_function(b, _).
+import_links_lib_any(b) :- import_links_lib_type(b, _).
+
+// ── the receiver is a CALL RESULT whose callee linked into the library ───────
+// `_("Windows error: {error}").format(...)` — `_` is an imported library function, so the
+// receiver is not a name at all but the call's result. None of the name-keyed clauses
+// reach it, and with no library staged the site got its name from the unlinked-import
+// path instead. Without this the floor has a hole exactly where the translation and
+// factory idioms live, both of which call a library function and then a method on what it
+// returned.
+call_hits_lib_unresolved(site, cat("lib:", d)) :-
+    call_dotted(site, d), d != "",
+    !expr_call_candidate(site, _),
+    !call_hits_lib_method(site, _),
+    !call_hits_builtin(site, _),
+    call_receiver_object(site, obj),
+    call_of_expr(obj, inner),
+    call_callee_expr(inner, icallee),
+    expr_binding("client", ib, _, icallee),
+    binding_lookup("client", ib, ib2),
+    import_links_lib_any(ib2).
+
+// ── the receiver HAS a library type, but the library has no such member ──────
+// `c = Counter(...)` then `c.items()`. The receiver is a local, so no import binding is
+// involved; what is known is its TYPE, which is a library class. The member is inherited
+// from a base the staged library may not carry, so the lookup yields nothing — and
+// without this the name is lost even though the engine knows the receiver's library type
+// exactly. Reaching the member is a library-completeness problem; naming the target is
+// not, and the name is the floor.
+call_hits_lib_unresolved(site, cat("lib:", d)) :-
+    call_dotted(site, d), d != "",
+    !expr_call_candidate(site, _),
+    !call_hits_lib_method(site, _),
+    !call_hits_builtin(site, _),
+    call_receiver_object(site, obj),
+    expr_lib_type(obj, _).
 call_hits_external(site, cat("external:", d)) :-
     call_dotted(site, d), d != "",
     !expr_call_candidate(site, _),

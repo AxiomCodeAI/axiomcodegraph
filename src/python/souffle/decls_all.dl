@@ -207,6 +207,8 @@
 .decl call_hits_builtin(c0:symbol,c1:symbol)
 .decl expr_external_type(c0:symbol,c1:symbol,c2:symbol)
 .decl call_hits_external(c0:symbol,c1:symbol)
+.decl call_hits_lib_unresolved(c0:symbol,c1:symbol)
+.decl import_links_lib_any(c0:symbol)
 .decl except_pair(c0:symbol,c1:symbol,c2:symbol)
 .decl binding_except_type(c0:symbol,c1:symbol,c2:symbol)
 .decl builtin_alias_visible(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
