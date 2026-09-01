@@ -178,3 +178,20 @@ call_recv_declared(site) :-
     expr_attr_of_self("client", obj, n, owner),
     type_attr_field("client", owner, n, f),
     field_declared_type("client", f, _).
+// (d) a receiver whose type came from a CONTAINER'S DECLARED ELEMENT TYPE.
+// `mapping: dict[str, BaseLoader]` then `mapping[k].get_source(...)` — the annotation
+// names an upper bound exactly as a parameter annotation does, so the same widening
+// applies. Without this the receiver resolves to the base ALONE and is reported
+// known_edge, which is the confident-wrong shape #43 exists to prevent.
+//
+// This is the second time a newly added source of a DECLARED type produced a confident
+// error by not being listed here (the first was recorded on #67). Any rule that
+// introduces a declared type by a new route has to be reflected in this relation.
+call_recv_declared(site) :-
+    call_receiver_object(site, obj),
+    expr_binding("client", b, ctx, obj), ctx != "STORE",
+    binding_lookup("client", b, b2),
+    binding_element_type("client", b2, _).
+call_recv_declared(site) :-
+    call_receiver_object(site, obj),
+    element_type_of("client", obj, _).
