@@ -64,6 +64,53 @@ def main():
                     f'{name}: declared {want} columns, IR has {cols}. '
                     f'The declaration\'s last column lands on {last!r}, '
                     f'not on the unique hash')
+    # ── the POSITIONAL INVARIANT ────────────────────────────────────────────
+    # Arity is not the only thing that can drift silently. The engine separates real
+    # parameters from destructuring BOUND NAMES using `bindingSourceKind`, on the
+    # assumption that NONE means positional — an invariant the parser has never
+    # promised in writing. If a new kind appears, or a real parameter is given a
+    # non-NONE kind, that filter starts dropping real parameters and nothing else
+    # notices: the arity still matches and every row is well formed.
+    #
+    # So assert the property the filter actually depends on: for each method, the rows
+    # the engine treats as positional must be exactly positions 0..parameterCount-1,
+    # one row each.
+    pp = os.path.join(ir, 'all-typescript-method-parameters.csv')
+    mp = os.path.join(ir, 'all-typescript-methods.csv')
+    if os.path.exists(pp) and os.path.exists(mp):
+        import csv as _csv
+        want = {}
+        with open(mp, encoding='utf-8', errors='replace') as fh:
+            r = _csv.reader(fh, delimiter='\t'); h = next(r)
+            if 'parameterCount' in h and 'tsMethodUniqueHash' in h:
+                C, H = h.index('parameterCount'), h.index('tsMethodUniqueHash')
+                for row in r:
+                    if len(row) > max(C, H) and row[C].isdigit():
+                        want[row[H]] = int(row[C])
+        seen = {}
+        kinds = set()
+        with open(pp, encoding='utf-8', errors='replace') as fh:
+            r = _csv.reader(fh, delimiter='\t'); h = next(r)
+            if 'bindingSourceKind' in h:
+                M, P, K = h.index('tsMethodLinkHash'), h.index('position'), h.index('bindingSourceKind')
+                for row in r:
+                    if len(row) <= max(M, P, K):
+                        continue
+                    kinds.add(row[K])
+                    if row[K] in ('NONE', ''):
+                        seen.setdefault(row[M], []).append(row[P])
+        broken = 0
+        for mh, n in want.items():
+            got = sorted(seen.get(mh, []), key=lambda x: int(x) if x.isdigit() else -1)
+            if got != [str(i) for i in range(n)]:
+                broken += 1
+        if broken:
+            bad.append(
+                f'positional invariant: {broken} methods whose NONE-kind parameter rows '
+                f'are not exactly positions 0..parameterCount-1. The engine separates '
+                f'real parameters from destructuring bound names on that property; '
+                f'kinds seen: {sorted(kinds)}')
+
     if bad:
         print('SCHEMA DRIFT — the IR and the declarations disagree:')
         for b in bad:
