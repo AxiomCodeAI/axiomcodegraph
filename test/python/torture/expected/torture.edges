@@ -26,6 +26,8 @@ boundary_lib	CHAINED_CALL	f07_imports.via_module_alias -> lib:tlib.shapes.Mid.na
 boundary_lib	CHAINED_CALL	f07_imports.via_package_attribute -> lib:tlib.shapes.Square.name
 boundary_lib	CHAINED_CALL	f09_adversarial.inherited_through_a_silent_class -> lib:tlib.shapes.Base.only_base
 boundary_lib	CHAINED_CALL	f09_adversarial.shadowed_against_a_library_name -> lib:tlib.shapes.Square.name
+boundary_lib	CHAINED_CALL	f20_builtin_flow.chained_str -> builtin:str.lower
+boundary_lib	CHAINED_CALL	f20_builtin_flow.chained_str -> builtin:str.replace
 boundary_lib	DECORATOR_BARE	f04_descriptors.LocalCfg.<classbody> -> builtin:classmethod
 boundary_lib	DECORATOR_BARE	f04_descriptors.LocalCfg.<classbody> -> builtin:property
 boundary_lib	DECORATOR_BARE	f04_descriptors.LocalCfg.<classbody> -> builtin:staticmethod
@@ -70,6 +72,13 @@ boundary_lib	METHOD_CALL	f11_multiwrite.ternary_over_lib -> lib:tlib.shapes.Mid.
 boundary_lib	METHOD_CALL	f14_class_objects.Registry.build_get -> builtin:dict.get
 boundary_lib	METHOD_CALL	f19_reexports.via_package_attribute -> builtin:object.__init__
 boundary_lib	METHOD_CALL	f19_reexports.via_submodule_alias -> builtin:object.__init__
+boundary_lib	METHOD_CALL	f20_builtin_flow.UsesSelf.via_self -> builtin:str.lower
+boundary_lib	METHOD_CALL	f20_builtin_flow.chained_str -> builtin:str.strip
+boundary_lib	METHOD_CALL	f20_builtin_flow.local_keeps_type -> builtin:str.strip
+boundary_lib	METHOD_CALL	f20_builtin_flow.local_keeps_type -> builtin:str.upper
+boundary_lib	METHOD_CALL	f20_builtin_flow.non_self_attribute -> builtin:str.upper
+boundary_lib	METHOD_CALL	f20_builtin_flow.non_self_attribute_container -> builtin:list.copy
+boundary_lib	METHOD_CALL	f20_builtin_flow.split_then_index -> builtin:str.split
 boundary_lib	METHOD_CALL	main.main -> builtin:object.__init__
 boundary_lib	SELF_CALL	f02_callables.HoldsCallables.run -> lib:tlib.callables.Doubler.__call__
 boundary_lib	SELF_CALL	f09_adversarial.Rebound.use -> lib:tlib.callables.Doubler.__call__
@@ -160,6 +169,7 @@ known_edge	CHAINED_CALL	main.main -> f11_multiwrite.HoldsTernary.run
 known_edge	CHAINED_CALL	main.main -> f12_value_flow.UsesFactory.run
 known_edge	CHAINED_CALL	main.main -> f13_declared_dispatch.Base.run
 known_edge	CHAINED_CALL	main.main -> f13_declared_dispatch.Engine.run
+known_edge	CHAINED_CALL	main.main -> f20_builtin_flow.UsesSelf.via_self
 known_edge	METHOD_CALL	f04_descriptors.client_descriptors -> f04_descriptors.LocalCfg.make
 known_edge	METHOD_CALL	f04_descriptors.client_descriptors -> f04_descriptors.LocalCfg.util
 known_edge	METHOD_CALL	f10_forward_refs.Boxed.read -> f10_forward_refs.Holder.tag
@@ -282,6 +292,13 @@ known_edge	METHOD_CALL	main.main -> f18_lambda_dispatch.via_other_receiver
 known_edge	METHOD_CALL	main.main -> f19_reexports.via_package_attribute
 known_edge	METHOD_CALL	main.main -> f19_reexports.via_reexported_function
 known_edge	METHOD_CALL	main.main -> f19_reexports.via_submodule_alias
+known_edge	METHOD_CALL	main.main -> f20_builtin_flow.Holder.__init__
+known_edge	METHOD_CALL	main.main -> f20_builtin_flow.UsesSelf.__init__
+known_edge	METHOD_CALL	main.main -> f20_builtin_flow.chained_str
+known_edge	METHOD_CALL	main.main -> f20_builtin_flow.local_keeps_type
+known_edge	METHOD_CALL	main.main -> f20_builtin_flow.non_self_attribute
+known_edge	METHOD_CALL	main.main -> f20_builtin_flow.non_self_attribute_container
+known_edge	METHOD_CALL	main.main -> f20_builtin_flow.split_then_index
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator_in_for
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_plain

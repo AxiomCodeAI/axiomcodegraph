@@ -19,6 +19,7 @@ import f15_attribute_chains as f15
 import f16_element_types as f16
 import f18_lambda_dispatch as f18
 import f19_reexports as f19
+import f20_builtin_flow as f20
 from tlib import Square
 from tlib.shapes import Base, Mid
 
@@ -75,6 +76,9 @@ def main() -> None:
     print(r.dispatch_computed("a", 1), r.dispatch_computed("b", 2), r.dispatch_pinned(3))
     print(f18.via_other_receiver(4))
     print(f19.via_package_attribute(), f19.via_reexported_function(), f19.via_submodule_alias())
+    h = f20.Holder()
+    print(f20.chained_str("_a-b_"), f20.split_then_index("a,b"), f20.local_keeps_type(" c "))
+    print(f20.non_self_attribute(h), f20.non_self_attribute_container(h), f20.UsesSelf().via_self())
 
 
 if __name__ == "__main__":
