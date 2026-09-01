@@ -132,6 +132,7 @@ boundary_lib	SIMPLE_CALL	f13_declared_dispatch.exact_receiver_is_not_widened -> 
 boundary_lib	SIMPLE_CALL	f14_class_objects.Element.create -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f15_attribute_chains.Middle.__init__ -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f16_element_types.via_comprehension -> builtin:sum
+boundary_lib	SIMPLE_CALL	f18_lambda_dispatch.via_other_receiver -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	main.main -> builtin:print
@@ -179,6 +180,9 @@ known_edge	METHOD_CALL	f16_element_types.via_comprehension -> f16_element_types.
 known_edge	METHOD_CALL	f16_element_types.via_local -> f16_element_types.Hook.process
 known_edge	METHOD_CALL	f16_element_types.via_parameter -> f16_element_types.Hook.process
 known_edge	METHOD_CALL	f16_element_types.via_parameter_from_param_field -> f16_element_types.Hook.process
+known_edge	METHOD_CALL	f18_lambda_dispatch.<lambda> -> f18_lambda_dispatch.Other.emit
+known_edge	METHOD_CALL	f18_lambda_dispatch.Renderer.<lambda> -> f18_lambda_dispatch.Renderer.render_a
+known_edge	METHOD_CALL	f18_lambda_dispatch.Renderer.<lambda> -> f18_lambda_dispatch.Renderer.render_b
 known_edge	METHOD_CALL	main.main -> f01_inheritance.client_chain
 known_edge	METHOD_CALL	main.main -> f01_inheritance.lib_deep_chain
 known_edge	METHOD_CALL	main.main -> f01_inheritance.lib_diamond
@@ -265,6 +269,9 @@ known_edge	METHOD_CALL	main.main -> f16_element_types.via_comprehension
 known_edge	METHOD_CALL	main.main -> f16_element_types.via_local
 known_edge	METHOD_CALL	main.main -> f16_element_types.via_parameter
 known_edge	METHOD_CALL	main.main -> f16_element_types.via_parameter_from_param_field
+known_edge	METHOD_CALL	main.main -> f18_lambda_dispatch.Renderer.dispatch_computed
+known_edge	METHOD_CALL	main.main -> f18_lambda_dispatch.Renderer.dispatch_pinned
+known_edge	METHOD_CALL	main.main -> f18_lambda_dispatch.via_other_receiver
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator_in_for
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_plain
@@ -285,6 +292,8 @@ known_edge	SIMPLE_CALL	main.<module> -> main.main
 known_edge	SIMPLE_CALL	pkgmod.user.run_generator -> pkgmod._gen.each
 known_edge	SIMPLE_CALL	pkgmod.user.run_generator_in_for -> pkgmod._gen.each_first
 known_edge	SIMPLE_CALL	pkgmod.user.run_plain -> pkgmod._gen.plain
+known_edge	SUBSCRIPT_CALL	f18_lambda_dispatch.Renderer.dispatch_pinned -> f18_lambda_dispatch.Renderer.<lambda>
+known_edge	SUBSCRIPT_CALL	f18_lambda_dispatch.via_other_receiver -> f18_lambda_dispatch.<lambda>
 multi_inferred	CHAINED_CALL	f14_class_objects.Registry.build_get -> f14_class_objects.Element.render
 multi_inferred	CHAINED_CALL	f14_class_objects.Registry.build_get -> f14_class_objects.Heading.render
 multi_inferred	CHAINED_CALL	f14_class_objects.Registry.build_get -> f14_class_objects.Para.render
@@ -328,3 +337,4 @@ multi_inferred	METHOD_CALL	f13_declared_dispatch.via_parameter -> f13_declared_d
 multi_inferred	SELF_CALL	f13_declared_dispatch.Base.run -> f13_declared_dispatch.Base.step
 multi_inferred	SELF_CALL	f13_declared_dispatch.Base.run -> f13_declared_dispatch.StepA.step
 multi_inferred	SELF_CALL	f13_declared_dispatch.Base.run -> f13_declared_dispatch.StepB.step
+multi_inferred	SUBSCRIPT_CALL	f18_lambda_dispatch.Renderer.dispatch_computed -> f18_lambda_dispatch.Renderer.<lambda>
