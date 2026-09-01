@@ -137,6 +137,14 @@ require_resolved link-conditional.ts emitOne \
 require_resolved link-conditional.ts deeper \
   "a field member reached through a destructured parameter"
 
+# A namespace declared inside `declare global`, published by a package. The receiver is
+# UNKNOWN to the binder, so this resolves by NAME against a NAMESPACE_TYPE — and the
+# NAMESPACE_TYPE guard is what stops any similarly-named global from answering.
+require_resolved link-conditional.ts defineMeta \
+  "a function member of a global namespace"
+require_resolved link-conditional.ts getMeta \
+  "the same, second member"
+
 # The fixture answers only where it is sure: a WRONG answer here is a rule that
 # manufactures confidence, which is worse than the missing edge it replaces.
 if ! grep -qE '^WRONG \(engine named, oracle disagrees\)[[:space:]]+0$' "$SCORE"; then
