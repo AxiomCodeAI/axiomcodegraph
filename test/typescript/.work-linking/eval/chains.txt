@@ -1,26 +1,26 @@
 ── client/library boundary (compiler's path vs engine's provenance) ──
-  sites adjudicable            88
+  sites adjudicable            90
   agree  client -> client      17
-  agree  client -> library     70
+  agree  client -> library     72
   right side, plus another     1   (a fan that crosses the boundary)
   MISCLASSIFIED                0
 
 ── call-graph edges (caller declaration -> target declaration) ──
-  oracle edges                 95
-  engine has                   85   0.895
+  oracle edges                 97
+  engine has                   87   0.897
   oracle edges MISSING         10
   engine-only (the fan)        7
 
 ── chains from every uncalled client declaration ──
-  roots                        58
-  oracle-reachable declarations 92
-  engine reaches                82   0.891
+  roots                        59
+  oracle-reachable declarations 94
+  engine reaches                84   0.894
   deepest oracle hop            4
   deepest hop the engine holds  4
   UNREACHED (root, lost declaration, hop):  10
     hop 1  link-barrel.ts:19:1 callCharlie  cannot reach  barrel-inner-c.d.ts:1:1 charlie
-    hop 1  link-chains.ts:64:1 detached  cannot reach  lib.es5.d.ts:355:5 bind
     hop 1  link-chains.ts:64:1 detached  cannot reach  named-api.d.ts:13:3 write
+    hop 1  link-chains.ts:64:1 detached  cannot reach  lib.es5.d.ts:355:5 bind
     hop 1  link-conditional.ts:61:1 useDestructuredFromFactory  cannot reach  link-conditional.ts:49:3 emit
     hop 1  link-conditional.ts:61:1 useDestructuredFromFactory  cannot reach  link-conditional.ts:50:3 finish
     hop 1  link-default.ts:15:1 transformViaStatic  cannot reach  default-codec.d.ts:6:3 transform
