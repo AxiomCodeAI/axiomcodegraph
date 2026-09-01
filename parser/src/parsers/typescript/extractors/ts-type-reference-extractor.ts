@@ -587,8 +587,22 @@ function entityNameOf(node: ts.TypeNode, sourceFile: ts.SourceFile): string {
     return EntityUtils.normalizeWhitespace(node.expression.getText(sourceFile));
   }
   // An import type writes its entity after the specifier: `import("m").T`.
-  if (ts.isImportTypeNode(node) && node.qualifier !== undefined) {
-    return EntityUtils.normalizeWhitespace(node.qualifier.getText(sourceFile));
+  if (ts.isImportTypeNode(node)) {
+    if (node.qualifier !== undefined) {
+      return EntityUtils.normalizeWhitespace(node.qualifier.getText(sourceFile));
+    }
+    // `typeof import("m")["x"]` says the same thing with brackets, and puts the
+    // member on the INDEXED ACCESS above instead of on a qualifier. Reading only
+    // the qualifier names the module and not the member -- the half that a scope
+    // lookup actually needs -- and leaves the bracket form to string arithmetic.
+    const parent = node.parent;
+    if (parent !== undefined
+      && ts.isIndexedAccessTypeNode(parent)
+      && parent.objectType === node
+      && ts.isLiteralTypeNode(parent.indexType)
+      && ts.isStringLiteral(parent.indexType.literal)) {
+      return parent.indexType.literal.text;
+    }
   }
   return '';
 }
