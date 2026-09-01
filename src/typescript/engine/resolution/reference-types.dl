@@ -345,7 +345,7 @@ method_return_element(m, prov, t) :- method_return_ref(_, r, m),
 // parser hangs on the expression. Kept in this file rather than in expr-type.dl
 // because the flow-typing rules above depend on it and must stay in a stratum below
 // the expr_type fixpoint.
-new_expression_type(e, prov, t) :- ts_type_reference(_, "OBJECT_CREATION_TYPE", _, _, _, _, _, "0", _, _, _, _, _, _, _, e, "EXPRESSION", _, _, _, _, _, _, _, _, _, _, _, _, ref),
+new_expression_type(e, prov, t) :- ts_type_reference(_, "OBJECT_CREATION_TYPE", _, _, _, _, _, "0", _, _, _, _, _, _, _, _, e, "EXPRESSION", _, _, _, _, _, _, _, _, _, _, _, _, ref),
     ref_type_target(ref, prov, t).
 
 // ── enum_member_type(EnumMemberHash, Prov, TypeHash) ────────────────────────

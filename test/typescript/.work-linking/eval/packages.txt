@@ -12,3 +12,4 @@
 @tt/shallow
 @tt/subpath
 @types/plainjs
+virtual-tools

@@ -125,38 +125,38 @@ type_lines("lib", sl, el, h) :- lib_ts_type(_, _, _, _, _, _, _, _, _, sl, el, _
 // OwnerKind (col 16, TsReferenceOwnerKind): TYPE | METHOD | METHOD_PARAM | FIELD |
 //   VARIABLE | TYPE_PARAMETER | EXPRESSION | DECORATOR | HERITAGE | TYPE_REFERENCE |
 //   ENUM_MEMBER | EXPORT | MODULE.
-type_ref("client", kind, ctx, tn, ctn, owner, ownerKind, h) :- ts_type_reference(kind, ctx, _, _, _, _, _, _, tn, ctn, _, _, _, _, _, owner, ownerKind, _, _, _, _, _, _, _, _, _, _, _, _, h).
-type_ref("lib", kind, ctx, tn, ctn, owner, ownerKind, h) :- lib_ts_type_reference(kind, ctx, _, _, _, _, _, _, tn, ctn, _, _, _, _, _, owner, ownerKind, _, _, _, _, _, _, _, _, _, _, _, _, h).
+type_ref("client", kind, ctx, tn, ctn, owner, ownerKind, h) :- ts_type_reference(kind, ctx, _, _, _, _, _, _, tn, ctn, _, _, _, _, _, _, owner, ownerKind, _, _, _, _, _, _, _, _, _, _, _, _, h).
+type_ref("lib", kind, ctx, tn, ctn, owner, ownerKind, h) :- lib_ts_type_reference(kind, ctx, _, _, _, _, _, _, tn, ctn, _, _, _, _, _, _, owner, ownerKind, _, _, _, _, _, _, _, _, _, _, _, _, h).
 
 // ── type_ref_parent(Prov, ParentRefHash, Position, ChildRefHash) ────────────
 // A union is N ROWS, not one row with a list (max arity measured: 208). Every
 // composite type node links its children here, so walking `A | B` means walking
 // this relation — there is no list to destructure.
-type_ref_parent("client", parent, pos, h) :- ts_type_reference(_, _, _, _, _, parent, pos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), parent != "".
-type_ref_parent("lib", parent, pos, h) :- lib_ts_type_reference(_, _, _, _, _, parent, pos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), parent != "".
+type_ref_parent("client", parent, pos, h) :- ts_type_reference(_, _, _, _, _, parent, pos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), parent != "".
+type_ref_parent("lib", parent, pos, h) :- lib_ts_type_reference(_, _, _, _, _, parent, pos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), parent != "".
 
 // ── type_ref_depth(Prov, Depth, RefHash) / type_ref_module(Prov, ModuleHash, RefHash) ──
 // Depth 0 is the ENTITY'S OWN type; depth >= 1 are its type arguments. Every
 // declared-type rule filters on depth 0 for the reason Java's does: without it a
 // field of type `Map<string, Handler>` maps that field to Map AND string AND
 // Handler, and a call on the field dispatches against all three.
-type_ref_depth("client", d, h) :- ts_type_reference(_, _, _, _, _, _, _, d, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
-type_ref_depth("lib", d, h) :- lib_ts_type_reference(_, _, _, _, _, _, _, d, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
-type_ref_module("client", m, h) :- ts_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, _, _, _, _, _, _, _, h).
-type_ref_module("lib", m, h) :- lib_ts_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, _, _, _, _, _, _, _, h).
+type_ref_depth("client", d, h) :- ts_type_reference(_, _, _, _, _, _, _, d, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+type_ref_depth("lib", d, h) :- lib_ts_type_reference(_, _, _, _, _, _, _, d, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+type_ref_module("client", m, h) :- ts_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, _, _, _, _, _, _, _, h).
+type_ref_module("lib", m, h) :- lib_ts_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, _, _, _, _, _, _, _, h).
 
 // ── type_ref_import_specifier(Prov, Specifier, RefHash) ─────────────────────
 // `import("./m").Foo` — an IMPORT_TYPE writes its module specifier inline. The
 // only type reference that carries its own module edge instead of relying on the
 // file's imports.
-type_ref_import_specifier("client", spec, h) :- ts_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, spec, _, _, _, _, _, _, h), spec != "".
-type_ref_import_specifier("lib", spec, h) :- lib_ts_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, spec, _, _, _, _, _, _, h), spec != "".
+type_ref_import_specifier("client", spec, h) :- ts_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, spec, _, _, _, _, _, _, h), spec != "".
+type_ref_import_specifier("lib", spec, h) :- lib_ts_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, spec, _, _, _, _, _, _, h), spec != "".
 
 // ── type_ref_literal_value(Prov, Value, RefHash) ────────────────────────────
 // A LITERAL type reference's text, quotes included — `'expectTypeOf'`. The index half of
 // an indexed access is one of these.
-type_ref_literal_value("client", v, h) :- ts_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, v, _, _, _, h), v != "".
-type_ref_literal_value("lib", v, h) :- lib_ts_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, v, _, _, _, h), v != "".
+type_ref_literal_value("client", v, h) :- ts_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, v, _, _, _, h), v != "".
+type_ref_literal_value("lib", v, h) :- lib_ts_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, v, _, _, _, h), v != "".
 
 // ── type_param(Prov, Name, Position, OwnerKind, OwnerHash, ParamHash) ───────
 // ONE relation where Java has two, because TypeScript attaches type parameters to
