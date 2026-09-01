@@ -567,7 +567,7 @@ divergence from Java** and it costs the `method_type_parameter` projection a ren
 
 ---
 
-### 4.5 `ts_type_reference` / `lib_ts_type_reference` — 30 columns
+### 4.5 `ts_type_reference` / `lib_ts_type_reference` — 31 columns
 
 The **type-node tree**. Positions 0–16 mirror `java_type_reference` 0–16, so the whole
 name→type layer in `type-resolution.dl` ports with a relation rename. This is also where every
@@ -585,26 +585,27 @@ type-level construct lives (§3.3) and where unions become N rows (§3.4).
 | 7 | `depth` [J] | 1 | 0 = outermost; **capped at 20** (measured max 19) |
 | 8 | `typeName` [J] | 1 | rightmost simple name — `User` |
 | 9 | `completeTypeName` [J] | 1 | full written text — `Array<Map<string, User>>` |
-| 10 | `typeVariableName` [J] | 1 | `T` if a type variable; `""` |
-| 11 | `arrayDimensions` [J] | 1 | populated for `T[][]`; `""` otherwise |
-| 12 | `wildcardVariance` [J] | 1 | repurposed: `READONLY` for `readonly T[]`, `UNIQUE` for `unique symbol`, else `""`. TypeScript has no use-site wildcards |
-| 13 | `startLine` [J] | 1 | |
-| 14 | `endLine` [J] | 1 | |
-| 15 | `typeReferenceOwnerHash` [J] | 1 | polymorphic FK |
-| 16 | `referenceOwnerKind` [J] | 1 | `TYPE` \| `METHOD` \| `METHOD_PARAM` \| `FIELD` \| `VARIABLE` \| `TYPE_PARAMETER` \| `EXPRESSION` \| `DECORATOR` \| `HERITAGE` \| `TYPE_REFERENCE` \| `ENUM_MEMBER` \| `EXPORT` |
-| 17 | `tsModuleLinkHash` ★ | 1 | FK→`ts_module` |
-| 18 | `childCount` ★ | 1 | **source** arity — a 208-member union has `childCount = 208` and 208 child rows |
-| 19 | `isTypeOnlyPosition` ★ | 1 | `true` unless the node sits in a value-bearing position (e.g. `new C<T>()` type arguments). The structural guarantee of §3.3 |
-| 20 | `resolvedGroupKey` ★ | 2 | `declarationGroupKey` of the referenced declaration; `""` |
-| 21 | `isResolvedLocally` ★ | 2 | |
-| 22 | `importSpecifier` ★ | 1 | for `import("mod").T`; `""` |
-| 23 | `isOptionalElement` ★ | 1 | `[a?: T]` tuple element, or `?` on the annotated member |
-| 24 | `isRestElement` ★ | 1 | `[...T[]]` |
-| 25 | `literalValue` ★ | 1 | for `kind = LITERAL` — `'a'`, `42`, `true` (12,706 measured) |
-| 26 | `isTruncated` ★ | 1 | the depth cap was hit; a lost subtree is visible, never silent |
-| 27 | `startColumn` ★ | 1 | |
-| 28 | `serviceVersionLinkHash` | 1 | |
-| 29 | `tsTypeReferenceUniqueHash` | — | **PK** |
+| 10 | `entityName` ★ | 1 | the name as written, WITHOUT type arguments — `Outer.Inner.Node` for `Outer.Inner.Node<T>`, `Map` for `Map<string, User>`. `typeName` is only the rightmost segment and `completeTypeName` carries the arguments, so neither is the qualified name a scope lookup needs |
+| 11 | `typeVariableName` [J] | 1 | `T` if a type variable; `""` |
+| 12 | `arrayDimensions` [J] | 1 | populated for `T[][]`; `""` otherwise |
+| 13 | `wildcardVariance` [J] | 1 | repurposed: `READONLY` for `readonly T[]`, `UNIQUE` for `unique symbol`, else `""`. TypeScript has no use-site wildcards |
+| 14 | `startLine` [J] | 1 | |
+| 15 | `endLine` [J] | 1 | |
+| 16 | `typeReferenceOwnerHash` [J] | 1 | polymorphic FK |
+| 17 | `referenceOwnerKind` [J] | 1 | `TYPE` \| `METHOD` \| `METHOD_PARAM` \| `FIELD` \| `VARIABLE` \| `TYPE_PARAMETER` \| `EXPRESSION` \| `DECORATOR` \| `HERITAGE` \| `TYPE_REFERENCE` \| `ENUM_MEMBER` \| `EXPORT` |
+| 18 | `tsModuleLinkHash` ★ | 1 | FK→`ts_module` |
+| 19 | `childCount` ★ | 1 | **source** arity — a 208-member union has `childCount = 208` and 208 child rows |
+| 20 | `isTypeOnlyPosition` ★ | 1 | `true` unless the node sits in a value-bearing position (e.g. `new C<T>()` type arguments). The structural guarantee of §3.3 |
+| 21 | `resolvedGroupKey` ★ | 2 | `declarationGroupKey` of the referenced declaration; `""` |
+| 22 | `isResolvedLocally` ★ | 2 | |
+| 23 | `importSpecifier` ★ | 1 | for `import("mod").T`; `""` |
+| 24 | `isOptionalElement` ★ | 1 | `[a?: T]` tuple element, or `?` on the annotated member |
+| 25 | `isRestElement` ★ | 1 | `[...T[]]` |
+| 26 | `literalValue` ★ | 1 | for `kind = LITERAL` — `'a'`, `42`, `true` (12,706 measured) |
+| 27 | `isTruncated` ★ | 1 | the depth cap was hit; a lost subtree is visible, never silent |
+| 28 | `startColumn` ★ | 1 | |
+| 29 | `serviceVersionLinkHash` | 1 | |
+| 30 | `tsTypeReferenceUniqueHash` | — | **PK** |
 
 **PK** `TS_TYPE_REFERENCE_md5(typeReferenceOwnerHash ‖ context ‖ parentReferenceHash ‖ position ‖ depth ‖ completeTypeName ‖ startLine ‖ startColumn)`
 

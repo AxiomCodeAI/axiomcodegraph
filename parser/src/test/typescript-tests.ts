@@ -2366,6 +2366,88 @@ async function annotatedDeclarationsNameTheirType(): Promise<number> {
   return failures.length ? 1 : 0;
 }
 
+// ---------------------------------------------------------------------------
+// 24. A type reference names its entity without type arguments
+// ---------------------------------------------------------------------------
+
+/**
+ * A scope lookup needs the name as WRITTEN, minus the type arguments.
+ *
+ * `typeName` gives only the rightmost segment -- `Node` for
+ * `Outer.Inner.Node<T>` -- and `completeTypeName` carries the arguments. So
+ * neither is the qualified name, and a consumer had to find the first "<" by
+ * hand to get it.
+ *
+ * The shortcut that looks right and is not: treating `typeName ==
+ * completeTypeName` as the qualified/unqualified test. `Map<string, User>`
+ * differs from `Map` for a reason that has nothing to do with qualification, so
+ * that test misfiles every generic reference -- and half-resolving is harder to
+ * notice than not resolving at all.
+ *
+ * The AST holds the answer directly: a TypeReferenceNode's `typeName` is an
+ * EntityName and its `typeArguments` are a separate property. This is a read,
+ * not a derivation, which is why it belongs in the IR.
+ */
+async function typeReferencesNameTheirEntity(): Promise<number> {
+  if (!parserPresent()) {
+    return pendingCheck('type references name their entity',
+      'no extractor yet. A reference must name the entity it writes, without type arguments');
+  }
+  const { outputDir, cleanup } = await analyseInline('ts-entity-', {
+    'q.ts': [
+      'export namespace Outer { export namespace Inner { export interface Node<T> { v: T } } }',
+      'export interface Plain { x: number }',
+      'export class Base<T> { v?: T }',
+      'declare const a: Outer.Inner.Node<string>;',
+      'declare const b: Plain;',
+      'declare const c: Map<string, Plain>;',
+      'declare const d: ReadonlyArray<Outer.Inner.Node<number>>;',
+      'export class Sub extends Base<Plain> {}',
+      'export const used = [a, b, c, d];',
+    ].join('\n'),
+  });
+
+  // completeTypeName -> the entityName it must carry
+  const expected = new Map<string, string>([
+    ['Outer.Inner.Node<string>', 'Outer.Inner.Node'],   // qualified AND generic
+    ['Plain', 'Plain'],                                  // neither
+    ['Map<string, Plain>', 'Map'],                       // generic, not qualified
+    ['ReadonlyArray<Outer.Inner.Node<number>>', 'ReadonlyArray'],
+    ['Outer.Inner.Node<number>', 'Outer.Inner.Node'],    // nested inside the above
+    ['Base<Plain>', 'Base'],                             // a heritage clause
+  ]);
+  const failures: string[] = [];
+  const seen = new Set<string>();
+  for (const row of relation(outputDir, 'all-typescript-type-references.csv')) {
+    const complete = row.completeTypeName ?? '';
+    const want = expected.get(complete);
+    if (want === undefined) {
+      continue;
+    }
+    seen.add(complete);
+    const got = row.entityName ?? '';
+    if (got !== want) {
+      failures.push(`${complete}: entityName "${got}", expected "${want}"`);
+    }
+    // The whole point: the entity name must not still carry the arguments.
+    if (got.includes('<')) {
+      failures.push(`${complete}: entityName still carries type arguments`);
+    }
+  }
+  for (const [complete] of expected) {
+    if (!seen.has(complete)) {
+      failures.push(`the fixture produced no reference for ${complete} — the check is vacuous ` +
+        'for that form');
+    }
+  }
+
+  console.log(`  ${expected.size} reference form(s): qualified, generic, qualified-and-generic, ` +
+    'nested, and a heritage clause — each names its entity without arguments');
+  for (const f of failures.slice(0, 10)) console.log(`  ${f}`);
+  cleanup();
+  return failures.length ? 1 : 0;
+}
+
 const CHECKS: Check[] = [
   { name: 'compiles', proves: 'tsc --noEmit is clean — the suite reports on code that actually builds', run: compiles },
   { name: 'fixtures compile and are isolated', proves: 'a fixture is a valid input, and cannot break another language\'s gate', run: fixturesCompile },
@@ -2388,6 +2470,7 @@ const CHECKS: Check[] = [
   { name: 'destructured names reach their value', proves: 'a bound name links the initializer it was destructured from, so a call through one can resolve', run: destructuredNamesReachTheirValue },
   { name: 'unresolved imports name their package', proves: 'a client-only run can say which packages to stage, without needing node_modules present', run: unresolvedImportsNameTheirPackage },
   { name: 'annotated declarations name their type', proves: 'a declared type is reachable as a row, not only readable as text, so type flow can be followed', run: annotatedDeclarationsNameTheirType },
+  { name: 'type references name their entity', proves: 'a reference carries the written name without type arguments, so a scope lookup needs no string surgery', run: typeReferencesNameTheirEntity },
   { name: 'fact-base invariants', proves: 'every PK unique, every FK resolves, every tree well-formed — the failures that load cleanly and count wrong', run: factBaseInvariants },
   { name: 'IR completeness', proves: 'every hop an engine needs in order to resolve is present — the measure that replaced resolution rate', run: irCompleteness },
 ];
