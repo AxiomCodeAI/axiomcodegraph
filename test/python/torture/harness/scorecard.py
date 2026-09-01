@@ -31,12 +31,22 @@ def defs_of(base, tag):
     for f in BYFILE[tag]: BYFILE[tag][f].sort()
     return d
 defs_of(os.path.join(R, 'lib'), 'lib'); defs_of(os.path.join(R, 'client'), 'client')
+# strip_pkg is applied to EVERY side, and that is the whole point. A library file is
+# `tlib/shapes.py` when walked on disk and when traced at runtime; the IR reported it as
+# `shapes.py` while the parser dropped the package prefix, and now reports the prefix
+# too. Stripping on only some sides does not fail loudly -- it renames one side's files,
+# so every client->lib edge simply stops matching and the scorecard reads as though the
+# engine lost most of its answers. Normalising all sides makes this insensitive to which
+# convention the parser emits, in either direction.
+def strip_pkg(prov, f):
+    return f[len('tlib/'):] if prov == 'lib' and f.startswith('tlib/') else f
 def canon(prov, f, l):
     l = DEC.get((prov, f, l), l)
-    if prov == 'lib' and f.startswith('tlib/'): f = f[len('tlib/'):]
-    return (prov, f, l)
+    return (prov, strip_pkg(prov, f), l)
 def meths(d, prov):
-    return {r['pyMethodUniqueHash']: (prov, r['filePath'], int(r['startLine']))
+    # strip_pkg here as well: the IR side has to name a file exactly as the disk and
+    # trace sides do. DEC is keyed on the un-stripped path, so canon cannot be reused.
+    return {r['pyMethodUniqueHash']: (prov, strip_pkg(prov, r['filePath']), int(r['startLine']))
             for r in csv.DictReader(open(f'{R}/{d}/all-python-methods.csv', newline='', encoding='utf-8'), delimiter='\t')}
 M = {}; M.update(meths('client-ir', 'client')); M.update(meths('lib-ir', 'lib'))
 ENG = set()
@@ -53,7 +63,7 @@ def enclosing(prov, rel, line):
     for x in lst:
         if x <= line: best = x
         else: break
-    return (prov, rel[len('tlib/'):] if prov == 'lib' and rel.startswith('tlib/') else rel, best)
+    return (prov, strip_pkg(prov, rel), best)
 for e in gt:
     src = enclosing(e['callerProv'], e['callerFile'], e['callerLine'])
     tgt = canon(e['calleeProv'], e['calleeFile'], e['calleeLine'])

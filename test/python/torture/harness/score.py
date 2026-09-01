@@ -33,7 +33,15 @@ def defs_of(base):
 LD = defs_of(os.path.join(R, 'lib')); CD = defs_of(os.path.join(R, 'client'))
 DEC = {('lib', k): v for k, v in LD.get('DEC', {}).items()}
 DEC.update({('client', k): v for k, v in CD.get('DEC', {}).items()})
-# lib IR is rooted at the PACKAGE, so strip the leading tlib/
+# BOTH sides go through canon, and that is the point rather than a detail. The ground
+# truth is built by walking lib/ on disk, so a library file is `tlib/shapes.py`. The
+# ENGINE side used to report `shapes.py` -- the package prefix was dropped -- so this
+# stripped `tlib/` off the truth to make the two meet. The parser now reports the prefix
+# on both sides, and a ONE-SIDED strip does not fail loudly: it renames one side's files,
+# so every library link scores MISSED while the engine's answer is correct. That read as
+# a total engine collapse with a large WRONG count and no engine change behind it.
+# One canonicalisation applied to both sides is what makes the score insensitive to
+# which of the two conventions the parser emits.
 def canon(prov, f, l):
     l = DEC.get((prov, (f, l)), l)
     if prov == 'lib' and f.startswith('tlib/'): f = f[len('tlib/'):]
@@ -64,7 +72,9 @@ eline = {r['pyExpressionUniqueHash']: (cmod.get(r['pyModuleLinkHash']), int(r['s
          for r in csv.DictReader(open(f'{R}/client-ir/all-python-expressions.csv', newline='', encoding='utf-8'), delimiter='\t')
          if r['kind'] in ('CALL', 'NAME_REFERENCE', 'ATTRIBUTE_ACCESS')}
 def meths(d, prov):
-    return {r['pyMethodUniqueHash']: (prov, r['filePath'], int(r['startLine']))
+    # canon, not the raw columns: the engine's paths must be normalised exactly as the
+    # truth's are, or the two name the same file differently and nothing matches.
+    return {r['pyMethodUniqueHash']: canon(prov, r['filePath'], int(r['startLine']))
             for r in csv.DictReader(open(f'{R}/{d}/all-python-methods.csv', newline='', encoding='utf-8'), delimiter='\t')}
 M = {}; M.update(meths('client-ir', 'client')); M.update(meths('lib-ir', 'lib'))
 byline = collections.defaultdict(set)
