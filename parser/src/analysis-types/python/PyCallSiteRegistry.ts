@@ -237,7 +237,7 @@ export class PyCallSiteRegistry implements EntityIdentifiable {
   toCsv(): string {
     return [
       this.callKind,
-      this.calleeName,
+      EntityUtils.escapeTsv(this.calleeName),
       EntityUtils.escapeTsv(this.calleeDottedPath),
       EntityUtils.escapeTsv(this.receiverText),
       this.receiverKind,

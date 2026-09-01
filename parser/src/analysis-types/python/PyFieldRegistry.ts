@@ -330,23 +330,29 @@ export class PyFieldRegistry implements EntityIdentifiable {
   }
 
   toCsv(): string {
+    // Every free-text column is escaped, not just the ones that have been seen
+    // to need it. A relation either loads or does not, so ONE unescaped value
+    // anywhere removes every field fact from the solve -- the failure is total
+    // and silent rather than local. fieldBaseType is the value that showed it:
+    // a forward reference made it start with a quote, which is invalid CSV
+    // unless the whole cell is quoted.
     return [
-      this.name,
+      EntityUtils.escapeTsv(this.name),
       EntityUtils.escapeTsv(this.fieldTypeName),
-      this.fieldBaseType,
-      this.potentialQualifiedName,
+      EntityUtils.escapeTsv(this.fieldBaseType),
+      EntityUtils.escapeTsv(this.potentialQualifiedName),
       this.isAmbiguous,
-      this.filePath,
+      EntityUtils.escapeTsv(this.filePath),
       this.startLine,
       this.endLine,
       this.pyTypeLinkHash,
-      this.ownerTypeName,
-      this.ownerQualifiedName,
+      EntityUtils.escapeTsv(this.ownerTypeName),
+      EntityUtils.escapeTsv(this.ownerQualifiedName),
       this.fieldAccess,
       this.fieldModifier,
       this.fieldOrigin,
       this.declaringMethodLinkHash,
-      this.receiverName,
+      EntityUtils.escapeTsv(this.receiverName),
       this.isDeclaredInInit,
       this.writeCount,
       this.writtenInMethodCount,

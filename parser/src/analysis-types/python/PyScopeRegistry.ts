@@ -240,7 +240,7 @@ export class PyScopeRegistry implements EntityIdentifiable {
       this.isCoroutine.toString(),
       this.declaresGlobal.toString(),
       this.declaresNonlocal.toString(),
-      this.filePath,
+      EntityUtils.escapeTsv(this.filePath),
       this.startLine.toString(),
       this.startColumn.toString(),
       this.endLine.toString(),

@@ -233,13 +233,13 @@ export class PyModuleRegistry implements EntityIdentifiable {
 
   toCsv(): string {
     return [
-      this.name,
-      this.qualifiedName,
-      this.fileName,
-      this.filePath,
-      this.baseMservPath,
+      EntityUtils.escapeTsv(this.name),
+      EntityUtils.escapeTsv(this.qualifiedName),
+      EntityUtils.escapeTsv(this.fileName),
+      EntityUtils.escapeTsv(this.filePath),
+      EntityUtils.escapeTsv(this.baseMservPath),
       this.moduleKind,
-      this.packageQualifiedName,
+      EntityUtils.escapeTsv(this.packageQualifiedName),
       this.isPackage.toString(),
       this.isStub.toString(),
       this.pythonDialect,

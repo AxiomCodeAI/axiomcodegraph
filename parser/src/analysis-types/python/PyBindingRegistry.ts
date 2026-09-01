@@ -283,7 +283,7 @@ export class PyBindingRegistry implements EntityIdentifiable {
       this.targetEntityHash,
       this.pyModuleLinkHash,
       this.pyMethodLinkHash,
-      this.filePath,
+      EntityUtils.escapeTsv(this.filePath),
       this.serviceVersionLinkHash,
       this.pyBindingUniqueHash,
     ].join('\t');

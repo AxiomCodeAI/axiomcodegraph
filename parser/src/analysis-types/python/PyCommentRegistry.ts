@@ -130,7 +130,7 @@ export class PyCommentRegistry implements EntityIdentifiable {
     return [
       this.kind,
       EntityUtils.escapeTsv(this.text),
-      this.filePath,
+      EntityUtils.escapeTsv(this.filePath),
       this.startLine,
       this.startColumn,
       this.endLine,

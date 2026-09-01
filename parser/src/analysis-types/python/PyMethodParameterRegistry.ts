@@ -207,7 +207,7 @@ export class PyMethodParameterRegistry implements EntityIdentifiable {
 
   toCsv(): string {
     return [
-      this.paramName,
+      EntityUtils.escapeTsv(this.paramName),
       this.position.toString(),
       this.pyMethodLinkHash,
       EntityUtils.escapeTsv(this.parameterBaseType),

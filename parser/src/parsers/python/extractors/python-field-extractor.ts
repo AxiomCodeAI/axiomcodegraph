@@ -1296,13 +1296,39 @@ export class PythonFieldExtractor {
     return annotation.namedChild(0)?.type === 'string';
   }
 
-  /** The head of an annotation: `Dict` for `Dict[str, int]`. */
+  /**
+   * The head of an annotation: `Dict` for `Dict[str, int]`.
+   *
+   * A PEP 484 forward reference is quoted, and the quotes are part of the
+   * annotation TEXT: `value: "Union[str, bytes]"` arrives here still carrying
+   * them. Splitting at the first `[` without removing them first yields
+   * `"Union` -- a name no type in the project can ever match, so the reference
+   * is silently unresolvable rather than wrong in a visible way.
+   *
+   * Only a WHOLE quoted annotation is unwrapped. `Optional["Holder"]` keeps its
+   * inner quotes, because the head there is `Optional` and the quoted part is
+   * an argument that this function never looks at.
+   */
   private baseTypeOf(annotationText: string): string {
-    if (annotationText === '') {
+    const unquoted = this.stripForwardRefQuotes(annotationText);
+    if (unquoted === '') {
       return '';
     }
-    const head = annotationText.split('[')[0] ?? '';
+    const head = unquoted.split('[')[0] ?? '';
     return (head.split('.').pop() ?? '').trim();
+  }
+
+  /** Removes the surrounding quotes of a whole-string forward reference. */
+  private stripForwardRefQuotes(annotationText: string): string {
+    const text = annotationText.trim();
+    if (text.length < 2) {
+      return text;
+    }
+    const first = text[0];
+    if ((first !== '"' && first !== "'") || text[text.length - 1] !== first) {
+      return text;
+    }
+    return text.slice(1, -1).trim();
   }
 
   /**

@@ -288,16 +288,16 @@ export class PyMethodRegistry implements EntityIdentifiable {
 
   toCsv(): string {
     return [
-      this.name,
+      EntityUtils.escapeTsv(this.name),
       EntityUtils.escapeTsv(this.signature),
       EntityUtils.escapeTsv(this.detailedSignature),
-      this.qualifiedName,
-      this.filePath,
+      EntityUtils.escapeTsv(this.qualifiedName),
+      EntityUtils.escapeTsv(this.filePath),
       this.startLine.toString(),
       this.endLine.toString(),
       this.pyTypeLinkHash,
-      this.ownerTypeName,
-      this.ownerQualifiedName,
+      EntityUtils.escapeTsv(this.ownerTypeName),
+      EntityUtils.escapeTsv(this.ownerQualifiedName),
       this.methodAccess,
       this.getMethodModifier(),
       EntityUtils.escapeTsv(this.returnTypeName),

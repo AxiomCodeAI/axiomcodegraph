@@ -201,7 +201,7 @@ export class PyDecoratorRegistry implements EntityIdentifiable {
 
   toCsv(): string {
     return [
-      this.decoratorName,
+      EntityUtils.escapeTsv(this.decoratorName),
       this.kind,
       this.context,
       this.ownerHash,
@@ -211,7 +211,7 @@ export class PyDecoratorRegistry implements EntityIdentifiable {
       this.applicationOrder,
       this.startLine,
       this.endLine,
-      this.dottedPath,
+      EntityUtils.escapeTsv(this.dottedPath),
       EntityUtils.escapeTsv(this.fullText),
       this.argumentCount,
       this.pyExpressionLinkHash,

@@ -136,11 +136,11 @@ export class PyTypeParameterRegistry implements EntityIdentifiable {
 
   toCsv(): string {
     return [
-      this.paramName,
+      EntityUtils.escapeTsv(this.paramName),
       this.position,
-      this.ownerName,
-      this.ownerQualifiedName,
-      this.filePath,
+      EntityUtils.escapeTsv(this.ownerName),
+      EntityUtils.escapeTsv(this.ownerQualifiedName),
+      EntityUtils.escapeTsv(this.filePath),
       this.startLine,
       this.ownerLinkHash,
       this.ownerKind,

@@ -149,7 +149,7 @@ export class PyDecoratorArgumentRegistry implements EntityIdentifiable {
 
   toCsv(): string {
     return [
-      this.argumentName,
+      EntityUtils.escapeTsv(this.argumentName),
       EntityUtils.escapeTsv(this.argumentValue),
       this.valueType,
       this.position,
