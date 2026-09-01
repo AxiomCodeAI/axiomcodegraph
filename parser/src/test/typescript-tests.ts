@@ -2537,6 +2537,104 @@ function columnOrderIsAppendOnly(): number {
   return failures.length ? 1 : 0;
 }
 
+// ---------------------------------------------------------------------------
+// 26. Every constrained type parameter names its bound
+// ---------------------------------------------------------------------------
+
+/**
+ * A bound is only usable if it is reachable as a ROW.
+ *
+ * `constraintText` is the source text. Following it -- to the interface the
+ * bound names, through `keyof T` -- needs the reference tree, reached through
+ * `constraintReferenceLinkHash`.
+ *
+ * Class, interface, method and function parameters carried it. The two TYPE-LEVEL
+ * owners did not: a mapped type's `[K in keyof T]` and an `infer U extends
+ * string` declare a constraint that the ENCLOSING type's tree emits, so the
+ * parameter row had the text and nothing pointing at the reference. That is the
+ * third instance of the same shape, after the signature return and the shape
+ * member, and on one library it was 57 of 928 constrained parameters.
+ *
+ * TypeScript's bound vocabulary is wider than one context: a bound on a type
+ * owner, a bound on a METHOD owner (the split Java makes), a DEFAULT, and a
+ * mapped constraint are four different facts, and the fixture exercises each so
+ * none can regress silently.
+ */
+async function constrainedTypeParametersNameTheirBound(): Promise<number> {
+  if (!parserPresent()) {
+    return pendingCheck('constrained type parameters name their bound',
+      'no extractor yet. A bound must be reachable as a row, not only readable as text');
+  }
+  const { outputDir, cleanup } = await analyseInline('ts-bound-', {
+    'b.ts': [
+      'export interface Base { id: string }',
+      'export interface Aud { at: number }',
+      'export class Svc<T extends Base & Aud> {',
+      '  find<K extends keyof T>(k: K): T[K] { return null as never; }',
+      '  pick<U extends Base = Base>(u: U): U { return u; }',
+      '}',
+      'export interface Repo<T extends Base, S = T[]> { all(): S }',
+      'export type Keys<T> = { [K in keyof T]: T[K] };',
+      'export type Un<T> = T extends Promise<infer U extends object> ? U : never;',
+      'export function free<A extends string, B extends A>(a: A, b: B) { return [a, b]; }',
+    ].join('\n'),
+  });
+
+  const references = new Map(relation(outputDir, 'all-typescript-type-references.csv')
+    .map((r) => [r.tsTypeReferenceUniqueHash ?? '', r]));
+  const rows = relation(outputDir, 'all-typescript-type-parameters.csv');
+  const failures: string[] = [];
+  const owners = new Set<string>();
+  let bounds = 0, defaults = 0;
+
+  for (const row of rows) {
+    owners.add(row.ownerKind ?? '');
+    if ((row.constraintText ?? '') !== '') {
+      const hash = row.constraintReferenceLinkHash ?? '';
+      if (hash === '') {
+        failures.push(`${row.ownerKind} ${row.paramName}: bound "${row.constraintText}" has no ` +
+          'constraintReferenceLinkHash — the bound is text only');
+      } else if (!references.has(hash)) {
+        failures.push(`${row.ownerKind} ${row.paramName}: constraintReferenceLinkHash is DANGLING`);
+      } else {
+        bounds += 1;
+      }
+    }
+    if ((row.defaultText ?? '') !== '') {
+      const hash = row.defaultReferenceLinkHash ?? '';
+      if (hash === '' || !references.has(hash)) {
+        failures.push(`${row.ownerKind} ${row.paramName}: default "${row.defaultText}" has no ` +
+          'usable defaultReferenceLinkHash');
+      } else {
+        defaults += 1;
+      }
+    }
+  }
+
+  // The type-LEVEL owners are the ones that were broken; assert the fixture
+  // produced them, or the check passes by not reaching them.
+  for (const owner of ['CLASS', 'INTERFACE', 'METHOD', 'FUNCTION', 'MAPPED_TYPE', 'INFER_TYPE']) {
+    if (!owners.has(owner)) {
+      failures.push(`the fixture produced no ${owner} type parameter — vacuous for that owner`);
+    }
+  }
+  // The four bound-bearing contexts must all appear.
+  const contexts = new Set(relation(outputDir, 'all-typescript-type-references.csv')
+    .map((r) => r.context ?? ''));
+  for (const context of ['TYPE_PARAM_BOUND', 'METHOD_TYPE_PARAM_BOUND', 'TYPE_PARAM_DEFAULT',
+    'MAPPED_CONSTRAINT']) {
+    if (!contexts.has(context)) {
+      failures.push(`no type reference with context ${context}`);
+    }
+  }
+
+  console.log(`  ${bounds} bound(s) and ${defaults} default(s) reach a reference row across ` +
+    `${owners.size} owner kind(s), type-level owners included`);
+  for (const f of failures.slice(0, 10)) console.log(`  ${f}`);
+  cleanup();
+  return failures.length ? 1 : 0;
+}
+
 const CHECKS: Check[] = [
   { name: 'compiles', proves: 'tsc --noEmit is clean — the suite reports on code that actually builds', run: compiles },
   { name: 'fixtures compile and are isolated', proves: 'a fixture is a valid input, and cannot break another language\'s gate', run: fixturesCompile },
@@ -2560,6 +2658,7 @@ const CHECKS: Check[] = [
   { name: 'unresolved imports name their package', proves: 'a client-only run can say which packages to stage, without needing node_modules present', run: unresolvedImportsNameTheirPackage },
   { name: 'annotated declarations name their type', proves: 'a declared type is reachable as a row, not only readable as text, so type flow can be followed', run: annotatedDeclarationsNameTheirType },
   { name: 'type references name their entity', proves: 'a reference carries the written name without type arguments, so a scope lookup needs no string surgery', run: typeReferencesNameTheirEntity },
+  { name: 'constrained type parameters name their bound', proves: 'a bound and a default are reachable as rows for every owner kind, type-level ones included', run: constrainedTypeParametersNameTheirBound },
   { name: 'column order is append-only', proves: 'a column is never inserted mid-table, because Souffle binds by position and misbinds silently', run: columnOrderIsAppendOnly },
   { name: 'fact-base invariants', proves: 'every PK unique, every FK resolves, every tree well-formed — the failures that load cleanly and count wrong', run: factBaseInvariants },
   { name: 'IR completeness', proves: 'every hop an engine needs in order to resolve is present — the measure that replaced resolution rate', run: irCompleteness },
