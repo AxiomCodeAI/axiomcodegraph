@@ -129,6 +129,14 @@ require_resolved link-conditional.ts isArrayAlias \
 require_resolved link-conditional.ts assignAlias \
   "the same through a different global"
 
+# A destructuring-pattern PARAMETER. The bound names exist only as parser rows; if the
+# binding rules regress these become unresolvable, and nothing else in the suite covers
+# a name that has no declaration of its own.
+require_resolved link-conditional.ts emitOne \
+  "a method member reached through a destructured parameter"
+require_resolved link-conditional.ts deeper \
+  "a field member reached through a destructured parameter"
+
 # The fixture answers only where it is sure: a WRONG answer here is a rule that
 # manufactures confidence, which is worse than the missing edge it replaces.
 if ! grep -qE '^WRONG \(engine named, oracle disagrees\)[[:space:]]+0$' "$SCORE"; then

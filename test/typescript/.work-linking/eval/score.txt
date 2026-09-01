@@ -73,6 +73,6 @@ top missed by ORACLE TARGET FILE (which declaration family is unreachable):
        1  generic-lib.d.ts
        1  legacy-pack.d.ts
 
-per-site detail written to /tmp/tdg-wt/test/typescript/.work-linking/eval/sites.tsv
+per-site detail written to /tmp/tdg-dev/test/typescript/.work-linking/eval/sites.tsv
 
-missed sites dumped to /tmp/tdg-wt/test/typescript/.work-linking/eval/missed.tsv
+missed sites dumped to /tmp/tdg-dev/test/typescript/.work-linking/eval/missed.tsv

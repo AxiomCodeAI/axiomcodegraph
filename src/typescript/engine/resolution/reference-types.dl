@@ -343,3 +343,38 @@ new_expression_type(e, prov, t) :- ts_type_reference(_, "OBJECT_CREATION_TYPE", 
 // ── enum_member_type(EnumMemberHash, Prov, TypeHash) ────────────────────────
 // `Color.RED.toString()` — an enum member's type is its owning enum.
 enum_member_type(em, prov, t) :- enum_member_decl(prov, _, t, _, em), t != "".
+
+// ── DESTRUCTURED PARAMETER BINDINGS — `function f({ helper, nested }: Ctx)` ──
+// The parser emits a row per bound name carrying the property it binds
+// (`bindingSourceKind=PROPERTY`, `bindingSource=helper`); nothing consumed it. Until
+// now every call through such a binding was unresolvable, and unresolvable in a way no
+// downstream rule could work around, because the name did not exist in the IR at all.
+//
+// The pattern parameter is the POSITIONAL row at the same position in the same method:
+// the bound names carry that position too, which is why they had to be filtered out of
+// `param_decl` and why the join back is exact rather than a guess.
+binding_pattern_type(bh, prov, t) :- param_binding(_, _, pos, "PROPERTY", _, m, bh),
+    param_decl(_, _, pos, _, m, ph),
+    param_type(ph, prov, t).
+
+// (a) the bound name names a FIELD — `{ nested }: Ctx` then `nested.deep(1)`. The
+// binding takes that field's type, and ordinary member lookup does the rest.
+param_type(bh, prov, ft) :- param_binding(_, _, _, "PROPERTY", src, _, bh),
+    binding_pattern_type(bh, _, t),
+    scope_sibling(t, sib),
+    declared_field(sib, src, _, f),
+    field_type(f, prov, ft).
+param_shape_target(bh, sh) :- param_binding(_, _, _, "PROPERTY", src, _, bh),
+    binding_pattern_type(bh, _, t),
+    scope_sibling(t, sib),
+    declared_field(sib, src, _, f),
+    field_shape(f, sh).
+
+// (b) the bound name names a METHOD — `{ helper }: Ctx` then `helper('x')`. There is no
+// type to inherit: the target IS the interface's method. Read through
+// declared_method / scope_sibling rather than method_in_scope, which is guarded by
+// lookup_scope and would drag this into the expression fixpoint.
+param_binding_method(bh, m2) :- param_binding(_, _, _, "PROPERTY", src, _, bh),
+    binding_pattern_type(bh, _, t),
+    scope_sibling(t, sib),
+    declared_method(sib, src, _, m2).
