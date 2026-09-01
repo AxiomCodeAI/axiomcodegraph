@@ -25,6 +25,7 @@ import * as path from 'path';
 import { PythonProjectAnalyzer } from '@/workflows/python/python-project-analyzer';
 
 import { constructPositions } from './python-gates/construct-positions';
+import { enumEmission } from './python-gates/enum-emission';
 import { stubModuleNames } from './python-gates/stub-module-names';
 
 const VERIFIED = 'src/test-data/python/verified';
@@ -511,6 +512,8 @@ const CHECKS: Check[] = [
     proves: 'shapes resolvable in principle keep resolving; the count may fall, never rise' },
   { name: 'PEP 695 type parameters', run: pep695,
     proves: 'py_type_parameter matches frozen CPython 3.12 truth' },
+  { name: 'enum emission', run: enumEmission,
+    proves: 'every value the schema declares has code that can produce it; the gap may fall, never rise' },
   { name: 'stub module names', run: stubModuleNames,
     proves: 'a .pyi tree is named exactly as the .py tree in the same position' },
   { name: 'construct x position', run: constructPositions,
