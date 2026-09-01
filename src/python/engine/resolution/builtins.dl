@@ -303,3 +303,14 @@ builtin_method_returns("frozenset", "difference", "frozenset").
 builtin_method_returns("frozenset", "intersection", "frozenset").
 builtin_method_returns("frozenset", "symmetric_difference", "frozenset").
 builtin_method_returns("frozenset", "union", "frozenset").
+
+
+// ── class_definition_keyword(Name) ───────────────────────────────────────────
+// A keyword argument Python itself gives meaning to in a class header. `metaclass` is the
+// only one the engine reads today; `Generic`/`Protocol` bases are handled as type names
+// rather than keywords.
+//
+// Declared here rather than written inline because the literal gate requires it: a keyword
+// name is a language fact, and language facts belong in a reviewable list. The gate found
+// this one -- it was the last inline literal in a join position anywhere in the engine.
+class_definition_keyword("metaclass").
