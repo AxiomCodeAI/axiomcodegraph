@@ -44,3 +44,6 @@ client_calls_builtin("client", site, label) :- call_hits_builtin(site, label).
 // (resolution/lib-linking.dl). Labelled `external:<written path>`, which is a NAME and
 // not a hash, because no entity for it exists anywhere in the fact base.
 client_calls_external(site, label) :- call_hits_external(site, label).
+// A library was staged and consulted but produced no member: still a NAMED boundary,
+// never a silent drop (issue #72).
+client_calls_external(site, label) :- call_hits_lib_unresolved(site, label).
