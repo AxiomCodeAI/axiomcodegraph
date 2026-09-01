@@ -63,3 +63,19 @@ export function useDestructuredFromFactory(code: string): string {
   emit(code);
   return finish();
 }
+
+// ── a DESTRUCTURED PARAMETER, typed from the interface it destructures ───────
+// `{ helper, nested }: Ctx` binds names that appear nowhere in the source as
+// declarations. The parser emits a row per bound name carrying the property it binds;
+// the engine gives each the type of that member on the pattern's type. A method member
+// resolves to the method itself (there is no type to inherit); a field member gives the
+// binding a type that ordinary member lookup then walks.
+interface BindCtx {
+  emitOne(code: string): void;
+  inner: { deeper(n: number): number };
+}
+
+export function useDestructuredParam({ emitOne, inner }: BindCtx, code: string): number {
+  emitOne(code);              // -> BindCtx.emitOne   (a METHOD member)
+  return inner.deeper(1);     // -> the field's type, then .deeper
+}

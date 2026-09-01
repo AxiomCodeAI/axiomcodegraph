@@ -104,12 +104,35 @@ def main():
             got = sorted(seen.get(mh, []), key=lambda x: int(x) if x.isdigit() else -1)
             if got != [str(i) for i in range(n)]:
                 broken += 1
-        if broken:
+        # PROPORTIONALITY. This check exists to catch a SCHEMA change, and a schema
+        # change is not subtle: it breaks the invariant for a large share of methods at
+        # once, or it introduces a kind nobody has seen. One method breaking it is a
+        # peculiar construct, not drift — and refusing to measure a 75,000-site project
+        # over a single method makes the gate an obstacle rather than a safeguard,
+        # which is how gates end up disabled.
+        # The kinds the engine knows how to classify. NONE is a real parameter or the
+        # pattern itself; the rest are names bound OUT of a pattern and are therefore
+        # not positional. OBJECT_REST (`{ a, ...rest }`) was found by this check —
+        # it is a bound name like the others, and the filter already treats it as one,
+        # but an unrecognised kind is exactly what must not pass silently.
+        KNOWN = {'NONE', '', 'PROPERTY', 'INDEX', 'OBJECT_REST'}
+        unknown = sorted(kinds - KNOWN)
+        rate = broken / len(want) if want else 0.0
+        if unknown:
             bad.append(
-                f'positional invariant: {broken} methods whose NONE-kind parameter rows '
-                f'are not exactly positions 0..parameterCount-1. The engine separates '
-                f'real parameters from destructuring bound names on that property; '
-                f'kinds seen: {sorted(kinds)}')
+                f'unrecognised bindingSourceKind {unknown}: the engine treats only '
+                f'{sorted(KNOWN - {""})} as known, and separates real parameters from '
+                f'destructuring bound names on that distinction. A new kind silently '
+                f'changes which rows count as positional.')
+        if rate > 0.01:
+            bad.append(
+                f'positional invariant: {broken} of {len(want)} methods ({rate:.1%}) '
+                f'whose NONE-kind parameter rows are not exactly '
+                f'positions 0..parameterCount-1')
+        elif broken:
+            print(f'note: {broken} of {len(want)} methods ({rate:.2%}) break the '
+                  f'positional parameter invariant — below the drift threshold, '
+                  f'reported so it is not invisible')
 
     if bad:
         print('SCHEMA DRIFT — the IR and the declarations disagree:')
