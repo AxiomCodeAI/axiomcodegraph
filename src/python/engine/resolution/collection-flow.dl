@@ -172,6 +172,73 @@ expr_denotes_method(p, e, m) :-
 // ── a bare LAMBDA used directly as a callee: `(lambda n: n)(3)` ───────────────
 expr_denotes_method(p, e, m) :- expr_lambda_method(p, e, m).
 
+// ============================================================================
+// A DISPATCH TABLE OF LAMBDAS, KEYED BY DATA (issue #71)
+//
+//     class Generator:
+//         TRANSFORMS = { NodeA: lambda self, e: self.render(e, "a"), ... }
+//         def generate(self, node):
+//             return self.TRANSFORMS[type(node)](self, node)
+//
+// Two things stopped this resolving, and both have precedent above.
+//
+// (1) The registry is a CLASS-LEVEL attribute, and dict entries were only ever keyed on a
+//     BINDING — which is where a registry shared by every instance does not live.
+// (2) The key is DATA, so the pinned-key clause cannot fire.
+//
+// The consequence compounds: the lambda is never reached as a callee, so its parameters
+// are never bound by param_arg_type, so `self` inside the body has no type and every call
+// on it is unresolved. On one measured codebase this single shape is about a third of all
+// unresolved call sites.
+//
+// Note what this does NOT do: it never treats a lambda parameter named `self` as `self`.
+// The name carries no privilege inside a lambda. The type arrives from the ARGUMENT at
+// the call site, through the same param_arg_type the engine already uses for ordinary
+// functions -- so a lambda whose first argument is something else gets that something else.
+// ============================================================================
+
+// ── field_dict_entry_method(Prov, FieldHash, Key, MethodHash) ────────────────
+// A dict of callables written in a class body, read through `self.NAME`.
+field_dict_entry_method(p, f, k, m) :-
+    field_write_value(p, f, val),
+    dict_literal_entry(p, val, k, ve),
+    expr_denotes_method(p, ve, m).
+field_dict_entry_method(p, f, k, m) :-
+    field_write_value(p, f, val),
+    dict_literal_entry(p, val, k, ve),
+    expr_lambda_method(p, ve, m).
+
+// ── a pinned key into a class-level table ───────────────────────────────────
+expr_denotes_method(p, e, m) :-
+    expr_node(p, "SUBSCRIPT", _, _, e),
+    expr_parent(p, e, "SUBSCRIPT_OBJECT", _, obj),
+    expr_parent(p, e, "SUBSCRIPT_INDEX", _, idx),
+    expr_key_text(p, idx, k),
+    expr_attr_of_self(p, obj, n, owner),
+    type_attr_field(p, owner, n, f),
+    field_dict_entry_method(p, f, k, m).
+
+// ── an UNPINNED key yields the UNION of the table's entries ─────────────────
+// The key is data; the entries are not. Same trade as everywhere else -- a sound set the
+// true target is inside beats a blank -- and keyed on the index NOT being a literal so it
+// stays a comparison rather than a negation, leaving the pinned clauses their exact answer.
+expr_denotes_method(p, e, m) :-
+    expr_node(p, "SUBSCRIPT", _, _, e),
+    expr_parent(p, e, "SUBSCRIPT_OBJECT", _, obj),
+    expr_parent(p, e, "SUBSCRIPT_INDEX", _, idx),
+    expr_node(p, ik, _, _, idx), ik != "LITERAL",
+    expr_attr_of_self(p, obj, n, owner),
+    type_attr_field(p, owner, n, f),
+    field_dict_entry_method(p, f, _, m).
+expr_denotes_method(p, e, m) :-
+    expr_node(p, "SUBSCRIPT", _, _, e),
+    expr_parent(p, e, "SUBSCRIPT_OBJECT", _, obj),
+    expr_parent(p, e, "SUBSCRIPT_INDEX", _, idx),
+    expr_node(p, ik, _, _, idx), ik != "LITERAL",
+    expr_binding(p, ob, ctx, obj), ctx != "STORE",
+    binding_lookup(p, ob, b),
+    binding_dict_entry_method(p, b, _, m).
+
 // ── subscript_dispatch_incomplete(SiteKey) ───────────────────────────────────
 // The site subscripts a container that is also written with a key the engine could not
 // pin, so the resolved set may be short. A declared limitation attached to the site
