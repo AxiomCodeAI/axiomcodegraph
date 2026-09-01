@@ -326,6 +326,8 @@ export class PythonFactExtractor {
         ...fieldStage.fieldTypePositions,
         ...narrowingPositions,
       ],
+      bindingHashByScopeAndName: scopeStage.bindingHashByScopeAndName,
+      moduleScopeHash: scopeStage.module.getModuleScopeLinkHash(),
       pyModuleLinkHash: scopeStage.module.getHash(),
       serviceVersionLinkHash: input.serviceVersionLinkHash,
     });

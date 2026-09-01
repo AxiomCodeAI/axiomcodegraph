@@ -9,6 +9,12 @@ import {
 } from '@/enums/python/type-references';
 import { EntityUtils } from '@/utils/entity-utils';
 
+/** A `X = TypeVar("X", ...)` declaration: its variance, and its bound if it has one. */
+interface TypeVariableDeclaration {
+  variance: string;
+  bound: Parser.SyntaxNode | null;
+}
+
 /** One type position to walk: a node plus who owns it and in what role. */
 export interface TypePositionInput {
   node: Parser.SyntaxNode;
@@ -40,6 +46,10 @@ export interface TypeReferenceInput {
   positions: TypePositionInput[];
   /** The module root, scanned once for `X = TypeVar("X")` declarations. */
   rootNode: Parser.SyntaxNode;
+  /** `scopeHash::name` -> binding hash. A TypeVar's bound is owned by its BINDING. */
+  bindingHashByScopeAndName: Map<string, string>;
+  /** The module scope, where a TypeVar is conventionally declared. */
+  moduleScopeHash: string;
   pyModuleLinkHash: string;
   serviceVersionLinkHash: string;
 }
@@ -322,7 +332,58 @@ export class PythonTypeReferenceExtractor {
     return members;
   }
 
-  private typeVariables: Map<string, string> = new Map();
+  private typeVariables: Map<string, TypeVariableDeclaration> = new Map();
+
+  /**
+   * One reference per bounded TypeVar, owned by the variable's own BINDING.
+   *
+   * A bound is a type position like any other, but it is not reachable from the
+   * declaration walk: it sits inside a CALL on the right of an assignment, not
+   * in an annotation, so nothing upstream collects it. It is synthesised here
+   * because this is already the only place that knows which names are type
+   * variables.
+   *
+   * The owner is the binding rather than the module, which is what the schema's
+   * `referenceOwnerKind = BINDING` is for: the bound belongs to `B`, not to the
+   * file `B` happens to sit in, and a consumer asking what constrains `B` joins
+   * from the binding.
+   *
+   * A TypeVar whose binding cannot be found is skipped rather than owned by
+   * something else. An unowned reference would be a row pointing at nothing,
+   * which is worse than the absence it replaces.
+   */
+  private emitTypeVariableBounds(): void {
+    for (const [name, declaration] of this.typeVariables) {
+      if (declaration.bound === null) {
+        continue;
+      }
+      const ownerHash = this.input.bindingHashByScopeAndName.get(
+        `${this.input.moduleScopeHash}::${name}`
+      );
+      if (ownerHash === undefined || ownerHash === '') {
+        continue;
+      }
+      const node = this.unwrap(declaration.bound);
+      if (!node) {
+        continue;
+      }
+      this.emit(
+        node,
+        {
+          node,
+          context: PythonTypeRefContext.TYPEVAR_BOUND,
+          ownerHash,
+          ownerKind: PythonTypeRefOwnerKind.BINDING,
+          enclosingTypeHash: '',
+          scopeHash: this.input.moduleScopeHash,
+        },
+        PythonTypeRefContext.TYPEVAR_BOUND,
+        '',
+        0,
+        0
+      );
+    }
+  }
 
   extract(input: TypeReferenceInput): PyTypeReferenceRegistry[] {
     this.typeVariables = this.collectTypeVariables(input.rootNode);
@@ -336,6 +397,7 @@ export class PythonTypeReferenceExtractor {
         this.emit(node, position, position.context, '', 0, 0);
       }
     }
+    this.emitTypeVariableBounds();
     return this.references;
   }
 
@@ -379,7 +441,8 @@ export class PythonTypeReferenceExtractor {
     // A name bound by TypeVar() is a type VARIABLE, not a reference to a class
     // of that name. Only a bare name is reclassified: in `List[T]` the head is
     // List and the variable is the argument, each of which gets its own row.
-    const declaredVariance = base === null ? this.typeVariables.get(typeName) : undefined;
+    const declaredVariance =
+      base === null ? this.typeVariables.get(typeName)?.variance : undefined;
     const kind =
       declaredVariance !== undefined
         ? PythonTypeRefKind.TYPE_VAR
@@ -530,8 +593,8 @@ export class PythonTypeReferenceExtractor {
    * conventionally declared at module scope, but nothing requires it, and one
    * declared inside a function is still a type variable everywhere it is used.
    */
-  private collectTypeVariables(root: Parser.SyntaxNode): Map<string, string> {
-    const found = new Map<string, string>();
+  private collectTypeVariables(root: Parser.SyntaxNode): Map<string, TypeVariableDeclaration> {
+    const found = new Map<string, TypeVariableDeclaration>();
     const worklist: Parser.SyntaxNode[] = [root];
     while (worklist.length > 0) {
       const node = worklist.pop();
@@ -544,7 +607,10 @@ export class PythonTypeReferenceExtractor {
         if (left?.type === 'identifier' && right?.type === 'call') {
           const fn = right.childForFieldName('function');
           if (fn && TYPE_VAR_FACTORIES.has(this.simpleNameOf(fn))) {
-            found.set(left.text, this.varianceOf(right));
+            found.set(left.text, {
+              variance: this.varianceOf(right),
+              bound: this.boundOf(right),
+            });
           }
         }
       }
@@ -556,6 +622,37 @@ export class PythonTypeReferenceExtractor {
       }
     }
     return found;
+  }
+
+  /**
+   * The `bound=` argument of a TypeVar declaration, or null.
+   *
+   * `TypeVar("B", bound=Base)` constrains B to Base and subclasses, and the
+   * schema has a context for exactly this. Without it the constraint is dropped
+   * on the floor: the variable is emitted, the class is emitted, and nothing
+   * records that one bounds the other.
+   *
+   * The CONSTRAINT form `TypeVar("C", int, str)` is a different thing -- a
+   * closed set of alternatives rather than an upper bound -- and the schema has
+   * no context for it, so those positional arguments are deliberately ignored
+   * rather than reported as bounds, which would be a wrong answer rather than a
+   * missing one.
+   */
+  private boundOf(call: Parser.SyntaxNode): Parser.SyntaxNode | null {
+    const args = call.childForFieldName('arguments');
+    if (!args) {
+      return null;
+    }
+    for (let i = 0; i < args.namedChildCount; i += 1) {
+      const arg = args.namedChild(i);
+      if (arg?.type !== 'keyword_argument') {
+        continue;
+      }
+      if ((arg.childForFieldName('name')?.text ?? '') === 'bound') {
+        return arg.childForFieldName('value') ?? null;
+      }
+    }
+    return null;
   }
 
   /** `covariant=True` / `contravariant=True`; invariant is the default. */

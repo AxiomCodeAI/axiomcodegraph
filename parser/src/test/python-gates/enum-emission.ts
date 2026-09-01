@@ -89,14 +89,13 @@ const KNOWN_UNPRODUCED: Record<string, string[]> = {
   PythonTypeRefContext: [
     'CAST_TARGET',
     'OVERLOAD_SIGNATURE',
-    'TYPEVAR_BOUND',
     'TYPE_ALIAS',
     'TYPE_COMMENT',
   ],
   // TypeVar now emits with its name and variance, so PythonTypeRefKind and
   // PythonWildcardVariance are fully produced and have left this list.
-  // TYPEVAR_BOUND stays: the bound needs a type POSITION for its expression,
-  // which is collected elsewhere, and that is a wider change than the kind.
+  // TYPEVAR_BOUND has left this list: the bound is now emitted as a reference
+  // owned by the type variable's own binding.
   PythonTypeRefOwnerKind: ['BLOCK', 'DECORATOR'],
 };
 

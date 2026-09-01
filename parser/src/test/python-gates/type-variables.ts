@@ -28,6 +28,9 @@ import { PythonProjectAnalyzer } from '@/workflows/python/python-project-analyze
 const SOURCE = `from typing import TypeVar, Generic, List, Optional
 
 T = TypeVar("T")
+B = TypeVar("B", bound=Options)
+S = TypeVar("S", bound="Options")
+C = TypeVar("C", int, str)
 CO = TypeVar("CO", covariant=True)
 CONTRA = TypeVar("CONTRA", contravariant=True)
 
@@ -71,6 +74,19 @@ const EXPECTED: Record<string, [string, string, string]> = {
   Optional: ['OPTIONAL', '', ''],
 };
 
+/**
+ * A bound is a constraint the IR has to carry, and it is not reachable from the
+ * declaration walk: it sits inside a CALL on the right of an assignment rather
+ * than in an annotation. `bound=` and `bound="..."` must both arrive, owned by
+ * the variable's own BINDING; a CONSTRAINT list is a different thing with no
+ * context in the schema, and reporting it as a bound would be a wrong answer
+ * rather than a missing one.
+ */
+const EXPECTED_BOUNDS: Array<[string, string, string]> = [
+  ['B', 'Options', 'NAME'],
+  ['S', 'Options', 'STRING_FORWARD_REF'],
+];
+
 export async function typeVariables(): Promise<number> {
   const problems: string[] = [];
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'py-typevar-'));
@@ -92,6 +108,10 @@ export async function typeVariables(): Promise<number> {
     .filter(Boolean);
   const header = lines[0]!.split('\t');
   const at = (name: string): number => header.indexOf(name);
+  const bindHeader = fs.readFileSync(path.join(outputDir, 'all-python-bindings.csv'), 'utf-8')
+    .split('\n')[0]!.split('\t');
+  const bindHashAt = bindHeader.indexOf('pyBindingUniqueHash');
+  const bindNameAt = bindHeader.indexOf('name');
 
   const seen = new Map<string, Set<string>>();
   for (const line of lines.slice(1)) {
@@ -126,8 +146,43 @@ export async function typeVariables(): Promise<number> {
     }
   }
 
+  // ---- bounds, owned by the type variable's binding -----------------------
+  const bindingName = new Map<string, string>();
+  for (const line of fs.readFileSync(path.join(outputDir, 'all-python-bindings.csv'), 'utf-8')
+    .split('\n').filter(Boolean).slice(1)) {
+    const cells = line.split('\t');
+    bindingName.set(cells[bindHashAt]!, cells[bindNameAt]!);
+  }
+  const bounds = new Map<string, string>();
+  for (const line of lines.slice(1)) {
+    const cells = line.split('\t');
+    if (cells[at('context')] !== 'TYPEVAR_BOUND') {
+      continue;
+    }
+    if (cells[at('referenceOwnerKind')] !== 'BINDING') {
+      problems.push(
+        `a TYPEVAR_BOUND reference is owned by ${cells[at('referenceOwnerKind')]}; ` +
+        'the bound belongs to the variable, so the owner must be its BINDING'
+      );
+    }
+    const owner = bindingName.get(cells[at('typeReferenceOwnerHash')]!) ?? '?';
+    bounds.set(owner, `${cells[at('typeName')]}|${cells[at('kind')]}`);
+  }
+  for (const [variable, boundName, boundKind] of EXPECTED_BOUNDS) {
+    const got = bounds.get(variable);
+    if (got !== `${boundName}|${boundKind}`) {
+      problems.push(`bound of ${variable}: expected ${boundName}|${boundKind}, got ${got ?? 'nothing'}`);
+    }
+  }
+  if (bounds.has('C')) {
+    problems.push('C has constraints, not a bound; reporting them as a bound is a wrong answer');
+  }
+
   fs.rmSync(root, { recursive: true, force: true });
-  console.log(`  ${seen.size} distinct type names checked across ${lines.length - 1} references`);
+  console.log(
+    `  ${seen.size} distinct type names checked across ${lines.length - 1} references, ` +
+    `${bounds.size} bound(s)`
+  );
   for (const problem of problems) {
     console.log(`  FAIL  ${problem}`);
   }
