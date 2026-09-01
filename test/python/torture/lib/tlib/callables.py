@@ -39,3 +39,13 @@ class Registry:
 
     def dispatch(self, key: str) -> str:
         return self.table[key]()
+
+
+# UNANNOTATED, and returning its argument unchanged. Library BODIES are staged empty by
+# design, so the engine cannot see through this and there is no declared return type to
+# read: the result is a value the engine genuinely knows nothing about. That is what the
+# bounded-TypeVar family needs, and it is the real situation a bound exists for -- a value
+# arriving from outside the analysed code, where the annotation is the only statement about
+# it. Nothing else in the suite calls this.
+def passthrough(value):
+    return value

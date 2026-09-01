@@ -195,3 +195,30 @@ call_recv_declared(site) :-
 call_recv_declared(site) :-
     call_receiver_object(site, obj),
     element_type_of("client", obj, _).
+// (e) a receiver typed from a TYPE VARIABLE'S BOUND. An upper bound is the definition of a
+// declared type -- `bound=Command` says "Command or below" -- so the widening applies for
+// exactly the reason it applies to an annotation. Registered here at the same time as the
+// rules that introduce it, rather than after a confident-wrong answer shows up (issue #93).
+call_recv_declared(site) :-
+    call_receiver_object(site, obj),
+    expr_names_param("client", obj, ph),
+    type_ref_owner("client", ph, "METHOD_PARAM", r),
+    type_ref("client", "TYPE_VAR", "METHOD_PARAM", tn, _, r),
+    typevar_bound("client", tn, _).
+// (f) a receiver CONSTRUCTED from a class object taken from a bounded type variable:
+//     `def f(kls: type[B])` then `kls().label()`. The construction is an instance of the
+//     BOUND, so it is no more exact than the bound is, and the widening has to follow the
+//     value across the construction rather than stopping at the class object.
+//
+// This was missed on the first pass and the fixture caught it as a WRONG: the site went
+// out as known_edge naming the bound's own method alone, at a call that in fact ran an
+// override. That is the third time a new declared type has escaped this gate -- after
+// tuple unpacking and container element types -- and it is the same shape every time. A
+// source added anywhere has to be gated at EVERY route the value can reach a receiver by,
+// not only the route the rule was written for.
+call_recv_declared(site) :-
+    call_receiver_object(site, obj),
+    call_of_expr(obj, csite),
+    call_callee_expr(csite, callee),
+    expr_names_param("client", callee, ph),
+    param_class_object_bound("client", ph, _).
