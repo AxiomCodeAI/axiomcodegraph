@@ -2448,6 +2448,95 @@ async function typeReferencesNameTheirEntity(): Promise<number> {
   return failures.length ? 1 : 0;
 }
 
+// ---------------------------------------------------------------------------
+// 25. Column order is append-only
+// ---------------------------------------------------------------------------
+
+/**
+ * A column may be ADDED at the end. It may not be inserted in the middle.
+ *
+ * Souffle does not error on a width change: it binds the first N fields and a
+ * join key silently lands on the wrong one. So inserting a column mid-table does
+ * not break the consumer's build -- it changes what their rules mean, quietly,
+ * and the failure surfaces as wrong answers somewhere else entirely.
+ *
+ * It has happened twice. `bindingPatternText` went into the middle of the
+ * parameter table and cost a downstream day plus a retracted bug report against
+ * us; `entityName` went in at index 10 of the type-reference table and was
+ * caught only by the consumer's own drift gate. Both were avoidable, and
+ * neither was noticed here.
+ *
+ * The baseline is committed alongside this check. Appending a column means
+ * appending to the baseline in the same commit -- a visible diff naming the
+ * table and the column, which is exactly the announcement that was asked for.
+ * Reordering or inserting fails, by name, here.
+ */
+function columnOrderIsAppendOnly(): number {
+  if (!parserPresent()) {
+    return pendingCheck('column order is append-only',
+      'no extractor yet. A column may be appended, never inserted mid-table');
+  }
+  const baselinePath = path.join(__dirname, 'typescript-gates', 'column-order.baseline.json');
+  if (!fs.existsSync(baselinePath)) {
+    return fail(`the column-order baseline is missing at ${baselinePath}`);
+  }
+  const baseline = JSON.parse(fs.readFileSync(baselinePath, 'utf-8')) as Record<string, string[]>;
+  const corpora = extractedCorpora();
+  const failures: string[] = [];
+  const observed = new Map<string, string[]>();
+
+  for (const [, outputDir] of corpora) {
+    for (const file of fs.readdirSync(outputDir)) {
+      if (!file.startsWith('all-typescript-') || !file.endsWith('.csv')) {
+        continue;
+      }
+      const text = fs.readFileSync(path.join(outputDir, file), 'utf-8');
+      const head = text.split('\n')[0];
+      if (head === undefined || head === '') {
+        continue;
+      }
+      observed.set(file, head.split('\t'));
+    }
+  }
+
+  for (const [file, want] of Object.entries(baseline)) {
+    const got = observed.get(file);
+    if (got === undefined) {
+      // An empty relation emits no header. That is not a reordering.
+      continue;
+    }
+    for (let i = 0; i < want.length; i += 1) {
+      if (got[i] !== want[i]) {
+        failures.push(`${file} column ${i}: baseline says "${want[i]}", emitted "${got[i]}" — a `
+          + 'column was inserted or reordered. Souffle binds by position and will not error: it '
+          + 'will bind the join key to the wrong field. Append instead, and add the new column to '
+          + 'column-order.baseline.json in the same commit');
+        break;
+      }
+    }
+    if (got.length < want.length) {
+      failures.push(`${file}: ${got.length} columns emitted where the baseline has ${want.length} `
+        + '— a column was REMOVED, which no consumer can absorb');
+    }
+  }
+  // A relation the baseline has never seen is also worth naming, since it means
+  // the baseline was not updated alongside the schema.
+  for (const file of observed.keys()) {
+    if (baseline[file] === undefined) {
+      failures.push(`${file} is emitted but absent from the baseline — add it`);
+    }
+  }
+
+  const appended = [...observed.entries()]
+    .filter(([f, got]) => baseline[f] !== undefined && got.length > baseline[f]!.length)
+    .map(([f, got]) => `${f.replace('all-typescript-', '')} +${got.length - baseline[f]!.length}`);
+  console.log(`  ${Object.keys(baseline).length} relation(s), `
+    + `${Object.values(baseline).reduce((n, c) => n + c.length, 0)} columns pinned by position`
+    + (appended.length > 0 ? `; appended since the baseline: ${appended.join(', ')}` : ''));
+  for (const f of failures.slice(0, 6)) console.log(`  ${f}`);
+  return failures.length ? 1 : 0;
+}
+
 const CHECKS: Check[] = [
   { name: 'compiles', proves: 'tsc --noEmit is clean — the suite reports on code that actually builds', run: compiles },
   { name: 'fixtures compile and are isolated', proves: 'a fixture is a valid input, and cannot break another language\'s gate', run: fixturesCompile },
@@ -2471,6 +2560,7 @@ const CHECKS: Check[] = [
   { name: 'unresolved imports name their package', proves: 'a client-only run can say which packages to stage, without needing node_modules present', run: unresolvedImportsNameTheirPackage },
   { name: 'annotated declarations name their type', proves: 'a declared type is reachable as a row, not only readable as text, so type flow can be followed', run: annotatedDeclarationsNameTheirType },
   { name: 'type references name their entity', proves: 'a reference carries the written name without type arguments, so a scope lookup needs no string surgery', run: typeReferencesNameTheirEntity },
+  { name: 'column order is append-only', proves: 'a column is never inserted mid-table, because Souffle binds by position and misbinds silently', run: columnOrderIsAppendOnly },
   { name: 'fact-base invariants', proves: 'every PK unique, every FK resolves, every tree well-formed — the failures that load cleanly and count wrong', run: factBaseInvariants },
   { name: 'IR completeness', proves: 'every hop an engine needs in order to resolve is present — the measure that replaced resolution rate', run: irCompleteness },
 ];
