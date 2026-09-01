@@ -140,13 +140,13 @@ param_decl("lib", n, pos, tn, m, h) :- lib_ts_method_parameter(n, pos, m, _, tn,
 param_kind_is_positional("NONE").
 param_kind_is_positional("").
 
-// ── param_binding(Prov, Name, SourceKind, Source, ParamHash, BindingHash) ───
+// ── param_binding(Prov, Name, Position, SourceKind, Source, MethodHash, Hash) ─
 // The names bound OUT of a destructuring pattern, kept apart from the positional
 // sequence above. This is what makes `{ helper }: Ctx` resolvable: the bound name takes
 // the type of the property it names on the type of the pattern.
-param_binding("client", n, sk, src, m, h) :- ts_method_parameter(n, _, m, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, sk, src, _, _, _, _, _, h),
+param_binding("client", n, pos, sk, src, m, h) :- ts_method_parameter(n, pos, m, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, sk, src, _, _, _, _, _, h),
     !param_kind_is_positional(sk).
-param_binding("lib", n, sk, src, m, h) :- lib_ts_method_parameter(n, _, m, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, sk, src, _, _, _, _, _, h),
+param_binding("lib", n, pos, sk, src, m, h) :- lib_ts_method_parameter(n, pos, m, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, sk, src, _, _, _, _, _, h),
     !param_kind_is_positional(sk).
 
 // ── param_shape(Prov, ParamKind, IsOptional, HasDefault, ParamHash) ─────────

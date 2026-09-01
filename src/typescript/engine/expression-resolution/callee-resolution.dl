@@ -384,3 +384,12 @@ dispatch_too_wide(rt, cn) :- dispatch_width(rt, cn, n),
 
 // ── the merged candidate set ────────────────────────────────────────────────
 expr_call_candidate(ce, m) :- expr_call_dispatch(ce, m).
+
+// (2c) A call through a DESTRUCTURED BINDING that names an interface METHOD —
+// `function f({ helper }: Ctx) { helper('x') }`. The callee expression resolves to the
+// bound name's parameter row, which has no type of its own: the target is the method
+// the binding names on the pattern's type. `var_is_function` cannot express this
+// because the binding is a parameter, not a variable.
+expr_call_candidate(ce, m) :- call_callee_expr(_, ce, ne),
+    expr_referenced("client", "PARAMETER", bh, ne),
+    param_binding_method(bh, m).
