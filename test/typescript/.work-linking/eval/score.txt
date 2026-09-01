@@ -1,34 +1,34 @@
-call sites (parser IR)      110
-call sites (oracle)         110
-joined on position          110
+call sites (parser IR)      112
+call sites (oracle)         112
+joined on position          112
 
-EXACT                       82
+EXACT                       84
 SOUND_SUPERSET               4
 IMPLEMENTATION_OF_SIGNATURE       2
 MISSED                       8
 SYNTHESIZED_OK              14
 
-decidable                   96
-EXACT target                     82   0.854
-target in engine set             86   0.896
+decidable                   98
+EXACT target                     84   0.857
+target in engine set             88   0.898
 WRONG (engine named, oracle disagrees)  0
 
 precision / recall:
-  coverage      (answered / decidable)           88   0.917
-  recall-any    (truth anywhere in the set)      86   0.896
-  precision     (truth in set | answered)        86   0.977
-  decisiveness  (single answer | answered)       84   0.955
-  commit-accuracy (right | single answer)        82   0.976
+  coverage      (answered / decidable)           90   0.918
+  recall-any    (truth anywhere in the set)      88   0.898
+  precision     (truth in set | answered)        88   0.978
+  decisiveness  (single answer | answered)       86   0.956
+  commit-accuracy (right | single answer)        84   0.977
     committed and WRONG                           0
     hedged and wrong                              0
   ambiguity     (hedged sites)                    4   mean 2.25  median 2  p90 3  max 3
-  edge-precision (TP / (TP+FP), FP = extras)     86   0.945
+  edge-precision (TP / (TP+FP), FP = extras)     88   0.946
 
 signature-level vs edge-level:
-  signature-correct (exact declaration)          86   0.896
+  signature-correct (exact declaration)          88   0.898
   overload sibling (same function)                0
   implementation of tsc's signature              2
-  edge-correct      (right function)             88   0.917
+  edge-correct      (right function)             90   0.918
 
 overload sites (the resolved symbol has more than one declaration):
   sites                       14
@@ -41,7 +41,7 @@ overload sites (the resolved symbol has more than one declaration):
 
 by call kind:
   FUNCTION_CALL          exact=    46 superset=    1 wrong=    0 missed=     1  acc=0.979
-  METHOD_CALL            exact=    34 superset=    3 wrong=    0 missed=     7  acc=0.841
+  METHOD_CALL            exact=    36 superset=    3 wrong=    0 missed=     7  acc=0.848
   CONSTRUCTOR_CALL       exact=     2 superset=    0 wrong=    0 missed=     0  acc=1.000
 
 top missed callees:
@@ -53,11 +53,11 @@ top missed callees:
        1  deepPack
 
 dispatch envelope (edges, not sites):
-  engine edges emitted            93
-  inside CHA envelope             89   precision 0.957
-  inside RTA envelope             89   precision 0.957
-  CHA envelope size (total)       136   recall vs CHA 0.654
-  RTA envelope size (total)       136   recall vs RTA 0.654
+  engine edges emitted            95
+  inside CHA envelope             91   precision 0.958
+  inside RTA envelope             91   precision 0.958
+  CHA envelope size (total)       138   recall vs CHA 0.659
+  RTA envelope size (total)       138   recall vs RTA 0.659
   edges OUTSIDE the CHA envelope (demonstrable false positives):
     src/link-conditional.ts:7:10 shared() -> cond-api.d.ts:13:3   envelope ['cond-api.d.ts:9:3']
     src/link-conditional.ts:14:10 shared() -> cond-api.d.ts:9:3   envelope ['cond-api.d.ts:13:3']

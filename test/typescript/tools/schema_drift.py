@@ -115,7 +115,15 @@ def main():
         # not positional. OBJECT_REST (`{ a, ...rest }`) was found by this check —
         # it is a bound name like the others, and the filter already treats it as one,
         # but an unrecognised kind is exactly what must not pass silently.
-        KNOWN = {'NONE', '', 'PROPERTY', 'INDEX', 'OBJECT_REST'}
+        # The complete set, taken from the parser's own schema rather than discovered
+        # one project at a time: TYPESCRIPT-FACT-SCHEMA.md documents
+        #   NONE | PROPERTY | INDEX | OBJECT_REST | ARRAY_REST
+        # NONE is an ordinary parameter or the pattern row itself; every other value is
+        # a name bound OUT of a pattern and is therefore not positional. Two of these
+        # were found by this check firing on a corpus project, which is the argument for
+        # reading the schema instead of waiting to be surprised — but the check still
+        # fails on a sixth, because the next one might belong on the positional side.
+        KNOWN = {'NONE', '', 'PROPERTY', 'INDEX', 'OBJECT_REST', 'ARRAY_REST'}
         unknown = sorted(kinds - KNOWN)
         rate = broken / len(want) if want else 0.0
         if unknown:
