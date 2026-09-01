@@ -62,20 +62,7 @@ const KNOWN_UNPRODUCED: Record<string, string[]> = {
     'FIELD',
     'IMPORT',
   ],
-  // Wired to nothing at all: no relation carries a write-kind column, and no
-  // file outside the enum declaration mentions the type. An entire enum that
-  // the schema declares and the parser never reaches for.
-  PythonFieldWriteKind: [
-    'ANN_ASSIGN',
-    'ASSIGN',
-    'AUG_ASSIGN',
-    'DEL',
-    'FOR_TARGET',
-    'SETATTR',
-    'TUPLE_UNPACK',
-    'WALRUS',
-    'WITH_TARGET',
-  ],
+
   PythonGrammarUsed: ['UNPARSED'],
   PythonImportKind: ['DYNAMIC'],
   PythonImportTargetKind: ['AMBIGUOUS', 'PACKAGE', 'VARIABLE'],
