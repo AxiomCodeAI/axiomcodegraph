@@ -1804,6 +1804,7 @@ export class TsDeclarationExtractor {
     isExported: boolean,
     isAmbient: boolean,
     scopeKind: TsVariableScopeKind,
+    collected: TsVariableRegistry[],
     declarationKindOverride?: TsVariableDeclarationKind
   ): void {
     if (ts.isIdentifier(pattern)) {
@@ -1835,7 +1836,7 @@ export class TsDeclarationExtractor {
         // `const { a: { b } } = o` -- recurse; only leaves bind a name, and the
         // leaf's source is its own property within the INNER pattern.
         this.emitBoundNames(element.name, list, context, isExported, isAmbient,
-          scopeKind, declarationKindOverride);
+          scopeKind, collected, declarationKindOverride);
         continue;
       }
       const startPos = this.sf.getLineAndCharacterOfPosition(element.getStart(this.sf));
@@ -1875,6 +1876,7 @@ export class TsDeclarationExtractor {
       this.variables.push(row);
       this.variableHashByNode.set(nodeId(element, this.sf), row.getHash());
       this.variableRowByNode.set(nodeId(element, this.sf), row);
+      collected.push(row);
     }
   }
 
@@ -1930,9 +1932,10 @@ export class TsDeclarationExtractor {
     // existed nowhere in the fact base -- the binder knew them, because
     // resolution needs them, and nothing ever wrote them down. A consumer could
     // not tell that a variable called `a` exists at all.
+    const boundRows: TsVariableRegistry[] = [];
     if (isDestructuring) {
       this.emitBoundNames(declaration.name, list, context, isExported, isAmbient,
-        variableScopeKindOf(context, declaration), declarationKindOverride);
+        variableScopeKindOf(context, declaration), boundRows, declarationKindOverride);
     }
 
     if (declaration.type) {
@@ -1953,6 +1956,21 @@ export class TsDeclarationExtractor {
       node: initializer,
       link: (hash) => row.setInitializerExpressionLinkHash(hash),
     });
+    // Each bound name gets the SAME initializer, because it is the same value:
+    // `const { a } = ctx()` reads `a` out of what `ctx()` returned. Without it a
+    // bound name is a declaration with a property name and nothing to apply it
+    // to, so a call through one cannot resolve -- the pattern row held the
+    // value, the bound rows held the property, and the two shared no key.
+    //
+    // A nested leaf gets the ROOT initializer, which is the right answer:
+    // `const { a: { b } } = ctx()` means b comes out of ctx() by way of `a`,
+    // and the intermediate has no name of its own to key on.
+    for (const bound of boundRows) {
+      this.pendingExpressionLinks.push({
+        node: initializer,
+        link: (hash) => bound.setInitializerExpressionLinkHash(hash),
+      });
+    }
     // THE link that makes `const f = () => {}; f()` resolvable. 161 measured
     // call targets are arrow functions, and an arrow has no name of its own for
     // a call site to match — it is reached only through the variable.
