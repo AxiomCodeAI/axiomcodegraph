@@ -189,7 +189,7 @@ export class PythonProjectAnalyzer {
       try {
         facts = this.extractor.extract({
           sourceCode,
-          filePath: path.relative(options.rootDir, filePath) || path.basename(filePath),
+          filePath: this.recordedFilePath(filePath, options.rootDir, options.baseMservPath),
           baseMservPath: options.baseMservPath,
           moduleQualifiedName: this.moduleQualifiedNameFor(options.rootDir, filePath),
           serviceVersionLinkHash,
@@ -369,7 +369,7 @@ export class PythonProjectAnalyzer {
     // the detail so a multi-construct file is not misread as a single hit.
     const first = findings[0];
     this.skippedFiles.push({
-      filePath: path.relative(options.rootDir, filePath) || path.basename(filePath),
+      filePath: this.recordedFilePath(filePath, options.rootDir, options.baseMservPath),
       baseMservPath: options.baseMservPath,
       serviceVersionLinkHash: this.serviceVersionLinkHash,
       reason,
@@ -407,6 +407,48 @@ export class PythonProjectAnalyzer {
    * independent of where analysis was started, so the same file gets the same
    * name whether the root is the package or its parent.
    */
+  /**
+   * The path recorded on every row, and part of a module's identity hash.
+   *
+   * Relative to the MSERV, not to the analysis root. Those differ whenever a
+   * repository holds more than one project: `extract` passes `rootDir` per
+   * detected project and `baseMservPath` for the repository, so a root-relative
+   * path drops exactly the segment that tells two projects apart.
+   *
+   * Two consequences, and the second is the serious one.
+   *
+   * `src/main.py` and `tests/main.py` both became `main.py`. The module hash is
+   * filePath + baseMservPath + qualifiedName + regime + version, and with
+   * `src` and `tests` not being packages the qualified name collapses to `main`
+   * for both, so every input matched and the two files hashed IDENTICALLY.
+   * Fact files load with set semantics, so the IR ended up with one module
+   * where the source has two, and their methods merged into it. Nothing
+   * downstream could separate them: filePath, qualifiedName and hash were all
+   * equal, the directory having been discarded before anything else ran.
+   *
+   * It also made the column inconsistent for tooling that keys on it: a package
+   * analysed at its own root reported `core/engine.py` while a loose module
+   * reported a bare `main.py`, so the same column sometimes carried the path
+   * from the project and sometimes only a file name.
+   *
+   * The fallback matters. `baseMservPath` is not required to be an ancestor of
+   * the file -- tests pass a symbolic `/repo` -- and `path.relative` would then
+   * climb out with `../..`, which is worse than the bare name. So the mserv is
+   * used only when it actually contains the file, and the analysis root is the
+   * fallback, which is what every existing caller already got.
+   */
+  private recordedFilePath(
+    filePath: string,
+    rootDir: string,
+    baseMservPath: string
+  ): string {
+    const fromMserv = path.relative(baseMservPath, filePath);
+    if (fromMserv !== '' && !fromMserv.startsWith('..') && !path.isAbsolute(fromMserv)) {
+      return fromMserv;
+    }
+    return path.relative(rootDir, filePath) || path.basename(filePath);
+  }
+
   private moduleQualifiedNameFor(rootDir: string, filePath: string): string {
     const parsed = path.parse(filePath);
     const segments: string[] = [];

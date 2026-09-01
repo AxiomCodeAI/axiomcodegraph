@@ -25,7 +25,17 @@
  *    a name that moved with the root would produce an IR that joins to nothing
  *    for half of them.
  *
- * 3. VISIBLE ABSENCE. A tree that imports something it does not contain must
+ * 3. DISTINCT IDENTITY. Two different files must never hash alike. `extract`
+ *    passes rootDir PER DETECTED PROJECT and one baseMservPath for the
+ *    repository, so a repo holding src/ and tests/ analyses each separately.
+ *    With filePath recorded relative to the analysis root both became
+ *    `main.py`, and with neither directory a package the qualified name
+ *    collapsed to `main` for both, so every hash input matched. Fact files load
+ *    with SET semantics, so the IR then held one module where the source has
+ *    two, and their methods merged into it. Nothing downstream could separate
+ *    them: filePath, qualifiedName and hash were all equal.
+ *
+ * 4. VISIBLE ABSENCE. A tree that imports something it does not contain must
  *    not invent a module row for it, and must mark the import UNRESOLVED rather
  *    than guess. Absence is a fact: every row traces to bytes that were parsed,
  *    and what is missing has to be readable as missing.
@@ -166,6 +176,48 @@ export async function nameStability(): Promise<number> {
       'names move with the analysis root: pointing at the parent gives ' +
       `[${fromParent.join(', ')}], pointing at the package gives [${fromInside.join(', ')}]`
     );
+  }
+
+  // ---- 3: two projects under one mserv must stay distinct ------------------
+  // The naming question -- whether src/main.py is `main` or `src.main` -- is a
+  // genuine judgement, since Python says `main` when src is on sys.path. This
+  // asserts the part that is NOT a judgement: two files are two modules.
+  const twoProjects = path.join(root, 'mserv');
+  for (const project of ['src', 'tests']) {
+    fs.mkdirSync(path.join(twoProjects, project), { recursive: true });
+    fs.writeFileSync(path.join(twoProjects, project, 'main.py'), `def go():\n    return '${project}'\n`);
+  }
+  const identities = new Map<string, string[]>();
+  for (const project of ['src', 'tests']) {
+    const projectOut = path.join(root, `mserv-out-${project}`);
+    await new PythonProjectAnalyzer().analyze({
+      rootDir: path.join(twoProjects, project),
+      outputDir: projectOut,
+      baseMservPath: twoProjects,
+      serviceVersionLinkHash: 'SERVICE_VERSION_' + '0'.repeat(32),
+    });
+    for (const row of read(projectOut, 'all-python-modules.csv')) {
+      if (!identities.has(row.pyModuleUniqueHash!)) {
+        identities.set(row.pyModuleUniqueHash!, []);
+      }
+      identities.get(row.pyModuleUniqueHash!)!.push(`${project}: ${row.filePath}`);
+      // The path must carry the project, or the column means different things
+      // depending on where the run was pointed.
+      if (!String(row.filePath).startsWith(`${project}${path.sep}`)) {
+        problems.push(
+          `filePath is "${row.filePath}" for the ${project} project; it should be ` +
+          'relative to the mserv, so a consumer keying on it sees the project'
+        );
+      }
+    }
+  }
+  for (const [hash, files] of identities) {
+    if (files.length > 1) {
+      problems.push(
+        `two files share the module hash ${hash}: ${files.join(' and ')} — ` +
+        'set semantics would merge them into one module'
+      );
+    }
   }
 
   // ---- 3: a tree that imports what it does not contain ---------------------
