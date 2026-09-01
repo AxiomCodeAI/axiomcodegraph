@@ -35,8 +35,8 @@ EXACT	src/link-conditional.ts	22	10	METHOD_CALL	make	1	0	cond-api.d.ts:34:9	cond
 EXACT	src/link-conditional.ts	29	10	FUNCTION_CALL	isArrayAlias	1	0	lib.es5.d.ts:1518:5	lib.es5.d.ts:1518:5
 SOUND_SUPERSET	src/link-conditional.ts	32	10	FUNCTION_CALL	assignAlias	4	0	lib.es2015.core.d.ts:284:5	lib.es2015.core.d.ts:284:5;lib.es2015.core.d.ts:311:5
 EXACT	src/link-conditional.ts	62	28	FUNCTION_CALL	createEmitCtx	1	0	link-conditional.ts:53:1	link-conditional.ts:53:1
-IMPLEMENTATION_OF_SIGNATURE	src/link-conditional.ts	63	3	FUNCTION_CALL	emit	1	0	link-conditional.ts:49:3	link-conditional.ts:55:5
-IMPLEMENTATION_OF_SIGNATURE	src/link-conditional.ts	64	10	FUNCTION_CALL	finish	1	0	link-conditional.ts:50:3	link-conditional.ts:56:5
+SOUND_SUPERSET	src/link-conditional.ts	63	3	FUNCTION_CALL	emit	1	0	link-conditional.ts:49:3	link-conditional.ts:49:3;link-conditional.ts:55:5
+SOUND_SUPERSET	src/link-conditional.ts	64	10	FUNCTION_CALL	finish	1	0	link-conditional.ts:50:3	link-conditional.ts:50:3;link-conditional.ts:56:5
 EXACT	src/link-conditional.ts	79	3	FUNCTION_CALL	emitOne	1	0	link-conditional.ts:74:3	link-conditional.ts:74:3
 EXACT	src/link-conditional.ts	80	10	METHOD_CALL	deeper	1	0	link-conditional.ts:75:12	link-conditional.ts:75:12
 EXACT	src/link-conditional.ts	85	3	METHOD_CALL	defineMeta	1	0	cond-api.d.ts:52:5	cond-api.d.ts:52:5

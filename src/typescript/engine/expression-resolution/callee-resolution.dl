@@ -417,3 +417,14 @@ expr_call_candidate(ce, m) :- call_site("client", ck, cn, "IDENTIFIER", recv, ce
     namespace_member(prov, ns, cn, "METHOD", m).
 call_kind_is_member_call("METHOD_CALL").
 call_kind_is_member_call("OPTIONAL_CALL").
+
+// (2e) A call through a DESTRUCTURED VARIABLE that names an interface METHOD —
+// `const { helper } = ctx; helper('x')`. The mirror of (2c), and the more common shape:
+// a context object is usually destructured in the BODY rather than in the signature.
+//
+// It lives here rather than on `var_is_function` because the binding's type comes from
+// the initializer EXPRESSION, which this same fixpoint produces; putting it on
+// var_is_function makes the SCC unstratifiable.
+expr_call_candidate(ce, m) :- call_callee_expr(_, ce, ne),
+    expr_referenced("client", "VARIABLE", v, ne),
+    var_binding_method(v, m).
