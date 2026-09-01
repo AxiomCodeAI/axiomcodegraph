@@ -128,7 +128,7 @@ for (cf, cl), true in sorted(G.items()):
         else: fam[f][kind] += 1; rows.append((cf, cl, kind, sorted(true), [x]))
 print(f"=== per-family coverage (tier-4, {sum(sum(c.values()) for c in fam.values())} scored sites) ===")
 names = {'f01':'inheritance & MRO','f02':'callables & closures','f03':'generics','f04':'descriptors',
-         'f05':'decorators','f06':'value flow','f07':'imports & re-export','f08':'dynamic','f09':'adversarial','f10':'forward references','f11':'multi-write & union','f12':'value flow','f13':'declared dispatch','f14':'class objects','f15':'attribute chains','f16':'element types','f18':'lambda dispatch','f19':'package re-exports','f20':'builtin flow','f21':'module alias','f22':'annotation via type-ref FK','pkgmod':'relative imports (subpackage)'}
+         'f05':'decorators','f06':'value flow','f07':'imports & re-export','f08':'dynamic','f09':'adversarial','f10':'forward references','f11':'multi-write & union','f12':'value flow','f13':'declared dispatch','f14':'class objects','f15':'attribute chains','f16':'element types','f18':'lambda dispatch','f19':'package re-exports','f20':'builtin flow','f21':'module alias','f22':'annotation via type-ref FK','f23':'typevar bound','pkgmod':'relative imports (subpackage)'}
 tot = collections.Counter()
 for f in sorted(fam):
     c = fam[f]; n = sum(c.values()); tot.update(c)

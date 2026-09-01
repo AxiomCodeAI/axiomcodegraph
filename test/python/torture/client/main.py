@@ -22,6 +22,7 @@ import f19_reexports as f19
 import f20_builtin_flow as f20
 import f21_module_alias as f21
 import f22_typeref_fk as f22
+import f23_typevar_bound as f23
 from tlib import Square
 from tlib.shapes import Base, Mid
 
@@ -83,6 +84,7 @@ def main() -> None:
     print(f20.non_self_attribute(h), f20.non_self_attribute_container(h), f20.UsesSelf().via_self())
     print(f21.construct_through_alias(), f21.call_function_through_alias())
     print(f22.label_via_dotted(f22.impl.Node()), f22.build_via_dotted())
+    print(f23.via_opaque_value(), f23.via_concrete_argument(), f23.constrained(1))
 
 
 if __name__ == "__main__":
