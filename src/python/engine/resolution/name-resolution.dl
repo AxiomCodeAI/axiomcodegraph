@@ -194,6 +194,28 @@ import_binds_type(p, b, t) :-
 import_binds_type(p, b, t) :- import_binding(p, b, i), import_resolved_target(p, "TYPE", t, i).
 import_binds_method(p, b, m) :- import_binding(p, b, i), import_resolved_target(p, "FUNCTION", m, i).
 import_binds_module(p, b, mod) :- import_binding(p, b, i), import_resolved_target(p, "MODULE", mod, i).
+// ── a name imported FROM a package, where the package exposes it as a MODULE ──
+//     pkg/__init__.py:  from pkg import expressions as exp
+//     client:           from pkg import exp
+//                       exp.func(x)
+// The import resolves to the SOURCE PACKAGE rather than to the submodule the name
+// denotes, so `exp` was typed as `pkg` and every attribute on it looked up in the wrong
+// module. Measured as the single largest unresolved shape on one codebase -- one receiver
+// accounting for more than a third of its remaining unresolved sites.
+//
+// module_member_module already records that the package exposes this name as a module;
+// it is built from the package __init__'s own import rows and keys on the alias. The only
+// missing step was preferring that over the parser's answer, which for this shape hands
+// back the package.
+//
+// Keyed on the ORIGINAL name: `from pkg import exp as e` re-aliases again, and the member
+// the package exposes is still `exp`. Additive -- it fires only where the package really
+// does expose that name as a module, so an import that already resolves is untouched.
+import_binds_module(p, b, child) :-
+    import_binding(p, b, i),
+    import_alias(p, orig, _, i), orig != "",
+    import_resolved_module(p, parent, i),
+    module_member_module(p, parent, orig, child).
 import_binds_module(p, b, mod) :- import_binding(p, b, i), import_resolved_target(p, "PACKAGE", mod, i).
 import_binds_module(p, b, mod) :- import_binding(p, b, i), import_is_module(p, i), import_resolved_module(p, mod, i).
 // `import pkg.core` BINDS ONLY `pkg` — the schema states this rule explicitly, and it is
