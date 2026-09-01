@@ -230,6 +230,7 @@
 .decl dict_store_entry(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl dict_key_unknown(c0:symbol,c1:symbol,c2:symbol)
 .decl binding_dict_entry_method(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl field_dict_entry_method(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl expr_denotes_method(c0:symbol,c1:symbol,c2:symbol)
 .decl subscript_dispatch_incomplete(c0:symbol)
 .decl binding_dict_entry_type(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
