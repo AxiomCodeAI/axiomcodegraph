@@ -24,6 +24,19 @@ for a in edges oracle; do
 done
 echo "torture.edges ok ($(wc -l < actual.edges | tr -d ' ') edges)  torture.oracle ok ($(cat actual.oracle))"
 rm -f actual.edges actual.oracle
+# ── INVARIANT: supplying a library must never REMOVE an answer ───────────────
+# Solve the SAME client again with an EMPTY library and compare. Nothing else in the
+# suite can catch a regression here, because every other case fixes the library input;
+# a site losing its answer only shows up when the two runs are compared to each other.
+mkdir -p emptylib
+bash "$ENG/src/pipeline/run-souffle.sh" --language python \
+     --client-ir client-ir --library emptylib --intermediate int-nolib --output out-nolib >/dev/null 2>&1
+if ! python3 ../tools/library_monotonicity.py out-nolib out; then
+  echo "FAIL (library monotonicity)"; rm -rf out-nolib int-nolib emptylib; exit 1
+fi
+python3 ../tools/library_monotonicity.py out-nolib out
+rm -rf out-nolib int-nolib emptylib
+
 python3 harness/score.py out > actual.txt 2>&1
 cat actual.txt
 if [ -f expected/coverage.txt ]; then
