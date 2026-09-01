@@ -68,6 +68,8 @@ boundary_lib	METHOD_CALL	f10_forward_refs.type_checking_only_param -> lib:tlib.s
 boundary_lib	METHOD_CALL	f11_multiwrite.ternary_over_lib -> lib:tlib.shapes.Base.name
 boundary_lib	METHOD_CALL	f11_multiwrite.ternary_over_lib -> lib:tlib.shapes.Mid.name
 boundary_lib	METHOD_CALL	f14_class_objects.Registry.build_get -> builtin:dict.get
+boundary_lib	METHOD_CALL	f19_reexports.via_package_attribute -> builtin:object.__init__
+boundary_lib	METHOD_CALL	f19_reexports.via_submodule_alias -> builtin:object.__init__
 boundary_lib	METHOD_CALL	main.main -> builtin:object.__init__
 boundary_lib	SELF_CALL	f02_callables.HoldsCallables.run -> lib:tlib.callables.Doubler.__call__
 boundary_lib	SELF_CALL	f09_adversarial.Rebound.use -> lib:tlib.callables.Doubler.__call__
@@ -137,6 +139,7 @@ boundary_lib	SIMPLE_CALL	main.main -> builtin:object
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	main.main -> builtin:print
 boundary_lib	SIMPLE_CALL	pkgmod._gen.plain -> builtin:list
+boundary_lib	SIMPLE_CALL	repkg.inner.leaf.make_widget -> builtin:object.__init__
 known_edge	CHAINED_CALL	f01_inheritance.client_chain -> f01_inheritance.LocalBase.kind
 known_edge	CHAINED_CALL	f01_inheritance.client_chain -> f01_inheritance.LocalLeaf.kind
 known_edge	CHAINED_CALL	f02_callables.attribute_callables -> f02_callables.HoldsCallables.run
@@ -148,6 +151,9 @@ known_edge	CHAINED_CALL	f09_adversarial.shadowed_method_name -> f09_adversarial.
 known_edge	CHAINED_CALL	f10_forward_refs.uses_quoted_return -> f10_forward_refs.Holder.tag
 known_edge	CHAINED_CALL	f12_value_flow.UsesFactory.__init__ -> f12_value_flow.Factory.build
 known_edge	CHAINED_CALL	f12_value_flow.method_alias_on_class -> f12_value_flow.Widget.emit
+known_edge	CHAINED_CALL	f19_reexports.via_package_attribute -> repkg.inner.leaf.Widget.emit
+known_edge	CHAINED_CALL	f19_reexports.via_reexported_function -> repkg.inner.leaf.Widget.emit
+known_edge	CHAINED_CALL	f19_reexports.via_submodule_alias -> repkg.inner.leaf.Widget.emit
 known_edge	CHAINED_CALL	main.main -> f10_forward_refs.Boxed.read
 known_edge	CHAINED_CALL	main.main -> f11_multiwrite.HoldsOr.run
 known_edge	CHAINED_CALL	main.main -> f11_multiwrite.HoldsTernary.run
@@ -183,6 +189,7 @@ known_edge	METHOD_CALL	f16_element_types.via_parameter_from_param_field -> f16_e
 known_edge	METHOD_CALL	f18_lambda_dispatch.<lambda> -> f18_lambda_dispatch.Other.emit
 known_edge	METHOD_CALL	f18_lambda_dispatch.Renderer.<lambda> -> f18_lambda_dispatch.Renderer.render_a
 known_edge	METHOD_CALL	f18_lambda_dispatch.Renderer.<lambda> -> f18_lambda_dispatch.Renderer.render_b
+known_edge	METHOD_CALL	f19_reexports.via_reexported_function -> repkg.inner.leaf.make_widget
 known_edge	METHOD_CALL	main.main -> f01_inheritance.client_chain
 known_edge	METHOD_CALL	main.main -> f01_inheritance.lib_deep_chain
 known_edge	METHOD_CALL	main.main -> f01_inheritance.lib_diamond
@@ -272,6 +279,9 @@ known_edge	METHOD_CALL	main.main -> f16_element_types.via_parameter_from_param_f
 known_edge	METHOD_CALL	main.main -> f18_lambda_dispatch.Renderer.dispatch_computed
 known_edge	METHOD_CALL	main.main -> f18_lambda_dispatch.Renderer.dispatch_pinned
 known_edge	METHOD_CALL	main.main -> f18_lambda_dispatch.via_other_receiver
+known_edge	METHOD_CALL	main.main -> f19_reexports.via_package_attribute
+known_edge	METHOD_CALL	main.main -> f19_reexports.via_reexported_function
+known_edge	METHOD_CALL	main.main -> f19_reexports.via_submodule_alias
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator_in_for
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_plain
