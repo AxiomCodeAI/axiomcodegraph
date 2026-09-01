@@ -143,6 +143,10 @@ export class TsMethodParameterRegistry implements EntityIdentifiable {
     this.declaredFieldLinkHash = hash;
   }
 
+  getTypeReferenceLinkHash(): string {
+    return this.typeReferenceLinkHash;
+  }
+
   setTypeReferenceLinkHash(hash: string): void {
     this.typeReferenceLinkHash = hash;
   }

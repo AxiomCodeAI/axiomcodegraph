@@ -2279,6 +2279,93 @@ async function unresolvedImportsNameTheirPackage(): Promise<number> {
   return failures.length ? 1 : 0;
 }
 
+// ---------------------------------------------------------------------------
+// 23. Every annotated declaration names its type
+// ---------------------------------------------------------------------------
+
+/**
+ * A declared type must be reachable as a ROW, not only readable as text.
+ *
+ * `fieldTypeName` is the source text. Following it anywhere -- to the interface
+ * it names, to the element type inside `Record<string, X>` -- needs the
+ * `ts_type_reference` tree, and that is reached through
+ * `typeReferenceLinkHash`. Without it a consumer has to parse the annotation
+ * out of a string, which is the one thing a fact base exists to avoid.
+ *
+ * Two kinds had it empty for different reasons, and both are the same mistake
+ * seen twice: a member of an anonymous shape does not create its own reference,
+ * because the enclosing type's tree emits it; and a parameter property's field
+ * could only be typed by hopping through the parameter that declared it. On one
+ * library that was 2,406 of 2,441 annotated fields carrying text and nothing
+ * else.
+ */
+async function annotatedDeclarationsNameTheirType(): Promise<number> {
+  if (!parserPresent()) {
+    return pendingCheck('annotated declarations name their type',
+      'no extractor yet. An annotated declaration must link its type reference');
+  }
+  const { outputDir, cleanup } = await analyseInline('ts-typelink-', {
+    't.ts': [
+      'export interface Dep { run(): void }',
+      'export class C {',
+      '  field: Dep;',
+      '  readonly ro: Dep[] = [];',
+      '  constructor(private injected: Dep, public other: Dep) { this.field = injected; }',
+      '}',
+      'export interface I { member: Dep }',
+      'export type L = { lit: Dep; nested: { inner: Dep } };',
+      'export type Indexed = { [k: string]: Dep };',
+      'export function fn(p: Dep, q?: Dep) { return [p, q]; }',
+      'export function ret(): Dep { return null as never; }',
+    ].join('\n'),
+  });
+
+  const references = new Map(relation(outputDir, 'all-typescript-type-references.csv')
+    .map((r) => [r.tsTypeReferenceUniqueHash ?? '', r]));
+  const failures: string[] = [];
+  const kinds = new Set<string>();
+  let linked = 0;
+
+  for (const row of relation(outputDir, 'all-typescript-fields.csv')) {
+    if ((row.fieldTypeName ?? '') === '') {
+      continue;
+    }
+    kinds.add(row.memberKind ?? '');
+    const hash = row.typeReferenceLinkHash ?? '';
+    if (hash === '') {
+      failures.push(`${row.memberKind} ${row.name}: annotated "${row.fieldTypeName}" but no ` +
+        'typeReferenceLinkHash — the type is text only');
+    } else if (!references.has(hash)) {
+      failures.push(`${row.memberKind} ${row.name}: typeReferenceLinkHash is DANGLING`);
+    } else {
+      linked += 1;
+    }
+  }
+  for (const row of relation(outputDir, 'all-typescript-method-parameters.csv')) {
+    if ((row.parameterTypeName ?? '') === '' || (row.bindingSourceKind ?? 'NONE') !== 'NONE') {
+      continue;
+    }
+    if ((row.typeReferenceLinkHash ?? '') === '') {
+      failures.push(`parameter ${row.paramName}: annotated but no typeReferenceLinkHash`);
+    }
+  }
+
+  // The fixture must actually produce the kinds that were broken, or this
+  // passes by not testing them.
+  for (const kind of ['TYPE_LITERAL_PROPERTY', 'PARAMETER_PROPERTY', 'PROPERTY_DECLARATION',
+    'PROPERTY_SIGNATURE', 'TYPE_LITERAL_INDEX_SIGNATURE']) {
+    if (!kinds.has(kind)) {
+      failures.push(`the fixture produced no ${kind} — the check is vacuous for it`);
+    }
+  }
+
+  console.log(`  ${linked} annotated field(s) across ${kinds.size} member kind(s) name a type ` +
+    'reference row, shape members and parameter properties included');
+  for (const f of failures.slice(0, 10)) console.log(`  ${f}`);
+  cleanup();
+  return failures.length ? 1 : 0;
+}
+
 const CHECKS: Check[] = [
   { name: 'compiles', proves: 'tsc --noEmit is clean — the suite reports on code that actually builds', run: compiles },
   { name: 'fixtures compile and are isolated', proves: 'a fixture is a valid input, and cannot break another language\'s gate', run: fixturesCompile },
@@ -2300,6 +2387,7 @@ const CHECKS: Check[] = [
   { name: 'pattern parameters bind names', proves: 'a destructured parameter emits the names it binds, so a call through one can resolve', run: patternParametersBindNames },
   { name: 'destructured names reach their value', proves: 'a bound name links the initializer it was destructured from, so a call through one can resolve', run: destructuredNamesReachTheirValue },
   { name: 'unresolved imports name their package', proves: 'a client-only run can say which packages to stage, without needing node_modules present', run: unresolvedImportsNameTheirPackage },
+  { name: 'annotated declarations name their type', proves: 'a declared type is reachable as a row, not only readable as text, so type flow can be followed', run: annotatedDeclarationsNameTheirType },
   { name: 'fact-base invariants', proves: 'every PK unique, every FK resolves, every tree well-formed — the failures that load cleanly and count wrong', run: factBaseInvariants },
   { name: 'IR completeness', proves: 'every hop an engine needs in order to resolve is present — the measure that replaced resolution rate', run: irCompleteness },
 ];
