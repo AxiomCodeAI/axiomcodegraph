@@ -250,7 +250,6 @@ for (const configPath of configPaths) {
   );
   const program = ts.createProgram(parsed.fileNames, parsed.options);
   checker = program.getTypeChecker();
-  diagTotal += program.getSemanticDiagnostics().length;
 
 for (const sf of program.getSourceFiles()) {
   if (sf.isDeclarationFile) continue;
@@ -344,6 +343,15 @@ for (const sf of program.getSourceFiles()) {
   };
   ts.forEachChild(sf, visit);
 }
+
+// AFTER the walk, never before. `getSemanticDiagnostics()` forces the checker to
+// resolve the whole program, and doing that FIRST changes what
+// `getResolvedSignature` returns for some ambiguous sites — measured: on one project
+// a `toString()` moved from lib.es5.d.ts:128 to :412 with the engine's answer set
+// byte-identical, so the GROUND TRUTH moved and every verdict at that site moved with
+// it. Row counts and exit codes were unchanged, which is why an earlier check for
+// "unchanged" missed it. Order is load-bearing here.
+diagTotal += program.getSemanticDiagnostics().length;
 
 }   // end: one program per discovered tsconfig
 
