@@ -233,6 +233,53 @@ method_in_scope(scope, name, "false", m) :- lookup_scope(scope),
     object_prototype_member(name, m),
     !member_declared_anywhere(scope, name, "false").
 
+// ── the FUNCTION prototype, the same carve-out for callable values ──────────
+// `call`, `apply` and `bind` are not members of a function's signature. They are
+// declared on the global `CallableFunction` interface in lib.es5.d.ts, which
+// `extends Function`, and every callable value has them by the language's definition of
+// what a function is. A function-typed receiver was typed correctly, its SHAPE searched
+// correctly, and the shape is a signature — parameters and a return, no members — so the
+// site was diagnosed `member_absent`, the bucket that means engine defect. It was right.
+//
+// Both interfaces are seeded rather than relying on the `extends Function` heritage walk:
+// that walk needs the ancestor in lookup_scope, and a shape's scope is the shape.
+// `strictBindCallApply` (implied by `strict`) is what makes the compiler answer with
+// CallableFunction's overloads rather than Function's, so CallableFunction is seeded
+// first and Function supplies what it does not redeclare — `toString`, `name`, `length`.
+//
+// Guarded on the name resolving to a real global TYPE, so a project declaring its own
+// `CallableFunction` does not get the language's members grafted on by name alone.
+// CallableFunction WINS where both declare the name. `Function.call` and
+// `CallableFunction.call` are different declarations of the same member, and
+// `strictBindCallApply` -- implied by `strict`, which every project measured here sets --
+// is what makes the compiler answer with CallableFunction's. Returning both is not
+// harmless: it turns an EXACT answer into a two-candidate SOUND_SUPERSET at every
+// `call`/`apply`/`bind` site in the corpus, trading precision for nothing.
+callable_function_member(name, m) :- global_decl("CallableFunction", "TYPE", _, ft),
+    scope_sibling(ft, sib),
+    declared_method(sib, name, "false", m).
+callable_function_declares(name) :- callable_function_member(name, _).
+
+function_prototype_member(name, m) :- callable_function_member(name, m).
+// Function supplies only what CallableFunction does not redeclare -- `toString`, `name`,
+// `length` -- so the two seeds compose without competing.
+function_prototype_member(name, m) :- global_decl("Function", "TYPE", _, ft),
+    scope_sibling(ft, sib),
+    declared_method(sib, name, "false", m),
+    !callable_function_declares(name).
+
+// CALLABLE means "has a call signature", not "has a shape": a shape is any structural
+// target, an object type literal included, and giving `{ a: number }` a `.bind` would
+// manufacture a wrong answer where there was none.
+//
+// Shadowed by anything the scope declares, for the same reason Object's members are: a
+// type with its own `bind` keeps it rather than going multi_inferred across two unrelated
+// declarations.
+method_in_scope(scope, name, "false", m) :- lookup_scope(scope),
+    call_signature_in_scope(scope, _),
+    function_prototype_member(name, m),
+    !member_declared_anywhere(scope, name, "false").
+
 // ── member_name_declared(Scope, Name) — the LOW-STRATUM member test ─────────
 // The same question as member_name_exists and deliberately NOT the same relation.
 // member_name_exists reads method_in_scope, which is guarded by lookup_scope, which is
