@@ -43,12 +43,47 @@ if [ -d "$PARSER_REPO/.git" ]; then
 fi
 
 STAMP="$OUT/.parser-revision"
+
+# ── Does a parser revision range touch JAVA extraction? ─────────────────────────────────
+# The parser is shared, and most commits to it are for another front end. Rebuilding a
+# ~2 GB platform IR for a TypeScript fix costs 40 minutes and changes nothing: verified by
+# extracting the same tree at two revisions either side of a TS-only bump and finding every
+# Java relation byte-identical.
+#
+# The test is an EXCLUSION, not an inclusion, and the polarity is deliberate: a path is
+# ignorable only if it is provably specific to another language or to non-code. ANYTHING
+# ELSE — shared extraction, hashing, CSV writing, the entry point, build config, or a path
+# added after this was written — counts as Java-affecting and forces the rebuild. Guessing
+# "not Java" wrongly produces a stale IR that reports itself current, which is the failure
+# this whole stamp exists to prevent; guessing "Java" wrongly costs time only.
+java_affecting(){                       # $1 = old rev, $2 = new rev
+  local files
+  files="$(git -C "$PARSER_REPO" diff --name-only "$1".."$2" 2>/dev/null)" || return 0
+  [ -z "$files" ] && return 1
+  local f
+  while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    case "$f" in
+      */typescript/*|*/python/*|*/gradle/*|*typescript*|*python*|*gradle*) ;;
+      src/test-data/*|src/test/*|*.md|.github/*|.gitignore) ;;
+      *) return 0 ;;                    # unrecognised -> assume it affects Java
+    esac
+  done <<EOF
+$files
+EOF
+  return 1
+}
 if [ "$CHECK" = 1 ]; then
   have="$(cat "$STAMP" 2>/dev/null | head -1 || echo '(none)')"
   echo "jdk IR at $OUT"
   echo "  built by parser : $have"
   echo "  parser now      : $PARSER_REV"
   [ "$have" = "$PARSER_REV" ] && { echo "  UP TO DATE"; exit 0; }
+  if [ -n "$have" ] && [ "$have" != "(none)" ] && ! java_affecting "$have" "$PARSER_REV"; then
+    echo "  UP TO DATE for Java — the revisions differ but nothing between them touches Java"
+    echo "  extraction, so the tree is still valid. Re-run without --check to advance the stamp."
+    exit 0
+  fi
   echo "  STALE — re-run without --check"; exit 1
 fi
 
@@ -71,6 +106,16 @@ PARTIAL="$OUT/.parser-revision.partial"
 STAMPED="$(head -1 "$STAMP" 2>/dev/null || echo '')"
 [ -z "$STAMPED" ] && STAMPED="$(head -1 "$PARTIAL" 2>/dev/null || echo '')"
 if [ -d "$OUT" ] && [ "$STAMPED" != "$PARSER_REV" ] && [ "$KEEP_STALE" = 0 ]; then
+  if [ -n "$STAMPED" ] && [ -f "$STAMP" ] && ! java_affecting "$STAMPED" "$PARSER_REV"; then
+    # Nothing between the two revisions touches Java extraction, so the tree is unchanged in
+    # substance. Advance the stamp rather than spend 40 minutes reproducing it byte for byte,
+    # and record where it came from so the claim is auditable.
+    printf "%s\n%s\n" "$PARSER_REV" \
+      "revalidated $(date -u +%Y-%m-%dT%H:%M:%SZ): built at $STAMPED, and $STAMPED..$PARSER_REV touches no Java extraction path" > "$STAMP"
+    echo "jdk IR at $OUT is still valid: $STAMPED..$PARSER_REV touches no Java extraction path"
+    echo "stamp advanced to $PARSER_REV — nothing rebuilt"
+    exit 0
+  fi
   echo "!! jdk IR at $OUT was built by parser ${STAMPED:-'(unstamped)'}, now $PARSER_REV — DELETING and regenerating"
   rm -rf "$OUT"
 fi
