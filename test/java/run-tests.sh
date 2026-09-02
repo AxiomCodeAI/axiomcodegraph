@@ -34,7 +34,9 @@
 # Environment:
 #   AXIOM_PARSER   path to the parser entrypoint   (default ../../../Parser/dist/index.js)
 #
-# NO EXTERNAL LIBRARY IR IS USED OR REQUIRED — see the note above the EMPTY_LIB line.
+# NO EXTERNAL LIBRARY IR IS USED OR REQUIRED — see the note above the EMPTY_LIB line. A case
+# may however ship its own lib-src/ STUB library (kilobytes, in the repo), which is extracted
+# and passed as --library so the client->library hand-off can be exercised at all.
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 # ─────────────────────────────────────────────────────────────────────────────
@@ -97,7 +99,25 @@ for dir in "$HERE"/cases/*/; do
 
   if ! node "$PARSER" "$dir/src" "$name" false "$w/ir" >"$w/parse.log" 2>&1; then
     echo "FAIL (parse — see $w/parse.log)"; fail=$((fail+1)); failed+=("$name"); continue; fi
-  if ! bash "$ROOT/src/pipeline/run-souffle.sh" --client-ir "$w/ir" --library "$LIB_ARG" \
+
+  # ── STUB LIBRARY (optional, per case) ─────────────────────────────────────────────────
+  # A case may ship lib-src/, which is extracted and passed as --library instead of the
+  # empty directory. It is a STUB: a handful of types standing in for a dependency, enough
+  # to exercise the client->library HAND-OFF (does the boundary edge point at the right
+  # method) and nothing deeper — library-internal expansion is a different engine.
+  #
+  # This exists because the boundary was previously untestable at all. Real dependency IRs
+  # are gigabytes and cannot live in the repo, so every case staged an empty library, so no
+  # case could exercise a client->library call — which is how a silent drop on that path
+  # survived. A stub is kilobytes and pins the same contract.
+  case_lib="$LIB_ARG"
+  if [ -d "$dir/lib-src" ]; then
+    if ! node "$PARSER" "$dir/lib-src" "$name-lib" false "$w/lib-ir" >"$w/parse-lib.log" 2>&1; then
+      echo "FAIL (stub-library parse — see $w/parse-lib.log)"; fail=$((fail+1)); failed+=("$name"); continue; fi
+    case_lib="$w/lib-ir"
+  fi
+
+  if ! bash "$ROOT/src/pipeline/run-souffle.sh" --client-ir "$w/ir" --library "$case_lib" \
         --intermediate "$w/int" --output "$w/out" >"$w/solve.log" 2>&1; then
     echo "FAIL (solve — see $w/solve.log)"; fail=$((fail+1)); failed+=("$name"); continue; fi
 
