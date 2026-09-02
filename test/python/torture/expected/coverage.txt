@@ -1,4 +1,4 @@
-=== per-family coverage (tier-4, 187 scored sites) ===
+=== per-family coverage (tier-4, 188 scored sites) ===
   f01 inheritance & MRO        links= 10  found= 10 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f02 callables & closures     links= 10  found=  9 (90.0%)  missed= 1  wide= 0  WRONG= 0
   f03 generics                 links= 14  found= 14 (100.0%)  missed= 0  wide= 0  WRONG= 0
@@ -20,10 +20,11 @@
   f21 module alias             links=  3  found=  3 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f22 annotation via type-ref FK links=  3  found=  3 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f23 typevar bound            links=  9  found=  9 (100.0%)  missed= 0  wide= 4  WRONG= 0
+  f24 star import __all__      links=  1  found=  1 (100.0%)  missed= 0  wide= 0  WRONG= 0
   pkgmod relative imports (subpackage) links=  3  found=  3 (100.0%)  missed= 0  wide= 0  WRONG= 0
 
-  TOTAL                         links=162  found=154 (95.1%)  missed= 8  wide=25  WRONG= 0
-  recall      154/162 = 95.1%  of the links that actually ran
+  TOTAL                         links=163  found=155 (95.1%)  missed= 8  wide=25  WRONG= 0
+  recall      155/163 = 95.1%  of the links that actually ran
   wide  25   a member of a SOUND SET that did not run on this pass
   WRONG 0   a single target asserted as certain that never ran
 
