@@ -1,6 +1,1 @@
-oracle=8 engine=13 agree=8 missing=0 (known 0, NEW 0) extra=5
-  extra    FunctionValues#build -> FunctionValues#impl(String)
-  extra    FunctionValues#callsViaParameter -> FunctionValues#impl(String)
-  extra    FunctionValues#indirect -> FunctionValues#other(String)
-  extra    FunctionValues#register -> FunctionValues#impl(String)
-  extra    FunctionValues#register -> FunctionValues#other(String)
+oracle=13 engine=13 agree=13 missing=0 (known 0, NEW 0) extra=0

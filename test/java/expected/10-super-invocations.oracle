@@ -1,3 +1,2 @@
-oracle=16 engine=18 agree=16 missing=0 (known 0, NEW 0) extra=2
+oracle=17 engine=18 agree=17 missing=0 (known 0, NEW 0) extra=1
   extra    testcases.engine.Named#label -> testcases.engine.SuperInvocations#name()
-  extra    testcases.engine.SuperInvocations#soundRef -> testcases.engine.Base#sound()
