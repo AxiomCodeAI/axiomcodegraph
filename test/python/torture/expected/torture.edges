@@ -88,6 +88,10 @@ boundary_lib	METHOD_CALL	f24_star_all.absent_by_underscore -> lib:tlib._Private
 boundary_lib	METHOD_CALL	f24_star_all.absent_from_all -> external:tlib.NotExported
 boundary_lib	METHOD_CALL	f24_star_all.absent_from_all -> lib:tlib.NotExported
 boundary_lib	METHOD_CALL	f24_star_all.via_star_export -> builtin:object.__init__
+boundary_lib	METHOD_CALL	f25_var_params.Holder.lookup -> builtin:dict.get
+boundary_lib	METHOD_CALL	f25_var_params.annotated_kwargs -> builtin:dict.get
+boundary_lib	METHOD_CALL	f25_var_params.annotated_varargs -> builtin:tuple.count
+boundary_lib	METHOD_CALL	f25_var_params.collect -> builtin:tuple.count
 boundary_lib	METHOD_CALL	main.main -> builtin:object.__init__
 boundary_lib	SELF_CALL	f02_callables.HoldsCallables.run -> lib:tlib.callables.Doubler.__call__
 boundary_lib	SELF_CALL	f09_adversarial.Rebound.use -> lib:tlib.callables.Doubler.__call__
@@ -161,6 +165,8 @@ boundary_lib	SIMPLE_CALL	f23_typevar_bound.flowed_class_object -> builtin:object
 boundary_lib	SIMPLE_CALL	f23_typevar_bound.via_concrete_argument -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f23_typevar_bound.via_opaque_value -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f23_typevar_bound.via_opaque_value -> lib:tlib.callables.passthrough
+boundary_lib	SIMPLE_CALL	f25_var_params.Holder.lookup -> builtin:str
+boundary_lib	SIMPLE_CALL	f25_var_params.annotated_kwargs -> builtin:str
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	main.main -> builtin:print
@@ -189,6 +195,7 @@ known_edge	CHAINED_CALL	main.main -> f12_value_flow.UsesFactory.run
 known_edge	CHAINED_CALL	main.main -> f13_declared_dispatch.Base.run
 known_edge	CHAINED_CALL	main.main -> f13_declared_dispatch.Engine.run
 known_edge	CHAINED_CALL	main.main -> f20_builtin_flow.UsesSelf.via_self
+known_edge	CHAINED_CALL	main.main -> f25_var_params.Holder.lookup
 known_edge	METHOD_CALL	f04_descriptors.client_descriptors -> f04_descriptors.LocalCfg.make
 known_edge	METHOD_CALL	f04_descriptors.client_descriptors -> f04_descriptors.LocalCfg.util
 known_edge	METHOD_CALL	f10_forward_refs.Boxed.read -> f10_forward_refs.Holder.tag
@@ -332,6 +339,10 @@ known_edge	METHOD_CALL	main.main -> f23_typevar_bound.via_opaque_value
 known_edge	METHOD_CALL	main.main -> f24_star_all.absent_by_underscore
 known_edge	METHOD_CALL	main.main -> f24_star_all.absent_from_all
 known_edge	METHOD_CALL	main.main -> f24_star_all.via_star_export
+known_edge	METHOD_CALL	main.main -> f25_var_params.Holder.__init__
+known_edge	METHOD_CALL	main.main -> f25_var_params.annotated_kwargs
+known_edge	METHOD_CALL	main.main -> f25_var_params.annotated_varargs
+known_edge	METHOD_CALL	main.main -> f25_var_params.collect
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator_in_for
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_plain

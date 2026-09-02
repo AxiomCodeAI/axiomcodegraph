@@ -86,15 +86,42 @@ annotation_builtin(p, m, "METHOD", b) :-
     method_decl(p, _, _, _, ret, m), ret != "",
     method_module(p, mod, m), builtin_alias_visible(p, mod, ret, b).
 
+// ── A VAR-PARAMETER'S TYPE IS ITS KIND, AND THE KIND BEATS THE ANNOTATION ────
+// `**kwargs` IS a dict and `*args` IS a tuple. Python guarantees it at every call site,
+// whatever the signature says, so this is a language fact and not an inference.
+//
+// The annotation on one describes the ELEMENT type, never the parameter:
+//
+//     def f(**options: str)   # options is dict[str, str] -- NOT a str
+//     def g(*values: int)     # values is tuple[int, ...] -- NOT an int
+//
+// Reading it as the parameter's own type is a WRONG answer rather than a missing one:
+// `options.get(...)` resolved to a str method that does not exist. Measured across the
+// corpora, 43 parameters were mis-typed exactly this way, so the negation below is
+// load-bearing and not defensive.
+param_kind_builtin(p, ph, "dict")  :- param_kind(p, "VAR_KEYWORD", _, _, ph).
+param_kind_builtin(p, ph, "tuple") :- param_kind(p, "VAR_POSITIONAL", _, _, ph).
+
+// param_builtin -- the parameter's own builtin type: its KIND where it has one, its
+// annotation only where it does not. Stated as a separate relation rather than folded
+// into annotation_builtin because a var-parameter's type is not an annotation at all, and
+// a name that says otherwise is how the mis-typing survived in the first place.
+// param_kind_builtin rests on the param_kind projection alone, outside the resolution
+// fixpoint, so negating it here is stratified.
+param_builtin(p, ph, b) :- param_kind_builtin(p, ph, b).
+param_builtin(p, ph, b) :-
+    annotation_builtin(p, ph, "METHOD_PARAM", b), !param_kind_builtin(p, ph, _).
+
 // ── expr_builtin_type(Prov, ExprHash, BuiltinName) ───────────────────────────
 // (a) the parser's own CERTAIN literal inference — `[]` is a list, `{}` a dict, `"x"` a str.
 expr_builtin_type(p, e, b) :-
     expr_inferred_type(p, tn, k, _, "CERTAIN", e),
     k != "USER_CLASS", k != "UNKNOWN",
     builtin_container_alias(tn, b).
-// (b) a parameter annotated with a builtin.
+// (b) a parameter's own builtin type -- its kind for `**kwargs` / `*args`, its annotation
+//     otherwise. See param_builtin above for why the kind wins.
 expr_builtin_type(p, e, b) :-
-    expr_names_param(p, e, ph), annotation_builtin(p, ph, "METHOD_PARAM", b).
+    expr_names_param(p, e, ph), param_builtin(p, ph, b).
 // (c) `self.x` annotated with a builtin, or written from a builtin-typed value.
 expr_builtin_type(p, e, b) :-
     expr_attr_of_self(p, e, n, owner), type_attr_field(p, owner, n, f),
