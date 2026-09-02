@@ -1,8 +1,8 @@
-boundary_lib	method	probe.Handoff#atDepth0(Sink) -> <unresolved:METHOD_REGISTRY_8e52964c>
-boundary_lib	method	probe.Handoff#atDepth0(Sink) -> <unresolved:METHOD_REGISTRY_e9b100ce>
-boundary_lib	method	probe.Handoff#atDepth1(BufferedSink) -> <unresolved:METHOD_REGISTRY_8e52964c>
-boundary_lib	method	probe.Handoff#atDepth1(BufferedSink) -> <unresolved:METHOD_REGISTRY_e9b100ce>
-boundary_lib	method	probe.Handoff#atDepth2(FileSink) -> <unresolved:METHOD_REGISTRY_8e52964c>
-boundary_lib	method	probe.Handoff#atDepth2(FileSink) -> <unresolved:METHOD_REGISTRY_e9b100ce>
-boundary_lib	method	probe.Handoff#siblingOverload(BufferedSink) -> <unresolved:METHOD_REGISTRY_8e52964c>
-boundary_lib	method	probe.Handoff#siblingOverload(BufferedSink) -> <unresolved:METHOD_REGISTRY_e2b13621>
+boundary_lib	method	probe.Handoff#atDepth0(Sink) -> dep.Sink#write(String)
+boundary_lib	method	probe.Handoff#atDepth0(Sink) -> dep.Sink#write(char[])
+boundary_lib	method	probe.Handoff#atDepth1(BufferedSink) -> dep.Sink#write(String)
+boundary_lib	method	probe.Handoff#atDepth1(BufferedSink) -> dep.Sink#write(char[])
+boundary_lib	method	probe.Handoff#atDepth2(FileSink) -> dep.Sink#write(String)
+boundary_lib	method	probe.Handoff#atDepth2(FileSink) -> dep.Sink#write(char[])
+boundary_lib	method	probe.Handoff#siblingOverload(BufferedSink) -> dep.BufferedSink#write(int)
+boundary_lib	method	probe.Handoff#siblingOverload(BufferedSink) -> dep.Sink#write(char[])
