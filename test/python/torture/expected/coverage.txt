@@ -1,4 +1,4 @@
-=== per-family coverage (tier-4, 192 scored sites) ===
+=== per-family coverage (tier-4, 200 scored sites) ===
   f01 inheritance & MRO        links= 10  found= 10 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f02 callables & closures     links= 10  found=  9 (90.0%)  missed= 1  wide= 0  WRONG= 0
   f03 generics                 links= 14  found= 14 (100.0%)  missed= 0  wide= 0  WRONG= 0
@@ -22,11 +22,12 @@
   f23 typevar bound            links=  9  found=  9 (100.0%)  missed= 0  wide= 4  WRONG= 0
   f24 star import __all__      links=  1  found=  1 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f26 local annotation         links=  3  found=  3 (100.0%)  missed= 0  wide= 1  WRONG= 0
+  f27 with target              links=  7  found=  7 (100.0%)  missed= 0  wide= 1  WRONG= 0
   pkgmod relative imports (subpackage) links=  3  found=  3 (100.0%)  missed= 0  wide= 0  WRONG= 0
 
-  TOTAL                         links=166  found=158 (95.2%)  missed= 8  wide=26  WRONG= 0
-  recall      158/166 = 95.2%  of the links that actually ran
-  wide  26   a member of a SOUND SET that did not run on this pass
+  TOTAL                         links=173  found=165 (95.4%)  missed= 8  wide=27  WRONG= 0
+  recall      165/173 = 95.4%  of the links that actually ran
+  wide  27   a member of a SOUND SET that did not run on this pass
   WRONG 0   a single target asserted as certain that never ran
 
   EXPECTED-MISS cases: {'FOUND': 6, 'MISSED': 6}   (a CONCRETE here means a known blind spot closed)
@@ -66,3 +67,4 @@
   f23_typevar_bound.py:71   WIDE       true=[('client', 'f23_typevar_bound.py', 45)] engine=[('client', 'f23_typevar_bound.py', 40)]
   f23_typevar_bound.py:75   WIDE       true=[('client', 'f23_typevar_bound.py', 45)] engine=[('client', 'f23_typevar_bound.py', 40)]
   f26_local_annotation.py:41   WIDE       true=[('client', 'f26_local_annotation.py', 26)] engine=[('client', 'f26_local_annotation.py', 21)]
+  f27_with_target.py:56   WIDE       true=[('client', 'f27_with_target.py', 33)] engine=[('client', 'f27_with_target.py', 28)]

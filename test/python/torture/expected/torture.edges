@@ -173,6 +173,8 @@ boundary_lib	SIMPLE_CALL	f26_local_annotation.from_builtin_annotation -> builtin
 boundary_lib	SIMPLE_CALL	f26_local_annotation.from_builtin_annotation -> lib:tlib.callables.passthrough
 boundary_lib	SIMPLE_CALL	f26_local_annotation.from_class_annotation -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f26_local_annotation.from_class_annotation -> lib:tlib.callables.passthrough
+boundary_lib	SIMPLE_CALL	f27_with_target.make -> builtin:object.__init__
+boundary_lib	SIMPLE_CALL	f27_with_target.via_self_enter -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	main.main -> builtin:print
@@ -202,6 +204,10 @@ known_edge	CHAINED_CALL	main.main -> f13_declared_dispatch.Base.run
 known_edge	CHAINED_CALL	main.main -> f13_declared_dispatch.Engine.run
 known_edge	CHAINED_CALL	main.main -> f20_builtin_flow.UsesSelf.via_self
 known_edge	CHAINED_CALL	main.main -> f25_var_params.Holder.lookup
+known_edge	CONTEXT_MANAGER	f27_with_target.via_declared_enter -> f27_with_target.Resource.__enter__
+known_edge	CONTEXT_MANAGER	f27_with_target.via_declared_enter -> f27_with_target.Resource.__exit__
+known_edge	CONTEXT_MANAGER	f27_with_target.via_self_enter -> f27_with_target.SelfRes.__enter__
+known_edge	CONTEXT_MANAGER	f27_with_target.via_self_enter -> f27_with_target.SelfRes.__exit__
 known_edge	METHOD_CALL	f04_descriptors.client_descriptors -> f04_descriptors.LocalCfg.make
 known_edge	METHOD_CALL	f04_descriptors.client_descriptors -> f04_descriptors.LocalCfg.util
 known_edge	METHOD_CALL	f10_forward_refs.Boxed.read -> f10_forward_refs.Holder.tag
@@ -236,6 +242,7 @@ known_edge	METHOD_CALL	f21_module_alias.call_function_through_alias -> aliaspkg.
 known_edge	METHOD_CALL	f22_typeref_fk.build_via_dotted -> aliaspkg.deep.impl.Node.label
 known_edge	METHOD_CALL	f22_typeref_fk.build_via_dotted -> aliaspkg.deep.impl.build_node
 known_edge	METHOD_CALL	f22_typeref_fk.label_via_dotted -> aliaspkg.deep.impl.Node.label
+known_edge	METHOD_CALL	f27_with_target.via_self_enter -> f27_with_target.SelfRes.label
 known_edge	METHOD_CALL	main.main -> f01_inheritance.client_chain
 known_edge	METHOD_CALL	main.main -> f01_inheritance.lib_deep_chain
 known_edge	METHOD_CALL	main.main -> f01_inheritance.lib_diamond
@@ -351,6 +358,8 @@ known_edge	METHOD_CALL	main.main -> f25_var_params.annotated_varargs
 known_edge	METHOD_CALL	main.main -> f25_var_params.collect
 known_edge	METHOD_CALL	main.main -> f26_local_annotation.from_builtin_annotation
 known_edge	METHOD_CALL	main.main -> f26_local_annotation.from_class_annotation
+known_edge	METHOD_CALL	main.main -> f27_with_target.via_declared_enter
+known_edge	METHOD_CALL	main.main -> f27_with_target.via_self_enter
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator_in_for
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_plain
@@ -371,6 +380,7 @@ known_edge	SIMPLE_CALL	f23_typevar_bound.via_concrete_argument -> f23_typevar_bo
 known_edge	SIMPLE_CALL	f23_typevar_bound.via_concrete_argument -> f23_typevar_bound.flowed_class_object
 known_edge	SIMPLE_CALL	f23_typevar_bound.via_opaque_value -> f23_typevar_bound.bare_bounded
 known_edge	SIMPLE_CALL	f23_typevar_bound.via_opaque_value -> f23_typevar_bound.class_object_bounded
+known_edge	SIMPLE_CALL	f27_with_target.via_declared_enter -> f27_with_target.make
 known_edge	SIMPLE_CALL	main.<module> -> main.main
 known_edge	SIMPLE_CALL	pkgmod.user.run_generator -> pkgmod._gen.each
 known_edge	SIMPLE_CALL	pkgmod.user.run_generator_in_for -> pkgmod._gen.each_first
@@ -427,6 +437,8 @@ multi_inferred	METHOD_CALL	f23_typevar_bound.flowed_bounded -> f23_typevar_bound
 multi_inferred	METHOD_CALL	f23_typevar_bound.flowed_bounded -> f23_typevar_bound.Derived.label
 multi_inferred	METHOD_CALL	f26_local_annotation.from_class_annotation -> f26_local_annotation.Base.label
 multi_inferred	METHOD_CALL	f26_local_annotation.from_class_annotation -> f26_local_annotation.Derived.label
+multi_inferred	METHOD_CALL	f27_with_target.via_declared_enter -> f27_with_target.Resource.use
+multi_inferred	METHOD_CALL	f27_with_target.via_declared_enter -> f27_with_target.Sub.use
 multi_inferred	SELF_CALL	f13_declared_dispatch.Base.run -> f13_declared_dispatch.Base.step
 multi_inferred	SELF_CALL	f13_declared_dispatch.Base.run -> f13_declared_dispatch.StepA.step
 multi_inferred	SELF_CALL	f13_declared_dispatch.Base.run -> f13_declared_dispatch.StepB.step

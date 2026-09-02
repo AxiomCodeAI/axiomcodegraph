@@ -34,6 +34,57 @@ iter_pair(p, tgt, src) :-
     expr_scope(p, s, _, tgt), expr_scope(p, s, _, src),
     expr_span(p, line, _, tgt), expr_span(p, line, _, src).
 
+// ── with_pair(Prov, TargetExprHash, ContextExprHash) — `with X() as y` (#128) ──
+// The SAME shape as a for statement, and it lives here for that reason: the parser emits
+// WITH_TARGET and WITH_CONTEXT as two separate roots, so they are paired by scope and line
+// exactly as FOR_TARGET and FOR_ITERABLE are above. 181 of 193 targets pair by this rule.
+with_pair(p, tgt, cm) :-
+    expr_root_context(p, "WITH_TARGET", tgt), !expr_has_parent(p, tgt),
+    expr_root_context(p, "WITH_CONTEXT", cm), !expr_has_parent(p, cm),
+    expr_scope(p, s, _, tgt), expr_scope(p, s, _, cm),
+    expr_span(p, line, _, tgt), expr_span(p, line, _, cm).
+
+// The two names this needs, stated as facts rather than written into a rule body: one is a
+// dunder the language defines, the other the typing spelling for "the enclosing class".
+context_manager_enter("__enter__").
+self_return_name("Self").
+
+// ── with_target_declared(Prov, TargetExprHash, TypeHash) ─────────────────────
+// What `with <cm> as t` binds: the declared return of __enter__ on the context manager's
+// own type. The protocol is language-defined, so nothing here is a guess.
+//
+// MEASURED CEILING, recorded so a later reader is not misled by the raw count: 210
+// unresolved sites have a with-bound receiver, but of the 179 context managers that are
+// CALLs only 63 have a callee declaring a return type. Where the callee declares nothing
+// the context manager's own type is unknown and no amount of pairing recovers it.
+with_target_declared(p, tgt, rt) :-
+    with_pair(p, tgt, cm),
+    expr_type(p, cm, ct),
+    context_manager_enter(en),
+    mro_lookup(p, ct, en, m),
+    method_declared_return_type(p, m, rt).
+
+// `__enter__` returning Self is the common case and the cheap one -- the target IS the
+// context manager, with no return type to resolve. Kept separate because a resolved
+// return of a class literally named Self would mean something else entirely.
+with_target_declared(p, tgt, ct) :-
+    with_pair(p, tgt, cm),
+    expr_type(p, cm, ct),
+    context_manager_enter(en),
+    mro_lookup(p, ct, en, m),
+    method_decl(p, _, _, _, ret, m),
+    self_return_name(ret).
+
+// AN __enter__ RETURN IS A DECLARED TYPE, not an exact one, so it goes out through
+// declared_dispatch and is registered with call_recv_declared in dispatch.dl. A declared
+// type escaping that gate has produced a confident-wrong answer four times in this engine.
+expr_type(p, e, t) :-
+    expr_binding(p, bref, cx, e), cx != "STORE",
+    binding_lookup(p, bref, bind),
+    expr_binding(p, bind, "STORE", tgt),
+    with_target_declared(p, tgt, d),
+    declared_dispatch(p, d, t), p = "client".
+
 // ── element_type_of(Prov, IterableExprHash, ElementTypeHash) ─────────────────
 // Every clause is an ANNOTATION or a literal — never a guess about what a container holds.
 // (a) `self.lines` where the attribute came from a `List[LineItem]` parameter.
