@@ -58,6 +58,29 @@ bash "$REPO/test/typescript/run-evaluation.sh" "$WORK/project" "$WORK/eval"
 # over library declarations moves whenever a vendored .d.ts is edited, and a gate that
 # is re-blessed routinely stops being a gate.
 SITES="$WORK/eval/sites.tsv"
+
+# ── a dependency must be staged once, even when it ships its own source ──────
+# `@tt/twinsrc` ships `dist/index.d.ts` (what its manifest points `types` at) AND
+# `src/index.ts` (the same class, in source form) — the layout rxjs, immer and superjson
+# all publish. The parser skips `dist` by name but not `src`, so staging the package root
+# and its `dist` both, as the harness does by default, declares `Twin` twice.
+#
+# Asserted on the STAGED IR and not on the call site: the duplicate does not reliably
+# change how `t.ping()` resolves, so a resolution assertion here would pass with the
+# defect present and test nothing. What is being gated is the staging.
+require_single_declaration() {  # <typeName> <why>
+  n=$(for d in "$WORK"/eval/libir/*/; do
+        awk -F'\t' -v t="$1" 'NR>1 && $1==t {print FILENAME}' "$d/all-typescript-types.csv" 2>/dev/null
+      done | sort -u | wc -l | tr -d ' ')
+  if [ "$n" -eq 0 ]; then
+    echo "FAIL  $1  — declared in NO staged library root, so the check tests nothing.  $2"
+    fail=1
+  elif [ "$n" -gt 1 ]; then
+    echo "FAIL  $1  — declared in $n staged library roots, must be 1.  $2"
+    fail=1
+  fi
+}
+
 SCORE="$WORK/eval/score.txt"
 fail=0
 
@@ -171,6 +194,9 @@ require_resolved link-conditional.ts emitTo \
 # `code` got a type; the method itself resolves either way.
 require_resolved link-conditional.ts trim \
   "an object-literal method parameter typed from the literal's annotation"
+
+require_single_declaration Twin \
+  "a package shipping src/ next to dist/ must be staged once, not twice"
 
 # The fixture answers only where it is sure: a WRONG answer here is a rule that
 # manufactures confidence, which is worse than the missing edge it replaces.

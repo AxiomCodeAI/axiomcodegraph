@@ -65,6 +65,37 @@ for cand in "$PROJECT/node_modules" "$PROJECT/../node_modules" "$PROJECT/../../n
   [ -d "$cand" ] && NM_ROOTS="$NM_ROOTS $(cd "$cand" && pwd)"
 done
 find_in_nm() { for r in $NM_ROOTS; do [ -e "$r/$1" ] && { echo "$r/$1"; return 0; }; done; return 1; }
+
+# ── src_duplicates_staged_subdir(packageDir) — is the root a second copy? ────
+# A package that ships its TypeScript SOURCE next to its built declarations gets
+# staged twice: the root walk descends into `src/` (which the parser does not skip)
+# while `dist/` is staged separately below, so every class in the package is declared
+# in two staged roots at once. The engine then has two candidates for one name and,
+# under prune-only, commits to neither.
+#
+# The manifest is the authority on which copy is real: if `types` (or the modern
+# `exports["."].types`) points into a directory we stage separately, the root's `src/`
+# is by the package's own account not the published surface. Both conditions are
+# required — a package whose types live in `src/` must keep its root staged.
+#
+# This is the general form of the `typescript` special case below, which was the same
+# defect found one package at a time.
+src_duplicates_staged_subdir() {
+  [ -d "$1/src" ] || return 1
+  [ -n "$(find "$1/src" -name '*.ts' ! -name '*.d.ts' -print -quit 2>/dev/null)" ] || return 1
+  python3 - "$1" <<'PYEOF'
+import json, sys, re
+try:
+    m = json.load(open(sys.argv[1] + '/package.json'))
+except Exception:
+    sys.exit(1)
+t = m.get('types') or m.get('typings') or ''
+e = m.get('exports')
+if isinstance(e, dict) and isinstance(e.get('.'), dict):
+    t = e['.'].get('types') or t
+sys.exit(0 if isinstance(t, str) and re.match(r'^(\./)?(dist|build|out)/', t) else 1)
+PYEOF
+}
 # Resolve a package the way NODE does — from the IMPORTER's directory, walking up its
 # ancestors and looking in each `node_modules`. NM_ROOTS alone is only correct for a
 # FLAT install, where every transitive package is hoisted to the top level.
@@ -246,7 +277,7 @@ if [ -n "$NM_ROOTS" ]; then
     d="$(find_in_nm "@types/$pkg" || true)"; [ -n "$d" ] && add_lib "$d" "types_$safe"
     d="$(find_in_nm "$pkg" || true)"
     if [ -n "$d" ]; then
-      add_lib "$d" "$safe" || true
+      src_duplicates_staged_subdir "$d" || add_lib "$d" "$safe" || true
       # A published package keeps its real declarations in a directory the parser
       # SKIPS BY NAME — `dist`, `build` and `out` are in TS_SKIP_DIRECTORIES. So the
       # package root and those directories can never overlap, and BOTH must be staged:
@@ -343,7 +374,7 @@ if [ -n "$NM_ROOTS" ]; then
     [ -n "$from" ] && d="$(find_from "$from" "$pkg" || true)"
     [ -z "$d" ] && d="$(find_in_nm "$pkg" || true)"
     if [ -n "$d" ]; then
-      add_lib "$d" "$safe" || true
+      src_duplicates_staged_subdir "$d" || add_lib "$d" "$safe" || true
       for sub in dist build out; do
         [ -d "$d/$sub" ] && { add_lib "$d/$sub" "${safe}_$sub" || true; }
       done
