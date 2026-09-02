@@ -11,7 +11,10 @@
 //   * anonymous classes keyed by SUPERTYPE (`Outer$anon:Runnable`), never by javac's numbering
 //   * an enum-constant body (an anonymous subclass of the enum) is folded back to the ENUM
 //   * a local class's javac index is stripped (`Outer$1Local` -> `Local`)
-//   * a lambda body (`lambda$m$N`) is folded into the method that lexically contains it, params `*`
+//   * a lambda body is folded into the method that lexically contains it, params `*`. The
+//     container is taken from the invokedynamic site that REFERENCES the body, never from the
+//     body's name: only javac names it `lambda$<method>$<n>`, and other compilers emit `lambda$<n>`
+//     with no method component at all, which name parsing cannot recover.
 //   * a callee is re-pointed to the class that DECLARES it (bytecode names the receiver's type)
 //   * excluded because the source has no such call: bridge/synthetic methods, access$N, enum
 //     values/valueOf/$values, <clinit>, invokedynamic plumbing, string-concat lowering, autoboxing,
@@ -41,6 +44,8 @@ public class ClassFileOracle {
     static final Set<String>                    ENUMS   = new HashSet<>();
     static final Set<String>                    DEFAULT_CTOR = new HashSet<>(); // classes whose <init>() is javac-synthesized
     static final Map<String, List<String>>      SUBS    = new HashMap<>();   // declaring type -> app subtypes
+    // (class, lambdaBodyName) -> the method that lexically contains it, read off the indy site.
+    static final Map<String, String>            LAMBDA_IN = new HashMap<>();
 
     static boolean appOnly = false, excludeTests = false, callersOnlyApp = true, noCtors = false;
     static boolean envelope = false, withLines = false, listClasses = false;
@@ -73,6 +78,7 @@ public class ClassFileOracle {
             try { models.add(ClassFile.of().parse(b)); } catch (Throwable t) { /* not a class file */ }
         }
         for (ClassModel cm : models) index(cm);
+        for (ClassModel cm : models) mapLambdaContainers(cm);
         for (String c : APP) { for (String a : ancestors(c)) SUBS.computeIfAbsent(a, k -> new ArrayList<>()).add(c); }
         System.err.println("# app classes: " + APP.size());
 
@@ -232,6 +238,39 @@ public class ClassFileOracle {
     static boolean excludedName(String n) { return SYN.contains(n) || n.startsWith("access$"); }
 
     /**
+     * Which method lexically contains each lambda body, taken from the invokedynamic that
+     * references it. A lambda body's NAME is not a reliable source: javac emits
+     * `lambda$<method>$<n>`, ecj emits `lambda$<n>`, and parsing the latter yields a caller named
+     * after the counter — a method that exists on neither side, so every call inside a lambda is
+     * attributed to nothing. The indy site is compiler-independent: whatever the body is called,
+     * the method holding the indy is its container.
+     */
+    static void mapLambdaContainers(ClassModel cm) {
+        String cls = cm.thisClass().asInternalName();
+        for (MethodModel m : cm.methods()) {
+            var code = m.code(); if (code.isEmpty()) continue;
+            for (CodeElement e : code.get()) {
+                if (!(e instanceof InvokeDynamicInstruction idi)) continue;
+                String[] t = lambdaTargetRaw(idi);
+                if (t == null || !t[0].equals(cls) || !t[1].startsWith("lambda$")) continue;
+                LAMBDA_IN.putIfAbsent(cls + "#" + t[1], m.methodName().stringValue());
+            }
+        }
+    }
+
+    /** The container of a lambda body, following a lambda declared inside a lambda to the real method. */
+    static String lambdaContainer(String cls, String name) {
+        String cur = name;
+        for (int i = 0; i < 8; i++) {                       // bounded: a cycle cannot be a container
+            String next = LAMBDA_IN.get(cls + "#" + cur);
+            if (next == null) break;
+            if (!next.startsWith("lambda$")) return next;
+            cur = next;
+        }
+        return null;
+    }
+
+    /**
      * The target a method reference lowers to: bootstrap arg 1 of a LambdaMetafactory indy is the
      * implementation MethodHandle. Returns {ownerInternal, name, descriptor}, or null when the site
      * is not a method reference we should score — string concatenation, a non-Lambda bootstrap, or a
@@ -252,6 +291,20 @@ public class ClassFileOracle {
         } catch (Throwable t) { return null; }
     }
 
+    /** As above, but WITHOUT the lambda-body filter — used only to map bodies to their container. */
+    static String[] lambdaTargetRaw(InvokeDynamicInstruction idi) {
+        try {
+            var bsm = idi.invokedynamic().bootstrap();
+            if (!bsm.bootstrapMethod().reference().owner().asInternalName()
+                    .equals("java/lang/invoke/LambdaMetafactory")) return null;
+            var args = bsm.arguments();
+            if (args.size() < 2 || !(args.get(1) instanceof MethodHandleEntry mh)) return null;
+            var ref = mh.reference();
+            return new String[]{ref.owner().asInternalName(), ref.name().stringValue(),
+                                ref.type().stringValue()};
+        } catch (Throwable t) { return null; }
+    }
+
     static void emit(ClassModel cm, Set<String> out) {
         String cls = cm.thisClass().asInternalName();
         if (!includePrefixes.isEmpty() && includePrefixes.stream().noneMatch(p -> cls.replace('/', '.').startsWith(p))) return;
@@ -269,9 +322,14 @@ public class ClassFileOracle {
 
             String callerName = mname; String callerParams = String.join(",", params(m.methodType().stringValue()));
             if (lambdaBody) {
-                String base = mname.substring("lambda$".length());
-                int k = base.lastIndexOf('$');
-                callerName = k > 0 ? base.substring(0, k) : base;
+                String c = lambdaContainer(cls, mname);
+                if (c == null) {                        // no indy references it: fall back to the name
+                    String base = mname.substring("lambda$".length());
+                    int k = base.lastIndexOf('$');
+                    c = k > 0 ? base.substring(0, k) : base;
+                }
+                // a lambda in a constructor (or in a field initializer, compiled into one)
+                callerName = c.equals("new") ? "<init>" : c;
                 callerParams = "*";
             }
             int line = -1;

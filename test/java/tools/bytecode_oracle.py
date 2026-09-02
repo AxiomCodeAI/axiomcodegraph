@@ -16,7 +16,11 @@ Emitted form (same conventions as normalize_edges.py, so the two are directly co
     access$N, enum values/valueOf/$values, <clinit>, invokedynamic plumbing (the lambda/string-concat
     bootstrap), javac-synthesized default constructors and their implicit super() call, the
     enhanced-for iterator triple, and autoboxing valueOf
-  * a lambda body (`lambda$m$N`) is FOLDED into the method that lexically contains it. It is
+  * a lambda body is FOLDED into the method that lexically contains it, taken from the
+    invokedynamic site that REFERENCES the body rather than from the body's name: only javac names
+    it `lambda$<method>$<n>`, other compilers emit `lambda$<n>` with no method component, and
+    parsing that yields a caller named after the counter — a method that exists on neither side.
+    It is
     ACC_SYNTHETIC, so it is exempted from the synthetic skip by name — without that exemption the
     body is dropped before it is read and every call written inside a lambda is absent from the
     reference set, which is what makes the folding below reachable at all.
@@ -81,6 +85,7 @@ def parse(classes, names):
     # the sites are collected here and resolved once the whole class has been read.
     bsm = collections.defaultdict(dict)      # cls -> index -> (owner, name, desc)
     indy_sites = []                          # (cls, meth, mdesc, flags, index)
+    lambda_in = {}                           # (cls, lambdaBodyName) -> containing method
     in_bsm = None; bsm_idx = None; bsm_is_lambda = False
     for i, raw in enumerate(out):
         line = raw.rstrip(); s = line.strip()
@@ -142,6 +147,11 @@ def parse(classes, names):
             owner, name = owner_name.rsplit('.', 1) if '.' in owner_name else (cls, owner_name)
             name = name.strip('"')
             edges.append((cls, meth, mdesc, flags, kind, owner.replace('/', '.'), name, desc))
+    # Which method lexically contains each lambda body: the one holding the indy that names it.
+    for c, m, md, fl, idx in indy_sites:
+        t = bsm.get(c, {}).get(idx)
+        if t and t[0] == c and t[1].startswith('lambda$'):
+            lambda_in.setdefault((c, t[1]), m)
     for c, m, md, fl, idx in indy_sites:
         t = bsm.get(c, {}).get(idx)
         if not t: continue                      # not a LambdaMetafactory site (string concat, ...)
@@ -150,13 +160,13 @@ def parse(classes, names):
         # method is an edge. `X::new` is a constructor target and follows the ctor conventions.
         if name.startswith('lambda$'): continue
         edges.append((c, m, md, fl, 'invokedynamic', owner, name, desc))
-    return supers, declared, edges, is_enum
+    return supers, declared, edges, is_enum, lambda_in
 
 def main():
     src, work = sys.argv[1], sys.argv[2]
     app_only = '--app-only' in sys.argv
     classes, names = compile_case(src, work)
-    supers, declared, edges, _kw = parse(classes, names)
+    supers, declared, edges, _kw, lambda_in = parse(classes, names)
     # javap prints an enum as `class X extends java.lang.Enum`, with no `enum` keyword, so identify
     # enums by that supertype — which is the bytecode truth anyway.
     is_enum = {c for c, ps in supers.items() if any(p == 'java.lang.Enum' for p in ps)}
@@ -219,13 +229,20 @@ def main():
             oc = owner.split('.')[-1].split('$')[-1]
             if not re.search(r'\b' + re.escape(oc) + r'\s*\([^)]*\)\s*(?:throws[^{]*)?\{', src_txt): continue
         caller_name = meth
-        lam = re.match(r'^lambda\$(.+)\$\d+$', meth)
+        lam = meth.startswith('lambda$')
         if lam:
-            caller_name = lam.group(1)
+            # the indy site that references this body names its container, whatever the body is
+            # called; fall back to the javac name shape only when nothing references it
+            c = lambda_in.get((cls, meth))
+            seen_l = 0
+            while c is not None and c.startswith('lambda$') and seen_l < 8:
+                c = lambda_in.get((cls, c)); seen_l += 1
+            if c is None:
+                m2 = re.match(r'^lambda\$(.+)\$\d+$', meth)
+                c = m2.group(1) if m2 else meth[len('lambda$'):]
             # javac names a lambda declared in a CONSTRUCTOR (or in a field initializer, which it
-            # compiles into one) `lambda$new$N`, so folding by name yields the caller `new` — a
-            # method that exists on neither side. The enclosing method is the constructor.
-            if caller_name == 'new': caller_name = '<init>'
+            # compiles into one) `lambda$new$N`: the enclosing method is the constructor.
+            caller_name = '<init>' if c == 'new' else c
         if app_only and owner not in app: continue
         # re-point to the class that DECLARES the method (bytecode names the receiver's type)
         dc = owner
