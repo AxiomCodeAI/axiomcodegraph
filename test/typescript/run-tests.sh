@@ -36,6 +36,16 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
+
+# ── Nothing this suite depends on may be invisible to git ────────────────────
+# Runs first because it is cheap and because the fault it catches makes every OTHER
+# result in this file untrustworthy: a fixture input that .gitignore matches is present
+# locally, absent from the repository, and so every assertion about it passes here and
+# fails on a clone. See test/tools/no-ignored-fixtures.sh.
+if ! bash "$ROOT/test/tools/no-ignored-fixtures.sh"; then
+  echo "aborting: a fixture input is not in the repository, so nothing below would be a test"
+  exit 1
+fi
 PARSER="${AXIOM_PARSER:-$ROOT/../Parser/dist/index.js}"
 WORK="$HERE/.work"
 BLESS=0; KEEP=0; ORACLE=0; FILTERS=()
