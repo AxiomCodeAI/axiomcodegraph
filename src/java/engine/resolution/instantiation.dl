@@ -1,0 +1,26 @@
+// ============================================================================
+// Resolution · INSTANTIATION
+//
+// type_instantiated(TypeHash, Source): a type the program is OBSERVED to allocate.
+//
+// REPORTED, NEVER USED TO NARROW DISPATCH. The set can only ever be a LOWER BOUND — a DI
+// container, a factory, reflection, or simply an application outside the analysed tree all
+// instantiate types this cannot see. Measured on two corpus projects, gating virtual
+// dispatch on it would delete 27% of the edges the compiled artifacts prove are real, and
+// reading the service descriptors back recovers only a few hundred of them. Missing is a
+// defect and an extra inside the sound envelope is deliberate, so this is emitted as a
+// LABEL: a consumer that wants precision may subtract it, and the graph stays sound.
+//
+// The source is carried so a consumer can weigh it: a `new` is certain, a name in a
+// provider-configuration file is the platform's promise to construct one.
+// java_type (14): 7 typePlacement 14 hash ; java_enum_constant (13): 10 owning enum
+// ============================================================================
+
+// new X(...) — the created type, once its constructor resolves.
+type_instantiated(t, "new") :- object_creation_type_resolves(_, _, _, t).
+
+// new Runnable(){ ... } — an anonymous class exists only by being instantiated.
+type_instantiated(t, "anonymous") :- java_type(_, _, _, _, _, _, "ANONYMOUS_PLACEMENT", _, _, _, _, _, _, t).
+
+// An enum's constants ARE its instances, created by the type initializer.
+type_instantiated(enum, "enum_constant") :- java_enum_constant(_, _, _, _, _, _, _, _, _, enum, _, _, _).

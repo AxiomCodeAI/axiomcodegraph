@@ -25,6 +25,21 @@ svc_provider_resolves(p, d, t) :- svc_provider(p, d, "", simple),
     simple != "",
     java_type(_, simple, _, _, _, _, _, _, _, _, _, _, _, t).
 
+// A provider may name a LIBRARY class — a library's own descriptor usually does. Resolved
+// with provenance so the instantiation label can distinguish the two; entry points below
+// stay CLIENT-only, because a library provider's methods are not client code to reach.
+svc_provider_resolves_lib(p, d, t) :- svc_provider(p, d, pkg, simple),
+    pkg != "", simple != "",
+    lib_type(_, cat(cat(pkg, "."), simple), _, _, _, _, _, _, _, _, _, _, _, t).
+svc_provider_resolves_lib(p, d, t) :- svc_provider_lib(p, d, pkg, simple),
+    pkg != "", simple != "",
+    lib_type(_, cat(cat(pkg, "."), simple), _, _, _, _, _, _, _, _, _, _, _, t).
+// A library descriptor naming a CLIENT class is the plugin shape: the dependency declares
+// the service, the client implements it and registers it in the dependency's file.
+svc_provider_resolves(p, d, t) :- svc_provider_lib(p, d, pkg, simple),
+    pkg != "", simple != "",
+    java_type(_, cat(cat(pkg, "."), simple), _, _, _, _, _, _, _, _, _, _, _, t).
+
 // ── The type is REGISTERED: the container instantiates it and calls back into it ─────
 // cfg_registered_type already drives all three entry-point shapes in entry-points.dl —
 // callbacks by name, "overrides a library supertype" (which is what implementing a service
@@ -37,3 +52,4 @@ cfg_registered_type(t, "service_loader") :- svc_provider_resolves(_, _, t).
 // filtering virtual dispatch on it would delete must-have edges. A consumer that wants
 // precision may subtract; the graph itself stays sound.
 type_instantiated(t, "service_loader") :- svc_provider_resolves(_, _, t).
+type_instantiated(t, "service_loader_lib") :- svc_provider_resolves_lib(_, _, t).

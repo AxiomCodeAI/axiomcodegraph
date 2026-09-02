@@ -76,6 +76,8 @@
 .decl lib_enum_constant(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol)
 
 // A key in a .properties config file (Spring-style config analysis).
+.decl lib_service_descriptor(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol)
+.decl lib_service_provider(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol)
 .decl java_service_descriptor(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol)
 .decl java_service_provider(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol)
 .decl java_property_key(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol)
