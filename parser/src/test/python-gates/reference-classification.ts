@@ -38,6 +38,15 @@ registry = {}
 SERIALIZER = json.dumps
 
 
+class Private:
+    __hidden = 1
+
+    def read(self):
+        # Written raw, BOUND mangled as _Private__hidden. A lookup by the
+        # written spelling missed, and the reference stayed UNKNOWN.
+        return __hidden
+
+
 def outer(param, flag=1):
     local_name = param + 1
 
@@ -80,6 +89,7 @@ const EXPECTED: Array<[string, string, string]> = [
   ['item', 'COMPREHENSION_VARIABLE', 'bound by the comprehension that uses it'],
   ['caught', 'EXCEPT_VARIABLE', 'bound by the except clause'],
   ['walrus', 'WALRUS_TARGET', 'at the STORE; a later read is an ordinary local'],
+  ['__hidden', 'LOCAL_VARIABLE', 'class-private: bound mangled, written raw'],
 ];
 
 /**

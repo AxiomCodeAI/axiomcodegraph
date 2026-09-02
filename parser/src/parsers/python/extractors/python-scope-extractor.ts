@@ -197,6 +197,22 @@ export class PythonScopeExtractor {
         `${binding.getPyScopeLinkHash()}::${binding.getName()}`,
         binding
       );
+      // A class-private name is BOUND mangled and WRITTEN raw. `__log_traceback`
+      // inside class Future binds `_Future__log_traceback`, while the expression
+      // that references it carries the spelling from the source, so a lookup by
+      // the written name missed and the reference stayed UNKNOWN.
+      //
+      // The mangled binding is therefore also reachable under the raw spelling.
+      // An existing entry is never overwritten: if a scope really does bind a
+      // name that looks like the unmangled form, that binding is the right
+      // answer and this alias must not displace it.
+      const raw = unmangledSpelling(binding.getName());
+      if (raw !== null) {
+        const rawKey = `${binding.getPyScopeLinkHash()}::${raw}`;
+        if (!bindingByScopeAndName.has(rawKey)) {
+          bindingByScopeAndName.set(rawKey, binding);
+        }
+      }
     }
 
     return {
@@ -733,6 +749,29 @@ export class PythonScopeExtractor {
     }
     return '';
   }
+}
+
+
+/**
+ * The source spelling of a mangled class-private name, or null.
+ *
+ * CPython rewrites `__x` inside `class C` to `_C__x`. The rule is narrow, and
+ * matching it loosely would alias ordinary names: mangling applies only to a
+ * name with two or more leading underscores and at most one trailing one, so
+ * `__init__` and `_x` are untouched. The prefix is the class name with its own
+ * leading underscores stripped, which is why the pattern requires a leading `_`
+ * followed by a non-underscore.
+ */
+function unmangledSpelling(name: string): string | null {
+  const match = /^_[A-Za-z0-9][A-Za-z0-9_]*?(__[A-Za-z0-9][A-Za-z0-9_]*)$/.exec(name);
+  if (!match) {
+    return null;
+  }
+  const raw = match[1]!;
+  if (raw.endsWith('__')) {
+    return null;
+  }
+  return raw;
 }
 
 /** Re-exported so callers can name the module scope without re-deriving it. */

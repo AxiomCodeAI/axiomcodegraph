@@ -40,7 +40,7 @@ class Options:
 
 
 def scoped():
-    Inner = TypeVar("Inner")
+    Inner = TypeVar("Inner", bound=Options)
 
     def use(value: Inner) -> Inner:
         return value
@@ -85,6 +85,9 @@ const EXPECTED: Record<string, [string, string, string]> = {
 const EXPECTED_BOUNDS: Array<[string, string, string]> = [
   ['B', 'Options', 'NAME'],
   ['S', 'Options', 'STRING_FORWARD_REF'],
+  // Declared inside a function: the binding is not in the module scope, so a
+  // module-only lookup dropped this bound silently.
+  ['Inner', 'Options', 'NAME'],
 ];
 
 export async function typeVariables(): Promise<number> {

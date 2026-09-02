@@ -357,10 +357,8 @@ export class PythonTypeReferenceExtractor {
       if (declaration.bound === null) {
         continue;
       }
-      const ownerHash = this.input.bindingHashByScopeAndName.get(
-        `${this.input.moduleScopeHash}::${name}`
-      );
-      if (ownerHash === undefined || ownerHash === '') {
+      const ownerHash = this.bindingHashForTypeVariable(name);
+      if (ownerHash === null) {
         continue;
       }
       const node = this.unwrap(declaration.bound);
@@ -653,6 +651,48 @@ export class PythonTypeReferenceExtractor {
       }
     }
     return null;
+  }
+
+  /**
+   * The binding a TypeVar name belongs to, or null if it cannot be pinned down.
+   *
+   * The module scope is tried first, because that is where a TypeVar is
+   * conventionally declared and the answer is then unambiguous. Nothing
+   * requires it though, and one declared inside a function is still a type
+   * variable with a real bound:
+   *
+   * ```python
+   * def scoped():
+   *     Inner = TypeVar("Inner", bound=Base)
+   * ```
+   *
+   * That binding lives in the function's scope, so the module lookup missed and
+   * the bound was silently dropped. The fallback searches every scope, and
+   * accepts the result only when EXACTLY ONE scope binds the name. Two scopes
+   * binding the same TypeVar name is a genuine ambiguity, and picking either
+   * would attach the bound to a variable that may not have it -- an unowned or
+   * wrongly owned reference is worse than the absence it replaces, which is the
+   * same reason a missing binding is skipped rather than owned by the module.
+   */
+  private bindingHashForTypeVariable(name: string): string | null {
+    const atModule = this.input.bindingHashByScopeAndName.get(
+      `${this.input.moduleScopeHash}::${name}`
+    );
+    if (atModule !== undefined && atModule !== '') {
+      return atModule;
+    }
+    const suffix = `::${name}`;
+    let found: string | null = null;
+    for (const [key, hash] of this.input.bindingHashByScopeAndName) {
+      if (!key.endsWith(suffix) || hash === '') {
+        continue;
+      }
+      if (found !== null) {
+        return null;
+      }
+      found = hash;
+    }
+    return found;
   }
 
   /** `covariant=True` / `contravariant=True`; invariant is the default. */
