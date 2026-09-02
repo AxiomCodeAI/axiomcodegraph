@@ -1,14 +1,10 @@
-oracle=8 engine=21 agree=8 missing=0 (known 0, NEW 0) extra=13
-  extra    Asset#<init> -> Asset#audit(String)
-  extra    Asset#<init> -> Asset#read(String)
-  extra    Asset#<init> -> Asset#readBlock(String)
+oracle=16 engine=21 agree=14 missing=2 (known 2, NEW 0) extra=7
+  known-missing  Asset#<init> -> Asset#readInit(String)
+  known-missing  Asset#<init> -> Asset#readRef(String)
   extra    Asset#handle -> Asset#read(String)
   extra    Asset#handleBlock -> Asset#audit(String)
   extra    Asset#handleBlock -> Asset#readBlock(String)
   extra    Asset#handleInit -> Asset#readInit(String)
-  extra    Asset#handleLocal -> Asset#read(String)
   extra    Asset#handleRef -> Asset#readRef(String)
   extra    Asset#handleTwoWay -> Asset#read(String)
   extra    Asset#handleTwoWay -> Asset#readOther(String)
-  extra    Asset#pickA -> Asset#read(String)
-  extra    Asset#pickB -> Asset#readOther(String)

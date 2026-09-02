@@ -1,0 +1,20 @@
+# Accepted gap: A LAMBDA PARAMETER TYPED ONLY THROUGH A LIBRARY GENERIC.
+#
+# These two sites became visible for the first time when the oracle learned to read lambda bodies
+# (they are ACC_SYNTHETIC, so every call written inside one used to be absent from ground truth).
+# The gap itself is not new — it is the documented "generic substitution through library-written
+# type arguments is incomplete" limit, and this is simply the first time the suite can see it.
+#
+#   viaForEach:   list.forEach(x -> x.validate(...))    x's type comes from Consumer<T>, T from List<T>
+#   viaParamList: same shape reached through a parameter
+#
+# Root cause on record: `lib_type_arg_binding` and `lib_type_ref_resolves` are READ by
+# expression-resolution/lambda.dl but have NO DEFINING RULE, so a substitution that needs a
+# library-written type argument derives nothing and Souffle reports no error. Until those are
+# defined, no rule can type x, and the call inside the lambda cannot resolve.
+#
+# The sibling shapes in the same case DO resolve, which is what makes this a bounded gap rather
+# than "lambdas do not work": viaClientSam (a client-declared functional interface) and viaForLoop
+# (the same call in a plain loop) both produce the edge.
+Lam#viaForEach -> Item#validate(String)
+Lam#viaParamList -> Item#validate(String)

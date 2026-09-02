@@ -1,3 +1,3 @@
-oracle=8 engine=10 agree=8 missing=0 (known 0, NEW 0) extra=2
-  extra    Lam#viaClientSam -> Item#validate(String)
-  extra    Lam#viaMethodRef -> Lam#validateAll(Item)
+oracle=12 engine=10 agree=10 missing=2 (known 2, NEW 0) extra=0
+  known-missing  Lam#viaForEach -> Item#validate(String)
+  known-missing  Lam#viaParamList -> Item#validate(String)
