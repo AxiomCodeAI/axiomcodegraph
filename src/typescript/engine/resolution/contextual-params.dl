@@ -114,3 +114,29 @@ lambda_param_type(lp, prov, t) :- callback_arg(ce, argpos, lm),
 // rather than competes. A parameter that IS annotated keeps its declared type.
 expr_type(e, prov, t) :- expr_referenced("client", "PARAMETER", p, e),
     lambda_param_type(p, prov, t).
+
+// ── an ARROW assigned to a VARIABLE annotated with a FUNCTION TYPE ──────────
+// The rules above type a callback passed as an ARGUMENT, where the signature comes
+// from the callee's parameter. This is the other way a lambda gets a contextual type,
+// and nothing covered it:
+//
+//   export type DirectiveTransform = (dir: DirectiveNode, node: ElementNode,
+//                                     context: TransformContext) => ...
+//   export const transformBind: DirectiveTransform = (dir, _node, context) => { ... }
+//
+// None of `dir`, `_node` or `context` carries an annotation; all three are typed by
+// the alias on the variable. Measured on one project's production code, 118 unresolved
+// call sites have a receiver that is an unannotated parameter of an ARROW_FUNCTION,
+// and this is the shape behind them — a typed handler, transform or visitor written
+// as a const, which is the ordinary way to write one.
+//
+// `ref_shape_target` already walks the alias chain to the FUNCTION_TYPE reference, and
+// `fn_param_type` already reads that reference's children positionally, so this adds a
+// binding and no new traversal.
+lambda_param_type(lp, prov, t) :- var_initializer("client", _, e, v),
+    e != "",
+    expr_anon_decl("client", lm, e),
+    var_type_ref(_, r, v),
+    ref_shape_target(r, fref),
+    fn_param_type(fref, k, prov, t),
+    param_decl(_, _, k, _, lm, lp).

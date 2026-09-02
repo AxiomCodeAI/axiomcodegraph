@@ -161,6 +161,11 @@ require_resolved link-conditional.ts identify \
 require_resolved link-conditional.ts label \
   "the method's T shadows it and dispatches against its own"
 
+# An arrow assigned to a variable annotated with a function type. Both parameters are
+# unannotated; only the alias types them.
+require_resolved link-conditional.ts emitTo \
+  "a lambda parameter typed by the function type on the variable it is assigned to"
+
 # The fixture answers only where it is sure: a WRONG answer here is a rule that
 # manufactures confidence, which is worse than the missing edge it replaces.
 if ! grep -qE '^WRONG \(engine named, oracle disagrees\)[[:space:]]+0$' "$SCORE"; then
