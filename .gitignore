@@ -25,6 +25,16 @@ web_modules/
 # so it is never a source of truth. .tsbuildinfo lands in dist/ per tsconfig,
 # but the loose pattern catches stray locations too.
 dist/
+
+# ...EXCEPT inside a fixture's vendored packages. A fixture vendors a dependency whose
+# PUBLISHED surface is its `dist/index.d.ts` — that copy is hand-written source, never
+# build output, and the whole point of the fixture is that the manifest's `types` points
+# into a directory the parser skips by name. The blanket `dist/` above silently dropped
+# it: `git add -A` reported success, the file never entered the index, and the fixture
+# then asserted on a package staged from nowhere. Both lines are needed — git does not
+# descend into an excluded directory, so the directory itself must be re-included first.
+!test/typescript/fixtures/**/vendor/**/dist/
+!test/typescript/fixtures/**/vendor/**/dist/**
 build/
 out/
 lib-cov/
