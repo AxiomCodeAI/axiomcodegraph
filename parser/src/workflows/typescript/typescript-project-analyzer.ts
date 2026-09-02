@@ -54,6 +54,17 @@ import { EntityUtils } from '@/utils/entity-utils';
  * them, and running one program per invocation avoids the question entirely —
  * which is what the gate does.
  */
+/**
+ * One output set, shared by every program a driver runs into it.
+ *
+ * Internal. `analyze()` creates its own when none is given, so the
+ * single-program contract is unchanged.
+ */
+export interface SharedWriteContext {
+  readonly writers: Map<string, TsRelationWriter>;
+  readonly writerFor: (filename: string) => TsRelationWriter;
+}
+
 export interface TypeScriptAnalysisOptions {
   readonly rootDir: string;
   readonly outputDir: string;
@@ -120,7 +131,92 @@ interface SkippedTypeScriptFile {
 export class TypeScriptProjectAnalyzer {
   private skippedFiles: SkippedTypeScriptFile[] = [];
 
-  async analyze(options: TypeScriptAnalysisOptions): Promise<TypeScriptAnalysisSummary> {
+  /**
+   * Extracts every PROGRAM under `rootDir` into ONE output directory.
+   *
+   * A discovered project is not one program. A monorepo root's tsconfig claims
+   * only the files at the top, and every package below it is a separate
+   * program with a separate global scope -- so analysing the root alone
+   * extracted 24 of 965 files on one such repository. The analyser already
+   * named the roots it declined; nothing consumed them.
+   *
+   * The output layout is unchanged: one flat set of relations, as Java
+   * produces by taking every project in a single call. What stays PER PROGRAM
+   * is the part that must -- the module link passes run within one program's
+   * facts, so an import is never linked to an ambient module declared in a
+   * different program's global scope.
+   */
+  async analyzePrograms(
+    options: TypeScriptAnalysisOptions
+  ): Promise<TypeScriptAnalysisSummary> {
+    const shared = this.newSharedWriteContext(options.outputDir);
+    const summaries: TypeScriptAnalysisSummary[] = [];
+    // A nested program can nest further, so roots drain from a queue rather
+    // than one level of walking. Keyed by resolved path because two programs
+    // can decline files to each other, which would otherwise recur forever.
+    const queue = [path.resolve(options.rootDir)];
+    const visited = new Set<string>(queue);
+    while (queue.length > 0) {
+      const programRoot = queue.shift()!;
+      const summary = await this.analyze({ ...options, rootDir: programRoot }, shared);
+      summaries.push(summary);
+      for (const nested of summary.nestedProgramRoots) {
+        const resolved = path.resolve(nested);
+        if (!visited.has(resolved)) {
+          visited.add(resolved);
+          queue.push(resolved);
+        }
+      }
+    }
+    await this.publishShared(shared);
+    return mergeSummaries(summaries);
+  }
+
+  private newSharedWriteContext(outputDir: string): SharedWriteContext {
+    const suffix = `${process.pid}.${this.writeSequence}`;
+    this.writeSequence += 1;
+    const writers = new Map<string, TsRelationWriter>();
+    return {
+      writers,
+      writerFor: (filename: string): TsRelationWriter => {
+        const existing = writers.get(filename);
+        if (existing) {
+          return existing;
+        }
+        const created = new TsRelationWriter(outputDir, filename, suffix);
+        writers.set(filename, created);
+        return created;
+      },
+    };
+  }
+
+  /** Publishes a shared set, or discards every temporary if any one fails. */
+  private async publishShared(shared: SharedWriteContext): Promise<void> {
+    // Every relation gets a file even if no row reached it, so a consumer can
+    // tell "no rows" from "the parser never ran".
+    for (const filename of Object.values(TYPESCRIPT_CSV_FILES)) {
+      if (filename !== TYPESCRIPT_CSV_FILES.SKIPPED_FILES) {
+        shared.writerFor(filename);
+      }
+    }
+    try {
+      for (const writer of shared.writers.values()) {
+        await writer.publish();
+      }
+    } catch (error) {
+      // A relation that failed verification must not leave the others' temp
+      // files behind, and must not publish a partial set as if it were whole.
+      for (const writer of shared.writers.values()) {
+        await writer.discard();
+      }
+      throw error;
+    }
+  }
+
+  async analyze(
+    options: TypeScriptAnalysisOptions,
+    shared?: SharedWriteContext
+  ): Promise<TypeScriptAnalysisSummary> {
     const serviceVersionLinkHash = options.serviceVersionLink !== undefined
       ? EntityUtils.generateEntityHash(
           ENTITY_IDENTIFIERS.SERVICE_VERSION,
@@ -174,18 +270,10 @@ export class TypeScriptProjectAnalyzer {
     // declaring it has been read -- and they index `ts_module` to do it. Those
     // are held; the other seventeen, including `ts_expression` at over half
     // the output, are written as they are produced.
-    const suffix = `${process.pid}.${this.writeSequence}`;
-    this.writeSequence += 1;
-    const writers = new Map<string, TsRelationWriter>();
-    const writerFor = (filename: string): TsRelationWriter => {
-      const existing = writers.get(filename);
-      if (existing) {
-        return existing;
-      }
-      const created = new TsRelationWriter(options.outputDir, filename, suffix);
-      writers.set(filename, created);
-      return created;
-    };
+    // When a caller is driving several programs into one output set, the
+    // writers belong to that caller and are published once at the end.
+    const ownWriteContext = shared ?? this.newSharedWriteContext(options.outputDir);
+    const { writerFor } = ownWriteContext;
     const moduleGraph: ModuleGraphFacts[] = [];
     const completenessAccumulator = newCompletenessAccumulator();
     let analysed = 0;
@@ -286,24 +374,10 @@ export class TypeScriptProjectAnalyzer {
       await writerFor(TYPESCRIPT_CSV_FILES.IMPORTS).append(facts.imports);
       await writerFor(TYPESCRIPT_CSV_FILES.EXPORTS).append(facts.exports);
     }
-    // Every relation gets a file even if no row reached it, so a consumer can
-    // tell "no rows" from "the parser never ran".
-    for (const filename of Object.values(TYPESCRIPT_CSV_FILES)) {
-      if (filename !== TYPESCRIPT_CSV_FILES.SKIPPED_FILES) {
-        writerFor(filename);
-      }
-    }
-    try {
-      for (const writer of writers.values()) {
-        await writer.publish();
-      }
-    } catch (error) {
-      // A relation that failed verification must not leave the others' temp
-      // files behind, and must not publish a partial set as if it were whole.
-      for (const writer of writers.values()) {
-        await writer.discard();
-      }
-      throw error;
+    // Published here only when this call OWNS the writers. A caller driving
+    // several programs into one set publishes once, after the last of them.
+    if (shared === undefined) {
+      await this.publishShared(ownWriteContext);
     }
     await this.exportSkippedFilesCsv(options.outputDir);
 
@@ -657,3 +731,69 @@ function stripExtension(relativePath: string): string {
 
 /** Re-exported so a caller can create a source file the same way the extractor does. */
 export const TYPESCRIPT_SCRIPT_TARGET = ts.ScriptTarget.Latest;
+
+/**
+ * One report for several programs written into one output set.
+ *
+ * Row counts come from the WRITERS, which already span every program, so they
+ * are read once rather than summed -- summing per-program counts would double
+ * every relation. File counts are per program and do sum.
+ */
+function mergeSummaries(
+  summaries: readonly TypeScriptAnalysisSummary[]
+): TypeScriptAnalysisSummary {
+  const sum = (pick: (s: TypeScriptAnalysisSummary) => number): number =>
+    summaries.reduce((total, s) => total + pick(s), 0);
+  const last = summaries[summaries.length - 1];
+  return {
+    filesSeen: sum((s) => s.filesSeen),
+    filesAnalysed: sum((s) => s.filesAnalysed),
+    // Files in another program are now ANALYSED by the driver rather than
+    // declined, so the last program's figure is what no program claims at all.
+    filesInOtherPrograms: last?.filesInOtherPrograms ?? 0,
+    nestedProgramRoots: [],
+    extractionErrors: sum((s) => s.extractionErrors),
+    // Row counts are read from the SHARED writers, which already span every
+    // program. Summing the per-program counts would multiply every relation,
+    // because each program's summary reports the running total.
+    counts: last?.counts ?? {},
+    irCompleteness: mergeCompleteness(summaries.map((s) => s.irCompleteness)),
+  };
+}
+
+/** Adds up per-program completeness reports. Each program measures its own. */
+function mergeCompleteness(reports: readonly IrCompletenessReport[]): IrCompletenessReport {
+  const sum = (pick: (r: IrCompletenessReport) => number): number =>
+    reports.reduce((total, r) => total + pick(r), 0);
+  const byReceiverKind: Record<string, {
+    total: number; sameFileLinks: number; terminals: number; complete: number;
+    incomplete: number; inferred: number; notDerivable: number;
+  }> = {};
+  for (const report of reports) {
+    for (const [shape, counts] of Object.entries(report.byReceiverKind)) {
+      const bucket = byReceiverKind[shape] ?? {
+        total: 0, sameFileLinks: 0, terminals: 0, complete: 0, incomplete: 0, inferred: 0,
+        notDerivable: 0,
+      };
+      bucket.total += counts.total;
+      bucket.sameFileLinks += counts.sameFileLinks;
+      bucket.terminals += counts.terminals;
+      bucket.complete += counts.complete;
+      bucket.incomplete += counts.incomplete;
+      bucket.inferred += counts.inferred;
+      bucket.notDerivable += counts.notDerivable;
+      byReceiverKind[shape] = bucket;
+    }
+  }
+  return {
+    callSites: sum((r) => r.callSites),
+    sameFileLinks: sum((r) => r.sameFileLinks),
+    terminals: sum((r) => r.terminals),
+    handedOffComplete: sum((r) => r.handedOffComplete),
+    handedOffIncomplete: sum((r) => r.handedOffIncomplete),
+    inferredReceiver: sum((r) => r.inferredReceiver),
+    notDerivable: sum((r) => r.notDerivable),
+    gaps: reports.flatMap((r) => r.gaps),
+    byReceiverKind,
+  };
+}

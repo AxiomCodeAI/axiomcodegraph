@@ -1783,6 +1783,33 @@ async function analyseInline(
   };
 }
 
+/**
+ * Like `analyseInline`, but drives every PROGRAM under the root as the entry
+ * point does. Writes its own tsconfig files, so none is generated.
+ */
+async function analyseProgramsInline(
+  prefix: string,
+  files: Record<string, string>
+): Promise<{ outputDir: string; cleanup: () => void }> {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  for (const [name, text] of Object.entries(files)) {
+    const target = path.join(root, name);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, text);
+  }
+  const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), `${prefix}out-`));
+  await new TypeScriptProjectAnalyzer().analyzePrograms({
+    rootDir: root, outputDir, baseMservPath: root, serviceVersionLink: 'regression',
+  });
+  return {
+    outputDir,
+    cleanup: () => {
+      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // 17. Kinds that were wrong once
 // ---------------------------------------------------------------------------
@@ -3206,7 +3233,109 @@ async function streamedVerificationCatchesTornRows(): Promise<number> {
   return 0;
 }
 
+// ---------------------------------------------------------------------------
+// 33. Every program is extracted, and programs are not merged
+// ---------------------------------------------------------------------------
+
+/**
+ * A discovered project is not one program. A monorepo root's tsconfig claims
+ * only the files at the top, and every package below it is a separate program
+ * with its own global scope — so analysing the root alone reached 24 of 965
+ * files on one real repository, and the other 941 were extracted by nothing.
+ *
+ * Two things have to hold at once here, and they pull against each other.
+ *
+ *   EVERY PROGRAM IS EXTRACTED, into one flat relation set, as Java's
+ *   multi-project run produces. That is the fix.
+ *
+ *   THE PROGRAMS ARE STILL SEPARATE, which merging the OUTPUT must not
+ *   undo. The module link passes run within one program, so an import in
+ *   program B must NOT resolve to an ambient module declared in program A.
+ *   Running those passes across the merged facts would link them, and that is
+ *   precisely the global-scope merge `tsc` does not do. A test that only
+ *   counted rows would pass while this was broken.
+ */
+async function everyProgramIsExtractedAndNoneAreMerged(): Promise<number> {
+  const tsconfig = JSON.stringify({
+    compilerOptions: { target: 'ES2022', module: 'ESNext', strict: true },
+    include: ['**/*.ts'],
+  });
+  const { outputDir, cleanup } = await analyseProgramsInline('ts-progs-', {
+    // the root program, which claims only what is beside it
+    'tsconfig.json': JSON.stringify({
+      compilerOptions: { target: 'ES2022', module: 'ESNext', strict: true },
+      include: ['*.ts'],
+    }),
+    'root-only.ts': 'export class RootOnly { run(): number { return 1; } }',
+    // program A declares an ambient module
+    'packages/alpha/tsconfig.json': tsconfig,
+    'packages/alpha/ambient.d.ts': 'declare module "shared-thing" { export function go(): void; }',
+    'packages/alpha/uses.ts': [
+      'import { go } from "shared-thing";',
+      'export class AlphaOnly { run(): void { go(); } }',
+    ].join('\n'),
+    // program B imports the SAME specifier but declares nothing
+    'packages/beta/tsconfig.json': tsconfig,
+    'packages/beta/uses.ts': [
+      'import { go } from "shared-thing";',
+      'export class BetaOnly { run(): void { go(); } }',
+    ].join('\n'),
+  });
+
+  const failures: string[] = [];
+  const types = relation(outputDir, 'all-typescript-types.csv');
+  const names = new Set(types.map((r) => r.name));
+  for (const expected of ['RootOnly', 'AlphaOnly', 'BetaOnly']) {
+    if (!names.has(expected)) {
+      failures.push(`${expected} is missing — its program was never extracted`);
+    }
+  }
+
+  // Merging the output must not merge the KEYS.
+  const modules = relation(outputDir, 'all-typescript-modules.csv');
+  const seen = new Map<string, number>();
+  for (const row of modules) {
+    const key = row.tsModuleUniqueHash ?? '';
+    seen.set(key, (seen.get(key) ?? 0) + 1);
+  }
+  for (const [key, count] of seen) {
+    if (count > 1) {
+      failures.push(`ts_module primary key ${key} appears ${count} times across programs`);
+    }
+  }
+
+  // The partition itself. Alpha declares `shared-thing`; beta does not, so
+  // beta's import must resolve to nothing.
+  const imports = relation(outputDir, 'all-typescript-imports.csv')
+    .filter((r) => r.importedPath === 'shared-thing');
+  if (imports.length < 2) {
+    failures.push(`expected an import of "shared-thing" in both programs, found ${imports.length}`);
+  }
+  for (const row of imports) {
+    const inAlpha = (row.filePath ?? '').includes('alpha');
+    const linked = (row.resolvedModuleLinkHash ?? '') !== '';
+    if (!inAlpha && linked) {
+      failures.push(`${row.filePath}: an import resolved to an ambient module declared in `
+        + 'ANOTHER program — the link passes crossed a program boundary and merged two '
+        + 'global scopes');
+    }
+    if (inAlpha && !linked) {
+      failures.push(`${row.filePath}: an import did NOT resolve to the ambient module declared `
+        + 'in its OWN program, so the link passes are not running per program at all');
+    }
+  }
+
+  cleanup();
+  if (failures.length > 0) {
+    return fail(failures.join('\n  '));
+  }
+  console.log(`  3 programs extracted into one flat set, ${modules.length} module row(s), `
+    + 'keys unique; the ambient module resolves inside its own program and nowhere else');
+  return 0;
+}
+
 const CHECKS: Check[] = [
+  { name: 'every program is extracted, none are merged', proves: 'each program under a root reaches one flat relation set with unique keys, while the module link passes stay inside a program so two global scopes are never merged', run: everyProgramIsExtractedAndNoneAreMerged },
   { name: 'streamed relations are well formed', proves: 'rows written as extraction proceeds produce one header per relation, a file for every relation, no leftover temporaries and no dropped tail', run: streamedRelationsAreWellFormed },
   { name: 'streamed read-back catches a torn row', proves: 'the chunked verifier accepts a multi-MB well-formed file and still rejects short, long, truncated, U+2028-bearing and mid-file tears', run: streamedVerificationCatchesTornRows },
   { name: 'compiles', proves: 'tsc --noEmit is clean — the suite reports on code that actually builds', run: compiles },

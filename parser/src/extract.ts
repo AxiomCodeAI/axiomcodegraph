@@ -161,11 +161,15 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
     // string into a column named ...LinkHash is the mistake that option exists
     // to prevent.
     //
-    // One call per PROJECT, not one over the repository root, because a
-    // TypeScript program is the unit of merge scope: two programs have two
-    // global scopes, and analysing them together merges symbols tsc keeps apart.
+    // A TypeScript PROGRAM is the unit of merge scope: two programs have two
+    // global scopes, and analysing them as one merges symbols tsc keeps apart.
+    // So the work is per program, and `analyzePrograms` is what expands a
+    // discovered project into them -- a monorepo root's tsconfig claims only
+    // the files at the top, and every package below is its own program, so
+    // treating the project as one program reached 24 of 965 files on one such
+    // repository. The output is one flat set, as Java's is.
     timed(Promise.all(typescriptProjects.map((project) =>
-      typescriptAnalyzer.analyze({
+      typescriptAnalyzer.analyzePrograms({
         rootDir: project.path,
         outputDir: outputDir ?? ANALYSIS_OUTPUT_DIR,
         baseMservPath: absolutePath,
