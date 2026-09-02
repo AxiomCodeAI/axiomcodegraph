@@ -54,6 +54,8 @@
 .decl expr_return_index(c0:symbol,c1:symbol,c2:symbol)
 .decl expr_tree_pos(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl expr_type(c0:symbol,c1:symbol,c2:symbol)
+.decl qualified_this(c0:symbol,c1:symbol)
+.decl qualified_this_names(c0:symbol,c1:symbol)
 .decl local_new_type(c0:symbol,c1:symbol,c2:symbol)
 .decl local_other_flow(c0:symbol)
 .decl local_monomorphic(c0:symbol)
