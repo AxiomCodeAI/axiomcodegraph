@@ -24,3 +24,5 @@ java_xml_element	all-xml-elements
 java_xml_value_reference	all-xml-value-references
 java_yaml_property	all-yaml-properties
 java_yaml_value_segment	all-yaml-value-segments
+java_service_descriptor	all-service-descriptors
+java_service_provider	all-service-providers

@@ -18,3 +18,4 @@ config_affects_method	config-affects-method.csv
 config_entry_point	config-entry-point.csv
 config_key_ref	config-key-ref.csv
 config_unresolved	config-unresolved.csv
+type_instantiated	type-instantiated.csv
