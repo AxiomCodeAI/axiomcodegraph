@@ -93,6 +93,37 @@ const ts = loadTypeScript();
 // unit the parser analyses — it runs one pass per project because a TypeScript program
 // is the unit of merge scope, and two programs have two global scopes — so matching it
 // here keeps the oracle and the IR talking about the same thing.
+// ── relPath(sourceFile) — the PARSER's path convention, not ours ─────────────
+// The scorer joins the oracle and the IR on (file, line, col, endLine, endCol), and the
+// file on the IR side is the parser's `filePath`, which is relative to the project the
+// parser discovered — one per workspace package on a monorepo. Emitting paths relative
+// to the analysis root instead produced `packages/pkg/src/X.ts` against the IR's
+// `src/X.ts`, and the two never joined: 36,500 IR sites, 40,827 oracle sites, ZERO
+// matched, which the conservation guard reported as 100% loss.
+//
+// So the roots the parser actually used are passed in, and each file is emitted relative
+// to the LONGEST root that contains it. One normalisation applied to both sides, rather
+// than a compensation applied to one.
+const ROOTS = (() => {
+  const f = process.env.PARSER_PROJECT_ROOTS;
+  if (!f) return [];
+  try {
+    return fs.readFileSync(f, 'utf8').split('\n').map((s) => s.trim()).filter(Boolean)
+      .map((p) => fs.realpathSync(p))
+      .sort((a, b) => b.length - a.length);
+  } catch { return []; }
+})();
+const REAL_PROJECT_DIR = (() => { try { return fs.realpathSync(projectDir); } catch { return projectDir; } })();
+function relPath(fileName) {
+  let real = fileName;
+  try { real = fs.realpathSync(fileName); } catch { /* keep */ }
+  for (const r of ROOTS) {
+    const rel = path.relative(r, real);
+    if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) return rel;
+  }
+  return path.relative(REAL_PROJECT_DIR, real);
+}
+
 function discoverConfigs(dir) {
   const up = ts.findConfigFile(dir, ts.sys.fileExists, 'tsconfig.json');
   // findConfigFile walks up past the project; only accept one INSIDE it.
@@ -253,7 +284,7 @@ for (const configPath of configPaths) {
 
 for (const sf of program.getSourceFiles()) {
   if (sf.isDeclarationFile) continue;
-  const rel = path.relative(projectDir, sf.fileName);
+  const rel = relPath(sf.fileName);
   // Files outside the project directory are dependencies; their call sites are not
   // client call sites and comparing them would score the engine on code it never saw.
   if (rel.startsWith('..')) continue;

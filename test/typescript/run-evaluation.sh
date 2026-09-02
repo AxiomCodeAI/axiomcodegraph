@@ -397,6 +397,17 @@ grep -E '^Elapsed' "$WORK/solve.log" | tail -1
 # Run from inside the project so module resolution sees the project's own
 # node_modules rather than the caller's — measured: running from elsewhere resolved
 # @types/node to a DIFFERENT copy, and every position in it was a mismatch.
+# The roots the PARSER used, read straight off the IR. The oracle and envelope emit each
+# file relative to the longest of these, so their paths are the same strings the scorer
+# sees on the IR side. Without it a workspace repository joined ZERO sites.
+ROOTS_FILE="$WORK/parser-project-roots.txt"
+awk -F'\t' 'NR>1 && $5!=""{print $5}' "$WORK/ir/all-typescript-modules.csv" 2>/dev/null \
+  | sort -u > "$ROOTS_FILE" || true
+export PARSER_PROJECT_ROOTS="$ROOTS_FILE"
+if [ -s "$ROOTS_FILE" ]; then
+  echo "   (parser project roots: $(wc -l < "$ROOTS_FILE" | tr -d ' '))"
+fi
+
 echo "▶ oracle..."
 # THE ORACLE IS NOT OPTIONAL. Piping it to `tail -1` used to discard its exit status:
 # on a project whose tsconfig the oracle could not find, it printed one line, wrote no
@@ -436,9 +447,17 @@ fi
 LIBARGS=""
 for d in ${LIBS//,/ }; do LIBARGS="$LIBARGS --lib=$d"; done
 echo "▶ score:"
+# `| tee` makes the pipeline's status tee's, which is how a failing ORACLE went unnoticed
+# for as long as it did. score.py exits non-zero when it refuses to report (the two sides
+# are not describing the same program), so that status has to survive the pipe.
 MISSED_DUMP="$WORK/missed.tsv" SITE_DUMP="$WORK/sites.tsv" python3 "$HERE/ground-truth/score.py" \
   "$WORK/ir" "$WORK/out" "$WORK/oracle.tsv" --envelope="$WORK/envelope.tsv" $LIBARGS \
   | tee "$WORK/score.txt"
+score_rc=${PIPESTATUS[0]}
+if [ "$score_rc" -ne 0 ]; then
+  echo "   ! scoring refused (exit $score_rc); this run is NOT a measurement"
+  exit "$score_rc"
+fi
 
 # ── 5b. CONSERVATION, loudly ────────────────────────────────────────────────
 # A shortfall here invalidates every rate above it, so it is repeated after the score
