@@ -57,6 +57,9 @@ export const OUTPUT_PROPERTY_VALUE_SEGMENT_CSV_FILENAME = 'all-property-value-se
 export const OUTPUT_SKIPPED_JAVA_FILES_CSV_FILENAME = 'skipped-java-files.csv';
 export const OUTPUT_SKIPPED_XML_FILES_CSV_FILENAME = 'skipped-xml-files.csv';
 export const OUTPUT_SKIPPED_PROPERTIES_FILES_CSV_FILENAME = 'skipped-properties-files.csv';
+export const OUTPUT_SERVICE_DESCRIPTOR_CSV_FILENAME = 'all-service-descriptors.csv';
+export const OUTPUT_SERVICE_PROVIDER_CSV_FILENAME = 'all-service-providers.csv';
+export const OUTPUT_SKIPPED_SERVICES_FILES_CSV_FILENAME = 'skipped-services-files.csv';
 export const OUTPUT_SKIPPED_YAML_FILES_CSV_FILENAME = 'skipped-yaml-files.csv';
 export const OUTPUT_SKIPPED_GRADLE_FILES_CSV_FILENAME = 'skipped-gradle-files.csv';
 export const OUTPUT_XML_ELEMENT_CSV_FILENAME = 'all-xml-elements.csv';
@@ -120,3 +123,16 @@ export const FILE_EXTENSIONS = {
  * up from the settings declaration rather than by path.
  */
 export const GRADLE_DEFAULT_VERSION_CATALOG = 'gradle/libs.versions.toml';
+
+/**
+ * The directory pair that makes a file a `ServiceLoader` provider-configuration
+ * file: a direct child of `services`, itself a direct child of `META-INF`.
+ *
+ * Matched case-SENSITIVELY, and the case is not a style choice. The JVM looks
+ * up the resource path `META-INF/services/<binary-name>` literally, so a
+ * directory named `meta-inf` is never read by `ServiceLoader` — treating it as
+ * one would report an instantiation that cannot happen. Only direct children
+ * count: the format has no notion of a nested provider-configuration file.
+ */
+export const META_INF_DIR = 'META-INF';
+export const SERVICES_DIR = 'services';

@@ -24,6 +24,16 @@ export const ENTITY_IDENTIFIERS = {
   XML_VALUE_REFERENCE: 'XML_VALUE_REFERENCE',
   YAML_PROPERTY: 'YAML_PROPERTY',
   YAML_VALUE_SEGMENT: 'YAML_VALUE_SEGMENT',
+
+  // ------------------------------------------------- META-INF/services (Java)
+  // SERVICE_DESCRIPTOR is the root: it is keyed on the FILE, because the same
+  // service interface is configured by a separate file in every module that
+  // ships providers for it, and a key derived from the service name would
+  // collapse those into one row. SERVICE_PROVIDER chains off it — a provider
+  // class name alone does not say which service it provides.
+  SERVICE_DESCRIPTOR: 'SERVICE_DESCRIPTOR',
+  SERVICE_PROVIDER: 'SERVICE_PROVIDER',
+
   // ---------------------------------------------------------------- Gradle
   // GRADLE_SCRIPT is the root of the chain. Every other Gradle key mixes in
   // its parent's hash rather than re-deriving one from a qualified name,

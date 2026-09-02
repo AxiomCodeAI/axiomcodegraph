@@ -7,6 +7,7 @@ import { GradleProjectAnalyzer } from '@/workflows/gradle/gradle-project-analyze
 import { JavaProjectAnalyzer } from '@/workflows/java/java-project-analyzer';
 import { PropertiesProjectAnalyzer } from '@/workflows/properties/properties-project-analyzer';
 import { PythonProjectAnalyzer } from '@/workflows/python/python-project-analyzer';
+import { ServicesProjectAnalyzer } from '@/workflows/services/services-project-analyzer';
 import { TypeScriptProjectAnalyzer } from '@/workflows/typescript/typescript-project-analyzer';
 import { XmlProjectAnalyzer } from '@/workflows/xml/xml-project-analyzer';
 import { YamlProjectAnalyzer } from '@/workflows/yaml/yaml-project-analyzer';
@@ -23,7 +24,8 @@ export interface ExtractOptions {
 }
 
 /**
- * Scan a codebase and extract Java/Python/TypeScript/Gradle/XML/YAML/Properties facts.
+ * Scan a codebase and extract Java/Python/TypeScript/Gradle/XML/YAML/Properties
+ * and META-INF/services facts.
  *
  * This is the parser core — shared by the CLI (`src/cli.ts`) and the legacy
  * positional entry (`src/index.ts`, invoked as `node dist/index.js <dir> <link>
@@ -39,8 +41,8 @@ async function timed<T>(work: Promise<T>): Promise<{ value: T; seconds: number }
 /**
  * Prints what a per-project analyzer produced.
  *
- * Java, XML, YAML, Gradle and Properties each print their own tallies from
- * inside their workflow. Python and TypeScript return a summary object instead,
+ * Java, XML, YAML, Gradle, Properties and services each print their own
+ * tallies from inside their workflow. Python and TypeScript return a summary object instead,
  * which nothing was reading, so those two languages were silent even on a run
  * that analysed hundreds of files. `filesRejected` and `extractionErrors` are
  * printed separately and only when non-zero: a rejection is a decision, an
@@ -107,8 +109,8 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
   }
 
   // Ensure the root directory is always included as a scan target for file-type
-  // analyzers (XML, YAML, Properties, Gradle) so root-level config files like
-  // build.xml, settings.gradle, pom.xml, etc. are not missed.
+  // analyzers (XML, YAML, Properties, Gradle, services) so root-level config
+  // files like build.xml, settings.gradle, pom.xml, etc. are not missed.
   const rootEntry: ProjectInfo = {
     name: path.basename(absolutePath),
     path: absolutePath,
@@ -129,18 +131,24 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
   const xmlAnalyzer = new XmlProjectAnalyzer(outputDir);
   const yamlAnalyzer = new YamlProjectAnalyzer(outputDir);
   const gradleAnalyzer = new GradleProjectAnalyzer(outputDir);
+  const servicesAnalyzer = new ServicesProjectAnalyzer(outputDir);
   const pythonAnalyzer = new PythonProjectAnalyzer();
   const typescriptAnalyzer = new TypeScriptProjectAnalyzer();
 
-  // Positions matter: java, properties, xml, yaml, gradle, typescript, python.
-  // Counting them wrong bound typescriptSummaries to gradle's void return, and
-  // the mistake surfaced only as a type error.
-  const [, , , , , typescriptSummaries, pythonSummaries] = await Promise.all([
+  // Positions matter: java, properties, xml, yaml, gradle, services, typescript,
+  // python. Counting them wrong bound typescriptSummaries to gradle's void
+  // return, and the mistake surfaced only as a type error.
+  const [, , , , , , typescriptSummaries, pythonSummaries] = await Promise.all([
     javaAnalyzer.analyzeJavaProjects(javaProjects, opts.versionLink, excludeTests),
     propertiesAnalyzer.analyzePropertiesFiles(scanTargets, opts.versionLink),
     xmlAnalyzer.analyzeXmlFiles(scanTargets, opts.versionLink),
     yamlAnalyzer.analyzeYamlFiles(scanTargets, opts.versionLink),
     gradleAnalyzer.analyzeGradleFiles(scanTargets, opts.versionLink),
+    // META-INF/services is given the same scan targets as the other file-type
+    // analyzers rather than the Java project list: a provider-configuration file
+    // lives in a resources directory, which a module may ship with no .java
+    // source of its own.
+    servicesAnalyzer.analyzeServicesFiles(scanTargets, opts.versionLink),
     // Python takes one root per call where Java takes the whole list, so the
     // projects are walked here rather than pushing a list-shaped API onto it.
     // serviceVersionLink is passed UNHASHED on purpose: the analyzer hashes it

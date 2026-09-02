@@ -16,7 +16,7 @@
 &nbsp;&nbsp;
 <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/gradle/gradle-original.svg" width="34" height="34" alt="Gradle" title="Gradle"/>
 
-<sub>Full semantic resolution for <b>Python</b> and <b>Java</b>. <b>TypeScript</b> in development. Build-graph and dependency resolution for <b>Gradle</b>. Structural extraction for XML, YAML and Properties.</sub>
+<sub>Full semantic resolution for <b>Python</b> and <b>Java</b>. <b>TypeScript</b> in development. Build-graph and dependency resolution for <b>Gradle</b>. Structural extraction for XML, YAML, Properties and META-INF/services.</sub>
 
 [What it is](#what-this-is) &nbsp;|&nbsp;
 [The IR](#the-intermediate-representation) &nbsp;|&nbsp;
@@ -80,6 +80,7 @@ same tables and be compared.
 | **XML** | Stable | 3 | sax | Element hierarchy with XPath and namespaces, attributes, and value references including property placeholders and SpEL. |
 | **Properties** | Stable | 2 | custom | Keys and typed value segments, with continuation and comment handling. |
 | **YAML** | Beta | 2 | yaml | Configuration entries with anchor and alias tracking, multi document support. |
+| **META-INF/services** | Stable | 2 | custom | Provider-configuration files: the service each file configures, taken from its name, and every implementation class it names, with the file and line. |
 | **Gradle** | Beta | 8 | tree-sitter-groovy | Scripts and their role in the build, blocks, declarations, dependency coordinates split into group/artifact/version, version catalogs, value references with resolution, comments, and parse gaps. Groovy and Kotlin DSL. |
 
 Python and Java are the two languages with full semantic resolution. The configuration formats are
@@ -129,7 +130,7 @@ detection  ->  parsing  ->  extraction  ->  models  ->  resolution  ->  export
 | Layer | Directory | Responsibility |
 |---|---|---|
 | Detection | `language-detectors/` | Identify which languages and build systems a project uses. |
-| Parsing | `parsers/<lang>/` | Produce a syntax tree. tree-sitter for Java, Python and Gradle; sax for XML; the `yaml` package for YAML; a hand written scanner for Properties. |
+| Parsing | `parsers/<lang>/` | Produce a syntax tree. tree-sitter for Java, Python and Gradle; sax for XML; the `yaml` package for YAML; a hand written scanner for Properties and for META-INF/services. |
 | Extraction | `parsers/<lang>/extractors/` | Walk the tree and emit rows. One extractor per relation family, implementing `BaseExtractor`. |
 | Models | `analysis-types/<lang>/` | One class per relation. Builder pattern, content addressed key, CSV serialisation. |
 | Resolution | `parsers/<lang>/*-resolution-linker.ts` | Fill in cross entity foreign keys, first within a file and then across the project. |
@@ -298,10 +299,17 @@ frozen schema, and referential integrity across every foreign key in the emitted
 npx tsx src/test/java-extractor-tests.ts
 npx tsx src/test/python-extractor-tests.ts
 npx tsx src/test/gradle-tests.ts
+npx tsx src/test/services-tests.ts
 ```
 
 The Gradle suite adds a fourth layer: twenty checks written from the Gradle DSL's documented
 semantics rather than from parser output, so they do not move when the parser does.
+
+The services suite does the same against the `java.util.ServiceLoader` specification of the
+provider-configuration file, and pairs each check with the naive implementation it rules out — a
+comment-stripping check that a parser which only trims would fail, a nested-name check that one
+replacing every `$` would fail. A check no plausible implementation fails proves nothing, so every
+rule it pins was verified to break the suite when reverted.
 
 Differential gates compare emitted rows against the oracles above.
 
