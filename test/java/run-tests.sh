@@ -124,7 +124,8 @@ for dir in "$HERE"/cases/*/; do
   if ! python3 "$HERE/tools/coverage_guard.py" "$w/ir" "$w/out" >"$w/coverage.txt" 2>&1; then
     echo "FAIL (silent drop)"; sed 's/^/    /' "$w/coverage.txt"; fail=$((fail+1)); failed+=("$name"); continue; fi
 
-  python3 "$HERE/tools/normalize_edges.py" "$w/ir" "$w/out" > "$w/actual.edges" 2>"$w/norm.log" || {
+  lib_ir_arg=""; [ -d "$w/lib-ir" ] && lib_ir_arg="$w/lib-ir"
+  python3 "$HERE/tools/normalize_edges.py" "$w/ir" "$w/out" $lib_ir_arg > "$w/actual.edges" 2>"$w/norm.log" || {
     echo "FAIL (normalize — see $w/norm.log)"; fail=$((fail+1)); failed+=("$name"); continue; }
 
   # ── optional: GROUND TRUTH from javac + javap (no library IR involved) ────
