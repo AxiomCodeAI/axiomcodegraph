@@ -139,6 +139,8 @@ export class TypeScriptProjectAnalyzer {
     // would merge two global scopes that tsc keeps apart. The fixture corpus
     // relies on exactly that — `staging/tsconfig.json` excludes three subtrees,
     // each of which has its own config and its own expectations.
+    // Every emitted path hangs off this, not off rootDir — see pathAnchorFor.
+    const pathAnchor = pathAnchorFor(rootDir, options.baseMservPath);
     const rootProgram = filesOfRootProgram(rootDir, configResolver);
     const files = (rootProgram?.files ?? collectTypeScriptFiles(rootDir, excludes)).sort();
     const filesInOtherPrograms = rootProgram?.others.length ?? 0;
@@ -151,11 +153,11 @@ export class TypeScriptProjectAnalyzer {
     for (const file of files) {
       projectModuleHashes.set(
         path.normalize(file),
-        moduleHashFor(toRelative(rootDir, file), options.baseMservPath, serviceVersionLinkHash)
+        moduleHashFor(toRelative(pathAnchor, file), options.baseMservPath, serviceVersionLinkHash)
       );
     }
     const toProjectRelative = (absolutePath: string): string =>
-      stripExtension(toRelative(rootDir, absolutePath));
+      stripExtension(toRelative(pathAnchor, absolutePath));
 
     this.skippedFiles = [];
     const accumulated: Record<string, CsvRow[]> = {
@@ -172,7 +174,7 @@ export class TypeScriptProjectAnalyzer {
       try {
         sourceText = await fsp.readFile(file, 'utf-8');
       } catch (error) {
-        this.recordSkip(file, rootDir, options, serviceVersionLinkHash,
+        this.recordSkip(file, pathAnchor, options, serviceVersionLinkHash,
           SkippedFileReason.READ_ERROR, String(error));
         continue;
       }
@@ -181,14 +183,14 @@ export class TypeScriptProjectAnalyzer {
       try {
         facts = extractTypeScriptFile({
           absoluteFilePath: file,
-          filePath: toRelative(rootDir, file),
+          filePath: toRelative(pathAnchor, file),
           baseMservPath: options.baseMservPath,
           moduleQualifiedName: toProjectRelative(file),
           sourceText,
           serviceVersionLinkHash,
           tsConfigPath: governing.configPath === ''
             ? ''
-            : toRelative(rootDir, governing.configPath),
+            : toRelative(pathAnchor, governing.configPath),
           moduleResolutionMode: governing.moduleResolutionMode,
           // Per file, from the config that actually claims it. `legacy/` in the
           // fixture corpus compiles under experimentalDecorators while its
@@ -203,7 +205,7 @@ export class TypeScriptProjectAnalyzer {
         // An extraction error is a DEFECT, never a decision. Counted apart from
         // anything else so a parser that throws on every file cannot report a
         // clean run with empty relations.
-        this.recordSkip(file, rootDir, options, serviceVersionLinkHash,
+        this.recordSkip(file, pathAnchor, options, serviceVersionLinkHash,
           SkippedFileReason.EXTRACTION_ERROR, String(error));
         continue;
       }
@@ -324,14 +326,14 @@ export class TypeScriptProjectAnalyzer {
 
   private recordSkip(
     file: string,
-    rootDir: string,
+    pathAnchor: string,
     options: TypeScriptAnalysisOptions,
     serviceVersionLinkHash: string,
     reason: SkippedFileReason,
     detail: string
   ): void {
     this.skippedFiles.push({
-      filePath: toRelative(rootDir, file),
+      filePath: toRelative(pathAnchor, file),
       baseMservPath: options.baseMservPath,
       serviceVersionLinkHash,
       reason,
@@ -633,6 +635,31 @@ function collectTypeScriptFiles(dir: string, excludes: ReadonlySet<string>): str
 
 function toRelative(rootDir: string, file: string): string {
   return path.relative(rootDir, file).split(path.sep).join('/') || path.basename(file);
+}
+
+/**
+ * The directory every emitted path is relative TO.
+ *
+ * §4.4 says `filePath` is **repo-relative**, and the module PK is
+ * `md5(filePath ‖ baseMservPath ‖ …)`. Anchoring on `rootDir` instead broke both
+ * on a workspace: analysing `packages/alpha` with the repo root as
+ * `baseMservPath` emitted `src/Project.ts`, so `baseMservPath + filePath` named
+ * a file that does not exist, and `packages/beta/src/Project.ts` produced the
+ * BYTE-IDENTICAL primary key. Two packages' files were one row.
+ *
+ * `baseMservPath` wins whenever it actually contains the tree being analysed --
+ * which is the workspace case, and is exactly when a qualifier is needed. It is
+ * caller-supplied, so a value that does not contain `rootDir` is ignored rather
+ * than trusted: a single-project run passes the two equal and is unaffected.
+ */
+function pathAnchorFor(rootDir: string, baseMservPath: string): string {
+  if (baseMservPath === '') {
+    return rootDir;
+  }
+  const base = path.resolve(baseMservPath);
+  const root = path.resolve(rootDir);
+  const contained = root === base || root.startsWith(base + path.sep);
+  return contained ? base : root;
 }
 
 function stripExtension(relativePath: string): string {
