@@ -92,6 +92,7 @@ boundary_lib	METHOD_CALL	f25_var_params.Holder.lookup -> builtin:dict.get
 boundary_lib	METHOD_CALL	f25_var_params.annotated_kwargs -> builtin:dict.get
 boundary_lib	METHOD_CALL	f25_var_params.annotated_varargs -> builtin:tuple.count
 boundary_lib	METHOD_CALL	f25_var_params.collect -> builtin:tuple.count
+boundary_lib	METHOD_CALL	f26_local_annotation.from_builtin_annotation -> builtin:set.add
 boundary_lib	METHOD_CALL	main.main -> builtin:object.__init__
 boundary_lib	SELF_CALL	f02_callables.HoldsCallables.run -> lib:tlib.callables.Doubler.__call__
 boundary_lib	SELF_CALL	f09_adversarial.Rebound.use -> lib:tlib.callables.Doubler.__call__
@@ -167,6 +168,11 @@ boundary_lib	SIMPLE_CALL	f23_typevar_bound.via_opaque_value -> builtin:object.__
 boundary_lib	SIMPLE_CALL	f23_typevar_bound.via_opaque_value -> lib:tlib.callables.passthrough
 boundary_lib	SIMPLE_CALL	f25_var_params.Holder.lookup -> builtin:str
 boundary_lib	SIMPLE_CALL	f25_var_params.annotated_kwargs -> builtin:str
+boundary_lib	SIMPLE_CALL	f26_local_annotation.from_builtin_annotation -> builtin:len
+boundary_lib	SIMPLE_CALL	f26_local_annotation.from_builtin_annotation -> builtin:set
+boundary_lib	SIMPLE_CALL	f26_local_annotation.from_builtin_annotation -> lib:tlib.callables.passthrough
+boundary_lib	SIMPLE_CALL	f26_local_annotation.from_class_annotation -> builtin:object.__init__
+boundary_lib	SIMPLE_CALL	f26_local_annotation.from_class_annotation -> lib:tlib.callables.passthrough
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	main.main -> builtin:print
@@ -343,6 +349,8 @@ known_edge	METHOD_CALL	main.main -> f25_var_params.Holder.__init__
 known_edge	METHOD_CALL	main.main -> f25_var_params.annotated_kwargs
 known_edge	METHOD_CALL	main.main -> f25_var_params.annotated_varargs
 known_edge	METHOD_CALL	main.main -> f25_var_params.collect
+known_edge	METHOD_CALL	main.main -> f26_local_annotation.from_builtin_annotation
+known_edge	METHOD_CALL	main.main -> f26_local_annotation.from_class_annotation
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator_in_for
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_plain
@@ -417,6 +425,8 @@ multi_inferred	METHOD_CALL	f23_typevar_bound.bare_bounded -> f23_typevar_bound.B
 multi_inferred	METHOD_CALL	f23_typevar_bound.bare_bounded -> f23_typevar_bound.Derived.label
 multi_inferred	METHOD_CALL	f23_typevar_bound.flowed_bounded -> f23_typevar_bound.Base.label
 multi_inferred	METHOD_CALL	f23_typevar_bound.flowed_bounded -> f23_typevar_bound.Derived.label
+multi_inferred	METHOD_CALL	f26_local_annotation.from_class_annotation -> f26_local_annotation.Base.label
+multi_inferred	METHOD_CALL	f26_local_annotation.from_class_annotation -> f26_local_annotation.Derived.label
 multi_inferred	SELF_CALL	f13_declared_dispatch.Base.run -> f13_declared_dispatch.Base.step
 multi_inferred	SELF_CALL	f13_declared_dispatch.Base.run -> f13_declared_dispatch.StepA.step
 multi_inferred	SELF_CALL	f13_declared_dispatch.Base.run -> f13_declared_dispatch.StepB.step
