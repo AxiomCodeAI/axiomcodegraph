@@ -16,7 +16,14 @@ Emitted form (same conventions as normalize_edges.py, so the two are directly co
     access$N, enum values/valueOf/$values, <clinit>, invokedynamic plumbing (the lambda/string-concat
     bootstrap), javac-synthesized default constructors and their implicit super() call, the
     enhanced-for iterator triple, and autoboxing valueOf
-  * a lambda body (`lambda$m$N`) is FOLDED into the method that lexically contains it
+  * a lambda body (`lambda$m$N`) is FOLDED into the method that lexically contains it. It is
+    ACC_SYNTHETIC, so it is exempted from the synthetic skip by name — without that exemption the
+    body is dropped before it is read and every call written inside a lambda is absent from the
+    reference set, which is what makes the folding below reachable at all.
+  * a METHOD REFERENCE emits no invoke naming its target: it lowers to invokedynamic, and the
+    target is the implementation MethodHandle in the LambdaMetafactory bootstrap arguments. Those
+    are read from the BootstrapMethods table, so `X::m` yields the edge to `m`. Any other bootstrap
+    (StringConcatFactory) has no such argument and stays excluded.
 
 usage: bytecode_oracle.py <src-dir> <work-dir> [--app-only]
 """
@@ -54,6 +61,12 @@ CLASS_HDR = re.compile(r'^(?:(?:public|protected|private|final|abstract|static|s
                        r'(?:\s+extends\s+([\w$.<>,\s]+?))?(?:\s+implements\s+([\w$.<>,\s]+?))?\s*\{?\s*$')
 INVOKE = re.compile(r'^\s*\d+:\s+(invokevirtual|invokespecial|invokestatic|invokeinterface|invokedynamic)\s+#\d+'
                     r'(?:,\s*\d+)?\s*//\s*(?:Interface)?Method\s+([^\s]+)')
+# `10: invokedynamic #22,  0   // InvokeDynamic #0:accept:(Ljava/lang/String;)Ljava/util/function/Consumer;`
+INDY = re.compile(r'^\s*\d+:\s+invokedynamic\s+#\d+(?:,\s*\d+)?\s*//\s*InvokeDynamic\s+#(\d+):')
+# `  0: #173 REF_invokeStatic java/lang/invoke/LambdaMetafactory.metafactory:(...)`
+BSM_HDR = re.compile(r'^\s*(\d+):\s+#\d+\s+REF_\w+\s+([\w$/.]+)\.([\w$<>]+):')
+# `      #158 REF_invokeStatic Lam.lambda$viaForEach$0:(Ljava/lang/String;LLam$Item;)V`
+BSM_ARG = re.compile(r'^\s*#\d+\s+REF_\w+\s+([\w$/.]+)\.([\w$<>]+):(\S+)\s*$')
 
 def parse(classes, names):
     """-> (supers, declared, edges) with edges = [(callerClass, callerName, callerDesc, kind, owner, name, desc)]"""
@@ -63,6 +76,12 @@ def parse(classes, names):
     edges = []
     cls = None; meth = None; mdesc = None; flags = ''
     pending_decl = None
+    # A method reference's target is not in any invoke instruction — it is bootstrap argument 1 of a
+    # LambdaMetafactory indy. The BootstrapMethods table is printed AFTER the code that uses it, so
+    # the sites are collected here and resolved once the whole class has been read.
+    bsm = collections.defaultdict(dict)      # cls -> index -> (owner, name, desc)
+    indy_sites = []                          # (cls, meth, mdesc, flags, index)
+    in_bsm = None; bsm_idx = None; bsm_is_lambda = False
     for i, raw in enumerate(out):
         line = raw.rstrip(); s = line.strip()
         m = CLASS_HDR.match(s)
@@ -83,13 +102,39 @@ def parse(classes, names):
             declared[cls].add((meth, tuple(desc_params(mdesc)) if '(' in mdesc else ()))
             pending_decl = None
             continue
+        # ── BootstrapMethods table ────────────────────────────────────────────────────────
+        if s.startswith('BootstrapMethods:'):
+            in_bsm = cls; bsm_idx = None; continue
+        if in_bsm is not None:
+            if s and not raw.startswith(' '):      # a new top-level section ends the table
+                in_bsm = None
+            else:
+                mh = BSM_HDR.match(line)
+                if mh:
+                    bsm_idx = int(mh.group(1))
+                    bsm_is_lambda = mh.group(2).replace('/', '.') == 'java.lang.invoke.LambdaMetafactory'
+                    continue
+                ma = BSM_ARG.match(line)
+                # bootstrap argument 1 is the implementation handle; the first REF_ argument IS it
+                # for a LambdaMetafactory site, and a StringConcatFactory site has none at all.
+                if ma and bsm_idx is not None and bsm_is_lambda and bsm_idx not in bsm[in_bsm]:
+                    bsm[in_bsm][bsm_idx] = (ma.group(1).replace('/', '.'), ma.group(2), ma.group(3))
+                continue
         if s.startswith('flags:') and meth: flags = s
         mi = INVOKE.match(line)
         if not mi and s and s.endswith(';') and '(' in s and not re.match(r'^\d+:', s) \
            and not s.startswith(('descriptor:', 'flags:', '//', '#')):
             pending_decl = s; continue
+        # A LAMBDA BODY is ACC_SYNTHETIC. Skipping it drops every call the source wrote inside a
+        # lambda, and makes the lambda$ folding further down unreachable — so exempt it by name.
+        synthetic = ('ACC_BRIDGE' in flags or 'ACC_SYNTHETIC' in flags) \
+                    and not (meth or '').startswith('lambda$')
+        di = INDY.match(line)
+        if di and cls and meth and not synthetic:
+            indy_sites.append((cls, meth, mdesc, flags, int(di.group(1))))
+            continue
         if mi and cls and meth:
-            if 'ACC_BRIDGE' in flags or 'ACC_SYNTHETIC' in flags: continue
+            if synthetic: continue
             kind, target = mi.group(1), mi.group(2)
             if kind == 'invokedynamic': continue
             if ':' not in target: continue
@@ -97,6 +142,14 @@ def parse(classes, names):
             owner, name = owner_name.rsplit('.', 1) if '.' in owner_name else (cls, owner_name)
             name = name.strip('"')
             edges.append((cls, meth, mdesc, flags, kind, owner.replace('/', '.'), name, desc))
+    for c, m, md, fl, idx in indy_sites:
+        t = bsm.get(c, {}).get(idx)
+        if not t: continue                      # not a LambdaMetafactory site (string concat, ...)
+        owner, name, desc = t
+        # a lambda BODY is folded into its enclosing method already; only a reference to a real
+        # method is an edge. `X::new` is a constructor target and follows the ctor conventions.
+        if name.startswith('lambda$'): continue
+        edges.append((c, m, md, fl, 'invokedynamic', owner, name, desc))
     return supers, declared, edges, is_enum
 
 def main():
@@ -167,7 +220,12 @@ def main():
             if not re.search(r'\b' + re.escape(oc) + r'\s*\([^)]*\)\s*(?:throws[^{]*)?\{', src_txt): continue
         caller_name = meth
         lam = re.match(r'^lambda\$(.+)\$\d+$', meth)
-        if lam: caller_name = lam.group(1)
+        if lam:
+            caller_name = lam.group(1)
+            # javac names a lambda declared in a CONSTRUCTOR (or in a field initializer, which it
+            # compiles into one) `lambda$new$N`, so folding by name yields the caller `new` — a
+            # method that exists on neither side. The enclosing method is the constructor.
+            if caller_name == 'new': caller_name = '<init>'
         if app_only and owner not in app: continue
         # re-point to the class that DECLARES the method (bytecode names the receiver's type)
         dc = owner

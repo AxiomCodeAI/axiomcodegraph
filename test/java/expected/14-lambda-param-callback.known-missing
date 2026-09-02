@@ -1,0 +1,13 @@
+# Accepted gap: THE SAME library-generic lambda-parameter gap as 05, through three more shapes.
+# See expected/05-lambda-and-method-refs.known-missing for the root cause (`lib_type_arg_binding`
+# and `lib_type_ref_resolves` are read by expression-resolution/lambda.dl and never derived).
+#
+# Visible only since the oracle began reading lambda bodies. The engine produces NO edge to
+# Item#validate anywhere in this case, so these are genuine misses, not edges anchored elsewhere.
+#
+#   viaMapValues: map.values().forEach(x -> x.validate(...))   two library generics deep
+#   viaStream:    stream().forEach(...)
+#   viaTypedList: a List<Item> parameter
+LambdaParamCallback#viaMapValues -> Item#validate(String)
+LambdaParamCallback#viaStream -> Item#validate(String)
+LambdaParamCallback#viaTypedList -> Item#validate(String)
