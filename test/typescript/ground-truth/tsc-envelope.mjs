@@ -78,7 +78,62 @@ function loadTypeScript() {
 }
 const ts = loadTypeScript();
 
-const configPath = ts.findConfigFile(projectDir, ts.sys.fileExists, 'tsconfig.json');
+// ── relPath(sourceFile) — the PARSER's path convention, not ours ─────────────
+// The scorer joins the oracle and the IR on (file, line, col, endLine, endCol), and the
+// file on the IR side is the parser's `filePath`, which is relative to the project the
+// parser discovered — one per workspace package on a monorepo. Emitting paths relative
+// to the analysis root instead produced `packages/pkg/src/X.ts` against the IR's
+// `src/X.ts`, and the two never joined: 36,500 IR sites, 40,827 oracle sites, ZERO
+// matched, which the conservation guard reported as 100% loss.
+//
+// So the roots the parser actually used are passed in, and each file is emitted relative
+// to the LONGEST root that contains it. One normalisation applied to both sides, rather
+// than a compensation applied to one.
+const ROOTS = (() => {
+  const f = process.env.PARSER_PROJECT_ROOTS;
+  if (!f) return [];
+  try {
+    return fs.readFileSync(f, 'utf8').split('\n').map((s) => s.trim()).filter(Boolean)
+      .map((p) => fs.realpathSync(p))
+      .sort((a, b) => b.length - a.length);
+  } catch { return []; }
+})();
+const REAL_PROJECT_DIR = (() => { try { return fs.realpathSync(projectDir); } catch { return projectDir; } })();
+function relPath(fileName) {
+  let real = fileName;
+  try { real = fs.realpathSync(fileName); } catch { /* keep */ }
+  for (const r of ROOTS) {
+    const rel = path.relative(r, real);
+    if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) return rel;
+  }
+  return path.relative(REAL_PROJECT_DIR, real);
+}
+
+// Same upward-only discovery bug the oracle had: on a workspace repository whose
+// tsconfig lives under each package there is nothing at the root to find, and the
+// envelope simply produced no bound. Prefer an enclosing config, else take the first
+// workspace one — a single program is enough for a dispatch BOUND, which does not need
+// the whole repository the way the oracle's ground truth does.
+function findAnyConfig(dir) {
+  const up = ts.findConfigFile(dir, ts.sys.fileExists, 'tsconfig.json');
+  if (up && !path.relative(dir, up).startsWith('..')) return up;
+  const SKIP = new Set(['node_modules', '.git', 'dist', 'build', 'out', 'coverage', '.next', '.turbo']);
+  const walk = (d, depth) => {
+    if (depth > 4) return null;
+    let entries;
+    try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return null; }
+    if (entries.some((e) => e.isFile() && e.name === 'tsconfig.json')) return path.join(d, 'tsconfig.json');
+    for (const e of entries) {
+      if (e.isDirectory() && !SKIP.has(e.name) && !e.name.startsWith('.')) {
+        const hit = walk(path.join(d, e.name), depth + 1);
+        if (hit) return hit;
+      }
+    }
+    return null;
+  };
+  return walk(dir, 0);
+}
+const configPath = findAnyConfig(projectDir);
 if (!configPath) {
   console.error(`no tsconfig.json under ${projectDir}`);
   process.exit(2);
@@ -108,7 +163,7 @@ const instantiated = new Set();
 
 for (const sf of program.getSourceFiles()) {
   if (sf.isDeclarationFile) continue;
-  const rel = path.relative(projectDir, sf.fileName);
+  const rel = relPath(sf.fileName);
   if (rel.startsWith('..')) continue;
   const visit = (node) => {
     if (ts.isClassDeclaration(node) || ts.isClassExpression(node)) {
@@ -167,7 +222,7 @@ let sites = 0;
 
 for (const sf of program.getSourceFiles()) {
   if (sf.isDeclarationFile) continue;
-  const rel = path.relative(projectDir, sf.fileName);
+  const rel = relPath(sf.fileName);
   if (rel.startsWith('..')) continue;
 
   const visit = (node) => {
