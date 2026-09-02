@@ -58,9 +58,9 @@ MISSED	src/link-default.ts	16	10	METHOD_CALL	transform	1	0	default-codec.d.ts:6:
 EXACT	src/link-default.ts	16	10	METHOD_CALL	of	1	0	default-codec.d.ts:7:3	default-codec.d.ts:7:3
 EXACT	src/link-default.ts	20	10	FUNCTION_CALL	describeCodec	1	0	default-codec.d.ts:12:1	default-codec.d.ts:12:1
 SYNTHESIZED_OK	src/link-default.ts	20	24	CONSTRUCTOR_CALL	Codec	1	0	::	
-MISSED	src/link-generic.ts	34	10	METHOD_CALL	run	1	0	link-generic.ts:13:3	
+EXACT	src/link-generic.ts	34	10	METHOD_CALL	run	1	0	link-generic.ts:13:3	link-generic.ts:13:3
 EXACT	src/link-generic.ts	34	10	FUNCTION_CALL	first	1	0	generic-lib.d.ts:5:1	generic-lib.d.ts:5:1
-MISSED	src/link-generic.ts	40	10	METHOD_CALL	run	1	0	generic-lib.d.ts:18:3	
+SOUND_SUPERSET	src/link-generic.ts	40	10	METHOD_CALL	run	1	0	generic-lib.d.ts:18:3	generic-lib.d.ts:18:3;link-generic.ts:13:3;link-generic.ts:19:3
 EXACT	src/link-generic.ts	40	10	FUNCTION_CALL	first	1	0	generic-lib.d.ts:5:1	generic-lib.d.ts:5:1
 EXACT	src/link-generic.ts	45	34	FUNCTION_CALL	wrap	1	0	generic-lib.d.ts:13:1	generic-lib.d.ts:13:1
 SYNTHESIZED_OK	src/link-generic.ts	45	39	CONSTRUCTOR_CALL	FastRunner	1	0	::	
