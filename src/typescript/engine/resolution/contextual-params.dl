@@ -140,3 +140,32 @@ lambda_param_type(lp, prov, t) :- var_initializer("client", _, e, v),
     ref_shape_target(r, fref),
     fn_param_type(fref, k, prov, t),
     param_decl(_, _, k, _, lm, lp).
+
+// ── an OBJECT-LITERAL METHOD takes its parameter types from the annotation ──
+// `const ctx: Ctx = { push(code) { code.trim() } }` — `code` carries no annotation and
+// is typed by `Ctx.push`'s first parameter. This is how an object literal implements an
+// interface, which is the ordinary way to build a context, a visitor, a handler table
+// or a plugin object.
+//
+// It needed a parser change to be expressible at all: an object-literal method used to
+// be emitted with NO owner, so nothing connected it to the literal it belongs to. The
+// owner is now the literal's EXPRESSION, which is the link this rule walks.
+//
+// Everything here sits below the expression fixpoint — the literal reaches its type
+// through the variable's ANNOTATION, not through typing the literal as a value — so
+// this can define param_type directly rather than going through lambda_param_type.
+objlit_method_of_var(m, v) :- method_owner(_, e, m),
+    method_kind(_, "OBJECT_LITERAL_METHOD", _, m),
+    var_initializer("client", _, e, v).
+
+objlit_contextual_param(mp, prov, t) :- objlit_method_of_var(m, v),
+    method_decl(_, _, name, _, m),
+    var_type_ref(_, r, v),
+    ref_type_target(r, _, dt),
+    scope_sibling(dt, sib),
+    declared_method(sib, name, _, im),
+    param_decl(_, _, k, _, im, ip),
+    param_type(ip, prov, t),
+    param_decl(_, _, k, _, m, mp).
+
+param_type(mp, prov, t) :- objlit_contextual_param(mp, prov, t).

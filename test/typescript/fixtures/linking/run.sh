@@ -166,6 +166,12 @@ require_resolved link-conditional.ts label \
 require_resolved link-conditional.ts emitTo \
   "a lambda parameter typed by the function type on the variable it is assigned to"
 
+# An object-literal method's unannotated parameter, typed from the interface the
+# literal is annotated with. `trim` is the assertion because it can only resolve if
+# `code` got a type; the method itself resolves either way.
+require_resolved link-conditional.ts trim \
+  "an object-literal method parameter typed from the literal's annotation"
+
 # The fixture answers only where it is sure: a WRONG answer here is a rule that
 # manufactures confidence, which is worse than the missing edge it replaces.
 if ! grep -qE '^WRONG \(engine named, oracle disagrees\)[[:space:]]+0$' "$SCORE"; then
