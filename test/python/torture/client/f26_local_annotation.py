@@ -14,6 +14,7 @@ An annotation is a DECLARED type, so `declared.label()` must widen over the over
 rather than naming Base alone -- the confident-wrong shape this engine has produced four
 times from exactly this omission.
 """
+from repkg.inner import leaf as lf
 from tlib import passthrough
 
 
@@ -39,3 +40,22 @@ def from_class_annotation() -> str:
     # the answer must include the override.
     item: Base = passthrough(Derived())
     return item.label()
+
+
+def from_dotted_annotation() -> str:
+    # A DOTTED annotation -- module alias plus member, the `exp.Expr` shape. #123 shipped
+    # without this and said so: the type-reference FK is unresolved on nearly every dotted
+    # annotation, and resolving the head name "Widget" in this module would find nothing.
+    # It resolves through the annotation EXPRESSION instead, an ATTRIBUTE_ACCESS the engine
+    # already reads via expr_attr_names_type.
+    #
+    # A CLIENT module deliberately, not tlib: a library type is reached by expr_lib_type,
+    # a different relation, so a lib-typed case would assert nothing here.
+    #
+    # AND AN ALIASED import, which is what makes it discriminate. `from repkg.inner import
+    # leaf` leaves the reference FK resolved, so the FK clause from #123 answers it and the
+    # case proves nothing -- the first version of this fixture did exactly that and passed
+    # with the new clause removed. Under an alias the FK is empty, which is the same shape
+    # the real corpora show.
+    held: lf.Widget = passthrough(lf.Widget())
+    return held.emit()
