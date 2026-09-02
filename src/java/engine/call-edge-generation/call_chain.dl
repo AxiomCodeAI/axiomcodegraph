@@ -127,6 +127,25 @@ call_chain_edge(call, caller, "-", callee, "lib", "boundary_lib", kind) :-
 call_chain_edge(call, caller, "-", "-", "-", "ambiguous_unknown", kind) :-
     call_class(call, "ambiguous_unknown"), call_from(call, caller),
     invocation_site(call, kind).
+// ── AND UNCONDITIONALLY, for any site that emitted no edge at all ───────────────────────
+// The clause above keys on call_class, which is derived from the CANDIDATE count — so a site
+// whose candidates all survive resolution but are then removed by a later filter is classified
+// "resolved" while emitting nothing, and disappears from the output entirely. That is how a
+// client->library hand-off was lost: overload resolution selected two targets, a shadowing
+// filter removed both, and the site was neither an edge nor a declared unknown.
+//
+// A resolution gap must degrade to ambiguous_unknown, never to silence. Keying this on whether
+// an edge was actually derived — rather than on how the site was classified — makes that
+// structural: the next filter that removes every target produces a visible declared unknown
+// instead of deleting the site. Duplicate facts are identical rows, so this subsumes the clause
+// above rather than competing with it.
+call_has_edge(call) :- client_calls_client("client", call, _, _).
+call_has_edge(call) :- client_calls_lib("client", call, _, _).
+call_chain_edge(call, caller, "-", "-", "-", "ambiguous_unknown", kind) :-
+    invocation_site(call, kind),
+    call_from(call, caller),
+    !call_has_edge(call),
+    !call_class(call, "ambiguous_anon").
 call_chain_edge(call, caller, "-", "-", "-", "ambiguous_anon", kind) :-
     call_class(call, "ambiguous_anon"), call_from(call, caller),
     invocation_site(call, kind).

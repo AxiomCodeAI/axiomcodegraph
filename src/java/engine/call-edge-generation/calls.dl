@@ -45,12 +45,39 @@ client_calls_client("client", call, "client", callee) :- expr_resolves_to_method
 lib_msig(m, name, pc) :- lib_method(name, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, pc, _, _, _, m).
 // shadowed FOR ONE receiver type: a nearer declaration of the same name+arity exists below it in
 // that receiver's own hierarchy.
-lib_shadowed_for(call, rt, m) :- lib_recv_target(call, rt, m), method_owner("lib", o, m),
+// AN OVERLOAD IS NOT A SHADOW. lib_msig keys on (name, parameterCount), so a method declared
+// LOWER in the receiver's hierarchy with the same name and arity but DIFFERENT parameter types
+// was treated as a nearer declaration of it. `FileWriter.write(aString)` is the shape: the
+// applicable target is Writer#write(String), and OutputStreamWriter#write(int) — an overload,
+// two hops down, accepting an incompatible type — hid it. Every Writer-declared write was then
+// filtered out while only OutputStreamWriter's were kept, none of which overload resolution had
+// selected, so the site emitted no edge at all.
+//
+// A shadowing declaration overrides: same name, same arity AND the same parameter types. Where
+// the types differ at any position the two are siblings and both are members of the receiver.
+// The polarity is deliberate — failing to shadow keeps an extra target inside the sound
+// envelope, while shadowing wrongly DELETES the hand-off, which is the error class that is not
+// allowed to happen.
+
+// The candidate pairs, from the narrow body this filter already had.
+lib_shadow_cand(call, rt, m, m2) :- lib_recv_target(call, rt, m), method_owner("lib", o, m),
     lib_msig(m, name, pc),
     lib_recv_target(call, rt, m2), m2 != m, method_owner("lib", o2, m2),
     lib_msig(m2, name, pc),
     o2 != o,
     type_ancestor(o2, o).
+
+// ...and whether such a pair differs in signature at some position. SCOPED TO THOSE PAIRS: a
+// join over param_decl alone is a cross product across every library method that shares a
+// parameter position — on a platform-scale library root that is ~10^10 tuples and the solve is
+// OOM-killed. Same reason copruned in overload.dl is scoped to one call and one owner.
+lib_shadow_param_differs(m, m2) :- lib_shadow_cand(_, _, m, m2),
+    param_decl("lib", _, pos, t1, m, _),
+    param_decl("lib", _, pos, t2, m2, _),
+    t1 != t2.
+
+lib_shadowed_for(call, rt, m) :- lib_shadow_cand(call, rt, m, m2),
+    !lib_shadow_param_differs(m, m2).
 // kept when it is the nearest declaration for AT LEAST ONE of the site's receiver types...
 lib_target_kept(call, m) :- lib_recv_target(call, rt, m), !lib_shadowed_for(call, rt, m).
 // ...and unconditionally when it did not come from a receiver-typed lookup at all (static call,
