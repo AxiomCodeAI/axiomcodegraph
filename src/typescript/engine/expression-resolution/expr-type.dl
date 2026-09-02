@@ -205,12 +205,17 @@ edge_role_is_operand("SATISFIES_OPERAND").
 // `expr_shape` and `expr_callable` are carried as well as `expr_type`: a function-typed
 // property arrives as a SHAPE, and a module function as a callable, so flowing only
 // expr_type would leave exactly this case unresolved.
-expr_type(e, prov, t) :- expr_kind("client", "BINARY_EXPRESSION", _, e),
-    expr_operator("client", op, e),
-    operator_is_value_default(op),
-    expr_child("client", e, r, _, side),
-    edge_role_is_binary_operand(r),
-    expr_type(side, prov, t).
+// NOT expr_type, and that is the whole difference between this shipping and not.
+// Flowing the TYPE of both operands retypes every `(xs || []).map(...)` receiver as both
+// the property's type and an empty array literal's, and `map` then resolves against the
+// wrong one -- ReadonlyArray's declaration where the compiler names Array's. Measured on
+// the held-out set: the type clause alone cost 10 wrong answers on one project, all of
+// them `map` on an array defaulted with `|| []`, against +23 exact. Dropped.
+//
+// `expr_shape` and `expr_callable` carry only a CALL SIGNATURE, so they reach the callee
+// position -- the measured need, a receiverless call to a function-typed value -- without
+// touching what a receiver is. A boolean left operand of `&&` contributes neither, so
+// `flag && handler` costs nothing.
 expr_shape(e, s) :- expr_kind("client", "BINARY_EXPRESSION", _, e),
     expr_operator("client", op, e),
     operator_is_value_default(op),
