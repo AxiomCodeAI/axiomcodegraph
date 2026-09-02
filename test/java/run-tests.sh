@@ -68,6 +68,15 @@ for a in "$@"; do case "$a" in
   --bless) BLESS=1;; --keep) KEEP=1;; --oracle) ORACLE=1;;
   -h|--help) sed -n '2,34p' "$0"; exit 0;; *) FILTERS+=("$a");; esac; done
 
+# ── PREFLIGHT: every relation the parser emits must actually reach the solver ──────────
+# Runs before any case, because it is not about a case: a relation staged for the client but
+# not for libraries — or listed in lib.map with a suffix absent from LIB_SIG — is EMPTY on
+# every run and nothing errors. No golden can see that, so it is checked here.
+if ! python3 "$HERE/tools/check_staging.py" --lang java; then
+  echo "aborting: the IR staging maps are inconsistent, so some relation silently stages nothing"
+  exit 1
+fi
+
 [ -f "$PARSER" ] || { echo "SKIP: parser not found at $PARSER (set AXIOM_PARSER)"; exit 77; }
 # The engine's --library is mandatory, so it is handed an EMPTY directory. Every lib_*
 # relation is then staged empty, which is semantically identical to a library that

@@ -1,0 +1,2 @@
+ambiguous_unknown	method	probe.UpperCodec#helper(String) -> -
+known_edge	method	probe.UpperCodec#encode(String) -> probe.UpperCodec#helper(String)
