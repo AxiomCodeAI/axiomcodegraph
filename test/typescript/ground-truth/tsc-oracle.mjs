@@ -82,20 +82,53 @@ function loadTypeScript() {
 }
 const ts = loadTypeScript();
 
-const configPath = ts.findConfigFile(projectDir, ts.sys.fileExists, 'tsconfig.json');
-if (!configPath) {
+// A MONOREPO HAS NO tsconfig AT ITS ROOT. `ts.findConfigFile` walks UPWARD, so on a
+// workspace repository — source under `packages/<name>/`, each package with its own
+// tsconfig — it finds nothing at the root and the oracle produced no ground truth at
+// all. Two corpus projects were in exactly that shape, and because the harness ignored
+// the oracle's exit status they reported success while contributing zero sites.
+//
+// So: prefer an enclosing tsconfig (the ordinary single-project case, unchanged), and
+// only when there is none, DESCEND and take every workspace tsconfig. That is the same
+// unit the parser analyses — it runs one pass per project because a TypeScript program
+// is the unit of merge scope, and two programs have two global scopes — so matching it
+// here keeps the oracle and the IR talking about the same thing.
+function discoverConfigs(dir) {
+  const up = ts.findConfigFile(dir, ts.sys.fileExists, 'tsconfig.json');
+  // findConfigFile walks up past the project; only accept one INSIDE it.
+  if (up && !path.relative(dir, up).startsWith('..')) return [up];
+
+  const found = [];
+  const SKIP = new Set(['node_modules', '.git', 'dist', 'build', 'out', 'coverage', '.next', '.turbo']);
+  const walk = (d, depth) => {
+    if (depth > 4) return;
+    let entries;
+    try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    const here = path.join(d, 'tsconfig.json');
+    if (entries.some((e) => e.isFile() && e.name === 'tsconfig.json')) {
+      found.push(here);
+      // Do not descend past a project root: a package's own sub-tsconfigs (for tests,
+      // for a build variant) describe the same sources and would duplicate every row.
+      return;
+    }
+    for (const e of entries) {
+      if (e.isDirectory() && !SKIP.has(e.name) && !e.name.startsWith('.')) {
+        walk(path.join(d, e.name), depth + 1);
+      }
+    }
+  };
+  walk(dir, 0);
+  return found;
+}
+
+// Reassigned per program below.
+let checker;
+
+const configPaths = discoverConfigs(projectDir);
+if (configPaths.length === 0) {
   console.error(`no tsconfig.json under ${projectDir}`);
   process.exit(2);
 }
-const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
-const parsed = ts.parseJsonConfigFileContent(
-  configFile.config,
-  ts.sys,
-  path.dirname(configPath)
-);
-
-const program = ts.createProgram(parsed.fileNames, parsed.options);
-const checker = program.getTypeChecker();
 
 /** 1-based line/column of a node's START, matching the parser's convention. */
 function pos(sf, offset) {
@@ -202,6 +235,23 @@ let resolvedCount = 0;
 let overloadedSites = 0;
 let nonFirstOverload = 0;
 
+let diagTotal = 0;
+// Rows are keyed by POSITION and de-duplicated across programs: on a workspace repo one
+// file can belong to two programs, and the scorer joins on position, so a duplicate row
+// would count one call site twice.
+const seenPos = new Set();
+
+for (const configPath of configPaths) {
+  const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
+  const parsed = ts.parseJsonConfigFileContent(
+    configFile.config,
+    ts.sys,
+    path.dirname(configPath)
+  );
+  const program = ts.createProgram(parsed.fileNames, parsed.options);
+  checker = program.getTypeChecker();
+  diagTotal += program.getSemanticDiagnostics().length;
+
 for (const sf of program.getSourceFiles()) {
   if (sf.isDeclarationFile) continue;
   const rel = path.relative(projectDir, sf.fileName);
@@ -295,6 +345,8 @@ for (const sf of program.getSourceFiles()) {
   ts.forEachChild(sf, visit);
 }
 
+}   // end: one program per discovered tsconfig
+
 const header = [
   'callFile',
   'callLine',
@@ -314,9 +366,35 @@ const header = [
   'enclCol',
   'enclName',
 ].join('\t');
+
 fs.writeFileSync(outPath, `${header}\n${rows.join('\n')}\n`);
 
-const diags = program.getSemanticDiagnostics().length;
+// A PROGRAM THAT DOES NOT TYPECHECK IS NOT GROUND TRUTH. When the compiler cannot
+// resolve a call, that site simply is not in the truth set — so a broken program does
+// not look broken, it looks like a smaller corpus, and every engine answer in the
+// missing part goes unjudged. The failure is invisible in the score, which is exactly
+// the shape this harness exists to prevent.
+//
+// Measured across the projects that DO typecheck, the compiler resolves 93-98% of the
+// call sites it finds (98%, 95%, 94%, 98%, 94%, 93%). One workspace repository resolved
+// 38% with 24,175 semantic diagnostics — its packages need project references that are
+// not satisfied by compiling each tsconfig standalone. The gap between 93% and 38% is
+// not a judgement call, so the floor is set well below the observed band.
+const resolveRate = considered > 0 ? resolvedCount / considered : 0;
+if (considered > 200 && resolveRate < 0.8) {
+  console.error(
+    `oracle REFUSED: the compiler resolved only ${resolvedCount} of ${considered} call ` +
+      `sites (${(resolveRate * 100).toFixed(1)}%) with ${diagTotal} semantic diagnostics. ` +
+      `A program this far from typechecking yields ground truth that understates what it ` +
+      `judges: unresolved sites drop out of the truth set instead of being scored, so the ` +
+      `engine is measured against whichever part happened to compile. Fix the project's ` +
+      `configuration (a workspace repository usually needs its project references) before ` +
+      `using it as a corpus member.`
+  );
+  process.exit(3);
+}
+
+const diags = diagTotal;
 console.error(
   `oracle: ${considered} call sites, ${resolvedCount} with a declaration, ` +
     `${overloadedSites} into an overload set (${nonFirstOverload} choosing a non-first ` +

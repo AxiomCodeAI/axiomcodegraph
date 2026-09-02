@@ -398,8 +398,39 @@ grep -E '^Elapsed' "$WORK/solve.log" | tail -1
 # node_modules rather than the caller's — measured: running from elsewhere resolved
 # @types/node to a DIFFERENT copy, and every position in it was a mismatch.
 echo "▶ oracle..."
-( cd "$MIRROR" && node "$HERE/ground-truth/tsc-oracle.mjs" . "$WORK/oracle.tsv" ) 2>&1 | tail -1
-( cd "$MIRROR" && node --max-old-space-size=6144 "$HERE/ground-truth/tsc-envelope.mjs" . "$WORK/envelope.tsv" ) 2>&1 | tail -1
+# THE ORACLE IS NOT OPTIONAL. Piping it to `tail -1` used to discard its exit status:
+# on a project whose tsconfig the oracle could not find, it printed one line, wrote no
+# file, `score.py` then died on the missing oracle with a traceback — and the harness
+# still exited 0. Two corpus projects (monorepos, whose tsconfig lives under a workspace
+# package rather than at the root) reported success while contributing NOTHING, so any
+# average taken across the corpus was silently computed over the projects that happened
+# to work.
+#
+# A missing measurement must never read as a passing one. Exit non-zero, loudly, and
+# say which of the two it was: the oracle failing, or the oracle succeeding with nothing
+# in it.
+if ! ( cd "$MIRROR" && node "$HERE/ground-truth/tsc-oracle.mjs" . "$WORK/oracle.tsv" ) > "$WORK/oracle.log" 2>&1; then
+  echo "   ! THE ORACLE FAILED. There is no ground truth for this project, so no number"
+  echo "     printed below would be a measurement of anything. Last lines:"
+  tail -3 "$WORK/oracle.log" | sed 's/^/       /'
+  exit 3
+fi
+tail -1 "$WORK/oracle.log" 2>/dev/null
+if [ "$(wc -l < "$WORK/oracle.tsv" 2>/dev/null || echo 0)" -lt 2 ]; then
+  echo "   ! THE ORACLE PRODUCED NO ROWS. It found a tsconfig and typechecked, but"
+  echo "     resolved zero call sites — an empty ground truth scores every engine answer"
+  echo "     as an extra and every gap as nothing. Refusing to report it as a result."
+  exit 3
+fi
+
+# The envelope is a SECONDARY measurement (the CHA/RTA bound), and score.py runs without
+# it. Report a failure rather than aborting on one.
+if ! ( cd "$MIRROR" && node --max-old-space-size=6144 "$HERE/ground-truth/tsc-envelope.mjs" . "$WORK/envelope.tsv" ) > "$WORK/envelope.log" 2>&1; then
+  echo "   ! the envelope failed; dispatch bounds will be absent from the score"
+  tail -2 "$WORK/envelope.log" | sed 's/^/       /'
+else
+  tail -1 "$WORK/envelope.log" 2>/dev/null
+fi
 
 # ── 5. score ─────────────────────────────────────────────────────────────────
 LIBARGS=""
