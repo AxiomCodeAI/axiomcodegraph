@@ -188,6 +188,47 @@ edge_role_is_operand("UNARY_OPERAND").
 edge_role_is_operand("AS_OPERAND").
 edge_role_is_operand("SATISFIES_OPERAND").
 
+// ── a `||` / `??` / `&&` DEFAULT — either operand can be the value ─────────
+// `const onError = options.onError || defaultOnError` and its `??` twin. This is how a
+// TypeScript API takes an optional callback: the property if it was supplied, a module
+// default otherwise. Without it the variable has no type at all, and every call through
+// it is silent -- measured at 268 missed call sites across six projects whose target is
+// a function type's signature, the largest single mechanism behind that bucket.
+//
+// The same rule the TERNARY below uses, and sound for the same reason: at run time
+// EITHER operand can be the value, so both belong in the candidate set. The compiler
+// resolves such a call to the left operand's signature, so this scores as a hedge rather
+// than a commit -- which is the honest answer for a call graph, where both really can
+// run. `&&` is included because `flag && handler` is the same shape with the operands
+// the other way round.
+//
+// `expr_shape` and `expr_callable` are carried as well as `expr_type`: a function-typed
+// property arrives as a SHAPE, and a module function as a callable, so flowing only
+// expr_type would leave exactly this case unresolved.
+expr_type(e, prov, t) :- expr_kind("client", "BINARY_EXPRESSION", _, e),
+    expr_operator("client", op, e),
+    operator_is_value_default(op),
+    expr_child("client", e, r, _, side),
+    edge_role_is_binary_operand(r),
+    expr_type(side, prov, t).
+expr_shape(e, s) :- expr_kind("client", "BINARY_EXPRESSION", _, e),
+    expr_operator("client", op, e),
+    operator_is_value_default(op),
+    expr_child("client", e, r, _, side),
+    edge_role_is_binary_operand(r),
+    expr_shape(side, s).
+expr_callable(e, m) :- expr_kind("client", "BINARY_EXPRESSION", _, e),
+    expr_operator("client", op, e),
+    operator_is_value_default(op),
+    expr_child("client", e, r, _, side),
+    edge_role_is_binary_operand(r),
+    expr_callable(side, m).
+operator_is_value_default("||").
+operator_is_value_default("??").
+operator_is_value_default("&&").
+// LEFT_OPERAND / RIGHT_OPERAND are already declared as binary operand roles by the
+// string-concat rule below; not repeated here.
+
 // ── a TERNARY — the value is one branch or the other ────────────────────────
 expr_type(e, prov, t) :- expr_kind("client", "TERNARY_EXPRESSION", _, e),
     expr_child("client", e, r, _, br),

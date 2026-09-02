@@ -84,6 +84,7 @@
 .decl dynamic_import_site(c0:symbol)
 .decl edge_role_is_binary_operand(c0:symbol)
 .decl edge_role_is_operand(c0:symbol)
+.decl operator_is_value_default(c0:symbol)
 .decl edge_role_is_ternary_branch(c0:symbol)
 .decl entry_module(c0:symbol)
 .decl entry_point(c0:symbol,c1:symbol)
