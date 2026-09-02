@@ -308,3 +308,62 @@ expr_type_untypable(p, e, "attribute_untyped") :-
 expr_type_untypable(p, e, "unresolved_name") :-
     expr_binding(p, b, ctx, e), ctx != "STORE",
     binding_lookup_unresolved(p, b, _, _), !expr_any_type(p, e).
+
+// ── THE REASON RELATION WAS NARROWER THAN THE FAILURE (issue #116) ───────────
+// `no_rule` is defined in call-edge-generation/call_chain.dl as a site that could not be
+// resolved AND could not be explained -- ambiguous_unknown with no call_unresolvable row.
+// It was 59.7% of every unresolved site, 10,226 of 17,122 across eight corpora: the
+// engine's single largest output category, saying nothing about itself.
+//
+// None of those sites are unknowable. Every one has a receiver shape the parser already
+// reports, and the three clauses above simply did not cover them. Naming a shape does not
+// change what the engine KNOWS -- it changes an unhelpful answer into a reviewable one,
+// which is the same argument resolution/builtins.dl makes for naming a builtin boundary.
+//
+// THE ATTRIBUTE CLAUSE ABOVE IS SELF-ONLY, and that is the fourth time this exact defect
+// has been found. builtin-types.dl already carries the warning: "#61 generalised expr_type
+// and #63 generalised element types, and expr_builtin_type was left behind by both. Any
+// relation keyed on expr_attr_of_self is self-only by construction and needs the general
+// form beside it." expr_type_untypable was left behind by all three, which cost the
+// second-largest group -- 2,585 sites on a receiver like `expression.args`.
+// ============================================================================
+
+// (2b) the same hop through ANY object, not only self.
+expr_type_untypable(p, e, "attribute_untyped") :-
+    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
+    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_type(p, obj, ot),
+    type_attr_field(p, ot, n, f),
+    field_type_unknown(p, f), !expr_any_type(p, e).
+
+// (4) THE OBJECT itself has no type, so the attribute cannot be looked up at all. This is
+//     a DIFFERENT failure from the field's type being unknown and it has a different fix:
+//     one wants the field annotated or its writes typed, the other wants the object typed.
+//     Reporting them as one reason would point at the wrong layer.
+expr_type_untypable(p, e, "attribute_object_untyped") :-
+    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
+    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    !expr_any_type(p, obj),
+    !expr_any_type(p, e).
+
+// (5) a CALL RESULT receiver whose own call resolved to no callee -- `f().g()` where `f`
+//     is itself unresolved. The failure is one hop upstream, and saying so stops the site
+//     being counted as its own independent gap.
+expr_type_untypable("client", e, "call_result_untyped") :-
+    call_of_expr(e, site),
+    !expr_call_candidate(site, _),
+    !expr_any_type("client", e).
+
+// (6) a SUBSCRIPT receiver: `mapping[k].run()` where the container has no element type.
+expr_type_untypable(p, e, "subscript_untyped") :-
+    expr_node(p, "SUBSCRIPT", _, _, e),
+    !expr_any_type(p, e).
+
+// (7) a name that RESOLVED to a binding and still has no type -- a local holding a value
+//     the engine could not type. Distinct from "parameter" (nothing flowed in) and from
+//     "unresolved_name" (the name went nowhere), and the largest group of the three.
+expr_type_untypable(p, e, "local_untyped") :-
+    expr_binding(p, b, ctx, e), ctx != "STORE",
+    binding_lookup(p, b, _),
+    !expr_names_param(p, e, _),
+    !expr_any_type(p, e).
