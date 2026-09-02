@@ -1,5 +1,8 @@
-boundary_lib	method	probe.Handoff#atDepth0(Sink) -> <unresolved:METHOD_REGISTRY_0f8be3c6>
-boundary_lib	method	probe.Handoff#atDepth0(Sink) -> <unresolved:METHOD_REGISTRY_a63d93a8>
-boundary_lib	method	probe.Handoff#atDepth2(FileSink) -> <unresolved:METHOD_REGISTRY_0f8be3c6>
-boundary_lib	method	probe.Handoff#atDepth2(FileSink) -> <unresolved:METHOD_REGISTRY_a63d93a8>
-boundary_lib	method	probe.Handoff#siblingOverload(BufferedSink) -> <unresolved:METHOD_REGISTRY_ee04df5a>
+boundary_lib	method	probe.Handoff#atDepth0(Sink) -> <unresolved:METHOD_REGISTRY_8e52964c>
+boundary_lib	method	probe.Handoff#atDepth0(Sink) -> <unresolved:METHOD_REGISTRY_e9b100ce>
+boundary_lib	method	probe.Handoff#atDepth1(BufferedSink) -> <unresolved:METHOD_REGISTRY_8e52964c>
+boundary_lib	method	probe.Handoff#atDepth1(BufferedSink) -> <unresolved:METHOD_REGISTRY_e9b100ce>
+boundary_lib	method	probe.Handoff#atDepth2(FileSink) -> <unresolved:METHOD_REGISTRY_8e52964c>
+boundary_lib	method	probe.Handoff#atDepth2(FileSink) -> <unresolved:METHOD_REGISTRY_e9b100ce>
+boundary_lib	method	probe.Handoff#siblingOverload(BufferedSink) -> <unresolved:METHOD_REGISTRY_8e52964c>
+boundary_lib	method	probe.Handoff#siblingOverload(BufferedSink) -> <unresolved:METHOD_REGISTRY_e2b13621>

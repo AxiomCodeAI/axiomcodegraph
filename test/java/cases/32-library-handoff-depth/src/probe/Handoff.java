@@ -17,16 +17,17 @@ import dep.Sink;
  *
  * Depth 0 kept working throughout, which is why the pair is needed to localise the failure.
  *
- * A receiver at depth ONE is deliberately NOT exercised here. It returns a WRONG target rather
- * than none — the same "an overload is not an override" mistake in method-lookup.dl's
- * DECLARED-WINS rule, which removes the inherited write(String) from the candidate set before
- * resolution ever sees it. That is a separate mechanism with a separate fix, and pinning the
- * current answer here would freeze a wrong one as the specification.
+ * All three depths must give the SAME answer, because the receiver expression and the argument
+ * are the same in each; only the receiver's declared type moves down the hierarchy. Depth ONE is
+ * the sharpest of the three: BufferedSink declares write(int), a same-arity SIBLING, and a
+ * lookup keyed on (name, arity) alone treated that as a nearer declaration and removed the
+ * inherited write(String) from the candidate set before resolution ever ran.
  */
 public class Handoff {
 
-    void atDepth0(Sink s)     { s.write("x"); }   // declared on the receiver's own type
-    void atDepth2(FileSink s) { s.write("x"); }   // two hops up — the edge that vanished
+    void atDepth0(Sink s)         { s.write("x"); }   // declared on the receiver's own type
+    void atDepth1(BufferedSink s) { s.write("x"); }   // one hop up, past a same-arity sibling
+    void atDepth2(FileSink s)     { s.write("x"); }   // two hops up
 
     /** the sibling overload is still reachable where it is declared */
     void siblingOverload(BufferedSink s) { s.write(3); }
