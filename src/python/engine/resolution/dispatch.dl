@@ -169,6 +169,14 @@ dispatch_override(p, d, n, m) :-
 // stratifiable, since exactness rests on call_constructs_type, which reaches expr_type and
 // so depends on expr_call_candidate — the relation the guard would sit in.
 call_recv_declared(site) :- call_recv_kind(site, "SELF").
+// (h) a receiver bound by `with ... as` (#128). An __enter__ return is an upper bound, so
+//     the same widening applies as for any annotation.
+call_recv_declared(site) :-
+    call_receiver_object(site, obj),
+    expr_binding("client", bref, cx, obj), cx != "STORE",
+    binding_lookup("client", bref, bind),
+    expr_binding("client", bind, "STORE", tgt),
+    with_target_declared("client", tgt, _).
 // (g) a receiver whose LOCAL ANNOTATION names a class (#123). An annotation is an upper
 //     bound, so the same widening applies as for an annotated parameter.
 call_recv_declared(site) :-
