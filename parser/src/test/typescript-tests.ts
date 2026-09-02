@@ -32,6 +32,7 @@ import * as ts from 'typescript';
 import * as path from 'path';
 
 import { IrCompletenessReport } from '@/parsers/typescript/extractors/ts-ir-completeness';
+import { verifyRelationFileStreaming } from '@/workflows/typescript/ts-relation-writer';
 import { TypeScriptProjectAnalyzer } from '@/workflows/typescript/typescript-project-analyzer';
 
 const FIXTURES = 'src/test-data/typescript';
@@ -3035,7 +3036,179 @@ async function parametersDeclaredInsideATypeAreVariables(): Promise<number> {
   return 0;
 }
 
+// ---------------------------------------------------------------------------
+// 31. Streaming writes the same file a whole-buffer write did
+// ---------------------------------------------------------------------------
+
+/**
+ * Rows are written as extraction proceeds rather than accumulated, because
+ * accumulating them is a ceiling: an 8,891-file single-program tree exhausted
+ * a 4 GB heap and published TEN of twenty-one relations, which a consumer
+ * cannot tell from a complete run. The same tree now finishes in 384 MB.
+ *
+ * Streaming has its own failure modes, and each assertion below is one of
+ * them. They are cheap to check and silent when wrong:
+ *
+ *   ONE HEADER      a per-file writer that emits the header on every append
+ *                   produces a file that loads and whose row count is wrong by
+ *                   the number of files.
+ *   EVERY RELATION  a relation nothing was appended to must still get its
+ *                   file, or "no rows" reads as "the parser never ran".
+ *   NO PARTIALS     the temp files must be renamed or removed, never left.
+ *   COUNTS AGREE    the summary counts now come from the writer rather than
+ *                   from an array, so they can drift from the file.
+ *   ALL FILES       rows from the last file parsed must be present, which is
+ *                   what a missing final flush would drop.
+ */
+async function streamedRelationsAreWellFormed(): Promise<number> {
+  const files: Record<string, string> = { 'tsconfig.json': JSON.stringify({
+    compilerOptions: { target: 'ES2022', module: 'ESNext', strict: true },
+    include: ['**/*.ts'],
+  }) };
+  // Enough files that a single-file test could not distinguish a per-file
+  // header from a per-relation one.
+  const FILE_COUNT = 12;
+  for (let i = 0; i < FILE_COUNT; i += 1) {
+    files[`m${i}.ts`] = [
+      `export class C${i} {`,
+      `  value: number = ${i};`,
+      `  run(x: string): string { return x + this.value; }`,
+      '}',
+      `export function f${i}(): number { return new C${i}().value; }`,
+    ].join('\n');
+  }
+  const { outputDir, cleanup } = await analyseInline('ts-stream-', files);
+  const failures: string[] = [];
+
+  const produced = fs.readdirSync(outputDir);
+  const partials = produced.filter((f) => f.includes('.partial'));
+  if (partials.length > 0) {
+    failures.push(`temporary files were left behind: ${partials.join(', ')}`);
+  }
+
+  let relationsSeen = 0;
+  for (const name of produced) {
+    if (!name.endsWith('.csv')) {
+      continue;
+    }
+    relationsSeen += 1;
+    const text = fs.readFileSync(path.join(outputDir, name), 'utf-8');
+    if (text === '') {
+      continue;
+    }
+    const lines = text.split('\n').filter((l) => l !== '');
+    const header = lines[0]!;
+    const width = header.split('\t').length;
+    const repeated = lines.slice(1).filter((l) => l === header).length;
+    if (repeated > 0) {
+      failures.push(`${name}: the header appears ${repeated + 1} times — it is being written `
+        + 'per append rather than once per relation');
+    }
+    for (let i = 1; i < lines.length; i += 1) {
+      const got = lines[i]!.split('\t').length;
+      if (got !== width) {
+        failures.push(`${name}: line ${i + 1} has ${got} field(s), header has ${width}`);
+        break;
+      }
+    }
+  }
+  if (relationsSeen < 20) {
+    failures.push(`only ${relationsSeen} relation file(s) were produced; every relation must get `
+      + 'one so that "no rows" is distinguishable from "the parser never ran"');
+  }
+
+  // Every file's rows arrived, including the last -- a missing final flush
+  // loses the tail and nothing else.
+  const types = relation(outputDir, 'all-typescript-types.csv');
+  const classNames = new Set(types.map((r) => r.name));
+  for (let i = 0; i < FILE_COUNT; i += 1) {
+    if (!classNames.has(`C${i}`)) {
+      failures.push(`C${i} is missing: a file's rows were dropped`);
+    }
+  }
+
+  cleanup();
+  if (failures.length > 0) {
+    return fail(failures.join('\n  '));
+  }
+  console.log(`  ${relationsSeen} relations, ${FILE_COUNT} files: one header each, no partials, `
+    + 'every file\'s rows present');
+  return 0;
+}
+
+// ---------------------------------------------------------------------------
+// 32. The streamed read-back still catches a torn row
+// ---------------------------------------------------------------------------
+
+/**
+ * The read-back is what makes "no torn row is ever published" a promise rather
+ * than an assertion over the parser's own fixtures. Streaming forced it to
+ * stop reading the file into one string -- a large relation exceeds V8's
+ * maximum string length, so the old check would throw on a file that is in
+ * fact well formed -- and a chunked reader has two failure modes of its own.
+ *
+ * A MULTI-BYTE character straddling a chunk boundary must not be decoded as
+ * two halves, which would report a torn row in an intact file. And a line
+ * break that only a CONSUMER recognises -- Python's `str.splitlines()` breaks
+ * on U+2028, `split('\n')` does not -- must still be seen, because that
+ * disagreement once let the parser certify a file its reader called torn.
+ */
+async function streamedVerificationCatchesTornRows(): Promise<number> {
+  const failures: string[] = [];
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ts-verify-'));
+  const header = 'a\tb\tc';
+  const check = (name: string, body: string): string | undefined => {
+    const file = path.join(directory, name);
+    fs.writeFileSync(file, body);
+    try {
+      verifyRelationFileStreaming(file, file, header);
+      return undefined;
+    } catch (error) {
+      return (error as Error).message;
+    }
+  };
+
+  // Big enough to cross the 1 MiB chunk boundary many times over, with a
+  // multi-byte character in every row so a boundary must land inside one.
+  const wide = `${header}\n${'1\t\u00e9\u4e2d\u1f600-padding-value\t3\n'.repeat(60_000)}`;
+  const wideError = check('wide.csv', wide);
+  if (wideError !== undefined) {
+    failures.push(`a well-formed ${(wide.length / 1024 / 1024).toFixed(1)} MB file was rejected: `
+      + `${wideError} — a multi-byte character was split across a chunk boundary`);
+  }
+
+  if (check('short.csv', `${header}\n1\t2\n`) === undefined) {
+    failures.push('a row with too FEW fields was accepted');
+  }
+  if (check('long.csv', `${header}\n1\t2\t3\t4\n`) === undefined) {
+    failures.push('a row with too MANY fields was accepted');
+  }
+  if (check('truncated.csv', `${header}\n1\t2\t3`) === undefined) {
+    failures.push('a file not ending in a newline was accepted, so a truncated last row passes');
+  }
+  // The row is three fields to JavaScript and two rows to a consumer that
+  // breaks on U+2028. Splitting the consumer's way is what catches it.
+  if (check('sep.csv', `${header}\n1\t2\u20283\t4\n`) === undefined) {
+    failures.push('a value carrying U+2028 was accepted: the parser would certify a file its '
+      + 'consumer reads as torn');
+  }
+  // Well-formed rows AFTER a torn one must not mask it.
+  if (check('late.csv', `${header}\n1\t2\t3\n1\t2\n1\t2\t3\n`) === undefined) {
+    failures.push('a torn row in the MIDDLE of a file was accepted');
+  }
+
+  fs.rmSync(directory, { recursive: true, force: true });
+  if (failures.length > 0) {
+    return fail(failures.join('\n  '));
+  }
+  console.log('  a multi-MB well-formed file passes; short, long, truncated, U+2028 and '
+    + 'mid-file tears all rejected');
+  return 0;
+}
+
 const CHECKS: Check[] = [
+  { name: 'streamed relations are well formed', proves: 'rows written as extraction proceeds produce one header per relation, a file for every relation, no leftover temporaries and no dropped tail', run: streamedRelationsAreWellFormed },
+  { name: 'streamed read-back catches a torn row', proves: 'the chunked verifier accepts a multi-MB well-formed file and still rejects short, long, truncated, U+2028-bearing and mid-file tears', run: streamedVerificationCatchesTornRows },
   { name: 'compiles', proves: 'tsc --noEmit is clean — the suite reports on code that actually builds', run: compiles },
   { name: 'fixtures compile and are isolated', proves: 'a fixture is a valid input, and cannot break another language\'s gate', run: fixturesCompile },
   { name: 'schema and generated .dl agree', proves: 'the column contract in the doc is the one the engine reads', run: schemaMatchesDl },

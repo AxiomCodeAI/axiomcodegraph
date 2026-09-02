@@ -6,7 +6,6 @@ import * as ts from 'typescript';
 
 import { ENTITY_IDENTIFIERS } from '@/constants/entity-constants';
 import {
-  TS_CSV_CHUNK_SIZE,
   TS_SKIP_DIRECTORIES,
   TS_SOURCE_EXTENSIONS,
   TYPESCRIPT_CSV_FILES,
@@ -17,13 +16,17 @@ import {
   TsFileFacts,
 } from '@/parsers/typescript/extractors/ts-fact-extractor';
 import {
+  accumulateFileCompleteness,
+  finishCompleteness,
   IrCompletenessReport,
   linkAmbientModuleImports,
   linkReExportSources,
-  measureIrCompleteness,
+  ModuleGraphFacts,
+  newCompletenessAccumulator,
 } from '@/parsers/typescript/extractors/ts-ir-completeness';
 import { moduleHashFor } from '@/parsers/typescript/extractors/ts-module-extractor';
 import { TsConfigResolver } from '@/parsers/typescript/tsconfig-resolver';
+import { TsRelationWriter } from './ts-relation-writer';
 import { EntityUtils } from '@/utils/entity-utils';
 
 /**
@@ -113,10 +116,6 @@ interface SkippedTypeScriptFile {
   detail: string;
 }
 
-interface CsvRow {
-  toCsv(): string;
-  getCsvHeader(): string;
-}
 
 export class TypeScriptProjectAnalyzer {
   private skippedFiles: SkippedTypeScriptFile[] = [];
@@ -160,13 +159,35 @@ export class TypeScriptProjectAnalyzer {
       stripExtension(toRelative(pathAnchor, absolutePath));
 
     this.skippedFiles = [];
-    const accumulated: Record<string, CsvRow[]> = {
-      modules: [], types: [], typeHeritages: [], typeParameters: [], typeReferences: [], methods: [],
-      methodParameters: [], fields: [], variables: [], imports: [], expressions: [],
-      callSites: [], blocks: [], decorators: [], decoratorArguments: [],
-      enumMembers: [], fieldPositions: [], exports: [], comments: [], parseGaps: [],
+    await fsp.mkdir(options.outputDir, { recursive: true });
+    //
+    // Rows are STREAMED, not accumulated.
+    //
+    // Holding every row of every relation until the last file was parsed is a
+    // ceiling and not a cost: a large single-tree project exhausted a 12 GB
+    // heap with mark-compact pauses reaching 49 s. A row is finished the moment
+    // its file is, and nothing downstream of extraction reads it back.
+    //
+    // Three relations are exceptions, and all three are small. The module link
+    // passes MUTATE `ts_import` and `ts_export` after every file is parsed --
+    // an import of `declare module "x"` cannot be linked until the file
+    // declaring it has been read -- and they index `ts_module` to do it. Those
+    // are held; the other seventeen, including `ts_expression` at over half
+    // the output, are written as they are produced.
+    const suffix = `${process.pid}.${this.writeSequence}`;
+    this.writeSequence += 1;
+    const writers = new Map<string, TsRelationWriter>();
+    const writerFor = (filename: string): TsRelationWriter => {
+      const existing = writers.get(filename);
+      if (existing) {
+        return existing;
+      }
+      const created = new TsRelationWriter(options.outputDir, filename, suffix);
+      writers.set(filename, created);
+      return created;
     };
-    const perFile: TsFileFacts[] = [];
+    const moduleGraph: ModuleGraphFacts[] = [];
+    const completenessAccumulator = newCompletenessAccumulator();
     let analysed = 0;
 
     for (const file of files) {
@@ -210,80 +231,80 @@ export class TypeScriptProjectAnalyzer {
         continue;
       }
       analysed += 1;
-      perFile.push(facts);
-      accumulated.modules!.push(...facts.modules);
-      accumulated.types!.push(...facts.types);
-      accumulated.typeHeritages!.push(...facts.heritages);
-      accumulated.typeParameters!.push(...facts.typeParameters);
-      accumulated.typeReferences!.push(...facts.typeReferences);
-      accumulated.methods!.push(...facts.methods);
-      accumulated.methodParameters!.push(...facts.methodParameters);
-      accumulated.fields!.push(...facts.fields);
-      accumulated.variables!.push(...facts.variables);
-      accumulated.imports!.push(...facts.imports);
-      accumulated.expressions!.push(...facts.expressions);
-      accumulated.callSites!.push(...facts.callSites);
-      accumulated.blocks!.push(...facts.blocks);
-      accumulated.decorators!.push(...facts.decorators);
-      accumulated.decoratorArguments!.push(...facts.decoratorArguments);
-      accumulated.enumMembers!.push(...facts.enumMembers);
-      accumulated.fieldPositions!.push(...facts.fieldPositions);
-      accumulated.exports!.push(...facts.exports);
-      accumulated.comments!.push(...facts.comments);
-      accumulated.parseGaps!.push(...facts.parseGaps);
+      // Measured HERE, before the row is let go. The measurement was already
+      // per-file: the two indexes it called cross-file were keyed by a file's
+      // own module hash and read back under that same key.
+      accumulateFileCompleteness(facts, completenessAccumulator);
+      moduleGraph.push({
+        filePath: facts.filePath,
+        modules: facts.modules,
+        imports: facts.imports,
+        exports: facts.exports,
+      });
+      await writerFor(TYPESCRIPT_CSV_FILES.TYPES).append(facts.types);
+      await writerFor(TYPESCRIPT_CSV_FILES.TYPE_HERITAGES).append(facts.heritages);
+      await writerFor(TYPESCRIPT_CSV_FILES.TYPE_PARAMETERS).append(facts.typeParameters);
+      await writerFor(TYPESCRIPT_CSV_FILES.TYPE_REFERENCES).append(facts.typeReferences);
+      await writerFor(TYPESCRIPT_CSV_FILES.METHODS).append(facts.methods);
+      await writerFor(TYPESCRIPT_CSV_FILES.METHOD_PARAMETERS).append(facts.methodParameters);
+      await writerFor(TYPESCRIPT_CSV_FILES.FIELDS).append(facts.fields);
+      await writerFor(TYPESCRIPT_CSV_FILES.VARIABLES).append(facts.variables);
+      await writerFor(TYPESCRIPT_CSV_FILES.EXPRESSIONS).append(facts.expressions);
+      await writerFor(TYPESCRIPT_CSV_FILES.CALL_SITES).append(facts.callSites);
+      await writerFor(TYPESCRIPT_CSV_FILES.BLOCKS).append(facts.blocks);
+      await writerFor(TYPESCRIPT_CSV_FILES.DECORATORS).append(facts.decorators);
+      await writerFor(TYPESCRIPT_CSV_FILES.DECORATOR_ARGUMENTS).append(facts.decoratorArguments);
+      await writerFor(TYPESCRIPT_CSV_FILES.ENUM_MEMBERS).append(facts.enumMembers);
+      await writerFor(TYPESCRIPT_CSV_FILES.FIELD_POSITIONS).append(facts.fieldPositions);
+      await writerFor(TYPESCRIPT_CSV_FILES.COMMENTS).append(facts.comments);
+      await writerFor(TYPESCRIPT_CSV_FILES.PARSE_GAPS).append(facts.parseGaps);
     }
 
     // The MODULE graph is the parser's, and it needs every file: an import of
     // `declare module "x"` can only be linked once the file declaring it has
     // been read. This stops one hop short of the call graph, at the module,
     // which is where `type-resolution.dl` takes over.
-    linkAmbientModuleImports(perFile);
+    linkAmbientModuleImports(moduleGraph);
     // A re-export's source module may be parsed after the file that re-exports
     // from it, so the link is made here. Still the MODULE graph, and
     // ts_export.resolvedSourceModuleLinkHash is the parser's own column.
-    linkReExportSources(perFile);
+    linkReExportSources(moduleGraph);
     // Reads the accumulated rows and mutates nothing. Cross-file CALL resolution
     // used to happen here and has been retracted: following an import to a
     // declaring file is `type-resolution.dl` rewritten in TypeScript. What runs
     // instead asks whether the facts an engine needs to make those joins were
     // emitted.
-    const completeness = measureIrCompleteness(perFile);
+    // Settles the dynamic-import verdicts that waited for the link passes,
+    // which is the only part of the measurement that could not run per file.
+    const completeness = finishCompleteness(completenessAccumulator);
 
-    await fsp.mkdir(options.outputDir, { recursive: true });
-    await this.exportCsv(accumulated.modules!, options.outputDir, TYPESCRIPT_CSV_FILES.MODULES);
-    await this.exportCsv(accumulated.types!, options.outputDir, TYPESCRIPT_CSV_FILES.TYPES);
-    await this.exportCsv(accumulated.typeHeritages!, options.outputDir,
-      TYPESCRIPT_CSV_FILES.TYPE_HERITAGES);
-    await this.exportCsv(accumulated.typeParameters!, options.outputDir,
-      TYPESCRIPT_CSV_FILES.TYPE_PARAMETERS);
-    await this.exportCsv(accumulated.typeReferences!, options.outputDir,
-      TYPESCRIPT_CSV_FILES.TYPE_REFERENCES);
-    await this.exportCsv(accumulated.methods!, options.outputDir, TYPESCRIPT_CSV_FILES.METHODS);
-    await this.exportCsv(accumulated.methodParameters!, options.outputDir,
-      TYPESCRIPT_CSV_FILES.METHOD_PARAMETERS);
-    await this.exportCsv(accumulated.fields!, options.outputDir, TYPESCRIPT_CSV_FILES.FIELDS);
-    await this.exportCsv(accumulated.variables!, options.outputDir,
-      TYPESCRIPT_CSV_FILES.VARIABLES);
-    await this.exportCsv(accumulated.imports!, options.outputDir, TYPESCRIPT_CSV_FILES.IMPORTS);
-    await this.exportCsv(accumulated.expressions!, options.outputDir,
-      TYPESCRIPT_CSV_FILES.EXPRESSIONS);
-    await this.exportCsv(accumulated.callSites!, options.outputDir,
-      TYPESCRIPT_CSV_FILES.CALL_SITES);
-    await this.exportCsv(accumulated.blocks!, options.outputDir, TYPESCRIPT_CSV_FILES.BLOCKS);
-    await this.exportCsv(accumulated.decorators!, options.outputDir,
-      TYPESCRIPT_CSV_FILES.DECORATORS);
-    await this.exportCsv(accumulated.decoratorArguments!, options.outputDir,
-      TYPESCRIPT_CSV_FILES.DECORATOR_ARGUMENTS);
-    await this.exportCsv(accumulated.enumMembers!, options.outputDir,
-      TYPESCRIPT_CSV_FILES.ENUM_MEMBERS);
-    await this.exportCsv(accumulated.fieldPositions!, options.outputDir,
-      TYPESCRIPT_CSV_FILES.FIELD_POSITIONS);
-    await this.exportCsv(accumulated.exports!, options.outputDir,
-      TYPESCRIPT_CSV_FILES.EXPORTS);
-    await this.exportCsv(accumulated.comments!, options.outputDir,
-      TYPESCRIPT_CSV_FILES.COMMENTS);
-    await this.exportCsv(accumulated.parseGaps!, options.outputDir,
-      TYPESCRIPT_CSV_FILES.PARSE_GAPS);
+    // The three held relations, now that the link passes have filled their
+    // columns. Written through the same streaming writer so every relation
+    // gets one code path, one temp-name scheme and one read-back.
+    for (const facts of moduleGraph) {
+      await writerFor(TYPESCRIPT_CSV_FILES.MODULES).append(facts.modules);
+      await writerFor(TYPESCRIPT_CSV_FILES.IMPORTS).append(facts.imports);
+      await writerFor(TYPESCRIPT_CSV_FILES.EXPORTS).append(facts.exports);
+    }
+    // Every relation gets a file even if no row reached it, so a consumer can
+    // tell "no rows" from "the parser never ran".
+    for (const filename of Object.values(TYPESCRIPT_CSV_FILES)) {
+      if (filename !== TYPESCRIPT_CSV_FILES.SKIPPED_FILES) {
+        writerFor(filename);
+      }
+    }
+    try {
+      for (const writer of writers.values()) {
+        await writer.publish();
+      }
+    } catch (error) {
+      // A relation that failed verification must not leave the others' temp
+      // files behind, and must not publish a partial set as if it were whole.
+      for (const writer of writers.values()) {
+        await writer.discard();
+      }
+      throw error;
+    }
     await this.exportSkippedFilesCsv(options.outputDir);
 
     return {
@@ -295,26 +316,26 @@ export class TypeScriptProjectAnalyzer {
         (f) => f.reason === SkippedFileReason.EXTRACTION_ERROR
       ).length,
       counts: {
-        ts_module: accumulated.modules!.length,
-        ts_type: accumulated.types!.length,
-        ts_type_heritage: accumulated.typeHeritages!.length,
-        ts_type_parameter: accumulated.typeParameters!.length,
-        ts_type_reference: accumulated.typeReferences!.length,
-        ts_method: accumulated.methods!.length,
-        ts_method_parameter: accumulated.methodParameters!.length,
-        ts_field: accumulated.fields!.length,
-        ts_variable: accumulated.variables!.length,
-        ts_import: accumulated.imports!.length,
-        ts_expression: accumulated.expressions!.length,
-        ts_call_site: accumulated.callSites!.length,
-        ts_block: accumulated.blocks!.length,
-        ts_decorator: accumulated.decorators!.length,
-        ts_decorator_argument: accumulated.decoratorArguments!.length,
-        ts_enum_member: accumulated.enumMembers!.length,
-        ts_field_position: accumulated.fieldPositions!.length,
-        ts_export: accumulated.exports!.length,
-        ts_comment: accumulated.comments!.length,
-        ts_parse_gap: accumulated.parseGaps!.length,
+        ts_module: writerFor(TYPESCRIPT_CSV_FILES.MODULES).rowCount,
+        ts_type: writerFor(TYPESCRIPT_CSV_FILES.TYPES).rowCount,
+        ts_type_heritage: writerFor(TYPESCRIPT_CSV_FILES.TYPE_HERITAGES).rowCount,
+        ts_type_parameter: writerFor(TYPESCRIPT_CSV_FILES.TYPE_PARAMETERS).rowCount,
+        ts_type_reference: writerFor(TYPESCRIPT_CSV_FILES.TYPE_REFERENCES).rowCount,
+        ts_method: writerFor(TYPESCRIPT_CSV_FILES.METHODS).rowCount,
+        ts_method_parameter: writerFor(TYPESCRIPT_CSV_FILES.METHOD_PARAMETERS).rowCount,
+        ts_field: writerFor(TYPESCRIPT_CSV_FILES.FIELDS).rowCount,
+        ts_variable: writerFor(TYPESCRIPT_CSV_FILES.VARIABLES).rowCount,
+        ts_import: writerFor(TYPESCRIPT_CSV_FILES.IMPORTS).rowCount,
+        ts_expression: writerFor(TYPESCRIPT_CSV_FILES.EXPRESSIONS).rowCount,
+        ts_call_site: writerFor(TYPESCRIPT_CSV_FILES.CALL_SITES).rowCount,
+        ts_block: writerFor(TYPESCRIPT_CSV_FILES.BLOCKS).rowCount,
+        ts_decorator: writerFor(TYPESCRIPT_CSV_FILES.DECORATORS).rowCount,
+        ts_decorator_argument: writerFor(TYPESCRIPT_CSV_FILES.DECORATOR_ARGUMENTS).rowCount,
+        ts_enum_member: writerFor(TYPESCRIPT_CSV_FILES.ENUM_MEMBERS).rowCount,
+        ts_field_position: writerFor(TYPESCRIPT_CSV_FILES.FIELD_POSITIONS).rowCount,
+        ts_export: writerFor(TYPESCRIPT_CSV_FILES.EXPORTS).rowCount,
+        ts_comment: writerFor(TYPESCRIPT_CSV_FILES.COMMENTS).rowCount,
+        ts_parse_gap: writerFor(TYPESCRIPT_CSV_FILES.PARSE_GAPS).rowCount,
       },
       irCompleteness: completeness,
     };
@@ -342,38 +363,6 @@ export class TypeScriptProjectAnalyzer {
   }
 
   /** Writes one relation, chunked — a single joined string overflows V8's string limit. */
-  /**
-   * Writes a relation so that a reader sees ALL of it or NONE of it.
-   *
-   * The previous shape was `writeFile` for the header and then one `appendFile`
-   * per 50,000-row chunk. Each append is its own open/write/close, so a relation
-   * larger than one chunk was written across several independent operations with
-   * nothing tying them together: a reader arriving mid-write, or a run that died
-   * between chunks, saw a file that looked complete and was not. Only the
-   * relations that cross the chunk boundary can tear, which is why it showed up
-   * on `ts_expression` and only on the larger projects.
-   *
-   * Now: one handle, opened once, and a rename into place. Rename is atomic on
-   * POSIX, so the destination path only ever names a finished file. Chunking is
-   * kept -- it bounds the string built at once -- but every chunk goes through
-   * the same handle rather than reopening the file.
-   */
-  private async exportCsv(rows: CsvRow[], outputDir: string, filename: string): Promise<void> {
-    const outputPath = path.join(outputDir, filename);
-    const first = rows[0];
-    if (!first) {
-      // An empty relation still gets its file, so a consumer can tell "no rows"
-      // from "the parser never ran".
-      await this.writeAtomically(outputPath, ['']);
-      return;
-    }
-    const parts: string[] = [first.getCsvHeader() + '\n'];
-    for (let i = 0; i < rows.length; i += TS_CSV_CHUNK_SIZE) {
-      const chunk = rows.slice(i, i + TS_CSV_CHUNK_SIZE);
-      parts.push(chunk.map((r) => r.toCsv()).join('\n') + '\n');
-    }
-    await this.writeAtomically(outputPath, parts);
-  }
 
   /**
    * One handle, verified, then an atomic rename.

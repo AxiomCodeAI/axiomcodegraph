@@ -103,7 +103,21 @@ type Mutable<T> = { -readonly [K in keyof T]: T[K] };
  * is the asset-import idiom and matching it literally would leave every
  * `import icon from "./x.svg"` pointing at nothing.
  */
-export function linkAmbientModuleImports(files: readonly TsFileFacts[]): number {
+/**
+ * The MODULE-graph slice of a file's facts.
+ *
+ * The link passes need only these four, and naming that lets extraction stream
+ * every other relation the moment a file is finished instead of holding all of
+ * them until the last one is parsed.
+ */
+export interface ModuleGraphFacts {
+  readonly filePath: string;
+  readonly modules: TsFileFacts['modules'];
+  readonly imports: TsFileFacts['imports'];
+  readonly exports: TsFileFacts['exports'];
+}
+
+export function linkAmbientModuleImports(files: readonly ModuleGraphFacts[]): number {
   const exact = new Map<string, string>();
   const patterns: { prefix: string; suffix: string; hash: string }[] = [];
   for (const facts of files) {
@@ -164,7 +178,7 @@ export function linkAmbientModuleImports(files: readonly TsFileFacts[]): number 
  * parser's own column (§4.13 c8), and this stops one hop short of the call
  * graph — at the module, which is where `type-resolution.dl` takes over.
  */
-export function linkReExportSources(files: readonly TsFileFacts[]): number {
+export function linkReExportSources(files: readonly ModuleGraphFacts[]): number {
   const modulesByPath = new Map<string, string>();
   for (const facts of files) {
     for (const module of facts.modules) {
@@ -227,34 +241,160 @@ function resolveRelative(fromFilePath: string, specifier: string): string {
   return base.join('/');
 }
 
+/**
+ * A dynamic import whose verdict waits for the module link passes.
+ *
+ * Holds no row the extraction can stream: a shape, a location, a name, and the
+ * import row -- which is retained regardless, because the link passes mutate it.
+ */
+interface DeferredBase {
+  readonly shape: string;
+  readonly where: string;
+  readonly calleeName: string;
+  /** Reasons already established from facts the link passes cannot change. */
+  readonly missingSoFar: readonly string[];
+}
+
+/**
+ * A verdict that waits for the module link passes.
+ *
+ * Only a verdict that FAILS right now is held. The link passes fill
+ * `resolvedModuleLinkHash` and never clear it, and every hop reports a reason
+ * only when the resolution columns are empty -- so linking can remove a reason
+ * and never add one. A hop that already passes has its final answer, and
+ * holding it would retain a record per call site for nothing.
+ *
+ * Every hop that consults a `ts_import` row is here, because
+ * `resolvedModuleLinkHash` is filled only once every file has been parsed --
+ * an import of `declare module "x"` cannot be linked until the file declaring
+ * it has been read. Deciding in-loop would read an empty column and call a
+ * linked import incomplete.
+ *
+ * These are DATA, deliberately, and not closures. A closure written inside the
+ * per-file walk captures its enclosing context, and V8 may keep that whole
+ * context alive -- which would retain the expression rows the streaming exists
+ * to release. The failure would be invisible except at scale.
+ *
+ * What each holds is a reference to a per-file map that is retained anyway:
+ * the import rows themselves outlive the walk because the link passes mutate
+ * them.
+ */
+export type DeferredVerdict =
+  | (DeferredBase & { readonly hop: 'DYNAMIC_IMPORT'; readonly importRow: TsImportRegistry | undefined })
+  | (DeferredBase & {
+      readonly hop: 'IMPORTED_NAME';
+      readonly imports: ReadonlyMap<string, TsImportRegistry>;
+      readonly localName: string;
+    })
+  | (DeferredBase & {
+      readonly hop: 'RECEIVER_TYPE';
+      readonly imports: ReadonlyMap<string, TsImportRegistry>;
+      readonly localTypeNames: ReadonlySet<string>;
+      readonly typeName: string;
+    });
+
+/** The mutable state an incremental measurement carries between files. */
+export interface CompletenessAccumulator {
+  readonly report: Mutable<IrCompletenessReport>;
+  readonly gaps: IrGap[];
+  readonly deferred: DeferredVerdict[];
+}
+
+export function newCompletenessAccumulator(): CompletenessAccumulator {
+  return {
+    report: {
+      callSites: 0,
+      sameFileLinks: 0,
+      terminals: 0,
+      handedOffComplete: 0,
+      handedOffIncomplete: 0,
+      inferredReceiver: 0,
+      notDerivable: 0,
+      gaps: [],
+      byReceiverKind: {},
+    },
+    gaps: [],
+    deferred: [],
+  };
+}
+
+/**
+ * Measures ONE file, so extraction need not hold every row to be measured.
+ *
+ * The whole measurement was already per-file: the two "cross-file" indexes it
+ * built were keyed by a file's own module hash and read back under that same
+ * key, so they indexed each file against itself. Making that explicit is what
+ * lets the caller stream a relation the moment its file is done.
+ */
+export function accumulateFileCompleteness(
+  facts: TsFileFacts,
+  accumulator: CompletenessAccumulator
+): void {
+  const { report, gaps, deferred } = accumulator;
+  measureOneFile(facts, report, gaps, deferred);
+}
+
+/**
+ * Settles the deferred dynamic imports and returns the finished report.
+ *
+ * Must run after `linkAmbientModuleImports`, which is the whole reason those
+ * verdicts were held.
+ */
+export function finishCompleteness(accumulator: CompletenessAccumulator): IrCompletenessReport {
+  const { report, gaps, deferred } = accumulator;
+  for (const pending of deferred) {
+    const missing: string[] = [...pending.missingSoFar];
+    switch (pending.hop) {
+      case 'DYNAMIC_IMPORT': {
+        checkDeferredDynamicImportHop(pending.importRow, missing);
+        break;
+      }
+      case 'IMPORTED_NAME': {
+        checkImportHop(pending.imports, pending.localName, missing);
+        break;
+      }
+      case 'RECEIVER_TYPE': {
+        checkDeclaredTypeTriple(pending.typeName, pending.localTypeNames, pending.imports, missing);
+        break;
+      }
+    }
+    const bucket = (report.byReceiverKind[pending.shape] ?? {
+      total: 0, sameFileLinks: 0, terminals: 0, complete: 0, incomplete: 0, inferred: 0,
+      notDerivable: 0,
+    }) as Mutable<ReceiverShapeCounts>;
+    report.byReceiverKind[pending.shape] = bucket;
+    if (missing.length === 0) {
+      report.handedOffComplete += 1;
+      bucket.complete += 1;
+      continue;
+    }
+    report.handedOffIncomplete += 1;
+    bucket.incomplete += 1;
+    for (const reason of missing) {
+      gaps.push({ where: pending.where, reason, detail: pending.calleeName });
+    }
+  }
+  report.gaps = gaps;
+  return report;
+}
+
 export function measureIrCompleteness(
   files: readonly TsFileFacts[]
 ): IrCompletenessReport {
-  // Cross-file INDEXES, used only to ask whether a fact exists — never to
-  // produce a link. Reading the fact base to check it is complete is not the
-  // same act as resolving through it.
-  const typeNamesByModule = new Map<string, Set<string>>();
-  const importsByModule = new Map<string, Map<string, TsImportRegistry>>();
+  const accumulator = newCompletenessAccumulator();
   for (const facts of files) {
-    typeNamesByModule.set(facts.fileModuleHash,
-      new Set(facts.types.map((t: TsTypeRegistry) => t.name).filter((n) => n !== '')));
-    importsByModule.set(facts.fileModuleHash, new Map(facts.importByLocalName));
+    accumulateFileCompleteness(facts, accumulator);
   }
+  return finishCompleteness(accumulator);
+}
 
-  const report: Mutable<IrCompletenessReport> = {
-    callSites: 0,
-    sameFileLinks: 0,
-    terminals: 0,
-    handedOffComplete: 0,
-    handedOffIncomplete: 0,
-    inferredReceiver: 0,
-    notDerivable: 0,
-    gaps: [],
-    byReceiverKind: {},
-  };
-  const gaps: IrGap[] = [];
-
-  for (const facts of files) {
+/** The measurement for one file. See `accumulateFileCompleteness`. */
+function measureOneFile(
+  facts: TsFileFacts,
+  report: Mutable<IrCompletenessReport>,
+  gaps: IrGap[],
+  deferred: DeferredVerdict[]
+): void {
     const expressionByHash = new Map(facts.expressions.map((e) => [e.getHash(), e]));
     const declarationTypeRefByHash = new Map<string, string>();
     for (const variable of facts.variables) {
@@ -296,8 +436,9 @@ export function measureIrCompleteness(
         heritageByType.set(heritage.tsTypeLinkHash, [heritage]);
       }
     }
-    const localTypeNames = typeNamesByModule.get(facts.fileModuleHash) ?? new Set<string>();
-    const imports = importsByModule.get(facts.fileModuleHash) ?? new Map();
+    const localTypeNames = new Set(
+      facts.types.map((t: TsTypeRegistry) => t.name).filter((n) => n !== ''));
+    const imports: ReadonlyMap<string, TsImportRegistry> = new Map(facts.importByLocalName);
     const dynamicImportSpecifiers = new Map(
       facts.imports
         .filter((i) => i.importKind === 'DYNAMIC_IMPORT' || i.importKind === 'REQUIRE_CALL')
@@ -336,8 +477,24 @@ export function measureIrCompleteness(
           // An unqualified call. The engine starts from the callee identifier's
           // own resolution, or from the import row the parser handed it.
           if (handoff?.hop === 'IMPORTED_NAME') {
-            checkImportHop(imports, handoff.localName, missing);
-            break;
+            // The hop reads `resolvedModuleLinkHash`, which the link passes
+            // fill after every file is parsed. Probed now and held only if it
+            // fails, since linking can only turn a failure into a pass.
+            const probe: string[] = [];
+            checkImportHop(imports, handoff.localName, probe);
+            if (probe.length === 0) {
+              break;
+            }
+            deferred.push({
+              hop: 'IMPORTED_NAME',
+              shape,
+              where: `${facts.filePath}:${where} (${callSite.receiverKind})`,
+              calleeName: callSite.calleeName,
+              missingSoFar: missing,
+              imports,
+              localName: handoff.localName,
+            });
+            continue;
           }
           if (callSite.callKind === 'DYNAMIC_IMPORT_CALL') {
             // `import("./x")` has no callee EXPRESSION — the callee is a
@@ -354,8 +511,31 @@ export function measureIrCompleteness(
               bucket.notDerivable += 1;
               continue;
             }
-            checkDynamicImportHop(callSite, dynamicImportSpecifiers, missing);
-            break;
+            // DEFERRED, and this is the only verdict that is.
+            //
+            // The hop reads `resolvedModuleLinkHash`, which
+            // `linkAmbientModuleImports` fills after every file is parsed --
+            // so deciding here would read an empty column and call a linked
+            // import incomplete. Everything else about this call site is
+            // already counted, including its bucket total, so what is held
+            // over is one boolean per dynamic import and not the row.
+            const dynamicProbe: string[] = [];
+            checkDeferredDynamicImportHop(
+              dynamicImportSpecifiers.get(`${callSite.startLine}:${callSite.startColumn}`),
+              dynamicProbe);
+            if (dynamicProbe.length === 0) {
+              break;
+            }
+            deferred.push({
+              hop: 'DYNAMIC_IMPORT',
+              shape,
+              where: `${facts.filePath}:${where} (${callSite.receiverKind})`,
+              calleeName: callSite.calleeName,
+              missingSoFar: missing,
+              importRow: dynamicImportSpecifiers.get(
+                `${callSite.startLine}:${callSite.startColumn}`),
+            });
+            continue;
           }
           const callee = calleeExpressionOf(callSite, expressionByHash, childrenByParent);
           if (!callee) {
@@ -394,8 +574,24 @@ export function measureIrCompleteness(
         }
         case 'IDENTIFIER': {
           if (handoff?.hop === 'IMPORTED_NAME') {
-            checkImportHop(imports, handoff.localName, missing);
-            break;
+            // The hop reads `resolvedModuleLinkHash`, which the link passes
+            // fill after every file is parsed. Probed now and held only if it
+            // fails, since linking can only turn a failure into a pass.
+            const probe: string[] = [];
+            checkImportHop(imports, handoff.localName, probe);
+            if (probe.length === 0) {
+              break;
+            }
+            deferred.push({
+              hop: 'IMPORTED_NAME',
+              shape,
+              where: `${facts.filePath}:${where} (${callSite.receiverKind})`,
+              calleeName: callSite.calleeName,
+              missingSoFar: missing,
+              imports,
+              localName: handoff.localName,
+            });
+            continue;
           }
           const typeName = handoff?.receiverTypeName ?? '';
           if (typeName === '') {
@@ -408,10 +604,26 @@ export function measureIrCompleteness(
             bucket.inferred += 1;
             continue;
           }
-          checkDeclaredTypeTriple(typeName, localTypeNames, imports, missing);
+          // The receiver-to-declaration leg is decidable now; the type's own
+          // third leg consults an import row, so the VERDICT waits.
           checkReceiverToDeclaration(callSite, expressionByHash, annotatedByHash,
             declarationTypeRefByHash, missing);
-          break;
+          const typeProbe: string[] = [];
+          checkDeclaredTypeTriple(typeName, localTypeNames, imports, typeProbe);
+          if (typeProbe.length === 0) {
+            break;
+          }
+          deferred.push({
+            hop: 'RECEIVER_TYPE',
+            shape,
+            where: `${facts.filePath}:${where} (${callSite.receiverKind})`,
+            calleeName: callSite.calleeName,
+            missingSoFar: missing,
+            imports,
+            localTypeNames,
+            typeName,
+          });
+          continue;
         }
         case 'THIS': {
           // `this.m()` needs the enclosing TYPE, which is a column on the row.
@@ -512,9 +724,27 @@ export function measureIrCompleteness(
         });
       }
     }
+  
+}
+
+/**
+ * The module hop for a dynamic import, once the link passes have run.
+ *
+ * A Node builtin legitimately resolves to no file -- the classification IS the
+ * hop -- so it is not a gap.
+ */
+function checkDeferredDynamicImportHop(
+  importRow: TsImportRegistry | undefined,
+  missing: string[]
+): void {
+  if (!importRow) {
+    missing.push('a dynamic import with no ts_import row — the module edge is unrecorded');
+    return;
   }
-  report.gaps = gaps;
-  return report;
+  if (importRow.resolvedFilePath === '' && importRow.getResolvedModuleLinkHash() === ''
+    && importRow.getResolutionKind() !== 'BUILTIN_NODE') {
+    missing.push(`dynamic import of "${importRow.importedPath}" resolved to nothing`);
+  }
 }
 
 /**
@@ -598,21 +828,6 @@ function hasLiteralSpecifier(
   return first !== undefined && first.kind === 'LITERAL';
 }
 
-function checkDynamicImportHop(
-  callSite: CallSiteRow,
-  dynamicImports: ReadonlyMap<string, TsImportRegistry>,
-  missing: string[]
-): void {
-  const importRow = dynamicImports.get(`${callSite.startLine}:${callSite.startColumn}`);
-  if (!importRow) {
-    missing.push('a dynamic import with no ts_import row — the module edge is unrecorded');
-    return;
-  }
-  if (importRow.resolvedFilePath === '' && importRow.getResolvedModuleLinkHash() === ''
-    && importRow.getResolutionKind() !== 'BUILTIN_NODE') {
-    missing.push(`dynamic import of "${importRow.importedPath}" resolved to nothing`);
-  }
-}
 
 /** The callee expression of a call, whatever shape it takes. */
 function calleeExpressionOf(
