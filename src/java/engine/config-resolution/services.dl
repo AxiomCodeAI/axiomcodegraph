@@ -1,0 +1,39 @@
+// ============================================================================
+// Config Resolution · SERVICE LOADER
+//
+// Turns a provider class NAMED IN A FILE into the two facts the rest of the engine needs:
+// the type is instantiated, and its interface methods are entry points.
+//
+// This is the resolvable half of reflection. `ServiceLoader.load(X.class)` is a permanent
+// blind spot because the lookup is dynamic — but the implementation's name is a literal in
+// a file in the repository, so the instantiation IS statically known. Without this a
+// provider looks like a dead root: nothing constructs it and nothing calls its methods,
+// even though the platform does both.
+//
+// The IR registers a nested type's qualifiedName as package + SIMPLE name (java.md §5), and
+// the parser's provider columns are split the same way, so the two join directly on
+// package + simple without reconstructing the binary name.
+// java_type (14): 2 qualifiedName 14 hash
+// ============================================================================
+
+// svc_provider_resolves(Provider, Descriptor, TypeHash) — the client type a provider names.
+svc_provider_resolves(p, d, t) :- svc_provider(p, d, pkg, simple),
+    pkg != "", simple != "",
+    java_type(_, cat(cat(pkg, "."), simple), _, _, _, _, _, _, _, _, _, _, _, t).
+// A provider in the default package has no package segment to prepend.
+svc_provider_resolves(p, d, t) :- svc_provider(p, d, "", simple),
+    simple != "",
+    java_type(_, simple, _, _, _, _, _, _, _, _, _, _, _, t).
+
+// ── The type is REGISTERED: the container instantiates it and calls back into it ─────
+// cfg_registered_type already drives all three entry-point shapes in entry-points.dl —
+// callbacks by name, "overrides a library supertype" (which is what implementing a service
+// interface IS, so no name list is needed), and the constructor.
+cfg_registered_type(t, "service_loader") :- svc_provider_resolves(_, _, t).
+
+// ── The type is INSTANTIATED, with provenance ───────────────────────────────────────
+// Reported, never used to NARROW dispatch: the instantiation set can only ever be a lower
+// bound (containers, factories and reflection instantiate types this cannot see), so
+// filtering virtual dispatch on it would delete must-have edges. A consumer that wants
+// precision may subtract; the graph itself stays sound.
+type_instantiated(t, "service_loader") :- svc_provider_resolves(_, _, t).
