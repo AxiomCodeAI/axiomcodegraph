@@ -397,6 +397,17 @@ grep -E '^Elapsed' "$WORK/solve.log" | tail -1
 # Run from inside the project so module resolution sees the project's own
 # node_modules rather than the caller's — measured: running from elsewhere resolved
 # @types/node to a DIFFERENT copy, and every position in it was a mismatch.
+# The roots the PARSER used, read straight off the IR. The oracle and envelope emit each
+# file relative to the longest of these, so their paths are the same strings the scorer
+# sees on the IR side. Without it a workspace repository joined ZERO sites.
+ROOTS_FILE="$WORK/parser-project-roots.txt"
+awk -F'\t' 'NR>1 && $5!=""{print $5}' "$WORK/ir/all-typescript-modules.csv" 2>/dev/null \
+  | sort -u > "$ROOTS_FILE" || true
+export PARSER_PROJECT_ROOTS="$ROOTS_FILE"
+if [ -s "$ROOTS_FILE" ]; then
+  echo "   (parser project roots: $(wc -l < "$ROOTS_FILE" | tr -d ' '))"
+fi
+
 echo "▶ oracle..."
 # THE ORACLE IS NOT OPTIONAL. Piping it to `tail -1` used to discard its exit status:
 # on a project whose tsconfig the oracle could not find, it printed one line, wrote no
