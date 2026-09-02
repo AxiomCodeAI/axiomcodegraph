@@ -180,6 +180,33 @@ decorator_hits_builtin(e, label) :-
 // prevent.
 // ============================================================================
 
+// ── with_protocol_edge(ContextExprHash, CallerMethodHash, MethodHash) ────────
+// `with cm:` CALLS __enter__ on entry and __exit__ on exit. Neither has a written call
+// site, exactly as a property read has none, so they are emitted on the same channel with
+// their own kind rather than being silently absent.
+//
+// Found by the fixture for #128 rather than by reading the source: family 27 scored 3 of 7
+// because the two dunder links the runtime executed had no edge, and marking them an
+// expected miss would have hidden a real gap in the same protocol the change is about.
+//
+// Keyed on the WITH_CONTEXT root and NOT on with_pair, so `with lock:` with no `as` clause
+// is covered too -- 1,059 context expressions against 176 targets, and the protocol runs
+// either way.
+context_manager_exit("__exit__").
+
+with_protocol_edge(cm, caller, m) :-
+    expr_root_context("client", "WITH_CONTEXT", cm), !expr_has_parent("client", cm),
+    expr_type("client", cm, ct),
+    context_manager_enter(en),
+    mro_lookup("client", ct, en, m),
+    expr_ultimate_method("client", cm, caller).
+with_protocol_edge(cm, caller, m) :-
+    expr_root_context("client", "WITH_CONTEXT", cm), !expr_has_parent("client", cm),
+    expr_type("client", cm, ct),
+    context_manager_exit(ex),
+    mro_lookup("client", ct, ex, m),
+    expr_ultimate_method("client", cm, caller).
+
 // ── property_read_edge(ReadExprHash, CallerMethodHash, GetterMethodHash) ─────
 property_read_edge(e, caller, getter) :-
     expr_node("client", "ATTRIBUTE_ACCESS", _, n, e),
@@ -335,6 +362,11 @@ call_chain_edge(t, caller, "-", m, "client", "known_edge", "METACLASS_CREATION")
 // and can never be mistaken for a written call.
 call_chain_edge(e, caller, "-", getter, "client", "known_edge", "PROPERTY_READ") :-
     property_read_edge(e, caller, getter).
+
+// CONTEXT MANAGER — the same shape: an edge with no call site, its own kind so it can
+// never be mistaken for a written call.
+call_chain_edge(cm, caller, "-", m, "client", "known_edge", "CONTEXT_MANAGER") :-
+    with_protocol_edge(cm, caller, m).
 
 // A site whose caller could not be determined AT ALL would vanish from every rule
 // above. That must be impossible (the parser guarantees a non-empty owner), so it is
