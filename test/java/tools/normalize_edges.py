@@ -11,11 +11,15 @@ CONVENTIONS (deliberate, not defects):
   * ANONYMOUS classes are keyed by their SUPERTYPE (`Outer$anon:Runnable`), because javac and the
     engine number anonymous classes differently — numbering would make goldens brittle.
   * TYPE VARIABLES are erased to their bound (default Object), so `add(E)` reads `add(Object)`.
-  * CLIENT -> CLIENT ONLY. No library IR is staged by this suite, so a call into a library
-    resolves to nothing and is emitted with target `-` as ambiguous_unknown. Declared unknowns
-    are part of the golden (a silently dropped site can never look "expected").
+  * CLIENT -> CLIENT ONLY by default. No library IR is staged for most cases, so a call into a
+    library resolves to nothing and is emitted with target `-` as ambiguous_unknown. Declared
+    unknowns are part of the golden (a silently dropped site can never look "expected").
+  * A case that ships a STUB LIBRARY passes its IR as a third argument, and library callees are
+    then named the same way client ones are. Without it a boundary edge reads as an opaque
+    <unresolved:HASH>, which makes the golden churn on every parser change that moves a hash —
+    the exact brittleness the name resolution above exists to prevent.
 
-usage: normalize_edges.py <IR-dir> <OUT-dir>
+usage: normalize_edges.py <IR-dir> <OUT-dir> [<LIB-IR-dir>]
 """
 import csv, os, re, sys
 
@@ -88,6 +92,14 @@ def main():
     client_only = '--client-pairs' in sys.argv     # for the bytecode-oracle comparison
     ir, out = args[0], args[1]
     n = Names(ir)
+    # A stub library's methods are named from its own IR, so a boundary edge is readable and the
+    # golden does not move when a hash does.
+    if len(args) > 2 and os.path.isdir(args[2]):
+        lib = Names(args[2])
+        for h, label in lib.m.items():
+            n.m.setdefault(h, label)
+        for h, qn in lib.types.items():
+            n.types.setdefault(h, qn)
     seen = set()
     for line in open(f'{out}/call-chain-edges.csv', encoding='utf-8', errors='replace'):
         f = line.rstrip('\n').split('\t')
