@@ -2814,6 +2814,117 @@ async function objectLiteralMembersNameTheirLiteral(): Promise<number> {
   return failures.length ? 1 : 0;
 }
 
+// ---------------------------------------------------------------------------
+// 29. A row's own paths are self-consistent
+// ---------------------------------------------------------------------------
+
+/**
+ * `baseMservPath + filePath` must be the file. §4.4 says `filePath` is
+ * repo-relative, and the module PK is `md5(filePath ‖ baseMservPath ‖ …)`, so
+ * the key is only unique if that holds.
+ *
+ * Anchoring on the analysed directory instead broke both on a workspace.
+ * Analysing `packages/alpha` with the repo root as `baseMservPath` emitted
+ * `src/Project.ts`: the join named a file that does not exist, and
+ * `packages/beta/src/Project.ts` produced the BYTE-IDENTICAL primary key. Two
+ * packages' files were one row, and a position join could not be sound for
+ * anyone.
+ *
+ * The single-project case -- the two paths equal -- must stay byte-identical,
+ * which is what makes this a fix rather than a churn.
+ */
+async function rowPathsAreSelfConsistent(): Promise<number> {
+  if (!parserPresent()) {
+    return pendingCheck('row paths are self-consistent',
+      'no extractor yet. baseMservPath + filePath must name the file');
+  }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ts-ws-'));
+  for (const pkg of ['alpha', 'beta']) {
+    const dir = path.join(root, 'packages', pkg, 'src');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'Project.ts'),
+      `export class Project { name = "${pkg}"; run() { return this.name; } }\n`);
+    fs.writeFileSync(path.join(root, 'packages', pkg, 'tsconfig.json'), JSON.stringify({
+      compilerOptions: { target: 'ES2022', module: 'ESNext', strict: true },
+      include: ['src/**/*'],
+    }));
+  }
+
+  const failures: string[] = [];
+  const keys = new Map<string, string>();
+  for (const pkg of ['alpha', 'beta']) {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), `ts-ws-${pkg}-`));
+    await new TypeScriptProjectAnalyzer().analyze({
+      // The workspace shape: analyse ONE package, anchored at the repo root.
+      rootDir: path.join(root, 'packages', pkg), outputDir, baseMservPath: root,
+      serviceVersionLink: 'ws-check',
+    });
+    // EVERY relation, not just modules. filePath is computed once and inherited,
+    // and the child relations chain their keys off a parent hash -- so a fix
+    // applied at one site should hold everywhere, and this is what proves it
+    // rather than assuming it.
+    for (const file of fs.readdirSync(outputDir)) {
+      if (!file.startsWith('all-typescript-') || !file.endsWith('.csv')) {
+        continue;
+      }
+      const rows = relation(outputDir, file);
+      const primaryKey = rows.length > 0
+        ? Object.keys(rows[0]!).find((c) => c.endsWith('UniqueHash'))
+        : undefined;
+      for (const row of rows) {
+        if ((row.filePath ?? '') !== '') {
+          const joined = path.join(row.baseMservPath ?? root, row.filePath!);
+          if (!fs.existsSync(joined)) {
+            failures.push(`${pkg} ${file}: baseMservPath + filePath = "${row.filePath}" names no ` +
+              'file — the row is not self-consistent');
+          }
+          if (!row.filePath!.includes(pkg)) {
+            failures.push(`${pkg} ${file}: filePath "${row.filePath}" carries no package ` +
+              "qualifier, so two packages' identically-named files cannot be told apart");
+          }
+        }
+        // tsConfigPath must locate the config, not just name it.
+        if ((row.tsConfigPath ?? '') !== '' && !row.tsConfigPath!.includes('/')) {
+          failures.push(`${pkg} ${file}: tsConfigPath "${row.tsConfigPath}" is a bare filename ` +
+            'and cannot identify which package governed the file');
+        }
+        if (primaryKey !== undefined) {
+          const key = `${file}|${row[primaryKey] ?? ''}`;
+          const previous = keys.get(key);
+          if (previous !== undefined && previous !== pkg) {
+            failures.push(`${file}: a key from ${pkg} is byte-identical to one from ${previous} ` +
+              '— two packages collide on one row');
+          }
+          keys.set(key, pkg);
+        }
+      }
+    }
+    fs.rmSync(outputDir, { recursive: true, force: true });
+  }
+
+  // A single-project run must be untouched: paths stay relative to the root.
+  const soloOut = fs.mkdtempSync(path.join(os.tmpdir(), 'ts-ws-solo-'));
+  const soloRoot = path.join(root, 'packages', 'alpha');
+  await new TypeScriptProjectAnalyzer().analyze({
+    rootDir: soloRoot, outputDir: soloOut, baseMservPath: soloRoot,
+    serviceVersionLink: 'ws-check',
+  });
+  for (const row of relation(soloOut, 'all-typescript-modules.csv')) {
+    if (row.filePath !== 'src/Project.ts') {
+      failures.push(`a single-project run emitted "${row.filePath}", expected "src/Project.ts" — ` +
+        'the common case must not change');
+    }
+  }
+  fs.rmSync(soloOut, { recursive: true, force: true });
+
+  console.log(`  ${keys.size} key(s) across every relation of two workspace packages: paths join ` +
+    'to a real file, carry the package, and no relation collides; a single-project run is ' +
+    'unchanged');
+  for (const f of failures.slice(0, 10)) console.log(`  ${f}`);
+  fs.rmSync(root, { recursive: true, force: true });
+  return failures.length ? 1 : 0;
+}
+
 const CHECKS: Check[] = [
   { name: 'compiles', proves: 'tsc --noEmit is clean — the suite reports on code that actually builds', run: compiles },
   { name: 'fixtures compile and are isolated', proves: 'a fixture is a valid input, and cannot break another language\'s gate', run: fixturesCompile },
@@ -2840,6 +2951,7 @@ const CHECKS: Check[] = [
   { name: 'constrained type parameters name their bound', proves: 'a bound and a default are reachable as rows for every owner kind, type-level ones included', run: constrainedTypeParametersNameTheirBound },
   { name: 'type variables name their parameter', proves: 'a type-variable reference links the parameter that declares it, shadowing respected, so substitution has a starting point', run: typeVariablesNameTheirParameter },
   { name: 'object-literal members name their literal', proves: 'a literal member has an owner, so its parameters can be typed from the literal contextual annotation', run: objectLiteralMembersNameTheirLiteral },
+  { name: 'row paths are self-consistent', proves: 'baseMservPath + filePath names the file, so a position join is sound and two packages cannot share a key', run: rowPathsAreSelfConsistent },
   { name: 'column order is append-only', proves: 'a column is never inserted mid-table, because Souffle binds by position and misbinds silently', run: columnOrderIsAppendOnly },
   { name: 'fact-base invariants', proves: 'every PK unique, every FK resolves, every tree well-formed — the failures that load cleanly and count wrong', run: factBaseInvariants },
   { name: 'IR completeness', proves: 'every hop an engine needs in order to resolve is present — the measure that replaced resolution rate', run: irCompleteness },
