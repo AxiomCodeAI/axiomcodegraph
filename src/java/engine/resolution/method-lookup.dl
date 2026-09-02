@@ -56,10 +56,49 @@ sig_concrete_in(t, name, pc) :- lib_method(name, _, _, _, _, _, _, t, _, _, _, _
 // Without this, `new SBox().set("w")` emitted both SBox.set(String) and the inherited, erased
 // Box.set(Object) (same name, same arity), and an unqualified `sound()` inside a class that
 // overrides sound() emitted the override AND the inherited Base.sound.
+// AN OVERLOAD IS NOT AN OVERRIDE. Keyed on (name, arity) alone this also hid an inherited
+// method when the subtype merely declared a SIBLING of the same arity and an incompatible type:
+// `class BufferedSink extends Sink` declaring write(int) removed the inherited write(String)
+// from the candidate set, so `bufferedSink.write("x")` resolved to write(int) — a target the
+// compiler never dispatches to, and the correct one was gone before overload resolution ran.
+//
+// The test cannot be plain type equality. The case this law exists for is an ERASED override:
+// `SBox extends Box<String>` declares set(String) against Box's set(T), whose declared type is
+// the type VARIABLE T. Those differ textually and are a genuine override, reconciled by a
+// synthetic bridge that the source — and so the IR — does not contain. Requiring equality would
+// stop shadowing there and re-emit both, which is exactly the over-expansion FIX-16 removed.
+//
+// So: incompatible means the two declare DIFFERENT types at some position AND the base's is not
+// a type variable. Anything else still shadows, which keeps the erased-override case intact.
+//
+// COST. The seed is the join this rule already performed, keeping the derived method instead of
+// dropping it — an equi-join on (name, arity), not a new product. The signature comparison ranges
+// only over seeded pairs, per the discipline used by sat_pair_seed (typescript) and reached_lib
+// (java): a comparison keyed only on library facts is a cross product at platform scale.
+// param_decl / type_param / method_type_param are projections over BASE relations only, so this
+// stays below the expr_type fixpoint and the !shadowed_in_type negation remains stratified.
 type_declares_sig(t, name, pc) :- sig_declared_in(t, name, pc, _).
-shadowed_in_type(t, base) :- type_ancestor(t, anc),
+
+declared_wins_cand(t, anc, base, derived) :- type_ancestor(t, anc),
     sig_declared_in(anc, name, pc, base),
-    type_declares_sig(t, name, pc).
+    sig_declared_in(t, name, pc, derived).
+
+// the base's parameter at this position names a type variable — of the method itself...
+base_param_mtvar(base, pos) :- param_decl(_, _, pos, tn, base, _),
+    method_type_param(_, tn, _, base, _).
+// ...or of a type that declares one by that name (checked against the DECLARING type below)
+base_param_ttvar(base, owner, pos) :- param_decl(_, _, pos, tn, base, _),
+    type_param(_, tn, _, owner, _).
+
+declared_wins_incompat(t, base, derived) :- declared_wins_cand(t, anc, base, derived),
+    param_decl(_, _, pos, tb, base, _),
+    param_decl(_, _, pos, td, derived, _),
+    tb != td,
+    !base_param_mtvar(base, pos),
+    !base_param_ttvar(base, anc, pos).
+
+shadowed_in_type(t, base) :- declared_wins_cand(t, _, base, derived),
+    !declared_wins_incompat(t, base, derived).
 
 // (b) CONCRETE-WINS-OVER-ABSTRACT, across unrelated hierarchies. If t reaches a CONCRETE instance
 // method of this name+arity, an ABSTRACT (or interface-declared) method of the same signature
