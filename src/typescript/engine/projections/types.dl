@@ -161,6 +161,15 @@ type_ref_literal_value("lib", v, h) :- lib_ts_type_reference(_, _, _, _, _, _, _
 // ── type_param(Prov, Name, Position, OwnerKind, OwnerHash, ParamHash) ───────
 // ONE relation where Java has two, because TypeScript attaches type parameters to
 // seven owner kinds (col 7). Consumed by generic substitution, not by dispatch.
+// ── type_ref_type_param(Prov, TypeParameterHash, RefHash) ──────────────────
+// A use of a type variable, linked to the DECLARATION it refers to. The column has
+// existed all along and was empty until the parser began filling it; the engine
+// therefore matched a variable to its declaration BY NAME, which cannot see shadowing —
+// a method's `T` and its class's `T` are different entities that a name lookup cannot
+// tell apart, and it picks one arbitrarily.
+type_ref_type_param("client", tp, h) :- ts_type_reference(_, _, _, tp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), tp != "".
+type_ref_type_param("lib", tp, h) :- lib_ts_type_reference(_, _, _, tp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), tp != "".
+
 type_param("client", name, pos, ok, owner, h) :- ts_type_parameter(name, pos, _, _, _, _, _, ok, owner, _, _, _, _, _, _, _, _, _, _, h).
 type_param("lib", name, pos, ok, owner, h) :- lib_ts_type_parameter(name, pos, _, _, _, _, _, ok, owner, _, _, _, _, _, _, _, _, _, _, h).
 

@@ -102,3 +102,21 @@ function makeBindCtx(): BindCtx {
   const c: BindCtx = { emitOne(x) { void x; }, inner: { deeper(n) { return n; } } };
   return c;
 }
+
+// ── a METHOD's type variable SHADOWS its class's ────────────────────────────
+// Both are named T and they are different entities. Matching a use to its declaration
+// by NAME cannot tell them apart and picks one arbitrarily; the parser now links a use
+// to the declaration it actually refers to, so the constraint each dispatches against
+// is the right one. If that link regresses, `named()` starts answering against the
+// class's constraint and `identified()` against the method's.
+interface HasIdent { identify(): string }
+interface HasLabel { label(): string }
+
+export class ShadowBox<T extends HasIdent> {
+  identified(x: T): string {
+    return x.identify();          // -> HasIdent.identify  (the CLASS's T)
+  }
+  named<T extends HasLabel>(x: T): string {
+    return x.label();             // -> HasLabel.label     (the METHOD's T, shadowing)
+  }
+}

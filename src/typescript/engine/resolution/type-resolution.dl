@@ -321,7 +321,19 @@ ref_shape_target(ref, shape) :- alias_rhs(ref, _, rhs),
 // TYPE VARIABLE — `<T extends HasId>` — the CONSTRAINT is the only thing a call on a
 // T-typed receiver can dispatch against. An unconstrained T has no members, and
 // emitting a target for it would be fabrication rather than over-approximation.
+// EXACT, via the declaration the reference points at. Preferred over the name lookup
+// below, which cannot distinguish a method's `T` from its class's `T` and picks one
+// arbitrarily. The parser now fills typeParameterLinkHash on a USE, so the shadowing
+// question is answered at extraction rather than guessed here.
+ref_type_target(ref, prov, t) :- type_ref_type_param(rp, tp, ref),
+    type_param_constraint(rp, cref, tp),
+    ref_type_target(cref, prov, t).
+
+// BY NAME, and only where the exact link is absent. Keeping both unguarded would put
+// the shadowed declaration's constraint alongside the right one at every such site,
+// which is a superset the exact link exists to remove.
 ref_type_target(ref, prov, t) :- type_ref(_, "TYPE_VARIABLE", _, tn, _, owner, _, ref),
+    !type_ref_type_param(_, _, ref),
     type_var_constraint_in_scope(owner, tn, cref),
     ref_type_target(cref, prov, t).
 // A constraint that is an anonymous FUNCTION TYPE — `<F extends (...args: any) => any>`

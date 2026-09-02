@@ -392,6 +392,7 @@
 .decl type_is_type_only(c0:symbol,c1:symbol)
 .decl type_lines(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl type_module(c0:symbol,c1:symbol,c2:symbol)
+.decl type_ref_type_param(c0:symbol,c1:symbol,c2:symbol)
 .decl type_param(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol)
 .decl type_param_constraint(c0:symbol,c1:symbol,c2:symbol)
 .decl type_prov(c0:symbol,c1:symbol)
