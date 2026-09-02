@@ -22,8 +22,14 @@ fail=0
 
 # ── 1. present on disk, ignored by git ───────────────────────────────────────
 # --no-index so a file that IS tracked (and therefore fine) is not reported.
+# Scoped to the directories that hold fixture INPUTS. An earlier version checked all of
+# test/ and immediately blocked every suite on `test/python/torture/out/*.csv` — engine
+# output from a previous run, correctly ignored, and not an input to anything. A guard
+# that fires on generated output teaches people to disable it, so it only looks where
+# committed inputs live: a vendored package, or a fixture/case tree.
 ignored=$(git ls-files --others --ignored --exclude-standard -- test/ 2>/dev/null \
-          | grep -vE '(^|/)(\.work|\.work-[^/]*|__pycache__|node_modules)(/|$)' || true)
+          | grep -E '(^|/)(vendor|pnpm-vendor|fixtures|cases)/' \
+          | grep -vE '(^|/)(\.work|\.work-[^/]*|out|__pycache__|node_modules)(/|$)' || true)
 if [ -n "$ignored" ]; then
   echo "FAIL  these files exist under test/ but git is IGNORING them, so they are not"
   echo "      in the repository and every run that passes locally will fail on a clone:"

@@ -310,6 +310,26 @@ def main():
         if pct >= 0.02:
             print('  ^ above 2%: treat every rate in this report as unsound until the '
                   'extraction covers the project')
+        # PAST A POINT, "unsound" is not a caveat -- it is the absence of a measurement,
+        # and printing a page of 0.000 rates below it invites someone to read them as
+        # results. Measured cause on the one project that hit this: on a workspace
+        # repository the IR's `filePath` is relative to each package with no package
+        # qualifier, so two packages' `src/Project.ts` are indistinguishable and nothing
+        # joins. That is an extraction defect, not a low score.
+        #
+        # Same principle as the oracle guards: a missing measurement must not read as a
+        # passing one. Exit non-zero so a driver cannot record the run as a success.
+        if pct >= 0.5:
+            print()
+            print(f'REFUSING TO REPORT: {pct:.0%} of the compiler\'s call sites are absent '
+                  f'from the IR.')
+            print('  Nothing below is a measurement of the engine -- the two sides are not '
+                  'describing the same program.')
+            print('  On a workspace repository this is usually the IR carrying paths '
+                  'relative to each package')
+            print('  with no package qualifier, so distinct files collide on one key.')
+            sys.stdout.flush()
+            sys.exit(4)
     print()
     for b in (
         'EXACT', 'SOUND_SUPERSET', 'OVERLOAD_SIBLING', 'IMPLEMENTATION_OF_SIGNATURE',
