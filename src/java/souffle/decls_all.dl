@@ -97,6 +97,10 @@
 .decl sig_declared_in(c0:symbol,c1:symbol,c2:symbol,c3:symbol)  // (type,name,paramCount,method) declared directly
 .decl sig_concrete_in(c0:symbol,c1:symbol,c2:symbol)            // (type,name,paramCount) concrete instance method
 .decl abstract_sig(c0:symbol,c1:symbol,c2:symbol)               // (method,name,paramCount) abstract/interface decl
+.decl declared_wins_cand(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl declared_wins_incompat(c0:symbol,c1:symbol,c2:symbol)
+.decl base_param_mtvar(c0:symbol,c1:symbol)
+.decl base_param_ttvar(c0:symbol,c1:symbol,c2:symbol)
 .decl type_declares_sig(c0:symbol,c1:symbol,c2:symbol)        // (type, name, paramCount) declared directly
 .decl type_reaches_concrete_sig(c0:symbol,c1:symbol,c2:symbol)  // (type, name, paramCount) concrete impl reachable
 .decl abstract_decl(c0:symbol,c1:symbol,c2:symbol)              // (method, name, paramCount) abstract/interface decl
