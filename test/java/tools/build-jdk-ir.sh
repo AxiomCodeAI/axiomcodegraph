@@ -64,13 +64,19 @@ if [ ${#ONLY[@]} -gt 0 ]; then MODULES=("${ONLY[@]}"); fi
 # reports itself as current, which is the failure this stamp exists to prevent. A module the new
 # revision no longer produces would also survive forever. So when the stamp does not match, the
 # whole tree goes. Pass --keep-stale to override (for bisecting a single module).
+# A RUN IN PROGRESS is marked separately from a finished one, so an interrupted run can resume
+# instead of discarding 60-odd completed modules. The staleness guarantee is unchanged: only a
+# partial marker for THIS parser revision protects the tree; anything else is still deleted.
+PARTIAL="$OUT/.parser-revision.partial"
 STAMPED="$(head -1 "$STAMP" 2>/dev/null || echo '')"
+[ -z "$STAMPED" ] && STAMPED="$(head -1 "$PARTIAL" 2>/dev/null || echo '')"
 if [ -d "$OUT" ] && [ "$STAMPED" != "$PARSER_REV" ] && [ "$KEEP_STALE" = 0 ]; then
   echo "!! jdk IR at $OUT was built by parser ${STAMPED:-'(unstamped)'}, now $PARSER_REV — DELETING and regenerating"
   rm -rf "$OUT"
 fi
 
 mkdir -p "$OUT"
+printf '%s\n' "$PARSER_REV" > "$PARTIAL"
 echo "jdk source : $SRC"
 echo "output     : $OUT"
 echo "parser     : $PARSER  ($PARSER_REV)"
@@ -81,7 +87,7 @@ for m in "${MODULES[@]}"; do
   [ -d "$cls" ] || { echo "  ?  $m — no share/classes"; continue; }
   dest="$OUT/$m"
   n=$(find "$cls" -name '*.java' | wc -l | tr -d ' ')
-  if [ "$FORCE" = 0 ] && [ -f "$dest/all-types.csv" ] && [ "$(cat "$STAMP" 2>/dev/null | head -1)" = "$PARSER_REV" ]; then
+  if [ "$FORCE" = 0 ] && [ -f "$dest/all-types.csv" ] && [ "$STAMPED" = "$PARSER_REV" ]; then
     skip=$((skip+1)); continue
   fi
   rm -rf "$dest.tmp"
@@ -97,7 +103,14 @@ for m in "${MODULES[@]}"; do
     rm -rf "$dest.tmp"; printf "  FAIL %-22s (see %s)\n" "$m" "$OUT/.$m.log"; fail=$((fail+1))
   fi
 done
-printf "%s\n%s\n" "$PARSER_REV" "built $(date -u +%Y-%m-%dT%H:%M:%SZ) from $SRC" > "$STAMP"
+# The finished stamp is written ONLY when every module succeeded — a partial tree must never
+# report itself current. On a partial failure the .partial marker stays, so a re-run resumes.
+if [ "$fail" -eq 0 ]; then
+  printf "%s\n%s\n" "$PARSER_REV" "built $(date -u +%Y-%m-%dT%H:%M:%SZ) from $SRC" > "$STAMP"
+  rm -f "$PARTIAL"
+else
+  echo "!! $fail module(s) failed — no revision stamp written; --check will report STALE"
+fi
 echo "───────────────────────────────────────────"
 echo "built $ok   up-to-date $skip   empty $empty   failed $fail   -> $OUT (parser $PARSER_REV)"
 [ "$fail" -eq 0 ]
