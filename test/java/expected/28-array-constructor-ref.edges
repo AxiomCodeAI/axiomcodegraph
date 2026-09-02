@@ -1,0 +1,8 @@
+ambiguous_unknown	method	probe.ArrayCtorRef#asArray(List) -> -
+ambiguous_unknown	method	probe.ArrayCtorRef#asNestedArray(List) -> -
+ambiguous_unknown	method	probe.ArrayCtorRef#useCtorRef(String) -> -
+ambiguous_unknown	method	probe.ArrayCtorRef#useLabelRef(Item) -> -
+known_edge	method	probe.ArrayCtorRef#useCtorRef(String) -> probe.ArrayCtorRef#ctorRef()
+known_edge	method	probe.ArrayCtorRef#useLabelRef(Item) -> probe.ArrayCtorRef#labelRef()
+known_edge	ref	probe.ArrayCtorRef#ctorRef() -> probe.Item#<init>(String)
+known_edge	ref	probe.ArrayCtorRef#labelRef() -> probe.Item#label()
