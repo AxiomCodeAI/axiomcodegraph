@@ -28,6 +28,7 @@ import { constructPositions } from './python-gates/construct-positions';
 import { enumEmission } from './python-gates/enum-emission';
 import { relationLoadability } from './python-gates/relation-loadability';
 import { referenceClassification } from './python-gates/reference-classification';
+import { moduleExports } from './python-gates/module-exports';
 import { nameStability } from './python-gates/name-stability';
 import { typeVariables } from './python-gates/type-variables';
 import { stubModuleNames } from './python-gates/stub-module-names';
@@ -516,6 +517,8 @@ const CHECKS: Check[] = [
     proves: 'shapes resolvable in principle keep resolving; the count may fall, never rise' },
   { name: 'PEP 695 type parameters', run: pep695,
     proves: 'py_type_parameter matches frozen CPython 3.12 truth' },
+  { name: 'module exports', run: moduleExports,
+    proves: '__all__ is only offered as literal when it can be trusted' },
   { name: 'name stability', run: nameStability,
     proves: 'a qualified name depends on the module position alone, so runs join by name' },
   { name: 'type variables', run: typeVariables,

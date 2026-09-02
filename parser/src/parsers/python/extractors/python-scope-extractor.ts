@@ -626,41 +626,102 @@ export class PythonScopeExtractor {
    * dynamically built `__all__` as authoritative is wrong in exactly the
    * direction that hides public API, so it is flagged rather than guessed.
    */
+  /**
+   * `__all__`, and whether it can be read literally.
+   *
+   * `dunderAllIsStatic` is the load-bearing column: a consumer restricting a
+   * wildcard re-export trusts `dunderAllNames` when it is true, and falls back
+   * to the underscore rule when it is false. So a WRONG `true` is far worse
+   * than a `false` -- it makes an exported name look unexported, and a name the
+   * language really does export then resolves to nothing.
+   *
+   * Two shapes produced exactly that, and both are common:
+   *
+   * ```python
+   * __all__ = ["base"]        # this was read, and returned immediately
+   * __all__ += ["extra"]      # this was never seen: `extra` was dropped
+   *
+   * if sys.platform == "win32":   # not a direct child of the module, so the
+   *     __all__ = ["win_only"]    # module reported no __all__ at all
+   * ```
+   *
+   * The whole module is therefore scanned for every site that BINDS or MUTATES
+   * the name, not just the first top-level assignment. `static` now means what
+   * a consumer needs it to mean: there is exactly one such site, it is a plain
+   * top-level assignment, and every element is a string literal. Anything else
+   * -- an augmented assignment, an `append`/`extend`/`remove` call, a second
+   * assignment, or an assignment nested inside a conditional -- is reported
+   * present but not static, which routes the consumer to the underscore rule.
+   *
+   * Over-approximating there is safe; under-approximating is not.
+   */
   private readDunderAll(rootNode: Parser.SyntaxNode): {
     present: boolean;
     isStatic: boolean;
     names: string[];
   } {
-    for (let i = 0; i < rootNode.namedChildCount; i++) {
-      const statement = rootNode.namedChild(i);
-      if (statement?.type !== 'expression_statement') {
-        continue;
-      }
-      const assignment = statement.namedChild(0);
-      if (
-        assignment?.type !== 'assignment' ||
-        assignment.childForFieldName('left')?.text !== '__all__'
-      ) {
-        continue;
-      }
-      const value = assignment.childForFieldName('right');
-      if (!value || (value.type !== 'list' && value.type !== 'tuple')) {
-        return { present: true, isStatic: false, names: [] };
-      }
+    let sites = 0;
+    let topLevelAssignment: Parser.SyntaxNode | null = null;
 
-      const names: string[] = [];
-      let allLiterals = true;
-      for (let j = 0; j < value.namedChildCount; j++) {
-        const element = value.namedChild(j);
-        if (element?.type !== 'string') {
-          allLiterals = false;
-          continue;
-        }
-        names.push(this.stringLiteralValue(element));
+    const worklist: Parser.SyntaxNode[] = [rootNode];
+    while (worklist.length > 0) {
+      const node = worklist.pop();
+      if (!node) {
+        continue;
       }
-      return { present: true, isStatic: allLiterals, names };
+      if (node.type === 'assignment' || node.type === 'augmented_assignment') {
+        if (node.childForFieldName('left')?.text === '__all__') {
+          sites += 1;
+          // Only a plain assignment written directly in the module body can be
+          // read literally. `expression_statement` is its parent, the module is
+          // its grandparent.
+          if (
+            node.type === 'assignment' &&
+            node.parent?.type === 'expression_statement' &&
+            node.parent.parent?.id === rootNode.id
+          ) {
+            topLevelAssignment = node;
+          }
+        }
+      }
+      // `__all__.append(...)`, `.extend(...)`, `.remove(...)` mutate it just as
+      // surely as `+=` does, and a literal read after one of them is wrong.
+      if (node.type === 'call') {
+        const fn = node.childForFieldName('function');
+        if (fn?.type === 'attribute' && fn.childForFieldName('object')?.text === '__all__') {
+          sites += 1;
+        }
+      }
+      for (let i = 0; i < node.namedChildCount; i += 1) {
+        const child = node.namedChild(i);
+        if (child) {
+          worklist.push(child);
+        }
+      }
     }
-    return { present: false, isStatic: false, names: [] };
+
+    if (sites === 0) {
+      return { present: false, isStatic: false, names: [] };
+    }
+    if (sites > 1 || topLevelAssignment === null) {
+      return { present: true, isStatic: false, names: [] };
+    }
+
+    const value = topLevelAssignment.childForFieldName('right');
+    if (!value || (value.type !== 'list' && value.type !== 'tuple')) {
+      return { present: true, isStatic: false, names: [] };
+    }
+    const names: string[] = [];
+    let allLiterals = true;
+    for (let j = 0; j < value.namedChildCount; j += 1) {
+      const element = value.namedChild(j);
+      if (element?.type !== 'string') {
+        allLiterals = false;
+        continue;
+      }
+      names.push(this.stringLiteralValue(element));
+    }
+    return { present: true, isStatic: allLiterals, names: allLiterals ? names : [] };
   }
 
   private stringLiteralValue(stringNode: Parser.SyntaxNode): string {
