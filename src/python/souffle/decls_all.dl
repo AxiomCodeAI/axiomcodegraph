@@ -207,6 +207,8 @@
 .decl alias_value_builtin(c0:symbol,c1:symbol,c2:symbol)
 .decl alias_builtin_type(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl annotation_builtin(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl param_kind_builtin(c0:symbol,c1:symbol,c2:symbol)
+.decl param_builtin(c0:symbol,c1:symbol,c2:symbol)
 .decl expr_builtin_type(c0:symbol,c1:symbol,c2:symbol)
 .decl call_hits_builtin(c0:symbol,c1:symbol)
 .decl expr_external_type(c0:symbol,c1:symbol,c2:symbol)
