@@ -125,3 +125,58 @@ expr_element_type(ce, prov, t) :- ts_call_site(_, _, _, recv, _, ce, _, _, _, _,
 // `items[0].getHash()` resolve when `items: Item[]` is written as `Array<Item>`.
 expr_element_type(e, prov, t) :- expr_decl_ref(e, r),
     ref_element_target(r, prov, t).
+
+// ── T INFERRED FROM THE ARGUMENT, not from the receiver ─────────────────────
+// `identity(x)`, `first(items)`, `wrap(v)` — a free function whose type variable is
+// bound by what is PASSED, with no receiver to take arguments from. The substitution
+// above covers `items.find(p)`, where T comes from the receiver's own type arguments;
+// this covers the other half, and it is the half that leaves a chained call with no
+// receiver at all: the call resolves, its return is `T`, and `.run()` on the result
+// dies because nothing bound T.
+//
+// Keyed on the EXACT type-parameter link, not on the name. A method's `T` and its
+// class's `T` are different declarations, and binding by name would let an argument
+// passed to one substitute into the other. `type_param(..., m, tp)` additionally
+// requires the variable to be declared BY THE CALLEE, so a class-level `T` is never
+// bound from a call argument.
+return_is_type_param(m, tp) :- method_return_ref(_, r, m),
+    type_ref_type_param(_, tp, r).
+
+// (a) the parameter's type IS the variable — `identity<T>(v: T)`.
+call_tvar_arg_binding(ce, tp, prov, t) :- expr_call_candidate(ce, m),
+    param_decl(_, _, k, _, m, p),
+    param_type_ref(_, pr, p),
+    type_ref_type_param(_, tp, pr),
+    type_param(_, _, _, _, m, tp),
+    expr_child("client", ce, "ARGUMENT", k, arg),
+    expr_type(arg, prov, t).
+
+// (b) the parameter is an ARRAY of the variable — `first<T>(xs: readonly T[])`. The
+// binding is the argument's ELEMENT type, which the engine already computes.
+//
+// The array is reached THROUGH wrappers: `readonly T[]` is a TYPE_OPERATOR over an
+// ARRAY, and the standard library writes it that way everywhere. Matching only a bare
+// ARRAY misses the readonly form, which is most of the surface worth binding.
+array_of_type_param(pr, tp) :- type_ref(rp, ak, _, _, _, _, _, pr),
+    ref_kind_is_array(ak),
+    type_ref_parent(rp, pr, _, elemRef),
+    type_ref_type_param(_, tp, elemRef).
+array_of_type_param(pr, tp) :- type_ref(rp, wk, _, _, _, _, _, pr),
+    param_array_wrapper_kind(wk),
+    type_ref_parent(rp, pr, _, inner),
+    array_of_type_param(inner, tp).
+param_array_wrapper_kind("TYPE_OPERATOR").
+param_array_wrapper_kind("PARENTHESIZED").
+
+call_tvar_arg_binding(ce, tp, prov, t) :- expr_call_candidate(ce, m),
+    param_decl(_, _, k, _, m, p),
+    param_type_ref(_, pr, p),
+    array_of_type_param(pr, tp),
+    type_param(_, _, _, _, m, tp),
+    expr_child("client", ce, "ARGUMENT", k, arg),
+    expr_element_type(arg, prov, t).
+
+// the call's own type, once the variable is bound
+expr_type(ce, prov, t) :- expr_call_candidate(ce, m),
+    return_is_type_param(m, tp),
+    call_tvar_arg_binding(ce, tp, prov, t).
