@@ -2925,6 +2925,116 @@ async function rowPathsAreSelfConsistent(): Promise<number> {
   return failures.length ? 1 : 0;
 }
 
+// ---------------------------------------------------------------------------
+// 30. Parameters declared INSIDE a type are type variables
+// ---------------------------------------------------------------------------
+
+/**
+ * `[K in keyof T]` and `infer U` declare type parameters, and both read
+ * TYPE_REFERENCE until #65 -- so `K` looked like a nominal type named "K".
+ *
+ * The cause was that scope was built from declarations carrying a
+ * `typeParameters` ARRAY, and neither of these has one: a mapped type has
+ * `typeParameter` singular, an infer node likewise.
+ *
+ * This check asserts the KIND of named references, which the neighbouring
+ * "type variables name their parameter" check structurally cannot do -- it
+ * iterates rows that are ALREADY TYPE_VARIABLE, so every misfiling here
+ * passed it vacuously. A blind spot in an assertion outlives the bug.
+ *
+ * `infer` is the harder half and is covered deliberately: the name is written
+ * in the conditional's `extends` clause but READ in the true branch, which is
+ * a SIBLING of that clause. Scoping it to the infer node's own subtree fixes
+ * `K` and leaves `U` broken, which is exactly what the first fix here did.
+ */
+async function parametersDeclaredInsideATypeAreVariables(): Promise<number> {
+  const { outputDir, cleanup } = await analyseInline('ts-inner-tp-', {
+    's.ts': [
+      'export type Keys<T> = { [K in keyof T]: T[K] };',
+      'export type Awaited1<T> = T extends Promise<infer U> ? U : T;',
+      // U read in the true branch, nested one type-argument deep at its
+      // declaration -- the sibling case that a subtree-scoped fix misses.
+      'export type Boxed<T> = T extends Array<infer E> ? Keys<E> : never;',
+      // two infers in one clause, and a nominal type beside them
+      'export type Fn<T> = T extends (a: infer A, b: infer B) => unknown',
+      '  ? [A, B, Date]',
+      '  : never;',
+      // a mapped type nested inside a conditional's branch
+      'export type Both<T> = T extends object ? { [P in keyof T]: T[P] } : T;',
+    ].join('\n'),
+  });
+
+  const references = relation(outputDir, 'all-typescript-type-references.csv');
+  const parameters = new Map(relation(outputDir, 'all-typescript-type-parameters.csv')
+    .map((r) => [r.tsTypeParameterUniqueHash ?? '', r]));
+  const failures: string[] = [];
+
+  // Names that are parameters wherever they appear in the fixture, and the
+  // owner each must resolve to. Nothing else in the fixture shares these names.
+  const mustBeVariables = new Map<string, string>([
+    ['K', 'MAPPED_TYPE'],
+    ['P', 'MAPPED_TYPE'],
+    ['U', 'INFER_TYPE'],
+    ['E', 'INFER_TYPE'],
+    ['A', 'INFER_TYPE'],
+    ['B', 'INFER_TYPE'],
+  ]);
+  // …and a name that must stay nominal, so a fix that calls everything a
+  // variable cannot pass by being indiscriminate.
+  const mustBeReferences = new Set(['Date', 'Promise', 'Array']);
+
+  // The `infer U` NODE emits its own row with kind INFER, and that is right:
+  // it is the declaration, not a use of it. So the assertion is that a name
+  // has a linked TYPE_VARIABLE row and NO TYPE_REFERENCE row -- not that its
+  // every row is TYPE_VARIABLE, which would forbid the declaration itself.
+  const seen = new Set<string>();
+  for (const row of references) {
+    const name = row.typeVariableName || row.typeName || '';
+    const expectedOwner = mustBeVariables.get(name);
+    if (expectedOwner !== undefined) {
+      if (row.kind === 'INFER') {
+        continue;
+      }
+      if (row.kind !== 'TYPE_VARIABLE') {
+        failures.push(`${name} at line ${row.startLine} is ${row.kind}, not TYPE_VARIABLE ` +
+          '— a parameter declared inside a type read as a nominal type');
+        continue;
+      }
+      seen.add(name);
+      const declaration = parameters.get(row.typeParameterLinkHash ?? '');
+      if (!declaration) {
+        failures.push(`${name} at line ${row.startLine} is TYPE_VARIABLE but links no ` +
+          'declaration, so substitution has a name and no binding site');
+        continue;
+      }
+      if (declaration.ownerKind !== expectedOwner) {
+        failures.push(`${name} links an owner of kind ${declaration.ownerKind}, ` +
+          `expected ${expectedOwner}`);
+      }
+      if (declaration.paramName !== name) {
+        failures.push(`${name} links a parameter named ${declaration.paramName}`);
+      }
+    } else if (mustBeReferences.has(name) && row.kind !== 'TYPE_REFERENCE') {
+      failures.push(`${name} at line ${row.startLine} is ${row.kind}: a nominal type was ` +
+        'reclassified as a variable');
+    }
+  }
+
+  for (const name of mustBeVariables.keys()) {
+    if (!seen.has(name)) {
+      failures.push(`${name} produced no linked TYPE_VARIABLE row at all`);
+    }
+  }
+
+  cleanup();
+  if (failures.length > 0) {
+    return fail(failures.join('\n  '));
+  }
+  console.log(`  ${mustBeVariables.size} inner-declared parameters classified and linked; ` +
+    `${mustBeReferences.size} nominal types left alone`);
+  return 0;
+}
+
 const CHECKS: Check[] = [
   { name: 'compiles', proves: 'tsc --noEmit is clean — the suite reports on code that actually builds', run: compiles },
   { name: 'fixtures compile and are isolated', proves: 'a fixture is a valid input, and cannot break another language\'s gate', run: fixturesCompile },
@@ -2949,6 +3059,7 @@ const CHECKS: Check[] = [
   { name: 'annotated declarations name their type', proves: 'a declared type is reachable as a row, not only readable as text, so type flow can be followed', run: annotatedDeclarationsNameTheirType },
   { name: 'type references name their entity', proves: 'a reference carries the written name without type arguments, so a scope lookup needs no string surgery', run: typeReferencesNameTheirEntity },
   { name: 'constrained type parameters name their bound', proves: 'a bound and a default are reachable as rows for every owner kind, type-level ones included', run: constrainedTypeParametersNameTheirBound },
+  { name: 'parameters declared inside a type are variables', proves: 'a mapped `[K in …]` and an `infer U` are TYPE_VARIABLE and link their declaration, so substitution does not mistake them for nominal types', run: parametersDeclaredInsideATypeAreVariables },
   { name: 'type variables name their parameter', proves: 'a type-variable reference links the parameter that declares it, shadowing respected, so substitution has a starting point', run: typeVariablesNameTheirParameter },
   { name: 'object-literal members name their literal', proves: 'a literal member has an owner, so its parameters can be typed from the literal contextual annotation', run: objectLiteralMembersNameTheirLiteral },
   { name: 'row paths are self-consistent', proves: 'baseMservPath + filePath names the file, so a position join is sound and two packages cannot share a key', run: rowPathsAreSelfConsistent },

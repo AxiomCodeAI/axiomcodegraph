@@ -131,6 +131,22 @@ export class TsTypeReferenceExtractor {
    * emitted -- and a link made too early would silently be empty for exactly
    * the shadowing cases that matter.
    */
+  /**
+   * Type parameters declared by a TYPE, not by a declaration.
+   *
+   * A mapped type's `[K in keyof T]` and an `infer U` each declare one, and
+   * neither arrives through the declaration walk: that pushes scopes from a
+   * `typeParameters` ARRAY, and these nodes carry a single `typeParameter`. So
+   * `K` and `U` were never in scope, and a reference to them fell through to
+   * TYPE_REFERENCE -- a consumer then looked for a declared type of that name,
+   * found none, and reported a missing type where the right answer is that an
+   * unconstrained parameter has no members.
+   *
+   * Held here rather than in the declaration extractor because the scope is
+   * exactly this node's subtree, and only this walk knows where that ends.
+   */
+  private readonly typeLevelParameterScope: ts.TypeParameterDeclaration[] = [];
+
   readonly pendingTypeVariableLinks:
     { row: TsTypeReferenceRegistry; declaration: ts.TypeParameterDeclaration }[] = [];
 
@@ -152,6 +168,29 @@ export class TsTypeReferenceExtractor {
   }
 
   private readonly hashByTypeNode = new Map<string, string>();
+
+  /** A type-level parameter this walk introduced, innermost first. */
+  private typeLevelDeclarationFor(name: string): ts.TypeParameterDeclaration | undefined {
+    for (let i = this.typeLevelParameterScope.length - 1; i >= 0; i -= 1) {
+      const declared = this.typeLevelParameterScope[i]!;
+      if (declared.name.text === name) {
+        return declared;
+      }
+    }
+    return undefined;
+  }
+
+  /** The declaration walk's scope, plus the type-level parameters this walk added. */
+  private allTypeParametersInScope(): ReadonlySet<string> {
+    if (this.typeLevelParameterScope.length === 0) {
+      return this.typeParametersInScope();
+    }
+    const all = new Set(this.typeParametersInScope());
+    for (const declared of this.typeLevelParameterScope) {
+      all.add(declared.name.text);
+    }
+    return all;
+  }
 
   /**
    * Emits the whole tree rooted at `node` and returns the ROOT row's hash.
@@ -188,8 +227,12 @@ export class TsTypeReferenceExtractor {
     // does fire the row says so instead of losing a subtree silently.
     const isTruncated = depth >= TS_TYPE_REFERENCE_MAX_DEPTH && children.length > 0;
 
+    // ONE scope for both the kind and the name. They were computed from
+    // different sets once, so a mapped `K` was a TYPE_VARIABLE whose
+    // typeVariableName was empty -- classified and unnamed.
+    const inScope = this.allTypeParametersInScope();
     const row = new TsTypeReferenceRegistry({
-      kind: kindOf(node, this.typeParametersInScope()),
+      kind: kindOf(node, inScope),
       context,
       tsTypeLinkHash: owner.tsTypeLinkHash,
       parentReferenceHash,
@@ -198,7 +241,7 @@ export class TsTypeReferenceExtractor {
       typeName: simpleNameOf(node),
       completeTypeName: EntityUtils.normalizeWhitespace(node.getText(this.sourceFile)),
       entityName: entityNameOf(node, this.sourceFile),
-      typeVariableName: typeVariableNameOf(node, this.typeParametersInScope()),
+      typeVariableName: typeVariableNameOf(node, inScope),
       arrayDimensions: arrayDimensionsOf(node),
       wildcardVariance: varianceOf(node),
       startLine: startPos.line + 1,
@@ -227,8 +270,9 @@ export class TsTypeReferenceExtractor {
     // parameter may not exist yet.
     if (ts.isTypeReferenceNode(node)
       && ts.isIdentifier(node.typeName)
-      && this.typeParametersInScope().has(node.typeName.text)) {
-      const declaration = this.typeParameterDeclarationFor(node.typeName.text);
+      && this.allTypeParametersInScope().has(node.typeName.text)) {
+      const declaration = this.typeLevelDeclarationFor(node.typeName.text)
+        ?? this.typeParameterDeclarationFor(node.typeName.text);
       if (declaration !== undefined) {
         this.pendingTypeVariableLinks.push({ row, declaration });
       }
@@ -254,14 +298,38 @@ export class TsTypeReferenceExtractor {
     if (isTruncated) {
       return row.getHash();
     }
-    let index = 0;
-    for (const child of children) {
-      this.emit(child.node, child.context, owner, row.getHash(), index, depth + 1,
-        isTypeOnlyPosition, {
-          isOptionalElement: child.isOptionalElement,
-          isRestElement: child.isRestElement,
-        });
-      index += 1;
+    // A parameter declared INSIDE a type is in scope only for part of that
+    // type, so it is pushed here and popped below rather than added to the
+    // declaration walk's stack -- which only ever sees `typeParameters` arrays.
+    //
+    // A MAPPED type's `[K in …]` is in scope for its own subtree. An `infer U`
+    // is not: it is written in a conditional's `extends` clause and referenced
+    // in the TRUE BRANCH, which is a SIBLING of that clause, not a descendant.
+    // So the conditional -- not the infer node -- is where the name enters
+    // scope, and pushing at the infer node fixed `K` and left `U` misfiled.
+    const introduced: ts.TypeParameterDeclaration[] = [];
+    if (ts.isMappedTypeNode(node)) {
+      introduced.push(node.typeParameter);
+    } else if (ts.isConditionalTypeNode(node)) {
+      collectInferParameters(node.extendsType, introduced);
+    }
+    for (const declared of introduced) {
+      this.typeLevelParameterScope.push(declared);
+    }
+    try {
+      let index = 0;
+      for (const child of children) {
+        this.emit(child.node, child.context, owner, row.getHash(), index, depth + 1,
+          isTypeOnlyPosition, {
+            isOptionalElement: child.isOptionalElement,
+            isRestElement: child.isRestElement,
+          });
+        index += 1;
+      }
+    } finally {
+      for (let i = 0; i < introduced.length; i += 1) {
+        this.typeLevelParameterScope.pop();
+      }
     }
     return row.getHash();
   }
@@ -630,6 +698,22 @@ function entityNameOf(node: ts.TypeNode, sourceFile: ts.SourceFile): string {
     }
   }
   return '';
+}
+
+/**
+ * Every `infer X` name written inside a conditional's `extends` clause.
+ *
+ * Nested is normal -- `T extends Promise<infer A> ? … : …` puts the infer under
+ * a type argument -- so the whole clause is walked rather than its top level.
+ */
+function collectInferParameters(node: ts.TypeNode, into: ts.TypeParameterDeclaration[]): void {
+  const visit = (current: ts.Node): void => {
+    if (ts.isInferTypeNode(current)) {
+      into.push(current.typeParameter);
+    }
+    ts.forEachChild(current, visit);
+  };
+  visit(node);
 }
 
 function importSpecifierOf(node: ts.TypeNode): string {
