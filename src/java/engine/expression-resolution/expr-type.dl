@@ -102,8 +102,49 @@ expr_type(prov, e, t) :- java_expression(_, _, _, _, _, _, _, _, _, _, name, _, 
     local_var_type_resolves(prov, local, _, t).
 
 // ── this — the enclosing type (always client) ───────────────────────────────
+// A QUALIFIED this is excluded: it names its own type and is handled below. Without the guard the
+// site acquires BOTH types and an exact answer degrades to a two-way multi_inferred, which trades
+// a wrong answer for an imprecise one instead of fixing it.
 expr_type("client", e, t) :- java_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, "THIS", _, _, _, _, _, _, _, _, _, e),
+    !qualified_this(e, _),
     expr_ultimate_type("client", e, t).
+
+// ── QUALIFIED this (`Outer.this`) — the type it NAMES, not the innermost enclosing one ──────
+// The parser emits it as a THIS-kinded node carrying a TYPE-kinded QUALIFIER child, with the
+// enclosing type already resolved in potentialQualifiedName (or, for a simple name the extractor
+// could not qualify, resolvable in the file's scope exactly as a static qualifier is).
+//
+// Typed as the enclosing class instead, an inner class calling `Outer.this.m()` is answered with
+// its OWN m whenever the names collide — a wrong known_edge, and one that reads as a self-recursive
+// method to any consumer traversing it — and with nothing at all when they do not collide. The
+// collision is not the rare case: a name clash is what forces the qualification in the first place.
+//
+// These rules deliberately do NOT read expr_type for the qualifier. Doing so would put expr_type in
+// a cycle with the negation above and leave the rule set unstratified; resolving the qualifier from
+// the same base facts the static-qualifier rules use keeps qualified_this in a lower stratum.
+qualified_this_names(e, t) :- java_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, "THIS", _, _, _, _, _, _, _, _, _, e),
+    java_expression(_, "QUALIFIER", _, _, _, _, e, _, _, _, _, _, _, _, "TYPE", _, _, pqn, _, _, _, _, _, _, _),
+    pqn != "",
+    java_type(_, pqn, _, _, _, _, _, _, _, _, _, _, _, t).
+qualified_this_names(e, t) :- java_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, "THIS", _, _, _, _, _, _, _, _, _, e),
+    java_expression(_, "QUALIFIER", _, _, _, _, e, _, _, _, name, _, _, _, "TYPE", _, _, "", _, _, _, _, _, _, _),
+    name != "",
+    expr_ultimate_type("client", e, encl),
+    java_type(_, _, _, _, _, _, _, file, _, _, _, _, _, encl),
+    type_resolves_in_file("client", name, file, t).
+
+// ...and only when the named type actually ENCLOSES the expression. `Outer.this` is legal only
+// inside Outer or something nested in it, so requiring the nesting (type_in_type, reconstructed
+// from line ranges in containment/type-nesting.dl) keeps the rule from typing a receiver off an
+// unrelated type whose simple name happens to resolve. The second clause is `Outer.this` written
+// in Outer itself, where the named type IS the enclosing one and nothing is strictly nested.
+qualified_this(e, t) :- qualified_this_names(e, t),
+    expr_ultimate_type("client", e, encl),
+    type_in_type("client", encl, t).
+qualified_this(e, t) :- qualified_this_names(e, t),
+    expr_ultimate_type("client", e, t).
+
+expr_type("client", e, t) :- qualified_this(e, t).
 
 // ── super — the enclosing type's direct parent (client or lib) ──────────────
 expr_type("client", e, t) :- java_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, "SUPER", _, _, _, _, _, _, _, _, _, e),
