@@ -9,7 +9,10 @@
 # scores the client against stale library signatures. The stamp file records which parser
 # revision produced the tree, and --check reports drift without rebuilding.
 #
-#   build-jdk-ir.sh [--src DIR] [--out DIR] [--parser FILE] [--check] [--force] [module ...]
+#   build-jdk-ir.sh [--src DIR] [--out DIR] [--parser FILE] [--check] [--force]
+#                   [--keep-stale] [module ...]
+#
+# RE-RUN IT ON EVERY JAVA PARSER CHANGE. A stale tree is DELETED and regenerated, never patched.
 #
 # defaults:
 #   --src     $AXIOM_JDK_SRC    (a jdk source checkout: <src>/<module>/share/classes)
@@ -21,10 +24,10 @@ set -uo pipefail
 SRC="${AXIOM_JDK_SRC:-/Users/swapnilpaliwal/Documents/Java-Projects/java/jdk26u/src}"
 OUT="${AXIOM_JDK_IR:-/Users/swapnilpaliwal/Documents/AxiomCode/jdk}"
 PARSER="${AXIOM_PARSER:-/Users/swapnilpaliwal/Documents/AxiomCode/Parser/dist/index.js}"
-CHECK=0; FORCE=0; ONLY=()
+CHECK=0; FORCE=0; KEEP_STALE=0; ONLY=()
 while [ $# -gt 0 ]; do case "$1" in
   --src) SRC="$2"; shift 2;; --out) OUT="$2"; shift 2;; --parser) PARSER="$2"; shift 2;;
-  --check) CHECK=1; shift;; --force) FORCE=1; shift;;
+  --check) CHECK=1; shift;; --force) FORCE=1; shift;; --keep-stale) KEEP_STALE=1; shift;;
   -h|--help) sed -n '2,20p' "$0"; exit 0;; *) ONLY+=("$1"); shift;; esac; done
 
 [ -d "$SRC" ]  || { echo "no jdk source at $SRC" >&2; exit 1; }
@@ -55,6 +58,17 @@ fi
 MODULES=()
 while IFS= read -r line; do MODULES+=("$line"); done < <(for d in "$SRC"/*/share/classes; do [ -d "$d" ] || continue; basename "$(dirname "$(dirname "$d")")"; done | sort)
 if [ ${#ONLY[@]} -gt 0 ]; then MODULES=("${ONLY[@]}"); fi
+
+# A STALE TREE IS DELETED, NOT PATCHED. The IR is only meaningful as the output of ONE parser
+# revision: leaving modules behind from an earlier one produces a tree that is partly current and
+# reports itself as current, which is the failure this stamp exists to prevent. A module the new
+# revision no longer produces would also survive forever. So when the stamp does not match, the
+# whole tree goes. Pass --keep-stale to override (for bisecting a single module).
+STAMPED="$(head -1 "$STAMP" 2>/dev/null || echo '')"
+if [ -d "$OUT" ] && [ "$STAMPED" != "$PARSER_REV" ] && [ "$KEEP_STALE" = 0 ]; then
+  echo "!! jdk IR at $OUT was built by parser ${STAMPED:-'(unstamped)'}, now $PARSER_REV — DELETING and regenerating"
+  rm -rf "$OUT"
+fi
 
 mkdir -p "$OUT"
 echo "jdk source : $SRC"
