@@ -633,7 +633,7 @@ functions in Corpus A with **161** of them appearing as resolved call targets, s
 | 4 | `filePath` [J] | 1 | |
 | 5 | `startLine` [J] | 1 | |
 | 6 | `endLine` [J] | 1 | |
-| 7 | `tsTypeLinkHash` [J] | 1 | **the owning type OR shape.** FK→`ts_type` normally; FK→`ts_type_reference` when `methodKind` is a `TYPE_LITERAL_*`, `FUNCTION_TYPE_SIGNATURE` or `CONSTRUCTOR_TYPE_SIGNATURE` value (§4.8.1). `""` only where no owner exists — a module-level function, an arrow, `MODULE_INITIALIZER` |
+| 7 | `tsTypeLinkHash` [J] | 1 | **the owning type, shape OR literal.** FK→`ts_type` normally; FK→`ts_type_reference` when `methodKind` is a `TYPE_LITERAL_*`, `FUNCTION_TYPE_SIGNATURE` or `CONSTRUCTOR_TYPE_SIGNATURE` value (§4.8.1); FK→`ts_expression` when the member sits in an object LITERAL — `OBJECT_LITERAL_METHOD`, and a `GETTER`/`SETTER` inside one (OQ-10, now closed). The three prefixes differ, so a rule joining the wrong relation finds NO match rather than a wrong one. `""` only where no owner exists — a module-level function, an arrow, `MODULE_INITIALIZER` |
 | 8 | `ownerTypeName` [J] | 1 | |
 | 9 | `ownerQualifiedName` [J] | 1 | |
 | 10 | `methodAccess` [J] | 1 | `PUBLIC_ACCESS` \| `PRIVATE_ACCESS` \| `PROTECTED_ACCESS` \| `PRIVATE_NAME_ACCESS` (`#m`) \| `EXPORTED_ACCESS` \| `MODULE_LOCAL_ACCESS` |
@@ -1755,21 +1755,26 @@ JSDoc parse (`ts_comment.jsDocTags`), and `ts_type` rows would have to be synthe
 this one. The relations already tolerate it — `ts_module.scriptKind` has `JS`/`JSX`,
 `ts_comment.commentKind` has `JSDOC` — so nothing has to be reserved beyond what is there.
 
-### 10.4 Open — OQ-10, object-literal members  *(surfaced 2026-08-27)*
+### 10.4 Closed — OQ-10, object-literal members  *(surfaced 2026-08-27, closed 2026-09-01)*
 
-`{ m() { … } }` as a **value** — an object literal, not a type literal. Its members
-(`OBJECT_LITERAL_METHOD` 16 rows, and any `GETTER`/`SETTER` inside one) have an owner that is
-neither a `ts_type` nor a `ts_type_reference`: it is a `ts_expression` row of kind
-`OBJECT_LITERAL`. The same widening would extend to it — c8/c7 pointing at a third relation,
-discriminated by the same column — and prefixes stay distinct, so it is still fail-safe.
+`{ m() { … } }` as a **value**. Its members have an owner that is neither a `ts_type` nor a
+`ts_type_reference`: it is a `ts_expression` row of kind `OBJECT_LITERAL`. The widening
+described in §4.8.1 now extends to it — c7 pointing at a third relation, discriminated by the
+same column, prefixes still distinct.
 
-I have **not** taken it, for one reason: unlike the type-literal case, I have no measurement
-that a call ever resolves to an object-literal member through the *fact base* rather than
-through the variable that holds the literal. `const api = { run() {} }; api.run()` may already
-close via `ts_variable` → its type → the member. Before widening a spine FK to a third relation
-I want the count, and getting it means measuring which of those 16 are reachable by an existing
-path. Flagged rather than folded into §4.8.1, because bundling an unmeasured case with a
-measured one is how a schema acquires columns nobody can justify later.
+It was held for a measurement, and the measurement that arrived is not the one anticipated
+here. The question asked was whether a call ever resolves to an object-literal member *through
+the fact base* rather than through the variable holding the literal. **It does not** —
+`const api = { run() {} }; api.run()` closes via `ts_variable` → `typeReferenceLinkHash` → the
+declared type → its member, and that path was confirmed working. So the REVERSE direction never
+needed this.
+
+The FORWARD direction does, and that is what was measured instead: typing a literal member's
+own parameters from the literal's contextual annotation. `const ctx: Ctx = { push(code) { … } }`
+gives `code` its type through `Ctx.push`, and reaching it needs five hops. Four already
+existed — literal → variable (`initializerExpressionLinkHash`), variable → its declared type,
+the type, its member signature. Only member → literal was missing, so one link completed a
+chain rather than starting one.
 
 ### 10.5 Still open — nothing else
 

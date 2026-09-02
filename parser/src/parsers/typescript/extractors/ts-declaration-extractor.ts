@@ -210,6 +210,16 @@ export class TsDeclarationExtractor {
    */
   private readonly pendingMemberTypeLinks: { row: TsFieldRegistry; node: ts.TypeNode }[] = [];
 
+  /**
+   * Object-literal members awaiting the hash of the literal that owns them.
+   *
+   * §4.8.1 widened this FK to "the owning type OR shape". An object literal is a
+   * third kind of owner -- a `ts_expression` row -- and OQ-10 left it open
+   * pending a measurement. The literal's row is emitted by the expression pass,
+   * so the link is made after it.
+   */
+  readonly pendingLiteralOwnerLinks: { row: TsMethodRegistry; node: ts.Node }[] = [];
+
   /** Type-level parameters whose constraint the enclosing type's tree emits. */
   private readonly pendingConstraintLinks:
     { row: TsTypeParameterRegistry; node: ts.TypeNode }[] = [];
@@ -1492,6 +1502,15 @@ export class TsDeclarationExtractor {
       // half of c16 the widening added: an IIFE's callee is now reachable by FK
       // rather than by matching positions.
       this.anonymousDeclarationByNode.set(nodeId(node, this.sf), row.getHash());
+    }
+    // A member of an object LITERAL is owned by that literal -- a ts_expression
+    // row, the third owner kind §4.8.1 anticipated. Without it the member has no
+    // owner at all, so its parameters cannot be typed from the literal's
+    // contextual annotation: `const ctx: Ctx = { push(code) { … } }` types `code`
+    // through the literal, and that was the one hop missing from a chain whose
+    // other four links already exist.
+    if (node.parent !== undefined && ts.isObjectLiteralExpression(node.parent)) {
+      this.pendingLiteralOwnerLinks.push({ row, node: node.parent });
     }
     this.recordOverloadCandidate(row, context, body !== undefined);
 

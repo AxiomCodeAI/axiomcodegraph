@@ -320,6 +320,16 @@ export function extractTypeScriptFile(options: TsFileExtractionOptions): TsFileF
   // lever — 440 type predicates measured), a mixin base, an enum member's value,
   // `export default <expr>`, a dynamic import. Each is a chain an engine can
   // follow, and each was empty until the hash existed to fill it.
+  // An object-literal member's owner is the literal itself -- a ts_expression
+  // row. Resolved from the extractor's per-node index rather than the walker's
+  // ROOT index, so a literal that is an argument or nested inside another
+  // literal is reached too, not only one that initialises a variable.
+  for (const pending of declarations.pendingLiteralOwnerLinks) {
+    const owner = expressions.rowByNode.get(nodeId(pending.node, sourceFile));
+    if (owner !== undefined) {
+      pending.row.setTsTypeLinkHash(owner.getHash());
+    }
+  }
   for (const pending of declarations.pendingExpressionLinks) {
     const hash = walker.rootHashByNode.get(nodeId(pending.node, sourceFile));
     if (hash !== undefined && hash !== '') {

@@ -2727,6 +2727,93 @@ async function typeVariablesNameTheirParameter(): Promise<number> {
   return failures.length ? 1 : 0;
 }
 
+// ---------------------------------------------------------------------------
+// 28. An object-literal member names the literal that owns it
+// ---------------------------------------------------------------------------
+
+/**
+ * `const ctx: Ctx = { push(code) { … } }` types `code` through `Ctx.push`.
+ *
+ * Reaching it takes five hops, and four already existed: literal to variable
+ * (`initializerExpressionLinkHash`), variable to its declared type, the type,
+ * its member signature. Only member to literal was missing, so the member had
+ * no owner at all and its parameters could not be typed from context.
+ *
+ * The owner is a `ts_expression` row -- the third relation c7 points at, after
+ * `ts_type` and `ts_type_reference`. The three prefixes differ, so a rule
+ * joining the wrong one finds NO match rather than a wrong one, which is what
+ * makes a polymorphic FK safe here.
+ *
+ * The literal is found through the expression extractor's per-node index rather
+ * than the walker's ROOT index, so a literal passed as an ARGUMENT or nested in
+ * another literal is covered too -- those are not roots, and a root-only lookup
+ * would silently cover only the variable-initialiser case.
+ */
+async function objectLiteralMembersNameTheirLiteral(): Promise<number> {
+  if (!parserPresent()) {
+    return pendingCheck('object-literal members name their literal',
+      'no extractor yet. A member of an object literal must name the literal that owns it');
+  }
+  const { outputDir, cleanup } = await analyseInline('ts-objlit-', {
+    'o.ts': [
+      'interface Ctx { push(code: string, n?: number): void; indent(): void }',
+      'declare function run(c: Ctx): void;',
+      'export function make(): Ctx {',
+      '  const ctx: Ctx = {',
+      '    push(code, n) { code.trim(); void n; },',
+      '    indent() {},',
+      '  };',
+      '  run({ push(c) { void c; }, indent() {} });',   // literal as an ARGUMENT
+      '  const outer = { inner: { deep() { return 1; } } };',  // NESTED literal
+      '  void outer;',
+      '  return ctx;',
+      '}',
+    ].join('\n'),
+  });
+
+  const expressions = new Map(relation(outputDir, 'all-typescript-expressions.csv')
+    .map((e) => [e.tsExpressionUniqueHash ?? '', e]));
+  const variables = relation(outputDir, 'all-typescript-variables.csv');
+  const members = relation(outputDir, 'all-typescript-methods.csv')
+    .filter((m) => m.methodKind === 'OBJECT_LITERAL_METHOD');
+  const failures: string[] = [];
+
+  if (members.length < 5) {
+    failures.push(`expected at least 5 object-literal methods, found ${members.length} — the ` +
+      'argument and nested forms may not be exercised');
+  }
+  for (const member of members) {
+    const owner = expressions.get(member.tsTypeLinkHash ?? '');
+    if ((member.tsTypeLinkHash ?? '') === '') {
+      failures.push(`${member.name}: no owner — the member cannot be typed from the literal`);
+    } else if (!owner) {
+      failures.push(`${member.name}: owner FK is DANGLING`);
+    } else if (owner.kind !== 'OBJECT_LITERAL') {
+      failures.push(`${member.name}: owner is a ${owner.kind}, expected OBJECT_LITERAL`);
+    }
+  }
+
+  // The whole chain, end to end: the point is not the link but what it completes.
+  const push = members.find((m) => m.name === 'push' && m.tsTypeLinkHash !== '');
+  if (push) {
+    const holder = variables.find((v) => v.initializerExpressionLinkHash === push.tsTypeLinkHash);
+    if (!holder) {
+      failures.push('the literal owning `push` is not the initializer of any variable — hop 2 ' +
+        'of the chain is broken');
+    } else if ((holder.typeReferenceLinkHash ?? '') === '') {
+      failures.push(`the variable ${holder.name} has no declared type — hop 3 is broken`);
+    }
+  } else {
+    failures.push('no owned `push` member to walk the chain from');
+  }
+
+  console.log(`  ${members.length} object-literal member(s) name their literal, argument and ` +
+    'nested forms included; the member-to-type chain walks end to end');
+  for (const f of failures.slice(0, 10)) console.log(`  ${f}`);
+  cleanup();
+  return failures.length ? 1 : 0;
+}
+
 const CHECKS: Check[] = [
   { name: 'compiles', proves: 'tsc --noEmit is clean — the suite reports on code that actually builds', run: compiles },
   { name: 'fixtures compile and are isolated', proves: 'a fixture is a valid input, and cannot break another language\'s gate', run: fixturesCompile },
@@ -2752,6 +2839,7 @@ const CHECKS: Check[] = [
   { name: 'type references name their entity', proves: 'a reference carries the written name without type arguments, so a scope lookup needs no string surgery', run: typeReferencesNameTheirEntity },
   { name: 'constrained type parameters name their bound', proves: 'a bound and a default are reachable as rows for every owner kind, type-level ones included', run: constrainedTypeParametersNameTheirBound },
   { name: 'type variables name their parameter', proves: 'a type-variable reference links the parameter that declares it, shadowing respected, so substitution has a starting point', run: typeVariablesNameTheirParameter },
+  { name: 'object-literal members name their literal', proves: 'a literal member has an owner, so its parameters can be typed from the literal contextual annotation', run: objectLiteralMembersNameTheirLiteral },
   { name: 'column order is append-only', proves: 'a column is never inserted mid-table, because Souffle binds by position and misbinds silently', run: columnOrderIsAppendOnly },
   { name: 'fact-base invariants', proves: 'every PK unique, every FK resolves, every tree well-formed — the failures that load cleanly and count wrong', run: factBaseInvariants },
   { name: 'IR completeness', proves: 'every hop an engine needs in order to resolve is present — the measure that replaced resolution rate', run: irCompleteness },

@@ -50,7 +50,7 @@ export class TsMethodRegistry implements EntityIdentifiable {
   readonly filePath: string;
   readonly startLine: number;
   readonly endLine: number;
-  readonly tsTypeLinkHash: string;
+  tsTypeLinkHash: string;
   readonly ownerTypeName: string;
   readonly ownerQualifiedName: string;
   readonly methodAccess: TsMethodAccess;
@@ -214,6 +214,11 @@ export class TsMethodRegistry implements EntityIdentifiable {
 
   getSignatureRole(): TsSignatureRole {
     return this.signatureRole;
+  }
+
+  /** An object-literal member's owner is known only once the literal is emitted. */
+  setTsTypeLinkHash(hash: string): void {
+    this.tsTypeLinkHash = hash;
   }
 
   setReturnTypeReferenceLinkHash(hash: string): void {
