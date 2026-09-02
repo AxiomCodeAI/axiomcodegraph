@@ -333,6 +333,22 @@ binding_declared_nominal(p, bind, d) :-
 // "Expr" and no FK, and resolving it needs the module-alias hop rather than a lookup in
 // the binding's own module. 81 of 479 on one corpus, left for a separate change rather
 // than guessed at -- resolving "Expr" in the wrong module would be a wrong answer.
+// A DOTTED annotation -- `agg: exp.Expr`, where `exp` is a module alias. #123 shipped
+// without this and said so: the FK is unresolved on 108 of 117 dotted annotations, and
+// resolving the head name "Expr" in the binding's own module would find the wrong class
+// or none.
+//
+// The annotation is an EXPRESSION, which is what makes this four lines instead of string
+// surgery. All 81 dotted variable annotations on one corpus carry a pyExpressionLinkHash
+// pointing at an ATTRIBUTE_ACCESS with rootContext=ANNOTATION, and expr_attr_names_type
+// already resolves `module.Type` through the import that binds the alias. Both relations
+// existed; nothing read them together.
+binding_declared_nominal(p, bind, d) :-
+    binding_declared_ref(p, bind, r),
+    type_ref_expr(p, r, e),
+    expr_attr_names_type(p, e, d),
+    !type_is_structural(p, d).
+
 binding_declared_nominal(p, bind, d) :-
     binding_declared_ref(p, bind, r),
     type_ref(p, k, "VARIABLE_ANNOTATION", tn, _, r),

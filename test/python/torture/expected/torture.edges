@@ -93,6 +93,7 @@ boundary_lib	METHOD_CALL	f25_var_params.annotated_kwargs -> builtin:dict.get
 boundary_lib	METHOD_CALL	f25_var_params.annotated_varargs -> builtin:tuple.count
 boundary_lib	METHOD_CALL	f25_var_params.collect -> builtin:tuple.count
 boundary_lib	METHOD_CALL	f26_local_annotation.from_builtin_annotation -> builtin:set.add
+boundary_lib	METHOD_CALL	f26_local_annotation.from_dotted_annotation -> builtin:object.__init__
 boundary_lib	METHOD_CALL	main.main -> builtin:object.__init__
 boundary_lib	SELF_CALL	f02_callables.HoldsCallables.run -> lib:tlib.callables.Doubler.__call__
 boundary_lib	SELF_CALL	f09_adversarial.Rebound.use -> lib:tlib.callables.Doubler.__call__
@@ -173,6 +174,7 @@ boundary_lib	SIMPLE_CALL	f26_local_annotation.from_builtin_annotation -> builtin
 boundary_lib	SIMPLE_CALL	f26_local_annotation.from_builtin_annotation -> lib:tlib.callables.passthrough
 boundary_lib	SIMPLE_CALL	f26_local_annotation.from_class_annotation -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f26_local_annotation.from_class_annotation -> lib:tlib.callables.passthrough
+boundary_lib	SIMPLE_CALL	f26_local_annotation.from_dotted_annotation -> lib:tlib.callables.passthrough
 boundary_lib	SIMPLE_CALL	f27_with_target.make -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f27_with_target.via_self_enter -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object
@@ -242,6 +244,7 @@ known_edge	METHOD_CALL	f21_module_alias.call_function_through_alias -> aliaspkg.
 known_edge	METHOD_CALL	f22_typeref_fk.build_via_dotted -> aliaspkg.deep.impl.Node.label
 known_edge	METHOD_CALL	f22_typeref_fk.build_via_dotted -> aliaspkg.deep.impl.build_node
 known_edge	METHOD_CALL	f22_typeref_fk.label_via_dotted -> aliaspkg.deep.impl.Node.label
+known_edge	METHOD_CALL	f26_local_annotation.from_dotted_annotation -> repkg.inner.leaf.Widget.emit
 known_edge	METHOD_CALL	f27_with_target.via_self_enter -> f27_with_target.SelfRes.label
 known_edge	METHOD_CALL	main.main -> f01_inheritance.client_chain
 known_edge	METHOD_CALL	main.main -> f01_inheritance.lib_deep_chain
@@ -358,6 +361,7 @@ known_edge	METHOD_CALL	main.main -> f25_var_params.annotated_varargs
 known_edge	METHOD_CALL	main.main -> f25_var_params.collect
 known_edge	METHOD_CALL	main.main -> f26_local_annotation.from_builtin_annotation
 known_edge	METHOD_CALL	main.main -> f26_local_annotation.from_class_annotation
+known_edge	METHOD_CALL	main.main -> f26_local_annotation.from_dotted_annotation
 known_edge	METHOD_CALL	main.main -> f27_with_target.via_declared_enter
 known_edge	METHOD_CALL	main.main -> f27_with_target.via_self_enter
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator
