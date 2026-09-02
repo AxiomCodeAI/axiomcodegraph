@@ -120,3 +120,15 @@ export class ShadowBox<T extends HasIdent> {
     return x.label();             // -> HasLabel.label     (the METHOD's T, shadowing)
   }
 }
+
+// ── an ARROW assigned to a variable annotated with a FUNCTION TYPE ──────────
+// Neither parameter is annotated; both are typed by the alias on the const. This is
+// how a typed handler, transform or visitor is written, and the contextual rules
+// covered only lambdas passed as ARGUMENTS, never this.
+export interface ArrowCtx { emitTo(code: string): void }
+export type ArrowHandler = (ctx: ArrowCtx, label: string) => void;
+
+export const handleArrow: ArrowHandler = (ctx, label) => {
+  ctx.emitTo(label);     // -> ArrowCtx.emitTo, only if `ctx` is typed from the alias
+  label.trim();          // -> String.trim
+};
