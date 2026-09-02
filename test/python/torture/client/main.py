@@ -24,6 +24,7 @@ import f21_module_alias as f21
 import f22_typeref_fk as f22
 import f23_typevar_bound as f23
 import f24_star_all as f24
+import f25_var_params as f25
 from tlib import Square
 from tlib.shapes import Base, Mid
 
@@ -87,6 +88,7 @@ def main() -> None:
     print(f22.label_via_dotted(f22.impl.Node()), f22.build_via_dotted())
     print(f23.via_opaque_value(), f23.via_concrete_argument(), f23.constrained(1))
     print(f24.via_star_export(), f24.absent_from_all(), f24.absent_by_underscore())
+    print(f25.Holder(a='x').lookup('a'), f25.collect(1, 2, 1), f25.annotated_kwargs(a='y'), f25.annotated_varargs(1, 2, 1))
 
 
 if __name__ == "__main__":
