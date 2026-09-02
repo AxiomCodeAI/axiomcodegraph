@@ -95,10 +95,16 @@ for m in "${MODULES[@]}"; do
   # emits nothing. That is EMPTY, not failed — reporting it as a failure makes the exit status
   # useless for spotting a real one.
   if [ "$n" -le 1 ]; then rm -rf "$dest.tmp"; printf "  -- %-24s empty (module-info only)\n" "$m"; empty=$((empty+1)); continue; fi
+  # ANNOUNCE THE MODULE BEFORE STARTING IT. The parser writes nothing until it finishes a
+  # module and the largest one takes minutes, so reporting only on completion makes a healthy
+  # run look dead for its first several minutes — indistinguishable from being hung.
+  printf "  .. %-24s %5s files ...\n" "$m" "$n"
   if node "$PARSER" "$cls" "jdk-$m" true "$dest.tmp" >"$OUT/.$m.log" 2>&1 && [ -f "$dest.tmp/all-types.csv" ]; then
     rm -rf "$dest"; mv "$dest.tmp" "$dest"          # atomic: a killed run never leaves a half IR
     t=$(( $(wc -l < "$dest/all-types.csv") - 1 )); mm=$(( $(wc -l < "$dest/all-methods.csv") - 1 ))
-    printf "  ok %-24s %5s files -> %6s types %7s methods\n" "$m" "$n" "$t" "$mm"; ok=$((ok+1))
+    ok=$((ok+1))
+    printf "  ok %-24s %5s files -> %6s types %7s methods   [%d/%d]\n" \
+           "$m" "$n" "$t" "$mm" "$((ok+skip+empty+fail))" "${#MODULES[@]}"
   else
     rm -rf "$dest.tmp"; printf "  FAIL %-22s (see %s)\n" "$m" "$OUT/.$m.log"; fail=$((fail+1))
   fi
