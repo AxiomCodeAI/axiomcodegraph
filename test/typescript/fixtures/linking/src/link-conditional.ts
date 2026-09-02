@@ -132,3 +132,18 @@ export const handleArrow: ArrowHandler = (ctx, label) => {
   ctx.emitTo(label);     // -> ArrowCtx.emitTo, only if `ctx` is typed from the alias
   label.trim();          // -> String.trim
 };
+
+// ── an OBJECT-LITERAL METHOD typed by the annotation on the variable ────────
+// `code` carries no annotation; it is typed by LitCtx.write's first parameter. The
+// method is reached through the literal's EXPRESSION, which is the only link that
+// connects it to the annotation — an object-literal method has no declared owner type.
+export interface LitCtx {
+  write(code: string, times?: number): void;
+}
+
+export const litCtx: LitCtx = {
+  write(code, times) {
+    code.trim();          // -> String.trim, only if `code` is typed from LitCtx
+    void times;
+  },
+};
