@@ -7,6 +7,8 @@
 .decl binding_is_namespace(c0:symbol,c1:symbol)
 .decl binding_rebinding(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
 .decl binding_annotation(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
+.decl binding_declared_ref(c0:symbol,c1:symbol,c2:symbol)
+.decl binding_declared_nominal(c0:symbol,c1:symbol,c2:symbol)
 .decl binding_pre_target(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl binding_owner(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl call_decl(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol)

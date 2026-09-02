@@ -165,6 +165,15 @@ expr_builtin_type(p, e, b) :-
     call_name(site, n),
     builtin_method_returns(rb, n, b).
 
+// (e0) a local whose ANNOTATION names a builtin: `visited: set[int]`. Read from the
+//      type-reference row's head rather than the binding's raw declaredBaseType (#123).
+expr_builtin_type(p, e, b) :-
+    expr_binding(p, bref, ctx, e), ctx != "STORE",
+    binding_lookup(p, bref, bind),
+    binding_declared_ref(p, bind, r),
+    type_ref(p, _, "VARIABLE_ANNOTATION", tn, _, r),
+    builtin_container_alias(tn, b).
+
 // (e) a single-binding local holding any of the above.
 expr_builtin_type(p, e, b) :-
     expr_binding(p, bref, ctx, e), ctx != "STORE",

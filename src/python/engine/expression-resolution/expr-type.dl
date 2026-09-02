@@ -298,6 +298,60 @@ call_returns_type(site, t) :-
 expr_any_type(p, e) :- expr_type(p, e, _).
 expr_any_type(p, e) :- expr_type_class_object(p, e, _).
 
+// ── A LOCAL VARIABLE'S ANNOTATION (issue #123) ───────────────────────────────
+// PEP 526. The engine read annotations on parameters, fields and returns and ignored the
+// one on a local, so `visited: set[int] = set()` left `visited.add(...)` unresolved -- and
+// `agg: exp.Expr = ...` lost a CLIENT edge, not merely a boundary label.
+//
+// Read from the TYPE-REFERENCE table, not from py_binding.declaredBaseType. The binding
+// column carries the raw spelling (`dict[str, t.Any]`) and would need parsing; the
+// reference row states the head as typeName with a kind, and resolves an FK where the
+// annotation names a class in the tree. That is the distinction #47 exists to record.
+//
+// binding_annotation was already projected for these columns and had NO consumers -- the
+// third unread projection found in one sweep, after module_exports (#105) and param_kind's
+// var-parameter kinds (#111).
+binding_declared_ref(p, bind, r) :-
+    type_ref_owner(p, bind, "BINDING", r),
+    type_ref(p, _, "VARIABLE_ANNOTATION", _, _, r).
+
+// ── binding_declared_nominal(Prov, BindingHash, TypeHash) ────────────────────
+// The annotation names a class in the analysed tree. Structural types are excluded for
+// the reason 5facef0 recorded: nothing is ever nominally an instance of a Protocol, and
+// treating one as authoritative resolves to its own `...` stub and LOSES an edge.
+binding_declared_nominal(p, bind, d) :-
+    binding_declared_ref(p, bind, r),
+    type_ref_resolved(p, d, r),
+    !type_is_structural(p, d).
+// The FK is resolved on only 14 of 479 variable annotations, so the name-based lookup
+// beside it is what carries this -- the same two clauses the parameter path uses, with
+// the same kind restriction. A SUBSCRIPT or a UNION names no single type and is served by
+// the builtin/element rules instead, and conflating them would type a container AS its
+// element.
+//
+// DOTTED_NAME is deliberately NOT handled here: `agg: exp.Expr` arrives with typeName
+// "Expr" and no FK, and resolving it needs the module-alias hop rather than a lookup in
+// the binding's own module. 81 of 479 on one corpus, left for a separate change rather
+// than guessed at -- resolving "Expr" in the wrong module would be a wrong answer.
+binding_declared_nominal(p, bind, d) :-
+    binding_declared_ref(p, bind, r),
+    type_ref(p, k, "VARIABLE_ANNOTATION", tn, _, r),
+    annotation_single_name_kind(k), tn != "",
+    binding_owner(p, mod, _, bind),
+    type_name_in_module(p, mod, tn, d),
+    !type_is_structural(p, d).
+
+// AN ANNOTATION IS A DECLARED TYPE, NOT AN EXACT ONE, so it goes out through
+// declared_dispatch and is registered with call_recv_declared in dispatch.dl. Without
+// that the annotated class goes out ALONE as known_edge at every site an override runs.
+// That failure has now occurred four times here -- tuple unpacking, container element
+// types, TypeVar bounds, type[T] construction -- and the gate belongs in the same change.
+expr_type(p, e, t) :-
+    expr_binding(p, bref, ctx, e), ctx != "STORE",
+    binding_lookup(p, bref, bind),
+    binding_declared_nominal(p, bind, d),
+    declared_dispatch(p, d, t), p = "client".
+
 // ── expr_type_untypable(Prov, ExprHash, Reason) ──────────────────────────────
 // A receiver expression the engine cannot type, WITH THE REASON — which is the whole
 // difference between a report and a shrug.
