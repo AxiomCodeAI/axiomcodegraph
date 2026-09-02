@@ -1,20 +1,20 @@
 ── client/library boundary (compiler's path vs engine's provenance) ──
-  sites adjudicable            93
-  agree  client -> client      20
+  sites adjudicable            95
+  agree  client -> client      22
   agree  client -> library     72
   right side, plus another     1   (a fan that crosses the boundary)
   MISCLASSIFIED                0
 
 ── call-graph edges (caller declaration -> target declaration) ──
-  oracle edges                 100
-  engine has                   92   0.920
+  oracle edges                 102
+  engine has                   94   0.922
   oracle edges MISSING         8
   engine-only (the fan)        9
 
 ── chains from every uncalled client declaration ──
-  roots                        60
-  oracle-reachable declarations 97
-  engine reaches                89   0.918
+  roots                        62
+  oracle-reachable declarations 99
+  engine reaches                91   0.919
   deepest oracle hop            4
   deepest hop the engine holds  4
   UNREACHED (root, lost declaration, hop):  8

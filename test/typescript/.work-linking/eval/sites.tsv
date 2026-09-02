@@ -44,6 +44,8 @@ EXACT	src/link-conditional.ts	86	3	METHOD_CALL	getMeta	1	0	cond-api.d.ts:53:5	co
 EXACT	src/link-conditional.ts	96	30	FUNCTION_CALL	makeBindCtx	1	0	link-conditional.ts:101:1	link-conditional.ts:101:1
 SOUND_SUPERSET	src/link-conditional.ts	97	3	FUNCTION_CALL	emitOne	1	0	link-conditional.ts:74:3	link-conditional.ts:102:24;link-conditional.ts:74:3
 EXACT	src/link-conditional.ts	98	10	METHOD_CALL	deeper	1	0	link-conditional.ts:75:12	link-conditional.ts:75:12
+EXACT	src/link-conditional.ts	117	12	METHOD_CALL	identify	1	0	link-conditional.ts:112:22	link-conditional.ts:112:22
+EXACT	src/link-conditional.ts	120	12	METHOD_CALL	label	1	0	link-conditional.ts:113:22	link-conditional.ts:113:22
 EXACT	src/link-crosspkg-reexport.ts	17	10	FUNCTION_CALL	probeOf	1	0	probe-core.d.ts:4:1	probe-core.d.ts:4:1
 EXACT	src/link-crosspkg-reexport.ts	21	10	FUNCTION_CALL	probeCount	1	0	probe-core.d.ts:9:1	probe-core.d.ts:9:1
 EXACT	src/link-crosspkg-reexport.ts	25	10	METHOD_CALL	toBeAssignableTo	1	0	probe-core.d.ts:6:3	probe-core.d.ts:6:3

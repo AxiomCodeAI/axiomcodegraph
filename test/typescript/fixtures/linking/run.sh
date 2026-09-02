@@ -153,6 +153,14 @@ require_resolved link-conditional.ts emitOne \
 require_resolved link-conditional.ts deeper \
   "a field member reached through a destructured variable or parameter"
 
+# A method type variable shadowing its class's. Both are `T`; only the exact
+# declaration link tells them apart, so a regression here shows up as one of these
+# dispatching against the other's constraint.
+require_resolved link-conditional.ts identify \
+  "the class's T dispatches against the class's constraint"
+require_resolved link-conditional.ts label \
+  "the method's T shadows it and dispatches against its own"
+
 # The fixture answers only where it is sure: a WRONG answer here is a rule that
 # manufactures confidence, which is worse than the missing edge it replaces.
 if ! grep -qE '^WRONG \(engine named, oracle disagrees\)[[:space:]]+0$' "$SCORE"; then
