@@ -91,7 +91,7 @@ def main() -> None:
     print(f23.via_opaque_value(), f23.via_concrete_argument(), f23.constrained(1))
     print(f24.via_star_export(), f24.absent_from_all(), f24.absent_by_underscore())
     print(f25.Holder(a='x').lookup('a'), f25.collect(1, 2, 1), f25.annotated_kwargs(a='y'), f25.annotated_varargs(1, 2, 1))
-    print(f26.from_builtin_annotation(), f26.from_class_annotation())
+    print(f26.from_builtin_annotation(), f26.from_class_annotation(), f26.from_dotted_annotation())
     print(f27.via_declared_enter(), f27.via_self_enter())
 
 
