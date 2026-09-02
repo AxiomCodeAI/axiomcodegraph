@@ -33,8 +33,24 @@ dist/
 # it: `git add -A` reported success, the file never entered the index, and the fixture
 # then asserted on a package staged from nowhere. Both lines are needed — git does not
 # descend into an excluded directory, so the directory itself must be re-included first.
-!test/typescript/fixtures/**/vendor/**/dist/
-!test/typescript/fixtures/**/vendor/**/dist/**
+# ...EXCEPT inside a fixture's vendored packages, in ANY language's test tree. A fixture
+# vendors a dependency whose PUBLISHED surface is a checked-in `dist/index.d.ts` — that
+# copy is hand-written source, never build output, and the point of the fixture is that
+# the manifest's `types` points into a directory the parser skips by name.
+#
+# `build` and `out` are here for the same reason `dist` is: the staging code looks for a
+# package's declarations in all three, so a fixture can legitimately vendor a package
+# that publishes into any of them. Covering only `dist` left the identical trap set for
+# the next one.
+#
+# Both lines per directory are needed — git does not descend into an excluded directory,
+# so the directory itself must be re-included before its contents can be.
+!test/**/vendor/**/dist/
+!test/**/vendor/**/dist/**
+!test/**/vendor/**/build/
+!test/**/vendor/**/build/**
+!test/**/vendor/**/out/
+!test/**/vendor/**/out/**
 build/
 out/
 lib-cov/
@@ -192,6 +208,17 @@ $RECYCLE.BIN/
 !src/**/*.sh
 !src/souffle/export_manifest.tsv
 !src/templates/*.map
+
+# ── Safety net: a fixture's INPUTS are enforced, not enumerated ──────────────
+# An earlier draft of this listed every source extension under every fixture directory.
+# That list is unmaintainable and was already wrong: it covered `fixtures/` but not
+# `cases/`, and a negation broad enough to cover both would also have re-included the
+# per-run work directories, which is how 122 generated files were committed once before.
+#
+# So the rules above stay narrow and `test/tools/no-ignored-fixtures.sh` enforces the
+# invariant directly: it fails the suite if any file present under test/ is ignored, and
+# if any vendored package's declared `types` is missing from the index. A guard that
+# checks the property beats a pattern list that tries to anticipate it.
 
 # ── Java engine test suite: per-run work dirs and the generated JDK index ─────
 test/java/.work/
