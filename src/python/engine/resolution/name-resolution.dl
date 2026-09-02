@@ -522,8 +522,49 @@ module_member_type(p, mod, n, t) :-
     import_scope(p, _, mod, i), mod != "",
     import_resolved_target(p, "TYPE", t, i),
     import_alias(p, _, n, i), n != "".
+
+// ── WHAT `from M import *` ACTUALLY EXPORTS (issue #105) ─────────────────────
+// Python does not export every member of M. It exports the names in M.__all__ when that
+// is defined, and otherwise every name not beginning with an underscore. Re-exporting the
+// rest makes a name resolvable that raises AttributeError at runtime -- and a spurious
+// member is a candidate TARGET, so when it is the only answer it is the confident-wrong
+// shape rather than mere noise. Measured before the fix: one corpus re-exported 511
+// members where the language exports 65.
+//
+// module_exports carries __all__ as a comma-separated list and has, until now, had NO
+// consumers -- the relation was projected and never read, so the parser already supplied
+// everything this needs.
+//
+// dunderAllIsStatic is the reason both halves exist. `__all__ = ["A", "B"]` can be read
+// literally; one built with `+=`, a comprehension or a conditional cannot, and reading a
+// partial value as authoritative would DROP real exports -- turning an over-approximation
+// into a missing edge, which is the worse failure. A non-static __all__ therefore falls
+// back to the underscore rule rather than being trusted.
+//
+// The comma padding on both sides is what makes this an exact token match: without it
+// `contains("Client", "AsyncClient,Auth")` is true and the guard leaks the very names it
+// exists to exclude.
+module_has_static_all(p, mod) :- module_exports(p, "true", "true", _, mod).
+
+// The two constants this needs, NAMED rather than written into a rule body. One is an IR
+// encoding detail (how the parser serialises the list) and the other is a rule of the
+// Python language; neither is a fact about any project, and stating them here is what
+// lets the literal gate tell the difference.
+dunder_all_separator(",").
+python_private_prefix("_").
+
+// Both halves are LANGUAGE SEMANTICS, not a heuristic tuned to what was measured, so this
+// is general by construction and correct on code none of these corpora resemble.
 module_member_type(p, mod, n, t) :-
-    module_reexports_all(p, mod, src), module_member_type(p, src, n, t).
+    module_reexports_all(p, mod, src), module_member_type(p, src, n, t),
+    module_exports(p, "true", "true", names, src),
+    dunder_all_separator(sep),
+    contains(cat(sep, cat(n, sep)), cat(sep, cat(names, sep))).
+module_member_type(p, mod, n, t) :-
+    module_reexports_all(p, mod, src), module_member_type(p, src, n, t),
+    !module_has_static_all(p, src),
+    python_private_prefix(pre),
+    substr(n, 0, 1) != pre.
 
 // ── module_member_method: RE-EXPORTED members, beside the declared ones ─────
 // A module exposes what it DECLARES plus what it RE-EXPORTS. The declared half is
@@ -539,8 +580,17 @@ module_member_method(p, mod, n, m) :-
     import_scope(p, _, mod, i), mod != "",
     import_resolved_target(p, "FUNCTION", m, i),
     import_alias(p, _, n, i), n != "".
+// The same two halves for functions -- see the note above module_has_static_all.
 module_member_method(p, mod, n, m) :-
-    module_reexports_all(p, mod, src), module_member_method(p, src, n, m).
+    module_reexports_all(p, mod, src), module_member_method(p, src, n, m),
+    module_exports(p, "true", "true", names, src),
+    dunder_all_separator(sep),
+    contains(cat(sep, cat(n, sep)), cat(sep, cat(names, sep))).
+module_member_method(p, mod, n, m) :-
+    module_reexports_all(p, mod, src), module_member_method(p, src, n, m),
+    !module_has_static_all(p, src),
+    python_private_prefix(pre),
+    substr(n, 0, 1) != pre.
 
 
 // ============================================================================

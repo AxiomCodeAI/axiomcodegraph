@@ -1,5 +1,7 @@
 ambiguous_unknown	CHAINED_CALL	f08_dynamic.dict_dispatch_computed_key -> -
 ambiguous_unknown	CHAINED_CALL	f08_dynamic.dict_dispatch_static_key -> -
+ambiguous_unknown	CHAINED_CALL	f24_star_all.absent_by_underscore -> -
+ambiguous_unknown	CHAINED_CALL	f24_star_all.absent_from_all -> -
 ambiguous_unknown	DECORATOR_APPLICATION	f05_decorators.<module> -> -
 ambiguous_unknown	DYNAMIC_CALL	f08_dynamic.getattr_call -> -
 ambiguous_unknown	METHOD_CALL	f06_flow.takes_unannotated -> -
@@ -28,6 +30,7 @@ boundary_lib	CHAINED_CALL	f09_adversarial.inherited_through_a_silent_class -> li
 boundary_lib	CHAINED_CALL	f09_adversarial.shadowed_against_a_library_name -> lib:tlib.shapes.Square.name
 boundary_lib	CHAINED_CALL	f20_builtin_flow.chained_str -> builtin:str.lower
 boundary_lib	CHAINED_CALL	f20_builtin_flow.chained_str -> builtin:str.replace
+boundary_lib	CHAINED_CALL	f24_star_all.via_star_export -> lib:tlib.exports.Exported.run
 boundary_lib	DECORATOR_BARE	f04_descriptors.LocalCfg.<classbody> -> builtin:classmethod
 boundary_lib	DECORATOR_BARE	f04_descriptors.LocalCfg.<classbody> -> builtin:property
 boundary_lib	DECORATOR_BARE	f04_descriptors.LocalCfg.<classbody> -> builtin:staticmethod
@@ -80,6 +83,11 @@ boundary_lib	METHOD_CALL	f20_builtin_flow.non_self_attribute -> builtin:str.uppe
 boundary_lib	METHOD_CALL	f20_builtin_flow.non_self_attribute_container -> builtin:list.copy
 boundary_lib	METHOD_CALL	f20_builtin_flow.split_then_index -> builtin:str.split
 boundary_lib	METHOD_CALL	f21_module_alias.construct_through_alias -> builtin:object.__init__
+boundary_lib	METHOD_CALL	f24_star_all.absent_by_underscore -> external:tlib._Private
+boundary_lib	METHOD_CALL	f24_star_all.absent_by_underscore -> lib:tlib._Private
+boundary_lib	METHOD_CALL	f24_star_all.absent_from_all -> external:tlib.NotExported
+boundary_lib	METHOD_CALL	f24_star_all.absent_from_all -> lib:tlib.NotExported
+boundary_lib	METHOD_CALL	f24_star_all.via_star_export -> builtin:object.__init__
 boundary_lib	METHOD_CALL	main.main -> builtin:object.__init__
 boundary_lib	SELF_CALL	f02_callables.HoldsCallables.run -> lib:tlib.callables.Doubler.__call__
 boundary_lib	SELF_CALL	f09_adversarial.Rebound.use -> lib:tlib.callables.Doubler.__call__
@@ -321,6 +329,9 @@ known_edge	METHOD_CALL	main.main -> f22_typeref_fk.label_via_dotted
 known_edge	METHOD_CALL	main.main -> f23_typevar_bound.constrained
 known_edge	METHOD_CALL	main.main -> f23_typevar_bound.via_concrete_argument
 known_edge	METHOD_CALL	main.main -> f23_typevar_bound.via_opaque_value
+known_edge	METHOD_CALL	main.main -> f24_star_all.absent_by_underscore
+known_edge	METHOD_CALL	main.main -> f24_star_all.absent_from_all
+known_edge	METHOD_CALL	main.main -> f24_star_all.via_star_export
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator_in_for
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_plain
