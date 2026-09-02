@@ -189,3 +189,6 @@ test/java/.work/
 # Python bytecode from the test tools
 __pycache__/
 *.pyc
+
+# fixture harness work directories (generated per run)
+test/typescript/.work-*/
