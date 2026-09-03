@@ -30,8 +30,8 @@
 // `lib.es5.d.ts` puts `Array` and `Promise` in scope. Every other kind requires an
 // import edge, and a rule that forgets the distinction either loses every builtin
 // or makes every module's private declarations globally visible.
-module_decl("client", name, qname, fp, kind, h) :- ts_module(name, qname, _, fp, _, kind, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
-module_decl("lib", name, qname, fp, kind, h) :- lib_ts_module(name, qname, _, fp, _, kind, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+module_decl("client", name, qname, fp, kind, h) :- ts_module(name, qname, _, fp, _, kind, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _).
+module_decl("lib", name, qname, fp, kind, h) :- lib_ts_module(name, qname, _, fp, _, kind, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _).
 
 // ── module_file(Prov, FilePath, ModuleHash) ─────────────────────────────────
 // The file path a module was read from. This is the JOIN KEY for import linking:
@@ -40,26 +40,26 @@ module_decl("lib", name, qname, fp, kind, h) :- lib_ts_module(name, qname, _, fp
 // target file may not even have been in the same extraction run. So a client
 // import reaches a client module here, and a LIBRARY module by the identical join
 // against the library IR. That symmetry is what makes `--library` work at all.
-module_file("client", fp, h) :- ts_module(_, _, _, fp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), fp != "".
-module_file("lib", fp, h) :- lib_ts_module(_, _, _, fp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), fp != "".
+module_file("client", fp, h) :- ts_module(_, _, _, fp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _), fp != "".
+module_file("lib", fp, h) :- lib_ts_module(_, _, _, fp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _), fp != "".
 
 // ── module_is_global(Prov, ModuleHash) ──────────────────────────────────────
 // A module whose top-level declarations land in the GLOBAL scope: a non-module
 // script (no import/export), or an explicit `declare global`. Every ambient
 // builtin — `console`, `Array`, `JSON`, `Promise` — arrives this way, so this is
 // the relation that decides whether an unimported name can resolve at all.
-module_is_global("client", h) :- ts_module(_, _, _, _, _, "SCRIPT_GLOBAL", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
-module_is_global("client", h) :- ts_module(_, _, _, _, _, "GLOBAL_AUGMENTATION", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
-module_is_global("lib", h) :- lib_ts_module(_, _, _, _, _, "SCRIPT_GLOBAL", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
-module_is_global("lib", h) :- lib_ts_module(_, _, _, _, _, "GLOBAL_AUGMENTATION", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+module_is_global("client", h) :- ts_module(_, _, _, _, _, "SCRIPT_GLOBAL", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _).
+module_is_global("client", h) :- ts_module(_, _, _, _, _, "GLOBAL_AUGMENTATION", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _).
+module_is_global("lib", h) :- lib_ts_module(_, _, _, _, _, "SCRIPT_GLOBAL", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _).
+module_is_global("lib", h) :- lib_ts_module(_, _, _, _, _, "GLOBAL_AUGMENTATION", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _).
 
 // ── module_ambient_specifier(Prov, Specifier, ModuleHash) ───────────────────
 // `declare module "foo/bar" { ... }` — an ambient module declaration claims a
 // SPECIFIER rather than a file. A client `import x from "foo/bar"` whose
 // resolvedFilePath is empty (nothing on disk) still links here, which is how a
 // package that ships only ambient declarations is reachable.
-module_ambient_specifier("client", spec, h) :- ts_module(_, _, _, _, _, "AMBIENT_MODULE_DECLARATION", _, spec, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), spec != "".
-module_ambient_specifier("lib", spec, h) :- lib_ts_module(_, _, _, _, _, "AMBIENT_MODULE_DECLARATION", _, spec, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), spec != "".
+module_ambient_specifier("client", spec, h) :- ts_module(_, _, _, _, _, "AMBIENT_MODULE_DECLARATION", _, spec, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _), spec != "".
+module_ambient_specifier("lib", spec, h) :- lib_ts_module(_, _, _, _, _, "AMBIENT_MODULE_DECLARATION", _, spec, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _), spec != "".
 
 // ── module_base_path(Prov, BasePath, ModuleHash) ────────────────────────────
 // The PACKAGE ROOT a module was read from (`.../node_modules/@scope/name`), which
@@ -68,22 +68,22 @@ module_ambient_specifier("lib", spec, h) :- lib_ts_module(_, _, _, _, _, "AMBIEN
 // parser fills it from a resolved IMPORT and a package parsed on its own has none.
 // So a bare specifier in a re-export can only be matched back to a staged package
 // through this path.
-module_base_path("client", bp, h) :- ts_module(_, _, _, _, bp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), bp != "".
-module_base_path("lib", bp, h) :- lib_ts_module(_, _, _, _, bp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), bp != "".
+module_base_path("client", bp, h) :- ts_module(_, _, _, _, bp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _), bp != "".
+module_base_path("lib", bp, h) :- lib_ts_module(_, _, _, _, bp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _), bp != "".
 
 // ── module_package(Prov, PackageName, ModuleHash) ───────────────────────────
 // The npm package a module belongs to ("" for first-party files). Reporting and
 // per-dependency accuracy slicing; not consumed by resolution.
-module_package("client", pkg, h) :- ts_module(_, _, _, _, _, _, _, _, _, _, _, pkg, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), pkg != "".
-module_package("lib", pkg, h) :- lib_ts_module(_, _, _, _, _, _, _, _, _, _, _, pkg, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), pkg != "".
+module_package("client", pkg, h) :- ts_module(_, _, _, _, _, _, _, _, _, _, _, pkg, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _), pkg != "".
+module_package("lib", pkg, h) :- lib_ts_module(_, _, _, _, _, _, _, _, _, _, _, pkg, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _), pkg != "".
 
 // ── module_init(Prov, ModuleInitMethodHash, ModuleHash) ─────────────────────
 // The synthetic method that owns a module's TOP-LEVEL statements. Java has no
 // analogue (a compilation unit executes nothing), and without it every call
 // written at module scope — the whole of a script-style entry point — has no
 // caller and drops out of the chain.
-module_init("client", init, h) :- ts_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, init, _, _, _, _, h), init != "".
-module_init("lib", init, h) :- lib_ts_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, init, _, _, _, _, h), init != "".
+module_init("client", init, h) :- ts_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, init, _, _, _, _, h, _), init != "".
+module_init("lib", init, h) :- lib_ts_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, init, _, _, _, _, h, _), init != "".
 
 // ── module_default_export(Prov, EntityHash, ModuleHash) / module_export_assignment ──
 // `export default X` and `export = X`. The second has no Java or Python analogue at
@@ -91,10 +91,10 @@ module_init("lib", init, h) :- lib_ts_module(_, _, _, _, _, _, _, _, _, _, _, _,
 // binds x to that entity rather than to a member of a namespace. Most `@types`
 // packages for CommonJS libraries are written this way, so a client->lib rule that
 // only understands named exports misses that whole class of dependency.
-module_default_export("client", ent, h) :- ts_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ent, _, _, h), ent != "".
-module_default_export("lib", ent, h) :- lib_ts_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ent, _, _, h), ent != "".
-module_export_assignment("client", ent, h) :- ts_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ent, _, _, _, h), ent != "".
-module_export_assignment("lib", ent, h) :- lib_ts_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ent, _, _, _, h), ent != "".
+module_default_export("client", ent, h) :- ts_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ent, _, _, h, _), ent != "".
+module_default_export("lib", ent, h) :- lib_ts_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ent, _, _, h, _), ent != "".
+module_export_assignment("client", ent, h) :- ts_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ent, _, _, _, h, _), ent != "".
+module_export_assignment("lib", ent, h) :- lib_ts_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ent, _, _, _, h, _), ent != "".
 
 // ── module_is_external(Prov, ModuleHash) ────────────────────────────────────
 // isExternalModule (col 9) — the file has a top-level import or export, so it IS a
@@ -103,8 +103,8 @@ module_export_assignment("lib", ent, h) :- lib_ts_module(_, _, _, _, _, _, _, _,
 // This flag, not moduleKind, is the discriminator the export table branches on:
 // measured on @types/node, 60 of 66 DECLARATION_FILE modules are NOT external
 // modules and 6 are, and treating the two alike loses one group or invents the other.
-module_is_external("client", h) :- ts_module(_, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
-module_is_external("lib", h) :- lib_ts_module(_, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+module_is_external("client", h) :- ts_module(_, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _).
+module_is_external("lib", h) :- lib_ts_module(_, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _).
 
 // ── module_kind_is_ambient(ModuleKind) ──────────────────────────────────────
 // Enumerated rather than matched inline, per the kind-split law: a module kind whose

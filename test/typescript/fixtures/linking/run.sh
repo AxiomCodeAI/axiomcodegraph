@@ -46,7 +46,7 @@ mkdir -p "$NM/@tt"
 ln -sfn "$PS/@tt+shallow@1.0.0/node_modules/@tt/shallow" "$NM/@tt/shallow"
 rm -rf "$WORK/project/pnpm-vendor"
 
-bash "$REPO/test/typescript/run-evaluation.sh" "$WORK/project" "$WORK/eval"
+bash "$REPO/test/typescript/run-evaluation.sh" "$WORK/project" "$WORK/eval" "${AXIOM_PARSER:-}"
 
 # ── the gate ─────────────────────────────────────────────────────────────────
 # Until this block existed the fixture only PRINTED: every mechanism below could
