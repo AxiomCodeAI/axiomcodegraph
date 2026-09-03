@@ -27,7 +27,12 @@
 set -e
 PROJECT="$(cd "$1" && pwd)"
 WORK="$2"
-PARSER_DIST="${3:-/Users/swapnilpaliwal/Documents/AxiomCode/Parser/dist/index.js}"
+# $3 wins, then $AXIOM_PARSER, then the conventional checkout. The env var matters: the
+# fallback is an absolute path into a SHARED checkout whose dist belongs to whoever built
+# it last, so a caller that omits $3 silently measured a different parser than the one it
+# was told to use. That is how a fixture came to stage 27-column library IR against
+# 28-column declarations while the client IR was current.
+PARSER_DIST="${3:-${AXIOM_PARSER:-/Users/swapnilpaliwal/Documents/AxiomCode/Parser/dist/index.js}}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
 NAME="$(basename "$PROJECT")"

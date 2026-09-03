@@ -65,7 +65,7 @@ heritage_target(sub, prov, sup, inh) :- lib_ts_type_heritage(_, _, _, _, name, _
 // references are not in that relation, and routing them through it would resolve a
 // library supertype against the client's imports.
 lib_heritage_name_target(lmod, name, "lib", t) :- module_local_decl("lib", lmod, name, "TYPE", t).
-lib_heritage_name_target(lmod, name, "lib", t) :- lib_ts_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, lmod),
+lib_heritage_name_target(lmod, name, "lib", t) :- lib_ts_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, lmod, _),
     global_decl(name, "TYPE", "lib", t),
     !module_local_decl("lib", lmod, name, "TYPE", _).
 
