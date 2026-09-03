@@ -164,6 +164,7 @@ ref_type_target(parent, prov, t) :- type_ref(rp, k, _, _, _, _, _, parent),
 ref_kind_descends_to_members("UNION").
 ref_kind_descends_to_members("INTERSECTION").
 
+
 // TRANSPARENT wrappers — a parenthesised, optional, rest or named-tuple reference
 // has exactly one meaningful child and no identity of its own.
 ref_type_target(parent, prov, t) :- type_ref(rp, k, _, _, _, _, _, parent),
