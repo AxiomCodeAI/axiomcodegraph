@@ -152,6 +152,7 @@ export function extractTypeScriptFile(options: TsFileExtractionOptions): TsFileF
     moduleQualifiedName: options.moduleQualifiedName,
     tsConfigPath: options.tsConfigPath,
     moduleResolutionMode: options.moduleResolutionMode,
+    strictBindCallApply: resolvedStrictBindCallApply(options.compilerOptions),
     serviceVersionLinkHash: options.serviceVersionLinkHash,
     packageName: options.packageName,
   });
@@ -491,4 +492,17 @@ function parseDiagnosticsOf(sourceFile: ts.SourceFile): readonly ts.Diagnostic[]
 
 function scriptKindFor(filePath: string): ts.ScriptKind {
   return filePath.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+}
+
+/**
+ * `strictBindCallApply` as the CHECKER sees it.
+ *
+ * `ts.parseJsonConfigFileContent` does NOT apply the implication -- given
+ * `{"strict": true}` it leaves this `undefined` -- so the parsed option cannot
+ * be emitted as-is. The checker resolves every strict-family flag as
+ * `flag ?? strict ?? false`, and an explicit `false` beats an implying
+ * `strict: true`, which is why the nullish coalesce is not an `||`.
+ */
+function resolvedStrictBindCallApply(compilerOptions: ts.CompilerOptions): boolean {
+  return compilerOptions.strictBindCallApply ?? compilerOptions.strict ?? false;
 }

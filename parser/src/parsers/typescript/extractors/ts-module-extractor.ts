@@ -36,6 +36,8 @@ export interface ModuleExtractionInput {
   readonly moduleQualifiedName: string;
   readonly tsConfigPath: string;
   readonly moduleResolutionMode: TsModuleResolutionMode;
+  /** Resolved by the caller, which holds the compiler options. */
+  readonly strictBindCallApply: boolean;
   readonly serviceVersionLinkHash: string;
   readonly packageName: string;
 }
@@ -85,6 +87,7 @@ export function extractModules(input: ModuleExtractionInput): ModuleExtractionRe
       ? `${TsMergeScopePrefix.MODULE_EXPORTS}:${''}`
       : TsMergeScopePrefix.GLOBAL,
     moduleResolutionMode: input.moduleResolutionMode,
+    strictBindCallApply: input.strictBindCallApply,
     tsConfigPath: input.tsConfigPath,
     targetTsVersion: TS_TARGET_VERSION,
     emissionRegime: TS_EMISSION_REGIME as TsEmissionRegime,
@@ -116,6 +119,7 @@ export function extractModules(input: ModuleExtractionInput): ModuleExtractionRe
       ? `${TsMergeScopePrefix.MODULE_EXPORTS}:${fileModule.getHash()}`
       : TsMergeScopePrefix.GLOBAL,
     moduleResolutionMode: fileModule.moduleResolutionMode,
+    strictBindCallApply: fileModule.strictBindCallApply,
     tsConfigPath: fileModule.tsConfigPath,
     targetTsVersion: fileModule.targetTsVersion,
     emissionRegime: fileModule.emissionRegime,
@@ -161,6 +165,7 @@ export function extractModules(input: ModuleExtractionInput): ModuleExtractionRe
           packageName: input.packageName,
           mergeTableKey: isGlobalAugmentation ? TsMergeScopePrefix.GLOBAL : '',
           moduleResolutionMode: input.moduleResolutionMode,
+    strictBindCallApply: input.strictBindCallApply,
           tsConfigPath: input.tsConfigPath,
           targetTsVersion: TS_TARGET_VERSION,
           emissionRegime: TS_EMISSION_REGIME as TsEmissionRegime,
@@ -217,6 +222,7 @@ export function moduleHashFor(
     packageName: '',
     mergeTableKey: '',
     moduleResolutionMode: TsModuleResolutionMode.NODE10,
+    strictBindCallApply: false,
     tsConfigPath: '',
     targetTsVersion: TS_TARGET_VERSION,
     emissionRegime: TS_EMISSION_REGIME as TsEmissionRegime,

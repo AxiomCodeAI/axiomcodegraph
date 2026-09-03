@@ -350,7 +350,8 @@
     "defaultExportLinkHash",
     "isExternal",
     "serviceVersionLinkHash",
-    "tsModuleUniqueHash"
+    "tsModuleUniqueHash",
+    "strictBindCallApply"
   ],
   "all-typescript-parse-gaps.csv": [
     "gapKind",

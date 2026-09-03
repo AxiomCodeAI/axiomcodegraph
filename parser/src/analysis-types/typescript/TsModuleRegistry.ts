@@ -35,7 +35,7 @@ import { EntityUtils } from '@/utils/entity-utils';
  * that alters nothing about the facts.
  */
 export class TsModuleRegistry implements EntityIdentifiable {
-  static readonly ARITY = 27;
+  static readonly ARITY = 28;
 
   readonly name: string;
   readonly qualifiedName: string;
@@ -66,6 +66,23 @@ export class TsModuleRegistry implements EntityIdentifiable {
 
   /** Parity slot, always `false` on parser output so `lib_ts_module` is byte-identical. */
   private readonly isExternal = false;
+  /**
+   * `strictBindCallApply` as the CHECKER resolves it, not as the config states it.
+   *
+   * `lib.es5.d.ts` declares `call`, `apply` and `bind` twice -- on `Function`,
+   * and again on `CallableFunction extends Function` with precise generic
+   * signatures. Which one a call resolves to is decided by this flag, so a
+   * consumer without it has two correct-looking candidates and no way to choose.
+   *
+   * RESOLVED is the whole point. `ts.parseJsonConfigFileContent` leaves this
+   * `undefined` when only `strict` is set -- the checker applies
+   * `strictBindCallApply ?? strict ?? false` itself -- so emitting the parsed
+   * option would not answer the question. Reading the config file would also
+   * leave a consumer to reimplement the implication and follow `extends`,
+   * which the parser has already done.
+   */
+  readonly strictBindCallApply: boolean;
+
   readonly serviceVersionLinkHash: string;
   private tsModuleUniqueHash = ABSENT;
 
@@ -91,6 +108,7 @@ export class TsModuleRegistry implements EntityIdentifiable {
     endLine: number;
     hasTopLevelAwait: boolean;
     hasJsxContent: boolean;
+    strictBindCallApply: boolean;
     serviceVersionLinkHash: string;
   }) {
     this.name = props.name;
@@ -114,6 +132,7 @@ export class TsModuleRegistry implements EntityIdentifiable {
     this.endLine = props.endLine;
     this.hasTopLevelAwait = props.hasTopLevelAwait;
     this.hasJsxContent = props.hasJsxContent;
+    this.strictBindCallApply = props.strictBindCallApply;
     this.serviceVersionLinkHash = props.serviceVersionLinkHash;
     this.generateHash();
   }
@@ -189,6 +208,7 @@ export class TsModuleRegistry implements EntityIdentifiable {
         bool(this.isExternal),
         this.serviceVersionLinkHash,
         this.tsModuleUniqueHash,
+        bool(this.strictBindCallApply),
       ],
       TsModuleRegistry.ARITY,
       'ts_module'
@@ -204,6 +224,7 @@ export class TsModuleRegistry implements EntityIdentifiable {
         'targetTsVersion', 'emissionRegime', 'startLine', 'endLine', 'hasTopLevelAwait',
         'hasJsxContent', 'moduleInitMethodLinkHash', 'exportAssignmentLinkHash',
         'defaultExportLinkHash', 'isExternal', 'serviceVersionLinkHash', 'tsModuleUniqueHash',
+        'strictBindCallApply',
       ],
       TsModuleRegistry.ARITY,
       'ts_module'

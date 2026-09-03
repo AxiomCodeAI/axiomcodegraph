@@ -1070,7 +1070,14 @@ function factBaseInvariants(): number {
     for (const [file, relationRows] of all) {
       rows += relationRows.length;
       const seen = new Set<string>();
-      const keyColumn = Object.keys(relationRows[0] ?? {}).slice(-1)[0] ?? '';
+      // BY NAME, not by position. This read the LAST column, which held while
+      // every relation happened to end with its key -- and broke the moment a
+      // column was appended after one, reporting 19,081 duplicate keys with a
+      // value of "true". A convention that is only ever read positionally is
+      // indistinguishable from a coincidence.
+      const columns = Object.keys(relationRows[0] ?? {});
+      const keyColumn = columns.find((c) => c.endsWith('UniqueHash'))
+        ?? columns.slice(-1)[0] ?? '';
       for (const row of relationRows) {
         const key = row[keyColumn] ?? '';
         if (seen.has(key)) {
@@ -3334,7 +3341,83 @@ async function everyProgramIsExtractedAndNoneAreMerged(): Promise<number> {
   return 0;
 }
 
+// ---------------------------------------------------------------------------
+// 34. strictBindCallApply is emitted RESOLVED, not as written
+// ---------------------------------------------------------------------------
+
+/**
+ * `lib.es5.d.ts` declares `call`, `apply` and `bind` twice — on `Function`,
+ * and again on `CallableFunction extends Function` with precise generic
+ * signatures. Which one a call resolves to is decided by
+ * `strictBindCallApply`, so a consumer without it has two correct-looking
+ * candidates and no way to choose. Measured at 16 wrong answers across two
+ * repositories before this column existed.
+ *
+ * RESOLVED is the entire value, and is what this asserts. `strict: true`
+ * IMPLIES the flag, and `ts.parseJsonConfigFileContent` does not apply that
+ * implication — it leaves the option `undefined` — so emitting the parsed
+ * option would answer the question wrongly for exactly the projects that set
+ * `strict` and nothing else, which is the common configuration.
+ *
+ * The third program is the one that stops the rule being written as `||`: an
+ * explicit `false` beats an implying `strict: true`.
+ */
+async function strictBindCallApplyIsResolved(): Promise<number> {
+  const program = (compilerOptions: Record<string, unknown>): string =>
+    JSON.stringify({
+      compilerOptions: { target: 'ES2022', module: 'ESNext', ...compilerOptions },
+      include: ['**/*.ts'],
+    });
+  const source = 'export function run(f: () => void): void { f.call(undefined); }';
+  const { outputDir, cleanup } = await analyseProgramsInline('ts-sbca-', {
+    // the root claims only what sits beside it
+    'tsconfig.json': program({}),
+    'root.ts': source,
+    // implied by `strict`
+    'implied/tsconfig.json': program({ strict: true }),
+    'implied/a.ts': source,
+    // individual strict flags do NOT imply it
+    'partial/tsconfig.json': program({ strictNullChecks: true, strictFunctionTypes: true }),
+    'partial/a.ts': source,
+    // an explicit false beats an implying `strict: true`
+    'override/tsconfig.json': program({ strict: true, strictBindCallApply: false }),
+    'override/a.ts': source,
+  });
+
+  const expected = new Map<string, string>([
+    ['root.ts', 'false'],
+    ['implied/a.ts', 'true'],
+    ['partial/a.ts', 'false'],
+    ['override/a.ts', 'false'],
+  ]);
+  const failures: string[] = [];
+  const modules = relation(outputDir, 'all-typescript-modules.csv');
+  for (const [file, want] of expected) {
+    const row = modules.find((r) => (r.filePath ?? '').replace(/\\/g, '/') === file);
+    if (!row) {
+      failures.push(`${file}: no ts_module row, so the program was not analysed`);
+      continue;
+    }
+    const got = row.strictBindCallApply ?? '';
+    if (got !== want) {
+      const why = want === 'true'
+        ? 'the `strict` implication was not applied, so the common configuration reads wrong'
+        : 'a flag was reported set when the checker treats it as unset';
+      failures.push(`${file}: strictBindCallApply is "${got}", expected "${want}" — ${why}`);
+    }
+  }
+
+  cleanup();
+  if (failures.length > 0) {
+    return fail(failures.join('\n  '));
+  }
+  console.log('  resolved per program: implied by strict, not implied by individual strict '
+    + 'flags, and an explicit false wins');
+  return 0;
+}
+
 const CHECKS: Check[] = [
+  { name: 'strictBindCallApply is emitted resolved', proves: 'the flag is emitted as the checker resolves it — implied by strict, not by individual strict flags, explicit false winning — so a consumer can pick between the Function and CallableFunction overloads of call/apply/bind', run: strictBindCallApplyIsResolved },
   { name: 'every program is extracted, none are merged', proves: 'each program under a root reaches one flat relation set with unique keys, while the module link passes stay inside a program so two global scopes are never merged', run: everyProgramIsExtractedAndNoneAreMerged },
   { name: 'streamed relations are well formed', proves: 'rows written as extraction proceeds produce one header per relation, a file for every relation, no leftover temporaries and no dropped tail', run: streamedRelationsAreWellFormed },
   { name: 'streamed read-back catches a torn row', proves: 'the chunked verifier accepts a multi-MB well-formed file and still rejects short, long, truncated, U+2028-bearing and mid-file tears', run: streamedVerificationCatchesTornRows },
