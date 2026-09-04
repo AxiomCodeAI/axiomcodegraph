@@ -1,3 +1,5 @@
+lowering.Bag#<init>() -> java.lang.Object#<init>()
+lowering.Bag#<init>() -> java.util.ArrayList#<init>()
 lowering.Bag#size() -> java.util.List#size()
 lowering.Lowering#boundRef(List,Sink) -> java.util.List#forEach(Consumer)
 lowering.Lowering#boundRef(List,Sink) -> lowering.Sink#accept(String)

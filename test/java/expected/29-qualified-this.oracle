@@ -1,2 +1,3 @@
-oracle=18 engine=19 agree=18 missing=0 (known 0, NEW 0) extra=1
+oracle=22 engine=22 agree=21 missing=1 (known 1, NEW 0) extra=1
+  known-missing  probe.QualifiedThis#anon -> probe.QualifiedThis$anon:Runnable#<init>
   extra    probe.Inner#viaUnqualified -> probe.QualifiedThis#tag()

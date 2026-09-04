@@ -65,10 +65,21 @@ def ancestors_of(ir, out):
 
 
 def norm(line):
+    """One normalisation, applied to both sides — the two conventions that cannot be compared.
+
+    A CONSTRUCTOR's parameter list is not comparable: javac gives a constructor parameters the
+    source never writes (an inner class's enclosing instance, a local or anonymous class's captured
+    variables), so `new Inner()` is `Inner(Outer)` in bytecode. Compared at name level, as
+    oracle_diff.py does for the same reason; the exact list is still pinned in torture.edges.
+
+    A caller keyed by the owning TYPE is a call written in a FIELD INITIALIZER, which javac compiles
+    into the constructor — bytecode attributes it to `<init>`, so that is what it is called here."""
     line = line.strip()
     if '->' not in line: return None
     a, b = [x.strip() for x in line.split('->', 1)]
-    return re.sub(r'\([^)]*\)$', '', a) + ' -> ' + b
+    a = re.sub(r'\([^)]*\)$', '', a).replace('#<type-initializer>', '#<init>')
+    if '#<init>(' in b: b = re.sub(r'\([^)]*\)$', '', b)
+    return a + ' -> ' + b
 
 
 def main():

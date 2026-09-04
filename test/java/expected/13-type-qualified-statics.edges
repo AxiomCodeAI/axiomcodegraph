@@ -1,6 +1,5 @@
 ambiguous_unknown	method	TypeQualifiedStatics#main(String[]) -> -
 ambiguous_unknown	method	TypeQualifiedStatics#viaLibraryType(String) -> -
-ambiguous_unknown	new	TypeQualifiedStatics#main(String[]) -> -
 known_edge	method	TypeQualifiedStatics#main(String[]) -> TypeQualifiedStatics#viaLibraryType(String)
 known_edge	method	TypeQualifiedStatics#main(String[]) -> TypeQualifiedStatics#viaNestedType(String)
 known_edge	method	TypeQualifiedStatics#main(String[]) -> TypeQualifiedStatics#viaOwnTypeName(String)
@@ -8,3 +7,4 @@ known_edge	method	TypeQualifiedStatics#main(String[]) -> TypeQualifiedStatics#vi
 known_edge	method	TypeQualifiedStatics#viaNestedType(String) -> Inner#deep(String)
 known_edge	method	TypeQualifiedStatics#viaOwnTypeName(String) -> TypeQualifiedStatics#self(String)
 known_edge	method	TypeQualifiedStatics#viaSiblingType(String) -> Helper#help(String)
+known_edge	new	TypeQualifiedStatics#main(String[]) -> TypeQualifiedStatics#<init>()

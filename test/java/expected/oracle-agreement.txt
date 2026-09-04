@@ -1,19 +1,5 @@
-cases compared 32   agreeing 18   skipped 2 (need a classpath: 26-spring-oracle, 32-library-handoff-depth)
-CONSTRUCTOR-RULE disagreements: 14 cases, 51 rows
-  03-overloads-and-receivers         classfile-only   4   javap-only   0
-  04-unqualified-calls               classfile-only   0   javap-only   2
-  05-lambda-and-method-refs          classfile-only   3   javap-only   0
-  08-cha-interface-fanout            classfile-only   3   javap-only   0
-  10-super-invocations               classfile-only   0   javap-only   2
-  14-lambda-param-callback           classfile-only   3   javap-only   0
-  15-cross-file-same-package         classfile-only   2   javap-only   0
-  16-cross-package-imports           classfile-only   2   javap-only   0
-  17-nested-outer-access             classfile-only  11   javap-only   0
-  18-enum-record-sealed              classfile-only   6   javap-only   0
-  21-function-value-blind-spots      classfile-only   4   javap-only   0
-  29-qualified-this                  classfile-only   6   javap-only   0
-  31-service-loader                  classfile-only   0   javap-only   1
-  33-compiler-lowering               classfile-only   2   javap-only   0
+cases compared 32   agreeing 32   skipped 2 (need a classpath: 26-spring-oracle, 32-library-handoff-depth)
+CONSTRUCTOR-RULE disagreements: 0 cases, 0 rows
 OTHER disagreements: 0
 rows naming no method: 0
 full-oracle goldens that no longer match: 0

@@ -3,8 +3,8 @@ ambiguous_unknown	method	InheritanceOverride#main(String[]) -> -
 ambiguous_unknown	method	LoggingList#add(Object) -> -
 ambiguous_unknown	method	LoggingList#remove(int) -> -
 ambiguous_unknown	method	TaggedException#getMessage() -> -
-ambiguous_unknown	new	InheritanceOverride#main(String[]) -> -
 known_edge	method	InheritanceOverride#main(String[]) -> LoggingList#add(Object)
 known_edge	method	InheritanceOverride#main(String[]) -> LoggingList#remove(int)
 known_edge	method	InheritanceOverride#main(String[]) -> TaggedException#getMessage()
+known_edge	new	InheritanceOverride#main(String[]) -> LoggingList#<init>()
 known_edge	new	InheritanceOverride#main(String[]) -> TaggedException#<init>(String,String)

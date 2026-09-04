@@ -1,3 +1,6 @@
-oracle=0 engine=2 agree=0 missing=0 (known 0, NEW 0) extra=2
+oracle=3 engine=2 agree=0 missing=3 (known 3, NEW 0) extra=2
+  known-missing  AnonymousClasses#main -> AnonymousClasses$anon:Comparator#<init>
+  known-missing  AnonymousClasses#main -> AnonymousClasses$anon:Runnable#<init>
+  known-missing  AnonymousClasses#main -> AnonymousClasses$anon:Thread#<init>
   extra    AnonymousClasses#main -> AnonymousClasses$anon:Runnable#run()
   extra    AnonymousClasses#main -> AnonymousClasses$anon:Thread#run()

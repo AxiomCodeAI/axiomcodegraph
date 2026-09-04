@@ -161,14 +161,28 @@ expr_call_candidate(call, override) :- expr_call_candidate(call, base),
     expr_ultimate_type("client", call, et),
     override_in_closure(override, et).
 
+// ── ctor_of(Prov, OwnerType, Ctor) — a constructor a `new` can target ────────────────────
+// The parser emits DEFAULT_CONSTRUCTOR for the one the language declares implicitly (JLS 8.8.9)
+// when a class writes none. It is a constructor in every sense that matters here — `new X()`
+// targets it, and only its ORIGIN differs — but every clause below matched the literal
+// "CONSTRUCTOR", so the rows arrived and nothing read them: `new X()` on a class that declares
+// no constructor stayed ambiguous_unknown while `new X(arg)` on one that does resolved.
+// Routing the seven constructor-target clauses through one relation is also what stops the next
+// kind from having to be found in seven places.
+// java_method / lib_method (22): 7 owner 16 methodKind 21 hash
+ctor_of("client", t, m) :- java_method(_, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, "CONSTRUCTOR", _, _, _, _, m).
+ctor_of("client", t, m) :- java_method(_, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, "DEFAULT_CONSTRUCTOR", _, _, _, _, m).
+ctor_of("lib", t, m)    :- lib_method(_, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, "CONSTRUCTOR", _, _, _, _, m).
+ctor_of("lib", t, m)    :- lib_method(_, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, "DEFAULT_CONSTRUCTOR", _, _, _, _, m).
+
 // ── Constructor call: new X(...) invokes X's constructor(s). expr_type gives the
-// created type X; the callee is a CONSTRUCTOR (col 16) owned by X. Client and lib.
+// created type X; the callee is a constructor owned by X. Client and lib.
 expr_call_candidate(call, ctor) :- java_expression("OBJECT_CREATION", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, call),
     expr_type(_, call, type),
-    java_method(_, _, _, _, _, _, _, type, _, _, _, _, _, _, _, _, "CONSTRUCTOR", _, _, _, _, ctor).
+    ctor_of("client", type, ctor).
 expr_call_candidate(call, ctor) :- java_expression("OBJECT_CREATION", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, call),
     expr_type(_, call, type),
-    lib_method(_, _, _, _, _, _, _, type, _, _, _, _, _, _, _, _, "CONSTRUCTOR", _, _, _, _, ctor).
+    ctor_of("lib", type, ctor).
 
 // new Iface(){...} / new Base(){...} — anonymous class: expr_type resolves the created
 // type to the named super/interface (which may have no constructor), so also route via
@@ -180,21 +194,21 @@ expr_call_candidate(call, ctor) :- java_expression("OBJECT_CREATION", _, _, _, _
 // interface has no super ctor → stays unresolved, correctly landing as ambiguous_anon downstream.)
 expr_call_candidate(call, ctor) :- java_expression("ANONYMOUS_CLASS_CREATION", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, call),
     expr_type(_, call, superT),
-    java_method(_, _, _, _, _, _, _, superT, _, _, _, _, _, _, _, _, "CONSTRUCTOR", _, _, _, _, ctor).
+    ctor_of("client", superT, ctor).
 expr_call_candidate(call, ctor) :- java_expression("ANONYMOUS_CLASS_CREATION", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, call),
     expr_type(_, call, superT),
-    lib_method(_, _, _, _, _, _, _, superT, _, _, _, _, _, _, _, _, "CONSTRUCTOR", _, _, _, _, ctor).
+    ctor_of("lib", superT, ctor).
 
 // ── Constructor delegation: this(...) / super(...) (CONSTRUCTOR_INVOCATION). The
 // enclosing type is col 4; referencedEntityKind (col 14) is THIS or SUPER.
 expr_call_candidate(call, ctor) :- java_expression("CONSTRUCTOR_INVOCATION", _, _, _, encl, _, _, _, _, _, _, _, _, _, "THIS", _, _, _, _, _, _, _, _, _, call),
-    java_method(_, _, _, _, _, _, _, encl, _, _, _, _, _, _, _, _, "CONSTRUCTOR", _, _, _, _, ctor).
+    ctor_of("client", encl, ctor).
 expr_call_candidate(call, ctor) :- java_expression("CONSTRUCTOR_INVOCATION", _, _, _, encl, _, _, _, _, _, _, _, _, _, "SUPER", _, _, _, _, _, _, _, _, _, call),
     type_parent(encl, parent),
-    java_method(_, _, _, _, _, _, _, parent, _, _, _, _, _, _, _, _, "CONSTRUCTOR", _, _, _, _, ctor).
+    ctor_of("client", parent, ctor).
 expr_call_candidate(call, ctor) :- java_expression("CONSTRUCTOR_INVOCATION", _, _, _, encl, _, _, _, _, _, _, _, _, _, "SUPER", _, _, _, _, _, _, _, _, _, call),
     type_parent(encl, parent),
-    lib_method(_, _, _, _, _, _, _, parent, _, _, _, _, _, _, _, _, "CONSTRUCTOR", _, _, _, _, ctor).
+    ctor_of("lib", parent, ctor).
 
 // ── Method reference: Type::m / obj::m / this::m (QUALIFIED_METHOD, col 11). The
 // referenced method is `name` on the qualifier's type (the QUALIFIER child, typed by
@@ -219,11 +233,11 @@ expr_call_candidate(mr, callee) :- java_expression("METHOD_REFERENCE", _, _, _, 
 expr_call_candidate(mr, ctor) :- java_expression("METHOD_REFERENCE", _, _, _, _, _, _, _, _, _, _, "CONSTRUCTOR", _, _, _, _, _, _, _, _, _, _, _, _, mr),
     java_expression(_, "QUALIFIER", _, _, _, _, mr, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, q),
     expr_type(_, q, qtype),
-    java_method(_, _, _, _, _, _, _, qtype, _, _, _, _, _, _, _, _, "CONSTRUCTOR", _, _, _, _, ctor).
+    ctor_of("client", qtype, ctor).
 expr_call_candidate(mr, ctor) :- java_expression("METHOD_REFERENCE", _, _, _, _, _, _, _, _, _, _, "CONSTRUCTOR", _, _, _, _, _, _, _, _, _, _, _, _, mr),
     java_expression(_, "QUALIFIER", _, _, _, _, mr, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, q),
     expr_type(_, q, qtype),
-    lib_method(_, _, _, _, _, _, _, qtype, _, _, _, _, _, _, _, _, "CONSTRUCTOR", _, _, _, _, ctor).
+    ctor_of("lib", qtype, ctor).
 
 // ── Array-constructor method reference (T[]::new). Array allocation (new T[n])
 // invokes NO method or constructor, so there is deliberately no expr_call_candidate

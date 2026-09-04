@@ -2,8 +2,6 @@ ambiguous_anon	anon_new	Middle#deep() -> -
 ambiguous_anon	anon_new	OuterAccess#anonToOuter() -> -
 ambiguous_anon	anon_new	OuterAccess#anonToOuterStatic() -> -
 ambiguous_unknown	method	OuterAccess#main(String[]) -> -
-ambiguous_unknown	new	OuterAccess#localClass() -> -
-ambiguous_unknown	new	OuterAccess#main(String[]) -> -
 known_edge	method	Inner#viaOuter() -> OuterAccess#outerInstance()
 known_edge	method	Local#go() -> OuterAccess#outerInstance()
 known_edge	method	Middle$anon:Supplier#get() -> OuterAccess#outerInstance()
@@ -17,3 +15,8 @@ known_edge	method	OuterAccess#main(String[]) -> OuterAccess#anonToOuterStatic()
 known_edge	method	OuterAccess#main(String[]) -> OuterAccess#localClass()
 known_edge	method	OuterAccess$anon:Supplier#get() -> OuterAccess#outerInstance()
 known_edge	method	OuterAccess$anon:Supplier#get() -> OuterAccess#outerStatic()
+known_edge	new	OuterAccess#localClass() -> Local#<init>()
+known_edge	new	OuterAccess#main(String[]) -> Inner#<init>()
+known_edge	new	OuterAccess#main(String[]) -> Middle#<init>()
+known_edge	new	OuterAccess#main(String[]) -> Nested#<init>()
+known_edge	new	OuterAccess#main(String[]) -> OuterAccess#<init>()

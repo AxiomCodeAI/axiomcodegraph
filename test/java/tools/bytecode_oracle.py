@@ -33,6 +33,10 @@ usage: bytecode_oracle.py <src-dir> <work-dir> [--app-only]
 """
 import os, re, subprocess, sys, collections
 
+# A code line in `javap -v` output: `  12: invokevirtual #7  // ...`. The other numeric tables
+# (LineNumberTable, exception table, LocalVariableTable) carry no `<offset>:` prefix.
+INSTR = re.compile(r'^\d+:\s')
+
 UNBOX = re.compile(r'^java\.lang\.(Integer|Long|Short|Byte|Character|Boolean|Double|Float)$')
 UNBOX_M = {'intValue', 'longValue', 'shortValue', 'byteValue', 'charValue',
            'booleanValue', 'doubleValue', 'floatValue'}
@@ -100,9 +104,12 @@ def parse(classes, names):
     out = subprocess.run(['javap', '-p', '-v', '-cp', classes] + names,
                          capture_output=True, text=True).stdout.splitlines()
     supers = collections.defaultdict(list); declared = collections.defaultdict(set); is_enum = set()
+    # Instructions per method body, so the EMPTY implicit constructor can be told apart from one
+    # that carries field initializers — see default_ctor below.
+    ninstr = collections.Counter()
     edges = []
     cls = None; meth = None; mdesc = None; flags = ''
-    pending_decl = None
+    pending_decl = None; in_code = False
     # A method reference's target is not in any invoke instruction — it is bootstrap argument 1 of a
     # LambdaMetafactory indy. The BootstrapMethods table is printed AFTER the code that uses it, so
     # the sites are collected here and resolved once the whole class has been read.
@@ -155,6 +162,11 @@ def parse(classes, names):
                     bsm[in_bsm][bsm_idx] = (ma.group(1).replace('/', '.'), ma.group(2), ma.group(3))
                 continue
         if s.startswith('flags:') and meth: flags = s
+        # Only instructions inside a `Code:` attribute count. RuntimeInvisibleAnnotations and the
+        # constant-pool-style tables print `0: #17(...)` lines of the same shape.
+        if s == 'Code:': in_code = True
+        elif s.endswith(':') and not INSTR.match(s): in_code = False
+        if in_code and meth is not None and INSTR.match(s): ninstr[(cls, meth, mdesc)] += 1
         mi = INVOKE.match(line)
         if not mi and s and s.endswith(';') and '(' in s and not re.match(r'^\d+:', s) \
            and not s.startswith(('descriptor:', 'flags:', '//', '#')):
@@ -189,13 +201,13 @@ def parse(classes, names):
         # method is an edge. `X::new` is a constructor target and follows the ctor conventions.
         if name.startswith('lambda$'): continue
         edges.append((c, m, md, fl, 'invokedynamic', owner, name, desc, -1))
-    return supers, declared, edges, is_enum, lambda_in, out
+    return supers, declared, edges, is_enum, lambda_in, out, ninstr
 
 def main():
     src, work = sys.argv[1], sys.argv[2]
     app_only = '--app-only' in sys.argv
     classes, names = compile_case(src, work)
-    supers, declared, edges, _kw, lambda_in, javap = parse(classes, names)
+    supers, declared, edges, _kw, lambda_in, javap, ninstr = parse(classes, names)
     # javap prints an enum as `class X extends java.lang.Enum`, with no `enum` keyword, so identify
     # enums by that supertype — which is the bytecode truth anyway.
     is_enum = {c for c, ps in supers.items() if any(p == 'java.lang.Enum' for p in ps)}
@@ -234,11 +246,6 @@ def main():
             if m2: simple = m2.group(1)
             return f"{pkg}.{simple}" if pkg else simple
         return c
-    # classes with a SOURCE-declared constructor: javac's implicit ctor has no source twin
-    src_txt = ''
-    for r, _, fs in os.walk(src):
-        for f in fs:
-            if f.endswith('.java'): src_txt += open(os.path.join(r, f), errors='replace').read()
     SYN = re.compile(r'^(access\$\d+|\$values|values|valueOf|\$deserializeLambda\$)$')
     BOX = re.compile(r'^java\.lang\.(Integer|Long|Short|Byte|Character|Boolean|Double|Float)$')
     seen = set()
@@ -277,13 +284,20 @@ def main():
         # this corpus has many, is kept. 447 rows of this shape at scale, 0 written calls in the
         # project that contributed most of them.
         if owner == 'java.util.Objects' and name == 'requireNonNull' and bound_ref_null_check(javap, at): continue
-        # javac-synthesized default ctor: caller has no source twin; and its implicit super() call
-        simple_cls = cls.split('.')[-1].split('$')[-1]
-        if meth == '<init>' and not re.search(r'\b' + re.escape(simple_cls) + r'\s*\([^)]*\)\s*(?:throws[^{]*)?\{', src_txt):
-            if name == '<init>': continue                      # implicit super()
-        if name == '<init>' and owner in app:
-            oc = owner.split('.')[-1].split('$')[-1]
-            if not re.search(r'\b' + re.escape(oc) + r'\s*\([^)]*\)\s*(?:throws[^{]*)?\{', src_txt): continue
+        # A javac-synthesized default constructor has no source body, so it is not a CALLER and its
+        # implicit super() is not a call. `new X()` naming it IS written in the source, though, and
+        # is kept — excluding it made every such creation unscorable in either direction, so an
+        # engine that emits it looked like it was inventing edges.
+        #
+        # EMPTY is the test, not "the class declares no constructor". A class with FIELD
+        # INITIALIZERS has a generated constructor too, and javac compiles the initializers into
+        # it — those calls are written in the source and belong to `<init>`. Keying the skip on
+        # the absence of a declared constructor threw them away, which made every call in a field
+        # initializer invisible to this oracle. The body of a genuinely empty one is exactly
+        # `aload_0; invokespecial super.<init>()V; return`, which is the same structural test
+        # ClassFileOracle.java makes.
+        if meth == '<init>' and (mdesc or '').startswith('()') and ninstr.get((cls, meth, mdesc)) == 3:
+            continue
         caller_name = meth
         lam = meth.startswith('lambda$')
         if lam:
