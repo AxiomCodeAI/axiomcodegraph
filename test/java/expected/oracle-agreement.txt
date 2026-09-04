@@ -1,4 +1,4 @@
-cases compared 31   agreeing 17   skipped 2 (need a classpath: 26-spring-oracle, 32-library-handoff-depth)
+cases compared 32   agreeing 18   skipped 2 (need a classpath: 26-spring-oracle, 32-library-handoff-depth)
 CONSTRUCTOR-RULE disagreements: 14 cases, 51 rows
   03-overloads-and-receivers         classfile-only   4   javap-only   0
   04-unqualified-calls               classfile-only   0   javap-only   2
