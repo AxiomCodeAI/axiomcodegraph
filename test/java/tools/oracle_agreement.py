@@ -21,11 +21,16 @@ debt cannot grow — or silently disappear — without a reviewed diff.
 
 Any OTHER disagreement fails: it means the two readers are describing different graphs.
 
+Agreement is not correctness — both readers can be wrong the same way. A case may therefore pin the
+edge list the two AGREE on as `expected/<case>.full-oracle`, which is the whole ground truth for
+that case including its library callees (the per-case `.oracle` golden sees only client->client, so
+a defect in what the readers make of a library call is invisible to it). `--bless` rewrites them.
+
 Independently of agreement, every row either reader emits must NAME A METHOD: `<init>`, `<clinit>`
 or a Java identifier. Both sides can be wrong in the same way and still agree, so shape is checked
 on its own — this is what catches a caller rendered as `pk.Inner#pk.D$Inner(String)`.
 
-usage: oracle_agreement.py <cases-dir> <work-dir> [case-filter ...]
+usage: oracle_agreement.py <cases-dir> <work-dir> [--bless] [case-filter ...]
 """
 import os, re, subprocess, sys, shutil
 
@@ -53,7 +58,9 @@ def run(cmd, **kw):
 
 def main():
     cases_dir, work = sys.argv[1], sys.argv[2]
-    filters = sys.argv[3:]
+    bless = '--bless' in sys.argv
+    filters = [a for a in sys.argv[3:] if not a.startswith('--')]
+    expected = os.path.join(os.path.dirname(os.path.abspath(cases_dir.rstrip('/'))), 'expected')
     os.makedirs(work, exist_ok=True)
 
     # Compile the class-file reader ONCE. `java Foo.java` re-compiles on every invocation, which
@@ -71,7 +78,7 @@ def main():
         names = [n for n in names if any(f in n for f in filters)]
 
     agreed, skipped, ctor_rows, other = 0, [], [], []
-    bad = []
+    bad = []; golden_fail = []
     per_case = []
     for name in names:
         src = os.path.join(cases_dir, name, 'src')
@@ -89,6 +96,13 @@ def main():
         b = set(x for x in j.stdout.splitlines() if x.strip())
         bad += [(name, 'javap', r) for r in malformed(a)]
         bad += [(name, 'classfile', r) for r in malformed(b)]
+        g = os.path.join(expected, name + '.full-oracle')
+        if bless:
+            if os.path.exists(g): open(g, 'w').write('\n'.join(sorted(a & b)) + '\n')
+        elif os.path.exists(g):
+            want = [x for x in open(g).read().splitlines() if x.strip()]
+            if want != sorted(a & b):
+                golden_fail.append((name, sorted(set(want) - (a & b)), sorted((a & b) - set(want))))
         if a == b:
             agreed += 1; continue
         only_py = sorted(a - b); only_cf = sorted(b - a)
@@ -108,7 +122,11 @@ def main():
     print(f"rows naming no method: {len(bad)}")
     for name, side, r in bad[:40]:
         print(f"  {name} [{side}]: {r}")
-    return 1 if (other or bad) else 0
+    print(f"full-oracle goldens that no longer match: {len(golden_fail)}")
+    for name, gone, new in golden_fail:
+        for r in gone[:20]: print(f"  {name}: -{r}")
+        for r in new[:20]:  print(f"  {name}: +{r}")
+    return 1 if (other or bad or golden_fail) else 0
 
 
 if __name__ == '__main__':

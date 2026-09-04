@@ -1,0 +1,2 @@
+oracle=6 engine=7 agree=6 missing=0 (known 0, NEW 0) extra=1
+  extra    lowering.Lowering#explicitIterator -> lowering.Bag#iterator()

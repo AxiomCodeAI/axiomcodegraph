@@ -109,10 +109,18 @@ and the question is undecidable from a class file); those counts are the golden
 * **Declared unknowns are recorded.** `ambiguous_unknown` / `ambiguous_anon` lines are part of the
   golden, so losing resolution power *or* silently gaining a blind spot both show up as a diff.
 * On the oracle side, bridge / `ACC_SYNTHETIC` methods, `access$N`, enum `values`/`valueOf`,
-  `<clinit>`, invokedynamic plumbing, string-concat and autoboxing lowering, the enhanced-for
-  iterator triple, and javac-synthesized constructors are excluded — the source contains no such
-  call, so scoring them either way would be noise. A lambda body (`lambda$m$N`) is folded into the
-  method that lexically contains it.
+  `<clinit>`, invokedynamic plumbing, string-concat lowering, boxing **and unboxing**, the
+  enhanced-for iterator triple (keyed on the mechanism, so it also covers a `java.lang.Iterable`
+  and a client class implementing it), the `Objects.requireNonNull` a **bound method reference**
+  emits for its receiver, try-with-resources `Throwable.addSuppressed`, and javac-synthesized
+  constructors are excluded — the source contains no such call, so scoring them either way
+  would be noise. `33-compiler-lowering` pins them: it pairs each construct with the
+  **explicitly written** form of the same call, so an exclusion that also removed the written
+  call fails the fixture.
+  Still counted, and known: the `close()` calls try-with-resources emits. They are not decidable
+  from the instruction — an explicit `r.close()` compiles identically — and unlike unboxing the
+  written form is common, so dropping them would trade one measurement error for another.
+* A lambda body (`lambda$m$N`) is folded into the method that lexically contains it.
 
 ## Cases
 
@@ -140,6 +148,7 @@ and the question is undecidable from a class file); those counts are the golden
 | `23-config-xml-wiring` | `beans.xml` + `web.xml`: bean definitions (with and without an `id`), `<constructor-arg ref>`, `<property ref>`, `<property value="${k}">` bound to its setter, `init-method`/`destroy-method`, servlet/filter/listener registrations, a **dangling** bean ref and a **missing** class |
 | `24-config-properties-yaml` | `.properties` and `.yml` as **one** key space: a placeholder chain inside one file, a chain **crossing formats** (YAML → properties), a two-hop chain, `${k:default}`, a key defined nowhere, and a value that names a handler class (vs one that merely looks FQN-shaped and must NOT resolve) |
 | `25-di-narrowing` | the only place config makes the graph **smaller**. One bean satisfying an injection point collapses `multi_inferred` to `known_edge`; **two** beans must stay a fan (the soundness guard); `@Qualifier` narrows again; a constructor-injected `final` field narrows |
+| `33-compiler-lowering` | constructs javac lowers into invoke instructions the source never wrote — unboxing, the `Objects.requireNonNull` a bound method reference emits, the enhanced-for triple over a `java.lang.Iterable` and over a client `Iterable`, try-with-resources — each paired with the explicitly written form of the same call, which must survive |
 | `27-messaging-and-grpc` | broker listeners and gRPC services — both pure framework entry points. `@KafkaListener`/`@RabbitListener` on a method and on a class (`@KafkaHandler` dispatch); a gRPC impl overriding a **generated** `…ImplBase` (no annotation on the method, and the base is a client type, so neither the callback name list nor the library-supertype test reached it); a topic/queue named by `${...}` **inside an annotation argument**, which binds the key to the listener; and producer↔consumer linked through a shared config key |
 | `26-spring-oracle` | the same constructs graded by **Spring itself** — `@Primary`, `@Qualifier` outranking it, an explicit `@Component("name")`, `@Bean` factory methods and their parameters, and the two-leading-capitals bean-name rule (`URLHandler` is *not* decapitalized) |
 
