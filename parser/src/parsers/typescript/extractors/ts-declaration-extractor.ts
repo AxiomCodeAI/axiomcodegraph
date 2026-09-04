@@ -714,6 +714,29 @@ export class TsDeclarationExtractor {
    */
   private visitNestedFunctionsAndClasses(node: ts.Node, context: EmitContext): void {
     ts.forEachChild(node, (child) => {
+      // A DECORATOR is never descended from here, because
+      // `visitDecoratorDeclarations` has already descended it — and
+      // `forEachChild` on a decorated node yields its decorators alongside its
+      // initialiser, so descending both emits everything inside a decorator
+      // TWICE.
+      //
+      // `@Column(() => PostCounter) counters: PostCounter = ...` is the shape:
+      // the arrow reached `emitFunctionLike` once through
+      // `emitClassMember -> visitDecoratorDeclarations -> emitDeclarationOrDescend`
+      // and again through `emitClassMember -> emitField -> ` this descent. Two
+      // `ts_method` rows at one position, differing only in `overloadIndex`,
+      // and `TS_METHOD_md5(tsModuleLinkHash ‖ tsTypeLinkHash ‖ qualifiedName ‖
+      // signature ‖ startLine ‖ startColumn)` does not include that column — so
+      // they collided on one primary key. Measured: 7 keys on typeorm, 6 on
+      // nest, plus the duplicated arrows' own `ts_method_parameter` rows.
+      //
+      // Skipping is safe because every decorator-bearing position has an
+      // explicit `visitDecoratorDeclarations` call already: the class itself,
+      // each class member, and each parameter. Nothing reaches a decorator only
+      // through this generic descent.
+      if (ts.isDecorator(child)) {
+        return;
+      }
       if (ts.isFunctionExpression(child)) {
         this.emitFunctionLike(child, context, TsMethodKind.FUNCTION_EXPRESSION);
         return;
