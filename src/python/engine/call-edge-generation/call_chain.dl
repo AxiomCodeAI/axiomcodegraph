@@ -207,6 +207,57 @@ with_protocol_edge(cm, caller, m) :-
     mro_lookup("client", ct, ex, m),
     expr_ultimate_method("client", cm, caller).
 
+// ── ITERATION PROTOCOL — `for x in obj` calls obj.__iter__ ───────────────────
+// The third edge-that-is-not-a-site, on the same channel and for the same reason as a
+// property read and a context manager: CPython compiles `for` to GET_ITER / FOR_ITER,
+// not to a CALL, so there is no py_call_site and nothing to conserve — but
+// `type(obj).__iter__(obj)` runs, and it is a real method->method edge. 181 classes in
+// the measured corpus define __iter__ and not one of those edges existed.
+//
+// THE ASYNC PROBLEM, AND WHY THE GATE IS SOUND RATHER THAN A GUESS.
+// `async for` calls __aiter__, not __iter__, and the IR CANNOT TELL THE TWO APART: the
+// parser emits rootContext=FOR_ITERABLE for both (verified — an `async for` and a `for`
+// produce byte-identical rows but for the line). Emitting __iter__ for every
+// FOR_ITERABLE would therefore fabricate an edge on every `async for`. Filed against the
+// parser; until it distinguishes them, the TYPE decides, and it decides soundly:
+//
+//   a type with no __aiter__ CANNOT appear in `async for` — it is a TypeError — so every
+//   FOR_ITERABLE over it is a sync `for`, and __iter__ is the target.
+//   a type with no __iter__ cannot appear in a plain `for`, so the mirror holds.
+//
+// Measured over the five corpora: 181 classes define only __iter__, 18 only __aiter__,
+// and 3 define BOTH (a streaming response and two query sets). The gate answers 199 of
+// 202 and DECLINES on the 3, which is the honest outcome for a distinction the IR does
+// not carry.
+//
+// __next__ IS DELIBERATELY NOT EMITTED. `for` calls __next__ on whatever __iter__
+// RETURNED, which is a different object — commonly a generator, sometimes self, and the
+// engine cannot tell which without following the return. Emitting __next__ on the
+// container's own type would be right for a self-iterating class and wrong for every
+// class that returns a separate iterator, so it is left out rather than guessed.
+iteration_protocol_sync("__iter__").
+iteration_protocol_async("__aiter__").
+
+type_defines_iter(t)  :- iteration_protocol_sync(d),  mro_lookup("client", t, d, _).
+type_defines_aiter(t) :- iteration_protocol_async(d), mro_lookup("client", t, d, _).
+
+iter_protocol_target(t, m) :-
+    iteration_protocol_sync(d), mro_lookup("client", t, d, m), !type_defines_aiter(t).
+iter_protocol_target(t, m) :-
+    iteration_protocol_async(d), mro_lookup("client", t, d, m), !type_defines_iter(t).
+
+// A `for` statement's iterable is a depth-0 root, exactly as WITH_CONTEXT is.
+iter_protocol_edge(src, caller, m) :-
+    expr_root_context("client", "FOR_ITERABLE", src), !expr_has_parent("client", src),
+    expr_type("client", src, t), iter_protocol_target(t, m),
+    expr_ultimate_method("client", src, caller).
+// A comprehension's iterable is PARENTED under the comprehension instead, so it needs
+// its own clause — the same split iter_pair already makes.
+iter_protocol_edge(src, caller, m) :-
+    expr_parent("client", _, "COMPREHENSION_ITERABLE", _, src),
+    expr_type("client", src, t), iter_protocol_target(t, m),
+    expr_ultimate_method("client", src, caller).
+
 // ── property_read_edge(ReadExprHash, CallerMethodHash, GetterMethodHash) ─────
 property_read_edge(e, caller, getter) :-
     expr_node("client", "ATTRIBUTE_ACCESS", _, n, e),
@@ -367,6 +418,11 @@ call_chain_edge(e, caller, "-", getter, "client", "known_edge", "PROPERTY_READ")
 // never be mistaken for a written call.
 call_chain_edge(cm, caller, "-", m, "client", "known_edge", "CONTEXT_MANAGER") :-
     with_protocol_edge(cm, caller, m).
+
+// ITERATION PROTOCOL — likewise. Own kind, so a consumer can filter it and it can never
+// be counted as a written call.
+call_chain_edge(src, caller, "-", m, "client", "known_edge", "ITERATION_PROTOCOL") :-
+    iter_protocol_edge(src, caller, m).
 
 // A site whose caller could not be determined AT ALL would vanish from every rule
 // above. That must be impossible (the parser guarantees a non-empty owner), so it is

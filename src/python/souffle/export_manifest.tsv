@@ -53,6 +53,7 @@ metaclass_of	resolution-metaclass-of.csv
 type_call_target	resolution-callable-instance.csv
 type_property_getter	resolution-property-getter.csv
 property_read_edge	call-edges-property-read.csv
+iter_protocol_edge	call-edges-iteration-protocol.csv
 binding_dict_entry_method	resolution-dict-entry-callable.csv
 dict_key_unknown	resolution-dict-key-unknown.csv
 subscript_dispatch_incomplete	resolution-subscript-incomplete.csv

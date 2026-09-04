@@ -42,7 +42,8 @@ import sys
 
 # Kinds the engine emits as an EDGE with no written call site. Listed rather than
 # inferred, so a new one shows up as a diff in every case's artifact.
-NON_SITE_KINDS = {'PROPERTY_READ', 'METACLASS_CREATION', 'CONTEXT_MANAGER'}
+NON_SITE_KINDS = {'PROPERTY_READ', 'METACLASS_CREATION', 'CONTEXT_MANAGER',
+                  'ITERATION_PROTOCOL'}
 
 
 def read_col(path, col):
