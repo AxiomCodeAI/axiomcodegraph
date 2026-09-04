@@ -31,6 +31,7 @@ import f28_await as f28
 import f29_subscript as f29
 import f30_builtin_elements as f30
 import f31_named_blind_spots as f31
+import f32_iteration_protocol as f32
 from tlib import Square
 from tlib.shapes import Base, Mid
 
@@ -102,6 +103,7 @@ def main() -> None:
     print(f29.drive())
     print(f30.drive())
     print(f31.drive())
+    print(f32.drive())
 
 
 if __name__ == "__main__":
