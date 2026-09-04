@@ -1,4 +1,4 @@
-=== per-family coverage (tier-4, 233 scored sites) ===
+=== per-family coverage (tier-4, 266 scored sites) ===
   f01 inheritance & MRO        links= 10  found= 10 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f02 callables & closures     links= 10  found=  9 (90.0%)  missed= 1  wide= 0  WRONG= 0
   f03 generics                 links= 14  found= 14 (100.0%)  missed= 0  wide= 0  WRONG= 0
@@ -24,14 +24,15 @@
   f26 local annotation         links=  5  found=  5 (100.0%)  missed= 0  wide= 1  WRONG= 0
   f27 with target              links=  7  found=  7 (100.0%)  missed= 0  wide= 1  WRONG= 0
   f28 await                    links= 29  found= 29 (100.0%)  missed= 0  wide= 0  WRONG= 0
+  f29 subscript element        links= 33  found= 33 (100.0%)  missed= 0  wide= 0  WRONG= 0
   pkgmod relative imports (subpackage) links=  3  found=  3 (100.0%)  missed= 0  wide= 0  WRONG= 0
 
-  TOTAL                         links=206  found=198 (96.1%)  missed= 8  wide=27  WRONG= 0
-  recall      198/206 = 96.1%  of the links that actually ran
+  TOTAL                         links=239  found=231 (96.7%)  missed= 8  wide=27  WRONG= 0
+  recall      231/239 = 96.7%  of the links that actually ran
   wide  27   a member of a SOUND SET that did not run on this pass
   WRONG 0   a single target asserted as certain that never ran
 
-  EXPECTED-MISS cases: {'FOUND': 7, 'MISSED': 8}   (a CONCRETE here means a known blind spot closed)
+  EXPECTED-MISS cases: {'FOUND': 8, 'MISSED': 10}   (a CONCRETE here means a known blind spot closed)
 
 --- non-concrete sites ---
   f02_callables.py:31   MISSED     true=[('lib', 'callables.py', 22)] engine=[]
