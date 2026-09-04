@@ -5,7 +5,6 @@ ambiguous_unknown	method	FunctionValues#viaList(String) -> -
 ambiguous_unknown	method	FunctionValues#viaMap(String,String) -> -
 ambiguous_unknown	method	FunctionValues#viaParameter(Function,String) -> -
 ambiguous_unknown	new	FunctionValues#<type-initializer>() -> -
-ambiguous_unknown	new	FunctionValues#main(String[]) -> -
 known_edge	method	FunctionValues#build() -> FunctionValues#impl(String)
 known_edge	method	FunctionValues#callsViaParameter(String) -> FunctionValues#impl(String)
 known_edge	method	FunctionValues#callsViaParameter(String) -> FunctionValues#viaParameter(Function,String)
@@ -19,3 +18,4 @@ known_edge	method	FunctionValues#main(String[]) -> FunctionValues#viaList(String
 known_edge	method	FunctionValues#main(String[]) -> FunctionValues#viaMap(String,String)
 known_edge	method	FunctionValues#register() -> FunctionValues#impl(String)
 known_edge	method	FunctionValues#register() -> FunctionValues#other(String)
+known_edge	new	FunctionValues#main(String[]) -> FunctionValues#<init>()

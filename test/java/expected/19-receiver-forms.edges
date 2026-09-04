@@ -1,7 +1,5 @@
 ambiguous_unknown	method	ReceiverForms#main(String[]) -> -
 ambiguous_unknown	method	ReceiverForms#viaStringLiteral() -> -
-ambiguous_unknown	new	ReceiverForms#main(String[]) -> -
-ambiguous_unknown	new	ReceiverForms#viaNewDirect() -> -
 known_edge	method	ReceiverForms#main(String[]) -> Box#put(Object)
 known_edge	method	ReceiverForms#main(String[]) -> ReceiverForms#viaArrayElement(Node[])
 known_edge	method	ReceiverForms#main(String[]) -> ReceiverForms#viaCast(Object)
@@ -17,6 +15,11 @@ known_edge	method	ReceiverForms#viaChained(Box) -> Box#get(int)
 known_edge	method	ReceiverForms#viaInstanceofPattern(Object) -> Twig#tag()
 known_edge	method	ReceiverForms#viaNewDirect() -> Leaf#tag()
 known_edge	method	ReceiverForms#viaVarargs() -> ReceiverForms#join(String,String[])
+known_edge	new	ReceiverForms#main(String[]) -> Box#<init>()
+known_edge	new	ReceiverForms#main(String[]) -> Leaf#<init>()
+known_edge	new	ReceiverForms#main(String[]) -> ReceiverForms#<init>()
+known_edge	new	ReceiverForms#main(String[]) -> Twig#<init>()
+known_edge	new	ReceiverForms#viaNewDirect() -> Leaf#<init>()
 multi_inferred	method	ReceiverForms#viaArrayElement(Node[]) -> Leaf#tag()
 multi_inferred	method	ReceiverForms#viaArrayElement(Node[]) -> Node#tag()
 multi_inferred	method	ReceiverForms#viaArrayElement(Node[]) -> Twig#tag()

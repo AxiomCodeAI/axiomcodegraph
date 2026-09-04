@@ -71,7 +71,7 @@ class Names:
                 if p.get('isVarArgs') == 'true' and not suf: suf = '[]'
                 ps.append(b + suf)
             cls = r.get('ownerQualifiedName') or r.get('ownerTypeName')
-            nm = '<init>' if r.get('methodKind') == 'CONSTRUCTOR' else r.get('name')
+            nm = '<init>' if r.get('methodKind') in ('CONSTRUCTOR', 'DEFAULT_CONSTRUCTOR') else r.get('name')
             self.m[h] = f"{self.anon.get(cls, cls)}#{nm}({','.join(ps)})"
             self.file[h] = r.get('filePath') or tfile.get(th, '')
 

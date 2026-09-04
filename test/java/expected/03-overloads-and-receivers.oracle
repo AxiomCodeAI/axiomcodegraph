@@ -1,3 +1,4 @@
-oracle=5 engine=7 agree=5 missing=0 (known 0, NEW 0) extra=2
+oracle=6 engine=7 agree=5 missing=1 (known 1, NEW 0) extra=2
+  known-missing  testcases.engine.ComplexDispatch#<init> -> testcases.engine.ComplexDispatch$anon:Sink#<init>
   extra    testcases.engine.ComplexDispatch#boxingAndFields -> testcases.engine.ComplexDispatch$anon:Sink#accept(String)
   extra    testcases.engine.ComplexDispatch#internalOverloads -> testcases.engine.ComplexDispatch#emit(Object)

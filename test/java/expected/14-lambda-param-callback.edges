@@ -7,3 +7,5 @@ ambiguous_unknown	new	LambdaParamCallback#main(String[]) -> -
 known_edge	method	LambdaParamCallback#main(String[]) -> LambdaParamCallback#viaMapValues(String)
 known_edge	method	LambdaParamCallback#main(String[]) -> LambdaParamCallback#viaStream(List,String)
 known_edge	method	LambdaParamCallback#main(String[]) -> LambdaParamCallback#viaTypedList(List,String)
+known_edge	new	LambdaParamCallback#main(String[]) -> Item#<init>()
+known_edge	new	LambdaParamCallback#main(String[]) -> LambdaParamCallback#<init>()

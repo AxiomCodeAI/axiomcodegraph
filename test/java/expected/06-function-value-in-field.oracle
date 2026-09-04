@@ -1,6 +1,4 @@
-oracle=16 engine=21 agree=14 missing=2 (known 2, NEW 0) extra=7
-  known-missing  Asset#<init> -> Asset#readInit(String)
-  known-missing  Asset#<init> -> Asset#readRef(String)
+oracle=16 engine=23 agree=16 missing=0 (known 0, NEW 0) extra=7
   extra    Asset#handle -> Asset#read(String)
   extra    Asset#handleBlock -> Asset#audit(String)
   extra    Asset#handleBlock -> Asset#readBlock(String)

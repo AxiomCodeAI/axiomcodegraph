@@ -1,5 +1,5 @@
-ambiguous_unknown	new	testcases.config.MyServlet#doGet() -> -
 known_edge	method	testcases.config.MailSender#start() -> testcases.config.Transport#open()
 known_edge	method	testcases.config.MailSender#stop() -> testcases.config.Transport#close()
 known_edge	method	testcases.config.MyServlet#doGet() -> testcases.config.MailSender#start()
 known_edge	new	testcases.config.MyServlet#doGet() -> testcases.config.MailSender#<init>(Transport)
+known_edge	new	testcases.config.MyServlet#doGet() -> testcases.config.Transport#<init>()

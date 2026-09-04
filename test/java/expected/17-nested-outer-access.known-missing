@@ -1,0 +1,9 @@
+# Accepted gap: an ANONYMOUS CLASS has no constructor to point at. JLS 15.9.5.1 gives it an
+# "anonymous constructor" that is implicitly declared and cannot be written, so the extractor emits
+# no method entity for it — unlike a named class declaring none, whose implicit default constructor
+# IS emitted and now resolves. Bytecode names the anonymous class's own constructor as the target of
+# `new Iface(){...}`, so the edge is real; nothing in the IR can be its callee.
+# It cannot rot: if the extractor starts emitting one, this line reports NOW-FIXED and fails.
+Middle#deep -> OuterAccess$anon:Supplier#<init>
+OuterAccess#anonToOuter -> OuterAccess$anon:Supplier#<init>
+OuterAccess#anonToOuterStatic -> OuterAccess$anon:Supplier#<init>
