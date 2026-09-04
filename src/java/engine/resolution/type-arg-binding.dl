@@ -98,6 +98,53 @@ super_tvar_rename(sub, super, superParam, subVar) :- type_super_ref_h(sub, super
 type_arg_binding(ref, super, superParam, argType) :- type_arg_binding(ref, sub, subVar, argType),
     super_tvar_rename(sub, super, superParam, subVar).
 
+// ── DIAMOND INFERENCE (JLS 15.9.1): `new ArrayList<>()` takes its arguments from the
+// TARGET type of the assignment ─────────────────────────────────────────────────────────
+//
+// `List<W> xs = new ArrayList<>(); xs.get(0)` resolved to nothing, while every neighbouring
+// form worked — `new ArrayList<W>()`, `= make()`, `ArrayList<W> xs = new ArrayList<>()`, and
+// even `= null`. The reason is that two things disagree about which type the receiver has:
+// the CALLEE is resolved on the created type (ArrayList#get), because the initializer narrows
+// the receiver, while the type ARGUMENT is written on the declared type (List<W>). Bindings
+// propagate UP the hierarchy — List<W> gives Collection.E and Iterable.T — and never down, so
+// `type_arg_binding(declRef, ArrayList, E, …)` did not exist and the substitution had nothing
+// to join. The diamond is precisely the case where nothing else supplies it, because it
+// writes no arguments of its own.
+//
+// Java answers this by inferring the diamond's arguments from the target type, and the fact
+// needed to do the same is already here: super_tvar_rename records, positionally, that
+// ArrayList's E fills List's E. Following that edge the other way for THIS creation — and only
+// for this creation, where the runtime type is known exactly — carries List.E := W down to
+// ArrayList.E := W.
+//
+// It cannot over-reach. The rename edge exists only where the subtype passes its own variable
+// straight through (`class ArrayList<E> implements List<E>`); a subtype that fixes the argument
+// (`class Names implements List<String>`) declares no variable at that position, produces no
+// rename, and the rule does not fire. And it is keyed on the DECLARED ref, which is already the
+// ref recv_decl_ref carries, so no consumer changes.
+//
+// java_type_reference (18): 5 parentReferenceHash 7 depth 17 uniqueHash
+creation_has_type_arg(cref) :- java_type_reference(_, _, _, _, _, cref, _, "1", _, _, _, _, _, _, _, _, _, _).
+
+// A local or field whose declared type reference supplies arguments and whose initializer is a
+// diamond creation of `created`. The two object-creation shapes mirror the two recv_decl_ref
+// initializer clauses in expr-type.dl.
+diamond_target(dref, declared, created) :- java_local_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, local),
+    local_var_type_resolves(_, local, dref, declared),
+    java_expression("OBJECT_CREATION", _, "LOCAL_VAR_INITIALIZER", "LOCAL_VARIABLE", _, local, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, objExpr),
+    object_creation_type_resolves(_, objExpr, cref, created),
+    !creation_has_type_arg(cref).
+diamond_target(dref, declared, created) :- java_field(_, _, _, _, _, _, _, _, _, _, _, _, _, field),
+    field_type_resolves(_, field, dref, declared),
+    java_expression("OBJECT_CREATION", _, "FIELD_INITIALIZER", "FIELD", _, field, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, objExpr),
+    object_creation_type_resolves(_, objExpr, cref, created),
+    !creation_has_type_arg(cref).
+
+type_arg_binding(dref, created, subVar, argType) :- diamond_target(dref, declared, created),
+    created != declared,
+    type_arg_binding(dref, declared, superParam, argType),
+    super_tvar_rename(created, declared, superParam, subVar).
+
 // ── CLIENT method returning its owner class's type variable (U getU() on Holder<U,…>) ──
 // The library counterpart is lib_method_ret_tvar (lib-hierarchy.dl); this is the client
 // mirror, so a generic client class instantiated with concrete arguments substitutes its

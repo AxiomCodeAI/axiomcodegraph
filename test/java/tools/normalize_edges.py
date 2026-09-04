@@ -94,12 +94,21 @@ def main():
     n = Names(ir)
     # A stub library's methods are named from its own IR, so a boundary edge is readable and the
     # golden does not move when a hash does.
+    # A ROOT OF ROOTS is accepted as well as a single IR — the platform library is staged as one
+    # directory per module, and a run that stages it would otherwise leave every JDK callee as a
+    # raw METHOD_REGISTRY hash in the golden. That breaks the promise one line above: the hashes
+    # move whenever the platform IR is rebuilt, so the golden churns for a reason that has nothing
+    # to do with the engine.
     if len(args) > 2 and os.path.isdir(args[2]):
-        lib = Names(args[2])
-        for h, label in lib.m.items():
-            n.m.setdefault(h, label)
-        for h, qn in lib.types.items():
-            n.types.setdefault(h, qn)
+        roots = [args[2]] if os.path.exists(os.path.join(args[2], 'all-methods.csv')) else \
+                [os.path.join(args[2], d) for d in sorted(os.listdir(args[2]))
+                 if os.path.exists(os.path.join(args[2], d, 'all-methods.csv'))]
+        for root in roots:
+            lib = Names(root)
+            for h, label in lib.m.items():
+                n.m.setdefault(h, label)
+            for h, qn in lib.types.items():
+                n.types.setdefault(h, qn)
     seen = set()
     for line in open(f'{out}/call-chain-edges.csv', encoding='utf-8', errors='replace'):
         f = line.rstrip('\n').split('\t')
