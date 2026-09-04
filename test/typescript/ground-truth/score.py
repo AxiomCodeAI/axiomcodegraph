@@ -72,14 +72,63 @@ def is_test_path(p):
 
 
 def base(p):
-    """The file's BASENAME. Not the full path and not two segments: a library IR is
-    rooted at whatever directory it was extracted from, so the same file is
-    `lib/lib.es5.d.ts` to the oracle and `lib.es5.d.ts` to the engine. Basename plus an
-    exact line AND column is unique in practice, and it is the only identity both
-    sides can compute without agreeing on a root."""
+    """The file's basename. DISPLAY ONLY — see resolved_ident for the comparison key."""
     p = p.replace('\\', '/')
     parts = [x for x in p.split('/') if x]
     return parts[-1] if parts else p
+
+
+_RP = {}
+
+
+def rp(path):
+    """Resolved absolute path, memoised.
+
+    Both sides name the same file differently and only the filesystem can reconcile
+    them. On macOS `/tmp` is a symlink to `/private/tmp`, and under pnpm a package is
+    reached through `.pnpm/<name>@<ver>/node_modules/<pkg>` — so the engine's staged root
+    `/tmp/x/node_modules/typescript/lib` and the oracle's
+    `/private/tmp/x/node_modules/.pnpm/typescript@5.9.3/node_modules/typescript/lib`
+    are one directory under two names. realpath collapses both.
+    """
+    if not path:
+        return path
+    v = _RP.get(path)
+    if v is None:
+        v = os.path.realpath(path)
+        _RP[path] = v
+    return v
+
+
+# Roots that could not be resolved, so their rows fall back to a basename identity.
+# Reported, never silent: the fallback is exactly the collision this replaced.
+_WEAK_ROOTS = []
+
+
+def source_root(d):
+    """The directory an IR root was extracted from, per its `.source-root` marker."""
+    marker = os.path.join(d, '.source-root')
+    if not os.path.exists(marker):
+        _WEAK_ROOTS.append(d)
+        return ''
+    with open(marker, encoding='utf-8', errors='replace') as fh:
+        return rp(fh.read().strip())
+
+
+def resolved_ident(root, f, line, col):
+    """The identity BOTH SIDES compare on: resolved absolute path, line, column.
+
+    This used to be (basename, line, column), with a docstring asserting that was
+    "unique in practice". Measured on this corpus, it is not: 581 (basename, line, col)
+    keys in trpc map to more than one distinct file, 317 in nest, 110 in zustand, 41 in
+    remeda. A monorepo has many `index.ts`, and when the engine named one file and the
+    compiler named another that happened to share a basename, line and column, the site
+    scored EXACT. The error was in the direction of flattering the engine, which is the
+    worst direction for a number nobody can check.
+    """
+    if root and f and not os.path.isabs(f):
+        return (rp(os.path.join(root, f)), line, col)
+    return (rp(f) if os.path.isabs(f or '') else base(f), line, col)
 
 def main():
     ir_dir, out_dir, oracle_path = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -120,6 +169,7 @@ def main():
     pos_group = {}
     pos_meta = {}
     def load_methods(d):
+        root = source_root(d)
         mf = {}
         mpath = os.path.join(d, 'all-typescript-modules.csv')
         if os.path.exists(mpath):
@@ -131,11 +181,11 @@ def main():
         for row in read_tsv(p):
             h = row[42]
             f = row[4] or mf.get(row[21], '')
-            meth_pos[h] = (f, row[5], row[39], row[0])
+            meth_pos[h] = (f, row[5], row[39], row[0], root)
             # name + methodKind BY POSITION, so a target the oracle names can be
             # compared against a target we name without going back through hashes.
             if len(row) > 16:
-                pos_meta[(base(f), row[5], row[39])] = (row[0], row[16])
+                pos_meta[resolved_ident(root, f, row[5], row[39])] = (row[0], row[16])
             # declarationGroupKey (col 22) — every OVERLOAD SIGNATURE of one function
             # shares it. TypeScript overloads are compile-time only: N signatures, ONE
             # implementation, so a call that reaches any of them reaches the same code.
@@ -143,7 +193,7 @@ def main():
             # identically to "reached a completely different function", and the two are
             # not remotely the same defect.
             if len(row) > 22 and row[22]:
-                pos_group[(base(f), row[5], row[39])] = row[22]
+                pos_group[resolved_ident(root, f, row[5], row[39])] = row[22]
     load_methods(ir_dir)
     for d in lib_dirs:
         load_methods(d)
@@ -155,8 +205,8 @@ def main():
         ce, _caller, _te, to, _prov, status, _kind = row[:7]
         engine_status.setdefault(ce, set()).add(status)
         if to != '-' and to in meth_pos:
-            f, line, col, _name = meth_pos[to]
-            engine_targets[ce].add((base(f), line, col))
+            f, line, col, _name, root = meth_pos[to]
+            engine_targets[ce].add(resolved_ident(root, f, line, col))
 
     # A resolved target whose position the IR does not carry: counted apart, because
     # "the engine resolved and the harness could not locate it" is a harness gap, not
@@ -174,7 +224,7 @@ def main():
         tf, tl, tc, tkind = row[7], row[8], row[9], row[11]
         ocount = int(row[12]) if len(row) > 12 and row[12].isdigit() else 1
         oidx = int(row[13]) if len(row) > 13 and row[13].isdigit() else 0
-        oracle[key] = (base(tf), tl, tc, tkind, row[6], row[5], ocount, oidx)
+        oracle[key] = (rp(tf) if tf else tf, tl, tc, tkind, row[6], row[5], ocount, oidx)
 
     # ── apply the production filter to BOTH SIDES, before anything is counted ───
     # Both sides or neither. Dropping test rows from the oracle alone would move every
@@ -270,9 +320,9 @@ def main():
             b = 'MISSED_UNLOCATABLE' if ce in unlocatable else 'MISSED'
             if b == 'MISSED':
                 missed_by_callee[cname] += 1
-                missed_by_target[o[0]] += 1
+                missed_by_target[base(o[0])] += 1
                 if len(missed_rows) < 200000:
-                    missed_rows.append((f, line, col, ckind, cname, o[0], o[1], o[4]))
+                    missed_rows.append((f, line, col, ckind, cname, base(o[0]), o[1], o[4]))
         elif otarget in eng:
             b = 'EXACT' if len(eng) == 1 else 'SOUND_SUPERSET'
         elif _implements_signature(otarget, eng):
@@ -337,6 +387,27 @@ def main():
     exact_rate = buckets['EXACT'] / decidable if decidable else 0.0
     right_rate = right / decidable if decidable else 0.0
 
+    # ── TARGET IDENTITY, reported because it decides what every rate below means ──
+    # Sites are compared on a resolved absolute path. Under the previous basename
+    # identity these keys were indistinguishable, and a site whose engine answer and
+    # oracle answer merely shared a basename, line and column scored EXACT.
+    collide = defaultdict(set)
+    for pth, ln, cl in list(pos_meta.keys()):
+        collide[(base(pth), ln, cl)].add(pth)
+    ambiguous = {k: v for k, v in collide.items() if len(v) > 1}
+    if ambiguous:
+        print(f'target identity             {len(pos_meta)} declarations; '
+              f'{len(ambiguous)} (basename,line,col) keys cover '
+              f'{sum(len(v) for v in ambiguous.values())} distinct files')
+        print('  ^ these are DISTINGUISHED here and were conflated before; a basename '
+              'match is no longer EXACT')
+    if _WEAK_ROOTS:
+        print(f'! {len(_WEAK_ROOTS)} IR root(s) have no .source-root and fall back to a '
+              f'basename identity:')
+        for d in _WEAK_ROOTS[:5]:
+            print(f'    {d}')
+        print('  Targets in those roots can still collide. Every rate below is loose by '
+              'that much.')
     print(f'call sites (parser IR)      {len(call_pos)}')
     print(f'call sites (oracle)         {len(oracle)}')
     print(f'joined on position          {matched}')
@@ -506,7 +577,7 @@ def main():
             if not e:
                 continue
             cha, rta = e
-            eng = {f'{t[0]}:{t[1]}:{t[2]}' for t in engine_targets.get(ce, set())}
+            eng = {f'{base(t[0])}:{t[1]}:{t[2]}' for t in engine_targets.get(ce, set())}
             if not cha:
                 continue
             cha_total += len(cha)
@@ -552,8 +623,8 @@ def main():
                 o = oracle.get((f, line, col, eline, ecol))
                 if not o:
                     continue
-                eng = sorted(f'{t[0]}:{t[1]}:{t[2]}' for t in engine_targets.get(ce, set()))
-                ot = f'{o[0]}:{o[1]}:{o[2]}'
+                eng = sorted(f'{base(t[0])}:{t[1]}:{t[2]}' for t in engine_targets.get(ce, set()))
+                ot = f'{base(o[0])}:{o[1]}:{o[2]}'
                 v = site_verdict.get(ce, 'NO_ORACLE_ROW')
                 fh.write('\t'.join([v, f, line, col, ckind, cname,
                                     str(o[6]) if len(o) > 6 else '1',
