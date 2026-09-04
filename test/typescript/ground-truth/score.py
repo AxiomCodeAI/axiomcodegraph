@@ -24,9 +24,11 @@ Position is exact in both and is what makes overload-level agreement measurable 
 comparison would score those as agreements regardless of which overload was picked.
 
 Usage: score.py <ir-dir> <engine-out-dir> <oracle.tsv> [--lib=<ir-dir> ...] [--envelope=<tsv>]
+                [--production]
 """
 import csv
 import os
+import re
 import sys
 from collections import defaultdict
 
@@ -43,6 +45,32 @@ def read_tsv(path, header=True):
         return [r for r in rows[1:] if len(r) == n]
     return rows
 
+# ── PRODUCTION vs TEST code ─────────────────────────────────────────────────
+# A repository's test tree is usually LARGER than the library it tests, and it is not
+# the code anyone runs a call graph over: typeorm carries 70,534 test call sites against
+# 17,062 production ones, remeda 11,193 against 11,818. Folding them together does two
+# things, both bad.
+#
+# It moves every rate toward whatever the test tree happens to exercise -- 80% of one
+# project's "accuracy" would be a statement about its fixtures. And it hides extraction
+# defects behind an average: typeorm's conservation loss is 11.58% over test code and
+# 0.04% over production code, so the project reads as 9.3% lost -- above the threshold
+# at which no rate below should be believed -- because of a subtree nobody is measuring
+# on purpose.
+#
+# Anchored to a PATH SEGMENT, not a substring, so `src/testing/` (nest ships a testing
+# package as product) is not silently discarded while `test/` is. `docs`/`examples` go
+# too: they are compiled by the tsconfig, are not shipped, and typecheck loosely.
+TEST_PATH = re.compile(
+    r'(^|/)(test|tests|__tests__|__mocks__|spec|specs|benchmark|benchmarks|e2e'
+    r'|example|examples|docs|doc|website|scripts)(/|$)'
+    r'|\.(spec|test|bench)\.[cm]?[jt]sx?$')
+
+
+def is_test_path(p):
+    return bool(TEST_PATH.search(p))
+
+
 def base(p):
     """The file's BASENAME. Not the full path and not two segments: a library IR is
     rooted at whatever directory it was extracted from, so the same file is
@@ -57,11 +85,14 @@ def main():
     ir_dir, out_dir, oracle_path = sys.argv[1], sys.argv[2], sys.argv[3]
     lib_dirs = []
     envelope_path = None
+    production_only = False
     for a in sys.argv[4:]:
         if a.startswith('--lib='):
             lib_dirs.append(a[len('--lib='):])
         elif a.startswith('--envelope='):
             envelope_path = a[len('--envelope='):]
+        elif a == '--production':
+            production_only = True
 
     # ---- client IR: module hash -> file, call-site expr -> position ----
     mod_file = {}
@@ -144,6 +175,26 @@ def main():
         ocount = int(row[12]) if len(row) > 12 and row[12].isdigit() else 1
         oidx = int(row[13]) if len(row) > 13 and row[13].isdigit() else 0
         oracle[key] = (base(tf), tl, tc, tkind, row[6], row[5], ocount, oidx)
+
+    # ── apply the production filter to BOTH SIDES, before anything is counted ───
+    # Both sides or neither. Dropping test rows from the oracle alone would move every
+    # surviving IR site into NO_ORACLE_ROW and leave the conservation figure describing
+    # a population the report no longer scores.
+    if production_only:
+        ora_all, ir_all = len(oracle), len(call_pos)
+        oracle = {k: v for k, v in oracle.items() if not is_test_path(k[0])}
+        call_pos = {c: v for c, v in call_pos.items() if not is_test_path(v[0])}
+        print(f'production filter            oracle {ora_all} -> {len(oracle)}   '
+              f'IR {ir_all} -> {len(call_pos)}')
+        if not oracle:
+            print()
+            print('REFUSING TO REPORT: the production filter left NO call sites.')
+            print('  Every site this project declares is under a test, docs or example '
+                  'path, so there is')
+            print('  nothing here to measure a call graph over. That is a fact about the '
+                  'project, not a score.')
+            sys.stdout.flush()
+            sys.exit(5)
 
     # A declaration with NO BODY: it describes a callable, it is not one.
     bodiless_kinds = {

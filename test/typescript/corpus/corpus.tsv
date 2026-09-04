@@ -1,0 +1,59 @@
+# The TypeScript evaluation corpus — the DEFINITION, not a description of one.
+#
+# Why this file exists: every held-out figure ever quoted for this front end came from
+# a corpus that lived in /tmp and a dev/holdout split that lived in an agent's head.
+# `git grep held-out` on main returned nothing. So no rate was reproducible, and a
+# corpus member could stop producing ground truth without anyone noticing — which is
+# what issue #143 found, and what a full run at the current head confirms: SEVEN of the
+# nine projects below cannot be measured at all, and the two sets between them were
+# reporting on subtrees nobody chose.
+#
+# ── FIELDS ───────────────────────────────────────────────────────────────────
+#   name  set  path  repo  commit  note
+# `note` is the last field and may contain spaces. `path` is relative to the clone;
+# `.` means the repository root IS the project.
+#
+# ── SET ──────────────────────────────────────────────────────────────────────
+# dev      designed against. A rule may be derived from what these projects show.
+# holdout  DESIGN-BLIND. Measured, never used to derive a rule. When it surfaces a
+#          defect class, the shape is reproduced SYNTHETICALLY under cases/ and the
+#          rule designed from that — never from the held-out site itself.
+#          A change that closes the dev/holdout gap is suspicious, not good: that gap
+#          IS the generalisation cost.
+# blocked  IN THE CORPUS AND NOT MEASURABLE. Kept here, with the reason, because a
+#          manifest that silently drops what it cannot measure is how a held-out set
+#          came to be three projects none of which worked. Each carries the issue that
+#          would return it to service. run-corpus.sh skips these.
+#
+# ── PATH: why package level, not repository root (issue #143) ────────────────
+# On a workspace repository the IR carries `filePath` relative to each package with no
+# package qualifier, so two packages' `src/index.ts` collide on one key and nothing
+# joins (parser#70). The parser handles a SINGLE package correctly, so a workspace repo
+# is entered at its principal published package. But package-level entry has its own
+# cost, visible in the blocked rows: the harness mirrors the project directory, and a
+# package tsconfig that `extends` or `references` ABOVE its own root loses the target.
+#
+# ── WHERE THE CLONES LIVE ────────────────────────────────────────────────────
+# $TS_CORPUS, defaulting to ~/.cache/axiom-ts-corpus. Deliberately NOT /tmp: the corpus
+# was kept there and the system reaper removed every source file from all nine projects
+# mid-session — directories and node_modules left standing, .git gone — which surfaced
+# as four harness failures that looked like four unrelated bugs. fetch.sh reclones at the
+# pinned commits, which is the only reason that was recoverable.
+#
+# ── SCORING IS PRODUCTION-ONLY ───────────────────────────────────────────────
+# run-corpus.sh sets SCORE_PRODUCTION=1. A repository's test tree is routinely larger
+# than the library it tests — typeorm 70,534 test sites against 17,062 production, and
+# its conservation loss is 11.58% over the former and 0.04% over the latter. Unfiltered,
+# that project reads as 9.3% lost and gets discarded; filtered, it is the only sound
+# held-out project there is.
+#
+# ── name      set      path                   repo                                        commit   note
+immer         dev      .                      https://github.com/immerjs/immer.git         061c242  566 production sites, 0.00% loss
+remeda        dev      packages/remeda        https://github.com/remeda/remeda.git         e11dcf2  11,818 production sites, 0.00% loss
+zustand       dev      .                      https://github.com/pmndrs/zustand.git        b57db4f  218 production sites, 0.00% loss (3.54% loss over its test tree alone)
+typeorm       holdout  .                      https://github.com/typeorm/typeorm.git       b495ed4  17,062 production sites, 0.04% loss. Larger than the whole dev set, which is what makes it a real check
+axios         blocked  .                      https://github.com/axios/axios.git           fede1d1  NOT A TYPESCRIPT PROJECT. 192 .js files; the only .ts are index.d.ts and deno/bun smoke tests. Oracle resolved 348/1139 with 103 diagnostics. Remove rather than fix
+nest          dev      .                      https://github.com/nestjs/nest.git           1eeccd3  ROOT, not packages/core. At the package the tsconfig is solution-style (files:[] include:[] references only) and yields an empty program. At the root a prior run measured 6800 IR sites against 10005 oracle sites - 32% conservation loss, the parser#70 filePath collision - so it is lossy here and unmeasurable there. Re-verify before trusting its rate
+trpc          dev      packages/server        https://github.com/trpc/trpc.git             6a70335  A prior run joined 3023/3023 at 0% loss here. The oracle's resolution-rate guard, which postdates that run, now refuses it at 1791/3023 (59.2%, 658 diagnostics) - degraded ground truth the older harness accepted silently
+vue-core      blocked  packages/runtime-core  https://github.com/vuejs/core.git            d63616c  No tsconfig.json in the package at all; the governing one is at the repo root, outside the mirror. Oracle: "no tsconfig.json under <mirror>"
+rxjs          blocked  packages/rxjs          https://github.com/ReactiveX/rxjs.git        54796b3  Oracle refused: 20056/69451 resolved, 25996 diagnostics. Its own tsconfig is not the build config — 20,154 diagnostics are implicit-any from spec helpers and 1,993 are "Observable only refers to a type"
