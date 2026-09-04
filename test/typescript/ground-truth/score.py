@@ -194,9 +194,31 @@ def main():
             # not remotely the same defect.
             if len(row) > 22 and row[22]:
                 pos_group[resolved_ident(root, f, row[5], row[39])] = row[22]
+    # ── every FILE present in the client IR or any staged library ──────────────
+    # Needed to answer a question the report could not previously ask: is the
+    # declaration the compiler named present in this analysis at all? A target in a file
+    # nothing staged cannot be resolved by any rule, so charging it to the engine
+    # manufactures a defect that does not exist. Borrowed from the Java front end, which
+    # found better than half of one project's unresolved sites were this (#161, #163).
+    staged_files = set()
+
+    def load_files(d):
+        root = source_root(d)
+        mp = os.path.join(d, 'all-typescript-modules.csv')
+        if not os.path.exists(mp):
+            return
+        for row in read_tsv(mp):
+            fp = row[3]
+            if not fp:
+                continue
+            staged_files.add(rp(os.path.join(root, fp))
+                             if root and not os.path.isabs(fp) else rp(fp))
+
     load_methods(ir_dir)
+    load_files(ir_dir)
     for d in lib_dirs:
         load_methods(d)
+        load_files(d)
 
     # ---- engine answer: call site -> set of target identities ----
     engine_targets = defaultdict(set)
@@ -386,6 +408,39 @@ def main():
     right = buckets['EXACT'] + buckets['SOUND_SUPERSET']
     exact_rate = buckets['EXACT'] / decidable if decidable else 0.0
     right_rate = right / decidable if decidable else 0.0
+
+    # ── STAGED COVERAGE — reported before any rate that depends on it ──────────
+    # The Java front end found every scale figure it had ever quoted was measured
+    # against a library IR covering a quarter of what the client called, and "the report
+    # never said so" (#163). A site whose target declaration is in no staged file cannot
+    # be resolved by any rule; counting it as MISSED charges the engine for the staging,
+    # and the resulting backlog is work no rule change can do.
+    #
+    # This front end is far less exposed than Java's, by construction: library staging is
+    # derived from the client IR's own module resolution rather than from a fixed
+    # platform IR. Measured, three of four corpus projects are at 0.00-0.01%. It is
+    # reported anyway, because the one that is not was at 6.22% and nothing said so.
+    unstaged_sites = 0
+    unstaged_files = set()
+    for (tf, tl, tc, tkind, tname, ckind, oc, oi) in oracle.values():
+        if tkind in ('synthesized', 'unresolved') or not tf:
+            continue
+        if tf not in staged_files:
+            unstaged_sites += 1
+            unstaged_files.add(tf)
+    if unstaged_sites:
+        pct = unstaged_sites / len(oracle) if oracle else 0
+        print(f'TARGET NOT STAGED           {unstaged_sites:>7}   {pct:.2%} of scored sites '
+              f'name a declaration in a file')
+        print(f'                                      nothing staged '
+              f'({len(unstaged_files)} distinct files). No rule can resolve these.')
+        for f in sorted(unstaged_files)[:5]:
+            print(f'    {f}')
+        if pct >= 0.02:
+            print('  ^ above 2%: this is a STAGING gap being charged to the engine. Read '
+                  'MISSED below as')
+            print('    that much too high, and fix the staging before opening an issue '
+                  'against a rule.')
 
     # ── TARGET IDENTITY, reported because it decides what every rate below means ──
     # Sites are compared on a resolved absolute path. Under the previous basename
