@@ -231,7 +231,11 @@ boundary_lib	SIMPLE_CALL	f31_named_blind_spots.Holder.__init__ -> builtin:object
 boundary_lib	SIMPLE_CALL	f31_named_blind_spots.drive -> builtin:setattr
 boundary_lib	SIMPLE_CALL	f32_iteration_protocol.Bag.__iter__ -> builtin:iter
 boundary_lib	SIMPLE_CALL	f32_iteration_protocol.Both.__iter__ -> builtin:iter
+boundary_lib	SIMPLE_CALL	f32_iteration_protocol.Source.__iter__ -> builtin:iter
+boundary_lib	SIMPLE_CALL	f32_iteration_protocol.SourceA.__iter__ -> builtin:iter
+boundary_lib	SIMPLE_CALL	f32_iteration_protocol.SourceB.__iter__ -> builtin:iter
 boundary_lib	SIMPLE_CALL	f32_iteration_protocol.a_comprehension -> builtin:sum
+boundary_lib	SIMPLE_CALL	f32_iteration_protocol.drive -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f32_iteration_protocol.drive -> builtin:str
 boundary_lib	SIMPLE_CALL	f32_iteration_protocol.undecidable_by_the_ir -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object
@@ -536,6 +540,7 @@ known_edge	SIMPLE_CALL	f32_iteration_protocol.a_local_receiver -> f32_iteration_
 known_edge	SIMPLE_CALL	f32_iteration_protocol.a_self_iterator -> f32_iteration_protocol.SelfIterator.__init__
 known_edge	SIMPLE_CALL	f32_iteration_protocol.an_async_for -> f32_iteration_protocol._async_loop
 known_edge	SIMPLE_CALL	f32_iteration_protocol.drive -> f32_iteration_protocol.a_comprehension
+known_edge	SIMPLE_CALL	f32_iteration_protocol.drive -> f32_iteration_protocol.a_dispatch_set
 known_edge	SIMPLE_CALL	f32_iteration_protocol.drive -> f32_iteration_protocol.a_for_statement
 known_edge	SIMPLE_CALL	f32_iteration_protocol.drive -> f32_iteration_protocol.a_local_receiver
 known_edge	SIMPLE_CALL	f32_iteration_protocol.drive -> f32_iteration_protocol.a_self_iterator
@@ -584,6 +589,9 @@ multi_inferred	CHAINED_CALL	f23_typevar_bound.class_object_bounded -> f23_typeva
 multi_inferred	CHAINED_CALL	f23_typevar_bound.class_object_bounded -> f23_typevar_bound.Derived.label
 multi_inferred	CHAINED_CALL	f23_typevar_bound.flowed_class_object -> f23_typevar_bound.Base.label
 multi_inferred	CHAINED_CALL	f23_typevar_bound.flowed_class_object -> f23_typevar_bound.Derived.label
+multi_inferred	ITERATION_PROTOCOL	f32_iteration_protocol.a_dispatch_set -> f32_iteration_protocol.Source.__iter__
+multi_inferred	ITERATION_PROTOCOL	f32_iteration_protocol.a_dispatch_set -> f32_iteration_protocol.SourceA.__iter__
+multi_inferred	ITERATION_PROTOCOL	f32_iteration_protocol.a_dispatch_set -> f32_iteration_protocol.SourceB.__iter__
 multi_inferred	METHOD_CALL	f11_multiwrite.HoldsOr.run -> f11_multiwrite.Fancy.emit
 multi_inferred	METHOD_CALL	f11_multiwrite.HoldsOr.run -> f11_multiwrite.Plain.emit
 multi_inferred	METHOD_CALL	f11_multiwrite.HoldsTernary.run -> f11_multiwrite.Fancy.emit

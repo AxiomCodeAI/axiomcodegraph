@@ -409,20 +409,73 @@ call_chain_edge(t, caller, "-", m, "client", "known_edge", "METACLASS_CREATION")
     class_creation_caller("client", t, caller),
     mro_lookup("client", mcls, "__init__", m).
 
+// ── THE THREE PROTOCOL EDGES ARE TIERED BY TARGET COUNT, like every other edge ──
+//
+// A property read, a context-manager entry and an iteration all reach their target
+// through expr_type, which WIDENS a declared type over constructed subclasses
+// (resolution/dispatch.dl). So one of these expressions can reach many targets, and all
+// three kinds used to be emitted as `known_edge` unconditionally. That contradicts the
+// vocabulary the README defines and every consumer relies on: known_edge is ONE resolved
+// target, multi_inferred is a sound dispatch SET. A 26-member set labelled known_edge is
+// not imprecision, it is a mislabelled certainty.
+//
+// MEASURED over five open-source projects, targets per site (mean / max):
+//   PROPERTY_READ        1.0-1.8 / 6
+//   CONTEXT_MANAGER      2.0-2.4 / 12
+//   ITERATION_PROTOCOL   1.3-1.5 on three, 6.9 / 14 and 18.7 / 26 on the other two
+// The iteration fan is worst where an iterable base class has many implementors, and it
+// is exactly why it went unnoticed: the three projects the rule was developed against
+// average 1.3-1.5, and the two HELD-OUT ones average 6.9 and 18.7.
+//
+// The SETS are sound — RTA plus declared-type widening, the same argument multi_inferred
+// rests on everywhere else — so nothing is dropped here. Only the label changes, and it
+// changes for all three kinds rather than for the one that exposed it.
+// THE COUNT IS PER PROTOCOL SLOT, NOT PER EXPRESSION, and getting that wrong is a way
+// to invent ambiguity rather than report it. `with cm:` emits BOTH __enter__ and
+// __exit__ against the same context expression: two DIFFERENT dunders, each certain,
+// and counting them together makes every context manager in the corpus look like a
+// two-way dispatch set. Measured while writing this: per-expression counting turned 186
+// of 199 context-manager edges on one project into multi_inferred, and all 42 on
+// another, when the real fan there is one target per slot.
+//
+// The slot is the TARGET'S OWN NAME — a protocol edge always lands on the dunder that
+// names the slot — so two __enter__ candidates count as a fan of two and an
+// __enter__/__exit__ pair counts as one each.
+//
+// PROVENANCE IS NOT PINNED on that name lookup, and it cost an edge to learn why: a
+// property read can resolve to a LIBRARY getter (`lib:tlib.descriptors.Config.tag` in
+// family 04), so `method_decl("client", ...)` matched nothing there and the edge vanished
+// from the graph rather than being re-tiered. A dropped edge is worse than a mislabelled
+// one, and the golden caught it.
+protocol_edge(e, d, caller, m) :- property_read_edge(e, caller, m), method_decl(_, d, _, _, _, m).
+protocol_edge(e, d, caller, m) :- with_protocol_edge(e, caller, m), method_decl(_, d, _, _, _, m).
+protocol_edge(e, d, caller, m) :- iter_protocol_edge(e, caller, m), method_decl(_, d, _, _, _, m).
+
+// Aggregate in its own stratum, mirroring site_client_target_count above.
+protocol_edge_target_count(e, d, n) :-
+    protocol_edge(e, d, _, _),
+    n = count : { protocol_edge(e, d, _, _) }.
+
+protocol_edge_class(e, d, "known_edge")     :- protocol_edge_target_count(e, d, 1).
+protocol_edge_class(e, d, "multi_inferred") :- protocol_edge_target_count(e, d, n), n >= 2.
+
 // PROPERTY READ — an edge with no call site. Kind PROPERTY_READ, so it is filterable
 // and can never be mistaken for a written call.
-call_chain_edge(e, caller, "-", getter, "client", "known_edge", "PROPERTY_READ") :-
-    property_read_edge(e, caller, getter).
+call_chain_edge(e, caller, "-", getter, "client", cls, "PROPERTY_READ") :-
+    property_read_edge(e, caller, getter), method_decl(_, d, _, _, _, getter),
+    protocol_edge_class(e, d, cls).
 
 // CONTEXT MANAGER — the same shape: an edge with no call site, its own kind so it can
 // never be mistaken for a written call.
-call_chain_edge(cm, caller, "-", m, "client", "known_edge", "CONTEXT_MANAGER") :-
-    with_protocol_edge(cm, caller, m).
+call_chain_edge(cm, caller, "-", m, "client", cls, "CONTEXT_MANAGER") :-
+    with_protocol_edge(cm, caller, m), method_decl(_, d, _, _, _, m),
+    protocol_edge_class(cm, d, cls).
 
 // ITERATION PROTOCOL — likewise. Own kind, so a consumer can filter it and it can never
 // be counted as a written call.
-call_chain_edge(src, caller, "-", m, "client", "known_edge", "ITERATION_PROTOCOL") :-
-    iter_protocol_edge(src, caller, m).
+call_chain_edge(src, caller, "-", m, "client", cls, "ITERATION_PROTOCOL") :-
+    iter_protocol_edge(src, caller, m), method_decl(_, d, _, _, _, m),
+    protocol_edge_class(src, d, cls).
 
 // A site whose caller could not be determined AT ALL would vanish from every rule
 // above. That must be impossible (the parser guarantees a non-empty owner), so it is

@@ -52,6 +52,24 @@ class AsyncBag:
         return self._items.pop()
 
 
+class Source:
+    """A base with two constructed implementors, so iterating the BASE type reaches
+    three __iter__ definitions and the edge must be multi_inferred, not known_edge."""
+
+    def __iter__(self) -> Iterator[int]:
+        return iter([0])
+
+
+class SourceA(Source):
+    def __iter__(self) -> Iterator[int]:
+        return iter([1])
+
+
+class SourceB(Source):
+    def __iter__(self) -> Iterator[int]:
+        return iter([2])
+
+
 class Both:
     """Defines BOTH protocols, so FOR_ITERABLE over it is undecidable in the IR."""
 
@@ -114,6 +132,19 @@ def undecidable_by_the_ir() -> int:
     return total
 
 
+def a_dispatch_set(s: Source) -> int:
+    # The annotation is a DECLARED type, so resolution/dispatch.dl widens it over the
+    # constructed subclasses and this one loop reaches Source.__iter__, SourceA.__iter__
+    # and SourceB.__iter__. The tier has to say so: a three-member sound set is
+    # multi_inferred, and calling it known_edge is the mislabelled certainty this family
+    # now guards against. Two of the three are `wide` on any given pass, because tier 4
+    # only sees what ran.
+    total = 0
+    for x in s:
+        total += x
+    return total
+
+
 async def _async_loop() -> int:
     # EXPECT: miss — the mirror of a_self_iterator on the async side: __aiter__ is
     # emitted, __anext__ is not, for the same reason.
@@ -137,5 +168,7 @@ def drive() -> str:
     parts.append(str(a_local_receiver()))
     parts.append(str(a_self_iterator()))
     parts.append(str(undecidable_by_the_ir()))
+    parts.append(str(a_dispatch_set(SourceA())))
+    parts.append(str(a_dispatch_set(SourceB())))
     parts.append(str(an_async_for()))
     return " ".join(parts)
