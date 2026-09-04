@@ -1,0 +1,29 @@
+distinct call sites emitted: 19
+
+--- edge rows by tier ---
+      5  ambiguous_unknown
+     10  boundary_lib
+      4  known_edge
+
+--- edge rows by call kind ---
+      1  CHAINED_CALL
+      1  DYNAMIC_CALL
+      1  METACLASS_CREATION
+      2  METHOD_CALL
+     13  SIMPLE_CALL
+      1  SUPER_CALL
+
+--- unresolved reasons ---
+      3  construction_of_dynamically_extended_class
+      1  dynamic_call
+      1  escape_hatch
+
+--- the engine's own conservation ledger ---
+     18  _total_sites
+      5  ambiguous_unknown
+     10  boundary_lib
+      3  known_edge
+
+--- edges that are not sites ---
+  edge rows 19, conserved sites 18, difference 1
+      1  METACLASS_CREATION  (an edge with no call site — README decision 5)

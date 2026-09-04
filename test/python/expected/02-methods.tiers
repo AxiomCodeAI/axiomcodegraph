@@ -1,0 +1,25 @@
+distinct call sites emitted: 16
+
+--- edge rows by tier ---
+      7  boundary_lib
+      9  known_edge
+
+--- edge rows by call kind ---
+      1  CHAINED_CALL
+      3  DECORATOR_BARE
+      3  METHOD_CALL
+      1  PROPERTY_READ
+      1  SELF_CALL
+      7  SIMPLE_CALL
+
+--- unresolved reasons ---
+  (none — every site resolved)
+
+--- the engine's own conservation ledger ---
+     15  _total_sites
+      7  boundary_lib
+      8  known_edge
+
+--- edges that are not sites ---
+  edge rows 16, conserved sites 15, difference 1
+      1  PROPERTY_READ  (an edge with no call site — README decision 5)

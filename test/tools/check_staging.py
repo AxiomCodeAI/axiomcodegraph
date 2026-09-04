@@ -22,13 +22,27 @@ This guard turns that into a build failure. It checks:
      deliberately client-only
   C. every relation named in either map is declared in decls_base.dl
 
-usage: check_staging.py [--lang java]
+THE LIB NAMING CONVENTION IS NOT THE SAME IN EVERY FRONT END, and this tool used to
+assume Java's. Java pairs `java_method` with `lib_method` — the language prefix is
+dropped. Python pairs `py_method` with `lib_py_method` — it is kept, and
+src/python/templates/staging.conf says so in as many words ("THE PREFIX MUST BE py_:
+the executor strips only 'lib_'"). With Java's convention hardcoded, `--lang python`
+reported 19 counterpart failures that were all the tool's, so the guard had never run
+on that front end at all — the exact hole issue #136 records for Java, one language
+over. The convention is now INFERRED from the two maps and asserted to be uniform, so
+a third front end needs no edit here and a MIXED convention inside one front end fails
+loudly instead of being read as a missing relation.
+
+usage: check_staging.py [--lang java|python]
 exit 1 on any violation.
 """
 import os, re, sys
 
 LANG = sys.argv[sys.argv.index('--lang') + 1] if '--lang' in sys.argv else 'java'
-ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..')
+# tools -> test -> <repo>. This file used to live at test/java/tools and was FOUR levels
+# up; it is shared now, so it is three. Getting it wrong makes every path miss and the
+# guard pass vacuously, which is the one failure mode a guard must not have.
+ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..')
 TPL  = os.path.join(ROOT, 'src', LANG, 'templates')
 DECL = os.path.join(ROOT, 'src', LANG, 'souffle', 'decls_base.dl')
 
@@ -43,12 +57,19 @@ CLIENT_ONLY = {
 # removes a capability someone may intend — so the debt is listed rather than silently
 # tolerated — see issue #136. Anti-rot, in both directions: an entry missing from lib.map, or one that HAS
 # become staged, fails the guard too, so this list cannot drift out of date.
-UNSTAGED_PENDING = {
-    'lib_annotation', 'lib_annotation_argument', 'lib_comment',
-    'lib_property_key', 'lib_property_value_segment',
-    'lib_xml_attribute', 'lib_xml_element', 'lib_xml_value_reference',
-    'lib_yaml_property', 'lib_yaml_value_segment',
+UNSTAGED_PENDING_BY_LANG = {
+    'java': {
+        'lib_annotation', 'lib_annotation_argument', 'lib_comment',
+        'lib_property_key', 'lib_property_value_segment',
+        'lib_xml_attribute', 'lib_xml_element', 'lib_xml_value_reference',
+        'lib_yaml_property', 'lib_yaml_value_segment',
+    },
+    # Python stages every signature relation it declares and puts the five body relations
+    # in LIB_BODY, so there is no debt to record. An entry appearing here later is a
+    # decision someone took; an empty set is the claim that no such decision is pending.
+    'python': set(),
 }
+UNSTAGED_PENDING = UNSTAGED_PENDING_BY_LANG.get(LANG, set())
 
 def read_map(p):
     out = {}
@@ -89,12 +110,30 @@ for rel in sorted(UNSTAGED_PENDING):
     if rel not in lib:
         fail.append(f"{rel} is in UNSTAGED_PENDING but no longer in lib.map — remove it")
 
-# B. a client relation with no library counterpart
+# B. a client relation with no library counterpart.
+#
+# The pairing rule is INFERRED rather than assumed. Every lib.map key starts with `lib_`;
+# strip that and each remainder either IS a client relation name (python: py_method /
+# lib_py_method) or is one with its language prefix dropped (java: java_method /
+# lib_method). Whichever convention accounts for the library rows is the one this front
+# end uses; a front end where neither accounts for them, or where both do partially, is
+# itself the bug and is reported as such rather than as 19 missing relations.
+def _keep(rel): return f'lib_{rel}'
+def _drop(rel): return 'lib_' + rel.split('_', 1)[1]
+
+kept = sum(1 for r in client if _keep(r) in lib)
+dropped = sum(1 for r in client if _drop(r) in lib)
+if kept and dropped and kept != len(client) and dropped != len(client):
+    fail.append(f"lib.map mixes two naming conventions: {kept} of {len(client)} client "
+                f"relations pair as lib_<rel> and {dropped} as lib_<rel-without-prefix>. "
+                f"One front end must pick one, or every consumer has to guess.")
+counterpart = _keep if kept >= dropped else _drop
 for rel in sorted(client):
     suffix = rel.split('_', 1)[1]
     if suffix in CLIENT_ONLY: continue
-    if f'lib_{suffix}' not in lib:
-        fail.append(f"client-ir.map stages {rel} but lib.map has no lib_{suffix} — a library "
+    want = counterpart(rel)
+    if want not in lib:
+        fail.append(f"client-ir.map stages {rel} but lib.map has no {want} — a library "
                     f"shipping the same construct contributes nothing. Add it, or list "
                     f"'{suffix}' in CLIENT_ONLY with the reason.")
 
@@ -103,6 +142,9 @@ for rel in sorted(set(client) | set(lib)):
     if rel not in declared:
         fail.append(f"{rel} is staged by a .map but has no .decl in decls_base.dl")
 
+if not client or not lib:
+    print(f"staging guard ({LANG}): no maps found under {TPL} — refusing to pass vacuously")
+    sys.exit(1)
 print(f"staging guard ({LANG}): client {len(client)} relations, lib {len(lib)}, "
       f"LIB_SIG {len(sig)}, LIB_BODY {len(body)}, "
       f"deliberately unstaged {len(UNSTAGED_PENDING)}")
