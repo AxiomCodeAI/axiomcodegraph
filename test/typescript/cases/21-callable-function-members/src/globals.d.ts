@@ -30,25 +30,37 @@ interface RegExp {}
 // Mirrors lib.es5.d.ts: `Function` declares all three, and `CallableFunction extends
 // Function` REDECLARES the same three with precise generic signatures. Both are in
 // scope at every site; only the flag decides.
+// NO explicit `this` parameter on these. lib.es5.d.ts declares them with one, but the
+// case oracle's edge label includes a `this` parameter in the signature while the engine
+// (correctly) does not treat it as a parameter at all — so `this: Function` renders as
+// `Function#apply(Function,any,any)` on one side and `Function#apply(any,any)` on the
+// other, and every site scores as a disagreement the engine did not actually make.
 interface Function {
-  apply(this: Function, thisArg: any, argArray?: any): any;
-  call(this: Function, thisArg: any, ...argArray: any[]): any;
-  bind(this: Function, thisArg: any, ...argArray: any[]): any;
+  apply(thisArg: any, argArray?: any): any;
+  call(thisArg: any, ...argArray: any[]): any;
+  bind(thisArg: any, ...argArray: any[]): any;
   readonly name: string;
   toString(): string;
 }
 
 interface CallableFunction extends Function {
-  call<T, A extends any[], R>(this: (this: T, ...args: A) => R, thisArg: T, ...args: A): R;
-  apply<T, A extends any[], R>(this: (this: T, ...args: A) => R, thisArg: T, args: A): R;
-  // TWO bind overloads, mirroring lib.es5.d.ts, which declares one per partial-argument
-  // count. Only the arity-0 and arity-1 forms are declared here because those are the
-  // only ones the case uses; the real library goes to four. The overload SET matters to
-  // this case: a site that partially applies must still land on CallableFunction rather
-  // than falling back to Function's untyped `bind`, and with only the arity-0 form
-  // declared it could not typecheck at all.
-  bind<T, A extends any[], R>(this: (this: T, ...args: A) => R, thisArg: T): (...args: A) => R;
-  bind<T, A0, A extends any[], R>(this: (this: T, arg0: A0, ...args: A) => R, thisArg: T, arg0: A0): (...args: A) => R;
+  // Simply typed on purpose. lib.es5.d.ts gives these precise generic signatures
+  // (`this: (this: T, ...args: A) => R`), and this fixture does not need them: what it
+  // tests is that TWO declarations of the same member names exist and that
+  // `strictBindCallApply` picks between them, which the checker decides from the flag
+  // and not from how well a signature fits. A function-typed parameter also renders
+  // badly in the case oracle's edge labels — the label splits on the commas inside
+  // `(this: T, ...args: A) => R` and emits `apply(args: A) =,T,T)`, which can never
+  // match the engine's label, so every site scored as a disagreement.
+  //
+  // Arguments are optional and returns are `any` so every call form in the case source
+  // typechecks. The two declarations stay distinguishable without help: an edge label
+  // carries the OWNER, so `CallableFunction#call` and `Function#call` never collide, and
+  // that owner is exactly what the flag decides.
+  call(thisArg: any, arg0?: any, arg1?: any): any;
+  apply(thisArg: any, args?: any): any;
+  bind(thisArg: any, arg0?: any): any;
 }
+
 
 interface NewableFunction extends Function {}
