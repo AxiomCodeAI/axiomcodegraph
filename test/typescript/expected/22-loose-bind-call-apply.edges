@@ -1,0 +1,17 @@
+ambiguous_unknown	FUNCTION_CALL	loose-bind#viaArrow() @L70 -> -
+ambiguous_unknown	FUNCTION_CALL	loose-bind#viaDeclaredFunction() @L51 -> -
+ambiguous_unknown	FUNCTION_CALL	loose-bind#viaMethodReference(Registry) @L77 -> -
+ambiguous_unknown	METHOD_CALL	loose-bind#viaMethodReference(Registry) @L76 -> -
+ambiguous_unknown	METHOD_CALL	loose-bind#viaMethodReference(Registry) @L77 -> -
+known_edge	METHOD_CALL	loose-bind#localFormat(string,number) @L44 -> String#padEnd(number)
+known_edge	METHOD_CALL	loose-bind#ownBindWins(OwnBind) @L99 -> OwnBind#bind(string)
+known_edge	METHOD_CALL	loose-bind#viaArrow() @L68 -> Function#apply(any,any)
+known_edge	METHOD_CALL	loose-bind#viaArrow() @L69 -> Function#bind(any,any[])
+known_edge	METHOD_CALL	loose-bind#viaArrow() @L70 -> Function#call(any,any[])
+known_edge	METHOD_CALL	loose-bind#viaDeclaredFunction() @L48 -> Function#bind(any,any[])
+known_edge	METHOD_CALL	loose-bind#viaDeclaredFunction() @L49 -> Function#call(any,any[])
+known_edge	METHOD_CALL	loose-bind#viaDeclaredFunction() @L50 -> Function#apply(any,any)
+known_edge	METHOD_CALL	loose-bind#viaParameter((a: number) =,Transformer) @L59 -> Function#call(any,any[])
+known_edge	METHOD_CALL	loose-bind#viaParameter((a: number) =,Transformer) @L60 -> Function#bind(any,any[])
+known_edge	METHOD_CALL	loose-bind#viaParameter((a: number) =,Transformer) @L61 -> Function#apply(any,any)
+known_edge	METHOD_CALL	loose-bind#viaParameter((a: number) =,Transformer) @L61 -> Function#call(any,any[])

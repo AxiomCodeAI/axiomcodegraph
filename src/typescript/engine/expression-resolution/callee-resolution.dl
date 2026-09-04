@@ -428,3 +428,20 @@ call_kind_is_member_call("OPTIONAL_CALL").
 expr_call_candidate(ce, m) :- call_callee_expr(_, ce, ne),
     expr_referenced("client", "VARIABLE", v, ne),
     var_binding_method(v, m).
+
+// ============================================================================
+// A CALLABLE VALUE CARRIES THE GLOBAL FUNCTION MEMBERS
+// ============================================================================
+
+// `plain.call(null, 1)` where `plain` is a declared function. The receiver is callable
+// but has no TYPE and no SHAPE — it is a reference to a method declaration — so none of
+// the member rules above have a scope to search. `function_prototype_member` (see
+// member-lookup.dl) supplies the members; this rule supplies the receiver.
+//
+// No shadowing test, unlike the shape case: a function declaration cannot declare its
+// own `call`, so there is nothing for Function's members to collide with.
+expr_call_candidate(ce, m) :- call_site("client", _, cn, rk, recv, ce, _),
+    receiver_kind_is_value(rk),
+    cn != "",
+    expr_callable(recv, _),
+    function_prototype_member(cn, m).

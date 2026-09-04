@@ -1,0 +1,19 @@
+ambiguous_unknown	FUNCTION_CALL	strict-bind#viaMethodReference(Registry) @L72 -> -
+ambiguous_unknown	METHOD_CALL	strict-bind#viaMethodReference(Registry) @L71 -> -
+ambiguous_unknown	METHOD_CALL	strict-bind#viaMethodReference(Registry) @L72 -> -
+known_edge	METHOD_CALL	strict-bind#localFormat(string,number) @L39 -> String#padEnd(number)
+known_edge	METHOD_CALL	strict-bind#ownBindWins(OwnBind) @L94 -> OwnBind#bind(string)
+known_edge	METHOD_CALL	strict-bind#viaArrow() @L63 -> CallableFunction#apply(T,T)
+known_edge	METHOD_CALL	strict-bind#viaArrow() @L64 -> CallableFunction#bind(T,T)
+known_edge	METHOD_CALL	strict-bind#viaArrow() @L65 -> CallableFunction#call(T,T[])
+known_edge	METHOD_CALL	strict-bind#viaDeclaredFunction() @L43 -> CallableFunction#bind(T,T)
+known_edge	METHOD_CALL	strict-bind#viaDeclaredFunction() @L44 -> CallableFunction#call(T,T[])
+known_edge	METHOD_CALL	strict-bind#viaDeclaredFunction() @L45 -> CallableFunction#apply(T,T)
+known_edge	METHOD_CALL	strict-bind#viaParameter((a: number) =,Transformer) @L54 -> CallableFunction#call(T,T[])
+known_edge	METHOD_CALL	strict-bind#viaParameter((a: number) =,Transformer) @L55 -> CallableFunction#bind(T)
+known_edge	METHOD_CALL	strict-bind#viaParameter((a: number) =,Transformer) @L56 -> CallableFunction#apply(T,T)
+known_edge	METHOD_CALL	strict-bind#viaParameter((a: number) =,Transformer) @L56 -> CallableFunction#call(T,T[])
+multi_inferred	FUNCTION_CALL	strict-bind#viaArrow() @L65 -> globals#<arrow@50>(T[])@L50
+multi_inferred	FUNCTION_CALL	strict-bind#viaArrow() @L65 -> globals#<arrow@51>(T[])
+multi_inferred	FUNCTION_CALL	strict-bind#viaDeclaredFunction() @L46 -> globals#<arrow@50>(T[])@L50
+multi_inferred	FUNCTION_CALL	strict-bind#viaDeclaredFunction() @L46 -> globals#<arrow@51>(T[])
