@@ -259,6 +259,21 @@ for dir in "$HERE"/cases/*/; do
   fi
 done
 [ "$KEEP" = "1" ] || rm -rf "$WORK"
+# ── TORTURE: ten families of construct, scored per family ─────────────────────────────────────
+# The cases above each pin ONE rule. This asks what happens when a project uses everything at
+# once, and reports WHICH construct is the gap rather than one number. It stages the platform IR,
+# because half the families call java.util types and scoring them without it measures the staging.
+if [ -d "$HERE/torture" ] && [ ${#FILTERS[@]} -eq 0 ]; then
+  printf '%-34s ' "torture (10 families)"
+  if out=$(AXIOM_PARSER="$PARSER" bash "$HERE/torture/harness/run.sh" 2>&1); then
+    echo "ok  [$(echo "$out" | grep -o 'TOTAL.*' | tr -s ' ')]"
+  elif [ $? = 77 ]; then
+    echo "SKIP ($(echo "$out" | head -1))"
+  else
+    echo "FAIL"; echo "$out" | sed 's/^/    /' | head -24; fail=$((fail+1)); failed+=("torture")
+  fi
+fi
+
 echo "─────────────────────────────────────────────"
 echo "passed $pass   failed $fail"
 [ $fail -eq 0 ] || { printf 'failing: %s\n' "${failed[*]}"; exit 1; }
