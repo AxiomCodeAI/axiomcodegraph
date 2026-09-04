@@ -169,6 +169,67 @@ expr_type(p, e, t) :-
     binding_except_type(p, b2, d),
     declared_dispatch(p, d, t).
 
+// ============================================================================
+// AWAIT — the value of `await E` is the value E's coroutine PRODUCES
+//
+// The parser wraps an awaited expression in its own node: `x = await f()` is
+// ASSIGNMENT -> AWAIT(ASSIGNMENT_VALUE) -> CALL(AWAIT_OPERAND). Every typing rule
+// above reads the ASSIGNMENT_VALUE child, so before this block every one of them
+// saw an AWAIT node, matched no clause, and the awaited value was untyped — and
+// so was the local, field, argument or return it flowed into. MEASURED: 8,394
+// AWAIT nodes across five open-source corpora, 8,203 of them (97.7%) wrapping a
+// CALL, and the string AWAIT appeared in exactly one place in this rule set: a
+// comment listing the column names.
+//
+// WHY THE ASYNC GATE. `await` is not a general type-preserving hop — it UNWRAPS
+// an awaitable, so propagating the operand's type is only correct where the
+// operand's type already IS the awaited value. That holds for exactly one shape,
+// and it holds by language definition rather than by inference: the return
+// annotation of an `async def` describes what the coroutine produces, so `-> T`
+// on an `async def` IS the type of `await f()`. Two shapes it deliberately
+// excludes, both of which transparency alone would answer WRONGLY:
+//
+//   await Foo()                      a construction. If Foo instances are
+//                                    awaitable at all, `await` yields whatever
+//                                    Foo.__await__ produces, never a Foo.
+//   await f()  where `def f() -> Future[T]`   a SYNC function handing back an
+//                                    awaitable. The awaited value is T; the
+//                                    annotation names the wrapper. 104 such
+//                                    annotations in the corpora (Deferred 87,
+//                                    Awaitable 10, Future 5, Task 2), every one
+//                                    subscripted — so element_type_of already
+//                                    reads T off them, and this must not
+//                                    overwrite that with the wrapper.
+//
+// ASYNC_GENERATOR is excluded for the same reason from the other side: `async def`
+// + `yield` annotates `-> AsyncIterator[T]`, which is consumed by `async for`,
+// not by `await`.
+// ============================================================================
+await_operand(p, aw, op) :-
+    expr_node(p, "AWAIT", _, _, aw),
+    expr_parent(p, aw, "AWAIT_OPERAND", _, op).
+
+await_yields(aw, op) :-
+    await_operand("client", aw, op),
+    call_of_expr(op, site), expr_call_candidate(site, m),
+    method_is_async("client", m), !method_kind("client", "ASYNC_GENERATOR", _, m).
+await_yields(aw, op) :-
+    await_operand("client", aw, op),
+    call_of_expr(op, site), call_hits_lib_method(site, m),
+    method_is_async("lib", m), !method_kind("lib", "ASYNC_GENERATOR", _, m).
+
+expr_type("client", aw, t) :- await_yields(aw, op), expr_type("client", op, t).
+expr_lib_type(aw, t)       :- await_yields(aw, op), expr_lib_type(op, t).
+// The LIBRARY half does not go through expr_lib_type, and that is not an oversight in
+// this block. A call whose LIB callee declares `-> AsyncBox` puts its answer in
+// call_returns_lib_type (resolution/generics.dl) and nowhere else — expr_lib_type has a
+// clause for a lib CONSTRUCTION and none for a lib RETURN, because the chained form
+// `IntBox().get().tag()` reads call_returns_lib_type straight off the inner site
+// instead. So the awaited value's type has to be read from the same relation the
+// operand's own consumers read it from.
+expr_lib_type(aw, t) :-
+    await_yields(aw, op), call_of_expr(op, site), call_returns_lib_type(site, t).
+
 // ── binding_value_type(Prov, BindingHash, TypeHash) ──────────────────────────
 // Single-binding local/module flow. Mirrors Java's local-flow.dl, with the write count
 // coming from symtable instead of from a declared type.
