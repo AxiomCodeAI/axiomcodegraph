@@ -79,6 +79,31 @@ if ! python3 "$HERE/tools/check_staging.py" --lang java; then
   exit 1
 fi
 
+# ── PREFLIGHT: the two ground-truth readers must agree ────────────────────────────────
+# This suite scores against tools/bytecode_oracle.py; the corpus-scale harness scores against
+# tools/ClassFileOracle.java. Both claim to emit the same canonical form, and until this ran
+# nothing checked it — so a defect in either was invisible in the other, and the small cases
+# could not vouch for the numbers the scale runs report. Constructor rows are expected to
+# differ (the two decide "javac-synthesized?" differently, which is undecidable from a class
+# file); the counts are a golden so the debt cannot grow, or vanish, unreviewed.
+if [ "$ORACLE" = "1" ]; then
+  mkdir -p "$WORK"
+  agree_out="$WORK/oracle-agreement.txt"
+  if python3 "$HERE/tools/oracle_agreement.py" "$HERE/cases" "$WORK/.agreement" > "$agree_out" 2>&1; then
+    aexp="$HERE/expected/oracle-agreement.txt"
+    if [ "$BLESS" = "1" ]; then cp "$agree_out" "$aexp"
+    elif [ ! -f "$aexp" ]; then
+      echo "aborting: no oracle-agreement golden — run with --bless"; exit 1
+    elif ! diff -q "$aexp" "$agree_out" >/dev/null; then
+      echo "aborting: the two ground-truth oracles agree differently than the golden records"
+      diff -u "$aexp" "$agree_out" | sed 's/^/    /' | head -30; exit 1
+    fi
+  else
+    echo "aborting: the two ground-truth oracles describe different graphs"
+    sed 's/^/    /' "$agree_out" | tail -30; exit 1
+  fi
+fi
+
 [ -f "$PARSER" ] || { echo "SKIP: parser not found at $PARSER (set AXIOM_PARSER)"; exit 77; }
 # The engine's --library is mandatory, so it is handed an EMPTY directory. Every lib_*
 # relation is then staged empty, which is semantically identical to a library that
