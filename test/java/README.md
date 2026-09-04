@@ -180,6 +180,13 @@ names where the method is declared answers `AbstractCollection#addAll` for `Set#
 (**DECLARING ANCESTOR**). Neither is an error. What is left over — an answer on a type unrelated to
 the bytecode owner — is the number that matters, and it is reported on its own.
 
+Its **first line is the one to read first**: how much of the library the client actually calls is
+present in the staged IR. Every percentage under it is conditional on that, and on the corpus it
+ranged from **25% to 86%** when only the platform IR was staged. Staging five of one project's real
+dependencies (`tools/build-lib-ir.sh --coord <g:a:v>`) moved **2,303 call sites** from "no answer"
+to answered with the engine untouched, and lifted that project's boundary accuracy from 86.6% to
+93.6%. A low-coverage run is not measuring the rules, so the report says so before the numbers.
+
 Two buckets are **not** the engine's and are never counted against it: `LIB IR LACKS THE TYPE`
 (the ground-truth callee's own type is absent) and `RECEIVER NEEDS AN UNSTAGED TYPE` (the site's
 line also calls a type absent from both IRs, so the receiver could not be typed by any rule).

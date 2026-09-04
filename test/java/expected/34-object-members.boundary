@@ -1,3 +1,5 @@
+staged library covers 75% of the library types this client calls (3 of 4; 2 call sites name an absent type)
+  ** LOW — the numbers below are bounded by what is staged, not by the rules. Stage the client's dependencies (tools/build-lib-ir.sh --coord) before reading them.
 boundary sites: 9   (client callers, library callees matching java.,javax.,jdk.)
   EXACT                         6 ( 66.7%)
   UNRESOLVED                    1 ( 11.1%)
@@ -6,6 +8,9 @@ boundary sites: 9   (client callers, library callees matching java.,javax.,jdk.)
   ---
   correct METHOD named       66.7%   ( 85.7% of the 7 the lib IR can answer)
   wrong library method       0.0%
+
+ABSENT from the staged library, by call sites naming them
+       2  java.util.List
 
 RECEIVER NEEDS AN UNSTAGED TYPE — stage these to score the sites behind them
        1  java.util.List
