@@ -1,8 +1,8 @@
 distinct call sites emitted: 15
 
---- edge rows by tier ---
-      5  boundary_lib
-     10  known_edge
+--- by tier: edge ROWS, and the distinct SITES they cover ---
+      5 rows      5 sites  boundary_lib
+     10 rows     10 sites  known_edge
 
 --- edge rows by call kind ---
       1  DYNAMIC_CALL
@@ -17,5 +17,8 @@ distinct call sites emitted: 15
       5  boundary_lib
      10  known_edge
 
---- edges that are not sites ---
-  edge rows 15, conserved sites 15, difference 0
+--- reconciling rows against the conserved site count ---
+  edge rows                                  15
+  minus extra rows from multi-target sites    0
+  = tier/site pairs                          15
+  engine's conserved site total              15
