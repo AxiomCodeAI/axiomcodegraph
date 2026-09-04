@@ -15,6 +15,12 @@ whatever else improved.
 Both runs must be over the same client IR: the comparison is keyed on the expression hash, and two
 IRs from different parser revisions do not share them.
 
+LANGUAGE-INDEPENDENT, and it always was — it reads three columns of call-chain-edges.csv
+(expression, callee, tier) and the tier vocabulary is the engine's, not any front end's. It
+lived under test/java/tools for no reason other than where it was written, so the Python front
+end had no previous-vs-present check while the tool that provides one sat one directory over.
+Verified against a Python run: the CSV is the same 7-column shape.
+
 usage: compare_runs.py <before-OUT> <after-OUT> [--top N]
 """
 import collections, sys

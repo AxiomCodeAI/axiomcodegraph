@@ -1,9 +1,9 @@
 distinct call sites emitted: 13
 
---- edge rows by tier ---
-      6  boundary_lib
-      6  known_edge
-      2  multi_inferred
+--- by tier: edge ROWS, and the distinct SITES they cover ---
+      6 rows      6 sites  boundary_lib
+      6 rows      6 sites  known_edge
+      2 rows      1 sites  multi_inferred
 
 --- edge rows by call kind ---
       3  CHAINED_CALL
@@ -19,5 +19,8 @@ distinct call sites emitted: 13
       6  known_edge
       1  multi_inferred
 
---- edges that are not sites ---
-  edge rows 14, conserved sites 13, difference 1
+--- reconciling rows against the conserved site count ---
+  edge rows                                  14
+  minus extra rows from multi-target sites    1
+  = tier/site pairs                          13
+  engine's conserved site total              13

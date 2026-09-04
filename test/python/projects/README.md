@@ -11,6 +11,13 @@ bash ../../../src/pipeline/run-souffle.sh --language python \
   --intermediate /tmp/int --output /tmp/out
 ```
 
+**WHICH NUMBERS BELOW ARE CHECKED.** `run-tests.sh` now runs both projects and diffs a tier
+and reason census per project, so the site counts, the tier mix and the unresolved reasons are
+guarded. The precision and recall figures come from the CPython oracle, which reads frozen
+locks from outside the repository and is skipped when that checkout is absent — they are
+recorded measurements, not assertions the suite makes. Anything in this file with a
+precision or recall in it should be read that way.
+
 ## `two-service-fastapi` — 19 files, ~750 lines
 
 Two FastAPI services that talk to each other, on a shared library. Built to stress the
@@ -45,13 +52,22 @@ things a single-construct fixture cannot:
 
 ### Result
 
-| | |
-|---|---:|
-| call sites + decorator applications | **227** |
-| `known_edge` | 123 |
-| `multi_inferred` | 23 |
-| `boundary_lib` | 76 |
-| `ambiguous_unknown` | **5** |
+Generated and checked, not transcribed: `expected/project-two-service-fastapi.tiers`, diffed
+by `run-tests.sh` on every run. It was transcribed once and had drifted — the three corrected
+rows are marked, and the numbers are the engine's own per-tier site counts from
+`call_chain_summary`.
+
+| | | |
+|---|---:|---|
+| call sites + decorator applications | **227** | |
+| `known_edge` | 124 | *was 123* |
+| `multi_inferred` | 23 | |
+| `boundary_lib` | 70 | *was 76* |
+| `ambiguous_unknown` | **10** | *was 5 — see below* |
+
+Reading the tier table off `call-chain-edges.csv` gives larger figures for one row and it is
+not a discrepancy: that file holds one row per TARGET, so the 23 `multi_inferred` sites are 61
+rows. The artifact prints both and reconciles them.
 
 Scored against CPython (`dis` + `symtable` + a live `sys.setprofile` trace of `main.py`):
 
@@ -65,9 +81,18 @@ Scored against CPython (`dis` + `symtable` + a live `sys.setprofile` trace of `m
 * all 20 client base classes resolved by the engine's own rules, **0** falling back to the
   parser's `resolvedTypeLinkHash`
 
-The 5 remaining declared unknowns are the four FastAPI route decorators and
-`@functools.wraps` — applications whose applied callable is library-internal. That is the
-correct answer, and it is what `decorator_factory_result_untyped` says.
+The declared unknowns are **10**, in two groups of five, and this section previously named
+only the first group:
+
+* **5 `decorator_factory_result_untyped`** — the four FastAPI route decorators and
+  `@functools.wraps`, applications whose applied callable is library-internal. That is the
+  correct answer, and it is what the reason says.
+* **5 `unmodelled_decorator`** — bare `@abstractmethod` on `shared/models.py:24`,
+  `shared/protocols.py:30` and `:34`, `shared/serialization.py:26`, `shared/transport.py:20`.
+  Also correct: `abstractmethod` is a library callable, so the decorator application has no
+  target in any staged IR. It was simply never counted here.
+
+Both groups are now in the pinned artifact, so the split cannot go back to being prose.
 
 ### What this project caught that the fixtures did not
 
@@ -127,6 +152,8 @@ a class pulled out of a registry, and two deliberate controls with no static typ
 | candidates the engine emitted | **43** |
 | **reduction** | **89.2%** |
 | sites where CPython executed a target the engine did not emit | **0** |
+
+`expected/project-name-collision.tiers` pins 91 sites, and `run-tests.sh` diffs it.
 
 Scored against live CPython: conservation **91/91**, recall **1.000 in every group**,
 **0 fabricated edges**, and precision **1.000** for `super`, `method_self`, `construction`,

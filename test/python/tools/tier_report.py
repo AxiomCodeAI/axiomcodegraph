@@ -16,6 +16,14 @@ which edges exist, and it is blind to three things by construction:
     known_edge to multi_inferred while one moves the other way is a precision
     change the deduplicated set can absorb.
 
+ROWS AND SITES ARE BOTH REPORTED, and conflating them is the trap this tool fell
+into on its first version. call-chain-edges.csv holds one row PER TARGET, so a
+multi_inferred site with three targets contributes three rows: on the
+two-service-fastapi fixture that is 61 rows across 23 sites. Reading the row count
+as a site count made a stable number look like a 2.7x drift. The engine derives
+its own per-tier SITE counts in call_chain_summary, so both are printed and the
+gap between them is explained below rather than left to the reader.
+
 Java pins a per-case artifact for 32 of its 34 cases (expected/<case>.oracle). Python
 pinned one, for the torture corpus, and nothing for the twelve cases. This is the
 counterpart, and it deliberately needs NO external oracle checkout: it reads the
@@ -52,11 +60,13 @@ def main(out):
     kinds = collections.Counter()
     reasons = collections.Counter()
     sites = set()
+    tier_sites = collections.defaultdict(set)
 
     for f in read_col(os.path.join(out, 'call-chain-edges.csv'), 6):
         tiers[f[5]] += 1
         kinds[f[6]] += 1
         sites.add(f[0])
+        tier_sites[f[5]].add(f[0])
     for f in read_col(os.path.join(out, 'call-site-unresolved.csv'), 3):
         reasons[f[2]] += 1
 
@@ -67,9 +77,9 @@ def main(out):
         summary[f[0]] = f[1]
 
     print(f'distinct call sites emitted: {len(sites)}')
-    print('\n--- edge rows by tier ---')
-    for k, n in sorted(tiers.items()):
-        print(f'  {n:5d}  {k}')
+    print('\n--- by tier: edge ROWS, and the distinct SITES they cover ---')
+    for k in sorted(tiers):
+        print(f'  {tiers[k]:5d} rows  {len(tier_sites[k]):5d} sites  {k}')
     print('\n--- edge rows by call kind ---')
     for k, n in sorted(kinds.items()):
         print(f'  {n:5d}  {k}')
@@ -92,10 +102,14 @@ def main(out):
     non_site = sorted(k for k in kinds if k in NON_SITE_KINDS)
     edge_rows = sum(tiers.values())
     ledger = int(summary.get('_total_sites', 0))
-    print(f'\n--- edges that are not sites ---')
-    print(f'  edge rows {edge_rows}, conserved sites {ledger}, difference {edge_rows - ledger}')
+    fan = sum(len(v) for v in tier_sites.values())
+    print('\n--- reconciling rows against the conserved site count ---')
+    print(f'  edge rows                                  {edge_rows}')
+    print(f'  minus extra rows from multi-target sites    {edge_rows - fan}')
+    print(f'  = tier/site pairs                          {fan}')
+    print(f'  engine\'s conserved site total              {ledger}')
     for k in non_site:
-        print(f'  {kinds[k]:5d}  {k}  (an edge with no call site — README decision 5)')
+        print(f'  of which {kinds[k]} are {k}, an edge with no call site (README decision 5)')
 
 
 if __name__ == '__main__':

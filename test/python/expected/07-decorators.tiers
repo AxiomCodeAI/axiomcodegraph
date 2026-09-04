@@ -1,9 +1,9 @@
 distinct call sites emitted: 30
 
---- edge rows by tier ---
-      3  ambiguous_unknown
-     11  boundary_lib
-     16  known_edge
+--- by tier: edge ROWS, and the distinct SITES they cover ---
+      3 rows      3 sites  ambiguous_unknown
+     11 rows     11 sites  boundary_lib
+     16 rows     16 sites  known_edge
 
 --- edge rows by call kind ---
       4  DECORATOR_APPLICATION
@@ -21,5 +21,8 @@ distinct call sites emitted: 30
      11  boundary_lib
      16  known_edge
 
---- edges that are not sites ---
-  edge rows 30, conserved sites 30, difference 0
+--- reconciling rows against the conserved site count ---
+  edge rows                                  30
+  minus extra rows from multi-target sites    0
+  = tier/site pairs                          30
+  engine's conserved site total              30
