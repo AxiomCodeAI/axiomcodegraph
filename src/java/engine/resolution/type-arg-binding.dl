@@ -145,6 +145,26 @@ type_arg_binding(dref, created, subVar, argType) :- diamond_target(dref, declare
     type_arg_binding(dref, declared, superParam, argType),
     super_tvar_rename(created, declared, superParam, subVar).
 
+// ── THE SAME EDGE, WHEREVER THE RECEIVER WAS NARROWED ───────────────────────────────────
+// The diamond is one way the receiver ends up typed as a SUBTYPE of the type its arguments were
+// written on. There are others, and they all break the same way: `static List<W> make() { return
+// new ArrayList<>(); }` has a single concrete `new` in its body, so method_return_mono types the
+// call as ArrayList; the callee resolves to ArrayList#get, while the arguments are on the METHOD
+// RETURN reference, which says List<W>. The binding climbs to Collection and Iterable and never
+// reaches ArrayList, so `make().get(0).id()` resolved to nothing while `List<W> xs = make()`
+// resolved — the declaration was not what mattered, the narrowing was.
+//
+// Keyed on what the engine ALREADY concluded the receiver's type is, so it fires wherever a
+// narrowing happened rather than enumerating the ways one can. The guard is the same and is what
+// keeps it sound: super_tvar_rename exists only where the subtype passes its own variable straight
+// through, so a subtype that fixes the argument (`class Names implements List<String>`) yields no
+// rename and no binding.
+type_arg_binding(ref, narrowed, subVar, argType) :- recv_decl_ref(recv, ref, declared),
+    expr_type(_, recv, narrowed),
+    narrowed != declared,
+    type_arg_binding(ref, declared, superParam, argType),
+    super_tvar_rename(narrowed, declared, superParam, subVar).
+
 // ── CLIENT method returning its owner class's type variable (U getU() on Holder<U,…>) ──
 // The library counterpart is lib_method_ret_tvar (lib-hierarchy.dl); this is the client
 // mirror, so a generic client class instantiated with concrete arguments substitutes its
