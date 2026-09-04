@@ -7,6 +7,8 @@ import { MethodTypeParameter } from '@/analysis-methods/java/MethodTypeParameter
 import { AnnotationArgumentReference } from '@/analysis-types/java/AnnotationArgumentReference';
 import { BlockRegistry } from '@/analysis-types/java/BlockRegistry';
 import { CommentRegistry } from '@/analysis-types/java/CommentRegistry';
+import { ImportRegistry } from '@/analysis-imports/java/ImportRegistry';
+import { ImportKind } from '@/enums/java/imports';
 import { ModuleDirective } from '@/analysis-types/java/ModuleDirective';
 import { ModuleRegistry } from '@/analysis-types/java/ModuleRegistry';
 import { EnumConstant } from '@/analysis-types/java/EnumConstant';
@@ -33,7 +35,7 @@ import { TypePlacement } from '@/enums/java/types/TypePlacement';
 import { MethodAccess } from '@/enums/java/methods/MethodAccess';
 import { MethodKind } from '@/enums/java/methods/MethodKind';
 import { MethodModifier } from '@/enums/java/methods/MethodModifier';
-import { TypeRegistryExtractor } from '@/parsers/java/extractors';
+import { TypeRegistryExtractor, ImportExtractor } from '@/parsers/java/extractors';
 
 import { sourceWalkPackages } from './java-gates/source-walk';
 
@@ -54,6 +56,7 @@ interface ExtractedEntities {
   comments: CommentRegistry[];
   modules: ModuleRegistry[];
   moduleDirectives: ModuleDirective[];
+  imports: ImportRegistry[];
 }
 
 interface TestResult {
@@ -87,11 +90,13 @@ interface ValidationRule {
 export class JavaExtractorTestRunner {
   private testDataDir: string;
   private extractor: TypeRegistryExtractor;
+  private importExtractor: ImportExtractor;
   private serviceVersionHash = 'test-version-hash';
 
   constructor(testDataDir?: string) {
     this.testDataDir = testDataDir || path.join(process.cwd(), 'src', 'test-data', 'java');
     this.extractor = new TypeRegistryExtractor();
+    this.importExtractor = new ImportExtractor();
   }
 
   /**
@@ -211,6 +216,7 @@ export class JavaExtractorTestRunner {
         comments: this.extractor.getExtractedComments(),
         modules: this.extractor.getExtractedModules(),
         moduleDirectives: this.extractor.getExtractedModuleDirectives(),
+        imports: this.importExtractor.extract(filePath, content, this.serviceVersionHash),
       };
 
       result.stats = {
@@ -1181,6 +1187,59 @@ export class JavaExtractorTestRunner {
 
     // ── Import Tests ──
     if (category === 'imports') {
+      // Module import declarations (JEP 511). No tree-sitter-java release parses these, so the
+      // shape the grammar does produce has to be recognised rather than read at face value.
+      if (filename === 'ModuleImportDeclarations.java') {
+        validations.push(this.rule('Module imports are MODULE, named without the keyword', (e) => {
+          const modules = e.imports
+            .filter(i => i.getImportKind() === ImportKind.MODULE)
+            .map(i => `${i.getImportedPath()}|${i.getSimpleName()}`)
+            .sort();
+          const want = ['java.base|java.base', 'java.sql|java.sql'];
+          return {
+            passed: JSON.stringify(modules) === JSON.stringify(want),
+            message: `Expected ${JSON.stringify(want)}, got ${JSON.stringify(modules)}`
+          };
+        }));
+
+        // The failure this guards against is a row that looks ordinary: SINGLE_TYPE with path
+        // "module java.base" and simpleName "base", describing a type that does not exist.
+        // Asserting only the MODULE rows would still pass if that row were emitted alongside
+        // them, so its absence is asserted directly.
+        validations.push(this.rule('No import row carries the module keyword in its path', (e) => {
+          const leaked = e.imports
+            .filter(i => i.getImportedPath().includes('module '))
+            .map(i => `${i.getImportKind()}:${i.getImportedPath()}`);
+          return { passed: leaked.length === 0, message: `Rows carrying the keyword: ${JSON.stringify(leaked)}` };
+        }));
+
+        // One declaration, one row: the module branch and the ordinary branch are exclusive.
+        validations.push(this.rule('Seven declarations yield seven import rows', (e) => ({
+          passed: e.imports.length === 7,
+          message: `Expected 7 rows, got ${e.imports.length}: ${JSON.stringify(e.imports.map(i => `${i.getImportKind()}:${i.getImportedPath()}`))}`
+        })));
+
+        // Recognising the module form must not disturb the other four kinds.
+        validations.push(this.rule('The other import kinds are unchanged', (e) => {
+          const others = e.imports
+            .filter(i => i.getImportKind() !== ImportKind.MODULE)
+            .map(i => `${i.getImportKind()}:${i.getImportedPath()}`)
+            .sort();
+          const want = [
+            'SINGLE_STATIC:java.lang.Math.PI',
+            'SINGLE_TYPE:java.util.ArrayList',
+            'SINGLE_TYPE:java.util.List',
+            'STATIC_ON_DEMAND:java.lang.Integer.*',
+            'TYPE_ON_DEMAND:java.util.concurrent.*',
+          ].sort();
+          return {
+            passed: JSON.stringify(others) === JSON.stringify(want),
+            message: `Expected ${JSON.stringify(want)}, got ${JSON.stringify(others)}`
+          };
+        }));
+      }
+
+
       if (filename === 'ImportStylePatterns.java') {
         validations.push(this.minCount('Should extract types', (e) => e.types, 1));
         validations.push(this.minCount('Should extract type references', (e) => e.typeRefs, 1));

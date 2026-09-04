@@ -1,6 +1,7 @@
 import Parser from 'tree-sitter';
 
 import { ImportRegistry } from '@/analysis-imports/java/ImportRegistry';
+import { EntityUtils } from '@/utils/entity-utils';
 import { ImportKind } from '@/enums/java/imports';
 import { BaseExtractor } from '@/parsers/base-extractor';
 import { JavaParser } from '@/parsers/java/java-parser';
@@ -88,19 +89,18 @@ export class ImportExtractor implements BaseExtractor<ImportRegistry> {
     imports: ImportRegistry[]
   ): void {
     for (const child of rootNode.children) {
-      if (child.type === 'import_declaration') {
-        const importRegistry = this.createImportRegistry(child, filePath, serviceVersionHash);
-        if (importRegistry) {
-          imports.push(importRegistry);
-        }
-      }
-      // Handle module imports (Java 23+) - tree-sitter may use different node types
-      // Check for potential module import node types
-      if (child.type === 'module_import_declaration' || 
+      // A module import is checked first, and the two branches are exclusive: a declaration that
+      // is a module import must not also be recorded as a single-type import of the same text.
+      if (child.type === 'module_import_declaration' ||
           (child.type === 'import_declaration' && this.isModuleImport(child))) {
         const moduleImport = this.createModuleImportRegistry(child, filePath, serviceVersionHash);
         if (moduleImport) {
           imports.push(moduleImport);
+        }
+      } else if (child.type === 'import_declaration') {
+        const importRegistry = this.createImportRegistry(child, filePath, serviceVersionHash);
+        if (importRegistry) {
+          imports.push(importRegistry);
         }
       }
     }
@@ -206,9 +206,32 @@ export class ImportExtractor implements BaseExtractor<ImportRegistry> {
    * Checks if this is a module import (Java 23+)
    */
   private isModuleImport(node: Parser.SyntaxNode): boolean {
+    // No tree-sitter-java release parses `import module M;` (checked through 0.23.5). What it
+    // produces is a malformed import_declaration, with `module` swallowed into the qualified
+    // name and an ERROR beside it:
+    //
+    //   import_declaration
+    //     import
+    //     scoped_identifier          <- text is "module java.base"
+    //       identifier = "module"
+    //       ERROR
+    //         identifier = "java"
+    //       .
+    //       identifier = "base"
+    //
+    // Read as a normal import that is a single-type import of a type named `base`, in a package
+    // named `module java`. Nothing else in Java produces a qualified name whose first segment is
+    // the identifier `module`, because `module` is a restricted keyword there, so this shape
+    // identifies a module import declaration unambiguously.
     for (const child of node.children) {
       if (child.type === 'module' || child.text === 'module') {
         return true;
+      }
+      if (child.type === 'scoped_identifier') {
+        const first = child.children[0];
+        if (first?.type === 'identifier' && first.text === 'module') {
+          return true;
+        }
       }
     }
     return false;
@@ -245,16 +268,18 @@ export class ImportExtractor implements BaseExtractor<ImportRegistry> {
    * Extracts module name from a module import declaration
    */
   private extractModuleName(node: Parser.SyntaxNode): string | null {
-    // Look for module name in children
     for (const child of node.children) {
-      if (child.type === 'scoped_identifier' || child.type === 'identifier') {
-        // Skip 'import' and 'module' keywords
-        if (child.text !== 'import' && child.text !== 'module') {
-          return child.text;
-        }
-      }
       if (child.type === 'module_name') {
         return child.text;
+      }
+      if (child.type === 'scoped_identifier' || child.type === 'identifier') {
+        if (child.text === 'import' || child.text === 'module') {
+          continue;
+        }
+        // On the malformed shape the `module` keyword is the first segment of the qualified
+        // name, so it is dropped here rather than reported as part of the module name.
+        const name = EntityUtils.normalizeWhitespace(child.text).replace(/^module\s+/, '');
+        return name.length > 0 ? name : null;
       }
     }
     return null;
