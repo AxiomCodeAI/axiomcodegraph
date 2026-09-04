@@ -508,10 +508,17 @@ export class TsLocalResolver {
       // returns the ANNOTATION's signature, not the arrow's. A parser that
       // offers the arrow disagrees with the oracle on every such call, and the
       // fixture corpus has five of them.
-      const declared = this.declaredCallSignatureOf(binding);
-      if (declared) {
-        this.applyTarget(callSite, declared, undefined, 1, false,
-          TsResolutionEvidence.DECLARED_RECEIVER_TYPE);
+      const declared = this.declaredCallSignaturesOf(binding);
+      // One arm and several go through the same choice, because `chooseByArity`
+      // returns a sole candidate unchanged — so the single-signature path
+      // behaves exactly as it did.
+      const chosen = declared.length > 0
+        ? chooseByArity(declared, argumentCount)
+        : undefined;
+      if (chosen) {
+        const isSet = declared.length > 1;
+        this.applyTarget(callSite, chosen, isSet ? declared.indexOf(chosen) : undefined,
+          declared.length, isSet, TsResolutionEvidence.DECLARED_RECEIVER_TYPE);
         return;
       }
       if (binding.kind !== TsBoundKind.VariableDeclaration) {
@@ -522,11 +529,21 @@ export class TsLocalResolver {
       // THE arrow-function path, for an UNANNOTATED binding: `const f = () => {};
       // f()`. 161 measured targets are arrows and none has a name a call site
       // could match — the variable is the only route to them.
+      //
+      // It is ALSO the path for an annotation that declares a set arity cannot
+      // narrow: `MessagePattern`'s four arms are all-optional, so every one
+      // admits the call and only the ARGUMENT TYPES separate them, which is the
+      // checker's job. The target stays the initialiser — that is the body that
+      // runs, and it is what the engine's `parser_resolved` projection reads
+      // (`overloadCandidateCount` is bound to `_` there, so dropping the target
+      // to report a count would cost the engine a resolution and give it
+      // nothing). What changes is that the row no longer claims ONE candidate
+      // when the annotation declares four.
       const bound = variable?.getBoundFunctionLinkHash() ?? '';
       if (bound !== '') {
         const method = this.methodByHash.get(bound);
         if (method) {
-          this.applyTarget(callSite, method, undefined, 1, false,
+          this.applyTarget(callSite, method, undefined, Math.max(declared.length, 1), false,
             TsResolutionEvidence.LOCAL_BINDING);
         }
       }
@@ -992,31 +1009,77 @@ export class TsLocalResolver {
   }
 
   /**
-   * The call signature a binding's ANNOTATION denotes, if it denotes one.
+   * The call signatures a binding's ANNOTATION denotes, in source order.
    *
-   * Two shapes, both purely syntactic:
-   *   `const f: (a: T) => R`   the annotation IS a function type
-   *   `const f: Callback`      the annotation names an alias whose RHS is one
+   * Three shapes, all purely syntactic:
+   *   `const f: (a: T) => R`        the annotation IS a function type
+   *   `const f: Callback`           the annotation names an alias whose RHS is one
+   *   `const f: { (a: T): R; ... }` the annotation is a type LITERAL whose
+   *                                 members are call or construct signatures
    *
-   * Anything else — a generic instantiation, an interface with a call
-   * signature, an intersection — needs the checker, and returns nothing rather
-   * than a plausible guess.
+   * The third shape is why this returns a LIST. An overload set is often
+   * written as several call signatures in one type literal, and the arms are
+   * right there in the source:
+   *
+   *     export const MessagePattern: {
+   *       <T>(metadata?: T): MethodDecorator;
+   *       <T>(metadata?: T, transport?: Transport): MethodDecorator;
+   *       <T>(metadata?: T, extras?: Record<string, any>): MethodDecorator;
+   *       <T>(metadata?: T, transport?: Transport, extras?: ...): MethodDecorator;
+   *     } = <T>(metadata?, transportOrExtras?, maybeExtras?) => { ... };
+   *
+   * Returning only a single signature meant every one of those fell through to
+   * the arrow initialiser, and the row then said `overloadCandidateCount = 1`
+   * and `isOverloadResolved = false` — asserting one candidate where tsc sees
+   * four, so a consumer concludes no overload choice is needed and never
+   * revisits. Measured on nest: three `MessagePattern` sites, each naming the
+   * implementation while `getResolvedSignature` named the two-parameter arm.
+   *
+   * No checker is involved: the signatures are already `ts_method` rows and
+   * `chooseByArity` picks among them the same way it does for `function`
+   * overloads.
+   *
+   * Still returns nothing, rather than a plausible guess, for anything that
+   * needs the checker — a generic instantiation, a NAMED interface with a call
+   * signature, an intersection, or an indexed access such as
+   * `StoreApi<S>['setState']` (#88).
    */
-  private declaredCallSignatureOf(binding: BoundDeclaration): TsMethodRegistry | undefined {
+  private declaredCallSignaturesOf(binding: BoundDeclaration): readonly TsMethodRegistry[] {
     const annotation = (binding.node as { type?: ts.TypeNode }).type;
     if (!annotation) {
-      return undefined;
+      return [];
     }
-    const target = ts.isFunctionTypeNode(annotation) || ts.isConstructorTypeNode(annotation)
-      ? annotation
-      : ts.isTypeReferenceNode(annotation) && ts.isIdentifier(annotation.typeName)
-        ? this.input.typeAliasTargetByName.get(annotation.typeName.text)
-        : undefined;
-    if (!target || !(ts.isFunctionTypeNode(target) || ts.isConstructorTypeNode(target))) {
-      return undefined;
+    // One hop through a type alias, exactly as before; an alias to an alias
+    // still needs the checker.
+    const target = ts.isTypeReferenceNode(annotation) && ts.isIdentifier(annotation.typeName)
+      ? this.input.typeAliasTargetByName.get(annotation.typeName.text)
+      : annotation;
+    if (!target) {
+      return [];
     }
-    const hash = this.input.methodHashByNode.get(nodeId(target, this.sf));
-    return hash ? this.methodByHash.get(hash) : undefined;
+    if (ts.isFunctionTypeNode(target) || ts.isConstructorTypeNode(target)) {
+      return this.methodsForNodes([target]);
+    }
+    if (ts.isTypeLiteralNode(target)) {
+      return this.methodsForNodes(target.members.filter(
+        (member) => ts.isCallSignatureDeclaration(member)
+          || ts.isConstructSignatureDeclaration(member)
+      ));
+    }
+    return [];
+  }
+
+  /** The `ts_method` rows already minted for these signature nodes, in order. */
+  private methodsForNodes(nodes: readonly ts.Node[]): readonly TsMethodRegistry[] {
+    const out: TsMethodRegistry[] = [];
+    for (const node of nodes) {
+      const hash = this.input.methodHashByNode.get(nodeId(node, this.sf));
+      const method = hash ? this.methodByHash.get(hash) : undefined;
+      if (method) {
+        out.push(method);
+      }
+    }
+    return out;
   }
 
   private chooseFromGroup(
