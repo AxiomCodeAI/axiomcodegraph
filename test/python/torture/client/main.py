@@ -27,6 +27,7 @@ import f24_star_all as f24
 import f25_var_params as f25
 import f26_local_annotation as f26
 import f27_with_target as f27
+import f28_await as f28
 from tlib import Square
 from tlib.shapes import Base, Mid
 
@@ -93,6 +94,7 @@ def main() -> None:
     print(f25.Holder(a='x').lookup('a'), f25.collect(1, 2, 1), f25.annotated_kwargs(a='y'), f25.annotated_varargs(1, 2, 1))
     print(f26.from_builtin_annotation(), f26.from_class_annotation(), f26.from_dotted_annotation())
     print(f27.via_declared_enter(), f27.via_self_enter())
+    print(f28.drive())
 
 
 if __name__ == "__main__":

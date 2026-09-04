@@ -80,6 +80,19 @@ method_kind("lib", kind, pc, h) :- lib_py_method(_, _, _, _, _, _, _, _, _, _, _
 method_modifier("client", m, h) :- py_method(_, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
 method_modifier("lib", m, h) :- lib_py_method(_, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
 
+// ── method_is_async(Prov, MethodHash) — `async def` ──────────────────────────
+// col 28. Needed because the return annotation of an `async def` is, by language
+// definition (PEP 492/484), the type of the value the coroutine PRODUCES — not the
+// type of the coroutine object the call yields. So this column is what licenses
+// reading `-> T` as the type of `await f()`, and nothing else does: methodKind
+// (col 16) says ASYNC_FUNCTION for a plain coroutine function but is overwritten by
+// ABSTRACT_METHOD / OVERLOAD_STUB on 47 of aiohttp's 3,656 async defs, and
+// methodModifier (col 11) is a comma-set that needs substring matching. Measured on
+// one async-first corpus: 3,656 async methods, isAsync=true on every one of them,
+// and 2,797 of those carry a bare-name return annotation.
+method_is_async("client", h) :- py_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, h).
+method_is_async("lib", h) :- lib_py_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, h).
+
 // ── method_scope(Prov, ScopeHash, MethodHash) ────────────────────────────────
 // This function's OWN scope — the scope its body's names resolve in.
 method_scope("client", s, h) :- py_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, s, _, _, _, _, _, _, _, _, _, _, _, _, h).
