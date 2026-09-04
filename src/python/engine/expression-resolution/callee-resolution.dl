@@ -261,6 +261,20 @@ call_unresolvable(site, "decorator_replaced_target") :-
 //     hierarchy has a hole (unresolved base, dynamic base, metaclass, __getattr__).
 call_unresolvable(site, "escape_hatch") :-
     call_recv_type(site, t), call_name(site, n), mro_lookup_escape_hatch("client", t, n).
+// (e2) the receiver's type is FULLY KNOWN and its MRO defines no such name. Disjoint
+//      from escape_hatch above by construction: both read mro_lookup_miss, and
+//      resolution/attribute-lookup.dl splits it on type_hierarchy_incomplete — a hole in
+//      the hierarchy is an escape hatch, no hole is a genuine absence. The name is
+//      therefore not a member of the analysed code at all: a C-level attribute, an
+//      `object` member, or an attribute installed at runtime.
+//
+//      mro_lookup_absent was already derived, documented, and READ BY NOTHING — the same
+//      shape as module_exports (#105) and param_kind's var-parameter kinds (#111). Its
+//      absence here is what left these sites carrying `no_rule`, which
+//      call-edge-generation/call_chain.dl defines as a site that could not be resolved
+//      AND could not be explained.
+call_unresolvable(site, "member_absent_from_type") :-
+    call_recv_type(site, t), call_name(site, n), mro_lookup_absent("client", t, n).
 // (f) the callee name resolved to nothing at all and is not a known builtin.
 call_unresolvable(site, "unbound_name") :-
     call_callee_is_value(site),
