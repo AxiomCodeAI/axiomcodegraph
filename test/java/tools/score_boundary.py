@@ -194,9 +194,28 @@ def main():
             else:
                 v['WRONG TARGET'] += 1
                 if len(wrong) < census: wrong.append((k, sorted(truth), sorted(got)))
+    # HOW MUCH OF THE LIBRARY IS EVEN THERE. Every number below is conditional on the staged
+    # library containing the types the client calls, and scoring a project against the platform IR
+    # alone leaves its real dependencies absent — on one corpus project, staging five of them moved
+    # 2,303 call sites from "no answer" to answered without the engine changing at all. A run whose
+    # coverage is low is not measuring the rules, and the reader has to be told so before the
+    # percentages, not after.
+    called = collections.Counter()
+    for k, owners in on_line.items():
+        if k[0].split('#')[0] not in client_types: continue
+        for o in owners:
+            if o not in client_types: called[o] += 1
+    absent = {o: c for o, c in called.items() if o not in lib_types}
+    cov = 100 * (len(called) - len(absent)) / max(len(called), 1)
+
     d = sum(v.values()) or 1
     exact = (v['EXACT'] + v['SOUND SUPERSET'] + v['DECLARING ANCESTOR'] + v['MORE PRECISE']
              + v['FOUND (line differs)'])
+    print(f"staged library covers {cov:.0f}% of the library types this client calls "
+          f"({len(called) - len(absent):,} of {len(called):,}; {sum(absent.values()):,} call sites name an absent type)")
+    if cov < 90:
+        print(f"  ** LOW — the numbers below are bounded by what is staged, not by the rules. "
+              f"Stage the client's dependencies (tools/build-lib-ir.sh --coord) before reading them.")
     print(f"boundary sites: {d:,}   (client callers, library callees matching {','.join(prefixes)})")
     for kk in ('EXACT','SOUND SUPERSET','MORE PRECISE','DECLARING ANCESTOR',
                'FOUND (line differs)','PARTIAL','WRONG TARGET','UNRESOLVED',
@@ -206,6 +225,9 @@ def main():
     print(f"  ---")
     print(f"  correct METHOD named      {100*exact/d:5.1f}%   ({100*exact/max(adj,1):5.1f}% of the {adj:,} the lib IR can answer)")
     print(f"  wrong library method     {100*v['WRONG TARGET']/d:5.1f}%")
+    if absent and cov < 100:
+        print(f"\nABSENT from the staged library, by call sites naming them")
+        for t, c in sorted(absent.items(), key=lambda x: -x[1])[:census]: print(f"  {c:6,}  {t}")
     if unstaged_owners:
         print(f"\nRECEIVER NEEDS AN UNSTAGED TYPE — stage these to score the sites behind them")
         for t, c in unstaged_owners.most_common(census): print(f"  {c:6,}  {t}")
