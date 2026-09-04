@@ -538,6 +538,26 @@ expr_type_untypable(p, e, "attribute_object_untyped") :-
     !expr_any_type(p, obj),
     !expr_any_type(p, e).
 
+// (4b) `a.b.c()` where `a` IS typed and `b` is not a member of that type at all.
+//
+// The two attribute clauses above between them cover "the attribute is a known field
+// whose own type is unknown" and "the OBJECT is untyped". Neither covers the third case,
+// and it is the largest: the object's type is known, and the attribute is simply not
+// declared on it — a property, a slot, a class attribute of an unstaged base, or an
+// attribute installed at runtime. MEASURED as the dominant shape under `no_rule` with a
+// receiver: 1,141 of 1,578 on one project, 364 of 1,226 and 887 of 3,309 on two more.
+//
+// Both a field lookup and a method lookup are negated. `a.handler.register()` where
+// `handler` is a METHOD is a call through a bound method, which resolution/value-flow.dl
+// owns; labelling it "absent" would be wrong rather than merely unhelpful.
+expr_type_untypable(p, e, "attribute_absent_on_type") :-
+    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
+    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_type(p, obj, ot),
+    !type_attr_field(p, ot, n, _),
+    !mro_lookup(p, ot, n, _),
+    !expr_any_type(p, e).
+
 // (5) a CALL RESULT receiver whose own call resolved to no callee -- `f().g()` where `f`
 //     is itself unresolved. The failure is one hop upstream, and saying so stops the site
 //     being counted as its own independent gap.
