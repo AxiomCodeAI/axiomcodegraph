@@ -122,6 +122,59 @@ method_name_in_type(name, t, m) :- type_ancestor(t, anc),
     method_declared_in(name, anc, m),
     !shadowed_in_type(t, m).
 
+// ── java.lang.Object is every reference type's implicit superclass ──────────
+// `class Plain {}` has no extends clause, so it has no SUPER_TYPE reference, so type_parent
+// derives nothing and type_ancestor never reaches java.lang.Object — and a call to a member
+// only Object declares (getClass, hashCode, equals, toString, notifyAll, clone, wait) resolved
+// to NOTHING on any receiver whose own hierarchy does not happen to name Object. Measured on
+// three large open-source projects: 171 of 294 ground-truth calls to an Object member were
+// unresolved, 28.5% of every unresolved boundary row, and the loss compounds — `getClass()`
+// unresolved leaves the receiver of the `.getName()` chained onto it untyped as well.
+//
+// Written as a FALLBACK rather than as `type_parent(t, Object)` for two reasons, both of which
+// bound the blast radius to exactly the sites that resolve to nothing today:
+//
+//   * it cannot change an answer that already exists. The negation means the clause fires only
+//     where the receiver's own hierarchy declares no method of that name and arity, so a client
+//     `toString()` override still wins and the site stays a single known target.
+//   * it cannot fan. Making Object a real ancestor puts every type under one root, and the
+//     rules that enumerate descendants of a base (virtual_override, override_in_closure) would
+//     then enumerate the whole program from any Object-typed receiver — the classic CHA blow-up
+//     that virtual-dispatch.dl already refuses by name for exactly this type.
+//
+// Name+arity is the suppression key, matching DECLARED-WINS above. A type declaring an OVERLOAD
+// of an Object member with the same arity (`boolean equals(Foo)`) therefore also suppresses the
+// Object method — the same imprecision DECLARED-WINS already carries, kept identical rather than
+// given a second, differently-wrong rule.
+// ACCESS MATTERS, and it is the reason this is two clauses. JLS 9.2: an interface implicitly
+// declares the PUBLIC members of Object, and only those. `clone()` and `finalize()` are protected,
+// so they are members of a class type and not of an interface type — and `wait0` is private, so it
+// is a member of neither. Adding all thirteen to every type made `super.clone()` in a subclass whose
+// superclass declares clone() answer with Object#clone() as well, through the Cloneable the class
+// implements: a second, wrong target on a site that had exactly one right one.
+// lib_type (14): 1 qualifiedName 13 hash ; lib_method (22): 0 name 7 owner 10 access 16 kind 17 pc 21 hash
+object_sig(name, pc, access, m) :- lib_type(_, "java.lang.Object", _, _, _, _, _, _, _, _, _, _, _, ot),
+    lib_method(name, _, _, _, _, _, _, ot, _, _, access, _, _, _, _, _, "INSTANCE_METHOD", pc, _, _, _, m),
+    name != "".
+
+// java_type / lib_type (14): 3 typeKind 13 hash
+type_is_interface(t) :- java_type(_, _, _, "INTERFACE_TYPE", _, _, _, _, _, _, _, _, _, t).
+type_is_interface(t) :- lib_type(_, _, _, "INTERFACE_TYPE", _, _, _, _, _, _, _, _, _, t).
+
+// name+arity declared anywhere in t's own hierarchy. Over BASE facts only (sig_declared_in +
+// type_ancestor), like the two shadowing laws above, so the negation below stratifies under
+// method_name_in_type instead of reading it.
+sig_in_hierarchy(t, name, pc) :- sig_declared_in(t, name, pc, _).
+sig_in_hierarchy(t, name, pc) :- type_ancestor(t, anc), sig_declared_in(anc, name, pc, _).
+
+method_name_in_type(name, t, m) :- lookup_type(t),
+    object_sig(name, pc, "PUBLIC", m),
+    !sig_in_hierarchy(t, name, pc).
+method_name_in_type(name, t, m) :- lookup_type(t),
+    object_sig(name, pc, "PROTECTED", m),
+    !type_is_interface(t),
+    !sig_in_hierarchy(t, name, pc).
+
 // ── dispatch-precision helpers ──────────────────────────────────────────────
 // Does a method of this name exist in the type (or an ancestor)?
 method_name_exists_in_type(name, t) :- method_name_in_type(name, t, _).
