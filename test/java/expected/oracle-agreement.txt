@@ -1,5 +1,5 @@
-cases compared 30   agreeing 17   skipped 2 (need a classpath: 26-spring-oracle, 32-library-handoff-depth)
-CONSTRUCTOR-RULE disagreements: 13 cases, 49 rows
+cases compared 31   agreeing 17   skipped 2 (need a classpath: 26-spring-oracle, 32-library-handoff-depth)
+CONSTRUCTOR-RULE disagreements: 14 cases, 51 rows
   03-overloads-and-receivers         classfile-only   4   javap-only   0
   04-unqualified-calls               classfile-only   0   javap-only   2
   05-lambda-and-method-refs          classfile-only   3   javap-only   0
@@ -13,5 +13,7 @@ CONSTRUCTOR-RULE disagreements: 13 cases, 49 rows
   21-function-value-blind-spots      classfile-only   4   javap-only   0
   29-qualified-this                  classfile-only   6   javap-only   0
   31-service-loader                  classfile-only   0   javap-only   1
+  33-compiler-lowering               classfile-only   2   javap-only   0
 OTHER disagreements: 0
 rows naming no method: 0
+full-oracle goldens that no longer match: 0

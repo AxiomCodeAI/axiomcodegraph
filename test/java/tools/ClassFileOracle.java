@@ -234,6 +234,26 @@ public class ClassFileOracle {
     static final Set<String> BOX = Set.of("java/lang/Integer","java/lang/Long","java/lang/Short",
         "java/lang/Byte","java/lang/Character","java/lang/Boolean","java/lang/Double","java/lang/Float");
     static final Set<String> PRIMS = new HashSet<>(PRIM.values());
+    static final Set<String> UNBOX = Set.of("intValue","longValue","shortValue","byteValue",
+        "charValue","booleanValue","doubleValue","floatValue");
+
+    /**
+     * Is the `Objects.requireNonNull` at els[i] the receiver null-check javac emits for a BOUND
+     * method reference? The shape is exact and nothing else produces it:
+     *     dup / invokestatic Objects.requireNonNull(Object)Object / pop / invokedynamic
+     * An explicitly written `Objects.requireNonNull(x)` has neither the `dup` before nor the
+     * `pop` + `invokedynamic` after, so it survives.
+     */
+    static boolean boundRefNullCheck(List<CodeElement> els, int i) {
+        Instruction prev = null;
+        for (int j = i - 1; j >= 0 && prev == null; j--) if (els.get(j) instanceof Instruction in) prev = in;
+        List<Instruction> after = new ArrayList<>();
+        for (int j = i + 1; j < els.size() && after.size() < 2; j++)
+            if (els.get(j) instanceof Instruction in) after.add(in);
+        return prev != null && prev.opcode() == Opcode.DUP
+            && after.size() == 2 && after.get(0).opcode() == Opcode.POP
+            && after.get(1) instanceof InvokeDynamicInstruction;
+    }
 
     static boolean excludedName(String n) { return SYN.contains(n) || n.startsWith("access$"); }
 
@@ -333,7 +353,10 @@ public class ClassFileOracle {
                 callerParams = "*";
             }
             int line = -1;
-            for (CodeElement e : code.get()) {
+            // Indexed, not iterated: one exclusion below needs the instructions AROUND an invoke.
+            List<CodeElement> els = code.get().elementList();
+            for (int ei = 0; ei < els.size(); ei++) {
+                CodeElement e = els.get(ei);
                 if (e instanceof java.lang.classfile.instruction.LineNumber ln) { line = ln.line(); continue; }
                 String owner, name, desc; Opcode op;
                 if (e instanceof InvokeDynamicInstruction idi) {
@@ -359,8 +382,33 @@ public class ClassFileOracle {
                 if (name.equals("makeConcatWithConstants") || owner.equals("java/lang/StringBuilder")) continue;
                 if (owner.equals("java/lang/String") && name.equals("valueOf") && ps.equals(List.of("Object"))) continue;
                 if (BOX.contains(owner) && name.equals("valueOf") && ps.size() == 1 && PRIMS.contains(ps.get(0))) continue;
-                if (owner.equals("java/util/Iterator") && (name.equals("hasNext") || name.equals("next"))) continue;
-                if (name.equals("iterator") && owner.startsWith("java/util")) continue;
+                // ── javac LOWERING: an invoke instruction for which the source contains no call ──
+                // The same mechanism as the boxing `valueOf` and StringBuilder exclusions above: a
+                // language construct that compiles to an invoke nobody wrote. Leaving one in does
+                // not merely lose a point — it scores the engine as having MISSED a call site that
+                // is not in the file, which is a wrong number rather than a missing one.
+                //
+                // ENHANCED FOR. Already excluded, but keyed on the receiver's STATIC TYPE being in
+                // `java.util` — so `for (X x : it)` over a `java.lang.Iterable`, or over a CLIENT
+                // class implementing it, kept all three calls. Keyed on the mechanism instead.
+                if (name.equals("iterator") && ps.isEmpty() && desc.endsWith(")Ljava/util/Iterator;")) continue;
+                if ((name.equals("hasNext") || name.equals("next")) && ps.isEmpty()
+                    && (owner.equals("java/util/Iterator") || ancestors(owner).contains("java/util/Iterator"))) continue;
+                // UNBOXING. The `valueOf` half was already excluded; `intValue()` is the same
+                // construct read the other way (`int n = someInteger;`). An explicitly written
+                // `x.intValue()` compiles identically and is dropped with it — the choice `valueOf`
+                // already made. 1,005 rows of this shape on the scale corpus against 15 written
+                // calls of that family in the same sources.
+                if (BOX.contains(owner) && UNBOX.contains(name) && ps.isEmpty()) continue;
+                // TRY-WITH-RESOURCES. `addSuppressed` is emitted only by the compiler's generated
+                // handler: 246 rows at scale, one written call in the corpus sources.
+                if (name.equals("addSuppressed") && ps.equals(List.of("Throwable"))) continue;
+                // A BOUND METHOD REFERENCE (`x::m`) null-checks its receiver. Unlike the three
+                // above this one IS decidable — `dup / invokestatic requireNonNull / pop /
+                // invokedynamic`, which nothing else emits — so an explicitly written
+                // `Objects.requireNonNull(x)`, which real code writes constantly, is kept.
+                if (owner.equals("java/util/Objects") && name.equals("requireNonNull")
+                    && boundRefNullCheck(els, ei)) continue;
                 // implicit super() out of a synthesized ctor, and `new X()` on a class with only one
                 if (name.equals("<init>") && ps.isEmpty() && DEFAULT_CTOR.contains(owner)) continue;
 
