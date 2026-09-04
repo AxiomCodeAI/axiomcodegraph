@@ -22,11 +22,25 @@
 set -uo pipefail
 
 SRC="${AXIOM_JDK_SRC:-/Users/swapnilpaliwal/Documents/Java-Projects/java/jdk26u/src}"
+# THE CHECKOUT IS NOT ALL OF THE JDK'S SOURCE. Several classes exist only after a build: the whole
+# java.nio buffer family is generated from X-Buffer.java.template, CharsetDecoder/Encoder from
+# Charset-X-Coder.java.template, CharacterData* and the VarHandle family likewise — 45 templates in
+# all. And the walk below reads share/classes only, so every platform-specific source
+# (java.lang.ProcessImpl, sun.nio.fs, sun.nio.ch) is absent too. The installed JDK ships
+# lib/src.zip, which contains all of them because it is the source AS BUILT.
+#
+# Both are used, and the CHECKOUT WINS for any file present in both. That keeps this strictly
+# additive: src.zip contributes only what the checkout cannot produce, so no type that the tree
+# already had can be lost or replaced by a differently-versioned copy. Measured on java.base:
+# +510 types, -0. Which JDK version the platform IR should mirror is a separate question and is
+# deliberately not decided here.
+SRCZIP="${AXIOM_JDK_SRCZIP:-$(/usr/libexec/java_home 2>/dev/null)/lib/src.zip}"
 OUT="${AXIOM_JDK_IR:-/Users/swapnilpaliwal/Documents/AxiomCode/jdk}"
 PARSER="${AXIOM_PARSER:-/Users/swapnilpaliwal/Documents/AxiomCode/Parser/dist/index.js}"
 CHECK=0; FORCE=0; KEEP_STALE=0; ONLY=()
 while [ $# -gt 0 ]; do case "$1" in
   --src) SRC="$2"; shift 2;; --out) OUT="$2"; shift 2;; --parser) PARSER="$2"; shift 2;;
+  --src-zip) SRCZIP="$2"; shift 2;; --no-src-zip) SRCZIP=""; shift;;
   --check) CHECK=1; shift;; --force) FORCE=1; shift;; --keep-stale) KEEP_STALE=1; shift;;
   -h|--help) sed -n '2,20p' "$0"; exit 0;; *) ONLY+=("$1"); shift;; esac; done
 
@@ -122,6 +136,21 @@ fi
 
 mkdir -p "$OUT"
 printf '%s\n' "$PARSER_REV" > "$PARTIAL"
+# Unpacked once, not per module: it is one 45 MB zip and 69 module trees.
+ZIPDIR=""
+if [ -n "$SRCZIP" ] && [ -f "$SRCZIP" ]; then
+  ZIPDIR="$(mktemp -d)"; trap 'rm -rf "$ZIPDIR"' EXIT
+  if unzip -qq -o "$SRCZIP" -d "$ZIPDIR" >/dev/null 2>&1; then
+    echo "src.zip    : $SRCZIP  ($(find "$ZIPDIR" -name '*.java' | wc -l | tr -d ' ') files, $(ls "$ZIPDIR" | wc -l | tr -d ' ') modules)"
+  else
+    echo "!! could not unpack $SRCZIP — continuing with the checkout alone" >&2; rm -rf "$ZIPDIR"; ZIPDIR=""
+  fi
+elif [ -n "$SRCZIP" ]; then
+  echo "!! no src.zip at $SRCZIP — every class the JDK GENERATES (java.nio.ByteBuffer and the rest" >&2
+  echo "   of the buffer family, CharsetDecoder/Encoder, the VarHandle family) will be MISSING," >&2
+  echo "   and so will every platform-specific source outside share/classes. Pass --src-zip, or" >&2
+  echo "   --no-src-zip to silence this." >&2
+fi
 echo "jdk source : $SRC"
 echo "output     : $OUT"
 echo "parser     : $PARSER  ($PARSER_REV)"
@@ -143,9 +172,23 @@ for m in "${MODULES[@]}"; do
   # ANNOUNCE THE MODULE BEFORE STARTING IT. The parser writes nothing until it finishes a
   # module and the largest one takes minutes, so reporting only on completion makes a healthy
   # run look dead for its first several minutes — indistinguishable from being hung.
-  printf "  .. %-24s %5s files ...\n" "$m" "$n"
-  if node "$PARSER" "$cls" "jdk-$m" true "$dest.tmp" >"$OUT/.$m.log" 2>&1 && [ -f "$dest.tmp/all-types.csv" ]; then
+  # The tree actually parsed: the checkout, plus the files only src.zip has. Built under $ZIPDIR so
+  # the checkout is never written to, and the checkout's copy always wins.
+  src_dir="$cls"; added=0
+  if [ -n "$ZIPDIR" ] && [ -d "$ZIPDIR/$m" ]; then
+    merged="$ZIPDIR/.merged-$m"; rm -rf "$merged"; mkdir -p "$merged"
+    cp -R "$cls/." "$merged/" 2>/dev/null
+    while IFS= read -r f; do
+      rel="${f#$ZIPDIR/$m/}"
+      [ -f "$merged/$rel" ] && continue
+      mkdir -p "$merged/$(dirname "$rel")"; cp "$f" "$merged/$rel"; added=$((added+1))
+    done < <(find "$ZIPDIR/$m" -name '*.java')
+    src_dir="$merged"; n=$((n+added))
+  fi
+  printf "  .. %-24s %5s files (%s from src.zip) ...\n" "$m" "$n" "$added"
+  if node "$PARSER" "$src_dir" "jdk-$m" true "$dest.tmp" >"$OUT/.$m.log" 2>&1 && [ -f "$dest.tmp/all-types.csv" ]; then
     rm -rf "$dest"; mv "$dest.tmp" "$dest"          # atomic: a killed run never leaves a half IR
+    [ -n "${merged:-}" ] && rm -rf "$merged" && merged=""
     t=$(( $(wc -l < "$dest/all-types.csv") - 1 )); mm=$(( $(wc -l < "$dest/all-methods.csv") - 1 ))
     ok=$((ok+1))
     printf "  ok %-24s %5s files -> %6s types %7s methods   [%d/%d]\n" \
@@ -154,6 +197,21 @@ for m in "${MODULES[@]}"; do
     rm -rf "$dest.tmp"; printf "  FAIL %-22s (see %s)\n" "$m" "$OUT/.$m.log"; fail=$((fail+1))
   fi
 done
+# ── CANARY: a class the JDK GENERATES must be in the tree ───────────────────────────────────
+# The whole point of reading src.zip is that a source checkout cannot produce these. If the union
+# silently stops happening — src.zip missing, moved, unreadable, or the merge reverted — every
+# number measured against this IR quietly gets worse and nothing says so. java.nio.ByteBuffer is
+# the canary: it exists ONLY as X-Buffer.java.template in the checkout, and 981 call sites named it
+# across a five-project corpus.
+if [ -f "$OUT/java.base/all-types.csv" ]; then
+  if ! awk -F'\t' 'NR>1 && $2=="java.nio.ByteBuffer"{found=1} END{exit !found}' "$OUT/java.base/all-types.csv"; then
+    echo "!! java.nio.ByteBuffer is NOT in the built java.base IR." >&2
+    echo "   It is generated from X-Buffer.java.template and exists in no source checkout, so this" >&2
+    echo "   means src.zip was not merged. Every buffer call will resolve to nothing. See --src-zip." >&2
+    fail=$((fail+1))
+  fi
+fi
+
 # The finished stamp is written ONLY when every module succeeded — a partial tree must never
 # report itself current. On a partial failure the .partial marker stays, so a re-run resumes.
 if [ "$fail" -eq 0 ]; then
