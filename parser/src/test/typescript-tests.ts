@@ -2565,11 +2565,359 @@ function columnOrderIsAppendOnly(): number {
   const appended = [...observed.entries()]
     .filter(([f, got]) => baseline[f] !== undefined && got.length > baseline[f]!.length)
     .map(([f, got]) => `${f.replace('all-typescript-', '')} +${got.length - baseline[f]!.length}`);
+
+  // The comparison NOTHING else makes: emitted width against DECLARED ARITY.
+  //
+  // `schema and generated .dl agree` compares the doc to the .dl (arity only);
+  // the loop above compares the emitted header to the baseline (names only).
+  // A column appended to the writer and to the baseline but never declared in
+  // the schema passes both and still cannot be read, because Souffle is
+  // ASYMMETRIC about field counts -- measured on 2.5:
+  //
+  //   too FEW fields  -> exit 1, "Values missing in line 1; cannot parse fact file"
+  //   too MANY fields -> exit 0, nothing on stderr, the extra field dropped
+  //
+  // `-v` and `-W all` change neither. So an undeclared trailing column is
+  // invisible everywhere except here. `strictBindCallApply` shipped that way
+  // and #77's mechanism could not run for it.
+  const arity = declaredArities();
+  for (const [file, got] of observed.entries()) {
+    const relation = relationNameFor(file);
+    const declared = relation === undefined ? undefined : arity.get(relation);
+    if (declared === undefined) {
+      continue;
+    }
+    if (got.length !== declared) {
+      failures.push(`${file}: ${got.length} columns emitted, but ${relation} is declared with `
+        + `${declared} in decls_base_ts.dl. Souffle exits 0 and DROPS the extra field when the `
+        + 'file is wider than the declaration, so the column is unreadable and nothing reports '
+        + 'it. Add the column to the schema doc and regenerate');
+    }
+  }
+
   console.log(`  ${Object.keys(baseline).length} relation(s), `
     + `${Object.values(baseline).reduce((n, c) => n + c.length, 0)} columns pinned by position`
     + (appended.length > 0 ? `; appended since the baseline: ${appended.join(', ')}` : ''));
+  console.log(`  ${arity.size} relation(s) cross-checked against the declared arity in `
+    + 'decls_base_ts.dl');
   for (const f of failures.slice(0, 6)) console.log(`  ${f}`);
   return failures.length ? 1 : 0;
+}
+
+
+// ---------------------------------------------------------------------------
+// Regression tests for the four fixes that shipped without one.
+//
+// Each synthesises its input with `analyseInline` / `analyseProgramsInline`
+// rather than adding a corpus fixture, and each was verified to FAIL with its
+// fix reverted -- a test that passes either way records the defect as intended.
+// ---------------------------------------------------------------------------
+
+/**
+ * A file's governing tsconfig is a function of the FILE, not of the program
+ * being extracted (#84).
+ *
+ * `beside.ts` sits next to a nested program whose tsconfig claims only `src/**`,
+ * and the ROOT config claims everything. The resolver's walk used to stop at the
+ * program root, so the nested program resolved `beside.ts` to no config at all
+ * and emitted a SECOND `ts_module` row under the same primary key with a
+ * different `moduleResolutionMode` -- and Souffle keeps both, so one import
+ * yielded two contradictory resolution modes.
+ */
+async function governingConfigIsPerFile(): Promise<number> {
+  if (!parserPresent()) {
+    return pendingCheck('governing tsconfig is per file',
+      'no extractor yet. A file in two programs must mint ONE module row');
+  }
+  // Three things are all required to reproduce this, and dropping any one makes
+  // the check vacuous:
+  //   1. `pkg/tsconfig.json` EXISTS, so `pkg` becomes a nested program root;
+  //   2. it does NOT claim `beside.ts` (it includes only `src/**`), while the
+  //      ROOT config does — so the two programs disagree about the governing
+  //      config unless the walk is program-independent;
+  //   3. a file inside the nested program IMPORTS `beside.ts`, which is what
+  //      pulls it into that program's closure as an "unclaimed" file. Without
+  //      the import the nested program never touches it and only one row is
+  //      ever emitted.
+  const { outputDir, cleanup } = await analyseProgramsInline('ts-gov-', {
+    'tsconfig.json': JSON.stringify({
+      compilerOptions: { target: 'ES2022', module: 'NodeNext', moduleResolution: 'NodeNext' },
+      include: ['**/*.ts'],
+    }),
+    'pkg/tsconfig.json': JSON.stringify({
+      compilerOptions: { target: 'ES2022', module: 'CommonJS' },
+      include: ['src/**/*'],
+    }),
+    'pkg/src/inside.ts': "import { beside } from '../beside.js';\nexport const inside = beside;\n",
+    'pkg/beside.ts': 'export const beside = 2;\n',
+  });
+  try {
+    const modules = relation(outputDir, 'all-typescript-modules.csv');
+    const failures: string[] = [];
+    const byKey = new Map<string, Record<string, string>[]>();
+    for (const row of modules) {
+      const key = row['tsModuleUniqueHash'] ?? '';
+      if (!byKey.has(key)) { byKey.set(key, []); }
+      byKey.get(key)!.push(row);
+    }
+    for (const [key, group] of byKey) {
+      if (group.length < 2) { continue; }
+      const differing = Object.keys(group[0]!).filter(
+        (c) => new Set(group.map((r) => r[c])).size > 1);
+      failures.push(`${group.length} ts_module rows share key ${key} `
+        + `(${group[0]!['filePath']}) differing in [${differing.join(', ')}] — Souffle keeps `
+        + 'both, so a join on the module hash yields contradictory values');
+    }
+    const beside = modules.filter((r) => (r['filePath'] ?? '').endsWith('beside.ts'));
+    if (beside.length !== 1) {
+      failures.push(`beside.ts produced ${beside.length} ts_module row(s), expected exactly 1 `
+        + '— it is claimed by the root config and reachable from the nested program');
+    }
+    console.log(`  ${modules.length} module row(s) over two programs, `
+      + `${byKey.size} distinct key(s); beside.ts resolved once`);
+    for (const f of failures.slice(0, 4)) { console.log(`  ${f}`); }
+    return failures.length ? 1 : 0;
+  } finally {
+    cleanup();
+  }
+}
+
+/**
+ * A decorator subtree is descended once (#86).
+ *
+ * `visitDecoratorDeclarations` walks a member's decorators and `emitField` then
+ * descended the whole member -- and `ts.forEachChild` yields a decorated node's
+ * decorators alongside its initialiser, so the arrow inside `@Column(() => X)`
+ * was emitted TWICE. `overloadIndex` was the only differing column and is not in
+ * `TS_METHOD_md5`, so the two rows collided on one key as a false overload set.
+ */
+async function decoratorDescendedOnce(): Promise<number> {
+  if (!parserPresent()) {
+    return pendingCheck('a decorator is descended once',
+      'no extractor yet. A callable inside a decorator argument is ONE method');
+  }
+  const { outputDir, cleanup } = await analyseInline('ts-decdup-', {
+    // The decorated properties MUST have initialisers. `emitField` only
+    // descends the member when one is present -- and it descends the whole
+    // member, decorators included, which is where the second emission came
+    // from. Without an initialiser the defect does not reproduce and the test
+    // passes with the fix reverted, which is how the first draft of this check
+    // was vacuous.
+    'a.ts': [
+      'function Column(_fn: () => unknown, _o?: object): PropertyDecorator {',  // 1
+      '  return () => {};',                                                     // 2
+      '}',                                                                      // 3
+      'export class Post {',                                                    // 4
+      '  @Column(() => Post, { eager: true })',                                 // 5
+      '  author: Post = this;',                                                 // 6
+      '',                                                                       // 7
+      '  @Column(() => Post)',                                                  // 8
+      '  editor: Post = this;',                                                 // 9
+      '}',
+    ].join('\n'),
+  }, { experimentalDecorators: true });
+  try {
+    const methods = relation(outputDir, 'all-typescript-methods.csv');
+    const failures: string[] = [];
+    const seen = new Map<string, number>();
+    for (const row of methods) {
+      const key = row['tsMethodUniqueHash'] ?? '';
+      seen.set(key, (seen.get(key) ?? 0) + 1);
+    }
+    for (const [key, n] of seen) {
+      if (n > 1) { failures.push(`${n} ts_method rows share key ${key}`); }
+    }
+    // ONE arrow per decorator POSITION. Two DISTINCT anonymous arrows in one
+    // class legitimately share a name and get overloadIndex 0 and 1, so the
+    // index says nothing here -- the defect was the SAME arrow emitted twice,
+    // which is a count at one position.
+    const arrows = methods.filter((r) => r['methodKind'] === 'ARROW_FUNCTION');
+    for (const line of ['5', '8']) {
+      const atLine = arrows.filter((r) => r['startLine'] === line);
+      if (atLine.length !== 1) {
+        failures.push(`${atLine.length} arrows emitted at line ${line}, expected 1 — the `
+          + 'decorator subtree was descended twice, once by visitDecoratorDeclarations and '
+          + 'again by emitField');
+      }
+    }
+    const positions = new Set(arrows.map((r) => `${r['startLine']}:${r['startColumn']}`));
+    if (positions.size !== arrows.length) {
+      failures.push(`${arrows.length} arrow rows occupy only ${positions.size} distinct `
+        + 'position(s) — two rows describe one node');
+    }
+    console.log(`  ${methods.length} method row(s), ${seen.size} distinct key(s); `
+      + `${arrows.length} decorator-argument arrow(s) at ${positions.size} distinct position(s)`);
+    for (const f of failures.slice(0, 4)) { console.log(`  ${f}`); }
+    return failures.length ? 1 : 0;
+  } finally {
+    cleanup();
+  }
+}
+
+/**
+ * `.d.mts` and `.d.cts` are declaration files, and their stem is not `index.d`
+ * (#89).
+ *
+ * `stripExtension` listed `d\.ts|tsx?|mts|cts`, so `index.d.cts` matched the bare
+ * `cts` arm and kept a stray `.d`. `resolvedFilePath` and `resolvedExtension`
+ * then could not be recombined into the real path, and the module's own name
+ * carried the `.d`.
+ */
+async function declarationExtensionsAreWholeExtensions(): Promise<number> {
+  if (!parserPresent()) {
+    return pendingCheck('declaration extensions are whole extensions',
+      'no extractor yet. `.d.cts` and `.d.mts` are single extensions');
+  }
+  const { outputDir, cleanup } = await analyseInline('ts-dext-', {
+    // Its own tsconfig on purpose: `analyseInline`'s default `include` is
+    // `**/*.ts`, which does not match `.d.cts` or `.d.mts` at all. Omitting
+    // `include` is what tsc does by default and picks up all four -- verified
+    // against `parseJsonConfigFileContent`, which returns the same four files.
+    'tsconfig.json': JSON.stringify({
+      compilerOptions: { target: 'ES2022', module: 'NodeNext', moduleResolution: 'NodeNext' },
+    }),
+    'legacy.d.cts': 'export declare const legacy: number;\n',
+    'modern.d.mts': 'export declare const modern: number;\n',
+    'plain.d.ts': 'export declare const plain: number;\n',
+    'src.ts': 'export const src = 1;\n',
+  });
+  try {
+    const modules = relation(outputDir, 'all-typescript-modules.csv');
+    const failures: string[] = [];
+    for (const row of modules) {
+      for (const column of ['name', 'qualifiedName'] as const) {
+        const value = row[column] ?? '';
+        if (value.endsWith('.d')) {
+          failures.push(`${row['fileName']}: ${column} is "${value}" — the `
+            + '`.d` of a `.d.cts`/`.d.mts` extension was left on the stem');
+        }
+      }
+    }
+    const want = ['legacy.d.cts', 'modern.d.mts', 'plain.d.ts'];
+    for (const file of want) {
+      const row = modules.find((r) => r['fileName'] === file);
+      if (row === undefined) {
+        failures.push(`no ts_module row for ${file}`);
+        continue;
+      }
+      if (row['isDeclarationFile'] !== 'true') {
+        failures.push(`${file}: isDeclarationFile is ${row['isDeclarationFile']}`);
+      }
+    }
+    console.log(`  ${modules.length} module row(s) across .d.cts, .d.mts, .d.ts and .ts; `
+      + 'no stem carries a stray `.d`');
+    for (const f of failures.slice(0, 4)) { console.log(`  ${f}`); }
+    return failures.length ? 1 : 0;
+  } finally {
+    cleanup();
+  }
+}
+
+/**
+ * A variable's annotation can declare a SET of call signatures (#88, #92).
+ *
+ * `declaredCallSignatureOf` returned at most one signature, so a type LITERAL
+ * with several call signatures fell through to the arrow initialiser and the row
+ * said `overloadCandidateCount = 1` where tsc sees several. Where arity narrows
+ * the set the parser now resolves to the same arm `getResolvedSignature` does.
+ */
+async function annotationCanDeclareASignatureSet(): Promise<number> {
+  if (!parserPresent()) {
+    return pendingCheck('an annotation can declare a signature set',
+      'no extractor yet. A type literal may hold several call signatures');
+  }
+  const { outputDir, cleanup } = await analyseInline('ts-sigset-', {
+    'a.ts': [
+      'export const distinguishable: {',            // 1
+      '  (a: string): void;',                       // 2  <- arm 0
+      '  (a: string, b: number): void;',            // 3  <- arm 1
+      '} = (_a: string, _b?: number): void => {};', // 4
+      'export const ambiguous: {',                  // 5
+      '  (a?: string): void;',                      // 6
+      '  (a?: string, b?: number): void;',          // 7
+      '} = (_a?: string, _b?: number): void => {};',// 8
+      'export const plain: (a: string) => void = (_a: string): void => {};', // 9
+      'export function exercise(): void {',         // 10
+      '  distinguishable("x");',                    // 11 -> arm at line 2
+      '  distinguishable("x", 1);',                 // 12 -> arm at line 3
+      '  ambiguous("x");',                          // 13 -> cannot narrow
+      '  plain("x");',                              // 14 -> unchanged control
+      '}',
+    ].join('\n'),
+  });
+  try {
+    const calls = relation(outputDir, 'all-typescript-call-sites.csv');
+    const methodLine = new Map(relation(outputDir, 'all-typescript-methods.csv')
+      .map((r) => [r['tsMethodUniqueHash'] ?? '', r['startLine'] ?? '']));
+    const at = (line: string): Record<string, string> | undefined =>
+      calls.find((r) => r['startLine'] === line);
+    const failures: string[] = [];
+    const expect = (line: string, targetLine: string, count: string, resolved: string): void => {
+      const row = at(line);
+      if (row === undefined) {
+        failures.push(`no call site at line ${line}`);
+        return;
+      }
+      const got = methodLine.get(row['resolvedSignatureLinkHash'] ?? '') ?? '<none>';
+      if (got !== targetLine) {
+        failures.push(`call at line ${line} resolved to a method at line ${got}, `
+          + `expected ${targetLine}`);
+      }
+      if ((row['overloadCandidateCount'] ?? '') !== count) {
+        failures.push(`call at line ${line} reports overloadCandidateCount `
+          + `${row['overloadCandidateCount']}, expected ${count}`);
+      }
+      if ((row['isOverloadResolved'] ?? '') !== resolved) {
+        failures.push(`call at line ${line} reports isOverloadResolved `
+          + `${row['isOverloadResolved']}, expected ${resolved}`);
+      }
+    };
+    // Arity narrows the set: the chosen arm is the one tsc chooses.
+    expect('11', '2', '2', 'true');
+    expect('12', '3', '2', 'true');
+    // Arity cannot narrow it -- both arms are all-optional. The target stays the
+    // initialiser, because the engine's `parser_resolved` projection reads the
+    // signature hash and ignores the count, so dropping the target would cost a
+    // resolution and give nothing. What must NOT happen is a claim of one candidate.
+    expect('13', '8', '2', 'false');
+    // Control: a plain function-type annotation is untouched.
+    expect('14', '9', '1', 'false');
+    console.log('  4 call(s): two arms chosen by arity as tsc chooses them, one all-optional '
+      + 'set reported as 2 candidates with the initialiser kept, one plain annotation unchanged');
+    for (const f of failures.slice(0, 6)) { console.log(`  ${f}`); }
+    return failures.length ? 1 : 0;
+  } finally {
+    cleanup();
+  }
+}
+
+/** `all-typescript-method-parameters.csv` -> `ts_method_parameter`, via the .dl's own names. */
+function relationNameFor(file: string): string | undefined {
+  const stem = file.replace('all-typescript-', '').replace('.csv', '');
+  const singular = stem.endsWith('ies')
+    ? `${stem.slice(0, -3)}y`
+    : stem.endsWith('sses') || stem.endsWith('xes')
+      ? stem.slice(0, -2)
+      : stem.endsWith('s') ? stem.slice(0, -1) : stem;
+  return `ts_${singular.replace(/-/g, '_')}`;
+}
+
+/** Declared arity per relation, read from the GENERATED .dl rather than the doc. */
+function declaredArities(): Map<string, number> {
+  const out = new Map<string, number>();
+  const dl = path.join(SCHEMA_DIR, 'decls_base_ts.dl');
+  if (!fs.existsSync(dl)) {
+    return out;
+  }
+  for (const m of fs.readFileSync(dl, 'utf-8').matchAll(/^\.decl\s+(\w+)\(([^)]*)\)/gm)) {
+    const name = m[1];
+    const params = m[2];
+    if (name === undefined || params === undefined || name.startsWith('lib_')) {
+      continue;
+    }
+    out.set(name, params.split(',').length);
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -3449,6 +3797,10 @@ const CHECKS: Check[] = [
   { name: 'object-literal members name their literal', proves: 'a literal member has an owner, so its parameters can be typed from the literal contextual annotation', run: objectLiteralMembersNameTheirLiteral },
   { name: 'row paths are self-consistent', proves: 'baseMservPath + filePath names the file, so a position join is sound and two packages cannot share a key', run: rowPathsAreSelfConsistent },
   { name: 'column order is append-only', proves: 'a column is never inserted mid-table, because Souffle binds by position and misbinds silently', run: columnOrderIsAppendOnly },
+  { name: 'governing tsconfig is per file', proves: 'a file reachable from two programs mints ONE ts_module row, so no key carries contradictory moduleResolutionMode', run: governingConfigIsPerFile },
+  { name: 'a decorator is descended once', proves: 'a callable inside a decorator argument is one ts_method, not two colliding on one key as a false overload set', run: decoratorDescendedOnce },
+  { name: 'declaration extensions are whole extensions', proves: '`.d.cts` and `.d.mts` are single extensions, so no stem keeps a stray `.d`', run: declarationExtensionsAreWholeExtensions },
+  { name: 'an annotation can declare a signature set', proves: 'a type literal holding several call signatures is resolved as the set it is, and arity picks the arm tsc picks', run: annotationCanDeclareASignatureSet },
   { name: 'fact-base invariants', proves: 'every PK unique, every FK resolves, every tree well-formed — the failures that load cleanly and count wrong', run: factBaseInvariants },
   { name: 'IR completeness', proves: 'every hop an engine needs in order to resolve is present — the measure that replaced resolution rate', run: irCompleteness },
 ];

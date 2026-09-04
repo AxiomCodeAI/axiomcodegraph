@@ -381,7 +381,7 @@ Legend:
 
 ---
 
-### 4.1 `ts_module` / `lib_ts_module` — 27 columns ★
+### 4.1 `ts_module` / `lib_ts_module` — 28 columns ★
 
 A `.ts`/`.tsx`/`.d.ts` file, **or** an ambient module declaration, **or** a global
 augmentation. No Java analogue: Java's package is implicit in `qualifiedName`, but a
@@ -417,8 +417,19 @@ boundary between module scope and global scope.
 | 24 | `isExternal` | 1 | parity slot, always `false` on parser output |
 | 25 | `serviceVersionLinkHash` | 1 | |
 | 26 | `tsModuleUniqueHash` | — | **PK** |
+| 27 | `strictBindCallApply` | 2 | resolved as the CHECKER resolves it — `strictBindCallApply ?? strict ?? false`; `""` when neither is set. **After the PK on purpose** — see below |
 
 **PK** `TS_MODULE_md5(filePath ‖ baseMservPath ‖ declaredSpecifier ‖ startLine ‖ emissionRegime ‖ serviceVersionLinkHash)`
+
+`strictBindCallApply` is the one column in this schema that sits **after** its relation's
+primary key, and that is deliberate rather than an accident of when it was added. Souffle
+binds by POSITION, so inserting it at 26 would move `tsModuleUniqueHash` to 27 and every
+consumer reading c26 as the module hash would silently read a boolean instead — misbinding
+every FK in the fact base. Appending leaves 0..26 untouched.
+
+The consequence to know about: `ts_module` is the only relation whose PK is not its last
+column, so any check that finds a primary key POSITIONALLY is wrong here and must find it by
+name. The invariants check already had to be changed for exactly this.
 **FKs** 21→`ts_method`, 22/23→`ts_export` (back-patched after those rows are minted;
 accumulate-then-export makes this free).
 

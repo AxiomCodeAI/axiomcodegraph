@@ -3,6 +3,7 @@ import { TsImportRegistry } from '@/analysis-types/typescript/TsImportRegistry';
 import { TsTypeRegistry } from '@/analysis-types/typescript/TsTypeRegistry';
 import { TsResolvedTargetKind } from '@/enums/typescript/call-sites';
 import { TsFileFacts } from '@/parsers/typescript/extractors/ts-fact-extractor';
+import { stripTsOrJsExtension } from '@/parsers/typescript/ts-module-paths';
 
 /**
  * Measures whether the IR is COMPLETE — not whether the parser resolved.
@@ -219,7 +220,7 @@ export function linkReExportSources(files: readonly ModuleGraphFacts[]): number 
 
 /** A project-relative path minus its extension, so `./a.js` and `a.ts` compare equal. */
 function stripKnownExtension(filePath: string): string {
-  return filePath.replace(/\.(d\.ts|tsx?|mts|cts|js|jsx|mjs|cjs)$/, '');
+  return stripTsOrJsExtension(filePath);
 }
 
 /** A relative specifier resolved against the re-exporting file, without touching disk. */

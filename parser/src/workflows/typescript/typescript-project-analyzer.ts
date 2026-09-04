@@ -28,6 +28,7 @@ import { moduleHashFor } from '@/parsers/typescript/extractors/ts-module-extract
 import { TsConfigResolver } from '@/parsers/typescript/tsconfig-resolver';
 import { TsRelationWriter } from './ts-relation-writer';
 import { EntityUtils } from '@/utils/entity-utils';
+import { stripTsExtension } from '@/parsers/typescript/ts-module-paths';
 
 /**
  * Walks a TypeScript repository, extracts the fact spine, and exports it as TSV.
@@ -726,14 +727,7 @@ function pathAnchorFor(rootDir: string, baseMservPath: string): string {
 }
 
 function stripExtension(relativePath: string): string {
-  // `d\.mts` and `d\.cts` must precede `mts|cts`, or `index.d.cts` matches the
-  // bare `cts` arm and keeps a stray `.d` — which then reaches
-  // `ts_import.resolvedFilePath` and a declaration module's `name` and
-  // `qualifiedName`. Measured before the fix: 1,386 import rows across nine
-  // projects whose `resolvedFilePath` ended in `.d` while `resolvedExtension`
-  // said `.d.cts`, so the two columns could not be recombined into the real
-  // path, and axios's `index.d.cts` module was named `index.d`.
-  return relativePath.replace(/\.(d\.ts|d\.mts|d\.cts|tsx?|mts|cts)$/, '');
+  return stripTsExtension(relativePath);
 }
 
 /** Re-exported so a caller can create a source file the same way the extractor does. */

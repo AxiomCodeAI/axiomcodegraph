@@ -11,7 +11,7 @@ import { EntityIdentifiable } from '@/interfaces/EntityIdentifiable';
 import { EntityUtils } from '@/utils/entity-utils';
 
 /**
- * A TypeScript module — schema §4.1, 27 columns.
+ * A TypeScript module — schema §4.1, 28 columns.
  *
  * One row per `.ts`/`.tsx`/`.d.ts` file, **and** one per
  * `declare module "x" { … }`, **and** one per `declare global { … }`. Those last

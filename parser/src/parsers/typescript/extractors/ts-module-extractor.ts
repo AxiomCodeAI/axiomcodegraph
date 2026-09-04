@@ -12,6 +12,7 @@ import {
   TsMergeScopePrefix,
 } from '@/enums/typescript/modules';
 import { nodeId } from '@/parsers/typescript/extractors/ts-binder';
+import { stripTsOrJsonExtension } from '@/parsers/typescript/ts-module-paths';
 
 /**
  * Mints the `ts_module` rows for one file — schema §4.1.
@@ -234,9 +235,9 @@ export function moduleHashFor(
   }).getHash();
 }
 
-/** `views` for `app/web/views.ts`, and `views` for `app/web/views.d.ts`. */
+/** `views` for `app/web/views.ts`, `views.d.ts` and `views.d.cts`. */
 export function moduleStemOf(filePath: string): string {
-  return path.basename(filePath).replace(/\.(d\.ts|tsx?|mts|cts|json)$/, '');
+  return stripTsOrJsonExtension(path.basename(filePath));
 }
 
 function scriptKindOf(filePath: string, isDeclarationFile: boolean): TsScriptKind {
