@@ -142,6 +142,15 @@ element_type_of(p, src, t) :-
     expr_node(p, "LIST_COMPREHENSION", _, _, src),
     expr_parent(p, src, "COMPREHENSION_ELEMENT", _, el), expr_type(p, el, t).
 
+// ── (f2) `for x in await load()` where `async def load() -> List[Item]` ──────
+// The element type of an awaited container. Nothing new is inferred here: await_yields
+// (expression-resolution/expr-type.dl) has already argued that the operand's type is the
+// awaited value, and this reads the same annotation every other clause reads.
+element_type_of("client", aw, t) :- await_yields(aw, op), element_type_of("client", op, t).
+element_lib_type_of(aw, t)       :- await_yields(aw, op), element_lib_type_of(op, t).
+element_lib_type_of(aw, t) :-
+    await_yields(aw, op), call_of_expr(op, site), call_returns_lib_element(site, t).
+
 // ── (g) a NAME bound to a container: `items = [Square(), Circle()]; for i in items` ──
 // Every clause above types the container where it is WRITTEN -- a display in place, an
 // annotation, a call's declared return. None of them cross a local binding, so the

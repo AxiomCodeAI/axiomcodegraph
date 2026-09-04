@@ -133,6 +133,13 @@ expr_builtin_type(p, e, b) :-
 expr_builtin_type("client", e, b) :-
     call_of_expr(e, site), expr_call_candidate(site, m),
     annotation_builtin("client", m, "METHOD", b).
+// (d2) `await f()` where `async def f() -> str`. Same argument as clause (d) one hop
+//      out: expression-resolution/expr-type.dl's await_yields already established that
+//      the operand's type IS the awaited value, so the only thing left to do is carry
+//      it. Without this `(await read()).strip()` was a blind spot while
+//      `read_sync().strip()` was not.
+expr_builtin_type("client", aw, b) :-
+    await_yields(aw, op), expr_builtin_type("client", op, b).
 // (c2) `<anything>.x` — the SAME hop with the object's own type, not only self.
 // Clause (c) reads expr_attr_of_self, which by definition requires a SELF_REFERENCE, so
 // `self.buffer.append(x)` typed and `other.buffer.append(x)` did not.
