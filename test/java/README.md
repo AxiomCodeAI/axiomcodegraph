@@ -168,12 +168,23 @@ python3 tools/score_boundary.py <client-IR> <engine-OUT> gt.txt --library <platf
 python3 tools/compare_runs.py <before-OUT> <after-OUT>
 ```
 
+A case that ships a stub library also gets its boundary report pinned as
+`expected/<case>.boundary` under `--oracle`, which is what makes the **scorer** testable rather
+than only the engine: it used to discard every engine edge whose caller is a constructor, and to
+charge the engine for sites whose receiver could only be typed through a library nobody staged.
+
 `score_boundary.py` splits every answer by *how* it differs, because folding them together decides a
 convention question by accident: an engine that flow-typed a receiver to its allocated type answers
 `HashMap#put` where bytecode records the static type's `Map#put` (**MORE PRECISE**), and one that
 names where the method is declared answers `AbstractCollection#addAll` for `Set#addAll`
 (**DECLARING ANCESTOR**). Neither is an error. What is left over — an answer on a type unrelated to
 the bytecode owner — is the number that matters, and it is reported on its own.
+
+Two buckets are **not** the engine's and are never counted against it: `LIB IR LACKS THE TYPE`
+(the ground-truth callee's own type is absent) and `RECEIVER NEEDS AN UNSTAGED TYPE` (the site's
+line also calls a type absent from both IRs, so the receiver could not be typed by any rule).
+Scoring a project against the platform IR alone leaves its real dependencies absent, and on the
+corpus those two account for more of what was reported as unresolved than the engine did.
 
 `compare_runs.py` exists because an aggregate that improves can still hide the two regressions that
 matter, and both are invisible in "unresolved fell by 700":
