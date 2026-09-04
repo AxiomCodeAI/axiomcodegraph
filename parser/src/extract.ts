@@ -23,14 +23,6 @@ export interface ExtractOptions {
   outputDir?: string;
 }
 
-/**
- * Scan a codebase and extract Java/Python/TypeScript/Gradle/XML/YAML/Properties
- * and META-INF/services facts.
- *
- * This is the parser core — shared by the CLI (`src/cli.ts`) and the legacy
- * positional entry (`src/index.ts`, invoked as `node dist/index.js <dir> <link>
- * <excludeTests> <outputDir>` by the orchestrator pipeline).
- */
 /** Runs a promise and returns its value alongside how long it took, in seconds. */
 async function timed<T>(work: Promise<T>): Promise<{ value: T; seconds: number }> {
   const startedAt = Date.now();
@@ -86,6 +78,13 @@ function reportLanguage(
   console.log(`⏱️  ${label} analysis completed in ${seconds.toFixed(2)}s`);
 }
 
+/**
+ * Scan a codebase and extract Java/Python/TypeScript/Gradle/XML/YAML/Properties
+ * and META-INF/services facts.
+ *
+ * This is the parser core and the package's main export. `src/index.ts` wraps it
+ * for command-line use; import it directly to drive the parser from code.
+ */
 export async function extractProject(opts: ExtractOptions): Promise<void> {
   const excludeTests = opts.excludeTests ?? false;
   const outputDir = opts.outputDir ? path.resolve(opts.outputDir) : undefined;

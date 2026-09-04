@@ -1,9 +1,16 @@
 /**
- * Legacy positional entry point — preserved so the orchestrator pipeline can keep
- * invoking the parser as:
+ * The parser's command-line entry point. Arguments are positional:
+ *
  *   node dist/index.js <projectsDir> <serviceVersionLink> <excludeTests> [outputDir]
  *
- * For interactive use, prefer the CLI: `axiomcode-parser <path> [options]` (src/cli.ts).
+ *   projectsDir        directory scanned for projects (recursively)
+ *   serviceVersionLink commit tag stamped onto every extracted fact; required
+ *   excludeTests       "true" or "false"; anything else exits 1
+ *   outputDir          optional; defaults to the analyzers' built-in location
+ *
+ * To drive the parser from code rather than a shell, import `extractProject`
+ * from `@/extract` directly — that is the package's main export, and this file
+ * is a thin argument-parsing wrapper around it.
  */
 import * as path from 'path';
 
