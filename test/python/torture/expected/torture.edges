@@ -6,7 +6,6 @@ ambiguous_unknown	DECORATOR_APPLICATION	f05_decorators.<module> -> -
 ambiguous_unknown	DYNAMIC_CALL	f08_dynamic.getattr_call -> -
 ambiguous_unknown	METHOD_CALL	f06_flow.takes_unannotated -> -
 ambiguous_unknown	METHOD_CALL	f10_forward_refs.quoted_generic_element -> -
-ambiguous_unknown	METHOD_CALL	f28_await.a_library_element -> -
 ambiguous_unknown	SIMPLE_CALL	f02_callables.closure_target -> -
 ambiguous_unknown	SIMPLE_CALL	f05_decorators.call_client_decorated -> -
 ambiguous_unknown	SIMPLE_CALL	f05_decorators.decorator_factory_applied -> -
@@ -75,6 +74,9 @@ boundary_lib	METHOD_CALL	f10_forward_refs.type_checking_only_param -> lib:tlib.s
 boundary_lib	METHOD_CALL	f11_multiwrite.ternary_over_lib -> lib:tlib.shapes.Base.name
 boundary_lib	METHOD_CALL	f11_multiwrite.ternary_over_lib -> lib:tlib.shapes.Mid.name
 boundary_lib	METHOD_CALL	f14_class_objects.Registry.build_get -> builtin:dict.get
+boundary_lib	METHOD_CALL	f16_element_types.via_library_container_return -> builtin:list.append
+boundary_lib	METHOD_CALL	f16_element_types.via_library_container_return -> builtin:str.join
+boundary_lib	METHOD_CALL	f16_element_types.via_library_container_return -> lib:tlib.shapes.Square.name
 boundary_lib	METHOD_CALL	f19_reexports.via_package_attribute -> builtin:object.__init__
 boundary_lib	METHOD_CALL	f19_reexports.via_submodule_alias -> builtin:object.__init__
 boundary_lib	METHOD_CALL	f20_builtin_flow.UsesSelf.via_self -> builtin:str.lower
@@ -100,6 +102,7 @@ boundary_lib	METHOD_CALL	f28_await._all -> builtin:str.join
 boundary_lib	METHOD_CALL	f28_await.a_builtin_result -> builtin:str.upper
 boundary_lib	METHOD_CALL	f28_await.a_library_element -> builtin:list.append
 boundary_lib	METHOD_CALL	f28_await.a_library_element -> builtin:str.join
+boundary_lib	METHOD_CALL	f28_await.a_library_element -> lib:tlib.asyncshapes.AsyncBox.label
 boundary_lib	METHOD_CALL	f28_await.across_the_library_boundary -> lib:tlib.asyncshapes.AsyncBox.label
 boundary_lib	METHOD_CALL	f28_await.an_element_of_the_result -> builtin:list.append
 boundary_lib	METHOD_CALL	f28_await.an_element_of_the_result -> builtin:str.join
@@ -169,6 +172,7 @@ boundary_lib	SIMPLE_CALL	f13_declared_dispatch.exact_receiver_is_not_widened -> 
 boundary_lib	SIMPLE_CALL	f14_class_objects.Element.create -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f15_attribute_chains.Middle.__init__ -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f16_element_types.via_comprehension -> builtin:sum
+boundary_lib	SIMPLE_CALL	f16_element_types.via_library_container_return -> lib:tlib.shapes.squares
 boundary_lib	SIMPLE_CALL	f18_lambda_dispatch.via_other_receiver -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f23_typevar_bound.<module> -> external:TypeVar
 boundary_lib	SIMPLE_CALL	f23_typevar_bound.class_object_bounded -> builtin:object.__init__
@@ -352,6 +356,7 @@ known_edge	METHOD_CALL	main.main -> f15_attribute_chains.via_parameter_one_hop
 known_edge	METHOD_CALL	main.main -> f16_element_types.Engine.__init__
 known_edge	METHOD_CALL	main.main -> f16_element_types.Engine.via_self
 known_edge	METHOD_CALL	main.main -> f16_element_types.via_comprehension
+known_edge	METHOD_CALL	main.main -> f16_element_types.via_library_container_return
 known_edge	METHOD_CALL	main.main -> f16_element_types.via_local
 known_edge	METHOD_CALL	main.main -> f16_element_types.via_parameter
 known_edge	METHOD_CALL	main.main -> f16_element_types.via_parameter_from_param_field

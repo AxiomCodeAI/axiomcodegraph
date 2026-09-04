@@ -80,6 +80,7 @@ def main() -> None:
     eng = f16.Engine([f16.Hook()])
     print(eng.via_self(0), f16.via_parameter(eng, 0), f16.via_parameter_from_param_field(eng, 0))
     print(f16.via_comprehension(eng), f16.via_local(eng, 0))
+    print(f16.via_library_container_return())
     r = f18.Renderer()
     print(r.dispatch_computed("a", 1), r.dispatch_computed("b", 2), r.dispatch_pinned(3))
     print(f18.via_other_receiver(4))
