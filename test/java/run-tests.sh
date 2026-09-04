@@ -74,7 +74,7 @@ for a in "$@"; do case "$a" in
 # Runs before any case, because it is not about a case: a relation staged for the client but
 # not for libraries — or listed in lib.map with a suffix absent from LIB_SIG — is EMPTY on
 # every run and nothing errors. No golden can see that, so it is checked here.
-if ! python3 "$HERE/tools/check_staging.py" --lang java; then
+if ! python3 "$ROOT/test/tools/check_staging.py" --lang java; then
   echo "aborting: the IR staging maps are inconsistent, so some relation silently stages nothing"
   exit 1
 fi

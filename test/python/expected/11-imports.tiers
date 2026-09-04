@@ -1,0 +1,20 @@
+distinct call sites emitted: 23
+
+--- edge rows by tier ---
+     10  boundary_lib
+     13  known_edge
+
+--- edge rows by call kind ---
+      3  METHOD_CALL
+     20  SIMPLE_CALL
+
+--- unresolved reasons ---
+  (none — every site resolved)
+
+--- the engine's own conservation ledger ---
+     23  _total_sites
+     10  boundary_lib
+     13  known_edge
+
+--- edges that are not sites ---
+  edge rows 23, conserved sites 23, difference 0
