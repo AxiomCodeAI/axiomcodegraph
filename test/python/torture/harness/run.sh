@@ -59,6 +59,18 @@ if [ -d "${AXIOM_STUB_IR:-}" ]; then
   rm -rf out-stub int-stub out-nolib2 int-nolib2 emptylib2
 fi
 
+# ── THE REASON DISTRIBUTION ──────────────────────────────────────────────────
+# Every other golden here is an edge list, so a change that alters no EDGE — which is
+# what a diagnosis change is — is invisible to all of them. See harness/reasons.py.
+python3 harness/reasons.py out > actual.reasons 2>&1
+if [ -f expected/reasons.txt ] && ! diff -q expected/reasons.txt actual.reasons >/dev/null; then
+  echo "FAIL (reasons.txt changed):"; diff -u expected/reasons.txt actual.reasons | head -30
+  echo; echo "If the change is intended: cp actual.reasons expected/reasons.txt"
+  rm -f actual.reasons; exit 1
+fi
+echo "reasons ok ($(grep -c . actual.reasons) lines, no_rule $(grep -o 'no_rule = [0-9]*' actual.reasons | head -1 | awk '{print $3}'))"
+rm -f actual.reasons
+
 python3 harness/score.py out > actual.txt 2>&1
 cat actual.txt
 if [ -f expected/coverage.txt ]; then

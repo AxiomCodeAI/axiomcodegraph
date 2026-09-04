@@ -7,6 +7,8 @@ ambiguous_unknown	DYNAMIC_CALL	f08_dynamic.getattr_call -> -
 ambiguous_unknown	METHOD_CALL	f06_flow.takes_unannotated -> -
 ambiguous_unknown	METHOD_CALL	f10_forward_refs.quoted_generic_element -> -
 ambiguous_unknown	METHOD_CALL	f29_subscript.Holder.library_element_field_iterated -> -
+ambiguous_unknown	METHOD_CALL	f31_named_blind_spots.Holder.attribute_absent -> -
+ambiguous_unknown	METHOD_CALL	f31_named_blind_spots.Holder.member_absent -> -
 ambiguous_unknown	SIMPLE_CALL	f02_callables.closure_target -> -
 ambiguous_unknown	SIMPLE_CALL	f05_decorators.call_client_decorated -> -
 ambiguous_unknown	SIMPLE_CALL	f05_decorators.decorator_factory_applied -> -
@@ -221,6 +223,8 @@ boundary_lib	SIMPLE_CALL	f29_subscript.widget_count_runs -> builtin:object.__ini
 boundary_lib	SIMPLE_CALL	f30_builtin_elements.a_nested_container -> builtin:len
 boundary_lib	SIMPLE_CALL	f30_builtin_elements.drive -> builtin:set
 boundary_lib	SIMPLE_CALL	f30_builtin_elements.drive -> builtin:str
+boundary_lib	SIMPLE_CALL	f31_named_blind_spots.Holder.__init__ -> builtin:object.__init__
+boundary_lib	SIMPLE_CALL	f31_named_blind_spots.drive -> builtin:setattr
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	main.main -> builtin:print
@@ -311,6 +315,9 @@ known_edge	METHOD_CALL	f29_subscript.drive -> f29_subscript.Holder.library_eleme
 known_edge	METHOD_CALL	f29_subscript.widget_count_runs -> f29_subscript.Widget.count
 known_edge	METHOD_CALL	f30_builtin_elements.drive -> f30_builtin_elements.Holder.annotated_field_indexed
 known_edge	METHOD_CALL	f30_builtin_elements.drive -> f30_builtin_elements.Holder.annotated_field_iterated
+known_edge	METHOD_CALL	f31_named_blind_spots.drive -> f31_named_blind_spots.Holder.attribute_absent
+known_edge	METHOD_CALL	f31_named_blind_spots.drive -> f31_named_blind_spots.Holder.member_absent
+known_edge	METHOD_CALL	f31_named_blind_spots.drive -> f31_named_blind_spots.Widget.render
 known_edge	METHOD_CALL	main.main -> f01_inheritance.client_chain
 known_edge	METHOD_CALL	main.main -> f01_inheritance.lib_deep_chain
 known_edge	METHOD_CALL	main.main -> f01_inheritance.lib_diamond
@@ -433,6 +440,7 @@ known_edge	METHOD_CALL	main.main -> f27_with_target.via_self_enter
 known_edge	METHOD_CALL	main.main -> f28_await.drive
 known_edge	METHOD_CALL	main.main -> f29_subscript.drive
 known_edge	METHOD_CALL	main.main -> f30_builtin_elements.drive
+known_edge	METHOD_CALL	main.main -> f31_named_blind_spots.drive
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator_in_for
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_plain
@@ -505,6 +513,7 @@ known_edge	SIMPLE_CALL	f30_builtin_elements.drive -> f30_builtin_elements.annota
 known_edge	SIMPLE_CALL	f30_builtin_elements.drive -> f30_builtin_elements.annotated_parameter_indexed
 known_edge	SIMPLE_CALL	f30_builtin_elements.drive -> f30_builtin_elements.slice_of_a_builtin_container
 known_edge	SIMPLE_CALL	f30_builtin_elements.drive -> f30_builtin_elements.through_any_object
+known_edge	SIMPLE_CALL	f31_named_blind_spots.drive -> f31_named_blind_spots.Holder.__init__
 known_edge	SIMPLE_CALL	main.<module> -> main.main
 known_edge	SIMPLE_CALL	pkgmod.user.run_generator -> pkgmod._gen.each
 known_edge	SIMPLE_CALL	pkgmod.user.run_generator_in_for -> pkgmod._gen.each_first

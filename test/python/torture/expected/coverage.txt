@@ -1,4 +1,4 @@
-=== per-family coverage (tier-4, 281 scored sites) ===
+=== per-family coverage (tier-4, 285 scored sites) ===
   f01 inheritance & MRO        links= 10  found= 10 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f02 callables & closures     links= 10  found=  9 (90.0%)  missed= 1  wide= 0  WRONG= 0
   f03 generics                 links= 14  found= 14 (100.0%)  missed= 0  wide= 0  WRONG= 0
@@ -26,10 +26,11 @@
   f28 await                    links= 29  found= 29 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f29 subscript element        links= 33  found= 33 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f30 builtin elements         links= 15  found= 15 (100.0%)  missed= 0  wide= 0  WRONG= 0
+  f31 named blind spots        links=  4  found=  4 (100.0%)  missed= 0  wide= 0  WRONG= 0
   pkgmod relative imports (subpackage) links=  3  found=  3 (100.0%)  missed= 0  wide= 0  WRONG= 0
 
-  TOTAL                         links=254  found=246 (96.9%)  missed= 8  wide=27  WRONG= 0
-  recall      246/254 = 96.9%  of the links that actually ran
+  TOTAL                         links=258  found=250 (96.9%)  missed= 8  wide=27  WRONG= 0
+  recall      250/258 = 96.9%  of the links that actually ran
   wide  27   a member of a SOUND SET that did not run on this pass
   WRONG 0   a single target asserted as certain that never ran
 
