@@ -1,10 +1,14 @@
 ambiguous_unknown	method	InheritedSatisfaction#main(String[]) -> -
-ambiguous_unknown	new	InheritedSatisfaction#main(String[]) -> -
 known_edge	method	Child#run() -> Parent#run()
 known_edge	method	InheritedSatisfaction#main(String[]) -> InheritedSatisfaction#viaImpl(Impl,String)
 known_edge	method	InheritedSatisfaction#main(String[]) -> InheritedSatisfaction#viaInterface(Handler,String)
 known_edge	method	InheritedSatisfaction#main(String[]) -> InheritedSatisfaction#viaParent(Parent)
 known_edge	method	InheritedSatisfaction#viaImpl(Impl,String) -> Base#handle(String)
+known_edge	new	InheritedSatisfaction#main(String[]) -> Child#<init>()
+known_edge	new	InheritedSatisfaction#main(String[]) -> Direct#<init>()
+known_edge	new	InheritedSatisfaction#main(String[]) -> Impl#<init>()
+known_edge	new	InheritedSatisfaction#main(String[]) -> InheritedSatisfaction#<init>()
+known_edge	new	InheritedSatisfaction#main(String[]) -> Sibling#<init>()
 multi_inferred	method	InheritedSatisfaction#viaInterface(Handler,String) -> Another#handle(String)
 multi_inferred	method	InheritedSatisfaction#viaInterface(Handler,String) -> Base#handle(String)
 multi_inferred	method	InheritedSatisfaction#viaInterface(Handler,String) -> Direct#handle(String)

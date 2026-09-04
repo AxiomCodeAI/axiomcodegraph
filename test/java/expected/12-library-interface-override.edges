@@ -3,7 +3,6 @@ ambiguous_unknown	method	LibIfaceOverride#main(String[]) -> -
 ambiguous_unknown	method	LibIfaceOverride#viaLibrarySort(List) -> -
 ambiguous_unknown	method	Shouty#mark(String) -> -
 ambiguous_unknown	new	LibIfaceOverride#main(String[]) -> -
-ambiguous_unknown	new	LibIfaceOverride#viaLibrarySort(List) -> -
 known_edge	method	ByLength#compare(String,String) -> ByLength#probe(String)
 known_edge	method	LibIfaceOverride#main(String[]) -> LibIfaceOverride#viaComparator(Comparator,String,String)
 known_edge	method	LibIfaceOverride#main(String[]) -> LibIfaceOverride#viaFunction(Function,String)
@@ -11,3 +10,7 @@ known_edge	method	LibIfaceOverride#main(String[]) -> LibIfaceOverride#viaLibrary
 known_edge	method	LibIfaceOverride#viaComparator(Comparator,String,String) -> ByLength#compare(String,String)
 known_edge	method	LibIfaceOverride#viaFunction(Function,String) -> Shouty#apply(String)
 known_edge	method	Shouty#apply(String) -> Shouty#mark(String)
+known_edge	new	LibIfaceOverride#main(String[]) -> ByLength#<init>()
+known_edge	new	LibIfaceOverride#main(String[]) -> LibIfaceOverride#<init>()
+known_edge	new	LibIfaceOverride#main(String[]) -> Shouty#<init>()
+known_edge	new	LibIfaceOverride#viaLibrarySort(List) -> ByLength#<init>()

@@ -1,7 +1,5 @@
 ambiguous_unknown	method	app.Main#main(String[]) -> -
 ambiguous_unknown	method	util.Strings#trim(String) -> -
-ambiguous_unknown	new	app.Main#main(String[]) -> -
-ambiguous_unknown	new	core.Engine#<type-initializer>() -> -
 known_edge	method	app.Main#main(String[]) -> core.Config#load()
 known_edge	method	app.Main#main(String[]) -> core.Engine#run(String)
 known_edge	method	app.Main#main(String[]) -> util.Strings#pad(String)
@@ -11,5 +9,7 @@ known_edge	method	core.Engine#run(String) -> util.Strings#trim(String)
 known_edge	method	core.FastHandler#handle(String) -> core.FastHandler#mark(String)
 known_edge	method	util.Strings#shout(String) -> util.Strings#same(String)
 known_edge	method	util.Strings#which() -> util.Config#load()
+known_edge	new	app.Main#main(String[]) -> core.Engine#<init>()
+known_edge	new	core.Engine#<type-initializer>() -> core.FastHandler#<init>()
 multi_inferred	method	core.Engine#run(String) -> core.FastHandler#handle(String)
 multi_inferred	method	core.Engine#run(String) -> core.Handler#handle(String)

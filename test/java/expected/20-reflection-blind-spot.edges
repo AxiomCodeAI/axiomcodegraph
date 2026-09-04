@@ -2,7 +2,7 @@ ambiguous_unknown	method	ReflectionSites#main(String[]) -> -
 ambiguous_unknown	method	ReflectionSites#viaDynamicName(String) -> -
 ambiguous_unknown	method	ReflectionSites#viaMethodInvoke(String) -> -
 ambiguous_unknown	method	ReflectionSites#viaNewInstance(String) -> -
-ambiguous_unknown	new	ReflectionSites#main(String[]) -> -
 known_edge	method	ReflectionSites#main(String[]) -> ReflectionSites#viaDynamicName(String)
 known_edge	method	ReflectionSites#main(String[]) -> ReflectionSites#viaMethodInvoke(String)
 known_edge	method	ReflectionSites#main(String[]) -> ReflectionSites#viaNewInstance(String)
+known_edge	new	ReflectionSites#main(String[]) -> ReflectionSites#<init>()

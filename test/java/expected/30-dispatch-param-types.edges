@@ -1,5 +1,8 @@
-ambiguous_unknown	new	probe.DispatchParams#main(String[]) -> -
 known_edge	method	probe.DispatchParams#direct(Base,Alpha) -> probe.Base#put(Alpha)
 known_edge	method	probe.DispatchParams#main(String[]) -> probe.DispatchParams#direct(Base,Alpha)
 known_edge	method	probe.DispatchParams#main(String[]) -> probe.DispatchParams#onImpl(Impl,Beta)
 known_edge	method	probe.DispatchParams#onImpl(Impl,Beta) -> probe.Impl#put(Beta)
+known_edge	new	probe.DispatchParams#main(String[]) -> probe.Alpha#<init>()
+known_edge	new	probe.DispatchParams#main(String[]) -> probe.Beta#<init>()
+known_edge	new	probe.DispatchParams#main(String[]) -> probe.DispatchParams#<init>()
+known_edge	new	probe.DispatchParams#main(String[]) -> probe.Impl#<init>()

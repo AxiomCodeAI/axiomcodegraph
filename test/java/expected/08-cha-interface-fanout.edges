@@ -2,9 +2,10 @@ ambiguous_anon	anon_new	testcases.engine.EdgeCHA#<type-initializer>() -> -
 ambiguous_unknown	method	testcases.engine.EdgeCHA$anon:Sink#accept(String) -> -
 ambiguous_unknown	method	testcases.engine.NamedSink#accept(String) -> -
 ambiguous_unknown	method	testcases.engine.UpperCodec#encode(String) -> -
-ambiguous_unknown	new	testcases.engine.EdgeCHA#driver(Sink,Codec) -> -
 known_edge	method	testcases.engine.EdgeCHA#driver(Sink,Codec) -> testcases.engine.Codec#twice(String)
 known_edge	method	testcases.engine.EdgeCHA#driver(Sink,Codec) -> testcases.engine.SBox#set(String)
+known_edge	new	testcases.engine.EdgeCHA#driver(Sink,Codec) -> testcases.engine.SBox#<init>()
+known_edge	new	testcases.engine.EdgeCHA#driver(Sink,Codec) -> testcases.engine.UpperCodec#<init>()
 multi_inferred	method	testcases.engine.Codec#twice(String) -> testcases.engine.Codec#encode(String)
 multi_inferred	method	testcases.engine.Codec#twice(String) -> testcases.engine.UpperCodec#encode(String)
 multi_inferred	method	testcases.engine.EdgeCHA#driver(Sink,Codec) -> testcases.engine.Codec#encode(String)

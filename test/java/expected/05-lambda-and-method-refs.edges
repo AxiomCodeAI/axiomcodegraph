@@ -4,7 +4,6 @@ ambiguous_unknown	method	Lam#viaMethodRef(List) -> -
 ambiguous_unknown	method	Lam#viaParamList(List) -> -
 ambiguous_unknown	new	Lam#<type-initializer>() -> -
 ambiguous_unknown	new	Lam#main(String[]) -> -
-ambiguous_unknown	new	Lam#viaClientSam(String) -> -
 known_edge	lambda_body	Lam#viaClientSam(String) -> Item#validate(String)
 known_edge	method	Lam#main(String[]) -> Lam#viaClientSam(String)
 known_edge	method	Lam#main(String[]) -> Lam#viaForEach(String)
@@ -15,4 +14,7 @@ known_edge	method	Lam#validateAll(Item) -> Item#validate(String)
 known_edge	method	Lam#viaClientSam(String) -> Item#validate(String)
 known_edge	method	Lam#viaClientSam(String) -> Sink#accept(Item)
 known_edge	method	Lam#viaForLoop(List) -> Item#validate(String)
+known_edge	new	Lam#main(String[]) -> Item#<init>()
+known_edge	new	Lam#main(String[]) -> Lam#<init>()
+known_edge	new	Lam#viaClientSam(String) -> Item#<init>()
 known_edge	ref	Lam#viaMethodRef(List) -> Lam#validateAll(Item)

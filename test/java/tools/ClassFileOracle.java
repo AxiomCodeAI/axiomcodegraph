@@ -409,8 +409,12 @@ public class ClassFileOracle {
                 // `Objects.requireNonNull(x)`, which real code writes constantly, is kept.
                 if (owner.equals("java/util/Objects") && name.equals("requireNonNull")
                     && boundRefNullCheck(els, ei)) continue;
-                // implicit super() out of a synthesized ctor, and `new X()` on a class with only one
-                if (name.equals("<init>") && ps.isEmpty() && DEFAULT_CTOR.contains(owner)) continue;
+                // NOT EXCLUDED: `new X()` where X's constructor is javac-synthesized. The
+                // constructor has no source body — which is why it is skipped as a CALLER above,
+                // and why its implicit super() never reaches this loop — but the object creation
+                // naming it is written in the source, and a graph used for change impact has to
+                // contain it. Excluding it here made every such creation unscorable in either
+                // direction, so an engine that emits it looked like it was inventing edges.
 
                 // re-point to the class that DECLARES the method
                 String dc = owner;

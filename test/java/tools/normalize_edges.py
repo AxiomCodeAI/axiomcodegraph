@@ -77,7 +77,7 @@ class Names:
                 if p.get('isVarArgs') == 'true' and not suf: suf = '[]'
                 ps.append(b + suf)
             cls = r.get('ownerQualifiedName') or r.get('ownerTypeName')
-            nm = '<init>' if r.get('methodKind') == 'CONSTRUCTOR' else r.get('name')
+            nm = '<init>' if r.get('methodKind') in ('CONSTRUCTOR', 'DEFAULT_CONSTRUCTOR') else r.get('name')
             self.m[h] = f"{self.anon.get(cls, cls)}#{nm}({','.join(ps)})"
         self.types = {t['typeRegistryUniqueHash']: t['qualifiedName'] for t in rows(f'{ir}/all-types.csv')}
 
@@ -114,9 +114,16 @@ def main():
         f = line.rstrip('\n').split('\t')
         if len(f) < 7: continue
         if client_only:
-            # client -> client only: both ends must be methods declared in THIS project
-            if f[1] not in n.m or f[3] not in n.m: continue
-            seen.add(f"{n.label(f[1])} -> {n.label(f[3])}")
+            # client -> client only: both ends must be declared in THIS project. A caller keyed by
+            # a TYPE rather than a method is a call written in a FIELD INITIALIZER, which javac
+            # compiles into the constructor — so bytecode attributes it to `<init>` and the two
+            # sides can be compared. Dropping those rows made every such call invisible to the
+            # oracle in both directions, which is the same blind spot #162 found in the boundary
+            # scorer. A STATIC initializer compiles into `<clinit>`, which the oracle excludes, so
+            # it is left out here too.
+            caller = n.m.get(f[1]) or (f"{n.types[f[1]]}#<init>()" if f[1] in n.types else None)
+            if caller is None or f[3] not in n.m: continue
+            seen.add(f"{caller} -> {n.label(f[3])}")
         else:
             seen.add(f"{f[5]}\t{f[6]}\t{n.label(f[1])} -> {n.label(f[3])}")
     for s in sorted(seen): print(s)

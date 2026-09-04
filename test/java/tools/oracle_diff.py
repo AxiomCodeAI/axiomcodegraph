@@ -11,6 +11,13 @@ CONTRACT
 Caller signatures are compared at NAME level, because a lambda body's bytecode caller
 (`lambda$m$N`) folds into the enclosing method and cannot carry that method's descriptor.
 
+A CONSTRUCTOR callee is compared at name level too, and for the same kind of reason: javac gives a
+constructor parameters the source never writes. An inner class's constructor takes the enclosing
+instance first; a local or anonymous class's also takes every captured variable. `new Inner()` in
+source is `Inner(Outer)` in bytecode, and no normalisation recovers the captured ones at all. The
+exact parameter list is still pinned — it is in the `.edges` golden, which is compared in full —
+so overload precision is not lost here, only the comparison that cannot be made.
+
 usage: oracle_diff.py <engine-client-pairs> <oracle-edges>
 """
 import re, sys
@@ -20,6 +27,7 @@ def norm(line):
     if '->' not in line: return None
     a, b = [x.strip() for x in line.split('->', 1)]
     a = re.sub(r'\([^)]*\)$', '', a)          # caller: name level
+    if '#<init>(' in b: b = re.sub(r'\([^)]*\)$', '', b)   # constructor callee: name level
     return f"{a} -> {b}"
 
 import os

@@ -1,5 +1,6 @@
-# Accepted gap: RECORD ACCESSORS are implicit. `record Point(int x, int y)` generates x() and y()
-# with no declaration in the source, so the IR has no method entity for them and no rule can
-# produce an edge to one. Closing this needs the extractor to synthesise accessor methods for
-# record components (as it would for an implicit default constructor).
-LangFeatures#viaRecord(Point) -> Point#x()
+# Accepted gap, and the same one as the anonymous-class constructor: an ENUM CONSTANT WITH A BODY
+# is compiled as an anonymous subclass of the enum, so `ADD { … }` constructs `Op$1`. Both sides
+# fold that back to the enum (the IR has no separate type for it), leaving `Op#<init> -> Op#<init>`
+# — a real construction whose callee is a constructor the source cannot declare and the extractor
+# does not emit. It cannot rot: if one appears, this line reports NOW-FIXED and fails.
+Op#<init> -> Op#<init>

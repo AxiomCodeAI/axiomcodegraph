@@ -1,22 +1,4 @@
-# NOT a missing edge — a DIFFERENT ANCHOR. Both edges are in the graph; the two sides disagree
-# about which method to hang them on, and only for a function value in a FIELD INITIALIZER.
-#
-#   private final Function<String,String> initField = p -> readInit(p);
-#   private final Function<String,String> ref       = this::readRef;
-#
-# javac compiles a field initializer into the constructor, so the bytecode's lexical container is
-# <init> and the oracle folds the body there. The engine anchors a function value's calls at the
-# sites that INVOKE it, and emits:
-#
-#   Asset#handleInit(String) -> Asset#readInit(String)
-#   Asset#handleRef(String)  -> Asset#readRef(String)
-#
-# which is the more useful answer for a reachability consumer and is present in actual.edges. The
-# lambdas assigned in the constructor BODY agree on both sides (Asset#<init> -> read / readBlock /
-# audit), so this is specifically the field-initializer anchor, not function values in general.
-#
-# Listed rather than normalised away because the divergence is real and should stay visible: if a
-# future change makes the engine also anchor at <init>, these lines start passing and the suite
-# says so.
-Asset#<init> -> Asset#readInit(String)
-Asset#<init> -> Asset#readRef(String)
+# (empty) — the two gaps that lived here are closed. `Asset#<init> -> Asset#readInit(String)` and
+# `-> Asset#readRef(String)` are calls written in FIELD INITIALIZERS, which javac compiles into the
+# constructor. They were invisible to this comparison rather than unresolved: the engine keys such
+# a call by the owning TYPE and normalize_edges dropped those rows, so neither side could see them.
