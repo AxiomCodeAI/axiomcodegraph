@@ -230,6 +230,67 @@ expr_lib_type(aw, t)       :- await_yields(aw, op), expr_lib_type(op, t).
 expr_lib_type(aw, t) :-
     await_yields(aw, op), call_of_expr(op, site), call_returns_lib_type(site, t).
 
+// ============================================================================
+// SUBSCRIPT — `xs[i]` yields what the container holds
+//
+// resolution/iteration.dl derives element_type_of for every container shape this
+// engine can read: a parameter annotated `List[Item]`, a field annotation, a list
+// display, a call declaring `-> List[Item]`, a single-write local bound to any of
+// them. Its own doc comment on param_element_type says what the relation is —
+// "the ELEMENT of a container annotation — what iterating OR INDEXING it yields"
+// — and only iteration ever consumed it.
+//
+// MEASURED, and the plainest form is the one that failed:
+//
+//     def f(xs: List[Widget]) -> None:
+//         for w in xs: w.render()   # known_edge -> Widget.render
+//         xs[0].render()            # ambiguous_unknown
+//
+// Two lines, one annotation, one relation, one answer between them. Across five
+// open-source projects 1,497 unresolved call sites carry kind SUBSCRIPT_CALL, and
+// every subscript shape probed was unresolved — annotated parameter, annotated
+// local, annotated field, list display, a call's declared container return, and a
+// dict indexed by a literal.
+//
+// A SLICE IS NOT AN ELEMENT, and this is the one thing that would make the clause
+// unsound rather than merely wide. `xs[1:]` yields a LIST of Widgets, not a
+// Widget, so typing it as the element is a WRONG answer. The parser gives the
+// index its own node of kind SLICE and does so for every spelling — `[1:]`, `[:]`,
+// `[::2]`, `[0:2:1]` all arrive as one SLICE under SUBSCRIPT_INDEX, verified on
+// all four — which is what the negation below tests. 2,292 SLICE nodes in the
+// corpus, so it is load-bearing rather than defensive.
+//
+// A MAPPING contributes BOTH generic arguments to element_type_of, by an argument
+// already stated in resolution/annotations.dl: `Dict[str, Item]` iterates keys and
+// indexes to values, so emitting both over-approximates in the safe direction. A
+// subscript inherits that, and answers a SET wherever the key type is also a class
+// — multi_inferred, never a single wrong target. A builtin key contributes nothing
+// here at all, because element_type_of carries py_type rows and a builtin has none.
+//
+// NOT COVERED, and absent rather than skipped: `xs: List[str]` then `xs[0].upper()`.
+// There is no element relation for builtin element types anywhere in this rule set
+// — expr_builtin_type reads annotations, kinds and literals, never a container's
+// payload — so there is nothing for a subscript clause to consume.
+//
+// The annotation `List[Widget]` is ITSELF a SUBSCRIPT expression (edgeRole
+// ANNOTATION), so this fires on it too. It derives nothing: element_type_of would
+// have to hold a row for the NAME_REFERENCE `List`, and every clause that produces
+// one needs a parameter, a field, a display, a call or a loop target. Left
+// unguarded on purpose — a guard for an empty case only adds a way to be wrong.
+// ============================================================================
+subscript_index_is_slice(p, e) :-
+    expr_parent(p, e, "SUBSCRIPT_INDEX", _, idx),
+    expr_node(p, "SLICE", _, _, idx).
+
+subscript_reads_element(p, e, obj) :-
+    expr_node(p, "SUBSCRIPT", _, _, e),
+    expr_parent(p, e, "SUBSCRIPT_OBJECT", _, obj),
+    !subscript_index_is_slice(p, e).
+
+expr_type(p, e, t) :- subscript_reads_element(p, e, obj), element_type_of(p, obj, t).
+expr_lib_type(e, t) :-
+    subscript_reads_element("client", e, obj), element_lib_type_of(obj, t).
+
 // ── binding_value_type(Prov, BindingHash, TypeHash) ──────────────────────────
 // Single-binding local/module flow. Mirrors Java's local-flow.dl, with the write count
 // coming from symtable instead of from a declared type.

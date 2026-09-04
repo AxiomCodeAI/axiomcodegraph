@@ -412,6 +412,8 @@
 .decl type_attr_method_value(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl method_is_async(c0:symbol,c1:symbol)
 .decl await_operand(c0:symbol,c1:symbol,c2:symbol)
+.decl subscript_index_is_slice(c0:symbol,c1:symbol)
+.decl subscript_reads_element(c0:symbol,c1:symbol,c2:symbol)
 .decl await_yields(c0:symbol,c1:symbol)
 .decl expr_type(c0:symbol,c1:symbol,c2:symbol)
 .decl partial_target(c0:symbol,c1:symbol)
