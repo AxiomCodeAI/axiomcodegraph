@@ -530,6 +530,42 @@ recv_decl_ref(recv, ref, t) :- java_expression(_, _, _, _, _, _, _, _, _, _, nam
     java_method_parameter(name, _, m, _, _, _, _, _, _, _, _, _, param),
     method_param_type_resolves(_, param, ref, t).
 
+// ── THE RECEIVER IS ITSELF A CALL ────────────────────────────────────────────────────────
+// Every clause above requires the receiver to be a LOCAL_VARIABLE, FIELD or PARAMETER reference —
+// a place where a type was written down. `make().get(0)` has no such place, and neither does
+// `var xs = make()`, which writes no type at all. The arguments are on the callee's declared
+// RETURN type, which is a reference like any other, and lambda.dl already reads it for exactly
+// this shape when typing a lambda PARAMETER (`recv_tvar_type` (ii-b)). It was never read for
+// typing a call's type-variable RETURN, so `xs.get(0).id()` resolved from a parameter and a field
+// and not from a return — the same information, one hop away, that no clause reached.
+//
+// Measured on a held-out project before writing this: a `var` over `entrySet()`, a call on
+// `getTypeParameters()`, and a lambda over `values().stream()` are the three most common shapes
+// among its remaining unresolved sites.
+recv_decl_ref(recv, retRef, recvType) :- expr_call_candidate(recv, innerCallee),
+    method_return_type_resolves(_, innerCallee, retRef, recvType).
+recv_decl_ref(recv, retRef, recvType) :- expr_call_candidate(recv, innerCallee),
+    lib_type_reference(_, "METHOD_RETURN", _, _, _, _, _, "0", _, _, _, _, _, _, _, innerCallee, "METHOD", retRef),
+    lib_type_ref_resolves(_, retRef, recvType).
+
+// `var xs = make(); xs.get(0)` — the receiver IS a local, but `var` writes no type, so the
+// declared-type clause above yields a reference carrying no arguments. The initializer's callee
+// return type carries them. The field analogue is unnecessary: Java has no `var` fields, so a
+// field always writes its type.
+recv_decl_ref(recv, retRef, t) :- java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "LOCAL_VARIABLE", _, _, _, _, _, _, _, _, _, recv),
+    expr_ultimate_method("client", recv, m),
+    java_local_variable(name, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, local),
+    java_expression("METHOD_INVOCATION", _, "LOCAL_VAR_INITIALIZER", "LOCAL_VARIABLE", _, local, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, initExpr),
+    expr_call_candidate(initExpr, callee),
+    method_return_type_resolves(_, callee, retRef, t).
+recv_decl_ref(recv, retRef, t) :- java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "LOCAL_VARIABLE", _, _, _, _, _, _, _, _, _, recv),
+    expr_ultimate_method("client", recv, m),
+    java_local_variable(name, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, local),
+    java_expression("METHOD_INVOCATION", _, "LOCAL_VAR_INITIALIZER", "LOCAL_VARIABLE", _, local, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, initExpr),
+    expr_call_candidate(initExpr, callee),
+    lib_type_reference(_, "METHOD_RETURN", _, _, _, _, _, "0", _, _, _, _, _, _, _, callee, "METHOD", retRef),
+    lib_type_ref_resolves(_, retRef, t).
+
 type_prov(t, "client") :- java_type(_, _, _, _, _, _, _, _, _, _, _, _, _, t).
 type_prov(t, "lib") :- lib_type(_, _, _, _, _, _, _, _, _, _, _, _, _, t).
 

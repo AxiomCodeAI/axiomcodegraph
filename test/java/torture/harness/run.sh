@@ -17,6 +17,7 @@ set -uo pipefail
 R="$(cd "$(dirname "$0")/.." && pwd)"
 ENG="$(cd "$R/../../.." && pwd)"
 TOOLS="$ENG/test/java/tools"
+SHARED="$ENG/test/tools"   # language-independent checks live here (compare_runs, check_staging)
 PARSER="${AXIOM_PARSER:-$ENG/../Parser/dist/index.js}"
 BLESS=0; [ "${1:-}" = "--bless" ] && BLESS=1
 cd "$R"
@@ -72,7 +73,7 @@ python3 harness/score.py .work/client-ir .work/out .work/engine.pairs .work/orac
 # that loses its answer only shows up when the two runs are compared to each other.
 bash "$ENG/src/pipeline/run-souffle.sh" --client-ir .work/client-ir --library .work/emptylib \
      --intermediate .work/int-nolib --output .work/out-nolib >/dev/null 2>&1
-if ! python3 "$TOOLS/compare_runs.py" .work/out-nolib .work/out --top 5 > .work/monotonicity.txt 2>&1; then
+if ! python3 "$SHARED/compare_runs.py" .work/out-nolib .work/out --top 5 > .work/monotonicity.txt 2>&1; then
   echo "FAIL (library monotonicity: staging the stub library removed an answer)"
   sed 's/^/    /' .work/monotonicity.txt | head -20; exit 1
 fi
