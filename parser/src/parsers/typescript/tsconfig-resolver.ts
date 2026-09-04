@@ -74,8 +74,6 @@ export class TsConfigResolver {
   /** Governing config by absolute file path. */
   private readonly governing = new Map<string, GoverningTsConfig>();
 
-  constructor(private readonly stopAt: string) {}
-
   /**
    * The config that governs `absoluteFilePath`.
    *
@@ -84,6 +82,33 @@ export class TsConfigResolver {
    * `staging/annotations/legacy/legacy-decorators.ts` and explicitly excludes
    * it, so honouring `include`/`exclude` is what makes this the answer tsc would
    * give. A config that disowns the file does not stop the walk.
+   *
+   * ## The walk is not bounded by the program being extracted
+   *
+   * It used to stop at the program root, and that made the answer depend on
+   * WHICH program was being extracted rather than on the file. `ts_module`'s
+   * primary key is `md5(filePath ‖ baseMservPath ‖ declaredSpecifier ‖ startLine
+   * ‖ emissionRegime ‖ serviceVersionLinkHash)` — no program, no config path —
+   * so a file reachable from two programs mints ONE key. If the two extractions
+   * disagree about the governing config they emit two rows under that one key
+   * with different payloads, and Souffle stores both: a single import then
+   * yields two contradictory `moduleResolutionMode` values and any count over
+   * it doubles.
+   *
+   * Measured on nest before the ceiling was removed: 7 module keys carrying
+   * `moduleResolutionMode {NODE16|NODE10}` and `tsConfigPath {tsconfig.json|""}`.
+   * Both shapes came from the ceiling — a nested root with no config of its own
+   * (`packages/core/test`), and one whose config claims only `src/**` and
+   * `e2e/**` while the file sits beside it
+   * (`integration/testing-module-override`). In each case the walk stopped at
+   * the program root and never reached the repository config that does claim
+   * the file, so the same file resolved NODE16 under the root program and
+   * NODE10 under the nested one.
+   *
+   * So the governing config must be a PURE FUNCTION OF THE FILE, which is what
+   * the unbounded walk gives. `fileNames.has()` is what keeps it safe: a config
+   * above the analysed tree has to name the file explicitly to win, and one
+   * that does is the answer tsc would give too.
    */
   resolve(absoluteFilePath: string): GoverningTsConfig {
     const normalised = path.normalize(absoluteFilePath);
@@ -104,7 +129,7 @@ export class TsConfigResolver {
         }
       }
       const parent = path.dirname(dir);
-      if (parent === dir || dir === this.stopAt) {
+      if (parent === dir) {
         break;
       }
       dir = parent;

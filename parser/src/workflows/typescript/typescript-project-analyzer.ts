@@ -226,7 +226,7 @@ export class TypeScriptProjectAnalyzer {
 
     const rootDir = path.resolve(options.rootDir);
     const excludes = new Set<string>(options.excludeDirs ?? TS_SKIP_DIRECTORIES);
-    const configResolver = new TsConfigResolver(rootDir);
+    const configResolver = new TsConfigResolver();
     // A PROGRAM is the unit of merge scope, so when the root declares one its
     // file list wins over a directory walk. This is not an optimisation: a
     // tsconfig that excludes a subtree is saying those files belong to a
