@@ -1,4 +1,4 @@
-=== per-family coverage (tier-4, 295 scored sites) ===
+=== per-family coverage (tier-4, 300 scored sites) ===
   f01 inheritance & MRO        links= 10  found= 10 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f02 callables & closures     links= 10  found=  9 (90.0%)  missed= 1  wide= 0  WRONG= 0
   f03 generics                 links= 14  found= 14 (100.0%)  missed= 0  wide= 0  WRONG= 0
@@ -27,12 +27,12 @@
   f29 subscript element        links= 33  found= 33 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f30 builtin elements         links= 15  found= 15 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f31 named blind spots        links=  4  found=  4 (100.0%)  missed= 0  wide= 0  WRONG= 0
-  f32 iteration protocol       links= 10  found= 10 (100.0%)  missed= 0  wide= 0  WRONG= 0
+  f32 iteration protocol       links= 14  found= 14 (100.0%)  missed= 0  wide= 1  WRONG= 0
   pkgmod relative imports (subpackage) links=  3  found=  3 (100.0%)  missed= 0  wide= 0  WRONG= 0
 
-  TOTAL                         links=268  found=260 (97.0%)  missed= 8  wide=27  WRONG= 0
-  recall      260/268 = 97.0%  of the links that actually ran
-  wide  27   a member of a SOUND SET that did not run on this pass
+  TOTAL                         links=272  found=264 (97.1%)  missed= 8  wide=28  WRONG= 0
+  recall      264/272 = 97.1%  of the links that actually ran
+  wide  28   a member of a SOUND SET that did not run on this pass
   WRONG 0   a single target asserted as certain that never ran
 
   EXPECTED-MISS cases: {'FOUND': 14, 'MISSED': 14}   (a CONCRETE here means a known blind spot closed)
@@ -73,3 +73,4 @@
   f23_typevar_bound.py:75   WIDE       true=[('client', 'f23_typevar_bound.py', 45)] engine=[('client', 'f23_typevar_bound.py', 40)]
   f26_local_annotation.py:42   WIDE       true=[('client', 'f26_local_annotation.py', 27)] engine=[('client', 'f26_local_annotation.py', 22)]
   f27_with_target.py:56   WIDE       true=[('client', 'f27_with_target.py', 33)] engine=[('client', 'f27_with_target.py', 28)]
+  f32_iteration_protocol.py:143  WIDE       true=[('client', 'f32_iteration_protocol.py', 64), ('client', 'f32_iteration_protocol.py', 69)] engine=[('client', 'f32_iteration_protocol.py', 59)]
