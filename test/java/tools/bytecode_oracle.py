@@ -101,7 +101,13 @@ def parse(classes, names):
         if s.startswith('descriptor: ') and pending_decl is not None:
             mdesc = s.split('descriptor: ', 1)[1]
             nm = pending_decl.split('(')[0].strip().split()[-1] if '(' in pending_decl else pending_decl
-            if cls and (nm == cls.split('.')[-1] or nm == cls.split('$')[-1]): nm = '<init>'
+            # javap renders a constructor's name as the class's BINARY name exactly as it printed it
+            # in the class header — `pk.D$Inner`, `p.Outer$1` — so that is what it must be compared
+            # against. Comparing against a fragment (`cls.split('.')[-1]`, `cls.split('$')[-1]`)
+            # happens to match only a top-level class, so EVERY nested, inner, local and anonymous
+            # class kept its rendered name as the caller: `pk.Inner#pk.D$Inner(String)`, a method
+            # that exists on neither side of the comparison.
+            if cls and nm == cls: nm = '<init>'
             if pending_decl.startswith('static {'): nm = '<clinit>'
             meth = nm; flags = ''
             declared[cls].add((meth, tuple(desc_params(mdesc)) if '(' in mdesc else ()))

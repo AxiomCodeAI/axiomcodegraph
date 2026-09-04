@@ -74,6 +74,19 @@ The whole suite, including the bytecode oracle, runs in **~40 s** (it was ~20 mi
    `expected/<case>.oracle`, so an extra that *appears* or *grows* fails the case as a changed
    golden. "Extras are expected" must never become a place for imprecision to hide.
 
+### The two ground-truth readers must agree — checked as a preflight
+
+There are two oracles over the same bytecode: `tools/bytecode_oracle.py` (javac + `javap -p -v`,
+used by this suite) and `tools/ClassFileOracle.java` (`java.lang.classfile`, used at corpus scale,
+where the project is read from the artefacts its own build produced and there is no source tree).
+Both claim to emit the same canonical form. `tools/oracle_agreement.py` runs under `--oracle`,
+before any case, and checks it: every row present in one and absent from the other is reported, and
+— independently of agreement, because both sides can be wrong the same way — every row either
+reader emits must NAME a method. A disagreement about whether a **constructor row exists at all**
+is counted rather than failed (the two decide "is this constructor javac-synthesized" differently,
+and the question is undecidable from a class file); those counts are the golden
+`expected/oracle-agreement.txt`, so the debt cannot grow, or silently vanish, unreviewed.
+
 ### What the three failure classes mean
 
 * **`missing`** — a defect. Bytecode's declared targets are facts.
