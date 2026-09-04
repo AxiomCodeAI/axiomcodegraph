@@ -233,6 +233,83 @@ method_in_scope(scope, name, "false", m) :- lookup_scope(scope),
     object_prototype_member(name, m),
     !member_declared_anywhere(scope, name, "false").
 
+// ── the FUNCTION prototype, the same carve-out for callable values ──────────
+// `call`, `apply` and `bind` are not members of a function's signature. They are
+// declared on the global `CallableFunction` interface in lib.es5.d.ts, which
+// `extends Function`, and every callable value has them by the language's definition of
+// what a function is. A function-typed receiver was typed correctly, its SHAPE searched
+// correctly, and the shape is a signature — parameters and a return, no members — so the
+// site was diagnosed `member_absent`, the bucket that means engine defect. It was right.
+//
+// Both interfaces are seeded rather than relying on the `extends Function` heritage walk:
+// that walk needs the ancestor in lookup_scope, and a shape's scope is the shape.
+// `strictBindCallApply` (implied by `strict`) is what makes the compiler answer with
+// CallableFunction's overloads rather than Function's, so CallableFunction is seeded
+// first and Function supplies what it does not redeclare — `toString`, `name`, `length`.
+//
+// Guarded on the name resolving to a real global TYPE, so a project declaring its own
+// `CallableFunction` does not get the language's members grafted on by name alone.
+callable_function_member(name, m) :- global_decl("CallableFunction", "TYPE", _, ft),
+    scope_sibling(ft, sib),
+    declared_method(sib, name, "false", m).
+callable_function_declares(name) :- callable_function_member(name, _).
+
+plain_function_member(name, m) :- global_decl("Function", "TYPE", _, ft),
+    scope_sibling(ft, sib),
+    declared_method(sib, name, "false", m).
+
+// ── WHICH declaration, decided by strictBindCallApply and not by assumption ──
+// `Function.call` and `CallableFunction.call` are different declarations of the same
+// member. Committing to one is only sound if the engine knows which one the compiler
+// would answer with, and until parser#77 that setting was not in the IR at all: the
+// module row carried `targetTsVersion` and `emissionRegime` and no compiler options.
+// The choice was therefore made by ASSUMPTION -- "strict, which every project measured
+// here sets" -- and that assumption is false for the projects that set individual
+// strict flags instead, which is where the +19 wrong answers in issue #142 came from.
+//
+// `sbca_regime` (projections/modules.dl) reads the resolved flag off c27:
+//
+//   STRICT  the compiler answers with CallableFunction's precise generic signatures.
+//           Function supplies only what CallableFunction does not redeclare --
+//           `toString`, `name`, `length` -- so the two seeds compose without competing.
+//   LOOSE   the compiler answers with plain Function's. CallableFunction's overloads
+//           are NOT in the answer, and seeding them here is how a LOOSE project got a
+//           committed wrong answer at every call/apply/bind site.
+//   MIXED   client modules disagree, so no single answer is right for the project.
+//           Seed BOTH and let the site hedge: two candidates score SOUND_SUPERSET,
+//           which costs precision and buys correctness. This engine trades in that
+//           direction and never the reverse -- a site with no answer is better than a
+//           site with a wrong one, and a site with two is better than one with the
+//           wrong one.
+//
+// No regime at all (an empty client IR, or a parser predating c27) leaves this
+// relation empty and the rule inert, which is exactly main's behaviour before it.
+function_prototype_member(name, m) :- sbca_regime("STRICT"),
+    callable_function_member(name, m).
+function_prototype_member(name, m) :- sbca_regime("STRICT"),
+    plain_function_member(name, m),
+    !callable_function_declares(name).
+
+function_prototype_member(name, m) :- sbca_regime("LOOSE"),
+    plain_function_member(name, m).
+
+function_prototype_member(name, m) :- sbca_regime("MIXED"),
+    callable_function_member(name, m).
+function_prototype_member(name, m) :- sbca_regime("MIXED"),
+    plain_function_member(name, m).
+
+// CALLABLE means "has a call signature", not "has a shape": a shape is any structural
+// target, an object type literal included, and giving `{ a: number }` a `.bind` would
+// manufacture a wrong answer where there was none.
+//
+// Shadowed by anything the scope declares, for the same reason Object's members are: a
+// type with its own `bind` keeps it rather than going multi_inferred across two unrelated
+// declarations.
+method_in_scope(scope, name, "false", m) :- lookup_scope(scope),
+    call_signature_in_scope(scope, _),
+    function_prototype_member(name, m),
+    !member_declared_anywhere(scope, name, "false").
+
 // ── member_name_declared(Scope, Name) — the LOW-STRATUM member test ─────────
 // The same question as member_name_exists and deliberately NOT the same relation.
 // member_name_exists reads method_in_scope, which is guarded by lookup_scope, which is

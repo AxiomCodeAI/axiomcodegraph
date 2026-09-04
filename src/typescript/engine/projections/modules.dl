@@ -10,14 +10,19 @@
 // The first column is a provenance tag ("client" / "lib") so downstream layers can
 // classify an edge as C->C vs C->L without re-deriving where a hash came from.
 //
-// ts_module / lib_ts_module cols (27):
+// ts_module / lib_ts_module cols (28):
 //   0 name  1 qualifiedName  2 fileName  3 filePath  4 baseMservPath  5 moduleKind
 //   6 scriptKind  7 declaredSpecifier  8 isDeclarationFile  9 isExternalModule
 //   10 isAmbient  11 packageName  12 mergeTableKey  13 moduleResolutionMode
 //   14 tsConfigPath  15 targetTsVersion  16 emissionRegime  17 startLine  18 endLine
 //   19 hasTopLevelAwait  20 hasJsxContent  21 moduleInitMethodLinkHash
 //   22 exportAssignmentLinkHash  23 defaultExportLinkHash  24 isExternal
-//   25 serviceVersionLinkHash  26 tsModuleUniqueHash
+//   25 serviceVersionLinkHash  26 tsModuleUniqueHash  27 strictBindCallApply
+//
+// c26 IS THE KEY AND IS NOT THE LAST COLUMN. c27 was appended after it so that
+// c0..c26 could not move. Every positional read below therefore ends on a trailing
+// wildcard: without it the last argument binds to strictBindCallApply and every
+// module is keyed by the string "true".
 // ============================================================================
 
 // ── module_decl(Prov, Name, QName, FilePath, ModuleKind, ModuleHash) ─────────
@@ -118,3 +123,45 @@ module_is_external("lib", h) :- lib_ts_module(_, _, _, _, _, _, _, _, _, "true",
 // population in any TypeScript project.
 module_kind_is_ambient("AMBIENT_MODULE_DECLARATION").
 module_kind_is_ambient("MODULE_AUGMENTATION").
+
+// ── module_strict_bind_call_apply(Prov, ModuleHash, Flag) ───────────────────
+// c27, emitted by the parser RESOLVED as the checker resolves it
+// (`strictBindCallApply ?? strict ?? false`) rather than as the tsconfig states it —
+// `ts.parseJsonConfigFileContent` does not apply the `strict` implication, so the
+// parsed option would answer wrongly for exactly the common configuration, a project
+// that sets `strict` and nothing else. See parser#77 / parser PR #80.
+module_strict_bind_call_apply("client", h, v) :- ts_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, v).
+module_strict_bind_call_apply("lib", h, v) :- lib_ts_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, v).
+
+// ── sbca_regime(Regime) — STRICT | LOOSE | MIXED ────────────────────────────
+// The flag decides WHICH DECLARATION of `call`/`apply`/`bind` the compiler answers
+// with: `CallableFunction`'s precise generic signatures when it is on, plain
+// `Function`'s when it is off. lib.es5.d.ts declares each member twice and the
+// setting is the only thing that chooses between them.
+//
+// Read from the CLIENT modules only. A library's own tsconfig governs how the
+// library's internal calls resolve, not how the client's do, and tslib is compiled
+// under settings that have nothing to do with the project under analysis.
+//
+// Per-PROJECT and not per-module, deliberately. The setting comes from the governing
+// tsconfig (c14), and a run analyses one project; deriving it per module would be
+// more precise only for a repository that mixes tsconfigs, and for that case MIXED
+// below is the honest answer rather than a per-file guess.
+//
+// ── ONLY A MODULE WITH A GOVERNING tsconfig GETS A VOTE ─────────────────────
+// This guard is the whole reason the relation is not a one-liner. `false` on a module
+// with NO tsconfig is not a measurement of that module: it is the resolver's default
+// for a file the governing config never claimed. immer sets `strict: true` and lists
+// four entries in `files`, so its IR carries 12 modules at `true` (the ones the config
+// covers) and 13 at `false` (the ones it does not) — and reading all 25 classifies a
+// uniformly strict project as MIXED, on an artefact of tsconfig COVERAGE rather than
+// any disagreement about the setting. Measured: the correlation is exact, every `false`
+// module has an empty c14 and every `true` module has a path.
+//
+// So MIXED now means what it says: two governing tsconfigs that actually disagree.
+sbca_value(v) :- ts_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, tsconfig, _, _, _, _, _, _, _, _, _, _, _, _, v),
+    v != "",
+    tsconfig != "".
+sbca_regime("STRICT") :- sbca_value("true"), !sbca_value("false").
+sbca_regime("LOOSE")  :- sbca_value("false"), !sbca_value("true").
+sbca_regime("MIXED")  :- sbca_value("true"), sbca_value("false").
