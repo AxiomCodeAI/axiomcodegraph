@@ -7,6 +7,8 @@
 #   2. solve with the engine            (src/pipeline/run-souffle.sh --language python)
 #   3. COVERAGE GUARD: no call site may vanish silently
 #   4. GOLDEN DIFF: normalized edges vs expected/<name>.edges
+#   4b. TIER/REASON CENSUS: site counts, tier mix and unresolved reasons vs
+#       expected/<name>.tiers -- the axis a deduplicated edge set cannot see
 #   5. CPYTHON ORACLE (--oracle): score against the FROZEN ground truth
 #
 # SCOPE IS CLIENT->CLIENT BY DESIGN, AND NO STDLIB IR IS STAGED. Library linking is
@@ -96,6 +98,23 @@ fi
 # bare clone; this fails the run if a harness IS present and has drifted from them, which is
 # the only place the "engine and oracle agree on call-site identity" property can be checked.
 python3 "$HERE/tools/check_vendor.py" || exit 1
+
+# ── PREFLIGHT: every relation the parser emits must actually reach the solver ─
+# Not about any one case, which is why it runs before all of them: a relation listed in
+# lib.map with a suffix absent from LIB_SIG is skipped by run-souffle.sh with a
+# `continue`, so no .facts file is written, no .input line is emitted, and the relation
+# is EMPTY ON EVERY RUN with nothing erroring. No golden can see that — a rule joining
+# against it simply derives nothing.
+#
+# The guard existed and this front end had never run it. It takes --lang, but its
+# counterpart check assumed Java's naming (`java_method` pairs with `lib_method`, the
+# prefix dropped) and Python keeps the prefix (`py_method` / `lib_py_method`), so
+# --lang python reported 19 failures that were all the tool's. It now infers the
+# convention from the maps. Issue #136 is what this catches, one language over.
+if ! python3 "$ROOT/test/tools/check_staging.py" --lang python; then
+  echo "aborting: the IR staging maps are inconsistent, so some relation silently stages nothing"
+  exit 1
+fi
 # Refuse a project-specific string literal in a rule body -- the engine is developed
 # against a handful of codebases, and a literal copied out of one would score well here
 # and generalise to nothing (issue #91).
@@ -181,6 +200,23 @@ for dir in "$HERE"/cases/*/; do
       fail=$((fail+1)); failed+=("$name"); continue
     fi
     orc="  [$(grep -m1 '^conservation' "$w/oracle.txt" | cut -c1-60)]"
+  fi
+
+  # ── the TIER and REASON census ───────────────────────────────────────────
+  # A second artifact per case, because .edges is a deduplicated SET and is blind to
+  # site counts, to the reason on a declared unknown, and to the tier mix as counts.
+  # See tools/tier_report.py. Needs no oracle checkout, so it runs on a clean clone
+  # where --oracle cannot.
+  if ! "$PY" "$HERE/tools/tier_report.py" "$w/out" > "$w/actual.tiers" 2>"$w/tier.log"; then
+    echo "FAIL (tier report — see $w/tier.log)"; fail=$((fail+1)); failed+=("$name"); continue; fi
+  texp="$HERE/expected/$name.tiers"
+  if [ "$BLESS" = "1" ]; then
+    cp "$w/actual.tiers" "$texp"
+  elif [ ! -f "$texp" ]; then
+    echo "FAIL (no tier golden — run with --bless)"; fail=$((fail+1)); failed+=("$name"); continue
+  elif ! diff -q "$texp" "$w/actual.tiers" >/dev/null; then
+    echo "FAIL (tiers/reasons changed)"; diff -u "$texp" "$w/actual.tiers" | sed 's/^/    /' | head -30
+    fail=$((fail+1)); failed+=("$name"); continue
   fi
 
   exp="$HERE/expected/$name.edges"
