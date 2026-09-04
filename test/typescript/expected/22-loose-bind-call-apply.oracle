@@ -1,0 +1,3 @@
+oracle=13 engine=11 agree=11 missing=2 (known 2, NEW 0) extra=0
+  known    loose-bind#viaMethodReference(Registry) -> Function#bind(any,any[])
+  known    loose-bind#viaMethodReference(Registry) -> Function#call(any,any[])

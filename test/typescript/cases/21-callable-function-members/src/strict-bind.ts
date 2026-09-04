@@ -87,7 +87,7 @@ export function objectLiteralGainsNothing(o: { a: number }): number {
 // declarations.
 interface OwnBind {
   (x: number): number;
-  bind(this: void, label: string): string;
+  bind(label: string): string;
 }
 
 export function ownBindWins(ob: OwnBind): string {

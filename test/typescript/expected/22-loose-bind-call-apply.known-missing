@@ -1,0 +1,13 @@
+# Accepted gaps for 22-loose-bind-call-apply — each line is an edge the TypeScript
+# compiler resolves and this engine does not. A NEW missing edge fails the suite; a line
+# here that STARTS working also fails, so the debt cannot rot.
+#
+# Both are `const m = r.lookup; m.call(r, 'k')` — a METHOD REFERENCE stored in a const.
+# The engine never establishes that `m` is callable, so `expr_callable` does not hold and
+# the Function-members rule has no receiver to attach to. This is the untyped-receiver
+# gap, not a Function-members gap: the same shape accounts for every remaining
+# call/apply/bind miss measured on the corpus (13 CALL_RESULT, 6 PROPERTY_CHAIN, none
+# carrying a receiver type). Fixing receiver typing closes these; adding member rules
+# does not.
+loose-bind#viaMethodReference(Registry) -> Function#bind(any,any[])
+loose-bind#viaMethodReference(Registry) -> Function#call(any,any[])

@@ -227,5 +227,8 @@ test/java/.work/
 __pycache__/
 *.pyc
 
-# fixture harness work directories (generated per run)
+# fixture harness work directories (generated per run). The plain `.work/` is the one
+# run-tests.sh itself uses; the `.work-*` variants are the fixtures'. Only the latter was
+# listed, so every run of the TypeScript suite left an untracked directory behind.
+test/typescript/.work/
 test/typescript/.work-*/

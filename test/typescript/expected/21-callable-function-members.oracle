@@ -1,0 +1,3 @@
+oracle=13 engine=11 agree=11 missing=2 (known 2, NEW 0) extra=0
+  known    strict-bind#viaMethodReference(Registry) -> CallableFunction#bind(any,any)
+  known    strict-bind#viaMethodReference(Registry) -> CallableFunction#call(any,any,any)
