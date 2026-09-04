@@ -12,6 +12,8 @@ import { FieldRegistry } from '@/analysis-types/java/FieldRegistry';
 import { LocalVariableRegistry } from '@/analysis-types/java/LocalVariableRegistry';
 import { BlockRegistry } from '@/analysis-types/java/BlockRegistry';
 import { CommentRegistry } from '@/analysis-types/java/CommentRegistry';
+import { ModuleDirective } from '@/analysis-types/java/ModuleDirective';
+import { ModuleRegistry } from '@/analysis-types/java/ModuleRegistry';
 import { TypeAnnotation } from '@/analysis-types/java/TypeAnnotation';
 import { TypeParameter } from '@/analysis-types/java/TypeParameter';
 import { TypeReference } from '@/analysis-types/java/TypeReference';
@@ -21,6 +23,7 @@ import { BaseExtractor } from '@/parsers/base-extractor';
 import { AnnotationExtractor } from '@/parsers/java/extractors/annotation-extractor';
 import { EnumConstantExtractor } from '@/parsers/java/extractors/enum-constant-extractor';
 import { FieldExtractor } from '@/parsers/java/extractors/field-extractor';
+import { ModuleExtractor } from '@/parsers/java/extractors/module-extractor';
 import { AnonymousClassInfo } from '@/parsers/java/extractors/expression-reference-extractor';
 import { TypeMethodExtractor } from '@/parsers/java/extractors/type-method-extractor';
 import { TypeParameterExtractor } from '@/parsers/java/extractors/type-parameter-extractor';
@@ -37,6 +40,7 @@ export class TypeRegistryExtractor implements BaseExtractor<TypeRegistry> {
   private methodExtractor: TypeMethodExtractor;
   private enumConstantExtractor: EnumConstantExtractor;
   private fieldExtractor: FieldExtractor;
+  private moduleExtractor: ModuleExtractor;
   private extractedTypeParameters: TypeParameter[] = [];
   private extractedTypeReferences: TypeReference[] = [];
   private extractedAnnotations: TypeAnnotation[] = [];
@@ -50,6 +54,8 @@ export class TypeRegistryExtractor implements BaseExtractor<TypeRegistry> {
   private extractedLocalVariables: LocalVariableRegistry[] = [];
   private extractedBlocks: BlockRegistry[] = [];
   private extractedComments: CommentRegistry[] = [];
+  private extractedModules: ModuleRegistry[] = [];
+  private extractedModuleDirectives: ModuleDirective[] = [];
   private commentExtractor: CommentExtractor;
 
   constructor() {
@@ -59,6 +65,7 @@ export class TypeRegistryExtractor implements BaseExtractor<TypeRegistry> {
     this.methodExtractor = new TypeMethodExtractor();
     this.enumConstantExtractor = new EnumConstantExtractor();
     this.fieldExtractor = new FieldExtractor();
+    this.moduleExtractor = new ModuleExtractor();
     this.commentExtractor = new CommentExtractor();
   }
 
@@ -149,6 +156,21 @@ export class TypeRegistryExtractor implements BaseExtractor<TypeRegistry> {
   /**
    * Returns all comments extracted during the last extract() call
    */
+  /**
+   * Returns the module declaration extracted during the last extract() call, if the file was a
+   * module-info.java. At most one per file.
+   */
+  getExtractedModules(): ModuleRegistry[] {
+    return this.extractedModules;
+  }
+
+  /**
+   * Returns the module directives extracted during the last extract() call
+   */
+  getExtractedModuleDirectives(): ModuleDirective[] {
+    return this.extractedModuleDirectives;
+  }
+
   getExtractedComments(): CommentRegistry[] {
     return this.extractedComments;
   }
@@ -171,6 +193,8 @@ export class TypeRegistryExtractor implements BaseExtractor<TypeRegistry> {
     this.extractedLocalVariables = []; // Reset for each file
     this.extractedBlocks = []; // Reset for each file
     this.extractedComments = []; // Reset for each file
+    this.extractedModules = []; // Reset for each file
+    this.extractedModuleDirectives = []; // Reset for each file
     
     try {
       if (!fileContent || typeof fileContent !== 'string') {
@@ -183,6 +207,13 @@ export class TypeRegistryExtractor implements BaseExtractor<TypeRegistry> {
 
       const basePath = this.extractBasePath(filePath);
       const fileName = path.basename(filePath);
+
+      // A module-info.java declares a module and no types, so this is the only thing in it.
+      const module = this.moduleExtractor.extract(rootNode, filePath, serviceVersionHash);
+      if (module) {
+        this.extractedModules.push(module);
+        this.extractedModuleDirectives.push(...this.moduleExtractor.getExtractedDirectives());
+      }
 
       // Extract imports and package at file level
       const { importMap, hasStarImports } = this.extractImports(rootNode);

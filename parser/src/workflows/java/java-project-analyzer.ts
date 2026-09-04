@@ -7,6 +7,8 @@ import { MethodRegistry } from '@/analysis-methods/java/MethodRegistry';
 import { MethodTypeParameter } from '@/analysis-methods/java/MethodTypeParameter';
 import { AnnotationArgumentReference } from '@/analysis-types/java/AnnotationArgumentReference';
 import { EnumConstant } from '@/analysis-types/java/EnumConstant';
+import { ModuleDirective } from '@/analysis-types/java/ModuleDirective';
+import { ModuleRegistry } from '@/analysis-types/java/ModuleRegistry';
 import { ExpressionReference } from '@/analysis-types/java/ExpressionReference';
 import { FieldRegistry } from '@/analysis-types/java/FieldRegistry';
 import { LocalVariableRegistry } from '@/analysis-types/java/LocalVariableRegistry';
@@ -16,7 +18,7 @@ import { TypeAnnotation } from '@/analysis-types/java/TypeAnnotation';
 import { TypeParameter } from '@/analysis-types/java/TypeParameter';
 import { TypeReference } from '@/analysis-types/java/TypeReference';
 import { TypeRegistry } from '@/analysis-types/java/TypeRegistry';
-import { EXCLUDED_DIRS, isJavaTestDir, ANALYSIS_OUTPUT_DIR, OUTPUT_TYPE_REGISTRY_CSV_FILENAME, OUTPUT_TYPE_PARAMETER_CSV_FILENAME, OUTPUT_TYPE_REFERENCE_CSV_FILENAME, OUTPUT_TYPE_ANNOTATION_CSV_FILENAME, OUTPUT_ANNOTATION_ARGUMENT_CSV_FILENAME, OUTPUT_METHOD_REGISTRY_CSV_FILENAME, OUTPUT_METHOD_PARAMETER_CSV_FILENAME, OUTPUT_METHOD_TYPE_PARAMETER_CSV_FILENAME, OUTPUT_ENUM_CONSTANT_CSV_FILENAME, OUTPUT_FIELD_REGISTRY_CSV_FILENAME, OUTPUT_FIELD_POSITION_CSV_FILENAME, OUTPUT_IMPORT_REGISTRY_CSV_FILENAME, OUTPUT_EXPRESSION_REFERENCE_CSV_FILENAME, OUTPUT_LOCAL_VARIABLE_REGISTRY_CSV_FILENAME, OUTPUT_BLOCK_REGISTRY_CSV_FILENAME, OUTPUT_COMMENT_REGISTRY_CSV_FILENAME, OUTPUT_SKIPPED_JAVA_FILES_CSV_FILENAME, JAVA_ENTITY_TYPES, FILE_EXTENSIONS, LARGE_FILE_LINE_THRESHOLD } from '@/constants/consts';
+import { EXCLUDED_DIRS, isJavaTestDir, ANALYSIS_OUTPUT_DIR, OUTPUT_TYPE_REGISTRY_CSV_FILENAME, OUTPUT_TYPE_PARAMETER_CSV_FILENAME, OUTPUT_TYPE_REFERENCE_CSV_FILENAME, OUTPUT_TYPE_ANNOTATION_CSV_FILENAME, OUTPUT_ANNOTATION_ARGUMENT_CSV_FILENAME, OUTPUT_METHOD_REGISTRY_CSV_FILENAME, OUTPUT_METHOD_PARAMETER_CSV_FILENAME, OUTPUT_METHOD_TYPE_PARAMETER_CSV_FILENAME, OUTPUT_ENUM_CONSTANT_CSV_FILENAME, OUTPUT_FIELD_REGISTRY_CSV_FILENAME, OUTPUT_FIELD_POSITION_CSV_FILENAME, OUTPUT_IMPORT_REGISTRY_CSV_FILENAME, OUTPUT_MODULE_REGISTRY_CSV_FILENAME, OUTPUT_MODULE_DIRECTIVE_CSV_FILENAME, OUTPUT_EXPRESSION_REFERENCE_CSV_FILENAME, OUTPUT_LOCAL_VARIABLE_REGISTRY_CSV_FILENAME, OUTPUT_BLOCK_REGISTRY_CSV_FILENAME, OUTPUT_COMMENT_REGISTRY_CSV_FILENAME, OUTPUT_SKIPPED_JAVA_FILES_CSV_FILENAME, JAVA_ENTITY_TYPES, FILE_EXTENSIONS, LARGE_FILE_LINE_THRESHOLD } from '@/constants/consts';
 import { ENTITY_IDENTIFIERS } from '@/constants/entity-constants';
 import { SkippedFileReason } from '@/enums/SkippedFileReason';
 import { CodeExtractor } from '@/parsers/code-extractor';
@@ -35,6 +37,8 @@ export class JavaProjectAnalyzer {
   private allMethodParameters: MethodParameter[] = [];
   private allMethodTypeParameters: MethodTypeParameter[] = [];
   private allEnumConstants: EnumConstant[] = [];
+  private allModules: ModuleRegistry[] = [];
+  private allModuleDirectives: ModuleDirective[] = [];
   private allFields: FieldRegistry[] = [];
   private allImports: ImportRegistry[] = [];
   private allExpressions: ExpressionReference[] = [];
@@ -107,6 +111,8 @@ export class JavaProjectAnalyzer {
     await this.exportFieldsCsv();
     await this.exportFieldPositionsCsv();
     await this.exportImportsCsv();
+    await this.exportModulesCsv();
+    await this.exportModuleDirectivesCsv();
     await this.exportExpressionsCsv();
     await this.exportLocalVariablesCsv();
     await this.exportBlocksCsv();
@@ -125,6 +131,7 @@ export class JavaProjectAnalyzer {
     console.log(`📊 Total method parameters extracted: ${this.allMethodParameters.length}`);
     console.log(`📊 Total method type parameters extracted: ${this.allMethodTypeParameters.length}`);
     console.log(`📊 Total enum constants extracted: ${this.allEnumConstants.length}`);
+    console.log(`📊 Total modules extracted: ${this.allModules.length} (${this.allModuleDirectives.length} directives)`);
     console.log(`📊 Total fields extracted: ${this.allFields.length}`);
     console.log(`📊 Total imports extracted: ${this.allImports.length}`);
     console.log(`📊 Total expressions extracted: ${this.allExpressions.length}`);
@@ -237,6 +244,18 @@ export class JavaProjectAnalyzer {
       if (extractor && 'getExtractedEnumConstants' in extractor) {
         const enumConstants = extractor.getExtractedEnumConstants();
         this.allEnumConstants.push(...enumConstants);
+      }
+
+      // Collect the module declaration from this file, if it was a module-info.java
+      if (extractor && 'getExtractedModules' in extractor) {
+        const modules = extractor.getExtractedModules();
+        this.allModules.push(...modules);
+      }
+
+      // Collect module directives from this file immediately
+      if (extractor && 'getExtractedModuleDirectives' in extractor) {
+        const moduleDirectives = extractor.getExtractedModuleDirectives();
+        this.allModuleDirectives.push(...moduleDirectives);
       }
       
       // Collect fields from this file immediately
@@ -471,6 +490,29 @@ export class JavaProjectAnalyzer {
       this.allMethodTypeParameters,
       OUTPUT_METHOD_TYPE_PARAMETER_CSV_FILENAME,
       'Method type parameters'
+    );
+  }
+
+  /**
+   * Exports the module declarations to CSV. At most one per module-info.java, so this file is
+   * empty for a project that does not use JPMS.
+   */
+  private async exportModulesCsv(): Promise<void> {
+    await this.exportEntitiesToCsv(
+      this.allModules,
+      OUTPUT_MODULE_REGISTRY_CSV_FILENAME,
+      'Modules'
+    );
+  }
+
+  /**
+   * Exports the module directives to CSV
+   */
+  private async exportModuleDirectivesCsv(): Promise<void> {
+    await this.exportEntitiesToCsv(
+      this.allModuleDirectives,
+      OUTPUT_MODULE_DIRECTIVE_CSV_FILENAME,
+      'Module directives'
     );
   }
 

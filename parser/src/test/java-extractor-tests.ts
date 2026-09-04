@@ -7,6 +7,8 @@ import { MethodTypeParameter } from '@/analysis-methods/java/MethodTypeParameter
 import { AnnotationArgumentReference } from '@/analysis-types/java/AnnotationArgumentReference';
 import { BlockRegistry } from '@/analysis-types/java/BlockRegistry';
 import { CommentRegistry } from '@/analysis-types/java/CommentRegistry';
+import { ModuleDirective } from '@/analysis-types/java/ModuleDirective';
+import { ModuleRegistry } from '@/analysis-types/java/ModuleRegistry';
 import { EnumConstant } from '@/analysis-types/java/EnumConstant';
 import { ExpressionReference } from '@/analysis-types/java/ExpressionReference';
 import { FieldRegistry } from '@/analysis-types/java/FieldRegistry';
@@ -50,6 +52,8 @@ interface ExtractedEntities {
   localVariables: LocalVariableRegistry[];
   blocks: BlockRegistry[];
   comments: CommentRegistry[];
+  modules: ModuleRegistry[];
+  moduleDirectives: ModuleDirective[];
 }
 
 interface TestResult {
@@ -109,6 +113,7 @@ export class JavaExtractorTestRunner {
       'blocks',
       'imports',
       'enums',
+      'modules',
       'integration'
     ];
 
@@ -204,6 +209,8 @@ export class JavaExtractorTestRunner {
         localVariables: this.extractor.getExtractedLocalVariables(),
         blocks: this.extractor.getExtractedBlocks(),
         comments: this.extractor.getExtractedComments(),
+        modules: this.extractor.getExtractedModules(),
+        moduleDirectives: this.extractor.getExtractedModuleDirectives(),
       };
 
       result.stats = {
@@ -582,7 +589,6 @@ export class JavaExtractorTestRunner {
       }
     }
 
-    // ── Method Tests ──
     // ── Enum implicit members (JLS 8.9) ──
     if (category === 'enums' && filename === 'EnumImplicitMembers.java') {
       const methodsOf = (e: ExtractedEntities, owner: string) => e.methods
@@ -664,6 +670,82 @@ export class JavaExtractorTestRunner {
       }));
     }
 
+    // ── Module Declarations (JLS 7.7) ──
+    if (category === 'modules') {
+      if (filename === 'module-info.java') {
+        validations.push(this.rule('Should extract exactly one module declaration', (e) => ({
+          passed: e.modules.length === 1 && e.modules[0]?.getName() === 'com.example.app',
+          message: `Expected one module com.example.app, got ${JSON.stringify(e.modules.map(m => m.getName()))}`
+        })));
+
+        validations.push(this.rule('Module is not open (no `open module`)', (e) => ({
+          passed: e.modules[0]?.getIsOpen() === false,
+          message: `Expected isOpen=false, got ${e.modules[0]?.getIsOpen()}`
+        })));
+
+        // Exact directive set, keyed kind/subject/target/modifiers. This mirrors what
+        // `javap -verbose module-info.class` reports for the same module, and asserts set
+        // equality rather than a count: today's behaviour is zero rows, so any assertion
+        // discriminates, but only an exact set pins the `to` targets and the
+        // transitive/static modifiers that a looser rule would let silently drop.
+        validations.push(this.rule('Directive set matches the javac module descriptor', (e) => {
+          const got = e.moduleDirectives
+            .map(d => `${d.getDirectiveKind()} ${d.getSubjectName()} -> ${d.getTargetName() || '-'} [${d.getModifiers().join(',')}]`)
+            .sort();
+          const want = [
+            'REQUIRES java.base -> - []',
+            'REQUIRES java.sql -> - [TRANSITIVE]',
+            'REQUIRES java.compiler -> - [STATIC]',
+            'EXPORTS com.example.api -> - []',
+            'EXPORTS com.example.internal -> com.example.client []',
+            'EXPORTS com.example.multi -> com.example.one []',
+            'EXPORTS com.example.multi -> com.example.two []',
+            'OPENS com.example.model -> - []',
+            'USES com.example.spi.Service -> - []',
+            'PROVIDES com.example.spi.Service -> com.example.impl.ServiceImpl []',
+            'PROVIDES com.example.spi.Codec -> com.example.impl.FastCodec []',
+            'PROVIDES com.example.spi.Codec -> com.example.impl.SafeCodec []',
+          ].sort();
+          return {
+            passed: JSON.stringify(got) === JSON.stringify(want),
+            message: `Expected ${JSON.stringify(want)}, got ${JSON.stringify(got)}`
+          };
+        }));
+
+        // A multi-target directive must keep source order, or `with A, B` and `with B, A`
+        // become indistinguishable.
+        validations.push(this.rule('Multi-target directives keep source order in position', (e) => {
+          const codec = e.moduleDirectives
+            .filter(d => d.getSubjectName() === 'com.example.spi.Codec')
+            .sort((a, b) => a.getPosition() - b.getPosition())
+            .map(d => `${d.getPosition()}:${d.getTargetName()}`);
+          const want = ['0:com.example.impl.FastCodec', '1:com.example.impl.SafeCodec'];
+          return {
+            passed: JSON.stringify(codec) === JSON.stringify(want),
+            message: `Expected ${JSON.stringify(want)}, got ${JSON.stringify(codec)}`
+          };
+        }));
+
+        validations.push(this.rule('Every directive links to the module', (e) => {
+          const moduleHash = e.modules[0]?.getHash();
+          const orphans = e.moduleDirectives.filter(d => d.getModuleRegistryLinkHash() !== moduleHash);
+          return {
+            passed: orphans.length === 0 && !!moduleHash,
+            message: moduleHash
+              ? `${orphans.length} directives not linked to the module`
+              : 'No module was extracted, so no directive can link to one'
+          };
+        }));
+
+        // module-info.java declares no types, so nothing else should appear.
+        validations.push(this.rule('A module declaration yields no types or methods', (e) => ({
+          passed: e.types.length === 0 && e.methods.length === 0 && e.fields.length === 0,
+          message: `Expected no types/methods/fields, got ${e.types.length}/${e.methods.length}/${e.fields.length}`
+        })));
+      }
+    }
+
+    // ── Method Tests ──
     if (category === 'methods') {
       // Generic validations for all method test files
       validations.push(this.minCount('Should extract methods', (e) => e.methods, 1));

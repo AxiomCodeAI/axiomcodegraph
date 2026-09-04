@@ -4,3 +4,4 @@ export { TypeMethodExtractor } from '@/parsers/java/extractors/type-method-extra
 export { MethodTypeParameterExtractor } from '@/parsers/java/extractors/method-type-parameter-extractor';
 export { ImportExtractor } from '@/parsers/java/extractors/import-extractor';
 export { ExpressionReferenceExtractor } from '@/parsers/java/extractors/expression-reference-extractor';
+export { ModuleExtractor } from '@/parsers/java/extractors/module-extractor';
