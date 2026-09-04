@@ -226,9 +226,20 @@ def _walk(code, out: List[Site], norm: Normalizer, path: str, owner: Anchor) -> 
             continue
 
         try:
-            effect = dis.stack_effect(ins.opcode, ins.arg)
-        except ValueError:
-            effect = 0
+            # jump=False IS LOAD-BEARING. Without it dis.stack_effect returns the
+            # MAXIMAL effect over both branches of a conditional jump, and for
+            # JUMP_IF_TRUE_OR_POP / JUMP_IF_FALSE_OR_POP the two differ: the jump
+            # path keeps the value (0), the fall-through pops it (-1), maximum 0.
+            # This walk is LINEAR -- it follows the fall-through -- so the maximum
+            # leaves one extra value on the modelled stack per `or`/`and` operand
+            # and the callee slot then reads an argument. `bool(self.a or self.b)`
+            # reported `b` as the callee of a call that is `bool`.
+            effect = dis.stack_effect(ins.opcode, ins.arg, jump=False)
+        except (ValueError, TypeError):
+            try:
+                effect = dis.stack_effect(ins.opcode, ins.arg)
+            except ValueError:
+                effect = 0
         if effect < 0:
             pop(min(-effect, len(stack)))
         else:
