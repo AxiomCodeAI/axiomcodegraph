@@ -37,7 +37,8 @@
 # Environment:
 #   AXIOM_PARSER      parser entrypoint        (default ../../../Parser/dist/index.js)
 #   AXIOM_PY_ORACLE   harness checkout         (--oracle only; default ../../../callchain-oracle/python)
-#   AXIOM_PY_PYTHON   pinned interpreter       (--oracle only; default python3.10)
+#   AXIOM_PY_PYTHON   pinned interpreter       (default python3.10; also used by the
+#                     tier-1 attribution preflight, which is version-sensitive)
 #
 # NO STDLIB IR IS USED OR REQUIRED.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -69,6 +70,12 @@ find_pinned_python() {
   done
 }
 PY="${AXIOM_PY_PYTHON:-$(find_pinned_python)}"
+# Held separately because `PY` is deliberately reset to plain python3 below when
+# --oracle is off (the engine checks need nothing else). The tier-1 attribution
+# preflight is about the PINNED interpreter's opcodes specifically, so it must keep
+# a handle on it either way or it silently degrades to "cannot check" on every run
+# that does not pass --oracle.
+PINNED_PY="$PY"
 WORK="$HERE/.work"
 export AXIOM_PY_ORACLE="$ORACLE_HOME"
 
@@ -98,6 +105,26 @@ fi
 # bare clone; this fails the run if a harness IS present and has drifted from them, which is
 # the only place the "engine and oracle agree on call-site identity" property can be checked.
 python3 "$HERE/tools/check_vendor.py" || exit 1
+
+# ── PREFLIGHT: is the GROUND TRUTH itself right? ─────────────────────────────
+# check_vendor above asserts the vendored copies are IDENTICAL to the harness. It
+# cannot say whether either is CORRECT, and tier 1 decides what a call site is and
+# who it calls -- every other Python check is scored against it. A defect there is
+# not an engine bug a golden catches, it is a wrong expectation every golden then
+# agrees with. See tools/check_tier1_attribution.py.
+#
+# Runs on $PY, not python3: the drift it pins lives in JUMP_IF_TRUE_OR_POP, which
+# 3.12 does not have, so on 3.12 the check would pass against a defect that is live
+# on the interpreter the oracle pins. It refuses rather than passing when the
+# opcodes are absent -- which is why this must not fall back to `python3`.
+if command -v "$PINNED_PY" >/dev/null 2>&1; then
+  "$PINNED_PY" "$HERE/tools/check_tier1_attribution.py"; t1rc=$?
+  # 77 means the interpreter cannot reach the defect -- a loud skip, not a pass and
+  # not a failure. Anything else non-zero is the ground truth being wrong.
+  [ "$t1rc" = "0" ] || [ "$t1rc" = "77" ] || exit 1
+else
+  echo "SKIP tier-1 attribution: pinned interpreter $PINNED_PY not found (set AXIOM_PY_PYTHON)"
+fi
 
 # ── PREFLIGHT: every relation the parser emits must actually reach the solver ─
 # Not about any one case, which is why it runs before all of them: a relation listed in
