@@ -33,6 +33,29 @@ usage: bytecode_oracle.py <src-dir> <work-dir> [--app-only]
 """
 import os, re, subprocess, sys, collections
 
+UNBOX = re.compile(r'^java\.lang\.(Integer|Long|Short|Byte|Character|Boolean|Double|Float)$')
+UNBOX_M = {'intValue', 'longValue', 'shortValue', 'byteValue', 'charValue',
+           'booleanValue', 'doubleValue', 'floatValue'}
+OPCODE = re.compile(r'^\s*\d+:\s+(\S+)')
+
+
+def bound_ref_null_check(lines, at):
+    """Is the `Objects.requireNonNull` at javap line `at` the receiver null-check javac emits for a
+    BOUND method reference? The shape is exact and nothing else produces it:
+
+        dup / invokestatic Objects.requireNonNull(Object)Object / pop / invokedynamic
+
+    An explicitly written `Objects.requireNonNull(x)` has neither the `dup` before nor the
+    `pop`+`invokedynamic` after, so it is kept — which matters, because real code writes it a lot.
+    """
+    def op(j):
+        m = OPCODE.match(lines[j]) if 0 <= j < len(lines) else None
+        return m.group(1) if m else None
+    prev = next((op(j) for j in range(at - 1, max(at - 4, -1), -1) if op(j)), None)
+    after = [o for o in (op(j) for j in range(at + 1, min(at + 5, len(lines)))) if o]
+    return prev == 'dup' and after[:2] == ['pop', 'invokedynamic']
+
+
 PRIM = {'B':'byte','C':'char','D':'double','F':'float','I':'int','J':'long','S':'short','Z':'boolean','V':'void'}
 
 def desc_params(desc):
@@ -152,7 +175,7 @@ def parse(classes, names):
             owner_name, desc = target.rsplit(':', 1)
             owner, name = owner_name.rsplit('.', 1) if '.' in owner_name else (cls, owner_name)
             name = name.strip('"')
-            edges.append((cls, meth, mdesc, flags, kind, owner.replace('/', '.'), name, desc))
+            edges.append((cls, meth, mdesc, flags, kind, owner.replace('/', '.'), name, desc, i))
     # Which method lexically contains each lambda body: the one holding the indy that names it.
     for c, m, md, fl, idx in indy_sites:
         t = bsm.get(c, {}).get(idx)
@@ -165,14 +188,14 @@ def parse(classes, names):
         # a lambda BODY is folded into its enclosing method already; only a reference to a real
         # method is an edge. `X::new` is a constructor target and follows the ctor conventions.
         if name.startswith('lambda$'): continue
-        edges.append((c, m, md, fl, 'invokedynamic', owner, name, desc))
-    return supers, declared, edges, is_enum, lambda_in
+        edges.append((c, m, md, fl, 'invokedynamic', owner, name, desc, -1))
+    return supers, declared, edges, is_enum, lambda_in, out
 
 def main():
     src, work = sys.argv[1], sys.argv[2]
     app_only = '--app-only' in sys.argv
     classes, names = compile_case(src, work)
-    supers, declared, edges, _kw, lambda_in = parse(classes, names)
+    supers, declared, edges, _kw, lambda_in, javap = parse(classes, names)
     # javap prints an enum as `class X extends java.lang.Enum`, with no `enum` keyword, so identify
     # enums by that supertype — which is the bytecode truth anyway.
     is_enum = {c for c, ps in supers.items() if any(p == 'java.lang.Enum' for p in ps)}
@@ -218,15 +241,42 @@ def main():
             if f.endswith('.java'): src_txt += open(os.path.join(r, f), errors='replace').read()
     SYN = re.compile(r'^(access\$\d+|\$values|values|valueOf|\$deserializeLambda\$)$')
     BOX = re.compile(r'^java\.lang\.(Integer|Long|Short|Byte|Character|Boolean|Double|Float)$')
-    ITER = {('java.util.Iterator', 'hasNext'), ('java.util.Iterator', 'next')}
     seen = set()
-    for cls, meth, mdesc, flags, kind, owner, name, desc in edges:
+    for cls, meth, mdesc, flags, kind, owner, name, desc, at in edges:
         if meth == '<clinit>' or SYN.match(meth) or SYN.match(name): continue
         if owner.startswith('java.lang.invoke'): continue
         if name == 'makeConcatWithConstants' or owner == 'java.lang.StringBuilder': continue
         if owner == 'java.lang.String' and name == 'valueOf' and desc_params(desc) == ['Object']: continue
         if BOX.match(owner) and name == 'valueOf' and desc_params(desc) and desc_params(desc)[0] in PRIM.values(): continue
-        if (owner, name) in ITER or (name == 'iterator' and owner.startswith('java.util')): continue
+        # ── javac LOWERING: an invoke instruction for which the source contains no call ──────
+        # The four below are the same mechanism as the boxing `valueOf` and StringBuilder
+        # exclusions already above: a language construct that compiles to an invoke nobody wrote.
+        # Leaving one in does not merely lose a point — it scores the engine as having MISSED a
+        # call site that is not in the file, which is a wrong number, not a missing one.
+        #
+        # UNBOXING. The `valueOf` half was already excluded; `intValue()` is the same construct
+        # read the other way (`int n = someInteger;`). Whether an explicitly written
+        # `x.intValue()` is also dropped is not decidable from the instruction — it compiles
+        # identically — so this follows the choice `valueOf` already made and drops both. Measured
+        # on the scale corpus: 1,005 rows of this shape against 15 written `.intValue()`-family
+        # calls in the same sources.
+        if UNBOX.match(owner) and name in UNBOX_M and not desc_params(desc): continue
+        # ENHANCED FOR. This was already excluded, but keyed on the receiver's static type being
+        # in `java.util` — so `for (X x : someIterable)` over a `java.lang.Iterable`, or over a
+        # CLIENT class implementing it, kept all three calls. Key it on the mechanism instead: an
+        # `iterator()` returning `java.util.Iterator`, and `hasNext`/`next` on anything that is one.
+        if name == 'iterator' and not desc_params(desc) and desc.endswith(')Ljava/util/Iterator;'): continue
+        if name in ('hasNext', 'next') and not desc_params(desc) \
+           and (owner == 'java.util.Iterator' or 'java.util.Iterator' in ancestors(owner)): continue
+        # TRY-WITH-RESOURCES. `addSuppressed` is emitted only by the compiler's generated handler;
+        # the corpus sources contain one written call to it against 246 rows of this shape.
+        if name == 'addSuppressed' and desc_params(desc) == ['Throwable']: continue
+        # A BOUND METHOD REFERENCE (`x::m`) null-checks its receiver. Unlike the three above this
+        # one IS decidable — javac emits `dup / invokestatic requireNonNull / pop / invokedynamic`
+        # and nothing else does — so an explicitly written `Objects.requireNonNull(x)`, of which
+        # this corpus has many, is kept. 447 rows of this shape at scale, 0 written calls in the
+        # project that contributed most of them.
+        if owner == 'java.util.Objects' and name == 'requireNonNull' and bound_ref_null_check(javap, at): continue
         # javac-synthesized default ctor: caller has no source twin; and its implicit super() call
         simple_cls = cls.split('.')[-1].split('$')[-1]
         if meth == '<init>' and not re.search(r'\b' + re.escape(simple_cls) + r'\s*\([^)]*\)\s*(?:throws[^{]*)?\{', src_txt):

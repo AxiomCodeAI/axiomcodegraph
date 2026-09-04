@@ -89,7 +89,8 @@ fi
 if [ "$ORACLE" = "1" ]; then
   mkdir -p "$WORK"
   agree_out="$WORK/oracle-agreement.txt"
-  if python3 "$HERE/tools/oracle_agreement.py" "$HERE/cases" "$WORK/.agreement" > "$agree_out" 2>&1; then
+  agree_bless=""; [ "$BLESS" = "1" ] && agree_bless="--bless"
+  if python3 "$HERE/tools/oracle_agreement.py" "$HERE/cases" "$WORK/.agreement" $agree_bless > "$agree_out" 2>&1; then
     aexp="$HERE/expected/oracle-agreement.txt"
     if [ "$BLESS" = "1" ]; then cp "$agree_out" "$aexp"
     elif [ ! -f "$aexp" ]; then
