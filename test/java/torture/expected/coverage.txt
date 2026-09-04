@@ -1,0 +1,41 @@
+=== java torture: per-family coverage against the class-file oracle ===
+  F01 polymorphism & dispatch    edges= 13  answered= 12 ( 92.3%)  exact= 11 precise= 1 ancestor= 0  MISSED= 1  wide= 11
+  F02 generics & substitution    edges= 12  answered= 12 (100.0%)  exact= 12 precise= 0 ancestor= 0  MISSED= 0  wide=  0
+  F03 var inference              edges= 17  answered= 12 ( 70.6%)  exact= 12 precise= 0 ancestor= 0  MISSED= 5  wide=  0
+  F04 event-driven dispatch      edges=  6  answered=  6 (100.0%)  exact=  6 precise= 0 ancestor= 0  MISSED= 0  wide=  4
+  F05 annotations (config)       edges=  0  answered=  0 (    --)  exact=  0 precise= 0 ancestor= 0  MISSED= 0  wide=  0
+  F06 lambdas & method refs      edges= 13  answered= 11 ( 84.6%)  exact= 11 precise= 0 ancestor= 0  MISSED= 2  wide=  1
+  F07 records/sealed/enums       edges= 12  answered=  8 ( 66.7%)  exact=  8 precise= 0 ancestor= 0  MISSED= 4  wide=  0
+  F08 nesting & outward calls    edges= 10  answered=  5 ( 50.0%)  exact=  5 precise= 0 ancestor= 0  MISSED= 5  wide=  1
+  F09 declared blind spots       edges=  2  answered=  2 (100.0%)  exact=  2 precise= 0 ancestor= 0  MISSED= 0  wide=  1
+  F10 value flow                 edges= 12  answered= 11 ( 91.7%)  exact= 11 precise= 0 ancestor= 0  MISSED= 1  wide= 18
+  TOTAL                           edges= 97  answered= 79 ( 81.4%)  exact= 78 precise= 1 ancestor= 0  MISSED=18  wide= 36
+
+  f05 is scored on config rows, not on invoke instructions:
+    config-bean-def           3
+    config-binding            0
+    config-class-ref          1
+    config-di-edge            1
+    config-entry-point        0
+    config-inject-point       1
+    config-unresolved         1
+
+  MISSED (the oracle has it, the graph does not):
+    F01 torture.F01Polymorphism#o5 -> torture.F01Polymorphism#pick(Integer)
+    F03 torture.F03Var#fromEnhancedFor -> torture.Widget#id()
+    F03 torture.F03Var#fromGenericElement -> torture.Widget#id()
+    F03 torture.F03Var#fromIndexedFor -> torture.Widget#id()
+    F03 torture.F03Var#fromLambdaParam -> torture.Widget#id()
+    F03 torture.F03Var#fromMapEntry -> torture.Widget#id()
+    F06 torture.F06Functional#<init> -> torture.Item#name()
+    F06 torture.F06Functional#insideLambda -> torture.Item#name()
+    F07 torture.F07Modern#accessor -> torture.Leaf#value()
+    F07 torture.F07Modern#nested -> torture.Leaf#render()
+    F07 torture.F07Modern#nested -> torture.Pair#left()
+    F07 torture.F07Modern#nested -> torture.Pair#right()
+    F08 torture.F08Nesting#viaAnonymous -> torture.F08Nesting$anon:Callable#<init>(F08Nesting)
+    F08 torture.F08Nesting#viaDeep -> torture.Deep#<init>(Middle)
+    F08 torture.F08Nesting#viaDeep -> torture.Middle#<init>(F08Nesting)
+    F08 torture.F08Nesting#viaInner -> torture.Inner#<init>(F08Nesting)
+    F08 torture.F08Nesting#viaLocalClass -> torture.Local#<init>(F08Nesting)
+    F10 torture.F10Flow#viaListElement -> torture.Engine#run()
