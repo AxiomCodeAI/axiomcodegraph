@@ -157,6 +157,14 @@ and the question is undecidable from a class file); those counts are the golden
 The cases above are small and client-only. Two questions they cannot answer are answered at corpus
 scale, against the class files a project's own build produced:
 
+The platform IR itself is built from **two** sources, and needs both: a JDK source checkout does
+not contain the classes the JDK *generates* at build time (the whole `java.nio` buffer family from
+`X-Buffer.java.template`, `CharsetDecoder`/`Encoder`, the `VarHandle` family — 45 templates), and
+the walk reads `share/classes`, so every platform-specific source is missing too. The installed
+JDK's `lib/src.zip` has them all, and `build-jdk-ir.sh` merges it in with the **checkout winning**
+any file present in both, so the merge is strictly additive. `java.nio.ByteBuffer` is asserted at
+the end of the build: it exists in no checkout, so its absence means the merge stopped happening.
+
 ```bash
 # 1. ground truth, from the artefact — no source tree, no third-party analyzer
 java tools/ClassFileOracle.java --app <jar-or-classes> --with-lines --exclude-tests > gt.txt
