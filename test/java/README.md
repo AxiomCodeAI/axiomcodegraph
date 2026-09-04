@@ -152,6 +152,38 @@ and the question is undecidable from a class file); those counts are the golden
 | `27-messaging-and-grpc` | broker listeners and gRPC services — both pure framework entry points. `@KafkaListener`/`@RabbitListener` on a method and on a class (`@KafkaHandler` dispatch); a gRPC impl overriding a **generated** `…ImplBase` (no annotation on the method, and the base is a client type, so neither the callback name list nor the library-supertype test reached it); a topic/queue named by `${...}` **inside an annotation argument**, which binds the key to the listener; and producer↔consumer linked through a shared config key |
 | `26-spring-oracle` | the same constructs graded by **Spring itself** — `@Primary`, `@Qualifier` outranking it, an explicit `@Component("name")`, `@Bean` factory methods and their parameters, and the two-leading-capitals bean-name rule (`URLHandler` is *not* decapitalized) |
 
+## Scoring a real project, and proving a change did not make it worse
+
+The cases above are small and client-only. Two questions they cannot answer are answered at corpus
+scale, against the class files a project's own build produced:
+
+```bash
+# 1. ground truth, from the artefact — no source tree, no third-party analyzer
+java tools/ClassFileOracle.java --app <jar-or-classes> --with-lines --exclude-tests > gt.txt
+
+# 2. when a client call leaves for the JDK, does the engine name the EXACTLY correct method?
+python3 tools/score_boundary.py <client-IR> <engine-OUT> gt.txt --library <platform-IR>
+
+# 3. PREVIOUS vs PRESENT — the same IR, two engine revisions
+python3 tools/compare_runs.py <before-OUT> <after-OUT>
+```
+
+`score_boundary.py` splits every answer by *how* it differs, because folding them together decides a
+convention question by accident: an engine that flow-typed a receiver to its allocated type answers
+`HashMap#put` where bytecode records the static type's `Map#put` (**MORE PRECISE**), and one that
+names where the method is declared answers `AbstractCollection#addAll` for `Set#addAll`
+(**DECLARING ANCESTOR**). Neither is an error. What is left over — an answer on a type unrelated to
+the bytecode owner — is the number that matters, and it is reported on its own.
+
+`compare_runs.py` exists because an aggregate that improves can still hide the two regressions that
+matter, and both are invisible in "unresolved fell by 700":
+
+* **a call site that had an answer and now has none** — a new rule can unresolve unrelated sites;
+* **a call site that had one answer and now has several** — the edge survives, the precision does not.
+
+It reads both runs site by site, reports those separately from the improvements, and **exits
+non-zero** when a site was lost or unresolved. Run it on every rule change before claiming a number.
+
 ## Adding a case
 
 1. `mkdir -p cases/NN-name/src` and write a small project with a clear intent (state it in a comment).
