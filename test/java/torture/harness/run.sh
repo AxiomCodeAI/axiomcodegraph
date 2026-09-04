@@ -64,7 +64,7 @@ python3 "$TOOLS/coverage_guard.py" .work/client-ir .work/out >.work/coverage.txt
 java -cp .work/oracle-classes ClassFileOracle --app .work/client-classes --app-only \
      > .work/oracle.edges 2>/dev/null
 python3 "$TOOLS/normalize_edges.py" .work/client-ir .work/out --client-pairs > .work/engine.pairs 2>/dev/null
-python3 "$TOOLS/normalize_edges.py" .work/client-ir .work/out .work/lib-ir > .work/actual.edges 2>/dev/null
+python3 "$TOOLS/normalize_edges.py" .work/client-ir .work/out "$LIBROOT" > .work/actual.edges 2>/dev/null
 python3 harness/score.py .work/client-ir .work/out .work/engine.pairs .work/oracle.edges > .work/actual.txt 2>&1
 
 # ── INVARIANT: staging a library must never REMOVE an answer ───────────────────────────────────
