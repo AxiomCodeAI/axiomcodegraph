@@ -1,4 +1,4 @@
-=== per-family coverage (tier-4, 229 scored sites) ===
+=== per-family coverage (tier-4, 233 scored sites) ===
   f01 inheritance & MRO        links= 10  found= 10 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f02 callables & closures     links= 10  found=  9 (90.0%)  missed= 1  wide= 0  WRONG= 0
   f03 generics                 links= 14  found= 14 (100.0%)  missed= 0  wide= 0  WRONG= 0
@@ -14,7 +14,7 @@
   f13 declared dispatch        links=  8  found=  8 (100.0%)  missed= 0  wide= 3  WRONG= 0
   f14 class objects            links= 14  found= 14 (100.0%)  missed= 0  wide=16  WRONG= 0
   f15 attribute chains         links=  6  found=  6 (100.0%)  missed= 0  wide= 0  WRONG= 0
-  f16 element types            links=  4  found=  4 (100.0%)  missed= 0  wide= 0  WRONG= 0
+  f16 element types            links=  6  found=  6 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f18 lambda dispatch          links=  7  found=  7 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f19 package re-exports       links=  4  found=  4 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f21 module alias             links=  3  found=  3 (100.0%)  missed= 0  wide= 0  WRONG= 0
@@ -23,15 +23,15 @@
   f24 star import __all__      links=  1  found=  1 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f26 local annotation         links=  5  found=  5 (100.0%)  missed= 0  wide= 1  WRONG= 0
   f27 with target              links=  7  found=  7 (100.0%)  missed= 0  wide= 1  WRONG= 0
-  f28 await                    links= 27  found= 27 (100.0%)  missed= 0  wide= 0  WRONG= 0
+  f28 await                    links= 29  found= 29 (100.0%)  missed= 0  wide= 0  WRONG= 0
   pkgmod relative imports (subpackage) links=  3  found=  3 (100.0%)  missed= 0  wide= 0  WRONG= 0
 
-  TOTAL                         links=202  found=194 (96.0%)  missed= 8  wide=27  WRONG= 0
-  recall      194/202 = 96.0%  of the links that actually ran
+  TOTAL                         links=206  found=198 (96.1%)  missed= 8  wide=27  WRONG= 0
+  recall      198/206 = 96.1%  of the links that actually ran
   wide  27   a member of a SOUND SET that did not run on this pass
   WRONG 0   a single target asserted as certain that never ran
 
-  EXPECTED-MISS cases: {'FOUND': 8, 'MISSED': 9}   (a CONCRETE here means a known blind spot closed)
+  EXPECTED-MISS cases: {'FOUND': 7, 'MISSED': 8}   (a CONCRETE here means a known blind spot closed)
 
 --- non-concrete sites ---
   f02_callables.py:31   MISSED     true=[('lib', 'callables.py', 22)] engine=[]
@@ -40,9 +40,9 @@
   f05_decorators.py:22   MISSED     true=[('lib', 'decorated.py', 18)] engine=[]
   f05_decorators.py:27   MISSED     true=[('lib', 'decorated.py', 8)] engine=[]
   f05_decorators.py:28   MISSED     true=[('lib', 'decorated.py', 10)] engine=[]
-  f06_flow.py:28   MISSED     true=[('client', 'f06_flow.py', 28)] engine=[('lib', 'shapes.py', 33), ('lib', 'shapes.py', 38)]
-  f08_dynamic.py:8    MISSED     true=[('lib', 'shapes.py', 33)] engine=[]
-  f08_dynamic.py:24   WIDE       true=[('lib', 'shapes.py', 33)] engine=[('lib', 'shapes.py', 38)]
+  f06_flow.py:28   MISSED     true=[('client', 'f06_flow.py', 28)] engine=[('lib', 'shapes.py', 34), ('lib', 'shapes.py', 39)]
+  f08_dynamic.py:8    MISSED     true=[('lib', 'shapes.py', 34)] engine=[]
+  f08_dynamic.py:24   WIDE       true=[('lib', 'shapes.py', 34)] engine=[('lib', 'shapes.py', 39)]
   f09_adversarial.py:41   WIDE       true=[('lib', 'callables.py', 13)] engine=[('lib', 'callables.py', 5)]
   f13_declared_dispatch.py:39   WIDE       true=[('client', 'f13_declared_dispatch.py', 23), ('client', 'f13_declared_dispatch.py', 28)] engine=[('client', 'f13_declared_dispatch.py', 15)]
   f13_declared_dispatch.py:43   WIDE       true=[('client', 'f13_declared_dispatch.py', 23), ('client', 'f13_declared_dispatch.py', 28)] engine=[('client', 'f13_declared_dispatch.py', 15)]

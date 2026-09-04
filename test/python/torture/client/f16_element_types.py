@@ -7,6 +7,8 @@ unresolved. Same shape as the attribute-typing case, one layer down.
 """
 from typing import List
 
+from tlib.shapes import squares
+
 
 class Hook:
     def process(self, n: int) -> int:
@@ -48,3 +50,18 @@ def via_local(engine: Engine, n: int) -> int:
     for h in e.hooks:
         n = h.process(n)
     return n
+
+
+def via_library_container_return() -> str:
+    """A LIBRARY function declaring `-> List[Square]`, iterated.
+
+    The scalar mirror of this already resolved: a library callee declaring
+    `-> Square` types the call through call_returns_lib_type. The container form
+    reached no relation at all, so the loop variable was unbound and every call on
+    it was a declared unknown — an asymmetry between two annotations that differ
+    only by a subscript, not a ceiling either of them hits.
+    """
+    out = []
+    for s in squares(2):
+        out.append(s.name())
+    return "".join(out)

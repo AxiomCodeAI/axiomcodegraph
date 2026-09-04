@@ -104,14 +104,6 @@ async def across_the_library_boundary() -> str:
 
 
 async def a_library_element() -> str:
-    # EXPECT: miss — NOT an await gap, and verified independently: a LIBRARY function
-    # declaring `-> List[LibClass]` yields no element type at all. On the baseline
-    # engine the sync form `for b in boxes_sync(): b.label()` is equally unresolved
-    # while the scalar `-> LibClass` form resolves, because call_returns_lib_element
-    # (resolution/generics.dl) is derived only from a return-element TYPE VARIABLE and
-    # nothing reads method_declared_return_element("lib", ...). The await clause below
-    # is already wired to call_returns_lib_element, so this line starts passing the
-    # moment that hole is closed — which is why it is a fixture and not a deletion.
     out = []
     for b in await fetch_boxes():
         out.append(b.label())

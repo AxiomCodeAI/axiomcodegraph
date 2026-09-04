@@ -202,6 +202,21 @@ element_lib_type_of(src, t) :-
     expr_node("client", "LIST_COMPREHENSION", _, _, src),
     expr_parent("client", src, "COMPREHENSION_ELEMENT", _, el), expr_lib_type(el, t).
 
+// ── a call whose LIBRARY callee declares `-> List[LibClass]` ─────────────────
+// The mirror of clause (d) above, which reads method_declared_return_element("client").
+// Nothing read the "lib" side, so a library function's declared CONTAINER return had no
+// element type at all while its declared SCALAR return resolved — an asymmetry, not a
+// ceiling. MEASURED on a two-module probe with a real library IR staged:
+// `for b in boxes_sync(): b.label()` where `def boxes_sync() -> List[Box]` is
+// ambiguous_unknown, while `box_sync() -> Box` followed by `.label()` resolves.
+//
+// call_returns_lib_element (resolution/generics.dl) is the only other producer of a lib
+// element type and it is derived solely from a return-element TYPE VARIABLE, so a plain
+// `-> List[Box]` reached neither relation.
+element_lib_type_of(src, t) :-
+    call_of_expr(src, site), call_hits_lib_method(site, m),
+    method_declared_return_element("lib", m, t).
+
 // the same hop for a container of LIBRARY instances
 element_lib_type_of(src, t) :-
     expr_binding("client", b, ctx, src), ctx != "STORE",
