@@ -46,6 +46,56 @@ builtin_container_alias("float", "float").
 builtin_container_alias("bool", "bool").
 builtin_container_alias("complex", "complex").
 
+// ── container_head_sequence / container_head_mapping ─────────────────────────
+// A subscripted annotation whose HEAD makes it a container, and which SHAPE of one.
+// Separate from builtin_container_alias above, and it has to be: that table answers
+// "which C type is the receiver" and deliberately omits Sequence / Iterable / Mapping,
+// because mapping `Iterable` to `list` would fabricate which C method runs. This table
+// answers a different question — "what does subscripting or iterating this yield" — and
+// there `Sequence[str]` holds strs as certainly as `List[str]` does, whatever concrete
+// class it turns out to be.
+//
+// THE SHAPE SPLIT IS LOAD-BEARING AND WAS MEASURED. A mapping's generic arguments are
+// key at position 0 and value at position 1, and iterating a mapping yields KEYS while
+// subscripting it yields VALUES. Across five open-source projects, of the generic
+// arguments naming a builtin under a mapping head, 918 sit at position 0 and 249 at
+// position 1 — overwhelmingly `Dict[str, something]`. Emitting both, the way the class
+// element path documents itself as doing, would therefore hand nearly every `d[k]` a
+// spurious `str` alongside the real value type, and `str` shares `count` / `index` /
+// `find` / `replace` / `split` with `bytes` and `int`, so the extra member would not
+// self-prune at attribute lookup the way a spurious CLASS does. That is a manufactured
+// wrong answer at scale rather than a wide one, which is why position is read here
+// instead of unioned over.
+//
+// A HEAD NOT IN EITHER LIST YIELDS NOTHING, and that is the point of listing heads at
+// all rather than accepting any SUBSCRIPT annotation. `Mapped[str]`, an ORM descriptor,
+// is 21.2% of the subscripted annotations naming a builtin in this corpus, and it is not
+// a container: its value IS a str, so treating it as one and typing `x[0]` as str would
+// be an answer about a subscript the code never performs.
+container_head_sequence("List").
+container_head_sequence("list").
+container_head_sequence("Set").
+container_head_sequence("set").
+container_head_sequence("FrozenSet").
+container_head_sequence("frozenset").
+container_head_sequence("Sequence").
+container_head_sequence("MutableSequence").
+container_head_sequence("Iterable").
+container_head_sequence("Iterator").
+container_head_sequence("Collection").
+container_head_sequence("Deque").
+container_head_sequence("deque").
+container_head_sequence("Tuple").
+container_head_sequence("tuple").
+container_head_mapping("Dict").
+container_head_mapping("dict").
+container_head_mapping("Mapping").
+container_head_mapping("MutableMapping").
+container_head_mapping("DefaultDict").
+container_head_mapping("defaultdict").
+container_head_mapping("OrderedDict").
+container_head_mapping("Counter").
+
 // ── alias_value_builtin / alias_builtin_type ─────────────────────────────────
 // A module-level TYPE ALIAS onto a builtin container: `Payload = Dict[str, Any]`. Bound
 // exactly once (symtable's own count), so the name cannot mean anything else. Without
@@ -330,3 +380,148 @@ call_hits_builtin(site, label) :-
     !type_constructor("lib", t, _),
     !type_hierarchy_incomplete("lib", t),
     builtin_object_init_target(label).
+
+
+// ============================================================================
+// A CONTAINER OF BUILTINS — `List[str]`, `Dict[str, bytes]`, `["a", "b"]`
+//
+// THE LARGEST ELEMENT-TYPE GAP, and it was a missing RELATION rather than a
+// missing clause: nothing anywhere in this rule set carried the element type of a
+// container of builtins. resolution/iteration.dl derives element_type_of for
+// class elements and element_lib_type_of for library ones; there was no third.
+// So every one of these resolved to nothing, iterating and indexing alike:
+//
+//     def f(names: List[str]) -> None:
+//         for n in names: n.upper()      # ambiguous_unknown
+//         names[0].upper()               # ambiguous_unknown
+//     xs = ["a", "b"]
+//     for x in xs: x.upper()             # ambiguous_unknown -- from LITERALS
+//
+// MEASURED, and it is why this is worth a relation of its own: across five
+// open-source projects, of 4,966 generic arguments of container annotations the
+// element named is a BUILTIN 49.4% of the time (2,452) and a class defined in the
+// project only 11.7% (579). The mechanism that existed reached the 11.7%.
+//
+// WHAT MAKES IT SOUND. Every clause bottoms out in an annotation the author wrote
+// or in a literal the parser already typed CERTAIN — the same two sources clause
+// (a) and the param/field clauses above already trust. Nothing is inferred about a
+// container's contents from how it is used.
+// ============================================================================
+
+// ── ref_element_builtin_indexed / _iterated(Prov, AnnotationRef, Builtin) ────
+// What `x[...]` and `for _ in x` yield, kept apart because a mapping answers
+// differently to each. A sequence answers the same to both, and a Tuple answers
+// with every position because the index is not statically known here.
+ref_element_builtin_indexed(p, r, b) :-
+    type_ref(p, k, _, tn, _, r), annotation_container_kind(k),
+    container_head_sequence(tn),
+    type_ref_nesting(p, r, _, "1", child),
+    type_ref(p, _, "GENERIC_ARGUMENT", en, _, child),
+    builtin_container_alias(en, b).
+ref_element_builtin_indexed(p, r, b) :-
+    type_ref(p, k, _, tn, _, r), annotation_container_kind(k),
+    container_head_mapping(tn),
+    type_ref_nesting(p, r, "1", "1", child),
+    type_ref(p, _, "GENERIC_ARGUMENT", en, _, child),
+    builtin_container_alias(en, b).
+ref_element_builtin_iterated(p, r, b) :-
+    type_ref(p, k, _, tn, _, r), annotation_container_kind(k),
+    container_head_sequence(tn),
+    type_ref_nesting(p, r, _, "1", child),
+    type_ref(p, _, "GENERIC_ARGUMENT", en, _, child),
+    builtin_container_alias(en, b).
+ref_element_builtin_iterated(p, r, b) :-
+    type_ref(p, k, _, tn, _, r), annotation_container_kind(k),
+    container_head_mapping(tn),
+    type_ref_nesting(p, r, "0", "1", child),
+    type_ref(p, _, "GENERIC_ARGUMENT", en, _, child),
+    builtin_container_alias(en, b).
+
+// ── expr_container_annotation_ref(Prov, ContainerExpr, AnnotationRef) ────────
+// The annotation governing this container EXPRESSION. Stated once and read by both
+// element relations, so the five positions an annotation can sit in are enumerated
+// here rather than twice over.
+expr_container_annotation_ref(p, src, r) :-
+    expr_names_param(p, src, ph),
+    type_ref_owner(p, ph, "METHOD_PARAM", r),
+    type_ref(p, _, "METHOD_PARAM", _, _, r).
+expr_container_annotation_ref(p, src, r) :-
+    expr_attr_of_self(p, src, n, owner), type_attr_field(p, owner, n, f),
+    type_ref_owner(p, f, "FIELD", r),
+    type_ref(p, _, "FIELD_TYPE", _, _, r).
+// the same hop through ANY object whose type is known, not only self -- the fix that
+// #61 / #63 had to make three times over in the other typing files.
+expr_container_annotation_ref(p, src, r) :-
+    expr_node(p, "ATTRIBUTE_ACCESS", _, n, src), n != "",
+    expr_parent(p, src, "ATTRIBUTE_OBJECT", _, obj),
+    expr_type(p, obj, ot), type_attr_field(p, ot, n, f),
+    type_ref_owner(p, f, "FIELD", r),
+    type_ref(p, _, "FIELD_TYPE", _, _, r).
+expr_container_annotation_ref("client", src, r) :-
+    call_of_expr(src, site), expr_call_candidate(site, m),
+    type_ref_owner("client", m, "METHOD", r),
+    type_ref("client", _, "METHOD_RETURN", _, _, r).
+expr_container_annotation_ref(p, src, r) :-
+    expr_binding(p, bref, ctx, src), ctx != "STORE",
+    binding_lookup(p, bref, bind),
+    binding_declared_ref(p, bind, r).
+
+// ── element_builtin_indexed_of / _iterated_of(Prov, ContainerExpr, Builtin) ──
+element_builtin_indexed_of(p, src, b) :-
+    expr_container_annotation_ref(p, src, r), ref_element_builtin_indexed(p, r, b).
+element_builtin_iterated_of(p, src, b) :-
+    expr_container_annotation_ref(p, src, r), ref_element_builtin_iterated(p, r, b).
+// A DISPLAY written in place: `["a", "b"]`, `{"x", "y"}`, `("a", 1)`. The element type
+// is whatever the elements already type as, which for a literal is the parser's own
+// CERTAIN inference. A display is a sequence, so both answers coincide.
+element_builtin_indexed_of(p, src, b) :- display_element_builtin(p, src, b).
+element_builtin_iterated_of(p, src, b) :- display_element_builtin(p, src, b).
+display_element_builtin(p, src, b) :-
+    expr_node(p, "LIST", _, _, src),
+    expr_parent(p, src, "ELEMENT", _, el), expr_builtin_type(p, el, b).
+display_element_builtin(p, src, b) :-
+    expr_node(p, "SET", _, _, src),
+    expr_parent(p, src, "ELEMENT", _, el), expr_builtin_type(p, el, b).
+display_element_builtin(p, src, b) :-
+    expr_node(p, "TUPLE", _, _, src),
+    expr_parent(p, src, "ELEMENT", _, el), expr_builtin_type(p, el, b).
+display_element_builtin(p, src, b) :-
+    expr_node(p, "LIST_COMPREHENSION", _, _, src),
+    expr_parent(p, src, "COMPREHENSION_ELEMENT", _, el), expr_builtin_type(p, el, b).
+// A single-write local holding a container: `xs = ["a"]` then `for x in xs`. Same
+// single-write gate, and the same argument for it, as binding_value_type.
+element_builtin_indexed_of(p, src, b) :-
+    expr_binding(p, bref, ctx, src), ctx != "STORE",
+    binding_lookup(p, bref, bind), binding_rebinding(p, "1", _, _, bind),
+    expr_binding(p, bind, "STORE", tgt), assign_pair(p, tgt, val),
+    element_builtin_indexed_of(p, val, b).
+element_builtin_iterated_of(p, src, b) :-
+    expr_binding(p, bref, ctx, src), ctx != "STORE",
+    binding_lookup(p, bref, bind), binding_rebinding(p, "1", _, _, bind),
+    expr_binding(p, bind, "STORE", tgt), assign_pair(p, tgt, val),
+    element_builtin_iterated_of(p, val, b).
+// `await load()` where `async def load() -> List[str]`. The await block in
+// expression-resolution/expr-type.dl already argued that the operand's type is the
+// awaited value; this carries the element half of it.
+element_builtin_indexed_of("client", aw, b) :-
+    await_yields(aw, op), element_builtin_indexed_of("client", op, b).
+element_builtin_iterated_of("client", aw, b) :-
+    await_yields(aw, op), element_builtin_iterated_of("client", op, b).
+
+// ── THE TWO CONSUMERS ───────────────────────────────────────────────────────
+// (i) a loop or comprehension variable. Mirrors binding_element_type
+//     (resolution/iteration.dl) exactly, on the builtin relation.
+binding_element_builtin(p, bind, b) :-
+    iter_pair(p, tgt, src),
+    expr_binding(p, bind, _, tgt),
+    element_builtin_iterated_of(p, src, b).
+expr_builtin_type(p, e, b) :-
+    expr_binding(p, bref, ctx, e), ctx != "STORE",
+    binding_lookup(p, bref, bind),
+    binding_element_builtin(p, bind, b).
+// (ii) a subscript. subscript_reads_element (expression-resolution/expr-type.dl) is
+//      already gated on the index not being a SLICE, which matters more here than it
+//      does for a class element: `names[1:]` is a list of strs, and typing it `str`
+//      would put every str method on a list receiver.
+expr_builtin_type(p, e, b) :-
+    subscript_reads_element(p, e, obj), element_builtin_indexed_of(p, obj, b).
