@@ -146,10 +146,29 @@ export class MethodParameterExtractor implements BaseExtractor<MethodParameter> 
    * Finds the formal_parameters node in a method declaration
    */
   private findFormalParameters(methodNode: Parser.SyntaxNode): Parser.SyntaxNode | null {
-    for (const child of methodNode.children) {
+    // A compact constructor declares no parameter list, but it IS the record's canonical
+    // constructor and its parameters are the record's components (JLS 8.10.4). Without this it
+    // reports a parameterCount taken from the components and no parameter rows to match.
+    const source = methodNode.type === 'compact_constructor_declaration'
+      ? this.findEnclosingRecord(methodNode) ?? methodNode
+      : methodNode;
+
+    for (const child of source.children) {
       if (child.type === 'formal_parameters') {
         return child;
       }
+    }
+    return null;
+  }
+
+  /**
+   * Walks up to the record_declaration a compact constructor belongs to.
+   */
+  private findEnclosingRecord(node: Parser.SyntaxNode): Parser.SyntaxNode | null {
+    let current = node.parent;
+    while (current) {
+      if (current.type === 'record_declaration') return current;
+      current = current.parent;
     }
     return null;
   }

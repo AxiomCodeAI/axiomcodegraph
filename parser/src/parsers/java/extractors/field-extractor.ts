@@ -203,6 +203,84 @@ export class FieldExtractor {
 
     processFieldDeclarations(bodyNode);
 
+    // JLS 8.10.1: each record component implicitly declares a private final field of the same
+    // name and type. The components sit on the record_declaration, not in the body, so nothing
+    // in the loop above can see them.
+    if (bodyNode.parent?.type === 'record_declaration') {
+      fields.push(...this.extractRecordComponentFields(
+        bodyNode.parent,
+        filePath,
+        typeRegistryHash,
+        ownerTypeName,
+        ownerQualifiedName,
+        serviceVersionHash,
+        packageName
+      ));
+    }
+
+    return fields;
+  }
+
+  /**
+   * Builds the private final field each record component implicitly declares.
+   *
+   * A record cannot declare an instance field of its own (JLS 8.10.1), so there is nothing here
+   * to collide with what the body loop already produced.
+   */
+  private extractRecordComponentFields(
+    recordNode: Parser.SyntaxNode,
+    filePath: string,
+    typeRegistryHash: string,
+    ownerTypeName: string,
+    ownerQualifiedName: string,
+    serviceVersionHash: string,
+    packageName: string | null
+  ): FieldRegistry[] {
+    const fields: FieldRegistry[] = [];
+
+    const formalParams = recordNode.children.find(c => c.type === 'formal_parameters');
+    if (!formalParams) return fields;
+
+    for (const component of formalParams.children) {
+      if (component.type !== 'formal_parameter' && component.type !== 'spread_parameter') continue;
+
+      // A spread_parameter carries no `name`/`type` fields - it is
+      // <type> "..." <variable_declarator> - so both shapes are read positionally.
+      const isVarargs = component.type === 'spread_parameter';
+      const typeNode = isVarargs
+        ? component.children.find(c => c.type !== '...' && c.type !== 'variable_declarator' && c.type !== 'modifiers')
+        : component.childForFieldName('type');
+      const nameNode = isVarargs
+        ? component.children.find(c => c.type === 'variable_declarator')
+        : component.childForFieldName('name');
+      if (!nameNode || !typeNode) continue;
+
+      // A varargs component's field type is the array type it erases to.
+      const baseTypeName = EntityUtils.normalizeWhitespace(typeNode.text);
+      const fieldTypeName = isVarargs ? `${baseTypeName}[]` : baseTypeName;
+      const line = component.startPosition.row + 1;
+
+      const field = FieldRegistry.builder(
+        EntityUtils.normalizeWhitespace(nameNode.text),
+        fieldTypeName,
+        this.extractBaseType(fieldTypeName),
+        filePath,
+        line,
+        line,
+        typeRegistryHash,
+        ownerTypeName,
+        ownerQualifiedName,
+        TypeAccess.PRIVATE_ACCESS,
+        serviceVersionHash
+      )
+        .withModifiers([FieldModifier.FINAL])
+        .build();
+
+      fields.push(field);
+
+      this.extractFieldTypeReferences(typeNode, typeRegistryHash, field.getHash(), packageName);
+    }
+
     return fields;
   }
 

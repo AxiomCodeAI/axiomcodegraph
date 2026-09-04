@@ -233,6 +233,20 @@ export class TypeMethodExtractor {
       methods
     );
 
+    // Synthesised after the body scan, so the record's own declarations are already in `methods`
+    // and can suppress the implicit member javac would not declare either.
+    if (typeNode.type === 'record_declaration') {
+      this.synthesizeRecordImplicitMembers(
+        typeNode,
+        filePath,
+        typeRegistryHash,
+        ownerTypeName,
+        ownerQualifiedName,
+        serviceVersionHash,
+        methods
+      );
+    }
+
     return methods;
   }
 
@@ -2505,6 +2519,13 @@ export class TypeMethodExtractor {
       }
     }
 
+    // JLS 8.10.4: a record has exactly ONE canonical constructor, and it is implicitly declared
+    // only when the record declares neither an explicit canonical constructor nor a compact one.
+    // Synthesising unconditionally produced a second constructor row for the one real constructor.
+    if (this.declaresCanonicalConstructor(recordNode, formalParamsNode)) {
+      return;
+    }
+
     // Create the canonical constructor MethodRegistry
     const method = this.createRecordCanonicalConstructor(
       recordNode,
@@ -2549,6 +2570,180 @@ export class TypeMethodExtractor {
         this.extractedTypeReferences.push(...paramTypeRefs);
       }
     }
+  }
+
+  /**
+   * True when the record declares its canonical constructor itself, in either form.
+   *
+   * A compact constructor always IS the canonical constructor. An explicit constructor is the
+   * canonical one when its parameter types match the record's component types (JLS 8.10.4) -
+   * parameter NAMES need not match, so only the types are compared. Any other constructor is a
+   * non-canonical one that delegates via this(...), and does not suppress the implicit member.
+   */
+  private declaresCanonicalConstructor(
+    recordNode: Parser.SyntaxNode,
+    formalParamsNode: Parser.SyntaxNode | null
+  ): boolean {
+    const body = this.findTypeBody(recordNode);
+    if (!body) return false;
+
+    const componentTypes = this.recordComponentTypes(formalParamsNode);
+
+    for (const child of body.children) {
+      if (child.type === 'compact_constructor_declaration') {
+        return true;
+      }
+      if (child.type === 'constructor_declaration') {
+        const params = this.findFormalParameters(child);
+        const paramTypes = this.recordComponentTypes(params);
+        if (paramTypes.length === componentTypes.length &&
+            paramTypes.every((t, i) => t === componentTypes[i])) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * The erased type text of each entry in a formal_parameters node, in declaration order.
+   */
+  private recordComponentTypes(formalParamsNode: Parser.SyntaxNode | null): string[] {
+    if (!formalParamsNode) return [];
+
+    const types: string[] = [];
+    for (const child of formalParamsNode.children) {
+      if (child.type === 'formal_parameter' || child.type === 'spread_parameter') {
+        const t = this.extractParameterType(child, false);
+        if (t) types.push(t);
+      }
+    }
+    return types;
+  }
+
+  /**
+   * Synthesises the members JLS 8.10.3 declares implicitly on a record: one accessor per
+   * component, plus equals/hashCode/toString.
+   *
+   * javac declares each of these only if the record does not declare it, so this mirrors that
+   * rule against the members already extracted from the body. `alreadyDeclared` therefore reads
+   * the real declarations rather than a second scan of the tree.
+   */
+  private synthesizeRecordImplicitMembers(
+    recordNode: Parser.SyntaxNode,
+    filePath: string,
+    typeRegistryHash: string,
+    ownerTypeName: string,
+    ownerQualifiedName: string,
+    serviceVersionHash: string,
+    methods: MethodRegistry[]
+  ): void {
+    let formalParamsNode: Parser.SyntaxNode | null = null;
+    for (const child of recordNode.children) {
+      if (child.type === 'formal_parameters') {
+        formalParamsNode = child;
+        break;
+      }
+    }
+
+    // Names of members the record declares itself, keyed name/arity.
+    const declared = new Set(
+      methods
+        .filter(m => m.getTypeRegistryLinkHash() === typeRegistryHash)
+        .map(m => `${m.getName()}/${m.getParameterCount()}`)
+    );
+
+    const recordLine = recordNode.startPosition.row + 1;
+
+    // One accessor per component.
+    if (formalParamsNode) {
+      for (const child of formalParamsNode.children) {
+        if (child.type !== 'formal_parameter' && child.type !== 'spread_parameter') continue;
+
+        const componentName = this.extractParameterName(child);
+        if (!componentName || declared.has(`${componentName}/0`)) continue;
+
+        // The accessor returns the component's declared type. For a varargs component the
+        // component type is the array type, which extractParameterTypeNameFull already yields.
+        const componentType = this.extractParameterTypeNameFull(child);
+        if (!componentType) continue;
+        const returnType = child.type === 'spread_parameter' ? `${componentType}[]` : componentType;
+
+        methods.push(this.createRecordImplicitMethod(
+          componentName, returnType, [], MethodKind.RECORD_ACCESSOR,
+          filePath, child.startPosition.row + 1, typeRegistryHash,
+          ownerTypeName, ownerQualifiedName, serviceVersionHash
+        ));
+      }
+    }
+
+    // equals / hashCode / toString.
+    const objectMethods: Array<[string, string, string[], MethodKind]> = [
+      ['equals', 'boolean', ['Object'], MethodKind.RECORD_EQUALS],
+      ['hashCode', 'int', [], MethodKind.RECORD_HASH_CODE],
+      ['toString', 'String', [], MethodKind.RECORD_TO_STRING],
+    ];
+
+    for (const [name, returnType, paramTypes, kind] of objectMethods) {
+      if (declared.has(`${name}/${paramTypes.length}`)) continue;
+
+      const method = this.createRecordImplicitMethod(
+        name, returnType, paramTypes, kind,
+        filePath, recordLine, typeRegistryHash,
+        ownerTypeName, ownerQualifiedName, serviceVersionHash
+      );
+      methods.push(method);
+
+      // Keep parameterCount and the emitted parameter rows in agreement.
+      paramTypes.forEach((paramType, index) => {
+        this.extractedMethodParameters.push(new MethodParameter(
+          'o', index, method.getHash(), paramType, paramType,
+          `java.lang.${paramType}`, false, false, false, false,
+          recordLine, recordLine
+        ));
+      });
+    }
+  }
+
+  /**
+   * Builds one implicitly declared record member. These have no declaration node, so position is
+   * the construct that induces them - the component for an accessor, the record header otherwise.
+   */
+  private createRecordImplicitMethod(
+    name: string,
+    returnType: string,
+    paramTypes: string[],
+    methodKind: MethodKind,
+    filePath: string,
+    line: number,
+    typeRegistryHash: string,
+    ownerTypeName: string,
+    ownerQualifiedName: string,
+    serviceVersionHash: string
+  ): MethodRegistry {
+    const signature = `${name}(${paramTypes.join(',')}):${returnType}`;
+    return new MethodRegistry(
+      name,
+      signature,
+      signature,
+      `${ownerQualifiedName}.${name}`,
+      filePath,
+      line,
+      line,
+      typeRegistryHash,
+      ownerTypeName,
+      ownerQualifiedName,
+      MethodAccess.PUBLIC,
+      methodKind,
+      serviceVersionHash,
+      paramTypes.length,
+      false, // isVarArgs - an accessor takes no arguments, and equals takes exactly one
+      false, // hasReceiverParameter
+      false, // hasTypeParameters
+      false, // throwsExceptions
+      undefined,
+      returnType
+    );
   }
 
   /**
@@ -2966,13 +3161,34 @@ export class TypeMethodExtractor {
   }
 
   /**
-   * Finds formal_parameters node
+   * Finds formal_parameters node.
+   *
+   * A compact constructor has no parameter list of its own, but it IS the record's canonical
+   * constructor (JLS 8.10.4) and its parameters are the record's components. Reading them off
+   * the enclosing record here keeps signature, detailedSignature, parameterCount and isVarArgs
+   * consistent for every caller, instead of each reporting arity 0.
    */
   private findFormalParameters(node: Parser.SyntaxNode): Parser.SyntaxNode | null {
-    for (const child of node.children) {
+    const source = node.type === 'compact_constructor_declaration'
+      ? this.findEnclosingRecord(node) ?? node
+      : node;
+
+    for (const child of source.children) {
       if (child.type === 'formal_parameters') {
         return child;
       }
+    }
+    return null;
+  }
+
+  /**
+   * Walks up to the record_declaration a compact constructor belongs to.
+   */
+  private findEnclosingRecord(node: Parser.SyntaxNode): Parser.SyntaxNode | null {
+    let current = node.parent;
+    while (current) {
+      if (current.type === 'record_declaration') return current;
+      current = current.parent;
     }
     return null;
   }

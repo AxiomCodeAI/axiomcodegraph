@@ -584,6 +584,157 @@ export class JavaExtractorTestRunner {
         validations.push(this.minCount('Should extract methods', (e) => e.methods, 1));
       }
 
+      // Implicitly declared record members (JLS 8.10). Every expectation below is the member
+      // set `javap -p` reports for the same fixture, minus ACC_SYNTHETIC/ACC_BRIDGE entries.
+      // These assert SET EQUALITY, not a lower bound: the explicitly declared members already
+      // clear any minCount, so only an exact set discriminates when the synthesis is reverted.
+      if (filename === 'RecordImplicitMembers.java') {
+        const membersOf = (e: ExtractedEntities, owner: string) => ({
+          methods: e.methods
+            .filter(m => m.getOwnerTypeName() === owner)
+            .map(m => `${m.getName()}/${m.getParameterCount()}:${m.getMethodKind()}`)
+            .sort(),
+          fields: e.fields
+            .filter(f => f.getOwnerTypeName() === owner)
+            .map(f => `${f.getName()}:${f.getFieldTypeName()}`)
+            .sort(),
+        });
+
+        const expectSet = (label: string, owner: string, methods: string[], fields: string[]) => {
+          validations.push(this.rule(label, (e) => {
+            const got = membersOf(e, owner);
+            const wantM = [...methods].sort();
+            const wantF = [...fields].sort();
+            const okM = JSON.stringify(got.methods) === JSON.stringify(wantM);
+            const okF = JSON.stringify(got.fields) === JSON.stringify(wantF);
+            return {
+              passed: okM && okF,
+              message: okM
+                ? `fields: expected ${JSON.stringify(wantF)}, got ${JSON.stringify(got.fields)}`
+                : `methods: expected ${JSON.stringify(wantM)}, got ${JSON.stringify(got.methods)}`
+            };
+          }));
+        };
+
+        expectSet(
+          'Point: accessors, equals/hashCode/toString, component fields and canonical ctor',
+          'Point',
+          [
+            'Point/2:CONSTRUCTOR',
+            'x/0:RECORD_ACCESSOR',
+            'y/0:RECORD_ACCESSOR',
+            'equals/1:RECORD_EQUALS',
+            'hashCode/0:RECORD_HASH_CODE',
+            'toString/0:RECORD_TO_STRING',
+          ],
+          ['x:int', 'y:int']
+        );
+
+        expectSet(
+          'Pair: accessor return types are the type variables',
+          'Pair',
+          [
+            'Pair/2:CONSTRUCTOR',
+            'first/0:RECORD_ACCESSOR',
+            'second/0:RECORD_ACCESSOR',
+            'equals/1:RECORD_EQUALS',
+            'hashCode/0:RECORD_HASH_CODE',
+            'toString/0:RECORD_TO_STRING',
+          ],
+          ['first:A', 'second:B']
+        );
+
+        expectSet(
+          'Args: a varargs component yields an array-typed field and accessor',
+          'Args',
+          [
+            'Args/2:CONSTRUCTOR',
+            'name/0:RECORD_ACCESSOR',
+            'values/0:RECORD_ACCESSOR',
+            'equals/1:RECORD_EQUALS',
+            'hashCode/0:RECORD_HASH_CODE',
+            'toString/0:RECORD_TO_STRING',
+          ],
+          ['name:String', 'values:int[]']
+        );
+
+        expectSet(
+          'Custom: a declared accessor suppresses the implicit one and stays INSTANCE_METHOD',
+          'Custom',
+          [
+            'Custom/2:CONSTRUCTOR',
+            'x/0:INSTANCE_METHOD',
+            'toString/0:INSTANCE_METHOD',
+            'y/0:RECORD_ACCESSOR',
+            'equals/1:RECORD_EQUALS',
+            'hashCode/0:RECORD_HASH_CODE',
+          ],
+          ['x:int', 'y:int']
+        );
+
+        expectSet(
+          'Empty: no components means no accessors and no fields',
+          'Empty',
+          [
+            'Empty/0:CONSTRUCTOR',
+            'equals/1:RECORD_EQUALS',
+            'hashCode/0:RECORD_HASH_CODE',
+            'toString/0:RECORD_TO_STRING',
+          ],
+          []
+        );
+
+        validations.push(this.rule('equals(Object) has a parameter row matching its arity', (e) => {
+          const equals = e.methods.find(m => m.getOwnerTypeName() === 'Point' && m.getName() === 'equals');
+          if (!equals) return { passed: false, message: 'no implicit equals on Point' };
+          const params = e.methodParams.filter(p => p.getMethodRegistryLinkHash() === equals.getHash());
+          return {
+            passed: params.length === 1 && params[0]?.getParameterTypeName() === 'Object',
+            message: `Expected one Object parameter, got ${JSON.stringify(params.map(p => p.getParameterTypeName()))}`
+          };
+        }));
+      }
+
+      // JLS 8.10.4: exactly one canonical constructor, declared or implicit - never both.
+      if (filename === 'RecordCanonicalConstructor.java') {
+        const ctorsOf = (e: ExtractedEntities, owner: string) => e.methods
+          .filter(m => m.getOwnerTypeName() === owner &&
+            (m.getMethodKind() === MethodKind.CONSTRUCTOR || m.getMethodKind() === MethodKind.COMPACT_CONSTRUCTOR))
+          .map(m => m.getSignature())
+          .sort();
+
+        const expectCtors = (label: string, owner: string, want: string[]) => {
+          validations.push(this.rule(label, (e) => {
+            const got = ctorsOf(e, owner);
+            return {
+              passed: JSON.stringify(got) === JSON.stringify([...want].sort()),
+              message: `Expected ${JSON.stringify([...want].sort())}, got ${JSON.stringify(got)}`
+            };
+          }));
+        };
+
+        expectCtors('Implicit: one synthesised canonical constructor', 'Implicit', ['Implicit(int,int):void']);
+
+        // The regression: this used to yield BOTH Compact(int,int) and a phantom Compact().
+        expectCtors('Compact: one constructor, carrying the record components', 'Compact', ['Compact(int,int):void']);
+
+        // The regression: this used to yield the same signature twice, on two different lines.
+        expectCtors('Explicit: the declared canonical constructor is not duplicated', 'Explicit', ['Explicit(String,int):void']);
+
+        // A count-only assertion would not discriminate here, where 2 is the right answer.
+        expectCtors('Delegating: canonical plus a genuine second constructor', 'Delegating',
+          ['Delegating(int,int):void', 'Delegating(int):void']);
+
+        validations.push(this.rule('No record declares a zero-arity constructor it does not have', (e) => {
+          const phantom = e.methods.filter(m =>
+            m.getMethodKind() === MethodKind.COMPACT_CONSTRUCTOR && m.getParameterCount() === 0);
+          return {
+            passed: phantom.length === 0,
+            message: `Phantom zero-arity constructors: ${JSON.stringify(phantom.map(m => m.getSignature()))}`
+          };
+        }));
+      }
+
       // Overload linking: same name, distinct hashes, params link to the right overload
       if (filename === 'MethodOverloadPatterns.java') {
         validations.push(this.rule('process should be overloaded exactly 4 times', (e) => {

@@ -65,6 +65,25 @@
  *     int timeout() default 30;                   // methodKind: ANNOTATION_ELEMENT
  * }
  *
+ * // RECORD_ACCESSOR / RECORD_EQUALS / RECORD_HASH_CODE / RECORD_TO_STRING
+ * // Members JLS 8.10.3 declares implicitly on a record. They have no declaration node in the
+ * // source, so they are synthesised from the record header.
+ * public record Point(int x, int y) {}
+ * //                      ^      ^   implicit: x() and y()  -> RECORD_ACCESSOR
+ * //                                 implicit: equals(Object) -> RECORD_EQUALS
+ * //                                 implicit: hashCode()     -> RECORD_HASH_CODE
+ * //                                 implicit: toString()     -> RECORD_TO_STRING
+ *
+ * // These four kinds mark IMPLICIT members only. A record may declare any of them itself, in
+ * // which case javac does not declare it implicitly and nothing is synthesised - the declared
+ * // member is extracted from its own node and keeps INSTANCE_METHOD, exactly as before:
+ * public record Custom(int x, int y) {
+ *     @Override public int x() { return x < 0 ? 0 : x; }   // methodKind: INSTANCE_METHOD
+ *     // y() is still implicit                             // methodKind: RECORD_ACCESSOR
+ * }
+ * // So methodKind answers "did the language declare this, or did a person?" - which is the
+ * // distinction a consumer cannot recover once the member is in the fact set.
+ *
  * // COMPACT_CONSTRUCTOR - record compact constructor (Java 16+)
  * public record User(String name, int age) {
  *     public User {                               // methodKind: COMPACT_CONSTRUCTOR (no param list)
@@ -119,4 +138,8 @@ export enum MethodKind {
   INSTANCE_INITIALIZER = 'INSTANCE_INITIALIZER',
   ANNOTATION_ELEMENT = 'ANNOTATION_ELEMENT',
   ENUM_CONSTANT_METHOD = 'ENUM_CONSTANT_METHOD',
+  RECORD_ACCESSOR = 'RECORD_ACCESSOR',
+  RECORD_EQUALS = 'RECORD_EQUALS',
+  RECORD_HASH_CODE = 'RECORD_HASH_CODE',
+  RECORD_TO_STRING = 'RECORD_TO_STRING',
 }
