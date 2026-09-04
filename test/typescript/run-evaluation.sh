@@ -50,13 +50,43 @@ echo "▶ project: $PROJECT"
 # The ORACLE runs on the mirror too, not on the original. That is not a convenience:
 # every position in the comparison is relative to the analysed root, and analysing
 # one tree while adjudicating another silently mismatches every row.
+# A PRESENT MIRROR MUST BE A COMPLETE ONE, and rsync's STATUS is not the test.
+# Two separate things were wrong here. `mkdir -p` ran before rsync, so the
+# `[ ! -d "$MIRROR" ]` fast path was satisfied by a directory rsync had not finished
+# filling — a partial mirror was therefore permanent and silent, skipped by every later
+# run. That is fixed by building at a temporary path and renaming on success.
+#
+# But the status is the wrong signal to gate on. rsync exits 23 and 24 for benign
+# reasons (a single unreadable or vanished file), so treating non-zero as fatal breaks
+# healthy projects; and it would not have caught the case that prompted this, where
+# rsync exited **0** having copied nothing because the SOURCE tree had been reaped out
+# from under it. `/tmp/ts-corpus` is not durable: measured, all nine corpus projects
+# lost every source file mid-session with their directories and node_modules left
+# standing.
+#
+# So the gate is a POSTCONDITION. A mirror containing no TypeScript source is not a
+# mirror, whatever rsync said, and failing here names the empty source directory instead
+# of surfacing four steps downstream as
+#   line 200: .../ir/all-typescript-call-sites.csv: No such file or directory
+# Part of #149.
 MIRROR="$WORK/project"
 if [ ! -d "$MIRROR" ]; then
-  mkdir -p "$MIRROR"
+  MIRROR_TMP="$WORK/.project.partial.$$"
+  rm -rf "$MIRROR_TMP"; mkdir -p "$MIRROR_TMP"
+  rs=0
   rsync -a --exclude 'node_modules' --exclude '.git' --exclude 'dist' --exclude 'build' \
         --exclude '*.java' --exclude '*.py' --exclude '*.gradle' --exclude 'pom.xml' \
         --exclude 'build.gradle' --exclude 'settings.gradle' \
-        "$PROJECT/" "$MIRROR/" 2>/dev/null || true
+        "$PROJECT/" "$MIRROR_TMP/" 2>/dev/null || rs=$?
+  if [ -z "$(find "$MIRROR_TMP" \( -name '*.ts' -o -name '*.tsx' -o -name '*.mts' \
+                                  -o -name '*.cts' \) -print -quit 2>/dev/null)" ]; then
+    echo "   ! NO TYPESCRIPT SOURCE mirrored from $PROJECT (rsync exit $rs)" >&2
+    echo "     The source tree is empty of .ts/.tsx/.mts/.cts. If the corpus lives under" >&2
+    echo "     /tmp it may have been reaped — reclone with test/typescript/corpus/fetch.sh." >&2
+    rm -rf "$MIRROR_TMP"
+    exit 1
+  fi
+  mv "$MIRROR_TMP" "$MIRROR"
 fi
 
 # EVERY node_modules up the chain, not the first one. A workspace hoists shared
@@ -455,8 +485,14 @@ echo "▶ score:"
 # `| tee` makes the pipeline's status tee's, which is how a failing ORACLE went unnoticed
 # for as long as it did. score.py exits non-zero when it refuses to report (the two sides
 # are not describing the same program), so that status has to survive the pipe.
+# SCORE_PRODUCTION=1 restricts BOTH SIDES to production code — no test, spec, docs or
+# example paths. Opt-in rather than default so an existing caller's numbers do not
+# change meaning underneath it, but it is what the corpus runner sets: a repository's
+# test tree is routinely larger than the library it tests, and an unfiltered rate is
+# then mostly a statement about fixtures.
 MISSED_DUMP="$WORK/missed.tsv" SITE_DUMP="$WORK/sites.tsv" python3 "$HERE/ground-truth/score.py" \
   "$WORK/ir" "$WORK/out" "$WORK/oracle.tsv" --envelope="$WORK/envelope.tsv" $LIBARGS \
+  ${SCORE_PRODUCTION:+--production} \
   | tee "$WORK/score.txt"
 score_rc=${PIPESTATUS[0]}
 if [ "$score_rc" -ne 0 ]; then
