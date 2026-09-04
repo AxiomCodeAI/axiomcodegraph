@@ -233,10 +233,30 @@ export class TypeMethodExtractor {
       methods
     );
 
-    // Synthesised after the body scan, so the record's own declarations are already in `methods`
+    // Synthesised after the body scan, so the type's own declarations are already in `methods`
     // and can suppress the implicit member javac would not declare either.
     if (typeNode.type === 'record_declaration') {
       this.synthesizeRecordImplicitMembers(
+        typeNode,
+        filePath,
+        typeRegistryHash,
+        ownerTypeName,
+        ownerQualifiedName,
+        serviceVersionHash,
+        methods
+      );
+    } else if (typeNode.type === 'enum_declaration') {
+      this.synthesizeEnumImplicitMembers(
+        typeNode,
+        filePath,
+        typeRegistryHash,
+        ownerTypeName,
+        ownerQualifiedName,
+        serviceVersionHash,
+        methods
+      );
+    } else if (typeNode.type === 'class_declaration') {
+      this.synthesizeDefaultConstructor(
         typeNode,
         filePath,
         typeRegistryHash,
@@ -2669,8 +2689,8 @@ export class TypeMethodExtractor {
         if (!componentType) continue;
         const returnType = child.type === 'spread_parameter' ? `${componentType}[]` : componentType;
 
-        methods.push(this.createRecordImplicitMethod(
-          componentName, returnType, [], MethodKind.RECORD_ACCESSOR,
+        methods.push(this.createImplicitMethod(
+          componentName, returnType, [], MethodKind.RECORD_ACCESSOR, MethodAccess.PUBLIC,
           filePath, child.startPosition.row + 1, typeRegistryHash,
           ownerTypeName, ownerQualifiedName, serviceVersionHash
         ));
@@ -2687,8 +2707,8 @@ export class TypeMethodExtractor {
     for (const [name, returnType, paramTypes, kind] of objectMethods) {
       if (declared.has(`${name}/${paramTypes.length}`)) continue;
 
-      const method = this.createRecordImplicitMethod(
-        name, returnType, paramTypes, kind,
+      const method = this.createImplicitMethod(
+        name, returnType, paramTypes, kind, MethodAccess.PUBLIC,
         filePath, recordLine, typeRegistryHash,
         ownerTypeName, ownerQualifiedName, serviceVersionHash
       );
@@ -2706,20 +2726,24 @@ export class TypeMethodExtractor {
   }
 
   /**
-   * Builds one implicitly declared record member. These have no declaration node, so position is
-   * the construct that induces them - the component for an accessor, the record header otherwise.
+   * Builds one implicitly declared member. These have no declaration node, so position is the
+   * construct that induces them - the component for a record accessor, the type header otherwise.
+   *
+   * None of them can be generic, varargs, or declare a throws clause, so those flags are fixed.
    */
-  private createRecordImplicitMethod(
+  private createImplicitMethod(
     name: string,
     returnType: string,
     paramTypes: string[],
     methodKind: MethodKind,
+    methodAccess: MethodAccess,
     filePath: string,
     line: number,
     typeRegistryHash: string,
     ownerTypeName: string,
     ownerQualifiedName: string,
-    serviceVersionHash: string
+    serviceVersionHash: string,
+    methodModifier?: MethodModifier
   ): MethodRegistry {
     const signature = `${name}(${paramTypes.join(',')}):${returnType}`;
     return new MethodRegistry(
@@ -2733,16 +2757,138 @@ export class TypeMethodExtractor {
       typeRegistryHash,
       ownerTypeName,
       ownerQualifiedName,
-      MethodAccess.PUBLIC,
+      methodAccess,
       methodKind,
       serviceVersionHash,
       paramTypes.length,
-      false, // isVarArgs - an accessor takes no arguments, and equals takes exactly one
+      false, // isVarArgs
       false, // hasReceiverParameter
       false, // hasTypeParameters
       false, // throwsExceptions
-      undefined,
+      methodModifier,
       returnType
+    );
+  }
+
+  /**
+   * Synthesises the members JLS 8.9 declares implicitly on an enum: `values()`, `valueOf(String)`
+   * and, when the enum declares no constructor, a private default constructor.
+   *
+   * `values()` and `valueOf(String)` differ from a record's implicit members in that they can
+   * never be written by hand - declaring either in an enum body is a compile error - so they are
+   * unconditional. The declared-member check is kept anyway so that source which does not compile
+   * cannot produce two rows for one name.
+   *
+   * The compiler artifacts `$VALUES` and `$values()` are deliberately NOT emitted: they are
+   * class-file implementation details, not members the language declares.
+   */
+  private synthesizeEnumImplicitMembers(
+    enumNode: Parser.SyntaxNode,
+    filePath: string,
+    typeRegistryHash: string,
+    ownerTypeName: string,
+    ownerQualifiedName: string,
+    serviceVersionHash: string,
+    methods: MethodRegistry[]
+  ): void {
+    const declared = this.declaredMemberKeys(methods, typeRegistryHash);
+    const line = enumNode.startPosition.row + 1;
+
+    if (!declared.has('values/0')) {
+      methods.push(this.createImplicitMethod(
+        'values', `${ownerTypeName}[]`, [], MethodKind.ENUM_VALUES, MethodAccess.PUBLIC,
+        filePath, line, typeRegistryHash, ownerTypeName, ownerQualifiedName, serviceVersionHash,
+        MethodModifier.STATIC_MODIFIER
+      ));
+    }
+
+    if (!declared.has('valueOf/1')) {
+      const valueOf = this.createImplicitMethod(
+        'valueOf', ownerTypeName, ['String'], MethodKind.ENUM_VALUE_OF, MethodAccess.PUBLIC,
+        filePath, line, typeRegistryHash, ownerTypeName, ownerQualifiedName, serviceVersionHash,
+        MethodModifier.STATIC_MODIFIER
+      );
+      methods.push(valueOf);
+      this.extractedMethodParameters.push(new MethodParameter(
+        'name', 0, valueOf.getHash(), 'String', 'String',
+        'java.lang.String', false, false, false, false, line, line
+      ));
+    }
+
+    // JLS 8.9.2: an enum with no declared constructor gets a private one.
+    if (!this.declaresAnyConstructor(enumNode)) {
+      methods.push(this.createImplicitMethod(
+        ownerTypeName, 'void', [], MethodKind.DEFAULT_CONSTRUCTOR, MethodAccess.PRIVATE,
+        filePath, line, typeRegistryHash, ownerTypeName, ownerQualifiedName, serviceVersionHash
+      ));
+    }
+  }
+
+  /**
+   * Synthesises the default constructor JLS 8.8.9 declares on a class that declares none.
+   *
+   * The default constructor takes the access of the class itself, so a package-private class does
+   * not get a public constructor. Interfaces and annotation types are excluded because they have
+   * no constructors at all; records and enums are handled by their own rules.
+   *
+   * Anonymous classes are deliberately excluded, and this is a known gap rather than an
+   * oversight. JLS 15.9.5.1 does declare an anonymous constructor implicitly, and javac emits it
+   * without ACC_SYNTHETIC - but its parameter list is chosen by the compiler, not written in the
+   * source: it carries the enclosing instance and every captured local, neither of which is
+   * recoverable here. Emitting a guessed signature would be worse than emitting nothing, because
+   * a wrong arity resolves to the wrong constructor rather than to none. An anonymous class is
+   * reached through its OBJECT_CREATION expression regardless, so nothing else keys on this.
+   */
+  private synthesizeDefaultConstructor(
+    classNode: Parser.SyntaxNode,
+    filePath: string,
+    typeRegistryHash: string,
+    ownerTypeName: string,
+    ownerQualifiedName: string,
+    serviceVersionHash: string,
+    methods: MethodRegistry[]
+  ): void {
+    if (this.declaresAnyConstructor(classNode)) return;
+
+    methods.push(this.createImplicitMethod(
+      ownerTypeName, 'void', [], MethodKind.DEFAULT_CONSTRUCTOR,
+      this.extractRecordAccess(classNode), // same rule: the type's own access modifier
+      filePath, classNode.startPosition.row + 1, typeRegistryHash,
+      ownerTypeName, ownerQualifiedName, serviceVersionHash
+    ));
+  }
+
+  /**
+   * True when the type body declares a constructor in any form.
+   *
+   * An enum body holds its members one level down, under `enum_body_declarations`, after the
+   * constant list - so a direct-children scan would miss an enum's constructor and wrongly
+   * conclude the default one is implicitly declared.
+   */
+  private declaresAnyConstructor(typeNode: Parser.SyntaxNode): boolean {
+    const body = this.findTypeBody(typeNode);
+    if (!body) return false;
+
+    const isConstructor = (node: Parser.SyntaxNode) =>
+      node.type === 'constructor_declaration' || node.type === 'compact_constructor_declaration';
+
+    for (const child of body.children) {
+      if (isConstructor(child)) return true;
+      if (child.type === 'enum_body_declarations' && child.children.some(isConstructor)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * The name/arity keys of the members already extracted for this type.
+   */
+  private declaredMemberKeys(methods: MethodRegistry[], typeRegistryHash: string): Set<string> {
+    return new Set(
+      methods
+        .filter(m => m.getTypeRegistryLinkHash() === typeRegistryHash)
+        .map(m => `${m.getName()}/${m.getParameterCount()}`)
     );
   }
 

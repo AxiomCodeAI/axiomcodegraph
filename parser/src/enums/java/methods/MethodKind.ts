@@ -84,6 +84,20 @@
  * // So methodKind answers "did the language declare this, or did a person?" - which is the
  * // distinction a consumer cannot recover once the member is in the fact set.
  *
+ * // ENUM_VALUES / ENUM_VALUE_OF
+ * // JLS 8.9.3 declares both on every enum. Unlike a record's members these cannot be written by
+ * // hand - declaring values() or valueOf(String) in an enum body is a compile error - so they
+ * // are always implicit and always present.
+ * public enum Color { RED, GREEN }
+ * //   implicit: public static Color[] values()          -> ENUM_VALUES
+ * //   implicit: public static Color valueOf(String)     -> ENUM_VALUE_OF
+ *
+ * // DEFAULT_CONSTRUCTOR
+ * // JLS 8.8.9 (classes) and 8.9.2 (enums): a type that declares NO constructor gets one
+ * // implicitly. Its access is the class's own access, except on an enum, where it is private.
+ * public class PlainClass { }        // implicit: public PlainClass()  -> DEFAULT_CONSTRUCTOR
+ * public enum Color { RED }          // implicit: private Color()      -> DEFAULT_CONSTRUCTOR
+ *
  * // COMPACT_CONSTRUCTOR - record compact constructor (Java 16+)
  * public record User(String name, int age) {
  *     public User {                               // methodKind: COMPACT_CONSTRUCTOR (no param list)
@@ -142,4 +156,7 @@ export enum MethodKind {
   RECORD_EQUALS = 'RECORD_EQUALS',
   RECORD_HASH_CODE = 'RECORD_HASH_CODE',
   RECORD_TO_STRING = 'RECORD_TO_STRING',
+  ENUM_VALUES = 'ENUM_VALUES',
+  ENUM_VALUE_OF = 'ENUM_VALUE_OF',
+  DEFAULT_CONSTRUCTOR = 'DEFAULT_CONSTRUCTOR',
 }

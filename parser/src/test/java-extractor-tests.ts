@@ -28,7 +28,9 @@ import { TypeAccess } from '@/enums/java/types/TypeAccess';
 import { TypeCategory } from '@/enums/java/types/TypeCategory';
 import { TypeModifier } from '@/enums/java/types/TypeModifier';
 import { TypePlacement } from '@/enums/java/types/TypePlacement';
+import { MethodAccess } from '@/enums/java/methods/MethodAccess';
 import { MethodKind } from '@/enums/java/methods/MethodKind';
+import { MethodModifier } from '@/enums/java/methods/MethodModifier';
 import { TypeRegistryExtractor } from '@/parsers/java/extractors';
 
 import { sourceWalkPackages } from './java-gates/source-walk';
@@ -106,8 +108,26 @@ export class JavaExtractorTestRunner {
       'local-variables',
       'blocks',
       'imports',
+      'enums',
       'integration'
     ];
+
+    // A category that is not registered is silently never run, so its fixtures assert nothing
+    // while still looking like coverage. Comparing against the filesystem is what makes this
+    // detectable: a check that iterates `categories` cannot notice its own omission.
+    const unregistered = (await fs.readdir(this.testDataDir, { withFileTypes: true }))
+      .filter(entry => entry.isDirectory())
+      .map(entry => entry.name)
+      .filter(name => !categories.includes(name));
+
+    if (unregistered.length > 0) {
+      console.error(
+        `\n❌ Unregistered test-data directories: ${unregistered.join(', ')}\n` +
+        `   Their fixtures never run. Add them to the categories list in this file.`
+      );
+      process.exitCode = 1;
+      return;
+    }
 
     const allResults: TestResult[] = [];
     
@@ -563,6 +583,87 @@ export class JavaExtractorTestRunner {
     }
 
     // ── Method Tests ──
+    // ── Enum implicit members (JLS 8.9) ──
+    if (category === 'enums' && filename === 'EnumImplicitMembers.java') {
+      const methodsOf = (e: ExtractedEntities, owner: string) => e.methods
+        .filter(m => m.getOwnerTypeName() === owner)
+        .map(m => `${m.getName()}/${m.getParameterCount()}:${m.getMethodKind()}`)
+        .sort();
+
+      const expectMethods = (label: string, owner: string, want: string[]) => {
+        validations.push(this.rule(label, (e) => {
+          const got = methodsOf(e, owner);
+          return {
+            passed: JSON.stringify(got) === JSON.stringify([...want].sort()),
+            message: `Expected ${JSON.stringify([...want].sort())}, got ${JSON.stringify(got)}`
+          };
+        }));
+      };
+
+      expectMethods('Simple: values, valueOf and an implicit private constructor', 'Simple', [
+        'values/0:ENUM_VALUES',
+        'valueOf/1:ENUM_VALUE_OF',
+        'Simple/0:DEFAULT_CONSTRUCTOR',
+      ]);
+
+      // The regression guard: a declared constructor suppresses the default one. Getting this
+      // wrong yields a phantom no-arg constructor for an enum that has none.
+      expectMethods('WithCtor: a declared constructor suppresses the implicit one', 'WithCtor', [
+        'values/0:ENUM_VALUES',
+        'valueOf/1:ENUM_VALUE_OF',
+        'WithCtor/1:CONSTRUCTOR',
+        'value/0:INSTANCE_METHOD',
+      ]);
+
+      expectMethods('Empty: an enum with no constants still has all three', 'Empty', [
+        'values/0:ENUM_VALUES',
+        'valueOf/1:ENUM_VALUE_OF',
+        'Empty/0:DEFAULT_CONSTRUCTOR',
+      ]);
+
+      validations.push(this.rule('values() and valueOf() are public static', (e) => {
+        const statics = e.methods.filter(m =>
+          m.getMethodKind() === MethodKind.ENUM_VALUES || m.getMethodKind() === MethodKind.ENUM_VALUE_OF);
+        const bad = statics.filter(m =>
+          m.getMethodAccess() !== MethodAccess.PUBLIC ||
+          !m.getMethodModifier()?.includes(MethodModifier.STATIC_MODIFIER));
+        return {
+          passed: statics.length === 8 && bad.length === 0,
+          message: `Expected 8 public static rows (4 enums x 2), got ${statics.length} with ${bad.length} wrong`
+        };
+      }));
+
+      // Scoped to the enums: the enclosing class in this fixture also has a default
+      // constructor, and that one is correctly public (JLS 8.8.9 vs 8.9.2).
+      validations.push(this.rule('The implicit enum constructor is private', (e) => {
+        const enumOwners = new Set(['Simple', 'WithCtor', 'WithBody', 'Empty']);
+        const ctors = e.methods.filter(m =>
+          m.getMethodKind() === MethodKind.DEFAULT_CONSTRUCTOR && enumOwners.has(m.getOwnerTypeName()));
+        const bad = ctors.filter(m => m.getMethodAccess() !== MethodAccess.PRIVATE);
+        return {
+          passed: ctors.length === 3 && bad.length === 0,
+          message: `Expected 3 private enum constructors (Simple, WithBody, Empty), got ${ctors.length} with ${bad.length} non-private`
+        };
+      }));
+
+      // Compiler artifacts must stay out: emitting them would be its own defect.
+      validations.push(this.rule('No class-file artifacts ($VALUES, $values) are emitted', (e) => {
+        const artifacts = [...e.methods.map(m => m.getName()), ...e.fields.map(f => f.getName())]
+          .filter(n => n.startsWith('$'));
+        return { passed: artifacts.length === 0, message: `Emitted artifacts: ${JSON.stringify(artifacts)}` };
+      }));
+
+      validations.push(this.rule('valueOf(String) has a parameter row matching its arity', (e) => {
+        const vo = e.methods.find(m => m.getOwnerTypeName() === 'Simple' && m.getName() === 'valueOf');
+        if (!vo) return { passed: false, message: 'no implicit valueOf on Simple' };
+        const params = e.methodParams.filter(p => p.getMethodRegistryLinkHash() === vo.getHash());
+        return {
+          passed: params.length === 1 && params[0]?.getParameterTypeName() === 'String',
+          message: `Expected one String parameter, got ${JSON.stringify(params.map(p => p.getParameterTypeName()))}`
+        };
+      }));
+    }
+
     if (category === 'methods') {
       // Generic validations for all method test files
       validations.push(this.minCount('Should extract methods', (e) => e.methods, 1));
@@ -582,6 +683,43 @@ export class JavaExtractorTestRunner {
       }
       if (filename === 'ThrowsPatterns.java') {
         validations.push(this.minCount('Should extract methods', (e) => e.methods, 1));
+      }
+
+      // ── Default constructors (JLS 8.8.9) ──
+      if (filename === 'DefaultConstructors.java') {
+        const ctorsOf = (e: ExtractedEntities, owner: string) => e.methods
+          .filter(m => m.getOwnerTypeName() === owner &&
+            (m.getMethodKind() === MethodKind.CONSTRUCTOR ||
+             m.getMethodKind() === MethodKind.DEFAULT_CONSTRUCTOR))
+          .map(m => `${m.getSignature()}:${m.getMethodKind()}:${m.getMethodAccess()}`)
+          .sort();
+
+        const expectCtors = (label: string, owner: string, want: string[]) => {
+          validations.push(this.rule(label, (e) => {
+            const got = ctorsOf(e, owner);
+            return {
+              passed: JSON.stringify(got) === JSON.stringify([...want].sort()),
+              message: `Expected ${JSON.stringify([...want].sort())}, got ${JSON.stringify(got)}`
+            };
+          }));
+        };
+
+        expectCtors('Plain: implicit public no-arg constructor', 'Plain',
+          ['Plain():void:DEFAULT_CONSTRUCTOR:PUBLIC']);
+
+        // The default constructor takes the CLASS's access, not public unconditionally.
+        expectCtors('PackagePrivate: the implicit constructor is package-private', 'PackagePrivate',
+          ['PackagePrivate():void:DEFAULT_CONSTRUCTOR:PACKAGE']);
+
+        expectCtors('Abstract: an abstract class still gets one', 'Abstract',
+          ['Abstract():void:DEFAULT_CONSTRUCTOR:PUBLIC']);
+
+        expectCtors('Declared: a declared constructor suppresses the implicit one', 'Declared',
+          ['Declared(int):void:CONSTRUCTOR:PUBLIC']);
+
+        // The half a blanket "every type gets a constructor" rule would get wrong.
+        expectCtors('Contract: an interface has no constructor', 'Contract', []);
+        expectCtors('Marker: an annotation type has no constructor', 'Marker', []);
       }
 
       // Implicitly declared record members (JLS 8.10). Every expectation below is the member
