@@ -9,6 +9,18 @@ Ground truth is the invoke instruction in the client's compiled bytecode: its co
 entry names owner, method and descriptor, so the JDK mapping is read from the artifact rather
 than inferred. Both sides are keyed by (caller, source line).
 
+A SITE THE ENGINE CANNOT BE RESPONSIBLE FOR IS NOT SCORED AGAINST IT. Two ways that happens, and
+both were previously charged as engine misses — together more than half of everything this scorer
+reported as unresolved, which is a very efficient way to spend a week fixing nothing:
+
+  * the receiver can only be typed through a library that is NOT STAGED. Scoring a project against
+    the platform IR alone leaves its real dependencies absent, so `dep.getThings().stream()` has an
+    untypable receiver however good the rules are. Detected from the ground truth itself: the same
+    source line also calls a type present in neither the client IR nor the staged library.
+  * the caller is a CONSTRUCTOR. The engine keys a constructor body — and a field initializer, which
+    javac compiles into one — by its owning TYPE, while bytecode names it `<init>`. The two never
+    matched, so every call written in a constructor was scored unresolved.
+
 TWO CHECKS THE SCORER CARRIES ITSELF, because neither can be left to memory:
   * a ground-truth callee whose type is absent from the staged library IR is reported as
     LIB IR LACKS THE TYPE, never as an engine miss — that is version skew between the compiled
@@ -49,10 +61,17 @@ def main():
         if len(f) >= 7: raw.append(f)
     want = {f[3] for f in raw if f[3].startswith('METHOD_REGISTRY_') and f[3] not in n.m}
     lib = resolve(roots, want)
+    # A constructor body, and a field initializer that javac compiles into one, is keyed by the
+    # owning TYPE on the engine side and by `<init>` on the bytecode side. Name it the way the
+    # oracle does instead of dropping it: 132-409 rows per project were discarded here.
+    type_name = {}
+    for t in rows(f'{ir}/all-types.csv'):
+        q = t['qualifiedName']
+        type_name[t['typeRegistryUniqueHash']] = f"{n.anon.get(q, q)}#<init>()"
     eng, eng_caller = collections.defaultdict(set), collections.defaultdict(set)
     for f in raw:
-        c = n.m.get(f[1])
-        if not c: continue                      # ctor bodies are keyed by their owning TYPE
+        c = n.m.get(f[1]) or type_name.get(f[1])
+        if not c: continue
         tgt = lib.get(f[3])
         if not tgt or not tgt.startswith(prefixes): continue
         cn = re.sub(r'\([^)]*\)$', '', c)
@@ -62,11 +81,14 @@ def main():
     # ── ground truth: library callees only, callers restricted to the client IR ─────────
     client_types = {v.split('#')[0] for v in n.m.values()}
     orc = collections.defaultdict(set)
+    on_line = collections.defaultdict(set)        # every callee owner the line calls, library or not
     for line in open(gt, encoding='utf-8', errors='replace'):
         if ' -> ' not in line: continue
         a, b = line.rstrip('\n').split(' -> ', 1)
         m = re.match(r'^(.*)\(([^()]*)\)@(-?\d+)$', a)
-        if not m or not b.startswith(prefixes): continue
+        if not m: continue
+        on_line[(m.group(1), m.group(3))].add(b.split('#')[0])
+        if not b.startswith(prefixes): continue
         if '#<init>(' in b: continue                      # ctor targets excluded on BOTH sides
         if m.group(1).split('#')[0] not in client_types: continue
         orc[(m.group(1), m.group(3))].add(b)
@@ -134,7 +156,9 @@ def main():
         # for an evaluation.
         return None
 
+    staged = lib_types | client_types
     v = collections.Counter(); miss = collections.Counter(); wrong = []
+    unstaged_owners = collections.Counter()
     for k, truth in orc.items():
         if not any(t.split('#')[0] in lib_types for t in truth):
             v['LIB IR LACKS THE TYPE'] += 1; continue
@@ -147,6 +171,15 @@ def main():
             if truth <= eng_caller.get(k[0], set()):
                 v['FOUND (line differs)'] += 1; continue
         if not got:
+            # An unresolved site whose line ALSO calls a type absent from both IRs is not evidence
+            # about the rules: the receiver could only have been typed through a library nobody
+            # staged. Its own number, never the engine's — the same treatment as a missing callee
+            # type above, applied to the missing RECEIVER type.
+            foreign = {o for o in on_line.get(k, ()) if o not in staged}
+            if foreign:
+                v['RECEIVER NEEDS AN UNSTAGED TYPE'] += 1
+                for o in foreign: unstaged_owners[o] += 1
+                continue
             v['UNRESOLVED']  += 1
             for t in truth: miss[t.split('#')[0]] += 1
         elif got == truth: v['EXACT'] += 1
@@ -167,12 +200,15 @@ def main():
     print(f"boundary sites: {d:,}   (client callers, library callees matching {','.join(prefixes)})")
     for kk in ('EXACT','SOUND SUPERSET','MORE PRECISE','DECLARING ANCESTOR',
                'FOUND (line differs)','PARTIAL','WRONG TARGET','UNRESOLVED',
-               'LIB IR LACKS THE TYPE'):
+               'LIB IR LACKS THE TYPE','RECEIVER NEEDS AN UNSTAGED TYPE'):
         if v[kk]: print(f"  {kk:<24}{v[kk]:>7,} ({100*v[kk]/d:5.1f}%)")
-    adj = d - v['LIB IR LACKS THE TYPE']
+    adj = d - v['LIB IR LACKS THE TYPE'] - v['RECEIVER NEEDS AN UNSTAGED TYPE']
     print(f"  ---")
     print(f"  correct METHOD named      {100*exact/d:5.1f}%   ({100*exact/max(adj,1):5.1f}% of the {adj:,} the lib IR can answer)")
     print(f"  wrong library method     {100*v['WRONG TARGET']/d:5.1f}%")
+    if unstaged_owners:
+        print(f"\nRECEIVER NEEDS AN UNSTAGED TYPE — stage these to score the sites behind them")
+        for t, c in unstaged_owners.most_common(census): print(f"  {c:6,}  {t}")
     if miss:
         print(f"\nUNRESOLVED by library type ({sum(miss.values()):,} callee mentions)")
         for t, c in miss.most_common(census): print(f"  {c:6,}  {t}")

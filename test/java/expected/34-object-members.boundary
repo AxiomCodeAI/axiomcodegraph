@@ -1,0 +1,14 @@
+boundary sites: 9   (client callers, library callees matching java.,javax.,jdk.)
+  EXACT                         6 ( 66.7%)
+  UNRESOLVED                    1 ( 11.1%)
+  LIB IR LACKS THE TYPE         1 ( 11.1%)
+  RECEIVER NEEDS AN UNSTAGED TYPE      1 ( 11.1%)
+  ---
+  correct METHOD named       66.7%   ( 85.7% of the 7 the lib IR can answer)
+  wrong library method       0.0%
+
+RECEIVER NEEDS AN UNSTAGED TYPE — stage these to score the sites behind them
+       1  java.util.List
+
+UNRESOLVED by library type (1 callee mentions)
+       1  java.lang.Object

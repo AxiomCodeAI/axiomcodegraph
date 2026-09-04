@@ -17,6 +17,22 @@ public class ObjectMembers {
         public boolean equals(Plain p) { return true; }
     }
 
+    // A call written in a CONSTRUCTOR body. The engine keys it by the owning type and bytecode
+    // keys it `<init>`, so the boundary scorer used to match neither and score it unresolved.
+    private final String origin;
+    ObjectMembers() { this.origin = getClass().getName(); }
+
+    // A receiver whose type is in NO staged library — this case stages java.lang only, so
+    // java.util.List is exactly as absent as a project's real dependency is on a real run.
+    // The site is unattributable, and must be reported as its own number rather than as an
+    // engine miss.
+    int unstagedReceiver(java.util.List<String> l) { return l.size(); }
+
+    // Same shape, one hop further: the CALLEE's type (String) is staged, so the site is
+    // answerable in principle — but the receiver can only be typed through java.util.List,
+    // which is not. Charging that to the rules is charging them for a library nobody staged.
+    int viaUnstagedReceiver(java.util.List<String> l) { return l.get(0).length(); }
+
     // the member is only on Object, and the receiver is the implicit this
     String selfClass() { return getClass().getName(); }
 
