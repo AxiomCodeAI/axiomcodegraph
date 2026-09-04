@@ -175,6 +175,26 @@ for dir in "$HERE"/cases/*/; do
         echo "FAIL (over-approximation changed)"; diff -u "$oexp" "$w/oracle.diff" | sed 's/^/    /' | head -24
         fail=$((fail+1)); failed+=("$name"); continue
       fi
+      # ── CLIENT -> LIBRARY, scored (only a case that ships a stub library) ──────────────
+      # normalize_edges/oracle_diff compare client->client only, so nothing here judged the
+      # boundary hand-off itself: whether the engine names the exactly correct library method.
+      # tools/score_boundary.py does, and pinning its report makes the SCORER testable too —
+      # it silently discarded every edge whose caller is a constructor, and charged the engine
+      # for sites whose receiver could only be typed through a library nobody staged.
+      if [ -d "$w/lib-ir" ] && [ -d "$WORK/.agreement/.oracle-classes" ]; then
+        java -cp "$WORK/.agreement/.oracle-classes" ClassFileOracle --app "$w/oracle/classes" \
+             --with-lines > "$w/boundary.gt" 2>/dev/null
+        python3 "$HERE/tools/score_boundary.py" "$w/ir" "$w/out" "$w/boundary.gt" \
+             --library "$w/lib-ir" > "$w/boundary.txt" 2>&1
+        bexp="$HERE/expected/$name.boundary"
+        if [ "$BLESS" = "1" ]; then cp "$w/boundary.txt" "$bexp"
+        elif [ ! -f "$bexp" ]; then
+          echo "FAIL (no boundary golden — run with --bless)"; fail=$((fail+1)); failed+=("$name"); continue
+        elif ! diff -q "$bexp" "$w/boundary.txt" >/dev/null; then
+          echo "FAIL (client->library score changed)"; diff -u "$bexp" "$w/boundary.txt" | sed 's/^/    /' | head -24
+          fail=$((fail+1)); failed+=("$name"); continue
+        fi
+      fi
       orc_summary="  [oracle: $(head -1 "$w/oracle.diff")]"
     else
       orc_summary="  [oracle skipped: $(head -1 "$w/oracle.log")]"

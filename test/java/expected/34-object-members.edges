@@ -1,4 +1,8 @@
 ambiguous_unknown	method	probe.Base#clone() -> -
+ambiguous_unknown	method	probe.ObjectMembers#unstagedReceiver(List) -> -
+ambiguous_unknown	method	probe.ObjectMembers#viaUnstagedReceiver(List) -> -
+boundary_lib	method	probe.ObjectMembers#<init>() -> java.lang.Class#getName()
+boundary_lib	method	probe.ObjectMembers#<init>() -> java.lang.Object#getClass()
 boundary_lib	method	probe.ObjectMembers#otherClass(Plain) -> java.lang.Class#getSimpleName()
 boundary_lib	method	probe.ObjectMembers#otherClass(Plain) -> java.lang.Object#getClass()
 boundary_lib	method	probe.ObjectMembers#plainEquals(Plain,Object) -> java.lang.Object#equals(Object)
