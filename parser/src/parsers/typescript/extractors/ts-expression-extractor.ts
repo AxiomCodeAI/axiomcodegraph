@@ -578,12 +578,31 @@ function childEdgesOf(node: ts.Node): ChildEdge[] {
     }
     return out;
   }
+  /**
+   * The key of an object-literal property, when syntax alone names it.
+   *
+   * A COMPUTED key is skipped rather than guessed: `{ [k]: 1 }` needs the value
+   * of `k`, and the walker already reaches that expression through
+   * `COMPUTED_PROPERTY_NAME`. Emitting nothing leaves the value row standing
+   * alone at its position, which is how a consumer sees "dynamic" rather than
+   * "absent".
+   */
+  const pushStaticKey = (name: ts.PropertyName, index: number): void => {
+    if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) {
+      push(name, TsEdgeRole.OBJECT_PROPERTY_KEY, index);
+    }
+  };
+
   if (ts.isObjectLiteralExpression(node)) {
     let index = 0;
     for (const property of node.properties) {
       if (ts.isPropertyAssignment(property)) {
+        pushStaticKey(property.name, index);
         push(property.initializer, TsEdgeRole.OBJECT_PROPERTY_VALUE, index);
       } else if (ts.isShorthandPropertyAssignment(property)) {
+        // `{ method }` is a key AND a value reference. Both rows, same
+        // position: the value binds to the variable, the key does not.
+        pushStaticKey(property.name, index);
         push(property.name, TsEdgeRole.OBJECT_PROPERTY_VALUE, index);
       } else if (ts.isSpreadAssignment(property)) {
         push(property, TsEdgeRole.SPREAD_OPERAND, index);

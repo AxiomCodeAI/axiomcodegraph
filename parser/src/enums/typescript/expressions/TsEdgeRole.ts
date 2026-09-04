@@ -69,6 +69,20 @@ export enum TsEdgeRole {
   /** A concise arrow body — an expression, not a block. */
   ARROW_BODY = 'ARROW_BODY',
   /** The value of an object-literal property. */
+  /**
+   * The KEY of an object-literal property, when it is statically known.
+   *
+   * Sibling of {@link OBJECT_PROPERTY_VALUE} at the same `position`, so the two
+   * join on `(parentExpressionHash, position)`. A COMPUTED key has no row: the
+   * value row then stands at its position with no key beside it, which is how a
+   * consumer tells "dynamic" from "absent".
+   *
+   * Kept apart from `PROPERTY_NAME` on purpose. That role is a member being
+   * READ (`a.length`); this one is a member being DEFINED. Conflating them
+   * would make "does this code set header X" and "does this code read header X"
+   * the same query.
+   */
+  OBJECT_PROPERTY_KEY = 'OBJECT_PROPERTY_KEY',
   OBJECT_PROPERTY_VALUE = 'OBJECT_PROPERTY_VALUE',
   /** An element of an array literal. */
   ARRAY_ELEMENT = 'ARRAY_ELEMENT',

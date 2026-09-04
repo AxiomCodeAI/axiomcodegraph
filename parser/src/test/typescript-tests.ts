@@ -2891,6 +2891,79 @@ async function annotationCanDeclareASignatureSet(): Promise<number> {
   }
 }
 
+
+/**
+ * An object literal's property KEY reaches the IR (#111).
+ *
+ * Only `property.initializer` was pushed, so no key was emitted anywhere in the
+ * 21 relations -- a rule keyed on an HTTP header or a JSON field name could not
+ * be written at all. Python already emits these (`PythonEdgeRole.KEY`).
+ *
+ * Two properties the check will not let regress: the key must NOT be bound as a
+ * scope reference (`{ amount_cents: 1 }` beside a local `amount_cents` would
+ * bind to the variable), and a COMPUTED key must emit nothing, so a lone value
+ * row means "dynamic" rather than "absent".
+ */
+async function objectLiteralKeysReachTheIr(): Promise<number> {
+  if (!parserPresent()) {
+    return pendingCheck('object-literal keys reach the IR',
+      'no extractor yet. A property key is a fact, not only its value');
+  }
+  const { outputDir, cleanup } = await analyseInline('ts-objkey-', {
+    'a.ts': [
+      'const amount_cents = 999;',                    // a same-named local, on purpose
+      'const shorthand = 1;',
+      'const dynamic = "d";',
+      'export const payload = {',
+      "  'X-Signature': 'sha256',",                   // quoted key
+      '  amount_cents: 1000,',                        // identifier key, shadowing risk
+      '  shorthand,',                                 // key AND value reference
+      '  [dynamic]: 2,',                              // computed -> no key row
+      '};',
+    ].join('\n'),
+  });
+  try {
+    const exprs = relation(outputDir, 'all-typescript-expressions.csv');
+    const keys = exprs.filter((r) => r['edgeRole'] === 'OBJECT_PROPERTY_KEY');
+    const values = exprs.filter((r) => r['edgeRole'] === 'OBJECT_PROPERTY_VALUE');
+    const failures: string[] = [];
+    const names = new Set(keys.map((r) => r['literalValue']));
+    for (const want of ['X-Signature', 'amount_cents', 'shorthand']) {
+      if (!names.has(want)) {
+        failures.push(`no OBJECT_PROPERTY_KEY row carries "${want}" — the key never reached `
+          + 'the IR, so a rule keyed on a field name cannot be written');
+      }
+    }
+    // A key is a name, never a scope lookup.
+    for (const key of keys) {
+      if ((key['referencedEntityHash'] ?? '') !== '') {
+        failures.push(`key "${key['literalValue']}" is bound to `
+          + `${key['referencedEntityHash']} — a key must not resolve against the lexical chain`);
+      }
+    }
+    // A computed key emits nothing, so its value stands alone at its position.
+    if (names.has('dynamic') || names.has('d')) {
+      failures.push('a computed key emitted an OBJECT_PROPERTY_KEY row — it cannot be named '
+        + 'from syntax and a lone value row is how a consumer sees that');
+    }
+    // Key and value join on (parent, position).
+    for (const key of keys) {
+      const paired = values.some((v) => v['parentExpressionHash'] === key['parentExpressionHash']
+        && v['position'] === key['position']);
+      if (!paired) {
+        failures.push(`key "${key['literalValue']}" has no value at the same `
+          + '(parentExpressionHash, position), so the two cannot be joined');
+      }
+    }
+    console.log(`  ${keys.length} key row(s) and ${values.length} value row(s); quoted, `
+      + 'identifier and shorthand keys named, computed key correctly absent, none bound');
+    for (const f of failures.slice(0, 5)) { console.log(`  ${f}`); }
+    return failures.length ? 1 : 0;
+  } finally {
+    cleanup();
+  }
+}
+
 /** `all-typescript-method-parameters.csv` -> `ts_method_parameter`, via the .dl's own names. */
 function relationNameFor(file: string): string | undefined {
   const stem = file.replace('all-typescript-', '').replace('.csv', '');
@@ -3801,6 +3874,7 @@ const CHECKS: Check[] = [
   { name: 'a decorator is descended once', proves: 'a callable inside a decorator argument is one ts_method, not two colliding on one key as a false overload set', run: decoratorDescendedOnce },
   { name: 'declaration extensions are whole extensions', proves: '`.d.cts` and `.d.mts` are single extensions, so no stem keeps a stray `.d`', run: declarationExtensionsAreWholeExtensions },
   { name: 'an annotation can declare a signature set', proves: 'a type literal holding several call signatures is resolved as the set it is, and arity picks the arm tsc picks', run: annotationCanDeclareASignatureSet },
+  { name: 'object-literal keys reach the IR', proves: 'a property key is emitted as its own row, joinable to its value, never bound as a scope reference, and absent when computed', run: objectLiteralKeysReachTheIr },
   { name: 'fact-base invariants', proves: 'every PK unique, every FK resolves, every tree well-formed — the failures that load cleanly and count wrong', run: factBaseInvariants },
   { name: 'IR completeness', proves: 'every hop an engine needs in order to resolve is present — the measure that replaced resolution rate', run: irCompleteness },
 ];

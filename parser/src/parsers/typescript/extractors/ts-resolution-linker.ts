@@ -259,7 +259,10 @@ export class TsLocalResolver {
       // A property NAME is not a scope lookup: `a.length` does not resolve
       // `length` against the lexical chain, and doing so would bind it to any
       // local variable of that name — a wrong answer that looks like a right one.
-      if (row.edgeRole === TsEdgeRole.PROPERTY_NAME) {
+      // An object-literal KEY is the same shape of mistake: `{ amount_cents: 1 }`
+      // beside a local `amount_cents` would bind the key to the variable.
+      if (row.edgeRole === TsEdgeRole.PROPERTY_NAME
+        || row.edgeRole === TsEdgeRole.OBJECT_PROPERTY_KEY) {
         continue;
       }
       const binding = this.lookup(node, node.text);
