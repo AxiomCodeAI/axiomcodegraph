@@ -28,6 +28,7 @@ import f25_var_params as f25
 import f26_local_annotation as f26
 import f27_with_target as f27
 import f28_await as f28
+import f29_subscript as f29
 from tlib import Square
 from tlib.shapes import Base, Mid
 
@@ -96,6 +97,7 @@ def main() -> None:
     print(f26.from_builtin_annotation(), f26.from_class_annotation(), f26.from_dotted_annotation())
     print(f27.via_declared_enter(), f27.via_self_enter())
     print(f28.drive())
+    print(f29.drive())
 
 
 if __name__ == "__main__":
