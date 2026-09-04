@@ -98,6 +98,8 @@
 .decl sig_concrete_in(c0:symbol,c1:symbol,c2:symbol)            // (type,name,paramCount) concrete instance method
 .decl abstract_sig(c0:symbol,c1:symbol,c2:symbol)               // (method,name,paramCount) abstract/interface decl
 .decl object_sig(c0:symbol,c1:symbol,c2:symbol,c3:symbol)       // (name,paramCount,access,method) declared on java.lang.Object
+.decl creation_has_type_arg(c0:symbol)                          // an OBJECT_CREATION type ref carrying a written type argument
+.decl diamond_target(c0:symbol,c1:symbol,c2:symbol)             // (declaredRef, declaredType, diamond-created type)
 .decl type_is_interface(c0:symbol)                              // client or library INTERFACE_TYPE
 .decl sig_in_hierarchy(c0:symbol,c1:symbol,c2:symbol)           // (type,name,paramCount) declared in the type or an ancestor
 .decl declared_wins_cand(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
