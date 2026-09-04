@@ -24,6 +24,30 @@ export const EXCLUDED_DIRS = new Set([
 ]);
 
 /**
+ * A directory that holds TESTS rather than source, matched by NAME during the Java source walk.
+ *
+ * The list is short on purpose, because a Java package is a language-level namespace and pruning
+ * one by name deletes real code. Two patterns were here and are gone:
+ *
+ *   `spec` — `java.security.spec`, `javax.crypto.spec`, `javax.xml.crypto.dsig.spec`. Matching it
+ *            removed 73 source files, and every key and algorithm specification the platform
+ *            declares, from the platform library IR — silently, with the run reporting no skipped
+ *            files. A client calling `new SecretKeySpec(...)` then resolved to nothing.
+ *   `it`   — an integration-test folder in some layouts, and the top-level package of every Italian
+ *            open-source library there is (`it.unimi.dsi.fastutil`, in particular). One directory
+ *            named `it` at the root of a sources jar drops the whole library.
+ *
+ * What is left cannot be a Java package: `test-`, `__tests__`, `integration-tests` and `e2e`
+ * contain characters no Java identifier allows, or are conventions no library ships as a package.
+ * `test` / `tests` stay, and are the two this exclusion was asked for.
+ */
+export const JAVA_TEST_DIR = /^tests?$|^__tests__$|^test-|^integration-tests?$|^e2e$/i;
+
+export function isJavaTestDir(name: string): boolean {
+  return JAVA_TEST_DIR.test(name);
+}
+
+/**
  * Analysis output configuration.
  *
  * Default location for extracted CSV facts when no explicit `outputDir`

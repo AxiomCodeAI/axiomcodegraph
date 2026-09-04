@@ -31,6 +31,8 @@ import { TypePlacement } from '@/enums/java/types/TypePlacement';
 import { MethodKind } from '@/enums/java/methods/MethodKind';
 import { TypeRegistryExtractor } from '@/parsers/java/extractors';
 
+import { sourceWalkPackages } from './java-gates/source-walk';
+
 interface ExtractedEntities {
   types: TypeRegistry[];
   typeParams: TypeParameter[];
@@ -1023,7 +1025,17 @@ export class JavaExtractorTestRunner {
 // Main execution
 if (require.main === module) {
   const runner = new JavaExtractorTestRunner();
-  runner.runAllTests().catch(error => {
+  runner.runAllTests().then(() => {
+    // Gates: checks that are not about ONE file's entities, so they cannot be expressed as a
+    // test-data fixture. They run after the per-file suite and fail the process on their own.
+    const gateErrors = sourceWalkPackages();
+    if (gateErrors.length) {
+      console.log('\n❌ source-walk gate:');
+      gateErrors.forEach(e => console.log(`   ${e}`));
+      process.exit(1);
+    }
+    console.log('\n✅ source-walk gate: a Java package is not pruned as a test directory');
+  }).catch(error => {
     console.error('Test execution failed:', error);
     process.exit(1);
   });

@@ -1,6 +1,6 @@
 import * as path from 'path';
 
-import { ANALYSIS_OUTPUT_DIR } from '@/constants/consts';
+import { JAVA_TEST_DIR, ANALYSIS_OUTPUT_DIR } from '@/constants/consts';
 import { ProjectInfo, ProjectLanguage } from '@/types/ProjectInfo';
 import { ProjectScanner } from '@/utils/project-scanner';
 import { GradleProjectAnalyzer } from '@/workflows/gradle/gradle-project-analyzer';
@@ -91,7 +91,7 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
   const outputDir = opts.outputDir ? path.resolve(opts.outputDir) : undefined;
 
   if (excludeTests) {
-    console.log('🚫 Test directories ("test", "tests") will be excluded from analysis\n');
+    console.log(`🚫 Test directories (${JAVA_TEST_DIR.source}) will be excluded from analysis\n`);
   }
 
   const startedAt = Date.now();
