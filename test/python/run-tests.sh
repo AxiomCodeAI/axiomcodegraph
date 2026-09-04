@@ -20,7 +20,7 @@
 #     ambiguous_unknown, instead of as an opaque PY_METHOD_<hash> that no reader can
 #     check — so the goldens got more reviewable, not less.
 #
-#   ./run-tests.sh                 every case: coverage guard + golden diff
+#   ./run-tests.sh                 every case + both whole-project fixtures + torture
 #   ./run-tests.sh --oracle        ALSO validate against CPython-built ground truth
 #   ./run-tests.sh 04 11           only cases matching those substrings
 #   ./run-tests.sh --bless         regenerate ENGINE goldens (REVIEW the diff)
@@ -235,6 +235,58 @@ for dir in "$HERE"/cases/*/; do
     fail=$((fail+1)); failed+=("$name")
   fi
 done
+
+# ── THE WHOLE-PROJECT FIXTURES ───────────────────────────────────────────────
+# test/python/projects holds two realistic projects, 29 files and ~1,040 lines, and its
+# README credits them with catching six engine defects the single-construct cases could
+# not. THE SUITE NEVER RAN THEM: the loop above iterates cases/*/ and requires a src/
+# subdirectory, which these do not have, so nothing checked them and their README table
+# was transcribed by hand.
+#
+# It had drifted. Against the engine's own per-tier SITE counts: known_edge 123 -> 124,
+# boundary_lib 76 -> 70, ambiguous_unknown 5 -> 10; the site total (227) and
+# multi_inferred (23) still hold. The ambiguous_unknown row is the one that matters,
+# because the README's prose names five unknowns — four route decorators and
+# functools.wraps — and there are five MORE it never mentioned: bare @abstractmethod in
+# four shared modules. Confirmed NOT recent: identical at 4345f2f, before the six Python
+# changes that landed after it.
+#
+# Pinned with the same artifact the cases use, for the same reason: an edge list cannot
+# see a tier count move.
+if [ "$ORACLE_ONLY" = "0" ] && [ -d "$HERE/projects" ]; then
+  for pdir in "$HERE"/projects/*/; do
+    pname="$(basename "$pdir")"
+    [ -n "$(find "$pdir" -maxdepth 2 -name '*.py' -type f 2>/dev/null | head -1)" ] || continue
+    if [ ${#FILTERS[@]} -gt 0 ]; then
+      match=0; for f in "${FILTERS[@]}"; do [[ "$pname" == *"$f"* ]] && match=1; done
+      [ $match -eq 1 ] || continue
+    fi
+    printf '%-26s ' "project:$pname"
+    pw="$WORK/project-$pname"; rm -rf "$pw"; mkdir -p "$pw/ir"
+    if ! node "$PARSER" "$pdir" "$pname" false "$pw/ir" >"$pw/parse.log" 2>&1; then
+      echo "FAIL (parse — see $pw/parse.log)"; fail=$((fail+1)); failed+=("project:$pname"); continue; fi
+    if ! bash "$ROOT/src/pipeline/run-souffle.sh" --language python \
+          --client-ir "$pw/ir" --library "$EMPTY_LIB" \
+          --intermediate "$pw/int" --output "$pw/out" >"$pw/solve.log" 2>&1; then
+      echo "FAIL (solve — $(tail -1 "$pw/solve.log" | cut -c1-70))"
+      fail=$((fail+1)); failed+=("project:$pname"); continue; fi
+    if ! "$PY" "$HERE/tools/coverage_guard.py" "$pw/ir" "$pw/out" "$pdir" >"$pw/coverage.txt" 2>&1; then
+      echo "FAIL (silent drop)"; sed 's/^/    /' "$pw/coverage.txt" | head -12
+      fail=$((fail+1)); failed+=("project:$pname"); continue; fi
+    "$PY" "$HERE/tools/tier_report.py" "$pw/out" > "$pw/actual.tiers" 2>"$pw/tier.log"
+    pexp="$HERE/expected/project-$pname.tiers"
+    if [ "$BLESS" = "1" ]; then
+      cp "$pw/actual.tiers" "$pexp"; echo "BLESSED"; pass=$((pass+1)); continue; fi
+    if [ ! -f "$pexp" ]; then
+      echo "FAIL (no tier golden — run with --bless)"; fail=$((fail+1)); failed+=("project:$pname"); continue; fi
+    if diff -q "$pexp" "$pw/actual.tiers" >/dev/null; then
+      echo "ok ($(head -1 "$pw/actual.tiers" | grep -oE '[0-9]+') sites)"; pass=$((pass+1))
+    else
+      echo "FAIL (tiers/reasons changed)"; diff -u "$pexp" "$pw/actual.tiers" | sed 's/^/    /' | head -30
+      fail=$((fail+1)); failed+=("project:$pname")
+    fi
+  done
+fi
 
 # ── THE TORTURE CASE ─────────────────────────────────────────────────────────
 # Runs last and separately because it is the only case with a LIBRARY: two IRs, linked

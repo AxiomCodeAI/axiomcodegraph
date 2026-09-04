@@ -1,9 +1,9 @@
 distinct call sites emitted: 19
 
---- edge rows by tier ---
-      5  ambiguous_unknown
-     10  boundary_lib
-      4  known_edge
+--- by tier: edge ROWS, and the distinct SITES they cover ---
+      5 rows      5 sites  ambiguous_unknown
+     10 rows     10 sites  boundary_lib
+      4 rows      4 sites  known_edge
 
 --- edge rows by call kind ---
       1  CHAINED_CALL
@@ -24,6 +24,9 @@ distinct call sites emitted: 19
      10  boundary_lib
       3  known_edge
 
---- edges that are not sites ---
-  edge rows 19, conserved sites 18, difference 1
-      1  METACLASS_CREATION  (an edge with no call site — README decision 5)
+--- reconciling rows against the conserved site count ---
+  edge rows                                  19
+  minus extra rows from multi-target sites    0
+  = tier/site pairs                          19
+  engine's conserved site total              18
+  of which 1 are METACLASS_CREATION, an edge with no call site (README decision 5)
