@@ -163,13 +163,21 @@ fi
 echo "jdk source : $SRC"
 echo "output     : $OUT"
 echo "parser     : $PARSER  ($PARSER_REV)"
+# rows(): records, not newlines. all-types.csv is written without a trailing newline (all-methods
+# is not), so `wc -l` - 1 under-reported every type count by one -- 6,781 against a real 6,782 on
+# java.base. Display only, but a wrong number in a build report is still a wrong number.
+rows(){ awk 'END{print NR-1}' "$1"; }
 echo "modules    : ${#MODULES[@]}"
 ok=0; skip=0; fail=0; empty=0
 for m in "${MODULES[@]}"; do
   cls="$SRC/$m/share/classes"
   [ -d "$cls" ] || { echo "  ?  $m — no share/classes"; continue; }
   dest="$OUT/$m"
-  n=$(find "$cls" -name '*.java' | wc -l | tr -d ' ')
+  # -L, because share/classes is routinely a SYMLINK -- staging src.zip by linking each module
+  # into the <mod>/share/classes shape this script documents produces exactly that. find does not
+  # descend into a symlinked start path without it, so the count came back 0 and the module was
+  # classified "empty (module-info only)" instead of built. See issue #249.
+  n=$(find -L "$cls" -name '*.java' | wc -l | tr -d ' ')
   if [ "$FORCE" = 0 ] && [ -f "$dest/all-types.csv" ] && [ "$STAMPED" = "$PARSER_REV" ]; then
     skip=$((skip+1)); continue
   fi
@@ -191,14 +199,14 @@ for m in "${MODULES[@]}"; do
       rel="${f#$ZIPDIR/$m/}"
       [ -f "$merged/$rel" ] && continue
       mkdir -p "$merged/$(dirname "$rel")"; cp "$f" "$merged/$rel"; added=$((added+1))
-    done < <(find "$ZIPDIR/$m" -name '*.java')
+    done < <(find -L "$ZIPDIR/$m" -name '*.java')
     src_dir="$merged"; n=$((n+added))
   fi
   printf "  .. %-24s %5s files (%s from src.zip) ...\n" "$m" "$n" "$added"
   if node "$PARSER" "$src_dir" "jdk-$m" true "$dest.tmp" >"$OUT/.$m.log" 2>&1 && [ -f "$dest.tmp/all-types.csv" ]; then
     rm -rf "$dest"; mv "$dest.tmp" "$dest"          # atomic: a killed run never leaves a half IR
     [ -n "${merged:-}" ] && rm -rf "$merged" && merged=""
-    t=$(( $(wc -l < "$dest/all-types.csv") - 1 )); mm=$(( $(wc -l < "$dest/all-methods.csv") - 1 ))
+    t=$(rows "$dest/all-types.csv"); mm=$(rows "$dest/all-methods.csv")
     ok=$((ok+1))
     printf "  ok %-24s %5s files -> %6s types %7s methods   [%d/%d]\n" \
            "$m" "$n" "$t" "$mm" "$((ok+skip+empty+fail))" "${#MODULES[@]}"
@@ -212,6 +220,21 @@ done
 # number measured against this IR quietly gets worse and nothing says so. java.nio.ByteBuffer is
 # the canary: it exists ONLY as X-Buffer.java.template in the checkout, and 981 call sites named it
 # across a five-project corpus.
+# BUILDING NOTHING IS NOT SUCCESS. `empty` is deliberately not a failure -- a module-info-only
+# module is real, and calling it a failure would make the exit status useless for spotting a real
+# one. But a run in which NO module produced an IR has built no platform library at all, and
+# stamping that tree tells every later run it is complete and current. That is worse than failing:
+# a harness pointed at it stages no platform library, so every receiver typed through java.util is
+# unresolvable by construction, and it cannot even print its own "no platform IR" warning because
+# the directory exists and --check reports UP TO DATE. `skip` is checked too: a fully up-to-date
+# re-run legitimately builds nothing.
+if [ "$ok" -eq 0 ] && [ "$skip" -eq 0 ] && [ "${#MODULES[@]}" -gt 0 ]; then
+  echo "!! NOTHING WAS BUILT: ${#MODULES[@]} module(s) considered, $empty counted empty, 0 produced an IR." >&2
+  echo "   A tree with no module IR in it must not be stamped as a complete build. Check that" >&2
+  echo "   --src points at a tree of <module>/share/classes and that those paths are readable" >&2
+  echo "   (a symlinked share/classes is fine; an unreadable or misnested one is not)." >&2
+  fail=$((fail+1))
+fi
 if [ -f "$OUT/java.base/all-types.csv" ]; then
   if ! awk -F'\t' 'NR>1 && $2=="java.nio.ByteBuffer"{found=1} END{exit !found}' "$OUT/java.base/all-types.csv"; then
     echo "!! java.nio.ByteBuffer is NOT in the built java.base IR." >&2
@@ -219,6 +242,13 @@ if [ -f "$OUT/java.base/all-types.csv" ]; then
     echo "   means src.zip was not merged. Every buffer call will resolve to nothing. See --src-zip." >&2
     fail=$((fail+1))
   fi
+elif printf '%s\n' "${MODULES[@]}" | grep -qx 'java.base'; then
+  # A MISSING java.base IS A STRONGER SIGNAL THAN A MISSING ByteBuffer, and the ByteBuffer check
+  # cannot make it: it is guarded on the very file whose absence is the problem, so when java.base
+  # was never built the canary simply did not run.
+  echo "!! java.base was in scope but produced no IR — the platform library is absent, not merely" >&2
+  echo "   incomplete. Nothing measured against this tree would be scoring the JDK at all." >&2
+  fail=$((fail+1))
 fi
 
 # The finished stamp is written ONLY when every module succeeded — a partial tree must never
