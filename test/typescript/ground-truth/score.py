@@ -634,6 +634,26 @@ def main():
         tp_rta = fp_rta = 0
         cha_total = rta_total = 0
         outside_cha = []
+        # ── WHAT AN EDGE OUTSIDE THE ENVELOPE ACTUALLY LICENSES (#242) ──────
+        # This line used to read `demonstrable false positives`, and for a receiver
+        # whose type is a class that is exactly right: the envelope enumerated every
+        # assignable class, so a target outside it cannot be the runtime receiver.
+        #
+        # For everything else it claims more than the bound can carry. A global has no
+        # receiver to enumerate over, and a member on a library interface is bounded
+        # only by the declarations of the resolved symbol — so `outside` there means
+        # "a declaration this symbol does not have", which is weaker than "fabricated".
+        # Measured on a dev project, every outside-envelope edge was one of:
+        #
+        #   ErrorConstructor's CALL signature where the compiler named its CONSTRUCT
+        #   signature; Function#apply where the compiler named CallableFunction#apply.
+        #
+        # Both are over-approximation within one entity, which SCORING §4 separates
+        # from fabrication precisely because the difference is the informative part. A
+        # reader taking the old label at face value would have counted them as
+        # fabrications, so the decomposition below is printed instead of one total.
+        outside_by_verdict = defaultdict(int)
+        outside_decl_target = 0
         for ce, (f, line, col, eline, ecol, ckind, cname) in call_pos.items():
             e = env.get((f, line, col, eline, ecol))
             if not e:
@@ -649,8 +669,14 @@ def main():
                     tp_cha += 1
                 else:
                     fp_cha += 1
+                    verdict = site_verdict.get(ce, 'NO_ORACLE_ROW')
+                    outside_by_verdict[verdict] += 1
+                    # A `.d.ts` target is a DECLARATION, not a body: the envelope for
+                    # one is the resolved symbol's declaration set, never a class set.
+                    if t.split(':')[0].endswith('.d.ts'):
+                        outside_decl_target += 1
                     if len(outside_cha) < 20:
-                        outside_cha.append((f, line, col, cname, t, sorted(cha)[:2]))
+                        outside_cha.append((f, line, col, cname, t, sorted(cha)[:2], verdict))
                 if t in rta:
                     tp_rta += 1
                 else:
@@ -664,9 +690,18 @@ def main():
         print(f'  CHA envelope size (total)       {cha_total}   recall vs CHA {tp_cha / cha_total if cha_total else 0:.3f}')
         print(f'  RTA envelope size (total)       {rta_total}   recall vs RTA {tp_rta / rta_total if rta_total else 0:.3f}')
         if outside_cha:
-            print('  edges OUTSIDE the CHA envelope (demonstrable false positives):')
-            for f, line, col, cname, t, sample in outside_cha[:10]:
-                print(f'    {f}:{line}:{col} {cname}() -> {t}   envelope {sample}')
+            print(f'  edges OUTSIDE the CHA envelope  {fp_cha}')
+            print(f'    of those, the target is a .d.ts DECLARATION   {outside_decl_target}'
+                  '   (bounded by the resolved symbol, not by a class set)')
+            print('    by the verdict of the SITE the edge sits on:')
+            for v, n in sorted(outside_by_verdict.items(), key=lambda kv: -kv[1]):
+                # An outside-envelope edge on a site that already scores EXACT or
+                # SOUND_SUPERSET is a SECOND declaration of an answer that is right;
+                # only the WRONG rows are candidates for a fabrication.
+                note = '  <- candidate fabrication' if v == 'WRONG' else ''
+                print(f'      {n:>6}  {v}{note}')
+            for f, line, col, cname, t, sample, verdict in outside_cha[:10]:
+                print(f'    [{verdict}] {f}:{line}:{col} {cname}() -> {t}   envelope {sample}')
 
     if missed_by_target:
         print()

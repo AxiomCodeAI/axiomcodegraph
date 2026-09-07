@@ -313,16 +313,59 @@ for (const sf of program.getSourceFiles()) {
       // across lib.es5 and lib.es2022, the compiler names one, and an engine that
       // emits all three was being scored as three false positives for what is one
       // ordinary ambiguity.
+      //
+      // ── TWO SYMBOLS, BECAUSE NEITHER ALONE IS THE DECLARATION SET (#242) ──
+      // `sig.declaration.symbol` is the symbol the RESOLVED DECLARATION belongs to.
+      // It carries every overload declared in the SAME file and only those. The
+      // symbol the callee NAME resolves to is the MERGED one, and a `declare
+      // function` repeated in two .d.ts files — or an `interface` reopened in
+      // another — merges into a single symbol whose declarations span both. Measured
+      // on a two-file synthetic:
+      //
+      //   dual("a")      same file    both symbols give both declarations
+      //   ping("hi")     two files    declaration-local gives ONE, merged gives both
+      //   theBox.open()  two files    declaration-local gives ONE, merged gives both
+      //
+      // Reading only the first is what made an engine edge to a merged `setTimeout`
+      // or `String#replace` declaration — the very symbol the compiler resolved, in
+      // the other file it is also declared in — score as a fabrication.
+      //
+      // ── AND WHY THE UNION IS FILTERED ─────────────────────────────────────
+      // The merged symbol's declarations are NOT all bodies. Unfiltered, the union
+      // added 16,686 declarations across 15,830 sites on one dev project, of which
+      // 9,989 were `VariableDeclaration` and 5,654 `PropertySignature` — `declare
+      // const expect: ExpectStatic`, `interface X { toBe: ... }`. A value
+      // declaration is not something a call can dispatch INTO, and admitting it
+      // would widen the bound severalfold in the direction that flatters the engine,
+      // which is the one direction SCORING says to distrust. Only 56 of those
+      // additions were function-like, and those are the ones this is for.
+      //
+      // An import alias is resolved through first: the alias symbol's own
+      // declaration is the `import` statement, which is not a body either.
+      const declSymbols = [];
       try {
         const sig = checker.getResolvedSignature(node);
-        const sym = sig?.declaration?.symbol;
-        for (const d of sym?.getDeclarations?.() ?? []) {
+        if (sig?.declaration?.symbol) declSymbols.push(sig.declaration.symbol);
+      } catch {
+        /* no resolved signature, so no declaration-local overload set */
+      }
+      try {
+        const nameNode = expr && ts.isPropertyAccessExpression(expr) ? expr.name : expr;
+        let merged = nameNode ? checker.getSymbolAtLocation(nameNode) : undefined;
+        if (merged && merged.flags & ts.SymbolFlags.Alias) {
+          try { merged = checker.getAliasedSymbol(merged); } catch { /* keep the alias */ }
+        }
+        if (merged) declSymbols.push(merged);
+      } catch {
+        /* the callee names no symbol — a computed or synthesised call */
+      }
+      for (const sym of declSymbols) {
+        for (const d of sym.getDeclarations?.() ?? []) {
+          if (!ts.isFunctionLike(d)) continue;
           const s = siteOf(d);
           cha.add(s);
           rta.add(s);
         }
-      } catch {
-        /* no overload set to add */
       }
 
       const chaList = [...cha].slice(0, MAX_TARGETS);
