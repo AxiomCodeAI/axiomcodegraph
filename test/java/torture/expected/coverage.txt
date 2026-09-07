@@ -5,12 +5,12 @@
   F04 event-driven dispatch      edges= 10  answered= 10 (100.0%)  exact= 10 precise= 0 ancestor= 0  MISSED= 0  wide=  4
   F05 annotations (config)       edges=  0  answered=  0 (    --)  exact=  0 precise= 0 ancestor= 0  MISSED= 0  wide=  0
   F06 lambdas & method refs      edges= 13  answered= 12 ( 92.3%)  exact= 12 precise= 0 ancestor= 0  MISSED= 1  wide=  1
-  F07 records/sealed/enums       edges= 12  answered=  9 ( 75.0%)  exact=  9 precise= 0 ancestor= 0  MISSED= 3  wide=  0
+  F07 records/sealed/enums       edges= 12  answered= 10 ( 83.3%)  exact= 10 precise= 0 ancestor= 0  MISSED= 2  wide=  0
   F08 nesting & outward calls    edges= 11  answered= 10 ( 90.9%)  exact= 10 precise= 0 ancestor= 0  MISSED= 1  wide=  1
   F09 declared blind spots       edges=  2  answered=  2 (100.0%)  exact=  2 precise= 0 ancestor= 0  MISSED= 0  wide=  1
   F10 value flow                 edges= 24  answered= 24 (100.0%)  exact= 24 precise= 0 ancestor= 0  MISSED= 0  wide= 20
   F11 test-looking package names edges=  4  answered=  4 (100.0%)  exact=  4 precise= 0 ancestor= 0  MISSED= 0  wide=  0
-  TOTAL                           edges=126  answered=121 ( 96.0%)  exact=120 precise= 1 ancestor= 0  MISSED= 5  wide= 35
+  TOTAL                           edges=126  answered=122 ( 96.8%)  exact=121 precise= 1 ancestor= 0  MISSED= 4  wide= 35
 
   f05 is scored on config rows, not on invoke instructions:
     config-bean-def           3
@@ -23,7 +23,6 @@
 
   MISSED (the oracle has it, the graph does not):
     F06 torture.F06Functional#<init> -> torture.Item#name()
-    F07 torture.F07Modern#nested -> torture.Leaf#render()
     F07 torture.F07Modern#nested -> torture.Pair#left()
     F07 torture.F07Modern#nested -> torture.Pair#right()
     F08 torture.F08Nesting#viaAnonymous -> torture.F08Nesting$anon:Callable#<init>

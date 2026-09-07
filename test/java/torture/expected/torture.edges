@@ -1,7 +1,6 @@
 ambiguous_anon	anon_new	torture.F08Nesting#viaAnonymous() -> -
 ambiguous_unknown	method	torture.F06Functional#<type-initializer>() -> -
 ambiguous_unknown	method	torture.F06Functional#wire() -> -
-ambiguous_unknown	method	torture.F07Modern#nested(Node) -> -
 boundary_lib	ctor_delegate	it.example.Failure#<init>(String) -> java.lang.RuntimeException#<init>(String)
 boundary_lib	method	torture.AuditHandler#handle(Event) -> dep.Event#name()
 boundary_lib	method	torture.F01Polymorphism#o5() -> java.lang.Integer#valueOf(int)
@@ -142,6 +141,7 @@ known_edge	method	torture.F07Modern#declared(Leaf) -> torture.Leaf#render()
 known_edge	method	torture.F07Modern#describe(Node) -> torture.Empty#render()
 known_edge	method	torture.F07Modern#describe(Node) -> torture.Leaf#render()
 known_edge	method	torture.F07Modern#describe(Node) -> torture.Pair#render()
+known_edge	method	torture.F07Modern#nested(Node) -> torture.Leaf#render()
 known_edge	method	torture.F07Modern#viaEnumInherited(Op) -> torture.Op#twice(int)
 known_edge	method	torture.F07Modern#viaInstanceof(Node) -> torture.Leaf#render()
 known_edge	method	torture.F08Nesting#viaDeep() -> torture.Deep#twoLevelsOut()
