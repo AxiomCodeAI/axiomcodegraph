@@ -10,7 +10,12 @@ So this one takes CPython as the denominator and the IR as the answer sheet:
 
   code objects   every function/lambda/comprehension `compile()` produces, vs py_method
   classes        every class statement, vs py_type
-  call sites     every non-implicit CALL the compiler emits, vs py_call_site + py_decorator
+  (call sites    NOT here. `every non-implicit CALL the compiler emits, vs
+                 py_call_site + py_decorator` was advertised on this line and never
+                 implemented — this tool opens neither CSV. That invariant lives in
+                 tools/coverage_guard.py, whose check 2 does exactly it and, since
+                 #224, actually runs and can fail. Recorded rather than deleted so a
+                 reader who came here looking for it is sent to the right place.)
   bindings       every symtable symbol, vs py_binding
 
 A shortfall here is an IR flaw and nothing the engine can fix. A surplus is usually the

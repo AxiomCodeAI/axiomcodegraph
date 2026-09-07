@@ -76,6 +76,12 @@ PY="${AXIOM_PY_PYTHON:-$(find_pinned_python)}"
 # a handle on it either way or it silently degrades to "cannot check" on every run
 # that does not pass --oracle.
 PINNED_PY="$PY"
+# The coverage guard's CHECK 2 compares against CPython tier 1, whose opcode model is
+# version-specific, so it must run on the pinned interpreter or it reports version
+# differences as parser gaps. Check 1 does not care. Prefer the pinned interpreter and
+# fall back to $PY, where check 2 skips itself loudly.
+GUARD_PY="$PINNED_PY"
+command -v "$GUARD_PY" >/dev/null 2>&1 || GUARD_PY="$PY"
 WORK="$HERE/.work"
 export AXIOM_PY_ORACLE="$ORACLE_HOME"
 
@@ -207,7 +213,7 @@ for dir in "$HERE"/cases/*/; do
     fi
     fail=$((fail+1)); failed+=("$name"); continue; fi
 
-  if ! "$PY" "$HERE/tools/coverage_guard.py" "$w/ir" "$w/out" "$dir/src" >"$w/coverage.txt" 2>&1; then
+  if ! "$GUARD_PY" "$HERE/tools/coverage_guard.py" "$w/ir" "$w/out" "$dir/src" >"$w/coverage.txt" 2>&1; then
     echo "FAIL (silent drop)"; sed 's/^/    /' "$w/coverage.txt" | head -12
     fail=$((fail+1)); failed+=("$name"); continue; fi
 
@@ -297,7 +303,7 @@ if [ "$ORACLE_ONLY" = "0" ] && [ -d "$HERE/projects" ]; then
           --intermediate "$pw/int" --output "$pw/out" >"$pw/solve.log" 2>&1; then
       echo "FAIL (solve — $(tail -1 "$pw/solve.log" | cut -c1-70))"
       fail=$((fail+1)); failed+=("project:$pname"); continue; fi
-    if ! "$PY" "$HERE/tools/coverage_guard.py" "$pw/ir" "$pw/out" "$pdir" >"$pw/coverage.txt" 2>&1; then
+    if ! "$GUARD_PY" "$HERE/tools/coverage_guard.py" "$pw/ir" "$pw/out" "$pdir" >"$pw/coverage.txt" 2>&1; then
       echo "FAIL (silent drop)"; sed 's/^/    /' "$pw/coverage.txt" | head -12
       fail=$((fail+1)); failed+=("project:$pname"); continue; fi
     "$PY" "$HERE/tools/tier_report.py" "$pw/out" > "$pw/actual.tiers" 2>"$pw/tier.log"
