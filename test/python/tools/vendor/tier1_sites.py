@@ -47,6 +47,11 @@ SUPPORTED = {(3, 10), (3, 11), (3, 12), (3, 13)}
 VERSION = sys.version_info[:2]
 
 FLAG_PUSHES_TWO = VERSION >= (3, 12)
+# BINARY_SUBSCR consumes two slots and pushes one, but the generic fallback applies only the NET
+# effect, so the CONTAINER survived in the callee slot and `TABLE["d"](n)` was attributed to
+# `TABLE`. Same treatment as CALL_OPS: pop the consumed slots and push a NAMED sentinel, so a
+# consumer can tell "statically unnameable by construction" from "attribution failed".
+SUBSCRIPT_OPS = {'BINARY_SUBSCR'}
 CALL_OPS = ({'CALL', 'CALL_FUNCTION_EX', 'CALL_KW'} if VERSION >= (3, 11)
             else {'CALL_FUNCTION', 'CALL_METHOD', 'CALL_FUNCTION_KW', 'CALL_FUNCTION_EX'})
 
@@ -189,6 +194,10 @@ def _walk(code, out: List[Site], norm: Normalizer, path: str, owner: Anchor) -> 
             push(('__build_class__', 'BUILTIN', current_line, ''))
             continue
 
+        if name in SUBSCRIPT_OPS:
+            pop(2)
+            push(('<subscript-result>', 'SUBSCRIPT_RESULT', current_line, ''))
+            continue
         if name in CALL_OPS:
             argc = ins.arg or 0
             if name == 'CALL':
