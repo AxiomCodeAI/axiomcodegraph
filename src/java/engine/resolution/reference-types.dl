@@ -89,6 +89,30 @@ local_var_type_resolves(prov, local, ref, elem) :- foreach_iterable(local, iterE
     lib_type(_, "java.lang.Iterable", _, _, _, _, _, _, _, _, _, _, _, ity),
     type_prov(elem, prov).
 
+// A RECORD DECONSTRUCTION component — `if (n instanceof Pair(Leaf a, Node ignored)) a.render()`.
+// The component binds a variable exactly as `instanceof Leaf l` does, but the two are shaped
+// differently in the IR: a bare pattern's type reference is owned by the LOCAL, so the declared-type
+// rule at the top of this file finds it, while a record pattern's components emit their
+// PATTERN_BINDING_TYPE references against the enclosing RECORD_PATTERN EXPRESSION. The local is
+// there (scopeKind = RECORD_PATTERN) and the reference is there; nothing joined them, so every call
+// on a deconstructed component was a declared unknown.
+//
+// Joined on the component's own written type NAME rather than by position: one RECORD_PATTERN
+// expression owns one reference per component and they all carry position 0, so position cannot
+// separate them. The name can — and when two components share a type the reference denotes that
+// same type anyway, so the join stays correct rather than merely unambiguous. Taking the REFERENCE
+// (not just the local's potentialQualifiedName) is what keeps type arguments available downstream.
+//
+// Scoped to the enclosing method so a name is matched inside the method it appears in.
+//
+// NOT covered: a NESTED component (`Pair(Pair(Leaf x, …), …)`). The parser emits no local at all
+// for x, so there is nothing here to type — that is a separate, parser-side gap.
+// java_local_variable (19): 1 name 2 variableTypeName 9 scopeKind 14 methodRegistryLinkHash 19 hash
+local_var_type_resolves(prov, local, ref, t) :- java_local_variable(_, tname, _, _, _, _, _, _, "RECORD_PATTERN", _, _, _, _, m, _, _, _, _, local),
+    java_type_reference(_, "PATTERN_BINDING_TYPE", _, _, _, _, _, "0", tname, _, _, _, _, _, _, expr, "EXPRESSION", ref),
+    expr_ultimate_method("client", expr, m),
+    type_ref_resolves(prov, ref, t).
+
 // ── method_param_type_resolves(Prov, ParamHash, RefHash, TypeHash) ──────────
 method_param_type_resolves(prov, param, ref, t) :- java_type_reference(_, "METHOD_PARAM", _, _, _, _, _, "0", _, _, _, _, _, _, _, param, "METHOD_PARAM", ref),
     type_ref_resolves(prov, ref, t).

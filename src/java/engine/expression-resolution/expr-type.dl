@@ -100,6 +100,14 @@ expr_type(prov, e, t) :- java_expression(_, _, _, _, _, _, _, _, _, _, name, _, 
     java_local_variable(name, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, local),
     !local_monomorphic(local),
     local_var_type_resolves(prov, local, _, t).
+// (2b) The same, for a PATTERN BINDING — `instanceof Leaf l`, a switch arm's `case Leaf l`, and a
+// record deconstruction's components. The parser tags these use sites PATTERN_BINDING_VARIABLE, so
+// neither clause above matched them. There is no flow-typed counterpart: a pattern binding has no
+// initializer, its type is the one written in the pattern, and the match already guarantees it.
+expr_type(prov, e, t) :- java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "PATTERN_BINDING_VARIABLE", _, _, _, _, _, _, _, _, _, e),
+    expr_ultimate_method("client", e, m),
+    java_local_variable(name, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, local),
+    local_var_type_resolves(prov, local, _, t).
 
 // ── this — the enclosing type (always client) ───────────────────────────────
 // A QUALIFIED this is excluded: it names its own type and is handled below. Without the guard the
@@ -501,6 +509,16 @@ recv_decl_ref(recv, ref, t) :- java_expression(_, _, _, _, _, _, _, _, _, _, nam
     expr_ultimate_method("client", recv, m),
     java_local_variable(name, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, local),
     local_var_type_resolves(_, local, ref, t).
+// A PATTERN BINDING used as a receiver — `if (n instanceof Pair(Leaf a, …)) a.render()`, and the
+// switch-arm form. The parser tags these use sites PATTERN_BINDING_VARIABLE rather than
+// LOCAL_VARIABLE (consistently, as of the pattern-binding fix), so the clause above never matched
+// them and the binding's declared type could not reach the call, however well it had been resolved.
+// Same shape as the local clause: match the written name inside the enclosing method.
+recv_decl_ref(recv, ref, t) :- java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "PATTERN_BINDING_VARIABLE", _, _, _, _, _, _, _, _, _, recv),
+    expr_ultimate_method("client", recv, m),
+    java_local_variable(name, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, local),
+    local_var_type_resolves(_, local, ref, t).
+
 // Type arguments written on the INITIALIZER rather than the declaration: `var x = new
 // Holder<String>()`, or a raw/inferred declaration `Holder x = new Holder<String>()`.
 // The declared-type ref above carries no arguments there; the object-creation expression
