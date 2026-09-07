@@ -40,6 +40,10 @@ public class ClassFileOracle {
     static final Map<String, String>            SUPER   = new HashMap<>();   // internal -> internal
     static final Map<String, List<String>>      IFACES  = new HashMap<>();
     static final Map<String, Set<MethodKey>>    DECL    = new HashMap<>();
+    // Declared members carrying ACC_SYNTHETIC or ACC_BRIDGE. The CALLER side has always skipped
+    // these by flag; the CALLEE side skipped only by NAME, against a list that is javac's
+    // vocabulary, so a helper another compiler generates became a must-have edge. See issue #199.
+    static final Map<String, Set<MethodKey>>    SYNTH   = new HashMap<>();
     static final Set<String>                    APP     = new LinkedHashSet<>();
     static final Set<String>                    ENUMS   = new HashSet<>();
     static final Set<String>                    DEFAULT_CTOR = new HashSet<>(); // classes whose <init>() is javac-synthesized
@@ -139,10 +143,28 @@ public class ClassFileOracle {
         IFACES.put(in, ifs);
         if ("java/lang/Enum".equals(SUPER.get(in))) ENUMS.add(in);
         Set<MethodKey> d = DECL.computeIfAbsent(in, k -> new HashSet<>());
+        Set<MethodKey> syn = SYNTH.computeIfAbsent(in, k -> new HashSet<>());
+        Set<MethodKey> real = new HashSet<>();
         for (MethodModel m : cm.methods()) {
-            d.add(new MethodKey(m.methodName().stringValue(), params(m.methodType().stringValue())));
+            MethodKey mk = new MethodKey(m.methodName().stringValue(), params(m.methodType().stringValue()));
+            d.add(mk);
+            int mf = m.flags().flagsMask();
+            // A LAMBDA BODY is ACC_SYNTHETIC and is recorded here too, which is harmless: it is
+            // reached through invokedynamic and the emit loop folds it into its enclosing method as
+            // a CALLER, so it never reaches the callee test. Verified on 05-lambda-and-method-refs:
+            // the oracle emits no edge whose callee is a `lambda$` body.
+            if ((mf & 0x0040) != 0 || (mf & 0x1000) != 0) syn.add(mk);   // ACC_BRIDGE | ACC_SYNTHETIC
+            else real.add(mk);
             if (m.methodName().equalsString("<init>") && isSynthesizedDefaultCtor(m)) DEFAULT_CTOR.add(in);
         }
+        // A KEY THAT ALSO NAMES A REAL METHOD IS NOT SYNTHETIC. MethodKey is (name, params) with
+        // NO return type, and a COVARIANT-RETURN OVERRIDE declares two methods that share it: the
+        // real one and the bridge javac generates beside it. `protected Base clone()` on Base
+        // yields both `clone()->Base` and a bridge `clone()->Object`, so keying on the flag alone
+        // made the real method unreachable and dropped the `super.clone()` edge that 34-object-
+        // members exists to pin. Excluding only keys with NO real declaration keeps that edge and
+        // still excludes a generated helper like ecj's `$SWITCH_TABLE$<type>()`, which has no twin.
+        syn.removeAll(real);
     }
 
     /**
@@ -429,6 +451,14 @@ public class ClassFileOracle {
                     }
                 }
                 if (appOnly && !APP.contains(dc)) continue;
+                // SYNTHETIC CALLEE, by FLAG rather than by name. `excludedName` is a four-entry
+                // javac vocabulary, so a member another compiler generates was emitted as ground
+                // truth: ecj lowers an enum switch into `$SWITCH_TABLE$<type>()` and calls it,
+                // javac lowers the same construct with a holder class and no call. The engine
+                // cannot emit that edge, because the source contains no such call — so it scored
+                // as MISSING, the category the report defines as undeniable. Tested against the
+                // DECLARING class, which is what the emitted edge names.
+                if (SYNTH.getOrDefault(dc, Set.of()).contains(new MethodKey(name, ps))) continue;
                 String from = cname(cls) + "#" + callerName + "(" + callerParams + ")"
                             + (withLines ? "@" + line : "");
                 String sig = "#" + name + "(" + String.join(",", ps) + ")";
