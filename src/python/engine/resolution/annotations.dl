@@ -108,32 +108,40 @@ param_declared_type_by_parser(p, ph, t) :-
     type_ref_owner(p, ph, "METHOD_PARAM", r),
     type_ref(p, _, "METHOD_PARAM", _, _, r),
     type_ref_resolved(p, t, r).
-annotation_agrees(p, ph, t) :- param_declared_type(p, ph, t), param_declared_type_by_parser(p, ph, t).
-annotation_differs(p, ph, mine, theirs) :-
-    param_declared_type(p, ph, mine), param_declared_type_by_parser(p, ph, theirs), theirs != mine.
-// The parser saw an annotation the engine's name lookup could not resolve — a
-// function-local import, a forward reference, a re-export. Counted so the gap is a number.
-annotation_parser_only(p, ph, t) :-
-    param_declared_type_by_parser(p, ph, t), !param_declared_type(p, ph, _).
 
 // ============================================================================
-// THE TYPE-REFERENCE TABLE IS THE BETTER SOURCE (issue #47)
+// TWO ROUTES TO AN ANNOTATION'S TYPE, AND WHY BOTH STAY (issue #47)
 //
-// Everything above resolves an annotation from the ENTITY tables --
-// parameterBaseType, returnTypeName, fieldBaseType. Those columns are derived by
-// truncating the annotation at the first `[`, which keeps the quote characters of a
-// string forward reference and leaves a leading quote unbalanced when the annotation was
-// also subscripted. Both problems are artefacts of the column choice.
+// ROUTE A, above: the ENTITY columns -- parameterBaseType, fieldBaseType,
+// returnTypeName. The first two are the annotation truncated at the first `[`, so they
+// keep the quote characters of a PEP 484 string forward reference and leave a leading
+// quote unbalanced when the annotation was also subscripted. returnTypeName is not
+// truncated at all -- it is the whole annotation text -- so the three columns are not
+// even the same kind of value.
 //
-// py_type_reference has neither. It reports typeName ALREADY UNQUOTED, states the kind
-// outright (STRING_FORWARD_REF / OPTIONAL / SUBSCRIPT / UNION_PEP604 ...) rather than
-// leaving it to be inferred from punctuation, and resolves a large share of references to
-// a hash directly. The engine was already computing that resolved answer -- as
-// param_declared_type_by_parser -- and using it ONLY to cross-check, then discarding it.
-// annotation_parser_only above literally counts the annotations the parser resolved and
-// the engine did not, and nothing consumed the count.
+// ROUTE B, below: py_type_reference. typeName arrives ALREADY UNQUOTED, the kind is
+// stated outright (NAME / STRING_FORWARD_REF / OPTIONAL / SUBSCRIPT / UNION_PEP604 ...)
+// rather than inferred from punctuation, and a quarter of references carry a resolved FK
+// that needs no name matching at all. Route B is the better source and is what the
+// structural rules key on -- take the FK where the parser has one, otherwise look up the
+// CLEAN name.
 //
-// So: take the FK where the parser has one, and otherwise look up the CLEAN name.
+// #47 PROPOSED FINISHING THE JOB BY DELETING ROUTE A. MEASURED, THAT LOSES ANSWERS,
+// because one annotation spelling reaches the engine through route A alone:
+//
+//     Payload[str] | None      kind=UNKNOWN   no children   typeName EMPTY
+//
+// A PEP 604 union is decomposed only while every operand is a bare name; give one
+// operand a subscript and the whole reference collapses. `Payload | None`,
+// `Optional[Payload]` and `Optional[Payload[str]]` all arrive structured, so this is
+// neither generics nor `|` -- it is a subscript AS A UNION OPERAND. For that one shape
+// truncating at the first `[` is the only thing that yields `Payload`, and route A is
+// what does it. Filed as AxiomCodeAI/parser#141.
+//
+// Route A therefore covers the PARAMETER and the FIELD, and cannot cover the RETURN,
+// whose column is untruncated. f35_generic_union holds all three: removing route A turns
+// the first two into ambiguous_unknown, and the third is already a declared miss. When
+// parser#141 lands, route A can go and f35 keeps passing on route B alone.
 // ============================================================================
 
 field_declared_type_by_parser(p, f, t) :-
@@ -271,17 +279,13 @@ method_declared_return_type(p, m, t) :-
 //
 // A quoted union such as `"str | bytes"` simply fails to match a single name, which is
 // the right outcome -- only the bare-name form resolves here.
-// Quote normalisation used to live here: the entity-table columns keep the quotes of a
-// PEP 484 string forward reference, so the name never matched. It is gone because the
-// lookup no longer reads those columns -- py_type_reference.typeName arrives unquoted and
-// kind=STRING_FORWARD_REF says so outright. f10_forward_refs is the guard that this is a
-// simplification and not a regression.
+// Quote normalisation used to live here, because the entity-table columns keep the quotes
+// of a PEP 484 string forward reference and so the name never matched. It is gone: route B
+// resolves these outright -- py_type_reference.typeName arrives unquoted and
+// kind=STRING_FORWARD_REF says so -- and the route-A clause simply fails to match a quoted
+// name, which costs nothing now that something else answers. f10_forward_refs is the guard
+// that this is a simplification and not a regression.
 
-
-method_declared_return_type(p, m, t) :-
-    method_decl(p, _, _, _, ret, m), ret != "",
-    method_module(p, mod, m),
-    type_name_in_module(p, mod, ret, t).
 
 // ── method_declared_return_type_lib(MethodHash, LibTypeHash) ─────────────────
 // `def make() -> Square` in the client, Square declared in the library. Same shape as
