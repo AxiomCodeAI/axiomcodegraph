@@ -391,12 +391,26 @@ pkg_specifier_wanted(spec) :- type_ref_import_specifier(_, spec, _),
 // own root). Matching the root alone therefore finds the shim and none of its exports.
 // The suffix list mirrors exactly what staging creates, so this widens to the package
 // and never past it.
-lib_package_root_target(spec, m) :- pkg_specifier_wanted(spec),
+//
+// KEYED ON LENGTH, not on the suffix. Written as one rule, the body is
+// |specifiers| x |subdirectories| x |lib module paths| — measured, 298 x 4 x 5,076 =
+// 6.05M triples, each minting a string with two cat calls and then slicing a long path
+// to throw the result away. 3.51s to derive 1,566 rows, 0.45 tuples/second.
+//
+// The suffix set does not depend on the module, so build it once. Then the only thing a
+// module needs from it is the LENGTHS to slice at: take that many characters off the
+// end of the path and look the slice up. A slice of exactly l characters can only equal
+// a suffix that is itself l characters long, so the lookup is sound, and the distinct
+// lengths number in the dozens where the suffixes number 1,192.
+pkg_suffix(suffix, spec) :- pkg_specifier_wanted(spec),
     pkg_staged_subdir(sub),
-    suffix = cat(cat("node_modules/", spec), sub),
-    module_base_path("lib", bp, m),
-    strlen(bp) > strlen(suffix),
-    substr(bp, strlen(bp) - strlen(suffix), strlen(suffix)) = suffix.
+    suffix = cat(cat("node_modules/", spec), sub).
+pkg_suffix_len(l) :- pkg_suffix(suffix, _), l = strlen(suffix).
+
+lib_package_root_target(spec, m) :- module_base_path("lib", bp, m),
+    pkg_suffix_len(l),
+    strlen(bp) > l,
+    pkg_suffix(substr(bp, strlen(bp) - l, l), spec).
 pkg_staged_subdir("").
 pkg_staged_subdir("/dist").
 pkg_staged_subdir("/build").
