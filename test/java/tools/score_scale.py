@@ -75,12 +75,40 @@ class Names:
             self.m[h] = f"{self.anon.get(cls, cls)}#{nm}({','.join(ps)})"
             self.file[h] = r.get('filePath') or tfile.get(th, '')
 
-TESTPATH = re.compile(r'(^|/)(test|tests|testsuite|test-framework|testFixtures|it|e2e|benchmarks|examples|fixtures)(/|$)'
+# A test tree, matched against the path RELATIVE TO THE EXTRACTION ROOT — never the absolute path.
+# The IR records filePath absolutely, so searching all of it let a directory ABOVE the project
+# decide the scope: the same project scored 6 methods checked out in one place and 0 checked out
+# under a directory named `fixtures`, with no error either time. A denominator that moves with the
+# checkout location is the failure SCORING.md opens by describing.
+#
+# `it` is NOT in the list. It is a real, widely-shipped Java package root (the top level of every
+# Italian open-source library), and dropping it was a defect the parser already paid for — its
+# src/test/java-gates/source-walk.ts pins `it` under MUST_SURVIVE for exactly this reason. The
+# cost of leaving it out is a Maven `src/it/java` integration-test tree now being scored; the
+# file-name half below still catches the usual `*IT.java` naming, and scoring a few extra real
+# methods is the safe direction next to silently dropping a whole package.
+TESTPATH = re.compile(r'(^|/)(test|tests|testsuite|test-framework|testFixtures|e2e|benchmarks|examples|fixtures)(/|$)'
                       r'|[^/]*(Test|Tests|IT|TestCase)\.java$|(^|/)Test[A-Z][^/]*\.java$')
 
-def caller_name(e):        # oracle_diff compares callers at NAME level (a lambda body carries no descriptor)
+def edge_key(e):
+    """ONE normalisation, applied to whichever side is being read. Applying any of it to one side
+    only deletes correct answers from that side and then reports them as the other side's defects.
+
+    The CALLER is compared at name level, because a lambda body carries no descriptor.
+
+    A CONSTRUCTOR callee is compared at name level too. It used to be dropped from the engine's
+    answer and kept in the oracle's — the comment said "excluded on BOTH sides" and only one side
+    did it — so every explicitly written `new` was scored missing, and the missing-edge census was
+    topped by a cluster that was entirely an artefact. It is now SCORED rather than excluded: the
+    reason for excluding it was that the two oracle readers disagreed about which `<init>` is
+    javac-synthesized, and expected/oracle-agreement.txt now records that disagreement as zero.
+    Only its parameter list is uncomparable, because javac gives a constructor parameters the
+    source never writes — an inner class's enclosing instance, a local or anonymous class's
+    captured variables — which is the same reason, and the same treatment, as oracle_diff.py."""
     a, b = e.split(' -> ', 1)
-    return re.sub(r'\([^)]*\)$', '', a) + ' -> ' + b
+    a = re.sub(r'\([^)]*\)$', '', a)
+    if '#<init>' in b: b = re.sub(r'\([^)]*\)$', '', b)
+    return a + ' -> ' + b
 
 def main():
     ir, out, lb_f, ub_f = sys.argv[1:5]
@@ -97,11 +125,33 @@ def main():
 
     n = Names(ir)
     in_scope_hash, excluded_test = set(), 0
+    # Everything the IR saw came from one extraction, so their common prefix is the project root.
+    # Stripping it is what makes the exclusion a property of the project rather than of the disk.
+    all_paths = [p for p in n.file.values() if p]
+    root = ''
+    if all_paths:
+        try: root = os.path.commonpath(all_paths) if len(all_paths) > 1 else os.path.dirname(all_paths[0])
+        except ValueError: root = ''            # mixed drives/relative — fall back to absolute
+    def relpath(fp):
+        if root and fp.startswith(root): return fp[len(root):].lstrip('/')
+        return fp
+
     for h, lbl in n.m.items():
-        fp = n.file.get(h, '')
+        fp = relpath(n.file.get(h, ''))
         if TESTPATH.search(fp): excluded_test += 1; continue
         if scope and not any(s in fp for s in scope): continue
         in_scope_hash.add(h)
+
+    # A SCOPE THAT CAME OUT EMPTY IS NOT A SCORE. Every metric below would print 0.000, which reads
+    # as "the engine resolved nothing" rather than "nothing was measured" — and that is exactly how
+    # the absolute-path defect this filter used to have stayed invisible.
+    if not in_scope_hash:
+        print(f"NOTHING IN SCOPE: all {len(n.m):,} methods were excluded "
+              f"({excluded_test:,} by the test-path filter"
+              f"{', the rest by --scope-prefix' if scope else ''}).")
+        print("  This is not a score. Check the extraction root and any --scope-prefix; the "
+              "test-path filter matches the path RELATIVE to the project root.")
+        sys.exit(2)
 
     eng = set()
     for line in open(f'{out}/call-chain-edges.csv', encoding='utf-8', errors='replace'):
@@ -109,18 +159,18 @@ def main():
         if len(f) < 7: continue
         if f[1] not in n.m or f[3] not in n.m: continue         # client -> client only
         if f[1] not in in_scope_hash: continue                  # caller must be in scope
-        if '#<init>(' in n.m[f[3]]: continue                    # ctor targets excluded on BOTH sides
-        if '#<clinit>(' in n.m[f[1]]: continue                  # static initialisers: excluded on BOTH sides
+        if '#<clinit>' in n.m[f[1]]: continue                   # a static initialiser is not a source method
         if app_classes is not None and (n.m[f[1]].split('#')[0] not in app_classes
                                         or n.m[f[3]].split('#')[0] not in app_classes): continue
-        eng.add(caller_name(f"{n.m[f[1]]} -> {n.m[f[3]]}"))
+        eng.add(edge_key(f"{n.m[f[1]]} -> {n.m[f[3]]}"))
 
     def load(p):
         s = set()
         for l in open(p):
             l = l.strip()
             if ' -> ' not in l: continue
-            s.add(caller_name(l))
+            if '#<clinit>' in l.split(' -> ', 1)[0]: continue
+            s.add(edge_key(l))
         return s
     lb, ub = load(lb_f), load(ub_f)
     # the oracle sees compiled classes for the whole artifact; restrict it to the same caller scope
@@ -142,7 +192,8 @@ def main():
     print(f"scoped by compiled app classes: {len(app_classes) if app_classes else 'n/a'}")
     print(f"scope: {len(in_scope_hash)} methods in {len(scoped_callers)} types"
           f"   (test-path methods excluded: {excluded_test})")
-    print(f"edges  engine={len(eng)}  certain(G_lb)={len(lb)}  possible(G_ub)={len(ub)}")
+    print(f"edges  engine={len(eng):,}  certain(G_lb)={len(lb):,}  possible(G_ub)={len(ub):,}"
+          f"   [one rule both sides: caller at name level, constructor callee at name level]")
     print(f"  precision            {P:.3f}")
     print(f"  recall vs certain    {Rc:.3f}   ({TP}/{TP+FN})")
     print(f"  recall vs possible   {Rp:.3f}   ({len(eng & ub)}/{len(ub)})")

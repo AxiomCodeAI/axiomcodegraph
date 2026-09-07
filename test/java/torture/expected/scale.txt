@@ -1,0 +1,22 @@
+scoped by compiled app classes: n/a
+scope: 220 methods in 58 types   (test-path methods excluded: 0)
+edges  engine=170  certain(G_lb)=142  possible(G_ub)=183   [one rule both sides: caller at name level, constructor callee at name level]
+  precision            0.729
+  recall vs certain    0.873   (124/142)
+  recall vs possible   0.880   (161/183)
+  F1 0.795   MCC 0.788
+  FP split: SOUND(in G_ub) 37   FABRICATED(outside G_ub) 9
+
+MISSING-EDGE CENSUS  (18 edges)
+       3  callee type torture.Widget
+       3  callee type torture.Store
+       2  callee type torture.Base
+       2  callee type torture.Item
+       2  callee type torture.Pair
+       1  callee type torture.F01Polymorphism
+       1  callee type torture.Leaf
+       1  callee type torture.F08Nesting$anon:Callable
+       1  callee type torture.Fast
+       1  callee type torture.Slow
+       1  callee type torture.Op
+  (full list: /tmp/qa-missing.txt, fabricated: /tmp/qa-fabricated.txt)
