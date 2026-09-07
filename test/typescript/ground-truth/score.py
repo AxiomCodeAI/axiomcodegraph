@@ -65,7 +65,13 @@ def read_tsv(path, header=True):
 TEST_PATH = re.compile(
     r'(^|/)(test|tests|__tests__|__mocks__|spec|specs|benchmark|benchmarks|e2e'
     r'|example|examples|docs|doc|website|scripts)(/|$)'
-    r'|\.(spec|test|bench)\.[cm]?[jt]sx?$')
+    # A SUFFIXED test extension counts too. `.test.ts` was matched and `.test-d.ts` was
+    # not, so a library whose type tests outnumber its source 17:1 had 94.5% of its
+    # "production" sites be test files — 11,055 of 11,818 — and it is 86% of the
+    # development set, so the headline development rate was largely a statement about
+    # somebody's type tests. Covers .test-d.ts, .test-prop.ts, .spec-x.ts, .bench.ts.
+    # The hyphenated part is required to be alphanumeric so `latest.ts` cannot match.
+    r'|\.(spec|test|bench)(-[a-z0-9]+)*\.[cm]?[jt]sx?$')
 
 
 def is_test_path(p):
