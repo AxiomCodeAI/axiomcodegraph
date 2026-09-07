@@ -84,6 +84,33 @@ for a in "$@"; do case "$a" in
   -h|--help) sed -n '2,32p' "$0"; exit 0;; *) FILTERS+=("$a");; esac; done
 
 [ -f "$PARSER" ] || { echo "SKIP: parser not found at $PARSER (set AXIOM_PARSER)"; exit 77; }
+# ── --bless WITHOUT --oracle LEAVES THE ORACLE GOLDENS STALE ────────────────
+# This has left main red twice. `normalize_edges.py` builds the ENGINE side of BOTH the
+# edge goldens and the oracle diff, so a change to how it labels a declaration moves every
+# line of both. But the oracle block below only runs under --oracle, so `--bless` alone
+# regenerates `.edges` and never recomputes `.oracle` — and the staleness surfaces on
+# somebody else's branch as "oracle changed", which reads like an engine regression and is
+# not one.
+#
+# Worse, the two disagreeing can manufacture phantom debt: an arrow labelled `<arrow@11>`
+# on one side and `shadowed` on the other scores one MISSING plus one extra, which is
+# arithmetically self-consistent, and the MISSING then gets written into `known-missing`
+# where the "a listed gap that starts working also fails" rule locks it in.
+#
+# So refuse rather than warn. There is no case where regenerating one and not the other is
+# what the author meant.
+if [ "$BLESS" = "1" ] && [ "$ORACLE" != "1" ]; then
+  n_oracle=$(find "$HERE/expected" -name '*.oracle' 2>/dev/null | wc -l | tr -d ' ')
+  if [ "${n_oracle:-0}" -gt 0 ]; then
+    echo "REFUSING: --bless without --oracle"
+    echo "  It would regenerate the .edges goldens and leave $n_oracle .oracle golden(s)"
+    echo "  describing the PREVIOUS labels. normalize_edges.py builds both sides, so an"
+    echo "  engine-label change moves every .oracle line too."
+    echo "  Run:  ./run-tests.sh ${FILTERS[*]:-} --bless --oracle"
+    exit 2
+  fi
+fi
+
 mkdir -p "$WORK"
 # The engine's --library is mandatory. The client-only pass is handed an EMPTY
 # directory, which stages every lib_* relation empty — semantically identical to a
