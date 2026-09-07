@@ -156,7 +156,28 @@ for dir in "$HERE"/cases/*/; do
 
   # ── optional: GROUND TRUTH from javac + javap (no library IR involved) ────
   if [ "$ORACLE" = "1" ]; then
-    if python3 "$HERE/tools/bytecode_oracle.py" "$dir/src" "$w/oracle" --app-only > "$w/oracle.edges" 2>"$w/oracle.log"; then
+    # A case that ships lib-src/ must hand it to the oracle too: javac needs the stub on the
+    # CLASSPATH or the client cannot compile at all, and the oracle then silently never runs.
+    # Two-stage, not merged, so the stub stays external — the same shape torture/harness/run.sh uses.
+    #
+    # EXCEPT a stub standing in for a JDK package: javac refuses to compile into java.*/javax.*/jdk.*
+    # ("package exists in another module: java.base"), and it does not need to — javac resolves those
+    # against the real java.base, so the client already compiles. Handing such a stub to javac breaks
+    # the compile and re-creates exactly the silent skip this branch exists to remove.
+    orc_lib=()
+    if [ -d "$dir/lib-src" ] && [ -z "$(find "$dir/lib-src" -mindepth 1 -maxdepth 1 -type d \
+           \( -name java -o -name javax -o -name jdk \) -print -quit)" ]; then
+      orc_lib=(--library-src "$dir/lib-src")
+    fi
+    # score_boundary.py defaults to the JDK prefixes, so a stub in its own package (dep.*) matches
+    # nothing and every hand-off site scores zero. Take the prefixes from the stub's own top-level
+    # packages, which is what "library" means for this case.
+    orc_prefix=()
+    if [ -d "$dir/lib-src" ]; then
+      pfx="$(find "$dir/lib-src" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort | sed 's/$/./' | paste -sd, -)"
+      [ -n "$pfx" ] && orc_prefix=(--prefix "$pfx")
+    fi
+    if python3 "$HERE/tools/bytecode_oracle.py" "$dir/src" "$w/oracle" --app-only ${orc_lib[@]+"${orc_lib[@]}"} > "$w/oracle.edges" 2>"$w/oracle.log"; then
       python3 "$HERE/tools/normalize_edges.py" "$w/ir" "$w/out" --client-pairs > "$w/engine.pairs"
       if ! python3 "$HERE/tools/oracle_diff.py" "$w/engine.pairs" "$w/oracle.edges" \
              "$HERE/expected/$name.known-missing" > "$w/oracle.diff"; then
@@ -185,7 +206,7 @@ for dir in "$HERE"/cases/*/; do
         java -cp "$WORK/.agreement/.oracle-classes" ClassFileOracle --app "$w/oracle/classes" \
              --with-lines > "$w/boundary.gt" 2>/dev/null
         python3 "$HERE/tools/score_boundary.py" "$w/ir" "$w/out" "$w/boundary.gt" \
-             --library "$w/lib-ir" > "$w/boundary.txt" 2>&1
+             --library "$w/lib-ir" ${orc_prefix[@]+"${orc_prefix[@]}"} > "$w/boundary.txt" 2>&1
         bexp="$HERE/expected/$name.boundary"
         if [ "$BLESS" = "1" ]; then cp "$w/boundary.txt" "$bexp"
         elif [ ! -f "$bexp" ]; then
@@ -197,7 +218,22 @@ for dir in "$HERE"/cases/*/; do
       fi
       orc_summary="  [oracle: $(head -1 "$w/oracle.diff")]"
     else
-      orc_summary="  [oracle skipped: $(head -1 "$w/oracle.log")]"
+      # A javac failure is an ENVIRONMENT skip only for a case that declares an external
+      # dependency it cannot ship (spring-oracle.conf names the one). Every other case carries
+      # its own sources and any stub library they need, so a compile failure there cannot be a
+      # property of this machine — it is a defect in the case or in this harness, and the only
+      # honest report is a failing test. Reporting it as a skip is precisely how a case whose
+      # oracle had NEVER run once still printed `ok` on every run.
+      if [ -f "$dir/spring-oracle.conf" ]; then
+        # NOT head -1: bytecode_oracle.py writes the label `javac failed:` on line 1 and the
+        # compiler diagnostics on lines 2+, so the first line on its own is an empty reason and
+        # a real missing dependency looks identical to a case that can never compile anywhere.
+        orc_summary="  [oracle skipped: $(tr '\n' ' ' < "$w/oracle.log" | cut -c1-200)]"
+      else
+        echo "FAIL (bytecode oracle cannot compile a self-contained case)"
+        sed 's/^/    /' "$w/oracle.log" | head -20
+        fail=$((fail+1)); failed+=("$name"); continue
+      fi
     fi
   else orc_summary=""; fi
 

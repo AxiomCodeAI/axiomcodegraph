@@ -29,7 +29,13 @@ Emitted form (same conventions as normalize_edges.py, so the two are directly co
     are read from the BootstrapMethods table, so `X::m` yields the edge to `m`. Any other bootstrap
     (StringConcatFactory) has no such argument and stays excluded.
 
-usage: bytecode_oracle.py <src-dir> <work-dir> [--app-only]
+usage: bytecode_oracle.py <src-dir> <work-dir> [--app-only] [--library-src <dir>]
+
+  --library-src  a STUB library source root the case ships. It is compiled FIRST and put on
+                 the classpath of the client compile, so the stub stays EXTERNAL — exactly as
+                 it is for the engine, which is handed it as --library. Merging the two source
+                 roots instead would turn library edges into client edges and change what the
+                 case measures. Same two-stage shape as torture/harness/run.sh.
 """
 import os, re, subprocess, sys, collections
 
@@ -75,10 +81,17 @@ def desc_params(desc):
         out.append(t.split('.')[-1].split('$')[-1] + '[]' * arr)
     return out
 
-def compile_case(src, work):
+def compile_case(src, work, lib_src=None):
     classes = os.path.join(work, 'classes'); os.makedirs(classes, exist_ok=True)
     files = [os.path.join(r, f) for r, _, fs in os.walk(src) for f in fs if f.endswith('.java')]
-    r = subprocess.run(['javac', '-g', '-d', classes] + files, capture_output=True, text=True)
+    cp = []
+    if lib_src:
+        lib_classes = os.path.join(work, 'lib-classes'); os.makedirs(lib_classes, exist_ok=True)
+        lib_files = [os.path.join(r, f) for r, _, fs in os.walk(lib_src) for f in fs if f.endswith('.java')]
+        r = subprocess.run(['javac', '-g', '-d', lib_classes] + lib_files, capture_output=True, text=True)
+        if r.returncode: sys.exit(f"javac failed (stub library):\n{r.stdout}{r.stderr}")
+        cp = ['-cp', lib_classes]
+    r = subprocess.run(['javac', '-g', '-d', classes] + cp + files, capture_output=True, text=True)
     if r.returncode: sys.exit(f"javac failed:\n{r.stdout}{r.stderr}")
     names = []
     for root, _, fs in os.walk(classes):
@@ -206,7 +219,9 @@ def parse(classes, names):
 def main():
     src, work = sys.argv[1], sys.argv[2]
     app_only = '--app-only' in sys.argv
-    classes, names = compile_case(src, work)
+    lib_src = None
+    if '--library-src' in sys.argv: lib_src = sys.argv[sys.argv.index('--library-src') + 1]
+    classes, names = compile_case(src, work, lib_src)
     supers, declared, edges, _kw, lambda_in, javap, ninstr = parse(classes, names)
     # javap prints an enum as `class X extends java.lang.Enum`, with no `enum` keyword, so identify
     # enums by that supertype — which is the bytecode truth anyway.
