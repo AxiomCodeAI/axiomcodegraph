@@ -150,8 +150,13 @@ for dir in "$HERE"/cases/*/; do
   if ! python3 "$HERE/tools/coverage_guard.py" "$w/ir" "$w/out" >"$w/coverage.txt" 2>&1; then
     echo "FAIL (silent drop)"; sed 's/^/    /' "$w/coverage.txt"; fail=$((fail+1)); failed+=("$name"); continue; fi
 
-  lib_ir_arg=""; [ -d "$w/lib-ir" ] && lib_ir_arg="$w/lib-ir"
-  python3 "$HERE/tools/normalize_edges.py" "$w/ir" "$w/out" $lib_ir_arg > "$w/actual.edges" 2>"$w/norm.log" || {
+  # An ARRAY, not a bare string: $w is derived from the checkout path, so an unquoted expansion
+  # word-splits wherever that path contains a space, normalize_edges.py silently ignores a third
+  # argument that is not a directory, and every stub-library callee comes out <unresolved:...>.
+  # The ${a[@]+...} form is required because this runs under set -u on bash 3.2, where expanding
+  # an empty array is an unbound-variable error.
+  lib_ir_arg=(); [ -d "$w/lib-ir" ] && lib_ir_arg=("$w/lib-ir")
+  python3 "$HERE/tools/normalize_edges.py" "$w/ir" "$w/out" ${lib_ir_arg[@]+"${lib_ir_arg[@]}"} > "$w/actual.edges" 2>"$w/norm.log" || {
     echo "FAIL (normalize — see $w/norm.log)"; fail=$((fail+1)); failed+=("$name"); continue; }
 
   # ── optional: GROUND TRUTH from javac + javap (no library IR involved) ────
