@@ -333,6 +333,8 @@
 .decl primitive_has_no_members(c0:symbol)
 .decl primitive_name(c0:symbol)
 .decl property_access_name(c0:symbol,c1:symbol)
+.decl qname_dot_prefix(c0:symbol,c1:symbol)
+.decl qname_scan(c0:symbol,c1:number)
 .decl qname_walk(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol)
 .decl qualified_name_binds(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
 .decl readonly_array_resolved(c0:symbol)

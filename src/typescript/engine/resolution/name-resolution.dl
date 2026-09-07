@@ -135,13 +135,28 @@ demanded_qualified_name(base) :- ref_base_name(ref, base),
     base != tn,
     base != "".
 
-qname_walk(mod, ctn, prefix, prov, k, ent) :- demanded_qualified_name(ctn),
-    module_decl("client", _, _, _, _, mod),
+// SEEDING THE WALK — INVERTED. The obvious way to write this rule is to take every
+// binding in scope and ask whether its name is a dot-prefix of a demanded dotted
+// name. That reads naturally and is quadratic: the only shared variable between
+// `module_decl` and `name_binds_any` is `mod`, so the body is
+// |demanded names| x |bindings in that module| candidate pairs, each paying two
+// substr calls to be rejected. Measured on the largest corpus member that is 84s —
+// 61% of the entire solve — to produce 1,451 rows, and 11s on a member where the
+// answer is EMPTY, because the work is done before the test that discards it.
+//
+// The set being searched for is tiny and known up front: a dotted name has one
+// prefix per dot it contains. So enumerate THOSE and use them as lookup keys, which
+// turns the scan into an indexed probe on name_binds_any's (mod, name) index. Same
+// answer, same rows, no cross product. This is the `lib_shadow_cand` lesson from the
+// Java engine restated: when a filter is selective, make it the index key rather
+// than the last conjunct.
+qname_scan(ctn, 0) :- demanded_qualified_name(ctn).
+qname_scan(ctn, i + 1) :- qname_scan(ctn, i), i + 1 < strlen(ctn).
+qname_dot_prefix(ctn, substr(ctn, 0, i)) :- qname_scan(ctn, i), substr(ctn, i, 1) = ".".
+
+qname_walk(mod, ctn, prefix, prov, k, ent) :- qname_dot_prefix(ctn, prefix),
     name_binds_any(mod, prefix, prov, k, ent),
-    l = strlen(prefix),
-    l < strlen(ctn),
-    substr(ctn, 0, l) = prefix,
-    substr(ctn, l, 1) = ".".
+    module_decl("client", _, _, _, _, mod).
 qname_walk(mod, ctn, dotted, prov, k, ent) :- qname_walk(mod, ctn, prefix, prov, _, ns),
     namespace_member(prov, ns, seg, k, ent),
     pl = strlen(prefix),
