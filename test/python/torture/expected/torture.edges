@@ -238,6 +238,8 @@ boundary_lib	SIMPLE_CALL	f32_iteration_protocol.a_comprehension -> builtin:sum
 boundary_lib	SIMPLE_CALL	f32_iteration_protocol.drive -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f32_iteration_protocol.drive -> builtin:str
 boundary_lib	SIMPLE_CALL	f32_iteration_protocol.undecidable_by_the_ir -> builtin:object.__init__
+boundary_lib	SIMPLE_CALL	f33_type_stubs._stub_is_not_a_target -> external:accelstub.fast
+boundary_lib	SIMPLE_CALL	f33_type_stubs.drive -> builtin:str
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	main.main -> builtin:print
@@ -460,6 +462,7 @@ known_edge	METHOD_CALL	main.main -> f29_subscript.drive
 known_edge	METHOD_CALL	main.main -> f30_builtin_elements.drive
 known_edge	METHOD_CALL	main.main -> f31_named_blind_spots.drive
 known_edge	METHOD_CALL	main.main -> f32_iteration_protocol.drive
+known_edge	METHOD_CALL	main.main -> f33_type_stubs.drive
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator_in_for
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_plain
@@ -546,6 +549,8 @@ known_edge	SIMPLE_CALL	f32_iteration_protocol.drive -> f32_iteration_protocol.a_
 known_edge	SIMPLE_CALL	f32_iteration_protocol.drive -> f32_iteration_protocol.a_self_iterator
 known_edge	SIMPLE_CALL	f32_iteration_protocol.drive -> f32_iteration_protocol.an_async_for
 known_edge	SIMPLE_CALL	f32_iteration_protocol.drive -> f32_iteration_protocol.undecidable_by_the_ir
+known_edge	SIMPLE_CALL	f33_type_stubs.a_real_module_beside_its_stub -> stubbed_impl.compute
+known_edge	SIMPLE_CALL	f33_type_stubs.drive -> f33_type_stubs.a_real_module_beside_its_stub
 known_edge	SIMPLE_CALL	main.<module> -> main.main
 known_edge	SIMPLE_CALL	pkgmod.user.run_generator -> pkgmod._gen.each
 known_edge	SIMPLE_CALL	pkgmod.user.run_generator_in_for -> pkgmod._gen.each_first

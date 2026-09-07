@@ -497,6 +497,8 @@
 .decl call_site_unresolved(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl method_has_unknown_call(c0:symbol,c1:symbol)
 .decl call_chain_summary(c0:symbol,c1:number)
+.decl module_is_stub(c0:symbol,c1:symbol)
+.decl method_declared_in_stub(c0:symbol,c1:symbol)
 .decl client_calls_client(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl client_calls_lib(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl client_calls_builtin(c0:symbol,c1:symbol,c2:symbol)

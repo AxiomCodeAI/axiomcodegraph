@@ -20,6 +20,17 @@
 //   22 serviceVersionLinkHash  23 pyModuleUniqueHash
 // ============================================================================
 
+// ── module_is_stub(Prov, ModuleHash) — a .pyi type stub (col 8) ──────────────
+// A `.pyi` is a DECLARATION, not an implementation. CPython's
+// importlib.machinery.SOURCE_SUFFIXES is ['.py'], so a stub is not importable and no
+// function object ever exists at a name it declares — `import accel` raises
+// ModuleNotFoundError. The implementation is elsewhere, normally a C extension.
+//
+// The parser has always said so, on two columns (moduleKind=STUB and isStub), and no
+// rule read either. See issue #223.
+module_is_stub("client", h) :- py_module(_, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+module_is_stub("lib", h) :- lib_py_module(_, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
 // ── module_decl(Prov, Name, QualifiedName, ModuleKind, ModuleHash) ───────────
 // The module's identity. QualifiedName is the dotted path and is the ONLY durable
 // cross-run key: a hash minted by one parser run cannot match another's (the
