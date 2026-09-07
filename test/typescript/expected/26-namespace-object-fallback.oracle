@@ -1,0 +1,3 @@
+oracle=3 engine=1 agree=1 missing=2 (known 2, NEW 0) extra=0
+  known    caller#a() -> helper#toString(string)
+  known    caller#b() -> helper#unique(string)
