@@ -6,6 +6,7 @@ ambiguous_unknown	method	torture.F06Functional#<type-initializer>() -> -
 ambiguous_unknown	method	torture.F06Functional#insideLambda(List) -> -
 ambiguous_unknown	method	torture.F06Functional#wire() -> -
 ambiguous_unknown	method	torture.F07Modern#nested(Node) -> -
+boundary_lib	ctor_delegate	it.example.Failure#<init>(String) -> java.lang.RuntimeException#<init>(String)
 boundary_lib	method	torture.AuditHandler#handle(Event) -> dep.Event#name()
 boundary_lib	method	torture.F01Polymorphism#o5() -> java.lang.Integer#valueOf(int)
 boundary_lib	method	torture.F02Generics#firstOf(List) -> java.util.List#get(int)
@@ -74,6 +75,8 @@ boundary_lib	new	torture.F06Functional#insideLambda(List) -> java.util.ArrayList
 boundary_lib	new	torture.F10Flow#viaListElement() -> java.util.ArrayList#<init>()
 known_edge	ctor_delegate	torture.Unit#<init>() -> torture.Square#<init>(double)
 known_edge	lambda_body	torture.F06Functional#viaLocal(Item) -> torture.Item#name()
+known_edge	method	it.example.F11Packages#create() -> it.example.Helper#use()
+known_edge	method	it.example.F11Packages#plain(Helper) -> it.example.Helper#use()
 known_edge	method	torture.AuditHandler#handle(Event) -> torture.AuditHandler#record(String)
 known_edge	method	torture.Client#go(Reader) -> torture.Reader#direct()
 known_edge	method	torture.Deep#twoLevelsOut() -> torture.F08Nesting#outerField()
@@ -143,6 +146,8 @@ known_edge	method	torture.Nested#reachStatic() -> torture.F08Nesting#outerStatic
 known_edge	method	torture.Reader#direct() -> torture.PrimaryStore#read(String)
 known_edge	method	torture.Reader#onOrders(String) -> torture.PrimaryStore#read(String)
 known_edge	method	torture.Reader#sweep() -> torture.PrimaryStore#read(String)
+known_edge	new	it.example.F11Packages#create() -> it.example.Helper#<init>()
+known_edge	new	it.example.F11Packages#fail() -> it.example.Failure#<init>(String)
 known_edge	new	torture.F01Polymorphism#viaAllocated() -> torture.Unit#<init>()
 known_edge	new	torture.F02Generics#viaInlineBinding() -> torture.Box#<init>()
 known_edge	new	torture.F03Var#build() -> torture.Widget#<init>()

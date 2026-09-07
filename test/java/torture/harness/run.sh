@@ -68,6 +68,20 @@ python3 "$TOOLS/normalize_edges.py" .work/client-ir .work/out --client-pairs > .
 python3 "$TOOLS/normalize_edges.py" .work/client-ir .work/out "$LIBROOT" > .work/actual.edges 2>/dev/null
 python3 harness/score.py .work/client-ir .work/out .work/engine.pairs .work/oracle.edges > .work/actual.txt 2>&1
 
+# ── THE SCALE SCORER, ON A PROJECT WHOSE ANSWER IS KNOWN ──────────────────────────────────────
+# tools/score_scale.py produces the corpus recall figures and had no test of its own. Two defects
+# lived in it undetected: it dropped constructor targets from the engine's answer while keeping
+# them in the oracle's, and it decided scope by matching an ABSOLUTE path, so a checkout under a
+# directory named `fixtures` scored zero. Both are invisible at corpus scale — a wrong denominator
+# among tens of thousands reads exactly like a right one. Here the answer is known, so the report
+# is a golden.
+java -cp .work/oracle-classes ClassFileOracle --app .work/client-classes --app-only \
+     > .work/scale-lb.txt 2>/dev/null
+java -cp .work/oracle-classes ClassFileOracle --app .work/client-classes --app-only --envelope \
+     > .work/scale-ub.txt 2>/dev/null
+python3 "$TOOLS/score_scale.py" .work/client-ir .work/out .work/scale-lb.txt .work/scale-ub.txt \
+     > .work/actual.scale 2>&1
+
 # ── INVARIANT: staging a library must never REMOVE an answer ───────────────────────────────────
 # Nothing else here can catch that, because every other assertion fixes the library input; a site
 # that loses its answer only shows up when the two runs are compared to each other.
@@ -79,8 +93,9 @@ if ! python3 "$SHARED/compare_runs.py" .work/out-nolib .work/out --top 5 > .work
 fi
 
 fail=0
-for a in edges txt; do
+for a in edges txt scale; do
   exp="expected/torture.$a"; [ "$a" = txt ] && exp="expected/coverage.txt"
+  [ "$a" = scale ] && exp="expected/scale.txt"
   if [ "$BLESS" = 1 ]; then cp ".work/actual.$a" "$exp"; continue; fi
   if [ ! -f "$exp" ]; then echo "FAIL (no golden $exp — run with --bless)"; fail=1; continue; fi
   if ! diff -q "$exp" ".work/actual.$a" >/dev/null; then
