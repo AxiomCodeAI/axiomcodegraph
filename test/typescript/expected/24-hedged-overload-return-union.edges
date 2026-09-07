@@ -1,0 +1,4 @@
+ambiguous_unknown	METHOD_CALL	consumer#viaVideo(Factory) @L17 -> -
+ambiguous_unknown	METHOD_CALL	consumer#viaVideo(Factory) @L18 -> -
+ambiguous_unknown	METHOD_CALL	consumer#viaWidening(Factory,string) @L24 -> -
+ambiguous_unknown	METHOD_CALL	consumer#viaWidening(Factory,string) @L25 -> -
