@@ -302,6 +302,12 @@
 .decl lib_method_return_mono(c0:symbol,c1:symbol)
 .decl lib_method_ret_tvar_fw(c0:symbol,c1:symbol,c2:symbol)
 .decl lib_type_arg_binding(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl lib_nested_in(c0:symbol,c1:symbol,c2:symbol)              // (outer name, inner name, nested type) sharing a file
+.decl lib_nested_count(c0:symbol,c1:symbol,c2:number)           // how many types that (outer,inner) pair names
+.decl lib_nested_type(c0:symbol,c1:symbol,c2:symbol)            // the pair resolves to exactly one type
+.decl lib_arg_ref(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol)  // a depth-1 type argument on a lib return reference
+.decl lib_arg_type_at(c0:symbol,c1:symbol,c2:symbol)            // (base reference, position, the argument's resolved type)
+.decl lib_ret_nested_param(c0:symbol,c1:symbol,c2:symbol,c3:symbol)  // (method, nested arg type, its param, the owner tvar filling it)
 .decl reached_lib(c0:symbol)
 .decl demanded_qname(c0:symbol)
 .decl lib_java_lang_type(c0:symbol,c1:symbol)

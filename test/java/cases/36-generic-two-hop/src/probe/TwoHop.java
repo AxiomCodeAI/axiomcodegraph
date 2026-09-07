@@ -80,14 +80,18 @@ public class TwoHop {
     }
 
     /**
-     * The same nesting written on the LIBRARY's own reference — NOT resolved, pinned as a
-     * declared unknown so the gap is a visible golden line.
+     * The same nesting written on the LIBRARY's own reference.
      *
      * Lookup<K,V>#entries() returns Box<Pair<K,V>>: the depth-1 argument is Pair, which binds
-     * Box's element, but Pair's own K and V are type VARIABLES at depth 2 of a library
-     * reference, and nothing substitutes the receiver's String/Widget into them. So `value()`
-     * has no type and the call on it is a declared unknown. This is the shape that leaves
-     * `for (var e : map.entrySet()) e.getValue()` unresolved against the real JDK.
+     * Box's element, and Pair's own K and V are type VARIABLES at depth 2 of a LIBRARY
+     * reference, filled by the receiver's String/Widget. Three things have to hold at once —
+     * the argument must resolve by the same name paths the base type uses, the depth-2
+     * variables must be substituted from the receiver, and the chain must survive `get(0)`,
+     * which returns a bare type variable and so carries no arguments of its own to substitute
+     * into.
+     *
+     * This is the same shape as `for (var e : map.entrySet()) e.getValue()` against the real
+     * JDK, where the nested argument is `Set<Map.Entry<K,V>>`.
      */
     static Lookup<String, Widget> lookup() { return null; }
 
