@@ -1875,6 +1875,37 @@ export class TypeMethodExtractor {
           continue;
         }
 
+        // ASSERT statement condition and detail message
+        if (child.type === 'assert_statement') {
+          // `assert cond;` and `assert cond : detail;`. The node has no field names, so the
+          // named children carry the two halves in order: the first is always the condition,
+          // the second, when present, is the detail message.
+          const named = child.children.filter(c => c.isNamed);
+          const contexts = [RootContext.ASSERT_CONDITION, RootContext.ASSERT_MESSAGE];
+
+          named.slice(0, 2).forEach((part, index) => {
+            const assertExprs = this.expressionExtractor.extractFromConditionExpression(
+              part,
+              typeRegistryHash,
+              currentBlockHash,
+              ExpressionOwnerKind.ASSERT_STATEMENT,
+              contexts[index]!,
+              packageName,
+              importMap,
+              hasStarImports,
+              methodParamNames,
+              localVariableNames,
+              currentLambdaParams
+            );
+            expressions.push(...assertExprs);
+            this.collectExpressionExtractorResults();
+          });
+
+          // An assert has no body of its own, so there is nothing further to descend into:
+          // both halves are expressions and were just handled.
+          continue;
+        }
+
         // WHILE statement condition
         if (child.type === 'while_statement') {
           const condition = child.childForFieldName('condition');

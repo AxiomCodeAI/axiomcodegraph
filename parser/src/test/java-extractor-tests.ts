@@ -24,6 +24,7 @@ import { AnnotationKind } from '@/enums/java/annotations/AnnotationKind';
 import { ArgumentValueType } from '@/enums/java/annotations/ArgumentValueType';
 import { BlockKind } from '@/enums/java/blocks/BlockKind';
 import { ExpressionKind } from '@/enums/java/expressions/ExpressionKind';
+import { EdgeRole } from '@/enums/java/expressions/EdgeRole';
 import { RootContext } from '@/enums/java/expressions/RootContext';
 import { LocalVariableScopeKind } from '@/enums/java/local-variables/LocalVariableScopeKind';
 import { TypeRefContext } from '@/enums/java/type-references/TypeRefContext';
@@ -1109,6 +1110,50 @@ export class JavaExtractorTestRunner {
 
     // ── Expression Tests ──
     if (category === 'expressions') {
+      // assert (JLS 14.10). Both halves are expressions, and neither was extracted at all.
+      if (filename === 'AssertStatements.java') {
+        const inCtx = (e: ExtractedEntities, ctx: RootContext) =>
+          e.expressions.filter(x => x.getRootContext() === ctx);
+
+        validations.push(this.rule('Every assert condition is recorded', (e) => {
+          // Seven asserts in the fixture, each contributing exactly one ROOT condition row.
+          const roots = inCtx(e, RootContext.ASSERT_CONDITION).filter(x => x.getEdgeRole() === EdgeRole.ROOT);
+          return { passed: roots.length === 7, message: `Expected 7 ASSERT_CONDITION roots, got ${roots.length}` };
+        }));
+
+        validations.push(this.rule('Only the asserts that have one get a detail message', (e) => {
+          // Four of the seven declare a detail message.
+          const roots = inCtx(e, RootContext.ASSERT_MESSAGE).filter(x => x.getEdgeRole() === EdgeRole.ROOT);
+          return { passed: roots.length === 4, message: `Expected 4 ASSERT_MESSAGE roots, got ${roots.length}` };
+        }));
+
+        // The point of the issue: the calls inside an assert are call sites like any other.
+        validations.push(this.rule('Calls inside an assert are recorded as call sites', (e) => {
+          const calls = e.expressions.filter(x =>
+            x.getKind() === ExpressionKind.METHOD_INVOCATION &&
+            (x.getRootContext() === RootContext.ASSERT_CONDITION ||
+             x.getRootContext() === RootContext.ASSERT_MESSAGE));
+          return {
+            passed: calls.length >= 6,
+            message: `Expected at least 6 calls inside asserts, got ${calls.length}`
+          };
+        }));
+
+        // An assert nested in another statement's body must still be reached.
+        validations.push(this.rule('An assert inside an if or while body is reached', (e) => {
+          const lines = inCtx(e, RootContext.ASSERT_CONDITION).map(x => x.getStartLine());
+          const nested = [...new Set(lines)].filter((l): l is number => typeof l === 'number' && l >= 40 && l <= 48);
+          return { passed: nested.length >= 2, message: `Expected the two nested asserts, got lines ${JSON.stringify([...lines])}` };
+        }));
+
+        // An assert is an ordinary expression position: rich constructs inside it still work.
+        validations.push(this.rule('An anonymous class inside an assert is registered', (e) => {
+          const anon = e.types.filter(t => t.getName().endsWith('$anon:Runnable'));
+          return { passed: anon.length === 1, message: `Expected one anonymous type, got ${anon.length}` };
+        }));
+      }
+
+
       // Generic: all expression files should produce expressions
       validations.push(this.minCount('Should extract expressions', (e) => e.expressions, 1));
 
