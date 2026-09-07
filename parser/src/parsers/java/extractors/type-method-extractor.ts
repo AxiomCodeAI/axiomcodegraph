@@ -2045,20 +2045,29 @@ export class TypeMethodExtractor {
         // ASSERT statement condition and detail message
         if (child.type === 'assert_statement') {
           // `assert cond;` and `assert cond : detail;`. The node has no field names, so the
-          // named children carry the two halves in order: the first is always the condition,
-          // the second, when present, is the detail message.
+          // two halves have to be found in the child list rather than asked for by name.
           //
-          // A comment is a named child too, so it has to be excluded before taking them in
-          // order. Leaving it in shifted the read: a comment before the `:` pushed the message
-          // out of the pair and it produced no rows at all, and a comment before the condition
-          // additionally moved the condition into the message's slot. Unlike a ternary, an
-          // assert_statement carries no field names, so filtering is the only way to read it.
-          const named = child.children.filter(
-            c => c.isNamed && c.type !== 'line_comment' && c.type !== 'block_comment' && c.type !== 'comment'
-          );
+          // `line_comment` and `block_comment` are NAMED nodes in tree-sitter-java, so taking
+          // the first two named children takes any comment inside the assert as an operand. A
+          // block comment before the condition was the worst case: the comment became the
+          // condition and the condition call became the MESSAGE, so the real message was
+          // dropped and a once-per-assert call was reported in the wrong clause — a wrong
+          // context, not merely a missing row. Filter the comments out, and split the remainder
+          // on the `:` token the grammar actually uses to separate the halves, rather than on a
+          // position in a list a comment can shift.
+          const colon = child.children.find(c => c.type === ':');
+          const operands = child.children.filter(c =>
+            c.isNamed && c.type !== 'line_comment' && c.type !== 'block_comment');
+          const isCondition = (c: Parser.SyntaxNode) => !colon || c.startIndex < colon.startIndex;
+
+          const parts = [
+            operands.find(isCondition),
+            colon ? operands.find(c => !isCondition(c)) : undefined,
+          ];
           const contexts = [RootContext.ASSERT_CONDITION, RootContext.ASSERT_MESSAGE];
 
-          named.slice(0, 2).forEach((part, index) => {
+          parts.forEach((part, index) => {
+            if (!part) return;
             const assertExprs = this.expressionExtractor.extractFromConditionExpression(
               part,
               typeRegistryHash,

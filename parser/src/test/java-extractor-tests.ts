@@ -1394,15 +1394,18 @@ export class JavaExtractorTestRunner {
           e.expressions.filter(x => x.getRootContext() === ctx);
 
         validations.push(this.rule('Every assert condition is recorded', (e) => {
-          // Seven asserts in the fixture, each contributing exactly one ROOT condition row.
+          // Twelve asserts in the fixture, each contributing exactly one ROOT condition row:
+          // seven plain and five commented.
           const roots = inCtx(e, RootContext.ASSERT_CONDITION).filter(x => x.getEdgeRole() === EdgeRole.ROOT);
-          return { passed: roots.length === 7, message: `Expected 7 ASSERT_CONDITION roots, got ${roots.length}` };
+          return { passed: roots.length === 12, message: `Expected 12 ASSERT_CONDITION roots, got ${roots.length}` };
         }));
 
         validations.push(this.rule('Only the asserts that have one get a detail message', (e) => {
-          // Four of the seven declare a detail message.
+          // Eight of the twelve declare a detail message. This count is what a comment taken as
+          // an operand moves: the comment-only-condition assert would gain a message it does
+          // not have, and a commented one would lose the message it does.
           const roots = inCtx(e, RootContext.ASSERT_MESSAGE).filter(x => x.getEdgeRole() === EdgeRole.ROOT);
-          return { passed: roots.length === 4, message: `Expected 4 ASSERT_MESSAGE roots, got ${roots.length}` };
+          return { passed: roots.length === 8, message: `Expected 8 ASSERT_MESSAGE roots, got ${roots.length}` };
         }));
 
         // The point of the issue: the calls inside an assert are call sites like any other.
@@ -1420,8 +1423,47 @@ export class JavaExtractorTestRunner {
         // An assert nested in another statement's body must still be reached.
         validations.push(this.rule('An assert inside an if or while body is reached', (e) => {
           const lines = inCtx(e, RootContext.ASSERT_CONDITION).map(x => x.getStartLine());
-          const nested = [...new Set(lines)].filter((l): l is number => typeof l === 'number' && l >= 40 && l <= 48);
-          return { passed: nested.length >= 2, message: `Expected the two nested asserts, got lines ${JSON.stringify([...lines])}` };
+          // nested() spans lines 48-56 after the commented shapes were appended above it.
+          const nested = [...new Set(lines)].filter((l): l is number => typeof l === 'number' && l >= 48 && l <= 56);
+          return { passed: nested.length >= 2, message: `Expected the two nested asserts in lines 40-48, got condition lines ${JSON.stringify([...new Set(lines)])}` };
+        }));
+
+        // A comment inside an assert must not become an operand. `assert_statement` has no
+        // grammar fields, so the halves are found in the child list -- and comments are NAMED
+        // nodes, so a read that takes the first two named children takes the comment. Each
+        // commented method below holds the same two calls as conditionAndMessage: check() as the
+        // condition, msg() as the message. Keying on the callee's NAME is what makes this
+        // discriminating, because the defect swaps which half a call lands in.
+        const commented: ReadonlyArray<readonly [number, string, string | null]> = [
+          [69, 'commentBeforeColon', 'msg'],
+          [75, 'commentBeforeCondition', 'msg'],
+          [80, 'commentAfterColon', 'msg'],
+          [85, 'commentInConditionOnly', null],
+          [90, 'commentEverywhere', 'msg'],
+        ];
+        for (const [line, label, message] of commented) {
+          validations.push(this.rule(`A comment in ${label} does not move the operands`, (e) => {
+            const at = (ctx: RootContext) => inCtx(e, ctx)
+              .filter(x => x.getKind() === ExpressionKind.METHOD_INVOCATION &&
+                           (x.getStartLine() ?? -1) >= line && (x.getStartLine() ?? -1) <= line + 1)
+              .map(x => x.getLiteralValue() ?? '?');
+            const conds = at(RootContext.ASSERT_CONDITION);
+            const msgs = at(RootContext.ASSERT_MESSAGE);
+            const wantMsgs = message === null ? [] : [message];
+            return {
+              passed: JSON.stringify(conds) === JSON.stringify(['check']) &&
+                      JSON.stringify(msgs) === JSON.stringify(wantMsgs),
+              message: `condition=${JSON.stringify(conds)} (want ["check"]), ` +
+                       `message=${JSON.stringify(msgs)} (want ${JSON.stringify(wantMsgs)})`
+            };
+          }));
+        }
+
+        validations.push(this.rule('No comment is emitted as an assert operand', (e) => {
+          const bad = [...inCtx(e, RootContext.ASSERT_CONDITION), ...inCtx(e, RootContext.ASSERT_MESSAGE)]
+            .filter(x => (x.getLiteralValue() ?? '').trimStart().startsWith('/'))
+            .map(x => `L${x.getStartLine()}:${x.getStartColumn()} ${x.getLiteralValue()}`);
+          return { passed: bad.length === 0, message: `Comment as an assert operand: ${JSON.stringify(bad)}` };
         }));
 
         // An assert is an ordinary expression position: rich constructs inside it still work.
