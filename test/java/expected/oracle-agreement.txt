@@ -1,4 +1,4 @@
-cases compared 33   agreeing 33   skipped 4 (need a classpath: 26-spring-oracle, 32-library-handoff-depth, 36-generic-two-hop, 37-method-ref-arity)
+cases compared 33   agreeing 33
 CONSTRUCTOR-RULE disagreements: 0 cases, 0 rows
 OTHER disagreements: 0
 rows naming no method: 0

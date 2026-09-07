@@ -33,8 +33,30 @@ souffle_include_under(){
   return 1
 }
 find_souffle_include(){
-  local b p
-  [ -n "${AXIOM_SOUFFLE_INCLUDE:-}" ] && { echo "$AXIOM_SOUFFLE_INCLUDE"; return; }
+  local b p ov c
+  # THE OVERRIDE GOES THROUGH THE SAME PROBE. It used to return unchecked, which made the one path
+  # someone reaches for when the build is already broken the one path with no check behind it. And
+  # the natural value to set is whatever the resolver used to print -- `<prefix>/include/souffle`,
+  # for the whole life of the pre-#216 code -- which is one level too deep on a single-copy install
+  # and surfaces only as `fatal error: 'souffle/CompiledSouffle.h' file not found`, several hundred
+  # lines into a pipeline run with nothing naming the variable. See issue #255.
+  ov="${AXIOM_SOUFFLE_INCLUDE:-}"
+  if [ -n "$ov" ]; then
+    [ -f "$ov/souffle/CompiledSouffle.h" ] && { echo "$ov"; return; }
+    # Correct it where the intent is unambiguous -- a prefix, or the sibling that does hold the
+    # headers -- and say so, rather than only refusing.
+    for c in "$ov/include/souffle" "$ov/include" "$(dirname "$ov")"; do
+      if [ -f "$c/souffle/CompiledSouffle.h" ]; then
+        echo "!! AXIOM_SOUFFLE_INCLUDE=$ov holds no souffle/CompiledSouffle.h; using $c instead" >&2
+        echo "$c"; return
+      fi
+    done
+    # Empty, not an error status: the caller prints the install hint, and this names the cause.
+    echo "!! AXIOM_SOUFFLE_INCLUDE=$ov holds no souffle/CompiledSouffle.h, and neither does" >&2
+    echo "   its include/, include/souffle/ or parent. The -I must be the directory CONTAINING" >&2
+    echo "   souffle/ -- unset the variable to let it be derived from the souffle on PATH." >&2
+    return
+  fi
   b="$(command -v souffle 2>/dev/null)" || true
   if [ -n "$b" ]; then
     # Resolve symlinks WITHOUT depending on an interpreter or GNU coreutils:
