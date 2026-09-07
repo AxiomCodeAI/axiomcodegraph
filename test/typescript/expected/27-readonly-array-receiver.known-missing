@@ -1,0 +1,16 @@
+# Accepted gaps for 27-readonly-array-receiver — each line is an edge the TypeScript
+# compiler resolves and this engine does not. A NEW missing edge fails the suite; a line
+# here that STARTS working also fails, so the debt cannot rot.
+#
+# Not this case's subject. Inside `fns.every((f) => f(1))` the callback calls its own
+# parameter `f`, whose type is the function type written in the annotation, so the target
+# is that signature. Calling a parameter whose declared type is a function type is the
+# subject of 08 and of the unannotated-parameter work (#100); it appears here only
+# because `every` needs a callback to be called at all.
+#
+# What this case pins is the OWNER of each array member: the three `readonly T[]`
+# receivers must name ReadonlyArray's declaration and the two mutable ones must name
+# Array's. Both interfaces declare slice/every/join, so naming the wrong one is a
+# committed wrong answer and not an imprecision. Verified against the engine without the
+# fix: all three readonly sites answered Array# there.
+readonly#<arrow@11>(?) -> readonly#<arrow@10>(number)
