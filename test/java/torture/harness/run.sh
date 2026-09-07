@@ -92,6 +92,30 @@ if ! python3 "$SHARED/compare_runs.py" .work/out-nolib .work/out --top 5 > .work
   sed 's/^/    /' .work/monotonicity.txt | head -20; exit 1
 fi
 
+# ── INVARIANT: a staged platform IR must actually be ANSWERING ────────────────────────────────
+# A library-facts cache that serves the wrong entry does not present as staleness. It presents as
+# an ENGINE REGRESSION: the families that lose sites are the ones whose receivers are typed through
+# java.util, and every one of those losses has a plausible documented explanation (library-generic
+# substitution), so the story reads as self-consistent and the cache is the last thing suspected.
+#
+# These edges resolve if and only if the platform IR linked above reached the solver, so check them
+# by name. The goldens below would also move, but a diff spread across three families and a score
+# does not say "your library input was not the one you staged" — and that is the only sentence that
+# shortens the hunt. If this fires, clear the library-facts cache before suspecting the rules.
+if [ "$jdk_mods" -gt 0 ]; then
+  absent=""
+  for e in "java.util.ArrayList#get" "java.util.Map#put" "java.util.List#add" "java.lang.String#valueOf"; do
+    grep -qF "> $e" .work/actual.edges || absent="$absent $e"
+  done
+  if [ -n "$absent" ]; then
+    echo "FAIL (platform IR staged but not answering — absent:$absent)"
+    echo "     $jdk_mods modules were linked from $JDK_IR, so this is not a missing-staging gap."
+    echo "     Suspect the LIBRARY-FACTS CACHE first — a false hit serves another library's facts:"
+    echo "       rm -rf \"\${AXIOM_SOUFFLE_CACHE:-$ENG/.souffle-cache}\"/libfacts-*"
+    exit 1
+  fi
+fi
+
 fail=0
 for a in edges txt scale; do
   exp="expected/torture.$a"; [ "$a" = txt ] && exp="expected/coverage.txt"

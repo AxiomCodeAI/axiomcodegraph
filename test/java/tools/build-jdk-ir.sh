@@ -47,13 +47,22 @@ while [ $# -gt 0 ]; do case "$1" in
 [ -d "$SRC" ]  || { echo "no jdk source at $SRC" >&2; exit 1; }
 [ -f "$PARSER" ] || { echo "no parser at $PARSER (build it: npm run build)" >&2; exit 1; }
 
+. "$(cd "$(dirname "$0")/../../.." && pwd)/src/pipeline/portable-stat.sh"
 PARSER_REPO="$(cd "$(dirname "$PARSER")/.." && pwd)"
 PARSER_REV="$(git -C "$PARSER_REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 # THE REBUILD TRAP: dist/ is a build artefact; checking out a parser branch does not update it.
 if [ -d "$PARSER_REPO/.git" ]; then
-  DIST_T=$(stat -f %m "$PARSER" 2>/dev/null || stat -c %Y "$PARSER")
+  # file_mtime, not `stat -f %m || stat -c %Y`: see src/pipeline/portable-stat.sh. On GNU coreutils
+  # the old form left a filesystem report in DIST_T, so `[ "$DIST_T" -lt ... ]` exited 2 and this
+  # guard — the one guarding the rebuild trap described at the top of this file — passed for every
+  # input, including a genuinely stale dist/.
+  DIST_T="$(file_mtime "$PARSER")" || DIST_T=""
   HEAD_T=$(git -C "$PARSER_REPO" log -1 --format=%ct 2>/dev/null || echo 0)
-  [ "$DIST_T" -lt "$HEAD_T" ] && echo "!! parser dist/ ($(date -r "$DIST_T" 2>/dev/null)) is OLDER than its HEAD commit — run 'npm run build' first" >&2
+  if [ -z "$DIST_T" ]; then
+    echo "!! cannot read the mtime of $PARSER — the parser-staleness guard did NOT run" >&2
+  elif [ "$DIST_T" -lt "$HEAD_T" ]; then
+    echo "!! parser dist/ ($(date -r "$DIST_T" 2>/dev/null)) is OLDER than its HEAD commit — run 'npm run build' first" >&2
+  fi
 fi
 
 STAMP="$OUT/.parser-revision"

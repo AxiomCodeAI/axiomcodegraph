@@ -24,12 +24,19 @@ while [ $# -gt 0 ]; do case "$1" in
   -h|--help) sed -n '2,16p' "$0"; exit 0;; *) echo "unknown arg $1" >&2; exit 2;; esac; done
 
 [ -f "$PARSER" ] || { echo "no parser at $PARSER (build it: npm run build)" >&2; exit 1; }
+. "$(cd "$(dirname "$0")/../../.." && pwd)/src/pipeline/portable-stat.sh"
 PARSER_REPO="$(cd "$(dirname "$PARSER")/.." && pwd)"
 PARSER_REV="$(git -C "$PARSER_REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 # THE REBUILD TRAP: dist/ is a build artefact and a branch switch does not update it.
 if [ -d "$PARSER_REPO/.git" ]; then
-  DT=$(stat -f %m "$PARSER" 2>/dev/null || stat -c %Y "$PARSER"); HT=$(git -C "$PARSER_REPO" log -1 --format=%ct 2>/dev/null || echo 0)
-  [ "$DT" -lt "$HT" ] && echo "!! parser dist/ is OLDER than its HEAD commit — run 'npm run build' first" >&2
+  # file_mtime, not `stat -f %m || stat -c %Y` — see src/pipeline/portable-stat.sh.
+  DT="$(file_mtime "$PARSER")" || DT=""
+  HT=$(git -C "$PARSER_REPO" log -1 --format=%ct 2>/dev/null || echo 0)
+  if [ -z "$DT" ]; then
+    echo "!! cannot read the mtime of $PARSER — the parser-staleness guard did NOT run" >&2
+  elif [ "$DT" -lt "$HT" ]; then
+    echo "!! parser dist/ is OLDER than its HEAD commit — run 'npm run build' first" >&2
+  fi
 fi
 
 if [ "$CHECK" = 1 ]; then
