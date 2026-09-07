@@ -294,26 +294,101 @@ LIBS=""
 # the engine emits both, the site goes multi_inferred, and the copy the compiler did
 # not name is scored as a wrong target. Measured on the Parser repository, staging
 # `typescript` and `typescript/lib` as separate roots took WRONG from 115 to 384.
+# ── ONE IR ROOT PER PROGRAM, NOT PER INVOCATION (#230) ──────────────────────
+# The parser's contract is one output directory per PROGRAM (parser#74, closed as "give
+# each program its own folder — merging is the consumer's job"), and since parser#78 it
+# analyses every program under the root. So a single invocation over a package shipping
+# several programs analyses them all and publishes ONE, silently — no module rows for the
+# rest and no skipped-files entry either. Reproduced on two sibling packages under one
+# root: "Found 2 total project(s)", "TypeScript files analysed: 2", one module row.
+#
+# TRIGGERED BY PROVEN LOSS, NOT DONE SPECULATIVELY. Enumerating sub-programs
+# unconditionally is worse than the bug. One corpus dependency carries 143 nested
+# package.json files under `dist/compiled/` — vendored bundled JS with no TypeScript in
+# them at all — so a speculative fan-out means 143 parser invocations publishing nothing,
+# and staging one package under two roots is not harmless: the engine emits both
+# declarations, the site goes multi_inferred, and the copy the compiler did not name
+# scores as a wrong target. Measured previously on `typescript` and `typescript/lib`:
+# WRONG went from 115 to 384.
+#
+# So the root is staged first, and the parser's own numbers decide whether to look
+# further: it reports how many files it analysed, the IR says how many it published, and
+# a shortfall means the difference went nowhere. Only then are sub-programs enumerated.
+# For every single-program package this is one invocation, exactly as before.
+# Sourced rather than inlined so the fixture can test them directly (see
+# fixtures/multi-program/run.sh). A predicate that only runs inside a 20-minute pipeline
+# is a predicate nobody checks.
+# shellcheck source=tools/lib-staging.sh
+. "$HERE/tools/lib-staging.sh"
+
+stage_program() { # $1 = source dir, $2 = ir subdir name -> 0 if staged
+  local src="$1" name="$2" plog="$WORK/libir/$2.parser.log"
+  mkdir -p "$WORK/libir/$name"
+  node "$PARSER_DIST" "$src" "lib-$name" false "$WORK/libir/$name" >"$plog" 2>&1 || true
+  cat "$plog" >> "$WORK/libir.log" 2>/dev/null || true
+  if [ ! -s "$WORK/libir/$name/all-typescript-modules.csv" ]; then
+    rm -rf "$WORK/libir/$name"; return 1
+  fi
+  # WHERE THIS ROOT CAME FROM. A library IR records file paths RELATIVE to the directory
+  # it was extracted from while the oracle reports absolute paths, so without this the
+  # only identity both sides can compute is the basename — and a basename is not unique.
+  printf '%s\n' "$(cd "$src" && pwd)" > "$WORK/libir/$name/.source-root"
+  LIBS="${LIBS:+$LIBS,}$WORK/libir/$name"
+  echo "   + $name ($(( $(wc -l < "$WORK/libir/$name/all-typescript-modules.csv") - 1 )) modules)"
+  return 0
+}
+
 add_lib() { # $1 = source dir, $2 = ir subdir name
-  local src="$1" name="$2"
+  local src="$1" name="$2" rel sub sfx sf analysed published progs extra=0
   [ -d "$src" ] || return 1
   [ -d "$WORK/libir/$name" ] && { LIBS="${LIBS:+$LIBS,}$WORK/libir/$name"; return 0; }
-  mkdir -p "$WORK/libir/$name"
-  node "$PARSER_DIST" "$src" "lib-$name" false "$WORK/libir/$name" >>"$WORK/libir.log" 2>&1 || true
-  if [ -s "$WORK/libir/$name/all-typescript-modules.csv" ]; then
-    # WHERE THIS ROOT CAME FROM. A library IR records file paths RELATIVE to the
-    # directory it was extracted from, while the oracle reports absolute paths, so
-    # without this the only identity both sides can compute is the file's basename —
-    # and a basename is not unique. Measured on axios: 17% of adjudicated targets land
-    # on a key two different `index.d.ts` files share. Recording the root makes the
-    # relative path absolute again, which makes the identity exact.
-    printf '%s\n' "$(cd "$src" && pwd)" > "$WORK/libir/$name/.source-root"
-    LIBS="${LIBS:+$LIBS,}$WORK/libir/$name"
-    echo "   + $name ($(( $(wc -l < "$WORK/libir/$name/all-typescript-modules.csv") - 1 )) modules)"
+  stage_program "$src" "$name" || return 1
+
+  sf="$(lib_shortfall "$WORK/libir/$name" "$WORK/libir/$name.parser.log")" || return 0
+  set -- $sf; analysed="$1"; published="$2"
+  [ "$analysed" -gt "$published" ] || return 0
+
+  # A shortfall has two very different causes and they must not be reported as one.
+  #
+  # SIBLING PROGRAMS — separate packages under one root, each with its own manifest —
+  # are genuinely lost, and staging them recovers real declarations. That is #230.
+  #
+  # A DUAL-FORMAT BUILD is not lost. A package shipping `dist/esm` and `dist/cjs` is two
+  # programs holding THE SAME declarations in two module formats, and the parser publishing
+  # one of them is correct. Measured on this corpus: the only shortfalls observed were this
+  # shape, and the two files were byte-identical — so staging both would put every
+  # declaration in twice, send the site multi_inferred, and score the copy the compiler did
+  # not name as WRONG. Exactly what staging `typescript` and `typescript/lib` separately
+  # did: WRONG 115 -> 384.
+  #
+  # So the fan-out is keyed on a nested MANIFEST, which the dual-format shape does not have,
+  # and a shortfall with no sibling manifest is reported as unexplained rather than acted on.
+  progs="$(lib_programs "$src")"
+  if [ -z "$progs" ]; then
+    echo "     ! analysed $analysed files, published $published — $((analysed - published)) went nowhere"
+    echo "       no sibling program manifest; if this package ships dist/esm + dist/cjs that is"
+    echo "       EXPECTED — the same declarations twice, and one is the right answer. Unpublished:"
+    comm -23 \
+      <(find "$src" -name node_modules -prune -o \
+             \( -name '*.ts' -o -name '*.tsx' -o -name '*.mts' -o -name '*.cts' \) -print 2>/dev/null \
+         | sed "s|^$src/||" | sort) \
+      <(awk -F'\t' 'NR>1{print $4}' "$WORK/libir/$name/all-typescript-modules.csv" | sort) \
+      2>/dev/null | head -3 | sed 's/^/         /'
     return 0
   fi
-  rm -rf "$WORK/libir/$name"
-  return 1
+
+  echo "     ! analysed $analysed files, published $published — staging sibling programs (#230)"
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    sub="$src/$rel"; sfx="__$(printf '%s' "$rel" | tr '/.' '__')"
+    [ -d "$sub" ] || continue
+    [ -d "$WORK/libir/$name$sfx" ] && continue
+    stage_program "$sub" "$name$sfx" && extra=$((extra+1))
+    [ "$extra" -ge 32 ] && { echo "     ! stopped after 32 sibling programs"; break; }
+  done <<EOF
+$progs
+EOF
+  return 0
 }
 
 echo "▶ staging libraries..."

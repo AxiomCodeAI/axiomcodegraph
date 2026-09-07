@@ -185,24 +185,26 @@ if [ "$BLESS" != "1" ]; then
     fail=$((fail+1)); failed+=("linking-fixture")
   fi
 
-  # Whether a package's tsconfig CHAIN survives being mirrored. No case can cover it:
-  # every case carries its own src/tsconfig.json with nothing to extend, so none has an
-  # ancestor config to lose — which is why #240 survived a green suite. Exit 77 is the
-  # fixture declining for want of a parser, not a pass and not a failure.
-  echo
-  echo "── tsconfig-chain fixture ──"
-  bash "$HERE/fixtures/tsconfig-chain/run.sh" "${WORK:-/tmp/ts-tsconfig-chain}-chain" \
-       "$PARSER" >"$WORK-chain.log" 2>&1
-  rc=$?
-  if [ "$rc" -eq 0 ]; then
-    echo "tsconfig-chain fixture: ok"
-  elif [ "$rc" -eq 77 ]; then
-    echo "tsconfig-chain fixture: SKIPPED ($(tail -1 "$WORK-chain.log"))"
-  else
-    echo "tsconfig-chain fixture: FAILED"
-    grep -E '^FAIL' "$WORK-chain.log" | sed 's/^/  /' || tail -5 "$WORK-chain.log" | sed 's/^/  /'
-    fail=$((fail+1)); failed+=("tsconfig-chain-fixture")
-  fi
+  # Harness gates that take a parser and assert a property of the pipeline itself.
+  # Neither is expressible as a case: a case carries its own src/tsconfig.json with
+  # nothing to extend (#240), and none installs a package with several programs (#230).
+  # Exit 77 is a fixture declining for want of a parser — not a pass and not a failure.
+  for fx in tsconfig-chain multi-program; do
+    echo
+    echo "── $fx fixture ──"
+    bash "$HERE/fixtures/$fx/run.sh" "${WORK:-/tmp/ts-$fx}-$fx" "$PARSER" \
+         >"$WORK-$fx.log" 2>&1
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+      echo "$fx fixture: ok"
+    elif [ "$rc" -eq 77 ]; then
+      echo "$fx fixture: SKIPPED ($(tail -1 "$WORK-$fx.log"))"
+    else
+      echo "$fx fixture: FAILED"
+      grep -E '^FAIL' "$WORK-$fx.log" | sed 's/^/  /' || tail -5 "$WORK-$fx.log" | sed 's/^/  /'
+      fail=$((fail+1)); failed+=("$fx-fixture")
+    fi
+  done
 fi
 
 [ "$KEEP" = "1" ] || rm -rf "$WORK"
