@@ -2026,7 +2026,15 @@ export class TypeMethodExtractor {
           // `assert cond;` and `assert cond : detail;`. The node has no field names, so the
           // named children carry the two halves in order: the first is always the condition,
           // the second, when present, is the detail message.
-          const named = child.children.filter(c => c.isNamed);
+          //
+          // A comment is a named child too, so it has to be excluded before taking them in
+          // order. Leaving it in shifted the read: a comment before the `:` pushed the message
+          // out of the pair and it produced no rows at all, and a comment before the condition
+          // additionally moved the condition into the message's slot. Unlike a ternary, an
+          // assert_statement carries no field names, so filtering is the only way to read it.
+          const named = child.children.filter(
+            c => c.isNamed && c.type !== 'line_comment' && c.type !== 'block_comment' && c.type !== 'comment'
+          );
           const contexts = [RootContext.ASSERT_CONDITION, RootContext.ASSERT_MESSAGE];
 
           named.slice(0, 2).forEach((part, index) => {

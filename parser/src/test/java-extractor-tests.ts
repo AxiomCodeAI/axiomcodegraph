@@ -99,6 +99,9 @@ export class JavaExtractorTestRunner {
   /** Every vocabulary value observed across all fixtures, for the coverage gate. */
   private observedVocabulary: Record<string, Set<string>> = {};
 
+  /** Expression signatures of the commented fixture and its uncommented twin. */
+  private commentTwins: Record<string, string[]> = {};
+
   constructor(testDataDir?: string) {
     this.testDataDir = testDataDir || path.join(process.cwd(), 'src', 'test-data', 'java');
     this.extractor = new TypeRegistryExtractor();
@@ -157,6 +160,7 @@ export class JavaExtractorTestRunner {
 
     this.printSummary(allResults);
     this.reportVocabularyCoverage();
+    this.reportCommentInvariance();
   }
 
   /**
@@ -270,6 +274,7 @@ export class JavaExtractorTestRunner {
       }
 
       this.recordVocabulary(entities);
+      this.recordCommentTwin(filename, entities);
 
       // Check that every row survives being written — one physical line, header field count
       const tsvChecks = this.validateTsvRowIntegrity(entities);
@@ -1655,6 +1660,68 @@ export class JavaExtractorTestRunner {
   }
 
   // ==================== HASH UNIQUENESS ====================
+
+  // ==================== COMMENTS ARE INVISIBLE ====================
+
+  /**
+   * Records the expression signature of the commented fixture and its uncommented twin.
+   */
+  private recordCommentTwin(filename: string, entities: ExtractedEntities): void {
+    if (filename !== 'CommentsAreInvisible.java' && filename !== 'CommentsAreInvisibleControl.java') {
+      return;
+    }
+
+    this.commentTwins[filename] = entities.expressions
+      .map(e => `${e.getKind()}|${e.getEdgeRole()}|${e.getRootContext()}|${e.getReferencedEntityKind()}`)
+      .sort();
+  }
+
+  /**
+   * Fails when a comment changes what is extracted.
+   *
+   * tree-sitter models a comment as a NAMED child, so any read that indexes into namedChildren
+   * shifts when a comment appears. That shifted the operand out of the slot being read and the
+   * expression was dropped, which is a call site with no row - indistinguishable downstream from
+   * code that makes no call. It reached return values, throw values, if and while conditions,
+   * instanceof patterns, parenthesized expressions, ternary operands and assert messages.
+   *
+   * The check compares two fixtures that are identical apart from their comments, rather than
+   * asserting a fixed list, so a positional read added later is covered without anyone
+   * remembering to extend a list.
+   */
+  private reportCommentInvariance(): void {
+    const commented = this.commentTwins['CommentsAreInvisible.java'];
+    const control = this.commentTwins['CommentsAreInvisibleControl.java'];
+
+    console.log('\n' + '='.repeat(80));
+    if (!commented || !control) {
+      console.log('❌ Comment invariance: one of the twin fixtures did not run');
+      process.exitCode = 1;
+      console.log('='.repeat(80));
+      return;
+    }
+
+    const counts = (rows: string[]) => {
+      const out: Record<string, number> = {};
+      for (const r of rows) out[r] = (out[r] ?? 0) + 1;
+      return out;
+    };
+    const a = counts(control);
+    const b = counts(commented);
+    const differences = [...new Set([...control, ...commented])]
+      .filter(k => (a[k] ?? 0) !== (b[k] ?? 0))
+      .map(k => `${k}: control ${a[k] ?? 0}, commented ${b[k] ?? 0}`);
+
+    console.log(`💬 Comment invariance: ${control.length} expression rows, commented twin ${commented.length}`);
+    if (differences.length === 0) {
+      console.log('✅ a comment does not change what is extracted');
+    } else {
+      console.log(`❌ ${differences.length} row kind(s) differ when comments are present:`);
+      differences.forEach(d => console.log(`   ${d}`));
+      process.exitCode = 1;
+    }
+    console.log('='.repeat(80));
+  }
 
   // ==================== VOCABULARY COVERAGE ====================
 

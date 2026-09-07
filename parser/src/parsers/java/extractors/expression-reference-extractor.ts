@@ -399,7 +399,7 @@ export class ExpressionReferenceExtractor {
     
     // Find the expression inside the return statement
     // return_statement structure: return <expression>? ;
-    const returnExpr = returnStmtNode.namedChildren[0];
+    const returnExpr = ExpressionReferenceExtractor.namedOperands(returnStmtNode)[0];
     
     // If there's no expression (bare "return;"), nothing to extract
     if (!returnExpr) {
@@ -481,7 +481,7 @@ export class ExpressionReferenceExtractor {
     
     // Find the expression inside the throw statement
     // throw_statement structure: throw <expression> ;
-    const thrownExpr = throwStmtNode.namedChildren[0];
+    const thrownExpr = ExpressionReferenceExtractor.namedOperands(throwStmtNode)[0];
     
     // If there's no expression, nothing to extract
     if (!thrownExpr) {
@@ -542,7 +542,7 @@ export class ExpressionReferenceExtractor {
     );
 
     // If the break has a label (e.g. break outer;), store label name in literalValue
-    const labelNode = breakStmtNode.namedChildren[0];
+    const labelNode = ExpressionReferenceExtractor.namedOperands(breakStmtNode)[0];
     if (labelNode && labelNode.type === 'identifier') {
       builder.classLiteralTypeName(labelNode.text);
     }
@@ -585,7 +585,7 @@ export class ExpressionReferenceExtractor {
     );
 
     // If the continue has a label (e.g. continue outer;), store label name in literalValue
-    const labelNode = continueStmtNode.namedChildren[0];
+    const labelNode = ExpressionReferenceExtractor.namedOperands(continueStmtNode)[0];
     if (labelNode && labelNode.type === 'identifier') {
       builder.classLiteralTypeName(labelNode.text);
     }
@@ -652,7 +652,7 @@ export class ExpressionReferenceExtractor {
     
     // Find the expression inside the expression statement
     // expression_statement structure: <expression> ;
-    const expr = exprStmtNode.namedChildren[0];
+    const expr = ExpressionReferenceExtractor.namedOperands(exprStmtNode)[0];
     
     // If there's no expression, nothing to extract
     if (!expr) {
@@ -736,8 +736,8 @@ export class ExpressionReferenceExtractor {
     
     // For parenthesized_expression (if conditions are wrapped), get the inner expression
     let expr = conditionNode;
-    if (conditionNode.type === 'parenthesized_expression' && conditionNode.namedChildren.length > 0) {
-      expr = conditionNode.namedChildren[0]!;
+    if (conditionNode.type === 'parenthesized_expression' && ExpressionReferenceExtractor.namedOperands(conditionNode).length > 0) {
+      expr = ExpressionReferenceExtractor.namedOperands(conditionNode)[0]!;
     }
     
     this.extractExpression(
@@ -1151,7 +1151,7 @@ export class ExpressionReferenceExtractor {
     depth: number
   ): void {
     // Parenthesized expression has one named child - the inner expression
-    const innerExpr = node.namedChildren[0];
+    const innerExpr = ExpressionReferenceExtractor.namedOperands(node)[0];
     if (innerExpr) {
       this.pendingChildren.push({
         node: innerExpr,
@@ -1225,7 +1225,7 @@ export class ExpressionReferenceExtractor {
     const args = node.childForFieldName('arguments');
     if (args) {
       let position = 0;
-      for (const arg of args.namedChildren) {
+      for (const arg of ExpressionReferenceExtractor.namedOperands(args)) {
         this.pendingChildren.push({
           node: arg,
           parentHash,
@@ -1267,7 +1267,7 @@ export class ExpressionReferenceExtractor {
     parentHash: string,
     depth: number
   ): void {
-    const namedChildren = node.namedChildren;
+    const namedChildren = ExpressionReferenceExtractor.namedOperands(node);
 
     // Queue the left operand (expression being tested)
     const leftOperand = node.childForFieldName('left');
@@ -1425,7 +1425,7 @@ export class ExpressionReferenceExtractor {
       'annotated_type', // For TYPE_USE annotations like (@TA String), (String @TA [])
     ]);
 
-    for (const child of node.namedChildren) {
+    for (const child of ExpressionReferenceExtractor.namedOperands(node)) {
       if (typeNodeTypes.has(child.type)) {
         typeNodes.push(child);
       }
@@ -1506,7 +1506,7 @@ export class ExpressionReferenceExtractor {
     const condition = node.childForFieldName('condition');
     if (condition) {
       // The condition is a parenthesized_expression, get the inner expression
-      const selector = condition.namedChildren[0];
+      const selector = ExpressionReferenceExtractor.namedOperands(condition)[0];
       if (selector) {
         this.pendingChildren.push({
           node: selector,
@@ -1528,7 +1528,7 @@ export class ExpressionReferenceExtractor {
     if (body) {
       let casePosition = 0;
       
-      for (const child of body.namedChildren) {
+      for (const child of ExpressionReferenceExtractor.namedOperands(body)) {
         // Handle arrow syntax (switch_rule)
         if (child.type === 'switch_rule') {
           this.extractSwitchRule(child, parentHash, depth, casePosition);
@@ -1577,7 +1577,7 @@ export class ExpressionReferenceExtractor {
     if (resultNode) {
       if (resultNode.type === 'expression_statement') {
         // Direct expression result
-        const expr = resultNode.namedChildren[0];
+        const expr = ExpressionReferenceExtractor.namedOperands(resultNode)[0];
         if (expr) {
           this.pendingChildren.push({
             node: expr,
@@ -1597,7 +1597,7 @@ export class ExpressionReferenceExtractor {
         this.extractYieldFromBlock(resultNode, parentHash, depth, casePosition, patternBindingNames);
       } else if (resultNode.type === 'throw_statement') {
         // Throw statement - extract the thrown expression
-        const thrownExpr = resultNode.namedChildren[0];
+        const thrownExpr = ExpressionReferenceExtractor.namedOperands(resultNode)[0];
         if (thrownExpr) {
           this.pendingChildren.push({
             node: thrownExpr,
@@ -1653,7 +1653,7 @@ export class ExpressionReferenceExtractor {
       }
       // Handle yield_statement (explicit yield)
       else if (child.type === 'yield_statement') {
-        const yieldExpr = child.namedChildren[0];
+        const yieldExpr = ExpressionReferenceExtractor.namedOperands(child)[0];
         if (yieldExpr) {
           this.pendingChildren.push({
             node: yieldExpr,
@@ -1695,7 +1695,7 @@ export class ExpressionReferenceExtractor {
     casePosition: number
   ): void {
     // Check if this is a default case (no named children and text contains "default")
-    if (labelNode.namedChildren.length === 0 && labelNode.text.includes('default')) {
+    if (ExpressionReferenceExtractor.namedOperands(labelNode).length === 0 && labelNode.text.includes('default')) {
       // Create an IDENTIFIER_REFERENCE for the default keyword
       // This ensures the default case has a SWITCH_CASE_LABEL entry
       const defaultKeyword = labelNode.children.find(c => c.type === 'default');
@@ -1722,11 +1722,11 @@ export class ExpressionReferenceExtractor {
       return;
     }
 
-    for (const labelChild of labelNode.namedChildren) {
+    for (const labelChild of ExpressionReferenceExtractor.namedOperands(labelNode)) {
       if (labelChild.type === 'guard') {
         // Extract guard expression (when clause) - e.g., "when s.length() > 5"
         // The guard node contains the expression after 'when'
-        const guardExpr = labelChild.namedChildren[0];
+        const guardExpr = ExpressionReferenceExtractor.namedOperands(labelChild)[0];
         if (guardExpr) {
           this.pendingChildren.push({
             node: guardExpr,
@@ -1742,8 +1742,8 @@ export class ExpressionReferenceExtractor {
         }
       } else if (labelChild.type === 'pattern') {
         // Pattern wrapper node - extract type_pattern or record_pattern inside
-        const typePattern = labelChild.namedChildren.find(c => c.type === 'type_pattern');
-        const recordPattern = labelChild.namedChildren.find(c => c.type === 'record_pattern');
+        const typePattern = ExpressionReferenceExtractor.namedOperands(labelChild).find(c => c.type === 'type_pattern');
+        const recordPattern = ExpressionReferenceExtractor.namedOperands(labelChild).find(c => c.type === 'record_pattern');
         if (typePattern) {
           this.extractTypePattern(typePattern, parentHash, depth, casePosition);
         } else if (recordPattern) {
@@ -1809,7 +1809,7 @@ export class ExpressionReferenceExtractor {
     casePosition: number
   ): void {
     // Find the pattern variable identifier (the 's' in 'String s')
-    const variableIdentifier = typePatternNode.namedChildren.find(
+    const variableIdentifier = ExpressionReferenceExtractor.namedOperands(typePatternNode).find(
       c => c.type === 'identifier'
     );
     
@@ -1828,7 +1828,7 @@ export class ExpressionReferenceExtractor {
     }
 
     // Extract type reference from the type node (type_identifier, generic_type, array_type, etc.)
-    const typeIdentifier = typePatternNode.namedChildren.find(
+    const typeIdentifier = ExpressionReferenceExtractor.namedOperands(typePatternNode).find(
       c => c.type === 'type_identifier' || c.type === 'generic_type' || c.type === 'scoped_type_identifier' || c.type === 'array_type'
     );
     
@@ -1854,20 +1854,20 @@ export class ExpressionReferenceExtractor {
   private extractPatternBindingNames(labelNode: Parser.SyntaxNode): Set<string> {
     const names = new Set<string>();
     
-    for (const labelChild of labelNode.namedChildren) {
+    for (const labelChild of ExpressionReferenceExtractor.namedOperands(labelNode)) {
       if (labelChild.type === 'pattern') {
         // Pattern wrapper node - look for type_pattern or record_pattern inside
-        const typePattern = labelChild.namedChildren.find(c => c.type === 'type_pattern');
-        const recordPattern = labelChild.namedChildren.find(c => c.type === 'record_pattern');
+        const typePattern = ExpressionReferenceExtractor.namedOperands(labelChild).find(c => c.type === 'type_pattern');
+        const recordPattern = ExpressionReferenceExtractor.namedOperands(labelChild).find(c => c.type === 'record_pattern');
         if (typePattern) {
-          const varId = typePattern.namedChildren.find(c => c.type === 'identifier');
+          const varId = ExpressionReferenceExtractor.namedOperands(typePattern).find(c => c.type === 'identifier');
           if (varId) names.add(varId.text);
         } else if (recordPattern) {
           this.collectRecordPatternBindingNames(recordPattern, names);
         }
       } else if (labelChild.type === 'type_pattern') {
         // Direct type_pattern node (case String s)
-        const varId = labelChild.namedChildren.find(c => c.type === 'identifier');
+        const varId = ExpressionReferenceExtractor.namedOperands(labelChild).find(c => c.type === 'identifier');
         if (varId) names.add(varId.text);
       } else if (labelChild.type === 'record_pattern') {
         // Record pattern in switch case
@@ -1895,24 +1895,24 @@ export class ExpressionReferenceExtractor {
    */
   private collectRecordPatternBindingNames(recordPatternNode: Parser.SyntaxNode, names: Set<string>): void {
     // Find record_pattern_body which contains the actual pattern components
-    const body = recordPatternNode.namedChildren.find(c => c.type === 'record_pattern_body');
+    const body = ExpressionReferenceExtractor.namedOperands(recordPatternNode).find(c => c.type === 'record_pattern_body');
     if (body) {
-      for (const component of body.namedChildren) {
+      for (const component of ExpressionReferenceExtractor.namedOperands(body)) {
         if (component.type === 'record_pattern_component') {
           // Each component has a type and an identifier (the binding variable)
-          const bindingId = component.namedChildren.find(c => c.type === 'identifier');
+          const bindingId = ExpressionReferenceExtractor.namedOperands(component).find(c => c.type === 'identifier');
           if (bindingId) {
             names.add(bindingId.text);
           }
           // Check for nested record patterns within the component
-          const nestedRecordPattern = component.namedChildren.find(c => c.type === 'record_pattern');
+          const nestedRecordPattern = ExpressionReferenceExtractor.namedOperands(component).find(c => c.type === 'record_pattern');
           if (nestedRecordPattern) {
             this.collectRecordPatternBindingNames(nestedRecordPattern, names);
           }
           // Check for type patterns within the component
-          const typePattern = component.namedChildren.find(c => c.type === 'type_pattern');
+          const typePattern = ExpressionReferenceExtractor.namedOperands(component).find(c => c.type === 'type_pattern');
           if (typePattern) {
-            const varId = typePattern.namedChildren.find(c => c.type === 'identifier');
+            const varId = ExpressionReferenceExtractor.namedOperands(typePattern).find(c => c.type === 'identifier');
             if (varId) names.add(varId.text);
           }
         } else if (component.type === 'record_pattern') {
@@ -1949,7 +1949,7 @@ export class ExpressionReferenceExtractor {
       if (node.type === 'yield_statement') {
         yields.push(node);
       }
-      for (const child of node.namedChildren) {
+      for (const child of ExpressionReferenceExtractor.namedOperands(node)) {
         yields.push(...findYields(child));
       }
       return yields;
@@ -1957,7 +1957,7 @@ export class ExpressionReferenceExtractor {
 
     const yieldStatements = findYields(blockNode);
     for (const yieldStmt of yieldStatements) {
-      const yieldExpr = yieldStmt.namedChildren[0];
+      const yieldExpr = ExpressionReferenceExtractor.namedOperands(yieldStmt)[0];
       if (yieldExpr) {
         this.pendingChildren.push({
           node: yieldExpr,
@@ -1988,9 +1988,9 @@ export class ExpressionReferenceExtractor {
     const scanForDeclarations = (node: Parser.SyntaxNode): void => {
       if (node.type === 'local_variable_declaration') {
         // Find variable declarators
-        for (const child of node.namedChildren) {
+        for (const child of ExpressionReferenceExtractor.namedOperands(node)) {
           if (child.type === 'variable_declarator') {
-            const nameNode = child.namedChildren.find(c => c.type === 'identifier');
+            const nameNode = ExpressionReferenceExtractor.namedOperands(child).find(c => c.type === 'identifier');
             if (nameNode) {
               names.add(nameNode.text);
             }
@@ -2000,14 +2000,14 @@ export class ExpressionReferenceExtractor {
       // Don't recurse into nested blocks, lambdas, or anonymous classes
       if (node.type !== 'block' && node.type !== 'lambda_expression' && 
           node.type !== 'class_body' && node.type !== 'anonymous_class_body') {
-        for (const child of node.namedChildren) {
+        for (const child of ExpressionReferenceExtractor.namedOperands(node)) {
           scanForDeclarations(child);
         }
       }
     };
 
     // Scan the block's direct children
-    for (const child of blockNode.namedChildren) {
+    for (const child of ExpressionReferenceExtractor.namedOperands(blockNode)) {
       scanForDeclarations(child);
     }
 
@@ -2042,7 +2042,7 @@ export class ExpressionReferenceExtractor {
     depth: number
   ): void {
     // Find the string_literal child which contains the template
-    const stringLiteral = node.namedChildren.find(c => c.type === 'string_literal');
+    const stringLiteral = ExpressionReferenceExtractor.namedOperands(node).find(c => c.type === 'string_literal');
     if (!stringLiteral) return;
 
     // Create a synthetic LITERAL for the full template text
@@ -2055,7 +2055,7 @@ export class ExpressionReferenceExtractor {
       if (child.type === 'string_interpolation') {
         // Find the actual expression inside the interpolation
         // Structure: \{ + expression + }
-        for (const interpChild of child.namedChildren) {
+        for (const interpChild of ExpressionReferenceExtractor.namedOperands(child)) {
           // Skip punctuation, find the actual expression
           if (interpChild.type !== '\\{' && interpChild.type !== '}') {
             this.pendingChildren.push({
@@ -2141,7 +2141,7 @@ export class ExpressionReferenceExtractor {
   ): void {
     // Extract the record type name and create a type reference
     // Handle both simple identifiers (Point) and generic types (Pair<Object, Object>)
-    const recordTypeNode = node.namedChildren.find(c => 
+    const recordTypeNode = ExpressionReferenceExtractor.namedOperands(node).find(c => 
       c.type === 'identifier' || c.type === 'generic_type'
     );
     if (recordTypeNode) {
@@ -2155,16 +2155,16 @@ export class ExpressionReferenceExtractor {
     }
 
     // Find the record_pattern_body
-    const patternBody = node.namedChildren.find(c => c.type === 'record_pattern_body');
+    const patternBody = ExpressionReferenceExtractor.namedOperands(node).find(c => c.type === 'record_pattern_body');
     if (!patternBody) return;
 
     // Extract each component from the pattern body
     let position = 0;
-    for (const child of patternBody.namedChildren) {
+    for (const child of ExpressionReferenceExtractor.namedOperands(patternBody)) {
       if (child.type === 'record_pattern_component') {
         // Extract the binding variable (identifier) and its type
-        const bindingVar = child.namedChildren.find(c => c.type === 'identifier');
-        const typeNode = child.namedChildren.find(c => 
+        const bindingVar = ExpressionReferenceExtractor.namedOperands(child).find(c => c.type === 'identifier');
+        const typeNode = ExpressionReferenceExtractor.namedOperands(child).find(c => 
           c.type === 'type_identifier' || c.type === 'integral_type' || 
           c.type === 'floating_point_type' || c.type === 'boolean_type' ||
           c.type === 'generic_type' || c.type === 'array_type' ||
@@ -2255,12 +2255,12 @@ export class ExpressionReferenceExtractor {
 
     // Check if there are any formal_parameters or inferred_parameters
     // If so, an identifier child is the body, not a parameter
-    const hasParamList = node.namedChildren.some(child => 
+    const hasParamList = ExpressionReferenceExtractor.namedOperands(node).some(child => 
       child.type === 'formal_parameters' || child.type === 'inferred_parameters'
     );
 
     // Extract lambda parameters as expression children
-    for (const child of node.namedChildren) {
+    for (const child of ExpressionReferenceExtractor.namedOperands(node)) {
       if (child.type === 'identifier' && !hasParamList) {
         // Single parameter without parentheses: x -> x * 2
         // Only treat as parameter if there's no formal_parameters or inferred_parameters
@@ -2278,7 +2278,7 @@ export class ExpressionReferenceExtractor {
         });
       } else if (child.type === 'inferred_parameters') {
         // Inferred parameters: (x, y) -> x + y
-        for (const param of child.namedChildren) {
+        for (const param of ExpressionReferenceExtractor.namedOperands(child)) {
           if (param.type === 'identifier') {
             lambdaParamNames.add(param.text);
             this.pendingChildren.push({
@@ -2298,10 +2298,10 @@ export class ExpressionReferenceExtractor {
         // Formal parameters: (int x, int y) -> x + y
         // Also handles: (String s) -> s.length(), (var x) -> x * 2
         let typePosition = 0;
-        for (const param of child.namedChildren) {
+        for (const param of ExpressionReferenceExtractor.namedOperands(child)) {
           if (param.type === 'formal_parameter' || param.type === 'spread_parameter') {
             // Extract the parameter type reference
-            const typeNode = param.namedChildren.find(n => 
+            const typeNode = ExpressionReferenceExtractor.namedOperands(param).find(n => 
               n.type === 'type_identifier' || 
               n.type === 'integral_type' || 
               n.type === 'floating_point_type' || 
@@ -2322,7 +2322,7 @@ export class ExpressionReferenceExtractor {
             }
 
             // Extract the parameter name
-            const nameNode = param.namedChildren.find(n => n.type === 'identifier');
+            const nameNode = ExpressionReferenceExtractor.namedOperands(param).find(n => n.type === 'identifier');
             if (nameNode) {
               lambdaParamNames.add(nameNode.text);
               this.pendingChildren.push({
@@ -2345,7 +2345,7 @@ export class ExpressionReferenceExtractor {
     // Find and queue the lambda body
     // If hasParamList is true, an identifier can be the body (e.g., () -> capturedValue)
     // If hasParamList is false, the identifier is the parameter, so body is something else
-    const bodyNode = node.namedChildren.find(child => 
+    const bodyNode = ExpressionReferenceExtractor.namedOperands(node).find(child => 
       child.type !== 'formal_parameters' && 
       child.type !== 'inferred_parameters' &&
       (hasParamList || child.type !== 'identifier')
@@ -2395,7 +2395,7 @@ export class ExpressionReferenceExtractor {
   ): void {
     // Check for qualified inner class creation (outer.new Inner)
     // First named child would be the enclosing instance (not type-related)
-    const firstNamedChild = node.namedChildren[0];
+    const firstNamedChild = ExpressionReferenceExtractor.namedOperands(node)[0];
     if (firstNamedChild && 
         firstNamedChild.type !== 'type_identifier' && 
         firstNamedChild.type !== 'generic_type' &&
@@ -2420,7 +2420,7 @@ export class ExpressionReferenceExtractor {
     const argsNode = node.childForFieldName('arguments');
     if (argsNode) {
       let position = 0;
-      for (const child of argsNode.namedChildren) {
+      for (const child of ExpressionReferenceExtractor.namedOperands(argsNode)) {
         this.pendingChildren.push({
           node: child,
           parentHash,
@@ -2499,7 +2499,7 @@ export class ExpressionReferenceExtractor {
     const argsNode = node.childForFieldName('arguments');
     if (argsNode) {
       let position = 0;
-      for (const child of argsNode.namedChildren) {
+      for (const child of ExpressionReferenceExtractor.namedOperands(argsNode)) {
         this.pendingChildren.push({
           node: child,
           parentHash,
@@ -2727,7 +2727,7 @@ export class ExpressionReferenceExtractor {
     for (const child of node.children) {
       if (child.type === 'dimensions_expr') {
         // The size expression is inside dimensions_expr
-        for (const dimChild of child.namedChildren) {
+        for (const dimChild of ExpressionReferenceExtractor.namedOperands(child)) {
           this.pendingChildren.push({
             node: dimChild,
             parentHash,
@@ -2748,7 +2748,7 @@ export class ExpressionReferenceExtractor {
     const initNode = node.childForFieldName('value');
     if (initNode && initNode.type === 'array_initializer') {
       let elemPosition = 0;
-      for (const elem of initNode.namedChildren) {
+      for (const elem of ExpressionReferenceExtractor.namedOperands(initNode)) {
         this.pendingChildren.push({
           node: elem,
           parentHash,
@@ -2797,7 +2797,7 @@ export class ExpressionReferenceExtractor {
     depth: number
   ): void {
     let position = 0;
-    for (const elem of node.namedChildren) {
+    for (const elem of ExpressionReferenceExtractor.namedOperands(node)) {
       this.pendingChildren.push({
         node: elem,
         parentHash,
@@ -2816,6 +2816,24 @@ export class ExpressionReferenceExtractor {
   /**
    * Parses a ternary expression to extract condition, trueExpr, and falseExpr
    */
+  /**
+   * The named children of a node with comments removed.
+   *
+   * tree-sitter models a comment as a NAMED child, so any read that indexes into namedChildren
+   * shifts when a comment appears. That is not a corner case: `return /* c *\/ f();`,
+   * `if (/* c *\/ cond)`, `throw /* c *\/ new E()` and `o /* c *\/ instanceof T t` each moved the
+   * operand out of the slot being read, and the expression was then dropped entirely - a call
+   * site with no row, which nothing downstream can distinguish from code that makes no call.
+   *
+   * A comment is never an operand in any position this extractor reads, so filtering here is
+   * always correct and is applied wherever named children are indexed.
+   */
+  private static namedOperands(node: Parser.SyntaxNode): Parser.SyntaxNode[] {
+    return node.namedChildren.filter(
+      c => c.type !== 'line_comment' && c.type !== 'block_comment' && c.type !== 'comment'
+    );
+  }
+
   private parseTernaryExpression(node: Parser.SyntaxNode): {
     condition: Parser.SyntaxNode;
     trueExpr: Parser.SyntaxNode;
@@ -2850,7 +2868,7 @@ export class ExpressionReferenceExtractor {
     }
 
     // Fallback for a malformed ternary, where a field may be absent entirely.
-    const named = node.namedChildren.filter(
+    const named = ExpressionReferenceExtractor.namedOperands(node).filter(
       c => c.type !== 'line_comment' && c.type !== 'block_comment' && c.type !== 'comment'
     );
     return {
@@ -3027,7 +3045,7 @@ export class ExpressionReferenceExtractor {
     // - Basic: [left] instanceof [type]
     // - Pattern (Java 16+): [left] instanceof [type] [identifier]  
     // - Record pattern (Java 21+): [left] instanceof [pattern: record_pattern]
-    const namedChildren = node.namedChildren;
+    const namedChildren = ExpressionReferenceExtractor.namedOperands(node);
     
     // Check for record_pattern in the pattern field
     const patternNode = node.childForFieldName('pattern');
@@ -3312,7 +3330,7 @@ export class ExpressionReferenceExtractor {
     }
 
     // Fallback: use named children
-    const operand = node.namedChildren[0];
+    const operand = ExpressionReferenceExtractor.namedOperands(node)[0];
     const operatorText = node.children.find(c => this.isUnaryOperator(c.text))?.text || '?';
     
     return {
@@ -3684,7 +3702,7 @@ export class ExpressionReferenceExtractor {
     node: Parser.SyntaxNode
   ): void {
     // First child should be the processor identifier (STR, FMT, RAW, etc.)
-    const processorNode = node.namedChildren.find(c => c.type === 'identifier');
+    const processorNode = ExpressionReferenceExtractor.namedOperands(node).find(c => c.type === 'identifier');
     const processor = processorNode?.text || 'STR';
     builder.operator(processor);
   }
@@ -3705,13 +3723,13 @@ export class ExpressionReferenceExtractor {
     // First identifier or generic_type child is the record type name
     // For simple: Point(int x, int y) -> identifier "Point"
     // For generic: Pair<Object, Object>(Object f, Object s) -> generic_type with identifier "Pair"
-    const recordTypeNode = node.namedChildren.find(c => 
+    const recordTypeNode = ExpressionReferenceExtractor.namedOperands(node).find(c => 
       c.type === 'identifier' || c.type === 'generic_type'
     );
     if (recordTypeNode) {
       if (recordTypeNode.type === 'generic_type') {
         // Extract the base type name from generic_type (e.g., "Pair" from "Pair<Object, Object>")
-        const baseTypeNode = recordTypeNode.namedChildren.find(c => c.type === 'type_identifier');
+        const baseTypeNode = ExpressionReferenceExtractor.namedOperands(recordTypeNode).find(c => c.type === 'type_identifier');
         if (baseTypeNode) {
           builder.classLiteralTypeName(baseTypeNode.text);
         }
@@ -3738,27 +3756,27 @@ export class ExpressionReferenceExtractor {
 
     // Check if there are any formal_parameters or inferred_parameters
     // If so, an identifier child is the body, not a parameter
-    const hasParamList = node.namedChildren.some(child => 
+    const hasParamList = ExpressionReferenceExtractor.namedOperands(node).some(child => 
       child.type === 'formal_parameters' || child.type === 'inferred_parameters'
     );
 
-    for (const child of node.namedChildren) {
+    for (const child of ExpressionReferenceExtractor.namedOperands(node)) {
       if (child.type === 'identifier' && !hasParamList) {
         // Single parameter without parentheses: x -> x * 2
         // Only treat as parameter if there's no formal_parameters or inferred_parameters
         paramNames.push(child.text);
       } else if (child.type === 'inferred_parameters') {
         // Inferred parameters: (x, y) -> x + y
-        for (const param of child.namedChildren) {
+        for (const param of ExpressionReferenceExtractor.namedOperands(child)) {
           if (param.type === 'identifier') {
             paramNames.push(param.text);
           }
         }
       } else if (child.type === 'formal_parameters') {
         // Formal parameters: (int x, int y) -> x + y
-        for (const param of child.namedChildren) {
+        for (const param of ExpressionReferenceExtractor.namedOperands(child)) {
           if (param.type === 'formal_parameter' || param.type === 'spread_parameter') {
-            const nameNode = param.namedChildren.find(n => n.type === 'identifier');
+            const nameNode = ExpressionReferenceExtractor.namedOperands(param).find(n => n.type === 'identifier');
             if (nameNode) {
               paramNames.push(nameNode.text);
             }
@@ -3782,7 +3800,7 @@ export class ExpressionReferenceExtractor {
     right: Parser.SyntaxNode;
   } {
     // binary_expression structure: left operator right
-    const namedChildren = node.namedChildren;
+    const namedChildren = ExpressionReferenceExtractor.namedOperands(node);
     
     if (namedChildren.length >= 2) {
       const left = namedChildren[0]!;
