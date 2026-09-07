@@ -42,12 +42,46 @@ lib_method_ret_param(m, retType, retParam, ownerTv) :-
 // (base) a declared receiver's written type arguments.
 expr_arg_binding(recv, bt, param, arg) :- recv_decl_ref(recv, ref, _),
     type_arg_binding(ref, bt, param, arg).
+// (base, library side) the same, for arguments WRITTEN on a library reference — a lib method's
+// return type such as `Box<Pair<K,V>>`. Sound to key on the reference: the argument is written
+// there, so it is the same fact at every call site, unlike one inferred from a call.
+expr_arg_binding(recv, bt, param, arg) :- recv_decl_ref(recv, ref, _),
+    lib_type_arg_binding(ref, bt, param, arg).
 // (propagate) recv : owner<ownerTv=arg>; call = recv.m(); m returns retType<ownerTv> ⇒
 // call : retType<retParam = arg>.
 expr_arg_binding(call, retType, retParam, arg) :- call_site(call, _, recv),
     expr_arg_binding(recv, _, ownerTv, arg),
     expr_call_candidate(call, callee),
     lib_method_ret_param(callee, retType, retParam, ownerTv).
+
+// (through a bare type variable) `entries().get(0).value()` — `get` returns Box's element E, not a
+// parameterised type, so the propagate clause has nothing to substitute into and the chain stopped.
+// The receiver binds E to a type that CARRIES ITS OWN arguments (E = Pair<String,Widget>), so the
+// call's value is that type, and it keeps that type's bindings.
+expr_arg_binding(call, nested, np, arg) :- call_site(call, _, recv),
+    expr_call_candidate(call, callee),
+    lib_method_ret_tvar(callee, owner, tv),
+    expr_arg_binding(recv, owner, tv, nested),
+    expr_arg_binding(recv, nested, np, arg).
+
+// (for-each variable) `for (var e : map.entrySet()) e.getValue()` — the loop variable is a LOCAL
+// with no initializer expression, so the var-local clause below cannot see it; its bindings are
+// the ITERABLE's element bindings. Same per-expression key, same method scoping.
+expr_arg_binding(recv, bt, param, arg) :-
+    java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "LOCAL_VARIABLE", _, _, _, _, _, _, _, _, _, recv),
+    expr_ultimate_method("client", recv, m),
+    java_local_variable(name, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, local),
+    foreach_iterable(local, iterExpr),
+    expr_arg_binding(iterExpr, bt, param, arg).
+
+// (nested return argument) `map.entrySet()` : Set<Entry<K,V>> — the element type is itself
+// parameterised, and ITS parameters are the receiver's, one level further down. The propagate
+// clause above only reaches a return argument that is a bare type variable (`Iterator<E>`), so
+// `e.getValue()` after an entrySet had nothing bound for V. Same shape, same per-expression key.
+expr_arg_binding(call, nested, nestedParam, arg) :- call_site(call, _, recv),
+    expr_arg_binding(recv, _, ownerTv, arg),
+    expr_call_candidate(call, callee),
+    lib_ret_nested_param(callee, nested, nestedParam, ownerTv).
 
 // (var local) `var it = xs.iterator(); it.next()` — the receiver is a LOCAL, so the two clauses
 // above never reach it: the base clause needs a declared reference carrying written arguments, and
