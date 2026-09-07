@@ -1567,13 +1567,19 @@ export class JavaExtractorTestRunner {
    */
   private static readonly UNPRODUCED_VOCABULARY: Record<string, Record<string, string>> = {
     RootContext: {
-      TRY_RESOURCE: 'defect: a try-with-resources resource is not extracted',
-      TRY_BLOCK: 'defect: expressions in a try body carry the enclosing context instead',
-      CATCH_BLOCK: 'defect: expressions in a catch body carry the enclosing context instead',
-      FINALLY_BLOCK: 'defect: expressions in a finally body carry the enclosing context instead',
-      STATIC_INITIALIZER: 'defect: expressions in a static initializer carry the enclosing context instead',
-      INSTANCE_INITIALIZER: 'defect: expressions in an instance initializer carry the enclosing context instead',
-      YIELD_VALUE: 'defect: a yield value is not distinguished from an ordinary switch arm result',
+      // The try-related members are redundant rather than missing. A resource local carries
+      // LocalVariableScopeKind.TRY_WITH_RESOURCES and a catch parameter CATCH_CLAUSE, and every
+      // expression in a try, catch or finally body already points at a BlockRegistry row whose
+      // kind is TRY_WITH_RESOURCES, CATCH or FINALLY. Emitting these would replace an
+      // expression's own syntactic root with containment that is recorded more precisely
+      // elsewhere, which loses information rather than adding it.
+      TRY_RESOURCE: 'redundant: the resource local carries LocalVariableScopeKind.TRY_WITH_RESOURCES',
+      TRY_BLOCK: 'redundant: the owning BlockRegistry row carries BlockKind.TRY / TRY_WITH_RESOURCES',
+      CATCH_BLOCK: 'redundant: the owning BlockRegistry row carries BlockKind.CATCH',
+      FINALLY_BLOCK: 'redundant: the owning BlockRegistry row carries BlockKind.FINALLY',
+      STATIC_INITIALIZER: 'redundant: the owning method row is the <clinit> initializer',
+      INSTANCE_INITIALIZER: 'redundant: the owning method row is the instance initializer',
+      YIELD_VALUE: 'redundant: a yield value carries EdgeRole.SWITCH_CASE_RESULT, as an arrow arm result does',
       ANNOTATION_VALUE: 'annotation argument values are carried by AnnotationArgumentReference, not as expressions',
       ANNOTATION_DEFAULT: 'an annotation element default is carried on MethodRegistry.defaultValueExpression',
       CONTINUE_STATEMENT: 'no fixture declares a labelled continue; the value is reachable',
@@ -1584,13 +1590,13 @@ export class JavaExtractorTestRunner {
     },
     ExpressionOwnerKind: {
       CONTINUE_STATEMENT: 'no fixture declares a labelled continue; the value is reachable',
-      SWITCH_EXPRESSION: 'defect: switch arms are owned by the enclosing statement',
-      TRY_STATEMENT: 'defect: see RootContext.TRY_BLOCK',
-      TRY_BLOCK: 'defect: see RootContext.TRY_BLOCK',
-      CATCH_BLOCK: 'defect: see RootContext.CATCH_BLOCK',
-      FINALLY_BLOCK: 'defect: see RootContext.FINALLY_BLOCK',
-      STATIC_INIT_BLOCK: 'defect: see RootContext.STATIC_INITIALIZER',
-      INSTANCE_INIT_BLOCK: 'defect: see RootContext.INSTANCE_INITIALIZER',
+      SWITCH_EXPRESSION: 'redundant: a switch arm result carries EdgeRole.SWITCH_CASE_RESULT',
+      TRY_STATEMENT: 'redundant: see RootContext.TRY_BLOCK',
+      TRY_BLOCK: 'redundant: see RootContext.TRY_BLOCK',
+      CATCH_BLOCK: 'redundant: see RootContext.CATCH_BLOCK',
+      FINALLY_BLOCK: 'redundant: see RootContext.FINALLY_BLOCK',
+      STATIC_INIT_BLOCK: 'redundant: see RootContext.STATIC_INITIALIZER',
+      INSTANCE_INIT_BLOCK: 'redundant: see RootContext.INSTANCE_INITIALIZER',
       ANNOTATION_ARGUMENT: 'annotation arguments are carried by AnnotationArgumentReference',
       RECORD_COMPONENT: 'a record component is carried as a MethodParameter and a FieldRegistry',
     },
