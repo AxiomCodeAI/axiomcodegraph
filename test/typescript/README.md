@@ -1,6 +1,6 @@
 # TypeScript engine regression suite
 
-Sixteen hand-written cases, each solved TWICE and scored against the TypeScript
+Twenty-two hand-written cases, each solved TWICE and scored against the TypeScript
 compiler. `./run-tests.sh --oracle` is the whole thing.
 
 ## What a case is
@@ -71,6 +71,20 @@ edge fails the run whether or not the golden was rewritten.
 | 14 | same class and function names in three modules — only the module distinguishes them |
 | 15 | `import type` must contribute no runtime edge; the value import beside it must |
 | 16 | self-recursion, mutual recursion, and recursion inside the library |
+| 17 | constrained generics and curried returns |
+| 18 | heritage across the client/library boundary |
+| 19 | the overload gauntlet |
+| 20 | client value flowing into a library-declared receiver |
+| 21 | `call`/`apply`/`bind` on a callable value, `strict: true` — answers with `CallableFunction` |
+| 22 | the SAME source as 21 with `strictBindCallApply: false` — answers with `Function` |
+
+Cases 21 and 22 are a PAIR and neither is useful alone. They differ only in
+`src/tsconfig.json`, and that one option decides which of lib.es5.d.ts's two
+declarations of `call`/`apply`/`bind` the compiler answers with. An engine that seeds a
+callable value's members but ignores the option passes 21 and fails 22 — which is
+exactly the defect the pair exists to catch, and the reason a case may now carry its own
+tsconfig (see `tools/tsc_oracle_case.mjs`). Both are hermetic: `noLib` plus their own
+`src/globals.d.ts`, because the real `lib.es5.d.ts` is on neither side of a case.
 
 ## Deliberately client-only in pass 1
 

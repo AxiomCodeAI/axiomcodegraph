@@ -51,6 +51,49 @@ const options = {
   noEmit: true,
   moduleResolution: ts.ModuleResolutionKind.Node10,
 };
+
+// ── a case may OVERRIDE these with its own src/tsconfig.json ────────────────
+// The defaults above are right for almost every case and stay the default: a case
+// without a tsconfig is compiled exactly as before. But some behaviour the engine has
+// to reproduce is DECIDED by a compiler option, and such a case cannot be written at
+// all while the oracle hardcodes the option's value.
+//
+// `strictBindCallApply` is the live example. lib.es5.d.ts declares `call`, `apply` and
+// `bind` twice — on `Function`, and again on `CallableFunction extends Function` — and
+// that flag is the only thing that decides which one the compiler answers with. With
+// `strict: true` pinned here, the oracle can only ever produce the CallableFunction
+// answer, so a fixture for the OTHER regime would have the oracle disagreeing with the
+// engine precisely when the engine is right. The fixture would then fail on the fix and
+// pass on the bug, which is worse than having no fixture.
+//
+// The PARSER already reads the case's tsconfig (it must, to emit the resolved flag at
+// ts_module c27), so honouring it here is what makes the two sides describe the same
+// program.
+const caseConfig = path.join(root, 'tsconfig.json');
+if (fs.existsSync(caseConfig)) {
+  const read = ts.readConfigFile(caseConfig, ts.sys.readFile);
+  if (read.error) {
+    console.error(`case tsconfig is unreadable: ${caseConfig}`);
+    process.exit(1);
+  }
+  const parsed = ts.parseJsonConfigFileContent(read.config, ts.sys, root);
+  if (parsed.errors.length) {
+    console.error(`case tsconfig is invalid: ${caseConfig}`);
+    for (const e of parsed.errors) {
+      console.error(`  ${ts.flattenDiagnosticMessageText(e.messageText, ' ')}`);
+    }
+    process.exit(1);
+  }
+  // Merged, not replaced: a case states the ONE option it is about and inherits the
+  // rest, so a case tsconfig cannot silently drop `lib` and change every other answer.
+  Object.assign(options, parsed.options);
+  // `noLib` and the default `lib` list contradict each other, and the default is ours,
+  // not the case's — so a case asking for noLib gets it rather than getting both.
+  if (options.noLib) delete options.lib;
+  // `files`/`include` are ignored on purpose — the file set is the directory walk above,
+  // which is what the parser is handed too.
+}
+
 const program = ts.createProgram(files, options);
 const checker = program.getTypeChecker();
 // CALLERS come only from the client. TARGETS may be either, which is what makes the

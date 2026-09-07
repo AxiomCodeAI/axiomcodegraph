@@ -24,9 +24,11 @@ Position is exact in both and is what makes overload-level agreement measurable 
 comparison would score those as agreements regardless of which overload was picked.
 
 Usage: score.py <ir-dir> <engine-out-dir> <oracle.tsv> [--lib=<ir-dir> ...] [--envelope=<tsv>]
+                [--production]
 """
 import csv
 import os
+import re
 import sys
 from collections import defaultdict
 
@@ -43,25 +45,103 @@ def read_tsv(path, header=True):
         return [r for r in rows[1:] if len(r) == n]
     return rows
 
+# ── PRODUCTION vs TEST code ─────────────────────────────────────────────────
+# A repository's test tree is usually LARGER than the library it tests, and it is not
+# the code anyone runs a call graph over: typeorm carries 70,534 test call sites against
+# 17,062 production ones, remeda 11,193 against 11,818. Folding them together does two
+# things, both bad.
+#
+# It moves every rate toward whatever the test tree happens to exercise -- 80% of one
+# project's "accuracy" would be a statement about its fixtures. And it hides extraction
+# defects behind an average: typeorm's conservation loss is 11.58% over test code and
+# 0.04% over production code, so the project reads as 9.3% lost -- above the threshold
+# at which no rate below should be believed -- because of a subtree nobody is measuring
+# on purpose.
+#
+# Anchored to a PATH SEGMENT, not a substring, so `src/testing/` (nest ships a testing
+# package as product) is not silently discarded while `test/` is. `docs`/`examples` go
+# too: they are compiled by the tsconfig, are not shipped, and typecheck loosely.
+TEST_PATH = re.compile(
+    r'(^|/)(test|tests|__tests__|__mocks__|spec|specs|benchmark|benchmarks|e2e'
+    r'|example|examples|docs|doc|website|scripts)(/|$)'
+    r'|\.(spec|test|bench)\.[cm]?[jt]sx?$')
+
+
+def is_test_path(p):
+    return bool(TEST_PATH.search(p))
+
+
 def base(p):
-    """The file's BASENAME. Not the full path and not two segments: a library IR is
-    rooted at whatever directory it was extracted from, so the same file is
-    `lib/lib.es5.d.ts` to the oracle and `lib.es5.d.ts` to the engine. Basename plus an
-    exact line AND column is unique in practice, and it is the only identity both
-    sides can compute without agreeing on a root."""
+    """The file's basename. DISPLAY ONLY — see resolved_ident for the comparison key."""
     p = p.replace('\\', '/')
     parts = [x for x in p.split('/') if x]
     return parts[-1] if parts else p
+
+
+_RP = {}
+
+
+def rp(path):
+    """Resolved absolute path, memoised.
+
+    Both sides name the same file differently and only the filesystem can reconcile
+    them. On macOS `/tmp` is a symlink to `/private/tmp`, and under pnpm a package is
+    reached through `.pnpm/<name>@<ver>/node_modules/<pkg>` — so the engine's staged root
+    `/tmp/x/node_modules/typescript/lib` and the oracle's
+    `/private/tmp/x/node_modules/.pnpm/typescript@5.9.3/node_modules/typescript/lib`
+    are one directory under two names. realpath collapses both.
+    """
+    if not path:
+        return path
+    v = _RP.get(path)
+    if v is None:
+        v = os.path.realpath(path)
+        _RP[path] = v
+    return v
+
+
+# Roots that could not be resolved, so their rows fall back to a basename identity.
+# Reported, never silent: the fallback is exactly the collision this replaced.
+_WEAK_ROOTS = []
+
+
+def source_root(d):
+    """The directory an IR root was extracted from, per its `.source-root` marker."""
+    marker = os.path.join(d, '.source-root')
+    if not os.path.exists(marker):
+        _WEAK_ROOTS.append(d)
+        return ''
+    with open(marker, encoding='utf-8', errors='replace') as fh:
+        return rp(fh.read().strip())
+
+
+def resolved_ident(root, f, line, col):
+    """The identity BOTH SIDES compare on: resolved absolute path, line, column.
+
+    This used to be (basename, line, column), with a docstring asserting that was
+    "unique in practice". Measured on this corpus, it is not: 581 (basename, line, col)
+    keys in trpc map to more than one distinct file, 317 in nest, 110 in zustand, 41 in
+    remeda. A monorepo has many `index.ts`, and when the engine named one file and the
+    compiler named another that happened to share a basename, line and column, the site
+    scored EXACT. The error was in the direction of flattering the engine, which is the
+    worst direction for a number nobody can check.
+    """
+    if root and f and not os.path.isabs(f):
+        return (rp(os.path.join(root, f)), line, col)
+    return (rp(f) if os.path.isabs(f or '') else base(f), line, col)
 
 def main():
     ir_dir, out_dir, oracle_path = sys.argv[1], sys.argv[2], sys.argv[3]
     lib_dirs = []
     envelope_path = None
+    production_only = False
     for a in sys.argv[4:]:
         if a.startswith('--lib='):
             lib_dirs.append(a[len('--lib='):])
         elif a.startswith('--envelope='):
             envelope_path = a[len('--envelope='):]
+        elif a == '--production':
+            production_only = True
 
     # ---- client IR: module hash -> file, call-site expr -> position ----
     mod_file = {}
@@ -89,6 +169,7 @@ def main():
     pos_group = {}
     pos_meta = {}
     def load_methods(d):
+        root = source_root(d)
         mf = {}
         mpath = os.path.join(d, 'all-typescript-modules.csv')
         if os.path.exists(mpath):
@@ -100,11 +181,11 @@ def main():
         for row in read_tsv(p):
             h = row[42]
             f = row[4] or mf.get(row[21], '')
-            meth_pos[h] = (f, row[5], row[39], row[0])
+            meth_pos[h] = (f, row[5], row[39], row[0], root)
             # name + methodKind BY POSITION, so a target the oracle names can be
             # compared against a target we name without going back through hashes.
             if len(row) > 16:
-                pos_meta[(base(f), row[5], row[39])] = (row[0], row[16])
+                pos_meta[resolved_ident(root, f, row[5], row[39])] = (row[0], row[16])
             # declarationGroupKey (col 22) — every OVERLOAD SIGNATURE of one function
             # shares it. TypeScript overloads are compile-time only: N signatures, ONE
             # implementation, so a call that reaches any of them reaches the same code.
@@ -112,10 +193,32 @@ def main():
             # identically to "reached a completely different function", and the two are
             # not remotely the same defect.
             if len(row) > 22 and row[22]:
-                pos_group[(base(f), row[5], row[39])] = row[22]
+                pos_group[resolved_ident(root, f, row[5], row[39])] = row[22]
+    # ── every FILE present in the client IR or any staged library ──────────────
+    # Needed to answer a question the report could not previously ask: is the
+    # declaration the compiler named present in this analysis at all? A target in a file
+    # nothing staged cannot be resolved by any rule, so charging it to the engine
+    # manufactures a defect that does not exist. Borrowed from the Java front end, which
+    # found better than half of one project's unresolved sites were this (#161, #163).
+    staged_files = set()
+
+    def load_files(d):
+        root = source_root(d)
+        mp = os.path.join(d, 'all-typescript-modules.csv')
+        if not os.path.exists(mp):
+            return
+        for row in read_tsv(mp):
+            fp = row[3]
+            if not fp:
+                continue
+            staged_files.add(rp(os.path.join(root, fp))
+                             if root and not os.path.isabs(fp) else rp(fp))
+
     load_methods(ir_dir)
+    load_files(ir_dir)
     for d in lib_dirs:
         load_methods(d)
+        load_files(d)
 
     # ---- engine answer: call site -> set of target identities ----
     engine_targets = defaultdict(set)
@@ -124,8 +227,8 @@ def main():
         ce, _caller, _te, to, _prov, status, _kind = row[:7]
         engine_status.setdefault(ce, set()).add(status)
         if to != '-' and to in meth_pos:
-            f, line, col, _name = meth_pos[to]
-            engine_targets[ce].add((base(f), line, col))
+            f, line, col, _name, root = meth_pos[to]
+            engine_targets[ce].add(resolved_ident(root, f, line, col))
 
     # A resolved target whose position the IR does not carry: counted apart, because
     # "the engine resolved and the harness could not locate it" is a harness gap, not
@@ -143,7 +246,27 @@ def main():
         tf, tl, tc, tkind = row[7], row[8], row[9], row[11]
         ocount = int(row[12]) if len(row) > 12 and row[12].isdigit() else 1
         oidx = int(row[13]) if len(row) > 13 and row[13].isdigit() else 0
-        oracle[key] = (base(tf), tl, tc, tkind, row[6], row[5], ocount, oidx)
+        oracle[key] = (rp(tf) if tf else tf, tl, tc, tkind, row[6], row[5], ocount, oidx)
+
+    # ── apply the production filter to BOTH SIDES, before anything is counted ───
+    # Both sides or neither. Dropping test rows from the oracle alone would move every
+    # surviving IR site into NO_ORACLE_ROW and leave the conservation figure describing
+    # a population the report no longer scores.
+    if production_only:
+        ora_all, ir_all = len(oracle), len(call_pos)
+        oracle = {k: v for k, v in oracle.items() if not is_test_path(k[0])}
+        call_pos = {c: v for c, v in call_pos.items() if not is_test_path(v[0])}
+        print(f'production filter            oracle {ora_all} -> {len(oracle)}   '
+              f'IR {ir_all} -> {len(call_pos)}')
+        if not oracle:
+            print()
+            print('REFUSING TO REPORT: the production filter left NO call sites.')
+            print('  Every site this project declares is under a test, docs or example '
+                  'path, so there is')
+            print('  nothing here to measure a call graph over. That is a fact about the '
+                  'project, not a score.')
+            sys.stdout.flush()
+            sys.exit(5)
 
     # A declaration with NO BODY: it describes a callable, it is not one.
     bodiless_kinds = {
@@ -219,9 +342,9 @@ def main():
             b = 'MISSED_UNLOCATABLE' if ce in unlocatable else 'MISSED'
             if b == 'MISSED':
                 missed_by_callee[cname] += 1
-                missed_by_target[o[0]] += 1
+                missed_by_target[base(o[0])] += 1
                 if len(missed_rows) < 200000:
-                    missed_rows.append((f, line, col, ckind, cname, o[0], o[1], o[4]))
+                    missed_rows.append((f, line, col, ckind, cname, base(o[0]), o[1], o[4]))
         elif otarget in eng:
             b = 'EXACT' if len(eng) == 1 else 'SOUND_SUPERSET'
         elif _implements_signature(otarget, eng):
@@ -286,6 +409,60 @@ def main():
     exact_rate = buckets['EXACT'] / decidable if decidable else 0.0
     right_rate = right / decidable if decidable else 0.0
 
+    # ── STAGED COVERAGE — reported before any rate that depends on it ──────────
+    # The Java front end found every scale figure it had ever quoted was measured
+    # against a library IR covering a quarter of what the client called, and "the report
+    # never said so" (#163). A site whose target declaration is in no staged file cannot
+    # be resolved by any rule; counting it as MISSED charges the engine for the staging,
+    # and the resulting backlog is work no rule change can do.
+    #
+    # This front end is far less exposed than Java's, by construction: library staging is
+    # derived from the client IR's own module resolution rather than from a fixed
+    # platform IR. Measured, three of four corpus projects are at 0.00-0.01%. It is
+    # reported anyway, because the one that is not was at 6.22% and nothing said so.
+    unstaged_sites = 0
+    unstaged_files = set()
+    for (tf, tl, tc, tkind, tname, ckind, oc, oi) in oracle.values():
+        if tkind in ('synthesized', 'unresolved') or not tf:
+            continue
+        if tf not in staged_files:
+            unstaged_sites += 1
+            unstaged_files.add(tf)
+    if unstaged_sites:
+        pct = unstaged_sites / len(oracle) if oracle else 0
+        print(f'TARGET NOT STAGED           {unstaged_sites:>7}   {pct:.2%} of scored sites '
+              f'name a declaration in a file')
+        print(f'                                      nothing staged '
+              f'({len(unstaged_files)} distinct files). No rule can resolve these.')
+        for f in sorted(unstaged_files)[:5]:
+            print(f'    {f}')
+        if pct >= 0.02:
+            print('  ^ above 2%: this is a STAGING gap being charged to the engine. Read '
+                  'MISSED below as')
+            print('    that much too high, and fix the staging before opening an issue '
+                  'against a rule.')
+
+    # ── TARGET IDENTITY, reported because it decides what every rate below means ──
+    # Sites are compared on a resolved absolute path. Under the previous basename
+    # identity these keys were indistinguishable, and a site whose engine answer and
+    # oracle answer merely shared a basename, line and column scored EXACT.
+    collide = defaultdict(set)
+    for pth, ln, cl in list(pos_meta.keys()):
+        collide[(base(pth), ln, cl)].add(pth)
+    ambiguous = {k: v for k, v in collide.items() if len(v) > 1}
+    if ambiguous:
+        print(f'target identity             {len(pos_meta)} declarations; '
+              f'{len(ambiguous)} (basename,line,col) keys cover '
+              f'{sum(len(v) for v in ambiguous.values())} distinct files')
+        print('  ^ these are DISTINGUISHED here and were conflated before; a basename '
+              'match is no longer EXACT')
+    if _WEAK_ROOTS:
+        print(f'! {len(_WEAK_ROOTS)} IR root(s) have no .source-root and fall back to a '
+              f'basename identity:')
+        for d in _WEAK_ROOTS[:5]:
+            print(f'    {d}')
+        print('  Targets in those roots can still collide. Every rate below is loose by '
+              'that much.')
     print(f'call sites (parser IR)      {len(call_pos)}')
     print(f'call sites (oracle)         {len(oracle)}')
     print(f'joined on position          {matched}')
@@ -455,7 +632,7 @@ def main():
             if not e:
                 continue
             cha, rta = e
-            eng = {f'{t[0]}:{t[1]}:{t[2]}' for t in engine_targets.get(ce, set())}
+            eng = {f'{base(t[0])}:{t[1]}:{t[2]}' for t in engine_targets.get(ce, set())}
             if not cha:
                 continue
             cha_total += len(cha)
@@ -501,8 +678,8 @@ def main():
                 o = oracle.get((f, line, col, eline, ecol))
                 if not o:
                     continue
-                eng = sorted(f'{t[0]}:{t[1]}:{t[2]}' for t in engine_targets.get(ce, set()))
-                ot = f'{o[0]}:{o[1]}:{o[2]}'
+                eng = sorted(f'{base(t[0])}:{t[1]}:{t[2]}' for t in engine_targets.get(ce, set()))
+                ot = f'{base(o[0])}:{o[1]}:{o[2]}'
                 v = site_verdict.get(ce, 'NO_ORACLE_ROW')
                 fh.write('\t'.join([v, f, line, col, ckind, cname,
                                     str(o[6]) if len(o) > 6 else '1',
