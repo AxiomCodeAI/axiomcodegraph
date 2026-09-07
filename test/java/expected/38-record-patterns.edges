@@ -1,0 +1,6 @@
+known_edge	method	probe.Patterns#bare(Node) -> probe.Leaf#render()
+known_edge	method	probe.Patterns#bothComponents(Node) -> probe.Leaf#render()
+known_edge	method	probe.Patterns#deconstruct(Node) -> probe.Leaf#render()
+known_edge	method	probe.Patterns#inSwitch(Node) -> probe.Leaf#render()
+known_edge	method	probe.Patterns#inSwitch(Node) -> probe.Other#render()
+known_edge	method	probe.Patterns#negated(Node) -> probe.Leaf#render()
