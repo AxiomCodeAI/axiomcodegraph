@@ -21,6 +21,7 @@ import { BlockRegistry } from '@/analysis-types/java/BlockRegistry';
 import { LocalVariableScopeKind } from '@/enums/java/local-variables';
 import { BlockKind } from '@/enums/java/blocks';
 import { EntityUtils } from '@/utils/entity-utils';
+import { JavaTreeSitterUtils } from '@/utils/java/java-tree-sitter-utils';
 
 /**
  * Information about a statement found inside a method body, including
@@ -1659,7 +1660,7 @@ export class TypeMethodExtractor {
       // Those are handled by LocalVariableExtractor with proper local variable linking
       if (n.type === 'throw_statement'
           && !(currentLambdaPosition && inLocalVarDecl)
-          && !TypeMethodExtractor.isValueProducingSwitchArm(n)) {
+          && !JavaTreeSitterUtils.isValueProducingSwitchArm(n)) {
         throws.push({ node: n, containingLambdaPosition: currentLambdaPosition, containingBlockHash: currentBlockHash, lambdaParamNames: currentLambdaParams });
       }
       // Don't traverse into nested class bodies (anonymous classes have separate methods)
@@ -1814,15 +1815,6 @@ export class TypeMethodExtractor {
    * A statement switch is left alone: there the arm really is a statement, and its single row is
    * correct.
    */
-  private static isValueProducingSwitchArm(node: Parser.SyntaxNode): boolean {
-    if (node.parent?.type !== 'switch_rule') return false;
-
-    const switchExpression = node.parent.parent?.parent;
-    if (switchExpression?.type !== 'switch_expression') return false;
-
-    return switchExpression.parent?.type !== 'block';
-  }
-
   private findExpressionStatements(
     node: Parser.SyntaxNode,
     _typeRegistryHash: string,
@@ -1837,7 +1829,7 @@ export class TypeMethodExtractor {
       // Those are handled by LocalVariableExtractor with proper local variable linking
       if (n.type === 'expression_statement'
           && !(currentLambdaPosition && inLocalVarDecl)
-          && !TypeMethodExtractor.isValueProducingSwitchArm(n)) {
+          && !JavaTreeSitterUtils.isValueProducingSwitchArm(n)) {
         statements.push({ node: n, containingLambdaPosition: currentLambdaPosition, containingBlockHash: currentBlockHash, lambdaParamNames: currentLambdaParams });
       }
       // Don't traverse into nested class bodies (anonymous classes have separate methods)

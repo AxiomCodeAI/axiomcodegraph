@@ -276,6 +276,13 @@ export class JavaExtractorTestRunner {
       this.recordVocabulary(entities);
       this.recordCommentTwin(filename, entities);
 
+      // Check that nothing written once is recorded twice
+      const duplicateChecks = this.validateNoDuplicateRows(entities);
+      if (!duplicateChecks.passed) {
+        result.passed = false;
+        result.errors.push(...duplicateChecks.errors);
+      }
+
       // Check that every row survives being written — one physical line, header field count
       const tsvChecks = this.validateTsvRowIntegrity(entities);
       if (!tsvChecks.passed) {
@@ -2230,6 +2237,67 @@ export class JavaExtractorTestRunner {
       process.exitCode = 1;
     }
     console.log('='.repeat(80));
+  }
+
+  // ==================== NOTHING IS RECORDED TWICE ====================
+
+  /**
+   * Nothing written once may be recorded twice.
+   *
+   * Two properties, both of which were violated by separate defects and neither of which any
+   * per-fixture assertion covered:
+   *
+   *   - no source position may yield two expression rows of the SAME kind
+   *   - no local variable declared once may be recorded more than once
+   *
+   * A duplicate is harder to notice than a dropped row. It inflates any per-site denominator, and
+   * in the worst shape the two rows are identical in every emitted field except the hash, so
+   * reading a row cannot reveal it. Only comparing positions can.
+   *
+   * This runs over every fixture rather than a dedicated one, because both properties are
+   * properties of the walks, not of any particular construct: the defects that violated them were
+   * an arrow arm reached through a second walk, and an anonymous class body crossed by a walk that
+   * should have stopped at it.
+   */
+  private validateNoDuplicateRows(entities: ExtractedEntities): { passed: boolean; errors: string[] } {
+    const errors: string[] = [];
+
+    const expressionKey = (e: ExpressionReference) =>
+      `${e.getStartLine()}:${e.getStartColumn()}-${e.getEndLine()}:${e.getEndColumn()}:${e.getKind()}`;
+
+    const expressionCounts = new Map<string, number>();
+    for (const e of entities.expressions) {
+      const key = expressionKey(e);
+      expressionCounts.set(key, (expressionCounts.get(key) ?? 0) + 1);
+    }
+    const duplicatedExpressions = [...expressionCounts.entries()]
+      .filter(([, n]) => n > 1)
+      .map(([key, n]) => `${key} x${n}`);
+
+    if (duplicatedExpressions.length > 0) {
+      errors.push(
+        `${duplicatedExpressions.length} source position(s) yield more than one expression row: ` +
+        JSON.stringify(duplicatedExpressions.slice(0, 5))
+      );
+    }
+
+    const variableCounts = new Map<string, number>();
+    for (const v of entities.localVariables) {
+      const key = `${v.getName()}@${v.getStartLine()}:${v.getScopeKind()}`;
+      variableCounts.set(key, (variableCounts.get(key) ?? 0) + 1);
+    }
+    const duplicatedVariables = [...variableCounts.entries()]
+      .filter(([, n]) => n > 1)
+      .map(([key, n]) => `${key} x${n}`);
+
+    if (duplicatedVariables.length > 0) {
+      errors.push(
+        `${duplicatedVariables.length} local variable(s) declared once but recorded more than once: ` +
+        JSON.stringify(duplicatedVariables.slice(0, 5))
+      );
+    }
+
+    return { passed: errors.length === 0, errors };
   }
 
   // ==================== TSV ROW INTEGRITY ====================

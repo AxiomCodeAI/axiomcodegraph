@@ -13,6 +13,7 @@ import { ExpressionReferenceExtractor, AnonymousClassInfo } from '@/parsers/java
 import { ScopeContext, extractLambdaParameterNames } from '@/parsers/java/extractors/scope-context';
 import { TypeReferenceExtractor } from '@/parsers/java/extractors/type-reference-extractor';
 import { EntityUtils } from '@/utils/entity-utils';
+import { JavaTreeSitterUtils } from '@/utils/java/java-tree-sitter-utils';
 import { resolveTypeQualifiedName } from '@/utils/java/type-resolution-utils';
 
 /**
@@ -3515,6 +3516,13 @@ export class LocalVariableExtractor {
     const lambdaHash = this.scopeContext.getCurrentLambdaHash();
     if (!lambdaHash) return;
 
+    // An arrow arm of a switch used as a VALUE is not a statement of the enclosing body, even
+    // though it is written as one. The method walk already declines to collect these; a field
+    // initializer is walked here instead, and without the same guard every arm of a switch inside
+    // an initializer lambda was emitted a second time under EXPRESSION_STATEMENT/ROOT - a root
+    // context the source does not have.
+    if (JavaTreeSitterUtils.isValueProducingSwitchArm(statementNode)) return;
+
     const statementKey = `${statementNode.startIndex}:${statementNode.endIndex}`;
     if (this.extractedLambdaStatements.has(statementKey)) return;
     this.extractedLambdaStatements.add(statementKey);
@@ -3654,6 +3662,20 @@ export class LocalVariableExtractor {
     } else {
       // Recursively search children for lambda expressions and switch expressions
       for (const child of node.children) {
+        // An anonymous class body is extracted separately, as the anonymous class's own methods,
+        // with the correct method hash. Descending into one here found the lambdas inside its
+        // methods a second time, so every local declared in such a lambda was recorded twice:
+        // once under the anonymous method and once under the enclosing method's initializer walk.
+        //
+        // `extractFromBlock` already declines to cross this boundary for the same reason. Only
+        // locals INSIDE a lambda duplicated, because the plain locals of an anonymous method are
+        // not reached by this initializer search at all.
+        //
+        // A local class body is not skipped: it is not extracted anywhere else.
+        if (child.type === 'class_body' && child.parent?.type === 'object_creation_expression') {
+          continue;
+        }
+
         this.extractLambdasFromInitializer(
           child,
           filePath,

@@ -11,6 +11,32 @@ import { EntityJavaUtils } from '@/utils/java/entity-java-utils';
  */
 export class JavaTreeSitterUtils {
   /**
+   * True when this statement is the body of an arrow arm belonging to a switch used as a VALUE.
+   *
+   * `case 1 -> t();` is written as an expression_statement whichever form the switch takes, so a
+   * walk that collects every expression statement picks the arm up a second time. The arm's value
+   * is the switch's value, not a statement in the enclosing body, so that second row asserts a
+   * root context the source does not have and turns one written site into two.
+   *
+   * The two forms are told apart by what the switch is attached to. tree-sitter models both as
+   * `switch_expression`; one used as a statement sits directly in a `block`, while one used as a
+   * value sits under whatever consumes it - a return, a variable_declarator, an argument_list, an
+   * assignment. So a `block` parent means statement, and anything else means value.
+   *
+   * Shared rather than private to one extractor: a method body and a field initializer are walked
+   * by different code, and the same arm is a value in both. Guarding only the method walk left the
+   * field-initializer path duplicating every arm of a switch inside an initializer lambda.
+   */
+  static isValueProducingSwitchArm(node: Parser.SyntaxNode): boolean {
+    if (node.parent?.type !== 'switch_rule') return false;
+
+    const switchExpression = node.parent.parent?.parent;
+    if (switchExpression?.type !== 'switch_expression') return false;
+
+    return switchExpression.parent?.type !== 'block';
+  }
+
+  /**
    * Determines the TypeRefKind from a Java syntax node.
    * 
    * Analyzes the node type and text to classify it into the appropriate
