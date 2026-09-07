@@ -500,3 +500,5 @@
 .decl client_calls_lib(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl client_calls_builtin(c0:symbol,c1:symbol,c2:symbol)
 .decl client_calls_external(c0:symbol,c1:symbol)
+.decl property_read_of(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
+.decl property_read_lib_of(c0:symbol,c1:symbol,c2:symbol,c3:symbol)

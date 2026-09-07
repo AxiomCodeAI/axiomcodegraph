@@ -153,6 +153,72 @@ expr_type(p, e, t) :-
     expr_type(p, obj, ot),
     type_attr_field(p, ot, n, f),
     field_type_from_construction(p, f, t).
+// ── (i3) A PROPERTY READ IS A CALL, SO IT HAS A RETURN TYPE (issue #286) ─────
+// `attribute-lookup.dl` already argues that `obj.x` on a `@property` is a method call, and
+// `call_chain.dl` emits the PROPERTY_READ edge from it. Nothing gave the ATTRIBUTE
+// EXPRESSION the getter's type, so the edge was emitted and the result was untyped, and
+// anything called on it was unresolvable.
+//
+// The three rules that type a call result -- call_returns_type (a) declared `-> X`,
+// (b) return-of-parameter, (c2) the return expression's own type -- are all keyed on
+// expr_call_candidate(site, m), and a property read HAS NO CALL SITE. attribute-lookup.dl
+// says so outright: "There is no call site spelling `x()` anywhere". So none of them could
+// ever reach these, and the field clauses above cannot either, because a property is not a
+// field.
+//
+// MEASURED, three open-source projects: 995 / 90 / 227 no_rule sites have a property-read
+// receiver, and 840 / 2 / 123 of those have a getter with a declared client return type.
+// On the first that is 60.2% of its whole no_rule residual and 8.6% of every unresolved
+// site in the project. The shape is the framework-accessor idiom:
+//
+//     class Application:
+//         @property
+//         def router(self) -> UrlDispatcher: return self._router
+//
+//     app.router.add_get("/", handler)          # add_get was ambiguous_unknown
+//
+// Same widening as everywhere else: the declared type goes out through declared_dispatch,
+// so an overriding subclass is not dropped and the annotation is not treated as exact.
+property_read_of(p, e, obj, n, g) :-
+    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
+    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_type(p, obj, ot),
+    type_property_getter(p, ot, n, g).
+// (i3a) the getter's declared `-> X`.
+expr_type(p, e, t) :-
+    property_read_of(p, e, _, _, g),
+    method_declared_return_type(p, g, d),
+    declared_dispatch(p, d, t).
+// (i3b) the type of the getter's own return expression, for the unannotated majority --
+//       `return self._router` types the read from the field it hands back. The same
+//       argument call_returns_type (c2) makes, and it needs no annotation.
+expr_type(p, e, t) :-
+    property_read_of(p, e, _, _, g),
+    method_return_value_expr(p, g, re),
+    expr_type(p, re, t).
+
+// ── (i4) THE SAME READ ACROSS THE LIBRARY BOUNDARY ───────────────────────────
+// Two directions, and both are needed for a chain to survive the boundary:
+//   * a CLIENT property whose getter declares a LIBRARY return type;
+//   * a LIBRARY property read off a library-typed receiver -- `Config("x").tag`.
+// Neither re-implements a lookup: the first reads method_declared_return_type_lib, which
+// resolution/annotations.dl already resolves across the import, and the second reads the
+// lib side of type_property_getter, which attribute-lookup.dl already derives. expr_lib_type
+// is a separate relation for the reason its own header gives -- the EXPRESSION stays
+// client, only the TYPE crosses.
+expr_lib_type(e, t) :-
+    property_read_of("client", e, _, _, g),
+    method_declared_return_type_lib(g, t).
+property_read_lib_of(e, obj, n, g) :-
+    expr_node("client", "ATTRIBUTE_ACCESS", _, n, e), n != "",
+    expr_parent("client", e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_lib_type(obj, ot),
+    type_property_getter("lib", ot, n, g).
+expr_lib_type(e, t) :-
+    property_read_lib_of(e, _, _, g),
+    method_declared_return_type("lib", g, d),
+    declared_dispatch("lib", d, t).
+
 // (j) A loop or comprehension variable over a container whose ELEMENT type is declared:
 //     `for line in self.lines` where lines is List[LineItem]. Without this the whole
 //     order-total chain on the measured project stopped at the generator expression.
