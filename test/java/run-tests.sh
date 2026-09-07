@@ -71,6 +71,13 @@ if ! bash "$ROOT/test/tools/portable-stat-test.sh"; then
   echo "aborting: the library-facts cache key is not a function of the library IR"
   exit 1
 fi
+# ── The -I for soufflé's headers must be the one that actually compiles ──────
+# Also a preflight, and for the same reason: the old resolution returned a path that only built on
+# the machine it was written on, and every run here compiles the engine through it.
+if ! bash "$ROOT/test/tools/souffle-include-test.sh"; then
+  echo "aborting: the soufflé include path does not resolve to a compilable -I"
+  exit 1
+fi
 PARSER="${AXIOM_PARSER:-$ROOT/../Parser/dist/index.js}"
 WORK="$HERE/.work"
 BLESS=0; KEEP=0; ORACLE=0; FILTERS=()
