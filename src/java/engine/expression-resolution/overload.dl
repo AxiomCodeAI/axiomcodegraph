@@ -484,13 +484,96 @@ dominated(call, lose) :- copruned(call, win, lose),
 expr_most_specific(call, callee) :- expr_pruned(call, callee),
     !dominated(call, callee).
 
+// ── METHOD REFERENCE arity (JLS 15.13.1) ────────────────────────────────────────────────
+// A method reference writes no arguments, so the clause below let every same-name candidate
+// through — including ones the functional interface it is converted to cannot possibly accept.
+// The arity is not unavailable: it is the arity of the target type's SAM, which lambda.dl
+// already computes for lambda parameter typing.
+//
+// The ±1 is the whole difficulty, and getting it backwards drops the REAL callee rather than
+// the impossible one, so it is spelled out (JLS 15.13.1):
+//
+//     this::render   in Function<Object,String>   bound     SAM arity 1 -> render(Object)
+//     this::render   in Supplier<String>          bound     SAM arity 0 -> render()
+//     Type::sRender  in Function<Object,String>   static    SAM arity 1 -> sRender(Object)
+//     Type::render   in Function<Type,String>     unbound   SAM arity 1 -> render()        <- n-1
+//     Type::render   in BiFunction<Type,Object,…> unbound   SAM arity 2 -> render(Object)  <- n-1
+//
+// Only an UNBOUND reference — `Type::m` where m is an instance method — spends the SAM's first
+// parameter on the receiver. `Type::m` where m is STATIC does not, and neither does a constructor
+// reference, so both are excluded from mref_unbound and take the plain arity.
+
+callee_arity(m, n) :- method_paramc(m, n).
+callee_arity(m, 0) :- method_owner(_, _, m), !method_has_params(m).
+
+sam_arity(fi, n) :- sam_method(_, fi, m), method_paramc(m, n).
+sam_arity(fi, 0) :- sam_method(_, fi, m), !method_has_params(m).
+
+// The target functional interface, by the position the reference is written in. The ARGUMENT case
+// reads expr_call_candidate, which never reads expr_resolves_to_method, so the negations below
+// stay stratified.
+// java_expression (25): 1 kind 2 edgeRole 3 rootContext 4 ownerKind 6 ownerHash 7 parentRef 8 position 15 refEntityKind 25 hash
+mref_target_fi(mref, fi) :- java_expression("METHOD_REFERENCE", "ARGUMENT", _, _, _, _, call, argpos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, mref),
+    expr_call_candidate(call, callee),
+    method_param_type_at(_, callee, argpos, _, fi).
+mref_target_fi(mref, fi) :- java_expression("METHOD_REFERENCE", _, "RETURN_VALUE", "RETURN_STATEMENT", _, m, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, mref),
+    method_return_type_resolves(_, m, _, fi).
+mref_target_fi(mref, fi) :- java_expression("METHOD_REFERENCE", _, "LOCAL_VAR_INITIALIZER", "LOCAL_VARIABLE", _, local, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, mref),
+    local_var_type_resolves(_, local, _, fi).
+mref_target_fi(mref, fi) :- java_expression("METHOD_REFERENCE", _, _, "FIELD", _, field, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, mref),
+    field_type_resolves(_, field, _, fi).
+
+mref_target_sam_arity(mref, n) :- mref_target_fi(mref, fi), sam_arity(fi, n).
+
+// `Type::m` — the qualifier names a TYPE rather than a value. The qualifier is the reference's
+// QUALIFIER child; a bound reference qualifies with `this`, a local, a field or a call, none of
+// which carry referencedEntityKind = TYPE.
+mref_qual_is_type(mref) :- java_expression(_, "QUALIFIER", _, _, _, _, mref, _, _, _, _, _, _, _, "TYPE", _, _, _, _, _, _, _, _, _, _).
+
+mref_unbound(mref, callee) :- mref_qual_is_type(mref),
+    expr_call_candidate(mref, callee),
+    method_kind(_, k, _, callee),
+    k != "STATIC_METHOD", k != "CONSTRUCTOR", k != "DEFAULT_CONSTRUCTOR".
+
+// bound, static, or a constructor reference: the SAM's arity IS the method's arity.
+mref_arity_ok(mref, callee) :- mref_target_sam_arity(mref, n),
+    expr_call_candidate(mref, callee),
+    callee_arity(callee, n),
+    !mref_unbound(mref, callee).
+// unbound instance reference: the SAM's first parameter is the receiver.
+mref_arity_ok(mref, callee) :- mref_target_sam_arity(mref, n), n > 0,
+    mref_unbound(mref, callee),
+    callee_arity(callee, n - 1).
+// A VARARGS candidate satisfies more than one arity, and deciding which is a different question
+// (JLS 15.13.1 applies the same three phases a call does). Never filtered — extra is sound.
+mref_arity_ok(mref, callee) :- expr_call_candidate(mref, callee), call_is_method_ref(mref),
+    mref_target_known(mref),
+    method_is_varargs(callee).
+
+mref_target_known(mref) :- mref_target_sam_arity(mref, _).
+mref_has_ok(mref) :- mref_arity_ok(mref, _).
+
 // DON'T-EMPTY SAFEGUARD (soundness) — type pruning may only REMOVE candidates, never
 // drop a call to zero. It is a heuristic over an incomplete subtype relation, so when
 // it would eliminate every arity-matched candidate we fall back to the full arity-
 // matched set rather than lose the real callee. This keeps callee resolution sound for
 // reachability; the residual imprecision is extra (never missing) candidates.
+// A method reference whose target functional interface we could not identify keeps the old
+// unfiltered behaviour — the candidate set is then over-approximate, which is what it was before.
 expr_resolves_to_method(call, callee) :- expr_call_candidate(call, callee),
-    call_is_method_ref(call).
+    call_is_method_ref(call),
+    !mref_target_known(call).
+// Target known: keep only the candidates whose arity that interface can accept.
+expr_resolves_to_method(call, callee) :- expr_call_candidate(call, callee),
+    call_is_method_ref(call),
+    mref_arity_ok(call, callee).
+// DON'T-EMPTY, as above: the arity rule is a claim about JLS 15.13.1 over an IR that may not
+// describe every reference form, so when it would eliminate every candidate the unfiltered set
+// is kept rather than lose the real callee.
+expr_resolves_to_method(call, callee) :- expr_call_candidate(call, callee),
+    call_is_method_ref(call),
+    mref_target_known(call),
+    !mref_has_ok(call).
 // arity-scoped calls with surviving candidates: keep the MOST-SPECIFIC set (JLS
 // §15.12.2.5). expr_most_specific ⊆ expr_pruned and is non-empty exactly when
 // expr_pruned is, so the !call_has_pruned fallback below still guards emptiness.

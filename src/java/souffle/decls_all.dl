@@ -219,6 +219,15 @@
 .decl method_owner(c0:symbol,c1:symbol,c2:symbol)
 .decl method_param_type_resolves(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl method_paramc(c0:symbol,c1:number)
+.decl callee_arity(c0:symbol,c1:number)                          // a method's parameter count, 0 included
+.decl sam_arity(c0:symbol,c1:number)                            // a functional interface's SAM parameter count
+.decl mref_target_fi(c0:symbol,c1:symbol)                       // (method reference, the functional interface it is converted to)
+.decl mref_target_sam_arity(c0:symbol,c1:number)                // (method reference, that interface's SAM arity)
+.decl mref_qual_is_type(c0:symbol)                              // the reference is written Type::m, not value::m
+.decl mref_unbound(c0:symbol,c1:symbol)                         // Type::m where m is an instance method — SAM's first param is the receiver
+.decl mref_arity_ok(c0:symbol,c1:symbol)                        // candidate whose arity the target interface can accept
+.decl mref_target_known(c0:symbol)                              // a target interface was identified, so the filter may run
+.decl mref_has_ok(c0:symbol)                                    // at least one candidate survived the filter
 .decl method_ref_qualifier_resolves(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl method_return_type_resolves(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl method_type_param(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
