@@ -1,4 +1,4 @@
-=== per-family coverage (tier-4, 312 scored sites) ===
+=== per-family coverage (tier-4, 336 scored sites) ===
   f01 inheritance & MRO        links= 10  found= 10 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f02 callables & closures     links= 10  found=  9 (90.0%)  missed= 1  wide= 0  WRONG= 0
   f03 generics                 links= 14  found= 14 (100.0%)  missed= 0  wide= 0  WRONG= 0
@@ -30,14 +30,15 @@
   f32 iteration protocol       links= 14  found= 14 (100.0%)  missed= 0  wide= 1  WRONG= 0
   f33 type stubs               links=  2  found=  2 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f34 assignment re-export     links=  8  found=  8 (100.0%)  missed= 0  wide= 2  WRONG= 0
+  f35 generic union operand    links= 24  found= 24 (100.0%)  missed= 0  wide= 0  WRONG= 0
   pkgmod relative imports (subpackage) links=  3  found=  3 (100.0%)  missed= 0  wide= 0  WRONG= 0
 
-  TOTAL                         links=282  found=274 (97.2%)  missed= 8  wide=30  WRONG= 0
-  recall      274/282 = 97.2%  of the links that actually ran
+  TOTAL                         links=306  found=298 (97.4%)  missed= 8  wide=30  WRONG= 0
+  recall      298/306 = 97.4%  of the links that actually ran
   wide  30   a member of a SOUND SET that did not run on this pass
   WRONG 0   a single target asserted as certain that never ran
 
-  EXPECTED-MISS cases: {'FOUND': 14, 'MISSED': 14}   (a CONCRETE here means a known blind spot closed)
+  EXPECTED-MISS cases: {'FOUND': 15, 'MISSED': 15}   (a CONCRETE here means a known blind spot closed)
 
 --- non-concrete sites ---
   f02_callables.py:31   MISSED     true=[('lib', 'callables.py', 22)] engine=[]

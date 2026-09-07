@@ -2,6 +2,7 @@ ambiguous_unknown	CHAINED_CALL	f08_dynamic.dict_dispatch_computed_key -> -
 ambiguous_unknown	CHAINED_CALL	f08_dynamic.dict_dispatch_static_key -> -
 ambiguous_unknown	CHAINED_CALL	f24_star_all.absent_by_underscore -> -
 ambiguous_unknown	CHAINED_CALL	f24_star_all.absent_from_all -> -
+ambiguous_unknown	CHAINED_CALL	f35_generic_union.return_subscripted_union -> -
 ambiguous_unknown	DECORATOR_APPLICATION	f05_decorators.<module> -> -
 ambiguous_unknown	DYNAMIC_CALL	f08_dynamic.getattr_call -> -
 ambiguous_unknown	METHOD_CALL	f06_flow.takes_unannotated -> -
@@ -128,6 +129,7 @@ boundary_lib	METHOD_CALL	f32_iteration_protocol.drive -> builtin:list.append
 boundary_lib	METHOD_CALL	f32_iteration_protocol.drive -> builtin:str.join
 boundary_lib	METHOD_CALL	f34_reexport_union.drive -> builtin:list.append
 boundary_lib	METHOD_CALL	f34_reexport_union.drive -> builtin:str.join
+boundary_lib	METHOD_CALL	f35_generic_union.drive -> builtin:str.join
 boundary_lib	METHOD_CALL	main.main -> builtin:object.__init__
 boundary_lib	SELF_CALL	f02_callables.HoldsCallables.run -> lib:tlib.callables.Doubler.__call__
 boundary_lib	SELF_CALL	f09_adversarial.Rebound.use -> lib:tlib.callables.Doubler.__call__
@@ -243,6 +245,7 @@ boundary_lib	SIMPLE_CALL	f32_iteration_protocol.undecidable_by_the_ir -> builtin
 boundary_lib	SIMPLE_CALL	f33_type_stubs._stub_is_not_a_target -> external:accelstub.fast
 boundary_lib	SIMPLE_CALL	f33_type_stubs.drive -> builtin:str
 boundary_lib	SIMPLE_CALL	f34_reexport_union.drive -> builtin:str
+boundary_lib	SIMPLE_CALL	f35_generic_union.<module> -> external:TypeVar
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	main.main -> builtin:print
@@ -272,6 +275,7 @@ known_edge	CHAINED_CALL	f19_reexports.via_reexported_function -> repkg.inner.lea
 known_edge	CHAINED_CALL	f19_reexports.via_submodule_alias -> repkg.inner.leaf.Widget.emit
 known_edge	CHAINED_CALL	f21_module_alias.call_function_through_alias -> aliaspkg.deep.impl.Node.label
 known_edge	CHAINED_CALL	f21_module_alias.construct_through_alias -> aliaspkg.deep.impl.Node.label
+known_edge	CHAINED_CALL	f35_generic_union.return_plain_union -> f35_generic_union.Payload.render
 known_edge	CHAINED_CALL	main.main -> f10_forward_refs.Boxed.read
 known_edge	CHAINED_CALL	main.main -> f11_multiwrite.HoldsOr.run
 known_edge	CHAINED_CALL	main.main -> f11_multiwrite.HoldsTernary.run
@@ -341,6 +345,13 @@ known_edge	METHOD_CALL	f30_builtin_elements.drive -> f30_builtin_elements.Holder
 known_edge	METHOD_CALL	f31_named_blind_spots.drive -> f31_named_blind_spots.Holder.attribute_absent
 known_edge	METHOD_CALL	f31_named_blind_spots.drive -> f31_named_blind_spots.Holder.member_absent
 known_edge	METHOD_CALL	f31_named_blind_spots.drive -> f31_named_blind_spots.Widget.render
+known_edge	METHOD_CALL	f35_generic_union.Holder.read_plain -> f35_generic_union.Payload.render
+known_edge	METHOD_CALL	f35_generic_union.Holder.read_subscripted -> f35_generic_union.Payload.render
+known_edge	METHOD_CALL	f35_generic_union.drive -> f35_generic_union.Holder.read_plain
+known_edge	METHOD_CALL	f35_generic_union.drive -> f35_generic_union.Holder.read_subscripted
+known_edge	METHOD_CALL	f35_generic_union.param_optional_subscript -> f35_generic_union.Payload.render
+known_edge	METHOD_CALL	f35_generic_union.param_plain_union -> f35_generic_union.Payload.render
+known_edge	METHOD_CALL	f35_generic_union.param_subscripted_union -> f35_generic_union.Payload.render
 known_edge	METHOD_CALL	main.main -> f01_inheritance.client_chain
 known_edge	METHOD_CALL	main.main -> f01_inheritance.lib_deep_chain
 known_edge	METHOD_CALL	main.main -> f01_inheritance.lib_diamond
@@ -467,6 +478,7 @@ known_edge	METHOD_CALL	main.main -> f31_named_blind_spots.drive
 known_edge	METHOD_CALL	main.main -> f32_iteration_protocol.drive
 known_edge	METHOD_CALL	main.main -> f33_type_stubs.drive
 known_edge	METHOD_CALL	main.main -> f34_reexport_union.drive
+known_edge	METHOD_CALL	main.main -> f35_generic_union.drive
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator_in_for
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_plain
@@ -561,6 +573,19 @@ known_edge	SIMPLE_CALL	f34_reexport_union.drive -> f34_reexport_union.a_def_reex
 known_edge	SIMPLE_CALL	f34_reexport_union.drive -> f34_reexport_union.a_single_assignment_reexport
 known_edge	SIMPLE_CALL	f34_reexport_union.drive -> f34_reexport_union.the_optional_dependency_idiom
 known_edge	SIMPLE_CALL	f34_reexport_union.drive -> f34_reexport_union.two_assignments_to_one_name
+known_edge	SIMPLE_CALL	f35_generic_union.Holder.__init__ -> f35_generic_union._from_bag
+known_edge	SIMPLE_CALL	f35_generic_union._make_plain -> f35_generic_union._from_bag
+known_edge	SIMPLE_CALL	f35_generic_union._make_subscripted -> f35_generic_union._from_bag
+known_edge	SIMPLE_CALL	f35_generic_union.drive -> f35_generic_union.Holder.__init__
+known_edge	SIMPLE_CALL	f35_generic_union.drive -> f35_generic_union.Payload.__init__
+known_edge	SIMPLE_CALL	f35_generic_union.drive -> f35_generic_union._from_bag
+known_edge	SIMPLE_CALL	f35_generic_union.drive -> f35_generic_union.param_optional_subscript
+known_edge	SIMPLE_CALL	f35_generic_union.drive -> f35_generic_union.param_plain_union
+known_edge	SIMPLE_CALL	f35_generic_union.drive -> f35_generic_union.param_subscripted_union
+known_edge	SIMPLE_CALL	f35_generic_union.drive -> f35_generic_union.return_plain_union
+known_edge	SIMPLE_CALL	f35_generic_union.drive -> f35_generic_union.return_subscripted_union
+known_edge	SIMPLE_CALL	f35_generic_union.return_plain_union -> f35_generic_union._make_plain
+known_edge	SIMPLE_CALL	f35_generic_union.return_subscripted_union -> f35_generic_union._make_subscripted
 known_edge	SIMPLE_CALL	main.<module> -> main.main
 known_edge	SIMPLE_CALL	pkgmod.user.run_generator -> pkgmod._gen.each
 known_edge	SIMPLE_CALL	pkgmod.user.run_generator_in_for -> pkgmod._gen.each_first
