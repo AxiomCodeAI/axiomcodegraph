@@ -34,6 +34,7 @@ because "the chain is short" is not actionable and "hop 3 lost stageThree -> enc
 Usage: chain-check.py <ir-dir> <engine-out-dir> <oracle.tsv> [--lib=<ir-dir> ...]
 """
 import csv
+csv.field_size_limit(10**9)   # an IR literalValue can be a base64 asset; see test/tools/csv-limit-test.sh
 import os
 import sys
 from collections import defaultdict, deque

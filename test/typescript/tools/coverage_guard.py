@@ -13,6 +13,7 @@ one of them.
 usage: coverage_guard.py <IR-dir> <OUT-dir>
 """
 import csv, sys, os
+csv.field_size_limit(10**9)   # an IR literalValue can be a base64 asset; see test/tools/csv-limit-test.sh
 from collections import Counter
 
 ir, out = sys.argv[1], sys.argv[2]

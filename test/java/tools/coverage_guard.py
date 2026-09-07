@@ -18,6 +18,7 @@ was invisible. Every other method-reference kind is still required to appear.
 usage: coverage_guard.py <IR-dir> <OUT-dir>
 """
 import csv, sys, collections
+csv.field_size_limit(10**9)   # an IR literalValue can be a base64 asset; see test/tools/csv-limit-test.sh
 
 ir, out = sys.argv[1], sys.argv[2]
 KINDS = {'METHOD_INVOCATION', 'OBJECT_CREATION', 'ANONYMOUS_CLASS_CREATION',

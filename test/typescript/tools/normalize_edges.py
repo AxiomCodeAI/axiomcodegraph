@@ -41,6 +41,7 @@ CONVENTIONS (deliberate, not defects)
 usage: normalize_edges.py <IR-dir> <OUT-dir> [--lib-ir <dir>] [--client-pairs]
 """
 import csv, os, re, sys
+csv.field_size_limit(10**9)   # an IR literalValue can be a base64 asset; see test/tools/csv-limit-test.sh
 from collections import defaultdict
 
 
