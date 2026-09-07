@@ -76,6 +76,28 @@ if ! bash "$HERE/tools/arrow-naming-test.sh"; then
   echo "aborting: the engine and the compiler side name a declaration differently"
   exit 1
 fi
+
+# ── PREFLIGHT: the dispatch envelope, and what the report claims about it ─────
+# The envelope adds the resolved symbol's declaration set to the bound so that picking
+# a different OVERLOAD scores as over-approximation rather than fabrication. It read
+# that set off the symbol local to the declaration the compiler picked, which carries
+# only same-file declarations — so every CROSS-FILE merge (`lib.dom` vs `@types/node`
+# `setTimeout`, `String#replace` across two `lib.*.d.ts`) was dropped from the bound.
+#
+# The second half is what the report then said about the residue: one total labelled
+# `demonstrable false positives`, of which 74 in 2,728 sat on a site the scorer itself
+# called WRONG. Both halves land on a wrong ANSWER a reader would act on. See #242.
+#
+# The report check synthesises its own IR and needs no compiler, so it cannot skip; the
+# envelope check needs a real TypeScript and says so when it cannot find one.
+if ! python3 "$HERE/tools/envelope_report_test.py"; then
+  echo "aborting: the dispatch-envelope report is not decomposing what it claims"
+  exit 1
+fi
+if ! bash "$HERE/tools/envelope-merge-test.sh"; then
+  echo "aborting: the dispatch envelope is not the resolved symbol's declaration set"
+  exit 1
+fi
 PARSER="${AXIOM_PARSER:-$ROOT/../Parser/dist/index.js}"
 WORK="$HERE/.work"
 BLESS=0; KEEP=0; ORACLE=0; FILTERS=()
