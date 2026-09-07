@@ -49,6 +49,29 @@ expr_arg_binding(call, retType, retParam, arg) :- call_site(call, _, recv),
     expr_call_candidate(call, callee),
     lib_method_ret_param(callee, retType, retParam, ownerTv).
 
+// (var local) `var it = xs.iterator(); it.next()` — the receiver is a LOCAL, so the two clauses
+// above never reach it: the base clause needs a declared reference carrying written arguments, and
+// `var` writes none, while the propagate clause keys on the call expression, not on the variable
+// the call was assigned to. The initializer expression already carries the fully substituted
+// bindings, so the local's receiver uses simply inherit them.
+//
+// KEYED BY EXPRESSION, deliberately. The obvious shortcut — deriving type_arg_binding against the
+// callee's RETURN REFERENCE — is wrong: a library method has exactly one return-type reference
+// shared by every call site in the program, so a binding inferred at one site is then read by
+// every other call of that method. Measured: doing it that way retyped a `String` parameter as
+// `List` in an unrelated class and lost the correct `write(String,int,int)` overload. expr_arg_binding
+// is per-expression, which is what makes the propagation sound.
+//
+// Scoped to the enclosing method (expr_ultimate_method) so a name is matched against the local of
+// the method it actually appears in — same guard the recv_decl_ref clauses in expr-type.dl use.
+// java_expression (25): 11 name 15 referenceKind 25 hash.  java_local_variable (19): 1 name 14 method 19 hash.
+expr_arg_binding(recv, bt, param, arg) :-
+    java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "LOCAL_VARIABLE", _, _, _, _, _, _, _, _, _, recv),
+    expr_ultimate_method("client", recv, m),
+    java_local_variable(name, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, local),
+    java_expression("METHOD_INVOCATION", _, "LOCAL_VAR_INITIALIZER", "LOCAL_VARIABLE", _, local, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, initExpr),
+    expr_arg_binding(initExpr, bt, param, arg).
+
 // ── INHERITED generics with a CONCRETE super-arg (c9): `class DogBox extends Box<Dog>`.
 // super_tvar_rename (type-arg-binding.dl) climbs type-VARIABLE renames; this is the concrete
 // counterpart — a subtype that fixes its supertype's parameter to a concrete type. Then ANY

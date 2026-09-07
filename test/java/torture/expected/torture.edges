@@ -1,5 +1,4 @@
 ambiguous_anon	anon_new	torture.F08Nesting#viaAnonymous() -> -
-ambiguous_unknown	method	torture.F03Var#fromEnhancedFor() -> -
 ambiguous_unknown	method	torture.F03Var#fromMapEntry() -> -
 ambiguous_unknown	method	torture.F06Functional#<type-initializer>() -> -
 ambiguous_unknown	method	torture.F06Functional#wire() -> -
@@ -104,6 +103,7 @@ known_edge	method	torture.F03Var#fromChain() -> torture.Widget#id()
 known_edge	method	torture.F03Var#fromChain() -> torture.Widget#parent()
 known_edge	method	torture.F03Var#fromConstructor() -> torture.Widget#id()
 known_edge	method	torture.F03Var#fromEnhancedFor() -> torture.F03Var#many()
+known_edge	method	torture.F03Var#fromEnhancedFor() -> torture.Widget#id()
 known_edge	method	torture.F03Var#fromFactory() -> torture.F03Var#build()
 known_edge	method	torture.F03Var#fromFactory() -> torture.Widget#id()
 known_edge	method	torture.F03Var#fromGenericElement() -> torture.F03Var#many()
