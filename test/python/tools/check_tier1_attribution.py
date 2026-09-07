@@ -95,6 +95,69 @@ EXPECT_CALLS = {
 # proves nothing on this interpreter and says so instead of reporting ok.
 SHORT_CIRCUIT_POP = ('JUMP_IF_TRUE_OR_POP', 'JUMP_IF_FALSE_OR_POP')
 
+# ── THE SECOND DEFECT: A SENTINEL, NOT A CONTAINER ───────────────────────────
+# BINARY_SUBSCR consumes two slots and pushes one, but the generic fallback applied only the NET
+# effect, so the CONTAINER survived in the callee slot: `TABLE["d"](n)` was attributed to `TABLE`.
+# The control is one opcode away and was always right, which is what isolated it.
+#
+# What makes this worth a gate rather than a cosmetic label: UNKNOWN has to mean "attribution
+# failed". A container name in the callee slot is neither a real callee nor an admission of
+# defeat, so a consumer cannot tell "statically unnameable by construction" from "the walk
+# drifted" -- and the registry-dispatch idiom is exactly where a call graph most needs to say
+# which it is. The CALL_OPS path already had the answer (<call-result> / <super>); subscript now
+# uses it too.
+#
+# PINNED, like the half above, and for a measured reason rather than a guessed one. It is tempting
+# to call this interpreter-independent because BINARY_SUBSCR exists everywhere the harness supports
+# — but on 3.12 the walk misattributes BOTH `TABLE["d"](n)` and the `TABLE.get("d")(n)` CONTROL,
+# and the control has nothing to do with this fix. 3.11 changed LOAD_GLOBAL to push a NULL beside
+# the global, so the whole slot arithmetic differs off-pin. tier 1 is simply not accurate there,
+# which is what the harness means by "opcode shapes differ; numbers are not comparable" — the locks
+# are 3.10. So this runs only where it means something, and says so otherwise.
+SENTINEL_SOURCE = '''\
+def target(x):
+    return x
+
+
+TABLE = {"d": target}
+
+
+def via_subscript(n):
+    return TABLE["d"](n)
+
+
+def via_call_result(n):
+    return TABLE.get("d")(n)
+'''
+# scope -> (the (callee, via) that MUST be present, a callee that must NOT be)
+EXPECT_SENTINEL = {
+    'via_subscript':   (('<subscript-result>', 'SUBSCRIPT_RESULT'), 'TABLE'),
+    'via_call_result': (('<call-result>', 'CALL_RESULT'), None),
+}
+
+
+def check_sentinels() -> list:
+    """-> list of failure strings; empty when tier 1 names a sentinel, not the container."""
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, 'sub.py')
+        with open(p, 'w', encoding='utf-8') as fh:
+            fh.write(SENTINEL_SOURCE)
+        sites = [s for s in sites_for_tree(d, Normalizer(d)) if not s.implicit]
+    by_scope: dict[str, list] = {}
+    for s in sites:
+        by_scope.setdefault(s.raw_scope, []).append(s)
+    out = []
+    for scope, (need, forbid) in EXPECT_SENTINEL.items():
+        got = by_scope.get(scope, [])
+        pairs = {(s.callee_name, s.via) for s in got}
+        if need not in pairs:
+            out.append(f'{scope}: expected a {need[0]} callee (via {need[1]}), tier 1 reported '
+                       + ', '.join(f'{c!r} (via {v})' for c, v in sorted(pairs)))
+        if forbid is not None and any(c == forbid for c, _ in pairs):
+            out.append(f'{scope}: tier 1 named the CONTAINER {forbid!r} as the callee — '
+                       f'BINARY_SUBSCR must pop 2 and push a named sentinel')
+    return out
+
 
 def main() -> int:
     if not any(o in opcode.opmap for o in SHORT_CIRCUIT_POP):
@@ -126,14 +189,21 @@ def main() -> int:
                 bad.append(f'{scope}: callee should be "target", tier 1 says '
                            f'{s.callee_name!r} (via {s.via}) — the modelled stack drifted')
 
-    if bad:
+    sentinel_bad = check_sentinels()
+
+    if bad or sentinel_bad:
         print('tier-1 attribution: FAIL — the ground truth names the wrong callee')
-        for b in bad:
+        for b in bad + sentinel_bad:
             print(f'   {b}')
-        print('   dis.stack_effect must be called with jump=False; see this file\'s docstring.')
+        # Name the fix that matches the failure, rather than one hint for two defects.
+        if bad:
+            print('   dis.stack_effect must be called with jump=False; see this file\'s docstring.')
+        if sentinel_bad:
+            print('   BINARY_SUBSCR must pop the two consumed slots and push a named sentinel,')
+            print('   the way CALL_OPS already does; see this file\'s docstring.')
         return 1
     print(f'tier-1 attribution ok ({len(sites)} sites, callee correct on every '
-          f'short-circuit shape)')
+          f'short-circuit shape, and a subscript callee is a sentinel not its container)')
     return 0
 
 
