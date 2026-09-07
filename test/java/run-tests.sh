@@ -94,6 +94,15 @@ if ! python3 "$ROOT/test/tools/check_staging.py" --lang java; then
   exit 1
 fi
 
+# ── PREFLIGHT: a compiler-generated callee is not ground truth ───────────────────────────
+# Cheap, and it guards a number rather than a behaviour: an edge to a synthetic member is scored
+# MISSING against the engine for a call the source does not contain. javac's own synthetics are
+# all excluded by name, so nothing in this suite can reach the flag path -- hence a direct test.
+if ! bash "$HERE/tools/synthetic-callee-test.sh"; then
+  echo "aborting: the class-file oracle emits compiler-generated callees as ground truth"
+  exit 1
+fi
+
 # ── PREFLIGHT: the two ground-truth readers must agree ────────────────────────────────
 # This suite scores against tools/bytecode_oracle.py; the corpus-scale harness scores against
 # tools/ClassFileOracle.java. Both claim to emit the same canonical form, and until this ran
