@@ -26,7 +26,15 @@
 # =============================================================================
 set -e
 PROJECT="$(cd "$1" && pwd)"
-WORK="$2"
+# ABSOLUTE, like PROJECT above. Several steps run inside `cd "$MIRROR"` subshells and
+# then write to "$WORK/...", so a RELATIVE work directory silently resolved against the
+# mirror instead: the oracle tried to write
+#   <mirror>/test/typescript/.work-linking/eval/oracle.tsv
+# and died on ENOENT, which reads as "the oracle failed" rather than "you passed a
+# relative path". Surfaced while fixing #296. mkdir first so a not-yet-existing
+# directory can still be resolved.
+mkdir -p "$2"
+WORK="$(cd "$2" && pwd)"
 # $3 wins, then $AXIOM_PARSER, then the conventional checkout. The env var matters: the
 # fallback is an absolute path into a SHARED checkout whose dist belongs to whoever built
 # it last, so a caller that omits $3 silently measured a different parser than the one it
@@ -149,12 +157,32 @@ fi
 # package — measured on remeda, whose own node_modules has no `typescript` at all
 # because the workspace root holds it, so a first-match search staged two modules
 # instead of the whole standard library.
-NM_ROOTS=""
+#
+# ── AN ARRAY, BECAUSE A PATH MAY CONTAIN A SPACE (#296) ─────────────────────
+# This was one space-delimited string iterated unquoted (`for r in $NM_ROOTS`), so a
+# checkout whose path contains a space was indistinguishable from two checkouts:
+#
+#     NM_ROOTS holds: [ /a b/node_modules /plain/node_modules]
+#     iterating it:   [/a]  [b/node_modules]  [/plain/node_modules]
+#
+# Two of those three are not directories, so EVERY lookup through them missed. That is
+# not a corner case in the fixture where it surfaced — `find_in_nm` is how the harness
+# locates every dependency it stages, so on such a path the run staged no standard
+# library, no @types and no dependencies, and then reported a score computed against an
+# empty global scope. Measured, same tree, one variable:
+#
+#     /tmp/nospace      45 lib.*.d.ts staged, gate ok
+#     /tmp/with space   none staged, "the global scope will be EMPTY", oracle refused
+#
+# An array rather than a newline-delimited string with IFS: the latter works but leaves
+# the next reader one unquoted expansion away from the same bug.
+NM_ROOTS=()
 for cand in "$PROJECT/node_modules" "$PROJECT/../node_modules" "$PROJECT/../../node_modules" \
             "$PROJECT/../../../node_modules"; do
-  [ -d "$cand" ] && NM_ROOTS="$NM_ROOTS $(cd "$cand" && pwd)"
+  [ -d "$cand" ] && NM_ROOTS+=("$(cd "$cand" && pwd)")
 done
-find_in_nm() { for r in $NM_ROOTS; do [ -e "$r/$1" ] && { echo "$r/$1"; return 0; }; done; return 1; }
+# `find_in_nm` reads the NM_ROOTS array above; it lives in tools/lib-staging.sh so it
+# can be exercised against a spaced path without running the pipeline.
 
 # shellcheck source=tools/lib-staging.sh
 . "$HERE/tools/lib-staging.sh"
@@ -271,9 +299,9 @@ find_from() {  # $1 = dependent directory, $2 = package name
 # from the original tree, so an original-rooted answer happened to be in the engine's
 # set and the site read SOUND_SUPERSET instead. Removing that duplicate revealed it.
 # `link_into_mirror` is in tools/lib-staging.sh, beside the predicate it uses.
-if [ -n "$NM_ROOTS" ] && [ ! -e "$MIRROR/node_modules" ]; then
+if [ "${#NM_ROOTS[@]}" -gt 0 ] && [ ! -e "$MIRROR/node_modules" ]; then
   mkdir -p "$MIRROR/node_modules"
-  for root in $NM_ROOTS; do
+  for root in "${NM_ROOTS[@]}"; do
     for entry in "$root"/*; do
       [ -e "$entry" ] || continue
       base="$(basename "$entry")"
@@ -483,7 +511,7 @@ fi
 # Every package the client actually resolved an import into — read off the IR, not
 # guessed from package.json, so a transitive type-only dependency is included and an
 # unused declared one is not.
-if [ -n "$NM_ROOTS" ]; then
+if [ "${#NM_ROOTS[@]}" -gt 0 ]; then
   awk -F'\t' 'NR>1 && $20!=""{print $20}' "$WORK/ir/all-typescript-imports.csv" | sort -u > "$WORK/packages.txt"
   while IFS= read -r pkg; do
     [ -n "$pkg" ] || continue
@@ -552,7 +580,7 @@ fi
 # One round, not a closure. Two would pull in the whole dependency tree for a
 # diminishing return, and the point of staging is to answer client call sites — a
 # dependency three hops from anything the client names is not going to.
-if [ -n "$NM_ROOTS" ]; then
+if [ "${#NM_ROOTS[@]}" -gt 0 ]; then
   echo "▶ staging the libraries' own dependencies (one round)..."
   # Two sources, not one. A package is reached by IMPORT (`import { x } from "pkg"`,
   # packageName on the import row) or by RE-EXPORT (`export { x } from "pkg"`), and
@@ -676,8 +704,18 @@ else
 fi
 
 # ── 5. score ─────────────────────────────────────────────────────────────────
-LIBARGS=""
-for d in ${LIBS//,/ }; do LIBARGS="$LIBARGS --lib=$d"; done
+# Same shape as NM_ROOTS was, and the same fix (#296): `${LIBS//,/ }` turns the
+# comma-joined list into a SPACE-joined one and then splits it on whitespace, so a
+# staged directory containing a space became two arguments. Every entry is under
+# $WORK, which the caller supplies, so this is reachable whenever the work directory
+# sits under a path with a space in it. Split on the comma that actually separates
+# them, into an array.
+LIBARGS=()
+if [ -n "$LIBS" ]; then
+  _libs_ifs="$IFS"; IFS=','
+  for d in $LIBS; do [ -n "$d" ] && LIBARGS+=("--lib=$d"); done
+  IFS="$_libs_ifs"
+fi
 echo "▶ score:"
 # `| tee` makes the pipeline's status tee's, which is how a failing ORACLE went unnoticed
 # for as long as it did. score.py exits non-zero when it refuses to report (the two sides
@@ -688,7 +726,8 @@ echo "▶ score:"
 # test tree is routinely larger than the library it tests, and an unfiltered rate is
 # then mostly a statement about fixtures.
 MISSED_DUMP="$WORK/missed.tsv" SITE_DUMP="$WORK/sites.tsv" python3 "$HERE/ground-truth/score.py" \
-  "$WORK/ir" "$WORK/out" "$WORK/oracle.tsv" --envelope="$WORK/envelope.tsv" $LIBARGS \
+  "$WORK/ir" "$WORK/out" "$WORK/oracle.tsv" --envelope="$WORK/envelope.tsv" \
+  ${LIBARGS[@]+"${LIBARGS[@]}"} \
   ${SCORE_PRODUCTION:+--production} \
   | tee "$WORK/score.txt"
 score_rc=${PIPESTATUS[0]}
@@ -715,4 +754,5 @@ fi
 # site, which the oracle now emits.
 echo "▶ chains:"
 python3 "$HERE/ground-truth/chain-check.py" \
-  "$WORK/ir" "$WORK/out" "$WORK/oracle.tsv" $LIBARGS | tee "$WORK/chains.txt"
+  "$WORK/ir" "$WORK/out" "$WORK/oracle.tsv" ${LIBARGS[@]+"${LIBARGS[@]}"} \
+  | tee "$WORK/chains.txt"

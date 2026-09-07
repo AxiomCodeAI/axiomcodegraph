@@ -104,3 +104,21 @@ link_into_mirror() { # $1 = source, $2 = link path, $3 = project root, $4 = mirr
   fi
   ln -sfn "$target" "$2"
 }
+
+# ── find_in_nm <relative-path> ──────────────────────────────────────────────
+# Searches the NM_ROOTS array — every node_modules up the chain, nearest first — and
+# echoes the first hit. Reads the array rather than taking it as arguments so the call
+# sites stay short; the caller populates NM_ROOTS before the first call.
+#
+# THE ARRAY IS THE POINT. This was a space-delimited string iterated unquoted, so a
+# checkout whose path contained a space was indistinguishable from two checkouts and
+# every lookup through the fragments missed — no standard library, no @types, no
+# dependencies staged, and a score still printed against an empty global scope. See
+# issue #296.
+find_in_nm() { # $1 = path relative to a node_modules root -> echoes the first match
+  local r
+  for r in ${NM_ROOTS[@]+"${NM_ROOTS[@]}"}; do
+    [ -e "$r/$1" ] && { echo "$r/$1"; return 0; }
+  done
+  return 1
+}
