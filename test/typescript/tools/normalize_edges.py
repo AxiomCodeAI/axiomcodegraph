@@ -21,9 +21,13 @@ LABELS
 CONVENTIONS (deliberate, not defects)
   * Type parameters are erased to `T`, so `get(): T` and `map<U>` do not make the
     golden depend on inference the engine is not claiming to do.
-  * An arrow function bound to a const is labelled by the CONST's name where the
-    parser records one, and `<arrow@line>` otherwise. Arrows are ~13% of callable
-    declarations in real TypeScript and unlabelled ones make a golden unreadable.
+  * An arrow function bound to a const is labelled by the CONST's name -- read off
+    `boundFunctionLinkHash`, NOT `tsMethodLinkHash`, which is the variable's enclosing
+    method -- and `<arrow@line>` otherwise. Arrows are ~13% of callable declarations in
+    real TypeScript and unlabelled ones make a golden unreadable. A class FIELD holding an
+    arrow keeps `<arrow@line>`, because that is what the compiler side calls it.
+  * The module initializer is `<module-init>`, the name the compiler side uses, so a
+    top-level call is comparable rather than reading as a missing edge.
   * A label that is ambiguous — two declarations sharing owner, name and parameter
     types, which is exactly what an overload set looks like when the parameters
     erase to the same string — gets `@L<line>` appended. Overload cases would
@@ -89,10 +93,20 @@ class Names:
         params = defaultdict(list)
         for p in rows(f'{ir}/all-typescript-method-parameters.csv'):
             params[p['tsMethodLinkHash']].append(p)
-        # A variable whose initializer IS a function expression names that function.
+        # A variable whose initializer IS a function expression names that function -- and the FK
+        # that says so is boundFunctionLinkHash. tsMethodLinkHash is the variable's ENCLOSING
+        # method, so keying on it got this wrong in both directions at once: the arrow was never
+        # found (so `const step = (x) => ...` rendered `<arrow@1>` while the compiler side said
+        # `step`, one MISSING plus one extra per call), and the ENCLOSING scope was named after
+        # whichever variable happened to land on it -- a module-level call came out
+        # `m#step() -> m#plain(number)`, attributing it to an unrelated arrow. See issue #236.
+        #
+        # Only variables, deliberately: a CLASS FIELD holding an arrow is `C#<arrow@N>` on the
+        # compiler side too, so the two sides already agree there and naming it after the field
+        # would break that agreement.
         arrow_name = {}
         for v in rows(f'{ir}/all-typescript-variables.csv'):
-            h = v.get('tsMethodLinkHash') or ''
+            h = v.get('boundFunctionLinkHash') or ''
             if h and v.get('name'):
                 arrow_name.setdefault(h, v['name'])
 
@@ -109,10 +123,17 @@ class Names:
                     t += '[]'
                 ps.append(t)
             owner = r.get('ownerTypeName') or mods.get(r.get('tsModuleLinkHash'), '?')
-            name = r.get('name') or arrow_name.get(h) or ''
-            if not name or name.startswith('<'):
-                name = arrow_name.get(h) or f"<arrow@{r.get('startLine')}>"
             kind = r.get('methodKind') or ''
+            name = r.get('name') or ''
+            # KEYED ON methodKind, not on "the name starts with <". Every synthesised name is
+            # angle-bracketed, so the old test sent the MODULE INITIALIZER down the unnamed-arrow
+            # path as well, where it took an unrelated variable's name or an `<arrow@line>` label.
+            # The compiler side calls it `<module-init>`; matching that is what makes the two
+            # sides comparable, which is the whole point.
+            if kind == 'MODULE_INITIALIZER':
+                name = '<module-init>'
+            elif not name or name.startswith('<'):
+                name = arrow_name.get(h) or f"<arrow@{r.get('startLine')}>"
             if kind == 'CONSTRUCTOR':
                 name = '<new>'
             elif r.get('isStatic') == 'true':

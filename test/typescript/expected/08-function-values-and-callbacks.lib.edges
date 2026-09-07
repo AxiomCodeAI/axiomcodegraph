@@ -1,7 +1,7 @@
 ambiguous_unknown	CONSTRUCTOR_CALL	values#drive() @L27 -> -
 ambiguous_unknown	METHOD_CALL	values#drive() @L29 -> -
 boundary_lib	FUNCTION_CALL	values#useLibrary() @L40 -> hooks#<arrow@1>(string)
-boundary_lib	FUNCTION_CALL	values#useLibrary() @L40 -> hooks#<arrow@5>(?)
+boundary_lib	FUNCTION_CALL	values#useLibrary() @L40 -> hooks#identity(?)
 boundary_lib	FUNCTION_CALL	values#useLibrary() @L40 -> hooks#withHook(Hook,string)
 known_edge	FUNCTION_CALL	values#apply(Transform,string) @L12 -> values#<arrow@4>(string)
 known_edge	FUNCTION_CALL	values#drive() @L30 -> values#<arrow@4>(string)
