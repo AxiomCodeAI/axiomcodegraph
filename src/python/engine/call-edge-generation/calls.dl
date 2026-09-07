@@ -15,16 +15,55 @@
 // Java's gate here would be dead code pretending to be a safeguard.
 // ============================================================================
 
+// ── A .pyi DECLARATION IS NOT AN EDGE TARGET (issue #223) ────────────────────
+// A stub is not importable — CPython's SOURCE_SUFFIXES is ['.py'] — so no function
+// object exists at a name it declares and no execution can ever reach one. An edge to a
+// stub is therefore outside every sound envelope: not wide, WRONG. Measured before this
+// gate: `from accel import fast; fast(1)` with only accel.pyi present came out
+// `known_edge -> accel.fast`, a committed single target in a file that raises
+// ModuleNotFoundError on import. Where a real module sits beside the stub, the stub
+// survived as a redundant second candidate and the site stopped being exact.
+//
+// THE GATE IS ON THE EDGE, NOT ON CANDIDATE ADMISSION, and that difference is the whole
+// design of this change. A .pyi is the best source of ANNOTATIONS in the tree — it is
+// what a stub is for — and the engine already uses them: `fast(1).bit_length()` resolves
+// to builtin:int.bit_length off the stub's `-> int`, verified before and after. Dropping
+// the stub at candidate admission would have taken that with it, because
+// call_returns_type reads expr_call_candidate. So the method stays a candidate and a
+// type source, and only stops being something a call EDGE can commit to.
+method_declared_in_stub(p, m) :- method_module(p, mod, m), module_is_stub(p, mod).
+
 // ── client_calls_client(CallerProv, SiteHash, CalleeProv, CalleeMethodHash) ──
 client_calls_client("client", site, "client", callee) :-
     expr_resolves_to_method(site, callee),
-    method_owner("client", _, callee).
+    method_owner("client", _, callee),
+    !method_declared_in_stub("client", callee).
 // Module-level and nested functions have no owning class, so method_owner does not
 // cover them — and they are 16% of functions plus every closure. Java has no analogue
 // of this clause because Java has no code outside a class.
 client_calls_client("client", site, "client", callee) :-
     expr_resolves_to_method(site, callee),
-    method_module_level("client", _, callee).
+    method_module_level("client", _, callee),
+    !method_declared_in_stub("client", callee).
+
+// ── AND THE SITE IS NAMED, NOT SHRUGGED AT ──────────────────────────────────
+// Suppressing the target alone would leave the site ambiguous_unknown, which says "the
+// analysis has a blind spot here". It does not: the callee is known exactly, and the
+// reason it cannot be followed is that its implementation is not Python. That is the
+// same argument resolution/builtin-types.dl makes for list.append, and it gets the same
+// treatment — a NAMED boundary. `external:` because no entity for the implementation
+// exists anywhere in the fact base, which is exactly what the label means here.
+// ONLY WHERE THE STUB IS ALL THAT IS LEFT. A package that ships impl.py and impl.pyi
+// side by side resolves to the real function, and the call does NOT leave the Python
+// surface — labelling it external there would be a second, contradictory answer on an
+// exact site. Measured on that fixture: with this gate the co-located site is a single
+// known_edge to impl.compute, which is now EXACT rather than the two-member
+// multi_inferred it was while the stub counted as a target.
+call_hits_external(site, cat("external:", q)) :-
+    expr_resolves_to_method(site, callee),
+    method_declared_in_stub("client", callee),
+    method_decl("client", _, _, q, _, callee),
+    !site_client_target(site, _).
 
 // ── client_calls_lib(CallerProv, SiteHash, CalleeProv, LibMethodHash) ────────
 // Reached by NAME, never by hash (resolution/lib-linking.dl). Not expanded: the chain
