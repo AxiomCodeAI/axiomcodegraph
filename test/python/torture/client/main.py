@@ -33,6 +33,7 @@ import f30_builtin_elements as f30
 import f31_named_blind_spots as f31
 import f32_iteration_protocol as f32
 import f33_type_stubs as f33
+import f34_reexport_union as f34
 from tlib import Square
 from tlib.shapes import Base, Mid
 
@@ -106,6 +107,7 @@ def main() -> None:
     print(f31.drive())
     print(f32.drive())
     print(f33.drive())
+    print(f34.drive())
 
 
 if __name__ == "__main__":
