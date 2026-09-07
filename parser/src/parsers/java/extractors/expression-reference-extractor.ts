@@ -2839,7 +2839,14 @@ export class ExpressionReferenceExtractor {
   }
 
   /**
-   * Parses a ternary expression to extract condition, trueExpr, and falseExpr
+   * Parses a ternary expression to extract condition, trueExpr, and falseExpr.
+   *
+   * Read through the grammar's `condition` / `consequence` / `alternative` fields, never by
+   * position. `line_comment` and `block_comment` are NAMED nodes in tree-sitter-java, so any
+   * comment inside the ternary shifts `namedChildren` — an end-of-line `//` before the `?`
+   * used to hand back the condition, the true branch and the comment as the three operands,
+   * which emitted the true branch under TERNARY_FALSE and dropped the false branch entirely.
+   * A field read is immune to the shift because the grammar assigns the field, not the index.
    */
   /**
    * The named children of a node with comments removed.

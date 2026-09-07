@@ -23,9 +23,9 @@ import { AnnotationContext } from '@/enums/java/annotations/AnnotationContext';
 import { AnnotationKind } from '@/enums/java/annotations/AnnotationKind';
 import { ArgumentValueType } from '@/enums/java/annotations/ArgumentValueType';
 import { BlockKind } from '@/enums/java/blocks/BlockKind';
-import { ExpressionKind } from '@/enums/java/expressions/ExpressionKind';
 import { EdgeRole } from '@/enums/java/expressions/EdgeRole';
 import { ReferencedEntityKind } from '@/enums/java/expressions/ReferencedEntityKind';
+import { ExpressionKind } from '@/enums/java/expressions/ExpressionKind';
 import { ExpressionOwnerKind } from '@/enums/java/expressions/ExpressionOwnerKind';
 import { RootContext } from '@/enums/java/expressions/RootContext';
 import { LocalVariableScopeKind } from '@/enums/java/local-variables/LocalVariableScopeKind';
@@ -1501,6 +1501,77 @@ export class JavaExtractorTestRunner {
           passed: e.expressions.some(x => x.getRootContext() === RootContext.EXPRESSION_STATEMENT),
           message: 'No EXPRESSION_STATEMENT context found'
         })));
+      }
+
+      // A comment inside a ternary must not move its operands. Comments are NAMED nodes in
+      // tree-sitter-java, so a positional read of namedChildren[0..2] takes the comment as an
+      // operand: the true branch came back under TERNARY_FALSE and the false branch was dropped.
+      if (filename === 'CommentedTernary.java') {
+        const ternaryCalls = (e: ExtractedEntities) => e.expressions.filter(x =>
+          x.getKind() === ExpressionKind.METHOD_INVOCATION &&
+          (x.getEdgeRole() === EdgeRole.TERNARY_TRUE || x.getEdgeRole() === EdgeRole.TERNARY_FALSE));
+
+        // The structural invariant, which is what a field read buys and a positional read
+        // cannot hold: every ternary has exactly one operand in each of the three roles, and
+        // the source order of those three operands is condition, then consequence, then
+        // alternative. Java syntax makes that ordering unconditional, so any shift shows up
+        // here as either a missing role or an out-of-order one, whatever the operands are named.
+        validations.push(this.rule('Every ternary has one operand per role, in source order', (e) => {
+          const ternaries = e.expressions.filter(x => x.getKind() === ExpressionKind.TERNARY_EXPRESSION);
+          const problems: string[] = [];
+          for (const t of ternaries) {
+            const kids = e.expressions.filter(x => x.getParentExpressionHash() === t.getExpressionUniqueHash());
+            const at = (role: EdgeRole) => kids.filter(x => x.getEdgeRole() === role);
+            const [cond, yes, no] = [at(EdgeRole.TERNARY_CONDITION), at(EdgeRole.TERNARY_TRUE), at(EdgeRole.TERNARY_FALSE)];
+            const where = `L${t.getStartLine()}:${t.getStartColumn()}`;
+            if (cond.length !== 1 || yes.length !== 1 || no.length !== 1) {
+              problems.push(`${where} roles=${cond.length}/${yes.length}/${no.length}`);
+              continue;
+            }
+            const pos = (x: ExpressionReference) => [x.getStartLine() ?? 0, x.getStartColumn() ?? 0] as const;
+            const before = (a: readonly [number, number], b: readonly [number, number]) =>
+              a[0] < b[0] || (a[0] === b[0] && a[1] < b[1]);
+            const [pc, py, pn] = [pos(cond[0]!), pos(yes[0]!), pos(no[0]!)];
+            if (!before(pc, py) || !before(py, pn)) {
+              problems.push(`${where} out of order: cond=${pc} true=${py} false=${pn}`);
+            }
+          }
+          return { passed: problems.length === 0, message: `Ternary operand structure: ${JSON.stringify(problems)}` };
+        }));
+
+        // The dropped half, counted exactly. Six methods hold one ternary each and `nested`
+        // holds two, so there are seven ternaries and seven of each branch. Six alternatives
+        // are a call to whenFalse(); the seventh is the outer ternary of `nested`, whose
+        // alternative is the INNER TERNARY rather than a call.
+        validations.push(this.rule('Both branches of all seven ternaries are emitted', (e) => {
+          const trues = ternaryCalls(e).filter(x => x.getEdgeRole() === EdgeRole.TERNARY_TRUE).length;
+          const falses = ternaryCalls(e).filter(x => x.getEdgeRole() === EdgeRole.TERNARY_FALSE).length;
+          const nestedAlternative = e.expressions.filter(x =>
+            x.getKind() === ExpressionKind.TERNARY_EXPRESSION &&
+            x.getEdgeRole() === EdgeRole.TERNARY_FALSE).length;
+          return {
+            passed: trues === 7 && falses === 6 && nestedAlternative === 1,
+            message: `Expected 7 TERNARY_TRUE calls, 6 TERNARY_FALSE calls and 1 nested ` +
+                     `ternary alternative; got ${trues}, ${falses} and ${nestedAlternative}`
+          };
+        }));
+
+        // No comment may ever be handed back as an operand.
+        validations.push(this.rule('No ternary operand is a comment', (e) => {
+          const comments = e.expressions
+            .filter(x => x.getEdgeRole() === EdgeRole.TERNARY_CONDITION ||
+                         x.getEdgeRole() === EdgeRole.TERNARY_TRUE ||
+                         x.getEdgeRole() === EdgeRole.TERNARY_FALSE)
+            .filter(x => (x.getLiteralValue() ?? '').trimStart().startsWith('//'))
+            .map(x => `L${x.getStartLine()}:${x.getStartColumn()}`);
+          return { passed: comments.length === 0, message: `Comment emitted as a ternary operand: ${JSON.stringify(comments)}` };
+        }));
+
+        // The condition is the same field in every shape, so it must be there seven times too.
+        validations.push(this.rule('Every ternary has exactly one condition', (e) => {
+          const conds = e.expressions.filter(x => x.getEdgeRole() === EdgeRole.TERNARY_CONDITION).length;
+          return { passed: conds === 7, message: `Expected 7 TERNARY_CONDITION rows, got ${conds}` };
+        }));
       }
     }
 
