@@ -1,5 +1,5 @@
 ambiguous_unknown	CONSTRUCTOR_CALL	Counter#static make() @L19 -> -
-ambiguous_unknown	CONSTRUCTOR_CALL	members#<arrow@1>() @L10 -> -
+ambiguous_unknown	CONSTRUCTOR_CALL	members#<module-init>() @L10 -> -
 ambiguous_unknown	FUNCTION_CALL	members#drive() @L31 -> -
 ambiguous_unknown	FUNCTION_CALL	members#useLibrary() @L40 -> -
 ambiguous_unknown	METHOD_CALL	members#useLibrary() @L39 -> -

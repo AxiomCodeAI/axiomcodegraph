@@ -6,7 +6,7 @@ boundary_lib	FUNCTION_CALL	consumer#useLibrary() @L22 -> alpha#process()
 boundary_lib	METHOD_CALL	consumer#drive() @L12 -> Service#run()
 boundary_lib	METHOD_CALL	consumer#useLibrary() @L22 -> Service#run()
 known_edge	FUNCTION_CALL	consumer#drive() @L12 -> beta#process()
-known_edge	FUNCTION_CALL	consumer#drive() @L12 -> consumer#<arrow@11>()
+known_edge	FUNCTION_CALL	consumer#drive() @L12 -> consumer#shadowed()
 known_edge	METHOD_CALL	consumer#drive() @L12 -> Service#run()@L2
 multi_inferred	FUNCTION_CALL	consumer#drive() @L12 -> alpha#process()
 multi_inferred	FUNCTION_CALL	consumer#useLibrary() @L22 -> alpha#process()

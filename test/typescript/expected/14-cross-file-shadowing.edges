@@ -3,7 +3,7 @@ ambiguous_unknown	CONSTRUCTOR_CALL	consumer#drive() @L9 -> -
 ambiguous_unknown	CONSTRUCTOR_CALL	consumer#useLibrary() @L21 -> -
 known_edge	FUNCTION_CALL	consumer#drive() @L12 -> alpha#process()
 known_edge	FUNCTION_CALL	consumer#drive() @L12 -> beta#process()
-known_edge	FUNCTION_CALL	consumer#drive() @L12 -> consumer#<arrow@11>()
+known_edge	FUNCTION_CALL	consumer#drive() @L12 -> consumer#shadowed()
 known_edge	FUNCTION_CALL	consumer#useLibrary() @L22 -> alpha#process()
 known_edge	METHOD_CALL	consumer#drive() @L12 -> Service#run()@L2
 known_edge	METHOD_CALL	consumer#useLibrary() @L22 -> Service#run()@L2

@@ -1,5 +1,5 @@
 ambiguous_unknown	CONSTRUCTOR_CALL	Holder#make() @L16 -> -
-ambiguous_unknown	CONSTRUCTOR_CALL	receivers#<arrow@1>() @L12 -> -
+ambiguous_unknown	CONSTRUCTOR_CALL	receivers#<module-init>() @L12 -> -
 ambiguous_unknown	CONSTRUCTOR_CALL	receivers#drive(Holder,Node | undefined) @L29 -> -
 ambiguous_unknown	CONSTRUCTOR_CALL	receivers#useLibrary(Graph,Vertex | undefined) @L42 -> -
 ambiguous_unknown	METHOD_CALL	receivers#drive(Holder,Node | undefined) @L22 -> -

@@ -65,6 +65,17 @@ if ! bash "$ROOT/test/tools/empty-relation-test.sh"; then
   echo "aborting: a reader would die on a relation that simply has no rows"
   exit 1
 fi
+
+# ── PREFLIGHT: both sides of the comparison spell a declaration the same way ──
+# `const step = (x) => ...` is `step` to the compiler and was `<arrow@1>` here, so every call to
+# it read as one MISSING plus one extra -- and MISSING is this suite's failure verdict. The cause
+# was reading a variable's ENCLOSING method (tsMethodLinkHash) as the function it binds
+# (boundFunctionLinkHash), which also named the module initializer after an unrelated const.
+# Synthesised IR, so it needs no parser and no solver. See #236.
+if ! bash "$HERE/tools/arrow-naming-test.sh"; then
+  echo "aborting: the engine and the compiler side name a declaration differently"
+  exit 1
+fi
 PARSER="${AXIOM_PARSER:-$ROOT/../Parser/dist/index.js}"
 WORK="$HERE/.work"
 BLESS=0; KEEP=0; ORACLE=0; FILTERS=()
