@@ -312,6 +312,59 @@ export class JavaExtractorTestRunner {
         }
       }
 
+      // Anonymous class naming: keyed by supertype, and stable under unrelated edits.
+      if (filename === 'AnonymousClassNames.java') {
+        const anonNames = (e: ExtractedEntities) => e.types
+          .filter(t => t.getTypePlacement() === TypePlacement.ANONYMOUS_PLACEMENT)
+          .map(t => t.getQualifiedName())
+          .sort();
+
+        validations.push(this.rule('Anonymous types are keyed by supertype', (e) => {
+          const got = anonNames(e);
+          const p = 'com.axiomcode.test.typeregistry.AnonymousClassNames';
+          const want = [
+            `${p}$anon:Runnable`,   // field initializer
+            `${p}$anon:Runnable`,   // first in method
+            `${p}$anon:Runnable`,   // second in method, same supertype
+            `${p}$anon:Comparator`, // qualified and generic, keyed on the simple name
+            `${p}$anon:Object`,
+          ].sort();
+          return {
+            passed: JSON.stringify(got) === JSON.stringify(want),
+            message: `Expected ${JSON.stringify(want)}, got ${JSON.stringify(got)}`
+          };
+        }));
+
+        // The stability property, stated directly: no anonymous name may contain a digit-only
+        // ordinal. Under the old scheme every one of them did, and the two named nested types
+        // in the fixture shifted those ordinals.
+        validations.push(this.rule('No anonymous name carries a positional ordinal', (e) => {
+          const ordinals = e.types
+            .filter(t => t.getTypePlacement() === TypePlacement.ANONYMOUS_PLACEMENT)
+            .map(t => t.getName())
+            .filter(n => /\$\d+$/.test(n));
+          return { passed: ordinals.length === 0, message: `Ordinal-numbered names: ${JSON.stringify(ordinals)}` };
+        }));
+
+        // Sharing a name must not merge rows: identity is the position-derived hash.
+        validations.push(this.rule('Two anonymous Runnables are distinct rows sharing one name', (e) => {
+          const runnables = e.types.filter(t =>
+            t.getTypePlacement() === TypePlacement.ANONYMOUS_PLACEMENT &&
+            t.getName().endsWith('$anon:Runnable'));
+          const hashes = new Set(runnables.map(t => t.getHash()));
+          return {
+            passed: runnables.length === 3 && hashes.size === 3,
+            message: `Expected 3 rows with 3 distinct hashes, got ${runnables.length} rows / ${hashes.size} hashes`
+          };
+        }));
+
+        // The named nested types must be untouched by the anonymous naming change.
+        validations.push(this.rule('Named nested types keep their own names', (e) => {
+          const named = e.types.filter(t => ['DeclaredFirst', 'DeclaredBetween'].includes(t.getName()));
+          return { passed: named.length === 2, message: `Expected DeclaredFirst and DeclaredBetween, got ${named.length}` };
+        }));
+      }
+
       // LOCAL_PLACEMENT (JLS 14.3). A local class is not a member of the enclosing type, so
       // INNER_PLACEMENT for one asserts an outer instance that may not exist.
       if (filename === 'LocalTypePlacement.java') {

@@ -503,8 +503,7 @@ export class TypeRegistryExtractor implements BaseExtractor<TypeRegistry> {
               basePath,
               fileName,
               serviceVersionHash,
-              typeRegistry.getQualifiedName(),
-              types.length // Use as index for naming
+              typeRegistry.getQualifiedName()
             );
             if (anonymousType) {
               types.push(anonymousType);
@@ -775,6 +774,22 @@ export class TypeRegistryExtractor implements BaseExtractor<TypeRegistry> {
   }
 
   /**
+   * The supertype name used to key an anonymous class: the simple name, without type arguments.
+   *
+   * `new java.util.Comparator<String>() {...}` keys as `Comparator`, not
+   * `java.util.Comparator<String>`, so that the key does not change when an import is rewritten
+   * to a qualified reference or a type argument is added.
+   */
+  private anonymousSupertypeKey(baseTypeName: string | undefined): string {
+    const raw = baseTypeName?.trim();
+    if (!raw) return 'Object';
+
+    const withoutTypeArguments = raw.includes('<') ? raw.slice(0, raw.indexOf('<')) : raw;
+    const simpleName = withoutTypeArguments.split('.').pop()?.trim();
+    return simpleName && simpleName.length > 0 ? simpleName : 'Object';
+  }
+
+  /**
    * Creates a TypeRegistry instance for an anonymous class
    */
   private createAnonymousTypeRegistry(
@@ -783,12 +798,27 @@ export class TypeRegistryExtractor implements BaseExtractor<TypeRegistry> {
     basePath: string,
     fileName: string,
     serviceVersionHash: string,
-    enclosingQualifiedName: string,
-    index: number
+    enclosingQualifiedName: string
   ): TypeRegistry | null {
-    // Generate anonymous class name like OuterClass$1, OuterClass$2, etc.
-    const name = `${enclosingQualifiedName.split('.').pop() || 'Anonymous'}$${index + 1}`;
-    const qualifiedName = `${enclosingQualifiedName}$${index + 1}`;
+    // An anonymous class is keyed by the type it extends or implements, as `Outer$anon:Runnable`.
+    //
+    // The previous form was `Outer$N`, numbered from the running count of every type row emitted
+    // for the file. That had two problems, neither about identity: the count included the
+    // enclosing type, so the first anonymous class was `Outer$2`, and adding an unrelated NAMED
+    // nested type above renumbered every anonymous type below it. A label that moves when
+    // unrelated code is added is not usable as a label.
+    //
+    // Keying on the supertype is stable under those edits by construction. It also stops the
+    // value resembling a javac binary name, which `Outer$N` did without ever equalling one -
+    // a shape that invites a join no rule can satisfy.
+    //
+    // This is the label only. Identity is the position-derived hash assigned by the caller from
+    // `anonClass.anonymousTypeHash`, so two anonymous classes sharing a supertype remain distinct
+    // rows, exactly as two nested types sharing a flattened name do.
+    const supertype = this.anonymousSupertypeKey(anonClass.baseTypeName);
+    const enclosingSimpleName = enclosingQualifiedName.split('.').pop() || 'Anonymous';
+    const name = `${enclosingSimpleName}$anon:${supertype}`;
+    const qualifiedName = `${enclosingQualifiedName}$anon:${supertype}`;
     
     const startLine = anonClass.creationNode.startPosition.row + 1;
     const endLine = anonClass.creationNode.endPosition.row + 1;
