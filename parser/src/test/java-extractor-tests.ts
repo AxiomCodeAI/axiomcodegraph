@@ -1309,6 +1309,62 @@ export class JavaExtractorTestRunner {
         }));
       }
 
+      // Components of a NESTED record pattern (JEP 440).
+      if (filename === 'NestedRecordPatterns.java') {
+        const patternVars = (e: ExtractedEntities) => e.localVariables
+          .filter(v => v.getScopeKind() === LocalVariableScopeKind.RECORD_PATTERN)
+          .map(v => v.getName())
+          .sort();
+
+        // Every binding at every depth. The nested ones were recorded by nothing, so a call on
+        // them could never resolve; the top-level ones always worked and must be unaffected.
+        validations.push(this.rule('Every record pattern component is recorded, at any depth', (e) => {
+          const got = patternVars(e);
+          const want = [
+            'a', 'ignored',                 // topLevelOnly, the control
+            'x', 'i2', 'i3',                // oneLevelDeep: x and i2 are nested
+            'x1', 'y1', 'p2',               // jepCanonical
+            'a1', 'b1', 'c1', 'd1',         // threeLevelsDeep, renamed below
+            'p', 'q', 'r',                  // inSwitch
+          ].sort();
+          return {
+            passed: JSON.stringify(got) === JSON.stringify(want),
+            message: `Expected ${JSON.stringify(want)}, got ${JSON.stringify(got)}`
+          };
+        }));
+
+        // The type is what makes the binding usable: `x` must be Leaf, not the outer Pair, or a
+        // call on it still cannot resolve.
+        validations.push(this.rule('A nested component carries its own written type', (e) => {
+          const byName = new Map(e.localVariables
+            .filter(v => v.getScopeKind() === LocalVariableScopeKind.RECORD_PATTERN)
+            .map(v => [v.getName(), v.getVariableTypeName()]));
+          const wrong = [['x', 'Leaf'], ['i2', 'Node'], ['x1', 'var'], ['p2', 'Point']]
+            .filter(([n, t]) => byName.get(n as string) !== t);
+          return {
+            passed: wrong.length === 0,
+            message: `Wrong types: ${JSON.stringify(wrong.map(([n, t]) => `${n} expected ${t}, got ${byName.get(n as string)}`))}`
+          };
+        }));
+
+        // The inner pattern's TYPE must be referenced too, not only the outer one.
+        validations.push(this.rule('A nested pattern references the inner type', (e) => {
+          const names = e.typeRefs
+            .filter(r => String(r.getContext()).includes('PATTERN'))
+            .map(r => r.getTypeName());
+          return { passed: names.includes('Leaf'), message: `Pattern type references: ${JSON.stringify(names)}` };
+        }));
+
+        // Recursion must add rows, not repeat them.
+        validations.push(this.rule('No component is recorded twice', (e) => {
+          const names = e.localVariables
+            .filter(v => v.getScopeKind() === LocalVariableScopeKind.RECORD_PATTERN)
+            .map(v => `${v.getName()}:${v.getStartLine()}`);
+          const dupes = names.filter((n, i) => names.indexOf(n) !== i);
+          return { passed: dupes.length === 0, message: `Duplicated components: ${JSON.stringify(dupes)}` };
+        }));
+      }
+
       // Use sites of a pattern binding.
       if (filename === 'PatternBindingUseSites.java') {
         // Scoped to identifier references: a pattern binding use is one, and the fixture also

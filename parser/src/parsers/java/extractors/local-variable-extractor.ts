@@ -3130,6 +3130,33 @@ export class LocalVariableExtractor {
               lambdaDepth,
               variables
             );
+          } else if (component.type === 'record_pattern') {
+            // A component that is itself a deconstruction, as in
+            // `Pair(Pair(Leaf x, Node i2), Node i3)`.
+            //
+            // The nested pattern is a direct child of the record_pattern_body, not wrapped in a
+            // record_pattern_component, so a loop that matched only components skipped it and
+            // every binding below the top level was recorded by nothing. There was a recursive
+            // branch already, but on the children of record_pattern rather than of its body,
+            // where a nested pattern never appears.
+            //
+            // Matching a shape more than one level deep is the point of JEP 440, so this is the
+            // ordinary case rather than an edge one.
+            this.extractRecordPatternBindings(
+              component,
+              filePath,
+              typeRegistryHash,
+              methodRegistryHash,
+              ownerTypeName,
+              ownerQualifiedName,
+              ownerMethodName,
+              serviceVersionHash,
+              packageName,
+              importMap,
+              hasStarImports,
+              lambdaDepth,
+              variables
+            );
           }
         }
       } else if (child.type === 'type_pattern' || child.type === 'binding_pattern') {
