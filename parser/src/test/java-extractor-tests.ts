@@ -1123,6 +1123,57 @@ export class JavaExtractorTestRunner {
 
     // ── Expression Tests ──
     if (category === 'expressions') {
+      // Statements inside a lambda that initializes a local or a field.
+      if (filename === 'LambdaInitializerBodies.java') {
+        const callsAt = (e: ExtractedEntities, from: number, to: number) => e.expressions.filter(x => {
+          const line = x.getStartLine();
+          return x.getKind() === ExpressionKind.METHOD_INVOCATION &&
+            typeof line === 'number' && line >= from && line <= to;
+        }).length;
+
+        // (a) A brace-less body must extract what the braced form extracts. The braced control
+        // at 40-43 and the plain method at 34-36 each hold the same two calls.
+        // Ranges cover only the lambda body, not the `h.accept("a")` that follows it.
+        validations.push(this.rule('A brace-less if body inside a lambda is extracted', (e) => {
+          const got = callsAt(e, 48, 51);
+          return { passed: got === 2, message: `Expected x() and y(), got ${got} calls` };
+        }));
+
+        validations.push(this.rule('A brace-less while body inside a lambda is extracted', (e) => {
+          const got = callsAt(e, 58, 58);
+          return { passed: got === 1, message: `Expected x(), got ${got} calls` };
+        }));
+
+        validations.push(this.rule('A brace-less for body inside a lambda is extracted', (e) => {
+          const got = callsAt(e, 64, 64);
+          return { passed: got === 1, message: `Expected x(), got ${got} calls` };
+        }));
+
+        // (b) The throw in a field-initializer lambda.
+        validations.push(this.rule('A throw in a field-initializer lambda is extracted', (e) => {
+          const thrown = e.expressions.filter(x =>
+            x.getRootContext() === RootContext.THROW_VALUE &&
+            x.getKind() === ExpressionKind.OBJECT_CREATION);
+          return {
+            passed: thrown.length === 2,
+            message: `Expected 2 thrown constructions (field lambda and local lambda), got ${thrown.length}`
+          };
+        }));
+
+        // The direction that matters as much: adding rows must not duplicate any. A throw in a
+        // LOCAL-initializer lambda is already covered by the method's own throw pass, and
+        // extracting it here too would report one written throw twice.
+        validations.push(this.rule('No expression is emitted twice for one source position', (e) => {
+          const seen = new Map<string, number>();
+          for (const x of e.expressions) {
+            const key = `${x.getStartLine()}:${x.getStartColumn()}-${x.getEndLine()}:${x.getEndColumn()}:${x.getKind()}`;
+            seen.set(key, (seen.get(key) ?? 0) + 1);
+          }
+          const duplicated = [...seen.entries()].filter(([, n]) => n > 1).map(([k]) => k);
+          return { passed: duplicated.length === 0, message: `Duplicated positions: ${JSON.stringify(duplicated)}` };
+        }));
+      }
+
       // Use sites of a pattern binding.
       if (filename === 'PatternBindingUseSites.java') {
         // Scoped to identifier references: a pattern binding use is one, and the fixture also
