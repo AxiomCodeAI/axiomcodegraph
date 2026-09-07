@@ -1,0 +1,7 @@
+staged library covers 100% of the library types this client calls (4 of 4; 0 call sites name an absent type)
+boundary sites: 9   (client callers, library callees matching dep.,java.,javax.,jdk.)
+  EXACT                         8 ( 88.9%)
+  PARTIAL                       1 ( 11.1%)
+  ---
+  correct METHOD named       88.9%   ( 88.9% of the 9 the lib IR can answer)
+  wrong library method       0.0%

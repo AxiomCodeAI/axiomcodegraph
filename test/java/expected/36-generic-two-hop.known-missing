@@ -1,0 +1,18 @@
+# Accepted gap: a NESTED type argument written on a LIBRARY reference, which is the remaining
+# half of #201 and the reason `nestedArgOnLibRef` is pinned as a declared unknown in the .edges
+# golden as well.
+#
+# `Lookup<K,V>#entries()` returns `Box<Pair<K,V>>`. The depth-1 argument resolves to Pair and binds
+# Box's element, but Pair's own K and V are type VARIABLES at depth 2 of a library reference, and
+# nothing substitutes the receiver's String/Widget into them. So `value()` has no type and the call
+# on its result has no callee. The client-side counterpart one method above — `nestedArgOnClientRef`,
+# where the same nesting is written by the client as `Box<Pair<String,Widget>>` — DOES resolve, and
+# the pair of them is what localises the gap to the library side.
+#
+# Against the real JDK this is the shape that leaves `for (var e : map.entrySet()) e.getValue()`
+# unresolved: `Set<Entry<K,V>>` is the same nesting, and resolving the argument needs the enclosing
+# type, which the flattened qualified name does not carry (java.base has seven distinct types named
+# java.util.Entry). Measured in a comment in resolution/lib-hierarchy.dl.
+#
+# It cannot rot: if the engine starts resolving it, this line reports NOW-FIXED and fails.
+probe.TwoHop#nestedArgOnLibRef -> probe.Widget#id()
