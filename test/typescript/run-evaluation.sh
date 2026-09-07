@@ -249,6 +249,28 @@ find_from() {  # $1 = dependent directory, $2 = package name
 # One symlink cannot express several roots, so the mirror gets a real directory of
 # per-package symlinks, filled NEAREST-FIRST so a package-local copy still shadows a
 # hoisted one exactly as Node resolves it. Scoped names get their @scope directory.
+#
+# ── A SELF-LINK MUST POINT AT THE MIRROR, NOT BACK OUT OF IT (#293) ─────────
+# For an ordinary dependency, linking to the original copy is right — there is only
+# one of it. For a WORKSPACE SELF-LINK it is not: `node_modules/<own-name>` resolves
+# to the package being analysed, so the link led back out of the mirror to the
+# original tree. TypeScript resolves symlinks to their realpath, so a file importing
+# its own package by name was adjudicated against the ORIGINAL while the engine's IR
+# is the mirror:
+#
+#     src/selfref.ts  helper()
+#         oracle  <original>/packages/wsp/src/lib.ts:1:1
+#         engine  <mirror>/project/src/lib.ts:1:1
+#
+# Same file, same line, same column, different root — so the two cannot join and the
+# site scores WRONG while both sides named the same declaration. Pointing the link at
+# the mirror keeps the resolution inside the tree actually being analysed, which is
+# the same principle as mirroring the extends chain.
+#
+# This was invisible until #231: the project was ALSO staged as its own dependency
+# from the original tree, so an original-rooted answer happened to be in the engine's
+# set and the site read SOUND_SUPERSET instead. Removing that duplicate revealed it.
+# `link_into_mirror` is in tools/lib-staging.sh, beside the predicate it uses.
 if [ -n "$NM_ROOTS" ] && [ ! -e "$MIRROR/node_modules" ]; then
   mkdir -p "$MIRROR/node_modules"
   for root in $NM_ROOTS; do
@@ -261,12 +283,10 @@ if [ -n "$NM_ROOTS" ] && [ ! -e "$MIRROR/node_modules" ]; then
           mkdir -p "$MIRROR/node_modules/$base"
           for pkg in "$entry"/*; do
             [ -e "$pkg" ] || continue
-            t="$MIRROR/node_modules/$base/$(basename "$pkg")"
-            [ -e "$t" ] || ln -sfn "$pkg" "$t"
+            link_into_mirror "$pkg" "$MIRROR/node_modules/$base/$(basename "$pkg")" "$PROJECT" "$MIRROR"
           done;;
         *)
-          t="$MIRROR/node_modules/$base"
-          [ -e "$t" ] || ln -sfn "$entry" "$t";;
+          link_into_mirror "$entry" "$MIRROR/node_modules/$base" "$PROJECT" "$MIRROR";;
       esac
     done
   done

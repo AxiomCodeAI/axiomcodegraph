@@ -142,6 +142,18 @@ if ! bash "$HERE/tools/self-staging-test.sh"; then
   echo "aborting: the project would be staged as its own dependency"
   exit 1
 fi
+
+# ── PREFLIGHT: a self-link points AT the mirror, not back out of it ───────────
+# The mirror's node_modules is filled with links into the ORIGINAL roots, which is
+# right for a dependency and wrong for a workspace self-link: it resolved back to the
+# original copy of the project, so a file importing its own package by name was
+# adjudicated against a tree the engine's IR does not contain — same file, same line,
+# same column, different root, scored WRONG while both sides agreed. Measured on a
+# workspace built to that shape: exactness 0.800 -> 1.000, one WRONG -> none. See #293.
+if ! bash "$HERE/tools/mirror-selflink-test.sh"; then
+  echo "aborting: a self-import would be adjudicated outside the analysed tree"
+  exit 1
+fi
 if ! bash "$HERE/tools/envelope-merge-test.sh"; then
   echo "aborting: the dispatch envelope is not the resolved symbol's declaration set"
   exit 1
