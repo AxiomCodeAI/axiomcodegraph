@@ -9,12 +9,12 @@
 //
 // Conventions: views only; one raw base relation per rule body; provenance tag first.
 //
-// java_yaml_property / lib_yaml_property cols (16):
+// java_yaml_property cols (16):
 //   0 key  1 value  2 valueType  3 depth  4 isListItem  5 listIndex  6 anchorName
 //   7 isAlias  8 documentIndex  9 filePath  10 baseMservPath  11 startLine
 //   12 endLine  13 parentPropertyHash  14 serviceVersionLinkHash  15 yamlPropertyUniqueHash
 //
-// java_yaml_value_segment / lib_yaml_value_segment cols (12):
+// java_yaml_value_segment cols (12):
 //   0 segmentValue  1 segmentType  2 defaultValue  3 position  4 depth
 //   5 parentSegmentLinkHash  6 yamlPropertyLinkHash  7 startLine  8 endLine
 //   9 startColumn  10 endColumn  11 yamlValueSegmentUniqueHash
@@ -27,7 +27,6 @@
 // ValueType (col 2, YamlValueType enum):
 //   STRING, INTEGER, FLOAT, BOOLEAN, NULL, EMPTY, MAP, SEQUENCE
 yaml_prop("client", key, value, valueType, isListItem, parent, filePath, h) :- java_yaml_property(key, value, valueType, _, isListItem, _, _, _, _, filePath, _, _, _, parent, _, h).
-yaml_prop("lib", key, value, valueType, isListItem, parent, filePath, h) :- lib_yaml_property(key, value, valueType, _, isListItem, _, _, _, _, filePath, _, _, _, parent, _, h).
 
 // ── yaml_segment(Prov, PropertyHash, SegmentValue, SegmentType, DefaultValue, ParentSegmentHash, SegHash) ──
 // One segment of a YAML value — a LITERAL (may name a class) or a reference.
@@ -35,4 +34,3 @@ yaml_prop("lib", key, value, valueType, isListItem, parent, filePath, h) :- lib_
 //   LITERAL, ENV_VARIABLE, ENV_WITH_DEFAULT, PROPERTY_REFERENCE,
 //   PROPERTY_REF_WITH_DEFAULT, EMPTY
 yaml_segment("client", propHash, value, segType, default, parentSeg, h) :- java_yaml_value_segment(value, segType, default, _, _, parentSeg, propHash, _, _, _, _, h).
-yaml_segment("lib", propHash, value, segType, default, parentSeg, h) :- lib_yaml_value_segment(value, segType, default, _, _, parentSeg, propHash, _, _, _, _, h).
