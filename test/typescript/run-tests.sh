@@ -56,6 +56,15 @@ if ! bash "$ROOT/test/tools/csv-limit-test.sh"; then
   echo "aborting: a reader of the IR would die on a large literal"
   exit 1
 fi
+# ── PREFLIGHT: a relation with no rows is not a drifted schema ───────────────
+# The parser writes a relation with no rows as a ZERO-BYTE file, so an unguarded next() on the
+# header raises StopIteration -- and the TypeScript harness reported that as "refusing to measure
+# against a drifted schema", the one fault that gate exists to catch. Lints every CSV reader in
+# the tree for the same shape, because it was in three places and only one crashed. See #244.
+if ! bash "$ROOT/test/tools/empty-relation-test.sh"; then
+  echo "aborting: a reader would die on a relation that simply has no rows"
+  exit 1
+fi
 PARSER="${AXIOM_PARSER:-$ROOT/../Parser/dist/index.js}"
 WORK="$HERE/.work"
 BLESS=0; KEEP=0; ORACLE=0; FILTERS=()
