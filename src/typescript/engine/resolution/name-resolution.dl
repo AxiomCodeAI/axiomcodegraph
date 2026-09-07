@@ -69,6 +69,17 @@ global_name_demanded(g) :- primitive_global_type(_, g).
 global_name_demanded(g) :- literal_kind_global(_, g).
 global_name_demanded("Array").
 global_name_demanded("String").
+// `ReadonlyArray` FOR THE SAME REASON, and leaving it out cost 22 wrong answers on one
+// project — the largest single class of committed-wrong target in the corpus.
+// type-resolution.dl already maps `readonly T[]` to ReadonlyArray<T> rather than
+// descending to the array child, and falls back to the child only when ReadonlyArray is
+// absent from the staged library. But the demand set is built from names WRITTEN in
+// source, and `readonly T[]` never writes the name: the annotation is a TYPE_OPERATOR
+// over an array child. So the global binding was never built, the absent-from-library
+// fallback fired on a library that declares it, and every member call on a readonly
+// array receiver committed to Array's declaration where the compiler names
+// ReadonlyArray's — `slice`, `every`, `map`, `filter`, `join`, `reduce`, `forEach`.
+global_name_demanded("ReadonlyArray").
 
 name_binds_any(mod, name, prov, k, ent) :- module_decl("client", _, _, _, _, mod),
     global_name_demanded(name),
