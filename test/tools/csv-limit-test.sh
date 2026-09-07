@@ -31,7 +31,11 @@ missing=""
 while IFS= read -r f; do
   grep -q 'field_size_limit' "$f" || missing="$missing
     ${f#$ROOT/}"
-done < <(grep -rl -e 'csv.reader' -e 'csv.DictReader' --include='*.py' "$ROOT/src" "$ROOT/test" 2>/dev/null | sort)
+  # The CALL, not a mention of the name: a linter that looks FOR this pattern necessarily
+  # contains the string, and matching the bare name flagged tools/empty_relation_lint.py for
+  # having 'csv.reader' in a detection string. Requiring the open paren picks out the twenty
+  # real readers exactly.
+done < <(grep -rlE '_?csv\.(reader|DictReader)\(' --include='*.py' "$ROOT/src" "$ROOT/test" 2>/dev/null | sort)
 if [ -z "$missing" ]; then
   ok "every .py that reads a CSV raises csv.field_size_limit"
 else

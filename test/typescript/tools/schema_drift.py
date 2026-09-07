@@ -82,7 +82,14 @@ def main():
         _csv.field_size_limit(10**9)   # an IR literalValue can be a base64 asset; see test/tools/csv-limit-test.sh
         want = {}
         with open(mp, encoding='utf-8', errors='replace') as fh:
-            r = _csv.reader(fh, delimiter='\t'); h = next(r)
+            # A RELATION WITH NO ROWS IS A ZERO-BYTE FILE -- not a header, zero bytes -- so
+            # `next(r)` raises StopIteration. That propagated out of this gate and the harness
+            # reported "refusing to measure against a drifted schema", which is the one failure
+            # mode this gate exists to catch and was not what happened. A relation with no rows
+            # cannot violate an arity invariant, so the honest answer is "no rows, arity
+            # unverifiable" and carry on. Reproduced on a project whose functions all take no
+            # parameters: all-typescript-method-parameters.csv is 0 bytes. See issue #244.
+            r = _csv.reader(fh, delimiter='\t'); h = next(r, None) or []
             if 'parameterCount' in h and 'tsMethodUniqueHash' in h:
                 C, H = h.index('parameterCount'), h.index('tsMethodUniqueHash')
                 for row in r:
@@ -91,7 +98,7 @@ def main():
         seen = {}
         kinds = set()
         with open(pp, encoding='utf-8', errors='replace') as fh:
-            r = _csv.reader(fh, delimiter='\t'); h = next(r)
+            r = _csv.reader(fh, delimiter='\t'); h = next(r, None) or []
             if 'bindingSourceKind' in h:
                 M, P, K = h.index('tsMethodLinkHash'), h.index('position'), h.index('bindingSourceKind')
                 for row in r:

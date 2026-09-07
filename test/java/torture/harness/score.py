@@ -50,7 +50,12 @@ def ancestors_of(ir, out):
     p = os.path.join(ir, 'all-types.csv')
     if os.path.exists(p):
         with open(p, newline='', encoding='utf-8', errors='replace') as f:
-            r = csv.reader(f, delimiter='\t'); h = next(r)
+            # next(r, None): a relation with no rows is a ZERO-BYTE file, so an unguarded
+            # next() raises StopIteration out of a scorer that had nothing to do with the fault.
+            # Same shape as #244; lib_names.py already guarded it this way.
+            r = csv.reader(f, delimiter='\t'); h = next(r, None) or []
+            if 'typeRegistryUniqueHash' not in h or 'qualifiedName' not in h:
+                return collections.defaultdict(set)
             i, j = h.index('typeRegistryUniqueHash'), h.index('qualifiedName')
             for x in r:
                 if len(x) > max(i, j):
