@@ -29,7 +29,7 @@ Emitted form (same conventions as normalize_edges.py, so the two are directly co
     are read from the BootstrapMethods table, so `X::m` yields the edge to `m`. Any other bootstrap
     (StringConcatFactory) has no such argument and stays excluded.
 
-usage: bytecode_oracle.py <src-dir> <work-dir> [--app-only]
+usage: bytecode_oracle.py <src-dir> <work-dir> [--app-only] [--lib-src <dir>]
 """
 import os, re, subprocess, sys, collections
 
@@ -75,10 +75,28 @@ def desc_params(desc):
         out.append(t.split('.')[-1].split('$')[-1] + '[]' * arr)
     return out
 
-def compile_case(src, work):
+def compile_case(src, work, lib_src=None):
+    """Compile the case. A stub library, if the case ships one, is compiled FIRST and put on the
+    classpath rather than into the same output — so `dep.*` is a real dependency and not just
+    another app package, which is what makes the client->library hand-off a boundary. The engine
+    side already treats it that way (run-tests.sh extracts lib-src separately and passes it as
+    --library); javac was never told, so a case whose sources import its own stub could not compile
+    and its bytecode oracle never ran at all."""
     classes = os.path.join(work, 'classes'); os.makedirs(classes, exist_ok=True)
+    cp = []
+    if lib_src and os.path.isdir(lib_src):
+        libclasses = os.path.join(work, 'lib-classes'); os.makedirs(libclasses, exist_ok=True)
+        libfiles = [os.path.join(r, f) for r, _, fs in os.walk(lib_src) for f in fs if f.endswith('.java')]
+        if libfiles:
+            # BEST EFFORT. A stub may be un-compilable on purpose: 34-object-members stands in for
+            # `java.lang` itself, which javac refuses ("package exists in another module") and always
+            # will. Such a stub is not needed on the classpath either, because the client compiles
+            # against the real platform. So a stub that will not build is skipped rather than fatal,
+            # and if the CLIENT then fails to compile, that failure is reported with its own reason.
+            r = subprocess.run(['javac', '-g', '-d', libclasses] + libfiles, capture_output=True, text=True)
+            if r.returncode == 0: cp = ['-cp', libclasses]
     files = [os.path.join(r, f) for r, _, fs in os.walk(src) for f in fs if f.endswith('.java')]
-    r = subprocess.run(['javac', '-g', '-d', classes] + files, capture_output=True, text=True)
+    r = subprocess.run(['javac', '-g', '-d', classes] + cp + files, capture_output=True, text=True)
     if r.returncode: sys.exit(f"javac failed:\n{r.stdout}{r.stderr}")
     names = []
     for root, _, fs in os.walk(classes):
@@ -206,7 +224,8 @@ def parse(classes, names):
 def main():
     src, work = sys.argv[1], sys.argv[2]
     app_only = '--app-only' in sys.argv
-    classes, names = compile_case(src, work)
+    lib_src = sys.argv[sys.argv.index('--lib-src') + 1] if '--lib-src' in sys.argv else None
+    classes, names = compile_case(src, work, lib_src)
     supers, declared, edges, _kw, lambda_in, javap, ninstr = parse(classes, names)
     # javap prints an enum as `class X extends java.lang.Enum`, with no `enum` keyword, so identify
     # enums by that supertype — which is the bytecode truth anyway.

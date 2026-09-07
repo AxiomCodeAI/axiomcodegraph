@@ -176,10 +176,22 @@ python3 tools/score_boundary.py <client-IR> <engine-OUT> gt.txt --library <platf
 python3 tools/compare_runs.py <before-OUT> <after-OUT>
 ```
 
+A case that ships a stub library has that stub compiled for the oracle too — first, into its own
+output, with the client compiled **against** it — so `dep.*` is a real dependency rather than
+another client package. Before that, javac was never told the stub existed: a case whose sources
+import it could not compile, the oracle exited non-zero, and the suite rendered that as a skip with
+its reason truncated away, so the case reported `ok` while its bytecode check had never once run.
+A stub that cannot compile at all (34's stands in for `java.lang`, which javac always refuses) is
+skipped rather than fatal, because such a client compiles against the real platform anyway.
+
 A case that ships a stub library also gets its boundary report pinned as
 `expected/<case>.boundary` under `--oracle`, which is what makes the **scorer** testable rather
 than only the engine: it used to discard every engine edge whose caller is a constructor, and to
 charge the engine for sites whose receiver could only be typed through a library nobody staged.
+
+Its prefixes are read off the stub IR, not hard-coded: a case whose stub is `dep.*` scored only
+its JDK calls under the default `java.,javax.,jdk.` and said nothing about the hand-off it exists
+for.
 
 `score_boundary.py` splits every answer by *how* it differs, because folding them together decides a
 convention question by accident: an engine that flow-typed a receiver to its allocated type answers

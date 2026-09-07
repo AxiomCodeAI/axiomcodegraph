@@ -156,7 +156,8 @@ for dir in "$HERE"/cases/*/; do
 
   # ── optional: GROUND TRUTH from javac + javap (no library IR involved) ────
   if [ "$ORACLE" = "1" ]; then
-    if python3 "$HERE/tools/bytecode_oracle.py" "$dir/src" "$w/oracle" --app-only > "$w/oracle.edges" 2>"$w/oracle.log"; then
+    orc_lib=""; [ -d "$dir/lib-src" ] && orc_lib="--lib-src $dir/lib-src"
+    if python3 "$HERE/tools/bytecode_oracle.py" "$dir/src" "$w/oracle" --app-only $orc_lib > "$w/oracle.edges" 2>"$w/oracle.log"; then
       python3 "$HERE/tools/normalize_edges.py" "$w/ir" "$w/out" --client-pairs > "$w/engine.pairs"
       if ! python3 "$HERE/tools/oracle_diff.py" "$w/engine.pairs" "$w/oracle.edges" \
              "$HERE/expected/$name.known-missing" > "$w/oracle.diff"; then
@@ -184,8 +185,15 @@ for dir in "$HERE"/cases/*/; do
       if [ -d "$w/lib-ir" ] && [ -d "$WORK/.agreement/.oracle-classes" ]; then
         java -cp "$WORK/.agreement/.oracle-classes" ClassFileOracle --app "$w/oracle/classes" \
              --with-lines > "$w/boundary.gt" 2>/dev/null
+        # The PREFIXES have to include the stub's own packages, or the report measures something
+        # the case is not about: score_boundary defaults to java.,javax.,jdk., and a case whose stub
+        # is `dep.*` then scores its JDK calls and says nothing about the hand-off it exists for.
+        # Read them off the stub IR rather than hard-coding, so a new stub needs no edit here.
+        bprefix=$( { awk -F'\t' 'NR>1 && $2 != "" { split($2, p, "."); print p[1] "." }' \
+                       "$w/lib-ir/all-types.csv" 2>/dev/null; printf 'java.\njavax.\njdk.\n'; } \
+                   | sort -u | paste -sd, -)
         python3 "$HERE/tools/score_boundary.py" "$w/ir" "$w/out" "$w/boundary.gt" \
-             --library "$w/lib-ir" > "$w/boundary.txt" 2>&1
+             --library "$w/lib-ir" --prefix "$bprefix" > "$w/boundary.txt" 2>&1
         bexp="$HERE/expected/$name.boundary"
         if [ "$BLESS" = "1" ]; then cp "$w/boundary.txt" "$bexp"
         elif [ ! -f "$bexp" ]; then
@@ -197,7 +205,11 @@ for dir in "$HERE"/cases/*/; do
       fi
       orc_summary="  [oracle: $(head -1 "$w/oracle.diff")]"
     else
-      orc_summary="  [oracle skipped: $(head -1 "$w/oracle.log")]"
+      # The REASON, not just the label. bytecode_oracle.py writes `javac failed:` on line 1 and the
+      # diagnostics after it, so `head -1` printed a skip with an empty cause — indistinguishable
+      # from the documented "this machine lacks the Spring jars" skip, which is how a case that
+      # could never compile anywhere reported ok for as long as it did.
+      orc_summary="  [oracle skipped: $(tr '\n' ' ' < "$w/oracle.log" | tr -s ' ' | cut -c1-140)]"
     fi
   else orc_summary=""; fi
 
