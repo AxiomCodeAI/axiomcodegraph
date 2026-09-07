@@ -78,6 +78,15 @@ field_module("lib", m, h) :- lib_ts_field(_, _, _, _, _, _, _, _, _, _, _, _, _,
 var_decl("client", n, tn, sk, m, mod, h) :- ts_variable(n, tn, _, _, _, _, _, _, sk, _, _, _, _, m, mod, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
 var_decl("lib", n, tn, sk, m, mod, h) :- lib_ts_variable(n, tn, _, _, _, _, _, _, sk, _, _, _, _, m, mod, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
 
+// ── var_enclosing_type(Prov, TypeHash, VarHash) ─────────────────────────────
+// Column 13, and nothing read it. A namespace's exported values are VARIABLES whose
+// tsTypeLinkHash is the enclosing NAMESPACE_TYPE — `export const toString = ...` inside
+// `namespace text` is a variable in NAMESPACE_SCOPE, not a field of anything, and the
+// case that proves it has three field rows in total, all of them from the standard
+// library. Without this link a namespace looks like a type that declares nothing.
+var_enclosing_type("client", t, h) :- ts_variable(_, _, _, _, _, _, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), t != "".
+var_enclosing_type("lib", t, h) :- lib_ts_variable(_, _, _, _, _, _, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), t != "".
+
 // ── var_type_ref(Prov, TypeRefHash, VarHash) ────────────────────────────────
 var_type_ref("client", r, h) :- ts_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, r, _, _, _, _, _, _, _, _, _, h), r != "".
 var_type_ref("lib", r, h) :- lib_ts_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, r, _, _, _, _, _, _, _, _, _, h), r != "".

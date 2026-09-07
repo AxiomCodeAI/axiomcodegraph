@@ -229,6 +229,28 @@ member_declared_anywhere(scope, name, st) :- group_of(scope, g),
     ancestor_of_merged_group(_, g, anc),
     scope_sibling(anc, asib),
     declared_method(asib, name, st, _).
+// A NAMESPACE'S OWN EXPORT SHADOWS Object's, and leaving it out turned a gap into a
+// wrong answer. `export const toString = (m: string) => m` inside a namespace is a
+// VARIABLE in NAMESPACE_SCOPE — not a method, not a field — so the scope looked like it
+// declared nothing, Object's `toString` went unshadowed, and the site COMMITTED to
+// `Object#toString` in the standard library. The compiler resolves it to the
+// namespace's own export, so the emitted edge falls outside the site's assignability
+// envelope: a false positive, not a sound over-approximation, and it lands on exactly
+// the names people give helpers — toString, valueOf, hasOwnProperty.
+//
+// Keyed on WHETHER THE SCOPE DECLARES THE NAME, not on whether the receiver is a
+// namespace. A namespace that declares no `toString` really does answer
+// Object.prototype.toString and the compiler resolves it there, so suppressing the
+// fallback for namespace receivers wholesale would convert correct answers into misses.
+// The case carries that control.
+//
+// This does NOT make the member callable — the lookup still does not find a function
+// value bound to a name (#229), so the site becomes a declared unknown rather than a
+// resolved edge. That is the direction the asymmetry rule asks for: a site with no
+// answer beats a site with a wrong one.
+member_declared_anywhere(scope, name, "false") :- var_enclosing_type(prov, scope, v),
+    var_decl(prov, name, _, "NAMESPACE_SCOPE", _, _, v),
+    name != "".
 method_in_scope(scope, name, "false", m) :- lookup_scope(scope),
     object_prototype_member(name, m),
     !member_declared_anywhere(scope, name, "false").

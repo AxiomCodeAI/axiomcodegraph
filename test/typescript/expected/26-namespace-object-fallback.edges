@@ -1,0 +1,3 @@
+ambiguous_unknown	METHOD_CALL	caller#a() @L7 -> -
+ambiguous_unknown	METHOD_CALL	caller#b() @L12 -> -
+known_edge	METHOD_CALL	caller#c() @L17 -> Object#toString()

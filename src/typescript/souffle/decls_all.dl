@@ -436,6 +436,7 @@
 .decl var_binding(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol)
 .decl var_is_destructured(c0:symbol)
 .decl var_bound_function(c0:symbol,c1:symbol,c2:symbol)
+.decl var_enclosing_type(c0:symbol,c1:symbol,c2:symbol)
 .decl var_decl(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol)
 .decl var_flags(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
 .decl var_flow_type(c0:symbol,c1:symbol,c2:symbol)
