@@ -130,6 +130,15 @@ if [ "$ORACLE" = "1" ]; then
 fi
 
 [ -f "$PARSER" ] || { echo "SKIP: parser not found at $PARSER (set AXIOM_PARSER)"; exit 77; }
+
+# ── PREFLIGHT: a platform IR build that produced nothing must not look current ───────────
+# Sub-second, and it guards the input the torture harness scores against: a stamped-but-empty
+# jdk IR stages no platform library, so every receiver typed through java.util is unresolvable by
+# construction and the harness cannot even warn -- the directory exists and --check says current.
+if ! AXIOM_PARSER="$PARSER" bash "$HERE/tools/jdk-ir-stamp-test.sh"; then
+  echo "aborting: build-jdk-ir.sh can stamp a tree that holds no IR"
+  exit 1
+fi
 # The engine's --library is mandatory, so it is handed an EMPTY directory. Every lib_*
 # relation is then staged empty, which is semantically identical to a library that
 # declares nothing: rules that read it derive nothing, and no client->lib edge exists.

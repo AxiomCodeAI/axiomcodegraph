@@ -25,6 +25,10 @@ while [ $# -gt 0 ]; do case "$1" in
 
 [ -f "$PARSER" ] || { echo "no parser at $PARSER (build it: npm run build)" >&2; exit 1; }
 . "$(cd "$(dirname "$0")/../../.." && pwd)/src/pipeline/portable-stat.sh"
+# rows(): records, not newlines. all-types.csv is written without a trailing newline (all-methods
+# is not), so `wc -l` - 1 under-reported every type count by one -- 6,781 against a real 6,782 on
+# java.base. Display only, but a wrong number in a build report is still a wrong number.
+rows(){ awk 'END{print NR-1}' "$1"; }
 PARSER_REPO="$(cd "$(dirname "$PARSER")/.." && pwd)"
 PARSER_REV="$(git -C "$PARSER_REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 # THE REBUILD TRAP: dist/ is a build artefact and a branch switch does not update it.
@@ -80,7 +84,7 @@ echo "  $n source files -> extracting"
 if node "$PARSER" "$TMP/src" "lib-$NAME" true "$TMP/ir" >"$TMP/parse.log" 2>&1 && [ -f "$TMP/ir/all-types.csv" ]; then
   printf '%s\n%s\n' "$PARSER_REV" "$COORD extracted $(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$TMP/ir/.parser-revision"
   rm -rf "$DEST"; mv "$TMP/ir" "$DEST"
-  echo "  ok: $(( $(wc -l < "$DEST/all-types.csv") - 1 )) types, $(( $(wc -l < "$DEST/all-methods.csv") - 1 )) methods -> $DEST"
+  echo "  ok: $(rows "$DEST/all-types.csv") types, $(rows "$DEST/all-methods.csv") methods -> $DEST"
 else
   echo "  FAILED (see $TMP/parse.log)" >&2; sed -n '1,5p' "$TMP/parse.log" >&2; exit 1
 fi
