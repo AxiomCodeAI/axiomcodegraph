@@ -106,6 +106,19 @@ if ! python3 "$HERE/tools/production-filter-test.py"; then
   echo "aborting: the production filter is not selecting the population it names"
   exit 1
 fi
+
+# ── PREFLIGHT: an unsupported compiler is a refusal, not a TypeError ──────────
+# TypeScript 7 is the native port and its npm package exports exactly `version` and
+# `versionMajorMinor` — no `sys`, no `createProgram`. The stack deliberately prefers
+# the PROJECT's compiler, so a project pinned to the current major died on the first
+# property access after a solve that can take a thousand seconds, and a reader seeing
+# that stack trace goes looking for a bug in the oracle rather than for the pin. The
+# last check is a LINT: a guard living in one of five entry points is not a guard.
+# See #239.
+if ! bash "$HERE/tools/compiler-load-test.sh"; then
+  echo "aborting: an unmeasurable compiler is not being refused cleanly at every entry point"
+  exit 1
+fi
 if ! bash "$HERE/tools/envelope-merge-test.sh"; then
   echo "aborting: the dispatch envelope is not the resolved symbol's declaration set"
   exit 1
