@@ -312,6 +312,55 @@ export class JavaExtractorTestRunner {
         }
       }
 
+      // LOCAL_PLACEMENT (JLS 14.3). A local class is not a member of the enclosing type, so
+      // INNER_PLACEMENT for one asserts an outer instance that may not exist.
+      if (filename === 'LocalTypePlacement.java') {
+        const placementOf = (e: ExtractedEntities, name: string) =>
+          e.types.find(t => t.getName() === name)?.getTypePlacement();
+
+        const expectPlacement = (name: string, want: TypePlacement) => {
+          validations.push(this.rule(`${name} is ${want}`, (e) => {
+            const got = placementOf(e, name);
+            return { passed: got === want, message: `Expected ${want}, got ${got}` };
+          }));
+        };
+
+        for (const name of [
+          'InMethod', 'InStaticMethod', 'InStaticMethodRecord', 'InConstructor',
+          'InInstanceInitializer', 'InStaticInitializer', 'InLambdaBody',
+          'LocalRecord', 'LocalContract', 'LocalKind', 'LocalInsideLocal',
+        ]) {
+          expectPlacement(name, TypePlacement.LOCAL_PLACEMENT);
+        }
+
+        // Member types must be untouched: the fix changes which scope wins, not the
+        // classification of types whose nearest enclosing scope is a class body.
+        expectPlacement('RealInner', TypePlacement.INNER_PLACEMENT);
+        expectPlacement('RealStaticNested', TypePlacement.STATIC_NESTED_PLACEMENT);
+        expectPlacement('ImplicitlyStaticContract', TypePlacement.STATIC_NESTED_PLACEMENT);
+        expectPlacement('ImplicitlyStaticRecord', TypePlacement.STATIC_NESTED_PLACEMENT);
+        expectPlacement('LocalTypePlacement', TypePlacement.TOP_LEVEL_PLACEMENT);
+
+        // The ordering case. A rule that asked "is any method above me" rather than "which
+        // scope comes first" would relabel these two as LOCAL_PLACEMENT and still pass every
+        // assertion above.
+        expectPlacement('Outer', TypePlacement.LOCAL_PLACEMENT);
+        expectPlacement('MemberOfLocal', TypePlacement.INNER_PLACEMENT);
+        expectPlacement('StaticMemberOfLocal', TypePlacement.STATIC_NESTED_PLACEMENT);
+
+        validations.push(this.rule('No local type is reported as a member type', (e) => {
+          const localNames = new Set([
+            'InMethod', 'InStaticMethod', 'InStaticMethodRecord', 'InConstructor',
+            'InInstanceInitializer', 'InStaticInitializer', 'InLambdaBody',
+            'LocalRecord', 'LocalContract', 'LocalKind', 'LocalInsideLocal', 'Outer',
+          ]);
+          const wrong = e.types
+            .filter(t => localNames.has(t.getName()) && t.getTypePlacement() !== TypePlacement.LOCAL_PLACEMENT)
+            .map(t => `${t.getName()}:${t.getTypePlacement()}`);
+          return { passed: wrong.length === 0, message: `Local types misreported: ${JSON.stringify(wrong)}` };
+        }));
+      }
+
       if (filename === 'test-type-placement.java') {
         for (const [label, placement] of [['top-level', TypePlacement.TOP_LEVEL_PLACEMENT], ['static nested', TypePlacement.STATIC_NESTED_PLACEMENT], ['inner', TypePlacement.INNER_PLACEMENT]] as const) {
           validations.push(this.rule(`Should have ${label} types`, (e) => ({

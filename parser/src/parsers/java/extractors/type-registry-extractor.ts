@@ -698,6 +698,28 @@ export class TypeRegistryExtractor implements BaseExtractor<TypeRegistry> {
   /**
    * Checks if a node is a type declaration
    */
+  /**
+   * True for the scopes a local class can be declared in: a method or constructor body, either
+   * kind of initializer block, or a lambda body (JLS 14.3).
+   *
+   * An instance initializer has no node type of its own - it is a bare `block` sitting directly
+   * in a `class_body` - which is what distinguishes it from a method's own block, whose parent is
+   * the method declaration.
+   */
+  private isLocalDeclarationScope(node: Parser.SyntaxNode): boolean {
+    if ([
+      'method_declaration',
+      'constructor_declaration',
+      'compact_constructor_declaration',
+      'static_initializer',
+      'lambda_expression',
+    ].includes(node.type)) {
+      return true;
+    }
+
+    return node.type === 'block' && node.parent?.type === 'class_body';
+  }
+
   private isTypeDeclaration(node: Parser.SyntaxNode): boolean {
     return [
       'class_declaration',
@@ -937,6 +959,17 @@ export class TypeRegistryExtractor implements BaseExtractor<TypeRegistry> {
   private extractTypePlacement(node: Parser.SyntaxNode): TypePlacement {
     let parent = node.parent;
     while (parent) {
+      // Whichever comes first going up decides. A method, constructor, initializer or lambda
+      // body reached before any enclosing type declaration makes this a local class (JLS 14.3),
+      // and a local class is not a member of the enclosing type at all.
+      //
+      // Order matters here rather than being an implementation detail: reaching the type
+      // declaration first is what makes a class a member class, and reaching an executable body
+      // first is what makes it local. A nested type inside a local class still resolves to the
+      // member branch, correctly, because its nearest enclosing scope really is a class body.
+      if (this.isLocalDeclarationScope(parent)) {
+        return TypePlacement.LOCAL_PLACEMENT;
+      }
       if (this.isTypeDeclaration(parent)) {
         const modifierTexts = this.extractModifierTexts(node);
         // Explicit static modifier
