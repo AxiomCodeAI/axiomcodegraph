@@ -1117,6 +1117,40 @@ export class JavaExtractorTestRunner {
 
     // ── Expression Tests ──
     if (category === 'expressions') {
+      // Arrow arms of a switch used as a value.
+      if (filename === 'SwitchArmDuplication.java') {
+        const positionKey = (x: ExpressionReference) =>
+          `${x.getStartLine()}:${x.getStartColumn()}-${x.getEndLine()}:${x.getEndColumn()}:${x.getKind()}`;
+
+        // The defect, stated as the property it violates: no source position may produce two
+        // expression rows of the same kind. Both rows carried the same byte range and differed
+        // only in role, so comparing positions is what detects it; a count would not say where.
+        validations.push(this.rule('No source position yields two expression rows', (e) => {
+          const seen = new Map<string, number>();
+          for (const x of e.expressions) seen.set(positionKey(x), (seen.get(positionKey(x)) ?? 0) + 1);
+          const duplicated = [...seen.entries()].filter(([, n]) => n > 1).map(([k]) => k);
+          return { passed: duplicated.length === 0, message: `Duplicated positions: ${JSON.stringify(duplicated)}` };
+        }));
+
+        // Suppressing the spurious row must not suppress the real one.
+        validations.push(this.rule('Every value arm still yields its result row', (e) => {
+          const results = e.expressions.filter(x => x.getEdgeRole() === EdgeRole.SWITCH_CASE_RESULT);
+          return { passed: results.length === 14, message: `Expected 14 SWITCH_CASE_RESULT rows, got ${results.length}` };
+        }));
+
+        // The control: a statement-form switch keeps its arm as a statement.
+        validations.push(this.rule('A statement-form switch arm stays an expression statement', (e) => {
+          const atControl = e.expressions.filter(x => {
+            const line = x.getStartLine();
+            return typeof line === 'number' && line >= 63 && line <= 65 &&
+              x.getKind() === ExpressionKind.METHOD_INVOCATION &&
+              x.getRootContext() === RootContext.EXPRESSION_STATEMENT &&
+              x.getEdgeRole() === EdgeRole.ROOT;
+          });
+          return { passed: atControl.length === 1, message: `Expected the statement-form arm to keep one ROOT row, got ${atControl.length}` };
+        }));
+      }
+
       // The three clauses of a basic for statement.
       if (filename === 'ForClauseContexts.java') {
         const rootsIn = (e: ExtractedEntities, ctx: RootContext) =>

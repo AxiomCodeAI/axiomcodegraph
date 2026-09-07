@@ -1591,7 +1591,9 @@ export class TypeMethodExtractor {
     const traverse = (n: Parser.SyntaxNode, currentLambdaPosition: string | null, currentBlockHash: string | null, inLocalVarDecl: boolean, currentLambdaParams: Set<string>): void => {
       // Skip throw statements inside lambdas that are in local variable declarations
       // Those are handled by LocalVariableExtractor with proper local variable linking
-      if (n.type === 'throw_statement' && !(currentLambdaPosition && inLocalVarDecl)) {
+      if (n.type === 'throw_statement'
+          && !(currentLambdaPosition && inLocalVarDecl)
+          && !TypeMethodExtractor.isValueProducingSwitchArm(n)) {
         throws.push({ node: n, containingLambdaPosition: currentLambdaPosition, containingBlockHash: currentBlockHash, lambdaParamNames: currentLambdaParams });
       }
       // Don't traverse into nested class bodies (anonymous classes have separate methods)
@@ -1728,6 +1730,33 @@ export class TypeMethodExtractor {
    * @param node The block to search
    * @param typeRegistryHash Hash of the containing type (for lambda hash generation)
    */
+  /**
+   * True when this statement is the body of an arrow arm belonging to a switch used as a VALUE.
+   *
+   * `case 1 -> t();` is written as an expression_statement, and `case 1 -> throw e;` as a
+   * throw_statement, whichever form the switch takes, so
+   * collecting every expression_statement picked the arm up a second time. The arm's value is the
+   * switch's value, not a statement in the enclosing method, so the second row asserted a root
+   * context the source does not have and turned one written call site into two.
+   *
+   * The two forms are distinguished by what the switch is attached to. tree-sitter models both as
+   * `switch_expression`; a switch used as a statement sits directly in a `block`, while one used
+   * as a value sits under whatever consumes it - a return, a variable_declarator, an
+   * argument_list, an assignment. So a `block` parent means statement, and anything else means
+   * value.
+   *
+   * A statement switch is left alone: there the arm really is a statement, and its single row is
+   * correct.
+   */
+  private static isValueProducingSwitchArm(node: Parser.SyntaxNode): boolean {
+    if (node.parent?.type !== 'switch_rule') return false;
+
+    const switchExpression = node.parent.parent?.parent;
+    if (switchExpression?.type !== 'switch_expression') return false;
+
+    return switchExpression.parent?.type !== 'block';
+  }
+
   private findExpressionStatements(
     node: Parser.SyntaxNode,
     _typeRegistryHash: string,
@@ -1740,7 +1769,9 @@ export class TypeMethodExtractor {
     const traverse = (n: Parser.SyntaxNode, currentLambdaPosition: string | null, currentBlockHash: string | null, inLocalVarDecl: boolean, currentLambdaParams: Set<string>): void => {
       // Skip expression statements inside lambdas that are in local variable declarations
       // Those are handled by LocalVariableExtractor with proper local variable linking
-      if (n.type === 'expression_statement' && !(currentLambdaPosition && inLocalVarDecl)) {
+      if (n.type === 'expression_statement'
+          && !(currentLambdaPosition && inLocalVarDecl)
+          && !TypeMethodExtractor.isValueProducingSwitchArm(n)) {
         statements.push({ node: n, containingLambdaPosition: currentLambdaPosition, containingBlockHash: currentBlockHash, lambdaParamNames: currentLambdaParams });
       }
       // Don't traverse into nested class bodies (anonymous classes have separate methods)
