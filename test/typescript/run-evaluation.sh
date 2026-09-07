@@ -405,7 +405,14 @@ if [ -n "$TSLIB_DIR" ]; then
   # staging all of them puts DOM globals into a Node program: `console.log` then
   # resolves to the DOM's Console rather than @types/node's. The compiler already
   # decided; lib-files.mjs reads its answer back.
-  ( cd "$MIRROR" && node "$HERE/ground-truth/lib-files.mjs" . ) > "$WORK/libfiles.txt" 2>/dev/null || true
+  # THE REASON IS KEPT, not discarded. This was `2>/dev/null || true`, so when
+  # lib-files.mjs died — on a project pinned to TypeScript 7 it dies immediately,
+  # that package shipping no JavaScript compiler API — the run did not stop, it got
+  # quietly WORSE: the fallback below stages every lib.*.d.ts, which is the failure
+  # this very block exists to avoid. The degraded decision was visible and the cause
+  # was not, which is the wrong half to hide. See #239.
+  ( cd "$MIRROR" && node "$HERE/ground-truth/lib-files.mjs" . ) \
+    > "$WORK/libfiles.txt" 2>"$WORK/libfiles.err" || true
   if [ -s "$WORK/libfiles.txt" ]; then
     while IFS= read -r f; do [ -f "$f" ] && cp "$f" "$WORK/tslib-src/"; done < "$WORK/libfiles.txt"
     echo "   (standard library: $(wc -l < "$WORK/libfiles.txt" | tr -d ' ') lib.*.d.ts files in this program)"
@@ -413,6 +420,12 @@ if [ -n "$TSLIB_DIR" ]; then
     cp "$TSLIB_DIR"/lib.*.d.ts "$WORK/tslib-src/" 2>/dev/null || true
     echo "   ! could not read the program's lib list; staging ALL lib.*.d.ts, which"
     echo "     will put DOM globals into a Node project"
+    if [ -s "$WORK/libfiles.err" ]; then
+      echo "     because:"
+      sed 's/^/       /' "$WORK/libfiles.err"
+    else
+      echo "     (lib-files.mjs wrote nothing and said nothing — see $WORK/libfiles.err)"
+    fi
   fi
   add_lib "$WORK/tslib-src" "tslib" || true
   # The staged directory is a COPY, so the root add_lib recorded points at the copy while
