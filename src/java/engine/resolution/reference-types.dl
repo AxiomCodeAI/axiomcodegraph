@@ -104,9 +104,6 @@ local_var_type_resolves(prov, local, ref, elem) :- foreach_iterable(local, iterE
 // (not just the local's potentialQualifiedName) is what keeps type arguments available downstream.
 //
 // Scoped to the enclosing method so a name is matched inside the method it appears in.
-//
-// NOT covered: a NESTED component (`Pair(Pair(Leaf x, …), …)`). The parser emits no local at all
-// for x, so there is nothing here to type — that is a separate, parser-side gap.
 // java_local_variable (19): 1 name 2 variableTypeName 9 scopeKind 14 methodRegistryLinkHash 19 hash
 local_var_type_resolves(prov, local, ref, t) :- java_local_variable(_, tname, _, _, _, _, _, _, "RECORD_PATTERN", _, _, _, _, m, _, _, _, _, local),
     java_type_reference(_, "PATTERN_BINDING_TYPE", _, _, _, _, _, "0", tname, _, _, _, _, _, _, expr, "EXPRESSION", ref),

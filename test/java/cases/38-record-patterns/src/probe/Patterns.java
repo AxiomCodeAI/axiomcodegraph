@@ -44,6 +44,12 @@ public class Patterns {
         };
     }
 
+    /** A NESTED deconstruction: the inner pattern's components bind too, at any depth. */
+    String nested(Node n) {
+        if (n instanceof Pair(Pair(Leaf x, Node inner), Node outer)) return x.render();
+        return "";
+    }
+
     /** A negated pattern, whose binding is in scope for the rest of the method. */
     String negated(Node n) {
         if (!(n instanceof Leaf l)) return "";
