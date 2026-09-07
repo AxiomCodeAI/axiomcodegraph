@@ -1,0 +1,16 @@
+# Accepted gaps for 20-lib-flow (client->library pass) — each line is an edge the
+# TypeScript compiler resolves and this engine does not. A NEW missing edge fails the
+# suite; a line here that STARTS working also fails, so the debt cannot rot.
+#
+# All three are the ELEMENT TYPE of a container, which the engine does not derive:
+#   viaArrayElement  `arr[0].name()`      element type of Array<Square>
+#   viaForOf         `for (const s of arr)` element type through iteration
+#   viaMap           `m.get(k)!.name()`   value type of Map<string, Square>
+#
+# These were invisible until #235: the case did not typecheck, the oracle correctly
+# refused to adjudicate it, and the harness recorded that refusal as a pass. The case has
+# never been scored, so these are not regressions — they are pre-existing gaps the case
+# was written to catch and was never able to report.
+flow#viaArrayElement() -> Square#name()
+flow#viaForOf() -> Square#name()
+flow#viaMap(Map) -> Square#name()

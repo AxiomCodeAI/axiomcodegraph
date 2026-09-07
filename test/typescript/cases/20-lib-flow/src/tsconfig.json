@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    // `viaUnannotatedParam` exists to exercise a parameter with NO annotation, typed
+    // from the argument at the call site. Under the harness's default `strict: true`
+    // that is a noImplicitAny error, the oracle refuses a case that does not typecheck,
+    // and the case was therefore never scored against ground truth — while reporting ok
+    // (#235). Turning off the one check the case is about keeps the case's purpose and
+    // lets the oracle adjudicate it. Everything else stays strict.
+    "noImplicitAny": false
+  }
+}

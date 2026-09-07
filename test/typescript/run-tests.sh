@@ -135,18 +135,36 @@ for dir in "$HERE"/cases/*/; do
         grep -E 'MISSING|NOW-FIXED|^oracle=' "$w/oracle.diff" | head -12 | sed 's/^/    /'; ok=0; }
       orc="  [oracle: $(head -1 "$w/oracle.diff")]"
     else
-      orc="  [oracle SKIPPED: $(head -1 "$w/oracle.log")]"
+      # A REFUSED ORACLE IS NOT A PASS (#235). The oracle declines a case that does not
+      # typecheck, because the checker would then be answering about a program nobody
+      # wrote — that refusal is correct. Recording it as "SKIPPED" and leaving the case
+      # green is not: one committed case had never been scored against ground truth and
+      # the suite reported it ok on every run. A missing measurement must not read as a
+      # passing one, which is the rule the project harness already applies to itself.
+      echo "FAIL (oracle refused — the case is unscored, not passing)"
+      sed -n '1,4p' "$w/oracle.log" | sed 's/^/    /'
+      ok=0
+      orc="  [oracle REFUSED]"
     fi
-    if [ "$HAS_LIB" = "1" ] && node "$HERE/tools/tsc_oracle_case.mjs" "$dir/src" "$dir/lib" \
-         > "$w/oracle.lib.pairs" 2>"$w/oracle-lib.log"; then
-      python3 "$HERE/tools/normalize_edges.py" "$w/ir" "$w/withlib/out" --client-pairs \
+    if [ "$HAS_LIB" = "1" ]; then
+      if node "$HERE/tools/tsc_oracle_case.mjs" "$dir/src" "$dir/lib" \
+           > "$w/oracle.lib.pairs" 2>"$w/oracle-lib.log"; then
+        python3 "$HERE/tools/normalize_edges.py" "$w/ir" "$w/withlib/out" --client-pairs \
         --lib-ir "$w/libir" > "$w/engine.lib.pairs"
-      python3 "$HERE/tools/oracle_diff.py" "$w/engine.lib.pairs" "$w/oracle.lib.pairs" \
+        python3 "$HERE/tools/oracle_diff.py" "$w/engine.lib.pairs" "$w/oracle.lib.pairs" \
         "$HERE/expected/$name.lib.known-missing" > "$w/oracle.lib.diff"; rc=$?
-      check_golden "$w/oracle.lib.diff" "$HERE/expected/$name.lib.oracle" "lib-oracle" || ok=0
-      [ $rc -eq 0 ] || { echo "FAIL (lib oracle: NEW missing edge, or a known-missing one started working)"
+        check_golden "$w/oracle.lib.diff" "$HERE/expected/$name.lib.oracle" "lib-oracle" || ok=0
+        [ $rc -eq 0 ] || { echo "FAIL (lib oracle: NEW missing edge, or a known-missing one started working)"
         grep -E 'MISSING|NOW-FIXED|^oracle=' "$w/oracle.lib.diff" | head -12 | sed 's/^/    /'; ok=0; }
-      orc="$orc  [lib: $(head -1 "$w/oracle.lib.diff")]"
+        orc="$orc  [lib: $(head -1 "$w/oracle.lib.diff")]"
+      else
+        # Same rule for the library pass. Previously the `if` simply did not fire and the
+        # client->library half went unadjudicated in silence.
+        echo "FAIL (lib oracle refused — the client->library half is unscored)"
+        sed -n '1,4p' "$w/oracle-lib.log" | sed 's/^/    /'
+        ok=0
+        orc="$orc  [lib: REFUSED]"
+      fi
     fi
     [ $ok -eq 1 ] || { fail=$((fail+1)); failed+=("$name"); continue; }
   fi
