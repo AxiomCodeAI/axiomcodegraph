@@ -33,6 +33,12 @@
 reached_lib(t) :- type_ref_resolves("lib", _, t).
 reached_lib(t) :- reached_lib(sub), lib_type_parent(sub, t).
 reached_lib(t) :- lib_method_return_type(_, t).
+// A type reached only as a nested TYPE ARGUMENT of a return — `Map#entrySet()` returns
+// `Set<Map.Entry<K,V>>`, and Map.Entry is named nowhere else. Without this seed the type is
+// outside the lib slice, so lib_method_ret_tvar never fires for its `getValue()` and the call on
+// the result stays untyped even though every binding for it has been computed.
+// Monotone recursion (lib_arg_type_at is reached-scoped in turn) over the finite lib type graph.
+reached_lib(t) :- lib_arg_type_at(_, _, t).
 // EXPRESSION-LEVEL seed: a library type named ONLY as a static qualifier inside an expression
 // (System.out.println, Files.exists, Collectors.toList) produces NO type REFERENCE in the IR —
 // the parser records it as an IDENTIFIER_REFERENCE with referencedEntityKind=TYPE and the
@@ -230,28 +236,98 @@ lib_type_ref_resolves("lib", retRef, rt) :- lib_ret_ref_hash(m, retRef),
 // reference, so it comes along for free.
 lib_type_ref_resolves("lib", ref, ft) :- field_type_resolves("lib", _, ref, ft).
 
-// ── lib_type_arg_binding(BaseRef, BaseType, ParamName, ArgType) — the library mirror of
-// type_arg_binding, for a CONCRETE type argument written on a library reference ────────────────
-// Also declared, also read, also derived by nothing. A library reference whose depth-1 argument is
-// a concrete type (rather than one of the owner's variables) binds the referenced type's parameter
-// at that position — the same shape type_arg_binding computes for client-written arguments.
+// ── A NESTED library type named `Outer.Inner` ──────────────────────────────────────────────────
+// The type registry flattens a nested type to pkg.SimpleName, so `Map.Entry` is stored as
+// java.util.Entry — a name shared, in java.base alone, by the Entry of Map, Hashtable, TreeMap,
+// EnumMap, LinkedHashMap, WeakHashMap and IdentityHashMap. A reference writes typeName=Entry and
+// completeTypeName=Map.Entry, so the enclosing type IS available on the reference; it is the
+// registry that cannot express it. That is a naming convention, not a defect, and it is consistent
+// across both ground-truth readers — so the enclosing type is recovered here instead.
 //
-// SCOPE, measured rather than assumed. The argument is matched by the inline-FQN path, the only one
-// of lib_method_return_type's five name paths that a type ARGUMENT can use: a depth-1 reference
-// carries no file of its own to resolve an import against. In java.base that is 15 of the 430
-// depth-1 non-variable arguments whose written name differs from their simple name. The other 415
-// are the NESTED form — `Set<Map.Entry<K,V>>` writes typeName=Entry, completeTypeName=Map.Entry,
-// while the type registry flattens nested types to pkg.SimpleName (java.util.Entry, shared by the
-// Entry of Hashtable, TreeMap, EnumMap and four more). Matching those needs the enclosing type,
-// which the qualified name deliberately does not carry, so they are left unresolved rather than
-// guessed at — that is the remaining half of #201 and the reason nestedArgOnLibRef in
-// cases/36-generic-two-hop is pinned as a declared unknown.
+// filePath, not fileName: a nested type is declared in the same FILE as its enclosing type, and
+// filePath is unique per module where fileName is not (many modules ship a Map.java). The outer
+// type is found by NAME rather than by assuming the file is named after it, so the resolution does
+// not depend on the one-public-type-per-file convention.
+//
+// lib_type (14): 1 name 7 typePlacement 8 filePath 14 hash
+lib_nested_in(outer, inner, t) :-
+    lib_type(outer, _, _, _, _, _, "TOP_LEVEL_PLACEMENT", fp, _, _, _, _, _, _),
+    lib_type(inner, _, _, _, _, _, plc, fp, _, _, _, _, _, t),
+    plc != "TOP_LEVEL_PLACEMENT", plc != "ANONYMOUS_PLACEMENT".
+
+// UNIQUE resolutions only. Measured over the platform IR, `Outer.Inner` references resolve
+// uniquely 10376 times, ambiguously 116, and not at all 1854 (the enclosing type lives in another
+// module). Emitting the 116 would bind a type parameter to a type the reference does not name, and
+// a wrong BINDING produces a wrong callee rather than an extra one — so they are dropped.
+lib_nested_count(outer, inner, n) :- lib_nested_in(outer, inner, _),
+    n = count : { lib_nested_in(outer, inner, _) }.
+lib_nested_type(outer, inner, t) :- lib_nested_in(outer, inner, t), lib_nested_count(outer, inner, 1).
+
+// ── A depth-1 TYPE ARGUMENT written on a library reference ─────────────────────────────────────
+// The argument is a name in the declaring file exactly as the base type is, so it resolves by the
+// same paths lib_method_return_type walks — with the nested form above added, which is the one the
+// JDK's own generic signatures lean on (`Set<Map.Entry<K,V>>`).
+// lib_type_reference (18): 6 parentRef 7 position 8 depth 9 typeName 10 completeTypeName 18 hash
+lib_arg_ref(baseRef, pos, owner, file, name, complete, argRef) :-
+    lib_method(_, _, _, _, file, _, _, owner, _, _, _, _, _, _, _, _, _, _, _, _, _, m),
+    lib_ret_ref_hash(m, baseRef),
+    lib_type_reference(k, _, _, _, _, baseRef, pos, "1", name, complete, _, _, _, _, _, _, _, argRef),
+    k != "TYPE_VARIABLE", k != "PRIMITIVE".
+
+// same-package
+lib_arg_type_at(baseRef, pos, t) :- lib_arg_ref(baseRef, pos, owner, _, name, _, _),
+    lib_type_pkg(owner, pkg), lib_type_pkg(t, pkg),
+    lib_type(name, _, _, _, _, _, "TOP_LEVEL_PLACEMENT", _, _, _, _, _, _, t).
+// java.lang implicit
+lib_arg_type_at(baseRef, pos, t) :- lib_arg_ref(baseRef, pos, _, _, name, _, _),
+    lib_java_lang_type(name, t).
+// inline-FQN
+lib_arg_type_at(baseRef, pos, t) :- lib_arg_ref(baseRef, pos, _, _, name, complete, _),
+    complete != name,
+    lib_type(name, complete, _, _, _, _, _, _, _, _, _, _, _, t).
+// nested `Outer.Inner`
+lib_arg_type_at(baseRef, pos, t) :- lib_arg_ref(baseRef, pos, _, _, name, complete, _),
+    lib_nested_type(outer, name, t),
+    complete = cat(outer, cat(".", name)).
+// cross-package via SINGLE_TYPE import in the declaring file
+lib_arg_type_at(baseRef, pos, t) :- lib_arg_ref(baseRef, pos, _, file, name, _, _),
+    lib_import("SINGLE_TYPE", imp, _, name, file, _, _, _, _, _, _),
+    lib_type(name, imp, _, _, _, _, "TOP_LEVEL_PLACEMENT", _, _, _, _, _, _, t).
+// cross-package via wildcard import in the declaring file
+lib_arg_type_at(baseRef, pos, t) :- lib_arg_ref(baseRef, pos, _, file, name, _, _),
+    lib_import_pkg_dot(file, pkgDot),
+    lib_type_pkg(t, pkgDot),
+    lib_type(name, _, _, _, _, _, "TOP_LEVEL_PLACEMENT", _, _, _, _, _, _, t).
+
+// ── lib_type_arg_binding(BaseRef, BaseType, ParamName, ArgType) — the library mirror of
+// type_arg_binding, for a concrete type argument written on a library reference ─────────────────
+// Declared, read, and derived by nothing until #253, which wired it to the inline-FQN path alone.
+// The argument is WRITTEN on the reference, so keying the binding on that reference is sound: it
+// is the same fact at every call site, unlike a binding inferred FROM one.
 lib_type_arg_binding(baseRef, baseType, paramName, argType) :- lib_type_ref_resolves(_, baseRef, baseType),
     lib_type_parameter(paramName, pos, _, _, _, _, baseType, _),
-    lib_type_reference(k, _, _, _, _, baseRef, pos, "1", name, complete, _, _, _, _, _, _, _, _),
-    k != "TYPE_VARIABLE",
-    complete != name,
-    lib_type(name, complete, _, _, _, _, _, _, _, _, _, _, _, argType).
+    lib_arg_type_at(baseRef, pos, argType).
+// Transitive climb to each SUPERTYPE via the positional rename, the exact mirror of the client
+// clause in type-arg-binding.dl. Without it a binding on Set never reaches Iterable, so
+// `for (var e : map.entrySet())` could not read the element type off the iterable.
+lib_type_arg_binding(ref, super, superParam, argType) :- lib_type_arg_binding(ref, sub, subVar, argType),
+    super_tvar_rename(sub, super, superParam, subVar).
+
+// ── The NESTED argument's OWN parameters: Set<Entry<K,V>> ───────────────────────────────────────
+// The rule above gives Set's element type (Entry). Entry's own K and V sit one level further down,
+// at depth 2, written as the OWNER's type variables — `Map<K,V>#entrySet()` returns
+// `Set<Map.Entry<K,V>>`, where K and V are Map's. So the receiver's own bindings substitute into
+// them: for `map.entrySet()` on a `Map<String,Widget>`, Entry.K = String and Entry.V = Widget.
+//
+// Keyed on the CALL EXPRESSION, never on the return reference. #253 learned this the expensive way:
+// a library method has ONE return reference shared by every call site in the program, so a binding
+// inferred at one site is read by all the others. expr_arg_binding is per-expression.
+lib_ret_nested_param(m, nested, nestedParam, ownerTv) :- lib_ret_ref_hash(m, baseRef),
+    lib_type_reference(_, _, _, _, _, baseRef, pos, "1", _, _, _, _, _, _, _, _, _, argRef),
+    lib_arg_type_at(baseRef, pos, nested),
+    lib_type_parameter(nestedParam, q, _, _, _, _, nested, _),
+    lib_type_reference("TYPE_VARIABLE", _, _, _, _, argRef, q, "2", _, _, ownerTv, _, _, _, _, _, _, _),
+    ownerTv != "".
 
 // ── FIX-17: GENERIC RETURN SUBSTITUTION + TVAR ALIASING ─────────────────────
 // Needed for the commonest higher-order shape in real code:

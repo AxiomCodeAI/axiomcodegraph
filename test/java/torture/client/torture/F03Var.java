@@ -24,6 +24,15 @@ public class F03Var {
     String fromEnhancedFor() { for (var w : many()) return w.id(); return ""; }
     String fromIndexedFor() { var xs = many(); for (var i = 0; i < xs.size(); i++) { return xs.get(i).id(); } return ""; }
     String fromMapEntry() { var m = new HashMap<String, Widget>(); for (var e : m.entrySet()) return e.getValue().id(); return ""; }
+    // The SAME two-hop nesting — Map#entrySet() : Set<Map.Entry<K,V>>, then Entry#getValue() : V —
+    // reached through each receiver form. They resolve by different routes (the arguments are
+    // written on an object creation, on a declaration, on a field, on a method's return), and each
+    // one has to carry the receiver's K and V down into Map.Entry's own parameters.
+    static Map<String, Widget> mapReturn() { return new HashMap<>(); }
+    final Map<String, Widget> mapField = new HashMap<>();
+    String fromMapEntryOnReturn() { for (var e : mapReturn().entrySet()) return e.getValue().id(); return ""; }
+    String fromMapEntryOnField() { for (var e : mapField.entrySet()) return e.getValue().id(); return ""; }
+    String fromMapEntryOnDeclared() { Map<String, Widget> m = new HashMap<>(); for (var e : m.entrySet()) return e.getValue().id(); return ""; }
     String fromTernary(boolean b) { var w = b ? build() : new Widget(); return w.id(); }
     String fromCast(Object o) { var w = (Widget) o; return w.id(); }
     String fromLambdaParam(List<Widget> xs) { xs.forEach((var w) -> w.id()); return ""; }

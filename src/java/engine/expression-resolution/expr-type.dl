@@ -589,6 +589,29 @@ expr_type(prov, call, argType) :- call_site(call, _, recv),
     type_arg_binding(ref, owner, tv, argType),
     type_prov(argType, prov).
 
+// THE ARGUMENT MAY NOT BE WRITTEN ON ANY REFERENCE. Both clauses above key on recv_decl_ref plus
+// type_arg_binding, which needs the type arguments written on a declaration — fine for
+// `Map<String,Widget> m`, useless when the receiver's arguments were computed per expression: a
+// `var` local taking them from its initializer, a for-each variable taking them from the iterable,
+// or a nested return argument (`Map#entrySet()` : `Set<Map.Entry<K,V>>`) taking them from the
+// receiver. `for (var e : m.entrySet()) e.getValue()` is all three at once, and it is why
+// getValue's V had nothing to resolve against even though the binding had been computed.
+//
+// expr_arg_binding carries exactly those, per EXPRESSION — which is what makes them sound, since a
+// library method has one return reference shared by every call site in the program. Bounded by the
+// method's declaring type (owner) for the same reason the clauses above are: a variable named V is
+// not distinctive on its own.
+expr_type(prov, call, argType) :- call_site(call, _, recv),
+    expr_call_candidate(call, callee),
+    lib_method_ret_tvar(callee, owner, tv),
+    expr_arg_binding(recv, owner, tv, argType),
+    type_prov(argType, prov).
+expr_type(prov, call, argType) :- call_site(call, _, recv),
+    expr_call_candidate(call, callee),
+    java_method_ret_tvar(callee, owner, tv),
+    expr_arg_binding(recv, owner, tv, argType),
+    type_prov(argType, prov).
+
 // ── this / super by NODE KIND (not referencedEntityKind) — a THIS_REFERENCE /
 // SUPER_REFERENCE node used as a method-reference QUALIFIER carries no
 // referencedEntityKind, so the refKind-based cases above miss it. Type it by kind.
