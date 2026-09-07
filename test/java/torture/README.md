@@ -38,6 +38,16 @@ When no platform IR is available the run says so instead of absorbing it.
 annotation is not a call: what it decides is which method is an entry point and which bean
 satisfies which injection point, and none of that appears in bytecode.
 
+## The scale scorer is graded here too
+
+`tools/score_scale.py` produces the corpus recall figures and had no test of its own, which is how
+two defects lived in it: it dropped constructor targets from the engine's answer while keeping them
+in the oracle's (#194), and it decided scope by matching an **absolute** path, so a checkout under a
+directory named `fixtures` scored zero (#195). Neither is visible at corpus scale — a wrong
+denominator among tens of thousands reads exactly like a right one. Here the answer is known, so
+the whole report is pinned as `expected/scale.txt`, and family `F11` exists to keep the scope
+question honest: its package is `it.example`, a real Java package root that the old pattern dropped.
+
 ## The invariant
 
 Staging a library must never **remove** an answer. The same client is solved twice, once with an
@@ -58,3 +68,4 @@ else here can catch that, because every other assertion fixes the library input.
 | `F08` | inner, static nested, local and anonymous classes, and unqualified calls resolving outward through two levels |
 | `F09` | reflection, `Class.forName`, a dynamic proxy and `ServiceLoader` — out of scope by construction, and asserted to be DECLARED unknown rather than silently dropped |
 | `F10` | reassignment, ternary, switch expression, cast, array element, twice-written field, parameter, return value |
+| `F11` | a package whose name looks like a test directory (`it.example`), with an explicitly written `new` — nothing in it is a test, and a scope decided by directory name drops all of it |

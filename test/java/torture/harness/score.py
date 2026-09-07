@@ -32,7 +32,7 @@ FAMILIES = {
     'F01': 'polymorphism & dispatch', 'F02': 'generics & substitution', 'F03': 'var inference',
     'F04': 'event-driven dispatch',   'F05': 'annotations (config)',    'F06': 'lambdas & method refs',
     'F07': 'records/sealed/enums',    'F08': 'nesting & outward calls', 'F09': 'declared blind spots',
-    'F10': 'value flow',
+    'F10': 'value flow',              'F11': 'test-looking package names',
 }
 
 
