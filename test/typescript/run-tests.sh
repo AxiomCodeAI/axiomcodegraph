@@ -184,6 +184,25 @@ if [ "$BLESS" != "1" ]; then
     grep -E '^FAIL' "$WORK-linking.log" | sed 's/^/  /' || tail -5 "$WORK-linking.log" | sed 's/^/  /'
     fail=$((fail+1)); failed+=("linking-fixture")
   fi
+
+  # Whether a package's tsconfig CHAIN survives being mirrored. No case can cover it:
+  # every case carries its own src/tsconfig.json with nothing to extend, so none has an
+  # ancestor config to lose — which is why #240 survived a green suite. Exit 77 is the
+  # fixture declining for want of a parser, not a pass and not a failure.
+  echo
+  echo "── tsconfig-chain fixture ──"
+  bash "$HERE/fixtures/tsconfig-chain/run.sh" "${WORK:-/tmp/ts-tsconfig-chain}-chain" \
+       "$PARSER" >"$WORK-chain.log" 2>&1
+  rc=$?
+  if [ "$rc" -eq 0 ]; then
+    echo "tsconfig-chain fixture: ok"
+  elif [ "$rc" -eq 77 ]; then
+    echo "tsconfig-chain fixture: SKIPPED ($(tail -1 "$WORK-chain.log"))"
+  else
+    echo "tsconfig-chain fixture: FAILED"
+    grep -E '^FAIL' "$WORK-chain.log" | sed 's/^/  /' || tail -5 "$WORK-chain.log" | sed 's/^/  /'
+    fail=$((fail+1)); failed+=("tsconfig-chain-fixture")
+  fi
 fi
 
 [ "$KEEP" = "1" ] || rm -rf "$WORK"
