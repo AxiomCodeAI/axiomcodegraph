@@ -69,24 +69,79 @@ echo "▶ project: $PROJECT"
 # of surfacing four steps downstream as
 #   line 200: .../ir/all-typescript-call-sites.csv: No such file or directory
 # Part of #149.
-MIRROR="$WORK/project"
-if [ ! -d "$MIRROR" ]; then
+# ── THE EXTENDS CHAIN HAS TO COME WITH IT (#240) ─────────────────────────────
+# A workspace package's tsconfig almost always begins `"extends": "../../tsconfig.base.json"`,
+# and that file is ABOVE the directory being mirrored. The parser then resolves the chain
+# against a file that is not there and falls back to each option's DEFAULT — silently, on
+# both sides. Measured on a package whose base sets `strict: true`:
+#
+#   parser over the real package dir : strictBindCallApply=true
+#   parser over the mirror           : strictBindCallApply=false
+#
+# That option is load-bearing since #160: it decides which of lib.es5's two declarations
+# of call/apply/bind the compiler answers with, so a defaulted `false` makes the engine
+# commit to Function's where the compiler chose CallableFunction's. Note tsConfigPath is
+# SET in both cases, so a guard keyed on "does this module have a governing tsconfig"
+# does not catch it — the module has one, it just resolved against a missing base.
+#
+# So the mirror is rooted deep enough to hold the ancestors at the paths they are
+# referenced by. tools/tsconfig_chain.mjs computes that with the compiler's own
+# resolution (extends may be an array since TS 5.0, and may be a bare package specifier);
+# REL is "." for a single-package project, which keeps the flat mirror unchanged.
+MIRROR_BASE="$WORK/project"
+if [ ! -d "$MIRROR_BASE" ]; then
+  node "$HERE/tools/tsconfig_chain.mjs" --plan "$PROJECT" \
+       > "$WORK/mirror-plan.txt" 2>"$WORK/mirror-plan.err" || true
+  REL="$(awk -F'\t' '$1=="REL"{print $2}' "$WORK/mirror-plan.txt" 2>/dev/null)"
+  [ -n "$REL" ] || REL="."
+
   MIRROR_TMP="$WORK/.project.partial.$$"
-  rm -rf "$MIRROR_TMP"; mkdir -p "$MIRROR_TMP"
+  rm -rf "$MIRROR_TMP"; mkdir -p "$MIRROR_TMP/$REL"
   rs=0
   rsync -a --exclude 'node_modules' --exclude '.git' --exclude 'dist' --exclude 'build' \
         --exclude '*.java' --exclude '*.py' --exclude '*.gradle' --exclude 'pom.xml' \
         --exclude 'build.gradle' --exclude 'settings.gradle' \
-        "$PROJECT/" "$MIRROR_TMP/" 2>/dev/null || rs=$?
-  if [ -z "$(find "$MIRROR_TMP" \( -name '*.ts' -o -name '*.tsx' -o -name '*.mts' \
-                                  -o -name '*.cts' \) -print -quit 2>/dev/null)" ]; then
+        "$PROJECT/" "$MIRROR_TMP/$REL/" 2>/dev/null || rs=$?
+
+  # Configs only, never a config's directory: they are small JSON files, and copying the
+  # directory would drag a sibling package's sources into a mirror meant to hold one.
+  copied=0
+  while IFS="$(printf '\t')" read -r tag src dest; do
+    [ "$tag" = "COPY" ] || continue
+    [ -n "$dest" ] || continue
+    mkdir -p "$MIRROR_TMP/$(dirname "$dest")"
+    cp "$src" "$MIRROR_TMP/$dest" 2>/dev/null && copied=$((copied+1))
+  done < "$WORK/mirror-plan.txt"
+  [ "$copied" -gt 0 ] && echo "   + mirrored $copied ancestor tsconfig(s); project is at ./$REL"
+
+  # A PRESENT MIRROR MUST BE A COMPLETE ONE, and rsync's STATUS is not the test. It exits
+  # 23/24 for benign reasons, and it exited 0 having copied nothing when the corpus had
+  # been reaped out from under it. The postcondition is what catches both.
+  if [ -z "$(find "$MIRROR_TMP/$REL" \( -name '*.ts' -o -name '*.tsx' -o -name '*.mts' \
+                                       -o -name '*.cts' \) -print -quit 2>/dev/null)" ]; then
     echo "   ! NO TYPESCRIPT SOURCE mirrored from $PROJECT (rsync exit $rs)" >&2
     echo "     The source tree is empty of .ts/.tsx/.mts/.cts. If the corpus lives under" >&2
     echo "     /tmp it may have been reaped — reclone with test/typescript/corpus/fetch.sh." >&2
     rm -rf "$MIRROR_TMP"
     exit 1
   fi
-  mv "$MIRROR_TMP" "$MIRROR"
+  printf '%s\n' "$REL" > "$MIRROR_TMP/.mirror-rel"
+  mv "$MIRROR_TMP" "$MIRROR_BASE"
+fi
+# The fast path needs REL too, so it is recorded in the mirror rather than recomputed.
+REL="$(cat "$MIRROR_BASE/.mirror-rel" 2>/dev/null)"; [ -n "$REL" ] || REL="."
+if [ "$REL" = "." ]; then MIRROR="$MIRROR_BASE"; else MIRROR="$MIRROR_BASE/$REL"; fi
+
+# ── and say so when the chain is STILL broken ────────────────────────────────
+# Re-resolved against the MIRROR, which is what the parser will read. An `extends` that
+# does not resolve here means a compiler option is about to be defaulted, and every rate
+# downstream inherits it. Silent on both sides before this.
+if node "$HERE/tools/tsconfig_chain.mjs" "$MIRROR" 2>&1 >/dev/null \
+     | grep -q '^UNRESOLVED'; then
+  echo "   ! MIRRORED tsconfig has an UNRESOLVED extends — compiler options will be" >&2
+  echo "     DEFAULTED, and strictBindCallApply among them (see #240):" >&2
+  node "$HERE/tools/tsconfig_chain.mjs" "$MIRROR" 2>&1 >/dev/null \
+    | sed 's/^/       /' >&2
 fi
 
 # EVERY node_modules up the chain, not the first one. A workspace hoists shared
