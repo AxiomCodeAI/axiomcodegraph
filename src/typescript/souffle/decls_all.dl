@@ -282,6 +282,8 @@
 .decl module_kind_is_ambient(c0:symbol)
 .decl module_local_decl(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
 .decl module_base_path(c0:symbol,c1:symbol,c2:symbol)
+.decl pkg_suffix(c0:symbol,c1:symbol)
+.decl pkg_suffix_len(c0:number)
 .decl lib_package_root_target(c0:symbol,c1:symbol)
 .decl pkg_specifier_wanted(c0:symbol)
 .decl pkg_staged_subdir(c0:symbol)
