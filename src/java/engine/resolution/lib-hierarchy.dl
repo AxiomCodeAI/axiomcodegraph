@@ -213,6 +213,46 @@ lib_method_return_type(m, rt) :- lib_method_ret_ref(m, _, file, name, _),
     lib_type_pkg(rt, pkgDot),
     lib_type(name, _, _, _, _, _, "TOP_LEVEL_PLACEMENT", _, _, _, _, _, _, rt).
 
+// ── lib_type_ref_resolves(Prov, Ref, Type) — a LIBRARY type reference, keyed by the REFERENCE ──
+// Declared in decls_all.dl, read at six sites (lambda.dl and expr-type.dl), and derived by nothing
+// — so every rule reading it derived nothing and Souffle reported no error. The two consumers that
+// matter are the library halves of the paired clauses that type a receiver from a method's RETURN:
+// the client half reads method_return_type_resolves, which carries its reference, and the library
+// half had no equivalent.
+//
+// The resolution itself already exists — lib_method_return_type walks the same five name paths
+// (same-package, java.lang, inline-FQN, single-type import, wildcard import) — it just discards the
+// reference hash, which is precisely what a consumer needs in order to read TYPE ARGUMENTS off that
+// reference. lib_ret_ref_hash already carries it, so the two only had to be joined.
+lib_type_ref_resolves("lib", retRef, rt) :- lib_ret_ref_hash(m, retRef),
+    lib_method_return_type(m, rt).
+// A library FIELD's declared type is resolved by the same five paths and already carries its
+// reference, so it comes along for free.
+lib_type_ref_resolves("lib", ref, ft) :- field_type_resolves("lib", _, ref, ft).
+
+// ── lib_type_arg_binding(BaseRef, BaseType, ParamName, ArgType) — the library mirror of
+// type_arg_binding, for a CONCRETE type argument written on a library reference ────────────────
+// Also declared, also read, also derived by nothing. A library reference whose depth-1 argument is
+// a concrete type (rather than one of the owner's variables) binds the referenced type's parameter
+// at that position — the same shape type_arg_binding computes for client-written arguments.
+//
+// SCOPE, measured rather than assumed. The argument is matched by the inline-FQN path, the only one
+// of lib_method_return_type's five name paths that a type ARGUMENT can use: a depth-1 reference
+// carries no file of its own to resolve an import against. In java.base that is 15 of the 430
+// depth-1 non-variable arguments whose written name differs from their simple name. The other 415
+// are the NESTED form — `Set<Map.Entry<K,V>>` writes typeName=Entry, completeTypeName=Map.Entry,
+// while the type registry flattens nested types to pkg.SimpleName (java.util.Entry, shared by the
+// Entry of Hashtable, TreeMap, EnumMap and four more). Matching those needs the enclosing type,
+// which the qualified name deliberately does not carry, so they are left unresolved rather than
+// guessed at — that is the remaining half of #201 and the reason nestedArgOnLibRef in
+// cases/36-generic-two-hop is pinned as a declared unknown.
+lib_type_arg_binding(baseRef, baseType, paramName, argType) :- lib_type_ref_resolves(_, baseRef, baseType),
+    lib_type_parameter(paramName, pos, _, _, _, _, baseType, _),
+    lib_type_reference(k, _, _, _, _, baseRef, pos, "1", name, complete, _, _, _, _, _, _, _, _),
+    k != "TYPE_VARIABLE",
+    complete != name,
+    lib_type(name, complete, _, _, _, _, _, _, _, _, _, _, _, argType).
+
 // ── FIX-17: GENERIC RETURN SUBSTITUTION + TVAR ALIASING ─────────────────────
 // Needed for the commonest higher-order shape in real code:
 //     byName.values().forEach(i -> i.validate(t))       // Map<String,Item> -> Collection<V> -> V=Item

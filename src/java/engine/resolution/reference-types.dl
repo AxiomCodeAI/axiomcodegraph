@@ -49,6 +49,33 @@ local_var_type_resolves(prov, local, ref, t) :- java_local_variable(_, _, _, _, 
     java_expression("OBJECT_CREATION", _, "LOCAL_VAR_INITIALIZER", "LOCAL_VARIABLE", _, local, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, objExpr),
     object_creation_type_resolves(prov, objExpr, ref, t).
 
+// `for (var x : xs)` — the loop variable's type is the ITERABLE's element type. `var` writes no
+// type reference, so the declared-type rule above yields nothing and every call on the loop
+// variable was a declared unknown; `for (W w : xs)` worked all along because the element type is
+// written down there.
+//
+// The link is the ENHANCED_FOR_STATEMENT block: the loop variable's parentExpressionLinkHash IS
+// the block that owns the iterable expression, so the two are joined without guessing by line or
+// by position. The element type is then whatever the iterable's reference binds for
+// java.lang.Iterable's own type variable — which type_arg_binding already carries, because it
+// climbs a List<W> reference up through Collection to Iterable.
+//
+// An ARRAY iterable is not covered: it has no Iterable binding, and an array element type is a
+// separate mechanism.
+// java_local_variable (19): 8 scopeKind 11 isVarInferred 17 parentExpressionLinkHash 18 hash
+foreach_iterable(local, iterExpr) :- java_local_variable(_, _, _, _, _, _, _, _, "ENHANCED_FOR_LOOP", _, _, "true", _, _, _, _, _, blk, local),
+    java_expression(_, _, "ENHANCED_FOR_ITERABLE", "ENHANCED_FOR_STATEMENT", _, blk, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, iterExpr).
+
+iterable_elem_tvar(tv) :- lib_type(_, "java.lang.Iterable", _, _, _, _, _, _, _, _, _, _, _, it),
+    lib_type_parameter(tv, "0", _, _, _, _, it, _).
+
+local_var_type_resolves(prov, local, ref, elem) :- foreach_iterable(local, iterExpr),
+    recv_decl_ref(iterExpr, ref, _),
+    iterable_elem_tvar(tv),
+    type_arg_binding(ref, ity, tv, elem),
+    lib_type(_, "java.lang.Iterable", _, _, _, _, _, _, _, _, _, _, _, ity),
+    type_prov(elem, prov).
+
 // ── method_param_type_resolves(Prov, ParamHash, RefHash, TypeHash) ──────────
 method_param_type_resolves(prov, param, ref, t) :- java_type_reference(_, "METHOD_PARAM", _, _, _, _, _, "0", _, _, _, _, _, _, _, param, "METHOD_PARAM", ref),
     type_ref_resolves(prov, ref, t).
