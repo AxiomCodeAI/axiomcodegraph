@@ -45,6 +45,7 @@ def ancestors_of(ir, out):
     """(sub -> {ancestors}) by flattened name, from the engine's own type_ancestor export. Flattened
     the way normalize_edges names a type, so both sides of every comparison agree."""
     import csv
+    csv.field_size_limit(10**9)   # an IR literalValue can be a base64 asset; see test/tools/csv-limit-test.sh
     name = {}
     p = os.path.join(ir, 'all-types.csv')
     if os.path.exists(p):

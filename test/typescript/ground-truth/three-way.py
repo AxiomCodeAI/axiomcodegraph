@@ -30,6 +30,7 @@ whose soundness it cannot vouch for.
 Usage: three-way.py <eval-dir> [--list-missing=N] [--csv=<out.csv>]
 """
 import csv
+csv.field_size_limit(10**9)   # an IR literalValue can be a base64 asset; see test/tools/csv-limit-test.sh
 import os
 import sys
 from collections import defaultdict

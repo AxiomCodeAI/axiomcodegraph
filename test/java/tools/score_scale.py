@@ -13,6 +13,7 @@ nobody can see is one nobody can check.
 usage: score_scale.py <IR> <OUT> <oracle-lb> <oracle-ub> [--scope-prefix p1,p2] [--census N]
 """
 import csv, os, re, sys, collections, math
+csv.field_size_limit(10**9)   # an IR literalValue can be a base64 asset; see test/tools/csv-limit-test.sh
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 
