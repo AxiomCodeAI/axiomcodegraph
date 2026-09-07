@@ -1,7 +1,5 @@
-oracle=4 engine=6 agree=2 missing=2 (known 2, NEW 0) extra=4
+oracle=4 engine=6 agree=3 missing=1 (known 1, NEW 0) extra=3
   known    consumer#drive() -> Service#run()
-  known    consumer#drive() -> consumer#shadowed()
   extra    consumer#drive() -> Service#run()@L2
-  extra    consumer#drive() -> consumer#<arrow@11>()
   extra    consumer#useLibrary() -> Service#run()@L2
   extra    consumer#useLibrary() -> alpha#process()

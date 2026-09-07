@@ -2,4 +2,3 @@
 # resolves and this engine does not. A NEW missing edge fails the suite;
 # a line here that STARTS working also fails, so the debt cannot rot.
 consumer#drive() -> Service#run()
-consumer#drive() -> consumer#shadowed()
