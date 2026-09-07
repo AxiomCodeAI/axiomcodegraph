@@ -21,7 +21,19 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
-PY="${AXIOM_PY_PYTHON:-/usr/local/bin/python3.10}"
+# Resolve the pinned interpreter through PATH, never as an absolute prefix.
+# run-tests.sh states the reason for its own copy of this and it applies verbatim
+# here: "pinning an absolute PATH is a different thing, and the wrong one" — a
+# Homebrew-on-Intel-macOS location makes this gate unrunnable on Linux, Apple
+# Silicon, pyenv or any CI image, reported as a "missing interpreter" that reads
+# like a broken checkout. /usr/local/bin/python3.10 is exactly that prefix.
+find_pinned_python() {
+  local c p
+  for c in python3.10 python3; do
+    p="$(command -v "$c" 2>/dev/null)" && [ -n "$p" ] && { printf '%s\n' "$p"; return; }
+  done
+}
+PY="${AXIOM_PY_PYTHON:-$(find_pinned_python)}"
 export AXIOM_PY_ORACLE="${AXIOM_PY_ORACLE:-$ROOT/../callchain-oracle/python}"
 FILTERS=("$@")
 
