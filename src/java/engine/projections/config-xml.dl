@@ -9,16 +9,16 @@
 //
 // Conventions: views only; one raw base relation per rule body; provenance tag first.
 //
-// java_xml_element / lib_xml_element cols (15):
+// java_xml_element cols (15):
 //   0 tagName  1 namespace  2 namespacePrefix  3 xPath  4 depth  5 textContent
 //   6 isSelfClosing  7 childCount  8 filePath  9 baseMservPath  10 startLine
 //   11 endLine  12 parentElementHash  13 serviceVersionLinkHash  14 xmlElementUniqueHash
 //
-// java_xml_attribute / lib_xml_attribute cols (10):
+// java_xml_attribute cols (10):
 //   0 name  1 value  2 namespace  3 filePath  4 baseMservPath  5 startLine
 //   6 endLine  7 parentElementHash  8 serviceVersionLinkHash  9 xmlAttributeUniqueHash
 //
-// java_xml_value_reference / lib_xml_value_reference cols (13):
+// java_xml_value_reference cols (13):
 //   0 referenceExpression  1 referenceType  2 defaultValue  3 rawValue
 //   4 ownerElementHash  5 ownerAttributeName  6 depth  7 filePath  8 baseMservPath
 //   9 startLine  10 endLine  11 serviceVersionLinkHash  12 xmlValueReferenceUniqueHash
@@ -27,12 +27,10 @@
 // ── xml_elem(Prov, TagName, XPath, TextContent, ParentElementHash, FilePath, ElemHash) ──
 // An XML element (e.g. <bean>). The class it wires is usually on an attribute.
 xml_elem("client", tag, xpath, text, parent, filePath, h) :- java_xml_element(tag, _, _, xpath, _, text, _, _, filePath, _, _, _, parent, _, h).
-xml_elem("lib", tag, xpath, text, parent, filePath, h) :- lib_xml_element(tag, _, _, xpath, _, text, _, _, filePath, _, _, _, parent, _, h).
 
 // ── xml_attr(Prov, Name, Value, ParentElementHash, AttrHash) ────────────────
 // An attribute of an element — e.g. class="com.example.Y", init-method="start".
 xml_attr("client", name, value, parent, h) :- java_xml_attribute(name, value, _, _, _, _, _, parent, _, h).
-xml_attr("lib", name, value, parent, h) :- lib_xml_attribute(name, value, _, _, _, _, _, parent, _, h).
 
 // ── xml_vref(Prov, ReferenceExpression, ReferenceType, DefaultValue, OwnerElementHash, OwnerAttributeName, VRefHash) ──
 // A ${...} reference inside element text or an attribute value.
@@ -41,4 +39,3 @@ xml_attr("lib", name, value, parent, h) :- lib_xml_attribute(name, value, _, _, 
 //   PLACEHOLDER_WITH_DEFAULT  ${some.key:default}
 //   SPEL_EXPRESSION           #{...}
 xml_vref("client", expr, refType, default, ownerElem, ownerAttr, h) :- java_xml_value_reference(expr, refType, default, _, ownerElem, ownerAttr, _, _, _, _, _, _, h).
-xml_vref("lib", expr, refType, default, ownerElem, ownerAttr, h) :- lib_xml_value_reference(expr, refType, default, _, ownerElem, ownerAttr, _, _, _, _, _, _, h).
