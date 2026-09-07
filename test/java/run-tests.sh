@@ -114,7 +114,11 @@ if [ "$ORACLE" = "1" ]; then
   mkdir -p "$WORK"
   agree_out="$WORK/oracle-agreement.txt"
   agree_bless=""; [ "$BLESS" = "1" ] && agree_bless="--bless"
-  if python3 "$HERE/tools/oracle_agreement.py" "$HERE/cases" "$WORK/.agreement" $agree_bless > "$agree_out" 2>&1; then
+  # STDOUT is the golden; STDERR is commentary (which cases could not be compared) and must stay
+  # out of it, or the golden churns whenever a case is added. See tools/oracle_agreement.py.
+  agree_err="$WORK/oracle-agreement.err"
+  if python3 "$HERE/tools/oracle_agreement.py" "$HERE/cases" "$WORK/.agreement" $agree_bless > "$agree_out" 2>"$agree_err"; then
+    [ -s "$agree_err" ] && cat "$agree_err"
     aexp="$HERE/expected/oracle-agreement.txt"
     if [ "$BLESS" = "1" ]; then cp "$agree_out" "$aexp"
     elif [ ! -f "$aexp" ]; then
@@ -125,7 +129,9 @@ if [ "$ORACLE" = "1" ]; then
     fi
   else
     echo "aborting: the two ground-truth oracles describe different graphs"
-    sed 's/^/    /' "$agree_out" | tail -30; exit 1
+    sed 's/^/    /' "$agree_out" | tail -30
+    [ -s "${agree_err:-}" ] && sed 's/^/    /' "$agree_err" | tail -10
+    exit 1
   fi
 fi
 

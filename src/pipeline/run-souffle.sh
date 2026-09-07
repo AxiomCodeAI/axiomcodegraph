@@ -39,7 +39,9 @@ ENG="$SRC/$LANG_ARG/engine"; ENG2="$SRC/$LANG_ARG/engine-ii"; DL="$SRC/$LANG_ARG
 # shellcheck source=souffle-include.sh
 . "$SRC/pipeline/souffle-include.sh"
 INNER="$(find_souffle_include)"
-if [ -z "$INNER" ] || [ ! -d "$INNER" ]; then
+# Assert the HEADER, not the directory: `[ -d ]` is the test #216 established cannot tell the two
+# install layouts apart, so it would pass a path that then fails at the compiler.
+if [ -z "$INNER" ] || [ ! -f "$INNER/souffle/CompiledSouffle.h" ]; then
   echo "❌ soufflé headers not found. Install soufflé, or set AXIOM_SOUFFLE_INCLUDE." >&2
   echo "   macOS: brew install souffle     Debian/Ubuntu: apt-get install souffle" >&2
   exit 1

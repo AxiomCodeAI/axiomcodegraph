@@ -111,8 +111,16 @@ def main():
         ctor_rows += ctor; other += [(name, r) for r in rest]
         per_case.append((name, len(only_cf), len(only_py)))
 
-    print(f"cases compared {agreed + len(per_case)}   agreeing {agreed}   "
-          f"skipped {len(skipped)} (need a classpath: {', '.join(skipped) or 'none'})")
+    # WHICH cases were skipped goes to STDERR, deliberately. This report is pinned as a golden, and
+    # the golden must move only when something it asserts moves -- whether the two readers agree on
+    # what they can compare. A case that ships a lib-src cannot be compared without a classpath, so
+    # ADDING ONE changed this line and aborted the entire Java suite until the golden was re-blessed.
+    # That happened three times in one day (#253's 36-generic-two-hop, #259's 37-method-ref-arity),
+    # each time for a reason with nothing to do with reader agreement -- and a gate that has to be
+    # re-blessed routinely stops being a gate, which is the standard this file's own neighbours set.
+    # The count of COMPARED cases stays: that growing is new coverage, and is worth a review.
+    print(f"cases compared {agreed + len(per_case)}   agreeing {agreed}")
+    sys.stderr.write(f"  (skipped {len(skipped)}, need a classpath: {', '.join(skipped) or 'none'})\n")
     print(f"CONSTRUCTOR-RULE disagreements: {len(per_case)} cases, {len(ctor_rows)} rows")
     for name, cf, py in per_case:
         print(f"  {name:<34} classfile-only {cf:>3}   javap-only {py:>3}")
