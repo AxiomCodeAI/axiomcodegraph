@@ -112,6 +112,15 @@ fi
 # the only place the "engine and oracle agree on call-site identity" property can be checked.
 python3 "$HERE/tools/check_vendor.py" || exit 1
 
+# ── PREFLIGHT: the accepted-gap list must still be a gate ────────────────────
+# A missing edge is coverage, not a defect, so expected/<case>.known-missing records the ones
+# that are accepted -- and the list is only worth having if it is reconciled in BOTH directions.
+# Asserted by perturbing the list rather than the engine, so it needs no IR and never skips for
+# want of a work dir. Only runs where the harness is present, which is where --oracle runs.
+if [ -d "$ORACLE_HOME/callchain_oracle" ]; then
+  bash "$HERE/tools/known-missing-test.sh" || exit 1
+fi
+
 # ── PREFLIGHT: is the GROUND TRUTH itself right? ─────────────────────────────
 # check_vendor above asserts the vendored copies are IDENTICAL to the harness. It
 # cannot say whether either is CORRECT, and tier 1 decides what a call site is and
