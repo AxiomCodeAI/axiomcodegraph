@@ -1,5 +1,5 @@
 === java torture: per-family coverage against the class-file oracle ===
-  F01 polymorphism & dispatch    edges= 13  answered= 12 ( 92.3%)  exact= 11 precise= 1 ancestor= 0  MISSED= 1  wide= 11
+  F01 polymorphism & dispatch    edges= 13  answered= 13 (100.0%)  exact= 12 precise= 1 ancestor= 0  MISSED= 0  wide=  8
   F02 generics & substitution    edges= 13  answered= 13 (100.0%)  exact= 13 precise= 0 ancestor= 0  MISSED= 0  wide=  0
   F03 var inference              edges= 20  answered= 18 ( 90.0%)  exact= 18 precise= 0 ancestor= 0  MISSED= 2  wide=  0
   F04 event-driven dispatch      edges= 10  answered= 10 (100.0%)  exact= 10 precise= 0 ancestor= 0  MISSED= 0  wide=  4
@@ -10,7 +10,7 @@
   F09 declared blind spots       edges=  2  answered=  2 (100.0%)  exact=  2 precise= 0 ancestor= 0  MISSED= 0  wide=  1
   F10 value flow                 edges= 24  answered= 24 (100.0%)  exact= 24 precise= 0 ancestor= 0  MISSED= 0  wide= 20
   F11 test-looking package names edges=  4  answered=  4 (100.0%)  exact=  4 precise= 0 ancestor= 0  MISSED= 0  wide=  0
-  TOTAL                           edges=122  answered=114 ( 93.4%)  exact=113 precise= 1 ancestor= 0  MISSED= 8  wide= 38
+  TOTAL                           edges=122  answered=115 ( 94.3%)  exact=114 precise= 1 ancestor= 0  MISSED= 7  wide= 35
 
   f05 is scored on config rows, not on invoke instructions:
     config-bean-def           3
@@ -22,7 +22,6 @@
     config-unresolved         1
 
   MISSED (the oracle has it, the graph does not):
-    F01 torture.F01Polymorphism#o5 -> torture.F01Polymorphism#pick(Integer)
     F03 torture.F03Var#fromEnhancedFor -> torture.Widget#id()
     F03 torture.F03Var#fromMapEntry -> torture.Widget#id()
     F06 torture.F06Functional#<init> -> torture.Item#name()

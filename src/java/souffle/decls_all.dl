@@ -50,6 +50,13 @@
 .decl expr_operator(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl expr_owner(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl expr_owner_kind(c0:symbol,c1:symbol,c2:symbol)
+.decl vararg_pos(c0:symbol,c1:symbol)                           // (callee,pos) a varargs parameter position
+.decl expr_arg_ok(c0:symbol,c1:symbol)                          // arity + no argument mismatch, before the phase gate
+.decl exact_arity(c0:symbol,c1:symbol)                          // arity as phases 1 and 2 count it
+.decl strict_pos(c0:symbol,c1:symbol,c2:symbol)                 // (call,callee,pos) reachable by subtyping/widening alone
+.decl not_strict_at(c0:symbol,c1:symbol)                        // some argument position is not strictly applicable
+.decl strict_applicable(c0:symbol,c1:symbol)                    // JLS 15.12.2 phase 1
+.decl call_has_strict(c0:symbol)
 .decl expr_pruned(c0:symbol,c1:symbol)
 .decl expr_qualified_name(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl expr_referenced(c0:symbol,c1:symbol,c2:symbol,c3:symbol)

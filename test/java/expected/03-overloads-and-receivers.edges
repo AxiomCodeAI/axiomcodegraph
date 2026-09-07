@@ -2,10 +2,9 @@ ambiguous_anon	anon_new	testcases.engine.ComplexDispatch#<type-initializer>() ->
 ambiguous_unknown	method	testcases.engine.ComplexDispatch#boxingAndFields(String) -> -
 ambiguous_unknown	method	testcases.engine.ComplexDispatch#jdkStatics(String,int,int) -> -
 ambiguous_unknown	new	testcases.engine.ComplexDispatch#<type-initializer>() -> -
+known_edge	method	testcases.engine.ComplexDispatch#internalOverloads(Throwable) -> testcases.engine.ComplexDispatch#emit(String)
 known_edge	method	testcases.engine.ComplexDispatch#internalOverloads(Throwable) -> testcases.engine.ComplexDispatch#log(String)
 known_edge	method	testcases.engine.ComplexDispatch#internalOverloads(Throwable) -> testcases.engine.ComplexDispatch#log(String,Throwable)
 known_edge	method	testcases.engine.ComplexDispatch#internalOverloads(Throwable) -> testcases.engine.ComplexDispatch#log(int)
 multi_inferred	method	testcases.engine.ComplexDispatch#boxingAndFields(String) -> testcases.engine.ComplexDispatch$anon:Sink#accept(String)
 multi_inferred	method	testcases.engine.ComplexDispatch#boxingAndFields(String) -> testcases.engine.Sink#accept(String)
-multi_inferred	method	testcases.engine.ComplexDispatch#internalOverloads(Throwable) -> testcases.engine.ComplexDispatch#emit(Object)
-multi_inferred	method	testcases.engine.ComplexDispatch#internalOverloads(Throwable) -> testcases.engine.ComplexDispatch#emit(String)
