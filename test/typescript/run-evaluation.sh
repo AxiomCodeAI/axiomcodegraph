@@ -156,6 +156,25 @@ for cand in "$PROJECT/node_modules" "$PROJECT/../node_modules" "$PROJECT/../../n
 done
 find_in_nm() { for r in $NM_ROOTS; do [ -e "$r/$1" ] && { echo "$r/$1"; return 0; }; done; return 1; }
 
+# shellcheck source=tools/lib-staging.sh
+. "$HERE/tools/lib-staging.sh"
+
+# ── declining to stage the project as its own dependency (#231) ─────────────
+# `is_project_itself` lives in tools/lib-staging.sh, sourced just above and kept
+# sourceable precisely so a predicate like this can be tested without running the whole
+# pipeline. The rationale, and the measured before/after, are on the function.
+#
+# Announced rather than silent: staging the self-link halves exactness, so declining to
+# is worth one line in the log.
+skip_if_self() { # $1 = dir, $2 = package name -> echoes the dir, or nothing
+  [ -n "$1" ] || return 0
+  if is_project_itself "$1" "$PROJECT" "${MIRROR:-}"; then
+    echo "   (not staging $2 — it is the project under analysis, reached through node_modules)" >&2
+    return 0
+  fi
+  echo "$1"
+}
+
 # ── src_duplicates_staged_subdir(packageDir) — is the root a second copy? ────
 # A package that ships its TypeScript SOURCE next to its built declarations gets
 # staged twice: the root walk descends into `src/` (which the parser does not skip)
@@ -318,8 +337,6 @@ LIBS=""
 # Sourced rather than inlined so the fixture can test them directly (see
 # fixtures/multi-program/run.sh). A predicate that only runs inside a 20-minute pipeline
 # is a predicate nobody checks.
-# shellcheck source=tools/lib-staging.sh
-. "$HERE/tools/lib-staging.sh"
 
 stage_program() { # $1 = source dir, $2 = ir subdir name -> 0 if staged
   local src="$1" name="$2" plog="$WORK/libir/$2.parser.log"
@@ -466,6 +483,7 @@ if [ -n "$NM_ROOTS" ]; then
     # full report from the identical project with the stub removed. See #234.
     d="$(find_in_nm "@types/$pkg" || true)"; [ -n "$d" ] && { add_lib "$d" "types_$safe" || true; }
     d="$(find_in_nm "$pkg" || true)"
+    d="$(skip_if_self "$d" "$pkg")"
     if [ -n "$d" ]; then
       src_duplicates_staged_subdir "$d" || add_lib "$d" "$safe" || true
       # A published package keeps its real declarations in a directory the parser
@@ -566,6 +584,7 @@ if [ -n "$NM_ROOTS" ]; then
     d=""
     [ -n "$from" ] && d="$(find_from "$from" "$pkg" || true)"
     [ -z "$d" ] && d="$(find_in_nm "$pkg" || true)"
+    d="$(skip_if_self "$d" "$pkg")"
     if [ -n "$d" ]; then
       src_duplicates_staged_subdir "$d" || add_lib "$d" "$safe" || true
       for sub in dist build out; do
