@@ -17,6 +17,7 @@ as a diff — the same contract normalize_edges.py applies to ambiguous_unknown.
 usage: config_report.py <IR-dir> <OUT-dir>
 """
 import csv, os, sys
+csv.field_size_limit(10**9)   # an IR literalValue can be a base64 asset; see test/tools/csv-limit-test.sh
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from normalize_edges import Names, rows, simple

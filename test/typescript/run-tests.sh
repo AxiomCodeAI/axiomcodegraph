@@ -46,6 +46,16 @@ if ! bash "$ROOT/test/tools/no-ignored-fixtures.sh"; then
   echo "aborting: a fixture input is not in the repository, so nothing below would be a test"
   exit 1
 fi
+
+# ── PREFLIGHT: no reader dies on a big IR field ──────────────────────────────
+# Python's csv module caps one field at 128 KiB, and an IR literalValue holding a base64 asset
+# is several hundred KB. Every reader that opens an IR CSV then dies AFTER the extraction, the
+# solve and the oracle have all succeeded. Costs milliseconds and is repo-wide, because the
+# readers span all three languages. See issue #238.
+if ! bash "$ROOT/test/tools/csv-limit-test.sh"; then
+  echo "aborting: a reader of the IR would die on a large literal"
+  exit 1
+fi
 PARSER="${AXIOM_PARSER:-$ROOT/../Parser/dist/index.js}"
 WORK="$HERE/.work"
 BLESS=0; KEEP=0; ORACLE=0; FILTERS=()

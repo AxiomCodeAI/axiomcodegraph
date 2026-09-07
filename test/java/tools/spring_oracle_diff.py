@@ -21,6 +21,7 @@ usage: spring_oracle_diff.py <oracle.tsv> <IR-dir> <OUT-dir>
 exit 0 always — this is a REPORT; run-tests.sh pins the report itself as a golden.
 """
 import csv, os, sys
+csv.field_size_limit(10**9)   # an IR literalValue can be a base64 asset; see test/tools/csv-limit-test.sh
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from normalize_edges import rows
 

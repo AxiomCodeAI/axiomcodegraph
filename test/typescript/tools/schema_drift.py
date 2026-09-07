@@ -79,6 +79,7 @@ def main():
     mp = os.path.join(ir, 'all-typescript-methods.csv')
     if os.path.exists(pp) and os.path.exists(mp):
         import csv as _csv
+        _csv.field_size_limit(10**9)   # an IR literalValue can be a base64 asset; see test/tools/csv-limit-test.sh
         want = {}
         with open(mp, encoding='utf-8', errors='replace') as fh:
             r = _csv.reader(fh, delimiter='\t'); h = next(r)

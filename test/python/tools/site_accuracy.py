@@ -29,6 +29,7 @@ usage: site_accuracy.py <src> <ir-dir> <out-dir>
 """
 import collections
 import csv
+csv.field_size_limit(10**9)   # an IR literalValue can be a base64 asset; see test/tools/csv-limit-test.sh
 import os
 import sys
 

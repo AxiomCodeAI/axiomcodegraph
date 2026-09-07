@@ -6,6 +6,7 @@ the caller passes the hashes it actually saw and only those rows are kept. Names
 same conventions as score_scale.Names — one normalisation, both sides of every comparison.
 """
 import csv, os, sys
+csv.field_size_limit(10**9)   # an IR literalValue can be a base64 asset; see test/tools/csv-limit-test.sh
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from score_scale import simple
 

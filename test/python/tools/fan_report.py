@@ -16,6 +16,7 @@ usage: fan_report.py <src> <ir-dir> <out-dir> <method-name>
 env:   AXIOM_PY_ORACLE (the callchain-oracle checkout)
 """
 import csv, os, sys, collections
+csv.field_size_limit(10**9)   # an IR literalValue can be a base64 asset; see test/tools/csv-limit-test.sh
 sys.path.insert(0,'test/python/tools')
 from oracle_path import harness_root
 harness_root()
