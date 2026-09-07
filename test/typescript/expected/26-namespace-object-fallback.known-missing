@@ -1,0 +1,16 @@
+# Accepted gaps for 26-namespace-object-fallback — each line is an edge the TypeScript
+# compiler resolves and this engine does not. A NEW missing edge fails the suite; a line
+# here that STARTS working also fails, so the debt cannot rot.
+#
+# Both are the SAME gap, and it is not the one this case fixes: a function value bound to
+# a name is not found as a callable member (#229), so neither namespace export resolves.
+# What this case pins is that the unresolved lookup no longer FALLS BACK to the global
+# Object member of the same name. `a()` was answered with `Object#toString` from the
+# standard library, which the compiler contradicts; it is now a declared unknown.
+#
+# `c()` is the control and must keep resolving to Object#toString: that namespace
+# declares no `toString`, so Object's really is the right target. If a future change
+# suppresses the fallback by asking whether the receiver is a namespace rather than
+# whether the scope declares the name, `c()` breaks and this case says so.
+caller#a() -> helper#toString(string)
+caller#b() -> helper#unique(string)
