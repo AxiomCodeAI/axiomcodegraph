@@ -222,6 +222,28 @@ expr_builtin_type(p, e, b) :-
     call_name(site, n),
     builtin_method_returns(rb, n, b).
 
+// (d3) A PROPERTY READ whose getter declares a builtin return: `@property def name(self)
+//      -> str` and then `obj.name.strip()`. Same argument clause (d) makes for a call
+//      site -- the getter IS a call, it just has no call site to key on, so the return
+//      annotation is read off the getter directly (issue #286). property_read_of is
+//      defined in expression-resolution/expr-type.dl.
+//
+//      THE FOURTH TIME the warning above applies: #61 generalised expr_type, #63 the
+//      element types, #286 the property read, and this relation was left behind by all
+//      three. Measured, 346 property getters across five open-source projects declare a
+//      builtin return -- 165 / 125 / 49 / 7 / 0 -- and every call on one of those results
+//      had no receiver type.
+expr_builtin_type(p, e, b) :-
+    property_read_of(p, e, _, _, g),
+    annotation_builtin(p, g, "METHOD", b).
+// (d4) and the unannotated form: whatever builtin the getter's return expression is. One
+//      project in the set has 534 property getters and annotates NONE of them, so without
+//      this clause the largest population is untouched.
+expr_builtin_type(p, e, b) :-
+    property_read_of(p, e, _, _, g),
+    method_return_value_expr(p, g, re),
+    expr_builtin_type(p, re, b).
+
 // (e0) a local whose ANNOTATION names a builtin: `visited: set[int]`. Read from the
 //      type-reference row's head rather than the binding's raw declaredBaseType (#123).
 expr_builtin_type(p, e, b) :-
@@ -461,6 +483,14 @@ expr_container_annotation_ref("client", src, r) :-
     call_of_expr(src, site), expr_call_candidate(site, m),
     type_ref_owner("client", m, "METHOD", r),
     type_ref("client", _, "METHOD_RETURN", _, _, r).
+// The PROPERTY-READ twin of the clause above, and the fifth relation in this family to
+// need one (issue #286): a getter declaring `-> list[str]` makes `for n in obj.names`
+// bind a str. The container reference is the getter's own METHOD_RETURN, exactly as it is
+// for a call, because a property read IS a call -- it just has no call site to key on.
+expr_container_annotation_ref(p, src, r) :-
+    property_read_of(p, src, _, _, g),
+    type_ref_owner(p, g, "METHOD", r),
+    type_ref(p, _, "METHOD_RETURN", _, _, r).
 expr_container_annotation_ref(p, src, r) :-
     expr_binding(p, bref, ctx, src), ctx != "STORE",
     binding_lookup(p, bref, bind),

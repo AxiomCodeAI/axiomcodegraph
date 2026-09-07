@@ -118,6 +118,26 @@ element_type_of(p, src, t) :-
     expr_type(p, obj, ot),
     type_attr_field(p, ot, n, f),
     field_element_from_param(p, f, t).
+// (b3) A PROPERTY READ whose getter declares a CONTAINER return -- `-> List[Item]`
+//      (issue #286). Same argument as (d) below makes for a call site: the getter IS a
+//      call, it just has no call site to key on, so the element comes off the getter
+//      directly. property_read_of is defined in expression-resolution/expr-type.dl.
+element_type_of(p, src, t) :-
+    property_read_of(p, src, _, _, g),
+    method_declared_return_element(p, g, t).
+// (b4) and the unannotated form: the element type of whatever the getter returns.
+element_type_of(p, src, t) :-
+    property_read_of(p, src, _, _, g),
+    method_return_value_expr(p, g, re),
+    element_type_of(p, re, t).
+// (b5) the LIB twin: a library property read off a library-typed receiver whose getter
+//      declares a container return. There is no client-getter-returns-LIB-container twin
+//      because no relation carries that -- method_declared_return_element is client-side
+//      and there is no _lib counterpart -- so that one shape stays uncovered rather than
+//      being invented here.
+element_lib_type_of(src, t) :-
+    property_read_lib_of(src, _, _, g),
+    method_declared_return_element("lib", g, t).
 // (c) a parameter annotated `List[Item]` / `Iterable[Item]` / `Dict[str, Item]`.
 element_type_of(p, src, t) :- expr_names_param(p, src, ph), param_element_type(p, ph, t).
 // (d) a call whose callee declares `-> List[Item]`.
