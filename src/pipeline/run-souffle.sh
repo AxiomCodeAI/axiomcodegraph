@@ -30,6 +30,8 @@ while [ $# -gt 0 ]; do case "$1" in
   --taint) TAINT="$2"; shift 2;;
   --language) LANG_ARG="$2"; shift 2;; *) shift;; esac; done
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=portable-stat.sh
+. "$SRC/pipeline/portable-stat.sh"
 # Rules are PER-LANGUAGE and live under src/<lang>/; the executor itself is shared.
 LANG_ARG="${LANG_ARG:-java}"
 ENG="$SRC/$LANG_ARG/engine"; ENG2="$SRC/$LANG_ARG/engine-ii"; DL="$SRC/$LANG_ARG/souffle"; TPL="$SRC/$LANG_ARG/templates"
@@ -146,13 +148,25 @@ lib_cache_key(){
         # served the other's staged facts. Reproduced on macOS, so it is not the `stat` portability
         # problem: `find dir_symlink -name '*.csv'` simply prints nothing.
         # size+mtime of each module's CSVs — cheap, and changes whenever the IR does.
-        find -L "$mod" -maxdepth 1 -name '*.csv' -exec stat -f '%N %z %m' {} \; 2>/dev/null \
-          || find -L "$mod" -maxdepth 1 -name '*.csv' -printf '%p %s %T@\n' 2>/dev/null
+        # file_ident, NOT `stat -f ... || stat -c ...`: see src/pipeline/portable-stat.sh. On GNU
+        # coreutils `-f` is --file-system, so the BSD form printed a FILESYSTEM report — free-block
+        # and inode counters — for each file, and the fallback was unreachable here anyway because
+        # find exits 0 whether or not the command it exec'd failed. The key was therefore computed
+        # from free space: it did not move when the IR was rebuilt, and it did move when an
+        # unrelated file was written elsewhere on the disk.
+        find -L "$mod" -maxdepth 1 -name '*.csv' -exec stat "$_STAT_IDENT" {} + 2>/dev/null
       done < <(lib_modules "$root")
     done
-  } | sort | shasum | cut -d' ' -f1
+  } | sort | sha1_stdin
 }
 LIBKEY="$(lib_cache_key)"
+# CHECK the key rather than trust it: a malformed key collapses distinct libraries onto one cache
+# entry, and nothing downstream can detect that — the solve succeeds and the counts look plausible.
+case "$LIBKEY" in
+  [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) ;;
+  *) echo "library cache key is not a digest (got '$LIBKEY') — refusing to reuse staged facts" >&2
+     exit 1;;
+esac
 LIBDIR="$CACHE_ROOT/libfacts-$LIBKEY"
 if [ ! -d "$LIBDIR" ]; then
   echo "▶ staging library signatures (cache miss — this is the 2GB read, done once)..."

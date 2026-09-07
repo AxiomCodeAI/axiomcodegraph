@@ -63,6 +63,14 @@ if ! bash "$ROOT/test/tools/no-ignored-fixtures.sh"; then
   echo "aborting: a fixture input is not in the repository, so nothing below would be a test"
   exit 1
 fi
+# ── The library-facts cache key must be derived from the library ─────────────
+# Runs early and costs milliseconds, because a wrong key makes every number below meaningless:
+# the solve is answered from whichever library IR happened to be staged under that key, and it
+# reports success either way. Cheaper to assert than to debug as a phantom engine regression.
+if ! bash "$ROOT/test/tools/portable-stat-test.sh"; then
+  echo "aborting: the library-facts cache key is not a function of the library IR"
+  exit 1
+fi
 PARSER="${AXIOM_PARSER:-$ROOT/../Parser/dist/index.js}"
 WORK="$HERE/.work"
 BLESS=0; KEEP=0; ORACLE=0; FILTERS=()
