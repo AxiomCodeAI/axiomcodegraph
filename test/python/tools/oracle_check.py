@@ -16,6 +16,10 @@ FOUR THINGS HAPPEN HERE, in this order, and each can fail independently:
   4. SCORE -- if engine edges were supplied, score them. Per construct group,
      with conservation, and with fabrication kept separate from
      over-approximation.
+  5. ACCEPTED GAPS -- reconcile the missing edges against
+     expected/<case>.known-missing, in both directions: an unlisted miss fails,
+     and a listed edge that starts resolving fails too. Conservation and
+     fabrication stay absolute; a miss is coverage, not a defect.
 
 Steps 1-3 need no engine at all, which is what makes the ground truth
 independently checkable while the rule set is still being written.
@@ -34,6 +38,27 @@ harness_root()
 from callchain_oracle import build                         # noqa: E402
 from callchain_oracle import lock as locklib               # noqa: E402
 from callchain_oracle.score import score                   # noqa: E402
+from callchain_oracle.build import expected_edges          # noqa: E402
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def read_known_missing(path):
+    """-> (set of (caller, callee), raw line count). Missing file is an empty set."""
+    out = set()
+    if not os.path.exists(path):
+        return out
+    with open(path) as fh:
+        for line in fh:
+            line = line.split('#', 1)[0].strip()
+            if not line:
+                continue
+            caller, _, callee = line.partition('\t')
+            if not callee:                       # tolerate "a -> b" as well as a tab
+                caller, _, callee = line.partition(' -> ')
+            if callee:
+                out.add((caller.strip(), callee.strip()))
+    return out
 
 
 def _cmp(label, old, new, problems, limit=12):
@@ -129,9 +154,46 @@ def main() -> int:
         with open(args.json, 'w') as fh:
             json.dump(report.to_json(), fh, indent=1, sort_keys=True)
 
+    # ── ACCEPTED GAPS, RECONCILED IN BOTH DIRECTIONS ────────────────────────
+    # A MISSING edge is not the same kind of event as a fabricated one. Fabrication and a
+    # dropped site are defects and stay absolute below. A miss is a COVERAGE number -- the
+    # number this suite exists to move gradually -- and treating it like a defect meant the
+    # gate could only be green at 100% recall, which for a case named `12-blind-spots` is
+    # never. So `--oracle` was permanently red and nobody ran it, which cost the only check
+    # that compares the engine against CPython's own answers. See issue #264.
+    #
+    # Same discipline as test/java's expected/<case>.known-missing, and the second direction
+    # is the point: a listed edge that starts RESOLVING also fails, so the debt list cannot
+    # silently rot into a list of things that were fixed years ago.
+    exp_pairs = {(e['caller'], e['callee']) for e in expected_edges(oracle)}
+    missing = exp_pairs - {(a, b) for a, b in pairs}
+    kpath = os.path.join(HERE, '..', 'expected', f'{args.case}.known-missing')
+    known = read_known_missing(kpath)
+
+    new_gaps = sorted(missing - known)
+    now_fixed = sorted((known & exp_pairs) - missing)
+    stale = sorted(known - exp_pairs)
+
+    if new_gaps:
+        print(f'NEW MISSING EDGE ({len(new_gaps)}) -- the engine stopped resolving something, or')
+        print(f'  this gap is real and belongs in expected/{args.case}.known-missing:')
+        for a, b in new_gaps:
+            print(f'    {a}\t{b}')
+    if now_fixed:
+        print(f'KNOWN-MISSING EDGE NOW RESOLVES ({len(now_fixed)}) -- good news, but the debt list')
+        print(f'  must be pruned or it stops meaning anything. Remove from '
+              f'expected/{args.case}.known-missing:')
+        for a, b in now_fixed:
+            print(f'    {a}\t{b}')
+    if stale:
+        print(f'KNOWN-MISSING ENTRY IS NOT AN EXPECTED EDGE ({len(stale)}) -- the fixture changed')
+        print(f'  under it, or the anchor is mistyped. It is asserting nothing:')
+        for a, b in stale:
+            print(f'    {a}\t{b}')
+
     failed = (not report.conservation_ok
               or any(g.fabricated for g in report.groups.values())
-              or any(g.missing for g in report.groups.values()))
+              or new_gaps or now_fixed or stale)
     return 1 if failed else 0
 
 

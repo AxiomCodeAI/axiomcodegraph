@@ -1,0 +1,21 @@
+# ACCEPTED GAPS for 12-blind-spots, one `caller<TAB>callee` per line (anchors are
+# file:def-line, Rule 1). Reconciled in BOTH directions by tools/oracle_check.py: a miss that
+# is not listed here fails, and a listed edge that starts resolving fails too — so this cannot
+# rot into a list of things that were fixed long ago.
+#
+# Both entries are gaps this case was WRITTEN to document, in its own words: "these are the
+# constructs where no static answer exists, and the required behaviour is to say so -- never to
+# drop the site, and never to fabricate a target". Conservation is clean (18/18 sites accounted,
+# 0 silently dropped) and nothing is fabricated, which is the case passing on its actual terms.
+# Tier 4 sees both edges by running the code, which is why they are EXPECTED and therefore
+# scoreable at all; tiers 1-3 cannot, and that is the honest limit rather than a defect.
+
+# getattr — `call_by_computed_name` calls `getattr(obj, which)()`, reaching Target.real_method.
+# The method name is DATA. From the case docstring: "Tiers 1-3 cannot see it; tier 4 can watch it
+# happen. That gap is the honest limit of static analysis, not a bug to be fixed."
+main.py:64	main.py:27
+
+# metaclass — `main` calls `Built().injected()`, reaching the lambda the metaclass installed at
+# main.py:46. From the case docstring: "the method is INSTALLED BY THE METACLASS. There is a
+# `def` for it in the metaclass, but no `def` in the class that ends up owning it."
+main.py:69	main.py:46
