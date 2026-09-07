@@ -154,6 +154,18 @@ if ! bash "$HERE/tools/mirror-selflink-test.sh"; then
   echo "aborting: a self-import would be adjudicated outside the analysed tree"
   exit 1
 fi
+
+# ── PREFLIGHT: a space in the checkout path must not empty the staging ────────
+# NM_ROOTS was a space-delimited string iterated unquoted, so a path containing a space
+# split into fragments and EVERY dependency lookup missed — no standard library, no
+# @types, no dependencies — while the run still printed a score computed against an
+# empty global scope. Same tree, one variable: /tmp/nospace staged 45 lib.*.d.ts and
+# passed; "/tmp/with space" staged none and the oracle refused. LIBARGS had the
+# identical shape. See #296.
+if ! bash "$HERE/tools/path-space-test.sh"; then
+  echo "aborting: a path containing a space would silently stage no libraries"
+  exit 1
+fi
 if ! bash "$HERE/tools/envelope-merge-test.sh"; then
   echo "aborting: the dispatch envelope is not the resolved symbol's declaration set"
   exit 1
