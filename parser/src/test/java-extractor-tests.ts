@@ -1117,6 +1117,42 @@ export class JavaExtractorTestRunner {
 
     // ── Expression Tests ──
     if (category === 'expressions') {
+      // A comment inside a conditional expression.
+      if (filename === 'TernaryWithComments.java') {
+        const withRole = (e: ExtractedEntities, role: EdgeRole) =>
+          e.expressions.filter(x => x.getEdgeRole() === role);
+
+        // Eight ternaries, each contributing exactly one of each role. A dropped branch shows
+        // up as a shortfall in TERNARY_FALSE, a mislabelled one as a surplus.
+        for (const [label, role] of [
+          ['condition', EdgeRole.TERNARY_CONDITION],
+          ['true branch', EdgeRole.TERNARY_TRUE],
+          ['false branch', EdgeRole.TERNARY_FALSE],
+        ] as const) {
+          validations.push(this.rule(`Every ternary yields exactly one ${label}`, (e) => {
+            const rows = withRole(e, role);
+            return { passed: rows.length === 8, message: `Expected 8 ${role} rows, got ${rows.length}` };
+          }));
+        }
+
+        // The mislabelling, stated so the failure names it: a() is the true branch in every
+        // ternary here and b() the false one, whatever comments sit between them.
+        validations.push(this.rule('The branches keep the roles the source gives them', (e) => {
+          const wrong = e.expressions.filter(x =>
+            (x.getEdgeRole() === EdgeRole.TERNARY_TRUE && x.getPotentialQualifiedName?.()?.endsWith('.b')) ||
+            (x.getEdgeRole() === EdgeRole.TERNARY_FALSE && x.getPotentialQualifiedName?.()?.endsWith('.a')));
+          return { passed: wrong.length === 0, message: `${wrong.length} branches carrying the other branch's role` };
+        }));
+
+        // No comment may be emitted as an operand.
+        validations.push(this.rule('A comment is never emitted as a ternary operand', (e) => {
+          const ternaryRoles = [EdgeRole.TERNARY_CONDITION, EdgeRole.TERNARY_TRUE, EdgeRole.TERNARY_FALSE];
+          const comments = e.expressions.filter(x =>
+            ternaryRoles.includes(x.getEdgeRole() as EdgeRole) && x.getKind() === ExpressionKind.UNKNOWN);
+          return { passed: comments.length === 0, message: `${comments.length} operands extracted from a comment` };
+        }));
+      }
+
       // Arrow arms of a switch used as a value.
       if (filename === 'SwitchArmDuplication.java') {
         const positionKey = (x: ExpressionReference) =>

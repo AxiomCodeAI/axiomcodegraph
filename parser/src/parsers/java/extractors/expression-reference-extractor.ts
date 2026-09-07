@@ -2811,23 +2811,42 @@ export class ExpressionReferenceExtractor {
     trueExpr: Parser.SyntaxNode;
     falseExpr: Parser.SyntaxNode;
   } {
-    // ternary_expression structure: condition ? trueExpr : falseExpr
-    // Named children should be: [condition, trueExpr, falseExpr]
-    const namedChildren = node.namedChildren;
-    
-    if (namedChildren.length >= 3) {
-      return {
-        condition: namedChildren[0]!,
-        trueExpr: namedChildren[1]!,
-        falseExpr: namedChildren[2]!,
-      };
+    // The grammar labels the three operands `condition`, `consequence` and `alternative`.
+    //
+    // Reading namedChildren[0..2] positionally instead assumed the operands are the only named
+    // children, and a comment is one. tree-sitter attaches a comment to the field it follows, so
+    // `c // \n ? a() : b()` yields named children [c, comment, a(), b()]: the true branch was read
+    // as the comment, `a()` was emitted under TERNARY_FALSE, and `b()` was never read at all.
+    //
+    // A field can hold several children for that reason, so the operand is the first child of the
+    // field that is not a comment rather than simply the first.
+    const operandOfField = (fieldName: string): Parser.SyntaxNode | null => {
+      for (let i = 0; i < node.childCount; i++) {
+        const child = node.child(i);
+        if (!child || !child.isNamed) continue;
+        if (node.fieldNameForChild(i) !== fieldName) continue;
+        if (child.type === 'line_comment' || child.type === 'block_comment' || child.type === 'comment') continue;
+        return child;
+      }
+      return null;
+    };
+
+    const condition = operandOfField('condition');
+    const trueExpr = operandOfField('consequence');
+    const falseExpr = operandOfField('alternative');
+
+    if (condition && trueExpr && falseExpr) {
+      return { condition, trueExpr, falseExpr };
     }
 
-    // Fallback for edge cases
+    // Fallback for a malformed ternary, where a field may be absent entirely.
+    const named = node.namedChildren.filter(
+      c => c.type !== 'line_comment' && c.type !== 'block_comment' && c.type !== 'comment'
+    );
     return {
-      condition: namedChildren[0] ?? node,
-      trueExpr: namedChildren[1] ?? node,
-      falseExpr: namedChildren[2] ?? node,
+      condition: condition ?? named[0] ?? node,
+      trueExpr: trueExpr ?? named[1] ?? node,
+      falseExpr: falseExpr ?? named[2] ?? node,
     };
   }
 
