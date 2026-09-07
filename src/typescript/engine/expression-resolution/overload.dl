@@ -210,21 +210,37 @@ param_untestable(m, pos) :- param_rest_at(m, pos).
 // known, and NONE of them accepts it. `arg_compatible_at` is the positive test and
 // the mismatch is its absence, so adding a new compatibility route (structural
 // satisfaction, a numeric widening) never needs this rule touched.
-arg_compatible_at(ce, m, pos) :- arg_type(ce, pos, at),
+// ── THE CANDIDATE PAIR IS THE JOIN KEY, NOT A POST-FILTER ──────────────────
+// `arg_type` binds ce and `param_type_at` binds m, so without expr_call_candidate the
+// two share only `pos` — a domain of 0,1,2,3 — and the rule is a cross product of every
+// argument in the program against every parameter of every method at that position. The
+// type test then throws almost all of it away. Profiled on one project: 13s and 1.60M
+// tuples at 119K tuples/s, against 4.36M tuples at 16.4M/s for a healthy rule — two
+// orders of magnitude slower PER TUPLE, which is the signature of a bad join rather
+// than of volume.
+//
+// `arg_mismatch` below is the only consumer and already carries
+// expr_call_candidate(ce, m), so every pair this excludes was computed and discarded.
+// Semantics are unchanged; the work is not.
+arg_compatible_at(ce, m, pos) :- expr_call_candidate(ce, m),
+    arg_type(ce, pos, at),
     param_type_at(m, pos, at).
 // SAME MERGED ENTITY, not same declaration. `Array` has eight declarations across the
 // standard library and `String` four; an argument resolved to one and a parameter
 // resolved to another are the SAME TYPE and were being scored as a mismatch, because
 // the test compared declaration hashes. This is the merging rule the schema states in
 // its first numbered note, applied where it actually bites.
-arg_compatible_at(ce, m, pos) :- arg_type(ce, pos, at),
+arg_compatible_at(ce, m, pos) :- expr_call_candidate(ce, m),
+    arg_type(ce, pos, at),
     param_type_at(m, pos, pt),
     same_type_entity(at, pt).
 same_type_entity(a, b) :- type_group(_, g, a), type_group(_, g, b).
-arg_compatible_at(ce, m, pos) :- arg_type(ce, pos, at),
+arg_compatible_at(ce, m, pos) :- expr_call_candidate(ce, m),
+    arg_type(ce, pos, at),
     param_type_at(m, pos, pt),
     type_subtype_star(at, pt).
-arg_compatible_at(ce, m, pos) :- arg_type(ce, pos, at),
+arg_compatible_at(ce, m, pos) :- expr_call_candidate(ce, m),
+    arg_type(ce, pos, at),
     param_type_at(m, pos, pt),
     type_satisfies(at, pt).
 arg_compatible_at(ce, m, pos) :- arg_is_target_typed(ce, pos),
@@ -498,15 +514,25 @@ overload_selectable(ce, m) :- expr_pruned(ce, m),
 group_has_overload_signature(g) :- method_group_of(m, g),
     method_signature_role_of(m, "OVERLOAD_SIGNATURE").
 
-arg_matches_concretely(ce, m, pos) :- arg_primitive(ce, pos, a),
+// Same cross-product shape as arg_compatible_at above, same fix: 11s and 1.77M tuples
+// profiled. Guarded on expr_call_candidate rather than the tighter overload_selectable
+// because the latter sits downstream of expr_pruned, which reaches back here through
+// overload_beaten — a negation cycle Souffle cannot stratify. expr_call_candidate is the
+// candidate generator, upstream of all of it, and the two specificity rules that consume
+// this relation only ever ask about pairs that are already candidates.
+arg_matches_concretely(ce, m, pos) :- expr_call_candidate(ce, m),
+    arg_primitive(ce, pos, a),
     param_primitive(m, pos, b),
     primitive_compatible(a, b).
-arg_matches_concretely(ce, m, pos) :- arg_type(ce, pos, at),
+arg_matches_concretely(ce, m, pos) :- expr_call_candidate(ce, m),
+    arg_type(ce, pos, at),
     param_type_at(m, pos, at).
-arg_matches_concretely(ce, m, pos) :- arg_type(ce, pos, at),
+arg_matches_concretely(ce, m, pos) :- expr_call_candidate(ce, m),
+    arg_type(ce, pos, at),
     param_type_at(m, pos, pt),
     same_type_entity(at, pt).
-arg_matches_concretely(ce, m, pos) :- arg_type(ce, pos, at),
+arg_matches_concretely(ce, m, pos) :- expr_call_candidate(ce, m),
+    arg_type(ce, pos, at),
     param_type_at(m, pos, pt),
     type_subtype_star(at, pt).
 
