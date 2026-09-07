@@ -1236,6 +1236,79 @@ export class JavaExtractorTestRunner {
         }));
       }
 
+      // A pattern binding's USE site is a PATTERN_BINDING_VARIABLE, not a FIELD. Both errors
+      // are asserted, because fixing one direction is what exposed the other.
+      if (filename === 'PatternBindingDestructuring.java') {
+        const identifiers = (e: ExtractedEntities) => e.expressions.filter(x =>
+          x.getKind() === ExpressionKind.IDENTIFIER_REFERENCE);
+
+        // Direction 1: a binding used in a FOLLOWING statement was tagged FIELD, because the
+        // use site is extracted before the `instanceof` that declares the binding.
+        const bindingUses: ReadonlyArray<readonly [number, string]> = [
+          [34, 'shadowed'],  // shadows a field of another type — the wrong-answer case
+          [41, 'bound'],
+          [47, 'inline'],    // same expression as the instanceof; correct before, must stay
+          [53, 'left'], [53, 'right'],
+          [61, 'inner'], [61, 'other'], [61, 'tail'],
+          [69, 'hit'],
+        ];
+        validations.push(this.rule('Every pattern binding use site is PATTERN_BINDING_VARIABLE', (e) => {
+          const wrong = bindingUses.map(([line, name]) => {
+            const rows = identifiers(e).filter(x =>
+              x.getStartLine() === line && x.getLiteralValue() === name &&
+              x.getEdgeRole() !== EdgeRole.PATTERN_VARIABLE &&
+              x.getEdgeRole() !== EdgeRole.RECORD_PATTERN_BINDING &&
+              x.getEdgeRole() !== EdgeRole.SWITCH_TYPE_PATTERN);
+            if (rows.length === 0) return `L${line} ${name}: no use-site row`;
+            const bad = rows.filter(x => x.getReferencedEntityKind() !== ReferencedEntityKind.PATTERN_BINDING_VARIABLE);
+            return bad.length === 0 ? null : `L${line} ${name} as ${bad[0]!.getReferencedEntityKind()}`;
+          }).filter((v): v is string => v !== null);
+          return { passed: wrong.length === 0, message: `Use sites: ${JSON.stringify(wrong)}` };
+        }));
+
+        // The declaration site was already correct and must stay so — it is what makes the
+        // binding findable at all.
+        validations.push(this.rule('Every pattern binding declaration is PATTERN_BINDING', (e) => {
+          const decls = identifiers(e).filter(x =>
+            x.getEdgeRole() === EdgeRole.PATTERN_VARIABLE ||
+            x.getEdgeRole() === EdgeRole.RECORD_PATTERN_BINDING ||
+            x.getEdgeRole() === EdgeRole.SWITCH_TYPE_PATTERN);
+          const wrong = decls.filter(x => x.getReferencedEntityKind() !== ReferencedEntityKind.PATTERN_BINDING)
+            .map(x => `L${x.getStartLine()} ${x.getLiteralValue()} as ${x.getReferencedEntityKind()}`);
+          return {
+            passed: decls.length === 9 && wrong.length === 0,
+            message: `${decls.length} declarations (want 9); wrong: ${JSON.stringify(wrong)}`
+          };
+        }));
+
+        // Direction 2: the leak. The entry points never reset the binding set, so names carried
+        // from one extraction call into the next and — the instance being reused — from one
+        // FILE into the next: 35 ordinary field reads across this repo's fixtures were tagged
+        // PATTERN_BINDING_VARIABLE in files containing no pattern at all. `NoPatterns` has no
+        // pattern and declares fields named after the bindings above.
+        validations.push(this.rule('A field read in a pattern-free type is not a binding', (e) => {
+          const noPatterns = e.types.find(t => t.getName() === 'NoPatterns');
+          if (!noPatterns) return { passed: false, message: 'NoPatterns type not extracted' };
+          const leaked = identifiers(e)
+            .filter(x => (x.getStartLine() ?? -1) >= noPatterns.getStartLine() &&
+                         (x.getStartLine() ?? -1) <= noPatterns.getEndLine())
+            .filter(x => x.getReferencedEntityKind() === ReferencedEntityKind.PATTERN_BINDING_VARIABLE)
+            .map(x => `L${x.getStartLine()} ${x.getLiteralValue()}`);
+          return { passed: leaked.length === 0, message: `Leaked binding names: ${JSON.stringify(leaked)}` };
+        }));
+
+        // And the reads really are there, so the rule above cannot pass by extracting nothing.
+        validations.push(this.rule('The pattern-free type does read its fields', (e) => {
+          const noPatterns = e.types.find(t => t.getName() === 'NoPatterns');
+          if (!noPatterns) return { passed: false, message: 'NoPatterns type not extracted' };
+          const fields = identifiers(e)
+            .filter(x => (x.getStartLine() ?? -1) >= noPatterns.getStartLine() &&
+                         (x.getStartLine() ?? -1) <= noPatterns.getEndLine())
+            .filter(x => x.getReferencedEntityKind() === ReferencedEntityKind.FIELD);
+          return { passed: fields.length === 9, message: `Expected 9 field reads, got ${fields.length}` };
+        }));
+      }
+
       // Use sites of a pattern binding.
       if (filename === 'PatternBindingUseSites.java') {
         // Scoped to identifier references: a pattern binding use is one, and the fixture also
