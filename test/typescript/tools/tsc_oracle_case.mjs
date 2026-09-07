@@ -150,6 +150,22 @@ function labelOf(decl) {
       owner = p.name ? p.name.text : undefined;
       break;
     }
+    // A NAMESPACE OWNS ITS MEMBERS. This function claims to match normalize_edges.py
+    // and did not: the engine reads ownerTypeName, which the parser sets to the
+    // enclosing namespace, so it labelled `namespace outer { export function pack() }`
+    // as `outer#pack` while this side fell through to the filename and said
+    // `legacy#pack`. The target was the same declaration at the same line, and the
+    // comparison scored it as a missing edge PLUS an extra one — accuracy understated
+    // on every namespace member, and three such lines sit in 07's known-missing as
+    // accepted gaps that were never gaps.
+    //
+    // Identifier-named only. `declare module "pkg"` is also a ModuleDeclaration and is
+    // NOT an owner — its members belong to the module, which is what the fallback
+    // already gives.
+    if (ts.isModuleDeclaration(p) && p.name && ts.isIdentifier(p.name)) {
+      owner = p.name.text;
+      break;
+    }
     p = p.parent;
   }
   if (owner === undefined) owner = moduleName(sf.fileName);
