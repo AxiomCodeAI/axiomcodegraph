@@ -580,6 +580,41 @@ module_member_method(p, mod, n, m) :-
     import_scope(p, _, mod, i), mod != "",
     import_resolved_target(p, "FUNCTION", m, i),
     import_alias(p, _, n, i), n != "".
+// ── A MODULE MEMBER BOUND BY ASSIGNMENT (issue #222) ─────────────────────────
+// `module_member_method` had a clause for a top-level `def` and three for import
+// re-exports, and NONE for the most ordinary re-export of all:
+//
+//     # facade.py
+//     from impl import real
+//     alias = real
+//
+// `from facade import alias; alias(21)` came out ambiguous_unknown. #222 reports this
+// as multiple writes not being unioned; measured, the union is the second half of it —
+// a SINGLE assignment re-export does not resolve either, because a name bound by
+// assignment at module scope was never a module member the engine could see.
+//
+// NO SINGLE-WRITE GATE, and that is the point rather than an oversight. The
+// optional-dependency idiom binds one name twice from two origins:
+//
+//     try:
+//         from accelerator import boost as chosen
+//     except ImportError:
+//         chosen = py_impl
+//
+// Both writes are reachable — confirmed against a live interpreter with the module
+// blocked by a meta_path finder: `accelerator` importable gives accelerator.boost,
+// absent gives helpers.py_impl. The import route (below) already answers the first
+// unconditionally; this answers the second, and site_class then tiers the pair to
+// multi_inferred on its own, because it reads the target count. Flow-insensitive, and
+// the same trade binding_value_type makes for a multi-write receiver (#44): a set the
+// true target is inside, rather than one confident answer and a silently missing one.
+module_member_method(p, mod, n, m) :-
+    module_init(p, _, modScope, mod),
+    binding_decl(p, n, modScope, _, _, b), n != "",
+    expr_binding(p, b, "STORE", tgt),
+    assign_pair(p, tgt, val),
+    expr_denotes_method(p, val, m).
+
 // The same two halves for functions -- see the note above module_has_static_all.
 module_member_method(p, mod, n, m) :-
     module_reexports_all(p, mod, src), module_member_method(p, src, n, m),

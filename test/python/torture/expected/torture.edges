@@ -126,6 +126,8 @@ boundary_lib	METHOD_CALL	f32_iteration_protocol.AsyncBag.__anext__ -> builtin:li
 boundary_lib	METHOD_CALL	f32_iteration_protocol.an_async_for -> external:asyncio.run
 boundary_lib	METHOD_CALL	f32_iteration_protocol.drive -> builtin:list.append
 boundary_lib	METHOD_CALL	f32_iteration_protocol.drive -> builtin:str.join
+boundary_lib	METHOD_CALL	f34_reexport_union.drive -> builtin:list.append
+boundary_lib	METHOD_CALL	f34_reexport_union.drive -> builtin:str.join
 boundary_lib	METHOD_CALL	main.main -> builtin:object.__init__
 boundary_lib	SELF_CALL	f02_callables.HoldsCallables.run -> lib:tlib.callables.Doubler.__call__
 boundary_lib	SELF_CALL	f09_adversarial.Rebound.use -> lib:tlib.callables.Doubler.__call__
@@ -240,6 +242,7 @@ boundary_lib	SIMPLE_CALL	f32_iteration_protocol.drive -> builtin:str
 boundary_lib	SIMPLE_CALL	f32_iteration_protocol.undecidable_by_the_ir -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f33_type_stubs._stub_is_not_a_target -> external:accelstub.fast
 boundary_lib	SIMPLE_CALL	f33_type_stubs.drive -> builtin:str
+boundary_lib	SIMPLE_CALL	f34_reexport_union.drive -> builtin:str
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	main.main -> builtin:print
@@ -463,6 +466,7 @@ known_edge	METHOD_CALL	main.main -> f30_builtin_elements.drive
 known_edge	METHOD_CALL	main.main -> f31_named_blind_spots.drive
 known_edge	METHOD_CALL	main.main -> f32_iteration_protocol.drive
 known_edge	METHOD_CALL	main.main -> f33_type_stubs.drive
+known_edge	METHOD_CALL	main.main -> f34_reexport_union.drive
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator_in_for
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_plain
@@ -551,6 +555,12 @@ known_edge	SIMPLE_CALL	f32_iteration_protocol.drive -> f32_iteration_protocol.an
 known_edge	SIMPLE_CALL	f32_iteration_protocol.drive -> f32_iteration_protocol.undecidable_by_the_ir
 known_edge	SIMPLE_CALL	f33_type_stubs.a_real_module_beside_its_stub -> stubbed_impl.compute
 known_edge	SIMPLE_CALL	f33_type_stubs.drive -> f33_type_stubs.a_real_module_beside_its_stub
+known_edge	SIMPLE_CALL	f34_reexport_union.a_def_reexport_control -> rxlib.slow
+known_edge	SIMPLE_CALL	f34_reexport_union.a_single_assignment_reexport -> rxlib.slow
+known_edge	SIMPLE_CALL	f34_reexport_union.drive -> f34_reexport_union.a_def_reexport_control
+known_edge	SIMPLE_CALL	f34_reexport_union.drive -> f34_reexport_union.a_single_assignment_reexport
+known_edge	SIMPLE_CALL	f34_reexport_union.drive -> f34_reexport_union.the_optional_dependency_idiom
+known_edge	SIMPLE_CALL	f34_reexport_union.drive -> f34_reexport_union.two_assignments_to_one_name
 known_edge	SIMPLE_CALL	main.<module> -> main.main
 known_edge	SIMPLE_CALL	pkgmod.user.run_generator -> pkgmod._gen.each
 known_edge	SIMPLE_CALL	pkgmod.user.run_generator_in_for -> pkgmod._gen.each_first
@@ -624,4 +634,8 @@ multi_inferred	METHOD_CALL	f27_with_target.via_declared_enter -> f27_with_target
 multi_inferred	SELF_CALL	f13_declared_dispatch.Base.run -> f13_declared_dispatch.Base.step
 multi_inferred	SELF_CALL	f13_declared_dispatch.Base.run -> f13_declared_dispatch.StepA.step
 multi_inferred	SELF_CALL	f13_declared_dispatch.Base.run -> f13_declared_dispatch.StepB.step
+multi_inferred	SIMPLE_CALL	f34_reexport_union.the_optional_dependency_idiom -> rxaccel.boost
+multi_inferred	SIMPLE_CALL	f34_reexport_union.the_optional_dependency_idiom -> rxlib.fallback
+multi_inferred	SIMPLE_CALL	f34_reexport_union.two_assignments_to_one_name -> rxaccel.boost
+multi_inferred	SIMPLE_CALL	f34_reexport_union.two_assignments_to_one_name -> rxlib.fallback
 multi_inferred	SUBSCRIPT_CALL	f18_lambda_dispatch.Renderer.dispatch_computed -> f18_lambda_dispatch.Renderer.<lambda>
