@@ -1117,6 +1117,53 @@ export class JavaExtractorTestRunner {
 
     // ── Expression Tests ──
     if (category === 'expressions') {
+      // Expressions inside a static or instance initializer.
+      if (filename === 'InitializerBlockExpressions.java') {
+        // The three members hold identical statements. Lines come from the fixture:
+        // static initializer 29-36, instance initializer 38-45, method 47-54.
+        const contextsIn = (e: ExtractedEntities, from: number, to: number) => e.expressions
+          .filter(x => {
+            const line = x.getStartLine();
+            return typeof line === 'number' && line >= from && line <= to;
+          })
+          .map(x => x.getRootContext())
+          .sort();
+
+        const compareToMethod = (label: string, from: number, to: number) => {
+          validations.push(this.rule(label, (e) => {
+            const got = contextsIn(e, from, to);
+            const want = contextsIn(e, 47, 54);
+            return {
+              passed: JSON.stringify(got) === JSON.stringify(want),
+              message: `Expected the method's contexts ${JSON.stringify(want)}, got ${JSON.stringify(got)}`
+            };
+          }));
+        };
+
+        // The method is the oracle: an initializer body is an ordinary block, so whatever the
+        // method produces, both initializers must produce.
+        compareToMethod('A static initializer extracts what the same statements do in a method', 29, 36);
+        compareToMethod('An instance initializer extracts what the same statements do in a method', 38, 45);
+
+        // Stated directly, so the failure names the defect rather than only the mismatch.
+        validations.push(this.rule('Control-flow positions inside initializers are extracted', (e) => {
+          const wanted = [RootContext.IF_CONDITION, RootContext.WHILE_CONDITION,
+                          RootContext.ENHANCED_FOR_ITERABLE, RootContext.THROW_VALUE];
+          const missing = wanted.filter(ctx =>
+            !e.expressions.some(x => {
+              const line = x.getStartLine();
+              return x.getRootContext() === ctx && typeof line === 'number' && line >= 29 && line <= 45;
+            }));
+          return { passed: missing.length === 0, message: `Contexts absent from both initializers: ${missing.join(', ')}` };
+        }));
+
+        // The method must be unaffected by any change made for the initializers.
+        validations.push(this.rule('The method still extracts all six contexts', (e) => {
+          const contexts = new Set(contextsIn(e, 47, 54));
+          return { passed: contexts.size === 6, message: `Expected 6 distinct contexts, got ${contexts.size}: ${JSON.stringify([...contexts])}` };
+        }));
+      }
+
       // assert (JLS 14.10). Both halves are expressions, and neither was extracted at all.
       if (filename === 'AssertStatements.java') {
         const inCtx = (e: ExtractedEntities, ctx: RootContext) =>

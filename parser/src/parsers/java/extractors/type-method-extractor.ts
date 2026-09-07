@@ -1237,6 +1237,76 @@ export class TypeMethodExtractor {
       this.collectExpressionExtractorResults();
     }
     
+    // Throw, break and continue statements, as a method body gets them.
+    //
+    // `return` is deliberately not among them: JLS 8.6 and 8.7 forbid a return statement in an
+    // initializer, so there is nothing to extract.
+    const throwStatements = this.findThrowStatements(bodyBlock, typeRegistryHash, methodHash, filePath, blockPositionToHash);
+    for (let throwIndex = 0; throwIndex < throwStatements.length; throwIndex++) {
+      const throwStmtCtx = throwStatements[throwIndex]!;
+      const actualLambdaHash = throwStmtCtx.containingLambdaPosition
+        ? lambdaPositionToHash.get(throwStmtCtx.containingLambdaPosition)
+        : null;
+      const ownerHash = throwStmtCtx.containingBlockHash || actualLambdaHash || methodHash;
+      const throwExpressions = this.expressionExtractor.extractFromThrowStatement(
+        throwStmtCtx.node,
+        typeRegistryHash,
+        ownerHash,
+        packageName,
+        importMap,
+        hasStarImports,
+        methodParamNames,
+        throwIndex,
+        localVariableNames,
+        throwStmtCtx.lambdaParamNames
+      );
+      expressions.push(...throwExpressions);
+      this.collectExpressionExtractorResults();
+    }
+
+    const breakStatements = this.findBreakStatements(bodyBlock, blockPositionToHash);
+    for (const breakStmtCtx of breakStatements) {
+      expressions.push(...this.expressionExtractor.extractFromBreakStatement(
+        breakStmtCtx.node,
+        typeRegistryHash,
+        breakStmtCtx.containingBlockHash || methodHash
+      ));
+    }
+
+    const continueStatements = this.findContinueStatements(bodyBlock, blockPositionToHash);
+    for (const continueStmtCtx of continueStatements) {
+      expressions.push(...this.expressionExtractor.extractFromContinueStatement(
+        continueStmtCtx.node,
+        typeRegistryHash,
+        continueStmtCtx.containingBlockHash || methodHash
+      ));
+    }
+
+
+    // Control-flow condition expressions, exactly as a method body gets them.
+    //
+    // Only expression statements were extracted here, so every expression in a control-flow
+    // POSITION was dropped: an if or while condition, an enhanced-for iterable, a throw value.
+    // The bodies of those statements survived, because their contents are expression statements
+    // in their own right, which is why an initializer reached the fact set looking like a
+    // straight-line block rather than an empty one.
+    //
+    // An initializer body is an ordinary block, so the same walk applies unchanged; only the
+    // owner differs, and it is the initializer's own method hash.
+    const conditionExpressions = this.extractConditionExpressions(
+      bodyBlock,
+      typeRegistryHash,
+      methodHash,
+      filePath,
+      packageName,
+      importMap,
+      hasStarImports,
+      methodParamNames,
+      localVariableNames,
+      blockPositionToHash
+    );
+    expressions.push(...conditionExpressions);
+
     return expressions;
   }
   
