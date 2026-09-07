@@ -327,6 +327,11 @@ stage_program() { # $1 = source dir, $2 = ir subdir name -> 0 if staged
   node "$PARSER_DIST" "$src" "lib-$name" false "$WORK/libir/$name" >"$plog" 2>&1 || true
   cat "$plog" >> "$WORK/libir.log" 2>/dev/null || true
   if [ ! -s "$WORK/libir/$name/all-typescript-modules.csv" ]; then
+    # SAY SO. This is the ordinary outcome for a deprecated `@types/<pkg>` stub — a
+    # package.json and a README, no declarations at all — and returning 1 in silence
+    # meant an unguarded caller aborted the whole run with nothing in the log to say
+    # which package did it. The status is still 1; the caller decides what that means.
+    echo "   - $name (declares nothing; nothing staged)"
     rm -rf "$WORK/libir/$name"; return 1
   fi
   # WHERE THIS ROOT CAME FROM. A library IR records file paths RELATIVE to the directory
@@ -452,7 +457,14 @@ if [ -n "$NM_ROOTS" ]; then
     # back to 115.
     [ "$pkg" = "typescript" ] && continue
     safe="$(printf '%s' "$pkg" | tr '/@' '__')"
-    d="$(find_in_nm "@types/$pkg" || true)"; [ -n "$d" ] && add_lib "$d" "types_$safe"
+    # `|| true` INSIDE THE BRACES, as every other add_lib call here already does.
+    # add_lib returns 1 when a directory declares nothing, and as the command after
+    # the final `&&` its status is the AND-list's — so under `set -e` a deprecated
+    # `@types/<pkg>` stub (package.json + README, no .d.ts) aborted the entire
+    # evaluation mid-staging, with no error line and no score. Measured on a project
+    # built to have exactly one such stub: exit 1 after 7 lines, against exit 0 and a
+    # full report from the identical project with the stub removed. See #234.
+    d="$(find_in_nm "@types/$pkg" || true)"; [ -n "$d" ] && { add_lib "$d" "types_$safe" || true; }
     d="$(find_in_nm "$pkg" || true)"
     if [ -n "$d" ]; then
       src_duplicates_staged_subdir "$d" || add_lib "$d" "$safe" || true
@@ -486,7 +498,10 @@ if [ -n "$NM_ROOTS" ]; then
   # lib.*.d.ts global scope above.
   if grep -qx 'typescript' "$WORK/packages.txt" 2>/dev/null && [ -n "$TSLIB_DIR" ] && [ -f "$TSLIB_DIR/typescript.d.ts" ]; then
     mkdir -p "$WORK/tsc-src"; cp "$TSLIB_DIR/typescript.d.ts" "$WORK/tsc-src/"
-    add_lib "$WORK/tsc-src" "tscompiler"
+    # Same class as #234, found by sweeping the file rather than by hitting it: a bare
+    # call, so a failure here kills the run too. Staging the compiler API is a bonus
+    # root, not a precondition — losing it costs some resolution, not the measurement.
+    add_lib "$WORK/tsc-src" "tscompiler" || true
     [ -d "$WORK/libir/tscompiler" ] && printf '%s\n' "$(cd "$TSLIB_DIR" && pwd)" > "$WORK/libir/tscompiler/.source-root"
   fi
 fi

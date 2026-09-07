@@ -119,6 +119,18 @@ if ! bash "$HERE/tools/compiler-load-test.sh"; then
   echo "aborting: an unmeasurable compiler is not being refused cleanly at every entry point"
   exit 1
 fi
+
+# ── PREFLIGHT: one library that declares nothing must not end the evaluation ──
+# `add_lib` returns 1 as an ordinary outcome — a deprecated `@types/<pkg>` stub is a
+# package.json and a README — and at one call site it was the command after the final
+# `&&`, so under `set -e` its status was the AND-list's and the whole run died
+# mid-staging with no error line and no score. Every other call site was already
+# guarded, which is what makes it invisible on review: the two forms differ by four
+# characters and the unguarded one is the more natural thing to write. See #234.
+if ! bash "$HERE/tools/staging-guard-test.sh"; then
+  echo "aborting: a library that declares nothing would end the evaluation"
+  exit 1
+fi
 if ! bash "$HERE/tools/envelope-merge-test.sh"; then
   echo "aborting: the dispatch envelope is not the resolved symbol's declaration set"
   exit 1
