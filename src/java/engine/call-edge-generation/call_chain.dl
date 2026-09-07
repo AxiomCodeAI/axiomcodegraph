@@ -146,6 +146,45 @@ call_chain_edge(call, caller, "-", "-", "-", "ambiguous_unknown", kind) :-
     call_from(call, caller),
     !call_has_edge(call),
     !call_class(call, "ambiguous_anon").
+// ── RECORD DECONSTRUCTION: the component accessors (JEP 440) ─────────────────────────────────
+// `if (n instanceof Pair(Leaf a, Node ignored))` compiles to `invokevirtual Pair.left()` and
+// `Pair.right()` — javac has to call the accessors to obtain the values it binds. Those calls are
+// written nowhere, so there is no invocation site to resolve and they were absent from the graph.
+//
+// They are real edges rather than lowering, which is the reason for emitting them at all: a record
+// may declare an accessor with a body of its own, so the deconstruction can dispatch into user
+// code. That is not true of the lowering both oracles exclude (the enhanced-for iterator triple,
+// string concat, boxing), where the target is always a JDK member the author did not write.
+//
+// EXACT, not an approximation: a record pattern must bind every component of the record — the
+// language requires the arity to match — so deconstructing Pair calls left() AND right(), always.
+// So the accessor set is the record's whole accessor set, and no component-to-accessor mapping is
+// needed. That matters, because the IR gives every component's PATTERN_BINDING_TYPE reference
+// position 0, so a positional mapping is not available anyway.
+//
+// methodKind = RECORD_ACCESSOR is the parser's own tag, so an accessor is identified rather than
+// guessed at from "zero parameters and a matching name".
+//
+// The call site is the RECORD_PATTERN expression, which is where the calls happen; the `kind`
+// column says record_accessor, so a synthesised edge is never mistaken for a written call. Not an
+// invocation_site, deliberately — the conservation guard asks that every invocation-shaped IR
+// expression reaches the CSV, and inventing a site would put a row on the other side of that ledger.
+record_pattern_accessor(patternExpr, accessor, "client") :-
+    record_pattern_type_resolves(_, patternExpr, _, rec),
+    method_owner("client", rec, accessor),
+    method_kind("client", "RECORD_ACCESSOR", _, accessor).
+record_pattern_accessor(patternExpr, accessor, "lib") :-
+    record_pattern_type_resolves(_, patternExpr, _, rec),
+    method_owner("lib", rec, accessor),
+    method_kind("lib", "RECORD_ACCESSOR", _, accessor).
+
+call_chain_edge(patternExpr, caller, "-", accessor, "client", "known_edge", "record_accessor") :-
+    record_pattern_accessor(patternExpr, accessor, "client"),
+    expr_ultimate_method("client", patternExpr, caller).
+call_chain_edge(patternExpr, caller, "-", accessor, "lib", "boundary_lib", "record_accessor") :-
+    record_pattern_accessor(patternExpr, accessor, "lib"),
+    expr_ultimate_method("client", patternExpr, caller).
+
 call_chain_edge(call, caller, "-", "-", "-", "ambiguous_anon", kind) :-
     call_class(call, "ambiguous_anon"), call_from(call, caller),
     invocation_site(call, kind).
