@@ -94,6 +94,18 @@ if ! python3 "$HERE/tools/envelope_report_test.py"; then
   echo "aborting: the dispatch-envelope report is not decomposing what it claims"
   exit 1
 fi
+
+# ── PREFLIGHT: what --production counts decides what every corpus number means ─
+# `TEST_PATH` matched `.test.ts` and not `.test-d.ts`, the vitest convention for TYPE
+# tests, so on the dev member whose type tests outnumber its source 11,055 of 11,818
+# "production" sites were tests — and they score better than real code, so the leak
+# RAISED the development rate. Fixed in #276, pinned here (#280). Five of the twelve
+# pattern cases are controls: a filter's failure mode is symmetric, and over-filtering
+# deletes real sites from the measurement just as silently. Synthesised, cannot skip.
+if ! python3 "$HERE/tools/production-filter-test.py"; then
+  echo "aborting: the production filter is not selecting the population it names"
+  exit 1
+fi
 if ! bash "$HERE/tools/envelope-merge-test.sh"; then
   echo "aborting: the dispatch envelope is not the resolved symbol's declaration set"
   exit 1

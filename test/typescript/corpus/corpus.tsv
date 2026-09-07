@@ -49,7 +49,7 @@
 #
 # ── name      set      path                   repo                                        commit   note
 immer         dev      .                      https://github.com/immerjs/immer.git         061c242  566 production sites, 0.00% loss
-remeda        dev      packages/remeda        https://github.com/remeda/remeda.git         e11dcf2  11,818 production sites, 0.00% loss
+remeda        dev      packages/remeda        https://github.com/remeda/remeda.git         e11dcf2  652 production sites, 0.00% loss. Was recorded as 11,818 until #280: 23,011 sites analysed, and the production filter matched `.test.ts` but not the `.test-d.ts` type-test convention, so 11,055 of that 11,818 were type tests. They score far better than real code — an expectTypeOf chain is about as easy as a call site gets — so the leak RAISED the development rate rather than diluting it. The 652 is the real figure and this is now the SMALLEST dev member, not the largest
 zustand       dev      .                      https://github.com/pmndrs/zustand.git        b57db4f  218 production sites, 0.00% loss (3.54% loss over its test tree alone)
 trpc          dev      packages/server        https://github.com/trpc/trpc.git             6a70335  3,048 production sites, 0% loss, 0 diagnostics. Was oracle-refused at 1791/3023 with 658 diagnostics until the mirror carried its extends chain (#240); its tsconfig extends ../../tsconfig.json. Exact 0.577, below the other dev members - it is a harder project, not a broken one
 typeorm       holdout  .                      https://github.com/typeorm/typeorm.git       b495ed4  17,062 production sites, 0.04% loss. Larger than the whole dev set, which is what makes it a real check
