@@ -111,7 +111,8 @@ export class ExpressionReferenceExtractor {
   // Pattern binding variable names in scope for classifying PATTERN_BINDING references
   private currentPatternBindingNames: Set<string> = new Set();
 
-  // Pattern binding names declared anywhere in the method body currently being extracted.
+  // Pattern bindings declared in the method body currently being extracted, each with the byte
+  // range of the statement that declares it.
   //
   // `currentPatternBindingNames` is set per call and carries the bindings of the expression tree
   // being walked, which is enough for a switch rule whose label and result are one tree. An
@@ -119,7 +120,19 @@ export class ExpressionReferenceExtractor {
   // `if (o instanceof Target a) { a.hit(); }` - and each statement is extracted by its own call,
   // so the binding was out of scope by the time the use site was classified. It then fell through
   // to the naming-convention fallback and was tagged FIELD.
-  private methodPatternBindingNames: Set<string> = new Set();
+  //
+  // The range matters as much as the name. A binding may share a name with a field, which Java
+  // permits, and then a use OUTSIDE the declaring statement is the field:
+  //
+  //     void m(Object o) {
+  //         a.hit();                                  // the field
+  //         if (o instanceof Target a) { a.hit(); }   // the binding
+  //         a.hit();                                  // the field again
+  //     }
+  //
+  // Matching on the name alone would call all three the binding, which trades one wrong answer
+  // for another. A use is the binding only when it falls inside the declaring statement.
+  private methodPatternBindings: Array<{ name: string; startIndex: number; endIndex: number }> = [];
   
   // Return statement index for distinguishing multiple returns in a method
   private currentReturnStatementIndex?: number;
@@ -396,6 +409,9 @@ export class ExpressionReferenceExtractor {
     
     // Set lambda parameter names for LAMBDA_PARAMETER classification
     this.currentLambdaParamNames = lambdaParamNames;
+    // Pattern bindings do not survive between statements: each is scoped to the statement that
+    // declares it, and cross-statement uses resolve through methodPatternBindings by range.
+    this.currentPatternBindingNames = new Set();
     
     // Find the expression inside the return statement
     // return_statement structure: return <expression>? ;
@@ -478,6 +494,9 @@ export class ExpressionReferenceExtractor {
     
     // Set lambda parameter names for LAMBDA_PARAMETER classification
     this.currentLambdaParamNames = lambdaParamNames;
+    // Pattern bindings do not survive between statements: each is scoped to the statement that
+    // declares it, and cross-statement uses resolve through methodPatternBindings by range.
+    this.currentPatternBindingNames = new Set();
     
     // Find the expression inside the throw statement
     // throw_statement structure: throw <expression> ;
@@ -649,6 +668,9 @@ export class ExpressionReferenceExtractor {
     
     // Set lambda parameter names for LAMBDA_PARAMETER classification
     this.currentLambdaParamNames = lambdaParamNames;
+    // Pattern bindings do not survive between statements: each is scoped to the statement that
+    // declares it, and cross-statement uses resolve through methodPatternBindings by range.
+    this.currentPatternBindingNames = new Set();
     
     // Find the expression inside the expression statement
     // expression_statement structure: <expression> ;
@@ -733,6 +755,9 @@ export class ExpressionReferenceExtractor {
     
     // Set lambda parameter names for LAMBDA_PARAMETER classification
     this.currentLambdaParamNames = lambdaParamNames;
+    // Pattern bindings do not survive between statements: each is scoped to the statement that
+    // declares it, and cross-statement uses resolve through methodPatternBindings by range.
+    this.currentPatternBindingNames = new Set();
     
     // For parenthesized_expression (if conditions are wrapped), get the inner expression
     let expr = conditionNode;
@@ -3403,7 +3428,7 @@ export class ExpressionReferenceExtractor {
     
     // Pattern binding variable usage (identifier matching a pattern variable from instanceof/switch)
     if (this.currentPatternBindingNames.has(identifierName)
-        || this.methodPatternBindingNames.has(identifierName)) {
+        || this.isInsidePatternBindingScope(identifierName, node)) {
       builder.referencesEntity(ReferencedEntityKind.PATTERN_BINDING_VARIABLE);
       return;
     }
@@ -3418,8 +3443,25 @@ export class ExpressionReferenceExtractor {
    * Set once per method, before its statements are walked, because a binding's declaration and
    * its uses are in different statements and therefore different extraction calls.
    */
-  setMethodPatternBindingNames(names: Set<string>): void {
-    this.methodPatternBindingNames = names;
+  setMethodPatternBindings(bindings: Array<{ name: string; startIndex: number; endIndex: number }>): void {
+    this.methodPatternBindings = bindings;
+  }
+
+  /**
+   * True when this identifier falls inside the statement that declares a binding of the same name.
+   *
+   * The range test is what keeps a field of the same name correct outside that statement. It is
+   * narrower than Java's own rule, which extends a binding to wherever the pattern definitely
+   * matched - `if (!(o instanceof T a)) return; a.foo();` puts the binding in scope after the if.
+   * Such a use falls back to the naming convention, which is the behaviour before any of this,
+   * so the approximation only declines to improve a case rather than making one worse.
+   */
+  private isInsidePatternBindingScope(identifierName: string, node: Parser.SyntaxNode): boolean {
+    return this.methodPatternBindings.some(
+      binding => binding.name === identifierName
+        && node.startIndex >= binding.startIndex
+        && node.endIndex <= binding.endIndex
+    );
   }
 
   /**

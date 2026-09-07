@@ -60,6 +60,21 @@ public class PatternBindingUseSites {
             System.out.println(x + y);
         }
     }
+
+    /**
+     * A binding is scoped to the statement that declares it, so a field of the
+     * same name is still a field before and after that statement.
+     *
+     * Matching on the name alone would call all three uses the binding, which
+     * trades one wrong answer for another rather than fixing anything.
+     */
+    void fieldOutsideBindingScope(Object o) {
+        shadowed.hit();
+        if (o instanceof Target shadowed) {
+            shadowed.hit();
+        }
+        shadowed.hit();
+    }
 }
 
 record Point(int x, int y) { }

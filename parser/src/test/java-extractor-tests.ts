@@ -1151,6 +1151,25 @@ export class JavaExtractorTestRunner {
           };
         }));
 
+        // Scope, not just name. A binding may share a name with a field, and a use outside the
+        // declaring statement is the field. Matching on the name alone trades one wrong answer
+        // for another, so the three uses at lines 72, 74 and 76 must be FIELD, binding, FIELD.
+        validations.push(this.rule('A binding does not capture same-named uses outside its statement', (e) => {
+          const at = (line: number) => e.expressions.find(x =>
+            x.getStartLine() === line && x.getKind() === ExpressionKind.IDENTIFIER_REFERENCE)
+            ?.getReferencedEntityKind();
+          const got = [at(72), at(74), at(76)];
+          const want = [
+            ReferencedEntityKind.FIELD,
+            ReferencedEntityKind.PATTERN_BINDING_VARIABLE,
+            ReferencedEntityKind.FIELD,
+          ];
+          return {
+            passed: JSON.stringify(got) === JSON.stringify(want),
+            message: `Expected ${JSON.stringify(want)} at lines 72/74/76, got ${JSON.stringify(got)}`
+          };
+        }));
+
         // The control, and the assertion that matters most: a real field must stay a field.
         // A rule that simply stopped emitting FIELD would pass everything above.
         validations.push(this.rule('Genuine field references are unchanged', (e) => {

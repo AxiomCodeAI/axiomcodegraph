@@ -706,7 +706,7 @@ export class TypeMethodExtractor {
 
     // A pattern binding is declared in one statement and used in another, so the extractor is
     // told the whole body's bindings once rather than per statement.
-    this.expressionExtractor.setMethodPatternBindingNames(this.collectPatternBindingNames(bodyBlock));
+    this.expressionExtractor.setMethodPatternBindings(this.collectPatternBindings(bodyBlock));
     
     // IMPORTANT: Extract expression statements FIRST to get actual lambda hashes,
     // then use those hashes when processing return statements inside those lambdas.
@@ -991,32 +991,53 @@ export class TypeMethodExtractor {
    * try-with-resources, and catch clauses.
    */
   /**
-   * Collects every pattern binding declared in a method body: `o instanceof Target a`,
-   * `case String s`, and the components of a record pattern.
+   * Collects every pattern binding declared in a method body, with the byte range of the
+   * statement that declares it: `o instanceof Target a`, `case String s`, and the components of
+   * a record pattern.
    *
-   * These are gathered for the whole body for the same reason local variable names are - a use
-   * site is classified against a set of names, and the declaration is in a different statement
-   * from the use. Java scoping is narrower than this (a binding is in scope only where the
-   * pattern definitely matched), but the set is used solely to classify what KIND of entity a
-   * name refers to, and a name that is a pattern binding somewhere in the method is not a field
-   * reference anywhere in it - shadowing a field is exactly the case that made this wrong.
+   * The range is collected alongside the name because a binding may share a name with a field,
+   * which Java permits. A use outside the declaring statement is then the field, and matching on
+   * the name alone would call it the binding - trading one wrong answer for another.
+   *
+   * The declaring statement is the nearest enclosing statement rather than the pattern node
+   * itself, because the binding is used in the statement's body, not inside the pattern.
    */
-  private collectPatternBindingNames(bodyBlock: Parser.SyntaxNode): Set<string> {
-    const names = new Set<string>();
+  private collectPatternBindings(
+    bodyBlock: Parser.SyntaxNode
+  ): Array<{ name: string; startIndex: number; endIndex: number }> {
+    const bindings: Array<{ name: string; startIndex: number; endIndex: number }> = [];
+
+    const enclosingStatement = (node: Parser.SyntaxNode): Parser.SyntaxNode => {
+      const statementTypes = [
+        'if_statement', 'while_statement', 'do_statement', 'for_statement',
+        'enhanced_for_statement', 'switch_expression', 'switch_rule', 'switch_block_statement_group',
+        'local_variable_declaration', 'expression_statement', 'return_statement', 'assert_statement',
+      ];
+      let current: Parser.SyntaxNode | null = node;
+      while (current) {
+        if (statementTypes.includes(current.type)) return current;
+        current = current.parent;
+      }
+      return node;
+    };
+
+    const record = (nameNode: Parser.SyntaxNode, declaringNode: Parser.SyntaxNode): void => {
+      const scope = enclosingStatement(declaringNode);
+      bindings.push({ name: nameNode.text, startIndex: scope.startIndex, endIndex: scope.endIndex });
+    };
 
     const walk = (node: Parser.SyntaxNode): void => {
       if (node.type === 'type_pattern' || node.type === 'instanceof_expression') {
-        // `x instanceof Type name` - the binding is the trailing identifier.
         const named = node.namedChildren;
         const last = named[named.length - 1];
         if (last?.type === 'identifier' && named.length >= 2) {
-          names.add(last.text);
+          record(last, node);
         }
       }
 
       if (node.type === 'pattern' || node.type === 'record_pattern_component') {
         for (const child of node.namedChildren) {
-          if (child.type === 'identifier') names.add(child.text);
+          if (child.type === 'identifier') record(child, node);
         }
       }
 
@@ -1024,7 +1045,7 @@ export class TypeMethodExtractor {
     };
 
     walk(bodyBlock);
-    return names;
+    return bindings;
   }
 
   private collectLocalVariableNames(bodyBlock: Parser.SyntaxNode): Set<string> {
@@ -1213,7 +1234,7 @@ export class TypeMethodExtractor {
 
     // A pattern binding is declared in one statement and used in another, so the extractor is
     // told the whole body's bindings once rather than per statement.
-    this.expressionExtractor.setMethodPatternBindingNames(this.collectPatternBindingNames(bodyBlock));
+    this.expressionExtractor.setMethodPatternBindings(this.collectPatternBindings(bodyBlock));
     
     // Build position-to-hash map for block ownership lookups in initializer expression extraction
     const blockPositionToHash = this.buildBlockPositionMapFromAST(bodyBlock, typeRegistryHash, methodHash, filePath);
