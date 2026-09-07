@@ -453,6 +453,24 @@ export class LocalVariableExtractor {
     blockDepth: number = 0,
     parentExpressionLinkHash?: string
   ): void {
+    // A brace-less control-flow body IS the statement, not a `block` wrapping it: `if (c) x();`
+    // hands this method the `expression_statement` itself. These statement types used to be
+    // recognised only where they appeared as a CHILD of a block, so a lambda that initializes a
+    // local variable or a field lost every statement in an unbraced `if` / `for` / `while` /
+    // `do` body — no row at all, which a consumer cannot tell from a lambda body that really is
+    // empty. The same lambda passed as an ARGUMENT was always extracted, which is what made
+    // this easy to miss.
+    //
+    // Handled here rather than only in the child walk, and the child walk below now delegates
+    // to this one path, so a statement is extracted exactly once however it was reached.
+    // Execution falls through to that walk afterwards, which is what finds lambdas nested
+    // inside the statement.
+    if (node.type === 'expression_statement' || node.type === 'return_statement' ||
+        node.type === 'yield_statement' || node.type === 'throw_statement') {
+      this.extractLambdaBodyStatementExpressions(
+        node, typeRegistryHash, serviceVersionHash, packageName, importMap, hasStarImports);
+    }
+
     // When called on a non-block statement node (e.g., a while_statement that is
     // the brace-less body of a for loop), dispatch to its dedicated handler so it
     // creates the proper block entry and processes its contents correctly.
@@ -477,19 +495,6 @@ export class LocalVariableExtractor {
       case 'try_with_resources_statement':
         this.extractFromTryStatement(node, filePath, typeRegistryHash, methodRegistryHash, ownerTypeName, ownerQualifiedName, ownerMethodName, serviceVersionHash, packageName, importMap, hasStarImports, scopeKind, lambdaDepth, variables);
         return;
-      case 'expression_statement':
-      case 'return_statement':
-      case 'throw_statement':
-      case 'yield_statement':
-        // A brace-less control-flow body is a single statement rather than a block, so it arrives
-        // here as the node itself. The loop below walks a node's CHILDREN, so without this the
-        // statement was never dispatched and its calls produced no rows at all - while the same
-        // code inside braces was extracted normally.
-        //
-        // Extraction is idempotent, so reaching this statement again through the loop's
-        // nested-lambda recursion does not duplicate it.
-        this.extractLambdaBodyStatementExpressions(node, typeRegistryHash, serviceVersionHash, packageName, importMap, hasStarImports);
-        break;
       case 'switch_expression':
       case 'switch_statement':
         this.extractFromSwitchStatement(node, filePath, typeRegistryHash, methodRegistryHash, ownerTypeName, ownerQualifiedName, ownerMethodName, serviceVersionHash, packageName, importMap, hasStarImports, scopeKind, lambdaDepth, variables);
@@ -772,19 +777,9 @@ export class LocalVariableExtractor {
         case 'expression_statement':
         case 'throw_statement':
         case 'yield_statement':
-          // Extract expressions inside lambda bodies when we have a lambda hash
-          // Uses ScopeContext for proper block context (try/catch/finally)
-          if (this.scopeContext.getCurrentLambdaHash()) {
-            this.extractLambdaBodyStatementExpressions(
-              child,
-              typeRegistryHash,
-              serviceVersionHash,
-              packageName,
-              importMap,
-              hasStarImports
-            );
-          }
-          // Also recurse to find nested lambda expressions (e.g., return y -> { int sum = ...; })
+          // Recurse into the single path at the top of this method, which extracts the
+          // statement's own expressions and then descends for nested lambdas (e.g.
+          // `return y -> { int sum = ...; }`). Extracting here as well would double every row.
           this.extractFromBlock(
             child,
             filePath,
@@ -3536,12 +3531,12 @@ export class LocalVariableExtractor {
         this.scopeContext.getLambdaParamNames()
       );
     } else if (statementNode.type === 'throw_statement') {
-      // Only in a field initializer. A throw inside a lambda that initialises a LOCAL is already
-      // extracted by the enclosing method's own throw pass, so extracting it here as well
-      // produced two rows for one written throw. A field initializer has no such pass, which is
-      // why `field = s -> { throw new E(); }` produced no row for the construction at all.
+      // A `throw`-only lambda is the standard "disabled implementation" constant on an
+      // interface, and in a FIELD initializer nothing else extracts it: TypeMethodExtractor's
+      // throw walk covers method bodies, including lambdas inside a local-variable
+      // declaration, but never reaches a field initializer. Restricted to that context for
+      // exactly that reason — running it for a method-body lambda would emit every throw twice.
       if (!this.isFieldInitializerContext) return;
-
       expressions = this.expressionExtractor.extractFromThrowStatement(
         statementNode,
         typeRegistryHash,
@@ -3550,7 +3545,7 @@ export class LocalVariableExtractor {
         importMap,
         hasStarImports,
         this.currentMethodParamNames,
-        undefined, // throwStatementIndex - not tracked for lambda-body throws
+        undefined, // throwStatementIndex - not tracked for field initializer lambdas
         this.currentLocalVariableNames,
         this.scopeContext.getLambdaParamNames()
       );

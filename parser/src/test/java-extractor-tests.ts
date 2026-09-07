@@ -1123,6 +1123,68 @@ export class JavaExtractorTestRunner {
 
     // ── Expression Tests ──
     if (category === 'expressions') {
+      // Inside a lambda that initializes a local variable or a field, two statement shapes
+      // produced no rows: an unbraced control-flow body, and a `throw` in a field lambda.
+      if (filename === 'InitializerLambdaBodies.java') {
+        // The unbraced bodies, by the line each call is written on. Naming lines rather than
+        // counting totals is what makes a regression say WHICH shape came back: the braced
+        // form, the argument form and the local-variable throw were all correct before, so a
+        // total would move without telling anyone which half moved.
+        const shapes: ReadonlyArray<readonly [string, readonly number[]]> = [
+          ['an unbraced if in a local-variable lambda', [51, 53]],
+          ['an unbraced for in a local-variable lambda', [80]],
+          ['an unbraced while in a local-variable lambda', [89]],
+          ['an unbraced do in a local-variable lambda', [98]],
+          ['an unbraced if in a field lambda', [107, 109]],
+          ['a throw in a field lambda', [35]],
+          // The controls, asserted in the same shape so the fixture states they stay correct.
+          ['a throw in a local-variable lambda (control)', [39]],
+          ['a braced if in a local-variable lambda (control)', [61]],
+          ['an unbraced if in an argument lambda (control)', [70, 72]],
+          ['an unbraced if in a method body (control)', [44]],
+        ];
+
+        for (const [label, lines] of shapes) {
+          validations.push(this.rule(`Calls are emitted for ${label}`, (e) => {
+            const missing = lines.filter(line => !e.expressions.some(x =>
+              x.getStartLine() === line &&
+              (x.getKind() === ExpressionKind.METHOD_INVOCATION ||
+               x.getKind() === ExpressionKind.OBJECT_CREATION)));
+            return { passed: missing.length === 0, message: `No row on line(s) ${JSON.stringify(missing)}` };
+          }));
+        }
+
+        // The fix routes both the bare-statement and the child-of-block paths through one
+        // extraction point. Getting that wrong doubles every statement instead of dropping it,
+        // so the conservation direction is asserted too.
+        validations.push(this.rule('No lambda-body statement is emitted twice', (e) => {
+          const seen = new Map<string, number>();
+          for (const x of e.expressions) {
+            const key = [x.getKind(), x.getEdgeRole(), x.getRootContext(), x.getExpressionOwnerHash(),
+                         x.getStartLine(), x.getStartColumn(), x.getEndLine(), x.getEndColumn()].join('|');
+            seen.set(key, (seen.get(key) ?? 0) + 1);
+          }
+          const dupes = [...seen.entries()].filter(([, n]) => n > 1).map(([k, n]) => `${k} x${n}`);
+          return { passed: dupes.length === 0, message: `Duplicated rows: ${JSON.stringify(dupes)}` };
+        }));
+
+        // The `throw` in the field lambda must carry its own context, not be swept in as an
+        // expression statement, and its argument call must come with it.
+        validations.push(this.rule('A field lambda throw is a THROW_VALUE with its argument', (e) => {
+          const onLine35 = e.expressions.filter(x => x.getStartLine() === 35);
+          const creation = onLine35.some(x => x.getKind() === ExpressionKind.OBJECT_CREATION &&
+                                              x.getRootContext() === RootContext.THROW_VALUE &&
+                                              x.getEdgeRole() === EdgeRole.ROOT);
+          const argument = onLine35.some(x => x.getKind() === ExpressionKind.METHOD_INVOCATION &&
+                                              x.getRootContext() === RootContext.THROW_VALUE &&
+                                              x.getEdgeRole() === EdgeRole.ARGUMENT);
+          return {
+            passed: creation && argument,
+            message: `L35 creation=${creation} argument=${argument}`
+          };
+        }));
+      }
+
       // Statements inside a lambda that initializes a local or a field.
       if (filename === 'LambdaInitializerBodies.java') {
         const callsAt = (e: ExtractedEntities, from: number, to: number) => e.expressions.filter(x => {
