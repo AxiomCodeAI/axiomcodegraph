@@ -1,6 +1,4 @@
-oracle=8 engine=9 agree=6 missing=2 (known 2, NEW 0) extra=3
-  known    merged#drive(Config) -> merged#nested()
-  known    merged#useLibrary(Client) -> merged-lib#withDefaults()
+oracle=8 engine=9 agree=7 missing=1 (known 1, NEW 0) extra=2
+  known    merged#drive(Config) -> helper#nested()
   extra    merged#drive(Config) -> AppConfig#host()
   extra    merged#drive(Config) -> AppConfig#port()
-  extra    merged#useLibrary(Client) -> build#withDefaults()

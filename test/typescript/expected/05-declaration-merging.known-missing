@@ -1,4 +1,4 @@
 # Accepted gaps for 05-declaration-merging — each line is an edge the TypeScript compiler
 # resolves and this engine does not. A NEW missing edge fails the suite;
 # a line here that STARTS working also fails, so the debt cannot rot.
-merged#drive(Config) -> merged#nested()
+merged#drive(Config) -> helper#nested()

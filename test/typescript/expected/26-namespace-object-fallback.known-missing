@@ -12,5 +12,5 @@
 # declares no `toString`, so Object's really is the right target. If a future change
 # suppresses the fallback by asking whether the receiver is a namespace rather than
 # whether the scope declares the name, `c()` breaks and this case says so.
-caller#a() -> helper#toString(string)
-caller#b() -> helper#unique(string)
+caller#a() -> text#toString(string)
+caller#b() -> text#unique(string)
