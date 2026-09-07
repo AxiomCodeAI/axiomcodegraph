@@ -88,10 +88,10 @@ export class TypeParameter implements EntityIdentifiable {
    */
   toCsv(): string {
     return [
-      this.name,
+      EntityUtils.escapeTsv(this.name),
       this.position.toString(),
-      this.ownerTypeName,
-      this.ownerQualifiedName,
+      EntityUtils.escapeTsv(this.ownerTypeName),
+      EntityUtils.escapeTsv(this.ownerQualifiedName),
       this.filePath,
       this.startLine.toString(),
       this.typeRegistryLinkHash,

@@ -245,7 +245,7 @@ export class ImportExtractor implements BaseExtractor<ImportRegistry> {
 
     for (const child of node.children) {
       if (child.type === 'scoped_identifier') {
-        path = child.text;
+        path = this.normalizeQualifiedName(child.text);
       } else if (child.type === 'identifier' && child.text !== 'import' && child.text !== 'static') {
         if (path) {
           path += '.' + child.text;
@@ -262,6 +262,29 @@ export class ImportExtractor implements BaseExtractor<ImportRegistry> {
     }
 
     return path || null;
+  }
+
+  /**
+   * Collapses the whitespace a qualified name is allowed to contain.
+   *
+   * JLS 3.6 permits whitespace, including a line terminator, between the identifiers and dots of
+   * a qualified name, so this is legal and compiles:
+   *
+   *     import java.util.
+   *     Optional;
+   *
+   * The name is `java.util.Optional`. Taking the node text verbatim keeps the line break inside
+   * the value, which is wrong before it ever reaches a writer.
+   *
+   * Only whitespace adjacent to a dot is removed, rather than all whitespace, because the space
+   * in `module java.base` separates two tokens and is not part of the name. Any run that survives
+   * is collapsed to a single space so a value can never carry a line terminator.
+   */
+  private normalizeQualifiedName(text: string): string {
+    return text
+      .replace(/\s*\.\s*/g, '.')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   /**

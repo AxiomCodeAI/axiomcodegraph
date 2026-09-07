@@ -262,6 +262,13 @@ export class JavaExtractorTestRunner {
         result.errors.push(...linkChecks.errors);
       }
 
+      // Check that every row survives being written — one physical line, header field count
+      const tsvChecks = this.validateTsvRowIntegrity(entities);
+      if (!tsvChecks.passed) {
+        result.passed = false;
+        result.errors.push(...tsvChecks.errors);
+      }
+
     } catch (error) {
       result.passed = false;
       result.errors.push(`Extraction failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -1289,6 +1296,36 @@ export class JavaExtractorTestRunner {
 
     // ── Import Tests ──
     if (category === 'imports') {
+      // Qualified names split across a line break (JLS 3.6).
+      if (filename === 'WrappedQualifiedNames.java') {
+        validations.push(this.rule('A wrapped qualified name normalises to its single-line form', (e) => {
+          const got = e.imports.map(i => i.getImportedPath()).sort();
+          const want = [
+            'java.lang.Math.PI',
+            'java.util.Optional',
+            'java.util.concurrent.Callable',
+            'java.util.function.Function',
+          ].sort();
+          return {
+            passed: JSON.stringify(got) === JSON.stringify(want),
+            message: `Expected ${JSON.stringify(want)}, got ${JSON.stringify(got)}`
+          };
+        }));
+
+        // The value-side defect, stated directly: no emitted field may retain the break.
+        validations.push(this.rule('No import field retains a line terminator', (e) => {
+          const dirty = e.imports
+            .filter(i => /[\r\n]/.test(i.getImportedPath() + i.getPackageOrTypeName() + i.getSimpleName()))
+            .map(i => JSON.stringify(i.getImportedPath()));
+          return { passed: dirty.length === 0, message: `Fields retaining a break: ${JSON.stringify(dirty)}` };
+        }));
+
+        validations.push(this.rule('Four wrapped imports yield four rows', (e) => ({
+          passed: e.imports.length === 4,
+          message: `Expected 4 rows, got ${e.imports.length}`
+        })));
+      }
+
       // Module import declarations (JEP 511). No tree-sitter-java release parses these, so the
       // shape the grammar does produce has to be recognised rather than read at face value.
       if (filename === 'ModuleImportDeclarations.java') {
@@ -1370,6 +1407,68 @@ export class JavaExtractorTestRunner {
   }
 
   // ==================== HASH UNIQUENESS ====================
+
+  // ==================== TSV ROW INTEGRITY ====================
+
+  /**
+   * Every entity must serialise to exactly one physical line carrying exactly as many fields as
+   * its own header declares.
+   *
+   * A value containing a raw line terminator writes one logical row across two physical lines,
+   * and the tear is only detectable downstream as a field-count mismatch against the header. A
+   * raw tab does not tear the row but shifts every field after it. `EntityUtils.escapeTsv`
+   * exists for this and is applied per writer, which is exactly why the gap recurred in eight of
+   * the seventeen Java writers independently: nothing checked that a writer applied it.
+   *
+   * This runs over every entity of every fixture rather than over a dedicated one, because the
+   * property is a property of the writers, not of any particular construct.
+   */
+  private validateTsvRowIntegrity(entities: ExtractedEntities): { passed: boolean; errors: string[] } {
+    const errors: string[] = [];
+
+    const groups: Array<[string, Array<{ toCsv(): string; getCsvHeader(): string }>]> = [
+      ['types', entities.types],
+      ['methods', entities.methods],
+      ['methodParams', entities.methodParams],
+      ['methodTypeParams', entities.methodTypeParams],
+      ['fields', entities.fields],
+      ['typeParams', entities.typeParams],
+      ['typeRefs', entities.typeRefs],
+      ['annotations', entities.annotations],
+      ['annotationArgs', entities.annotationArgs],
+      ['enumConstants', entities.enumConstants],
+      ['expressions', entities.expressions],
+      ['localVariables', entities.localVariables],
+      ['blocks', entities.blocks],
+      ['comments', entities.comments],
+      ['modules', entities.modules],
+      ['moduleDirectives', entities.moduleDirectives],
+      ['imports', entities.imports],
+    ];
+
+    for (const [label, rows] of groups) {
+      if (rows.length === 0) continue;
+
+      const expectedFields = rows[0]!.getCsvHeader().split('\t').length;
+
+      for (const row of rows) {
+        const csv = row.toCsv();
+
+        if (/[\r\n]/.test(csv)) {
+          errors.push(`${label}: a row contains a raw line terminator, so it would tear across physical lines`);
+          break;
+        }
+
+        const actualFields = csv.split('\t').length;
+        if (actualFields !== expectedFields) {
+          errors.push(`${label}: a row has ${actualFields} fields, header declares ${expectedFields}`);
+          break;
+        }
+      }
+    }
+
+    return { passed: errors.length === 0, errors };
+  }
 
   private validateHashUniqueness(entities: ExtractedEntities): { passed: boolean; errors: string[] } {
     const errors: string[] = [];

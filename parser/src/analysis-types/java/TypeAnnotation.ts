@@ -163,7 +163,7 @@ export class TypeAnnotation implements EntityIdentifiable {
 
   toCsv(): string {
     return [
-      this.annotationName,
+      EntityUtils.escapeTsv(this.annotationName),
       this.kind,
       this.context,
       this.ownerHash,

@@ -199,11 +199,11 @@ export class MethodTypeParameter implements EntityIdentifiable {
    */
   toCsv(): string {
     return [
-      this.paramName,
+      EntityUtils.escapeTsv(this.paramName),
       this.position.toString(),
-      this.ownerMethodName,
-      this.ownerMethodSignature,
-      this.ownerQualifiedMethodName,
+      EntityUtils.escapeTsv(this.ownerMethodName),
+      EntityUtils.escapeTsv(this.ownerMethodSignature),
+      EntityUtils.escapeTsv(this.ownerQualifiedMethodName),
       this.filePath,
       this.startLine.toString(),
       this.methodRegistryLinkHash,

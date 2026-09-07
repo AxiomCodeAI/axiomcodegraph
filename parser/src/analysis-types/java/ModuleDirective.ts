@@ -127,8 +127,8 @@ export class ModuleDirective implements EntityIdentifiable {
   toCsv(): string {
     return [
       this.directiveKind,
-      this.subjectName,
-      this.targetName,
+      EntityUtils.escapeTsv(this.subjectName),
+      EntityUtils.escapeTsv(this.targetName),
       this.modifiers.join(','),
       this.position.toString(),
       this.filePath,

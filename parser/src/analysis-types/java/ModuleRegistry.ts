@@ -106,7 +106,7 @@ export class ModuleRegistry implements EntityIdentifiable {
 
   toCsv(): string {
     return [
-      this.name,
+      EntityUtils.escapeTsv(this.name),
       this.isOpen.toString(),
       this.filePath,
       this.startLine.toString(),

@@ -285,10 +285,10 @@ export class BlockRegistry implements EntityIdentifiable {
       this.parentContainerHash || '',
       this.tryStatementHash || '',
       this.resourceCount?.toString() || '',
-      this.caughtExceptionTypes || '',
-      this.ownerTypeName,
-      this.ownerQualifiedName,
-      this.ownerMethodName,
+      EntityUtils.escapeTsv(this.caughtExceptionTypes || ''),
+      EntityUtils.escapeTsv(this.ownerTypeName),
+      EntityUtils.escapeTsv(this.ownerQualifiedName),
+      EntityUtils.escapeTsv(this.ownerMethodName),
       this.blockRegistryUniqueHash,
     ].join('\t');
   }

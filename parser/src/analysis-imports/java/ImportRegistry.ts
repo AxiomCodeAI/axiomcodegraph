@@ -222,9 +222,9 @@ export class ImportRegistry implements EntityIdentifiable {
   toCsv(): string {
     return [
       this.importKind,
-      this.importedPath,
-      this.packageOrTypeName,
-      this.simpleName,
+      EntityUtils.escapeTsv(this.importedPath),
+      EntityUtils.escapeTsv(this.packageOrTypeName),
+      EntityUtils.escapeTsv(this.simpleName),
       this.filePath,
       this.lineNumber.toString(),
       this.isStatic.toString(),

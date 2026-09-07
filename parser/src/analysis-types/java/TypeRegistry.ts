@@ -139,8 +139,8 @@ export class TypeRegistry implements EntityIdentifiable {
 
   toCsv(): string {
     return [
-      this.name,
-      this.qualifiedName,
+      EntityUtils.escapeTsv(this.name),
+      EntityUtils.escapeTsv(this.qualifiedName),
       this.fileName,
       this.typeCategory,
       this.typeAccess,
