@@ -1,4 +1,4 @@
-=== per-family coverage (tier-4, 302 scored sites) ===
+=== per-family coverage (tier-4, 312 scored sites) ===
   f01 inheritance & MRO        links= 10  found= 10 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f02 callables & closures     links= 10  found=  9 (90.0%)  missed= 1  wide= 0  WRONG= 0
   f03 generics                 links= 14  found= 14 (100.0%)  missed= 0  wide= 0  WRONG= 0
@@ -29,11 +29,12 @@
   f31 named blind spots        links=  4  found=  4 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f32 iteration protocol       links= 14  found= 14 (100.0%)  missed= 0  wide= 1  WRONG= 0
   f33 type stubs               links=  2  found=  2 (100.0%)  missed= 0  wide= 0  WRONG= 0
+  f34 assignment re-export     links=  8  found=  8 (100.0%)  missed= 0  wide= 2  WRONG= 0
   pkgmod relative imports (subpackage) links=  3  found=  3 (100.0%)  missed= 0  wide= 0  WRONG= 0
 
-  TOTAL                         links=274  found=266 (97.1%)  missed= 8  wide=28  WRONG= 0
-  recall      266/274 = 97.1%  of the links that actually ran
-  wide  28   a member of a SOUND SET that did not run on this pass
+  TOTAL                         links=282  found=274 (97.2%)  missed= 8  wide=30  WRONG= 0
+  recall      274/282 = 97.2%  of the links that actually ran
+  wide  30   a member of a SOUND SET that did not run on this pass
   WRONG 0   a single target asserted as certain that never ran
 
   EXPECTED-MISS cases: {'FOUND': 14, 'MISSED': 14}   (a CONCRETE here means a known blind spot closed)
@@ -75,3 +76,5 @@
   f26_local_annotation.py:42   WIDE       true=[('client', 'f26_local_annotation.py', 27)] engine=[('client', 'f26_local_annotation.py', 22)]
   f27_with_target.py:56   WIDE       true=[('client', 'f27_with_target.py', 33)] engine=[('client', 'f27_with_target.py', 28)]
   f32_iteration_protocol.py:143  WIDE       true=[('client', 'f32_iteration_protocol.py', 64), ('client', 'f32_iteration_protocol.py', 69)] engine=[('client', 'f32_iteration_protocol.py', 59)]
+  f34_reexport_union.py:26   WIDE       true=[('client', 'rxaccel.py', 5)] engine=[('client', 'rxlib.py', 8)]
+  f34_reexport_union.py:31   WIDE       true=[('client', 'rxlib.py', 8)] engine=[('client', 'rxaccel.py', 5)]
