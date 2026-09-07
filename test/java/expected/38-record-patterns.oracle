@@ -1,0 +1,7 @@
+oracle=12 engine=6 agree=6 missing=6 (known 6, NEW 0) extra=0
+  known-missing  probe.Patterns#bothComponents -> probe.Pair#left()
+  known-missing  probe.Patterns#bothComponents -> probe.Pair#right()
+  known-missing  probe.Patterns#deconstruct -> probe.Pair#left()
+  known-missing  probe.Patterns#deconstruct -> probe.Pair#right()
+  known-missing  probe.Patterns#inSwitch -> probe.Pair#left()
+  known-missing  probe.Patterns#inSwitch -> probe.Pair#right()
