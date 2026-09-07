@@ -25,7 +25,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import ts from 'typescript';
+import { loadTypeScript } from '../ground-truth/load-typescript.mjs';
 
 const plan = process.argv[2] === '--plan';
 const start = plan ? process.argv[3] : process.argv[2];
@@ -33,6 +33,11 @@ if (!start) {
   console.error('usage: tsconfig_chain.mjs [--plan] <project-dir | tsconfig path>');
   process.exit(2);
 }
+
+// Through the shared loader like the rest of the stack: a bare `import ts from
+// 'typescript'` resolves to whatever is nearest and dies on a property access if that
+// copy is a TypeScript 7, which ships no JavaScript compiler API at all (#239).
+const ts = loadTypeScript(path.resolve(start), { toolName: 'tsconfig_chain' });
 
 /** The config a directory is governed by, or the path itself if one was given. */
 function entryConfig(p) {

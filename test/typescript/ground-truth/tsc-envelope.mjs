@@ -55,28 +55,16 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { createRequire } from 'node:module';
+import { loadTypeScript } from './load-typescript.mjs';
 
 const projectDir = path.resolve(process.argv[2]);
 const outPath = path.resolve(process.argv[3]);
 const MAX_TARGETS = Number(process.argv[4] ?? 64);
 
-// The compiler is loaded from the project under analysis when it has one, so the
-// oracle speaks the same language version the project is written against. A workspace
-// package often has no `typescript` of its own — it is hoisted to the repository root
-// — so TS_MODULE_PATH lets the harness pass the copy it already located rather than
-// the oracle failing on a layout that is perfectly ordinary.
-function loadTypeScript() {
-  const envPath = process.env.TS_MODULE_PATH;
-  if (envPath) {
-    try { return createRequire(import.meta.url)(envPath); } catch { /* fall through */ }
-  }
-  for (const base of [projectDir, path.dirname(projectDir), path.dirname(path.dirname(projectDir))]) {
-    try { return createRequire(path.join(base, 'package.json'))('typescript'); } catch { /* next */ }
-  }
-  return createRequire(import.meta.url)('typescript');
-}
-const ts = loadTypeScript();
+// Loaded from the project under analysis, so the oracle speaks the version the
+// project is written against; see load-typescript.mjs for the preference order and
+// for why an unsupported compiler is a refusal rather than a TypeError (#239).
+const ts = loadTypeScript(projectDir, { toolName: 'tsc-envelope' });
 
 // ── relPath(sourceFile) — the PARSER's path convention, not ours ─────────────
 // The scorer joins the oracle and the IR on (file, line, col, endLine, endCol), and the

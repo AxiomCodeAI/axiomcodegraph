@@ -18,11 +18,16 @@
  *
  * usage: node tsc_oracle_case.mjs <src-dir> [lib-dir]
  */
-import ts from 'typescript';
 import fs from 'node:fs';
 import path from 'node:path';
+import { loadTypeScript } from '../ground-truth/load-typescript.mjs';
 
 const root = path.resolve(process.argv[2]);
+
+// Through the shared loader like the rest of the stack: a bare `import ts from
+// 'typescript'` resolves to whatever is nearest and dies on a property access if that
+// copy is a TypeScript 7, which ships no JavaScript compiler API at all (#239).
+const ts = loadTypeScript(root, { toolName: 'tsc_oracle_case' });
 const libRoot = process.argv[3] ? path.resolve(process.argv[3]) : undefined;
 
 function collect(d) {
