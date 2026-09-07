@@ -199,6 +199,22 @@ recv_tvar_type(call, classTv, argT) :-
     call_site(call, _, recv),
     recv_decl_ref(recv, declRef, recvType),
     tvar_binding(declRef, recvType, classTv, argT).
+//   (ii-a2) THE SAM'S TVAR CAN BELONG TO AN ANCESTOR OF THE RECEIVER'S TYPE, and for the JDK it
+//     usually does: `xs.forEach(w -> …)` on a `List<W>` targets Consumer<? super T>, where T is
+//     `java.lang.Iterable`'s type variable, because forEach is declared on Iterable and not on
+//     List. fi_tvar_arg therefore asks for T while the clause above only offers bindings recorded
+//     against List — whose variable is called E — so the two never met and every JDK higher-order
+//     call lost its lambda parameter. The binding for the ancestor already exists: type_arg_binding
+//     climbs List<W> to Collection.E, SequencedCollection.E and Iterable.T through the positional
+//     super_tvar_rename. Only the join was pinned to the receiver's own type.
+//
+//     Bounded by type_ancestor rather than left free, so a binding recorded against an unrelated
+//     type cannot be picked up by sharing a variable name — `T` is the commonest name there is.
+recv_tvar_type(call, classTv, argT) :-
+    call_site(call, _, recv),
+    recv_decl_ref(recv, declRef, recvType),
+    type_ancestor(recvType, anc),
+    tvar_binding(declRef, anc, classTv, argT).
 //   (ii-b) fluent/chained receiver `ofSink().tap()` — the receiver is a call whose declared RETURN
 //     type carries the args (Pipe<LSink>). Client-declared callee (method_return_type_resolves) or
 //     lib-declared callee (METHOD_RETURN ref via lib_type_ref_resolves). NOTE: this resolves the

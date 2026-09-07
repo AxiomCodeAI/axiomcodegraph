@@ -1,9 +1,7 @@
 ambiguous_anon	anon_new	torture.F08Nesting#viaAnonymous() -> -
 ambiguous_unknown	method	torture.F03Var#fromEnhancedFor() -> -
-ambiguous_unknown	method	torture.F03Var#fromLambdaParam(List) -> -
 ambiguous_unknown	method	torture.F03Var#fromMapEntry() -> -
 ambiguous_unknown	method	torture.F06Functional#<type-initializer>() -> -
-ambiguous_unknown	method	torture.F06Functional#insideLambda(List) -> -
 ambiguous_unknown	method	torture.F06Functional#wire() -> -
 ambiguous_unknown	method	torture.F07Modern#nested(Node) -> -
 boundary_lib	ctor_delegate	it.example.Failure#<init>(String) -> java.lang.RuntimeException#<init>(String)
@@ -110,11 +108,13 @@ known_edge	method	torture.F03Var#fromGenericElement() -> torture.F03Var#many()
 known_edge	method	torture.F03Var#fromGenericElement() -> torture.Widget#id()
 known_edge	method	torture.F03Var#fromIndexedFor() -> torture.F03Var#many()
 known_edge	method	torture.F03Var#fromIndexedFor() -> torture.Widget#id()
+known_edge	method	torture.F03Var#fromLambdaParam(List) -> torture.Widget#id()
 known_edge	method	torture.F03Var#fromTernary(boolean) -> torture.F03Var#build()
 known_edge	method	torture.F03Var#fromTernary(boolean) -> torture.Widget#id()
 known_edge	method	torture.F04Events#wire(Bus) -> torture.F04Events#add(Listener)
 known_edge	method	torture.F04Events#wire(Bus) -> torture.F04Events#setSingle(Listener)
 known_edge	method	torture.F04Events#wire(Bus) -> torture.LogListener#write(String)
+known_edge	method	torture.F06Functional#insideLambda(List) -> torture.Item#name()
 known_edge	method	torture.F06Functional#viaField(Item) -> torture.Sink#apply(Item)
 known_edge	method	torture.F06Functional#viaHigherOrder(Item) -> torture.F06Functional#applyTwice(Item,Function)
 known_edge	method	torture.F06Functional#viaHigherOrder(Item) -> torture.Item#name()
