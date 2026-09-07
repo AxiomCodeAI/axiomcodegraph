@@ -703,6 +703,10 @@ export class TypeMethodExtractor {
     
     // Collect local variable names from the method body for LOCAL_VARIABLE classification
     const localVariableNames = this.collectLocalVariableNames(bodyBlock);
+
+    // A pattern binding is declared in one statement and used in another, so the extractor is
+    // told the whole body's bindings once rather than per statement.
+    this.expressionExtractor.setMethodPatternBindingNames(this.collectPatternBindingNames(bodyBlock));
     
     // IMPORTANT: Extract expression statements FIRST to get actual lambda hashes,
     // then use those hashes when processing return statements inside those lambdas.
@@ -986,6 +990,43 @@ export class TypeMethodExtractor {
    * This includes variables from local_variable_declaration, for loops, enhanced for loops,
    * try-with-resources, and catch clauses.
    */
+  /**
+   * Collects every pattern binding declared in a method body: `o instanceof Target a`,
+   * `case String s`, and the components of a record pattern.
+   *
+   * These are gathered for the whole body for the same reason local variable names are - a use
+   * site is classified against a set of names, and the declaration is in a different statement
+   * from the use. Java scoping is narrower than this (a binding is in scope only where the
+   * pattern definitely matched), but the set is used solely to classify what KIND of entity a
+   * name refers to, and a name that is a pattern binding somewhere in the method is not a field
+   * reference anywhere in it - shadowing a field is exactly the case that made this wrong.
+   */
+  private collectPatternBindingNames(bodyBlock: Parser.SyntaxNode): Set<string> {
+    const names = new Set<string>();
+
+    const walk = (node: Parser.SyntaxNode): void => {
+      if (node.type === 'type_pattern' || node.type === 'instanceof_expression') {
+        // `x instanceof Type name` - the binding is the trailing identifier.
+        const named = node.namedChildren;
+        const last = named[named.length - 1];
+        if (last?.type === 'identifier' && named.length >= 2) {
+          names.add(last.text);
+        }
+      }
+
+      if (node.type === 'pattern' || node.type === 'record_pattern_component') {
+        for (const child of node.namedChildren) {
+          if (child.type === 'identifier') names.add(child.text);
+        }
+      }
+
+      node.children.forEach(walk);
+    };
+
+    walk(bodyBlock);
+    return names;
+  }
+
   private collectLocalVariableNames(bodyBlock: Parser.SyntaxNode): Set<string> {
     const names = new Set<string>();
     this.collectLocalVariableNamesRecursive(bodyBlock, names);
@@ -1169,6 +1210,10 @@ export class TypeMethodExtractor {
     
     // Collect local variable names from the initializer block for LOCAL_VARIABLE classification
     const localVariableNames = this.collectLocalVariableNames(bodyBlock);
+
+    // A pattern binding is declared in one statement and used in another, so the extractor is
+    // told the whole body's bindings once rather than per statement.
+    this.expressionExtractor.setMethodPatternBindingNames(this.collectPatternBindingNames(bodyBlock));
     
     // Build position-to-hash map for block ownership lookups in initializer expression extraction
     const blockPositionToHash = this.buildBlockPositionMapFromAST(bodyBlock, typeRegistryHash, methodHash, filePath);

@@ -110,6 +110,16 @@ export class ExpressionReferenceExtractor {
   
   // Pattern binding variable names in scope for classifying PATTERN_BINDING references
   private currentPatternBindingNames: Set<string> = new Set();
+
+  // Pattern binding names declared anywhere in the method body currently being extracted.
+  //
+  // `currentPatternBindingNames` is set per call and carries the bindings of the expression tree
+  // being walked, which is enough for a switch rule whose label and result are one tree. An
+  // instanceof binding is used in a DIFFERENT statement from the one that declares it -
+  // `if (o instanceof Target a) { a.hit(); }` - and each statement is extracted by its own call,
+  // so the binding was out of scope by the time the use site was classified. It then fell through
+  // to the naming-convention fallback and was tagged FIELD.
+  private methodPatternBindingNames: Set<string> = new Set();
   
   // Return statement index for distinguishing multiple returns in a method
   private currentReturnStatementIndex?: number;
@@ -3374,13 +3384,24 @@ export class ExpressionReferenceExtractor {
     }
     
     // Pattern binding variable usage (identifier matching a pattern variable from instanceof/switch)
-    if (this.currentPatternBindingNames.has(identifierName)) {
+    if (this.currentPatternBindingNames.has(identifierName)
+        || this.methodPatternBindingNames.has(identifierName)) {
       builder.referencesEntity(ReferencedEntityKind.PATTERN_BINDING_VARIABLE);
       return;
     }
     
     // Use shared naming convention logic for other identifiers
     this.classifyByNamingConvention(builder, identifierName);
+  }
+
+  /**
+   * Records the pattern bindings declared anywhere in the method body about to be extracted.
+   *
+   * Set once per method, before its statements are walked, because a binding's declaration and
+   * its uses are in different statements and therefore different extraction calls.
+   */
+  setMethodPatternBindingNames(names: Set<string>): void {
+    this.methodPatternBindingNames = names;
   }
 
   /**

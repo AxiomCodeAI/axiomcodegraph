@@ -25,6 +25,7 @@ import { ArgumentValueType } from '@/enums/java/annotations/ArgumentValueType';
 import { BlockKind } from '@/enums/java/blocks/BlockKind';
 import { ExpressionKind } from '@/enums/java/expressions/ExpressionKind';
 import { EdgeRole } from '@/enums/java/expressions/EdgeRole';
+import { ReferencedEntityKind } from '@/enums/java/expressions/ReferencedEntityKind';
 import { ExpressionOwnerKind } from '@/enums/java/expressions/ExpressionOwnerKind';
 import { RootContext } from '@/enums/java/expressions/RootContext';
 import { LocalVariableScopeKind } from '@/enums/java/local-variables/LocalVariableScopeKind';
@@ -1117,6 +1118,42 @@ export class JavaExtractorTestRunner {
 
     // ── Expression Tests ──
     if (category === 'expressions') {
+      // Use sites of a pattern binding.
+      if (filename === 'PatternBindingUseSites.java') {
+        // Scoped to identifier references: a pattern binding use is one, and the fixture also
+        // contains a genuine FIELD_ACCESS (`System.out`) that must keep FIELD.
+        const refKinds = (e: ExtractedEntities, from: number, to: number) => e.expressions
+          .filter(x => {
+            const line = x.getStartLine();
+            return x.getKind() === ExpressionKind.IDENTIFIER_REFERENCE &&
+              typeof line === 'number' && line >= from && line <= to;
+          })
+          .map(x => x.getReferencedEntityKind());
+
+        // The defect: a binding's use must never be tagged FIELD. Lines 34-61 hold every
+        // pattern form and no genuine field reference.
+        validations.push(this.rule('No pattern binding use site is tagged FIELD', (e) => {
+          const fields = refKinds(e, 34, 61).filter(k => k === ReferencedEntityKind.FIELD);
+          return { passed: fields.length === 0, message: `${fields.length} pattern binding uses still tagged FIELD` };
+        }));
+
+        // Suppressing FIELD must not suppress the classification entirely.
+        validations.push(this.rule('Every pattern form yields a binding use', (e) => {
+          const uses = refKinds(e, 34, 61).filter(k => k === ReferencedEntityKind.PATTERN_BINDING_VARIABLE);
+          return {
+            passed: uses.length === 5,
+            message: `Expected 5 PATTERN_BINDING_VARIABLE uses (shadowing, plain, switch, and two record components), got ${uses.length}`
+          };
+        }));
+
+        // The control, and the assertion that matters most: a real field must stay a field.
+        // A rule that simply stopped emitting FIELD would pass everything above.
+        validations.push(this.rule('Genuine field references are unchanged', (e) => {
+          const fields = refKinds(e, 30, 32).filter(k => k === ReferencedEntityKind.FIELD);
+          return { passed: fields.length === 2, message: `Expected 2 FIELD references, got ${fields.length}` };
+        }));
+      }
+
       // A comment inside a conditional expression.
       if (filename === 'TernaryWithComments.java') {
         const withRole = (e: ExtractedEntities, role: EdgeRole) =>
