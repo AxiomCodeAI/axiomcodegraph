@@ -36,31 +36,8 @@ SRC="$(cd "$(dirname "$0")/.." && pwd)"
 LANG_ARG="${LANG_ARG:-java}"
 ENG="$SRC/$LANG_ARG/engine"; ENG2="$SRC/$LANG_ARG/engine-ii"; DL="$SRC/$LANG_ARG/souffle"; TPL="$SRC/$LANG_ARG/templates"
 [ -d "$ENG" ] || { echo "no rule set for --language=$LANG_ARG (looked in $ENG)" >&2; exit 1; }
-# Soufflé's C++ headers. DERIVED, never hardcoded — the path is version- and
-# platform-specific (Homebrew ARM vs Intel vs Linux), so pinning one Cellar path makes the
-# engine unbuildable everywhere else. Resolve the binary, walk to its prefix, then fall back.
-# Override with AXIOM_SOUFFLE_INCLUDE if souffle lives somewhere unusual.
-find_souffle_include(){
-  local b p
-  [ -n "${AXIOM_SOUFFLE_INCLUDE:-}" ] && { echo "$AXIOM_SOUFFLE_INCLUDE"; return; }
-  b="$(command -v souffle 2>/dev/null)" || true
-  if [ -n "$b" ]; then
-    # Resolve symlinks WITHOUT depending on an interpreter or GNU coreutils:
-    # readlink -f where supported (GNU, and macOS 12.3+), else walk the links by hand.
-    r="$(readlink -f "$b" 2>/dev/null)" || r=""
-    if [ -z "$r" ]; then
-      r="$b"; while [ -L "$r" ]; do
-        t="$(readlink "$r")"
-        case "$t" in /*) r="$t";; *) r="$(dirname "$r")/$t";; esac
-      done
-    fi
-    p="$(cd "$(dirname "$r")/.." && pwd)"
-    [ -d "$p/include/souffle" ] && { echo "$p/include/souffle"; return; }
-  fi
-  for p in "$(brew --prefix souffle 2>/dev/null)" /usr/local /usr /opt/homebrew; do
-    [ -n "$p" ] && [ -d "$p/include/souffle" ] && { echo "$p/include/souffle"; return; }
-  done
-}
+# shellcheck source=souffle-include.sh
+. "$SRC/pipeline/souffle-include.sh"
 INNER="$(find_souffle_include)"
 if [ -z "$INNER" ] || [ ! -d "$INNER" ]; then
   echo "❌ soufflé headers not found. Install soufflé, or set AXIOM_SOUFFLE_INCLUDE." >&2
