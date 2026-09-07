@@ -42,8 +42,9 @@
 // scanned set, so those points read unsatisfied or multi_bean instead of resolving.
 //
 // WHAT THIS POINTS AT. Every rule in this folder is scoped to "client".
-// lib_annotation / lib_annotation_argument are already staged and carry the
-// framework's own stereotypes and @Bean methods. Reading them would populate the
+// lib_annotation / lib_annotation_argument are staged (as of #136 — the comment
+// asserted this before it was true, and the relations were empty on every run) and
+// carry the framework's own stereotypes and @Bean methods. Reading them would populate the
 // bean set with the autoconfiguration beans and move most of those 16 unsatisfied
 // and 164 multi_bean rows. Until that is done the honest statement is: the
 // narrowing is correct and validated (live-context precision/recall 1.000 across
