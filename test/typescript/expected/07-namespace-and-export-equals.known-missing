@@ -2,5 +2,4 @@
 # resolves and this engine does not. A NEW missing edge fails the suite;
 # a line here that STARTS working also fails, so the debt cannot rot.
 consumer#drive() -> Node#visit()
-consumer#drive() -> legacy#deepPack()
-consumer#drive() -> legacy#pack()
+consumer#drive() -> inner#deepPack()
