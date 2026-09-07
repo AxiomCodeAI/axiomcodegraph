@@ -255,6 +255,26 @@ method_in_scope(scope, name, "false", m) :- lookup_scope(scope),
     object_prototype_member(name, m),
     !member_declared_anywhere(scope, name, "false").
 
+// ── A NAMESPACE'S EXPORTED FUNCTION VALUE IS A CALLABLE MEMBER ──────────────
+// `export const unique = (m: string) => m` inside a namespace, called as
+// `text.unique("x")`. The MODULE-namespace path already handles this — an
+// `import * as ns` receiver reads the export table and follows var_is_function
+// (callee-resolution.dl) — but a namespace DECLARATION receiver is not a module. It is
+// typed as its NAMESPACE_TYPE, so the lookup comes through here, and nothing here knew
+// that a namespace-scoped variable bound to a function is a member of it.
+//
+// The declaration is a VARIABLE in NAMESPACE_SCOPE, not a method and not a field, which
+// is why neither declared_method nor declared_field found it. var_enclosing_type
+// supplies the link from the variable to the namespace that encloses it.
+//
+// Staticness is "false" because that is what a lookup on a namespace receiver queries:
+// the receiver IS the namespace object, so its members are reached the way an instance
+// member is.
+method_in_scope(scope, name, "false", f) :- var_enclosing_type(prov, scope, v),
+    var_decl(prov, name, _, "NAMESPACE_SCOPE", _, _, v),
+    var_is_function(v, f),
+    name != "".
+
 // ── the FUNCTION prototype, the same carve-out for callable values ──────────
 // `call`, `apply` and `bind` are not members of a function's signature. They are
 // declared on the global `CallableFunction` interface in lib.es5.d.ts, which
