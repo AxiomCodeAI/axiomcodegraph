@@ -1433,6 +1433,10 @@ async function jsxBraceExpressionsWalked(): Promise<number> {
     '}',
   ].join('\n');
   fs.writeFileSync(path.join(root, 'panel.tsx'), source);
+  // A `.tsx` with NO JSX in it. `scriptKind` cannot tell this apart from
+  // `panel.tsx` because it only reports the EXTENSION, so this is the control
+  // that makes `hasJsxContent` mean CONTENT.
+  fs.writeFileSync(path.join(root, 'plain.tsx'), 'export const plain = 1;\n');
   fs.writeFileSync(path.join(root, 'tsconfig.json'), JSON.stringify({
     compilerOptions: { jsx: 'react-jsx', target: 'ES2022', module: 'ESNext', strict: true },
     include: ['*.tsx'],
@@ -1442,7 +1446,8 @@ async function jsxBraceExpressionsWalked(): Promise<number> {
     rootDir: root, outputDir, baseMservPath: root, serviceVersionLink: 'jsx-check',
   });
 
-  const modulePath = new Map(relation(outputDir, 'all-typescript-modules.csv')
+  const modules = relation(outputDir, 'all-typescript-modules.csv');
+  const modulePath = new Map(modules
     .map((m) => [m.tsModuleUniqueHash ?? '', m.filePath ?? '']));
   const emitted = new Set(relation(outputDir, 'all-typescript-call-sites.csv')
     .map((r) => `${modulePath.get(r.tsModuleLinkHash ?? '') ?? '?'}:${r.startLine}:${r.startColumn}`));
@@ -1450,6 +1455,28 @@ async function jsxBraceExpressionsWalked(): Promise<number> {
   const sf = ts.createSourceFile(path.join(root, 'panel.tsx'), source,
     ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const failures: string[] = [];
+  // Counted apart from `failures`, because the summary below reports how many
+  // CALLS were emitted -- deriving it from the failure total made an unrelated
+  // assertion read as a missing call site.
+  let missingCalls = 0;
+
+  // `hasJsxContent` was hardcoded `false`, so it could never be true, while
+  // §4.1 says it and `scriptKind` "already carry the file-level facts". Both
+  // files are TSX; only one holds JSX.
+  for (const [file, want] of [['panel.tsx', 'true'], ['plain.tsx', 'false']] as const) {
+    const row = modules.find((m) => (m.filePath ?? '').endsWith(file));
+    if (row === undefined) {
+      failures.push(`no ts_module row for ${file}`);
+      continue;
+    }
+    if (row.scriptKind !== 'TSX') {
+      failures.push(`${file}: scriptKind is ${row.scriptKind}, expected TSX`);
+    }
+    if (row.hasJsxContent !== want) {
+      failures.push(`${file}: hasJsxContent is ${row.hasJsxContent}, expected ${want} — the `
+        + 'column must report JSX CONTENT, which scriptKind cannot');
+    }
+  }
   let expected = 0;
   const walk = (node: ts.Node): void => {
     if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
@@ -1457,6 +1484,7 @@ async function jsxBraceExpressionsWalked(): Promise<number> {
       const p = sf.getLineAndCharacterOfPosition(node.getStart(sf));
       const key = `panel.tsx:${p.line + 1}:${p.character + 1}`;
       if (!emitted.has(key)) {
+        missingCalls += 1;
         failures.push(`no ts_call_site at ${key} for \`${node.getText(sf).slice(0, 44)}\``);
       }
     }
@@ -1480,7 +1508,7 @@ async function jsxBraceExpressionsWalked(): Promise<number> {
   }
 
   console.log(`  ${expected} call/new node(s) in JSX attributes, children, spreads and a ` +
-    `nested map; ${expected - failures.length} emitted, ${RESERVED_TSX_VALUES.size} reserved ` +
+    `nested map; ${expected - missingCalls} emitted, ${RESERVED_TSX_VALUES.size} reserved ` +
     'value(s) still empty');
   for (const f of failures.slice(0, 10)) console.log(`  ${f}`);
   fs.rmSync(root, { recursive: true, force: true });

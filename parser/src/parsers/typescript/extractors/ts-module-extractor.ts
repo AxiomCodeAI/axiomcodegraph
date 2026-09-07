@@ -95,7 +95,7 @@ export function extractModules(input: ModuleExtractionInput): ModuleExtractionRe
     startLine: 1,
     endLine: endPos.line + 1,
     hasTopLevelAwait: hasTopLevelAwait(sf),
-    hasJsxContent: false,
+    hasJsxContent: hasJsxContent(sf),
     serviceVersionLinkHash: input.serviceVersionLinkHash,
   });
 
@@ -272,6 +272,38 @@ function allTopLevelDeclare(sf: ts.SourceFile): boolean {
     }
   }
   return sawDeclarable;
+}
+
+/**
+ * Does this file contain JSX?
+ *
+ * It was hardcoded `false`, so the column could never be true — while §4.1
+ * relies on it, saying "`ts_module.scriptKind = TSX` and `hasJsxContent`
+ * already carry the file-level facts". `scriptKind` only reports the
+ * EXTENSION: a `.tsx` with no JSX and a `.tsx` full of it were
+ * indistinguishable, which is the difference between "this file needs the
+ * JSX work" and "this file merely could".
+ *
+ * Unlike {@link hasTopLevelAwait} the walk does not stop at a function or a
+ * class, because JSX inside a component body is exactly the case that matters
+ * — it is a property of the FILE, not of a scope.
+ */
+function hasJsxContent(sf: ts.SourceFile): boolean {
+  let found = false;
+  const walk = (node: ts.Node): void => {
+    if (found) {
+      return;
+    }
+    if (ts.isJsxElement(node)
+      || ts.isJsxSelfClosingElement(node)
+      || ts.isJsxFragment(node)) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, walk);
+  };
+  ts.forEachChild(sf, walk);
+  return found;
 }
 
 /** A top-level `await` forces module semantics regardless of imports. */
