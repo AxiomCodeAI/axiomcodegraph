@@ -131,6 +131,17 @@ if ! bash "$HERE/tools/staging-guard-test.sh"; then
   echo "aborting: a library that declares nothing would end the evaluation"
   exit 1
 fi
+
+# ── PREFLIGHT: the project is not one of its own dependencies ────────────────
+# In a workspace `node_modules/<own-name>` links back to the package being analysed, so
+# discovery staged it like any other dependency and every declaration in the project
+# existed twice — one declaration, two answers, hedged instead of exact. Measured on a
+# workspace built to that shape, changing nothing else: exactness 0.200 -> 0.800,
+# decisiveness 0.200 -> 1.000. See #231.
+if ! bash "$HERE/tools/self-staging-test.sh"; then
+  echo "aborting: the project would be staged as its own dependency"
+  exit 1
+fi
 if ! bash "$HERE/tools/envelope-merge-test.sh"; then
   echo "aborting: the dispatch envelope is not the resolved symbol's declaration set"
   exit 1
