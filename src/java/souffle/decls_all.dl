@@ -315,6 +315,7 @@
 .decl lib_toplevel_in_pkg(c0:symbol,c1:symbol,c2:symbol)
 .decl import_pkg_dot(c0:symbol,c1:symbol)
 .decl record_pattern_type_resolves(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl record_pattern_accessor(c0:symbol,c1:symbol,c2:symbol)    // (record pattern expr, accessor method, accessor provenance)
 .decl recv_decl_ref(c0:symbol,c1:symbol,c2:symbol)
 .decl ref_file(c0:symbol,c1:symbol,c2:symbol)
 .decl ref_unqualified(c0:symbol)
