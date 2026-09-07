@@ -1,4 +1,3 @@
 # Accepted gaps for 14-cross-file-shadowing — each line is an edge the TypeScript compiler
 # resolves and this engine does not. A NEW missing edge fails the suite;
 # a line here that STARTS working also fails, so the debt cannot rot.
-consumer#drive() -> consumer#shadowed()
