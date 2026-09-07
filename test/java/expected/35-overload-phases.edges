@@ -1,0 +1,8 @@
+boundary_lib	method	probe.Phases#boxedArg() -> java.lang.Integer#valueOf(int)
+known_edge	method	probe.Phases#boxedArg() -> probe.Phases#f(Integer)
+known_edge	method	probe.Phases#boxingVsWidening() -> probe.Phases#f(long)
+known_edge	method	probe.Phases#exactWins() -> probe.Phases#g(String)
+known_edge	method	probe.Phases#varargsLast() -> probe.Phases#h(Object)
+known_edge	method	probe.Phases#widenOnly() -> probe.Phases#k(int)
+multi_inferred	method	probe.Phases#varargsArray() -> probe.Phases#h(Object)
+multi_inferred	method	probe.Phases#varargsArray() -> probe.Phases#h(String[])

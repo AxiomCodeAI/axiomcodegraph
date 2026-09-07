@@ -1,6 +1,6 @@
 staged library covers 100% of the library types this client calls (3 of 3; 0 call sites name an absent type)
 boundary sites: 4   (client callers, library callees matching dep.,java.,javax.,jdk.)
-  SOUND SUPERSET                2 ( 50.0%)
+  EXACT                         2 ( 50.0%)
   DECLARING ANCESTOR            2 ( 50.0%)
   ---
   correct METHOD named      100.0%   (100.0% of the 4 the lib IR can answer)

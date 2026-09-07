@@ -292,7 +292,10 @@ done
 # because half the families call java.util types and scoring them without it measures the staging.
 if [ -d "$HERE/torture" ] && [ ${#FILTERS[@]} -eq 0 ]; then
   printf '%-34s ' "torture (10 families)"
-  if out=$(AXIOM_PARSER="$PARSER" bash "$HERE/torture/harness/run.sh" 2>&1); then
+  # --bless has to reach the torture harness too, or a run that regenerates every other golden
+  # leaves this one stale and the very next run fails on a diff the operator just approved.
+  tort_bless=""; [ "$BLESS" = "1" ] && tort_bless="--bless"
+  if out=$(AXIOM_PARSER="$PARSER" bash "$HERE/torture/harness/run.sh" $tort_bless 2>&1); then
     echo "ok  [$(echo "$out" | grep -o 'TOTAL.*' | tr -s ' ')]"
   elif [ $? = 77 ]; then
     echo "SKIP ($(echo "$out" | head -1))"

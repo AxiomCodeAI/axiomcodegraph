@@ -266,10 +266,83 @@ call_is_method_ref(call) :- java_expression("METHOD_REFERENCE", _, _, _, _, _, _
 // The type-pruned set: arity matches and no position proves a type mismatch. May be
 // EMPTY for a call when type_ancestor is too incomplete to confirm any candidate
 // (e.g. functional-interface / generic parameters).
-expr_pruned(call, callee) :- expr_call_candidate(call, callee),
+expr_arg_ok(call, callee) :- expr_call_candidate(call, callee),
     !call_is_method_ref(call),
     arity_match(call, callee),
     !arg_mismatch(call, callee).
+
+// ── JLS 15.12.2 PHASE ORDER ─────────────────────────────────────────────────────────
+// Applicability is decided in three phases and a later one is entered ONLY if the earlier
+// found nothing: phase 1 is STRICT (subtyping and widening primitive conversion), phase 2 adds
+// boxing, phase 3 adds varargs. That is not a specificity relation and cannot be expressed as
+// one — which is what the specificity axes below were trying to do, and where they broke:
+//
+//   f(long) f(Integer) f(Object)   f(1)    javac picks f(long)  — engine picked f(Integer)
+//   h(Object) h(String...)         h("a")  javac picks h(Object) — engine picked h(String[])
+//
+// Both were emitted as known_edge, with the correct candidate absent from the set, so a consumer
+// trusting known_edge was handed a method the compiler did not call. Neither is fixable by ranking:
+// in the first, `long` and `Integer` are unordered by any specificity rule; in the second,
+// `String[]` really is more specific than `Object`, and the reason `h(Object)` wins is that phase 3
+// is never reached.
+//
+// The gate is conservative in the direction that matters: a candidate counts as strict only where
+// the argument's type is actually known, so a call whose arguments cannot be typed has no strict
+// candidate, the filter does not fire, and the previous behaviour stands.
+
+// Arity as phases 1 and 2 count it — exactly equal, with a varargs method taken at its DECLARED
+// (array) parameter type. The absorbing form belongs to phase 3.
+exact_arity(call, callee) :- expr_arg_ok(call, callee), call_argc(call, n), method_paramc(callee, n).
+exact_arity(call, callee) :- expr_arg_ok(call, callee), !call_has_args(call), !method_has_params(callee).
+
+// A VARARGS POSITION IS NOT PHASE 1. In phases 1 and 2 a varargs method is taken at its declared
+// ARRAY type, and the two places the IR records that disagree: the parameter row says `String[]`
+// while the METHOD_PARAM type reference — which is what param_type_hash resolves — records the
+// ELEMENT type, `String`. The reference regime therefore accepted a bare String there and called
+// the varargs candidate strictly applicable, which is how `h("a")` kept resolving to h(String[])
+// even with the gate in place. Excluding the position sends that candidate to phase 3, where it
+// belongs. `h(new String[]{…})` is unaffected: an ARRAY_CREATION argument has no type hash, so no
+// candidate at that position is strict, the gate does not fire, and specificity still picks the
+// varargs method — which is the right answer there.
+vararg_pos(callee, pos) :- java_method_parameter(_, pos, callee, _, _, _, _, _, "true", _, _, _, _).
+vararg_pos(callee, pos) :- lib_method_parameter(_, pos, callee, _, _, _, _, _, "true", _, _, _, _).
+
+// ── strict_pos: this argument reaches this parameter by subtyping or widening alone ──
+// reference regime
+strict_pos(call, callee, pos) :- expr_arg_ok(call, callee), call_pos(call, pos), !vararg_pos(callee, pos),
+    arg_type_hash(call, pos, at), param_type_hash(callee, pos, at).
+strict_pos(call, callee, pos) :- expr_arg_ok(call, callee), call_pos(call, pos), !vararg_pos(callee, pos),
+    arg_type_hash(call, pos, at), param_type_hash(callee, pos, pt), type_ancestor(at, pt).
+strict_pos(call, callee, pos) :- expr_arg_ok(call, callee), call_pos(call, pos), !vararg_pos(callee, pos),
+    arg_type_hash(call, pos, _), param_type_hash(callee, pos, pt), param_is_object(pt).
+// value regime. BOTH sides must stay on the same side of the primitive/wrapper line: crossing it
+// is boxing or unboxing, which is phase 2 and must not qualify here.
+strict_pos(call, callee, pos) :- expr_arg_ok(call, callee), call_pos(call, pos), !vararg_pos(callee, pos),
+    arg_value_type(call, pos, av), param_value_type(callee, pos, pv),
+    !value_ref_type(av), !value_ref_type(pv),
+    value_prim(av, ap), value_prim(pv, ap).
+strict_pos(call, callee, pos) :- expr_arg_ok(call, callee), call_pos(call, pos), !vararg_pos(callee, pos),
+    arg_value_type(call, pos, av), param_value_type(callee, pos, pv),
+    !value_ref_type(av), !value_ref_type(pv),
+    value_prim(av, ap), value_prim(pv, pp), value_widens(ap, pp).
+// a reference value type reaching the same reference value type (String -> String, Integer -> Integer)
+strict_pos(call, callee, pos) :- expr_arg_ok(call, callee), call_pos(call, pos), !vararg_pos(callee, pos),
+    arg_value_type(call, pos, av), param_value_type(callee, pos, av), value_ref_type(av).
+// null reaches any reference parameter
+strict_pos(call, callee, pos) :- expr_arg_ok(call, callee), call_pos(call, pos), !vararg_pos(callee, pos),
+    arg_value_type(call, pos, "null"), param_type_hash(callee, pos, _).
+// a lambda or method reference is target-typed: it compiles, so it is applicable in every phase
+strict_pos(call, callee, pos) :- expr_arg_ok(call, callee), arg_is_target_typed(call, pos), !vararg_pos(callee, pos).
+
+not_strict_at(call, callee) :- expr_arg_ok(call, callee), call_pos(call, pos),
+    !strict_pos(call, callee, pos).
+strict_applicable(call, callee) :- exact_arity(call, callee), !not_strict_at(call, callee).
+call_has_strict(call) :- strict_applicable(call, _).
+
+// Phase 1 wins outright where it applies; otherwise every arg-compatible candidate stands, which
+// is what this relation meant before.
+expr_pruned(call, callee) :- strict_applicable(call, callee).
+expr_pruned(call, callee) :- expr_arg_ok(call, callee), !call_has_strict(call).
 call_has_pruned(call) :- expr_pruned(call, _).
 
 // ── Most-specific selection (JLS §15.12.2.5) ────────────────────────────────
