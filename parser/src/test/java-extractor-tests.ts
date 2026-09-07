@@ -25,6 +25,7 @@ import { ArgumentValueType } from '@/enums/java/annotations/ArgumentValueType';
 import { BlockKind } from '@/enums/java/blocks/BlockKind';
 import { ExpressionKind } from '@/enums/java/expressions/ExpressionKind';
 import { EdgeRole } from '@/enums/java/expressions/EdgeRole';
+import { ExpressionOwnerKind } from '@/enums/java/expressions/ExpressionOwnerKind';
 import { RootContext } from '@/enums/java/expressions/RootContext';
 import { LocalVariableScopeKind } from '@/enums/java/local-variables/LocalVariableScopeKind';
 import { TypeRefContext } from '@/enums/java/type-references/TypeRefContext';
@@ -94,6 +95,9 @@ export class JavaExtractorTestRunner {
   private importExtractor: ImportExtractor;
   private serviceVersionHash = 'test-version-hash';
 
+  /** Every vocabulary value observed across all fixtures, for the coverage gate. */
+  private observedVocabulary: Record<string, Set<string>> = {};
+
   constructor(testDataDir?: string) {
     this.testDataDir = testDataDir || path.join(process.cwd(), 'src', 'test-data', 'java');
     this.extractor = new TypeRegistryExtractor();
@@ -151,6 +155,7 @@ export class JavaExtractorTestRunner {
     }
 
     this.printSummary(allResults);
+    this.reportVocabularyCoverage();
   }
 
   /**
@@ -262,6 +267,8 @@ export class JavaExtractorTestRunner {
         result.passed = false;
         result.errors.push(...linkChecks.errors);
       }
+
+      this.recordVocabulary(entities);
 
       // Check that every row survives being written — one physical line, header field count
       const tsvChecks = this.validateTsvRowIntegrity(entities);
@@ -1452,6 +1459,136 @@ export class JavaExtractorTestRunner {
   }
 
   // ==================== HASH UNIQUENESS ====================
+
+  // ==================== VOCABULARY COVERAGE ====================
+
+  /**
+   * Members of a declared vocabulary that no fixture produces today.
+   *
+   * A value declared in an enum and emitted by nothing is a recurring defect shape here rather
+   * than a hypothetical: `LOCAL_PLACEMENT`, `ASSERT_CONDITION`, `ASSERT_MESSAGE` and
+   * `ASSERT_STATEMENT` were each declared, documented with a worked example, and produced by no
+   * code path. Nothing failed when that was true, because a test suite only sees the values that
+   * are emitted.
+   *
+   * Every entry below is a member with no producer, checked against a fixture that exercises the
+   * construct rather than assumed from the corpus. Adding a member without either producing it or
+   * listing it here fails the gate, and so does listing one that has since started being produced,
+   * so the list cannot rot in either direction.
+   */
+  private static readonly UNPRODUCED_VOCABULARY: Record<string, Record<string, string>> = {
+    RootContext: {
+      FOR_INIT: 'defect: the init clause of a for statement is not routed through the expression extractor',
+      TRY_RESOURCE: 'defect: a try-with-resources resource is not extracted',
+      TRY_BLOCK: 'defect: expressions in a try body carry the enclosing context instead',
+      CATCH_BLOCK: 'defect: expressions in a catch body carry the enclosing context instead',
+      FINALLY_BLOCK: 'defect: expressions in a finally body carry the enclosing context instead',
+      STATIC_INITIALIZER: 'defect: expressions in a static initializer carry the enclosing context instead',
+      INSTANCE_INITIALIZER: 'defect: expressions in an instance initializer carry the enclosing context instead',
+      YIELD_VALUE: 'defect: a yield value is not distinguished from an ordinary switch arm result',
+      ANNOTATION_VALUE: 'annotation argument values are carried by AnnotationArgumentReference, not as expressions',
+      ANNOTATION_DEFAULT: 'an annotation element default is carried on MethodRegistry.defaultValueExpression',
+      CONTINUE_STATEMENT: 'no fixture declares a labelled continue; the value is reachable',
+    },
+    ExpressionKind: {
+      CONTINUE_STATEMENT: 'no fixture declares a labelled continue; the value is reachable',
+      UNKNOWN: 'a fallback that a well-formed fixture should never reach',
+    },
+    ExpressionOwnerKind: {
+      CONTINUE_STATEMENT: 'no fixture declares a labelled continue; the value is reachable',
+      SWITCH_EXPRESSION: 'defect: switch arms are owned by the enclosing statement',
+      TRY_STATEMENT: 'defect: see RootContext.TRY_BLOCK',
+      TRY_BLOCK: 'defect: see RootContext.TRY_BLOCK',
+      CATCH_BLOCK: 'defect: see RootContext.CATCH_BLOCK',
+      FINALLY_BLOCK: 'defect: see RootContext.FINALLY_BLOCK',
+      STATIC_INIT_BLOCK: 'defect: see RootContext.STATIC_INITIALIZER',
+      INSTANCE_INIT_BLOCK: 'defect: see RootContext.INSTANCE_INITIALIZER',
+      ANNOTATION_ARGUMENT: 'annotation arguments are carried by AnnotationArgumentReference',
+      RECORD_COMPONENT: 'a record component is carried as a MethodParameter and a FieldRegistry',
+    },
+    EdgeRole: {
+      METHOD_NAME: 'a call names its method on the invocation row, not as a child edge',
+      FIELD_NAME: 'a field access names its field on the access row, not as a child edge',
+      TYPE_ARGUMENT: 'type arguments are carried by TypeReference, not as expression children',
+    },
+    TypeCategory: {
+      ANNOTATION_TYPE: 'reserved; @interface declarations use ANNOTATION_INTERFACE_TYPE',
+    },
+  };
+
+  /**
+   * Records every vocabulary value this fixture produced.
+   */
+  private recordVocabulary(entities: ExtractedEntities): void {
+    const add = (vocab: string, value: string | undefined) => {
+      if (!value) return;
+      (this.observedVocabulary[vocab] ??= new Set()).add(value);
+    };
+
+    for (const t of entities.types) {
+      add('TypePlacement', t.getTypePlacement());
+      add('TypeCategory', t.getTypeCategory());
+    }
+    for (const m of entities.methods) add('MethodKind', m.getMethodKind());
+    for (const i of entities.imports) add('ImportKind', i.getImportKind());
+    for (const e of entities.expressions) {
+      add('ExpressionKind', e.getKind());
+      add('RootContext', e.getRootContext());
+      add('EdgeRole', e.getEdgeRole());
+      add('ExpressionOwnerKind', e.getExpressionOwnerKind());
+    }
+  }
+
+  /**
+   * Fails when a declared vocabulary member is neither produced nor recorded as unproduced.
+   */
+  private reportVocabularyCoverage(): void {
+    const vocabularies: Record<string, Record<string, string>> = {
+      RootContext: RootContext as unknown as Record<string, string>,
+      ExpressionKind: ExpressionKind as unknown as Record<string, string>,
+      ExpressionOwnerKind: ExpressionOwnerKind as unknown as Record<string, string>,
+      EdgeRole: EdgeRole as unknown as Record<string, string>,
+      TypePlacement: TypePlacement as unknown as Record<string, string>,
+      TypeCategory: TypeCategory as unknown as Record<string, string>,
+      MethodKind: MethodKind as unknown as Record<string, string>,
+      ImportKind: ImportKind as unknown as Record<string, string>,
+    };
+
+    const problems: string[] = [];
+    let produced = 0;
+    let declared = 0;
+
+    for (const [name, vocabulary] of Object.entries(vocabularies)) {
+      const members = Object.values(vocabulary);
+      const seen = this.observedVocabulary[name] ?? new Set<string>();
+      const recorded = JavaExtractorTestRunner.UNPRODUCED_VOCABULARY[name] ?? {};
+
+      declared += members.length;
+      produced += members.filter(v => seen.has(v)).length;
+
+      for (const member of members) {
+        if (!seen.has(member) && !(member in recorded)) {
+          problems.push(`${name}.${member} is declared and produced by no fixture, and is not recorded as unproduced`);
+        }
+      }
+      for (const member of Object.keys(recorded)) {
+        if (seen.has(member)) {
+          problems.push(`${name}.${member} is recorded as unproduced but a fixture now produces it — remove the entry`);
+        }
+      }
+    }
+
+    console.log('\n' + '='.repeat(80));
+    console.log(`🔤 Vocabulary coverage: ${produced}/${declared} declared members produced by fixtures`);
+    if (problems.length === 0) {
+      console.log('✅ every declared member is produced or recorded as unproduced');
+    } else {
+      console.log(`❌ ${problems.length} vocabulary problem(s):`);
+      problems.forEach(p => console.log(`   ${p}`));
+      process.exitCode = 1;
+    }
+    console.log('='.repeat(80));
+  }
 
   // ==================== TSV ROW INTEGRITY ====================
 
