@@ -9,12 +9,12 @@
 //
 // Conventions: views only; one raw base relation per rule body; provenance tag first.
 //
-// java_property_key / lib_property_key cols (14):
+// java_property_key cols (14):
 //   0 key  1 rawKey  2 delimiter  3 hasValue  4 isMultiLineKey  5 isMultiLineValue
 //   6 filePath  7 baseMservPath  8 startLine  9 endLine  10 startColumn
 //   11 endColumn  12 serviceVersionLinkHash  13 propertyKeyUniqueHash
 //
-// java_property_value_segment / lib_property_value_segment cols (12):
+// java_property_value_segment cols (12):
 //   0 segmentValue  1 segmentType  2 defaultValue  3 position  4 depth
 //   5 parentSegmentLinkHash  6 propertyKeyLinkHash  7 startLine  8 endLine
 //   9 startColumn  10 endColumn  11 propertyValueSegmentUniqueHash
@@ -23,7 +23,6 @@
 // ── prop_key(Prov, Key, HasValue, FilePath, KeyHash) ────────────────────────
 // A property key, whether it has a value, and its file.
 prop_key("client", key, hasValue, filePath, h) :- java_property_key(key, _, _, hasValue, _, _, filePath, _, _, _, _, _, _, h).
-prop_key("lib", key, hasValue, filePath, h) :- lib_property_key(key, _, _, hasValue, _, _, filePath, _, _, _, _, _, _, h).
 
 // ── prop_segment(Prov, KeyHash, SegmentValue, SegmentType, DefaultValue, ParentSegmentHash, SegHash) ──
 // One segment of a property value. A LITERAL segment may be a class name; a
@@ -39,4 +38,3 @@ prop_key("lib", key, hasValue, filePath, h) :- lib_property_key(key, _, _, hasVa
 //   RANDOM                     ${random...}
 //   EMPTY                      empty segment
 prop_segment("client", keyHash, value, segType, default, parentSeg, h) :- java_property_value_segment(value, segType, default, _, _, parentSeg, keyHash, _, _, _, _, h).
-prop_segment("lib", keyHash, value, segType, default, parentSeg, h) :- lib_property_value_segment(value, segType, default, _, _, parentSeg, keyHash, _, _, _, _, h).

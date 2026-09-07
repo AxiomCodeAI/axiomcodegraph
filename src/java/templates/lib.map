@@ -3,7 +3,6 @@
 lib_annotation	all-annotations
 lib_annotation_argument	all-annotation-arguments
 lib_block	all-blocks
-lib_comment	all-comments
 lib_enum_constant	all-enum-constants
 lib_expression	all-expressions
 lib_field	all-fields
@@ -13,16 +12,9 @@ lib_local_variable	all-local-variables
 lib_method	all-methods
 lib_method_parameter	all-method-parameters
 lib_method_type_parameter	all-method-type-parameters
-lib_property_key	all-property-keys
-lib_property_value_segment	all-property-value-segments
 lib_type	all-types
 lib_type_lines	all-types
 lib_type_parameter	all-type-parameters
 lib_type_reference	all-type-references
-lib_xml_attribute	all-xml-attributes
-lib_xml_element	all-xml-elements
-lib_xml_value_reference	all-xml-value-references
-lib_yaml_property	all-yaml-properties
-lib_yaml_value_segment	all-yaml-value-segments
 lib_service_descriptor	all-service-descriptors
 lib_service_provider	all-service-providers

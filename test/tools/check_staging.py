@@ -49,21 +49,40 @@ DECL = os.path.join(ROOT, 'src', LANG, 'souffle', 'decls_base.dl')
 # Relations that exist for the CLIENT only, each with the reason. A library's copy of one of
 # these would be meaningless, so the asymmetry is intended rather than forgotten.
 CLIENT_ONLY = {
-    # (none yet — add with a reason, never bare)
+    # #136 decided these are client-only rather than staged-but-empty. A dependency's OWN
+    # properties/YAML/XML is not part of the client's configuration: the client's files are what
+    # wire its beans, and the one library-side config that does matter — META-INF/services — is
+    # carried by service_descriptor / service_provider, which ARE staged. Neither Python nor
+    # TypeScript stages config on the library side either, so the asymmetry is the convention
+    # rather than an oversight here.
+    #
+    # Each was previously declared in lib.map and staged by nothing, so its lib_ projection derived
+    # zero rows on every run with no error — the failure mode this guard exists to catch.
+    'comment':                'a library\'s comments are not part of the client\'s configuration',
+    'property_key':           'a dependency\'s own .properties do not configure the client',
+    'property_value_segment': 'segment of property_key, same reason',
+    'xml_attribute':          'a dependency\'s own XML does not configure the client',
+    'xml_element':            'a dependency\'s own XML does not configure the client',
+    'xml_value_reference':    'reference inside xml_element, same reason',
+    'yaml_property':          'a dependency\'s own YAML does not configure the client',
+    'yaml_value_segment':     'segment of yaml_property, same reason',
 }
 
-# Declared in lib.map and deliberately NOT staged yet. Each is a real decision that has not
-# been made — staging the platform's annotation table is not free, and deleting the row
-# removes a capability someone may intend — so the debt is listed rather than silently
-# tolerated — see issue #136. Anti-rot, in both directions: an entry missing from lib.map, or one that HAS
-# become staged, fails the guard too, so this list cannot drift out of date.
+# Declared in lib.map and deliberately NOT staged. Anti-rot in both directions: an entry missing
+# from lib.map, or one that HAS become staged, fails the guard too, so this list cannot drift out
+# of date.
+#
+# Java's set is EMPTY as of #136, which decided all ten of its entries rather than carrying them.
+# lib_annotation and lib_annotation_argument are now staged — measured at +11.4 MB on a ~410 MB
+# platform library with no steady-state solve cost and byte-identical output, and both Python and
+# TypeScript already stage their decorator counterparts, so Java was the outlier. The eight config
+# relations were deleted from lib.map instead: nothing read them, neither of the other languages
+# stages config on the library side, and META-INF/services — the one library-side config that does
+# matter — is covered by service_descriptor / service_provider, which are staged.
+#
+# An empty set is a claim, not an absence: it says no such decision is pending for this language.
 UNSTAGED_PENDING_BY_LANG = {
-    'java': {
-        'lib_annotation', 'lib_annotation_argument', 'lib_comment',
-        'lib_property_key', 'lib_property_value_segment',
-        'lib_xml_attribute', 'lib_xml_element', 'lib_xml_value_reference',
-        'lib_yaml_property', 'lib_yaml_value_segment',
-    },
+    'java': set(),
     # Python stages every signature relation it declares and puts the five body relations
     # in LIB_BODY, so there is no debt to record. An entry appearing here later is a
     # decision someone took; an empty set is the claim that no such decision is pending.
