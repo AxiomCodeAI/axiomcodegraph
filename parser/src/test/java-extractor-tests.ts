@@ -1117,6 +1117,48 @@ export class JavaExtractorTestRunner {
 
     // ── Expression Tests ──
     if (category === 'expressions') {
+      // The three clauses of a basic for statement.
+      if (filename === 'ForClauseContexts.java') {
+        const rootsIn = (e: ExtractedEntities, ctx: RootContext) =>
+          e.expressions.filter(x => x.getRootContext() === ctx && x.getEdgeRole() === EdgeRole.ROOT);
+
+        // The duplication, stated as a count. `for (init(); cond(); step())` produced three
+        // FOR_UPDATE roots for one update clause; every loop here has exactly one update
+        // except the two-clause one, which has two, and the empty one, which has none.
+        validations.push(this.rule('Each update clause yields exactly one row', (e) => {
+          const updates = rootsIn(e, RootContext.FOR_UPDATE);
+          return { passed: updates.length === 6, message: `Expected 6 FOR_UPDATE roots, got ${updates.length}` };
+        }));
+
+        // The clause that was declared and produced by nothing.
+        validations.push(this.rule('An expression init clause is FOR_INIT, not FOR_UPDATE', (e) => {
+          const inits = rootsIn(e, RootContext.FOR_INIT);
+          return { passed: inits.length === 3, message: `Expected 3 FOR_INIT roots, got ${inits.length}` };
+        }));
+
+        validations.push(this.rule('Each condition yields exactly one row', (e) => {
+          const conditions = rootsIn(e, RootContext.FOR_CONDITION);
+          return { passed: conditions.length === 5, message: `Expected 5 FOR_CONDITION roots, got ${conditions.length}` };
+        }));
+
+        // The specific collision: a condition must never also be recorded as an update. Both
+        // rows carried the same byte range and differed only in context, so comparing positions
+        // is what detects it.
+        validations.push(this.rule('No condition is also emitted as an init or update', (e) => {
+          const key = (x: ExpressionReference) => `${x.getStartLine()}:${x.getStartColumn()}`;
+          const conditions = new Set(rootsIn(e, RootContext.FOR_CONDITION).map(key));
+          const clauses = [...rootsIn(e, RootContext.FOR_UPDATE), ...rootsIn(e, RootContext.FOR_INIT)].map(key);
+          const collided = clauses.filter(k => conditions.has(k));
+          return { passed: collided.length === 0, message: `Positions emitted under two clauses: ${JSON.stringify(collided)}` };
+        }));
+
+        // A declaration init clause belongs to the local variable, not to the loop.
+        validations.push(this.rule('A declaration init clause is not re-read as FOR_INIT', (e) => {
+          const declInits = rootsIn(e, RootContext.FOR_INIT).filter(x => x.getKind() === ExpressionKind.LITERAL);
+          return { passed: declInits.length === 0, message: `Declaration initializers wrongly in FOR_INIT: ${declInits.length}` };
+        }));
+      }
+
       // Expressions inside a static or instance initializer.
       if (filename === 'InitializerBlockExpressions.java') {
         // The three members hold identical statements. Lines come from the fixture:
@@ -1525,7 +1567,6 @@ export class JavaExtractorTestRunner {
    */
   private static readonly UNPRODUCED_VOCABULARY: Record<string, Record<string, string>> = {
     RootContext: {
-      FOR_INIT: 'defect: the init clause of a for statement is not routed through the expression extractor',
       TRY_RESOURCE: 'defect: a try-with-resources resource is not extracted',
       TRY_BLOCK: 'defect: expressions in a try body carry the enclosing context instead',
       CATCH_BLOCK: 'defect: expressions in a catch body carry the enclosing context instead',

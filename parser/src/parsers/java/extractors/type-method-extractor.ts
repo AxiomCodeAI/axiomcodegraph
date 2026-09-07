@@ -2077,32 +2077,45 @@ export class TypeMethodExtractor {
             this.collectExpressionExtractorResults();
           }
 
-          // FOR update - can have multiple expressions (i++, j--, i = i + 1, process(i), etc.)
-          // These are sibling expression nodes of various types
-          const updateTypes = new Set([
-            'update_expression',      // i++, j--
-            'assignment_expression',  // i = i + 1, i += 1, flag = !flag
-            'method_invocation',      // process(i)
-            'unary_expression',       // -i, !flag (negation)
-          ]);
-          for (const updateChild of child.children) {
-            if (updateTypes.has(updateChild.type)) {
-              const updateExprs = this.expressionExtractor.extractFromConditionExpression(
-                updateChild,
-                typeRegistryHash,
-                ownerHash,
-                ExpressionOwnerKind.FOR_STATEMENT,
-                RootContext.FOR_UPDATE,
-                packageName,
-                importMap,
-                hasStarImports,
-                methodParamNames,
-                localVariableNames,
-                currentLambdaParams
-              );
-              expressions.push(...updateExprs);
-              this.collectExpressionExtractorResults();
-            }
+          // FOR init and update clauses, read by FIELD rather than by node type.
+          //
+          // Matching on node type scanned every child of the for_statement, so a condition that
+          // happened to be a method_invocation, a unary or an assignment matched the update set
+          // as well and was emitted a second time with FOR_UPDATE. An expression init clause
+          // matched too, so `for (init(); cond(); step())` produced three FOR_UPDATE rows for one
+          // update clause, and the once-per-loop call in the init clause was reported in the
+          // clause that runs every iteration.
+          //
+          // The grammar labels these: `init`, `condition` and `update` are field names on
+          // for_statement, and a clause may repeat (`for (i = 0, j = 1; …; i++, j--)`), so every
+          // child carrying the field is taken rather than the first.
+          for (let clauseIndex = 0; clauseIndex < child.childCount; clauseIndex++) {
+            const clause = child.child(clauseIndex);
+            if (!clause) continue;
+
+            const fieldName = child.fieldNameForChild(clauseIndex);
+            if (fieldName !== 'init' && fieldName !== 'update') continue;
+
+            // A declaration init clause (`for (int i = 0; …)`) belongs to the local variable:
+            // its initializer is already extracted as LOCAL_VAR_INITIALIZER, and re-reading it
+            // here would duplicate the row under a second context.
+            if (fieldName === 'init' && clause.type === 'local_variable_declaration') continue;
+
+            const clauseExprs = this.expressionExtractor.extractFromConditionExpression(
+              clause,
+              typeRegistryHash,
+              ownerHash,
+              ExpressionOwnerKind.FOR_STATEMENT,
+              fieldName === 'init' ? RootContext.FOR_INIT : RootContext.FOR_UPDATE,
+              packageName,
+              importMap,
+              hasStarImports,
+              methodParamNames,
+              localVariableNames,
+              currentLambdaParams
+            );
+            expressions.push(...clauseExprs);
+            this.collectExpressionExtractorResults();
           }
 
           traverse(child, currentLambdaParams, insideLambda, currentBlockHash);
