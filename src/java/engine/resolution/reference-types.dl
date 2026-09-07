@@ -63,8 +63,12 @@ local_var_type_resolves(prov, local, ref, t) :- java_local_variable(_, _, _, _, 
 // An ARRAY iterable is not covered: it has no Iterable binding, and an array element type is a
 // separate mechanism.
 // java_local_variable (19): 8 scopeKind 11 isVarInferred 17 parentExpressionLinkHash 18 hash
+// edgeRole = ROOT. A chained iterable emits one ENHANCED_FOR_ITERABLE row per link —
+// `map.entrySet()` emits both the entrySet call and the `map` receiver under the same block — so
+// without the ROOT filter the loop variable is joined to the inner receiver as well, and takes an
+// element type from the wrong expression.
 foreach_iterable(local, iterExpr) :- java_local_variable(_, _, _, _, _, _, _, _, "ENHANCED_FOR_LOOP", _, _, "true", _, _, _, _, _, blk, local),
-    java_expression(_, _, "ENHANCED_FOR_ITERABLE", "ENHANCED_FOR_STATEMENT", _, blk, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, iterExpr).
+    java_expression(_, "ROOT", "ENHANCED_FOR_ITERABLE", "ENHANCED_FOR_STATEMENT", _, blk, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, iterExpr).
 
 iterable_elem_tvar(tv) :- lib_type(_, "java.lang.Iterable", _, _, _, _, _, _, _, _, _, _, _, it),
     lib_type_parameter(tv, "0", _, _, _, _, it, _).
@@ -73,6 +77,15 @@ local_var_type_resolves(prov, local, ref, elem) :- foreach_iterable(local, iterE
     recv_decl_ref(iterExpr, ref, _),
     iterable_elem_tvar(tv),
     type_arg_binding(ref, ity, tv, elem),
+    lib_type(_, "java.lang.Iterable", _, _, _, _, _, _, _, _, _, _, _, ity),
+    type_prov(elem, prov).
+// The library counterpart: the iterable's element is written on a LIBRARY reference
+// (`Map#entrySet()` returns `Set<Map.Entry<K,V>>`), so the binding is a lib_type_arg_binding and
+// the climb to Iterable happens there.
+local_var_type_resolves(prov, local, ref, elem) :- foreach_iterable(local, iterExpr),
+    recv_decl_ref(iterExpr, ref, _),
+    iterable_elem_tvar(tv),
+    lib_type_arg_binding(ref, ity, tv, elem),
     lib_type(_, "java.lang.Iterable", _, _, _, _, _, _, _, _, _, _, _, ity),
     type_prov(elem, prov).
 
