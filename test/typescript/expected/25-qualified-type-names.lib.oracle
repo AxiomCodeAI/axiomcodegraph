@@ -1,0 +1,7 @@
+oracle=10 engine=14 agree=9 missing=1 (known 1, NEW 0) extra=5
+  known    consumer#viaQualifier(Point) -> Point#move(number)
+  extra    Impl#fit(Point) -> Origin#move(number)
+  extra    client-to-lib#driveLibrary() -> Std#open()
+  extra    consumer#drive() -> Impl#fit(Point)
+  extra    consumer#pack(Box) -> Impl#fit(Point)
+  extra    consumer#slide(Point) -> Origin#move(number)
