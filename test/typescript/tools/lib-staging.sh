@@ -71,3 +71,36 @@ is_project_itself() { # $1 = candidate dir, $2 = project root, $3 = mirror root
   [ -n "$mirror" ] && is_same_dir "$cand" "$mirror" && return 0
   return 1
 }
+
+# ── link_into_mirror <source> <link-path> <project-root> <mirror-root> ───────
+# A SELF-LINK MUST POINT AT THE MIRROR, NOT BACK OUT OF IT.
+#
+# The mirror gets a directory of per-package symlinks into the ORIGINAL node_modules
+# roots. For an ordinary dependency that is right — there is only one copy of it. For a
+# workspace SELF-LINK it is not: `node_modules/<own-name>` resolves to the package being
+# analysed, so the link led back out of the mirror. TypeScript resolves symlinks to
+# their realpath, so a file importing its own package by name was adjudicated against
+# the ORIGINAL tree while the engine's IR is the mirror:
+#
+#     src/selfref.ts  helper()
+#         oracle  <original>/packages/wsp/src/lib.ts:1:1
+#         engine  <mirror>/project/src/lib.ts:1:1
+#
+# Same file, same line, same column, different root, so the two cannot join and the site
+# scores WRONG while both sides named the same declaration. Measured on a workspace built
+# to that shape, with nothing else changed:
+#
+#     self-link -> original    exactness 0.800   1 WRONG
+#     self-link -> mirror      exactness 1.000   0 WRONG
+#
+# Invisible until #231: the project was ALSO staged as its own dependency from the
+# original tree, so an original-rooted answer was in the engine's set and the site read
+# SOUND_SUPERSET. Removing that duplicate revealed the mismatch. See #293.
+link_into_mirror() { # $1 = source, $2 = link path, $3 = project root, $4 = mirror root
+  local target="$1"
+  [ -e "$2" ] && return 0
+  if is_project_itself "$target" "${3:-}" "${4:-}"; then
+    target="${4:-$1}"
+  fi
+  ln -sfn "$target" "$2"
+}
