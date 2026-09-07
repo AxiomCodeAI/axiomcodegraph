@@ -99,6 +99,17 @@ def main():
     # raw METHOD_REGISTRY hash in the golden. That breaks the promise one line above: the hashes
     # move whenever the platform IR is rebuilt, so the golden churns for a reason that has nothing
     # to do with the engine.
+    # REFUSE a library root that is not a directory, rather than ignoring it. Accepting the
+    # argument and silently continuing made a mistyped, moved or word-split root indistinguishable
+    # from "no library root was passed", and the only evidence was a golden diff two steps later
+    # that pointed at method resolution.
+    if len(args) > 3:
+        sys.exit(f"normalize_edges: too many arguments: {args[3:]!r}\n"
+                 "  usage: normalize_edges.py <ir> <out> [lib-ir] [--client-pairs]\n"
+                 "  a path containing a space, unquoted by the caller, arrives split — check the invocation")
+    if len(args) > 2 and not os.path.isdir(args[2]):
+        sys.exit(f"normalize_edges: library root is not a directory: {args[2]!r}\n"
+                 "  a path containing a space, unquoted by the caller, arrives split — check the invocation")
     if len(args) > 2 and os.path.isdir(args[2]):
         roots = [args[2]] if os.path.exists(os.path.join(args[2], 'all-methods.csv')) else \
                 [os.path.join(args[2], d) for d in sorted(os.listdir(args[2]))

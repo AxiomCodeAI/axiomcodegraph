@@ -150,14 +150,21 @@ for dir in "$HERE"/cases/*/; do
   if ! python3 "$HERE/tools/coverage_guard.py" "$w/ir" "$w/out" >"$w/coverage.txt" 2>&1; then
     echo "FAIL (silent drop)"; sed 's/^/    /' "$w/coverage.txt"; fail=$((fail+1)); failed+=("$name"); continue; fi
 
-  lib_ir_arg=""; [ -d "$w/lib-ir" ] && lib_ir_arg="$w/lib-ir"
-  python3 "$HERE/tools/normalize_edges.py" "$w/ir" "$w/out" $lib_ir_arg > "$w/actual.edges" 2>"$w/norm.log" || {
+  # QUOTED, via an array. This one expansion doubled as an "omit the argument entirely" flag, so it
+  # was bare — and a checkout path containing a space then word-split it, handing the tool a
+  # fragment that is not a directory. The library names were silently not loaded and both lib-src
+  # cases failed with a diff that reads as an engine regression.
+  lib_args=(); [ -d "$w/lib-ir" ] && lib_args=("$w/lib-ir")
+  python3 "$HERE/tools/normalize_edges.py" "$w/ir" "$w/out" ${lib_args[@]+"${lib_args[@]}"} > "$w/actual.edges" 2>"$w/norm.log" || {
     echo "FAIL (normalize — see $w/norm.log)"; fail=$((fail+1)); failed+=("$name"); continue; }
 
   # ── optional: GROUND TRUTH from javac + javap (no library IR involved) ────
   if [ "$ORACLE" = "1" ]; then
-    orc_lib=""; [ -d "$dir/lib-src" ] && orc_lib="--lib-src $dir/lib-src"
-    if python3 "$HERE/tools/bytecode_oracle.py" "$dir/src" "$w/oracle" --app-only $orc_lib > "$w/oracle.edges" 2>"$w/oracle.log"; then
+    # An array, for the reason above: `--lib-src $dir/lib-src` bare splits on a space in the path,
+    # the flag then receives a fragment that is not a directory, the stub is not compiled, and the
+    # case's oracle reports `package dep does not exist` — which reads as a broken fixture.
+    orc_lib=(); [ -d "$dir/lib-src" ] && orc_lib=(--lib-src "$dir/lib-src")
+    if python3 "$HERE/tools/bytecode_oracle.py" "$dir/src" "$w/oracle" --app-only ${orc_lib[@]+"${orc_lib[@]}"} > "$w/oracle.edges" 2>"$w/oracle.log"; then
       python3 "$HERE/tools/normalize_edges.py" "$w/ir" "$w/out" --client-pairs > "$w/engine.pairs"
       if ! python3 "$HERE/tools/oracle_diff.py" "$w/engine.pairs" "$w/oracle.edges" \
              "$HERE/expected/$name.known-missing" > "$w/oracle.diff"; then

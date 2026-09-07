@@ -134,9 +134,20 @@ lib_cache_key(){
   { printf '%s\n' "$LIB" "$LIB_SIG"
     for root in "${LIB_ROOTS[@]}"; do
       while IFS= read -r mod; do
+        # The module PATH is part of the key on its own. Metadata can come back empty for reasons
+        # that have nothing to do with the library's content, and when it does the key must still
+        # change if a module was added or removed — otherwise two different libraries hash alike.
+        printf '%s\n' "$mod"
+        # -L BECAUSE A MODULE IS ROUTINELY A SYMLINK. find does not descend a symlinked operand
+        # without it, and a library root assembled from links — which is how the torture harness
+        # stages the stub plus one entry per platform module — then contributed NO file metadata at
+        # all. The key collapsed to ($LIB, $LIB_SIG), so the stub-only library and the
+        # stub-plus-63-platform-module library at the same path hashed identically and one run was
+        # served the other's staged facts. Reproduced on macOS, so it is not the `stat` portability
+        # problem: `find dir_symlink -name '*.csv'` simply prints nothing.
         # size+mtime of each module's CSVs — cheap, and changes whenever the IR does.
-        find "$mod" -maxdepth 1 -name '*.csv' -exec stat -f '%N %z %m' {} \; 2>/dev/null \
-          || find "$mod" -maxdepth 1 -name '*.csv' -printf '%p %s %T@\n' 2>/dev/null
+        find -L "$mod" -maxdepth 1 -name '*.csv' -exec stat -f '%N %z %m' {} \; 2>/dev/null \
+          || find -L "$mod" -maxdepth 1 -name '*.csv' -printf '%p %s %T@\n' 2>/dev/null
       done < <(lib_modules "$root")
     done
   } | sort | shasum | cut -d' ' -f1
