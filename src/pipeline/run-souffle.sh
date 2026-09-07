@@ -309,7 +309,32 @@ prev=-1; iter=0
 while [ "$iter" -lt 50 ]; do
   iter=$((iter+1))
   echo "▶ solve (iteration $iter)..."
-  "$BIN" -F "$FACTS" -D "$OUT"
+  # AXIOM_SOUFFLE_PROFILE=<file> builds a SEPARATE profiling binary and runs that, so
+  # Souffle reports per-rule wall time and tuple counts. Read it with `souffleprof`.
+  #
+  # It must be compiled, not interpreted. The interpreter aborts on this rule set with
+  # "Requested arity not yet supported" — ts_method is 43 columns and the interpreter
+  # supports fewer than the compiled backend does. So `-p` goes to CODE GENERATION and
+  # the generated program writes the profile itself.
+  #
+  # Worth the build cost: two plausible explanations for this engine's time on a large
+  # project — a per-character path scan and an import fan-out — were both measured and
+  # both wrong (the path machinery does all its work in 0.19s; the project with the worse
+  # fan is 19x faster). A profile would have said so immediately.
+  if [ -n "${AXIOM_SOUFFLE_PROFILE:-}" ]; then
+    PBIN="$INT/souffle-profile-bin"
+    if [ ! -x "$PBIN" ]; then
+      echo "▶ building profiling binary (once per run dir)..."
+      souffle -g "$INT/profile-program.cpp" -p "$AXIOM_SOUFFLE_PROFILE" "$PROG" \
+        2> "$INT/.souffle-prof-gen.log" || { cat "$INT/.souffle-prof-gen.log" >&2; exit 1; }
+      c++ -std=c++17 -O3 -march=native -w -I "$INNER" \
+        "$INT/profile-program.cpp" -o "$PBIN" || exit 1
+    fi
+    echo "▶ solving with profiling -> $AXIOM_SOUFFLE_PROFILE"
+    "$PBIN" -F "$FACTS" -D "$OUT" -p "$AXIOM_SOUFFLE_PROFILE"
+  else
+    "$BIN" -F "$FACTS" -D "$OUT"
+  fi
   REACH="$OUT/external-reachable-method.csv"
   # Count DISTINCT methods (col 1): with a lib cap, a method can hold >1 Pareto (jdk,lib)-depth
   # copy, so raw row count would overstate the frontier and never converge. Staging keys on col 1.
