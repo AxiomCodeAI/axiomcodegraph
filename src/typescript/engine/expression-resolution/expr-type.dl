@@ -310,6 +310,44 @@ expr_type(e, prov, t) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
     expr_shape(q, qs),
     field_in_scope(qs, n, _, f),
     field_type(f, prov, t).
+// ── A PROPERTY ACCESS WHOSE MEMBER IS A GETTER ─────────────────────────────
+// `get entityToSyncMetadatas(): EntityMetadata[]`, read as
+// `this.entityToSyncMetadatas.map(...)`. Every rule above looks the member up in
+// field_in_scope, and a getter is not a field: it is a METHOD whose methodKind is
+// GETTER, so the access got no type and the chain died there. `GETTER` appeared
+// nowhere in the engine but a comment.
+//
+// Measured: an accessor reads exactly like a property at the use site, so the cost is
+// paid by the WHOLE CHAIN below it — the access, a local initialised from it, and the
+// binding of a `for...of` over it. It accounts for the largest identified share of
+// production sites the engine diagnoses receiver_untyped (#100).
+//
+// The return relations need no getter-specific work: a getter is a method, so
+// method_return_type / _shape / _element already describe it, exactly as they describe
+// the result of a call. This only supplies the missing link from the access to the
+// member.
+property_access_getter(e, m) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
+    property_access_name(e, n),
+    expr_child("client", e, "RECEIVER", _, q),
+    expr_type(q, _, qt),
+    method_in_scope(qt, n, "false", m),
+    method_kind(_, "GETTER", _, m).
+// A STATIC getter, reached through a class name rather than a value, mirroring the
+// static field rule above.
+property_access_getter(e, m) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
+    property_access_name(e, n),
+    expr_child("client", e, "RECEIVER", _, q),
+    expr_static_type(q, _, qt),
+    method_in_scope(qt, n, "true", m),
+    method_kind(_, "GETTER", _, m).
+
+expr_type(e, prov, t) :- property_access_getter(e, m),
+    method_return_type(m, prov, t).
+expr_shape(e, s) :- property_access_getter(e, m),
+    method_return_shape(m, s).
+expr_element_type(e, prov, t) :- property_access_getter(e, m),
+    method_return_element(m, prov, t).
+
 expr_shape(e, s) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
     property_access_name(e, n),
     expr_child("client", e, "RECEIVER", _, q),
