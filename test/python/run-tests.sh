@@ -125,6 +125,19 @@ if ! bash "$HERE/tools/excluded-files-test.sh"; then
   exit 1
 fi
 
+# ── PREFLIGHT: the library invariant checks BOTH of its clauses ───────────────
+# library_monotonicity.py says staging can only move a site "from unresolved to resolved,
+# or from a named boundary to a concrete target", and compared bucket membership only — so
+# movement WITHIN the resolved set was invisible, including in the forbidden direction. It
+# printed ok while a boundary target degraded to the client's own parameter and while a
+# .pyi declaration became a committed target. Four of the nine checks are controls,
+# because the torture set moves 88 sites on a HEALTHY run and an over-eager rank would
+# redden the suite. Synthesised exports; no parser, engine or solver. See #313.
+if ! bash "$HERE/tools/monotonicity-test.sh"; then
+  echo "aborting: the library monotonicity invariant is not checking what it states"
+  exit 1
+fi
+
 # ── PREFLIGHT: the accepted-gap list must still be a gate ────────────────────
 # A missing edge is coverage, not a defect, so expected/<case>.known-missing records the ones
 # that are accepted -- and the list is only worth having if it is reconciled in BOTH directions.

@@ -31,10 +31,14 @@ rm -f actual.edges actual.oracle
 mkdir -p emptylib
 bash "$ENG/src/pipeline/run-souffle.sh" --language python \
      --client-ir client-ir --library emptylib --intermediate int-nolib --output out-nolib >/dev/null 2>&1
-if ! python3 ../tools/library_monotonicity.py out-nolib out; then
-  echo "FAIL (library monotonicity)"; rm -rf out-nolib int-nolib emptylib; exit 1
+# Run ONCE and reuse the output: this used to run twice, discarding the first result and
+# printing the second, which doubled the report. The IR directories are passed so the
+# bodyIsStub clause has something to read — without them it skips, and says so (#313).
+if ! mono=$(python3 ../tools/library_monotonicity.py out-nolib out client-ir lib-ir 2>&1); then
+  echo "FAIL (library monotonicity)"; echo "$mono"
+  rm -rf out-nolib int-nolib emptylib; exit 1
 fi
-python3 ../tools/library_monotonicity.py out-nolib out
+echo "$mono"
 rm -rf out-nolib int-nolib emptylib
 
 # ── the SAME invariant against a STUB library ────────────────────────────────
@@ -47,15 +51,21 @@ if [ -d "${AXIOM_STUB_IR:-}" ]; then
   bash "$ENG/src/pipeline/run-souffle.sh" --language python \
        --client-ir client-ir --library "$AXIOM_STUB_IR" \
        --intermediate int-stub --output out-stub >/dev/null 2>&1
-  if ! python3 ../tools/library_monotonicity.py out-nolib-stub out-stub 2>/dev/null; then :; fi
+  # A call comparing against `out-nolib-stub` stood here. Nothing ever created that
+  # directory, and its status was discarded (`2>/dev/null; then :; fi`), so it opened a
+  # missing file and was swallowed on every run — a check that could not fail. The real
+  # comparison is out-nolib2 vs out-stub below; removed rather than left to look like
+  # coverage. Found while fixing #313.
   mkdir -p emptylib2
   bash "$ENG/src/pipeline/run-souffle.sh" --language python \
        --client-ir client-ir --library emptylib2 \
        --intermediate int-nolib2 --output out-nolib2 >/dev/null 2>&1
-  if ! python3 ../tools/library_monotonicity.py out-nolib2 out-stub; then
-    echo "FAIL (library monotonicity, stub library)"; rm -rf out-stub int-stub out-nolib2 int-nolib2 emptylib2; exit 1
+  if ! mono=$(python3 ../tools/library_monotonicity.py out-nolib2 out-stub \
+                client-ir "$AXIOM_STUB_IR" 2>&1); then
+    echo "FAIL (library monotonicity, stub library)"; echo "$mono"
+    rm -rf out-stub int-stub out-nolib2 int-nolib2 emptylib2; exit 1
   fi
-  python3 ../tools/library_monotonicity.py out-nolib2 out-stub
+  echo "$mono"
   rm -rf out-stub int-stub out-nolib2 int-nolib2 emptylib2
 fi
 
