@@ -334,6 +334,7 @@
 .decl primitive_global_type(c0:symbol,c1:symbol)
 .decl primitive_has_no_members(c0:symbol)
 .decl primitive_name(c0:symbol)
+.decl property_access_getter(c0:symbol,c1:symbol)
 .decl property_access_name(c0:symbol,c1:symbol)
 .decl qname_dot_prefix(c0:symbol,c1:symbol)
 .decl qname_scan(c0:symbol,c1:number)
