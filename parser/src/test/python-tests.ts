@@ -34,6 +34,7 @@ import { typeVariables } from './python-gates/type-variables';
 import { stubModuleNames } from './python-gates/stub-module-names';
 import { splatCallee } from './python-gates/splat-callee';
 import { cachedProperty } from './python-gates/cached-property';
+import { pep604Union } from './python-gates/pep604-union';
 
 const VERIFIED = 'src/test-data/python/verified';
 const GOLDEN = path.join(VERIFIED, '_golden');
@@ -537,6 +538,8 @@ const CHECKS: Check[] = [
     proves: 'a call whose result is splatted is a named static call, not a dynamic one' },
   { name: 'cached property', run: cachedProperty,
     proves: 'a @cached_property is a property getter — a read that runs a body — not a method nobody calls' },
+  { name: 'PEP 604 unions', run: pep604Union,
+    proves: 'a union is decomposed whatever its operands look like; a subscripted operand does not collapse it' },
   { name: 'construct x position', run: constructPositions,
     proves: 'constructs hold in EVERY syntactic position, not just the one the corpus uses' },
 ];
