@@ -110,6 +110,56 @@ def main() -> int:
     return 1 if (absent or file_gaps or site_gaps) else 0
 
 
+
+def _protocol_header_lines(src):
+    """Lines whose only call is one the SOURCE does not contain (#304).
+
+    `with obj:` and `for x in xs:` contain no call expression, but CPython compiles them
+    to `__enter__` / `__exit__` / `__iter__`. Tier 1 reads bytecode so it sees them; the
+    parser correctly mints no `py_call_site` for a call the author never wrote; and this
+    check counted the difference as a parser gap. Measured on five projects: 123 invented
+    gaps, and the guard red on all five while the parser's inventory was complete.
+
+    MEASURED, because the issue and its own verification disagreed about the shapes:
+
+        with lock:            -> callee `lock`  via GLOBAL   ON THE HEADER LINE
+        with make_lock():     -> callee `make_lock` (a REAL call) plus `<call-result>`
+        with lock: (on exit)  -> EMPTY callee, via UNKNOWN    already filtered
+        for x in xs:          -> no site at all, when not inside a `with`
+        for x in xs:          -> callee `xs` via LOCAL, when INSIDE a `with`
+        for x in sorted(xs):  -> callee `sorted` (a REAL call)
+
+    So `__exit__` was never a gap source, `__enter__` lands on the header line, and a
+    plain `for` produces nothing while a `for` enclosed by a `with` does. Both header
+    kinds are collected; `Site.implicit` covers neither, since it excludes only
+    `__build_class__` and the comprehension IIFE.
+
+    Returning LINES, not a decision: the caller still requires the IR to have no call
+    site of that name there, so a real call in either header is untouched.
+    """
+    import ast
+    out = set()
+    try:
+        tree = ast.parse(open(src, encoding='utf-8', errors='replace').read())
+    except (OSError, SyntaxError, ValueError):
+        return out
+
+    def walk(node, in_with):
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.With, ast.AsyncWith)):
+                out.add(child.lineno)
+                walk(child, True)
+            elif isinstance(child, (ast.For, ast.AsyncFor)):
+                # Only inside a `with`: a plain `for` mints no tier-1 site, so adding its
+                # line would suppress nothing and widen the rule for no reason.
+                if in_with:
+                    out.add(child.lineno)
+                walk(child, in_with)
+            else:
+                walk(child, in_with)
+
+    walk(tree, False)
+    return out
 def _tier1_gaps(ir, ir_dir, src):
     """Check 2 — did the PARSER drop a call site CPython's own compiler emitted?
 
@@ -219,6 +269,14 @@ def _tier1_gaps(ir, ir_dir, src):
     excluded_dirs = {}
     file_gaps, site_gaps = set(), set()
     total = unadjudicable = 0
+    _proto_cache = {}
+
+    def _protocol_lines(rel):
+        v = _proto_cache.get(rel)
+        if v is None:
+            v = _protocol_header_lines(os.path.join(src, rel))
+            _proto_cache[rel] = v
+        return v
     for s in sites_for_tree(src, Normalizer(src)):
         if s.implicit:
             continue
@@ -240,6 +298,15 @@ def _tier1_gaps(ir, ir_dir, src):
         if is_credited(f, s.callee_name):
             continue
         if (f, s.line) in nameless:
+            unadjudicable += 1
+            total -= 1
+            continue
+        # A PROTOCOL CALL THE SOURCE DOES NOT CONTAIN. Both sides agree there is no
+        # written call here -- tier 1 saw the opcode, the parser minted nothing -- so the
+        # comparison cannot be made, the same verdict as tier 1's own sentinels. Keyed on
+        # the header line, and only when the IR really has nothing of that name there, so
+        # `with make_lock():` and `for x in sorted(xs):` still count. See #304.
+        if s.line in _protocol_lines(f):
             unadjudicable += 1
             total -= 1
             continue
