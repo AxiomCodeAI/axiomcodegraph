@@ -184,6 +184,39 @@ def _tier1_gaps(ir, ir_dir, src):
         m = re.match(r'^_([A-Za-z][A-Za-z0-9_]*?)(__[A-Za-z0-9_]+)$', nm)
         return bool(m) and (f, m.group(2)) in credited
 
+    # ── THE THIRD STATE: ABSENT BECAUSE NOBODY ASKED FOR IT (#305) ──────────
+    # `sites_for_tree` walks the SOURCE tree; `known_files` comes from the IR. On an
+    # `excludeTests=true` extraction those describe different populations: the parser
+    # never SEES an excluded file, so it cannot list it in skipped-python-files.csv
+    # either — that relation records files the parser was handed and could not use.
+    # Every excluded file therefore landed in `file_gaps`, and the check failed BY
+    # CONSTRUCTION on the mode the corpus workflow requires. Reproduced on a package
+    # whose tests live inside it, one flag the only difference:
+    #
+    #     excludeTests=false   4 module rows   0 file gaps
+    #     excludeTests=true    2 module rows   1 file gap   <- invented
+    #
+    # DERIVED, NOT CONFIGURED. #224 proposed a hardcoded directory list and that was
+    # correctly rejected: it would hide a real drop on an excludeTests=false run. What
+    # IS available is per-directory coverage — a directory in which NO file has a
+    # module row was excluded wholesale by the caller, while one where some files are
+    # present and one is missing is a real drop. Self-adjusting, and needs no new input.
+    #
+    # ITS LIMIT, STATED RATHER THAN HIDDEN. This cannot tell "the caller excluded the
+    # whole directory" from "the parser dropped the only file in it", so a single-file
+    # directory genuinely lost is suppressed. Suppressing the FAILURE is right — a
+    # false P0 on every test tree is worse — but suppressing it silently is not, so
+    # each wholesale-absent directory is PRINTED with its file count. A directory that
+    # should not be there stays visible to a reader without failing the run.
+    dir_has_module = set()
+    for _kf in known_files:
+        dir_has_module.add(_kf.rsplit('/', 1)[0] if '/' in _kf else '')
+
+    def _wholesale_absent(path):
+        d = path.rsplit('/', 1)[0] if '/' in path else ''
+        return d not in dir_has_module
+
+    excluded_dirs = {}
     file_gaps, site_gaps = set(), set()
     total = unadjudicable = 0
     for s in sites_for_tree(src, Normalizer(src)):
@@ -197,7 +230,11 @@ def _tier1_gaps(ir, ir_dir, src):
             # Counted by the FILE gap, not by the site ratio — otherwise a file the
             # parser never saw reports "15/15 credited" beside its own gap.
             if f not in skipped:
-                file_gaps.add(f)
+                if _wholesale_absent(f):
+                    _d = f.rsplit('/', 1)[0] if '/' in f else '.'
+                    excluded_dirs.setdefault(_d, set()).add(f)
+                else:
+                    file_gaps.add(f)
             continue
         total += 1
         if is_credited(f, s.callee_name):
@@ -207,9 +244,23 @@ def _tier1_gaps(ir, ir_dir, src):
             total -= 1
             continue
         site_gaps.add((f, s.line, s.callee_name, s.via))
+    # AN IR WITH NO MODULES AT ALL IS NOT "everything was excluded". Without this an
+    # extraction that produced nothing makes every directory wholesale-absent and the
+    # check passes in silence — the one outcome worse than a false failure.
+    if not known_files:
+        print('   PARSER GAP (file)  the IR has NO module rows at all, so nothing was '
+              'extracted here; that is an extraction failure, not an exclusion')
+        for _fs in excluded_dirs.values():
+            file_gaps |= _fs
+        excluded_dirs = {}
+    for _d, _fs in sorted(excluded_dirs.items()):
+        print(f'   excluded by the caller  {_d}/  ({len(_fs)} file(s) with tier-1 sites '
+              f'and no module row anywhere in that directory) — not counted as a gap')
     print(f'CPython tier-1 parser check: {total - len(site_gaps)}/{total} adjudicable sites '
           f'credited, {len(site_gaps)} missing, {len(file_gaps)} file(s) absent from the IR '
-          f'({unadjudicable} unadjudicable, tier 1 named no callee)')
+          f'({unadjudicable} unadjudicable, tier 1 named no callee'
+          + (f'; {len(excluded_dirs)} directory(ies) the caller excluded'
+             if excluded_dirs else '') + ')')
     return file_gaps, site_gaps
 
 
