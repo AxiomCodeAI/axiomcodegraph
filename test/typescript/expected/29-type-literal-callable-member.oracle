@@ -1,10 +1,4 @@
-oracle=8 engine=5 agree=2 missing=6 (known 6, NEW 0) extra=3
-  known    members#interfaceProperty(Holder) -> Holder#<arrow@39>(number)
-  known    members#literalMethod(LiteralMethod) -> members#run(number)
+oracle=8 engine=5 agree=5 missing=3 (known 3, NEW 0) extra=0
   known    members#literalPropertyAliased(LiteralProperty) -> members#<arrow@47>(number)
   known    members#literalPropertyInline({ run: (n: number) =) -> members#<arrow@53>(number)
   known    members#literalPropertyOptional(OptionalLiteralProperty) -> members#<arrow@57>(number)
-  known    members#objectHalfMethod(Runner) -> members#orig(number)
-  extra    members#interfaceProperty(Holder) -> members#<arrow@39>(number)
-  extra    members#literalMethod(LiteralMethod) -> { run(n: number): string }#run(number)
-  extra    members#objectHalfMethod(Runner) -> { orig(n: number): string; meta: Meta; }#orig(number)
