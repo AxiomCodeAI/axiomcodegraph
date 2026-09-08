@@ -166,6 +166,20 @@ if ! bash "$HERE/tools/path-space-test.sh"; then
   echo "aborting: a path containing a space would silently stage no libraries"
   exit 1
 fi
+
+# ── PREFLIGHT: a body that implements a signature is not a wrong answer ───────
+# `const f: Api<S>['setState'] = (...a) => {}` is the type literal's call signature to
+# the compiler and the arrow to the engine, so a call through it scored WRONG. The old
+# credit could not reach it for two reasons at once — different files, and the arrow is
+# anonymous. Measured on a dev corpus member: 9 of its 9 WRONG rows are that shape,
+# WRONG 9 -> 0 and edge-correct 0.598 -> 0.641, every other bucket unchanged. Four of
+# the six checks are controls, because the tempting rule — assignability rather than the
+# contextual type — credits an UNANNOTATED arrow and manufactures the agreement it is
+# supposed to measure. See #237.
+if ! bash "$HERE/tools/signature-impl-test.sh"; then
+  echo "aborting: the signature/implementation map is not what the compiler says"
+  exit 1
+fi
 if ! bash "$HERE/tools/envelope-merge-test.sh"; then
   echo "aborting: the dispatch envelope is not the resolved symbol's declaration set"
   exit 1

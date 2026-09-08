@@ -141,12 +141,15 @@ def main():
     ir_dir, out_dir, oracle_path = sys.argv[1], sys.argv[2], sys.argv[3]
     lib_dirs = []
     envelope_path = None
+    sig_impls_path = None
     production_only = False
     for a in sys.argv[4:]:
         if a.startswith('--lib='):
             lib_dirs.append(a[len('--lib='):])
         elif a.startswith('--envelope='):
             envelope_path = a[len('--envelope='):]
+        elif a.startswith('--signature-impls='):
+            sig_impls_path = a[len('--signature-impls='):]
         elif a == '--production':
             production_only = True
 
@@ -275,6 +278,23 @@ def main():
             sys.stdout.flush()
             sys.exit(5)
 
+    # ── which body implements which signature, per the compiler ─────────────
+    # `ground-truth/signature-impls.mjs` asks `getContextualType` of every function-like
+    # and records the signature declarations that type is made of. So
+    #
+    #     const setState: Api<S>['setState'] = (...a) => { ... }
+    #
+    # yields (that arrow) -> (the call signatures in the type literal it is annotated
+    # with), across files and through an indexed-access type, which no join over the
+    # IR's own type-reference links can follow. Keyed the way every other target here is
+    # keyed: resolved path, line, column.
+    impl_sigs = defaultdict(set)
+    if sig_impls_path and os.path.exists(sig_impls_path):
+        for row in read_tsv(sig_impls_path):
+            if len(row) < 6:
+                continue
+            impl_sigs[(rp(row[0]), row[1], row[2])].add((rp(row[3]), row[4], row[5]))
+
     # A declaration with NO BODY: it describes a callable, it is not one.
     bodiless_kinds = {
         'METHOD_SIGNATURE', 'TYPE_LITERAL_METHOD_SIGNATURE', 'CALL_SIGNATURE',
@@ -295,6 +315,20 @@ def main():
         # any unrelated `push` or `get` in the program answer for an interface member,
         # which manufactures agreement instead of measuring it. Every case observed in
         # the corpus is same-file, so this costs nothing and cannot over-credit.
+        # ROUTE 1 — the compiler said so. The body's own declaration names the type it
+        # has, and that type is made of the signature the oracle named. No name is
+        # compared and no file has to match, which is what the same-file/same-name
+        # route below cannot do: measured on a dev corpus member, 9 of its 9 WRONG
+        # rows are an ANONYMOUS arrow implementing a signature in ANOTHER file, so
+        # both of that route's gates fail on the same rows. See #237.
+        for t in eng:
+            if otarget in impl_sigs.get(t, ()):
+                return True
+        # ROUTE 2 — same name, same file. Kept rather than replaced: it credits a
+        # class or object-literal member against an interface member, which route 1
+        # does not reach (a member's type is not contextual). It fires zero times on
+        # every dev corpus member as measured, so there was nothing to gain by
+        # disturbing it and something to lose.
         for t in eng:
             em = pos_meta.get(t)
             if em and em[0] == om[0] and em[1] in implementation_kinds and t[0] == otarget[0]:

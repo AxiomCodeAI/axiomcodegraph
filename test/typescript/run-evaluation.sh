@@ -703,6 +703,22 @@ else
   tail -1 "$WORK/envelope.log" 2>/dev/null
 fi
 
+# ── 4b. which body implements which signature ────────────────────────────────
+# A SECONDARY measurement like the envelope, and scoring runs without it. The compiler
+# is the only thing that can answer it: `const f: Api<S>['setState'] = (...a) => {}`
+# annotates the arrow with a call signature declared in a type literal in another file,
+# reached through an indexed-access type, and no join over the IR's own type-reference
+# links can follow that. Measured on a dev corpus member, 9 of its 9 WRONG rows are
+# that shape. See #237.
+if ! ( cd "$MIRROR" && node --max-old-space-size=6144 \
+         "$HERE/ground-truth/signature-impls.mjs" . "$WORK/signature-impls.tsv" ) \
+       > "$WORK/signature-impls.log" 2>&1; then
+  echo "   ! the signature/implementation map failed; those sites will read WRONG"
+  tail -2 "$WORK/signature-impls.log" | sed 's/^/       /'
+else
+  tail -1 "$WORK/signature-impls.log" 2>/dev/null
+fi
+
 # ── 5. score ─────────────────────────────────────────────────────────────────
 # Same shape as NM_ROOTS was, and the same fix (#296): `${LIBS//,/ }` turns the
 # comma-joined list into a SPACE-joined one and then splits it on whitespace, so a
@@ -727,6 +743,7 @@ echo "▶ score:"
 # then mostly a statement about fixtures.
 MISSED_DUMP="$WORK/missed.tsv" SITE_DUMP="$WORK/sites.tsv" python3 "$HERE/ground-truth/score.py" \
   "$WORK/ir" "$WORK/out" "$WORK/oracle.tsv" --envelope="$WORK/envelope.tsv" \
+  --signature-impls="$WORK/signature-impls.tsv" \
   ${LIBARGS[@]+"${LIBARGS[@]}"} \
   ${SCORE_PRODUCTION:+--production} \
   | tee "$WORK/score.txt"
