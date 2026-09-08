@@ -138,6 +138,18 @@ if ! bash "$HERE/tools/monotonicity-test.sh"; then
   exit 1
 fi
 
+# ── PREFLIGHT: a call the source does not contain is not a parser gap ─────────
+# `with obj:` and `for x in xs:` hold no call expression, but CPython compiles them to
+# __enter__ / __exit__ / __iter__. Tier 1 reads bytecode so it sees them, the parser mints
+# no call site for a call nobody wrote, and check 2 counted the difference: 123 invented
+# gaps across five projects, the guard red on all five while the parser's inventory was
+# complete. Three of the six checks are controls, because this SUPPRESSES gaps and the
+# risk is suppressing a real one. See #304.
+if ! bash "$HERE/tools/protocol-calls-test.sh"; then
+  echo "aborting: a call the source does not contain would be reported as a parser gap"
+  exit 1
+fi
+
 # ── PREFLIGHT: the accepted-gap list must still be a gate ────────────────────
 # A missing edge is coverage, not a defect, so expected/<case>.known-missing records the ones
 # that are accepted -- and the list is only worth having if it is reconciled in BOTH directions.
