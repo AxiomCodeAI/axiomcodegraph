@@ -112,6 +112,19 @@ fi
 # the only place the "engine and oracle agree on call-site identity" property can be checked.
 python3 "$HERE/tools/check_vendor.py" || exit 1
 
+# ── PREFLIGHT: a file the caller excluded is not a parser gap ─────────────────
+# Check 2's file half takes its denominator from the SOURCE tree and its numerator from
+# the IR, so on an `excludeTests=true` extraction it reported every excluded file as a
+# PARSER GAP and failed by construction — on the mode the corpus workflow requires,
+# where the operator is told a red here is a P0. Reproduced with one flag as the only
+# difference: 0 file gaps at excludeTests=false, 1 invented at excludeTests=true.
+# Synthesised IR, no parser and no engine; pinned to the tier-1 interpreter because
+# check 2 is. See #305.
+if ! bash "$HERE/tools/excluded-files-test.sh"; then
+  echo "aborting: a file the caller excluded would be reported as a parser gap"
+  exit 1
+fi
+
 # ── PREFLIGHT: the accepted-gap list must still be a gate ────────────────────
 # A missing edge is coverage, not a defect, so expected/<case>.known-missing records the ones
 # that are accepted -- and the list is only worth having if it is reconciled in BOTH directions.
