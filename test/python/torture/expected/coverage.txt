@@ -1,4 +1,4 @@
-=== per-family coverage (tier-4, 338 scored sites) ===
+=== per-family coverage (tier-4, 394 scored sites) ===
   f01 inheritance & MRO        links= 10  found= 10 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f02 callables & closures     links= 10  found=  9 (90.0%)  missed= 1  wide= 0  WRONG= 0
   f03 generics                 links= 14  found= 14 (100.0%)  missed= 0  wide= 0  WRONG= 0
@@ -31,11 +31,12 @@
   f33 type stubs               links=  2  found=  2 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f34 assignment re-export     links=  8  found=  8 (100.0%)  missed= 0  wide= 2  WRONG= 0
   f35 generic union operand    links= 26  found= 26 (100.0%)  missed= 0  wide= 0  WRONG= 0
+  f36 property read result     links= 50  found= 50 (100.0%)  missed= 0  wide= 6  WRONG= 0
   pkgmod relative imports (subpackage) links=  3  found=  3 (100.0%)  missed= 0  wide= 0  WRONG= 0
 
-  TOTAL                         links=308  found=300 (97.4%)  missed= 8  wide=30  WRONG= 0
-  recall      300/308 = 97.4%  of the links that actually ran
-  wide  30   a member of a SOUND SET that did not run on this pass
+  TOTAL                         links=358  found=350 (97.8%)  missed= 8  wide=36  WRONG= 0
+  recall      350/358 = 97.8%  of the links that actually ran
+  wide  36   a member of a SOUND SET that did not run on this pass
   WRONG 0   a single target asserted as certain that never ran
 
   EXPECTED-MISS cases: {'FOUND': 14, 'MISSED': 14}   (a CONCRETE here means a known blind spot closed)
@@ -79,3 +80,9 @@
   f32_iteration_protocol.py:143  WIDE       true=[('client', 'f32_iteration_protocol.py', 64), ('client', 'f32_iteration_protocol.py', 69)] engine=[('client', 'f32_iteration_protocol.py', 59)]
   f34_reexport_union.py:26   WIDE       true=[('client', 'rxaccel.py', 5)] engine=[('client', 'rxlib.py', 8)]
   f34_reexport_union.py:31   WIDE       true=[('client', 'rxlib.py', 8)] engine=[('client', 'rxaccel.py', 5)]
+  f36_property_result.py:155  WIDE       true=[('client', 'f36_property_result.py', 55), ('client', 'f36_property_result.py', 70), ('client', 'f36_property_result.py', 79)] engine=[('client', 'f36_property_result.py', 60)]
+  f36_property_result.py:168  WIDE       true=[('client', 'f36_property_result.py', 55), ('client', 'f36_property_result.py', 79), ('client', 'f36_property_result.py', 146), ('client', 'f36_property_result.py', 150)] engine=[('client', 'f36_property_result.py', 60)]
+  f36_property_result.py:168  WIDE       true=[('client', 'f36_property_result.py', 55), ('client', 'f36_property_result.py', 79), ('client', 'f36_property_result.py', 146), ('client', 'f36_property_result.py', 150)] engine=[('client', 'f36_property_result.py', 139)]
+  f36_property_result.py:179  WIDE       true=[('client', 'f36_property_result.py', 55), ('client', 'f36_property_result.py', 70)] engine=[('client', 'f36_property_result.py', 60)]
+  f36_property_result.py:179  WIDE       true=[('client', 'f36_property_result.py', 55), ('client', 'f36_property_result.py', 70)] engine=[('client', 'f36_property_result.py', 102)]
+  f36_property_result.py:227  WIDE       true=[('client', 'f36_property_result.py', 55), ('client', 'f36_property_result.py', 70)] engine=[('client', 'f36_property_result.py', 60)]
