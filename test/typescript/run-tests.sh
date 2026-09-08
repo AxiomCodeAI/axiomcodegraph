@@ -77,6 +77,21 @@ if ! bash "$HERE/tools/arrow-naming-test.sh"; then
   exit 1
 fi
 
+# ── PREFLIGHT: an anonymous shape is not an owner, and both sides agree what is ─
+# The same declaration at the same line had two names: `{ run(n: number): string }#run`
+# here — the literal's own source text, truncated at 120 characters — against
+# `members#run` on the compiler side, and in the OTHER direction `members#<arrow@39>`
+# here against `Holder#<arrow@39>` there for an arrow that is an interface property's
+# type. One MISSING plus one extra per call, on accuracy already got right, with three
+# such lines parked in a known-missing file as gaps that never existed. Four of the ten
+# checks are controls, including one that removes the relation the rule reads and
+# requires the answer to DEGRADE — right for the wrong reason is not a passing rule.
+# Synthesised IR, so it needs no parser and no solver and cannot skip. See #322.
+if ! bash "$HERE/tools/shape-owner-test.sh"; then
+  echo "aborting: the two sides do not agree on what owns a member of an anonymous shape"
+  exit 1
+fi
+
 # ── PREFLIGHT: the dispatch envelope, and what the report claims about it ─────
 # The envelope adds the resolved symbol's declaration set to the bound so that picking
 # a different OVERLOAD scores as over-approximation rather than fabrication. It read
