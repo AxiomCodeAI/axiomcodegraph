@@ -119,6 +119,21 @@ class H:
         r = target(target(self.a) if self.c else target(self.b))
         s = target(self.a)
         return r, s
+
+    # ── THE RETURN FORM: ONE WRITTEN CALL, COMPILED TWICE (#324) ─────────────
+    # The counterpart to the four above, and a different defect. With the conditional
+    # immediately before a `return`, CPython emits NO forward jump -- it duplicates the
+    # whole continuation into both arms and clears the stack between them, so the second
+    # CALL meets a stack too shallow to hold a callee and used to be reported as an extra
+    # site with an empty callee. One written call is one site.
+    def cond_return_form(self):
+        return target(self.a if self.c else 2)
+
+    # The control for that suppression -- a call whose callee cannot be attributed, and
+    # which is the ONLY call on its line, must still be REPORTED -- lives in the sentinel
+    # fixture below rather than here, because this fixture's invariant is that every
+    # callee is `target`. `via_subscript` is that case: it asserts the site exists and
+    # carries a sentinel, which is exactly what suppressing too eagerly would destroy.
 '''
 EXPECT_CALLS = {
     'one_or': 1, 'two_or': 1, 'one_and': 1, 'mixed': 1,
@@ -130,6 +145,8 @@ EXPECT_CALLS = {
     # four: the outer call, one per arm, and the trailing plain call. A fix that skips
     # an arm reports three.
     'cond_both_arms_call': 4,
+    # #324: one written call, not the two the duplicated continuation used to yield.
+    'cond_return_form': 1,
 }
 
 
