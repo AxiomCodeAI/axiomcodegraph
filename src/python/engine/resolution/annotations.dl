@@ -81,26 +81,6 @@ type_name_in_module_lib(mod, n, t) :-
 declared_dispatch(p, d, d) :- type_decl(p, _, _, _, d).
 declared_dispatch(p, d, s) :- type_subclass(p, d, s), type_instantiated_reachable(p, s).
 
-// ── param_declared_type(Prov, ParamHash, TypeHash) ───────────────────────────
-// The annotation's base name, resolved in the owning method's module. A subscripted
-// annotation (`List[Item]`, `Optional[Item]`) has base `List`/`Optional`, which is not a
-// client class and yields NO row here — the payload comes through
-// param_element_type below instead, and conflating the two would type a list AS its
-// element.
-param_declared_type(p, ph, t) :-
-    param_annotation(p, base, _, _, ph), base != "",
-    param_decl(p, _, _, _, m, ph),
-    method_module(p, mod, m),
-    type_name_in_module(p, mod, base, t).
-
-// ── param_declared_type_lib(ParamHash, LibTypeHash) ──────────────────────────
-// `def handle(s: Square)` in the client, Square declared in the library.
-param_declared_type_lib(ph, t) :-
-    param_annotation("client", base, _, _, ph), base != "",
-    param_decl("client", _, _, _, m, ph),
-    method_module("client", mod, m),
-    type_name_in_module_lib(mod, base, t).
-
 // ── param_declared_type_by_parser / annotation cross-check ───────────────────
 // The parser's own answer for the same parameter, via the METHOD_PARAM type reference
 // whose owner is this parameter.
@@ -110,38 +90,37 @@ param_declared_type_by_parser(p, ph, t) :-
     type_ref_resolved(p, t, r).
 
 // ============================================================================
-// TWO ROUTES TO AN ANNOTATION'S TYPE, AND WHY BOTH STAY (issue #47)
+// ANNOTATIONS ARE RESOLVED FROM py_type_reference, AND ONLY FROM THERE (issue #47)
 //
-// ROUTE A, above: the ENTITY columns -- parameterBaseType, fieldBaseType,
-// returnTypeName. The first two are the annotation truncated at the first `[`, so they
-// keep the quote characters of a PEP 484 string forward reference and leave a leading
-// quote unbalanced when the annotation was also subscripted. returnTypeName is not
-// truncated at all -- it is the whole annotation text -- so the three columns are not
-// even the same kind of value.
+// There used to be a second route: the ENTITY columns -- parameterBaseType,
+// fieldBaseType, returnTypeName. The first two are the annotation truncated at the first
+// `[`, so they keep the quote characters of a PEP 484 string forward reference and leave
+// a leading quote unbalanced when the annotation was also subscripted; returnTypeName is
+// not truncated at all, so the three were not even the same kind of value.
 //
-// ROUTE B, below: py_type_reference. typeName arrives ALREADY UNQUOTED, the kind is
+// py_type_reference has none of that. typeName arrives ALREADY UNQUOTED, the kind is
 // stated outright (NAME / STRING_FORWARD_REF / OPTIONAL / SUBSCRIPT / UNION_PEP604 ...)
 // rather than inferred from punctuation, and a quarter of references carry a resolved FK
-// that needs no name matching at all. Route B is the better source and is what the
-// structural rules key on -- take the FK where the parser has one, otherwise look up the
-// CLEAN name.
+// that needs no name matching at all. So: take the FK where the parser has one, otherwise
+// look up the CLEAN name.
 //
-// #47 PROPOSED FINISHING THE JOB BY DELETING ROUTE A. MEASURED, THAT LOSES ANSWERS,
-// because one annotation spelling reaches the engine through route A alone:
+// #47 ASKED FOR THE ENTITY ROUTE TO GO AND IT COULD NOT, UNTIL NOW. One annotation
+// spelling reached the engine through the entity columns alone:
 //
 //     Payload[str] | None      kind=UNKNOWN   no children   typeName EMPTY
 //
-// A PEP 604 union is decomposed only while every operand is a bare name; give one
-// operand a subscript and the whole reference collapses. `Payload | None`,
-// `Optional[Payload]` and `Optional[Payload[str]]` all arrive structured, so this is
-// neither generics nor `|` -- it is a subscript AS A UNION OPERAND. For that one shape
-// truncating at the first `[` is the only thing that yields `Payload`, and route A is
-// what does it. Filed as AxiomCodeAI/parser#141.
+// A PEP 604 union was decomposed only while every operand was a bare name; give one
+// operand a subscript and the whole reference collapsed. Truncating at the first `[` was
+// then the only thing that yielded `Payload`, which made the entity route load-bearing
+// for that one shape and for the parameter and field positions only -- the return
+// position, whose column is untruncated, had no fallback at all and was a declared miss.
 //
-// Route A therefore covers the PARAMETER and the FIELD, and cannot cover the RETURN,
-// whose column is untruncated. f35_generic_union holds all three: removing route A turns
-// the first two into ambiguous_unknown, and the third is already a declared miss. When
-// parser#141 lands, route A can go and f35 keeps passing on route B alone.
+// AxiomCodeAI/parser#148 fixed it: the union now arrives as UNION_PEP604 with a
+// GENERIC_ARGUMENT child per operand, the subscripted operand as a SUBSCRIPT child
+// carrying its own resolved FK, in all three positions. So annotation_optional_kind sees
+// it, type_ref_element takes the head off the FK, and the entity route has nothing left
+// to contribute. Deleted, and f35_generic_union is the guard: all three of its positions
+// resolve on this route alone, including the return case that used to be marked miss.
 // ============================================================================
 
 field_declared_type_by_parser(p, f, t) :-
@@ -255,15 +234,6 @@ field_declared_type(p, f, t) :-
     type_ref(p, k, "FIELD_TYPE", _, _, r), annotation_optional_kind(k),
     type_ref_element(p, r, t).
 
-// ── method_declared_return_type(Prov, MethodHash, TypeHash) ──────────────────
-// `-> Item`. Resolved by the same name-in-module lookup, so `def require(...) -> Item` in
-// a module that merely IMPORTS Item still resolves — which the previous
-// module-members-only rule did not, and that alone cost the `store.require(...)` chain.
-method_declared_return_type(p, m, t) :-
-    method_decl(p, _, _, _, ret, m), ret != "",
-    method_module(p, mod, m),
-    type_name_in_module(p, mod, ret, t).
-
 // ── PEP 484 STRING ANNOTATIONS: `-> "Factory"` ───────────────────────────────
 // An annotation may be a string so a class can name itself, or name something declared
 // later. returnTypeName then holds the source text INCLUDING the quotes, which is
@@ -280,20 +250,12 @@ method_declared_return_type(p, m, t) :-
 // A quoted union such as `"str | bytes"` simply fails to match a single name, which is
 // the right outcome -- only the bare-name form resolves here.
 // Quote normalisation used to live here, because the entity-table columns keep the quotes
-// of a PEP 484 string forward reference and so the name never matched. It is gone: route B
-// resolves these outright -- py_type_reference.typeName arrives unquoted and
-// kind=STRING_FORWARD_REF says so -- and the route-A clause simply fails to match a quoted
-// name, which costs nothing now that something else answers. f10_forward_refs is the guard
-// that this is a simplification and not a regression.
+// of a PEP 484 string forward reference and so the name never matched. Both it and the
+// columns that needed it are gone: py_type_reference.typeName arrives unquoted and
+// kind=STRING_FORWARD_REF says so outright. f10_forward_refs is the guard that this is a
+// simplification and not a regression.
 
 
-// ── method_declared_return_type_lib(MethodHash, LibTypeHash) ─────────────────
-// `def make() -> Square` in the client, Square declared in the library. Same shape as
-// the clause above, same layer, differing only in which side the TYPE lives on.
-method_declared_return_type_lib(m, t) :-
-    method_decl("client", _, _, _, ret, m), ret != "",
-    method_module("client", mod, m),
-    type_name_in_module_lib(mod, ret, t).
 method_declared_return_type_by_parser(p, m, t) :-
     type_ref_owner(p, m, "METHOD", r),
     type_ref(p, _, "METHOD_RETURN", _, _, r),
@@ -308,10 +270,6 @@ method_declared_return_element(p, m, t) :-
 
 // ── field_declared_type / field_declared_element ─────────────────────────────
 // `self._items: Dict[str, Item]` — the field annotation and its payload.
-field_declared_type(p, f, t) :-
-    field_annotation(p, _, base, _, f), base != "",
-    field_decl(p, _, owner, _, f), type_module(p, mod, owner),
-    type_name_in_module(p, mod, base, t).
 field_declared_element(p, f, t) :-
     type_ref_owner(p, f, "FIELD", r),
     type_ref(p, k, "FIELD_TYPE", _, _, r), annotation_container_kind(k),

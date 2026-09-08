@@ -2,7 +2,6 @@ ambiguous_unknown	CHAINED_CALL	f08_dynamic.dict_dispatch_computed_key -> -
 ambiguous_unknown	CHAINED_CALL	f08_dynamic.dict_dispatch_static_key -> -
 ambiguous_unknown	CHAINED_CALL	f24_star_all.absent_by_underscore -> -
 ambiguous_unknown	CHAINED_CALL	f24_star_all.absent_from_all -> -
-ambiguous_unknown	CHAINED_CALL	f35_generic_union.return_subscripted_union -> -
 ambiguous_unknown	DECORATOR_APPLICATION	f05_decorators.<module> -> -
 ambiguous_unknown	DYNAMIC_CALL	f08_dynamic.getattr_call -> -
 ambiguous_unknown	METHOD_CALL	f06_flow.takes_unannotated -> -
@@ -276,6 +275,7 @@ known_edge	CHAINED_CALL	f19_reexports.via_submodule_alias -> repkg.inner.leaf.Wi
 known_edge	CHAINED_CALL	f21_module_alias.call_function_through_alias -> aliaspkg.deep.impl.Node.label
 known_edge	CHAINED_CALL	f21_module_alias.construct_through_alias -> aliaspkg.deep.impl.Node.label
 known_edge	CHAINED_CALL	f35_generic_union.return_plain_union -> f35_generic_union.Payload.render
+known_edge	CHAINED_CALL	f35_generic_union.return_subscripted_union -> f35_generic_union.Payload.render
 known_edge	CHAINED_CALL	main.main -> f10_forward_refs.Boxed.read
 known_edge	CHAINED_CALL	main.main -> f11_multiwrite.HoldsOr.run
 known_edge	CHAINED_CALL	main.main -> f11_multiwrite.HoldsTernary.run

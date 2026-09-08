@@ -1,40 +1,42 @@
 """FAMILY 35 — a SUBSCRIPTED member inside a PEP 604 union: `Payload[str] | None`.
 
-This family exists because that one spelling is the only annotation shape whose head
-type reaches the engine ONLY through the entity columns. Measured on the type
-reference table, the four neighbouring spellings all arrive structured and the fifth
-does not:
+This family was added when that one spelling was the only annotation shape whose head
+type could not be read off `py_type_reference` at all. Its four neighbours arrived
+structured and it did not:
 
     Payload | None            UNION_PEP604  2 children   isOptional=true
     Optional[Payload]         OPTIONAL      1 child      isOptional=true
     Optional[Payload[str]]    OPTIONAL      1 child (SUBSCRIPT, FK resolved)
     Payload[str]              SUBSCRIPT     1 child,     FK resolved
-    Payload[str] | None       UNKNOWN       NO children, typeName EMPTY
+    Payload[str] | None       UNKNOWN       NO children, typeName EMPTY   <- was
 
-So `annotation_single_name_kind` cannot see it, `annotation_optional_kind` cannot see
-it, and no GENERIC_ARGUMENT child exists to take an element from. What DOES see it is
-`parameterBaseType` / `fieldBaseType`, which are the annotation truncated at the first
-`[` — `Payload` — and truncation happens to be right here.
+so `annotation_single_name_kind` could not see it, `annotation_optional_kind` could not
+see it, and no GENERIC_ARGUMENT child existed to take an element from. The only thing
+that yielded `Payload` was `parameterBaseType` / `fieldBaseType` — the annotation
+truncated at the first `[` — which held for the parameter and the field and NOT for the
+return, whose `returnTypeName` is untruncated. That asymmetry was the finding, and the
+return case was a declared miss.
 
-That makes the entity-column clauses in resolution/annotations.dl load-bearing rather
-than legacy, which is the opposite of what issue #47 assumed, and the reason this file
-is a fixture and not a comment: without those clauses the parameter and the field below
-go ambiguous_unknown, and nothing else in the suite notices.
+AxiomCodeAI/parser#148 CLOSED IT. The union now arrives as `UNION_PEP604` with one
+`GENERIC_ARGUMENT` child per operand, the subscripted operand as a `SUBSCRIPT` child
+carrying its own resolved FK, in all three positions. Every case below resolves from the
+type-reference table alone, the entity-column clauses that used to carry two of them are
+deleted, and the return case is no longer marked miss.
 
-THE RETURN POSITION HAS NO SUCH FALLBACK. `returnTypeName` is NOT truncated — it holds
-`Payload[str] | None` whole — so no name lookup matches and the return case is a genuine
-blind spot, marked below. Two of the three positions are carried by a column the third
-does not have, which is why all three are here: the asymmetry is the finding.
+SO THE FAMILY STAYS AS THE GUARD ON THAT ROUTE, which is the only reason it is still
+here: if the union ever stops being decomposed, or the head FK stops resolving, these
+seven cases go ambiguous_unknown and nothing else in the suite notices.
 
 EVERY VALUE COMES OUT OF `_from_bag`, WHICH IS UNANNOTATED, so the annotation is the
 only thing that can type it. Handing `Payload()` in directly would let argument flow
 supply the answer and the annotation would never be consulted — an earlier draft of
 this file did exactly that and passed with the annotation rules removed.
 
-`| None` is deliberate throughout — the shape only collapses when a subscript is a
+`| None` is deliberate throughout — the shape only collapsed when a subscript was a
 union OPERAND, so a union that is not optional would not exercise it. The
-`plain`/`Optional[...]` twins are controls: same type, same position, structured
-annotation, so a failure here is attributable to the spelling and not to generics.
+`plain`/`Optional[...]` twins are controls: same type, same position, a spelling that
+always worked, so a failure here is attributable to the union operand and not to
+generics.
 """
 from typing import Generic, Optional, TypeVar
 
@@ -59,7 +61,7 @@ def _from_bag(key):
 
 class Holder:
     def __init__(self) -> None:
-        # FIELD position. fieldBaseType is `Payload`; the type reference is UNKNOWN.
+        # FIELD position.
         self.subscripted: Payload[str] | None = _from_bag("s")
         # Control: a union of plain names, which arrives as UNION_PEP604.
         self.plain: Payload | None = _from_bag("p")
@@ -72,7 +74,7 @@ class Holder:
 
 
 def param_subscripted_union(p: Payload[str] | None) -> str:
-    # PARAMETER position. parameterBaseType is `Payload`, kind is UNKNOWN.
+    # PARAMETER position.
     return p.render()
 
 
@@ -87,8 +89,7 @@ def param_optional_subscript(p: Optional[Payload[str]]) -> str:
 
 
 def _make_subscripted() -> Payload[str] | None:
-    # RETURN position. returnTypeName is `Payload[str] | None`, so the entity route
-    # truncates to `Payload`; the type reference is UNKNOWN.
+    # RETURN position — the one the entity route could never reach.
     return _from_bag("s")
 
 
@@ -97,9 +98,10 @@ def _make_plain() -> Payload | None:
 
 
 def return_subscripted_union() -> str:
-    # EXPECT: miss — returnTypeName is the whole `Payload[str] | None`, not truncated,
-    # so neither route resolves a head type. Closing it needs the parser to decompose
-    # the union (AxiomCodeAI/parser#141); nothing the engine can key on exists today.
+    # This was the declared blind spot: `returnTypeName` holds the whole
+    # `Payload[str] | None`, so no name lookup matched and the return position had no
+    # fallback at all. parser#148 decomposes the union here too, so the head now comes
+    # off the SUBSCRIPT child's own FK and the marker is gone.
     return _make_subscripted().render()
 
 
