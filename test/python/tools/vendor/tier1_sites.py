@@ -132,6 +132,11 @@ def _walk(code, out: List[Site], norm: Normalizer, path: str, owner: Anchor) -> 
     # records the depth at the rejoin point, and the walk restores that depth when it
     # arrives -- both arms are still walked, and only one push survives the merge.
     merge_depth: dict = {}
+    # ── LINES THIS CODE OBJECT HAS ALREADY EMITTED A CALL SITE FOR (#324) ──
+    # Per code object, not per file: the duplication below happens WITHIN one function,
+    # and a file-wide set would suppress a genuine failure in a different function that
+    # happened to share a line number.
+    emitted_lines: set = set()
     # starts_line is set only on the FIRST instruction of a line; every later
     # instruction reports None. Carrying it forward is required or nearly every
     # call lands on line `null` and joins to nothing.
@@ -255,9 +260,26 @@ def _walk(code, out: List[Site], norm: Normalizer, path: str, owner: Anchor) -> 
             push((produced, 'SUPER_RESULT' if produced == '<super>' else 'CALL_RESULT',
                   current_line, ''))
             if slot is not None:
+                emitted_lines.add(slot[2])
                 out.append(Site(norm.rel(path), slot[2], slot[0], slot[1], name,
                                 owner, code.co_name,
                                 receiver=slot[3] if len(slot) > 3 else ''))
+            elif current_line in emitted_lines:
+                # THE SAME SOURCE CALL, COMPILED TWICE (#324). With a conditional
+                # expression immediately before a `return`, CPython emits NO forward
+                # jump: it duplicates the whole continuation into both arms and clears
+                # the stack between them, so the second CALL meets a stack too shallow
+                # to hold a callee:
+                #
+                #     12 CALL_FUNCTION 1     <- the call, if-arm      (attributed)
+                #     14 RETURN_VALUE        <- clears the stack
+                #     18 CALL_FUNCTION 1     <- the SAME call, else-arm, slot is None
+                #
+                # One written call must be one site. A site already recorded at this
+                # line, plus a slot that could not be resolved, is that duplicate --
+                # not a second call whose attribution failed, because a real second
+                # call on the line would have had a slot of its own to consume.
+                pass
             else:
                 out.append(Site(norm.rel(path), current_line, '', 'UNKNOWN', name,
                                 owner, code.co_name))
