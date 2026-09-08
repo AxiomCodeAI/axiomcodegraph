@@ -1,4 +1,4 @@
-unresolved sites: 25
+unresolved sites: 24
 
 --- by reason ---
       1  callee_is_parameter
@@ -6,7 +6,7 @@ unresolved sites: 25
       1  decorator_factory_result_untyped
       1  dynamic_call
       1  member_absent_from_type
-      9  no_rule
+      8  no_rule
       1  untyped_receiver:attribute_absent_on_type
       4  untyped_receiver:call_result_untyped
       2  untyped_receiver:local_untyped
@@ -14,7 +14,7 @@ unresolved sites: 25
       3  untyped_receiver:subscript_untyped
 
 --- by call kind ---
-      5  CHAINED_CALL
+      4  CHAINED_CALL
       1  DECORATOR_APPLICATION
       1  DYNAMIC_CALL
       5  METHOD_CALL
@@ -23,4 +23,4 @@ unresolved sites: 25
       1  UNKNOWN_CALLEE_CALL
 
 --- the mysteries ---
-  no_rule = 9 of 25  (36.0%)
+  no_rule = 8 of 24  (33.3%)
