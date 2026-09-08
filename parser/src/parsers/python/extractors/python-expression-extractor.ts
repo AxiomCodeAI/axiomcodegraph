@@ -2263,7 +2263,9 @@ export class PythonExpressionExtractor {
     expression: PyExpressionRegistry,
     pending: PendingExpression
   ): void {
-    const fn = node.childForFieldName('function');
+    const fn = PythonExpressionExtractor.unwrapSplatInCalleePosition(
+      node.childForFieldName('function')
+    );
     const args = node.childForFieldName('arguments');
     const argumentSummary = this.summarizeArguments(args);
     const receiver = this.classifyReceiver(fn, pending);
@@ -2357,6 +2359,37 @@ export class PythonExpressionExtractor {
   }
 
   /**
+  /**
+   * Unwraps a splat that tree-sitter-python nested INTO a callee position.
+   *
+   * `[*items()]` and `{*items()}` — a single splatted element in a list or set display —
+   * parse as `call(function: list_splat(*, items), arguments: ())`, i.e. as though the
+   * source had said `(*items)()`. It does not: the `*` applies to the call's RESULT, and
+   * the callee is `items`. The sibling forms are nested correctly, which is what localises
+   * this — `(*items(),)` is `list_splat(call(items))`, `{**mapping()}` is
+   * `dictionary_splat(call(mapping))`, and `f(*items())` puts the splat in the argument
+   * list where it belongs. Two splats in one display (`[*a(), *b()]`) also parse correctly,
+   * so it is specifically the single-element case.
+   *
+   * The same mis-nesting reaches an attribute callee one level deeper: `[*obj.method()]`
+   * parses as `attribute(object: list_splat(*, obj), attribute: method)`, so the RECEIVER
+   * is the splat and its text comes out `*obj` — a receiver no engine can resolve. Both
+   * shapes are the same rule, so both call sites use this.
+   *
+   * Left as a compensation here rather than waited on: the grammar is shared across
+   * languages and cannot be upgraded for this alone.
+   */
+  private static unwrapSplatInCalleePosition(
+    node: Parser.SyntaxNode | null
+  ): Parser.SyntaxNode | null {
+    if (!node || (node.type !== 'list_splat' && node.type !== 'dictionary_splat')) {
+      return node;
+    }
+    const named = node.namedChildren;
+    return named[named.length - 1] ?? node;
+  }
+
+  /**
    * Classifies the receiver by its **syntactic shape**, which is all that is
    * honestly knowable about a duck-typed receiver.
    *
@@ -2388,10 +2421,13 @@ export class PythonExpressionExtractor {
     if (fn.type !== 'attribute') {
       return { kind: PythonReceiverKind.NONE, text: '', node: null };
     }
-    let object = fn.childForFieldName('object');
+    let object = PythonExpressionExtractor.unwrapSplatInCalleePosition(
+      fn.childForFieldName('object')
+    );
     if (!object) {
       return { kind: PythonReceiverKind.UNKNOWN, text: '', node: null };
     }
+    // Unwrapped before the text is taken, or the receiver reads `*obj` rather than `obj`.
     const text = EntityUtils.normalizeWhitespace(object.text);
     // A parenthesised receiver is the same receiver. Multi-line string
     // construction makes this common: `("a" "b").format(x)`.

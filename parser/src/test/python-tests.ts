@@ -32,6 +32,7 @@ import { moduleExports } from './python-gates/module-exports';
 import { nameStability } from './python-gates/name-stability';
 import { typeVariables } from './python-gates/type-variables';
 import { stubModuleNames } from './python-gates/stub-module-names';
+import { splatCallee } from './python-gates/splat-callee';
 
 const VERIFIED = 'src/test-data/python/verified';
 const GOLDEN = path.join(VERIFIED, '_golden');
@@ -531,6 +532,8 @@ const CHECKS: Check[] = [
     proves: 'every value the schema declares has code that can produce it; the gap may fall, never rise' },
   { name: 'stub module names', run: stubModuleNames,
     proves: 'a .pyi tree is named exactly as the .py tree in the same position' },
+  { name: 'splat callee', run: splatCallee,
+    proves: 'a call whose result is splatted is a named static call, not a dynamic one' },
   { name: 'construct x position', run: constructPositions,
     proves: 'constructs hold in EVERY syntactic position, not just the one the corpus uses' },
 ];
