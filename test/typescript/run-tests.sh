@@ -107,6 +107,20 @@ if ! python3 "$HERE/tools/production-filter-test.py"; then
   exit 1
 fi
 
+# ── the implementation-of-signature credit must reach the idiom it exists for ──
+# The credit was gated on a signature and its implementation sharing a NAME and a FILE,
+# which `const f: FnType = (...) => ...` can never satisfy: the IR names the annotation's
+# signature `_` and the arrow `<arrow>`, and the implementation legitimately lives in
+# another file. So 9 of 10 remaining WRONG verdicts on the dev set were a scoring
+# classification rather than an engine answer, while the report's counter for the bucket
+# printed 0 everywhere (#237). Two of the three checks are controls — the credit is tied
+# to the name being called AND to the annotation the signature comes from, and a credit
+# earnable without either would manufacture agreement. Synthesised, cannot skip.
+if ! python3 "$HERE/tools/impl-signature-credit-test.py"; then
+  echo "aborting: the implementation-of-signature credit is not reaching the function-type idiom"
+  exit 1
+fi
+
 # ── PREFLIGHT: an unsupported compiler is a refusal, not a TypeError ──────────
 # TypeScript 7 is the native port and its npm package exports exactly `version` and
 # `versionMajorMinor` — no `sys`, no `createProgram`. The stack deliberately prefers

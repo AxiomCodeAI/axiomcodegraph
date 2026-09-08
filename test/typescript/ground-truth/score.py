@@ -221,11 +221,36 @@ def main():
             staged_files.add(rp(os.path.join(root, fp))
                              if root and not os.path.isabs(fp) else rp(fp))
 
+    # ---- variable -> the function value bound to it ----
+    # `const f: FnType = (...) => ...`. Keyed by HASH here and resolved to positions
+    # after every root is loaded, because the arrow's position comes from meth_pos.
+    var_bound_raw = {}
+    def load_variables(d):
+        p = os.path.join(d, 'all-typescript-variables.csv')
+        if not os.path.exists(p):
+            return
+        for row in read_tsv(p):
+            if len(row) < 21:
+                continue
+            fn = row[19]                      # boundFunctionLinkHash
+            if not fn:
+                continue
+            var_bound_raw[fn] = (row[0], bool(row[20]))   # name, has type annotation
+
     load_methods(ir_dir)
     load_files(ir_dir)
+    load_variables(ir_dir)
     for d in lib_dirs:
         load_methods(d)
         load_files(d)
+        load_variables(d)
+
+    # position of the bound function -> (variable name, whether it was annotated)
+    var_bound = {}
+    for fn, meta in var_bound_raw.items():
+        mp = meth_pos.get(fn)
+        if mp:
+            var_bound[resolved_ident(mp[4], mp[0], mp[1], mp[2])] = meta
 
     # ---- engine answer: call site -> set of target identities ----
     engine_targets = defaultdict(set)
@@ -287,18 +312,45 @@ def main():
         'FUNCTION_EXPRESSION', 'ARROW_FUNCTION', 'GETTER', 'SETTER', 'CONSTRUCTOR',
     }
 
-    def _implements_signature(otarget, eng):
+    def _implements_signature(otarget, eng, cname=''):
         om = pos_meta.get(otarget)
         if not om or om[1] not in bodiless_kinds:
             return False
-        # SAME FILE is required, not merely the same name. A name match alone would let
-        # any unrelated `push` or `get` in the program answer for an interface member,
-        # which manufactures agreement instead of measuring it. Every case observed in
-        # the corpus is same-file, so this costs nothing and cannot over-credit.
+        # (a) SAME NAME, SAME FILE — the motivating case: an interface `push` against an
+        # OBJECT_LITERAL_METHOD `push` in a literal annotated with it. Same file is
+        # required rather than name alone, or any unrelated `push` in the program could
+        # answer for an interface member, which manufactures agreement.
         for t in eng:
             em = pos_meta.get(t)
             if em and em[0] == om[0] and em[1] in implementation_kinds and t[0] == otarget[0]:
                 return True
+        # (b) `const f: FnType = (...) => ...`, which (a) can NEVER credit: the names
+        # differ by construction — the IR calls the annotation's signature `_` or
+        # `<function-type>` and the arrow `<arrow>` — and the implementation legitimately
+        # lives in a different file from the signature it satisfies, so the same-file rule
+        # is wrong here rather than merely unhelpful. Measured: 9 of 10 remaining WRONG
+        # verdicts on the development set are this one shape, and the counter for this
+        # bucket printed 0 on every project, which is what should have given it away.
+        #
+        # Tied to the CALL, not just to the shape. The engine's target must be the
+        # function value bound to a variable of THE NAME BEING CALLED, and that variable
+        # must carry a type annotation — which is where the compiler's signature comes
+        # from. So the credit says "the call was to this name, and we named the code that
+        # name holds", which cannot be satisfied by an unrelated declaration.
+        #
+        # The annotation is deliberately NOT followed to the signature. `StoreApi<S>
+        # ['setState']` is an INDEXED_ACCESS whose referencedTypeLinkHash is empty and
+        # whose isResolvedLocally is false, so the exact variable-to-signature link does
+        # not exist in the IR for the shape that dominates this population; requiring it
+        # would credit nothing.
+        if cname:
+            for t in eng:
+                em = pos_meta.get(t)
+                if not em or em[1] not in implementation_kinds:
+                    continue
+                vb = var_bound.get(t)
+                if vb and vb[0] == cname and vb[1]:
+                    return True
         return False
 
     def _same_group(otarget, eng):
@@ -354,7 +406,7 @@ def main():
                     missed_rows.append((f, line, col, ckind, cname, base(o[0]), o[1], o[4]))
         elif otarget in eng:
             b = 'EXACT' if len(eng) == 1 else 'SOUND_SUPERSET'
-        elif _implements_signature(otarget, eng):
+        elif _implements_signature(otarget, eng, cname):
             # tsc named a BODILESS declaration — an interface method signature, which
             # has no body and cannot run — and we named an implementation of the same
             # member. Measured: every instance in the corpus is METHOD_SIGNATURE on an
