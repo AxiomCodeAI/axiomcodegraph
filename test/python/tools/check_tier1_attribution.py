@@ -84,10 +84,52 @@ class H:
 
     def plain(self):
         return target(self.a)
+
+    # ── A CONDITIONAL EXPRESSION IN THE ARGUMENT LIST (#303) ─────────────────
+    # The same misattribution as the short-circuit shapes above, through a different
+    # opcode pair: POP_JUMP_IF_FALSE / JUMP_FORWARD. Both arms push one value and only
+    # one runs, so a LINEAR walk sees two and the callee slot reads an argument --
+    # `target(value if obj else 2, ...)` reported `value` as the callee.
+    #
+    # THE CALL IS FOLLOWED BY MORE CODE, and that is load-bearing. Measured on 3.10:
+    # when a conditional expression sits immediately before a `return`, the compiler
+    # emits NO JUMP_FORWARD -- it duplicates the whole continuation into both arms and
+    # clears the stack between them. That produces an extra site with an EMPTY callee
+    # rather than a wrong one: a different defect, harmless to the gap count because
+    # `if not s.callee_name` filters it downstream, and filed separately. Writing these
+    # as `return target(...)` would therefore assert a shape this fix does not address.
+    def cond_positional(self):
+        r = target(self.a if self.c else 2)
+        s = target(self.a)
+        return r, s
+
+    def cond_keyword(self):
+        r = target(self.a, y=1 if self.c else 2)
+        s = target(self.a)
+        return r, s
+
+    def cond_nested(self):
+        r = target(self.a if self.c else (1 if self.b else 2))
+        s = target(self.a)
+        return r, s
+
+    # BOTH ARMS CALLING rules out the tempting fix: skipping the else-arm would correct
+    # the depth and stop reporting the call inside it.
+    def cond_both_arms_call(self):
+        r = target(target(self.a) if self.c else target(self.b))
+        s = target(self.a)
+        return r, s
 '''
 EXPECT_CALLS = {
     'one_or': 1, 'two_or': 1, 'one_and': 1, 'mixed': 1,
     'nested_in_args': 2, 'plain': 1,
+    # #303: every callee on these lines is `target`, as above.
+    # each method holds the conditional call plus one plain call after it, so that a
+    # JUMP_FORWARD is emitted -- see the fixture comment.
+    'cond_positional': 2, 'cond_keyword': 2, 'cond_nested': 2,
+    # four: the outer call, one per arm, and the trailing plain call. A fix that skips
+    # an arm reports three.
+    'cond_both_arms_call': 4,
 }
 
 
