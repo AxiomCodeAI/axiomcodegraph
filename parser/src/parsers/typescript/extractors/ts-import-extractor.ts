@@ -219,6 +219,35 @@ export class TsImportExtractor {
         });
       return;
     }
+    if (bindings.elements.length === 0 && clauseIndex === 0) {
+      // `import type {} from "pkg"` and `import {} from "pkg"`.
+      //
+      // Both bind NOTHING, so the per-binding loop below emitted no row at all
+      // and the specifier appeared nowhere in the IR. The MODULE EDGE is real
+      // either way: the type-only form is the idiom for pulling in a package's
+      // ambient declarations (a `declare global`, an interface reopened), and
+      // the value form is a runtime load identical in effect to `import "pkg"`.
+      //
+      // Library staging is derived from the client IR's own imports, so a
+      // package reachable only through one of these could not be staged and
+      // every target it declares was charged as a miss.
+      //
+      // `SIDE_EFFECT` is the right kind rather than a new one: both it and
+      // `isSideEffectOnly` are defined as "no binding, but a real module
+      // edge", which is exactly this. Whether the edge has runtime existence
+      // is carried by `isTypeOnly`, which is the column for it.
+      //
+      // `clauseIndex === 0` matters because `import def, {} from "pkg"` is
+      // legal and its default row already carries the edge.
+      this.emit(node, bindings, specifier, TsImportKind.SIDE_EFFECT, '', '', '', {
+        isTypeOnly: declarationIsTypeOnly,
+        isWildcard: false,
+        isDefaultImport: false,
+        isSideEffectOnly: true,
+        clauseIndex,
+      });
+      return;
+    }
     for (const element of bindings.elements) {
       const originalName = element.propertyName?.text ?? element.name.text;
       const isAliased = element.propertyName !== undefined;

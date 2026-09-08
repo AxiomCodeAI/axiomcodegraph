@@ -2992,6 +2992,155 @@ async function objectLiteralKeysReachTheIr(): Promise<number> {
   }
 }
 
+
+/**
+ * An import that binds NOTHING still records its module edge (#110).
+ *
+ * `import type {} from "pkg"` is the idiom for pulling in a package's ambient
+ * declarations, and `import {} from "pkg"` is a runtime load identical in
+ * effect to `import "pkg"`. Both have `NamedImports` with zero elements, so a
+ * per-binding loop emitted no row and the specifier appeared NOWHERE in the
+ * IR. Library staging is derived from the client IR's own imports, so such a
+ * package could not be staged and every target it declares was charged as a
+ * miss.
+ *
+ * The row must carry what staging reads -- specifier, resolved path and
+ * package name -- and `isTypeOnly` must still separate the two forms.
+ */
+async function emptyImportsRecordTheirModuleEdge(): Promise<number> {
+  if (!parserPresent()) {
+    return pendingCheck('empty imports record their module edge',
+      'no extractor yet. An import that binds nothing is still a module edge');
+  }
+  const { outputDir, cleanup } = await analyseInline('ts-emptyimp-', {
+    'a.ts': [
+      "import type {} from './amb';",     // type-only, binds nothing
+      "import {} from './rt';",           // value, binds nothing
+      "import './fx';",                   // control: already worked
+      "import type { T } from './named';", // control: type-only WITH a binding
+      'export const x = 1;',
+    ].join('\n'),
+    'amb.ts': 'declare global { interface Window { flag: boolean } }\nexport const a = 1;\n',
+    'rt.ts': 'export const r = 1;\n',
+    'fx.ts': 'export const f = 1;\n',
+    'named.ts': 'export type T = string;\n',
+  });
+  try {
+    const imports = relation(outputDir, 'all-typescript-imports.csv');
+    const failures: string[] = [];
+    const expect = (spec: string, typeOnly: string, kind: string): void => {
+      const rows = imports.filter((r) => r['importedPath'] === spec);
+      if (rows.length !== 1) {
+        failures.push(`${spec}: ${rows.length} import row(s), expected 1 — an import that `
+          + 'binds nothing still carries a module edge, and staging is derived from these rows');
+        return;
+      }
+      const row = rows[0]!;
+      if (row['isTypeOnly'] !== typeOnly) {
+        failures.push(`${spec}: isTypeOnly is ${row['isTypeOnly']}, expected ${typeOnly}`);
+      }
+      if (row['importKind'] !== kind) {
+        failures.push(`${spec}: importKind is ${row['importKind']}, expected ${kind}`);
+      }
+      // What staging actually reads.
+      if ((row['resolvedFilePath'] ?? '') === '') {
+        failures.push(`${spec}: resolvedFilePath is empty, so the target cannot be staged`);
+      }
+    };
+    expect('./amb', 'true', 'SIDE_EFFECT');
+    expect('./rt', 'false', 'SIDE_EFFECT');
+    expect('./fx', 'false', 'SIDE_EFFECT');
+    expect('./named', 'true', 'TYPE_ONLY_NAMED');
+    console.log(`  ${imports.length} import row(s): an empty type-only and an empty value `
+      + 'import each record their edge, both resolved, and isTypeOnly still separates them');
+    for (const f of failures.slice(0, 5)) { console.log(`  ${f}`); }
+    return failures.length ? 1 : 0;
+  } finally {
+    cleanup();
+  }
+}
+
+
+/**
+ * A member of a REOPENED type shares one group key across files (#149).
+ *
+ * `ts_field` has carried this since it was written — `memberGroupKey`, "the
+ * member's identity ACROSS a merged owner" — and `ts_method` never did, so
+ * every interface member had an EMPTY `declarationGroupKey`. A consumer then
+ * reported one construct signature against another as a WRONG answer rather
+ * than an overload sibling.
+ *
+ * Adjudicated against tsc via the MERGED symbol, not the declaration-local
+ * one: `getSymbolAtLocation(name)` -> `getDeclaredTypeOfSymbol` reports `make`
+ * with 2 declarations and construct/call signatures from both files, while
+ * `(member as any).symbol` reports 1 each — the trap that makes this look like
+ * a non-merge.
+ */
+async function reopenedTypeMembersShareAGroupKey(): Promise<number> {
+  if (!parserPresent()) {
+    return pendingCheck('reopened type members share a group key',
+      'no extractor yet. A member of a merged owner has one identity');
+  }
+  const { outputDir, cleanup } = await analyseInline('ts-merged-', {
+    'a.d.ts': [
+      'interface BoxCtor {',
+      '  new (v: string): object;',
+      '  (v: string): object;',
+      '  make(v: string): object;',
+      '}',
+    ].join('\n'),
+    'b.d.ts': [
+      'interface BoxCtor {',
+      '  new (v: string, n: number): object;',
+      '  (v: string, n: number): object;',
+      '  make(v: string, n: number): object;',
+      '}',
+    ].join('\n'),
+  });
+  try {
+    const own = relation(outputDir, 'all-typescript-methods.csv')
+      .filter((r) => r['ownerTypeName'] === 'BoxCtor');
+    const failures: string[] = [];
+    const byKind = new Map<string, string[]>();
+    for (const r of own) {
+      const kind = r['methodKind'] ?? '';
+      if ((r['declarationGroupKey'] ?? '') === '') {
+        failures.push(`${r['filePath']}:${r['startLine']} ${kind} has an EMPTY `
+          + 'declarationGroupKey — §4.7 c22 defines it as the overload set’s identity, and '
+          + 'for a reopened interface that set spans files');
+        continue;
+      }
+      if (!byKind.has(kind)) { byKind.set(kind, []); }
+      byKind.get(kind)!.push(r['declarationGroupKey'] ?? '');
+    }
+    // Each member kind is declared once per file, so its two rows must share
+    // one key — and the three kinds must not collapse into each other.
+    const keys = new Set<string>();
+    for (const kind of ['CONSTRUCT_SIGNATURE', 'CALL_SIGNATURE', 'METHOD_SIGNATURE']) {
+      const got = byKind.get(kind) ?? [];
+      if (got.length !== 2) {
+        failures.push(`${kind}: ${got.length} row(s) with a group key, expected 2`);
+        continue;
+      }
+      if (got[0] !== got[1]) {
+        failures.push(`${kind}: the two declarations have DIFFERENT group keys, so a `
+          + 'consumer cannot tell they are siblings of one merged interface');
+      }
+      keys.add(got[0]!);
+    }
+    if (keys.size !== 3) {
+      failures.push(`the three member kinds collapsed into ${keys.size} group(s) — a `
+        + 'construct signature, a call signature and a method are different members');
+    }
+    console.log(`  ${own.length} member row(s) over two declarations of one interface; `
+      + `${keys.size} distinct group(s), each shared by both files`);
+    for (const f of failures.slice(0, 5)) { console.log(`  ${f}`); }
+    return failures.length ? 1 : 0;
+  } finally {
+    cleanup();
+  }
+}
+
 /** `all-typescript-method-parameters.csv` -> `ts_method_parameter`, via the .dl's own names. */
 function relationNameFor(file: string): string | undefined {
   const stem = file.replace('all-typescript-', '').replace('.csv', '');
@@ -3903,6 +4052,8 @@ const CHECKS: Check[] = [
   { name: 'declaration extensions are whole extensions', proves: '`.d.cts` and `.d.mts` are single extensions, so no stem keeps a stray `.d`', run: declarationExtensionsAreWholeExtensions },
   { name: 'an annotation can declare a signature set', proves: 'a type literal holding several call signatures is resolved as the set it is, and arity picks the arm tsc picks', run: annotationCanDeclareASignatureSet },
   { name: 'object-literal keys reach the IR', proves: 'a property key is emitted as its own row, joinable to its value, never bound as a scope reference, and absent when computed', run: objectLiteralKeysReachTheIr },
+  { name: 'empty imports record their module edge', proves: 'an import that binds nothing still emits a resolved row, so a package imported only for its ambient declarations can be staged', run: emptyImportsRecordTheirModuleEdge },
+  { name: 'reopened type members share a group key', proves: 'a member of a declaration-merged type has one identity across files, so two signatures of it are overload siblings rather than a wrong answer', run: reopenedTypeMembersShareAGroupKey },
   { name: 'fact-base invariants', proves: 'every PK unique, every FK resolves, every tree well-formed — the failures that load cleanly and count wrong', run: factBaseInvariants },
   { name: 'IR completeness', proves: 'every hop an engine needs in order to resolve is present — the measure that replaced resolution rate', run: irCompleteness },
 ];

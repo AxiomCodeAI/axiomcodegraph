@@ -95,6 +95,13 @@ interface EmitContext {
   readonly blockHash: string;
   readonly ownerTypeName: string;
   readonly ownerQualifiedName: string;
+  /**
+   * The owning type's `declarationGroupKey`, when there is an owning type.
+   *
+   * Optional so no other context literal changes: only {@link contextForType}
+   * can know it, and only a MEMBER needs it.
+   */
+  readonly ownerGroupKey?: string;
   /** Namespace / nested-type path, for qualified names. */
   readonly namePath: readonly string[];
   readonly scopeDepth: number;
@@ -1109,6 +1116,7 @@ export class TsDeclarationExtractor {
       methodHash: '',
       ownerTypeName: row.name,
       ownerQualifiedName: row.qualifiedName,
+      ownerGroupKey: row.declarationGroupKey,
       namePath: [...context.namePath, row.name].filter((p) => p !== ''),
       isAmbient: context.isAmbient || hasModifier(node, ts.SyntaxKind.DeclareKeyword),
     };
@@ -1488,7 +1496,23 @@ export class TsDeclarationExtractor {
       throwsExceptions: thrownTypeNamesOf(body, this.sf),
       enclosingMemberLinkHash: context.methodHash,
       tsModuleLinkHash: context.moduleHash,
-      declarationGroupKey: binding?.declarationGroupKey ?? '',
+      // A lexical binding when there is one; otherwise the MEMBER's identity
+      // across a merged owner. `ts_field` has carried exactly this since it was
+      // written -- `memberGroupKey`, "the member's identity ACROSS a merged
+      // owner, so a property declared in a module augmentation joins the same
+      // member as one declared in the original interface" -- and `ts_method`
+      // never got it, which left every interface member with an EMPTY group
+      // key. §4.7 c22 defines the column as "also the overload set's
+      // identity", and for a reopened interface that set spans files.
+      //
+      // Adjudicated against tsc, via the MERGED symbol rather than the
+      // declaration-local one: for an interface declared in two files,
+      // `getSymbolAtLocation(name)` -> `getDeclaredTypeOfSymbol` reports
+      // `make` with 2 declarations and construct/call signatures from both
+      // files. `(member as any).symbol` reports 1 declaration each, which is
+      // the trap that makes this look like a non-merge.
+      declarationGroupKey: binding?.declarationGroupKey
+        ?? memberGroupKeyOf(context.ownerGroupKey, name, isStaticMember(node)),
       mergeScopeKey: binding?.mergeScopeKey ?? '',
       escapedName: binding?.escapedName ?? name,
       // Provisional. Overload identity needs the whole set, and the sibling
@@ -2818,6 +2842,29 @@ function methodNameOf(
       return memberName(node) ?? '';
     }
   }
+}
+
+/**
+ * A member's identity across a MERGED owner, mirroring `ts_field`'s
+ * `memberGroupKey` formula exactly so a method and a field of the same name on
+ * the same owner agree.
+ *
+ * Empty when there is no owning type: a free function's identity is its
+ * lexical binding, which the binder already supplies.
+ */
+function memberGroupKeyOf(ownerGroupKey: string | undefined, name: string,
+  isStatic: boolean): string {
+  if (ownerGroupKey === undefined || ownerGroupKey === '') {
+    return '';
+  }
+  return EntityUtils.generateEntityHash(
+    ENTITY_IDENTIFIERS.TS_DECLARATION_GROUP,
+    `${ownerGroupKey}||${name}||${isStatic}`
+  );
+}
+
+function isStaticMember(node: ts.Node): boolean {
+  return hasModifier(node, ts.SyntaxKind.StaticKeyword);
 }
 
 function signatureOf(
