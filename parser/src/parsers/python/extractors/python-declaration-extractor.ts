@@ -1643,7 +1643,27 @@ export class PythonDeclarationExtractor {
     if (decoratorNames.some(d => d.endsWith('classmethod'))) {
       return PythonMethodKind.CLASS_METHOD;
     }
-    if (decoratorNames.some(d => d === 'property' || d.endsWith('.property'))) {
+    // `functools.cached_property` is `@property` with a memo: a descriptor whose `__get__`
+    // runs the decorated body once and caches the result, so `obj.x` is a READ THAT RUNS A
+    // METHOD BODY, exactly as `@property` is. It matched none of the tests here and fell
+    // through to INSTANCE_METHOD, so every consumer saw a plain method that is never called:
+    // the read was attributed as a field access rather than the call it is, the body looked
+    // unreached, and anything invoked on the result had no type to dispatch on, because the
+    // type comes from the getter's return and nothing consults it.
+    //
+    // Same two spellings the `property` test above accepts, for the same reason: bare when
+    // imported directly, dotted otherwise — and the suffix form also covers the third-party
+    // re-exports, `django.utils.functional.cached_property` among them.
+    //
+    // A cached property is simultaneously a getter and a FIELD, since the first read writes
+    // an instance attribute of the same name. That needs nothing extra here: the field
+    // extractor keys its property handling on PROPERTY_GETTER, so a cached property now
+    // takes exactly the path `@property` already takes, and that path only ever ADDS a
+    // modifier — it never suppresses the field. Checked both ways on a class that declares
+    // the getter and also writes the attribute: the field keeps its row and its origin, and
+    // the row is identical to the one the `@property` spelling produces.
+    if (decoratorNames.some(d => d === 'property' || d.endsWith('.property')
+        || d === 'cached_property' || d.endsWith('.cached_property'))) {
       return PythonMethodKind.PROPERTY_GETTER;
     }
     if (decoratorNames.some(d => d.endsWith('.setter'))) {
