@@ -1,0 +1,8 @@
+ambiguous_unknown	METHOD_CALL	members#literalPropertyAliased(LiteralProperty) @L50 -> -
+ambiguous_unknown	METHOD_CALL	members#literalPropertyInline({ run: (n: number) =) @L54 -> -
+ambiguous_unknown	OPTIONAL_CALL	members#literalPropertyOptional(OptionalLiteralProperty) @L60 -> -
+known_edge	FUNCTION_CALL	members#callHalf(Runner) @L19 -> members#<arrow@13>(number)
+known_edge	METHOD_CALL	members#interfaceProperty(Holder) @L43 -> members#<arrow@39>(number)
+known_edge	METHOD_CALL	members#literalMethod(LiteralMethod) @L34 -> { run(n: number): string }#run(number)
+known_edge	METHOD_CALL	members#objectHalfMethod(Runner) @L23 -> { orig(n: number): string; meta: Meta; }#orig(number)
+known_edge	METHOD_CALL	members#throughObjectHalf(Runner) @L27 -> Meta#describe()

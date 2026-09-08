@@ -1,0 +1,38 @@
+# Accepted gaps for 29-type-literal-callable-member. A NEW missing edge fails the suite;
+# a line here that STARTS working also fails, so the debt cannot rot.
+#
+# SIX LINES, THREE DEFECTS. The other three resolve correctly and appear here only
+# because the two sides name the same declaration differently — recorded so the count is
+# not mistaken for six gaps.
+#
+# ── the three real ones: a function-valued PROPERTY in a TYPE LITERAL ────────
+# The engine emits no target. `field_is_callable` needs the field in scope and then its
+# type's call signature; a TYPE_LITERAL_* member's owner points at a ts_type_reference
+# row rather than a ts_type one (field_decl's own comment says why: an anonymous
+# `{ foo(): string }` has members and no declaration to own them), and the property path
+# does not bridge that where the method path does.
+#
+# The matrix in the source is what attributes it: the intersection's object half
+# resolves, a METHOD in a type literal resolves, and the same function-valued property on
+# an INTERFACE resolves. So it is neither intersections (#147, closed as not
+# reproducible), nor aliases, nor the optional call.
+members#literalPropertyAliased(LiteralProperty) -> members#<arrow@47>(number)
+members#literalPropertyInline({ run: (n: number) =) -> members#<arrow@53>(number)
+members#literalPropertyOptional(OptionalLiteralProperty) -> members#<arrow@57>(number)
+#
+# ── the three label divergences: the engine RESOLVES these ───────────────────
+# Same declaration, same line, different owner name — and in opposite directions, which
+# is why neither side is simply right:
+#
+#   literalMethod       engine `{ run(n: number): string }#run`  oracle `members#run`
+#   objectHalfMethod    engine `{ orig...; meta: Meta; }#orig`   oracle `members#orig`
+#   interfaceProperty   engine `members#<arrow@39>`              oracle `Holder#<arrow@39>`
+#
+# The engine names an anonymous type literal by its text and the oracle by the module;
+# for an arrow that is an interface property's type the oracle names the interface and
+# the engine the module. Same class as #299, where the case oracle named a namespace
+# member by its file — it understates accuracy rather than measuring it. Filed separately;
+# these lines move to resolved when that lands.
+members#literalMethod(LiteralMethod) -> members#run(number)
+members#objectHalfMethod(Runner) -> members#orig(number)
+members#interfaceProperty(Holder) -> Holder#<arrow@39>(number)
