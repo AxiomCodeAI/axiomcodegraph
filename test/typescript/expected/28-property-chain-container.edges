@@ -1,0 +1,8 @@
+ambiguous_unknown	METHOD_CALL	Builder#<arrow@22>(?) @L22 -> -
+known_edge	METHOD_CALL	Builder#<arrow@17>(?) @L17 -> Column#isVirtual()
+known_edge	METHOD_CALL	Builder#<arrow@28>(?) @L28 -> Column#isVirtual()
+known_edge	METHOD_CALL	Builder#viaField() @L17 -> Array#filter((v: T) =)
+known_edge	METHOD_CALL	Builder#viaGetter() @L22 -> Array#filter((v: T) =)
+known_edge	METHOD_CALL	Builder#viaLocal() @L28 -> Array#filter((v: T) =)
+known_edge	METHOD_CALL	chain#<arrow@34>(?) @L34 -> Column#isVirtual()
+known_edge	METHOD_CALL	chain#viaAnnotated(Column[]) @L34 -> Array#filter((v: T) =)

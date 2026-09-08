@@ -1,0 +1,2 @@
+oracle=8 engine=7 agree=7 missing=1 (known 1, NEW 0) extra=0
+  known    Builder#<arrow@22>(?) -> Column#isVirtual()
