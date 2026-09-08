@@ -119,6 +119,19 @@ def _walk(code, out: List[Site], norm: Normalizer, path: str, owner: Anchor) -> 
     Rule 3 already applied by the caller of this function.
     """
     stack: List[Optional[tuple]] = []
+    # ── MERGE POINTS: where two arms of a conditional expression rejoin (#303) ──
+    # This walk is LINEAR and that is deliberate, so that a call inside either arm is
+    # still seen. But a conditional expression compiles to two arms which EACH push one
+    # value, and only one runs -- so walking both leaves one value too many on the
+    # modelled stack and the callee slot then reads an argument:
+    #
+    #     target(value if obj else 2, 2, c=3)   ->  tier 1 reported callee `value`
+    #
+    # Skipping the else-arm would fix the depth and lose every call in it, which is the
+    # worse trade: `f() if c else g()` would stop reporting `g`. So the arm's JUMP_FORWARD
+    # records the depth at the rejoin point, and the walk restores that depth when it
+    # arrives -- both arms are still walked, and only one push survives the merge.
+    merge_depth: dict = {}
     # starts_line is set only on the FIRST instruction of a line; every later
     # instruction reports None. Carrying it forward is required or nearly every
     # call lands on line `null` and joins to nothing.
@@ -137,6 +150,22 @@ def _walk(code, out: List[Site], norm: Normalizer, path: str, owner: Anchor) -> 
         if ins.starts_line is not None:
             current_line = ins.starts_line
         name = ins.opname
+
+        # ── REJOIN POINT OF A CONDITIONAL EXPRESSION (#303) ──────────────────
+        # AT THE TOP OF THE LOOP, before any opcode is special-cased: the branches
+        # below `continue`, so a check placed next to the generic stack_effect
+        # fallback is never reached for LOAD_ATTR, CALL_FUNCTION and the rest. That
+        # placement left the depth right and the callee slot still wrong.
+        d = merge_depth.pop(ins.offset, None)
+        if d is not None and len(stack) > d:
+            pop(len(stack) - d)
+        if name == 'JUMP_FORWARD' and isinstance(ins.argval, int):
+            # An arm ends here; record the depth the other arm rejoins at, which is the
+            # depth right now -- before the else-arm's own push is counted. The
+            # SHALLOWEST wins, because with nesting several arms share one rejoin offset
+            # and the runtime depth there is the shallowest of them.
+            prev = merge_depth.get(ins.argval)
+            merge_depth[ins.argval] = len(stack) if prev is None else min(prev, len(stack))
 
         if name == 'LOAD_CONST' and hasattr(ins.argval, 'co_code'):
             # The code object itself, so MAKE_FUNCTION can name what it wraps.
