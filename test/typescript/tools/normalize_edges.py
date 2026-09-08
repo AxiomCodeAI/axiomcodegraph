@@ -17,6 +17,10 @@ LABELS
   A method is `<owner>#<name>(<paramTypes>)`. The owner is the declaring type when
   there is one and the MODULE otherwise, because a top-level TypeScript function has
   no owning type — which is the single biggest shape difference from the Java golden.
+  An ANONYMOUS shape is not a declaring type: a member of `{ run(): string }`, and an
+  arrow that is a property's declared type, take the nearest enclosing NAMED declaration
+  if there is one and the module if there is not. That is the rule the compiler side
+  already uses, and matching it is what stops the same declaration counting twice.
 
 CONVENTIONS (deliberate, not defects)
   * Type parameters are erased to `T`, so `get(): T` and `map<U>` do not make the
@@ -110,6 +114,60 @@ class Names:
             if h and v.get('name'):
                 arrow_name.setdefault(h, v['name'])
 
+        # ── A SHAPE HAS NO NAME, SO ASK WHAT THE SHAPE IS THE TYPE OF ───────────────
+        # `ownerTypeName` is the anonymous type literal's own SOURCE TEXT for a
+        # TYPE_LITERAL_* member, and EMPTY for a FUNCTION_TYPE_SIGNATURE. Neither is an
+        # owner. The first is unstable — the parser truncates it at 120 characters, and it
+        # moves whenever any member of the shape is edited — and unreadable in a golden;
+        # the second says nothing at all. The compiler side names the nearest ENCLOSING
+        # named declaration (class, interface, enum, namespace) and the module otherwise,
+        # so the two sides disagreed in OPPOSITE directions on the SAME declaration at the
+        # SAME line: one missing edge PLUS one extra, per call, charged against accuracy
+        # the engine had already got right. Same class as #299 and #236. See issue #322.
+        #
+        # The route back to a real owner is the type reference the shape IS. A method's
+        # `tsTypeLinkHash` points at its own `ts_type_reference` row — the parser sets it
+        # that way deliberately, because an anonymous shape has no `ts_type` to belong to
+        # — and that row records the ENTITY the type was written for.
+        #
+        # Only a FIELD owner yields a name, and that is not a shortcut:
+        #   * FIELD       `run: (n) => string` in `interface Holder` -> `Holder`, which is
+        #                 what the compiler side calls it.
+        #   * TYPE        a type ALIAS. `type T = { run(): string }` is NOT an owner on the
+        #                 compiler side either — an alias is not a class or an interface —
+        #                 so falling through to the module is what MATCHES it.
+        #   * METHOD_PARAM an inline annotation, `f(p: { run(): string })`. The compiler
+        #                 side walks past it to the module too.
+        # A field that is ITSELF a type-literal member has the same non-name problem and
+        # so cannot supply an owner either — otherwise `{ p: { run(): string } }` would
+        # hand back the outer literal's text, trading one unstable owner for another.
+        #
+        # An EMPTY key is never stored and never looked up. A method with no
+        # `tsTypeLinkHash` at all would otherwise collide with any row whose own hash
+        # column is blank, and take an owner belonging to something else entirely.
+        typeref_owner = {}
+        for t in rows(f'{ir}/all-typescript-type-references.csv'):
+            h = t.get('tsTypeReferenceUniqueHash') or ''
+            if h:
+                typeref_owner[h] = (t.get('referenceOwnerKind') or '',
+                                    t.get('typeReferenceOwnerHash') or '')
+        field_owner = {}
+        for fl in rows(f'{ir}/all-typescript-fields.csv'):
+            h = fl.get('tsFieldUniqueHash') or ''
+            if h:
+                field_owner[h] = (fl.get('ownerTypeName') or '',
+                                  fl.get('memberKind') or '')
+
+        def enclosing_owner(type_hash):
+            """The named declaration an anonymous shape was written inside, or ''."""
+            if not type_hash:
+                return ''
+            kind, owner_hash = typeref_owner.get(type_hash, ('', ''))
+            if kind != 'FIELD' or not owner_hash:
+                return ''
+            name, member_kind = field_owner.get(owner_hash, ('', ''))
+            return '' if member_kind.startswith('TYPE_LITERAL_') else name
+
         self.m, self.mods = {}, mods
         raw = {}
         for r in rows(f'{ir}/all-typescript-methods.csv'):
@@ -122,8 +180,12 @@ class Names:
                 if p.get('isVarArgs') == 'true' and not t.endswith('[]'):
                     t += '[]'
                 ps.append(t)
-            owner = r.get('ownerTypeName') or mods.get(r.get('tsModuleLinkHash'), '?')
             kind = r.get('methodKind') or ''
+            owner = r.get('ownerTypeName') or ''
+            if not owner or kind.startswith('TYPE_LITERAL_'):
+                owner = enclosing_owner(r.get('tsTypeLinkHash'))
+            if not owner:
+                owner = mods.get(r.get('tsModuleLinkHash'), '?')
             name = r.get('name') or ''
             # KEYED ON methodKind, not on "the name starts with <". Every synthesised name is
             # angle-bracketed, so the old test sent the MODULE INITIALIZER down the unnamed-arrow
