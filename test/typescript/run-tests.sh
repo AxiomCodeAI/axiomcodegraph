@@ -180,6 +180,20 @@ if ! bash "$HERE/tools/signature-impl-test.sh"; then
   echo "aborting: the signature/implementation map is not what the compiler says"
   exit 1
 fi
+
+# ── another overload of the same callable is not a wrong answer ──────────────
+# `_same_group` compared `declarationGroupKey`, which the parser populates for
+# FUNCTION_DECLARATION and nothing else — so an overloaded class METHOD (3,272 keyless
+# rows on one project) and every signature kind were invisible to the credit, including
+# the construct signatures of an interface the standard library REOPENS in another file.
+# Two corpus rows read as the engine naming a target the compiler disagrees with when it
+# had named another overload of the same thing (#310). Two of the four checks are
+# controls: a same-named method on an unrelated class must NOT be a sibling, or the
+# grouping is a name match and manufactures agreement.
+if ! bash "$HERE/tools/overload-sibling-test.sh"; then
+  echo "aborting: the overload-sibling grouping is not what it claims"
+  exit 1
+fi
 if ! bash "$HERE/tools/envelope-merge-test.sh"; then
   echo "aborting: the dispatch envelope is not the resolved symbol's declaration set"
   exit 1

@@ -719,6 +719,21 @@ else
   tail -1 "$WORK/signature-impls.log" 2>/dev/null
 fi
 
+# ── overload siblings, from the compiler's MERGED symbol ─────────────────────
+# `declarationGroupKey` is populated for FUNCTION_DECLARATION and nothing else, so the
+# OVERLOAD_SIBLING verdict could not fire for an overloaded class method or for any
+# signature kind — including the construct signatures of an interface the standard
+# library REOPENS in another file. Two corpus rows read as the engine naming a target
+# the compiler disagrees with when it named another overload of the same thing. #310.
+if ! ( cd "$MIRROR" && node --max-old-space-size=6144 \
+         "$HERE/ground-truth/overload-siblings.mjs" . "$WORK/overload-siblings.tsv" ) \
+       > "$WORK/overload-siblings.log" 2>&1; then
+  echo "   ! the overload-sibling map failed; those sites will read WRONG"
+  tail -2 "$WORK/overload-siblings.log" | sed 's/^/       /'
+else
+  tail -1 "$WORK/overload-siblings.log" 2>/dev/null
+fi
+
 # ── 5. score ─────────────────────────────────────────────────────────────────
 # Same shape as NM_ROOTS was, and the same fix (#296): `${LIBS//,/ }` turns the
 # comma-joined list into a SPACE-joined one and then splits it on whitespace, so a
@@ -744,6 +759,7 @@ echo "▶ score:"
 MISSED_DUMP="$WORK/missed.tsv" SITE_DUMP="$WORK/sites.tsv" python3 "$HERE/ground-truth/score.py" \
   "$WORK/ir" "$WORK/out" "$WORK/oracle.tsv" --envelope="$WORK/envelope.tsv" \
   --signature-impls="$WORK/signature-impls.tsv" \
+  --overload-siblings="$WORK/overload-siblings.tsv" \
   ${LIBARGS[@]+"${LIBARGS[@]}"} \
   ${SCORE_PRODUCTION:+--production} \
   | tee "$WORK/score.txt"

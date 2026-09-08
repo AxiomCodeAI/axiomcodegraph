@@ -142,6 +142,7 @@ def main():
     lib_dirs = []
     envelope_path = None
     sig_impls_path = None
+    sibs_path = None
     production_only = False
     for a in sys.argv[4:]:
         if a.startswith('--lib='):
@@ -150,6 +151,8 @@ def main():
             envelope_path = a[len('--envelope='):]
         elif a.startswith('--signature-impls='):
             sig_impls_path = a[len('--signature-impls='):]
+        elif a.startswith('--overload-siblings='):
+            sibs_path = a[len('--overload-siblings='):]
         elif a == '--production':
             production_only = True
 
@@ -295,6 +298,18 @@ def main():
                 continue
             impl_sigs[(rp(row[0]), row[1], row[2])].add((rp(row[3]), row[4], row[5]))
 
+    # ---- overload siblings, from the compiler's MERGED symbol ----
+    # `ground-truth/overload-siblings.mjs` groups the declarations the language considers
+    # one callable. `declarationGroupKey` cannot: the parser populates it for
+    # FUNCTION_DECLARATION and for nothing else, so an overloaded class METHOD (3,272 rows
+    # on one project) and every signature kind are invisible to _same_group. #310.
+    pos_sibling = {}
+    if sibs_path and os.path.exists(sibs_path):
+        for row in read_tsv(sibs_path):
+            if len(row) < 4:
+                continue
+            pos_sibling[(rp(row[0]), row[1], row[2])] = row[3]
+
     # A declaration with NO BODY: it describes a callable, it is not one.
     bodiless_kinds = {
         'METHOD_SIGNATURE', 'TYPE_LITERAL_METHOD_SIGNATURE', 'CALL_SIGNATURE',
@@ -337,9 +352,16 @@ def main():
 
     def _same_group(otarget, eng):
         og = pos_group.get(otarget)
-        if not og:
-            return False
-        return any(pos_group.get(t) == og for t in eng)
+        if og and any(pos_group.get(t) == og for t in eng):
+            return True
+        # The compiler's own grouping, for every kind the parser leaves keyless. Keyed on
+        # the MERGED symbol, never on a name or an owner: joining `SetConstructor` or
+        # `addSelect` by name would let any unrelated declaration of that name answer,
+        # which manufactures the agreement this verdict exists to measure.
+        sg = pos_sibling.get(otarget)
+        if sg and any(pos_sibling.get(t) == sg for t in eng):
+            return True
+        return False
 
     # ---- join on position ----
     buckets = defaultdict(int)
