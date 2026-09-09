@@ -359,14 +359,25 @@ export class PythonExpressionExtractor {
       case 'for_statement': {
         const left = node.childForFieldName('left');
         const right = node.childForFieldName('right');
+        // `async for` drives __aiter__/__anext__ where `for` drives __iter__/__next__, so the
+        // two are different constructs rather than one construct with a flag. Nothing else on
+        // the expression records it: the enclosing function cannot decide it (an `async def`
+        // holds plain `for` loops too), and the ASYNC_FOR block cannot either, because the
+        // iterable is owned by the METHOD rather than by that block.
+        const asyncLoop = PythonExpressionExtractor.isAsyncStatement(node);
         if (right) {
-          this.enqueueRoot(right, context, PythonRootContext.FOR_ITERABLE, PythonEdgeRole.ROOT);
+          this.enqueueRoot(
+            right,
+            context,
+            asyncLoop ? PythonRootContext.ASYNC_FOR_ITERABLE : PythonRootContext.FOR_ITERABLE,
+            PythonEdgeRole.ROOT
+          );
         }
         if (left) {
           this.enqueueRoot(
             left,
             context,
-            PythonRootContext.FOR_TARGET,
+            asyncLoop ? PythonRootContext.ASYNC_FOR_TARGET : PythonRootContext.FOR_TARGET,
             PythonEdgeRole.ROOT,
             PythonNameContext.STORE
           );
@@ -536,13 +547,31 @@ export class PythonExpressionExtractor {
     this.enqueueRoot(node, context, context.statementRootContext, PythonEdgeRole.ROOT);
   }
 
+  /**
+   * True for `async for` / `async with`, which the grammar marks with a leading `async`
+   * token on the same statement node. Matches `PythonBlockExtractor.isAsync`, deliberately:
+   * the block row and the expression rows must agree about the same statement.
+   */
+  private static isAsyncStatement(node: Parser.SyntaxNode): boolean {
+    return node.child(0)?.text === 'async';
+  }
+
   private visitWithStatement(node: Parser.SyntaxNode, context: StatementContext): void {
+    const asyncWith = PythonExpressionExtractor.isAsyncStatement(node);
     for (let i = 0; i < node.namedChildCount; i++) {
       const child = node.namedChild(i);
       if (!child) {
         continue;
       }
       if (child.type === 'with_clause') {
+        // `async with` drives __aenter__/__aexit__ where `with` drives __enter__/__exit__ —
+        // the same distinction as `async for`, and absent for the same reason.
+        const contextRoot = asyncWith
+          ? PythonRootContext.ASYNC_WITH_CONTEXT
+          : PythonRootContext.WITH_CONTEXT;
+        const targetRoot = asyncWith
+          ? PythonRootContext.ASYNC_WITH_TARGET
+          : PythonRootContext.WITH_TARGET;
         for (let j = 0; j < child.namedChildCount; j++) {
           const item = child.namedChild(j);
           if (item?.type !== 'with_item') {
@@ -555,26 +584,21 @@ export class PythonExpressionExtractor {
           if (value.type === 'as_pattern') {
             const source = value.namedChild(0);
             if (source) {
-              this.enqueueRoot(
-                source,
-                context,
-                PythonRootContext.WITH_CONTEXT,
-                PythonEdgeRole.WITH_CONTEXT
-              );
+              this.enqueueRoot(source, context, contextRoot, PythonEdgeRole.WITH_CONTEXT);
             }
             const target = value.namedChild(1);
             if (target) {
               this.enqueueRoot(
                 target,
                 context,
-                PythonRootContext.WITH_TARGET,
+                targetRoot,
                 PythonEdgeRole.WITH_TARGET,
                 PythonNameContext.STORE
               );
             }
             continue;
           }
-          this.enqueueRoot(value, context, PythonRootContext.WITH_CONTEXT, PythonEdgeRole.WITH_CONTEXT);
+          this.enqueueRoot(value, context, contextRoot, PythonEdgeRole.WITH_CONTEXT);
         }
         continue;
       }

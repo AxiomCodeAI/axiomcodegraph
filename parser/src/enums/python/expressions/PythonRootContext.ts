@@ -35,8 +35,35 @@ export enum PythonRootContext {
   FOR_TARGET = 'FOR_TARGET',
   FOR_ITERABLE = 'FOR_ITERABLE',
 
+  /**
+   * `async for x in obj` — a DIFFERENT protocol from `for`, not a variant of it.
+   *
+   * `for` calls `obj.__iter__` / `__next__`; `async for` calls `obj.__aiter__` /
+   * `__anext__`. ast has two node types for exactly this reason, and the two forms shared
+   * `FOR_ITERABLE` here, so a consumer emitting the iteration-protocol edge had to choose
+   * between fabricating `__iter__` on every `async for` and emitting nothing at all.
+   *
+   * The enclosing function does NOT decide it — an `async def` contains plain `for` loops
+   * too — and neither does the block row: the iterable expression is owned by the METHOD,
+   * not by the `ASYNC_FOR` block, so there is no join that recovers it.
+   *
+   * Async is a distinct enum member here for the same reason it is one in
+   * `PythonBlockKind` (`ASYNC_FOR`), `PythonMethodKind` (`ASYNC_FUNCTION`) and
+   * `PythonComprehensionKind` (`ASYNC_LIST`): the kind says what the construct IS.
+   */
+  ASYNC_FOR_TARGET = 'ASYNC_FOR_TARGET',
+  ASYNC_FOR_ITERABLE = 'ASYNC_FOR_ITERABLE',
+
   WITH_CONTEXT = 'WITH_CONTEXT',
   WITH_TARGET = 'WITH_TARGET',
+
+  /**
+   * `async with cm` — `__aenter__` / `__aexit__`, where `with` is `__enter__` / `__exit__`.
+   *
+   * The same distinction as `ASYNC_FOR_ITERABLE`, and it was missing for the same reason.
+   */
+  ASYNC_WITH_CONTEXT = 'ASYNC_WITH_CONTEXT',
+  ASYNC_WITH_TARGET = 'ASYNC_WITH_TARGET',
 
   RAISE_VALUE = 'RAISE_VALUE',
   EXCEPT_TYPE = 'EXCEPT_TYPE',

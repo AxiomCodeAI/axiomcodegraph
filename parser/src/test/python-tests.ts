@@ -32,6 +32,7 @@ import { moduleExports } from './python-gates/module-exports';
 import { nameStability } from './python-gates/name-stability';
 import { typeVariables } from './python-gates/type-variables';
 import { stubModuleNames } from './python-gates/stub-module-names';
+import { asyncIteration } from './python-gates/async-iteration';
 import { splatCallee } from './python-gates/splat-callee';
 import { cachedProperty } from './python-gates/cached-property';
 import { pep604Union } from './python-gates/pep604-union';
@@ -540,6 +541,8 @@ const CHECKS: Check[] = [
     proves: 'a @cached_property is a property getter — a read that runs a body — not a method nobody calls' },
   { name: 'PEP 604 unions', run: pep604Union,
     proves: 'a union is decomposed whatever its operands look like; a subscripted operand does not collapse it' },
+  { name: 'async iteration', run: asyncIteration,
+    proves: 'async for and async with are distinguishable from their sync forms, so the right protocol edge can be chosen' },
   { name: 'construct x position', run: constructPositions,
     proves: 'constructs hold in EVERY syntactic position, not just the one the corpus uses' },
 ];
