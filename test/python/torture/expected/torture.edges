@@ -49,6 +49,8 @@ boundary_lib	DECORATOR_BARE	f36_property_result.Application.<classbody> -> built
 boundary_lib	DECORATOR_BARE	f36_property_result.Holder.<classbody> -> builtin:property
 boundary_lib	DECORATOR_BARE	f36_property_result.Outer.<classbody> -> builtin:property
 boundary_lib	DECORATOR_BARE	f36_property_result.SubApplication.<classbody> -> builtin:property
+boundary_lib	DECORATOR_BARE	f37_classmethod_pairing.Scheduler.<classbody> -> builtin:classmethod
+boundary_lib	DECORATOR_BARE	f37_classmethod_pairing.Spider.<classbody> -> builtin:classmethod
 boundary_lib	DECORATOR_CALL	f05_decorators.<module> -> lib:tlib.decorated.retry
 boundary_lib	DYNAMIC_CALL	f02_callables.constructed_directly -> lib:tlib.callables.Doubler.__call__
 boundary_lib	METHOD_CALL	f01_inheritance.lib_deep_chain -> lib:tlib.shapes.Base.only_base
@@ -146,6 +148,8 @@ boundary_lib	METHOD_CALL	f36_property_result.lib_property_returns_lib_class -> l
 boundary_lib	METHOD_CALL	f36_property_result.lib_property_returns_lib_container -> builtin:list.append
 boundary_lib	METHOD_CALL	f36_property_result.lib_property_returns_lib_container -> builtin:str.join
 boundary_lib	METHOD_CALL	f36_property_result.lib_property_returns_lib_container -> lib:tlib.descriptors.Factory.build
+boundary_lib	METHOD_CALL	f37_classmethod_pairing.drive -> builtin:str.join
+boundary_lib	METHOD_CALL	f37_classmethod_pairing.registry_helper -> builtin:str.join
 boundary_lib	METHOD_CALL	main.main -> builtin:object.__init__
 boundary_lib	SELF_CALL	f02_callables.HoldsCallables.run -> lib:tlib.callables.Doubler.__call__
 boundary_lib	SELF_CALL	f09_adversarial.Rebound.use -> lib:tlib.callables.Doubler.__call__
@@ -269,6 +273,11 @@ boundary_lib	SIMPLE_CALL	f36_property_result.builtin_inferred -> builtin:sorted
 boundary_lib	SIMPLE_CALL	f36_property_result.builtin_inferred -> builtin:str
 boundary_lib	SIMPLE_CALL	f36_property_result.lib_property_returns_lib_class -> lib:tlib.descriptors.Depot.__init__
 boundary_lib	SIMPLE_CALL	f36_property_result.lib_property_returns_lib_container -> lib:tlib.descriptors.Depot.__init__
+boundary_lib	SIMPLE_CALL	f37_classmethod_pairing.Scheduler.from_crawler -> builtin:object.__init__
+boundary_lib	SIMPLE_CALL	f37_classmethod_pairing.Spider.from_crawler -> builtin:object.__init__
+boundary_lib	SIMPLE_CALL	f37_classmethod_pairing.explicit_class_object -> builtin:object.__init__
+boundary_lib	SIMPLE_CALL	f37_classmethod_pairing.registry_helper -> builtin:object.__init__
+boundary_lib	SIMPLE_CALL	f37_classmethod_pairing.through_an_instance -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	main.main -> builtin:print
@@ -300,6 +309,8 @@ known_edge	CHAINED_CALL	f21_module_alias.call_function_through_alias -> aliaspkg
 known_edge	CHAINED_CALL	f21_module_alias.construct_through_alias -> aliaspkg.deep.impl.Node.label
 known_edge	CHAINED_CALL	f35_generic_union.return_plain_union -> f35_generic_union.Payload.render
 known_edge	CHAINED_CALL	f35_generic_union.return_subscripted_union -> f35_generic_union.Payload.render
+known_edge	CHAINED_CALL	f37_classmethod_pairing.Scheduler.from_crawler -> f37_classmethod_pairing.Scheduler.label
+known_edge	CHAINED_CALL	f37_classmethod_pairing.through_an_instance -> f37_classmethod_pairing.Scheduler.from_crawler
 known_edge	CHAINED_CALL	main.main -> f10_forward_refs.Boxed.read
 known_edge	CHAINED_CALL	main.main -> f11_multiwrite.HoldsOr.run
 known_edge	CHAINED_CALL	main.main -> f11_multiwrite.HoldsTernary.run
@@ -379,6 +390,8 @@ known_edge	METHOD_CALL	f35_generic_union.param_subscripted_union -> f35_generic_
 known_edge	METHOD_CALL	f36_property_result.container -> f36_property_result.Item.run
 known_edge	METHOD_CALL	f36_property_result.inferred -> f36_property_result.Dispatcher.add_get
 known_edge	METHOD_CALL	f36_property_result.overridden -> f36_property_result.SubDispatcher.add_get
+known_edge	METHOD_CALL	f37_classmethod_pairing.explicit_class_object -> f37_classmethod_pairing.Spider.from_crawler
+known_edge	METHOD_CALL	f37_classmethod_pairing.registry_helper -> f37_classmethod_pairing.Crawler.settings
 known_edge	METHOD_CALL	main.main -> f01_inheritance.client_chain
 known_edge	METHOD_CALL	main.main -> f01_inheritance.lib_deep_chain
 known_edge	METHOD_CALL	main.main -> f01_inheritance.lib_diamond
@@ -507,6 +520,7 @@ known_edge	METHOD_CALL	main.main -> f33_type_stubs.drive
 known_edge	METHOD_CALL	main.main -> f34_reexport_union.drive
 known_edge	METHOD_CALL	main.main -> f35_generic_union.drive
 known_edge	METHOD_CALL	main.main -> f36_property_result.drive
+known_edge	METHOD_CALL	main.main -> f37_classmethod_pairing.drive
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator_in_for
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_plain
@@ -652,6 +666,10 @@ known_edge	SIMPLE_CALL	f36_property_result.drive -> f36_property_result.plain_fi
 known_edge	SIMPLE_CALL	f36_property_result.inferred -> f36_property_result.Application.__init__
 known_edge	SIMPLE_CALL	f36_property_result.overridden -> f36_property_result.Application.__init__
 known_edge	SIMPLE_CALL	f36_property_result.plain_field -> f36_property_result.Application.__init__
+known_edge	SIMPLE_CALL	f37_classmethod_pairing.drive -> f37_classmethod_pairing.explicit_class_object
+known_edge	SIMPLE_CALL	f37_classmethod_pairing.drive -> f37_classmethod_pairing.registry_helper
+known_edge	SIMPLE_CALL	f37_classmethod_pairing.drive -> f37_classmethod_pairing.through_an_instance
+known_edge	SIMPLE_CALL	f37_classmethod_pairing.registry_helper -> f37_classmethod_pairing.build
 known_edge	SIMPLE_CALL	main.<module> -> main.main
 known_edge	SIMPLE_CALL	pkgmod.user.run_generator -> pkgmod._gen.each
 known_edge	SIMPLE_CALL	pkgmod.user.run_generator_in_for -> pkgmod._gen.each_first
@@ -695,6 +713,8 @@ multi_inferred	CHAINED_CALL	f23_typevar_bound.class_object_bounded -> f23_typeva
 multi_inferred	CHAINED_CALL	f23_typevar_bound.class_object_bounded -> f23_typevar_bound.Derived.label
 multi_inferred	CHAINED_CALL	f23_typevar_bound.flowed_class_object -> f23_typevar_bound.Base.label
 multi_inferred	CHAINED_CALL	f23_typevar_bound.flowed_class_object -> f23_typevar_bound.Derived.label
+multi_inferred	CHAINED_CALL	f37_classmethod_pairing.Spider.from_crawler -> f37_classmethod_pairing.Spider.label
+multi_inferred	CHAINED_CALL	f37_classmethod_pairing.Spider.from_crawler -> f37_classmethod_pairing.SubSpider.label
 multi_inferred	ITERATION_PROTOCOL	f32_iteration_protocol.a_dispatch_set -> f32_iteration_protocol.Source.__iter__
 multi_inferred	ITERATION_PROTOCOL	f32_iteration_protocol.a_dispatch_set -> f32_iteration_protocol.SourceA.__iter__
 multi_inferred	ITERATION_PROTOCOL	f32_iteration_protocol.a_dispatch_set -> f32_iteration_protocol.SourceB.__iter__
@@ -730,6 +750,8 @@ multi_inferred	METHOD_CALL	f36_property_result.chained -> f36_property_result.Di
 multi_inferred	METHOD_CALL	f36_property_result.chained -> f36_property_result.SubDispatcher.add_get
 multi_inferred	METHOD_CALL	f36_property_result.plain_field -> f36_property_result.Dispatcher.add_get
 multi_inferred	METHOD_CALL	f36_property_result.plain_field -> f36_property_result.SubDispatcher.add_get
+multi_inferred	METHOD_CALL	f37_classmethod_pairing.build -> f37_classmethod_pairing.Scheduler.from_crawler
+multi_inferred	METHOD_CALL	f37_classmethod_pairing.build -> f37_classmethod_pairing.Spider.from_crawler
 multi_inferred	PROPERTY_READ	f36_property_result.chained -> f36_property_result.Application.router
 multi_inferred	PROPERTY_READ	f36_property_result.chained -> f36_property_result.SubApplication.router
 multi_inferred	SELF_CALL	f13_declared_dispatch.Base.run -> f13_declared_dispatch.Base.step
