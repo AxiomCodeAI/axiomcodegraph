@@ -49,3 +49,12 @@ class Depot:
     @property
     def factories(self) -> List["Factory"]:
         return self._all
+
+
+class Deferred:
+    """A library object whose members are supplied at runtime — the shape a partially
+    staged library produces: the TYPE is known, the member is not declared anywhere the
+    engine can see."""
+
+    def __getattr__(self, name: str):
+        return lambda: "deferred:" + name
