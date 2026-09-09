@@ -1,0 +1,38 @@
+# Accepted gap for 24-hedged-overload-return-union (client->library pass). A NEW missing
+# edge fails the suite; a line here that STARTS working also fails, so the debt cannot rot.
+#
+# THE PREREQUISITE IS CONSTRAINT APPLICABILITY. This records the trade rather than paying
+# for it with accuracy. The parser now groups a reopened type's members, so the two
+# `create` signatures finally share a declarationGroupKey. That is correct, and it is a
+# large gain: the group-based selection rules, which could never fire for an interface's
+# signatures while the column was empty, now commit where the engine used to hedge —
+# EXACT 13,168 -> 13,656 on the held-out project, with MISSED unchanged at 749.
+#
+# What it also does is decide this site wrongly:
+#
+#     create<K extends keyof WidgetMap>(kind: K)   declared first
+#     create(kind: string)
+#
+#     f.create('video')  the compiler picks the GENERIC  — a literal IS a keyof
+#     f.create(k)        the compiler picks (string)     — a general string is not
+#
+# `arg_matches_concretely` answers identically at both sites: the string signature
+# matches, the generic does not, because the proxy compares the argument against a
+# PARAMETER's type and that type is `K`. So no rule built on it can be right at both, and
+# the oracle requires one edge from each. Separating them needs `K extends keyof
+# WidgetMap` evaluated against the argument. overload.dl's header already says it: "the
+# prerequisite is applicability that separates these sets, not the group key."
+#
+# Two suppressions were measured and both cost far more than this line, which is why the
+# rules are unchanged (#334):
+#
+#   restrict the rules to FUNCTION_DECLARATION groups — their entire domain before the
+#     parser change:                      EXACT 13,656 -> 13,089  (-567)
+#   leave any group holding a GENERIC signature unpruned:
+#                                         EXACT 13,656 -> 13,465  (-191)
+#     and 19-overload-gauntlet's `widen` set stops committing, extra 1 -> 3
+#
+# Both recover exactly this one edge and nothing else: corpus MISSED is 749 in every
+# variant. The shape is real and hermetic, and chasing it is not worth paying for until
+# constraints are testable.
+consumer#viaVideo(Factory) -> Factory#create(T)

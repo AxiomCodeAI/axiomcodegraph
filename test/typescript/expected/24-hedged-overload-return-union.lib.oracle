@@ -1,7 +1,7 @@
-oracle=4 engine=10 agree=4 missing=0 (known 0, NEW 0) extra=6
+oracle=4 engine=8 agree=3 missing=1 (known 1, NEW 0) extra=5
+  known    consumer#viaVideo(Factory) -> Factory#create(T)
   extra    consumer#viaVideo(Factory) -> BaseWidget#attach(string)
   extra    consumer#viaVideo(Factory) -> Factory#create(string)
   extra    consumer#viaVideo(Factory) -> SourceWidget#attach(string)
-  extra    consumer#viaWidening(Factory,string) -> Factory#create(T)
   extra    consumer#viaWidening(Factory,string) -> SourceWidget#attach(string)
   extra    consumer#viaWidening(Factory,string) -> VideoWidget#attach(string)
