@@ -470,7 +470,32 @@ export class TsImportExtractor {
           ? TsImportResolutionKind.RELATIVE_FILE
           : TsImportResolutionKind.PATHS_ALIAS,
       extension: module.extension,
-      packageName: module.packageId?.name ?? '',
+      // `packageId` first, then the SPECIFIER. tsc declines to mint a
+      // `packageId` when the nearest `package.json` carries a name that is not
+      // a legal package name -- which is exactly what a node10-compatibility
+      // stub does:
+      //
+      //   node_modules/@tt/srv/standalone/package.json
+      //     { "name": "@tt/srv/standalone", "types": "../types/standalone/index.d.ts" }
+      //
+      // Verified against `ts.resolveModuleName`: `@tt/srv` yields
+      // `packageId.name = "@tt/srv"`, `@tt/srv/standalone` yields
+      // `packageId = undefined`, and both resolve their file correctly. So the
+      // row had a right path and no package name, and library discovery --
+      // which reads THIS column to decide what to stage -- could not see a
+      // dependency reached only through a subpath.
+      //
+      // The specifier is unambiguous where `packageId` is absent: the package
+      // part is the first two segments when scoped, the first otherwise.
+      // `packageNameOf` already computed exactly that for the UNRESOLVED path;
+      // the resolved path simply never used it.
+      //
+      // Only as a FALLBACK, and only under `node_modules`: `packageId.name`
+      // stays authoritative when tsc supplies it, and a `paths` alias into
+      // first-party source keeps an empty package name because it is not a
+      // published package.
+      packageName: module.packageId?.name
+        ?? (isNodeModules ? packageNameOf(specifier) : ''),
     };
   }
 }

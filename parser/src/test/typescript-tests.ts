@@ -3141,6 +3141,86 @@ async function reopenedTypeMembersShareAGroupKey(): Promise<number> {
   }
 }
 
+
+/**
+ * A subpath import reached through a node10-compat stub names its PACKAGE (#151).
+ *
+ * A published package often ships a stub `package.json` in a subdirectory so
+ * `moduleResolution: "node"` can reach a subpath entry point. The stub's `name`
+ * carries the subpath -- `@tt/srv/standalone` -- which is not a legal package
+ * name, so tsc declines to mint a `packageId` at all. Reading only
+ * `packageId.name` left `packageName` EMPTY on exactly those rows, and library
+ * discovery reads that column to decide what to stage, so a dependency reached
+ * only through a subpath was invisible.
+ *
+ * The controls matter as much as the case: the package root beside it, and a
+ * bare package with an ordinary subdirectory, both already worked and must not
+ * move.
+ */
+async function subpathImportsNameTheirPackage(): Promise<number> {
+  if (!parserPresent()) {
+    return pendingCheck('subpath imports name their package',
+      'no extractor yet. A stub package.json must not cost the package name');
+  }
+  const { outputDir, cleanup } = await analyseInline('ts-pkgname-', {
+    'tsconfig.json': JSON.stringify({
+      compilerOptions: {
+        target: 'ES2022', module: 'CommonJS', moduleResolution: 'node',
+        ignoreDeprecations: '6.0',
+      },
+    }),
+    'a.ts': [
+      "import { Server } from '@tt/srv';",
+      "import { startStandalone } from '@tt/srv/standalone';",
+      "import { p } from 'plain';",
+      "import { s } from 'plain/sub';",
+      'export const use = [Server, startStandalone, p, s];',
+    ].join('\n'),
+    // The stub's `name` is the subpath -- this is the shape that breaks tsc's
+    // packageId, and it is what real packages publish.
+    'node_modules/@tt/srv/package.json':
+      '{"name":"@tt/srv","version":"1.0.0","types":"types/index.d.ts"}',
+    'node_modules/@tt/srv/types/index.d.ts': 'export declare class Server { start(): void }\n',
+    'node_modules/@tt/srv/types/standalone/index.d.ts':
+      'export declare function startStandalone(): void;\n',
+    'node_modules/@tt/srv/standalone/package.json':
+      '{"name":"@tt/srv/standalone","types":"../types/standalone/index.d.ts"}',
+    'node_modules/plain/package.json':
+      '{"name":"plain","version":"1.0.0","types":"types/index.d.ts"}',
+    'node_modules/plain/types/index.d.ts': 'export declare const p: number;\n',
+    'node_modules/plain/sub/index.d.ts': 'export declare const s: number;\n',
+  });
+  try {
+    const imports = relation(outputDir, 'all-typescript-imports.csv');
+    const failures: string[] = [];
+    for (const [spec, want] of [
+      ['@tt/srv/standalone', '@tt/srv'],  // the case
+      ['@tt/srv', '@tt/srv'],             // control: package root
+      ['plain/sub', 'plain'],             // control: bare subpath, no stub
+      ['plain', 'plain'],                 // control: bare root
+    ] as const) {
+      const row = imports.find((r) => r['importedPath'] === spec);
+      if (row === undefined) {
+        failures.push(`no import row for ${spec}`);
+        continue;
+      }
+      if (row['packageName'] !== want) {
+        failures.push(`${spec}: packageName is "${row['packageName']}", expected "${want}" — `
+          + 'library discovery reads this column, so an empty value hides the dependency');
+      }
+      if ((row['resolvedFilePath'] ?? '') === '') {
+        failures.push(`${spec}: resolvedFilePath is empty`);
+      }
+    }
+    console.log(`  ${imports.length} import row(s): a subpath reached through a stub `
+      + 'package.json names its package, and the root and bare-subpath controls are unchanged');
+    for (const f of failures.slice(0, 5)) { console.log(`  ${f}`); }
+    return failures.length ? 1 : 0;
+  } finally {
+    cleanup();
+  }
+}
+
 /** `all-typescript-method-parameters.csv` -> `ts_method_parameter`, via the .dl's own names. */
 function relationNameFor(file: string): string | undefined {
   const stem = file.replace('all-typescript-', '').replace('.csv', '');
@@ -4054,6 +4134,7 @@ const CHECKS: Check[] = [
   { name: 'object-literal keys reach the IR', proves: 'a property key is emitted as its own row, joinable to its value, never bound as a scope reference, and absent when computed', run: objectLiteralKeysReachTheIr },
   { name: 'empty imports record their module edge', proves: 'an import that binds nothing still emits a resolved row, so a package imported only for its ambient declarations can be staged', run: emptyImportsRecordTheirModuleEdge },
   { name: 'reopened type members share a group key', proves: 'a member of a declaration-merged type has one identity across files, so two signatures of it are overload siblings rather than a wrong answer', run: reopenedTypeMembersShareAGroupKey },
+  { name: 'subpath imports name their package', proves: 'a subpath reached through a node10-compat stub package.json still names its package, so library discovery can see the dependency', run: subpathImportsNameTheirPackage },
   { name: 'fact-base invariants', proves: 'every PK unique, every FK resolves, every tree well-formed — the failures that load cleanly and count wrong', run: factBaseInvariants },
   { name: 'IR completeness', proves: 'every hop an engine needs in order to resolve is present — the measure that replaced resolution rate', run: irCompleteness },
 ];
