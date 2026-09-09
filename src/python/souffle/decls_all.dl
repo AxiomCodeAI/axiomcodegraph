@@ -503,3 +503,5 @@
 .decl property_read_of(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
 .decl property_read_lib_of(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl type_nested_member(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl lib_unresolved_typed(c0:symbol,c1:symbol,c2:symbol)
+.decl lib_unresolved_construct(c0:symbol,c1:symbol)

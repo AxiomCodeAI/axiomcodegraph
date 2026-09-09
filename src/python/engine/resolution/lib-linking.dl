@@ -236,6 +236,7 @@ call_hits_lib_unresolved(site, cat("lib:", d)) :-
     !expr_call_candidate(site, _),
     !call_hits_lib_method(site, _),
     !call_hits_builtin(site, _),
+    !lib_unresolved_typed(site, _, _),
     call_receiver_object(site, obj),
     expr_parent("client", obj, "ATTRIBUTE_OBJECT", _, root),
     expr_binding("client", rb, _, root),
@@ -246,6 +247,7 @@ call_hits_lib_unresolved(site, cat("lib:", d)) :-
     !expr_call_candidate(site, _),
     !call_hits_lib_method(site, _),
     !call_hits_builtin(site, _),
+    !lib_unresolved_typed(site, _, _),
     call_receiver_object(site, obj),
     expr_binding("client", rb, _, obj),
     binding_lookup("client", rb, rb2),
@@ -273,6 +275,7 @@ call_hits_lib_unresolved(site, cat("lib:", d)) :-
     !expr_call_candidate(site, _),
     !call_hits_lib_method(site, _),
     !call_hits_builtin(site, _),
+    !lib_unresolved_typed(site, _, _),
     call_receiver_object(site, obj),
     call_of_expr(obj, inner),
     call_callee_expr(inner, icallee),
@@ -287,13 +290,43 @@ call_hits_lib_unresolved(site, cat("lib:", d)) :-
 // without this the name is lost even though the engine knows the receiver's library type
 // exactly. Reaching the member is a library-completeness problem; naming the target is
 // not, and the name is the floor.
-call_hits_lib_unresolved(site, cat("lib:", d)) :-
-    call_dotted(site, d), d != "",
+// AND THE NAME IS THE DECLARING TYPE'S, NOT THE RECEIVER EXPRESSION'S (issue #311). Every
+// other clause in this section labels the target `cat("lib:", d)` where d is call_dotted —
+// the call AS WRITTEN. For a module-qualified call that is a library path and reads
+// correctly; for a call on a local or a parameter it is the CLIENT's own variable name:
+//
+//     e = Engine(); e.connect()       ->  lib:e.connect
+//     def go(m: Engine): m.connect()  ->  lib:m.connect
+//     make_engine().connect()         ->  lib:connect
+//
+// which is weaker than a basename, and SCORING.md §8 already argues why that matters: two
+// clients with different local names produce different targets for the same library
+// method, and one client with `m` in two functions produces the same target for two
+// different ones. With no library staged the same site is `external:Engine.connect`, so
+// staging — strictly more information — made the target LESS identifiable.
+//
+// The type is bound here already; it was being discarded. type_decl's qualifiedName is
+// what this file's header calls "the durable cross-run key that name-based library
+// linking joins on", so it is the right half to key identity on.
+// NOT FIXED HERE: the third shape #311 lists, a CHAINED receiver.
+// `make_engine().connect()` has no dotted prefix in the source, so call_dotted is just
+// `connect` and the label stays `lib:connect` — a bare member name. The obvious clause,
+// keyed on the imported function the receiver came from, was written and MEASURED WORSE:
+// it suppressed the text form via this negation and then did not fire itself
+// (import_links_lib_function does not carry the stub-declared function, so the join was
+// empty), turning `lib:connect` into ambiguous_unknown. Reverted rather than shipped. A
+// bare member name is weak identity; no answer is worse, so that half stays open on #311.
+lib_unresolved_typed(site, qn, n) :-
+    call_receiver_object(site, obj),
+    expr_lib_type(obj, t),
+    type_decl("lib", _, qn, _, t), qn != "",
+    call_name(site, n), n != "".
+call_hits_lib_unresolved(site, cat("lib:", cat(qn, cat(".", n)))) :-
     !expr_call_candidate(site, _),
     !call_hits_lib_method(site, _),
     !call_hits_builtin(site, _),
-    call_receiver_object(site, obj),
-    expr_lib_type(obj, _).
+    lib_unresolved_typed(site, qn, n).
+
 
 // ── CONSTRUCTING a library class, where no library initializer resolved ──────
 // `Counter(opts)`, `deque(args)`, `ExitStack()`. Every clause above keys on a RECEIVER;
@@ -312,11 +345,34 @@ call_hits_lib_unresolved(site, cat("lib:", d)) :-
 // lib TYPE and no target, and guarding on it suppressed the floor at exactly the sites
 // that need it. The three remaining guards already establish that the site has no answer,
 // which is the only precondition the floor requires.
+// CONSTRUCTING one: the same identity point. `Deferred()` labelled `lib:Deferred` is a
+// BASENAME, which is what SCORING.md §8 rules out directly; the class is bound here, so
+// the qualified name costs one more join.
+lib_unresolved_construct(site, qn) :-
+    call_callee_is_value(site),
+    call_callee_expr(site, callee),
+    expr_names_lib_type(callee, t),
+    type_decl("lib", _, qn, _, t), qn != "".
+lib_unresolved_construct(site, qn) :-
+    call_callee_is_value(site),
+    call_callee_expr(site, callee),
+    expr_binding("client", cb, _, callee),
+    binding_lookup("client", cb, cb2),
+    import_links_lib_type(cb2, t),
+    type_decl("lib", _, qn, _, t), qn != "".
+call_hits_lib_unresolved(site, cat("lib:", qn)) :-
+    !expr_call_candidate(site, _),
+    !call_hits_lib_method(site, _),
+    !call_hits_builtin(site, _),
+    !lib_unresolved_typed(site, _, _),
+    lib_unresolved_construct(site, qn).
 call_hits_lib_unresolved(site, cat("lib:", d)) :-
     call_dotted(site, d), d != "",
     !expr_call_candidate(site, _),
     !call_hits_lib_method(site, _),
     !call_hits_builtin(site, _),
+    !lib_unresolved_typed(site, _, _),
+    !lib_unresolved_construct(site, _),
     call_callee_is_value(site),
     call_callee_expr(site, callee),
     expr_names_lib_type(callee, _).
@@ -325,6 +381,8 @@ call_hits_lib_unresolved(site, cat("lib:", d)) :-
     !expr_call_candidate(site, _),
     !call_hits_lib_method(site, _),
     !call_hits_builtin(site, _),
+    !lib_unresolved_typed(site, _, _),
+    !lib_unresolved_construct(site, _),
     call_callee_is_value(site),
     call_callee_expr(site, callee),
     expr_binding("client", cb, _, callee),
