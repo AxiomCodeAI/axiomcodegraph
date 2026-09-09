@@ -257,6 +257,39 @@ expr_call_candidate(ce, ctor) :- call_site("client", "SUPER_CALL", _, _, _, ce, 
     type_inherits(encl, sup),
     constructor_in_scope(sup, ctor).
 
+// (10b) …AND WHERE THE BASE IS A VALUE, WHICH IS HOW THE STANDARD LIBRARY DECLARES
+// EVERY CONSTRUCTOR. `lib.es5.d.ts` contains no `class` declaration: a built-in is an
+// instance interface, a SECOND interface carrying the construct signature, and a
+// `declare const` of that type. So `class AppError extends Error` resolves its heritage
+// clause to the INSTANCE interface — which is right, and is why `super.describe()`
+// already works — and that interface has no `new`, so the clause above finds nothing and
+// the site was honestly reported as a blind spot.
+//
+// Measured across the corpus, 9 SUPER_CALL sites miss for this reason and 7 of them are
+// the standard library's error constructor; #338 reports 15 of 17 on two other projects,
+// the same one declaration. `class X extends Error` is the commonest subclassing of a
+// built-in there is.
+//
+// The chain is the one the CONSTRUCTOR_CALL rules above already use for `new Foo()` where
+// `Foo` is a const: bind the name to the VARIABLE, take its type, and read the construct
+// signature off that. Only the constructor side needs it; the instance-member path is
+// unchanged.
+//
+// EXTENDS only, via inheritsMembers — an `implements` clause runs no constructor, which
+// is the same restriction the clause above states.
+heritage_value_ctor(sub, ctor) :- ts_type_heritage(_, _, _, _, name, _, _, "true", sub, mod, _, _, _, _, _, _, _, _, _, _),
+    name != "",
+    name_binds(mod, name, _, "VARIABLE", v),
+    var_type(v, _, ctorType),
+    constructor_in_scope(ctorType, ctor).
+// Lifted to the declaration group on the subtype end, for the reason type_inherits is:
+// a heritage clause written on one declaration of a merged class applies to all of them.
+expr_call_candidate(ce, ctor) :- call_site("client", "SUPER_CALL", _, _, _, ce, cs),
+    call_enclosing_type(cs, encl),
+    type_group(_, sg, encl),
+    type_group(_, sg, sub),
+    heritage_value_ctor(sub, ctor).
+
 // ============================================================================
 // TAGGED TEMPLATES, INDEX CALLS, JSX
 // ============================================================================
