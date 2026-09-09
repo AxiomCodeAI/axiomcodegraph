@@ -1,0 +1,1 @@
+known_edge	DECORATOR_CALL	Svc#b() @L26 -> svc#timed()

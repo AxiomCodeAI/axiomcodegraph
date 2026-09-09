@@ -1,0 +1,19 @@
+# Accepted gap for 32-decorator-application. A NEW missing edge fails the suite; a line
+# here that STARTS working also fails, so the debt cannot rot.
+#
+# PARSER-BLOCKED, and the engine cannot close it. A bare `@guarded` gets a ts_decorator
+# row with kind = MARKER and NO ts_call_site, so the application is absent from the IR
+# entirely. The engine has no site to attach an edge to, and score.py joins the oracle to
+# IR call sites by position — so the compiler's row becomes CONSERVATION LOSS and leaves
+# the denominator rather than counting as a miss. Nothing in the rules can recover that;
+# it needs a call site emitted. parser#82, and #233 for the measurement.
+#
+# The FACTORY form beside it is the control and resolves: `@timed()` does emit a call
+# site for the factory call, which is what makes this attributable to the bare form and
+# not to decorators in general.
+#
+# This case is also the first in the suite to use a decorator at all. Until #233 the case
+# oracle's node list omitted `ts.isDecorator` while the project oracle emitted
+# DECORATOR_CALL, so the per-case suite was green on decorators whatever the engine did.
+# Both sides now say the same thing, which is why this line can exist.
+Svc#a() -> svc#guarded(unknown,string,PropertyDescriptor)
