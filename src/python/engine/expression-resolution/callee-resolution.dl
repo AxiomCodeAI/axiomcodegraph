@@ -189,6 +189,29 @@ call_constructs_type(site, t) :-
     expr_names_module("client", obj, mod),
     call_name(site, n),
     module_member_type("client", mod, n, t).
+// ── `Outer.Inner(...)` — CONSTRUCTION OF A NESTED CLASS ──────────────────────
+// The same shape as the module clause above with a CLASS in the receiver position rather
+// than a module. Without it the site is read as "call a method named Inner on Outer",
+// Outer has no such method, and the site is `no_rule` — so the ONLY spelling Python gives
+// a nested class resolved to nothing, while the bare name `Inner` resolved to every Inner
+// in the module. Both halves are fixed together in resolution/name-resolution.dl.
+//
+// Two object shapes, because `A.B.C(...)` is one more hop: a bare class name, and an
+// attribute chain that already resolved to a class. Neither reads
+// expr_type_class_object — see the note on expr_attr_names_type for why that would not
+// stratify.
+call_constructs_type(site, t) :-
+    call_recv_kind(site, rk), rk != "NONE", rk != "SUPER",
+    call_receiver_object(site, obj),
+    expr_names_type("client", obj, o),
+    call_name(site, n),
+    type_nested_member("client", o, n, t).
+call_constructs_type(site, t) :-
+    call_recv_kind(site, rk), rk != "NONE", rk != "SUPER",
+    call_receiver_object(site, obj),
+    expr_attr_names_type("client", obj, o),
+    call_name(site, n),
+    type_nested_member("client", o, n, t).
 
 // ============================================================================
 // (5) INSTANCE receivers — ATTRIBUTE, CALL_RESULT, NAME-holding-an-instance,

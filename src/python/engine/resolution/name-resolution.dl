@@ -410,7 +410,40 @@ expr_names_param(p, e, prm) :- expr_binding(p, b, ctx, e), ctx != "STORE", bindi
 // A class declared in a module, addressable as `mod.Name`. Uses the TYPE's own module
 // FK plus its simple name — a join within one module, so no cross-module name
 // matching is involved.
-module_member_type(p, mod, n, t) :- type_module(p, mod, t), type_decl(p, n, _, _, t).
+//
+// TOP LEVEL ONLY, and the second half of that is not pedantry — the same sentence
+// method_top_level below already had to write for functions. `type_module` is
+// py_type.pyModuleLinkHash, which EVERY type carries: a class nested in another class
+// and a class defined inside a function both name the module they were written in. So
+// without this guard `class Meta:` inside a model is addressable as `models.Meta`, and
+// a bare `Meta` annotation in that module resolves to every Meta in it.
+//
+// MEASURED, five open-source projects: 8,755 classes are nested in another class and 192
+// are local to a function; 6,321 of those collide with another type of the same short
+// name in the same module, and every one was a wrong candidate for a lookup of that name.
+// One project alone declares `Meta` 1,107 times. It is not confined to annotations —
+// `models.Widget()` resolved to `_factory_one.<locals>.Widget` too.
+//
+// The nested ones are not lost by this: they are reachable through their OWNER, which is
+// how Python spells them, and type_nested_member below is that route.
+module_member_type(p, mod, n, t) :-
+    type_module(p, mod, t), type_decl(p, n, _, _, t), type_top_level(p, t).
+
+// ── type_nested_member(Prov, OuterTypeHash, Name, NestedTypeHash) ────────────
+// `Outer.Inner` — the spelling Python actually gives a nested class, and the one the
+// engine had no rule for at all. Before this, `Outer.Inner()` produced NO answer while
+// the bare name `Inner` produced every Inner in the module: the correct reference
+// resolved to nothing and the incorrect one over-resolved.
+//
+// DIRECT NESTING ONLY, and that is a stratification constraint rather than a claim about
+// Python. `class Sub(Outer)` does make `Sub.Inner` reachable, but reaching it needs
+// type_ancestor, which rests on base resolution, which rests on name resolution — and
+// this relation feeds expr_attr_names_type, which name resolution reads. Adding the
+// inherited clause puts type_ancestor in a cycle with expr_type_class_object that souffle
+// cannot stratify (it refuses, naming ~100 relations). So the inherited spelling stays
+// unresolved, as it was before this change; nothing regresses, and closing it needs the
+// cycle broken rather than one more clause.
+type_nested_member(p, o, n, t) :- type_enclosing(p, t, o), type_decl(p, n, _, _, t).
 
 // ── method_top_level(Prov, ModuleHash, MethodHash) ───────────────────────────
 // A function at MODULE level — no owning class AND no enclosing function. The second
@@ -454,6 +487,27 @@ expr_attr_names_type(p, e, t) :-
     expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
     expr_names_module(p, obj, mod),
     module_member_type(p, mod, attrName, t).
+// The same hop through a CLASS NAME rather than a module: `Outer.Inner`, and `A.B.C` by
+// recursion on this relation itself.
+//
+// THE OBJECT IS READ AS expr_names_type, NOT expr_type_class_object, and that is
+// deliberate. expr_type_class_object sits inside the large mutually-recursive block that
+// reaches expr_call_candidate and the negations around it; joining it here puts
+// expr_attr_names_type in that block and souffle refuses to stratify, naming ~100
+// relations. expr_names_type is outside it — a name bound to a class — which is the
+// spelling `Outer.Inner` actually uses. A class object arriving by some other route (a
+// registry lookup, a parameter) is not covered, and that is the cost of staying
+// stratified rather than an oversight.
+expr_attr_names_type(p, e, t) :-
+    expr_node(p, "ATTRIBUTE_ACCESS", _, attrName, e),
+    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_names_type(p, obj, o),
+    type_nested_member(p, o, attrName, t).
+expr_attr_names_type(p, e, t) :-
+    expr_node(p, "ATTRIBUTE_ACCESS", _, attrName, e),
+    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_attr_names_type(p, obj, o),
+    type_nested_member(p, o, attrName, t).
 
 // ── expr_attr_names_method(Prov, ExprHash, MethodHash) ───────────────────────
 expr_attr_names_method(p, e, m) :-
