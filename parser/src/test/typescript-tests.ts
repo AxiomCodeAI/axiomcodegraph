@@ -3327,6 +3327,90 @@ function emittedValuesAreInTheirDeclaredDomain(): number {
   return failures.length ? 1 : 0;
 }
 
+
+/**
+ * A computed member key is named when syntax fixes its value, and carries no
+ * group key when it does not (#93).
+ *
+ * Every `[expr]` member was unnamed. That lost the members the language calls
+ * implicitly — `for..of` invokes `[Symbol.iterator]`, `using` invokes
+ * `[Symbol.dispose]` — and, once a member's group key began hashing its name,
+ * it also collided: six distinct computed members of one class shared ONE
+ * `declarationGroupKey` and read as a six-member overload set.
+ *
+ * So the two halves are tested together. A name where tsc has one, and NO
+ * group key where nobody can have one.
+ */
+async function computedMemberKeysAreNamedWhenKnowable(): Promise<number> {
+  if (!parserPresent()) {
+    return pendingCheck('computed member keys are named when knowable',
+      'no extractor yet. A well-known symbol is a name; a folded const is not');
+  }
+  const { outputDir, cleanup } = await analyseInline('ts-computedkey-', {
+    'a.ts': [
+      "const dyn = 'd';",                                    // 1
+      'export class Bag {',                                  // 2
+      '  [Symbol.iterator]() { return this; }',              // 3
+      '  [Symbol.asyncIterator]() { return this; }',         // 4
+      '  ["strLit"]() {}',                                   // 5
+      '  [42]() {}',                                         // 6
+      '  [dyn]() {}',                                        // 7  <- not knowable
+      '  plain() {}',                                        // 8
+      '}',
+    ].join('\n'),
+  }, { lib: ['ES2022', 'ESNext.Disposable'] });
+  try {
+    const own = relation(outputDir, 'all-typescript-methods.csv')
+      .filter((r) => r['ownerTypeName'] === 'Bag');
+    const byLine = new Map(own.map((r) => [r['startLine'] ?? '', r]));
+    const failures: string[] = [];
+    // tsc's own escapedName for the two literal forms is `strLit` and `42`, so
+    // these are not a convention -- they are the answer tsc already had.
+    for (const [line, want] of [
+      ['3', '[Symbol.iterator]'], ['4', '[Symbol.asyncIterator]'],
+      ['5', 'strLit'], ['6', '42'], ['8', 'plain'],
+    ] as const) {
+      const row = byLine.get(line);
+      if (row === undefined) {
+        failures.push(`no ts_method row at line ${line}`);
+        continue;
+      }
+      if (row['name'] !== want) {
+        failures.push(`line ${line}: name is "${row['name']}", expected "${want}"`);
+      }
+      if ((row['declarationGroupKey'] ?? '') === '') {
+        failures.push(`line ${line}: a NAMED member must carry a group key`);
+      }
+    }
+    // `[dyn]` needs the constant folded, which is the checker's job.
+    const dynamic = byLine.get('7');
+    if (dynamic === undefined) {
+      failures.push('no ts_method row for the dynamic key');
+    } else {
+      if ((dynamic['name'] ?? '') !== '') {
+        failures.push(`line 7: name is "${dynamic['name']}", expected empty — naming it `
+          + 'would require folding the constant');
+      }
+      if ((dynamic['declarationGroupKey'] ?? '') !== '') {
+        failures.push('line 7: an UNNAMED member must carry NO group key, or every dynamic '
+          + 'key on one owner collides into a single false overload set');
+      }
+    }
+    // The property that the collision broke.
+    const keys = own.map((r) => r['declarationGroupKey'] ?? '').filter((k) => k !== '');
+    if (new Set(keys).size !== keys.length) {
+      failures.push(`${keys.length} group key(s) over ${new Set(keys).size} distinct value(s) `
+        + '— distinct members must not share one identity');
+    }
+    console.log(`  ${own.length} member(s): 2 well-known symbols, 2 literal keys and an `
+      + `ordinary name each named and distinct; the folded-const key unnamed and ungrouped`);
+    for (const f of failures.slice(0, 6)) { console.log(`  ${f}`); }
+    return failures.length ? 1 : 0;
+  } finally {
+    cleanup();
+  }
+}
+
 /** `all-typescript-method-parameters.csv` -> `ts_method_parameter`, via the .dl's own names. */
 function relationNameFor(file: string): string | undefined {
   const stem = file.replace('all-typescript-', '').replace('.csv', '');
@@ -4242,6 +4326,7 @@ const CHECKS: Check[] = [
   { name: 'reopened type members share a group key', proves: 'a member of a declaration-merged type has one identity across files, so two signatures of it are overload siblings rather than a wrong answer', run: reopenedTypeMembersShareAGroupKey },
   { name: 'subpath imports name their package', proves: 'a subpath reached through a node10-compat stub package.json still names its package, so library discovery can see the dependency', run: subpathImportsNameTheirPackage },
   { name: 'emitted values are in their declared domain', proves: 'no column emits a value the schema does not declare, so a rule written from the document cannot match nothing', run: emittedValuesAreInTheirDeclaredDomain },
+  { name: 'computed member keys are named when knowable', proves: 'a well-known symbol and a literal key are named, a folded-const key is not, and distinct members never share one group key', run: computedMemberKeysAreNamedWhenKnowable },
   { name: 'fact-base invariants', proves: 'every PK unique, every FK resolves, every tree well-formed — the failures that load cleanly and count wrong', run: factBaseInvariants },
   { name: 'IR completeness', proves: 'every hop an engine needs in order to resolve is present — the measure that replaced resolution rate', run: irCompleteness },
 ];

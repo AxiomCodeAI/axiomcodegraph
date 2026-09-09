@@ -942,5 +942,61 @@ export function memberName(member: ts.Node): string | undefined {
   if (ts.isStringLiteral(name) || ts.isNumericLiteral(name)) {
     return name.text;
   }
+  if (ts.isComputedPropertyName(name)) {
+    return computedMemberName(name.expression);
+  }
+  return undefined;
+}
+
+/**
+ * The ECMAScript well-known symbols — a closed, spec-defined list.
+ *
+ * Not a maintenance burden and not a heuristic: these are the only symbols
+ * whose identity the language fixes, which is what makes `[Symbol.iterator]`
+ * statically nameable while `[someConst]` is not.
+ */
+const WELL_KNOWN_SYMBOLS = new Set([
+  'asyncDispose', 'asyncIterator', 'dispose', 'hasInstance', 'isConcatSpreadable',
+  'iterator', 'match', 'matchAll', 'replace', 'search', 'species', 'split',
+  'toPrimitive', 'toStringTag', 'unscopables',
+]);
+
+/**
+ * The name of a COMPUTED member key, when syntax alone fixes its value.
+ *
+ * Three cases are decidable and one is not:
+ *
+ *   ["strLit"]          -> `strLit`             tsc's escapedName is exactly this
+ *   [42]                -> `42`                 likewise
+ *   [Symbol.iterator]   -> `[Symbol.iterator]`  the language fixes the identity
+ *   [someConst]         -> undefined            needs the const's VALUE
+ *
+ * The literal cases match tsc's declaration symbol outright — verified,
+ * `escapedName` is `"strLit"` and `"42"`, so returning `undefined` for them was
+ * simply losing a name tsc already had.
+ *
+ * For a well-known symbol tsc offers three names and none can be copied: the
+ * declaration symbol says `__computed`, which cannot tell `[Symbol.iterator]`
+ * from `[someConst]`; the late-bound type member says `__@iterator@6`, whose
+ * trailing id is per-`Program` and so not reproducible without one; and
+ * `symbolToString` says `[Symbol.iterator]`. The display form is the only one
+ * that is both stable and derivable from syntax, so that is what this emits.
+ *
+ * `[someConst]` stays unnamed on purpose. tsc late-binds it by FOLDING the
+ * constant — for `const k = "dyn"` the member becomes `dyn` — and folding is a
+ * checker computation. An unnamed member must then carry NO group key, or
+ * every dynamic key on one owner collides into a single false overload set.
+ */
+function computedMemberName(expression: ts.Expression): string | undefined {
+  if (ts.isStringLiteral(expression) || ts.isNumericLiteral(expression)) {
+    return expression.text;
+  }
+  if (ts.isPropertyAccessExpression(expression)
+    && ts.isIdentifier(expression.expression)
+    && expression.expression.text === 'Symbol'
+    && ts.isIdentifier(expression.name)
+    && WELL_KNOWN_SYMBOLS.has(expression.name.text)) {
+    return `[Symbol.${expression.name.text}]`;
+  }
   return undefined;
 }

@@ -2857,6 +2857,13 @@ function memberGroupKeyOf(ownerGroupKey: string | undefined, name: string,
   if (ownerGroupKey === undefined || ownerGroupKey === '') {
     return '';
   }
+  // An UNNAMED member has no identity to share. `[someConst]() {}` needs the
+  // constant folded to be named, so hashing its empty name grouped every
+  // dynamic key on one owner into a single false overload set — six distinct
+  // members of one class read as one six-member group. No name, no group.
+  if (name === '') {
+    return '';
+  }
   return EntityUtils.generateEntityHash(
     ENTITY_IDENTIFIERS.TS_DECLARATION_GROUP,
     `${ownerGroupKey}||${name}||${isStatic}`
