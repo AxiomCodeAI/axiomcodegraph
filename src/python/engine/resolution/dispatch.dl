@@ -77,11 +77,22 @@ method_is_classmethod(p, m) :- method_kind(p, "CLASS_METHOD", _, m).
 // ── cls_bound_type(MethodHash, TypeHash) ─────────────────────────────────────
 // The classes through which this classmethod is reached.
 // (a) named explicitly at the call site: `Child.of("x")`.
+//
+// THE CLASS OBJECT AND THE CANDIDATE MUST BE PAIRED, not crossed. Where the receiver is a
+// class object with SEVERAL possible classes -- the `build_from_crawler(objcls, ...)`
+// helper idiom, whose `objcls` parameter holds a different class at every call -- this
+// clause without the mro_lookup join hands EVERY candidate classmethod EVERY class in the
+// set. Measured on one project: `Spider.from_crawler` collected 123 bound classes, most of
+// which do not inherit from Spider at all, and the site then exceeded the dispatch cap and
+// lost its concrete targets altogether. The join says what the cross product only implied:
+// t is a bound class of m exactly when t's OWN mro resolves the called name to m.
 cls_bound_type(m, t) :-
     expr_call_candidate(site, m),
     method_is_classmethod("client", m),
     call_receiver_object(site, obj),
-    expr_type_class_object("client", obj, t).
+    expr_type_class_object("client", obj, t),
+    call_name(site, n),
+    mro_lookup("client", t, n, m).
 // (b) reached through an INSTANCE: `self.of(...)` / `obj.of(...)` — cls is type(obj).
 cls_bound_type(m, t) :-
     expr_call_candidate(site, m),
