@@ -1,0 +1,10 @@
+ambiguous_unknown	CONSTRUCTOR_CALL	narrow#assertExplicit(unknown) @L26 -> -
+ambiguous_unknown	METHOD_CALL	ExplicitOne#handle(string) @L6 -> -
+ambiguous_unknown	METHOD_CALL	ImplicitOne#handle(string) @L11 -> -
+known_edge	FUNCTION_CALL	narrow#viaAssertsPredicate(unknown) @L29 -> narrow#assertExplicit(unknown)
+known_edge	FUNCTION_CALL	narrow#viaTypeGuard(ImplicitOne | ExplicitOne) @L20 -> narrow#isExplicit(ImplicitOne | ExplicitOne)
+known_edge	METHOD_CALL	narrow#viaAssertsPredicate(unknown) @L30 -> ExplicitOne#handle(string)
+multi_inferred	METHOD_CALL	narrow#viaTypeGuard(ImplicitOne | ExplicitOne) @L20 -> ExplicitOne#handle(string)
+multi_inferred	METHOD_CALL	narrow#viaTypeGuard(ImplicitOne | ExplicitOne) @L20 -> ImplicitOne#handle(string)
+multi_inferred	METHOD_CALL	narrow#viaTypeGuard(ImplicitOne | ExplicitOne) @L21 -> ExplicitOne#handle(string)
+multi_inferred	METHOD_CALL	narrow#viaTypeGuard(ImplicitOne | ExplicitOne) @L21 -> ImplicitOne#handle(string)

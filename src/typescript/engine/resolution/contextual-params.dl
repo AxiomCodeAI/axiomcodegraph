@@ -169,3 +169,55 @@ objlit_contextual_param(mp, prov, t) :- objlit_method_of_var(m, v),
     param_decl(_, _, k, _, m, mp).
 
 param_type(mp, prov, t) :- objlit_contextual_param(mp, prov, t).
+
+// ── AN ASSERTION SIGNATURE TYPES ITS SUBJECT — `asserts x is T` ─────────────
+// `assertDefined(x)`, `invariant(x)`, every hand-rolled schema check that throws. It is
+// the only narrowing form whose purpose is to type code AFTER the call rather than
+// inside a branch, so everything downstream of one is affected rather than one
+// expression. Measured before writing this: the engine emitted NOTHING for the call
+// after the assertion, because the subject keeps its declared type — usually `unknown`,
+// which has no members to look up. #340.
+//
+// WHAT THIS IS NOT. The issue reports the type-GUARD form (`x is T`) as working and this
+// as the sibling gap, implying narrowing machinery to extend. There is none: no rule
+// reads a type predicate at all. The guard case resolves because its receiver is a
+// UNION and the fan over both members happens to contain the compiler's answer — a
+// sound superset, not a narrowing. So this adds the first predicate reading rather than
+// extending one, and the guard form is left alone deliberately: narrowing it would
+// REMOVE targets from a set that is currently sound, which is a different and riskier
+// change than adding a type where there was none.
+//
+// FLOW-INSENSITIVE, AND SOUND BECAUSE OF WHAT IT ADDS TO. The asserted type is given to
+// the subject throughout the enclosing function, not from the call onward — Datalog over
+// positions has no statement order. That can only over-approximate, and only into a
+// declared type that had no members: a use BEFORE the assertion does not typecheck, so
+// the compiler names no target there for this to disagree with. The declared type is
+// kept alongside, so nothing is removed.
+//
+// THE SUBJECT IS MATCHED BY NAME, NOT ASSUMED TO BE THE FIRST PARAMETER. `asserts x is
+// T` names its subject, and the parameter whose name it is gets the type. Checked as a
+// prefix — `"asserts " + name + " "` — so no index arithmetic is needed and a helper
+// that narrows its second argument is handled by the same rule.
+assertion_predicate(m, ctn) :- method_return_ref(prov, r, m),
+    type_ref(prov, "TYPE_PREDICATE", _, _, ctn, _, _, r),
+    strlen(ctn) > 8,
+    substr(ctn, 0, 8) = "asserts ".
+assertion_subject_pos(m, pos) :- assertion_predicate(m, ctn),
+    param_decl(_, pname, pos, _, m, _),
+    pname != "",
+    pre = cat("asserts ", cat(pname, " ")),
+    strlen(ctn) >= strlen(pre),
+    substr(ctn, 0, strlen(pre)) = pre.
+// The asserted type, off the predicate's own TYPE_PREDICATE_TARGET child.
+assertion_asserted_type(m, prov, t) :- assertion_predicate(m, _),
+    method_return_ref(rp, r, m),
+    type_ref_parent(rp, r, _, child),
+    type_ref(rp, _, "TYPE_PREDICATE_TARGET", _, _, _, _, child),
+    ref_type_target(child, prov, t).
+// The argument at that position, where it is a reference to a parameter of the caller.
+assertion_narrowed_param(p, prov, t) :- expr_call_candidate(ce, m),
+    assertion_subject_pos(m, pos),
+    assertion_asserted_type(m, prov, t),
+    expr_child("client", ce, "ARGUMENT", pos, ae),
+    expr_referenced("client", "PARAMETER", p, ae).
+param_type(p, prov, t) :- assertion_narrowed_param(p, prov, t).
