@@ -37,6 +37,7 @@ import f34_reexport_union as f34
 import f35_generic_union as f35
 import f36_property_result as f36
 import f37_classmethod_pairing as f37
+import f38_nested_class_scope as f38
 from tlib import Square
 from tlib.shapes import Base, Mid
 
@@ -114,6 +115,7 @@ def main() -> None:
     print(f35.drive())
     print(f36.drive())
     print(f37.drive())
+    print(f38.drive())
 
 
 if __name__ == "__main__":
