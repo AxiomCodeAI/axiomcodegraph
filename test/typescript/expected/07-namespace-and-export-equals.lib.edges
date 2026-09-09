@@ -2,5 +2,7 @@ ambiguous_unknown	CONSTRUCTOR_CALL	consumer#drive() @L4 -> -
 ambiguous_unknown	CONSTRUCTOR_CALL	consumer#useLibrary() @L13 -> -
 ambiguous_unknown	METHOD_CALL	consumer#drive() @L6 -> -
 ambiguous_unknown	METHOD_CALL	consumer#useLibrary() @L15 -> -
+boundary_lib	METHOD_CALL	consumer#useLibrary() @L15 -> Node#visit()
 boundary_lib	METHOD_CALL	consumer#useLibrary() @L15 -> vendor#pack()
+known_edge	METHOD_CALL	consumer#drive() @L6 -> Node#visit()
 known_edge	METHOD_CALL	consumer#drive() @L6 -> outer#pack()

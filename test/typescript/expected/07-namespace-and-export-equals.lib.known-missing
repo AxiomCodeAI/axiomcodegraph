@@ -1,7 +1,5 @@
 # Accepted gaps for 07-namespace-and-export-equals — each line is an edge the TypeScript compiler
 # resolves and this engine does not. A NEW missing edge fails the suite;
 # a line here that STARTS working also fails, so the debt cannot rot.
-consumer#drive() -> Node#visit()
 consumer#drive() -> inner#deepPack()
-consumer#useLibrary() -> Node#visit()
 consumer#useLibrary() -> inner#deepPack()

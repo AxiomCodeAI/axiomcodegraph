@@ -1,3 +1,2 @@
-oracle=3 engine=1 agree=1 missing=2 (known 2, NEW 0) extra=0
-  known    consumer#drive() -> Node#visit()
+oracle=3 engine=2 agree=2 missing=1 (known 1, NEW 0) extra=0
   known    consumer#drive() -> inner#deepPack()
