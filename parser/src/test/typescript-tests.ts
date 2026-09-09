@@ -3221,6 +3221,112 @@ async function subpathImportsNameTheirPackage(): Promise<number> {
   }
 }
 
+
+/**
+ * Every emitted value lies in the domain the schema declares for it (#91).
+ *
+ * Nothing checked this, and three columns had drifted so far that the document
+ * and the extractor shared almost no vocabulary: `ts_enum_member.valueKind`
+ * was 1,028 of 1,028 rows out of domain and `ts_type_reference.context` was
+ * 95,006 of 213,335. Neither broke a run — Souffle stores these as opaque
+ * symbols — but a rule written from the document would compile, load, and
+ * match nothing.
+ *
+ * The two existing gates cannot see it: `schema and generated .dl agree`
+ * compares arity, and `column order is append-only` compares names. Values
+ * were unguarded.
+ *
+ * NOTE for anyone extending this: the schema declares `TERNARY_*` as a GLOB,
+ * so wildcards must be expanded. A literal comparison reports thousands of
+ * false positives on `TERNARY_CONDITION`/`THEN`/`ELSE`, which is exactly the
+ * trap I hit while measuring #91.
+ */
+function emittedValuesAreInTheirDeclaredDomain(): number {
+  if (!parserPresent()) {
+    return pendingCheck('emitted values are in their declared domain',
+      'no extractor yet. A value outside its declared domain matches no rule');
+  }
+  const doc = fs.readFileSync(path.join(SCHEMA_DIR, 'TYPESCRIPT-FACT-SCHEMA.md'), 'utf-8');
+  // Relation sections are `### 4.N \`ts_x\` / \`lib_ts_x\` — N columns`.
+  const sections = doc.split(/\n### 4\.\d+\s+`([a-z_]+)`/);
+  const domains = new Map<string, Map<string, Set<string>>>();
+  for (let i = 1; i < sections.length; i += 2) {
+    const relation = sections[i]!;
+    const body = sections[i + 1] ?? '';
+    const columns = new Map<string, Set<string>>();
+    for (const m of body.matchAll(/^\|\s*\d+\s*\|\s*`([A-Za-z0-9_]+)`[^|]*\|[^|]*\|(.*)$/gm)) {
+      const name = m[1]!;
+      const meaning = m[2]!;
+      // A domain is a PIPE LIST of backticked SHOUTY or dotted tokens.
+      if (!meaning.includes('\\|')) {
+        continue;
+      }
+      const values = [...meaning.matchAll(/`([A-Z][A-Z0-9_]*\*?|\.[A-Za-z.]+|"")`/g)]
+        .map((v) => v[1]!);
+      if (values.length >= 2) {
+        columns.set(name, new Set(values));
+      }
+    }
+    if (columns.size > 0) {
+      domains.set(relation, columns);
+    }
+  }
+  if (domains.size < 15) {
+    return fail(`only ${domains.size} relation(s) had a parseable domain — the table format `
+      + 'changed and this check has gone blind, which is worse than absent');
+  }
+
+  const failures: string[] = [];
+  let columnsChecked = 0;
+  let valuesChecked = 0;
+  for (const [, outputDir] of extractedCorpora()) {
+    for (const file of fs.readdirSync(outputDir)) {
+      if (!file.startsWith('all-typescript-') || !file.endsWith('.csv')) {
+        continue;
+      }
+      // Named `relationName`, not `relation`: the module-level `relation()`
+      // reader is in scope here and shadowing it silently breaks the read.
+      const relationName = relationNameFor(file);
+      const columns = relationName === undefined ? undefined : domains.get(relationName);
+      if (columns === undefined) {
+        continue;
+      }
+      const rows = relation(outputDir, file);
+      for (const [column, declared] of columns) {
+        const globs = [...declared].filter((v) => v.endsWith('*')).map((v) => v.slice(0, -1));
+        const allows = (value: string): boolean => value === ''
+          || declared.has(value)
+          || declared.has(`"${value}"`)
+          || globs.some((g) => value.startsWith(g));
+        let sawColumn = false;
+        const offenders = new Map<string, number>();
+        for (const row of rows) {
+          const value = row[column];
+          if (value === undefined) {
+            break;
+          }
+          sawColumn = true;
+          valuesChecked += 1;
+          if (!allows(value)) {
+            offenders.set(value, (offenders.get(value) ?? 0) + 1);
+          }
+        }
+        if (sawColumn) {
+          columnsChecked += 1;
+        }
+        for (const [value, n] of [...offenders].slice(0, 3)) {
+          failures.push(`${relationName}.${column}: ${n} row(s) emit "${value}", which §4.x does `
+            + 'not declare. A rule written from the document matches nothing');
+        }
+      }
+    }
+  }
+  console.log(`  ${columnsChecked} enumerated column(s) over ${domains.size} relation(s), `
+    + `${valuesChecked} value(s) checked against the declared domain`);
+  for (const f of failures.slice(0, 8)) { console.log(`  ${f}`); }
+  return failures.length ? 1 : 0;
+}
+
 /** `all-typescript-method-parameters.csv` -> `ts_method_parameter`, via the .dl's own names. */
 function relationNameFor(file: string): string | undefined {
   const stem = file.replace('all-typescript-', '').replace('.csv', '');
@@ -4135,6 +4241,7 @@ const CHECKS: Check[] = [
   { name: 'empty imports record their module edge', proves: 'an import that binds nothing still emits a resolved row, so a package imported only for its ambient declarations can be staged', run: emptyImportsRecordTheirModuleEdge },
   { name: 'reopened type members share a group key', proves: 'a member of a declaration-merged type has one identity across files, so two signatures of it are overload siblings rather than a wrong answer', run: reopenedTypeMembersShareAGroupKey },
   { name: 'subpath imports name their package', proves: 'a subpath reached through a node10-compat stub package.json still names its package, so library discovery can see the dependency', run: subpathImportsNameTheirPackage },
+  { name: 'emitted values are in their declared domain', proves: 'no column emits a value the schema does not declare, so a rule written from the document cannot match nothing', run: emittedValuesAreInTheirDeclaredDomain },
   { name: 'fact-base invariants', proves: 'every PK unique, every FK resolves, every tree well-formed — the failures that load cleanly and count wrong', run: factBaseInvariants },
   { name: 'IR completeness', proves: 'every hop an engine needs in order to resolve is present — the measure that replaced resolution rate', run: irCompleteness },
 ];

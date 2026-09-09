@@ -587,7 +587,7 @@ type-level construct lives (§3.3) and where unions become N rows (§3.4).
 | # | Column | T | Meaning |
 |---|---|---|---|
 | 0 | `kind` [J] | 1 | `TYPE_REFERENCE` \| `PRIMITIVE` \| `LITERAL` \| `ARRAY` \| `TUPLE` \| `UNION` \| `INTERSECTION` \| `FUNCTION_TYPE` \| `CONSTRUCTOR_TYPE` \| `TYPE_LITERAL` \| `CONDITIONAL` \| `MAPPED` \| `TEMPLATE_LITERAL` \| `INDEXED_ACCESS` \| `TYPE_QUERY` (`typeof x`) \| `TYPE_OPERATOR` (`keyof`/`readonly`/`unique`) \| `INFER` \| `TYPE_PREDICATE` \| `IMPORT_TYPE` \| `THIS_TYPE` \| `PARENTHESIZED` \| `REST` \| `OPTIONAL` \| `NAMED_TUPLE_MEMBER` \| `TYPE_VARIABLE` \| `INTRINSIC` |
-| 1 | `context` [J] | 1 | `SUPER_TYPE` \| `IMPLEMENTS_CLAUSE` \| `TYPE_PARAM_CONSTRAINT` \| `TYPE_PARAM_DEFAULT` \| `FIELD_TYPE` \| `METHOD_RETURN` \| `METHOD_PARAM` \| `VARIABLE_TYPE` \| `TYPE_ALIAS_RHS` \| `TYPE_ARGUMENT` \| `AS_TARGET` \| `SATISFIES_TARGET` \| `TYPE_ASSERTION` \| `TYPE_PREDICATE_TARGET` \| `INDEX_SIGNATURE_KEY` \| `INDEX_SIGNATURE_VALUE` \| `MAPPED_CONSTRAINT` \| `MAPPED_TEMPLATE` \| `CONDITIONAL_CHECK` \| `CONDITIONAL_EXTENDS` \| `CONDITIONAL_TRUE` \| `CONDITIONAL_FALSE` \| `TEMPLATE_SPAN` \| `IMPORT_TYPE_QUALIFIER` \| `ENUM_MEMBER_TYPE` \| `HERITAGE_TWIN` |
+| 1 | `context` [J] | 1 | `SUPER_TYPE` \| `IMPLEMENTS_INTERFACE` \| `TYPE_PARAM_BOUND` \| `METHOD_TYPE_PARAM_BOUND` \| `TYPE_PARAM_DEFAULT` \| `FIELD_TYPE` \| `METHOD_RETURN` \| `METHOD_PARAM` \| `VARIABLE_TYPE` \| `TYPE_ALIAS_RHS` \| `TYPE_ARGUMENT` \| `METHOD_TYPE_ARGUMENT` \| `AS_TARGET` \| `SATISFIES_TARGET` \| `TYPE_ASSERTION` \| `TYPE_PREDICATE_TARGET` \| `OBJECT_CREATION_TYPE` \| `INSTANCEOF_TYPE` \| `DECORATOR_TYPE` \| `DECORATOR_ARGUMENT_TYPE` \| `TYPE_ELEMENT` \| `INDEX_SIGNATURE_KEY` \| `INDEX_SIGNATURE_VALUE` \| `MAPPED_CONSTRAINT` \| `MAPPED_TEMPLATE` \| `CONDITIONAL_CHECK` \| `CONDITIONAL_EXTENDS` \| `CONDITIONAL_TRUE` \| `CONDITIONAL_FALSE` \| `TEMPLATE_SPAN` \| `IMPORT_TYPE_QUALIFIER` \| `ENUM_MEMBER_TYPE` \| `HERITAGE_TWIN` |
 | 2 | `tsTypeLinkHash` [J] | 1 | FK→`ts_type` — enclosing declaration |
 | 3 | `typeParameterLinkHash` [J] | 1 | FK→`ts_type_parameter` when this reference *is* a type variable; `""` |
 | 4 | `referencedTypeLinkHash` [J] | 2 | FK→`ts_type` when locally resolved; `""` |
@@ -873,7 +873,7 @@ may be **computed** (so the value is not always statically known), and a `const 
 | 9 | `tsTypeLinkHash` [J] | 1 | FK→`ts_type` — owning enum |
 | 10 | `ownerTypeName` [J] | 1 | |
 | 11 | `ownerQualifiedName` [J] | 1 | |
-| 12 | `valueKind` ★ | 1 | `NUMERIC_LITERAL` \| `STRING_LITERAL` \| `IMPLICIT_ORDINAL` \| `COMPUTED` |
+| 12 | `valueKind` ★ | 1 | `EXPLICIT_NUMERIC` \| `IMPLICIT_NUMERIC` \| `EXPLICIT_STRING` \| `CONSTANT_EXPRESSION` \| `COMPUTED`. `CONSTANT_EXPRESSION` is a foldable initialiser such as `Read = 1 << 0`; `COMPUTED` is one that is not. A single `NUMERIC_LITERAL` would merge the two, and merge the explicit `= 3` with the ordinal that follows it |
 | 13 | `constantValue` ★ | 2 | the literal value when statically known; `""` for `COMPUTED` |
 | 14 | `isConstEnumMember` ★ | 1 | member of a `const enum` — **inlined at use sites, so a reference may have no runtime target** |
 | 15 | `tsExpressionLinkHash` | 1 | FK→`ts_expression` — initializer root; `""` |
@@ -964,7 +964,7 @@ column, not a flag bolted on.
 | 14 | `resolvedModuleLinkHash` ★ | 2 | FK→`ts_module`; `""` |
 | 15 | `resolvedFilePath` ★ | 2 | from `ts.resolveModuleName` — **parser-legal without a Program** (§0.1) |
 | 16 | `resolutionKind` ★ | 2 | `RELATIVE_FILE` \| `PATHS_ALIAS` \| `NODE_MODULES_TYPES` \| `NODE_MODULES_SOURCE` \| `PACKAGE_EXPORTS` \| `AMBIENT_MODULE` \| `BUILTIN_NODE` \| `UNRESOLVED` |
-| 17 | `resolvedExtension` ★ | 2 | `.ts` \| `.tsx` \| `.d.ts` \| `.mts` \| `.cts` \| `.json` \| `""` |
+| 17 | `resolvedExtension` ★ | 2 | `.ts` \| `.tsx` \| `.d.ts` \| `.d.mts` \| `.d.cts` \| `.mts` \| `.cts` \| `.json` \| `.js` \| `.jsx` \| `""`. Filled from `ts.resolveModuleName`'s own extension, so the two-part declaration forms appear as themselves — `.d.cts` is one extension, not `.cts` |
 | 18 | `isExternalTarget` ★ | 2 | did **not** resolve to a `ts_module` in this analysis — an honest negative, not a claim about the outside world |
 | 19 | `packageName` ★ | 2 | owning package when external |
 | 20 | `specifierHasExtension` ★ | 1 | `./a.js` vs `./a` — decides which resolution rules apply |
