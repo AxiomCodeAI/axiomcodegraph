@@ -46,7 +46,6 @@ const SOURCE_ROOT = 'src';
  */
 const KNOWN_UNPRODUCED: Record<string, string[]> = {
   PythonBaseKind: ['IMPLICIT_OBJECT'],
-  PythonBindingOrigin: ['TYPE_ALIAS'],
   PythonBindingTargetKind: ['MODULE', 'TYPE_ALIAS', 'TYPE_VAR', 'VARIABLE'],
   PythonBlockKind: ['COMPREHENSION_BODY', 'LAMBDA_BODY'],
   // Partial classifications: the enum distinguishes cases the emitter does not.
@@ -83,8 +82,11 @@ const KNOWN_UNPRODUCED: Record<string, string[]> = {
   // type, and a module is not a name bound in the referencing scope.
   PythonReferencedEntityKind: ['ATTRIBUTE', 'MODULE'],
   PythonRootContext: ['OTHER_STATEMENT', 'YIELD_VALUE'],
-  // PEP 695, already reported as a known gap by the type-parameter check.
-  PythonScopeKind: ['ANNOTATION', 'TYPE_ALIAS', 'TYPE_PARAM', 'TYPE_PARAM_BOUND'],
+  // PEP 695 annotation scopes now emit and are asserted against CPython 3.12's symtable by
+  // the `PEP 695 type parameters` check. ANNOTATION remains: symtable has no scope of that
+  // type in 3.12 — type parameters, bounds and aliases are each reported as their own kind —
+  // so there is no construct to produce it from until a later version defines one.
+  PythonScopeKind: ['ANNOTATION'],
   PythonTypeParameterVariance: ['CONTRAVARIANT', 'COVARIANT', 'INVARIANT'],
   PythonTypeRefContext: [
     'CAST_TARGET',

@@ -281,12 +281,59 @@ async function pep695(): Promise<number> {
   }
 
   console.log(`  ${ok}/${want.length} type parameters match the frozen CPython 3.12 truth`);
-  // Tracked, not failed: the enum declares TYPE_PARAM, TYPE_ALIAS and
-  // TYPE_PARAM_BOUND and no extractor emits any of them, so §2.20's
-  // pyScopeLinkHash points at the enclosing scope rather than the wrapper.
-  const pepScopes = tsv(WORK, 'all-python-scopes.csv')
-    .filter((s) => ['TYPE_PARAM', 'TYPE_ALIAS', 'TYPE_PARAM_BOUND'].includes(s['scopeKind'] ?? ''));
-  if (!pepScopes.length) console.log('  KNOWN GAP — PEP 695 scope kinds declared, emitted by nothing');
+
+  // The annotation scopes PEP 695 opens, asserted rather than tracked. The shape below is
+  // CPython 3.12's `symtable` for this fixture, read off the interpreter and frozen here:
+  // the type-parameter scope WRAPS the class or function, a bound gets a scope named for the
+  // parameter it constrains, and a generic alias nests its value scope inside the parameter
+  // scope. `(kind, name, startLine)` for every non-MODULE scope, sorted.
+  const WANT_SCOPES = [
+    'TYPE_PARAM Alias 6', 'TYPE_ALIAS Alias 6',
+    'TYPE_PARAM Bounded 7', 'TYPE_PARAM_BOUND X 7', 'TYPE_ALIAS Bounded 7',
+    'TYPE_PARAM Box 10', 'CLASS Box 10', 'FUNCTION __init__ 11',
+    'TYPE_PARAM get 14', 'FUNCTION get 14',
+    'TYPE_PARAM Pair 18', 'TYPE_PARAM_BOUND K 18', 'CLASS Pair 18', 'FUNCTION __init__ 19',
+    'TYPE_PARAM Variadic 24', 'CLASS Variadic 24',
+    'TYPE_PARAM identity 28', 'FUNCTION identity 28',
+    'TYPE_PARAM bounded 32', 'TYPE_PARAM_BOUND N 32', 'FUNCTION bounded 32',
+    'TYPE_PARAM agen 36', 'FUNCTION agen 36',
+    'FUNCTION use 40',
+  ].sort();
+  const scopes = tsv(WORK, 'all-python-scopes.csv');
+  const gotScopes = scopes
+    .filter((s) => s['scopeKind'] !== 'MODULE')
+    .map((s) => `${s['scopeKind']} ${s['name']} ${s['startLine']}`)
+    .sort();
+  if (JSON.stringify(gotScopes) !== JSON.stringify(WANT_SCOPES)) {
+    const missing = WANT_SCOPES.filter((w) => !gotScopes.includes(w));
+    const extra = gotScopes.filter((g) => !WANT_SCOPES.includes(g));
+    if (missing.length) failures.push(`scopes MISSING: ${missing.join(' | ')}`);
+    if (extra.length) failures.push(`scopes SPURIOUS: ${extra.join(' | ')}`);
+  }
+
+  // A type parameter must live in the scope that holds its BINDING — the wrapper — not in
+  // the class or function that wrapper contains. Linking past it put the parameter one level
+  // below its own binding, so a consumer resolving `T` inside an annotation looked in the
+  // wrong table; that was the concrete cost of the scopes being absent.
+  const scopeByHash = new Map(scopes.map((s) => [s['pyScopeUniqueHash'] ?? '', s]));
+  for (const g of got) {
+    const owning = scopeByHash.get(g['pyScopeLinkHash'] ?? '');
+    if ((owning?.['scopeKind'] ?? '') !== 'TYPE_PARAM') {
+      failures.push(
+        `${g['ownerName']}[${g['paramName']}] is scoped to ` +
+        `${owning?.['scopeKind'] ?? '(nothing)'}, expected the TYPE_PARAM wrapper`
+      );
+    }
+  }
+
+  // `*Ts` and `**P` bind the BARE name — symtable lists `Ts` and `P`, so a name carrying its
+  // star can never be matched by a reference to it.
+  const starred = tsv(WORK, 'all-python-bindings.csv')
+    .filter((b) => (b['name'] ?? '').startsWith('*'))
+    .map((b) => b['name']);
+  if (starred.length) failures.push(`binding name(s) carry their star: ${starred.join(', ')}`);
+
+  console.log(`  ${gotScopes.length} PEP 695 annotation scope(s) match CPython 3.12's symtable`);
   for (const f of failures) console.log(`  ${f}`);
   return failures.length ? 1 : 0;
 }

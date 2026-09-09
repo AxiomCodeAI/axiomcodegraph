@@ -520,7 +520,7 @@ export class PythonScopeBuilder {
 
       case 'type_alias_statement': {
         if (!isMisparsedTypeAlias(node)) {
-          this.visitGenericStatement(block, node);
+          this.visitTypeAliasStatement(block, node);
           return;
         }
         // `type(obj).attr = value` is an assignment, not a type alias. The
@@ -646,6 +646,157 @@ export class PythonScopeBuilder {
   // -------------------------------------------------------------- functions
 
   /**
+   * Opens the PEP 695 annotation scope for a `class C[T]` / `def f[U]` / `type A[W]`
+   * type-parameter list, or returns the enclosing block unchanged when there is none.
+   *
+   * The shape is CPython 3.12's, read off `symtable` rather than guessed:
+   *
+   * ```
+   * class C[T](Base):        module
+   *                            type parameter 'C'      <- T binds here, Base evaluated here
+   *                              class 'C'
+   * def f[U](a=D):           module
+   *                            type parameter 'f'      <- U binds here; D stays outside
+   *                              function 'f'
+   * class B[V: int]:         module
+   *                            type parameter 'B'
+   *                              TypeVar bound 'V'     <- int resolved here
+   *                              class 'B'
+   * ```
+   *
+   * The two counter-intuitive parts are both load-bearing. The type-parameter scope WRAPS
+   * the class or function rather than nesting inside it, so a name bound here is visible to
+   * the body; and once a type-parameter list is present, a class's BASES move inside this
+   * scope — CPython records that as `.generic_base` — because a base may itself mention a
+   * type parameter. A function's DEFAULTS do not move: `.defaults` is a marker in this
+   * scope, but the default expressions are still evaluated outside it.
+   *
+   * Keyed on the `type_parameter` node rather than on the class or function node, because
+   * `blocksByNodeId` maps one node to one block and the class node already owns its own.
+   */
+  private openTypeParamScope(
+    block: SymbolBlock,
+    node: Parser.SyntaxNode,
+    ownerName: string
+  ): SymbolBlock {
+    const list = node.children.find(c => c.type === 'type_parameter');
+    if (!list) {
+      return block;
+    }
+
+    const scope = this.createChildBlock(
+      block,
+      list,
+      SymbolBlockType.TYPE_PARAM,
+      PythonScopeKind.TYPE_PARAM,
+      ownerName
+    );
+
+    for (const entry of list.namedChildren) {
+      // Each parameter arrives wrapped in a `type` node; `T`, `*Ts` and `**P` all bind the
+      // bare identifier, and `T: bound` arrives as a `constrained_type`.
+      const inner = entry.type === 'type' ? entry.namedChild(0) : entry;
+      if (!inner) {
+        continue;
+      }
+      const constrained = inner.type === 'constrained_type' ? inner : null;
+      const nameNode = constrained
+        ? this.unwrapTypeNode(constrained.namedChild(0))
+        : this.unwrapTypeNode(inner);
+      if (!nameNode) {
+        continue;
+      }
+
+      this.addDef(
+        scope,
+        nameNode.text,
+        SymbolFlags.DEF_LOCAL,
+        PythonBindingOrigin.TYPE_PARAM,
+        nameNode
+      );
+
+      // A bound gets its own scope, named for the parameter it constrains.
+      const boundNode = constrained ? this.unwrapTypeNode(constrained.namedChild(1)) : null;
+      if (boundNode) {
+        const boundScope = this.createChildBlock(
+          scope,
+          boundNode,
+          SymbolBlockType.TYPE_PARAM_BOUND,
+          PythonScopeKind.TYPE_PARAM_BOUND,
+          nameNode.text
+        );
+        this.visitExpression(boundScope, boundNode, PythonNameContext.LOAD);
+      }
+    }
+
+    return scope;
+  }
+
+  /**
+   * A real PEP 695 `type A = …` statement (3.12).
+   *
+   * The alias NAME binds in the enclosing scope, and the VALUE is resolved in an annotation
+   * scope of its own — so a forward reference in an alias body is legal, which is the point
+   * of the construct. A generic alias wraps that value scope in a type-parameter scope, so
+   * `type A[W] = list[W]` is `type parameter 'A'` containing `type alias 'A'`, matching
+   * CPython exactly.
+   *
+   * The misparse guarded at the call site is the other reading of the same node — see
+   * `python-soft-keywords.ts`, where `type(obj).attr = value` lands here too.
+   */
+  private visitTypeAliasStatement(block: SymbolBlock, node: Parser.SyntaxNode): void {
+    const left = this.unwrapTypeNode(node.namedChild(0));
+    const value = this.unwrapTypeNode(node.namedChild(1));
+    if (!left) {
+      this.visitGenericStatement(block, node);
+      return;
+    }
+
+    // `type A = …` names itself with a bare identifier; `type A[W] = …` wraps that in a
+    // `generic_type` that also carries the parameter list.
+    const isGeneric = left.type === 'generic_type';
+    const nameNode = isGeneric ? left.namedChild(0) : left;
+    const aliasName = nameNode?.text ?? '';
+    if (nameNode) {
+      this.addDef(
+        block,
+        aliasName,
+        SymbolFlags.DEF_LOCAL,
+        PythonBindingOrigin.TYPE_ALIAS,
+        nameNode
+      );
+    }
+
+    const typeParams = isGeneric ? this.openTypeParamScope(block, left, aliasName) : block;
+
+    const aliasScope = this.createChildBlock(
+      typeParams,
+      node,
+      SymbolBlockType.TYPE_ALIAS,
+      PythonScopeKind.TYPE_ALIAS,
+      aliasName
+    );
+    if (value) {
+      this.visitExpression(aliasScope, value, PythonNameContext.LOAD);
+    }
+  }
+
+  /**
+   * Strips the wrappers tree-sitter puts around a type-parameter operand.
+   *
+   * `type` wraps every operand; `splat_type` additionally wraps `*Ts` and `**P`, and the
+   * star is NOT part of the bound name — CPython's symtable lists `Ts` and `P`, so binding
+   * `*Ts` would put a name in the table that no reference can ever match.
+   */
+  private unwrapTypeNode(node: Parser.SyntaxNode | null): Parser.SyntaxNode | null {
+    let current = node;
+    while (current && (current.type === 'type' || current.type === 'splat_type')) {
+      current = current.namedChild(0);
+    }
+    return current;
+  }
+
+  /**
    * A `def` / `async def`, in CPython's exact visit order.
    *
    * The order is the specification, because it determines `scopeOrdinal` for
@@ -684,21 +835,30 @@ export class PythonScopeBuilder {
       nameNode ?? node
     );
 
-    // Defaults, annotations and decorators are all evaluated in the ENCLOSING
-    // scope, so any scope they contain is a sibling of this function.
+    // Defaults and decorators are evaluated in the ENCLOSING scope, so any scope they
+    // contain is a sibling of this function. That stays true under PEP 695: CPython puts a
+    // `.defaults` marker in the type-parameter scope but still evaluates the default
+    // expressions outside it.
     if (parametersNode) {
       this.visitParameterDefaults(block, parametersNode);
-      this.visitParameterAnnotations(block, parametersNode);
-    }
-    if (returnTypeNode) {
-      this.visitAnnotation(block, returnTypeNode);
     }
     for (const decorator of decorators) {
       this.visitExpressionChildren(block, decorator, PythonNameContext.LOAD);
     }
 
+    // A `def f[U](…)` opens an annotation scope that WRAPS the function, and the parameter
+    // and return ANNOTATIONS are resolved inside it — that is the whole point of the scope,
+    // since an annotation may mention `U`.
+    const typeParams = this.openTypeParamScope(block, node, functionName);
+    if (parametersNode) {
+      this.visitParameterAnnotations(typeParams, parametersNode);
+    }
+    if (returnTypeNode) {
+      this.visitAnnotation(typeParams, returnTypeNode);
+    }
+
     const child = this.createChildBlock(
-      block,
+      typeParams,
       node,
       SymbolBlockType.FUNCTION,
       PythonScopeKind.FUNCTION,
@@ -737,17 +897,26 @@ export class PythonScopeBuilder {
       nameNode ?? node
     );
 
-    // Bases and keyword arguments are evaluated in the enclosing scope — the
-    // class body does not exist yet when they run.
-    if (argumentsNode) {
-      this.visitExpressionChildren(block, argumentsNode, PythonNameContext.LOAD);
-    }
+    // Decorators run in the enclosing scope, before anything the class opens.
     for (const decorator of decorators) {
       this.visitExpressionChildren(block, decorator, PythonNameContext.LOAD);
     }
 
+    // A `class C[T](Base)` opens an annotation scope that WRAPS the class, and once it
+    // exists the BASES are evaluated inside it rather than in the enclosing scope — a base
+    // may mention a type parameter, which is what CPython's `.generic_base` records. With no
+    // type parameters `openTypeParamScope` hands back `block`, so the bases stay where they
+    // were and nothing about an ordinary class changes.
+    const typeParams = this.openTypeParamScope(block, node, className);
+
+    // Bases and keyword arguments still precede the body — the class body does not exist
+    // yet when they run.
+    if (argumentsNode) {
+      this.visitExpressionChildren(typeParams, argumentsNode, PythonNameContext.LOAD);
+    }
+
     const child = this.createChildBlock(
-      block,
+      typeParams,
       node,
       SymbolBlockType.CLASS,
       PythonScopeKind.CLASS,

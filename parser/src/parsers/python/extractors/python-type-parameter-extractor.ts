@@ -136,7 +136,8 @@ export class PythonTypeParameterExtractor {
         name: type?.getName() ?? node.childForFieldName('name')?.text ?? '',
         qualifiedName: type?.getQualifiedName() ?? '',
         kind: PythonExpressionOwnerKind.TYPE,
-        scopeHash: input.scopeHashByNodeId.get(node.id) ?? '',
+        scopeHash: this.typeParamScopeHash(
+          input, node, input.scopeHashByNodeId.get(node.id) ?? ''),
       };
     }
     if (node.type === 'function_definition') {
@@ -147,7 +148,8 @@ export class PythonTypeParameterExtractor {
         name: method?.getName() ?? node.childForFieldName('name')?.text ?? '',
         qualifiedName: method?.getQualifiedName() ?? '',
         kind: PythonExpressionOwnerKind.METHOD,
-        scopeHash: input.scopeHashByNodeId.get(node.id) ?? '',
+        scopeHash: this.typeParamScopeHash(
+          input, node, input.scopeHashByNodeId.get(node.id) ?? ''),
       };
     }
     if (node.type === 'type_alias_statement') {
@@ -158,10 +160,39 @@ export class PythonTypeParameterExtractor {
         name: this.aliasNameOf(node),
         qualifiedName: `${input.module.getQualifiedName()}.${this.aliasNameOf(node)}`,
         kind: PythonExpressionOwnerKind.MODULE,
-        scopeHash: input.scopeHashByNodeId.get(node.id) ?? '',
+        scopeHash: this.typeParamScopeHash(
+          input, node, input.scopeHashByNodeId.get(node.id) ?? ''),
       };
     }
     return null;
+  }
+
+  /**
+   * The scope a type parameter LIVES in, which is the annotation scope its list opens —
+   * not the class, function or alias that list belongs to.
+   *
+   * `class C[T]` nests `class C` inside `type parameter C`, and `T` binds in the wrapper.
+   * Linking to the inner scope put the parameter one level below the scope that actually
+   * holds its binding, so a consumer resolving `T` inside an annotation looked in the wrong
+   * table. Falls back to the owner's own scope, which is what happens on any tree where the
+   * wrapper was not created.
+   */
+  private typeParamScopeHash(
+    input: PythonTypeParameterInput,
+    node: Parser.SyntaxNode,
+    ownerScopeHash: string
+  ): string {
+    const direct = node.children.find(c => c.type === 'type_parameter');
+    if (direct) {
+      return input.scopeHashByNodeId.get(direct.id) ?? ownerScopeHash;
+    }
+    // `type A[W] = …` carries the list inside `type` -> `generic_type`.
+    let left = node.namedChild(0);
+    while (left && left.type === 'type') {
+      left = left.namedChild(0);
+    }
+    const nested = left?.children.find(c => c.type === 'type_parameter');
+    return (nested && input.scopeHashByNodeId.get(nested.id)) || ownerScopeHash;
   }
 
   /**

@@ -87,6 +87,16 @@ export enum PythonBindingOrigin {
   LAMBDA_PARAM = 'LAMBDA_PARAM',
 
   /** A PEP 695 `type` alias name (3.12). Deferred — declared for forward parity. */
+  /**
+   * A PEP 695 type parameter: the `T` in `class C[T]`, `def f[T]` or `type A[T] = …`.
+   *
+   * Distinct from `PARAMETER`, which is a function parameter and binds a runtime value. A
+   * type parameter binds a `TypeVar` / `TypeVarTuple` / `ParamSpec` object in the annotation
+   * scope that wraps the class or function, and is visible to annotations and bases that a
+   * function parameter is not.
+   */
+  TYPE_PARAM = 'TYPE_PARAM',
+
   TYPE_ALIAS = 'TYPE_ALIAS',
 
   /** The name is bound by more than one distinct form in this scope. */
