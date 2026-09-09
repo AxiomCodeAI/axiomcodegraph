@@ -653,6 +653,26 @@ bash "$REPO/src/pipeline/run-souffle.sh" --language typescript \
   echo "   solve failed; see $WORK/solve.log" >&2; tail -20 "$WORK/solve.log" >&2; exit 1; }
 grep -E '^Elapsed' "$WORK/solve.log" | tail -1
 
+# ── 3b. CONSERVATION AT THE RULE LEVEL, before any score is computed ─────────
+# Every invocation-shaped expression in the IR must appear as the FromExpr of some
+# call_chain_edge row — resolved, boundary_lib, or explicitly ambiguous. A site that
+# appears as none of those has left the graph, and it leaves the DENOMINATOR with it, so
+# it reads as precision rather than as a miss. `run-tests.sh` has checked this per case,
+# on both passes, since it was written; this harness checked it NOWHERE, which is why a
+# reported drop of 32 sites on a real project was invisible here (#339).
+#
+# Reported, not fatal. The scores below are still worth having and the shortfall is
+# printed where it cannot be missed — the same treatment as the conservation line at 5b,
+# and for the same reason: a run that refuses to report teaches nothing about how bad it
+# is.
+if python3 "$HERE/tools/coverage_guard.py" "$WORK/ir" "$WORK/out" > "$WORK/coverage.txt" 2>&1; then
+  grep -E '^(call sites|absent from output)' "$WORK/coverage.txt" 2>/dev/null | sed 's/^/   /'
+else
+  echo "   ⚠ SITES LEFT THE GRAPH — every rate below excludes them, so they read as"
+  echo "     precision rather than as misses. This is the conservation contract, not a score."
+  sed -n '1,12p' "$WORK/coverage.txt" | sed 's/^/     /'
+fi
+
 # ── 4. the oracle, and the dispatch envelope ─────────────────────────────────
 # Run from inside the project so module resolution sees the project's own
 # node_modules rather than the caller's — measured: running from elsewhere resolved
