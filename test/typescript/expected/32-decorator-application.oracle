@@ -1,0 +1,2 @@
+oracle=2 engine=1 agree=1 missing=1 (known 1, NEW 0) extra=0
+  known    Svc#a() -> svc#guarded(unknown,string,PropertyDescriptor)

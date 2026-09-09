@@ -216,9 +216,17 @@ const pairs = new Set();
 for (const sf of program.getSourceFiles()) {
   if (!own.has(path.resolve(sf.fileName))) continue;
   const visit = (node) => {
+    // A DECORATOR APPLICATION IS A CALL, and this side did not think so. The project
+    // oracle enumerates `ts.isDecorator` and calls it DECORATOR_CALL; this list omitted
+    // it, so the per-case suite was blind to decorators entirely — green on them whatever
+    // the engine did, while a project run counted 191 absences on a decorator-driven
+    // codebase. No case had ever used a decorator, so nothing caught the disagreement.
+    // Whichever side is right, both must say it, and the compiler settles it: it resolves
+    // the application, because a decorator is a function invoked with (target, key,
+    // descriptor). #233.
     if (ts.isCallExpression(node) || ts.isNewExpression(node)
       || ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)
-      || ts.isTaggedTemplateExpression(node)) {
+      || ts.isTaggedTemplateExpression(node) || ts.isDecorator(node)) {
       let sig;
       try { sig = checker.getResolvedSignature(node); } catch { sig = undefined; }
       const target = labelOf(sig?.declaration);
