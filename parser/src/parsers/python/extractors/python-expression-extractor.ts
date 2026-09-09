@@ -124,6 +124,15 @@ interface PendingExpression {
    */
   /** Children to enqueue under a synthetic row, since the grammar has none. */
   syntheticChildren?: Parser.SyntaxNode[];
+  /** Edge role for those children. `ELEMENT` unless the synthetic row is a call. */
+  syntheticChildEdgeRole?: PythonEdgeRole;
+  /**
+   * Callee name for a synthetic CALL, where no `function` child exists to read it from.
+   *
+   * Used by the `type(obj).attr = value` recovery: the grammar swallowed the call node
+   * outright, so the name comes from the soft keyword rather than from an identifier.
+   */
+  syntheticCalleeName?: string;
   synthetic?: {
     kind: PythonExpressionKind;
     startIndex: number;
@@ -465,12 +474,34 @@ export class PythonExpressionExtractor {
         }
         const target = parts.target;
         if (target !== null) {
+          // The target node starts at the `(` the grammar left behind, so its span reads
+          // `(obj).attr` where the source says `type(obj).attr`. Anything joining the IR to
+          // source by position — the tier-1 conservation comparison among them — would miss
+          // it by four characters, so the span is widened to the keyword the call was
+          // rebuilt from. Only for the call form: `type[o].x` keeps the span it has, because
+          // no call is being recovered there.
+          const object = target.childForFieldName('object') ?? target.namedChild(0);
+          const keyword = object
+            ? PythonExpressionExtractor.swallowedTypeCallKeyword(object)
+            : null;
           this.enqueueRoot(
             target,
             context,
             PythonRootContext.ASSIGNMENT_VALUE,
             PythonEdgeRole.ASSIGNMENT_TARGET,
-            PythonNameContext.STORE
+            PythonNameContext.STORE,
+            0,
+            keyword
+              ? {
+                  kind: PythonExpressionKind.ATTRIBUTE_ACCESS,
+                  startIndex: keyword.startIndex,
+                  endIndex: target.endIndex,
+                  startRow: keyword.startPosition.row,
+                  startColumn: keyword.startPosition.column,
+                  endRow: target.endPosition.row,
+                  endColumn: target.endPosition.column,
+                }
+              : undefined
           );
         }
         return;
@@ -995,10 +1026,12 @@ export class PythonExpressionExtractor {
     rootContext: PythonRootContext,
     edgeRole: PythonEdgeRole,
     nameContext: PythonNameContext = PythonNameContext.LOAD,
-    position = 0
+    position = 0,
+    synthetic?: PendingExpression['synthetic']
   ): void {
     this.worklist.push({
       node,
+      synthetic,
       parentHash: '',
       edgeRole,
       position,
@@ -1474,6 +1507,11 @@ export class PythonExpressionExtractor {
       }
 
       case PythonExpressionKind.CALL: {
+        if (pending.syntheticCalleeName !== undefined) {
+          builder.withName(pending.syntheticCalleeName);
+          builder.withDottedPath(pending.syntheticCalleeName);
+          return;
+        }
         const fn = node.childForFieldName('function');
         builder.withName(fn ? this.calleeNameOf(fn) : '');
         if (fn) {
@@ -1614,10 +1652,12 @@ export class PythonExpressionExtractor {
         this.worklist.push({
           ...base,
           node: child,
-          edgeRole: PythonEdgeRole.ELEMENT,
+          edgeRole: pending.syntheticChildEdgeRole ?? PythonEdgeRole.ELEMENT,
           position: index,
           synthetic: undefined,
           syntheticChildren: undefined,
+          syntheticChildEdgeRole: undefined,
+          syntheticCalleeName: undefined,
         });
       });
       return;
@@ -1736,6 +1776,33 @@ export class PythonExpressionExtractor {
         // `member_type` has no `object` field; its left side is the first child.
         const object = node.childForFieldName('object') ?? node.namedChild(0);
         if (object) {
+          // `type(obj).attr = value` — the grammar read the leading `type` as PEP 695's soft
+          // keyword and left the call's parentheses behind as a `parenthesized_expression`,
+          // so the object here IS the swallowed call's argument list. Rebuild the call: it
+          // spans the keyword through the closing paren, its callee is `type`, and what the
+          // parentheses hold are its arguments rather than a parenthesised value.
+          const swallowed = PythonExpressionExtractor.swallowedTypeCallKeyword(object);
+          if (swallowed) {
+            this.worklist.push({
+              ...base,
+              node: object,
+              edgeRole: PythonEdgeRole.ATTRIBUTE_OBJECT,
+              position: 0,
+              synthetic: {
+                kind: PythonExpressionKind.CALL,
+                startIndex: swallowed.startIndex,
+                endIndex: object.endIndex,
+                startRow: swallowed.startPosition.row,
+                startColumn: swallowed.startPosition.column,
+                endRow: object.endPosition.row,
+                endColumn: object.endPosition.column,
+              },
+              syntheticChildren: object.namedChildren.filter(c => !c.isExtra),
+              syntheticChildEdgeRole: PythonEdgeRole.ARGUMENT,
+              syntheticCalleeName: swallowed.text,
+            });
+            return;
+          }
           this.worklist.push({
             ...base,
             node: object,
@@ -2287,6 +2354,41 @@ export class PythonExpressionExtractor {
     expression: PyExpressionRegistry,
     pending: PendingExpression
   ): void {
+    // A synthetic call has no `function` child to read: the `type(obj).attr` recovery
+    // rebuilt it from a keyword token, so the name travels on the pending record. It is an
+    // ordinary named call to a builtin — nothing about it is dynamic — and its arguments are
+    // the parenthesised group the grammar left behind rather than an `argument_list`.
+    if (pending.syntheticCalleeName !== undefined) {
+      const synthesised = PyCallSiteRegistry.builder(
+        PythonCallKind.SIMPLE_CALL,
+        pending.syntheticCalleeName,
+        expression.getHash(),
+        pending.scopeHash,
+        pending.methodHash,
+        this.input.module.getHash(),
+        this.input.serviceVersionLinkHash
+      )
+        .withCallee(pending.syntheticCalleeName)
+        .withReceiver(PythonReceiverKind.NONE, '', '')
+        .withPyTypeLinkHash(pending.typeHash)
+        .withArguments(this.summarizeArguments(node))
+        .withFlags({
+          isModuleLevelCall: pending.isModuleLevelCall,
+          isConditional: pending.isConditional,
+        })
+        .withSpan(
+          (pending.synthetic?.startRow ?? node.startPosition.row) + 1,
+          this.input.positions.byteColumn(
+            pending.synthetic?.startRow ?? node.startPosition.row,
+            pending.synthetic?.startColumn ?? node.startPosition.column
+          ),
+          (pending.synthetic?.endRow ?? node.endPosition.row) + 1
+        )
+        .build();
+      this.callSites.push(synthesised);
+      return;
+    }
+
     const fn = PythonExpressionExtractor.unwrapSplatInCalleePosition(
       node.childForFieldName('function')
     );
@@ -2383,6 +2485,54 @@ export class PythonExpressionExtractor {
   }
 
   /**
+  /**
+   * The `type` keyword token of a `type(obj).attr = value` whose call the grammar swallowed,
+   * or `null` for anything else.
+   *
+   * tree-sitter reads the leading `type` as PEP 695's soft keyword and then accepts
+   * `(obj).attr` as an alias name, so the statement parses cleanly as a
+   * `type_alias_statement` and the CALL NODE NEVER EXISTS — `(obj)` is left as a
+   * `parenthesized_expression` hanging off an `attribute`. `python-soft-keywords.ts` already
+   * detects the misparse; this finds the token the call has to be rebuilt from, because
+   * there is no identifier node for `type` anywhere in the tree.
+   *
+   * Two things must NOT match, and both reach the same branch:
+   *
+   *   - `type[o].x = 1`, where the object is a `list` rather than a parenthesised group.
+   *     That is a subscript, not a call, and synthesising one would invent a call site.
+   *   - the VALUE side of the statement. Only the leading `type` is taken as the keyword,
+   *     so the paren group must be the first thing after it — checked by position rather
+   *     than by shape, since a nested `type(...)` elsewhere in the statement is a real call
+   *     the grammar parsed correctly on its own.
+   */
+  private static swallowedTypeCallKeyword(
+    object: Parser.SyntaxNode
+  ): Parser.SyntaxNode | null {
+    if (object.type !== 'parenthesized_expression' || object.parent?.type !== 'attribute') {
+      return null;
+    }
+    let statement: Parser.SyntaxNode | null = object.parent;
+    while (statement && statement.type !== 'type_alias_statement') {
+      if (statement.type === 'block' || statement.type === 'module') {
+        return null;
+      }
+      statement = statement.parent;
+    }
+    if (!statement || !isMisparsedTypeAlias(statement)) {
+      return null;
+    }
+    const keyword = statement.child(0);
+    if (!keyword || keyword.text !== 'type' || keyword.endIndex > object.startIndex) {
+      return null;
+    }
+    // Only whitespace may sit between the keyword and the parenthesis it opened.
+    const between = statement.text.slice(
+      keyword.endIndex - statement.startIndex,
+      object.startIndex - statement.startIndex
+    );
+    return between.trim() === '' ? keyword : null;
+  }
+
   /**
    * Unwraps a splat that tree-sitter-python nested INTO a callee position.
    *
