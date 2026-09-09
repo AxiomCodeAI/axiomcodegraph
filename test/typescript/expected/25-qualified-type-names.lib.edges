@@ -2,7 +2,6 @@ ambiguous_unknown	CONSTRUCTOR_CALL	client-to-lib#driveLibrary() @L9 -> -
 ambiguous_unknown	CONSTRUCTOR_CALL	consumer#drive() @L17 -> -
 ambiguous_unknown	CONSTRUCTOR_CALL	consumer#drive() @L18 -> -
 ambiguous_unknown	CONSTRUCTOR_CALL	consumer#pack(Box) @L11 -> -
-ambiguous_unknown	METHOD_CALL	consumer#viaQualifier(Point) @L28 -> -
 boundary_lib	METHOD_CALL	client-to-lib#driveLibrary() @L10 -> Handle#open()
 boundary_lib	METHOD_CALL	client-to-lib#driveLibrary() @L10 -> Std#open()
 boundary_lib	METHOD_CALL	client-to-lib#useLibrary(Handle) @L5 -> Handle#open()
@@ -17,3 +16,5 @@ multi_inferred	METHOD_CALL	consumer#pack(Box) @L11 -> Box#fit(Point)
 multi_inferred	METHOD_CALL	consumer#pack(Box) @L11 -> Impl#fit(Point)
 multi_inferred	METHOD_CALL	consumer#slide(Point) @L6 -> Origin#move(number)
 multi_inferred	METHOD_CALL	consumer#slide(Point) @L6 -> Point#move(number)
+multi_inferred	METHOD_CALL	consumer#viaQualifier(Point) @L28 -> Origin#move(number)
+multi_inferred	METHOD_CALL	consumer#viaQualifier(Point) @L28 -> Point#move(number)

@@ -1,6 +1,6 @@
-oracle=8 engine=11 agree=7 missing=1 (known 1, NEW 0) extra=4
-  known    consumer#viaQualifier(Point) -> Point#move(number)
+oracle=8 engine=13 agree=8 missing=0 (known 0, NEW 0) extra=5
   extra    Impl#fit(Point) -> Origin#move(number)
   extra    consumer#drive() -> Impl#fit(Point)
   extra    consumer#pack(Box) -> Impl#fit(Point)
   extra    consumer#slide(Point) -> Origin#move(number)
+  extra    consumer#viaQualifier(Point) -> Origin#move(number)
