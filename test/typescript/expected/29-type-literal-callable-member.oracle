@@ -1,4 +1,1 @@
-oracle=8 engine=5 agree=5 missing=3 (known 3, NEW 0) extra=0
-  known    members#literalPropertyAliased(LiteralProperty) -> members#<arrow@47>(number)
-  known    members#literalPropertyInline({ run: (n: number) =) -> members#<arrow@53>(number)
-  known    members#literalPropertyOptional(OptionalLiteralProperty) -> members#<arrow@57>(number)
+oracle=8 engine=8 agree=8 missing=0 (known 0, NEW 0) extra=0
