@@ -1,0 +1,1 @@
+{ "compilerOptions": { "strict": true, "experimentalDecorators": true, "target": "es2022", "module": "commonjs" } }
