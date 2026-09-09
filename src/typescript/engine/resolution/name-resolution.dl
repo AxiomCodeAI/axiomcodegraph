@@ -191,3 +191,29 @@ qualified_name_binds(mod, ctn, prov, k, ent) :- demanded_qualified_name(ctn),
     substr(ctn, l, 1) = ".",
     seg = substr(ctn, l + 1, strlen(ctn) - l - 1),
     module_export_any(prov, target, seg, k, ent).
+
+// …AND AT DEPTH, WHICH THE RULE ABOVE CANNOT REACH. It takes the WHOLE tail after the
+// qualifier as one export name, so `shapes.geo.Point` asks the target module for an
+// export literally called "geo.Point" and finds nothing: one segment resolves and two
+// do not. The namespace-DECLARATION path has no such limit, because qname_walk's
+// recursive step consumes one segment at a time — so the fix is to seed that walk
+// rather than to try to finish it in one step (#283).
+//
+// Seeded at the TWO-segment prefix: the qualifier plus one export, which is a real
+// entity in the target module's table. From there the existing recursive step walks
+// `.Point` and every further segment through namespace_member, exactly as it does for a
+// namespace declared in the module.
+//
+// The single segment is taken as the dot-prefix MINUS the qualifier, so no scan is
+// needed: qname_dot_prefix already enumerates the prefixes, and a prefix that is the
+// qualifier plus one segment has no interior dot by construction — the next prefix out
+// would be the one that contains it.
+qname_walk(mod, ctn, dotted, prov, k, ent) :- qname_dot_prefix(ctn, dotted),
+    import_binding("client", _, local, _, mod, ih),
+    import_binds_namespace_any(ih, prov, target),
+    l = strlen(local),
+    l < strlen(dotted),
+    substr(dotted, 0, l) = local,
+    substr(dotted, l, 1) = ".",
+    seg = substr(dotted, l + 1, strlen(dotted) - l - 1),
+    module_export_any(prov, target, seg, k, ent).
