@@ -1,0 +1,4 @@
+ambiguous_unknown	METHOD_CALL	AppError#describe() @L8 -> -
+ambiguous_unknown	METHOD_CALL	AppFromClass#describe() @L18 -> -
+ambiguous_unknown	SUPER_CALL	AppError#<new>(string) @L5 -> -
+ambiguous_unknown	SUPER_CALL	AppFromClass#<new>(string) @L15 -> -

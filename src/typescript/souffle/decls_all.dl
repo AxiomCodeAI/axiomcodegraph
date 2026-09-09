@@ -171,6 +171,7 @@
 .decl group_has_overload_signature(c0:symbol)
 .decl group_implementation(c0:symbol,c1:symbol)
 .decl group_of(c0:symbol,c1:symbol)
+.decl heritage_value_ctor(c0:symbol,c1:symbol)
 .decl heritage_dynamic(c0:symbol,c1:symbol)
 .decl heritage_target(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl heritage_unresolved(c0:symbol,c1:symbol)

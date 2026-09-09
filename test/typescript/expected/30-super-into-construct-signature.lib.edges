@@ -1,0 +1,4 @@
+boundary_lib	METHOD_CALL	AppError#describe() @L8 -> LibErr#describe()
+boundary_lib	METHOD_CALL	AppFromClass#describe() @L18 -> LibClass#describe()
+boundary_lib	SUPER_CALL	AppError#<new>(string) @L5 -> LibErrConstructor#<arrow@10>(string)
+boundary_lib	SUPER_CALL	AppFromClass#<new>(string) @L15 -> LibClass#<new>(string)
