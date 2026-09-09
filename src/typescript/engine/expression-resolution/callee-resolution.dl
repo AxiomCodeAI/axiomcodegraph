@@ -160,6 +160,27 @@ expr_call_candidate(ce, m) :- call_site("client", _, cn, rk, recv, ce, _),
     expr_shape(recv, s),
     method_in_scope(s, cn, _, m).
 
+// (6b) …AND A FUNCTION-VALUED PROPERTY OF ONE — `opts.run()` where `opts` is
+// `{ run: (n: number) => string }`. The shape twin of (5), exactly as (6) is the shape
+// twin of (4), and its absence is the whole defect in #321: (5) consults only
+// `expr_type`, so a receiver whose members live on a SHAPE could reach a method of an
+// anonymous type but never a function-valued property of one.
+//
+// Every link in the chain was already there, which is why this is one rule and not a
+// new mechanism. Verified against a real IR: the field carries its type reference, that
+// reference resolves to a shape, and the shape owns the FUNCTION_TYPE_SIGNATURE —
+// `field_is_callable` was satisfiable all along and nothing asked it this question.
+//
+// The matrix in the case says what this is NOT: the same property on an INTERFACE
+// resolves through (5), a METHOD in a type literal resolves through (6), and the
+// intersection's object half resolves too. So it is neither intersections (#147, closed
+// as not reproducible), nor aliases, nor the optional call — each has a control.
+expr_call_candidate(ce, m) :- call_site("client", _, cn, rk, recv, ce, _),
+    receiver_kind_is_value(rk),
+    cn != "",
+    expr_shape(recv, s),
+    field_is_callable(s, cn, m).
+
 // (7) STATIC member — `C.parse(x)`, where the receiver is the class itself. Searches
 // the static table only: a class with both a static and an instance method of one
 // name is common, and merging the tables picks the wrong one roughly half the time.
