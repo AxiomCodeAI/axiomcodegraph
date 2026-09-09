@@ -1,4 +1,4 @@
-=== per-family coverage (tier-4, 406 scored sites) ===
+=== per-family coverage (tier-4, 428 scored sites) ===
   f01 inheritance & MRO        links= 10  found= 10 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f02 callables & closures     links= 10  found=  9 (90.0%)  missed= 1  wide= 0  WRONG= 0
   f03 generics                 links= 14  found= 14 (100.0%)  missed= 0  wide= 0  WRONG= 0
@@ -33,10 +33,12 @@
   f35 generic union operand    links= 26  found= 26 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f36 property read result     links= 50  found= 50 (100.0%)  missed= 0  wide= 6  WRONG= 0
   f37 classmethod pairing      links= 12  found= 12 (100.0%)  missed= 0  wide= 0  WRONG= 0
+  f38 nested class scope       links= 21  found= 21 (100.0%)  missed= 0  wide= 0  WRONG= 0
+  nestmod.py nestmod.py               links=  1  found=  1 (100.0%)  missed= 0  wide= 0  WRONG= 0
   pkgmod relative imports (subpackage) links=  3  found=  3 (100.0%)  missed= 0  wide= 0  WRONG= 0
 
-  TOTAL                         links=370  found=362 (97.8%)  missed= 8  wide=36  WRONG= 0
-  recall      362/370 = 97.8%  of the links that actually ran
+  TOTAL                         links=392  found=384 (98.0%)  missed= 8  wide=36  WRONG= 0
+  recall      384/392 = 98.0%  of the links that actually ran
   wide  36   a member of a SOUND SET that did not run on this pass
   WRONG 0   a single target asserted as certain that never ran
 
