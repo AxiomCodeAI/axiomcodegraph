@@ -122,6 +122,54 @@ if [ ! -d "$MIRROR_BASE" ]; then
   done < "$WORK/mirror-plan.txt"
   [ "$copied" -gt 0 ] && echo "   + mirrored $copied ancestor tsconfig(s); project is at ./$REL"
 
+  # ── A SOLUTION CONFIG'S DELEGATE IS THE PROJECT ────────────────────────────
+  # The documented `composite` layout puts `files: [], include: [], references: [...]` in
+  # the package's own tsconfig.json and the real settings in the referenced build config.
+  # Both readers then go wrong, in opposite directions:
+  #
+  #   the ORACLE  honours the empty file list and builds a program with no roots (#337);
+  #   the PARSER  discovers projects by scanning, so the only config under the package
+  #               that resolves to any files wins — and on the member that exposed this
+  #               that is `test/tsconfig.json`, giving 97 modules ALL under test/ out of
+  #               285 files, with conservation then reading 100%.
+  #
+  # Nothing is wrong with the mirror or the project: the file set is complete and the
+  # extends chain is carried. What is wrong is that the entry config names no files, so
+  # each side guesses differently. Resolving the delegation once, here, makes both read
+  # the same project.
+  #
+  # Written INTO THE MIRROR ONLY, over the copy of the entry config, so the checkout is
+  # untouched. Gated on the config actually delegating — a real `files`/`include` is left
+  # alone — so this is inert for every project that names its own files.
+  ENTRY_CFG="$MIRROR_TMP/$REL/tsconfig.json"
+  if [ -f "$ENTRY_CFG" ] && node -e '
+    const fs=require("fs"),path=require("path");
+    const p=process.argv[1];
+    const strip=(t)=>t.replace(/\/\*[\s\S]*?\*\//g,"").replace(/^\s*\/\/.*$/gm,"").replace(/,(\s*[}\]])/g,"$1");
+    let c; try { c=JSON.parse(strip(fs.readFileSync(p,"utf8"))); } catch { process.exit(1); }
+    const names=(c.files||[]).length+(c.include||[]).length;
+    const refs=(c.references||[]).map(r=>r&&r.path).filter(Boolean);
+    if (names>0 || refs.length===0) process.exit(1);
+    // The first reference that exists and itself names files is the delegate.
+    for (const r of refs) {
+      let rp=path.resolve(path.dirname(p),r);
+      try { if (fs.statSync(rp).isDirectory()) rp=path.join(rp,"tsconfig.json"); } catch {}
+      if (!fs.existsSync(rp)) continue;
+      let d; try { d=JSON.parse(strip(fs.readFileSync(rp,"utf8"))); } catch { continue; }
+      if (((d.files||[]).length + (d.include||[]).length) === 0 && !d.exclude) continue;
+      process.stdout.write(rp);
+      process.exit(0);
+    }
+    process.exit(1);
+  ' "$ENTRY_CFG" > "$WORK/solution-delegate.txt" 2>/dev/null; then
+    DELEGATE="$(cat "$WORK/solution-delegate.txt")"
+    if [ -n "$DELEGATE" ] && [ -f "$DELEGATE" ]; then
+      cp "$ENTRY_CFG" "$MIRROR_TMP/$REL/tsconfig.solution.json" 2>/dev/null
+      cp "$DELEGATE" "$ENTRY_CFG" 2>/dev/null
+      echo "   + entry tsconfig delegates to $(basename "$DELEGATE"); using it as the project (#351)"
+    fi
+  fi
+
   # A PRESENT MIRROR MUST BE A COMPLETE ONE, and rsync's STATUS is not the test. It exits
   # 23/24 for benign reasons, and it exited 0 having copied nothing when the corpus had
   # been reaped out from under it. The postcondition is what catches both.
