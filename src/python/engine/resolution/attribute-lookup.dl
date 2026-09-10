@@ -285,3 +285,44 @@ type_call_target(p, t, m) :- mro_lookup(p, t, "__call__", m).
 // universe, because CPython's own compiler emits no CALL for it either.
 type_property_getter(p, t, n, m) :-
     mro_lookup(p, t, n, m), method_kind(p, "PROPERTY_GETTER", _, m).
+
+// ── A USER-WRITTEN DATA DESCRIPTOR IS THE SAME PROTOCOL (issue #326) ─────────
+// `@property` IS a data descriptor; the decorator is sugar over `__get__`/`__set__`. So
+// the clause above reads one spelling of the protocol and a class-level
+// `field = Reactive()` — where Reactive defines `__get__` — is the other, carrying the
+// same `-> Target` and getting nothing. Which spelling the author chose decided whether
+// their attribute reads resolved.
+//
+// ONLY A DATA DESCRIPTOR, and this is the part that would be wrong to skip. `__get__`
+// alone is a NON-data descriptor: an instance attribute of the same name shadows it, so
+// `self.loose` may well be whatever `__init__` put in the instance dict and the
+// descriptor never runs. `__set__` or `__delete__` alongside it makes the descriptor win
+// on every read, which is the only case where answering is sound. The IR shows both, so
+// the distinction costs one join and getting it wrong would answer confidently in exactly
+// the case where the instance dictionary wins.
+descriptor_get_slot("__get__").
+descriptor_data_slot("__set__").
+descriptor_data_slot("__delete__").
+
+// PRESENCE, NOT REACHABILITY, decides this. mro_lookup is gated on !method_body_is_stub,
+// and `def __delete__(self, obj): pass` is recorded bodyIsStub=true — which is right for
+// "can a call land here" and wrong for "is this class a data descriptor". Whether the slot
+// has a body has nothing to do with whether Python consults it on read; declaring it is
+// what makes the descriptor win over the instance dictionary. Measured: keying this on
+// mro_lookup silently classified a __get__/__delete__ pair as a NON-data descriptor and
+// left its reads unresolved.
+type_declares_slot(p, t, n) :- method_owner(p, t, m), method_decl(p, n, _, _, _, m).
+
+type_is_data_descriptor(p, dt) :-
+    descriptor_get_slot(g), type_declares_slot(p, dt, g),
+    descriptor_data_slot(d), type_declares_slot(p, dt, d).
+
+// ── type_descriptor_getter(Prov, TypeHash, Name, GetMethodHash) ──────────────
+// Deliberately the same SHAPE as type_property_getter, so every consumer of that relation
+// needs one extra clause rather than a parallel pipeline: the read is an edge, the
+// return types the result, and the tiering already knows what to do with a protocol slot.
+type_descriptor_getter(p, t, n, g) :-
+    type_attr_field(p, t, n, f),
+    field_type(p, f, dt),
+    type_is_data_descriptor(p, dt),
+    descriptor_get_slot(gs), mro_lookup(p, dt, gs, g).

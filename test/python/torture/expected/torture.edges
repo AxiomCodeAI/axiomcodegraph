@@ -52,6 +52,7 @@ boundary_lib	DECORATOR_BARE	f36_property_result.Outer.<classbody> -> builtin:pro
 boundary_lib	DECORATOR_BARE	f36_property_result.SubApplication.<classbody> -> builtin:property
 boundary_lib	DECORATOR_BARE	f37_classmethod_pairing.Scheduler.<classbody> -> builtin:classmethod
 boundary_lib	DECORATOR_BARE	f37_classmethod_pairing.Spider.<classbody> -> builtin:classmethod
+boundary_lib	DECORATOR_BARE	f40_data_descriptor.Prop.<classbody> -> builtin:property
 boundary_lib	DECORATOR_CALL	f05_decorators.<module> -> lib:tlib.decorated.retry
 boundary_lib	DYNAMIC_CALL	f02_callables.constructed_directly -> lib:tlib.callables.Doubler.__call__
 boundary_lib	METHOD_CALL	f01_inheritance.lib_deep_chain -> lib:tlib.shapes.Base.only_base
@@ -159,6 +160,7 @@ boundary_lib	METHOD_CALL	f38_nested_class_scope.qualified -> builtin:object.__in
 boundary_lib	METHOD_CALL	f39_lib_boundary_identity.drive -> builtin:str.join
 boundary_lib	METHOD_CALL	f39_lib_boundary_identity.on_a_local -> lib:tlib.descriptors.Deferred.ping
 boundary_lib	METHOD_CALL	f39_lib_boundary_identity.on_a_parameter -> lib:tlib.descriptors.Deferred.pong
+boundary_lib	METHOD_CALL	f40_data_descriptor.drive -> builtin:str.join
 boundary_lib	METHOD_CALL	main.main -> builtin:object.__init__
 boundary_lib	METHOD_CALL	nestmod.Outer.make_nested -> builtin:object.__init__
 boundary_lib	SELF_CALL	f02_callables.HoldsCallables.run -> lib:tlib.callables.Doubler.__call__
@@ -295,6 +297,13 @@ boundary_lib	SIMPLE_CALL	f38_nested_class_scope.top_level_still_resolves -> buil
 boundary_lib	SIMPLE_CALL	f39_lib_boundary_identity.drive -> lib:tlib.descriptors.Deferred
 boundary_lib	SIMPLE_CALL	f39_lib_boundary_identity.on_a_local -> lib:tlib.descriptors.Deferred
 boundary_lib	SIMPLE_CALL	f39_lib_boundary_identity.resolves_normally -> builtin:object.__init__
+boundary_lib	SIMPLE_CALL	f40_data_descriptor.Deletable.__get__ -> builtin:object.__init__
+boundary_lib	SIMPLE_CALL	f40_data_descriptor.Holder.<classbody> -> builtin:object.__init__
+boundary_lib	SIMPLE_CALL	f40_data_descriptor.Holder.__init__ -> builtin:object.__init__
+boundary_lib	SIMPLE_CALL	f40_data_descriptor.NonData.__get__ -> builtin:object.__init__
+boundary_lib	SIMPLE_CALL	f40_data_descriptor.Prop.slot -> builtin:object.__init__
+boundary_lib	SIMPLE_CALL	f40_data_descriptor.Reactive.__get__ -> builtin:object.__init__
+boundary_lib	SIMPLE_CALL	f40_data_descriptor.via_property -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	main.main -> builtin:print
@@ -420,6 +429,10 @@ known_edge	METHOD_CALL	f37_classmethod_pairing.explicit_class_object -> f37_clas
 known_edge	METHOD_CALL	f37_classmethod_pairing.registry_helper -> f37_classmethod_pairing.Crawler.settings
 known_edge	METHOD_CALL	f38_nested_class_scope.bare_annotation -> nestmod.Inner.run
 known_edge	METHOD_CALL	f38_nested_class_scope.bare_field -> nestmod.Inner.run
+known_edge	METHOD_CALL	f40_data_descriptor.non_data_is_shadowed -> f40_data_descriptor.Other.run
+known_edge	METHOD_CALL	f40_data_descriptor.via_data_descriptor -> f40_data_descriptor.Target.run
+known_edge	METHOD_CALL	f40_data_descriptor.via_delete_descriptor -> f40_data_descriptor.Other.run
+known_edge	METHOD_CALL	f40_data_descriptor.via_property -> f40_data_descriptor.Target.run
 known_edge	METHOD_CALL	main.main -> f01_inheritance.client_chain
 known_edge	METHOD_CALL	main.main -> f01_inheritance.lib_deep_chain
 known_edge	METHOD_CALL	main.main -> f01_inheritance.lib_diamond
@@ -551,6 +564,7 @@ known_edge	METHOD_CALL	main.main -> f36_property_result.drive
 known_edge	METHOD_CALL	main.main -> f37_classmethod_pairing.drive
 known_edge	METHOD_CALL	main.main -> f38_nested_class_scope.drive
 known_edge	METHOD_CALL	main.main -> f39_lib_boundary_identity.drive
+known_edge	METHOD_CALL	main.main -> f40_data_descriptor.drive
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator_in_for
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_plain
@@ -569,6 +583,9 @@ known_edge	PROPERTY_READ	f36_property_result.inferred -> f36_property_result.App
 known_edge	PROPERTY_READ	f36_property_result.lib_property_returns_lib_class -> lib:tlib.descriptors.Depot.factory
 known_edge	PROPERTY_READ	f36_property_result.lib_property_returns_lib_container -> lib:tlib.descriptors.Depot.factories
 known_edge	PROPERTY_READ	f36_property_result.overridden -> f36_property_result.SubApplication.router
+known_edge	PROPERTY_READ	f40_data_descriptor.via_data_descriptor -> f40_data_descriptor.Reactive.__get__
+known_edge	PROPERTY_READ	f40_data_descriptor.via_delete_descriptor -> f40_data_descriptor.Deletable.__get__
+known_edge	PROPERTY_READ	f40_data_descriptor.via_property -> f40_data_descriptor.Prop.slot
 known_edge	SELF_CALL	f02_callables.HoldsCallables.run -> f02_callables.LocalCallable.__call__
 known_edge	SELF_CALL	f28_await.Registry.into_a_field -> f28_await.Registry.build
 known_edge	SELF_CALL	f28_await.Registry.via_self_receiver -> f28_await.Registry.build
@@ -714,6 +731,13 @@ known_edge	SIMPLE_CALL	f38_nested_class_scope.drive -> f38_nested_class_scope.to
 known_edge	SIMPLE_CALL	f39_lib_boundary_identity.drive -> f39_lib_boundary_identity.on_a_local
 known_edge	SIMPLE_CALL	f39_lib_boundary_identity.drive -> f39_lib_boundary_identity.on_a_parameter
 known_edge	SIMPLE_CALL	f39_lib_boundary_identity.drive -> f39_lib_boundary_identity.resolves_normally
+known_edge	SIMPLE_CALL	f40_data_descriptor.drive -> f40_data_descriptor.non_data_is_shadowed
+known_edge	SIMPLE_CALL	f40_data_descriptor.drive -> f40_data_descriptor.via_data_descriptor
+known_edge	SIMPLE_CALL	f40_data_descriptor.drive -> f40_data_descriptor.via_delete_descriptor
+known_edge	SIMPLE_CALL	f40_data_descriptor.drive -> f40_data_descriptor.via_property
+known_edge	SIMPLE_CALL	f40_data_descriptor.non_data_is_shadowed -> f40_data_descriptor.Holder.__init__
+known_edge	SIMPLE_CALL	f40_data_descriptor.via_data_descriptor -> f40_data_descriptor.Holder.__init__
+known_edge	SIMPLE_CALL	f40_data_descriptor.via_delete_descriptor -> f40_data_descriptor.Holder.__init__
 known_edge	SIMPLE_CALL	main.<module> -> main.main
 known_edge	SIMPLE_CALL	pkgmod.user.run_generator -> pkgmod._gen.each
 known_edge	SIMPLE_CALL	pkgmod.user.run_generator_in_for -> pkgmod._gen.each_first
