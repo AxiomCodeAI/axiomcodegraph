@@ -510,3 +510,4 @@
 .decl type_is_data_descriptor(c0:symbol,c1:symbol)
 .decl type_descriptor_getter(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl type_declares_slot(c0:symbol,c1:symbol,c2:symbol)
+.decl lib_unresolved_via_call(c0:symbol,c1:symbol,c2:symbol)

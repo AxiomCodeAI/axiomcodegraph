@@ -58,3 +58,9 @@ class Deferred:
 
     def __getattr__(self, name: str):
         return lambda: "deferred:" + name
+
+
+def defer() -> Deferred:
+    """A library FACTORY, so a client can write `defer().anything()` — the chained
+    receiver shape, where the call has no dotted prefix in the source at all."""
+    return Deferred()
