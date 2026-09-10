@@ -401,6 +401,35 @@ expr_element_type(e, prov, t) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
     field_in_scope(qt, n, "false", f),
     field_type_ref(_, r, f),
     ref_element_target(r, prov, t).
+// ── THE ITERATION PROTOCOL REACHED THROUGH A COMPUTED MEMBER ───────────────
+// `for await (const op of src)` where `src`'s class declares
+// `async *[Symbol.asyncIterator](): AsyncIterator<AlphaOp>`. This is how a class opts
+// into iteration when it does not inherit it from a heritage clause, and it is the one
+// shape of #355 that a name lookup cannot reach: a computed member name is EMPTY in the
+// IR (parser#93, "a computed member name is always empty, so the 32 well-known
+// symbols…"), so there is no `[Symbol.asyncIterator]` to look up.
+//
+// The emptiness IS the discriminator, and that is what keeps this narrow. Only a
+// COMPUTED member qualifies, and only one whose return is a container — so a class earns
+// an element type from `[Symbol.iterator]` or `[Symbol.asyncIterator]` and not from an
+// ordinary `getItems(): Foo[]`, which would otherwise make every class that returns a
+// collection iterable as its own elements.
+//
+// Over-approximates only where the compiler answers nothing anyway: a class with a
+// computed member returning some other container is not iterable, so `for..of` over it
+// does not typecheck and the compiler names no target for this to disagree with.
+// Read off the raw projections rather than the member tables, because
+// `declared_method` filters `name != ""` — correctly, since a nameless member cannot be
+// looked up by name, which is exactly why it is invisible here and why the lookup has to
+// go around it. Siblings are included so a class whose declarations are merged still
+// finds it.
+computed_member_element(scope, prov, t) :- scope_sibling(scope, sib),
+    method_owner(mp, sib, m),
+    method_decl(mp, _, "", _, m),
+    method_return_element(m, prov, t).
+expr_element_type(e, prov, t) :- expr_type(e, _, qt),
+    computed_member_element(qt, prov, t).
+
 // An element access whose qualifier has an INDEX SIGNATURE — `registry["key"].run()`
 // — takes the signature's value type. Distinct from an array element and just as
 // common in configuration-shaped code.
