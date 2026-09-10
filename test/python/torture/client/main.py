@@ -39,6 +39,7 @@ import f36_property_result as f36
 import f37_classmethod_pairing as f37
 import f38_nested_class_scope as f38
 import f39_lib_boundary_identity as f39
+import f40_data_descriptor as f40
 from tlib import Square
 from tlib.shapes import Base, Mid
 
@@ -118,6 +119,7 @@ def main() -> None:
     print(f37.drive())
     print(f38.drive())
     print(f39.drive())
+    print(f40.drive())
 
 
 if __name__ == "__main__":

@@ -184,6 +184,15 @@ property_read_of(p, e, obj, n, g) :-
     expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
     expr_type(p, obj, ot),
     type_property_getter(p, ot, n, g).
+// A USER-WRITTEN DATA DESCRIPTOR reaches the same two clauses (issue #326). `@property`
+// is itself a data descriptor, so this is one protocol with two spellings and they now
+// agree; type_descriptor_getter (resolution/attribute-lookup.dl) is deliberately shaped
+// like type_property_getter so this is one more clause rather than a parallel path.
+property_read_of(p, e, obj, n, g) :-
+    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
+    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_type(p, obj, ot),
+    type_descriptor_getter(p, ot, n, g).
 // (i3a) the getter's declared `-> X`.
 expr_type(p, e, t) :-
     property_read_of(p, e, _, _, g),
