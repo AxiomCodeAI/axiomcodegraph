@@ -633,6 +633,31 @@ expr_type_untypable(p, e, "attribute_absent_on_type") :-
     !mro_lookup(p, ot, n, _),
     !expr_any_type(p, e).
 
+// (4c) THE SAME MISS WITH A CLASS OBJECT IN THE OBJECT POSITION -- `Model.objects`.
+// Clause (4b) joins expr_type, which is an INSTANCE type, so a receiver whose object is a
+// CLASS had no clause at all and its sites landed in `no_rule` with nothing said about
+// them. Reading the residual on one project: 14,116 of its 19,046 no_rule sites are this,
+// and they are overwhelmingly one idiom --
+//
+//     Number.objects.filter(...)      User.objects.count()
+//     Restaurant.objects.create(...)  Publisher.objects.annotate(...)
+//
+// -- a manager installed on every model class by a metaclass. The engine cannot see the
+// attribute, which is correct; what it could not do was SAY so.
+//
+// A SEPARATE REASON RATHER THAN REUSING (4b)'s, because the two point at different work.
+// An instance attribute the engine cannot see is usually a field it failed to type; a
+// class attribute it cannot see is usually installed by a metaclass or a class decorator,
+// and no amount of field typing will reach it. Merging them would put the largest single
+// shape in the residual behind a name that suggests the wrong fix.
+expr_type_untypable(p, e, "class_attribute_absent") :-
+    expr_node(p, "ATTRIBUTE_ACCESS", _, n, e), n != "",
+    expr_parent(p, e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_type_class_object(p, obj, ot),
+    !type_attr_field(p, ot, n, _),
+    !mro_lookup(p, ot, n, _),
+    !expr_any_type(p, e).
+
 // (5) a CALL RESULT receiver whose own call resolved to no callee -- `f().g()` where `f`
 //     is itself unresolved. The failure is one hop upstream, and saying so stops the site
 //     being counted as its own independent gap.
