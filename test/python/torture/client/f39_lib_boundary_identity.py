@@ -20,10 +20,13 @@ in a fixture: the TYPE is known to the engine and the MEMBER is declared nowhere
 exactly the state a partially staged library leaves behind — #311's own example is a member
 inherited from a base the staged library does not carry.
 
+`on_a_call_result` is the third shape, and the one #348 left open: a receiver that is a
+CALL RESULT, which has no dotted prefix at all, so the label was the bare member name.
+
 `resolves_normally` is the control: a member the library DOES declare must still reach its
 concrete target rather than any label at all.
 """
-from tlib import Deferred, Square
+from tlib import Deferred, Square, defer
 
 
 def on_a_local() -> str:
@@ -42,10 +45,19 @@ def on_a_parameter(x: Deferred) -> str:
     return x.pong()
 
 
+def on_a_call_result() -> str:
+    # EXPECT: miss — the CHAINED receiver. `defer()` has no dotted prefix in the source,
+    # so call_dotted is just `ping` and the label was `lib:ping`: a bare member name with
+    # no library, no module and no type in it. The imported function's qualified name is
+    # what identifies it.
+    return defer().ping()
+
+
 def resolves_normally() -> str:
     # CONTROL: a real declared member of a staged library type.
     return Square().name()
 
 
 def drive() -> str:
-    return " ".join([on_a_local(), on_a_parameter(Deferred()), resolves_normally()])
+    return " ".join([on_a_local(), on_a_parameter(Deferred()),
+                     on_a_call_result(), resolves_normally()])

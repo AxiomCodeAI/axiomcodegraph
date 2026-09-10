@@ -237,6 +237,7 @@ call_hits_lib_unresolved(site, cat("lib:", d)) :-
     !call_hits_lib_method(site, _),
     !call_hits_builtin(site, _),
     !lib_unresolved_typed(site, _, _),
+    !lib_unresolved_via_call(site, _, _),
     call_receiver_object(site, obj),
     expr_parent("client", obj, "ATTRIBUTE_OBJECT", _, root),
     expr_binding("client", rb, _, root),
@@ -248,6 +249,7 @@ call_hits_lib_unresolved(site, cat("lib:", d)) :-
     !call_hits_lib_method(site, _),
     !call_hits_builtin(site, _),
     !lib_unresolved_typed(site, _, _),
+    !lib_unresolved_via_call(site, _, _),
     call_receiver_object(site, obj),
     expr_binding("client", rb, _, obj),
     binding_lookup("client", rb, rb2),
@@ -276,6 +278,7 @@ call_hits_lib_unresolved(site, cat("lib:", d)) :-
     !call_hits_lib_method(site, _),
     !call_hits_builtin(site, _),
     !lib_unresolved_typed(site, _, _),
+    !lib_unresolved_via_call(site, _, _),
     call_receiver_object(site, obj),
     call_of_expr(obj, inner),
     call_callee_expr(inner, icallee),
@@ -316,6 +319,23 @@ call_hits_lib_unresolved(site, cat("lib:", d)) :-
 // (import_links_lib_function does not carry the stub-declared function, so the join was
 // empty), turning `lib:connect` into ambiguous_unknown. Reverted rather than shipped. A
 // bare member name is weak identity; no answer is worse, so that half stays open on #311.
+// THE CHAINED RECEIVER, which #348 left open. `make_engine().connect()` has no dotted
+// prefix in the source, so call_dotted is just `connect` and the label was `lib:connect` —
+// a bare member name with no library, no module and no type in it. The information is
+// there: the receiver is the result of calling an imported library FUNCTION, and that
+// function has a qualified name. With no library staged the same site reads
+// `external:make_engine.connect`, so this is the last of the three shapes where staging
+// made the target less identifiable rather than more.
+lib_unresolved_via_call(site, q, n) :-
+    call_receiver_object(site, obj),
+    call_of_expr(obj, inner),
+    call_callee_expr(inner, icallee),
+    expr_binding("client", ib, _, icallee),
+    binding_lookup("client", ib, ib2),
+    import_links_lib_function(ib2, lm),
+    method_decl("lib", _, _, q, _, lm), q != "",
+    call_name(site, n), n != "".
+
 lib_unresolved_typed(site, qn, n) :-
     call_receiver_object(site, obj),
     expr_lib_type(obj, t),
@@ -326,6 +346,12 @@ call_hits_lib_unresolved(site, cat("lib:", cat(qn, cat(".", n)))) :-
     !call_hits_lib_method(site, _),
     !call_hits_builtin(site, _),
     lib_unresolved_typed(site, qn, n).
+call_hits_lib_unresolved(site, cat("lib:", cat(q, cat(".", n)))) :-
+    !expr_call_candidate(site, _),
+    !call_hits_lib_method(site, _),
+    !call_hits_builtin(site, _),
+    !lib_unresolved_typed(site, _, _),
+    lib_unresolved_via_call(site, q, n).
 
 
 // ── CONSTRUCTING a library class, where no library initializer resolved ──────
@@ -372,6 +398,7 @@ call_hits_lib_unresolved(site, cat("lib:", d)) :-
     !call_hits_lib_method(site, _),
     !call_hits_builtin(site, _),
     !lib_unresolved_typed(site, _, _),
+    !lib_unresolved_via_call(site, _, _),
     !lib_unresolved_construct(site, _),
     call_callee_is_value(site),
     call_callee_expr(site, callee),
@@ -382,6 +409,7 @@ call_hits_lib_unresolved(site, cat("lib:", d)) :-
     !call_hits_lib_method(site, _),
     !call_hits_builtin(site, _),
     !lib_unresolved_typed(site, _, _),
+    !lib_unresolved_via_call(site, _, _),
     !lib_unresolved_construct(site, _),
     call_callee_is_value(site),
     call_callee_expr(site, callee),
