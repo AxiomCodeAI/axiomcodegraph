@@ -111,6 +111,31 @@ expr_type(e, "client", t) :- expr_referenced("client", "THIS", _, e),
 expr_type(e, "client", t) :- expr_kind("client", "THIS_REFERENCE", _, e),
     expr_enclosing_type(e, t).
 
+// `this` INSIDE A STATIC METHOD IS THE CLASS, so its members are the STATICS. A helper
+// class that calls its own statics through `this` is ordinary TypeScript —
+// `private static parse(...)` reached as `this.parse(...)` from another static — and the
+// rules above give `this` only the enclosing type as a VALUE, so the lookup searched
+// instance members, found none, and the site was diagnosed `member_absent`: the bucket
+// that means engine defect rather than staging gap. It was right.
+//
+// Measured across the corpus: 107 missed sites are exactly this, every one a `this.m()`
+// in a static context whose target the compiler names in the same file.
+//
+// Given as a STATIC type, so no new lookup rule is needed — callee-resolution's static
+// clause already searches the static table for a receiver with one, and the instance
+// type is kept alongside so nothing that resolved before stops. A class with both a
+// static and an instance member of one name therefore stays a two-way set here rather
+// than committing, which is the honest answer when `this` is genuinely ambiguous in a
+// mixed class.
+expr_static_type(e, "client", t) :- expr_kind("client", "THIS_REFERENCE", _, e),
+    expr_enclosing_type(e, t),
+    expr_enclosing_method(e, em),
+    method_flags(_, "true", _, _, em).
+expr_static_type(e, "client", t) :- expr_referenced("client", "THIS", _, e),
+    expr_enclosing_type(e, t),
+    expr_enclosing_method(e, em),
+    method_flags(_, "true", _, _, em).
+
 // ── `super` — the enclosing type's `extends` parent ─────────────────────────
 // Only the extends parent: `implements` inherits nothing, so a super call can never
 // reach an implemented interface's declaration.
