@@ -267,6 +267,17 @@ property_read_edge(e, caller, getter) :-
     expr_type("client", obj, t),
     type_property_getter("client", t, n, getter),
     expr_ultimate_method("client", e, caller).
+// A DATA DESCRIPTOR read is the same hidden call and gets the same visible edge (#326).
+// Without it the graph would type the result while never recording that `__get__` ran,
+// which is the one outcome the PROPERTY_READ edge exists to prevent.
+property_read_edge(e, caller, getter) :-
+    expr_node("client", "ATTRIBUTE_ACCESS", _, n, e),
+    expr_name_context("client", "LOAD", e),
+    !call_receiver_of(e),
+    expr_parent("client", e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_type("client", obj, t),
+    type_descriptor_getter("client", t, n, getter),
+    expr_ultimate_method("client", e, caller).
 // ── THE LIB HALF, alongside the client one ───────────────────────────────────
 // A property read on a LIBRARY object: `Config("x").tag` invokes tag's getter, which
 // lives in the staged library. type_property_getter is ALREADY prov-parametric

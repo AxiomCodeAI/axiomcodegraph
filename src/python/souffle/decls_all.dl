@@ -505,3 +505,8 @@
 .decl type_nested_member(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl lib_unresolved_typed(c0:symbol,c1:symbol,c2:symbol)
 .decl lib_unresolved_construct(c0:symbol,c1:symbol)
+.decl descriptor_get_slot(c0:symbol)
+.decl descriptor_data_slot(c0:symbol)
+.decl type_is_data_descriptor(c0:symbol,c1:symbol)
+.decl type_descriptor_getter(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl type_declares_slot(c0:symbol,c1:symbol,c2:symbol)
