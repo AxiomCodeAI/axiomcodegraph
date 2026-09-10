@@ -416,6 +416,22 @@ expr_type(e, prov, t) :- expr_kind("client", "ELEMENT_ACCESS", _, e),
 expr_element_type(e, prov, t) :- expr_referenced("client", "VARIABLE", v, e),
     var_type_ref(_, r, v),
     ref_element_target(r, prov, t).
+
+// ── expr_element_shape(Expr, Shape) — an element that is a FUNCTION TYPE ────
+// The shape twin of expr_element_type, mirroring its sources one for one. An element
+// which is itself a function type has no declaration to name, so ref_element_target
+// finds nothing and only a SHAPE makes it callable — the same split ref_shape_target
+// and ref_type_target already keep. Consumed by contextual-params, where a callback's
+// type-variable parameter binds to the receiver's element.
+expr_element_shape(e, sh) :- expr_referenced("client", "VARIABLE", v, e),
+    var_type_ref(_, r, v),
+    ref_element_shape(r, sh).
+expr_element_shape(e, sh) :- expr_referenced("client", "PARAMETER", p, e),
+    param_type_ref(_, r, p),
+    ref_element_shape(r, sh).
+expr_element_shape(e, sh) :- expr_call_candidate(e, callee),
+    method_return_ref(_, r, callee),
+    ref_element_shape(r, sh).
 expr_element_type(e, prov, t) :- expr_referenced("client", "PARAMETER", p, e),
     param_type_ref(_, r, p),
     ref_element_target(r, prov, t).
