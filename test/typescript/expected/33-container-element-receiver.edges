@@ -1,0 +1,12 @@
+ambiguous_unknown	CONSTRUCTOR_CALL	AlphaSource#<arrow@22>() @L23 -> -
+ambiguous_unknown	CONSTRUCTOR_CALL	iter#alphaStream() @L15 -> -
+ambiguous_unknown	CONSTRUCTOR_CALL	iter#betaSequence() @L18 -> -
+ambiguous_unknown	CONSTRUCTOR_CALL	iter#viaDirectNew() @L50 -> -
+known_edge	FUNCTION_CALL	iter#viaForAwait() @L28 -> iter#alphaStream()
+known_edge	FUNCTION_CALL	iter#viaForOf() @L32 -> iter#betaSequence()
+known_edge	METHOD_CALL	iter#viaArrayForOf(AlphaOp[]) @L40 -> AlphaOp#run(number)
+known_edge	METHOD_CALL	iter#viaAwaitedPromise(Promise) @L46 -> BetaOp#run(number)
+known_edge	METHOD_CALL	iter#viaCustomAsyncIterator(AlphaSource) @L36 -> AlphaOp#run(number)
+known_edge	METHOD_CALL	iter#viaDirectNew() @L50 -> AlphaOp#run(number)
+known_edge	METHOD_CALL	iter#viaForAwait() @L28 -> AlphaOp#run(number)
+known_edge	METHOD_CALL	iter#viaForOf() @L32 -> BetaOp#run(number)
