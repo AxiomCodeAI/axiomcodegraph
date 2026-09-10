@@ -450,6 +450,33 @@ ref_name_is_container("Iterable").
 ref_name_is_container("AsyncIterable").
 ref_name_is_container("Set").
 ref_name_is_container("ReadonlySet").
+// THE ITERATION PROTOCOL, which is how a loop gets its element. `Iterable` and
+// `AsyncIterable` were here and the rest of the family was not, so
+// `for (const op of betaSequence())` over a `Generator<BetaOp, void, void>` typed its
+// binding as nothing and every call on it resolved to nothing — while the same loop over
+// an `AlphaOp[]` resolved, because `Array` was in this list. Six shapes in one fixture
+// and the discriminator was the container's NAME (#355).
+//
+// The binding side needed no work: `for_binding_iterable` already links a FOR_OF /
+// FOR_AWAIT_OF binding to the expression it iterates, and `var_type` already takes that
+// expression's element type. Only the element extraction was missing a name.
+//
+// Type argument 0 for every one of these, which is what this rule reads:
+//   Generator<T, TReturn, TNext>        AsyncGenerator<T, TReturn, TNext>
+//   Iterator<T, TReturn, TNext>         AsyncIterator<T, TReturn, TNext>
+//   IterableIterator<T>                 AsyncIterableIterator<T>
+//
+// `Map` and `ReadonlyMap` are deliberately NOT here: their type argument 0 is the KEY,
+// and iterating one yields `[K, V]`, so adding them would type a loop binding as the key
+// and answer calls on it with the wrong declaration. That needs tuple extraction, which
+// is the other half of #355 and is not this rule.
+ref_name_is_container("Generator").
+ref_name_is_container("AsyncGenerator").
+ref_name_is_container("Iterator").
+ref_name_is_container("AsyncIterator").
+ref_name_is_container("IterableIterator").
+ref_name_is_container("AsyncIterableIterator").
+ref_name_is_container("ArrayLike").
 
 // ── ref_awaited_target(RefHash, Prov, TypeHash) — unwrap a Promise ──────────
 // `(await client.get()).body` — the receiver is the AWAITED type, not the Promise.
