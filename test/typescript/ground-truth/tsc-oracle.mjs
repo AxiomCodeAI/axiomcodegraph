@@ -330,12 +330,28 @@ for (const sf of program.getSourceFiles()) {
     }
     if (isCall) {
       considered += 1;
-      const [line, col] = pos(sf, node.getStart(sf));
+      // A DECORATOR IS POSITIONED AT ITS EXPRESSION, NOT AT THE `@`. The parser emits
+      // its DECORATOR_CALL at the callee identifier and this side reported the decorator
+      // NODE, which starts one character earlier — so every decorator application in a
+      // project disagreed by exactly one column, the scorer's position join missed, and
+      // the site was counted as CONSERVATION LOSS: an oracle row with no IR site.
+      //
+      // That reads as "the parser emits no call site for a decorator", which is true of
+      // the BARE form (parser#82) and NOT of the factory form. Measured on a
+      // decorator-driven package: 8 of 8 absent oracle sites were DECORATOR_CALL, and
+      // every one had an IR DECORATOR_CALL on the same line at column+1 with the same
+      // callee name. At that repository's root the same mismatch accounted for 1,143.
+      //
+      // So the loss was a convention disagreement, not a missing site, and it is fixed
+      // on this side because the parser's choice is the more useful one: the identifier
+      // is what a reader looks for, and `@` is not part of the callee.
+      const posNode = ts.isDecorator(node) ? node.expression : node;
+      const [line, col] = pos(sf, posNode.getStart(sf));
       // The END position is part of the key, not decoration. A chained call
       // `a.b().c()` and its inner `a.b()` START at the same character, so
       // (file, line, column) is NOT unique — measured, 14,076 sites collapse to
       // 13,271 distinct start positions. The span is unique; the start is not.
-      const [endLine, endCol] = pos(sf, node.getEnd());
+      const [endLine, endCol] = pos(sf, posNode.getEnd());
       const [enclLine, enclCol, enclName] = enclosingDeclOf(node, sf);
       let targetFile = '';
       let targetLine = '';
