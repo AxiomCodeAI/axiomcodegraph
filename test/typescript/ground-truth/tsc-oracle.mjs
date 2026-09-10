@@ -246,6 +246,7 @@ function isBodiless(decl) {
 
 const rows = [];
 let considered = 0;
+let rootCount = 0;
 let resolvedCount = 0;
 let overloadedSites = 0;
 let nonFirstOverload = 0;
@@ -256,14 +257,56 @@ let diagTotal = 0;
 // would count one call site twice.
 const seenPos = new Set();
 
+/**
+ * A SOLUTION-STYLE CONFIG DELEGATES ITS FILES, and respecting `files: []` literally
+ * yields a program with no roots.
+ *
+ * The documented layout for a `composite` build puts an empty solution file at the root
+ * — `files: []`, `references: [{ path: "./tsconfig.build.json" }, …]` — so the config
+ * deliberately contains no files. `parseJsonConfigFileContent` honours that and does not
+ * follow the references, and everything downstream is then adjudicated against nothing:
+ * 1,571 call sites found by the parser, 0 by the oracle, and three ratios of 0.000
+ * printed in the same shape a real run uses. #337.
+ *
+ * So the references are followed, one level of recursion per reference, and their file
+ * names unioned. A reference may itself be a solution file. Cycles are guarded by the
+ * seen set, because `composite` projects legitimately reference each other.
+ */
+function rootsOf(configPath, seen = new Set()) {
+  const real = path.resolve(configPath);
+  if (seen.has(real)) return { fileNames: [], options: undefined };
+  seen.add(real);
+  const configFile = ts.readConfigFile(real, ts.sys.readFile);
+  if (configFile.error || !configFile.config) return { fileNames: [], options: undefined };
+  const parsed = ts.parseJsonConfigFileContent(configFile.config, ts.sys, path.dirname(real));
+  if (parsed.fileNames.length > 0) return { fileNames: parsed.fileNames, options: parsed.options };
+  // No files of its own. If it delegates, take what it delegates to.
+  const refs = parsed.projectReferences ?? [];
+  const names = [];
+  let options = parsed.options;
+  for (const r of refs) {
+    // A reference path may name a directory (implying tsconfig.json) or a file.
+    let rp = path.resolve(r.path);
+    try { if (fs.statSync(rp).isDirectory()) rp = path.join(rp, 'tsconfig.json'); } catch { /* as given */ }
+    const sub = rootsOf(rp, seen);
+    if (sub.fileNames.length) {
+      names.push(...sub.fileNames);
+      // The referenced project's own options are the ones its files were written
+      // against; the solution file carries none worth having.
+      if (sub.options) options = sub.options;
+    }
+  }
+  return { fileNames: names, options };
+}
+
 for (const configPath of configPaths) {
-  const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
-  const parsed = ts.parseJsonConfigFileContent(
-    configFile.config,
-    ts.sys,
-    path.dirname(configPath)
-  );
+  const resolved = rootsOf(configPath);
+  const parsed = resolved.options
+    ? resolved
+    : ts.parseJsonConfigFileContent(
+        ts.readConfigFile(configPath, ts.sys.readFile).config, ts.sys, path.dirname(configPath));
   const program = ts.createProgram(parsed.fileNames, parsed.options);
+  rootCount += parsed.fileNames.length;
   checker = program.getTypeChecker();
 
 for (const sf of program.getSourceFiles()) {
@@ -403,6 +446,34 @@ fs.writeFileSync(outPath, `${header}\n${rows.join('\n')}\n`);
 // 38% with 24,175 semantic diagnostics — its packages need project references that are
 // not satisfied by compiling each tsconfig standalone. The gap between 93% and 38% is
 // not a judgement call, so the floor is set well below the observed band.
+// AN ORACLE THAT ADJUDICATED NOTHING MUST REFUSE, NOT REPORT ZERO. The guard below
+// fires when the compiler resolved too little; it cannot fire when the compiler was
+// asked nothing at all, because `considered` is 0 and the threshold is a floor. So a
+// program with no roots — a solution-style config whose references are unresolvable, an
+// `include` that matches nothing — exited 0 having judged no site, and the run printed
+// `EXACT target 0 0.000`, `coverage 0.000` and `precision 0.000` in the same shape a real
+// measurement uses.
+//
+// Worse than the ratios was the line above them: "0 semantic diagnostics in the program"
+// reads as "this project typechecks cleanly" when it means "there is nothing in the
+// program to diagnose" — and that line is the harness's own evidence that the oracle may
+// be trusted. #337.
+//
+// The standard is already written in the failure path this misses: "There is no ground
+// truth for this project, so no number printed below would be a measurement of anything."
+if (considered === 0) {
+  console.error(
+    `oracle REFUSED: the compiler adjudicated NO call site. Its program has ` +
+      `${rootCount} root file(s), so there was nothing to resolve — this is not a weak ` +
+      `result, it is no result, and the ratios below it would be shaped like a ` +
+      `measurement while measuring nothing. A solution-style root config (files: [], ` +
+      `references: [...]) is the usual cause; its references are followed now, so if this ` +
+      `still fires the reference targets do not resolve from here. Point the harness at ` +
+      `the referenced project directly.`
+  );
+  process.exit(4);
+}
+
 const resolveRate = considered > 0 ? resolvedCount / considered : 0;
 if (considered > 200 && resolveRate < 0.8) {
   console.error(
