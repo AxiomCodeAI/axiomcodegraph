@@ -43,6 +43,7 @@ boundary_lib	CHAINED_CALL	f09_adversarial.shadowed_against_a_library_name -> lib
 boundary_lib	CHAINED_CALL	f20_builtin_flow.chained_str -> builtin:str.lower
 boundary_lib	CHAINED_CALL	f20_builtin_flow.chained_str -> builtin:str.replace
 boundary_lib	CHAINED_CALL	f24_star_all.via_star_export -> lib:tlib.exports.Exported.run
+boundary_lib	CHAINED_CALL	f39_lib_boundary_identity.on_a_call_result -> lib:tlib.descriptors.defer.ping
 boundary_lib	CHAINED_CALL	f39_lib_boundary_identity.resolves_normally -> lib:tlib.shapes.Square.name
 boundary_lib	DECORATOR_BARE	f04_descriptors.LocalCfg.<classbody> -> builtin:classmethod
 boundary_lib	DECORATOR_BARE	f04_descriptors.LocalCfg.<classbody> -> builtin:property
@@ -301,6 +302,7 @@ boundary_lib	SIMPLE_CALL	f38_nested_class_scope.drive -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f38_nested_class_scope.owner_constructs_its_own_nested -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f38_nested_class_scope.top_level_still_resolves -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f39_lib_boundary_identity.drive -> lib:tlib.descriptors.Deferred
+boundary_lib	SIMPLE_CALL	f39_lib_boundary_identity.on_a_call_result -> lib:tlib.descriptors.defer
 boundary_lib	SIMPLE_CALL	f39_lib_boundary_identity.on_a_local -> lib:tlib.descriptors.Deferred
 boundary_lib	SIMPLE_CALL	f39_lib_boundary_identity.resolves_normally -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f40_data_descriptor.Deletable.__get__ -> builtin:object.__init__
@@ -743,6 +745,7 @@ known_edge	SIMPLE_CALL	f38_nested_class_scope.drive -> f38_nested_class_scope.me
 known_edge	SIMPLE_CALL	f38_nested_class_scope.drive -> f38_nested_class_scope.owner_constructs_its_own_nested
 known_edge	SIMPLE_CALL	f38_nested_class_scope.drive -> f38_nested_class_scope.qualified
 known_edge	SIMPLE_CALL	f38_nested_class_scope.drive -> f38_nested_class_scope.top_level_still_resolves
+known_edge	SIMPLE_CALL	f39_lib_boundary_identity.drive -> f39_lib_boundary_identity.on_a_call_result
 known_edge	SIMPLE_CALL	f39_lib_boundary_identity.drive -> f39_lib_boundary_identity.on_a_local
 known_edge	SIMPLE_CALL	f39_lib_boundary_identity.drive -> f39_lib_boundary_identity.on_a_parameter
 known_edge	SIMPLE_CALL	f39_lib_boundary_identity.drive -> f39_lib_boundary_identity.resolves_normally
