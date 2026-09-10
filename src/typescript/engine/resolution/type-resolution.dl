@@ -438,6 +438,28 @@ ref_element_target(ref, prov, t) :- type_ref(rp, k, _, _, _, _, _, ref),
     ref_kind_is_array(k),
     type_ref_parent(rp, ref, _, child),
     ref_type_target(child, prov, t).
+
+// ── ref_element_shape(Ref, Shape) — an element that is ITSELF a function type ──
+// `fns: readonly ((data: T) => boolean)[]` then `fns.every((fn) => fn(1))`. The element
+// is a FUNCTION_TYPE, so `ref_element_target` finds nothing to name: it resolves the
+// child through ref_type_target, which names declarations. Calling `fn` then resolved to
+// nothing even though the compiler answers the signature written right there in the
+// annotation.
+//
+// The shape twin, for the same reason `ref_shape_target` exists beside
+// `ref_type_target`: a structural target has no declaration to name, and a call needs
+// the signature rather than a name.
+ref_element_shape(ref, sh) :- type_ref(rp, k, _, _, _, _, _, ref),
+    ref_kind_is_array(k),
+    type_ref_parent(rp, ref, _, child),
+    ref_shape_target(child, sh).
+ref_element_shape(ref, sh) :- type_ref(rp, "TYPE_REFERENCE", _, tn, _, _, _, ref),
+    ref_name_is_container(tn),
+    type_ref_parent(rp, ref, "0", child),
+    ref_shape_target(child, sh).
+ref_element_shape(parent, sh) :- ref_is_readonly_operator(parent),
+    type_ref_parent(_, parent, _, child),
+    ref_element_shape(child, sh).
 // `Array<T>` / `ReadonlyArray<T>` / `Promise<T>` written as a named generic keep
 // their element in a TYPE_ARGUMENT child at position 0.
 ref_element_target(ref, prov, t) :- type_ref(rp, "TYPE_REFERENCE", _, tn, _, _, _, ref),
