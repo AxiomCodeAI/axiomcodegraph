@@ -142,6 +142,43 @@ lambda_param_shape(lp, sh) :- callback_arg(ce, argpos, lm),
     ref_element_shape(rref, sh),
     param_decl(_, _, k, _, lm, lp).
 
+// (d) …AND WHERE THE RECEIVER IS AN EXPRESSION RATHER THAN A DECLARED REFERENCE.
+// `words.filter(p).map((word) => word.slice(1))` — clauses (b) and (c) bind the callee's
+// type variable from `expr_decl_ref(recv, rref)`, the receiver's DECLARATION reference,
+// so they reach a receiver written as a name and not one written as a chained call. The
+// element type of a call result is already derivable — `expr_element_type` takes it from
+// the callee's declared return — and nothing was asking it this question.
+//
+// Measured: of the 145 missed sites whose receiver is an unannotated parameter, 87 (60%)
+// have their arrow in ARGUMENT position already, so clause (a)-(c) should have fired and
+// could not. This is why.
+//
+// Reads the RECEIVER EXPRESSION's element type rather than its reference, so it composes
+// with every way an element type is derived — an annotation, a call's return, a getter's
+// return, the iteration protocol — instead of only with a declared container reference.
+// owner_declares_param is kept from the clauses this mirrors, so `map`'s callback
+// parameter binds the container's own variable and `reduce`'s U, declared on the method,
+// still does not.
+lambda_param_type(lp, prov, t) :- callback_arg(ce, argpos, lm),
+    ts_call_site(_, _, _, recv, _, ce, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
+    recv != "",
+    expr_call_candidate(ce, callee),
+    callee_fn_param_ref(callee, argpos, fref),
+    fn_param_tvar(fref, k, pname),
+    owner_declares_param(callee, pname),
+    expr_element_type(recv, prov, t),
+    param_decl(_, _, k, _, lm, lp).
+// The shape twin, for an element that is itself a function type — the (a2)/(b2) reason.
+lambda_param_shape(lp, sh) :- callback_arg(ce, argpos, lm),
+    ts_call_site(_, _, _, recv, _, ce, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
+    recv != "",
+    expr_call_candidate(ce, callee),
+    callee_fn_param_ref(callee, argpos, fref),
+    fn_param_tvar(fref, k, pname),
+    owner_declares_param(callee, pname),
+    expr_element_shape(recv, sh),
+    param_decl(_, _, k, _, lm, lp).
+
 // (c) GENERIC THROUGH THE ARRAY SHORTHAND — the TypeScript form of the trap
 // java/lambda.dl records at (i-b), where the variable hid under `Consumer<? super T>`
 // and their depth-1 rule matched nothing. Here it hides under `T[]`: `xs: Alpha[]` is an
