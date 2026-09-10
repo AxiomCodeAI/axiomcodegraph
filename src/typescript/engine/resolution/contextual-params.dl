@@ -118,6 +118,30 @@ lambda_param_type(lp, prov, t) :- callback_arg(ce, argpos, lm),
     ref_type_target(argRef, prov, t),
     param_decl(_, _, k, _, lm, lp).
 
+// (b2/c2) …AND WHERE THE BOUND ARGUMENT IS ITSELF A FUNCTION TYPE. `fns: readonly
+// ((data: T) => boolean)[]` then `fns.every((fn) => fn(1))`: the signature's parameter is
+// the type variable, the variable binds to the array's ELEMENT, and that element is a
+// function type. Clauses (b) and (c) bind it as a TYPE through ref_type_target / 
+// ref_element_target, which name declarations, so a function-typed element bound nothing
+// and calling `fn` resolved to nothing — while the compiler answers the signature written
+// in the annotation.
+//
+// A SHAPE for the same reason (a2) needs one: param_shape_target is what expr_shape reads
+// for a parameter reference, and call_signature_in_scope then finds the FUNCTION_TYPE's
+// own signature. owner_declares_param is kept from the clauses this mirrors, so `every`'s
+// callback parameter binds Array's own variable and `reduce`'s U, declared on the method,
+// still does not.
+lambda_param_shape(lp, sh) :- callback_arg(ce, argpos, lm),
+    ts_call_site(_, _, _, recv, _, ce, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
+    recv != "",
+    expr_decl_ref(recv, rref),
+    expr_call_candidate(ce, callee),
+    callee_fn_param_ref(callee, argpos, fref),
+    fn_param_tvar(fref, k, pname),
+    owner_declares_param(callee, pname),
+    ref_element_shape(rref, sh),
+    param_decl(_, _, k, _, lm, lp).
+
 // (c) GENERIC THROUGH THE ARRAY SHORTHAND — the TypeScript form of the trap
 // java/lambda.dl records at (i-b), where the variable hid under `Consumer<? super T>`
 // and their depth-1 rule matched nothing. Here it hides under `T[]`: `xs: Alpha[]` is an

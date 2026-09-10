@@ -1,2 +1,1 @@
-oracle=6 engine=5 agree=5 missing=1 (known 1, NEW 0) extra=0
-  known    readonly#<arrow@11>(?) -> readonly#<arrow@10>(number)
+oracle=6 engine=6 agree=6 missing=0 (known 0, NEW 0) extra=0
