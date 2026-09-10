@@ -76,6 +76,33 @@ lambda_param_type(lp, prov, t) :- callback_arg(ce, argpos, lm),
     fn_param_type(fref, k, prov, t),
     param_decl(_, _, k, _, lm, lp).
 
+// (a2) …AND WHERE THAT PARAMETER IS ITSELF A FUNCTION TYPE, which `ref_type_target`
+// cannot answer. `new Promise((resolve, reject) => { ... resolve(v) ... })` is the shape:
+// the executor's own parameters are callbacks, so the k-th child of the executor's
+// FUNCTION_TYPE is another FUNCTION_TYPE and not a named type. Clause (a) resolves the
+// child through `ref_type_target`, which names declarations, so it found nothing and
+// `resolve` carried no type — every call through it resolved to nothing.
+//
+// A SHAPE rather than a type, because that is what makes it callable: `param_shape_target`
+// is what `expr_shape` reads for a parameter reference, and `call_signature_in_scope` then
+// finds the FUNCTION_TYPE's own signature. The target is exactly what the compiler names —
+// the `resolve` and `reject` parameter signatures inside PromiseConstructor's executor.
+//
+// Measured before writing it: 112 missed sites across three of the six corpus projects
+// resolve, per the compiler, into `lib.es2015.promise.d.ts` — 88 of them a called
+// executor parameter (`resolve`/`reject`, or whatever the callback names them: `ok` and
+// `fail` account for most of one project's) and the rest `Promise.resolve`/`reject`
+// themselves. It generalises by construction: any callback whose own parameter is a
+// callback takes this path, which `new Promise` merely happens to be the commonest
+// instance of.
+lambda_param_shape(lp, sh) :- callback_arg(ce, argpos, lm),
+    expr_call_candidate(ce, callee),
+    callee_fn_param_ref(callee, argpos, fref),
+    type_ref_parent(_, fref, k, child),
+    ref_shape_target(child, sh),
+    param_decl(_, _, k, _, lm, lp).
+param_shape_target(lp, sh) :- lambda_param_shape(lp, sh).
+
 // (b) GENERIC — the signature's k-th parameter is a type VARIABLE, bound by the
 // RECEIVER's own type arguments. This is java/lambda.dl clause (3c): the variable is
 // bound "not on the param type but by the RECEIVER's generics".
