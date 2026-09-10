@@ -1,4 +1,4 @@
-ambiguous_unknown	FUNCTION_CALL	readonly#<arrow@11>(?) @L11 -> -
+known_edge	FUNCTION_CALL	readonly#<arrow@11>(?) @L11 -> readonly#<arrow@10>(number)
 known_edge	METHOD_CALL	readonly#mutablePush(string[]) @L27 -> Array#push(T)
 known_edge	METHOD_CALL	readonly#mutableSlice(string[]) @L22 -> Array#slice(number,number)
 known_edge	METHOD_CALL	readonly#useEvery(readonly ((v: number) =[]) @L11 -> ReadonlyArray#every((v: T) =)
