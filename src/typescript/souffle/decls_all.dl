@@ -117,6 +117,7 @@
 .decl expr_child(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
 .decl expr_decl_ref(c0:symbol,c1:symbol)
 .decl computed_member_element(c0:symbol,c1:symbol,c2:symbol)
+.decl expr_element_shape(c0:symbol,c1:symbol)
 .decl expr_element_type(c0:symbol,c1:symbol,c2:symbol)
 .decl expr_enclosing_method(c0:symbol,c1:symbol)
 .decl expr_enclosing_type(c0:symbol,c1:symbol)
