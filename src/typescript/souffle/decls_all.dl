@@ -49,6 +49,7 @@
 .decl callback_arg(c0:symbol,c1:symbol,c2:symbol)
 .decl callee_fn_param_ref(c0:symbol,c1:symbol,c2:symbol)
 .decl fn_value_kind(c0:symbol)
+.decl lambda_param_shape(c0:symbol,c1:symbol)
 .decl lambda_param_type(c0:symbol,c1:symbol,c2:symbol)
 .decl fn_param_tvar(c0:symbol,c1:symbol,c2:symbol)
 .decl fn_param_type(c0:symbol,c1:symbol,c2:symbol,c3:symbol)

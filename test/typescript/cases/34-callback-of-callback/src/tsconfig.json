@@ -1,0 +1,1 @@
+{ "compilerOptions": { "strict": true, "noLib": true, "target": "es2022", "module": "commonjs" } }
