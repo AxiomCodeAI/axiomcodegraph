@@ -105,6 +105,33 @@ expr_shape(e, s) :- expr_referenced("client", "IMPORT_BINDING", ih, e),
 expr_namespace(e, prov, m) :- expr_referenced("client", "IMPORT_BINDING", ih, e),
     import_binds_namespace(ih, prov, m).
 
+// ── A NAMESPACE USED AS A VALUE — `Local.f()` ──────────────────────────────
+// A namespace declared BESIDE its use is the ordinary way a file groups helpers, and a
+// nested one is how a library shapes a public surface. The parser says exactly what the
+// receiver is: `referencedEntityKind = NAMESPACE` pointing at the NAMESPACE_TYPE, and
+// the namespace's own functions carry that same type as their owner. Nothing read that
+// kind, so the receiver had no type, and `Local.f()` resolved to nothing while
+// `Outer.inner()` through an IMPORT resolved — the import path goes through
+// expr_namespace and the module export table instead, which is why one worked and the
+// other did not (#243).
+//
+// Depth falls out rather than needing its own rule: `Local.Deep.g()` types `Local` here,
+// finds `Deep` as a member of it — namespace_member already carries nested namespaces —
+// and the same lookup then applies to `Deep`.
+expr_type(e, "client", t) :- expr_referenced("client", "NAMESPACE", t, e),
+    t != "".
+// …and one level deeper, `Local.Deep.g()`. A nested namespace is a TYPE member of its
+// parent, not a field, so the property-access rules — which all consult field_in_scope —
+// could not reach it. namespace_member already carries it; this asks.
+//
+// Recurses on itself for free: the rule types `Local.Deep` from `Local`, and a third
+// segment types from that, so depth is not bounded here.
+expr_type(e, prov, t) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
+    property_access_name(e, n),
+    expr_child("client", e, "RECEIVER", _, q),
+    expr_type(q, _, qt),
+    namespace_member(prov, qt, n, "TYPE", t).
+
 // ── `this` ──────────────────────────────────────────────────────────────────
 expr_type(e, "client", t) :- expr_referenced("client", "THIS", _, e),
     expr_enclosing_type(e, t).
