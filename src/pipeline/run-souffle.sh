@@ -292,18 +292,40 @@ else echo "▶ reusing cached binary"; fi
 #     a method that only becomes reachable later (e.g. an RTA-dispatched override) still has its
 #     body present to expand. Filter cols (1-based): lib_method owner-type=8 hash=22; expression
 #     owner-type=5; local-var method=14; block method=10.
-stage_lib_bodies(){ # $1 = reachable_method csv → (re)stage bodies of all reached types
-  awk -F'\t' 'NR==FNR{r[$1]=1;next} ($22 in r){print $8}'  "$1" "$FACTS/lib_method.facts" | sort -u > "$INT/reached_types.txt"
-  awk -F'\t' 'NR==FNR{t[$1]=1;next} ($8 in t){print $22}' "$INT/reached_types.txt" "$FACTS/lib_method.facts" | sort -u > "$INT/reached_methods.txt"
-  : > "$FACTS/lib_expression.facts"; : > "$FACTS/lib_local_variable.facts"; : > "$FACTS/lib_block.facts"
+# EVERY NAME BELOW USED TO BE JAVA'S, WRITTEN INTO A SHARED EXECUTOR (#375). The frontier
+# CSV, the columns of the lib method facts, the body CSVs and the relations they fill were
+# all hardcoded, so a Python run read a frontier that is never written, measured it empty
+# and broke out of the loop before staging a single row — leaving all eight of its
+# LIB_BODY relations created-empty and never filled, silently, on every run. They now come
+# from the per-language staging.conf, with Java's values unchanged.
+#
+# THE KEY IS PER-RELATION because the languages disagree about it for a real reason. Java
+# keys expression rows on the owning TYPE, since every Java body lives in one. Python keys
+# on the MODULE: 16% of its functions are module-level and every closure is nested, so a
+# type-keyed filter stages nothing for a module-level library function — which is exactly
+# the decorator shape #375 is about.
+stage_lib_bodies(){ # $1 = frontier csv -> (re)stage the bodies its reach implies
+  cut -f"$LIB_FRONTIER_COL" "$1" | sort -u > "$INT/frontier_methods.txt"
+  awk -F'\t' -v mc="$LIB_METHOD_COL" -v sc="$LIB_SCOPE_COL" \
+      'NR==FNR{r[$1]=1;next} ($mc in r){print $sc}' \
+      "$INT/frontier_methods.txt" "$FACTS/$LIB_METHOD_FACTS.facts" | sort -u > "$INT/reached_scopes.txt"
+  awk -F'\t' -v mc="$LIB_METHOD_COL" -v sc="$LIB_SCOPE_COL" \
+      'NR==FNR{t[$1]=1;next} ($sc in t){print $mc}' \
+      "$INT/reached_scopes.txt" "$FACTS/$LIB_METHOD_FACTS.facts" | sort -u > "$INT/reached_methods.txt"
+  for entry in $LIB_BODY_MAP; do : > "$FACTS/${entry%%:*}.facts"; done
   for root in "${LIB_ROOTS[@]}"; do
     while IFS= read -r mod; do
-      [ -f "$mod/all-expressions.csv" ]     && awk -F'\t' 'NR==FNR{t[$1]=1;next} FNR>1 && ($5 in t)'  "$INT/reached_types.txt"   "$mod/all-expressions.csv"    >> "$FACTS/lib_expression.facts"
-      [ -f "$mod/all-local-variables.csv" ] && awk -F'\t' 'NR==FNR{m[$1]=1;next} FNR>1 && ($14 in m)' "$INT/reached_methods.txt" "$mod/all-local-variables.csv" >> "$FACTS/lib_local_variable.facts"
-      [ -f "$mod/all-blocks.csv" ]          && awk -F'\t' 'NR==FNR{m[$1]=1;next} FNR>1 && ($10 in m)' "$INT/reached_methods.txt" "$mod/all-blocks.csv"          >> "$FACTS/lib_block.facts"
+      for entry in $LIB_BODY_MAP; do
+        rel="${entry%%:*}"; rest="${entry#*:}"
+        csv="${rest%%:*}"; rest="${rest#*:}"
+        col="${rest%%:*}"; key="${rest#*:}"
+        keyfile="$INT/reached_scopes.txt"; [ "$key" = "method" ] && keyfile="$INT/reached_methods.txt"
+        [ -f "$mod/$csv" ] && awk -F'\t' -v c="$col" 'NR==FNR{k[$1]=1;next} FNR>1 && ($c in k)' \
+            "$keyfile" "$mod/$csv" >> "$FACTS/$rel.facts"
+      done
     done < <(lib_modules "$root")
   done
-  return 0   # don't let a missing all-blocks.csv on the last module make the fn fail under set -e
+  return 0   # don't let a missing body CSV on the last module make the fn fail under set -e
 }
 prev=-1; iter=0
 while [ "$iter" -lt 50 ]; do
@@ -335,10 +357,11 @@ while [ "$iter" -lt 50 ]; do
   else
     "$BIN" -F "$FACTS" -D "$OUT"
   fi
-  REACH="$OUT/external-reachable-method.csv"
-  # Count DISTINCT methods (col 1): with a lib cap, a method can hold >1 Pareto (jdk,lib)-depth
-  # copy, so raw row count would overstate the frontier and never converge. Staging keys on col 1.
-  cur=0; [ -s "$REACH" ] && cur=$(cut -f1 "$REACH" | sort -u | wc -l | tr -d ' ')
+  REACH="$OUT/$LIB_FRONTIER_CSV"
+  # Count DISTINCT methods in the frontier column: with a lib cap, a method can hold >1 Pareto
+  # (jdk,lib)-depth copy, so raw row count would overstate the frontier and never converge.
+  # Staging keys on the same column, so the two can never disagree.
+  cur=0; [ -s "$REACH" ] && cur=$(cut -f"$LIB_FRONTIER_COL" "$REACH" | sort -u | wc -l | tr -d ' ')
   fc=0; [ -s "$OUT/external-forward-call.csv" ] && fc=$(wc -l < "$OUT/external-forward-call.csv" | tr -d ' ')
   echo "   reachable_method = $cur, forward_call = $fc"
   # Exact convergence — the frontier stopped growing (safe at any iteration).
@@ -351,7 +374,7 @@ while [ "$iter" -lt 50 ]; do
   prev=$cur
   [ "$cur" -eq 0 ] && break                        # no client→lib seed → nothing to expand
   stage_lib_bodies "$REACH"
-  echo "   staged $(wc -l < "$INT/reached_types.txt" | tr -d ' ') reached types, $(wc -l < "$FACTS/lib_expression.facts" | tr -d ' ') expressions → expanding"
+  echo "   staged $(wc -l < "$INT/reached_scopes.txt" | tr -d ' ') reached scope(s), $(cat $(for e in $LIB_BODY_MAP; do printf '%s ' "$FACTS/${e%%:*}.facts"; done) | wc -l | tr -d ' ') body row(s) -> expanding"
 done
 # Per-run scratch is consumed once the solve finishes — delete the staged facts and the
 # generated C++ so nothing bulky lingers in the intermediate. The reusable binary is NOT

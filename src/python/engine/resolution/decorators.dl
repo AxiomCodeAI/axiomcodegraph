@@ -155,15 +155,39 @@ deco_factory(d, f) :-
     decorator_expr("client", e, d), !call_of_expr(e, _), expr_names_method("client", e, f).
 deco_factory(d, f) :-
     decorator_expr("client", e, d), !call_of_expr(e, _), expr_attr_names_method("client", e, f).
+// A DECORATOR SUPPLIED BY A STAGED LIBRARY (#375). The three clauses above all reach the
+// callable through the CLIENT's own binding graph, and a library method is never in it:
+// it is reached by NAME through resolution/lib-linking.dl, which is a different route on
+// purpose. So `@lib_deco` had no factory at all, the chain could not leave stage 0, and
+// every call through the decorated name was a declared unknown however completely the
+// library was staged. The boundary itself always resolved — `decorator_hits_lib` emits it
+// — which is why this looked like a blind spot rather than a missing link.
+deco_factory(d, f) :-
+    decorator_expr("client", e, d), !call_of_expr(e, _), expr_names_lib_function(e, f).
+// And the parenthesised form, whose factory is reached as an ordinary call on the
+// decorator's own py_call_site.
+deco_factory(d, f) :-
+    decorator_expr("client", e, d), call_of_expr(e, s), call_hits_lib_method(s, f).
 
 // ── deco_applied(DecoratorHash, MethodHash) — the callable APPLIED to the target ──
 // The distinction that `@route("go")` exists to test: route is not applied to `handler`,
 // route("go") is. So for a parenthesised decorator the applied callable is the factory's
 // RETURN, and for a bare one it is the factory itself.
+//
+// THE CALLABLE'S OWN FACTS ARE READ WITH ITS OWN PROVENANCE (#375). The `@` and the
+// decorated `def` are always client — those pins are right and stay — but the callable
+// the `@` names can be declared in a STAGED LIBRARY, and pinning ITS return flow to
+// "client" meant `@lib_deco` could never advance a stage. Every call through a
+// library-supplied decorator was therefore a declared unknown: framework routing, task
+// registration, retry and caching wrappers are all this shape. The lookup is by method
+// HASH, which is unique, so dropping the pin admits the library's answer and nothing else.
+deco_returns_method(f, out) :- method_returns_method(_, f, out).
+deco_returns_param(f, pos)  :- method_returns_param(_, f, pos).
+
 deco_applied(d, f) :- deco_factory(d, f), decorator_expr("client", e, d), !call_of_expr(e, _).
 deco_applied(d, r) :-
     deco_factory(d, f), decorator_expr("client", e, d), call_of_expr(e, _),
-    method_returns_method("client", f, r).
+    deco_returns_method(f, r).
 
 // ── deco_stage(MethodHash, Order, InputMethodHash) ───────────────────────────
 // The object entering application stage `Order`. Stage 0's input is the `def` itself.
@@ -171,11 +195,11 @@ deco_stage(m, 0, m) :- method_decorated("client", _, m).
 // (a) the applied callable returns a def: that def is the next stage's input.
 deco_stage(m, k1, out) :-
     deco_stage(m, k, _), deco_at(m, k, d), deco_applied(d, f),
-    method_returns_method("client", f, out), k1 = k + 1.
+    deco_returns_method(f, out), k1 = k + 1.
 // (b) the applied callable returns its own first parameter: identity.
 deco_stage(m, k1, in) :-
     deco_stage(m, k, in), deco_at(m, k, d), deco_applied(d, f),
-    method_returns_param("client", f, "0"), k1 = k + 1.
+    deco_returns_param(f, "0"), k1 = k + 1.
 // (c) a transparent builtin (@staticmethod, @classmethod, @property, @functools.wraps):
 //     identity, and no client factory is needed.
 deco_stage(m, k1, in) :-
@@ -196,7 +220,7 @@ decorated_name_target(m, out) :-
 // site in linkage-sample's models.audit.
 param_arg_method(ph, in) :-
     deco_stage(m, k, in), deco_at(m, k, d), deco_applied(d, f),
-    param_decl("client", _, "0", _, f, ph).
+    param_decl(_, _, "0", _, f, ph).
 
 // ── decorator_chain_broken(MethodHash, DecoratorHash) ────────────────────────
 // The decorator this engine could not follow, named. The cost of not fabricating,
