@@ -150,6 +150,19 @@ if ! bash "$HERE/tools/protocol-calls-test.sh"; then
   exit 1
 fi
 
+# ── PREFLIGHT: an ambiguous module name is reported, not resolved silently ───
+# Library linking joins on QUALIFIED NAME, so two modules sharing one make the join pick
+# up both. Measured over five projects: 38 duplicated names covering 83 module rows, and
+# 74 imports on one project of a name that names FIVE files. The engine cannot demand
+# unique names — that is not a property the parser can guarantee without knowing whether
+# a tree is a client or a library — but it must NOTICE. Asserted here rather than as a
+# case because a case compares .edges and .tiers only, so the diagnostic export would be
+# invisible to it. See #89.
+if ! bash "$HERE/tools/ambiguous-module-test.sh"; then
+  echo "aborting: an ambiguous module qualified name would be resolved silently"
+  exit 1
+fi
+
 # ── PREFLIGHT: the accepted-gap list must still be a gate ────────────────────
 # A missing edge is coverage, not a defect, so expected/<case>.known-missing records the ones
 # that are accepted -- and the list is only worth having if it is reconciled in BOTH directions.

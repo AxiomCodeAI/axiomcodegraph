@@ -131,6 +131,38 @@ binding_binds_param(p, b, prm) :- param_binding(p, b, prm).
 // A module with that qualifiedName, and a member of it with that name. No string
 // splitting, no FK, and it works identically against the library IR — where no hash could
 // ever have matched.
+// ── module_name_ambiguous(Prov, QualifiedName, N) — A NAME THAT NAMES SEVERAL ──
+// Library linking joins on QUALIFIED NAME by design: a hash minted by one parse cannot
+// match another's, so a separately-parsed library is reachable by name or not at all.
+// The consequence nothing reported is that two modules CAN share a name, and then the
+// join silently picks up both.
+//
+// Two ways it arises and neither is a parser defect. WITHIN one tree, a directory that is
+// not a package contributes no segment, so `alpha/tasks.py` and `beta/tasks.py` are both
+// `tasks` — and whether that is correct depends on how the tree is used, which the parser
+// cannot know. ACROSS library roots, `--library` takes a comma-separated list and
+// concatenates every relation, so two independently-parsed trees may each hold a `foo`.
+//
+// MEASURED over five open-source projects: 38 duplicated module qualified names covering
+// 83 module rows, and on one project 74 imports of a single name — `tasks` — that names
+// FIVE different files. Every one of those resolved to the union of all five members with
+// nothing saying so.
+//
+// COUNTED, not just flagged, so the condition is a row with a magnitude rather than a
+// footnote. Its own stratum, like every other aggregate here.
+module_name_ambiguous(p, q, n) :-
+    module_decl(p, _, q, _, _), q != "",
+    n = count : { module_decl(p, _, q, _, _) },
+    n > 1.
+
+// ── binding_through_ambiguous_module(Prov, BindingHash) ──────────────────────
+// An import binding whose packageOrTypeName names more than one module, so whichever
+// members it binds came from a name that does not identify a single file.
+binding_through_ambiguous_module(p, b) :-
+    import_binding(p, b, i),
+    import_relative(p, _, pkg, i), pkg != "",
+    module_name_ambiguous(p, pkg, _).
+
 import_binds_method(p, b, m) :-
     import_binding(p, b, i),
     import_relative(p, _, pkg, i), pkg != "",

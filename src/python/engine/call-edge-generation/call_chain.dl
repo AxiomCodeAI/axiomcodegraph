@@ -400,6 +400,24 @@ site_reason(site, "unmodelled_decorator") :-
     site_class(site, "ambiguous_unknown"),
     annotation_on("client", _, _, _, _, site), !decorator_expr("client", _, site),
     !invocation_site(site, "DECORATOR_APPLICATION").
+// ── A SITE RESOLVED THROUGH AN AMBIGUOUS MODULE NAME (#89) ──────────────────
+// The set is SOUND — one of the same-named modules really is the target — but its width
+// comes from a NAME COLLISION and not from dispatch, and multi_inferred's three declared
+// sources (README decision 3) do not include it. Recorded per site so the condition is
+// countable and a consumer can tell the two apart; the edges are left in place, because
+// refusing a set that does contain the answer would trade a wrong label for a lost one.
+//
+// ITS OWN EXPORT, NOT site_reason. site_reason answers "why is this site unresolved" and
+// is derived only for ambiguous_unknown sites; these sites ARE resolved. Putting the
+// condition there would either be dropped on the floor or quietly redefine what a reason
+// means. It goes out beside the other assumption relations instead, which is the right
+// shelf: something the answer depends on that the analysis cannot itself verify.
+call_resolved_through_ambiguous_module(site) :-
+    call_callee_expr(site, e),
+    expr_binding("client", b, _, e),
+    binding_lookup("client", b, b2),
+    binding_through_ambiguous_module("client", b2).
+
 site_reason(site, "no_rule") :-
     site_class(site, "ambiguous_unknown"), !call_unresolvable(site, _),
     !site_is_decorator(site).
