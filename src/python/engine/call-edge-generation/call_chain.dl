@@ -192,19 +192,21 @@ decorator_hits_builtin(e, label) :-
 // Keyed on the WITH_CONTEXT root and NOT on with_pair, so `with lock:` with no `as` clause
 // is covered too -- 1,059 context expressions against 176 targets, and the protocol runs
 // either way.
-context_manager_exit("__exit__").
+// `async with c` RUNS A DIFFERENT PAIR — c.__aenter__ and c.__aexit__ — and until
+// parser#153 the IR could not say which statement a context expression came from: `with`
+// and `async with` produced byte-identical rows. It now carries ASYNC_WITH_CONTEXT, so the
+// slot is read off the root rather than assumed, and both dunders of both protocols are
+// listed in one place.
+context_manager_slot_of("WITH_CONTEXT", "__enter__").
+context_manager_slot_of("WITH_CONTEXT", "__exit__").
+context_manager_slot_of("ASYNC_WITH_CONTEXT", "__aenter__").
+context_manager_slot_of("ASYNC_WITH_CONTEXT", "__aexit__").
 
 with_protocol_edge(cm, caller, m) :-
-    expr_root_context("client", "WITH_CONTEXT", cm), !expr_has_parent("client", cm),
+    context_manager_slot_of(rc, d),
+    expr_root_context("client", rc, cm), !expr_has_parent("client", cm),
     expr_type("client", cm, ct),
-    context_manager_enter(en),
-    mro_lookup("client", ct, en, m),
-    expr_ultimate_method("client", cm, caller).
-with_protocol_edge(cm, caller, m) :-
-    expr_root_context("client", "WITH_CONTEXT", cm), !expr_has_parent("client", cm),
-    expr_type("client", cm, ct),
-    context_manager_exit(ex),
-    mro_lookup("client", ct, ex, m),
+    mro_lookup("client", ct, d, m),
     expr_ultimate_method("client", cm, caller).
 
 // ── ITERATION PROTOCOL — `for x in obj` calls obj.__iter__ ───────────────────
@@ -237,10 +239,20 @@ with_protocol_edge(cm, caller, m) :-
 // class that returns a separate iterator, so it is left out rather than guessed.
 iteration_protocol_sync("__iter__").
 iteration_protocol_async("__aiter__").
+iteration_protocol_of("FOR_ITERABLE", "__iter__").
+iteration_protocol_of("ASYNC_FOR_ITERABLE", "__aiter__").
 
 type_defines_iter(t)  :- iteration_protocol_sync(d),  mro_lookup("client", t, d, _).
 type_defines_aiter(t) :- iteration_protocol_async(d), mro_lookup("client", t, d, _).
 
+// THE HEURISTIC ABOVE IS NOW THE COMPREHENSION'S ONLY, and that is the point of this
+// split. A `for` STATEMENT no longer needs the type to decide: parser#153 gives its
+// iterable ASYNC_FOR_ITERABLE, so the protocol is read rather than inferred, and the three
+// corpus classes defining BOTH __iter__ and __aiter__ — which the gate declined on — are
+// answered exactly. A COMPREHENSION still needs it: the comprehension node's kind does
+// carry ASYNC_LIST and friends, but one comprehension may hold an `async for` clause and a
+// plain `for` clause together, so the kind cannot say which of its iterables is which and
+// reading it would fabricate __aiter__ on the sync half.
 iter_protocol_target(t, m) :-
     iteration_protocol_sync(d), mro_lookup("client", t, d, m), !type_defines_aiter(t).
 iter_protocol_target(t, m) :-
@@ -248,8 +260,9 @@ iter_protocol_target(t, m) :-
 
 // A `for` statement's iterable is a depth-0 root, exactly as WITH_CONTEXT is.
 iter_protocol_edge(src, caller, m) :-
-    expr_root_context("client", "FOR_ITERABLE", src), !expr_has_parent("client", src),
-    expr_type("client", src, t), iter_protocol_target(t, m),
+    iteration_protocol_of(rc, d),
+    expr_root_context("client", rc, src), !expr_has_parent("client", src),
+    expr_type("client", src, t), mro_lookup("client", t, d, m),
     expr_ultimate_method("client", src, caller).
 // A comprehension's iterable is PARENTED under the comprehension instead, so it needs
 // its own clause — the same split iter_pair already makes.
