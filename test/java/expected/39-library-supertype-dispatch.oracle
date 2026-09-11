@@ -1,0 +1,9 @@
+oracle=10 engine=18 agree=10 missing=0 (known 0, NEW 0) extra=8
+  extra    app.Dispatch#viaExternal -> app.ExtImplA#run()
+  extra    app.Dispatch#viaExternal -> app.ExtImplB#run()
+  extra    app.Dispatch#viaLocal -> app.LocImplA#run()
+  extra    app.Dispatch#viaLocal -> app.LocImplB#run()
+  extra    app.Dispatch#viaLocalTask -> app.LocSubA#run()
+  extra    app.Dispatch#viaLocalTask -> app.LocSubB#run()
+  extra    app.Dispatch#viaTask -> app.ExtSubA#run()
+  extra    app.Dispatch#viaTask -> app.ExtSubB#run()

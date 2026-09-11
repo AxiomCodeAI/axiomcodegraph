@@ -1,11 +1,11 @@
 scoped by compiled app classes: n/a
 scope: 224 methods in 58 types   (test-path methods excluded: 0)
-edges  engine=179  certain(G_lb)=146  possible(G_ub)=187   [one rule both sides: caller at name level, constructor callee at name level]
-  precision            0.760
+edges  engine=181  certain(G_lb)=146  possible(G_ub)=190   [one rule both sides: caller at name level, constructor callee at name level]
+  precision            0.751
   recall vs certain    0.932   (136/146)
-  recall vs possible   0.925   (173/187)
-  F1 0.837   MCC 0.833
-  FP split: SOUND(in G_ub) 37   FABRICATED(outside G_ub) 6
+  recall vs possible   0.926   (176/190)
+  F1 0.832   MCC 0.829
+  FP split: SOUND(in G_ub) 40   FABRICATED(outside G_ub) 5
 
 MISSING-EDGE CENSUS  (10 edges)
        3  callee type torture.Store
