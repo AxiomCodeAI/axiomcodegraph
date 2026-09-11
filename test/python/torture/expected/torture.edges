@@ -43,6 +43,7 @@ boundary_lib	CHAINED_CALL	f09_adversarial.shadowed_against_a_library_name -> lib
 boundary_lib	CHAINED_CALL	f20_builtin_flow.chained_str -> builtin:str.lower
 boundary_lib	CHAINED_CALL	f20_builtin_flow.chained_str -> builtin:str.replace
 boundary_lib	CHAINED_CALL	f24_star_all.via_star_export -> lib:tlib.exports.Exported.run
+boundary_lib	CHAINED_CALL	f33_type_stubs._lib_stub_is_not_a_target -> lib:tlib.stubonly.open_gauge.read
 boundary_lib	CHAINED_CALL	f39_lib_boundary_identity.on_a_call_result -> lib:tlib.descriptors.defer.ping
 boundary_lib	CHAINED_CALL	f39_lib_boundary_identity.resolves_normally -> lib:tlib.shapes.Square.name
 boundary_lib	DECORATOR_BARE	f04_descriptors.LocalCfg.<classbody> -> builtin:classmethod
@@ -286,6 +287,7 @@ boundary_lib	SIMPLE_CALL	f32_iteration_protocol.a_comprehension -> builtin:sum
 boundary_lib	SIMPLE_CALL	f32_iteration_protocol.decided_by_the_root_context -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f32_iteration_protocol.drive -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f32_iteration_protocol.drive -> builtin:str
+boundary_lib	SIMPLE_CALL	f33_type_stubs._lib_stub_is_not_a_target -> external:tlib.stubonly.open_gauge
 boundary_lib	SIMPLE_CALL	f33_type_stubs._stub_is_not_a_target -> external:accelstub.fast
 boundary_lib	SIMPLE_CALL	f33_type_stubs.drive -> builtin:str
 boundary_lib	SIMPLE_CALL	f34_reexport_union.drive -> builtin:str
