@@ -39,6 +39,14 @@
 expr_node("client", kind, role, lit, h) :- py_expression(kind, role, _, _, _, _, _, _, _, _, lit, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
 expr_node("lib", kind, role, lit, h) :- lib_py_expression(kind, role, _, _, _, _, _, _, _, _, lit, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
 
+// ── expr_comprehension_kind(Prov, Kind, ExprHash) — col 11 ───────────────────
+// LIST / SET / DICT / GENERATOR, or the ASYNC_ variant of each, or NONE for a node that
+// is not a comprehension. The kind is ASYNC whenever ANY clause of the comprehension is
+// an `async for`, which is what makes the negative direction usable: a LIST comprehension
+// has no async clause at all, so nothing in it can run the async iteration protocol.
+expr_comprehension_kind("client", k, h) :- py_expression(_, _, _, _, _, _, _, _, _, _, _, k, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+expr_comprehension_kind("lib", k, h) :- lib_py_expression(_, _, _, _, _, _, _, _, _, _, _, k, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
 // ── expr_parent(Prov, ParentExprHash, EdgeRole, Position, ExprHash) ──────────
 // The AST edge. EdgeRole is how the child sits in the parent — RECEIVER, ARGUMENT,
 // KEYWORD_ARGUMENT, STAR_ARGUMENT, DOUBLE_STAR_ARGUMENT, ATTRIBUTE_OBJECT, CALLEE, ...
