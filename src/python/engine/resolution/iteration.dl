@@ -28,9 +28,18 @@
 iter_pair(p, tgt, src) :-
     expr_parent(p, c, "COMPREHENSION_TARGET", _, tgt),
     expr_parent(p, c, "COMPREHENSION_ITERABLE", _, src).
+// THE ASYNC ROOTS ARE THE SAME PAIRING, and they are listed rather than written into the
+// rule body because parser#153 made them a second spelling of one relationship. Before
+// that commit `for` and `async for` produced byte-identical rows and every rule here was
+// keyed on the sync name alone; afterwards an `async for` carries ASYNC_FOR_TARGET /
+// ASYNC_FOR_ITERABLE and matched nothing, so its target silently stopped being bound.
+for_statement_roots("FOR_TARGET", "FOR_ITERABLE").
+for_statement_roots("ASYNC_FOR_TARGET", "ASYNC_FOR_ITERABLE").
+
 iter_pair(p, tgt, src) :-
-    expr_root_context(p, "FOR_TARGET", tgt), !expr_has_parent(p, tgt),
-    expr_root_context(p, "FOR_ITERABLE", src), !expr_has_parent(p, src),
+    for_statement_roots(trc, irc),
+    expr_root_context(p, trc, tgt), !expr_has_parent(p, tgt),
+    expr_root_context(p, irc, src), !expr_has_parent(p, src),
     expr_scope(p, s, _, tgt), expr_scope(p, s, _, src),
     expr_span(p, line, _, tgt), expr_span(p, line, _, src).
 
@@ -38,15 +47,24 @@ iter_pair(p, tgt, src) :-
 // The SAME shape as a for statement, and it lives here for that reason: the parser emits
 // WITH_TARGET and WITH_CONTEXT as two separate roots, so they are paired by scope and line
 // exactly as FOR_TARGET and FOR_ITERABLE are above. 181 of 193 targets pair by this rule.
+with_statement_roots("WITH_TARGET", "WITH_CONTEXT").
+with_statement_roots("ASYNC_WITH_TARGET", "ASYNC_WITH_CONTEXT").
+
 with_pair(p, tgt, cm) :-
-    expr_root_context(p, "WITH_TARGET", tgt), !expr_has_parent(p, tgt),
-    expr_root_context(p, "WITH_CONTEXT", cm), !expr_has_parent(p, cm),
+    with_statement_roots(trc, crc),
+    expr_root_context(p, trc, tgt), !expr_has_parent(p, tgt),
+    expr_root_context(p, crc, cm), !expr_has_parent(p, cm),
     expr_scope(p, s, _, tgt), expr_scope(p, s, _, cm),
     expr_span(p, line, _, tgt), expr_span(p, line, _, cm).
 
 // The two names this needs, stated as facts rather than written into a rule body: one is a
 // dunder the language defines, the other the typing spelling for "the enclosing class".
-context_manager_enter("__enter__").
+// THE ENTRY DUNDER IS PAIRED WITH THE ROOT that selects it, for the same reason: `with c`
+// calls c.__enter__ and `async with c` calls c.__aenter__, and what `as t` binds is that
+// method's declared return either way (`async with` awaits it, and an `async def
+// __aenter__(self) -> Conn` declares the AWAITED value, not the coroutine).
+context_manager_enter_of("WITH_CONTEXT", "__enter__").
+context_manager_enter_of("ASYNC_WITH_CONTEXT", "__aenter__").
 self_return_name("Self").
 
 // ── with_target_declared(Prov, TargetExprHash, TypeHash) ─────────────────────
@@ -59,8 +77,8 @@ self_return_name("Self").
 // the context manager's own type is unknown and no amount of pairing recovers it.
 with_target_declared(p, tgt, rt) :-
     with_pair(p, tgt, cm),
+    expr_root_context(p, crc, cm), context_manager_enter_of(crc, en),
     expr_type(p, cm, ct),
-    context_manager_enter(en),
     mro_lookup(p, ct, en, m),
     method_declared_return_type(p, m, rt).
 
@@ -69,8 +87,8 @@ with_target_declared(p, tgt, rt) :-
 // return of a class literally named Self would mean something else entirely.
 with_target_declared(p, tgt, ct) :-
     with_pair(p, tgt, cm),
+    expr_root_context(p, crc, cm), context_manager_enter_of(crc, en),
     expr_type(p, cm, ct),
-    context_manager_enter(en),
     mro_lookup(p, ct, en, m),
     method_decl(p, _, _, _, ret, m),
     self_return_name(ret).

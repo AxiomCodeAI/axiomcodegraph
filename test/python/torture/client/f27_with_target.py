@@ -14,7 +14,16 @@ An __enter__ return is a DECLARED type, not an exact one. `make()` declares Reso
 returns a Sub, so the answer must widen over the override rather than naming Resource
 alone -- the confident-wrong shape this engine has produced four times from exactly this
 omission.
+
+THE ASYNC ARM IS THE THIRD, and it is a different protocol rather than a variation:
+`async with c` runs `c.__aenter__` / `c.__aexit__`, never `__enter__`. Until parser#153
+the IR could not say which statement a context expression came from — `with cm` and
+`async with acm` produced byte-identical rows — so keying on WITH_CONTEXT alone silently
+covered both, and once the async root existed it covered neither. What `as` binds on this
+arm is `__aenter__`'s declared return, which is the AWAITED value: an `async def
+__aenter__(self) -> "AsyncResource"` declares the resource, not a coroutine over it.
 """
+import asyncio
 from typing import Self
 
 
@@ -59,3 +68,25 @@ def via_declared_enter() -> str:
 def via_self_enter() -> str:
     with SelfRes() as s:
         return s.label()
+
+
+class AsyncResource:
+    async def __aenter__(self) -> "AsyncResource":
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        return None
+
+    def use(self) -> str:
+        return "async-resource"
+
+
+async def _via_async_enter() -> str:
+    async with AsyncResource() as r:
+        return r.use()
+
+
+def via_async_enter() -> str:
+    """The async arm: __aenter__ and __aexit__ are the edges, and `r` is typed by
+    __aenter__'s declared return exactly as the sync arm's is."""
+    return asyncio.run(_via_async_enter())

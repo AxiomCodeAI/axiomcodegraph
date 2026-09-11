@@ -1,4 +1,4 @@
-=== per-family coverage (tier-4, 450 scored sites) ===
+=== per-family coverage (tier-4, 453 scored sites) ===
   f01 inheritance & MRO        links= 10  found= 10 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f02 callables & closures     links= 10  found=  9 (90.0%)  missed= 1  wide= 0  WRONG= 0
   f03 generics                 links= 14  found= 14 (100.0%)  missed= 0  wide= 0  WRONG= 0
@@ -22,7 +22,7 @@
   f23 typevar bound            links=  9  found=  9 (100.0%)  missed= 0  wide= 4  WRONG= 0
   f24 star import __all__      links=  1  found=  1 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f26 local annotation         links=  5  found=  5 (100.0%)  missed= 0  wide= 1  WRONG= 0
-  f27 with target              links=  7  found=  7 (100.0%)  missed= 0  wide= 1  WRONG= 0
+  f27 with target              links= 10  found= 10 (100.0%)  missed= 0  wide= 1  WRONG= 0
   f28 await                    links= 29  found= 29 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f29 subscript element        links= 33  found= 33 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f30 builtin elements         links= 15  found= 15 (100.0%)  missed= 0  wide= 0  WRONG= 0
@@ -40,12 +40,12 @@
   nestmod.py nestmod.py               links=  1  found=  1 (100.0%)  missed= 0  wide= 0  WRONG= 0
   pkgmod relative imports (subpackage) links=  3  found=  3 (100.0%)  missed= 0  wide= 0  WRONG= 0
 
-  TOTAL                         links=414  found=406 (98.1%)  missed= 8  wide=36  WRONG= 0
-  recall      406/414 = 98.1%  of the links that actually ran
+  TOTAL                         links=417  found=409 (98.1%)  missed= 8  wide=36  WRONG= 0
+  recall      409/417 = 98.1%  of the links that actually ran
   wide  36   a member of a SOUND SET that did not run on this pass
   WRONG 0   a single target asserted as certain that never ran
 
-  EXPECTED-MISS cases: {'FOUND': 15, 'MISSED': 23}   (a CONCRETE here means a known blind spot closed)
+  EXPECTED-MISS cases: {'FOUND': 16, 'MISSED': 22}   (a CONCRETE here means a known blind spot closed)
 
 --- non-concrete sites ---
   f02_callables.py:31   MISSED     true=[('lib', 'callables.py', 22)] engine=[]
@@ -82,8 +82,8 @@
   f23_typevar_bound.py:71   WIDE       true=[('client', 'f23_typevar_bound.py', 45)] engine=[('client', 'f23_typevar_bound.py', 40)]
   f23_typevar_bound.py:75   WIDE       true=[('client', 'f23_typevar_bound.py', 45)] engine=[('client', 'f23_typevar_bound.py', 40)]
   f26_local_annotation.py:42   WIDE       true=[('client', 'f26_local_annotation.py', 27)] engine=[('client', 'f26_local_annotation.py', 22)]
-  f27_with_target.py:56   WIDE       true=[('client', 'f27_with_target.py', 33)] engine=[('client', 'f27_with_target.py', 28)]
-  f32_iteration_protocol.py:143  WIDE       true=[('client', 'f32_iteration_protocol.py', 64), ('client', 'f32_iteration_protocol.py', 69)] engine=[('client', 'f32_iteration_protocol.py', 59)]
+  f27_with_target.py:65   WIDE       true=[('client', 'f27_with_target.py', 42)] engine=[('client', 'f27_with_target.py', 37)]
+  f32_iteration_protocol.py:148  WIDE       true=[('client', 'f32_iteration_protocol.py', 69), ('client', 'f32_iteration_protocol.py', 74)] engine=[('client', 'f32_iteration_protocol.py', 64)]
   f34_reexport_union.py:26   WIDE       true=[('client', 'rxaccel.py', 5)] engine=[('client', 'rxlib.py', 8)]
   f34_reexport_union.py:31   WIDE       true=[('client', 'rxlib.py', 8)] engine=[('client', 'rxaccel.py', 5)]
   f36_property_result.py:155  WIDE       true=[('client', 'f36_property_result.py', 55), ('client', 'f36_property_result.py', 70), ('client', 'f36_property_result.py', 79)] engine=[('client', 'f36_property_result.py', 60)]

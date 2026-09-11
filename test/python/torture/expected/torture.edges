@@ -118,6 +118,7 @@ boundary_lib	METHOD_CALL	f25_var_params.annotated_varargs -> builtin:tuple.count
 boundary_lib	METHOD_CALL	f25_var_params.collect -> builtin:tuple.count
 boundary_lib	METHOD_CALL	f26_local_annotation.from_builtin_annotation -> builtin:set.add
 boundary_lib	METHOD_CALL	f26_local_annotation.from_dotted_annotation -> builtin:object.__init__
+boundary_lib	METHOD_CALL	f27_with_target.via_async_enter -> external:asyncio.run
 boundary_lib	METHOD_CALL	f28_await._all -> builtin:str.join
 boundary_lib	METHOD_CALL	f28_await.a_builtin_result -> builtin:str.upper
 boundary_lib	METHOD_CALL	f28_await.a_library_element -> builtin:list.append
@@ -251,6 +252,7 @@ boundary_lib	SIMPLE_CALL	f26_local_annotation.from_builtin_annotation -> lib:tli
 boundary_lib	SIMPLE_CALL	f26_local_annotation.from_class_annotation -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f26_local_annotation.from_class_annotation -> lib:tlib.callables.passthrough
 boundary_lib	SIMPLE_CALL	f26_local_annotation.from_dotted_annotation -> lib:tlib.callables.passthrough
+boundary_lib	SIMPLE_CALL	f27_with_target._via_async_enter -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f27_with_target.make -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f27_with_target.via_self_enter -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f28_await.Registry.build -> builtin:object.__init__
@@ -278,9 +280,9 @@ boundary_lib	SIMPLE_CALL	f32_iteration_protocol.Source.__iter__ -> builtin:iter
 boundary_lib	SIMPLE_CALL	f32_iteration_protocol.SourceA.__iter__ -> builtin:iter
 boundary_lib	SIMPLE_CALL	f32_iteration_protocol.SourceB.__iter__ -> builtin:iter
 boundary_lib	SIMPLE_CALL	f32_iteration_protocol.a_comprehension -> builtin:sum
+boundary_lib	SIMPLE_CALL	f32_iteration_protocol.decided_by_the_root_context -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f32_iteration_protocol.drive -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f32_iteration_protocol.drive -> builtin:str
-boundary_lib	SIMPLE_CALL	f32_iteration_protocol.undecidable_by_the_ir -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f33_type_stubs._stub_is_not_a_target -> external:accelstub.fast
 boundary_lib	SIMPLE_CALL	f33_type_stubs.drive -> builtin:str
 boundary_lib	SIMPLE_CALL	f34_reexport_union.drive -> builtin:str
@@ -369,6 +371,8 @@ known_edge	CHAINED_CALL	main.main -> f13_declared_dispatch.Engine.run
 known_edge	CHAINED_CALL	main.main -> f20_builtin_flow.UsesSelf.via_self
 known_edge	CHAINED_CALL	main.main -> f25_var_params.Holder.lookup
 known_edge	CHAINED_CALL	nestmod.Outer.make_nested -> nestmod.Outer.Inner.run
+known_edge	CONTEXT_MANAGER	f27_with_target._via_async_enter -> f27_with_target.AsyncResource.__aenter__
+known_edge	CONTEXT_MANAGER	f27_with_target._via_async_enter -> f27_with_target.AsyncResource.__aexit__
 known_edge	CONTEXT_MANAGER	f27_with_target.via_declared_enter -> f27_with_target.Resource.__enter__
 known_edge	CONTEXT_MANAGER	f27_with_target.via_declared_enter -> f27_with_target.Resource.__exit__
 known_edge	CONTEXT_MANAGER	f27_with_target.via_self_enter -> f27_with_target.SelfRes.__enter__
@@ -378,6 +382,7 @@ known_edge	ITERATION_PROTOCOL	f32_iteration_protocol.a_comprehension -> f32_iter
 known_edge	ITERATION_PROTOCOL	f32_iteration_protocol.a_for_statement -> f32_iteration_protocol.Bag.__iter__
 known_edge	ITERATION_PROTOCOL	f32_iteration_protocol.a_local_receiver -> f32_iteration_protocol.Bag.__iter__
 known_edge	ITERATION_PROTOCOL	f32_iteration_protocol.a_self_iterator -> f32_iteration_protocol.SelfIterator.__iter__
+known_edge	ITERATION_PROTOCOL	f32_iteration_protocol.decided_by_the_root_context -> f32_iteration_protocol.Both.__iter__
 known_edge	METACLASS_CREATION	f41_class_attribute_absent.<module> -> f41_class_attribute_absent.ModelMeta.__new__
 known_edge	METHOD_CALL	f04_descriptors.client_descriptors -> f04_descriptors.LocalCfg.make
 known_edge	METHOD_CALL	f04_descriptors.client_descriptors -> f04_descriptors.LocalCfg.util
@@ -414,6 +419,7 @@ known_edge	METHOD_CALL	f22_typeref_fk.build_via_dotted -> aliaspkg.deep.impl.Nod
 known_edge	METHOD_CALL	f22_typeref_fk.build_via_dotted -> aliaspkg.deep.impl.build_node
 known_edge	METHOD_CALL	f22_typeref_fk.label_via_dotted -> aliaspkg.deep.impl.Node.label
 known_edge	METHOD_CALL	f26_local_annotation.from_dotted_annotation -> repkg.inner.leaf.Widget.emit
+known_edge	METHOD_CALL	f27_with_target._via_async_enter -> f27_with_target.AsyncResource.use
 known_edge	METHOD_CALL	f27_with_target.via_self_enter -> f27_with_target.SelfRes.label
 known_edge	METHOD_CALL	f28_await.Registry.into_a_field -> f28_await.Widget.render
 known_edge	METHOD_CALL	f28_await.Registry.via_self_receiver -> f28_await.Widget.render
@@ -566,6 +572,7 @@ known_edge	METHOD_CALL	main.main -> f25_var_params.collect
 known_edge	METHOD_CALL	main.main -> f26_local_annotation.from_builtin_annotation
 known_edge	METHOD_CALL	main.main -> f26_local_annotation.from_class_annotation
 known_edge	METHOD_CALL	main.main -> f26_local_annotation.from_dotted_annotation
+known_edge	METHOD_CALL	main.main -> f27_with_target.via_async_enter
 known_edge	METHOD_CALL	main.main -> f27_with_target.via_declared_enter
 known_edge	METHOD_CALL	main.main -> f27_with_target.via_self_enter
 known_edge	METHOD_CALL	main.main -> f28_await.drive
@@ -620,6 +627,7 @@ known_edge	SIMPLE_CALL	f23_typevar_bound.via_concrete_argument -> f23_typevar_bo
 known_edge	SIMPLE_CALL	f23_typevar_bound.via_concrete_argument -> f23_typevar_bound.flowed_class_object
 known_edge	SIMPLE_CALL	f23_typevar_bound.via_opaque_value -> f23_typevar_bound.bare_bounded
 known_edge	SIMPLE_CALL	f23_typevar_bound.via_opaque_value -> f23_typevar_bound.class_object_bounded
+known_edge	SIMPLE_CALL	f27_with_target.via_async_enter -> f27_with_target._via_async_enter
 known_edge	SIMPLE_CALL	f27_with_target.via_declared_enter -> f27_with_target.make
 known_edge	SIMPLE_CALL	f28_await._all -> f28_await.Registry.__init__
 known_edge	SIMPLE_CALL	f28_await._all -> f28_await.a_builtin_result
@@ -683,7 +691,7 @@ known_edge	SIMPLE_CALL	f32_iteration_protocol.drive -> f32_iteration_protocol.a_
 known_edge	SIMPLE_CALL	f32_iteration_protocol.drive -> f32_iteration_protocol.a_local_receiver
 known_edge	SIMPLE_CALL	f32_iteration_protocol.drive -> f32_iteration_protocol.a_self_iterator
 known_edge	SIMPLE_CALL	f32_iteration_protocol.drive -> f32_iteration_protocol.an_async_for
-known_edge	SIMPLE_CALL	f32_iteration_protocol.drive -> f32_iteration_protocol.undecidable_by_the_ir
+known_edge	SIMPLE_CALL	f32_iteration_protocol.drive -> f32_iteration_protocol.decided_by_the_root_context
 known_edge	SIMPLE_CALL	f33_type_stubs.a_real_module_beside_its_stub -> stubbed_impl.compute
 known_edge	SIMPLE_CALL	f33_type_stubs.drive -> f33_type_stubs.a_real_module_beside_its_stub
 known_edge	SIMPLE_CALL	f34_reexport_union.a_def_reexport_control -> rxlib.slow
