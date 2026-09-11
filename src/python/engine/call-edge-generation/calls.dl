@@ -69,6 +69,22 @@ call_hits_external(site, cat("external:", q)) :-
 // Reached by NAME, never by hash (resolution/lib-linking.dl). Not expanded: the chain
 // ENDS at the library in a client-only build.
 client_calls_lib("client", site, "lib", callee) :- call_hits_lib_method(site, callee).
+// AND BY HASH, once the library's BODIES are staged (#375). The clause above is the
+// NAME route: an import is linked to a library declaration and the site commits to it.
+// It cannot reach a callable the library never exports under a name the client wrote —
+// `plain.<locals>.wrapper`, the closure a library decorator returns, is reached only by
+// resolving the decorated name through the library's own return flow, and that answer
+// arrives as a METHOD HASH in expr_resolves_to_method like any other.
+//
+// Without this the whole chain resolved and then had nowhere to go: decorated_name_target
+// named the library closure correctly, expr_resolves_to_method carried it to the edge
+// layer, and client_calls_client dropped it because method_owner("client", ...) does not
+// hold for a library method. The site came out ambiguous_unknown with the answer already
+// computed one relation upstream.
+client_calls_lib("client", site, "lib", callee) :-
+    expr_resolves_to_method(site, callee), method_owner("lib", _, callee).
+client_calls_lib("client", site, "lib", callee) :-
+    expr_resolves_to_method(site, callee), method_module_level("lib", _, callee).
 
 // ── client_calls_builtin(CallerProv, SiteHash, TargetLabel) ──────────────────
 // A CPython C-level callable: `super()`, `object.__init__` for a class with no
