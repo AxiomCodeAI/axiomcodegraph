@@ -107,7 +107,7 @@ def main() -> None:
     print(f24.via_star_export(), f24.absent_from_all(), f24.absent_by_underscore())
     print(f25.Holder(a='x').lookup('a'), f25.collect(1, 2, 1), f25.annotated_kwargs(a='y'), f25.annotated_varargs(1, 2, 1))
     print(f26.from_builtin_annotation(), f26.from_class_annotation(), f26.from_dotted_annotation())
-    print(f27.via_declared_enter(), f27.via_self_enter())
+    print(f27.via_declared_enter(), f27.via_self_enter(), f27.via_async_enter())
     print(f28.drive())
     print(f29.drive())
     print(f30.drive())
