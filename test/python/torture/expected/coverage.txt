@@ -1,4 +1,4 @@
-=== per-family coverage (tier-4, 453 scored sites) ===
+=== per-family coverage (tier-4, 459 scored sites) ===
   f01 inheritance & MRO        links= 10  found= 10 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f02 callables & closures     links= 10  found=  9 (90.0%)  missed= 1  wide= 0  WRONG= 0
   f03 generics                 links= 14  found= 14 (100.0%)  missed= 0  wide= 0  WRONG= 0
@@ -37,11 +37,12 @@
   f39 lib boundary identity    links=  5  found=  5 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f40 data descriptor          links= 14  found= 14 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f41 class attribute absent   links=  3  found=  3 (100.0%)  missed= 0  wide= 0  WRONG= 0
+  f42 f42                      links=  6  found=  6 (100.0%)  missed= 0  wide= 0  WRONG= 0
   nestmod.py nestmod.py               links=  1  found=  1 (100.0%)  missed= 0  wide= 0  WRONG= 0
   pkgmod relative imports (subpackage) links=  3  found=  3 (100.0%)  missed= 0  wide= 0  WRONG= 0
 
-  TOTAL                         links=417  found=411 (98.6%)  missed= 6  wide=36  WRONG= 0
-  recall      411/417 = 98.6%  of the links that actually ran
+  TOTAL                         links=423  found=417 (98.6%)  missed= 6  wide=36  WRONG= 0
+  recall      417/423 = 98.6%  of the links that actually ran
   wide  36   a member of a SOUND SET that did not run on this pass
   WRONG 0   a single target asserted as certain that never ran
 

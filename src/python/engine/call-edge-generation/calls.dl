@@ -33,18 +33,55 @@
 // type source, and only stops being something a call EDGE can commit to.
 method_declared_in_stub(p, m) :- method_module(p, mod, m), module_is_stub(p, mod).
 
+// ── AN @overload DECLARATION IS NOT AN EDGE TARGET EITHER (issue #376) ───────
+// `@overload def f(x: int) -> str: ...` registers a SIGNATURE and the following `def f`
+// rebinds the name, so the stub objects are discarded before any call can reach one.
+// method_body_is_stub exists to keep exactly that out of the target set, and the gate was
+// on the class-member route (resolution/attribute-lookup.dl's type_defines_method) and
+// not on the module-level NAME route — so a module-level overload set came out as a
+// three-way multi_inferred, two members of which have no body to execute. Reproduced
+// before this rule: both sites in `drive` resolved to lines 5, 7 and 8 of a file whose
+// only callable `described` is the one at line 8, confirmed with inspect.unwrap and
+// sys.setprofile.
+//
+// THE TEST IS THE BINDING, NOT THE FLAG, and that distinction is the whole rule rather
+// than a refinement. bodyIsStub is true of ANY body that is only `...`, `pass` or a
+// docstring, and `def noop(): pass` at module level is a real function CPython really
+// calls — the same repro emits `drive -> noop` as a known_edge, and it is right. What
+// makes an overload stub unreachable is not its empty body but that a NON-STUB `def`
+// shares its declaring binding and rebound the name. A plain no-op has no such sibling,
+// so it is untouched; the parser puts all three `described` declarations on one
+// declaringBindingLinkHash and `noop` on its own, which is what this reads.
+//
+// THE GATE IS ON THE EDGE, NOT ON CANDIDATE ADMISSION — the same design as the .pyi gate
+// directly above, for the same reason. The overload declarations are where the
+// ANNOTATIONS live (`-> str` on the stubs, often nothing on the implementation), and
+// call_returns_type reads expr_call_candidate, so suppressing the candidate would take
+// the return type with it. The stub stays a candidate and a type source and only stops
+// being something a call EDGE can commit to.
+//
+// No `external:` companion is needed here, unlike the .pyi case: the implementation is a
+// surviving target by construction, so the site is never left with nothing.
+method_rebound_by_impl(p, m) :-
+    method_declaring_binding(p, b, m),
+    method_body_is_stub(p, m),
+    method_declaring_binding(p, b, impl),
+    !method_body_is_stub(p, impl).
+
 // ── client_calls_client(CallerProv, SiteHash, CalleeProv, CalleeMethodHash) ──
 client_calls_client("client", site, "client", callee) :-
     expr_resolves_to_method(site, callee),
     method_owner("client", _, callee),
-    !method_declared_in_stub("client", callee).
+    !method_declared_in_stub("client", callee),
+    !method_rebound_by_impl("client", callee).
 // Module-level and nested functions have no owning class, so method_owner does not
 // cover them — and they are 16% of functions plus every closure. Java has no analogue
 // of this clause because Java has no code outside a class.
 client_calls_client("client", site, "client", callee) :-
     expr_resolves_to_method(site, callee),
     method_module_level("client", _, callee),
-    !method_declared_in_stub("client", callee).
+    !method_declared_in_stub("client", callee),
+    !method_rebound_by_impl("client", callee).
 
 // ── AND THE SITE IS NAMED, NOT SHRUGGED AT ──────────────────────────────────
 // Suppressing the target alone would leave the site ambiguous_unknown, which says "the
