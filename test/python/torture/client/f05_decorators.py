@@ -1,6 +1,17 @@
 """FAMILY 05 — decorator-produced callables.
 The largest miss cluster on transformers (284 of 492). The name binds to what the
-decorator RETURNED, defined in another module."""
+decorator RETURNED, defined in another module.
+
+AND "another module" IS THE WHOLE DIFFICULTY, which is what #375 turned out to be.
+`@tagged` and `@retry(times=2)` are declared in the staged library, so naming what
+they return needs the LIBRARY'S OWN body — its return flow, read with its own
+provenance, and then carried to the edge layer as a library method hash. Four separate
+links were missing and each one alone left this family's output unchanged, so the
+cluster looked like a semantic blind spot rather than four pieces of plumbing.
+`call_client_decorated` is the site that proves it: two declared unknowns became
+`tlib.decorated.tagged.<locals>.inner` and
+`tlib.decorated.retry.<locals>.deco.<locals>.inner`, which are the functions CPython
+actually runs."""
 from tlib import retry, tagged, wrapped_fn
 
 

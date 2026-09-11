@@ -3,7 +3,6 @@ ambiguous_unknown	CHAINED_CALL	f08_dynamic.dict_dispatch_static_key -> -
 ambiguous_unknown	CHAINED_CALL	f24_star_all.absent_by_underscore -> -
 ambiguous_unknown	CHAINED_CALL	f24_star_all.absent_from_all -> -
 ambiguous_unknown	CHAINED_CALL	f41_class_attribute_absent.metaclass_installed -> -
-ambiguous_unknown	DECORATOR_APPLICATION	f05_decorators.<module> -> -
 ambiguous_unknown	DECORATOR_ATTRIBUTE	f36_property_result.Application.<classbody> -> -
 ambiguous_unknown	DYNAMIC_CALL	f08_dynamic.getattr_call -> -
 ambiguous_unknown	METHOD_CALL	f06_flow.takes_unannotated -> -
@@ -15,7 +14,6 @@ ambiguous_unknown	METHOD_CALL	f41_class_attribute_absent.Instance.on_an_instance
 ambiguous_unknown	METHOD_CALL	f41_class_attribute_absent.metaclass_installed -> -
 ambiguous_unknown	METHOD_CALL	f41_class_attribute_absent.plainly_absent -> -
 ambiguous_unknown	SIMPLE_CALL	f02_callables.closure_target -> -
-ambiguous_unknown	SIMPLE_CALL	f05_decorators.call_client_decorated -> -
 ambiguous_unknown	SIMPLE_CALL	f05_decorators.decorator_factory_applied -> -
 ambiguous_unknown	SIMPLE_CALL	f12_value_flow.Widget.make -> -
 ambiguous_unknown	SUBSCRIPT_CALL	f08_dynamic.dict_dispatch_computed_key -> -
@@ -199,6 +197,8 @@ boundary_lib	SIMPLE_CALL	f03_generics.unbound_generic -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f03_generics.unbound_generic -> lib:tlib.generics.Box.__init__
 boundary_lib	SIMPLE_CALL	f04_descriptors.LocalCfg.make -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f04_descriptors.lib_property_read -> lib:tlib.descriptors.Config.__init__
+boundary_lib	SIMPLE_CALL	f05_decorators.call_client_decorated -> lib:tlib.decorated.retry.<locals>.deco.<locals>.inner
+boundary_lib	SIMPLE_CALL	f05_decorators.call_client_decorated -> lib:tlib.decorated.tagged.<locals>.inner
 boundary_lib	SIMPLE_CALL	f05_decorators.call_lib_decorated -> external:wrapped_fn
 boundary_lib	SIMPLE_CALL	f05_decorators.decorator_factory_applied -> lib:tlib.decorated.retry
 boundary_lib	SIMPLE_CALL	f06_flow.augmented_flow -> builtin:object.__init__
@@ -377,6 +377,7 @@ known_edge	CONTEXT_MANAGER	f27_with_target.via_declared_enter -> f27_with_target
 known_edge	CONTEXT_MANAGER	f27_with_target.via_declared_enter -> f27_with_target.Resource.__exit__
 known_edge	CONTEXT_MANAGER	f27_with_target.via_self_enter -> f27_with_target.SelfRes.__enter__
 known_edge	CONTEXT_MANAGER	f27_with_target.via_self_enter -> f27_with_target.SelfRes.__exit__
+known_edge	DECORATOR_APPLICATION	f05_decorators.<module> -> lib:tlib.decorated.retry.<locals>.deco
 known_edge	ITERATION_PROTOCOL	f32_iteration_protocol._async_loop -> f32_iteration_protocol.AsyncBag.__aiter__
 known_edge	ITERATION_PROTOCOL	f32_iteration_protocol.a_comprehension -> f32_iteration_protocol.Bag.__iter__
 known_edge	ITERATION_PROTOCOL	f32_iteration_protocol.a_for_statement -> f32_iteration_protocol.Bag.__iter__

@@ -3,7 +3,7 @@
   f02 callables & closures     links= 10  found=  9 (90.0%)  missed= 1  wide= 0  WRONG= 0
   f03 generics                 links= 14  found= 14 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f04 descriptors              links=  9  found=  9 (100.0%)  missed= 0  wide= 0  WRONG= 0
-  f05 decorators               links=  6  found=  1 (16.7%)  missed= 5  wide= 0  WRONG= 0
+  f05 decorators               links=  6  found=  3 (50.0%)  missed= 3  wide= 0  WRONG= 0
   f06 value flow               links=  8  found=  7 (87.5%)  missed= 1  wide= 0  WRONG= 0
   f07 imports & re-export      links=  5  found=  5 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f08 dynamic                  links=  2  found=  1 (50.0%)  missed= 1  wide= 1  WRONG= 0
@@ -40,8 +40,8 @@
   nestmod.py nestmod.py               links=  1  found=  1 (100.0%)  missed= 0  wide= 0  WRONG= 0
   pkgmod relative imports (subpackage) links=  3  found=  3 (100.0%)  missed= 0  wide= 0  WRONG= 0
 
-  TOTAL                         links=417  found=409 (98.1%)  missed= 8  wide=36  WRONG= 0
-  recall      409/417 = 98.1%  of the links that actually ran
+  TOTAL                         links=417  found=411 (98.6%)  missed= 6  wide=36  WRONG= 0
+  recall      411/417 = 98.6%  of the links that actually ran
   wide  36   a member of a SOUND SET that did not run on this pass
   WRONG 0   a single target asserted as certain that never ran
 
@@ -49,11 +49,9 @@
 
 --- non-concrete sites ---
   f02_callables.py:31   MISSED     true=[('lib', 'callables.py', 22)] engine=[]
-  f05_decorators.py:18   MISSED     true=[('lib', 'decorated.py', 18)] engine=[]
-  f05_decorators.py:22   MISSED     true=[('lib', 'decorated.py', 10)] engine=[]
-  f05_decorators.py:22   MISSED     true=[('lib', 'decorated.py', 18)] engine=[]
-  f05_decorators.py:27   MISSED     true=[('lib', 'decorated.py', 8)] engine=[]
-  f05_decorators.py:28   MISSED     true=[('lib', 'decorated.py', 10)] engine=[]
+  f05_decorators.py:29   MISSED     true=[('lib', 'decorated.py', 18)] engine=[]
+  f05_decorators.py:38   MISSED     true=[('lib', 'decorated.py', 8)] engine=[]
+  f05_decorators.py:39   MISSED     true=[('lib', 'decorated.py', 10)] engine=[]
   f06_flow.py:28   MISSED     true=[('client', 'f06_flow.py', 28)] engine=[('lib', 'shapes.py', 34), ('lib', 'shapes.py', 39)]
   f08_dynamic.py:8    MISSED     true=[('lib', 'shapes.py', 34)] engine=[]
   f08_dynamic.py:24   WIDE       true=[('lib', 'shapes.py', 34)] engine=[('lib', 'shapes.py', 39)]
