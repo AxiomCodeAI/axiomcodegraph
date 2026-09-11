@@ -475,6 +475,8 @@
 .decl with_protocol_edge(c0:symbol,c1:symbol,c2:symbol)
 .decl iteration_protocol_sync(c0:symbol)
 .decl iteration_protocol_of(c0:symbol,c1:symbol)
+.decl expr_comprehension_kind(c0:symbol,c1:symbol,c2:symbol)
+.decl comprehension_kind_async(c0:symbol)
 .decl context_manager_slot_of(c0:symbol,c1:symbol)
 .decl for_statement_roots(c0:symbol,c1:symbol)
 .decl with_statement_roots(c0:symbol,c1:symbol)

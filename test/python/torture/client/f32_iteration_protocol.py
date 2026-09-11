@@ -150,6 +150,45 @@ def a_dispatch_set(s: Source) -> int:
     return total
 
 
+class AsyncOnlyBag:
+    """__aiter__ and NO __iter__ — the member that makes a union's protocol ambiguous."""
+
+    def __aiter__(self) -> "AsyncOnlyBag":
+        return self
+
+    async def __anext__(self) -> int:
+        raise StopAsyncIteration
+
+
+def sync_comprehension_over_a_union(flag: bool) -> int:
+    """A SYNC comprehension cannot run the async protocol, whatever its union holds.
+
+    `src` is a two-write union of a sync-only and an async-only iterable. A comprehension
+    compiles to GET_ITER/FOR_ITER, so only __iter__ can run — and before #395 this emitted
+    `AsyncOnlyBag.__aiter__` as a known_edge, an impossible target asserted as certain.
+    The `for` statement below is the control: it has been exact since #377, because its
+    root context says which protocol it is.
+
+    Measured when it was found: 873 such edges over 296 sites on five open-source
+    projects, 867 of them on a held-out one.
+    """
+    # EXPECT: miss — the __iter__ edge IS emitted (see expected/torture.edges), and what
+    # tier 4 additionally records here is the <genexpr> OBJECT being invoked, which is not
+    # a syntactic call target. Same declared blind spot as `a_comprehension` above; it is
+    # the comprehension, not this fixture's union, that carries it.
+    src = Bag([1, 2]) if flag else AsyncOnlyBag()
+    return sum(x for x in src)
+
+
+def sync_for_over_a_union(flag: bool) -> int:
+    """The control — the same union through a `for` statement, exact already."""
+    src = Bag([3, 4]) if flag else AsyncOnlyBag()
+    total = 0
+    for x in src:
+        total += x
+    return total
+
+
 async def _async_loop() -> int:
     # EXPECT: miss — the mirror of a_self_iterator on the async side: __aiter__ is
     # emitted, __anext__ is not, for the same reason. The __aiter__ half is what
@@ -177,4 +216,6 @@ def drive() -> str:
     parts.append(str(a_dispatch_set(SourceA())))
     parts.append(str(a_dispatch_set(SourceB())))
     parts.append(str(an_async_for()))
+    parts.append(str(sync_comprehension_over_a_union(True)))
+    parts.append(str(sync_for_over_a_union(True)))
     return " ".join(parts)
