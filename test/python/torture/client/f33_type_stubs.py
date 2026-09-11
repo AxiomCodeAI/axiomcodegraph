@@ -45,3 +45,27 @@ def a_real_module_beside_its_stub() -> int:
 
 def drive() -> str:
     return str(a_real_module_beside_its_stub())
+
+
+def _lib_stub_is_not_a_target() -> int:
+    """CANNOT EXECUTE, AND THAT IS THE POINT — the LIBRARY side of the same rule (#312).
+
+    `tlib/stubonly.pyi` ships no `.py`, so importing it raises ModuleNotFoundError
+    exactly as `accelstub` does above. The import is function-local and the name is
+    underscored so the harness's coverage assertion exempts it; what pins this is
+    expected/torture.edges.
+
+    The gate that forbids a declaration-only body from being a call target lived on
+    the RESOLUTION route only, so the same construct was refused where the client
+    declared it and COMMITTED where a staged library did — the site resolved to
+    `tlib.stubonly.open_gauge`, a hash whose bodyIsStub is true. It must be
+    `external:tlib.stubonly.open_gauge` instead: a named boundary, which is exactly as
+    much as a stub justifies.
+
+    Worth knowing that this did not always reproduce. On an earlier revision the stub
+    stayed a named boundary on its own, and the library-linking work since made it
+    link — so this fixture is the thing that keeps the answer fixed either way.
+    """
+    from tlib.stubonly import open_gauge
+
+    return open_gauge().read()
