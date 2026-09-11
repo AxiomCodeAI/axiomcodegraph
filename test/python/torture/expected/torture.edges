@@ -4,6 +4,8 @@ ambiguous_unknown	CHAINED_CALL	f24_star_all.absent_by_underscore -> -
 ambiguous_unknown	CHAINED_CALL	f24_star_all.absent_from_all -> -
 ambiguous_unknown	CHAINED_CALL	f41_class_attribute_absent.metaclass_installed -> -
 ambiguous_unknown	DECORATOR_ATTRIBUTE	f36_property_result.Application.<classbody> -> -
+ambiguous_unknown	DECORATOR_BARE	f42_overload_stubs.<module> -> -
+ambiguous_unknown	DECORATOR_BARE	f42_overload_stubs.Formatter.<classbody> -> -
 ambiguous_unknown	DYNAMIC_CALL	f08_dynamic.getattr_call -> -
 ambiguous_unknown	METHOD_CALL	f06_flow.takes_unannotated -> -
 ambiguous_unknown	METHOD_CALL	f10_forward_refs.quoted_generic_element -> -
@@ -167,6 +169,7 @@ boundary_lib	METHOD_CALL	f39_lib_boundary_identity.on_a_parameter -> lib:tlib.de
 boundary_lib	METHOD_CALL	f40_data_descriptor.drive -> builtin:str.join
 boundary_lib	METHOD_CALL	f41_class_attribute_absent.drive -> builtin:list.append
 boundary_lib	METHOD_CALL	f41_class_attribute_absent.drive -> builtin:str.join
+boundary_lib	METHOD_CALL	f42_overload_stubs.drive -> builtin:str.join
 boundary_lib	METHOD_CALL	main.main -> builtin:object.__init__
 boundary_lib	METHOD_CALL	nestmod.Outer.make_nested -> builtin:object.__init__
 boundary_lib	SELF_CALL	f02_callables.HoldsCallables.run -> lib:tlib.callables.Doubler.__call__
@@ -319,6 +322,10 @@ boundary_lib	SIMPLE_CALL	f41_class_attribute_absent.ManagerDescriptor.__get__ ->
 boundary_lib	SIMPLE_CALL	f41_class_attribute_absent.ModelMeta.__new__ -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	f41_class_attribute_absent.ModelMeta.__new__ -> builtin:super
 boundary_lib	SIMPLE_CALL	f41_class_attribute_absent.drive -> builtin:object.__init__
+boundary_lib	SIMPLE_CALL	f42_overload_stubs.Formatter.render -> builtin:str
+boundary_lib	SIMPLE_CALL	f42_overload_stubs.described -> builtin:str
+boundary_lib	SIMPLE_CALL	f42_overload_stubs.drive -> builtin:str
+boundary_lib	SIMPLE_CALL	f42_overload_stubs.method_overload_set_is_one_target -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object
 boundary_lib	SIMPLE_CALL	main.main -> builtin:object.__init__
 boundary_lib	SIMPLE_CALL	main.main -> builtin:print
@@ -362,6 +369,7 @@ known_edge	CHAINED_CALL	f38_nested_class_scope.owner_constructs_its_own_nested -
 known_edge	CHAINED_CALL	f38_nested_class_scope.qualified -> nestmod.Outer.Inner.run
 known_edge	CHAINED_CALL	f38_nested_class_scope.top_level_still_resolves -> nestmod.Inner.run
 known_edge	CHAINED_CALL	f41_class_attribute_absent.drive -> f41_class_attribute_absent.Instance.on_an_instance
+known_edge	CHAINED_CALL	f42_overload_stubs.method_overload_set_is_one_target -> f42_overload_stubs.Formatter.render
 known_edge	CHAINED_CALL	main.main -> f10_forward_refs.Boxed.read
 known_edge	CHAINED_CALL	main.main -> f11_multiwrite.HoldsOr.run
 known_edge	CHAINED_CALL	main.main -> f11_multiwrite.HoldsTernary.run
@@ -590,6 +598,7 @@ known_edge	METHOD_CALL	main.main -> f38_nested_class_scope.drive
 known_edge	METHOD_CALL	main.main -> f39_lib_boundary_identity.drive
 known_edge	METHOD_CALL	main.main -> f40_data_descriptor.drive
 known_edge	METHOD_CALL	main.main -> f41_class_attribute_absent.drive
+known_edge	METHOD_CALL	main.main -> f42_overload_stubs.drive
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_generator_in_for
 known_edge	METHOD_CALL	main.main -> pkgmod.user.run_plain
@@ -767,6 +776,11 @@ known_edge	SIMPLE_CALL	f40_data_descriptor.via_data_descriptor -> f40_data_descr
 known_edge	SIMPLE_CALL	f40_data_descriptor.via_delete_descriptor -> f40_data_descriptor.Holder.__init__
 known_edge	SIMPLE_CALL	f41_class_attribute_absent.drive -> f41_class_attribute_absent.metaclass_installed
 known_edge	SIMPLE_CALL	f41_class_attribute_absent.drive -> f41_class_attribute_absent.plainly_absent
+known_edge	SIMPLE_CALL	f42_overload_stubs.drive -> f42_overload_stubs.method_overload_set_is_one_target
+known_edge	SIMPLE_CALL	f42_overload_stubs.drive -> f42_overload_stubs.no_op_is_still_a_target
+known_edge	SIMPLE_CALL	f42_overload_stubs.drive -> f42_overload_stubs.overload_set_is_one_target
+known_edge	SIMPLE_CALL	f42_overload_stubs.no_op_is_still_a_target -> f42_overload_stubs.deliberate_noop
+known_edge	SIMPLE_CALL	f42_overload_stubs.overload_set_is_one_target -> f42_overload_stubs.described
 known_edge	SIMPLE_CALL	main.<module> -> main.main
 known_edge	SIMPLE_CALL	pkgmod.user.run_generator -> pkgmod._gen.each
 known_edge	SIMPLE_CALL	pkgmod.user.run_generator_in_for -> pkgmod._gen.each_first
