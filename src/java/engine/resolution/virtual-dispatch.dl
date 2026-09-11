@@ -101,17 +101,24 @@ virtual_override(base, override) :- java_method(name, _, _, _, _, _, _, baseType
 // DECLARED in that subtype (no inherited-into fan, no lib->lib fan). java.lang.Object is
 // excluded — fanning toString/equals/hashCode over every client override is the classic CHA
 // blow-up and carries no dispatch information.
+// COST, measured (the clause shipped disabled as ABLATION-A with the measurement never recorded):
+// on a 7.9k-file Java project with the platform IR and 104 dependency IRs staged — 76,793 client
+// methods, 489,272 call sites — it adds 1,045 virtual_override rows off 474 library bases, and the
+// solve goes 264s -> 271s and 274s -> 280s on two clean interleaved pairs (+2.5%), peak RSS within
+// run-to-run variance. The pinning is what keeps it there: client_overridden_lib_type binds
+// baseType to the few library types the client actually extends or implements.
+// Its fan is capped like any other — resolution/dispatch-cap.dl carries the mirror clause, without
+// which this one is the only UNCAPPED fan in the engine.
 // lib_type (14): 2 qualifiedName 14 hash ; lib_method (22): 0 name 8 owner 18 paramCount 22 hash
 client_overridden_lib_type(libType) :- java_type(_, _, _, _, _, _, _, _, _, _, _, _, _, sub),
     type_ancestor(sub, libType),
     lib_type(_, qname, _, _, _, _, _, _, _, _, _, _, _, libType),
     qname != "java.lang.Object".
-// ABLATION-A (measuring): fully disabled to isolate this clause's cost at scale.
-// virtual_override(base, override) :- client_overridden_lib_type(baseType),
-//     lib_method(name, _, _, _, _, _, _, baseType, _, _, _, _, _, _, _, _, _, pc, _, _, _, base),
-//     name != "",
-//     type_ancestor(sub, baseType),
-//     java_method(name, _, _, _, _, _, _, sub, _, _, _, _, _, _, _, _, "INSTANCE_METHOD", pc, _, _, _, override).
+virtual_override(base, override) :- client_overridden_lib_type(baseType),
+    lib_method(name, _, _, _, _, _, _, baseType, _, _, _, _, _, _, _, _, _, pc, _, _, _, base),
+    name != "",
+    type_ancestor(sub, baseType),
+    java_method(name, _, _, _, _, _, _, sub, _, _, _, _, _, _, _, _, "INSTANCE_METHOD", pc, _, _, _, override).
 
 // Enum-constant fan-out (same enum type, no subtype edge — see method_override
 // Clause 3): the enum's abstract method dispatches to each constant body.

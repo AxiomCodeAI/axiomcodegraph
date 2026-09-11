@@ -59,6 +59,9 @@
 .decl not_strict_at(c0:symbol,c1:symbol)                        // some argument position is not strictly applicable
 .decl strict_applicable(c0:symbol,c1:symbol)                    // JLS 15.12.2 phase 1
 .decl call_has_strict(c0:symbol)
+.decl call_recv_member(c0:symbol,c1:symbol)      // (call, candidate) the candidate is a member of the receiver's type
+.decl call_has_recv_member(c0:symbol)            // the call has a receiver member set at all
+.decl gating_strict(c0:symbol,c1:symbol)         // a phase-1 winner that may drive the phase gate
 .decl expr_pruned(c0:symbol,c1:symbol)
 .decl expr_qualified_name(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl expr_referenced(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
