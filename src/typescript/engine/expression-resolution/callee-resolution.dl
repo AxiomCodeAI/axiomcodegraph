@@ -160,6 +160,65 @@ expr_call_candidate(ce, m) :- call_site("client", _, cn, rk, recv, ce, _),
     expr_shape(recv, s),
     method_in_scope(s, cn, _, m).
 
+// (5b) A MEMBER OF AN OBJECT LITERAL BOUND TO A NAME — `handlers.viaShorthand(n)`.
+// An OBJECT_LITERAL_METHOD's owner is the literal's EXPRESSION, not a type, so it is in
+// no member table at all: `method_in_scope` is keyed on a scope and there is no scope
+// here. `handlers` is a `const` with no annotation, so the receiver has no type either,
+// and BOTH the method and the arrow property below resolved to nothing — measured, the
+// object-literal container failed entirely, including its own control (#229).
+//
+// objlit_method_of_var already walks variable -> initializer expression -> method, for
+// contextual parameter typing. This asks it the callee question.
+expr_call_candidate(ce, m) :- call_site("client", _, cn, rk, recv, ce, _),
+    receiver_kind_is_value(rk),
+    cn != "",
+    expr_referenced("client", "VARIABLE", v, recv),
+    objlit_method_of_var(m, v),
+    method_decl(_, _, cn, _, m).
+
+// (5c) …AND AN ARROW BOUND TO ONE OF ITS PROPERTIES — `handlers.viaArrow(n)`. The
+// property is a FIELD owned by the same expression, and its initializer is the arrow.
+// The property is NOT a field: an object literal's arrow property is emitted as the
+// arrow EXPRESSION with edgeRole OBJECT_PROPERTY_VALUE, and the name lives on its
+// OBJECT_PROPERTY_KEY sibling's literalValue. Both carry the owning VARIABLE, which is
+// the join.
+objlit_prop_arrow(v, name, m) :- expr_child("client", pe, "OBJECT_PROPERTY_KEY", _, key),
+    expr_literal_value("client", name, key),
+    expr_owner("client", "VARIABLE", v, _, key),
+    expr_child("client", pe, "OBJECT_PROPERTY_VALUE", _, val),
+    expr_anon_decl("client", m, val).
+expr_call_candidate(ce, m) :- call_site("client", _, cn, rk, recv, ce, _),
+    receiver_kind_is_value(rk),
+    cn != "",
+    expr_referenced("client", "VARIABLE", v, recv),
+    objlit_prop_arrow(v, cn, m).
+
+// (5d) A CLASS FIELD HOLDING AN ARROW — `h.viaField(n)` where the class declares
+// `readonly viaField = (n: number) => n + 3`. field_is_callable reaches a field whose
+// DECLARED TYPE carries a call signature; this field has no annotation, so its callable
+// is its initializer. The ordinary method beside it on the same class resolved all along,
+// which is what made the field the discriminator rather than the class (#229).
+// ONLY WHERE THE FIELD IS UNANNOTATED. Ungated, this rule cost more than it bought: it
+// added the arrow beside an answer that was ALREADY right, turning EXACT sites into
+// supersets. `private readonly instanceDecorator: (target: unknown) => unknown = t => t`
+// is the shape — the compiler resolves a call through it to the ANNOTATION's call
+// signature, not to the arrow, and field_is_callable already reaches that. So the
+// initializer is the callable of last resort: it speaks only where nothing declared does.
+//
+// Stated as the ABSENCE OF A TYPE REFERENCE rather than as `!field_is_callable`, which
+// reads the same but cannot be written: field_is_callable sits in the same recursive
+// component as expr_call_candidate (through expr_type -> field_in_scope), so negating it
+// is cyclic and Souffle refuses to stratify the program at all.
+field_arrow_callable(scope, name, m) :- field_in_scope(scope, name, _, f),
+    !field_type_ref(_, _, f),
+    field_initializer(prov, ie, f),
+    expr_anon_decl(prov, m, ie).
+expr_call_candidate(ce, m) :- call_site("client", _, cn, rk, recv, ce, _),
+    receiver_kind_is_value(rk),
+    cn != "",
+    expr_type(recv, _, rt),
+    field_arrow_callable(rt, cn, m).
+
 // (6b) …AND A FUNCTION-VALUED PROPERTY OF ONE — `opts.run()` where `opts` is
 // `{ run: (n: number) => string }`. The shape twin of (5), exactly as (6) is the shape
 // twin of (4), and its absence is the whole defect in #321: (5) consults only
