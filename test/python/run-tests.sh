@@ -150,6 +150,18 @@ if ! bash "$HERE/tools/protocol-calls-test.sh"; then
   exit 1
 fi
 
+# ── PREFLIGHT: a wide protocol edge is reported, even though it is kept ──────
+# dispatch_cap gates expr_resolves_to_method, and the three protocol edges reach the
+# output from expr_type directly, so one of them can commit past a bound every written
+# call obeys. Measured over five projects: the call cap refuses NOTHING (0 sites of
+# 490,130 exceed it) while 492 protocol slots do, so extending it would cost 10,776 sound
+# edges — all on held-out projects — to enforce a bound doing no work. The silence was the
+# defect; the width is now a row. See #371.
+if ! bash "$HERE/tools/protocol-fan-test.sh"; then
+  echo "aborting: a protocol edge past the dispatch bound would be emitted silently"
+  exit 1
+fi
+
 # ── PREFLIGHT: an ambiguous module name is reported, not resolved silently ───
 # Library linking joins on QUALIFIED NAME, so two modules sharing one make the join pick
 # up both. Measured over five projects: 38 duplicated names covering 83 module rows, and

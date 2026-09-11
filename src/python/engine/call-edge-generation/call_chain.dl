@@ -531,6 +531,51 @@ protocol_edge_target_count(e, d, n) :-
 protocol_edge_class(e, d, "known_edge")     :- protocol_edge_target_count(e, d, 1).
 protocol_edge_class(e, d, "multi_inferred") :- protocol_edge_target_count(e, d, n), n >= 2.
 
+// ── THE PROTOCOL ROUTES ARE NOT CAPPED, AND THE WIDTH IS REPORTED (issue #371) ──
+// dispatch_cap bounds a call site by gating expr_resolves_to_method. The three protocol
+// edges do not pass through that relation — they reach the output from expr_type directly
+// — so a property read or an iteration can commit past a bound every written call obeys.
+// REPRODUCED in 40 lines: one receiver widened over 31 constructed subclasses, read twice.
+// `widened.tag()` is refused with dispatch_cap_exceeded and its 31 candidates are reported
+// in dispatch-dropped-by-cap.csv; `widened.meta` emitted all 31 getters as multi_inferred
+// and reported nothing at all.
+//
+// THE ASYMMETRY IS REAL AND EXTENDING THE CAP IS STILL THE WRONG FIX, measured rather
+// than argued. Over five open-source projects, per protocol SLOT (the unit
+// protocol_edge_target_count already uses — `with cm:` emits __enter__ and __exit__
+// against one expression and a shared bound would count that pair as a fan of two):
+//
+//   project    slots > 20   edges in them   widest slot   CALL sites > 20
+//   A (dev)             0               0             2                 0
+//   B (dev)             0               0             4                 0
+//   C (dev)             0               0             5                 0
+//   D (held)           84            1765            22                 0
+//   E (held)          408            9011            24                 0
+//
+// The last column is the whole argument. The cap currently refuses NOTHING on the call
+// route anywhere in this corpus — not one site of 490,130 exceeds it — so "make the
+// routes consistent" would import a bound that is doing no work into the one place where
+// it would do 10,776 edges of damage, all of it on HELD-OUT projects. Those sets are
+// sound by the same RTA-plus-declared-widening argument multi_inferred rests on
+// everywhere else, and nothing measures them as harmful; refusing them would trade
+// measured recall for an unmeasured precision claim.
+//
+// SO THE FIX IS THE OTHER HALF OF THE REPORT: the width becomes a row. A protocol edge is
+// not a call site (README decision 5), so it has no place in call_site_unresolved to carry
+// the fact, and without this export a 24-target read and a 2-target one are
+// indistinguishable downstream. That, not the commitment itself, is what made this
+// invisible. If a later measurement does show wide protocol sets costing precision, this
+// export is the population to measure it on — and the bound it would use is already here.
+protocol_edge_over_cap(e, d) :-
+    protocol_edge_target_count(e, d, n), dispatch_capped_at(cap), n > cap.
+
+// ── protocol_edge_wide(ExprHash, Slot, N) ────────────────────────────────────
+// Exported as protocol-wide-sites.csv, the counterpart to dispatch-dropped-by-cap.csv on
+// the call route: same bound, same visibility, and the difference — that these edges are
+// KEPT — is the decision recorded above rather than an oversight.
+protocol_edge_wide(e, d, n) :-
+    protocol_edge_over_cap(e, d), protocol_edge_target_count(e, d, n).
+
 // PROPERTY READ — an edge with no call site. Kind PROPERTY_READ, so it is filterable
 // and can never be mistaken for a written call.
 call_chain_edge(e, caller, "-", getter, "client", cls, "PROPERTY_READ") :-
