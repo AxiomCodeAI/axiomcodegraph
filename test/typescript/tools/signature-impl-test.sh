@@ -101,6 +101,42 @@ const runner: Other = (x) => {};
 runner(1);
 EOF
 
+# THE SECOND SHAPE: a CLASS assigned to a const annotated with a CONSTRUCT SIGNATURE,
+# and constructed through it — the DI token / plugin registry / factory idiom. The
+# compiler resolves `new C(tag)` to the bodiless construct signature in the annotation;
+# the engine names the constructor that actually runs. Neither of the routes above sees
+# it: the contextually typed expression is an IDENTIFIER naming a class, not one of the
+# four function-like kinds, and the same-name/same-file gate cannot cross a file
+# boundary. The site scored WRONG for giving the more useful of the two right answers.
+# See issue #386.
+cat > "$W/src/strategies.ts" <<'EOF'
+export class IncrementOp {
+  constructor(public tag: string) {}
+  apply(x: number): number { return x + 1; }
+}
+export class Unreferenced {
+  constructor(public tag: string) {}
+}
+EOF
+cat > "$W/src/wiring.ts" <<'EOF'
+import { IncrementOp } from './strategies';
+export function viaConstructorReference(tag: string): IncrementOp {
+  const C: new (tag: string) => IncrementOp = IncrementOp;
+  return new C(tag);
+}
+// CONTROL: no annotation, so nothing declares this to be a construct signature.
+export function ctlUnannotated(tag: string): IncrementOp {
+  const D = IncrementOp;
+  return new D(tag);
+}
+// CONTROL: annotated with the class's OWN type, so the contextual construct signature
+// IS this constructor. A body must not be recorded as implementing itself.
+export function ctlTypeofAnnotation(tag: string): IncrementOp {
+  const E: typeof IncrementOp = IncrementOp;
+  return new E(tag);
+}
+EOF
+
 OUT="$W/pairs.tsv"
 if ! ( cd "$W" && node "$HERE/../ground-truth/signature-impls.mjs" . "$OUT" ) >"$W/log" 2>&1; then
   echo "  FAIL  signature-impls.mjs failed"
@@ -162,6 +198,42 @@ if awk -F'\t' 'NR>1 && (NF!=6 || $1 !~ /^\// || $4 !~ /^\//) {bad=1} END{exit ba
   ok 'every row has six columns and absolute paths on both sides'
 else
   bad 'a row is malformed or carries a relative path, which would not join in the scorer'
+fi
+
+# 7. THE CLASS'S CONSTRUCTOR IS CREDITED TO THE CONSTRUCT SIGNATURE, ACROSS FILES.
+#    The signature is the anonymous `new (tag: string) => IncrementOp` in wiring.ts:3;
+#    the implementation is IncrementOp's constructor in strategies.ts:2.
+if pairs | grep -q '^strategies\.ts:2:3 -> wiring\.ts:3:[0-9]*$'; then
+  ok "a class assigned to a construct-signature-typed const credits its constructor"
+else
+  bad "the constructor was not mapped to the construct signature — got: $(pairs | grep strategies || echo none)"
+fi
+
+# 8. CONTROL — AN UNANNOTATED CLASS REFERENCE IS CREDITED TO NOTHING. `const D =
+#    IncrementOp` has no declared construct signature, and the compiler names the
+#    constructor at the call anyway, so there is nothing to reconcile and crediting it
+#    would be inventing agreement.
+if pairs | grep -q '\-> wiring\.ts:8:'; then
+  bad "control: an UNANNOTATED class reference was credited — $(pairs | grep 'wiring\.ts:8' | head -1)"
+else
+  ok "control: an unannotated class reference is credited to nothing"
+fi
+
+# 9. CONTROL — a `typeof C` annotation resolves to the class's OWN constructor, so the
+#    pair would be the constructor implementing itself. Check 5 asserts this globally;
+#    this asserts the construct-signature route specifically produces no such row.
+if pairs | grep -q '^strategies\.ts:2:3 -> strategies\.ts:2:3$'; then
+  bad "control: a typeof annotation credited the constructor to itself"
+else
+  ok "control: a typeof annotation credits the constructor to nothing"
+fi
+
+# 10. CONTROL — a class NEVER assigned to a construct-signature-typed slot is credited
+#     to nothing. Without this, a rule that simply enumerated every class would pass 7.
+if pairs | grep -q '^strategies\.ts:6:'; then
+  bad "control: a class with no construct-signature context was credited"
+else
+  ok "control: a class never assigned to a construct signature is credited to nothing"
 fi
 
 if [ "$fail" -ne 0 ]; then
