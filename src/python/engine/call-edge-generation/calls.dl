@@ -105,7 +105,23 @@ call_hits_external(site, cat("external:", q)) :-
 // ── client_calls_lib(CallerProv, SiteHash, CalleeProv, LibMethodHash) ────────
 // Reached by NAME, never by hash (resolution/lib-linking.dl). Not expanded: the chain
 // ENDS at the library in a client-only build.
-client_calls_lib("client", site, "lib", callee) :- call_hits_lib_method(site, callee).
+// A STUB IS NOT A TARGET ON THIS ROUTE EITHER (#312). `!method_body_is_stub` already
+// forbids a declaration-only body from being a call target, and the gate sat on the
+// resolution route only — so the same construct was refused where a client declared it
+// and committed where a staged library did. A PEP 561 stub-only distribution is ENTIRELY
+// declarations (897 of 1096 methods on a real shipped one), and staging it is the
+// documented way to supply external IR, so this converted an honest named boundary into
+// a committed edge into a body that is `...`.
+//
+// IT DID NOT ALWAYS REPRODUCE, and that is worth recording rather than quietly fixing.
+// Measured on ada193d the stub stayed a named boundary in all three staging
+// configurations and the issue was left open for want of a reproduction. The
+// library-linking work since — #348's declaring-type boundary target and #375's body
+// staging — made the stub link where it used to fall through, so the defect the issue
+// describes is now reachable on the fixture the issue itself supplies.
+client_calls_lib("client", site, "lib", callee) :-
+    call_hits_lib_method(site, callee),
+    !method_body_is_stub("lib", callee).
 // AND BY HASH, once the library's BODIES are staged (#375). The clause above is the
 // NAME route: an import is linked to a library declaration and the site commits to it.
 // It cannot reach a callable the library never exports under a name the client wrote —
@@ -119,9 +135,25 @@ client_calls_lib("client", site, "lib", callee) :- call_hits_lib_method(site, ca
 // hold for a library method. The site came out ambiguous_unknown with the answer already
 // computed one relation upstream.
 client_calls_lib("client", site, "lib", callee) :-
-    expr_resolves_to_method(site, callee), method_owner("lib", _, callee).
+    expr_resolves_to_method(site, callee), method_owner("lib", _, callee),
+    !method_body_is_stub("lib", callee).
 client_calls_lib("client", site, "lib", callee) :-
-    expr_resolves_to_method(site, callee), method_module_level("lib", _, callee).
+    expr_resolves_to_method(site, callee), method_module_level("lib", _, callee),
+    !method_body_is_stub("lib", callee).
+
+// ── AND THE SITE IS NAMED HERE TOO, NOT SHRUGGED AT ─────────────────────────
+// Same argument as the client-side gate above, same treatment: the callee is known
+// exactly and the only reason it cannot be followed is that a `.pyi` declares no
+// executable body. `external:` rather than `lib:` because no entity for the
+// IMPLEMENTATION exists anywhere in the fact base — the stub is a description of one.
+// ONLY WHERE THE STUB IS ALL THAT IS LEFT, so a distribution shipping impl.py beside
+// impl.pyi keeps resolving to the real function with no contradictory second answer.
+lib_stub_target(site, q) :-
+    call_hits_lib_method(site, callee),
+    method_body_is_stub("lib", callee),
+    method_decl("lib", _, _, q, _, callee), q != "".
+call_hits_external(site, cat("external:", q)) :-
+    lib_stub_target(site, q), !client_calls_lib("client", site, "lib", _).
 
 // ── client_calls_builtin(CallerProv, SiteHash, TargetLabel) ──────────────────
 // A CPython C-level callable: `super()`, `object.__init__` for a class with no
