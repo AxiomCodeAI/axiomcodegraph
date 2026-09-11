@@ -5,11 +5,16 @@ CPython compiles `for` to GET_ITER / FOR_ITER, not to a CALL, so there is no cal
 site to conserve — but `type(obj).__iter__(obj)` runs. 181 classes in the measured
 corpus define `__iter__` and not one of those edges was in the graph.
 
-THE ASYNC CONTROL IS THE POINT OF THIS FAMILY. `async for` calls `__aiter__`, and
-the IR cannot tell it from `for`: the parser emits rootContext=FOR_ITERABLE for
-both. The gate is the TYPE — a class with no `__aiter__` cannot appear in
-`async for` at all, so every FOR_ITERABLE over it is a sync loop. `Both` is the
-case the gate declines, and it is here so that declining stays deliberate.
+THE ASYNC CONTROL IS THE POINT OF THIS FAMILY. `async for` calls `__aiter__`, not
+`__iter__`. The IR could not tell the two apart — the parser emitted
+rootContext=FOR_ITERABLE for both — so the protocol was chosen by the TYPE: a class
+with no `__aiter__` cannot appear in `async for`, so every FOR_ITERABLE over it was
+a sync loop. Sound, and it DECLINED on a class defining both.
+
+parser#153 ended that: an `async for` iterable now carries ASYNC_FOR_ITERABLE, so
+the statement says which protocol it runs and the type no longer has to guess.
+`Both` is here as the case that used to be declined and is now answered exactly —
+if it ever goes back to a miss, the root context stopped being read.
 """
 import asyncio
 from typing import Iterator, List
@@ -121,11 +126,11 @@ def a_self_iterator() -> int:
     return total
 
 
-def undecidable_by_the_ir() -> int:
-    # EXPECT: miss — `Both` defines __iter__ AND __aiter__, so FOR_ITERABLE over it
-    # could be either protocol and the IR does not say which. The gate declines, and
-    # that is correct: emitting __iter__ here would fabricate an edge on every
-    # `async for` over such a class. 3 of 202 classes in the corpus are in this state.
+def decided_by_the_root_context() -> int:
+    # `Both` defines __iter__ AND __aiter__. This used to be undecidable and carried an
+    # EXPECT: miss, because FOR_ITERABLE was emitted for both statements and the type
+    # could not choose. It is a plain `for`, the root context now says so, and the edge
+    # is __iter__ exactly. 3 of 202 classes in the corpus are in this state.
     total = 0
     for x in Both():
         total += x
@@ -147,7 +152,8 @@ def a_dispatch_set(s: Source) -> int:
 
 async def _async_loop() -> int:
     # EXPECT: miss — the mirror of a_self_iterator on the async side: __aiter__ is
-    # emitted, __anext__ is not, for the same reason.
+    # emitted, __anext__ is not, for the same reason. The __aiter__ half is what
+    # ASYNC_FOR_ITERABLE buys: keyed on FOR_ITERABLE this statement matched nothing.
     total = 0
     async for y in AsyncBag([7, 8]):
         total += y
@@ -167,7 +173,7 @@ def drive() -> str:
     parts.append(str(a_comprehension()))
     parts.append(str(a_local_receiver()))
     parts.append(str(a_self_iterator()))
-    parts.append(str(undecidable_by_the_ir()))
+    parts.append(str(decided_by_the_root_context()))
     parts.append(str(a_dispatch_set(SourceA())))
     parts.append(str(a_dispatch_set(SourceB())))
     parts.append(str(an_async_for()))
