@@ -266,8 +266,38 @@ iter_protocol_edge(src, caller, m) :-
     expr_ultimate_method("client", src, caller).
 // A comprehension's iterable is PARENTED under the comprehension instead, so it needs
 // its own clause — the same split iter_pair already makes.
+//
+// AND A SYNC COMPREHENSION RUNS THE SYNC PROTOCOL, FULL STOP (issue #395). The type-based
+// gate above exists because the IR could not say which statement it was looking at; for a
+// comprehension it still cannot say which CLAUSE, since one comprehension may hold an
+// `async for` and a plain `for` together. But comprehensionKind is ASYNC whenever ANY
+// clause is, so its negative direction is exact: a LIST/SET/DICT/GENERATOR comprehension
+// contains no `async for` and nothing in it can call __aiter__.
+//
+// MEASURED, because the heuristic was emitting those edges as CERTAIN rather than wide —
+// the tier counts per protocol slot and each dunder had one target, so a union holding a
+// sync-only and an async-only iterable produced a known_edge to __aiter__ from a list
+// comprehension. 873 such edges over 296 sites on five open-source projects, 867 of them
+// on a held-out one, every one provably unexecutable. 6,586 of 6,622 comprehension
+// iterables in that corpus are in a sync comprehension, so this is the ordinary case and
+// not a corner.
+comprehension_kind_async("ASYNC_LIST").
+comprehension_kind_async("ASYNC_SET").
+comprehension_kind_async("ASYNC_DICT").
+comprehension_kind_async("ASYNC_GENERATOR").
+
 iter_protocol_edge(src, caller, m) :-
-    expr_parent("client", _, "COMPREHENSION_ITERABLE", _, src),
+    expr_parent("client", c, "COMPREHENSION_ITERABLE", _, src),
+    expr_comprehension_kind("client", k, c), !comprehension_kind_async(k),
+    expr_type("client", src, t),
+    iteration_protocol_sync(d), mro_lookup("client", t, d, m),
+    expr_ultimate_method("client", src, caller).
+// An ASYNC comprehension keeps the type-based gate: it may hold a plain `for` clause too,
+// so which of its iterables runs which protocol is genuinely not written down, and
+// declining to choose is the honest outcome rather than a guess in either direction.
+iter_protocol_edge(src, caller, m) :-
+    expr_parent("client", c, "COMPREHENSION_ITERABLE", _, src),
+    expr_comprehension_kind("client", k, c), comprehension_kind_async(k),
     expr_type("client", src, t), iter_protocol_target(t, m),
     expr_ultimate_method("client", src, caller).
 
