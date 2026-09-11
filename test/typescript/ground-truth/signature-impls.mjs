@@ -109,6 +109,7 @@ const rows = [];
 const seen = new Set();
 let bodies = 0;
 let contextual = 0;
+let classRefs = 0;
 
 for (const sf of program.getSourceFiles()) {
   // Bodies live in real source; a declaration file has none to attribute.
@@ -136,6 +137,53 @@ for (const sf of program.getSourceFiles()) {
         rows.push(key);
       }
     }
+    // ── A CLASS STANDING IN FOR A CONSTRUCT SIGNATURE ─────────────────────
+    // `const C: new (tag: string) => Op = IncrementOp; new C(tag)`. The compiler
+    // resolves the construction to the ANNOTATION's construct signature, which has no
+    // body; the engine names `IncrementOp`'s constructor, which is the code that
+    // actually runs. Both routes above miss it — the contextually typed expression is
+    // an IDENTIFIER naming a class, which is none of the four function-like kinds, and
+    // the same-name/same-file gate in score.py cannot cross the file boundary. So the
+    // site scored WRONG for giving the more useful of the two right answers (#386).
+    //
+    // Same discipline as the call-signature route: the CONTEXTUAL type decides, never
+    // assignability. An identifier with no construct-signature context credits nothing,
+    // and a `typeof C` annotation resolves to the class's own constructor and is
+    // dropped by the self-implementation guard below.
+    if (ts.isIdentifier(node) && !ts.isTypeReferenceNode(node.parent)) {
+      let ctx;
+      try { ctx = checker.getContextualType(node); } catch { /* unanswerable */ }
+      const csigs = ctx?.getConstructSignatures?.() ?? [];
+      if (csigs.length) {
+        let sym = checker.getSymbolAtLocation(node);
+        if (sym && sym.flags & ts.SymbolFlags.Alias) {
+          try { sym = checker.getAliasedSymbol(sym); } catch { /* keep */ }
+        }
+        const cls = sym?.declarations?.find(
+          (d) => ts.isClassDeclaration(d) || ts.isClassExpression(d)
+        );
+        if (cls) {
+          classRefs += 1;
+          // The implementation is the CONSTRUCTOR, which is what the engine names. A
+          // class with no explicit constructor has none to name, and the engine answers
+          // with the class itself, so that is what is recorded.
+          const ctor = cls.members.find(
+            (m) => ts.isConstructorDeclaration(m) && m.body !== undefined
+          );
+          const [ifile, iline, icol] = posOf(ctor ?? cls);
+          for (const sig of csigs) {
+            const d = sig.declaration;
+            if (!d) continue;
+            if (d === ctor || d === cls) continue;
+            const [sfile, sline, scol] = posOf(d);
+            const key = `${ifile}\t${iline}\t${icol}\t${sfile}\t${sline}\t${scol}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            rows.push(key);
+          }
+        }
+      }
+    }
     ts.forEachChild(node, visit);
   };
   ts.forEachChild(sf, visit);
@@ -148,5 +196,6 @@ fs.writeFileSync(
 );
 console.error(
   `signature-impls: ${bodies} bodies, ${contextual} contextually typed, `
+  + `${classRefs} class-valued construct-signature refs, `
   + `${rows.length} (body, signature) pairs -> ${outPath}`
 );
