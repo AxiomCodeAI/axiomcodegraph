@@ -38,6 +38,23 @@ cha_override_low(base, override) :-
     java_method(name, _, _, _, _, _, _, sub, _, _, _, _, _, _, _, _, _, pc, _, _, _, override),
     override != base.
 
+// ...and for a LIBRARY-DECLARED base, whose fan is the one this cap most needs to see. The clause
+// above reads java_method for the base, so a base declared in a staged dependency was invisible to
+// the cap and its fan was UNCAPPED — exactly inverted, because the widest fans in a real project
+// are off the platform's own callback types. Measured on a 7.9k-file project with the platform and
+// 104 dependencies staged: AutoCloseable#close fans to 58 client implementations, Runnable#run to
+// 51, BiFunction#apply to 39, Callable#call to 28 — every one of them a "which of 58 close() does
+// this try-with-resources run" that the accuracy-first policy exists to refuse. Mirrors the
+// virtual_override clause it caps (client_overridden_lib_type pins baseType to the few library
+// types the client actually extends or implements), and stays LOW for the same reason: lib_method,
+// lib_type, java_type and type_ancestor all sit below the call-graph SCC.
+// lib_method (22): 0 name  7 owner  17 parameterCount  21 hash
+cha_override_low(base, override) :- client_overridden_lib_type(baseType),
+    lib_method(name, _, _, _, _, _, _, baseType, _, _, _, _, _, _, _, _, _, pc, _, _, _, base),
+    name != "",
+    type_ancestor(sub, baseType),
+    java_method(name, _, _, _, _, _, _, sub, _, _, _, _, _, _, _, _, _, pc, _, _, _, override).
+
 // number of distinct overrides a base method fans to (low).
 cha_override_count(base, n) :- cha_override_low(base, _),
     n = count : { cha_override_low(base, _) }.

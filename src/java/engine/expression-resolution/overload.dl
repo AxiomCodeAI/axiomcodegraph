@@ -337,7 +337,38 @@ strict_pos(call, callee, pos) :- expr_arg_ok(call, callee), arg_is_target_typed(
 not_strict_at(call, callee) :- expr_arg_ok(call, callee), call_pos(call, pos),
     !strict_pos(call, callee, pos).
 strict_applicable(call, callee) :- exact_arity(call, callee), !not_strict_at(call, callee).
-call_has_strict(call) :- strict_applicable(call, _).
+
+// ── ONLY A MEMBER OF THE RECEIVER'S TYPE MAY DRIVE THE PHASE GATE ────────────────────────
+// JLS 15.12 picks a signature from the members of the RECEIVER's type — the three phases rank
+// that member set — and only then does dispatch choose which override of the chosen signature
+// runs. A CHA fan-out target is the second question, not the first: it is reachable because the
+// receiver might be that subtype at runtime, and it is not an overload of anything in the
+// receiver's member set. Letting it answer "a strict candidate exists here" made it evict the
+// receiver's own declaration, which is the one target bytecode names.
+//
+// The shape: a client class implements a LIBRARY GENERIC and substitutes the type variables, so
+// its override's parameters are CONCRETE where the declaration's are type variables. An anonymous
+// `new HashMap<>() { public String put(String k, String v) {...} }` anywhere in the project made
+// EVERY `map.put(aString, aString)` in the project strictly applicable to it, and the loosely
+// applicable java.util.Map#put(K,V) — the real hand-off — was dropped site-wide. Measured on a
+// 7.9k-file project with the platform and 104 dependencies staged: 2,443 client->library boundary
+// edges lost across 2,159 sites, all of them Map#put, Set#add, Function#apply or Consumer#accept.
+//
+// method_name_in_type IS the receiver's member set, inherited members included, so this is the
+// same join expr_call_candidate uses for the non-fanned candidates — not a new notion of
+// membership. A call with no receiver member set at all (a static call, a constructor, a method
+// reference) keeps the unrestricted gate, which is what it had.
+call_recv_member(call, m) :- call_site(call, name, recv),
+    expr_type(_, recv, rt),
+    method_name_in_type(name, rt, m).
+call_recv_member(call, m) :- call_unqualified(call, name),
+    expr_ultimate_type("client", call, et),
+    method_name_in_type(name, et, m).
+call_has_recv_member(call) :- call_recv_member(call, _).
+
+gating_strict(call, m) :- strict_applicable(call, m), call_recv_member(call, m).
+gating_strict(call, m) :- strict_applicable(call, m), !call_has_recv_member(call).
+call_has_strict(call) :- gating_strict(call, _).
 
 // Phase 1 wins outright where it applies; otherwise every arg-compatible candidate stands, which
 // is what this relation meant before.

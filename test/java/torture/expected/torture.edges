@@ -224,6 +224,8 @@ multi_inferred	method	torture.F04Events#fireAll(String) -> torture.NoopListener#
 multi_inferred	method	torture.F04Events#fireSingle(String) -> torture.Listener#onFired(String)
 multi_inferred	method	torture.F04Events#fireSingle(String) -> torture.LogListener#onFired(String)
 multi_inferred	method	torture.F04Events#fireSingle(String) -> torture.NoopListener#onFired(String)
+multi_inferred	method	torture.F04Events#viaLibraryReturn(Bus,Event) -> torture.AuditHandler#handle(Event)
+multi_inferred	method	torture.F04Events#viaLibraryReturn(Bus,Event) -> torture.MetricHandler#handle(Event)
 multi_inferred	method	torture.F07Modern#viaEnumAbstract(Op) -> torture.Op#apply(int,int)
 multi_inferred	method	torture.F07Modern#viaEnumConstant() -> torture.Op#apply(int,int)
 multi_inferred	method	torture.F08Nesting#viaAnonymous() -> torture.F08Nesting$anon:Callable#call()
