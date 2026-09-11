@@ -17,6 +17,8 @@ field_type_unknown	resolution-field-type-unknown.csv
 cls_bound_type	resolution-cls-bound-type.csv
 type_instantiated	resolution-type-instantiated.csv
 self_dispatch_assumes_closed_world	assumption-self-dispatch-closed-world.csv
+module_name_ambiguous	ambiguous-module-names.csv
+call_resolved_through_ambiguous_module	assumption-ambiguous-module-name.csv
 call_dropped_by_cap	dispatch-dropped-by-cap.csv
 client_calls_client	call-edges-client.csv
 client_calls_lib	call-edges-lib.csv
