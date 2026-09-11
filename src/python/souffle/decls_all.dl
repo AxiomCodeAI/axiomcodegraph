@@ -263,6 +263,8 @@
 .decl deco_at(c0:symbol,c1:number,c2:symbol)
 .decl deco_factory(c0:symbol,c1:symbol)
 .decl deco_applied(c0:symbol,c1:symbol)
+.decl deco_returns_method(c0:symbol,c1:symbol)
+.decl deco_returns_param(c0:symbol,c1:symbol)
 .decl deco_stage(c0:symbol,c1:number,c2:symbol)
 .decl decorated_name_target(c0:symbol,c1:symbol)
 .decl param_arg_method(c0:symbol,c1:symbol)
