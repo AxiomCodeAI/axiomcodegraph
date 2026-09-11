@@ -491,9 +491,27 @@ expr_element_type(e, prov, t) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
 // looked up by name, which is exactly why it is invisible here and why the lookup has to
 // go around it. Siblings are included so a class whose declarations are merged still
 // finds it.
+// KEYED ON THE NAME BEING COMPUTED, NOT ON IT BEING ABSENT. This matched the empty
+// string, because parser#93 left a computed member name empty and the emptiness was the
+// only discriminator available. That parser fix landed, the name is now
+// `[Symbol.asyncIterator]`, and an empty-string match stopped matching — 33's committed
+// case went to a NEW missing edge, which a golden cannot absorb (#384).
+//
+// Both forms are accepted so this does not depend on which parser it is run against: a
+// bracketed name is what the current parser writes for a computed key, and the empty
+// string is what the previous one wrote. Neither can be an ordinary member — an
+// identifier cannot start with `[` and cannot be empty — so the rule stays as narrow as
+// it was, and a class still earns an element type from `[Symbol.iterator]` and not from
+// an ordinary `getItems(): Foo[]`.
+name_is_computed_member("").
+name_is_computed_member(n) :- method_decl(_, _, n, _, _),
+    strlen(n) > 1,
+    substr(n, 0, 1) = "[".
+
 computed_member_element(scope, prov, t) :- scope_sibling(scope, sib),
     method_owner(mp, sib, m),
-    method_decl(mp, _, "", _, m),
+    method_decl(mp, _, n, _, m),
+    name_is_computed_member(n),
     method_return_element(m, prov, t).
 expr_element_type(e, prov, t) :- expr_type(e, _, qt),
     computed_member_element(qt, prov, t).
