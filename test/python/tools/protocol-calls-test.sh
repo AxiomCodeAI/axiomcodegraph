@@ -103,6 +103,48 @@ def plain_for(xs):
 def real_call_in_for(xs):
     for x in sorted(xs):
         yield helper(x)
+
+
+def return_inside_with(payload):
+    with lock:
+        data = payload
+        return data
+
+
+def return_attr_inside_with(obj):
+    with lock:
+        return obj.value
+
+
+def continue_inside_with(items):
+    for it in items:
+        with lock:
+            if it:
+                continue
+    return 0
+
+
+def return_call_inside_with(obj):
+    with lock:
+        return helper(obj).name
+
+
+class Promise:
+    pass
+
+
+class __proxy__(Promise):
+    """django's lazy proxy, and the shape that breaks a single-regex demangler.
+
+    CPython strips the class's LEADING underscores only, so `self.__cast()` here
+    mangles to `_proxy____cast` -- four underscores in the middle.
+    """
+
+    def __cast(self):
+        return 1
+
+    def __repr__(self):
+        return repr(self.__cast())
 EOF
 
 mkdir -p "$W/ir" "$W/out"
@@ -163,22 +205,87 @@ else
   bad "control: the gap line is wrong: $(grep 'PARSER GAP (site)' "$W/g.txt" | head -1)"
 fi
 
-# 6. THE HELPER ONLY COLLECTS HEADERS IT SHOULD. A plain `for` is not suppressed —
-#    it mints no site, so adding its line would widen the rule for no benefit.
-if GUARD_DIR="$HERE" "$PY" - "$W/src/pkg/mod.py" <<'PYEOF'
+# 6. THE `__exit__` A `return` PUTS ON THE RETURN LINE (#372). The exit call is compiled
+#    onto the statement that leaves the block, so tier 1 names it after whatever that
+#    statement loads -- `data` on line 43, `value` on line 48. Neither line holds a call.
+if grep -qE 'PARSER GAP \(site\).*(data|value) \(via' "$W/g.txt"; then
+  bad 'a `return` inside a `with` leaves the exit call reported as a parser gap' 
+else
+  ok 'the __exit__ a `return` inside a `with` puts on the return line is not a gap'
+fi
+
+# 7. AND THE ONE A `continue` PUTS ON THE ENCLOSING `for`. Same call, a third landing
+#    site, and the reason this is keyed on a property rather than a list of shapes: the
+#    `for` here ENCLOSES the `with`, so the old header rule -- which collected a `for`
+#    only when it was INSIDE a `with` -- did not reach it.
+if grep -q 'PARSER GAP (site).*items (via' "$W/g.txt"; then
+  bad 'the __exit__ a `continue` puts on the enclosing `for` header is still a gap'
+else
+  ok 'the __exit__ a `continue` puts on the enclosing `for` header is not a gap'
+fi
+
+# 8. THE HELPER MAPS EACH LINE TO THE CALLEE NAMES WRITTEN ON IT. Positive and negative in
+#    one assertion: the two real calls in headers are covered (so they stay adjudicable),
+#    and the lines the exit call lands on hold no written call of any name.
+# The redirect goes ON the command: a bare `2>/dev/null` on its own line after the heredoc
+# terminator is a SEPARATE command in the `if` list, so the branch would be taken on ITS
+# status (always 0) and the check would pass however the python exits. Verified by running
+# this file against a tree without the helper: it reports the ImportError and fails.
+if GUARD_DIR="$HERE" "$PY" - "$W/src/pkg/mod.py" 2>/dev/null <<'PYEOF'
 import sys, os
 sys.path.insert(0, os.environ['GUARD_DIR'])
-from coverage_guard import _protocol_header_lines
-got = _protocol_header_lines(sys.argv[1])
-# 15 = `with lock:`, 20 = `with make_lock():`, 25 = `with lock:`, 26 = `for` inside it
-# 30 = a PLAIN `for`, which must NOT be collected
-sys.exit(0 if (15 in got and 26 in got and 30 not in got) else 1)
+from coverage_guard import _written_calls_by_line
+got = _written_calls_by_line(sys.argv[1])
+# line -> the callee NAMES written on it. Covered: 20 `with make_lock():`,
+# 36 `for x in sorted(xs):`, 37 `yield helper(x)`. Holding no written call at all:
+# 15 the bare `with lock:`, 26 the enclosed `for`, 43 and 48 the return lines, and
+# 52 the `for` a `continue` inside a `with` puts the exit call on.
+written = {20: 'make_lock', 36: 'sorted', 37: 'helper'}
+sys.exit(0 if (got is not None
+               and all(n in got.get(ln, ()) for ln, n in written.items())
+               and not any(got.get(ln) for ln in (15, 26, 43, 48, 52))) else 1)
 PYEOF
-     2>/dev/null
 then
-  ok 'the header set holds both `with` kinds and the enclosed `for`, and not a plain `for`'
+  ok 'the written-call line set covers the real calls and none of the protocol lines'
 else
-  bad 'the header set is wrong: a plain `for` is collected, or a `with` header is not'
+  bad 'the written-call line set is wrong: a real call is uncovered, or a protocol line is'
+fi
+
+# 9. THE EXIT CALL AND A REAL CALL ON THE SAME LINE. `return helper(obj).name` is both:
+#    the exit call tier 1 names `name`, and the written `helper(obj)`. Keyed on the line
+#    alone the whole line would go unadjudicable and the real call would stop being
+#    checked; keyed on the name only the exit call is. So `name` must not be a gap AND
+#    `helper` must still be adjudicated -- which check 4 above proves by deleting it.
+if grep -q 'PARSER GAP (site).*name (via' "$W/g.txt"; then
+  bad 'the exit call on a line that also holds a real call is still reported as a gap'
+else
+  ok 'an exit call sharing a line with a real call is suppressed and the real call is not'
+fi
+
+# 10. A MANGLED PRIVATE CALL IS CREDITED, NOT COUNTED MISSING. tier 1 reports
+#     `_proxy____cast` and the parser records `__cast`; they are the same call. A
+#     demangler that commits to the first split reads that as `proxy` + `____cast` and
+#     credits nothing -- 16 invented gaps on one project from one class.
+if grep -qE 'PARSER GAP \(site\).*(_proxy____cast|__cast)' "$W/g.txt"; then
+  bad 'a mangled private call is reported as a gap: the demangler committed to one split'
+else
+  ok 'a mangled private call inside a class with underscores in its name is credited'
+fi
+
+# 11. AND THE MANGLED SPELLING IS IN THE WRITTEN SET, so a private call the parser DROPS
+#     is still reported rather than falling into the complement and being suppressed.
+if GUARD_DIR="$HERE" "$PY" - "$W/src/pkg/mod.py" 2>/dev/null <<'PYEOF'
+import sys, os
+sys.path.insert(0, os.environ['GUARD_DIR'])
+from coverage_guard import _written_calls_by_line
+got = _written_calls_by_line(sys.argv[1]) or {}
+names = set().union(*got.values()) if got else set()
+sys.exit(0 if {'__cast', '_proxy____cast'} <= names else 1)
+PYEOF
+then
+  ok 'the written set carries both spellings of a mangled private call'
+else
+  bad 'the written set is missing a spelling of a mangled private call'
 fi
 
 if [ "$fail" -ne 0 ]; then

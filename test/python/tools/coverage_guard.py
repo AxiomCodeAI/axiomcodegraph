@@ -111,55 +111,113 @@ def main() -> int:
 
 
 
-def _protocol_header_lines(src):
-    """Lines whose only call is one the SOURCE does not contain (#304).
+def _written_calls_by_line(src):
+    """line -> the callee NAMES of the call expressions the source writes there (#304, #372).
 
-    `with obj:` and `for x in xs:` contain no call expression, but CPython compiles them
-    to `__enter__` / `__exit__` / `__iter__`. Tier 1 reads bytecode so it sees them; the
-    parser correctly mints no `py_call_site` for a call the author never wrote; and this
-    check counted the difference as a parser gap. Measured on five projects: 123 invented
-    gaps, and the guard red on all five while the parser's inventory was complete.
+    What this is really for is the complement: a tier-1 site whose callee name is not among
+    the names written on its line is a call the parser cannot have dropped, because there
+    was never one of that name there to mint. Tier 1 reads bytecode, so it still reports
+    it — CPython compiles protocol calls the author never wrote — and check 2 counted every
+    one as a parser gap. Measured when this was first added: 123 invented gaps across five
+    projects, the guard red on all of them while the parser's inventory was complete.
 
-    MEASURED, because the issue and its own verification disagreed about the shapes:
+    WHY THIS IS A PROPERTY OF THE LINE AND NOT A LIST OF STATEMENT KINDS, which is the
+    change in #372. The first version collected `with` and `for` HEADER lines, on a
+    measurement that read `__exit__` out of the class:
 
-        with lock:            -> callee `lock`  via GLOBAL   ON THE HEADER LINE
-        with make_lock():     -> callee `make_lock` (a REAL call) plus `<call-result>`
         with lock: (on exit)  -> EMPTY callee, via UNKNOWN    already filtered
-        for x in xs:          -> no site at all, when not inside a `with`
-        for x in xs:          -> callee `xs` via LOCAL, when INSIDE a `with`
-        for x in sorted(xs):  -> callee `sorted` (a REAL call)
 
-    So `__exit__` was never a gap source, `__enter__` lands on the header line, and a
-    plain `for` produces nothing while a `for` enclosed by a `with` does. Both header
-    kinds are collected; `Site.implicit` covers neither, since it excludes only
-    `__build_class__` and the comprehension IIFE.
+    True of a `with` whose body falls off the end, and false the moment the body leaves by
+    another route: the exit call is then compiled onto the departing statement, and tier 1
+    names it after whatever that statement loads. Measured on the pinned interpreter:
 
-    Returning LINES, not a decision: the caller still requires the IR to have no call
-    site of that name there, so a real call in either header is untouched.
+        return data          -> callee `data`  via LOCAL      the RETURN line
+        return obj.value     -> callee `value` via ATTRIBUTE  the RETURN line
+        continue             -> callee `items` via LOCAL      the enclosing FOR line
+
+    and `break` produces nothing at all. Enumerating those would be three more clauses and
+    the next control-flow shape a fourth, so the test is the property they share instead.
+
+    KEYED ON THE NAME, NOT ONLY THE LINE, because the two coexist. `with suppress(...):
+    return codecs.lookup(enc).name` puts the exit call on a line that also holds a real
+    written call: keyed on the line alone that whole line goes unadjudicable and the real
+    call stops being checked, and keyed on the name only the exit call does. Measured over
+    three projects — 25 invented gaps by line, 3 by name, with the credited count identical
+    on all three, so the extra suppression costs no coverage.
+
+    THE SPAN, NOT THE START LINE. A call written across several lines has its Call node at
+    the line of the callee, and an argument two lines down is inside the same expression;
+    keying on `lineno` alone would leave those interior lines uncovered.
+
+    THIS SUPPRESSES GAPS, so the risk is suppressing a true one, and the containment is
+    that a call the parser dropped is still IN THE SOURCE — its name is on its line here,
+    whatever the parser did with it. A bare decorator is the one application that is not an
+    ast.Call, so it is added explicitly rather than left to fall in the complement. The
+    caller also reaches this only after the name-credit test, so a name the IR has anywhere
+    in the file never gets here.
     """
     import ast
-    out = set()
+    out = {}
     try:
         tree = ast.parse(open(src, encoding='utf-8', errors='replace').read())
     except (OSError, SyntaxError, ValueError):
-        return out
+        # Unparseable: claim nothing is known, so nothing here is suppressed on a guess.
+        return None
 
-    def walk(node, in_with):
+    def _callee_name(fn):
+        if isinstance(fn, ast.Name):
+            return fn.id
+        if isinstance(fn, ast.Attribute):
+            return fn.attr
+        return None      # a subscript/lambda/call result: no name on either side
+
+    def _mangled(name, cls):
+        # CPython mangles an attribute that starts with "__" and does not end with "__",
+        # inside a class body, to "_" + the class name with LEADING underscores stripped
+        # + the attribute. Both spellings are written here because tier 1 reports the
+        # mangled one and the parser the one as written -- and without the mangled
+        # spelling a `self.__x()` the parser DROPPED would fall in the complement and be
+        # suppressed instead of reported.
+        if cls is None or not name.startswith('__') or name.endswith('__'):
+            return None
+        stem = cls.lstrip('_')
+        return '_' + stem + name if stem else None
+
+    def _span(node, name, cls):
+        first = getattr(node, 'lineno', 0)
+        last = getattr(node, 'end_lineno', None) or first
+        names = {name}
+        mangled = _mangled(name, cls) if name else None
+        if mangled:
+            names.add(mangled)
+        for ln in range(first, last + 1):
+            out.setdefault(ln, set()).update(names)
+
+    def walk(node, cls):
         for child in ast.iter_child_nodes(node):
-            if isinstance(child, (ast.With, ast.AsyncWith)):
-                out.add(child.lineno)
-                walk(child, True)
-            elif isinstance(child, (ast.For, ast.AsyncFor)):
-                # Only inside a `with`: a plain `for` mints no tier-1 site, so adding its
-                # line would suppress nothing and widen the rule for no reason.
-                if in_with:
-                    out.add(child.lineno)
-                walk(child, in_with)
+            if isinstance(child, ast.Call):
+                _span(child, _callee_name(child.func), cls)
+                walk(child, cls)
+            elif isinstance(child, ast.ClassDef):
+                # A BARE decorator is an application CPython compiles a CALL for, and it
+                # is not an ast.Call -- `@passthrough` is a Name. Without this the
+                # decorator line would hold no written call and a decorator the parser
+                # DROPPED would be suppressed here instead of reported.
+                for dec in child.decorator_list:
+                    if not isinstance(dec, ast.Call):
+                        _span(dec, _callee_name(dec), cls)
+                walk(child, child.name)
             else:
-                walk(child, in_with)
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    for dec in child.decorator_list:
+                        if not isinstance(dec, ast.Call):
+                            _span(dec, _callee_name(dec), cls)
+                walk(child, cls)
 
-    walk(tree, False)
+    walk(tree, None)
     return out
+
+
 def _tier1_gaps(ir, ir_dir, src):
     """Check 2 — did the PARSER drop a call site CPython's own compiler emitted?
 
@@ -229,10 +287,33 @@ def _tier1_gaps(ir, ir_dir, src):
     def is_credited(f, nm):
         if (f, nm) in credited:
             return True
-        # CPython mangles `self.__x()` inside class C to `_C__x`; the parser records
-        # the name as written, so both spellings are the same call.
-        m = re.match(r'^_([A-Za-z][A-Za-z0-9_]*?)(__[A-Za-z0-9_]+)$', nm)
-        return bool(m) and (f, m.group(2)) in credited
+        # CPython mangles `self.__x()` inside class C to `_C__x`; the parser records the
+        # name as written, so both spellings are the same call.
+        #
+        # EVERY SPLIT IS TRIED, because the class name may itself end in underscores and
+        # a single regex commits to the first split it finds. django's lazy `__proxy__`
+        # is the case: CPython strips the class's LEADING underscores only, so
+        # `self.__cast()` inside `class __proxy__` mangles to `_proxy____cast` — and
+        # `^_([A-Za-z][A-Za-z0-9_]*?)(__[A-Za-z0-9_]+)$` matched it as `proxy` +
+        # `____cast`, which is credited against nothing. 16 invented gaps on one project
+        # from that one class.
+        #
+        # The rule, from CPython's own compiler: a mangled name is "_" + the class name
+        # with leading underscores stripped + an attribute that starts with "__" and does
+        # NOT end with "__" (dunders are never mangled). That leaves only the split point
+        # in doubt, so all of them are tried and any that names a call the IR really has
+        # in this file settles it.
+        if not nm.startswith('_') or nm.startswith('__'):
+            return False
+        for i in range(2, len(nm) - 1):
+            if not nm.startswith('__', i):
+                continue
+            attr = nm[i:]
+            if attr.endswith('__'):
+                continue
+            if (f, attr) in credited:
+                return True
+        return False
 
     # ── THE THIRD STATE: ABSENT BECAUSE NOBODY ASKED FOR IT (#305) ──────────
     # `sites_for_tree` walks the SOURCE tree; `known_files` comes from the IR. On an
@@ -271,12 +352,10 @@ def _tier1_gaps(ir, ir_dir, src):
     total = unadjudicable = 0
     _proto_cache = {}
 
-    def _protocol_lines(rel):
-        v = _proto_cache.get(rel)
-        if v is None:
-            v = _protocol_header_lines(os.path.join(src, rel))
-            _proto_cache[rel] = v
-        return v
+    def _written_call_lines_for(rel):
+        if rel not in _proto_cache:
+            _proto_cache[rel] = _written_calls_by_line(os.path.join(src, rel))
+        return _proto_cache[rel]
     for s in sites_for_tree(src, Normalizer(src)):
         if s.implicit:
             continue
@@ -304,9 +383,11 @@ def _tier1_gaps(ir, ir_dir, src):
         # A PROTOCOL CALL THE SOURCE DOES NOT CONTAIN. Both sides agree there is no
         # written call here -- tier 1 saw the opcode, the parser minted nothing -- so the
         # comparison cannot be made, the same verdict as tier 1's own sentinels. Keyed on
-        # the header line, and only when the IR really has nothing of that name there, so
-        # `with make_lock():` and `for x in sorted(xs):` still count. See #304.
-        if s.line in _protocol_lines(f):
+        # whether ANY call expression covers the line, and reached only when the IR has
+        # nothing of that name anywhere in the file, so `with make_lock():` and
+        # `for x in sorted(xs):` still count. See #304 and #372.
+        _written = _written_call_lines_for(f)
+        if _written is not None and s.callee_name not in _written.get(s.line, ()):
             unadjudicable += 1
             total -= 1
             continue
