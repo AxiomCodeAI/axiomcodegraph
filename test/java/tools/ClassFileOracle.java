@@ -440,6 +440,7 @@ public class ClassFileOracle {
 
                 // re-point to the class that DECLARES the method
                 String dc = owner;
+                boolean outsideApp = false;
                 if (!name.equals("<init>")) {
                     MethodKey key = new MethodKey(name, ps);
                     if (!DECL.getOrDefault(owner, Set.of()).contains(key)) {
@@ -447,10 +448,40 @@ public class ClassFileOracle {
                         for (String a : ancestors(owner)) {
                             if (DECL.getOrDefault(a, Set.of()).contains(key)) { dc = a; found = true; break; }
                         }
-                        if (!found && appOnly) continue;   // inherited from a library class -> client->lib
+                        if (!found && appOnly) outsideApp = true;   // inherited from a library class -> client->lib
                     }
                 }
-                if (appOnly && !APP.contains(dc)) continue;
+                if (appOnly && !APP.contains(dc)) outsideApp = true;
+
+                // ── G_ub ACROSS THE BOUNDARY ────────────────────────────────────────────────────
+                // The method is declared in a DEPENDENCY, so there is no app->app edge to record and
+                // --app-only drops the row. The UPPER BOUND is a different question: an
+                // invokeinterface on dep.Handler may land on any APP class implementing it, and THOSE
+                // targets are app classes. Returning before the expansion made the envelope
+                // structurally blind to the whole "client implements a framework interface"
+                // population -- every such edge scored FABRICATED, i.e. "no sound over-approximation
+                // justifies this", while the justification is the class-file hierarchy this reader
+                // has already indexed: AuditHandler's OWN class file names dep/Handler as its
+                // interface, so SUBS holds dep/Handler -> AuditHandler without dep/Handler ever being
+                // loaded. Keyed on `owner` (the constant-pool name) rather than `dc`, because when the
+                // declaration is outside the app there is no resolved declaring class to key on.
+                // G_lb is untouched: this runs only under --envelope, and the dependency-owned row
+                // itself is still never emitted -- it is not an app->app edge.
+                if (outsideApp) {
+                    if (envelope && (op == Opcode.INVOKEVIRTUAL || op == Opcode.INVOKEINTERFACE)
+                        && !name.equals("<init>")) {
+                        MethodKey key = new MethodKey(name, ps);
+                        String efrom = cname(cls) + "#" + callerName + "(" + callerParams + ")"
+                                     + (withLines ? "@" + line : "");
+                        String esig = "#" + name + "(" + String.join(",", ps) + ")";
+                        for (String sub : SUBS.getOrDefault(owner, List.of())) {
+                            if (APP.contains(sub) && DECL.getOrDefault(sub, Set.of()).contains(key)
+                                && !SYNTH.getOrDefault(sub, Set.of()).contains(key))
+                                out.add(efrom + " -> " + cname(sub) + esig);
+                        }
+                    }
+                    continue;
+                }
                 // SYNTHETIC CALLEE, by FLAG rather than by name. `excludedName` is a four-entry
                 // javac vocabulary, so a member another compiler generates was emitted as ground
                 // truth: ecj lowers an enum switch into `$SWITCH_TABLE$<type>()` and calls it,
