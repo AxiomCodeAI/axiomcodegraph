@@ -496,6 +496,8 @@
 .decl protocol_edge(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl protocol_edge_target_count(c0:symbol,c1:symbol,c2:number)
 .decl protocol_edge_class(c0:symbol,c1:symbol,c2:symbol)
+.decl protocol_edge_over_cap(c0:symbol,c1:symbol)
+.decl protocol_edge_wide(c0:symbol,c1:symbol,c2:number)
 .decl site_has_boundary(c0:symbol)
 .decl site_class(c0:symbol,c1:symbol)
 .decl site_reason(c0:symbol,c1:symbol)
