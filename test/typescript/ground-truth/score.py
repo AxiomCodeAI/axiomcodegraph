@@ -688,6 +688,7 @@ def main():
             env[key] = (cha, rta)
         tp_cha = fp_cha = 0
         tp_rta = fp_rta = 0
+        joined_sites = 0
         cha_total = rta_total = 0
         outside_cha = []
         # ── WHAT AN EDGE OUTSIDE THE ENVELOPE ACTUALLY LICENSES (#242) ──────
@@ -714,6 +715,7 @@ def main():
             e = env.get((f, line, col, eline, ecol))
             if not e:
                 continue
+            joined_sites += 1
             cha, rta = e
             eng = {f'{base(t[0])}:{t[1]}:{t[2]}' for t in engine_targets.get(ce, set())}
             if not cha:
@@ -740,6 +742,21 @@ def main():
         emitted = tp_cha + fp_cha
         print()
         print('dispatch envelope (edges, not sites):')
+        # A BLOCK OF ZEROES IS NOT A RESULT. If the envelope has rows and not one of them
+        # joined a call site, every line below reads `0` with `precision 0.000` — which is
+        # exactly what a clean split with no false positives looks like. The whole point
+        # of this block is to bound false positives, so the one reading nobody can
+        # distinguish from its own failure is the one it must not print silently. #341.
+        if env and not joined_sites:
+            print(f'  ! REFUSING to report: the envelope has {len(env)} rows and NOT ONE '
+                  'joined a call site.')
+            print('    The two sides are not describing the same program — most often the '
+                  'site key,')
+            print('    which is compared as a raw string while every target beside it is '
+                  'resolved.')
+            print('    The numbers below would be zeroes, and a zero here is '
+                  'indistinguishable from a')
+            print('    clean split. Fix the join before reading them.')
         print(f'  engine edges emitted            {emitted}')
         print(f'  inside CHA envelope             {tp_cha}   precision {tp_cha / emitted if emitted else 0:.3f}')
         print(f'  inside RTA envelope             {tp_rta}   precision {tp_rta / emitted if emitted else 0:.3f}')
