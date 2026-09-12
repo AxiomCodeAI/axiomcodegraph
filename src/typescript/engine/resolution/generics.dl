@@ -176,6 +176,27 @@ call_tvar_arg_binding(ce, tp, prov, t) :- expr_call_candidate(ce, m),
     expr_child("client", ce, "ARGUMENT", k, arg),
     expr_element_type(arg, prov, t).
 
+// (c) THE TYPE ARGUMENT IS WRITTEN DOWN — `make<AlphaOp>()`. Clauses (a) and (b) both
+// INFER the binding from an argument, so an explicit type argument typed the result only
+// where the type ALSO appeared in a parameter or in an annotation on the receiving
+// variable. Where it is the sole source of the return type there was nothing to infer
+// from, the result was untyped, and every call on it resolved to nothing (#353).
+//
+// This is the one binding that needs no inference at all: the caller wrote the type.
+// Matched by POSITION — type parameter k of the callee against the call's k-th type
+// argument — because binding by name would let an argument to one generic substitute
+// into a same-named variable declared by another, which is the hazard the
+// `type_param(..., m, tp)` guard on (a) and (b) exists for.
+//
+// Depth 0 only: a nested reference inside the argument (`make<Box<AlphaOp>>()`) is a
+// child of the argument, not another argument.
+call_type_argument(ce, pos, ref) :- ts_type_reference(_, "METHOD_TYPE_ARGUMENT", _, _, _, _, pos, "0", _, _, _, _, _, _, _, _, ce, "EXPRESSION", _, _, _, _, _, _, _, _, _, _, _, _, ref).
+
+call_tvar_arg_binding(ce, tp, prov, t) :- expr_call_candidate(ce, m),
+    type_param(_, _, pos, _, m, tp),
+    call_type_argument(ce, pos, ref),
+    ref_type_target(ref, prov, t).
+
 // the call's own type, once the variable is bound
 expr_type(ce, prov, t) :- expr_call_candidate(ce, m),
     return_is_type_param(m, tp),
