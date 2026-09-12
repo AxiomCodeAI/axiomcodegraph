@@ -1,0 +1,16 @@
+ambiguous_unknown	CONSTRUCTOR_CALL	r388#main() @L62 -> -
+ambiguous_unknown	CONSTRUCTOR_CALL	r388#main() @L65 -> -
+ambiguous_unknown	CONSTRUCTOR_CALL	r388#main() @L66 -> -
+ambiguous_unknown	CONSTRUCTOR_CALL	r388#makePair() @L27 -> -
+known_edge	FUNCTION_CALL	r388#ctlIndexAccess(number) @L44 -> r388#makePair()
+known_edge	FUNCTION_CALL	r388#main() @L62 -> r388#viaArrayDestructure(IncrementOp[],number)
+known_edge	FUNCTION_CALL	r388#main() @L63 -> r388#viaTupleDestructure(number)
+known_edge	FUNCTION_CALL	r388#main() @L64 -> r388#ctlIndexAccess(number)
+known_edge	FUNCTION_CALL	r388#main() @L65 -> r388#ctlObjectDestructure(Ctx,number)
+known_edge	FUNCTION_CALL	r388#main() @L66 -> r388#ctlElementBinding(IncrementOp[],number)
+known_edge	FUNCTION_CALL	r388#viaTupleDestructure(number) @L37 -> r388#makePair()
+known_edge	METHOD_CALL	r388#ctlElementBinding(IncrementOp[],number) @L57 -> IncrementOp#apply(number)
+known_edge	METHOD_CALL	r388#ctlIndexAccess(number) @L45 -> DoubleOp#apply(number)
+known_edge	METHOD_CALL	r388#ctlObjectDestructure(Ctx,number) @L51 -> IncrementOp#apply(number)
+known_edge	METHOD_CALL	r388#viaArrayDestructure(IncrementOp[],number) @L33 -> IncrementOp#apply(number)
+known_edge	METHOD_CALL	r388#viaTupleDestructure(number) @L38 -> DoubleOp#apply(number)
