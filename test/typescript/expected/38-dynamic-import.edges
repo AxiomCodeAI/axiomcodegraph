@@ -1,0 +1,17 @@
+ambiguous_unknown	METHOD_CALL	r352#ctlComputedSpecifier(string) @L39 -> -
+ambiguous_unknown	METHOD_CALL	r352#viaThenCallback() @L27 -> -
+intrinsic_terminal	DYNAMIC_IMPORT_CALL	r352#ctlComputedSpecifier(string) @L38 -> -
+intrinsic_terminal	DYNAMIC_IMPORT_CALL	r352#viaLiteralBare() @L17 -> -
+intrinsic_terminal	DYNAMIC_IMPORT_CALL	r352#viaLiteralDestructured() @L22 -> -
+intrinsic_terminal	DYNAMIC_IMPORT_CALL	r352#viaLiteralJs() @L12 -> -
+intrinsic_terminal	DYNAMIC_IMPORT_CALL	r352#viaThenCallback() @L27 -> -
+known_edge	FUNCTION_CALL	r352#ctlStaticImport() @L32 -> handlers/beta#run(number)
+known_edge	FUNCTION_CALL	r352#main() @L43 -> r352#viaLiteralBare()
+known_edge	FUNCTION_CALL	r352#main() @L43 -> r352#viaLiteralJs()
+known_edge	FUNCTION_CALL	r352#main() @L44 -> r352#ctlStaticImport()
+known_edge	FUNCTION_CALL	r352#main() @L44 -> r352#viaLiteralDestructured()
+known_edge	FUNCTION_CALL	r352#main() @L44 -> r352#viaThenCallback()
+known_edge	FUNCTION_CALL	r352#viaLiteralDestructured() @L23 -> handlers/beta#run(number)
+known_edge	METHOD_CALL	r352#<arrow@27>(?) @L27 -> handlers/alpha#run(number)
+known_edge	METHOD_CALL	r352#viaLiteralBare() @L18 -> handlers/beta#run(number)
+known_edge	METHOD_CALL	r352#viaLiteralJs() @L13 -> handlers/alpha#run(number)

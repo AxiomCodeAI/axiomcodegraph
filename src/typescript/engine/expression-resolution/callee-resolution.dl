@@ -483,6 +483,17 @@ expr_call_candidate(ce, m) :- call_callee_expr(_, ce, ne),
     expr_referenced("client", "VARIABLE", v, ne),
     var_binding_method(v, m).
 
+// …AND OUT OF A MODULE NAMESPACE — `const { run } = await import("./m"); run(1)`.
+// The same destructuring, but the thing destructured is a MODULE rather than a value
+// with a type, so var_binding_target (which goes through expr_type) reaches nothing.
+// The bound name is an EXPORT NAME, so the lookup is the module's export table — the
+// same one `mod.run(1)` uses one line up (#352).
+expr_call_candidate(ce, m) :- call_callee_expr(_, ce, ne),
+    expr_referenced("client", "VARIABLE", v, ne),
+    var_binding("client", _, "PROPERTY", src, e, v),
+    expr_namespace(e, prov, mod),
+    module_export(prov, mod, src, "METHOD", m).
+
 // ============================================================================
 // A CALLABLE VALUE CARRIES THE GLOBAL FUNCTION MEMBERS
 // ============================================================================
