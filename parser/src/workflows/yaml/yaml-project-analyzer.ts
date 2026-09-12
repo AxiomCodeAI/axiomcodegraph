@@ -9,6 +9,7 @@ import { SkippedFileReason } from '@/enums/SkippedFileReason';
 import { YamlParser } from '@/parsers/yaml/yaml-parser';
 import { ProjectInfo } from '@/types/ProjectInfo';
 import { EntityUtils } from '@/utils/entity-utils';
+import { groupOwnedFiles, resolveFileOwners } from '@/utils/file-ownership';
 
 /**
  * Analyzes YAML files (.yml / .yaml) within Java projects and extracts
@@ -46,7 +47,9 @@ export class YamlProjectAnalyzer {
     await this.ensureOutputDirectory();
 
     await Promise.all(
-      javaProjects.map((project) => this.analyzeProject(project, serviceVersionHash))
+      [...groupOwnedFiles(
+        await resolveFileOwners(javaProjects, (root) => this.findYamlFiles(root))
+      )].map(([project, files]) => this.analyzeProject(project, files, serviceVersionHash))
     );
 
     await this.exportPropertiesCsv();
@@ -62,14 +65,13 @@ export class YamlProjectAnalyzer {
   }
 
   /**
-   * Analyzes a single project for YAML files.
+   * Analyzes the files attributed to a single project.
    */
   private async analyzeProject(
     project: ProjectInfo,
+    yamlFiles: ReadonlyArray<string>,
     serviceVersionHash: string
   ): Promise<void> {
-    const yamlFiles = await this.findYamlFiles(project.path);
-
     if (yamlFiles.length === 0) {
       return;
     }

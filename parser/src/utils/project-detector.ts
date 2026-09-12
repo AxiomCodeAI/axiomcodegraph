@@ -37,8 +37,68 @@ export class ProjectDetector {
   }
 
   /**
-   * Analyzes a directory and returns project information
-   * Iterates through registered language detectors to identify the project type
+   * Analyzes a directory and returns one {@link ProjectInfo} per language found
+   * there.
+   *
+   * A directory can be several projects at once. A Java service with its deploy
+   * scripts beside it is Java AND Python, and returning only the first match
+   * meant the scripts were never parsed. Every detector that claims the
+   * directory gets an entry, so the caller can run every matching analyzer over
+   * it rather than picking a winner.
+   *
+   * `skip` names languages an ancestor directory has already claimed. Those
+   * detectors are not consulted at all — not merely filtered afterwards. That is
+   * what keeps the scan affordable now that it no longer stops at the first
+   * match: `JavaDetector.isProject` walks five levels deep on every directory it
+   * is asked about, and asking it about every directory in a Java monorepo would
+   * cost far more than the answer is worth when an ancestor has already claimed
+   * Java and will analyse this directory anyway.
+   *
+   * @returns One entry per matching language, in detector registration order.
+   *   Empty when nothing matches — an UNKNOWN placeholder would be indistinguishable
+   *   from a real project to a caller that filters by language.
+   */
+  async analyzeProjectLanguages(
+    projectPath: string,
+    skip: ReadonlySet<ProjectLanguage> = new Set()
+  ): Promise<ProjectInfo[]> {
+    try {
+      const stats = await fs.stat(projectPath);
+      if (!stats.isDirectory()) {
+        return [];
+      }
+
+      const projectName = path.basename(projectPath);
+      const found: ProjectInfo[] = [];
+
+      for (const detector of this.detectors) {
+        if (skip.has(detector.language)) {
+          continue;
+        }
+        if (!(await detector.isProject(projectPath))) {
+          continue;
+        }
+        found.push({
+          name: projectName,
+          path: projectPath,
+          language: detector.language,
+          buildSystem: await detector.detectBuildSystem(projectPath),
+          hasSourceFiles: await detector.hasSourceFiles(projectPath),
+        });
+      }
+
+      return found;
+    } catch (error) {
+      return [];
+    }
+  }
+
+  /**
+   * Analyzes a directory and returns project information for its primary
+   * language — the first detector that claims it.
+   *
+   * Prefer {@link analyzeProjectLanguages}: this collapses a polyglot directory
+   * to one language and is kept for callers that genuinely want a single label.
    */
   async analyzeProject(projectPath: string): Promise<ProjectInfo | null> {
     try {
@@ -47,26 +107,9 @@ export class ProjectDetector {
         return null;
       }
 
-      const projectName = path.basename(projectPath);
-
-      for (const detector of this.detectors) {
-        const isProject = await detector.isProject(projectPath);
-        if (isProject) {
-          const buildSystem = await detector.detectBuildSystem(projectPath);
-          const hasSourceFiles = await detector.hasSourceFiles(projectPath);
-
-          return {
-            name: projectName,
-            path: projectPath,
-            language: detector.language,
-            buildSystem,
-            hasSourceFiles,
-          };
-        }
-      }
-
-      return {
-        name: projectName,
+      const [primary] = await this.analyzeProjectLanguages(projectPath);
+      return primary ?? {
+        name: path.basename(projectPath),
         path: projectPath,
         language: ProjectLanguage.UNKNOWN,
         hasSourceFiles: false,

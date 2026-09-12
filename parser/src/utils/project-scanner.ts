@@ -19,18 +19,32 @@ export class ProjectScanner {
    */
   async scanForProjects(rootPath: string, maxDepth: number = 3): Promise<ProjectInfo[]> {
     const projects: ProjectInfo[] = [];
-    await this.scanDirectory(rootPath, projects, 0, maxDepth);
+    await this.scanDirectory(rootPath, projects, 0, maxDepth, new Set());
     return projects;
   }
 
   /**
-   * Recursively scans directories for projects
+   * Recursively scans directories for projects.
+   *
+   * Descends past a match rather than stopping at one. Stopping was what made a
+   * polyglot repository report a single language: a parent `pom.xml` claimed the
+   * whole tree as one Java project and the Python and TypeScript services beside
+   * it were never discovered, so their analyzers received an empty project list
+   * and wrote nothing. The same tree without that one POM extracted all three.
+   *
+   * `claimed` carries the languages an ancestor already covers. Every analyzer
+   * walks its root recursively, so an ancestor claiming Java will reach this
+   * directory's Java anyway; recording it again would parse the same files twice
+   * and emit every row twice. Suppressing those keeps single-language repositories
+   * behaving exactly as before — one project at the outermost match — while
+   * letting a language no ancestor claimed be found at any depth.
    */
   private async scanDirectory(
     dirPath: string,
     projects: ProjectInfo[],
     currentDepth: number,
-    maxDepth: number
+    maxDepth: number,
+    claimed: ReadonlySet<ProjectLanguage>
   ): Promise<void> {
     if (currentDepth > maxDepth) {
       return;
@@ -39,11 +53,15 @@ export class ProjectScanner {
     try {
       const entries = await fs.readdir(dirPath, { withFileTypes: true });
 
-      const projectInfo = await this.detector.analyzeProject(dirPath);
-      if (projectInfo && projectInfo.language !== ProjectLanguage.UNKNOWN) {
-        projects.push(projectInfo);
-        return;
-      }
+      const detected = await this.detector.analyzeProjectLanguages(dirPath, claimed);
+      const found = detected.filter(
+        (project) => project.language !== ProjectLanguage.UNKNOWN
+      );
+      projects.push(...found);
+
+      const claimedBelow: ReadonlySet<ProjectLanguage> = found.length === 0
+        ? claimed
+        : new Set([...claimed, ...found.map((project) => project.language)]);
 
       for (const entry of entries) {
         if (!entry.isDirectory()) {
@@ -55,7 +73,7 @@ export class ProjectScanner {
         }
 
         const subPath = path.join(dirPath, entry.name);
-        await this.scanDirectory(subPath, projects, currentDepth + 1, maxDepth);
+        await this.scanDirectory(subPath, projects, currentDepth + 1, maxDepth, claimedBelow);
       }
     } catch (error) {
       console.error(`Error scanning directory ${dirPath}:`, error);

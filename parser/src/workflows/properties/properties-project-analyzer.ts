@@ -9,6 +9,7 @@ import { SkippedFileReason } from '@/enums/SkippedFileReason';
 import { PropertiesParser } from '@/parsers/properties/properties-parser';
 import { ProjectInfo } from '@/types/ProjectInfo';
 import { EntityUtils } from '@/utils/entity-utils';
+import { groupOwnedFiles, resolveFileOwners } from '@/utils/file-ownership';
 
 /**
  * Analyzes .properties files within Java projects and extracts
@@ -46,7 +47,9 @@ export class PropertiesProjectAnalyzer {
     await this.ensureOutputDirectory();
 
     await Promise.all(
-      javaProjects.map((project) => this.analyzeProject(project, serviceVersionHash))
+      [...groupOwnedFiles(
+        await resolveFileOwners(javaProjects, (root) => this.findPropertiesFiles(root))
+      )].map(([project, files]) => this.analyzeProject(project, files, serviceVersionHash))
     );
 
     await this.exportPropertyKeysCsv();
@@ -62,14 +65,13 @@ export class PropertiesProjectAnalyzer {
   }
 
   /**
-   * Analyzes a single project for .properties files.
+   * Analyzes the files attributed to a single project.
    */
   private async analyzeProject(
     project: ProjectInfo,
+    propertiesFiles: ReadonlyArray<string>,
     serviceVersionHash: string
   ): Promise<void> {
-    const propertiesFiles = await this.findPropertiesFiles(project.path);
-
     if (propertiesFiles.length === 0) {
       return;
     }

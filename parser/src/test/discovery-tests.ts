@@ -1,0 +1,206 @@
+/**
+ * DISCOVERY TESTS — project discovery across languages.
+ *
+ *     npx tsx src/test/discovery-tests.ts            # everything
+ *     npx tsx src/test/discovery-tests.ts --list     # what runs, and what it proves
+ *
+ * NO JVM, NO NETWORK. Each check builds a throwaway repository under the OS
+ * temp directory and runs the real `ProjectScanner` over it.
+ *
+ * ## What this suite is for
+ *
+ * `extractProject` partitions discovered projects by language and hands each
+ * list to its analyzer, so a language that discovery misses is never extracted
+ * at all — and misses silently, because an analyzer given an empty list writes
+ * nothing and reports nothing. Every check here is written against a repository
+ * LAYOUT rather than against parser output, and each names the implementation
+ * it rules out; a check that no plausible implementation fails proves nothing.
+ *
+ * The two implementations these rule out are the two that were actually shipped:
+ * a scanner that stops descending at the first match, and a detector that
+ * returns only the first language that claims a directory.
+ */
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+
+import { ProjectLanguage } from '@/types/ProjectInfo';
+import { resolveFileOwners } from '@/utils/file-ownership';
+import { ProjectScanner } from '@/utils/project-scanner';
+
+interface Check {
+  name: string;
+  proves: string;
+  rulesOut: string;
+  run: (root: string) => Promise<string | null>;
+}
+
+/** Writes `files` (path → contents) under a fresh temp root and returns it. */
+function build(tmp: string, name: string, files: Record<string, string>): string {
+  const root = path.join(tmp, name);
+  for (const [relative, contents] of Object.entries(files)) {
+    const target = path.join(root, relative);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, contents);
+  }
+  return root;
+}
+
+const POM = '<project><groupId>g</groupId><artifactId>a</artifactId><version>1</version></project>';
+const JAVA = 'package com.x;\npublic class Foo { public int bar(int a) { return a + 1; } }\n';
+const PY = 'def hello(n):\n    return n + 1\n';
+const TS = 'export function greet(name: string): string { return `hi ${name}`; }\n';
+
+/** Languages discovered under `root`, deduplicated and sorted. */
+async function languagesIn(root: string): Promise<string[]> {
+  const projects = await new ProjectScanner().scanForProjects(root);
+  return [...new Set(projects.map((p) => p.language))].sort();
+}
+
+/** Every discovered project as `LANGUAGE @ path-relative-to-root`, sorted. */
+async function projectsIn(root: string): Promise<string[]> {
+  const projects = await new ProjectScanner().scanForProjects(root);
+  return projects
+    .map((p) => `${p.language} @ ${path.relative(root, p.path) || '.'}`)
+    .sort();
+}
+
+const POLYGLOT: Record<string, string> = {
+  'svc-java/pom.xml': POM,
+  'svc-java/src/main/java/com/x/Foo.java': JAVA,
+  'svc-py/main.py': PY,
+  'svc-ts/tsconfig.json': '{"compilerOptions":{"target":"ES2020"}}',
+  'svc-ts/src/a.ts': TS,
+};
+
+const ALL_THREE = [ProjectLanguage.JAVA, ProjectLanguage.PYTHON, ProjectLanguage.TYPESCRIPT].sort();
+
+const CHECKS: Check[] = [
+  {
+    name: 'siblings-are-all-found',
+    proves: 'three single-language services side by side are three projects',
+    rulesOut: 'nothing on its own — it is the control for root-manifest-does-not-swallow-siblings',
+    run: async (tmp) => {
+      const found = await languagesIn(build(tmp, 'siblings', POLYGLOT));
+      return String(found) === String(ALL_THREE) ? null : `found ${found}, want ${ALL_THREE}`;
+    },
+  },
+  {
+    name: 'root-manifest-does-not-swallow-siblings',
+    proves: 'a parent POM over a polyglot tree does not reduce it to one Java project',
+    rulesOut: 'a scanner that returns as soon as a directory claims to be a project',
+    run: async (tmp) => {
+      const found = await languagesIn(build(tmp, 'parent-pom', { ...POLYGLOT, 'pom.xml': POM }));
+      return String(found) === String(ALL_THREE)
+        ? null
+        : `found ${found}, want ${ALL_THREE} — the parent POM swallowed the other services`;
+    },
+  },
+  {
+    name: 'one-directory-can-be-several-languages',
+    proves: 'a Java service with Python and TypeScript tooling beside it is all three',
+    rulesOut: 'a detector that returns only the first language claiming a directory',
+    run: async (tmp) => {
+      const found = await languagesIn(build(tmp, 'mixed-dir', {
+        'pom.xml': POM,
+        'src/main/java/com/x/Foo.java': JAVA,
+        'scripts/deploy.py': PY,
+        'scripts/tool.ts': TS,
+      }));
+      return String(found) === String(ALL_THREE) ? null : `found ${found}, want ${ALL_THREE}`;
+    },
+  },
+  {
+    name: 'a-module-below-a-different-language-root-is-found',
+    proves: 'a Maven module under a TypeScript root is still discovered as Java',
+    rulesOut: 'a scanner that stops at the root because tsconfig.json claimed it',
+    run: async (tmp) => {
+      const found = await languagesIn(build(tmp, 'ts-root', {
+        'tsconfig.json': '{"compilerOptions":{"target":"ES2020"}}',
+        'src/a.ts': TS,
+        'backend/pom.xml': POM,
+        'backend/src/main/java/com/x/Foo.java': JAVA,
+      }));
+      const want = [ProjectLanguage.JAVA, ProjectLanguage.TYPESCRIPT].sort();
+      return String(found) === String(want) ? null : `found ${found}, want ${want}`;
+    },
+  },
+  {
+    name: 'nested-same-language-is-recorded-once',
+    proves: 'a Maven multi-module build stays one Java project, at the outermost POM',
+    rulesOut: 'descending past a match WITHOUT suppressing a language an ancestor already covers — '
+      + 'every analyzer walks its root recursively, so recording the modules too parses each file '
+      + 'once per containing project and emits every row that many times',
+    run: async (tmp) => {
+      const found = await projectsIn(build(tmp, 'multi-module', {
+        'pom.xml': POM,
+        'mod-a/pom.xml': POM,
+        'mod-a/src/main/java/com/x/A.java': 'package com.x;\npublic class A {}\n',
+        'mod-b/pom.xml': POM,
+        'mod-b/src/main/java/com/x/B.java': 'package com.x;\npublic class B {}\n',
+      }));
+      return String(found) === String([`${ProjectLanguage.JAVA} @ .`])
+        ? null
+        : `found ${found}, want exactly the root Java project`;
+    },
+  },
+  {
+    name: 'ownership-attributes-a-file-to-its-innermost-project',
+    proves: 'overlapping scan targets yield one owner per file, the most specific one',
+    rulesOut: 'analysing each target independently, which emits the file once per containing '
+      + 'target with a different baseMservPath — and therefore a different unique hash — each time',
+    run: async (tmp) => {
+      const root = build(tmp, 'ownership', { 'core/pom.xml': POM });
+      const file = path.join(root, 'core', 'pom.xml');
+      const target = (p: string) => ({
+        name: path.basename(p), path: p, language: ProjectLanguage.JAVA, hasSourceFiles: true,
+      });
+      // The root walk and the sub-project walk both reach the same file.
+      const owners = await resolveFileOwners(
+        [target(root), target(path.join(root, 'core'))],
+        async (dir) => (file.startsWith(dir) ? [file] : [])
+      );
+      if (owners.size !== 1) return `${owners.size} owned file(s), want 1`;
+      const owner = owners.get(file)?.path;
+      return owner === path.join(root, 'core')
+        ? null
+        : `attributed to ${owner}, want the enclosing core project`;
+    },
+  },
+];
+
+async function main(): Promise<void> {
+  if (process.argv.includes('--list')) {
+    for (const c of CHECKS) {
+      console.log(`${c.name}\n  proves:    ${c.proves}\n  rules out: ${c.rulesOut}\n`);
+    }
+    return;
+  }
+
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'discovery-tests-'));
+  let failures = 0;
+
+  for (const check of CHECKS) {
+    let problem: string | null;
+    try {
+      problem = await check.run(tmp);
+    } catch (error) {
+      problem = `threw: ${error}`;
+    }
+    if (problem) {
+      failures += 1;
+      console.log(`  ✗ ${check.name}\n      ${problem}`);
+    } else {
+      console.log(`  ✓ ${check.name}`);
+    }
+  }
+
+  fs.rmSync(tmp, { recursive: true, force: true });
+
+  console.log(failures === 0
+    ? '\n✅ all discovery checks passed'
+    : `\n❌ ${failures} discovery check failure(s)`);
+  process.exit(failures === 0 ? 0 : 1);
+}
+
+main().catch((e) => { console.error(e); process.exit(1); });

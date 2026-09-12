@@ -10,6 +10,7 @@ import { SkippedFileReason } from '@/enums/SkippedFileReason';
 import { XmlParser } from '@/parsers/xml/xml-parser';
 import { ProjectInfo } from '@/types/ProjectInfo';
 import { EntityUtils } from '@/utils/entity-utils';
+import { groupOwnedFiles, resolveFileOwners } from '@/utils/file-ownership';
 
 /**
  * Analyzes XML files within projects and extracts
@@ -51,7 +52,9 @@ export class XmlProjectAnalyzer {
     await this.ensureOutputDirectory();
 
     await Promise.all(
-      projects.map((project) => this.analyzeProject(project, serviceVersionHash))
+      [...groupOwnedFiles(
+        await resolveFileOwners(projects, (root) => this.findXmlFiles(root))
+      )].map(([project, files]) => this.analyzeProject(project, files, serviceVersionHash))
     );
 
     await this.exportElementsCsv();
@@ -69,14 +72,13 @@ export class XmlProjectAnalyzer {
   }
 
   /**
-   * Analyzes a single project for XML files.
+   * Analyzes the files attributed to a single project.
    */
   private async analyzeProject(
     project: ProjectInfo,
+    xmlFiles: ReadonlyArray<string>,
     serviceVersionHash: string
   ): Promise<void> {
-    const xmlFiles = await this.findXmlFiles(project.path);
-
     if (xmlFiles.length === 0) {
       return;
     }
