@@ -131,6 +131,7 @@ for (const sf of program.getSourceFiles()) {
         // itself in some positions, and crediting that would make every function
         // trivially implement itself.
         if (d === node) continue;
+        if (d.body !== undefined) continue;   // bodiless only — see the note below
         const [sfile, sline, scol] = posOf(d);
         const key = `${ifile}\t${iline}\t${icol}\t${sfile}\t${sline}\t${scol}`;
         if (seen.has(key)) continue;
@@ -176,6 +177,7 @@ for (const sf of program.getSourceFiles()) {
             const d = sig.declaration;
             if (!d) continue;
             if (d === ctor || d === cls) continue;
+            if (d.body !== undefined) continue;   // bodiless only — see the note below
             const [sfile, sline, scol] = posOf(d);
             const key = `${ifile}\t${iline}\t${icol}\t${sfile}\t${sline}\t${scol}`;
             if (seen.has(key)) continue;
@@ -230,6 +232,14 @@ for (const sf of program.getSourceFiles()) {
               // A member is not its own signature, and a member is not credited to a
               // redeclaration of itself in the same class.
               if (d === m) continue;
+              // BODILESS TARGETS ONLY, for every route in this file. score.py used to
+              // establish that from the IR — `pos_meta[otarget]` had to carry a bodiless
+              // kind — and that check cannot be made for a target the IR does not
+              // contain: a package whose built .d.ts is staged while the compiler names
+              // its SOURCE is exactly that case, and it is the common one for a
+              // monorepo's own packages. So the emitter certifies it here instead, where
+              // the AST is in hand, and score.py can trust the pair on its own.
+              if (d.body !== undefined) continue;
               heritageMembers += 1;
               const [sfile, sline, scol] = posOf(d);
               const key = `${ifile}\t${iline}\t${icol}\t${sfile}\t${sline}\t${scol}`;
