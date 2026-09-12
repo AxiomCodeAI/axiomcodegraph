@@ -1,0 +1,26 @@
+// ============================================================================
+// PROJECTIONS · BLOCKS  (the statement lists a `def` can sit in)
+//
+// py_block was emitted by the parser and read by NO rule until #383. It is the only
+// thing in the IR that says whether two definitions in one scope are SEQUENTIAL — one
+// after the other in a single statement list, where the second rebinds the first — or in
+// DIFFERENT ARMS of an `if` or a `try`, where only one of them is ever defined and both
+// are reachable answers.
+//
+// That distinction is the whole of #383. Measured over five open-source projects, `def`s
+// sharing one declaring binding split 88 sequential against 128 branched, so a rule that
+// simply preferred the later one would fabricate a wrong answer on more sites than it
+// fixed.
+//   0 kind  1 order  2 filePath  3 startLine  4 endLine  5 startColumn  6 endColumn
+//   7 nestingDepth  8 pyTypeLinkHash  9 methodOwnerHash  10 parentContainerHash
+//   ... 26 pyBlockUniqueHash
+// ============================================================================
+
+// ── block_span(Prov, OwnerMethodHash, StartLine, EndLine, BlockHash) ─────────
+// KEYED ON THE FILE, NOT ON AN OWNER. enclosingMemberLinkHash is EMPTY on every
+// py_method row in the IR — verified, not assumed — so an owner join silently matches
+// nothing and every pair looks unseparated, which is the failure mode that would delete
+// one arm of every `if`/`else` pair. The file path plus a line range is exact and is
+// populated on both sides.
+block_span("client", f, s, e, h) :- py_block(_, _, f, s, e, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+block_span("lib", f, s, e, h) :- lib_py_block(_, _, f, s, e, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).

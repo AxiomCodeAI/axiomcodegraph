@@ -1,4 +1,4 @@
-=== per-family coverage (tier-4, 463 scored sites) ===
+=== per-family coverage (tier-4, 471 scored sites) ===
   f01 inheritance & MRO        links= 10  found= 10 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f02 callables & closures     links= 10  found=  9 (90.0%)  missed= 1  wide= 0  WRONG= 0
   f03 generics                 links= 14  found= 14 (100.0%)  missed= 0  wide= 0  WRONG= 0
@@ -38,15 +38,16 @@
   f40 data descriptor          links= 14  found= 14 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f41 class attribute absent   links=  3  found=  3 (100.0%)  missed= 0  wide= 0  WRONG= 0
   f42 f42                      links=  6  found=  6 (100.0%)  missed= 0  wide= 0  WRONG= 0
+  f43 f43                      links=  7  found=  7 (100.0%)  missed= 0  wide= 1  WRONG= 0
   nestmod.py nestmod.py               links=  1  found=  1 (100.0%)  missed= 0  wide= 0  WRONG= 0
   pkgmod relative imports (subpackage) links=  3  found=  3 (100.0%)  missed= 0  wide= 0  WRONG= 0
 
-  TOTAL                         links=427  found=421 (98.6%)  missed= 6  wide=36  WRONG= 0
-  recall      421/427 = 98.6%  of the links that actually ran
-  wide  36   a member of a SOUND SET that did not run on this pass
+  TOTAL                         links=434  found=428 (98.6%)  missed= 6  wide=37  WRONG= 0
+  recall      428/434 = 98.6%  of the links that actually ran
+  wide  37   a member of a SOUND SET that did not run on this pass
   WRONG 0   a single target asserted as certain that never ran
 
-  EXPECTED-MISS cases: {'FOUND': 18, 'MISSED': 23}   (a CONCRETE here means a known blind spot closed)
+  EXPECTED-MISS cases: {'FOUND': 20, 'MISSED': 24}   (a CONCRETE here means a known blind spot closed)
 
 --- non-concrete sites ---
   f02_callables.py:31   MISSED     true=[('lib', 'callables.py', 22)] engine=[]
@@ -91,3 +92,4 @@
   f36_property_result.py:179  WIDE       true=[('client', 'f36_property_result.py', 55), ('client', 'f36_property_result.py', 70)] engine=[('client', 'f36_property_result.py', 60)]
   f36_property_result.py:179  WIDE       true=[('client', 'f36_property_result.py', 55), ('client', 'f36_property_result.py', 70)] engine=[('client', 'f36_property_result.py', 102)]
   f36_property_result.py:227  WIDE       true=[('client', 'f36_property_result.py', 55), ('client', 'f36_property_result.py', 70)] engine=[('client', 'f36_property_result.py', 60)]
+  f43_def_rebind.py:86   WIDE       true=[('client', 'f43_def_rebind.py', 63)] engine=[('client', 'f43_def_rebind.py', 70)]
