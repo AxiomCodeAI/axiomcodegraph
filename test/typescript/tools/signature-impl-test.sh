@@ -137,6 +137,34 @@ export function ctlTypeofAnnotation(tag: string): IncrementOp {
 }
 EOF
 
+# THE THIRD SHAPE: a class member implementing an interface member declared in ANOTHER
+# file, reached through the class's DECLARED heritage — directly, and transitively via a
+# base class. score.py credits this only when the two are in the same file, and an
+# interface and its implementations conventionally are not. See issue #400.
+cat > "$W/src/server.interface.ts" <<'EOF'
+export interface HttpServer {
+  reply(response: any, body: any): void;
+  end(response: any): void;
+}
+EOF
+cat > "$W/src/adapter.ts" <<'EOF'
+import { HttpServer } from './server.interface';
+export abstract class AbstractAdapter implements HttpServer {
+  reply(response: any, body: any): void {}
+  abstract end(response: any): void;
+}
+export class NoopAdapter extends AbstractAdapter {
+  end(response: any): void {}
+}
+// CONTROL: STRUCTURALLY compatible with HttpServer and declaring nothing. TypeScript
+// would accept it wherever an HttpServer is wanted; crediting it would be an
+// assignability test, which is the rule this file exists to refuse.
+export class StructuralOnly {
+  reply(response: any, body: any): void {}
+  end(response: any): void {}
+}
+EOF
+
 OUT="$W/pairs.tsv"
 if ! ( cd "$W" && node "$HERE/../ground-truth/signature-impls.mjs" . "$OUT" ) >"$W/log" 2>&1; then
   echo "  FAIL  signature-impls.mjs failed"
@@ -234,6 +262,35 @@ if pairs | grep -q '^strategies\.ts:6:'; then
   bad "control: a class with no construct-signature context was credited"
 else
   ok "control: a class never assigned to a construct signature is credited to nothing"
+fi
+
+# 11. A CLASS MEMBER IS CREDITED TO THE INTERFACE MEMBER IT DECLARES IT IMPLEMENTS,
+#     ACROSS FILES. `AbstractAdapter implements HttpServer`, and `reply` has a body.
+if pairs | grep -q '^adapter\.ts:3:3 -> server\.interface\.ts:2:3$'; then
+  ok "a class member maps to the interface member it declares it implements"
+else
+  bad "adapter.ts:3:3 was not mapped to the interface — got: $(pairs | grep '^adapter\.ts:3' || echo none)"
+fi
+
+# 12. TRANSITIVELY, THROUGH A BASE CLASS. `NoopAdapter extends AbstractAdapter` and
+#     never names HttpServer itself; the obligation is inherited. Without the recursive
+#     walk this is the row that stays WRONG, and it is the commoner shape of the two.
+if pairs | grep -q '^adapter\.ts:7:3 -> server\.interface\.ts:3:3$'; then
+  ok "a member of a subclass reaches the interface through its base class"
+else
+  bad "adapter.ts:7:3 did not reach the interface through its base — got: $(pairs | grep '^adapter\.ts:7' || echo none)"
+fi
+
+# 13. CONTROL — A STRUCTURALLY COMPATIBLE CLASS DECLARING NOTHING IS CREDITED TO
+#     NOTHING. This is the assertion that makes the rule safe. StructuralOnly satisfies
+#     HttpServer in every way TypeScript cares about and declares no heritage at all; if
+#     it were credited, the rule would be an assignability test wearing a heritage
+#     clause's name, and would credit unrelated members for any interface they happen to
+#     fit.
+if pairs | grep -q '^adapter\.ts:1[0-9]:3 -> server\.interface\.ts:'; then
+  bad "control: a STRUCTURALLY compatible class with no heritage was credited — $(pairs | grep '^adapter\.ts:1' | head -1)"
+else
+  ok "control: a structurally compatible class declaring no heritage is credited to nothing"
 fi
 
 if [ "$fail" -ne 0 ]; then
