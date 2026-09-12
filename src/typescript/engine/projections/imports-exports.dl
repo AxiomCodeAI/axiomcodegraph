@@ -53,6 +53,14 @@
 import_binding("client", k, local, orig, mod, h) :- ts_import(k, _, _, local, _, _, _, _, _, orig, _, _, _, mod, _, _, _, _, _, _, _, _, _, _, _, _, h).
 import_binding("lib", k, local, orig, mod, h) :- lib_ts_import(k, _, _, local, _, _, _, _, _, orig, _, _, _, mod, _, _, _, _, _, _, _, _, _, _, _, _, h).
 
+// ── import_expr(Prov, ExprHash, ImportHash) ─────────────────────────────────
+// Column 22, and nothing read it. A `import("./m")` is the only import that IS an
+// expression, and this is the link back from that expression to the resolved import
+// row — a join the static form does not even have. Without it a literal dynamic import
+// named its module in the IR and typed nothing in the graph (#352).
+import_expr("client", e, h) :- ts_import(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, _, _, h), e != "".
+import_expr("lib", e, h) :- lib_ts_import(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, _, _, h), e != "".
+
 // ── import_specifier(Prov, ImportedPath, ImportHash) ────────────────────────
 // The specifier as WRITTEN ("./util", "lodash", "@/constants"). Kept because it is
 // the only key an AMBIENT MODULE declaration can be matched on — a
