@@ -1,0 +1,16 @@
+ambient_terminal	FUNCTION_CALL	r353#ctlAnnotatedConst() @L31 -> r353#make()
+ambient_terminal	FUNCTION_CALL	r353#ctlTypeArgWithParam() @L38 -> r353#makeFrom(T)
+ambient_terminal	FUNCTION_CALL	r353#viaExplicitTypeArg() @L25 -> r353#make()
+ambient_terminal	FUNCTION_CALL	r353#viaExplicitTypeArgChained() @L50 -> r353#make()
+ambiguous_unknown	CONSTRUCTOR_CALL	r353#ctlDirectConstruction() @L44 -> -
+ambiguous_unknown	CONSTRUCTOR_CALL	r353#ctlTypeArgWithParam() @L38 -> -
+known_edge	FUNCTION_CALL	r353#main() @L54 -> r353#ctlAnnotatedConst()
+known_edge	FUNCTION_CALL	r353#main() @L54 -> r353#ctlTypeArgWithParam()
+known_edge	FUNCTION_CALL	r353#main() @L54 -> r353#viaExplicitTypeArg()
+known_edge	FUNCTION_CALL	r353#main() @L55 -> r353#ctlDirectConstruction()
+known_edge	FUNCTION_CALL	r353#main() @L55 -> r353#viaExplicitTypeArgChained()
+known_edge	METHOD_CALL	r353#ctlAnnotatedConst() @L32 -> AlphaOp#run(number)
+known_edge	METHOD_CALL	r353#ctlDirectConstruction() @L45 -> AlphaOp#run(number)
+known_edge	METHOD_CALL	r353#ctlTypeArgWithParam() @L39 -> BetaOp#run(number)
+known_edge	METHOD_CALL	r353#viaExplicitTypeArg() @L26 -> AlphaOp#run(number)
+known_edge	METHOD_CALL	r353#viaExplicitTypeArgChained() @L50 -> BetaOp#run(number)
