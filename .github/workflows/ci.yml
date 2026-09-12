@@ -145,11 +145,30 @@ jobs:
       # devDependencies. Without this, every case reports "oracle refused".
       - run: npm ci
 
-      # The python suite's tier-1 attribution preflight reads CPython opcodes,
-      # which are not stable across minor versions. 3.10 is the pinned one.
+      # TWO interpreters, because the python suite needs two different things and
+      # they cannot be the same version.
+      #
+      #   3.10 — the tier-1 attribution preflight reads CPython OPCODES, whose
+      #          shapes are not stable across minor versions. It resolves
+      #          `python3.10` by name, so this only has to exist on PATH.
+      #   3.12 — the torture fixtures are SOURCE that has to import: one of them
+      #          uses `typing.Self`, which is 3.11+ (PEP 673), so on 3.10 the
+      #          tracer dies at import and the family scores nothing.
+      #
+      # The later setup-python wins for plain `python3`, so 3.12 must come second.
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: both interpreters are on PATH
+        run: |
+          set -euo pipefail
+          echo "python3    -> $(python3 --version)"
+          echo "python3.10 -> $(python3.10 --version)"
 
       # JDK 24, not the runner's default. The java torture harness reads class files
       # with java.lang.classfile, which is not final before 24 — on an older JDK it
