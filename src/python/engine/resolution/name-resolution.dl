@@ -94,8 +94,55 @@ assign_pair(p, tgt, val) :-
 // resolution/decorators.dl's application chain, via binding_binds_replaced_method below;
 // where that chain cannot be followed the name is a declared unknown, which is the
 // correct answer rather than a convenient one.
+// ── A `def` REBOUND BY A LATER `def` IN THE SAME STATEMENT LIST (#383) ───────
+// A `def` is an assignment to a name. A second `def` of the same name, sequentially after
+// it in ONE statement list, rebinds the name and the first function object becomes
+// unreachable through it — CPython agrees: getattr_static names only the later line, and
+// a run records only the later body.
+//
+// THE RESTRICTION IS THE RULE, not a refinement of it. Measured over five open-source
+// projects, `def`s sharing one declaring binding split three ways:
+//
+//   433 groups   a PROPERTY PAIR      @property def x / @x.setter def x
+//   128 groups   DIFFERENT ARMS       if/else or try/except, only one is ever defined
+//    88 defs     sequential           the shape this rule is for
+//
+// So "the later def wins" on its own would delete 561 correct targets to fix 88. Both
+// exclusions are therefore part of the rule rather than caveats on it:
+//
+//  - a DECORATED member is excluded outright. A property getter and its setter share one
+//    binding and one name, and both are reachable — through the descriptor, not through
+//    the name — so the name-rebinding argument does not apply to them at all.
+//  - a pair SEPARATED BY A BLOCK is excluded. Two `def`s in different arms of an `if` are
+//    not sequential: only one of them is ever executed, so neither rebinds the other and
+//    the two-member set is the correct answer. A block that contains exactly one of the
+//    two is what proves the separation, and py_block — emitted by the parser and read by
+//    no rule before this — is the only place that is written down.
+def_separated_by_block(p, m1, m2) :-
+    method_file(p, f, m1), method_file(p, f, m2),
+    method_start_line(p, l1s, m1), method_start_line(p, l2s, m2),
+    block_span(p, f, bs, be, _),
+    l1 = to_number(l1s), l2 = to_number(l2s), bstart = to_number(bs), bend = to_number(be),
+    l1 >= bstart, l1 <= bend, l2 > bend.
+def_separated_by_block(p, m1, m2) :-
+    method_file(p, f, m1), method_file(p, f, m2),
+    method_start_line(p, l1s, m1), method_start_line(p, l2s, m2),
+    block_span(p, f, bs, be, _),
+    l1 = to_number(l1s), l2 = to_number(l2s), bstart = to_number(bs), bend = to_number(be),
+    l2 >= bstart, l2 <= bend, l1 < bstart.
+
+def_rebound_by_later_def(p, m) :-
+    method_declaring_binding(p, b, m),
+    method_declaring_binding(p, b, later), later != m,
+    method_start_line(p, ls, m), method_start_line(p, ll, later),
+    to_number(ll) > to_number(ls),
+    method_decorator_count(p, "0", m),
+    method_decorator_count(p, "0", later),
+    !def_separated_by_block(p, m, later).
+
 binding_binds_method(p, b, m) :-
-    method_declaring_binding(p, b, m), !method_target_replaced(p, m).
+    method_declaring_binding(p, b, m), !method_target_replaced(p, m),
+    !def_rebound_by_later_def(p, m).
 
 // ── binding_binds_replaced_method(Prov, BindingHash, MethodHash) ──────────────
 // The complement: the `def` this binding was written for, whose name no longer denotes
