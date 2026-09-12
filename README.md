@@ -1,5 +1,11 @@
 # AxiomCode code graph
 
+[![CI](https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/ci.yml)
+[![parser pin](https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/parser-drift.yml/badge.svg?branch=main)](https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/parser-drift.yml)
+[![Soufflé 2.5](https://img.shields.io/badge/Souffl%C3%A9-2.5-blue)](https://souffle-lang.github.io/)
+[![Node 18+](https://img.shields.io/badge/Node-18%2B-brightgreen)](https://nodejs.org/)
+
+
 **A knowledge graph of what code actually does, derived formally rather than guessed.**
 
 `axiom-code-graph` builds a *type-directed call graph*: for every call site in a codebase it resolves

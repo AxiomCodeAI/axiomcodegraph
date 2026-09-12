@@ -1,0 +1,16 @@
+# The commit of AxiomCodeAI/parser that CI builds and scores this repo's goldens
+# against.
+#
+# PINNED ON PURPOSE. The goldens in test/*/expected are a function of two things:
+# these rules, and the IR the parser produces. Tracking the parser's main branch
+# would let a change in the other repository turn this one red with no commit here
+# to point at, and — worse — would let a parser regression quietly re-bless itself
+# as the new expectation.
+#
+# To move the pin: change the SHA, run the three suites locally against that exact
+# parser build, and open a pull request. A golden that moves belongs in that diff,
+# where it can be reviewed as a change in resolution power rather than noticed later.
+#
+# The nightly parser-drift workflow runs against the parser's main branch and opens
+# an issue when this pin has fallen behind, so it cannot rot unnoticed.
+b25fe8aeaf6ba81cf968e2a8d5a90fb7887739d4

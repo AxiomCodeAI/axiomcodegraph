@@ -1,0 +1,42 @@
+name: Parser-blocked
+description: The engine cannot resolve something because the IR does not carry it.
+labels: [parser-blocked]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this when the fix does not belong in this repository. The engine's rules are
+        read-only with respect to the parser: a missing fact is filed here, proven, and
+        fixed in `AxiomCodeAI/parser`.
+
+        **A parser defect needs three things before it is one:** the parser source that
+        drops the fact, a synthetic input that reproduces it, and the real construct it
+        came from. Without all three this is a hypothesis.
+
+  - type: dropdown
+    id: language
+    attributes:
+      label: Front end
+      options: [java, python, typescript]
+    validations: { required: true }
+
+  - type: textarea
+    id: missing
+    attributes:
+      label: The fact that is missing
+      description: Which relation, which column, and what it should contain.
+    validations: { required: true }
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence in the parser source
+      description: The file and function that drops it. Synthetic example only.
+    validations: { required: true }
+
+  - type: textarea
+    id: blocked
+    attributes:
+      label: What this blocks here
+      description: The rule that cannot be written, or the edge that cannot resolve.
+    validations: { required: true }

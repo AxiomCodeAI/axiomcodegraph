@@ -1,0 +1,223 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# CI — the gate every change to main passes through.
+#
+# Three tiers, cheapest first, all required:
+#   build     the TypeScript driver compiles and typechecks
+#   hygiene   repo invariants that need no parser and catch silent breakage
+#   engine    the java / python / typescript regression suites, in parallel
+#
+# NO PATH FILTERS, deliberately. A required check that is skipped by a path
+# filter never reports, and a pull request waiting on a check that will never
+# report can never merge. Correctness beats the saved minutes.
+# ─────────────────────────────────────────────────────────────────────────────
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  merge_group:
+  workflow_dispatch:
+
+# One run per ref. A new push to a pull request cancels the previous run, but a
+# run on main is always allowed to finish — main's history is the record.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '20'
+  SOUFFLE_VERSION: '2.5'
+
+jobs:
+  build:
+    name: build & typecheck
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      # `npm ci` runs the `prepare` script, which builds. Keeping the explicit
+      # build step anyway means a prepare-script change cannot silently stop
+      # compiling this repo.
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+
+  hygiene:
+    name: repo invariants
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      # A fixture input that .gitignore matches passes on the machine that wrote
+      # it and fails on every clone. The suites run this too; running it here as
+      # well means the answer arrives in seconds rather than after the engine.
+      - name: every fixture input is tracked by git
+        run: bash test/tools/no-ignored-fixtures.sh
+
+      # A relation staged for the client but not for libraries is EMPTY on every
+      # run and nothing errors — no golden can see it. This is the only check
+      # that can.
+      - name: IR staging maps are consistent
+        run: |
+          fail=0
+          for lang in java python typescript; do
+            echo "── $lang"
+            python3 test/tools/check_staging.py --lang "$lang" || fail=1
+          done
+          exit $fail
+
+      - name: shell scripts parse
+        run: |
+          fail=0
+          while IFS= read -r f; do
+            bash -n "$f" || { echo "::error file=$f::does not parse"; fail=1; }
+          done < <(git ls-files '*.sh')
+          exit $fail
+
+  engine:
+    name: engine (${{ matrix.lang }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        lang: [java, python, typescript]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # The python suite's tier-1 attribution preflight reads CPython opcodes,
+      # which are not stable across minor versions. 3.10 is the pinned one.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      # JDK 24, not the runner's default. The java torture harness reads class files
+      # with java.lang.classfile, which is not final before 24 — on an older JDK it
+      # exits 77 and the whole ten-family oracle silently does not run.
+      - uses: actions/setup-java@v4
+        if: matrix.lang == 'java'
+        with:
+          distribution: temurin
+          java-version: '24'
+
+      # ── Soufflé ────────────────────────────────────────────────────────────
+      # Installed from the upstream release .deb for this exact runner image.
+      # Pinned: Soufflé's evaluation changes between minor versions, so an
+      # unpinned solver makes every golden in this repo a moving target.
+      - name: install Soufflé ${{ env.SOUFFLE_VERSION }}
+        run: |
+          set -euo pipefail
+          deb="x86_64-ubuntu-2404-souffle-${SOUFFLE_VERSION}-Linux.deb"
+          url="https://github.com/souffle-lang/souffle/releases/download/${SOUFFLE_VERSION}/${deb}"
+          curl -fsSL --retry 3 -o "/tmp/${deb}" "$url"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends "/tmp/${deb}"
+          souffle --version | head -2
+
+      # ── the parser ─────────────────────────────────────────────────────────
+      # An external, private repository. Pinned by SHA in .github/parser-ref so
+      # that a parser change cannot turn this repo red without a reviewable
+      # commit here — see the nightly parser-drift workflow, which is what
+      # notices the pin has gone stale.
+      - name: read the pinned parser ref
+        id: parser
+        run: |
+          set -euo pipefail
+          ref="$(grep -vE '^\s*(#|$)' .github/parser-ref | head -1 | tr -d '[:space:]')"
+          [ -n "$ref" ] || { echo "::error::.github/parser-ref is empty"; exit 1; }
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "parser pinned at $ref"
+
+      - name: fail early if the parser key is missing
+        env:
+          KEY: ${{ secrets.PARSER_DEPLOY_KEY }}
+        run: |
+          if [ -z "${KEY:-}" ]; then
+            echo "::error::secret PARSER_DEPLOY_KEY is not set, so the parser cannot be" \
+                 "fetched and every suite would skip itself. Fork pull requests do not" \
+                 "receive secrets by design — such a pull request must be run from a" \
+                 "branch in this repository."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          repository: AxiomCodeAI/parser
+          ref: ${{ steps.parser.outputs.ref }}
+          ssh-key: ${{ secrets.PARSER_DEPLOY_KEY }}
+          path: .parser
+
+      # tree-sitter builds native addons, which is the slow part. Keyed on the
+      # pinned parser SHA, so a bump rebuilds and nothing else does.
+      - name: cache the built parser
+        id: parser-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .parser/node_modules
+            .parser/dist
+          key: parser-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ steps.parser.outputs.ref }}
+
+      # ALWAYS build when the cache missed. A stale dist/ scores stale IR and the
+      # goldens move for a reason that is not in any diff.
+      - name: build the parser
+        if: steps.parser-cache.outputs.cache-hit != 'true'
+        working-directory: .parser
+        run: |
+          npm ci
+          npm run build
+
+      - name: the parser actually built
+        run: |
+          test -f .parser/dist/index.js \
+            || { echo "::error::.parser/dist/index.js is missing after build"; exit 1; }
+          echo "parser $(cd .parser && git rev-parse --short HEAD) built"
+
+      # ── the compiled engine ────────────────────────────────────────────────
+      # run-souffle.sh caches the compiled solver under a content hash of the
+      # .dl program text. Mirroring that key here skips a multi-minute C++ build
+      # on every run whose rules did not change.
+      - name: cache the compiled Soufflé engine
+        uses: actions/cache@v4
+        with:
+          path: .souffle-cache
+          key: souffle-${{ env.SOUFFLE_VERSION }}-${{ matrix.lang }}-${{ hashFiles('src/**/*.dl') }}
+          restore-keys: |
+            souffle-${{ env.SOUFFLE_VERSION }}-${{ matrix.lang }}-
+
+      - name: ${{ matrix.lang }} regression suite
+        env:
+          AXIOM_PARSER: ${{ github.workspace }}/.parser/dist/index.js
+        run: bash .github/scripts/run-suite.sh ${{ matrix.lang }}
+
+  # A single job the branch ruleset can require. Without it, every new matrix
+  # entry has to be added to the protection rules by hand, and a matrix job that
+  # fails to start reports nothing at all — which a ruleset reads as "not
+  # failing" rather than as "did not run".
+  ci:
+    name: CI
+    runs-on: ubuntu-24.04
+    needs: [build, hygiene, engine]
+    if: always()
+    steps:
+      - name: every required job succeeded
+        run: |
+          results='${{ join(needs.*.result, " ") }}'
+          echo "upstream results: $results"
+          for r in $results; do
+            [ "$r" = "success" ] || { echo "::error::a required job reported '$r'"; exit 1; }
+          done
+          echo "all required jobs passed"

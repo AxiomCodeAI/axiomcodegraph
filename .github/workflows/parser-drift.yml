@@ -1,0 +1,115 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Nightly: does this repo still pass against the parser's CURRENT main?
+#
+# CI pins the parser by SHA so that a change in the other repository cannot turn
+# this one red with no commit here to point at. That pin is correct and it also
+# rots: months later nobody knows whether the engine still works against the
+# parser everyone else is using, and finding out at bump time means debugging a
+# hundred commits of drift at once.
+#
+# So this runs the same suites against the parser's main branch every night. It
+# does not gate anything — it opens an issue when the answer changes.
+# ─────────────────────────────────────────────────────────────────────────────
+name: parser-drift
+
+on:
+  schedule:
+    - cron: '17 7 * * *'   # 07:17 UTC daily, off the hour to dodge the rush
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  NODE_VERSION: '20'
+  SOUFFLE_VERSION: '2.5'
+
+jobs:
+  against-parser-main:
+    name: suites vs parser@main
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      pinned: ${{ steps.refs.outputs.pinned }}
+      head: ${{ steps.refs.outputs.head }}
+      behind: ${{ steps.refs.outputs.behind }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.10' }
+
+      - name: install Soufflé
+        run: |
+          set -euo pipefail
+          deb="x86_64-ubuntu-2404-souffle-${SOUFFLE_VERSION}-Linux.deb"
+          curl -fsSL --retry 3 -o "/tmp/${deb}" \
+            "https://github.com/souffle-lang/souffle/releases/download/${SOUFFLE_VERSION}/${deb}"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends "/tmp/${deb}"
+
+      - uses: actions/checkout@v4
+        with:
+          repository: AxiomCodeAI/parser
+          ref: main
+          ssh-key: ${{ secrets.PARSER_DEPLOY_KEY }}
+          path: .parser
+
+      - name: compare the pin against parser main
+        id: refs
+        run: |
+          set -euo pipefail
+          pinned="$(grep -vE '^\s*(#|$)' .github/parser-ref | head -1 | tr -d '[:space:]')"
+          head="$(cd .parser && git rev-parse HEAD)"
+          behind="$(cd .parser && git rev-list --count "${pinned}..HEAD" 2>/dev/null || echo unknown)"
+          echo "pinned=$pinned" >> "$GITHUB_OUTPUT"
+          echo "head=$head"     >> "$GITHUB_OUTPUT"
+          echo "behind=$behind" >> "$GITHUB_OUTPUT"
+          echo "pin is $behind commit(s) behind parser main ($head)"
+
+      - name: build the parser
+        working-directory: .parser
+        run: npm ci && npm run build
+
+      - name: java suite
+        env: { AXIOM_PARSER: '${{ github.workspace }}/.parser/dist/index.js' }
+        run: bash .github/scripts/run-suite.sh java
+
+      - name: python suite
+        env: { AXIOM_PARSER: '${{ github.workspace }}/.parser/dist/index.js' }
+        run: bash .github/scripts/run-suite.sh python
+
+      - name: typescript suite
+        env: { AXIOM_PARSER: '${{ github.workspace }}/.parser/dist/index.js' }
+        run: bash .github/scripts/run-suite.sh typescript
+
+  report:
+    name: report drift
+    needs: against-parser-main
+    if: always() && needs.against-parser-main.result == 'failure'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: open or update the drift issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PINNED: ${{ needs.against-parser-main.outputs.pinned }}
+          HEAD:   ${{ needs.against-parser-main.outputs.head }}
+          BEHIND: ${{ needs.against-parser-main.outputs.behind }}
+        run: |
+          set -uo pipefail
+          title="parser drift: the suites do not pass against parser main"
+          body="$(printf 'The nightly run against \`AxiomCodeAI/parser@main\` failed.\n\n- pinned in \`.github/parser-ref\`: \`%s\`\n- parser main: \`%s\`\n- the pin is **%s** commit(s) behind\n\nRun: %s/%s/actions/runs/%s\n\nThis does not gate anything — CI still builds the pinned parser. It means the next pin bump will carry a behaviour change, and the diff is cheapest to read now rather than after another month of drift.\n' \
+            "$PINNED" "$HEAD" "$BEHIND" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")"
+          n="$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number' || true)"
+          if [ -n "${n:-}" ]; then
+            echo "updating #$n"
+            gh issue comment "$n" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body" --label build,test || \
+              gh issue create --title "$title" --body "$body"
+          fi

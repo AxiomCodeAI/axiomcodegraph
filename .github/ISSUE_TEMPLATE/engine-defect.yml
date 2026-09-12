@@ -1,0 +1,52 @@
+name: Engine defect
+description: A call edge the engine resolves wrongly, or does not resolve at all.
+labels: [bug, engine]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Describe the defect with a minimal synthetic example.** Do not paste code from
+        a real project, name the project, or quote its identifiers or file names — this
+        tracker is a durable public record, and naming someone's codebase reads as a
+        benchmark claim about it. Reduce the finding to `class Widget`, `pkg/_helpers.py`
+        and the like, and describe the mechanism.
+
+  - type: dropdown
+    id: language
+    attributes:
+      label: Front end
+      options: [java, python, typescript]
+    validations: { required: true }
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal example
+      description: The smallest synthetic source that shows it. Include the call site.
+      render: text
+    validations: { required: true }
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What the engine should resolve, and what it resolves instead
+      description: |
+        Name the edge both ways — `A.foo -> B.bar`, versus the `ambiguous_unknown` or
+        wrong target you actually get.
+    validations: { required: true }
+
+  - type: textarea
+    id: mechanism
+    attributes:
+      label: Mechanism
+      description: |
+        What does the rule join on, and why does the join fail? If you already know which
+        relation derives zero rows, say which.
+    validations: { required: false }
+
+  - type: input
+    id: parser
+    attributes:
+      label: Parser commit
+      description: The SHA in `.github/parser-ref` you reproduced against.
+    validations: { required: false }

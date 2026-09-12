@@ -1,0 +1,16 @@
+# Every pull request needs a review from an owner listed here.
+#
+# Until the project opens up, that is one person; the file exists now so the
+# ruleset can require owner review from the day it is turned on, and so adding a
+# maintainer later is a one-line change rather than a policy discussion.
+
+*                       @swapnilpaliwal-sd
+
+# The engine rules and the goldens that pin their behaviour. A change to either
+# without a change to the other is the thing review is for.
+/src/                   @swapnilpaliwal-sd
+/test/                  @swapnilpaliwal-sd
+
+# CI, protection, and the parser pin decide what "passing" means. They get the
+# same scrutiny as the engine.
+/.github/               @swapnilpaliwal-sd
