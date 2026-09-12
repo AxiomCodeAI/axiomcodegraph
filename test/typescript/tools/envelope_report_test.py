@@ -202,6 +202,40 @@ def main():
             bad('CONTROL: an edge inside the envelope was listed among the outside ones')
         else:
             ok('control: the inside-envelope edge is not listed as outside')
+        # 8. A BLOCK OF ZEROES IS NOT A RESULT. Re-scored with the envelope's site keys
+        #    altered so not one of them joins — which is what a platform separator
+        #    mismatch does to the key, since the site is compared as a raw string while
+        #    every target beside it is resolved (#341). Every line of the block then
+        #    reads 0 with precision 0.000, and that is indistinguishable from a clean
+        #    split with no false positives. The block must refuse instead of printing it.
+        env_path = os.path.join(work, 'envelope.tsv')
+        broken = os.path.join(work, 'envelope-nojoin.tsv')
+        with open(env_path, encoding='utf-8') as fh:
+            lines = fh.read().split('\n')
+        with open(broken, 'w', encoding='utf-8') as fh:
+            for i, ln in enumerate(lines):
+                cols = ln.split('\t')
+                # Mangle the FILE column only, exactly as a wrong separator would.
+                if i and len(cols) > 1 and cols[0]:
+                    cols[0] = cols[0].replace('/', '\\')
+                fh.write('\t'.join(cols) + '\n')
+        proc2 = subprocess.run(
+            [sys.executable, SCORE, ir, out, os.path.join(work, 'oracle.tsv'),
+             f'--envelope={broken}'],
+            capture_output=True, text=True)
+        t2 = proc2.stdout
+        if 'REFUSING to report' not in t2:
+            bad('an envelope that joined NOTHING printed a block of zeroes instead of refusing')
+        else:
+            ok('an envelope that joins no call site refuses instead of reporting zeroes')
+
+        # 9. CONTROL — the refusal must not fire on the GOOD run above, where the
+        #    envelope joins. A guard that always fires would pass check 8 and destroy the
+        #    report.
+        if 'REFUSING to report' in text:
+            bad('CONTROL: the refusal fired on an envelope that joins normally')
+        else:
+            ok('control: the refusal does not fire when the envelope joins')
     finally:
         shutil.rmtree(work, ignore_errors=True)
 

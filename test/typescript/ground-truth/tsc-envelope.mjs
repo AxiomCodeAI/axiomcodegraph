@@ -87,14 +87,25 @@ const ROOTS = (() => {
   } catch { return []; }
 })();
 const REAL_PROJECT_DIR = (() => { try { return fs.realpathSync(projectDir); } catch { return projectDir; } })();
+// The SEPARATOR is part of the join key. score.py compares the site as a raw tuple of
+// strings — `(file, line, col, endLine, endCol)` — against the IR's `filePath`, which is
+// always "/"-separated. `path.relative` returns the PLATFORM separator, so on a platform
+// whose separator is not "/" the two sides never meet: measured 121 oracle sites, 121 IR
+// sites, 0 joined, reported as 100% conservation loss. TARGET identity in the same
+// comparison goes through realpath and canonicalises, so targets joined and sites did
+// not — one column of one comparison normalised and the other not (#341).
+//
+// Split/join on path.sep rather than replacing backslashes, so a file legitimately NAMED
+// with a backslash on a POSIX filesystem is left alone.
+const toPosix = path.sep === '/' ? (p) => p : (p) => p.split(path.sep).join('/');
 function relPath(fileName) {
   let real = fileName;
   try { real = fs.realpathSync(fileName); } catch { /* keep */ }
   for (const r of ROOTS) {
     const rel = path.relative(r, real);
-    if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) return rel;
+    if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) return toPosix(rel);
   }
-  return path.relative(REAL_PROJECT_DIR, real);
+  return toPosix(path.relative(REAL_PROJECT_DIR, real));
 }
 
 // Same upward-only discovery bug the oracle had: on a workspace repository whose
