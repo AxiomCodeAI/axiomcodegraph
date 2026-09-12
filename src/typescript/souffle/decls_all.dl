@@ -364,6 +364,8 @@
 .decl ref_base_name(c0:symbol,c1:symbol)
 .decl ref_context_types_a_value(c0:symbol)
 .decl ref_element_shape(c0:symbol,c1:symbol)
+.decl ref_element_at(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl ref_is_tuple(c0:symbol)
 .decl ref_element_target(c0:symbol,c1:symbol,c2:symbol)
 .decl ref_has_target(c0:symbol)
 .decl ref_is_promise(c0:symbol)

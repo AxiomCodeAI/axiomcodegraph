@@ -143,6 +143,19 @@ type_ref_resolves(prov, ref, t) :- type_ref(rp, k, _, _, _, _, _, ref),
     ref_kind_is_array(k),
     type_ref_module(rp, mod, ref),
     scope_name_binds(rp, mod, "Array", prov, "TYPE", t).
+// ── ref_element_at(Ref, Pos, Prov, Type) — a TUPLE's member AT A POSITION ──
+// `[AlphaOp, BetaOp]` has two DIFFERENT members and ref_element_target returns both,
+// because a TUPLE is an array kind and the element walk takes every child. That union is
+// sound and it is all the engine could say: `const [a, b] = makePair()` typed BOTH names
+// as AlphaOp|BetaOp, and `p[0].run()` scored SOUND_SUPERSET where the compiler is exact.
+//
+// The children carry their position, so the precise answer needs no inference — only for
+// something to read the column. #410.
+ref_element_at(ref, pos, prov, t) :- type_ref(rp, "TUPLE", _, _, _, _, _, ref),
+    type_ref_parent(rp, ref, pos, child),
+    ref_type_target(child, prov, t).
+ref_is_tuple(ref) :- type_ref(_, "TUPLE", _, _, _, _, _, ref).
+
 ref_kind_is_array("ARRAY").
 ref_kind_is_array("TUPLE").
 

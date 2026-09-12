@@ -433,9 +433,24 @@ var_binding_method(v, m) :- var_binding("client", _, "PROPERTY", src, _, v),
 // union of the tuple's elements. That is a superset, never a wrong answer — the same
 // answer `pair[0]` already gives — and it is exact for the array case, which is the
 // common one.
+// POSITIONAL where the source is a TUPLE, and the union everywhere else. `const [a, b] =
+// makePair()` with `[AlphaOp, BetaOp]` typed both names as the union until now — sound,
+// and one declaration wider than the compiler at every such site (#410).
+//
+// The two clauses are kept apart by `ref_is_tuple`, which reads the type reference alone.
+// That matters: the obvious spelling is "use the union unless a positional answer
+// exists", and it cannot be written — the positional answer is derived inside the same
+// recursive component as var_type, so negating it leaves the program unstratifiable.
+// A property of the REFERENCE is below that component and can be negated freely.
+var_type(v, prov, t) :- var_binding("client", _, "INDEX", pos, e, v),
+    e != "",
+    expr_decl_ref(e, r),
+    ref_element_at(r, pos, prov, t).
 var_type(v, prov, et) :- var_binding("client", _, "INDEX", _, e, v),
     e != "",
-    expr_element_type(e, prov, et).
+    expr_decl_ref(e, r),
+    !ref_is_tuple(r),
+    ref_element_target(r, prov, et).
 var_shape(v, sh) :- var_binding("client", _, "INDEX", _, e, v),
     e != "",
     expr_element_shape(e, sh).
