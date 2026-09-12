@@ -191,6 +191,14 @@ fi
 # the six checks are controls, because the tempting rule — assignability rather than the
 # contextual type — credits an UNANNOTATED arrow and manufactures the agreement it is
 # supposed to measure. See #237.
+# A `.source-root` the reader cannot resolve keys every staged declaration under a path
+# nothing else names, and the empty join that follows is reported as a plausible rate
+# over the client's own files rather than as a failure (#342).
+if ! python3 "$HERE/tools/source_root_test.py"; then
+  echo "source-root: FAILED"
+  fail=$((fail+1)); failed+=("source-root")
+fi
+
 if ! bash "$HERE/tools/signature-impl-test.sh"; then
   echo "aborting: the signature/implementation map is not what the compiler says"
   exit 1
