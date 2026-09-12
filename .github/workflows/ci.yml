@@ -76,6 +76,13 @@ jobs:
           done
           exit $fail
 
+      # The client->library half is carried by a smaller set of fixtures than the
+      # client->client half, and it is the half that disappears silently: delete a
+      # golden and the case still runs, still passes, and simply stops claiming
+      # anything. A suite can only check the assertions it still has.
+      - name: client->library coverage has not shrunk
+        run: bash test/tools/lib-coverage.sh
+
       - name: shell scripts parse
         run: |
           fail=0
@@ -101,8 +108,21 @@ jobs:
           # third-party analyzer, and no third-party library is downloaded to do it.
           # A case whose ground truth would need an external classpath reports
           # itself unscored rather than pulling one in.
+          # --no-torture for java ONLY. Those families call java.util.List, Map and
+          # the functional interfaces, so they need the JVM platform IR staged as a
+          # library. That IR is 1.8 GB and is built from a JDK source checkout, so it
+          # cannot live in a repository or a cache. Without it those receivers are
+          # unresolvable BY CONSTRUCTION — the census goes from 10 missing edges to
+          # 23 and recall to 0.847 — which measures the staging, not the rules, and
+          # the resulting red would read as a regression in whatever PR met it.
+          #
+          # Java client->library resolution is still covered here: six cases ship
+          # their own stub library in lib-src/ and are solved with it as --library.
+          # The torture families remain a local gate until the platform IR can be
+          # produced reproducibly; the suite prints EXCLUDED so it is never mistaken
+          # for a family that passed.
           - lang: java
-            oracle: '--oracle'
+            oracle: '--oracle --no-torture'
           - lang: typescript
             oracle: '--oracle'
           # Python's ground truth is frozen CPython output, authored by a separate

@@ -21,6 +21,15 @@
 #                                  (javac + javap invoke instructions — no third-party analyzer):
 #                                  every bytecode-declared client->client edge must be present.
 #   ./run-tests.sh --keep          keep the per-case work dirs for debugging
+#   ./run-tests.sh --no-torture    skip the torture families.
+#                                  ONLY for an environment that cannot hold the JVM platform IR.
+#                                  The families call java.util.List, Map and the functional
+#                                  interfaces, so with the platform absent those receivers are
+#                                  unresolvable BY CONSTRUCTION: the census goes from 10 missing
+#                                  edges to 23 and recall to 0.847, which measures the staging
+#                                  rather than the rules. Running them without it is worse than
+#                                  not running them, because the resulting red looks like a
+#                                  regression. Excluding them is stated in the output, never silent.
 #
 #   With --oracle, a case carrying a spring-oracle.conf ALSO boots its sources in a real
 #   AnnotationConfigApplicationContext and scores bean_def / di_edge against what Spring
@@ -98,9 +107,9 @@ if ! bash "$ROOT/test/tools/souffle-include-test.sh"; then
 fi
 PARSER="${AXIOM_PARSER:-$ROOT/../Parser/dist/index.js}"
 WORK="$HERE/.work"
-BLESS=0; KEEP=0; ORACLE=0; FILTERS=()
+BLESS=0; KEEP=0; ORACLE=0; NO_TORTURE=0; FILTERS=()
 for a in "$@"; do case "$a" in
-  --bless) BLESS=1;; --keep) KEEP=1;; --oracle) ORACLE=1;;
+  --bless) BLESS=1;; --keep) KEEP=1;; --oracle) ORACLE=1;; --no-torture) NO_TORTURE=1;;
   -h|--help) sed -n '2,34p' "$0"; exit 0;; *) FILTERS+=("$a");; esac; done
 
 # ── PREFLIGHT: every relation the parser emits must actually reach the solver ──────────
@@ -339,7 +348,7 @@ done
 # The cases above each pin ONE rule. This asks what happens when a project uses everything at
 # once, and reports WHICH construct is the gap rather than one number. It stages the platform IR,
 # because half the families call java.util types and scoring them without it measures the staging.
-if [ -d "$HERE/torture" ] && [ ${#FILTERS[@]} -eq 0 ]; then
+if [ -d "$HERE/torture" ] && [ ${#FILTERS[@]} -eq 0 ] && [ "$NO_TORTURE" = 0 ]; then
   printf '%-34s ' "torture (10 families)"
   # --bless has to reach the torture harness too, or a run that regenerates every other golden
   # leaves this one stale and the very next run fails on a diff the operator just approved.
@@ -353,6 +362,9 @@ if [ -d "$HERE/torture" ] && [ ${#FILTERS[@]} -eq 0 ]; then
   fi
 fi
 
+if [ "$NO_TORTURE" = 1 ] && [ ${#FILTERS[@]} -eq 0 ]; then
+  echo "torture (10 families)              EXCLUDED (--no-torture)"
+fi
 echo "─────────────────────────────────────────────"
 echo "passed $pass   failed $fail"
 [ $fail -eq 0 ] || { printf 'failing: %s\n' "${failed[*]}"; exit 1; }
