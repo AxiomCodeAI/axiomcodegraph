@@ -31,6 +31,7 @@ permissions:
 env:
   NODE_VERSION: '20'
   SOUFFLE_VERSION: '2.5'
+  SOUFFLE_SHA512: '6b86e554f6aa5abf8a8b55d8312ae37c0957c5bd6c9edeea89246db9406f645ec5e600b84fe6636b1c163da556f0da6c3d2dad46c1083413f2fcf4f95b9ac62c'
 
 jobs:
   build:
@@ -90,13 +91,39 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lang: [java, python, typescript]
+        include:
+          # --oracle scores the engine against GROUND TRUTH, not only against the
+          # goldens. A golden says "the same as last time", which a wrong answer
+          # satisfies perfectly well as long as it was wrong last time too.
+          #
+          # The ground truth is built with the toolchain that defines the language:
+          # javac and javap for Java, the TypeScript compiler for TypeScript. No
+          # third-party analyzer, and no third-party library is downloaded to do it.
+          # A case whose ground truth would need an external classpath reports
+          # itself unscored rather than pulling one in.
+          - lang: java
+            oracle: '--oracle'
+          - lang: typescript
+            oracle: '--oracle'
+          # Python's ground truth is frozen CPython output, authored by a separate
+          # harness that CI cannot reach yet, so this leg is goldens-only for now.
+          # That separation is deliberate — test/python/run-tests.sh explains why
+          # the ability to re-bless ground truth must not sit beside the code under
+          # test — but it does mean the python leg is a weaker check than the other
+          # two until the harness is reachable from here.
+          - lang: python
+            oracle: ''
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      # The TypeScript ground-truth oracle runs the compiler from this repo's own
+      # devDependencies. Without this, every case reports "oracle refused".
+      - run: npm ci
 
       # The python suite's tier-1 attribution preflight reads CPython opcodes,
       # which are not stable across minor versions. 3.10 is the pinned one.
@@ -113,25 +140,39 @@ jobs:
           distribution: temurin
           java-version: '24'
 
-      # ── Soufflé ────────────────────────────────────────────────────────────
-      # Installed from the upstream release .deb for this exact runner image.
-      # Pinned: Soufflé's evaluation changes between minor versions, so an
-      # unpinned solver makes every golden in this repo a moving target.
+      - name: cache the Soufflé package
+        uses: actions/cache@v4
+        with:
+          path: ~/souffle-pkg
+          key: souffle-deb-${{ env.SOUFFLE_VERSION }}-ubuntu-2404
+
+      # Soufflé is the solver, not a library under test: the engine is compiled
+      # from .dl to C++ and linked against Soufflé's headers, so a build of it has
+      # to be present the way a compiler has to be present.
+      #
+      # It is pinned to an exact version AND verified against the checksum upstream
+      # published for that release, so what CI links against is decided in this
+      # file rather than by whatever the archive happens to serve today. Building
+      # it from source instead would take roughly twenty minutes a run and buy
+      # nothing unless this project ever needs a patched solver.
       - name: install Soufflé ${{ env.SOUFFLE_VERSION }}
         run: |
           set -euo pipefail
           deb="x86_64-ubuntu-2404-souffle-${SOUFFLE_VERSION}-Linux.deb"
-          url="https://github.com/souffle-lang/souffle/releases/download/${SOUFFLE_VERSION}/${deb}"
-          curl -fsSL --retry 3 -o "/tmp/${deb}" "$url"
+          dir="$HOME/souffle-pkg"; mkdir -p "$dir"
+          if [ ! -f "$dir/$deb" ]; then
+            curl -fsSL --retry 3 -o "$dir/$deb" \
+              "https://github.com/souffle-lang/souffle/releases/download/${SOUFFLE_VERSION}/${deb}"
+          fi
+          echo "${SOUFFLE_SHA512}  ${dir}/${deb}" | sha512sum -c -
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends "/tmp/${deb}"
+          sudo apt-get install -y --no-install-recommends "$dir/$deb"
           souffle --version | head -2
 
       # ── the parser ─────────────────────────────────────────────────────────
-      # An external, private repository. Pinned by SHA in .github/parser-ref so
-      # that a parser change cannot turn this repo red without a reviewable
-      # commit here — see the nightly parser-drift workflow, which is what
-      # notices the pin has gone stale.
+      # A separate repository, pinned by commit in .github/parser-ref, so that a
+      # change there cannot turn this repository red with no commit here to point
+      # at. The nightly parser-drift workflow is what notices the pin has aged.
       - name: read the pinned parser ref
         id: parser
         run: |
@@ -141,14 +182,16 @@ jobs:
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
           echo "parser pinned at $ref"
 
-      - name: fail early if the parser key is missing
+      # Fail here, with a sentence that says what is wrong, rather than thirty
+      # lines later as an unexplained checkout error.
+      - name: the parser credential is present
         env:
-          KEY: ${{ secrets.PARSER_DEPLOY_KEY }}
+          TOKEN: ${{ secrets.PARSER_TOKEN }}
         run: |
-          if [ -z "${KEY:-}" ]; then
-            echo "::error::secret PARSER_DEPLOY_KEY is not set, so the parser cannot be" \
-                 "fetched and every suite would skip itself. Fork pull requests do not" \
-                 "receive secrets by design — such a pull request must be run from a" \
+          if [ -z "${TOKEN:-}" ]; then
+            echo "::error::secret PARSER_TOKEN is not set, so the parser cannot be" \
+                 "fetched and every suite would skip itself. Pull requests opened from" \
+                 "a fork do not receive secrets, by design — run such a change from a" \
                  "branch in this repository."
             exit 1
           fi
@@ -157,7 +200,7 @@ jobs:
         with:
           repository: AxiomCodeAI/parser
           ref: ${{ steps.parser.outputs.ref }}
-          ssh-key: ${{ secrets.PARSER_DEPLOY_KEY }}
+          token: ${{ secrets.PARSER_TOKEN }}
           path: .parser
 
       # tree-sitter builds native addons, which is the slow part. Keyed on the
@@ -201,7 +244,7 @@ jobs:
       - name: ${{ matrix.lang }} regression suite
         env:
           AXIOM_PARSER: ${{ github.workspace }}/.parser/dist/index.js
-        run: bash .github/scripts/run-suite.sh ${{ matrix.lang }}
+        run: bash .github/scripts/run-suite.sh ${{ matrix.lang }} ${{ matrix.oracle }}
 
   # A single job the branch ruleset can require. Without it, every new matrix
   # entry has to be added to the protection rules by hand, and a matrix job that
@@ -215,7 +258,11 @@ jobs:
     steps:
       - name: every required job succeeded
         run: |
-          results='${{ join(needs.*.result, " ") }}'
+          # The expression quotes its separator with SINGLE quotes because that is
+          # the only string delimiter a GitHub expression has. A double quote there
+          # is a lex error that invalidates the entire workflow file, and the run
+          # then fails in zero seconds with no job having started.
+          results="${{ join(needs.*.result, ' ') }}"
           echo "upstream results: $results"
           for r in $results; do
             [ "$r" = "success" ] || { echo "::error::a required job reported '$r'"; exit 1; }

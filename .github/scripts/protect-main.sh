@@ -1,33 +1,23 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# Apply the branch ruleset that makes `main` unpushable.
-#
-# WHY THIS IS A SCRIPT AND NOT ALREADY APPLIED
-# Rulesets and protected branches are refused with HTTP 403 on a PRIVATE
-# repository owned by a FREE organisation. AxiomCodeAI is on Free, so the rule
-# below cannot exist yet. It becomes available the moment either is true:
-#
-#   * this repository is made public  — rulesets are free on public repos, or
-#   * the organisation moves to Team  — ~$4 per seat per month.
-#
-# Run this script on that day. It is idempotent: it updates the existing ruleset
-# if one is already there, and creates it otherwise.
+# Apply the branch ruleset for `main`.
 #
 #   bash .github/scripts/protect-main.sh            # apply
 #   bash .github/scripts/protect-main.sh --dry-run  # print the payload only
 #
-# WHAT IT ENFORCES
-#   - no direct push to main, and no force-push, by anyone including admins
-#   - main cannot be deleted
-#   - every change arrives by pull request, with 1 approving review
-#   - a review is dismissed when new commits are pushed
-#   - CODEOWNERS review required
-#   - the `CI` check must pass, against the merge commit, not a stale run
-#   - linear history — squash or rebase, no merge bubbles
+# Idempotent: updates the ruleset if it exists, creates it otherwise.
 #
-# `bypass_actors` is deliberately EMPTY. A ruleset an admin can walk around is a
-# convention, not a control, and the admin is the only account here that can push
-# to main in the first place.
+# What it enforces
+#   - no direct push to main, and no force-push
+#   - main cannot be deleted
+#   - every change arrives by pull request, with an approving review
+#   - a review is dismissed when new commits are pushed
+#   - review from a code owner
+#   - the `CI` check must pass, evaluated against an up-to-date branch
+#   - linear history: squash or rebase, no merge bubbles
+#
+# `bypass_actors` is empty on purpose. A rule that some accounts can step around
+# is a convention rather than a control, and the point of this file is the control.
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -79,15 +69,9 @@ if [ "$DRY" = "1" ]; then
   exit 0
 fi
 
-# Refuse early with a readable reason rather than a raw 403.
+# Fail with something readable rather than a raw API error.
 if ! gh api "repos/$REPO/rulesets" >/dev/null 2>&1; then
-  cat >&2 <<'MSG'
-Rulesets are not available on this repository yet.
-
-  A private repository in a Free organisation cannot have protected branches.
-  Make the repository public, or move AxiomCodeAI to the Team plan, then run
-  this script again. Nothing else about it needs to change.
-MSG
+  echo "cannot read rulesets on $REPO — check that this account has admin rights there" >&2
   exit 1
 fi
 
