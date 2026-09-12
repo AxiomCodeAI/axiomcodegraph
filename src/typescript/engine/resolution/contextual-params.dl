@@ -203,6 +203,21 @@ lambda_param_type(lp, prov, t) :- callback_arg(ce, argpos, lm),
 expr_type(e, prov, t) :- expr_referenced("client", "PARAMETER", p, e),
     lambda_param_type(p, prov, t).
 
+// ── …AND A CALLBACK THAT RECEIVES A MODULE NAMESPACE ────────────────────────
+// `import("./m").then((m) => m.run(1))` — the same namespace as the awaited form, only
+// reached through a callback. `await` is not required for a dynamic import to be
+// followed, and the two spellings must resolve alike (#352).
+//
+// The parameter has no TYPE to give it: a module is not a type, which is why this is a
+// namespace binding rather than a lambda_param_type clause. Keyed on `then` and on the
+// receiver already being a namespace, so it cannot reach an ordinary promise.
+lambda_param_namespace(lp, prov, m) :- call_site("client", _, "then", _, recv, ce, _),
+    expr_namespace(recv, prov, m),
+    callback_arg(ce, "0", lm),
+    param_decl(_, _, "0", _, lm, lp).
+expr_namespace(e, prov, m) :- expr_referenced("client", "PARAMETER", p, e),
+    lambda_param_namespace(p, prov, m).
+
 // ── an ARROW assigned to a VARIABLE annotated with a FUNCTION TYPE ──────────
 // The rules above type a callback passed as an ARGUMENT, where the signature comes
 // from the callee's parameter. This is the other way a lambda gets a contextual type,

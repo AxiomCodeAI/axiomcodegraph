@@ -105,6 +105,38 @@ expr_shape(e, s) :- expr_referenced("client", "IMPORT_BINDING", ih, e),
 expr_namespace(e, prov, m) :- expr_referenced("client", "IMPORT_BINDING", ih, e),
     import_binds_namespace(ih, prov, m).
 
+// ── A LITERAL `import()` IS THE MODULE NAMESPACE ────────────────────────────
+// `const mod = await import("./handlers/beta"); mod.run(1)`. The static import beside
+// it resolved and this did not, though the dynamic row carries MORE than the static
+// one: the parser already resolved the specifier, and `tsExpressionLinkHash` ties the
+// row to the call expression, which the static form has no analogue for. The missing
+// step was one join (#352).
+//
+// It answered `ambiguous_unknown` rather than MISSED, so a per-site score could not see
+// it — and this is the seam of every code-split boundary: lazily loaded routes, plugin
+// entry points, optional back ends.
+//
+// The COMPUTED sibling stays unknown, and stays so by construction rather than by a
+// guard: a template-literal or variable specifier resolves to no module, so the parser
+// emits no row here for it to key on. Dispatch through a written-down module is
+// resolvable and through a computed one it is not, and they must not be answered alike.
+expr_namespace(e, prov, m) :- import_expr("client", e, ih),
+    import_binding("client", "DYNAMIC_IMPORT", _, _, _, ih),
+    import_target_module(ih, prov, m).
+
+// `await` does not change what the value IS. Gated on the kind rather than on the edge
+// role alone, which `!x` and `-x` also carry.
+expr_namespace(a, prov, m) :- expr_kind("client", "AWAIT_EXPRESSION", _, a),
+    expr_child("client", a, "UNARY_OPERAND", _, e),
+    expr_namespace(e, prov, m).
+
+// …and neither does binding it to a name. `const mod = await import(...)` then every
+// reference to `mod`.
+var_namespace(v, prov, m) :- var_initializer("client", _, e, v),
+    expr_namespace(e, prov, m).
+expr_namespace(e, prov, m) :- expr_referenced("client", "VARIABLE", v, e),
+    var_namespace(v, prov, m).
+
 // ── A NAMESPACE USED AS A VALUE — `Local.f()` ──────────────────────────────
 // A namespace declared BESIDE its use is the ordinary way a file groups helpers, and a
 // nested one is how a library shapes a public surface. The parser says exactly what the
