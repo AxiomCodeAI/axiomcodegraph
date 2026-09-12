@@ -435,9 +435,28 @@ LIBS=""
 # is a predicate nobody checks.
 
 stage_program() { # $1 = source dir, $2 = ir subdir name -> 0 if staged
-  local src="$1" name="$2" plog="$WORK/libir/$2.parser.log"
+  local src="$1" name="$2" plog="$WORK/libir/$2.parser.log" parse_src
   mkdir -p "$WORK/libir/$name"
-  node "$PARSER_DIST" "$src" "lib-$name" false "$WORK/libir/$name" >"$plog" 2>&1 || true
+  parse_src="$src"
+  # ── A PACKAGE WHOSE OWN tsconfig NAMES NO FILES ────────────────────────────
+  # #351 resolves the solution-config delegation for the CLIENT entry project, in the
+  # mirror. A library is staged straight out of node_modules with no such substitution,
+  # and the parser discovers projects by scanning — so on a workspace package whose root
+  # config is `files: [], include: [], references: [...]`, the only config that resolves
+  # to any files wins, and that is `test/tsconfig.json`. Measured on a held-out member:
+  # 80 modules staged, every one under test/, against 195 source files — and 359 of its
+  # 667 missed sites target a file then present in NO staged IR at all. #414.
+  #
+  # Staged from a SHADOW COPY carrying a flat config, so the checkout is untouched. The
+  # .source-root below stays the ORIGINAL directory: the shadow preserves the package's
+  # own layout, so every relative path in the IR still joins against the oracle's
+  # absolute ones. Inert for a package that names its own files.
+  if node "$HERE/tools/stage-solution-src.mjs" "$src" "$WORK/libsrc/$name" \
+       >>"$WORK/libir.log" 2>&1; then
+    parse_src="$WORK/libsrc/$name"
+    echo "   ~ $name: root tsconfig names no files; staged via its referenced build config (#414)"
+  fi
+  node "$PARSER_DIST" "$parse_src" "lib-$name" false "$WORK/libir/$name" >"$plog" 2>&1 || true
   cat "$plog" >> "$WORK/libir.log" 2>/dev/null || true
   if [ ! -s "$WORK/libir/$name/all-typescript-modules.csv" ]; then
     # SAY SO. This is the ordinary outcome for a deprecated `@types/<pkg>` stub — a
