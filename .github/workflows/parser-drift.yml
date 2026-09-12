@@ -75,7 +75,7 @@ jobs:
         with:
           repository: AxiomCodeAI/parser
           ref: main
-          token: ${{ secrets.PARSER_TOKEN }}
+          token: ${{ secrets.PARSER_ACCESS_TOKEN }}
           path: .parser
 
       - name: compare the pin against parser main

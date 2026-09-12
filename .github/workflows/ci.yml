@@ -206,10 +206,10 @@ jobs:
       # lines later as an unexplained checkout error.
       - name: the parser credential is present
         env:
-          TOKEN: ${{ secrets.PARSER_TOKEN }}
+          TOKEN: ${{ secrets.PARSER_ACCESS_TOKEN }}
         run: |
           if [ -z "${TOKEN:-}" ]; then
-            echo "::error::secret PARSER_TOKEN is not set, so the parser cannot be" \
+            echo "::error::secret PARSER_ACCESS_TOKEN is not set, so the parser cannot be" \
                  "fetched and every suite would skip itself. Pull requests opened from" \
                  "a fork do not receive secrets, by design — run such a change from a" \
                  "branch in this repository."
@@ -220,7 +220,7 @@ jobs:
         with:
           repository: AxiomCodeAI/parser
           ref: ${{ steps.parser.outputs.ref }}
-          token: ${{ secrets.PARSER_TOKEN }}
+          token: ${{ secrets.PARSER_ACCESS_TOKEN }}
           path: .parser
 
       # tree-sitter builds native addons, which is the slow part. Keyed on the
