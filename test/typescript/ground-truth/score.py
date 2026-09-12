@@ -340,6 +340,21 @@ def main():
     }
 
     def _implements_signature(otarget, eng):
+        # ROUTE 1 FIRST, AND WITHOUT CONSULTING pos_meta. The pair comes from the
+        # compiler, and `signature-impls.mjs` now emits a pair only when the target
+        # declaration HAS NO BODY — the same thing the bodiless_kinds gate below
+        # establishes, certified where the AST is in hand rather than inferred from the
+        # IR.
+        #
+        # That matters because the gate cannot be applied to a target the IR DOES NOT
+        # CONTAIN, and a monorepo's own package is routinely that case: the harness
+        # stages the built .d.ts from node_modules while the compiler names the package
+        # SOURCE, so `pos_meta.get(otarget)` is None and the route returned False before
+        # it ever looked at the pair. Measured on a held-out member: 3 WRONG rows whose
+        # pairs were all present and all discarded here. See #400.
+        for t in eng:
+            if otarget in impl_sigs.get(t, ()):
+                return True
         om = pos_meta.get(otarget)
         if not om or om[1] not in bodiless_kinds:
             return False
@@ -347,15 +362,7 @@ def main():
         # any unrelated `push` or `get` in the program answer for an interface member,
         # which manufactures agreement instead of measuring it. Every case observed in
         # the corpus is same-file, so this costs nothing and cannot over-credit.
-        # ROUTE 1 — the compiler said so. The body's own declaration names the type it
-        # has, and that type is made of the signature the oracle named. No name is
-        # compared and no file has to match, which is what the same-file/same-name
-        # route below cannot do: measured on a dev corpus member, 9 of its 9 WRONG
-        # rows are an ANONYMOUS arrow implementing a signature in ANOTHER file, so
-        # both of that route's gates fail on the same rows. See #237.
-        for t in eng:
-            if otarget in impl_sigs.get(t, ()):
-                return True
+        # Route 1 (the compiler said so, #237) is applied above, before the gate.
         # ROUTE 2 — same name, same file. Kept rather than replaced: it credits a
         # class or object-literal member against an interface member, which route 1
         # does not reach (a member's type is not contextual). It fires zero times on
