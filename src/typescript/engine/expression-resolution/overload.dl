@@ -70,9 +70,17 @@ method_max_arity(m, n) :- method_arity_raw(m, pc, _, _),
     n = to_number(pc) - adj.
 
 // ── the call's argument count ───────────────────────────────────────────────
-call_expr_argc(ce, n) :- call_site("client", _, _, _, _, ce, cs),
+call_expr_argc(ce, n) :- call_site("client", ck, _, _, _, ce, cs),
+    ck != "TAGGED_TEMPLATE_CALL",
     call_shape("client", ac, _, _, cs),
     n = to_number(ac).
+// A TAGGED TEMPLATE'S ARGUMENTS ARE NOT WRITTEN AS ARGUMENTS, and the parser records
+// argumentCount 0 for every one of them. So `n >= lo` failed for any tag at all, nothing
+// arity-matched, nothing could be pruned, and an overloaded tag kept every declaration.
+// The vector the compiler passes is the synthesized TemplateStringsArray followed by the
+// substitutions, so the count is one more than the number of spans (#354).
+call_expr_argc(ce, n) :- call_site("client", "TAGGED_TEMPLATE_CALL", _, _, _, ce, _),
+    n = 1 + count : { expr_child("client", ce, "TEMPLATE_SPAN", _, _) }.
 // A spread argument makes the count PROVABLY imprecise rather than wrong: `f(...xs)`
 // has one syntactic argument and an unknown number of real ones. Arity matching
 // stands down at those sites instead of picking an answer it cannot justify.
@@ -292,6 +300,21 @@ literal_primitive("UNDEFINED", "undefined").
 arg_primitive(ce, pos, n) :- expr_child("client", ce, "ARGUMENT", pos, a),
     expr_literal_type("client", lt, a),
     literal_primitive(lt, n).
+
+// A TAGGED TEMPLATE'S ARGUMENTS ARE NOT WRITTEN AS ARGUMENTS. `otag`s${'a'}`` emits its
+// substitutions with edgeRole TEMPLATE_SPAN, and the clause above keys on ARGUMENT — so
+// the tagged form reached the applicability test with NO arguments at all and matched
+// every signature vacuously. With the rest-element clause below fixing the ordinary
+// call, this is the remaining half of #354.
+//
+// OFFSET BY ONE, which is the whole subtlety: parameter 0 is the synthesized
+// TemplateStringsArray, which is not an expression and has no span, so the first
+// substitution is argument 1. Comparing it against parameter 0 would test the
+// interpolated value against TemplateStringsArray and prune every signature.
+arg_primitive(ce, pos1, n) :- expr_child("client", ce, "TEMPLATE_SPAN", pos, a),
+    expr_literal_type("client", lt, a),
+    literal_primitive(lt, n),
+    pos1 = to_string(to_number(pos) + 1).
 // A UNARY expression over a literal — `add(-5)`. Measured on remeda: negative numeric
 // literals are how half the arithmetic tests are written, and treating them as
 // untyped left `add(-5)` picking the `bigint` overload over the `number` one.
@@ -352,6 +375,31 @@ param_primitive(m, pos, n) :- expr_call_candidate(_, m),
     param_decl(_, _, pos, _, m, p),
     param_type_ref(_, r, p),
     type_ref(_, "PRIMITIVE", _, n, _, _, _, r),
+    primitive_name(n).
+
+// A REST parameter's primitive is its ELEMENT's. `...values: number[]` declares one
+// parameter whose annotation is an ARRAY, so the clause above sees no primitive and the
+// position fell through to the blanket rest stand-down — leaving
+// `...values: number[]` and `...values: string[]` INDISTINGUISHABLE, so an overloaded
+// rest signature always answered with declaration 0. A committed wrong target at exactly
+// the sites the overload exists to disambiguate (#354).
+//
+// This is NOT a tagged-template defect, which is where it was noticed. The ordinary call
+// `otag(s, "a")` picks declaration 0 too; the tagged form is one of its two spellings.
+//
+// The primitive regime is the right place for it and the safe one. It compares by NAME
+// off the declaration, it never touches param_untestable, and it reaches arg_mismatch
+// through primitive_compatible rather than through the hash comparison — so
+// `...args: any[]` (any is deliberately not a primitive_name) and `...items: T[]` (a type
+// variable is not a PRIMITIVE ref) are both untouched, and the 415-site Array.push
+// stand-down that the type-variable guard exists for is not disturbed.
+param_primitive(m, pos, n) :- expr_call_candidate(_, m),
+    param_decl(_, _, pos, _, m, p),
+    param_type_ref(_, r, p),
+    type_ref(rp, k, _, _, _, _, _, r),
+    ref_kind_is_array(k),
+    type_ref_parent(rp, r, _, child),
+    type_ref(_, "PRIMITIVE", _, n, _, _, _, child),
     primitive_name(n).
 
 // Identical names only. No widening: TypeScript has none — `number` and `bigint` do
