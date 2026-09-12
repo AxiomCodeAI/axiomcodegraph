@@ -419,3 +419,23 @@ var_binding_method(v, m) :- var_binding("client", _, "PROPERTY", src, _, v),
     var_binding_target(v, _, t),
     scope_sibling(t, sib),
     declared_method(sib, src, _, m).
+
+
+// ── an INDEX-DESTRUCTURED VARIABLE takes the ELEMENT type of its source ─────
+// `const [first] = ops` and `const [a, b] = makePair()`. The parser has emitted these
+// all along — bindingSourceKind=INDEX, bindingSource=the position — and nothing read the
+// kind, so every call through an array or tuple pattern was unresolvable while the index
+// access beside it (`ops[0].apply()`) resolved through the very same relation (#388).
+// 377 such rows in one project alone.
+//
+// The ELEMENT type, not the element AT THAT POSITION: there is no tuple extraction in
+// the engine (see ref_name_is_container's note on Map), so a tuple destructure takes the
+// union of the tuple's elements. That is a superset, never a wrong answer — the same
+// answer `pair[0]` already gives — and it is exact for the array case, which is the
+// common one.
+var_type(v, prov, et) :- var_binding("client", _, "INDEX", _, e, v),
+    e != "",
+    expr_element_type(e, prov, et).
+var_shape(v, sh) :- var_binding("client", _, "INDEX", _, e, v),
+    e != "",
+    expr_element_shape(e, sh).
