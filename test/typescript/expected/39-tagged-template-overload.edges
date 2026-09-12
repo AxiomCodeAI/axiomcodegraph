@@ -1,0 +1,9 @@
+ambiguous_unknown	METHOD_CALL	r354#ctlOrdinaryOverloadCall() @L35 -> -
+known_edge	FUNCTION_CALL	r354#ctlOrdinaryOverloadCall() @L36 -> r354#otag(TemplateStringsArray,number[])
+known_edge	FUNCTION_CALL	r354#ctlOrdinaryOverloadCall() @L37 -> r354#otag(TemplateStringsArray,string[])
+known_edge	FUNCTION_CALL	r354#main() @L41 -> r354#ctlSingleSignature()
+known_edge	FUNCTION_CALL	r354#main() @L42 -> r354#ctlOrdinaryOverloadCall()
+known_edge	FUNCTION_CALL	r354#main() @L43 -> r354#viaTaggedOverload()
+known_edge	TAGGED_TEMPLATE_CALL	r354#ctlSingleSignature() @L29 -> r354#stag(TemplateStringsArray,number[])
+known_edge	TAGGED_TEMPLATE_CALL	r354#viaTaggedOverload() @L20 -> r354#otag(TemplateStringsArray,number[])
+known_edge	TAGGED_TEMPLATE_CALL	r354#viaTaggedOverload() @L21 -> r354#otag(TemplateStringsArray,string[])

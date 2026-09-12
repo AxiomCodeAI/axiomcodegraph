@@ -375,9 +375,26 @@ expr_call_candidate(ce, ctor) :- call_site("client", "SUPER_CALL", _, _, _, ce, 
 // ============================================================================
 
 // (11) `` tag`text` `` — the tag expression is the callee.
+//
+// LIFTED TO THE DECLARATION GROUP, exactly as (1) is and for the same reason. Without
+// it the tag resolved to the ONE declaration the binder recorded, so an overloaded tag
+// had a single candidate, selection never ran, and every site answered with declaration
+// 0 — committed, not hedged. The overloaded tag is the normal shape for the idiom:
+// typed query builders, styled-component factories and i18n helpers overload the tag
+// precisely to distinguish what is being interpolated (#354).
 expr_call_candidate(ce, m) :- call_site("client", "TAGGED_TEMPLATE_CALL", _, _, _, ce, _),
     expr_child("client", ce, "TAG_EXPRESSION", _, tag),
     expr_callable(tag, m).
+// ADDED TO the clause above, not substituted for it. method_group only exists where
+// declarationGroupKey is non-empty, and an ARROW assigned to a const has none — which is
+// how the commonest tag in one held-out project is written. Replacing the direct clause
+// with the lift lost the candidate entirely and turned 6 EXACT sites into MISSED, so the
+// lift ADDS the siblings and the direct binding still stands on its own.
+expr_call_candidate(ce, m2) :- call_site("client", "TAGGED_TEMPLATE_CALL", _, _, _, ce, _),
+    expr_child("client", ce, "TAG_EXPRESSION", _, tag),
+    expr_callable(tag, m),
+    method_group_of(m, g),
+    method_group_of(m2, g).
 
 // (12) `handlers[name](arg)` — a call THROUGH an index signature. The signature's
 // value type carries the call signature that runs. This resolves to a SIGNATURE, not
