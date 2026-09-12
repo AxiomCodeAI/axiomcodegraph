@@ -388,14 +388,59 @@ done
 # symlink); never silently passed.
 if [ "$BLESS" != "1" ]; then
   echo
+  # Asked once, here, and passed explicitly. The fixture's own default used to be an
+  # absolute path inside one developer's home directory and this call never passed the
+  # argument, so anywhere else `typescript/lib` was never staged, the global scope was
+  # empty, and the MANDATORY baseline failed with three assertions that read as engine
+  # defects in native resolution rather than as a missing argument (#331).
+  NODE_MODULES="$(bash "$HERE/tools/find-node-modules.sh" || true)"
+  [ -n "$NODE_MODULES" ] || echo "  ! no node_modules with a typescript found — fixtures will say so"
+
   echo "── linking fixture ──"
-  if bash "$HERE/fixtures/linking/run.sh" "${WORK:-/tmp/ts-linking-fixture}-linking" >"$WORK-linking.log" 2>&1; then
+  if bash "$HERE/fixtures/linking/run.sh" "${WORK:-/tmp/ts-linking-fixture}-linking" "$NODE_MODULES" >"$WORK-linking.log" 2>&1; then
     echo "linking fixture: ok"
   else
     echo "linking fixture: FAILED"
     grep -E '^FAIL' "$WORK-linking.log" | sed 's/^/  /' || tail -5 "$WORK-linking.log" | sed 's/^/  /'
     fail=$((fail+1)); failed+=("linking-fixture")
   fi
+
+  # ── THE FOUR GATES NOTHING RAN ──────────────────────────────────────────────
+  # The comment above says it for the fifth: a gate nobody runs is not a gate. That
+  # reasoning was acted on for `linking` and these four were left, so the suite could
+  # report green while any of the four mechanisms was broken. All four pass today and
+  # take about six seconds each — they are unrun, not rotten (#332).
+  #
+  # Each isolates a question the per-case goldens cannot ask:
+  #   dispatch     an interface-typed receiver, where the compiler names the SIGNATURE
+  #                and the engine emits the reachable BODIES — two different right
+  #                answers, deliberately kept apart
+  #   typeflow     every way a receiver acquires a type other than being annotated,
+  #                with member names shared on purpose so a lucky name match cannot pass
+  #   overloads    one overload set reached through a barrel re-export and by direct
+  #                import, so a difference between the two consumers is the module graph
+  #                rather than the overload logic
+  #   specificity  generic-first overload sets in both directions, built because the
+  #                obvious fix for the largest corpus failure class is wrong
+  #
+  # Second argument is a node_modules to stage a `typescript` from, discovered rather
+  # than defaulted to one developer's home directory (#331). Empty means the fixture
+  # falls back to its own discovery and says so.
+  for fx in dispatch typeflow overloads specificity; do
+    echo
+    echo "── $fx fixture ──"
+    bash "$HERE/fixtures/$fx/run.sh" "${WORK:-/tmp/ts-$fx}-$fx" "$NODE_MODULES"          >"$WORK-$fx.log" 2>&1
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+      echo "$fx fixture: ok"
+    elif [ "$rc" -eq 77 ]; then
+      echo "$fx fixture: SKIPPED ($(tail -1 "$WORK-$fx.log"))"
+    else
+      echo "$fx fixture: FAILED"
+      grep -E '^FAIL|^ *!' "$WORK-$fx.log" | sed 's/^/  /' || tail -5 "$WORK-$fx.log" | sed 's/^/  /'
+      fail=$((fail+1)); failed+=("$fx-fixture")
+    fi
+  done
 
   # Harness gates that take a parser and assert a property of the pipeline itself.
   # Neither is expressible as a case: a case carries its own src/tsconfig.json with
