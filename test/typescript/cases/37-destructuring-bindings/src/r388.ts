@@ -38,6 +38,18 @@ export function viaTupleDestructure(input: number): number {
   return a.apply(b.apply(input));
 }
 
+// THE POSITIONS ARE DIFFERENT CLASSES, so the union answer and the positional one are
+// distinguishable. #388 took the element union here — sound, and one declaration wider
+// than the compiler at every such site; #410 reads the position the tuple's members
+// already carry.
+export function makeMixedPair(): [IncrementOp, DoubleOp] {
+  return [new IncrementOp(), new DoubleOp()];
+}
+export function viaMixedTupleDestructure(input: number): number {
+  const [inc, dbl] = makeMixedPair();
+  return inc.apply(dbl.apply(input));
+}
+
 // ── controls ───────────────────────────────────────────────────────────────
 // INDEX ACCESS on the same container — the form that already resolved.
 export function ctlIndexAccess(input: number): number {
@@ -59,6 +71,7 @@ export function ctlElementBinding(ops: IncrementOp[], input: number): number {
 
 export function main(): number {
   return (
+    viaMixedTupleDestructure(0) +
     viaArrayDestructure([new IncrementOp()], 1) +
     viaTupleDestructure(2) +
     ctlIndexAccess(3) +
