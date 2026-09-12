@@ -36,7 +36,12 @@ type_defines_method(p, t, n, m) :-
     method_kind(p, kind, _, m),
     kind != "MODULE_INITIALIZER", kind != "CLASS_INITIALIZER",
     !method_body_is_stub(p, m),
-    !method_target_replaced(p, m).
+    !method_target_replaced(p, m),
+    // A class body is a statement list like any other: a second `def` of the same name
+    // rebinds the first, and the class ends up with only the later function (#383).
+    // Both routes to a callable need the gate, because a class member is reached through
+    // here and never through binding_binds_method.
+    !def_rebound_by_later_def(p, m).
 
 // ── type_name_opaque(Prov, TypeHash, Name) ───────────────────────────────────
 // The class DOES bind this name, but to a def whose own name no longer refers to it —

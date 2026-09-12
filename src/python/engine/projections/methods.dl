@@ -107,6 +107,20 @@ method_scope("lib", s, h) :- lib_py_method(_, _, _, _, _, _, _, _, _, _, _, _, _
 method_declaring_binding("client", b, h) :- py_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, b, _, _, _, _, _, _, _, _, _, _, _, h), b != "".
 method_declaring_binding("lib", b, h) :- lib_py_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, b, _, _, _, _, _, _, _, _, _, _, _, h), b != "".
 
+// ── method_start_line / method_decorator_count (cols 5 and 30) ───────────────
+// Both read for #383 and for nothing else so far. The line orders two `def`s that share a
+// binding; the decorator count is what keeps a PROPERTY PAIR out of the rule entirely —
+// `@property def x` and `@x.setter def x` share one binding and one name, and 433 of the
+// 617 shared-binding groups in the measured corpus are exactly that. Both of those are
+// reachable, through the descriptor rather than through the name, so a rebinding rule
+// that did not exclude them would delete every getter in the corpus.
+method_file("client", f, h) :- py_method(_, _, _, _, f, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+method_file("lib", f, h) :- lib_py_method(_, _, _, _, f, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+method_start_line("client", sl, h) :- py_method(_, _, _, _, _, sl, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+method_start_line("lib", sl, h) :- lib_py_method(_, _, _, _, _, sl, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+method_decorator_count("client", dc, h) :- py_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, dc, _, _, _, _, h).
+method_decorator_count("lib", dc, h) :- lib_py_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, dc, _, _, _, _, h).
+
 // ── method_enclosing_member(Prov, EnclosingMethodHash, MethodHash) ───────────
 // CLOSURES ARE FIRST-CLASS, unlike Java: 5.3% of functions nest, and a nested def is
 // a genuine call target reachable only through its enclosing scope.
