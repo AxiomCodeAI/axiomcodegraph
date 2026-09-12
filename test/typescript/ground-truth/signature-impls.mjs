@@ -110,6 +110,7 @@ const seen = new Set();
 let bodies = 0;
 let contextual = 0;
 let classRefs = 0;
+let heritageMembers = 0;
 
 for (const sf of program.getSourceFiles()) {
   // Bodies live in real source; a declaration file has none to attribute.
@@ -130,6 +131,7 @@ for (const sf of program.getSourceFiles()) {
         // itself in some positions, and crediting that would make every function
         // trivially implement itself.
         if (d === node) continue;
+        if (d.body !== undefined) continue;   // bodiless only — see the note below
         const [sfile, sline, scol] = posOf(d);
         const key = `${ifile}\t${iline}\t${icol}\t${sfile}\t${sline}\t${scol}`;
         if (seen.has(key)) continue;
@@ -175,11 +177,76 @@ for (const sf of program.getSourceFiles()) {
             const d = sig.declaration;
             if (!d) continue;
             if (d === ctor || d === cls) continue;
+            if (d.body !== undefined) continue;   // bodiless only — see the note below
             const [sfile, sline, scol] = posOf(d);
             const key = `${ifile}\t${iline}\t${icol}\t${sfile}\t${sline}\t${scol}`;
             if (seen.has(key)) continue;
             seen.add(key);
             rows.push(key);
+          }
+        }
+      }
+    }
+    // ── A CLASS MEMBER IMPLEMENTING A MEMBER IT DECLARES IT WILL ──────────
+    // A receiver typed as an interface; the engine resolves through to the members of a
+    // class that DECLARES it implements that interface. tsc names the interface member.
+    // score.py already credits this — but only when the two are in the same file, and
+    // an interface and its implementations are conventionally in different ones, so the
+    // gate fails on every real instance and the site scores WRONG (#400).
+    //
+    // The relation is read off the DECLARED heritage, transitively: `class Noop extends
+    // AbstractAdapter` reaches `Iface` because AbstractAdapter says `implements Iface`.
+    // That is the class stating the obligation, not a compatibility check — a structural
+    // match with no heritage clause is NOT credited, which is the same line #386 and the
+    // call-signature route draw, and for the same reason: assignability would
+    // manufacture the agreement the score exists to measure.
+    if (ts.isClassDeclaration(node) || ts.isClassExpression(node)) {
+      const heritage = [];
+      const seenDecl = new Set();
+      const collect = (decl) => {
+        if (!decl || seenDecl.has(decl)) return;
+        seenDecl.add(decl);
+        for (const hc of decl.heritageClauses ?? []) {
+          for (const expr of hc.types) {
+            let t;
+            try { t = checker.getTypeAtLocation(expr); } catch { continue; }
+            if (!t) continue;
+            heritage.push(t);
+            for (const d of t.getSymbol()?.declarations ?? []) {
+              if (ts.isClassDeclaration(d) || ts.isInterfaceDeclaration(d)
+                  || ts.isClassExpression(d)) collect(d);
+            }
+          }
+        }
+      };
+      collect(node);
+      if (heritage.length) {
+        for (const m of node.members) {
+          if (!ts.isMethodDeclaration(m) && !ts.isPropertyDeclaration(m)
+              && !ts.isGetAccessorDeclaration(m) && !ts.isSetAccessorDeclaration(m)) continue;
+          if (!m.name || !ts.isIdentifier(m.name)) continue;
+          const [ifile, iline, icol] = posOf(m);
+          for (const ht of heritage) {
+            const prop = ht.getProperty?.(m.name.text);
+            for (const d of prop?.declarations ?? []) {
+              // A member is not its own signature, and a member is not credited to a
+              // redeclaration of itself in the same class.
+              if (d === m) continue;
+              // BODILESS TARGETS ONLY, for every route in this file. score.py used to
+              // establish that from the IR — `pos_meta[otarget]` had to carry a bodiless
+              // kind — and that check cannot be made for a target the IR does not
+              // contain: a package whose built .d.ts is staged while the compiler names
+              // its SOURCE is exactly that case, and it is the common one for a
+              // monorepo's own packages. So the emitter certifies it here instead, where
+              // the AST is in hand, and score.py can trust the pair on its own.
+              if (d.body !== undefined) continue;
+              heritageMembers += 1;
+              const [sfile, sline, scol] = posOf(d);
+              const key = `${ifile}\t${iline}\t${icol}\t${sfile}\t${sline}\t${scol}`;
+              if (seen.has(key)) continue;
+              seen.add(key);
+              rows.push(key);
+            }
           }
         }
       }
@@ -197,5 +264,6 @@ fs.writeFileSync(
 console.error(
   `signature-impls: ${bodies} bodies, ${contextual} contextually typed, `
   + `${classRefs} class-valued construct-signature refs, `
+  + `${heritageMembers} declared-heritage members, `
   + `${rows.length} (body, signature) pairs -> ${outPath}`
 );
