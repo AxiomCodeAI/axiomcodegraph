@@ -1,0 +1,15 @@
+ambiguous_unknown	CONSTRUCTOR_CALL	r356#ctlClientGenericReturn() @L43 -> -
+ambiguous_unknown	CONSTRUCTOR_CALL	r356#makeAlpha() @L48 -> -
+ambiguous_unknown	CONSTRUCTOR_CALL	r356#viaGenericLibReturn() @L35 -> -
+ambiguous_unknown	METHOD_CALL	r356#ctlNonGenericLibReturn(string) @L28 -> -
+ambiguous_unknown	METHOD_CALL	r356#viaGenericLibReturn() @L35 -> -
+known_edge	FUNCTION_CALL	r356#ctlClientChainDepth() @L51 -> r356#makeAlpha()
+known_edge	FUNCTION_CALL	r356#ctlClientGenericReturn() @L43 -> r356#identity(T)
+known_edge	FUNCTION_CALL	r356#main() @L55 -> r356#ctlNonGenericLibReturn(string)
+known_edge	FUNCTION_CALL	r356#main() @L56 -> r356#ctlClientGenericReturn()
+known_edge	FUNCTION_CALL	r356#main() @L57 -> r356#ctlClientChainDepth()
+known_edge	FUNCTION_CALL	r356#main() @L58 -> r356#viaGenericLibReturn()
+known_edge	METHOD_CALL	r356#<arrow@35>(AlphaOp) @L35 -> AlphaOp#run(number)
+known_edge	METHOD_CALL	r356#ctlClientChainDepth() @L51 -> AlphaOp#run(number)
+known_edge	METHOD_CALL	r356#ctlClientChainDepth() @L51 -> AlphaOp#self()
+known_edge	METHOD_CALL	r356#ctlClientGenericReturn() @L43 -> AlphaOp#run(number)
