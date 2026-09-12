@@ -135,6 +135,16 @@ expr_asserted_type("client", r, h) :- ts_expression(_, _, _, _, _, _, _, _, _, _
 expr_asserted_type("lib", r, h) :- lib_ts_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, r, _, _, _, _, _, h), r != "".
 
 // ── expr_literal_type(Prov, LiteralType, ExprHash) ──────────────────────────
+// ── expr_literal_value(Prov, Value, ExprHash) ───────────────────────────────
+// Column 11, and nothing read it. It is where an OBJECT_PROPERTY_KEY carries the
+// property's NAME: `{ viaArrow: (n) => n + 1 }` emits the key as an
+// IDENTIFIER_REFERENCE whose literalValue is `viaArrow`, with referencedEntityKind
+// UNKNOWN — there is no declaration for a literal's own key. So a property of an object
+// literal has no name anywhere else, and a call through one could not be matched by name
+// (#229).
+expr_literal_value("client", lv, h) :- ts_expression(_, _, _, _, _, _, _, _, _, _, lv, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), lv != "".
+expr_literal_value("lib", lv, h) :- lib_ts_expression(_, _, _, _, _, _, _, _, _, _, lv, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), lv != "".
+
 expr_literal_type("client", lt, h) :- ts_expression(_, _, _, _, _, _, _, _, _, lt, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), lt != "".
 expr_literal_type("lib", lt, h) :- lib_ts_expression(_, _, _, _, _, _, _, _, _, lt, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), lt != "".
 

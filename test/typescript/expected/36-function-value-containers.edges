@@ -1,0 +1,10 @@
+ambiguous_unknown	CONSTRUCTOR_CALL	r229#callClassMembers(number) @L27 -> -
+known_edge	FUNCTION_CALL	r229#main() @L46 -> r229#callClassMembers(number)
+known_edge	FUNCTION_CALL	r229#main() @L46 -> r229#callNamespaceMembers(number)
+known_edge	FUNCTION_CALL	r229#main() @L46 -> r229#callObjectLiteral(number)
+known_edge	METHOD_CALL	r229#callClassMembers(number) @L28 -> Holder#<arrow@18>(number)
+known_edge	METHOD_CALL	r229#callClassMembers(number) @L28 -> Holder#viaMethod(number)
+known_edge	METHOD_CALL	r229#callNamespaceMembers(number) @L41 -> util#viaConst(number)
+known_edge	METHOD_CALL	r229#callNamespaceMembers(number) @L41 -> util#viaFunction(number)
+known_edge	METHOD_CALL	r229#callObjectLiteral(number) @L14 -> r229#<arrow@6>(number)
+known_edge	METHOD_CALL	r229#callObjectLiteral(number) @L14 -> r229#viaShorthand(number)
