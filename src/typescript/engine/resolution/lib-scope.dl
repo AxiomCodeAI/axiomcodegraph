@@ -100,12 +100,36 @@ lib_name_binds(mod, local, prov, k, ent) :- import_binding("lib", _, local, _, m
 // (3) the global scope, when the module does not bind the name itself. `Array`,
 // `Promise`, `Buffer` — a library's own annotations lean on the globals as heavily as
 // a client's do.
-lib_name_bound_locally(mod, name) :- module_local_decl("lib", mod, name, _, _).
-lib_name_bound_locally(mod, name) :- import_binding("lib", _, name, _, mod, _), name != "".
+// SUPPRESSED PER KIND, NOT PER NAME. TypeScript keeps types and values in separate
+// namespaces and the standard library leans on that constantly: lib.es2015.promise.d.ts
+// declares `declare var Promise: PromiseConstructor` while the INTERFACE `Promise<T>`
+// lives in lib.es5.d.ts. A name-only test made the local VARIABLE hide the global TYPE,
+// so a type reference to `Promise` inside that file bound to the variable — and
+// type-resolution asks for kind "TYPE", so it bound to nothing at all.
+//
+// The visible consequence was that `Promise.resolve(x).then(...)` resolved `resolve`
+// exactly and then MISSED the `.then` on its result, because `resolve`'s declared return
+// `Promise<Awaited<T>>` could not be resolved to the interface. Every promise chain not
+// written with `await` stopped at that site (#356).
+//
+// Measured before this: it is NOT library generics in general. `Map.get`, `Set.forEach`
+// and `Array.filter` all substitute and chain correctly, and `then` on an ANNOTATED
+// `Promise<AlphaOp>` parameter is exact — because the client's own scope has no variable
+// of that name to shadow the interface. Only the shape that resolves the name inside the
+// library file itself fails.
+//
+// An IMPORTED name still suppresses every kind. What an import binds is not decided
+// here, so narrowing that would be a guess; this changes only the local-declaration
+// half, where the kind is known.
+lib_local_decl_of_kind(mod, name, k) :- module_local_decl("lib", mod, name, k, _).
+lib_name_imported(mod, name) :- import_binding("lib", _, name, _, mod, _), name != "".
+lib_name_bound_locally(mod, name) :- lib_local_decl_of_kind(mod, name, _).
+lib_name_bound_locally(mod, name) :- lib_name_imported(mod, name).
 lib_name_binds(mod, name, prov, k, ent) :- module_decl("lib", _, _, _, _, mod),
     lib_global_name_demanded(name),
     global_decl(name, k, prov, ent),
-    !lib_name_bound_locally(mod, name).
+    !lib_local_decl_of_kind(mod, name, k),
+    !lib_name_imported(mod, name).
 
 // ── lib_global_name_demanded(Name) — the bound that keeps this affordable ───
 // Without it the global fallback is |library modules| x |global declarations|, and
