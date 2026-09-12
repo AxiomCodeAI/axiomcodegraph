@@ -206,8 +206,11 @@ def main():
         shutil.rmtree(work, ignore_errors=True)
 
 
-main()
-if failures:
-    print(f'envelope-report: FAILED ({checks} checks, {len(failures)} failed)')
-    sys.exit(1)
-print(f'envelope-report: ok ({checks} checks)')
+# Guarded so `build` and `row` can be reused by another test without running this one.
+# source_root_test.py needs the same synthesised IR and there is no reason to have two.
+if __name__ == '__main__':
+    main()
+    if failures:
+        print(f'envelope-report: FAILED ({checks} checks, {len(failures)} failed)')
+        sys.exit(1)
+    print(f'envelope-report: ok ({checks} checks)')

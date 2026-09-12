@@ -111,6 +111,10 @@ def rp(path):
 # Reported, never silent: the fallback is exactly the collision this replaced.
 _WEAK_ROOTS = []
 
+# Roots recorded in a form this runtime resolves to a path that does not exist. Fatal,
+# not weak: every declaration under such a root is unjoinable. See source_root.
+_BAD_ROOTS = []
+
 
 def source_root(d):
     """The directory an IR root was extracted from, per its `.source-root` marker."""
@@ -119,7 +123,20 @@ def source_root(d):
         _WEAK_ROOTS.append(d)
         return ''
     with open(marker, encoding='utf-8', errors='replace') as fh:
-        return rp(fh.read().strip())
+        raw = fh.read().strip()
+    resolved = rp(raw)
+    # A ROOT THE FILESYSTEM DOES NOT HAVE IS NOT A ROOT. `.source-root` is written by the
+    # shell and read here; where the shell's path form is not one this runtime resolves,
+    # `os.path.realpath` does not fail -- it returns a DIFFERENT, nonexistent absolute
+    # path, every staged declaration lands under it, and the join with the oracle's
+    # absolute targets silently produces the empty set. That was reported not as a
+    # failure but as `TARGET NOT STAGED 85.95%`, naming the client's OWN source files as
+    # unstaged, with a verdict of EXACT 0 / WRONG 93. #342.
+    if not os.path.isdir(resolved):
+        _BAD_ROOTS.append((d, raw, resolved))
+        _WEAK_ROOTS.append(d)
+        return ''
+    return resolved
 
 
 def resolved_ident(root, f, line, col):
@@ -519,6 +536,22 @@ def main():
               f'{sum(len(v) for v in ambiguous.values())} distinct files')
         print('  ^ these are DISTINGUISHED here and were conflated before; a basename '
               'match is no longer EXACT')
+    if _BAD_ROOTS:
+        print()
+        print(f'! REFUSING to report: {len(_BAD_ROOTS)} IR root(s) record a .source-root '
+              'that does not exist.')
+        for d, raw, resolved in _BAD_ROOTS[:5]:
+            print(f'    {d}')
+            print(f'      recorded     {raw!r}')
+            print(f'      resolves to  {resolved!r}  (no such directory)')
+        print('  Every declaration under such a root is keyed under a path nothing else '
+              'names, so the')
+        print('  join with the oracle is empty and the buckets above describe nothing. It '
+              'reads as')
+        print("  TARGET NOT STAGED over the client's own files, which is why this refuses "
+              'rather than')
+        print('  print a rate.')
+        sys.exit(4)
     if _WEAK_ROOTS:
         print(f'! {len(_WEAK_ROOTS)} IR root(s) have no .source-root and fall back to a '
               f'basename identity:')
