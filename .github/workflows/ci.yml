@@ -216,6 +216,41 @@ jobs:
             exit 1
           fi
 
+      # git reports EVERY credential problem against a private repository as
+      # "remote: Write access to repository not granted ... error: 403", whatever
+      # the real cause was. That message is actively misleading — it is not about
+      # write access, and the token is usually not even the thing that is wrong —
+      # so this asks the API first and says what actually happened. The secret is
+      # masked in logs by the runner; only status codes are printed.
+      - name: the credential can actually read the parser repository
+        env:
+          TOKEN: ${{ secrets.PARSER_ACCESS_TOKEN }}
+        run: |
+          set -uo pipefail
+          code=$(curl -s -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $TOKEN" \
+            https://api.github.com/repos/AxiomCodeAI/parser)
+          echo "GET /repos/AxiomCodeAI/parser -> $code"
+          case "$code" in
+            200) echo "credential can read the parser repository"; exit 0;;
+            401) echo "::error::the credential is not valid — expired, revoked, or truncated when it was stored.";;
+            403) echo "::error::the credential is recognised but blocked by organisation policy.";;
+            404) echo "::error::the credential cannot see AxiomCodeAI/parser at all. GitHub returns 404 rather than 403 to avoid confirming that a private repository exists, so this is what a token with the WRONG RESOURCE OWNER looks like, and also what an unapproved one looks like.";;
+            *)   echo "::error::unexpected status $code";;
+          esac
+          echo "--- what this credential can reach, to locate the fault ---"
+          n=$(curl -s -H "Authorization: Bearer $TOKEN" \
+                "https://api.github.com/user/repos?per_page=100" \
+              | grep -c '"full_name"' || true)
+          org=$(curl -s -H "Authorization: Bearer $TOKEN" \
+                  "https://api.github.com/user/repos?per_page=100" \
+                | grep -c '"full_name": "AxiomCodeAI/' || true)
+          echo "  repositories visible to it: $n, of which under AxiomCodeAI: $org"
+          if [ "$org" = "0" ]; then
+            echo "::error::it can see no AxiomCodeAI repository, so its resource owner is a personal account rather than the organisation. Recreate the token with Resource owner = AxiomCodeAI."
+          fi
+          exit 1
+
       - uses: actions/checkout@v4
         with:
           repository: AxiomCodeAI/parser
