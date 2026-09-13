@@ -393,6 +393,24 @@ new_expression_type(ce, prov, t) :- call_site("client", "CONSTRUCTOR_CALL", _, _
     class_valued_var(v, t),
     type_decl(prov, _, _, _, _, _, t).
 
+// ── `new` THROUGH AN `import x = require(...)` BINDING ─────────────────────
+// `export = LegacyImpl` makes the MODULE ITSELF the entity, and
+// `import Legacy = require("./legacy")` binds that entity rather than a member of it.
+// So nothing at the `new` site names a type -- the callee is an import binding -- and
+// the construction produced no instance type, losing every call on the result. This is
+// the dominant shape in `@types` packages for CommonJS libraries, so it is not a legacy
+// curiosity.
+//
+// THE MODULE'S exportAssignmentLinkHash POINTS AT AN EXPORT ROW, NOT AT A TYPE. The
+// class is on that row's own entity link, so the walk is module -> export assignment ->
+// exported entity, and gating on entity kind TYPE keeps `export = someFunction` out.
+new_expression_type(ce, prov, t) :- call_site("client", "CONSTRUCTOR_CALL", _, _, _, ce, _),
+    call_callee_expr(_, ce, ne),
+    expr_referenced("client", "IMPORT_BINDING", ih, ne),
+    import_target_module(ih, prov, m),
+    module_export_assignment(prov, ex, m),
+    export_entity(prov, "TYPE", t, _, ex).
+
 // ── enum_member_type(EnumMemberHash, Prov, TypeHash) ────────────────────────
 // `Color.RED.toString()` — an enum member's type is its owning enum.
 enum_member_type(em, prov, t) :- enum_member_decl(prov, _, t, _, em), t != "".
