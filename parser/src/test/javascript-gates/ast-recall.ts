@@ -61,8 +61,8 @@ import { isJavaScriptSourceFile, jsExtensionOf } from '@/utils/javascript';
 type Key = string;
 const key = (line: number, col: number): Key => `${line}:${col}`;
 
-interface Bucket { expected: number; found: number; missing: Map<string, number> }
-const bucket = (): Bucket => ({ expected: 0, found: 0, missing: new Map() });
+interface Bucket { expected: number; found: number; missing: Map<string, number>; excluded: Map<string, number> }
+const bucket = (): Bucket => ({ expected: 0, found: 0, missing: new Map(), excluded: new Map() });
 
 async function main(): Promise<void> {
   const root = process.argv[2]!;
@@ -183,8 +183,96 @@ async function main(): Promise<void> {
       const p = sf.getLineAndCharacterOfPosition(n.getStart(sf));
       return key(p.line + 1, p.character + 1);
     };
+    // EXCLUDED BY RULE, named and counted, never silently subtracted. Each is
+    // a construct the compiler's tree has and the fact base represents some
+    // other way — so a miss here is the model, not a walk that stopped. The
+    // reason is the label; a new exclusion needs a reason in this list.
+    const excludedByRule = (n: ts.Node): string | undefined => {
+      if (ts.isParenthesizedExpression(n)) {
+        return 'ParenthesizedExpression: unwrapped, the inner expression is the row';
+      }
+      if (ts.isPrivateIdentifier(n) && n.parent !== undefined && ts.isPropertyAccessExpression(n.parent)
+        && n.parent.name === n) {
+        return 'PrivateIdentifier as a member name: `this.#x` is one access row';
+      }
+      if ((ts.isStringLiteral(n) || ts.isNumericLiteral(n)) && n.parent !== undefined
+        && ts.isBindingElement(n.parent) && n.parent.propertyName === n) {
+        return 'literal key of a binding pattern: a key, not an expression';
+      }
+      if (ts.isPropertyAccessExpression(n) || ts.isIdentifier(n)) {
+        // Anywhere inside a closing tag's name, at any depth of `A.B.C`.
+        let up: ts.Node | undefined = n.parent;
+        while (up !== undefined && ts.isPropertyAccessExpression(up)) { up = up.parent; }
+        if (up !== undefined && ts.isJsxClosingElement(up)) {
+          return 'JSX closing tag name: one reference per element, from the opening tag';
+        }
+      }
+      if (ts.isStringLiteral(n) && n.parent !== undefined
+        && (ts.isImportDeclaration(n.parent) || ts.isExportDeclaration(n.parent))
+        && n.parent.moduleSpecifier === n) {
+        return 'module specifier of an import/export declaration: a js_import/js_export row, declaration-borne';
+      }
+      if (ts.isPrivateIdentifier(n) && n.parent !== undefined
+        && (ts.isPropertyDeclaration(n.parent) || ts.isMethodDeclaration(n.parent)
+          || ts.isGetAccessorDeclaration(n.parent) || ts.isSetAccessorDeclaration(n.parent))
+        && n.parent.name === n) {
+        return 'PrivateIdentifier declaring a member: a js_field/js_method row, not an expression';
+      }
+      if (ts.isStringLiteral(n) && n.parent !== undefined
+        && (ts.isMethodDeclaration(n.parent) || ts.isPropertyAssignment(n.parent)
+          || ts.isGetAccessorDeclaration(n.parent) || ts.isSetAccessorDeclaration(n.parent))
+        && n.parent.name === n) {
+        return 'string literal naming an object-literal member: a key or a method name, not an expression';
+      }
+      if (ts.isOmittedExpression(n)) {
+        return 'OmittedExpression: an array hole, nothing to emit';
+      }
+      if (ts.isExpressionWithTypeArguments(n) && n.parent !== undefined && ts.isHeritageClause(n.parent)) {
+        return 'heritage clause operand: a js_type_heritage row';
+      }
+      if (ts.isCaseBlock(n)) {
+        return 'CaseBlock: the switch body is modelled per case clause, not as one block';
+      }
+      if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name)) {
+        // `var x` re-declaring a parameter of the same function is the SAME
+        // binding — one js_variable row would be a second binding that does
+        // not exist. The parameter row carries the name.
+        let fn: ts.Node | undefined = n.parent;
+        while (fn !== undefined && !ts.isFunctionLike(fn) && !ts.isSourceFile(fn)) { fn = fn.parent; }
+        if (fn !== undefined && ts.isFunctionLike(fn)
+          && fn.parameters.some((q) => ts.isIdentifier(q.name) && q.name.text === (n.name as ts.Identifier).text)) {
+          return 'var re-declaring a parameter: the same binding, carried by the parameter row';
+        }
+        // `var x` twice in one function is ONE binding, declared where it is
+        // first written; the second declaration has no row of its own.
+        if (n.parent !== undefined && ts.isVariableDeclarationList(n.parent)
+          && (n.parent.flags & ts.NodeFlags.BlockScoped) === 0 && fn !== undefined) {
+          const name = (n.name as ts.Identifier).text;
+          let earlier = false;
+          const scan = (m: ts.Node): void => {
+            if (earlier || m === n) { return; }
+            if (m.pos >= n.pos) { return; }
+            if (ts.isVariableDeclaration(m) && ts.isIdentifier(m.name) && m.name.text === name
+              && m.parent !== undefined && ts.isVariableDeclarationList(m.parent)
+              && (m.parent.flags & ts.NodeFlags.BlockScoped) === 0) { earlier = true; return; }
+            if (ts.isFunctionLike(m) && m !== fn) { return; }
+            ts.forEachChild(m, scan);
+          };
+          ts.forEachChild(fn, scan);
+          if (earlier) {
+            return 'var re-declared in the same function: one binding, one row at the first declaration';
+          }
+        }
+      }
+      return undefined;
+    };
     const want = (name: string, n: ts.Node, label: string): void => {
       const b = buckets[name]!;
+      const rule = excludedByRule(n);
+      if (rule !== undefined) {
+        b.excluded.set(rule, (b.excluded.get(rule) ?? 0) + 1);
+        return;
+      }
       b.expected += 1;
       if (index.get(relationFor[name]!)?.get(relative)?.has(at(n)) === true) {
         b.found += 1; return;
@@ -213,7 +301,13 @@ async function main(): Promise<void> {
         want('classes         -> js_type', n, ts.SyntaxKind[n.kind]!);
       }
       if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name)) {
-        want('variable names  -> js_variable', n.name, 'VariableDeclaration');
+        const rule = excludedByRule(n);
+        if (rule !== undefined) {
+          const b = buckets['variable names  -> js_variable']!;
+          b.excluded.set(rule, (b.excluded.get(rule) ?? 0) + 1);
+        } else {
+          want('variable names  -> js_variable', n.name, 'VariableDeclaration');
+        }
       }
       if (ts.isBlock(n) || ts.isCaseBlock(n) || ts.isModuleBlock(n)) {
         want('blocks          -> js_block', n, ts.SyntaxKind[n.kind]!);
@@ -235,6 +329,9 @@ async function main(): Promise<void> {
     const top = [...b.missing.entries()].sort((x, y) => y[1] - x[1]).slice(0, 4);
     if (top.length > 0) {
       console.log(`      top missing: ${top.map(([k, v]) => `${k} ${v}`).join(', ')}`);
+    }
+    for (const [rule, count] of [...b.excluded.entries()].sort((x, y) => y[1] - x[1])) {
+      console.log(`      excluded by rule (${count}): ${rule}`);
     }
   }
   console.log('\nEXAMPLES of each missing kind:');

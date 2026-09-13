@@ -641,6 +641,7 @@ const SCAFFOLD: ReadonlyArray<readonly [string, string]> = [
     '  <Foo-Bar />,',
     '  <>text</>,',
     '  <Foo><div /></Foo>,',
+    '  <Foo {...widgets} key={X.y} />,',
     '];',
     '',
   ].join('\n')],
@@ -5842,6 +5843,15 @@ function jsxTagNamesAreReferences(): number {
         + `${(leaf?.[xBinding] ?? '') === '' ? ', no binding link' : ''}; expected ${name} ${resolution} `
         + 'with a binding link — the reference is IR, the language decides it, and it was 833 rows of nothing');
     }
+  }
+  // A spread attribute's expression is a child of the element, with the spread role.
+  const spreadElement = elementsAt(18).find((r) => r[xKind] === 'JSX_ELEMENT');
+  const spread = spreadElement === undefined ? undefined
+    : mine.find((r) => r[xParent] === spreadElement[xPk] && r[xRole] === 'SPREAD_OPERAND');
+  if (spread === undefined || spread[xName] !== 'widgets' || spread[xResolution] !== 'MODULE') {
+    failures += fail(`<Foo {...widgets} /> (line 18): the spread's expression is `
+      + `${spread === undefined ? 'MISSING' : `${spread[xName]} ${spread[xResolution]}`}; expected the `
+      + 'binding `widgets` read as a SPREAD_OPERAND child — the generic descent reached it as a bare node no branch claimed');
   }
   // The closing tag is not a second reference: exactly one JSX_TAG_NAME per component element.
   const tagRows = mine.filter((r) => r[xRole] === 'JSX_TAG_NAME');

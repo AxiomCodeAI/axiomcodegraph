@@ -593,6 +593,19 @@ export class JsExpressionExtractor {
         }
         return;
       }
+      // A SPREAD ATTRIBUTE — `<C {...props} />` — hands a whole object to the
+      // component. It is neither an attribute with an initializer nor a brace
+      // container, so the generic descent reached its expression as a bare
+      // node no branch claimed: `sequence[0]`, `this.props`, `Theme.Consumer`
+      // were 24 expressions missing from the tree on the development corpus,
+      // found by the AST recall's residue once the by-rule exclusions were
+      // named. The same edge a spread argument gets.
+      if (ts.isJsxSpreadAttribute(current)) {
+        this.emitChild(current.expression, parentRow, JsEdgeRole.SPREAD_OPERAND,
+          index, currentDepth, JsRootContext.JSX_EXPRESSION, ownerMethodHash);
+        index += 1;
+        return;
+      }
       // A NESTED JSX ELEMENT gets its own row, and becomes the parent of its
       // own children.
       //
