@@ -1,0 +1,10 @@
+ambiguous_unknown	CONSTRUCTOR_CALL	main#assert(unknown,string) @L13 -> -
+ambiguous_unknown	CONSTRUCTOR_CALL	main#assertCaller(Runner | null) @L14 -> -
+known_edge	FUNCTION_CALL	main#assertCaller(Runner | null) @L14 -> main#canCall(Runner | null)
+known_edge	FUNCTION_CALL	main#viaCondition(Runner | null) @L16 -> main#assert(unknown,string)
+known_edge	FUNCTION_CALL	main#viaCondition(Runner | null) @L16 -> main#canCall(Runner | null)
+known_edge	FUNCTION_CALL	main#viaPredicate(Runner | null) @L17 -> main#assertCaller(Runner | null)
+multi_inferred	METHOD_CALL	main#viaCondition(Runner | null) @L16 -> Caller#<arrow@10>(string)
+multi_inferred	METHOD_CALL	main#viaCondition(Runner | null) @L16 -> Runner#<arrow@9>(string)
+multi_inferred	METHOD_CALL	main#viaPredicate(Runner | null) @L17 -> Caller#<arrow@10>(string)
+multi_inferred	METHOD_CALL	main#viaPredicate(Runner | null) @L17 -> Runner#<arrow@9>(string)
