@@ -112,4 +112,33 @@ export const ENTITY_IDENTIFIERS = {
    * for an entity hash in a join.
    */
   TS_DECLARATION_GROUP: 'TS_DECLARATION_GROUP',
+
+  // ------------------------------------------------------------ JavaScript
+  // JavaScript is its own front end (schema Q1), so it gets its own prefixes
+  // rather than sharing TypeScript's. The two languages share `ts.createSourceFile`
+  // and nothing else: 83.6% of JavaScript module edges are expression-borne and
+  // 0.165% of its parameters carry a syntactic type annotation, so the relations
+  // are shaped by a binder rather than by declared types.
+  //
+  // JS_MODULE is the root of every FK chain and every child key chains off its
+  // parent's hash, never off a re-derived qualified name — `module.exports =
+  // function () {}` gives a callable whose only name is its file's, and two such
+  // files in one directory would collide on any name-derived key.
+  JS_MODULE: 'JS_MODULE',
+  JS_SCOPE: 'JS_SCOPE',
+  JS_TYPE: 'JS_TYPE',
+  JS_TYPE_HERITAGE: 'JS_TYPE_HERITAGE',
+  JS_TYPE_REFERENCE: 'JS_TYPE_REFERENCE',
+  JS_METHOD: 'JS_METHOD',
+  JS_METHOD_PARAMETER: 'JS_METHOD_PARAMETER',
+  JS_FIELD: 'JS_FIELD',
+  JS_VARIABLE: 'JS_VARIABLE',
+  JS_IMPORT: 'JS_IMPORT',
+  JS_EXPORT: 'JS_EXPORT',
+  JS_EXPRESSION: 'JS_EXPRESSION',
+  /** A pure 1:1 chain off JS_EXPRESSION — a call site IS an expression. */
+  JS_CALL_SITE: 'JS_CALL_SITE',
+  JS_BLOCK: 'JS_BLOCK',
+  JS_COMMENT: 'JS_COMMENT',
+  JS_PARSE_GAP: 'JS_PARSE_GAP',
 } as const;

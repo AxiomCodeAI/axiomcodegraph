@@ -121,7 +121,7 @@ export class DocumentRegistry extends AbstractDocumentRegistry {
     }
 }
 
-// --- parameter properties: the DI-constructor idiom (Angular, NestJS) ------
+// --- parameter properties: the DI-constructor idiom (Angular and its Node counterpart) ------
 
 export class UserService {
     constructor(

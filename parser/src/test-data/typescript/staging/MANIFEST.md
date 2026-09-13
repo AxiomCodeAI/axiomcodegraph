@@ -50,7 +50,7 @@ directory. It does not need to typecheck under the root program and no longer
 can, since the root `tsconfig.json` excludes `src/test-data/typescript`.
 
 Legacy decorators are where **taint sources are declared** in real TypeScript
-backends: NestJS `@Body()` / `@Query()` / `@Param()`, Angular `@Injectable`,
+backends: a decorator-driven Node framework's `@Body()` / `@Query()` / `@Param()`, Angular `@Injectable`,
 TypeORM `@Column` are the analogue of Spring's `@RequestParam` /
 `@RequestMapping`, which Java CWE detection already keys on. Parameter
 decorators exist in no other dialect.

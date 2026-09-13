@@ -3,7 +3,7 @@
 //
 // Declaration merging ACROSS A MODULE BOUNDARY. `declare module "./specifier"`
 // reopens another module's declarations and adds to them. This is how
-// Express middleware adds `req.user`, how Vue adds global properties, and how
+// web-framework middleware adds `req.user`, how Vue adds global properties, and how
 // virtually every plugin ecosystem in TypeScript extends its host.
 //
 // The merge is directional and invisible from the other side: augmented-base.ts

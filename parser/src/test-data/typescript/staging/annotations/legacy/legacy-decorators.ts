@@ -6,7 +6,7 @@
 //
 // The second, older decorator system, and the one the overwhelming majority
 // of decorator-using TypeScript in the wild is written against: Angular,
-// NestJS, TypeORM, class-validator, MobX and InversifyJS all ship legacy
+// A decorator-driven Node framework, TypeORM, class-validator, MobX and InversifyJS all ship legacy
 // decorators. A parser that handles only standard decorators handles almost
 // none of the real corpus.
 //
@@ -17,7 +17,7 @@
 //     closest TypeScript gets to Java's parameter annotations, ported here
 //     from `ParameterAnnotationTest.java`
 //   - legacy decorators can be applied to constructor parameters, which is
-//     how dependency injection is expressed in Angular and NestJS
+//     how dependency injection is expressed in Angular and its Node counterpart
 //
 // Shaped directly after those framework APIs.
 
@@ -122,7 +122,7 @@ export class UserEntity {
     static readonly table = "users";
 }
 
-// --- the Angular / NestJS injectable-service shape ----------------------
+// --- the Angular-style injectable-service shape -------------------------
 
 @Injectable({ providedIn: "root" })
 export class UserRepository {
@@ -140,7 +140,7 @@ export class UserRepository {
     }
 }
 
-// --- the NestJS controller shape: class, method AND parameter decorators -
+// --- the decorator-driven controller shape: class, method AND parameter decorators -
 
 @Controller("users")
 export class UserController {

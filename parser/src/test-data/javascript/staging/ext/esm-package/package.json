@@ -1,0 +1,7 @@
+{
+  "name": "@fixture/ext-esm-package",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "An ESM package containing a .cjs file. The extension overrides the package type outright: moduleSystemSource = EXT_CJS beats PKG_TYPE_MODULE."
+}

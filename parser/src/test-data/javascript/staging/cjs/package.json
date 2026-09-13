@@ -1,0 +1,8 @@
+{
+  "name": "@fixture/cjs",
+  "version": "0.0.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "integration/service-layer.js",
+  "description": "Governing package.json for every fixture under cjs/. moduleSystem = COMMONJS, moduleSystemSource = PKG_TYPE_COMMONJS (declared, not defaulted)."
+}

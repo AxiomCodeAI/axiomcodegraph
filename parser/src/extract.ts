@@ -8,6 +8,7 @@ import { JavaProjectAnalyzer } from '@/workflows/java/java-project-analyzer';
 import { PropertiesProjectAnalyzer } from '@/workflows/properties/properties-project-analyzer';
 import { PythonProjectAnalyzer } from '@/workflows/python/python-project-analyzer';
 import { ServicesProjectAnalyzer } from '@/workflows/services/services-project-analyzer';
+import { JavaScriptProjectAnalyzer } from '@/workflows/javascript/javascript-project-analyzer';
 import { TypeScriptProjectAnalyzer } from '@/workflows/typescript/typescript-project-analyzer';
 import { XmlProjectAnalyzer } from '@/workflows/xml/xml-project-analyzer';
 import { YamlProjectAnalyzer } from '@/workflows/yaml/yaml-project-analyzer';
@@ -124,6 +125,7 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
   const javaProjects = scanner.filterByLanguage(allProjects, ProjectLanguage.JAVA);
   const pythonProjects = scanner.filterByLanguage(allProjects, ProjectLanguage.PYTHON);
   const typescriptProjects = scanner.filterByLanguage(allProjects, ProjectLanguage.TYPESCRIPT);
+  const javascriptProjects = scanner.filterByLanguage(allProjects, ProjectLanguage.JAVASCRIPT);
 
   const javaAnalyzer = new JavaProjectAnalyzer(undefined, outputDir);
   const propertiesAnalyzer = new PropertiesProjectAnalyzer(outputDir);
@@ -133,11 +135,15 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
   const servicesAnalyzer = new ServicesProjectAnalyzer(outputDir);
   const pythonAnalyzer = new PythonProjectAnalyzer();
   const typescriptAnalyzer = new TypeScriptProjectAnalyzer();
+  const javascriptAnalyzer = new JavaScriptProjectAnalyzer();
 
   // Positions matter: java, properties, xml, yaml, gradle, services, typescript,
-  // python. Counting them wrong bound typescriptSummaries to gradle's void
-  // return, and the mistake surfaced only as a type error.
-  const [, , , , , , typescriptSummaries, pythonSummaries] = await Promise.all([
+  // python, javascript. Counting them wrong bound typescriptSummaries to
+  // gradle's void return, and the mistake surfaced only as a type error — so a
+  // new analyzer is APPENDED rather than inserted, and the destructuring below
+  // is checked against this list rather than against memory.
+  const [, , , , , , typescriptSummaries, pythonSummaries, javascriptSummaries]
+    = await Promise.all([
     javaAnalyzer.analyzeJavaProjects(javaProjects, opts.versionLink, excludeTests),
     propertiesAnalyzer.analyzePropertiesFiles(scanTargets, opts.versionLink),
     xmlAnalyzer.analyzeXmlFiles(scanTargets, opts.versionLink),
@@ -194,6 +200,33 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
              'tests', 'test', '__tests__']
           : undefined,
       })))),
+    // JavaScript takes one root per call, as Python and TypeScript do, and
+    // hashes serviceVersionLink itself so all four languages produce joinable
+    // values. Unlike TypeScript there is no program expansion: JavaScript has no
+    // tsconfig to define one, and the per-file unit of configuration is the
+    // nearest `package.json`, which the analyzer resolves per file.
+    // ONE call for every JavaScript root, not one per project. Calling per
+    // project against a single output directory does not merge the sets, it
+    // OVERWRITES them — every project but the last vanishes — and concurrently
+    // it races on the temporary files as well. `analyzeAll` unions the file
+    // lists first, which also deduplicates the files a monorepo root and its
+    // packages both claim.
+    timed(Promise.all([
+      javascriptAnalyzer.analyzeAll(javascriptProjects.map((project) => project.path), {
+        outputDir: outputDir ?? ANALYSIS_OUTPUT_DIR,
+        baseMservPath: absolutePath,
+        serviceVersionLink: opts.versionLink,
+        // excludeDirs REPLACES the defaults rather than adding to them, so the
+        // defaults are repeated — passing only the test names would have started
+        // analysing node_modules as project source, which is the one thing the
+        // provenance split exists to prevent.
+        excludeDirs: excludeTests
+          ? ['node_modules', 'bower_components', '.git', 'dist', 'build', 'out',
+             'coverage', '.next', '.nuxt', '.turbo', '.cache', '.yarn',
+             'test', 'tests', '__tests__', 'spec']
+          : undefined,
+      }),
+    ])),
   ]);
 
   // Python and TypeScript ran and wrote their CSVs but reported nothing, while
@@ -203,6 +236,7 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
   // summaries were already returned by the analyzers and simply discarded.
   reportLanguage('Python', pythonSummaries.seconds, pythonSummaries.value);
   reportLanguage('TypeScript', typescriptSummaries.seconds, typescriptSummaries.value);
+  reportLanguage('JavaScript', javascriptSummaries.seconds, javascriptSummaries.value);
 
   // Wall clock for the whole run. The per-language figures above will NOT sum to
   // it: the analyzers run concurrently, so their durations overlap. Reporting

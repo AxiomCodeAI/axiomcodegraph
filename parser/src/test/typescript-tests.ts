@@ -1394,7 +1394,7 @@ function irCompleteness(): number {
  * punctuation around an ordinary expression. The walker recursed THROUGH JSX
  * from the start, which is why an arrow in `onClick={() => save()}` was always
  * walked, but nothing rooted the brace itself, so every call inside one was
- * dropped: 4,488 of a React application's 14,335 call sites, invisible because the recall
+ * dropped: 4,488 of a UI-framework application's 14,335 call sites, invisible because the recall
  * probe of the day measured declarations only.
  *
  * The corpus cannot carry this. Corpus A has no `.tsx` file and its
@@ -1438,7 +1438,7 @@ async function jsxBraceExpressionsWalked(): Promise<number> {
   // that makes `hasJsxContent` mean CONTENT.
   fs.writeFileSync(path.join(root, 'plain.tsx'), 'export const plain = 1;\n');
   fs.writeFileSync(path.join(root, 'tsconfig.json'), JSON.stringify({
-    compilerOptions: { jsx: 'react-jsx', target: 'ES2022', module: 'ESNext', strict: true },
+    compilerOptions: { jsx: 'react-jsx', target: 'ES2022', module: 'ESNext', strict: true }, // scrub-allow: a tsc compilerOptions value naming the JSX transform mode — mechanism, not a reference
     include: ['*.tsx'],
   }));
   const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ts-jsx-out-'));

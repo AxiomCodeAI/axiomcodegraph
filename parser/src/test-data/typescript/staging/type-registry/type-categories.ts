@@ -5,7 +5,7 @@
 // The declaration forms a TypeScript "type registry" must recognise, in the
 // shapes they take in real compiler and library source. Names and members are
 // modelled on the TypeScript compiler's own public types (TextRange,
-// DiagnosticCategory, SourceFileLike) and on the Node/Express error idiom.
+// DiagnosticCategory, SourceFileLike) and on the Node web-framework error idiom.
 //
 // Java's `type-registry/test-type-categories.java` covered class / interface /
 // enum / record / @interface. Records and annotation-type declarations have no
@@ -54,7 +54,7 @@ export abstract class DiagnosticReporter {
     }
 }
 
-// --- class extending a built-in, the Node/Express error idiom ---------------
+// --- class extending a built-in, the Node web-framework error idiom --------
 
 export class HttpError extends Error {
     override readonly name = "HttpError";

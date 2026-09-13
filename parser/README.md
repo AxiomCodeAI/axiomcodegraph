@@ -8,6 +8,8 @@
 &nbsp;&nbsp;
 <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/typescript/typescript-original.svg" width="46" height="46" alt="TypeScript" title="TypeScript — in development"/>
 &nbsp;&nbsp;
+<img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/javascript/javascript-original.svg" width="46" height="46" alt="JavaScript" title="JavaScript"/>
+&nbsp;&nbsp;
 <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/java/java-original.svg" width="46" height="46" alt="Java" title="Java"/>
 &nbsp;&nbsp;
 <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/xml/xml-original.svg" width="34" height="34" alt="XML" title="XML"/>
@@ -16,7 +18,7 @@
 &nbsp;&nbsp;
 <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/gradle/gradle-original.svg" width="34" height="34" alt="Gradle" title="Gradle"/>
 
-<sub>Full semantic resolution for <b>Python</b> and <b>Java</b>. <b>TypeScript</b> in development. Build-graph and dependency resolution for <b>Gradle</b>. Structural extraction for XML, YAML, Properties and META-INF/services.</sub>
+<sub>Full semantic resolution for <b>Python</b> and <b>Java</b>. <b>JavaScript</b> with a binder and JSDoc as its type channel. <b>TypeScript</b> in development. Build-graph and dependency resolution for <b>Gradle</b>. Structural extraction for XML, YAML, Properties and META-INF/services.</sub>
 
 [What it is](#what-this-is) &nbsp;|&nbsp;
 [The IR](#the-intermediate-representation) &nbsp;|&nbsp;
@@ -76,6 +78,7 @@ same tables and be compared.
 | Language | Maturity | Relations | Parser | What is extracted |
 |---|---|---|---|---|
 | **Python** | Stable | 19 | tree-sitter-python | Modules, scopes, bindings, types, base classes, methods, parameters, imports, expressions, call sites, type references, fields, decorators and their arguments, blocks, comments, parse gaps, PEP 695 type parameters. |
+| **JavaScript** | Stable | 16 | TypeScript compiler API, syntax only | Modules with their module system decided per file, scopes and bindings from a binder that models hoisting and the temporal dead zone, types including constructor functions and prototype members expressed as assignments and calls, methods, parameters, fields, variables, blocks, expressions as a tree, call sites by form, CommonJS and ESM edges wherever they sit, JSDoc types as trees, comments, directives and parse gaps. `.js`, `.mjs`, `.cjs`, `.jsx`. Flow is rejected, not parsed. |
 | **Java** | Stable | 17 | tree-sitter-java | Types, methods, fields, annotations and their arguments, expressions, imports, local variables, blocks, comments, enum constants, generics and type parameters. Covers classes, interfaces, enums, records, and nested types. |
 | **XML** | Stable | 3 | sax | Element hierarchy with XPath and namespaces, attributes, and value references including property placeholders and SpEL. |
 | **Properties** | Stable | 2 | custom | Keys and typed value segments, with continuation and comment handling. |
@@ -85,6 +88,13 @@ same tables and be compared.
 
 Python and Java are the two languages with full semantic resolution. The configuration formats are
 extracted structurally so that configuration values can be correlated with the code that reads them.
+
+JavaScript is parsed by the TypeScript compiler's syntax layer and never by its type checker: no
+`Program` is built, so extraction is hermetic and bounded, and a checkout that does not resolve
+cannot produce confident wrong answers. Types come from JSDoc, which the compiler parses into the
+tree; scope and binding come from a binder written for the language's hoisting and dead-zone rules,
+because in unannotated code that is where `this`, closures and shadowing are decided. The compiler
+is the oracle, out of process, never the runtime.
 
 Gradle sits between the two. There is no type system to consult, so it is not semantically resolved
 in the sense Java is, but it is more than structural: the settings file's project graph, `apply
@@ -146,7 +156,7 @@ src/
   constants/               CSV file names, entity identifier prefixes.
   interfaces/              BaseExtractor and shared contracts.
   language-detectors/      Project and build system detection.
-  schema/python/           Frozen Python relation schema and generated Datalog declarations.
+  schema/<lang>/           Frozen relation schema and generated Datalog declarations (Python, JavaScript).
   test/                    Extractor suites, differential gates, corpora.
   test-data/               Committed fixtures, per language.
   types/                   Cross language types only. Language specific types live beside their parser.
@@ -203,6 +213,7 @@ Every gate therefore uses something not written for this purpose.
 | CPython bytecode | Every call the compiler emitted, and how each name resolves | The compiler has already decided whether a name is local, global, a cell, or an attribute, and records it in the opcode. |
 | CPython `sys.settrace` | Which function a call actually reaches | Ground truth for target correctness, not merely call discovery. |
 | JVM bytecode | Java call edges | The same role for the Java front end. |
+| TypeScript compiler, with a `Program` | JavaScript call sites, module resolution, JSDoc tag structure, declaration kinds | It is the same compiler the parser reads syntax from, consulted with the type information the parser deliberately does not build. Where it declines — an `any` callee, an uninstalled package — the row is frozen for drift detection and reported separately, never counted as verified. |
 | Gradle `projects` | The build's project graph | Gradle is the implementation that decides which projects a settings file creates. On its first real run it found a directory this parser was reporting as a project and Gradle was not. |
 
 Call graph quality is measured at three increasing strictnesses, because each answers a question the
@@ -242,6 +253,15 @@ file and read them as `versions.netty`. Those keys land in the Properties relati
 joins the two relation sets, so such references stay unresolved. This is the Gradle front end's
 largest coverage gap, and it is real rather than a measurement artefact: the reference is resolvable,
 just not from Gradle files alone.
+
+**JavaScript without annotations.** A receiver's type is written nowhere in most JavaScript, so a
+call through it is emitted with its receiver named and its resolution left to the engine, exactly as
+for Python. `f.call(x)`, `obj[expr]()`, getter invocation, `Proxy` traps and `eval` are reserved
+rather than guessed: each is a fact about a value's runtime identity, and a reserved value carries a
+zero-row assertion so the day it is switched on is a named change. Flow-annotated files are rejected
+with a single module row saying so, because the compiler accepts Flow where it overlaps TypeScript
+and mis-parses it where it diverges, silently; a file that is Flow without a pragma is the one case
+the detector cannot see, and it is recorded as an open exposure rather than a clean result.
 
 **Grammar level hazards.** tree-sitter-python applies the PEP 695 soft `type` keyword greedily, so
 `type(obj).attr = value` parses cleanly as a type alias and the call node disappears. That statement
@@ -298,9 +318,27 @@ frozen schema, and referential integrity across every foreign key in the emitted
 ```bash
 npx tsx src/test/java-extractor-tests.ts
 npx tsx src/test/python-extractor-tests.ts
+npx tsx src/test/javascript-tests.ts
 npx tsx src/test/gradle-tests.ts
 npx tsx src/test/services-tests.ts
 ```
+
+The JavaScript suite is written so that every check can fail, and each was made to fail on purpose
+before it was kept: primary-key uniqueness and foreign-key integrity with the relation list derived
+from the output directory, determinism across two runs, an enum-emission audit in which every
+reserved value carries a zero-row assertion, a meaning assertion on every populated link column,
+and torture scripts — dense files where each line is a known trap for a hand-rolled resolver, with
+the language's answer asserted by line. `--corpus <dir>` adds sweeps over a real corpus that are
+development-only: absent from the plain run and failing, not passing, when the corpus is missing.
+
+What ships is what Python and TypeScript ship: fixtures, in-repo gates, committed expectations. The
+oracle harness that computes an expectation, and the `bless` command that writes it, live in a
+separate repository so that a suite cannot authorise its own expectations. One consequence is real
+and is not a defect: a contributor can run every gate and see a red, but cannot add a blessed fixture
+without the blessing tool. Java does not have that limitation because it has nothing to bless — its
+tests assert properties in code — and for JavaScript the blessed rows are split into those the
+compiler independently confirmed and those it declined to decide, which are kept for drift detection
+and carry no authority.
 
 The Gradle suite adds a fourth layer: twenty checks written from the Gradle DSL's documented
 semantics rather than from parser output, so they do not move when the parser does.
@@ -339,4 +377,6 @@ that had merged 88 distinct references into single rows.
 cannot run it exits non-zero saying NOT VERIFIED rather than reporting a pass.
 
 The frozen Python relation schema is in
-[src/schema/python/PYTHON-FACT-SCHEMA.md](src/schema/python/PYTHON-FACT-SCHEMA.md).
+[src/schema/python/PYTHON-FACT-SCHEMA.md](src/schema/python/PYTHON-FACT-SCHEMA.md), and the
+JavaScript one in
+[src/schema/javascript/JAVASCRIPT-FACT-SCHEMA.md](src/schema/javascript/JAVASCRIPT-FACT-SCHEMA.md).

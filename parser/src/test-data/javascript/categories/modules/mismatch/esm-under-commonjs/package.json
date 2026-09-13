@@ -1,0 +1,7 @@
+{
+  "name": "@fixture/esm-under-commonjs",
+  "version": "0.0.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "Deliberate mismatch. The .js files here use ESM syntax under a declared CommonJS config: contradictsGoverningConfig = true, contradictionKind = ESM_SYNTAX_UNDER_COMMONJS. Measured at 6.2% of real files."
+}

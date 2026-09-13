@@ -2,6 +2,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 
 import { JavaDetector } from '@/language-detectors/java-detector';
+import { JavaScriptDetector } from '@/language-detectors/javascript-detector';
 import { LanguageDetector } from '@/language-detectors/language-detector';
 import { PythonDetector } from '@/language-detectors/python-detector';
 import { TypeScriptDetector } from '@/language-detectors/typescript-detector';
@@ -25,6 +26,13 @@ export class ProjectDetector {
     // should not have its TypeScript swallowed by a bare directory of .py files
     // matching first.
     this.registerDetector(new TypeScriptDetector());
+    // JavaScript after TypeScript and before Python. After TypeScript because
+    // almost every TypeScript repository contains JavaScript — config files,
+    // build scripts, compiled output — and `package.json` is the manifest of
+    // both, so a JavaScript-first order claims TypeScript projects and files
+    // their facts under the wrong language. Before Python for the same reason
+    // TypeScript is: a bare directory of `.py` files is a greedy match.
+    this.registerDetector(new JavaScriptDetector());
     this.registerDetector(new PythonDetector());
   }
 

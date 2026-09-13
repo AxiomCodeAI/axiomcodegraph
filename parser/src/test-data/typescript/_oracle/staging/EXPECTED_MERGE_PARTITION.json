@@ -141,11 +141,11 @@
   },
   {
    "path": "type-registry/type-categories.ts",
-   "digest": "404ba760f27eab07f1a928340e6e8695641fa330"
+   "digest": "70f34486c2eab728609ec051d9ffda9fdae448d4"
   },
   {
    "path": "type-registry/type-modifiers-and-access.ts",
-   "digest": "ba99a8b8d2ff722bc87342011d2ee5f562883e3c"
+   "digest": "23314e742a56882ae89f9a42cd5c2f1514eeccde"
   },
   {
    "path": "type-registry/type-placement.ts",
@@ -185,7 +185,7 @@
   },
   {
    "path": "type-system/merging/module-augmentation.ts",
-   "digest": "7d63fbb3b8d40ef139ce678717e2eb1ecda444d9"
+   "digest": "861b278cbad61f145a6a7b2393d6e42ee92a22bb"
   },
   {
    "path": "type-system/merging/same-file-merges.ts",

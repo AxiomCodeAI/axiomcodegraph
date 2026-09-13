@@ -1,0 +1,442 @@
+{
+  "generatedBy": "js-corpus, phase 3 stratified sweep",
+  "measuredAgainst": {
+    "parser": "js-impl@30f3076 (pushed; origin/js == origin/js-impl, fetched 2026-09-13T09:06:12Z)",
+    "reVerifiedAgainst": "js-impl@30f3076",
+    "fixtures": "js-fixtures@5ec101a",
+    "compiler": "typescript@6.0.3",
+    "priorSweeps": [
+      "js-impl@527770c",
+      "js-impl@24774d7",
+      "js-impl@a7bf1c3",
+      "js-impl@1b99d0d",
+      "js-impl@b9e2676",
+      "js-impl@ba8846c",
+      "js-impl@a4e1e24",
+      "js-impl@e3d45cd",
+      "js-impl@5095da4"
+    ]
+  },
+  "heldBack": {
+    "note": "NAMED AND UNSEEN. Not cloned, not parsed, not counted, not vendored. Identities in the private manifest; the discipline is what publishes.",
+    "attestation": {
+      "askedAt": "2026-09-12, before sweep 3, because this corpus carries 248 @flow files and the holdout is Flow throughout — so the one column it was chosen to falsify is the one that had to be cleared",
+      "checksRun": [
+        {
+          "check": "git remote of every clone",
+          "result": "31 distinct remotes over 33 clones (two members cloned twice at different tags); 0 match either holdout, case-insensitive",
+          "canFail": "a synthetic URL naming a holdout matches"
+        },
+        {
+          "check": "any path component matching either holdout name, case-insensitive",
+          "result": "0 of 4,549 files"
+        },
+        {
+          "check": "vendored copy by CONTENT — either holdout's banner comment, repository slug, organisation name or scoped-package prefix",
+          "result": "0 files",
+          "canFail": "a synthetic banner comment naming a holdout matches"
+        },
+        {
+          "check": "every package.json name or dependency naming either holdout",
+          "result": "0"
+        },
+        {
+          "check": "attribution of all 248 @flow files",
+          "result": "two UI-framework-stratum members: 239 and 9. Nothing else."
+        },
+        {
+          "check": "attribution of all 3,793 SYNTACTIC_FLOW parameters",
+          "result": "three UI-framework-stratum members: 3,750, 42, 1"
+        },
+        {
+          "check": "files the ORACLE's ts.Program loaded that the parser never claimed",
+          "result": "6, all a charting library's dist/ inside an npm tarball; bucketed, never scored. FILE_PARSER_ONLY 0 both directions."
+        },
+        {
+          "check": "census holdout guard, re-run at sweep 2",
+          "result": "0 matches; self-test on a synthetic path naming a holdout returns true, so the guard can report a hit"
+        }
+      ],
+      "conclusion": "The Flow population came entirely from two members of the UI-framework stratum. Neither holdout nor any vendored copy of either was cloned, parsed, counted or reachable.",
+      "summary": "two named holdouts, identities in the private manifest, verified absent by eight checks, five of which have demonstrated synthetic positives"
+    },
+    "count": 2,
+    "roles": [
+      "a Flow-throughout UI framework, v2 source tree — chosen because it can falsify SYNTACTIC_FLOW, which currently rests on one vendor's dialect",
+      "a CommonJS application server's core — chosen because the development corpus contained no application code"
+    ],
+    "identities": [
+      {},
+      {}
+    ],
+    "commitments": {
+      "$comment": "salted sha256(salt NUL name) over each holdout's repository slug, via manifest-privacy.mjs commit; the salt is beside the private manifest and never published. PRE-REGISTRATION: when a holdout is opened, its slug re-committed with the same salt must equal one of these, which is what proves it is the one named before anyone believed they were finished.",
+      "algorithm": "sha256(salt + 0x00 + slug), salt >= 16 chars, per manifest-privacy.mjs commitTo()",
+      "values": [
+        "768e3217f4d4f6bd8789e453b9dcdb66caab814a64fa12691c70e74f4d023c77",
+        "31aece5c3eddbe1d0d6ca6e71b39ad89f4ae2278135689bbc9d8daf5262942d0"
+      ]
+    },
+    "opened": {
+      "at": "2026-09-13T08:32Z",
+      "measuredRef": "origin/js @ 5095da450eccd8077c696641ea401dbcdf00a5e3 (== origin/js-impl), fetched 2026-09-13T08:30:23Z",
+      "sequence": "materialise -> salted digest -> record (this block, and the private manifest) -> measure -> verify",
+      "commitmentsMatched": "both slugs re-committed with the private salt equal the two published values; a swapped slug does not",
+      "digest": {
+        "salted": true,
+        "files": 1122,
+        "sha256": "d3dc03dcab8211185c64e990b8d47efb33f0b47b85967209c5fb4e77a1c0f300",
+        "byMember": {
+          "flow-detector holdout": {
+            "files": 194,
+            "sha256": "22b3f32e0950f9f97a57e2d3e49af6af4d5483f2a2b91ecae28102fcb42c50b1"
+          },
+          "javascript holdout": {
+            "files": 928,
+            "sha256": "1380db4364857302f5296325fb77a0b54041d8fc5fd10b61cd670c6f22c7ef71"
+          }
+        }
+      },
+      "verdict": "NOT DONE — one NEW CLASS. The Flow-detector holdout: 161 of 161 pragma files rejected, 0 missed, 0 of 33 pragma-less files rejected, 0 SYNTACTIC_FLOW rows survived, 2 parse gaps both NON_LITERAL_SPECIFIER (known); the vendor's dialect turned out to be one form, `/* @flow */` on line 1 of every file, and the project checks nothing without a pragma, so 'Flow-ness known from the project' never had to be inferred. The JavaScript holdout: 928 files, 13,476 call sites, 0 recall / 0 require-edge / 0 kind / 0 optionality misses; FK 0 dangling over 743,526; call-site<->expression 1:1; type-only isolated; every intra-file link means what its column claims; IR sufficiency 100% on method, field, alias and type flow, member flow short only of computed access (known) and the parameter hop (ruled). Residues, each an INSTANCE OF A KNOWN CLASS: 9 comments (trailing comment inside a bracketed construct — after an opening brace), 21 JSDoc type references (dotted @param chains; @callback declarations), 8 JSDoc import types (three host shapes the comment walker does not visit, appended to the open finding). THE NEW CLASS: 4 duplicate js_import primary keys at three sites — one @type {import()} comment over a variable whose initializer contains nested function DECLARATIONS is minted once per declaration. Zero duplicates existed in 3,589,235 development rows; no question had been asked about a comment re-hosted downward. Fails gate 1. Reproduced in isolation and promoted to verified/jsdoc-import-type-rehosted/. Fix plus one more full sweep follows.",
+      "verifiedAfterMeasurement": "2026-09-13T08:41Z — all three salted digests recomputed after every instrument had run and equal the values above; the parser worktree was at 5095da4 with a clean status before and after",
+      "spent": "both holdouts, 2026-09-13. A held-back corpus is held back once; from here the JavaScript holdout is a corpus that already found something and is re-run as one, and the Flow-detector holdout is not re-run at all — see the exposure.",
+      "openExposure": "PRAGMA-LESS FLOW IS STILL UNTESTED. The Flow-detector holdout was chosen on the premise that its Flow-ness is known from the project rather than the file and that its dialect differs from the two Flow-annotated development members every current Flow number comes from. Measured, the premise did not hold: every one of its 161 Flow files carries `/* @flow */` on line 1 — one spelling — and its .flowconfig checks nothing without a pragma, so the 33 pragma-less files are plain JavaScript by the project's own rule, not pragma-less Flow. Consequently the detector's 161/161 answers the question the development corpus had already answered (a pragma on line 1 is caught), and SYNTACTIC_FLOW's detection-miss column has NEVER met a real file that is Flow without saying so — the direction this manifest's strata note already called invisible. That holdout is spent and cannot be re-chosen. Closing this needs a corpus whose .flowconfig sets all=true, or a tree annotated without pragmas, pre-registered the same way; until then the Flow detector's clean result is a statement about pragma-bearing files only. Recorded as an exposure, not absorbed into a clean result.",
+      "rerunAtFixedSha": "2026-09-13 09:10Z, js-impl@30f3076, the JavaScript holdout re-run AS A CORPUS THAT ALREADY FOUND SOMETHING (no longer a holdout; its digest recomputed first and equal to the value above): PK 0 duplicates over 182,005 rows (8 fewer than at 5095da4 — the 4 import copies and the 4 type-reference copies beneath them); every other number identical to the opening run; oracle adjudication byte-identical; recall residues unchanged and all instances of known classes. Verdict in class terms: only known classes. The new class found at opening is closed by 3676a12 and covered by verified/jsdoc-import-type-rehosted/."
+    }
+  },
+  "totals": {
+    "discoveredFiles": 4549,
+    "walkedByParser": 4529,
+    "bytes": 40300000,
+    "nonProjectProvenance": 34,
+    "extractionErrors": 0,
+    "rows": 3570441,
+    "shippedSourceFiles": 4048,
+    "testSpecFiles": 447,
+    "projectFiles": 4252,
+    "flowExcluded": 248,
+    "bundledExcluded": 17,
+    "generatedMonolith": 12,
+    "callSitesAdjudicated": 195844,
+    "recallMisses": 0,
+    "requireEdgeMisses": 0,
+    "kindMismatches": 0,
+    "optionalityMismatches": 0,
+    "duplicatePrimaryKeys": 0
+  },
+  "members": [
+    {
+      "files": 124,
+      "callSites": 10268,
+      "strata": {
+        "jsdoc-typed": 14,
+        "cjs-prototype": 110
+      }
+    },
+    {
+      "files": 538,
+      "callSites": 20882,
+      "strata": {
+        "cjs-prototype": 537,
+        "jsdoc-typed": 1
+      }
+    },
+    {
+      "files": 170,
+      "callSites": 4734,
+      "strata": {
+        "cjs-prototype": 165,
+        "jsdoc-typed": 5
+      }
+    },
+    {
+      "files": 0,
+      "callSites": 0,
+      "strata": {}
+    },
+    {
+      "files": 0,
+      "callSites": 0,
+      "strata": {}
+    },
+    {
+      "files": 12,
+      "callSites": 579,
+      "strata": {
+        "jsdoc-typed": 8,
+        "cjs-prototype": 4
+      }
+    },
+    {
+      "files": 629,
+      "callSites": 3786,
+      "strata": {
+        "cjs-prototype": 603,
+        "jsdoc-typed": 26
+      }
+    },
+    {
+      "files": 58,
+      "callSites": 2207,
+      "strata": {
+        "cjs-prototype": 27,
+        "jsdoc-typed": 31
+      }
+    },
+    {
+      "files": 247,
+      "callSites": 6547,
+      "strata": {
+        "cjs-prototype": 197,
+        "jsdoc-typed": 50
+      }
+    },
+    {
+      "files": 314,
+      "callSites": 22638,
+      "strata": {
+        "cjs-prototype": 259,
+        "jsdoc-typed": 55
+      }
+    },
+    {
+      "files": 13,
+      "callSites": 648,
+      "strata": {
+        "cjs-prototype": 13
+      }
+    },
+    {
+      "files": 539,
+      "callSites": 24500,
+      "strata": {
+        "cjs-prototype": 238,
+        "jsdoc-typed": 301
+      }
+    },
+    {
+      "files": 15,
+      "callSites": 511,
+      "strata": {
+        "cjs-prototype": 15
+      }
+    },
+    {
+      "files": 57,
+      "callSites": 929,
+      "strata": {
+        "esm": 55,
+        "jsdoc-typed": 2
+      }
+    },
+    {
+      "files": 3,
+      "callSites": 104,
+      "strata": {
+        "cjs-prototype": 3
+      }
+    },
+    {
+      "files": 4,
+      "callSites": 91,
+      "strata": {
+        "jsdoc-typed": 1,
+        "cjs-prototype": 3
+      }
+    },
+    {
+      "files": 8,
+      "callSites": 380,
+      "strata": {
+        "esm": 5,
+        "jsdoc-typed": 3
+      }
+    },
+    {
+      "files": 5,
+      "callSites": 128,
+      "strata": {
+        "esm": 5
+      }
+    },
+    {
+      "files": 1,
+      "callSites": 0,
+      "strata": {
+        "esm": 1
+      }
+    },
+    {
+      "files": 9,
+      "callSites": 219,
+      "strata": {
+        "esm": 9
+      }
+    },
+    {
+      "files": 4,
+      "callSites": 182,
+      "strata": {
+        "esm": 4
+      }
+    },
+    {
+      "files": 13,
+      "callSites": 439,
+      "strata": {
+        "esm": 9,
+        "jsdoc-typed": 4
+      }
+    },
+    {
+      "files": 3,
+      "callSites": 417,
+      "strata": {
+        "esm": 3
+      }
+    },
+    {
+      "files": 4,
+      "callSites": 405,
+      "strata": {
+        "esm": 4
+      }
+    },
+    {
+      "files": 212,
+      "callSites": 6682,
+      "strata": {
+        "jsdoc-typed": 73,
+        "esm": 139
+      }
+    },
+    {
+      "files": 374,
+      "callSites": 8010,
+      "strata": {
+        "esm": 374
+      }
+    },
+    {
+      "files": 57,
+      "callSites": 2922,
+      "strata": {
+        "jsdoc-typed": 27,
+        "esm": 30
+      }
+    },
+    {
+      "files": 25,
+      "callSites": 352,
+      "strata": {
+        "esm": 17,
+        "jsdoc-typed": 8
+      }
+    },
+    {
+      "files": 116,
+      "callSites": 3946,
+      "strata": {
+        "esm": 46,
+        "jsdoc-typed": 69,
+        "cjs-prototype": 1
+      }
+    },
+    {
+      "files": 144,
+      "callSites": 2088,
+      "strata": {
+        "cjs-prototype": 62,
+        "esm": 6,
+        "jsx-in-js": 76
+      }
+    },
+    {
+      "files": 190,
+      "callSites": 11620,
+      "strata": {
+        "cjs-prototype": 105,
+        "esm": 74,
+        "jsdoc-typed": 3,
+        "jsx-in-js": 8
+      }
+    },
+    {
+      "files": 495,
+      "callSites": 59398,
+      "strata": {
+        "esm": 265,
+        "jsdoc-typed": 7,
+        "jsx-in-js": 207,
+        "cjs-prototype": 16
+      }
+    },
+    {
+      "files": 38,
+      "callSites": 288,
+      "strata": {
+        "esm": 13,
+        "jsx-in-js": 25
+      }
+    }
+  ],
+  "strata": {
+    "note": "Priority-ordered partition, one stratum per file. FLOW IS NO LONGER A RESOLUTION STRATUM: under the out-of-scope ruling a Flow file emits one js_module row with sourceProvenance = FLOW_REJECTED (FLOW_EXCLUDED until the 2026-09-13 rename) and nothing else, so it has no calls to resolve. Flow is now a DETECTION measure — 248 declined, 10 leaked, 25 surviving SYNTACTIC_FLOW rows, each naming a file whose Flow-ness was not caught. Overlaps among the remaining strata are cross-tabbed rather than resolved away.",
+    "order": [
+      "bundled and flow (classified, never counted)",
+      "jsx-in-js",
+      "jsdoc-typed",
+      "esm",
+      "cjs-prototype"
+    ],
+    "alsoSplit": [
+      "test/spec files, reported apart from shipped source"
+    ]
+  },
+  "scopeOfTheRecallNumber": "CALL SITES ONLY. The sweep adjudicates CallExpression, NewExpression and TaggedTemplateExpression against ts.createProgram. It is blind to js_expression, js_block, js_variable and js_type_heritage — demonstrated, not theoretical: it missed 4,944 nested JSX elements that emitted no row and 43 heritage edges with an unusable superTypeName, both of which js-impl's positional AST-recall found.",
+  "convergence": {
+    "adjudicationSweep": "clean for six consecutive runs (@24774d7, @527770c, @ba8846c, @a4e1e24, @e3d45cd, @30f3076); the corpus was constant through the first five and gained two files at @30f3076 when the umd and long-literal rulings returned them to PROJECT",
+    "caveat": "Each of the last two sweeps still produced a finding, and neither came from the sweep. @527770c's came from auditing the residue of js-impl's AST-recall; @ba8846c's came from a new IR-sufficiency measure. The sweep converged; the set of questions being asked did not. Read the clean result as: the call-graph relation is converged, and the other relations have each been measured once, by a measure built after the fact.",
+    "latestSweep": "2026-09-13 @30f3076, the sweep after the holdout fix: 195,844 call sites 0/0/0/0; PK 0 duplicates over 3,589,235; FK 0 / 14,736,986; link meaning 2 / 6.06M and both are the filed parameter-scope instance; enum invariant holds over corpus + categories; ten AST relations unchanged (jsdoc types 94.38%, jsdoc imports 99.43%, comments 97.84%, the rest 100%). Two files moved BUNDLED -> PROJECT, the exact two the provenance findings named. Zero new disagreements, zero new classes."
+  },
+  "identityFrom": {
+    "env": "JS_CORPUS_IDENTITY",
+    "onMissing": "fail loudly; never measure a partial corpus silently"
+  },
+  "digest": {
+    "$comment": "SALTED SHA-256 over each stratum directory's sorted (relative path, file sha256) list — sha256(salt NUL joined rows), as manifest-privacy.mjs digestOf(root, salt) computes it. Salted because a public tree digest over a small stratum is enumerable: anyone could clone a few dozen candidate repositories and hash them. The salt is beside the private manifest and never published; a holder can prove a materialised tree byte-identical to the one every number was measured on with `verify --salt-file`, and `verify` refuses without it rather than reporting DIFFER on a matching tree.",
+    "salted": true,
+    "files": 4532,
+    "sha256": "ea5a30949f8bec5c518cf85ce78441f46a3b1ea88ff26b125129d5c41ed0b3da",
+    "byStratumDirectory": {
+      "app": {
+        "files": 832,
+        "sha256": "dabc2e2997bd77f87413f4a2fd03c73dc35fb368695341bbc15f0c39d60e0e26"
+      },
+      "bundled": {
+        "files": 97,
+        "sha256": "d15d7a0c17b3a20b4d6d26600dfd7b6dcc88cfb955de7c16c181e91de975fbbe"
+      },
+      "cjs": {
+        "files": 1834,
+        "sha256": "f53123c6dc5d9b69cb61a42ebd8374db9ef328143c39cabf6284c7b8e1cb5d46"
+      },
+      "dual": {
+        "files": 72,
+        "sha256": "a795ad51668e4aae6078ab7afdcf8d09be17b1e17d3e513ef161c17b281fa85e"
+      },
+      "esm": {
+        "files": 625,
+        "sha256": "3f97a0f9fa3790eaf74c47f4f7a1968cf3a7a7e5f2ff8525cb1c33950ef63e73"
+      },
+      "jsdoc": {
+        "files": 198,
+        "sha256": "c50dc5be0002bd5158bd6731b386eb7fd8ef91ab1684e8bfd47c0a942b8a9fe2"
+      },
+      "jsx": {
+        "files": 874,
+        "sha256": "418f71954f1f7561fcbbcf666fe832d2edf1e852f10591b57e0e1c1ac5fb15d1"
+      }
+    }
+  }
+}

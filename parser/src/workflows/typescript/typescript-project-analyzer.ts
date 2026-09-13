@@ -529,8 +529,8 @@ function filesOfRootProgram(
 
   // A program is its roots PLUS everything they import.
   //
-  // `files: ["./src/immer.ts", …]` names ENTRY POINTS, not a file list; tsc
-  // then follows imports transitively. Reading the config literally gave immer
+  // `files: ["./src/index.ts", …]` names ENTRY POINTS, not a file list; tsc
+  // then follows imports transitively. Reading the config literally gave that package
   // 4 files where the real program has 17, so 13 files and 61% of its call
   // sites were invisible. Nothing reported it, because a file that no config
   // claims is not an error — it simply never arrives.
