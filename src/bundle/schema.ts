@@ -208,6 +208,24 @@ export const CATALOG_TABLES: readonly TableSpec[] = [
     ],
   },
   {
+    name: 'schema_guide',
+    description: 'READ THIS FIRST. An ordered walkthrough of how to use this database: which tables answer which questions, what to check before trusting an answer, and where the language-specific details are.',
+    columns: [
+      { name: 'step', type: 'INTEGER', key: true, description: 'Reading order.' },
+      { name: 'text', type: 'TEXT', description: 'The instruction.' },
+    ],
+  },
+  {
+    name: 'schema_queries',
+    description: 'Canonical questions and the SQL that answers each, parameterised with named `:params`. Every query is verified to run against every language\'s bundle. Copy, bind, run.',
+    columns: [
+      { name: 'name', type: 'TEXT', key: true, description: 'Short identifier.' },
+      { name: 'question', type: 'TEXT', description: 'The question in words.' },
+      { name: 'params', type: 'TEXT', description: 'Comma-separated named parameters the SQL expects, e.g. `:qualified_name, :depth`.' },
+      { name: 'sql', type: 'TEXT', description: 'The SQL.' },
+    ],
+  },
+  {
     name: 'schema_notes',
     description: 'Per-language caveats that are not a vocabulary: what a table lacks in one front end, where an id may point, what a NULL means here.',
     columns: [
@@ -415,6 +433,123 @@ export const NOTES: readonly NoteSpec[] = [
   { language: 'all', table: 'call_edges', note: 'An unresolved site (tier ambiguous_*) has NULL callee_method_id, callee_label and callee_provenance. The raw relation writes `-` in those slots.' },
 ];
 
+// ── the guide: how to use this database, in reading order ───────────────────
+
+export const GUIDE: readonly string[] = [
+  'This is a call graph of one codebase, derived by a type-directed Datalog engine. Start with `SELECT value FROM run WHERE key=\'language\'` — every language-specific fact below is keyed on it.',
+  'The graph is `call_edges`: one row per (call site, possible target). Rows join to `methods` (names, files, lines) on `caller_id` / `callee_method_id`, and to `call_sites` on `call_site_id` for where the call is written. Identifiers are opaque hashes — never parse them, always join.',
+  'Trust is explicit. `tier` says what kind of claim a row is: `known_edge` (one resolved target), `multi_inferred` (a sound set — every row of the set is a real possibility), `boundary_lib` (leaves the client; not expanded further), `ambiguous_*` (a declared unknown: callee is NULL). Pick the tiers your question tolerates and filter on them; never treat an `ambiguous_*` row as an edge.',
+  'Before answering "nothing calls X" or "X cannot reach Y", check `unresolved_sites` for the methods on the path: a caller listed there has a call the engine could not resolve, so the answer is a lower bound and should say so.',
+  'Library targets (`callee_provenance = lib`) are named in `methods` with `provenance = lib` but their bodies were not analysed; a Python `builtin`/`external` target has no methods row and lives in `callee_label`.',
+  '`schema_vocab` lists every value a column can hold FOR THIS LANGUAGE with its meaning — filter on `language = (SELECT value FROM run WHERE key=\'language\')`. `schema_notes` lists the caveats for this language (empty tables, what an id may point at). Read both before interpreting `kind`, `tier` or an empty table.',
+  '`schema_queries` holds tested SQL for the common questions (callers, callees, blast radius, entry reachability, the method at a file:line, the blind spots of a method). Bind the named parameters and run.',
+  'Tables named `ext_<relation>` are the language\'s raw engine relations with positional columns c0…cN; `schema_tables` carries each one\'s description lifted from its rule. Use them only when a core table does not hold what you need.',
+  'When you report a result, carry the tier and the unresolved count with it. A consumer who cannot see the confidence of an edge cannot use it.',
+];
+
+export interface QuerySpec { name: string; question: string; params: string; sql: string }
+
+const LANG_SQL = "(SELECT value FROM run WHERE key='language')";
+export const QUERIES: readonly QuerySpec[] = [
+  {
+    name: 'callers_of',
+    question: 'Who calls this method, from where, and how sure is each edge?',
+    params: ':qualified_name',
+    sql: `SELECT caller.qualified_name AS caller, caller.file_path, s.start_line, e.tier, e.kind
+FROM call_edges e
+JOIN methods callee ON callee.id = e.callee_method_id
+JOIN methods caller ON caller.id = e.caller_id
+LEFT JOIN call_sites s ON s.id = e.call_site_id
+WHERE callee.qualified_name = :qualified_name
+ORDER BY caller.file_path, s.start_line`,
+  },
+  {
+    name: 'callees_of',
+    question: 'What does this method call — resolved targets, library boundaries, and the sites it could not resolve?',
+    params: ':qualified_name',
+    sql: `SELECT s.start_line, s.callee_name AS written, e.tier, e.callee_provenance,
+       COALESCE(t.qualified_name, e.callee_label) AS target
+FROM call_edges e
+JOIN methods caller ON caller.id = e.caller_id
+LEFT JOIN methods t ON t.id = e.callee_method_id
+LEFT JOIN call_sites s ON s.id = e.call_site_id
+WHERE caller.qualified_name = :qualified_name
+ORDER BY s.start_line, target`,
+  },
+  {
+    name: 'blast_radius',
+    question: 'If this method changes, which methods are transitively affected, up to :depth hops, through sound edges only (known_edge and multi_inferred)?',
+    params: ':qualified_name, :depth',
+    sql: `WITH RECURSIVE up(id, depth) AS (
+  SELECT id, 0 FROM methods WHERE qualified_name = :qualified_name
+  UNION
+  SELECT e.caller_id, up.depth + 1
+  FROM call_edges e JOIN up ON e.callee_method_id = up.id
+  WHERE e.tier IN ('known_edge', 'multi_inferred') AND up.depth < :depth
+)
+SELECT MIN(up.depth) AS depth, m.qualified_name, m.file_path, m.start_line,
+       (SELECT count(*) FROM unresolved_sites u WHERE u.caller_id = m.id) AS unresolved_calls_inside
+FROM up JOIN methods m ON m.id = up.id
+WHERE up.depth > 0
+GROUP BY m.id ORDER BY depth, m.qualified_name`,
+  },
+  {
+    name: 'reachable_from_entries',
+    question: 'Is this method reachable from any entry point (a main, a test, an HTTP handler, an unimported module)?',
+    params: ':qualified_name',
+    sql: `SELECT m.qualified_name,
+       EXISTS (SELECT 1 FROM entry_reachable r WHERE r.method_id = m.id) AS reachable,
+       (SELECT count(*) FROM entry_points) AS entry_points_known
+FROM methods m WHERE m.qualified_name = :qualified_name`,
+  },
+  {
+    name: 'method_at',
+    question: 'Which method contains this file:line?',
+    params: ':file_path, :line',
+    sql: `SELECT qualified_name, kind, start_line, end_line
+FROM methods
+WHERE file_path = :file_path AND start_line <= :line AND end_line >= :line
+ORDER BY (end_line - start_line) LIMIT 1`,
+  },
+  {
+    name: 'blind_spots_of',
+    question: 'Which calls inside this method could the engine not resolve — the caveat to attach to any answer about it?',
+    params: ':qualified_name',
+    sql: `SELECT s.start_line, s.callee_name AS written, s.kind
+FROM unresolved_sites u
+JOIN methods m ON m.id = u.caller_id
+LEFT JOIN call_sites s ON s.id = u.call_site_id
+WHERE m.qualified_name = :qualified_name
+ORDER BY s.start_line`,
+  },
+  {
+    name: 'subtypes_of',
+    question: 'Which types extend or implement this type (transitively)?',
+    params: ':qualified_name',
+    sql: `SELECT sub.qualified_name, sub.category, sub.file_path
+FROM type_ancestors a
+JOIN types anc ON anc.id = a.ancestor_type_id
+JOIN types sub ON sub.id = a.type_id
+WHERE anc.qualified_name = :qualified_name
+ORDER BY sub.qualified_name`,
+  },
+  {
+    name: 'values_of',
+    question: 'What can this column hold in THIS bundle\'s language, and what does each value mean?',
+    params: ':table_name, :column_name',
+    sql: `SELECT value, meaning FROM schema_vocab
+WHERE table_name = :table_name AND column_name = :column_name AND language = ${LANG_SQL}
+ORDER BY value`,
+  },
+  {
+    name: 'tier_summary',
+    question: 'How much of this graph is certain, inferred, at a library boundary, or unknown?',
+    params: '',
+    sql: `SELECT tier, count(*) AS edges, count(DISTINCT call_site_id) AS sites
+FROM call_edges GROUP BY tier ORDER BY edges DESC`,
+  },
+];
+
 // ── SCHEMA.md ───────────────────────────────────────────────────────────────
 
 function mdEscape(s: string): string { return s.replace(/\|/g, '\\|'); }
@@ -430,6 +565,7 @@ export function renderSchemaMarkdown(): string {
   out.push('```');
   out.push('<out>/');
   out.push('  graph.sqlite      the contract — the tables below, the ext_* tables, and this document as tables');
+  out.push('and only with --debug:');
   out.push('  graph/<table>.csv the core tables as headered, tab-delimited text (RFC 4180 quoting)');
   out.push('  raw/              the per-language Soufflé relations, verbatim. Engine-internal; not a contract.');
   out.push('```');
@@ -443,6 +579,22 @@ export function renderSchemaMarkdown(): string {
   out.push('');
   out.push('Identifiers are the parser\'s hashes and are opaque; join them to `methods` / `types` / `call_sites` for names and positions. NULL in SQLite is the empty field in CSV.');
   out.push('');
+  out.push('## How to use it (`schema_guide`)');
+  out.push('');
+  GUIDE.forEach((g, i) => out.push(`${i + 1}. ${g}`));
+  out.push('');
+  out.push('## Canonical queries (`schema_queries`)');
+  out.push('');
+  out.push('Each is verified to run against every language\'s bundle. Bind the named parameters.');
+  out.push('');
+  for (const q of QUERIES) {
+    out.push(`**\`${q.name}\`** — ${q.question}${q.params ? ` _(${q.params})_` : ''}`);
+    out.push('');
+    out.push('```sql');
+    out.push(q.sql);
+    out.push('```');
+    out.push('');
+  }
   out.push('## Core tables');
   out.push('');
   for (const t of CORE_TABLES) {

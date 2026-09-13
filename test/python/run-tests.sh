@@ -284,7 +284,7 @@ for dir in "$HERE"/cases/*/; do
   if ! node "$PARSER" "$dir/src" "$name" false "$w/ir" >"$w/parse.log" 2>&1; then
     echo "FAIL (parse — see $w/parse.log)"; fail=$((fail+1)); failed+=("$name"); continue; fi
 
-  if ! bash "$ROOT/src/pipeline/run-souffle.sh" --language python \
+  if ! bash "$ROOT/src/pipeline/run-souffle.sh" --debug --language python \
         --client-ir "$w/ir" --library "$EMPTY_LIB" \
         --intermediate "$w/int" --output "$w/out" >"$w/solve.log" 2>&1; then
     if [ "$ENGINE_READY" = "0" ]; then
@@ -379,7 +379,7 @@ if [ "$ORACLE_ONLY" = "0" ] && [ -d "$HERE/projects" ]; then
     pw="$WORK/project-$pname"; rm -rf "$pw"; mkdir -p "$pw/ir"
     if ! node "$PARSER" "$pdir" "$pname" false "$pw/ir" >"$pw/parse.log" 2>&1; then
       echo "FAIL (parse — see $pw/parse.log)"; fail=$((fail+1)); failed+=("project:$pname"); continue; fi
-    if ! bash "$ROOT/src/pipeline/run-souffle.sh" --language python \
+    if ! bash "$ROOT/src/pipeline/run-souffle.sh" --debug --language python \
           --client-ir "$pw/ir" --library "$EMPTY_LIB" \
           --intermediate "$pw/int" --output "$pw/out" >"$pw/solve.log" 2>&1; then
       echo "FAIL (solve — $(tail -1 "$pw/solve.log" | cut -c1-70))"

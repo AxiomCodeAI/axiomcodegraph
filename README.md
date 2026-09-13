@@ -145,9 +145,14 @@ bash src/pipeline/run-souffle.sh \
 ```
 <out>/
   graph.sqlite      the contract: core tables, the language's ext_* relations, and the schema as tables
+and only with --debug:
   graph/<table>.csv the core tables as headered, tab-delimited text
   raw/              the per-language Soufflé relations, verbatim — engine-internal, not a contract
 ```
+
+An agent that opens `graph.sqlite` needs nothing else: `schema_guide` says how to use it in
+reading order, `schema_queries` holds tested SQL for the common questions, `schema_vocab` and
+`schema_notes` carry the per-language meaning of every value and every caveat.
 
 The core tables are `methods`, `types`, `call_sites`, `call_edges`, `type_ancestors`, `overrides`,
 `entry_points`, `entry_reachable`, `unresolved_sites`, `type_instantiated` and `run` — with names,

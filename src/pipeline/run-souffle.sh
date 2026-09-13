@@ -8,11 +8,13 @@
 #   $OUT/graph.sqlite   the contract: core tables + ext_* tables + the schema catalog
 #   $OUT/graph/*.csv    the same core tables as headered text — ONLY with --debug
 #                       (or when node has no node:sqlite, so a run always emits something)
-#   $OUT/raw/           the per-language Soufflé relations, verbatim — engine-internal
+#   $OUT/raw/           the per-language Soufflé relations, verbatim — engine-internal;
+#                       kept ONLY with --debug (the regression suites score it)
 # Soufflé solves into raw/; the bundle stage (src/bundle/cli.ts) then joins the raw
-# relations to the parser IR and writes the two consumer-facing forms.
+# relations to the parser IR and writes the database. Without --debug the raw relations are
+# deleted once the database is written, so a consumer sees one file: graph.sqlite.
 set -e
-DEBUG_BUNDLE=0
+DEBUG_BUNDLE="${AXIOM_DEBUG:-0}"
 JDK_DEPTH=1   # max JDK-hop depth engine-ii expands. FORCED (always applied). Default 1: sinks are
               # known JDK methods (the cwe catalog), so external code reaches a file-op sink at JDK
               # hop 1; deeper JDK expansion only traces internal plumbing (the explosion source).
@@ -42,6 +44,8 @@ while [ $# -gt 0 ]; do case "$1" in
   # tables. --debug asks for both. (An older Node with no node:sqlite writes the CSVs
   # regardless, because otherwise the run would produce no consumer-facing output.)
   --debug) DEBUG_BUNDLE=1; shift;;
+  # (AXIOM_DEBUG=1 in the environment is the same as --debug — for harnesses that cannot
+  # change the invocation.)
   *) shift;; esac; done
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=portable-stat.sh
@@ -427,4 +431,9 @@ BUNDLE_FLAGS=(); [ "$DEBUG_BUNDLE" = "1" ] && BUNDLE_FLAGS+=(--debug)
 
 END_EPOCH=$(date +%s); END_TS=$(date '+%Y-%m-%d %H:%M:%S')
 echo "Elapsed: $((END_EPOCH-START_EPOCH))s"
-echo "✅ reasoning complete: $OUT/graph.sqlite · $OUT/graph/ · raw relations in $RAW"
+if [ "$DEBUG_BUNDLE" = "1" ]; then
+  echo "✅ reasoning complete: $OUT/graph.sqlite · debug: $OUT/graph/ and raw relations in $RAW"
+else
+  rm -rf "$RAW"
+  echo "✅ reasoning complete: $OUT/graph.sqlite   (--debug keeps raw/ and writes graph/*.csv)"
+fi

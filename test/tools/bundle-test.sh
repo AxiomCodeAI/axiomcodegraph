@@ -122,7 +122,36 @@ for lang in java typescript python; do
   fi
 done
 
-# 5. SCHEMA.md is the rendering of schema.ts
+# 5. ONE schema for every language: the DDL of every non-ext table, the column catalog and
+#    the core catalog rows are byte-identical across the three bundles; only ext_* differs.
+if [ "$HAVE_SQLITE" = 1 ]; then
+  ddl(){ SQL "$W/$1/graph.sqlite" "SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'ext_%' AND name NOT LIKE 'idx_ext_%' ORDER BY type, name"; }
+  cols(){ SQL "$W/$1/graph.sqlite" "SELECT * FROM schema_columns ORDER BY 1,2"; }
+  core(){ SQL "$W/$1/graph.sqlite" "SELECT * FROM schema_tables WHERE scope != 'ext' ORDER BY 1"; }
+  for other in typescript python; do
+    [ "$(ddl java)" = "$(ddl $other)" ] || bad "core/catalog DDL differs between java and $other"
+    [ "$(cols java)" = "$(cols $other)" ] || bad "schema_columns differs between java and $other"
+    [ "$(core java)" = "$(core $other)" ] || bad "core schema_tables rows differ between java and $other"
+  done
+  [ "$(SQL "$W/java/graph.sqlite" "PRAGMA user_version")" = "$(grep -o "SCHEMA_VERSION = '[0-9]*'" "$ROOT/src/bundle/schema.ts" | grep -o '[0-9]*')" ] || bad "PRAGMA user_version is not SCHEMA_VERSION"
+  # 6. the guide is there, and every canonical query runs on every language's bundle
+  for lang in java typescript python; do
+    DB="$W/$lang/graph.sqlite"
+    [ "$(SQL "$DB" "SELECT count(*) FROM schema_guide")" -ge 5 ] || bad "$lang: schema_guide is missing"
+    SQL "$DB" "SELECT name FROM schema_queries" | while read -r q; do
+      sql="$(SQL "$DB" "SELECT sql FROM schema_queries WHERE name='$q'")"
+      if ! sqlite3 "$DB" ".parameter set :qualified_name 'x'" ".parameter set :depth 2" ".parameter set :file_path 'x'" ".parameter set :line 1" ".parameter set :table_name 'call_edges'" ".parameter set :column_name 'tier'" "$sql" > "$W/q.out" 2> "$W/q.err"; then
+        bad "$lang: schema_queries.$q does not run: $(head -1 "$W/q.err")"
+      fi
+    done
+    # and one of them gives the right answer on the fixture
+    want=app.Widget.render; [ "$lang" = typescript ] && want='widget#Widget.render'; [ "$lang" = python ] && want=widget.Widget.render
+    got="$(sqlite3 "$DB" ".parameter set :qualified_name '$want'" "$(SQL "$DB" "SELECT sql FROM schema_queries WHERE name='callers_of'")" | cut -d'|' -f1,3,4)"
+    case "$got" in *"main|5|known_edge"*) ;; *) bad "$lang: callers_of on the fixture gave '$got'";; esac
+  done
+fi
+
+# 7. SCHEMA.md is the rendering of schema.ts
 if ! diff -q <(BUNDLE --print-schema) "$ROOT/src/bundle/SCHEMA.md" >/dev/null; then
   bad "src/bundle/SCHEMA.md is stale — run: npm run schema-doc"
 fi
@@ -140,7 +169,7 @@ if [ -d "$d/graph" ] && [ -n "$(ls -A "$d/graph" 2>/dev/null)" ]; then
 fi
 
 if [ "$fail" -eq 0 ]; then
-  echo "bundle: ok (3 languages$( [ "$HAVE_SQLITE" = 1 ] && echo ', sqlite queried' || echo ', csv only — no sqlite3 CLI'), schema doc current)"
+  echo "bundle: ok (3 languages$( [ "$HAVE_SQLITE" = 1 ] && echo ', one schema across them, canonical queries run' || echo ', csv only — no sqlite3 CLI'), schema doc current)"
 else
   echo "bundle: $fail failure(s)"; exit 1
 fi

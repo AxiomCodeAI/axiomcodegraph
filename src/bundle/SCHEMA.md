@@ -7,6 +7,7 @@ Every run, in every language, writes the same thing:
 ```
 <out>/
   graph.sqlite      the contract — the tables below, the ext_* tables, and this document as tables
+and only with --debug:
   graph/<table>.csv the core tables as headered, tab-delimited text (RFC 4180 quoting)
   raw/              the per-language Soufflé relations, verbatim. Engine-internal; not a contract.
 ```
@@ -19,6 +20,119 @@ SELECT value, meaning FROM schema_vocab WHERE table_name='call_edges' AND column
 ```
 
 Identifiers are the parser's hashes and are opaque; join them to `methods` / `types` / `call_sites` for names and positions. NULL in SQLite is the empty field in CSV.
+
+## How to use it (`schema_guide`)
+
+1. This is a call graph of one codebase, derived by a type-directed Datalog engine. Start with `SELECT value FROM run WHERE key='language'` — every language-specific fact below is keyed on it.
+2. The graph is `call_edges`: one row per (call site, possible target). Rows join to `methods` (names, files, lines) on `caller_id` / `callee_method_id`, and to `call_sites` on `call_site_id` for where the call is written. Identifiers are opaque hashes — never parse them, always join.
+3. Trust is explicit. `tier` says what kind of claim a row is: `known_edge` (one resolved target), `multi_inferred` (a sound set — every row of the set is a real possibility), `boundary_lib` (leaves the client; not expanded further), `ambiguous_*` (a declared unknown: callee is NULL). Pick the tiers your question tolerates and filter on them; never treat an `ambiguous_*` row as an edge.
+4. Before answering "nothing calls X" or "X cannot reach Y", check `unresolved_sites` for the methods on the path: a caller listed there has a call the engine could not resolve, so the answer is a lower bound and should say so.
+5. Library targets (`callee_provenance = lib`) are named in `methods` with `provenance = lib` but their bodies were not analysed; a Python `builtin`/`external` target has no methods row and lives in `callee_label`.
+6. `schema_vocab` lists every value a column can hold FOR THIS LANGUAGE with its meaning — filter on `language = (SELECT value FROM run WHERE key='language')`. `schema_notes` lists the caveats for this language (empty tables, what an id may point at). Read both before interpreting `kind`, `tier` or an empty table.
+7. `schema_queries` holds tested SQL for the common questions (callers, callees, blast radius, entry reachability, the method at a file:line, the blind spots of a method). Bind the named parameters and run.
+8. Tables named `ext_<relation>` are the language's raw engine relations with positional columns c0…cN; `schema_tables` carries each one's description lifted from its rule. Use them only when a core table does not hold what you need.
+9. When you report a result, carry the tier and the unresolved count with it. A consumer who cannot see the confidence of an edge cannot use it.
+
+## Canonical queries (`schema_queries`)
+
+Each is verified to run against every language's bundle. Bind the named parameters.
+
+**`callers_of`** — Who calls this method, from where, and how sure is each edge? _(:qualified_name)_
+
+```sql
+SELECT caller.qualified_name AS caller, caller.file_path, s.start_line, e.tier, e.kind
+FROM call_edges e
+JOIN methods callee ON callee.id = e.callee_method_id
+JOIN methods caller ON caller.id = e.caller_id
+LEFT JOIN call_sites s ON s.id = e.call_site_id
+WHERE callee.qualified_name = :qualified_name
+ORDER BY caller.file_path, s.start_line
+```
+
+**`callees_of`** — What does this method call — resolved targets, library boundaries, and the sites it could not resolve? _(:qualified_name)_
+
+```sql
+SELECT s.start_line, s.callee_name AS written, e.tier, e.callee_provenance,
+       COALESCE(t.qualified_name, e.callee_label) AS target
+FROM call_edges e
+JOIN methods caller ON caller.id = e.caller_id
+LEFT JOIN methods t ON t.id = e.callee_method_id
+LEFT JOIN call_sites s ON s.id = e.call_site_id
+WHERE caller.qualified_name = :qualified_name
+ORDER BY s.start_line, target
+```
+
+**`blast_radius`** — If this method changes, which methods are transitively affected, up to :depth hops, through sound edges only (known_edge and multi_inferred)? _(:qualified_name, :depth)_
+
+```sql
+WITH RECURSIVE up(id, depth) AS (
+  SELECT id, 0 FROM methods WHERE qualified_name = :qualified_name
+  UNION
+  SELECT e.caller_id, up.depth + 1
+  FROM call_edges e JOIN up ON e.callee_method_id = up.id
+  WHERE e.tier IN ('known_edge', 'multi_inferred') AND up.depth < :depth
+)
+SELECT MIN(up.depth) AS depth, m.qualified_name, m.file_path, m.start_line,
+       (SELECT count(*) FROM unresolved_sites u WHERE u.caller_id = m.id) AS unresolved_calls_inside
+FROM up JOIN methods m ON m.id = up.id
+WHERE up.depth > 0
+GROUP BY m.id ORDER BY depth, m.qualified_name
+```
+
+**`reachable_from_entries`** — Is this method reachable from any entry point (a main, a test, an HTTP handler, an unimported module)? _(:qualified_name)_
+
+```sql
+SELECT m.qualified_name,
+       EXISTS (SELECT 1 FROM entry_reachable r WHERE r.method_id = m.id) AS reachable,
+       (SELECT count(*) FROM entry_points) AS entry_points_known
+FROM methods m WHERE m.qualified_name = :qualified_name
+```
+
+**`method_at`** — Which method contains this file:line? _(:file_path, :line)_
+
+```sql
+SELECT qualified_name, kind, start_line, end_line
+FROM methods
+WHERE file_path = :file_path AND start_line <= :line AND end_line >= :line
+ORDER BY (end_line - start_line) LIMIT 1
+```
+
+**`blind_spots_of`** — Which calls inside this method could the engine not resolve — the caveat to attach to any answer about it? _(:qualified_name)_
+
+```sql
+SELECT s.start_line, s.callee_name AS written, s.kind
+FROM unresolved_sites u
+JOIN methods m ON m.id = u.caller_id
+LEFT JOIN call_sites s ON s.id = u.call_site_id
+WHERE m.qualified_name = :qualified_name
+ORDER BY s.start_line
+```
+
+**`subtypes_of`** — Which types extend or implement this type (transitively)? _(:qualified_name)_
+
+```sql
+SELECT sub.qualified_name, sub.category, sub.file_path
+FROM type_ancestors a
+JOIN types anc ON anc.id = a.ancestor_type_id
+JOIN types sub ON sub.id = a.type_id
+WHERE anc.qualified_name = :qualified_name
+ORDER BY sub.qualified_name
+```
+
+**`values_of`** — What can this column hold in THIS bundle's language, and what does each value mean? _(:table_name, :column_name)_
+
+```sql
+SELECT value, meaning FROM schema_vocab
+WHERE table_name = :table_name AND column_name = :column_name AND language = (SELECT value FROM run WHERE key='language')
+ORDER BY value
+```
+
+**`tier_summary`** — How much of this graph is certain, inferred, at a library boundary, or unknown?
+
+```sql
+SELECT tier, count(*) AS edges, count(DISTINCT call_site_id) AS sites
+FROM call_edges GROUP BY tier ORDER BY edges DESC
+```
 
 ## Core tables
 
@@ -420,6 +534,26 @@ Every enumerated value a core column may hold, and WHICH LANGUAGES emit it. Filt
 | 2 | `language` | TEXT | `java`, `typescript`, `python` — the front end that emits this value (one row per language; a value shared by all has three rows). |
 | 3 | `value` | TEXT | The value as it appears in the column. A trailing `*` marks a prefix (e.g. `DECORATOR_*`). |
 | 4 | `meaning` | TEXT | What it means. |
+
+### `schema_guide`
+
+READ THIS FIRST. An ordered walkthrough of how to use this database: which tables answer which questions, what to check before trusting an answer, and where the language-specific details are.
+
+| # | column | type | meaning |
+|---|---|---|---|
+| 0 | `step` | INTEGER | Reading order. |
+| 1 | `text` | TEXT | The instruction. |
+
+### `schema_queries`
+
+Canonical questions and the SQL that answers each, parameterised with named `:params`. Every query is verified to run against every language's bundle. Copy, bind, run.
+
+| # | column | type | meaning |
+|---|---|---|---|
+| 0 | `name` | TEXT | Short identifier. |
+| 1 | `question` | TEXT | The question in words. |
+| 2 | `params` | TEXT | Comma-separated named parameters the SQL expects, e.g. `:qualified_name, :depth`. |
+| 3 | `sql` | TEXT | The SQL. |
 
 ### `schema_notes`
 
