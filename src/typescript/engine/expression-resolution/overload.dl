@@ -291,6 +291,22 @@ arg_mismatch(ce, m) :- expr_call_candidate(ce, m),
     arg_union_member(ce, pos, n),
     param_decl(_, _, pos, n, m, _).
 
+// ── EXPLICIT TYPE ARGUMENTS EXCLUDE A NON-GENERIC SIGNATURE ─────────────────
+// `f.make<string>()` beside `make(): Item` and `make<T>(seed?: T[]): Item`. Passing a
+// type argument to a signature that declares no type parameters is an ERROR in
+// TypeScript, so the non-generic overload is not a candidate at all -- and being
+// declared first it took every such call. `new Map<K, V>()` and `new Set<T>()` are the
+// same shape and the reason this is worth a rule rather than a note.
+//
+// Both halves are stated outright in the IR: the call site carries its type arguments
+// (call_type_argument, from the METHOD_TYPE_ARGUMENT references) and a type parameter
+// carries ownerKind = METHOD with the method it belongs to.
+method_declares_type_param(m) :- type_param(_, _, _, "METHOD", m, _).
+
+arg_mismatch(ce, m) :- expr_call_candidate(ce, m),
+    call_type_argument(ce, _, _),
+    !method_declares_type_param(m).
+
 // ── `unknown` IS ASSIGNABLE ONLY TO `unknown` AND `any` ─────────────────────
 // The hard rule of the type system, and the reason `describe(x: unknown)` must reach
 // the `unknown` signature rather than the first one declared. Without it every
