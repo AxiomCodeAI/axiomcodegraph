@@ -21,6 +21,7 @@
 //                        of all sites.
 //   dynamic_terminal     `obj[expr]()`, `eval`, `import()` — no static target by
 //                        construction. Complete because it says so.
+//   fan_capped           more targets than --dispatch-cap: refused, declared, counted.
 //   ambiguous_unknown    a real site that resolved to NOTHING. The declared blind spot.
 //
 // ── STRATIFICATION ──────────────────────────────────────────────────────────
@@ -62,9 +63,14 @@ expr_kind_is_literal("TEMPLATE").
 // project edge so the alternative is in the graph.
 call_ambient_alternative(ce) :- call_target_count(ce, n), n >= 1, callee_value(ce, "ambient", _).
 call_ambient_alternative(ce) :- call_target_count(ce, n), n >= 1, new_callee_value(ce, "ambient", _).
+// A fan wider than --dispatch-cap is REFUSED rather than emitted, as in the Java and
+// Python rule sets: a capped site is a declared unknown (`fan_capped`), never a
+// silent drop and never a 70-way edge set a reader would have to distrust.
+call_over_cap(ce) :- call_target_count(ce, n), dispatch_cap(s), n > to_number(s).
 call_class(ce, "known_edge") :- call_target_count(ce, 1), !call_ambient_alternative(ce).
-call_class(ce, "multi_inferred") :- call_target_count(ce, n), n >= 2.
+call_class(ce, "multi_inferred") :- call_target_count(ce, n), n >= 2, !call_over_cap(ce).
 call_class(ce, "multi_inferred") :- call_target_count(ce, 1), call_ambient_alternative(ce).
+call_class(ce, "fan_capped") :- call_over_cap(ce).
 call_class(ce, "implicit_constructor") :- call_target_count(ce, 0), call_target_is_implicit_ctor(ce).
 call_class(ce, "dynamic_terminal") :- call_target_count(ce, 0), !call_target_is_implicit_ctor(ce),
     invocation_site(ce, ck), call_kind_is_dynamic(ck).
@@ -75,6 +81,7 @@ call_class(ce, "ambiguous_unknown") :- call_target_count(ce, 0), !call_target_is
 
 // ── method_has_unknown_call(Caller, CallExpr) ───────────────────────────────
 method_has_unknown_call(caller, ce) :- call_class(ce, "ambiguous_unknown"), call_from(ce, caller).
+method_has_unknown_call(caller, ce) :- call_class(ce, "fan_capped"), call_from(ce, caller).
 
 // ============================================================================
 // THE MERGED EDGE — one self-describing row per edge, the single export
@@ -83,10 +90,10 @@ method_has_unknown_call(caller, ce) :- call_class(ce, "ambiguous_unknown"), call
 // unresolved one appears once with ToMethod = "-".
 // ============================================================================
 call_chain_edge(ce, caller, "-", callee, "client", cls, kind) :-
-    client_calls_client("client", ce, "client", callee),
+    client_calls_client("client", ce, "client", callee), !call_over_cap(ce),
     call_from(ce, caller), call_class(ce, cls), invocation_site(ce, kind).
 call_chain_edge(ce, caller, "-", callee, "lib", "boundary_lib", kind) :-
-    client_calls_lib("client", ce, "lib", callee),
+    client_calls_lib("client", ce, "lib", callee), !call_over_cap(ce),
     call_from(ce, caller), invocation_site(ce, kind).
 call_chain_edge(ce, caller, "-", "-", "-", cls, kind) :-
     call_class(ce, cls), class_is_terminal(cls),
@@ -98,6 +105,7 @@ class_is_terminal("ambiguous_unknown").
 class_is_terminal("ambient_terminal").
 class_is_terminal("dynamic_terminal").
 class_is_terminal("implicit_constructor").
+class_is_terminal("fan_capped").
 
 // ── method_call_edge(FromMethod, ToMethod) — the method->method graph ───────
 method_call_edge(caller, callee) :- call_chain_edge(_, caller, _, callee, "client", _, _), callee != "-".
