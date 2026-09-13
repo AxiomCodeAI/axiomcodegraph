@@ -95,7 +95,7 @@ arrays. That is the engine, entirely.
 | ambient | `resolution/ambient.dl` | platform names as values, so a site reached through one is classified from the value, not the syntax |
 | JSDoc types | `resolution/reference-types.dl` | `@param`/`@type`/`@returns`, `import()` types, typedef aliases, wrappers |
 | callee resolution | `expression-resolution/callee-resolution.dl` | one rule per CALL FORM — the callee lives somewhere different in each |
-| call edges | `call-edge-generation/*.dl` | seven confidence classes |
+| call edges | `call-edge-generation/*.dl` | eight confidence classes |
 
 ### The Java rule that must not be ported
 
@@ -111,7 +111,7 @@ signature rather than `Function.prototype.call`. But `selector.apply(node)` on a
 with its own `apply` method gets the same kind. Both readings are derived; they cannot
 both produce a target.
 
-### Seven confidence classes
+### Eight confidence classes
 
 `known_edge`, `multi_inferred`, `boundary_lib`, `ambiguous_unknown` — plus three the
 JVM model does not need:
@@ -125,6 +125,8 @@ JVM model does not need:
   chain: the synthesized default runs.
 * **`dynamic_terminal`** — `obj[expr]()`, `eval`, `import()`. No static target by
   construction; complete because it says so.
+* **`fan_capped`** — more targets than `--dispatch-cap` (default 20): refused rather
+  than emitted, as in the Java and Python rule sets, and counted.
 
 ## How it is measured
 
