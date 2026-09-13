@@ -427,6 +427,12 @@ type_var_constraint_in_scope(powner, name, cref) :- param_decl(p, _, _, _, m, po
 ref_type_target(ref, "client", t) :- type_ref("client", "THIS_TYPE", _, _, _, _, _, ref),
     ts_type_reference("THIS_TYPE", _, t, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ref),
     t != "".
+// The same for a LIBRARY declaration. A fluent API is far more often declared in a
+// dependency than in the client -- builders and emitters are the idiom's home -- and
+// without this twin every chained call after the first hop into one was unresolved.
+ref_type_target(ref, "lib", t) :- type_ref("lib", "THIS_TYPE", _, _, _, _, _, ref),
+    lib_ts_type_reference("THIS_TYPE", _, t, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ref),
+    t != "".
 
 // ── ref_shape_target(RefHash, ShapeRefHash) ─────────────────────────────────
 // An anonymous object type — `{ read(): string }` — has members and NO declaration
