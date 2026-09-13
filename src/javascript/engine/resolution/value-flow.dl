@@ -145,10 +145,12 @@ var_value(v, k2, i2) :- var_binding_form(_, "OBJECT_PATTERN", v), !var_import(_,
 param_value(p, "inst", t) :- param_type_name(_, _, tr, p), type_ref_type(tr, t).
 // Argument flow at every call this engine resolved: argument i -> parameter i.
 // A rest parameter receives every argument at or past its position.
-param_value(p, k, i) :- call_arg(ce, pos, arg), expr_resolves_to_method(ce, m),
+// A function with more than --dispatch-cap direct call sites is a generic utility
+// whose parameters are not tracked: see resolution/fan-cap.dl.
+param_value(p, k, i) :- call_arg(ce, pos, arg), expr_resolves_to_method(ce, m), !method_is_hot(m, _),
     param_decl(_, _, ppos, m, p), to_number(ppos) = pos, !param_is_rest(_, p),
     expr_value(arg, k, i).
-param_value(p, k, i) :- call_arg(ce, pos, arg), expr_resolves_to_method(ce, m),
+param_value(p, k, i) :- call_arg(ce, pos, arg), expr_resolves_to_method(ce, m), !method_is_hot(m, _),
     param_decl(_, _, ppos, m, p), param_is_rest(_, p), to_number(ppos) <= pos,
     expr_value(arg, k, i).
 // A default value: `cb = () => {}`. The parser gives the parameter the default's
@@ -177,23 +179,37 @@ this_value(m, "inst", t) :- method_decl(_, _, k, _, "false", t, _, m), t != "", 
 this_value(m, "ctor", t) :- method_decl(_, _, _, _, "true", t, _, m), t != "".
 this_value(m, "inst", t) :- type_ctor(_, m, t).
 this_value(m, k, i) :- method_this_binding(_, "LEXICAL", m), method_enclosing(m, e), this_value(e, k, i).
-// A function that is a PROPERTY of a value is invoked as its method, so its `this`
-// is that value: a literal's methods, `this.handler = function () {...}`,
-// `obj.run = function () {...}`. Through `T.prototype.m = ...` the value is the
-// instance, not the prototype object.
-this_value(m, k, i) :- prop_value(k, i, _, "func", m), method_this_binding(_, "DYNAMIC", m), k != "proto",
+// A function WRITTEN as a property is invoked as a method of the object it is
+// written into, so its `this` is that object: a literal's own members (`{ m() {} }`,
+// `{ m: function () {} }`), and `X.m = function () {}` for whatever X holds —
+// through `T.prototype.m = ...` the value is the instance, not the prototype object.
+//
+// DEFINITION-SITE ONLY, deliberately. An earlier version bound `this` through any
+// property that HELD the function (`prop_value(_, _, _, "func", m)`), which let an
+// options bag merged from 200 callers give 200 `this` values to every function it
+// carried, each `this.x = v` inside then multiplied by 200, and the fixpoint did not
+// terminate on a held-out project. A function passed around as a value and later
+// stored (`opts.cb = handler`) keeps its `this` unbound instead.
+this_value(m, "obj", l) :- expr_child(_, l, "PROPERTY_VALUE", _, v), expr_kind(_, "OBJECT_LITERAL", _, l),
+    expr_introduces(_, m, v), method_this_binding(_, "DYNAMIC", m), !method_owner_type(m, _).
+this_value(m, "obj", l) :- literal_owns_method(l, m), method_this_binding(_, "DYNAMIC", m), !method_owner_type(m, _).
+this_value(m, k, i) :- expr_kind(_, "ASSIGNMENT", _, a), expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt),
+    expr_kind(_, "PROPERTY_ACCESS", _, tgt), expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, k, i), k != "proto",
+    expr_child(_, a, "ASSIGNMENT_VALUE", _, val), expr_introduces(_, m, val), method_this_binding(_, "DYNAMIC", m),
     !method_owner_type(m, _).
-this_value(m, "inst", t) :- prop_value("proto", t, _, "func", m), method_this_binding(_, "DYNAMIC", m),
+this_value(m, "inst", t) :- expr_kind(_, "ASSIGNMENT", _, a), expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt),
+    expr_kind(_, "PROPERTY_ACCESS", _, tgt), expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, "proto", t),
+    expr_child(_, a, "ASSIGNMENT_VALUE", _, val), expr_introduces(_, m, val), method_this_binding(_, "DYNAMIC", m),
     !method_owner_type(m, _).
 // `obj[name] = function () { this.x() }` — a computed member name gives no
 // property to look up, but the function's `this` is still the object.
 this_value(m, k, i) :- expr_kind(_, "ASSIGNMENT", _, a), expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt),
     expr_kind(_, "ELEMENT_ACCESS", _, tgt), expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, k, i), k != "proto",
-    expr_child(_, a, "ASSIGNMENT_VALUE", _, val), expr_value(val, "func", m), method_this_binding(_, "DYNAMIC", m),
+    expr_child(_, a, "ASSIGNMENT_VALUE", _, val), expr_introduces(_, m, val), method_this_binding(_, "DYNAMIC", m),
     !method_owner_type(m, _).
 this_value(m, "inst", t) :- expr_kind(_, "ASSIGNMENT", _, a), expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt),
     expr_kind(_, "ELEMENT_ACCESS", _, tgt), expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, "proto", t),
-    expr_child(_, a, "ASSIGNMENT_VALUE", _, val), expr_value(val, "func", m), method_this_binding(_, "DYNAMIC", m),
+    expr_child(_, a, "ASSIGNMENT_VALUE", _, val), expr_introduces(_, m, val), method_this_binding(_, "DYNAMIC", m),
     !method_owner_type(m, _).
 
 // ── return_value ────────────────────────────────────────────────────────────

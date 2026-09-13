@@ -1,7 +1,0 @@
-file	line	col	endLine	endCol	callKind	callee	oracleKind	bucket	engineClass	targets
-app.js	4	11	4	18	FUNCTION_CALL	dep	any	UNDECIDED	ambiguous_unknown	
-app.js	5	1	5	12	METHOD_CALL	get	any	UNDECIDED	ambiguous_unknown	
-app.js	6	1	6	34	METHOD_CALL	request	any	UNDECIDED	ambiguous_unknown	
-app.js	6	1	6	13	CONSTRUCTOR_CALL	Client	any	UNDECIDED	ambiguous_unknown	
-app.js	7	1	7	9	FUNCTION_CALL	helper	any	UNDECIDED	ambiguous_unknown	
-app.js	8	1	8	13	METHOD_CALL	helper	any	UNDECIDED	ambiguous_unknown	

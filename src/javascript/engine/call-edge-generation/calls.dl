@@ -54,6 +54,11 @@ unresolved_receiver(ce, cn, ck, "no_target") :- call_site("client", ck, cn, _, _
     !call_resolved(ce), callee_value_known(ce), !call_kind_is_dynamic(ck).
 unresolved_receiver(ce, cn, ck, "callee_untyped") :- call_site("client", ck, cn, rp, _, _, ce, _, _), rp != "SYNTACTIC",
     !call_resolved(ce), !callee_value_known(ce), !call_kind_is_dynamic(ck).
+// A receiver or callee that is a parameter of a capped function: see fan-cap.dl.
+unresolved_receiver(ce, cn, ck, "param_fan_capped") :- call_site("client", ck, cn, "SYNTACTIC", _, _, ce, _, _),
+    !call_resolved(ce), expr_child(_, ce, "RECEIVER", _, r), expr_param(_, p, r), param_fan_capped(p, _).
+unresolved_receiver(ce, cn, ck, "param_fan_capped") :- call_site("client", ck, cn, _, _, _, ce, _, _),
+    !call_resolved(ce), expr_child(_, ce, "CALLEE", _, c), expr_param(_, p, c), param_fan_capped(p, _).
 unresolved_receiver(ce, cn, ck, "dynamic") :- call_site("client", ck, cn, _, _, _, ce, _, _),
     !call_resolved(ce), call_kind_is_dynamic(ck).
 // Conservation over the diagnostic table too: any unresolved site the reasons
