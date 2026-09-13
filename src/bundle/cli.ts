@@ -25,11 +25,11 @@ import { sqliteAvailable, writeCoreCsv, writeSqlite } from '@/bundle/write';
 
 interface Args {
   language?: string; src?: string; clientIr?: string; raw?: string; out?: string;
-  library: string[]; libFacts?: string; meta: Record<string, string>; printSchema: boolean;
+  library: string[]; libFacts?: string; meta: Record<string, string>; printSchema: boolean; debug: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
-  const a: Args = { library: [], meta: {}, printSchema: false };
+  const a: Args = { library: [], meta: {}, printSchema: false, debug: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
     const next = () => { const v = argv[++i]; if (v === undefined) throw new Error(`${arg} needs a value`); return v; };
@@ -43,6 +43,7 @@ function parseArgs(argv: string[]): Args {
       case '--lib-facts': a.libFacts = next(); break;
       case '--meta': { const kv = next(); const eq = kv.indexOf('='); if (eq < 0) throw new Error(`--meta expects key=value, got ${kv}`); a.meta[kv.slice(0, eq)] = kv.slice(eq + 1); break; }
       case '--print-schema': a.printSchema = true; break;
+      case '--debug': a.debug = true; break;
       default: throw new Error(`unknown argument: ${arg}`);
     }
   }
@@ -75,14 +76,23 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     adapter, rawDir: a.raw!, clientIrDir: a.clientIr!, libraryRoots: a.library,
     libFactsDir: a.libFacts, libMap: readLibMap(langDir), meta, log,
   });
+  // THE DATABASE IS THE DELIVERABLE; THE CSVs ARE A DEBUGGING VIEW OF IT. They carry the
+  // same core tables and nothing more, so writing both by default doubles the output for
+  // a consumer that reads neither by hand. `--debug` asks for them.
+  //
+  // The one case where they are written anyway is the one where they are not redundant:
+  // an older Node has no `node:sqlite`, so without them the run would produce no
+  // consumer-facing output at all.
   const graphDir = path.join(a.out!, 'graph');
+  const haveSqlite = sqliteAvailable();
+  const wantCsv = a.debug || !haveSqlite;
   fs.rmSync(graphDir, { recursive: true, force: true }); // owned: no table from an earlier run survives
-  writeCoreCsv(graphDir, core, log);
+  if (wantCsv) writeCoreCsv(graphDir, core, log);
 
   const dbPath = path.join(a.out!, 'graph.sqlite');
-  if (sqliteAvailable()) {
+  if (haveSqlite) {
     await writeSqlite({ dbPath, language: adapter.language, core, ext: catalogExt(langDir), rawDir: a.raw!, log });
-    log(`▶ wrote ${dbPath}`);
+    log(`▶ wrote ${dbPath}${a.debug ? ' (+ graph/*.csv, --debug)' : ''}`);
   } else {
     fs.rmSync(dbPath, { force: true });
     console.error(`  ! node ${process.versions.node} has no node:sqlite (needs ≥ 22.5) — graph.sqlite NOT written; graph/*.csv is complete`);

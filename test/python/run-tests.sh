@@ -56,8 +56,9 @@ if ! bash "$ROOT/test/tools/no-ignored-fixtures.sh"; then
   exit 1
 fi
 # ── The bundle stage must build the language-neutral output ─────────────────
-# Every solve below ends by joining the raw relations to the IR and writing graph.sqlite and
-# graph/*.csv (src/bundle/SCHEMA.md). A broken bundler fails every case identically, after the
+# Every solve below ends by joining the raw relations to the IR and writing graph.sqlite
+# (src/bundle/SCHEMA.md); graph/*.csv is the same core tables and is written only under
+# --debug. A broken bundler fails every case identically, after the
 # solve's cost; this checks it in milliseconds on hand-written fixtures for all three languages.
 if ! bash "$ROOT/test/tools/bundle-test.sh"; then
   echo "aborting: the bundle stage does not produce the documented output"

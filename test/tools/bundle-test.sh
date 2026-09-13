@@ -20,7 +20,12 @@ TSX="$ROOT/node_modules/.bin/tsx"
 [ -x "$TSX" ] || { echo "bundle-test: SKIP (no node_modules/.bin/tsx — run npm install)"; exit 0; }
 W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
 fail=0; bad(){ echo "  ✗ $*"; fail=$((fail+1)); }
-BUNDLE(){ "$TSX" "$ROOT/src/bundle/cli.ts" --src "$ROOT/src" "$@"; }
+# --debug, because every assertion below reads graph/*.csv. Without it the bundler writes
+# graph.sqlite alone — the CSVs are a debugging view of the same core tables, and a
+# consumer that queries the database does not want a second copy of it on disk. The
+# default is asserted separately at the end.
+BUNDLE(){ "$TSX" "$ROOT/src/bundle/cli.ts" --src "$ROOT/src" --debug "$@"; }
+BUNDLE_NO_DEBUG(){ "$TSX" "$ROOT/src/bundle/cli.ts" --src "$ROOT/src" "$@"; }
 SQL(){ command -v sqlite3 >/dev/null && sqlite3 "$1" "$2"; }
 HAVE_SQLITE=0; command -v sqlite3 >/dev/null && HAVE_SQLITE=1
 
@@ -120,6 +125,18 @@ done
 # 5. SCHEMA.md is the rendering of schema.ts
 if ! diff -q <(BUNDLE --print-schema) "$ROOT/src/bundle/SCHEMA.md" >/dev/null; then
   bad "src/bundle/SCHEMA.md is stale — run: npm run schema-doc"
+fi
+
+
+# ── the DEFAULT writes the database and nothing else ────────────────────────
+# The deliverable is graph.sqlite. graph/*.csv carries the same core tables, so writing
+# both unasked doubles the output for a consumer that reads neither by hand. Asserted
+# here rather than trusted, because the fallback below makes the condition non-obvious.
+d="$W/default"; mkdir -p "$d"
+BUNDLE_NO_DEBUG --language java --client-ir "$W/java/ir" --raw "$W/java/raw" --out "$d" >/dev/null 2>&1
+[ -f "$d/graph.sqlite" ] || bad "default: graph.sqlite not written"
+if [ -d "$d/graph" ] && [ -n "$(ls -A "$d/graph" 2>/dev/null)" ]; then
+  bad "default: graph/ should be empty without --debug, found $(ls "$d/graph" | wc -l | tr -d ' ') files"
 fi
 
 if [ "$fail" -eq 0 ]; then
