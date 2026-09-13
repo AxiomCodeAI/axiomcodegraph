@@ -4,7 +4,7 @@
  *     npx tsx src/test/oss-scrub-gate.ts                 every tracked file
  *     npx tsx src/test/oss-scrub-gate.ts --scope src/x   one subtree
  *     npx tsx src/test/oss-scrub-gate.ts --self-test     prove it can fail
- *     npx tsx src/test/oss-scrub-gate.ts --inventory     write OSS-SCRUB-INVENTORY.md
+ *     npx tsx src/test/oss-scrub-gate.ts --inventory     write the inventory beside the private denylist
  *
  * Every mode but --self-test needs `JS_SCRUB_DENYLIST=<path>`: the token list
  * is PRIVATE and lives outside every repository (see below). Without it the
@@ -19,11 +19,17 @@
  * scrubbed by a commit the sender had not yet merged. A number nobody can
  * re-derive is not a measurement.
  *
- * So `--inventory` writes `src/test/OSS-SCRUB-INVENTORY.md`: the SHA it was
- * taken at, the active and excluded tokens, totals by subtree and owner, and
- * every hit as file:line. It is committed. Owners run `--scope` and reconcile
- * against it; nobody greps. The file is exempt from the scan, because it names
- * what it counts.
+ * So `--inventory` writes an inventory: the commit and TREE it was taken at,
+ * the denylist's size and digest, totals by subtree and owner, and every hit
+ * as file:line with its category. Owners run `--scope` and reconcile against
+ * it; nobody greps.
+ *
+ * It is NOT in the tree. It was, as `src/test/OSS-SCRUB-INVENTORY.md`, and a
+ * committed list of where the leaks are is itself a map for a reader of the
+ * published repository — the human removed it from main. It is written beside
+ * the private denylist (the directory of `$JS_SCRUB_DENYLIST`), which is the
+ * home of everything this gate must not publish, and its stamp is the tree
+ * hash, which a squash preserves.
  *
  * ## A grep is a claim; a committed check is a guarantee
  *
@@ -277,7 +283,7 @@ function scan(
     // output: it names categories and never tokens, and scanning it would
     // count its previous self — three hits at 6476ee3, two of them the old
     // artefact's own lines.
-    if (path.basename(file) === 'package-lock.json' || file.endsWith(INVENTORY_FILE)) {
+    if (path.basename(file) === 'package-lock.json') {
       continue;
     }
     text.split('\n').forEach((line, index) => {
@@ -323,7 +329,11 @@ function scan(
   return hits;
 }
 
-const INVENTORY_FILE = 'src/test/OSS-SCRUB-INVENTORY.md';
+const INVENTORY_NAME = 'OSS-SCRUB-INVENTORY.md';
+/** Beside the private denylist, outside every repository — never in the tree. */
+function inventoryPath(): string {
+  return path.join(path.dirname(process.env['JS_SCRUB_DENYLIST'] ?? '.'), INVENTORY_NAME);
+}
 
 /** Who scrubs a subtree. Prefix-matched; the first match wins. */
 const OWNERS: ReadonlyArray<readonly [string, string]> = [
@@ -348,8 +358,7 @@ function writeInventory(root: string): number {
   // history. The tree hash survives the squash, and a count is a function of
   // the tree.
   const tree = execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { encoding: 'utf-8' }).trim();
-  const dirty = execFileSync('git', ['status', '--porcelain', '--', ':!' + INVENTORY_FILE],
-    { encoding: 'utf-8' }).trim() !== '';
+  const dirty = execFileSync('git', ['status', '--porcelain'], { encoding: 'utf-8' }).trim() !== '';
   // REFUSED on a dirty tree. The inventory is only valid at a SHA that contains
   // every scrub it claims to measure, and a tree with uncommitted changes has no
   // such SHA: the header would name a commit that does not reproduce the count.
@@ -418,8 +427,8 @@ function writeInventory(root: string): number {
     for (const h of list) { lines.push(`- ${h.file}:${h.line} — ${h.hit}`); }
     lines.push('');
   }
-  fs.writeFileSync(path.join(root, INVENTORY_FILE), lines.join('\n'));
-  console.log(`wrote ${INVENTORY_FILE}: ${hits.length} hit(s) at ${sha.slice(0, 7)}`);
+  fs.writeFileSync(inventoryPath(), lines.join('\n'));
+  console.log(`wrote ${inventoryPath()}: ${hits.length} hit(s) at ${sha.slice(0, 7)}`);
   return 0;
 }
 
