@@ -245,6 +245,30 @@ var_type(v, prov, t) :- for_binding_iterable(v, e),
     !var_has_declared_type(v),
     expr_element_type(e, prov, t).
 
+// ── `for (const [, v] of pairs)` — DESTRUCTURED FROM A TUPLE ELEMENT ───────
+// The rule above resolves the element to a TYPE ENTITY, and a tuple does not have one:
+// `[string, Val]` is structural, so `ref_element_target` on `[string, Val][]` yields
+// nothing and every name destructured out of it was untyped. Plain array iteration
+// already worked, which is why this read as a for-of problem rather than a tuple one.
+//
+// So this walks REFERENCES rather than entities: the array reference's element child is
+// the tuple reference, and the tuple's own child AT THE BOUND INDEX is the member. The
+// parser states the index outright -- a destructured name carries
+// bindingSourceKind = INDEX with the position in bindingSource -- so the only work is
+// the walk.
+ref_element_ref(ar, child) :- type_ref(rp, k, _, _, _, _, _, ar),
+    ref_kind_is_array(k),
+    type_ref_parent(rp, ar, _, child).
+
+var_type(v, prov, t) :- for_binding_iterable(v, e),
+    !var_has_declared_type(v),
+    var_binding("client", _, "INDEX", i, _, v),
+    expr_decl_ref(e, ar),
+    ref_element_ref(ar, tr),
+    type_ref(_, "TUPLE", _, _, _, _, _, tr),
+    type_ref_parent(_, tr, i, mr),
+    ref_type_target(mr, prov, t).
+
 // ── var_is_function(VarHash, MethodHash) ────────────────────────────────────
 // `const f = () => {}`. THE link that makes a const callable — 161 measured resolved
 // call targets are arrow functions reached only this way. The parser's binder made

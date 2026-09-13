@@ -1,0 +1,2 @@
+known_edge	METHOD_CALL	main#use([string, Val][],Val[]) @L10 -> Val#use()
+known_edge	METHOD_CALL	main#use([string, Val][],Val[]) @L9 -> Val#use()
