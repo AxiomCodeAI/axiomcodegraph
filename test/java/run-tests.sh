@@ -209,7 +209,7 @@ for dir in "$HERE"/cases/*/; do
     case_lib="$w/lib-ir"
   fi
 
-  if ! bash "$ROOT/src/pipeline/run-souffle.sh" --client-ir "$w/ir" --library "$case_lib" \
+  if ! bash "$ROOT/src/pipeline/run-souffle.sh" --debug --client-ir "$w/ir" --library "$case_lib" \
         --intermediate "$w/int" --output "$w/out" >"$w/solve.log" 2>&1; then
     echo "FAIL (solve — see $w/solve.log)"; fail=$((fail+1)); failed+=("$name"); continue; fi
 

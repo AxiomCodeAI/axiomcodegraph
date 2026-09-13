@@ -9,7 +9,7 @@ import * as path from 'path';
 import { readRaw, writeTable } from '@/bundle/csv';
 import type { CoreTables, Row } from '@/bundle/build';
 import type { ExtRelation } from '@/bundle/catalog';
-import { CATALOG_TABLES, CORE_TABLES, LANGUAGES, NOTES, SCHEMA_VERSION, VOCAB, type Language, type TableSpec } from '@/bundle/schema';
+import { CATALOG_TABLES, CORE_TABLES, GUIDE, LANGUAGES, NOTES, QUERIES, SCHEMA_VERSION, VOCAB, type Language, type TableSpec } from '@/bundle/schema';
 
 export function writeCoreCsv(graphDir: string, core: CoreTables, log: (s: string) => void): void {
   fs.mkdirSync(graphDir, { recursive: true });
@@ -118,6 +118,10 @@ export async function writeSqlite(inp: SqliteInputs): Promise<void> {
     observe('type_instantiated', 'how', c.type_instantiated.map((r) => r[1] as string));
     const note = db.prepare('INSERT INTO schema_notes VALUES (?, ?, ?)');
     for (const n of NOTES) if (n.language === 'all' || n.language === inp.language) note.run(n.language, n.table, n.note);
+    const guide = db.prepare('INSERT INTO schema_guide VALUES (?, ?)');
+    GUIDE.forEach((g, i) => guide.run(i + 1, g));
+    const query = db.prepare('INSERT INTO schema_queries VALUES (?, ?, ?, ?)');
+    for (const q of QUERIES) query.run(q.name, q.question, q.params, q.sql);
     db.exec('COMMIT;');
 
     // ── indexes, after the load ─────────────────────────────────────────────

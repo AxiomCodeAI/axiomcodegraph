@@ -714,7 +714,7 @@ fi
 
 # ── 3. solve ─────────────────────────────────────────────────────────────────
 echo "▶ solving..."
-bash "$REPO/src/pipeline/run-souffle.sh" --language typescript \
+bash "$REPO/src/pipeline/run-souffle.sh" --debug --language typescript \
   --client-ir "$WORK/ir" ${LIBS:+--library "$LIBS"} \
   --intermediate "$WORK/int" --output "$WORK/out" >"$WORK/solve.log" 2>&1 || {
   echo "   solve failed; see $WORK/solve.log" >&2; tail -20 "$WORK/solve.log" >&2; exit 1; }

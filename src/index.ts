@@ -2,7 +2,7 @@
  * Entry point for the reasoning engine. Invoked by @axiomcode/agent-search, receiving the
  * client IR and library paths from the agent's CLI:
  *
- *   node dist/index.js --language=L --client-ir=DIR --library=DIR --intermediate=DIR --output=DIR
+ *   node dist/index.js --language=L --client-ir=DIR --library=DIR --intermediate=DIR --output=DIR [--debug]
  *
  * --language selects the rule set under src/<lang>/ (java, typescript, python; default java).
  * The output layout is the same for every language — see src/bundle/SCHEMA.md.
@@ -19,6 +19,7 @@ function parseArgs(argv: string[]): ReasoningOptions {
     else if (arg.startsWith('--intermediate=')) opts.intermediateDir = arg.slice('--intermediate='.length);
     else if (arg.startsWith('--output=')) opts.outputDir = arg.slice('--output='.length);
     else if (arg.startsWith('--language=')) opts.language = arg.slice('--language='.length);
+    else if (arg === '--debug') opts.debug = true;
     else if (arg.startsWith('--')) throw new Error(`Unknown argument: ${arg}`);
   }
   return opts;

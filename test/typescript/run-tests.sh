@@ -275,7 +275,7 @@ pass=0; fail=0; failed=()
 
 # solve <ir> <library-ir> <workdir> ; leaves edges in <workdir>/out
 solve() {
-  bash "$ROOT/src/pipeline/run-souffle.sh" --language typescript \
+  bash "$ROOT/src/pipeline/run-souffle.sh" --debug --language typescript \
     --client-ir "$1" --library "$2" --intermediate "$3/int" --output "$3/out" \
     >"$3/solve.log" 2>&1
 }

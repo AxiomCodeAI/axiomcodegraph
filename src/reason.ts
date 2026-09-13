@@ -16,6 +16,8 @@ export interface ReasoningOptions {
   outputDir?: string;
   /** Rule set to run — java (default), typescript, python. */
   language?: string;
+  /** Keep raw/ and also write graph/*.csv next to graph.sqlite. */
+  debug?: boolean;
 }
 
 /**
@@ -89,7 +91,8 @@ export function runReasoning(opts: ReasoningOptions = {}): void {
       '--client-ir', clientIrDir,
       '--library', libraryRoots.join(','),
       '--intermediate', souffleScratch,
-      '--output', outputDir],
+      '--output', outputDir,
+      ...(opts.debug ? ['--debug'] : [])],
     { stdio: 'inherit' }
   );
   if (result.error) throw new Error(`Failed to run run-souffle.sh: ${result.error.message}`);

@@ -78,7 +78,7 @@ EOF
 
 solve(){ # $1 = tree dir
   node "$PARSER" "$1/src" ambmod false "$1/ir" > "$1/parse.log" 2>&1 || return 1
-  bash "$ROOT/src/pipeline/run-souffle.sh" --language python \
+  bash "$ROOT/src/pipeline/run-souffle.sh" --debug --language python \
        --client-ir "$1/ir" --library "$EMPTY_LIB" \
        --intermediate "$1/int" --output "$1/out" > "$1/solve.log" 2>&1
 }
