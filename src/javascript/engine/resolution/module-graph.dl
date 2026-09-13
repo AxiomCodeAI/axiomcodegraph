@@ -30,6 +30,14 @@
 // EITHER provenance, which is how a client import reaches a staged library module
 // by the same rule as a sibling file.
 import_module(imp, mod) :- import_decl(_, _, _, _, _, rf, _, _, imp), rf != "", module_qname(_, rf, mod).
+// A dependency: the parser resolved the specifier to an ABSOLUTE file under
+// node_modules. A library staged from that very directory joins on root + file; one
+// staged from a copy elsewhere joins on the package name and the file within it.
+import_module(imp, mod) :- import_decl(_, _, _, _, _, rf, "RESOLVED_EXTERNAL", _, imp),
+    module_base_path("lib", bp, mod), module_file("lib", fp, mod), rf = cat(bp, cat("/", fp)).
+import_module(imp, mod) :- import_decl(_, _, _, _, _, rf, "RESOLVED_EXTERNAL", _, imp),
+    module_package("lib", pkg, mod), module_file("lib", fp, mod),
+    contains(cat("/node_modules/", cat(pkg, cat("/", fp))), rf).
 
 // ── import_unresolved(ImportHash, Specifier, Outcome) — countable ───────────
 // A dependency that is not staged (RESOLVED_EXTERNAL with no matching module), a

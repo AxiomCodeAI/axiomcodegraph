@@ -209,3 +209,4 @@
 .decl var_regime_is_block(c0:symbol)
 .decl call_ambient_alternative(c0:symbol)
 .decl method_returns_this(c0:symbol)
+.decl module_base_path(c0:symbol, c1:symbol, c2:symbol)

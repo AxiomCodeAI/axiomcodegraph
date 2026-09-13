@@ -232,3 +232,7 @@ __pycache__/
 # listed, so every run of the TypeScript suite left an untracked directory behind.
 test/typescript/.work/
 test/typescript/.work-*/
+
+# A JavaScript fixture dependency is a real package under node_modules — that is the shape
+# the parser resolves and the shape the library join is written for.
+!test/javascript/cases/*/src/node_modules/
