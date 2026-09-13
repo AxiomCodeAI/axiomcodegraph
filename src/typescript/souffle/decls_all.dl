@@ -254,6 +254,7 @@
 .decl method_enclosing_type(c0:symbol,c1:symbol)
 .decl method_flags(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
 .decl method_group(c0:symbol,c1:symbol,c2:symbol)
+.decl method_declares_type_param(c0:symbol)
 .decl method_group_of(c0:symbol,c1:symbol)
 .decl method_has_rest(c0:symbol)
 .decl method_has_unknown_call(c0:symbol,c1:symbol)
