@@ -1,9 +1,9 @@
 /**
  * DOES THE IR CARRY THE EDGES AN ENGINE NEEDS? — built independently.
  *
- *     node tools/javascript/ir-sufficiency-independent.mjs <sweep-out-dir>
+ *     node src/test/javascript-gates/ir-sufficiency-independent.mjs <sweep-out-dir>
  *
- * js-impl has its own `javascript-ir-sufficiency.ts`. This is deliberately NOT
+ * js-impl has its own `javascript-gates/ir-sufficiency.ts`. This is deliberately NOT
  * that: it shares no code, no column list and no traversal with it, and it was
  * written from the SCHEMA rather than from their measure. Two measures agreeing
  * because they share code means nothing; two built separately agreeing is

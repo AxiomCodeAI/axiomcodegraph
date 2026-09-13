@@ -1,7 +1,7 @@
 /**
  * Run the parser over every corpus member, one at a time, into one dir per member.
  *
- *     npx tsx tools/javascript/sweep.ts <corpus-root> <out-dir> [name-filter]
+ *     npx tsx src/test/javascript-gates/sweep.ts <corpus-root> <out-dir> [name-filter]
  *
  * Run from the checkout being MEASURED (a pushed js-impl commit), not from this
  * one — `@/` resolves against the cwd's tsconfig.

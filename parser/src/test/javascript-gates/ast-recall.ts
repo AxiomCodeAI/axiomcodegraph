@@ -1,7 +1,7 @@
 /**
  * WHAT FRACTION OF THE COMPILER'S OWN TREE DOES THIS PARSER EMIT A FACT FOR?
  *
- *     npx tsx src/test/javascript-ast-recall.ts <corpus-root>
+ *     npx tsx src/test/javascript-gates/ast-recall.ts <corpus-root>
  *
  * A MEASUREMENT, not a gate. It is slow — it extracts the corpus and then
  * re-walks every file — and its residue needs reading rather than asserting, so

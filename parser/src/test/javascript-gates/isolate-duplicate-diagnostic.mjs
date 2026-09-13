@@ -2,7 +2,7 @@
  * Isolate a js_parse_gap primary-key collision down to file, byte offset and the
  * two colliding diagnostic objects.
  *
- *     node tools/javascript/isolate-duplicate-diagnostic.mjs <file.js>
+ *     node src/test/javascript-gates/isolate-duplicate-diagnostic.mjs <file.js>
  *
  * Groups `sf.parseDiagnostics` by EXACTLY the five fields js_parse_gap keys on
  * (kind, module, line, column, detail), then field-by-field diffs the colliding

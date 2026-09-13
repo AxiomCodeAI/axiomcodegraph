@@ -4509,7 +4509,7 @@ function extensionsAreDecidedInOnePlace(): number {
   }
   files.push('src/language-detectors/javascript-detector.ts');
   files.push('src/test/javascript-tests.ts');
-  files.push('src/test/javascript-ast-recall.ts');
+  files.push('src/test/javascript-gates/ast-recall.ts');
   files.push('src/constants/javascript-constants.ts');
 
   let offenders = 0;

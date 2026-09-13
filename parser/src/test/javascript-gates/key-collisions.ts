@@ -1,7 +1,7 @@
 /**
  * WHICH INTERNAL INDEX KEYS ARE NOT UNIQUE?
  *
- *     npx tsx src/test/javascript-key-collisions.ts <corpus-root>
+ *     npx tsx src/test/javascript-gates/key-collisions.ts <corpus-root>
  *
  * A MEASUREMENT, not a gate, because most of these collisions are LEGAL
  * JavaScript. Two functions of the same name in one module is a bundle, not a

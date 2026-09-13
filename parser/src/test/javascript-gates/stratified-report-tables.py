@@ -1,6 +1,6 @@
 """Shipped-source vs test/spec tables, decline classes, stratum overlap.
 
-    python3 tools/javascript/stratified-report-tables.py <work-dir>
+    python3 src/test/javascript-gates/stratified-report-tables.py <work-dir>
 
 <work-dir> is the directory holding the sweep artefacts:
     <work-dir>/out/<pkg>/all-javascript-*.csv   parser output, one dir per corpus member

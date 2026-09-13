@@ -1,8 +1,8 @@
 /**
  * The fixture header, on every file js-corpus introduces — DERIVED, never typed.
  *
- *     node tools/javascript/fixture-headers.mjs --check     # exit 1 on any missing/wrong header
- *     node tools/javascript/fixture-headers.mjs --fix       # insert the derived header where absent
+ *     node src/test/javascript-gates/fixture-headers.mjs --check     # exit 1 on any missing/wrong header
+ *     node src/test/javascript-gates/fixture-headers.mjs --fix       # insert the derived header where absent
  *
  * ## Why this exists
  *
@@ -30,7 +30,7 @@ import path from 'path';
 import { createRequire } from 'module';
 const ts = createRequire(import.meta.url)('typescript');
 
-const ROOT = path.resolve(path.join(import.meta.dirname, '..', '..', 'src', 'test-data', 'javascript'));
+const ROOT = path.resolve(path.join(import.meta.dirname, '..', '..', '..', 'src', 'test-data', 'javascript'));
 const MINE = ['categories', 'verified'];
 const FIX = process.argv.includes('--fix');
 const CHECK = process.argv.includes('--check') || !FIX;

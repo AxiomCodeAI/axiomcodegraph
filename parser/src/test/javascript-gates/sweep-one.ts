@@ -1,7 +1,7 @@
 /**
  * Extract ONE directory. The unit every repro and every fixture tree is run through.
  *
- *     npx tsx tools/javascript/sweep-one.ts <dir> <out-dir>
+ *     npx tsx src/test/javascript-gates/sweep-one.ts <dir> <out-dir>
  *
  * Run from the checkout being MEASURED.
  */

@@ -1,7 +1,7 @@
 /**
  * DOES EACH LINK POINT AT WHAT ITS COLUMN NAME CLAIMS? — meaning, not presence.
  *
- *     node tools/javascript/link-meaning-check.mjs <sweep-out-dir>
+ *     node src/test/javascript-gates/link-meaning-check.mjs <sweep-out-dir>
  *
  * ## The blind spot this closes, and why it was shared
  *

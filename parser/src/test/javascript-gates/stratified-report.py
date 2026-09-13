@@ -1,6 +1,6 @@
 """Per-stratum, per-module-system and per-receiver-shape report.
 
-    python3 tools/javascript/stratified-report.py <work-dir>
+    python3 src/test/javascript-gates/stratified-report.py <work-dir>
 
 <work-dir> is the directory holding the sweep artefacts:
     <work-dir>/out/<pkg>/all-javascript-*.csv   parser output, one dir per corpus member

@@ -1,7 +1,7 @@
 /**
  * CAN THE ENGINE BUILD THE FLOWS FROM WHAT WE EMIT?
  *
- *     npx tsx src/test/javascript-ir-sufficiency.ts <corpus-root>
+ *     npx tsx src/test/javascript-gates/ir-sufficiency.ts <corpus-root>
  *
  * A different question from AST recall, and the one that actually matters.
  * Recall asks *is there a row for this node*. This asks *do the rows carry the

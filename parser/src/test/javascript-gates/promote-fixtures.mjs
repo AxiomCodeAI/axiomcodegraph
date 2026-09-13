@@ -1,7 +1,7 @@
 /**
  * Promote `src/test-data/javascript/staging/` into `src/test-data/javascript/categories/`.
  *
- *     node tools/javascript/promote-fixtures.mjs [--check]
+ *     node src/test/javascript-gates/promote-fixtures.mjs [--check]
  *
  * ## Why this is a script and not a one-off copy
  *
@@ -49,7 +49,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { createRequire } from 'module';
 
-const ROOT = path.resolve(path.join(import.meta.dirname, '..', '..'));
+const ROOT = path.resolve(path.join(import.meta.dirname, '..', '..', '..'));
 const STAGING = path.join(ROOT, 'src/test-data/javascript/staging');
 const CATEGORIES = path.join(ROOT, 'src/test-data/javascript/categories');
 const CHECK = process.argv.includes('--check');
@@ -290,7 +290,7 @@ const want = new Map();
 for (const [src, dst] of mapping) want.set(dst, fs.readFileSync(path.join(STAGING, src)));
 // ADDITIONS get the fixture header DERIVED at generation time, with the gate's
 // own predicate, so a regenerated tree can never strip it and a human never
-// types the label. Same rule as tools/javascript/fixture-headers.mjs.
+// types the label. Same rule as src/test/javascript-gates/fixture-headers.mjs.
 const ts = createRequire(import.meta.url)('typescript');
 const withHeader = (dst, body) => {
   if (/nature:\s*(type-only|runtime-bearing)/i.test(body)) return body;
@@ -337,7 +337,7 @@ const manifest = mapping.map(([src, dst]) => ({ from: `staging/${src}`, to: `cat
   .concat(Object.keys(ADDITIONS).map((dst) => ({ from: 'ADDED by js-corpus (enum coverage gap)', to: `categories/${dst}`, sha256_16: sha(want.get(dst)) })))
   .concat(Object.keys(CONFIGS).map((dst) => ({ from: 'MINTED by the promotion (category layout)', to: `categories/${dst}`, sha256_16: sha(want.get(dst)) })));
 fs.writeFileSync(path.join(CATEGORIES, 'PROVENANCE.json'), JSON.stringify({
-  generatedBy: 'tools/javascript/promote-fixtures.mjs',
+  generatedBy: 'src/test/javascript-gates/promote-fixtures.mjs',
   stagingFiles: sources.length, categoryFiles: want.size, mapping: manifest,
 }, null, 1) + '\n');
 console.log(`promoted ${mapping.length} fixtures + ${Object.keys(ADDITIONS).length} addition(s) `

@@ -9,7 +9,7 @@ the file's header.
 Every file here carries `// fixture: <path>` and `// nature: type-only|runtime-bearing`,
 because js-impl's nature gate requires both and files entering through this
 directory bypass js-fixtures' header pass — twenty-one of mine were failing it on
-`js` before anyone told me. The label is never typed: `tools/javascript/fixture-headers.mjs`
+`js` before anyone told me. The label is never typed: `src/test/javascript-gates/fixture-headers.mjs`
 computes it with the gate's own predicate (`statements.length === 0`) and inserts
 it, and `--check` exits non-zero if any file under `categories/` or `verified/` is
 missing one or declares one the predicate disagrees with. A wrong label is
@@ -66,7 +66,7 @@ notice the fix coming undone.
 ## One of these was found by a route this corpus does not have
 
 `parenthesised-heritage/` came from auditing the residue of js-impl's own
-`javascript-ast-recall.ts`, not from the sweep. The sweep adjudicates CALL SITES
+`javascript-gates/ast-recall.ts`, not from the sweep. The sweep adjudicates CALL SITES
 against the compiler; it is blind to `js_type_heritage`, and it was equally blind
 to the 4,944 nested JSX elements that emitted no row — every call in those
 subtrees was emitted at the right position with the right kind, so recall, kind,

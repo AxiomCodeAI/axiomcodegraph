@@ -1,7 +1,7 @@
 /**
  * WHICH LINKS ARE POPULATED FROM A MAP KEYED ON A TUPLE THAT IS NOT UNIQUE?
  *
- *     node tools/javascript/nonunique-key-sweep.mjs <sweep-out-dir>
+ *     node src/test/javascript-gates/nonunique-key-sweep.mjs <sweep-out-dir>
  *
  * Two defects in this front end have had that cause, and they presented
  * differently, which is why looking for the CAUSE beats waiting for the symptom:

@@ -1,5 +1,5 @@
 {
- "generatedBy": "tools/javascript/promote-fixtures.mjs",
+ "generatedBy": "src/test/javascript-gates/promote-fixtures.mjs",
  "stagingFiles": 121,
  "categoryFiles": 137,
  "mapping": [

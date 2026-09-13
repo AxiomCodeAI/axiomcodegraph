@@ -1,9 +1,9 @@
 /**
  * AST RECALL FOR THE NINE RELATIONS THE FIRST HARNESS DOES NOT WALK.
  *
- *     npx tsx tools/javascript/ast-recall-remaining.ts <corpus-root>
+ *     npx tsx src/test/javascript-gates/ast-recall-remaining.ts <corpus-root>
  *
- * `src/test/javascript-ast-recall.ts` walks six of the fifteen non-module
+ * `src/test/javascript-gates/ast-recall.ts` walks six of the fifteen non-module
  * relations: expressions, blocks, variables, methods, types and call sites. This
  * completes it across the other nine - imports, exports, fields, comments,
  * scopes, method parameters, type heritages, type references and parse gaps.
@@ -36,13 +36,13 @@ import * as ts from 'typescript';
 
 const TAB = String.fromCharCode(9);
 const NL = String.fromCharCode(10);
-const CORPUS = process.argv[2];
-if (CORPUS === undefined) {
+const CORPUS: string = process.argv[2] ?? '';
+if (CORPUS === '') {
   console.error('usage: ast-recall-remaining.ts <corpus-root>');
   process.exit(1);
 }
-const OUT = process.argv[3];
-if (OUT === undefined) {
+const OUT: string = process.argv[3] ?? '';
+if (OUT === '') {
   console.error('usage: ast-recall-remaining.ts <corpus-root> <sweep-out-dir-for-that-corpus>');
   process.exit(1);
 }
@@ -151,7 +151,9 @@ function walkFile(abs: string, rel: string): void {
     path.extname(abs) === '.jsx' ? ts.ScriptKind.JSX : ts.ScriptKind.JS);
 
   // --- parse gaps: every parse diagnostic MUST have a gap row at its position.
-  for (const d of sf.parseDiagnostics) {
+  // Internal property, read through a cast — the same way the parser's own
+  // parseDiagnosticsOf reads it; there is no Program to ask.
+  for (const d of (sf as unknown as { parseDiagnostics: readonly ts.Diagnostic[] }).parseDiagnostics) {
     if (d.start === undefined) { continue; }
     expect('parse gaps      -> js_parse_gap', rel, sf, d.start, 'ParseDiagnostic',
       String(ts.flattenDiagnosticMessageText(d.messageText, ' ')));
@@ -178,7 +180,7 @@ function walkFile(abs: string, rel: string): void {
       // declares nothing and binds nothing. Asking for those scored 11 phantom
       // misses in the Flow files that leaked the detector.
       let inType = false;
-      for (let a = n.parent; a !== undefined; a = a.parent) {
+      for (let a: ts.Node | undefined = n.parent; a !== undefined; a = a.parent) {
         if (ts.isTypeNode(a)) { inType = true; break; }
         if (ts.isSourceFile(a) || ts.isBlock(a)) { break; }
       }
