@@ -298,7 +298,12 @@ export function jsDocParameterTagFor(
     .filter((tag): tag is ts.JSDocParameterTag => ts.isJSDocParameterTag(tag))
     .filter((tag) => ts.isIdentifier(tag.name));
   if (ts.isIdentifier(parameter.name)) {
-    const byName = tags.find((tag) => tag.name.getText() === parameter.name.getText());
+    // The first same-name tag WITH a type, then the first at all — the
+    // compiler's own order in getJSDocType. A block that documents `padID`
+    // twice, prose first (`@param padID identifies…`) and typed later
+    // (`@param {String} padID`), typed nothing when the first tag won.
+    const sameName = tags.filter((tag) => tag.name.getText() === parameter.name.getText());
+    const byName = sameName.find((tag) => tag.typeExpression !== undefined) ?? sameName[0];
     if (byName !== undefined) {
       return byName;
     }

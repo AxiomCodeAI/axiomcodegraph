@@ -441,7 +441,12 @@ const SCAFFOLD: ReadonlyArray<readonly [string, string]> = [
     // that merely contains the word followed by a space (js-fixtures' find).
     '/* eslint-disable no-console */',
     '// every eslint config resolver reads this, and it is prose',
-    'export { a, arr, obj, f };',
+    // After a token that is not a comma: the opening parenthesis of a call and
+    // the colon of a case label. The comma was one instance of the class.
+    'const g = f(/* after a parenthesis */ 1, 2);',
+    'switch (a) { case 1: // after a case label',
+    '  break; }',
+    'export { a, arr, obj, f, g };',
     '',
   ].join('\n')],
 
@@ -679,6 +684,13 @@ const SCAFFOLD: ReadonlyArray<readonly [string, string]> = [
     // the callback's parameter's optionality, not the callback's.
     '/** @param {function(Error=, string=): void} callback */',
     'function takesCallback(callback) { return callback(null, ""); }',
+    // The same parameter documented twice, prose first and typed second: the
+    // compiler takes the first tag WITH a type, and so does the selection.
+    '/**',
+    ' * @param twice identifies the thing',
+    ' * @param {number} twice',
+    ' */',
+    'function documentedTwice(twice) { return twice; }',
     // A destructuring declaration's @type is the PATTERN's: one tree, owned by
     // the root binding; the second name reads NONE rather than the pair's type.
     '/** @type {[string, number]} */',
@@ -690,7 +702,7 @@ const SCAFFOLD: ReadonlyArray<readonly [string, string]> = [
     '  const local = null;',
     '  return local;',
     '}',
-    'module.exports = { forms, positional, postfixOptional, takesCallback, inBody, first, second };',
+    'module.exports = { forms, positional, postfixOptional, takesCallback, documentedTwice, inBody, first, second };',
     '',
   ].join('\n')],
 
@@ -4114,6 +4126,7 @@ function declaredTypesAgreeWithTheirReferences(): number {
     ['postfix', 'string', true, false, '`{string=}` is the second JSDoc optional marker (§3.5a)'],
     ['callback', 'function(Error=, string=): void', false, false,
       'the `=` inside `function(Error=, string=)` is the callback\'s parameter\'s, not its own'],
+    ['twice', 'number', false, false, 'documented twice, prose first: the first tag WITH a type wins, as in the compiler'],
     ['a', 'string', false, false, 'named tag, first'],
     ['b', '', false, false, 'UNDOCUMENTED — the tag at its index names `c` and is not its to take'],
     ['c', 'number', false, false, 'named tag, third parameter, second tag'],
@@ -4677,7 +4690,7 @@ function separatorCommentsAndNamespaceReexportsEmit(): number {
   const mine = comments.rows.filter((r) => r[cOwner] === commentModule);
   for (const [line, construct] of [
     [1, 'a statement'], [3, 'an array element'], [7, 'an object property'],
-    [11, 'a parameter'],
+    [11, 'a parameter'], [16, 'a parenthesis'], [17, 'a case label'],
   ] as const) {
     if (!mine.some((r) => Number(r[cLine]) === line && (r[cText] ?? '').includes(construct))) {
       failures += fail(`the trailing comment after ${construct} (line ${line}) emitted no `

@@ -164,7 +164,31 @@ export function extractComments(
         emitRange(range, undefined);
       }
     }
+    // AFTER ANY OTHER TOKEN, for the same reason. The comma was one instance
+    // of a class: `f(/* why */ 60)` sits after `(`, `case 403: // forbidden`
+    // after the `:`, `{ // opening` after the brace, `x = // note` after `=`.
+    // None is a node's trailing trivia, and the compiler does not collect a
+    // same-line comment as the next node's leading trivia. The parser's own
+    // token children — `getChildren()` includes punctuation the AST walk
+    // skips — are visited here, so regexes and templates are already decided
+    // by the parser and no second scanner is needed. 87 of 14,935 comments on
+    // the development corpus, 9 on the holdout, all of this class.
+    //
+    // AFTER the children, so a comment that is also some node's leading trivia
+    // is emitted by that node's visit, WITH its attachment; the token pass
+    // catches only what no node claimed (`seen` makes the order the whole rule).
     ts.forEachChild(node, visit);
+    for (const child of node.getChildren(sourceFile)) {
+      if (child.kind >= ts.SyntaxKind.FirstNode) {
+        continue;
+      }
+      for (const range of ts.getTrailingCommentRanges(text, child.end) ?? []) {
+        emitRange(range, undefined);
+      }
+      for (const range of ts.getLeadingCommentRanges(text, child.getFullStart()) ?? []) {
+        emitRange(range, undefined);
+      }
+    }
   };
   ts.forEachChild(sourceFile, visit);
   // The end of the file is not the trailing trivia of any node, so a comment

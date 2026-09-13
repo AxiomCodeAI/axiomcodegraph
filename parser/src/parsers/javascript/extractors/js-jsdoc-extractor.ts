@@ -316,7 +316,7 @@ export class JsDocExtractor {
     tagName: string
   ): { name: string; root: JsTypeReferenceRegistry } | undefined {
     const unwrapped = unwrapParenthesizedType(node);
-    const root = this.emitNode(unwrapped, owner, context, tagName, '', 0, 0);
+    const root = this.emitNode(node, owner, context, tagName, '', 0, 0);
     if (root === undefined) {
       return undefined;
     }
@@ -335,6 +335,12 @@ export class JsDocExtractor {
     if (depth > JS_TYPE_REFERENCE_MAX_DEPTH) {
       return undefined;
     }
+    // Classified and named from the UNWRAPPED node; POSITIONED at the node as
+    // written, parentheses included. `@param {(A|B)} x` is a union whose row
+    // begins at the `(` — where the type expression starts, and where a
+    // position join from the tag lands. Positioned at the inner node, 17 such
+    // rows read as missing to a join keyed on the tag.
+    const written = node;
     node = unwrapParenthesizedType(node);
     const kind = referenceKindOf(node);
     const row = this.mint({
@@ -346,7 +352,7 @@ export class JsDocExtractor {
       owner,
       context,
       tagName,
-      node,
+      node: written,
     });
     const children = childTypesOf(node);
     let emitted = 0;
