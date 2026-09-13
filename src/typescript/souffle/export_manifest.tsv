@@ -14,6 +14,7 @@ import_target_module	import-target-module.csv
 import_unresolved	import-unresolved.csv
 import_binding_unresolved	import-binding-unresolved.csv
 type_ref_unresolved	type-ref-unresolved.csv
+heritage_target	heritage-target.csv
 heritage_unresolved	heritage-unresolved.csv
 heritage_dynamic	heritage-dynamic.csv
 type_satisfies	type-satisfies.csv

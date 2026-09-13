@@ -97,6 +97,22 @@ heritage_unresolved(sub, name) :- ts_type_heritage(_, _, _, _, name, _, _, _, su
     tref != "",
     !ref_type_target(tref, _, _).
 
+// THE SAME TWO, FOR A LIBRARY TYPE. Without these the blind-spot reporter has a blind
+// spot of exactly the shape it exists to surface: both clauses above read
+// `ts_type_heritage`, so a library heritage that resolved to nothing produced no row in
+// either file, and the empty files read as "nothing unresolved" rather than "cannot see".
+// That is not hypothetical — the cross-module defect fixed in #447 was mis-diagnosed
+// once on the strength of these two files being empty.
+//
+// The lib side resolves by NAME within its own scope rather than through a type
+// reference, so the unresolved test is the negation of that same lookup rather than of
+// `ref_type_target` — testing the client relation here would report every library
+// heritage as unresolved.
+heritage_dynamic(sub, txt) :- lib_ts_type_heritage("EXTENDS_EXPRESSION", _, _, txt, _, _, _, _, sub, _, _, _, _, _, _, _, _, _, _, _).
+heritage_unresolved(sub, name) :- lib_ts_type_heritage(_, _, _, _, name, _, _, _, sub, lmod, _, _, _, _, _, _, _, _, _, _),
+    name != "",
+    !lib_heritage_name_target(lmod, name, _, _).
+
 // ── type_inherits(SubHash, SuperHash) — MEMBERS flow along this edge ────────
 // Lifted to groups on both ends, then projected back to every declaration, so a
 // clause written on one declaration of a merged type applies to all of them.
