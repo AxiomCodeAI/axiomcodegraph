@@ -142,6 +142,14 @@ export_entity("lib", ek, eh, gk, h) :- lib_ts_export(_, _, _, _, _, _, _, _, _, 
 // A re-export's target module. This is the edge the chain in
 // resolution/module-graph.dl walks; resolvedSourceModuleLinkHash is filled when the
 // source module was in the same run, and the specifier is the fallback.
+// ── export_expression(Prov, ExprHash, ExportHash) ───────────────────────────
+// Column 18. `export default V.isLen` records exportedEntityKind = EXPRESSION with an
+// EMPTY entity hash -- the entity is not a declaration, it is whatever the expression
+// denotes -- and puts the expression here instead. Nothing read it, so a default export
+// of anything other than a declaration exported nothing at all.
+export_expression("client", ex, h) :- ts_export(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ex, _, _, h), ex != "".
+export_expression("lib", ex, h) :- lib_ts_export(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ex, _, _, h), ex != "".
+
 export_source("client", spec, src, h) :- ts_export(_, _, _, _, _, _, spec, _, src, _, _, _, _, _, _, _, _, _, _, _, h).
 export_source("lib", spec, src, h) :- lib_ts_export(_, _, _, _, _, _, spec, _, src, _, _, _, _, _, _, _, _, _, _, _, h).
 

@@ -248,6 +248,28 @@ module_export_any(prov, mod, en, k, hh) :- export_decl(prov, _, _, ek, mod, h),
     module_export_any(prov, src, en, k, hh),
     en != "default".
 
+// (d2) `export default <expression>` — DEFAULT_EXPRESSION. The export names no
+// declaration, so (a) has no entity to read and the module exported nothing under
+// `default`. What it names is whatever the expression DENOTES, and for the shape that
+// matters -- a qualified name into a namespace, `export default V.isLen` -- that is a
+// namespace member reached through the barrel's own import of the namespace.
+//
+// Resolved through import_target_module rather than import_binds, for the same reason
+// rule (b2) is: import_binds reaches import_binds_interop, which negates
+// module_has_default_export, which is derived FROM module_export_any. Feeding this head
+// from it closes the cycle through a negation and Souffle refuses to stratify. The
+// recursion here is positive.
+module_export_any(prov, mod, "default", k, ent) :- export_decl(_, "default", _, "DEFAULT_EXPRESSION", mod, h),
+    export_expression("client", e, h),
+    property_access_name(e, n),
+    expr_child("client", e, "RECEIVER", _, r),
+    expr_referenced("client", "IMPORT_BINDING", ih, r),
+    import_binding(_, _, _, orig, _, ih),
+    orig != "",
+    import_target_module(ih, prov, m),
+    module_export_any(prov, m, orig, _, ns),
+    namespace_member(prov, ns, n, k, ent).
+
 // (e) `export default X` — recorded on the module, not only on the export row.
 module_export_any(prov, mod, "default", "UNKNOWN", ent) :- module_default_export(prov, ent, mod).
 
