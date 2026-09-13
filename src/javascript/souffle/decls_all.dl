@@ -221,3 +221,5 @@
 .decl import_binding_is_default_like(c0:symbol)
 .decl name_call_count(c0:symbol, c1:number)
 .decl module_level_function(c0:symbol, c1:symbol)
+.decl ambient_collection(c0:symbol)
+.decl coll_method_call(c0:symbol, c1:symbol, c2:symbol)

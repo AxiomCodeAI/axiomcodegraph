@@ -38,3 +38,9 @@ expr_value(ce, "ambient", n) :- expr_kind(_, "CALL", _, ce), callee_value(ce, "a
 expr_value(ce, "ambient", n) :- expr_kind(_, "NEW", _, ce), new_callee_value(ce, "ambient", n).
 // A literal receiver is a platform object: `"a,b".split`, `[1, 2].forEach`, `` `x`.trim ``.
 expr_value(e, "ambient", k) :- expr_kind(_, k, _, e), expr_kind_is_literal(k).
+// `@param {string} s`, `@returns {Promise}`, `@type {Object}` — a builtin type name
+// in JSDoc makes the value the platform's.
+param_value(p, "ambient", n) :- param_type_name(_, _, r, p), type_ref(_, n, "NAMED", _, _, _, _, _, _, _, r), type_ref_builtin(_, r).
+var_value(v, "ambient", n) :- var_type_name(_, _, r, v), type_ref(_, n, "NAMED", _, _, _, _, _, _, _, r), type_ref_builtin(_, r).
+return_value(m, "ambient", n) :- method_return_type(_, _, r, m), type_ref(_, n, "NAMED", _, _, _, _, _, _, _, r), type_ref_builtin(_, r).
+prop_value("inst", t, fn, "ambient", n) :- field_type_name(_, fn, t, _, r, _), type_ref(_, n, "NAMED", _, _, _, _, _, _, _, r), type_ref_builtin(_, r).

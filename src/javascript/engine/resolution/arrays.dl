@@ -107,3 +107,33 @@ var_regime_is_block("LET_BLOCK_TDZ").
 var_regime_is_block("VAR_FUNCTION_SCOPED_HOISTED").
 // `const [first, second] = a` — every binding of the pattern is an element.
 var_value(v, k, i) :- var_binding_form(_, "ARRAY_PATTERN", v), var_init(_, _, e, v), expr_value(e, "arr", a), elem_value(a, k, i).
+
+// ── Map and Set ─────────────────────────────────────────────────────────────
+// The same shape as an array: a `coll` value identified by the `new Map()` /
+// `new Set()` expression, holding whatever was `set`/`add`ed into it, read back by
+// `get`, `values`, `forEach`, `for..of` and a spread. Keys are not modelled — a
+// `get(k)` returns every value ever stored, which is the may-answer.
+expr_value(ce, "coll", ce) :- expr_kind(_, "NEW", _, ce), new_callee_value(ce, "ambient", n), ambient_collection(n).
+ambient_collection("Map").
+ambient_collection("Set").
+ambient_collection("WeakMap").
+ambient_collection("WeakSet").
+coll_method_call(ce, n, c) :- call_site(_, ck, n, "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck),
+    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "coll", c).
+// `m.set(k, v)` stores v; `s.add(v)` stores v.
+elem_value(c, k, i) :- coll_method_call(ce, "set", c), call_arg(ce, 1, v), expr_value(v, k, i).
+elem_value(c, k, i) :- coll_method_call(ce, "add", c), call_arg(ce, 0, v), expr_value(v, k, i).
+// `m.get(k)` is a stored value; `m.values()` / `s.values()` iterate them; `forEach`
+// hands them to the callback's first parameter.
+expr_value(ce, k, i) :- coll_method_call(ce, "get", c), elem_value(c, k, i).
+expr_value(ce, "arr", c) :- coll_method_call(ce, "values", c).
+param_value(p, k, i) :- coll_method_call(ce, "forEach", c), call_arg(ce, 0, f), expr_value(f, "func", m),
+    param_decl(_, _, "0", m, p), elem_value(c, k, i).
+// `for (const v of set)` and `[...set]` read it as an array would.
+var_value(v, k, i) :- var_decl(_, _, reg, _, _, mod, v), var_regime_is_block(reg), !var_init(_, _, _, v),
+    var_lines(_, mod, l, v), expr_root(_, "ITERABLE", e), expr_owner(_, _, mod, e), expr_span(_, l, _, _, _, e),
+    expr_value(e, "coll", c), elem_value(c, k, i).
+elem_value(l, k, i) :- expr_kind(_, "ARRAY_LITERAL", _, l), expr_child(_, l, _, _, s), expr_kind(_, "SPREAD", _, s),
+    expr_child(_, s, _, _, o), expr_value(o, "coll", c), elem_value(c, k, i).
+// A collection's own methods are the platform's.
+ambient_site(ce) :- invocation_site(ce, _), expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "coll", _).
