@@ -100,6 +100,10 @@ module_has_default_row(mod) :- method_decl(_, _, "FUNCTION_DECLARATION", _, _, _
 module_default_import_requested(mod, local) :- import_decl(_, _, _, "DEFAULT", _, _, _, _, imp), import_module(imp, mod),
     import_local_name(_, local, imp).
 module_default_import_requested(mod, "") :- import_decl(_, "JSDOC_IMPORT_TYPE", _, _, "default", _, _, _, imp), import_module(imp, mod).
+// `export { default as LineElement } from './element.line.js'` — the barrel asks
+// for the default and names it; the name is the hint.
+module_default_import_requested(mod, en) :- export_decl(_, en, "default", form, _, _, _, _, _, x), form != "EXPORT_ALL",
+    export_reexport(_, _, imp, x), import_module(imp, mod).
 // Re-exports: `export * from './y'`, `export { a } from './y'`,
 // `module.exports = require('./y')`. The import row carries the resolved file.
 module_export_value(mod, n, k, i) :- export_decl(_, _, _, "EXPORT_ALL", _, _, _, _, mod, x),

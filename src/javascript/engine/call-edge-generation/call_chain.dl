@@ -59,6 +59,8 @@ ambient_site(ce) :- invocation_site(ce, _), expr_child(_, ce, "CALLEE", _, c), e
 // A literal receiver — `[1, 2].forEach`, `"a,b".split`, `` `x`.trim `` — is a
 // platform object too.
 ambient_site(ce) :- invocation_site(ce, _), expr_child(_, ce, "RECEIVER", _, r), expr_kind(_, k, _, r), expr_kind_is_literal(k).
+// An array value's own methods (`push`, `forEach`, `map`) are Array.prototype's.
+ambient_site(ce) :- invocation_site(ce, _), expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "arr", _).
 expr_kind_is_literal("LITERAL").
 expr_kind_is_literal("ARRAY_LITERAL").
 expr_kind_is_literal("TEMPLATE").
