@@ -120,12 +120,24 @@ ambient_collection("WeakMap").
 ambient_collection("WeakSet").
 coll_method_call(ce, n, c) :- call_site(_, ck, n, "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck),
     expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "coll", c).
-// `m.set(k, v)` stores v; `s.add(v)` stores v.
+// `m.set(k, v)` stores v; `s.add(v)` stores v. A LITERAL key is remembered with the
+// value: `get('a')` reads what `set('a', x)` wrote, plus whatever was written under
+// a NON-literal key (the map was filled in a loop). A `get` with a computed key
+// reads every value. Literal-ness is a syntactic fact, so no negation enters the
+// flow fixpoint.
 elem_value(c, k, i) :- coll_method_call(ce, "set", c), call_arg(ce, 1, v), expr_value(v, k, i).
 elem_value(c, k, i) :- coll_method_call(ce, "add", c), call_arg(ce, 0, v), expr_value(v, k, i).
+coll_keyed_value(c, key, k, i) :- coll_method_call(ce, "set", c), call_arg(ce, 0, ke), expr_kind(_, "LITERAL", _, ke),
+    expr_text(_, key, ke), call_arg(ce, 1, v), expr_value(v, k, i).
+coll_dynamic_value(c, k, i) :- coll_method_call(ce, "set", c), call_arg(ce, 0, ke), !expr_kind(_, "LITERAL", _, ke),
+    call_arg(ce, 1, v), expr_value(v, k, i).
+get_literal_key(ce, key) :- call_site(_, ck, "get", "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck),
+    call_arg(ce, 0, ke), expr_kind(_, "LITERAL", _, ke), expr_text(_, key, ke).
 // `m.get(k)` is a stored value; `m.values()` / `s.values()` iterate them; `forEach`
 // hands them to the callback's first parameter.
-expr_value(ce, k, i) :- coll_method_call(ce, "get", c), elem_value(c, k, i).
+expr_value(ce, k, i) :- coll_method_call(ce, "get", c), get_literal_key(ce, key), coll_keyed_value(c, key, k, i).
+expr_value(ce, k, i) :- coll_method_call(ce, "get", c), get_literal_key(ce, _), coll_dynamic_value(c, k, i).
+expr_value(ce, k, i) :- coll_method_call(ce, "get", c), !get_literal_key(ce, _), elem_value(c, k, i).
 expr_value(ce, "arr", c) :- coll_method_call(ce, "values", c).
 param_value(p, k, i) :- coll_method_call(ce, "forEach", c), call_arg(ce, 0, f), expr_value(f, "func", m),
     param_decl(_, _, "0", m, p), elem_value(c, k, i).
