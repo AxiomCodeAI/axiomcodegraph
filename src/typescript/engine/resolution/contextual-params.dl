@@ -324,3 +324,51 @@ assertion_narrowed_param(p, prov, t) :- expr_call_candidate(ce, m),
     expr_child("client", ce, "ARGUMENT", pos, ae),
     expr_referenced("client", "PARAMETER", p, ae).
 param_type(p, prov, t) :- assertion_narrowed_param(p, prov, t).
+
+// ── A BARE `asserts check` WHOSE SUBJECT IS A TYPE-PREDICATE CALL ──────────
+// `assert(canCall(r), "no"); r.call("x")`. Two things the rules above do not cover: the
+// assertion carries no `is T` of its own -- `asserts check` asserts nothing by itself --
+// and its subject is a CALL rather than a reference to a parameter. What narrows `r` is
+// the PREDICATE the subject calls, `canCall(r): r is Caller`, which the compiler applies
+// to that predicate's own argument.
+//
+// This one was a WRONG answer rather than a missing one: the guarded call committed a
+// single `known_edge` to the UNNARROWED declaration. The `asserts r is Caller` spelling
+// of the same intent already worked, which is why it read as a one-off.
+
+// A BARE `asserts <name>` — the prefix, and no ` is ` anywhere, so the two spellings
+// cannot both fire for one method.
+bare_assertion_subject_pos(m, pos) :- method_return_ref(prov, r, m),
+    type_ref(prov, "TYPE_PREDICATE", _, _, ctn, _, _, r),
+    strlen(ctn) > 8,
+    substr(ctn, 0, 8) = "asserts ",
+    !contains(" is ", ctn),
+    param_decl(_, pname, pos, _, m, _),
+    pname != "",
+    ctn = cat("asserts ", pname).
+
+// A PLAIN type predicate `x is T`, matched by subject NAME exactly as the asserts form
+// is, so a predicate narrowing its second argument needs no index arithmetic.
+predicate_subject_pos(m, pos) :- method_return_ref(prov, r, m),
+    type_ref(prov, "TYPE_PREDICATE", _, _, ctn, _, _, r),
+    !contains("asserts ", ctn),
+    param_decl(_, pname, pos, _, m, _),
+    pname != "",
+    pre = cat(pname, " is "),
+    strlen(ctn) >= strlen(pre),
+    substr(ctn, 0, strlen(pre)) = pre.
+
+predicate_target(m, prov, t) :- predicate_subject_pos(m, _),
+    method_return_ref(rp, r, m),
+    type_ref_parent(rp, r, _, child),
+    type_ref(rp, _, "TYPE_PREDICATE_TARGET", _, _, _, _, child),
+    ref_type_target(child, prov, t).
+
+assertion_narrowed_param(p, prov, t) :- expr_call_candidate(ce, am),
+    bare_assertion_subject_pos(am, apos),
+    expr_child("client", ce, "ARGUMENT", apos, sub),
+    expr_call_candidate(sub, pm),
+    predicate_subject_pos(pm, ppos),
+    predicate_target(pm, prov, t),
+    expr_child("client", sub, "ARGUMENT", ppos, pae),
+    expr_referenced("client", "PARAMETER", p, pae).
