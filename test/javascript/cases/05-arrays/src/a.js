@@ -19,3 +19,16 @@ export function build() {
   generic.forEach((g) => g.tag());
   return tags;
 }
+export function collections() {
+  const byName = new Map();
+  byName.set('a', new Item());
+  byName.get('a').run();
+  byName.forEach((it) => it.tag());
+  const seen = new Set();
+  seen.add(new Item());
+  for (const it of seen) it.run();
+  [...seen].forEach((it) => it.tag());
+  /** @param {string} s */
+  const shout = (s) => s.toUpperCase();
+  return shout('x');
+}
