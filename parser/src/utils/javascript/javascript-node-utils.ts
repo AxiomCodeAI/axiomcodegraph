@@ -214,6 +214,13 @@ export function jsDocContainerOf(tag: ts.Node): ts.Node | undefined {
  * A `JSDoc` **block** passed directly returns its own tags, because a block at
  * end of file has no owning node to ask.
  */
+/** The tags of the LAST block attached to `node` — the block the compiler types from. */
+export function jsDocTagsOfLastBlock(node: ts.Node): readonly ts.JSDocTag[] {
+  const blocks = (node as { jsDoc?: ts.JSDoc[] }).jsDoc;
+  const last = blocks?.[blocks.length - 1];
+  return last === undefined ? [] : [...(last.tags ?? [])];
+}
+
 export function jsDocTagsOfAllBlocks(node: ts.Node): readonly ts.JSDocTag[] {
   if (node.kind === ts.SyntaxKind.JSDoc) {
     return [...((node as ts.JSDoc).tags ?? [])];
@@ -284,7 +291,7 @@ export function jsDocParameterTagFor(
   // (§3.14.3). It wins over a `@param` for the same parameter because that is
   // the compiler's order too: the node's own `@type` is consulted before the
   // function's tags.
-  const own = jsDocTagsOfAllBlocks(parameter)
+  const own = jsDocTagsOfLastBlock(parameter)
     .find((tag): tag is ts.JSDocTypeTag => ts.isJSDocTypeTag(tag));
   if (own?.typeExpression !== undefined) {
     return own;
@@ -293,8 +300,15 @@ export function jsDocParameterTagFor(
   if (fn === undefined || !ts.isFunctionLike(fn)) {
     return undefined;
   }
+  // THE LAST BLOCK of each host, as the compiler reads it. Two blocks above
+  // one function — an older one left in place, a newer one written below it —
+  // are common, and `getJSDocParameterTags` sees only the last: measured,
+  // `getJSDocTags(fn)` returns 1 tag for a function under two one-tag blocks.
+  // Reading every block typed a parameter from the STALE block on 13
+  // parameters of the development corpus. (Counting comments into rows is a
+  // different question and still reads every block; typing follows tsc.)
   const tags = jsDocHostsOf(fn)
-    .flatMap((host) => jsDocTagsOfAllBlocks(host))
+    .flatMap((host) => jsDocTagsOfLastBlock(host))
     .filter((tag): tag is ts.JSDocParameterTag => ts.isJSDocParameterTag(tag))
     .filter((tag) => ts.isIdentifier(tag.name));
   if (ts.isIdentifier(parameter.name)) {

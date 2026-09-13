@@ -692,6 +692,14 @@ const SCAFFOLD: ReadonlyArray<readonly [string, string]> = [
     ' * @param {number} twice',
     ' */',
     'function documentedTwice(twice) { return twice; }',
+    // Two blocks above one function: the compiler types from the LAST block.
+    '/**',
+    ' * @param {Object} stale',
+    ' */',
+    '/**',
+    ' * @param {Array} stale',
+    ' */',
+    'function twoBlocks(stale) { return stale; }',
     // An import type on a PARAMETER node of a nested method: its js_import
     // row's owner scope is the scope `enter` opens, the same scope its owner
     // method names — the parameter node itself sits in the function's scope.
@@ -707,7 +715,7 @@ const SCAFFOLD: ReadonlyArray<readonly [string, string]> = [
     '  const local = null;',
     '  return local;',
     '}',
-    'module.exports = { forms, positional, postfixOptional, takesCallback, documentedTwice, walker, inBody, first, second };',
+    'module.exports = { forms, positional, postfixOptional, takesCallback, documentedTwice, twoBlocks, walker, inBody, first, second };',
     '',
   ].join('\n')],
 
@@ -4133,6 +4141,7 @@ function declaredTypesAgreeWithTheirReferences(): number {
     ['callback', 'function(Error=, string=): void', false, false,
       'the `=` inside `function(Error=, string=)` is the callback\'s parameter\'s, not its own'],
     ['twice', 'number', false, false, 'documented twice, prose first: the first tag WITH a type wins, as in the compiler'],
+    ['stale', 'Array', false, false, 'two blocks above one function: the compiler reads the LAST block'],
     ['a', 'string', false, false, 'named tag, first'],
     ['b', '', false, false, 'UNDOCUMENTED — the tag at its index names `c` and is not its to take'],
     ['c', 'number', false, false, 'named tag, third parameter, second tag'],
@@ -4180,17 +4189,17 @@ function declaredTypesAgreeWithTheirReferences(): number {
   const mBody = methodsRel.header.indexOf('bodyScopeLinkHash');
   const enter = methodsRel.rows.find((r) => r[mOwner] === forms && r[mName] === 'enter');
   const onParameter = importsRel.rows.find((r) => r[iOwner] === forms && r[iBearer] === 'COMMENT'
-    && Number(r[iLine]) === 27);
+    && Number(r[iLine]) === 34);
   if (enter === undefined || onParameter === undefined
     || onParameter[iMethod] !== enter[pkIndexOf(methodsRel.header, 'js_method')]
     || onParameter[iScope] !== enter[mBody]) {
-    failures += fail(`the import type on enter's parameter (line 27): owner method `
+    failures += fail(`the import type on enter's parameter (line 34): owner method `
       + `${onParameter === undefined ? '(no row)' : onParameter[iMethod] === enter?.[pkIndexOf(methodsRel.header, 'js_method')] ? 'enter' : 'ANOTHER method'}, `
       + `owner scope ${onParameter?.[iScope] === enter?.[mBody] ? "enter's own" : 'NOT the scope enter opens'} — `
       + 'a parameter node sits in its function\'s scope; the walk fell through to the function node and took the outer one');
   }
   const commentImport = importsRel.rows.find((r) => r[iOwner] === forms && r[iBearer] === 'COMMENT'
-    && Number(r[iLine]) !== 27);
+    && Number(r[iLine]) !== 34);
   if (commentImport === undefined || commentImport[iMethod] !== inBody) {
     failures += fail(`the import type inside inBody() has ownerMethodLinkHash `
       + `${commentImport === undefined ? '(no row)' : commentImport[iMethod] === inBody ? 'inBody' : 'another method'}; `

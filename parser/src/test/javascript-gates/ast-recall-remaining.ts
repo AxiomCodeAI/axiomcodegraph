@@ -155,6 +155,12 @@ function callableDocumentedBy(host: ts.Node): ts.SignatureDeclaration | undefine
  */
 function namedAbsence(host: ts.Node, tag: ts.JSDocTag): string | undefined {
   if (ts.isJSDocParameterTag(tag)) {
+    // The compiler types from the LAST block on a host; a @param in an older
+    // block above it is documentation the compiler does not read.
+    const blocks = (host as unknown as { jsDoc?: ts.JSDoc[] }).jsDoc ?? [];
+    if (blocks.length > 1 && !((blocks[blocks.length - 1]!.tags ?? []) as readonly ts.JSDocTag[]).includes(tag)) {
+      return "a @param in an older block: the compiler reads a host's last block";
+    }
     const fn = callableDocumentedBy(host);
     if (fn === undefined) {
       if (ts.isClassLike(host)) {
@@ -162,7 +168,22 @@ function namedAbsence(host: ts.Node, tag: ts.JSDocTag): string | undefined {
       }
       return '@param on a host with no parameters: nothing in the program is the parameter';
     }
-    if (!ts.isIdentifier(tag.name)) { return undefined; } // dotted: a child of its parent tag
+    if (!ts.isIdentifier(tag.name)) {
+      // DOTTED — `ctx.model`. The compiler nests it under its parent tag ONLY
+      // when the parent's type is a plain `Object`/`object`; then it is a child
+      // row of the parent's tree and is owed. Otherwise (`?Object`, `Foo`, or no
+      // parent tag, or a parent that names no parameter) it is a member's type
+      // with no path column to say which member: a named absence.
+      let root: ts.Node = tag.name;
+      while (ts.isQualifiedName(root)) { root = root.left; }
+      const rootName = ts.isIdentifier(root) ? root.text : '';
+      if (!fn.parameters.some((q) => ts.isIdentifier(q.name) && q.name.text === rootName)) {
+        return 'dotted @param whose root names no parameter of the callable';
+      }
+      const parentTag = (tag.parent as ts.Node | undefined);
+      if (parentTag !== undefined && ts.isJSDocTypeLiteral(parentTag)) { return undefined; }
+      return 'dotted @param whose parent type is not a plain Object: a member\'s type with no path column';
+    }
     const name = tag.name.text;
     if (fn.parameters.some((q) => ts.isIdentifier(q.name) && q.name.text === name)) { return undefined; }
     if (fn.parameters.some((q) => !ts.isIdentifier(q.name))) {
@@ -170,8 +191,17 @@ function namedAbsence(host: ts.Node, tag: ts.JSDocTag): string | undefined {
     }
     return '@param naming a parameter the callable does not have: the comment contradicts the code';
   }
-  if (ts.isJSDocReturnTag(tag) && callableDocumentedBy(host) === undefined && !ts.isClassLike(host)) {
-    return '@returns on a host with no callable: nothing in the program returns';
+  if (ts.isJSDocReturnTag(tag)) {
+    if (callableDocumentedBy(host) === undefined && !ts.isClassLike(host)) {
+      return '@returns on a host with no callable: nothing in the program returns';
+    }
+    // Several @returns on one callable — a second tag, or an older block left
+    // above a newer one: the compiler's getJSDocReturnTag picks ONE, and the
+    // parser emits that one. The others are contradictory documentation.
+    const fn = callableDocumentedBy(host);
+    if (fn !== undefined && ts.getJSDocReturnTag(fn) !== tag) {
+      return 'a @returns the compiler does not pick (another block or tag on the same callable wins)';
+    }
   }
   if (ts.isJSDocTypeTag(tag)) {
     if (ts.isFunctionDeclaration(host) || ts.isMethodDeclaration(host) || ts.isClassLike(host)) {
@@ -184,6 +214,9 @@ function namedAbsence(host: ts.Node, tag: ts.JSDocTag): string | undefined {
       && !ts.isParenthesizedExpression(host.parent)) {
       return '@type before an unparenthesised function expression: asserts nothing to the compiler (§3.14.1)';
     }
+  }
+  if (ts.isJSDocThisTag(tag) && callableDocumentedBy(host) === undefined) {
+    return '@this on a host with no callable: nothing in the program binds this';
   }
   if (ts.isJSDocTypedefTag(tag) && tag.name === undefined) {
     return 'a nameless @typedef: malformed, declares no type';
@@ -323,7 +356,9 @@ function walkFile(abs: string, rel: string): void {
           // The row sits on the TYPE NAME inside the braces. `{String}` at
           // column 11 produces a row at column 12. Asking for the tag scored
           // 0/165 and asking for the brace scored 1/165; both were my measure.
-          const inner = (te as unknown as { type?: ts.Node }).type;
+          // A @callback's type expression is a JSDocSignature, whose `.type`
+          // is the @returns TAG, not a type node; the row sits at the signature.
+          const inner = ts.isJSDocSignature(te) ? undefined : (te as unknown as { type?: ts.Node }).type;
           // NAMED ABSENCES (#170, ruled 2026-09-13): tags whose type the fact
           // base deliberately does not carry, because nothing in the program
           // is what the tag says it is about. Counted under their reason so
