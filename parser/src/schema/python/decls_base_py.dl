@@ -1,7 +1,7 @@
 // ============================================================================
 // Base input relations — PYTHON parser IR. One relation pair per entity kind.
 //
-// GENERATED FROM python-work/PYTHON-FACT-SCHEMA.md BY gen_decls.py — DO NOT HAND-EDIT.
+// GENERATED FROM schema.json BY gen_decls.py — DO NOT HAND-EDIT.
 // Re-run `python3 gen_decls.py --check` in CI; a drift here is a silent schema break.
 //
 // NAMING: one prefix per core language. java_* is Java, py_* is Python, the next

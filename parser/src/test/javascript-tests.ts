@@ -3232,7 +3232,7 @@ const SCHEMA_DIR = 'src/schema/javascript';
  * rows. `gen_decls.py --check` guards the schema side of that; this is the emit
  * side, and without it the two can drift apart without either noticing.
  *
- * Three sources must agree: the column tables in `JAVASCRIPT-FACT-SCHEMA.md`,
+ * Three sources must agree: the column lists in `schema.json`,
  * the arities in the generated `.dl`, and what `getCsvHeader()` actually emits.
  * Run by hand it reported 16 relations, 362 columns, 0 mismatches.
  *
@@ -3247,18 +3247,18 @@ const SCHEMA_DIR = 'src/schema/javascript';
  * independent third opinion rather than being dropped as redundant.
  */
 function columnOrderMatchesTheFrozenSchema(): number {
-  const doc = path.join(SCHEMA_DIR, 'JAVASCRIPT-FACT-SCHEMA.md');
+  const doc = path.join(SCHEMA_DIR, 'schema.json');
   const dl = path.join(SCHEMA_DIR, 'decls_base_js.dl');
   if (!fs.existsSync(doc) || !fs.existsSync(dl)) {
-    return fail(`${SCHEMA_DIR} is missing its doc or .dl. The schema is TRACKED, and a column-`
+    return fail(`${SCHEMA_DIR} is missing schema.json or the .dl. The schema is TRACKED, and a column-`
       + 'order check that passes without a schema to compare against is vacuous');
   }
   let failures = 0;
-  const declared = columnsFromSchemaDoc(fs.readFileSync(doc, 'utf-8'));
+  const declared = columnsFromSchemaJson(fs.readFileSync(doc, 'utf-8'));
   const arities = aritiesFromDl(fs.readFileSync(dl, 'utf-8'));
   const emitted = emittedHeaders();
   if (declared.size === 0) {
-    return fail('no column table was parsed out of the schema doc — the check cannot fail, '
+    return fail('no relation was read out of schema.json — the check cannot fail, '
       + 'which is worse than it failing');
   }
   let columns = 0;
@@ -3271,7 +3271,7 @@ function columnOrderMatchesTheFrozenSchema(): number {
     }
     if (arities.get(relation) !== want.length) {
       failures += fail(`${relation}: the .dl declares ${arities.get(relation)} columns and the `
-        + `doc declares ${want.length} — the schema disagrees with its own generated output`);
+        + `schema.json declares ${want.length} — the schema disagrees with its own generated output`);
     }
     for (let i = 0; i < Math.max(want.length, got.length); i += 1) {
       if (want[i] !== got[i]) {
@@ -3280,46 +3280,17 @@ function columnOrderMatchesTheFrozenSchema(): number {
       }
     }
   }
-  console.log(`  ${declared.size} relations, ${columns} columns, doc and .dl and emitter agree`);
+  console.log(`  ${declared.size} relations, ${columns} columns, schema.json and .dl and emitter agree`);
   return failures;
 }
 
-/** Only the table headed `| # | Column | T | Meaning |`; never a vocabulary table. */
-function columnsFromSchemaDoc(text: string): Map<string, string[]> {
+/** The frozen column list per relation: `relations.<name>.columns`, in order. */
+function columnsFromSchemaJson(text: string): Map<string, string[]> {
+  const parsed = JSON.parse(text) as { relations?: Record<string, { columns?: string[] }> };
   const out = new Map<string, string[]>();
-  for (const section of text.split('\n### ')) {
-    const heading = /^3\.\d+ `(js_[a-z_]+)`/.exec(section);
-    if (heading === null) {
-      continue;
-    }
-    const columns: { index: number; name: string }[] = [];
-    let inside = false;
-    for (const line of section.split('\n')) {
-      if (/^\|\s*#\s*\|\s*Column\s*\|/.test(line)) {
-        inside = true;
-        continue;
-      }
-      if (!inside) {
-        continue;
-      }
-      if (!line.startsWith('|')) {
-        if (columns.length > 0) {
-          break;
-        }
-        continue;
-      }
-      if (/^\|\s*-+/.test(line)) {
-        continue;
-      }
-      const cell = /^\|\s*(\d+)\s*\|\s*`([A-Za-z0-9_]+)`/.exec(line);
-      if (cell === null) {
-        break;
-      }
-      columns.push({ index: Number(cell[1]), name: cell[2]! });
-    }
-    if (columns.length > 0) {
-      columns.sort((a, b) => a.index - b.index);
-      out.set(heading[1]!, columns.map((c) => c.name));
+  for (const [relation, spec] of Object.entries(parsed.relations ?? {})) {
+    if (Array.isArray(spec.columns) && spec.columns.length > 0) {
+      out.set(relation, spec.columns);
     }
   }
   return out;

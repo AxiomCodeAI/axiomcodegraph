@@ -7,7 +7,8 @@ drift from the document. Run with --check to diff instead of write (for CI).
 """
 import os, re, sys, hashlib
 
-DOC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "PYTHON-FACT-SCHEMA.md")
+DOC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "schema.json")
+import json
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "decls_base_py.dl")
 
 DOCS = {
@@ -41,43 +42,23 @@ SPINE = ["py_module","py_scope","py_binding","py_type","py_type_base","py_method
 COLUMNS_BY_REL = {}
 
 
-def _column_names(seg):
-    """Column names from either table rows or the inline `0 a · 1 b` form."""
-    names = re.findall(r"^\| \d+ \| `(\w+)`", seg, re.M)
-    if names:
-        return set(names)
-    inline = " ".join(re.findall(r"`([^`]*\u00b7[^`]*)`", seg, re.S))
-    return set(re.findall(r"(?:^|\u00b7)\s*\d+\s+(\w+)", inline))
-
-
 def parse_doc():
-    md = open(DOC).read()
+    """(relations, errors) from schema.json — the frozen column list per relation."""
+    schema = json.load(open(DOC))
     rels, errors = [], []
-    for m in re.finditer(r'^### 2\.\d+ `(py_\w+)` / `lib_\1` — (\d+) columns', md, re.M):
-        name, declared = m.group(1), int(m.group(2))
-        # count numbered table rows until the next '### ' or '**PK**'
-        seg = md[m.end(): m.end()+14000]
-        seg = re.split(r'\n### |\n\*\*PK\*\*', seg)[0]
-        idxs = sorted(int(x) for x in re.findall(r'^\| (\d+) \|', seg, re.M))
-        if not idxs:
-            # fallback: inline prose form  `0 colA \u00b7 1 colB \u00b7 2 colC`
-            inline = " ".join(re.findall(r'`([^`]*\u00b7[^`]*)`', seg, re.S))
-            idxs = sorted(int(x) for x in re.findall(r'(?:^|\u00b7)\s*(\d+)\s+\w', inline))
-        if not idxs:
-            errors.append("%s: NO column list parsed - cannot verify arity" % name)
-        if idxs and idxs != list(range(len(idxs))):
-            errors.append("%s: table indices not 0..N contiguous: %s" % (name, idxs))
-        if idxs and len(idxs) != declared:
-            errors.append("%s: header says %d columns, table has %d rows" % (name, declared, len(idxs)))
-        rels.append((name, declared))
-        COLUMNS_BY_REL[name] = _column_names(seg)
+    for name, spec in schema["relations"].items():
+        cols = spec.get("columns", [])
+        if not cols:
+            errors.append("%s: NO column list - cannot verify arity" % name)
+        rels.append((name, len(cols)))
+        COLUMNS_BY_REL[name] = set(cols)
     return rels, errors
 
 def render(rels):
     hdr = '''// ============================================================================
 // Base input relations — PYTHON parser IR. One relation pair per entity kind.
 //
-// GENERATED FROM python-work/PYTHON-FACT-SCHEMA.md BY gen_decls.py — DO NOT HAND-EDIT.
+// GENERATED FROM schema.json BY gen_decls.py — DO NOT HAND-EDIT.
 // Re-run `python3 gen_decls.py --check` in CI; a drift here is a silent schema break.
 //
 // NAMING: one prefix per core language. java_* is Java, py_* is Python, the next
@@ -197,57 +178,12 @@ UNSPECIFIED_OK = {
 }
 
 def parse_doc_enums():
-    """Enum value sets the doc declares, keyed by (relation, column).
-
-    Sectioned rather than line-by-line. A line-by-line pass read only the FIRST line
-    of `**\u0060edgeRole\u0060 enum:**`, which wraps over nine lines, and then reported all
-    39 of the values on the continuation lines as missing from the doc - a false
-    alarm larger than the real drift it was hunting.
-    """
-    md = open(DOC).read()
-    heads = [(m.start(), m.group(1)) for m in re.finditer(r"^### 2\.\d+ `(py_\w+)`", md, re.M)]
+    """Enum value sets the schema declares, keyed by (relation, column), from schema.json."""
+    schema = json.load(open(DOC))
     found = {}
-    for i, (pos, rel) in enumerate(heads):
-        seg = md[pos: heads[i + 1][0] if i + 1 < len(heads) else len(md)]
-        # form 1: **`edgeRole` enum:** ... up to the terminating '.' at end of line
-        for m in re.finditer(r"\*\*`(\w+)` enum:\*\*(.+?)\.\n", seg, re.S):
-            found.setdefault((rel, m.group(1)), set()).update(
-                re.findall(r"`([A-Z][A-Z0-9_*]*)`", m.group(2)))
-        # form 2: | 7 | `typeCategory` | `A` \| `B` \| `C` |
-        #
-        # Take the cell up to the em-dash and no further. Two wrong cuts before this:
-        # reading the WHOLE cell turned grammarUsed's trailing prose ("`PARTIAL`
-        # means ...") into a phantom missing value, and restricting to a leading
-        # unbroken alternation truncated five enums at their first parenthetical,
-        # because the doc legitimately writes `CONSTRUCTOR` (`__init__`) mid-list.
-        for m in re.finditer(r"^\| \d+ \| `(\w+)`[^|]*\|(.+?)\|\s*$", seg, re.M):
-            col = m.group(1)
-            if (rel, col) in found:      # an explicit enum block always wins
-                continue
-            cell = re.split(r"\s\u2014\s", m.group(2))[0]
-            # A comma-set column is a SET of flags, not an alternation:
-            #   | 5 | `typeModifier` | comma-set: `ABSTRACT,FINAL,SLOTS` |
-            cs = re.search(r"comma-set:\s*`([A-Z][A-Z0-9_,]*)`", cell)
-            if cs:
-                found[(rel, col)] = set(cs.group(1).split(","))
-                continue
-            vals = re.findall(r"`([A-Z][A-Z0-9_*]*)`", cell)
-            # Require a real alternation. Without this, `hasElseClause` reads as a
-            # 3-value enum because its description happens to backtick TRY/FOR/WHILE,
-            # and a boolean column gets guarded as though it were an enum.
-            if len(vals) >= 2 and re.search(r"`\s*\\?\|\s*`", cell):
-                found.setdefault((rel, col), set()).update(vals)
-        # form 3: prose outside any table -  `valueType`: `A` \| `B` \| `C`
-        #
-        # These WRAP. Matching to end-of-line caught the first two values of
-        # py_decorator_argument.valueType and reported the other twelve as missing,
-        # which is a false alarm that looks exactly like real drift. Run to the blank
-        # line that ends the paragraph instead.
-        for m in re.finditer(r"^-?\s*`(\w+)`:\s*(.+?)(?=\n\n|\n-\s*`|\Z)", seg, re.S | re.M):
-            col = m.group(1)
-            vals = re.findall(r"`([A-Z][A-Z0-9_]*)`", m.group(2))
-            if len(vals) >= 2 and (rel, col) not in found:
-                found[(rel, col)] = set(vals)
+    for rel, spec in schema["relations"].items():
+        for col, vals in spec.get("domains", {}).items():
+            found[(rel, col)] = set(vals)
     return found
 
 def parse_code_enums():
@@ -307,10 +243,10 @@ def check_enums():
         docvals = _expand(docvals, codevals)
         only_code, only_doc = sorted(codevals - docvals), sorted(docvals - codevals)
         if only_code:
-            problems.append("%s.%s (%s): IN CODE, NOT IN DOC: %s"
+            problems.append("%s.%s (%s): IN CODE, NOT IN SCHEMA: %s"
                             % (rel, col, cls, ", ".join(only_code)))
         if only_doc:
-            problems.append("%s.%s (%s): IN DOC, NOT IN CODE: %s"
+            problems.append("%s.%s (%s): IN SCHEMA, NOT IN CODE: %s"
                             % (rel, col, cls, ", ".join(only_doc)))
     # An enum nobody compares is an enum nobody guards, so this FAILS rather than
     # printing a note. A mutation test is what proved the note was not enough.
@@ -327,7 +263,7 @@ if errors:
 if enum_problems:
     print("ENUM DRIFT between %s and src/enums/python (%d enums compared):" % (DOC, enum_checked))
     for e in enum_problems: print("  -", e)
-    print("\nThe doc is authoritative. Either sync the doc, or revert the code.")
+    print("\nschema.json is authoritative. Either sync it, or revert the code.")
     sys.exit(1)
 txt = render(rels)
 if "--check" in sys.argv:
@@ -335,7 +271,7 @@ if "--check" in sys.argv:
     if cur != txt:
         print("DRIFT: %s is out of date with %s. Re-run gen_decls.py." % (OUT, DOC)); sys.exit(1)
     print("OK: %s matches %s (%d relations)" % (OUT, DOC, len(rels)))
-    print("OK: %d/%d enums agree with the doc (%d waived, listed in UNSPECIFIED_OK)"
+    print("OK: %d/%d enums agree with the schema (%d waived, listed in UNSPECIFIED_OK)"
           % (enum_checked, enum_total, enum_total - enum_checked))
     if enum_unmapped:
         # Reported, never silent: an enum nobody compares is an enum nobody guards.

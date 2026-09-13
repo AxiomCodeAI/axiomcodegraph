@@ -1,7 +1,7 @@
 // ============================================================================
 // Base input relations — JAVASCRIPT parser IR. One relation pair per entity kind.
 //
-// GENERATED FROM JAVASCRIPT-FACT-SCHEMA.md BY gen_decls.py — DO NOT HAND-EDIT.
+// GENERATED FROM schema.json BY gen_decls.py — DO NOT HAND-EDIT.
 // Re-run `python3 gen_decls.py --check` in CI; drift here is a silent schema break.
 //
 // NAMING: one prefix per core language; `lib_` is the EXTERNAL marker on top of it.

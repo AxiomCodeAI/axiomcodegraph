@@ -14,7 +14,7 @@
  * exists for. A digest is a privacy primitive — a fingerprint without a name — and it
  * belongs with the tool that separates names from shape.
  *
- * Generic on purpose. This is the mechanism §0.3b of JAVASCRIPT-FACT-SCHEMA.md
+ * Generic on purpose. This is the mechanism the JavaScript corpus design (schema §0.3b, now in commit history)
  * describes, extracted from the js-oracle corpus manifest so that any manifest
  * naming corpora can use it — `src/test-data/javascript/CORPUS-MANIFEST.json`
  * is the one it was extracted for.

@@ -114,7 +114,7 @@ line count, so a position reported against the rewritten text is a real line in 
 And every rewrite that deletes information emits a row in the parse gap relation, against the
 original offsets. That second rule is what keeps "this block declares no dependency" from reading
 identically to "this block was rewritten and never parsed" — both produce zero rows, and only one of
-them is true. See [CONTRIBUTING-gradle.md](CONTRIBUTING-gradle.md).
+them is true.
 
 ### Python and Java are modelled differently on purpose
 
@@ -156,7 +156,7 @@ src/
   constants/               CSV file names, entity identifier prefixes.
   interfaces/              BaseExtractor and shared contracts.
   language-detectors/      Project and build system detection.
-  schema/<lang>/           Frozen relation schema and generated Datalog declarations (Python, JavaScript).
+  schema/<lang>/           schema.json, the frozen relation schema, and its generated Datalog declarations.
   test/                    Extractor suites, differential gates, corpora.
   test-data/               Committed fixtures, per language.
   types/                   Cross language types only. Language specific types live beside their parser.
@@ -376,7 +376,7 @@ that had merged 88 distinct references into single rows.
 `diff-gradle-model.ts` is the external oracle. It needs a JVM and a resolvable build, and when it
 cannot run it exits non-zero saying NOT VERIFIED rather than reporting a pass.
 
-The frozen Python relation schema is in
-[src/schema/python/PYTHON-FACT-SCHEMA.md](src/schema/python/PYTHON-FACT-SCHEMA.md), and the
-JavaScript one in
-[src/schema/javascript/JAVASCRIPT-FACT-SCHEMA.md](src/schema/javascript/JAVASCRIPT-FACT-SCHEMA.md).
+Each frozen relation schema is `src/schema/<lang>/schema.json` — the column list per relation,
+in order, and the declared enum domains — and `gen_decls.py` beside it generates the Datalog
+declarations from it. Column order is the contract: new columns append only, and `gen_decls.py
+--check` fails on any drift between the JSON, the generated `.dl` and what the parser emits.

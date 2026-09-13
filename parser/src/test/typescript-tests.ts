@@ -3246,23 +3246,15 @@ function emittedValuesAreInTheirDeclaredDomain(): number {
     return pendingCheck('emitted values are in their declared domain',
       'no extractor yet. A value outside its declared domain matches no rule');
   }
-  const doc = fs.readFileSync(path.join(SCHEMA_DIR, 'TYPESCRIPT-FACT-SCHEMA.md'), 'utf-8');
-  // Relation sections are `### 4.N \`ts_x\` / \`lib_ts_x\` — N columns`.
-  const sections = doc.split(/\n### 4\.\d+\s+`([a-z_]+)`/);
+  // The declared domains live in schema.json (`relations.<name>.domains`), the
+  // frozen schema that replaced the markdown document.
+  const schema = JSON.parse(fs.readFileSync(path.join(SCHEMA_DIR, 'schema.json'), 'utf-8')) as {
+    relations: Record<string, { domains?: Record<string, string[]> }>;
+  };
   const domains = new Map<string, Map<string, Set<string>>>();
-  for (let i = 1; i < sections.length; i += 2) {
-    const relation = sections[i]!;
-    const body = sections[i + 1] ?? '';
+  for (const [relation, spec] of Object.entries(schema.relations)) {
     const columns = new Map<string, Set<string>>();
-    for (const m of body.matchAll(/^\|\s*\d+\s*\|\s*`([A-Za-z0-9_]+)`[^|]*\|[^|]*\|(.*)$/gm)) {
-      const name = m[1]!;
-      const meaning = m[2]!;
-      // A domain is a PIPE LIST of backticked SHOUTY or dotted tokens.
-      if (!meaning.includes('\\|')) {
-        continue;
-      }
-      const values = [...meaning.matchAll(/`([A-Z][A-Z0-9_]*\*?|\.[A-Za-z.]+|"")`/g)]
-        .map((v) => v[1]!);
+    for (const [name, values] of Object.entries(spec.domains ?? {})) {
       if (values.length >= 2) {
         columns.set(name, new Set(values));
       }

@@ -3,7 +3,7 @@
 
 Arities come out of the '### 3.N `js_x` / `lib_js_x` — N columns' headers and are
 cross-checked against the numbered rows of each table, so the .dl cannot drift from
-the document. Run with --check to diff instead of write (for CI).
+schema.json. Run with --check to diff instead of write (for CI).
 
 Why generated: a hand-maintained .dl drifts silently. Column ORDER is the contract
 with the Souffle engine, and the .dl carries only c0..cN — so a column rename is free
@@ -14,7 +14,7 @@ import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DOC = os.path.join(HERE, "JAVASCRIPT-FACT-SCHEMA.md")
+DOC = os.path.join(HERE, "schema.json")
 OUT = os.path.join(HERE, "decls_base_js.dl")
 
 #: One-line-plus purpose per relation. Kept HERE rather than in the doc because the
@@ -161,35 +161,35 @@ ENGINE_ONLY = []
 
 
 def parse_doc():
-    """(relations, errors). A relation is (name, arity); errors are drift, not warnings."""
-    md = open(DOC).read()
+    """(relations, errors). A relation is (name, arity), read from schema.json — the
+    frozen column list, one array per relation; arity is its length. The markdown
+    schema documents were retired; this file is the schema."""
+    import json
+    schema = json.load(open(DOC))
     rels, errors, seen = [], [], set()
-    for m in re.finditer(r'^### 3\.\d+ `(js_\w+)` / `lib_\1` — (\d+) columns', md, re.M):
-        name, declared = m.group(1), int(m.group(2))
+    for name, spec in schema["relations"].items():
+        if not name.startswith("js_"):
+            errors.append("%s: not a js_ relation" % name)
         if name in seen:
-            errors.append("%s: declared twice in the doc" % name)
+            errors.append("%s: declared twice" % name)
         seen.add(name)
-        seg = re.split(r'\n### |\n\*\*PK\*\*', md[m.end():])[0]
-        idxs = [int(x) for x in re.findall(r'^\| (\d+) \|', seg, re.M)]
-        if not idxs:
-            errors.append("%s: no column table found — arity unverifiable" % name)
-        elif idxs != list(range(len(idxs))):
-            errors.append("%s: table indices are not 0..N contiguous: %s" % (name, idxs))
-        elif len(idxs) != declared:
-            errors.append("%s: header says %d columns, table has %d rows"
-                          % (name, declared, len(idxs)))
-        rels.append((name, declared))
+        cols = spec.get("columns", [])
+        if not cols:
+            errors.append("%s: no columns — arity unverifiable" % name)
+        if len(set(cols)) != len(cols):
+            errors.append("%s: a column name repeats" % name)
+        rels.append((name, len(cols)))
     if not rels:
-        errors.append("parsed 0 relations from %s — the header regex no longer matches" % DOC)
+        errors.append("parsed 0 relations from %s" % DOC)
     for name, _ in rels:
         if name not in DOCS:
             errors.append("%s: no purpose comment in gen_decls.py DOCS" % name)
     for name in DOCS:
         if name not in seen:
-            errors.append("%s: has a DOCS comment but no section in the doc" % name)
+            errors.append("%s: has a DOCS comment but no entry in schema.json" % name)
     for name in SPINE:
         if name not in seen:
-            errors.append("%s: listed in SPINE but absent from the doc" % name)
+            errors.append("%s: listed in SPINE but absent from schema.json" % name)
     return rels, errors
 
 
@@ -203,7 +203,7 @@ def render(rels):
     out = ['''// ============================================================================
 // Base input relations — JAVASCRIPT parser IR. One relation pair per entity kind.
 //
-// GENERATED FROM JAVASCRIPT-FACT-SCHEMA.md BY gen_decls.py — DO NOT HAND-EDIT.
+// GENERATED FROM schema.json BY gen_decls.py — DO NOT HAND-EDIT.
 // Re-run `python3 gen_decls.py --check` in CI; drift here is a silent schema break.
 //
 // NAMING: one prefix per core language; `lib_` is the EXTERNAL marker on top of it.
@@ -297,11 +297,11 @@ def main():
             for line in list(difflib.unified_diff(
                     have.split("\n"), text.split("\n"),
                     fromfile="decls_base_js.dl (on disk)",
-                    tofile="decls_base_js.dl (from doc)", lineterm=""))[:40]:
+                    tofile="decls_base_js.dl (from schema.json)", lineterm=""))[:40]:
                 print("  " + line)
             print("  Fix: python3 src/schema/javascript/gen_decls.py")
             return 1
-        print("OK  %d relation pairs, %d columns (spine %d) — .dl matches the doc"
+        print("OK  %d relation pairs, %d columns (spine %d) — .dl matches schema.json"
               % (len(rels), total, spine))
         return 0
     open(OUT, "w").write(text)
