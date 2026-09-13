@@ -28,8 +28,20 @@
 // ── callee_value(CallExpr, K, I) — the value being invoked ─────────────────
 callee_value(ce, k, i) :- call_site(_, ck, _, _, _, _, ce, _, _), call_kind_is_callee_form(ck),
     expr_child(_, ce, "CALLEE", _, c), expr_value(c, k, i).
+// `f.call(o)`: f runs. But the parser classifies by NAME, so `selector.apply(node)`
+// on an object with its own `apply` method is here too — and for that reading the
+// CALLEE child (the object) is the receiver and its member is the target. Both
+// readings are derived; they cannot both produce a target, because a value with a
+// member named `apply` is not itself callable and a function has no such member.
+// (Negating one against the other would put a negation inside the flow fixpoint.)
 callee_value(ce, k, i) :- call_site(_, ck, _, _, _, _, ce, _, _), call_kind_is_reflective(ck),
     expr_child(_, ce, "CALLEE", _, c), expr_value(c, k, i).
+callee_value(ce, k2, i2) :- call_site(_, ck, _, _, _, _, ce, _, _), call_kind_is_reflective(ck),
+    reflective_kind_member(ck, n),
+    expr_child(_, ce, "CALLEE", _, c), expr_value(c, k, i), prop_value(k, i, n, k2, i2).
+reflective_kind_member("FUNCTION_CALL_CALL", "call").
+reflective_kind_member("FUNCTION_CALL_APPLY", "apply").
+reflective_kind_member("FUNCTION_CALL_BIND", "bind").
 callee_value(ce, k2, i2) :- call_site(_, ck, n, "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck), n != "",
     expr_child(_, ce, "RECEIVER", _, r), !expr_kind(_, "SUPER", _, r),
     expr_value(r, k, i), prop_value(k, i, n, k2, i2).

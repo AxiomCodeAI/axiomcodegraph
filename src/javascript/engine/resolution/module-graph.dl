@@ -75,6 +75,22 @@ module_export_value(mod, n, k, i) :- export_decl(_, "default", _, "MODULE_EXPORT
 // stays a known gap until the parser fix.
 module_export_value(mod, "default", "func", m) :- method_decl(_, _, "FUNCTION_DECLARATION", _, _, _, mod, m),
     method_modifiers(_, mods, m), contains("default", mods).
+// `export default class C {}` — filed under `C`, and the class row carries no
+// modifier at all (parser#176). Recovered only where it is certain: a module with
+// NO default export row that is imported by a DEFAULT binding somewhere, and
+// exactly one exported function or class declaration — a valid program's default
+// import of that module can only be reaching that declaration. Counted in
+// module_default_recovered so the workaround's footprint is visible.
+module_export_value(mod, "default", k, i) :- module_default_recovered(mod, x), export_target_value(x, k, i).
+module_default_recovered(mod, x) :- module_default_import_requested(mod),
+    !module_has_default_row(mod),
+    export_decl(_, _, _, "EXPORT_DECLARATION", vk, _, _, _, mod, x), export_value_kind_is_declaration(vk),
+    1 = count : { export_decl(_, _, _, "EXPORT_DECLARATION", vk2, _, _, _, mod, _), export_value_kind_is_declaration(vk2) }.
+export_value_kind_is_declaration("CLASS").
+export_value_kind_is_declaration("FUNCTION").
+module_has_default_row(mod) :- export_decl(_, "default", _, _, _, _, _, _, mod, _).
+module_has_default_row(mod) :- method_decl(_, _, "FUNCTION_DECLARATION", _, _, _, mod, m), method_modifiers(_, mods, m), contains("default", mods).
+module_default_import_requested(mod) :- import_decl(_, _, _, "DEFAULT", _, _, _, _, imp), import_module(imp, mod).
 // Re-exports: `export * from './y'`, `export { a } from './y'`,
 // `module.exports = require('./y')`. The import row carries the resolved file.
 module_export_value(mod, n, k, i) :- export_decl(_, _, _, "EXPORT_ALL", _, _, _, _, mod, x),

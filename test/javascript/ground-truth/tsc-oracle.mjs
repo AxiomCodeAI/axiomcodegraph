@@ -181,15 +181,32 @@ function isBodiless(decl) {
 const rows = [];
 const tally = {};
 const bump = (k) => { tally[k] = (tally[k] ?? 0) + 1; };
+let jsxSites = 0;
 
+// ONLY THE ROOT FILES ARE THE UNIVERSE. The program also loads whatever the roots
+// import — a `.ts` sibling in a mixed repository, a `.d.ts` — and the parser's IR
+// holds none of those, so a site in them is not a conservation loss, it is a file
+// the JavaScript front end was never asked about.
+const ROOT_SET = new Set(files.map((f) => { try { return fs.realpathSync(f); } catch { return f; } }));
 for (const sf of program.getSourceFiles()) {
   if (sf.isDeclarationFile) continue;
+  let realName = sf.fileName;
+  try { realName = fs.realpathSync(sf.fileName); } catch { /* keep */ }
+  if (!ROOT_SET.has(realName)) continue;
   const rel = relPath(sf.fileName);
   if (rel.startsWith('..')) continue;
   const visit = (node) => {
+    // A JSX element is a call to the compiler and NOT a site to the parser: the
+    // JavaScript schema has no JSX call kind (JSX_ELEMENT is an expression kind
+    // only), so these are counted and left out of the universe rather than scored
+    // as conservation loss. The count is printed so the omission is visible.
+    if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
+      jsxSites += 1;
+      ts.forEachChild(node, visit);
+      return;
+    }
     const isCall = ts.isCallExpression(node) || ts.isNewExpression(node)
-      || ts.isTaggedTemplateExpression(node) || ts.isJsxOpeningElement(node)
-      || ts.isJsxSelfClosingElement(node);
+      || ts.isTaggedTemplateExpression(node);
     if (isCall && !isRequireCall(node)) {
       const kind = callKindOf(node);
       const [line, col] = pos(sf, node.getStart(sf));
@@ -254,4 +271,4 @@ fs.writeFileSync(outPath, header + '\n' + rows.join('\n') + (rows.length ? '\n' 
 const diags = ts.getPreEmitDiagnostics(program).filter((d) => d.file && !d.file.isDeclarationFile);
 console.log(`tsc-oracle: ${files.length} files, ${rows.length} sites, typescript ${ts.version}`);
 console.log(`tsc-oracle: ${JSON.stringify(tally)}`);
-console.log(`tsc-oracle: ${diags.length} diagnostics in project files`);
+console.log(`tsc-oracle: ${diags.length} diagnostics in project files; ${jsxSites} JSX element(s) outside the site universe`);

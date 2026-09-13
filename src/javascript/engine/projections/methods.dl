@@ -99,3 +99,13 @@ method_kind_is_value("ARROW").
 // export table files under `f` (parser#176).
 method_modifiers("client", mods, h) :- js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, mods, _, _, h), mods != "".
 method_modifiers("lib", mods, h) :- lib_js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, mods, _, _, h), mods != "".
+
+// ── param_default_text(Prov, DefaultText, OwnerMethod, ParamHash) ───────────
+// `f(a, cb = () => {})` — the parser records the default's TEXT on the parameter
+// and emits the default expression as a PARAMETER_DEFAULT root owned by the
+// method, with no link between the two. The join is (owner, text): see
+// resolution/value-flow.dl `param_default_value`.
+param_default_text("client", txt, m, h) :- js_method_parameter(_, _, m, _, _, _, _, "true", txt, _, _, _, _, _, _, _, _, _, _, _, _, h), txt != "".
+param_default_text("lib", txt, m, h) :- lib_js_method_parameter(_, _, m, _, _, _, _, "true", txt, _, _, _, _, _, _, _, _, _, _, _, _, h), txt != "".
+param_binding_form("client", f, h) :- js_method_parameter(_, _, _, _, _, _, _, _, _, _, f, _, _, _, _, _, _, _, _, _, _, h).
+param_binding_form("lib", f, h) :- lib_js_method_parameter(_, _, _, _, _, _, _, _, _, _, f, _, _, _, _, _, _, _, _, _, _, h).

@@ -181,3 +181,11 @@ call_kind_is_reflective("FUNCTION_CALL_BIND").
 call_kind_is_dynamic("COMPUTED_CALL").
 call_kind_is_dynamic("DYNAMIC_CODE_CALL").
 call_kind_is_dynamic("DYNAMIC_IMPORT_CALL").
+
+// ── expr_referenced_name(Prov, Name, ExprHash) ──────────────────────────────
+// The identifier's text, for the ONE case the binder's answer is not enough: a
+// name bound inside a destructured PARAMETER (`function f({ a, b })`) resolves to
+// the pattern's single parameter row, and which property of the argument it reads
+// is the name itself.
+expr_referenced_name("client", n, h) :- js_expression("IDENTIFIER", _, _, _, _, _, _, _, _, _, _, _, _, _, _, n, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, _, _), n != "".
+expr_referenced_name("lib", n, h) :- lib_js_expression("IDENTIFIER", _, _, _, _, _, _, _, _, _, _, _, _, _, _, n, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, _, _), n != "".

@@ -67,7 +67,12 @@ expr_value(e, "ctor", t) :- expr_kind(_, "FUNCTION_EXPRESSION", _, e),
 expr_value(e, "obj", e) :- expr_kind(_, "OBJECT_LITERAL", _, e).
 // An identifier holds what its binding holds — the binder's answer, never a name.
 expr_value(e, k, i) :- expr_binding(_, v, e), var_value(v, k, i).
-expr_value(e, k, i) :- expr_param(_, p, e), param_value(p, k, i).
+expr_value(e, k, i) :- expr_param(_, p, e), param_value(p, k, i), !param_binding_form(_, "OBJECT_PATTERN", p).
+// A name bound by a destructured parameter `function f({ a })` resolves to the
+// pattern's one parameter row; its value is the property of that name on whatever
+// the pattern receives.
+expr_value(e, k2, i2) :- expr_param(_, p, e), param_binding_form(_, "OBJECT_PATTERN", p),
+    expr_referenced_name(_, n, e), param_value(p, k, i), prop_value(k, i, n, k2, i2).
 // `this`.
 expr_value(e, k, i) :- expr_kind(_, "THIS", _, e), expr_owner(_, m, _, e), this_value(m, k, i).
 // `require('./x')` — the module edge's far side. What it evaluates to is the
@@ -136,6 +141,13 @@ param_value(p, k, i) :- call_arg(ce, pos, arg), expr_resolves_to_method(ce, m),
 param_value(p, k, i) :- call_arg(ce, pos, arg), expr_resolves_to_method(ce, m),
     param_decl(_, _, ppos, m, p), param_is_rest(_, p), to_number(ppos) <= pos,
     expr_value(arg, k, i).
+// A default value: `cb = () => {}`. The parser gives the parameter the default's
+// text and emits the expression as a PARAMETER_DEFAULT root of the same method,
+// linked by nothing else, so the join is on the text. Two parameters of one
+// function with byte-identical defaults would share values — a may-answer.
+param_value(p, k, i) :- param_default_text(_, txt, m, p), param_binding_form(_, "ASSIGNMENT_PATTERN", p),
+    expr_root(_, "PARAMETER_DEFAULT", e), expr_owner(_, m, _, e), expr_text(_, txt, e),
+    expr_value(e, k, i).
 param_flow_assumes_closed_world(p) :- param_value(p, _, _), !param_type_name(_, _, _, p).
 
 // ── call_arg(CallExpr, Position, ArgExpr) — argument POSITION, not child index ──
@@ -195,6 +207,10 @@ prop_value("func", m, n, k, i) :- type_ctor(_, m, t), prop_value("ctor", t, n, k
 // Instance: members up the chain; `T.prototype.m` reads the same members.
 prop_value("inst", t, n, "func", m) :- type_member(t, n, m).
 prop_value("proto", t, n, "func", m) :- type_member(t, n, m).
+// A field documented `@type {T}` holds an instance of T, on every instance of the
+// owner — the field's declared type is the only thing said about it when the
+// constructor assigns a parameter nobody visible passes.
+prop_value("inst", t, n, "inst", t2) :- field_type_name(_, n, t, _, tr, _), type_ref_type(tr, t2).
 // Module: the export surface.
 prop_value("module", mod, n, k, i) :- module_export_value(mod, n, k, i).
 // Any property WRITE flows into the property: `this.x = fn` in a constructor or a
