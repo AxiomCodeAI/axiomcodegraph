@@ -1,0 +1,4 @@
+boundary_lib	CONSTRUCTOR_CALL	main#use() @L23 -> BagConstructor#<arrow@18>()
+boundary_lib	SUPER_CALL	Explicit#<new>() @L19 -> BagConstructor#<arrow@18>()
+known_edge	CONSTRUCTOR_CALL	main#use() @L24 -> Base#<new>(number)
+known_edge	CONSTRUCTOR_CALL	main#use() @L25 -> Explicit#<new>()

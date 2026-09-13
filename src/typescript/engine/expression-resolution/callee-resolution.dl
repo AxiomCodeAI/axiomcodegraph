@@ -370,6 +370,28 @@ expr_call_candidate(ce, ctor) :- call_site("client", "SUPER_CALL", _, _, _, ce, 
     type_group(_, sg, sub),
     heritage_value_ctor(sub, ctor).
 
+// `new Bucket()` where `class Bucket extends Map<K, V[]>` DECLARES NO CONSTRUCTOR.
+// heritage_value_ctor already resolves the base correctly -- it is how `super()` in a
+// sibling class with an explicit constructor resolves -- but nothing read it on the
+// CONSTRUCTION side, so the implicit constructor found nothing and `new Bucket()`
+// resolved to no candidate at all.
+//
+// constructor_in_scope's inherited clause cannot cover this. It walks to an ancestor and
+// looks for a declared constructor, and `Map`'s INSTANCE interface has none: the
+// construct signature lives on `MapConstructor`, which is the JavaScript constructor
+// pattern the rules above already accommodate for `new Map()` itself. So the ancestor
+// walk finds nothing to inherit and the class looks constructor-less.
+//
+// Guarded by !scope_declares_constructor: a subclass that writes its own constructor
+// gets it from rule (9), and adding the base's alongside would widen a site that is
+// already exact.
+expr_call_candidate(ce, ctor) :- call_site("client", "CONSTRUCTOR_CALL", _, _, _, ce, _),
+    new_expression_type(ce, _, t),
+    !scope_declares_constructor(t),
+    type_group(_, sg, t),
+    type_group(_, sg, sub),
+    heritage_value_ctor(sub, ctor).
+
 // ============================================================================
 // TAGGED TEMPLATES, INDEX CALLS, JSX
 // ============================================================================
