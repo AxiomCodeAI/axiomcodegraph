@@ -3,6 +3,14 @@
 # client-ir.map / lib.map (single source of truth). Lib is auto-scoped
 # to only the signature relations the rules reference (never loads GB-scale bodies).
 # Usage: run-souffle.sh --client-ir DIR --library DIR --intermediate DIR --output DIR [--language L] [--debug]
+#        run-souffle.sh --language L --print-engine-id      the canonical id of L's compiled engine
+#        run-souffle.sh --language L --emit-program FILE    the Soufflé program CI compiles for L
+#
+# NO SOUFFLÉ NEEDED TO RUN. The rules compile to one self-contained executable that is
+# project-independent; CI builds it for every platform on merge (engine-binaries.yml) and
+# publishes it under a release tagged engine-<lang>-<id>. When `souffle` is not on PATH this
+# script fetches that binary for the local platform (once, into the cache) and verifies its
+# sha256. With souffle installed it compiles locally as before. See src/pipeline/engine.conf.
 #
 # OUTPUT LAYOUT — the same in every language (src/bundle/SCHEMA.md):
 #   $OUT/graph.sqlite   the contract: core tables + ext_* tables + the schema catalog
@@ -32,6 +40,8 @@ DISPATCH_CAP="${DISPATCH_CAP:-20}"   # fan-width cap on virtual dispatch. DEFAUL
 LANG_ARG=""   # which rule set under src/<lang>/ to run. Default java.
 TAINT=""      # --taint on → gate lib→lib GROW on client-seeded data flow (dataflow/taint.dl). Also
               # settable via env AXIOM_TAINT_GATING=on. Empty = ungated (default behavior).
+MODE="run"    # run | print-engine-id | emit-program — the last two need no IR and no souffle
+EMIT=""
 while [ $# -gt 0 ]; do case "$1" in
   --client-ir) CLIENT="$2"; shift 2;; --library) LIB="$2"; shift 2;;
   --intermediate) INT="$2"; shift 2;; --output) OUT="$2"; shift 2;;
@@ -46,6 +56,8 @@ while [ $# -gt 0 ]; do case "$1" in
   --debug) DEBUG_BUNDLE=1; shift;;
   # (AXIOM_DEBUG=1 in the environment is the same as --debug — for harnesses that cannot
   # change the invocation.)
+  --print-engine-id) MODE="print-engine-id"; shift;;
+  --emit-program) MODE="emit-program"; EMIT="$2"; shift 2;;
   *) shift;; esac; done
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=portable-stat.sh
@@ -56,14 +68,91 @@ ENG="$SRC/$LANG_ARG/engine"; ENG2="$SRC/$LANG_ARG/engine-ii"; DL="$SRC/$LANG_ARG
 [ -d "$ENG" ] || { echo "no rule set for --language=$LANG_ARG (looked in $ENG)" >&2; exit 1; }
 # shellcheck source=souffle-include.sh
 . "$SRC/pipeline/souffle-include.sh"
-INNER="$(find_souffle_include)"
-# Assert the HEADER, not the directory: `[ -d ]` is the test #216 established cannot tell the two
-# install layouts apart, so it would pass a path that then fails at the compiler.
-if [ -z "$INNER" ] || [ ! -f "$INNER/souffle/CompiledSouffle.h" ]; then
-  echo "❌ soufflé headers not found. Install soufflé, or set AXIOM_SOUFFLE_INCLUDE." >&2
-  echo "   macOS: brew install souffle     Debian/Ubuntu: apt-get install souffle" >&2
-  exit 1
-fi
+# shellcheck source=engine.conf
+. "$SRC/pipeline/engine.conf"
+# Staging config is PER-LANGUAGE (IR marker + which relations are signatures vs bodies).
+# Keeping it here would hardcode Java's entity set into a shared executor.
+[ -f "$TPL/staging.conf" ] || { echo "missing $TPL/staging.conf for --language=$LANG_ARG" >&2; exit 1; }
+. "$TPL/staging.conf"
+ENGINE_II_MODE="${ENGINE_II:-${AXIOM_ENGINE_II:-off}}"
+
+# The tools every path below relies on. Checked up front because a missing one does not
+# always fail loudly: read_map runs inside a process substitution, where a missing grep
+# yields an EMPTY relation list — and a different, wrong engine id — under `set -e`.
+for t in grep awk sed sort cut tr mktemp uname dirname cat; do
+  command -v "$t" >/dev/null 2>&1 || { echo "❌ required tool not on PATH: $t" >&2; exit 1; }
+done
+
+# read an import map (relation<TAB>csv-basename per line), skipping comments (#) and blanks
+read_map(){ grep -vE '^[[:space:]]*(#|$)' "$1"; }
+
+# ── THE PROGRAM, as a pure function of the repository ────────────────────────────────────
+# Written so that the SAME text comes out of every checkout and of CI: includes are relative
+# to src/ (souffle resolves them through -I "$SRC"), and the .input list is derived from the
+# maps rather than from a listing of the staged facts dir — so it needs no client IR, and a
+# machine that cannot stage (CI) still produces the text the binary was built from. The run
+# path asserts below that staging created a facts file for every .input it declares.
+# The list of input relations is: every client relation, the lib signature relations, the lib
+# body relations (filled per iteration), and the four knob facts.
+input_relations(){
+  while IFS=$'\t' read -r rel csv; do printf '%s\n' "$rel"; done < <(read_map "$TPL/client-ir.map")
+  while IFS=$'\t' read -r rel csv; do
+    case " $LIB_SIG " in *" ${rel#lib_} "*) printf '%s\n' "$rel";; esac
+  done < <(read_map "$TPL/lib.map")
+  for r in $LIB_BODY; do printf '%s\n' "$r"; done
+  printf '%s\n' jdk_max_depth lib_max_depth taint_gating dispatch_cap
+}
+write_program(){ # $1 = destination file
+  {
+    echo "#include \"$LANG_ARG/souffle/decls_base.dl\""; echo "#include \"$LANG_ARG/souffle/decls_all.dl\""
+    # rfc4180=true: the IR is CSV, not TSV. The parser quotes any field containing a
+    # quote, tab or newline and doubles the inner quotes, so reading it as plain TSV hands
+    # the rules the ESCAPED text. It only bites where a JOINED column contains a quote --
+    # which is why it went unnoticed -- but a string forward reference (`-> "Factory"`)
+    # lands squarely on one, and a field carrying a tab would shift every column after it.
+    # Souffle parses RFC4180 itself, so this costs one flag rather than a re-encode of
+    # GB-scale input.
+    # LC_ALL=C sort: the order is part of the program text, so it must not depend on locale.
+    input_relations | LC_ALL=C sort -u | while read -r r; do printf '.input %s(IO=file, filename="%s.facts", delimiter="\\t", rfc4180=true)\n' "$r" "$r"; done
+    for d in projections containment resolution config-resolution expression-resolution call-edge-generation; do
+      # [ -f ] guard: a phase directory that is empty (or absent for a language that has
+      # not implemented that layer yet) leaves the glob unexpanded, and souffle's C
+      # preprocessor then fails on a literal '*.dl' include.
+      for f in "$ENG/$d/"*.dl; do [ -f "$f" ] && echo "#include \"${f#"$SRC/"}\""; done
+    done
+    # engine-ii: the first→third forward-chain engine (mirrors engine/, lib-seeded). Same solve,
+    # included AFTER engine/ so it reads engine/'s relations (client_calls_lib seed). Glob its
+    # phase subfolders (both nesting levels; globs are space-safe, the repo path has spaces).
+    # export/ is doc-only (like engine/export) — skip it.
+    if [ "$ENGINE_II_MODE" = "on" ]; then
+    for f in "$ENG2/"*/*.dl "$ENG2/"*/*/*.dl; do
+      case "$f" in */export/*) continue;; esac
+      [ -f "$f" ] && echo "#include \"${f#"$SRC/"}\""
+    done
+    fi
+    # Relative output filenames — the -D at run time supplies the directory. Keeping $OUT out
+    # of the program makes the compiled binary independent of the output path (better reuse).
+    while IFS=$'\t' read -r pred file; do [ -n "$pred" ] && printf '.output %s(IO=file, filename="%s", delimiter="\\t")\n' "$pred" "$file"; done < <(LC_ALL=C sort -u "$DL/export_manifest.tsv")
+  } > "$1"
+}
+# The engine id: sha256 over the pinned code-generator version, the program text, and every
+# file it includes, in include order. A function of the repository alone — the same from any
+# path, on any machine, with or without souffle — and different for any rule change. It names
+# the local cache entry AND the release CI publishes, which is what lets a machine without
+# souffle know which binary is its own.
+engine_id(){
+  local prog; prog="$(mktemp)"; write_program "$prog"
+  { printf 'souffle=%s\n' "$SOUFFLE_VERSION"; cat "$prog"
+    sed -n 's/^#include "\(.*\)"$/\1/p' "$prog" | while read -r inc; do cat "$SRC/$inc"; done
+  } | sha256_stdin
+  rm -f "$prog"
+}
+case "$MODE" in
+  print-engine-id) engine_id; exit 0;;
+  emit-program) write_program "$EMIT"; exit 0;;
+esac
+
+[ -n "${CLIENT:-}" ] && [ -n "${INT:-}" ] && [ -n "${OUT:-}" ] || { echo "usage: run-souffle.sh --client-ir DIR --library DIR --intermediate DIR --output DIR [--language L]" >&2; exit 1; }
 FACTS="$INT/souffle-facts"; rm -rf "$FACTS"; mkdir -p "$FACTS" "$OUT"
 # raw/ is OWNED: wiped per run so a relation that left the manifest cannot linger from an
 # earlier run and be mistaken for this one's output.
@@ -75,20 +164,12 @@ RAW="$OUT/raw"; rm -rf "$RAW"; mkdir -p "$RAW"
 CACHE_ROOT="${AXIOM_SOUFFLE_CACHE:-$SRC/../.souffle-cache}"; mkdir -p "$CACHE_ROOT"
 START_EPOCH=$(date +%s); START_TS=$(date '+%Y-%m-%d %H:%M:%S')
 
-# read an import map (relation<TAB>csv-basename per line), skipping comments (#) and blanks
-read_map(){ grep -vE '^[[:space:]]*(#|$)' "$1"; }
-
 # Library roots: --library is a comma-separated list of IR roots (each with jdk-style
 # module sub-folders, or a flat IR dir). The caller (TS) controls which folders/libraries
 # are loaded; staging concatenates each relation across every module of every root.
 IFS=',' read -ra LIB_ROOTS <<< "$LIB"
 # lib_modules ROOT -> the module dirs to stage from (the root itself if it holds the IR,
 # else its immediate sub-folders — mirrors how the JDK ships sharded modules).
-# Staging config is PER-LANGUAGE (IR marker + which relations are signatures vs bodies).
-# Keeping it here would hardcode Java's entity set into a shared executor.
-[ -f "$TPL/staging.conf" ] || { echo "missing $TPL/staging.conf for --language=$LANG_ARG" >&2; exit 1; }
-. "$TPL/staging.conf"
-
 lib_modules(){ if [ -f "$1/$IR_MARKER" ]; then printf '%s\n' "$1"; else for m in "$1"/*/; do [ -d "$m" ] && printf '%s\n' "${m%/}"; done; fi; }
 
 # --- CLIENT: stage EVERY mapped relation, empty when the project has no such file ---
@@ -233,67 +314,100 @@ echo "▶ dispatch cap = $( [ -s "$FACTS/dispatch_cap.facts" ] && echo "$(cat "$
 # (and backed up on ~/Desktop) but excluded from the compiled program; re-enable with
 # --engine-ii on / AXIOM_ENGINE_II=on. engine/ produces client_calls_lib etc. independently, so
 # client-only is a complete, valid solve on its own.
-ENGINE_II_MODE="${ENGINE_II:-${AXIOM_ENGINE_II:-off}}"
 echo "▶ engine-ii = $( [ "$ENGINE_II_MODE" = "on" ] && echo 'ON (lib frontier included)' || echo 'OFF (client-only — engine-i)' )"
 
-# --- generate combined program ---
+# --- the program, and the binary for it: compiled here, or fetched from CI ---
 PROG="$INT/souffle-program.dl"
-{
-  echo "#include \"$DL/decls_base.dl\""; echo "#include \"$DL/decls_all.dl\""
-  # rfc4180=true: the IR is CSV, not TSV. The parser quotes any field containing a
-  # quote, tab or newline and doubles the inner quotes, so reading it as plain TSV hands
-  # the rules the ESCAPED text. It only bites where a JOINED column contains a quote --
-  # which is why it went unnoticed -- but a string forward reference (`-> "Factory"`)
-  # lands squarely on one, and a field carrying a tab would shift every column after it.
-  # Souffle parses RFC4180 itself, so this costs one flag rather than a re-encode of
-  # GB-scale input.
-  for ff in "$FACTS"/*.facts; do r=$(basename "$ff" .facts); printf '.input %s(IO=file, filename="%s.facts", delimiter="\\t", rfc4180=true)\n' "$r" "$r"; done
-  for d in projections containment resolution config-resolution expression-resolution call-edge-generation; do
-    # [ -f ] guard: a phase directory that is empty (or absent for a language that has
-    # not implemented that layer yet) leaves the glob unexpanded, and souffle's C
-    # preprocessor then fails on a literal '*.dl' include.
-    for f in "$ENG/$d/"*.dl; do [ -f "$f" ] && echo "#include \"$f\""; done
-  done
-  # engine-ii: the first→third forward-chain engine (mirrors engine/, lib-seeded). Same solve,
-  # included AFTER engine/ so it reads engine/'s relations (client_calls_lib seed). Glob its
-  # phase subfolders (both nesting levels; globs are space-safe, the repo path has spaces).
-  # export/ is doc-only (like engine/export) — skip it.
-  if [ "$ENGINE_II_MODE" = "on" ]; then
-  for f in "$ENG2/"*/*.dl "$ENG2/"*/*/*.dl; do
-    case "$f" in */export/*) continue;; esac
-    [ -f "$f" ] && echo "#include \"$f\""
-  done
-  fi
-  # Relative output filenames — the -D at run time supplies the directory. Keeping $OUT out
-  # of the program makes the compiled binary independent of the output path (better reuse).
-  while IFS=$'\t' read -r pred file; do [ -n "$pred" ] && printf '.output %s(IO=file, filename="%s", delimiter="\\t")\n' "$pred" "$file"; done < <(sort -u "$DL/export_manifest.tsv")
-} > "$PROG"
+write_program "$PROG"
+# Every declared input must have been staged, or souffle would fail on a missing file after
+# the (possibly long) library staging. The program lists inputs from the maps; staging
+# created them from the same maps, so a mismatch is a bug in this script, and says so.
+for r in $(sed -n 's/^\.input \([A-Za-z0-9_]*\)(.*/\1/p' "$PROG"); do
+  [ -f "$FACTS/$r.facts" ] || { echo "❌ program declares input $r but staging created no $r.facts" >&2; exit 1; }
+done
+ENGINE_ID="$(engine_id)"
+echo "▶ engine id = $ENGINE_ID (rules + souffle $SOUFFLE_VERSION)"
 
-# --- compile once into a PERSISTENT, content-addressed cache (survives inter/ deletion) ---
 # What we cache is OUR engine compiled to a native binary (souffle -g turns the .dl rules
 # into C++, c++ compiles it) — NOT the souffle tool. It depends only on the engine (rules +
 # decls) and is PROJECT-INDEPENDENT (relative .input/.output), so one binary serves every
 # project: N concurrent analyses of N different projects all share it. It therefore lives in
-# a shared, machine-scoped cache keyed by a content hash — NOT in the per-run intermediate
-# (which the pipeline/parser wipes). The hash covers $PROG + every #included decls/engine
-# .dl, so any rule/decl change → new hash → new binary; unchanged → instant reuse. Default
-# ~/.cache/AxiomCode-Souffle (XDG-aware); delete it to force a clean rebuild, or override
-# with AXIOM_SOUFFLE_CACHE.
-# Default IN-REPO so a checkout is self-contained and nothing is written outside it
-# (.souffle-cache/ is gitignored). Content-addressed, so branches sharing rule text share the
-# binary; a fresh clone rebuilds once. Point AXIOM_SOUFFLE_CACHE at a shared machine-scoped
-# dir to amortise that across clones.
+# a shared, machine-scoped cache keyed by the engine id — NOT in the per-run intermediate
+# (which the pipeline/parser wipes). Default IN-REPO so a checkout is self-contained
+# (.souffle-cache/ is gitignored); point AXIOM_SOUFFLE_CACHE at a shared dir to amortise it.
 CACHE_DIR="$CACHE_ROOT"
-NEW="$(cat "$PROG" "$DL/decls_base.dl" "$DL/decls_all.dl" "$ENG"/*/*.dl "$ENG"/*/*/*.dl "$ENG2"/*/*.dl "$ENG2"/*/*/*.dl 2>/dev/null | shasum | cut -d' ' -f1)"
-BIN="$CACHE_DIR/souffle-engine-$NEW"
-if [ ! -x "$BIN" ]; then
+EXE=""; case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) EXE=".exe";; esac
+BIN="$CACHE_DIR/souffle-engine-$LANG_ARG-$ENGINE_ID$EXE"
+
+# The platform string CI names its assets by: <os>-<arch>. macOS is one universal binary.
+engine_platform(){
+  local os arch
+  case "$(uname -s)" in
+    Linux) os=linux;; Darwin) os=darwin;; MINGW*|MSYS*|CYGWIN*) os=windows;;
+    *) echo "unsupported platform: $(uname -s)" >&2; return 1;;
+  esac
+  case "$(uname -m)" in
+    x86_64|amd64) arch=x86_64;; arm64|aarch64) arch=arm64;;
+    *) echo "unsupported architecture: $(uname -m)" >&2; return 1;;
+  esac
+  [ "$os" = darwin ] && arch=universal
+  printf '%s-%s\n' "$os" "$arch"
+}
+# Fetch the CI-built binary for this platform and id into $BIN, verifying its sha256. Uses
+# `gh` when present (the repository is private; gh carries the login), else curl with a
+# GH_TOKEN / GITHUB_TOKEN. Downloaded to a temp name and renamed atomically, like the local
+# compile, so a concurrent or aborted run never leaves a half-written binary in the cache.
+fetch_engine(){
+  local platform tag asset tmp sum want
+  platform="$(engine_platform)" || return 1
+  tag="engine-$LANG_ARG-$ENGINE_ID"; asset="axiom-engine-$LANG_ARG-$platform$EXE"
+  tmp="$(mktemp -d)"
+  echo "▶ no souffle on PATH — fetching prebuilt engine $asset from $ENGINE_REPO@$tag"
+  if command -v gh >/dev/null 2>&1; then
+    gh release download "$tag" -R "$ENGINE_REPO" -p "$asset" -p sha256sum.txt -D "$tmp" 2>"$tmp/err" \
+      || { echo "❌ gh could not download $asset from release $tag:" >&2; sed 's/^/   /' "$tmp/err" >&2; rm -rf "$tmp"; return 1; }
+  else
+    local token="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
+    [ -n "$token" ] || { echo "❌ no \`gh\` on PATH and no GH_TOKEN/GITHUB_TOKEN set — cannot fetch from the private release" >&2; rm -rf "$tmp"; return 1; }
+    local api="https://api.github.com/repos/$ENGINE_REPO/releases/tags/$tag" json
+    json="$(curl -fsSL -H "Authorization: Bearer $token" -H "Accept: application/vnd.github+json" "$api")" \
+      || { echo "❌ release $tag not found in $ENGINE_REPO (is this rule set merged and built?)" >&2; rm -rf "$tmp"; return 1; }
+    for name in "$asset" sha256sum.txt; do
+      # the asset's API url is the "url" field of the asset object whose "name" matches
+      local url; url="$(printf '%s' "$json" | tr -d '\n' | sed 's/{/\n{/g' | grep "\"name\": *\"$name\"" | sed -n 's/.*"url": *"\([^"]*\/assets\/[0-9]*\)".*/\1/p' | head -1)"
+      [ -n "$url" ] || { echo "❌ release $tag has no asset $name" >&2; rm -rf "$tmp"; return 1; }
+      curl -fsSL -H "Authorization: Bearer $token" -H "Accept: application/octet-stream" -o "$tmp/$name" "$url" \
+        || { echo "❌ download of $name failed" >&2; rm -rf "$tmp"; return 1; }
+    done
+  fi
+  want="$(grep " \*\?$asset\$" "$tmp/sha256sum.txt" | cut -d' ' -f1)"
+  sum="$(sha256_stdin < "$tmp/$asset")"
+  if [ -z "$want" ] || [ "$sum" != "$want" ]; then
+    echo "❌ sha256 mismatch for $asset: got $sum, release says '${want:-<absent>}' — refusing to run it" >&2
+    rm -rf "$tmp"; return 1
+  fi
+  chmod +x "$tmp/$asset"; mv -f "$tmp/$asset" "$BIN"; rm -rf "$tmp"
+  echo "▶ verified sha256 $sum → $BIN"
+}
+
+if [ -x "$BIN" ]; then
+  echo "▶ reusing cached binary"
+elif command -v souffle >/dev/null 2>&1; then
   echo "▶ compiling souffle program (cache miss)..."
+  INNER="$(find_souffle_include)"
+  # Assert the HEADER, not the directory: `[ -d ]` is the test #216 established cannot tell
+  # the two install layouts apart, so it would pass a path that then fails at the compiler.
+  if [ -z "$INNER" ] || [ ! -f "$INNER/souffle/CompiledSouffle.h" ]; then
+    echo "❌ soufflé is on PATH but its headers are not. Set AXIOM_SOUFFLE_INCLUDE." >&2; exit 1
+  fi
+  have="$(souffle --version 2>/dev/null | sed -n 's/^Version: *\([0-9][0-9.]*\).*/\1/p' | head -1)"
+  [ "$have" = "$SOUFFLE_VERSION" ] || echo "  ! local souffle is $have, the pinned version is $SOUFFLE_VERSION — a locally compiled engine may differ from CI's"
   # Generate C++. souffle's "No rules/facts defined" warnings (for the intentionally
   # unstaged lib-body relations — inert paths) aren't silenced by -w, so filter those 3-
   # line blocks from stderr; on a real failure, dump the full log and fail. c++ -w
   # silences the deprecation warnings in souffle's own headers. Compile to a .tmp then
   # atomically rename, so a concurrent/aborted run never leaves a half-written binary.
-  if ! souffle -g "$INT/souffle-program.cpp" "$PROG" 2> "$INT/.souffle-gen.log"; then
+  if ! souffle -I "$SRC" -g "$INT/souffle-program.cpp" "$PROG" 2> "$INT/.souffle-gen.log"; then
     cat "$INT/.souffle-gen.log" >&2; exit 1
   fi
   awk '/No rules\/facts defined/{skip=2;next} skip>0{skip--;next} {print}' "$INT/.souffle-gen.log" >&2
@@ -305,7 +419,14 @@ if [ ! -x "$BIN" ]; then
   case "$(uname -s)" in CYGWIN*) CXX_PLATFORM="-Wa,-mbig-obj";; esac
   c++ -std=c++17 -O3 -march=native -w $CXX_PLATFORM -I "$INNER" "$INT/souffle-program.cpp" -o "$BIN.tmp.$$"
   mv -f "$BIN.tmp.$$" "$BIN"
-else echo "▶ reusing cached binary"; fi
+else
+  fetch_engine || {
+    echo "❌ no engine for $LANG_ARG@$ENGINE_ID on this machine. Either:" >&2
+    echo "   • install souffle $SOUFFLE_VERSION to compile locally (macOS: brew install souffle; Ubuntu: the .deb from souffle-lang/souffle releases), or" >&2
+    echo "   • use a rule set CI has built: merge to main, wait for the engine-binaries workflow, then rerun." >&2
+    exit 1
+  }
+fi
 # --- STAGE↔SOLVE loop: solve → stage the bodies of methods reached so far → re-solve, until
 #     reachable_method stops growing. Soufflé loads facts up front and can't fetch bodies mid-
 #     solve, so the driver feeds them in reachability order. Each round loads the bodies of ALL
@@ -368,7 +489,9 @@ while [ "$iter" -lt 50 ]; do
     PBIN="$INT/souffle-profile-bin"
     if [ ! -x "$PBIN" ]; then
       echo "▶ building profiling binary (once per run dir)..."
-      souffle -g "$INT/profile-program.cpp" -p "$AXIOM_SOUFFLE_PROFILE" "$PROG" \
+      command -v souffle >/dev/null 2>&1 || { echo "❌ profiling needs souffle on PATH (it builds a second binary)" >&2; exit 1; }
+      INNER="${INNER:-$(find_souffle_include)}"
+      souffle -I "$SRC" -g "$INT/profile-program.cpp" -p "$AXIOM_SOUFFLE_PROFILE" "$PROG" \
         2> "$INT/.souffle-prof-gen.log" || { cat "$INT/.souffle-prof-gen.log" >&2; exit 1; }
       c++ -std=c++17 -O3 -march=native -w -I "$INNER" \
         "$INT/profile-program.cpp" -o "$PBIN" || exit 1
