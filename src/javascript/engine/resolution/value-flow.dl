@@ -79,6 +79,14 @@ expr_value(e, k, i) :- expr_kind(_, "THIS", _, e), expr_owner(_, m, _, e), this_
 // module value in both systems; its properties are the export surface.
 expr_value(e, "module", mod) :- expr_kind(_, "MODULE_EDGE_CALL", _, e),
     expr_module_edge(_, imp, e), import_module(imp, mod).
+// `exports` and `module.exports` INSIDE a CommonJS module are that module's own
+// export surface: `exports.clone(x)` and `var self = module.exports; self.run()`
+// call into the file itself. The binder marks both names GLOBAL_BUILTIN.
+expr_value(e, "module", mod) :- expr_kind(_, "IDENTIFIER", _, e), expr_text(_, "exports", e),
+    expr_binding_resolution(_, "GLOBAL_BUILTIN", e), expr_owner(_, _, mod, e).
+expr_value(e, "module", mod) :- expr_kind(_, "PROPERTY_ACCESS", _, e), expr_name(_, "exports", e),
+    expr_child(_, e, "ACCESS_TARGET", _, r), expr_kind(_, "IDENTIFIER", _, r), expr_text(_, "module", r),
+    expr_binding_resolution(_, "GLOBAL_BUILTIN", r), expr_owner(_, _, mod, e).
 // A property read: the property of whatever the target holds.
 expr_value(e, k2, i2) :- expr_kind(_, "PROPERTY_ACCESS", _, e), expr_name(_, n, e),
     expr_child(_, e, "ACCESS_TARGET", _, r), expr_value(r, k, i),

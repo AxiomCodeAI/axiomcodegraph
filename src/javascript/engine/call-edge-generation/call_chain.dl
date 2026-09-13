@@ -48,7 +48,10 @@ ambient_site(ce) :- invocation_site(ce, _), call_site("client", _, _, _, _, _, c
 ambient_site(ce) :- invocation_site(ce, _), call_site("client", _, _, _, _, _, ce, _, cs),
     call_site_outcome(_, "NODE_BUILTIN", _, cs).
 ambient_site(ce) :- invocation_site(ce, _), expr_child(_, ce, "CALLEE", _, c), expr_binding_resolution(_, "GLOBAL_BUILTIN", c).
-ambient_site(ce) :- invocation_site(ce, _), expr_child(_, ce, "RECEIVER", _, r), expr_binding_resolution(_, "GLOBAL_BUILTIN", r).
+// `exports.f()` is a GLOBAL_BUILTIN receiver to the binder and the module's own
+// surface to this engine; a receiver that got a value is not ambient.
+ambient_site(ce) :- invocation_site(ce, _), expr_child(_, ce, "RECEIVER", _, r), expr_binding_resolution(_, "GLOBAL_BUILTIN", r),
+    !expr_value(r, _, _).
 ambient_site(ce) :- invocation_site(ce, _), expr_child(_, ce, "RECEIVER", _, r), expr_binding(_, v, r),
     var_import(_, imp, v), import_decl(_, _, _, _, _, _, "RESOLVED_BUILTIN", _, imp).
 ambient_site(ce) :- invocation_site(ce, _), expr_child(_, ce, "CALLEE", _, c), expr_binding(_, v, c),
