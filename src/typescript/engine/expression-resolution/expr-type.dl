@@ -580,6 +580,11 @@ expr_element_type(e, prov, t) :- expr_call_candidate(e, callee),
 expr_type(e, prov, t) :- ts_call_site(_, _, _, recv, _, e, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _),
     recv != "",
     expr_call_candidate(e, callee),
-    method_return_ref("client", r, callee),
-    type_ref("client", "THIS_TYPE", _, _, _, _, _, r),
+    // THE CALLEE'S PROVENANCE IS A VARIABLE, NOT "client". A fluent API declared in a
+    // dependency returns `this` from a LIBRARY declaration, so pinning this to the
+    // client meant the chain stopped dead at the first hop into one: the call itself
+    // resolved and everything after it was unresolved. The RECEIVER's provenance is
+    // still whatever it is -- that is what `prov` carries out.
+    method_return_ref(cp, r, callee),
+    type_ref(cp, "THIS_TYPE", _, _, _, _, _, r),
     expr_type(recv, prov, t).

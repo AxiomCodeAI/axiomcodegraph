@@ -1,0 +1,4 @@
+boundary_lib	METHOD_CALL	main#use(Emitter,LocalEmitter) @L11 -> Emitter#emit(string)
+boundary_lib	METHOD_CALL	main#use(Emitter,LocalEmitter) @L11 -> Emitter#on(string)
+known_edge	METHOD_CALL	main#use(Emitter,LocalEmitter) @L12 -> LocalEmitter#emit(string)
+known_edge	METHOD_CALL	main#use(Emitter,LocalEmitter) @L12 -> LocalEmitter#on(string)
