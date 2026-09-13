@@ -1,0 +1,2 @@
+known_edge	FUNCTION_CALL	main#use() @L4 -> hash/impl#digest(string)
+known_edge	FUNCTION_CALL	main#use() @L5 -> hash/impl#digestFrom(string)
