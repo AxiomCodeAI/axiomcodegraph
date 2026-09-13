@@ -35,6 +35,17 @@ export enum JsExpressionKind {
   /** `super`. */
   SUPER = 'SUPER',
 
+  /**
+   * `new.target` and `import.meta` — a MetaProperty, a keyword pair that
+   * refers to a runtime slot and never to a binding.
+   *
+   * Ruled 2026-09-13 (#175): the last named expression residue, 5 sites on
+   * the development corpus, and `import.meta.url` is the ESM idiom that
+   * `createRequire` is fed with. `referencedName` is the pair as written;
+   * `bindingResolution` is empty because no scope resolves it.
+   */
+  META_PROPERTY = 'META_PROPERTY',
+
   /** A literal: string, number, template, regex, `null`, `true`, bigint. */
   LITERAL = 'LITERAL',
 

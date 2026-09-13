@@ -821,7 +821,8 @@ const SCAFFOLD: ReadonlyArray<readonly [string, string]> = [
     '  get secret() { return this.#secret; }',                             // 14 GETTER
     '  static is(o) { return #secret in o; }',                             // 15 CLASS_PRIVATE brand check
     '}',                                                                   // 16
-    'module.exports = { Legacy, Child, Other, Modern };',                  // 17
+    'function Guarded() { if (!new.target) { throw new Error("call with new"); } }', // 17 META_PROPERTY
+    'module.exports = { Legacy, Child, Other, Modern, Guarded };',         // 18
     '',
   ].join('\n')],
 
@@ -6092,6 +6093,8 @@ function tortureScriptsHold(): number {
       && row[col(x, 'referencedName')] === '#secret')?.[col(x, 'bindingResolution')] ?? 'NO ROW', 'CLASS_PRIVATE');
     const { r: c, rows: calls } = rowsOf('js_call_site', module);
     expect(file, 7, 'Legacy.call(this, …)', calls.find((row) => Number(row[col(c, 'startLine')]) === 7)?.[col(c, 'callKind')] ?? 'NO ROW', 'FUNCTION_CALL_CALL');
+    const meta = expressions.find((row) => Number(row[col(x, 'startLine')]) === 17 && row[col(x, 'expressionKind')] === 'META_PROPERTY');
+    expect(file, 17, '`new.target`', meta === undefined ? 'NO ROW' : `${meta[col(x, 'referencedName')]}/${meta[col(x, 'bindingResolution')] || 'unbound'}`, 'new.target/unbound');
   }
 
   // ---- call forms ---------------------------------------------------------------

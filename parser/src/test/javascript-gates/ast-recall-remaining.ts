@@ -49,8 +49,8 @@ if (OUT === '') {
 
 const key = (line: number, col: number): string => `${line}:${col}`;
 
-interface Bucket { expected: number; found: number; missing: Map<string, number>; ex: string[] }
-const mk = (): Bucket => ({ expected: 0, found: 0, missing: new Map(), ex: [] });
+interface Bucket { expected: number; found: number; missing: Map<string, number>; excluded: Map<string, number>; ex: string[] }
+const mk = (): Bucket => ({ expected: 0, found: 0, missing: new Map(), excluded: new Map(), ex: [] });
 
 /** relation file -> file path -> set of "line:col", or "line:*" where the
  * relation carries no startColumn. */
@@ -131,6 +131,65 @@ const REL: Record<string, string> = {
   'jsdoc imports   -> js_import': 'all-javascript-imports.csv',
   'scopes          -> js_scope': 'all-javascript-scopes.csv',
 };
+
+/** The callable a JSDoc block on `host` documents, by the host walk the parser uses. */
+function callableDocumentedBy(host: ts.Node): ts.SignatureDeclaration | undefined {
+  if (ts.isFunctionLike(host)) { return host; }
+  if (ts.isVariableStatement(host)) {
+    const d = host.declarationList.declarations[0];
+    if (d?.initializer !== undefined && ts.isFunctionLike(d.initializer)) { return d.initializer; }
+  }
+  if (ts.isExpressionStatement(host) && ts.isBinaryExpression(host.expression)
+    && ts.isFunctionLike(host.expression.right)) { return host.expression.right; }
+  if (ts.isPropertyAssignment(host) && ts.isFunctionLike(host.initializer)) { return host.initializer; }
+  if (ts.isPropertyDeclaration(host) && host.initializer !== undefined && ts.isFunctionLike(host.initializer)) {
+    return host.initializer;
+  }
+  if (ts.isParenthesizedExpression(host) && ts.isFunctionLike(host.expression)) { return host.expression; }
+  return undefined;
+}
+
+/**
+ * Tags the fact base does not turn into a type reference, BY RULING (#170):
+ * the reason is the label, and a new absence needs a reason here.
+ */
+function namedAbsence(host: ts.Node, tag: ts.JSDocTag): string | undefined {
+  if (ts.isJSDocParameterTag(tag)) {
+    const fn = callableDocumentedBy(host);
+    if (fn === undefined) {
+      if (ts.isClassLike(host)) {
+        return '@param on a class, documenting its constructor: a JSDoc convention the compiler does not honour';
+      }
+      return '@param on a host with no parameters: nothing in the program is the parameter';
+    }
+    if (!ts.isIdentifier(tag.name)) { return undefined; } // dotted: a child of its parent tag
+    const name = tag.name.text;
+    if (fn.parameters.some((q) => ts.isIdentifier(q.name) && q.name.text === name)) { return undefined; }
+    if (fn.parameters.some((q) => !ts.isIdentifier(q.name))) {
+      return '@param naming a KEY of a destructured parameter: a pattern member\'s type, which the reference row cannot say which member it is (needs a path column)';
+    }
+    return '@param naming a parameter the callable does not have: the comment contradicts the code';
+  }
+  if (ts.isJSDocReturnTag(tag) && callableDocumentedBy(host) === undefined && !ts.isClassLike(host)) {
+    return '@returns on a host with no callable: nothing in the program returns';
+  }
+  if (ts.isJSDocTypeTag(tag)) {
+    if (ts.isFunctionDeclaration(host) || ts.isMethodDeclaration(host) || ts.isClassLike(host)) {
+      return '@type on a function, method or class declaration: the callable\'s whole type, for which no owner/context pair exists (ruled a named absence, revisitable)';
+    }
+    if (ts.isExpressionStatement(host) && ts.isCallExpression(host.expression)) {
+      return '@type on a call statement: attaches to nothing the parser can type (§3.14.1 control 5d)';
+    }
+    if ((ts.isFunctionExpression(host) || ts.isArrowFunction(host)) && host.parent !== undefined
+      && !ts.isParenthesizedExpression(host.parent)) {
+      return '@type before an unparenthesised function expression: asserts nothing to the compiler (§3.14.1)';
+    }
+  }
+  if (ts.isJSDocTypedefTag(tag) && tag.name === undefined) {
+    return 'a nameless @typedef: malformed, declares no type';
+  }
+  return undefined;
+}
 
 function expect(b: string, file: string, sf: ts.SourceFile, pos: number, kind: string, text: string): void {
   const bk = buckets[b]!;
@@ -265,8 +324,18 @@ function walkFile(abs: string, rel: string): void {
           // column 11 produces a row at column 12. Asking for the tag scored
           // 0/165 and asking for the brace scored 1/165; both were my measure.
           const inner = (te as unknown as { type?: ts.Node }).type;
-          expect('jsdoc types     -> js_type_reference', rel, sf, (inner ?? te).getStart(sf),
-            'JSDoc@' + tag.tagName.text, tag.getText(sf));
+          // NAMED ABSENCES (#170, ruled 2026-09-13): tags whose type the fact
+          // base deliberately does not carry, because nothing in the program
+          // is what the tag says it is about. Counted under their reason so
+          // the number above is over what is owed, and the reasons are listed.
+          const absence = namedAbsence(n, tag);
+          if (absence !== undefined) {
+            const bk = buckets['jsdoc types     -> js_type_reference']!;
+            bk.excluded.set(absence, (bk.excluded.get(absence) ?? 0) + 1);
+          } else {
+            expect('jsdoc types     -> js_type_reference', rel, sf, (inner ?? te).getStart(sf),
+              'JSDoc@' + tag.tagName.text, tag.getText(sf));
+          }
           // --- jsdoc import types (§3.8.1, 2026-09-13): every `import('x').T` inside a
           // JSDoc type expression is an edge, and the schema gives it a js_import row
           // (importForm JSDOC_IMPORT_TYPE, edgeBearer COMMENT) positioned at the
@@ -322,6 +391,9 @@ function main(): void {
     const miss = [...b.missing].sort((a, c) => c[1] - a[1]);
     if (miss.length > 0) {
       console.log(`      missing: ${miss.map(([k, v]) => `${k} ${v}`).join(', ')}`);
+    }
+    for (const [reason, count] of [...b.excluded.entries()].sort((x, y) => y[1] - x[1])) {
+      console.log(`      named absence (${count}): ${reason}`);
     }
   }
   const empty = Object.entries(buckets).filter((e) => e[1].expected === 0).map((e) => e[0]);

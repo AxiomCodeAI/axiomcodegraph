@@ -186,7 +186,11 @@ export class JsExpressionExtractor {
       // A private name in reference position (`#brand in o`) is a reference
       // too, spelled with its `#` — a resolution with no name would be a row
       // that says "resolved" and not what.
-      referencedName: ts.isIdentifier(node) || ts.isPrivateIdentifier(node) ? node.text : '',
+      referencedName: ts.isIdentifier(node) || ts.isPrivateIdentifier(node)
+        ? node.text
+        : ts.isMetaProperty(node)
+          ? `${ts.tokenToString(node.keywordToken) ?? ''}.${node.name.text}`
+          : '',
       // `delete obj.x` and `typeof obj.x` operate on a PROPERTY ACCESS, not on
       // an identifier, so restricting this to identifiers left DELETE declared
       // and never emitted — and a delete recorded as a READ says the property is
@@ -1201,6 +1205,9 @@ function expressionKindOf(node: ts.Expression): JsExpressionKind | undefined {
   }
   if (node.kind === ts.SyntaxKind.SuperKeyword) {
     return JsExpressionKind.SUPER;
+  }
+  if (ts.isMetaProperty(node)) {
+    return JsExpressionKind.META_PROPERTY;
   }
   if (isModuleEdgeCall(node)) {
     return JsExpressionKind.MODULE_EDGE_CALL;
