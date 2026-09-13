@@ -1,0 +1,3 @@
+known_edge	METHOD_CALL	main#use(LiteralFirst,StringFirst) @L22 -> LiteralFirst#on("close",(hadError: boolean) =)
+known_edge	METHOD_CALL	main#use(LiteralFirst,StringFirst) @L23 -> StringFirst#on("close",(hadError: boolean) =)
+known_edge	METHOD_CALL	main#use(LiteralFirst,StringFirst) @L24 -> LiteralFirst#on(string,args: unknown[]) =)
