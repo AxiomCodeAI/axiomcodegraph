@@ -1,0 +1,29 @@
+// ============================================================================
+// Projections · SCOPES  (pure column views)
+//
+// The relation with no TypeScript analogue. The parser's binder already resolved
+// every identifier to its js_variable / js_method_parameter row, so this engine does
+// NOT walk scopes to bind names — the scope relation is read for two residues only:
+// the class scope that a class body's members are declared in (a js_type carries no
+// FK to it), and the hoisting-aware link from a function declaration's binding to
+// its js_method row.
+//
+// js_scope / lib_js_scope cols (17):
+//   0 scopeKind  1 parentScopeLinkHash  2 depth  3 isFunctionScope  4 bindsThis
+//   5 bindsArguments  6 isStrictMode  7 strictModeSource  8 declaredBindingCount
+//   9 hasWithStatement  10 ownerMethodLinkHash  11 ownerModuleLinkHash
+//   12 startLine  13 startColumn  14 isExternal  15 serviceVersionLinkHash
+//   16 jsScopeUniqueHash
+// ============================================================================
+
+// ── scope_decl(Prov, Kind, ParentScope, OwnerMethod, OwnerModule, ScopeHash) ──
+// Kind: ARROW | BLOCK | CATCH | CLASS | CLASS_STATIC_BLOCK | FUNCTION | GLOBAL |
+//       MODULE | WITH
+scope_decl("client", k, p, om, mod, h) :- js_scope(k, p, _, _, _, _, _, _, _, _, om, mod, _, _, _, _, h).
+scope_decl("lib", k, p, om, mod, h) :- lib_js_scope(k, p, _, _, _, _, _, _, _, _, om, mod, _, _, _, _, h).
+
+// ── scope_lines(Prov, OwnerModule, Line, Col, ScopeHash) ────────────────────
+// The position is the only handle a CLASS scope has back to its js_type: both are
+// emitted at the `class` keyword. See resolution/type-hierarchy.dl `type_scope`.
+scope_lines("client", mod, l, c, h) :- js_scope(_, _, _, _, _, _, _, _, _, _, _, mod, l, c, _, _, h).
+scope_lines("lib", mod, l, c, h) :- lib_js_scope(_, _, _, _, _, _, _, _, _, _, _, mod, l, c, _, _, h).

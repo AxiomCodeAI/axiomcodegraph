@@ -1,0 +1,68 @@
+// ============================================================================
+// Containment · OWNERSHIP
+//
+// Who contains what. Mostly a column read — the parser already attributed every
+// expression and call site to its enclosing callable, and every top-level one to
+// the module's synthetic initializer — so this layer exists for the residues:
+// the caller of a site (never blank), which class a method body belongs to, which
+// callable an arrow lexically sits in, and the class scope that a js_type declares
+// its members in.
+// ============================================================================
+
+// ── call_caller_method(SiteHash, CallerMethod) — never blank ────────────────
+// The parser's enclosingMethodLinkHash is populated on every measured row (the
+// module initializer for top-level code). The fallback to the module's initializer
+// through the site's module exists so that a row with an empty column would still
+// have a caller, and the third clause marks the module hash itself as a greppable
+// last resort: a blank caller would drop the row from every downstream join, which
+// is the conservation failure in a different costume.
+call_caller_method(cs, m) :- call_site(_, _, _, _, _, m, _, _, cs), m != "".
+call_caller_method(cs, init) :- call_site(_, _, _, _, _, "", _, mod, cs), module_init(_, init, mod).
+call_caller_method(cs, mod) :- call_site(_, _, _, _, _, "", _, mod, cs), !module_init(_, _, mod).
+
+// ── method_owner_type(MethodHash, TypeHash) ─────────────────────────────────
+// A class member (syntactic or assigned) and the class it belongs to.
+method_owner_type(m, t) :- method_decl(_, _, _, _, _, t, _, m), t != "".
+
+// ── method_enclosing(MethodHash, EnclosingMethod) ───────────────────────────
+method_enclosing(m, e) :- method_scopes(_, _, _, e, m), e != "".
+
+// ── method_module(MethodHash, ModuleHash) ───────────────────────────────────
+method_module(m, mod) :- method_decl(_, _, _, _, _, _, mod, m).
+
+// ── type_scope(TypeHash, ClassScope) ────────────────────────────────────────
+// The CLASS scope a class body opens. js_type has no FK to it; the scope's
+// ownerMethodLinkHash is empty for a class; and js_variable rows for the class name
+// are declared in BOTH the outer scope and this inner one. Joined on position: both
+// rows are emitted at the `class` keyword, in the same module.
+type_scope(t, s) :- type_decl(_, _, _, _, mod, t),
+    type_lines(_, _, l, c, t),
+    scope_decl(_, "CLASS", _, _, mod, s),
+    scope_lines(_, mod, l, c, s).
+
+// ── class_binding_type(VarHash, TypeHash) ───────────────────────────────────
+// The js_variable a class NAME binds to, and its js_type. Two variables carry the
+// name — one in the enclosing scope, one inside the class body (the class's own
+// inner binding, which the binder prefers for references written at module scope
+// after the class) — and both must reach the type.
+class_binding_type(v, t) :- var_decl(_, n, "CLASS_TDZ", ds, _, mod, v),
+    type_decl(_, n, _, ds, mod, t).
+class_binding_type(v, t) :- var_decl(_, n, "CLASS_TDZ", ds, _, mod, v),
+    type_decl(_, n, _, _, mod, t),
+    type_scope(t, ds).
+
+// ── function_binding_method(VarHash, MethodHash) ────────────────────────────
+// The js_variable a FUNCTION DECLARATION's name binds to, and its js_method. The
+// parser links neither way, so the join is (name, scope): a declaration's binding
+// is declared in the scope the method is OWNED by. For a NAMED FUNCTION EXPRESSION
+// the name is bound inside the function's own body scope, and the variable's
+// ownerMethodLinkHash names the function.
+function_binding_method(v, m) :- var_decl(_, n, "FUNCTION_DECLARATION_HOISTED", ds, _, _, v),
+    method_decl(_, n, "FUNCTION_DECLARATION", _, _, _, _, m),
+    method_scopes(_, ds, _, _, m).
+function_binding_method(v, m) :- var_decl(_, n, "FUNCTION_DECLARATION_HOISTED", _, ss, _, v),
+    method_decl(_, n, "FUNCTION_DECLARATION", _, _, _, _, m),
+    method_scopes(_, ss, _, _, m).
+function_binding_method(v, m) :- var_decl(_, n, "FUNCTION_DECLARATION_HOISTED", _, _, _, v),
+    var_owner_method(_, m, v),
+    method_decl(_, n, "FUNCTION_EXPRESSION", _, _, _, _, m).

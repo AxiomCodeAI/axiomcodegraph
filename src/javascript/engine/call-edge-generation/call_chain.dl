@@ -1,0 +1,107 @@
+// ============================================================================
+// CALL-EDGE-GEN · CALL CHAIN  (the confidence-classified, queryable call graph)
+//
+// ── THE CONSERVATION CONTRACT ───────────────────────────────────────────────
+// EVERY call site in, every call site out. The universe is seeded from the RAW
+// js_call_site relation — one row per call regardless of form — never from the
+// resolution-gated one, so an unresolvable `new ThirdPartyX()` still produces a row.
+//
+// ── CONFIDENCE CLASSES ──────────────────────────────────────────────────────
+//   known_edge           exactly ONE resolved target. The chain continues.
+//   multi_inferred       2+ targets — a parameter passed several functions, a
+//                        binding written twice, a member on several instances'
+//                        writes. SOUND: the true target is in the set.
+//   boundary_lib         client -> a staged library's method. Marked, not expanded.
+//   implicit_constructor `new C()` / `super()` where no constructor exists up the
+//                        chain: the synthesized default runs. A correct end.
+//   ambient_terminal     the receiver or callee is a platform builtin (`console`,
+//                        `Object`, `Promise`, a Node core module) with no
+//                        declaration in any staged IR. A correct end, not a gap —
+//                        and the class the parser's own triage measured at 15-24%
+//                        of all sites.
+//   dynamic_terminal     `obj[expr]()`, `eval`, `import()` — no static target by
+//                        construction. Complete because it says so.
+//   ambiguous_unknown    a real site that resolved to NOTHING. The declared blind spot.
+//
+// ── STRATIFICATION ──────────────────────────────────────────────────────────
+// A leaf. The count aggregate reads expr_resolves_to_method, complete before this
+// file runs.
+// ============================================================================
+
+// ── the site universe, seeded from the RAW relation ─────────────────────────
+invocation_site(ce, ck) :- call_site("client", ck, _, _, _, _, ce, _, _).
+
+// ── per-site resolved target count ──────────────────────────────────────────
+call_target_count(ce, n) :- invocation_site(ce, _),
+    n = count : { expr_resolves_to_method(ce, _) }.
+
+// ── the caller, never blank ─────────────────────────────────────────────────
+call_from(ce, caller) :- call_site("client", _, _, _, _, _, ce, _, cs),
+    call_caller_method(cs, caller).
+
+// ── ambient sites: a builtin on the far side ────────────────────────────────
+// The parser's triage (AMBIENT_BUILTIN_TARGET / NODE_BUILTIN), or a callee or
+// receiver identifier the binder resolved to GLOBAL_BUILTIN, or a receiver that is
+// a require() of a Node core module (RESOLVED_BUILTIN).
+ambient_site(ce) :- invocation_site(ce, _), call_site("client", _, _, _, _, _, ce, _, cs),
+    call_site_outcome(_, _, "AMBIENT_BUILTIN_TARGET", cs).
+ambient_site(ce) :- invocation_site(ce, _), call_site("client", _, _, _, _, _, ce, _, cs),
+    call_site_outcome(_, "NODE_BUILTIN", _, cs).
+ambient_site(ce) :- invocation_site(ce, _), expr_child(_, ce, "CALLEE", _, c), expr_binding_resolution(_, "GLOBAL_BUILTIN", c).
+ambient_site(ce) :- invocation_site(ce, _), expr_child(_, ce, "RECEIVER", _, r), expr_binding_resolution(_, "GLOBAL_BUILTIN", r).
+ambient_site(ce) :- invocation_site(ce, _), expr_child(_, ce, "RECEIVER", _, r), expr_binding(_, v, r),
+    var_import(_, imp, v), import_decl(_, _, _, _, _, _, "RESOLVED_BUILTIN", _, imp).
+ambient_site(ce) :- invocation_site(ce, _), expr_child(_, ce, "CALLEE", _, c), expr_binding(_, v, c),
+    var_import(_, imp, v), import_decl(_, _, _, _, _, _, "RESOLVED_BUILTIN", _, imp).
+// A literal receiver — `[1, 2].forEach`, `"a,b".split`, `` `x`.trim `` — is a
+// platform object too.
+ambient_site(ce) :- invocation_site(ce, _), expr_child(_, ce, "RECEIVER", _, r), expr_kind(_, k, _, r), expr_kind_is_literal(k).
+expr_kind_is_literal("LITERAL").
+expr_kind_is_literal("ARRAY_LITERAL").
+expr_kind_is_literal("TEMPLATE").
+
+// ── confidence class ────────────────────────────────────────────────────────
+call_class(ce, "known_edge") :- call_target_count(ce, 1).
+call_class(ce, "multi_inferred") :- call_target_count(ce, n), n >= 2.
+call_class(ce, "implicit_constructor") :- call_target_count(ce, 0), call_target_is_implicit_ctor(ce).
+call_class(ce, "dynamic_terminal") :- call_target_count(ce, 0), !call_target_is_implicit_ctor(ce),
+    invocation_site(ce, ck), call_kind_is_dynamic(ck).
+call_class(ce, "ambient_terminal") :- call_target_count(ce, 0), !call_target_is_implicit_ctor(ce),
+    invocation_site(ce, ck), !call_kind_is_dynamic(ck), ambient_site(ce).
+call_class(ce, "ambiguous_unknown") :- call_target_count(ce, 0), !call_target_is_implicit_ctor(ce),
+    invocation_site(ce, ck), !call_kind_is_dynamic(ck), !ambient_site(ce).
+
+// ── method_has_unknown_call(Caller, CallExpr) ───────────────────────────────
+method_has_unknown_call(caller, ce) :- call_class(ce, "ambiguous_unknown"), call_from(ce, caller).
+
+// ============================================================================
+// THE MERGED EDGE — one self-describing row per edge, the single export
+//   call_chain_edge(FromExpr, FromMethod, ToExpr, ToMethod, Prov, EdgeStatus, Kind)
+// Every site appears at least once. A resolved site appears once per callee; an
+// unresolved one appears once with ToMethod = "-".
+// ============================================================================
+call_chain_edge(ce, caller, "-", callee, "client", cls, kind) :-
+    client_calls_client("client", ce, "client", callee),
+    call_from(ce, caller), call_class(ce, cls), invocation_site(ce, kind).
+call_chain_edge(ce, caller, "-", callee, "lib", "boundary_lib", kind) :-
+    client_calls_lib("client", ce, "lib", callee),
+    call_from(ce, caller), invocation_site(ce, kind).
+call_chain_edge(ce, caller, "-", "-", "-", cls, kind) :-
+    call_class(ce, cls), class_is_terminal(cls),
+    call_from(ce, caller), invocation_site(ce, kind).
+class_is_terminal("ambiguous_unknown").
+class_is_terminal("ambient_terminal").
+class_is_terminal("dynamic_terminal").
+class_is_terminal("implicit_constructor").
+
+// ── method_call_edge(FromMethod, ToMethod) — the method->method graph ───────
+method_call_edge(caller, callee) :- call_chain_edge(_, caller, _, callee, "client", _, _), callee != "-".
+
+// ── entry-point reachability ────────────────────────────────────────────────
+// A module nothing imports is a root of the import graph — the honest entry
+// point for a language with no `main`. Its initializer is the seed.
+module_imported(target) :- import_module(imp, target), import_decl("client", _, _, _, _, _, _, _, imp).
+entry_module(m) :- module_decl("client", _, _, _, _, m), !module_imported(m).
+entry_point(init, "unimported_module") :- entry_module(m), module_init("client", init, m).
+entry_reachable(m) :- entry_point(m, _).
+entry_reachable(callee) :- entry_reachable(caller), method_call_edge(caller, callee).

@@ -1,0 +1,102 @@
+// ============================================================================
+// Resolution · MODULE GRAPH
+//
+// An import names a module AND a name in it; the module is reached through the
+// parser's `resolvedFilePath` (extension-less, joining `module_qname`), and the
+// name through the target module's EXPORT SURFACE. The surface is the part that is
+// JavaScript-specific:
+//
+//   CommonJS   `module.exports = X`     the whole surface IS the value X — a function,
+//                                       a class, an object literal whose properties are
+//                                       the members, or `require('./y')` (a re-export)
+//              `module.exports.a = f`   one member
+//              `exports.a = f`          one member (unless module.exports was reassigned
+//                                       AFTER it, which the parser marks as overwritten)
+//   ESM        `export function f`      one member, targetKind METHOD
+//              `export const x = ...`   one member, targetKind VARIABLE
+//              `export default X`       the member named "default"
+//              `export * from './y'`    every member of y
+//
+// Both systems are read into ONE relation, `module_export_value(Mod, Name, K, I)`,
+// keyed by the exported name with "default" for the module.exports value, so that
+// an ES `import x from './cjs'`, a CJS `require('./esm').default` and every other
+// interop spelling reads the same rows. What a NAMESPACE binding (`import * as ns`,
+// `const ns = require('m')`) evaluates to is the "module" value, whose properties
+// are the export surface — see value-flow.dl `prop_value("module", ...)`.
+// ============================================================================
+
+// ── import_module(ImportHash, ModuleHash) ───────────────────────────────────
+// The far side of an import edge. Joins on the extension-less qualified name in
+// EITHER provenance, which is how a client import reaches a staged library module
+// by the same rule as a sibling file.
+import_module(imp, mod) :- import_decl(_, _, _, _, _, rf, _, _, imp), rf != "", module_qname(_, rf, mod).
+
+// ── import_unresolved(ImportHash, Specifier, Outcome) — countable ───────────
+// A dependency that is not staged (RESOLVED_EXTERNAL with no matching module), a
+// builtin, or a specifier the parser could not resolve. The reason is kept so the
+// three fixes — stage the package, accept the platform terminal, fix the specifier —
+// are not one bucket.
+import_unresolved(imp, spec, out) :- import_decl(_, spec, _, _, _, _, out, _, imp), !import_module(imp, _).
+
+// ── export_target_value(ExportHash, K, I) — the value one export row names ──
+// The parser records the target as an ENTITY where the syntax declares one
+// (`export function f` -> METHOD, `export class C` -> TYPE, `export const x` ->
+// VARIABLE, `module.exports = run` -> METHOD) and as an EXPRESSION_VALUE where it
+// is an assignment: the ASSIGNMENT's value child is then the exported value.
+export_target_value(x, "func", m) :- export_decl(_, _, _, _, _, "METHOD", m, _, _, x), m != "".
+export_target_value(x, "ctor", t) :- export_decl(_, _, _, _, _, "TYPE", t, _, _, x), t != "".
+export_target_value(x, k, i) :- export_decl(_, _, _, _, _, "VARIABLE", v, _, _, x), v != "", var_value(v, k, i).
+export_target_value(x, k, i) :- export_decl(_, _, _, _, _, _, _, se, _, x), se != "",
+    expr_kind(_, "ASSIGNMENT", _, se),
+    expr_child(_, se, "ASSIGNMENT_VALUE", _, val),
+    expr_value(val, k, i).
+// `export default <expr>` — the source expression is the value itself.
+export_target_value(x, k, i) :- export_decl(_, _, _, _, _, _, _, se, _, x), se != "",
+    !expr_kind(_, "ASSIGNMENT", _, se),
+    expr_value(se, k, i).
+
+// ── module_export_value(ModuleHash, Name, K, I) — the export surface ────────
+// Direct rows, minus the ones a later `module.exports =` overwrote.
+module_export_value(mod, n, k, i) :- export_decl(_, n, _, _, _, _, _, _, mod, x), n != "",
+    !export_overwritten(_, x),
+    export_target_value(x, k, i).
+// `module.exports = { a, b }` / `module.exports = SomeClass`: the members of the
+// exported VALUE are members of the surface. Restricted to the CommonJS assignment
+// form — an ES `export default` does not spread its properties onto the namespace.
+module_export_value(mod, n, k, i) :- export_decl(_, "default", _, "MODULE_EXPORTS_ASSIGNMENT", _, _, _, _, mod, x),
+    !export_overwritten(_, x),
+    export_target_value(x, vk, vi),
+    prop_value(vk, vi, n, k, i),
+    n != "default".
+// `export default function f() {}` — the export table files it under `f` and the
+// module's defaultExportLinkHash is empty (parser#176). The declaration's own
+// modifiers say `default`, so the default export is recovered from the method row.
+// The class form (`export default class C {}`) has no signal anywhere in the IR and
+// stays a known gap until the parser fix.
+module_export_value(mod, "default", "func", m) :- method_decl(_, _, "FUNCTION_DECLARATION", _, _, _, mod, m),
+    method_modifiers(_, mods, m), contains("default", mods).
+// Re-exports: `export * from './y'`, `export { a } from './y'`,
+// `module.exports = require('./y')`. The import row carries the resolved file.
+module_export_value(mod, n, k, i) :- export_decl(_, _, _, "EXPORT_ALL", _, _, _, _, mod, x),
+    export_reexport(_, _, imp, x), import_module(imp, src),
+    module_export_value(src, n, k, i), n != "default".
+module_export_value(mod, en, k, i) :- export_decl(_, en, ln, form, _, _, _, _, mod, x), form != "EXPORT_ALL",
+    export_reexport(_, _, imp, x), import_module(imp, src), ln != "",
+    module_export_value(src, ln, k, i).
+module_export_value(mod, "default", "module", src) :- export_decl(_, "default", _, "MODULE_EXPORTS_ASSIGNMENT", "REQUIRE_REEXPORT", _, _, _, mod, x),
+    export_reexport(_, _, imp, x), import_module(imp, src).
+
+// ── import_value(ImportHash, K, I) — what a binding introduced by an import holds ──
+import_value(imp, "module", mod) :- import_decl(_, _, _, "NAMESPACE", _, _, _, _, imp), import_module(imp, mod).
+import_value(imp, k, i) :- import_decl(_, _, _, "DEFAULT", _, _, _, _, imp), import_module(imp, mod),
+    module_export_value(mod, "default", k, i).
+import_value(imp, k, i) :- import_decl(_, _, _, bf, n, _, _, _, imp), import_binding_is_named(bf), n != "",
+    import_module(imp, mod), module_export_value(mod, n, k, i).
+import_binding_is_named("NAMED").
+import_binding_is_named("DESTRUCTURED").
+
+// ── import_binding_unresolved(ImportHash, Name) — countable ─────────────────
+// The module was reached and exports no such name (or the name's value is not
+// derivable). Distinct from import_unresolved: the dependency IS staged.
+import_binding_unresolved(imp, n) :- import_decl(_, _, _, bf, n, _, _, _, imp), import_binding_is_named(bf), n != "",
+    import_module(imp, _), !import_value(imp, _, _).
