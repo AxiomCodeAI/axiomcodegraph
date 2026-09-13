@@ -24,6 +24,12 @@ on:
       - 'src/*/templates/**'
       - 'src/pipeline/**'
       - '.github/workflows/engine-binaries.yml'
+  # A pull request that touches the build itself exercises generate + build (no release), so a
+  # compiler break on any platform is seen before merge rather than after.
+  pull_request:
+    paths:
+      - 'src/pipeline/**'
+      - '.github/workflows/engine-binaries.yml'
   workflow_dispatch:
     inputs:
       force:
@@ -67,7 +73,7 @@ jobs:
           for lang in $LANGUAGES; do
             id="$(bash src/pipeline/run-souffle.sh --language "$lang" --print-engine-id)"
             echo "$lang: $id"
-            if [ "$FORCE" != "true" ] && gh release view "engine-$lang-$id" >/dev/null 2>&1; then
+            if [ "$FORCE" != "true" ] && [ "${{ github.event_name }}" != "pull_request" ] && gh release view "engine-$lang-$id" >/dev/null 2>&1; then
               echo "  release engine-$lang-$id exists — skipping"; continue
             fi
             printf '%s' "$id" > "out/$lang.id"
@@ -178,7 +184,7 @@ jobs:
 
   release:
     needs: [generate, build]
-    if: needs.generate.outputs.langs != '[]'
+    if: needs.generate.outputs.langs != '[]' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     strategy:
       matrix:
