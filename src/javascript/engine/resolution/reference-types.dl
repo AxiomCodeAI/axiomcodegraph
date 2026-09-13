@@ -22,6 +22,13 @@ type_ref_type(r, t) :- type_ref(_, n, "NAMED", _, _, _, _, _, "", mod, r), !type
 // is the member.
 type_ref_type(r, t) :- type_ref(_, _, "IMPORT_TYPE", _, _, _, _, _, imp, _, r), imp != "",
     import_value(imp, k, i), constructible_value(k, i, t).
+// `@typedef {import('./x.js').default} Chart` — a name that is an ALIAS of another
+// type expression. The typedef is a type-only js_type whose own reference row
+// (context TYPEDEF, owner = the typedef) is the aliased expression.
+type_ref_type(r, t) :- type_ref(_, n, "NAMED", _, _, _, _, _, "", mod, r),
+    type_only_decl(_, n, "JSDOC_TYPEDEF", mod, td),
+    type_ref(_, _, _, "", "TYPEDEF", "TYPE", td, _, _, _, c), c != r,
+    type_ref_type(c, t).
 // Wrappers: the child is the type.
 type_ref_type(r, t) :- type_ref(_, _, k, _, _, _, _, _, _, _, r), type_ref_kind_is_wrapper(k),
     type_ref(_, _, _, r, _, _, _, _, _, _, c), type_ref_type(c, t).

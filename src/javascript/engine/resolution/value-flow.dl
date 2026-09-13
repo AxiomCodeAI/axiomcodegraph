@@ -191,6 +191,10 @@ this_value(m, k, i) :- expr_kind(_, "ASSIGNMENT", _, a), expr_child(_, a, "ASSIG
     expr_kind(_, "ELEMENT_ACCESS", _, tgt), expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, k, i), k != "proto",
     expr_child(_, a, "ASSIGNMENT_VALUE", _, val), expr_value(val, "func", m), method_this_binding(_, "DYNAMIC", m),
     !method_owner_type(m, _).
+this_value(m, "inst", t) :- expr_kind(_, "ASSIGNMENT", _, a), expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt),
+    expr_kind(_, "ELEMENT_ACCESS", _, tgt), expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, "proto", t),
+    expr_child(_, a, "ASSIGNMENT_VALUE", _, val), expr_value(val, "func", m), method_this_binding(_, "DYNAMIC", m),
+    !method_owner_type(m, _).
 
 // ── return_value ────────────────────────────────────────────────────────────
 // Every `return <expr>` in the body, and the expression body of an arrow (the
@@ -229,6 +233,17 @@ prop_value("proto", t, n, "func", m) :- type_member(t, n, m).
 prop_value("inst", t, n, "inst", t2) :- field_type_name(_, n, t, _, tr, _), type_ref_type(tr, t2).
 // Module: the export surface.
 prop_value("module", mod, n, k, i) :- module_export_value(mod, n, k, i).
+// `exports = module.exports = Base; exports.list = function ...` — a member row
+// written through `exports` after `module.exports = X` lands on X itself: the two
+// names are one object. So the CommonJS default value carries every member export
+// of its module.
+prop_value(k, i, n, k2, i2) :- export_decl(_, "default", _, "MODULE_EXPORTS_ASSIGNMENT", _, _, _, _, mod, x),
+    !export_overwritten(_, x), export_target_value(x, k, i), k != "module",
+    export_decl(_, n, _, form, _, _, _, _, mod, x2), export_form_is_member(form), !export_overwritten(_, x2),
+    export_target_value(x2, k2, i2).
+export_form_is_member("EXPORTS_MEMBER").
+export_form_is_member("MODULE_EXPORTS_MEMBER").
+export_form_is_member("OBJECT_DEFINE_PROPERTY").
 // Any property WRITE flows into the property: `this.x = fn` in a constructor or a
 // method, `app.init = function`, `exports.handler = ...` read back through the
 // module, `T.prototype.m = ...`. Instance writes through `this` reach every
