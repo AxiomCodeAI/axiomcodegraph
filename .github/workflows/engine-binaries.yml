@@ -1,0 +1,214 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Prebuilt engine binaries — so running the engine needs no Soufflé and no compiler.
+#
+# On every merge to main that can change a rule set, for each language whose engine id
+# (src/pipeline/run-souffle.sh --print-engine-id) has no release yet:
+#   generate  Ubuntu + the pinned Soufflé .deb: emit the program, `souffle -g` it to portable
+#             C++ once, and capture the header tree the C++ compiles against.
+#   build     compile that C++ on every platform with the SAME flags the script uses locally
+#             (-std=c++17 -O3, no OpenMP/zlib/sqlite defines — the binary links against nothing
+#             but the C++ runtime). Portable target: no -march=native; macOS universal.
+#   release   one GitHub release per (language, id), tagged engine-<lang>-<id>, holding
+#             axiom-engine-<lang>-<os>-<arch>[.exe], sha256sum.txt, and the generated .cpp.
+# run-souffle.sh computes the same id on the user's machine and fetches the matching asset.
+# The id is a function of the repository alone (see engine_id in the script), which is what
+# makes "no release for this id" mean exactly "these rules have not been merged and built".
+# ─────────────────────────────────────────────────────────────────────────────
+name: engine-binaries
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**/*.dl'
+      - 'src/*/templates/**'
+      - 'src/pipeline/**'
+      - '.github/workflows/engine-binaries.yml'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: rebuild and re-publish even if the release for this id exists
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+env:
+  LANGUAGES: java typescript python
+
+jobs:
+  generate:
+    runs-on: ubuntu-24.04
+    outputs:
+      langs: ${{ steps.plan.outputs.langs }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the pinned Soufflé
+        run: |
+          . src/pipeline/engine.conf
+          deb="x86_64-ubuntu-2404-souffle-${SOUFFLE_VERSION}-Linux.deb"
+          curl -fsSL -o "/tmp/$deb" "https://github.com/souffle-lang/souffle/releases/download/${SOUFFLE_VERSION}/$deb"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq "/tmp/$deb"
+          souffle --version | head -2
+          test -f /usr/include/souffle/CompiledSouffle.h
+
+      - name: Plan — which languages need a build
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          set -e
+          mkdir -p out
+          langs=""
+          for lang in $LANGUAGES; do
+            id="$(bash src/pipeline/run-souffle.sh --language "$lang" --print-engine-id)"
+            echo "$lang: $id"
+            if [ "$FORCE" != "true" ] && gh release view "engine-$lang-$id" >/dev/null 2>&1; then
+              echo "  release engine-$lang-$id exists — skipping"; continue
+            fi
+            printf '%s' "$id" > "out/$lang.id"
+            langs="$langs \"$lang\""
+          done
+          . src/pipeline/engine.conf; printf '%s' "$SOUFFLE_VERSION" > out/souffle.version
+          langs="[$(echo $langs | sed 's/ /,/g')]"
+          echo "langs=$langs" >> "$GITHUB_OUTPUT"
+          echo "building: $langs"
+
+      - name: Generate portable C++ for each language
+        if: steps.plan.outputs.langs != '[]'
+        run: |
+          set -e
+          for lang in $LANGUAGES; do
+            [ -f "out/$lang.id" ] || continue
+            bash src/pipeline/run-souffle.sh --language "$lang" --emit-program "out/$lang.dl"
+            # souffle's "No rules/facts defined" notices are expected for the never-staged
+            # lib-body relations; anything else on stderr is shown.
+            souffle -I src -g "out/$lang.cpp" "out/$lang.dl" 2> "out/$lang.gen.log" || { cat "out/$lang.gen.log"; exit 1; }
+            awk '/No rules\/facts defined/{skip=2;next} skip>0{skip--;next} {print}' "out/$lang.gen.log"
+            ls -la "out/$lang.cpp"
+          done
+          cp -r /usr/include/souffle out/souffle-headers
+
+      - uses: actions/upload-artifact@v4
+        if: steps.plan.outputs.langs != '[]'
+        with:
+          name: generated
+          path: out
+          retention-days: 7
+          if-no-files-found: error
+
+  build:
+    needs: generate
+    if: needs.generate.outputs.langs != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        lang: ${{ fromJson(needs.generate.outputs.langs) }}
+        target:
+          - { os: ubuntu-24.04,     platform: linux-x86_64 }
+          - { os: ubuntu-24.04-arm, platform: linux-arm64 }
+          - { os: macos-14,         platform: darwin-universal }
+          - { os: windows-2025,     platform: windows-x86_64 }
+    runs-on: ${{ matrix.target.os }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: generated
+          path: gen
+
+      - name: Compile (Linux)
+        if: startsWith(matrix.target.platform, 'linux')
+        run: |
+          set -e
+          # -static-libstdc++/-static-libgcc: the only non-glibc dependency is folded in, so
+          # the binary runs on any distro with a glibc at least as old as this runner's.
+          c++ -std=c++17 -O3 -w -static-libstdc++ -static-libgcc -I gen/souffle-headers \
+              "gen/${{ matrix.lang }}.cpp" -o "axiom-engine-${{ matrix.lang }}-${{ matrix.target.platform }}"
+          ls -la axiom-engine-*; ldd axiom-engine-* || true
+
+      - name: Compile (macOS, universal)
+        if: startsWith(matrix.target.platform, 'darwin')
+        run: |
+          set -e
+          c++ -std=c++17 -O3 -w -arch arm64 -arch x86_64 -mmacosx-version-min=12.0 -I gen/souffle-headers \
+              "gen/${{ matrix.lang }}.cpp" -o "axiom-engine-${{ matrix.lang }}-${{ matrix.target.platform }}"
+          ls -la axiom-engine-*; file axiom-engine-*; otool -L axiom-engine-*
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: startsWith(matrix.target.platform, 'windows')
+        with:
+          arch: x64
+
+      - name: Compile (Windows, MSVC)
+        if: startsWith(matrix.target.platform, 'windows')
+        shell: cmd
+        run: |
+          cl /nologo /std:c++17 /O2 /EHsc /bigobj /w /permissive- /Zc:__cplusplus /D_CRT_SECURE_NO_WARNINGS /DNOMINMAX /I gen\souffle-headers gen\${{ matrix.lang }}.cpp /Fe:axiom-engine-${{ matrix.lang }}-${{ matrix.target.platform }}.exe
+          if errorlevel 1 exit /b 1
+          dir axiom-engine-*
+
+      - name: Smoke — the binary starts and reports its relations
+        shell: bash
+        run: |
+          set -e
+          bin="$(ls axiom-engine-* | grep -v '\.sha256$' | head -1)"
+          chmod +x "$bin" 2>/dev/null || true
+          mkdir -p facts out
+          # every declared input must exist; an empty file is a valid (empty) relation
+          sed -n 's/^\.input \([A-Za-z0-9_]*\)(.*/\1/p' "gen/${{ matrix.lang }}.dl" | while read -r r; do : > "facts/$r.facts"; done
+          "./$bin" -F facts -D out
+          echo "outputs written: $(ls out | wc -l)"
+
+      - name: Checksum
+        shell: bash
+        run: |
+          bin="$(ls axiom-engine-* | head -1)"
+          if command -v sha256sum >/dev/null; then sha256sum "$bin" > "$bin.sha256"; else shasum -a 256 "$bin" > "$bin.sha256"; fi
+          cat "$bin.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: engine-${{ matrix.lang }}-${{ matrix.target.platform }}
+          path: axiom-engine-*
+          if-no-files-found: error
+
+  release:
+    needs: [generate, build]
+    if: needs.generate.outputs.langs != '[]'
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        lang: ${{ fromJson(needs.generate.outputs.langs) }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: generated
+          path: gen
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: engine-${{ matrix.lang }}-*
+          path: bins
+          merge-multiple: true
+
+      - name: Publish release engine-${{ matrix.lang }}-<id>
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          set -e
+          lang="${{ matrix.lang }}"
+          id="$(cat "gen/$lang.id")"
+          tag="engine-$lang-$id"
+          cat bins/*.sha256 | sed 's#  .*/#  #' > bins/sha256sum.txt
+          rm -f bins/*.sha256
+          cp "gen/$lang.cpp" "bins/$lang.cpp"
+          echo "assets:"; ls -la bins
+          notes="Prebuilt engine for the **$lang** rule set at id \`$id\` (Soufflé $(cat gen/souffle.version), pinned in src/pipeline/engine.conf), built from ${{ github.sha }}.
+
+          \`run-souffle.sh --language $lang\` fetches the asset for its platform when \`souffle\` is not installed. \`$lang.cpp\` is the generated program for anyone who prefers to compile it themselves (needs only the Soufflé headers and a C++17 compiler)."
+          if [ "$FORCE" = "true" ]; then gh release delete "$tag" -y 2>/dev/null || true; fi
+          gh release create "$tag" --title "engine · $lang · ${id:0:12}" --notes "$notes" --target "${{ github.sha }}" bins/*
