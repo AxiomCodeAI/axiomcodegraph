@@ -860,6 +860,19 @@ const SCAFFOLD: ReadonlyArray<readonly [string, string]> = [
     '',
   ].join('\n')],
 
+  // #176: a NAMED declaration exported as the default is exported under
+  // `default`, with its local name beside it — the default modifier decides,
+  // not whether the declaration has a name. The named export is the control.
+  ['esm/default-named.js', [
+    'export default function named() { return 1; }',
+    'export function plain() { return 2; }',
+    '',
+  ].join('\n')],
+  ['esm/default-class.js', [
+    'export default class Klass { run() { return 1; } }',
+    '',
+  ].join('\n')],
+
   ['cjs/typed-module.js.flow', [
     'declare export function connect(host: string, port: number): boolean;',
     '',
@@ -871,6 +884,11 @@ const SCAFFOLD: ReadonlyArray<readonly [string, string]> = [
     "  label = 'hi';",
     '  handleClick = () => { return this.label; };',
     '  render() { return [1].map((n) => n + 1); }',
+    // An accessor pair whose @type sits on the SECOND accessor: one field row,
+    // minted at the getter, typed by the setter's tag.
+    '  get size() { return this._size; }',
+    '  /** @type {number} */',
+    '  set size(v) { this._size = v; }',
     '}',
     'module.exports = Widget;',
     '',
@@ -4155,6 +4173,20 @@ function declaredTypesAgreeWithTheirReferences(): number {
         + `optional=${optional} default=${hasDefault}${type === '' ? ' and no tree' : ''} — ${why}`);
     }
   }
+  // An accessor pair typed on its second accessor.
+  const fieldsRel = scaffold.find((r) => r.name === 'js_field')!;
+  const fOwner = fieldsRel.header.indexOf('ownerModuleLinkHash');
+  const fName = fieldsRel.header.indexOf('name');
+  const fType = fieldsRel.header.indexOf('declaredTypeName');
+  const fLink = fieldsRel.header.indexOf('typeReferenceLinkHash');
+  const fPair = fieldsRel.header.indexOf('accessorPairKind');
+  const classFields = modules.rows.find((r) => (r[mPath] ?? '').endsWith('class-fields.js'))?.[mPk];
+  const size = fieldsRel.rows.find((r) => r[fOwner] === classFields && r[fName] === 'size');
+  if (size?.[fType] !== 'number' || (size[fLink] ?? '') === '' || size[fPair] !== 'GETTER_SETTER') {
+    failures += fail(`the accessor pair \`size\`: declaredTypeName ${JSON.stringify(size?.[fType])}, `
+      + `${(size?.[fLink] ?? '') === '' ? 'no tree' : 'a tree'}, ${size?.[fPair]}; expected number with a tree on `
+      + 'a GETTER_SETTER row — the @type sits on the setter, the row was minted at the getter');
+  }
   // The destructuring declaration's @type: one tree, on the root binding.
   const variables = scaffold.find((r) => r.name === 'js_variable')!;
   const vOwner = variables.header.indexOf('ownerModuleLinkHash');
@@ -4760,6 +4792,29 @@ function separatorCommentsAndNamespaceReexportsEmit(): number {
     }
     if (((row[eImport] ?? '') !== '') !== wantsImport) {
       failures += fail(`${construct} ${wantsImport ? 'lacks' : 'has'} a reExportImportLinkHash`);
+    }
+  }
+  // #176: `export default function named()` / `export default class Klass`.
+  const eLocal = exports_.header.indexOf('localName');
+  const eTarget = exports_.header.indexOf('targetKind');
+  const mDefault = modules.header.indexOf('defaultExportLinkHash');
+  const ePk = pkIndexOf(exports_.header, 'js_export');
+  for (const [file, local, target] of [
+    ['default-named.js', 'named', 'METHOD'], ['default-class.js', 'Klass', 'TYPE'],
+  ] as const) {
+    const moduleRow = modules.rows.find((r) => (r[mPath] ?? '').endsWith(file));
+    const moduleHash = moduleRow?.[mPk] ?? '';
+    const row = exports_.rows.find((r) => r[eOwner] === moduleHash && r[eLocal] === local);
+    if (row?.[eName] !== 'default' || row[eForm] !== 'EXPORT_DECLARATION' || row[eTarget] !== target
+      || moduleRow?.[mDefault] !== row[ePk]) {
+      failures += fail(`${file}: \`export default ${target === 'TYPE' ? 'class' : 'function'} ${local}\` is exported as `
+        + `${JSON.stringify(row?.[eName])} (${row?.[eForm]}/${row?.[eTarget]}), module default link `
+        + `${moduleRow?.[mDefault] === row?.[ePk] ? 'set' : 'NOT this row'}; expected default/${local} with the `
+        + 'module naming it — the default modifier decides, not whether the declaration has a name (#176)');
+    }
+    const control = exports_.rows.find((r) => r[eOwner] === moduleHash && r[eLocal] === 'plain');
+    if (file === 'default-named.js' && control?.[eName] !== 'plain') {
+      failures += fail(`default-named.js: the control \`export function plain\` is exported as ${JSON.stringify(control?.[eName])}`);
     }
   }
   // `@type` over an assignment to a bare identifier resolves to the VARIABLE.

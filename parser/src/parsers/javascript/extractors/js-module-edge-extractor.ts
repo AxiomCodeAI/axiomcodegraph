@@ -436,10 +436,19 @@ class JsModuleEdgeExtractor {
   }
 
   private emitExportedDeclaration(statement: ts.Statement): void {
+    // `export default function named() {}` / `export default class K {}`:
+    // the DEFAULT modifier decides the exported name, not whether the
+    // declaration has one. Only the name was consulted, so a named default
+    // export was emitted under its local name — indistinguishable from
+    // `export function named()`, and `import x from` found no `default`
+    // (#176: 16 of 16 on one ESM package). The anonymous form and the
+    // expression form were already `default`.
+    const isDefault = (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement))
+      && (ts.getCombinedModifierFlags(statement) & ts.ModifierFlags.Default) !== 0;
     for (const name of exportedNamesOf(statement)) {
       this.emitExport({
         node: statement,
-        exportedName: name,
+        exportedName: isDefault ? JS_DEFAULT_EXPORT_NAME : name,
         localName: name,
         exportForm: JsExportForm.EXPORT_DECLARATION,
         exportedValueKind: declaredValueKindOf(statement),

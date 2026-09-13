@@ -1407,6 +1407,25 @@ export class JsDeclarationExtractor {
       } else {
         existing.setSetterMethodLinkHash(method.getHash());
       }
+      // The pair's @type may sit on THIS accessor, the second one: the row
+      // was minted at the first with no type and the tag had no row to land
+      // on — `get cancelBubble()` then `/** @type {boolean} */ set
+      // cancelBubble(v)`, from the recall residue.
+      if (existing.declaredTypeNameValue() === '') {
+        const secondType = declaredTypeFromJsDoc(member, this.sourceFile, 'type');
+        if (secondType.source !== JsDeclaredTypeSource.NONE) {
+          existing.setDeclaredType(secondType.name, secondType.source);
+          this.pendingTypeReferences.push({
+            node: member,
+            ownerKind: JsTypeReferenceOwnerKind.FIELD,
+            ownerHash: existing.getHash(),
+            contextKind: JsTypeReferenceContextKind.FIELD,
+            link: (hash) => {
+              existing.setTypeReferenceLinkHash(hash);
+            },
+          });
+        }
+      }
       return;
     }
     const at = this.positionOf(member);

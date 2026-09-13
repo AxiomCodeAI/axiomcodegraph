@@ -221,6 +221,35 @@ function namedAbsence(host: ts.Node, tag: ts.JSDocTag): string | undefined {
   if (ts.isJSDocTypedefTag(tag) && tag.name === undefined) {
     return 'a nameless @typedef: malformed, declares no type';
   }
+  if ((ts.isJSDocTypedefTag(tag) || ts.isJSDocCallbackTag(tag)) && tag.name !== undefined) {
+    // One type row per name: a @typedef naming a class or constructor function
+    // that exists in syntax yields to the syntax row, and a second @typedef of
+    // the same name (the same block pasted above two functions) is a
+    // re-declaration. Neither mints a second type or its tree.
+    const sf = tag.getSourceFile();
+    const name = tag.name.getText(sf);
+    let syntaxDeclared = false; let earlierTypedef = false;
+    const scan = (m: ts.Node): void => {
+      if ((ts.isClassLike(m) || ts.isFunctionDeclaration(m)) && m.name !== undefined
+        && m.name.getText(sf) === name) { syntaxDeclared = true; }
+      for (const d of (m as unknown as { jsDoc?: ts.JSDoc[] }).jsDoc ?? []) {
+        for (const t of d.tags ?? []) {
+          if (t !== tag && t.pos < tag.pos && (ts.isJSDocTypedefTag(t) || ts.isJSDocCallbackTag(t))
+            && t.name !== undefined && t.name.getText(sf) === name) { earlierTypedef = true; }
+        }
+      }
+      ts.forEachChild(m, scan);
+    };
+    scan(sf);
+    if (syntaxDeclared) { return 'a @typedef naming a type that also exists in syntax: the syntax row wins'; }
+    if (earlierTypedef) { return 'a @typedef re-declaring an earlier @typedef of the same name: one type row'; }
+  }
+  if (ts.isJSDocTypeTag(tag) && (ts.isForOfStatement(host) || ts.isForInStatement(host) || ts.isForStatement(host))) {
+    return '@type on a for statement: the compiler ignores it (getJSDocType is undefined for the loop variable)';
+  }
+  if (ts.isJSDocEnumTag(tag)) {
+    return '@enum: a JSDoc type declaration with no owner/context pair (revisitable)';
+  }
   return undefined;
 }
 

@@ -45,8 +45,8 @@ export class JsFieldRegistry implements EntityIdentifiable {
   readonly isPrivateName: boolean;
   /** `writable: false` via `Object.defineProperty`. */
   private isReadonly = false;
-  readonly declaredTypeName: string;
-  readonly declaredTypeSource: JsDeclaredTypeSource;
+  private declaredTypeName: string;
+  private declaredTypeSource: JsDeclaredTypeSource;
   private typeReferenceLinkHash = ABSENT;
   readonly hasInitializer: boolean;
   private initializerExpressionLinkHash = ABSENT;
@@ -121,6 +121,19 @@ export class JsFieldRegistry implements EntityIdentifiable {
   }
   setAccessorPairKind(value: JsAccessorPairKind): void {
     this.accessorPairKind = value;
+  }
+  /**
+   * An accessor PAIR is one field row, minted at whichever accessor comes
+   * first — and the `@type` may sit on the other one. `get x() {}` then
+   * `/** @type {boolean} *\/ set x(v) {}` typed nothing, because the row was
+   * built at the getter with no type and the setter's tag had no row to land on.
+   */
+  setDeclaredType(name: string, source: JsDeclaredTypeSource): void {
+    this.declaredTypeName = name;
+    this.declaredTypeSource = source;
+  }
+  declaredTypeNameValue(): string {
+    return this.declaredTypeName;
   }
   setGetterMethodLinkHash(hash: string): void {
     this.getterMethodLinkHash = hash;
