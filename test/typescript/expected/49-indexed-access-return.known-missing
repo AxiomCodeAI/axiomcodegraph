@@ -1,0 +1,7 @@
+# Accepted gap, and a DIFFERENT question from the one this case fixes. `Zoo[K]` where
+# `K extends keyof Zoo` denotes a union over EVERY member of Zoo; the compiler narrows K
+# to `"cat"` from the argument at the call, which is generic instantiation from an
+# argument rather than reading an index off a declaration. Left unresolved rather than
+# guessed at one member.
+# It cannot rot: if the generic form starts resolving, this line reports NOW-FIXED.
+main#useGeneric() -> Cat#purr()

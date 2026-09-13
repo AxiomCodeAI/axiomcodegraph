@@ -343,6 +343,41 @@ ref_type_target(ref, prov, t) :- type_ref_type_param(rp, tp, ref),
     type_param_constraint(rp, cref, tp),
     ref_type_target(cref, prov, t).
 
+// ── INDEXED ACCESS with a LITERAL index — `Zoo["dog"]` ─────────────────────
+// An INDEXED_ACCESS reference denotes a member's type, and nothing resolved it, so a
+// function declared `(): Zoo["dog"]` returned no type at all and every call on its
+// result was unresolved. The declaration is a normal way to say "the type of that
+// property" and needs no inference to read: the reference's children ARE the object
+// type and the index.
+//
+// Resolved here, in ref_type_target, rather than at the return position, because the
+// same reference shape appears on parameters, fields and variables and all of them go
+// through this relation.
+//
+// The LITERAL child carries its quotes (`"dog"`, seven characters), so the property
+// name is the inside of it.
+//
+// It reaches the member through declared_field and the field's own type REFERENCE, not
+// through field_in_scope and field_type. Both of those sit inside the member-lookup
+// fixpoint and carry negations -- field_type has a `!field_has_declared_type` clause --
+// so routing through them puts ref_type_target in a component with a negation and
+// Souffle refuses to stratify roughly a hundred relations at once. This path is
+// positive recursion on ref_type_target and nothing else.
+//
+// ONLY the literal index. `Zoo[K]` where `K extends keyof Zoo` denotes a union over
+// every member and is a different question; it stays unresolved rather than being
+// guessed at one member.
+ref_type_target(ia, prov, t) :- type_ref(_, "INDEXED_ACCESS", _, _, _, _, _, ia),
+    type_ref_parent(_, ia, "0", oref),
+    ref_type_target(oref, _, obj),
+    type_ref_parent(_, ia, "1", iref),
+    type_ref(_, "LITERAL", _, _, lit, _, _, iref),
+    strlen(lit) > 2,
+    n = substr(lit, 1, strlen(lit) - 2),
+    declared_field(obj, n, _, f),
+    field_type_ref(_, fr, f),
+    ref_type_target(fr, prov, t).
+
 // BY NAME, and only where the exact link is absent. Keeping both unguarded would put
 // the shadowed declaration's constraint alongside the right one at every such site,
 // which is a superset the exact link exists to remove.
