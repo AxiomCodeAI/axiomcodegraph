@@ -321,6 +321,7 @@
 .decl param_binding(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol)
 .decl param_kind_is_positional(c0:symbol)
 .decl param_decl(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol)
+.decl param_is_string_literal(c0:symbol,c1:symbol)
 .decl param_declares_field(c0:symbol,c1:symbol,c2:symbol)
 .decl param_is_universal(c0:symbol,c1:symbol)
 .decl param_primitive(c0:symbol,c1:symbol,c2:symbol)
