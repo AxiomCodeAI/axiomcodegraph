@@ -1,0 +1,76 @@
+// ============================================================================
+// Projections · IMPORTS AND EXPORTS  (pure column views)
+//
+// The module graph. 83.6% of these rows were MINTED FROM EXPRESSIONS by the
+// parser's second pass — `require()` is a call, `module.exports.x = f` is an
+// assignment — and the rows carry `sourceExpressionLinkHash` back to the
+// expression so the value on the far side can be read from the tree.
+//
+// js_import / lib_js_import cols (23):
+//   0 specifier  1 specifierKind  2 edgeBearer  3 importForm  4 isTopLevel
+//   5 isConditional  6 bindingForm  7 importedName  8 localName
+//   9 resolvedFilePath  10 resolutionOutcome  11 resolvedModuleLinkHash
+//   12 isTypeOnly  13 sourceExpressionLinkHash  14 boundVariableLinkHash
+//   15 ownerScopeLinkHash  16 ownerMethodLinkHash  17 ownerModuleLinkHash
+//   18 startLine  19 startColumn  20 isExternal  21 serviceVersionLinkHash
+//   22 jsImportUniqueHash
+//
+// js_export / lib_js_export cols (22):
+//   0 exportedName  1 localName  2 edgeBearer  3 exportForm  4 exportedValueKind
+//   5 isReExport  6 reExportSpecifier  7 reExportImportLinkHash  8 isTopLevel
+//   9 isConditional  10 targetKind  11 targetLinkHash  12 sourceExpressionLinkHash
+//   13 overwritesPreviousExport  14 ownerScopeLinkHash  15 ownerMethodLinkHash
+//   16 ownerModuleLinkHash  17 startLine  18 startColumn  19 isExternal
+//   20 serviceVersionLinkHash  21 jsExportUniqueHash
+// ============================================================================
+
+// ── import_decl(Prov, Specifier, Form, BindingForm, ImportedName, ResolvedFile, Outcome, OwnerModule, ImportHash) ──
+// Form: REQUIRE_CALL | IMPORT_DECLARATION | DYNAMIC_IMPORT | IMPORT_EQUALS |
+//   CREATE_REQUIRE | JSDOC_IMPORT_TYPE
+// BindingForm: DEFAULT | NAMED | NAMESPACE | DESTRUCTURED | NO_LOCAL_BINDING |
+//   SIDE_EFFECT_ONLY
+// Outcome: RESOLVED_PROJECT | RESOLVED_EXTERNAL | RESOLVED_BUILTIN |
+//   UNRESOLVED_MISSING | UNRESOLVED_NON_LITERAL
+// ResolvedFile is extension-less and joins module_qname.
+import_decl("client", spec, form, bf, iname, rf, out, mod, h) :- js_import(spec, _, _, form, _, _, bf, iname, _, rf, out, _, _, _, _, _, _, mod, _, _, _, _, h).
+import_decl("lib", spec, form, bf, iname, rf, out, mod, h) :- lib_js_import(spec, _, _, form, _, _, bf, iname, _, rf, out, _, _, _, _, _, _, mod, _, _, _, _, h).
+
+// ── import_source_expr(Prov, ExprHash, ImportHash) ──────────────────────────
+// The `require(...)` / `import(...)` expression the row was minted from. This is
+// the value-bearing side: `require('./x').y` reaches the module through it.
+import_source_expr("client", e, h) :- js_import(_, _, _, _, _, _, _, _, _, _, _, _, _, e, _, _, _, _, _, _, _, _, h), e != "".
+import_source_expr("lib", e, h) :- lib_js_import(_, _, _, _, _, _, _, _, _, _, _, _, _, e, _, _, _, _, _, _, _, _, h), e != "".
+
+// ── import_is_type_only(Prov, ImportHash) ───────────────────────────────────
+// A JSDoc `import('x').T` — a type position. Contributes no value.
+import_is_type_only("client", h) :- js_import(_, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, h).
+import_is_type_only("lib", h) :- lib_js_import(_, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, h).
+
+// ── export_decl(Prov, ExportedName, LocalName, Form, ValueKind, TargetKind, Target, SourceExpr, OwnerModule, ExportHash) ──
+// Form: EXPORT_DECLARATION | EXPORT_DEFAULT | EXPORT_ALL | MODULE_EXPORTS_ASSIGNMENT |
+//   MODULE_EXPORTS_MEMBER | EXPORTS_MEMBER | OBJECT_DEFINE_PROPERTY
+// TargetKind: METHOD | TYPE | VARIABLE | FIELD | EXPRESSION_VALUE. For an
+// EXPRESSION_VALUE the target hash is EMPTY and SourceExpr is the ASSIGNMENT whose
+// ASSIGNMENT_VALUE child is the exported value.
+// `module.exports = X` is exported under the name "default" so that an ESM
+// `import x from './cjs'` and a CJS `require('./cjs')` read the same row.
+export_decl("client", en, ln, form, vk, tk, tgt, se, mod, h) :- js_export(en, ln, _, form, vk, _, _, _, _, _, tk, tgt, se, _, _, _, mod, _, _, _, _, h).
+export_decl("lib", en, ln, form, vk, tk, tgt, se, mod, h) :- lib_js_export(en, ln, _, form, vk, _, _, _, _, _, tk, tgt, se, _, _, _, mod, _, _, _, _, h).
+
+// ── export_reexport(Prov, Specifier, ImportHash, ExportHash) ────────────────
+// `module.exports = require('./y')` / `export * from './y'` / `export { a } from`:
+// one edge that is in and out at once. The import row carries the resolved file.
+export_reexport("client", spec, imp, h) :- js_export(_, _, _, _, _, "true", spec, imp, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+export_reexport("lib", spec, imp, h) :- lib_js_export(_, _, _, _, _, "true", spec, imp, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── export_overwritten(Prov, ExportHash) ────────────────────────────────────
+// `exports.a = 1; module.exports = { b }` exports ONLY b. A row the parser marks as
+// overwritten is a fact about the source that is false at runtime, and it is
+// excluded from the export surface.
+export_overwritten("client", h) :- js_export(_, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, h).
+export_overwritten("lib", h) :- lib_js_export(_, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, h).
+
+// ── export_form_is_module_exports(Form) ─────────────────────────────────────
+// The forms whose exported VALUE replaces the whole exports object.
+export_form_is_module_exports("MODULE_EXPORTS_ASSIGNMENT").
+export_form_is_module_exports("EXPORT_DEFAULT").

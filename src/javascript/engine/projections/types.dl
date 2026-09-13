@@ -1,0 +1,88 @@
+// ============================================================================
+// Projections · TYPES, HERITAGE, FIELDS  (pure column views)
+//
+// A js_type is a class, a constructor function WITH prototype members, or a JSDoc
+// typedef/callback. There is no interface, no declaration merging and no
+// `implements`: the only hierarchy edge is `extends` (or its pre-ES6 spellings —
+// `util.inherits`, `Object.create(B.prototype)`, `C.prototype = ...`), and every
+// such edge INHERITS MEMBERS. That makes the hierarchy layer one closure, not the
+// two TypeScript needs.
+//
+// js_type / lib_js_type cols (26):
+//   0 name  1 qualifiedName  2 fileName  3 filePath  4 baseMservPath  5 startLine
+//   6 endLine  7 startColumn  8 typeCategory  9 declarationForm  10 isAbstract
+//   11 modifiers  12 evidenceKind  13 isTypeOnly  14 declaredMemberCount
+//   15 hasPrototypeMembers  16 constructorMethodLinkHash  17 ownerModuleLinkHash
+//   18 ownerScopeLinkHash  19 enclosingMethodLinkHash  20 sourceExpressionLinkHash
+//   21 jsdocCommentLinkHash  22 isExported  23 isExternal  24 serviceVersionLinkHash
+//   25 jsTypeUniqueHash
+//
+// js_type_heritage / lib_js_type_heritage cols (16):
+//   0 ownerTypeLinkHash  1 position  2 heritageForm  3 superTypeName
+//   4 superTypeExpressionText  5 isComputedSuperclass  6 inheritsMembers
+//   7 resolvedTypeLinkHash  8 resolvedFilePath  9 importLinkHash
+//   10 sourceExpressionLinkHash  11 startLine  12 ownerModuleLinkHash  13 isExternal
+//   14 serviceVersionLinkHash  15 jsTypeHeritageUniqueHash
+//
+// js_field / lib_js_field cols (23):
+//   0 name  1 qualifiedName  2 ownerTypeLinkHash  3 declarationForm  4 isStatic
+//   5 isPrivateName  6 isReadonly  7 declaredTypeName  8 declaredTypeSource
+//   9 typeReferenceLinkHash  10 hasInitializer  11 initializerExpressionLinkHash
+//   12 accessorPairKind  13 getterMethodLinkHash  14 setterMethodLinkHash
+//   15 isComputedName  16 sourceExpressionLinkHash  17 startLine  18 startColumn
+//   19 ownerModuleLinkHash  20 isExternal  21 serviceVersionLinkHash
+//   22 jsFieldUniqueHash
+// ============================================================================
+
+// ── type_decl(Prov, Name, Category, OwnerScope, OwnerModule, TypeHash) ──────
+// Category (col 8): CLASS | ANONYMOUS_CLASS | CONSTRUCTOR_FUNCTION | JSDOC_TYPEDEF |
+// JSDOC_CALLBACK. The last two are COMMENT_ONLY evidence and isTypeOnly=true: they
+// name a shape for JSDoc and can never be constructed or dispatched into, so they
+// are projected under type_only_decl and kept out of every value rule.
+type_decl("client", n, category, sc, mod, h) :- js_type(n, _, _, _, _, _, _, _, category, _, _, _, _, "false", _, _, _, mod, sc, _, _, _, _, _, _, h).
+type_decl("lib", n, category, sc, mod, h) :- lib_js_type(n, _, _, _, _, _, _, _, category, _, _, _, _, "false", _, _, _, mod, sc, _, _, _, _, _, _, h).
+type_only_decl("client", n, category, mod, h) :- js_type(n, _, _, _, _, _, _, _, category, _, _, _, _, "true", _, _, _, mod, _, _, _, _, _, _, _, h).
+type_only_decl("lib", n, category, mod, h) :- lib_js_type(n, _, _, _, _, _, _, _, category, _, _, _, _, "true", _, _, _, mod, _, _, _, _, _, _, _, h).
+
+// ── type_lines(Prov, FilePath, Line, Col, TypeHash) ─────────────────────────
+type_lines("client", fp, l, c, h) :- js_type(_, _, _, fp, _, l, _, c, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+type_lines("lib", fp, l, c, h) :- lib_js_type(_, _, _, fp, _, l, _, c, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── type_ctor(Prov, ConstructorMethodHash, TypeHash) ────────────────────────
+// A class's `constructor()` or a constructor function's own js_method. EMPTY for a
+// class that declares none — `new C()` then runs the nearest ancestor's, or nothing
+// (the synthesized default), see expression-resolution/callee-resolution.dl.
+type_ctor("client", m, h) :- js_type(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, _, _, _, _, h), m != "".
+type_ctor("lib", m, h) :- lib_js_type(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, _, _, _, _, h), m != "".
+
+// ── type_source_expr(Prov, ExprHash, TypeHash) ──────────────────────────────
+// The expression that INTRODUCES the type: a class expression. Measured EMPTY on
+// every class expression in the probe (see PARSER-DEFECTS.md, PD-JS-2), so
+// resolution/value-flow.dl falls back to position for that case; kept so the
+// fallback retires by itself when the column is populated.
+type_source_expr("client", e, h) :- js_type(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, _, _, _, h), e != "".
+type_source_expr("lib", e, h) :- lib_js_type(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, _, _, _, h), e != "".
+
+// ── heritage(Prov, OwnerType, Form, SuperName, ResolvedFile, ImportHash, SourceExpr, HeritageHash) ──
+// Form: EXTENDS_CLAUSE | UTIL_INHERITS | OBJECT_CREATE_PROTOTYPE | PROTOTYPE_ASSIGNMENT.
+// Every form inherits members (col 6 is `true` on all measured rows) — there is no
+// `implements` to keep apart. `resolvedTypeLinkHash` (col 7) is TIER 3 and empty by
+// contract; the ENGINE resolves from the name, the import hop and the file.
+heritage("client", t, form, sn, rf, imp, se, h) :- js_type_heritage(t, _, form, sn, _, _, _, _, rf, imp, se, _, _, _, _, h).
+heritage("lib", t, form, sn, rf, imp, se, h) :- lib_js_type_heritage(t, _, form, sn, _, _, _, _, rf, imp, se, _, _, _, _, h).
+heritage_computed("client", t, h) :- js_type_heritage(t, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, h).
+heritage_computed("lib", t, h) :- lib_js_type_heritage(t, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, h).
+
+// ── field_decl(Prov, Name, OwnerType, Form, IsStatic, InitExpr, SourceExpr, FieldHash) ──
+// Form: CLASS_FIELD | CONSTRUCTOR_THIS_ASSIGNMENT | PROTOTYPE_ASSIGNMENT |
+//       STATIC_ASSIGNMENT | OBJECT_DEFINE_PROPERTY.
+// `initializerExpressionLinkHash` (col 11) is EMPTY for CONSTRUCTOR_THIS_ASSIGNMENT
+// on every measured row; the value is reached from the assignment expression that
+// DECLARES the field instead (`js_expression.declarationLinkHash` -> this row, its
+// ASSIGNMENT_VALUE child is the value). resolution/value-flow.dl does that join.
+field_decl("client", n, t, form, st, ie, se, h) :- js_field(n, _, t, form, st, _, _, _, _, _, _, ie, _, _, _, _, se, _, _, _, _, _, h).
+field_decl("lib", n, t, form, st, ie, se, h) :- lib_js_field(n, _, t, form, st, _, _, _, _, _, _, ie, _, _, _, _, se, _, _, _, _, _, h).
+field_accessor("client", n, t, getter, setter, h) :- js_field(n, _, t, _, _, _, _, _, _, _, _, _, _, getter, setter, _, _, _, _, _, _, _, h).
+field_accessor("lib", n, t, getter, setter, h) :- lib_js_field(n, _, t, _, _, _, _, _, _, _, _, _, _, getter, setter, _, _, _, _, _, _, _, h).
+field_type_name("client", n, t, tn, tr, h) :- js_field(n, _, t, _, _, _, _, tn, _, tr, _, _, _, _, _, _, _, _, _, _, _, _, h), tn != "".
+field_type_name("lib", n, t, tn, tr, h) :- lib_js_field(n, _, t, _, _, _, _, tn, _, tr, _, _, _, _, _, _, _, _, _, _, _, _, h), tn != "".

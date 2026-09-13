@@ -1,0 +1,101 @@
+// ============================================================================
+// Projections · METHODS AND PARAMETERS  (pure column views)
+//
+// Every callable is one js_method row: declarations, expressions, arrows, class
+// members, accessors, members DECLARED BY ASSIGNMENT (`F.prototype.m = function`),
+// and the synthetic <module> initializer. That uniformity is what lets a single
+// `func(M)` value carry through the whole flow layer.
+//
+// js_method / lib_js_method cols (36):
+//   0 name  1 qualifiedName  2 fileName  3 filePath  4 baseMservPath  5 startLine
+//   6 endLine  7 startColumn  8 methodKind  9 declarationForm  10 hoisting
+//   11 isAsync  12 isGenerator  13 isStatic  14 parameterCount  15 hasRestParameter
+//   16 usesArguments  17 thisBinding  18 returnTypeName  19 declaredTypeSource
+//   20 returnTypeReferenceLinkHash  21 bodyPresence  22 ownerTypeLinkHash
+//   23 ownerModuleLinkHash  24 ownerScopeLinkHash  25 bodyScopeLinkHash
+//   26 enclosingMethodLinkHash  27 sourceExpressionLinkHash  28 jsdocCommentLinkHash
+//   29 isExported  30 isEntryPoint  31 methodReferenceKind  32 modifiers
+//   33 isExternal  34 serviceVersionLinkHash  35 jsMethodUniqueHash
+//
+// js_method_parameter / lib_js_method_parameter cols (22):
+//   0 name  1 position  2 ownerMethodLinkHash  3 declaredTypeName
+//   4 declaredTypeSource  5 typeReferenceLinkHash  6 isOptional  7 hasDefault
+//   8 defaultValueText  9 isRest  10 bindingForm  11 patternBindingCount
+//   12 bindingRegime  13 scopeLinkHash  14 startLine  15 startColumn
+//   16 isParameterProperty  17 jsdocCommentLinkHash  18 ownerModuleLinkHash
+//   19 isExternal  20 serviceVersionLinkHash  21 jsMethodParameterUniqueHash
+// ============================================================================
+
+// ── method_decl(Prov, Name, Kind, DeclForm, IsStatic, OwnerType, OwnerModule, MethodHash) ──
+// Kind (col 8): ARROW | CLASS_METHOD | CONSTRUCTOR | FUNCTION_DECLARATION |
+//   FUNCTION_EXPRESSION | GETTER | MODULE_INITIALIZER | SETTER | STATIC_BLOCK
+// DeclForm (col 9): SYNTACTIC | PROTOTYPE_ASSIGNMENT | STATIC_ASSIGNMENT |
+//   PROTOTYPE_OBJECT_LITERAL | OBJECT_ASSIGN_PROTOTYPE | OBJECT_DEFINE_PROPERTY
+// A member declared by assignment is CLASS_METHOD with a non-SYNTACTIC form and an
+// ownerTypeLinkHash, so member lookup needs no special case for the pre-ES6 style.
+method_decl("client", n, k, form, st, t, mod, h) :- js_method(n, _, _, _, _, _, _, _, k, form, _, _, _, st, _, _, _, _, _, _, _, _, t, mod, _, _, _, _, _, _, _, _, _, _, _, h).
+method_decl("lib", n, k, form, st, t, mod, h) :- lib_js_method(n, _, _, _, _, _, _, _, k, form, _, _, _, st, _, _, _, _, _, _, _, _, t, mod, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── method_scopes(Prov, OwnerScope, BodyScope, EnclosingMethod, MethodHash) ──
+// OwnerScope is the scope the callable is DECLARED in — the class scope for a
+// member, the enclosing function's body scope for a nested function. BodyScope is
+// the scope its own body opens. EnclosingMethod is the containing callable, which
+// for an arrow is what `this` lexically refers to.
+method_scopes("client", os, bs, em, h) :- js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, os, bs, em, _, _, _, _, _, _, _, _, h).
+method_scopes("lib", os, bs, em, h) :- lib_js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, os, bs, em, _, _, _, _, _, _, _, _, h).
+
+// ── method_lines(Prov, FilePath, Line, Col, MethodHash) ─────────────────────
+// The identity the oracle compares on: `checker.getResolvedSignature(...).declaration`
+// starts at the SAME token — the `function` keyword, the arrow's first parameter
+// paren, the member name — so (file, line, col) is exact on both sides.
+method_lines("client", fp, l, c, h) :- js_method(_, _, _, fp, _, l, _, c, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+method_lines("lib", fp, l, c, h) :- lib_js_method(_, _, _, fp, _, l, _, c, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── method_source_expr(Prov, ExprHash, MethodHash) ──────────────────────────
+// For a member declared by assignment, the ASSIGNMENT / `Object.assign` call that
+// declared it. Populated on every non-SYNTACTIC form measured.
+method_source_expr("client", e, h) :- js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, _, _, _, _, _, _, h), e != "".
+method_source_expr("lib", e, h) :- lib_js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, _, _, _, _, _, _, h), e != "".
+
+// ── method_return_type(Prov, TypeName, TypeRefHash, MethodHash) ─────────────
+// JSDoc `@returns {T}` — the only declared return type the language has. Read
+// through the type-reference row, which carries the import hop.
+method_return_type("client", tn, tr, h) :- js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, tn, _, tr, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), tn != "".
+method_return_type("lib", tn, tr, h) :- lib_js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, tn, _, tr, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), tn != "".
+
+// ── method_this_binding(Prov, Binding, MethodHash) ──────────────────────────
+// LEXICAL for an arrow (this is the enclosing callable's), DYNAMIC for a function,
+// NONE for the module initializer.
+method_this_binding("client", b, h) :- js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, b, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+method_this_binding("lib", b, h) :- lib_js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, b, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── param_decl(Prov, Name, Position, OwnerMethod, ParamHash) ────────────────
+// Position is 0-based and one row per formal parameter (a destructured parameter
+// is ONE row), so argument i of a resolved call flows into position i.
+param_decl("client", n, pos, m, h) :- js_method_parameter(n, pos, m, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+param_decl("lib", n, pos, m, h) :- lib_js_method_parameter(n, pos, m, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+param_is_rest("client", h) :- js_method_parameter(_, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, h).
+param_is_rest("lib", h) :- lib_js_method_parameter(_, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── param_type_name(Prov, TypeName, TypeRefHash, ParamHash) ─────────────────
+// JSDoc `@param {T} x`. 36.4% of parameters carry one on the schema's corpus, and
+// it is the ONLY declared type channel — syntactic annotations are Flow and rejected.
+param_type_name("client", tn, tr, h) :- js_method_parameter(_, _, _, tn, _, tr, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), tn != "".
+param_type_name("lib", tn, tr, h) :- lib_js_method_parameter(_, _, _, tn, _, tr, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), tn != "".
+
+// ── method_kind_* — the kind splits, enumerated in one place ────────────────
+// A member of a class or prototype: what an instance receiver looks up.
+method_kind_is_member("CLASS_METHOD").
+method_kind_is_member("GETTER").
+method_kind_is_member("SETTER").
+// A value-level callable: what a bare identifier or property can hold.
+method_kind_is_value("FUNCTION_DECLARATION").
+method_kind_is_value("FUNCTION_EXPRESSION").
+method_kind_is_value("ARROW").
+
+// ── method_modifiers(Prov, Modifiers, MethodHash) ───────────────────────────
+// A comma-joined list: `default,export`, `async`, `static`. Read in ONE place — to
+// recover `export default function f()` as the module's default export, which the
+// export table files under `f` (parser#176).
+method_modifiers("client", mods, h) :- js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, mods, _, _, h), mods != "".
+method_modifiers("lib", mods, h) :- lib_js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, mods, _, _, h), mods != "".

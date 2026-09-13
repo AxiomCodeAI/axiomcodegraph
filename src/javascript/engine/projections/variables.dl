@@ -1,0 +1,66 @@
+// ============================================================================
+// Projections · VARIABLES  (pure column views)
+//
+// Every binding that is not a parameter or a member: `const`/`let`/`var`, the name
+// of a function declaration, the name of a class, an import binding, a catch
+// parameter. The binder resolves identifier references to these rows, so a
+// variable is the hop between a name and the value it holds — the row this engine's
+// flow layer is keyed on.
+//
+// js_variable / lib_js_variable cols (25):
+//   0 name  1 qualifiedName  2 bindingRegime  3 declarationScopeLinkHash
+//   4 syntacticScopeLinkHash  5 hasTemporalDeadZone  6 bindingForm
+//   7 patternRootVariableLinkHash  8 declaredTypeName  9 declaredTypeSource
+//   10 typeReferenceLinkHash  11 hasInitializer  12 initializerExpressionLinkHash
+//   13 initializerKind  14 importLinkHash  15 isReassigned  16 ownerMethodLinkHash
+//   17 ownerModuleLinkHash  18 startLine  19 startColumn  20 endLine  21 isExported
+//   22 isExternal  23 serviceVersionLinkHash  24 jsVariableUniqueHash
+// ============================================================================
+
+// ── var_decl(Prov, Name, Regime, DeclScope, SynScope, OwnerModule, VarHash) ──
+// Regime (col 2): CATCH_PARAMETER | CLASS_TDZ | CONST_BLOCK_TDZ |
+//   FUNCTION_DECLARATION_HOISTED | GLOBAL_IMPLICIT | IMPORT_BINDING | LET_BLOCK_TDZ |
+//   VAR_FUNCTION_SCOPED_HOISTED
+// DeclScope is where the name is VISIBLE FROM; SynScope where it is WRITTEN. They
+// differ for a `var` inside a block, which is why both are kept.
+var_decl("client", n, reg, ds, ss, mod, h) :- js_variable(n, _, reg, ds, ss, _, _, _, _, _, _, _, _, _, _, _, _, mod, _, _, _, _, _, _, h).
+var_decl("lib", n, reg, ds, ss, mod, h) :- lib_js_variable(n, _, reg, ds, ss, _, _, _, _, _, _, _, _, _, _, _, _, mod, _, _, _, _, _, _, h).
+
+// ── var_init(Prov, InitKind, InitExpr, VarHash) ─────────────────────────────
+// InitKind (col 13): CLASS | FUNCTION | IMPORT_BINDING | NONE | OBJECT_LITERAL |
+//   OTHER | REQUIRE_CALL. The EXPRESSION is what the flow layer reads; the kind is
+//   diagnostic. Empty for a declaration with no initializer.
+var_init("client", k, e, h) :- js_variable(_, _, _, _, _, _, _, _, _, _, _, _, e, k, _, _, _, _, _, _, _, _, _, _, h), e != "".
+var_init("lib", k, e, h) :- lib_js_variable(_, _, _, _, _, _, _, _, _, _, _, _, e, k, _, _, _, _, _, _, _, _, _, _, h), e != "".
+
+// ── var_import(Prov, ImportHash, VarHash) ───────────────────────────────────
+// The hop that makes a local name a module alias: `const x = require('y')`,
+// `const { a } = require('y')`, `import a from 'y'`. One js_import row per BINDING
+// for the destructured form, each carrying its own importedName.
+var_import("client", i, h) :- js_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, i, _, _, _, _, _, _, _, _, _, h), i != "".
+var_import("lib", i, h) :- lib_js_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, i, _, _, _, _, _, _, _, _, _, h), i != "".
+
+// ── var_owner_method(Prov, MethodHash, VarHash) ─────────────────────────────
+// The callable a local is declared inside. For the NAME of a named function
+// expression this is the function ITSELF — `function f() {}` binds `f` in its own
+// body scope — which is how the binding is joined back to its js_method.
+var_owner_method("client", m, h) :- js_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, _, _, _, h), m != "".
+var_owner_method("lib", m, h) :- lib_js_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, _, _, _, h), m != "".
+
+// ── var_type_name(Prov, TypeName, TypeRefHash, VarHash) ─────────────────────
+// JSDoc `@type {T}` on the declaration.
+var_type_name("client", tn, tr, h) :- js_variable(_, _, _, _, _, _, _, _, tn, _, tr, _, _, _, _, _, _, _, _, _, _, _, _, _, h), tn != "".
+var_type_name("lib", tn, tr, h) :- lib_js_variable(_, _, _, _, _, _, _, _, tn, _, tr, _, _, _, _, _, _, _, _, _, _, _, _, _, h), tn != "".
+
+// ── var_pattern_root(Prov, RootVar, VarHash) ────────────────────────────────
+// A destructured binding's root. `const { a, b } = obj` is one root plus a row per
+// name; the import form is handled through var_import instead, so this is read
+// only for object-pattern destructuring of a non-import value.
+var_pattern_root("client", r, h) :- js_variable(_, _, _, _, _, _, _, r, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), r != "".
+var_pattern_root("lib", r, h) :- lib_js_variable(_, _, _, _, _, _, _, r, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), r != "".
+
+// ── var_binding_form(Prov, Form, VarHash) ───────────────────────────────────
+// IDENTIFIER | OBJECT_PATTERN | ARRAY_PATTERN. A pattern binding's initializer is
+// the WHOLE destructured value, so its own value is a property (or element) of it.
+var_binding_form("client", f, h) :- js_variable(_, _, _, _, _, _, f, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+var_binding_form("lib", f, h) :- lib_js_variable(_, _, _, _, _, _, f, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
