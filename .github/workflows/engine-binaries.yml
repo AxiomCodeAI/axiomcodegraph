@@ -153,7 +153,7 @@ jobs:
         if: startsWith(matrix.target.platform, 'windows')
         shell: cmd
         run: |
-          cl /nologo /std:c++17 /O2 /EHsc /bigobj /w /permissive- /Zc:__cplusplus /D_CRT_SECURE_NO_WARNINGS /DNOMINMAX /I gen gen\${{ matrix.lang }}.cpp /Fe:axiom-engine-${{ matrix.lang }}-${{ matrix.target.platform }}.exe
+          cl /nologo /std:c++17 /O2 /EHsc /bigobj /w /permissive- /Zc:__cplusplus /D_CRT_SECURE_NO_WARNINGS /DNOMINMAX /DUSE_CUSTOM_GETOPTLONG /I gen gen\${{ matrix.lang }}.cpp /Fe:axiom-engine-${{ matrix.lang }}-${{ matrix.target.platform }}.exe
           if errorlevel 1 exit /b 1
           dir axiom-engine-*
 
