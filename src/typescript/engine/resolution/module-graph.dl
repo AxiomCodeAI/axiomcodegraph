@@ -197,6 +197,38 @@ module_export_any(prov, mod, en, k, hh) :- export_decl(prov, en, ln, ek, mod, h)
     ln != "",
     module_local_decl(prov, mod, ln, k, hh).
 
+// (b2) The same shape, but the local name is an IMPORT BINDING rather than a
+// declaration: a BARREL. `import { f } from "./impl"; export { f };` is the form every
+// index.ts in a package-per-directory layout is written in, and (b) cannot see it
+// because `f` is not declared in the barrel -- it is bound there. (c) cannot see it
+// either, because a bare `export { f }` carries no sourceSpecifier, so there is no
+// export_target_module to follow. The equivalent `export { f } from "./impl"` resolved
+// all along, which is why this read as a one-off rather than a class.
+//
+// The IR states the link outright: the barrel's own import row carries the local name
+// and already resolves to its target module, so this is a join, not an inference.
+// Provenance follows (c): the head carries the ENTITY's provenance, because a client
+// barrel may re-export something that lives in a library.
+// It resolves through import_target_module DIRECTLY rather than through
+// import_binds, and that is forced: import_binds reaches import_binds_interop, which
+// negates module_has_default_export, which is derived FROM module_export_any. Routing
+// this rule through it closes the cycle through a negation and Souffle refuses to
+// stratify the whole component. The recursion here is positive, which is allowed.
+module_export_any(prov, mod, en, k, ent) :- export_decl(eprov, en, ln, ek, mod, h),
+    export_kind_is_local_name(ek),
+    !export_entity(eprov, _, _, _, h),
+    // NOT `!export_source(...)`: that projection has no emptiness guard, so it holds
+    // for EVERY export row with spec="" and the negation can never fire. The bare
+    // form is discriminated positively, by the specifier being empty.
+    export_source(eprov, "", _, h),
+    ln != "",
+    import_binding(eprov, ik, ln, orig, mod, ih),
+    import_kind_binds_named(ik),
+    !import_is_type_only(eprov, ih),
+    orig != "",
+    import_target_module(ih, prov, m),
+    module_export_any(prov, m, orig, k, ent).
+
 // (c) RE-EXPORT of a named binding — `export { a as b } from "./m"`. localName is
 // the name in the SOURCE module, exportedName the alias seen by an importer. Using
 // one where the other belongs resolves to nothing, silently.
