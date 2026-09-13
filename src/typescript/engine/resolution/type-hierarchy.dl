@@ -68,6 +68,25 @@ lib_heritage_name_target(lmod, name, "lib", t) :- module_local_decl("lib", lmod,
 lib_heritage_name_target(lmod, name, "lib", t) :- lib_ts_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, lmod, _),
     global_decl(name, "TYPE", "lib", t),
     !module_local_decl("lib", lmod, name, "TYPE", _).
+// THE DECLARING MODULE'S OWN IMPORTS — a library class extending a class in ANOTHER
+// PACKAGE. The two clauses above look in the declaring module and in the library global
+// scope, and a cross-package supertype is in neither: `@fx/ext` writes
+// `import { Rect } from "@fx/core"` and then `class Square extends Rect`, so the name is
+// bound by an import rather than declared or global. Measured on a three-package repro:
+// `Rect extends Shape` (same package) and `Local extends Rect` (client extending a
+// library) both resolved, while `Square extends Rect` and `Circle extends Shape` — the
+// two crossing from one staged package into another — produced no heritage_target row at
+// all, so every inherited member was lost and the subclass never joined the base type's
+// dispatch set.
+//
+// Still scoped entirely to the library side, which is what the note above insists on:
+// the import is the LIBRARY's own (import_binding "lib"), and it is followed with
+// lib_import_target from lib-scope.dl rather than through any client relation, so a
+// library supertype can never be resolved against the client's imports.
+lib_heritage_name_target(lmod, name, prov, t) :- import_binding("lib", _, name, orig, lmod, h),
+    orig != "",
+    lib_import_target(h, prov, m),
+    module_export_any(prov, m, orig, "TYPE", t).
 
 // `class C extends mixin(Base)` — an EXTENDS_EXPRESSION whose superclass is computed.
 // isDynamic marks it; there is no static answer, so it is RECORDED as a declared

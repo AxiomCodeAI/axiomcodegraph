@@ -1,0 +1,2 @@
+oracle=2 engine=3 agree=2 missing=0 (known 0, NEW 0) extra=1
+  extra    main#use(Square,Circle,Local) -> Shape#area()
