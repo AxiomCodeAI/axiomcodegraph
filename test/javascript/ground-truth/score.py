@@ -71,6 +71,7 @@ def main():
     # ── IR: sites and methods ────────────────────────────────────────────────
     h, mods = read_tsv(os.path.join(ir, 'all-javascript-modules.csv'))
     mod_file = {r[h.index('jsModuleUniqueHash')]: r[h.index('filePath')] for r in mods}
+    ir_files = set(mod_file.values())
     h, exprs = read_tsv(os.path.join(ir, 'all-javascript-expressions.csv'))
     ih, isl, isc, iel, iec = (h.index(c) for c in ('jsExpressionUniqueHash', 'startLine', 'startColumn', 'endLine', 'endColumn'))
     expr_span = {r[ih]: (r[isl], r[isc], r[iel], r[iec]) for r in exprs}
@@ -154,6 +155,18 @@ def main():
                 b = 'LIB_WRONG'
             else:
                 b = 'LIB_MISSED'
+        elif tk == 'bodiless' and otarget[0] in ir_files:
+            # The compiler's answer is a JSDoc function TYPE — `@type {(n) => void}`
+            # on a field or `@param {() => void} cb` — not a body. The engine has
+            # nothing to point at; a site it resolved is a value it tracked to a real
+            # body, which the compiler cannot confirm or refute.
+            b = 'TYPE_ONLY_TARGET'
+        elif tk in ('implementation', 'bodiless') and otarget[0] not in ir_files:
+            # The compiler followed an import into a file the JavaScript front end
+            # never extracted — a `.ts` sibling in a mixed repository, a JSON module.
+            # Not reachable by any rule; kept apart from MISSED because the fix is
+            # not a rule.
+            b = 'TARGET_OUTSIDE_IR'
         elif tk == 'synthesized':
             if cls == 'implicit_constructor':
                 b = 'SYNTHESIZED_OK'
@@ -190,7 +203,7 @@ def main():
         (buckets['EXACT'] + buckets['SOUND_SUPERSET']) / max(1, decided),
         (buckets['EXACT'] + buckets['SOUND_SUPERSET']) / max(1, resolved)))
     print('other:')
-    for b in ('SYNTHESIZED_OK', 'SYNTHESIZED_OVER', 'SYNTHESIZED_MISSED', 'LIB_AMBIENT_OK', 'LIB_WRONG', 'LIB_MISSED', 'ENGINE_DROPPED'):
+    for b in ('SYNTHESIZED_OK', 'SYNTHESIZED_OVER', 'SYNTHESIZED_MISSED', 'LIB_AMBIENT_OK', 'LIB_WRONG', 'LIB_MISSED', 'TARGET_OUTSIDE_IR', 'TYPE_ONLY_TARGET', 'ENGINE_DROPPED'):
         if buckets[b]:
             print('  %-18s %6d' % (b, buckets[b]))
     print('undecided by the compiler (any): %d' % sum(undecided.values()))
