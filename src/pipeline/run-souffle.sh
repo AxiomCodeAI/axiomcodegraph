@@ -8,9 +8,13 @@
 #
 # NO SOUFFLÉ NEEDED TO RUN. The rules compile to one self-contained executable that is
 # project-independent; CI builds it for every platform on merge (engine-binaries.yml) and
-# publishes it under a release tagged engine-<lang>-<id>. When `souffle` is not on PATH this
-# script fetches that binary for the local platform (once, into the cache) and verifies its
-# sha256. With souffle installed it compiles locally as before. See src/pipeline/engine.conf.
+# COMMITS it under engine/binaries/<lang>/<platform>/ next to the id of the rules it was
+# built from, so a checkout carries its own engines. The binary is resolved in this order:
+#   1. engine/binaries/<lang>/<platform>/  — used only if its ENGINE_ID equals the id of the
+#      rules in this checkout (edited rules never silently run a stale binary);
+#   2. a locally compiled engine, when `souffle` is on PATH (the cache under .souffle-cache);
+#   3. the GitHub release tagged engine-<lang>-<id> (sha256-verified), when it exists.
+# See src/pipeline/engine.conf.
 #
 # OUTPUT LAYOUT — the same in every language (src/bundle/SCHEMA.md):
 #   $OUT/graph.sqlite   the contract: core tables + ext_* tables + the schema catalog
@@ -390,7 +394,26 @@ fetch_engine(){
   echo "▶ verified sha256 $sum → $BIN"
 }
 
-if [ -x "$BIN" ]; then
+# 1. the binary committed with the repository, if it was built from exactly these rules
+COMMITTED_DIR="$SRC/../engine/binaries/$LANG_ARG"
+COMMITTED=""
+if [ -f "$COMMITTED_DIR/ENGINE_ID" ]; then
+  if [ "$(tr -d '[:space:]' < "$COMMITTED_DIR/ENGINE_ID")" = "$ENGINE_ID" ]; then
+    platform="$(engine_platform 2>/dev/null || true)"
+    cand="$COMMITTED_DIR/$platform/axiom-engine-$LANG_ARG-$platform$EXE"
+    if [ -n "$platform" ] && [ -f "$cand" ]; then
+      COMMITTED="$cand"; chmod +x "$COMMITTED" 2>/dev/null || true
+    else
+      echo "  ! engine/binaries/$LANG_ARG matches these rules but has no binary for ${platform:-this platform}"
+    fi
+  else
+    echo "  ! engine/binaries/$LANG_ARG was built from $(cut -c1-12 "$COMMITTED_DIR/ENGINE_ID")…, these rules are ${ENGINE_ID:0:12}… — not using it"
+  fi
+fi
+
+if [ -n "$COMMITTED" ]; then
+  BIN="$COMMITTED"; echo "▶ using committed engine ${COMMITTED#"$SRC/../"}"
+elif [ -x "$BIN" ]; then
   echo "▶ reusing cached binary"
 elif command -v souffle >/dev/null 2>&1; then
   echo "▶ compiling souffle program (cache miss)..."
@@ -421,9 +444,9 @@ elif command -v souffle >/dev/null 2>&1; then
   mv -f "$BIN.tmp.$$" "$BIN"
 else
   fetch_engine || {
-    echo "❌ no engine for $LANG_ARG@$ENGINE_ID on this machine. Either:" >&2
+    echo "❌ no engine for $LANG_ARG@${ENGINE_ID:0:12}… on this machine. Either:" >&2
     echo "   • install souffle $SOUFFLE_VERSION to compile locally (macOS: brew install souffle; Ubuntu: the .deb from souffle-lang/souffle releases), or" >&2
-    echo "   • use a rule set CI has built: merge to main, wait for the engine-binaries workflow, then rerun." >&2
+    echo "   • use a rule set CI has built: merge to main, wait for the engine-binaries workflow to commit engine/binaries/$LANG_ARG, then pull and rerun." >&2
     exit 1
   }
 fi

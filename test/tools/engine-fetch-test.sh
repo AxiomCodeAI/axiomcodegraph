@@ -11,11 +11,15 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -u
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-RUN="$ROOT/src/pipeline/run-souffle.sh"
 fail=0; bad(){ echo "  ✗ $*"; fail=$((fail+1)); }
 [ -x "$ROOT/node_modules/.bin/tsx" ] || { echo "engine-fetch: SKIP (no node_modules/.bin/tsx — run npm install)"; exit 0; }
 W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
-mkdir -p "$W/bin" "$W/release" "$W/cache" "$W/ir" "$W/int" "$W/out"
+mkdir -p "$W/bin" "$W/release" "$W/cache" "$W/ir" "$W/int" "$W/out" "$W/tree"
+# a copy of the tree, so a committed engine can be planted under engine/binaries/ without
+# touching the repository; the bundler's node_modules and tsconfig are shared by link
+cp -R "$ROOT/src" "$W/tree/src"
+ln -s "$ROOT/node_modules" "$W/tree/node_modules"; ln -s "$ROOT/tsconfig.json" "$W/tree/tsconfig.json"; ln -s "$ROOT/package.json" "$W/tree/package.json"
+RUN="$W/tree/src/pipeline/run-souffle.sh"
 # a PATH with everything the driver and the bundler need, and no souffle
 for t in bash sh grep awk sed sort cut tr mktemp uname cat rm cp mv ls dirname basename shasum sha256sum stat date mkdir chmod head tail wc find ln printf tee env node git curl; do
   p="$(command -v "$t" 2>/dev/null)" && ln -sf "$p" "$W/bin/$t"
@@ -50,6 +54,29 @@ export FAKE_TAG="engine-$lang-$id" FAKE_RELEASE="$W/release"
 
 run(){ PATH="$W/bin" AXIOM_SOUFFLE_CACHE="$W/cache" bash "$RUN" --language $lang --client-ir "$W/ir" --library "" --intermediate "$W/int" --output "$W/out" > "$W/log" 2>&1; }
 
+# 0. a COMMITTED engine whose ENGINE_ID matches the rules is used directly — no download
+committed="$W/tree/engine/binaries/$lang"
+mkdir -p "$committed/$platform"; cp "$W/release/$asset" "$committed/$platform/$asset"; printf '%s\n' "$id" > "$committed/ENGINE_ID"
+export FAKE_TAG="engine-$lang-must-not-be-asked"
+if run; then
+  grep -q "using committed engine" "$W/log" || bad "committed engine with a matching id was not used"
+  grep -q "fetching prebuilt" "$W/log" && bad "a download was attempted although a matching committed engine exists"
+  [ -f "$W/out/graph.sqlite" ] || [ -f "$W/out/graph/call_edges.csv" ] || bad "the committed-engine run did not reach the bundle stage"
+else
+  bad "run with a matching committed engine failed:"; tail -8 "$W/log" | sed 's/^/      /'
+fi
+# 0b. a committed engine built from OTHER rules is ignored, with a message, and the fetch runs
+printf 'deadbeef%s\n' "${id:8}" > "$committed/ENGINE_ID"; rm -rf "$W/out"
+export FAKE_TAG="engine-$lang-$id"
+if run; then
+  grep -q "not using it" "$W/log" || bad "a stale committed engine was not reported"
+  grep -q "using committed engine" "$W/log" && bad "a committed engine with a different id was used"
+  grep -q "verified sha256" "$W/log" || bad "after ignoring the stale committed engine, no fetch happened"
+else
+  bad "run with a stale committed engine and a valid release failed:"; tail -8 "$W/log" | sed 's/^/      /'
+fi
+rm -rf "$W/tree/engine" "$W/cache"/* "$W/out"
+
 # 1. a good release is fetched, verified, cached and run through to the bundle
 if run; then
   grep -q "verified sha256" "$W/log" || bad "no 'verified sha256' line in the log"
@@ -74,4 +101,4 @@ if run; then bad "a run with no release and no souffle succeeded"; else
   grep -q "install souffle" "$W/log" && grep -q "merge to main" "$W/log" || bad "the no-release error does not name both ways out"
 fi
 
-if [ "$fail" -eq 0 ]; then echo "engine-fetch: ok (fetch, verify, cache, refuse tampered, explain absence)"; else echo "engine-fetch: $fail failure(s)"; exit 1; fi
+if [ "$fail" -eq 0 ]; then echo "engine-fetch: ok (committed engine by id, fetch, verify, cache, refuse tampered, explain absence)"; else echo "engine-fetch: $fail failure(s)"; exit 1; fi
