@@ -127,10 +127,11 @@ receiver is a lambda parameter. Restricted to files of 1,000 lines or more, d1 r
 ## Run
 
 Requirements: Node ≥ 22.5 and a POSIX shell with `awk` (Git Bash on Windows). **No Soufflé and
-no C++ compiler**: the rules compile to one self-contained executable, CI builds it for
-Linux (x86_64, arm64), macOS (universal) and Windows on every merge to `main`, and the script
-fetches the one for your platform on first use — verified by sha256, cached under the rule
-set's id. With `souffle` installed the script compiles locally instead, exactly as before.
+no C++ compiler**: the rules compile to one self-contained executable, and CI builds it for
+Linux (x86_64, arm64), macOS (universal) and Windows on every merge to `main` and commits it
+to `engine/binaries/<lang>/<platform>/` — so a checkout already contains the engine for every
+platform and nothing is downloaded. With `souffle` installed the script compiles locally
+instead, exactly as before.
 
 ```bash
 npm install && npm run build
@@ -146,11 +147,14 @@ bash src/pipeline/run-souffle.sh \
      --intermediate <scratch> --output <out>
 ```
 
-The prebuilt binaries live in GitHub releases tagged `engine-<lang>-<id>`, where `<id>` is
-`bash src/pipeline/run-souffle.sh --language <lang> --print-engine-id` — a sha256 of the rules
-and the pinned Soufflé version (`src/pipeline/engine.conf`), the same from any checkout. The
-repository is private, so the fetch authenticates through `gh` or a `GH_TOKEN`. A rule set that
-has not been merged has no release: edit rules with Soufflé installed, or merge first.
+`engine/binaries/<lang>/ENGINE_ID` records the rule-set id the committed binaries were built
+from — `bash src/pipeline/run-souffle.sh --language <lang> --print-engine-id`, a sha256 of the
+rules and the pinned Soufflé version (`src/pipeline/engine.conf`), the same from any checkout.
+The script uses a committed binary only while the checkout's rules hash to that id; rules you
+have edited locally need Soufflé installed to compile, or a merge to `main` so CI rebuilds and
+commits them. The same binaries are also published as a GitHub release tagged
+`engine-<lang>-<id>`, which the script falls back to fetching (sha256-verified) when neither
+a committed nor a locally compiled engine exists.
 
 **Outputs — the same in every language** ([`src/bundle/SCHEMA.md`](src/bundle/SCHEMA.md))
 

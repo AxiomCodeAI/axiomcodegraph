@@ -3,20 +3,23 @@
 #
 # EVERY merge to main runs this. Each language's engine id (src/pipeline/run-souffle.sh
 # --print-engine-id) is a hash of that language's rules alone, so the plan step decides per
-# language: an id that already has a release is unchanged and skipped; an id without one is
-# built on every platform. A Python-only merge therefore rebuilds Python on all four targets
-# and nothing else; a merge touching no rule set builds nothing and finishes in seconds. For
-# each language that needs building:
+# language: an id equal to the one recorded in engine/binaries/<lang>/ENGINE_ID is unchanged
+# and skipped; any other id is built on every platform. A Python-only merge therefore rebuilds
+# Python on all four targets and nothing else; a merge touching no rule set builds nothing and
+# finishes in seconds. For each language that needs building:
 #   generate  Ubuntu + the pinned Soufflé .deb: emit the program, `souffle -g` it to portable
 #             C++ once, and capture the header tree the C++ compiles against.
 #   build     compile that C++ on every platform with the SAME flags the script uses locally
 #             (-std=c++17 -O3, no OpenMP/zlib/sqlite defines — the binary links against nothing
 #             but the C++ runtime). Portable target: no -march=native; macOS universal.
-#   release   one GitHub release per (language, id), tagged engine-<lang>-<id>, holding
-#             axiom-engine-<lang>-<os>-<arch>[.exe], sha256sum.txt, and the generated .cpp.
-# run-souffle.sh computes the same id on the user's machine and fetches the matching asset.
-# The id is a function of the repository alone (see engine_id in the script), which is what
-# makes "no release for this id" mean exactly "these rules have not been merged and built".
+#   publish   COMMIT the binaries to main under engine/binaries/<lang>/<platform>/ with the id
+#             they were built from in engine/binaries/<lang>/ENGINE_ID — so a checkout carries
+#             its own engines and nothing is downloaded — and, as a secondary copy, a GitHub
+#             release tagged engine-<lang>-<id> with the same files plus the generated .cpp.
+# run-souffle.sh computes the same id on the user's machine and uses the committed binary only
+# when the ids agree. The id is a function of the repository alone (see engine_id in the
+# script), which is what makes "id differs" mean exactly "these rules were edited after the
+# binary was built".
 # ─────────────────────────────────────────────────────────────────────────────
 name: engine-binaries
 
@@ -62,10 +65,11 @@ jobs:
           for lang in $LANGUAGES; do
             id="$(bash src/pipeline/run-souffle.sh --language "$lang" --print-engine-id)"
             echo "$lang: $id"
-            if [ "$FORCE" != "true" ] && [ "${{ github.event_name }}" != "pull_request" ] && gh release view "engine-$lang-$id" >/dev/null 2>&1; then
-              echo "  unchanged — release engine-$lang-$id exists"; continue
+            have="$(tr -d '[:space:]' < "engine/binaries/$lang/ENGINE_ID" 2>/dev/null || true)"
+            if [ "$FORCE" != "true" ] && [ "${{ github.event_name }}" != "pull_request" ] && [ "$have" = "$id" ]; then
+              echo "  unchanged — engine/binaries/$lang is at this id"; continue
             fi
-            echo "  changed — no release for this id; building on every platform"
+            echo "  changed — engine/binaries/$lang is at '${have:-<none>}'; building on every platform"
             printf '%s' "$id" > "out/$lang.id"
             langs="$langs \"$lang\""
           done
@@ -184,48 +188,89 @@ jobs:
           path: axiom-engine-*
           if-no-files-found: error
 
-  # Per language, and independent of the other languages' builds: `always()` lets this run
-  # when some build job failed, and the step below publishes a language only if ALL FOUR of
-  # its binaries exist. A language with a missing platform gets no release — so the next
-  # merge retries it — while the others publish.
-  release:
+  # One job for every language built: `always()` lets it run when some build failed, and a
+  # language is published only if ALL FOUR of its binaries exist — a language with a missing
+  # platform is left as it was (the next merge retries it, since its ENGINE_ID still differs)
+  # while the others go in. One commit on main carries everything that was rebuilt.
+  publish:
     needs: [generate, build]
     if: always() && needs.generate.result == 'success' && needs.generate.outputs.langs != '[]' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
-    strategy:
-      matrix:
-        lang: ${{ fromJson(needs.generate.outputs.langs) }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
       - uses: actions/download-artifact@v4
         with:
           name: generated
           path: gen
       - uses: actions/download-artifact@v4
         with:
-          pattern: engine-${{ matrix.lang }}-*
+          pattern: engine-*
           path: bins
           merge-multiple: true
 
-      - name: Publish release engine-${{ matrix.lang }}-<id>
-        env:
-          GH_TOKEN: ${{ github.token }}
-          FORCE: ${{ inputs.force }}
+      - name: Place the binaries under engine/binaries/<lang>/<platform>/
+        id: place
         run: |
           set -e
-          lang="${{ matrix.lang }}"
-          id="$(cat "gen/$lang.id")"
-          tag="engine-$lang-$id"
-          n="$(ls bins/axiom-engine-$lang-* 2>/dev/null | grep -vc '\.sha256$')"
-          if [ "$n" != 4 ]; then
-            echo "::warning::$lang: only $n of 4 platform binaries were built — not publishing $tag; the next merge to main retries"
-            exit 0
-          fi
-          cat bins/*.sha256 | sed 's#  .*/#  #' > bins/sha256sum.txt
-          rm -f bins/*.sha256
-          cp "gen/$lang.cpp" "bins/$lang.cpp"
-          echo "assets:"; ls -la bins
-          notes="Prebuilt engine for the **$lang** rule set at id \`$id\` (Soufflé $(cat gen/souffle.version), pinned in src/pipeline/engine.conf), built from ${{ github.sha }}.
+          echo "artifacts:"; ls -la bins
+          published=""
+          for lang in $LANGUAGES; do
+            [ -f "gen/$lang.id" ] || continue
+            id="$(cat "gen/$lang.id")"
+            n="$(ls bins/axiom-engine-$lang-* 2>/dev/null | grep -vc '\.sha256$' || true)"
+            if [ "$n" != 4 ]; then
+              echo "::warning::$lang: only $n of 4 platform binaries were built — engine/binaries/$lang left unchanged; the next merge to main retries"
+              continue
+            fi
+            rm -rf "engine/binaries/$lang"
+            for f in bins/axiom-engine-$lang-*; do
+              case "$f" in *.sha256) continue;; esac
+              name="$(basename "$f")"
+              platform="${name#axiom-engine-$lang-}"; platform="${platform%.exe}"
+              mkdir -p "engine/binaries/$lang/$platform"
+              cp "$f" "engine/binaries/$lang/$platform/$name"
+              chmod +x "engine/binaries/$lang/$platform/$name"
+            done
+            cat bins/axiom-engine-$lang-*.sha256 | sed 's#  .*/#  #' > "engine/binaries/$lang/sha256sum.txt"
+            printf '%s\n' "$id" > "engine/binaries/$lang/ENGINE_ID"
+            printf 'Built by the engine-binaries workflow from %s.\nRule-set id: %s (src/pipeline/run-souffle.sh --language %s --print-engine-id).\nrun-souffle.sh uses these only while the rules hash to that id.\n' "${{ github.sha }}" "$id" "$lang" > "engine/binaries/$lang/BUILD.txt"
+            published="$published $lang"
+          done
+          echo "published=${published# }" >> "$GITHUB_OUTPUT"
+          git status --short engine/binaries | head -20
 
-          \`run-souffle.sh --language $lang\` fetches the asset for its platform when \`souffle\` is not installed. \`$lang.cpp\` is the generated program for anyone who prefers to compile it themselves (needs only the Soufflé headers and a C++17 compiler)."
-          if [ "$FORCE" = "true" ]; then gh release delete "$tag" -y 2>/dev/null || true; fi
-          gh release create "$tag" --title "engine · $lang · ${id:0:12}" --notes "$notes" --target "${{ github.sha }}" bins/*
+      - name: Commit to main
+        if: steps.place.outputs.published != ''
+        run: |
+          set -e
+          git config user.name "engine-binaries"
+          git config user.email "engine-binaries@users.noreply.github.com"
+          git add -A engine/binaries
+          git commit -m "engine: rebuilt binaries for ${{ steps.place.outputs.published }} from ${{ github.sha }}" \
+                     -m "Built on linux-x86_64, linux-arm64, darwin-universal and windows-x86_64 by the engine-binaries workflow. Each language's ENGINE_ID is the id of the rules it was compiled from; run-souffle.sh uses the binary only while the checkout's rules hash to that id."
+          # main may have moved during the build; rebase our one commit on top and retry.
+          for attempt in 1 2 3 4 5; do
+            git push origin HEAD:main && exit 0
+            echo "push rejected (attempt $attempt) — rebasing on the current main"
+            git fetch origin main && git rebase origin/main
+          done
+          echo "::error::could not push the binaries to main after 5 attempts"; exit 1
+
+      - name: Secondary copy — a release per language
+        if: steps.place.outputs.published != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          for lang in ${{ steps.place.outputs.published }}; do
+            id="$(cat "gen/$lang.id")"; tag="engine-$lang-$id"
+            mkdir -p "rel/$lang"
+            cp engine/binaries/$lang/*/axiom-engine-* engine/binaries/$lang/sha256sum.txt "rel/$lang/"
+            cp "gen/$lang.cpp" "rel/$lang/$lang.cpp"
+            gh release delete "$tag" -y 2>/dev/null || true
+            gh release create "$tag" --title "engine · $lang · ${id:0:12}" --target main \
+              --notes "Prebuilt engine for the **$lang** rule set at id \`$id\` (Soufflé $(cat gen/souffle.version), pinned in src/pipeline/engine.conf), built from ${{ github.sha }}. The same binaries are committed under engine/binaries/$lang/; \`$lang.cpp\` is the generated program for anyone who prefers to compile it (Soufflé headers + a C++17 compiler)." \
+              rel/$lang/*
+          done
