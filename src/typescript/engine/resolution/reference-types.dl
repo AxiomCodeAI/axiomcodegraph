@@ -348,6 +348,27 @@ method_return_element(m, prov, t) :- method_return_ref(_, r, m),
 new_expression_type(e, prov, t) :- ts_type_reference(_, "OBJECT_CREATION_TYPE", _, _, _, _, _, "0", _, _, _, _, _, _, _, _, e, "EXPRESSION", _, _, _, _, _, _, _, _, _, _, _, _, ref),
     ref_type_target(ref, prov, t).
 
+// ── `new` THROUGH A VARIABLE THAT HOLDS A CLASS ────────────────────────────
+// `const Alias = Dog; new Alias()`. The clause above reads the OBJECT_CREATION_TYPE
+// reference, and for these there is none to read: the callee is a VALUE, so nothing
+// names a type at the `new` site and the construction produced no type at all -- not
+// the constructor, and not the instance the result is used as.
+//
+// ONE RULE COVERS ALL THREE SPELLINGS, because the IR gives them one shape. A bare
+// alias, a `typeof Dog` annotation and a `new () => Dog` construct signature all
+// record their initialiser as an IDENTIFIER_REFERENCE whose referencedEntityKind is
+// TYPE and whose entity IS the class, so neither annotation has to be understood for
+// the construction to resolve. Reading the annotations instead would have needed two
+// more rules and would still have missed the bare alias, which carries no annotation.
+class_valued_var(v, t) :- var_initializer("client", _, e, v),
+    expr_referenced("client", "TYPE", t, e).
+
+new_expression_type(ce, prov, t) :- call_site("client", "CONSTRUCTOR_CALL", _, _, _, ce, _),
+    call_callee_expr(_, ce, ne),
+    expr_referenced("client", "VARIABLE", v, ne),
+    class_valued_var(v, t),
+    type_decl(prov, _, _, _, _, _, t).
+
 // ── enum_member_type(EnumMemberHash, Prov, TypeHash) ────────────────────────
 // `Color.RED.toString()` — an enum member's type is its owning enum.
 enum_member_type(em, prov, t) :- enum_member_decl(prov, _, t, _, em), t != "".
