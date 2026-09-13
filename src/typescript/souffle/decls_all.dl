@@ -38,6 +38,7 @@
 .decl call_has_spread(c0:symbol)
 .decl call_kind_is_plain_call(c0:symbol)
 .decl call_location(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl class_valued_var(c0:symbol,c1:symbol)
 .decl call_module(c0:symbol,c1:symbol)
 .decl call_module_init_missing(c0:symbol)
 .decl call_receiver_typed(c0:symbol)
