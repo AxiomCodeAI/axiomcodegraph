@@ -2,15 +2,17 @@
 # Souffle executor — TEMPLATE-DRIVEN: the relation->CSV import map is parsed from
 # client-ir.map / lib.map (single source of truth). Lib is auto-scoped
 # to only the signature relations the rules reference (never loads GB-scale bodies).
-# Usage: run-souffle.sh --client-ir DIR --library DIR --intermediate DIR --output DIR [--language L]
+# Usage: run-souffle.sh --client-ir DIR --library DIR --intermediate DIR --output DIR [--language L] [--debug]
 #
 # OUTPUT LAYOUT — the same in every language (src/bundle/SCHEMA.md):
 #   $OUT/graph.sqlite   the contract: core tables + ext_* tables + the schema catalog
-#   $OUT/graph/*.csv    the core tables as headered, tab-delimited text
+#   $OUT/graph/*.csv    the same core tables as headered text — ONLY with --debug
+#                       (or when node has no node:sqlite, so a run always emits something)
 #   $OUT/raw/           the per-language Soufflé relations, verbatim — engine-internal
 # Soufflé solves into raw/; the bundle stage (src/bundle/cli.ts) then joins the raw
 # relations to the parser IR and writes the two consumer-facing forms.
 set -e
+DEBUG_BUNDLE=0
 JDK_DEPTH=1   # max JDK-hop depth engine-ii expands. FORCED (always applied). Default 1: sinks are
               # known JDK methods (the cwe catalog), so external code reaches a file-op sink at JDK
               # hop 1; deeper JDK expansion only traces internal plumbing (the explosion source).
@@ -35,7 +37,12 @@ while [ $# -gt 0 ]; do case "$1" in
   --dispatch-cap) DISPATCH_CAP="$2"; shift 2;;
   --lib-depth) LIB_DEPTH="$2"; shift 2;;
   --taint) TAINT="$2"; shift 2;;
-  --language) LANG_ARG="$2"; shift 2;; *) shift;; esac; done
+  --language) LANG_ARG="$2"; shift 2;;
+  # graph.sqlite is the deliverable; graph/*.csv is a debugging view of the same core
+  # tables. --debug asks for both. (An older Node with no node:sqlite writes the CSVs
+  # regardless, because otherwise the run would produce no consumer-facing output.)
+  --debug) DEBUG_BUNDLE=1; shift;;
+  *) shift;; esac; done
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=portable-stat.sh
 . "$SRC/pipeline/portable-stat.sh"
@@ -411,8 +418,9 @@ else
   exit 1
 fi
 ENGINE_COMMIT="$(git -C "$SRC" rev-parse HEAD 2>/dev/null || echo unknown)"
+BUNDLE_FLAGS=(); [ "$DEBUG_BUNDLE" = "1" ] && BUNDLE_FLAGS+=(--debug)
 "${BUNDLE[@]}" --language "$LANG_ARG" --src "$SRC" --client-ir "$CLIENT" --raw "$RAW" --out "$OUT" \
-  --library "$LIB" --lib-facts "$LIBDIR" \
+  --library "$LIB" --lib-facts "$LIBDIR" "${BUNDLE_FLAGS[@]}" \
   --meta "engine_commit=$ENGINE_COMMIT" \
   --meta "dispatch_cap=${CAP_EFF:-off}" --meta "jdk_depth=$JDK_DEPTH" --meta "lib_depth=${LIB_DEPTH:-uncapped}" \
   --meta "engine_ii=$ENGINE_II_MODE" --meta "solve_iterations=$iter" --meta "solve_seconds=$((SOLVE_EPOCH-START_EPOCH))"
