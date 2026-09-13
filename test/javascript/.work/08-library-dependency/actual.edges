@@ -1,6 +1,0 @@
-app.js:4:11 FUNCTION_CALL dep  ->  ambiguous_unknown  -
-app.js:5:1 METHOD_CALL c.get  ->  ambiguous_unknown  -
-app.js:6:1 CONSTRUCTOR_CALL Client  ->  ambiguous_unknown  -
-app.js:6:1 METHOD_CALL new Client().request  ->  ambiguous_unknown  -
-app.js:7:1 FUNCTION_CALL helper  ->  ambiguous_unknown  -
-app.js:8:1 METHOD_CALL dep.helper  ->  ambiguous_unknown  -
