@@ -1,0 +1,9 @@
+# Accepted gap, and a DIFFERENT mechanism from the one this case covers. The compiler
+# resolves `new Ctor()` itself to the CONSTRUCT SIGNATURE written in the annotation
+# (`new () => Dog`), which is a callable member of a type-literal rather than a class
+# constructor. This case fixes the constructed TYPE -- so all four `.fetch()` calls
+# resolve -- and does not give the construction a callee. `Dog` declares no constructor
+# either, so there is nothing for the other three sites to point at and only this one
+# shows up as a missing edge.
+# It cannot rot: if construct signatures start resolving, this line reports NOW-FIXED.
+main#use() -> main#Ctor()
