@@ -1,0 +1,40 @@
+// ============================================================================
+// Resolution · AMBIENT VALUES  (the platform, named but not resolved)
+//
+// `Math.floor`, `Object.keys(o)`, `new Map()`, `require('path')`, `console` — the
+// binder marks the root name GLOBAL_BUILTIN and the parser marks a core-module
+// require RESOLVED_BUILTIN. No IR here declares them. They are still VALUES, and
+// they flow: `const floor = cond ? utils.floorPowerOfTwo : Math.floor` makes a
+// binding that may hold a project function OR a platform one, and a call through
+// it must say so rather than report the project half as the whole answer.
+//
+// An eighth value kind, `ambient`, whose id is the platform NAME as written
+// (`Math.floor`, `path.join`, `Map`). It resolves to nothing; its purpose is to
+// let a site be classified an ambient terminal — or to carry an ambient
+// ALTERNATIVE beside project targets — from the value it was reached through,
+// instead of from the syntax of the site alone.
+// ============================================================================
+
+expr_value(e, "ambient", n) :- expr_kind(_, "IDENTIFIER", _, e), expr_binding_resolution(_, "GLOBAL_BUILTIN", e),
+    expr_text(_, n, e), n != "exports", n != "module", n != "require".
+// `require('path')` and a binding to it.
+expr_value(e, "ambient", spec) :- expr_kind(_, "MODULE_EDGE_CALL", _, e), expr_module_edge(_, imp, e),
+    import_decl(_, spec, _, _, _, _, "RESOLVED_BUILTIN", _, imp).
+import_value(imp, "ambient", spec) :- import_decl(_, spec, _, "NAMESPACE", _, _, "RESOLVED_BUILTIN", _, imp).
+import_value(imp, "ambient", spec) :- import_decl(_, spec, _, bf, n, _, "RESOLVED_BUILTIN", _, imp),
+    import_binding_is_named(bf), n != "".
+// A property of the platform is the platform; so is what it returns or constructs.
+// The id stays the ROOT name (`Math`, `path`): a constructed `Math.floor.call`
+// string would grow without bound through the recursion, and the root is all the
+// classification needs.
+expr_value(e, "ambient", n) :- expr_kind(_, "PROPERTY_ACCESS", _, e), expr_child(_, e, "ACCESS_TARGET", _, r), expr_value(r, "ambient", n).
+expr_value(e, "ambient", n) :- expr_kind(_, "OPTIONAL_ACCESS", _, e), expr_child(_, e, "ACCESS_TARGET", _, r), expr_value(r, "ambient", n).
+expr_value(e, "ambient", n) :- expr_kind(_, "ELEMENT_ACCESS", _, e), expr_child(_, e, "ACCESS_TARGET", _, r), expr_value(r, "ambient", n).
+callee_value(ce, "ambient", n) :- call_site(_, ck, _, "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck),
+    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "ambient", n).
+new_callee_value(ce, "ambient", n) :- call_site(_, "CONSTRUCTOR_CALL", _, "SYNTACTIC", _, _, ce, _, _),
+    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "ambient", n).
+expr_value(ce, "ambient", n) :- expr_kind(_, "CALL", _, ce), callee_value(ce, "ambient", n).
+expr_value(ce, "ambient", n) :- expr_kind(_, "NEW", _, ce), new_callee_value(ce, "ambient", n).
+// A literal receiver is a platform object: `"a,b".split`, `[1, 2].forEach`, `` `x`.trim ``.
+expr_value(e, "ambient", k) :- expr_kind(_, k, _, e), expr_kind_is_literal(k).
