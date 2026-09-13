@@ -224,8 +224,10 @@ prop_value("obj", l, n, k, i) :- expr_child(_, l, "SPREAD_OPERAND", _, o), expr_
 prop_value("ctor", t, n, "func", m) :- type_static(t, n, m).
 prop_value("ctor", t, "prototype", "proto", t) :- type_decl(_, _, _, _, _, t).
 prop_value("func", m, n, k, i) :- type_ctor(_, m, t), prop_value("ctor", t, n, k, i).
-// Instance: members up the chain; `T.prototype.m` reads the same members.
+// Instance: members up the chain; `T.prototype.m` reads the same members; and
+// `this.constructor` is the class — `new this.constructor()` in a `clone()`.
 prop_value("inst", t, n, "func", m) :- type_member(t, n, m).
+prop_value("inst", t, "constructor", "ctor", t) :- type_decl(_, _, _, _, _, t).
 prop_value("proto", t, n, "func", m) :- type_member(t, n, m).
 // A field documented `@type {T}` holds an instance of T, on every instance of the
 // owner — the field's declared type is the only thing said about it when the

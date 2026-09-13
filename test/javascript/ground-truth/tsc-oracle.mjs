@@ -237,7 +237,10 @@ for (const sf of program.getSourceFiles()) {
         } else if (decl) {
           const dsf = decl.getSourceFile();
           const [dl, dc] = pos(dsf, decl.getStart(dsf));
-          targetFile = dsf.isDeclarationFile ? dsf.fileName : relPath(dsf.fileName);
+          // Relative when inside the project (a `.d.ts` beside its `.js` included),
+          // absolute for the platform's own declarations.
+          const relTarget = relPath(dsf.fileName);
+          targetFile = relTarget.startsWith('..') ? dsf.fileName : relTarget;
           targetLine = String(dl);
           targetCol = String(dc);
           targetName = declName(decl);

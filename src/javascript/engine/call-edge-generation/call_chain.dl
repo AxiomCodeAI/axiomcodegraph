@@ -40,34 +40,31 @@ call_from(ce, caller) :- call_site("client", _, _, _, _, _, ce, _, cs),
     call_caller_method(cs, caller).
 
 // ── ambient sites: a builtin on the far side ────────────────────────────────
-// The parser's triage (AMBIENT_BUILTIN_TARGET / NODE_BUILTIN), or a callee or
-// receiver identifier the binder resolved to GLOBAL_BUILTIN, or a receiver that is
-// a require() of a Node core module (RESOLVED_BUILTIN).
+// The callee or receiver VALUE is the platform (resolution/ambient.dl) — reached
+// through a binding, a property chain or a literal — or the parser's own triage
+// said so (AMBIENT_BUILTIN_TARGET / NODE_BUILTIN).
+ambient_site(ce) :- invocation_site(ce, _), callee_value(ce, "ambient", _).
+ambient_site(ce) :- invocation_site(ce, _), new_callee_value(ce, "ambient", _).
+ambient_site(ce) :- invocation_site(ce, _), expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "ambient", _).
+ambient_site(ce) :- invocation_site(ce, _), expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "arr", _).
 ambient_site(ce) :- invocation_site(ce, _), call_site("client", _, _, _, _, _, ce, _, cs),
     call_site_outcome(_, _, "AMBIENT_BUILTIN_TARGET", cs).
 ambient_site(ce) :- invocation_site(ce, _), call_site("client", _, _, _, _, _, ce, _, cs),
     call_site_outcome(_, "NODE_BUILTIN", _, cs).
-ambient_site(ce) :- invocation_site(ce, _), expr_child(_, ce, "CALLEE", _, c), expr_binding_resolution(_, "GLOBAL_BUILTIN", c).
-// `exports.f()` is a GLOBAL_BUILTIN receiver to the binder and the module's own
-// surface to this engine; a receiver that got a value is not ambient.
-ambient_site(ce) :- invocation_site(ce, _), expr_child(_, ce, "RECEIVER", _, r), expr_binding_resolution(_, "GLOBAL_BUILTIN", r),
-    !expr_value(r, _, _).
-ambient_site(ce) :- invocation_site(ce, _), expr_child(_, ce, "RECEIVER", _, r), expr_binding(_, v, r),
-    var_import(_, imp, v), import_decl(_, _, _, _, _, _, "RESOLVED_BUILTIN", _, imp).
-ambient_site(ce) :- invocation_site(ce, _), expr_child(_, ce, "CALLEE", _, c), expr_binding(_, v, c),
-    var_import(_, imp, v), import_decl(_, _, _, _, _, _, "RESOLVED_BUILTIN", _, imp).
-// A literal receiver — `[1, 2].forEach`, `"a,b".split`, `` `x`.trim `` — is a
-// platform object too.
-ambient_site(ce) :- invocation_site(ce, _), expr_child(_, ce, "RECEIVER", _, r), expr_kind(_, k, _, r), expr_kind_is_literal(k).
-// An array value's own methods (`push`, `forEach`, `map`) are Array.prototype's.
-ambient_site(ce) :- invocation_site(ce, _), expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "arr", _).
 expr_kind_is_literal("LITERAL").
 expr_kind_is_literal("ARRAY_LITERAL").
 expr_kind_is_literal("TEMPLATE").
 
 // ── confidence class ────────────────────────────────────────────────────────
-call_class(ce, "known_edge") :- call_target_count(ce, 1).
+// A site whose callee value may ALSO be the platform (`const f = cond ? mine :
+// Math.floor`) has an alternative no project target covers: it is multi_inferred
+// even with one project target, and it carries an ambient_terminal row beside the
+// project edge so the alternative is in the graph.
+call_ambient_alternative(ce) :- call_target_count(ce, n), n >= 1, callee_value(ce, "ambient", _).
+call_ambient_alternative(ce) :- call_target_count(ce, n), n >= 1, new_callee_value(ce, "ambient", _).
+call_class(ce, "known_edge") :- call_target_count(ce, 1), !call_ambient_alternative(ce).
 call_class(ce, "multi_inferred") :- call_target_count(ce, n), n >= 2.
+call_class(ce, "multi_inferred") :- call_target_count(ce, 1), call_ambient_alternative(ce).
 call_class(ce, "implicit_constructor") :- call_target_count(ce, 0), call_target_is_implicit_ctor(ce).
 call_class(ce, "dynamic_terminal") :- call_target_count(ce, 0), !call_target_is_implicit_ctor(ce),
     invocation_site(ce, ck), call_kind_is_dynamic(ck).
@@ -93,6 +90,9 @@ call_chain_edge(ce, caller, "-", callee, "lib", "boundary_lib", kind) :-
     call_from(ce, caller), invocation_site(ce, kind).
 call_chain_edge(ce, caller, "-", "-", "-", cls, kind) :-
     call_class(ce, cls), class_is_terminal(cls),
+    call_from(ce, caller), invocation_site(ce, kind).
+call_chain_edge(ce, caller, "-", "-", "-", "ambient_terminal", kind) :-
+    call_ambient_alternative(ce),
     call_from(ce, caller), invocation_site(ce, kind).
 class_is_terminal("ambiguous_unknown").
 class_is_terminal("ambient_terminal").
