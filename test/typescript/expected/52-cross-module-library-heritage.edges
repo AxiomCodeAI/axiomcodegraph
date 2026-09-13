@@ -1,0 +1,3 @@
+ambiguous_unknown	METHOD_CALL	main#use(Square,Circle,Local) @L10 -> -
+ambiguous_unknown	METHOD_CALL	main#use(Square,Circle,Local) @L11 -> -
+ambiguous_unknown	METHOD_CALL	main#use(Square,Circle,Local) @L9 -> -
