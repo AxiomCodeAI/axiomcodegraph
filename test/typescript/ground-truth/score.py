@@ -35,7 +35,14 @@ from collections import defaultdict
 
 def read_tsv(path, header=True):
     with open(path, newline='', encoding='utf-8', errors='replace') as fh:
-        r = csv.reader(fh, delimiter='\t', quoting=csv.QUOTE_NONE)
+        # rfc4180, MATCHING SOUFFLE. The engine loads these same files with
+        # `rfc4180=true`, so a string-literal type reaches a rule as `"close"` while a
+        # QUOTE_NONE reader here sees the raw field `"""close"""`. Measured on three
+        # projects: 6,193 values across 10 tables differ between the two readings,
+        # including parameterTypeName, returnTypeName, ownerTypeName and completeTypeName.
+        # Reading them differently on the two sides manufactures label mismatches that
+        # look exactly like engine defects.
+        r = csv.reader(fh, delimiter='\t')
         rows = list(r)
     if header and rows:
         # A ROW THAT DOES NOT MEET THE HEADER'S FIELD COUNT IS DROPPED, not indexed into.

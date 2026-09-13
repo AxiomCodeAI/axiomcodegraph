@@ -20,7 +20,14 @@ ir, out = sys.argv[1], sys.argv[2]
 
 with open(f'{ir}/all-typescript-call-sites.csv', newline='', encoding='utf-8',
           errors='replace') as fh:
-    r = list(csv.reader(fh, delimiter='\t', quoting=csv.QUOTE_NONE))
+    # rfc4180, MATCHING SOUFFLE. The engine loads these same files with
+    # `rfc4180=true`, so a string-literal type reaches a rule as `"close"` while a
+    # QUOTE_NONE reader here sees the raw field `"""close"""`. Measured on three
+    # projects: 6,193 values across 10 tables differ between the two readings,
+    # including parameterTypeName, returnTypeName, ownerTypeName and completeTypeName.
+    # Reading them differently on the two sides manufactures label mismatches that
+    # look exactly like engine defects.
+    r = list(csv.reader(fh, delimiter='\t'))
 if not r:
     print('call sites: 0   absent from output: 0')
     sys.exit(0)

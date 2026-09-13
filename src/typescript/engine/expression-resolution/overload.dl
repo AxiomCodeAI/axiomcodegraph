@@ -584,6 +584,30 @@ arg_matches_concretely(ce, m, pos) :- expr_call_candidate(ce, m),
     param_type_at(m, pos, pt),
     type_subtype_star(at, pt).
 
+// A STRING-LITERAL parameter type, matched by the literal actually written.
+// `on(event: "close", l)` beside `on(event: string, l)` is how an event-emitter
+// declares one signature per event, and TypeScript tries these SPECIALIZED signatures
+// FIRST -- including when the literal one is declared second, which is why an ordering
+// tie-break cannot substitute for this. Without it the two signatures are
+// indistinguishable at position 0, declaration order takes the `string` one, and every
+// literal call commits to the fallback.
+//
+// This is EVIDENCE, not a tie-break, which is the discipline the note at the bottom of
+// this file states: the literal signature now matches concretely where the `string` one
+// does not, so specificity decides it and declaration order is never consulted.
+//
+// The literal's text is on the PARAMETER row -- `parameterTypeName`, already projected
+// as param_decl's 4th argument -- and NOT on its type_ref: a LITERAL type_ref carries an
+// EMPTY typeName, so the param_type_ref route the primitive rules use cannot tell
+// `"close"` from `"other"`. The parameter row spells it with its quotes, so the
+// comparison re-quotes the expression's value rather than stripping the parameter's.
+arg_matches_concretely(ce, m, pos) :- expr_call_candidate(ce, m),
+    expr_child("client", ce, "ARGUMENT", pos, a),
+    expr_literal_type("client", "STRING", a),
+    expr_literal_value("client", v, a),
+    param_decl(_, _, pos, tn, m, _),
+    tn = cat("\"", cat(v, "\"")).
+
 // BETTER SOMEWHERE AND WORSE NOWHERE — both halves, which is the discipline
 // java/overload.dl states as `win_strictly_better` AND `!win_worse_anywhere`. Firing on a
 // single position alone is not domination: a candidate matching at argument 0 would beat
@@ -602,6 +626,32 @@ specificity_beaten(ce, loser) :- overload_selectable(ce, winner),
     method_group_of(loser, g),
     arg_matches_concretely(ce, winner, pos),
     !arg_matches_concretely(ce, loser, pos),
+    !specificity_worse_somewhere(ce, winner, loser).
+
+// A SPECIALIZED SIGNATURE BEATS A GENERAL ONE AT THE SAME POSITION, which is a
+// specificity fact rather than an ordering one. Both `on(event: "close")` and
+// `on(event: string)` match a `"close"` argument CONCRETELY -- the literal by the rule
+// above, the primitive because the argument's type resolves to `string` -- so the clause
+// above cannot separate them and declaration order decides. That is wrong in the
+// direction TypeScript is explicit about: specialized (literal-typed) signatures are
+// tried BEFORE all others, whatever order they are declared in. Measured on the
+// acceptance case, `B.on` declares the literal SECOND and the engine committed to the
+// `string` fallback.
+//
+// Guarded by the same "worse nowhere" condition as every other specificity rule, so a
+// literal match at one position cannot drag in a signature that loses at another.
+param_is_string_literal(m, pos) :- param_decl(_, _, pos, tn, m, _),
+    strlen(tn) > 1,
+    substr(tn, 0, 1) = "\"".
+
+specificity_beaten(ce, loser) :- overload_selectable(ce, winner),
+    overload_selectable(ce, loser),
+    winner != loser,
+    method_group_of(winner, g),
+    method_group_of(loser, g),
+    arg_matches_concretely(ce, winner, pos),
+    param_is_string_literal(winner, pos),
+    !param_is_string_literal(loser, pos),
     !specificity_worse_somewhere(ce, winner, loser).
 overload_beaten(ce, loser) :- specificity_beaten(ce, loser).
 
