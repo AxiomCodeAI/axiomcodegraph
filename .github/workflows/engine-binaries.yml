@@ -1,8 +1,12 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Prebuilt engine binaries — so running the engine needs no Soufflé and no compiler.
 #
-# On every merge to main that can change a rule set, for each language whose engine id
-# (src/pipeline/run-souffle.sh --print-engine-id) has no release yet:
+# EVERY merge to main runs this. Each language's engine id (src/pipeline/run-souffle.sh
+# --print-engine-id) is a hash of that language's rules alone, so the plan step decides per
+# language: an id that already has a release is unchanged and skipped; an id without one is
+# built on every platform. A Python-only merge therefore rebuilds Python on all four targets
+# and nothing else; a merge touching no rule set builds nothing and finishes in seconds. For
+# each language that needs building:
 #   generate  Ubuntu + the pinned Soufflé .deb: emit the program, `souffle -g` it to portable
 #             C++ once, and capture the header tree the C++ compiles against.
 #   build     compile that C++ on every platform with the SAME flags the script uses locally
@@ -19,11 +23,6 @@ name: engine-binaries
 on:
   push:
     branches: [main]
-    paths:
-      - 'src/**/*.dl'
-      - 'src/*/templates/**'
-      - 'src/pipeline/**'
-      - '.github/workflows/engine-binaries.yml'
   # A pull request that touches the build itself exercises generate + build (no release), so a
   # compiler break on any platform is seen before merge rather than after.
   pull_request:
@@ -51,16 +50,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install the pinned Soufflé
-        run: |
-          . src/pipeline/engine.conf
-          deb="x86_64-ubuntu-2404-souffle-${SOUFFLE_VERSION}-Linux.deb"
-          curl -fsSL -o "/tmp/$deb" "https://github.com/souffle-lang/souffle/releases/download/${SOUFFLE_VERSION}/$deb"
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq "/tmp/$deb"
-          souffle --version | head -2
-          test -f /usr/include/souffle/CompiledSouffle.h
-
       - name: Plan — which languages need a build
         id: plan
         env:
@@ -74,8 +63,9 @@ jobs:
             id="$(bash src/pipeline/run-souffle.sh --language "$lang" --print-engine-id)"
             echo "$lang: $id"
             if [ "$FORCE" != "true" ] && [ "${{ github.event_name }}" != "pull_request" ] && gh release view "engine-$lang-$id" >/dev/null 2>&1; then
-              echo "  release engine-$lang-$id exists — skipping"; continue
+              echo "  unchanged — release engine-$lang-$id exists"; continue
             fi
+            echo "  changed — no release for this id; building on every platform"
             printf '%s' "$id" > "out/$lang.id"
             langs="$langs \"$lang\""
           done
@@ -83,6 +73,18 @@ jobs:
           langs="[$(echo $langs | sed 's/ /,/g')]"
           echo "langs=$langs" >> "$GITHUB_OUTPUT"
           echo "building: $langs"
+
+
+      - name: Install the pinned Soufflé
+        if: steps.plan.outputs.langs != '[]'
+        run: |
+          . src/pipeline/engine.conf
+          deb="x86_64-ubuntu-2404-souffle-${SOUFFLE_VERSION}-Linux.deb"
+          curl -fsSL -o "/tmp/$deb" "https://github.com/souffle-lang/souffle/releases/download/${SOUFFLE_VERSION}/$deb"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq "/tmp/$deb"
+          souffle --version | head -2
+          test -f /usr/include/souffle/CompiledSouffle.h
 
       - name: Generate portable C++ for each language
         if: steps.plan.outputs.langs != '[]'
@@ -182,9 +184,13 @@ jobs:
           path: axiom-engine-*
           if-no-files-found: error
 
+  # Per language, and independent of the other languages' builds: `always()` lets this run
+  # when some build job failed, and the step below publishes a language only if ALL FOUR of
+  # its binaries exist. A language with a missing platform gets no release — so the next
+  # merge retries it — while the others publish.
   release:
     needs: [generate, build]
-    if: needs.generate.outputs.langs != '[]' && github.event_name != 'pull_request'
+    if: always() && needs.generate.result == 'success' && needs.generate.outputs.langs != '[]' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     strategy:
       matrix:
@@ -209,6 +215,11 @@ jobs:
           lang="${{ matrix.lang }}"
           id="$(cat "gen/$lang.id")"
           tag="engine-$lang-$id"
+          n="$(ls bins/axiom-engine-$lang-* 2>/dev/null | grep -vc '\.sha256$')"
+          if [ "$n" != 4 ]; then
+            echo "::warning::$lang: only $n of 4 platform binaries were built — not publishing $tag; the next merge to main retries"
+            exit 0
+          fi
           cat bins/*.sha256 | sed 's#  .*/#  #' > bins/sha256sum.txt
           rm -f bins/*.sha256
           cp "gen/$lang.cpp" "bins/$lang.cpp"
