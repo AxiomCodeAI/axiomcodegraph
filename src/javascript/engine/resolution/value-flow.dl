@@ -42,14 +42,16 @@
 // ── constructible_value / callable_value — the two projections of a value ──
 // A class value constructs its type; a function that is a constructor function
 // (a js_type carries it as constructorMethodLinkHash) constructs that type; a
-// CommonJS module whose `module.exports` is a class constructs THAT class. A
-// function value is callable; a module whose `module.exports` is a function is.
+// CommonJS module whose `module.exports` is a class constructs THAT class —
+// `class X extends require('./base')` and `@param {Base} b` with
+// `var Base = require('./base')` both name the module. A function value is
+// callable; calling a MODULE value goes through its default export, which
+// callee-resolution.dl unwraps.
 constructible_value("ctor", t, t) :- type_decl(_, _, _, _, _, t).
 constructible_value("func", m, t) :- type_ctor(_, m, t).
 constructible_value("module", mod, t) :- module_export_value(mod, "default", k, i), constructible_value(k, i, t).
 callable_value("func", m, m) :- method_decl(_, _, _, _, _, _, _, m).
 callable_value("ctor", t, m) :- type_decl(_, _, "CONSTRUCTOR_FUNCTION", _, _, t), type_ctor(_, m, t).
-callable_value("module", mod, m) :- module_export_value(mod, "default", k, i), callable_value(k, i, m).
 
 // ── expr_value: the sources ─────────────────────────────────────────────────
 // A function expression or arrow IS its js_method.
@@ -183,6 +185,12 @@ this_value(m, k, i) :- prop_value(k, i, _, "func", m), method_this_binding(_, "D
     !method_owner_type(m, _).
 this_value(m, "inst", t) :- prop_value("proto", t, _, "func", m), method_this_binding(_, "DYNAMIC", m),
     !method_owner_type(m, _).
+// `obj[name] = function () { this.x() }` — a computed member name gives no
+// property to look up, but the function's `this` is still the object.
+this_value(m, k, i) :- expr_kind(_, "ASSIGNMENT", _, a), expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt),
+    expr_kind(_, "ELEMENT_ACCESS", _, tgt), expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, k, i), k != "proto",
+    expr_child(_, a, "ASSIGNMENT_VALUE", _, val), expr_value(val, "func", m), method_this_binding(_, "DYNAMIC", m),
+    !method_owner_type(m, _).
 
 // ── return_value ────────────────────────────────────────────────────────────
 // Every `return <expr>` in the body, and the expression body of an arrow (the
@@ -226,8 +234,11 @@ prop_value("module", mod, n, k, i) :- module_export_value(mod, n, k, i).
 // module, `T.prototype.m = ...`. Instance writes through `this` reach every
 // instance of the type; a subtype without its own member of that name reads it.
 prop_value(k, i, n, k2, i2) :- member_write(k, i, n, k2, i2).
-prop_value("inst", t, n, k, i) :- type_super(t, s), !type_own_member_name(t, n), member_write("inst", s, n, k, i).
-prop_value("ctor", t, n, k, i) :- type_super(t, s), !type_own_static_name(t, n), member_write("ctor", s, n, k, i).
+// Everything an instance of the superclass has — its methods, its constructor's
+// writes, its documented fields — an instance of the subclass has too, unless the
+// subclass declares the name itself. Recursive, so the whole chain is read.
+prop_value("inst", t, n, k, i) :- type_super(t, s), !type_own_member_name(t, n), prop_value("inst", s, n, k, i).
+prop_value("ctor", t, n, k, i) :- type_super(t, s), !type_own_static_name(t, n), prop_value("ctor", s, n, k, i), n != "prototype".
 
 // ── member_write(K, I, Name, K2, I2) — `<expr>.name = <value>` ─────────────
 member_write(k, i, n, k2, i2) :- expr_kind(_, "ASSIGNMENT", _, a), expr_operator(_, op, a), assignment_op_writes_value(op),

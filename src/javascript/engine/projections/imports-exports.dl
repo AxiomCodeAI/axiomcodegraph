@@ -74,3 +74,7 @@ export_overwritten("lib", h) :- lib_js_export(_, _, _, _, _, _, _, _, _, _, _, _
 // The forms whose exported VALUE replaces the whole exports object.
 export_form_is_module_exports("MODULE_EXPORTS_ASSIGNMENT").
 export_form_is_module_exports("EXPORT_DEFAULT").
+
+// ── import_local_name(Prov, LocalName, ImportHash) ──────────────────────────
+import_local_name("client", ln, h) :- js_import(_, _, _, _, _, _, _, _, ln, _, _, _, _, _, _, _, _, _, _, _, _, _, h), ln != "".
+import_local_name("lib", ln, h) :- lib_js_import(_, _, _, _, _, _, _, _, ln, _, _, _, _, _, _, _, _, _, _, _, _, _, h), ln != "".

@@ -50,6 +50,13 @@ callee_value(ce, "func", m) :- call_site(_, ck, n, "SYNTACTIC", _, em, ce, _, _)
     expr_child(_, ce, "RECEIVER", _, r), expr_kind(_, "SUPER", _, r),
     method_home_type(em, t), type_super(t, s), type_member(s, n, m).
 
+// A module VALUE is called or constructed through its default export:
+// `require('./router')()` runs `module.exports = function`, `new (require('./x'))`
+// constructs `module.exports = class`. Unwrapped here so the value layer keeps
+// module values opaque.
+callee_value(ce, k, i) :- callee_value(ce, "module", mod), module_export_value(mod, "default", k, i).
+new_callee_value(ce, k, i) :- new_callee_value(ce, "module", mod), module_export_value(mod, "default", k, i).
+
 // method_home_type(MethodHash, TypeHash): the class whose body a callable sits in,
 // through arrows — `super` inside an arrow inside a method refers to the method's.
 method_home_type(m, t) :- method_owner_type(m, t).
