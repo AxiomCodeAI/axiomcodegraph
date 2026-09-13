@@ -96,6 +96,14 @@ if ! bash "$ROOT/test/tools/souffle-include-test.sh"; then
   echo "aborting: the soufflé include path does not resolve to a compilable -I"
   exit 1
 fi
+# ── The bundle stage must build the language-neutral output ─────────────────
+# Every solve below ends by joining the raw relations to the IR and writing graph.sqlite and
+# graph/*.csv (src/bundle/SCHEMA.md). A broken bundler fails every case identically, after the
+# solve's cost; this checks it in milliseconds on hand-written fixtures for all three languages.
+if ! bash "$ROOT/test/tools/bundle-test.sh"; then
+  echo "aborting: the bundle stage does not produce the documented output"
+  exit 1
+fi
 PARSER="${AXIOM_PARSER:-$ROOT/../Parser/dist/index.js}"
 WORK="$HERE/.work"
 BLESS=0; KEEP=0; ORACLE=0; FILTERS=()
@@ -204,7 +212,7 @@ for dir in "$HERE"/cases/*/; do
         --intermediate "$w/int" --output "$w/out" >"$w/solve.log" 2>&1; then
     echo "FAIL (solve — see $w/solve.log)"; fail=$((fail+1)); failed+=("$name"); continue; fi
 
-  if ! python3 "$HERE/tools/coverage_guard.py" "$w/ir" "$w/out" >"$w/coverage.txt" 2>&1; then
+  if ! python3 "$HERE/tools/coverage_guard.py" "$w/ir" "$w/out/raw" >"$w/coverage.txt" 2>&1; then
     echo "FAIL (silent drop)"; sed 's/^/    /' "$w/coverage.txt"; fail=$((fail+1)); failed+=("$name"); continue; fi
 
   # QUOTED, via an array. This one expansion doubled as an "omit the argument entirely" flag, so it
@@ -212,7 +220,7 @@ for dir in "$HERE"/cases/*/; do
   # fragment that is not a directory. The library names were silently not loaded and both lib-src
   # cases failed with a diff that reads as an engine regression.
   lib_args=(); [ -d "$w/lib-ir" ] && lib_args=("$w/lib-ir")
-  python3 "$HERE/tools/normalize_edges.py" "$w/ir" "$w/out" ${lib_args[@]+"${lib_args[@]}"} > "$w/actual.edges" 2>"$w/norm.log" || {
+  python3 "$HERE/tools/normalize_edges.py" "$w/ir" "$w/out/raw" ${lib_args[@]+"${lib_args[@]}"} > "$w/actual.edges" 2>"$w/norm.log" || {
     echo "FAIL (normalize — see $w/norm.log)"; fail=$((fail+1)); failed+=("$name"); continue; }
 
   # ── optional: GROUND TRUTH from javac + javap (no library IR involved) ────
@@ -222,7 +230,7 @@ for dir in "$HERE"/cases/*/; do
     # case's oracle reports `package dep does not exist` — which reads as a broken fixture.
     orc_lib=(); [ -d "$dir/lib-src" ] && orc_lib=(--lib-src "$dir/lib-src")
     if python3 "$HERE/tools/bytecode_oracle.py" "$dir/src" "$w/oracle" --app-only ${orc_lib[@]+"${orc_lib[@]}"} > "$w/oracle.edges" 2>"$w/oracle.log"; then
-      python3 "$HERE/tools/normalize_edges.py" "$w/ir" "$w/out" --client-pairs > "$w/engine.pairs"
+      python3 "$HERE/tools/normalize_edges.py" "$w/ir" "$w/out/raw" --client-pairs > "$w/engine.pairs"
       if ! python3 "$HERE/tools/oracle_diff.py" "$w/engine.pairs" "$w/oracle.edges" \
              "$HERE/expected/$name.known-missing" > "$w/oracle.diff"; then
         echo "FAIL (bytecode oracle: NEW missing edge, or a known-missing one started working)"
@@ -256,7 +264,7 @@ for dir in "$HERE"/cases/*/; do
         bprefix=$( { awk -F'\t' 'NR>1 && $2 != "" { split($2, p, "."); print p[1] "." }' \
                        "$w/lib-ir/all-types.csv" 2>/dev/null; printf 'java.\njavax.\njdk.\n'; } \
                    | sort -u | paste -sd, -)
-        python3 "$HERE/tools/score_boundary.py" "$w/ir" "$w/out" "$w/boundary.gt" \
+        python3 "$HERE/tools/score_boundary.py" "$w/ir" "$w/out/raw" "$w/boundary.gt" \
              --library "$w/lib-ir" --prefix "$bprefix" > "$w/boundary.txt" 2>&1
         bexp="$HERE/expected/$name.boundary"
         if [ "$BLESS" = "1" ]; then cp "$w/boundary.txt" "$bexp"
@@ -282,7 +290,7 @@ for dir in "$HERE"/cases/*/; do
   # points, so they need their own. A case with config rows and NO golden fails, and a
   # golden with no rows fails too — so neither gaining nor losing interpretation power
   # can land silently.
-  python3 "$HERE/tools/config_report.py" "$w/ir" "$w/out" > "$w/actual.config" 2>"$w/config.log" || {
+  python3 "$HERE/tools/config_report.py" "$w/ir" "$w/out/raw" > "$w/actual.config" 2>"$w/config.log" || {
     echo "FAIL (config report — see $w/config.log)"; fail=$((fail+1)); failed+=("$name"); continue; }
   cfg_rows=$(grep -c '^  ' "$w/actual.config" || true)
   cexp="$HERE/expected/$name.config"
@@ -303,7 +311,7 @@ for dir in "$HERE"/cases/*/; do
   if [ "$ORACLE" = "1" ] && [ -f "$sconf" ]; then
     # shellcheck disable=SC2046
     if bash "$HERE/tools/spring_oracle.sh" "$dir/src" "$w/spring" $(cat "$sconf") > "$w/spring.tsv" 2>"$w/spring.log"; then
-      python3 "$HERE/tools/spring_oracle_diff.py" "$w/spring.tsv" "$w/ir" "$w/out" > "$w/spring.report" 2>&1
+      python3 "$HERE/tools/spring_oracle_diff.py" "$w/spring.tsv" "$w/ir" "$w/out/raw" > "$w/spring.report" 2>&1
       sexp="$HERE/expected/$name.spring-oracle"
       if [ "$BLESS" = "1" ]; then cp "$w/spring.report" "$sexp"
       elif [ ! -f "$sexp" ]; then

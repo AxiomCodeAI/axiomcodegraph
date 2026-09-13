@@ -55,6 +55,14 @@ if ! bash "$ROOT/test/tools/no-ignored-fixtures.sh"; then
   echo "aborting: a fixture input is not in the repository, so nothing below would be a test"
   exit 1
 fi
+# ── The bundle stage must build the language-neutral output ─────────────────
+# Every solve below ends by joining the raw relations to the IR and writing graph.sqlite and
+# graph/*.csv (src/bundle/SCHEMA.md). A broken bundler fails every case identically, after the
+# solve's cost; this checks it in milliseconds on hand-written fixtures for all three languages.
+if ! bash "$ROOT/test/tools/bundle-test.sh"; then
+  echo "aborting: the bundle stage does not produce the documented output"
+  exit 1
+fi
 PARSER="${AXIOM_PARSER:-$ROOT/../Parser/dist/index.js}"
 ORACLE_HOME="${AXIOM_PY_ORACLE:-$ROOT/../callchain-oracle/python}"
 # The oracle is PINNED to 3.10.4 because opcode shapes are not stable across minor
@@ -285,19 +293,19 @@ for dir in "$HERE"/cases/*/; do
     fi
     fail=$((fail+1)); failed+=("$name"); continue; fi
 
-  if ! "$GUARD_PY" "$HERE/tools/coverage_guard.py" "$w/ir" "$w/out" "$dir/src" >"$w/coverage.txt" 2>&1; then
+  if ! "$GUARD_PY" "$HERE/tools/coverage_guard.py" "$w/ir" "$w/out/raw" "$dir/src" >"$w/coverage.txt" 2>&1; then
     echo "FAIL (silent drop)"; sed 's/^/    /' "$w/coverage.txt" | head -12
     fail=$((fail+1)); failed+=("$name"); continue; fi
 
-  if ! "$PY" "$HERE/tools/engine_edges.py" "$w/ir" "$w/out" "$dir/src" --mode golden \
+  if ! "$PY" "$HERE/tools/engine_edges.py" "$w/ir" "$w/out/raw" "$dir/src" --mode golden \
         > "$w/actual.edges" 2>"$w/norm.log"; then
     echo "FAIL (normalize — see $w/norm.log)"; fail=$((fail+1)); failed+=("$name"); continue; fi
 
   # ── CPython ground truth ────────────────────────────────────────────────
   orc=""
   if [ "$ORACLE" = "1" ]; then
-    "$PY" "$HERE/tools/engine_edges.py" "$w/ir" "$w/out" "$dir/src" --mode pairs > "$w/engine.pairs" 2>/dev/null
-    "$PY" "$HERE/tools/engine_edges.py" "$w/ir" "$w/out" "$dir/src" --mode sites > "$w/engine.sites" 2>/dev/null
+    "$PY" "$HERE/tools/engine_edges.py" "$w/ir" "$w/out/raw" "$dir/src" --mode pairs > "$w/engine.pairs" 2>/dev/null
+    "$PY" "$HERE/tools/engine_edges.py" "$w/ir" "$w/out/raw" "$dir/src" --mode sites > "$w/engine.sites" 2>/dev/null
     if ! "$PY" "$HERE/tools/oracle_check.py" "$name" "$dir/src" \
            --pairs "$w/engine.pairs" --sites "$w/engine.sites" \
            --json "$w/score.json" > "$w/oracle.txt" 2>&1; then
@@ -312,7 +320,7 @@ for dir in "$HERE"/cases/*/; do
   # site counts, to the reason on a declared unknown, and to the tier mix as counts.
   # See tools/tier_report.py. Needs no oracle checkout, so it runs on a clean clone
   # where --oracle cannot.
-  if ! "$PY" "$HERE/tools/tier_report.py" "$w/out" > "$w/actual.tiers" 2>"$w/tier.log"; then
+  if ! "$PY" "$HERE/tools/tier_report.py" "$w/out/raw" > "$w/actual.tiers" 2>"$w/tier.log"; then
     echo "FAIL (tier report — see $w/tier.log)"; fail=$((fail+1)); failed+=("$name"); continue; fi
   texp="$HERE/expected/$name.tiers"
   if [ "$BLESS" = "1" ]; then
@@ -375,10 +383,10 @@ if [ "$ORACLE_ONLY" = "0" ] && [ -d "$HERE/projects" ]; then
           --intermediate "$pw/int" --output "$pw/out" >"$pw/solve.log" 2>&1; then
       echo "FAIL (solve — $(tail -1 "$pw/solve.log" | cut -c1-70))"
       fail=$((fail+1)); failed+=("project:$pname"); continue; fi
-    if ! "$GUARD_PY" "$HERE/tools/coverage_guard.py" "$pw/ir" "$pw/out" "$pdir" >"$pw/coverage.txt" 2>&1; then
+    if ! "$GUARD_PY" "$HERE/tools/coverage_guard.py" "$pw/ir" "$pw/out/raw" "$pdir" >"$pw/coverage.txt" 2>&1; then
       echo "FAIL (silent drop)"; sed 's/^/    /' "$pw/coverage.txt" | head -12
       fail=$((fail+1)); failed+=("project:$pname"); continue; fi
-    "$PY" "$HERE/tools/tier_report.py" "$pw/out" > "$pw/actual.tiers" 2>"$pw/tier.log"
+    "$PY" "$HERE/tools/tier_report.py" "$pw/out/raw" > "$pw/actual.tiers" 2>"$pw/tier.log"
     pexp="$HERE/expected/project-$pname.tiers"
     if [ "$BLESS" = "1" ]; then
       cp "$pw/actual.tiers" "$pexp"; echo "BLESSED"; pass=$((pass+1)); continue; fi

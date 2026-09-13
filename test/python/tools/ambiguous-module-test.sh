@@ -90,7 +90,7 @@ for t in amb ctl; do
   fi
 done
 
-A="$W/amb/out"; C="$W/ctl/out"
+A="$W/amb/out/raw"; C="$W/ctl/out/raw"
 
 # 1. THE DUPLICATED NAME IS REPORTED, WITH ITS MULTIPLICITY.
 if grep -qE '^client	tasks	2$' "$A/ambiguous-module-names.csv" 2>/dev/null; then

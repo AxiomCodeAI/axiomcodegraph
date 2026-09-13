@@ -58,15 +58,15 @@ bash "$ENG/src/pipeline/run-souffle.sh" --client-ir .work/client-ir --library "$
      --intermediate .work/int --output .work/out >.work/solve.log 2>&1 || { echo "FAIL (solve)"; tail -5 .work/solve.log; exit 1; }
 
 # ── no call site may vanish ────────────────────────────────────────────────────────────────────
-python3 "$TOOLS/coverage_guard.py" .work/client-ir .work/out >.work/coverage.txt 2>&1 || {
+python3 "$TOOLS/coverage_guard.py" .work/client-ir .work/out/raw >.work/coverage.txt 2>&1 || {
   echo "FAIL (silent drop)"; sed 's/^/    /' .work/coverage.txt; exit 1; }
 
 # ── ground truth, and the score ────────────────────────────────────────────────────────────────
 java -cp .work/oracle-classes ClassFileOracle --app .work/client-classes --app-only \
      > .work/oracle.edges 2>/dev/null
-python3 "$TOOLS/normalize_edges.py" .work/client-ir .work/out --client-pairs > .work/engine.pairs 2>/dev/null
-python3 "$TOOLS/normalize_edges.py" .work/client-ir .work/out "$LIBROOT" > .work/actual.edges 2>/dev/null
-python3 harness/score.py .work/client-ir .work/out .work/engine.pairs .work/oracle.edges > .work/actual.txt 2>&1
+python3 "$TOOLS/normalize_edges.py" .work/client-ir .work/out/raw --client-pairs > .work/engine.pairs 2>/dev/null
+python3 "$TOOLS/normalize_edges.py" .work/client-ir .work/out/raw "$LIBROOT" > .work/actual.edges 2>/dev/null
+python3 harness/score.py .work/client-ir .work/out/raw .work/engine.pairs .work/oracle.edges > .work/actual.txt 2>&1
 
 # ── THE SCALE SCORER, ON A PROJECT WHOSE ANSWER IS KNOWN ──────────────────────────────────────
 # tools/score_scale.py produces the corpus recall figures and had no test of its own. Two defects
@@ -79,7 +79,7 @@ java -cp .work/oracle-classes ClassFileOracle --app .work/client-classes --app-o
      > .work/scale-lb.txt 2>/dev/null
 java -cp .work/oracle-classes ClassFileOracle --app .work/client-classes --app-only --envelope \
      > .work/scale-ub.txt 2>/dev/null
-python3 "$TOOLS/score_scale.py" .work/client-ir .work/out .work/scale-lb.txt .work/scale-ub.txt \
+python3 "$TOOLS/score_scale.py" .work/client-ir .work/out/raw .work/scale-lb.txt .work/scale-ub.txt \
      > .work/actual.scale 2>&1
 
 # ── INVARIANT: staging a library must never REMOVE an answer ───────────────────────────────────
@@ -87,7 +87,7 @@ python3 "$TOOLS/score_scale.py" .work/client-ir .work/out .work/scale-lb.txt .wo
 # that loses its answer only shows up when the two runs are compared to each other.
 bash "$ENG/src/pipeline/run-souffle.sh" --client-ir .work/client-ir --library .work/emptylib \
      --intermediate .work/int-nolib --output .work/out-nolib >/dev/null 2>&1
-if ! python3 "$SHARED/compare_runs.py" .work/out-nolib .work/out --top 5 > .work/monotonicity.txt 2>&1; then
+if ! python3 "$SHARED/compare_runs.py" .work/out-nolib/raw .work/out/raw --top 5 > .work/monotonicity.txt 2>&1; then
   echo "FAIL (library monotonicity: staging the stub library removed an answer)"
   sed 's/^/    /' .work/monotonicity.txt | head -20; exit 1
 fi

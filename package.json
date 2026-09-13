@@ -10,7 +10,8 @@
     "prebuild": "npm run clean",
     "build": "tsc && tsc-alias",
     "prepare": "npm run build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "schema-doc": "tsx src/bundle/cli.ts --print-schema > src/bundle/SCHEMA.md"
   },
   "engines": {
     "node": ">=18.0.0"

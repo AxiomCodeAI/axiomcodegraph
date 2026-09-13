@@ -65,6 +65,14 @@ if ! bash "$ROOT/test/tools/empty-relation-test.sh"; then
   echo "aborting: a reader would die on a relation that simply has no rows"
   exit 1
 fi
+# ── The bundle stage must build the language-neutral output ─────────────────
+# Every solve below ends by joining the raw relations to the IR and writing graph.sqlite and
+# graph/*.csv (src/bundle/SCHEMA.md). A broken bundler fails every case identically, after the
+# solve's cost; this checks it in milliseconds on hand-written fixtures for all three languages.
+if ! bash "$ROOT/test/tools/bundle-test.sh"; then
+  echo "aborting: the bundle stage does not produce the documented output"
+  exit 1
+fi
 
 # ── PREFLIGHT: both sides of the comparison spell a declaration the same way ──
 # `const step = (x) => ...` is `step` to the compiler and was `<arrow@1>` here, so every call to
@@ -306,20 +314,20 @@ for dir in "$HERE"/cases/*/; do
   # ── pass 1: CLIENT ONLY ───────────────────────────────────────────────────
   if ! solve "$w/ir" "$EMPTY_LIB" "$w/plain"; then
     echo "FAIL (solve client-only — see $w/plain/solve.log)"; fail=$((fail+1)); failed+=("$name"); continue; fi
-  if ! python3 "$HERE/tools/coverage_guard.py" "$w/ir" "$w/plain/out" >"$w/coverage.txt" 2>&1; then
+  if ! python3 "$HERE/tools/coverage_guard.py" "$w/ir" "$w/plain/out/raw" >"$w/coverage.txt" 2>&1; then
     echo "FAIL (silent drop, client-only)"; sed 's/^/    /' "$w/coverage.txt" | head -12
     fail=$((fail+1)); failed+=("$name"); continue; fi
-  python3 "$HERE/tools/normalize_edges.py" "$w/ir" "$w/plain/out" > "$w/actual.edges" 2>"$w/norm.log" || {
+  python3 "$HERE/tools/normalize_edges.py" "$w/ir" "$w/plain/out/raw" > "$w/actual.edges" 2>"$w/norm.log" || {
     echo "FAIL (normalize — see $w/norm.log)"; fail=$((fail+1)); failed+=("$name"); continue; }
 
   # ── pass 2: WITH THE CASE'S LIBRARY IR ────────────────────────────────────
   if [ "$HAS_LIB" = "1" ]; then
     if ! solve "$w/ir" "$w/libir" "$w/withlib"; then
       echo "FAIL (solve with library — see $w/withlib/solve.log)"; fail=$((fail+1)); failed+=("$name"); continue; fi
-    if ! python3 "$HERE/tools/coverage_guard.py" "$w/ir" "$w/withlib/out" >"$w/coverage-lib.txt" 2>&1; then
+    if ! python3 "$HERE/tools/coverage_guard.py" "$w/ir" "$w/withlib/out/raw" >"$w/coverage-lib.txt" 2>&1; then
       echo "FAIL (silent drop, with library)"; sed 's/^/    /' "$w/coverage-lib.txt" | head -12
       fail=$((fail+1)); failed+=("$name"); continue; fi
-    python3 "$HERE/tools/normalize_edges.py" "$w/ir" "$w/withlib/out" --lib-ir "$w/libir" \
+    python3 "$HERE/tools/normalize_edges.py" "$w/ir" "$w/withlib/out/raw" --lib-ir "$w/libir" \
       > "$w/actual.lib.edges" 2>>"$w/norm.log" || {
       echo "FAIL (normalize with library — see $w/norm.log)"; fail=$((fail+1)); failed+=("$name"); continue; }
   fi
@@ -329,7 +337,7 @@ for dir in "$HERE"/cases/*/; do
   if [ "$ORACLE" = "1" ]; then
     ok=1
     if node "$HERE/tools/tsc_oracle_case.mjs" "$dir/src" > "$w/oracle.pairs" 2>"$w/oracle.log"; then
-      python3 "$HERE/tools/normalize_edges.py" "$w/ir" "$w/plain/out" --client-pairs > "$w/engine.pairs"
+      python3 "$HERE/tools/normalize_edges.py" "$w/ir" "$w/plain/out/raw" --client-pairs > "$w/engine.pairs"
       python3 "$HERE/tools/oracle_diff.py" "$w/engine.pairs" "$w/oracle.pairs" \
         "$HERE/expected/$name.known-missing" > "$w/oracle.diff"; rc=$?
       check_golden "$w/oracle.diff" "$HERE/expected/$name.oracle" "oracle" || ok=0
@@ -351,7 +359,7 @@ for dir in "$HERE"/cases/*/; do
     if [ "$HAS_LIB" = "1" ]; then
       if node "$HERE/tools/tsc_oracle_case.mjs" "$dir/src" "$dir/lib" \
            > "$w/oracle.lib.pairs" 2>"$w/oracle-lib.log"; then
-        python3 "$HERE/tools/normalize_edges.py" "$w/ir" "$w/withlib/out" --client-pairs \
+        python3 "$HERE/tools/normalize_edges.py" "$w/ir" "$w/withlib/out/raw" --client-pairs \
         --lib-ir "$w/libir" > "$w/engine.lib.pairs"
         python3 "$HERE/tools/oracle_diff.py" "$w/engine.lib.pairs" "$w/oracle.lib.pairs" \
         "$HERE/expected/$name.lib.known-missing" > "$w/oracle.lib.diff"; rc=$?

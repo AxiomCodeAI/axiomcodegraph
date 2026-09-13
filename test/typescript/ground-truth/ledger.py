@@ -212,7 +212,7 @@ def _engine_answers(evaldir):
             key_of[r[5]] = (mod_file.get(r[6], ''), int(sp[0]), int(sp[1]), int(sp[2]), int(sp[3]))
 
     out = defaultdict(set)
-    for r in read_tsv(os.path.join(evaldir, 'out', 'call-chain-edges.csv'), header=False):
+    for r in read_tsv(os.path.join(evaldir, 'out', 'raw', 'call-chain-edges.csv'), header=False):
         if r[3] != '-' and r[3] in decl and r[0] in key_of:
             p, l, c = decl[r[3]]
             out[key_of[r[0]]].add((p, int(l), int(c)))

@@ -68,7 +68,7 @@ bash "$ROOT/src/pipeline/run-souffle.sh" --language python --client-ir "$W/ir" \
      --library "$EMPTY_LIB" --intermediate "$W/int" --output "$W/out" > "$W/solve.log" 2>&1 || {
   echo "  FAIL  protocol-fan: the solve failed"; tail -3 "$W/solve.log" | sed 's/^/        /'
   echo "protocol-fan: FAILED (1 check)"; exit 1; }
-O="$W/out"
+O="$W/out/raw"
 
 # 1. THE WIDE PROPERTY READ IS REPORTED, keyed on its SLOT and carrying the count.
 if grep -qE '	meta	32$' "$O/protocol-wide-sites.csv" 2>/dev/null; then
