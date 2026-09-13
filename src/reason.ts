@@ -12,20 +12,25 @@ export interface ReasoningOptions {
   libraryDir?: string;
   /** Intermediate scratch: staged facts + the compiled-engine cache. */
   intermediateDir?: string;
-  /** Final output (pruned CSVs). */
+  /** Final output: graph.sqlite + graph/*.csv + raw/ (see src/bundle/SCHEMA.md). */
   outputDir?: string;
+  /** Rule set to run — java (default), typescript, python. */
+  language?: string;
 }
 
 /**
- * Java reasoning entry: validate → run the Soufflé engine (run-souffle.sh) → outputs.
+ * Reasoning entry: validate → run the Soufflé engine (run-souffle.sh) → outputs.
  *
  * run-souffle.sh is self-contained: it stages facts from the raw client/library IR
  * (parsing the .map import map), compiles the .dl program to a native binary
  * (cached by program checksum under `<intermediate>/souffle`, so only the first run —
- * or a rule change — pays the compile cost), and solves into `<output>/resolution`.
+ * or a rule change — pays the compile cost), solves into `<output>/raw`, and then runs the
+ * bundle stage that writes `<output>/graph.sqlite` and `<output>/graph/*.csv` — the same
+ * schema in every language (src/bundle/SCHEMA.md).
  *
- * Working dirs are always owned SUBFOLDERS of the given paths, so cleanups can only touch
- * our own dirs, never the caller's raw IR. Throws on any problem so the agent can catch it.
+ * Cleanups only ever touch the OWNED paths inside the given directories (`raw/`, `graph/`,
+ * `graph.sqlite`, the souffle scratch), never the caller's raw IR or anything else they keep
+ * next to the output. Throws on any problem so the agent can catch it.
  */
 export function runReasoning(opts: ReasoningOptions = {}): void {
   const errors: string[] = [];
@@ -53,38 +58,42 @@ export function runReasoning(opts: ReasoningOptions = {}): void {
   if (!opts.outputDir) errors.push('  • --output=DIR is required');
 
   if (errors.length > 0) {
-    throw new Error(`reasoning-java: invalid arguments — cannot run:\n${errors.join('\n')}`);
+    throw new Error(`reasoning: invalid arguments — cannot run:\n${errors.join('\n')}`);
   }
 
   const intermediateDir = path.resolve(opts.intermediateDir!);
   const outputDir = path.resolve(opts.outputDir!);
+  const language = opts.language ?? 'java';
 
-  validateRequiredEntities(clientIrDir, libraryRoots);
+  validateRequiredEntities(clientIrDir, libraryRoots, language);
 
-  // ── Owned subfolders ──────────────────────────────────────────────────────
-  const exportDir = path.join(outputDir, 'resolution'); // this stage's output
+  // ── Owned paths ───────────────────────────────────────────────────────────
   const souffleScratch = path.join(intermediateDir, 'souffle'); // staged facts + compile cache (persistent)
   fs.mkdirSync(souffleScratch, { recursive: true });
-  // run-souffle.sh creates but does not clean the output dir; wipe stale results ourselves.
-  fs.rmSync(exportDir, { recursive: true, force: true });
-  fs.mkdirSync(exportDir, { recursive: true });
+  // The stage rewrites these itself; wiping first means a failed run cannot leave the previous
+  // run's bundle in place looking like this one's.
+  for (const owned of ['raw', 'graph', 'graph.sqlite']) {
+    fs.rmSync(path.join(outputDir, owned), { recursive: true, force: true });
+  }
+  fs.mkdirSync(outputDir, { recursive: true });
 
-  console.log(`⚙️  reasoning-java (souffle)`);
+  console.log(`⚙️  reasoning (souffle, ${language})`);
   console.log(`   client IR : ${clientIrDir}`);
   console.log(`   library   : ${libraryRoots.length} root(s) — ${libraryRoots.join(', ')}`);
-  console.log(`▶ running souffle: ${exportDir}`);
+  console.log(`▶ running souffle: ${outputDir}`);
 
   const result = spawnSync(
     'bash',
     [RUN_SOUFFLE_SH,
+      '--language', language,
       '--client-ir', clientIrDir,
       '--library', libraryRoots.join(','),
       '--intermediate', souffleScratch,
-      '--output', exportDir],
+      '--output', outputDir],
     { stdio: 'inherit' }
   );
   if (result.error) throw new Error(`Failed to run run-souffle.sh: ${result.error.message}`);
   if (result.status !== 0) throw new Error(`run-souffle.sh failed with exit code ${result.status ?? 'unknown'}`);
 
-  console.log(`✅ reasoning-java complete: ${exportDir}`);
+  console.log(`✅ reasoning complete: ${path.join(outputDir, 'graph.sqlite')}`);
 }

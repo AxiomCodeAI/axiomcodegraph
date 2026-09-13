@@ -170,10 +170,10 @@ the end of the build: it exists in no checkout, so its absence means the merge s
 java tools/ClassFileOracle.java --app <jar-or-classes> --with-lines --exclude-tests > gt.txt
 
 # 2. when a client call leaves for the JDK, does the engine name the EXACTLY correct method?
-python3 tools/score_boundary.py <client-IR> <engine-OUT> gt.txt --library <platform-IR>
+python3 tools/score_boundary.py <client-IR> <engine-OUT>/raw gt.txt --library <platform-IR>
 
 # 3. PREVIOUS vs PRESENT — the same IR, two engine revisions
-python3 tools/compare_runs.py <before-OUT> <after-OUT>
+python3 tools/compare_runs.py <before-OUT>/raw <after-OUT>/raw   # the tools read the raw relations; see src/bundle/SCHEMA.md
 ```
 
 A case that ships a stub library has that stub compiled for the oracle too — first, into its own

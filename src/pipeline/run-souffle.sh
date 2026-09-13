@@ -2,7 +2,14 @@
 # Souffle executor — TEMPLATE-DRIVEN: the relation->CSV import map is parsed from
 # client-ir.map / lib.map (single source of truth). Lib is auto-scoped
 # to only the signature relations the rules reference (never loads GB-scale bodies).
-# Usage: run-souffle.sh --client-ir DIR --library DIR --intermediate DIR --output DIR
+# Usage: run-souffle.sh --client-ir DIR --library DIR --intermediate DIR --output DIR [--language L]
+#
+# OUTPUT LAYOUT — the same in every language (src/bundle/SCHEMA.md):
+#   $OUT/graph.sqlite   the contract: core tables + ext_* tables + the schema catalog
+#   $OUT/graph/*.csv    the core tables as headered, tab-delimited text
+#   $OUT/raw/           the per-language Soufflé relations, verbatim — engine-internal
+# Soufflé solves into raw/; the bundle stage (src/bundle/cli.ts) then joins the raw
+# relations to the parser IR and writes the two consumer-facing forms.
 set -e
 JDK_DEPTH=1   # max JDK-hop depth engine-ii expands. FORCED (always applied). Default 1: sinks are
               # known JDK methods (the cwe catalog), so external code reaches a file-op sink at JDK
@@ -47,6 +54,9 @@ if [ -z "$INNER" ] || [ ! -f "$INNER/souffle/CompiledSouffle.h" ]; then
   exit 1
 fi
 FACTS="$INT/souffle-facts"; rm -rf "$FACTS"; mkdir -p "$FACTS" "$OUT"
+# raw/ is OWNED: wiped per run so a relation that left the manifest cannot linger from an
+# earlier run and be mistaken for this one's output.
+RAW="$OUT/raw"; rm -rf "$RAW"; mkdir -p "$RAW"
 # Shared, machine-scoped cache root. Holds BOTH project-independent artefacts: the
 # compiled engine binary, and the staged library signature facts. Default in-repo so a
 # checkout is self-contained (.souffle-cache/ is gitignored); point AXIOM_SOUFFLE_CACHE
@@ -353,16 +363,16 @@ while [ "$iter" -lt 50 ]; do
         "$INT/profile-program.cpp" -o "$PBIN" || exit 1
     fi
     echo "▶ solving with profiling -> $AXIOM_SOUFFLE_PROFILE"
-    "$PBIN" -F "$FACTS" -D "$OUT" -p "$AXIOM_SOUFFLE_PROFILE"
+    "$PBIN" -F "$FACTS" -D "$RAW" -p "$AXIOM_SOUFFLE_PROFILE"
   else
-    "$BIN" -F "$FACTS" -D "$OUT"
+    "$BIN" -F "$FACTS" -D "$RAW"
   fi
-  REACH="$OUT/$LIB_FRONTIER_CSV"
+  REACH="$RAW/$LIB_FRONTIER_CSV"
   # Count DISTINCT methods in the frontier column: with a lib cap, a method can hold >1 Pareto
   # (jdk,lib)-depth copy, so raw row count would overstate the frontier and never converge.
   # Staging keys on the same column, so the two can never disagree.
   cur=0; [ -s "$REACH" ] && cur=$(cut -f"$LIB_FRONTIER_COL" "$REACH" | sort -u | wc -l | tr -d ' ')
-  fc=0; [ -s "$OUT/external-forward-call.csv" ] && fc=$(wc -l < "$OUT/external-forward-call.csv" | tr -d ' ')
+  fc=0; [ -s "$RAW/external-forward-call.csv" ] && fc=$(wc -l < "$RAW/external-forward-call.csv" | tr -d ' ')
   echo "   reachable_method = $cur, forward_call = $fc"
   # Exact convergence — the frontier stopped growing (safe at any iteration).
   [ "$cur" -eq "$prev" ] && { echo "▶ frontier converged after $iter iteration(s)"; break; }
@@ -382,6 +392,31 @@ done
 # analyses of different projects don't collide. Runs only on success (set -e bails earlier
 # on failure, leaving the facts for debugging).
 rm -rf "$FACTS" "$INT/souffle-program.cpp"
+SOLVE_EPOCH=$(date +%s)
+echo "Elapsed (solve): $((SOLVE_EPOCH-START_EPOCH))s"
+
+# --- BUNDLE: raw/ + the parser IR -> graph.sqlite + graph/*.csv (src/bundle/) ---
+# The stage is TypeScript. In a development checkout it runs from SOURCE through tsx, so the
+# bundle can never be built from a stale dist/ (the failure mode a compiled step invites);
+# an installed package has no devDependencies and runs the compiled dist/bundle/cli.js that
+# `npm run build` produced. Neither present is a setup error, and says so.
+PKG="$SRC/.."
+if [ -x "$PKG/node_modules/.bin/tsx" ]; then
+  BUNDLE=("$PKG/node_modules/.bin/tsx" "$SRC/bundle/cli.ts")
+elif [ -f "$PKG/dist/bundle/cli.js" ]; then
+  BUNDLE=(node "$PKG/dist/bundle/cli.js")
+else
+  echo "❌ bundle stage not runnable: neither node_modules/.bin/tsx nor dist/bundle/cli.js under $PKG" >&2
+  echo "   run: npm install   (or npm run build for an installed package)" >&2
+  exit 1
+fi
+ENGINE_COMMIT="$(git -C "$SRC" rev-parse HEAD 2>/dev/null || echo unknown)"
+"${BUNDLE[@]}" --language "$LANG_ARG" --src "$SRC" --client-ir "$CLIENT" --raw "$RAW" --out "$OUT" \
+  --library "$LIB" --lib-facts "$LIBDIR" \
+  --meta "engine_commit=$ENGINE_COMMIT" \
+  --meta "dispatch_cap=${CAP_EFF:-off}" --meta "jdk_depth=$JDK_DEPTH" --meta "lib_depth=${LIB_DEPTH:-uncapped}" \
+  --meta "engine_ii=$ENGINE_II_MODE" --meta "solve_iterations=$iter" --meta "solve_seconds=$((SOLVE_EPOCH-START_EPOCH))"
+
 END_EPOCH=$(date +%s); END_TS=$(date '+%Y-%m-%d %H:%M:%S')
 echo "Elapsed: $((END_EPOCH-START_EPOCH))s"
-echo "✅ souffle reasoning complete and output written to: $OUT"
+echo "✅ reasoning complete: $OUT/graph.sqlite · $OUT/graph/ · raw relations in $RAW"

@@ -134,16 +134,44 @@ node <parser>/dist/index.js <src-dir> <slug> false <IR-dir>
 
 # 2. solve
 bash src/pipeline/run-souffle.sh \
+     --language java \                        # java | typescript | python
      --client-ir <IR-dir> \
      --library <platform-ir>[,<lib-ir>...] \  # platform library + the project's real dependencies
      --intermediate <scratch> --output <out>
 ```
 
-**Outputs**
+**Outputs — the same in every language** ([`src/bundle/SCHEMA.md`](src/bundle/SCHEMA.md))
 
-* `<out>/call-chain-edges.csv` — `FromExpr, FromMethod, ToExpr, ToMethod, Prov, EdgeStatus, Kind`
-* `<out>/lambda-dispatch-edges.csv` — function values invoked through a field or local, expanded
-* `<out>/entry-reachable.csv`, `resolution-type-ancestor.csv`, and other relations per the export manifest
+```
+<out>/
+  graph.sqlite      the contract: core tables, the language's ext_* relations, and the schema as tables
+  graph/<table>.csv the core tables as headered, tab-delimited text
+  raw/              the per-language Soufflé relations, verbatim — engine-internal, not a contract
+```
+
+The core tables are `methods`, `types`, `call_sites`, `call_edges`, `type_ancestors`, `overrides`,
+`entry_points`, `entry_reachable`, `unresolved_sites`, `type_instantiated` and `run` — with names,
+files and lines already joined in, so a consumer needs nothing but the one file:
+
+```sql
+-- who calls Widget.render, and where?
+SELECT caller.qualified_name, s.file_path, s.start_line, e.tier
+FROM call_edges e JOIN methods callee ON callee.id = e.callee_method_id
+                  JOIN methods caller ON caller.id = e.caller_id
+                  JOIN call_sites s   ON s.id = e.call_site_id
+WHERE callee.qualified_name = 'app.Widget.render';
+
+-- what can `tier` be in THIS bundle's language, and what does each value mean?
+SELECT value, meaning FROM schema_vocab
+WHERE table_name = 'call_edges' AND column_name = 'tier'
+  AND language = (SELECT value FROM run WHERE key = 'language');
+```
+
+Where the front ends differ — which values a column can hold, what an id may point at, which
+tables a language leaves empty — the difference is recorded in `schema_vocab` and `schema_notes`
+inside the database, and in `SCHEMA.md`, generated from the same source (`npm run schema-doc`).
+`graph.sqlite` needs Node ≥ 22.5 (`node:sqlite`); on an older Node the CSVs are still written and
+the omission is reported.
 
 **Knobs**
 
@@ -164,7 +192,8 @@ src/engine/resolution/            type resolution, hierarchy, generics, virtual 
 src/engine/expression-resolution/ call sites, callee resolution, overloads, lambdas
 src/engine/call-edge-generation/  call classes, chain edges, lambda dispatch
 src/souffle/                      relation declarations + export manifest
-src/pipeline/run-souffle.sh       fact staging, compile cache, stage↔solve loop
+src/pipeline/run-souffle.sh       fact staging, compile cache, stage↔solve loop, then the bundle stage
+src/bundle/                       the output contract: schema as data, per-language adapters, CSV + SQLite writers
 ```
 
 ## Known limits
