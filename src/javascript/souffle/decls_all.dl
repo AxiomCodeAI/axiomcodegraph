@@ -193,5 +193,6 @@
 .decl module_default_recovered(c0:symbol, c1:symbol)
 .decl export_value_kind_is_declaration(c0:symbol)
 .decl module_has_default_row(c0:symbol)
-.decl module_default_import_requested(c0:symbol)
+.decl module_default_import_requested(c0:symbol, c1:symbol)
+.decl import_local_name(c0:symbol, c1:symbol, c2:symbol)
 .decl var_lines(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
