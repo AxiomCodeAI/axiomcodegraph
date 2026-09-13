@@ -194,7 +194,7 @@ this_value(m, "obj", l) :- expr_child(_, l, "PROPERTY_VALUE", _, v), expr_kind(_
     expr_introduces(_, m, v), method_this_binding(_, "DYNAMIC", m), !method_owner_type(m, _).
 this_value(m, "obj", l) :- literal_owns_method(l, m), method_this_binding(_, "DYNAMIC", m), !method_owner_type(m, _).
 this_value(m, k, i) :- expr_kind(_, "ASSIGNMENT", _, a), expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt),
-    expr_kind(_, "PROPERTY_ACCESS", _, tgt), expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, k, i), k != "proto",
+    expr_kind(_, "PROPERTY_ACCESS", _, tgt), expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, k, i), k != "proto", k != "ambient",
     expr_child(_, a, "ASSIGNMENT_VALUE", _, val), expr_introduces(_, m, val), method_this_binding(_, "DYNAMIC", m),
     !method_owner_type(m, _).
 this_value(m, "inst", t) :- expr_kind(_, "ASSIGNMENT", _, a), expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt),
@@ -285,15 +285,19 @@ prop_value("inst", t, n, k, i) :- type_super(t, s), !type_own_member_name(t, n),
 prop_value("ctor", t, n, k, i) :- type_super(t, s), !type_own_static_name(t, n), prop_value("ctor", s, n, k, i), n != "prototype".
 
 // ── member_write(K, I, Name, K2, I2) — `<expr>.name = <value>` ─────────────
+// NEVER onto an ambient value: `("ambient", "Object")` is ONE identity shared by
+// every `@param {Object} opts` in the program, so a write through any of them would
+// be a read through all of them — a global merge point that made one held-out
+// solve 35x slower. The platform's properties are not tracked.
 member_write(k, i, n, k2, i2) :- expr_kind(_, "ASSIGNMENT", _, a), expr_operator(_, op, a), assignment_op_writes_value(op),
     expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt), expr_kind(_, "PROPERTY_ACCESS", _, tgt), expr_name(_, n, tgt),
-    expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, k, i),
+    expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, k, i), k != "ambient",
     expr_child(_, a, "ASSIGNMENT_VALUE", _, val), expr_value(val, k2, i2).
 // `Object.assign(target, { ... })` / `Object.defineProperty`-free spread of a
 // literal onto a value: each literal property is written onto the target.
 member_write(k, i, n, k2, i2) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", "assign", _, _, _, ce, _, _),
     expr_child(_, ce, "RECEIVER", _, recv), expr_binding_resolution(_, "GLOBAL_BUILTIN", recv), expr_text(_, "Object", recv),
-    call_arg(ce, 0, tgt), expr_value(tgt, k, i),
+    call_arg(ce, 0, tgt), expr_value(tgt, k, i), k != "ambient",
     call_arg(ce, p, src), p >= 1, expr_value(src, k0, i0), prop_value(k0, i0, n, k2, i2).
 
 // ── literal_owns_method(LiteralExpr, MethodHash) — PD-JS-1 workaround ───────
