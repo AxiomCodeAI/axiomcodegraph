@@ -64,3 +64,10 @@ var_pattern_root("lib", r, h) :- lib_js_variable(_, _, _, _, _, _, _, r, _, _, _
 // the WHOLE destructured value, so its own value is a property (or element) of it.
 var_binding_form("client", f, h) :- js_variable(_, _, _, _, _, _, f, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
 var_binding_form("lib", f, h) :- lib_js_variable(_, _, _, _, _, _, f, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── var_lines(Prov, OwnerModule, Line, VarHash) ─────────────────────────────
+// The binding's own position (the NAME token). For a function declaration that
+// is the same line as the js_method's `function` keyword, which is the join the
+// block-scoped case needs — see containment/ownership.dl.
+var_lines("client", mod, l, h) :- js_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, mod, l, _, _, _, _, _, h).
+var_lines("lib", mod, l, h) :- lib_js_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, mod, l, _, _, _, _, _, h).

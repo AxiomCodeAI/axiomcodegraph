@@ -110,6 +110,11 @@ import_value(imp, k, i) :- import_decl(_, _, _, bf, n, _, _, _, imp), import_bin
     import_module(imp, mod), module_export_value(mod, n, k, i).
 import_binding_is_named("NAMED").
 import_binding_is_named("DESTRUCTURED").
+// A JSDoc `import('./x.js').Name` — no local binding; the imported name is the
+// member (`default` for the default export). Type-only, and read only by the
+// type-reference rules.
+import_value(imp, k, i) :- import_decl(_, _, "JSDOC_IMPORT_TYPE", _, n, _, _, _, imp), n != "",
+    import_module(imp, mod), module_export_value(mod, n, k, i).
 
 // ── import_binding_unresolved(ImportHash, Name) — countable ─────────────────
 // The module was reached and exports no such name (or the name's value is not

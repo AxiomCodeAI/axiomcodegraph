@@ -18,6 +18,10 @@ type_ref_type(r, t) :- type_ref(_, _, "NAMED", _, _, _, _, _, imp, _, r), imp !=
     import_value(imp, k, i), constructible_value(k, i, t).
 type_ref_type(r, t) :- type_ref(_, n, "NAMED", _, _, _, _, _, "", mod, r), !type_ref_builtin(_, r),
     type_decl(_, n, _, _, mod, t).
+// `import('./x.js').T` — the reference names the import row, whose importedName
+// is the member.
+type_ref_type(r, t) :- type_ref(_, _, "IMPORT_TYPE", _, _, _, _, _, imp, _, r), imp != "",
+    import_value(imp, k, i), constructible_value(k, i, t).
 // Wrappers: the child is the type.
 type_ref_type(r, t) :- type_ref(_, _, k, _, _, _, _, _, _, _, r), type_ref_kind_is_wrapper(k),
     type_ref(_, _, _, r, _, _, _, _, _, _, c), type_ref_type(c, t).
