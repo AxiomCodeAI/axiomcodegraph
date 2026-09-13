@@ -223,3 +223,6 @@
 .decl module_level_function(c0:symbol, c1:symbol)
 .decl ambient_collection(c0:symbol)
 .decl coll_method_call(c0:symbol, c1:symbol, c2:symbol)
+.decl coll_keyed_value(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
+.decl coll_dynamic_value(c0:symbol, c1:symbol, c2:symbol)
+.decl get_literal_key(c0:symbol, c1:symbol)
