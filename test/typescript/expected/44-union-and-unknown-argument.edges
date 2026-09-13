@@ -1,0 +1,4 @@
+ambiguous_unknown	FUNCTION_CALL	main#describe(any) @L15 -> -
+known_edge	FUNCTION_CALL	main#use(ListT,ListT | NamedT,unknown) @L18 -> main#describe(ListT)
+known_edge	FUNCTION_CALL	main#use(ListT,ListT | NamedT,unknown) @L19 -> main#describe(ListT | NamedT)
+known_edge	FUNCTION_CALL	main#use(ListT,ListT | NamedT,unknown) @L20 -> main#describe(unknown)

@@ -263,6 +263,46 @@ arg_mismatch(ce, m) :- expr_call_candidate(ce, m),
     param_type_at(m, pos, _),
     !arg_compatible_at(ce, m, pos).
 
+// ── A UNION ARGUMENT IS NOT ACCEPTED BY ONE OF ITS OWN MEMBERS ──────────────
+// `describe(t: ListT)` beside `describe(t: ListT | NamedT)`: an argument declared
+// `ListT | NamedT` is NOT assignable to `ListT`, so the narrower signature is not a
+// candidate at all. It was, and being declared first it took every such call.
+//
+// A union is N type_ref ROWS joined by type_ref_parent, not one row carrying a list
+// (projections/types.dl says so beside the relation), so membership is a structural
+// join and not a split of the printed name.
+//
+// PRUNE-ONLY AND DELIBERATELY NARROW: it fires only where the parameter is literally
+// one of the union's own members. A parameter that is a common SUPERTYPE of the members
+// is still accepted, because a union IS assignable to that and pruning it would lose a
+// real edge — the direction this file is least willing to trade.
+// GATED ON kind = UNION, and that gate is the whole rule. type_ref_parent yields the
+// children of ANY parameterised type, not only a union's members: without the gate,
+// `Readonly<Cell>` made `Cell` look like a member and the rule pruned `shape(Cell)`,
+// losing a real edge on 19-overload-gauntlet.
+arg_union_member(ce, pos, n) :- expr_child("client", ce, "ARGUMENT", pos, a),
+    expr_decl_ref(a, r),
+    type_ref(_, "UNION", _, _, _, _, _, r),
+    type_ref_parent(_, r, _, child),
+    type_ref(_, _, _, n, _, _, _, child),
+    n != "".
+
+arg_mismatch(ce, m) :- expr_call_candidate(ce, m),
+    arg_union_member(ce, pos, n),
+    param_decl(_, _, pos, n, m, _).
+
+// ── `unknown` IS ASSIGNABLE ONLY TO `unknown` AND `any` ─────────────────────
+// The hard rule of the type system, and the reason `describe(x: unknown)` must reach
+// the `unknown` signature rather than the first one declared. Without it every
+// unknown-typed argument matched every signature vacuously.
+arg_mismatch(ce, m) :- expr_call_candidate(ce, m),
+    expr_child("client", ce, "ARGUMENT", pos, a),
+    expr_decl_ref(a, r),
+    type_ref(_, "PRIMITIVE", _, "unknown", _, _, _, r),
+    param_decl(_, _, pos, tn, m, _),
+    tn != "unknown",
+    tn != "any".
+
 // ── THE PRIMITIVE REGIME, compared by NAME ──────────────────────────────────
 // The rule above compares resolved TYPE HASHES, and a primitive only has one when its
 // global interface happens to be staged. `BigInt` is declared in lib.es2020.bigint.d.ts

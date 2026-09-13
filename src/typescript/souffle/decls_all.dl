@@ -8,6 +8,7 @@
 .decl arg_is_function_value(c0:symbol,c1:symbol)
 .decl arg_is_target_typed(c0:symbol,c1:symbol)
 .decl arg_mismatch(c0:symbol,c1:symbol)
+.decl arg_union_member(c0:symbol,c1:symbol,c2:symbol)
 .decl arg_primitive(c0:symbol,c1:symbol,c2:symbol)
 .decl method_return_primitive(c0:symbol,c1:symbol)
 .decl arg_type(c0:symbol,c1:symbol,c2:symbol)
