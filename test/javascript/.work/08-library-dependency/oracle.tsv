@@ -1,0 +1,7 @@
+callFile	callLine	callCol	callEndLine	callEndCol	callKind	calleeName	targetFile	targetLine	targetCol	targetName	targetKind	overloadCount	chosenIndex	enclLine	enclCol	enclName
+app.js	4	11	4	18	FUNCTION_CALL	dep					any	1	0	0	0	<module>
+app.js	5	1	5	12	METHOD_CALL	get					any	1	0	0	0	<module>
+app.js	6	1	6	34	METHOD_CALL	request					any	1	0	0	0	<module>
+app.js	6	1	6	13	CONSTRUCTOR_CALL	Client					any	1	0	0	0	<module>
+app.js	7	1	7	9	FUNCTION_CALL	helper					any	1	0	0	0	<module>
+app.js	8	1	8	13	METHOD_CALL	helper					any	1	0	0	0	<module>

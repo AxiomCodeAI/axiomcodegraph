@@ -66,3 +66,10 @@ module_default_export("lib", x, h) :- lib_js_module(_, _, _, _, _, _, _, _, _, _
 
 // ── module_system_is_esm(ModuleSystem) ──────────────────────────────────────
 module_system_is_esm("ESM").
+
+// ── module_base_path(Prov, BasePath, ModuleHash) ────────────────────────────
+// The ROOT the module was parsed from (absolute). For a dependency parsed in place
+// (`<project>/node_modules/<pkg>`), `basePath + "/" + filePath` is exactly the
+// absolute `resolvedFilePath` the client's import row carries.
+module_base_path("client", bp, h) :- js_module(_, _, _, _, bp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), bp != "".
+module_base_path("lib", bp, h) :- lib_js_module(_, _, _, _, bp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), bp != "".
