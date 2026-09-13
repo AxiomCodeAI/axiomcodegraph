@@ -95,6 +95,7 @@
 .decl enum_member_decl(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
 .decl enum_member_type(c0:symbol,c1:symbol,c2:symbol)
 .decl export_decl(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol)
+.decl export_expression(c0:symbol,c1:symbol,c2:symbol)
 .decl export_entity(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
 .decl export_has_target(c0:symbol)
 .decl export_is_default(c0:symbol,c1:symbol)
