@@ -1,0 +1,22 @@
+a.js:10:29 METHOD_CALL it.run  ->  known_edge  a.js:1:21 run
+a.js:11:44 METHOD_CALL items[i].tag  ->  ambient_terminal  -
+a.js:11:44 METHOD_CALL items[i].tag  ->  multi_inferred  a.js:1:41 tag
+a.js:13:3 METHOD_CALL first.run  ->  known_edge  a.js:1:21 run
+a.js:16:3 METHOD_CALL typed[0].run  ->  ambient_terminal  -
+a.js:16:3 METHOD_CALL typed[0].run  ->  multi_inferred  a.js:1:21 run
+a.js:19:26 METHOD_CALL g.tag  ->  known_edge  a.js:1:41 tag
+a.js:19:3 METHOD_CALL generic.forEach  ->  ambient_terminal  -
+a.js:3:18 CONSTRUCTOR_CALL Item  ->  implicit_constructor  -
+a.js:3:30 CONSTRUCTOR_CALL Item  ->  implicit_constructor  -
+a.js:4:3 METHOD_CALL items[0].run  ->  ambient_terminal  -
+a.js:4:3 METHOD_CALL items[0].run  ->  multi_inferred  a.js:1:21 run
+a.js:5:14 CONSTRUCTOR_CALL Item  ->  implicit_constructor  -
+a.js:5:3 METHOD_CALL items.push  ->  ambient_terminal  -
+a.js:6:25 METHOD_CALL it.run  ->  known_edge  a.js:1:21 run
+a.js:6:3 METHOD_CALL items.forEach  ->  ambient_terminal  -
+a.js:7:16 METHOD_CALL items.map  ->  ambient_terminal  -
+a.js:7:34 METHOD_CALL it.tag  ->  known_edge  a.js:1:41 tag
+a.js:8:17 METHOD_CALL items.find  ->  ambient_terminal  -
+a.js:8:36 METHOD_CALL it.run  ->  known_edge  a.js:1:21 run
+a.js:9:3 METHOD_CALL found.run  ->  ambient_terminal  -
+a.js:9:3 METHOD_CALL found.run  ->  multi_inferred  a.js:1:21 run

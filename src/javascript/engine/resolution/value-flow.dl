@@ -201,8 +201,19 @@ this_value(m, "inst", t) :- expr_kind(_, "ASSIGNMENT", _, a), expr_child(_, a, "
 // parser roots both under RETURN). The owner is the function returned FROM — the
 // parser attributes a nested function's body to the nested function, so no
 // filtering by nesting is needed. Plus `@returns {T}`.
-return_value(m, k, i) :- expr_root(_, "RETURN", e), expr_owner(_, m, _, e), expr_value(e, k, i).
+return_value(m, k, i) :- expr_root(_, "RETURN", e), expr_owner(_, m, _, e), !expr_kind(_, "THIS", _, e), expr_value(e, k, i).
 return_value(m, "inst", t) :- method_return_type(_, _, tr, m), type_ref_type(tr, t).
+// `return this` is POLYMORPHIC: a fluent `add()` declared on Node and called on an
+// AbstractBlock returns the AbstractBlock. So a `this`-return is not a value of the
+// method — it is the RECEIVER of each call, substituted at the site (below). A
+// receiverless call of such a function falls back to the function's own `this`.
+method_returns_this(m) :- expr_root(_, "RETURN", e), expr_owner(_, m, _, e), expr_kind(_, "THIS", _, e).
+expr_value(ce, k, i) :- expr_kind(_, "CALL", _, ce), expr_resolves_to_method(ce, m), method_returns_this(m),
+    call_site(_, ck, _, "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck),
+    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, k, i).
+expr_value(ce, k, i) :- expr_kind(_, "CALL", _, ce), expr_resolves_to_method(ce, m), method_returns_this(m),
+    call_site(_, ck, _, _, _, _, ce, _, _), !call_kind_is_member_form(ck),
+    this_value(m, k, i).
 
 // ── prop_value(K, I, Name, K2, I2) — reading a property off a value ────────
 // Object literal: `{ a: v }` (key + value children at the same child index),

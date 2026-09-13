@@ -1,0 +1,50 @@
+shapes.js:13:20 METHOD_CALL stop  EXACT  shapes.js:14:3
+shapes.js:18:42 CONSTRUCTOR_CALL Widget  EXACT  shapes.js:5:3
+shapes.js:26:30 METHOD_CALL alpha  EXACT  shapes.js:25:3
+shapes.js:28:1 METHOD_CALL assign  LIB_AMBIENT_OK  
+shapes.js:29:20 CONSTRUCTOR_CALL Widget  EXACT  shapes.js:5:3
+shapes.js:2:32 FUNCTION_CALL named  EXACT  shapes.js:1:1
+shapes.js:7:18 METHOD_CALL inc  EXACT  shapes.js:6:3
+shapes.js:8:28 CONSTRUCTOR_CALL Widget  EXACT  shapes.js:5:3
+use.js:10:3 METHOD_CALL inc  EXACT  shapes.js:6:3
+use.js:11:3 METHOD_CALL dec  EXACT  shapes.js:7:3
+use.js:11:3 METHOD_CALL inc  EXACT  shapes.js:6:3
+use.js:12:3 METHOD_CALL handler  EXACT  shapes.js:5:50
+use.js:13:3 METHOD_CALL create  EXACT  shapes.js:8:3
+use.js:13:3 METHOD_CALL inc  EXACT  shapes.js:6:3
+use.js:14:3 CONSTRUCTOR_CALL Klass  SYNTHESIZED_OK  
+use.js:14:3 METHOD_CALL run  EXACT  shapes.js:11:30
+use.js:15:3 METHOD_CALL start  EXACT  shapes.js:13:3
+use.js:16:3 METHOD_CALL deep  EXACT  shapes.js:15:13
+use.js:17:3 FUNCTION_CALL takesCb  EXACT  shapes.js:17:1
+use.js:18:18 FUNCTION_CALL named  EXACT  shapes.js:1:1
+use.js:18:3 FUNCTION_CALL takesCb  EXACT  shapes.js:17:1
+use.js:19:3 FUNCTION_CALL takesCb  EXACT  shapes.js:17:1
+use.js:19:32 FUNCTION_CALL named  EXACT  shapes.js:1:1
+use.js:20:3 FUNCTION_CALL returnsWidget  EXACT  shapes.js:18:1
+use.js:20:3 METHOD_CALL inc  EXACT  shapes.js:6:3
+use.js:21:3 FUNCTION_CALL documented  EXACT  shapes.js:20:1
+use.js:21:3 METHOD_CALL inc  EXACT  shapes.js:6:3
+use.js:22:3 METHOD_CALL inc  EXACT  shapes.js:6:3
+use.js:23:13 CONSTRUCTOR_CALL Proto  EXACT  shapes.js:23:1
+use.js:24:3 METHOD_CALL alpha  EXACT  shapes.js:25:3
+use.js:25:3 METHOD_CALL beta  EXACT  shapes.js:26:9
+use.js:27:3 METHOD_CALL inc  EXACT  shapes.js:6:3
+use.js:29:8 CONSTRUCTOR_CALL Widget  EXACT  shapes.js:5:3
+use.js:30:3 METHOD_CALL inc  EXACT  shapes.js:6:3
+use.js:31:14 FUNCTION_CALL returnsWidget  EXACT  shapes.js:18:1
+use.js:32:3 METHOD_CALL dec  EXACT  shapes.js:7:3
+use.js:33:22 METHOD_CALL inc  EXACT  shapes.js:6:3
+use.js:33:3 METHOD_CALL map  LIB_AMBIENT_OK  
+use.js:34:19 CONSTRUCTOR_CALL Widget  EXACT  shapes.js:5:3
+use.js:34:19 METHOD_CALL inc  EXACT  shapes.js:6:3
+use.js:34:19 METHOD_CALL inc  EXACT  shapes.js:6:3
+use.js:35:3 METHOD_CALL dec  EXACT  shapes.js:7:3
+use.js:36:3 FUNCTION_CALL useAll  EXACT  use.js:3:1
+use.js:4:3 FUNCTION_CALL named  EXACT  shapes.js:1:1
+use.js:5:3 FUNCTION_CALL arrowExp  EXACT  shapes.js:2:25
+use.js:6:3 FUNCTION_CALL dflt  EXACT  shapes.js:3:1
+use.js:7:3 METHOD_CALL named  EXACT  shapes.js:1:1
+use.js:8:3 METHOD_CALL default  EXACT  shapes.js:3:1
+use.js:9:13 CONSTRUCTOR_CALL Widget  EXACT  shapes.js:5:3
+# defects: 0

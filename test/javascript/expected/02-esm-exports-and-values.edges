@@ -1,0 +1,55 @@
+shapes.js:13:20 METHOD_CALL this.stop  ->  known_edge  shapes.js:14:3 stop
+shapes.js:17:38 FUNCTION_CALL cb  ->  multi_inferred  shapes.js:1:1 named
+shapes.js:17:38 FUNCTION_CALL cb  ->  multi_inferred  use.js:18:11 <arrow>
+shapes.js:17:38 FUNCTION_CALL cb  ->  multi_inferred  use.js:19:11 <function-expression>
+shapes.js:18:42 CONSTRUCTOR_CALL Widget  ->  known_edge  shapes.js:5:3 <constructor>
+shapes.js:26:30 METHOD_CALL this.alpha  ->  known_edge  shapes.js:25:3 alpha
+shapes.js:28:1 METHOD_CALL Object.assign  ->  ambient_terminal  -
+shapes.js:29:20 CONSTRUCTOR_CALL Widget  ->  known_edge  shapes.js:5:3 <constructor>
+shapes.js:2:32 FUNCTION_CALL named  ->  known_edge  shapes.js:1:1 named
+shapes.js:7:18 METHOD_CALL this.inc  ->  known_edge  shapes.js:6:3 inc
+shapes.js:8:28 CONSTRUCTOR_CALL Widget  ->  known_edge  shapes.js:5:3 <constructor>
+use.js:10:3 METHOD_CALL w.inc  ->  known_edge  shapes.js:6:3 inc
+use.js:11:3 METHOD_CALL w.inc  ->  known_edge  shapes.js:6:3 inc
+use.js:11:3 METHOD_CALL w.inc().dec  ->  known_edge  shapes.js:7:3 dec
+use.js:12:3 METHOD_CALL w.handler  ->  known_edge  shapes.js:5:50 <function-expression>
+use.js:13:3 METHOD_CALL Widget.create  ->  known_edge  shapes.js:8:3 create
+use.js:13:3 METHOD_CALL Widget.create().inc  ->  known_edge  shapes.js:6:3 inc
+use.js:14:3 CONSTRUCTOR_CALL Klass  ->  implicit_constructor  -
+use.js:14:3 METHOD_CALL new Klass().run  ->  known_edge  shapes.js:11:30 run
+use.js:15:3 METHOD_CALL registry.start  ->  known_edge  shapes.js:13:3 start
+use.js:16:3 METHOD_CALL registry.nested.deep  ->  known_edge  shapes.js:15:13 deep
+use.js:17:3 FUNCTION_CALL takesCb  ->  known_edge  shapes.js:17:1 takesCb
+use.js:18:18 FUNCTION_CALL named  ->  known_edge  shapes.js:1:1 named
+use.js:18:3 FUNCTION_CALL takesCb  ->  known_edge  shapes.js:17:1 takesCb
+use.js:19:3 FUNCTION_CALL takesCb  ->  known_edge  shapes.js:17:1 takesCb
+use.js:19:32 FUNCTION_CALL named  ->  known_edge  shapes.js:1:1 named
+use.js:20:3 FUNCTION_CALL returnsWidget  ->  known_edge  shapes.js:18:1 returnsWidget
+use.js:20:3 METHOD_CALL returnsWidget().inc  ->  known_edge  shapes.js:6:3 inc
+use.js:21:3 FUNCTION_CALL documented  ->  known_edge  shapes.js:20:1 documented
+use.js:21:3 METHOD_CALL documented().inc  ->  ambient_terminal  -
+use.js:21:3 METHOD_CALL documented().inc  ->  multi_inferred  shapes.js:6:3 inc
+use.js:22:3 METHOD_CALL typedLet.inc  ->  ambient_terminal  -
+use.js:22:3 METHOD_CALL typedLet.inc  ->  multi_inferred  shapes.js:6:3 inc
+use.js:23:13 CONSTRUCTOR_CALL Proto  ->  known_edge  shapes.js:23:1 Proto
+use.js:24:3 METHOD_CALL p.alpha  ->  known_edge  shapes.js:25:3 alpha
+use.js:25:3 METHOD_CALL p.beta  ->  known_edge  shapes.js:26:9 beta
+use.js:26:3 METHOD_CALL p.gamma  ->  known_edge  shapes.js:28:34 gamma
+use.js:27:3 METHOD_CALL wid.inc  ->  known_edge  shapes.js:6:3 inc
+use.js:29:8 CONSTRUCTOR_CALL Widget  ->  known_edge  shapes.js:5:3 <constructor>
+use.js:30:3 METHOD_CALL w2.inc  ->  known_edge  shapes.js:6:3 inc
+use.js:31:14 FUNCTION_CALL returnsWidget  ->  known_edge  shapes.js:18:1 returnsWidget
+use.js:32:3 METHOD_CALL w3.dec  ->  known_edge  shapes.js:7:3 dec
+use.js:33:22 METHOD_CALL x.inc  ->  known_edge  shapes.js:6:3 inc
+use.js:33:3 METHOD_CALL [w, w2].map  ->  ambient_terminal  -
+use.js:34:19 CONSTRUCTOR_CALL Widget  ->  known_edge  shapes.js:5:3 <constructor>
+use.js:34:19 METHOD_CALL new Widget().inc  ->  known_edge  shapes.js:6:3 inc
+use.js:34:19 METHOD_CALL new Widget().inc().inc  ->  known_edge  shapes.js:6:3 inc
+use.js:35:3 METHOD_CALL chained.dec  ->  known_edge  shapes.js:7:3 dec
+use.js:36:3 FUNCTION_CALL useAll  ->  known_edge  use.js:3:1 useAll
+use.js:4:3 FUNCTION_CALL named  ->  known_edge  shapes.js:1:1 named
+use.js:5:3 FUNCTION_CALL arrowExp  ->  known_edge  shapes.js:2:25 <arrow>
+use.js:6:3 FUNCTION_CALL dflt  ->  known_edge  shapes.js:3:1 dflt
+use.js:7:3 METHOD_CALL ns.named  ->  known_edge  shapes.js:1:1 named
+use.js:8:3 METHOD_CALL ns.default  ->  known_edge  shapes.js:3:1 dflt
+use.js:9:13 CONSTRUCTOR_CALL Widget  ->  known_edge  shapes.js:5:3 <constructor>

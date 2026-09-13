@@ -1,0 +1,51 @@
+lib/util.js:11:20 SUPER_CALL super  EXACT  lib/util.js:5:3
+lib/util.js:12:20 METHOD_CALL greet  EXACT  lib/util.js:6:3
+lib/util.js:13:20 METHOD_CALL greet  EXACT  lib/util.js:12:3
+lib/util.js:13:20 METHOD_CALL toUpperCase  LIB_MISSED  
+lib/util.js:17:39 CONSTRUCTOR_CALL Legacy  EXACT  lib/util.js:15:1
+lib/util.js:19:16 FUNCTION_CALL helper  EXACT  lib/util.js:2:1
+lib/util.js:20:27 FUNCTION_CALL arrow  EXACT  lib/util.js:3:15
+lib/util.js:3:22 FUNCTION_CALL helper  EXACT  lib/util.js:2:1
+lib/util.js:5:48 METHOD_CALL greet  EXACT  lib/util.js:6:3
+lib/util.js:7:27 CONSTRUCTOR_CALL Base  EXACT  lib/util.js:5:3
+src/consumer.js:10:3 CONSTRUCTOR_CALL Local  EXACT  lib/util.js:11:3
+src/consumer.js:10:3 METHOD_CALL extraLocal  EXACT  src/consumer.js:6:3
+src/consumer.js:11:3 FUNCTION_CALL useD  EXACT  src/consumer.js:4:1
+src/consumer.js:11:8 CONSTRUCTOR_CALL Derived  EXACT  lib/util.js:11:3
+src/consumer.js:13:3 FUNCTION_CALL fn  EXACT  src/consumer.js:8:1
+src/consumer.js:15:3 METHOD_CALL inner  EXACT  src/consumer.js:14:15
+src/consumer.js:17:3 METHOD_CALL fn  EXACT  src/main.js:10:1
+src/consumer.js:19:1 FUNCTION_CALL go  EXACT  src/consumer.js:8:1
+src/consumer.js:4:27 METHOD_CALL shout  EXACT  lib/util.js:13:3
+src/consumer.js:6:25 METHOD_CALL greet  EXACT  lib/util.js:12:3
+src/consumer.js:6:40 METHOD_CALL shout  EXACT  lib/util.js:13:3
+src/consumer.js:9:3 FUNCTION_CALL run  EXACT  src/main.js:10:1
+src/main.js:11:3 FUNCTION_CALL local  EXACT  src/main.js:7:1
+src/main.js:12:3 FUNCTION_CALL localArrow  EXACT  src/main.js:8:20
+src/main.js:13:3 FUNCTION_CALL helper  EXACT  lib/util.js:2:1
+src/main.js:14:3 METHOD_CALL helper  EXACT  lib/util.js:2:1
+src/main.js:15:3 METHOD_CALL arrow  EXACT  lib/util.js:3:15
+src/main.js:16:3 METHOD_CALL extra  EXACT  lib/util.js:24:24
+src/main.js:17:3 METHOD_CALL another  EXACT  lib/util.js:25:19
+src/main.js:18:13 CONSTRUCTOR_CALL Base  EXACT  lib/util.js:5:3
+src/main.js:19:3 METHOD_CALL greet  EXACT  lib/util.js:6:3
+src/main.js:20:13 CONSTRUCTOR_CALL Derived  EXACT  lib/util.js:11:3
+src/main.js:21:3 METHOD_CALL greet  EXACT  lib/util.js:12:3
+src/main.js:22:3 METHOD_CALL shout  EXACT  lib/util.js:13:3
+src/main.js:23:13 CONSTRUCTOR_CALL Legacy  EXACT  lib/util.js:15:1
+src/main.js:24:3 METHOD_CALL value  EXACT  lib/util.js:16:26
+src/main.js:25:3 METHOD_CALL create  EXACT  lib/util.js:17:17
+src/main.js:26:3 METHOD_CALL make  EXACT  lib/util.js:7:3
+src/main.js:27:3 METHOD_CALL m  EXACT  lib/util.js:19:3
+src/main.js:28:3 METHOD_CALL f  EXACT  lib/util.js:20:6
+src/main.js:29:3 METHOD_CALL g  EXACT  lib/util.js:21:6
+src/main.js:31:3 FUNCTION_CALL_CALL call  EXACT  lib/util.js:2:1
+src/main.js:32:3 FUNCTION_CALL_APPLY apply  EXACT  lib/util.js:2:1
+src/main.js:33:17 FUNCTION_CALL_BIND bind  EXACT  lib/util.js:2:1
+src/main.js:35:22 FUNCTION_CALL local  EXACT  src/main.js:7:1
+src/main.js:35:3 IIFE_CALL   EXACT  src/main.js:35:4
+src/main.js:36:25 FUNCTION_CALL local  EXACT  src/main.js:7:1
+src/main.js:36:3 METHOD_CALL forEach  LIB_AMBIENT_OK  
+src/main.js:37:3 METHOD_CALL log  LIB_AMBIENT_OK  
+src/main.js:40:1 FUNCTION_CALL run  EXACT  src/main.js:10:1
+# defects: 0

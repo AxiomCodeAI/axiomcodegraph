@@ -1,0 +1,18 @@
+AbstractBlock.js:3:28 SUPER_CALL super  ->  known_edge  Node.js:6:3 <constructor>
+AbstractBlock.js:4:12 METHOD_CALL super.walk  ->  known_edge  Node.js:7:3 walk
+AbstractBlock.js:4:26 METHOD_CALL this.component.error  ->  known_edge  Component.js:4:3 error
+Component.js:12:5 METHOD_CALL n.walk  ->  multi_inferred  AbstractBlock.js:4:3 walk
+Component.js:12:5 METHOD_CALL n.walk  ->  multi_inferred  Node.js:7:3 walk
+Component.js:16:1 CONSTRUCTOR_CALL Component  ->  implicit_constructor  -
+Component.js:16:1 METHOD_CALL new Component().run  ->  known_edge  Component.js:5:3 run
+Component.js:6:19 CONSTRUCTOR_CALL AbstractBlock  ->  known_edge  AbstractBlock.js:3:3 <constructor>
+Component.js:7:15 CONSTRUCTOR_CALL AbstractBlock  ->  known_edge  AbstractBlock.js:3:3 <constructor>
+Component.js:7:5 METHOD_CALL block.add  ->  known_edge  Node.js:8:3 add
+Component.js:7:5 METHOD_CALL block.add(new AbstractBlock(this)).walk  ->  known_edge  AbstractBlock.js:4:3 walk
+Component.js:8:18 METHOD_CALL block.clone  ->  known_edge  Node.js:9:3 clone
+Component.js:9:5 METHOD_CALL copy.walk  ->  known_edge  Node.js:7:3 walk
+Node.js:7:12 METHOD_CALL this.component.warn  ->  known_edge  Component.js:3:3 warn
+Node.js:7:39 METHOD_CALL this.children.forEach  ->  ambient_terminal  -
+Node.js:7:68 METHOD_CALL c.walk  ->  known_edge  AbstractBlock.js:4:3 walk
+Node.js:8:16 METHOD_CALL this.children.push  ->  ambient_terminal  -
+Node.js:9:20 CONSTRUCTOR_CALL this.constructor  ->  known_edge  Node.js:6:3 <constructor>
