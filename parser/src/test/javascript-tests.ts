@@ -691,6 +691,10 @@ const SCAFFOLD: ReadonlyArray<readonly [string, string]> = [
     ' * @param {number} twice',
     ' */',
     'function documentedTwice(twice) { return twice; }',
+    // An import type on a PARAMETER node of a nested method: its js_import
+    // row's owner scope is the scope `enter` opens, the same scope its owner
+    // method names — the parameter node itself sits in the function's scope.
+    "const walker = { enter(/** @type {import('./base.js').Base} */ node) { return node; } };",
     // A destructuring declaration's @type is the PATTERN's: one tree, owned by
     // the root binding; the second name reads NONE rather than the pair's type.
     '/** @type {[string, number]} */',
@@ -702,7 +706,7 @@ const SCAFFOLD: ReadonlyArray<readonly [string, string]> = [
     '  const local = null;',
     '  return local;',
     '}',
-    'module.exports = { forms, positional, postfixOptional, takesCallback, documentedTwice, inBody, first, second };',
+    'module.exports = { forms, positional, postfixOptional, takesCallback, documentedTwice, walker, inBody, first, second };',
     '',
   ].join('\n')],
 
@@ -4169,7 +4173,22 @@ function declaredTypesAgreeWithTheirReferences(): number {
   const iOwner = importsRel.header.indexOf('ownerModuleLinkHash');
   const iBearer = importsRel.header.indexOf('edgeBearer');
   const iMethod = importsRel.header.indexOf('ownerMethodLinkHash');
-  const commentImport = importsRel.rows.find((r) => r[iOwner] === forms && r[iBearer] === 'COMMENT');
+  const iScope = importsRel.header.indexOf('ownerScopeLinkHash');
+  const iLine = importsRel.header.indexOf('startLine');
+  const mBody = methodsRel.header.indexOf('bodyScopeLinkHash');
+  const enter = methodsRel.rows.find((r) => r[mOwner] === forms && r[mName] === 'enter');
+  const onParameter = importsRel.rows.find((r) => r[iOwner] === forms && r[iBearer] === 'COMMENT'
+    && Number(r[iLine]) === 27);
+  if (enter === undefined || onParameter === undefined
+    || onParameter[iMethod] !== enter[pkIndexOf(methodsRel.header, 'js_method')]
+    || onParameter[iScope] !== enter[mBody]) {
+    failures += fail(`the import type on enter's parameter (line 27): owner method `
+      + `${onParameter === undefined ? '(no row)' : onParameter[iMethod] === enter?.[pkIndexOf(methodsRel.header, 'js_method')] ? 'enter' : 'ANOTHER method'}, `
+      + `owner scope ${onParameter?.[iScope] === enter?.[mBody] ? "enter's own" : 'NOT the scope enter opens'} — `
+      + 'a parameter node sits in its function\'s scope; the walk fell through to the function node and took the outer one');
+  }
+  const commentImport = importsRel.rows.find((r) => r[iOwner] === forms && r[iBearer] === 'COMMENT'
+    && Number(r[iLine]) !== 27);
   if (commentImport === undefined || commentImport[iMethod] !== inBody) {
     failures += fail(`the import type inside inBody() has ownerMethodLinkHash `
       + `${commentImport === undefined ? '(no row)' : commentImport[iMethod] === inBody ? 'inBody' : 'another method'}; `

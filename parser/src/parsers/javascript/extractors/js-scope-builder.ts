@@ -462,6 +462,14 @@ class JsScopeBuilder {
     }
 
     for (const parameter of node.parameters) {
+      // The PARAMETER NODE sits in the function's own scope. Its name is
+      // bound there and its default is visited there, but the node itself was
+      // never keyed — so a walk up from anything inside it (a JSDoc
+      // `/** @type {import('./x').T} */ p`) fell through to the function
+      // node, whose enclosing scope is the OUTER one, and the import's owner
+      // scope named a scope its owner method does not own. 2 rows of 23,834,
+      // both `@type` on a parameter, found by js-corpus's link-meaning sweep.
+      this.enclosingScopeOf.set(nodeKey(parameter), child);
       this.bindPattern(parameter.name, child, child, JsBindingRegime.PARAMETER, false);
       if (parameter.initializer !== undefined) {
         // Evaluated in the function's OWN scope, so `(a, b = a)` resolves.
