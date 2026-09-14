@@ -25,7 +25,7 @@ This guard turns that into a build failure. It checks:
 THE LIB NAMING CONVENTION IS NOT THE SAME IN EVERY FRONT END, and this tool used to
 assume Java's. Java pairs `java_method` with `lib_method` — the language prefix is
 dropped. Python pairs `py_method` with `lib_py_method` — it is kept, and
-src/python/templates/staging.conf says so in as many words ("THE PREFIX MUST BE py_:
+graph/python/templates/staging.conf says so in as many words ("THE PREFIX MUST BE py_:
 the executor strips only 'lib_'"). With Java's convention hardcoded, `--lang python`
 reported 19 counterpart failures that were all the tool's, so the guard had never run
 on that front end at all — the exact hole issue #136 records for Java, one language

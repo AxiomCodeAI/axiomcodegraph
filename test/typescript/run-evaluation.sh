@@ -393,8 +393,8 @@ echo "   $MODS modules, $CS call sites"
 # pipeline cannot see it: rows are consistent with their own HEADER, and the header is
 # not what drifted.
 python3 "$HERE/tools/schema_drift.py" "$WORK/ir" \
-  "$REPO/src/typescript/souffle/decls_base.dl" \
-  "$REPO/src/typescript/souffle/decls_all.dl" || {
+  "$REPO/graph/typescript/souffle/decls_base.dl" \
+  "$REPO/graph/typescript/souffle/decls_all.dl" || {
   echo "   ! refusing to measure against a drifted schema" >&2; exit 1; }
 
 # ── 2. library IR, DISCOVERED from the client's own resolved imports ─────────
@@ -714,7 +714,7 @@ fi
 
 # ── 3. solve ─────────────────────────────────────────────────────────────────
 echo "▶ solving..."
-bash "$REPO/src/pipeline/run-souffle.sh" --debug --language typescript \
+bash "$REPO/graph/pipeline/run-souffle.sh" --debug --language typescript \
   --client-ir "$WORK/ir" ${LIBS:+--library "$LIBS"} \
   --intermediate "$WORK/int" --output "$WORK/out" >"$WORK/solve.log" 2>&1 || {
   echo "   solve failed; see $WORK/solve.log" >&2; tail -20 "$WORK/solve.log" >&2; exit 1; }

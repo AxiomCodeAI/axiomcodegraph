@@ -16,7 +16,7 @@ export function writeCoreCsv(graphDir: string, core: CoreTables, log: (s: string
   for (const t of CORE_TABLES) {
     const rows = (core as unknown as Record<string, Row[]>)[t.name] ?? [];
     const n = writeTable(path.join(graphDir, `${t.name}.csv`), t.columns.map((c) => c.name), rows);
-    log(`  graph/${t.name}.csv: ${n} rows`);
+    log(`  csv/${t.name}.csv: ${n} rows`);
   }
 }
 
@@ -103,7 +103,7 @@ export async function writeSqlite(inp: SqliteInputs): Promise<void> {
         const k = `${table}\t${column}\t${inp.language}\t${val}`;
         if (authored.has(k)) continue;
         if (prefixes.some((p) => p.key === `${table}\t${column}` && val.startsWith(p.prefix))) continue;
-        voc.run(table, column, inp.language, val, 'undocumented — observed in this run; not in the authored vocabulary (src/bundle/schema.ts)');
+        voc.run(table, column, inp.language, val, 'undocumented — observed in this run; not in the authored vocabulary (graph/bundle/schema.ts)');
         inp.log(`  ! undocumented ${table}.${column} value: ${val}`);
       }
     };

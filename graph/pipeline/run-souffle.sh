@@ -4,13 +4,13 @@
 # to only the signature relations the rules reference (never loads GB-scale bodies).
 # Usage: run-souffle.sh --client-ir DIR --library DIR --intermediate DIR --output DIR [--language L] [--debug]
 #
-# OUTPUT LAYOUT — the same in every language (src/bundle/SCHEMA.md):
+# OUTPUT LAYOUT — the same in every language (graph/bundle/SCHEMA.md):
 #   $OUT/graph.sqlite   the contract: core tables + ext_* tables + the schema catalog
-#   $OUT/graph/*.csv    the same core tables as headered text — ONLY with --debug
+#   $OUT/csv/*.csv      the same core tables as headered text — ONLY with --debug
 #                       (or when node has no node:sqlite, so a run always emits something)
 #   $OUT/raw/           the per-language Soufflé relations, verbatim — engine-internal;
 #                       kept ONLY with --debug (the regression suites score it)
-# Soufflé solves into raw/; the bundle stage (src/bundle/cli.ts) then joins the raw
+# Soufflé solves into raw/; the bundle stage (graph/bundle/cli.ts) then joins the raw
 # relations to the parser IR and writes the database. Without --debug the raw relations are
 # deleted once the database is written, so a consumer sees one file: graph.sqlite.
 set -e
@@ -29,7 +29,7 @@ DISPATCH_CAP="${DISPATCH_CAP:-20}"   # fan-width cap on virtual dispatch. DEFAUL
               # TURN IT OFF (--dispatch-cap off) for UNBOUNDED reachability — sink/taint traversal —
               # where a sink behind a wide dispatch would be dropped: entry_reachable falls 21.5%
               # (32,229 -> 25,288) under the cap. Bounded-depth impact queries are unaffected.
-LANG_ARG=""   # which rule set under src/<lang>/ to run. Default java.
+LANG_ARG=""   # which rule set under graph/<lang>/ to run. Default java.
 TAINT=""      # --taint on → gate lib→lib GROW on client-seeded data flow (dataflow/taint.dl). Also
               # settable via env AXIOM_TAINT_GATING=on. Empty = ungated (default behavior).
 while [ $# -gt 0 ]; do case "$1" in
@@ -40,7 +40,7 @@ while [ $# -gt 0 ]; do case "$1" in
   --lib-depth) LIB_DEPTH="$2"; shift 2;;
   --taint) TAINT="$2"; shift 2;;
   --language) LANG_ARG="$2"; shift 2;;
-  # graph.sqlite is the deliverable; graph/*.csv is a debugging view of the same core
+  # graph.sqlite is the deliverable; csv/*.csv is a debugging view of the same core
   # tables. --debug asks for both. (An older Node with no node:sqlite writes the CSVs
   # regardless, because otherwise the run would produce no consumer-facing output.)
   --debug) DEBUG_BUNDLE=1; shift;;
@@ -50,7 +50,7 @@ while [ $# -gt 0 ]; do case "$1" in
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=portable-stat.sh
 . "$SRC/pipeline/portable-stat.sh"
-# Rules are PER-LANGUAGE and live under src/<lang>/; the executor itself is shared.
+# Rules are PER-LANGUAGE and live under graph/<lang>/; the executor itself is shared.
 LANG_ARG="${LANG_ARG:-java}"
 ENG="$SRC/$LANG_ARG/engine"; ENG2="$SRC/$LANG_ARG/engine-ii"; DL="$SRC/$LANG_ARG/souffle"; TPL="$SRC/$LANG_ARG/templates"
 [ -d "$ENG" ] || { echo "no rule set for --language=$LANG_ARG (looked in $ENG)" >&2; exit 1; }
@@ -148,7 +148,7 @@ lib_cache_key(){
         # served the other's staged facts. Reproduced on macOS, so it is not the `stat` portability
         # problem: `find dir_symlink -name '*.csv'` simply prints nothing.
         # size+mtime of each module's CSVs — cheap, and changes whenever the IR does.
-        # file_ident, NOT `stat -f ... || stat -c ...`: see src/pipeline/portable-stat.sh. On GNU
+        # file_ident, NOT `stat -f ... || stat -c ...`: see graph/pipeline/portable-stat.sh. On GNU
         # coreutils `-f` is --file-system, so the BSD form printed a FILESYSTEM report — free-block
         # and inode counters — for each file, and the fallback was unreachable here anyway because
         # find exits 0 whether or not the command it exec'd failed. The key was therefore computed
@@ -406,7 +406,7 @@ rm -rf "$FACTS" "$INT/souffle-program.cpp"
 SOLVE_EPOCH=$(date +%s)
 echo "Elapsed (solve): $((SOLVE_EPOCH-START_EPOCH))s"
 
-# --- BUNDLE: raw/ + the parser IR -> graph.sqlite + graph/*.csv (src/bundle/) ---
+# --- BUNDLE: raw/ + the parser IR -> graph.sqlite + csv/*.csv (graph/bundle/) ---
 # The stage is TypeScript. In a development checkout it runs from SOURCE through tsx, so the
 # bundle can never be built from a stale dist/ (the failure mode a compiled step invites);
 # an installed package has no devDependencies and runs the compiled dist/bundle/cli.js that
@@ -432,8 +432,8 @@ BUNDLE_FLAGS=(); [ "$DEBUG_BUNDLE" = "1" ] && BUNDLE_FLAGS+=(--debug)
 END_EPOCH=$(date +%s); END_TS=$(date '+%Y-%m-%d %H:%M:%S')
 echo "Elapsed: $((END_EPOCH-START_EPOCH))s"
 if [ "$DEBUG_BUNDLE" = "1" ]; then
-  echo "✅ reasoning complete: $OUT/graph.sqlite · debug: $OUT/graph/ and raw relations in $RAW"
+  echo "✅ reasoning complete: $OUT/graph.sqlite · debug: $OUT/csv/ and raw relations in $RAW"
 else
   rm -rf "$RAW"
-  echo "✅ reasoning complete: $OUT/graph.sqlite   (--debug keeps raw/ and writes graph/*.csv)"
+  echo "✅ reasoning complete: $OUT/graph.sqlite   (--debug keeps raw/ and writes csv/*.csv)"
 fi

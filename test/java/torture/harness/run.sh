@@ -54,7 +54,7 @@ if [ "$jdk_mods" = 0 ]; then
   echo "   this score measures the staging, not the rules. Set AXIOM_JDK_IR."
 fi
 
-bash "$ENG/src/pipeline/run-souffle.sh" --debug --client-ir .work/client-ir --library "$LIBROOT" \
+bash "$ENG/graph/pipeline/run-souffle.sh" --debug --client-ir .work/client-ir --library "$LIBROOT" \
      --intermediate .work/int --output .work/out >.work/solve.log 2>&1 || { echo "FAIL (solve)"; tail -5 .work/solve.log; exit 1; }
 
 # ── no call site may vanish ────────────────────────────────────────────────────────────────────
@@ -85,7 +85,7 @@ python3 "$TOOLS/score_scale.py" .work/client-ir .work/out/raw .work/scale-lb.txt
 # ── INVARIANT: staging a library must never REMOVE an answer ───────────────────────────────────
 # Nothing else here can catch that, because every other assertion fixes the library input; a site
 # that loses its answer only shows up when the two runs are compared to each other.
-bash "$ENG/src/pipeline/run-souffle.sh" --debug --client-ir .work/client-ir --library .work/emptylib \
+bash "$ENG/graph/pipeline/run-souffle.sh" --debug --client-ir .work/client-ir --library .work/emptylib \
      --intermediate .work/int-nolib --output .work/out-nolib >/dev/null 2>&1
 if ! python3 "$SHARED/compare_runs.py" .work/out-nolib/raw .work/out/raw --top 5 > .work/monotonicity.txt 2>&1; then
   echo "FAIL (library monotonicity: staging the stub library removed an answer)"

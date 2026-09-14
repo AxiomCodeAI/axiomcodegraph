@@ -73,7 +73,7 @@ scoped rule, which is the trade in its smallest legible form.
 
 ## What Java did, and what it costs to buy the same thing
 
-Java's engine (`src/java/engine/expression-resolution/overload.dl`) hit this and answered
+Java's engine (`graph/java/engine/expression-resolution/overload.dl`) hit this and answered
 it with `win_fully_applicable`: a candidate may only DOMINATE a rival when it is verified
 applicable at every argument position, and where an argument's type is uncaptured no
 domination fires and the set is kept whole. Nothing dies by default. Ported to TypeScript

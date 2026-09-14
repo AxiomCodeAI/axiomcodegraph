@@ -67,7 +67,7 @@ if ! bash "$ROOT/test/tools/empty-relation-test.sh"; then
 fi
 # ── The bundle stage must build the language-neutral output ─────────────────
 # Every solve below ends by joining the raw relations to the IR and writing graph.sqlite
-# (src/bundle/SCHEMA.md); graph/*.csv is the same core tables and is written only under
+# (graph/bundle/SCHEMA.md); graph/*.csv is the same core tables and is written only under
 # --debug. A broken bundler fails every case identically, after the
 # solve's cost; this checks it in milliseconds on hand-written fixtures for all three languages.
 if ! bash "$ROOT/test/tools/bundle-test.sh"; then
@@ -275,7 +275,7 @@ pass=0; fail=0; failed=()
 
 # solve <ir> <library-ir> <workdir> ; leaves edges in <workdir>/out
 solve() {
-  bash "$ROOT/src/pipeline/run-souffle.sh" --debug --language typescript \
+  bash "$ROOT/graph/pipeline/run-souffle.sh" --debug --language typescript \
     --client-ir "$1" --library "$2" --intermediate "$3/int" --output "$3/out" \
     >"$3/solve.log" 2>&1
 }

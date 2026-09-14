@@ -38,7 +38,7 @@ PARSER="${AXIOM_PARSER:-}"
 # The parser's module arity and this engine's declaration must agree. They drift on
 # every schema append, and the symptom downstream is a drift-gate refusal per project
 # with nothing saying they share one cause.
-DECL=$(grep -o '^\.decl ts_module(.*' "$TS/../../src/typescript/souffle/decls_base.dl" 2>/dev/null \
+DECL=$(grep -o '^\.decl ts_module(.*' "$TS/../../graph/typescript/souffle/decls_base.dl" 2>/dev/null \
        | tr ',' '\n' | wc -l | tr -d ' ')
 echo "engine declares ts_module with $DECL columns; parser: $PARSER"
 

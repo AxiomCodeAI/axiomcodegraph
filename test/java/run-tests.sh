@@ -4,7 +4,7 @@
 #
 # For every case in test/java/cases/<name>/src:
 #   1. parse the source to IR            (external parser, $AXIOM_PARSER)
-#   2. solve with the engine             (src/pipeline/run-souffle.sh)
+#   2. solve with the engine             (graph/pipeline/run-souffle.sh)
 #   3. COVERAGE GUARD: no call site may vanish silently
 #   4. normalize the edges to golden form and diff against test/java/expected/<name>.edges
 #   5. CONFIG REPORT: if the case derives any config-resolution rows (beans, DI edges,
@@ -98,7 +98,7 @@ if ! bash "$ROOT/test/tools/souffle-include-test.sh"; then
 fi
 # ── The bundle stage must build the language-neutral output ─────────────────
 # Every solve below ends by joining the raw relations to the IR and writing graph.sqlite
-# (src/bundle/SCHEMA.md); graph/*.csv is the same core tables and is written only under
+# (graph/bundle/SCHEMA.md); graph/*.csv is the same core tables and is written only under
 # --debug. A broken bundler fails every case identically, after the
 # solve's cost; this checks it in milliseconds on hand-written fixtures for all three languages.
 if ! bash "$ROOT/test/tools/bundle-test.sh"; then
@@ -209,7 +209,7 @@ for dir in "$HERE"/cases/*/; do
     case_lib="$w/lib-ir"
   fi
 
-  if ! bash "$ROOT/src/pipeline/run-souffle.sh" --debug --client-ir "$w/ir" --library "$case_lib" \
+  if ! bash "$ROOT/graph/pipeline/run-souffle.sh" --debug --client-ir "$w/ir" --library "$case_lib" \
         --intermediate "$w/int" --output "$w/out" >"$w/solve.log" 2>&1; then
     echo "FAIL (solve — see $w/solve.log)"; fail=$((fail+1)); failed+=("$name"); continue; fi
 

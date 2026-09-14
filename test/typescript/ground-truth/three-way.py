@@ -85,7 +85,7 @@ def main():
             csv_out = a.split('=', 1)[1]
 
     ir = os.path.join(ev, 'ir')
-    out = os.path.join(ev, 'out', 'raw')  # the engine's raw relations (see src/bundle/SCHEMA.md)
+    out = os.path.join(ev, 'out', 'raw')  # the engine's raw relations (see graph/bundle/SCHEMA.md)
 
     # ── declaration identity, full path where the root is known ─────────────
     exact_identity = True

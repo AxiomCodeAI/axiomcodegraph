@@ -18,7 +18,7 @@
 # Decide ONCE instead, by asking stat which spelling it understands, and never look at the exit
 # status of a stat that may already have written to the stream being captured.
 #
-# See src/pipeline/run-souffle.sh (lib_cache_key) and test/java/tools/build-{jdk,lib}-ir.sh.
+# See graph/pipeline/run-souffle.sh (lib_cache_key) and test/java/tools/build-{jdk,lib}-ir.sh.
 # test/tools/portable-stat-test.sh asserts the behaviour these callers depend on.
 # ─────────────────────────────────────────────────────────────────────────────
 

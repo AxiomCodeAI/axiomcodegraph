@@ -16,7 +16,7 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
-. "$ROOT/src/pipeline/souffle-include.sh"
+. "$ROOT/graph/pipeline/souffle-include.sh"
 
 fail=0; checks=0
 ok(){   checks=$((checks+1)); [ -n "${SOUFFLE_INCLUDE_VERBOSE:-}" ] && printf '  ok    %s\n' "$1"; return 0; }

@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# The bundle stage (src/bundle/) — the language-neutral output every suite now solves into.
+# The bundle stage (graph/bundle/) — the language-neutral output every suite now solves into.
 #
 # No parser, no soufflé: each language gets a HAND-WRITTEN raw/ dump and a minimal IR whose
 # headers carry only the columns the adapter asks for by name (that is the point of resolving
 # by name). Then the bundle is built and read back:
-#   1. graph/<table>.csv exists for every core table, with the header the schema declares
+#   1. csv/<table>.csv exists for every core table, with the header the schema declares
 #   2. a caller and its resolved callee join to qualified names, file and line — in every language
 #   3. an unresolved site is kept, with NULL callee, and lands in unresolved_sites
 #   4. the vocabulary inside the database knows the language's own values, and a value the
 #      schema does not list is still recorded as undocumented rather than dropped
-#   5. src/bundle/SCHEMA.md is what schema.ts renders — the two cannot drift
+#   5. graph/bundle/SCHEMA.md is what schema.ts renders — the two cannot drift
 # Assertions read the CSVs; the sqlite3 CLI, when present, also queries the database.
 # ─────────────────────────────────────────────────────────────────────────────
 set -u
@@ -20,12 +20,12 @@ TSX="$ROOT/node_modules/.bin/tsx"
 [ -x "$TSX" ] || { echo "bundle-test: SKIP (no node_modules/.bin/tsx — run npm install)"; exit 0; }
 W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
 fail=0; bad(){ echo "  ✗ $*"; fail=$((fail+1)); }
-# --debug, because every assertion below reads graph/*.csv. Without it the bundler writes
+# --debug, because every assertion below reads csv/*.csv. Without it the bundler writes
 # graph.sqlite alone — the CSVs are a debugging view of the same core tables, and a
 # consumer that queries the database does not want a second copy of it on disk. The
 # default is asserted separately at the end.
-BUNDLE(){ "$TSX" "$ROOT/src/bundle/cli.ts" --src "$ROOT/src" --debug "$@"; }
-BUNDLE_NO_DEBUG(){ "$TSX" "$ROOT/src/bundle/cli.ts" --src "$ROOT/src" "$@"; }
+BUNDLE(){ "$TSX" "$ROOT/graph/bundle/cli.ts" --src "$ROOT/graph" --debug "$@"; }
+BUNDLE_NO_DEBUG(){ "$TSX" "$ROOT/graph/bundle/cli.ts" --src "$ROOT/graph" "$@"; }
 SQL(){ command -v sqlite3 >/dev/null && sqlite3 "$1" "$2"; }
 HAVE_SQLITE=0; command -v sqlite3 >/dev/null && HAVE_SQLITE=1
 
@@ -85,10 +85,10 @@ for lang in java typescript python; do
   if ! BUNDLE --language "$lang" --client-ir "$d/ir" --raw "$d/raw" --out "$d" > "$d/log" 2>&1; then
     bad "$lang: bundle failed:"; sed 's/^/      /' "$d/log" | tail -5; continue
   fi
-  G="$d/graph"
+  G="$d/csv"
   # 1. every core table, with the declared header
   for t in run methods types call_sites call_edges type_ancestors overrides entry_points entry_reachable unresolved_sites type_instantiated; do
-    [ -f "$G/$t.csv" ] || bad "$lang: graph/$t.csv missing"
+    [ -f "$G/$t.csv" ] || bad "$lang: csv/$t.csv missing"
   done
   [ "$(header "$G/call_edges.csv")" = "$(printf 'call_site_id\tcaller_id\tcallee_method_id\tcallee_label\tcallee_provenance\ttier\tkind')" ] || bad "$lang: call_edges header is $(header "$G/call_edges.csv")"
   [ "$(header "$G/methods.csv")" = "$(printf 'id\tname\tqualified_name\tsignature\tkind\towner_type_id\towner_qualified_name\tfile_path\tstart_line\tend_line\tprovenance')" ] || bad "$lang: methods header drifted"
@@ -133,7 +133,7 @@ if [ "$HAVE_SQLITE" = 1 ]; then
     [ "$(cols java)" = "$(cols $other)" ] || bad "schema_columns differs between java and $other"
     [ "$(core java)" = "$(core $other)" ] || bad "core schema_tables rows differ between java and $other"
   done
-  [ "$(SQL "$W/java/graph.sqlite" "PRAGMA user_version")" = "$(grep -o "SCHEMA_VERSION = '[0-9]*'" "$ROOT/src/bundle/schema.ts" | grep -o '[0-9]*')" ] || bad "PRAGMA user_version is not SCHEMA_VERSION"
+  [ "$(SQL "$W/java/graph.sqlite" "PRAGMA user_version")" = "$(grep -o "SCHEMA_VERSION = '[0-9]*'" "$ROOT/graph/bundle/schema.ts" | grep -o '[0-9]*')" ] || bad "PRAGMA user_version is not SCHEMA_VERSION"
   # 6. the guide is there, and every canonical query runs on every language's bundle
   for lang in java typescript python; do
     DB="$W/$lang/graph.sqlite"
@@ -152,20 +152,20 @@ if [ "$HAVE_SQLITE" = 1 ]; then
 fi
 
 # 7. SCHEMA.md is the rendering of schema.ts
-if ! diff -q <(BUNDLE --print-schema) "$ROOT/src/bundle/SCHEMA.md" >/dev/null; then
-  bad "src/bundle/SCHEMA.md is stale — run: npm run schema-doc"
+if ! diff -q <(BUNDLE --print-schema) "$ROOT/graph/bundle/SCHEMA.md" >/dev/null; then
+  bad "graph/bundle/SCHEMA.md is stale — run: npm run schema-doc"
 fi
 
 
 # ── the DEFAULT writes the database and nothing else ────────────────────────
-# The deliverable is graph.sqlite. graph/*.csv carries the same core tables, so writing
+# The deliverable is graph.sqlite. csv/*.csv carries the same core tables, so writing
 # both unasked doubles the output for a consumer that reads neither by hand. Asserted
 # here rather than trusted, because the fallback below makes the condition non-obvious.
 d="$W/default"; mkdir -p "$d"
 BUNDLE_NO_DEBUG --language java --client-ir "$W/java/ir" --raw "$W/java/raw" --out "$d" >/dev/null 2>&1
 [ -f "$d/graph.sqlite" ] || bad "default: graph.sqlite not written"
-if [ -d "$d/graph" ] && [ -n "$(ls -A "$d/graph" 2>/dev/null)" ]; then
-  bad "default: graph/ should be empty without --debug, found $(ls "$d/graph" | wc -l | tr -d ' ') files"
+if [ -d "$d/csv" ] && [ -n "$(ls -A "$d/csv" 2>/dev/null)" ]; then
+  bad "default: csv/ should be empty without --debug, found $(ls "$d/csv" | wc -l | tr -d ' ') files"
 fi
 
 if [ "$fail" -eq 0 ]; then

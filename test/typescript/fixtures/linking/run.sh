@@ -64,7 +64,7 @@ SITES="$WORK/eval/sites.tsv"
 
 # ── a dependency must be staged once, even when it ships its own source ──────
 # `@tt/twinsrc` ships `dist/index.d.ts` (what its manifest points `types` at) AND
-# `src/index.ts` (the same class, in source form) — the layout rxjs, immer and superjson
+# `graph/index.ts` (the same class, in source form) — the layout rxjs, immer and superjson
 # all publish. The parser skips `dist` by name but not `src`, so staging the package root
 # and its `dist` both, as the harness does by default, declares `Twin` twice.
 #

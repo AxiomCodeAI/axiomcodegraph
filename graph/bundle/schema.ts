@@ -8,7 +8,7 @@
  * time, from the database it is querying) and rendered to SCHEMA.md (so a human can read
  * it without a database). Neither can drift from the other because neither is authored.
  *
- * Values here are the ones the RULES emit (`grep`-able as string literals in src/<lang>/
+ * Values here are the ones the RULES emit (`grep`-able as string literals in graph/<lang>/
  * engine) or the parser's own enums (its fact-schema documents). Do not add a value you
  * cannot point at.
  */
@@ -558,7 +558,7 @@ export function renderSchemaMarkdown(): string {
   const out: string[] = [];
   out.push('# The output bundle — schema');
   out.push('');
-  out.push(`_Generated from \`src/bundle/schema.ts\` (schema version ${SCHEMA_VERSION}). Do not edit; run \`npm run schema-doc\`._`);
+  out.push(`_Generated from \`graph/bundle/schema.ts\` (schema version ${SCHEMA_VERSION}). Do not edit; run \`npm run schema-doc\`._`);
   out.push('');
   out.push('Every run, in every language, writes the same thing:');
   out.push('');
@@ -566,7 +566,7 @@ export function renderSchemaMarkdown(): string {
   out.push('<out>/');
   out.push('  graph.sqlite      the contract — the tables below, the ext_* tables, and this document as tables');
   out.push('and only with --debug:');
-  out.push('  graph/<table>.csv the core tables as headered, tab-delimited text (RFC 4180 quoting)');
+  out.push('  csv/<table>.csv   the core tables as headered, tab-delimited text (RFC 4180 quoting)');
   out.push('  raw/              the per-language Soufflé relations, verbatim. Engine-internal; not a contract.');
   out.push('```');
   out.push('');
@@ -631,7 +631,7 @@ export function renderSchemaMarkdown(): string {
   }
   out.push('## Extended tables — `ext_<relation>`');
   out.push('');
-  out.push('Every relation in the language\'s `src/<lang>/souffle/export_manifest.tsv`, loaded as `ext_<relation>` with positional columns `c0…cN` (the raw relation is declared positionally; nothing here invents a name). `schema_tables` lists each one with its arity and the comment lifted from the rule that derives it — read that before querying. They are language-specific by construction: a bundle holds only the ext tables of its own language.');
+  out.push('Every relation in the language\'s `graph/<lang>/souffle/export_manifest.tsv`, loaded as `ext_<relation>` with positional columns `c0…cN` (the raw relation is declared positionally; nothing here invents a name). `schema_tables` lists each one with its arity and the comment lifted from the rule that derives it — read that before querying. They are language-specific by construction: a bundle holds only the ext tables of its own language.');
   out.push('');
   out.push('## Catalog tables');
   out.push('');
