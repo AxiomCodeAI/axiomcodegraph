@@ -1,0 +1,5 @@
+# PD-JS-5: a default INSIDE a destructured parameter (`function g({ modifier = (x) => x })`)
+# has no link to the name it initialises; the parser emits the default as a
+# PARAMETER_DEFAULT root of the method with nothing naming `modifier`.
+a.js:3:67 modifier
+a.js:3:80 second

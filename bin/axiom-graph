@@ -2,7 +2,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # axiom-graph — source tree in, graph.sqlite out. The one command.
 #
-#   bin/axiom-graph --language java|typescript|python --src <project-dir> --out <dir>
+#   bin/axiom-graph --language java|typescript|python|javascript --src <project-dir> --out <dir>
 #                   [--library <ir-root>[,<ir-root>…]] [--intermediate <dir>] [--debug]
 #                   [--slug <name>] [--dispatch-cap N|off]
 #

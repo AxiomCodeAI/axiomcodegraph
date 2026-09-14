@@ -1,0 +1,44 @@
+// ============================================================================
+// Resolution · JSDOC TYPE REFERENCES
+//
+// `@param {Widget} w`, `@type {Widget}`, `@returns {Widget}` — the only declared
+// type channel in the language, parsed by the compiler into a tree the parser
+// emits as js_type_reference rows. The NAMED node names a class; the nodes around
+// it (`?Widget`, `Widget|null`, `!Widget`, `Widget=`) are structure that is walked
+// through. `Array<Widget>` is NOT walked into: the parameter is an array, and its
+// elements' type is a claim about a different value.
+//
+// A name resolves through the import hop the parser attached to the reference
+// row, else to a class declared in the same module. A builtin (`Object`, `string`,
+// `Function`) resolves to nothing here — it is the platform, and a call through it
+// is an ambient terminal, classified in call_chain.dl.
+// ============================================================================
+
+type_ref_type(r, t) :- type_ref(_, _, "NAMED", _, _, _, _, _, imp, _, r), imp != "",
+    import_value(imp, k, i), constructible_value(k, i, t).
+type_ref_type(r, t) :- type_ref(_, n, "NAMED", _, _, _, _, _, "", mod, r), !type_ref_builtin(_, r),
+    type_decl(_, n, _, _, mod, t).
+// `import('./x.js').T` — the reference names the import row, whose importedName
+// is the member.
+type_ref_type(r, t) :- type_ref(_, _, "IMPORT_TYPE", _, _, _, _, _, imp, _, r), imp != "",
+    import_value(imp, k, i), constructible_value(k, i, t).
+// `@typedef {import('./x.js').default} Chart` — a name that is an ALIAS of another
+// type expression. The typedef is a type-only js_type whose own reference row
+// (context TYPEDEF, owner = the typedef) is the aliased expression.
+type_ref_type(r, t) :- type_ref(_, n, "NAMED", _, _, _, _, _, "", mod, r),
+    type_only_decl(_, n, "JSDOC_TYPEDEF", mod, td),
+    type_ref(_, _, _, "", "TYPEDEF", "TYPE", td, _, _, _, c), c != r,
+    type_ref_type(c, t).
+// Wrappers: the child is the type.
+type_ref_type(r, t) :- type_ref(_, _, k, _, _, _, _, _, _, _, r), type_ref_kind_is_wrapper(k),
+    type_ref(_, _, _, r, _, _, _, _, _, _, c), type_ref_type(c, t).
+type_ref_kind_is_wrapper("NULLABLE").
+type_ref_kind_is_wrapper("NON_NULLABLE").
+type_ref_kind_is_wrapper("OPTIONAL").
+type_ref_kind_is_wrapper("UNION").
+type_ref_kind_is_wrapper("TYPE_QUERY").
+
+// ── type_ref_unresolved(RefHash, TypeName) — countable ──────────────────────
+// A NAMED reference that reached no class: a typedef (type-only by design), a
+// builtin, or a dependency not staged. The fastest read on what is missing.
+type_ref_unresolved(r, n) :- type_ref(_, n, "NAMED", _, _, _, _, _, _, _, r), !type_ref_type(r, _), !type_ref_builtin(_, r).

@@ -1,0 +1,99 @@
+// ============================================================================
+// Expression resolution · CALLEE RESOLUTION
+//
+// For every call site, which js_method runs. One rule per CALL FORM, because the
+// callee lives in a different place for each:
+//
+//   FUNCTION_CALL / IIFE_CALL / TAGGED_TEMPLATE_CALL   the CALLEE child's value
+//   METHOD_CALL / OPTIONAL_CALL                          property calleeName of the
+//                                                        RECEIVER child's value
+//   FUNCTION_CALL_CALL / _APPLY / _BIND                  the CALLEE child (`f` in
+//                                                        `f.call(o)`) — the function
+//                                                        that RUNS, not Function's
+//   CONSTRUCTOR_CALL                                     bare: the CALLEE child;
+//                                                        dotted: RECEIVER + calleeName;
+//                                                        then the type's construct target
+//   SUPER_CALL                                           the enclosing constructor's
+//                                                        class's superclass constructor
+//   super.m()                                            member m of the superclass
+//   COMPUTED_CALL / DYNAMIC_*                            no static target, by construction
+//
+// ── THE JAVA RULE THAT MUST NOT BE PORTED ───────────────────────────────────
+// A bare `m()` inside a class method is NOT an implicit-this call. It is a
+// lexically scoped reference, the binder resolved it, and resolving it against
+// the enclosing class would invent an edge to a same-named method the program
+// never calls. Receiverless calls go through the binder's answer only.
+// ============================================================================
+
+// ── callee_value(CallExpr, K, I) — the value being invoked ─────────────────
+callee_value(ce, k, i) :- call_site(_, ck, _, _, _, _, ce, _, _), call_kind_is_callee_form(ck),
+    expr_child(_, ce, "CALLEE", _, c), expr_value(c, k, i).
+// `f.call(o)`: f runs. But the parser classifies by NAME, so `selector.apply(node)`
+// on an object with its own `apply` method is here too — and for that reading the
+// CALLEE child (the object) is the receiver and its member is the target. Both
+// readings are derived; they cannot both produce a target, because a value with a
+// member named `apply` is not itself callable and a function has no such member.
+// (Negating one against the other would put a negation inside the flow fixpoint.)
+callee_value(ce, k, i) :- call_site(_, ck, _, _, _, _, ce, _, _), call_kind_is_reflective(ck),
+    expr_child(_, ce, "CALLEE", _, c), expr_value(c, k, i).
+callee_value(ce, k2, i2) :- call_site(_, ck, _, _, _, _, ce, _, _), call_kind_is_reflective(ck),
+    reflective_kind_member(ck, n),
+    expr_child(_, ce, "CALLEE", _, c), expr_value(c, k, i), prop_value(k, i, n, k2, i2).
+reflective_kind_member("FUNCTION_CALL_CALL", "call").
+reflective_kind_member("FUNCTION_CALL_APPLY", "apply").
+reflective_kind_member("FUNCTION_CALL_BIND", "bind").
+callee_value(ce, k2, i2) :- call_site(_, ck, n, "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck), n != "",
+    expr_child(_, ce, "RECEIVER", _, r), !expr_kind(_, "SUPER", _, r),
+    expr_value(r, k, i), prop_value(k, i, n, k2, i2).
+// `super.m()` — the superclass's member, from the enclosing method's class.
+callee_value(ce, "func", m) :- call_site(_, ck, n, "SYNTACTIC", _, em, ce, _, _), call_kind_is_member_form(ck), n != "",
+    expr_child(_, ce, "RECEIVER", _, r), expr_kind(_, "SUPER", _, r),
+    method_home_type(em, t), type_super(t, s), type_member(s, n, m).
+
+// A module VALUE is called or constructed through its default export:
+// `require('./router')()` runs `module.exports = function`, `new (require('./x'))`
+// constructs `module.exports = class`. Unwrapped here so the value layer keeps
+// module values opaque.
+callee_value(ce, k, i) :- callee_value(ce, "module", mod), module_export_value(mod, "default", k, i).
+new_callee_value(ce, k, i) :- new_callee_value(ce, "module", mod), module_export_value(mod, "default", k, i).
+
+// method_home_type(MethodHash, TypeHash): the class whose body a callable sits in,
+// through arrows — `super` inside an arrow inside a method refers to the method's.
+method_home_type(m, t) :- method_owner_type(m, t).
+method_home_type(m, t) :- method_this_binding(_, "LEXICAL", m), method_enclosing(m, e), method_home_type(e, t).
+
+// ── new_callee_value(NewExpr, K, I) — the value `new` is applied to ────────
+new_callee_value(ce, k, i) :- call_site(_, "CONSTRUCTOR_CALL", _, _, _, _, ce, _, _),
+    expr_child(_, ce, "CALLEE", _, c), expr_value(c, k, i).
+new_callee_value(ce, k2, i2) :- call_site(_, "CONSTRUCTOR_CALL", n, "SYNTACTIC", _, _, ce, _, _), n != "",
+    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, k, i), prop_value(k, i, n, k2, i2).
+
+// ── new_constructs(NewExpr, TypeHash) — the instance a `new` yields ─────────
+new_constructs(ce, t) :- new_callee_value(ce, k, i), constructible_value(k, i, t).
+
+// ── expr_resolves_to_method(CallExpr, MethodHash) — THE ANSWER ─────────────
+expr_resolves_to_method(ce, m) :- callee_value(ce, k, i), callable_value(k, i, m),
+    call_site(_, ck, _, _, _, _, ce, _, _), ck != "CONSTRUCTOR_CALL", ck != "SUPER_CALL".
+// `new T()` runs T's constructor, or the nearest inherited one.
+expr_resolves_to_method(ce, m) :- new_constructs(ce, t), type_construct_target(t, m).
+// `new f()` on a function that is nobody's constructor still runs f.
+expr_resolves_to_method(ce, m) :- new_callee_value(ce, "func", m), !type_ctor(_, m, _).
+// `super(...)` inside a constructor: the superclass's construct target.
+expr_resolves_to_method(ce, m) :- call_site(_, "SUPER_CALL", _, _, _, em, ce, _, _),
+    method_home_type(em, t), type_super(t, s), type_construct_target(s, m).
+
+// ── call_target_is_implicit_ctor(CallExpr) — a correct end with nothing to point at ──
+// `new C()` where no class up the chain declares a constructor: the synthesized
+// default runs. The oracle reports the same site as `synthesized`.
+call_target_is_implicit_ctor(ce) :- new_constructs(ce, t), implicit_constructor(t), !expr_resolves_to_method(ce, _).
+call_target_is_implicit_ctor(ce) :- call_site(_, "SUPER_CALL", _, _, _, em, ce, _, _),
+    method_home_type(em, t), type_super(t, s), implicit_constructor(s), !expr_resolves_to_method(ce, _).
+
+// ── receiver_value_known(CallExpr) — did the receiver get ANY value ─────────
+// Splits the unresolved population into "the receiver is untyped" (a staging gap
+// or a genuinely dynamic value) and "the receiver is known and has no such
+// member" (an engine or parser defect — the rows worth reading first).
+receiver_value_known(ce) :- call_site(_, _, _, "SYNTACTIC", _, _, ce, _, _),
+    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, _, _).
+callee_value_known(ce) :- callee_value(ce, _, _).
+callee_value_known(ce) :- new_callee_value(ce, _, _).

@@ -14,7 +14,7 @@ tells you how sure it is about every edge.
 
 ```bash
 bin/axiom-graph --language python --src <project-dir> --out <out-dir>
-#               --language java | typescript | python
+#               --language java | typescript | python | javascript
 #               --library <ir-root>[,…]   the platform/library IR, when available (better resolution)
 #               --debug                   also writes csv/*.csv and keeps raw/ (not needed for querying)
 ```

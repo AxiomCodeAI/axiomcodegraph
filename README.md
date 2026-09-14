@@ -130,7 +130,7 @@ receiver is a lambda parameter. Restricted to files of 1,000 lines or more, d1 r
 npm install && npm run build          # builds the parser and the engine (Node ≥ 22.5)
 
 bin/axiom-graph --language java --src <project-dir> --out <out-dir>
-#               --language java | typescript | python
+#               --language java | typescript | python | javascript
 #               --library <platform-ir>[,<lib-ir>...]   the platform library and real dependencies, when you have their IR
 #               --debug                                 also write csv/*.csv and keep raw/
 ```
@@ -219,6 +219,7 @@ test/<lang>/                      regression suites, torture harnesses, oracles
 bash test/java/run-tests.sh          # regression suite; --oracle also scores against javac/javap ground truth
 bash test/typescript/run-tests.sh    # --oracle scores against the TypeScript compiler
 bash test/python/run-tests.sh        # --oracle scores against CPython bytecode and tracing
+bash test/javascript/run-tests.sh    # --oracle scores against the TypeScript compiler over plain JavaScript (allowJs/checkJs)
 npm test -w parser                   # the parser's own suite
 ```
 

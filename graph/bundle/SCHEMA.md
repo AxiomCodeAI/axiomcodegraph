@@ -150,7 +150,7 @@ What produced this bundle: one key/value row per fact about the run (language, e
 | value | languages | meaning |
 |---|---|---|
 | `schema_version` | all | Version of this contract (SCHEMA.md). |
-| `language` | all | Front end: java \| typescript \| python. Selects the applicable vocabulary rows. |
+| `language` | all | Front end: java \| typescript \| python \| javascript. Selects the applicable vocabulary rows. |
 | `engine_commit` | all | Git commit of the rule set that produced the graph, when known. |
 | `client_ir` | all | Path of the client IR directory the engine read. |
 | `library_roots` | all | Comma-separated library IR roots staged as the type oracle; empty for a client-only run. |
@@ -244,10 +244,20 @@ Every callable the graph refers to: all client methods/functions from the IR, pl
 | `ASYNC_FUNCTION` | python | `async def`. |
 | `ASYNC_GENERATOR` | python | `async def` with `yield`. |
 | `CLASS_INITIALIZER` | python | Synthetic method holding a class body's top-level code. |
+| `FUNCTION_DECLARATION` | javascript | `function f() {}` — hoisted. |
+| `FUNCTION_EXPRESSION` | javascript | `function () {}` value, including an object literal's `m() {}`. |
+| `ARROW` | javascript | Arrow function value; `this` is lexical. |
+| `CLASS_METHOD` | javascript | A class member, syntactic or declared by assignment (`F.prototype.m = …`, `F.s = …`). |
+| `CONSTRUCTOR` | javascript | `constructor()` of a class, or a constructor function. |
+| `GETTER` | javascript | `get x()`. |
+| `SETTER` | javascript | `set x(v)`. |
+| `STATIC_BLOCK` | javascript | `static {}` block of a class. |
+| `MODULE_INITIALIZER` | javascript | Synthetic method holding a module's top-level code. Every module has one; top-level call sites belong to it. |
 
 **Notes**
 
 - **all** — Library rows are the subset an edge reaches. To see a library method nothing calls, query the library IR itself.
+- **javascript** — signature is empty and owner_qualified_name is NULL: JavaScript declares neither. owner_type_id is set for class members, including members declared by assignment.
 
 ### `types`
 
@@ -285,6 +295,11 @@ Every class-like declaration the graph refers to: all client types, plus every l
 | `TYPE_ALIAS_TYPE` | typescript | `type X = …`. |
 | `NAMESPACE_TYPE` | typescript | `namespace X {}`. |
 | `CLASS_EXPRESSION_TYPE` | typescript | A class expression value. |
+| `CLASS` | javascript | An ES class declaration. |
+| `ANONYMOUS_CLASS` | javascript | A class expression. |
+| `CONSTRUCTOR_FUNCTION` | javascript | A function with prototype members — a pre-ES6 class. |
+| `JSDOC_TYPEDEF` | javascript | A `@typedef` — comment-only, never constructed or dispatched into. |
+| `JSDOC_CALLBACK` | javascript | A `@callback` — comment-only. |
 | `EXCEPTION_CLASS_TYPE` | python | A class deriving from BaseException. |
 | `ENUM_CLASS_TYPE` | python | An `Enum` subclass. |
 | `PROTOCOL_TYPE` | python | A `typing.Protocol`. |
@@ -318,6 +333,7 @@ One row per place a call is written (or, for a synthesised edge, the construct t
 - **java** — callee_name for `new X()` is the class name written at the site; NULL for ctor_delegate (`this(…)`/`super(…)`), anon_new, and record_accessor.
 - **java** — A record_accessor site is the RECORD_PATTERN expression, positioned where the pattern is written.
 - **typescript** — end_line / end_column come from the expression row; the call-site row itself records only the start.
+- **javascript** — caller_id is the parser's enclosing method, or the module initializer for top-level code. end_line / end_column come from the expression row. `require()` is a module edge, not a call site.
 - **python** — PROPERTY_READ, CONTEXT_MANAGER and ITERATION_PROTOCOL rows are protocol edges with no written call: their site is the expression that triggers the protocol, and callee_name is NULL because nothing was written. Filter them out with kind NOT IN (…) when counting calls.
 - **python** — The id is an EXPRESSION hash for a written call; a DECORATOR hash (PY_DECORATOR_…) for DECORATOR_APPLICATION and DECORATOR_* sites, positioned at the decorator line; and the class's TYPE hash for METACLASS_CREATION, positioned at the class declaration.
 
@@ -345,6 +361,10 @@ THE GRAPH. One row per (site, resolved target). A site with N possible targets h
 | `ambiguous_unknown` | all | Declared blind spot: the engine could not resolve the site (unresolved receiver, missing type, reflection…). callee is NULL. Never dropped. |
 | `ambiguous_anon` | java | Known structural gap: an anonymous-class creation has no candidate rule yet. callee is NULL. |
 | `ambient_terminal` | typescript | The target is an ambient declaration (a `.d.ts` signature with no body anywhere) — resolved, but there is nothing to expand into. |
+| `ambient_terminal` | javascript | The callee or receiver VALUE is the platform (`console.log`, `path.join`, `arr.forEach`) — a correct end, not a blind spot; callee is NULL. Beside a project edge it is the platform ALTERNATIVE of a `multi_inferred` site. |
+| `implicit_constructor` | javascript | `new C()` / `super()` where no constructor exists up the chain: the synthesized default runs. A correct end; callee is NULL. |
+| `dynamic_terminal` | javascript | `obj[expr]()`, `eval`, `import()`: no static target by construction; callee is NULL. |
+| `fan_capped` | javascript | More targets than --dispatch-cap: the set was refused rather than emitted; callee is NULL. |
 | `intrinsic_terminal` | typescript | The site is a JSX intrinsic element or a dynamic `import()` — a runtime intrinsic, not a function the graph can name. |
 
 **`call_edges.callee_provenance` values**
@@ -376,6 +396,19 @@ THE GRAPH. One row per (site, resolved target). A site with N possible targets h
 | `DECORATOR_CALL` | typescript | A decorator application `@d` / `@d(…)`. |
 | `OPTIONAL_CALL` | typescript | `f?.(…)`. |
 | `JSX_COMPONENT_CALL` | typescript | `<Component …/>` (reserved by the parser; emitted by nothing yet). |
+| `FUNCTION_CALL` | javascript | `f(…)` — a bare callee, resolved by the binder. |
+| `METHOD_CALL` | javascript | `obj.m(…)`. |
+| `CONSTRUCTOR_CALL` | javascript | `new X(…)`. |
+| `SUPER_CALL` | javascript | `super(…)`. |
+| `COMPUTED_CALL` | javascript | `obj[expr](…)` — the name is not fixed by syntax. |
+| `FUNCTION_CALL_CALL` | javascript | `f.call(o, …)` — the target is f; the receiver moved into argument position. |
+| `FUNCTION_CALL_APPLY` | javascript | `f.apply(o, args)` — the target is f. |
+| `FUNCTION_CALL_BIND` | javascript | `f.bind(o)` — produces a function that runs f; the edge names f. |
+| `IIFE_CALL` | javascript | `(function () {…})()`. |
+| `OPTIONAL_CALL` | javascript | `obj?.m(…)`. |
+| `TAGGED_TEMPLATE_CALL` | javascript | tag`…`. |
+| `DYNAMIC_CODE_CALL` | javascript | `eval(…)` / `new Function(…)` — unknowable by construction. |
+| `DYNAMIC_IMPORT_CALL` | javascript | `import(…)` — a module load that is also a site. |
 | `SIMPLE_CALL` | python | `f(…)` — a bare name. |
 | `METHOD_CALL` | python | `obj.m(…)`. |
 | `CHAINED_CALL` | python | `a.b().c(…)` — the receiver is itself a call. |
@@ -398,6 +431,7 @@ THE GRAPH. One row per (site, resolved target). A site with N possible targets h
 
 **Notes**
 
+- **javascript** — Targets are VALUES the receiver may hold, not declared types: a `multi_inferred` set is the union of what flowed into the receiver. An untyped receiver is `ambiguous_unknown`, never a name match.
 - **python** — A `boundary_lib` edge may point at a builtin (callee_provenance builtin, callee_label `builtin:NAME`) or at an unstaged import path (callee_provenance external) — neither has a methods row.
 - **python** — The reason a site is ambiguous_unknown is exported per site in ext_call_site_unresolved (site, caller, reason, detail).
 - **all** — The raw relation has a seventh column, ToExpr, that is always `-` (reserved). It is dropped here.
@@ -448,7 +482,7 @@ Methods the runtime invokes without a client call site — process roots, test m
 | `lifecycle` | java | `@PostConstruct` / `@PreDestroy` and similar hooks. |
 | `queue` | java | A message-listener method. |
 | `scheduled` | java | A `@Scheduled` method. |
-| `unimported_module` | typescript | The initializer of a module nothing imports — a script or a bundle root. |
+| `unimported_module` | typescript, javascript | The initializer of a module nothing imports — a script or a bundle root. |
 
 **Notes**
 

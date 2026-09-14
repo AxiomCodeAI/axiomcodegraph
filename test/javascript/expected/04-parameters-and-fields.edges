@@ -1,0 +1,7 @@
+a.js:2:60 FUNCTION_CALL modifier  ->  known_edge  a.js:2:33 <arrow>
+a.js:2:73 FUNCTION_CALL other  ->  known_edge  a.js:1:1 ident
+a.js:3:67 FUNCTION_CALL modifier  ->  ambiguous_unknown  -
+a.js:3:80 FUNCTION_CALL second  ->  ambiguous_unknown  -
+a.js:7:20 FUNCTION_CALL ident  ->  known_edge  a.js:1:1 ident
+a.js:8:11 METHOD_CALL this.typed  ->  ambiguous_unknown  -
+a.js:8:28 METHOD_CALL this.handler  ->  known_edge  a.js:7:13 handler

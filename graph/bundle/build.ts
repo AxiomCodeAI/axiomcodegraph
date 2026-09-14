@@ -169,14 +169,17 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
   const M = A.ir.methods, T = A.ir.types;
   const readMethods = async (src: EntitySource, prov: 'client' | 'lib', only?: Set<string>) => {
     const h = src.header;
-    const [ci, cn, cq, cs, ck, co, coq, cf, cs1, ce1] = [M.id, M.name, M.qualifiedName, M.signature, M.kind, M.ownerTypeId, M.ownerQualifiedName, M.filePath, M.startLine, M.endLine].map((n) => h.col(n));
+    const [ci, cn, cq, ck, co, cf, cs1, ce1] = [M.id, M.name, M.qualifiedName, M.kind, M.ownerTypeId, M.filePath, M.startLine, M.endLine].map((n) => h.col(n));
+    // optional columns: absent from the adapter means the language has no such thing
+    const cs = M.signature ? h.col(M.signature) : undefined;
+    const coq = M.ownerQualifiedName ? h.col(M.ownerQualifiedName) : undefined;
     let n = 0;
     for await (const r of rowsOf(src)) {
       const id = r[ci!] ?? '';
       if (only && !only.has(id)) continue;
       if (methods.has(id)) continue;
       const owner = nul(r[co!]);
-      methods.set(id, [id, r[cn!] ?? '', r[cq!] ?? '', r[cs!] ?? '', r[ck!] ?? '', owner, owner ? nul(r[coq!]) : null, r[cf!] ?? '', int(r[cs1!]), int(r[ce1!]), prov]);
+      methods.set(id, [id, r[cn!] ?? '', r[cq!] ?? '', cs === undefined ? '' : (r[cs] ?? ''), r[ck!] ?? '', owner, owner && coq !== undefined ? nul(r[coq]) : null, r[cf!] ?? '', int(r[cs1!]), int(r[ce1!]), prov]);
       if (owner) wantTypes.add(owner);
       n++;
     }

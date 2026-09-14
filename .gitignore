@@ -241,3 +241,7 @@ test/typescript/.work-*/
 
 # the one-command pipeline keeps its IR and scratch here
 .intermediate/
+
+# A JavaScript fixture dependency is a real package under node_modules — that is the shape
+# the parser resolves and the shape the library join is written for.
+!test/javascript/cases/*/src/node_modules/

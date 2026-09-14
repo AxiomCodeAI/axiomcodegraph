@@ -15,8 +15,8 @@
 
 export const SCHEMA_VERSION = '1';
 
-export type Language = 'java' | 'typescript' | 'python';
-export const LANGUAGES: readonly Language[] = ['java', 'typescript', 'python'];
+export type Language = 'java' | 'typescript' | 'python' | 'javascript';
+export const LANGUAGES: readonly Language[] = ['java', 'typescript', 'python', 'javascript'];
 
 export interface ColumnSpec {
   name: string;
@@ -241,11 +241,12 @@ export const CATALOG_TABLES: readonly TableSpec[] = [
 const J: readonly Language[] = ['java'];
 const T: readonly Language[] = ['typescript'];
 const P: readonly Language[] = ['python'];
+const S: readonly Language[] = ['javascript'];
 
 export const VOCAB: readonly VocabSpec[] = [
   // run.key
   { table: 'run', column: 'key', value: 'schema_version', languages: 'all', meaning: 'Version of this contract (SCHEMA.md).' },
-  { table: 'run', column: 'key', value: 'language', languages: 'all', meaning: 'Front end: java | typescript | python. Selects the applicable vocabulary rows.' },
+  { table: 'run', column: 'key', value: 'language', languages: 'all', meaning: 'Front end: java | typescript | python | javascript. Selects the applicable vocabulary rows.' },
   { table: 'run', column: 'key', value: 'engine_commit', languages: 'all', meaning: 'Git commit of the rule set that produced the graph, when known.' },
   { table: 'run', column: 'key', value: 'client_ir', languages: 'all', meaning: 'Path of the client IR directory the engine read.' },
   { table: 'run', column: 'key', value: 'library_roots', languages: 'all', meaning: 'Comma-separated library IR roots staged as the type oracle; empty for a client-only run.' },
@@ -318,6 +319,16 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'methods', column: 'kind', value: 'ASYNC_GENERATOR', languages: P, meaning: '`async def` with `yield`.' },
   { table: 'methods', column: 'kind', value: 'CLASS_INITIALIZER', languages: P, meaning: 'Synthetic method holding a class body\'s top-level code.' },
 
+  // methods.kind — JavaScript (the parser's JsMethodKind)
+  { table: 'methods', column: 'kind', value: 'FUNCTION_DECLARATION', languages: S, meaning: '`function f() {}` — hoisted.' },
+  { table: 'methods', column: 'kind', value: 'FUNCTION_EXPRESSION', languages: S, meaning: '`function () {}` value, including an object literal\'s `m() {}`.' },
+  { table: 'methods', column: 'kind', value: 'ARROW', languages: S, meaning: 'Arrow function value; `this` is lexical.' },
+  { table: 'methods', column: 'kind', value: 'CLASS_METHOD', languages: S, meaning: 'A class member, syntactic or declared by assignment (`F.prototype.m = …`, `F.s = …`).' },
+  { table: 'methods', column: 'kind', value: 'CONSTRUCTOR', languages: S, meaning: '`constructor()` of a class, or a constructor function.' },
+  { table: 'methods', column: 'kind', value: 'GETTER', languages: S, meaning: '`get x()`.' },
+  { table: 'methods', column: 'kind', value: 'SETTER', languages: S, meaning: '`set x(v)`.' },
+  { table: 'methods', column: 'kind', value: 'STATIC_BLOCK', languages: S, meaning: '`static {}` block of a class.' },
+  { table: 'methods', column: 'kind', value: 'MODULE_INITIALIZER', languages: S, meaning: 'Synthetic method holding a module\'s top-level code. Every module has one; top-level call sites belong to it.' },
   // types.category — the parser's typeCategory
   { table: 'types', column: 'category', value: 'CLASS_TYPE', languages: 'all', meaning: 'A class.' },
   { table: 'types', column: 'category', value: 'INTERFACE_TYPE', languages: ['java', 'typescript'], meaning: 'An interface.' },
@@ -329,6 +340,11 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'types', column: 'category', value: 'TYPE_ALIAS_TYPE', languages: T, meaning: '`type X = …`.' },
   { table: 'types', column: 'category', value: 'NAMESPACE_TYPE', languages: T, meaning: '`namespace X {}`.' },
   { table: 'types', column: 'category', value: 'CLASS_EXPRESSION_TYPE', languages: T, meaning: 'A class expression value.' },
+  { table: 'types', column: 'category', value: 'CLASS', languages: S, meaning: 'An ES class declaration.' },
+  { table: 'types', column: 'category', value: 'ANONYMOUS_CLASS', languages: S, meaning: 'A class expression.' },
+  { table: 'types', column: 'category', value: 'CONSTRUCTOR_FUNCTION', languages: S, meaning: 'A function with prototype members — a pre-ES6 class.' },
+  { table: 'types', column: 'category', value: 'JSDOC_TYPEDEF', languages: S, meaning: 'A `@typedef` — comment-only, never constructed or dispatched into.' },
+  { table: 'types', column: 'category', value: 'JSDOC_CALLBACK', languages: S, meaning: 'A `@callback` — comment-only.' },
   { table: 'types', column: 'category', value: 'EXCEPTION_CLASS_TYPE', languages: P, meaning: 'A class deriving from BaseException.' },
   { table: 'types', column: 'category', value: 'ENUM_CLASS_TYPE', languages: P, meaning: 'An `Enum` subclass.' },
   { table: 'types', column: 'category', value: 'PROTOCOL_TYPE', languages: P, meaning: 'A `typing.Protocol`.' },
@@ -346,6 +362,10 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'call_edges', column: 'tier', value: 'ambiguous_unknown', languages: 'all', meaning: 'Declared blind spot: the engine could not resolve the site (unresolved receiver, missing type, reflection…). callee is NULL. Never dropped.' },
   { table: 'call_edges', column: 'tier', value: 'ambiguous_anon', languages: J, meaning: 'Known structural gap: an anonymous-class creation has no candidate rule yet. callee is NULL.' },
   { table: 'call_edges', column: 'tier', value: 'ambient_terminal', languages: T, meaning: 'The target is an ambient declaration (a `.d.ts` signature with no body anywhere) — resolved, but there is nothing to expand into.' },
+  { table: 'call_edges', column: 'tier', value: 'ambient_terminal', languages: S, meaning: 'The callee or receiver VALUE is the platform (`console.log`, `path.join`, `arr.forEach`) — a correct end, not a blind spot; callee is NULL. Beside a project edge it is the platform ALTERNATIVE of a `multi_inferred` site.' },
+  { table: 'call_edges', column: 'tier', value: 'implicit_constructor', languages: S, meaning: '`new C()` / `super()` where no constructor exists up the chain: the synthesized default runs. A correct end; callee is NULL.' },
+  { table: 'call_edges', column: 'tier', value: 'dynamic_terminal', languages: S, meaning: '`obj[expr]()`, `eval`, `import()`: no static target by construction; callee is NULL.' },
+  { table: 'call_edges', column: 'tier', value: 'fan_capped', languages: S, meaning: 'More targets than --dispatch-cap: the set was refused rather than emitted; callee is NULL.' },
   { table: 'call_edges', column: 'tier', value: 'intrinsic_terminal', languages: T, meaning: 'The site is a JSX intrinsic element or a dynamic `import()` — a runtime intrinsic, not a function the graph can name.' },
 
   // call_edges.callee_provenance
@@ -372,6 +392,20 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'call_edges', column: 'kind', value: 'DECORATOR_CALL', languages: T, meaning: 'A decorator application `@d` / `@d(…)`.' },
   { table: 'call_edges', column: 'kind', value: 'OPTIONAL_CALL', languages: T, meaning: '`f?.(…)`.' },
   { table: 'call_edges', column: 'kind', value: 'JSX_COMPONENT_CALL', languages: T, meaning: '`<Component …/>` (reserved by the parser; emitted by nothing yet).' },
+  // — JavaScript (the parser's JsCallKind)
+  { table: 'call_edges', column: 'kind', value: 'FUNCTION_CALL', languages: S, meaning: '`f(…)` — a bare callee, resolved by the binder.' },
+  { table: 'call_edges', column: 'kind', value: 'METHOD_CALL', languages: S, meaning: '`obj.m(…)`.' },
+  { table: 'call_edges', column: 'kind', value: 'CONSTRUCTOR_CALL', languages: S, meaning: '`new X(…)`.' },
+  { table: 'call_edges', column: 'kind', value: 'SUPER_CALL', languages: S, meaning: '`super(…)`.' },
+  { table: 'call_edges', column: 'kind', value: 'COMPUTED_CALL', languages: S, meaning: '`obj[expr](…)` — the name is not fixed by syntax.' },
+  { table: 'call_edges', column: 'kind', value: 'FUNCTION_CALL_CALL', languages: S, meaning: '`f.call(o, …)` — the target is f; the receiver moved into argument position.' },
+  { table: 'call_edges', column: 'kind', value: 'FUNCTION_CALL_APPLY', languages: S, meaning: '`f.apply(o, args)` — the target is f.' },
+  { table: 'call_edges', column: 'kind', value: 'FUNCTION_CALL_BIND', languages: S, meaning: '`f.bind(o)` — produces a function that runs f; the edge names f.' },
+  { table: 'call_edges', column: 'kind', value: 'IIFE_CALL', languages: S, meaning: '`(function () {…})()`.' },
+  { table: 'call_edges', column: 'kind', value: 'OPTIONAL_CALL', languages: S, meaning: '`obj?.m(…)`.' },
+  { table: 'call_edges', column: 'kind', value: 'TAGGED_TEMPLATE_CALL', languages: S, meaning: 'tag`…`.' },
+  { table: 'call_edges', column: 'kind', value: 'DYNAMIC_CODE_CALL', languages: S, meaning: '`eval(…)` / `new Function(…)` — unknowable by construction.' },
+  { table: 'call_edges', column: 'kind', value: 'DYNAMIC_IMPORT_CALL', languages: S, meaning: '`import(…)` — a module load that is also a site.' },
   // — Python (the parser's callKind, plus engine-authored decorator/metaclass forms)
   { table: 'call_edges', column: 'kind', value: 'SIMPLE_CALL', languages: P, meaning: '`f(…)` — a bare name.' },
   { table: 'call_edges', column: 'kind', value: 'METHOD_CALL', languages: P, meaning: '`obj.m(…)`.' },
@@ -403,7 +437,7 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'entry_points', column: 'reason', value: 'lifecycle', languages: J, meaning: '`@PostConstruct` / `@PreDestroy` and similar hooks.' },
   { table: 'entry_points', column: 'reason', value: 'queue', languages: J, meaning: 'A message-listener method.' },
   { table: 'entry_points', column: 'reason', value: 'scheduled', languages: J, meaning: 'A `@Scheduled` method.' },
-  { table: 'entry_points', column: 'reason', value: 'unimported_module', languages: T, meaning: 'The initializer of a module nothing imports — a script or a bundle root.' },
+  { table: 'entry_points', column: 'reason', value: 'unimported_module', languages: ['typescript', 'javascript'], meaning: 'The initializer of a module nothing imports — a script or a bundle root.' },
 
   // type_instantiated.how
   { table: 'type_instantiated', column: 'how', value: 'new', languages: ['java', 'python'], meaning: 'A constructor call in the client.' },
@@ -420,6 +454,9 @@ export const NOTES: readonly NoteSpec[] = [
   { language: 'java', table: 'call_sites', note: 'callee_name for `new X()` is the class name written at the site; NULL for ctor_delegate (`this(…)`/`super(…)`), anon_new, and record_accessor.' },
   { language: 'java', table: 'call_sites', note: 'A record_accessor site is the RECORD_PATTERN expression, positioned where the pattern is written.' },
   { language: 'typescript', table: 'call_sites', note: 'end_line / end_column come from the expression row; the call-site row itself records only the start.' },
+  { language: 'javascript', table: 'methods', note: 'signature is empty and owner_qualified_name is NULL: JavaScript declares neither. owner_type_id is set for class members, including members declared by assignment.' },
+  { language: 'javascript', table: 'call_sites', note: 'caller_id is the parser\'s enclosing method, or the module initializer for top-level code. end_line / end_column come from the expression row. `require()` is a module edge, not a call site.' },
+  { language: 'javascript', table: 'call_edges', note: 'Targets are VALUES the receiver may hold, not declared types: a `multi_inferred` set is the union of what flowed into the receiver. An untyped receiver is `ambiguous_unknown`, never a name match.' },
   { language: 'typescript', table: 'overrides', note: 'EMPTY. TypeScript dispatch is captured directly as multi_inferred edges; the structural and nominal implementor sets are in ext_implementors, ext_structural_implementor and ext_type_satisfies.' },
   { language: 'typescript', table: 'type_instantiated', note: 'EMPTY. The TypeScript rule set does not export an instantiation set.' },
   { language: 'python', table: 'call_sites', note: 'PROPERTY_READ, CONTEXT_MANAGER and ITERATION_PROTOCOL rows are protocol edges with no written call: their site is the expression that triggers the protocol, and callee_name is NULL because nothing was written. Filter them out with kind NOT IN (…) when counting calls.' },

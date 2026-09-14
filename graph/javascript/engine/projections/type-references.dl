@@ -1,0 +1,27 @@
+// ============================================================================
+// Projections · TYPE REFERENCES  (pure column views)
+//
+// The JavaScript type system in its entirety, and it lives in comments: a node in a
+// JSDoc type expression. `isTypeOnly` is ALWAYS true here, and no call-graph rule
+// may traverse this relation as a value. It is read for one thing — the NAME a
+// `@param {T}` / `@type {T}` / `@returns {T}` wrote, plus the import hop the parser
+// resolved for it — so that a receiver documented as a `T` can be looked up in T.
+//
+// js_type_reference / lib_js_type_reference cols (23):
+//   0 typeName  1 referenceKind  2 parentReferenceLinkHash  3 depth  4 childIndex
+//   5 childCount  6 isTruncated  7 contextKind  8 tagName  9 ownerKind
+//   10 ownerLinkHash  11 resolvedTypeLinkHash  12 resolvedFilePath  13 importLinkHash
+//   14 isTypeOnly  15 isBuiltinType  16 commentLinkHash  17 ownerModuleLinkHash
+//   18 startLine  19 startColumn  20 isExternal  21 serviceVersionLinkHash
+//   22 jsTypeReferenceUniqueHash
+// ============================================================================
+
+// ── type_ref(Prov, TypeName, RefKind, Parent, Context, OwnerKind, Owner, ResolvedFile, ImportHash, OwnerModule, RefHash) ──
+// RefKind: NAMED is the one that names a declaration. GENERIC_APPLICATION,
+// ARRAY, UNION, NULLABLE etc. are structure around it — `?Widget` is NULLABLE with a
+// NAMED child, `Array<Widget>` is GENERIC_APPLICATION over NAMED `Array` with a NAMED
+// `Widget` argument. Descent through the structure is in resolution/reference-types.dl.
+type_ref("client", tn, k, p, ctx, ok, o, rf, imp, mod, h) :- js_type_reference(tn, k, p, _, _, _, _, ctx, _, ok, o, _, rf, imp, _, _, _, mod, _, _, _, _, h).
+type_ref("lib", tn, k, p, ctx, ok, o, rf, imp, mod, h) :- lib_js_type_reference(tn, k, p, _, _, _, _, ctx, _, ok, o, _, rf, imp, _, _, _, mod, _, _, _, _, h).
+type_ref_builtin("client", h) :- js_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, h).
+type_ref_builtin("lib", h) :- lib_js_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, h).
