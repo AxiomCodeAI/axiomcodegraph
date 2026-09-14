@@ -1,5 +1,7 @@
-oracle=20 engine=18 agree=17 missing=3 (known 3, NEW 0) extra=1
+oracle=20 engine=20 agree=17 missing=3 (known 3, NEW 0) extra=3
   known-missing  Middle#deep -> OuterAccess$anon:Supplier#<init>
   known-missing  OuterAccess#anonToOuter -> OuterAccess$anon:Supplier#<init>
   known-missing  OuterAccess#anonToOuterStatic -> OuterAccess$anon:Supplier#<init>
   extra    Middle$anon:Supplier#get -> OuterAccess#outerInstance()
+  extra    OuterAccess#main -> Middle$anon:Supplier#get()
+  extra    OuterAccess#main -> OuterAccess$anon:Supplier#get()

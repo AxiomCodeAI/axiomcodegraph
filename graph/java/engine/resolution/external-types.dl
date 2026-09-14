@@ -1,0 +1,224 @@
+// ============================================================================
+// Resolution · EXTERNAL TYPES  (a type the client names that no staged IR declares)
+//
+// `class StrictFormat extends DateFormat` with no library staged: the SUPER_TYPE
+// reference resolves to nothing, so type_parent derived nothing, type_ancestor had no
+// row for StrictFormat, and with it went every fact that depended on the edge — a call
+// on a receiver declared as DateFormat never widened to the client override, and a
+// call on a StrictFormat receiver to an inherited platform method was ambiguous_unknown
+// rather than a library boundary. Extending a platform or dependency class and
+// overriding one of its methods is how client code plugs into a framework (formats,
+// parsers, streams, handlers), and framework code always holds the object by its base
+// type. Measured before this file existed: a method-level test selection missed a
+// failing test in three commits of 110, and all three were this shape. #586.
+//
+// THE MODEL. An unresolved reference is not dropped; it names an EXTERNAL type,
+// `external:<qualified name>`, a type node with no members and no file. It takes part
+// in type_parent / type_ancestor like any other type (the bundle materialises a `types`
+// row for it, provenance external), and it types a receiver like any other declared
+// type. Two things follow from the existing rules with no further work: subtypes and
+// impact queries see that StrictFormat IS a DateFormat, and a call on an external
+// receiver picks up java.lang.Object's members through lookup_type when the JDK is
+// staged. The two things that do need a rule are below: dispatch from an external
+// receiver into the client overrides beneath it, and the boundary label for a call
+// that leaves the client hierarchy.
+//
+// WHEN THE LIBRARY IS STAGED none of this fires: the reference resolves, provenance
+// lib, and the real declaration is used. The external node is the honest answer when
+// the declaration is absent, not a substitute for staging it.
+//
+// THE QUALIFIED NAME comes from the file's single-type import of the written simple
+// name, or from a written qualifier (`java.text.DateFormat` spelled out). A name
+// reached through an on-demand import or from java.lang stays as written — which
+// package it came from is exactly what is not known — so two files that both write
+// `extends Handler` under different wildcard imports share one node. Stage the library
+// to tell them apart.
+//
+// java_type_reference (18): 1 kind 2 context 3 typeRegistryLinkHash(owner type) 8 depth
+//   9 typeName 10 completeTypeName 16 typeReferenceOwnerHash 17 referenceOwnerKind 18 hash
+// java_import (11): 1 importKind 2 importedPath 4 simpleName 5 filePath
+// ============================================================================
+
+// ── the references that may name an external type ──────────────────────────
+// A class-like kind at depth 0 (the receiver's type, never a type argument), in a
+// context that declares an ancestor or types a value. Annotations, throws clauses and
+// bounds are left alone: nothing dispatches on them.
+ext_ref_kind("CLASS").
+ext_ref_kind("PARAMETERIZED").
+ext_ref_context("SUPER_TYPE").
+ext_ref_context("IMPLEMENTS_INTERFACE").
+ext_ref_context("FIELD_TYPE").
+ext_ref_context("LOCAL_VARIABLE").
+ext_ref_context("METHOD_PARAM").
+ext_ref_context("METHOD_RETURN").
+ext_ref_context("CAST_EXPRESSION").
+
+// "Unresolved" is decided by NAME against the staged declarations, not by negating
+// type_ref_resolves: that relation sits in one stratum with the hierarchy (a library
+// reference resolves only once its type is reached through type_ancestor), and this
+// file feeds type_parent, so a negation on it would sit inside its own cycle. The name
+// test is base-level and conservative — a single-type import names a qualified name,
+// and if any staged type carries it the reference is left to the resolver; an
+// unqualified name is left alone if any staged type has that simple name at all.
+qualified_name_declared(q) :- java_type(_, q, _, _, _, _, _, _, _, _, _, _, _, _).
+qualified_name_declared(q) :- lib_type(_, q, _, _, _, _, _, _, _, _, _, _, _, _).
+simple_name_declared(n) :- java_type(n, _, _, _, _, _, _, _, _, _, _, _, _, _).
+simple_name_declared(n) :- lib_type(n, _, _, _, _, _, _, _, _, _, _, _, _, _).
+
+candidate_ref(ref, tn, ctn, fp) :- java_type_reference(kind, ctx, _, _, _, _, _, "0", tn, ctn, _, _, _, _, _, _, _, ref),
+    ext_ref_kind(kind),
+    ext_ref_context(ctx),
+    tn != "",
+    ref_file(ref, tn, fp).
+
+// ── ref_external_name(Ref, QualifiedName) ───────────────────────────────────
+ref_external_name(ref, q) :- candidate_ref(ref, tn, _, fp),
+    java_import("SINGLE_TYPE", q, _, tn, fp, _, _, _, _, _, _),
+    !qualified_name_declared(q).
+ref_external_name(ref, ctn) :- candidate_ref(ref, tn, ctn, fp),
+    !type_has_explicit_import(tn, fp),
+    !simple_name_declared(tn).
+
+// ── type_ref_external(Ref, ExternalTypeId) ──────────────────────────────────
+type_ref_external(ref, id) :- ref_external_name(ref, q), id = cat("external:", q).
+external_type(id) :- type_ref_external(_, id).
+
+// ── the hierarchy keeps the edge ────────────────────────────────────────────
+type_parent(sub, x) :- java_type_reference(_, "SUPER_TYPE", sub, _, _, _, _, "0", _, _, _, _, _, _, _, _, _, ref),
+    type_ref_external(ref, x).
+type_parent(sub, x) :- java_type_reference(_, "IMPLEMENTS_INTERFACE", sub, _, _, _, _, "0", _, _, _, _, _, _, _, _, _, ref),
+    type_ref_external(ref, x).
+
+// ── a declared external type types its receiver ─────────────────────────────
+// The declared-type clauses of expr-type.dl, for a reference that resolved to nothing.
+// Provenance "external": a consumer that filters on client/lib sees none of these, and
+// the ones that read the type regardless (lookup, dispatch below) see the node.
+field_type_external(field, x) :- java_type_reference(_, "FIELD_TYPE", _, _, _, _, _, "0", _, _, _, _, _, _, _, field, "FIELD", ref),
+    type_ref_external(ref, x).
+local_var_type_external(local, x) :- java_type_reference(_, "LOCAL_VARIABLE", _, _, _, _, _, "0", _, _, _, _, _, _, _, local, "LOCAL_VARIABLE", ref),
+    type_ref_external(ref, x).
+method_param_type_external(param, x) :- java_type_reference(_, "METHOD_PARAM", _, _, _, _, _, "0", _, _, _, _, _, _, _, param, "METHOD_PARAM", ref),
+    type_ref_external(ref, x).
+method_return_type_external(m, x) :- java_type_reference(_, "METHOD_RETURN", _, _, _, _, _, "0", _, _, _, _, _, _, _, m, "METHOD", ref),
+    type_ref_external(ref, x).
+cast_type_external(e, x) :- java_type_reference(_, "CAST_EXPRESSION", _, _, _, _, _, "0", _, _, _, _, _, _, _, e, "EXPRESSION", ref),
+    type_ref_external(ref, x).
+
+// A receiver whose held type is PINNED keeps the precise answer the flow rules give it:
+// `Runnable r = new Runnable() { … }; r.run()` runs the anonymous class and nothing
+// else, and `this.fmt.parse(..)` on `private final Fmt fmt = new StrictFmt()` is exactly
+// a StrictFmt. The declared external type is the bound only where the held value is
+// not known that way — an initializer that is not a creation, a reassignment, a
+// parameter, a field the engine cannot pin at this receiver. The field gate is the
+// receiver's own expr_exact_type, not the field's finality: the final-with-new rule
+// reaches a FIELD_ACCESS receiver and not a bare identifier one, and gating on a fact
+// the receiver never sees would leave `fmt.parse(..)` typed by nothing at all.
+local_creation_init(local) :- java_expression("OBJECT_CREATION", "ROOT", "LOCAL_VAR_INITIALIZER", "LOCAL_VARIABLE", _, local, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _).
+local_creation_init(local) :- java_expression("ANONYMOUS_CLASS_CREATION", "ROOT", "LOCAL_VAR_INITIALIZER", "LOCAL_VARIABLE", _, local, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _).
+local_reassigned(local) :- java_local_variable(name, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, local),
+    java_expression(_, "ASSIGNMENT_TARGET", _, _, _, _, _, _, _, _, name, _, _, _, "LOCAL_VARIABLE", _, _, _, _, _, _, _, _, _, e),
+    expr_ultimate_method("client", e, m).
+local_creation_pinned(local) :- local_creation_init(local), !local_reassigned(local).
+
+expr_type("external", e, x) :- java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "FIELD", _, _, _, _, _, _, _, _, _, e),
+    expr_ultimate_type("client", e, encl),
+    java_field(name, _, _, _, _, _, _, _, encl, _, _, _, _, field),
+    !expr_exact_type(e, _),
+    field_type_external(field, x).
+expr_type("external", e, x) :- java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "FIELD", _, _, _, _, _, _, _, _, _, e),
+    expr_ultimate_type("client", e, encl),
+    type_ancestor(encl, anc),
+    java_field(name, _, _, _, _, _, _, _, anc, _, _, _, _, field),
+    !expr_exact_type(e, _),
+    field_type_external(field, x).
+expr_type("external", e, x) :- java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "PARAMETER", _, _, _, _, _, _, _, _, _, e),
+    expr_ultimate_method("client", e, m),
+    java_method_parameter(name, _, m, _, _, _, _, _, _, _, _, _, param),
+    method_param_type_external(param, x).
+expr_type("external", e, x) :- java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "LOCAL_VARIABLE", _, _, _, _, _, _, _, _, _, e),
+    expr_ultimate_method("client", e, m),
+    java_local_variable(name, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, local),
+    !local_creation_pinned(local),
+    local_var_type_external(local, x).
+expr_type("external", e, x) :- java_expression("CAST_EXPRESSION", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    cast_type_external(e, x).
+// A chained receiver whose callee is a client method declared to return the external type.
+expr_type("external", call, x) :- applicable_candidate(call, callee),
+    method_return_type_external(callee, x).
+
+// ── dispatch from an external receiver into the client types beneath it ─────
+// `fmt.parse(t, pos)` with fmt declared DateFormat: the candidates are the methods of
+// that name declared in client types that have DateFormat among their ancestors. The
+// arity and argument tiers in overload.dl then prune as for any candidate, and
+// call_chain.dl reports the site multi_inferred even when one client method survives,
+// because the platform's own subclasses are the other possible targets and they are
+// not visible here — that is what the boundary row beside it says.
+// Matched by name AND written arity from the raw hierarchy (LOW: java_method and
+// type_ancestor only), which is what lets the accuracy-first cap apply here exactly as
+// dispatch-cap.dl applies it to a declared base: with dispatch_cap(K) set, a fan wider
+// than K client implementations is refused rather than guessed across. A varargs
+// implementation is matched only at its own count; that is the cap's own simplification.
+external_impl(x, name, pc, m) :- external_type(x),
+    type_ancestor(sub, x),
+    java_method(name, _, _, _, _, _, _, sub, _, _, _, _, _, _, _, _, _, pc, _, _, _, m),
+    name != "".
+external_impl_count(x, name, pc, n) :- external_impl(x, name, pc, _),
+    n = count : { external_impl(x, name, pc, _) }.
+external_wide(x, name, pc) :- dispatch_cap(k),
+    external_impl_count(x, name, pc, n),
+    n > to_number(k).
+expr_call_candidate(call, m) :- call_site(call, name, recv),
+    expr_type("external", recv, x),
+    call_arity(call, pc),
+    external_impl(x, name, pc, m),
+    !external_wide(x, name, pc).
+
+// ── the boundary: a call that leaves the client hierarchy ───────────────────
+// external_target(Call, Label) — the site's target outside every staged IR, labelled
+// `external:<type>.<name>`; call_chain.dl emits it as a boundary_lib row with provenance
+// external, the same shape the Python front end uses for an unstaged import path.
+//   (a) the receiver IS external: the platform method itself is among the targets,
+//       whatever client overrides exist beneath it.
+//   (b) the receiver is a client type with an external ancestor, and nothing in the
+//       client part of its hierarchy declares the name at this arity: the method is
+//       inherited from the external part. `strict.parse(t)` on a StrictFormat that only
+//       overrides the two-argument parse. Name AND arity — with name alone the
+//       one-argument call would count as declared, and the site would stay unresolved
+//       exactly as it did before this file.
+external_target(call, label) :- call_site(call, name, recv),
+    expr_type("external", recv, x),
+    label = cat(x, cat(".", name)).
+// The parser writes parameterCount as text, so the written arity is compared as text.
+call_arity(call, pc) :- call_argc(call, n), pc = to_string(n).
+call_arity(call, "0") :- call_site(call, _, _), !call_has_args(call).
+external_target(call, label) :- call_site(call, name, recv),
+    expr_type("client", recv, t),
+    type_ancestor(t, x),
+    external_type(x),
+    call_arity(call, pc),
+    !sig_in_hierarchy(t, name, pc),
+    label = cat(x, cat(".", name)).
+//   (c) the receiver is IMPLICIT — `helper()` written inside a class whose hierarchy
+//       leaves the client, with no client type in scope declaring the name at this
+//       arity: the inherited unstaged method again, through the commonest receiver of
+//       all. In scope means the enclosing type's hierarchy, every lexically enclosing
+//       type's hierarchy (an inner class calls the outer's methods unqualified), and a
+//       static import of the name — any of those is a client answer the resolver
+//       already gives, and the boundary must not be claimed beside it.
+unqualified_sig_in_client_scope(t, name, pc) :- sig_in_hierarchy(t, name, pc).
+unqualified_sig_in_client_scope(t, name, pc) :- type_in_type("client", t, outer),
+    sig_in_hierarchy(outer, name, pc).
+static_name_imported(t, name) :- java_type(_, _, _, _, _, _, _, fp, _, _, _, _, _, t),
+    static_import_owner(name, _, fp).
+static_star_imported(t) :- java_type(_, _, _, _, _, _, _, fp, _, _, _, _, _, t),
+    static_import_star_owner(_, fp).
+call_arity(call, "0") :- call_unqualified(call, _), !call_has_args(call).
+external_target(call, label) :- call_unqualified(call, name),
+    expr_ultimate_type("client", call, t),
+    type_ancestor(t, x),
+    external_type(x),
+    call_arity(call, pc),
+    !unqualified_sig_in_client_scope(t, name, pc),
+    !static_name_imported(t, name),
+    !static_star_imported(t),
+    label = cat(x, cat(".", name)).

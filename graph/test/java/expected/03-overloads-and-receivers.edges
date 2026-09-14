@@ -1,7 +1,8 @@
 ambiguous_anon	anon_new	testcases.engine.ComplexDispatch#<type-initializer>() -> -
-ambiguous_unknown	method	testcases.engine.ComplexDispatch#boxingAndFields(String) -> -
 ambiguous_unknown	method	testcases.engine.ComplexDispatch#jdkStatics(String,int,int) -> -
 ambiguous_unknown	new	testcases.engine.ComplexDispatch#<type-initializer>() -> -
+boundary_lib	method	testcases.engine.ComplexDispatch#boxingAndFields(String) -> external:java.util.Map.put
+boundary_lib	method	testcases.engine.ComplexDispatch#jdkStatics(String,int,int) -> external:String.length
 known_edge	method	testcases.engine.ComplexDispatch#internalOverloads(Throwable) -> testcases.engine.ComplexDispatch#emit(String)
 known_edge	method	testcases.engine.ComplexDispatch#internalOverloads(Throwable) -> testcases.engine.ComplexDispatch#log(String)
 known_edge	method	testcases.engine.ComplexDispatch#internalOverloads(Throwable) -> testcases.engine.ComplexDispatch#log(String,Throwable)
