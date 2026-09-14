@@ -12,5 +12,5 @@ Component.js:8:18 METHOD_CALL clone  EXACT  Node.js:9:3
 Node.js:7:12 METHOD_CALL warn  EXACT  Component.js:3:3
 Node.js:7:39 METHOD_CALL forEach  LIB_AMBIENT_OK  
 Node.js:8:16 METHOD_CALL push  LIB_AMBIENT_OK  
-Node.js:9:20 CONSTRUCTOR_CALL constructor  SYNTHESIZED_OVER  Node.js:6:3
+Node.js:9:20 CONSTRUCTOR_CALL constructor  SYNTHESIZED_OVER  AbstractBlock.js:3:3;Node.js:6:3
 # defects: 0

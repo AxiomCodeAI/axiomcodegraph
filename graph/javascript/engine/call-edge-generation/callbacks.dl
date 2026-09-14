@@ -57,6 +57,15 @@ event_emit_method("emit").
 event_emit_method("dispatchEvent").
 event_emit_method("trigger").
 
+// ── what the handler receives, and what a registration call evaluates to ─────
+// `emit('x', a, b)` passes a, b to the handler's first two parameters.
+param_value(p, k, i) :- event_dispatch(ce, m), call_arg(ce, pos, arg), pos >= 1,
+    param_decl(_, _, ppos, m, p), to_number(ppos) = pos - 1, expr_value(arg, k, i).
+// `on()` / `once()` / `addListener()` on an emitter RETURN THE EMITTER — `b.on(...).once(...)`
+// chains — so the registration call's value is its receiver's value.
+expr_value(ce, k, i) :- call_site(_, ck, mn, "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck),
+    event_register_method(mn), expr_child(_, ce, "RECEIVER", _, r), expr_value(r, k, i), k != "obj".
+
 // ── the rows ────────────────────────────────────────────────────────────────
 call_chain_edge(ce, caller, "-", m, "client", "callback_registered", kind) :- callback_registered(ce, m),
     method_prov(m, "client"), call_from(ce, caller), invocation_site(ce, kind).

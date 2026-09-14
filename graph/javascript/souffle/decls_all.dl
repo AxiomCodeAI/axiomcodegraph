@@ -230,3 +230,8 @@
 .decl event_name_of(c0:symbol, c1:symbol)
 .decl event_dispatch(c0:symbol, c1:symbol)
 .decl event_emit_method(c0:symbol)
+// ── resolution/dispatch.dl ──
+.decl type_instantiated(c0:symbol)
+.decl type_used_statically(c0:symbol)
+.decl self_dispatch_assumes_closed_world(c0:symbol)
+.decl literal_key_name(c0:symbol, c1:symbol)

@@ -87,6 +87,10 @@ param_value(p, k, i) :- array_method_call(ce, n, a), array_method_iterates(n), c
     expr_value(f, "func", m), param_decl(_, _, "0", m, p), elem_value(a, k, i).
 param_value(p, k, i) :- array_method_call(ce, "reduce", a), call_arg(ce, 0, f),
     expr_value(f, "func", m), param_decl(_, _, "1", m, p), elem_value(a, k, i).
+// `sort(cmp)` hands the comparator two elements.
+param_value(p, k, i) :- array_method_call(ce, "sort", a), call_arg(ce, 0, f),
+    expr_value(f, "func", m), param_decl(_, _, "1", m, p), elem_value(a, k, i).
+array_method_iterates("sort").
 array_method_iterates("forEach").
 array_method_iterates("map").
 array_method_iterates("filter").

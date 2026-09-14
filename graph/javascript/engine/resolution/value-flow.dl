@@ -96,6 +96,17 @@ expr_value(e, k2, i2) :- expr_kind(_, "PROPERTY_ACCESS", _, e), expr_name(_, n, 
 expr_value(e, k2, i2) :- expr_kind(_, "OPTIONAL_ACCESS", _, e), expr_name(_, n, e),
     expr_child(_, e, "ACCESS_TARGET", _, r), expr_value(r, k, i),
     prop_value(k, i, n, k2, i2).
+// `obj['name']` with a LITERAL key is `obj.name`. The literal's text carries its quotes.
+expr_value(e, k2, i2) :- expr_kind(_, "ELEMENT_ACCESS", _, e), expr_child(_, e, "COMPUTED_KEY", _, key),
+    expr_kind(_, "LITERAL", _, key), expr_text(_, txt, key), literal_key_name(txt, n),
+    expr_child(_, e, "ACCESS_TARGET", _, r), expr_value(r, k, i), k != "arr", k != "coll",
+    prop_value(k, i, n, k2, i2).
+literal_key_name(txt, n) :- expr_text(_, txt, key), expr_kind(_, "LITERAL", _, key), expr_child(_, _, "COMPUTED_KEY", _, key), contains("'", txt),
+    strlen(txt) >= 2, n = substr(txt, 1, strlen(txt) - 2),
+    substr(txt, 0, 1) = "'".
+literal_key_name(txt, n) :- expr_text(_, txt, key), expr_kind(_, "LITERAL", _, key), expr_child(_, _, "COMPUTED_KEY", _, key), contains("\"", txt),
+    strlen(txt) >= 2, n = substr(txt, 1, strlen(txt) - 2),
+    substr(txt, 0, 1) = "\"".
 // A call's value is what the callee returns; `new` yields an instance.
 expr_value(e, k, i) :- expr_kind(_, "CALL", _, e), expr_resolves_to_method(e, m), return_value(m, k, i).
 expr_value(e, "inst", t) :- expr_kind(_, "NEW", _, e), new_constructs(e, t).
@@ -150,7 +161,9 @@ param_value(p, "inst", t) :- param_type_name(_, _, tr, p), type_ref_type(tr, t).
 param_value(p, k, i) :- call_arg(ce, pos, arg), expr_resolves_to_method(ce, m), !method_is_hot(m, _),
     param_decl(_, _, ppos, m, p), to_number(ppos) = pos, !param_is_rest(_, p),
     expr_value(arg, k, i).
-param_value(p, k, i) :- call_arg(ce, pos, arg), expr_resolves_to_method(ce, m), !method_is_hot(m, _),
+// A rest parameter IS an array; the arguments at and past its position are its elements.
+param_value(p, "arr", p) :- param_is_rest(_, p).
+elem_value(p, k, i) :- call_arg(ce, pos, arg), expr_resolves_to_method(ce, m), !method_is_hot(m, _),
     param_decl(_, _, ppos, m, p), param_is_rest(_, p), to_number(ppos) <= pos,
     expr_value(arg, k, i).
 // A default value: `cb = () => {}`. The parser gives the parameter the default's
@@ -278,6 +291,11 @@ export_form_is_member("OBJECT_DEFINE_PROPERTY").
 // module, `T.prototype.m = ...`. Instance writes through `this` reach every
 // instance of the type; a subtype without its own member of that name reads it.
 prop_value(k, i, n, k2, i2) :- member_write(k, i, n, k2, i2).
+// A write onto `T.prototype` (`Object.assign(T.prototype, mixin)`, `T.prototype.m = f`
+// where f is a binding) is a member of every instance, and a function written there
+// runs with the instance as `this`.
+prop_value("inst", t, n, k, i) :- member_write("proto", t, n, k, i).
+this_value(m, "inst", t) :- member_write("proto", t, _, "func", m), method_this_binding(_, "DYNAMIC", m), !method_owner_type(m, _).
 // Everything an instance of the superclass has — its methods, its constructor's
 // writes, its documented fields — an instance of the subclass has too, unless the
 // subclass declares the name itself. Recursive, so the whole chain is read.

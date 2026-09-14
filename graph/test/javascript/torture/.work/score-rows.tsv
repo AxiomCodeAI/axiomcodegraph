@@ -1,0 +1,187 @@
+file	line	col	endLine	endCol	callKind	callee	oracleKind	bucket	engineClass	targets
+lib/asyncy.js	3	28	3	85	CONSTRUCTOR_CALL	Promise	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.promise.d.ts:31:5 | 
+lib/asyncy.js	3	53	3	84	FUNCTION_CALL	setTimeout	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.dom.d.ts:39150:1 | 
+lib/asyncy.js	3	70	3	80	FUNCTION_CALL	resolve	bodiless	LIB_MISSED	ambiguous_unknown	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.promise.d.ts:31:33 | 
+lib/asyncy.js	6	30	6	39	FUNCTION_CALL	String	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:536:5 | 
+lib/asyncy.js	8	19	8	27	FUNCTION_CALL	delay	implementation	EXACT	known_edge	lib/asyncy.js:3:1 | lib/asyncy.js:3:1
+lib/asyncy.js	9	19	9	80	METHOD_CALL	then	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:1557:5 | 
+lib/asyncy.js	9	19	9	49	METHOD_CALL	then	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:1557:5 | 
+lib/asyncy.js	9	19	9	37	METHOD_CALL	resolve	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.promise.d.ts:72:5 | 
+lib/asyncy.js	9	62	9	70	FUNCTION_CALL	step2	implementation	EXACT	known_edge	lib/asyncy.js:5:1 | lib/asyncy.js:5:1
+lib/asyncy.js	12	22	12	38	FUNCTION_CALL	setImmediate	any	UNDECIDED	ambient_terminal	
+lib/asyncy.js	12	40	12	69	METHOD_CALL	nextTick	any	UNDECIDED	ambient_terminal	
+lib/asyncy.js	12	63	12	68	FUNCTION_CALL	fn	any	UNDECIDED	known_edge	lib/functional.js:6:1
+lib/asyncy.js	13	32	13	50	FUNCTION_CALL	cb	any	UNDECIDED	multi_inferred	lib/asyncy.js:14:70;main.js:52:26
+lib/asyncy.js	13	41	13	49	FUNCTION_CALL	step1	implementation	EXACT	known_edge	lib/asyncy.js:4:1 | lib/asyncy.js:4:1
+lib/asyncy.js	14	39	14	113	CONSTRUCTOR_CALL	Promise	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.promise.d.ts:31:5 | 
+lib/asyncy.js	14	65	14	112	FUNCTION_CALL	f	any	UNDECIDED	known_edge	lib/asyncy.js:13:1
+lib/asyncy.js	14	91	14	99	FUNCTION_CALL	rej	bodiless	LIB_MISSED	ambiguous_unknown	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.promise.d.ts:31:78 | 
+lib/asyncy.js	14	102	14	110	FUNCTION_CALL	res	bodiless	LIB_MISSED	ambiguous_unknown	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.promise.d.ts:31:33 | 
+lib/asyncy.js	15	23	15	46	FUNCTION_CALL	promisify	implementation	EXACT	known_edge	lib/asyncy.js:14:1 | lib/asyncy.js:14:1
+lib/bus.js	5	19	5	26	SUPER_CALL	super	any	UNDECIDED	ambiguous_unknown	
+lib/bus.js	6	13	6	34	METHOD_CALL	emit	any	UNDECIDED	ambiguous_unknown	
+lib/bus.js	6	36	6	56	METHOD_CALL	emit	any	UNDECIDED	ambiguous_unknown	
+lib/bus.js	7	16	7	34	METHOD_CALL	emit	any	UNDECIDED	ambiguous_unknown	
+lib/bus.js	8	14	8	33	METHOD_CALL	push	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:1347:5 | 
+lib/bus.js	9	24	9	51	METHOD_CALL	map	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:1470:5 | 
+lib/bus.js	9	46	9	50	FUNCTION_CALL	h	any	UNDECIDED	multi_inferred	lib/bus.js:16:1;lib/bus.js:17:1
+lib/bus.js	10	24	10	82	METHOD_CALL	push	any	UNDECIDED	ambient_terminal	
+lib/bus.js	11	68	11	98	METHOD_CALL	map	any	UNDECIDED	ambient_terminal	
+lib/bus.js	11	82	11	97	FUNCTION_CALL_CALL	call	any	UNDECIDED	ambiguous_unknown	
+lib/functional.js	3	63	3	70	FUNCTION_CALL	f	any	UNDECIDED	known_edge	lib/functional.js:7:1
+lib/functional.js	3	65	3	69	FUNCTION_CALL	g	any	UNDECIDED	known_edge	lib/functional.js:6:1
+lib/functional.js	4	37	4	45	FUNCTION_CALL	fn	any	UNDECIDED	known_edge	lib/functional.js:5:1
+lib/functional.js	6	26	6	35	FUNCTION_CALL	add	implementation	EXACT	known_edge	lib/functional.js:5:1 | lib/functional.js:5:1
+lib/functional.js	7	28	7	37	FUNCTION_CALL	add	implementation	EXACT	known_edge	lib/functional.js:5:1 | lib/functional.js:5:1
+lib/functional.js	8	16	8	29	FUNCTION_CALL		implementation	EXACT	known_edge	lib/functional.js:4:23 | lib/functional.js:4:23
+lib/functional.js	8	16	8	26	FUNCTION_CALL	curry	implementation	EXACT	known_edge	lib/functional.js:4:15 | lib/functional.js:4:15
+lib/functional.js	9	18	9	37	FUNCTION_CALL	compose	implementation	EXACT	known_edge	lib/functional.js:3:1 | lib/functional.js:3:1
+lib/functional.js	10	44	10	55	FUNCTION_CALL	fact	implementation	EXACT	known_edge	lib/functional.js:10:1 | lib/functional.js:10:1
+lib/functional.js	11	56	11	72	FUNCTION_CALL	fibonacci	implementation	EXACT	known_edge	lib/functional.js:11:13 | lib/functional.js:11:13
+lib/functional.js	11	75	11	91	FUNCTION_CALL	fibonacci	implementation	EXACT	known_edge	lib/functional.js:11:13 | lib/functional.js:11:13
+lib/functional.js	12	17	16	5	IIFE_CALL		implementation	EXACT	known_edge	lib/functional.js:12:18 | lib/functional.js:12:18
+lib/functional.js	15	42	15	48	FUNCTION_CALL	bump	implementation	EXACT	known_edge	lib/functional.js:14:3 | lib/functional.js:14:3
+lib/functional.js	17	33	17	39	FUNCTION_CALL	inc	implementation	EXACT	known_edge	lib/functional.js:6:1 | lib/functional.js:6:1
+lib/functional.js	17	80	17	92	FUNCTION_CALL	mapper	implementation	WRONG	known_edge	lib/functional.js:7:1 | lib/functional.js:6:1
+lib/functional.js	17	87	17	91	FUNCTION_CALL	cb	implementation	SOUND_SUPERSET	multi_inferred	lib/functional.js:17:27 | lib/functional.js:17:27;main.js:34:34
+lib/functional.js	18	44	18	85	METHOD_CALL	reduce	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:1489:5 | 
+lib/functional.js	18	68	18	74	FUNCTION_CALL	f	any	UNDECIDED	multi_inferred	lib/functional.js:7:1;main.js:35:30
+lib/functional.js	18	76	18	84	FUNCTION_CALL	first	any	UNDECIDED	known_edge	lib/functional.js:6:1
+lib/functional.js	19	69	19	75	FUNCTION_CALL	f	any	UNDECIDED	multi_inferred	lib/functional.js:6:1;lib/functional.js:7:1
+lib/functional.js	20	35	20	44	CONSTRUCTOR_CALL	Map	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.iterable.d.ts:182:5 | 
+lib/functional.js	20	67	20	79	METHOD_CALL	has	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.collection.d.ts:37:5 | 
+lib/functional.js	20	81	20	100	METHOD_CALL	set	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.collection.d.ts:41:5 | 
+lib/functional.js	20	94	20	99	FUNCTION_CALL	fn	any	UNDECIDED	known_edge	lib/functional.js:21:25
+lib/functional.js	20	109	20	121	METHOD_CALL	get	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.collection.d.ts:33:5 | 
+lib/functional.js	21	20	21	45	FUNCTION_CALL	memo	implementation	EXACT	known_edge	lib/functional.js:20:1 | lib/functional.js:20:1
+lib/functional.js	21	32	21	40	FUNCTION_CALL	twice	implementation	EXACT	known_edge	lib/functional.js:7:1 | lib/functional.js:7:1
+lib/legacy.js	6	47	6	59	METHOD_CALL	sound	implementation	SOUND_SUPERSET	multi_inferred	lib/legacy.js:7:26 | lib/legacy.js:11:23;lib/legacy.js:15:23;lib/legacy.js:7:26
+lib/legacy.js	8	40	8	56	CONSTRUCTOR_CALL	Animal	implementation	EXACT	known_edge	lib/legacy.js:5:1 | lib/legacy.js:5:1
+lib/legacy.js	9	22	9	45	FUNCTION_CALL_CALL	call	implementation	EXACT	known_edge	lib/legacy.js:5:1 | lib/legacy.js:5:1
+lib/legacy.js	10	1	10	27	METHOD_CALL	inherits	any	UNDECIDED	ambient_terminal	
+lib/legacy.js	12	22	12	45	FUNCTION_CALL_CALL	call	implementation	EXACT	known_edge	lib/legacy.js:5:1 | lib/legacy.js:5:1
+lib/legacy.js	13	17	13	48	METHOD_CALL	create	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:188:5 | 
+lib/legacy.js	17	20	17	46	METHOD_CALL	toUpperCase	any	UNDECIDED	ambiguous_unknown	
+lib/legacy.js	17	20	17	32	METHOD_CALL	speak	any	UNDECIDED	known_edge	lib/legacy.js:6:26
+lib/legacy.js	19	1	19	35	METHOD_CALL	assign	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.core.d.ts:286:5 | 
+lib/legacy.js	20	21	20	44	FUNCTION_CALL_CALL	call	any	UNDECIDED	ambient_terminal	
+lib/legacy.js	21	1	21	36	METHOD_CALL	inherits	any	UNDECIDED	ambient_terminal	
+lib/legacy.js	22	41	22	60	METHOD_CALL	push	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:1347:5 | 
+lib/legacy.js	22	62	22	85	METHOD_CALL	emit	any	UNDECIDED	ambiguous_unknown	
+lib/legacy.js	23	46	23	95	METHOD_CALL	map	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:1470:5 | 
+lib/legacy.js	23	82	23	91	METHOD_CALL	speak	any	UNDECIDED	known_edge	lib/legacy.js:6:26
+lib/registry.js	7	35	7	52	COMPUTED_CALL		any	UNDECIDED	dynamic_terminal	
+lib/registry.js	8	32	8	53	COMPUTED_CALL		implementation	EXACT	known_edge	lib/registry.js:4:3 | lib/registry.js:4:3
+lib/registry.js	9	17	9	63	CONSTRUCTOR_CALL	Proxy	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.proxy.d.ts:126:5 | 
+lib/registry.js	10	31	10	50	METHOD_CALL	anything	any	UNDECIDED	ambient_terminal	
+lib/registry.js	11	33	11	74	FUNCTION_CALL_APPLY	apply	bodiless	LIB_AMBIENT_OK	multi_inferred	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.reflect.d.ts:27:5 | lib/registry.js:5:3
+lib/registry.js	12	34	12	102	METHOD_CALL	map	any	UNDECIDED	ambient_terminal	
+lib/registry.js	12	34	12	71	FUNCTION_CALL_CALL	call	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:1384:5 | 
+lib/registry.js	12	83	12	101	METHOD_CALL	create	implementation	EXACT	known_edge	lib/registry.js:4:3 | lib/registry.js:4:3
+lib/registry.js	13	41	13	58	METHOD_CALL	join	any	UNDECIDED	ambient_terminal	
+lib/registry.js	14	29	14	40	TAGGED_TEMPLATE_CALL	tag	implementation	EXACT	known_edge	lib/registry.js:13:1 | lib/registry.js:13:1
+lib/shapes.js	4	85	4	99	METHOD_CALL	notify	implementation	EXACT	known_edge	lib/shapes.js:13:3 | lib/shapes.js:13:3
+lib/shapes.js	6	41	6	52	METHOD_CALL	area	implementation	SOUND_SUPERSET	multi_inferred	lib/shapes.js:5:3 | lib/shapes.js:17:3;lib/shapes.js:21:3;lib/shapes.js:5:3
+lib/shapes.js	7	32	7	46	CONSTRUCTOR_CALL		implementation	SOUND_SUPERSET	multi_inferred	lib/shapes.js:4:3 | lib/shapes.js:16:3;lib/shapes.js:4:3
+lib/shapes.js	8	33	8	41	METHOD_CALL	area	any	UNDECIDED	multi_inferred	lib/shapes.js:17:3;lib/shapes.js:21:3;lib/shapes.js:5:3
+lib/shapes.js	8	44	8	52	METHOD_CALL	area	any	UNDECIDED	multi_inferred	lib/shapes.js:17:3;lib/shapes.js:21:3;lib/shapes.js:5:3
+lib/shapes.js	9	24	9	39	METHOD_CALL	describe	implementation	SOUND_SUPERSET	multi_inferred	lib/shapes.js:6:3 | lib/shapes.js:18:3;lib/shapes.js:6:3
+lib/shapes.js	11	20	11	51	CONSTRUCTOR_CALL	constructor	synthesized	SYNTHESIZED_OVER	multi_inferred	:: | lib/shapes.js:16:3;lib/shapes.js:4:3
+lib/shapes.js	12	19	12	42	METHOD_CALL	push	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:1347:5 | 
+lib/shapes.js	13	15	13	50	METHOD_CALL	forEach	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:1464:5 | 
+lib/shapes.js	13	45	13	49	FUNCTION_CALL	l	any	UNDECIDED	multi_inferred	lib/functional.js:7:1;main.js:18:15
+lib/shapes.js	16	20	16	35	SUPER_CALL	super	implementation	EXACT	known_edge	lib/shapes.js:4:3 | lib/shapes.js:4:3
+lib/shapes.js	18	34	18	50	METHOD_CALL	describe	implementation	EXACT	known_edge	lib/shapes.js:6:3 | lib/shapes.js:6:3
+lib/shapes.js	25	21	25	35	METHOD_CALL	#secret	implementation	EXACT	known_edge	lib/shapes.js:24:3 | lib/shapes.js:24:3
+plugins/index.js	4	72	4	97	METHOD_CALL	create	implementation	EXACT	known_edge	lib/shapes.js:7:3 | lib/shapes.js:7:3
+plugins/index.js	7	48	7	80	METHOD_CALL	inc	implementation	EXACT	known_edge	lib/functional.js:6:1 | lib/functional.js:6:1
+main.js	11	13	11	26	CONSTRUCTOR_CALL	Circle	implementation	EXACT	known_edge	lib/shapes.js:16:3 | lib/shapes.js:16:3
+main.js	12	3	12	15	METHOD_CALL	describe	implementation	EXACT	known_edge	lib/shapes.js:18:3 | lib/shapes.js:18:3
+main.js	12	17	12	25	METHOD_CALL	area	implementation	EXACT	known_edge	lib/shapes.js:17:3 | lib/shapes.js:17:3
+main.js	13	13	13	33	METHOD_CALL	create	implementation	EXACT	known_edge	lib/shapes.js:7:3 | lib/shapes.js:7:3
+main.js	13	35	13	47	METHOD_CALL	describe	implementation	SOUND_SUPERSET	multi_inferred	lib/shapes.js:6:3 | lib/shapes.js:18:3;lib/shapes.js:6:3
+main.js	14	14	14	33	METHOD_CALL	create	implementation	EXACT	known_edge	lib/shapes.js:7:3 | lib/shapes.js:7:3
+main.js	14	35	14	48	METHOD_CALL	describe	implementation	SOUND_SUPERSET	multi_inferred	lib/shapes.js:6:3 | lib/shapes.js:18:3;lib/shapes.js:6:3
+main.js	15	13	15	28	CONSTRUCTOR_CALL	Tagged	implementation	EXACT	known_edge	lib/shapes.js:4:3 | lib/shapes.js:4:3
+main.js	15	30	15	40	METHOD_CALL	reveal	implementation	EXACT	known_edge	lib/shapes.js:25:3 | lib/shapes.js:25:3
+main.js	15	42	15	54	METHOD_CALL	describe	implementation	EXACT	known_edge	lib/shapes.js:6:3 | lib/shapes.js:6:3
+main.js	16	3	16	51	METHOD_CALL	map	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:1470:5 | 
+main.js	16	3	16	30	METHOD_CALL	sort	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:1395:5 | 
+main.js	16	42	16	50	METHOD_CALL	area	implementation	SOUND_SUPERSET	multi_inferred	lib/shapes.js:5:3 | lib/shapes.js:17:3;lib/shapes.js:21:3;lib/shapes.js:5:3
+main.js	17	3	17	23	METHOD_CALL	describe	any	UNDECIDED	multi_inferred	lib/shapes.js:18:3;lib/shapes.js:6:3
+main.js	17	3	17	12	METHOD_CALL	clone	implementation	EXACT	known_edge	lib/shapes.js:11:3 | lib/shapes.js:11:3
+main.js	18	3	18	60	METHOD_CALL	notify	implementation	EXACT	known_edge	lib/shapes.js:13:3 | lib/shapes.js:13:3
+main.js	18	3	18	50	METHOD_CALL	subscribe	implementation	EXACT	known_edge	lib/shapes.js:12:3 | lib/shapes.js:12:3
+main.js	18	3	18	31	METHOD_CALL	subscribe	implementation	EXACT	known_edge	lib/shapes.js:12:3 | lib/shapes.js:12:3
+main.js	18	22	18	30	METHOD_CALL	inc	implementation	EXACT	known_edge	lib/functional.js:6:1 | lib/functional.js:6:1
+main.js	19	3	19	16	METHOD_CALL	onChange	implementation	EXACT	known_edge	lib/shapes.js:4:78 | lib/shapes.js:4:78
+main.js	23	13	23	34	CONSTRUCTOR_CALL	Dog	implementation	EXACT	known_edge	lib/legacy.js:9:1 | lib/legacy.js:9:1
+main.js	23	36	23	45	METHOD_CALL	speak	any	UNDECIDED	known_edge	lib/legacy.js:6:26
+main.js	23	47	23	56	METHOD_CALL	shout	any	UNDECIDED	known_edge	lib/legacy.js:17:3
+main.js	24	15	24	36	CONSTRUCTOR_CALL	Cat	implementation	EXACT	known_edge	lib/legacy.js:12:1 | lib/legacy.js:12:1
+main.js	24	38	24	49	METHOD_CALL	speak	any	UNDECIDED	known_edge	lib/legacy.js:6:26
+main.js	25	3	25	40	METHOD_CALL	speak	implementation	EXACT	known_edge	lib/legacy.js:6:26 | lib/legacy.js:6:26
+main.js	25	3	25	32	METHOD_CALL	make	implementation	EXACT	known_edge	lib/legacy.js:8:15 | lib/legacy.js:8:15
+main.js	26	13	26	32	CONSTRUCTOR_CALL	Kennel	implementation	EXACT	known_edge	lib/legacy.js:20:1 | lib/legacy.js:20:1
+main.js	27	3	27	63	METHOD_CALL	on	any	UNDECIDED	ambiguous_unknown	
+main.js	27	48	27	59	METHOD_CALL	sound	any	UNDECIDED	multi_inferred	lib/legacy.js:11:23;lib/legacy.js:15:23
+main.js	28	3	28	20	METHOD_CALL	add	implementation	EXACT	known_edge	lib/legacy.js:22:24 | lib/legacy.js:22:24
+main.js	28	3	28	11	METHOD_CALL	add	implementation	EXACT	known_edge	lib/legacy.js:22:24 | lib/legacy.js:22:24
+main.js	28	22	28	30	METHOD_CALL	roll	implementation	EXACT	known_edge	lib/legacy.js:23:25 | lib/legacy.js:23:25
+main.js	32	3	32	16	METHOD_CALL	incTwice	implementation	EXACT	known_edge	lib/functional.js:3:33 | lib/functional.js:3:33
+main.js	32	18	32	29	METHOD_CALL	addOne	implementation	EXACT	known_edge	lib/functional.js:4:30 | lib/functional.js:4:30
+main.js	32	31	32	40	METHOD_CALL	fact	implementation	EXACT	known_edge	lib/functional.js:10:1 | lib/functional.js:10:1
+main.js	32	42	32	50	METHOD_CALL	fib	implementation	EXACT	known_edge	lib/functional.js:11:13 | lib/functional.js:11:13
+main.js	33	3	33	19	METHOD_CALL	bump	implementation	EXACT	known_edge	lib/functional.js:14:3 | lib/functional.js:14:3
+main.js	33	21	33	38	METHOD_CALL	reset	implementation	EXACT	known_edge	lib/functional.js:15:18 | lib/functional.js:15:18
+main.js	34	3	34	18	METHOD_CALL	withDefault	implementation	EXACT	known_edge	lib/functional.js:17:1 | lib/functional.js:17:1
+main.js	34	20	34	72	METHOD_CALL	withDefault	implementation	EXACT	known_edge	lib/functional.js:17:1 | lib/functional.js:17:1
+main.js	35	3	35	49	METHOD_CALL	variadic	implementation	EXACT	known_edge	lib/functional.js:18:1 | lib/functional.js:18:1
+main.js	35	37	35	48	METHOD_CALL	add	implementation	EXACT	known_edge	lib/functional.js:5:1 | lib/functional.js:5:1
+main.js	36	3	36	34	METHOD_CALL	applyAll	implementation	EXACT	known_edge	lib/functional.js:19:1 | lib/functional.js:19:1
+main.js	37	3	37	18	METHOD_CALL	slowSquare	implementation	EXACT	known_edge	lib/functional.js:20:53 | lib/functional.js:20:53
+main.js	37	20	37	35	METHOD_CALL	slowSquare	implementation	EXACT	known_edge	lib/functional.js:20:53 | lib/functional.js:20:53
+main.js	38	17	38	37	FUNCTION_CALL_BIND	bind	implementation	EXACT	known_edge	lib/functional.js:5:1 | lib/functional.js:5:1
+main.js	38	39	38	47	FUNCTION_CALL	bound	any	UNDECIDED	known_edge	lib/functional.js:5:1
+main.js	39	3	39	25	FUNCTION_CALL_CALL	call	implementation	EXACT	known_edge	lib/functional.js:5:1 | lib/functional.js:5:1
+main.js	39	27	39	52	FUNCTION_CALL_APPLY	apply	implementation	EXACT	known_edge	lib/functional.js:5:1 | lib/functional.js:5:1
+main.js	42	13	42	22	CONSTRUCTOR_CALL	Bus	implementation	EXACT	known_edge	lib/bus.js:5:3 | lib/bus.js:5:3
+main.js	43	3	43	83	METHOD_CALL	on	any	UNDECIDED	ambiguous_unknown	
+main.js	43	3	43	46	METHOD_CALL	once	any	UNDECIDED	ambiguous_unknown	
+main.js	43	3	43	25	METHOD_CALL	on	any	UNDECIDED	ambiguous_unknown	
+main.js	44	3	44	12	METHOD_CALL	start	implementation	EXACT	known_edge	lib/bus.js:6:3 | lib/bus.js:6:3
+main.js	44	14	44	27	METHOD_CALL	fire	implementation	EXACT	known_edge	lib/bus.js:7:3 | lib/bus.js:7:3
+main.js	45	3	45	42	METHOD_CALL	runHooks	implementation	EXACT	known_edge	lib/bus.js:9:3 | lib/bus.js:9:3
+main.js	45	3	45	28	METHOD_CALL	hook	implementation	EXACT	known_edge	lib/bus.js:8:3 | lib/bus.js:8:3
+main.js	45	3	45	16	METHOD_CALL	hook	implementation	EXACT	known_edge	lib/bus.js:8:3 | lib/bus.js:8:3
+main.js	46	3	46	28	METHOD_CALL	register	implementation	EXACT	known_edge	lib/bus.js:10:3 | lib/bus.js:10:3
+main.js	46	30	46	48	METHOD_CALL	dispatch	implementation	EXACT	known_edge	lib/bus.js:11:3 | lib/bus.js:11:3
+main.js	50	9	50	27	METHOD_CALL	pipeline	implementation	EXACT	known_edge	lib/asyncy.js:7:1 | lib/asyncy.js:7:1
+main.js	51	3	51	22	METHOD_CALL	later	implementation	EXACT	known_edge	lib/asyncy.js:12:1 | lib/asyncy.js:12:1
+main.js	52	3	52	49	METHOD_CALL	withCallback	implementation	EXACT	known_edge	lib/asyncy.js:13:1 | lib/asyncy.js:13:1
+main.js	52	38	52	48	METHOD_CALL	twice	implementation	EXACT	known_edge	lib/functional.js:7:1 | lib/functional.js:7:1
+main.js	53	9	53	32	METHOD_CALL	withCallbackP	implementation	EXACT	known_edge	lib/asyncy.js:14:32 | lib/asyncy.js:14:32
+main.js	56	3	56	26	METHOD_CALL	byName	implementation	EXACT	known_edge	lib/registry.js:7:1 | lib/registry.js:7:1
+main.js	56	28	56	44	METHOD_CALL	byBracket	implementation	EXACT	known_edge	lib/registry.js:8:1 | lib/registry.js:8:1
+main.js	56	46	56	61	METHOD_CALL	viaProxy	implementation	EXACT	known_edge	lib/registry.js:10:1 | lib/registry.js:10:1
+main.js	56	63	56	80	METHOD_CALL	viaReflect	implementation	EXACT	known_edge	lib/registry.js:11:1 | lib/registry.js:11:1
+main.js	56	82	56	104	METHOD_CALL	viaArguments	implementation	EXACT	known_edge	lib/registry.js:12:1 | lib/registry.js:12:1
+main.js	56	106	56	119	METHOD_CALL	tagged	implementation	EXACT	known_edge	lib/registry.js:14:1 | lib/registry.js:14:1
+main.js	59	13	59	28	FUNCTION_CALL	makePlugin	implementation	EXACT	known_edge	plugins/index.js:4:18 | plugins/index.js:4:18
+main.js	59	30	59	37	METHOD_CALL	run	implementation	EXACT	known_edge	plugins/index.js:4:66 | plugins/index.js:4:66
+main.js	59	39	59	75	METHOD_CALL	create	implementation	EXACT	known_edge	lib/shapes.js:7:3 | lib/shapes.js:7:3
+main.js	59	77	59	107	METHOD_CALL	twice	implementation	EXACT	known_edge	lib/functional.js:7:1 | lib/functional.js:7:1
+main.js	59	109	59	126	METHOD_CALL	late	implementation	EXACT	known_edge	plugins/index.js:7:23 | plugins/index.js:7:23
+main.js	59	179	59	219	CONSTRUCTOR_CALL	Error	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2022.error.d.ts:30:5 | 
+main.js	62	3	62	12	FUNCTION_CALL	classes	implementation	EXACT	known_edge	main.js:10:1 | main.js:10:1
+main.js	62	14	62	24	FUNCTION_CALL	legacies	implementation	EXACT	known_edge	main.js:22:1 | main.js:22:1
+main.js	62	26	62	38	FUNCTION_CALL	functional	implementation	EXACT	known_edge	main.js:31:1 | main.js:31:1
+main.js	62	40	62	48	FUNCTION_CALL	events	implementation	EXACT	known_edge	main.js:41:1 | main.js:41:1
+main.js	62	56	62	64	FUNCTION_CALL	asyncs	implementation	EXACT	known_edge	main.js:49:1 | main.js:49:1
+main.js	62	66	62	76	FUNCTION_CALL	dynamics	implementation	EXACT	known_edge	main.js:55:1 | main.js:55:1
+main.js	62	78	62	87	FUNCTION_CALL	modules	implementation	EXACT	known_edge	main.js:58:1 | main.js:58:1
+main.js	63	3	63	36	IIFE_CALL		implementation	EXACT	known_edge	main.js:63:4 | main.js:63:4
+main.js	63	22	63	30	METHOD_CALL	inc	implementation	EXACT	known_edge	lib/functional.js:6:1 | lib/functional.js:6:1
+main.js	64	3	64	23	IIFE_CALL		implementation	EXACT	known_edge	main.js:64:4 | main.js:64:4
+main.js	64	10	64	20	METHOD_CALL	twice	implementation	EXACT	known_edge	lib/functional.js:7:1 | lib/functional.js:7:1
+main.js	66	1	66	7	FUNCTION_CALL	main	implementation	EXACT	known_edge	main.js:61:1 | main.js:61:1

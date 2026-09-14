@@ -39,12 +39,24 @@ callee_value(ce, k, i) :- call_site(_, ck, _, _, _, _, ce, _, _), call_kind_is_r
 callee_value(ce, k2, i2) :- call_site(_, ck, _, _, _, _, ce, _, _), call_kind_is_reflective(ck),
     reflective_kind_member(ck, n),
     expr_child(_, ce, "CALLEE", _, c), expr_value(c, k, i), prop_value(k, i, n, k2, i2).
+// `Reflect.apply(f, o, args)` — classified by name as FUNCTION_CALL_APPLY with `Reflect`
+// as the CALLEE child; the function that runs is the first argument, which the parser
+// labels RECEIVER.
+callee_value(ce, k, i) :- call_site(_, "FUNCTION_CALL_APPLY", _, _, _, _, ce, _, _),
+    expr_child(_, ce, "CALLEE", _, c), expr_value(c, "ambient", "Reflect"),
+    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, k, i).
 reflective_kind_member("FUNCTION_CALL_CALL", "call").
 reflective_kind_member("FUNCTION_CALL_APPLY", "apply").
 reflective_kind_member("FUNCTION_CALL_BIND", "bind").
 callee_value(ce, k2, i2) :- call_site(_, ck, n, "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck), n != "",
     expr_child(_, ce, "RECEIVER", _, r), !expr_kind(_, "SUPER", _, r),
     expr_value(r, k, i), prop_value(k, i, n, k2, i2).
+// `obj['name'](…)` — a COMPUTED_CALL whose key is a literal is an ordinary member call.
+// The parser puts the object under RECEIVER and the key under COMPUTED_KEY on the call
+// itself (there is no ELEMENT_ACCESS node for the callee).
+callee_value(ce, k2, i2) :- call_site(_, "COMPUTED_CALL", _, _, _, _, ce, _, _),
+    expr_child(_, ce, "COMPUTED_KEY", _, key), expr_kind(_, "LITERAL", _, key), expr_text(_, txt, key), literal_key_name(txt, n),
+    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, k, i), prop_value(k, i, n, k2, i2).
 // `super.m()` — the superclass's member, from the enclosing method's class.
 callee_value(ce, "func", m) :- call_site(_, ck, n, "SYNTACTIC", _, em, ce, _, _), call_kind_is_member_form(ck), n != "",
     expr_child(_, ce, "RECEIVER", _, r), expr_kind(_, "SUPER", _, r),
