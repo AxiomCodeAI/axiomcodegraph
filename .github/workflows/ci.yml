@@ -1,0 +1,183 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# build — the gate every change to main passes through.
+#
+# Four tiers, cheapest first, all required:
+#   install   a fresh clone installs and builds (parser + engine), and the command runs
+#   hygiene   repository invariants that need no solver and catch silent breakage
+#   engine    the java / typescript / python / javascript regression suites, in parallel
+#   parser    the parser's own suites
+#
+# NO PATH FILTERS, deliberately. A required check that is skipped by a path filter never
+# reports, and a pull request waiting on a check that will never report can never merge.
+# ─────────────────────────────────────────────────────────────────────────────
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  merge_group:
+  workflow_dispatch:
+
+# One run per ref. A new push to a pull request cancels the previous run; a run on main is
+# always allowed to finish — main's history is the record.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'   # the bundle stage writes graph.sqlite with node:sqlite (≥ 22.5)
+
+jobs:
+  install:
+    name: fresh clone installs, builds, runs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      # No lock file is committed, so this is `npm install`, and `prepare` builds both
+      # packages. The explicit steps after it mean a prepare-script change cannot silently
+      # stop compiling this repository.
+      - run: npm install
+      - run: npm run typecheck
+      - run: npm run build
+      - name: the build produced what the command needs
+        run: |
+          test -f parser/dist/index.js || { echo "::error::parser/dist/index.js missing"; exit 1; }
+          test -f dist/bundle/cli.js   || { echo "::error::dist/bundle/cli.js missing"; exit 1; }
+          test ! -d dist/test          || { echo "::error::fixtures were compiled into dist/"; exit 1; }
+          bin/axiomcode --help | head -1
+          bin/axiomcode parser graph/test/java/cases/01-inheritance-override/src /tmp/ir >/dev/null
+          test -f /tmp/ir/java/all-methods.csv || { echo "::error::the parser wrote no IR"; exit 1; }
+
+  hygiene:
+    name: repository invariants
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: npm install
+      - name: every fixture input is tracked by git
+        run: bash graph/test/tools/no-ignored-fixtures.sh
+      - name: IR staging maps are consistent, per language
+        run: |
+          fail=0
+          for lang in java python typescript javascript; do
+            echo "── $lang"; python3 graph/test/tools/check_staging.py --lang "$lang" || fail=1
+          done
+          exit $fail
+      - name: client->library coverage has not shrunk
+        run: bash graph/test/tools/lib-coverage.sh
+      - name: the output bundle is one schema across languages and its doc is current
+        run: bash graph/test/tools/bundle-test.sh
+      - name: the engine id is a function of the rules alone
+        run: bash graph/test/tools/engine-id-test.sh
+      - name: shell scripts parse
+        run: |
+          fail=0
+          while IFS= read -r f; do bash -n "$f" || { echo "::error file=$f::does not parse"; fail=1; }; done < <(git ls-files '*.sh')
+          exit $fail
+
+  engine:
+    name: engine (${{ matrix.lang }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # --oracle scores the engine against GROUND TRUTH, not only the goldens. A golden
+          # says "the same as last time", which a wrong answer satisfies as long as it was
+          # wrong last time too. The ground truth is built with the toolchain that defines
+          # the language: javac/javap, the TypeScript compiler (also over JavaScript with
+          # allowJs/checkJs). No third-party analyzer.
+          #
+          # --no-torture for java ONLY: those families need the JVM platform IR staged as a
+          # library (1.8 GB, built from a JDK source checkout), which cannot live in a
+          # repository or a cache; without it their receivers are unresolvable BY
+          # CONSTRUCTION and the red would read as a regression. Six Java cases still cover
+          # client->library with their own stub libraries. The torture families stay a local
+          # gate; the suite prints EXCLUDED so they are never mistaken for a pass.
+          - { lang: java,       oracle: '--oracle --no-torture' }
+          - { lang: typescript, oracle: '--oracle' }
+          - { lang: javascript, oracle: '--oracle' }
+          # Python's ground truth is frozen CPython output authored by a separate harness
+          # CI cannot reach yet, so this leg is goldens-only for now.
+          - { lang: python,     oracle: '' }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: npm install
+      # TWO interpreters for python: 3.10 for the tier-1 attribution preflight (it reads
+      # CPython OPCODES, whose shapes are not stable across minor versions, and resolves
+      # `python3.10` by name); 3.12 for the torture fixtures, whose source uses typing.Self
+      # (3.11+). The later setup-python wins for plain `python3`, so 3.12 comes second.
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.10' }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      # JDK 24: the java torture/oracle tooling reads class files with java.lang.classfile,
+      # which is not final before 24; on an older JDK it exits 77 and silently does not run.
+      - uses: actions/setup-java@v4
+        if: matrix.lang == 'java'
+        with: { distribution: temurin, java-version: '24' }
+      # Soufflé is the solver: the engine is compiled from .dl to C++ against its headers,
+      # so a build of it has to be present the way a compiler has to be present. Pinned to
+      # the version in graph/pipeline/engine.conf and verified against upstream's checksum.
+      - name: cache the Soufflé package
+        uses: actions/cache@v4
+        with:
+          path: ~/souffle-pkg
+          key: souffle-deb-2.5-ubuntu-2404
+      - name: install Soufflé
+        run: |
+          set -euo pipefail
+          . graph/pipeline/engine.conf
+          deb="x86_64-ubuntu-2404-souffle-${SOUFFLE_VERSION}-Linux.deb"
+          dir="$HOME/souffle-pkg"; mkdir -p "$dir"
+          [ -f "$dir/$deb" ] || curl -fsSL --retry 3 -o "$dir/$deb" "https://github.com/souffle-lang/souffle/releases/download/${SOUFFLE_VERSION}/${deb}"
+          echo "6b86e554f6aa5abf8a8b55d8312ae37c0957c5bd6c9edeea89246db9406f645ec5e600b84fe6636b1c163da556f0da6c3d2dad46c1083413f2fcf4f95b9ac62c  $dir/$deb" | sha512sum -c -
+          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends "$dir/$deb"
+          souffle --version | head -2
+      # run-souffle.sh caches the compiled engine under the rule-set id; mirroring that key
+      # here skips a multi-minute C++ build on every run whose rules did not change.
+      - name: cache the compiled engine
+        uses: actions/cache@v4
+        with:
+          path: .souffle-cache
+          key: engine-${{ matrix.lang }}-${{ hashFiles(format('graph/{0}/**/*.dl', matrix.lang), 'graph/pipeline/engine.conf') }}
+      - name: ${{ matrix.lang }} regression suite
+        run: bash .github/scripts/run-suite.sh ${{ matrix.lang }} ${{ matrix.oracle }}
+
+  parser:
+    name: parser suites
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: npm install
+      - run: bash .github/scripts/run-suite.sh parser
+
+  # A single job the ruleset can require. Without it every matrix entry has to be added to
+  # the protection rules by hand, and a matrix job that fails to start reports nothing —
+  # which a ruleset reads as "not failing" rather than "did not run".
+  build:
+    name: build
+    runs-on: ubuntu-24.04
+    needs: [install, hygiene, engine, parser]
+    if: always()
+    steps:
+      - name: every tier passed
+        run: |
+          echo "install=${{ needs.install.result }} hygiene=${{ needs.hygiene.result }} engine=${{ needs.engine.result }} parser=${{ needs.parser.result }}"
+          [ "${{ needs.install.result }}" = success ] && [ "${{ needs.hygiene.result }}" = success ] && [ "${{ needs.engine.result }}" = success ] && [ "${{ needs.parser.result }}" = success ]
