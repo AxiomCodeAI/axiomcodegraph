@@ -8,6 +8,7 @@
 .decl arg_value_type(c0:symbol,c1:symbol,c2:symbol)
 .decl array_ctor_ref(c0:symbol)
 .decl arity_match(c0:symbol,c1:symbol)
+.decl applicable_candidate(c0:symbol,c1:symbol)
 .decl block_kind(c0:symbol,c1:symbol,c2:symbol)
 .decl block_owner(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl block_parent(c0:symbol,c1:symbol,c2:symbol)

@@ -68,7 +68,7 @@ method_param_type_at("lib", callee, pos, ref, t) :-
 fn_arg_position(call, pos) :- java_expression("LAMBDA_EXPRESSION", "ARGUMENT", _, _, _, _, call, pos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _).
 fn_arg_position(call, pos) :- java_expression("METHOD_REFERENCE", "ARGUMENT", _, _, _, _, call, pos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _).
 lib_method_param_type_resolves("lib", ph, ref, t) :- fn_arg_position(call, pos),
-    expr_call_candidate(call, callee),
+    applicable_candidate(call, callee),
     lib_method_parameter(_, pos, callee, _, _, pqn, _, _, _, _, _, _, ph),
     pqn != "",
     lib_type(_, pqn, _, _, _, _, _, _, _, _, _, _, _, t),
@@ -121,7 +121,7 @@ sam_param_tvar("lib", fi, pos, tv) :- sam_method("lib", fi, m), param_decl("lib"
 // Carry the FI reference (fiRef) too — the generic binding keys type_arg_binding on it.
 lambda_target_fi_ref(lam, fiRef, fi) :-
     java_expression("LAMBDA_EXPRESSION", "ARGUMENT", _, _, _, _, call, argpos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, lam),
-    expr_call_candidate(call, callee),
+    applicable_candidate(call, callee),
     method_param_type_at(_, callee, argpos, fiRef, fi).
 lambda_target_fi(lam, fi) :- lambda_target_fi_ref(lam, _, fi).
 
@@ -222,12 +222,12 @@ recv_tvar_type(call, classTv, argT) :-
 //     class-tvar propagation through the return and is not yet handled.
 recv_tvar_type(call, classTv, argT) :-
     call_site(call, _, recv),
-    expr_call_candidate(recv, innerCallee),
+    applicable_candidate(recv, innerCallee),
     method_return_type_resolves(_, innerCallee, retRef, recvType),
     tvar_binding(retRef, recvType, classTv, argT).
 recv_tvar_type(call, classTv, argT) :-
     call_site(call, _, recv),
-    expr_call_candidate(recv, innerCallee),
+    applicable_candidate(recv, innerCallee),
     lib_type_reference(_, "METHOD_RETURN", _, _, _, _, _, "0", _, _, _, _, _, _, _, innerCallee, "METHOD", retRef),
     lib_type_ref_resolves(_, retRef, recvType),
     tvar_binding(retRef, recvType, classTv, argT).
@@ -239,7 +239,7 @@ recv_tvar_type(call, classTv, argT) :-
 //     binding is emitted under the ALIASED name too.
 recv_tvar_type(call, retTv, argT) :-
     call_site(call, _, recv),
-    expr_call_candidate(recv, innerCallee),
+    applicable_candidate(recv, innerCallee),
     lib_method_return_type(innerCallee, retType),
     lib_ret_arg_tvar(innerCallee, p, ownerTv),
     type_param("lib", retTv, p, retType, _),
@@ -248,7 +248,7 @@ recv_tvar_type(call, retTv, argT) :-
     tvar_binding(declRef, innerRecvType, ownerTv, argT).
 recv_tvar_type(call, aliasTv, argT) :-
     call_site(call, _, recv),
-    expr_call_candidate(recv, innerCallee),
+    applicable_candidate(recv, innerCallee),
     lib_method_return_type(innerCallee, retType),
     lib_ret_arg_tvar(innerCallee, p, ownerTv),
     type_param("lib", retTv, p, retType, _),

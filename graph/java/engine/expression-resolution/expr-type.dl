@@ -455,17 +455,40 @@ expr_type(prov, e, t) :- java_expression("IDENTIFIER_REFERENCE", _, _, _, _, _, 
     expr_ultimate_method("client", e, method),
     pattern_var_type(name, method, prov, t).
 
+// ── applicable_candidate(Call, Callee) — the candidate set a VALUE may be typed from ──
+// The candidates of a call gated by ARITY, and nothing more. This is what every rule that
+// reads a call's return type (a chained receiver), a parameter type at a position (a lambda
+// or method-reference argument) or a flow into a parameter joins on, instead of the raw
+// name-based expr_call_candidate.
+//
+// Why arity and not the resolved overload: overload disambiguation negates a mismatch
+// predicate that reads expr_type, so feeding expr_resolves_to_method back into expr_type
+// would put a negation inside its own fixpoint. arity_match is positive in the same SCC
+// (base counts plus the candidate set), so it can be read here without changing the
+// stratification, and it is the gate expr_arg_ok itself applies: a candidate that fails
+// it never becomes an edge, so typing anything from its return was never justified.
+//
+// Why it matters (#581): `String name()` and `Item name(String)` on one class. With the raw
+// candidate set, `item.name().equals(x)` typed the receiver as String OR Item, and the
+// chained site resolved to `Item.equals` as a known_edge — a client method that never runs,
+// with a blast radius covering every `String.equals` in the codebase. Arity keeps `name()`
+// alone, and the site is correctly a library boundary.
+//
+// A method reference writes no arguments, so it bypasses the plain arity clause exactly as
+// expr_arg_ok does; its own arity is settled against the SAM in overload.dl.
+applicable_candidate(call, callee) :- arity_match(call, callee).
+applicable_candidate(call, callee) :- expr_call_candidate(call, callee),
+    call_is_method_ref(call).
+
 // ── Chained-call receiver (a().b()) — a() is itself a METHOD_INVOCATION; its type
 // is the declared return type of the method(s) it may invoke. Mutually recursive
 // with callee resolution (callee-resolution.dl): resolving a() gives the callee,
 // whose return type types a() so that b() can be resolved on it.
 //
-// Uses the sound candidate set expr_call_candidate, NOT the disambiguated
-// expr_resolves_to_method. Overload disambiguation (overload.dl) negates a
-// mismatch predicate that itself reads expr_type (to type reference arguments), so
-// feeding the disambiguated result back here would place negation inside the
-// expr_type fixpoint. The candidate set keeps this recursion monotone; the extra
-// return types it admits are a sound over-approximation of the chained receiver.
+// Uses applicable_candidate (the arity-gated candidate set, above), NOT the
+// disambiguated expr_resolves_to_method — see its header for why the negation in
+// overload disambiguation forbids the latter. The extra return types the gated set
+// still admits are a sound over-approximation of the chained receiver.
 // RETURN-VALUE FLOW-TYPING — prefer a method's concrete `return new T()` type over its declared
 // (often interface) return, so a chained receiver a() dispatches b() on the concrete T instead of
 // CHA-fanning the interface to every implementer (the factory idiom `Conn connect(){ return new
@@ -484,16 +507,16 @@ method_return_other(m) :- method_return_new(_, m, t1), method_return_new(_, m, t
 method_return_mono(prov, m, t) :- method_return_new(prov, m, t), !method_return_other(m).
 
 // PREFERRED: chained receiver = the callee's concrete monomorphic return (no CHA fan).
-expr_type(prov, call, t) :- expr_call_candidate(call, callee),
+expr_type(prov, call, t) :- applicable_candidate(call, callee),
     method_return_mono(prov, callee, t).
 // FALLBACK (declared return) — only when the callee's return isn't a single concrete `new`.
-expr_type(prov, call, retType) :- expr_call_candidate(call, callee),
+expr_type(prov, call, retType) :- applicable_candidate(call, callee),
     method_return_type_resolves(prov, callee, _, retType),
     !method_return_mono(_, callee, _).
 // Chained off a LIBRARY method (jdkCall().next()): the lib callee's resolved base
 // return type (lib-hierarchy.dl). This is what lets JDK pipelines chain —
 // items.stream().map(..).collect(..) — each hop's Stream/List base types the next.
-expr_type("lib", call, retType) :- expr_call_candidate(call, callee),
+expr_type("lib", call, retType) :- applicable_candidate(call, callee),
     lib_method_return_type(callee, retType),
     !method_return_mono(_, callee, _).
 
@@ -560,9 +583,9 @@ recv_decl_ref(recv, ref, t) :- java_expression(_, _, _, _, _, _, _, _, _, _, nam
 // Measured on a held-out project before writing this: a `var` over `entrySet()`, a call on
 // `getTypeParameters()`, and a lambda over `values().stream()` are the three most common shapes
 // among its remaining unresolved sites.
-recv_decl_ref(recv, retRef, recvType) :- expr_call_candidate(recv, innerCallee),
+recv_decl_ref(recv, retRef, recvType) :- applicable_candidate(recv, innerCallee),
     method_return_type_resolves(_, innerCallee, retRef, recvType).
-recv_decl_ref(recv, retRef, recvType) :- expr_call_candidate(recv, innerCallee),
+recv_decl_ref(recv, retRef, recvType) :- applicable_candidate(recv, innerCallee),
     lib_type_reference(_, "METHOD_RETURN", _, _, _, _, _, "0", _, _, _, _, _, _, _, innerCallee, "METHOD", retRef),
     lib_type_ref_resolves(_, retRef, recvType).
 
@@ -574,13 +597,13 @@ recv_decl_ref(recv, retRef, t) :- java_expression(_, _, _, _, _, _, _, _, _, _, 
     expr_ultimate_method("client", recv, m),
     java_local_variable(name, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, local),
     java_expression("METHOD_INVOCATION", _, "LOCAL_VAR_INITIALIZER", "LOCAL_VARIABLE", _, local, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, initExpr),
-    expr_call_candidate(initExpr, callee),
+    applicable_candidate(initExpr, callee),
     method_return_type_resolves(_, callee, retRef, t).
 recv_decl_ref(recv, retRef, t) :- java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, "LOCAL_VARIABLE", _, _, _, _, _, _, _, _, _, recv),
     expr_ultimate_method("client", recv, m),
     java_local_variable(name, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, local),
     java_expression("METHOD_INVOCATION", _, "LOCAL_VAR_INITIALIZER", "LOCAL_VARIABLE", _, local, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, initExpr),
-    expr_call_candidate(initExpr, callee),
+    applicable_candidate(initExpr, callee),
     lib_type_reference(_, "METHOD_RETURN", _, _, _, _, _, "0", _, _, _, _, _, _, _, callee, "METHOD", retRef),
     lib_type_ref_resolves(_, retRef, t).
 
@@ -594,7 +617,7 @@ type_prov(t, "lib") :- lib_type(_, _, _, _, _, _, _, _, _, _, _, _, _, t).
 // so the lookup keys on the method owner and the receiver's declared type is left free.
 expr_type(prov, call, argType) :- call_site(call, _, recv),
     recv_decl_ref(recv, ref, _),
-    expr_call_candidate(call, callee),
+    applicable_candidate(call, callee),
     lib_method_ret_tvar(callee, owner, tv),
     type_arg_binding(ref, owner, tv, argType),
     type_prov(argType, prov).
@@ -602,7 +625,7 @@ expr_type(prov, call, argType) :- call_site(call, _, recv),
 // getU() -> U), keyed on the client class's own type_arg_binding (owner = the class).
 expr_type(prov, call, argType) :- call_site(call, _, recv),
     recv_decl_ref(recv, ref, _),
-    expr_call_candidate(call, callee),
+    applicable_candidate(call, callee),
     java_method_ret_tvar(callee, owner, tv),
     type_arg_binding(ref, owner, tv, argType),
     type_prov(argType, prov).
@@ -620,12 +643,12 @@ expr_type(prov, call, argType) :- call_site(call, _, recv),
 // method's declaring type (owner) for the same reason the clauses above are: a variable named V is
 // not distinctive on its own.
 expr_type(prov, call, argType) :- call_site(call, _, recv),
-    expr_call_candidate(call, callee),
+    applicable_candidate(call, callee),
     lib_method_ret_tvar(callee, owner, tv),
     expr_arg_binding(recv, owner, tv, argType),
     type_prov(argType, prov).
 expr_type(prov, call, argType) :- call_site(call, _, recv),
-    expr_call_candidate(call, callee),
+    applicable_candidate(call, callee),
     java_method_ret_tvar(callee, owner, tv),
     expr_arg_binding(recv, owner, tv, argType),
     type_prov(argType, prov).

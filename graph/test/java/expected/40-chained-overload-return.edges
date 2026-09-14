@@ -1,0 +1,7 @@
+ambiguous_unknown	method	probe.Item#equals(Object) -> -
+ambiguous_unknown	method	probe.Walk#viaZeroArg(Item) -> -
+known_edge	method	probe.Walk#viaOneArg(Item) -> probe.Item#equals(Object)
+known_edge	method	probe.Walk#viaOneArg(Item) -> probe.Item#name(String)
+known_edge	method	probe.Walk#viaSelf(Item) -> probe.Item#equals(Object)
+known_edge	method	probe.Walk#viaSelf(Item) -> probe.Item#self()
+known_edge	method	probe.Walk#viaZeroArg(Item) -> probe.Item#name()
