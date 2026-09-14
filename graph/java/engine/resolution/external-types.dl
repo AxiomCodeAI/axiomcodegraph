@@ -53,31 +53,40 @@ ext_ref_context("METHOD_PARAM").
 ext_ref_context("METHOD_RETURN").
 ext_ref_context("CAST_EXPRESSION").
 
-// "Unresolved" is decided by NAME against the staged declarations, not by negating
+// "Unresolved" is decided by the resolver's own FILE-SCOPED answer, not by negating
 // type_ref_resolves: that relation sits in one stratum with the hierarchy (a library
 // reference resolves only once its type is reached through type_ancestor), and this
-// file feeds type_parent, so a negation on it would sit inside its own cycle. The name
-// test is base-level and conservative — a single-type import names a qualified name,
-// and if any staged type carries it the reference is left to the resolver; an
-// unqualified name is left alone if any staged type has that simple name at all.
+// file feeds type_parent, so a negation on it would sit inside its own cycle.
+// type_resolves_in_file and type_resolves_java_lang are base-level (imports, declared
+// types, staged library types) and are exactly what the resolver consults for a name
+// written in a file — single-type and nested imports, same file, same package, on-demand
+// imports, java.lang. A name any of those answers is left to the resolver. Two further
+// guards keep this conservative: a single-type import whose path a staged type carries,
+// and a simple name any staged type declares at all — measured before the second guard,
+// a nested type imported as `Outer.Inner` (flattened to `pkg.Inner` by the parser) was
+// given an external node beside its real declaration, and an argument of that type then
+// contradicted every overload whose parameter resolved.
 qualified_name_declared(q) :- java_type(_, q, _, _, _, _, _, _, _, _, _, _, _, _).
 qualified_name_declared(q) :- lib_type(_, q, _, _, _, _, _, _, _, _, _, _, _, _).
 simple_name_declared(n) :- java_type(n, _, _, _, _, _, _, _, _, _, _, _, _, _).
 simple_name_declared(n) :- lib_type(n, _, _, _, _, _, _, _, _, _, _, _, _, _).
+name_resolves_in_file(tn, fp) :- type_resolves_in_file(_, tn, fp, _).
+name_resolves_in_file(tn, fp) :- ref_file(_, tn, fp), type_resolves_java_lang(_, tn, _).
 
 candidate_ref(ref, tn, ctn, fp) :- java_type_reference(kind, ctx, _, _, _, _, _, "0", tn, ctn, _, _, _, _, _, _, _, ref),
     ext_ref_kind(kind),
     ext_ref_context(ctx),
     tn != "",
-    ref_file(ref, tn, fp).
+    ref_file(ref, tn, fp),
+    !name_resolves_in_file(tn, fp),
+    !simple_name_declared(tn).
 
 // ── ref_external_name(Ref, QualifiedName) ───────────────────────────────────
 ref_external_name(ref, q) :- candidate_ref(ref, tn, _, fp),
     java_import("SINGLE_TYPE", q, _, tn, fp, _, _, _, _, _, _),
     !qualified_name_declared(q).
 ref_external_name(ref, ctn) :- candidate_ref(ref, tn, ctn, fp),
-    !type_has_explicit_import(tn, fp),
-    !simple_name_declared(tn).
+    !type_has_explicit_import(tn, fp).
 
 // ── type_ref_external(Ref, ExternalTypeId) ──────────────────────────────────
 type_ref_external(ref, id) :- ref_external_name(ref, q), id = cat("external:", q).
