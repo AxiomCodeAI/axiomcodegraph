@@ -1,0 +1,82 @@
+# dependencies
+# Both forms. `node_modules/` matches a DIRECTORY only, so a symlink named
+# node_modules slips past it -- which is how the tracked absolute-path symlink
+# came back in a121b77 after 5bf2db4 had already removed it once.
+node_modules
+node_modules/
+
+# build output
+dist/
+*.tsbuildinfo
+
+# local tooling
+.claude/
+
+# run output
+analysis-results/
+logs/
+*.log
+
+# secrets
+.env
+.env.*
+
+# os
+.DS_Store
+
+# python-work is a LOCAL validation scratch area: oracles, staging corpora and
+# repro harnesses. None of it ships. Listing individual subfolders let new ones
+# through, so the whole tree is ignored and the checks that matter live as gates
+# in src/test instead, where they survive the folder being deleted.
+# CPython test files are also PSF-licensed and belong to the interpreter, not to
+# us; checking them in would pin them to one machine's stdlib.
+python-work/
+.certify-report.txt
+.certify-out/
+.jedi-gaps.json
+.golden-out/
+.pep695-out/
+.select-out/
+.chain-out/
+.tp-out/
+
+# Transient analyzer output. Every gate writes one and none of it is a source
+# artifact — regenerated on each run, never read across runs.
+.*-out/
+.certify-report.txt
+.jedi-gaps.json
+# Agent coordination is process, not product.
+.agent-coordination/
+# Large corpora live outside the repo and are regenerated from the pinned
+# interpreter by torture-corpus.ts / vendor-corpus.ts.
+/tmp/py-corpus/
+
+# generated python gate corpora and scratch output
+src/test/python-gates/xpkg-corpus/
+**/__pycache__/
+*-out/
+
+# The Python suite and its expectations ARE the deliverable and must ship.
+#
+# A blanket ignore here left python-tests.ts, the gates, every fixture and all
+# 4,127 frozen facts untracked — a fresh clone had no Python tests at all, and
+# the suite would have reported "no goldens" as though the corpus were missing
+# rather than never committed. Only genuinely regenerable corpora are excluded:
+#
+#   torture / vendored / mined   rebuilt from the pinned interpreter on demand
+#   _holdout                     retired
+src/test-data/python/torture/
+src/test-data/python/torture-pep695/
+src/test-data/python/torture-parse-gap/
+src/test-data/python/staging/
+src/test-data/python/_holdout/
+src/test/python-gates/xpkg-corpus/
+
+# Analyzer output from the test runner; deleted at the end of every run.
+.py-test-out/
+.probe/
+
+# per-language contributing drafts — superseded by a single CONTRIBUTING.md.
+# The dash matters: this ignores CONTRIBUTING-<lang>.md and leaves the eventual
+# CONTRIBUTING.md tracked.
+CONTRIBUTING-*.md

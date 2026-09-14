@@ -1,0 +1,102 @@
+{
+ "generatedBy": "parser-oracle/python, CPython 3.12.8 ast",
+ "note": "Frozen ground truth. Regenerate from the oracle repo when fixtures change; never hand-edit.",
+ "rows": [
+  {
+   "owner": "agen",
+   "ownerKind": "METHOD",
+   "name": "A",
+   "position": 0,
+   "bound": "",
+   "kind": "TYPE_VAR"
+  },
+  {
+   "owner": "Alias",
+   "ownerKind": "MODULE",
+   "name": "W",
+   "position": 0,
+   "bound": "",
+   "kind": "TYPE_VAR"
+  },
+  {
+   "owner": "bounded",
+   "ownerKind": "METHOD",
+   "name": "N",
+   "position": 0,
+   "bound": "int",
+   "kind": "TYPE_VAR"
+  },
+  {
+   "owner": "Bounded",
+   "ownerKind": "MODULE",
+   "name": "X",
+   "position": 0,
+   "bound": "int",
+   "kind": "TYPE_VAR"
+  },
+  {
+   "owner": "Box",
+   "ownerKind": "TYPE",
+   "name": "T",
+   "position": 0,
+   "bound": "",
+   "kind": "TYPE_VAR"
+  },
+  {
+   "owner": "get",
+   "ownerKind": "METHOD",
+   "name": "U",
+   "position": 0,
+   "bound": "",
+   "kind": "TYPE_VAR"
+  },
+  {
+   "owner": "identity",
+   "ownerKind": "METHOD",
+   "name": "V",
+   "position": 0,
+   "bound": "",
+   "kind": "TYPE_VAR"
+  },
+  {
+   "owner": "Pair",
+   "ownerKind": "TYPE",
+   "name": "K",
+   "position": 0,
+   "bound": "str",
+   "kind": "TYPE_VAR"
+  },
+  {
+   "owner": "Pair",
+   "ownerKind": "TYPE",
+   "name": "V",
+   "position": 1,
+   "bound": "",
+   "kind": "TYPE_VAR"
+  },
+  {
+   "owner": "Variadic",
+   "ownerKind": "TYPE",
+   "name": "P",
+   "position": 2,
+   "bound": "",
+   "kind": "PARAM_SPEC"
+  },
+  {
+   "owner": "Variadic",
+   "ownerKind": "TYPE",
+   "name": "T",
+   "position": 0,
+   "bound": "",
+   "kind": "TYPE_VAR"
+  },
+  {
+   "owner": "Variadic",
+   "ownerKind": "TYPE",
+   "name": "Ts",
+   "position": 1,
+   "bound": "",
+   "kind": "TYPE_VAR_TUPLE"
+  }
+ ]
+}

@@ -1,0 +1,9 @@
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+#
+
+org.acme.impl.JsonCodec
+   org.acme.impl.XmlCodec	
+org.acme.impl.YamlCodec # the default when none is configured
+org.acme.impl.JsonCodec

@@ -1,0 +1,1 @@
+reason=ERROR_NODE	nodeType=catalog_entry	originalText=this line is not an entry	startLine=17	endLine=17	startColumn=0	endColumn=25

@@ -1,0 +1,3 @@
+scriptKind=SCRIPT_PLUGIN	dslDialect=GROOVY	gradleProjectPath=	relativePath=ci.gradle	fileName=ci.gradle	parseStatus=OK	lineCount=2	blockCount=0	declarationCount=1	valueReferenceCount=0	coordinateCount=0	commentCount=0	parseGapCount=0
+scriptKind=SCRIPT_PLUGIN	dslDialect=GROOVY	gradleProjectPath=	relativePath=optional.gradle	fileName=optional.gradle	parseStatus=OK	lineCount=2	blockCount=0	declarationCount=1	valueReferenceCount=0	coordinateCount=0	commentCount=0	parseGapCount=0
+scriptKind=SCRIPT_PLUGIN	dslDialect=GROOVY	gradleProjectPath=	relativePath=preprocessor.gradle	fileName=preprocessor.gradle	parseStatus=PARTIAL	lineCount=41	blockCount=8	declarationCount=15	valueReferenceCount=5	coordinateCount=2	commentCount=3	parseGapCount=9

@@ -1,0 +1,206 @@
+{
+ "emissionRegime": "ts6-inproc",
+ "compilerVersion": "6.0.3",
+ "mergeableKinds": [
+  "ClassDeclaration",
+  "EnumDeclaration",
+  "FunctionDeclaration",
+  "InterfaceDeclaration",
+  "ModuleDeclaration",
+  "TypeAliasDeclaration",
+  "VariableDeclaration"
+ ],
+ "corpusFiles": [
+  {
+   "path": "legacy-decorators.ts",
+   "digest": "5e1be47aca7822df0f0ff1d79a461549c3fac962"
+  }
+ ],
+ "quarantinedFiles": [],
+ "declarationSites": 15,
+ "groups": [
+  {
+   "name": "UserEntity",
+   "spaces": [
+    "TYPE",
+    "VALUE"
+   ],
+   "kinds": [
+    "ClassDeclaration"
+   ],
+   "sites": [
+    "legacy-decorators.ts:107:1"
+   ]
+  },
+  {
+   "name": "UserRepository",
+   "spaces": [
+    "TYPE",
+    "VALUE"
+   ],
+   "kinds": [
+    "ClassDeclaration"
+   ],
+   "sites": [
+    "legacy-decorators.ts:127:1"
+   ]
+  },
+  {
+   "name": "UserController",
+   "spaces": [
+    "TYPE",
+    "VALUE"
+   ],
+   "kinds": [
+    "ClassDeclaration"
+   ],
+   "sites": [
+    "legacy-decorators.ts:145:1"
+   ]
+  },
+  {
+   "name": "registry",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "legacy-decorators.ts:24:14"
+   ]
+  },
+  {
+   "name": "Injectable",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "FunctionDeclaration"
+   ],
+   "sites": [
+    "legacy-decorators.ts:28:1"
+   ]
+  },
+  {
+   "name": "Controller",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "FunctionDeclaration"
+   ],
+   "sites": [
+    "legacy-decorators.ts:34:1"
+   ]
+  },
+  {
+   "name": "Entity",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "FunctionDeclaration"
+   ],
+   "sites": [
+    "legacy-decorators.ts:40:1"
+   ]
+  },
+  {
+   "name": "Get",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "FunctionDeclaration"
+   ],
+   "sites": [
+    "legacy-decorators.ts:46:1"
+   ]
+  },
+  {
+   "name": "Column",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "FunctionDeclaration"
+   ],
+   "sites": [
+    "legacy-decorators.ts:57:1"
+   ]
+  },
+  {
+   "name": "PrimaryGeneratedColumn",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "FunctionDeclaration"
+   ],
+   "sites": [
+    "legacy-decorators.ts:63:1"
+   ]
+  },
+  {
+   "name": "Inject",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "FunctionDeclaration"
+   ],
+   "sites": [
+    "legacy-decorators.ts:68:1"
+   ]
+  },
+  {
+   "name": "Param",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "FunctionDeclaration"
+   ],
+   "sites": [
+    "legacy-decorators.ts:74:1"
+   ]
+  },
+  {
+   "name": "Body",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "FunctionDeclaration"
+   ],
+   "sites": [
+    "legacy-decorators.ts:81:1"
+   ]
+  },
+  {
+   "name": "Memoized",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "FunctionDeclaration"
+   ],
+   "sites": [
+    "legacy-decorators.ts:87:1"
+   ]
+  },
+  {
+   "name": "Nested",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "legacy-decorators.ts:96:14"
+   ]
+  }
+ ]
+}

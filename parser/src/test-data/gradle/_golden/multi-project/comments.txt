@@ -1,0 +1,4 @@
+commentKind=LINE	text=buildSrc builds the build, not the product	isCommentedOutCode=false	startLine=1	endLine=1	startColumn=0	endColumn=45
+commentKind=LINE	text=core is the shared library module	isCommentedOutCode=false	startLine=1	endLine=1	startColumn=0	endColumn=36
+commentKind=LINE	text=implementation 'org.removed:removed:1.0'	isCommentedOutCode=true	startLine=15	endLine=15	startColumn=4	endColumn=47
+commentKind=LINE	text=pinned deliberately: see ticket BUILD-91	isCommentedOutCode=false	startLine=3	endLine=3	startColumn=4	endColumn=47

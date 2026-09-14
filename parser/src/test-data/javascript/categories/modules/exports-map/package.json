@@ -1,0 +1,33 @@
+{
+  "name": "@fixture/exports-map",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A dual package with an exports map, an imports map and conditional exports. Node IS the ground truth for where each specifier lands; tsc only models it. The disagreement between them is the oracle's to record, not the parser's.",
+  "main": "./lib/index.cjs",
+  "module": "./lib/index.js",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js",
+      "require": "./lib/index.cjs",
+      "default": "./lib/index.js"
+    },
+    "./stream": {
+      "node": {
+        "import": "./lib/stream.node.js",
+        "require": "./lib/stream.node.cjs"
+      },
+      "browser": "./lib/stream.browser.js",
+      "default": "./lib/stream.browser.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "imports": {
+    "#internal/log": {
+      "development": "./internal/log.dev.js",
+      "default": "./internal/log.js"
+    },
+    "#internal/*.js": "./internal/*.js"
+  }
+}

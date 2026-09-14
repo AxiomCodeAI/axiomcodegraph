@@ -1,0 +1,16 @@
+blockType=ALLPROJECTS	blockName=allprojects	expression=	depth=0	childBlockCount=1	declarationCount=0	dslDialect=GROOVY	caughtExceptionTypes=	startLine=16	endLine=22	startColumn=0	endColumn=1
+blockType=CONFIGURATIONS	blockName=configurations	expression=	depth=0	childBlockCount=0	declarationCount=1	dslDialect=GROOVY	caughtExceptionTypes=	startLine=40	endLine=42	startColumn=0	endColumn=1
+blockType=DEPENDENCIES	blockName=dependencies	expression=	depth=0	childBlockCount=0	declarationCount=1	dslDialect=GROOVY	caughtExceptionTypes=	startLine=1	endLine=1	startColumn=0	endColumn=72
+blockType=DEPENDENCIES	blockName=dependencies	expression=	depth=0	childBlockCount=0	declarationCount=1	dslDialect=GROOVY	caughtExceptionTypes=	startLine=2	endLine=4	startColumn=0	endColumn=1
+blockType=DEPENDENCIES	blockName=dependencies	expression=	depth=0	childBlockCount=0	declarationCount=2	dslDialect=GROOVY	caughtExceptionTypes=	startLine=11	endLine=14	startColumn=0	endColumn=1
+blockType=DEPENDENCIES	blockName=dependencies	expression=	depth=0	childBlockCount=0	declarationCount=4	dslDialect=GROOVY	caughtExceptionTypes=	startLine=1	endLine=6	startColumn=0	endColumn=1
+blockType=DEPENDENCIES	blockName=dependencies	expression=	depth=0	childBlockCount=0	declarationCount=4	dslDialect=GROOVY	caughtExceptionTypes=	startLine=24	endLine=29	startColumn=0	endColumn=1
+blockType=DEPENDENCIES	blockName=dependencies	expression=	depth=0	childBlockCount=1	declarationCount=6	dslDialect=GROOVY	caughtExceptionTypes=	startLine=2	endLine=16	startColumn=0	endColumn=1
+blockType=DSL_BLOCK	blockName=doLast	expression=	depth=0	childBlockCount=0	declarationCount=1	dslDialect=GROOVY	caughtExceptionTypes=	startLine=32	endLine=32	startColumn=4	endColumn=27
+blockType=DSL_BLOCK	blockName=flatDir	expression=	depth=2	childBlockCount=0	declarationCount=2	dslDialect=GROOVY	caughtExceptionTypes=	startLine=20	endLine=20	startColumn=8	endColumn=31
+blockType=DSL_BLOCK	blockName=implementation	expression=	depth=1	childBlockCount=0	declarationCount=2	dslDialect=GROOVY	caughtExceptionTypes=	startLine=11	endLine=13	startColumn=4	endColumn=5
+blockType=DSL_BLOCK	blockName=maven	expression=	depth=2	childBlockCount=0	declarationCount=2	dslDialect=GROOVY	caughtExceptionTypes=	startLine=19	endLine=19	startColumn=8	endColumn=56
+blockType=DSL_BLOCK	blockName=tasks	expression=	depth=0	childBlockCount=0	declarationCount=2	dslDialect=GROOVY	caughtExceptionTypes=	startLine=35	endLine=38	startColumn=0	endColumn=1
+blockType=EXT	blockName=ext	expression=	depth=0	childBlockCount=0	declarationCount=4	dslDialect=GROOVY	caughtExceptionTypes=	startLine=6	endLine=9	startColumn=0	endColumn=1
+blockType=PLUGINS	blockName=plugins	expression=	depth=0	childBlockCount=0	declarationCount=3	dslDialect=GROOVY	caughtExceptionTypes=	startLine=1	endLine=4	startColumn=0	endColumn=1
+blockType=REPOSITORIES	blockName=repositories	expression=	depth=1	childBlockCount=2	declarationCount=1	dslDialect=GROOVY	caughtExceptionTypes=	startLine=17	endLine=21	startColumn=4	endColumn=5
