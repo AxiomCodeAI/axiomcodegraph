@@ -2,13 +2,17 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # axiomcode — the pipeline as subcommands. No npx, no argument order to remember.
 #
-#   bin/axiomcode parser <src-dir> <ir-dir> [--slug NAME]          source → relational IR
+#   bin/axiomcode parser <src-dir> <ir-dir> [--version V] [--exclude-tests]
+#                                                                    source → relational IR
 #   bin/axiomcode engine --language L --client-ir <ir-dir> --out <dir> [engine options]
 #                                                                    IR → graph.sqlite
-#   bin/axiomcode all    --language L --src <src-dir> --out <dir> [engine options]
+#   bin/axiomcode all    --language L --src <src-dir> --out <dir> [parser options] [engine options]
 #                                                                    source → graph.sqlite
 #   bin/axiomcode test   [java|typescript|python|parser|all] [suite options]
 #
+# Parser options: --version V       the version the IR is stamped with (serviceVersionLink). Default:
+#                                   the source tree's git commit; v1.0.0 when it is not a git checkout.
+#                 --exclude-tests   leave test code out of the IR. Default: included.
 # Engine options: --library <ir-root>[,…]  --intermediate <dir>  --debug  --dispatch-cap N|off
 #                 --lib-depth N  --jdk-depth N  --taint on|off   (see graph/pipeline/run-souffle.sh)
 # Output: <dir>/graph.sqlite — its schema is inside it (graph/bundle/SCHEMA.md). With --debug
@@ -18,7 +22,7 @@
 set -eu
 ROOT="$(d="$(cd "$(dirname "$0")" && pwd)"; while [ "$d" != / ] && { [ ! -f "$d/package.json" ] || [ ! -d "$d/graph" ]; }; do d="$(dirname "$d")"; done; echo "$d")"
 PARSER="${AXIOM_PARSER:-$ROOT/parser/dist/index.js}"
-usage(){ sed -n '3,16p' "$0" | sed 's/^# \{0,1\}//'; }
+usage(){ sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'; }
 die(){ echo "axiomcode: $*" >&2; exit 2; }
 need_parser(){ [ -f "$PARSER" ] || { echo "axiomcode: parser not built at $PARSER — run: npm install && npm run build" >&2; exit 1; }; }
 
@@ -26,12 +30,19 @@ cmd="${1:-}"; [ $# -gt 0 ] && shift
 case "$cmd" in
   parser)
     need_parser
-    src="${1:-}"; ir="${2:-}"; [ -n "$src" ] && [ -n "$ir" ] || die "usage: axiomcode parser <src-dir> <ir-dir> [--slug NAME]"
-    shift 2; slug="$(basename "$(cd "$src" && pwd)")"
-    while [ $# -gt 0 ]; do case "$1" in --slug) slug="$2"; shift 2;; *) die "parser: unknown option $1";; esac; done
+    src="${1:-}"; ir="${2:-}"; [ -n "$src" ] && [ -n "$ir" ] || die "usage: axiomcode parser <src-dir> <ir-dir> [--version V] [--exclude-tests]"
+    shift 2; version=""; exclude=false
+    while [ $# -gt 0 ]; do case "$1" in
+      --version) version="$2"; shift 2;; --exclude-tests) exclude=true; shift;;
+      --slug) version="$2"; shift 2;;   # the old name for the same thing
+      *) die "parser: unknown option $1";; esac; done
     [ -d "$src" ] || die "not a directory: $src"
+    # The version stamps every IR row (serviceVersionLink): the commit of the source when it is a
+    # git checkout, so a graph can always be traced to what it was built from; v1.0.0 otherwise.
+    [ -n "$version" ] || version="$(git -C "$src" rev-parse HEAD 2>/dev/null || echo v1.0.0)"
     mkdir -p "$ir"
-    node "$PARSER" "$src" "$slug" false "$ir"
+    echo "▶ parser: version=$version exclude-tests=$exclude"
+    node "$PARSER" "$src" "$version" "$exclude" "$ir"
     ;;
   engine)
     # every option is the engine's own; only --out is spelled for symmetry with `all`
@@ -45,21 +56,26 @@ case "$cmd" in
     ;;
   all)
     need_parser
-    lang=""; src=""; out=""; slug=""; rest=()
+    lang=""; src=""; out=""; version=""; popts=(); rest=()
     while [ $# -gt 0 ]; do case "$1" in
-      --language) lang="$2"; shift 2;; --src) src="$2"; shift 2;; --out) out="$2"; shift 2;; --slug) slug="$2"; shift 2;;
+      --language) lang="$2"; shift 2;; --src) src="$2"; shift 2;; --out) out="$2"; shift 2;;
+      --version|--slug) version="$2"; shift 2;; --exclude-tests) popts+=(--exclude-tests); shift;;
       --library|--intermediate|--dispatch-cap|--lib-depth|--jdk-depth|--taint) rest+=("$1" "$2"); shift 2;;
       --debug) rest+=(--debug); shift;;
       *) die "all: unknown option $1";; esac; done
     [ -n "$lang" ] && [ -n "$src" ] && [ -n "$out" ] || die "usage: axiomcode all --language L --src <src-dir> --out <dir> [options]"
     [ -d "$src" ] || die "not a directory: $src"
     [ -d "$ROOT/graph/$lang" ] || die "no engine for --language=$lang (have: $(ls -d "$ROOT"/graph/*/engine 2>/dev/null | sed 's#.*/graph/##; s#/engine##' | tr '\n' ' '))"
+    [ -n "$version" ] || version="$(git -C "$src" rev-parse HEAD 2>/dev/null || echo v1.0.0)"
+    popts+=(--version "$version")
     mkdir -p "$out"; out="$(cd "$out" && pwd)"; int="$out/.intermediate"; ir="$int/ir"
     rm -rf "$ir"; mkdir -p "$ir"
     echo "▶ parsing $src ($lang) → IR"
-    "$0" parser "$src" "$ir" ${slug:+--slug "$slug"} > "$int/parse.log" 2>&1 || { echo "❌ parser failed — see $int/parse.log" >&2; tail -5 "$int/parse.log" >&2; exit 1; }
+    "$0" parser "$src" "$ir" ${popts[@]+"${popts[@]}"} > "$int/parse.log" 2>&1 || { echo "❌ parser failed — see $int/parse.log" >&2; tail -5 "$int/parse.log" >&2; exit 1; }
+    head -1 "$int/parse.log"
     echo "▶ solving"
-    "$0" engine --language "$lang" --client-ir "$ir" --out "$out" --intermediate "$int" ${rest[@]+"${rest[@]}"}
+    "$0" engine --language "$lang" --client-ir "$ir" --out "$out" --intermediate "$int" \
+         --meta "source_version=$version" --meta "source_dir=$(cd "$src" && pwd)" ${rest[@]+"${rest[@]}"}
     echo "$out/graph.sqlite"
     ;;
   test)

@@ -15,6 +15,7 @@
 # deleted once the database is written, so a consumer sees one file: graph.sqlite.
 set -e
 DEBUG_BUNDLE="${AXIOM_DEBUG:-0}"
+EXTRA_META=()
 JDK_DEPTH=1   # max JDK-hop depth engine-ii expands. FORCED (always applied). Default 1: sinks are
               # known JDK methods (the cwe catalog), so external code reaches a file-op sink at JDK
               # hop 1; deeper JDK expansion only traces internal plumbing (the explosion source).
@@ -44,6 +45,7 @@ while [ $# -gt 0 ]; do case "$1" in
   # tables. --debug asks for both. (An older Node with no node:sqlite writes the CSVs
   # regardless, because otherwise the run would produce no consumer-facing output.)
   --debug) DEBUG_BUNDLE=1; shift;;
+  --meta) EXTRA_META+=(--meta "$2"); shift 2;;   # key=value recorded in graph.sqlite's run table
   # (AXIOM_DEBUG=1 in the environment is the same as --debug — for harnesses that cannot
   # change the invocation.)
   *) shift;; esac; done
@@ -427,7 +429,8 @@ BUNDLE_FLAGS=(); [ "$DEBUG_BUNDLE" = "1" ] && BUNDLE_FLAGS+=(--debug)
   --library "$LIB" --lib-facts "$LIBDIR" "${BUNDLE_FLAGS[@]}" \
   --meta "engine_commit=$ENGINE_COMMIT" \
   --meta "dispatch_cap=${CAP_EFF:-off}" --meta "jdk_depth=$JDK_DEPTH" --meta "lib_depth=${LIB_DEPTH:-uncapped}" \
-  --meta "engine_ii=$ENGINE_II_MODE" --meta "solve_iterations=$iter" --meta "solve_seconds=$((SOLVE_EPOCH-START_EPOCH))"
+  --meta "engine_ii=$ENGINE_II_MODE" --meta "solve_iterations=$iter" --meta "solve_seconds=$((SOLVE_EPOCH-START_EPOCH))" \
+  ${EXTRA_META[@]+"${EXTRA_META[@]}"}
 
 END_EPOCH=$(date +%s); END_TS=$(date '+%Y-%m-%d %H:%M:%S')
 echo "Elapsed: $((END_EPOCH-START_EPOCH))s"

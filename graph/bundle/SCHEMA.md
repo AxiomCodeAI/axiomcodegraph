@@ -162,6 +162,8 @@ What produced this bundle: one key/value row per fact about the run (language, e
 | `solve_seconds` | all | Wall-clock seconds of staging + solving, before the bundle stage. |
 | `created_at` | all | ISO-8601 timestamp of the bundle. |
 | `raw_dir` | all | Where the per-language Soufflé relations were read from (`raw/` next to the bundle). |
+| `source_version` | all | The version the IR was stamped with (bin/axiomcode): the git commit of the analysed source, or v1.0.0 when it was not a checkout. Present when the run went through bin/axiomcode all. |
+| `source_dir` | all | The source directory that was parsed. Present when the run went through bin/axiomcode all. |
 
 ### `methods`
 
