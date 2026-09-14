@@ -458,6 +458,33 @@ expr_callable(e, cm) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
     expr_namespace(q, _, m),
     module_export(_, m, n, "METHOD", cm).
 
+// A STATIC METHOD read as a VALUE — `Util.inSorted` on its own, not called. The
+// receiver is the class itself, so the member comes from the STATIC table, exactly
+// as rule (7) in callee-resolution reads it for `Util.inSorted(x)`. This is what
+// `const inSorted = Util.inSorted` needs to make the const callable (#584): the
+// TypeScript spelling of Java's `import static`, and the shape a mechanical port
+// produces at every use of a static helper.
+//
+// declared_method / scope_sibling rather than method_in_scope: the latter is seeded
+// from expr_type, and expr_callable feeds a negation (`!callee_expr_bound`) in the
+// same fixpoint, so reading it here would put that negation inside its own cycle.
+// The ancestor walk is the one method_in_scope (2) performs, with the shadowing
+// check expressed against the static table directly for the same reason.
+expr_callable(e, m) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
+    property_access_name(e, n),
+    expr_child("client", e, "RECEIVER", _, q),
+    expr_static_type(q, _, t),
+    static_member_value(t, n, m).
+static_member_value(t, n, m) :- scope_sibling(t, sib),
+    declared_method(sib, n, "true", m).
+static_member_value(t, n, m) :- group_of(t, g),
+    ancestor_of_merged_group(_, g, anc),
+    scope_sibling(anc, asib),
+    declared_method(asib, n, "true", m),
+    !static_member_declared(t, n).
+static_member_declared(t, n) :- scope_sibling(t, sib),
+    declared_method(sib, n, "true", _).
+
 // A property access on a namespace TYPE — `N.Inner` where N is a namespace
 // declaration rather than an imported module.
 expr_static_type(e, prov, t) :- expr_kind("client", "PROPERTY_ACCESS", _, e),
