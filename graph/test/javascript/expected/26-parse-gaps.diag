@@ -4,7 +4,7 @@ import_cause     computed.js:7:12  fs  builtin
 module_partial   dynamic.js  DYNAMIC_CODE
 module_partial   dynamic.js  WITH_STATEMENT_SCOPE
 module_partial   partial.js  PARSE_ERROR
-package_entry    23-parse-gaps  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+package_entry    26-parse-gaps  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
 parse_gap        computed.js:5:13  NON_LITERAL_SPECIFIER  recoverable=false  about=js_import
 parse_gap        dynamic.js:3:29  DYNAMIC_CODE  recoverable=false  about=js_call_site
 parse_gap        dynamic.js:4:23  WITH_STATEMENT_SCOPE  recoverable=false  about=js_scope
