@@ -52,12 +52,20 @@ with eight value kinds, each a hash into one IR relation or a platform name:
 | `obj` | js_expression | an object literal, keyed by the literal node |
 | `arr` | js_expression / js_type_reference | an array, with `elem_value` for what it holds |
 | `ambient` | the platform name | `Math.floor`, `path.join`, `new Map()` — resolves to nothing, classifies the site |
+| `str` | the literal's text | a string literal, flowing like any value so `obj[key]` resolves when a literal reaches `key` |
 
 Every rule is a may-analysis: a binding written twice holds both values, a parameter
 passed two functions holds both, a call through it fans to both. That is the honest
 set. **An untyped receiver produces nothing.** Fanning `x.get()` to every `get` in the
 project has no soundness argument, and it is what makes a name-matching graph worse
 than no graph; the site is a declared unknown instead.
+
+**A staged library's parameters are not tracked.** Its bodies are read for what they
+declare and return — an export surface, a class, a prototype member, `return app` — never
+for what callers pass; a generic library is the shape whose parameters unify everything
+(one utility library's modular files reached 31,533 values per export). What a library
+does with a callback it is handed is a MODEL, stated per library in
+`resolution/frameworks.dl`, and checked against execution in `test/javascript/realapp`.
 
 The one closed-world assumption is on parameters: their values are the arguments at
 the calls this engine resolved, and a caller it cannot see is a value it does not know.
@@ -94,6 +102,7 @@ arrays. That is the engine, entirely.
 | arrays | `resolution/arrays.dl` | the one platform type modelled: `push`, `[i]`, `map`, `forEach`, `for..of`, `T[]` |
 | ambient | `resolution/ambient.dl` | platform names as values, so a site reached through one is classified from the value, not the syntax |
 | JSDoc types | `resolution/reference-types.dl` | `@param`/`@type`/`@returns`, `import()` types, typedef aliases, wrappers |
+| library models | `resolution/frameworks.dl` | what a handful of library calls DO to values, as facts: assign-like (`Object.assign`, `merge-descriptors`), inherit-like (`Object.setPrototypeOf`, `setprototypeof`, `Object.create`), a platform superclass, and what express hands a route handler |
 | callee resolution | `expression-resolution/callee-resolution.dl` | one rule per CALL FORM — the callee lives somewhere different in each |
 | call edges | `call-edge-generation/*.dl` | eight confidence classes |
 
@@ -133,6 +142,15 @@ function the site hands over (`call-edge-generation/callbacks.dl`): **`callback_
 (`xs.forEach(f)`, `p.then(f)`, `emitter.on('x', h)`, `setTimeout(f)`) and
 **`event_dispatch`** (`x.emit('x')` → every `x.on('x', h)` on a value x may hold). Both
 feed reachability; neither is scored against the compiler, which has no notion of them.
+
+## Validated against execution, not only the compiler
+
+`graph/test/javascript/torture/` instruments every function body (the caller carried in an
+`AsyncLocalStorage`) and checks each executed `caller → callee` edge against the graph:
+0.98 on a hand-written program covering every invocation form; **0.97 on a real express
+service with its 68 dependencies installed, staged as `--library` and instrumented too**
+(`graph/test/javascript/realapp/`), where the missing three are a lazy `Object.defineProperty`
+getter, lodash's runtime-built API, and a tracer artifact — each named in `known-missing.txt`.
 
 ## How it is measured
 

@@ -48,6 +48,11 @@ the previous engine.
 
 `AXIOM_PARSER` — path to the parser entrypoint (default `parser/dist/index.js` in this repository).
 
+## Execution oracles
+
+`torture/run.sh` and `realapp/run.sh` score the graph against what actually RAN — see their
+READMEs. `realapp` needs network once (`npm ci`) and exits 77 without it.
+
 ## The corpus evaluation
 
 `run-evaluation.sh <project> <work-dir> [--production]` runs one real project end to
