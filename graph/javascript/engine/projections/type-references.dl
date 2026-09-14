@@ -25,3 +25,7 @@ type_ref("client", tn, k, p, ctx, ok, o, rf, imp, mod, h) :- js_type_reference(t
 type_ref("lib", tn, k, p, ctx, ok, o, rf, imp, mod, h) :- lib_js_type_reference(tn, k, p, _, _, _, _, ctx, _, ok, o, _, rf, imp, _, _, _, mod, _, _, _, _, h).
 type_ref_builtin("client", h) :- js_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, h).
 type_ref_builtin("lib", h) :- lib_js_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, h).
+
+// ── type_ref_child_index(Parent, Child, ChildIndex) ─────────────────────────
+type_ref_child_index(p, h, idx) :- js_type_reference(_, _, p, _, idx, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), p != "".
+type_ref_child_index(p, h, idx) :- lib_js_type_reference(_, _, p, _, idx, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), p != "".

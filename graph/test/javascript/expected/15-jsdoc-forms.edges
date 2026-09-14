@@ -1,0 +1,117 @@
+lib/doc.js:11:42 METHOD_CALL x.run  ->  known_edge  lib/types.js:2:16 run
+lib/doc.js:13:27 METHOD_CALL xs.map  ->  ambient_terminal  -
+lib/doc.js:13:27 METHOD_CALL xs.map  ->  callback_registered  lib/doc.js:13:34 <arrow>
+lib/doc.js:13:41 METHOD_CALL x.run  ->  known_edge  lib/types.js:2:16 run
+lib/doc.js:15:28 METHOD_CALL xs[0].run  ->  ambient_terminal  -
+lib/doc.js:15:28 METHOD_CALL xs[0].run  ->  multi_inferred  lib/types.js:2:16 run
+lib/doc.js:17:29 METHOD_CALL m.key.run  ->  known_edge  lib/types.js:2:16 run
+lib/doc.js:17:43 METHOD_CALL m['other'].run  ->  known_edge  lib/types.js:2:16 run
+lib/doc.js:19:29 METHOD_CALL m.key.run  ->  known_edge  lib/types.js:2:16 run
+lib/doc.js:21:26 METHOD_CALL m.get  ->  ambient_terminal  -
+lib/doc.js:21:26 METHOD_CALL m.get('k').run  ->  ambient_terminal  -
+lib/doc.js:21:26 METHOD_CALL m.get('k').run  ->  multi_inferred  lib/types.js:2:16 run
+lib/doc.js:23:26 METHOD_CALL [...s][0].run  ->  ambient_terminal  -
+lib/doc.js:23:26 METHOD_CALL [...s][0].run  ->  multi_inferred  lib/types.js:2:16 run
+lib/doc.js:25:36 METHOD_CALL (await p).run  ->  ambient_terminal  -
+lib/doc.js:25:36 METHOD_CALL (await p).run  ->  multi_inferred  lib/types.js:2:16 run
+lib/doc.js:27:42 CONSTRUCTOR_CALL Widget  ->  implicit_constructor  -
+lib/doc.js:31:33 METHOD_CALL w.run  ->  known_edge  lib/types.js:2:16 run
+lib/doc.js:33:34 METHOD_CALL o.widget.run  ->  known_edge  lib/types.js:2:16 run
+lib/doc.js:33:51 METHOD_CALL o.onDone  ->  known_edge  main.js:8:55 <arrow>
+lib/doc.js:35:32 METHOD_CALL g.spin  ->  known_edge  lib/types.js:3:38 spin
+lib/doc.js:37:34 METHOD_CALL r.run  ->  known_edge  lib/types.js:2:16 run
+lib/doc.js:39:29 FUNCTION_CALL f  ->  known_edge  main.js:8:117 <arrow>
+lib/doc.js:39:31 CONSTRUCTOR_CALL Widget  ->  implicit_constructor  -
+lib/doc.js:41:31 FUNCTION_CALL f  ->  known_edge  main.js:8:145 <arrow>
+lib/doc.js:41:33 CONSTRUCTOR_CALL Widget  ->  implicit_constructor  -
+lib/doc.js:43:31 METHOD_CALL this.run  ->  known_edge  lib/types.js:2:16 run
+lib/doc.js:51:25 CONSTRUCTOR_CALL Widget  ->  implicit_constructor  -
+lib/doc.js:54:37 METHOD_CALL typedLet.run  ->  known_edge  lib/types.js:2:16 run
+lib/doc.js:55:102 METHOD_CALL typedShape.w.run  ->  known_edge  lib/types.js:2:16 run
+lib/doc.js:55:135 CONSTRUCTOR_CALL Widget  ->  implicit_constructor  -
+lib/doc.js:55:149 METHOD_CALL typedMap.x.run  ->  known_edge  lib/types.js:2:16 run
+lib/doc.js:55:196 METHOD_CALL (typedLet).spin  ->  known_edge  lib/types.js:3:38 spin
+lib/doc.js:55:37 METHOD_CALL typedNull.run  ->  ambient_terminal  -
+lib/doc.js:55:37 METHOD_CALL typedNull.run  ->  multi_inferred  lib/types.js:2:16 run
+lib/doc.js:55:54 METHOD_CALL typedArr.push  ->  ambient_terminal  -
+lib/doc.js:55:68 CONSTRUCTOR_CALL Widget  ->  implicit_constructor  -
+lib/doc.js:55:83 METHOD_CALL typedArr[0].run  ->  ambient_terminal  -
+lib/doc.js:55:83 METHOD_CALL typedArr[0].run  ->  multi_inferred  lib/types.js:2:16 run
+lib/doc.js:58:23 FUNCTION_CALL identity  ->  known_edge  lib/doc.js:57:1 identity
+lib/doc.js:58:23 METHOD_CALL identity(new Widget()).run  ->  ambient_terminal  -
+lib/doc.js:58:23 METHOD_CALL identity(new Widget()).run  ->  multi_inferred  lib/types.js:2:16 run
+lib/doc.js:58:32 CONSTRUCTOR_CALL Widget  ->  implicit_constructor  -
+lib/doc.js:58:82 METHOD_CALL (identity(null)).run  ->  ambient_terminal  -
+lib/doc.js:58:82 METHOD_CALL (identity(null)).run  ->  multi_inferred  lib/types.js:2:16 run
+lib/doc.js:58:83 FUNCTION_CALL identity  ->  known_edge  lib/doc.js:57:1 identity
+lib/doc.js:5:28 METHOD_CALL x.run  ->  multi_inferred  lib/types.js:2:16 run
+lib/doc.js:5:28 METHOD_CALL x.run  ->  multi_inferred  lib/types.js:3:16 run
+lib/doc.js:64:37 CONSTRUCTOR_CALL Widget  ->  implicit_constructor  -
+lib/doc.js:65:51 CONSTRUCTOR_CALL Gadget  ->  implicit_constructor  -
+lib/doc.js:70:11 METHOD_CALL this.w.run  ->  known_edge  lib/types.js:2:16 run
+lib/doc.js:70:35 METHOD_CALL this.g.spin  ->  ambient_terminal  -
+lib/doc.js:70:35 METHOD_CALL this.g.spin  ->  multi_inferred  lib/types.js:3:38 spin
+lib/doc.js:70:50 METHOD_CALL Doc.sw.run  ->  known_edge  lib/types.js:2:16 run
+lib/doc.js:70:64 METHOD_CALL this.gg.spin  ->  known_edge  lib/types.js:3:38 spin
+lib/doc.js:70:80 METHOD_CALL this.widget.run  ->  known_edge  lib/types.js:2:16 run
+lib/doc.js:73:45 METHOD_CALL this.run  ->  known_edge  lib/types.js:2:16 run
+lib/doc.js:75:45 METHOD_CALL this.spin  ->  known_edge  lib/types.js:3:38 spin
+lib/doc.js:79:28 CONSTRUCTOR_CALL Widget  ->  implicit_constructor  -
+lib/doc.js:7:36 METHOD_CALL x.run  ->  known_edge  lib/types.js:2:16 run
+lib/doc.js:80:43 METHOD_CALL this.v.run  ->  known_edge  lib/types.js:2:16 run
+lib/doc.js:83:53 METHOD_CALL this.run  ->  known_edge  lib/types.js:2:16 run
+lib/doc.js:84:66 METHOD_CALL this.spin  ->  ambiguous_unknown  -
+lib/doc.js:9:35 METHOD_CALL x.run  ->  known_edge  lib/types.js:2:16 run
+main.js:10:13 CONSTRUCTOR_CALL D.Doc  ->  known_edge  lib/doc.js:65:3 <constructor>
+main.js:10:40 METHOD_CALL d.use  ->  known_edge  lib/doc.js:70:3 use
+main.js:10:49 METHOD_CALL d.widget.run  ->  known_edge  lib/types.js:2:16 run
+main.js:11:108 CONSTRUCTOR_CALL D.Sub3  ->  implicit_constructor  -
+main.js:11:108 METHOD_CALL new D.Sub3().extra3  ->  known_edge  lib/doc.js:84:48 extra3
+main.js:11:24 CONSTRUCTOR_CALL D.Aug  ->  implicit_constructor  -
+main.js:11:24 METHOD_CALL new D.Aug().extra  ->  known_edge  lib/doc.js:75:28 extra
+main.js:11:3 CONSTRUCTOR_CALL D.Ext  ->  implicit_constructor  -
+main.js:11:3 METHOD_CALL new D.Ext().extra  ->  known_edge  lib/doc.js:73:28 extra
+main.js:11:45 CONSTRUCTOR_CALL D.Impl  ->  implicit_constructor  -
+main.js:11:45 METHOD_CALL new D.Impl().run  ->  known_edge  lib/doc.js:77:14 run
+main.js:11:65 CONSTRUCTOR_CALL D.Ctor  ->  known_edge  lib/doc.js:79:1 Ctor
+main.js:11:65 METHOD_CALL new D.Ctor().get  ->  known_edge  lib/doc.js:80:22 get
+main.js:11:85 CONSTRUCTOR_CALL D.Sub2  ->  implicit_constructor  -
+main.js:11:85 METHOD_CALL new D.Sub2().extra2  ->  known_edge  lib/doc.js:83:35 extra2
+main.js:13:1 FUNCTION_CALL main  ->  known_edge  main.js:4:1 main
+main.js:5:13 CONSTRUCTOR_CALL Widget  ->  implicit_constructor  -
+main.js:5:31 CONSTRUCTOR_CALL Gadget  ->  implicit_constructor  -
+main.js:6:104 METHOD_CALL D.record  ->  known_edge  lib/doc.js:17:1 record
+main.js:6:136 METHOD_CALL D.objMap  ->  known_edge  lib/doc.js:19:1 objMap
+main.js:6:15 METHOD_CALL D.union  ->  known_edge  lib/doc.js:5:1 union
+main.js:6:27 METHOD_CALL D.nullable  ->  known_edge  lib/doc.js:7:1 nullable
+main.js:6:3 METHOD_CALL D.union  ->  known_edge  lib/doc.js:5:1 union
+main.js:6:42 METHOD_CALL D.optional  ->  known_edge  lib/doc.js:9:1 optional
+main.js:6:57 METHOD_CALL D.bracketOptional  ->  known_edge  lib/doc.js:11:1 bracketOptional
+main.js:6:79 METHOD_CALL D.arr  ->  known_edge  lib/doc.js:13:1 arr
+main.js:6:91 METHOD_CALL D.arr2  ->  known_edge  lib/doc.js:15:1 arr2
+main.js:7:123 METHOD_CALL D.returnsPromise  ->  known_edge  lib/doc.js:27:1 returnsPromise
+main.js:7:123 METHOD_CALL D.returnsPromise().then  ->  ambiguous_unknown  -
+main.js:7:123 METHOD_CALL D.returnsPromise().then  ->  callback_registered  main.js:7:147 <arrow>
+main.js:7:154 METHOD_CALL x.run  ->  known_edge  lib/types.js:2:16 run
+main.js:7:3 METHOD_CALL D.map  ->  known_edge  lib/doc.js:21:1 map
+main.js:7:31 METHOD_CALL D.set  ->  known_edge  lib/doc.js:23:1 set
+main.js:7:37 CONSTRUCTOR_CALL Set  ->  ambient_terminal  -
+main.js:7:58 METHOD_CALL D.promise  ->  known_edge  lib/doc.js:25:1 promise
+main.js:7:68 METHOD_CALL Promise.resolve  ->  ambient_terminal  -
+main.js:7:89 METHOD_CALL (await D.returnsPromise()).run  ->  known_edge  lib/types.js:2:16 run
+main.js:7:9 CONSTRUCTOR_CALL Map  ->  ambient_terminal  -
+main.js:7:96 METHOD_CALL D.returnsPromise  ->  known_edge  lib/doc.js:27:1 returnsPromise
+main.js:8:108 METHOD_CALL D.fnType  ->  callback_registered  main.js:8:117 <arrow>
+main.js:8:108 METHOD_CALL D.fnType  ->  known_edge  lib/doc.js:39:1 fnType
+main.js:8:124 METHOD_CALL x.run  ->  known_edge  lib/types.js:2:16 run
+main.js:8:134 METHOD_CALL D.tsFnType  ->  callback_registered  main.js:8:145 <arrow>
+main.js:8:134 METHOD_CALL D.tsFnType  ->  known_edge  lib/doc.js:41:1 tsFnType
+main.js:8:152 METHOD_CALL x.run  ->  known_edge  lib/types.js:2:16 run
+main.js:8:162 FUNCTION_CALL_CALL D.thisTyped.call  ->  known_edge  lib/doc.js:43:1 thisTyped
+main.js:8:20 METHOD_CALL D.optionsType  ->  known_edge  lib/doc.js:33:1 optionsType
+main.js:8:3 METHOD_CALL D.importType  ->  known_edge  lib/doc.js:31:1 importType
+main.js:8:62 METHOD_CALL x.run  ->  known_edge  lib/types.js:2:16 run
+main.js:8:74 METHOD_CALL D.qualified  ->  known_edge  lib/doc.js:35:1 qualified
+main.js:8:90 METHOD_CALL D.inlineShape  ->  known_edge  lib/doc.js:37:1 inlineShape
+main.js:9:18 METHOD_CALL D.generics  ->  known_edge  lib/doc.js:58:1 generics
+main.js:9:3 METHOD_CALL D.typedVars  ->  known_edge  lib/doc.js:55:1 typedVars

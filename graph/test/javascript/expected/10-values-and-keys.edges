@@ -1,0 +1,121 @@
+lib/values.js:10:48 FUNCTION_CALL f  ->  ambient_terminal  -
+lib/values.js:10:48 FUNCTION_CALL f  ->  multi_inferred  lib/values.js:4:1 b
+lib/values.js:10:48 FUNCTION_CALL f  ->  multi_inferred  lib/values.js:5:1 c
+lib/values.js:11:33 FUNCTION_CALL (x && a)  ->  ambient_terminal  -
+lib/values.js:11:33 FUNCTION_CALL (x && a)  ->  multi_inferred  lib/values.js:3:1 a
+lib/values.js:12:80 FUNCTION_CALL f  ->  multi_inferred  lib/values.js:3:1 a
+lib/values.js:12:80 FUNCTION_CALL f  ->  multi_inferred  lib/values.js:4:1 b
+lib/values.js:13:55 FUNCTION_CALL f  ->  multi_inferred  lib/values.js:3:1 a
+lib/values.js:13:55 FUNCTION_CALL f  ->  multi_inferred  lib/values.js:4:1 b
+lib/values.js:14:30 FUNCTION_CALL (0, base.m)  ->  known_edge  lib/values.js:6:16 m
+lib/values.js:15:27 METHOD_CALL (base).m  ->  known_edge  lib/values.js:6:16 m
+lib/values.js:19:3 METHOD_CALL cfg.handlers.onStart  ->  ambient_terminal  -
+lib/values.js:19:3 METHOD_CALL cfg.handlers.onStart  ->  multi_inferred  lib/values.js:3:1 a
+lib/values.js:20:10 METHOD_CALL cfg.deep.deeper.deepest.fn  ->  known_edge  lib/values.js:5:1 c
+lib/values.js:22:76 METHOD_CALL o.m  ->  known_edge  lib/values.js:6:16 m
+lib/values.js:22:90 METHOD_CALL o.extra  ->  known_edge  lib/values.js:22:49 extra
+lib/values.js:23:37 METHOD_CALL Object.assign  ->  ambient_terminal  -
+lib/values.js:23:69 METHOD_CALL o.m  ->  ambient_terminal  -
+lib/values.js:23:69 METHOD_CALL o.m  ->  multi_inferred  lib/values.js:6:16 m
+lib/values.js:24:31 METHOD_CALL Object.freeze  ->  ambient_terminal  -
+lib/values.js:24:63 METHOD_CALL o.m  ->  ambient_terminal  -
+lib/values.js:24:63 METHOD_CALL o.m  ->  multi_inferred  lib/values.js:3:1 a
+lib/values.js:27:3 METHOD_CALL Object.defineProperty  ->  ambient_terminal  -
+lib/values.js:28:3 METHOD_CALL Object.defineProperties  ->  ambient_terminal  -
+lib/values.js:29:10 METHOD_CALL o.m  ->  known_edge  lib/values.js:4:1 b
+lib/values.js:29:18 METHOD_CALL o.n  ->  known_edge  lib/values.js:5:1 c
+lib/values.js:33:15 COMPUTED_CALL steps[1]  ->  multi_inferred  lib/values.js:3:1 a
+lib/values.js:33:15 COMPUTED_CALL steps[1]  ->  multi_inferred  lib/values.js:4:1 b
+lib/values.js:33:3 COMPUTED_CALL steps[0]  ->  multi_inferred  lib/values.js:3:1 a
+lib/values.js:33:3 COMPUTED_CALL steps[0]  ->  multi_inferred  lib/values.js:4:1 b
+lib/values.js:34:26 FUNCTION_CALL x  ->  multi_inferred  lib/values.js:3:1 a
+lib/values.js:34:26 FUNCTION_CALL x  ->  multi_inferred  lib/values.js:5:1 c
+lib/values.js:34:31 FUNCTION_CALL y  ->  multi_inferred  lib/values.js:3:1 a
+lib/values.js:34:31 FUNCTION_CALL y  ->  multi_inferred  lib/values.js:5:1 c
+lib/values.js:35:41 FUNCTION_CALL first  ->  multi_inferred  lib/values.js:3:1 a
+lib/values.js:35:41 FUNCTION_CALL first  ->  multi_inferred  lib/values.js:4:1 b
+lib/values.js:35:41 FUNCTION_CALL first  ->  multi_inferred  lib/values.js:5:1 c
+lib/values.js:35:50 COMPUTED_CALL others[0]  ->  dynamic_terminal  -
+lib/values.js:40:38 FUNCTION_CALL deep  ->  ambiguous_unknown  -
+lib/values.js:40:46 FUNCTION_CALL cb  ->  known_edge  lib/values.js:4:1 b
+lib/values.js:41:31 FUNCTION_CALL missing  ->  ambiguous_unknown  -
+lib/values.js:42:30 FUNCTION_CALL renamed  ->  ambiguous_unknown  -
+lib/values.js:43:26 METHOD_CALL rest.cb  ->  ambiguous_unknown  -
+lib/values.js:48:3 FUNCTION_CALL factory  ->  known_edge  lib/values.js:46:1 factory
+lib/values.js:48:3 METHOD_CALL factory().run  ->  known_edge  lib/values.js:46:31 run
+lib/values.js:49:3 FUNCTION_CALL factory  ->  known_edge  lib/values.js:46:1 factory
+lib/values.js:49:3 METHOD_CALL factory().self  ->  known_edge  lib/values.js:46:56 self
+lib/values.js:49:3 METHOD_CALL factory().self().run  ->  known_edge  lib/values.js:46:31 run
+lib/values.js:50:16 FUNCTION_CALL factory  ->  known_edge  lib/values.js:46:1 factory
+lib/values.js:50:27 METHOD_CALL made.run  ->  known_edge  lib/values.js:46:31 run
+lib/values.js:54:30 FUNCTION_CALL curried  ->  known_edge  lib/values.js:53:17 <arrow>
+lib/values.js:54:30 FUNCTION_CALL curried(1)  ->  known_edge  lib/values.js:53:24 <arrow>
+lib/values.js:54:30 FUNCTION_CALL curried(1)(2)  ->  known_edge  lib/values.js:53:31 <arrow>
+lib/values.js:55:28 OPTIONAL_CALL o?.m  ->  multi_inferred  lib/values.js:4:1 b
+lib/values.js:55:28 OPTIONAL_CALL o?.m  ->  multi_inferred  lib/values.js:6:16 m
+lib/values.js:55:36 OPTIONAL_CALL o.m  ->  multi_inferred  lib/values.js:4:1 b
+lib/values.js:55:36 OPTIONAL_CALL o.m  ->  multi_inferred  lib/values.js:6:16 m
+lib/values.js:55:45 FUNCTION_CALL cb  ->  ambient_terminal  -
+lib/values.js:55:45 FUNCTION_CALL cb  ->  multi_inferred  lib/values.js:3:1 a
+lib/values.js:55:60 OPTIONAL_CALL o?.n  ->  multi_inferred  lib/values.js:5:1 c
+lib/values.js:55:60 OPTIONAL_CALL o?.n  ->  multi_inferred  lib/values.js:6:42 n
+lib/values.js:57:33 FUNCTION_CALL makeCounter  ->  known_edge  lib/values.js:56:1 makeCounter
+lib/values.js:57:48 METHOD_CALL k.inc  ->  known_edge  lib/values.js:56:51 <arrow>
+lib/values.js:57:64 METHOD_CALL k.get  ->  known_edge  lib/values.js:56:67 <function-expression>
+lib/values.js:59:28 FUNCTION_CALL returnsFn  ->  known_edge  lib/values.js:58:1 returnsFn
+lib/values.js:59:28 FUNCTION_CALL returnsFn()  ->  known_edge  lib/values.js:3:1 a
+lib/values.js:59:50 FUNCTION_CALL (returnsFn())  ->  known_edge  lib/values.js:3:1 a
+lib/values.js:59:51 FUNCTION_CALL returnsFn  ->  known_edge  lib/values.js:58:1 returnsFn
+lib/values.js:60:41 METHOD_CALL (flag ? base : { m: c }).m  ->  multi_inferred  lib/values.js:5:1 c
+lib/values.js:60:41 METHOD_CALL (flag ? base : { m: c }).m  ->  multi_inferred  lib/values.js:6:16 m
+lib/values.js:61:30 METHOD_CALL [1, 2].map  ->  ambient_terminal  -
+lib/values.js:61:30 METHOD_CALL [1, 2].map  ->  callback_registered  lib/values.js:3:1 a
+lib/values.js:62:26 FUNCTION_CALL f  ->  multi_inferred  lib/values.js:3:1 a
+lib/values.js:62:26 FUNCTION_CALL f  ->  multi_inferred  lib/values.js:63:31 <arrow>
+lib/values.js:62:26 FUNCTION_CALL f  ->  multi_inferred  lib/values.js:63:54 named
+lib/values.js:63:19 FUNCTION_CALL hof  ->  callback_registered  lib/values.js:3:1 a
+lib/values.js:63:19 FUNCTION_CALL hof  ->  known_edge  lib/values.js:62:1 hof
+lib/values.js:63:27 FUNCTION_CALL hof  ->  callback_registered  lib/values.js:63:31 <arrow>
+lib/values.js:63:27 FUNCTION_CALL hof  ->  known_edge  lib/values.js:62:1 hof
+lib/values.js:63:37 FUNCTION_CALL b  ->  known_edge  lib/values.js:4:1 b
+lib/values.js:63:50 FUNCTION_CALL hof  ->  callback_registered  lib/values.js:63:54 named
+lib/values.js:63:50 FUNCTION_CALL hof  ->  known_edge  lib/values.js:62:1 hof
+lib/values.js:63:80 FUNCTION_CALL c  ->  known_edge  lib/values.js:5:1 c
+lib/values.js:8:57 FUNCTION_CALL f  ->  multi_inferred  lib/values.js:3:1 a
+lib/values.js:8:57 FUNCTION_CALL f  ->  multi_inferred  lib/values.js:4:1 b
+lib/values.js:9:50 FUNCTION_CALL f  ->  ambient_terminal  -
+lib/values.js:9:50 FUNCTION_CALL f  ->  multi_inferred  lib/values.js:3:1 a
+lib/values.js:9:50 FUNCTION_CALL f  ->  multi_inferred  lib/values.js:4:1 b
+main.js:4:113 METHOD_CALL V.logicalAnd  ->  known_edge  lib/values.js:11:1 logicalAnd
+main.js:4:20 METHOD_CALL V.ternary  ->  known_edge  lib/values.js:8:1 ternary
+main.js:4:3 METHOD_CALL V.ternary  ->  known_edge  lib/values.js:8:1 ternary
+main.js:4:38 METHOD_CALL V.logicalOr  ->  known_edge  lib/values.js:9:1 logicalOr
+main.js:4:57 METHOD_CALL V.logicalOr  ->  callback_registered  lib/values.js:3:1 a
+main.js:4:57 METHOD_CALL V.logicalOr  ->  known_edge  lib/values.js:9:1 logicalOr
+main.js:4:75 METHOD_CALL V.nullish  ->  known_edge  lib/values.js:10:1 nullish
+main.js:4:97 METHOD_CALL V.nullish  ->  callback_registered  lib/values.js:4:1 b
+main.js:4:97 METHOD_CALL V.nullish  ->  known_edge  lib/values.js:10:1 nullish
+main.js:5:23 METHOD_CALL V.reassigned  ->  known_edge  lib/values.js:12:1 reassigned
+main.js:5:3 METHOD_CALL V.reassigned  ->  known_edge  lib/values.js:12:1 reassigned
+main.js:5:44 METHOD_CALL V.reassignedTwice  ->  known_edge  lib/values.js:13:1 reassignedTwice
+main.js:5:65 METHOD_CALL V.sequence  ->  known_edge  lib/values.js:14:1 sequence
+main.js:5:79 METHOD_CALL V.paren  ->  known_edge  lib/values.js:15:1 paren
+main.js:5:90 METHOD_CALL V.nestedObject  ->  known_edge  lib/values.js:16:1 nestedObject
+main.js:6:108 METHOD_CALL V.currying  ->  known_edge  lib/values.js:54:1 currying
+main.js:6:22 METHOD_CALL V.assignedCopy  ->  known_edge  lib/values.js:23:1 assignedCopy
+main.js:6:3 METHOD_CALL V.spreadLiteral  ->  known_edge  lib/values.js:22:1 spreadLiteral
+main.js:6:40 METHOD_CALL V.frozen  ->  known_edge  lib/values.js:24:1 frozen
+main.js:6:52 METHOD_CALL V.defined  ->  known_edge  lib/values.js:25:1 defined
+main.js:6:65 METHOD_CALL V.arrays  ->  known_edge  lib/values.js:31:1 arrays
+main.js:6:77 METHOD_CALL V.destructure  ->  known_edge  lib/values.js:38:1 destructure
+main.js:6:94 METHOD_CALL V.closures  ->  known_edge  lib/values.js:47:1 closures
+main.js:7:104 METHOD_CALL V.conditionalCall  ->  known_edge  lib/values.js:60:1 conditionalCall
+main.js:7:129 METHOD_CALL V.conditionalCall  ->  known_edge  lib/values.js:60:1 conditionalCall
+main.js:7:155 METHOD_CALL V.withArgs  ->  known_edge  lib/values.js:61:1 withArgs
+main.js:7:169 METHOD_CALL V.hofs  ->  known_edge  lib/values.js:63:1 hofs
+main.js:7:28 METHOD_CALL V.optional  ->  known_edge  lib/values.js:55:1 optional
+main.js:7:3 METHOD_CALL V.optional  ->  callback_registered  lib/values.js:3:1 a
+main.js:7:3 METHOD_CALL V.optional  ->  known_edge  lib/values.js:55:1 optional
+main.js:7:71 METHOD_CALL V.counters  ->  known_edge  lib/values.js:57:1 counters
+main.js:7:85 METHOD_CALL V.callsReturned  ->  known_edge  lib/values.js:59:1 callsReturned
+main.js:9:1 FUNCTION_CALL main  ->  known_edge  main.js:3:1 main

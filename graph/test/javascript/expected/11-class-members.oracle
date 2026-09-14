@@ -1,0 +1,100 @@
+lib/classes.js:12:22 CONSTRUCTOR_CALL Service  SYNTHESIZED_OK  
+lib/classes.js:13:29 METHOD_CALL id  MISSED  
+lib/classes.js:16:28 METHOD_CALL #shared  EXACT  lib/classes.js:15:3
+lib/classes.js:17:25 METHOD_CALL #hidden  EXACT  lib/classes.js:14:3
+lib/classes.js:18:110 METHOD_CALL id  SOUND_SUPERSET  lib/classes.js:10:3;lib/classes.js:20:26;lib/classes.js:21:26;main.js:23:39
+lib/classes.js:20:49 METHOD_CALL id  EXACT  lib/classes.js:10:3
+lib/classes.js:21:50 METHOD_CALL id  EXACT  lib/classes.js:20:26
+lib/classes.js:22:55 METHOD_CALL id  EXACT  lib/classes.js:22:17
+lib/classes.js:24:21 FUNCTION_CALL Mixin  EXACT  lib/classes.js:23:15
+lib/classes.js:24:50 METHOD_CALL mixed  MISSED  
+lib/classes.js:26:45 METHOD_CALL id  SOUND_SUPERSET  lib/classes.js:20:26;lib/classes.js:21:26
+lib/classes.js:29:18 FUNCTION_CALL_CALL call  EXACT  lib/classes.js:27:1
+lib/classes.js:30:17 METHOD_CALL create  LIB_AMBIENT_OK  
+lib/classes.js:31:1 METHOD_CALL setPrototypeOf  LIB_AMBIENT_OK  
+lib/classes.js:34:37 CONSTRUCTOR_CALL Singleton  SYNTHESIZED_OK  
+lib/classes.js:35:110 METHOD_CALL run  EXACT  lib/classes.js:22:40
+lib/classes.js:35:62 CONSTRUCTOR_CALL Service  SYNTHESIZED_OK  
+lib/classes.js:36:80 CONSTRUCTOR_CALL Service  SYNTHESIZED_OK  
+lib/classes.js:39:40 CONSTRUCTOR_CALL Late  SYNTHESIZED_OK  
+lib/classes.js:40:40 CONSTRUCTOR_CALL Service  SYNTHESIZED_OK  
+lib/classes.js:40:87 CONSTRUCTOR_CALL AsyncCls  SYNTHESIZED_OK  
+lib/classes.js:41:52 METHOD_CALL tag  EXACT  lib/classes.js:41:68
+lib/classes.js:42:71 CONSTRUCTOR_CALL Inner  SYNTHESIZED_OK  
+lib/classes.js:42:71 METHOD_CALL in  EXACT  lib/classes.js:42:40
+lib/classes.js:44:78 CONSTRUCTOR_CALL Fluent  SYNTHESIZED_OK  
+lib/classes.js:5:26 CONSTRUCTOR_CALL   SYNTHESIZED_OK  
+lib/classes.js:6:33 METHOD_CALL map  LIB_AMBIENT_OK  
+lib/classes.js:7:24 METHOD_CALL push  LIB_AMBIENT_OK  
+lib/classes.js:9:42 METHOD_CALL id  SOUND_SUPERSET  lib/classes.js:10:3;lib/classes.js:20:26;lib/classes.js:21:26;main.js:23:39
+main.js:10:24 CONSTRUCTOR_CALL Mixed  SYNTHESIZED_OK  
+main.js:10:24 METHOD_CALL mixed  MISSED  
+main.js:10:3 CONSTRUCTOR_CALL Mixed  SYNTHESIZED_OK  
+main.js:10:3 METHOD_CALL own  EXACT  lib/classes.js:24:35
+main.js:10:47 CONSTRUCTOR_CALL Mixed  SYNTHESIZED_OK  
+main.js:10:67 CONSTRUCTOR_CALL Picked  SYNTHESIZED_OK  
+main.js:10:67 METHOD_CALL pick  EXACT  lib/classes.js:26:29
+main.js:10:90 CONSTRUCTOR_CALL Picked  SYNTHESIZED_OK  
+main.js:10:90 METHOD_CALL id  SOUND_SUPERSET  lib/classes.js:20:26;lib/classes.js:21:26
+main.js:12:13 CONSTRUCTOR_CALL Sub  EXACT  lib/classes.js:29:1
+main.js:12:57 METHOD_CALL construct  LIB_AMBIENT_OK  lib/classes.js:29:1
+main.js:13:3 CONSTRUCTOR_CALL ReturnsObject  EXACT  lib/classes.js:33:1
+main.js:14:28 METHOD_CALL run  EXACT  lib/classes.js:34:98
+main.js:14:3 METHOD_CALL get  EXACT  lib/classes.js:34:54
+main.js:14:3 METHOD_CALL run  EXACT  lib/classes.js:34:98
+main.js:15:16 CONSTRUCTOR_CALL Service  SYNTHESIZED_OK  
+main.js:15:3 CONSTRUCTOR_CALL Holder  EXACT  lib/classes.js:35:16
+main.js:15:3 METHOD_CALL go  EXACT  lib/classes.js:35:79
+main.js:17:24 METHOD_CALL late  EXACT  lib/classes.js:38:23
+main.js:17:24 METHOD_CALL staticLate  EXACT  lib/classes.js:39:19
+main.js:17:3 CONSTRUCTOR_CALL Late  SYNTHESIZED_OK  
+main.js:17:3 METHOD_CALL late  EXACT  lib/classes.js:38:23
+main.js:18:10 CONSTRUCTOR_CALL AsyncCls  SYNTHESIZED_OK  
+main.js:18:10 METHOD_CALL load  EXACT  lib/classes.js:40:18
+main.js:18:108 METHOD_CALL load  EXACT  lib/classes.js:40:18
+main.js:18:3 METHOD_CALL run  EXACT  lib/classes.js:22:40
+main.js:18:42 METHOD_CALL load  EXACT  lib/classes.js:40:18
+main.js:18:49 METHOD_CALL build  EXACT  lib/classes.js:40:57
+main.js:18:77 METHOD_CALL build  EXACT  lib/classes.js:40:57
+main.js:18:77 METHOD_CALL then  LIB_MISSED  
+main.js:19:3 CONSTRUCTOR_CALL Accessors  SYNTHESIZED_OK  
+main.js:19:3 METHOD_CALL run  EXACT  lib/classes.js:41:46
+main.js:20:3 CONSTRUCTOR_CALL Nested  SYNTHESIZED_OK  
+main.js:20:3 METHOD_CALL outer  EXACT  lib/classes.js:42:16
+main.js:21:3 CONSTRUCTOR_CALL WithNewTarget  EXACT  lib/classes.js:43:23
+main.js:21:3 METHOD_CALL who  EXACT  lib/classes.js:43:70
+main.js:22:3 METHOD_CALL a  EXACT  lib/classes.js:44:16
+main.js:22:3 METHOD_CALL a  EXACT  lib/classes.js:44:16
+main.js:22:3 METHOD_CALL b  EXACT  lib/classes.js:44:37
+main.js:22:3 METHOD_CALL c  EXACT  lib/classes.js:44:58
+main.js:23:66 CONSTRUCTOR_CALL Anon  SYNTHESIZED_OK  
+main.js:23:66 METHOD_CALL id  EXACT  main.js:23:39
+main.js:23:83 CONSTRUCTOR_CALL Anon  SYNTHESIZED_OK  
+main.js:23:83 METHOD_CALL chain  EXACT  lib/classes.js:11:3
+main.js:23:83 METHOD_CALL id  EXACT  main.js:23:39
+main.js:24:13 METHOD_CALL Mixin  EXACT  lib/classes.js:23:15
+main.js:24:33 CONSTRUCTOR_CALL K  SYNTHESIZED_OK  
+main.js:24:33 METHOD_CALL mixed  EXACT  lib/classes.js:23:44
+main.js:25:16 CONSTRUCTOR_CALL   SYNTHESIZED_OK  
+main.js:25:34 METHOD_CALL a  EXACT  lib/classes.js:44:16
+main.js:26:17 FUNCTION_CALL_BIND bind  LIB_AMBIENT_OK  
+main.js:26:37 CONSTRUCTOR_CALL Service  SYNTHESIZED_OK  
+main.js:28:1 FUNCTION_CALL main  EXACT  main.js:3:1
+main.js:5:23 METHOD_CALL id  SOUND_SUPERSET  lib/classes.js:10:3;lib/classes.js:20:26;lib/classes.js:21:26
+main.js:5:23 METHOD_CALL make  EXACT  lib/classes.js:5:3
+main.js:5:3 METHOD_CALL id  SOUND_SUPERSET  lib/classes.js:10:3;lib/classes.js:20:26;lib/classes.js:21:26
+main.js:5:3 METHOD_CALL make  EXACT  lib/classes.js:5:3
+main.js:5:42 METHOD_CALL register  EXACT  lib/classes.js:7:3
+main.js:5:58 CONSTRUCTOR_CALL Leaf  SYNTHESIZED_OK  
+main.js:5:73 METHOD_CALL describeAll  EXACT  lib/classes.js:6:3
+main.js:5:95 METHOD_CALL shared  EXACT  lib/classes.js:16:3
+main.js:6:13 CONSTRUCTOR_CALL Leaf  SYNTHESIZED_OK  
+main.js:6:27 METHOD_CALL bump  EXACT  lib/classes.js:9:10
+main.js:6:37 METHOD_CALL chain  EXACT  lib/classes.js:11:3
+main.js:6:37 METHOD_CALL chain  EXACT  lib/classes.js:11:3
+main.js:6:37 METHOD_CALL id  EXACT  lib/classes.js:21:26
+main.js:6:61 METHOD_CALL run  EXACT  lib/classes.js:22:40
+main.js:6:82 CONSTRUCTOR_CALL Service  SYNTHESIZED_OK  
+main.js:6:99 METHOD_CALL viaPrivate  EXACT  lib/classes.js:17:3
+main.js:7:24 FUNCTION_CALL String  LIB_AMBIENT_OK  
+# defects: 3

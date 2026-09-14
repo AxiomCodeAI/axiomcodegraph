@@ -1,0 +1,108 @@
+lib/async.js:10:19 FUNCTION_CALL delegating  EXACT  lib/async.js:6:1
+lib/async.js:10:33 METHOD_CALL run  EXACT  lib/async.js:4:16
+lib/async.js:11:14 FUNCTION_CALL gen  EXACT  lib/async.js:5:1
+lib/async.js:11:21 METHOD_CALL next  LIB_AMBIENT_OK  
+lib/async.js:12:29 METHOD_CALL run  EXACT  lib/async.js:4:16
+lib/async.js:12:3 METHOD_CALL forEach  LIB_AMBIENT_OK  
+lib/async.js:12:7 FUNCTION_CALL gen  EXACT  lib/async.js:5:1
+lib/async.js:13:14 FUNCTION_CALL gen  EXACT  lib/async.js:5:1
+lib/async.js:13:3 METHOD_CALL from  LIB_AMBIENT_OK  
+lib/async.js:13:3 METHOD_CALL map  LIB_AMBIENT_OK  
+lib/async.js:13:32 METHOD_CALL run  EXACT  lib/async.js:4:16
+lib/async.js:16:52 FUNCTION_CALL agen  EXACT  lib/async.js:7:1
+lib/async.js:16:60 METHOD_CALL run  EXACT  lib/async.js:4:16
+lib/async.js:17:31 CONSTRUCTOR_CALL Widget  SYNTHESIZED_OK  
+lib/async.js:18:26 METHOD_CALL resolve  LIB_AMBIENT_OK  
+lib/async.js:18:42 CONSTRUCTOR_CALL Widget  SYNTHESIZED_OK  
+lib/async.js:19:29 CONSTRUCTOR_CALL Promise  LIB_AMBIENT_OK  
+lib/async.js:19:54 FUNCTION_CALL resolve  LIB_MISSED  
+lib/async.js:19:62 CONSTRUCTOR_CALL Widget  SYNTHESIZED_OK  
+lib/async.js:21:10 FUNCTION_CALL get  EXACT  lib/async.js:17:1
+lib/async.js:21:3 METHOD_CALL run  EXACT  lib/async.js:4:16
+lib/async.js:22:10 FUNCTION_CALL getP  EXACT  lib/async.js:18:1
+lib/async.js:22:3 METHOD_CALL run  EXACT  lib/async.js:4:16
+lib/async.js:23:10 FUNCTION_CALL getNewP  EXACT  lib/async.js:19:1
+lib/async.js:24:21 METHOD_CALL run  EXACT  lib/async.js:4:16
+lib/async.js:24:3 FUNCTION_CALL get  EXACT  lib/async.js:17:1
+lib/async.js:24:3 METHOD_CALL then  LIB_MISSED  
+lib/async.js:25:22 METHOD_CALL run  EXACT  lib/async.js:4:16
+lib/async.js:25:3 FUNCTION_CALL getP  EXACT  lib/async.js:18:1
+lib/async.js:25:3 METHOD_CALL then  LIB_AMBIENT_OK  
+lib/async.js:26:3 FUNCTION_CALL getNewP  EXACT  lib/async.js:19:1
+lib/async.js:26:3 METHOD_CALL then  LIB_AMBIENT_OK  
+lib/async.js:27:24 METHOD_CALL all  LIB_AMBIENT_OK  
+lib/async.js:27:37 FUNCTION_CALL get  EXACT  lib/async.js:17:1
+lib/async.js:27:44 FUNCTION_CALL getP  EXACT  lib/async.js:18:1
+lib/async.js:27:54 METHOD_CALL run  EXACT  lib/async.js:4:16
+lib/async.js:27:63 METHOD_CALL run  EXACT  lib/async.js:4:16
+lib/async.js:28:16 FUNCTION_CALL get  EXACT  lib/async.js:17:1
+lib/async.js:28:3 METHOD_CALL all  LIB_AMBIENT_OK  
+lib/async.js:28:3 METHOD_CALL then  LIB_AMBIENT_OK  
+lib/async.js:28:38 METHOD_CALL run  MISSED  
+lib/async.js:29:19 METHOD_CALL race  LIB_AMBIENT_OK  
+lib/async.js:29:33 FUNCTION_CALL get  EXACT  lib/async.js:17:1
+lib/async.js:29:42 METHOD_CALL run  EXACT  lib/async.js:4:16
+lib/async.js:30:19 METHOD_CALL allSettled  LIB_AMBIENT_OK  
+lib/async.js:30:39 FUNCTION_CALL get  EXACT  lib/async.js:17:1
+lib/async.js:31:42 METHOD_CALL run  EXACT  lib/async.js:4:16
+lib/async.js:31:9 FUNCTION_CALL get  EXACT  lib/async.js:17:1
+lib/async.js:31:9 METHOD_CALL then  LIB_AMBIENT_OK  
+lib/async.js:31:9 METHOD_CALL then  LIB_MISSED  
+lib/async.js:32:27 FUNCTION_CALL onError  EXACT  lib/async.js:36:1
+lib/async.js:32:3 FUNCTION_CALL get  EXACT  lib/async.js:17:1
+lib/async.js:32:3 METHOD_CALL catch  LIB_AMBIENT_OK  
+lib/async.js:32:3 METHOD_CALL finally  LIB_AMBIENT_OK  
+lib/async.js:32:3 METHOD_CALL then  LIB_MISSED  
+lib/async.js:33:44 FUNCTION_CALL setTimeout  LIB_AMBIENT_OK  
+lib/async.js:33:9 CONSTRUCTOR_CALL Promise  LIB_AMBIENT_OK  
+lib/async.js:33:9 METHOD_CALL then  LIB_AMBIENT_OK  
+lib/async.js:41:3 METHOD_CALL filter  LIB_AMBIENT_OK  
+lib/async.js:41:3 METHOD_CALL some  LIB_AMBIENT_OK  
+lib/async.js:41:3 METHOD_CALL valueOf  LIB_AMBIENT_OK  
+lib/async.js:41:41 METHOD_CALL every  LIB_AMBIENT_OK  
+lib/async.js:41:56 METHOD_CALL findIndex  LIB_AMBIENT_OK  
+lib/async.js:41:75 METHOD_CALL flatMap  LIB_AMBIENT_OK  
+lib/async.js:41:92 METHOD_CALL sort  LIB_AMBIENT_OK  
+lib/async.js:42:3 METHOD_CALL reduce  LIB_AMBIENT_OK  
+lib/async.js:42:32 FUNCTION_CALL h1  EXACT  lib/async.js:38:1
+lib/async.js:42:42 METHOD_CALL reduceRight  LIB_AMBIENT_OK  
+lib/async.js:43:3 METHOD_CALL from  LIB_AMBIENT_OK  
+lib/async.js:43:34 METHOD_CALL from  LIB_AMBIENT_OK  
+lib/async.js:44:28 METHOD_CALL replaceAll  LIB_AMBIENT_OK  
+lib/async.js:44:3 METHOD_CALL replace  LIB_AMBIENT_OK  
+lib/async.js:45:3 METHOD_CALL parse  LIB_AMBIENT_OK  
+lib/async.js:45:30 METHOD_CALL stringify  LIB_AMBIENT_OK  
+lib/async.js:46:3 METHOD_CALL forEach  LIB_AMBIENT_OK  
+lib/async.js:46:3 METHOD_CALL keys  LIB_AMBIENT_OK  
+lib/async.js:46:38 METHOD_CALL entries  LIB_AMBIENT_OK  
+lib/async.js:46:38 METHOD_CALL forEach  LIB_AMBIENT_OK  
+lib/async.js:46:84 FUNCTION_CALL v  EXACT  lib/async.js:38:1
+lib/async.js:47:3 CONSTRUCTOR_CALL Map  LIB_AMBIENT_OK  
+lib/async.js:47:3 METHOD_CALL forEach  LIB_AMBIENT_OK  
+lib/async.js:47:36 CONSTRUCTOR_CALL Set  LIB_AMBIENT_OK  
+lib/async.js:47:36 METHOD_CALL forEach  LIB_AMBIENT_OK  
+lib/async.js:48:13 FUNCTION_CALL setInterval  LIB_AMBIENT_OK  
+lib/async.js:48:33 FUNCTION_CALL clearInterval  LIB_AMBIENT_OK  
+lib/async.js:48:69 FUNCTION_CALL queueMicrotask  LIB_AMBIENT_OK  
+lib/async.js:49:24 FUNCTION_CALL res  LIB_MISSED  
+lib/async.js:49:3 CONSTRUCTOR_CALL Promise  LIB_AMBIENT_OK  
+lib/async.js:49:3 METHOD_CALL then  LIB_AMBIENT_OK  
+lib/async.js:56:18 FUNCTION_CALL_BIND bind  EXACT  lib/async.js:63:3
+lib/async.js:57:31 METHOD_CALL onC  EXACT  lib/async.js:64:3
+lib/async.js:5:25 CONSTRUCTOR_CALL Widget  SYNTHESIZED_OK  
+lib/async.js:5:45 CONSTRUCTOR_CALL Widget  SYNTHESIZED_OK  
+lib/async.js:69:13 CONSTRUCTOR_CALL Emitter  EXACT  lib/async.js:53:3
+lib/async.js:6:33 FUNCTION_CALL gen  EXACT  lib/async.js:5:1
+lib/async.js:7:32 CONSTRUCTOR_CALL Widget  SYNTHESIZED_OK  
+lib/async.js:9:19 FUNCTION_CALL gen  EXACT  lib/async.js:5:1
+lib/async.js:9:26 METHOD_CALL run  EXACT  lib/async.js:4:16
+main.js:4:25 METHOD_CALL asyncIter  EXACT  lib/async.js:16:1
+main.js:4:3 METHOD_CALL generators  EXACT  lib/async.js:8:1
+main.js:4:46 METHOD_CALL promises  EXACT  lib/async.js:20:1
+main.js:4:60 METHOD_CALL platformCallbacks  EXACT  lib/async.js:40:1
+main.js:5:3 CONSTRUCTOR_CALL Emitter  EXACT  lib/async.js:53:3
+main.js:5:3 METHOD_CALL fire  EXACT  lib/async.js:65:3
+main.js:5:3 METHOD_CALL fireDynamic  EXACT  lib/async.js:66:3
+main.js:5:44 METHOD_CALL externalRegistration  EXACT  lib/async.js:68:1
+main.js:7:1 FUNCTION_CALL main  EXACT  main.js:3:1
+# defects: 1

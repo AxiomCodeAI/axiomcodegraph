@@ -30,6 +30,9 @@
 // ── callback_registered(CallExpr, CallbackMethod) ───────────────────────────
 callback_registered(ce, m) :- invocation_site(ce, _), call_arg(ce, _, arg), expr_value(arg, "func", m).
 
+// A listener runs with the EMITTER as `this` (`e.on('x', function () { this.other(); })`).
+this_value(m, k, i) :- event_handler(k, i, _, m), method_this_binding(_, "DYNAMIC", m), !method_owner_type(m, _), k != "module".
+
 // ── event registration and emission ─────────────────────────────────────────
 // event_handler(K, I, Name, Handler): `<recv>.on(<name>, <handler>)` on value (K, I).
 event_handler(k, i, name, m) :- call_site(_, ck, mn, "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck),

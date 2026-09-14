@@ -108,3 +108,7 @@ param_default_text("client", txt, m, h) :- js_method_parameter(_, _, m, _, _, _,
 param_default_text("lib", txt, m, h) :- lib_js_method_parameter(_, _, m, _, _, _, _, "true", txt, _, _, _, _, _, _, _, _, _, _, _, _, h), txt != "".
 param_binding_form("client", f, h) :- js_method_parameter(_, _, _, _, _, _, _, _, _, _, f, _, _, _, _, _, _, _, _, _, _, h).
 param_binding_form("lib", f, h) :- lib_js_method_parameter(_, _, _, _, _, _, _, _, _, _, f, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── method_generator_flag(Prov, IsGenerator, MethodHash) ────────────────────
+method_generator_flag("client", g, h) :- js_method(_, _, _, _, _, _, _, _, _, _, _, _, g, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+method_generator_flag("lib", g, h) :- lib_js_method(_, _, _, _, _, _, _, _, _, _, _, _, g, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).

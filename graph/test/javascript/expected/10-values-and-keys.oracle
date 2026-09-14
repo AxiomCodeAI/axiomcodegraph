@@ -1,0 +1,81 @@
+lib/values.js:11:33 FUNCTION_CALL   EXACT  lib/values.js:3:1
+lib/values.js:12:80 FUNCTION_CALL f  SOUND_SUPERSET  lib/values.js:3:1;lib/values.js:4:1
+lib/values.js:13:55 FUNCTION_CALL f  SOUND_SUPERSET  lib/values.js:3:1;lib/values.js:4:1
+lib/values.js:14:30 FUNCTION_CALL   EXACT  lib/values.js:6:16
+lib/values.js:15:27 METHOD_CALL m  EXACT  lib/values.js:6:16
+lib/values.js:20:10 METHOD_CALL fn  EXACT  lib/values.js:5:1
+lib/values.js:22:76 METHOD_CALL m  EXACT  lib/values.js:6:16
+lib/values.js:22:90 METHOD_CALL extra  EXACT  lib/values.js:22:49
+lib/values.js:23:37 METHOD_CALL assign  LIB_AMBIENT_OK  
+lib/values.js:23:69 METHOD_CALL m  EXACT  lib/values.js:6:16
+lib/values.js:24:31 METHOD_CALL freeze  LIB_AMBIENT_OK  
+lib/values.js:24:63 METHOD_CALL m  EXACT  lib/values.js:3:1
+lib/values.js:27:3 METHOD_CALL defineProperty  LIB_AMBIENT_OK  
+lib/values.js:28:3 METHOD_CALL defineProperties  LIB_AMBIENT_OK  
+lib/values.js:29:10 METHOD_CALL m  EXACT  lib/values.js:4:1
+lib/values.js:33:15 COMPUTED_CALL   SOUND_SUPERSET  lib/values.js:3:1;lib/values.js:4:1
+lib/values.js:33:3 COMPUTED_CALL   SOUND_SUPERSET  lib/values.js:3:1;lib/values.js:4:1
+lib/values.js:34:26 FUNCTION_CALL x  SOUND_SUPERSET  lib/values.js:3:1;lib/values.js:5:1
+lib/values.js:34:31 FUNCTION_CALL y  SOUND_SUPERSET  lib/values.js:3:1;lib/values.js:5:1
+lib/values.js:35:41 FUNCTION_CALL first  SOUND_SUPERSET  lib/values.js:3:1;lib/values.js:4:1;lib/values.js:5:1
+lib/values.js:35:50 COMPUTED_CALL   MISSED  
+lib/values.js:40:38 FUNCTION_CALL deep  MISSED  
+lib/values.js:40:46 FUNCTION_CALL cb  EXACT  lib/values.js:4:1
+lib/values.js:42:30 FUNCTION_CALL renamed  MISSED  
+lib/values.js:43:26 METHOD_CALL cb  MISSED  
+lib/values.js:48:3 FUNCTION_CALL factory  EXACT  lib/values.js:46:1
+lib/values.js:48:3 METHOD_CALL run  EXACT  lib/values.js:46:31
+lib/values.js:49:3 FUNCTION_CALL factory  EXACT  lib/values.js:46:1
+lib/values.js:49:3 METHOD_CALL run  EXACT  lib/values.js:46:31
+lib/values.js:49:3 METHOD_CALL self  EXACT  lib/values.js:46:56
+lib/values.js:50:16 FUNCTION_CALL factory  EXACT  lib/values.js:46:1
+lib/values.js:50:27 METHOD_CALL run  EXACT  lib/values.js:46:31
+lib/values.js:54:30 FUNCTION_CALL   EXACT  lib/values.js:53:24
+lib/values.js:54:30 FUNCTION_CALL   EXACT  lib/values.js:53:31
+lib/values.js:54:30 FUNCTION_CALL curried  EXACT  lib/values.js:53:17
+lib/values.js:57:33 FUNCTION_CALL makeCounter  EXACT  lib/values.js:56:1
+lib/values.js:57:48 METHOD_CALL inc  EXACT  lib/values.js:56:51
+lib/values.js:57:64 METHOD_CALL get  EXACT  lib/values.js:56:67
+lib/values.js:59:28 FUNCTION_CALL   EXACT  lib/values.js:3:1
+lib/values.js:59:28 FUNCTION_CALL returnsFn  EXACT  lib/values.js:58:1
+lib/values.js:59:50 FUNCTION_CALL   EXACT  lib/values.js:3:1
+lib/values.js:59:51 FUNCTION_CALL returnsFn  EXACT  lib/values.js:58:1
+lib/values.js:60:41 METHOD_CALL m  SOUND_SUPERSET  lib/values.js:5:1;lib/values.js:6:16
+lib/values.js:61:30 METHOD_CALL map  LIB_AMBIENT_OK  
+lib/values.js:63:19 FUNCTION_CALL hof  EXACT  lib/values.js:62:1
+lib/values.js:63:27 FUNCTION_CALL hof  EXACT  lib/values.js:62:1
+lib/values.js:63:37 FUNCTION_CALL b  EXACT  lib/values.js:4:1
+lib/values.js:63:50 FUNCTION_CALL hof  EXACT  lib/values.js:62:1
+lib/values.js:63:80 FUNCTION_CALL c  EXACT  lib/values.js:5:1
+lib/values.js:8:57 FUNCTION_CALL f  SOUND_SUPERSET  lib/values.js:3:1;lib/values.js:4:1
+main.js:4:113 METHOD_CALL logicalAnd  EXACT  lib/values.js:11:1
+main.js:4:20 METHOD_CALL ternary  EXACT  lib/values.js:8:1
+main.js:4:3 METHOD_CALL ternary  EXACT  lib/values.js:8:1
+main.js:4:38 METHOD_CALL logicalOr  EXACT  lib/values.js:9:1
+main.js:4:57 METHOD_CALL logicalOr  EXACT  lib/values.js:9:1
+main.js:4:75 METHOD_CALL nullish  EXACT  lib/values.js:10:1
+main.js:4:97 METHOD_CALL nullish  EXACT  lib/values.js:10:1
+main.js:5:23 METHOD_CALL reassigned  EXACT  lib/values.js:12:1
+main.js:5:3 METHOD_CALL reassigned  EXACT  lib/values.js:12:1
+main.js:5:44 METHOD_CALL reassignedTwice  EXACT  lib/values.js:13:1
+main.js:5:65 METHOD_CALL sequence  EXACT  lib/values.js:14:1
+main.js:5:79 METHOD_CALL paren  EXACT  lib/values.js:15:1
+main.js:5:90 METHOD_CALL nestedObject  EXACT  lib/values.js:16:1
+main.js:6:108 METHOD_CALL currying  EXACT  lib/values.js:54:1
+main.js:6:22 METHOD_CALL assignedCopy  EXACT  lib/values.js:23:1
+main.js:6:3 METHOD_CALL spreadLiteral  EXACT  lib/values.js:22:1
+main.js:6:40 METHOD_CALL frozen  EXACT  lib/values.js:24:1
+main.js:6:52 METHOD_CALL defined  EXACT  lib/values.js:25:1
+main.js:6:65 METHOD_CALL arrays  EXACT  lib/values.js:31:1
+main.js:6:77 METHOD_CALL destructure  EXACT  lib/values.js:38:1
+main.js:6:94 METHOD_CALL closures  EXACT  lib/values.js:47:1
+main.js:7:104 METHOD_CALL conditionalCall  EXACT  lib/values.js:60:1
+main.js:7:129 METHOD_CALL conditionalCall  EXACT  lib/values.js:60:1
+main.js:7:155 METHOD_CALL withArgs  EXACT  lib/values.js:61:1
+main.js:7:169 METHOD_CALL hofs  EXACT  lib/values.js:63:1
+main.js:7:28 METHOD_CALL optional  EXACT  lib/values.js:55:1
+main.js:7:3 METHOD_CALL optional  EXACT  lib/values.js:55:1
+main.js:7:71 METHOD_CALL counters  EXACT  lib/values.js:57:1
+main.js:7:85 METHOD_CALL callsReturned  EXACT  lib/values.js:59:1
+main.js:9:1 FUNCTION_CALL main  EXACT  main.js:3:1
+# defects: 4

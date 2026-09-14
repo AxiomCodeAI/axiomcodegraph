@@ -1,0 +1,8 @@
+# #487 (parser): a destructuring pattern carries no property path — renamed (`{ cb: renamed }`),
+# nested (`{ inner: { deep } }`) and rest bindings are indistinguishable rows.
+lib/values.js:40:38 deep
+lib/values.js:42:30 renamed
+lib/values.js:43:26 cb
+# `const [first, ...others] = xs; others[0]()` — an array REST binding is a row like any
+# element's; it should hold the array (same parser gap: no rest flag).
+lib/values.js:35:50 (computed)

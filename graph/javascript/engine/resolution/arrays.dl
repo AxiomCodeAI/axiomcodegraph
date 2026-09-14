@@ -56,7 +56,7 @@ array_method_call(ce, n, a) :- call_site(_, ck, n, "SYNTACTIC", _, _, ce, _, _),
 // ── elem_value ──────────────────────────────────────────────────────────────
 elem_value(l, k, i) :- expr_kind(_, "ARRAY_LITERAL", _, l), expr_child(_, l, "ELEMENT", _, c), expr_value(c, k, i).
 elem_value(l, k, i) :- expr_kind(_, "ARRAY_LITERAL", _, l), expr_child(_, l, _, _, s), expr_kind(_, "SPREAD", _, s),
-    expr_child(_, s, _, _, o), expr_value(o, "arr", a0), elem_value(a0, k, i).
+    expr_child(_, s, _, _, o), iterable_element(o, k, i).
 elem_value(a, k, i) :- array_method_call(ce, n, a), array_method_adds_args(n), call_arg(ce, _, arg), expr_value(arg, k, i).
 array_method_adds_args("push").
 array_method_adds_args("unshift").
@@ -105,7 +105,7 @@ array_method_iterates("flatMap").
 // same line, in the same module, which is the join.
 var_value(v, k, i) :- var_decl(_, _, reg, _, _, mod, v), var_regime_is_block(reg), !var_init(_, _, _, v),
     var_lines(_, mod, l, v), expr_root(_, "ITERABLE", e), expr_owner(_, _, mod, e), expr_span(_, l, _, _, _, e),
-    expr_value(e, "arr", a), elem_value(a, k, i).
+    iterable_element(e, k, i).
 var_regime_is_block("CONST_BLOCK_TDZ").
 var_regime_is_block("LET_BLOCK_TDZ").
 var_regime_is_block("VAR_FUNCTION_SCOPED_HOISTED").
@@ -156,3 +156,34 @@ elem_value(l, k, i) :- expr_kind(_, "ARRAY_LITERAL", _, l), expr_child(_, l, _, 
     expr_child(_, s, _, _, o), expr_value(o, "coll", c), elem_value(c, k, i).
 // A collection's own methods are the platform's.
 ambient_site(ce) :- invocation_site(ce, _), expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "coll", _).
+
+// ── `Array.from(x)` / `Array.from(x, f)` / `Array.of(...)` (#491) ───────────
+array_from_site(ce, x) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", "from", _, _, _, ce, _, _),
+    expr_child(_, ce, "RECEIVER", _, recv), expr_value(recv, "ambient", "Array"), call_arg(ce, 0, x).
+expr_value(ce, "arr", ce) :- array_from_site(ce, _).
+elem_value(ce, k, i) :- array_from_site(ce, x), !call_arg(ce, 1, _), iterable_element(x, k, i).
+elem_value(ce, k, i) :- array_from_site(ce, _), call_arg(ce, 1, f), expr_value(f, "func", m), return_value(m, k, i).
+param_value(p, k, i) :- array_from_site(ce, x), call_arg(ce, 1, f), expr_value(f, "func", m), param_decl(_, _, "0", m, p), iterable_element(x, k, i).
+expr_value(ce, "arr", ce) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", "of", _, _, _, ce, _, _),
+    expr_child(_, ce, "RECEIVER", _, recv), expr_value(recv, "ambient", "Array").
+elem_value(ce, k, i) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", "of", _, _, _, ce, _, _),
+    expr_child(_, ce, "RECEIVER", _, recv), expr_value(recv, "ambient", "Array"), call_arg(ce, _, a), expr_value(a, k, i).
+// iterable_element(Expr, K, I): what iterating an expression yields — an array's or a
+// collection's elements. Generators and promises add to it (generators.dl, promises.dl).
+iterable_element(x, k, i) :- expr_value(x, "arr", a), elem_value(a, k, i).
+iterable_element(x, k, i) :- expr_value(x, "coll", c), elem_value(c, k, i).
+// `new Map(entries)` / `new Set(iterable)`: seeded from the argument. A Map entry is a
+// `[k, v]` pair — the value is the pair's second element, a literal key feeds the keyed
+// table.
+elem_value(ce, k, i) :- expr_value(ce, "coll", ce), new_callee_value(ce, "ambient", "Set"), call_arg(ce, 0, x), iterable_element(x, k, i).
+elem_value(ce, k, i) :- expr_value(ce, "coll", ce), new_callee_value(ce, "ambient", "Map"), call_arg(ce, 0, x),
+    expr_value(x, "arr", a), pair_of(a, pair), expr_child(_, pair, "ELEMENT", "1", v), expr_value(v, k, i).
+coll_keyed_value(ce, key, k, i) :- expr_value(ce, "coll", ce), new_callee_value(ce, "ambient", "Map"), call_arg(ce, 0, x),
+    expr_value(x, "arr", a), pair_of(a, pair), expr_child(_, pair, "ELEMENT", "0", ke), expr_value(ke, "str", key),
+    expr_child(_, pair, "ELEMENT", "1", v), expr_value(v, k, i).
+pair_of(a, pair) :- expr_kind(_, "ARRAY_LITERAL", _, a), expr_child(_, a, "ELEMENT", _, pair), expr_kind(_, "ARRAY_LITERAL", _, pair).
+// `arr.forEach(fn, thisArg)` and friends: the callback's `this` is the second argument.
+this_value(m, k, i) :- array_method_call(ce, n, _), array_method_iterates(n), call_arg(ce, 0, f), expr_value(f, "func", m),
+    method_this_binding(_, "DYNAMIC", m), call_arg(ce, 1, ta), expr_value(ta, k, i), k != "str".
+// `for..of` / spread over an INSTANCE that defines `[Symbol.iterator]`: reached as a
+// registered callback (the iterator protocol runs it); its `next` is beyond static reach.

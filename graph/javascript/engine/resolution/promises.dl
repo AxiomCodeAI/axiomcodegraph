@@ -1,0 +1,50 @@
+// ============================================================================
+// Resolution · PROMISES  (#485)
+//
+// `await` is transparent — an async function's return IS the value — so there is no
+// promise kind. What is modelled is the four ways a value enters or leaves a promise:
+//
+//   Promise.resolve(v)            evaluates to v
+//   new Promise((resolve) => …)   evaluates to whatever the executor's first
+//                                 parameter is CALLED with
+//   p.then(f) / p.catch(f) / p.finally(f)
+//                                 f's first parameter receives p's value; the call
+//                                 evaluates to f's return (then) or to p's value
+//                                 (catch/finally); `.then(f, g)` also hands g the error
+//   Promise.all([a, b])           an array of the elements' values; race/any the union
+//
+// Restricted to receivers that HOLD a value, so an unrelated `.then` on an untyped
+// receiver stays a declared unknown. `Promise<T>` in JSDoc is a wrapper
+// (reference-types.dl).
+// ============================================================================
+promise_static(ce, mn) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", mn, _, _, _, ce, _, _),
+    expr_child(_, ce, "RECEIVER", _, recv), expr_value(recv, "ambient", "Promise").
+expr_value(ce, k, i) :- promise_static(ce, "resolve"), call_arg(ce, 0, v), expr_value(v, k, i).
+// new Promise(executor): the executor's parameter 0 is `resolve`; a call through that
+// parameter settles the promise with its first argument.
+promise_executor_resolve(ne, p) :- expr_kind(_, "NEW", _, ne), new_callee_value(ne, "ambient", "Promise"),
+    call_arg(ne, 0, ex), expr_value(ex, "func", m), param_decl(_, _, "0", m, p).
+expr_value(ne, k, i) :- promise_executor_resolve(ne, p), call_site(_, ck, _, _, _, _, ce, _, _), call_kind_is_callee_form(ck),
+    expr_child(_, ce, "CALLEE", _, c), expr_param(_, p, c), call_arg(ce, 0, v), expr_value(v, k, i).
+// p.then(f[, g]) / p.catch(g) / p.finally(f)
+promise_chain(ce, mn, recv) :- expr_kind(_, "CALL", _, ce), call_site(_, ck, mn, "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck),
+    promise_chain_method(mn), expr_child(_, ce, "RECEIVER", _, recv), expr_value(recv, _, _).
+promise_chain_method("then").
+promise_chain_method("catch").
+promise_chain_method("finally").
+param_value(p, k, i) :- promise_chain(ce, "then", recv), call_arg(ce, 0, f), expr_value(f, "func", m), param_decl(_, _, "0", m, p),
+    expr_value(recv, k, i), k != "ambient".
+expr_value(ce, k, i) :- promise_chain(ce, "then", _), call_arg(ce, 0, f), expr_value(f, "func", m), return_value(m, k, i).
+expr_value(ce, k, i) :- promise_chain(ce, mn, recv), mn != "then", expr_value(recv, k, i), k != "ambient".
+// The chained call is still a promise of the platform's; keep the site an ambient
+// terminal by giving the call an ambient value too.
+expr_value(ce, "ambient", "Promise") :- promise_chain(ce, _, _).
+// Promise.all([...]) / allSettled: an array of the elements' values (positional
+// precision is not worth a kind); race / any: the union.
+expr_value(ce, "arr", ce) :- promise_static(ce, mn), promise_all_method(mn).
+elem_value(ce, k, i) :- promise_static(ce, mn), promise_all_method(mn), call_arg(ce, 0, x), iterable_element(x, k, i), k != "ambient".
+promise_all_method("all").
+promise_all_method("allSettled").
+expr_value(ce, k, i) :- promise_static(ce, mn), promise_race_method(mn), call_arg(ce, 0, x), iterable_element(x, k, i), k != "ambient".
+promise_race_method("race").
+promise_race_method("any").

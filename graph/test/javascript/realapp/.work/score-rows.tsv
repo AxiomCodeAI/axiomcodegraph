@@ -97,7 +97,7 @@ routes/index.js	6	45	6	60	METHOD_CALL	history	implementation	EXACT	known_edge	se
 routes/index.js	7	1	7	41	METHOD_CALL	use	any	UNDECIDED	boundary_lib	<lib>::
 app.js	6	15	6	24	FUNCTION_CALL	express	any	UNDECIDED	boundary_lib	<lib>::
 app.js	7	3	7	26	METHOD_CALL	use	any	UNDECIDED	boundary_lib	<lib>::
-app.js	7	11	7	25	METHOD_CALL	json	any	UNDECIDED	ambient_terminal	
+app.js	7	11	7	25	METHOD_CALL	json	any	UNDECIDED	boundary_lib	<lib>::
 app.js	8	3	8	21	METHOD_CALL	use	any	UNDECIDED	boundary_lib	<lib>::
 app.js	9	3	9	20	METHOD_CALL	use	any	UNDECIDED	boundary_lib	<lib>::
 app.js	9	11	9	19	FUNCTION_CALL	timing	implementation	EXACT	known_edge	middleware/index.js:4:1 | middleware/index.js:4:1

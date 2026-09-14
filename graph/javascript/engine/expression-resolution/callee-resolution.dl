@@ -57,6 +57,11 @@ callee_value(ce, k2, i2) :- call_site(_, ck, n, "SYNTACTIC", _, _, ce, _, _), ca
 callee_value(ce, k2, i2) :- call_site(_, "COMPUTED_CALL", _, _, _, _, ce, _, _),
     expr_child(_, ce, "COMPUTED_KEY", _, key), expr_value(key, "str", n),
     expr_child(_, ce, "RECEIVER", _, r), expr_value(r, k, i), prop_value(k, i, n, k2, i2).
+// `steps[0]()` / `rest[i]()` — a computed call on an array is one of its elements.
+callee_value(ce, k, i) :- call_site(_, "COMPUTED_CALL", _, _, _, _, ce, _, _),
+    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "arr", a), elem_value(a, k, i).
+callee_value(ce, k, i) :- call_site(_, "COMPUTED_CALL", _, _, _, _, ce, _, _),
+    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "coll", c), elem_value(c, k, i).
 // `super.m()` — the superclass's member, from the enclosing method's class.
 callee_value(ce, "func", m) :- call_site(_, ck, n, "SYNTACTIC", _, em, ce, _, _), call_kind_is_member_form(ck), n != "",
     expr_child(_, ce, "RECEIVER", _, r), expr_kind(_, "SUPER", _, r),

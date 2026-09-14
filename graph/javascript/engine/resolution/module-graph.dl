@@ -91,11 +91,24 @@ module_export_value(mod, n, k, i) :- export_decl(_, "default", _, "MODULE_EXPORT
 // exact: only a default-exported declaration has it.
 module_export_value(mod, "default", "func", m) :- method_decl(_, _, "FUNCTION_DECLARATION", _, _, _, mod, m),
     method_modifiers(_, mods, m), contains("default", mods).
+// `export default class extends Base {}` — ANONYMOUS: the parser files it as
+// EXPRESSION_VALUE with no target and no expression (parser#176's class residue, #484).
+// An anonymous CLASS DECLARATION can only be a default export, and a module has at
+// most one, so the row and the type join on the module alone.
+module_export_value(mod, "default", "ctor", t) :- export_decl(_, "default", _, "EXPORT_DECLARATION", "CLASS", "EXPRESSION_VALUE", "", "", mod, _),
+    type_decl(_, _, "ANONYMOUS_CLASS", _, mod, t), type_form(_, "CLASS_DECLARATION", t).
 // Re-exports: `export * from './y'`, `export { a } from './y'`,
 // `module.exports = require('./y')`. The import row carries the resolved file.
-module_export_value(mod, n, k, i) :- export_decl(_, _, _, "EXPORT_ALL", _, _, _, _, mod, x),
+// `export * from './y'` spreads y's surface; `export * as ns from './y'` — which the
+// parser also files as EXPORT_ALL, with exportedName = ns — is ONE export holding the
+// module (#483).
+module_export_value(mod, n, k, i) :- export_decl(_, en, _, "EXPORT_ALL", _, _, _, _, mod, x), export_all_is_spread(en),
     export_reexport(_, _, imp, x), import_module(imp, src),
     module_export_value(src, n, k, i), n != "default".
+module_export_value(mod, en, "module", src) :- export_decl(_, en, _, "EXPORT_ALL", _, _, _, _, mod, x), !export_all_is_spread(en),
+    export_reexport(_, _, imp, x), import_module(imp, src).
+export_all_is_spread("").
+export_all_is_spread("*").
 module_export_value(mod, en, k, i) :- export_decl(_, en, ln, form, _, _, _, _, mod, x), form != "EXPORT_ALL",
     export_reexport(_, _, imp, x), import_module(imp, src), ln != "",
     module_export_value(src, ln, k, i).

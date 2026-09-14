@@ -1,0 +1,4 @@
+# `class Sub3 extends require('./types').Gadget`: the superclass is a member of a
+# require() CALL. The heritage row carries only the text; the `extends` expression is not
+# in the expression relation (no HERITAGE root), so the call cannot be evaluated.
+lib/doc.js:84:66 spin

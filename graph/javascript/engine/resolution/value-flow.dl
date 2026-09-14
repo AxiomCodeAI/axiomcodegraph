@@ -103,6 +103,11 @@ expr_value(e, k2, i2) :- expr_kind(_, "OPTIONAL_ACCESS", _, e), expr_name(_, n, 
 // concatenates or transforms strings; a computed text stays unknown.
 expr_value(e, "str", n) :- expr_kind(_, "LITERAL", _, e), expr_literal_kind(_, "STRING", e), expr_text(_, txt, e),
     strlen(txt) >= 2, n = substr(txt, 1, strlen(txt) - 2).
+// A NUMBER key is a string key at runtime (`keyed[1]` meets the property `1`), and a
+// template with no substitution is its text.
+expr_value(e, "str", txt) :- expr_kind(_, "LITERAL", _, e), expr_literal_kind(_, "NUMBER", e), expr_text(_, txt, e).
+expr_value(e, "str", n) :- expr_kind(_, "TEMPLATE", _, e), !expr_child(_, e, _, _, _), expr_text(_, txt, e),
+    strlen(txt) >= 2, n = substr(txt, 1, strlen(txt) - 2).
 // `obj[key]` where key holds a string: the property of that name.
 expr_value(e, k2, i2) :- expr_kind(_, "ELEMENT_ACCESS", _, e), expr_child(_, e, "COMPUTED_KEY", _, key), expr_value(key, "str", n),
     expr_child(_, e, "ACCESS_TARGET", _, r), expr_value(r, k, i), k != "arr", k != "coll", k != "str",
@@ -110,6 +115,9 @@ expr_value(e, k2, i2) :- expr_kind(_, "ELEMENT_ACCESS", _, e), expr_child(_, e, 
 // A call's value is what the callee returns; `new` yields an instance.
 expr_value(e, k, i) :- expr_kind(_, "CALL", _, e), expr_resolves_to_method(e, m), return_value(m, k, i).
 expr_value(e, "inst", t) :- expr_kind(_, "NEW", _, e), new_constructs(e, t).
+// `new F()` on a plain function that RETURNS an object: the language substitutes the
+// returned object for the constructed one.
+expr_value(e, k, i) :- expr_kind(_, "NEW", _, e), new_callee_value(e, "func", m), !type_ctor(_, m, _), return_value(m, k, i), k != "inst".
 // `f.bind(o)` evaluates to a function that runs f. The site itself resolves to f
 // (callee-resolution.dl); the VALUE of the expression is f as well.
 expr_value(e, "func", m) :- expr_kind(_, "CALL", _, e), call_site(_, "FUNCTION_CALL_BIND", _, _, _, _, e, _, _),
@@ -124,6 +132,10 @@ binary_op_passes_value("||").
 binary_op_passes_value("&&").
 binary_op_passes_value("??").
 expr_value(e, k, i) :- expr_kind(_, "ASSIGNMENT", _, e), expr_child(_, e, "ASSIGNMENT_VALUE", _, c), expr_value(c, k, i).
+// `(0, f)()` — a comma expression is its LAST operand.
+expr_value(e, k, i) :- expr_kind(_, "SEQUENCE", _, e), sequence_last(e, c), expr_value(c, k, i).
+sequence_last(e, c) :- expr_kind(_, "SEQUENCE", _, e), expr_child(_, e, _, idx, c),
+    to_number(idx) = max n : { expr_child(_, e, _, idx2, _), n = to_number(idx2) }.
 
 // ── var_value ───────────────────────────────────────────────────────────────
 var_value(v, k, i) :- var_init(_, _, e, v), !var_binding_form(_, "OBJECT_PATTERN", v), !var_binding_form(_, "ARRAY_PATTERN", v),
@@ -264,7 +276,10 @@ prop_value("obj", l, n, k, i) :- expr_child(_, l, "PROPERTY_KEY", idx, key), exp
     expr_child(_, l, "PROPERTY_VALUE", idx, v), expr_value(v, k, i).
 prop_value("obj", l, n, k, i) :- expr_child(_, l, "PROPERTY_VALUE", idx, v), !expr_child(_, l, "PROPERTY_KEY", idx, _),
     expr_name(_, n, v), expr_value(v, k, i).
-prop_value("obj", l, n, "func", m) :- literal_owns_method(l, m), method_decl(_, n, _, _, _, _, _, m).
+// `{ [key]: v }` — a computed key whose value is a string.
+prop_value("obj", l, n, k, i) :- expr_child(_, l, "COMPUTED_KEY", idx, key), expr_value(key, "str", n),
+    expr_child(_, l, "PROPERTY_VALUE", idx, v), expr_value(v, k, i).
+prop_value("obj", l, n, "func", m) :- literal_owns_method(l, m), method_decl(_, n, k, _, _, _, _, m), !method_kind_is_accessor(k).
 // `{ ...other }` — every property of the spread value.
 prop_value("obj", l, n, k, i) :- expr_child(_, l, "SPREAD", _, s), expr_child(_, s, _, _, o), expr_value(o, k0, i0),
     prop_value(k0, i0, n, k, i).
@@ -278,7 +293,17 @@ prop_value("func", m, n, k, i) :- type_ctor(_, m, t), prop_value("ctor", t, n, k
 // `this.constructor` is the class — `new this.constructor()` in a `clone()`.
 prop_value("inst", t, n, "func", m) :- type_member(t, n, m).
 prop_value("inst", t, "constructor", "ctor", t) :- type_decl(_, _, _, _, _, t).
+// An accessor: reading the property runs the getter, so the value is what it returns.
+prop_value("inst", t, n, k, i) :- type_own_getter(t, n, m), return_value(m, k, i).
+prop_value("ctor", t, n, k, i) :- type_own_static_getter(t, n, m), return_value(m, k, i).
+prop_value("obj", l, n, k, i) :- literal_owns_method(l, m), method_decl(_, n, "GETTER", _, _, _, _, m), return_value(m, k, i).
 prop_value("proto", t, n, "func", m) :- type_member(t, n, m).
+// A class field's INITIALIZER: `dep = new Service()`, `static registry = []`,
+// `#priv = …`, `list = [new Service()]`. The IR links the field to its FIELD_INITIALIZER
+// expression; nothing had read it, so the everyday modern shape — a dependency held in
+// a field — was untyped. (A field holding a function is a js_method already.)
+prop_value("inst", t, n, k, i) :- field_decl(_, n, t, _, "false", ie, _, _), ie != "", expr_value(ie, k, i).
+prop_value("ctor", t, n, k, i) :- field_decl(_, n, t, _, "true", ie, _, _), ie != "", expr_value(ie, k, i).
 // A field documented `@type {T}` holds an instance of T, on every instance of the
 // owner — the field's declared type is the only thing said about it when the
 // constructor assigns a parameter nobody visible passes.

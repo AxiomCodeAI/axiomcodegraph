@@ -1,0 +1,62 @@
+lib/circ-a.js:3:43 METHOD_CALL fromB  EXACT  lib/circ-b.js:3:17
+lib/circ-b.js:4:45 METHOD_CALL fromA  EXACT  lib/circ-a.js:3:17
+lib/deep/leaf.js:6:19 FUNCTION_CALL fromIndex  EXACT  lib/dir/index.js:2:1
+lib/deep/leaf.js:6:32 FUNCTION_CALL h  EXACT  lib/impl.js:3:1
+lib/deep/leaf.js:6:37 METHOD_CALL deep  MISSED  
+lib/deep/leaf.js:6:58 CONSTRUCTOR_CALL impl  SYNTHESIZED_OK  
+lib/deep/leaf.js:6:58 METHOD_CALL run  EXACT  lib/impl.js:2:14
+lib/impl.js:2:62 CONSTRUCTOR_CALL Impl  SYNTHESIZED_OK  
+lib/multi.js:11:23 FUNCTION_CALL a  EXACT  lib/multi.js:2:1
+lib/multi.js:7:1 METHOD_CALL defineProperty  LIB_AMBIENT_OK  
+lib/multi.js:8:1 METHOD_CALL defineProperty  LIB_AMBIENT_OK  
+lib/self.js:3:25 METHOD_CALL one  EXACT  lib/self.js:2:1
+lib/self.js:3:48 METHOD_CALL one  EXACT  lib/self.js:2:1
+main.js:19:20 METHOD_CALL fromIndex  EXACT  lib/dir/index.js:2:1
+main.js:19:3 METHOD_CALL fromIndex  EXACT  lib/dir/index.js:2:1
+main.js:19:40 METHOD_CALL fromIndex  EXACT  lib/dir/index.js:2:1
+main.js:19:62 METHOD_CALL fromMain  EXACT  lib/pkg/entry.js:2:20
+main.js:19:78 METHOD_CALL which  EXACT  lib/both.js:2:20
+main.js:20:21 METHOD_CALL make  EXACT  lib/impl.js:2:39
+main.js:20:21 METHOD_CALL run  EXACT  lib/impl.js:2:14
+main.js:20:3 CONSTRUCTOR_CALL Impl  SYNTHESIZED_OK  
+main.js:20:3 METHOD_CALL run  EXACT  lib/impl.js:2:14
+main.js:20:40 METHOD_CALL helper  EXACT  lib/impl.js:3:1
+main.js:21:19 METHOD_CALL make  EXACT  lib/impl.js:2:39
+main.js:21:19 METHOD_CALL run  EXACT  lib/impl.js:2:14
+main.js:21:3 CONSTRUCTOR_CALL Re  SYNTHESIZED_OK  
+main.js:21:3 METHOD_CALL run  EXACT  lib/impl.js:2:14
+main.js:21:36 METHOD_CALL helper  EXACT  lib/impl.js:3:1
+main.js:22:104 CONSTRUCTOR_CALL Error  LIB_AMBIENT_OK  
+main.js:22:23 METHOD_CALL local  EXACT  lib/spread.js:3:1
+main.js:22:3 METHOD_CALL fromIndex  EXACT  lib/dir/index.js:2:1
+main.js:22:39 METHOD_CALL alias  EXACT  lib/spread.js:3:1
+main.js:22:55 CONSTRUCTOR_CALL Impl  SYNTHESIZED_OK  
+main.js:22:55 METHOD_CALL run  EXACT  lib/impl.js:2:14
+main.js:23:122 METHOD_CALL arrow  EXACT  lib/multi.js:11:17
+main.js:23:14 METHOD_CALL b  EXACT  lib/multi.js:2:1
+main.js:23:25 METHOD_CALL c  EXACT  lib/multi.js:3:1
+main.js:23:3 METHOD_CALL a  EXACT  lib/multi.js:2:1
+main.js:23:36 METHOD_CALL d  EXACT  lib/multi.js:6:20
+main.js:23:47 METHOD_CALL e  EXACT  lib/multi.js:3:1
+main.js:23:58 METHOD_CALL lazy  EXACT  lib/multi.js:3:1
+main.js:23:72 METHOD_CALL deep  EXACT  lib/multi.js:2:1
+main.js:23:99 CONSTRUCTOR_CALL Klass  SYNTHESIZED_OK  
+main.js:23:99 METHOD_CALL m  EXACT  lib/multi.js:10:31
+main.js:24:18 METHOD_CALL callsA  EXACT  lib/circ-b.js:4:18
+main.js:24:3 METHOD_CALL fromA  EXACT  lib/circ-a.js:3:17
+main.js:26:3 FUNCTION_CALL leaf  EXACT  lib/deep/leaf.js:6:1
+main.js:27:15 METHOD_CALL three  EXACT  lib/self.js:6:24
+main.js:27:3 METHOD_CALL two  EXACT  lib/self.js:3:1
+main.js:28:18 CONSTRUCTOR_CALL Klass  SYNTHESIZED_OK  
+main.js:28:18 METHOD_CALL m  EXACT  lib/multi.js:10:31
+main.js:28:3 FUNCTION_CALL a  EXACT  lib/multi.js:2:1
+main.js:28:8 FUNCTION_CALL bAlias  EXACT  lib/multi.js:2:1
+main.js:29:3 METHOD_CALL fromIndex  EXACT  lib/dir/index.js:2:1
+main.js:29:37 FUNCTION_CALL   EXACT  lib/deep/leaf.js:6:1
+main.js:29:67 CONSTRUCTOR_CALL   SYNTHESIZED_OK  
+main.js:29:67 METHOD_CALL run  EXACT  lib/impl.js:2:14
+main.js:30:48 FUNCTION_CALL lazyReq  EXACT  main.js:30:19
+main.js:30:48 METHOD_CALL make  EXACT  lib/impl.js:2:39
+main.js:30:48 METHOD_CALL run  EXACT  lib/impl.js:2:14
+main.js:33:1 FUNCTION_CALL main  EXACT  main.js:18:1
+# defects: 1

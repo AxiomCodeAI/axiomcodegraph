@@ -1,0 +1,13 @@
+# #483 (parser): `export { a as b } from`, `export { default } from`, `export { default as
+# x } from` mint no import row and no reExportImportLinkHash — the specifier is a string
+# the engine cannot resolve. `export * as ns from` (the engine half) resolves.
+main.js:13:112 default
+main.js:13:130 baseDefault
+main.js:13:18 utilAlias
+main.js:13:38 id
+main.js:14:17 util
+main.js:15:16 id
+main.js:15:3 utilAlias
+main.js:15:49 baseDefault
+main.js:15:64 defBarrel
+main.js:15:77 util

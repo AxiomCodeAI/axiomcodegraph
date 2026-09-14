@@ -1,13 +1,6 @@
 # Executed edges the engine does not have. Format: <caller> <callee> (file:line:col;
 # a library function is node_modules/<pkg>/<file>:line:col).
 
-# `express.json()` is a LAZY GETTER: body-parser does
-#   Object.defineProperty(exports, 'json', { get: createParserGetter('json') })
-# and the getter requires the parser module on first read. A property read that runs a
-# getter is a reserved call kind in the parser (zero rows), and the value behind it is
-# a closure over a string — two mechanisms away from anything static.
-app.js:5:1 node_modules/body-parser/lib/types/json.js:53:1
-
 # lodash is one 17,000-line IIFE whose methods are installed by `mixin(lodash, source)`
 # over a runtime-built object; the modular files export the results of generic
 # factories. Not modelled; every call into it is a declared unknown.

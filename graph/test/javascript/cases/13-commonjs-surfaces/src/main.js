@@ -1,0 +1,33 @@
+'use strict';
+const dir = require('./lib/dir');
+const dirIdx = require('./lib/dir/index');
+const dirIdxJs = require('./lib/dir/index.js');
+const pkg = require('./lib/pkg');
+const both = require('./lib/both');
+const Impl = require('./lib/impl');
+const Re = require('./lib/reexport');
+const spread = require('./lib/spread');
+const multi = require('./lib/multi');
+const circA = require('./lib/circ-a');
+const circB = require('./lib/circ-b');
+const data = require('./lib/data.json');
+const leaf = require('./lib/deep/leaf');
+const self = require('./lib/self');
+const { a, b: bAlias, Klass } = require('./lib/multi');
+const { a: { name } = {} } = { a: { name: 'x' } };
+function main() {
+  dir.fromIndex(); dirIdx.fromIndex(); dirIdxJs.fromIndex(); pkg.fromMain(); both.which();
+  new Impl().run(); Impl.make().run(); Impl.helper();
+  new Re().run(); Re.make().run(); Re.helper();
+  spread.fromIndex(); spread.local(); spread.alias(); new spread.Impl().run(); if (spread.never) throw new Error('never must not be exported');
+  multi.a(); multi.b(); multi.c(); multi.d(); multi.e(); multi.lazy(); multi.nested.inner.deep(); new multi.Klass().m(); multi.arrow(); multi.cond();
+  circA.fromA(); circB.callsA();
+  data.name.length;
+  leaf();
+  self.two(); self.three();
+  a(); bAlias(); new Klass().m();
+  require('./lib/dir').fromIndex(); require('./lib/deep/leaf')(); new (require('./lib/impl'))().run();
+  const lazyReq = () => require('./lib/impl'); lazyReq().make().run();
+  return name;
+}
+main();

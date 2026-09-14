@@ -1,0 +1,2 @@
+# #487 (parser): `const { nested: { inner } } = require('../multi')` — a nested pattern.
+lib/deep/leaf.js:6:37 deep

@@ -1,0 +1,65 @@
+lib/circ-a.js:3:43 METHOD_CALL B.fromB  ->  known_edge  lib/circ-b.js:3:17 fromB
+lib/circ-b.js:4:45 METHOD_CALL A.fromA  ->  known_edge  lib/circ-a.js:3:17 fromA
+lib/deep/leaf.js:6:19 FUNCTION_CALL fromIndex  ->  known_edge  lib/dir/index.js:2:1 fromIndex
+lib/deep/leaf.js:6:32 FUNCTION_CALL h  ->  known_edge  lib/impl.js:3:1 helper
+lib/deep/leaf.js:6:37 METHOD_CALL inner.deep  ->  ambiguous_unknown  -
+lib/deep/leaf.js:6:58 CONSTRUCTOR_CALL impl  ->  implicit_constructor  -
+lib/deep/leaf.js:6:58 METHOD_CALL new impl().run  ->  known_edge  lib/impl.js:2:14 run
+lib/impl.js:2:62 CONSTRUCTOR_CALL Impl  ->  implicit_constructor  -
+lib/multi.js:11:23 FUNCTION_CALL a  ->  known_edge  lib/multi.js:2:1 a
+lib/multi.js:7:1 METHOD_CALL Object.defineProperty  ->  ambient_terminal  -
+lib/multi.js:8:1 METHOD_CALL Object.defineProperty  ->  ambient_terminal  -
+lib/self.js:3:25 METHOD_CALL module.exports.one  ->  known_edge  lib/self.js:2:1 one
+lib/self.js:3:48 METHOD_CALL exports.one  ->  known_edge  lib/self.js:2:1 one
+main.js:19:20 METHOD_CALL dirIdx.fromIndex  ->  known_edge  lib/dir/index.js:2:1 fromIndex
+main.js:19:3 METHOD_CALL dir.fromIndex  ->  known_edge  lib/dir/index.js:2:1 fromIndex
+main.js:19:40 METHOD_CALL dirIdxJs.fromIndex  ->  known_edge  lib/dir/index.js:2:1 fromIndex
+main.js:19:62 METHOD_CALL pkg.fromMain  ->  known_edge  lib/pkg/entry.js:2:20 fromMain
+main.js:19:78 METHOD_CALL both.which  ->  known_edge  lib/both.js:2:20 which
+main.js:20:21 METHOD_CALL Impl.make  ->  known_edge  lib/impl.js:2:39 make
+main.js:20:21 METHOD_CALL Impl.make().run  ->  known_edge  lib/impl.js:2:14 run
+main.js:20:3 CONSTRUCTOR_CALL Impl  ->  implicit_constructor  -
+main.js:20:3 METHOD_CALL new Impl().run  ->  known_edge  lib/impl.js:2:14 run
+main.js:20:40 METHOD_CALL Impl.helper  ->  known_edge  lib/impl.js:3:1 helper
+main.js:21:19 METHOD_CALL Re.make  ->  known_edge  lib/impl.js:2:39 make
+main.js:21:19 METHOD_CALL Re.make().run  ->  known_edge  lib/impl.js:2:14 run
+main.js:21:3 CONSTRUCTOR_CALL Re  ->  implicit_constructor  -
+main.js:21:3 METHOD_CALL new Re().run  ->  known_edge  lib/impl.js:2:14 run
+main.js:21:36 METHOD_CALL Re.helper  ->  known_edge  lib/impl.js:3:1 helper
+main.js:22:104 CONSTRUCTOR_CALL Error  ->  ambient_terminal  -
+main.js:22:23 METHOD_CALL spread.local  ->  known_edge  lib/spread.js:3:1 local
+main.js:22:3 METHOD_CALL spread.fromIndex  ->  known_edge  lib/dir/index.js:2:1 fromIndex
+main.js:22:39 METHOD_CALL spread.alias  ->  known_edge  lib/spread.js:3:1 local
+main.js:22:55 CONSTRUCTOR_CALL spread.Impl  ->  implicit_constructor  -
+main.js:22:55 METHOD_CALL new spread.Impl().run  ->  known_edge  lib/impl.js:2:14 run
+main.js:23:122 METHOD_CALL multi.arrow  ->  known_edge  lib/multi.js:11:17 <arrow>
+main.js:23:137 METHOD_CALL multi.cond  ->  multi_inferred  lib/multi.js:2:1 a
+main.js:23:137 METHOD_CALL multi.cond  ->  multi_inferred  lib/multi.js:3:1 b
+main.js:23:14 METHOD_CALL multi.b  ->  known_edge  lib/multi.js:2:1 a
+main.js:23:25 METHOD_CALL multi.c  ->  known_edge  lib/multi.js:3:1 b
+main.js:23:3 METHOD_CALL multi.a  ->  known_edge  lib/multi.js:2:1 a
+main.js:23:36 METHOD_CALL multi.d  ->  known_edge  lib/multi.js:6:20 d
+main.js:23:47 METHOD_CALL multi.e  ->  ambient_terminal  -
+main.js:23:47 METHOD_CALL multi.e  ->  multi_inferred  lib/multi.js:3:1 b
+main.js:23:58 METHOD_CALL multi.lazy  ->  ambient_terminal  -
+main.js:23:58 METHOD_CALL multi.lazy  ->  multi_inferred  lib/multi.js:3:1 b
+main.js:23:72 METHOD_CALL multi.nested.inner.deep  ->  known_edge  lib/multi.js:2:1 a
+main.js:23:99 CONSTRUCTOR_CALL multi.Klass  ->  implicit_constructor  -
+main.js:23:99 METHOD_CALL new multi.Klass().m  ->  known_edge  lib/multi.js:10:31 m
+main.js:24:18 METHOD_CALL circB.callsA  ->  known_edge  lib/circ-b.js:4:18 callsA
+main.js:24:3 METHOD_CALL circA.fromA  ->  known_edge  lib/circ-a.js:3:17 fromA
+main.js:26:3 FUNCTION_CALL leaf  ->  known_edge  lib/deep/leaf.js:6:1 leaf
+main.js:27:15 METHOD_CALL self.three  ->  known_edge  lib/self.js:6:24 <arrow>
+main.js:27:3 METHOD_CALL self.two  ->  known_edge  lib/self.js:3:1 two
+main.js:28:18 CONSTRUCTOR_CALL Klass  ->  implicit_constructor  -
+main.js:28:18 METHOD_CALL new Klass().m  ->  known_edge  lib/multi.js:10:31 m
+main.js:28:3 FUNCTION_CALL a  ->  known_edge  lib/multi.js:2:1 a
+main.js:28:8 FUNCTION_CALL bAlias  ->  known_edge  lib/multi.js:2:1 a
+main.js:29:3 METHOD_CALL require('./lib/dir').fromIndex  ->  known_edge  lib/dir/index.js:2:1 fromIndex
+main.js:29:37 FUNCTION_CALL require('./lib/deep/leaf')  ->  known_edge  lib/deep/leaf.js:6:1 leaf
+main.js:29:67 CONSTRUCTOR_CALL (require('./lib/impl'))  ->  implicit_constructor  -
+main.js:29:67 METHOD_CALL new (require('./lib/impl'))().run  ->  known_edge  lib/impl.js:2:14 run
+main.js:30:48 FUNCTION_CALL lazyReq  ->  known_edge  main.js:30:19 <arrow>
+main.js:30:48 METHOD_CALL lazyReq().make  ->  known_edge  lib/impl.js:2:39 make
+main.js:30:48 METHOD_CALL lazyReq().make().run  ->  known_edge  lib/impl.js:2:14 run
+main.js:33:1 FUNCTION_CALL main  ->  known_edge  main.js:18:1 main

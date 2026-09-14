@@ -44,6 +44,11 @@ type_decl("lib", n, category, sc, mod, h) :- lib_js_type(n, _, _, _, _, _, _, _,
 type_only_decl("client", n, category, mod, h) :- js_type(n, _, _, _, _, _, _, _, category, _, _, _, _, "true", _, _, _, mod, _, _, _, _, _, _, _, h).
 type_only_decl("lib", n, category, mod, h) :- lib_js_type(n, _, _, _, _, _, _, _, category, _, _, _, _, "true", _, _, _, mod, _, _, _, _, _, _, _, h).
 
+// ── type_form(Prov, DeclarationForm, TypeHash) ──────────────────────────────
+// CLASS_DECLARATION | CLASS_EXPRESSION | JSDOC_TYPEDEF | PROTOTYPE_CONSTRUCTOR.
+type_form("client", f, h) :- js_type(_, _, _, _, _, _, _, _, _, f, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+type_form("lib", f, h) :- lib_js_type(_, _, _, _, _, _, _, _, _, f, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
 // ── type_lines(Prov, FilePath, Line, Col, TypeHash) ─────────────────────────
 type_lines("client", fp, l, c, h) :- js_type(_, _, _, fp, _, l, _, c, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
 type_lines("lib", fp, l, c, h) :- lib_js_type(_, _, _, fp, _, l, _, c, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
@@ -70,6 +75,13 @@ type_source_expr("lib", e, h) :- lib_js_type(_, _, _, _, _, _, _, _, _, _, _, _,
 // contract; the ENGINE resolves from the name, the import hop and the file.
 heritage("client", t, form, sn, rf, imp, se, h) :- js_type_heritage(t, _, form, sn, _, _, _, _, rf, imp, se, _, _, _, _, h).
 heritage("lib", t, form, sn, rf, imp, se, h) :- lib_js_type_heritage(t, _, form, sn, _, _, _, _, rf, imp, se, _, _, _, _, h).
+// ── heritage_text(Prov, ExpressionText, HeritageHash) ───────────────────────
+// The `extends` expression AS WRITTEN. For `extends ns.Base` the parser records
+// superTypeName = Base and attaches the import hop of whatever binding is NAMED Base
+// in the file — a different module's Base when one is destructured alongside. The
+// text is the only column that keeps the qualifier, and it decides which rule applies.
+heritage_text("client", txt, h) :- js_type_heritage(_, _, _, _, txt, _, _, _, _, _, _, _, _, _, _, h).
+heritage_text("lib", txt, h) :- lib_js_type_heritage(_, _, _, _, txt, _, _, _, _, _, _, _, _, _, _, h).
 heritage_computed("client", t, h) :- js_type_heritage(t, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, h).
 heritage_computed("lib", t, h) :- lib_js_type_heritage(t, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, h).
 

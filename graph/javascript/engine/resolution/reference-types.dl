@@ -42,3 +42,22 @@ type_ref_kind_is_wrapper("TYPE_QUERY").
 // A NAMED reference that reached no class: a typedef (type-only by design), a
 // builtin, or a dependency not staged. The fastest read on what is missing.
 type_ref_unresolved(r, n) :- type_ref(_, n, "NAMED", _, _, _, _, _, _, _, r), !type_ref_type(r, _), !type_ref_builtin(_, r).
+
+// ── #488: `@this {T}`, an inline cast, and the collection / promise generics ────
+this_value(m, "inst", t) :- type_ref(_, _, _, _, "THIS", "METHOD", m, _, _, _, r), type_ref_type(r, t).
+expr_value(e, "inst", t) :- type_ref(_, _, _, _, "CAST", "EXPRESSION", e, _, _, _, r), type_ref_type(r, t).
+expr_value(e, "arr", r) :- type_ref(_, _, _, _, "CAST", "EXPRESSION", e, _, _, _, r), type_ref_is_array(r).
+// `Promise<T>` is a wrapper: the declared value is T (await is transparent).
+type_ref_kind_is_promise(r) :- type_ref(_, "Promise", "GENERIC_APPLICATION", _, _, _, _, _, _, _, r).
+type_ref_type(r, t) :- type_ref_kind_is_promise(r), type_ref(_, _, _, r, _, _, _, _, _, _, c), type_ref_type(c, t).
+// `Map<K, V>` / `Set<T>` / `WeakMap` / `WeakSet`: a collection whose elements are the LAST
+// type argument, identified by the reference row like `@type {T[]}` is.
+type_ref_is_coll(r) :- type_ref(_, n, "GENERIC_APPLICATION", _, _, _, _, _, _, _, r), ambient_collection(n).
+var_value(v, "coll", r) :- var_type_name(_, _, r, v), type_ref_is_coll(r).
+param_value(p, "coll", r) :- param_type_name(_, _, r, p), type_ref_is_coll(r).
+return_value(m, "coll", r) :- method_return_type(_, _, r, m), type_ref_is_coll(r).
+prop_value("inst", t, n, "coll", r) :- field_type_name(_, n, t, _, r, _), type_ref_is_coll(r).
+elem_value(r, "inst", t) :- type_ref_is_coll(r), type_ref(_, _, _, r, _, _, _, _, _, _, c), coll_last_child(r, c), type_ref_type(c, t).
+elem_value(r, "arr", c) :- type_ref_is_coll(r), coll_last_child(r, c), type_ref_is_array(c).
+coll_last_child(r, c) :- type_ref_is_coll(r), type_ref_child_index(r, c, idx),
+    to_number(idx) = max n : { type_ref_child_index(r, _, idx2), n = to_number(idx2) }.

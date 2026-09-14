@@ -1,0 +1,130 @@
+lib/classes.js:12:22 CONSTRUCTOR_CALL Service  ->  implicit_constructor  -
+lib/classes.js:13:29 METHOD_CALL v.id  ->  ambiguous_unknown  -
+lib/classes.js:16:28 METHOD_CALL Base.#shared  ->  known_edge  lib/classes.js:15:3 #shared
+lib/classes.js:17:25 METHOD_CALL this.#hidden  ->  known_edge  lib/classes.js:14:3 #hidden
+lib/classes.js:18:110 METHOD_CALL self.id  ->  multi_inferred  lib/classes.js:10:3 id
+lib/classes.js:18:110 METHOD_CALL self.id  ->  multi_inferred  lib/classes.js:20:26 id
+lib/classes.js:18:110 METHOD_CALL self.id  ->  multi_inferred  lib/classes.js:21:26 id
+lib/classes.js:18:110 METHOD_CALL self.id  ->  multi_inferred  main.js:23:39 id
+lib/classes.js:20:49 METHOD_CALL super.id  ->  known_edge  lib/classes.js:10:3 id
+lib/classes.js:21:50 METHOD_CALL super.id  ->  known_edge  lib/classes.js:20:26 id
+lib/classes.js:22:55 METHOD_CALL this.id  ->  known_edge  lib/classes.js:22:17 id
+lib/classes.js:23:72 METHOD_CALL this.id  ->  ambiguous_unknown  -
+lib/classes.js:24:21 FUNCTION_CALL Mixin  ->  known_edge  lib/classes.js:23:15 <arrow>
+lib/classes.js:24:50 METHOD_CALL this.mixed  ->  ambiguous_unknown  -
+lib/classes.js:26:45 METHOD_CALL this.id  ->  multi_inferred  lib/classes.js:20:26 id
+lib/classes.js:26:45 METHOD_CALL this.id  ->  multi_inferred  lib/classes.js:21:26 id
+lib/classes.js:29:18 FUNCTION_CALL_CALL Legacy.call  ->  known_edge  lib/classes.js:27:1 Legacy
+lib/classes.js:30:17 METHOD_CALL Object.create  ->  ambient_terminal  -
+lib/classes.js:30:88 METHOD_CALL this.get  ->  ambiguous_unknown  -
+lib/classes.js:31:1 METHOD_CALL Object.setPrototypeOf  ->  ambient_terminal  -
+lib/classes.js:31:1 METHOD_CALL Object.setPrototypeOf  ->  callback_registered  lib/classes.js:27:1 Legacy
+lib/classes.js:31:1 METHOD_CALL Object.setPrototypeOf  ->  callback_registered  lib/classes.js:29:1 Sub
+lib/classes.js:34:37 CONSTRUCTOR_CALL Singleton  ->  implicit_constructor  -
+lib/classes.js:35:110 METHOD_CALL this.own.run  ->  known_edge  lib/classes.js:22:40 run
+lib/classes.js:35:62 CONSTRUCTOR_CALL Service  ->  implicit_constructor  -
+lib/classes.js:35:93 METHOD_CALL this.dep.run  ->  known_edge  lib/classes.js:22:40 run
+lib/classes.js:36:80 CONSTRUCTOR_CALL Service  ->  implicit_constructor  -
+lib/classes.js:39:40 CONSTRUCTOR_CALL Late  ->  implicit_constructor  -
+lib/classes.js:40:40 CONSTRUCTOR_CALL Service  ->  implicit_constructor  -
+lib/classes.js:40:87 CONSTRUCTOR_CALL AsyncCls  ->  implicit_constructor  -
+lib/classes.js:41:52 METHOD_CALL this.tag  ->  known_edge  lib/classes.js:41:68 tag
+lib/classes.js:42:71 CONSTRUCTOR_CALL Inner  ->  implicit_constructor  -
+lib/classes.js:42:71 METHOD_CALL new Inner().in  ->  known_edge  lib/classes.js:42:40 in
+lib/classes.js:44:78 CONSTRUCTOR_CALL Fluent  ->  implicit_constructor  -
+lib/classes.js:5:26 CONSTRUCTOR_CALL this  ->  implicit_constructor  -
+lib/classes.js:6:33 METHOD_CALL Base.registry.map  ->  ambient_terminal  -
+lib/classes.js:6:33 METHOD_CALL Base.registry.map  ->  callback_registered  lib/classes.js:6:51 <arrow>
+lib/classes.js:6:58 METHOD_CALL b.id  ->  known_edge  lib/classes.js:21:26 id
+lib/classes.js:7:24 METHOD_CALL Base.registry.push  ->  ambient_terminal  -
+lib/classes.js:9:42 METHOD_CALL this.id  ->  multi_inferred  lib/classes.js:10:3 id
+lib/classes.js:9:42 METHOD_CALL this.id  ->  multi_inferred  lib/classes.js:20:26 id
+lib/classes.js:9:42 METHOD_CALL this.id  ->  multi_inferred  lib/classes.js:21:26 id
+lib/classes.js:9:42 METHOD_CALL this.id  ->  multi_inferred  main.js:23:39 id
+main.js:10:24 CONSTRUCTOR_CALL C.Mixed  ->  implicit_constructor  -
+main.js:10:24 METHOD_CALL new C.Mixed().mixed  ->  ambiguous_unknown  -
+main.js:10:3 CONSTRUCTOR_CALL C.Mixed  ->  implicit_constructor  -
+main.js:10:3 METHOD_CALL new C.Mixed().own  ->  known_edge  lib/classes.js:24:35 own
+main.js:10:47 CONSTRUCTOR_CALL C.Mixed  ->  implicit_constructor  -
+main.js:10:47 METHOD_CALL new C.Mixed().id  ->  ambiguous_unknown  -
+main.js:10:67 CONSTRUCTOR_CALL C.Picked  ->  implicit_constructor  -
+main.js:10:67 METHOD_CALL new C.Picked().pick  ->  known_edge  lib/classes.js:26:29 pick
+main.js:10:90 CONSTRUCTOR_CALL C.Picked  ->  implicit_constructor  -
+main.js:10:90 METHOD_CALL new C.Picked().id  ->  multi_inferred  lib/classes.js:20:26 id
+main.js:10:90 METHOD_CALL new C.Picked().id  ->  multi_inferred  lib/classes.js:21:26 id
+main.js:12:13 CONSTRUCTOR_CALL C.Sub  ->  known_edge  lib/classes.js:29:1 Sub
+main.js:12:26 METHOD_CALL s.get  ->  known_edge  lib/classes.js:28:24 get
+main.js:12:35 METHOD_CALL s.extra  ->  ambiguous_unknown  -
+main.js:12:57 METHOD_CALL Reflect.construct  ->  ambient_terminal  -
+main.js:12:57 METHOD_CALL Reflect.construct  ->  callback_registered  lib/classes.js:29:1 Sub
+main.js:12:57 METHOD_CALL Reflect.construct  ->  multi_inferred  lib/classes.js:29:1 Sub
+main.js:12:87 METHOD_CALL s2.get  ->  ambient_terminal  -
+main.js:12:87 METHOD_CALL s2.get  ->  multi_inferred  lib/classes.js:28:24 get
+main.js:13:3 CONSTRUCTOR_CALL C.ReturnsObject  ->  known_edge  lib/classes.js:33:1 ReturnsObject
+main.js:13:3 METHOD_CALL new C.ReturnsObject().m  ->  known_edge  lib/classes.js:33:37 m
+main.js:14:28 METHOD_CALL C.Singleton.instance.run  ->  known_edge  lib/classes.js:34:98 run
+main.js:14:3 METHOD_CALL C.Singleton.get  ->  known_edge  lib/classes.js:34:54 get
+main.js:14:3 METHOD_CALL C.Singleton.get().run  ->  known_edge  lib/classes.js:34:98 run
+main.js:15:16 CONSTRUCTOR_CALL C.Service  ->  implicit_constructor  -
+main.js:15:3 CONSTRUCTOR_CALL C.Holder  ->  known_edge  lib/classes.js:35:16 <constructor>
+main.js:15:3 METHOD_CALL new C.Holder(new C.Service()).go  ->  known_edge  lib/classes.js:35:79 go
+main.js:16:3 METHOD_CALL C.Container.inst.run  ->  known_edge  lib/classes.js:22:40 run
+main.js:17:24 METHOD_CALL C.Late.staticLate  ->  known_edge  lib/classes.js:39:19 staticLate
+main.js:17:24 METHOD_CALL C.Late.staticLate().late  ->  known_edge  lib/classes.js:38:23 late
+main.js:17:3 CONSTRUCTOR_CALL C.Late  ->  implicit_constructor  -
+main.js:17:3 METHOD_CALL new C.Late().late  ->  known_edge  lib/classes.js:38:23 late
+main.js:18:10 CONSTRUCTOR_CALL C.AsyncCls  ->  implicit_constructor  -
+main.js:18:10 METHOD_CALL new C.AsyncCls().load  ->  known_edge  lib/classes.js:40:18 load
+main.js:18:108 METHOD_CALL a.load  ->  known_edge  lib/classes.js:40:18 load
+main.js:18:3 METHOD_CALL (await new C.AsyncCls().load()).run  ->  known_edge  lib/classes.js:22:40 run
+main.js:18:42 METHOD_CALL (await C.AsyncCls.build()).load  ->  known_edge  lib/classes.js:40:18 load
+main.js:18:49 METHOD_CALL C.AsyncCls.build  ->  known_edge  lib/classes.js:40:57 build
+main.js:18:77 METHOD_CALL C.AsyncCls.build  ->  known_edge  lib/classes.js:40:57 build
+main.js:18:77 METHOD_CALL C.AsyncCls.build().then  ->  ambiguous_unknown  -
+main.js:18:77 METHOD_CALL C.AsyncCls.build().then  ->  callback_registered  main.js:18:101 <arrow>
+main.js:19:3 CONSTRUCTOR_CALL C.Accessors  ->  implicit_constructor  -
+main.js:19:3 METHOD_CALL new C.Accessors().pair.run  ->  known_edge  lib/classes.js:41:46 <arrow>
+main.js:20:3 CONSTRUCTOR_CALL C.Nested  ->  implicit_constructor  -
+main.js:20:3 METHOD_CALL new C.Nested().outer  ->  known_edge  lib/classes.js:42:16 outer
+main.js:21:3 CONSTRUCTOR_CALL C.WithNewTarget  ->  known_edge  lib/classes.js:43:23 <constructor>
+main.js:21:3 METHOD_CALL new C.WithNewTarget().who  ->  known_edge  lib/classes.js:43:70 who
+main.js:22:3 METHOD_CALL C.Fluent.c  ->  known_edge  lib/classes.js:44:58 c
+main.js:22:3 METHOD_CALL C.Fluent.c().a  ->  known_edge  lib/classes.js:44:16 a
+main.js:22:3 METHOD_CALL C.Fluent.c().a().b  ->  known_edge  lib/classes.js:44:37 b
+main.js:22:3 METHOD_CALL C.Fluent.c().a().b().a  ->  known_edge  lib/classes.js:44:16 a
+main.js:23:66 CONSTRUCTOR_CALL Anon  ->  implicit_constructor  -
+main.js:23:66 METHOD_CALL new Anon().id  ->  known_edge  main.js:23:39 id
+main.js:23:83 CONSTRUCTOR_CALL Anon  ->  implicit_constructor  -
+main.js:23:83 METHOD_CALL new Anon().chain  ->  known_edge  lib/classes.js:11:3 chain
+main.js:23:83 METHOD_CALL new Anon().chain().id  ->  known_edge  main.js:23:39 id
+main.js:24:13 METHOD_CALL C.Mixin  ->  known_edge  lib/classes.js:23:15 <arrow>
+main.js:24:33 CONSTRUCTOR_CALL K  ->  implicit_constructor  -
+main.js:24:33 METHOD_CALL new K().mixed  ->  known_edge  lib/classes.js:23:44 mixed
+main.js:25:16 CONSTRUCTOR_CALL (C.Fluent)  ->  implicit_constructor  -
+main.js:25:34 METHOD_CALL inst.a  ->  known_edge  lib/classes.js:44:16 a
+main.js:26:17 FUNCTION_CALL_BIND C.Holder.bind  ->  ambient_terminal  -
+main.js:26:37 CONSTRUCTOR_CALL C.Service  ->  implicit_constructor  -
+main.js:26:55 CONSTRUCTOR_CALL Bound  ->  ambiguous_unknown  -
+main.js:26:55 METHOD_CALL new Bound().go  ->  ambiguous_unknown  -
+main.js:28:1 FUNCTION_CALL main  ->  known_edge  main.js:3:1 main
+main.js:5:23 METHOD_CALL C.Mid.make  ->  known_edge  lib/classes.js:5:3 make
+main.js:5:23 METHOD_CALL C.Mid.make().id  ->  multi_inferred  lib/classes.js:10:3 id
+main.js:5:23 METHOD_CALL C.Mid.make().id  ->  multi_inferred  lib/classes.js:20:26 id
+main.js:5:23 METHOD_CALL C.Mid.make().id  ->  multi_inferred  lib/classes.js:21:26 id
+main.js:5:3 METHOD_CALL C.Leaf.make  ->  known_edge  lib/classes.js:5:3 make
+main.js:5:3 METHOD_CALL C.Leaf.make().id  ->  multi_inferred  lib/classes.js:10:3 id
+main.js:5:3 METHOD_CALL C.Leaf.make().id  ->  multi_inferred  lib/classes.js:20:26 id
+main.js:5:3 METHOD_CALL C.Leaf.make().id  ->  multi_inferred  lib/classes.js:21:26 id
+main.js:5:42 METHOD_CALL C.Leaf.register  ->  known_edge  lib/classes.js:7:3 register
+main.js:5:58 CONSTRUCTOR_CALL C.Leaf  ->  implicit_constructor  -
+main.js:5:73 METHOD_CALL C.Base.describeAll  ->  known_edge  lib/classes.js:6:3 describeAll
+main.js:5:95 METHOD_CALL C.Leaf.shared  ->  known_edge  lib/classes.js:16:3 shared
+main.js:6:13 CONSTRUCTOR_CALL C.Leaf  ->  implicit_constructor  -
+main.js:6:27 METHOD_CALL l.bump  ->  known_edge  lib/classes.js:9:10 bump
+main.js:6:37 METHOD_CALL l.chain  ->  known_edge  lib/classes.js:11:3 chain
+main.js:6:37 METHOD_CALL l.chain().chain  ->  known_edge  lib/classes.js:11:3 chain
+main.js:6:37 METHOD_CALL l.chain().chain().id  ->  known_edge  lib/classes.js:21:26 id
+main.js:6:61 METHOD_CALL l.svc.run  ->  known_edge  lib/classes.js:22:40 run
+main.js:6:82 CONSTRUCTOR_CALL C.Service  ->  implicit_constructor  -
+main.js:6:99 METHOD_CALL l.viaPrivate  ->  known_edge  lib/classes.js:17:3 viaPrivate
+main.js:7:24 FUNCTION_CALL String  ->  ambient_terminal  -

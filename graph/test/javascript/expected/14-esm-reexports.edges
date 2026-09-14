@@ -1,0 +1,66 @@
+lib/base.js:1:68 CONSTRUCTOR_CALL this  ->  implicit_constructor  -
+lib/base.js:3:28 FUNCTION_CALL util  ->  known_edge  lib/base.js:2:1 util
+lib/base.js:9:21 CONSTRUCTOR_CALL Base  ->  implicit_constructor  -
+lib/dyn.js:2:19 DYNAMIC_IMPORT_CALL import  ->  dynamic_terminal  -
+lib/dyn.js:3:3 METHOD_CALL m.util  ->  known_edge  lib/base.js:2:1 util
+lib/dyn.js:4:26 DYNAMIC_IMPORT_CALL import  ->  dynamic_terminal  -
+lib/dyn.js:5:3 FUNCTION_CALL util  ->  known_edge  lib/base.js:2:1 util
+lib/dyn.js:6:3 DYNAMIC_IMPORT_CALL import  ->  dynamic_terminal  -
+lib/dyn.js:6:3 METHOD_CALL import('./base.js').then  ->  ambiguous_unknown  -
+lib/dyn.js:6:3 METHOD_CALL import('./base.js').then  ->  callback_registered  lib/dyn.js:6:28 <arrow>
+lib/dyn.js:6:37 METHOD_CALL mod.util  ->  known_edge  lib/base.js:2:1 util
+lib/mixed.js:2:17 FUNCTION_CALL createRequire  ->  ambient_terminal  -
+lib/mixed.js:4:36 METHOD_CALL cjs.fromCjs  ->  known_edge  lib/cjs.cjs:2:19 fromCjs
+lib/side.js:2:20 FUNCTION_CALL util  ->  known_edge  lib/base.js:2:1 util
+lib/sub.js:3:60 METHOD_CALL super.id  ->  known_edge  lib/base.js:1:21 id
+lib/sub.js:4:52 METHOD_CALL this.id  ->  known_edge  lib/base.js:1:21 id
+lib/sub.js:5:40 DYNAMIC_IMPORT_CALL import  ->  dynamic_terminal  -
+main.js:12:10 FUNCTION_CALL util  ->  known_edge  lib/base.js:2:1 util
+main.js:12:105 METHOD_CALL Base.make  ->  known_edge  lib/base.js:1:45 make
+main.js:12:105 METHOD_CALL Base.make().id  ->  multi_inferred  lib/base.js:1:21 id
+main.js:12:105 METHOD_CALL Base.make().id  ->  multi_inferred  lib/sub.js:3:37 id
+main.js:12:18 FUNCTION_CALL arrow  ->  known_edge  lib/base.js:3:22 <arrow>
+main.js:12:27 FUNCTION_CALL mutable  ->  multi_inferred  lib/base.js:4:22 <arrow>
+main.js:12:27 FUNCTION_CALL mutable  ->  multi_inferred  lib/base.js:5:36 <arrow>
+main.js:12:3 FUNCTION_CALL def  ->  known_edge  lib/base.js:6:15 <arrow>
+main.js:12:38 FUNCTION_CALL swap  ->  known_edge  lib/base.js:5:1 swap
+main.js:12:46 FUNCTION_CALL mutable  ->  multi_inferred  lib/base.js:4:22 <arrow>
+main.js:12:46 FUNCTION_CALL mutable  ->  multi_inferred  lib/base.js:5:36 <arrow>
+main.js:12:57 FUNCTION_CALL renamed  ->  known_edge  lib/base.js:6:15 <arrow>
+main.js:12:68 METHOD_CALL obj.m  ->  known_edge  lib/base.js:8:22 m
+main.js:12:77 METHOD_CALL inst.id  ->  known_edge  lib/base.js:1:21 id
+main.js:12:88 CONSTRUCTOR_CALL Base  ->  implicit_constructor  -
+main.js:12:88 METHOD_CALL new Base().id  ->  known_edge  lib/base.js:1:21 id
+main.js:13:112 METHOD_CALL barrel.default  ->  ambiguous_unknown  -
+main.js:13:130 METHOD_CALL barrel.baseDefault  ->  ambiguous_unknown  -
+main.js:13:18 METHOD_CALL barrel.utilAlias  ->  ambiguous_unknown  -
+main.js:13:3 METHOD_CALL barrel.util  ->  known_edge  lib/base.js:2:1 util
+main.js:13:38 CONSTRUCTOR_CALL barrel.BaseAlias  ->  ambiguous_unknown  -
+main.js:13:38 METHOD_CALL new barrel.BaseAlias().id  ->  ambiguous_unknown  -
+main.js:13:67 METHOD_CALL barrel.ns.util  ->  known_edge  lib/base.js:2:1 util
+main.js:13:85 CONSTRUCTOR_CALL barrel.ns.Base  ->  implicit_constructor  -
+main.js:13:85 METHOD_CALL new barrel.ns.Base().id  ->  known_edge  lib/base.js:1:21 id
+main.js:14:17 METHOD_CALL chain.nested.util  ->  ambiguous_unknown  -
+main.js:14:3 METHOD_CALL chain.util  ->  known_edge  lib/base.js:2:1 util
+main.js:14:38 METHOD_CALL chain.ns.util  ->  known_edge  lib/base.js:2:1 util
+main.js:14:55 CONSTRUCTOR_CALL chain.Base  ->  implicit_constructor  -
+main.js:14:55 METHOD_CALL new chain.Base().id  ->  known_edge  lib/base.js:1:21 id
+main.js:15:16 CONSTRUCTOR_CALL BaseAlias  ->  ambiguous_unknown  -
+main.js:15:16 METHOD_CALL new BaseAlias().id  ->  ambiguous_unknown  -
+main.js:15:3 FUNCTION_CALL utilAlias  ->  ambiguous_unknown  -
+main.js:15:38 METHOD_CALL ns.util  ->  known_edge  lib/base.js:2:1 util
+main.js:15:49 FUNCTION_CALL baseDefault  ->  ambiguous_unknown  -
+main.js:15:64 FUNCTION_CALL defBarrel  ->  ambiguous_unknown  -
+main.js:15:77 METHOD_CALL nested.util  ->  ambiguous_unknown  -
+main.js:16:19 CONSTRUCTOR_CALL ViaNs  ->  implicit_constructor  -
+main.js:16:19 METHOD_CALL new ViaNs().own  ->  known_edge  lib/sub.js:4:37 own
+main.js:16:3 CONSTRUCTOR_CALL Sub  ->  implicit_constructor  -
+main.js:16:3 METHOD_CALL new Sub().id  ->  known_edge  lib/sub.js:3:37 id
+main.js:16:38 CONSTRUCTOR_CALL ViaNs  ->  implicit_constructor  -
+main.js:16:38 METHOD_CALL new ViaNs().id  ->  known_edge  lib/base.js:1:21 id
+main.js:16:56 METHOD_CALL Sub.make  ->  known_edge  lib/base.js:1:45 make
+main.js:16:56 METHOD_CALL Sub.make().id  ->  multi_inferred  lib/base.js:1:21 id
+main.js:16:56 METHOD_CALL Sub.make().id  ->  multi_inferred  lib/sub.js:3:37 id
+main.js:17:14 FUNCTION_CALL loadAndCall  ->  known_edge  lib/dyn.js:1:1 loadAndCall
+main.js:17:3 FUNCTION_CALL callCjs  ->  known_edge  lib/mixed.js:4:1 callCjs
+main.js:19:1 FUNCTION_CALL main  ->  known_edge  main.js:11:1 main

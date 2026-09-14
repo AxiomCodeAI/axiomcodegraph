@@ -1,0 +1,9 @@
+# A setter's parameter: `set svc(v) { v.id() }` is fed by an assignment `x.svc = value`,
+# and SETTER_INVOCATION is a reserved call kind in the parser (zero rows) — no site links
+# the write to the accessor.
+lib/classes.js:13:29 id
+# `class Mixed extends Mixin(Base)`: a COMPUTED superclass. The heritage row says so
+# (isComputedSuperclass) but the `extends` expression is not in the expression relation
+# (no HERITAGE root is emitted), so the mixin's returned class cannot be reached.
+lib/classes.js:24:50 mixed
+main.js:10:24 mixed

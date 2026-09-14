@@ -124,3 +124,55 @@ param_value(p, k, i) :- model_express_handler(h, mn), mn != "param", handler_ari
 express_error_value(k, i) :- expr_root("client", "THROW", e), expr_value(e, k, i).
 express_error_value(k, i) :- call_site("client", _, _, _, _, _, ce, _, _), callee_value(ce, "func", m), model_express_value("next", "func", m),
     call_arg(ce, 0, arg), expr_value(arg, k, i).
+
+// ── property descriptors (#489) ─────────────────────────────────────────────
+// `Object.defineProperty(o, 'm', { value: f })`, `Object.defineProperties(o, { m: {...} })`,
+// `Object.create(proto, { m: {...} })`, and the export form a bundler-compiled CommonJS
+// package uses for every export: `Object.defineProperty(exports, 'x', { get() { return
+// impl.x; } })`. A descriptor's value is its `value` property, or what its getter returns.
+descriptor_value(d, k, i) :- expr_kind(_, "OBJECT_LITERAL", _, d), prop_value("obj", d, "value", k, i).
+descriptor_value(d, k, i) :- expr_kind(_, "OBJECT_LITERAL", _, d), prop_value("obj", d, "get", "func", g), return_value(g, k, i).
+descriptor_value(d, k, i) :- literal_owns_method(d, g), method_decl(_, "get", _, _, _, _, _, g), return_value(g, k, i).
+define_property_site(ce, tgt, key, desc) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", "defineProperty", _, _, _, ce, _, _),
+    expr_child(_, ce, "RECEIVER", _, recv), expr_value(recv, "ambient", "Object"),
+    call_arg(ce, 0, tgt), call_arg(ce, 1, key), call_arg(ce, 2, desc).
+member_write(k, i, n, k2, i2) :- define_property_site(_, tgt, key, desc), expr_value(tgt, k, i), k != "ambient",
+    expr_value(key, "str", n), descriptor_value(desc, k2, i2).
+// `Object.defineProperties(o, { n: desc, … })` and `Object.create(proto, { n: desc })`.
+descriptors_literal_entry(lit, n, desc) :- expr_child(_, lit, "PROPERTY_KEY", idx, key), expr_name(_, n, key),
+    expr_child(_, lit, "PROPERTY_VALUE", idx, desc).
+descriptors_literal_entry(lit, n, desc) :- expr_child(_, lit, "COMPUTED_KEY", idx, key), expr_value(key, "str", n),
+    expr_child(_, lit, "PROPERTY_VALUE", idx, desc).
+member_write(k, i, n, k2, i2) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", "defineProperties", _, _, _, ce, _, _),
+    expr_child(_, ce, "RECEIVER", _, recv), expr_value(recv, "ambient", "Object"),
+    call_arg(ce, 0, tgt), expr_value(tgt, k, i), k != "ambient",
+    call_arg(ce, 1, lit), descriptors_literal_entry(lit, n, desc), descriptor_value(desc, k2, i2).
+member_write("obj", ce, n, k2, i2) :- object_create_site(ce, _), call_arg(ce, 1, lit),
+    descriptors_literal_entry(lit, n, desc), descriptor_value(desc, k2, i2).
+// The call evaluates to its target (`Object.defineProperty(o, …)` returns o).
+expr_value(ce, k, i) :- define_property_site(ce, tgt, _, _), expr_value(tgt, k, i).
+
+// ── small platform models (#491) ────────────────────────────────────────────
+// `Object.freeze(o)` / `seal` / `preventExtensions` return their argument.
+expr_value(ce, k, i) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", mn, _, _, _, ce, _, _), object_passthrough_method(mn),
+    expr_child(_, ce, "RECEIVER", _, recv), expr_value(recv, "ambient", "Object"),
+    call_arg(ce, 0, a), expr_value(a, k, i).
+object_passthrough_method("freeze").
+object_passthrough_method("seal").
+object_passthrough_method("preventExtensions").
+// `Reflect.construct(C, args)` constructs C.
+new_callee_value(ce, k, i) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", "construct", _, _, _, ce, _, _),
+    expr_child(_, ce, "RECEIVER", _, recv), expr_value(recv, "ambient", "Reflect"),
+    call_arg(ce, 0, c), expr_value(c, k, i).
+expr_value(ce, "inst", t) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", "construct", _, _, _, ce, _, _),
+    new_constructs(ce, t).
+// `Object.values(o)` / `Object.entries(o)`: an array of every property value (for
+// `entries`, the pairs — the value is what a consumer reads through `[k, v]`, and an
+// array-pattern parameter carries no path yet, so the values are offered directly).
+expr_value(ce, "arr", ce) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", mn, _, _, _, ce, _, _), object_values_method(mn),
+    expr_child(_, ce, "RECEIVER", _, recv), expr_value(recv, "ambient", "Object").
+elem_value(ce, k, i) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", mn, _, _, _, ce, _, _), object_values_method(mn),
+    expr_child(_, ce, "RECEIVER", _, recv), expr_value(recv, "ambient", "Object"),
+    call_arg(ce, 0, o), expr_value(o, k0, i0), prop_value(k0, i0, _, k, i).
+object_values_method("values").
+object_values_method("entries").
