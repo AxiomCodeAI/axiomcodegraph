@@ -80,3 +80,40 @@ for (const item of items) item.run();
 
 The binding has no initializer; the iterated expression is an ITERABLE root of the same
 method. **Workaround:** `resolution/arrays.dl` joins on (module, line).
+
+## PD-JS-7 — a dotted superclass is linked to an import by its LAST segment — parser#479
+
+```js
+const { Base } = require('./other');   // an unrelated Base
+const ns = require('./lib/base');
+class A extends ns.Base {}
+```
+
+`js_type_heritage.importLinkHash` names the `{ Base }` import (matched by the simple
+name) and `superTypeName` is `Base`; only `superTypeExpressionText` holds `ns.Base`.
+Followed, the link gives a WRONG superclass. **Workaround:** `projections/types.dl`
+projects the text as `heritage_text`; `resolution/type-hierarchy.dl` decides the
+import rules on the text being undotted and walks a dotted text through the qualifier's
+module-scope binding, never through the parser's link.
+
+## PD-JS-8 — an `extends` expression that is not a name has no expression row — parser#479
+
+```js
+class Mixed extends Mixin(Base) {}
+class Sub extends require('./types').Gadget {}
+```
+
+`EXTENDS_CLAUSE` rows carry an empty `sourceExpressionLinkHash`, and the walker emits no
+HERITAGE root for the expression, so there is nothing to evaluate. **No workaround** —
+`heritage_unresolved` counts the row (`heritage_dynamic` for `isComputedSuperclass`). A
+parameter as superclass (`(Sup) => class extends Sup`) and a conditional bound to a
+variable resolve through the name.
+
+## PD-JS-9 — a getter is a js_method row like any method
+
+`get svc() { return new Service(); }` is a `METHOD` row whose modifiers carry `get`. A
+member read `x.svc` must yield the getter's RETURN value, and `x.svc()` must not
+resolve to the accessor. **Workaround:** `projections/methods.dl` projects
+`method_modifiers`; `type_own_getter` / `type_own_static_getter` hold accessors apart
+from `type_own_member`, and `prop_value` on a getter is its `return_value`. Not a
+defect as such — recorded because the split is the engine's, not the IR's.
