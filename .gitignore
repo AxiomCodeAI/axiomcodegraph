@@ -85,7 +85,7 @@ call-chain-*.csv
 # tables, and the raw per-language relations it was built from.
 graph.sqlite
 graph.sqlite-journal
-graph/
+csv/
 raw/
 client-ir/
 library-ir/
@@ -227,7 +227,7 @@ $RECYCLE.BIN/
 # checks the property beats a pattern list that tries to anticipate it.
 
 # ── Java engine test suite: per-run work dirs and the generated JDK index ─────
-test/java/.work/
+graph/test/java/.work/
 
 # Python bytecode from the test tools
 __pycache__/
@@ -236,5 +236,8 @@ __pycache__/
 # fixture harness work directories (generated per run). The plain `.work/` is the one
 # run-tests.sh itself uses; the `.work-*` variants are the fixtures'. Only the latter was
 # listed, so every run of the TypeScript suite left an untracked directory behind.
-test/typescript/.work/
-test/typescript/.work-*/
+graph/test/typescript/.work/
+graph/test/typescript/.work-*/
+
+# the one-command pipeline keeps its IR and scratch here
+.intermediate/

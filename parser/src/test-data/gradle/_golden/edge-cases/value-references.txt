@@ -1,0 +1,5 @@
+referenceExpression=-> project.version	referenceType=EXT_PROPERTY_ACCESS	rawFragment=${-> project.version}	defaultValue=	resolutionKind=EXTERNAL	resolvedContext=	startLine=24	endLine=24	startColumn=4	endColumn=47
+referenceExpression=BUILD_TOKEN	referenceType=ENV_VARIABLE	rawFragment=System.getenv('BUILD_TOKEN')	defaultValue=	resolutionKind=EXTERNAL	resolvedContext=	startLine=6	endLine=6	startColumn=15	endColumn=43
+referenceExpression=java.version	referenceType=SYSTEM_PROPERTY	rawFragment=System.getProperty('java.version')	defaultValue=	resolutionKind=EXTERNAL	resolvedContext=	startLine=7	endLine=7	startColumn=14	endColumn=48
+referenceExpression=missing	referenceType=FIND_PROPERTY	rawFragment=project.findProperty('missing')	defaultValue=	resolutionKind=EXTERNAL	resolvedContext=	startLine=4	endLine=4	startColumn=19	endColumn=50
+referenceExpression=nexusUser	referenceType=GRADLE_PROPERTY_PROVIDER	rawFragment=providers.gradleProperty('nexusUser')	defaultValue=	resolutionKind=EXTERNAL	resolvedContext=	startLine=8	endLine=8	startColumn=18	endColumn=55
