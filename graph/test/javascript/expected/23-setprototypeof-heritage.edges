@@ -1,0 +1,23 @@
+child.js:3:20 FUNCTION_CALL_CALL Parent.call  ->  known_edge  parent.js:3:1 Parent
+child.js:4:1 METHOD_CALL Object.setPrototypeOf  ->  ambient_terminal  -
+child.js:5:1 METHOD_CALL Object.setPrototypeOf  ->  ambient_terminal  -
+child.js:5:1 METHOD_CALL Object.setPrototypeOf  ->  callback_registered  child.js:3:1 Child
+child.js:5:1 METHOD_CALL Object.setPrototypeOf  ->  callback_registered  parent.js:3:1 Parent
+child.js:6:44 METHOD_CALL this.base  ->  known_edge  parent.js:4:25 base
+child.js:7:25 FUNCTION_CALL_CALL Child.call  ->  known_edge  child.js:3:1 Child
+child.js:8:1 METHOD_CALL Object.setPrototypeOf  ->  ambient_terminal  -
+main.js:10:3 METHOD_CALL Object.setPrototypeOf  ->  ambient_terminal  -
+main.js:11:3 METHOD_CALL two.base  ->  known_edge  main.js:8:17 base
+main.js:13:1 FUNCTION_CALL main  ->  known_edge  main.js:3:1 main
+main.js:4:13 CONSTRUCTOR_CALL Child  ->  known_edge  child.js:3:1 Child
+main.js:5:13 METHOD_CALL c.describe  ->  known_edge  parent.js:5:29 describe
+main.js:5:27 METHOD_CALL c.own  ->  known_edge  child.js:6:23 own
+main.js:5:3 METHOD_CALL c.base  ->  known_edge  parent.js:4:25 base
+main.js:6:28 CONSTRUCTOR_CALL GrandChild  ->  known_edge  child.js:7:1 GrandChild
+main.js:6:28 METHOD_CALL new GrandChild().own  ->  known_edge  child.js:6:23 own
+main.js:6:3 CONSTRUCTOR_CALL GrandChild  ->  known_edge  child.js:7:1 GrandChild
+main.js:6:3 METHOD_CALL new GrandChild().base  ->  known_edge  parent.js:4:25 base
+main.js:7:3 METHOD_CALL Child.make  ->  known_edge  parent.js:6:15 make
+parent.js:4:46 FUNCTION_CALL helper  ->  known_edge  parent.js:2:1 helper
+parent.js:5:50 METHOD_CALL this.base  ->  known_edge  parent.js:4:25 base
+parent.js:6:36 CONSTRUCTOR_CALL this  ->  known_edge  parent.js:3:1 Parent

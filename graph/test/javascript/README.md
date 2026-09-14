@@ -55,6 +55,7 @@ the previous engine.
 | 19 | class fields: `dep = new Service()`, `#priv = …`, `static shared = …`, `static #hidden = …`, an array field, an object field, a function-expression field whose `this` is the instance — read through `this`, `Holder.x` and `this.x` in a static |
 | 21 | `concat` and `flat` results: the receiver's elements plus each array argument's elements and each non-array argument, `Array.of(...).concat(...).at(-1)`, a spread beside them, and the receiver left unchanged after `concat` (#606) |
 | 22 | `for..of` heads that are patterns: `[, fn]` over pairs, `{ fn }` over objects, `[, fn]` over `Object.entries`, a nested `{ meta: { hooks: [first] } }`, `{ run }` over a Set of instances, `[key, fn]` over a Map, `[first, ...rest]`, a renamed property, `let`, and the plain binding beside them (#604) |
+| 23 | `Object.setPrototypeOf(Child.prototype, Parent.prototype)` as constructor-function inheritance: an inherited method on a Child instance, a grandchild chained the same way, the static side `Object.setPrototypeOf(Child, Parent)` (`Child.make()`), and the plain-object form beside them (#605) |
 | 08 | a dependency under `node_modules`, staged as `--library` from a copy parsed separately: `require('dep')` as a function, a destructured class and function, an instance returned by the library, `boundary_lib` on every edge |
 
 ## Environment
