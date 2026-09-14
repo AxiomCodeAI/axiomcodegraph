@@ -41,6 +41,19 @@ type_super(t, s) :- heritage(_, t, _, _, _, _, _, h), heritage_text(_, txt, h), 
     txt = cat(q, cat(".", last)),
     constructible_value(k2, i2, s).
 
+// `function makeClass(Sup) { return class extends Sup { … } }` — the written name is
+// a PARAMETER of the function whose scope encloses the class expression (the body
+// scope, or a block inside it: the parent chain is walked to the owning method).
+// The parameter's value is whatever the callers passed — `makeClass(Base)` gives
+// the class `Base`.
+scope_enclosing_method(s, m) :- scope_decl(_, _, _, m, _, s), m != "".
+scope_enclosing_method(s, m) :- scope_decl(_, p, _, "", _, s), p != "", scope_enclosing_method(p, m).
+type_super(t, s) :- heritage(_, t, _, sn, _, "", _, h), sn != "", heritage_text(_, txt, h), !contains(".", txt),
+    type_decl(_, _, _, sc, _, t),
+    scope_enclosing_method(sc, m),
+    param_decl(_, sn, _, m, p),
+    param_value(p, k, i), constructible_value(k, i, s).
+
 // ── type_ancestor(TypeHash, AncestorHash) — transitive ──────────────────────
 type_ancestor(t, s) :- type_super(t, s).
 type_ancestor(t, a) :- type_ancestor(t, s), type_super(s, a).

@@ -286,3 +286,5 @@
 .decl type_ref_child_index(c0:symbol, c1:symbol, c2:symbol)
 .decl export_all_is_spread(c0:symbol)
 .decl type_form(c0:symbol, c1:symbol, c2:symbol)
+
+.decl scope_enclosing_method(c0:symbol, c1:symbol)

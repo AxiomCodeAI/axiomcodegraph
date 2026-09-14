@@ -9,7 +9,7 @@ main.js:13:47 CONSTRUCTOR_CALL InPlain  ->  implicit_constructor  -
 main.js:13:47 METHOD_CALL new InPlain().g  ->  known_edge  main.js:11:40 g
 main.js:13:66 CONSTRUCTOR_CALL InPlainDecl  ->  implicit_constructor  -
 main.js:13:66 METHOD_CALL new InPlainDecl().h  ->  known_edge  main.js:12:36 h
-main.js:15:67 METHOD_CALL this.id  ->  ambiguous_unknown  -
+main.js:15:67 METHOD_CALL this.id  ->  known_edge  base.js:2:14 id
 main.js:16:14 FUNCTION_CALL makeClass  ->  known_edge  main.js:15:1 makeClass
 main.js:18:22 CONSTRUCTOR_CALL TopExpr  ->  implicit_constructor  -
 main.js:18:22 METHOD_CALL new TopExpr().b  ->  known_edge  main.js:5:41 b
