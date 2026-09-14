@@ -49,7 +49,7 @@ def main() -> int:
     root = sys.argv[1] if len(sys.argv) > 1 else '.'
     bad = []
     scanned = 0
-    for base in ('src', 'test'):
+    for base in ('graph', 'bin', 'test'):
         for dirpath, dirnames, names in os.walk(os.path.join(root, base)):
             dirnames[:] = [d for d in dirnames if d not in ('__pycache__', '.git', 'node_modules')]
             for n in sorted(names):

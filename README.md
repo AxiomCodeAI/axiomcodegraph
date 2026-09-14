@@ -213,6 +213,21 @@ skills/code-graph/                how an agent builds and queries the graph
 test/<lang>/                      regression suites, torture harnesses, oracles
 ```
 
+## Tests
+
+```bash
+bash test/java/run-tests.sh          # regression suite; --oracle also scores against javac/javap ground truth
+bash test/typescript/run-tests.sh    # --oracle scores against the TypeScript compiler
+bash test/python/run-tests.sh        # --oracle scores against CPython bytecode and tracing
+npm test -w parser                   # the parser's own suite
+```
+
+Each suite parses its fixture cases with the parser in this repository (`AXIOM_PARSER` overrides),
+solves them, guards that no call site was dropped, and diffs the normalised edges against a
+golden. `--keep` retains the per-case work directories (`test/<lang>/.work/<case>/out/graph.sqlite`
+is a real bundle to poke at); `--bless` regenerates goldens — review the diff. The torture
+harnesses (`test/<lang>/torture/`) and the TypeScript corpus runner score real projects.
+
 ## Known limits
 
 Stated because a graph you can't trust the boundaries of isn't useful:

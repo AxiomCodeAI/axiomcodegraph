@@ -43,8 +43,8 @@ LANG = sys.argv[sys.argv.index('--lang') + 1] if '--lang' in sys.argv else 'java
 # up; it is shared now, so it is three. Getting it wrong makes every path miss and the
 # guard pass vacuously, which is the one failure mode a guard must not have.
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..')
-TPL  = os.path.join(ROOT, 'src', LANG, 'templates')
-DECL = os.path.join(ROOT, 'src', LANG, 'souffle', 'decls_base.dl')
+TPL  = os.path.join(ROOT, 'graph', LANG, 'templates')
+DECL = os.path.join(ROOT, 'graph', LANG, 'souffle', 'decls_base.dl')
 
 # Relations that exist for the CLIENT only, each with the reason. A library's copy of one of
 # these would be meaningless, so the asymmetry is intended rather than forgotten.
