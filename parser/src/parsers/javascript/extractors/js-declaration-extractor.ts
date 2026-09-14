@@ -52,6 +52,7 @@ import {
   jsDocTagsOfAllBlocks,
   lastLineOf,
   rangeOf, jsDocParameterTagFor,
+  bindingPathOf,
 } from '@/utils/javascript';
 
 /**
@@ -790,12 +791,18 @@ export class JsDeclarationExtractor {
         continue;
       }
       for (const expression of clause.types) {
+        // The extends EXPRESSION is the source, for every clause: `Mixin(Base)`,
+        // `(flag ? A : B)`, `(await import('./b')).Base`, a parameter named
+        // `Sup` — each has an expression row, and without this link a
+        // superclass that is not a bare or dotted name could not be resolved
+        // from the row at all (engine #479).
         this.emitHeritage({
           ownerType: type,
           form: JsHeritageForm.EXTENDS_CLAUSE,
           superExpression: expression.expression,
           context,
-          sourceNode: undefined,
+          sourceNode: expression.expression,
+          declaresByAssignment: false,
         });
       }
     }
@@ -807,6 +814,8 @@ export class JsDeclarationExtractor {
     superExpression: ts.Expression;
     context: WalkContext;
     sourceNode: ts.Node | undefined;
+    /** An assignment/call that DECLARES the edge (Object.create, util.inherits) — not an extends expression. */
+    declaresByAssignment?: boolean;
   }): void {
     const at = this.positionOf(init.superExpression);
     // The NAME as written, and nothing resolved. `EventEmitter` stays
@@ -814,10 +823,17 @@ export class JsDeclarationExtractor {
     // expression text. Those two plus `importLinkHash` are the three things §0
     // says make a row complete, and `resolvedTypeLinkHash` stays tier 3.
     const written = init.superExpression.getText(this.sourceFile);
-    const simpleName = ts.isIdentifier(init.superExpression)
-      ? init.superExpression.text
-      : ts.isPropertyAccessExpression(init.superExpression)
-        ? init.superExpression.name.text
+    // Parentheses are not computation: `class A extends (Base) {}` names
+    // Base. 43 of 1,988 heritage edges read isComputedSuperclass = true with
+    // the raw parenthesised text as the name (js-corpus's finding).
+    let named: ts.Expression = init.superExpression;
+    while (ts.isParenthesizedExpression(named)) {
+      named = named.expression;
+    }
+    const simpleName = ts.isIdentifier(named)
+      ? named.text
+      : ts.isPropertyAccessExpression(named)
+        ? named.name.text
         : '';
     const row = new JsTypeHeritageRegistry({
       ownerTypeLinkHash: init.ownerType.getHash(),
@@ -834,6 +850,11 @@ export class JsDeclarationExtractor {
       ownerModuleLinkHash: this.options.moduleHash,
       serviceVersionLinkHash: this.options.serviceVersionLinkHash,
     });
+    // The ROOT identifier of the superclass expression, for the import join:
+    // `ns.Base` is bound through `ns`, not through whatever import happens to
+    // bind a name equal to its last segment — which linked `class A extends
+    // ns.Base` to an unrelated `{ Base }` import, a WRONG superclass (#479).
+    row.setRootIdentifierName(rootIdentifierOf(init.superExpression));
     this.heritages.push(row);
     if (init.sourceNode !== undefined) {
       const identity = nodeKey(init.sourceNode);
@@ -843,7 +864,9 @@ export class JsDeclarationExtractor {
           row.setSourceExpressionLinkHash(hash);
         },
       });
-      this.declarationByAssignment.set(identity, row.getHash());
+      if (init.declaresByAssignment !== false) {
+        this.declarationByAssignment.set(identity, row.getHash());
+      }
     }
   }
 
@@ -2266,6 +2289,16 @@ export class JsDeclarationExtractor {
       if (reassigned.has(binding.name)) {
         row.setIsReassigned();
       }
+      // The binding's route from its pattern's root, and whether it is a
+      // rest (#487): `const { cb: renamed } = o` has path `cb`; the engine had
+      // only the local name and read the wrong property on every renamed
+      // binding. Empty for a name that is not inside a pattern.
+      if (node !== null) {
+        const bound = bindingPathOf(node);
+        if (bound.root !== undefined && ts.isVariableDeclaration(bound.root) && bound.path !== '') {
+          row.setBindingPath(bound.path, bound.isRest);
+        }
+      }
       this.variables.push(row);
       this.variableRowByBinding.set(binding, row);
       // Names bound by ONE destructuring point at a shared root, so
@@ -3107,6 +3140,24 @@ function declaratorOf(nameNode: ts.Node): ts.Node | undefined {
  * name has — a function or class declaration, a catch clause, an import —
  * and answers only when that declarator is a variable or a parameter.
  */
+function rootIdentifierOf(expression: ts.Expression): string {
+  // The leftmost identifier of a member chain — `ns` of `ns.a.Base`, `Base`
+  // of `Base`, `''` for anything else (a call, a conditional, `this`).
+  let current: ts.Expression = expression;
+  for (;;) {
+    if (ts.isParenthesizedExpression(current) || ts.isNonNullExpression(current)) {
+      current = current.expression;
+      continue;
+    }
+    if (ts.isPropertyAccessExpression(current) || ts.isElementAccessExpression(current)) {
+      current = current.expression;
+      continue;
+    }
+    break;
+  }
+  return ts.isIdentifier(current) ? current.text : '';
+}
+
 function declarationOwning(nameNode: ts.Node): ts.Node | undefined {
   let current: ts.Node | undefined = nameNode;
   while (current !== undefined) {

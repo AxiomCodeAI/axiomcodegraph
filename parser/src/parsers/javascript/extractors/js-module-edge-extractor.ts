@@ -75,6 +75,8 @@ export interface ModuleEdgeExtractionOptions {
   readonly rootHashByNode: ReadonlyMap<string, string>;
   /** `nodeKey` -> `js_method` hash, so a nested `require` names its owner. */
   readonly methodHashByNode: ReadonlyMap<string, string>;
+  /** js_type hash by declaring class node — the target of `export [default] class`, by identity. */
+  readonly typeHashByNode: ReadonlyMap<string, string>;
   readonly moduleInitMethodHash: string;
   /** Project-relative path for an absolute one, so `resolvedFilePath` joins. */
   readonly toProjectRelative: (absolutePath: string) => string;
@@ -404,6 +406,24 @@ class JsModuleEdgeExtractor {
     if (ts.isNamedExports(node.exportClause)) {
       for (const element of node.exportClause.elements) {
         const local = (element.propertyName ?? element.name).text;
+        // `export { a as b } from './x'` and `export { default } from './x'`
+        // are an import and an export in one statement, exactly as
+        // `export *` is — but only `export *` minted the import row and set
+        // reExportImportLinkHash, so every other re-export form yielded
+        // nothing on the importing side: the engine's join from the export
+        // to the source module had no import to follow (engine #483). One
+        // import row per element, binding NOTHING locally (the name is not
+        // in this module's scope), importedName the source-side name.
+        const importRow = specifier === '' ? undefined : this.emitImport({
+          node: element,
+          specifier,
+          importForm: JsImportForm.IMPORT_DECLARATION,
+          bindingForm: JsImportBindingForm.NO_LOCAL_BINDING,
+          importedName: local,
+          localName: '',
+          edgeBearer: JsEdgeBearer.DECLARATION,
+          sourceExpression: undefined,
+        });
         this.emitExport({
           node: element,
           exportedName: element.name.text,
@@ -413,7 +433,7 @@ class JsModuleEdgeExtractor {
           edgeBearer: JsEdgeBearer.DECLARATION,
           isReExport: specifier !== '',
           reExportSpecifier: specifier,
-          reExportImport: undefined,
+          reExportImport: importRow,
           sourceExpression: undefined,
         });
       }
@@ -445,11 +465,23 @@ class JsModuleEdgeExtractor {
     // expression form were already `default`.
     const isDefault = (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement))
       && (ts.getCombinedModifierFlags(statement) & ts.ModifierFlags.Default) !== 0;
+    // The target BY NODE for a declaration export: the class or function IS
+    // the statement, so its row is known by identity and no name lookup is
+    // needed — and for `export default class extends Base {}` there is no
+    // name to look up at all. That row went out as EXPRESSION_VALUE with an
+    // empty target, so a default import held nothing (engine #484); the
+    // grammar allows exactly one anonymous class declaration per module.
+    const declared = ts.isClassDeclaration(statement)
+      ? { kind: JsExportTargetKind.TYPE, hash: this.options.typeHashByNode.get(nodeKey(statement)) }
+      : ts.isFunctionDeclaration(statement)
+        ? { kind: JsExportTargetKind.METHOD, hash: this.options.methodHashByNode.get(nodeKey(statement)) }
+        : undefined;
     for (const name of exportedNamesOf(statement)) {
       this.emitExport({
         node: statement,
         exportedName: isDefault ? JS_DEFAULT_EXPORT_NAME : name,
         localName: name,
+        declaredTarget: declared?.hash === undefined ? undefined : { kind: declared.kind, hash: declared.hash },
         exportForm: JsExportForm.EXPORT_DECLARATION,
         exportedValueKind: declaredValueKindOf(statement),
         edgeBearer: JsEdgeBearer.DECLARATION,
@@ -850,6 +882,8 @@ class JsModuleEdgeExtractor {
     reExportSpecifier: string;
     reExportImport: JsImportRegistry | undefined;
     sourceExpression: ts.Node | undefined;
+    /** The declaration this export IS, by node identity — wins over any name lookup. */
+    declaredTarget?: { kind: JsExportTargetKind; hash: string };
   }): void {
     const at = this.positionOf(init.node);
     const scope = this.scopeAt(init.node);
@@ -915,7 +949,8 @@ class JsModuleEdgeExtractor {
       }
       return chosen;
     };
-    const target = nearest(JsExportTargetKind.TYPE)
+    const target = init.declaredTarget
+      ?? nearest(JsExportTargetKind.TYPE)
       ?? nearest(JsExportTargetKind.METHOD)
       ?? nearest(JsExportTargetKind.VARIABLE);
     if (target !== undefined) {

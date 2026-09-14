@@ -40,6 +40,14 @@ export class JsTypeHeritageRegistry implements EntityIdentifiable {
   readonly heritageForm: JsHeritageForm;
   /** The name **as written** — `EventEmitter`, or `require("events").EventEmitter`. */
   readonly superTypeName: string;
+  /** NOT a column: the root identifier of the superclass expression, for the import join. */
+  private rootIdentifierName = '';
+  setRootIdentifierName(name: string): void {
+    this.rootIdentifierName = name;
+  }
+  rootIdentifierNameValue(): string {
+    return this.rootIdentifierName;
+  }
   readonly superTypeExpressionText: string;
   /** `class X extends mixin(Y)` — syntax does not fix the name. */
   readonly isComputedSuperclass: boolean;
