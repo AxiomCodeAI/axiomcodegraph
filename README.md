@@ -129,10 +129,12 @@ receiver is a lambda parameter. Restricted to files of 1,000 lines or more, d1 r
 ```bash
 npm install && npm run build            # builds the parser and the engine (Node ≥ 22.5)
 
-bin/axiomcode all --language java --src <project-dir> --out <out-dir>       # source → graph.sqlite
-#                 --language java | typescript | python
-#                 --library <platform-ir>[,<lib-ir>...]   the platform library and real dependencies, when you have their IR
-#                 --debug                                 also write csv/*.csv and keep raw/
+bin/axiomcode all --src <project-dir> --out <out-dir>          # source → <out-dir>/<lang>/graph.sqlite, per language found
+#                 --language java | typescript | python    restrict to one (the parser emits every language it finds)
+#                 --version V                              stamp the IR (default: the source's git commit, else v1.0.0)
+#                 --exclude-tests                          leave test code out (default: included)
+#                 --library <platform-ir>[,<lib-ir>...]    the platform library and real dependencies, when you have their IR
+#                 --debug                                  also write csv/*.csv and keep raw/
 
 bin/axiomcode parser <src-dir> <ir-dir>                                     # the two stages separately
 bin/axiomcode engine --language java --client-ir <ir-dir> --out <out-dir>
@@ -140,7 +142,9 @@ bin/axiomcode test [java|typescript|python|parser|all]
 ```
 
 `bin/axiomcode` is the whole pipeline as subcommands: the parser (`parser/`) extracts a relational IR
-from the source, the engine (`graph/`) solves it, and `<out-dir>/graph.sqlite` is the result. **No
+from the source — every language it finds, in one pass — the engine (`graph/`) solves each language
+separately, and `<out-dir>/<lang>/graph.sqlite` is the result (graphs are per language; a Java→TypeScript
+call is not an edge in either). **No
 Soufflé and no C++ compiler**: the rules compile to one self-contained executable, CI builds it for
 Linux (x86_64, arm64), macOS (arm64) and Windows on every merge to `main` and commits it under
 `binaries/<lang>/<platform>/`, so a checkout carries the engine for every platform. With `souffle`
