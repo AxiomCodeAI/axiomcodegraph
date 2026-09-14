@@ -1,3 +1,5 @@
+import * as fs from 'fs';
+import * as fsp from 'fs/promises';
 import * as path from 'path';
 
 import { JAVA_TEST_DIR, ANALYSIS_OUTPUT_DIR } from '@/constants/consts';
@@ -22,6 +24,65 @@ export interface ExtractOptions {
   excludeTests?: boolean;
   /** Directory to write extracted facts to. Default: the analyzers' built-in location. */
   outputDir?: string;
+  /**
+   * `flat` (default): every language's tables side by side in outputDir, as always.
+   * `per-language`: outputDir/java/, outputDir/typescript/, outputDir/python/,
+   * outputDir/javascript/ — one folder per language that had a project, holding only
+   * that language's tables (the config tables — properties, XML, YAML, Gradle,
+   * services — go with Java, whose rules are the only reader). A consumer that solves
+   * one language at a time points at one folder and sees nothing else.
+   */
+  layout?: 'flat' | 'per-language';
+}
+
+/**
+ * Merge the relation files several per-project runs wrote into their own scratch
+ * folders into one set: the header once, every project's rows after it, in project
+ * order. Two TypeScript (or Python) projects in one tree used to be analysed
+ * concurrently into the SAME folder, and each relation was opened with a truncating
+ * write — whichever project finished last kept its rows and the other's vanished,
+ * silently and in an order that varied between runs. The JavaScript analyzer avoids
+ * this by unioning its roots up front; the languages that take one root per call
+ * get the same guarantee here, at the file level, without touching their analyzers.
+ * A zero-byte relation (no rows, no header) contributes nothing but still ensures
+ * the file exists in the merged set.
+ */
+async function mergeProjectOutputs(scratchDirs: string[], outputDir: string): Promise<void> {
+  const seen = new Map<string, boolean>(); // filename → header already written
+  for (const dir of scratchDirs) {
+    let names: string[] = [];
+    try { names = (await fsp.readdir(dir)).filter((n) => n.endsWith('.csv')); } catch { continue; }
+    for (const name of names.sort()) {
+      const src = path.join(dir, name);
+      const dst = path.join(outputDir, name);
+      const text = await fsp.readFile(src, 'utf-8');
+      if (!seen.has(name)) {
+        await fsp.writeFile(dst, text, 'utf-8');
+        seen.set(name, text.length > 0);
+        continue;
+      }
+      if (text.length === 0) continue;
+      const nl = text.indexOf('\n');
+      const header = nl < 0 ? text : text.slice(0, nl);
+      const body = nl < 0 ? '' : text.slice(nl + 1);
+      if (!seen.get(name)) {
+        // the first project wrote a zero-byte file for this relation; this one has rows
+        await fsp.writeFile(dst, header + '\n' + body, 'utf-8');
+        seen.set(name, true);
+      } else if (body.length > 0) {
+        await fsp.appendFile(dst, body.endsWith('\n') ? body : body + '\n', 'utf-8');
+      }
+    }
+    await fsp.rm(dir, { recursive: true, force: true });
+  }
+}
+
+/** A fresh scratch folder per project, under the output directory so it is on the same volume. */
+function scratchFor(outputDir: string, language: string, index: number): string {
+  const dir = path.join(outputDir, `.${language}-project-${index}`);
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
 }
 
 /** Runs a promise and returns its value alongside how long it took, in seconds. */
@@ -127,12 +188,33 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
   const typescriptProjects = scanner.filterByLanguage(allProjects, ProjectLanguage.TYPESCRIPT);
   const javascriptProjects = scanner.filterByLanguage(allProjects, ProjectLanguage.JAVASCRIPT);
 
-  const javaAnalyzer = new JavaProjectAnalyzer(undefined, outputDir);
-  const propertiesAnalyzer = new PropertiesProjectAnalyzer(outputDir);
-  const xmlAnalyzer = new XmlProjectAnalyzer(outputDir);
-  const yamlAnalyzer = new YamlProjectAnalyzer(outputDir);
-  const gradleAnalyzer = new GradleProjectAnalyzer(outputDir);
-  const servicesAnalyzer = new ServicesProjectAnalyzer(outputDir);
+  // Where each language writes. Flat: everything into outputDir. Per-language: a folder per
+  // language, created only for a language that had a project, so an absent language leaves
+  // no folder of zero-byte tables behind.
+  const perLanguage = opts.layout === 'per-language';
+  const baseOut = outputDir ?? ANALYSIS_OUTPUT_DIR;
+  const dirFor = (language: string, present: boolean): string | undefined => {
+    if (!perLanguage) return outputDir;
+    if (!present) return undefined;
+    const d = path.join(baseOut, language);
+    fs.mkdirSync(d, { recursive: true });
+    return d;
+  };
+  const javaOut = dirFor('java', javaProjects.length > 0);
+  const typescriptOut = dirFor('typescript', typescriptProjects.length > 0);
+  const pythonOut = dirFor('python', pythonProjects.length > 0);
+  const javascriptOut = dirFor('javascript', javascriptProjects.length > 0);
+  // The config analyzers walk every scan target and always write; without a Java project
+  // their tables have no reader, so in per-language mode they go to a scratch folder that
+  // is discarded rather than into a java/ folder that would announce a language absent here.
+  const configOut = perLanguage ? (javaOut ?? scratchFor(baseOut, 'config', 0)) : outputDir;
+
+  const javaAnalyzer = new JavaProjectAnalyzer(undefined, javaOut ?? (perLanguage ? scratchFor(baseOut, 'java', 0) : outputDir));
+  const propertiesAnalyzer = new PropertiesProjectAnalyzer(configOut);
+  const xmlAnalyzer = new XmlProjectAnalyzer(configOut);
+  const yamlAnalyzer = new YamlProjectAnalyzer(configOut);
+  const gradleAnalyzer = new GradleProjectAnalyzer(configOut);
+  const servicesAnalyzer = new ServicesProjectAnalyzer(configOut);
   const pythonAnalyzer = new PythonProjectAnalyzer();
   const typescriptAnalyzer = new TypeScriptProjectAnalyzer();
   const javascriptAnalyzer = new JavaScriptProjectAnalyzer();
@@ -173,10 +255,11 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
     // the files at the top, and every package below is its own program, so
     // treating the project as one program reached 24 of 965 files on one such
     // repository. The output is one flat set, as Java's is.
-    timed(Promise.all(typescriptProjects.map((project) =>
+    timed(Promise.all(typescriptProjects.map((project, i) =>
       typescriptAnalyzer.analyzePrograms({
         rootDir: project.path,
-        outputDir: outputDir ?? ANALYSIS_OUTPUT_DIR,
+        // one scratch folder per project; merged below — see mergeProjectOutputs
+        outputDir: scratchFor(typescriptOut ?? baseOut, 'typescript', i),
         baseMservPath: absolutePath,
         serviceVersionLink: opts.versionLink,
         excludeDirs: excludeTests
@@ -184,10 +267,10 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
              'test', 'tests', '__tests__', '.next', '.turbo']
           : undefined,
       })))),
-    timed(Promise.all(pythonProjects.map((project) =>
+    timed(Promise.all(pythonProjects.map((project, i) =>
       pythonAnalyzer.analyze({
         rootDir: project.path,
-        outputDir: outputDir ?? ANALYSIS_OUTPUT_DIR,
+        outputDir: scratchFor(pythonOut ?? baseOut, 'python', i),
         baseMservPath: absolutePath,
         serviceVersionLink: opts.versionLink,
         // Python has no excludeTests flag; test discovery is by convention, so
@@ -213,7 +296,7 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
     // packages both claim.
     timed(Promise.all([
       javascriptAnalyzer.analyzeAll(javascriptProjects.map((project) => project.path), {
-        outputDir: outputDir ?? ANALYSIS_OUTPUT_DIR,
+        outputDir: javascriptOut ?? (perLanguage ? scratchFor(baseOut, 'javascript', 0) : baseOut),
         baseMservPath: absolutePath,
         serviceVersionLink: opts.versionLink,
         // excludeDirs REPLACES the defaults rather than adding to them, so the
@@ -228,6 +311,16 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
       }),
     ])),
   ]);
+
+  // Every per-project scratch folder is merged into its language's folder now, in project
+  // order, and removed. In flat mode the language folder IS outputDir.
+  await mergeProjectOutputs(typescriptProjects.map((_, i) => path.join(typescriptOut ?? baseOut, `.typescript-project-${i}`)), typescriptOut ?? baseOut);
+  await mergeProjectOutputs(pythonProjects.map((_, i) => path.join(pythonOut ?? baseOut, `.python-project-${i}`)), pythonOut ?? baseOut);
+  if (perLanguage) {
+    for (const stray of ['.config-project-0', '.java-project-0', '.javascript-project-0']) {
+      fs.rmSync(path.join(baseOut, stray), { recursive: true, force: true });
+    }
+  }
 
   // Python and TypeScript ran and wrote their CSVs but reported nothing, while
   // every other language printed counts and a duration. A run over a Python

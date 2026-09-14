@@ -17,10 +17,16 @@ import * as path from 'path';
 import { extractProject } from '@/extract';
 
 async function main() {
-  const projectsDirectory = process.argv[2];
-  const serviceVersionLink = process.argv[3];
-  const excludeTestsArg = process.argv[4];
-  const outputDirArg = process.argv[5];
+  // `--per-language` may appear anywhere: outputDir/<lang>/ instead of one flat folder.
+  const flags = new Set(process.argv.slice(2).filter((a) => a.startsWith('--')));
+  const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+  for (const f of flags) {
+    if (f !== '--per-language') { console.error(`❌ Error: unknown option ${f}`); process.exit(1); }
+  }
+  const projectsDirectory = args[0];
+  const serviceVersionLink = args[1];
+  const excludeTestsArg = args[2];
+  const outputDirArg = args[3];
 
   if (!projectsDirectory) {
     console.error('❌ Error: Please provide a projects directory path');
@@ -40,6 +46,7 @@ async function main() {
     versionLink: serviceVersionLink,
     excludeTests: excludeTestsArg === 'true',
     outputDir: outputDirArg,
+    layout: flags.has('--per-language') ? 'per-language' : 'flat',
   });
 }
 
