@@ -1,0 +1,5 @@
+ambiguous_unknown	METHOD_CALL	Util#static inSorted(string,readonly string[]) @L3 -> -
+known_edge	FUNCTION_CALL	use#viaAlias(string) @L9 -> Util#static inSorted(string,readonly string[])
+known_edge	FUNCTION_CALL	use#viaInherited(string) @L17 -> Util#static inSorted(string,readonly string[])
+known_edge	FUNCTION_CALL	use#viaNamespaceAlias() @L21 -> util#plain(number)
+known_edge	METHOD_CALL	use#viaClass(string) @L13 -> Util#static inSorted(string,readonly string[])

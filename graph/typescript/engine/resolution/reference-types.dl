@@ -275,6 +275,16 @@ var_type(v, prov, t) :- for_binding_iterable(v, e),
 // the connection, so this is a column read rather than a position match.
 var_is_function(v, m) :- var_bound_function("client", m, v).
 var_is_function(v, m) :- var_bound_function("lib", m, v).
+// `const f = Util.inSorted`. The binder links a const to a function EXPRESSION it is
+// initialised with, not to a member it is initialised FROM, so this reads the
+// initializer through expr_callable instead — which is below the expression fixpoint
+// for a static-member access (see expr-type.dl), so the const stays callable at the
+// call site the way an arrow-initialised one is. `const` only: a `let` that is later
+// reassigned holds more than one value, and this relation feeds a negation. #584.
+var_is_function(v, m) :- var_initializer("client", _, e, v),
+    e != "",
+    var_flags("client", "true", _, _, v),
+    expr_callable(e, m).
 
 // ── A TYPE-LEVEL SIGNATURE'S RETURN, RECOVERED FROM ITS REFERENCE ──────────
 // A signature declared inside a TYPE — `(x: A) => B` — is emitted with an EMPTY
