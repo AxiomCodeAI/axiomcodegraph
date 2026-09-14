@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────────────
+# axiomcode-graph — source tree in, graph.sqlite out. The one command.
+#
+#   bin/axiomcode-graph --language java|typescript|python|javascript --src <project-dir> --out <dir>
+#                   [--library <ir-root>[,<ir-root>…]] [--intermediate <dir>] [--debug]
+#                   [--slug <name>] [--dispatch-cap N|off]
+#
+# Runs the parser (parser/dist) over the project to extract its relational IR, then the
+# engine (graph/pipeline/run-souffle.sh) — prebuilt binary or local compile — and leaves
+#   <out>/graph.sqlite        the graph, with its schema inside (graph/bundle/SCHEMA.md)
+# and, with --debug, <out>/csv/*.csv and <out>/raw/. The IR and the engine's scratch go
+# under --intermediate (default <out>/.intermediate). Requires Node ≥ 22.5.
+# ─────────────────────────────────────────────────────────────────────────────
+set -eu
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+LANG_ARG=""; SRC=""; OUT=""; LIB=""; INT=""; SLUG=""; DEBUG=""; EXTRA=()
+while [ $# -gt 0 ]; do case "$1" in
+  --language) LANG_ARG="$2"; shift 2;;
+  --src) SRC="$2"; shift 2;;
+  --out) OUT="$2"; shift 2;;
+  --library) LIB="$2"; shift 2;;
+  --intermediate) INT="$2"; shift 2;;
+  --slug) SLUG="$2"; shift 2;;
+  --debug) DEBUG="--debug"; shift;;
+  --dispatch-cap|--lib-depth|--jdk-depth|--taint) EXTRA+=("$1" "$2"); shift 2;;
+  -h|--help) sed -n '3,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
+  *) echo "axiomcode-graph: unknown argument $1 (try --help)" >&2; exit 2;;
+esac; done
+[ -n "$LANG_ARG" ] && [ -n "$SRC" ] && [ -n "$OUT" ] || { echo "axiomcode-graph: --language, --src and --out are required (try --help)" >&2; exit 2; }
+[ -d "$SRC" ] || { echo "axiomcode-graph: --src is not a directory: $SRC" >&2; exit 2; }
+[ -d "$ROOT/graph/$LANG_ARG" ] || { echo "axiomcode-graph: no engine for --language=$LANG_ARG (have: $(ls "$ROOT/graph" | grep -vE 'pipeline|bundle|constants|\.ts$' | tr '\n' ' '))" >&2; exit 2; }
+PARSER="${AXIOM_PARSER:-$ROOT/parser/dist/index.js}"
+[ -f "$PARSER" ] || { echo "axiomcode-graph: parser not built at $PARSER — run: npm install && npm run build" >&2; exit 1; }
+SRC="$(cd "$SRC" && pwd)"; mkdir -p "$OUT"; OUT="$(cd "$OUT" && pwd)"
+INT="${INT:-$OUT/.intermediate}"; SLUG="${SLUG:-$(basename "$SRC")}"
+IR="$INT/ir"; rm -rf "$IR"; mkdir -p "$IR"
+
+echo "▶ parsing $SRC ($LANG_ARG) → IR"
+node "$PARSER" "$SRC" "$SLUG" false "$IR" > "$INT/parse.log" 2>&1 || { echo "❌ parser failed — see $INT/parse.log" >&2; tail -5 "$INT/parse.log" >&2; exit 1; }
+echo "▶ solving"
+bash "$ROOT/graph/pipeline/run-souffle.sh" --language "$LANG_ARG" --client-ir "$IR" --library "$LIB" \
+     --intermediate "$INT" --output "$OUT" $DEBUG ${EXTRA[@]+"${EXTRA[@]}"}
+echo "$OUT/graph.sqlite"

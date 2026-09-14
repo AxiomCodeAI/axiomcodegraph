@@ -227,7 +227,7 @@ $RECYCLE.BIN/
 # checks the property beats a pattern list that tries to anticipate it.
 
 # ── Java engine test suite: per-run work dirs and the generated JDK index ─────
-test/java/.work/
+graph/test/java/.work/
 
 # Python bytecode from the test tools
 __pycache__/
@@ -236,12 +236,12 @@ __pycache__/
 # fixture harness work directories (generated per run). The plain `.work/` is the one
 # run-tests.sh itself uses; the `.work-*` variants are the fixtures'. Only the latter was
 # listed, so every run of the TypeScript suite left an untracked directory behind.
-test/typescript/.work/
-test/typescript/.work-*/
+graph/test/typescript/.work/
+graph/test/typescript/.work-*/
 
 # the one-command pipeline keeps its IR and scratch here
 .intermediate/
 
 # A JavaScript fixture dependency is a real package under node_modules — that is the shape
 # the parser resolves and the shape the library join is written for.
-!test/javascript/cases/*/src/node_modules/
+!graph/test/javascript/cases/*/src/node_modules/

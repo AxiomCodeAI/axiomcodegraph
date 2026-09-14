@@ -129,7 +129,7 @@ receiver is a lambda parameter. Restricted to files of 1,000 lines or more, d1 r
 ```bash
 npm install && npm run build          # builds the parser and the engine (Node ≥ 22.5)
 
-bin/axiom-graph --language java --src <project-dir> --out <out-dir>
+bin/axiomcode-graph --language java --src <project-dir> --out <out-dir>
 #               --language java | typescript | python | javascript
 #               --library <platform-ir>[,<lib-ir>...]   the platform library and real dependencies, when you have their IR
 #               --debug                                 also write csv/*.csv and keep raw/
@@ -196,7 +196,7 @@ the omission is reported.
 ## Layout
 
 ```
-bin/axiom-graph                   the one command: parse → solve → graph.sqlite
+bin/axiomcode-graph                   the one command: parse → solve → graph.sqlite
 parser/                           the IR extractor (its own package; merged in with history)
 graph/                            the engine
   <lang>/engine/projections/        IR → typed relations
@@ -208,26 +208,25 @@ graph/                            the engine
   <lang>/templates/                 staging maps
   pipeline/run-souffle.sh           fact staging, engine resolution (committed / compiled / fetched), stage↔solve loop, then the bundle stage
   bundle/                           the output contract: schema as data (SCHEMA.md), per-language adapters, writers
+  test/<lang>/                      the engine's regression suites, torture harnesses, oracles (graph/test/tools: platform preflights)
 binaries/<lang>/<platform>/       CI-built engines, committed on merge (ENGINE_ID = the rules they were built from)
-skills/code-graph/                how an agent builds and queries the graph
-test/<lang>/                      regression suites, torture harnesses, oracles
 ```
 
 ## Tests
 
 ```bash
-bash test/java/run-tests.sh          # regression suite; --oracle also scores against javac/javap ground truth
-bash test/typescript/run-tests.sh    # --oracle scores against the TypeScript compiler
-bash test/python/run-tests.sh        # --oracle scores against CPython bytecode and tracing
-bash test/javascript/run-tests.sh    # --oracle scores against the TypeScript compiler over plain JavaScript (allowJs/checkJs)
+bash graph/test/java/run-tests.sh          # regression suite; --oracle also scores against javac/javap ground truth
+bash graph/test/typescript/run-tests.sh    # --oracle scores against the TypeScript compiler
+bash graph/test/python/run-tests.sh        # --oracle scores against CPython bytecode and tracing
+bash graph/test/javascript/run-tests.sh    # --oracle scores against the TypeScript compiler over plain JavaScript (allowJs/checkJs)
 npm test -w parser                   # the parser's own suite
 ```
 
 Each suite parses its fixture cases with the parser in this repository (`AXIOM_PARSER` overrides),
 solves them, guards that no call site was dropped, and diffs the normalised edges against a
-golden. `--keep` retains the per-case work directories (`test/<lang>/.work/<case>/out/graph.sqlite`
+golden. `--keep` retains the per-case work directories (`graph/test/<lang>/.work/<case>/out/graph.sqlite`
 is a real bundle to poke at); `--bless` regenerates goldens — review the diff. The torture
-harnesses (`test/<lang>/torture/`) and the TypeScript corpus runner score real projects.
+harnesses (`graph/test/<lang>/torture/`) and the TypeScript corpus runner score real projects.
 
 ## Known limits
 
