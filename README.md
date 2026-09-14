@@ -5,14 +5,15 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/ci.yml"><img alt="Build" src="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+  <a href="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/publish-npm.yml"><img alt="Engines" src="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/publish-npm.yml/badge.svg"></a>
   <a href="LICENSE.md"><img alt="License: FSL-1.1-Apache-2.0" src="https://img.shields.io/badge/license-FSL--1.1--Apache--2.0-blue"></a>
   <img alt="Node ≥ 22.5" src="https://img.shields.io/badge/node-%E2%89%A5%2022.5-brightgreen">
-  <img alt="Languages" src="https://img.shields.io/badge/languages-Java%20%C2%B7%20TypeScript%20%C2%B7%20Python-informational">
 </p>
 
 <p align="center">
   <a href="#what-it-does">What it does</a> ·
-  <a href="#supported-languages">Languages</a> ·
+  <a href="#language-support">Language support</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#what-you-get">What you get</a> ·
   <a href="#how-it-works">How it works</a> ·
@@ -35,15 +36,31 @@ Point it at a repository and it builds a **call graph**: a map of which function
 - **Validated against the compiler.** Results are scored against ground truth from the language's own toolchain — the JDK's class-file parser over compiled bytecode, the TypeScript compiler, CPython's bytecode and tracing — never against another third-party analyzer. On hand-crafted constructs: precision 1.000, recall 1.000.
 - **Honest about what it doesn't know.** Every edge carries a confidence tier, and a call the engine cannot resolve is kept as a row that says so — never silently dropped. A test asserts the number of silently missing call sites is zero.
 
-## Supported languages
+## Language support
 
-| language | maturity | what "maturity" means here |
-|---|---|---|
-| **Java** | stable | first front end; validated on hand-crafted constructs (P/R 1.000) and on five real commits of a large open-source project against bytecode ground truth; Spring/DI configuration wiring resolved |
-| **TypeScript** | stable | 53 regression cases plus real projects scored against the TypeScript compiler's own resolution; structural typing, overload sets, module graph, `.d.ts` libraries |
-| **Python** | stable | MRO, decorators, protocols, dynamic-attribute detection; scored against CPython bytecode and `sys.settrace` on a 600-site torture suite |
-| **JavaScript** | in progress | parser complete; engine under review |
-| **C#** | planned | — |
+<p align="center">
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/java/java-original.svg" width="46" height="46" alt="Java" title="Java — stable"/>
+  &nbsp;&nbsp;&nbsp;
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/typescript/typescript-original.svg" width="46" height="46" alt="TypeScript" title="TypeScript — stable"/>
+  &nbsp;&nbsp;&nbsp;
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/python/python-original.svg" width="46" height="46" alt="Python" title="Python — stable"/>
+  &nbsp;&nbsp;&nbsp;
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/javascript/javascript-original.svg" width="46" height="46" alt="JavaScript" title="JavaScript — engine in progress"/>
+  &nbsp;&nbsp;&nbsp;
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/csharp/csharp-original.svg" width="46" height="46" alt="C#" title="C# — planned"/>
+</p>
+
+Two stages, two columns: the **parser** turns source into the relational IR; the **engine** turns the IR into the graph. A language is usable end to end when both are there.
+
+| language | parser | engine | maturity | validated against |
+|---|---|---|---|---|
+| **Java** | stable | stable | **stable** — first front end; hand-crafted constructs (P/R 1.000) and five real commits of a large open-source project scored against bytecode; Spring/DI configuration wiring resolved | the JDK's own class-file parser over compiled artifacts; runtime tracing |
+| **TypeScript** | stable | stable | **stable** — 53 regression cases and real projects; structural typing, overload sets, module graph, `.d.ts` libraries | the TypeScript compiler's own resolution |
+| **Python** | stable | stable | **stable** — MRO, decorators, protocols, dynamic-attribute detection; 600-site torture suite | CPython bytecode and `sys.settrace` |
+| **JavaScript** | stable | in progress | **in progress** — the parser (binder, JSDoc as the type channel, CommonJS + ESM) is complete; the engine is under review | — |
+| **C#** | planned | planned | **planned** | — |
+
+The parser also extracts build and configuration files the Java engine reads for wiring — Gradle, XML (Spring beans, `web.xml`, `pom.xml`), YAML, `.properties`, `META-INF/services`. See [`parser/README.md`](parser/README.md) for the full list and what each relation holds.
 
 A repository with several languages is one command: the parser emits every language it finds, and each is solved into its own `graph.sqlite`. Graphs are per language — a Java→TypeScript call is not an edge in either.
 
