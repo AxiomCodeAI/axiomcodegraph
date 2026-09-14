@@ -1,3 +1,3 @@
-oracle=6 engine=4 agree=4 missing=2 (known 2, NEW 0) extra=0
+oracle=8 engine=6 agree=6 missing=2 (known 2, NEW 0) extra=0
   known    consumer#drive() -> inner#deepPack()
   known    consumer#useLibrary() -> inner#deepPack()

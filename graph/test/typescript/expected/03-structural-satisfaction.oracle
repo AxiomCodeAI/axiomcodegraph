@@ -1,4 +1,4 @@
-oracle=2 engine=5 agree=2 missing=0 (known 0, NEW 0) extra=3
+oracle=5 engine=8 agree=5 missing=0 (known 0, NEW 0) extra=3
   extra    duck#consume(Reader) -> FileReader#read()
   extra    duck#consume(Reader) -> NetReader#read()
   extra    duck#useLibrary() -> FileReader#close()

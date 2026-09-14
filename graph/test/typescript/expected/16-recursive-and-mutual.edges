@@ -1,7 +1,7 @@
-ambiguous_unknown	CONSTRUCTOR_CALL	cycle#drive() @L27 -> -
 ambiguous_unknown	CONSTRUCTOR_CALL	cycle#useLibrary() @L36 -> -
 ambiguous_unknown	FUNCTION_CALL	cycle#useLibrary() @L36 -> -
 ambiguous_unknown	METHOD_CALL	cycle#useLibrary() @L36 -> -
+known_edge	CONSTRUCTOR_CALL	cycle#drive() @L27 -> Tree#<new>()
 known_edge	FUNCTION_CALL	cycle#drive() @L27 -> cycle#ping(number)
 known_edge	FUNCTION_CALL	cycle#ping(number) @L6 -> cycle#pong(number)
 known_edge	FUNCTION_CALL	cycle#pong(number) @L11 -> cycle#ping(number)

@@ -1,8 +1,9 @@
-ambiguous_unknown	CONSTRUCTOR_CALL	r388#main() @L75 -> -
-ambiguous_unknown	CONSTRUCTOR_CALL	r388#main() @L78 -> -
-ambiguous_unknown	CONSTRUCTOR_CALL	r388#main() @L79 -> -
-ambiguous_unknown	CONSTRUCTOR_CALL	r388#makeMixedPair() @L46 -> -
-ambiguous_unknown	CONSTRUCTOR_CALL	r388#makePair() @L27 -> -
+known_edge	CONSTRUCTOR_CALL	r388#main() @L75 -> IncrementOp#<new>()
+known_edge	CONSTRUCTOR_CALL	r388#main() @L78 -> IncrementOp#<new>()
+known_edge	CONSTRUCTOR_CALL	r388#main() @L79 -> IncrementOp#<new>()
+known_edge	CONSTRUCTOR_CALL	r388#makeMixedPair() @L46 -> DoubleOp#<new>()
+known_edge	CONSTRUCTOR_CALL	r388#makeMixedPair() @L46 -> IncrementOp#<new>()
+known_edge	CONSTRUCTOR_CALL	r388#makePair() @L27 -> DoubleOp#<new>()
 known_edge	FUNCTION_CALL	r388#ctlIndexAccess(number) @L56 -> r388#makePair()
 known_edge	FUNCTION_CALL	r388#main() @L74 -> r388#viaMixedTupleDestructure(number)
 known_edge	FUNCTION_CALL	r388#main() @L75 -> r388#viaArrayDestructure(IncrementOp[],number)

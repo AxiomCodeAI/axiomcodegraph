@@ -196,6 +196,31 @@ function labelOf(decl) {
   return `${owner}#${name}(${ps.join(',')})`;
 }
 
+/**
+ * The class whose synthesised constructor `new C()` runs when no class in C's chain
+ * declares one: the root of the `extends` chain. Undefined when the chain leaves the
+ * program (a library base, a base that is not a class) — the case stays unscored.
+ */
+function implicitCtorOwner(node) {
+  let sym = checker.getSymbolAtLocation(node.expression);
+  if (sym && (sym.flags & ts.SymbolFlags.Alias)) sym = checker.getAliasedSymbol(sym);
+  let cls = sym?.declarations?.find((d) => ts.isClassDeclaration(d) || ts.isClassExpression(d));
+  for (let guard = 0; cls !== undefined && guard < 64; guard += 1) {
+    const ext = cls.heritageClauses?.find((h) => h.token === ts.SyntaxKind.ExtendsKeyword);
+    if (ext === undefined) return cls;
+    const base = checker.getTypeAtLocation(ext.types[0].expression).symbol;
+    cls = base?.declarations?.find((d) => ts.isClassDeclaration(d) || ts.isClassExpression(d));
+  }
+  return undefined;
+}
+
+/** A synthesised constructor is labelled as the class's `<new>()`. */
+function labelOfImplicitCtor(cls) {
+  const owner = cls.name ? cls.name.text : undefined;
+  if (owner === undefined || !reachable.has(path.resolve(cls.getSourceFile().fileName))) return undefined;
+  return `${owner}#<new>()`;
+}
+
 /** The enclosing function/method of a node, as a label; the module otherwise. */
 function callerOf(node) {
   let p = node.parent;
@@ -229,7 +254,21 @@ for (const sf of program.getSourceFiles()) {
       || ts.isTaggedTemplateExpression(node) || ts.isDecorator(node)) {
       let sig;
       try { sig = checker.getResolvedSignature(node); } catch { sig = undefined; }
-      const target = labelOf(sig?.declaration);
+      let decl = sig?.declaration;
+      // AN IMPLICIT CONSTRUCTOR HAS NO DECLARATION. `new Bag()` on a class that
+      // declares no constructor anywhere in its chain resolves to a signature whose
+      // `declaration` is undefined, so the site was silently unscored — and the
+      // engine's answer for it, whatever it was, went unchecked. The parser now
+      // synthesises that constructor on the ROOT class of the `extends` chain (the
+      // one that extends nothing; a subclass runs its base's), so the compiler side
+      // names the same declaration: the root class, labelled as its `<new>`. #583.
+      let target;
+      if (decl === undefined && ts.isNewExpression(node)) {
+        const cls = implicitCtorOwner(node);
+        target = cls === undefined ? undefined : labelOfImplicitCtor(cls);
+      } else {
+        target = labelOf(decl);
+      }
       if (target !== undefined) pairs.add(`${callerOf(node)} -> ${target}`);
     }
     ts.forEachChild(node, visit);

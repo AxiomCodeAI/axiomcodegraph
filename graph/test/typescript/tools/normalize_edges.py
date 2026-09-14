@@ -203,7 +203,7 @@ class Names:
                 name = '<module-init>'
             elif not name or name.startswith('<'):
                 name = arrow_name.get(h) or f"<arrow@{r.get('startLine')}>"
-            if kind == 'CONSTRUCTOR':
+            if kind in ('CONSTRUCTOR', 'DEFAULT_CONSTRUCTOR'):
                 name = '<new>'
             elif r.get('isStatic') == 'true':
                 name = 'static ' + name

@@ -1,6 +1,6 @@
-ambiguous_unknown	CONSTRUCTOR_CALL	consumer#drive() @L8 -> -
-ambiguous_unknown	CONSTRUCTOR_CALL	consumer#drive() @L9 -> -
-ambiguous_unknown	CONSTRUCTOR_CALL	consumer#useLibrary() @L21 -> -
+known_edge	CONSTRUCTOR_CALL	consumer#drive() @L8 -> Service#<new>()@L1
+known_edge	CONSTRUCTOR_CALL	consumer#drive() @L9 -> Service#<new>()@L1
+known_edge	CONSTRUCTOR_CALL	consumer#useLibrary() @L21 -> Service#<new>()@L1
 known_edge	FUNCTION_CALL	consumer#drive() @L12 -> alpha#process()
 known_edge	FUNCTION_CALL	consumer#drive() @L12 -> beta#process()
 known_edge	FUNCTION_CALL	consumer#drive() @L12 -> consumer#shadowed()

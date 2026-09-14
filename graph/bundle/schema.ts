@@ -286,7 +286,7 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'methods', column: 'kind', value: 'ENUM_CONSTANT_METHOD', languages: J, meaning: 'Method body declared on an enum constant.' },
   { table: 'methods', column: 'kind', value: 'RECORD_ACCESSOR', languages: J, meaning: 'A record component accessor.' },
   { table: 'methods', column: 'kind', value: 'COMPACT_CONSTRUCTOR', languages: J, meaning: 'A record\'s compact canonical constructor.' },
-  { table: 'methods', column: 'kind', value: 'DEFAULT_CONSTRUCTOR', languages: J, meaning: 'The implicit no-arg constructor the parser synthesises for a class that declares none.' },
+  { table: 'methods', column: 'kind', value: 'DEFAULT_CONSTRUCTOR', languages: ['java', 'typescript'], meaning: 'The implicit no-arg constructor the parser synthesises for a class that declares none (TypeScript: and extends nothing; a subclass runs the nearest declared base constructor).' },
   { table: 'methods', column: 'kind', value: 'INSTANCE_INITIALIZER', languages: J, meaning: '`{ … }` instance initializer block.' },
   { table: 'methods', column: 'kind', value: 'ANNOTATION_ELEMENT', languages: J, meaning: 'An element of an annotation interface.' },
   { table: 'methods', column: 'kind', value: 'RECORD_EQUALS', languages: J, meaning: 'A record\'s implicit equals.' },
