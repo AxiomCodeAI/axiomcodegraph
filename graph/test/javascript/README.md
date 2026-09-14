@@ -56,6 +56,7 @@ the previous engine.
 | 21 | `concat` and `flat` results: the receiver's elements plus each array argument's elements and each non-array argument, `Array.of(...).concat(...).at(-1)`, a spread beside them, and the receiver left unchanged after `concat` (#606) |
 | 22 | `for..of` heads that are patterns: `[, fn]` over pairs, `{ fn }` over objects, `[, fn]` over `Object.entries`, a nested `{ meta: { hooks: [first] } }`, `{ run }` over a Set of instances, `[key, fn]` over a Map, `[first, ...rest]`, a renamed property, `let`, and the plain binding beside them (#604) |
 | 23 | `Object.setPrototypeOf(Child.prototype, Parent.prototype)` as constructor-function inheritance: an inherited method on a Child instance, a grandchild chained the same way, the static side `Object.setPrototypeOf(Child, Parent)` (`Child.make()`), and the plain-object form beside them (#605) |
+| 25 | platform stream hooks: `write()` / `end()` / `destroy()` on a `Writable` subclass reach `_write` / `_final` / `_destroy`, `resume()` on a `Readable` reaches `_read`, `write()` / `end()` on a `Transform` reach `_transform` / `_flush`, a `stream.Duplex` subclass both sides, a subclass of a subclass inherits the hooks, and a plain class with a `write` and a `_write` of its own is a control (#611) |
 | 08 | a dependency under `node_modules`, staged as `--library` from a copy parsed separately: `require('dep')` as a function, a destructured class and function, an instance returned by the library, `boundary_lib` on every edge |
 
 ## Environment
