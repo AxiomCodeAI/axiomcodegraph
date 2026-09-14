@@ -415,7 +415,11 @@ echo "Elapsed (solve): $((SOLVE_EPOCH-START_EPOCH))s"
 # `npm run build` produced. Neither present is a setup error, and says so.
 PKG="$SRC/.."
 if [ -x "$PKG/node_modules/.bin/tsx" ]; then
-  BUNDLE=("$PKG/node_modules/.bin/tsx" "$SRC/bundle/cli.ts")
+  # --tsconfig, explicitly: cli.ts imports its neighbours through the @/ alias, and tsx
+  # resolves that from the tsconfig it finds relative to the CALLER's working directory —
+  # so without this the stage worked only when run from the engine checkout and failed
+  # from anywhere else with "Cannot find module '@/bundle/build'", after the solve (#470).
+  BUNDLE=("$PKG/node_modules/.bin/tsx" --tsconfig "$PKG/tsconfig.json" "$SRC/bundle/cli.ts")
 elif [ -f "$PKG/dist/bundle/cli.js" ]; then
   BUNDLE=(node "$PKG/dist/bundle/cli.js")
 else
