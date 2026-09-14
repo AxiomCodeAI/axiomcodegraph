@@ -145,6 +145,35 @@ const CHECKS: Check[] = [
     },
   },
   {
+    name: 'exclude-tests-keeps-a-test-directory-from-becoming-a-root',
+    proves: 'with excludeTests, test/, tests/, __tests__/ and e2e/ are not project roots, and src/ still is',
+    rulesOut: 'excluding test names only while walking BELOW a root — a test directory that '
+      + 'discovery had already registered as its own root was walked from inside, where its '
+      + 'name is never seen, and the flag excluded nothing for three of the four languages (#613)',
+    run: async (tmp) => {
+      const layout = {
+        'package.json': '{"name":"mini","version":"1.0.0"}',
+        'src/a.js': 'function a(){ return 1; }\nmodule.exports = { a };\n',
+        'test/a.test.js': 'const { a } = require("../src/a"); a();\n',
+        '__tests__/b.js': 'const { a } = require("../src/a"); a();\n',
+        'tests/c.js': 'const { a } = require("../src/a"); a();\n',
+        'e2e/d.js': 'const { a } = require("../src/a"); a();\n',
+        'src/s.ts': TS,
+        'test/s.test.ts': 'import { s } from "../src/s"; s();\n',
+        'src/p.py': PY,
+        'test/p_test.py': 'from src.p import p\np()\n',
+      };
+      const root = build(tmp, 'exclude-tests', layout);
+      const withTests = (await new ProjectScanner().scanForProjects(root)).map((p) => path.relative(root, p.path) || '.');
+      const without = (await new ProjectScanner().scanForProjects(root, 3, true)).map((p) => path.relative(root, p.path) || '.');
+      const testRoots = (list: string[]) => list.filter((p) => /^(test|tests|__tests__|e2e)(\/|$)/.test(p));
+      if (testRoots(withTests).length === 0) return `control: without the flag no test directory became a root (${withTests}) — the check proves nothing`;
+      if (testRoots(without).length > 0) return `with excludeTests these test directories are still roots: ${testRoots(without)}`;
+      if (!without.some((p) => p === '.' || p.startsWith('src'))) return `with excludeTests the source itself vanished: ${without}`;
+      return null;
+    },
+  },
+  {
     name: 'ownership-attributes-a-file-to-its-innermost-project',
     proves: 'overlapping scan targets yield one owner per file, the most specific one',
     rulesOut: 'analysing each target independently, which emits the file once per containing '
