@@ -406,6 +406,24 @@ class JsModuleEdgeExtractor {
     if (ts.isNamedExports(node.exportClause)) {
       for (const element of node.exportClause.elements) {
         const local = (element.propertyName ?? element.name).text;
+        // `export { a as b } from './x'` and `export { default } from './x'`
+        // are an import and an export in one statement, exactly as
+        // `export *` is — but only `export *` minted the import row and set
+        // reExportImportLinkHash, so every other re-export form yielded
+        // nothing on the importing side: the engine's join from the export
+        // to the source module had no import to follow (engine #483). One
+        // import row per element, binding NOTHING locally (the name is not
+        // in this module's scope), importedName the source-side name.
+        const importRow = specifier === '' ? undefined : this.emitImport({
+          node: element,
+          specifier,
+          importForm: JsImportForm.IMPORT_DECLARATION,
+          bindingForm: JsImportBindingForm.NO_LOCAL_BINDING,
+          importedName: local,
+          localName: '',
+          edgeBearer: JsEdgeBearer.DECLARATION,
+          sourceExpression: undefined,
+        });
         this.emitExport({
           node: element,
           exportedName: element.name.text,
@@ -415,7 +433,7 @@ class JsModuleEdgeExtractor {
           edgeBearer: JsEdgeBearer.DECLARATION,
           isReExport: specifier !== '',
           reExportSpecifier: specifier,
-          reExportImport: undefined,
+          reExportImport: importRow,
           sourceExpression: undefined,
         });
       }

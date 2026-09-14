@@ -39,4 +39,6 @@ export enum JsImportBindingForm {
    * forced value reads as data; this one says what is true.
    */
   NO_LOCAL_BINDING = 'NO_LOCAL_BINDING',
+  // Also the import half of a named re-export — `export { a as b } from
+  // './x'` — whose source name is not in this module's scope (engine #483).
 }

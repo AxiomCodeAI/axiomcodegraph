@@ -458,6 +458,10 @@ const SCAFFOLD: ReadonlyArray<readonly [string, string]> = [
     "export * from './service.js';",
     "export { helper as renamed } from './service.js';",
     "export * as ns from './service.js';",
+    // #483: the named forms are an import and an export in one statement too,
+    // and each carries its import row and link, as `export *` always did.
+    "export { default } from './service.js';",
+    "export { default as serviceDefault } from './service.js';",
     '',
   ].join('\n')],
 
@@ -4795,8 +4799,10 @@ function separatorCommentsAndNamespaceReexportsEmit(): number {
   const rows = exports_.rows.filter((r) => r[eOwner] === exportModule);
   for (const [name, form, wantsImport, construct] of [
     ['*', 'EXPORT_ALL', true, "bare `export * from`"],
-    ['renamed', 'EXPORT_DECLARATION', false, "`export { a as b } from`"],
+    ['renamed', 'EXPORT_DECLARATION', true, "`export { a as b } from` (#483: an import in one statement too)"],
     ['ns', 'EXPORT_ALL', true, "`export * as ns from`"],
+    ['default', 'EXPORT_DECLARATION', true, "`export { default } from`"],
+    ['serviceDefault', 'EXPORT_DECLARATION', true, "`export { default as x } from`"],
   ] as const) {
     const row = rows.find((r) => r[eName] === name);
     if (row === undefined) {
