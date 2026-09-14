@@ -11,6 +11,8 @@
 </p>
 
 <p align="center">
+  <a href="#what-it-does">What it does</a> ·
+  <a href="#supported-languages">Languages</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#what-you-get">What you get</a> ·
   <a href="#how-it-works">How it works</a> ·
@@ -21,7 +23,29 @@
 
 ---
 
-For every call site in a codebase, the engine resolves **which function — or set of functions — can actually run**, by reasoning over the type system: receiver types, hierarchy, overloads, generics, closures and function references, with libraries linked in as typed signatures. Every edge carries a **confidence tier** and every blind spot is **declared, never dropped**. The result is one `graph.sqlite` per language whose schema is documented inside it, so a person or an AI agent can answer *"if I change this, what breaks?"*, *"who can reach this?"*, *"what do I need to read?"* — and see how sure the answer is.
+## What it does
+
+Point it at a repository and it builds a **call graph**: a map of which function calls which, across the whole codebase. Unlike a text search, it knows about types — so when `shape.area()` could run `Circle.area` or `Square.area`, the graph says *both*, and when a call goes through an interface, an inherited override, or a function stored in a variable, the graph still finds the target. The result is one `graph.sqlite` file per language, with its own documentation inside, that you query with plain SQL.
+
+**Why coding agents need it.** An AI agent working on a real codebase has to decide what to read. Text search returns too much (thousands of unrelated methods that happen to share a name) and misses what matters (the caller that never mentions the name because it dispatches through an interface). Both cost tokens and both cause wrong answers. With the graph, an agent asks *"what does this change affect?"* and gets the causally connected methods — measured on a large project: **95 of 43,793 methods, with 100 % of the true direct callers included** — instead of reading the repository.
+
+**Why you can trust it.** Three properties, each checked rather than promised:
+
+- **Exact and repeatable.** The graph is computed by a fixed set of logical rules, not a model or a heuristic score. The same code produces the *identical* graph every time, and every edge can be traced back to the rule and the facts that produced it.
+- **Validated against the compiler.** Results are scored against ground truth from the language's own toolchain — the JDK's class-file parser over compiled bytecode, the TypeScript compiler, CPython's bytecode and tracing — never against another third-party analyzer. On hand-crafted constructs: precision 1.000, recall 1.000.
+- **Honest about what it doesn't know.** Every edge carries a confidence tier, and a call the engine cannot resolve is kept as a row that says so — never silently dropped. A test asserts the number of silently missing call sites is zero.
+
+## Supported languages
+
+| language | maturity | what "maturity" means here |
+|---|---|---|
+| **Java** | stable | first front end; validated on hand-crafted constructs (P/R 1.000) and on five real commits of a large open-source project against bytecode ground truth; Spring/DI configuration wiring resolved |
+| **TypeScript** | stable | 53 regression cases plus real projects scored against the TypeScript compiler's own resolution; structural typing, overload sets, module graph, `.d.ts` libraries |
+| **Python** | stable | MRO, decorators, protocols, dynamic-attribute detection; scored against CPython bytecode and `sys.settrace` on a 600-site torture suite |
+| **JavaScript** | in progress | parser complete; engine under review |
+| **C#** | planned | — |
+
+A repository with several languages is one command: the parser emits every language it finds, and each is solved into its own `graph.sqlite`. Graphs are per language — a Java→TypeScript call is not an edge in either.
 
 ## Quick start
 
@@ -90,18 +114,6 @@ Every edge has a tier, so a consumer picks its own risk tolerance:
 
 Full schema: [`graph/bundle/SCHEMA.md`](graph/bundle/SCHEMA.md).
 
-## Supported languages
-
-| language | status | ground truth used for validation |
-|---|---|---|
-| Java | stable | the JDK's own class-file parser over compiled artifacts; runtime tracing |
-| TypeScript | stable | the TypeScript compiler's own resolution |
-| Python | stable | CPython bytecode and `sys.settrace` |
-| JavaScript | in progress | — |
-| C# | planned | — |
-
-A multi-language repository is one command: the parser emits every language it finds, and each is solved into its own `graph.sqlite`.
-
 ## How it works
 
 ```
@@ -111,7 +123,7 @@ A multi-language repository is one command: the parser emits every language it f
 ```
 
 1. **Parse.** The parser extracts a relational IR — types, methods, expressions, call sites, imports — for every language present, in one pass.
-2. **Solve.** Each language's rule set (~40 Soufflé Datalog files) computes the **least fixpoint** over that IR: type resolution, hierarchy, generics, overload applicability, virtual dispatch, closure and function-value flow. No model, no scoring, no sampling: the same input yields the same graph, and every edge is traceable to the rules and facts that derived it.
+2. **Solve.** Each language's rule set (~40 Soufflé Datalog files) applies the rules until nothing new can be derived: type resolution, hierarchy, generics, overload applicability, virtual dispatch, closure and function-value flow. No model, no scoring, no sampling — the same input yields the same graph.
 3. **Bundle.** The raw relations are joined to the IR and written as `graph.sqlite`, with the schema, vocabularies and canonical queries as tables.
 
 The rules compile to one self-contained executable per language and platform. CI builds them (Linux x64/arm64, macOS arm64, Windows x64) and publishes them on npm as `@axiomcode/engine-<os>-<cpu>`, which `npm install` selects by platform ([#478](https://github.com/AxiomCodeAI/axiom-code-graph/pull/478)). With Soufflé installed, the engine compiles locally instead; a checkout whose rules differ from the published engine never runs a stale binary.
