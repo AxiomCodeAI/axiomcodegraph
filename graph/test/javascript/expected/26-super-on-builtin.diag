@@ -1,4 +1,4 @@
-package_entry    25-super-on-builtin  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+package_entry    26-super-on-builtin  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
 unresolved       main.js:10:27  METHOD_CALL get  no_target
 unresolved       main.js:10:27  METHOD_CALL get  receiver_untyped
 unresolved       main.js:16:15  CONSTRUCTOR_CALL Map  no_target

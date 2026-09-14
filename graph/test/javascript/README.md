@@ -65,8 +65,8 @@ the previous engine.
 | 25 | platform stream hooks: `write()` / `end()` / `destroy()` on a `Writable` subclass reach `_write` / `_final` / `_destroy`, `resume()` on a `Readable` reaches `_read`, `write()` / `end()` on a `Transform` reach `_transform` / `_flush`, a `stream.Duplex` subclass both sides, a subclass of a subclass inherits the hooks, and a plain class with a `write` and a `_write` of its own is a control (#611) |
 | 08 | a dependency under `node_modules`, staged as `--library` from a copy parsed separately: `require('dep')` as a function, a destructured class and function, an instance returned by the library, `boundary_lib` on every edge |
 | 24 | the `@import` JSDoc tag (TypeScript 5.5+): a default, a named, a renamed and a namespace binding, each read through a `@param`, beside the older `@typedef {import(…)}` as the control (#621) |
-| 25 | a class extending a platform builtin (#619): a lazy registry reading `super.get`, a constructor seeding through `super(entries)`, `super.forEach` / `super.values` on `Map` and `Set` subclasses, `this.set` / `this.get` inside the subclass, an instance iterated and `forEach`ed from outside, an `Error` subclass, the plain `Map` control |
-| 26 | parse gaps (#617): a computed `require`, a missing and a builtin specifier, a file parsed with errors, a JSDoc type the parser cannot read beside a readable and an absent one, `eval` and `with`; pinned in the diagnostics golden |
+| 26 | a class extending a platform builtin (#619): a lazy registry reading `super.get`, a constructor seeding through `super(entries)`, `super.forEach` / `super.values` on `Map` and `Set` subclasses, `this.set` / `this.get` inside the subclass, an instance iterated and `forEach`ed from outside, an `Error` subclass, the plain `Map` control |
+| 27 | parse gaps (#617): a computed `require`, a missing and a builtin specifier, a file parsed with errors, a JSDoc type the parser cannot read beside a readable and an absent one, `eval` and `with`; pinned in the diagnostics golden |
 
 ## Environment
 
