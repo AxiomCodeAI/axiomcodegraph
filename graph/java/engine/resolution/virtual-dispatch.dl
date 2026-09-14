@@ -125,3 +125,17 @@ virtual_override(base, override) :- client_overridden_lib_type(baseType),
 virtual_override(base, override) :- java_method(name, _, _, _, _, _, _, enum, _, _, _, _, _, _, _, _, "ABSTRACT_METHOD", pc, _, _, _, base),
     name != "",
     java_method(name, _, _, _, _, _, _, enum, _, _, _, _, _, _, _, _, "ENUM_CONSTANT_METHOD", pc, _, _, _, override).
+
+// ── method_dispatch_candidate(BaseMethod, CandidateMethod, Basis) ───────────
+// THE DISPATCH ENVELOPE, in the shape every front end exports (#471). A call that
+// statically resolves to BaseMethod may at run time execute CandidateMethod instead;
+// Basis says which relation admitted it, because the three languages admit by
+// different means and a consumer that cannot tell them apart cannot judge the set.
+//
+// Java's basis is always `nominal` — the hierarchy is declared, so virtual_override is
+// already the answer and this is a rename, not a new analysis. TypeScript adds
+// `structural`, Python answers by `mro`. Keeping one relation name across the three is
+// the entire point: `overrides` was a core table of the output bundle that came back
+// empty in two of three languages while the data sat in per-language ext_ relations of
+// three different shapes.
+method_dispatch_candidate(base, override, "nominal") :- virtual_override(base, override).

@@ -1,0 +1,2 @@
+nominal	lib:widgets#BaseWidget.attach -> lib:widgets#SourceWidget.attach
+nominal	lib:widgets#BaseWidget.attach -> lib:widgets#VideoWidget.attach

@@ -177,3 +177,47 @@ category_is_shape_only("TYPE_ALIAS_TYPE").
 class_type(t) :- type_decl(_, _, _, _, categ, _, t), category_is_class(categ).
 interface_type(t) :- type_decl(_, _, _, _, categ, _, t), category_is_shape_only(categ).
 instantiable_type(t) :- type_decl(_, _, _, _, categ, _, t), category_is_instantiable(categ).
+
+// ── method_is_constructor(MethodHash) ───────────────────────────────────────
+// A constructor by any of TypeScript's four spellings; see member-lookup.dl.
+method_is_constructor(m) :- method_kind(_, k, _, m), method_kind_is_constructor(k).
+
+// ── method_dispatch_candidate(BaseMethod, CandidateMethod, Basis) ───────────
+// THE DISPATCH ENVELOPE, in the shape every front end exports (#471). A call that
+// statically resolves to BaseMethod may at run time execute CandidateMethod instead.
+//
+// TypeScript already resolves dispatch straight into multi_inferred edges, so this
+// relation is not what the resolver reads — it is what a CONSUMER reads to see the set
+// those edges were narrowed FROM. Without it the bundle's `overrides` table came back
+// empty for TypeScript while the type-level fan sat in ext_implementors and
+// ext_structural_implementor, two relations of a shape Java's consumer never sees.
+//
+// The join is implementor x member: the fan is over TYPES, and the member name carries
+// it down to methods. IsStatic is bound on both sides — a static of the same name is a
+// different member, and dispatching a virtual call into it would be a fabricated edge.
+//
+// Two bases, kept apart because they are not equally good evidence. `nominal` follows a
+// written extends/implements. `structural` follows a shape match, and
+// structural_implementor already restricts itself to targets with no nominal
+// implementor at all (see structural-satisfaction.dl) — so the two never both fire for
+// one supertype, and a consumer that trusts only declarations can filter on the basis.
+//
+// A CONSTRUCTOR IS NOT DISPATCHED. `new Shape()` runs Shape's constructor and never
+// Circle's, however Circle extends Shape — the constructed type is written at the site.
+// Without this guard the join pairs them anyway, because a subclass constructor is a
+// member of the subclass with the same escaped name: MEASURED on 01-class-dispatch-and-
+// super, 2 of 5 pairs were `Shape.<constructor> -> Circle.<constructor>` and
+// `-> Square.<constructor>`, both of them edges no run can take.
+method_dispatch_candidate(base, cand, "nominal") :-
+    declared_method(sup, n, st, base),
+    !method_is_constructor(base),
+    implementors(sup, sub),
+    declared_method(sub, n, st, cand),
+    cand != base.
+method_dispatch_candidate(base, cand, "structural") :-
+    declared_method(sup, n, st, base),
+    !method_is_constructor(base),
+    structural_implementor(sup, sub),
+    sub != sup,
+    declared_method(sub, n, st, cand),
+    cand != base.

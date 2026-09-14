@@ -1,0 +1,1 @@
+nominal	shop.Discount.apply -> shop.PercentDiscount.apply

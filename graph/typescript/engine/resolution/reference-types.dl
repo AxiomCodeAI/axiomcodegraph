@@ -517,3 +517,19 @@ var_type(v, prov, et) :- var_binding("client", _, "INDEX", _, e, v),
 var_shape(v, sh) :- var_binding("client", _, "INDEX", _, e, v),
     e != "",
     expr_element_shape(e, sh).
+
+// ── type_instantiated(TypeHash, How) ────────────────────────────────────────
+// THE RTA SET (#471): the types this run actually constructs, which is what bounds
+// virtual dispatch — a subtype nothing instantiates cannot receive a dispatched call.
+// Java and Python both exported one; TypeScript exported nothing, so the bundle's
+// core `type_instantiated` table was empty for TypeScript alone while every clause of
+// new_expression_type above was already computing the answer.
+//
+// `How` mirrors Java's column so the three tables read the same. `new` is the only
+// value TypeScript emits today: an enum member is not a construction, and a
+// class expression is instantiated through a `new` like any other.
+//
+// NOT restricted to client provenance. RTA is an over-approximation and must stay one:
+// dropping a type the library constructs would narrow the envelope on evidence the run
+// does not have, and a narrowed envelope is unsound in the direction that loses edges.
+type_instantiated(t, "new") :- new_expression_type(_, _, t).
