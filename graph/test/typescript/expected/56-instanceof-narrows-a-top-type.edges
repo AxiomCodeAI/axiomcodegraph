@@ -1,0 +1,8 @@
+known_edge	FUNCTION_CALL	narrow#fromVariable(() =) @L26 -> narrow#<arrow@25>()
+known_edge	METHOD_CALL	narrow#fromAny(any) @L21 -> Node#outerHtml()
+known_edge	METHOD_CALL	narrow#fromNullable(Node | null) @L37 -> Node#outerHtml()
+known_edge	METHOD_CALL	narrow#fromObject(object) @L16 -> Node#outerHtml()
+known_edge	METHOD_CALL	narrow#fromUnion(Node | string) @L32 -> Node#outerHtml()
+known_edge	METHOD_CALL	narrow#fromUnknown(unknown) @L6 -> Node#outerHtml()
+known_edge	METHOD_CALL	narrow#fromVariable(() =) @L27 -> Node#outerHtml()
+known_edge	METHOD_CALL	narrow#guardedEarly(unknown) @L12 -> Node#outerHtml()
