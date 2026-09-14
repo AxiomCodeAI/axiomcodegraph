@@ -52,7 +52,7 @@ set -uo pipefail
 # coverage guard still proves the site was not silently dropped.
 # ─────────────────────────────────────────────────────────────────────────────
 HERE="$(cd "$(dirname "$0")" && pwd)"
-ROOT="$(cd "$HERE/../../.." && pwd)"
+ROOT="$(d="$(cd "$(dirname "$0")" && pwd)"; while [ "$d" != / ] && { [ ! -f "$d/package.json" ] || [ ! -d "$d/graph" ]; }; do d="$(dirname "$d")"; done; echo "$d")"  # the repository root, found by its marker — no level counting
 
 # ── Nothing this suite depends on may be invisible to git ────────────────────
 # Runs first because it is cheap and because the fault it catches makes every OTHER
@@ -306,6 +306,28 @@ for dir in "$HERE"/cases/*/; do
     cfg_summary="  [config: ${cfg_rows} rows]"
   else cfg_summary=""; fi
 
+
+  # ── DISPATCH-ENVELOPE golden ──────────────────────────────────────────────
+  # The edge golden records what the engine CONCLUDED. dispatch_candidates records what
+  # the hierarchy ADMITTED — the set those edges were narrowed from, and the only table
+  # in the output bundle that answers "what ELSE might run here". Nothing downstream
+  # consumes it, so a rule that stopped emitting it would move no other golden and no
+  # test would notice; it was Java-only for the whole life of the bundle for exactly that
+  # reason (#471). A case with envelope rows and NO golden fails, and a golden with no
+  # rows fails too.
+  python3 "$HERE/../tools/envelope_report.py" "$w/ir" "$w/out/raw" all-methods.csv methodRegistryUniqueHash --library "$case_lib" > "$w/actual.envelope" 2>"$w/envelope.log" || {
+    echo "FAIL (envelope report — see $w/envelope.log)"; fail=$((fail+1)); failed+=("$name"); continue; }
+  env_rows=$(wc -l < "$w/actual.envelope" | tr -d ' ')
+  eexp="$HERE/expected/$name.envelope"
+  if [ "$BLESS" = "1" ]; then
+    if [ "${env_rows:-0}" -gt 0 ]; then cp "$w/actual.envelope" "$eexp"; else rm -f "$eexp"; fi
+  elif [ -f "$eexp" ] || [ "${env_rows:-0}" -gt 0 ]; then
+    if [ ! -f "$eexp" ]; then
+      echo "FAIL (envelope rows but no golden — run with --bless)"; fail=$((fail+1)); failed+=("$name"); continue; fi
+    if ! diff -q "$eexp" "$w/actual.envelope" >/dev/null; then
+      echo "FAIL (dispatch envelope changed)"; diff -u "$eexp" "$w/actual.envelope" | sed 's/^/    /' | head -40
+      fail=$((fail+1)); failed+=("$name"); continue; fi
+  fi
   # ── LIVE SPRING CONTEXT oracle (opt-in, and only for cases that declare one) ──
   # cases/<name>/spring-oracle.conf holds: <scan-package> [key=value ...]
   sconf="$dir/spring-oracle.conf"

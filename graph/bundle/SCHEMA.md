@@ -26,12 +26,13 @@ Identifiers are the parser's hashes and are opaque; join them to `methods` / `ty
 1. This is a call graph of one codebase, derived by a type-directed Datalog engine. Start with `SELECT value FROM run WHERE key='language'` — every language-specific fact below is keyed on it.
 2. The graph is `call_edges`: one row per (call site, possible target). Rows join to `methods` (names, files, lines) on `caller_id` / `callee_method_id`, and to `call_sites` on `call_site_id` for where the call is written. Identifiers are opaque hashes — never parse them, always join.
 3. Trust is explicit. `tier` says what kind of claim a row is: `known_edge` (one resolved target), `multi_inferred` (a sound set — every row of the set is a real possibility), `boundary_lib` (leaves the client; not expanded further), `ambiguous_*` (a declared unknown: callee is NULL). Pick the tiers your question tolerates and filter on them; never treat an `ambiguous_*` row as an edge.
-4. Before answering "nothing calls X" or "X cannot reach Y", check `unresolved_sites` for the methods on the path: a caller listed there has a call the engine could not resolve, so the answer is a lower bound and should say so.
-5. Library targets (`callee_provenance = lib`) are named in `methods` with `provenance = lib` but their bodies were not analysed; a Python `builtin`/`external` target has no methods row and lives in `callee_label`.
-6. `schema_vocab` lists every value a column can hold FOR THIS LANGUAGE with its meaning — filter on `language = (SELECT value FROM run WHERE key='language')`. `schema_notes` lists the caveats for this language (empty tables, what an id may point at). Read both before interpreting `kind`, `tier` or an empty table.
-7. `schema_queries` holds tested SQL for the common questions (callers, callees, blast radius, entry reachability, the method at a file:line, the blind spots of a method). Bind the named parameters and run.
-8. Tables named `ext_<relation>` are the language's raw engine relations with positional columns c0…cN; `schema_tables` carries each one's description lifted from its rule. Use them only when a core table does not hold what you need.
-9. When you report a result, carry the tier and the unresolved count with it. A consumer who cannot see the confidence of an edge cannot use it.
+4. `call_edges` is what the engine CONCLUDED; `dispatch_candidates` is what the hierarchy ADMITTED. Read the second when you need an upper bound rather than a best answer — a candidate whose owner is absent from `type_instantiated` is admitted by the hierarchy but never constructed in this run, which is how you narrow it yourself. `basis` separates a declared relationship from a shape match.
+5. Before answering "nothing calls X" or "X cannot reach Y", check `unresolved_sites` for the methods on the path: a caller listed there has a call the engine could not resolve, so the answer is a lower bound and should say so.
+6. Library targets (`callee_provenance = lib`) are named in `methods` with `provenance = lib` but their bodies were not analysed; a Python `builtin`/`external` target has no methods row and lives in `callee_label`.
+7. `schema_vocab` lists every value a column can hold FOR THIS LANGUAGE with its meaning — filter on `language = (SELECT value FROM run WHERE key='language')`. `schema_notes` lists the caveats for this language (empty tables, what an id may point at). Read both before interpreting `kind`, `tier` or an empty table.
+8. `schema_queries` holds tested SQL for the common questions (callers, callees, blast radius, entry reachability, the method at a file:line, the blind spots of a method, the dispatch envelope of a method). Bind the named parameters and run.
+9. Tables named `ext_<relation>` are the language's raw engine relations with positional columns c0…cN; `schema_tables` carries each one's description lifted from its rule. Use them only when a core table does not hold what you need.
+10. When you report a result, carry the tier and the unresolved count with it. A consumer who cannot see the confidence of an edge cannot use it.
 
 ## Canonical queries (`schema_queries`)
 
@@ -62,7 +63,7 @@ WHERE caller.qualified_name = :qualified_name
 ORDER BY s.start_line, target
 ```
 
-**`blast_radius`** — If this method changes, which methods are transitively affected, up to :depth hops, through sound edges only (known_edge and multi_inferred)? _(:qualified_name, :depth)_
+**`blast_radius`** — If this method changes, which methods are transitively affected, up to :depth hops, through RESOLVED client edges only (a declared unknown is not traversed, and the count of them is returned alongside)? _(:qualified_name, :depth)_
 
 ```sql
 WITH RECURSIVE up(id, depth) AS (
@@ -70,7 +71,8 @@ WITH RECURSIVE up(id, depth) AS (
   UNION
   SELECT e.caller_id, up.depth + 1
   FROM call_edges e JOIN up ON e.callee_method_id = up.id
-  WHERE e.tier IN ('known_edge', 'multi_inferred') AND up.depth < :depth
+  WHERE e.tier IN ('known_edge', 'multi_inferred', 'ambient_terminal', 'intrinsic_terminal')
+    AND up.depth < :depth
 )
 SELECT MIN(up.depth) AS depth, m.qualified_name, m.file_path, m.start_line,
        (SELECT count(*) FROM unresolved_sites u WHERE u.caller_id = m.id) AS unresolved_calls_inside
@@ -106,6 +108,18 @@ JOIN methods m ON m.id = u.caller_id
 LEFT JOIN call_sites s ON s.id = u.call_site_id
 WHERE m.qualified_name = :qualified_name
 ORDER BY s.start_line
+```
+
+**`dispatch_envelope_of`** — What else might actually run at a call that resolves to this method — the set the graph narrowed from, and whether each candidate is a declaration or a shape match? _(:qualified_name)_
+
+```sql
+SELECT cand.qualified_name AS candidate, cand.file_path, cand.start_line, d.basis,
+       EXISTS (SELECT 1 FROM type_instantiated i WHERE i.type_id = cand.owner_type_id) AS owner_instantiated
+FROM dispatch_candidates d
+JOIN methods base ON base.id = d.base_method_id
+JOIN methods cand ON cand.id = d.candidate_method_id
+WHERE base.qualified_name = :qualified_name
+ORDER BY d.basis, cand.qualified_name
 ```
 
 **`subtypes_of`** — Which types extend or implement this type (transitively)? _(:qualified_name)_
@@ -162,6 +176,8 @@ What produced this bundle: one key/value row per fact about the run (language, e
 | `solve_seconds` | all | Wall-clock seconds of staging + solving, before the bundle stage. |
 | `created_at` | all | ISO-8601 timestamp of the bundle. |
 | `raw_dir` | all | Where the per-language Soufflé relations were read from (`raw/` next to the bundle). |
+| `source_version` | all | The version the IR was stamped with (bin/axiomcode): the git commit of the analysed source, or v1.0.0 when it was not a checkout. Present when the run went through bin/axiomcode all. |
+| `source_dir` | all | The source directory that was parsed. Present when the run went through bin/axiomcode all. |
 
 ### `methods`
 
@@ -356,7 +372,7 @@ THE GRAPH. One row per (site, resolved target). A site with N possible targets h
 | value | languages | meaning |
 |---|---|---|
 | `known_edge` | all | Exactly one target resolved. The strongest claim. |
-| `multi_inferred` | all | A sound SET of possible targets (virtual dispatch over instantiated subtypes); each member is one row. The set over-approximates; no member is a guess. |
+| `multi_inferred` | all | A sound SET of possible targets; each member is one row. The set over-approximates — every member is a real possibility, but not every member runs. HOW WIDE the set is differs by language: see the per-language notes on this table for whether the fan is narrowed by the instantiation set. |
 | `boundary_lib` | all | The target is outside the client (library, builtin, or unstaged external). The chain is not expanded past it here. |
 | `ambiguous_unknown` | all | Declared blind spot: the engine could not resolve the site (unresolved receiver, missing type, reflection…). callee is NULL. Never dropped. |
 | `ambiguous_anon` | java | Known structural gap: an anonymous-class creation has no candidate rule yet. callee is NULL. |
@@ -436,6 +452,10 @@ THE GRAPH. One row per (site, resolved target). A site with N possible targets h
 - **javascript** — Targets are VALUES the receiver may hold, not declared types: a `multi_inferred` set is the union of what flowed into the receiver. An untyped receiver is `ambiguous_unknown`, never a name match.
 - **python** — A `boundary_lib` edge may point at a builtin (callee_provenance builtin, callee_label `builtin:NAME`) or at an unstaged import path (callee_provenance external) — neither has a methods row.
 - **python** — The reason a site is ambiguous_unknown is exported per site in ext_call_site_unresolved (site, caller, reason, detail).
+- **all** — THE TRUST LINE, and it is not the same set of tiers in every language. RESOLVED (callee_method_id is set): known_edge, multi_inferred, boundary_lib, and in TypeScript ALSO ambient_terminal and intrinsic_terminal. BLIND SPOT (callee is NULL): ambiguous_unknown, and in Java ALSO ambiguous_anon. A filter written as `tier IN (known_edge, multi_inferred)` therefore drops resolved edges in TypeScript and nowhere else — derive the set from this note or from unresolved_sites, never from a hardcoded list.
+- **java** — A multi_inferred fan is CHA-wide: it is every override the hierarchy admits, bounded only by the dispatch cap. type_instantiated is computed and exported but NOT read by any rule, so the fan is not narrowed to types the program constructs. Narrow it yourself by joining dispatch_candidates to type_instantiated — see the dispatch_envelope_of query.
+- **typescript** — A multi_inferred fan is CHA-wide, as in Java: type_instantiated is computed and exported but NOT read by any rule. The fan also has sources that are not virtual dispatch at all — an overload set or a union-typed receiver produces one too.
+- **python** — A multi_inferred fan IS narrowed by the instantiation set: type_instantiated_reachable (the constructed classes and their bases) bounds dispatch in resolution/dispatch.dl. Python is the only front end where that narrowing is applied, so a fan here is tighter than the same shape would be in Java or TypeScript.
 - **all** — The raw relation has a seventh column, ToExpr, that is always `-` (reserved). It is dropped here.
 - **all** — An unresolved site (tier ambiguous_*) has NULL callee_method_id, callee_label and callee_provenance. The raw relation writes `-` in those slots.
 
@@ -448,9 +468,27 @@ Transitive supertype closure: (type, ancestor) for every ancestor reachable thro
 | 0 | `type_id` 🔑 | TEXT |  | FK → types.id. |
 | 1 | `ancestor_type_id` 🔑 | TEXT |  | FK → types.id. |
 
+### `dispatch_candidates`
+
+THE DISPATCH ENVELOPE: (base method, method that may run instead) for every call that statically resolves to the base. This is the set `call_edges` narrowed FROM — the difference between "these are the targets" and "these are the targets, out of these possibilities". Populated in every language; `basis` says what admitted the pair, because the three front ends admit by different means.
+
+| # | column | type | null | meaning |
+|---|---|---|---|---|
+| 0 | `base_method_id` 🔑 | TEXT |  | FK → methods.id — the method a call resolves to statically. |
+| 1 | `candidate_method_id` 🔑 | TEXT |  | FK → methods.id — a method that may run instead at such a call. |
+| 2 | `basis` 🔑 | TEXT |  | What admitted the pair — see vocabulary. Filter on it to trust only declarations. |
+
+**`dispatch_candidates.basis` values**
+
+| value | languages | meaning |
+|---|---|---|
+| `nominal` | java, typescript | A written extends/implements reaches the candidate's owner from the base's owner. The strongest evidence there is: the author declared the relationship. |
+| `structural` | typescript | No declaration; the candidate's owner satisfies the base's owner by SHAPE. Emitted only for supertypes with no nominal implementor at all, so it never competes with a declared answer — but it is a heuristic, and a consumer that wants declarations only filters it out. |
+| `mro` | python | The subtype's C3 linearisation picks the candidate for that attribute name. Not merely "the subtype declares this name" — a name a sibling base wins is attributed to that sibling. |
+
 ### `overrides`
 
-Virtual-dispatch pairs: (base method, overriding method) wherever a call to the base may run the override. Java only today — see notes for what the other front ends offer instead.
+Virtual-dispatch pairs: (base method, overriding method) wherever a call to the base may run the override. Java only, and kept for compatibility — it is exactly `dispatch_candidates` filtered to `basis = nominal`. Prefer `dispatch_candidates`, which is populated in every language.
 
 | # | column | type | null | meaning |
 |---|---|---|---|---|
@@ -459,8 +497,8 @@ Virtual-dispatch pairs: (base method, overriding method) wherever a call to the 
 
 **Notes**
 
-- **typescript** — EMPTY. TypeScript dispatch is captured directly as multi_inferred edges; the structural and nominal implementor sets are in ext_implementors, ext_structural_implementor and ext_type_satisfies.
-- **python** — EMPTY. Python method lookup is by MRO, exported positionally in ext_mro_position (type, ancestor, …, position).
+- **typescript** — EMPTY — this table is Java-shaped. The TypeScript dispatch envelope is in dispatch_candidates, with basis `nominal` or `structural`.
+- **python** — EMPTY — this table is Java-shaped. The Python dispatch envelope is in dispatch_candidates with basis `mro`; the raw linearisation is in ext_mro_position.
 
 ### `entry_points`
 
@@ -509,7 +547,7 @@ The blind spots, attributed to the code that contains them: (caller, site) for e
 
 ### `type_instantiated`
 
-Types the client actually creates an instance of — the rapid-type-analysis set that bounds virtual dispatch. (A subtype nothing instantiates cannot receive a dispatched call.)
+Types this run creates an instance of — the rapid-type-analysis set that bounds virtual dispatch. (A subtype nothing instantiates cannot receive a dispatched call.) Deliberately an over-approximation: narrowing it on evidence the run does not have would lose real edges. Populated in every language.
 
 | # | column | type | null | meaning |
 |---|---|---|---|---|
@@ -520,13 +558,13 @@ Types the client actually creates an instance of — the rapid-type-analysis set
 
 | value | languages | meaning |
 |---|---|---|
-| `new` | java, python | A constructor call in the client. |
+| `new` | all | A constructor call — `new C()` / `C()`. |
 | `anonymous` | java | An anonymous class exists only by being instantiated. |
 | `enum_constant` | java | An enum's constants are its instances. |
 
 **Notes**
 
-- **typescript** — EMPTY. The TypeScript rule set does not export an instantiation set.
+- **typescript** — Every row has how = `new`. Not restricted to client provenance: a type the library constructs is still a type that exists at run time, and dropping it would narrow the envelope unsoundly.
 - **python** — Every row has how = `new`: the rule set records that some client call constructs the class, not which form.
 
 ## Extended tables — `ext_<relation>`

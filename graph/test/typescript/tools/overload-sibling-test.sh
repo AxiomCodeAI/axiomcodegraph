@@ -38,10 +38,11 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(d="$(cd "$(dirname "$0")" && pwd)"; while [ "$d" != / ] && { [ ! -f "$d/package.json" ] || [ ! -d "$d/graph" ]; }; do d="$(dirname "$d")"; done; echo "$d")"  # the repository root, found by its marker
 
 find_ts() {
   local c
-  for c in "${TS_MODULE_PATH:-}" "$HERE/../../../node_modules/typescript" \
+  for c in "${TS_MODULE_PATH:-}" "$ROOT/node_modules/typescript" \
            "${AXIOM_PARSER:+$(dirname "$(dirname "$AXIOM_PARSER")")/node_modules/typescript}" \
            "$HOME/.cache/axiom-ts-corpus/immer/node_modules/typescript"; do
     [ -n "$c" ] && [ -f "$c/package.json" ] && { echo "$c"; return 0; }

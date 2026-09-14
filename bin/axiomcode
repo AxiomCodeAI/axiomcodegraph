@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────────────
+# axiomcode — one command for any repository: source tree in, graph.sqlite out.
+#
+#   bin/axiomcode <src-dir> <out-dir> [--library <path>[,…]] [--exclude-tests] [--version V]
+#                                     [--language L] [--debug] [engine options]
+#
+# It parses every language it finds (Java, TypeScript, Python, JavaScript — C# as it
+# lands), solves each with its engine, and leaves <out-dir>/<lang>/graph.sqlite per language.
+# Nothing about the repository has to be known in advance. Graphs are per language: a
+# Java→TypeScript call is not an edge in either.
+#
+# --library      the platform library and real dependencies, as SOURCE TREES or as IR
+#                (an IR root, e.g. a JDK IR; a source tree is parsed for you, once, under
+#                <out-dir>/.intermediate/lib/). Libraries are the type oracle: without them,
+#                calls into dependencies are declared unknown rather than guessed.
+# --version V    the version the IR is stamped with. Default: the source's git commit; v1.0.0
+#                when it is not a checkout. Recorded in graph.sqlite (run.source_version).
+# --exclude-tests  leave test code out (default: included).
+# --language L   restrict to one language.
+# --debug        also write csv/*.csv and keep raw/ next to each graph.sqlite.
+# Engine options: --dispatch-cap N|off  --lib-depth N  --jdk-depth N  --taint on|off
+#
+# The pieces, when you want them separately:
+#   bin/axiomcode parser <src-dir> <ir-dir> [--version V] [--exclude-tests]   → <ir-dir>/<lang>/
+#   bin/axiomcode engine --language L --client-ir <ir-dir>/<lang> --out <dir> [options]
+#   bin/axiomcode test   [java|typescript|python|javascript|parser|all] [suite options]
+#
+# Requires Node ≥ 22.5; no Soufflé or compiler (binaries/, or a local souffle if present).
+# ─────────────────────────────────────────────────────────────────────────────
+set -eu
+ROOT="$(d="$(cd "$(dirname "$0")" && pwd)"; while [ "$d" != / ] && { [ ! -f "$d/package.json" ] || [ ! -d "$d/graph" ]; }; do d="$(dirname "$d")"; done; echo "$d")"
+PARSER="${AXIOM_PARSER:-$ROOT/parser/dist/index.js}"
+usage(){ sed -n '3,30p' "$0" | sed 's/^# \{0,1\}//'; }
+die(){ echo "axiomcode: $*" >&2; exit 2; }
+need_parser(){ [ -f "$PARSER" ] || { echo "axiomcode: parser not built at $PARSER — run: npm install && npm run build" >&2; exit 1; }; }
+
+cmd="${1:-}"
+case "$cmd" in parser|engine|all|test|-h|--help|help|"") [ $# -gt 0 ] && shift;; *) cmd=all;; esac
+case "$cmd" in
+  parser)
+    need_parser
+    src="${1:-}"; ir="${2:-}"; [ -n "$src" ] && [ -n "$ir" ] || die "usage: axiomcode parser <src-dir> <ir-dir> [--version V] [--exclude-tests]"
+    shift 2; version=""; exclude=false
+    while [ $# -gt 0 ]; do case "$1" in
+      --version) version="$2"; shift 2;; --exclude-tests) exclude=true; shift;;
+      --slug) version="$2"; shift 2;;   # the old name for the same thing
+      *) die "parser: unknown option $1";; esac; done
+    [ -d "$src" ] || die "not a directory: $src"
+    # The version stamps every IR row (serviceVersionLink): the commit of the source when it is a
+    # git checkout, so a graph can always be traced to what it was built from; v1.0.0 otherwise.
+    [ -n "$version" ] || version="$(git -C "$src" rev-parse HEAD 2>/dev/null || echo v1.0.0)"
+    mkdir -p "$ir"
+    echo "▶ parser: version=$version exclude-tests=$exclude"
+    # --per-language: the parser writes <ir>/<lang>/ itself, one folder per language that had
+    # a project (the config tables go with java/, whose rules are their only reader).
+    node "$PARSER" "$src" "$version" "$exclude" "$ir" --per-language
+    found=(); for d in "$ir"/*/; do [ -d "$d" ] && found+=("$(basename "$d")"); done
+    [ ${#found[@]} -gt 0 ] || { echo "❌ the parser found no Java, TypeScript, Python or JavaScript source under $src" >&2; exit 1; }
+    echo "▶ IR: ${found[*]} → $ir/<lang>/"
+    ;;
+  engine)
+    # every option is the engine's own; only --out is spelled for symmetry with `all`
+    args=()
+    while [ $# -gt 0 ]; do case "$1" in --out) args+=(--output "$2"); shift 2;; *) args+=("$1"); shift;; esac; done
+    has(){ for a in ${args[@]+"${args[@]}"}; do [ "$a" = "$1" ] && return 0; done; return 1; }
+    has --language && has --client-ir && has --output || die "usage: axiomcode engine --language L --client-ir <ir-dir> --out <dir> [options]"
+    has --intermediate || { out=""; for i in "${!args[@]}"; do [ "${args[$i]}" = --output ] && out="${args[$((i+1))]}"; done; args+=(--intermediate "$out/.intermediate"); }
+    has --library || args+=(--library "")
+    bash "$ROOT/graph/pipeline/run-souffle.sh" "${args[@]}"
+    ;;
+  all)
+    need_parser
+    lang=""; src=""; out=""; version=""; libs=""; popts=(); rest=(); pos=()
+    while [ $# -gt 0 ]; do case "$1" in
+      --language) lang="$2"; shift 2;; --src) src="$2"; shift 2;; --out) out="$2"; shift 2;;
+      --library) libs="$2"; shift 2;;
+      --version|--slug) version="$2"; shift 2;; --exclude-tests) popts+=(--exclude-tests); shift;;
+      --intermediate|--dispatch-cap|--lib-depth|--jdk-depth|--taint) rest+=("$1" "$2"); shift 2;;
+      --debug) rest+=(--debug); shift;;
+      --*) die "unknown option $1 (try --help)";;
+      *) pos+=("$1"); shift;; esac; done
+    [ -n "$src" ] || src="${pos[0]:-}"; [ -n "$out" ] || out="${pos[1]:-}"
+    [ -n "$src" ] && [ -n "$out" ] || die "usage: axiomcode <src-dir> <out-dir> [--library <path>[,…]] [options]  (try --help)"
+    [ -d "$src" ] || die "not a directory: $src"
+    [ -z "$lang" ] || [ -d "$ROOT/graph/$lang" ] || die "no engine for --language=$lang (have: $(ls -d "$ROOT"/graph/*/engine 2>/dev/null | sed 's#.*/graph/##; s#/engine##' | tr '\n' ' '))"
+    [ -n "$version" ] || version="$(git -C "$src" rev-parse HEAD 2>/dev/null || echo v1.0.0)"
+    popts+=(--version "$version")
+    mkdir -p "$out"; out="$(cd "$out" && pwd)"; int="$out/.intermediate"; ir="$int/ir"
+    rm -rf "$ir"; mkdir -p "$ir"
+    # Libraries: each --library entry is either an IR root already (it holds a language folder
+    # or the flat tables themselves, or module sub-folders that do) or a source tree, which is
+    # parsed into <out>/.intermediate/lib/<name>/ so it can be passed as an IR root.
+    # An IR root holds a marker table directly (flat IR), or one level down (per-language IR
+    # from `parser`, or a JDK-style root of module folders). Folder NAMES prove nothing — a
+    # source tree may well have a java/ directory.
+    is_ir(){ local d="$1" m sub
+      for m in all-types.csv all-typescript-modules.csv all-python-modules.csv all-javascript-modules.csv; do
+        [ -f "$d/$m" ] && return 0
+        for sub in "$d"/*/; do [ -f "$sub$m" ] && return 0; done
+      done; return 1; }
+    libroots=""
+    IFS=',' read -ra libentries <<< "$libs"
+    for L in ${libentries[@]+"${libentries[@]}"}; do
+      [ -n "$L" ] || continue; [ -d "$L" ] || die "--library: not a directory: $L"
+      if is_ir "$L"; then libroots="$libroots,$L"
+      else
+        n="$(basename "$(cd "$L" && pwd)")"; lir="$int/lib/$n"
+        echo "▶ parsing library $L → $lir"
+        "$0" parser "$L" "$lir" --version "$(git -C "$L" rev-parse HEAD 2>/dev/null || echo v1.0.0)" > "$int/parse-lib-$n.log" 2>&1 \
+          || { echo "❌ parsing library $L failed — see $int/parse-lib-$n.log" >&2; exit 1; }
+        libroots="$libroots,$lir"
+      fi
+    done
+    libroots="${libroots#,}"
+    echo "▶ parsing $src → IR"
+    "$0" parser "$src" "$ir" ${popts[@]+"${popts[@]}"} > "$int/parse.log" 2>&1 || { echo "❌ parser failed — see $int/parse.log" >&2; tail -5 "$int/parse.log" >&2; exit 1; }
+    head -1 "$int/parse.log"
+    # which languages the IR holds — one folder each — and which of them have an engine
+    found=(); for d in "$ir"/*/; do l="$(basename "$d")"; [ -d "$ROOT/graph/$l/engine" ] && found+=("$l"); done
+    [ ${#found[@]} -gt 0 ] || { echo "❌ no language with an engine in the IR (folders: $(ls "$ir" | tr '\n' ' '))" >&2; exit 1; }
+    langs=("${found[@]}")
+    if [ -n "$lang" ]; then
+      case " ${found[*]} " in *" $lang "*) langs=("$lang");; *) echo "❌ --language=$lang, but the IR holds only: ${found[*]}" >&2; exit 1;; esac
+    fi
+    echo "▶ languages: ${langs[*]}"
+    for l in "${langs[@]}"; do
+      echo "▶ solving $l → $out/$l/graph.sqlite"
+      "$0" engine --language "$l" --client-ir "$ir/$l" --out "$out/$l" --intermediate "$int" --library "$libroots" \
+           --meta "source_version=$version" --meta "source_dir=$(cd "$src" && pwd)" ${rest[@]+"${rest[@]}"}
+    done
+    for l in "${langs[@]}"; do echo "$out/$l/graph.sqlite"; done
+    ;;
+  test)
+    which="${1:-all}"; [ $# -gt 0 ] && shift
+    rc=0
+    run_suite(){ local s="$1"; shift; echo "══ $s"; bash "$ROOT/graph/test/$s/run-tests.sh" "$@" || rc=1; }
+    case "$which" in
+      java|typescript|python|javascript) run_suite "$which" "$@";;
+      parser) for t in java-extractor-tests typescript-tests python-tests javascript-tests gradle-tests services-tests; do
+                [ -f "$ROOT/parser/src/test/$t.ts" ] || continue; echo "══ parser: $t"; (cd "$ROOT/parser" && npx tsx "src/test/$t.ts") || rc=1; done;;
+      all) for l in java typescript python javascript; do run_suite "$l" "$@"; done; "$0" test parser || rc=1;;
+      *) die "test: unknown suite $which (java | typescript | python | javascript | parser | all)";;
+    esac
+    exit $rc
+    ;;
+  -h|--help|help|"") usage; [ -n "$cmd" ] || exit 2;;
+  *) die "unknown command '$cmd' (parser | engine | all | test; --help)";;
+esac

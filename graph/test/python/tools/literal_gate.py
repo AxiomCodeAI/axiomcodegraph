@@ -40,8 +40,7 @@ import sys
 # repo root is FOUR levels up: tools -> python -> test -> <repo>. Getting this wrong
 # makes os.walk find nothing and the gate pass vacuously, which is exactly what happened
 # on the first attempt and is why this tool is checked against an injected literal.
-_REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__))))))
+_REPO = next(str(p) for p in __import__('pathlib').Path(__file__).resolve().parents if (p / 'package.json').exists() and (p / 'graph').is_dir())  # the repository root, by its marker
 ENGINE = os.path.join(_REPO, "graph", "python", "engine")
 if not os.path.isdir(ENGINE):
     raise SystemExit(f"literal gate: engine dir not found at {ENGINE} -- refusing to pass vacuously")
@@ -55,7 +54,13 @@ NUMERIC = re.compile(r"^\d+$")
 DUNDER = re.compile(r"^__\w+__$")
 # a label only ever produced, never joined on
 REASON_HEADS = ("call_unresolvable(", "site_reason(", "expr_type_untypable(",
-                "call_chain_summary(")
+                "call_chain_summary(",
+                # method_dispatch_candidate's third column is `basis`: which relation
+                # admitted the pair (`mro` here, `nominal`/`structural` in the other front
+                # ends). It is written into the output and never joined on, so it is the
+                # same category as the reasons above -- an output vocabulary term, not a
+                # literal the resolution could be fitted to.
+                "method_dispatch_candidate(")
 
 
 GROUND_FACT = re.compile(r'^[a-z_]+\((?:\s*"[^"]*"\s*,?)+\)\.\s*$')

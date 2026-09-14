@@ -1,0 +1,3 @@
+structural	duck#Reader.read -> duck#FileReader.read
+structural	duck#Reader.read -> duck#NetReader.read
+structural	lib:io#Closeable.close -> duck#FileReader.close

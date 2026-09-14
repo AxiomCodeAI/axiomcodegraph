@@ -242,6 +242,9 @@ graph/test/typescript/.work-*/
 # the one-command pipeline keeps its IR and scratch here
 .intermediate/
 
+# lock files are not committed: the engine is not published as a locked artifact, and two
+# workspaces' locks drifted on every parser sync
+package-lock.json
 # A JavaScript fixture dependency is a real package under node_modules — that is the shape
 # the parser resolves and the shape the library join is written for.
 !graph/test/javascript/cases/*/src/node_modules/

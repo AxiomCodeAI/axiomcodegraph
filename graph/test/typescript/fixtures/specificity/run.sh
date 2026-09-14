@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
-REPO="$(cd "$HERE/../../../../.." && pwd)"
+REPO="$(d="$(cd "$(dirname "$0")" && pwd)"; while [ "$d" != / ] && { [ ! -f "$d/package.json" ] || [ ! -d "$d/graph" ]; }; do d="$(dirname "$d")"; done; echo "$d")"  # the repository root, found by its marker — no level counting
 WORK="${1:-/tmp/ts-specificity-fixture}"
 # Discovered, not hardcoded: this default used to be an absolute path inside one
 # developer's home directory, so the symlink below was silently skipped anywhere else

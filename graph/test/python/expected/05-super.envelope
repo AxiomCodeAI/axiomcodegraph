@@ -1,0 +1,5 @@
+mro	main.Left.greet -> main.Both.greet
+mro	main.Right.greet -> main.Both.greet
+mro	main.Root.greet -> main.Both.greet
+mro	main.Root.greet -> main.Left.greet
+mro	main.Root.greet -> main.Right.greet

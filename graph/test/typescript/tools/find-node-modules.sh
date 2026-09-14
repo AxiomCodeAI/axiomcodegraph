@@ -24,7 +24,7 @@
 # repository's, then a corpus checkout's.
 # ─────────────────────────────────────────────────────────────────────────────
 HERE="$(cd "$(dirname "$0")" && pwd)"
-REPO="$(cd "$HERE/../../../.." && pwd)"
+REPO="$(d="$(cd "$(dirname "$0")" && pwd)"; while [ "$d" != / ] && { [ ! -f "$d/package.json" ] || [ ! -d "$d/graph" ]; }; do d="$(dirname "$d")"; done; echo "$d")"  # the repository root, found by its marker — no level counting
 
 for c in "${TS_NODE_MODULES:-}" \
          "${TS_MODULE_PATH:+$(dirname "$TS_MODULE_PATH")}" \

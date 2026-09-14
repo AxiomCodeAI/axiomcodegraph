@@ -23,6 +23,7 @@ export interface CoreTables {
   call_sites: Row[];
   call_edges: Row[];
   type_ancestors: Row[];
+  dispatch_candidates: Row[];
   overrides: Row[];
   entry_points: Row[];
   entry_reachable: Row[];
@@ -124,6 +125,7 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
   const rawEdges = await readSource(rawDir, A.raw.callEdges); // site, caller, callee, prov, tier, kind
   const rawAncestors = A.raw.typeAncestors ? await readSource(rawDir, A.raw.typeAncestors) : [];
   const rawOverrides = A.raw.overrides ? await readSource(rawDir, A.raw.overrides) : [];
+  const rawDispatch = A.raw.dispatchCandidates ? await readSource(rawDir, A.raw.dispatchCandidates) : [];
   const rawEntry = A.raw.entryPoints ? await readSource(rawDir, A.raw.entryPoints) : [];
   const rawReach = A.raw.entryReachable ? await readSource(rawDir, A.raw.entryReachable) : [];
   const rawInst = A.raw.typeInstantiated ? await readSource(rawDir, A.raw.typeInstantiated) : [];
@@ -307,6 +309,7 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
     call_sites: [...sites.values()],
     call_edges,
     type_ancestors: dedupe(rawAncestors),
+    dispatch_candidates: dedupe(rawDispatch),
     overrides: dedupe(rawOverrides),
     entry_points: dedupe(rawEntry),
     entry_reachable: dedupe(rawReach),

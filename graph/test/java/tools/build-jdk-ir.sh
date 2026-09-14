@@ -36,7 +36,7 @@ SRC="${AXIOM_JDK_SRC:-/Users/swapnilpaliwal/Documents/Java-Projects/java/jdk26u/
 # deliberately not decided here.
 SRCZIP="${AXIOM_JDK_SRCZIP:-$(/usr/libexec/java_home 2>/dev/null)/lib/src.zip}"
 OUT="${AXIOM_JDK_IR:-/Users/swapnilpaliwal/Documents/AxiomCode/jdk}"
-ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
+ROOT="$(d="$(cd "$(dirname "$0")" && pwd)"; while [ "$d" != / ] && { [ ! -f "$d/package.json" ] || [ ! -d "$d/graph" ]; }; do d="$(dirname "$d")"; done; echo "$d")"  # the repository root, found by its marker — no level counting
 PARSER="${AXIOM_PARSER:-$ROOT/parser/dist/index.js}"
 CHECK=0; FORCE=0; KEEP_STALE=0; ONLY=()
 while [ $# -gt 0 ]; do case "$1" in
@@ -48,7 +48,7 @@ while [ $# -gt 0 ]; do case "$1" in
 [ -d "$SRC" ]  || { echo "no jdk source at $SRC" >&2; exit 1; }
 [ -f "$PARSER" ] || { echo "no parser at $PARSER (build it: npm run build)" >&2; exit 1; }
 
-. "$(cd "$(dirname "$0")/../../.." && pwd)/graph/pipeline/portable-stat.sh"
+. "$ROOT/graph/pipeline/portable-stat.sh"
 PARSER_REPO="$(cd "$(dirname "$PARSER")/.." && pwd)"
 PARSER_REV="$(git -C "$PARSER_REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 # THE REBUILD TRAP: dist/ is a build artefact; checking out a parser branch does not update it.

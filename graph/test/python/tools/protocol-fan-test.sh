@@ -27,7 +27,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-ROOT="$(cd "$HERE/../../../.." && pwd)"
+ROOT="$(d="$(cd "$(dirname "$0")" && pwd)"; while [ "$d" != / ] && { [ ! -f "$d/package.json" ] || [ ! -d "$d/graph" ]; }; do d="$(dirname "$d")"; done; echo "$d")"  # the repository root, found by its marker — no level counting
 PARSER="${AXIOM_PARSER:-$ROOT/parser/dist/index.js}"
 EMPTY_LIB="${AXIOM_EMPTY_LIB:-$(mktemp -d)}"; mkdir -p "$EMPTY_LIB"
 [ -f "$PARSER" ] || { echo "  SKIP  protocol-fan: parser not found at $PARSER (set AXIOM_PARSER)"; exit 0; }

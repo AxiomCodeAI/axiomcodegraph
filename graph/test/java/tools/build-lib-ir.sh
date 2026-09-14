@@ -16,7 +16,7 @@
 set -uo pipefail
 
 OUT="${AXIOM_LIB_IR:-/Users/swapnilpaliwal/Documents/AxiomCode/other-lib}"
-ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
+ROOT="$(d="$(cd "$(dirname "$0")" && pwd)"; while [ "$d" != / ] && { [ ! -f "$d/package.json" ] || [ ! -d "$d/graph" ]; }; do d="$(dirname "$d")"; done; echo "$d")"  # the repository root, found by its marker — no level counting
 PARSER="${AXIOM_PARSER:-$ROOT/parser/dist/index.js}"
 COORD=""; CHECK=0; FORCE=0
 while [ $# -gt 0 ]; do case "$1" in
@@ -25,7 +25,7 @@ while [ $# -gt 0 ]; do case "$1" in
   -h|--help) sed -n '2,16p' "$0"; exit 0;; *) echo "unknown arg $1" >&2; exit 2;; esac; done
 
 [ -f "$PARSER" ] || { echo "no parser at $PARSER (build it: npm run build)" >&2; exit 1; }
-. "$(cd "$(dirname "$0")/../../.." && pwd)/graph/pipeline/portable-stat.sh"
+. "$ROOT/graph/pipeline/portable-stat.sh"
 # rows(): records, not newlines. all-types.csv is written without a trailing newline (all-methods
 # is not), so `wc -l` - 1 under-reported every type count by one -- 6,781 against a real 6,782 on
 # java.base. Display only, but a wrong number in a build report is still a wrong number.

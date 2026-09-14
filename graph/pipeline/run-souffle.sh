@@ -15,6 +15,7 @@
 # deleted once the database is written, so a consumer sees one file: graph.sqlite.
 set -e
 DEBUG_BUNDLE="${AXIOM_DEBUG:-0}"
+EXTRA_META=()
 JDK_DEPTH=1   # max JDK-hop depth engine-ii expands. FORCED (always applied). Default 1: sinks are
               # known JDK methods (the cwe catalog), so external code reaches a file-op sink at JDK
               # hop 1; deeper JDK expansion only traces internal plumbing (the explosion source).
@@ -44,6 +45,7 @@ while [ $# -gt 0 ]; do case "$1" in
   # tables. --debug asks for both. (An older Node with no node:sqlite writes the CSVs
   # regardless, because otherwise the run would produce no consumer-facing output.)
   --debug) DEBUG_BUNDLE=1; shift;;
+  --meta) EXTRA_META+=(--meta "$2"); shift 2;;   # key=value recorded in graph.sqlite's run table
   # (AXIOM_DEBUG=1 in the environment is the same as --debug — for harnesses that cannot
   # change the invocation.)
   *) shift;; esac; done
@@ -413,7 +415,11 @@ echo "Elapsed (solve): $((SOLVE_EPOCH-START_EPOCH))s"
 # `npm run build` produced. Neither present is a setup error, and says so.
 PKG="$SRC/.."
 if [ -x "$PKG/node_modules/.bin/tsx" ]; then
-  BUNDLE=("$PKG/node_modules/.bin/tsx" "$SRC/bundle/cli.ts")
+  # --tsconfig, explicitly: cli.ts imports its neighbours through the @/ alias, and tsx
+  # resolves that from the tsconfig it finds relative to the CALLER's working directory —
+  # so without this the stage worked only when run from the engine checkout and failed
+  # from anywhere else with "Cannot find module '@/bundle/build'", after the solve (#470).
+  BUNDLE=("$PKG/node_modules/.bin/tsx" --tsconfig "$PKG/tsconfig.json" "$SRC/bundle/cli.ts")
 elif [ -f "$PKG/dist/bundle/cli.js" ]; then
   BUNDLE=(node "$PKG/dist/bundle/cli.js")
 else
@@ -423,15 +429,12 @@ else
 fi
 ENGINE_COMMIT="$(git -C "$SRC" rev-parse HEAD 2>/dev/null || echo unknown)"
 BUNDLE_FLAGS=(); [ "$DEBUG_BUNDLE" = "1" ] && BUNDLE_FLAGS+=(--debug)
-# tsx resolves the `@/` path alias from the tsconfig it finds at the CURRENT directory, so
-# a caller running from elsewhere (an evaluation harness under /tmp) got "Cannot find
-# module '@/bundle/build'" after a successful solve. Run the bundle from the package root;
-# every path handed to it is absolute.
-(cd "$PKG" && "${BUNDLE[@]}" --language "$LANG_ARG" --src "$SRC" --client-ir "$CLIENT" --raw "$RAW" --out "$OUT" \
+"${BUNDLE[@]}" --language "$LANG_ARG" --src "$SRC" --client-ir "$CLIENT" --raw "$RAW" --out "$OUT" \
   --library "$LIB" --lib-facts "$LIBDIR" "${BUNDLE_FLAGS[@]}" \
   --meta "engine_commit=$ENGINE_COMMIT" \
   --meta "dispatch_cap=${CAP_EFF:-off}" --meta "jdk_depth=$JDK_DEPTH" --meta "lib_depth=${LIB_DEPTH:-uncapped}" \
-  --meta "engine_ii=$ENGINE_II_MODE" --meta "solve_iterations=$iter" --meta "solve_seconds=$((SOLVE_EPOCH-START_EPOCH))")
+  --meta "engine_ii=$ENGINE_II_MODE" --meta "solve_iterations=$iter" --meta "solve_seconds=$((SOLVE_EPOCH-START_EPOCH))" \
+  ${EXTRA_META[@]+"${EXTRA_META[@]}"}
 
 END_EPOCH=$(date +%s); END_TS=$(date '+%Y-%m-%d %H:%M:%S')
 echo "Elapsed: $((END_EPOCH-START_EPOCH))s"
