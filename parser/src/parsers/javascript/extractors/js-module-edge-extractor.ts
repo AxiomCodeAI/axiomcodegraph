@@ -69,6 +69,8 @@ export interface ModuleEdgeExtractionOptions {
   readonly moduleHash: string;
   readonly serviceVersionLinkHash: string;
   readonly compilerOptions: ts.CompilerOptions;
+  /** The file's own module system: an ES module resolves its `import`s under the `import` conditions, a CommonJS file its `require`s under `require`. */
+  readonly moduleSystem: string;
   readonly serviceVersion: string;
   readonly hashOfScope: (scope: JsScopeNode) => string;
   readonly expressionRowByNode: ReadonlyMap<string, JsExpressionRegistry>;
@@ -829,7 +831,7 @@ class JsModuleEdgeExtractor {
   }): JsImportRegistry | undefined {
     const at = this.positionOf(init.node);
     const specifierKind = init.specifierKind ?? JsSpecifierKind.STRING_LITERAL;
-    const resolution = this.resolve(init.specifier, specifierKind);
+    const resolution = this.resolve(init.specifier, specifierKind, init.importForm);
     const scope = this.scopeAt(init.node);
     const row = new JsImportRegistry({
       specifier: init.specifier,
@@ -1055,7 +1057,8 @@ class JsModuleEdgeExtractor {
    */
   private resolve(
     specifier: string,
-    kind: JsSpecifierKind
+    kind: JsSpecifierKind,
+    form: JsImportForm
   ): { filePath: string; outcome: JsImportResolutionOutcome } {
     if (kind !== JsSpecifierKind.STRING_LITERAL) {
       // Unresolvable BY CONSTRUCTION. 17 measured, and the row says so rather
@@ -1069,12 +1072,28 @@ class JsModuleEdgeExtractor {
       // the repository — which no amount of installing dependencies changes.
       return { filePath: '', outcome: JsImportResolutionOutcome.RESOLVED_BUILTIN };
     }
-    const resolved = ts.resolveModuleName(
+    // The runtime resolves a package specifier under the `exports` CONDITIONS of the
+    // importing site: `require()` (and `createRequire`) under `require`, an `import`
+    // declaration or `import()` under `import`, in either kind of file. Without the
+    // mode the resolver applies the `require` conditions everywhere, so an ES module
+    // importing a dual package was linked to the CommonJS build it never loads (#601).
+    // `import` resolution has no directory or extension-less fallback, as Node has
+    // none; a bundler-only ES module that spells `./lib` for `./lib/index.js` gets
+    // the CommonJS-mode answer as a fallback rather than nothing, since the file it
+    // means is not in doubt.
+    const requireLike = form === JsImportForm.REQUIRE_CALL || form === JsImportForm.CREATE_REQUIRE
+      || (form === JsImportForm.JSDOC_IMPORT_TYPE && this.options.moduleSystem !== 'ESM');
+    const mode = requireLike ? ts.ModuleKind.CommonJS : ts.ModuleKind.ESNext;
+    const resolveIn = (m: ts.ResolutionMode): string | undefined => ts.resolveModuleName(
       specifier,
       this.options.absoluteFilePath,
       this.options.compilerOptions,
-      ts.sys
+      ts.sys,
+      undefined,
+      undefined,
+      m
     ).resolvedModule?.resolvedFileName;
+    const resolved = resolveIn(mode) ?? (mode === ts.ModuleKind.ESNext ? resolveIn(ts.ModuleKind.CommonJS) : undefined);
     if (resolved === undefined) {
       return { filePath: '', outcome: JsImportResolutionOutcome.UNRESOLVED_MISSING };
     }
