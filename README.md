@@ -1,7 +1,7 @@
 <h1 align="center">AxiomCode Code Graph</h1>
 
 <p align="center">
-  <strong>See what your code change will break before you make it.</strong>
+  <strong> The most accurate graph builder you'll ever use.</strong>
 </p>
 
 <p align="center">
