@@ -1,6 +1,6 @@
-ambiguous_unknown	CONSTRUCTOR_CALL	consumer#drive() @L5 -> -
-ambiguous_unknown	CONSTRUCTOR_CALL	consumer#useLibrary() @L13 -> -
+boundary_lib	CONSTRUCTOR_CALL	consumer#useLibrary() @L13 -> Session#<new>()
 boundary_lib	FUNCTION_CALL	consumer#useLibrary() @L15 -> vendor-core#connect()
 boundary_lib	METHOD_CALL	consumer#useLibrary() @L15 -> Session#open()
+known_edge	CONSTRUCTOR_CALL	consumer#drive() @L5 -> Engine#<new>()
 known_edge	FUNCTION_CALL	consumer#drive() @L6 -> core#boot()
 known_edge	METHOD_CALL	consumer#drive() @L6 -> Engine#start()

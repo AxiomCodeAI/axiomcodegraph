@@ -217,7 +217,7 @@ Every callable the graph refers to: all client methods/functions from the IR, pl
 | `ENUM_CONSTANT_METHOD` | java | Method body declared on an enum constant. |
 | `RECORD_ACCESSOR` | java | A record component accessor. |
 | `COMPACT_CONSTRUCTOR` | java | A record's compact canonical constructor. |
-| `DEFAULT_CONSTRUCTOR` | java | The implicit no-arg constructor the parser synthesises for a class that declares none. |
+| `DEFAULT_CONSTRUCTOR` | java, typescript | The implicit no-arg constructor the parser synthesises for a class that declares none (TypeScript: and extends nothing; a subclass runs the nearest declared base constructor). |
 | `INSTANCE_INITIALIZER` | java | `{ … }` instance initializer block. |
 | `ANNOTATION_ELEMENT` | java | An element of an annotation interface. |
 | `RECORD_EQUALS` | java | A record's implicit equals. |

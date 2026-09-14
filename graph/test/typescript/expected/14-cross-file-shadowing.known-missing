@@ -2,3 +2,7 @@
 # resolves and this engine does not. A NEW missing edge fails the suite;
 # a line here that STARTS working also fails, so the debt cannot rot.
 consumer#drive() -> Service#run()
+# Same label collision as the line above: two classes named Service, one per file, so the
+# engine side disambiguates their `<new>` with a line suffix that the compiler side does
+# not carry. The edge itself is present (see the `extra ... Service#<new>()@L1` row).
+consumer#drive() -> Service#<new>()

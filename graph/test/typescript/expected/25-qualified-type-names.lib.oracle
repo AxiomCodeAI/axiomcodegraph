@@ -1,4 +1,4 @@
-oracle=10 engine=16 agree=10 missing=0 (known 0, NEW 0) extra=6
+oracle=14 engine=20 agree=14 missing=0 (known 0, NEW 0) extra=6
   extra    Impl#fit(Point) -> Origin#move(number)
   extra    client-to-lib#driveLibrary() -> Std#open()
   extra    consumer#drive() -> Impl#fit(Point)

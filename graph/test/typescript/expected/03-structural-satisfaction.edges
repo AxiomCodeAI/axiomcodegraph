@@ -1,7 +1,7 @@
-ambiguous_unknown	CONSTRUCTOR_CALL	duck#drive() @L36 -> -
-ambiguous_unknown	CONSTRUCTOR_CALL	duck#drive() @L37 -> -
-ambiguous_unknown	CONSTRUCTOR_CALL	duck#useLibrary() @L46 -> -
 ambiguous_unknown	FUNCTION_CALL	duck#useLibrary() @L51 -> -
+known_edge	CONSTRUCTOR_CALL	duck#drive() @L36 -> FileReader#<new>()
+known_edge	CONSTRUCTOR_CALL	duck#drive() @L37 -> NetReader#<new>()
+known_edge	CONSTRUCTOR_CALL	duck#useLibrary() @L46 -> FileReader#<new>()
 known_edge	FUNCTION_CALL	duck#drive() @L39 -> duck#consume(Reader)
 known_edge	METHOD_CALL	duck#useLibrary() @L50 -> FileReader#close()
 multi_inferred	METHOD_CALL	duck#consume(Reader) @L32 -> FileReader#read()

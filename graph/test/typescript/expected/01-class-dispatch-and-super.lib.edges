@@ -1,4 +1,4 @@
-ambiguous_unknown	CONSTRUCTOR_CALL	shapes#useLibrary() @L63 -> -
+boundary_lib	CONSTRUCTOR_CALL	shapes#useLibrary() @L63 -> Drawable#<new>()
 boundary_lib	METHOD_CALL	LibCircle#draw() @L57 -> Drawable#outline()
 boundary_lib	METHOD_CALL	shapes#useLibrary() @L62 -> Palette#static default()
 boundary_lib	METHOD_CALL	shapes#useLibrary() @L64 -> Drawable#outline()

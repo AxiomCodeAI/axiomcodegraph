@@ -1,3 +1,3 @@
-ambiguous_unknown	CONSTRUCTOR_CALL	Factory#make(unknown[]) @L9 -> -
+known_edge	CONSTRUCTOR_CALL	Factory#make(unknown[]) @L9 -> Item#<new>()
 known_edge	METHOD_CALL	main#use(Factory) @L13 -> Factory#make()
 known_edge	METHOD_CALL	main#use(Factory) @L14 -> Factory#make(T[])
