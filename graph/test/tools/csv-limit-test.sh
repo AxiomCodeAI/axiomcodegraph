@@ -54,7 +54,7 @@ p = os.path.join(w, 'all-typescript-expressions.csv')
 with open(p, 'w', encoding='utf-8') as fh:
     fh.write('kind\tliteralValue\n')
     fh.write(f'STRING\t{big}\n')
-sys.path.insert(0, os.path.join(root, 'test', 'typescript', 'ground-truth'))
+sys.path.insert(0, os.path.join(root, 'graph', 'test', 'typescript', 'ground-truth'))
 try:
     from score import read_tsv
 except Exception as e:                                  # pragma: no cover - import shape
