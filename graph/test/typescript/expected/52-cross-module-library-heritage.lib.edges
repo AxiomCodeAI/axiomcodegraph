@@ -1,0 +1,5 @@
+boundary_lib	METHOD_CALL	main#use(Square,Circle,Local) @L10 -> Shape#label()
+boundary_lib	METHOD_CALL	main#use(Square,Circle,Local) @L11 -> Rect#area()
+boundary_lib	METHOD_CALL	main#use(Square,Circle,Local) @L11 -> Shape#area()
+boundary_lib	METHOD_CALL	main#use(Square,Circle,Local) @L9 -> Rect#area()
+boundary_lib	METHOD_CALL	main#use(Square,Circle,Local) @L9 -> Shape#area()

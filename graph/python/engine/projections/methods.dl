@@ -1,0 +1,199 @@
+// ============================================================================
+// Projections · METHODS  (pure column views — no joins, no closures)
+//
+// py_method covers `def`, `async def`, `lambda`, AND the two synthetic initializers
+// (<module> MODULE_INITIALIZER, <classbody> CLASS_INITIALIZER) that give module-level
+// and class-body code a caller. Cols 0..20 are byte-for-byte java_method 0..20, so
+// method_decl / method_owner / method_kind port as literal renames — the hash index
+// moves 21 -> 35 and the Python-specific columns append.
+//
+// Conventions: views only. One raw base relation per rule body. MRO-aware method
+// lookup is resolution/attribute-lookup.dl, never here.
+//
+// py_method / lib_py_method cols (36):
+//   0 name  1 signature  2 detailedSignature  3 qualifiedName  4 filePath  5 startLine
+//   6 endLine  7 pyTypeLinkHash  8 ownerTypeName  9 ownerQualifiedName  10 methodAccess
+//   11 methodModifier  12 returnTypeName  13 isVarArgs  14 hasReceiverParameter
+//   15 defaultValueExpression  16 methodKind  17 parameterCount  18 hasTypeParameters
+//   19 throwsExceptions  20 enclosingMemberLinkHash  21 pyModuleLinkHash
+//   22 scopeLinkHash  23 declaringBindingLinkHash  24 posOnlyCount  25 kwOnlyCount
+//   26 hasKwArgs  27 isArgsKwargsPassthrough  28 isAsync  29 isGenerator
+//   30 decoratorCount  31 bodyIsStub  32 startColumn  33 endColumn
+//   34 serviceVersionLinkHash  35 pyMethodUniqueHash
+//
+// py_method_parameter / lib_py_method_parameter cols (22):
+//   0 paramName  1 position  2 pyMethodLinkHash  3 parameterBaseType
+//   4 parameterTypeName  5 potentialQualifiedName  6 isAmbiguous  7 isFinal
+//   8 isVarArgs  9 isReceiverParameter  10 startLine  11 endLine  12 paramKind
+//   13 hasDefault  14 defaultValueText  15 defaultValueKind  16 isMutableDefault
+//   17 annotationIsString  18 bindingLinkHash  19 pyExpressionLinkHash
+//   20 serviceVersionLinkHash  21 pyMethodParameterUniqueHash
+// ============================================================================
+
+// ── method_decl(Prov, Name, Signature, QualifiedName, ReturnTypeName, MethodHash) ──
+// Python has NO OVERLOADING: name + arity is identity inside one class body, and one
+// name per body wins. That is why java/engine/expression-resolution/overload.dl is
+// deliberately NOT ported. QualifiedName carries __qualname__ including <locals>, so
+// nested functions are addressable and it is the durable cross-run key.
+method_decl("client", name, sig, qname, ret, h) :- py_method(name, sig, _, qname, _, _, _, _, _, _, _, _, ret, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+method_decl("lib", name, sig, qname, ret, h) :- lib_py_method(name, sig, _, qname, _, _, _, _, _, _, _, _, ret, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── method_owner(Prov, TypeHash, MethodHash) ─────────────────────────────────
+// Which class declares this method. "" for the 16% of functions that are module-level
+// and for every nested function — so a rule that assumes a non-empty owner (as Java's
+// may) silently drops them. Only class-owned rows are emitted here; module-level
+// functions get method_module_level below.
+method_owner("client", t, h) :- py_method(_, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), t != "".
+method_owner("lib", t, h) :- lib_py_method(_, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), t != "".
+
+// ── method_module_level(Prov, ModuleHash, MethodHash) ────────────────────────
+// A function with no owning class. Python's module IS a namespace, so this is a real
+// container, not a fallback.
+method_module_level("client", m, h) :- py_method(_, _, _, _, _, _, _, "", _, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+method_module_level("lib", m, h) :- lib_py_method(_, _, _, _, _, _, _, "", _, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── method_module(Prov, ModuleHash, MethodHash) — every method, owned or not ──
+method_module("client", m, h) :- py_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+method_module("lib", m, h) :- lib_py_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── method_kind(Prov, Kind, ParamCount, MethodHash) ──────────────────────────
+// Kind (methodKind, col 16):
+//   FUNCTION / NESTED_FUNCTION   module-level or closure function
+//   INSTANCE_METHOD              arg 0 is the receiver
+//   STATIC_METHOD                @staticmethod — arg 0 is NOT a receiver
+//   CLASS_METHOD                 @classmethod — arg 0 is the CLASS
+//   PROPERTY_GETTER/SETTER/DELETER   @property: an attribute READ becomes a CALL
+//   CONSTRUCTOR                  __init__      ALLOCATOR  __new__
+//   DUNDER_METHOD                operator / protocol hook
+//   ABSTRACT_METHOD              the concrete target lives in an implementor
+//   OVERLOAD_STUB                @overload — a DECLARATION, never a call target
+//   LAMBDA / GENERATOR / ASYNC_FUNCTION / ASYNC_GENERATOR
+//   MODULE_INITIALIZER / CLASS_INITIALIZER   the synthetic owners (schema §4.2)
+// STATIC vs CLASS vs INSTANCE shifts every positional argument->parameter link by
+// one, which is why the kind is projected next to the arity.
+method_kind("client", kind, pc, h) :- py_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, kind, pc, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+method_kind("lib", kind, pc, h) :- lib_py_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, kind, pc, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── method_modifier(Prov, MethodModifier, MethodHash) ────────────────────────
+// Comma-set: ASYNC,GENERATOR,STATIC,CLASS,PROPERTY,SETTER,DELETER,ABSTRACT,OVERLOAD,
+// FINAL,CACHED,SYNTHETIC. SYNTHETIC marks <module>/<classbody>.
+method_modifier("client", m, h) :- py_method(_, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+method_modifier("lib", m, h) :- lib_py_method(_, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── method_is_async(Prov, MethodHash) — `async def` ──────────────────────────
+// col 28. Needed because the return annotation of an `async def` is, by language
+// definition (PEP 492/484), the type of the value the coroutine PRODUCES — not the
+// type of the coroutine object the call yields. So this column is what licenses
+// reading `-> T` as the type of `await f()`, and nothing else does: methodKind
+// (col 16) says ASYNC_FUNCTION for a plain coroutine function but is overwritten by
+// ABSTRACT_METHOD / OVERLOAD_STUB on 47 of aiohttp's 3,656 async defs, and
+// methodModifier (col 11) is a comma-set that needs substring matching. Measured on
+// one async-first corpus: 3,656 async methods, isAsync=true on every one of them,
+// and 2,797 of those carry a bare-name return annotation.
+method_is_async("client", h) :- py_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, h).
+method_is_async("lib", h) :- lib_py_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, h).
+
+// ── method_scope(Prov, ScopeHash, MethodHash) ────────────────────────────────
+// This function's OWN scope — the scope its body's names resolve in.
+method_scope("client", s, h) :- py_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, s, _, _, _, _, _, _, _, _, _, _, _, _, h).
+method_scope("lib", s, h) :- lib_py_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, s, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── method_declaring_binding(Prov, BindingHash, MethodHash) ──────────────────
+// The binding this `def` creates in its enclosing scope; "" for lambdas. THE
+// STRUCTURAL KEY for bare-name call resolution: a NAME_REFERENCE callee carries
+// bindingLinkHash, and this says which def that binding declares. Scope-correct by
+// construction — no name matching, so a nested `register` cannot be confused with a
+// module-level one of the same name.
+method_declaring_binding("client", b, h) :- py_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, b, _, _, _, _, _, _, _, _, _, _, _, h), b != "".
+method_declaring_binding("lib", b, h) :- lib_py_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, b, _, _, _, _, _, _, _, _, _, _, _, h), b != "".
+
+// ── method_start_line / method_decorator_count (cols 5 and 30) ───────────────
+// Both read for #383 and for nothing else so far. The line orders two `def`s that share a
+// binding; the decorator count is what keeps a PROPERTY PAIR out of the rule entirely —
+// `@property def x` and `@x.setter def x` share one binding and one name, and 433 of the
+// 617 shared-binding groups in the measured corpus are exactly that. Both of those are
+// reachable, through the descriptor rather than through the name, so a rebinding rule
+// that did not exclude them would delete every getter in the corpus.
+method_file("client", f, h) :- py_method(_, _, _, _, f, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+method_file("lib", f, h) :- lib_py_method(_, _, _, _, f, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+method_start_line("client", sl, h) :- py_method(_, _, _, _, _, sl, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+method_start_line("lib", sl, h) :- lib_py_method(_, _, _, _, _, sl, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+method_decorator_count("client", dc, h) :- py_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, dc, _, _, _, _, h).
+method_decorator_count("lib", dc, h) :- lib_py_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, dc, _, _, _, _, h).
+
+// ── method_enclosing_member(Prov, EnclosingMethodHash, MethodHash) ───────────
+// CLOSURES ARE FIRST-CLASS, unlike Java: 5.3% of functions nest, and a nested def is
+// a genuine call target reachable only through its enclosing scope.
+method_enclosing_member("client", e, h) :- py_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), e != "".
+method_enclosing_member("lib", e, h) :- lib_py_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), e != "".
+
+// ── method_receiver_shape(Prov, HasReceiverParameter, IsVarArgs, HasKwArgs, MethodHash) ──
+method_receiver_shape("client", recv, va, kw, h) :- py_method(_, _, _, _, _, _, _, _, _, _, _, _, _, va, recv, _, _, _, _, _, _, _, _, _, _, _, kw, _, _, _, _, _, _, _, _, h).
+method_receiver_shape("lib", recv, va, kw, h) :- lib_py_method(_, _, _, _, _, _, _, _, _, _, _, _, _, va, recv, _, _, _, _, _, _, _, _, _, _, _, kw, _, _, _, _, _, _, _, _, h).
+
+// ── method_arity_shape(Prov, PosOnlyCount, KwOnlyCount, ParamCount, MethodHash) ──
+// PEP 570 `/` and `*` split the parameter list into regions; a positional argument
+// cannot bind a KEYWORD_ONLY parameter, so arity matching needs all three numbers.
+method_arity_shape("client", po, kwo, pc, h) :- py_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, pc, _, _, _, _, _, _, po, kwo, _, _, _, _, _, _, _, _, _, h).
+method_arity_shape("lib", po, kwo, pc, h) :- lib_py_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, pc, _, _, _, _, _, _, po, kwo, _, _, _, _, _, _, _, _, _, h).
+
+// ── method_args_kwargs_passthrough(Prov, MethodHash) ─────────────────────────
+// BOTH *args and **kwargs (2.8% of functions). Marks where positional argument->
+// parameter flow is PROVABLY unsound. The engine reports the imprecision instead of
+// inventing a link: `def passthrough(*args, **kwargs): return target(*args, **kwargs)`
+// tells you nothing about which parameter of `target` an argument reached.
+method_args_kwargs_passthrough("client", h) :- py_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, h).
+method_args_kwargs_passthrough("lib", h) :- lib_py_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, h).
+
+// ── method_body_is_stub(Prov, MethodHash) ────────────────────────────────────
+// Body is only `...` / `pass` / a docstring: @overload stubs (567 in the corpus),
+// Protocol members, everything in a .pyi. MUST NEVER BE A CALL TARGET — resolving a
+// call to an @overload stub is a fabricated edge, because the stub has no body to
+// execute. The gate lives in resolution/attribute-lookup.dl.
+method_body_is_stub("client", h) :- py_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, h).
+method_body_is_stub("lib", h) :- lib_py_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, h).
+
+// ── method_decorated(Prov, DecoratorCount, MethodHash) ───────────────────────
+// 22% of functions are decorated. A decorator REPLACES the decorated object, so a
+// decorated def is not necessarily what its name refers to (resolution/decorators.dl).
+method_decorated("client", n, h) :- py_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, n, _, _, _, _, h), n != "0".
+method_decorated("lib", n, h) :- lib_py_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, n, _, _, _, _, h), n != "0".
+
+// ── method_span(Prov, FilePath, StartLine, EndLine, MethodHash) ──────────────
+method_span("client", p, sl, el, h) :- py_method(_, _, _, _, p, sl, el, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+method_span("lib", p, sl, el, h) :- lib_py_method(_, _, _, _, p, sl, el, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ============================================================================
+// PARAMETERS
+// ============================================================================
+
+// ── param_decl(Prov, Name, Position, TypeName, MethodHash, ParamHash) ────────
+// 68.2% carry NO annotation (TypeName ""), so argument->parameter flow, not declared
+// type, is the primary receiver-typing mechanism.
+param_decl("client", name, pos, tn, m, h) :- py_method_parameter(name, pos, m, _, tn, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+param_decl("lib", name, pos, tn, m, h) :- lib_py_method_parameter(name, pos, m, _, tn, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── param_annotation(Prov, BaseType, FullType, PotentialQName, ParamHash) ────
+// BaseType is the annotation MINUS SUBSCRIPTS (`Optional[User]` -> `Optional`), FullType
+// is the text as written, PotentialQName is the parser's dotted guess. All three are
+// needed: the base name is what a name->type lookup can resolve, the full text is what a
+// report shows, and the qualified name is the cross-check.
+param_annotation("client", base, full, pq, h) :- py_method_parameter(_, _, _, base, full, pq, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+param_annotation("lib", base, full, pq, h) :- lib_py_method_parameter(_, _, _, base, full, pq, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── param_kind(Prov, ParamKind, IsVarArgs, IsReceiver, ParamHash) ────────────
+// POSITIONAL_OR_KEYWORD | POSITIONAL_ONLY | KEYWORD_ONLY | VAR_POSITIONAL |
+// VAR_KEYWORD | POSITIONAL_ONLY_MARKER | KEYWORD_ONLY_MARKER. The two MARKER kinds
+// have paramName "" and are NOT parameters — a rule that counts rows as arity is wrong.
+param_kind("client", k, va, recv, h) :- py_method_parameter(_, _, _, _, _, _, _, _, va, recv, _, _, k, _, _, _, _, _, _, _, _, h).
+param_kind("lib", k, va, recv, h) :- lib_py_method_parameter(_, _, _, _, _, _, _, _, va, recv, _, _, k, _, _, _, _, _, _, _, _, h).
+
+// ── param_binding(Prov, BindingHash, ParamHash) ──────────────────────────────
+// This parameter's binding in the function scope. The join point for "the receiver is
+// a bare name that happens to be a parameter" — the 68.2% case.
+param_binding("client", b, h) :- py_method_parameter(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, b, _, _, h), b != "".
+param_binding("lib", b, h) :- lib_py_method_parameter(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, b, _, _, h), b != "".
+
+// ── param_default(Prov, HasDefault, DefaultValueKind, ParamHash) ─────────────
+param_default("client", hd, dk, h) :- py_method_parameter(_, _, _, _, _, _, _, _, _, _, _, _, _, hd, _, dk, _, _, _, _, _, h).
+param_default("lib", hd, dk, h) :- lib_py_method_parameter(_, _, _, _, _, _, _, _, _, _, _, _, _, hd, _, dk, _, _, _, _, _, h).

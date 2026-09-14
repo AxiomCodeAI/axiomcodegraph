@@ -1,0 +1,7 @@
+rootProject.name = 'fixture-build'
+
+include 'core'
+include ':app'
+include ':core:data-test'
+
+includeBuild '../shared-build'

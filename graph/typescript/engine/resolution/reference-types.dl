@@ -1,0 +1,535 @@
+// ============================================================================
+// Resolution · REFERENCE TYPES  (declaration -> the type it declares)
+//
+// The entity->type projections of ref_type_target: for each declaration a receiver
+// can bind to, the type its ANNOTATION gives it. Java's file of the same name is a
+// list of one-liners because a Java annotation is a single named type; here each one
+// also has to decide what to do when the annotation is a shape, a union, or absent.
+//
+// ── DECLARED WINS OVER FLOWED, AND IS NOT UNIONED WITH IT ───────────────────
+// A law paid for in the Python engine: unioning
+// an annotation with flowed types lets imprecision leak THROUGH the declaration and
+// cost six spurious targets on one funnel. Where the programmer wrote a type, that
+// is the answer. Flow speaks only where no annotation does — which here is the 14.7%
+// of parameters and the inferred `const`s, not the majority case Python faced.
+//
+// Every fallback below therefore carries an explicit negation of its preferred
+// source. Emitting both would leave the site multi_inferred across a declared type
+// and a flowed one instead of collapsing to the declaration.
+//
+// ── STRATIFICATION ──────────────────────────────────────────────────────────
+// Reads type-resolution.dl and projections. The negations (!field_has_declared_type
+// and friends) are over relations derived in this same file from base facts and
+// ref_type_target only — never from expr_type — so they sit below the expr_type
+// fixpoint and stay legal when expr-type.dl reads them.
+// ============================================================================
+
+// ── field_type(FieldHash, Prov, TypeHash) / field_shape(FieldHash, ShapeRef) ──
+field_type(f, prov, t) :- field_type_ref(_, r, f),
+    ref_type_target(r, prov, t).
+field_shape(f, s) :- field_type_ref(_, r, f),
+    ref_shape_target(r, s).
+// Written over the ANNOTATION rather than over field_type, which field_type itself
+// negates: reading it back would put the negation inside its own fixpoint and
+// Soufflé refuses to stratify. "Has a declared type" means the annotation RESOLVED —
+// an annotation that reached no declaration leaves the initializer as the only
+// evidence, and using it there is recovery, not the leak the declared-wins law
+// forbids (there is no resolved declaration for imprecision to leak through).
+field_has_declared_type(f) :- field_type_ref(_, r, f), ref_type_target(r, _, _).
+field_has_declared_type(f) :- field_type_ref(_, r, f), ref_shape_target(r, _).
+
+// A field with NO annotation, initialised by `new C()`. `private repo = new SqlRepo()`
+// is the standard shape and the declared type is absent by design, so flow is the
+// only source — and it is a CONCRETE type, which makes the receiver monomorphic and
+// collapses the call to one target instead of fanning the interface.
+field_type(f, prov, t) :- field_initializer("client", e, f),
+    !field_has_declared_type(f),
+    new_expression_type(e, prov, t).
+// And the general case, for the same reason as the variable rule below: an
+// un-annotated field takes its initializer's type whatever that initializer is.
+field_type(f, prov, t) :- field_initializer("client", e, f),
+    !field_has_declared_type(f),
+    expr_type(e, prov, t).
+field_shape(f, s) :- field_initializer("client", e, f),
+    !field_has_declared_type(f),
+    expr_shape(e, s).
+
+// A parameter property — `constructor(private readonly repo: Repo)` — declares a
+// field whose type is the parameter's. Ubiquitous in decorator-DI codebases, and
+// without it every `this.repo.x()` in such a class has an untyped receiver.
+field_type(f, prov, t) :- param_declares_field("client", f, p),
+    param_type(p, prov, t).
+field_shape(f, s) :- param_declares_field("client", f, p),
+    param_shape_target(p, s).
+
+// ── param_type(ParamHash, Prov, TypeHash) ───────────────────────────────────
+// 85.3% of parameters carry an annotation, and 99.998% in ambient code. This is the
+// primary receiver-typing mechanism in TypeScript, the one Python could not have.
+param_type(p, prov, t) :- param_type_ref(_, r, p),
+    ref_type_target(r, prov, t).
+param_shape_target(p, s) :- param_type_ref(_, r, p),
+    ref_shape_target(r, s).
+
+// ── var_type(VarHash, Prov, TypeHash) ───────────────────────────────────────
+// `declare const f: typeof import('M')['x']` — a CALLABLE published under a name
+// that no declaration in this file spells. vitest's globals.d.ts is exactly this
+// shape, and it is how `expectTypeOf` reaches a test suite.
+//
+// The target is a FUNCTION, so this belongs on `var_is_function` and not on
+// `var_type`: there is no variable type to inherit, and the earlier attempt to route
+// it through `var_type` could never fire because `probeOf`/`expectTypeOf` is a method
+// row, not a variable row. The INDEXED_ACCESS node carries its object at child
+// position 0 (an IMPORT_TYPE holding the specifier) and its key at position 1 (a
+// LITERAL whose value keeps its quotes, so the two are stripped).
+// ── `const f: typeof Qualified.member = ...` ────────────────────────────────
+// The idiom a library uses to re-export a native static under its own name:
+// `export const isArray: typeof Array.isArray = Array.isArray`. Measured across the
+// corpus PRODUCTION code, 8 such declarations account for 182 unresolved call sites,
+// because each alias is called from everywhere — the highest ratio of sites to
+// declarations of any gap found.
+//
+// The parser emits a TYPE_QUERY whose `name` is already the MEMBER (`isArray`) and
+// whose completeTypeName is the whole text (`typeof Array.isArray`), with NO children
+// — so the qualifier is only available as a string and has to be cut out. It is the
+// text between the `typeof ` prefix and the final `.`, and since the member is given
+// separately the arithmetic is exact rather than a search for the last dot.
+//
+// The qualifier resolves as a VALUE, not a type: `Array` names the ArrayConstructor
+// variable, and `isArray` is a member of it. That is the same path rule (9b) in
+// callee-resolution takes for `new Set()`, and for the same reason — the constructor
+// and the instance type are different declarations.
+typeof_query_member(v, qual, member) :- var_type_ref(_, r, v),
+    type_ref(rp, "TYPE_QUERY", _, member, complete, _, _, r),
+    member != "",
+    strlen(complete) > 8,
+    substr(complete, 0, 7) = "typeof ",
+    qlen = strlen(complete) - 7 - strlen(member) - 1,
+    qlen > 0,
+    qual = substr(complete, 7, qlen),
+    substr(complete, 7 + qlen, 1) = ".".
+
+// The qualifier's type is read through ref_type_target, NOT var_type: var_type is
+// reachable from expression typing, and pulling it in here drags var_is_function into
+// the expression fixpoint. The global is a plain annotated declaration
+// (`declare var Array: ArrayConstructor`), so its type reference resolves without any
+// value-level reasoning at all.
+//
+// declared_method / scope_sibling rather than method_in_scope: the latter is guarded
+// by lookup_scope, which is seeded from expr_type, so reading it here would put
+// var_is_function inside the expression fixpoint and Souffle rejects the SCC — it
+// carries the `!callee_expr_bound` negation. These two sit below that fixpoint, which
+// is the same reason `member_declared_anywhere` is built from them.
+var_is_function(v, m) :- typeof_query_member(v, qual, member),
+    global_decl(qual, "VARIABLE", _, gv),
+    var_type_ref(_, qr, gv),
+    ref_type_target(qr, _, qt),
+    scope_sibling(qt, sib),
+    declared_method(sib, member, _, m).
+
+indexed_import_name(v, mod, name) :- var_type_ref(_, r, v),
+    type_ref(rp, "INDEXED_ACCESS", _, _, _, _, _, r),
+    type_ref_parent(rp, r, "0", impref),
+    type_ref_import_specifier(rp, spec, impref),
+    type_ref_parent(rp, r, "1", keyref),
+    type_ref_literal_value(rp, lit, keyref),
+    strlen(lit) > 2,
+    name = substr(lit, 1, strlen(lit) - 2),
+    import_type_module(spec, mod).
+
+// (a) the export is a FUNCTION — the target is the method row itself.
+var_is_function(v, m) :- indexed_import_name(v, mod, name),
+    module_export_any("lib", mod, name, "METHOD", m).
+
+// (b) the export is a VARIABLE whose TYPE carries the call signature — the shape a
+// fluent assertion API takes: `declare const expect: ExpectStatic`, where
+// ExpectStatic is an interface with a call signature rather than a function. Clause
+// (a) cannot see it: there is no method row to name, and the callable lives one hop
+// further on, on the exported variable's type. Both hops are needed because a
+// globals file publishes BOTH shapes side by side.
+var_type(v, prov, t) :- indexed_import_name(v, mod, name),
+    module_export_any("lib", mod, name, "VARIABLE", ent),
+    var_type(ent, prov, t).
+var_shape(v, sh) :- indexed_import_name(v, mod, name),
+    module_export_any("lib", mod, name, "VARIABLE", ent),
+    var_shape(ent, sh).
+
+var_type(v, prov, t) :- var_type_ref(_, r, v),
+    ref_type_target(r, prov, t).
+var_shape(v, s) :- var_type_ref(_, r, v),
+    ref_shape_target(r, s).
+// Same stratification argument as field_has_declared_type above.
+var_has_declared_type(v) :- var_type_ref(_, r, v), ref_type_target(r, _, _).
+var_has_declared_type(v) :- var_type_ref(_, r, v), ref_shape_target(r, _).
+
+// ── FLOW TYPING for an inferred variable ────────────────────────────────────
+// `const conn = new SqlConn()` — no annotation, so the initializer IS the type, and
+// it is exact. A `const` can never be reassigned, so no reassignment scan is needed;
+// a `let` gets the same treatment here, which is an over-approximation bounded by
+// the initializer and is labelled as such rather than claimed exact.
+var_type(v, prov, t) :- var_initializer("client", "NEW", e, v),
+    !var_has_declared_type(v),
+    new_expression_type(e, prov, t).
+
+// ── THE INITIALIZER IS THE TYPE, whatever shape it has ─────────────────────
+// Measured on this repository's own source: 5,830 of 6,251 variables carry NO type
+// annotation, and 2,658 of those are initialised by a CALL. That one population is
+// the largest single cause of an untyped receiver in the whole engine — `const parts
+// = split(x); parts.push(y)` had no receiver type at all, and `push` alone accounted
+// for 478 unresolved sites.
+//
+// So the general rule is the initializer's own type, for every initializer kind at
+// once rather than one clause per TsVariableInitializerKind. That covers CALL, the
+// ternary the parser reports as UNKNOWN, IDENTIFIER, AS_EXPRESSION and AWAIT with one
+// rule, and a new initializer kind needs no change here at all.
+//
+// STRATIFICATION: this puts var_type inside the expr_type fixpoint, which is fine —
+// the recursion is positive. The negation is over var_has_declared_type, which reads
+// var_type_ref and ref_type_target only and therefore stays in a lower stratum. That
+// is precisely why var_has_declared_type is defined over the ANNOTATION and not over
+// var_type itself.
+// NOT a destructured name. Since the parser began linking a bound name to the value it
+// was destructured from, `const { helper } = ctx` gives `helper` an initializer of
+// `ctx` — and typing the binding as the WHOLE object is wrong in a way that can produce
+// a confident wrong answer wherever the object happens to carry a member of the same
+// name as the one being called. The binding takes the type of the PROPERTY it names,
+// which is the rule below.
+var_is_destructured(v) :- var_binding(_, _, _, _, _, v).
+var_type(v, prov, t) :- var_initializer("client", _, e, v),
+    e != "",
+    !var_has_declared_type(v),
+    !var_is_destructured(v),
+    expr_type(e, prov, t).
+var_shape(v, s) :- var_initializer("client", _, e, v),
+    e != "",
+    !var_has_declared_type(v),
+    expr_shape(e, s).
+
+// `const s = "text"` and friends — a literal initializer types the variable by its
+// global interface, which is what makes `s.trim()` resolve on an un-annotated const.
+var_type(v, prov, t) :- var_initializer("client", "LITERAL", e, v),
+    !var_has_declared_type(v),
+    expr_literal_type("client", lt, e),
+    literal_kind_global(lt, gname),
+    var_decl("client", _, _, _, _, mod, v),
+    name_binds_any(mod, gname, prov, "TYPE", t).
+
+// TsLiteralType values, enumerated rather than matched inline.
+literal_kind_global("STRING", "String").
+literal_kind_global("TEMPLATE", "String").
+literal_kind_global("NUMBER", "Number").
+literal_kind_global("BIGINT", "BigInt").
+literal_kind_global("BOOLEAN", "Boolean").
+literal_kind_global("REGEX", "RegExp").
+
+// ── `for (const x of xs)` — the FOR_BINDING variable ───────────────────────
+// 1,055 of 6,251 client variables on this corpus are for-of bindings, and they have
+// NO annotation and NO initializer expression: the value comes from the iterable, and
+// the parser records that iterable as the enclosing FOR_OF block's
+// conditionExpression. Without this rule every loop variable is untyped, which is why
+// `for (const block of blocks) block.getHash()` was 287 unresolved sites — the single
+// largest remaining client->client gap.
+//
+// The binding takes the iterable's ELEMENT type, which for an array-typed iterable is
+// ref_element_target and for a generic container is the substituted type argument
+// (generics.dl). A `for…in` binding is a STRING key, not an element, so only FOR_OF
+// and FOR_AWAIT_OF are admitted here — enumerated rather than matched inline.
+for_binding_iterable(v, e) :- ts_variable(_, _, _, _, _, _, _, _, "FOR_BINDING", _, _, _, _, _, _, b, _, _, _, _, _, _, _, _, _, _, _, _, _, _, v),
+    b != "",
+    ts_block(bk, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, _, b),
+    block_kind_iterates_elements(bk),
+    e != "".
+block_kind_iterates_elements("FOR_OF").
+block_kind_iterates_elements("FOR_AWAIT_OF").
+
+var_type(v, prov, t) :- for_binding_iterable(v, e),
+    !var_has_declared_type(v),
+    expr_element_type(e, prov, t).
+
+// ── `for (const [, v] of pairs)` — DESTRUCTURED FROM A TUPLE ELEMENT ───────
+// The rule above resolves the element to a TYPE ENTITY, and a tuple does not have one:
+// `[string, Val]` is structural, so `ref_element_target` on `[string, Val][]` yields
+// nothing and every name destructured out of it was untyped. Plain array iteration
+// already worked, which is why this read as a for-of problem rather than a tuple one.
+//
+// So this walks REFERENCES rather than entities: the array reference's element child is
+// the tuple reference, and the tuple's own child AT THE BOUND INDEX is the member. The
+// parser states the index outright -- a destructured name carries
+// bindingSourceKind = INDEX with the position in bindingSource -- so the only work is
+// the walk.
+ref_element_ref(ar, child) :- type_ref(rp, k, _, _, _, _, _, ar),
+    ref_kind_is_array(k),
+    type_ref_parent(rp, ar, _, child).
+
+var_type(v, prov, t) :- for_binding_iterable(v, e),
+    !var_has_declared_type(v),
+    var_binding("client", _, "INDEX", i, _, v),
+    expr_decl_ref(e, ar),
+    ref_element_ref(ar, tr),
+    type_ref(_, "TUPLE", _, _, _, _, _, tr),
+    type_ref_parent(_, tr, i, mr),
+    ref_type_target(mr, prov, t).
+
+// ── var_is_function(VarHash, MethodHash) ────────────────────────────────────
+// `const f = () => {}`. THE link that makes a const callable — 161 measured resolved
+// call targets are arrow functions reached only this way. The parser's binder made
+// the connection, so this is a column read rather than a position match.
+var_is_function(v, m) :- var_bound_function("client", m, v).
+var_is_function(v, m) :- var_bound_function("lib", m, v).
+
+// ── A TYPE-LEVEL SIGNATURE'S RETURN, RECOVERED FROM ITS REFERENCE ──────────
+// A signature declared inside a TYPE — `(x: A) => B` — is emitted with an EMPTY
+// returnTypeReferenceLinkHash: measured across the 55 staged libraries of the corpus,
+// 7,182 of 7,182 FUNCTION_TYPE_SIGNATURE rows carry no return reference, against
+// 3,692 of 3,701 FUNCTION_DECLARATION rows that do. So the call resolved, got an
+// exact target, and then the chain stopped dead because the call had no type.
+//
+// The reference IS emitted; it simply is not linked back from the signature row. For
+// a FUNCTION_TYPE it hangs off the reference as a child, labelled by CONTEXT the same
+// way a conditional's branches are, so it is read by what it means and not by
+// counting children: `contextual-params.dl` observes that the last child is the
+// return, and that happens to be true, but METHOD_RETURN says so outright.
+//
+// This covers FUNCTION_TYPE and CONSTRUCTOR_TYPE only. A TYPE_LITERAL call signature
+// keeps its return reference on the ENCLOSING type rather than on the literal, where
+// two overloaded signatures in one literal are indistinguishable and the engine would
+// have to guess which return belongs to which. That half needs the parser link (#34)
+// and is deliberately not attempted here.
+method_return_ref(prov, r, m) :- method_owner(prov, fref, m),
+    type_ref(prov, k, _, _, _, _, _, fref),
+    ref_kind_carries_signature(k),
+    type_ref_parent(prov, fref, _, r),
+    type_ref(prov, _, "METHOD_RETURN", _, _, _, _, r).
+ref_kind_carries_signature("FUNCTION_TYPE").
+ref_kind_carries_signature("CONSTRUCTOR_TYPE").
+
+// ── method_return_type(MethodHash, Prov, TypeHash) ──────────────────────────
+// The receiver type of a chained call `a().b()`.
+method_return_type(m, prov, t) :- method_return_ref(_, r, m),
+    ref_type_target(r, prov, t).
+method_return_shape(m, s) :- method_return_ref(_, r, m),
+    ref_shape_target(r, s).
+
+// ── …AND WHERE NOTHING IS DECLARED, THE TYPE OF WHAT IT RETURNS ─────────────
+// Between 50% and 86% of client methods in the corpus carry no return annotation
+// (zustand 86.2%, remeda 75.6%, trpc 73.0%, nest 58.0%). Reading only the declaration
+// leaves every one of them with no return type, so every call ON THE RESULT of such a
+// function has an untyped receiver — 2,191 sites diagnosed receiver_untyped, and the
+// reason 83% of missed chained calls sit behind an inner call that itself missed.
+//
+// The compiler infers these, which needs the checker and is therefore not something the
+// parser may do. It does not have to: the returned EXPRESSION is a syntactic fact, the
+// parser already marks it, and this engine can already resolve it. So the inference is
+// one join — what the function returns, typed by the rules that type everything else.
+//
+// BOTH return forms, which is not optional. A concise arrow body is a return with no
+// `return` keyword and carries ARROW_BODY_EXPRESSION, not RETURN_VALUE: on remeda the
+// two are 214 and 213, so matching only the first would silently lose half of them.
+return_context("RETURN_VALUE").
+return_context("ARROW_BODY_EXPRESSION").
+// The enclosing function comes from ownership.dl's call_caller_method, which the parser
+// records on the call-site row directly. Reaching it through the expression's OWNER
+// instead takes two hops and breaks on the shape that matters most here: a concise arrow
+// body's owner is the VARIABLE it is assigned to rather than a block, so
+// `const f = () => make()` would never join.
+method_returns_expr(m, e) :- call_caller_method(cs, m),
+    call_site(prov, _, _, _, _, e, cs),
+    expr_root_context(prov, rc, e),
+    return_context(rc).
+// …AND A RETURNED EXPRESSION THAT IS NOT A CALL. The clause above reaches the enclosing
+// function through call_caller_method, a CALL-SITE relation, so `return 42` and
+// `return x` have no row and a function returning either still has no inferred return.
+// Containment through the owning BLOCK covers every returned expression instead.
+method_returns_expr(m, e) :- expr_root_context(prov, rc, e),
+    return_context(rc),
+    expr_owner(prov, "BLOCK", b, _, e),
+    block_owner(prov, m, _, b).
+// Guarded so a declaration always wins: an annotation is what the function PROMISES,
+// and inferring past it would let one branch of a widened return narrow the answer.
+method_declares_return(m) :- method_return_ref(_, _, m).
+method_return_type(m, prov, t) :- method_returns_expr(m, e),
+    expr_type(e, prov, t),
+    !method_declares_return(m).
+
+// ── method_return_awaited(MethodHash, Prov, TypeHash) ───────────────────────
+// `await client.get()` — the receiver of the next hop is the AWAITED type, not the
+// Promise. An `async` function's declared return is `Promise<T>` and the value at an
+// await site is T; typing it as Promise resolves every chained call to `then` or to
+// nothing, which on a modern codebase is most of the I/O surface.
+method_return_awaited(m, prov, t) :- method_return_ref(_, r, m),
+    ref_awaited_target(r, prov, t).
+
+// ── method_return_element(MethodHash, Prov, TypeHash) ───────────────────────
+// `getItems()[0].m()` and `for (const x of getItems())` — the element of an
+// array-returning call.
+method_return_element(m, prov, t) :- method_return_ref(_, r, m),
+    ref_element_target(r, prov, t).
+
+// ── new_expression_type(ExprHash, Prov, TypeHash) ───────────────────────────
+// `new C()` — the constructed type, from the OBJECT_CREATION_TYPE reference the
+// parser hangs on the expression. Kept in this file rather than in expr-type.dl
+// because the flow-typing rules above depend on it and must stay in a stratum below
+// the expr_type fixpoint.
+new_expression_type(e, prov, t) :- ts_type_reference(_, "OBJECT_CREATION_TYPE", _, _, _, _, _, "0", _, _, _, _, _, _, _, _, e, "EXPRESSION", _, _, _, _, _, _, _, _, _, _, _, _, ref),
+    ref_type_target(ref, prov, t).
+
+// ── `new` THROUGH A VARIABLE THAT HOLDS A CLASS ────────────────────────────
+// `const Alias = Dog; new Alias()`. The clause above reads the OBJECT_CREATION_TYPE
+// reference, and for these there is none to read: the callee is a VALUE, so nothing
+// names a type at the `new` site and the construction produced no type at all -- not
+// the constructor, and not the instance the result is used as.
+//
+// ONE RULE COVERS ALL THREE SPELLINGS, because the IR gives them one shape. A bare
+// alias, a `typeof Dog` annotation and a `new () => Dog` construct signature all
+// record their initialiser as an IDENTIFIER_REFERENCE whose referencedEntityKind is
+// TYPE and whose entity IS the class, so neither annotation has to be understood for
+// the construction to resolve. Reading the annotations instead would have needed two
+// more rules and would still have missed the bare alias, which carries no annotation.
+class_valued_var(v, t) :- var_initializer("client", _, e, v),
+    expr_referenced("client", "TYPE", t, e).
+
+new_expression_type(ce, prov, t) :- call_site("client", "CONSTRUCTOR_CALL", _, _, _, ce, _),
+    call_callee_expr(_, ce, ne),
+    expr_referenced("client", "VARIABLE", v, ne),
+    class_valued_var(v, t),
+    type_decl(prov, _, _, _, _, _, t).
+
+// ── `new` THROUGH AN `import x = require(...)` BINDING ─────────────────────
+// `export = LegacyImpl` makes the MODULE ITSELF the entity, and
+// `import Legacy = require("./legacy")` binds that entity rather than a member of it.
+// So nothing at the `new` site names a type -- the callee is an import binding -- and
+// the construction produced no instance type, losing every call on the result. This is
+// the dominant shape in `@types` packages for CommonJS libraries, so it is not a legacy
+// curiosity.
+//
+// THE MODULE'S exportAssignmentLinkHash POINTS AT AN EXPORT ROW, NOT AT A TYPE. The
+// class is on that row's own entity link, so the walk is module -> export assignment ->
+// exported entity, and gating on entity kind TYPE keeps `export = someFunction` out.
+new_expression_type(ce, prov, t) :- call_site("client", "CONSTRUCTOR_CALL", _, _, _, ce, _),
+    call_callee_expr(_, ce, ne),
+    expr_referenced("client", "IMPORT_BINDING", ih, ne),
+    import_target_module(ih, prov, m),
+    module_export_assignment(prov, ex, m),
+    export_entity(prov, "TYPE", t, _, ex).
+
+// ── enum_member_type(EnumMemberHash, Prov, TypeHash) ────────────────────────
+// `Color.RED.toString()` — an enum member's type is its owning enum.
+enum_member_type(em, prov, t) :- enum_member_decl(prov, _, t, _, em), t != "".
+
+// ── DESTRUCTURED PARAMETER BINDINGS — `function f({ helper, nested }: Ctx)` ──
+// The parser emits a row per bound name carrying the property it binds
+// (`bindingSourceKind=PROPERTY`, `bindingSource=helper`); nothing consumed it. Until
+// now every call through such a binding was unresolvable, and unresolvable in a way no
+// downstream rule could work around, because the name did not exist in the IR at all.
+//
+// The pattern parameter is the POSITIONAL row at the same position in the same method:
+// the bound names carry that position too, which is why they had to be filtered out of
+// `param_decl` and why the join back is exact rather than a guess.
+binding_pattern_type(bh, prov, t) :- param_binding(_, _, pos, "PROPERTY", _, m, bh),
+    param_decl(_, _, pos, _, m, ph),
+    param_type(ph, prov, t).
+
+// (a) the bound name names a FIELD — `{ nested }: Ctx` then `nested.deep(1)`. The
+// binding takes that field's type, and ordinary member lookup does the rest.
+param_type(bh, prov, ft) :- param_binding(_, _, _, "PROPERTY", src, _, bh),
+    binding_pattern_type(bh, _, t),
+    scope_sibling(t, sib),
+    declared_field(sib, src, _, f),
+    field_type(f, prov, ft).
+param_shape_target(bh, sh) :- param_binding(_, _, _, "PROPERTY", src, _, bh),
+    binding_pattern_type(bh, _, t),
+    scope_sibling(t, sib),
+    declared_field(sib, src, _, f),
+    field_shape(f, sh).
+
+// (b) the bound name names a METHOD — `{ helper }: Ctx` then `helper('x')`. There is no
+// type to inherit: the target IS the interface's method. Read through
+// declared_method / scope_sibling rather than method_in_scope, which is guarded by
+// lookup_scope and would drag this into the expression fixpoint.
+param_binding_method(bh, m2) :- param_binding(_, _, _, "PROPERTY", src, _, bh),
+    binding_pattern_type(bh, _, t),
+    scope_sibling(t, sib),
+    declared_method(sib, src, _, m2).
+
+
+// ── a DESTRUCTURED VARIABLE takes the type of the member it names ───────────
+// `const { helper, nested } = ctx` — the mirror of the parameter case, and the more
+// common one in practice: a context object is usually destructured in the BODY rather
+// than in the signature. The property is named on the bound row; the object comes from
+// the initializer expression the parser now links.
+var_binding_target(v, prov, t) :- var_binding("client", _, "PROPERTY", _, e, v),
+    e != "",
+    expr_type(e, prov, t).
+
+// (a) the name binds a FIELD — the binding takes that field's type.
+var_type(v, prov, ft) :- var_binding("client", _, "PROPERTY", src, _, v),
+    var_binding_target(v, _, t),
+    scope_sibling(t, sib),
+    declared_field(sib, src, _, f),
+    field_type(f, prov, ft).
+var_shape(v, sh) :- var_binding("client", _, "PROPERTY", src, _, v),
+    var_binding_target(v, _, t),
+    scope_sibling(t, sib),
+    declared_field(sib, src, _, f),
+    field_shape(f, sh).
+
+// (b) the name binds a METHOD. This one CANNOT go on `var_is_function`: that relation
+// feeds callee resolution, and the binding's type comes from the initializer
+// EXPRESSION, which is produced by the same fixpoint — Souffle rejects the SCC because
+// it carries a negation. The parameter case escapes this because a parameter's type
+// comes from a type reference, below the fixpoint; a variable's does not. So the method
+// case is expressed at the call site instead, in callee-resolution.dl.
+var_binding_method(v, m) :- var_binding("client", _, "PROPERTY", src, _, v),
+    var_binding_target(v, _, t),
+    scope_sibling(t, sib),
+    declared_method(sib, src, _, m).
+
+
+// ── an INDEX-DESTRUCTURED VARIABLE takes the ELEMENT type of its source ─────
+// `const [first] = ops` and `const [a, b] = makePair()`. The parser has emitted these
+// all along — bindingSourceKind=INDEX, bindingSource=the position — and nothing read the
+// kind, so every call through an array or tuple pattern was unresolvable while the index
+// access beside it (`ops[0].apply()`) resolved through the very same relation (#388).
+// 377 such rows in one project alone.
+//
+// The ELEMENT type, not the element AT THAT POSITION: there is no tuple extraction in
+// the engine (see ref_name_is_container's note on Map), so a tuple destructure takes the
+// union of the tuple's elements. That is a superset, never a wrong answer — the same
+// answer `pair[0]` already gives — and it is exact for the array case, which is the
+// common one.
+// POSITIONAL where the source is a TUPLE, and the union everywhere else. `const [a, b] =
+// makePair()` with `[AlphaOp, BetaOp]` typed both names as the union until now — sound,
+// and one declaration wider than the compiler at every such site (#410).
+//
+// The two clauses are kept apart by `ref_is_tuple`, which reads the type reference alone.
+// That matters: the obvious spelling is "use the union unless a positional answer
+// exists", and it cannot be written — the positional answer is derived inside the same
+// recursive component as var_type, so negating it leaves the program unstratifiable.
+// A property of the REFERENCE is below that component and can be negated freely.
+var_type(v, prov, t) :- var_binding("client", _, "INDEX", pos, e, v),
+    e != "",
+    expr_decl_ref(e, r),
+    ref_element_at(r, pos, prov, t).
+var_type(v, prov, et) :- var_binding("client", _, "INDEX", _, e, v),
+    e != "",
+    expr_decl_ref(e, r),
+    !ref_is_tuple(r),
+    ref_element_target(r, prov, et).
+var_shape(v, sh) :- var_binding("client", _, "INDEX", _, e, v),
+    e != "",
+    expr_element_shape(e, sh).
+
+// ── type_instantiated(TypeHash, How) ────────────────────────────────────────
+// THE RTA SET (#471): the types this run actually constructs, which is what bounds
+// virtual dispatch — a subtype nothing instantiates cannot receive a dispatched call.
+// Java and Python both exported one; TypeScript exported nothing, so the bundle's
+// core `type_instantiated` table was empty for TypeScript alone while every clause of
+// new_expression_type above was already computing the answer.
+//
+// `How` mirrors Java's column so the three tables read the same. `new` is the only
+// value TypeScript emits today: an enum member is not a construction, and a
+// class expression is instantiated through a `new` like any other.
+//
+// NOT restricted to client provenance. RTA is an over-approximation and must stay one:
+// dropping a type the library constructs would narrow the envelope on evidence the run
+// does not have, and a narrowed envelope is unsound in the direction that loses edges.
+type_instantiated(t, "new") :- new_expression_type(_, _, t).

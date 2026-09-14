@@ -1,0 +1,667 @@
+{
+ "generatedBy": "src/test/javascript-gates/promote-fixtures.mjs",
+ "stagingFiles": 121,
+ "categoryFiles": 137,
+ "mapping": [
+  {
+   "from": "staging/cjs/blocks/control-flow.js",
+   "to": "categories/blocks/control-flow.js",
+   "sha256_16": "4d372fa770c3723f"
+  },
+  {
+   "from": "staging/cjs/blocks/exception-handling.js",
+   "to": "categories/blocks/exception-handling.js",
+   "sha256_16": "e993064a4adddb37"
+  },
+  {
+   "from": "staging/cjs/call-forms/accessor-invocation.js",
+   "to": "categories/call-forms/accessor-invocation.js",
+   "sha256_16": "044c842a80d11034"
+  },
+  {
+   "from": "staging/cjs/call-forms/call-apply-bind.js",
+   "to": "categories/call-forms/call-apply-bind.js",
+   "sha256_16": "584d131e5e5bf111"
+  },
+  {
+   "from": "staging/cjs/call-forms/computed-and-optional-calls.js",
+   "to": "categories/call-forms/computed-and-optional-calls.js",
+   "sha256_16": "b7186ae25daad197"
+  },
+  {
+   "from": "staging/cjs/call-forms/dynamic-code.js",
+   "to": "categories/call-forms/dynamic-code.js",
+   "sha256_16": "a44438972fae6868"
+  },
+  {
+   "from": "staging/cjs/call-forms/generators-and-iterators.js",
+   "to": "categories/call-forms/generators-and-iterators.js",
+   "sha256_16": "9020b7cee897cb20"
+  },
+  {
+   "from": "staging/cjs/call-forms/proxy-traps.js",
+   "to": "categories/call-forms/proxy-traps.js",
+   "sha256_16": "f523d637ab084423"
+  },
+  {
+   "from": "staging/cjs/call-forms/tagged-templates.js",
+   "to": "categories/call-forms/tagged-templates.js",
+   "sha256_16": "e281d279ffaf729a"
+  },
+  {
+   "from": "staging/cjs/commonjs/circular-a.js",
+   "to": "categories/imports/circular-a.js",
+   "sha256_16": "5841689cef6c8a6b"
+  },
+  {
+   "from": "staging/cjs/commonjs/circular-b.js",
+   "to": "categories/imports/circular-b.js",
+   "sha256_16": "3e40278d04c3a9c4"
+  },
+  {
+   "from": "staging/cjs/commonjs/conditional-require.js",
+   "to": "categories/imports/conditional-require.js",
+   "sha256_16": "f431713fb83e8f6e"
+  },
+  {
+   "from": "staging/cjs/commonjs/destructured-require.js",
+   "to": "categories/imports/destructured-require.js",
+   "sha256_16": "faa57f5c8496bf04"
+  },
+  {
+   "from": "staging/cjs/commonjs/export-overwrite-conditional.js",
+   "to": "categories/exports/export-overwrite-conditional.js",
+   "sha256_16": "751d9a6fae5895be"
+  },
+  {
+   "from": "staging/cjs/commonjs/export-overwrite-unconditional.js",
+   "to": "categories/exports/export-overwrite-unconditional.js",
+   "sha256_16": "39b9477187c59112"
+  },
+  {
+   "from": "staging/cjs/commonjs/exports-array.js",
+   "to": "categories/exports/exports-array.js",
+   "sha256_16": "9ba664208e7874c9"
+  },
+  {
+   "from": "staging/cjs/commonjs/exports-shorthand.js",
+   "to": "categories/exports/exports-shorthand.js",
+   "sha256_16": "c1121165e90ad1ad"
+  },
+  {
+   "from": "staging/cjs/commonjs/module-exports-assignment.js",
+   "to": "categories/exports/module-exports-assignment.js",
+   "sha256_16": "c1397ed1bfb98a4e"
+  },
+  {
+   "from": "staging/cjs/commonjs/module-exports-members.js",
+   "to": "categories/exports/module-exports-members.js",
+   "sha256_16": "9f005dc1567a1e29"
+  },
+  {
+   "from": "staging/cjs/commonjs/reexport-require.js",
+   "to": "categories/imports/reexport-require.js",
+   "sha256_16": "485bff6468dc2df5"
+  },
+  {
+   "from": "staging/cjs/commonjs/require-forms.js",
+   "to": "categories/imports/require-forms.js",
+   "sha256_16": "f38157874fbeb955"
+  },
+  {
+   "from": "staging/cjs/commonjs/require-non-literal.js",
+   "to": "categories/imports/require-non-literal.js",
+   "sha256_16": "f63c36ada39b1c3c"
+  },
+  {
+   "from": "staging/cjs/directives/cli-entry.js",
+   "to": "categories/directives/cli-entry.js",
+   "sha256_16": "6522cda85f0cf8bf"
+  },
+  {
+   "from": "staging/cjs/directives/directive-comments.js",
+   "to": "categories/directives/directive-comments.js",
+   "sha256_16": "e8e693dbc155e0f8"
+  },
+  {
+   "from": "staging/cjs/directives/no-check.js",
+   "to": "categories/directives/no-check.js",
+   "sha256_16": "0930310313d57a00"
+  },
+  {
+   "from": "staging/cjs/directives/source-map-footer-long.js",
+   "to": "categories/directives/source-map-footer-long.js",
+   "sha256_16": "f6503a85c48c385f"
+  },
+  {
+   "from": "staging/cjs/directives/source-map-footer-short.js",
+   "to": "categories/directives/source-map-footer-short.js",
+   "sha256_16": "1c0f8c79d4049686"
+  },
+  {
+   "from": "staging/cjs/enums/enum-idioms.js",
+   "to": "categories/enums/enum-idioms.js",
+   "sha256_16": "d0b909a244c7d9c4"
+  },
+  {
+   "from": "staging/cjs/expressions/calls-and-member-access.js",
+   "to": "categories/expressions/calls-and-member-access.js",
+   "sha256_16": "a18a5177ef3faf7f"
+  },
+  {
+   "from": "staging/cjs/expressions/deep-nesting.js",
+   "to": "categories/expressions/deep-nesting.js",
+   "sha256_16": "05d36aa6e93e9698"
+  },
+  {
+   "from": "staging/cjs/expressions/literals.js",
+   "to": "categories/expressions/literals.js",
+   "sha256_16": "6d609f738be0f90c"
+  },
+  {
+   "from": "staging/cjs/expressions/operators.js",
+   "to": "categories/expressions/operators.js",
+   "sha256_16": "15d22f227341cc1b"
+  },
+  {
+   "from": "staging/cjs/expressions/trailing-comments.js",
+   "to": "categories/expressions/trailing-comments.js",
+   "sha256_16": "b3839fee1760ccea"
+  },
+  {
+   "from": "staging/cjs/hoisting/arrow-lexical-this.js",
+   "to": "categories/hoisting/arrow-lexical-this.js",
+   "sha256_16": "acb84baa74bd019e"
+  },
+  {
+   "from": "staging/cjs/hoisting/closures-over-loops.js",
+   "to": "categories/hoisting/closures-over-loops.js",
+   "sha256_16": "579eac994c5f8db8"
+  },
+  {
+   "from": "staging/cjs/hoisting/function-decl-vs-expression.js",
+   "to": "categories/hoisting/function-decl-vs-expression.js",
+   "sha256_16": "49e18ca2009df3f6"
+  },
+  {
+   "from": "staging/cjs/hoisting/sloppy-implicit-global.js",
+   "to": "categories/hoisting/sloppy-implicit-global.js",
+   "sha256_16": "72c991499736cdfb"
+  },
+  {
+   "from": "staging/cjs/hoisting/tdz.js",
+   "to": "categories/hoisting/tdz.js",
+   "sha256_16": "4c8487fd17453952"
+  },
+  {
+   "from": "staging/cjs/hoisting/this-by-call-form.js",
+   "to": "categories/hoisting/this-by-call-form.js",
+   "sha256_16": "ba9e5e831b2b5460"
+  },
+  {
+   "from": "staging/cjs/hoisting/var-hoisting.js",
+   "to": "categories/hoisting/var-hoisting.js",
+   "sha256_16": "3b36507f7e82648c"
+  },
+  {
+   "from": "staging/cjs/hoisting/with-statement.js",
+   "to": "categories/hoisting/with-statement.js",
+   "sha256_16": "7277e41216a8e26b"
+  },
+  {
+   "from": "staging/cjs/integration/contracts.js",
+   "to": "categories/integration/contracts.js",
+   "sha256_16": "522448ec17400b99"
+  },
+  {
+   "from": "staging/cjs/integration/errors.js",
+   "to": "categories/integration/errors.js",
+   "sha256_16": "9ab24fe94ee86196"
+  },
+  {
+   "from": "staging/cjs/integration/repository.js",
+   "to": "categories/integration/repository.js",
+   "sha256_16": "59230208562b0dfa"
+  },
+  {
+   "from": "staging/cjs/integration/service-layer.js",
+   "to": "categories/integration/service-layer.js",
+   "sha256_16": "c13f6939c5b612c4"
+  },
+  {
+   "from": "staging/cjs/jsdoc/callback-and-template.js",
+   "to": "categories/jsdoc/callback-and-template.js",
+   "sha256_16": "99636806597ba9f8"
+  },
+  {
+   "from": "staging/cjs/jsdoc/casts-and-throws.js",
+   "to": "categories/jsdoc/casts-and-throws.js",
+   "sha256_16": "b2e159f7152e6ba9"
+  },
+  {
+   "from": "staging/cjs/jsdoc/contradicting-jsdoc.js",
+   "to": "categories/jsdoc/contradicting-jsdoc.js",
+   "sha256_16": "2c13ceaf0f0f1d66"
+  },
+  {
+   "from": "staging/cjs/jsdoc/extends-implements.js",
+   "to": "categories/jsdoc/extends-implements.js",
+   "sha256_16": "e1446d9d81319321"
+  },
+  {
+   "from": "staging/cjs/jsdoc/nested-params.js",
+   "to": "categories/jsdoc/nested-params.js",
+   "sha256_16": "c2042eb3ffa53b46"
+  },
+  {
+   "from": "staging/cjs/jsdoc/param-returns.js",
+   "to": "categories/jsdoc/param-returns.js",
+   "sha256_16": "3233ade79640d4e7"
+  },
+  {
+   "from": "staging/cjs/jsdoc/satisfies-and-unknown-syntax.js",
+   "to": "categories/jsdoc/satisfies-and-unknown-syntax.js",
+   "sha256_16": "4cbeff477b8d88a0"
+  },
+  {
+   "from": "staging/cjs/jsdoc/typedef-only.js",
+   "to": "categories/jsdoc/typedef-only.js",
+   "sha256_16": "e25faa9b69a32cb5"
+  },
+  {
+   "from": "staging/cjs/local-variables/cross-file-locals.js",
+   "to": "categories/local-variables/cross-file-locals.js",
+   "sha256_16": "9cab755f1792eef7"
+  },
+  {
+   "from": "staging/cjs/local-variables/helper-values.js",
+   "to": "categories/local-variables/helper-values.js",
+   "sha256_16": "9d9db367b77a058c"
+  },
+  {
+   "from": "staging/cjs/local-variables/local-variable-forms.js",
+   "to": "categories/local-variables/local-variable-forms.js",
+   "sha256_16": "ee65d8c0db96d976"
+  },
+  {
+   "from": "staging/cjs/methods/arity-dispatch.js",
+   "to": "categories/methods/arity-dispatch.js",
+   "sha256_16": "5b27295c93d7dcc5"
+  },
+  {
+   "from": "staging/cjs/methods/constructor-patterns.js",
+   "to": "categories/methods/constructor-patterns.js",
+   "sha256_16": "3f96dbad2cc20e90"
+  },
+  {
+   "from": "staging/cjs/methods/method-kinds.js",
+   "to": "categories/methods/method-kinds.js",
+   "sha256_16": "6764778153d90b31"
+  },
+  {
+   "from": "staging/cjs/methods/parameter-forms.js",
+   "to": "categories/methods/parameter-forms.js",
+   "sha256_16": "3b90d192bd06224e"
+  },
+  {
+   "from": "staging/cjs/methods/parameter-references.js",
+   "to": "categories/methods/parameter-references.js",
+   "sha256_16": "7b7a8ce9b8d3111c"
+  },
+  {
+   "from": "staging/cjs/methods/pattern-binding-paths.js",
+   "to": "categories/methods/pattern-binding-paths.js",
+   "sha256_16": "3b4ba1f481c99f4c"
+  },
+  {
+   "from": "staging/cjs/prototypes/bound-members.js",
+   "to": "categories/prototypes/bound-members.js",
+   "sha256_16": "926677327ada65cb"
+  },
+  {
+   "from": "staging/cjs/prototypes/constructor-function.js",
+   "to": "categories/prototypes/constructor-function.js",
+   "sha256_16": "c557c227f7e12c65"
+  },
+  {
+   "from": "staging/cjs/prototypes/define-property-accessors.js",
+   "to": "categories/prototypes/define-property-accessors.js",
+   "sha256_16": "d8a4f76ebee0bef5"
+  },
+  {
+   "from": "staging/cjs/prototypes/iife-module.js",
+   "to": "categories/prototypes/iife-module.js",
+   "sha256_16": "c63e90b04562b39c"
+  },
+  {
+   "from": "staging/cjs/prototypes/object-assign-prototype.js",
+   "to": "categories/prototypes/object-assign-prototype.js",
+   "sha256_16": "d07195dba72e55e9"
+  },
+  {
+   "from": "staging/cjs/prototypes/object-create-chain.js",
+   "to": "categories/prototypes/object-create-chain.js",
+   "sha256_16": "21093d15d2aac96c"
+  },
+  {
+   "from": "staging/cjs/prototypes/prototype-assignment.js",
+   "to": "categories/prototypes/prototype-assignment.js",
+   "sha256_16": "70a2053333fd52a5"
+  },
+  {
+   "from": "staging/cjs/prototypes/util-inherits.js",
+   "to": "categories/prototypes/util-inherits.js",
+   "sha256_16": "f076e1db8954393a"
+  },
+  {
+   "from": "staging/cjs/provenance/readable.bundle.js",
+   "to": "categories/modules/provenance/readable.bundle.js",
+   "sha256_16": "60d880362b053eb5"
+  },
+  {
+   "from": "staging/cjs/provenance/readable.esm.js",
+   "to": "categories/modules/provenance/readable.esm.js",
+   "sha256_16": "267f3e163c24c933"
+  },
+  {
+   "from": "staging/cjs/provenance/readable.min.js",
+   "to": "categories/modules/provenance/readable.min.js",
+   "sha256_16": "b37eaf2439db6b1a"
+  },
+  {
+   "from": "staging/cjs/provenance/readable.umd.js",
+   "to": "categories/modules/provenance/readable.umd.js",
+   "sha256_16": "2dc8471352fe82ae"
+  },
+  {
+   "from": "staging/cjs/provenance/single-long-literal.js",
+   "to": "categories/modules/provenance/single-long-literal.js",
+   "sha256_16": "33181aa6643857d4"
+  },
+  {
+   "from": "staging/cjs/type-registry/cross-file-heritage.js",
+   "to": "categories/type-registry/cross-file-heritage.js",
+   "sha256_16": "886e856916e58e41"
+  },
+  {
+   "from": "staging/cjs/type-registry/type-categories.js",
+   "to": "categories/type-registry/type-categories.js",
+   "sha256_16": "07152af429984b5e"
+  },
+  {
+   "from": "staging/cjs/type-registry/type-placement.js",
+   "to": "categories/type-registry/type-placement.js",
+   "sha256_16": "4ed2c859474ba636"
+  },
+  {
+   "from": "staging/esm/create-require.js",
+   "to": "categories/modules/esm/create-require.js",
+   "sha256_16": "20ebc75d825ce80c"
+  },
+  {
+   "from": "staging/esm/exports/export-forms.js",
+   "to": "categories/exports/esm/export-forms.js",
+   "sha256_16": "13536649763ebc7b"
+  },
+  {
+   "from": "staging/esm/import-meta.js",
+   "to": "categories/modules/esm/import-meta.js",
+   "sha256_16": "b4b0947f5c74b234"
+  },
+  {
+   "from": "staging/esm/imports/import-forms.js",
+   "to": "categories/imports/esm/import-forms.js",
+   "sha256_16": "de2613d3ec234414"
+  },
+  {
+   "from": "staging/esm/imports/pkg/index.js",
+   "to": "categories/imports/esm/pkg/index.js",
+   "sha256_16": "51beb019f0d8d151"
+  },
+  {
+   "from": "staging/esm/imports/pkg/side-effects.js",
+   "to": "categories/imports/esm/pkg/side-effects.js",
+   "sha256_16": "fd6bd1ae7d992fd7"
+  },
+  {
+   "from": "staging/esm/imports/pkg/util.js",
+   "to": "categories/imports/esm/pkg/util.js",
+   "sha256_16": "ed60c14cca55ef87"
+  },
+  {
+   "from": "staging/esm/require-under-esm.js",
+   "to": "categories/modules/esm/require-under-esm.js",
+   "sha256_16": "cdb97c7577634171"
+  },
+  {
+   "from": "staging/esm/top-level-await.js",
+   "to": "categories/modules/esm/top-level-await.js",
+   "sha256_16": "ee08f00978226f2a"
+  },
+  {
+   "from": "staging/exports-map/consumer/consumer.js",
+   "to": "categories/modules/exports-map/consumer/consumer.js",
+   "sha256_16": "3cdcdc09abf546d6"
+  },
+  {
+   "from": "staging/exports-map/internal/log.dev.js",
+   "to": "categories/modules/exports-map/internal/log.dev.js",
+   "sha256_16": "f207ccf1f3959124"
+  },
+  {
+   "from": "staging/exports-map/internal/log.js",
+   "to": "categories/modules/exports-map/internal/log.js",
+   "sha256_16": "99de4cfecf4aa2bb"
+  },
+  {
+   "from": "staging/exports-map/lib/index.cjs",
+   "to": "categories/modules/exports-map/lib/index.cjs",
+   "sha256_16": "f5d945fbc6250493"
+  },
+  {
+   "from": "staging/exports-map/lib/index.js",
+   "to": "categories/modules/exports-map/lib/index.js",
+   "sha256_16": "c18fe2b236f0beb6"
+  },
+  {
+   "from": "staging/exports-map/lib/stream.browser.js",
+   "to": "categories/modules/exports-map/lib/stream.browser.js",
+   "sha256_16": "accf78ab24e771ae"
+  },
+  {
+   "from": "staging/exports-map/lib/stream.node.cjs",
+   "to": "categories/modules/exports-map/lib/stream.node.cjs",
+   "sha256_16": "15140404be078664"
+  },
+  {
+   "from": "staging/exports-map/lib/stream.node.js",
+   "to": "categories/modules/exports-map/lib/stream.node.js",
+   "sha256_16": "65aefa0280ebec30"
+  },
+  {
+   "from": "staging/ext/cjs-package/override.mjs",
+   "to": "categories/modules/ext/cjs-package/override.mjs",
+   "sha256_16": "11df4a571e4dbc60"
+  },
+  {
+   "from": "staging/ext/cjs-package/plain.js",
+   "to": "categories/modules/ext/cjs-package/plain.js",
+   "sha256_16": "7ecbddb129f24525"
+  },
+  {
+   "from": "staging/ext/esm-package/override.cjs",
+   "to": "categories/modules/ext/esm-package/override.cjs",
+   "sha256_16": "92b3932009cc2579"
+  },
+  {
+   "from": "staging/ext/esm-package/plain.js",
+   "to": "categories/modules/ext/esm-package/plain.js",
+   "sha256_16": "ddf507503fbb98f6"
+  },
+  {
+   "from": "staging/flow/casts.js",
+   "to": "categories/flow/casts.js",
+   "sha256_16": "7a4afa9b1b19035d"
+  },
+  {
+   "from": "staging/flow/declare-statements.js",
+   "to": "categories/flow/declare-statements.js",
+   "sha256_16": "e0f7415c2edffc31"
+  },
+  {
+   "from": "staging/flow/detection-miss/after-long-licence.js",
+   "to": "categories/flow/detection-miss/after-long-licence.js",
+   "sha256_16": "7844964878f4c85e"
+  },
+  {
+   "from": "staging/flow/detection-miss/no-pragma.js",
+   "to": "categories/flow/detection-miss/no-pragma.js",
+   "sha256_16": "ac27f6363f6eeeaa"
+  },
+  {
+   "from": "staging/flow/detection/after-shebang.js",
+   "to": "categories/flow/detection/after-shebang.js",
+   "sha256_16": "900a52cfd41033bf"
+  },
+  {
+   "from": "staging/flow/detection/block-pragma.js",
+   "to": "categories/flow/detection/block-pragma.js",
+   "sha256_16": "6874c80ae6d549a2"
+  },
+  {
+   "from": "staging/flow/detection/jsdoc-pragma.js",
+   "to": "categories/flow/detection/jsdoc-pragma.js",
+   "sha256_16": "200ab982f4306b72"
+  },
+  {
+   "from": "staging/flow/detection/line-pragma.js",
+   "to": "categories/flow/detection/line-pragma.js",
+   "sha256_16": "0a0f69bba173d926"
+  },
+  {
+   "from": "staging/flow/detection/strict-pragma.js",
+   "to": "categories/flow/detection/strict-pragma.js",
+   "sha256_16": "19bca9d88f528889"
+  },
+  {
+   "from": "staging/flow/false-positive/flow-scoped-package.js",
+   "to": "categories/flow/false-positive/flow-scoped-package.js",
+   "sha256_16": "e8de5788129e803a"
+  },
+  {
+   "from": "staging/flow/false-positive/mentions-flow-in-prose.js",
+   "to": "categories/flow/false-positive/mentions-flow-in-prose.js",
+   "sha256_16": "1f784171962e713f"
+  },
+  {
+   "from": "staging/flow/flow-annotations.js",
+   "to": "categories/flow/flow-annotations.js",
+   "sha256_16": "07e546db2800c4d0"
+  },
+  {
+   "from": "staging/flow/flow-pragma.js",
+   "to": "categories/flow/flow-pragma.js",
+   "sha256_16": "dee2a7afdda117a4"
+  },
+  {
+   "from": "staging/flow/recovery-mangling.js",
+   "to": "categories/flow/recovery-mangling.js",
+   "sha256_16": "3dd4d3f5aa89f82c"
+  },
+  {
+   "from": "staging/flow/silently-typed.js",
+   "to": "categories/flow/silently-typed.js",
+   "sha256_16": "8e3cf0e6ecad69fb"
+  },
+  {
+   "from": "staging/jsx/component-in-js.js",
+   "to": "categories/jsx/component-in-js.js",
+   "sha256_16": "a23f113c2031c984"
+  },
+  {
+   "from": "staging/jsx/component.jsx",
+   "to": "categories/jsx/component.jsx",
+   "sha256_16": "08bd93e37ade95aa"
+  },
+  {
+   "from": "staging/jsx/tag-forms.jsx",
+   "to": "categories/jsx/tag-forms.jsx",
+   "sha256_16": "08494fc02a55dd05"
+  },
+  {
+   "from": "staging/jsx/unterminated-element.jsx",
+   "to": "categories/jsx/unterminated-element.jsx",
+   "sha256_16": "c6b58b9e5ea3d1a7"
+  },
+  {
+   "from": "staging/mismatch/esm-under-commonjs/esm-syntax.js",
+   "to": "categories/modules/mismatch/esm-under-commonjs/esm-syntax.js",
+   "sha256_16": "d365f4bc2b3c7bab"
+  },
+  {
+   "from": "staging/mismatch/esm-under-commonjs/mixed-both-systems.js",
+   "to": "categories/modules/mismatch/esm-under-commonjs/mixed-both-systems.js",
+   "sha256_16": "d934afca22fd391c"
+  },
+  {
+   "from": "staging/pkg-absent-type/defaulted.js",
+   "to": "categories/modules/pkg-absent-type/defaulted.js",
+   "sha256_16": "32e3ff31a726b674"
+  },
+  {
+   "from": "ADDED by js-corpus (enum coverage gap)",
+   "to": "categories/blocks/class-static-block.js",
+   "sha256_16": "c1102b401c202304"
+  },
+  {
+   "from": "ADDED by js-corpus (enum coverage gap)",
+   "to": "categories/imports/esm/import-binding-alias.js",
+   "sha256_16": "b88a1173d5613562"
+  },
+  {
+   "from": "ADDED by js-corpus (enum coverage gap)",
+   "to": "categories/directives/module-attached-comments.js",
+   "sha256_16": "3c9dc797d10751fb"
+  },
+  {
+   "from": "ADDED by js-corpus (enum coverage gap)",
+   "to": "categories/jsdoc/this-annotation.js",
+   "sha256_16": "1f19330fef58defb"
+  },
+  {
+   "from": "ADDED by js-corpus (enum coverage gap)",
+   "to": "categories/modules/import-equals.js",
+   "sha256_16": "5cb5384191589e17"
+  },
+  {
+   "from": "MINTED by the promotion (category layout)",
+   "to": "categories/package.json",
+   "sha256_16": "54bdb5bf0a9615c3"
+  },
+  {
+   "from": "MINTED by the promotion (category layout)",
+   "to": "categories/imports/esm/package.json",
+   "sha256_16": "c18774aca8224b15"
+  },
+  {
+   "from": "MINTED by the promotion (category layout)",
+   "to": "categories/exports/esm/package.json",
+   "sha256_16": "cff04da486a6d22a"
+  },
+  {
+   "from": "MINTED by the promotion (category layout)",
+   "to": "categories/modules/esm/package.json",
+   "sha256_16": "d5d03aa526254246"
+  },
+  {
+   "from": "MINTED by the promotion (category layout)",
+   "to": "categories/flow/package.json",
+   "sha256_16": "6b9e5d9685976a77"
+  },
+  {
+   "from": "MINTED by the promotion (category layout)",
+   "to": "categories/jsx/package.json",
+   "sha256_16": "8c6ec40118d4f6bc"
+  }
+ ]
+}

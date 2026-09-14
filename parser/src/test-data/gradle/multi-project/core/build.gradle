@@ -1,0 +1,16 @@
+// core is the shared library module
+dependencies {
+    // pinned deliberately: see ticket BUILD-91
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    implementation platform('org.springframework.boot:spring-boot-dependencies:3.2.2')
+    implementation 'org.springframework:spring-core'
+    implementation files('libs/legacy.jar', 'libs/extra.jar')
+    implementation group: 'org.slf4j', name: 'slf4j-api', version: '2.0.9'
+    runtimeOnly 'com.h2database:h2:2.2.224:tests@jar'
+
+    implementation('com.example:noisy:1.0') {
+        exclude group: 'org.unwanted', module: 'bad-transitive'
+    }
+
+    // implementation 'org.removed:removed:1.0'
+}

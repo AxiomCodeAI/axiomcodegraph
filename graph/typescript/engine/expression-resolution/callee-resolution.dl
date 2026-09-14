@@ -1,0 +1,610 @@
+// ============================================================================
+// Expression Resolution · CALLEE RESOLUTION  (the sound candidate set)
+//
+// expr_call_candidate(CallExprHash, CalleeMethodHash): every method a call site may
+// invoke, BEFORE overload disambiguation. Name-only and deliberately over-inclusive
+// — precision is overload.dl's job, and a candidate set that can drop the real
+// callee cannot be repaired downstream.
+//
+// ── THE STRUCTURE THE PARSER HANDS OVER ─────────────────────────────────────
+// Every CALL_EXPRESSION has exactly two child roles, measured on this repository's
+// own source: 13,057 METHOD_NAME and 19,541 ARGUMENT. The METHOD_NAME child is the
+// callee position — for `f()` it is the IDENTIFIER_REFERENCE with the binder's
+// answer already on it, and for `a.b()` it is the PROPERTY_ACCESS whose own RECEIVER
+// child is `a`. `ts_call_site.receiverExpressionLinkHash` points straight at that
+// qualifier, so the receiver never has to be dug out of the tree.
+//
+// That is why there is no `call_site` derivation here and Java needs a whole file of
+// one: the decomposition is a column read.
+//
+// ── THE ONE JAVA-SHAPED RULE THAT MUST NOT BE PORTED ────────────────────────
+// In Java an unqualified `m()` is an implicit-THIS call and resolves against the
+// enclosing type's members. In TypeScript it is NOT: a bare `m()` inside a method
+// body is a lexically scoped FUNCTION reference, and resolving it against the
+// enclosing class invents an edge to a same-named method the program never calls.
+// Receiverless calls are therefore routed ONLY through the binder's own answer and
+// the module scope, never through the enclosing type. This is the single most likely
+// way a port of `callee-resolution.dl` goes wrong here.
+//
+// ── STRATIFICATION ──────────────────────────────────────────────────────────
+// Mutually recursive with expr_type (a chained call needs its own callee to type its
+// receiver). Positive recursion only — no negation inside the fixpoint. The one
+// negation, `!call_exact_receiver`, reads expr_exact_type, which is derived in
+// expr-type.dl from new_expression_type (base facts + ref_type_target) and never
+// from expr_call_candidate, so it stratifies below the fan.
+// ============================================================================
+
+// ── call_callee_expr(CallSiteHash, CallExprHash, NameExprHash) ──────────────
+// The METHOD_NAME child — the callee position of the call.
+call_callee_expr(cs, ce, ne) :- call_site("client", _, _, _, _, ce, cs),
+    expr_child("client", ce, "METHOD_NAME", _, ne).
+
+// A receiver type must be searchable, so every type a receiver actually takes is
+// seeded into the member-lookup scope. Bounded to types used as receivers, exactly
+// as Java bounds `lookup_type`; without it a static-qualifier receiver reached only
+// through an expression has no members to find.
+lookup_scope(t) :- expr_type(_, _, t).
+lookup_scope(t) :- expr_static_type(_, _, t).
+
+// ============================================================================
+// RECEIVERLESS CALLS — `f()`, `helper(x)`, a decorator, a JSX component
+// ============================================================================
+
+// (1) The binder already bound the callee name. Covers a module-local function, an
+// imported function, and a `const f = () => {}`.
+expr_call_candidate(ce, m) :- call_callee_expr(_, ce, ne),
+    expr_callable(ne, m).
+
+// (1b) …WIDENED TO THE WHOLE OVERLOAD GROUP. The binder names exactly ONE
+// declaration, and for an overloaded function that is not the answer to "what may
+// this call reach" — it is one arbitrary member of the set the applicability test is
+// supposed to choose from. Without this widening the set never HAS the other
+// signatures, so arity cannot prune them and `overload_beaten` hands the win to
+// whichever declaration the binder recorded.
+//
+// Measured on cases/04-overload-selection: `format(1, 2)` — two arguments — resolved
+// to the ONE-parameter `format(value: string)`, because that single candidate was
+// also the only candidate, and emptying a site restores it. A class method never hit
+// this: member lookup returns every declaration on the type, which is why
+// `Registry.add` was right while a module-scope function of the same shape was wrong.
+expr_call_candidate(ce, m2) :- call_callee_expr(_, ce, ne),
+    expr_callable(ne, m),
+    method_group_of(m, g),
+    method_group_of(m2, g).
+
+// (2) The name reached no binding hash — an ambient global, or a name the binder
+// left UNKNOWN — so it is resolved against the module scope by name. `calleeName` is
+// used rather than the expression's literalValue because the call site's column is
+// the authoritative spelling of what is being called.
+expr_call_candidate(ce, m) :- call_site("client", ck, cn, "NONE", _, ce, cs),
+    call_kind_is_plain_call(ck),
+    cn != "",
+    call_module(cs, mod),
+    !callee_expr_bound(ce),
+    name_binds(mod, cn, _, "METHOD", m).
+expr_call_candidate(ce, m) :- call_site("client", ck, cn, "NONE", _, ce, cs),
+    call_kind_is_plain_call(ck),
+    cn != "",
+    call_module(cs, mod),
+    !callee_expr_bound(ce),
+    name_binds(mod, cn, _, "VARIABLE", v),
+    var_is_function(v, m).
+// The same bound name, where the value is not a function declaration but a VARIABLE
+// whose TYPE carries the call signature — `declare const expect: ExpectStatic`, with
+// ExpectStatic an interface holding `<T>(actual: T): Assertion<T>`. `var_is_function`
+// above cannot see it: there is no method row to name, the callable is a member of the
+// variable's type. This is the exact shape rule (9b) already handles for `new`, and it
+// is how a test framework publishes its API into global scope.
+expr_call_candidate(ce, m) :- call_site("client", ck, cn, "NONE", _, ce, cs),
+    call_kind_is_plain_call(ck),
+    cn != "",
+    call_module(cs, mod),
+    !callee_expr_bound(ce),
+    name_binds(mod, cn, _, "VARIABLE", v),
+    var_type(v, _, t),
+    call_signature_in_scope(t, m).
+expr_call_candidate(ce, m) :- call_site("client", ck, cn, "NONE", _, ce, cs),
+    call_kind_is_plain_call(ck),
+    cn != "",
+    call_module(cs, mod),
+    !callee_expr_bound(ce),
+    name_binds(mod, cn, _, "VARIABLE", v),
+    var_shape(v, sh),
+    call_signature_in_scope(sh, m).
+
+callee_expr_bound(ce) :- call_callee_expr(_, ce, ne), expr_callable(ne, _).
+
+call_kind_is_plain_call("FUNCTION_CALL").
+call_kind_is_plain_call("OPTIONAL_CALL").
+call_kind_is_plain_call("DECORATOR_CALL").
+
+// (3) A CALLABLE TYPE used as a value — `const mw: Middleware = ...; mw(req)`. The
+// value's type carries a call signature, which IS the target. Java's nearest
+// analogue is a functional interface, and there the single abstract method has to be
+// found by counting; here the call signature is a member with its own row.
+expr_call_candidate(ce, m) :- call_callee_expr(_, ce, ne),
+    expr_type(ne, _, t),
+    call_signature_in_scope(t, m).
+expr_call_candidate(ce, m) :- call_callee_expr(_, ce, ne),
+    expr_shape(ne, s),
+    call_signature_in_scope(s, m).
+
+// ============================================================================
+// METHOD CALLS — `recv.name(...)`
+// ============================================================================
+
+// (4) INSTANCE member on the receiver's type. The primary path, and the one the
+// schema's measurements are about: 85.3% of parameters annotated means the receiver
+// usually has a declared type to dispatch on.
+expr_call_candidate(ce, m) :- call_site("client", _, cn, rk, recv, ce, _),
+    receiver_kind_is_value(rk),
+    cn != "",
+    expr_type(recv, _, rt),
+    method_in_scope(rt, cn, "false", m).
+
+// (5) A PROPERTY holding a function — `this.handlers.onError(e)` where `onError` is
+// `(e: Error) => void`. Impossible in Java, where a field is never callable, and
+// common enough here that omitting it reports a blind spot the type system answers
+// completely.
+expr_call_candidate(ce, m) :- call_site("client", _, cn, rk, recv, ce, _),
+    receiver_kind_is_value(rk),
+    cn != "",
+    expr_type(recv, _, rt),
+    field_is_callable(rt, cn, m).
+
+// (6) A member of an ANONYMOUS object type — `opts.onDone()` where `opts` is
+// `{ onDone(): void }`.
+expr_call_candidate(ce, m) :- call_site("client", _, cn, rk, recv, ce, _),
+    receiver_kind_is_value(rk),
+    cn != "",
+    expr_shape(recv, s),
+    method_in_scope(s, cn, _, m).
+
+// (5b) A MEMBER OF AN OBJECT LITERAL BOUND TO A NAME — `handlers.viaShorthand(n)`.
+// An OBJECT_LITERAL_METHOD's owner is the literal's EXPRESSION, not a type, so it is in
+// no member table at all: `method_in_scope` is keyed on a scope and there is no scope
+// here. `handlers` is a `const` with no annotation, so the receiver has no type either,
+// and BOTH the method and the arrow property below resolved to nothing — measured, the
+// object-literal container failed entirely, including its own control (#229).
+//
+// objlit_method_of_var already walks variable -> initializer expression -> method, for
+// contextual parameter typing. This asks it the callee question.
+expr_call_candidate(ce, m) :- call_site("client", _, cn, rk, recv, ce, _),
+    receiver_kind_is_value(rk),
+    cn != "",
+    expr_referenced("client", "VARIABLE", v, recv),
+    objlit_method_of_var(m, v),
+    method_decl(_, _, cn, _, m).
+
+// (5c) …AND AN ARROW BOUND TO ONE OF ITS PROPERTIES — `handlers.viaArrow(n)`. The
+// property is a FIELD owned by the same expression, and its initializer is the arrow.
+// The property is NOT a field: an object literal's arrow property is emitted as the
+// arrow EXPRESSION with edgeRole OBJECT_PROPERTY_VALUE, and the name lives on its
+// OBJECT_PROPERTY_KEY sibling's literalValue. Both carry the owning VARIABLE, which is
+// the join.
+objlit_prop_arrow(v, name, m) :- expr_child("client", pe, "OBJECT_PROPERTY_KEY", _, key),
+    expr_literal_value("client", name, key),
+    expr_owner("client", "VARIABLE", v, _, key),
+    expr_child("client", pe, "OBJECT_PROPERTY_VALUE", _, val),
+    expr_anon_decl("client", m, val).
+expr_call_candidate(ce, m) :- call_site("client", _, cn, rk, recv, ce, _),
+    receiver_kind_is_value(rk),
+    cn != "",
+    expr_referenced("client", "VARIABLE", v, recv),
+    objlit_prop_arrow(v, cn, m).
+
+// (5d) A CLASS FIELD HOLDING AN ARROW — `h.viaField(n)` where the class declares
+// `readonly viaField = (n: number) => n + 3`. field_is_callable reaches a field whose
+// DECLARED TYPE carries a call signature; this field has no annotation, so its callable
+// is its initializer. The ordinary method beside it on the same class resolved all along,
+// which is what made the field the discriminator rather than the class (#229).
+// ONLY WHERE THE FIELD IS UNANNOTATED. Ungated, this rule cost more than it bought: it
+// added the arrow beside an answer that was ALREADY right, turning EXACT sites into
+// supersets. `private readonly instanceDecorator: (target: unknown) => unknown = t => t`
+// is the shape — the compiler resolves a call through it to the ANNOTATION's call
+// signature, not to the arrow, and field_is_callable already reaches that. So the
+// initializer is the callable of last resort: it speaks only where nothing declared does.
+//
+// Stated as the ABSENCE OF A TYPE REFERENCE rather than as `!field_is_callable`, which
+// reads the same but cannot be written: field_is_callable sits in the same recursive
+// component as expr_call_candidate (through expr_type -> field_in_scope), so negating it
+// is cyclic and Souffle refuses to stratify the program at all.
+field_arrow_callable(scope, name, m) :- field_in_scope(scope, name, _, f),
+    !field_type_ref(_, _, f),
+    field_initializer(prov, ie, f),
+    expr_anon_decl(prov, m, ie).
+expr_call_candidate(ce, m) :- call_site("client", _, cn, rk, recv, ce, _),
+    receiver_kind_is_value(rk),
+    cn != "",
+    expr_type(recv, _, rt),
+    field_arrow_callable(rt, cn, m).
+
+// (6b) …AND A FUNCTION-VALUED PROPERTY OF ONE — `opts.run()` where `opts` is
+// `{ run: (n: number) => string }`. The shape twin of (5), exactly as (6) is the shape
+// twin of (4), and its absence is the whole defect in #321: (5) consults only
+// `expr_type`, so a receiver whose members live on a SHAPE could reach a method of an
+// anonymous type but never a function-valued property of one.
+//
+// Every link in the chain was already there, which is why this is one rule and not a
+// new mechanism. Verified against a real IR: the field carries its type reference, that
+// reference resolves to a shape, and the shape owns the FUNCTION_TYPE_SIGNATURE —
+// `field_is_callable` was satisfiable all along and nothing asked it this question.
+//
+// The matrix in the case says what this is NOT: the same property on an INTERFACE
+// resolves through (5), a METHOD in a type literal resolves through (6), and the
+// intersection's object half resolves too. So it is neither intersections (#147, closed
+// as not reproducible), nor aliases, nor the optional call — each has a control.
+expr_call_candidate(ce, m) :- call_site("client", _, cn, rk, recv, ce, _),
+    receiver_kind_is_value(rk),
+    cn != "",
+    expr_shape(recv, s),
+    field_is_callable(s, cn, m).
+
+// (7) STATIC member — `C.parse(x)`, where the receiver is the class itself. Searches
+// the static table only: a class with both a static and an instance method of one
+// name is common, and merging the tables picks the wrong one roughly half the time.
+expr_call_candidate(ce, m) :- call_site("client", _, cn, rk, recv, ce, _),
+    receiver_kind_is_value(rk),
+    cn != "",
+    expr_static_type(recv, _, t),
+    method_in_scope(t, cn, "true", m).
+
+// (8) NAMESPACE-qualified — `fs.readFile(...)`, `ts.createSourceFile(...)`. The
+// receiver is a MODULE, so the callee comes from its export table. Every Node
+// builtin call in the corpus takes this shape, and there is no type anywhere in the
+// path — which is why expr_namespace exists as its own relation rather than being
+// forced through expr_type.
+expr_call_candidate(ce, m) :- call_site("client", _, cn, rk, recv, ce, _),
+    receiver_kind_is_value(rk),
+    cn != "",
+    expr_namespace(recv, prov, mod),
+    module_export(prov, mod, cn, "METHOD", m).
+expr_call_candidate(ce, m) :- call_site("client", _, cn, rk, recv, ce, _),
+    receiver_kind_is_value(rk),
+    cn != "",
+    expr_namespace(recv, prov, mod),
+    module_export(prov, mod, cn, "VARIABLE", v),
+    var_is_function(v, m).
+
+// The receiver kinds that denote a VALUE (or a namespace). UNKNOWN IS INCLUDED, and
+// excluding it was a measured loss rather than a safety measure: the kind is the
+// parser's LABEL for the receiver, and what a lookup actually needs is the receiver
+// EXPRESSION, which is present and typed regardless of the label. Measured on this
+// repository's own source, 283 sites whose target is in lib.es5.d.ts carry
+// receiverKind = UNKNOWN, and their receivers are ordinary typed expressions:
+// 180 array literals (`[a, b].join(",")`), 60 string literals (`"x".split(",")`),
+// 43 binary expressions (`(a + b).trim()`). Every rule below still requires
+// expr_type/expr_shape/expr_namespace to have produced something, so an
+// unidentifiable receiver still resolves to nothing — the label just stops vetoing a
+// receiver the type layer understood.
+receiver_kind_is_value("IDENTIFIER").
+receiver_kind_is_value("THIS").
+receiver_kind_is_value("SUPER").
+receiver_kind_is_value("PROPERTY_CHAIN").
+receiver_kind_is_value("CALL_RESULT").
+receiver_kind_is_value("ELEMENT_ACCESS").
+receiver_kind_is_value("PARENTHESIZED").
+receiver_kind_is_value("NON_NULL").
+receiver_kind_is_value("AS_EXPRESSION").
+receiver_kind_is_value("AWAIT_RESULT").
+receiver_kind_is_value("UNKNOWN").
+
+// ============================================================================
+// CONSTRUCTION
+// ============================================================================
+
+// (9) `new C(...)` — the constructors of the created type, including one inherited
+// from a superclass when the class declares none.
+expr_call_candidate(ce, ctor) :- call_site("client", "CONSTRUCTOR_CALL", _, _, _, ce, _),
+    new_expression_type(ce, _, t),
+    constructor_in_scope(t, ctor).
+
+// A `new` whose callee is a bound name rather than a written type — `new Ctor()`
+// where `Ctor` came from a variable or an import.
+expr_call_candidate(ce, ctor) :- call_site("client", "CONSTRUCTOR_CALL", _, _, _, ce, _),
+    call_callee_expr(_, ce, ne),
+    expr_static_type(ne, _, t),
+    constructor_in_scope(t, ctor).
+
+// (9b) `new Set()`, `new Map()`, `new Error()` — the JAVASCRIPT CONSTRUCTOR PATTERN,
+// which has no Java analogue at all. The type and the constructor are DIFFERENT
+// declarations: `interface Set<T> { ... }` describes instances, `interface
+// SetConstructor { new <T>(): Set<T> }` describes the constructor, and
+// `declare var Set: SetConstructor` is the value the `new` actually names. So
+// resolving the written type reference finds the instance interface, which has no
+// construct signature, and the call resolves to nothing.
+//
+// Measured on this repository's own source: 825 of 1,019 CONSTRUCTOR_CALL sites were
+// missed, and `new Set` (319) plus `new Map` (295) plus `new Error` (181) are most of
+// that. The fix is to resolve the callee NAME as a VALUE and take its type's construct
+// signatures — which is what the compiler does.
+expr_call_candidate(ce, ctor) :- call_site("client", "CONSTRUCTOR_CALL", cn, _, _, ce, cs),
+    cn != "",
+    call_module(cs, mod),
+    name_binds(mod, cn, _, "VARIABLE", v),
+    var_type(v, _, ctorType),
+    constructor_in_scope(ctorType, ctor).
+// The same shape reached through an import binding rather than the global scope.
+expr_call_candidate(ce, ctor) :- call_site("client", "CONSTRUCTOR_CALL", _, _, _, ce, _),
+    call_callee_expr(_, ce, ne),
+    expr_type(ne, _, ctorType),
+    constructor_in_scope(ctorType, ctor).
+
+// (10) `super(...)` — the enclosing class's `extends` parent's constructor. Never
+// an implements edge: `implements` inherits nothing, so it has no constructor to run.
+expr_call_candidate(ce, ctor) :- call_site("client", "SUPER_CALL", _, _, _, ce, cs),
+    call_enclosing_type(cs, encl),
+    type_inherits(encl, sup),
+    constructor_in_scope(sup, ctor).
+
+// (10b) …AND WHERE THE BASE IS A VALUE, WHICH IS HOW THE STANDARD LIBRARY DECLARES
+// EVERY CONSTRUCTOR. `lib.es5.d.ts` contains no `class` declaration: a built-in is an
+// instance interface, a SECOND interface carrying the construct signature, and a
+// `declare const` of that type. So `class AppError extends Error` resolves its heritage
+// clause to the INSTANCE interface — which is right, and is why `super.describe()`
+// already works — and that interface has no `new`, so the clause above finds nothing and
+// the site was honestly reported as a blind spot.
+//
+// Measured across the corpus, 9 SUPER_CALL sites miss for this reason and 7 of them are
+// the standard library's error constructor; #338 reports 15 of 17 on two other projects,
+// the same one declaration. `class X extends Error` is the commonest subclassing of a
+// built-in there is.
+//
+// The chain is the one the CONSTRUCTOR_CALL rules above already use for `new Foo()` where
+// `Foo` is a const: bind the name to the VARIABLE, take its type, and read the construct
+// signature off that. Only the constructor side needs it; the instance-member path is
+// unchanged.
+//
+// EXTENDS only, via inheritsMembers — an `implements` clause runs no constructor, which
+// is the same restriction the clause above states.
+heritage_value_ctor(sub, ctor) :- ts_type_heritage(_, _, _, _, name, _, _, "true", sub, mod, _, _, _, _, _, _, _, _, _, _),
+    name != "",
+    name_binds(mod, name, _, "VARIABLE", v),
+    var_type(v, _, ctorType),
+    constructor_in_scope(ctorType, ctor).
+// Lifted to the declaration group on the subtype end, for the reason type_inherits is:
+// a heritage clause written on one declaration of a merged class applies to all of them.
+expr_call_candidate(ce, ctor) :- call_site("client", "SUPER_CALL", _, _, _, ce, cs),
+    call_enclosing_type(cs, encl),
+    type_group(_, sg, encl),
+    type_group(_, sg, sub),
+    heritage_value_ctor(sub, ctor).
+
+// `new Bucket()` where `class Bucket extends Map<K, V[]>` DECLARES NO CONSTRUCTOR.
+// heritage_value_ctor already resolves the base correctly -- it is how `super()` in a
+// sibling class with an explicit constructor resolves -- but nothing read it on the
+// CONSTRUCTION side, so the implicit constructor found nothing and `new Bucket()`
+// resolved to no candidate at all.
+//
+// constructor_in_scope's inherited clause cannot cover this. It walks to an ancestor and
+// looks for a declared constructor, and `Map`'s INSTANCE interface has none: the
+// construct signature lives on `MapConstructor`, which is the JavaScript constructor
+// pattern the rules above already accommodate for `new Map()` itself. So the ancestor
+// walk finds nothing to inherit and the class looks constructor-less.
+//
+// Guarded by !scope_declares_constructor: a subclass that writes its own constructor
+// gets it from rule (9), and adding the base's alongside would widen a site that is
+// already exact.
+expr_call_candidate(ce, ctor) :- call_site("client", "CONSTRUCTOR_CALL", _, _, _, ce, _),
+    new_expression_type(ce, _, t),
+    !scope_declares_constructor(t),
+    type_group(_, sg, t),
+    type_group(_, sg, sub),
+    heritage_value_ctor(sub, ctor).
+
+// ============================================================================
+// TAGGED TEMPLATES, INDEX CALLS, JSX
+// ============================================================================
+
+// (11) `` tag`text` `` — the tag expression is the callee.
+//
+// LIFTED TO THE DECLARATION GROUP, exactly as (1) is and for the same reason. Without
+// it the tag resolved to the ONE declaration the binder recorded, so an overloaded tag
+// had a single candidate, selection never ran, and every site answered with declaration
+// 0 — committed, not hedged. The overloaded tag is the normal shape for the idiom:
+// typed query builders, styled-component factories and i18n helpers overload the tag
+// precisely to distinguish what is being interpolated (#354).
+expr_call_candidate(ce, m) :- call_site("client", "TAGGED_TEMPLATE_CALL", _, _, _, ce, _),
+    expr_child("client", ce, "TAG_EXPRESSION", _, tag),
+    expr_callable(tag, m).
+// ADDED TO the clause above, not substituted for it. method_group only exists where
+// declarationGroupKey is non-empty, and an ARROW assigned to a const has none — which is
+// how the commonest tag in one held-out project is written. Replacing the direct clause
+// with the lift lost the candidate entirely and turned 6 EXACT sites into MISSED, so the
+// lift ADDS the siblings and the direct binding still stands on its own.
+expr_call_candidate(ce, m2) :- call_site("client", "TAGGED_TEMPLATE_CALL", _, _, _, ce, _),
+    expr_child("client", ce, "TAG_EXPRESSION", _, tag),
+    expr_callable(tag, m),
+    method_group_of(m, g),
+    method_group_of(m2, g).
+
+// (12) `handlers[name](arg)` — a call THROUGH an index signature. The signature's
+// value type carries the call signature that runs. This resolves to a SIGNATURE, not
+// to an implementation, which is the honest answer: which entry of the map runs is a
+// value question, not a type one.
+expr_call_candidate(ce, m) :- call_site("client", "INDEX_CALL", _, _, recv, ce, _),
+    expr_type(recv, _, rt),
+    index_signature_in_scope(rt, f),
+    field_type(f, _, ft),
+    call_signature_in_scope(ft, m).
+
+// (13) `<Button size="lg"/>` IS a call to Button with the props object as argument 0.
+// A lowercase tag is an intrinsic element resolving into `JSX.IntrinsicElements`, so
+// it correctly reaches no project declaration — and downstream that must be
+// classified as an ambient terminal, not as a blind spot, or every DOM element in a
+// React codebase is counted as a failure.
+expr_call_candidate(ce, m) :- call_site("client", "JSX_COMPONENT_CALL", cn, _, _, ce, cs),
+    cn != "",
+    call_module(cs, mod),
+    name_binds(mod, cn, _, "METHOD", m).
+expr_call_candidate(ce, m) :- call_site("client", "JSX_COMPONENT_CALL", cn, _, _, ce, cs),
+    cn != "",
+    call_module(cs, mod),
+    name_binds(mod, cn, _, "VARIABLE", v),
+    var_is_function(v, m).
+// A class component — `<MyView/>` where MyView extends React.Component — invokes its
+// constructor, then its render. The constructor is the statically nameable target.
+expr_call_candidate(ce, ctor) :- call_site("client", "JSX_COMPONENT_CALL", cn, _, _, ce, cs),
+    cn != "",
+    call_module(cs, mod),
+    name_binds(mod, cn, _, "TYPE", t),
+    constructor_in_scope(t, ctor).
+
+// ============================================================================
+// DISPATCH FAN — a supertype-typed receiver reaches its implementations
+// ============================================================================
+
+// A call on an interface-typed receiver resolves NOMINALLY to the interface's own
+// signature, and that is the correct answer against `getResolvedSignature` — the
+// compiler names the declaration, not the implementation. The fan below is a
+// separate, additive over-approximation for REACHABILITY, and it is what turns a
+// `known_edge` into a `multi_inferred` rather than replacing it.
+//
+// Soundness argument, which is what distinguishes this from name matching: the
+// receiver is declared to be a T, every value flowing into it is a T, and a declared
+// subtype of T that redeclares the member is exactly the set of bodies that can run.
+// A same-named method on an unrelated type is NOT in the set and is never added.
+//
+// Gated three ways:
+//   !call_exact_receiver  — `new C().m()` has a known runtime type; fanning it is
+//                           wrong, not merely imprecise.
+//   !call_super_receiver  — `super.m()` is non-virtual and names exactly one target.
+//                           Without this an override that calls super fans back to
+//                           ITSELF, the phantom self-recursion the Java engine
+//                           records as a measured defect.
+//   !dispatch_too_wide    — the accuracy-over-completeness cap. Past K implementors
+//                           the fan is a guess across many wrong targets.
+expr_call_dispatch(ce, m) :- call_site("client", _, cn, rk, recv, ce, _),
+    receiver_kind_is_value(rk),
+    cn != "",
+    expr_type(recv, _, rt),
+    !call_exact_receiver(ce),
+    !call_super_receiver(ce),
+    !dispatch_too_wide(rt, cn),
+    implementors(rt, sub),
+    declared_method_direct(sub, cn, "false", m).
+
+// ── THE STRUCTURAL FAN ──────────────────────────────────────────────────────
+// 60.4% of TypeScript classes satisfy their interfaces with NO `implements` clause, so
+// the nominal fan above sees at best two fifths of conformance. `interface Probe { … }`
+// with two classes that happen to have `measure()` and say nothing about it is the
+// ordinary case, not a corner, and a nominal-only fan reaches neither.
+//
+// Restricted three ways, because this is the one rule in the engine that could
+// FABRICATE rather than over-approximate — it matches member NAMES, not member types:
+//   * the target has NO nominal implementor. Where a codebase does declare
+//     `implements`, that declaration is better evidence than a name match and mixing
+//     the two buries a precise answer under a heuristic one.
+//   * the source is a CLIENT class that could actually be constructed.
+//   * the same dispatch cap as the nominal fan, so a wide structural match is dropped
+//     rather than guessed across.
+expr_call_dispatch(ce, m) :- call_site("client", _, cn, rk, recv, ce, _),
+    receiver_kind_is_value(rk),
+    cn != "",
+    expr_type(recv, _, rt),
+    !call_exact_receiver(ce),
+    !call_super_receiver(ce),
+    !dispatch_too_wide(rt, cn),
+    structural_implementor(rt, sub),
+    declared_method_direct(sub, cn, "false", m).
+
+// Declared DIRECTLY on the implementor — not inherited into it. An inherited method
+// is already reachable through the supertype's own resolution, and admitting it here
+// would re-derive the whole chain once per implementor.
+declared_method_direct(t, name, st, m) :- scope_sibling(t, sib),
+    declared_method(sib, name, st, m).
+
+call_exact_receiver(ce) :- call_site("client", _, _, _, recv, ce, _),
+    expr_exact_type(recv, _).
+call_super_receiver(ce) :- call_site("client", _, _, "SUPER", _, ce, _).
+
+// ── the fan-width cap ───────────────────────────────────────────────────────
+// `dispatch_cap` is an input relation staged by the executor: empty means uncapped
+// (sound — use it for reachability and taint), a value means accuracy-first. Default
+// 20, as for Java. The count is per (receiver type, member name), which is the unit a
+// call site actually fans over.
+dispatch_width(rt, cn, n) :- implementor_member(rt, cn, _),
+    n = count : { implementor_member(rt, cn, _) }.
+implementor_member(rt, cn, m) :- implementors(rt, sub),
+    declared_method_direct(sub, cn, "false", m).
+implementor_member(rt, cn, m) :- structural_implementor(rt, sub),
+    declared_method_direct(sub, cn, "false", m).
+dispatch_too_wide(rt, cn) :- dispatch_width(rt, cn, n),
+    dispatch_cap(c),
+    k = to_number(c),
+    n > k.
+
+// ── the merged candidate set ────────────────────────────────────────────────
+expr_call_candidate(ce, m) :- expr_call_dispatch(ce, m).
+
+// (2c) A call through a DESTRUCTURED BINDING that names an interface METHOD —
+// `function f({ helper }: Ctx) { helper('x') }`. The callee expression resolves to the
+// bound name's parameter row, which has no type of its own: the target is the method
+// the binding names on the pattern's type. `var_is_function` cannot express this
+// because the binding is a parameter, not a variable.
+expr_call_candidate(ce, m) :- call_callee_expr(_, ce, ne),
+    expr_referenced("client", "PARAMETER", bh, ne),
+    param_binding_method(bh, m).
+
+// (2d) `N.f(...)` where N is a NAMESPACE, not a value. A namespace declared inside
+// `declare global` is how a reflection or metadata library publishes its API —
+// `Reflect.getMetadata(key, target)` and friends — and it is the shape decorator-driven
+// frameworks are built on, so it appears in PRODUCTION code rather than only in tests.
+//
+// The receiver is an IDENTIFIER whose referencedEntityKind is UNKNOWN: a namespace is
+// neither a value nor a type in the position it is written, so the binder has nothing to
+// point at and the name is all there is. It resolves as a global TYPE row whose category
+// is NAMESPACE_TYPE, and the callee is one of its members.
+//
+// Guarded on NAMESPACE_TYPE rather than on the name alone: without it any global type
+// sharing a name with a local receiver would answer, which is how a lookup by name
+// manufactures wrong answers where there were none.
+expr_call_candidate(ce, m) :- call_site("client", ck, cn, "IDENTIFIER", recv, ce, _),
+    call_kind_is_member_call(ck),
+    cn != "",
+    expr_name("client", nsname, recv),
+    nsname != "",
+    global_decl(nsname, "TYPE", prov, ns),
+    type_decl(prov, _, _, _, "NAMESPACE_TYPE", _, ns),
+    namespace_member(prov, ns, cn, "METHOD", m).
+call_kind_is_member_call("METHOD_CALL").
+call_kind_is_member_call("OPTIONAL_CALL").
+
+// (2e) A call through a DESTRUCTURED VARIABLE that names an interface METHOD —
+// `const { helper } = ctx; helper('x')`. The mirror of (2c), and the more common shape:
+// a context object is usually destructured in the BODY rather than in the signature.
+//
+// It lives here rather than on `var_is_function` because the binding's type comes from
+// the initializer EXPRESSION, which this same fixpoint produces; putting it on
+// var_is_function makes the SCC unstratifiable.
+expr_call_candidate(ce, m) :- call_callee_expr(_, ce, ne),
+    expr_referenced("client", "VARIABLE", v, ne),
+    var_binding_method(v, m).
+
+// …AND OUT OF A MODULE NAMESPACE — `const { run } = await import("./m"); run(1)`.
+// The same destructuring, but the thing destructured is a MODULE rather than a value
+// with a type, so var_binding_target (which goes through expr_type) reaches nothing.
+// The bound name is an EXPORT NAME, so the lookup is the module's export table — the
+// same one `mod.run(1)` uses one line up (#352).
+expr_call_candidate(ce, m) :- call_callee_expr(_, ce, ne),
+    expr_referenced("client", "VARIABLE", v, ne),
+    var_binding("client", _, "PROPERTY", src, e, v),
+    expr_namespace(e, prov, mod),
+    module_export(prov, mod, src, "METHOD", m).
+
+// ============================================================================
+// A CALLABLE VALUE CARRIES THE GLOBAL FUNCTION MEMBERS
+// ============================================================================
+
+// `plain.call(null, 1)` where `plain` is a declared function. The receiver is callable
+// but has no TYPE and no SHAPE — it is a reference to a method declaration — so none of
+// the member rules above have a scope to search. `function_prototype_member` (see
+// member-lookup.dl) supplies the members; this rule supplies the receiver.
+//
+// No shadowing test, unlike the shape case: a function declaration cannot declare its
+// own `call`, so there is nothing for Function's members to collide with.
+expr_call_candidate(ce, m) :- call_site("client", _, cn, rk, recv, ce, _),
+    receiver_kind_is_value(rk),
+    cn != "",
+    expr_callable(recv, _),
+    function_prototype_member(cn, m).

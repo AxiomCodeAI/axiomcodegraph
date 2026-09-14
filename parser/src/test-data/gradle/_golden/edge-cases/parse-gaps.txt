@@ -1,0 +1,9 @@
+reason=DROPPED_CLOSURE_PARAMETERS	nodeType=preprocessor	originalText={ config ->	startLine=13	endLine=13	startColumn=19	endColumn=30
+reason=DROPPED_CLOSURE_PARAMETERS	nodeType=preprocessor	originalText={ proj ->	startLine=17	endLine=17	startColumn=12	endColumn=21
+reason=DROPPED_CLOSURE_PARAMETERS	nodeType=preprocessor	originalText={ t ->	startLine=18	endLine=18	startColumn=24	endColumn=30
+reason=ERROR_NODE	nodeType=ERROR	originalText=apply from: 'optional.gradle'	startLine=35	endLine=35	startColumn=4	endColumn=15
+reason=REPLACED_NON_ASCII	nodeType=preprocessor	originalText=é	startLine=11	endLine=11	startColumn=20	endColumn=21
+reason=REPLACED_NON_ASCII	nodeType=preprocessor	originalText=ö	startLine=11	endLine=11	startColumn=26	endColumn=27
+reason=REPLACED_NON_ASCII	nodeType=preprocessor	originalText=───	startLine=10	endLine=10	startColumn=3	endColumn=6
+reason=REPLACED_NON_ASCII	nodeType=preprocessor	originalText=───	startLine=10	endLine=10	startColumn=51	endColumn=54
+reason=REWRITTEN_ELVIS	nodeType=preprocessor	originalText=?:	startLine=4	endLine=4	startColumn=51	endColumn=53

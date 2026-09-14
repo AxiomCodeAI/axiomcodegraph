@@ -1,0 +1,4 @@
+main.js:4:40 METHOD_CALL id  EXACT  lib/base.js:2:14
+main.js:5:1 CONSTRUCTOR_CALL A  SYNTHESIZED_OK  
+main.js:5:1 METHOD_CALL a  EXACT  main.js:4:27
+# defects: 0

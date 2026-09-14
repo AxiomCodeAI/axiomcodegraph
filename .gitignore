@@ -9,6 +9,8 @@
 
 # ── Dependencies ─────────────────────────────────────────────────────────────
 node_modules/
+# and the bare name: `node_modules/` matches a directory only, so a symlink named node_modules slips past it
+node_modules
 jspm_packages/
 web_modules/
 .pnp
@@ -81,6 +83,12 @@ souffle-cache/
 all-*.csv
 call-chain-edges.csv
 call-chain-*.csv
+# The bundle stage's output (src/bundle/SCHEMA.md): the database, the headered core
+# tables, and the raw per-language relations it was built from.
+graph.sqlite
+graph.sqlite-journal
+csv/
+raw/
 client-ir/
 library-ir/
 intermediate/
@@ -221,7 +229,7 @@ $RECYCLE.BIN/
 # checks the property beats a pattern list that tries to anticipate it.
 
 # ── Java engine test suite: per-run work dirs and the generated JDK index ─────
-test/java/.work/
+graph/test/java/.work/
 
 # Python bytecode from the test tools
 __pycache__/
@@ -230,5 +238,16 @@ __pycache__/
 # fixture harness work directories (generated per run). The plain `.work/` is the one
 # run-tests.sh itself uses; the `.work-*` variants are the fixtures'. Only the latter was
 # listed, so every run of the TypeScript suite left an untracked directory behind.
-test/typescript/.work/
-test/typescript/.work-*/
+graph/test/typescript/.work/
+graph/test/typescript/.work-*/
+graph/test/javascript/.work/
+
+# the one-command pipeline keeps its IR and scratch here
+.intermediate/
+
+# lock files are not committed: the engine is not published as a locked artifact, and two
+# workspaces' locks drifted on every parser sync
+package-lock.json
+# A JavaScript fixture dependency is a real package under node_modules — that is the shape
+# the parser resolves and the shape the library join is written for.
+!graph/test/javascript/cases/*/src/node_modules/

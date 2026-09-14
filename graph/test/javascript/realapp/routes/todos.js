@@ -1,0 +1,12 @@
+'use strict';
+const express = require('express');
+const todos = require('../services/todos');
+const { parseId, wrap } = require('../middleware');
+const router = express.Router();
+router.param('id', parseId);
+router.get('/', (req, res) => { res.json(todos.list(req.query.filter)); });
+router.post('/', (req, res) => { res.status(201).json(todos.create(req.body)); });
+router.get('/:id', function getOne(req, res) { res.json(todos.read(req.todoId)); });
+router.post('/:id/toggle', wrap(async (req, res) => { res.json(await todos.toggle(req.todoId)); }));
+router.delete('/:id', (req, res) => { todos.destroy(req.todoId); res.status(204).end(); });
+module.exports = router;

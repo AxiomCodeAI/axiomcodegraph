@@ -1,0 +1,13 @@
+# Executed edges the engine does not have. Format: <caller> <callee> (file:line:col;
+# a library function is node_modules/<pkg>/<file>:line:col).
+
+# lodash is one 17,000-line IIFE whose methods are installed by `mixin(lodash, source)`
+# over a runtime-built object; the modular files export the results of generic
+# factories. Not modelled; every call into it is a declared unknown.
+lib/store.js:9:3 node_modules/lodash/lodash.js:6612:14
+
+# A tracer artifact, not an edge: the DELETE handler runs in the async context that the
+# previous request's promise chain (`wrap`'s `.catch(next)`) left on the HTTP parser, so
+# execution attributes it to `wrap`'s arrow. The handler is reached by express, and the
+# engine has that edge as callback_registered.
+routes/todos.js:11:23 middleware/index.js:7:22

@@ -1,0 +1,28 @@
+unresolved sites: 31
+
+--- by reason ---
+      1  callee_is_parameter
+      1  classmethod_receiver_unknown
+      1  dynamic_call
+      1  member_absent_from_type
+      6  no_rule
+      6  unmodelled_decorator
+      2  untyped_receiver:attribute_absent_on_type
+      5  untyped_receiver:call_result_untyped
+      2  untyped_receiver:class_attribute_absent
+      2  untyped_receiver:local_untyped
+      1  untyped_receiver:parameter
+      3  untyped_receiver:subscript_untyped
+
+--- by call kind ---
+      5  CHAINED_CALL
+      2  DECORATOR_ATTRIBUTE
+      4  DECORATOR_BARE
+      1  DYNAMIC_CALL
+      8  METHOD_CALL
+      5  SIMPLE_CALL
+      5  SUBSCRIPT_CALL
+      1  UNKNOWN_CALLEE_CALL
+
+--- the mysteries ---
+  no_rule = 6 of 31  (19.4%)

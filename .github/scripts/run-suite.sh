@@ -16,25 +16,22 @@
 #   3. a suite that reported zero passing cases, which means the case loop found
 #      nothing to do and the exit status is meaningless.
 #
-# Usage: run-suite.sh <java|python|typescript> [extra args passed to the suite]
+# Usage: run-suite.sh <java|python|typescript|javascript> [extra args passed to the suite]
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 
-lang="${1:?usage: run-suite.sh <java|python|typescript> [args...]}"; shift
+lang="${1:?usage: run-suite.sh <java|python|typescript|javascript> [args...]}"; shift
 root="$(cd "$(dirname "$0")/../.." && pwd)"
-suite="$root/test/$lang/run-tests.sh"
+suite="$root/graph/test/$lang/run-tests.sh"
 
 [ -f "$suite" ] || { echo "::error::no suite at $suite"; exit 1; }
 
-# The suites default AXIOM_PARSER to $ROOT/../Parser/dist/index.js, which is only
-# correct for a side-by-side developer layout. CI must be told explicitly, and must
-# refuse to start rather than discover the absence halfway through as a SKIP.
-if [ -z "${AXIOM_PARSER:-}" ]; then
-  echo "::error::AXIOM_PARSER is unset — refusing to run a suite that would skip itself"
-  exit 1
-fi
+# The parser lives in this repository (parser/) and `npm run build` builds it; the
+# suites default AXIOM_PARSER to parser/dist/index.js. CI still refuses to start on a
+# missing build rather than discover the absence halfway through as a SKIP.
+AXIOM_PARSER="${AXIOM_PARSER:-$root/parser/dist/index.js}"; export AXIOM_PARSER
 if [ ! -f "$AXIOM_PARSER" ]; then
-  echo "::error::AXIOM_PARSER=$AXIOM_PARSER does not exist. The parser checkout did not build."
+  echo "::error::AXIOM_PARSER=$AXIOM_PARSER does not exist. The parser did not build (npm run build)."
   exit 1
 fi
 
@@ -68,7 +65,7 @@ fi
 # "passed 0" means the case loop matched nothing — a rename or a bad filter, not a
 # clean run. Guard it, because exit 0 with zero assertions is the quietest failure
 # this harness can produce.
-if grep -qE '^passed 0([^0-9]|$)|^passed 0,' "$log"; then
+if grep -qE '^passed:? 0([^0-9]|$)|^passed:? 0,' "$log"; then
   echo "::error::the $lang suite passed 0 cases — it asserted nothing."
   exit 1
 fi

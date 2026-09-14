@@ -1,0 +1,203 @@
+lib/async.js:10:19 FUNCTION_CALL delegating  ->  known_edge  lib/async.js:6:1 delegating
+lib/async.js:10:33 METHOD_CALL w.run  ->  known_edge  lib/async.js:4:16 run
+lib/async.js:11:14 FUNCTION_CALL gen  ->  known_edge  lib/async.js:5:1 gen
+lib/async.js:11:21 METHOD_CALL it.next  ->  ambient_terminal  -
+lib/async.js:11:21 METHOD_CALL it.next().value.run  ->  known_edge  lib/async.js:4:16 run
+lib/async.js:12:29 METHOD_CALL w.run  ->  known_edge  lib/async.js:4:16 run
+lib/async.js:12:3 METHOD_CALL [...gen()].forEach  ->  ambient_terminal  -
+lib/async.js:12:3 METHOD_CALL [...gen()].forEach  ->  callback_registered  lib/async.js:12:22 <arrow>
+lib/async.js:12:7 FUNCTION_CALL gen  ->  known_edge  lib/async.js:5:1 gen
+lib/async.js:13:14 FUNCTION_CALL gen  ->  known_edge  lib/async.js:5:1 gen
+lib/async.js:13:3 METHOD_CALL Array.from  ->  ambient_terminal  -
+lib/async.js:13:3 METHOD_CALL Array.from(gen()).map  ->  ambient_terminal  -
+lib/async.js:13:3 METHOD_CALL Array.from(gen()).map  ->  callback_registered  lib/async.js:13:25 <arrow>
+lib/async.js:13:32 METHOD_CALL w.run  ->  known_edge  lib/async.js:4:16 run
+lib/async.js:16:52 FUNCTION_CALL agen  ->  known_edge  lib/async.js:7:1 agen
+lib/async.js:16:60 METHOD_CALL w.run  ->  known_edge  lib/async.js:4:16 run
+lib/async.js:17:31 CONSTRUCTOR_CALL Widget  ->  implicit_constructor  -
+lib/async.js:18:26 METHOD_CALL Promise.resolve  ->  ambient_terminal  -
+lib/async.js:18:42 CONSTRUCTOR_CALL Widget  ->  implicit_constructor  -
+lib/async.js:19:29 CONSTRUCTOR_CALL Promise  ->  ambient_terminal  -
+lib/async.js:19:29 CONSTRUCTOR_CALL Promise  ->  callback_registered  lib/async.js:19:41 <arrow>
+lib/async.js:19:54 FUNCTION_CALL resolve  ->  ambiguous_unknown  -
+lib/async.js:19:62 CONSTRUCTOR_CALL Widget  ->  implicit_constructor  -
+lib/async.js:21:10 FUNCTION_CALL get  ->  known_edge  lib/async.js:17:1 get
+lib/async.js:21:3 METHOD_CALL (await get()).run  ->  known_edge  lib/async.js:4:16 run
+lib/async.js:22:10 FUNCTION_CALL getP  ->  known_edge  lib/async.js:18:1 getP
+lib/async.js:22:3 METHOD_CALL (await getP()).run  ->  ambient_terminal  -
+lib/async.js:22:3 METHOD_CALL (await getP()).run  ->  multi_inferred  lib/async.js:4:16 run
+lib/async.js:23:10 FUNCTION_CALL getNewP  ->  known_edge  lib/async.js:19:1 getNewP
+lib/async.js:23:3 METHOD_CALL (await getNewP()).run  ->  ambient_terminal  -
+lib/async.js:23:3 METHOD_CALL (await getNewP()).run  ->  multi_inferred  lib/async.js:4:16 run
+lib/async.js:24:21 METHOD_CALL w.run  ->  known_edge  lib/async.js:4:16 run
+lib/async.js:24:3 FUNCTION_CALL get  ->  known_edge  lib/async.js:17:1 get
+lib/async.js:24:3 METHOD_CALL get().then  ->  ambiguous_unknown  -
+lib/async.js:24:3 METHOD_CALL get().then  ->  callback_registered  lib/async.js:24:14 <arrow>
+lib/async.js:25:22 METHOD_CALL w.run  ->  known_edge  lib/async.js:4:16 run
+lib/async.js:25:3 FUNCTION_CALL getP  ->  known_edge  lib/async.js:18:1 getP
+lib/async.js:25:3 METHOD_CALL getP().then  ->  ambient_terminal  -
+lib/async.js:25:3 METHOD_CALL getP().then  ->  callback_registered  lib/async.js:25:15 <arrow>
+lib/async.js:26:25 METHOD_CALL w.run  ->  known_edge  lib/async.js:4:16 run
+lib/async.js:26:3 FUNCTION_CALL getNewP  ->  known_edge  lib/async.js:19:1 getNewP
+lib/async.js:26:3 METHOD_CALL getNewP().then  ->  ambient_terminal  -
+lib/async.js:26:3 METHOD_CALL getNewP().then  ->  callback_registered  lib/async.js:26:18 <arrow>
+lib/async.js:27:24 METHOD_CALL Promise.all  ->  ambient_terminal  -
+lib/async.js:27:37 FUNCTION_CALL get  ->  known_edge  lib/async.js:17:1 get
+lib/async.js:27:44 FUNCTION_CALL getP  ->  known_edge  lib/async.js:18:1 getP
+lib/async.js:27:54 METHOD_CALL a.run  ->  known_edge  lib/async.js:4:16 run
+lib/async.js:27:63 METHOD_CALL b.run  ->  known_edge  lib/async.js:4:16 run
+lib/async.js:28:16 FUNCTION_CALL get  ->  known_edge  lib/async.js:17:1 get
+lib/async.js:28:3 METHOD_CALL Promise.all  ->  ambient_terminal  -
+lib/async.js:28:3 METHOD_CALL Promise.all([get()]).then  ->  ambient_terminal  -
+lib/async.js:28:3 METHOD_CALL Promise.all([get()]).then  ->  callback_registered  lib/async.js:28:29 <arrow>
+lib/async.js:28:38 METHOD_CALL w.run  ->  known_edge  lib/async.js:4:16 run
+lib/async.js:29:19 METHOD_CALL Promise.race  ->  ambient_terminal  -
+lib/async.js:29:33 FUNCTION_CALL get  ->  known_edge  lib/async.js:17:1 get
+lib/async.js:29:42 METHOD_CALL c.run  ->  ambient_terminal  -
+lib/async.js:29:42 METHOD_CALL c.run  ->  multi_inferred  lib/async.js:4:16 run
+lib/async.js:30:19 METHOD_CALL Promise.allSettled  ->  ambient_terminal  -
+lib/async.js:30:39 FUNCTION_CALL get  ->  known_edge  lib/async.js:17:1 get
+lib/async.js:31:42 METHOD_CALL w.run  ->  known_edge  lib/async.js:4:16 run
+lib/async.js:31:9 FUNCTION_CALL get  ->  known_edge  lib/async.js:17:1 get
+lib/async.js:31:9 METHOD_CALL get().then  ->  ambiguous_unknown  -
+lib/async.js:31:9 METHOD_CALL get().then  ->  callback_registered  lib/async.js:31:20 <arrow>
+lib/async.js:31:9 METHOD_CALL get().then((w) => w).then  ->  ambient_terminal  -
+lib/async.js:31:9 METHOD_CALL get().then((w) => w).then  ->  callback_registered  lib/async.js:31:35 <arrow>
+lib/async.js:32:27 FUNCTION_CALL onError  ->  known_edge  lib/async.js:36:1 onError
+lib/async.js:32:3 FUNCTION_CALL get  ->  known_edge  lib/async.js:17:1 get
+lib/async.js:32:3 METHOD_CALL get().then  ->  ambiguous_unknown  -
+lib/async.js:32:3 METHOD_CALL get().then  ->  callback_registered  lib/async.js:32:20 <arrow>
+lib/async.js:32:3 METHOD_CALL get().then(null, (e) => onError(e)).catch  ->  ambient_terminal  -
+lib/async.js:32:3 METHOD_CALL get().then(null, (e) => onError(e)).catch  ->  callback_registered  lib/async.js:36:1 onError
+lib/async.js:32:3 METHOD_CALL get().then(null, (e) => onError(e)).catch(onError).finally  ->  ambient_terminal  -
+lib/async.js:32:3 METHOD_CALL get().then(null, (e) => onError(e)).catch(onError).finally  ->  callback_registered  lib/async.js:37:1 onDone
+lib/async.js:33:44 FUNCTION_CALL setTimeout  ->  ambient_terminal  -
+lib/async.js:33:9 CONSTRUCTOR_CALL Promise  ->  ambient_terminal  -
+lib/async.js:33:9 CONSTRUCTOR_CALL Promise  ->  callback_registered  lib/async.js:33:21 <arrow>
+lib/async.js:33:9 METHOD_CALL new Promise((resolve, reject) => { setTimeout(resolve, 1); }  ->  ambient_terminal  -
+lib/async.js:33:9 METHOD_CALL new Promise((resolve, reject) => { setTimeout(resolve, 1); }  ->  callback_registered  lib/async.js:37:1 onDone
+lib/async.js:41:3 METHOD_CALL [1, 2].filter  ->  ambient_terminal  -
+lib/async.js:41:3 METHOD_CALL [1, 2].filter  ->  callback_registered  lib/async.js:38:1 h1
+lib/async.js:41:3 METHOD_CALL [1, 2].filter(h1).some  ->  ambient_terminal  -
+lib/async.js:41:3 METHOD_CALL [1, 2].filter(h1).some  ->  callback_registered  lib/async.js:38:1 h1
+lib/async.js:41:3 METHOD_CALL [1, 2].filter(h1).some(h1).valueOf  ->  ambient_terminal  -
+lib/async.js:41:41 METHOD_CALL [1].every  ->  ambient_terminal  -
+lib/async.js:41:41 METHOD_CALL [1].every  ->  callback_registered  lib/async.js:38:1 h1
+lib/async.js:41:56 METHOD_CALL [1].findIndex  ->  ambient_terminal  -
+lib/async.js:41:56 METHOD_CALL [1].findIndex  ->  callback_registered  lib/async.js:38:1 h1
+lib/async.js:41:75 METHOD_CALL [1].flatMap  ->  ambient_terminal  -
+lib/async.js:41:75 METHOD_CALL [1].flatMap  ->  callback_registered  lib/async.js:39:1 h2
+lib/async.js:41:92 METHOD_CALL [3, 1].sort  ->  ambient_terminal  -
+lib/async.js:41:92 METHOD_CALL [3, 1].sort  ->  callback_registered  lib/async.js:41:104 <arrow>
+lib/async.js:42:3 METHOD_CALL [1].reduce  ->  ambient_terminal  -
+lib/async.js:42:3 METHOD_CALL [1].reduce  ->  callback_registered  lib/async.js:42:14 <arrow>
+lib/async.js:42:32 FUNCTION_CALL h1  ->  known_edge  lib/async.js:38:1 h1
+lib/async.js:42:42 METHOD_CALL [1].reduceRight  ->  ambient_terminal  -
+lib/async.js:42:42 METHOD_CALL [1].reduceRight  ->  callback_registered  lib/async.js:39:1 h2
+lib/async.js:43:3 METHOD_CALL Array.from  ->  ambient_terminal  -
+lib/async.js:43:3 METHOD_CALL Array.from  ->  callback_registered  lib/async.js:38:1 h1
+lib/async.js:43:34 METHOD_CALL Array.from  ->  ambient_terminal  -
+lib/async.js:43:34 METHOD_CALL Array.from  ->  callback_registered  lib/async.js:39:1 h2
+lib/async.js:44:28 METHOD_CALL 'abc'.replaceAll  ->  ambient_terminal  -
+lib/async.js:44:28 METHOD_CALL 'abc'.replaceAll  ->  callback_registered  lib/async.js:39:1 h2
+lib/async.js:44:3 METHOD_CALL 'abc'.replace  ->  ambient_terminal  -
+lib/async.js:44:3 METHOD_CALL 'abc'.replace  ->  callback_registered  lib/async.js:38:1 h1
+lib/async.js:45:3 METHOD_CALL JSON.parse  ->  ambient_terminal  -
+lib/async.js:45:3 METHOD_CALL JSON.parse  ->  callback_registered  lib/async.js:38:1 h1
+lib/async.js:45:30 METHOD_CALL JSON.stringify  ->  ambient_terminal  -
+lib/async.js:45:30 METHOD_CALL JSON.stringify  ->  callback_registered  lib/async.js:39:1 h2
+lib/async.js:46:3 METHOD_CALL Object.keys  ->  ambient_terminal  -
+lib/async.js:46:3 METHOD_CALL Object.keys({ a: 1 }).forEach  ->  ambient_terminal  -
+lib/async.js:46:3 METHOD_CALL Object.keys({ a: 1 }).forEach  ->  callback_registered  lib/async.js:38:1 h1
+lib/async.js:46:38 METHOD_CALL Object.entries  ->  ambient_terminal  -
+lib/async.js:46:38 METHOD_CALL Object.entries({ a: h1 }).forEach  ->  ambient_terminal  -
+lib/async.js:46:38 METHOD_CALL Object.entries({ a: h1 }).forEach  ->  callback_registered  lib/async.js:46:72 <arrow>
+lib/async.js:46:84 FUNCTION_CALL v  ->  known_edge  lib/async.js:38:1 h1
+lib/async.js:47:3 CONSTRUCTOR_CALL Map  ->  ambient_terminal  -
+lib/async.js:47:3 METHOD_CALL new Map([['a', 1]]).forEach  ->  ambient_terminal  -
+lib/async.js:47:3 METHOD_CALL new Map([['a', 1]]).forEach  ->  callback_registered  lib/async.js:38:1 h1
+lib/async.js:47:36 CONSTRUCTOR_CALL Set  ->  ambient_terminal  -
+lib/async.js:47:36 METHOD_CALL new Set([1]).forEach  ->  ambient_terminal  -
+lib/async.js:47:36 METHOD_CALL new Set([1]).forEach  ->  callback_registered  lib/async.js:39:1 h2
+lib/async.js:48:13 FUNCTION_CALL setInterval  ->  ambient_terminal  -
+lib/async.js:48:13 FUNCTION_CALL setInterval  ->  callback_registered  lib/async.js:38:1 h1
+lib/async.js:48:33 FUNCTION_CALL clearInterval  ->  ambient_terminal  -
+lib/async.js:48:51 FUNCTION_CALL setImmediate  ->  ambient_terminal  -
+lib/async.js:48:51 FUNCTION_CALL setImmediate  ->  callback_registered  lib/async.js:39:1 h2
+lib/async.js:48:69 FUNCTION_CALL queueMicrotask  ->  ambient_terminal  -
+lib/async.js:48:69 FUNCTION_CALL queueMicrotask  ->  callback_registered  lib/async.js:38:1 h1
+lib/async.js:48:89 METHOD_CALL process.nextTick  ->  ambient_terminal  -
+lib/async.js:48:89 METHOD_CALL process.nextTick  ->  callback_registered  lib/async.js:39:1 h2
+lib/async.js:49:24 FUNCTION_CALL res  ->  ambiguous_unknown  -
+lib/async.js:49:3 CONSTRUCTOR_CALL Promise  ->  ambient_terminal  -
+lib/async.js:49:3 CONSTRUCTOR_CALL Promise  ->  callback_registered  lib/async.js:49:15 <arrow>
+lib/async.js:49:3 METHOD_CALL new Promise((res) => res(1)).then  ->  ambient_terminal  -
+lib/async.js:49:3 METHOD_CALL new Promise((res) => res(1)).then  ->  callback_registered  lib/async.js:38:1 h1
+lib/async.js:54:5 SUPER_CALL super  ->  ambiguous_unknown  -
+lib/async.js:55:5 METHOD_CALL this.on  ->  ambient_terminal  -
+lib/async.js:55:5 METHOD_CALL this.on  ->  callback_registered  lib/async.js:62:3 onA
+lib/async.js:56:18 FUNCTION_CALL_BIND this.onB.bind  ->  known_edge  lib/async.js:63:3 onB
+lib/async.js:56:5 METHOD_CALL this.on  ->  ambient_terminal  -
+lib/async.js:56:5 METHOD_CALL this.on  ->  callback_registered  lib/async.js:63:3 onB
+lib/async.js:57:31 METHOD_CALL this.onC  ->  known_edge  lib/async.js:64:3 onC
+lib/async.js:57:5 METHOD_CALL this.on  ->  ambient_terminal  -
+lib/async.js:57:5 METHOD_CALL this.on  ->  callback_registered  lib/async.js:57:18 <arrow>
+lib/async.js:58:41 METHOD_CALL this.onA  ->  known_edge  lib/async.js:62:3 onA
+lib/async.js:58:5 METHOD_CALL this.once  ->  ambient_terminal  -
+lib/async.js:58:5 METHOD_CALL this.once  ->  callback_registered  lib/async.js:58:20 <function-expression>
+lib/async.js:59:36 METHOD_CALL this.prependListener  ->  ambient_terminal  -
+lib/async.js:59:36 METHOD_CALL this.prependListener  ->  callback_registered  lib/async.js:36:1 onError
+lib/async.js:59:5 METHOD_CALL this.addListener  ->  ambient_terminal  -
+lib/async.js:59:5 METHOD_CALL this.addListener  ->  callback_registered  lib/async.js:37:1 onDone
+lib/async.js:5:25 CONSTRUCTOR_CALL Widget  ->  implicit_constructor  -
+lib/async.js:5:45 CONSTRUCTOR_CALL Widget  ->  implicit_constructor  -
+lib/async.js:60:5 METHOD_CALL this.on  ->  ambient_terminal  -
+lib/async.js:60:5 METHOD_CALL this.on  ->  callback_registered  lib/async.js:36:1 onError
+lib/async.js:65:12 METHOD_CALL this.emit  ->  ambient_terminal  -
+lib/async.js:65:12 METHOD_CALL this.emit  ->  event_dispatch  lib/async.js:62:3 onA
+lib/async.js:65:28 METHOD_CALL this.emit  ->  ambient_terminal  -
+lib/async.js:65:28 METHOD_CALL this.emit  ->  event_dispatch  lib/async.js:63:3 onB
+lib/async.js:65:44 METHOD_CALL this.emit  ->  ambient_terminal  -
+lib/async.js:65:44 METHOD_CALL this.emit  ->  event_dispatch  lib/async.js:57:18 <arrow>
+lib/async.js:65:63 METHOD_CALL this.emit  ->  ambient_terminal  -
+lib/async.js:65:63 METHOD_CALL this.emit  ->  event_dispatch  lib/async.js:58:20 <function-expression>
+lib/async.js:65:79 METHOD_CALL this.emit  ->  ambient_terminal  -
+lib/async.js:65:79 METHOD_CALL this.emit  ->  event_dispatch  lib/async.js:36:1 onError
+lib/async.js:65:79 METHOD_CALL this.emit  ->  event_dispatch  lib/async.js:37:1 onDone
+lib/async.js:66:20 METHOD_CALL this.emit  ->  ambient_terminal  -
+lib/async.js:66:20 METHOD_CALL this.emit  ->  event_dispatch  lib/async.js:36:1 onError
+lib/async.js:66:20 METHOD_CALL this.emit  ->  event_dispatch  lib/async.js:37:1 onDone
+lib/async.js:66:20 METHOD_CALL this.emit  ->  event_dispatch  lib/async.js:38:1 h1
+lib/async.js:66:20 METHOD_CALL this.emit  ->  event_dispatch  lib/async.js:39:1 h2
+lib/async.js:66:20 METHOD_CALL this.emit  ->  event_dispatch  lib/async.js:57:18 <arrow>
+lib/async.js:66:20 METHOD_CALL this.emit  ->  event_dispatch  lib/async.js:58:20 <function-expression>
+lib/async.js:66:20 METHOD_CALL this.emit  ->  event_dispatch  lib/async.js:62:3 onA
+lib/async.js:66:20 METHOD_CALL this.emit  ->  event_dispatch  lib/async.js:63:3 onB
+lib/async.js:69:13 CONSTRUCTOR_CALL Emitter  ->  known_edge  lib/async.js:53:3 <constructor>
+lib/async.js:6:33 FUNCTION_CALL gen  ->  known_edge  lib/async.js:5:1 gen
+lib/async.js:70:18 METHOD_CALL e.once  ->  ambient_terminal  -
+lib/async.js:70:18 METHOD_CALL e.once  ->  callback_registered  lib/async.js:39:1 h2
+lib/async.js:70:3 METHOD_CALL e.on  ->  ambient_terminal  -
+lib/async.js:70:3 METHOD_CALL e.on  ->  callback_registered  lib/async.js:38:1 h1
+lib/async.js:70:35 METHOD_CALL e.emit  ->  ambient_terminal  -
+lib/async.js:70:35 METHOD_CALL e.emit  ->  event_dispatch  lib/async.js:38:1 h1
+lib/async.js:70:35 METHOD_CALL e.emit  ->  event_dispatch  lib/async.js:39:1 h2
+lib/async.js:71:15 CONSTRUCTOR_CALL EventEmitter  ->  ambient_terminal  -
+lib/async.js:71:35 METHOD_CALL em2.on  ->  ambient_terminal  -
+lib/async.js:71:35 METHOD_CALL em2.on  ->  callback_registered  lib/async.js:38:1 h1
+lib/async.js:71:52 METHOD_CALL em2.emit  ->  ambient_terminal  -
+lib/async.js:71:52 METHOD_CALL em2.emit  ->  event_dispatch  lib/async.js:38:1 h1
+lib/async.js:72:3 METHOD_CALL process.on  ->  ambient_terminal  -
+lib/async.js:72:3 METHOD_CALL process.on  ->  callback_registered  lib/async.js:37:1 onDone
+lib/async.js:7:32 CONSTRUCTOR_CALL Widget  ->  implicit_constructor  -
+lib/async.js:9:19 FUNCTION_CALL gen  ->  known_edge  lib/async.js:5:1 gen
+lib/async.js:9:26 METHOD_CALL w.run  ->  known_edge  lib/async.js:4:16 run
+main.js:4:25 METHOD_CALL A.asyncIter  ->  known_edge  lib/async.js:16:1 asyncIter
+main.js:4:3 METHOD_CALL A.generators  ->  known_edge  lib/async.js:8:1 generators
+main.js:4:46 METHOD_CALL A.promises  ->  known_edge  lib/async.js:20:1 promises
+main.js:4:60 METHOD_CALL A.platformCallbacks  ->  known_edge  lib/async.js:40:1 platformCallbacks
+main.js:5:3 CONSTRUCTOR_CALL A.Emitter  ->  known_edge  lib/async.js:53:3 <constructor>
+main.js:5:3 METHOD_CALL new A.Emitter().fire  ->  known_edge  lib/async.js:65:3 fire
+main.js:5:3 METHOD_CALL new A.Emitter().fire().fireDynamic  ->  known_edge  lib/async.js:66:3 fireDynamic
+main.js:5:44 METHOD_CALL A.externalRegistration  ->  known_edge  lib/async.js:68:1 externalRegistration
+main.js:7:1 FUNCTION_CALL main  ->  known_edge  main.js:3:1 main

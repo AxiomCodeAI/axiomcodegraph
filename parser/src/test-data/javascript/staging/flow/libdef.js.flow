@@ -1,0 +1,36 @@
+/* @flow */
+// fixture: flow/libdef.js.flow
+// module system: ESM (governing: staging/flow/package.json, "type": "module")
+// nature: EXCLUDED — expected emission is one js_module row with
+//   sourceProvenance = FLOW_EXCLUDED and hasFlowPragma = true.
+// expected provenance: FLOW_REJECTED — by EXTENSION, which is the second detection route
+//
+// DETECTED BY EXTENSION, which schema §2.6 names as the second detection route:
+// "an @flow pragma in a leading comment, OR a .js.flow extension".
+//
+// MEASURED, and this is the finding: `JS_SOURCE_EXTENSIONS` is
+// `['.js', '.jsx', '.mjs', '.cjs']`, so a `.js.flow` file is **never walked at
+// all**. It emits nothing — including no module row.
+//
+// That is not the same outcome as exclusion, and the ruling is explicit about
+// the difference: the module row "records that the file was seen, identified,
+// and declined. It is countable, it is greppable." A file that is never scanned
+// is indistinguishable from a file that does not exist, so the detector cannot
+// be measured on it and `js-corpus` cannot size the population.
+//
+// Note this file also carries a pragma, so under a pragma-only detector it
+// WOULD be excluded correctly — if it were ever read. The extension is the only
+// thing standing between it and the walk. A `.js.flow` file with no pragma is
+// the case that needs the extension route, and it is the normal shape: a libdef
+// declares another module's types and often carries no pragma of its own.
+//
+// Real provenance: the Flow libdef installer places libdefs as `*/npm/*.js.flow`,
+// and a package shipping its own types puts `index.js.flow` beside `index.js`.
+// Both are common in Flow projects and neither is JavaScript.
+
+declare module.exports: {
+  parse(input: string): Object,
+  stringify(value: mixed): string,
+};
+
+declare export function flowLibdefMarker(x: number): string;

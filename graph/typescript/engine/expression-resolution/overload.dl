@@ -1,0 +1,783 @@
+// ============================================================================
+// Expression Resolution · OVERLOAD DISAMBIGUATION
+//
+// Narrows the name-only candidate set into expr_resolves_to_method. TypeScript
+// overloading is REAL — unlike Python, where `@overload` is a type-checker fiction
+// and the engine has no analogue to write — and it is resolved by declaration ORDER
+// over an applicability test, not by Java's most-specific lattice.
+//
+// ── ARITY IS A RANGE, NOT AN EQUALITY ───────────────────────────────────────
+// The single biggest difference from Java. `f(a, b?, ...rest)` accepts 1..infinity
+// arguments, so `parameterCount == argumentCount` is wrong for any signature with an
+// optional or a rest parameter — which is most of the ambient surface. The range is
+//   min = parameterCount - optionalParameterCount - (1 if rest else 0)
+//   max = infinity if rest else parameterCount
+// with `this` parameters excluded, because `function f(this: Window, x: number)` has
+// arity 1 and counting the receiver makes every such signature off by one.
+//
+// ── ORDER, NOT SPECIFICITY ──────────────────────────────────────────────────
+// The compiler tries overload declarations in source order and takes the FIRST that
+// applies. So the tie-break is `min overloadIndex among the applicable`, not Java's
+// pairwise domination lattice. The schema's own measurement says why the
+// applicability test cannot be skipped: 77.6% of overloaded calls resolve to a
+// NON-FIRST declaration, so "take declaration 0" would be wrong on three calls in
+// four of the population it exists to serve.
+//
+// ── PRUNE-ONLY, AND NEVER TO EMPTY ──────────────────────────────────────────
+// A candidate is dropped only where some position has a KNOWN argument type that is
+// provably incompatible with EVERY type the parameter may take. TypeScript is
+// structurally typed and this engine's subtype relation is nominal, so the test is
+// deliberately weak: it can miss an incompatibility, and it must never invent one.
+// If pruning would empty a call site, the arity-matched set is restored — the
+// DON'T-EMPTY safeguard the Java engine records, for the same reason.
+//
+// ── STRATIFICATION ──────────────────────────────────────────────────────────
+// Everything here is DOWNSTREAM of the expr_type <-> expr_call_candidate fixpoint and
+// feeds nothing back into it. That is what makes the negations legal:
+// `!arg_mismatch`, `!call_has_pruned` and `!overload_beaten` all read relations
+// derived in this file from the completed candidate set. expr-type.dl consumes
+// expr_call_candidate and never expr_resolves_to_method, precisely so this file can
+// negate freely.
+// ============================================================================
+
+// ── effective arity of a signature ──────────────────────────────────────────
+// A `this` parameter is declared but is not an argument position.
+method_this_param(m) :- param_shape("client", "THIS", _, _, p), param_decl("client", _, _, _, m, p).
+method_this_param(m) :- param_shape("lib", "THIS", _, _, p), param_decl("lib", _, _, _, m, p).
+this_param_adjust(m, 1) :- method_this_param(m).
+this_param_adjust(m, 0) :- method_arity_raw(m, _, _, _), !method_this_param(m).
+
+method_arity_raw(m, pc, oc, ri) :- method_arity("client", pc, oc, ri, m).
+method_arity_raw(m, pc, oc, ri) :- method_arity("lib", pc, oc, ri, m).
+
+method_has_rest(m) :- method_arity_raw(m, _, _, ri), ri != "".
+
+// min / max, as numbers. A signature with a rest parameter has no maximum, which is
+// modelled as a very large bound rather than a special case, so the comparison stays
+// one arithmetic test instead of two rule shapes.
+method_min_arity(m, n) :- method_arity_raw(m, pc, oc, _),
+    this_param_adjust(m, adj),
+    method_has_rest(m),
+    n = to_number(pc) - to_number(oc) - adj - 1.
+method_min_arity(m, n) :- method_arity_raw(m, pc, oc, _),
+    this_param_adjust(m, adj),
+    !method_has_rest(m),
+    n = to_number(pc) - to_number(oc) - adj.
+method_max_arity(m, 1000000) :- method_has_rest(m).
+method_max_arity(m, n) :- method_arity_raw(m, pc, _, _),
+    this_param_adjust(m, adj),
+    !method_has_rest(m),
+    n = to_number(pc) - adj.
+
+// ── the call's argument count ───────────────────────────────────────────────
+call_expr_argc(ce, n) :- call_site("client", ck, _, _, _, ce, cs),
+    ck != "TAGGED_TEMPLATE_CALL",
+    call_shape("client", ac, _, _, cs),
+    n = to_number(ac).
+// A TAGGED TEMPLATE'S ARGUMENTS ARE NOT WRITTEN AS ARGUMENTS, and the parser records
+// argumentCount 0 for every one of them. So `n >= lo` failed for any tag at all, nothing
+// arity-matched, nothing could be pruned, and an overloaded tag kept every declaration.
+// The vector the compiler passes is the synthesized TemplateStringsArray followed by the
+// substitutions, so the count is one more than the number of spans (#354).
+call_expr_argc(ce, n) :- call_site("client", "TAGGED_TEMPLATE_CALL", _, _, _, ce, _),
+    n = 1 + count : { expr_child("client", ce, "TEMPLATE_SPAN", _, _) }.
+// A spread argument makes the count PROVABLY imprecise rather than wrong: `f(...xs)`
+// has one syntactic argument and an unknown number of real ones. Arity matching
+// stands down at those sites instead of picking an answer it cannot justify.
+call_has_spread(ce) :- call_site("client", _, _, _, _, ce, cs),
+    call_shape("client", _, si, _, cs),
+    si != "".
+
+// ── arity_match(CallExpr, Callee) ───────────────────────────────────────────
+// Guarded by the candidate set, so the numeric comparison is never a cross product
+// of all N-argument calls against all N-parameter methods.
+arity_match(ce, m) :- expr_call_candidate(ce, m),
+    call_expr_argc(ce, n),
+    !call_has_spread(ce),
+    method_min_arity(m, lo),
+    n >= lo,
+    method_max_arity(m, hi),
+    n <= hi.
+arity_match(ce, m) :- expr_call_candidate(ce, m),
+    call_has_spread(ce).
+// A candidate with no arity facts at all (a synthesized or malformed signature) is
+// kept rather than dropped: prune-only means the absence of evidence never removes
+// the real callee.
+arity_match(ce, m) :- expr_call_candidate(ce, m),
+    !method_arity_raw(m, _, _, _).
+
+// ============================================================================
+// ARGUMENT / PARAMETER TYPE COMPATIBILITY
+// ============================================================================
+
+// ── arg_type(CallExpr, Position, TypeHash) ──────────────────────────────────
+arg_type(ce, pos, t) :- expr_child("client", ce, "ARGUMENT", pos, a),
+    expr_type(a, _, t).
+// An argument that is a function value — a callback — is TARGET-TYPED: it takes
+// whatever the parameter's type is, by construction, because the code compiles. It
+// is not a nominal subtype of anything, so a nominal test would falsely reject it.
+arg_is_target_typed(ce, pos) :- expr_child("client", ce, "ARGUMENT", pos, a),
+    expr_callable(a, _).
+arg_is_target_typed(ce, pos) :- expr_child("client", ce, "ARGUMENT", pos, a),
+    expr_kind("client", k, _, a),
+    expr_kind_is_target_typed(k).
+// An object literal is checked structurally against the parameter, never nominally,
+// so it can satisfy a parameter it shares no declaration with.
+expr_kind_is_target_typed("ARROW_FUNCTION").
+expr_kind_is_target_typed("FUNCTION_EXPRESSION").
+expr_kind_is_target_typed("OBJECT_LITERAL").
+expr_kind_is_target_typed("SPREAD_ELEMENT").
+// ARRAY_LITERAL stays target-typed, and treating it as ordinarily typed was tried and
+// REVERTED. It does have a type — `Array` — but `Array` is assignable to `Iterable<T>`,
+// `ArrayLike<T>` and `ReadonlyArray<T>` through relationships that exist in the
+// checker and NOT in the IR: lib.es5 declares no heritage between them. So a nominal
+// test rejects `new Set([...])` against `new <T>(iterable: Iterable<T>)` and prunes the
+// overload the compiler actually chose. Measured on the Parser repository: it turned
+// `new Set(EXCLUDED_DIRS)` from an honest two-way set into a wrong single answer.
+expr_kind_is_target_typed("ARRAY_LITERAL").
+
+// What CAN be said about an array literal is that it is not a primitive. That
+// contradiction is decidable with nothing but the parameter's own annotation, and it is
+// what separates `constructor(seed: readonly string[])` from `constructor(seed: string)`.
+arg_mismatch(ce, m) :- expr_call_candidate(ce, m),
+    expr_child("client", ce, "ARGUMENT", pos, a),
+    expr_kind("client", "ARRAY_LITERAL", _, a),
+    param_primitive(m, pos, _).
+
+// ── param_type_at(Callee, Position, TypeHash) ───────────────────────────────
+// GUARDED by the candidate set, the same discipline the Java engine needed: without
+// it every reference parameter of the entire staged library materialises a row, and
+// that dominates the solve.
+param_type_at(m, pos, t) :- expr_call_candidate(_, m),
+    param_decl(prov, _, pos, _, m, p),
+    prov = "client",
+    param_type(p, _, t).
+param_type_at(m, pos, t) :- expr_call_candidate(_, m),
+    param_decl(prov, _, pos, _, m, p),
+    prov = "lib",
+    param_type(p, _, t).
+// A parameter whose annotation is a SHAPE, a union containing one, or absent, is
+// UNTESTABLE nominally — recorded so the mismatch rule can stand down there rather
+// than treat "no type hash" as "no compatible type".
+param_untestable(m, pos) :- expr_call_candidate(_, m),
+    param_decl(_, _, pos, _, m, p),
+    !param_type(p, _, _).
+param_untestable(m, pos) :- expr_call_candidate(_, m),
+    param_decl(_, _, pos, _, m, p),
+    param_shape_target(p, _).
+
+// ── A TYPE-VARIABLE PARAMETER IS NOT TESTABLE, EVEN ONCE IT HAS MEMBERS ─────
+// `<T extends Container>(items: T)` — resolving T through its constraint gives the
+// parameter members, which is right for LOOKUP and wrong for REJECTION. A constraint is
+// a LOWER BOUND: it says every T is a Container, not that T IS Container, so an argument
+// that fails against Container may still be a perfectly good T. Letting arg_mismatch act
+// on it rejects the true signatures.
+//
+// Measured, without this guard: remeda 6,586 exact / 558 wrong became 5,994 / 1,092,
+// because once the constrained signatures were pruned the only candidate left was the
+// wide-parameter IMPLEMENTATION and the don't-empty safeguard returned it — the engine
+// naming `prop.ts:452` where the compiler names `prop.ts:71`.
+//
+// Keyed on the parameter's own annotation being a type variable, so it holds whether or
+// not the constraint resolved. A parameter written as a concrete type is unaffected.
+param_untestable(m, pos) :- expr_call_candidate(_, m),
+    param_decl(_, _, pos, _, m, p),
+    param_type_ref(_, r, p),
+    type_ref(_, "TYPE_VARIABLE", _, _, _, _, _, r).
+
+// ── A REST PARAMETER'S TYPE IS THE ARRAY; THE ARGUMENT IS AN ELEMENT ───────
+// `push(...items: T[])` declares ONE parameter, of type `T[]`, at position 0 — and
+// `res.push(line)` passes a `string` there. Comparing the two says `string` is not an
+// `Array` and prunes the callee the compiler selected.
+//
+// Measured on this corpus: `Array.push` was type-rejected at 415 sites on vue-core, and
+// the site then resolved to an unrelated `push` declared elsewhere in the project. The
+// shape is not particular to that project or to arrays — it covers `console.log`,
+// `Math.max`, `arr.concat`, `Array.of`, and every function anyone writes with
+// `...args: Foo[]`.
+//
+// Arity already models rest correctly: method_max_arity is unbounded for these, and only
+// the DECLARED index carries an annotation at all, so positions past it never reach a
+// comparison. What was missing is that the type comparison must not read the array
+// annotation as the element's. Standing down at that one position is the prune-only
+// answer — the engine holds no element type to compare against, and absence of evidence
+// may not remove the real callee. Comparing against the rest parameter's ELEMENT type is
+// a strictly better rule, keeps the power to separate `...xs: string[]` from
+// `...xs: number[]`, and needs the type reference's argument, which is a separate change.
+// The index is used AS THE SYMBOL the parameter relations are keyed by, not converted:
+// `param_decl` and `param_type_at` carry a position as a symbol, and restParameterIndex
+// arrives in the same form ("0" for `push`), so a numeric round-trip would only risk
+// disagreeing with them on formatting.
+param_rest_at(m, ri) :- expr_call_candidate(_, m),
+    method_arity_raw(m, _, _, ri),
+    ri != "".
+param_untestable(m, pos) :- param_rest_at(m, pos).
+
+// ── arg_mismatch(CallExpr, Callee) ──────────────────────────────────────────
+// A position where the argument's type is known, the parameter's types are all
+// known, and NONE of them accepts it. `arg_compatible_at` is the positive test and
+// the mismatch is its absence, so adding a new compatibility route (structural
+// satisfaction, a numeric widening) never needs this rule touched.
+// ── THE CANDIDATE PAIR IS THE JOIN KEY, NOT A POST-FILTER ──────────────────
+// `arg_type` binds ce and `param_type_at` binds m, so without expr_call_candidate the
+// two share only `pos` — a domain of 0,1,2,3 — and the rule is a cross product of every
+// argument in the program against every parameter of every method at that position. The
+// type test then throws almost all of it away. Profiled on one project: 13s and 1.60M
+// tuples at 119K tuples/s, against 4.36M tuples at 16.4M/s for a healthy rule — two
+// orders of magnitude slower PER TUPLE, which is the signature of a bad join rather
+// than of volume.
+//
+// `arg_mismatch` below is the only consumer and already carries
+// expr_call_candidate(ce, m), so every pair this excludes was computed and discarded.
+// Semantics are unchanged; the work is not.
+arg_compatible_at(ce, m, pos) :- expr_call_candidate(ce, m),
+    arg_type(ce, pos, at),
+    param_type_at(m, pos, at).
+// SAME MERGED ENTITY, not same declaration. `Array` has eight declarations across the
+// standard library and `String` four; an argument resolved to one and a parameter
+// resolved to another are the SAME TYPE and were being scored as a mismatch, because
+// the test compared declaration hashes. This is the merging rule the schema states in
+// its first numbered note, applied where it actually bites.
+arg_compatible_at(ce, m, pos) :- expr_call_candidate(ce, m),
+    arg_type(ce, pos, at),
+    param_type_at(m, pos, pt),
+    same_type_entity(at, pt).
+same_type_entity(a, b) :- type_group(_, g, a), type_group(_, g, b).
+arg_compatible_at(ce, m, pos) :- expr_call_candidate(ce, m),
+    arg_type(ce, pos, at),
+    param_type_at(m, pos, pt),
+    type_subtype_star(at, pt).
+arg_compatible_at(ce, m, pos) :- expr_call_candidate(ce, m),
+    arg_type(ce, pos, at),
+    param_type_at(m, pos, pt),
+    type_satisfies(at, pt).
+arg_compatible_at(ce, m, pos) :- arg_is_target_typed(ce, pos),
+    expr_call_candidate(ce, m),
+    param_type_at(m, pos, _).
+arg_compatible_at(ce, m, pos) :- param_untestable(m, pos),
+    expr_call_candidate(ce, m),
+    arg_type(ce, pos, _).
+
+arg_mismatch(ce, m) :- expr_call_candidate(ce, m),
+    arg_type(ce, pos, _),
+    param_type_at(m, pos, _),
+    !arg_compatible_at(ce, m, pos).
+
+// ── A UNION ARGUMENT IS NOT ACCEPTED BY ONE OF ITS OWN MEMBERS ──────────────
+// `describe(t: ListT)` beside `describe(t: ListT | NamedT)`: an argument declared
+// `ListT | NamedT` is NOT assignable to `ListT`, so the narrower signature is not a
+// candidate at all. It was, and being declared first it took every such call.
+//
+// A union is N type_ref ROWS joined by type_ref_parent, not one row carrying a list
+// (projections/types.dl says so beside the relation), so membership is a structural
+// join and not a split of the printed name.
+//
+// PRUNE-ONLY AND DELIBERATELY NARROW: it fires only where the parameter is literally
+// one of the union's own members. A parameter that is a common SUPERTYPE of the members
+// is still accepted, because a union IS assignable to that and pruning it would lose a
+// real edge — the direction this file is least willing to trade.
+// GATED ON kind = UNION, and that gate is the whole rule. type_ref_parent yields the
+// children of ANY parameterised type, not only a union's members: without the gate,
+// `Readonly<Cell>` made `Cell` look like a member and the rule pruned `shape(Cell)`,
+// losing a real edge on 19-overload-gauntlet.
+arg_union_member(ce, pos, n) :- expr_child("client", ce, "ARGUMENT", pos, a),
+    expr_decl_ref(a, r),
+    type_ref(_, "UNION", _, _, _, _, _, r),
+    type_ref_parent(_, r, _, child),
+    type_ref(_, _, _, n, _, _, _, child),
+    n != "".
+
+arg_mismatch(ce, m) :- expr_call_candidate(ce, m),
+    arg_union_member(ce, pos, n),
+    param_decl(_, _, pos, n, m, _).
+
+// ── EXPLICIT TYPE ARGUMENTS EXCLUDE A NON-GENERIC SIGNATURE ─────────────────
+// `f.make<string>()` beside `make(): Item` and `make<T>(seed?: T[]): Item`. Passing a
+// type argument to a signature that declares no type parameters is an ERROR in
+// TypeScript, so the non-generic overload is not a candidate at all -- and being
+// declared first it took every such call. `new Map<K, V>()` and `new Set<T>()` are the
+// same shape and the reason this is worth a rule rather than a note.
+//
+// Both halves are stated outright in the IR: the call site carries its type arguments
+// (call_type_argument, from the METHOD_TYPE_ARGUMENT references) and a type parameter
+// carries ownerKind = METHOD with the method it belongs to.
+method_declares_type_param(m) :- type_param(_, _, _, "METHOD", m, _).
+
+arg_mismatch(ce, m) :- expr_call_candidate(ce, m),
+    call_type_argument(ce, _, _),
+    !method_declares_type_param(m).
+
+// ── `unknown` IS ASSIGNABLE ONLY TO `unknown` AND `any` ─────────────────────
+// The hard rule of the type system, and the reason `describe(x: unknown)` must reach
+// the `unknown` signature rather than the first one declared. Without it every
+// unknown-typed argument matched every signature vacuously.
+arg_mismatch(ce, m) :- expr_call_candidate(ce, m),
+    expr_child("client", ce, "ARGUMENT", pos, a),
+    expr_decl_ref(a, r),
+    type_ref(_, "PRIMITIVE", _, "unknown", _, _, _, r),
+    param_decl(_, _, pos, tn, m, _),
+    tn != "unknown",
+    tn != "any".
+
+// ── THE PRIMITIVE REGIME, compared by NAME ──────────────────────────────────
+// The rule above compares resolved TYPE HASHES, and a primitive only has one when its
+// global interface happens to be staged. `BigInt` is declared in lib.es2020.bigint.d.ts
+// and a project targeting an older lib does not have it — so on remeda,
+// `export function add(addend: bigint)` and `export function add(addend: number)` were
+// INDISTINGUISHABLE, the first won on declaration order, and `add(5)` resolved to the
+// bigint overload. 503 wrong targets, almost all of this shape.
+//
+// So primitives are compared the way Java's engine compares them: by name, off the
+// declaration, with no dependency on anything being staged. Only a DIRECT primitive
+// reference on both sides — a union containing the primitive never reaches this rule,
+// which is what keeps it prune-only.
+primitive_name("string").
+primitive_name("number").
+primitive_name("boolean").
+primitive_name("bigint").
+primitive_name("symbol").
+primitive_name("void").
+primitive_name("undefined").
+primitive_name("null").
+primitive_name("object").
+// `any`, `unknown` and `never` are deliberately absent: `any` accepts everything and
+// `never` accepts nothing, so neither carries a distinction worth pruning on.
+
+// A literal argument's primitive type.
+literal_primitive("STRING", "string").
+literal_primitive("TEMPLATE", "string").
+literal_primitive("NO_SUBSTITUTION_TEMPLATE", "string").
+literal_primitive("NUMBER", "number").
+literal_primitive("BIGINT", "bigint").
+literal_primitive("BOOLEAN", "boolean").
+literal_primitive("NULL", "null").
+literal_primitive("UNDEFINED", "undefined").
+
+arg_primitive(ce, pos, n) :- expr_child("client", ce, "ARGUMENT", pos, a),
+    expr_literal_type("client", lt, a),
+    literal_primitive(lt, n).
+
+// A TAGGED TEMPLATE'S ARGUMENTS ARE NOT WRITTEN AS ARGUMENTS. `otag`s${'a'}`` emits its
+// substitutions with edgeRole TEMPLATE_SPAN, and the clause above keys on ARGUMENT — so
+// the tagged form reached the applicability test with NO arguments at all and matched
+// every signature vacuously. With the rest-element clause below fixing the ordinary
+// call, this is the remaining half of #354.
+//
+// OFFSET BY ONE, which is the whole subtlety: parameter 0 is the synthesized
+// TemplateStringsArray, which is not an expression and has no span, so the first
+// substitution is argument 1. Comparing it against parameter 0 would test the
+// interpolated value against TemplateStringsArray and prune every signature.
+arg_primitive(ce, pos1, n) :- expr_child("client", ce, "TEMPLATE_SPAN", pos, a),
+    expr_literal_type("client", lt, a),
+    literal_primitive(lt, n),
+    pos1 = to_string(to_number(pos) + 1).
+// A UNARY expression over a literal — `add(-5)`. Measured on remeda: negative numeric
+// literals are how half the arithmetic tests are written, and treating them as
+// untyped left `add(-5)` picking the `bigint` overload over the `number` one.
+// The operator decides: `-`, `+` and `~` keep the operand's primitive, `!` is always
+// boolean, `typeof` is always string. Enumerated rather than assumed, because
+// `!5` is a boolean and inheriting the operand's type there would be wrong.
+unary_keeps_operand("-").
+unary_keeps_operand("+").
+unary_keeps_operand("~").
+unary_yields("!", "boolean").
+unary_yields("typeof", "string").
+unary_yields("void", "undefined").
+arg_primitive(ce, pos, n) :- expr_child("client", ce, "ARGUMENT", pos, a),
+    expr_kind("client", "UNARY_EXPRESSION", _, a),
+    expr_operator("client", op, a),
+    unary_keeps_operand(op),
+    expr_child("client", a, "UNARY_OPERAND", _, inner),
+    expr_literal_type("client", lt, inner),
+    literal_primitive(lt, n).
+arg_primitive(ce, pos, n) :- expr_child("client", ce, "ARGUMENT", pos, a),
+    expr_kind("client", "UNARY_EXPRESSION", _, a),
+    expr_operator("client", op, a),
+    unary_yields(op, n).
+
+// An argument whose DECLARATION is annotated with a bare primitive.
+arg_primitive(ce, pos, n) :- expr_child("client", ce, "ARGUMENT", pos, a),
+    expr_decl_ref(a, r),
+    type_ref(_, "PRIMITIVE", _, n, _, _, _, r),
+    primitive_name(n).
+
+// ── AN ARGUMENT THAT IS A CALL ─────────────────────────────────────────────
+// `tag(makeCount())`. Every clause above reaches a primitive through a LITERAL, a unary
+// over one, or a DECLARATION annotated with one; an argument that is a call is none of
+// those, so the primitive regime never fired and declaration order answered
+// `tag(boolean)`. method_return_primitive walks the same two routes the engine already
+// uses for a return type — the declared annotation, and where none is written the
+// expression the function returns — and is transitive so it carries out as far as the
+// chain actually goes.
+//
+// This feeds SPECIFICITY, not rejection. On its own, as extra pruning power, it moved 109
+// remeda sites from unresolved to confidently wrong with EXACT flat; a site with no
+// answer beats a site with a wrong one, so the evidence is used to RANK.
+method_return_primitive(m, n) :- method_return_ref(_, r, m),
+    type_ref(_, "PRIMITIVE", _, n, _, _, _, r),
+    primitive_name(n).
+method_return_primitive(m, n) :- method_returns_expr(m, e),
+    expr_literal_type("client", lt, e),
+    literal_primitive(lt, n).
+method_return_primitive(m, n) :- method_returns_expr(m, e),
+    expr_call_candidate(e, inner),
+    method_return_primitive(inner, n).
+
+arg_primitive(ce, pos, n) :- expr_child("client", ce, "ARGUMENT", pos, a),
+    expr_call_candidate(a, callee),
+    method_return_primitive(callee, n).
+
+param_primitive(m, pos, n) :- expr_call_candidate(_, m),
+    param_decl(_, _, pos, _, m, p),
+    param_type_ref(_, r, p),
+    type_ref(_, "PRIMITIVE", _, n, _, _, _, r),
+    primitive_name(n).
+
+// A REST parameter's primitive is its ELEMENT's. `...values: number[]` declares one
+// parameter whose annotation is an ARRAY, so the clause above sees no primitive and the
+// position fell through to the blanket rest stand-down — leaving
+// `...values: number[]` and `...values: string[]` INDISTINGUISHABLE, so an overloaded
+// rest signature always answered with declaration 0. A committed wrong target at exactly
+// the sites the overload exists to disambiguate (#354).
+//
+// This is NOT a tagged-template defect, which is where it was noticed. The ordinary call
+// `otag(s, "a")` picks declaration 0 too; the tagged form is one of its two spellings.
+//
+// The primitive regime is the right place for it and the safe one. It compares by NAME
+// off the declaration, it never touches param_untestable, and it reaches arg_mismatch
+// through primitive_compatible rather than through the hash comparison — so
+// `...args: any[]` (any is deliberately not a primitive_name) and `...items: T[]` (a type
+// variable is not a PRIMITIVE ref) are both untouched, and the 415-site Array.push
+// stand-down that the type-variable guard exists for is not disturbed.
+param_primitive(m, pos, n) :- expr_call_candidate(_, m),
+    param_decl(_, _, pos, _, m, p),
+    param_type_ref(_, r, p),
+    type_ref(rp, k, _, _, _, _, _, r),
+    ref_kind_is_array(k),
+    type_ref_parent(rp, r, _, child),
+    type_ref(_, "PRIMITIVE", _, n, _, _, _, child),
+    primitive_name(n).
+
+// Identical names only. No widening: TypeScript has none — `number` and `bigint` do
+// not convert, and a `string` parameter never accepts a number. `null` and
+// `undefined` are accepted by any primitive parameter, because a non-strict project
+// permits it and pruning must never be stricter than the compiler.
+primitive_compatible(n, n) :- primitive_name(n).
+primitive_compatible("null", n) :- primitive_name(n).
+primitive_compatible("undefined", n) :- primitive_name(n).
+
+arg_mismatch(ce, m) :- expr_call_candidate(ce, m),
+    arg_primitive(ce, pos, a),
+    param_primitive(m, pos, b),
+    !primitive_compatible(a, b).
+
+// ── A CALLBACK ARGUMENT ONLY FITS A CALLABLE PARAMETER ─────────────────────
+// `arg_is_target_typed` makes an arrow compatible with ANY parameter, which is right
+// as far as it goes — an arrow is not a nominal subtype of anything — and far too
+// weak. `it("x", () => {})` against
+//   <C>(name, fn?: TestFunction, options?: number): void
+//   <C>(name, options?: TestCollectorOptions, fn?: TestFunction): void
+// leaves both applicable, and the compiler picks the first because an arrow is not a
+// `TestCollectorOptions`. That is a decidable question: a function value fits a
+// parameter only if the parameter's type is CALLABLE.
+//
+// PRUNE-ONLY, so it fires only where the parameter's type is known AND known to have
+// members: an unresolved annotation, a type variable, `any` and `unknown` all leave
+// param_type empty and the rule stands down. `Object` and `Function` are excluded by
+// name because a function IS an object and IS a Function, and pruning there would
+// reject an assignment the compiler accepts.
+param_call_signature(m, pos) :- param_decl(_, _, pos, _, m, p),
+    param_type(p, _, t),
+    call_signature_in_scope(t, _).
+param_call_signature(m, pos) :- param_decl(_, _, pos, _, m, p),
+    param_shape_target(p, s),
+    call_signature_in_scope(s, _).
+param_is_universal(m, pos) :- param_decl(_, _, pos, _, m, p),
+    param_type(p, _, t),
+    type_decl(_, n, _, _, _, _, t),
+    universal_param_type_name(n).
+universal_param_type_name("Object").
+universal_param_type_name("Function").
+universal_param_type_name("CallableFunction").
+universal_param_type_name("NewableFunction").
+
+arg_is_function_value(ce, pos) :- expr_child("client", ce, "ARGUMENT", pos, a),
+    expr_kind("client", k, _, a),
+    expr_kind_is_function_value(k).
+expr_kind_is_function_value("ARROW_FUNCTION").
+expr_kind_is_function_value("FUNCTION_EXPRESSION").
+
+arg_mismatch(ce, m) :- expr_call_candidate(ce, m),
+    arg_is_function_value(ce, pos),
+    param_type_at(m, pos, _),
+    !param_call_signature(m, pos),
+    !param_is_universal(m, pos),
+    // A REST position for the same reason as above: the annotation on
+    // `f(...handlers: Handler[])` is the ARRAY, which has no call signature, so an arrow
+    // argument would be rejected against the one parameter that accepts it.
+    !param_rest_at(m, pos).
+
+// ── expr_pruned(CallExpr, Callee) — arity-matched and not contradicted ──────
+expr_pruned(ce, m) :- arity_match(ce, m),
+    !arg_mismatch(ce, m).
+call_has_pruned(ce) :- expr_pruned(ce, _).
+
+// ============================================================================
+// FIRST-APPLICABLE SELECTION  (the TypeScript rule)
+// ============================================================================
+
+// Within ONE overload set — the same declarationGroupKey — the compiler takes the
+// first declaration that applies. Candidates in DIFFERENT groups are not overloads
+// of one another: they are the dispatch set, all reachable, none beating another.
+// Restricting the comparison to a shared group is therefore both correct and the
+// bound that keeps this from being quadratic in a wide dispatch fan.
+overload_index_of(m, n) :- method_signature_role("client", _, oi, _, m), oi != "", n = to_number(oi).
+overload_index_of(m, n) :- method_signature_role("lib", _, oi, _, m), oi != "", n = to_number(oi).
+overload_index_of(m, 0) :- method_signature_role("client", _, "", _, m).
+overload_index_of(m, 0) :- method_signature_role("lib", _, "", _, m).
+
+method_group_of(m, g) :- method_group("client", g, m).
+method_group_of(m, g) :- method_group("lib", g, m).
+
+// ── AMBIENT OVERLOAD SETS ARE UNGROUPED, AND STAY THAT WAY FOR NOW ─────────
+// An overload set declared in a .d.ts arrives with its overloadIndex CORRECT and its
+// declarationGroupKey EMPTY — 819 same-name sets sharing one owning type in the staged
+// standard library, 5 of them grouped. `Array.concat` is two rows at lib.es5:1208 and
+// :1213, roles AMBIENT, indices 0 and 1, group "". Every rule here keys the set on that
+// group, so nothing can beat anything and each library overload set is returned whole:
+// 710 of nest's sites and 1,557 of its false-positive edges.
+//
+// Synthesising the group from OWNER and NAME — the substitution the IMPLEMENTATION
+// clauses below already make for client class methods — was implemented and MEASURED,
+// and is deliberately not kept:
+//
+//   EXACT 14,539 -> 14,851   SUPER 1,542 -> 1,047   FP 3,338 -> 2,626
+//   WRONG   591  ->    774   exact 0.688 -> 0.703   edgeP 0.828 -> 0.858
+//
+// Precision up, and 183 more confidently wrong answers. They are not spread thin: they
+// land on `Array.filter` (a type-guard overload the applicability test cannot separate
+// from its plain sibling), `Array.reduce`, and the `Map` constructor — the same
+// generic-first shape that fails everywhere else. Turning grouping on hands declaration
+// order authority over the whole ambient surface while the test that is supposed to
+// justify it still cannot discriminate, which is the trade this file's own header
+// warns against. The typeflow fixture pins it: grouping takes it from WRONG 0 to 2.
+//
+// The prerequisite is applicability that separates these sets, not the group key.
+// Scoping the group to one module was also tried: WRONG 128 -> 113 on nest and
+// false-positive edges 1,169 -> 1,364 — fifteen answers for 195 edges.
+
+// An IMPLEMENTATION row is not a callable overload: when a function has overload
+// signatures, the implementation signature is deliberately invisible to callers. So
+// it never competes for the first-applicable slot — it is re-pointed to, later, by
+// overload-sets.dl, which is a different question from which signature was selected.
+overload_selectable(ce, m) :- expr_pruned(ce, m),
+    method_signature_role_of(m, r),
+    role_is_selectable(r).
+method_signature_role_of(m, r) :- method_signature_role("client", r, _, _, m).
+method_signature_role_of(m, r) :- method_signature_role("lib", r, _, _, m).
+role_is_selectable("SOLE").
+role_is_selectable("OVERLOAD_SIGNATURE").
+role_is_selectable("AMBIENT").
+// A group with NO overload signatures has only its implementation, which is then the
+// selectable one.
+overload_selectable(ce, m) :- expr_pruned(ce, m),
+    method_signature_role_of(m, "IMPLEMENTATION"),
+    method_group_of(m, g),
+    !group_has_overload_signature(g).
+// AN IMPLEMENTATION WITH NO GROUP AT ALL. Every arrow function the parser emits
+// carries signatureRole = IMPLEMENTATION and an EMPTY declarationGroupKey — 928 of
+// them on this repository's own source — so the clause above cannot fire for any of
+// them and `const fail = (m) => …; fail(x)` resolved to NOTHING despite the binder
+// naming the arrow directly. `fail` alone was 93 sites.
+//
+// …EXCEPT where the OWNER already declares overload signatures of that name. A CLASS
+// METHOD's overloads carry no group either — measured on the overload fixture, all
+// five `add` declarations have an empty declarationGroupKey — so without this guard
+// the implementation is selectable alongside the signature the compiler chose, and
+// every overloaded method call is multi_inferred by exactly one spurious target.
+// The group is missing; the owner and the name are not, and together they identify
+// the overload set just as well.
+overload_selectable(ce, m) :- expr_pruned(ce, m),
+    method_signature_role_of(m, "IMPLEMENTATION"),
+    !method_group_of(m, _),
+    method_owner(_, ow, m),
+    method_decl(_, _, en, _, m),
+    !owner_name_has_overload_signature(ow, en).
+overload_selectable(ce, m) :- expr_pruned(ce, m),
+    method_signature_role_of(m, "IMPLEMENTATION"),
+    !method_group_of(m, _),
+    !method_owner(_, _, m).
+owner_name_has_overload_signature(ow, en) :- method_owner(_, ow, m),
+    ow != "",
+    method_decl(_, _, en, _, m),
+    method_signature_role_of(m, "OVERLOAD_SIGNATURE").
+// And a declaration with no signatureRole at all, for the same reason: an absence of
+// evidence must not remove a candidate the arity test already accepted.
+overload_selectable(ce, m) :- expr_pruned(ce, m),
+    !method_signature_role_of(m, _).
+group_has_overload_signature(g) :- method_group_of(m, g),
+    method_signature_role_of(m, "OVERLOAD_SIGNATURE").
+
+// Same cross-product shape as arg_compatible_at above, same fix: 11s and 1.77M tuples
+// profiled. Guarded on expr_call_candidate rather than the tighter overload_selectable
+// because the latter sits downstream of expr_pruned, which reaches back here through
+// overload_beaten — a negation cycle Souffle cannot stratify. expr_call_candidate is the
+// candidate generator, upstream of all of it, and the two specificity rules that consume
+// this relation only ever ask about pairs that are already candidates.
+arg_matches_concretely(ce, m, pos) :- expr_call_candidate(ce, m),
+    arg_primitive(ce, pos, a),
+    param_primitive(m, pos, b),
+    primitive_compatible(a, b).
+arg_matches_concretely(ce, m, pos) :- expr_call_candidate(ce, m),
+    arg_type(ce, pos, at),
+    param_type_at(m, pos, at).
+arg_matches_concretely(ce, m, pos) :- expr_call_candidate(ce, m),
+    arg_type(ce, pos, at),
+    param_type_at(m, pos, pt),
+    same_type_entity(at, pt).
+arg_matches_concretely(ce, m, pos) :- expr_call_candidate(ce, m),
+    arg_type(ce, pos, at),
+    param_type_at(m, pos, pt),
+    type_subtype_star(at, pt).
+
+// A STRING-LITERAL parameter type, matched by the literal actually written.
+// `on(event: "close", l)` beside `on(event: string, l)` is how an event-emitter
+// declares one signature per event, and TypeScript tries these SPECIALIZED signatures
+// FIRST -- including when the literal one is declared second, which is why an ordering
+// tie-break cannot substitute for this. Without it the two signatures are
+// indistinguishable at position 0, declaration order takes the `string` one, and every
+// literal call commits to the fallback.
+//
+// This is EVIDENCE, not a tie-break, which is the discipline the note at the bottom of
+// this file states: the literal signature now matches concretely where the `string` one
+// does not, so specificity decides it and declaration order is never consulted.
+//
+// The literal's text is on the PARAMETER row -- `parameterTypeName`, already projected
+// as param_decl's 4th argument -- and NOT on its type_ref: a LITERAL type_ref carries an
+// EMPTY typeName, so the param_type_ref route the primitive rules use cannot tell
+// `"close"` from `"other"`. The parameter row spells it with its quotes, so the
+// comparison re-quotes the expression's value rather than stripping the parameter's.
+arg_matches_concretely(ce, m, pos) :- expr_call_candidate(ce, m),
+    expr_child("client", ce, "ARGUMENT", pos, a),
+    expr_literal_type("client", "STRING", a),
+    expr_literal_value("client", v, a),
+    param_decl(_, _, pos, tn, m, _),
+    tn = cat("\"", cat(v, "\"")).
+
+// BETTER SOMEWHERE AND WORSE NOWHERE — both halves, which is the discipline
+// java/overload.dl states as `win_strictly_better` AND `!win_worse_anywhere`. Firing on a
+// single position alone is not domination: a candidate matching at argument 0 would beat
+// the right one that matches at argument 1, and measured on remeda that turned 143
+// previously-EXACT answers wrong. A candidate must match everywhere its rival does, and
+// somewhere more, before it may displace it.
+specificity_worse_somewhere(ce, winner, loser) :- overload_selectable(ce, winner),
+    overload_selectable(ce, loser),
+    arg_matches_concretely(ce, loser, p2),
+    !arg_matches_concretely(ce, winner, p2).
+
+specificity_beaten(ce, loser) :- overload_selectable(ce, winner),
+    overload_selectable(ce, loser),
+    winner != loser,
+    method_group_of(winner, g),
+    method_group_of(loser, g),
+    arg_matches_concretely(ce, winner, pos),
+    !arg_matches_concretely(ce, loser, pos),
+    !specificity_worse_somewhere(ce, winner, loser).
+
+// A SPECIALIZED SIGNATURE BEATS A GENERAL ONE AT THE SAME POSITION, which is a
+// specificity fact rather than an ordering one. Both `on(event: "close")` and
+// `on(event: string)` match a `"close"` argument CONCRETELY -- the literal by the rule
+// above, the primitive because the argument's type resolves to `string` -- so the clause
+// above cannot separate them and declaration order decides. That is wrong in the
+// direction TypeScript is explicit about: specialized (literal-typed) signatures are
+// tried BEFORE all others, whatever order they are declared in. Measured on the
+// acceptance case, `B.on` declares the literal SECOND and the engine committed to the
+// `string` fallback.
+//
+// Guarded by the same "worse nowhere" condition as every other specificity rule, so a
+// literal match at one position cannot drag in a signature that loses at another.
+param_is_string_literal(m, pos) :- param_decl(_, _, pos, tn, m, _),
+    strlen(tn) > 1,
+    substr(tn, 0, 1) = "\"".
+
+specificity_beaten(ce, loser) :- overload_selectable(ce, winner),
+    overload_selectable(ce, loser),
+    winner != loser,
+    method_group_of(winner, g),
+    method_group_of(loser, g),
+    arg_matches_concretely(ce, winner, pos),
+    param_is_string_literal(winner, pos),
+    !param_is_string_literal(loser, pos),
+    !specificity_worse_somewhere(ce, winner, loser).
+overload_beaten(ce, loser) :- specificity_beaten(ce, loser).
+
+// The winner within each group: lowest declaration index among the applicable.
+// SPECIFICITY FIRST, THEN ORDER AMONG WHAT SURVIVES IT. The `!specificity_beaten` guard
+// is the whole point: without it the two rules fire independently and eliminate each
+// other. Measured on `widen(s)` with `s: string` — specificity beat the constrained
+// `widen<T extends Row>` at index 0, declaration order beat the concrete `widen(string)`
+// at index 1 with that same index-0 candidate, both lost, and the site emitted NOTHING
+// where it had previously emitted a wrong answer. A candidate ruled out on evidence must
+// not go on to win on position.
+overload_beaten(ce, m) :- overload_selectable(ce, m),
+    method_group_of(m, g),
+    overload_index_of(m, i),
+    overload_selectable(ce, m2),
+    m2 != m,
+    method_group_of(m2, g),
+    overload_index_of(m2, j),
+    j < i,
+    !specificity_beaten(ce, m2).
+
+// ── WHY THERE IS NO "FIRST APPLICABLE" TIE-BREAK ───────────────────────────
+// TypeScript's own rule is that the first APPLICABLE overload wins, and implementing
+// it as "lowest declaration line among the survivors" was tried and REMOVED. Measured:
+// it bought +335 EXACT on zustand and cost +506 WRONG on the Parser repository; scoped
+// to nameless call signatures only, +65 EXACT and +207 WRONG. Both are bad trades,
+// because ordering on top of a weak applicability test converts an honest two-way set
+// into a confident wrong answer — and `target in engine set`, the number a
+// reachability consumer relies on, went DOWN (0.896 -> 0.881) while EXACT went up.
+//
+// The fix for a tie is a STRONGER APPLICABILITY TEST, not a tie-break. The
+// callable-parameter rule above is one instalment of that; comparing generic
+// instantiations would be the next. Until the test can separate two signatures, the
+// honest answer is both.
+
+// ── expr_resolves_to_method(CallExpr, Callee) — the answer ──────────────────
+expr_resolves_to_method(ce, m) :- overload_selectable(ce, m),
+    !overload_beaten(ce, m).
+
+// The same safeguard one level up: if NOTHING was selectable but something survived
+// pruning, take the pruned set. Selectability is a model of TypeScript's overload
+// rules, and a model that rejects every candidate is this engine's error rather than
+// the program's.
+call_has_selectable(ce) :- overload_selectable(ce, _).
+expr_resolves_to_method(ce, m) :- expr_pruned(ce, m),
+    !call_has_selectable(ce).
+
+// DON'T-EMPTY SAFEGUARD. Pruning is a weak nominal test over a structural language,
+// so where it removes every candidate the arity-matched set is restored rather than
+// the real callee lost. The residual imprecision is extra candidates, never a
+// missing one — which is the direction a call graph can survive being wrong in.
+expr_resolves_to_method(ce, m) :- arity_match(ce, m),
+    !call_has_pruned(ce).
+// And where even arity matched nothing but a candidate exists, keep the candidate:
+// an arity model that disagrees with a program the compiler accepted is this
+// engine's error, not the program's.
+call_has_arity_match(ce) :- arity_match(ce, _).
+expr_resolves_to_method(ce, m) :- expr_call_candidate(ce, m),
+    !call_has_arity_match(ce).
+
+// ── arity_rejected(CallExpr, Callee, ArgCount, Min, Max) ────────────────────
+// EVERY SUPPRESSION MUST BE COUNTABLE. This is what arity matching dropped, with the
+// numbers that dropped it, so a recall regression can be traced to the rule that
+// caused it instead of being argued about.
+arity_rejected(ce, m, n, lo, hi) :- expr_call_candidate(ce, m),
+    !arity_match(ce, m),
+    call_expr_argc(ce, n),
+    method_min_arity(m, lo),
+    method_max_arity(m, hi).
+// ── type_rejected(CallExpr, Callee) — what argument typing dropped ──────────
+type_rejected(ce, m) :- arity_match(ce, m),
+    arg_mismatch(ce, m),
+    call_has_pruned(ce).

@@ -1,0 +1,13 @@
+bus.js:10:13 CONSTRUCTOR_CALL Bus  SYNTHESIZED_OK  
+bus.js:14:1 METHOD_CALL start  EXACT  bus.js:4:3
+bus.js:15:1 METHOD_CALL stop  EXACT  bus.js:5:3
+bus.js:16:15 CONSTRUCTOR_CALL Bus  SYNTHESIZED_OK  
+bus.js:18:25 FUNCTION_CALL setTimeout  LIB_AMBIENT_OK  
+bus.js:18:45 METHOD_CALL resolve  LIB_AMBIENT_OK  
+bus.js:18:45 METHOD_CALL then  LIB_AMBIENT_OK  
+bus.js:18:79 FUNCTION_CALL onAnything  EXACT  bus.js:9:1
+bus.js:19:1 FUNCTION_CALL schedule  EXACT  bus.js:18:1
+bus.js:19:16 METHOD_CALL start  EXACT  bus.js:4:3
+bus.js:20:1 METHOD_CALL forEach  LIB_AMBIENT_OK  
+bus.js:20:29 METHOD_CALL stop  EXACT  bus.js:5:3
+# defects: 0

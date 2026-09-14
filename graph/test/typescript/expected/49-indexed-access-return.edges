@@ -1,0 +1,6 @@
+ambiguous_unknown	METHOD_CALL	main#useGeneric() @L23 -> -
+known_edge	FUNCTION_CALL	main#use() @L18 -> main#getDog()
+known_edge	FUNCTION_CALL	main#use() @L19 -> main#getDogPlain()
+known_edge	FUNCTION_CALL	main#useGeneric() @L23 -> main#pick(T)
+known_edge	METHOD_CALL	main#use() @L18 -> Dog#fetch()
+known_edge	METHOD_CALL	main#use() @L19 -> Dog#fetch()

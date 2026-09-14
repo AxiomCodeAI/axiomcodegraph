@@ -1,0 +1,160 @@
+file	line	col	endLine	endCol	callKind	callee	oracleKind	bucket	engineClass	targets
+lib/errors.js	3	34	3	48	SUPER_CALL	super	bodiless	LIB_MISSED	ambiguous_unknown	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2022.error.d.ts:30:5 | 
+lib/errors.js	6	56	6	87	SUPER_CALL	super	implementation	EXACT	known_edge	lib/errors.js:3:3 | lib/errors.js:3:3
+lib/errors.js	7	57	7	72	SUPER_CALL	super	implementation	EXACT	known_edge	lib/errors.js:3:3 | lib/errors.js:3:3
+middleware/index.js	3	47	3	82	METHOD_CALL	slice	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:484:5 | 
+middleware/index.js	3	47	3	73	METHOD_CALL	toString	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:564:5 | 
+middleware/index.js	3	47	3	60	METHOD_CALL	random	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:746:5 | 
+middleware/index.js	3	84	3	121	METHOD_CALL	setHeader	any	UNDECIDED	ambiguous_unknown	
+middleware/index.js	3	123	3	129	FUNCTION_CALL	next	any	UNDECIDED	boundary_lib	<lib>::
+middleware/index.js	6	19	6	42	METHOD_CALL	bigint	any	UNDECIDED	ambient_terminal	
+middleware/index.js	7	5	7	87	METHOD_CALL	on	any	UNDECIDED	ambiguous_unknown	
+middleware/index.js	7	44	7	83	FUNCTION_CALL	Number	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:590:5 | 
+middleware/index.js	7	51	7	74	METHOD_CALL	bigint	any	UNDECIDED	ambient_terminal	
+middleware/index.js	8	5	8	11	FUNCTION_CALL	next	any	UNDECIDED	boundary_lib	<lib>::
+middleware/index.js	11	54	11	67	FUNCTION_CALL	Number	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:590:5 | 
+middleware/index.js	11	74	11	94	METHOD_CALL	isInteger	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.core.d.ts:233:5 | 
+middleware/index.js	11	103	11	137	FUNCTION_CALL	next	any	UNDECIDED	boundary_lib	<lib>::
+middleware/index.js	11	108	11	136	CONSTRUCTOR_CALL	HttpError	implementation	EXACT	known_edge	lib/errors.js:3:3 | lib/errors.js:3:3
+middleware/index.js	11	156	11	162	FUNCTION_CALL	next	any	UNDECIDED	boundary_lib	<lib>::
+middleware/index.js	14	3	14	108	METHOD_CALL	json	any	UNDECIDED	boundary_lib	<lib>::
+middleware/index.js	14	3	14	21	METHOD_CALL	status	any	UNDECIDED	boundary_lib	<lib>::
+middleware/index.js	14	62	14	74	METHOD_CALL	toJSON	any	UNDECIDED	multi_inferred	lib/errors.js:4:3
+middleware/index.js	16	42	16	89	METHOD_CALL	catch	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:1564:5 | 
+middleware/index.js	16	42	16	77	METHOD_CALL	resolve	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.promise.d.ts:72:5 | 
+middleware/index.js	16	58	16	76	FUNCTION_CALL	fn	any	UNDECIDED	known_edge	routes/todos.js:10:33
+lib/store.js	5	19	5	26	SUPER_CALL	super	any	UNDECIDED	ambiguous_unknown	
+lib/store.js	5	41	5	50	CONSTRUCTOR_CALL	Map	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.iterable.d.ts:182:5 | 
+lib/store.js	6	18	6	49	METHOD_CALL	from	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.iterable.d.ts:101:5 | 
+lib/store.js	6	29	6	48	METHOD_CALL	values	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.iterable.d.ts:158:5 | 
+lib/store.js	7	20	7	38	METHOD_CALL	get	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.collection.d.ts:33:5 | 
+lib/store.js	8	31	8	70	METHOD_CALL	assign	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.core.d.ts:286:5 | 
+lib/store.js	8	72	8	101	METHOD_CALL	set	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.collection.d.ts:41:5 | 
+lib/store.js	8	103	8	130	METHOD_CALL	emit	any	UNDECIDED	ambient_terminal	
+lib/store.js	9	35	9	47	METHOD_CALL	get	implementation	EXACT	known_edge	lib/store.js:7:3 | lib/store.js:7:3
+lib/store.js	9	85	9	108	METHOD_CALL	merge	any	UNDECIDED	ambiguous_unknown	
+lib/store.js	9	110	9	134	METHOD_CALL	set	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.collection.d.ts:41:5 | 
+lib/store.js	9	136	9	162	METHOD_CALL	emit	any	UNDECIDED	ambient_terminal	
+lib/store.js	10	27	10	48	METHOD_CALL	delete	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.collection.d.ts:24:5 | 
+lib/store.js	10	58	10	82	METHOD_CALL	emit	any	UNDECIDED	ambient_terminal	
+lib/store.js	11	23	11	46	METHOD_CALL	filter	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:1476:5 | 
+lib/store.js	11	23	11	33	METHOD_CALL	all	implementation	EXACT	known_edge	lib/store.js:6:3 | lib/store.js:6:3
+lib/store.js	13	18	13	29	CONSTRUCTOR_CALL	Store	implementation	EXACT	known_edge	lib/store.js:5:3 | lib/store.js:5:3
+services/audit.js	2	15	2	48	FUNCTION_CALL		any	UNDECIDED	boundary_lib	<lib>::
+services/audit.js	5	33	5	86	METHOD_CALL	push	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:1347:5 | 
+services/audit.js	5	73	5	83	METHOD_CALL	now	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:958:5 | 
+services/audit.js	5	88	5	119	FUNCTION_CALL	debug	any	UNDECIDED	boundary_lib	<lib>::
+services/audit.js	6	27	6	96	CONSTRUCTOR_CALL	Promise	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.promise.d.ts:31:5 | 
+services/audit.js	6	52	6	95	FUNCTION_CALL	setImmediate	any	UNDECIDED	ambient_terminal	
+services/audit.js	6	71	6	94	FUNCTION_CALL	resolve	bodiless	LIB_MISSED	ambiguous_unknown	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.promise.d.ts:31:33 | 
+services/audit.js	7	29	7	44	METHOD_CALL	slice	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:1384:5 | 
+services/audit.js	8	1	8	57	METHOD_CALL	on	any	UNDECIDED	ambient_terminal	
+services/audit.js	8	32	8	56	FUNCTION_CALL	record	implementation	EXACT	known_edge	services/audit.js:5:1 | services/audit.js:5:1
+services/audit.js	9	1	9	75	METHOD_CALL	on	any	UNDECIDED	ambient_terminal	
+services/audit.js	9	46	9	71	FUNCTION_CALL	record	implementation	EXACT	known_edge	services/audit.js:5:1 | services/audit.js:5:1
+services/todos.js	6	51	6	68	METHOD_CALL	trim	any	UNDECIDED	ambiguous_unknown	
+services/todos.js	6	76	6	108	CONSTRUCTOR_CALL	BadRequest	implementation	EXACT	known_edge	lib/errors.js:7:38 | lib/errors.js:7:38
+services/todos.js	7	19	7	36	METHOD_CALL	trim	any	UNDECIDED	ambiguous_unknown	
+services/todos.js	7	44	7	62	FUNCTION_CALL	Boolean	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:553:5 | 
+services/todos.js	9	52	9	78	METHOD_CALL	find	implementation	EXACT	known_edge	lib/store.js:11:3 | lib/store.js:11:3
+services/todos.js	9	81	9	92	METHOD_CALL	all	implementation	EXACT	known_edge	lib/store.js:6:3 | lib/store.js:6:3
+services/todos.js	10	38	10	66	METHOD_CALL	insert	implementation	EXACT	known_edge	lib/store.js:8:3 | lib/store.js:8:3
+services/todos.js	10	51	10	65	FUNCTION_CALL	validate	implementation	EXACT	known_edge	services/todos.js:5:1 | services/todos.js:5:1
+services/todos.js	10	68	10	96	METHOD_CALL	record	implementation	EXACT	known_edge	services/audit.js:5:1 | services/audit.js:5:1
+services/todos.js	11	34	11	47	METHOD_CALL	get	implementation	EXACT	known_edge	lib/store.js:7:3 | lib/store.js:7:3
+services/todos.js	11	66	11	92	CONSTRUCTOR_CALL	NotFound	implementation	EXACT	known_edge	lib/errors.js:6:36 | lib/errors.js:6:36
+services/todos.js	12	42	12	50	FUNCTION_CALL	read	implementation	EXACT	known_edge	services/todos.js:11:1 | services/todos.js:11:1
+services/todos.js	12	58	12	71	METHOD_CALL	flush	implementation	EXACT	known_edge	services/audit.js:6:1 | services/audit.js:6:1
+services/todos.js	12	80	12	118	METHOD_CALL	update	implementation	EXACT	known_edge	lib/store.js:9:3 | lib/store.js:9:3
+services/todos.js	13	24	13	32	FUNCTION_CALL	read	implementation	EXACT	known_edge	services/todos.js:11:1 | services/todos.js:11:1
+services/todos.js	13	41	13	57	METHOD_CALL	remove	implementation	EXACT	known_edge	lib/store.js:10:3 | lib/store.js:10:3
+routes/todos.js	5	16	5	32	METHOD_CALL	Router	any	UNDECIDED	boundary_lib	<lib>::
+routes/todos.js	6	1	6	28	METHOD_CALL	param	any	UNDECIDED	boundary_lib	<lib>::
+routes/todos.js	7	1	7	75	METHOD_CALL	get	any	UNDECIDED	boundary_lib	<lib>::
+routes/todos.js	7	33	7	71	METHOD_CALL	json	any	UNDECIDED	boundary_lib	<lib>::
+routes/todos.js	7	42	7	70	METHOD_CALL	list	implementation	EXACT	known_edge	services/todos.js:9:1 | services/todos.js:9:1
+routes/todos.js	8	1	8	82	METHOD_CALL	post	any	UNDECIDED	boundary_lib	<lib>::
+routes/todos.js	8	34	8	78	METHOD_CALL	json	any	UNDECIDED	boundary_lib	<lib>::
+routes/todos.js	8	34	8	49	METHOD_CALL	status	any	UNDECIDED	boundary_lib	<lib>::
+routes/todos.js	8	55	8	77	METHOD_CALL	create	implementation	EXACT	known_edge	services/todos.js:10:1 | services/todos.js:10:1
+routes/todos.js	9	1	9	84	METHOD_CALL	get	any	UNDECIDED	boundary_lib	<lib>::
+routes/todos.js	9	48	9	80	METHOD_CALL	json	any	UNDECIDED	boundary_lib	<lib>::
+routes/todos.js	9	57	9	79	METHOD_CALL	read	implementation	EXACT	known_edge	services/todos.js:11:1 | services/todos.js:11:1
+routes/todos.js	10	1	10	100	METHOD_CALL	post	any	UNDECIDED	boundary_lib	<lib>::
+routes/todos.js	10	28	10	99	FUNCTION_CALL	wrap	implementation	EXACT	known_edge	middleware/index.js:16:14 | middleware/index.js:16:14
+routes/todos.js	10	55	10	95	METHOD_CALL	json	any	UNDECIDED	boundary_lib	<lib>::
+routes/todos.js	10	70	10	94	METHOD_CALL	toggle	implementation	EXACT	known_edge	services/todos.js:12:1 | services/todos.js:12:1
+routes/todos.js	11	1	11	91	METHOD_CALL	delete	any	UNDECIDED	boundary_lib	<lib>::
+routes/todos.js	11	39	11	64	METHOD_CALL	destroy	implementation	EXACT	known_edge	services/todos.js:13:1 | services/todos.js:13:1
+routes/todos.js	11	66	11	87	METHOD_CALL	end	any	UNDECIDED	ambiguous_unknown	
+routes/todos.js	11	66	11	81	METHOD_CALL	status	any	UNDECIDED	boundary_lib	<lib>::
+routes/index.js	4	16	4	32	METHOD_CALL	Router	any	UNDECIDED	boundary_lib	<lib>::
+routes/index.js	5	1	5	72	METHOD_CALL	get	any	UNDECIDED	boundary_lib	<lib>::
+routes/index.js	5	37	5	71	METHOD_CALL	json	any	UNDECIDED	boundary_lib	<lib>::
+routes/index.js	6	1	6	62	METHOD_CALL	get	any	UNDECIDED	boundary_lib	<lib>::
+routes/index.js	6	36	6	61	METHOD_CALL	json	any	UNDECIDED	boundary_lib	<lib>::
+routes/index.js	6	45	6	60	METHOD_CALL	history	implementation	EXACT	known_edge	services/audit.js:7:1 | services/audit.js:7:1
+routes/index.js	7	1	7	41	METHOD_CALL	use	any	UNDECIDED	boundary_lib	<lib>::
+app.js	6	15	6	24	FUNCTION_CALL	express	any	UNDECIDED	boundary_lib	<lib>::
+app.js	7	3	7	26	METHOD_CALL	use	any	UNDECIDED	boundary_lib	<lib>::
+app.js	7	11	7	25	METHOD_CALL	json	any	UNDECIDED	boundary_lib	<lib>::
+app.js	8	3	8	21	METHOD_CALL	use	any	UNDECIDED	boundary_lib	<lib>::
+app.js	9	3	9	20	METHOD_CALL	use	any	UNDECIDED	boundary_lib	<lib>::
+app.js	9	11	9	19	FUNCTION_CALL	timing	implementation	EXACT	known_edge	middleware/index.js:4:1 | middleware/index.js:4:1
+app.js	10	3	10	26	METHOD_CALL	use	any	UNDECIDED	boundary_lib	<lib>::
+app.js	11	3	11	74	METHOD_CALL	use	any	UNDECIDED	boundary_lib	<lib>::
+app.js	11	25	11	73	METHOD_CALL	json	any	UNDECIDED	boundary_lib	<lib>::
+app.js	11	25	11	40	METHOD_CALL	status	any	UNDECIDED	boundary_lib	<lib>::
+app.js	12	3	12	24	METHOD_CALL	use	any	UNDECIDED	boundary_lib	<lib>::
+server.js	3	40	3	51	FUNCTION_CALL	createApp	implementation	EXACT	known_edge	app.js:5:1 | app.js:5:1
+server.js	3	60	3	97	METHOD_CALL	listen	any	UNDECIDED	boundary_lib	<lib>::
+server.js	3	89	3	96	FUNCTION_CALL	cb	any	UNDECIDED	multi_inferred	exercise.js:15:27;server.js:4:42
+server.js	4	30	4	73	FUNCTION_CALL	start	implementation	EXACT	known_edge	server.js:3:1 | server.js:3:1
+server.js	4	48	4	72	METHOD_CALL	log	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.dom.d.ts:37915:5 | 
+exercise.js	7	10	12	5	CONSTRUCTOR_CALL	Promise	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.promise.d.ts:31:5 | 
+exercise.js	8	25	8	45	METHOD_CALL	stringify	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:1171:5 | 
+exercise.js	9	17	10	141	METHOD_CALL	request	any	UNDECIDED	ambient_terminal	
+exercise.js	9	124	9	147	METHOD_CALL	byteLength	any	UNDECIDED	ambient_terminal	
+exercise.js	10	32	10	68	METHOD_CALL	on	any	UNDECIDED	ambiguous_unknown	
+exercise.js	10	70	10	137	METHOD_CALL	on	any	UNDECIDED	ambiguous_unknown	
+exercise.js	10	90	10	136	FUNCTION_CALL	resolve	bodiless	LIB_MISSED	ambiguous_unknown	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.promise.d.ts:31:33 | 
+exercise.js	11	5	11	28	METHOD_CALL	on	any	UNDECIDED	ambient_terminal	
+exercise.js	11	40	11	55	METHOD_CALL	write	any	UNDECIDED	ambient_terminal	
+exercise.js	11	57	11	66	METHOD_CALL	end	any	UNDECIDED	ambient_terminal	
+exercise.js	15	18	15	36	FUNCTION_CALL	start	implementation	EXACT	known_edge	server.js:3:1 | server.js:3:1
+exercise.js	16	9	16	54	CONSTRUCTOR_CALL	Promise	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.promise.d.ts:31:5 | 
+exercise.js	16	28	16	53	METHOD_CALL	on	any	UNDECIDED	ambient_terminal	
+exercise.js	17	16	17	32	METHOD_CALL	address	any	UNDECIDED	ambient_terminal	
+exercise.js	19	3	19	49	METHOD_CALL	push	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:1347:5 | 
+exercise.js	19	16	19	48	FUNCTION_CALL	call	implementation	EXACT	known_edge	exercise.js:6:1 | exercise.js:6:1
+exercise.js	20	3	20	65	METHOD_CALL	push	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:1347:5 | 
+exercise.js	20	16	20	64	FUNCTION_CALL	call	implementation	EXACT	known_edge	exercise.js:6:1 | exercise.js:6:1
+exercise.js	21	3	21	66	METHOD_CALL	push	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:1347:5 | 
+exercise.js	21	16	21	65	FUNCTION_CALL	call	implementation	EXACT	known_edge	exercise.js:6:1 | exercise.js:6:1
+exercise.js	22	3	22	48	METHOD_CALL	push	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:1347:5 | 
+exercise.js	22	16	22	47	FUNCTION_CALL	call	implementation	EXACT	known_edge	exercise.js:6:1 | exercise.js:6:1
+exercise.js	23	3	23	60	METHOD_CALL	push	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:1347:5 | 
+exercise.js	23	16	23	59	FUNCTION_CALL	call	implementation	EXACT	known_edge	exercise.js:6:1 | exercise.js:6:1
+exercise.js	24	3	24	50	METHOD_CALL	push	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:1347:5 | 
+exercise.js	24	16	24	49	FUNCTION_CALL	call	implementation	EXACT	known_edge	exercise.js:6:1 | exercise.js:6:1
+exercise.js	25	3	25	50	METHOD_CALL	push	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:1347:5 | 
+exercise.js	25	16	25	49	FUNCTION_CALL	call	implementation	EXACT	known_edge	exercise.js:6:1 | exercise.js:6:1
+exercise.js	26	3	26	50	METHOD_CALL	push	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:1347:5 | 
+exercise.js	26	16	26	49	FUNCTION_CALL	call	implementation	EXACT	known_edge	exercise.js:6:1 | exercise.js:6:1
+exercise.js	27	3	27	58	METHOD_CALL	push	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:1347:5 | 
+exercise.js	27	16	27	57	FUNCTION_CALL	call	implementation	EXACT	known_edge	exercise.js:6:1 | exercise.js:6:1
+exercise.js	28	3	28	53	METHOD_CALL	push	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:1347:5 | 
+exercise.js	28	16	28	52	FUNCTION_CALL	call	implementation	EXACT	known_edge	exercise.js:6:1 | exercise.js:6:1
+exercise.js	29	3	29	48	METHOD_CALL	push	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:1347:5 | 
+exercise.js	29	16	29	47	FUNCTION_CALL	call	implementation	EXACT	known_edge	exercise.js:6:1 | exercise.js:6:1
+exercise.js	30	3	30	43	METHOD_CALL	push	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:1347:5 | 
+exercise.js	30	16	30	42	FUNCTION_CALL	call	implementation	EXACT	known_edge	exercise.js:6:1 | exercise.js:6:1
+exercise.js	31	3	31	17	METHOD_CALL	close	any	UNDECIDED	ambient_terminal	
+exercise.js	32	20	32	52	METHOD_CALL	join	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:1364:5 | 
+exercise.js	32	20	32	42	METHOD_CALL	map	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:1470:5 | 
+exercise.js	33	77	33	121	CONSTRUCTOR_CALL	Error	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2022.error.d.ts:30:5 | 
+exercise.js	34	3	34	30	METHOD_CALL	log	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.dom.d.ts:37915:5 | 
+exercise.js	36	1	36	60	METHOD_CALL	catch	bodiless	LIB_MISSED	ambiguous_unknown	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts:1564:5 | 
+exercise.js	36	1	36	7	FUNCTION_CALL	main	implementation	EXACT	known_edge	exercise.js:14:1 | exercise.js:14:1
+exercise.js	36	23	36	39	METHOD_CALL	error	bodiless	LIB_AMBIENT_OK	ambient_terminal	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.dom.d.ts:37885:5 | 
+exercise.js	36	41	36	56	METHOD_CALL	exit	any	UNDECIDED	ambient_terminal	

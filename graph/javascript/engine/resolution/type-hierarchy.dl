@@ -1,0 +1,108 @@
+// ============================================================================
+// Resolution · TYPE HIERARCHY AND MEMBER LOOKUP
+//
+// One closure. Every heritage form — `class B extends A`, `util.inherits(B, A)`,
+// `B.prototype = Object.create(A.prototype)`, `B.prototype = new A()` — inherits
+// members, and there is nothing else: no interface, no `implements`, no
+// declaration merging. So `type_super` is the whole hierarchy, and member lookup is
+// nearest-declaration up that chain.
+//
+// The supertype is RESOLVED HERE, from the name and the import hop: the parser's
+// `resolvedTypeLinkHash` is tier 3 and empty by contract.
+// ============================================================================
+
+// ── type_super(TypeHash, SuperTypeHash) ─────────────────────────────────────
+// Through an import: the heritage row names the import edge the superclass came in
+// on, and the import's value is the class (or the constructor function).
+type_super(t, s) :- heritage(_, t, _, _, _, imp, _, h), imp != "", heritage_text(_, txt, h), !contains(".", txt),
+    import_value(imp, k, i), constructible_value(k, i, s).
+// Same file: a binding with the written name in the class's own scope or the
+// module scope, holding a class or constructor-function value. The binder does not
+// resolve the heritage expression (it is not in the expression relation), so the
+// name is looked up in the two scopes a class declaration can see. A dotted name
+// (`ns.Base`) is walked one hop through the same rule on its qualifier.
+type_super(t, s) :- heritage(_, t, _, sn, _, "", _, h), sn != "", heritage_text(_, txt, h), !contains(".", txt),
+    type_decl(_, _, _, os, mod, t),
+    var_decl(_, sn, _, os, _, mod, v),
+    var_value(v, k, i), constructible_value(k, i, s).
+type_super(t, s) :- heritage(_, t, _, sn, _, "", _, h), sn != "", heritage_text(_, txt, h), !contains(".", txt),
+    type_decl(_, _, _, _, mod, t),
+    module_scope(_, ms, mod),
+    var_decl(_, sn, _, ms, _, mod, v),
+    var_value(v, k, i), constructible_value(k, i, s).
+// `class C extends mod.Base` — the qualifier is a module-scope binding and the
+// last segment a property of its value. Two segments only; a deeper qualifier
+// stays in heritage_unresolved, counted.
+type_super(t, s) :- heritage(_, t, _, _, _, _, _, h), heritage_text(_, txt, h), contains(".", txt),
+    type_decl(_, _, _, _, mod, t),
+    module_scope(_, ms, mod),
+    var_decl(_, q, _, ms, _, mod, v),
+    var_value(v, k, i), prop_value(k, i, last, k2, i2),
+    txt = cat(q, cat(".", last)),
+    constructible_value(k2, i2, s).
+
+// `function makeClass(Sup) { return class extends Sup { … } }` — the written name is
+// a PARAMETER of the function whose scope encloses the class expression (the body
+// scope, or a block inside it: the parent chain is walked to the owning method).
+// The parameter's value is whatever the callers passed — `makeClass(Base)` gives
+// the class `Base`.
+scope_enclosing_method(s, m) :- scope_decl(_, _, _, m, _, s), m != "".
+scope_enclosing_method(s, m) :- scope_decl(_, p, _, "", _, s), p != "", scope_enclosing_method(p, m).
+type_super(t, s) :- heritage(_, t, _, sn, _, "", _, h), sn != "", heritage_text(_, txt, h), !contains(".", txt),
+    type_decl(_, _, _, sc, _, t),
+    scope_enclosing_method(sc, m),
+    param_decl(_, sn, _, m, p),
+    param_value(p, k, i), constructible_value(k, i, s).
+
+// The `extends` expression itself (#479, parser#494): every EXTENDS_CLAUSE row links
+// its expression, and the expression has a value — a call (`Mixin(Base)`), a member
+// of a call (`require('./x').Gadget`), a conditional, an awaited import. One rule
+// subsumes the name rules above; they stay for the OBJECT_CREATE_PROTOTYPE form and
+// for IR produced before the link existed.
+type_super(t, s) :- heritage(_, t, "EXTENDS_CLAUSE", _, _, _, se, _), se != "",
+    expr_value(se, k, i), constructible_value(k, i, s).
+
+// ── type_ancestor(TypeHash, AncestorHash) — transitive ──────────────────────
+type_ancestor(t, s) :- type_super(t, s).
+type_ancestor(t, a) :- type_ancestor(t, s), type_super(s, a).
+
+// ── heritage_unresolved(TypeHash, SuperName, Form) — countable ──────────────
+heritage_unresolved(t, sn, form) :- heritage(_, t, form, sn, _, _, _, _), !type_super(t, _).
+heritage_dynamic(t, h) :- heritage_computed(_, t, h).
+
+// ── type_own_member(TypeHash, Name, MethodHash) — declared on the type itself ──
+// Instance members: class methods, accessors, and members declared by assignment
+// (`F.prototype.m = ...`, `F.prototype = { m() {} }`, `Object.assign(F.prototype, ...)`).
+// The constructor is not a member.
+// A GETTER is not a callable member: `z.run()` reads the accessor and calls what it
+// RETURNS. The getter's name still shadows an inherited member of that name; its
+// value is `return_value` of the getter (value-flow.dl).
+type_own_member(t, n, m) :- method_decl(_, n, k, _, "false", t, _, m), t != "", method_kind_is_member(k), !method_kind_is_accessor(k).
+type_own_member_name(t, n) :- type_own_member(t, n, _).
+type_own_member_name(t, n) :- method_decl(_, n, k, _, "false", t, _, _), t != "", method_kind_is_accessor(k).
+type_own_getter(t, n, m) :- method_decl(_, n, "GETTER", _, "false", t, _, m), t != "".
+type_own_getter(t, n, m) :- type_super(t, s), type_own_getter(s, n, m), !type_own_member_name(t, n).
+// A field that holds a callable is a member too — `this.cb = () => ...` in the
+// constructor, or a class field `handler = () => ...`. Its value comes from the
+// flow layer; the NAME is what shadows an inherited method of the same name.
+type_own_member_name(t, n) :- field_decl(_, n, t, _, "false", _, _, _).
+
+// ── type_member(TypeHash, Name, MethodHash) — nearest declaration up the chain ──
+type_member(t, n, m) :- type_own_member(t, n, m).
+type_member(t, n, m) :- type_super(t, s), type_member(s, n, m), !type_own_member_name(t, n).
+
+// ── static members ──────────────────────────────────────────────────────────
+type_own_static(t, n, m) :- method_decl(_, n, k, _, "true", t, _, m), t != "", method_kind_is_member(k), !method_kind_is_accessor(k).
+type_own_static_getter(t, n, m) :- method_decl(_, n, "GETTER", _, "true", t, _, m), t != "".
+type_own_static_name(t, n) :- type_own_static(t, n, _).
+type_own_static_name(t, n) :- field_decl(_, n, t, _, "true", _, _, _).
+type_static(t, n, m) :- type_own_static(t, n, m).
+type_static(t, n, m) :- type_super(t, s), type_static(s, n, m), !type_own_static_name(t, n).
+
+// ── type_construct_target(TypeHash, MethodHash) — what `new T()` runs ───────
+// The type's own constructor, else the nearest ancestor's. A class with no
+// constructor anywhere up its chain is constructed by the synthesized default,
+// which is a correct answer with nothing to point at — `implicit_constructor`.
+type_construct_target(t, m) :- type_ctor(_, m, t).
+type_construct_target(t, m) :- !type_ctor(_, _, t), type_super(t, s), type_construct_target(s, m).
+implicit_constructor(t) :- type_decl(_, _, _, _, _, t), !type_construct_target(t, _).

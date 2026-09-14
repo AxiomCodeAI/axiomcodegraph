@@ -1,0 +1,7 @@
+{
+  "name": "@fixture/jsx",
+  "version": "0.0.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "JSX fixtures. One .jsx and one .js containing JSX, under a CommonJS config, which is what a pre-ESM View app looks like on disk. hasJsxContent is recorded after parsing, never guessed from the extension."
+}

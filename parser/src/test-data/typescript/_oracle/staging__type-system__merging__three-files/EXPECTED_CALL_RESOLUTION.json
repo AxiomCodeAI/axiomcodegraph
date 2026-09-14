@@ -1,0 +1,107 @@
+{
+ "emissionRegime": "ts6-inproc",
+ "compilerVersion": "6.0.3",
+ "callSites": 8,
+ "resolved": 8,
+ "synthesized": 0,
+ "overloadedCalls": 4,
+ "choseNonFirst": 0,
+ "calls": [
+  {
+   "site": "consumer.ts:11:9",
+   "callKind": "FUNCTION_CALL",
+   "callee": "String",
+   "target": "lib:lib.es5.d.ts#StringConstructor.CallSignature",
+   "targetProvenance": "LIB",
+   "targetKind": "CallSignature",
+   "targetHasBody": false,
+   "candidateCount": 11,
+   "chosenIndex": -1,
+   "choseNonFirst": false
+  },
+  {
+   "site": "consumer.ts:12:9",
+   "callKind": "FUNCTION_CALL",
+   "callee": "String",
+   "target": "lib:lib.es5.d.ts#StringConstructor.CallSignature",
+   "targetProvenance": "LIB",
+   "targetKind": "CallSignature",
+   "targetHasBody": false,
+   "candidateCount": 11,
+   "chosenIndex": -1,
+   "choseNonFirst": false
+  },
+  {
+   "site": "consumer.ts:21:12",
+   "callKind": "METHOD_CALL",
+   "callee": "[\n        manifest.id,\n        String(http.retries),\n       ",
+   "target": "lib:lib.es5.d.ts#Array.join",
+   "targetProvenance": "LIB",
+   "targetKind": "MethodSignature",
+   "targetHasBody": false,
+   "candidateCount": 1,
+   "chosenIndex": 0,
+   "choseNonFirst": false
+  },
+  {
+   "site": "consumer.ts:23:9",
+   "callKind": "FUNCTION_CALL",
+   "callee": "String",
+   "target": "lib:lib.es5.d.ts#StringConstructor.CallSignature",
+   "targetProvenance": "LIB",
+   "targetKind": "CallSignature",
+   "targetHasBody": false,
+   "candidateCount": 11,
+   "chosenIndex": -1,
+   "choseNonFirst": false
+  },
+  {
+   "site": "consumer.ts:24:9",
+   "callKind": "FUNCTION_CALL",
+   "callee": "String",
+   "target": "lib:lib.es5.d.ts#StringConstructor.CallSignature",
+   "targetProvenance": "LIB",
+   "targetKind": "CallSignature",
+   "targetHasBody": false,
+   "candidateCount": 11,
+   "chosenIndex": -1,
+   "choseNonFirst": false
+  },
+  {
+   "site": "consumer.ts:37:6",
+   "callKind": "FUNCTION_CALL",
+   "callee": "readRegistry",
+   "target": "consumer.ts:7:1",
+   "targetProvenance": "PROJECT",
+   "targetKind": "FunctionDeclaration",
+   "targetHasBody": true,
+   "candidateCount": 1,
+   "chosenIndex": 0,
+   "choseNonFirst": false
+  },
+  {
+   "site": "consumer.ts:38:6",
+   "callKind": "FUNCTION_CALL",
+   "callee": "readPlugins",
+   "target": "consumer.ts:16:1",
+   "targetProvenance": "PROJECT",
+   "targetKind": "FunctionDeclaration",
+   "targetHasBody": true,
+   "candidateCount": 1,
+   "chosenIndex": 0,
+   "choseNonFirst": false
+  },
+  {
+   "site": "consumer.ts:8:12",
+   "callKind": "METHOD_CALL",
+   "callee": "[\n        registry.core.version, // registry-core.ts\n       ",
+   "target": "lib:lib.es5.d.ts#Array.join",
+   "targetProvenance": "LIB",
+   "targetKind": "MethodSignature",
+   "targetHasBody": false,
+   "candidateCount": 1,
+   "chosenIndex": 0,
+   "choseNonFirst": false
+  }
+ ]
+}

@@ -1,0 +1,7 @@
+use.js:2:1 FUNCTION_CALL a  EXACT  a.js:1:1
+use.js:2:21 FUNCTION_CALL c  EXACT  c.js:1:11
+use.js:2:26 FUNCTION_CALL d  EXACT  d.js:1:1
+use.js:2:31 METHOD_CALL go  EXACT  e.js:1:18
+use.js:2:6 CONSTRUCTOR_CALL B  SYNTHESIZED_OK  
+use.js:2:6 METHOD_CALL run  EXACT  b.js:1:30
+# defects: 0

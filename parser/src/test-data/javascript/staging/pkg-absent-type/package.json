@@ -1,0 +1,7 @@
+{
+  "name": "@fixture/pkg-absent-type",
+  "version": "0.0.0",
+  "private": true,
+  "main": "defaulted.js",
+  "description": "No \"type\" field on purpose. moduleSystemSource = PKG_TYPE_ABSENT_DEFAULT, which the schema measured at 76.0% of files. A defaulted CommonJS must be distinguishable from a declared one."
+}

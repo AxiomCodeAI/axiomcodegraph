@@ -1,0 +1,4 @@
+nominal	Op.apply@10 -> Op.apply@8
+nominal	Op.apply@10 -> Op.apply@9
+nominal	Shape.area -> Circle.area
+nominal	Shape.area -> Square.area

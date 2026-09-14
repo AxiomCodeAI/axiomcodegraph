@@ -1,0 +1,2 @@
+known_edge	FUNCTION_CALL	main#use() @L5 -> V#isLen(string)
+known_edge	FUNCTION_CALL	main#use() @L6 -> vlib/isLen#isLenNamed(string)

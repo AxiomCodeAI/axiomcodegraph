@@ -1,0 +1,30 @@
+{
+ "admittedBy": "A0 golden-gate.ts --promote",
+ "rule": "every call site links to a declared entity or is a builtin; ceiling is exactly 100%",
+ "files": {
+  "categories/blocks/block_forms.py": "src/test-data/python/categories/blocks/block_forms.py",
+  "categories/comments/comment_forms.py": "src/test-data/python/categories/comments/comment_forms.py",
+  "categories/comprehensions/comprehension_forms.py": "src/test-data/python/categories/comprehensions/comprehension_forms.py",
+  "categories/decorators/decorator_forms.py": "src/test-data/python/categories/decorators/decorator_forms.py",
+  "categories/edge-cases/resolution_edges.py": "src/test-data/python/categories/edge-cases/resolution_edges.py",
+  "categories/expressions/expression_kinds.py": "src/test-data/python/categories/expressions/expression_kinds.py",
+  "categories/fields/field_origins.py": "src/test-data/python/categories/fields/field_origins.py",
+  "categories/imports/import_forms.py": "src/test-data/python/categories/imports/import_forms.py",
+  "categories/integration/service_layer.py": "src/test-data/python/categories/integration/service_layer.py",
+  "categories/methods/method_kinds.py": "src/test-data/python/categories/methods/method_kinds.py",
+  "categories/scopes/scope_forms.py": "src/test-data/python/categories/scopes/scope_forms.py",
+  "categories/type-references/reference_contexts.py": "src/test-data/python/categories/type-references/reference_contexts.py",
+  "categories/types/class_forms.py": "src/test-data/python/categories/types/class_forms.py",
+  "native/match_class_and_sequence_patterns.py": "/tmp/py-corpus/native/match_class_and_sequence_patterns.py",
+  "native/match_nested_patterns_and_guards.py": "/tmp/py-corpus/native/match_nested_patterns_and_guards.py",
+  "native/name_mangling_edge_cases.py": "/tmp/py-corpus/native/name_mangling_edge_cases.py",
+  "native/remaining_syntax_forms.py": "/tmp/py-corpus/native/remaining_syntax_forms.py",
+  "native/scoping_edge_cases.py": "/tmp/py-corpus/native/scoping_edge_cases.py",
+  "closed-world/core/base.py": "src/test-data/python/closed-world/core/base.py",
+  "closed-world/core/factory.py": "src/test-data/python/closed-world/core/factory.py",
+  "closed-world/services/inheritance.py": "src/test-data/python/closed-world/services/inheritance.py",
+  "categories/imports/pkg/__init__.py": "src/test-data/python/categories/imports/pkg/__init__.py (package marker)",
+  "closed-world/core/__init__.py": "src/test-data/python/closed-world/core/__init__.py (package marker)",
+  "closed-world/services/__init__.py": "src/test-data/python/closed-world/services/__init__.py (package marker)"
+ }
+}
