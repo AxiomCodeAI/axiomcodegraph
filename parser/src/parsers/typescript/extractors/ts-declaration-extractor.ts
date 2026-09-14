@@ -60,6 +60,7 @@ import {
   TsTypeReferenceExtractor,
 } from '@/parsers/typescript/extractors/ts-type-reference-extractor';
 import { EntityUtils } from '@/utils/entity-utils';
+import { TS_DEFAULT_EXPORT_NAME } from '@/constants/typescript-constants';
 
 /**
  * Emits every DECLARATION relation for one source file.
@@ -1044,8 +1045,8 @@ export class TsDeclarationExtractor {
     const start = node.getStart(this.sf);
     const startPos = this.sf.getLineAndCharacterOfPosition(start);
     const endPos = this.sf.getLineAndCharacterOfPosition(node.end);
-    const name = binding?.name
-      ?? (node.name && ts.isIdentifier(node.name) ? node.name.text : '');
+    const name = recordedNameOf(node, binding?.name
+      ?? (node.name && ts.isIdentifier(node.name) ? node.name.text : ''));
     // A class EXPRESSION has no binding — it declares nothing in any table — so
     // its merge key is its own byte range. It cannot merge with anything, which
     // is correct: two `class {}` expressions are two types even with one name.
@@ -2818,7 +2819,7 @@ function methodNameOf(
   binding: BoundDeclaration | undefined
 ): string {
   if (binding) {
-    return binding.name;
+    return recordedNameOf(node, binding.name);
   }
   switch (methodKind) {
     case TsMethodKind.CONSTRUCTOR: {
@@ -2907,6 +2908,32 @@ function isMergeableMember(node: ts.Node): boolean {
 
 function isStaticMember(node: ts.Node): boolean {
   return hasModifier(node, ts.SyntaxKind.StaticKeyword);
+}
+
+/**
+ * The name to RECORD for a declaration, which is not always the name it MERGES
+ * under.
+ *
+ * `export default class NamedClass {}` binds as `default` — that is
+ * `InternalSymbolName.Default` and tsc agrees, its symbol's `escapedName` is
+ * literally `"default"` — so the MERGE identity is right and must not move.
+ * But recording `default` as the declaration's own name made a NAMED default
+ * export indistinguishable from an anonymous one: two rows identical apart
+ * from the module, when `ts_export` had kept both names all along
+ * (`exportedName=default`, `localName=NamedClass`).
+ *
+ * So the two names are separated at the one place they differ. `escapedName`
+ * and `declarationGroupKey` keep the binding's `default`; `name` and the
+ * `qualifiedName` built from it take the declaration's own identifier when it
+ * has one. An anonymous `export default class {}` still reads `default`,
+ * because there is nothing else it could be.
+ */
+function recordedNameOf(node: ts.Node, bindingName: string): string {
+  if (bindingName !== TS_DEFAULT_EXPORT_NAME) {
+    return bindingName;
+  }
+  const own = (node as { name?: ts.Node }).name;
+  return own !== undefined && ts.isIdentifier(own) ? own.text : bindingName;
 }
 
 function signatureOf(

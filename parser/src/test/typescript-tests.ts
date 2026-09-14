@@ -3504,6 +3504,94 @@ async function nonMembersCarryNoMemberGroupKey(): Promise<number> {
   }
 }
 
+
+/**
+ * A named default export is recorded under its OWN name (#159).
+ *
+ * `export default class NamedClass {}` binds as `default` — that is
+ * `InternalSymbolName.Default`, and tsc agrees: the symbol's `escapedName` is
+ * literally `"default"`. So the MERGE identity was right. What was wrong is
+ * that the same string was recorded as the declaration's name, making a NAMED
+ * default export and an ANONYMOUS one two rows identical apart from the
+ * module — while `ts_export` had kept both names all along.
+ *
+ * Both halves are asserted, because the fix separates two things that had been
+ * one: `name` takes the declaration's own identifier, and `escapedName` must
+ * STILL be `default` or the merge partition moves.
+ */
+async function namedDefaultExportsKeepTheirName(): Promise<number> {
+  if (!parserPresent()) {
+    return pendingCheck('named default exports keep their name',
+      'no extractor yet. `default` is how it merges, not what it is called');
+  }
+  const { outputDir, cleanup } = await analyseInline('ts-defexp-', {
+    'named-class.ts': 'export default class NamedClass { ping(): number { return 1 } }\n',
+    'anon-class.ts': 'export default class { ping(): number { return 2 } }\n',
+    'named-fn.ts': 'export default function namedDefaultFunction(n: number): number { return n + 1 }\n',
+    'anon-fn.ts': 'export default function (n: number): number { return n + 2 }\n',
+    'control.ts': 'export class ControlClass { ping(): number { return 3 } }\n',
+  });
+  try {
+    const types = relation(outputDir, 'all-typescript-types.csv');
+    const methods = relation(outputDir, 'all-typescript-methods.csv');
+    const failures: string[] = [];
+    const inFile = <T extends Record<string, string>>(rows: T[], file: string): T | undefined =>
+      rows.find((r) => (r['filePath'] ?? '').endsWith(file));
+
+    const named = inFile(types, 'named-class.ts');
+    const anon = inFile(types, 'anon-class.ts');
+    const control = inFile(types, 'control.ts');
+    if (named === undefined || anon === undefined || control === undefined) {
+      return fail('expected a ts_type row for each of named-class, anon-class and control');
+    }
+    if (named['name'] !== 'NamedClass') {
+      failures.push(`named default class: name is "${named['name']}", expected "NamedClass" — `
+        + 'recording the export keyword makes it indistinguishable from an anonymous one');
+    }
+    if (!(named['qualifiedName'] ?? '').endsWith('#NamedClass')) {
+      failures.push(`named default class: qualifiedName is "${named['qualifiedName']}"`);
+    }
+    // The merge identity must NOT move: tsc's symbol escapedName IS `default`.
+    if (named['escapedName'] !== 'default') {
+      failures.push(`named default class: escapedName is "${named['escapedName']}", expected `
+        + '"default" — that is tsc\'s own symbol name and the merge partition depends on it');
+    }
+    if (anon['name'] !== 'default') {
+      failures.push(`anonymous default class: name is "${anon['name']}", expected "default" — `
+        + 'there is nothing else it could be called');
+    }
+    if (named['name'] === anon['name']) {
+      failures.push('a named and an anonymous default export are still indistinguishable');
+    }
+    if (control['name'] !== 'ControlClass' || control['escapedName'] !== 'ControlClass') {
+      failures.push(`control: name/escapedName are "${control['name']}"/`
+        + `"${control['escapedName']}", both expected "ControlClass"`);
+    }
+    for (const [file, want] of [
+      ['named-fn.ts', 'namedDefaultFunction'], ['anon-fn.ts', 'default'],
+    ] as const) {
+      const fn = methods.filter((r) => (r['filePath'] ?? '').endsWith(file)
+        && r['methodKind'] === 'FUNCTION_DECLARATION')[0];
+      if (fn === undefined) {
+        failures.push(`no FUNCTION_DECLARATION row in ${file}`);
+        continue;
+      }
+      if (fn['name'] !== want) {
+        failures.push(`${file}: name is "${fn['name']}", expected "${want}"`);
+      }
+      if (fn['escapedName'] !== 'default') {
+        failures.push(`${file}: escapedName is "${fn['escapedName']}", expected "default"`);
+      }
+    }
+    console.log('  a named default class and function keep their own name, an anonymous one '
+      + 'still reads `default`, and every escapedName stays `default` so the merge key holds');
+    for (const f of failures.slice(0, 6)) { console.log(`  ${f}`); }
+    return failures.length ? 1 : 0;
+  } finally {
+    cleanup();
+  }
+}
+
 /** `all-typescript-method-parameters.csv` -> `ts_method_parameter`, via the .dl's own names. */
 function relationNameFor(file: string): string | undefined {
   const stem = file.replace('all-typescript-', '').replace('.csv', '');
@@ -4421,6 +4509,7 @@ const CHECKS: Check[] = [
   { name: 'emitted values are in their declared domain', proves: 'no column emits a value the schema does not declare, so a rule written from the document cannot match nothing', run: emittedValuesAreInTheirDeclaredDomain },
   { name: 'computed member keys are named when knowable', proves: 'a well-known symbol and a literal key are named, a folded-const key is not, and distinct members never share one group key', run: computedMemberKeysAreNamedWhenKnowable },
   { name: 'non-members carry no member group key', proves: 'an arrow or static block inside a class is not a member, so it never shares an identity, while real class and interface members keep theirs', run: nonMembersCarryNoMemberGroupKey },
+  { name: 'named default exports keep their name', proves: 'a default-exported class or function is recorded under its own name while still merging as `default`, so a named default export is distinguishable from an anonymous one', run: namedDefaultExportsKeepTheirName },
   { name: 'fact-base invariants', proves: 'every PK unique, every FK resolves, every tree well-formed — the failures that load cleanly and count wrong', run: factBaseInvariants },
   { name: 'IR completeness', proves: 'every hop an engine needs in order to resolve is present — the measure that replaced resolution rate', run: irCompleteness },
 ];
