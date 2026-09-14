@@ -42,7 +42,7 @@ import sys
 # on the first attempt and is why this tool is checked against an injected literal.
 _REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))))
-ENGINE = os.path.join(_REPO, "src", "python", "engine")
+ENGINE = os.path.join(_REPO, "graph", "python", "engine")
 if not os.path.isdir(ENGINE):
     raise SystemExit(f"literal gate: engine dir not found at {ENGINE} -- refusing to pass vacuously")
 

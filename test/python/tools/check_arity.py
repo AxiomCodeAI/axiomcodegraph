@@ -18,7 +18,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')
 LANG = 'python'
 if '--lang' in sys.argv:
     LANG = sys.argv[sys.argv.index('--lang') + 1]
-SRC = os.path.join(ROOT, 'src', LANG)
+SRC = os.path.join(ROOT, 'graph', LANG)
 
 DECL_RE = re.compile(r'^\.decl\s+(\w+)\s*\(([^)]*)\)', re.M)
 
