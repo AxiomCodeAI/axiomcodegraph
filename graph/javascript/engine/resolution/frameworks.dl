@@ -52,6 +52,14 @@ expr_value(ce, "obj", ce) :- object_create_site(ce, _).
 inherits_from(k, i, k0, i0) :- inherit_like_site(_, tgt, src), expr_value(tgt, k, i), k != "ambient", expr_value(src, k0, i0).
 inherits_from("obj", ce, k0, i0) :- object_create_site(ce, src), expr_value(src, k0, i0).
 prop_value(k, i, n, k2, i2) :- inherits_from(k, i, k0, i0), prop_value(k0, i0, n, k2, i2).
+// `Object.setPrototypeOf(Child.prototype, Parent.prototype)` — the spelling of
+// constructor-function inheritance that `util.inherits` performs internally — rewires
+// the TYPE, not one object: every Child instance reads Parent's members. The parser
+// emits no heritage row for it (it does for `util.inherits` and `Child.prototype =
+// Object.create(...)`), so the hierarchy edge is derived here from the two `proto`
+// values. The static side, `Object.setPrototypeOf(Child, Parent)`, is already the
+// `ctor`→`ctor` case of inherits_from above.
+type_super(t, s) :- inherit_like_site(_, tgt, src), expr_value(tgt, "proto", t), expr_value(src, "proto", s), t != s.
 // A function found through an inherited prototype runs with the receiver as `this`
 // only where the receiver is an instance; for a plain object the definition-site
 // binding already applies.

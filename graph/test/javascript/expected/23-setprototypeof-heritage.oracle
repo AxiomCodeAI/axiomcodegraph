@@ -1,0 +1,15 @@
+child.js:3:20 FUNCTION_CALL_CALL call  EXACT  parent.js:3:1
+child.js:4:1 METHOD_CALL setPrototypeOf  LIB_AMBIENT_OK  
+child.js:5:1 METHOD_CALL setPrototypeOf  LIB_AMBIENT_OK  
+child.js:7:25 FUNCTION_CALL_CALL call  EXACT  child.js:3:1
+child.js:8:1 METHOD_CALL setPrototypeOf  LIB_AMBIENT_OK  
+main.js:10:3 METHOD_CALL setPrototypeOf  LIB_AMBIENT_OK  
+main.js:13:1 FUNCTION_CALL main  EXACT  main.js:3:1
+main.js:4:13 CONSTRUCTOR_CALL Child  EXACT  child.js:3:1
+main.js:5:27 METHOD_CALL own  EXACT  child.js:6:23
+main.js:6:28 CONSTRUCTOR_CALL GrandChild  EXACT  child.js:7:1
+main.js:6:3 CONSTRUCTOR_CALL GrandChild  EXACT  child.js:7:1
+parent.js:4:46 FUNCTION_CALL helper  EXACT  parent.js:2:1
+parent.js:5:50 METHOD_CALL base  EXACT  parent.js:4:25
+parent.js:6:36 CONSTRUCTOR_CALL   EXACT  parent.js:3:1
+# defects: 0
