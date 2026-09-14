@@ -129,7 +129,7 @@ receiver is a lambda parameter. Restricted to files of 1,000 lines or more, d1 r
 ```bash
 npm install && npm run build          # builds the parser and the engine (Node ≥ 22.5)
 
-bin/axiom-graph --language java --src <project-dir> --out <out-dir>
+bin/axiomcode-graph --language java --src <project-dir> --out <out-dir>
 #               --language java | typescript | python
 #               --library <platform-ir>[,<lib-ir>...]   the platform library and real dependencies, when you have their IR
 #               --debug                                 also write csv/*.csv and keep raw/
@@ -196,7 +196,7 @@ the omission is reported.
 ## Layout
 
 ```
-bin/axiom-graph                   the one command: parse → solve → graph.sqlite
+bin/axiomcode-graph                   the one command: parse → solve → graph.sqlite
 parser/                           the IR extractor (its own package; merged in with history)
 graph/                            the engine
   <lang>/engine/projections/        IR → typed relations
