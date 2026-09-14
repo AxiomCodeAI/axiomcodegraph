@@ -128,6 +128,19 @@ export const JS_SKIP_DIRECTORIES = [
 ] as const;
 
 /**
+ * The build-OUTPUT names among the above, which a PUBLISHED package ships from.
+ *
+ * For a project, `dist/` is the artefact beside the source and skipping it is
+ * right. For a package handed to the parser as a dependency it is the source of
+ * truth: every dependency built by a compiler or a bundler publishes from
+ * `dist/`, `build/` or `out/`, and its `main` / `exports` point there. Skipping
+ * it staged NO modules for such a package (#620). So a walk root whose own
+ * `package.json` names one of these directories as an entry walks that
+ * directory; the rest of the list, and every nested occurrence, stays skipped.
+ */
+export const JS_BUILD_OUTPUT_DIRECTORIES = ['dist', 'build', 'out'] as const;
+
+/**
  * A line longer than this is ONE of the two signals that mark a file as
  * bundled output — never the only one (ruled 2026-09-13).
  *
@@ -185,6 +198,7 @@ export const JAVASCRIPT_CSV_FILES = {
   BLOCKS: 'all-javascript-blocks.csv',
   COMMENTS: 'all-javascript-comments.csv',
   PARSE_GAPS: 'all-javascript-parse-gaps.csv',
+  PACKAGE_ENTRIES: 'all-javascript-package-entries.csv',
   SKIPPED_FILES: 'skipped-javascript-files.csv',
 } as const;
 

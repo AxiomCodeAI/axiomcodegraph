@@ -22,6 +22,10 @@ import {
 } from '@/parsers/javascript/extractors/js-ir-completeness';
 import { moduleHashFor } from '@/parsers/javascript/extractors/js-module-extractor';
 import { PackageJsonResolver } from '@/parsers/javascript/package-json-resolver';
+import {
+  buildOutputDirectoriesNamedBy,
+  extractPackageEntries,
+} from '@/parsers/javascript/package-entry-extractor';
 import { EntityUtils } from '@/utils/entity-utils';
 import { JsRelationWriter } from '@/workflows/javascript/js-relation-writer';
 import { isJavaScriptSourceFile, stripJsExtension } from '@/utils/javascript';
@@ -35,6 +39,7 @@ import { JsImportRegistry } from '@/analysis-types/javascript/JsImportRegistry';
 import { JsMethodParameterRegistry } from '@/analysis-types/javascript/JsMethodParameterRegistry';
 import { JsMethodRegistry } from '@/analysis-types/javascript/JsMethodRegistry';
 import { JsModuleRegistry } from '@/analysis-types/javascript/JsModuleRegistry';
+import { JsPackageEntryRegistry } from '@/analysis-types/javascript/JsPackageEntryRegistry';
 import { JsParseGapRegistry } from '@/analysis-types/javascript/JsParseGapRegistry';
 import { JsScopeRegistry } from '@/analysis-types/javascript/JsScopeRegistry';
 import { JsTypeHeritageRegistry } from '@/analysis-types/javascript/JsTypeHeritageRegistry';
@@ -64,6 +69,7 @@ const HEADER_BY_FILE: Readonly<Record<string, string>> = {
   [JAVASCRIPT_CSV_FILES.BLOCKS]: JsBlockRegistry.prototype.getCsvHeader(),
   [JAVASCRIPT_CSV_FILES.COMMENTS]: JsCommentRegistry.prototype.getCsvHeader(),
   [JAVASCRIPT_CSV_FILES.PARSE_GAPS]: JsParseGapRegistry.prototype.getCsvHeader(),
+  [JAVASCRIPT_CSV_FILES.PACKAGE_ENTRIES]: JsPackageEntryRegistry.prototype.getCsvHeader(),
 };
 
 /**
@@ -143,6 +149,12 @@ export interface JavaScriptAnalysisSummary {
    * with no JavaScript in it.
    */
   readonly skippedByDirectory: Readonly<Record<string, number>>;
+  /**
+   * Build-output directories WALKED because a walk root's own `package.json`
+   * names them as an entry (#620): `<root>/dist` for a package that ships from
+   * `dist/`. Listed so the exception is as visible as the skip it lifts.
+   */
+  readonly buildOutputWalked: readonly string[];
   /** How each file's module system was decided, so a defaulted 91.4% is visible. */
   readonly moduleSystemSourceCounts: Record<string, number>;
   /** Files whose own syntax contradicts their governing `package.json`. */
@@ -216,17 +228,35 @@ export class JavaScriptProjectAnalyzer {
     // Counted, not merely skipped. See `collectJavaScriptFiles`.
     const skippedByDirectory = new Map<string, number>();
     const pathAnchor = pathAnchorFor(rootDir, options.baseMservPath);
+    const packageJson = new PackageJsonResolver();
     // The union of every root's files, by absolute path. A monorepo root and its
     // packages both claim the same files, and extracting one twice would mint
     // identical primary keys and DOUBLE the row count rather than colliding.
     const discovered = new Map<string, string>();
-    for (const root of [rootDir, ...(options.additionalRoots ?? []).map((r) => path.resolve(r))]) {
-      for (const file of collectJavaScriptFiles(root, excludes, skippedByDirectory)) {
+    const buildOutputWalked: string[] = [];
+    // Every `package.json` the walk passes, so a package whose only code sits in
+    // a skipped directory still states its entries (#616): the row that says
+    // "this package stages nothing" must exist for exactly that package.
+    const packageJsonsSeen = new Set<string>();
+    const roots = [rootDir, ...(options.additionalRoots ?? []).map((r) => path.resolve(r))];
+    for (const root of roots) {
+      // A root that is a PACKAGE shipping from a build directory (#620): its
+      // `main` / `exports` name `dist/`, `build/` or `out/`, and that directory is
+      // the only code the package ships. Walked, directly under this root only;
+      // every nested occurrence stays a skipped artefact.
+      const rootPackage = packageJson.packageAt(root);
+      const walkUnderRoot = new Set<string>(
+        rootPackage === undefined ? [] : buildOutputDirectoriesNamedBy(rootPackage)
+          .filter((name) => excludes.has(name))
+      );
+      for (const name of walkUnderRoot) {
+        buildOutputWalked.push(path.join(root, name));
+      }
+      for (const file of collectJavaScriptFiles(root, excludes, skippedByDirectory, walkUnderRoot, packageJsonsSeen)) {
         discovered.set(path.normalize(file), file);
       }
     }
     const files = [...discovered.values()].sort();
-    const packageJson = new PackageJsonResolver();
 
     // Every module hash up front, from PATHS ALONE — §1 of the parser doc.
     //
@@ -252,6 +282,37 @@ export class JavaScriptProjectAnalyzer {
     }
     const toProjectRelative = (absolutePath: string): string =>
       stripExtension(toRelative(pathAnchor, absolutePath));
+
+    // Every package this parse touched: each walk root's own `package.json`, and
+    // the governing config of every file. What each exposes is a fact of the
+    // package, resolved against the module hashes minted above (#616). A root
+    // package with no walked file still gets its rows, so "this package stages
+    // nothing" is written down rather than inferred from an empty relation.
+    const packageEntries: JsPackageEntryRegistry[] = [];
+    const packageJsonPaths = new Set<string>(packageJsonsSeen);
+    for (const root of roots) {
+      const rootPackage = packageJson.packageAt(root);
+      if (rootPackage !== undefined) {
+        packageJsonPaths.add(rootPackage.path);
+      }
+    }
+    for (const governing of governingByFile.values()) {
+      if (governing.packageJsonPath !== '') {
+        packageJsonPaths.add(governing.packageJsonPath);
+      }
+    }
+    for (const packageJsonPath of [...packageJsonPaths].sort()) {
+      const facts = packageJson.packageAt(path.dirname(packageJsonPath));
+      if (facts === undefined) {
+        continue;
+      }
+      packageEntries.push(...extractPackageEntries({
+        facts,
+        packageJsonPath: toRelative(pathAnchor, packageJsonPath),
+        moduleHashOf: (absolutePath) => projectModuleHashes.get(absolutePath),
+        serviceVersionLinkHash,
+      }));
+    }
 
     this.skippedFiles = [];
     await fsp.mkdir(options.outputDir, { recursive: true });
@@ -285,6 +346,7 @@ export class JavaScriptProjectAnalyzer {
     const moduleSystemSourceCounts: Record<string, number> = {};
 
     try {
+      await writerFor(JAVASCRIPT_CSV_FILES.PACKAGE_ENTRIES).append(packageEntries);
       for (const file of files) {
         let sourceText: string;
         try {
@@ -398,11 +460,13 @@ export class JavaScriptProjectAnalyzer {
         js_comment: writerFor(JAVASCRIPT_CSV_FILES.COMMENTS).rowCount,
         js_type_reference: writerFor(JAVASCRIPT_CSV_FILES.TYPE_REFERENCES).rowCount,
         js_parse_gap: writerFor(JAVASCRIPT_CSV_FILES.PARSE_GAPS).rowCount,
+        js_package_entry: writerFor(JAVASCRIPT_CSV_FILES.PACKAGE_ENTRIES).rowCount,
       },
       bundledFilesExcluded,
       skippedByDirectory: Object.fromEntries(
         [...skippedByDirectory.entries()].sort((a, b) => b[1] - a[1])
       ),
+      buildOutputWalked,
       moduleSystemSourceCounts,
       contradictingFiles,
       irCompleteness: finishCompleteness(completeness),
@@ -536,7 +600,14 @@ function collectJavaScriptFiles(
    * a tree that is not being analysed, paid so that "this package contributed
    * nothing" and "this package was skipped" are different answers.
    */
-  skippedByDirectory: Map<string, number>
+  skippedByDirectory: Map<string, number>,
+  /**
+   * Excluded names to walk anyway when they sit DIRECTLY under `rootDir` (#620):
+   * the build directory a package root's own `package.json` ships from.
+   */
+  walkUnderRoot: ReadonlySet<string> = new Set(),
+  /** Every `package.json` passed on the walk, collected for the entry rows (#616). */
+  packageJsonsSeen: Set<string> = new Set()
 ): string[] {
   const out: string[] = [];
   const countUnder = (directory: string): number => {
@@ -566,7 +637,7 @@ function collectJavaScriptFiles(
     for (const entry of entries) {
       const full = path.join(directory, entry.name);
       if (entry.isDirectory()) {
-        if (!excludes.has(entry.name)) {
+        if (!excludes.has(entry.name) || (directory === rootDir && walkUnderRoot.has(entry.name))) {
           walk(full);
           continue;
         }
@@ -579,6 +650,9 @@ function collectJavaScriptFiles(
       }
       if (!entry.isFile()) {
         continue;
+      }
+      if (entry.name === 'package.json') {
+        packageJsonsSeen.add(full);
       }
       if (isJavaScriptSourceFile(entry.name)) {
         out.push(full);

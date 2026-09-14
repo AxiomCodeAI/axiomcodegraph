@@ -38,7 +38,7 @@ import * as path from 'path';
 import * as ts from 'typescript';
 
 import {
-  JAVASCRIPT_CSV_FILES, JS_SOURCE_EXTENSIONS,
+  JAVASCRIPT_CSV_FILES, JS_SKIP_DIRECTORIES, JS_SOURCE_EXTENSIONS,
 } from '@/constants/javascript-constants';
 import {
   isFlowDeclarationFileName, isJavaScriptSourceFile, jsExtensionOf, stripJsExtension,
@@ -1014,6 +1014,32 @@ const SCAFFOLD: ReadonlyArray<readonly [string, string]> = [
     'module.exports = { viaDefault, viaNamed, viaRenamed, viaTypedef };',
     '',
   ].join('\n')],
+  // A package declaring every entry shape (#616): `exports` as a subpath map with
+  // a plain target, a pattern, a null block, a non-JavaScript target, a missing
+  // target and a fallback list; `main` beside it; a scoped sibling with nested
+  // conditions, `module`, and a `main` that names a directory; and a nested
+  // package shipping from `dist/`, which the walk skips because this root is not
+  // that package (#620), so its entry is on disk and NOT_STAGED.
+  ['packages/pub/package.json', JSON.stringify({
+    name: 'pub', main: 'lib/index.js',
+    exports: {
+      '.': './lib/index.js', './sub': './lib/sub.js', './features/*': './lib/features/*.js',
+      './internal/*': null, './data': './data.json', './ghost': './lib/ghost.js',
+      './either': ['./lib/missing.js', './lib/sub.js'],
+    },
+  }) + '\n'],
+  ['packages/pub/lib/index.js', 'module.exports = { Base: class Base {}, createClient() {} };\n'],
+  ['packages/pub/lib/sub.js', 'exports.subHelper = function subHelper() { return 1; };\n'],
+  ['packages/pub/lib/features/a.js', 'exports.f = 1;\n'],
+  ['packages/pub/data.json', '{}\n'],
+  ['packages/scoped/package.json', JSON.stringify({
+    name: '@scope/pkg', main: 'cjs', module: 'cjs/index.mjs',
+    exports: { node: { import: './cjs/index.mjs', require: './cjs/index.js' }, default: './cjs/index.js' },
+  }) + '\n'],
+  ['packages/scoped/cjs/index.js', 'module.exports = {};\n'],
+  ['packages/scoped/cjs/index.mjs', 'export const x = 1;\n'],
+  ['packages/built/package.json', '{"name":"built","main":"dist/main.js"}\n'],
+  ['packages/built/dist/main.js', 'module.exports = function built() {};\n'],
 ];
 
 /**
@@ -1029,8 +1055,12 @@ const SCAFFOLD: ReadonlyArray<readonly [string, string]> = [
 // gate reported "21 rows for 20 JavaScript files", which reads like a
 // duplicated row and was a miscounted denominator. A check that hard-codes the
 // thing it is checking cannot catch the day it changes.
+// The one file under a nested package's `dist/` is walked past on purpose (#620:
+// only a walk ROOT's own build directory is walked), so it is not a source file
+// of this scaffold and the count says so through the same list the walker uses.
 const SCAFFOLD_SOURCE_COUNT =
-  SCAFFOLD.filter(([p]) => isJavaScriptSourceFile(p)).length + 1;
+  SCAFFOLD.filter(([p]) => isJavaScriptSourceFile(p)
+    && !p.split('/').some((segment) => (JS_SKIP_DIRECTORIES as readonly string[]).includes(segment))).length + 1;
 
 let scaffoldSummary: Awaited<ReturnType<JavaScriptProjectAnalyzer['analyze']>> | undefined;
 let corpusDir = '';
@@ -1527,6 +1557,7 @@ const FK_TARGET_BY_COLUMN: Readonly<Record<string, string>> = {
   resolvedMethodLinkHash: 'js_method',
   resolvedTypeLinkHash: 'js_type',
   resolvedModuleLinkHash: 'js_module',
+  targetModuleLinkHash: 'js_module',
   callSiteLinkHash: 'js_call_site',
   // c32, appended after the primary key. It arrived as a LOUD failure from this
   // very map — "an FK column this gate cannot map" — which is the behaviour the
@@ -5607,6 +5638,7 @@ function linkColumnsMeanWhatTheyClaim(): number {
     'js_type_reference.ownerLinkHash': 'declared types agree + separator/EXPRESSION check',
     'js_variable.declarationScopeLinkHash': 'the hoisting model holds',
     'js_variable.syntacticScopeLinkHash': 'the hoisting model holds',
+    'js_package_entry.targetModuleLinkHash': 'package entries name what a package exposes',
   };
   const INTEGRITY_ONLY: Record<string, string> = {
     'js_*.ownerModuleLinkHash': 'same-module links only asserts membership; no finer meaning exists',
@@ -5916,6 +5948,140 @@ function jsdocImportTagsMintBindings(): number {
     failures += fail(`${leaked.length} js_variable row(s) for @import names: a type-only binding leaked into the runtime scope`);
   }
   console.log(`  ${expected.length} import rows asserted by value, 4 @param links, no runtime binding`);
+  return failures;
+}
+
+/**
+ * A package's IR says which module its `main` / `exports` entry is (#616).
+ *
+ * `js_module.packageName` says which package a module belongs to; nothing said
+ * which module the package HANDS OUT for `require('pkg')`, so library IR staged
+ * on its own could not answer what a specifier loads. Asserted by value over
+ * three scaffold packages: every `exports` shape, `main` with Node's directory
+ * fallback, `module`, nested conditions, the `index.js` default, and each
+ * outcome as a NAMED absence rather than a guess: a pattern, a `null` block, a
+ * `.json` target, a missing file, and a file on disk the walk did not stage.
+ */
+function packageEntriesNameWhatAPackageExposes(): number {
+  let failures = 0;
+  const relations = readRelations(outputDir);
+  const entries = relations.find((r) => r.name === 'js_package_entry');
+  if (entries === undefined) {
+    return fail('js_package_entry is not in the output');
+  }
+  const modules = relations.find((r) => r.name === 'js_module')!;
+  const mPk = pkIndexOf(modules.header, 'js_module');
+  const mPath = modules.header.indexOf('filePath');
+  const pathOfModule = new Map(modules.rows.map((r) => [r[mPk] ?? '', r[mPath] ?? '']));
+  const col = (c: string): number => entries.header.indexOf(c);
+  const expected: ReadonlyArray<readonly [string, string, string, string, string, string, string]> = [
+    // packageName, subpath, condition, entrySource, targetPath, outcome, resolved module file
+    ['pub', '.', '', 'EXPORTS', 'lib/index.js', 'RESOLVED', 'packages/pub/lib/index.js'],
+    ['pub', '.', '', 'MAIN', 'lib/index.js', 'RESOLVED', 'packages/pub/lib/index.js'],
+    ['pub', './sub', '', 'EXPORTS', 'lib/sub.js', 'RESOLVED', 'packages/pub/lib/sub.js'],
+    ['pub', './features/*', '', 'EXPORTS', 'lib/features/*.js', 'PATTERN', ''],
+    ['pub', './internal/*', '', 'EXPORTS', '', 'BLOCKED', ''],
+    ['pub', './data', '', 'EXPORTS', 'data.json', 'NOT_JAVASCRIPT', ''],
+    ['pub', './ghost', '', 'EXPORTS', 'lib/ghost.js', 'MISSING_FILE', ''],
+    ['pub', './either', '', 'EXPORTS', 'lib/missing.js', 'MISSING_FILE', ''],
+    ['pub', './either', '', 'EXPORTS', 'lib/sub.js', 'RESOLVED', 'packages/pub/lib/sub.js'],
+    ['@scope/pkg', '.', 'node.import', 'EXPORTS', 'cjs/index.mjs', 'RESOLVED', 'packages/scoped/cjs/index.mjs'],
+    ['@scope/pkg', '.', 'node.require', 'EXPORTS', 'cjs/index.js', 'RESOLVED', 'packages/scoped/cjs/index.js'],
+    ['@scope/pkg', '.', 'default', 'EXPORTS', 'cjs/index.js', 'RESOLVED', 'packages/scoped/cjs/index.js'],
+    ['@scope/pkg', '.', '', 'MAIN', 'cjs', 'RESOLVED', 'packages/scoped/cjs/index.js'],
+    ['@scope/pkg', '.', '', 'MODULE', 'cjs/index.mjs', 'RESOLVED', 'packages/scoped/cjs/index.mjs'],
+    ['built', '.', '', 'MAIN', 'dist/main.js', 'NOT_STAGED', ''],
+    ['scaffold-root', '.', '', 'DEFAULT_INDEX', 'index.js', 'MISSING_FILE', ''],
+  ];
+  for (const [pkg, subpath, condition, source, target, outcome, file] of expected) {
+    const row = entries.rows.find((r) => r[col('packageName')] === pkg && r[col('subpath')] === subpath
+      && r[col('condition')] === condition && r[col('entrySource')] === source && r[col('targetPath')] === target);
+    if (row === undefined) {
+      failures += fail(`no js_package_entry row ${pkg} ${subpath} [${condition}] ${source} -> ${JSON.stringify(target)}`);
+      continue;
+    }
+    const gotOutcome = row[col('targetOutcome')];
+    const gotFile = pathOfModule.get(row[col('targetModuleLinkHash')] ?? '') ?? '';
+    if (gotOutcome !== outcome || gotFile !== file) {
+      failures += fail(`js_package_entry ${pkg} ${subpath} [${condition}] ${source}: ${gotOutcome} -> ${JSON.stringify(gotFile)}; `
+        + `expected ${outcome} -> ${JSON.stringify(file)}`);
+    }
+    if ((row[col('targetModuleLinkHash')] ?? '') !== '' && gotOutcome !== 'RESOLVED') {
+      failures += fail(`js_package_entry ${pkg} ${subpath}: a module hash on a ${gotOutcome} row; only RESOLVED carries one`);
+    }
+  }
+  const named = entries.rows.filter((r) => ['pub', '@scope/pkg', 'built', 'scaffold-root'].includes(r[col('packageName')] ?? ''));
+  if (named.length !== expected.length) {
+    failures += fail(`${named.length} entry rows for the four packages, expected ${expected.length}: `
+      + 'one per (subpath, condition, source, target), no more');
+  }
+  console.log(`  ${expected.length} entries asserted by value across four packages, six outcomes`);
+  return failures;
+}
+
+/**
+ * A walk root that is a package shipping from a build directory walks it (#620).
+ *
+ * `dist/` is skipped for a project because it is the artefact beside the
+ * source. For a PUBLISHED package handed to the parser on its own, it is the
+ * only code the package ships, and skipping it staged nothing: zero `js_module`
+ * rows, every call into the package unknown, nothing saying why. Asserted on a
+ * root whose `exports` name `dist/`: its files are modules, its entries resolve,
+ * the summary names the directory walked, and the skip still holds for a
+ * nested `dist/` and for `node_modules` under the same root.
+ */
+async function publishedPackageWalksItsBuildOutput(): Promise<number> {
+  let failures = 0;
+  const root = scratchDir('js-gate-published-');
+  const write = (relative: string, contents: string): void => {
+    const full = path.join(root, relative);
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, contents);
+  };
+  write('package.json', JSON.stringify({
+    name: 'shipped', exports: { '.': { require: './dist/main.cjs', import: './dist/main.mjs' } },
+  }) + '\n');
+  write('dist/main.cjs', 'module.exports = { hello() { return 1; } };\n');
+  write('dist/main.mjs', 'export function hello() { return 1; }\n');
+  write('src/main.js', 'export function hello() { return 1; }\n');
+  // Not the root's own build directory: stays skipped.
+  write('src/other/dist/bundle.js', 'var a = 1;\n');
+  write('node_modules/dep/index.js', 'module.exports = 1;\n');
+  const output = scratchDir('js-gate-published-out-');
+  const summary = await new JavaScriptProjectAnalyzer().analyze({
+    rootDir: root, outputDir: output, baseMservPath: 'shipped', serviceVersionLink: 'gate-v1',
+  });
+  const relations = readRelations(output);
+  const modules = relations.find((r) => r.name === 'js_module')!;
+  const files = modules.rows.map((r) => r[modules.header.indexOf('filePath')] ?? '').sort();
+  const want = ['dist/main.cjs', 'dist/main.mjs', 'src/main.js'];
+  if (JSON.stringify(files) !== JSON.stringify(want)) {
+    failures += fail(`modules ${JSON.stringify(files)}, expected ${JSON.stringify(want)}: the root's own dist/ is walked, `
+      + 'a nested dist/ and node_modules are not');
+  }
+  const entries = relations.find((r) => r.name === 'js_package_entry')!;
+  const outcomes = entries.rows.map((r) => r[entries.header.indexOf('targetOutcome')]);
+  if (entries.rows.length !== 2 || outcomes.some((o) => o !== 'RESOLVED')) {
+    failures += fail(`entries ${JSON.stringify(outcomes)}: both exports conditions must RESOLVE to a staged module`);
+  }
+  if (summary.buildOutputWalked.length !== 1 || summary.buildOutputWalked[0] !== path.join(root, 'dist')) {
+    failures += fail(`buildOutputWalked ${JSON.stringify(summary.buildOutputWalked)}: the exception is visible in the summary`);
+  }
+  if ((summary.skippedByDirectory['dist'] ?? 0) !== 1 || (summary.skippedByDirectory['node_modules'] ?? 0) !== 1) {
+    failures += fail(`skippedByDirectory ${JSON.stringify(summary.skippedByDirectory)}: the nested dist/ file and `
+      + 'the node_modules file are still counted as skipped');
+  }
+  // The control: the same tree with no entry into dist/ stages nothing from it.
+  write('package.json', '{"name":"shipped","main":"src/main.js"}\n');
+  const control = scratchDir('js-gate-published-control-');
+  const controlSummary = await new JavaScriptProjectAnalyzer().analyze({
+    rootDir: root, outputDir: control, baseMservPath: 'shipped', serviceVersionLink: 'gate-v1',
+  });
+  if (controlSummary.counts['js_module'] !== 1 || controlSummary.buildOutputWalked.length !== 0) {
+    failures += fail(`control: ${controlSummary.counts['js_module']} modules, walked ${JSON.stringify(controlSummary.buildOutputWalked)}; `
+      + 'a package whose entry is not under dist/ keeps the skip');
+  }
+  console.log('  3 modules from a dist-shipping root, 2 resolved entries, nested dist/ and node_modules still skipped, control holds');
   return failures;
 }
 
@@ -6508,6 +6674,8 @@ const CHECKS: Check[] = [
   { name: 'comments have one host', proves: 'a @type over an initialiser is owned once, and no function, class, named-expression or catch binding declared inside that initialiser inherits its type, initialiser or binding form — the double-mint the PK gate cannot see because each copy has its own owner', run: commentsHaveOneHost },
   { name: 'JSX tag names are references', proves: 'a component tag is a JSX_TAG_NAME child reading its binding and an intrinsic tag is none — by the language\'s rule, with `_Private`, `widgets.panel` and `Foo-Bar` each asserted where the folk rule fails', run: jsxTagNamesAreReferences },
   { name: '@import tags mint bindings', proves: 'a JSDoc @import tag mints one type-only js_import row per bound name with its real binding form, and a @param through the name links it, so the new spelling of a typedef import is not a silent nothing (#621)', run: jsdocImportTagsMintBindings },
+  { name: 'package entries name what a package exposes', proves: 'js_package_entry carries every main/module/exports entry of every package in the parse, resolved to a module hash only when the target is a staged JavaScript file and a named absence otherwise (#616)', run: packageEntriesNameWhatAPackageExposes },
+  { name: 'a published package walks its build output', proves: 'a walk root whose own package.json ships from dist/ stages the modules under it, while a nested dist/ and node_modules stay skipped and the exception is listed in the summary (#620)', run: publishedPackageWalksItsBuildOutput },
   { name: 'binding paths are keys, not names', proves: 'a destructured parameter\'s path is the key route (`wire` for `{ wire: local }`) on c33 alone, asserted by value on every pattern shape', run: bindingPathsAreKeysNotNames },
   { name: 'UNKNOWN_SYNTAX names only what the vocabulary cannot', proves: 'a callback is a FUNCTION_TYPE tree, a heritage operand is NAMED, parentheses are unwrapped and keywords are named — and no UNKNOWN_SYNTAX row anywhere carries text the vocabulary already covers', run: unknownSyntaxNamesOnlyWhatTheVocabularyCannot },
   { name: 'JSDoc tags reach exactly one row', proves: 'every @template parameter the compiler parsed becomes one row and no block is read twice — counted from node.jsDoc[].tags, because ts.getJSDocTags both loses blocks and inherits to children', run: jsdocTagsReachExactlyOneRow },

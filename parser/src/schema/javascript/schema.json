@@ -843,6 +843,37 @@
      "WITH_STATEMENT_SCOPE"
     ]
    }
+  },
+  "js_package_entry": {
+   "columns": [
+    "packageName",
+    "subpath",
+    "condition",
+    "entrySource",
+    "targetPath",
+    "targetModuleLinkHash",
+    "targetOutcome",
+    "packageJsonPath",
+    "isExternal",
+    "serviceVersionLinkHash",
+    "jsPackageEntryUniqueHash"
+   ],
+   "domains": {
+    "entrySource": [
+     "DEFAULT_INDEX",
+     "EXPORTS",
+     "MAIN",
+     "MODULE"
+    ],
+    "targetOutcome": [
+     "BLOCKED",
+     "MISSING_FILE",
+     "NOT_JAVASCRIPT",
+     "NOT_STAGED",
+     "PATTERN",
+     "RESOLVED"
+    ]
+   }
   }
  }
 }
