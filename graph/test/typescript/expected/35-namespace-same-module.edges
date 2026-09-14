@@ -1,4 +1,4 @@
-ambiguous_unknown	CONSTRUCTOR_CALL	use#viaImportClass() @L30 -> -
+known_edge	CONSTRUCTOR_CALL	use#viaImportClass() @L30 -> C#<new>()
 known_edge	METHOD_CALL	use#sameModule() @L16 -> Local#f()
 known_edge	METHOD_CALL	use#sameModuleDepth() @L19 -> Deep#g()
 known_edge	METHOD_CALL	use#viaImport() @L24 -> Outer#inner()

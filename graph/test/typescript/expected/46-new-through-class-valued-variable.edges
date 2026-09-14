@@ -1,7 +1,7 @@
-ambiguous_unknown	CONSTRUCTOR_CALL	main#use() @L13 -> -
-ambiguous_unknown	CONSTRUCTOR_CALL	main#use() @L16 -> -
-ambiguous_unknown	CONSTRUCTOR_CALL	main#use() @L19 -> -
-ambiguous_unknown	CONSTRUCTOR_CALL	main#use() @L22 -> -
+known_edge	CONSTRUCTOR_CALL	main#use() @L13 -> Dog#<new>()
+known_edge	CONSTRUCTOR_CALL	main#use() @L16 -> Dog#<new>()
+known_edge	CONSTRUCTOR_CALL	main#use() @L19 -> Dog#<new>()
+known_edge	CONSTRUCTOR_CALL	main#use() @L22 -> Dog#<new>()
 known_edge	METHOD_CALL	main#use() @L13 -> Dog#fetch()
 known_edge	METHOD_CALL	main#use() @L16 -> Dog#fetch()
 known_edge	METHOD_CALL	main#use() @L19 -> Dog#fetch()

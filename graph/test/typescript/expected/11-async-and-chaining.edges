@@ -1,9 +1,9 @@
-ambiguous_unknown	CONSTRUCTOR_CALL	Repo#find() @L13 -> -
-ambiguous_unknown	CONSTRUCTOR_CALL	Repo#sync() @L16 -> -
-ambiguous_unknown	CONSTRUCTOR_CALL	async#drive() @L24 -> -
 ambiguous_unknown	CONSTRUCTOR_CALL	async#useLibrary() @L34 -> -
 ambiguous_unknown	METHOD_CALL	async#useLibrary() @L36 -> -
 ambiguous_unknown	METHOD_CALL	async#useLibrary() @L37 -> -
+known_edge	CONSTRUCTOR_CALL	Repo#find() @L13 -> Row#<new>()
+known_edge	CONSTRUCTOR_CALL	Repo#sync() @L16 -> Row#<new>()
+known_edge	CONSTRUCTOR_CALL	async#drive() @L24 -> Repo#<new>()
 known_edge	METHOD_CALL	async#drive() @L25 -> Repo#find()
 known_edge	METHOD_CALL	async#drive() @L27 -> Repo#self()
 known_edge	METHOD_CALL	async#drive() @L27 -> Repo#sync()

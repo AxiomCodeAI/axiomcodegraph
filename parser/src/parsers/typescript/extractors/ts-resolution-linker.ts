@@ -13,7 +13,7 @@ import {
   TsResolutionEvidence,
   TsResolvedTargetKind,
 } from '@/enums/typescript/call-sites';
-import { TsBodyPresence } from '@/enums/typescript/methods';
+import { TsBodyPresence, TsMethodKind } from '@/enums/typescript/methods';
 import {
   BinderResult,
   BoundDeclaration,
@@ -602,8 +602,15 @@ export class TsLocalResolver {
     callSite: TsCallSiteRegistry,
     argumentCount: number
   ): void {
+    // WRITTEN constructors only. The declaration extractor synthesises a
+    // DEFAULT_CONSTRUCTOR row for a class that declares none, so the engine has
+    // a member to resolve `new C()` to; this column set records what tsc
+    // decided, and tsc reports NO declaration for that call. Linking to the
+    // synthetic row here would claim a project signature the compiler does not
+    // name, which is exactly what the tsc-adjudicated test guards against.
     const constructors = (this.methodsByOwner.get(typeHash) ?? [])
-      .filter((m) => m.name === '<constructor>');
+      .filter((m) => m.name === '<constructor>'
+        && m.methodKind !== TsMethodKind.DEFAULT_CONSTRUCTOR);
     if (constructors.length === 0) {
       // 2.3% of measured call sites: an IMPLICIT constructor. There is no
       // declaration node anywhere, so a missing row would be indistinguishable

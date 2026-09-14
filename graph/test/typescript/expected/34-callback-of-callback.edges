@@ -1,6 +1,6 @@
-ambiguous_unknown	CONSTRUCTOR_CALL	exec#<arrow@12>(?,?) @L13 -> -
-ambiguous_unknown	CONSTRUCTOR_CALL	exec#<arrow@20>(?,?) @L21 -> -
-ambiguous_unknown	CONSTRUCTOR_CALL	exec#<arrow@32>(?) @L33 -> -
+known_edge	CONSTRUCTOR_CALL	exec#<arrow@12>(?,?) @L13 -> Payload#<new>()
+known_edge	CONSTRUCTOR_CALL	exec#<arrow@20>(?,?) @L21 -> Payload#<new>()
+known_edge	CONSTRUCTOR_CALL	exec#<arrow@32>(?) @L33 -> Payload#<new>()
 known_edge	CONSTRUCTOR_CALL	exec#viaExecutor() @L12 -> MakerConstructor#<arrow@12>((resolve: (value: T) =)
 known_edge	CONSTRUCTOR_CALL	exec#viaRenamedExecutor() @L20 -> MakerConstructor#<arrow@12>((resolve: (value: T) =)
 known_edge	FUNCTION_CALL	exec#<arrow@12>(?,?) @L13 -> globals#<arrow@12>(T)

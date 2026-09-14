@@ -58,6 +58,19 @@ export enum TsMethodKind {
   /** `constructor(…)`. Named `<constructor>`. */
   CONSTRUCTOR = 'CONSTRUCTOR',
 
+  /**
+   * The constructor a class gets when it declares none and extends nothing.
+   * Named `<constructor>`, no parameters, one per such class, at the class's
+   * own position. Synthesised so `new C()` has a declaration to resolve to —
+   * the same row Java's `DEFAULT_CONSTRUCTOR` provides. A class that EXTENDS
+   * another gets no row of its own: `new Derived()` runs the nearest declared
+   * base constructor, which is a real declaration, and a synthetic one on the
+   * subclass would shadow it. A data-holder class is exactly the kind written
+   * without a constructor, so without this row every construction of one was
+   * a call to nothing while every method call on the instance resolved.
+   */
+  DEFAULT_CONSTRUCTOR = 'DEFAULT_CONSTRUCTOR',
+
   /** `get x() { }`. */
   GETTER = 'GETTER',
 

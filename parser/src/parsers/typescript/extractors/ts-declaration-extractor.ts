@@ -824,8 +824,90 @@ export class TsDeclarationExtractor {
     if (hasIndexSignature) {
       this.indexSignatureOwners.add(row.getHash());
     }
+    this.synthesizeDefaultConstructor(node, inner);
     this.popTypeParameters();
     return row.getHash();
+  }
+
+  /**
+   * The constructor a class has when it declares none and extends nothing.
+   *
+   * `new C()` on such a class resolves to a signature with NO declaration
+   * (`getResolvedSignature(...).declaration` is undefined), so nothing in the
+   * IR could be its target and every construction of a data-holder class was
+   * a call to nothing while every method call on the instance resolved. Java's
+   * front end synthesises `DEFAULT_CONSTRUCTOR` for this (JLS 8.8.9); this is
+   * the same row for TypeScript, at the class's own position, named
+   * `<constructor>` like a written one so the resolution linker and the engine
+   * find it by the same name.
+   *
+   * NOT for a class that extends another. Its implicit constructor forwards
+   * to the base constructor, and `getResolvedSignature` reports the nearest
+   * DECLARED base constructor as the target — a real declaration that a
+   * synthetic row on the subclass would shadow. When no class in the chain
+   * declares one, the root class's synthetic row is what the walk up the
+   * `extends` chain reaches, which is the same answer.
+   */
+  private synthesizeDefaultConstructor(
+    node: ts.ClassLikeDeclaration,
+    context: EmitContext
+  ): void {
+    if (node.members.some((m) => ts.isConstructorDeclaration(m))) {
+      return;
+    }
+    if (node.heritageClauses?.some((h) => h.token === ts.SyntaxKind.ExtendsKeyword)) {
+      return;
+    }
+    const startPos = this.sf.getLineAndCharacterOfPosition(node.getStart(this.sf));
+    const name = TS_ANONYMOUS_METHOD_NAMES.CONSTRUCTOR;
+    const dotted = [...context.namePath, name].filter((p) => p !== '').join('.');
+    const row = new TsMethodRegistry({
+      name,
+      signature: `${name}()`,
+      detailedSignature: `${name}()`,
+      qualifiedName: `${context.moduleQualifiedName}#${dotted}`,
+      filePath: this.options.filePath,
+      startLine: startPos.line + 1,
+      endLine: startPos.line + 1,
+      tsTypeLinkHash: context.typeHash,
+      ownerTypeName: context.ownerTypeName,
+      ownerQualifiedName: context.ownerQualifiedName,
+      methodAccess: TsMethodAccess.PUBLIC_ACCESS,
+      methodModifiers: new Set<TsMethodModifier>(),
+      returnTypeName: '',
+      isVarArgs: false,
+      hasReceiverParameter: false,
+      methodKind: TsMethodKind.DEFAULT_CONSTRUCTOR,
+      parameterCount: 0,
+      hasTypeParameters: false,
+      throwsExceptions: new Set<string>(),
+      enclosingMemberLinkHash: context.methodHash,
+      tsModuleLinkHash: context.moduleHash,
+      declarationGroupKey: memberGroupKeyOf(context.ownerGroupKey, name, false),
+      mergeScopeKey: '',
+      escapedName: name,
+      signatureRole: TsSignatureRole.SOLE,
+      overloadIndex: 0,
+      // An ambient class has no body anywhere; a source class's implicit
+      // constructor is emitted by the compiler, so it has one.
+      bodyPresence: context.isAmbient
+        ? TsBodyPresence.NO_BODY_AMBIENT
+        : TsBodyPresence.HAS_BODY,
+      isTypeOnly: false,
+      isAsync: false,
+      isGenerator: false,
+      isAbstract: false,
+      isStatic: false,
+      optionalParameterCount: 0,
+      restParameterIndex: undefined,
+      typeParameterCount: 0,
+      thisParameterTypeName: '',
+      isTypePredicateReturn: false,
+      startColumn: startPos.character + 1,
+      endColumn: startPos.character + 1,
+      serviceVersionLinkHash: this.options.serviceVersionLinkHash,
+    });
+    this.methods.push(row);
   }
 
   private emitInterface(node: ts.InterfaceDeclaration, context: EmitContext): void {

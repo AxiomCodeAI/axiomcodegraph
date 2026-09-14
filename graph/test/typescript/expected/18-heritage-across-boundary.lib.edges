@@ -1,4 +1,3 @@
-ambiguous_unknown	CONSTRUCTOR_CALL	derived#handOff() @L54 -> -
 boundary_lib	FUNCTION_CALL	derived#handOff() @L54 -> base#drain(Sink)
 boundary_lib	METHOD_CALL	ClientChild#describe() @L9 -> Base#describe()
 boundary_lib	METHOD_CALL	TwoHops#label() @L16 -> Base#describe()
@@ -6,5 +5,6 @@ boundary_lib	METHOD_CALL	derived#callInherited(ClientChild) @L29 -> Base#inherit
 boundary_lib	METHOD_CALL	derived#callMiddle(TwoHops) @L44 -> Middle#middleOnly()
 boundary_lib	METHOD_CALL	derived#callTwoHops(TwoHops) @L39 -> Base#inheritedOnly()
 boundary_lib	METHOD_CALL	derived#viaLibraryInterface(Sink) @L49 -> Sink#write(string)
+known_edge	CONSTRUCTOR_CALL	derived#handOff() @L54 -> ClientSink#<new>()
 known_edge	METHOD_CALL	derived#callOverridden(ClientChild) @L34 -> ClientChild#describe()
 multi_inferred	METHOD_CALL	derived#viaLibraryInterface(Sink) @L49 -> ClientSink#write(string)

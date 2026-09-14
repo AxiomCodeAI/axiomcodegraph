@@ -1,10 +1,10 @@
-ambiguous_unknown	CONSTRUCTOR_CALL	handlers#useLibrary(Sink) @L58 -> -
 ambiguous_unknown	CONSTRUCTOR_CALL	handlers#useLibrary(Sink) @L60 -> -
-ambiguous_unknown	CONSTRUCTOR_CALL	handlers#viaMonomorphicConst() @L33 -> -
-ambiguous_unknown	CONSTRUCTOR_CALL	handlers#viaReassignedLet(boolean) @L40 -> -
-ambiguous_unknown	CONSTRUCTOR_CALL	handlers#viaReassignedLet(boolean) @L42 -> -
 ambiguous_unknown	METHOD_CALL	handlers#useLibrary(Sink) @L57 -> -
 ambiguous_unknown	METHOD_CALL	handlers#useLibrary(Sink) @L60 -> -
+known_edge	CONSTRUCTOR_CALL	handlers#useLibrary(Sink) @L58 -> ClientSink#<new>()
+known_edge	CONSTRUCTOR_CALL	handlers#viaMonomorphicConst() @L33 -> LowerHandler#<new>()
+known_edge	CONSTRUCTOR_CALL	handlers#viaReassignedLet(boolean) @L40 -> LowerHandler#<new>()
+known_edge	CONSTRUCTOR_CALL	handlers#viaReassignedLet(boolean) @L42 -> UpperHandler#<new>()
 known_edge	METHOD_CALL	handlers#useLibrary(Sink) @L59 -> ClientSink#accept(string)
 multi_inferred	METHOD_CALL	handlers#viaMonomorphicConst() @L36 -> Handler#handle(string)
 multi_inferred	METHOD_CALL	handlers#viaMonomorphicConst() @L36 -> LowerHandler#handle(string)
