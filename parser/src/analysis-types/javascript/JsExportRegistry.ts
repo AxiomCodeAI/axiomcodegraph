@@ -122,6 +122,9 @@ export class JsExportRegistry implements EntityIdentifiable {
   setTargetKind(value: JsExportTargetKind): void {
     this.targetKind = value;
   }
+  targetLinkHashValue(): string {
+    return this.targetLinkHash;
+  }
   setTargetLinkHash(hash: string): void {
     this.targetLinkHash = hash;
   }
