@@ -995,6 +995,25 @@ const SCAFFOLD: ReadonlyArray<readonly [string, string]> = [
   // footer is a minified bundle.
   ['cjs/long-literal.js', `const WHITELIST = /^(${'[a-z]'.repeat(1_500)})$/;\nmodule.exports = { WHITELIST };\n`],
   ['cjs/compiled.js', `var a=1;${'var b=2;'.repeat(900)}\n//# sourceMappingURL=compiled.js.map\n`],
+  // The `@import` JSDoc tag (#621): the three binding shapes, the older
+  // `@typedef {import(...)}` spelling beside them as the control, and a
+  // `@param` through each name. Every row is comment-borne and type-only.
+  ['cjs/jsdoc-import-tag.js', [
+    '/** @import Template from "./router" */',
+    '/** @import { Router, Route as Alias } from "./router" */',
+    '/** @import * as NS from "./router" */',
+    '/** @typedef {import("./router").Router} RouterAlias */',
+    '/** @param {Template} t */',
+    'function viaDefault(t) { return t.render(); }',
+    '/** @param {Router} r */',
+    'function viaNamed(r) { return r.handle(); }',
+    '/** @param {Alias} a */',
+    'function viaRenamed(a) { return a.run(); }',
+    '/** @param {RouterAlias} r */',
+    'function viaTypedef(r) { return r.handle(); }',
+    'module.exports = { viaDefault, viaNamed, viaRenamed, viaTypedef };',
+    '',
+  ].join('\n')],
 ];
 
 /**
@@ -2784,11 +2803,16 @@ function moduleEdgeOneToOne(): number {
   // at least one js_type_reference.importLinkHash must point at it. A row
   // nothing points at was minted for no reference, which is the double-mint
   // this gate exists for, through the other end.
+  // That holds for an import TYPE row, minted per occurrence and binding
+  // nothing. An `@import` TAG row (#621) binds a name and is a declaration: it
+  // may go unused exactly as a runtime `import` may, so only the pairing with
+  // the expression side is asserted on it.
   const importsRelation = relations.find((r) => r.name === 'js_import');
   const references = relations.find((r) => r.name === 'js_type_reference');
   if (importsRelation !== undefined && references !== undefined) {
     const iPk = pkIndexOf(importsRelation.header, 'js_import');
     const iBearer = importsRelation.header.indexOf('edgeBearer');
+    const iBinding = importsRelation.header.indexOf('bindingForm');
     const iSource = importsRelation.header.indexOf('sourceExpressionLinkHash');
     const rImport = references.header.indexOf('importLinkHash');
     const pointedAt = new Set(references.rows.map((r) => r[rImport] ?? '').filter((v) => v !== ''));
@@ -2802,7 +2826,7 @@ function moduleEdgeOneToOne(): number {
         failures += fail(`js_import ${row[iPk]}: COMMENT-borne with a sourceExpressionLinkHash — `
           + 'a comment has no expression');
       }
-      if (!pointedAt.has(row[iPk] ?? '')) {
+      if (row[iBinding] === 'NO_LOCAL_BINDING' && !pointedAt.has(row[iPk] ?? '')) {
         failures += fail(`js_import ${row[iPk]}: COMMENT-borne and no js_type_reference.importLinkHash `
           + 'points at it — minted for no reference');
       }
@@ -5808,6 +5832,94 @@ function bindingPathsAreKeysNotNames(): number {
 }
 
 /**
+ * The `@import` JSDoc tag mints one js_import row per bound name (#621).
+ *
+ * `emitJsDocImportType` accepts an `ImportTypeNode`, the `import("./x").Y` TYPE
+ * node; the `@import` tag is a `JSDocImportTag` with an import clause, and no
+ * walk reached it. A file on the new spelling minted no row, every `@param`
+ * through it resolved to nothing, and the engine declared the call unknown at a
+ * site where the type was written down. On the densest JSDoc project measured
+ * the tag outnumbers the typedef form 7:1.
+ *
+ * Asserted by value: the four rows (default, named, renamed, namespace) with the
+ * real binding form, `COMMENT` bearer, `JSDOC_IMPORT_TYPE`, `isTypeOnly`, a
+ * resolved specifier; the `@param` references linking each row by local name;
+ * the typedef control still on its own `NO_LOCAL_BINDING` row; and no binder
+ * declaration for a name that exists only in a comment.
+ */
+function jsdocImportTagsMintBindings(): number {
+  let failures = 0;
+  const relations = readRelations(outputDir);
+  const modules = relations.find((r) => r.name === 'js_module')!;
+  const mPk = pkIndexOf(modules.header, 'js_module');
+  const mPath = modules.header.indexOf('filePath');
+  const module = modules.rows.find((r) => (r[mPath] ?? '').endsWith('jsdoc-import-tag.js'))?.[mPk];
+  const imports = relations.find((r) => r.name === 'js_import')!;
+  const col = (r: { header: readonly string[] }, c: string): number => r.header.indexOf(c);
+  const iPk = pkIndexOf(imports.header, 'js_import');
+  const mine = imports.rows.filter((r) => r[col(imports, 'ownerModuleLinkHash')] === module);
+  const expected: ReadonlyArray<readonly [string, string, string, number]> = [
+    // bindingForm, importedName, localName, line
+    ['DEFAULT', 'default', 'Template', 1],
+    ['NAMED', 'Router', 'Router', 2],
+    ['NAMED', 'Route', 'Alias', 2],
+    ['NAMESPACE', '', 'NS', 3],
+    ['NO_LOCAL_BINDING', 'Router', '', 4],
+  ];
+  const rowByLocal = new Map<string, readonly string[]>();
+  for (const [form, imported, local, line] of expected) {
+    const row = mine.find((r) => r[col(imports, 'bindingForm')] === form
+      && r[col(imports, 'importedName')] === imported && r[col(imports, 'localName')] === local);
+    if (row === undefined) {
+      failures += fail(`no js_import row ${form} ${JSON.stringify(imported)} as ${JSON.stringify(local)} `
+        + `(line ${line}): the @import tag on that line minted nothing (#621)`);
+      continue;
+    }
+    rowByLocal.set(local, row);
+    const got = {
+      bearer: row[col(imports, 'edgeBearer')], form: row[col(imports, 'importForm')],
+      typeOnly: row[col(imports, 'isTypeOnly')], outcome: row[col(imports, 'resolutionOutcome')],
+      specifier: row[col(imports, 'specifier')], line: Number(row[col(imports, 'startLine')]),
+    };
+    if (got.bearer !== 'COMMENT' || got.form !== 'JSDOC_IMPORT_TYPE' || got.typeOnly !== 'true'
+      || got.outcome !== 'RESOLVED_PROJECT' || got.specifier !== './router' || got.line !== line) {
+      failures += fail(`js_import ${form} ${local || imported}: ${JSON.stringify(got)}; expected a COMMENT-borne `
+        + `JSDOC_IMPORT_TYPE row, type-only, resolving ./router in the project, on line ${line}`);
+    }
+  }
+  if (mine.length !== expected.length) {
+    failures += fail(`${mine.length} js_import rows in the file, expected ${expected.length}: `
+      + 'one per bound name of each @import tag plus the typedef control');
+  }
+  // The `@param` references link the tag's rows by local name; the typedef
+  // control links nothing (its alias resolves through the typedef, not an import).
+  const refs = relations.find((r) => r.name === 'js_type_reference')!;
+  const paramRefs = refs.rows.filter((r) => r[col(refs, 'ownerModuleLinkHash')] === module
+    && r[col(refs, 'contextKind')] === 'PARAM' && r[col(refs, 'referenceKind')] === 'NAMED');
+  for (const [name, wantLocal] of [
+    ['Template', 'Template'], ['Router', 'Router'], ['Alias', 'Alias'], ['RouterAlias', ''],
+  ] as const) {
+    const ref = paramRefs.find((r) => r[col(refs, 'typeName')] === name);
+    const link = ref?.[col(refs, 'importLinkHash')] ?? '';
+    const want = wantLocal === '' ? '' : (rowByLocal.get(wantLocal)?.[iPk] ?? '?');
+    if (ref === undefined || link !== want) {
+      failures += fail(`@param {${name}}: importLinkHash ${JSON.stringify(link)}, expected `
+        + (want === '' ? 'no link (a typedef alias)' : `the @import row binding ${wantLocal}`));
+    }
+  }
+  // A comment-only name is not a runtime binding: nothing in js_variable
+  // carries it, so a runtime reference to `Router` could never resolve to it.
+  const vars = relations.find((r) => r.name === 'js_variable')!;
+  const leaked = vars.rows.filter((r) => r[col(vars, 'ownerModuleLinkHash')] === module
+    && ['Template', 'Router', 'Alias', 'NS'].includes(r[col(vars, 'name')] ?? ''));
+  if (leaked.length > 0) {
+    failures += fail(`${leaked.length} js_variable row(s) for @import names: a type-only binding leaked into the runtime scope`);
+  }
+  console.log(`  ${expected.length} import rows asserted by value, 4 @param links, no runtime binding`);
+  return failures;
+}
+
+/**
  * `UNKNOWN_SYNTAX` names only what the vocabulary cannot.
  *
  * The value is deliberate and expected to be non-empty — JSDoc type syntax is
@@ -6395,6 +6507,7 @@ const CHECKS: Check[] = [
   { name: 'the torture scripts hold', proves: 'scoping (hoisting, TDZ, closures, named expressions, catch), CommonJS edges (conditional, non-literal, re-export overwrite), prototype declarations expressed as assignments and calls, and every call form — each trap asserted by line with the language\'s answer', run: tortureScriptsHold },
   { name: 'comments have one host', proves: 'a @type over an initialiser is owned once, and no function, class, named-expression or catch binding declared inside that initialiser inherits its type, initialiser or binding form — the double-mint the PK gate cannot see because each copy has its own owner', run: commentsHaveOneHost },
   { name: 'JSX tag names are references', proves: 'a component tag is a JSX_TAG_NAME child reading its binding and an intrinsic tag is none — by the language\'s rule, with `_Private`, `widgets.panel` and `Foo-Bar` each asserted where the folk rule fails', run: jsxTagNamesAreReferences },
+  { name: '@import tags mint bindings', proves: 'a JSDoc @import tag mints one type-only js_import row per bound name with its real binding form, and a @param through the name links it, so the new spelling of a typedef import is not a silent nothing (#621)', run: jsdocImportTagsMintBindings },
   { name: 'binding paths are keys, not names', proves: 'a destructured parameter\'s path is the key route (`wire` for `{ wire: local }`) on c33 alone, asserted by value on every pattern shape', run: bindingPathsAreKeysNotNames },
   { name: 'UNKNOWN_SYNTAX names only what the vocabulary cannot', proves: 'a callback is a FUNCTION_TYPE tree, a heritage operand is NAMED, parentheses are unwrapped and keywords are named — and no UNKNOWN_SYNTAX row anywhere carries text the vocabulary already covers', run: unknownSyntaxNamesOnlyWhatTheVocabularyCannot },
   { name: 'JSDoc tags reach exactly one row', proves: 'every @template parameter the compiler parsed becomes one row and no block is read twice — counted from node.jsDoc[].tags, because ts.getJSDocTags both loses blocks and inherits to children', run: jsdocTagsReachExactlyOneRow },

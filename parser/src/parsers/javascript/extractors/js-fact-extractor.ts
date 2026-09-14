@@ -50,6 +50,7 @@ import {
   ScopeBuildResult,
 } from '@/parsers/javascript/extractors/js-scope-builder';
 import { extractScopes } from '@/parsers/javascript/extractors/js-scope-extractor';
+import { jsDocTagsOfAllBlocks } from '@/utils/javascript/javascript-node-utils';
 
 /**
  * Extracts the whole fact spine for ONE JavaScript file.
@@ -693,6 +694,19 @@ export function extractJavaScriptFile(options: JsFileExtractionOptions): JsFileF
     row.setResolvedFilePath(importRow.resolvedFilePath);
     linkedByImportType.add(row);
   }
+  // A JSDoc `@import` tag (#621): a `JSDocImportTag` on any documented node, not
+  // an import TYPE node, so the loop above never reaches it. Its rows carry a
+  // local name, and the by-name join below is what links `@param {Name}` to them.
+  // Before that join, for the same reason the import-type rows are.
+  const visitImportTags = (node: ts.Node): void => {
+    for (const tag of jsDocTagsOfAllBlocks(node)) {
+      if (ts.isJSDocImportTag(tag)) {
+        moduleEdges.emitJsDocImportTag(tag);
+      }
+    }
+    ts.forEachChild(node, visitImportTags);
+  };
+  visitImportTags(sourceFile);
   for (const reference of jsdoc.typeReferences) {
     if (linkedByImportType.has(reference)) {
       continue;

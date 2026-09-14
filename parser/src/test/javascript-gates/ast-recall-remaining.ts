@@ -375,6 +375,23 @@ function walkFile(abs: string, rel: string): void {
     if (jsDoc !== undefined) {
       for (const doc of jsDoc) {
         for (const tag of doc.tags ?? []) {
+          // --- the `@import` tag (#621): one js_import row per bound name, at the name.
+          if (ts.isJSDocImportTag(tag)) {
+            const clause = tag.importClause;
+            if (clause?.name !== undefined) {
+              expect('jsdoc imports   -> js_import', rel, sf, clause.name.getStart(sf), 'ImportTag@import', tag.getText(sf));
+            }
+            const b = clause?.namedBindings;
+            if (b !== undefined && ts.isNamespaceImport(b)) {
+              expect('jsdoc imports   -> js_import', rel, sf, b.name.getStart(sf), 'ImportTag@import', tag.getText(sf));
+            }
+            if (b !== undefined && ts.isNamedImports(b)) {
+              for (const el of b.elements) {
+                expect('jsdoc imports   -> js_import', rel, sf, el.getStart(sf), 'ImportTag@import', el.getText(sf));
+              }
+            }
+            continue;
+          }
           const te = (tag as unknown as { typeExpression?: ts.Node }).typeExpression;
           if (te === undefined) { continue; }
           // POSITION IS THE TYPE EXPRESSION, NOT THE TAG. Asking for the tag's

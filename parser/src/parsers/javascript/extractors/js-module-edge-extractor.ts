@@ -131,6 +131,7 @@ export interface ModuleEdgeResult {
    * `imports` list, so it is written with every other edge.
    */
   readonly emitJsDocImportType: (node: ts.ImportTypeNode) => JsImportRegistry | undefined;
+  readonly emitJsDocImportTag: (tag: ts.JSDocImportTag) => readonly JsImportRegistry[];
 }
 
 export function extractModuleEdges(
@@ -211,6 +212,7 @@ class JsModuleEdgeExtractor {
       importsByLocalName: this.importsByLocalName,
       importByBindingNode: this.importByBindingNode,
       emitJsDocImportType: (node) => this.emitJsDocImportType(node),
+      emitJsDocImportTag: (tag) => this.emitJsDocImportTag(tag),
       importBinding: (name, at) => {
         const bound = this.importsByLocalName.get(name);
         if (bound === undefined || bound.length === 0) {
@@ -808,6 +810,87 @@ class JsModuleEdgeExtractor {
       sourceExpression: undefined,
       isTypeOnly: true,
     });
+  }
+
+  /**
+   * The `js_import` rows a JSDoc `@import` tag mints (#621).
+   *
+   * `/** @import Name from "./x" *\/`, `@import { A, B as C } from "./x"`,
+   * `@import * as NS from "./x"` — TypeScript 5.5's replacement for
+   * `@typedef {import("./x").Name} Name`, and the dominant spelling on a
+   * JSDoc-typed project that typechecks itself. The tag is a `JSDocImportTag`
+   * with an ordinary `importClause`, not an `ImportTypeNode`, so the import-type
+   * walk above never sees it, and a file using only this form minted no row at
+   * all: every `@param {Name}` through it resolved to nothing.
+   *
+   * One row PER BINDING, exactly as `emitImportDeclaration` does for the runtime
+   * statement, positioned at the bound name. The binding form is the REAL one
+   * (`DEFAULT` / `NAMED` / `NAMESPACE`) rather than `NO_LOCAL_BINDING`, because
+   * the tag's whole purpose is to bind names into the file's type scope, and the
+   * by-name join that links `@param {Name}` to its import reads `localName`.
+   * `COMMENT`-borne, `JSDOC_IMPORT_TYPE`, `isTypeOnly`, same resolver as every
+   * runtime specifier. No binder declaration is recorded: the name exists only
+   * in comments and must never satisfy a runtime reference.
+   */
+  emitJsDocImportTag(tag: ts.JSDocImportTag): readonly JsImportRegistry[] {
+    const out: JsImportRegistry[] = [];
+    const specifier = ts.isStringLiteralLike(tag.moduleSpecifier)
+      ? tag.moduleSpecifier.text
+      : tag.moduleSpecifier.getText(this.sourceFile);
+    const clause = tag.importClause;
+    if (clause === undefined) {
+      return out;
+    }
+    const push = (row: JsImportRegistry | undefined): void => {
+      if (row !== undefined) {
+        out.push(row);
+      }
+    };
+    if (clause.name !== undefined) {
+      push(this.emitImport({
+        node: clause.name,
+        specifier,
+        importForm: JsImportForm.JSDOC_IMPORT_TYPE,
+        bindingForm: JsImportBindingForm.DEFAULT,
+        importedName: 'default',
+        localName: clause.name.text,
+        edgeBearer: JsEdgeBearer.COMMENT,
+        sourceExpression: undefined,
+        isTypeOnly: true,
+      }));
+    }
+    const bindings = clause.namedBindings;
+    if (bindings === undefined) {
+      return out;
+    }
+    if (ts.isNamespaceImport(bindings)) {
+      push(this.emitImport({
+        node: bindings.name,
+        specifier,
+        importForm: JsImportForm.JSDOC_IMPORT_TYPE,
+        bindingForm: JsImportBindingForm.NAMESPACE,
+        importedName: '',
+        localName: bindings.name.text,
+        edgeBearer: JsEdgeBearer.COMMENT,
+        sourceExpression: undefined,
+        isTypeOnly: true,
+      }));
+      return out;
+    }
+    for (const element of bindings.elements) {
+      push(this.emitImport({
+        node: element,
+        specifier,
+        importForm: JsImportForm.JSDOC_IMPORT_TYPE,
+        bindingForm: JsImportBindingForm.NAMED,
+        importedName: (element.propertyName ?? element.name).text,
+        localName: element.name.text,
+        edgeBearer: JsEdgeBearer.COMMENT,
+        sourceExpression: undefined,
+        isTypeOnly: true,
+      }));
+    }
+    return out;
   }
 
   // -------------------------------------------------------------------------
