@@ -47,11 +47,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-      # `npm ci` runs the `prepare` script, which builds the parser workspace and
-      # the driver. Keeping the explicit build step anyway means a prepare-script
+      # No lock file is committed (#476), so this is `npm install`, not `npm ci`,
+      # and setup-node's npm cache (keyed on a lock file) is not used. The install
+      # runs the `prepare` script, which builds the parser workspace and the
+      # driver. Keeping the explicit build step anyway means a prepare-script
       # change cannot silently stop compiling this repo.
-      - run: npm ci
+      - run: npm install
       - run: npm run typecheck
       - run: npm run build
       - name: the parser actually built
@@ -164,7 +165,7 @@ jobs:
           # JavaScript: 19 cases; the library case ships its dependency under
           # src/node_modules and is solved twice. The execution oracles (torture/,
           # realapp/) are separate harnesses and stay a local gate — realapp needs
-          # network for its own npm ci.
+          # network for its own npm install.
           - lang: javascript
             oracle: '--oracle'
     steps:
@@ -173,16 +174,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
 
       # Builds the in-repo parser (parser/dist) through the prepare script, and
       # supplies the TypeScript compiler the typescript and javascript oracles run.
-      - run: npm ci
+      # `npm install`, not `npm ci`: no lock file is committed (#476).
+      - run: npm install
 
       - name: the parser actually built
         run: |
           test -f parser/dist/index.js \
-            || { echo "::error::parser/dist/index.js is missing after npm ci"; exit 1; }
+            || { echo "::error::parser/dist/index.js is missing after npm install"; exit 1; }
 
       # TWO interpreters, because the python suite needs two different things and
       # they cannot be the same version.
