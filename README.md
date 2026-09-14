@@ -1,7 +1,25 @@
 <h1 align="center">AxiomCode Code Graph</h1>
 
 <p align="center">
-  <strong>See what your code change will break before you make it.</strong>
+  <strong>A god's-eye view of your codebase for AI agents. Stop grepping; know exactly what every change touches, with nothing hallucinated.</strong>
+</p>
+
+<p align="center">
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/javascript/javascript-original.svg" width="46" height="46" alt="JavaScript" title="JavaScript: engine in progress"/>
+  &nbsp;&nbsp;&nbsp;
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/python/python-original.svg" width="46" height="46" alt="Python" title="Python: stable"/>
+  &nbsp;&nbsp;&nbsp;
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/typescript/typescript-original.svg" width="46" height="46" alt="TypeScript" title="TypeScript: stable"/>
+  &nbsp;&nbsp;&nbsp;
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/java/java-original.svg" width="46" height="46" alt="Java" title="Java: stable"/>
+  &nbsp;&nbsp;&nbsp;
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/csharp/csharp-original.svg" width="46" height="46" alt="C#" title="C#: planned"/>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/xml/xml-original.svg" width="34" height="34" alt="XML" title="XML: Spring beans, web.xml, pom.xml"/>
+  &nbsp;&nbsp;
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/yaml/yaml-original.svg" width="34" height="34" alt="YAML" title="YAML: application configuration"/>
+  &nbsp;&nbsp;
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/gradle/gradle-original.svg" width="34" height="34" alt="Gradle" title="Gradle: build graph and dependencies"/>
 </p>
 
 <p align="center">
@@ -32,24 +50,6 @@ Text search cannot do this. It finds names, not calls: it returns thousands of u
 
 ## Language support
 
-<p align="center">
-  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/javascript/javascript-original.svg" width="46" height="46" alt="JavaScript" title="JavaScript: engine in progress"/>
-  &nbsp;&nbsp;&nbsp;
-  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/python/python-original.svg" width="46" height="46" alt="Python" title="Python: stable"/>
-  &nbsp;&nbsp;&nbsp;
-  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/typescript/typescript-original.svg" width="46" height="46" alt="TypeScript" title="TypeScript: stable"/>
-  &nbsp;&nbsp;&nbsp;
-  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/java/java-original.svg" width="46" height="46" alt="Java" title="Java: stable"/>
-  &nbsp;&nbsp;&nbsp;
-  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/csharp/csharp-original.svg" width="46" height="46" alt="C#" title="C#: planned"/>
-  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/xml/xml-original.svg" width="34" height="34" alt="XML" title="XML: Spring beans, web.xml, pom.xml"/>
-  &nbsp;&nbsp;
-  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/yaml/yaml-original.svg" width="34" height="34" alt="YAML" title="YAML: application configuration"/>
-  &nbsp;&nbsp;
-  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/gradle/gradle-original.svg" width="34" height="34" alt="Gradle" title="Gradle: build graph and dependencies"/>
-</p>
-
 Two stages, two columns: the **parser** turns source into the relational IR; the **engine** turns the IR into the graph. A language is usable end to end when both are there.
 
 | language | parser | engine | maturity | validated against |
@@ -78,12 +78,12 @@ A repository with several languages is one command: the parser emits every langu
 
 <p>
   <a href="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/ci.yml"><img alt="Build" src="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/ci.yml/badge.svg?branch=main"></a>
-  <a href="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/publish-npm.yml"><img alt="Engines" src="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/publish-npm.yml/badge.svg"></a>
+  <a href="https://github.com/AxiomCodeAI/axiom-code-graph/pull/478"><img alt="Engines: not yet published" src="https://img.shields.io/badge/engines-not%20yet%20published-lightgrey"></a>
   <a href="LICENSE.md"><img alt="License: FSL-1.1-Apache-2.0" src="https://img.shields.io/badge/license-FSL--1.1--Apache--2.0-blue"></a>
   <img alt="Node ≥ 22.5" src="https://img.shields.io/badge/node-%E2%89%A5%2022.5-brightgreen">
 </p>
 
-Build: the three regression suites and the parser's suites, on every merge to `main`. Engines: the last run of the engine build and npm publish. (Workflow badges render once the repository is public; GitHub serves README images anonymously.)
+Build: the regression suites and the parser's suites on every merge to `main` (the badge reads "no status" until the workflow has run on `main`). Engines: the prebuilt engine packages on npm; the badge switches to the publish workflow's status once the first publish has run.
 
 ## Quick start
 
