@@ -28,7 +28,7 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../../.." && pwd)"
-PARSER="${AXIOM_PARSER:-$ROOT/../Parser/dist/index.js}"
+PARSER="${AXIOM_PARSER:-$ROOT/parser/dist/index.js}"
 EMPTY_LIB="${AXIOM_EMPTY_LIB:-$(mktemp -d)}"; mkdir -p "$EMPTY_LIB"
 [ -f "$PARSER" ] || { echo "  SKIP  protocol-fan: parser not found at $PARSER (set AXIOM_PARSER)"; exit 0; }
 

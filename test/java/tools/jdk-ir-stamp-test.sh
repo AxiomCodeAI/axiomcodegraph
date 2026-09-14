@@ -16,7 +16,7 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../../.." && pwd)"
-PARSER="${AXIOM_PARSER:-$ROOT/../Parser/dist/index.js}"
+PARSER="${AXIOM_PARSER:-$ROOT/parser/dist/index.js}"
 [ -f "$PARSER" ] || { echo "jdk-ir-stamp: SKIP (no parser at $PARSER)"; exit 0; }
 command -v node >/dev/null 2>&1 || { echo "jdk-ir-stamp: SKIP (no node)"; exit 0; }
 

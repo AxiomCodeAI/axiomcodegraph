@@ -95,4 +95,4 @@ who clones the repo: no 2 GB of library IR, no `npm install`.
 
 ## Environment
 
-`AXIOM_PARSER` — path to the parser entrypoint (default `../../../Parser/dist/index.js`).
+`AXIOM_PARSER` — path to the parser entrypoint (default `parser/dist/index.js`, the parser in this repository).

@@ -36,7 +36,8 @@ SRC="${AXIOM_JDK_SRC:-/Users/swapnilpaliwal/Documents/Java-Projects/java/jdk26u/
 # deliberately not decided here.
 SRCZIP="${AXIOM_JDK_SRCZIP:-$(/usr/libexec/java_home 2>/dev/null)/lib/src.zip}"
 OUT="${AXIOM_JDK_IR:-/Users/swapnilpaliwal/Documents/AxiomCode/jdk}"
-PARSER="${AXIOM_PARSER:-/Users/swapnilpaliwal/Documents/AxiomCode/Parser/dist/index.js}"
+ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+PARSER="${AXIOM_PARSER:-$ROOT/parser/dist/index.js}"
 CHECK=0; FORCE=0; KEEP_STALE=0; ONLY=()
 while [ $# -gt 0 ]; do case "$1" in
   --src) SRC="$2"; shift 2;; --out) OUT="$2"; shift 2;; --parser) PARSER="$2"; shift 2;;

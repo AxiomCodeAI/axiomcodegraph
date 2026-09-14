@@ -18,7 +18,7 @@ R="$(cd "$(dirname "$0")/.." && pwd)"
 ENG="$(cd "$R/../../.." && pwd)"
 TOOLS="$ENG/test/java/tools"
 SHARED="$ENG/test/tools"   # language-independent checks live here (compare_runs, check_staging)
-PARSER="${AXIOM_PARSER:-$ENG/../Parser/dist/index.js}"
+PARSER="${AXIOM_PARSER:-$ENG/parser/dist/index.js}"
 BLESS=0; [ "${1:-}" = "--bless" ] && BLESS=1
 cd "$R"
 [ -f "$PARSER" ] || { echo "SKIP: no parser at $PARSER (set AXIOM_PARSER)"; exit 77; }

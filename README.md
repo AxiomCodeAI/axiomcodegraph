@@ -127,18 +127,23 @@ receiver is a lambda parameter. Restricted to files of 1,000 lines or more, d1 r
 ## Run
 
 ```bash
-npm install && npm run build
+npm install && npm run build          # builds the parser and the engine (Node ≥ 22.5)
 
-# 1. extract a relational IR from source (separate parser package)
-node <parser>/dist/index.js <src-dir> <slug> false <IR-dir>
-
-# 2. solve
-bash graph/pipeline/run-souffle.sh \
-     --language java \                        # java | typescript | python
-     --client-ir <IR-dir> \
-     --library <platform-ir>[,<lib-ir>...] \  # platform library + the project's real dependencies
-     --intermediate <scratch> --output <out>
+bin/axiom-graph --language java --src <project-dir> --out <out-dir>
+#               --language java | typescript | python
+#               --library <platform-ir>[,<lib-ir>...]   the platform library and real dependencies, when you have their IR
+#               --debug                                 also write csv/*.csv and keep raw/
 ```
+
+That is the whole pipeline: the parser (`parser/`) extracts a relational IR from the source,
+the engine (`graph/`) solves it, and `<out-dir>/graph.sqlite` is the result. **No Soufflé and
+no C++ compiler**: the rules compile to one self-contained executable, CI builds it for Linux
+(x86_64, arm64), macOS (arm64) and Windows on every merge to `main` and commits it under
+`binaries/<lang>/<platform>/`, so a checkout carries the engine for every platform. With
+`souffle` installed the engine compiles locally instead.
+
+The two stages can also be run separately (`node parser/dist/index.js <src> <slug> false <ir>`,
+then `graph/pipeline/run-souffle.sh --language L --client-ir <ir> … --output <out>`).
 
 **Outputs — the same in every language** ([`graph/bundle/SCHEMA.md`](graph/bundle/SCHEMA.md))
 
@@ -191,14 +196,21 @@ the omission is reported.
 ## Layout
 
 ```
-src/engine/projections/           IR → typed relations
-src/engine/containment/           ownership, type nesting
-src/engine/resolution/            type resolution, hierarchy, generics, virtual dispatch
-src/engine/expression-resolution/ call sites, callee resolution, overloads, lambdas
-src/engine/call-edge-generation/  call classes, chain edges, lambda dispatch
-graph/souffle/                      relation declarations + export manifest
-graph/pipeline/run-souffle.sh       fact staging, compile cache, stage↔solve loop, then the bundle stage
-graph/bundle/                       the output contract: schema as data, per-language adapters, CSV + SQLite writers
+bin/axiom-graph                   the one command: parse → solve → graph.sqlite
+parser/                           the IR extractor (its own package; merged in with history)
+graph/                            the engine
+  <lang>/engine/projections/        IR → typed relations
+  <lang>/engine/containment/        ownership, type nesting
+  <lang>/engine/resolution/         type resolution, hierarchy, generics, virtual dispatch
+  <lang>/engine/expression-resolution/  call sites, callee resolution, overloads, lambdas
+  <lang>/engine/call-edge-generation/   call classes, chain edges, lambda dispatch
+  <lang>/souffle/                   relation declarations + export manifest
+  <lang>/templates/                 staging maps
+  pipeline/run-souffle.sh           fact staging, engine resolution (committed / compiled / fetched), stage↔solve loop, then the bundle stage
+  bundle/                           the output contract: schema as data (SCHEMA.md), per-language adapters, writers
+binaries/<lang>/<platform>/       CI-built engines, committed on merge (ENGINE_ID = the rules they were built from)
+skills/code-graph/                how an agent builds and queries the graph
+test/<lang>/                      regression suites, torture harnesses, oracles
 ```
 
 ## Known limits

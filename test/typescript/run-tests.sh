@@ -31,7 +31,7 @@
 #   that STARTS working also fails, so the debt list cannot silently rot.
 #
 # Environment:
-#   AXIOM_PARSER   path to the parser entrypoint  (default ../../../Parser/dist/index.js)
+#   AXIOM_PARSER   path to the parser entrypoint  (default parser/dist/index.js — the parser in this repository)
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -230,7 +230,7 @@ if ! bash "$HERE/tools/envelope-merge-test.sh"; then
   echo "aborting: the dispatch envelope is not the resolved symbol's declaration set"
   exit 1
 fi
-PARSER="${AXIOM_PARSER:-$ROOT/../Parser/dist/index.js}"
+PARSER="${AXIOM_PARSER:-$ROOT/parser/dist/index.js}"
 WORK="$HERE/.work"
 BLESS=0; KEEP=0; ORACLE=0; FILTERS=()
 for a in "$@"; do case "$a" in

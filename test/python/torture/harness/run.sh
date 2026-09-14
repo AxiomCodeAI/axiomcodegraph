@@ -3,7 +3,7 @@
 set -u
 R="$(cd "$(dirname "$0")/.." && pwd)"
 ENG="$(cd "$R/../../.." && pwd)"
-PARSER="${AXIOM_PARSER:-$ENG/../Parser/dist/index.js}"
+PARSER="${AXIOM_PARSER:-$ENG/parser/dist/index.js}"
 cd "$R"
 python3 harness/trace.py >/dev/null 2>&1 || { echo "trace failed"; exit 1; }
 rm -rf lib-ir client-ir out int
