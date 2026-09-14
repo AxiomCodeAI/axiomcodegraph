@@ -155,7 +155,6 @@ constructor), `TYPE_ONLY_TARGET` (the compiler named a JSDoc function type),
 | `import_unresolved` / `import_binding_unresolved` | a dependency not staged vs a name the module does not export |
 | `heritage_unresolved` / `heritage_dynamic` | a supertype that did not resolve; a computed `extends` |
 | `type_ref_unresolved` | which JSDoc type NAMES reached no class |
-| `module_default_recovered` | the footprint of the parser#176 workaround |
 | `param_flow_assumes_closed_world` | every parameter whose values are the visible callers' arguments |
 
 ## What is not built
@@ -167,8 +166,7 @@ constructor), `TYPE_ONLY_TARGET` (the compiler named a JSDoc function type),
   string.
 * **Inner defaults of a destructured parameter** (`function f({ cb = () => {} })`) are
   not attributed (PD-JS-5).
-* **`export default class C`** is recovered only where certain (PD-JS-3 / parser#176).
 * **Library bodies are not expanded.** A `boundary_lib` edge is marked and not followed.
 
-`PARSER-DEFECTS.md` lists the six parser gaps the rules work around, with the join each
+`PARSER-DEFECTS.md` lists the parser gaps the rules work around (one of them since fixed), with the join each
 workaround uses so it can be retired.

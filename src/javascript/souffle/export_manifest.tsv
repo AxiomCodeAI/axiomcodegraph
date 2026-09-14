@@ -29,5 +29,4 @@ this_value	diag-this-value.csv
 return_value	diag-return-value.csv
 callee_value	diag-callee-value.csv
 literal_owns_method	diag-literal-owns-method.csv
-module_default_recovered	module-default-recovered.csv
 param_fan_capped	param-fan-capped.csv

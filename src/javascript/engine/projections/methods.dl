@@ -95,8 +95,7 @@ method_kind_is_value("ARROW").
 
 // ── method_modifiers(Prov, Modifiers, MethodHash) ───────────────────────────
 // A comma-joined list: `default,export`, `async`, `static`. Read in ONE place — to
-// recover `export default function f()` as the module's default export, which the
-// export table files under `f` (parser#176).
+// recover `export default function () {}`, whose export row names nothing (PD-JS-3).
 method_modifiers("client", mods, h) :- js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, mods, _, _, h), mods != "".
 method_modifiers("lib", mods, h) :- lib_js_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, mods, _, _, h), mods != "".
 
