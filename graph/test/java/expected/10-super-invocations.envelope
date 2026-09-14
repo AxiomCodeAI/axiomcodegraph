@@ -1,0 +1,2 @@
+nominal	testcases.engine.Base.sound -> testcases.engine.SuperInvocations.sound
+nominal	testcases.engine.Named.name -> testcases.engine.SuperInvocations.name

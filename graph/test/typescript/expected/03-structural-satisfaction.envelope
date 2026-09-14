@@ -1,0 +1,2 @@
+structural	duck#Reader.read -> duck#FileReader.read
+structural	duck#Reader.read -> duck#NetReader.read

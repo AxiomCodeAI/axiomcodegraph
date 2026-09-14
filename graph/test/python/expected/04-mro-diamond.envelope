@@ -1,0 +1,4 @@
+mro	main.A.shared -> main.B.shared
+mro	main.A.shared -> main.C.shared
+mro	main.A.who -> main.C.who
+mro	main.C.shared -> main.B.shared

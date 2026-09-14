@@ -54,7 +54,13 @@ NUMERIC = re.compile(r"^\d+$")
 DUNDER = re.compile(r"^__\w+__$")
 # a label only ever produced, never joined on
 REASON_HEADS = ("call_unresolvable(", "site_reason(", "expr_type_untypable(",
-                "call_chain_summary(")
+                "call_chain_summary(",
+                # method_dispatch_candidate's third column is `basis`: which relation
+                # admitted the pair (`mro` here, `nominal`/`structural` in the other front
+                # ends). It is written into the output and never joined on, so it is the
+                # same category as the reasons above -- an output vocabulary term, not a
+                # literal the resolution could be fitted to.
+                "method_dispatch_candidate(")
 
 
 GROUND_FACT = re.compile(r'^[a-z_]+\((?:\s*"[^"]*"\s*,?)+\)\.\s*$')

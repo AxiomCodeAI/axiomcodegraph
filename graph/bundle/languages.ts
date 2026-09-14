@@ -63,6 +63,7 @@ export interface LanguageAdapter {
     callEdges: RawSource;
     typeAncestors?: RawSource;
     overrides?: RawSource;
+    dispatchCandidates?: RawSource;
     entryPoints?: RawSource;
     entryReachable?: RawSource;
     typeInstantiated?: RawSource;
@@ -88,6 +89,7 @@ const JAVA: LanguageAdapter = {
     callEdges: CALL_EDGES,
     typeAncestors: { file: 'resolution-type-ancestor.csv', columns: [0, 1] },
     overrides: { file: 'resolution-virtual-override.csv', columns: [0, 1] },
+    dispatchCandidates: { file: 'dispatch-candidates.csv', columns: [0, 1, 2] },
     entryPoints: { file: 'entry-point.csv', columns: [0, 1] },
     entryReachable: { file: 'entry-reachable.csv', columns: [0] },
     typeInstantiated: { file: 'type-instantiated.csv', columns: [0, 1] },
@@ -121,6 +123,9 @@ const TYPESCRIPT: LanguageAdapter = {
     typeAncestors: { file: 'resolution-type-ancestor.csv', columns: [0, 1] },
     entryPoints: { file: 'entry-point.csv', columns: [0, 1] },
     entryReachable: { file: 'entry-reachable.csv', columns: [0] },
+    dispatchCandidates: { file: 'dispatch-candidates.csv', columns: [0, 1, 2] },
+    // (type, how) — `new` is the only form TypeScript emits
+    typeInstantiated: { file: 'resolution-type-instantiated.csv', columns: [0, 1] },
   },
   ir: {
     methods: {
@@ -155,6 +160,7 @@ const PYTHON: LanguageAdapter = {
     typeAncestors: { file: 'resolution-type-ancestor.csv', columns: [1, 2] },
     // (prov, type) — no "how"; every row is a constructor call
     typeInstantiated: { file: 'resolution-type-instantiated.csv', columns: [1], constant: 'new' },
+    dispatchCandidates: { file: 'dispatch-candidates.csv', columns: [0, 1, 2] },
   },
   ir: {
     methods: {

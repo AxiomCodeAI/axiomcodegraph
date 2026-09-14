@@ -331,3 +331,38 @@ type_descriptor_getter(p, t, n, g) :-
     field_type(p, f, dt),
     type_is_data_descriptor(p, dt),
     descriptor_get_slot(gs), mro_lookup(p, dt, gs, g).
+
+// ── py_init_name(Name) ──────────────────────────────────────────────────────
+// The two names that initialise an instance of the class they are written in.
+py_init_name("__init__").
+py_init_name("__new__").
+
+// ── method_dispatch_candidate(BaseMethod, CandidateMethod, Basis) ───────────
+// THE DISPATCH ENVELOPE, in the shape every front end exports (#471). A call that
+// statically resolves to BaseMethod may at run time execute CandidateMethod instead.
+//
+// Python's basis is `mro`, and that is not a formality: the candidate is not "whatever
+// the subtype declares with this name" but whatever the subtype's LINEARISATION picks,
+// so a name a sibling base wins is attributed to that sibling and not to the subtype.
+// mro_lookup is already that answer per (type, name) — this clause only turns the
+// receiver types back into the base method they may displace.
+//
+// Reading mro_lookup rather than type_defines_method is what makes the set honest in
+// both directions: a subtype that does NOT redefine the name yields no row (mro_lookup
+// returns the base's own method, and cand != base drops it), and a subtype whose winner
+// is a monkey-patched value or an unrelated co-base yields the method that really runs.
+// A name shadowed by a data attribute yields nothing here, which is correct — that path
+// is not a method call at all (see mro_lookup_data_shadow).
+//
+// AN INITIALISER IS NOT DISPATCHED FROM ITS OWN CLASS. `Base(...)` runs Base.__init__ and
+// never Sub.__init__, however Sub subclasses Base — the constructed class is written at
+// the site. mro_lookup does not know that, because to Python's attribute machinery
+// `__init__` is an ordinary attribute found through the MRO, and it genuinely is one when
+// the receiver is a Sub. The table's claim is about what a call RESOLVING TO THE BASE may
+// run, so the pair does not belong in it. `__new__` is excluded for the same reason.
+method_dispatch_candidate(base, cand, "mro") :-
+    type_defines_method(_, sup, n, base),
+    !py_init_name(n),
+    type_ancestor(p, sub, sup),
+    mro_lookup(p, sub, n, cand),
+    cand != base.

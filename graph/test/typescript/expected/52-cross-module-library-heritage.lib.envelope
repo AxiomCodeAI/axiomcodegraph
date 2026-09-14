@@ -1,0 +1,2 @@
+nominal	lib:core#Shape.area -> lib:core#Rect.area
+nominal	lib:core#Shape.area -> lib:ext#Circle.area
