@@ -28,7 +28,7 @@ bad(){  checks=$((checks+1)); printf '  FAIL  %s\n' "$1"; fail=1; }
 build(){ bash "$HERE/build-jdk-ir.sh" --src "$1" --out "$2" --parser "$PARSER" --no-src-zip; }
 
 # ── a module whose share/classes is a SYMLINK is a real module ───────────────
-mkdir -p "$W/real/java.base/java/nio" "$W/sym/src/java.base/share" "$W/sym/out"
+mkdir -p "$W/real/java.base/java/nio" "$W/sym/graph/java.base/share" "$W/sym/out"
 cat > "$W/real/java.base/java/nio/ByteBuffer.java" <<'EOF'
 package java.nio;
 public abstract class ByteBuffer { public abstract byte get(); }
@@ -37,7 +37,7 @@ cat > "$W/real/java.base/java/nio/CharBuffer.java" <<'EOF'
 package java.nio;
 public abstract class CharBuffer { public abstract char get(); }
 EOF
-ln -s "$W/real/java.base" "$W/sym/src/java.base/share/classes"
+ln -s "$W/real/java.base" "$W/sym/graph/java.base/share/classes"
 
 build "$W/sym/src" "$W/sym/out" > "$W/sym.log" 2>&1; rc=$?
 if [ -f "$W/sym/out/java.base/all-types.csv" ]; then
@@ -59,8 +59,8 @@ got=$(sed -n 's/.*-> *\([0-9]*\) types.*/\1/p' "$W/sym.log" | head -1)
 # ── a tree where NOTHING built must fail, and must not stamp ─────────────────
 # module-info.java alone declares no types, so the parser correctly emits nothing. That is a
 # legitimate empty module -- and a tree of ONLY those has no platform library in it.
-mkdir -p "$W/mt/src/java.base/share/classes" "$W/mt/out"
-cat > "$W/mt/src/java.base/share/classes/module-info.java" <<'EOF'
+mkdir -p "$W/mt/graph/java.base/share/classes" "$W/mt/out"
+cat > "$W/mt/graph/java.base/share/classes/module-info.java" <<'EOF'
 module java.base { }
 EOF
 build "$W/mt/src" "$W/mt/out" > "$W/mt.log" 2>&1; rc=$?

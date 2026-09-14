@@ -94,7 +94,7 @@ def main(out):
     for k in sorted(summary):
         print(f'  {summary[k]:>5s}  {k}')
     # THE TWO TOTALS ARE ALLOWED TO DIFFER, and the difference is the point rather
-    # than a discrepancy: src/python/README.md decision 5 says a property read and a
+    # than a discrepancy: graph/python/README.md decision 5 says a property read and a
     # metaclass class-creation are real method->method edges that CPython's compiler
     # emits no CALL for, so they enter the graph and NOT the conserved site universe.
     # Printing the gap and which kinds account for it keeps a reader from reading the

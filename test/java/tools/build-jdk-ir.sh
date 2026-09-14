@@ -47,12 +47,12 @@ while [ $# -gt 0 ]; do case "$1" in
 [ -d "$SRC" ]  || { echo "no jdk source at $SRC" >&2; exit 1; }
 [ -f "$PARSER" ] || { echo "no parser at $PARSER (build it: npm run build)" >&2; exit 1; }
 
-. "$(cd "$(dirname "$0")/../../.." && pwd)/src/pipeline/portable-stat.sh"
+. "$(cd "$(dirname "$0")/../../.." && pwd)/graph/pipeline/portable-stat.sh"
 PARSER_REPO="$(cd "$(dirname "$PARSER")/.." && pwd)"
 PARSER_REV="$(git -C "$PARSER_REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 # THE REBUILD TRAP: dist/ is a build artefact; checking out a parser branch does not update it.
 if [ -d "$PARSER_REPO/.git" ]; then
-  # file_mtime, not `stat -f %m || stat -c %Y`: see src/pipeline/portable-stat.sh. On GNU coreutils
+  # file_mtime, not `stat -f %m || stat -c %Y`: see graph/pipeline/portable-stat.sh. On GNU coreutils
   # the old form left a filesystem report in DIST_T, so `[ "$DIST_T" -lt ... ]` exited 2 and this
   # guard — the one guarding the rebuild trap described at the top of this file — passed for every
   # input, including a genuinely stale dist/.

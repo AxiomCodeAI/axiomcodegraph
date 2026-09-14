@@ -13,7 +13,7 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
-. "$ROOT/src/pipeline/portable-stat.sh"
+. "$ROOT/graph/pipeline/portable-stat.sh"
 
 W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
 fail=0; checks=0
@@ -98,7 +98,7 @@ fi
 strays="$(grep -rn --include='*.sh' -E '(^|[^_[:alnum:]])stat[[:space:]]+-[fc][[:space:]]' "$ROOT/src" "$ROOT/test" 2>/dev/null \
           | grep -v 'portable-stat' || true)"
 [ -z "$strays" ] && ok "no script calls stat -f / stat -c directly" \
-                 || { bad "these must use file_mtime/file_ident from src/pipeline/portable-stat.sh:"; echo "$strays" | sed 's/^/          /'; }
+                 || { bad "these must use file_mtime/file_ident from graph/pipeline/portable-stat.sh:"; echo "$strays" | sed 's/^/          /'; }
 
 [ "$fail" = 0 ] && echo "portable-stat: ok ($checks checks)" || echo "portable-stat: FAILED"
 exit "$fail"

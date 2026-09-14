@@ -1,6 +1,6 @@
 # The output bundle — schema
 
-_Generated from `src/bundle/schema.ts` (schema version 1). Do not edit; run `npm run schema-doc`._
+_Generated from `graph/bundle/schema.ts` (schema version 1). Do not edit; run `npm run schema-doc`._
 
 Every run, in every language, writes the same thing:
 
@@ -8,7 +8,7 @@ Every run, in every language, writes the same thing:
 <out>/
   graph.sqlite      the contract — the tables below, the ext_* tables, and this document as tables
 and only with --debug:
-  graph/<table>.csv the core tables as headered, tab-delimited text (RFC 4180 quoting)
+  csv/<table>.csv   the core tables as headered, tab-delimited text (RFC 4180 quoting)
   raw/              the per-language Soufflé relations, verbatim. Engine-internal; not a contract.
 ```
 
@@ -495,7 +495,7 @@ Types the client actually creates an instance of — the rapid-type-analysis set
 
 ## Extended tables — `ext_<relation>`
 
-Every relation in the language's `src/<lang>/souffle/export_manifest.tsv`, loaded as `ext_<relation>` with positional columns `c0…cN` (the raw relation is declared positionally; nothing here invents a name). `schema_tables` lists each one with its arity and the comment lifted from the rule that derives it — read that before querying. They are language-specific by construction: a bundle holds only the ext tables of its own language.
+Every relation in the language's `graph/<lang>/souffle/export_manifest.tsv`, loaded as `ext_<relation>` with positional columns `c0…cN` (the raw relation is declared positionally; nothing here invents a name). `schema_tables` lists each one with its arity and the comment lifted from the rule that derives it — read that before querying. They are language-specific by construction: a bundle holds only the ext tables of its own language.
 
 ## Catalog tables
 

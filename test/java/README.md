@@ -31,7 +31,7 @@ return type of the call it is chained onto, with the type argument substituted) 
 dependency.
 
 The whole suite, including the bytecode oracle, runs in **~40 s** (it was ~20 min). Two bugs in
-`src/pipeline/run-souffle.sh` accounted for that:
+`graph/pipeline/run-souffle.sh` accounted for that:
 
 * **A C++ recompile per case (~70 s each).** The compiled-engine cache is keyed on the generated
   program text, which embeds one `.input` line per *staged* relation — so a project with no XML
@@ -173,7 +173,7 @@ java tools/ClassFileOracle.java --app <jar-or-classes> --with-lines --exclude-te
 python3 tools/score_boundary.py <client-IR> <engine-OUT>/raw gt.txt --library <platform-IR>
 
 # 3. PREVIOUS vs PRESENT — the same IR, two engine revisions
-python3 tools/compare_runs.py <before-OUT>/raw <after-OUT>/raw   # the tools read the raw relations; see src/bundle/SCHEMA.md
+python3 tools/compare_runs.py <before-OUT>/raw <after-OUT>/raw   # the tools read the raw relations; see graph/bundle/SCHEMA.md
 ```
 
 A case that ships a stub library has that stub compiled for the oracle too — first, into its own

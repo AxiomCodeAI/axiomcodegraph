@@ -1,6 +1,6 @@
 # TypeScript parser defects and contract notes
 
-Found while building `src/typescript/engine/` against the parser IR. Every item was
+Found while building `graph/typescript/engine/` against the parser IR. Every item was
 measured against a **fresh** extraction, not a checked-in export — the engine notes
 record four Python defects that were retracted because they were filed against a stale
 IR, and the same mistake is available here.

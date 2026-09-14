@@ -12,11 +12,11 @@ export interface ReasoningOptions {
   libraryDir?: string;
   /** Intermediate scratch: staged facts + the compiled-engine cache. */
   intermediateDir?: string;
-  /** Final output: graph.sqlite + graph/*.csv + raw/ (see src/bundle/SCHEMA.md). */
+  /** Final output: graph.sqlite + graph/*.csv + raw/ (see graph/bundle/SCHEMA.md). */
   outputDir?: string;
   /** Rule set to run — java (default), typescript, python. */
   language?: string;
-  /** Keep raw/ and also write graph/*.csv next to graph.sqlite. */
+  /** Keep raw/ and also write csv/*.csv next to graph.sqlite. */
   debug?: boolean;
 }
 
@@ -27,10 +27,10 @@ export interface ReasoningOptions {
  * (parsing the .map import map), compiles the .dl program to a native binary
  * (cached by program checksum under `<intermediate>/souffle`, so only the first run —
  * or a rule change — pays the compile cost), solves into `<output>/raw`, and then runs the
- * bundle stage that writes `<output>/graph.sqlite` and `<output>/graph/*.csv` — the same
- * schema in every language (src/bundle/SCHEMA.md).
+ * bundle stage that writes `<output>/graph.sqlite` (and `<output>/csv/*.csv` with --debug) — the same
+ * schema in every language (graph/bundle/SCHEMA.md).
  *
- * Cleanups only ever touch the OWNED paths inside the given directories (`raw/`, `graph/`,
+ * Cleanups only ever touch the OWNED paths inside the given directories (`raw/`, `csv/`,
  * `graph.sqlite`, the souffle scratch), never the caller's raw IR or anything else they keep
  * next to the output. Throws on any problem so the agent can catch it.
  */
@@ -74,7 +74,7 @@ export function runReasoning(opts: ReasoningOptions = {}): void {
   fs.mkdirSync(souffleScratch, { recursive: true });
   // The stage rewrites these itself; wiping first means a failed run cannot leave the previous
   // run's bundle in place looking like this one's.
-  for (const owned of ['raw', 'graph', 'graph.sqlite']) {
+  for (const owned of ['raw', 'csv', 'graph.sqlite']) {
     fs.rmSync(path.join(outputDir, owned), { recursive: true, force: true });
   }
   fs.mkdirSync(outputDir, { recursive: true });

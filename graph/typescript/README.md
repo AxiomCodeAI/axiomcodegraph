@@ -9,7 +9,7 @@ far side rather than a name or a package.
 node <parser>/dist/index.js <project> <slug> false <ir-dir>
 
 # 2. solve
-bash src/pipeline/run-souffle.sh --language typescript \
+bash graph/pipeline/run-souffle.sh --language typescript \
      --client-ir <ir-dir> --library <lib-ir>[,<lib-ir>...] \
      --intermediate <scratch> --output <out>
 

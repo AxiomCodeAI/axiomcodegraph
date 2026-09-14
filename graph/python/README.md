@@ -3,7 +3,7 @@
 Run it:
 
 ```bash
-bash src/pipeline/run-souffle.sh --language python \
+bash graph/pipeline/run-souffle.sh --language python \
   --client-ir <ir> --library ~/Documents/AxiomCode/python/v3.10.4 \
   --intermediate <scratch> --output <out>
 ```

@@ -85,7 +85,7 @@ call-chain-*.csv
 # tables, and the raw per-language relations it was built from.
 graph.sqlite
 graph.sqlite-journal
-graph/
+csv/
 raw/
 client-ir/
 library-ir/

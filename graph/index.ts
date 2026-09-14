@@ -4,8 +4,8 @@
  *
  *   node dist/index.js --language=L --client-ir=DIR --library=DIR --intermediate=DIR --output=DIR [--debug]
  *
- * --language selects the rule set under src/<lang>/ (java, typescript, python; default java).
- * The output layout is the same for every language — see src/bundle/SCHEMA.md.
+ * --language selects the rule set under graph/<lang>/ (java, typescript, python; default java).
+ * The output layout is the same for every language — see graph/bundle/SCHEMA.md.
  *
  * Throws (non-zero exit) on any failure so the agent sees it.
  */

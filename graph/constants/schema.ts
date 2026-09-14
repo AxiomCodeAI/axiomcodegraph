@@ -6,7 +6,7 @@
  *
  * Counts mirror the parser's output, and are PER-LANGUAGE: each language's parser
  * emits its own entity set with its own arities (Java's `all-*.csv`, Python's
- * `all-python-*.csv`), matching the per-language rule sets under `src/<lang>/`.
+ * `all-python-*.csv`), matching the per-language rule sets under `graph/<lang>/`.
  */
 export const JAVA_ENTITY_COLUMNS: Record<string, number> = {
   'all-types.csv': 14,
@@ -121,7 +121,7 @@ export const PYTHON_CLIENT_REQUIRED_ENTITIES = [
 /**
  * TypeScript's minimum, by the same presence rule: every file the parser accepts yields a
  * module row and that module's MODULE_INITIALIZER method, so these two blocks exist for any
- * valid project. Mirrors IR_MARKER in src/typescript/templates/staging.conf.
+ * valid project. Mirrors IR_MARKER in graph/typescript/templates/staging.conf.
  */
 export const TYPESCRIPT_CLIENT_REQUIRED_ENTITIES = [
   'all-typescript-modules.csv',

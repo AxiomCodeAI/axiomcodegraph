@@ -5,7 +5,7 @@
  *        [--library ROOT,ROOT…] [--lib-facts DIR] [--meta key=value]…
  *
  * Reads the per-language Soufflé dump in --raw and the parser IR, and writes the
- * language-neutral bundle: <out>/graph/*.csv and <out>/graph.sqlite. `--print-schema`
+ * language-neutral bundle: <out>/graph.sqlite (and <out>/csv/*.csv with --debug). `--print-schema`
  * renders SCHEMA.md to stdout instead.
  */
 import * as fs from 'fs';
@@ -83,7 +83,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   // The one case where they are written anyway is the one where they are not redundant:
   // an older Node has no `node:sqlite`, so without them the run would produce no
   // consumer-facing output at all.
-  const graphDir = path.join(a.out!, 'graph');
+  const graphDir = path.join(a.out!, 'csv');
   const haveSqlite = sqliteAvailable();
   const wantCsv = a.debug || !haveSqlite;
   fs.rmSync(graphDir, { recursive: true, force: true }); // owned: no table from an earlier run survives
@@ -92,10 +92,10 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   const dbPath = path.join(a.out!, 'graph.sqlite');
   if (haveSqlite) {
     await writeSqlite({ dbPath, language: adapter.language, core, ext: catalogExt(langDir), rawDir: a.raw!, log });
-    log(`▶ wrote ${dbPath}${a.debug ? ' (+ graph/*.csv, --debug)' : ''}`);
+    log(`▶ wrote ${dbPath}${a.debug ? ' (+ csv/*.csv, --debug)' : ''}`);
   } else {
     fs.rmSync(dbPath, { force: true });
-    console.error(`  ! node ${process.versions.node} has no node:sqlite (needs ≥ 22.5) — graph.sqlite NOT written; graph/*.csv is complete`);
+    console.error(`  ! node ${process.versions.node} has no node:sqlite (needs ≥ 22.5) — graph.sqlite NOT written; csv/*.csv is complete`);
   }
   log(`▶ bundle complete in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 }

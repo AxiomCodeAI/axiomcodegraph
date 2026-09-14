@@ -1,15 +1,15 @@
 import * as path from 'path';
 
-// src/constants/ → src/ → package root. At runtime we run from dist/, so resolve
-// the package root and read the (always-present) src/<lang>/templates from there.
+// graph/constants/ → graph/ → package root. At runtime we run from dist/, so resolve
+// the package root and read the (always-present) graph/<lang>/templates from there.
 export const PACKAGE_ROOT = path.resolve(__dirname, '..', '..');
 
 /**
  * Import-rule templates — the relation→CSV import map, parsed by run-souffle.sh.
- * Per-language: the rule sets live under src/<lang>/, so the maps do too.
+ * Per-language: the rule sets live under graph/<lang>/, so the maps do too.
  */
 export const templatesDir = (language = 'java'): string =>
-  path.join(PACKAGE_ROOT, 'src', language, 'templates');
+  path.join(PACKAGE_ROOT, 'graph', language, 'templates');
 
 /** Java's import maps — the default rule set. */
 export const TEMPLATES_DIR = templatesDir('java');
@@ -20,7 +20,7 @@ export const TEMPLATES_DIR = templatesDir('java');
  * to a native binary (cached by checksum), and solves. Self-contained — the sole
  * reasoning entry point.
  */
-export const RUN_SOUFFLE_SH = path.join(PACKAGE_ROOT, 'src', 'pipeline', 'run-souffle.sh');
+export const RUN_SOUFFLE_SH = path.join(PACKAGE_ROOT, 'graph', 'pipeline', 'run-souffle.sh');
 
 /** Marker that identifies a library IR module folder (and a client IR dir). */
 export const IR_MARKER = 'all-types.csv';

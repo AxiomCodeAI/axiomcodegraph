@@ -11,7 +11,7 @@
     "build": "tsc && tsc-alias",
     "prepare": "npm run build",
     "typecheck": "tsc --noEmit",
-    "schema-doc": "tsx src/bundle/cli.ts --print-schema > src/bundle/SCHEMA.md"
+    "schema-doc": "tsx graph/bundle/cli.ts --print-schema > graph/bundle/SCHEMA.md"
   },
   "engines": {
     "node": ">=18.0.0"

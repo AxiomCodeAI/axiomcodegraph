@@ -4,7 +4,7 @@
 #
 # For every case in test/python/cases/<name>/src:
 #   1. parse the source to IR           (external parser, $AXIOM_PARSER)
-#   2. solve with the engine            (src/pipeline/run-souffle.sh --language python)
+#   2. solve with the engine            (graph/pipeline/run-souffle.sh --language python)
 #   3. COVERAGE GUARD: no call site may vanish silently
 #   4. GOLDEN DIFF: normalized edges vs expected/<name>.edges
 #   4b. TIER/REASON CENSUS: site counts, tier mix and unresolved reasons vs
@@ -57,7 +57,7 @@ if ! bash "$ROOT/test/tools/no-ignored-fixtures.sh"; then
 fi
 # ── The bundle stage must build the language-neutral output ─────────────────
 # Every solve below ends by joining the raw relations to the IR and writing graph.sqlite
-# (src/bundle/SCHEMA.md); graph/*.csv is the same core tables and is written only under
+# (graph/bundle/SCHEMA.md); graph/*.csv is the same core tables and is written only under
 # --debug. A broken bundler fails every case identically, after the
 # solve's cost; this checks it in milliseconds on hand-written fixtures for all three languages.
 if ! bash "$ROOT/test/tools/bundle-test.sh"; then
@@ -70,7 +70,7 @@ ORACLE_HOME="${AXIOM_PY_ORACLE:-$ROOT/../callchain-oracle/python}"
 # versions -- but pinning an absolute PATH is a different thing, and the wrong one: a
 # Homebrew-on-Intel-macOS location makes --oracle unrunnable on Linux, Apple Silicon,
 # pyenv, or any CI image, reported as a "not found" that reads like a broken checkout.
-# Resolve it the way src/pipeline/run-souffle.sh resolves the souffle headers: search
+# Resolve it the way graph/pipeline/run-souffle.sh resolves the souffle headers: search
 # PATH, never hardcode a prefix. AXIOM_PY_PYTHON still overrides for an unusual install.
 find_pinned_python() {
   local c p
@@ -245,10 +245,10 @@ EMPTY_LIB="$WORK/.empty-library"; mkdir -p "$EMPTY_LIB"
 # so precisely, or every case reports a C++ abort from the solver and reads like
 # a regression in something that was never built.
 ENGINE_READY=1; ENGINE_WHY=""
-if [ ! -f "$ROOT/src/python/souffle/decls_all.dl" ]; then
-  ENGINE_READY=0; ENGINE_WHY="src/python/souffle/decls_all.dl missing"
-elif [ -z "$(find "$ROOT/src/python/engine" -name '*.dl' -type f 2>/dev/null | head -1)" ]; then
-  ENGINE_READY=0; ENGINE_WHY="src/python/engine/**/*.dl is empty — no rules yet"
+if [ ! -f "$ROOT/graph/python/souffle/decls_all.dl" ]; then
+  ENGINE_READY=0; ENGINE_WHY="graph/python/souffle/decls_all.dl missing"
+elif [ -z "$(find "$ROOT/graph/python/engine" -name '*.dl' -type f 2>/dev/null | head -1)" ]; then
+  ENGINE_READY=0; ENGINE_WHY="graph/python/engine/**/*.dl is empty — no rules yet"
 fi
 if [ "$ENGINE_READY" = "0" ] && [ "$ORACLE_ONLY" = "0" ]; then
   echo "NOTE: no Python rule set yet ($ENGINE_WHY)."
@@ -284,7 +284,7 @@ for dir in "$HERE"/cases/*/; do
   if ! node "$PARSER" "$dir/src" "$name" false "$w/ir" >"$w/parse.log" 2>&1; then
     echo "FAIL (parse — see $w/parse.log)"; fail=$((fail+1)); failed+=("$name"); continue; fi
 
-  if ! bash "$ROOT/src/pipeline/run-souffle.sh" --debug --language python \
+  if ! bash "$ROOT/graph/pipeline/run-souffle.sh" --debug --language python \
         --client-ir "$w/ir" --library "$EMPTY_LIB" \
         --intermediate "$w/int" --output "$w/out" >"$w/solve.log" 2>&1; then
     if [ "$ENGINE_READY" = "0" ]; then
@@ -379,7 +379,7 @@ if [ "$ORACLE_ONLY" = "0" ] && [ -d "$HERE/projects" ]; then
     pw="$WORK/project-$pname"; rm -rf "$pw"; mkdir -p "$pw/ir"
     if ! node "$PARSER" "$pdir" "$pname" false "$pw/ir" >"$pw/parse.log" 2>&1; then
       echo "FAIL (parse — see $pw/parse.log)"; fail=$((fail+1)); failed+=("project:$pname"); continue; fi
-    if ! bash "$ROOT/src/pipeline/run-souffle.sh" --debug --language python \
+    if ! bash "$ROOT/graph/pipeline/run-souffle.sh" --debug --language python \
           --client-ir "$pw/ir" --library "$EMPTY_LIB" \
           --intermediate "$pw/int" --output "$pw/out" >"$pw/solve.log" 2>&1; then
       echo "FAIL (solve — $(tail -1 "$pw/solve.log" | cut -c1-70))"

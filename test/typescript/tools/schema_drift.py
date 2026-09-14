@@ -37,7 +37,7 @@ def main():
     ir = sys.argv[1]
     decl_files = sys.argv[2:] or glob.glob(
         os.path.join(os.path.dirname(__file__), '..', '..', '..',
-                     'src/typescript/souffle/decls_*.dl'))
+                     'graph/typescript/souffle/decls_*.dl'))
     arity = {}
     for f in decl_files:
         for m in re.finditer(r'\.decl\s+(\w+)\(([^)]*)\)', open(f).read()):

@@ -133,20 +133,20 @@ npm install && npm run build
 node <parser>/dist/index.js <src-dir> <slug> false <IR-dir>
 
 # 2. solve
-bash src/pipeline/run-souffle.sh \
+bash graph/pipeline/run-souffle.sh \
      --language java \                        # java | typescript | python
      --client-ir <IR-dir> \
      --library <platform-ir>[,<lib-ir>...] \  # platform library + the project's real dependencies
      --intermediate <scratch> --output <out>
 ```
 
-**Outputs — the same in every language** ([`src/bundle/SCHEMA.md`](src/bundle/SCHEMA.md))
+**Outputs — the same in every language** ([`graph/bundle/SCHEMA.md`](graph/bundle/SCHEMA.md))
 
 ```
 <out>/
   graph.sqlite      the contract: core tables, the language's ext_* relations, and the schema as tables
 and only with --debug:
-  graph/<table>.csv the core tables as headered, tab-delimited text
+  csv/<table>.csv   the core tables as headered, tab-delimited text
   raw/              the per-language Soufflé relations, verbatim — engine-internal, not a contract
 ```
 
@@ -196,9 +196,9 @@ src/engine/containment/           ownership, type nesting
 src/engine/resolution/            type resolution, hierarchy, generics, virtual dispatch
 src/engine/expression-resolution/ call sites, callee resolution, overloads, lambdas
 src/engine/call-edge-generation/  call classes, chain edges, lambda dispatch
-src/souffle/                      relation declarations + export manifest
-src/pipeline/run-souffle.sh       fact staging, compile cache, stage↔solve loop, then the bundle stage
-src/bundle/                       the output contract: schema as data, per-language adapters, CSV + SQLite writers
+graph/souffle/                      relation declarations + export manifest
+graph/pipeline/run-souffle.sh       fact staging, compile cache, stage↔solve loop, then the bundle stage
+graph/bundle/                       the output contract: schema as data, per-language adapters, CSV + SQLite writers
 ```
 
 ## Known limits
