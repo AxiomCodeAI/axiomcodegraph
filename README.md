@@ -128,7 +128,7 @@ receiver is a lambda parameter. Restricted to files of 1,000 lines or more, d1 r
 
 Requirements: Node ≥ 22.5 and a POSIX shell with `awk` (Git Bash on Windows). **No Soufflé and
 no C++ compiler**: the rules compile to one self-contained executable, and CI builds it for
-Linux (x86_64, arm64), macOS (universal) and Windows on every merge to `main` and commits it
+Linux (x86_64, arm64), macOS (arm64) and Windows on every merge to `main` and commits it
 to `engine/binaries/<lang>/<platform>/` — so a checkout already contains the engine for every
 platform and nothing is downloaded. With `souffle` installed the script compiles locally
 instead, exactly as before.

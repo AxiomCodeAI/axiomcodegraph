@@ -29,7 +29,8 @@ ln -sf "$(dirname "$(command -v node)")/npx" "$W/bin/npx" 2>/dev/null || true
 
 lang=java
 id="$(PATH="$W/bin" bash "$RUN" --language $lang --print-engine-id)"
-case "$(uname -s)" in Darwin) platform=darwin-universal;; Linux) platform="linux-$(uname -m | sed 's/aarch64/arm64/;s/amd64/x86_64/')";; *) platform="windows-x86_64";; esac
+arch="$(uname -m | sed 's/aarch64/arm64/;s/amd64/x86_64/')"
+case "$(uname -s)" in Darwin) platform="darwin-$arch";; Linux) platform="linux-$arch";; *) platform="windows-x86_64";; esac
 asset="axiom-engine-$lang-$platform"
 
 # the fake engine: writes every manifest file, empty, into -D

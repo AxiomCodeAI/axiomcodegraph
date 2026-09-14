@@ -11,7 +11,7 @@
 #             C++ once, and capture the header tree the C++ compiles against.
 #   build     compile that C++ on every platform with the SAME flags the script uses locally
 #             (-std=c++17 -O3, no OpenMP/zlib/sqlite defines — the binary links against nothing
-#             but the C++ runtime). Portable target: no -march=native; macOS universal.
+#             but the C++ runtime). Portable target: no -march=native.
 #   publish   COMMIT the binaries to main under engine/binaries/<lang>/<platform>/ with the id
 #             they were built from in engine/binaries/<lang>/ENGINE_ID — so a checkout carries
 #             its own engines and nothing is downloaded — and, as a secondary copy, a GitHub
@@ -26,12 +26,9 @@ name: engine-binaries
 on:
   push:
     branches: [main]
-  # A pull request that touches the build itself exercises generate + build (no release), so a
-  # compiler break on any platform is seen before merge rather than after.
-  pull_request:
-    paths:
-      - 'src/pipeline/**'
-      - '.github/workflows/engine-binaries.yml'
+  # No pull_request trigger: macOS minutes bill at 10x and a PR run costs ~300 billable
+  # minutes. Builds happen on merge; a change to the build itself is validated with
+  # workflow_dispatch on its branch when that is worth the minutes.
   workflow_dispatch:
     inputs:
       force:
@@ -123,7 +120,11 @@ jobs:
         target:
           - { os: ubuntu-24.04,     platform: linux-x86_64 }
           - { os: ubuntu-24.04-arm, platform: linux-arm64 }
-          - { os: macos-14,         platform: darwin-universal }
+          # macOS runs on a SELF-HOSTED Apple Silicon runner (register one under Settings →
+          # Actions → Runners; it needs the Xcode command-line tools). Hosted macOS minutes
+          # bill at 10x and the Python build alone took 18 of them. arm64 only: an Intel
+          # target can be added as a second row when a user needs it.
+          - { os: [self-hosted, macOS, ARM64], platform: darwin-arm64 }
           - { os: windows-2025,     platform: windows-x86_64 }
     runs-on: ${{ matrix.target.os }}
     steps:
@@ -142,11 +143,11 @@ jobs:
               "gen/${{ matrix.lang }}.cpp" -o "axiom-engine-${{ matrix.lang }}-${{ matrix.target.platform }}"
           ls -la axiom-engine-*; ldd axiom-engine-* || true
 
-      - name: Compile (macOS, universal)
+      - name: Compile (macOS, arm64)
         if: startsWith(matrix.target.platform, 'darwin')
         run: |
           set -e
-          c++ -std=c++17 -O3 -w -arch arm64 -arch x86_64 -mmacosx-version-min=12.0 -I gen \
+          c++ -std=c++17 -O3 -w -arch arm64 -mmacosx-version-min=12.0 -I gen \
               "gen/${{ matrix.lang }}.cpp" -o "axiom-engine-${{ matrix.lang }}-${{ matrix.target.platform }}"
           ls -la axiom-engine-*; file axiom-engine-*; otool -L axiom-engine-*
 
@@ -249,7 +250,7 @@ jobs:
           git config user.email "engine-binaries@users.noreply.github.com"
           git add -A engine/binaries
           git commit -m "engine: rebuilt binaries for ${{ steps.place.outputs.published }} from ${{ github.sha }}" \
-                     -m "Built on linux-x86_64, linux-arm64, darwin-universal and windows-x86_64 by the engine-binaries workflow. Each language's ENGINE_ID is the id of the rules it was compiled from; run-souffle.sh uses the binary only while the checkout's rules hash to that id."
+                     -m "Built on linux-x86_64, linux-arm64, darwin-arm64 and windows-x86_64 by the engine-binaries workflow. Each language's ENGINE_ID is the id of the rules it was compiled from; run-souffle.sh uses the binary only while the checkout's rules hash to that id."
           # main may have moved during the build; rebase our one commit on top and retry.
           for attempt in 1 2 3 4 5; do
             git push origin HEAD:main && exit 0
