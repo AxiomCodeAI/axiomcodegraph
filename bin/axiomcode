@@ -6,8 +6,12 @@
 #                                                                    source → relational IR
 #   bin/axiomcode engine --language L --client-ir <ir-dir> --out <dir> [engine options]
 #                                                                    IR → graph.sqlite
-#   bin/axiomcode all    --language L --src <src-dir> --out <dir> [parser options] [engine options]
-#                                                                    source → graph.sqlite
+#   bin/axiomcode all    --src <src-dir> --out <dir> [--language L] [parser options] [engine options]
+#                                                                    source → <dir>/<lang>/graph.sqlite
+#                        The parser emits every language it finds in one pass; `all` then solves each
+#                        (java, typescript, python — whichever the IR holds) into its own folder.
+#                        --language restricts it to one. Graphs are per language: a Java→TS call is
+#                        not an edge in either.
 #   bin/axiomcode test   [java|typescript|python|parser|all] [suite options]
 #
 # Parser options: --version V       the version the IR is stamped with (serviceVersionLink). Default:
@@ -22,7 +26,7 @@
 set -eu
 ROOT="$(d="$(cd "$(dirname "$0")" && pwd)"; while [ "$d" != / ] && { [ ! -f "$d/package.json" ] || [ ! -d "$d/graph" ]; }; do d="$(dirname "$d")"; done; echo "$d")"
 PARSER="${AXIOM_PARSER:-$ROOT/parser/dist/index.js}"
-usage(){ sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'; }
+usage(){ sed -n '3,24p' "$0" | sed 's/^# \{0,1\}//'; }
 die(){ echo "axiomcode: $*" >&2; exit 2; }
 need_parser(){ [ -f "$PARSER" ] || { echo "axiomcode: parser not built at $PARSER — run: npm install && npm run build" >&2; exit 1; }; }
 
@@ -63,9 +67,9 @@ case "$cmd" in
       --library|--intermediate|--dispatch-cap|--lib-depth|--jdk-depth|--taint) rest+=("$1" "$2"); shift 2;;
       --debug) rest+=(--debug); shift;;
       *) die "all: unknown option $1";; esac; done
-    [ -n "$lang" ] && [ -n "$src" ] && [ -n "$out" ] || die "usage: axiomcode all --language L --src <src-dir> --out <dir> [options]"
+    [ -n "$src" ] && [ -n "$out" ] || die "usage: axiomcode all --src <src-dir> --out <dir> [--language L] [options]"
     [ -d "$src" ] || die "not a directory: $src"
-    [ -d "$ROOT/graph/$lang" ] || die "no engine for --language=$lang (have: $(ls -d "$ROOT"/graph/*/engine 2>/dev/null | sed 's#.*/graph/##; s#/engine##' | tr '\n' ' '))"
+    [ -z "$lang" ] || [ -d "$ROOT/graph/$lang" ] || die "no engine for --language=$lang (have: $(ls -d "$ROOT"/graph/*/engine 2>/dev/null | sed 's#.*/graph/##; s#/engine##' | tr '\n' ' '))"
     [ -n "$version" ] || version="$(git -C "$src" rev-parse HEAD 2>/dev/null || echo v1.0.0)"
     popts+=(--version "$version")
     mkdir -p "$out"; out="$(cd "$out" && pwd)"; int="$out/.intermediate"; ir="$int/ir"
@@ -73,10 +77,24 @@ case "$cmd" in
     echo "▶ parsing $src ($lang) → IR"
     "$0" parser "$src" "$ir" ${popts[@]+"${popts[@]}"} > "$int/parse.log" 2>&1 || { echo "❌ parser failed — see $int/parse.log" >&2; tail -5 "$int/parse.log" >&2; exit 1; }
     head -1 "$int/parse.log"
-    echo "▶ solving"
-    "$0" engine --language "$lang" --client-ir "$ir" --out "$out" --intermediate "$int" \
-         --meta "source_version=$version" --meta "source_dir=$(cd "$src" && pwd)" ${rest[@]+"${rest[@]}"}
-    echo "$out/graph.sqlite"
+    # which languages the IR holds — each language's marker relation has rows
+    rows(){ [ -f "$ir/$1" ] && [ "$(wc -l < "$ir/$1" | tr -d ' ')" -gt 1 ]; }
+    found=()
+    rows all-methods.csv            && found+=(java)
+    rows all-typescript-modules.csv && found+=(typescript)
+    rows all-python-modules.csv     && found+=(python)
+    [ ${#found[@]} -gt 0 ] || { echo "❌ the parser found no Java, TypeScript or Python source under $src" >&2; exit 1; }
+    langs=("${found[@]}")
+    if [ -n "$lang" ]; then
+      case " ${found[*]} " in *" $lang "*) langs=("$lang");; *) echo "❌ --language=$lang, but the IR holds only: ${found[*]}" >&2; exit 1;; esac
+    fi
+    echo "▶ languages: ${langs[*]}"
+    for l in "${langs[@]}"; do
+      echo "▶ solving $l → $out/$l/graph.sqlite"
+      "$0" engine --language "$l" --client-ir "$ir" --out "$out/$l" --intermediate "$int" \
+           --meta "source_version=$version" --meta "source_dir=$(cd "$src" && pwd)" ${rest[@]+"${rest[@]}"}
+    done
+    for l in "${langs[@]}"; do echo "$out/$l/graph.sqlite"; done
     ;;
   test)
     which="${1:-all}"; [ $# -gt 0 ] && shift
