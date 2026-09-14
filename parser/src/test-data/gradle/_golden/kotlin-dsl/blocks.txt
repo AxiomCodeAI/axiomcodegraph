@@ -1,0 +1,7 @@
+blockType=DEPENDENCIES	blockName=dependencies	expression=	depth=0	childBlockCount=0	declarationCount=4	dslDialect=KOTLIN	caughtExceptionTypes=	startLine=23	endLine=28	startColumn=0	endColumn=1
+blockType=DSL_BLOCK	blockName=credentials	expression=	depth=2	childBlockCount=0	declarationCount=2	dslDialect=KOTLIN	caughtExceptionTypes=	startLine=17	endLine=19	startColumn=8	endColumn=9
+blockType=DSL_BLOCK	blockName=maven	expression=	depth=1	childBlockCount=1	declarationCount=2	dslDialect=KOTLIN	caughtExceptionTypes=	startLine=15	endLine=20	startColumn=4	endColumn=5
+blockType=DSL_BLOCK	blockName=tasks	expression=	depth=0	childBlockCount=0	declarationCount=1	dslDialect=KOTLIN	caughtExceptionTypes=	startLine=35	endLine=38	startColumn=0	endColumn=1
+blockType=DSL_BLOCK	blockName=tasks	expression=	depth=0	childBlockCount=0	declarationCount=2	dslDialect=KOTLIN	caughtExceptionTypes=	startLine=30	endLine=33	startColumn=0	endColumn=1
+blockType=PLUGINS	blockName=plugins	expression=	depth=0	childBlockCount=0	declarationCount=3	dslDialect=KOTLIN	caughtExceptionTypes=	startLine=1	endLine=5	startColumn=0	endColumn=1
+blockType=REPOSITORIES	blockName=repositories	expression=	depth=0	childBlockCount=1	declarationCount=1	dslDialect=KOTLIN	caughtExceptionTypes=	startLine=13	endLine=21	startColumn=0	endColumn=1

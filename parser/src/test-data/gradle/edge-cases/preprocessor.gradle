@@ -1,0 +1,40 @@
+// Every construct here is one tree-sitter-groovy cannot parse unaided.
+// Each must either round-trip intact or leave a parse gap saying what was lost.
+
+def emptyDefault = project.findProperty('missing') ?: ''
+
+def envToken = System.getenv('BUILD_TOKEN')
+def sysProp = System.getProperty('java.version')
+def viaProvider = providers.gradleProperty('nexusUser')
+
+// ─── box drawing above is deliberately non-ASCII ───
+def unicodeNote = 'héllo wörld'
+
+configurations.all { config ->
+    config.resolutionStrategy.cacheChangingModulesFor 0, 'seconds'
+}
+
+subprojects { proj ->
+    proj.tasks.withType(Test) { t ->
+        t.useJUnitPlatform()
+    }
+}
+
+dependencies {
+    implementation "com.example:lib:${-> project.version}"
+    implementation 'com.example:multi:1.0:linux-x86@zip'
+}
+
+if (project.hasProperty('ci')) {
+    apply from: 'ci.gradle'
+} else {
+    apply plugin: 'maven-publish'
+}
+
+try {
+    apply from: 'optional.gradle'
+} catch (Exception e) {
+    logger.warn("optional.gradle missing")
+} finally {
+    logger.info('done')
+}

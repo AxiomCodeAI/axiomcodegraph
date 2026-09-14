@@ -1,0 +1,7 @@
+{
+  "name": "@fixture/ext-cjs-package",
+  "version": "0.0.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "A CommonJS package containing a .mjs file. moduleSystemSource = EXT_MJS beats PKG_TYPE_COMMONJS."
+}
