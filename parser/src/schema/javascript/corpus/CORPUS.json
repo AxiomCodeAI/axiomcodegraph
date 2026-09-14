@@ -1,0 +1,80 @@
+{
+  "$comment": [
+    "PUBLISHED LAYER \u2014 shape and fingerprint. Contains NO package identity.",
+    "",
+    "Three layers, ruled 2026-09-12:",
+    "  shape   (here)     strata, counts, exclusion rules",
+    "  digest  (here)     SHA-256 over each stratum's sorted (relative path, file sha256) list",
+    "  identity(PRIVATE)  repo/tag/peeled-SHA/subtree, and the held-back names.",
+    "                     Read from $JS_CORPUS_IDENTITY. materialise.mjs FAILS LOUDLY when absent.",
+    "",
+    "The digest is what makes this a design rather than a concealment: a holder of the private",
+    "file can prove their materialised tree is byte-identical to the one measured, and a reader",
+    "without it can still see that such a proof exists and what it covers.",
+    "",
+    "!! BLOCKING DISCREPANCY \u2014 see reproduces.status below. This manifest does NOT currently",
+    "!! reproduce the population section 0.3 reports numbers against."
+  ],
+  "materialiseRoot": "../../corpus/javascript",
+  "identityFrom": {
+    "env": "JS_CORPUS_IDENTITY",
+    "onMissing": "fail loudly; never measure a partial corpus silently"
+  },
+  "compiler": "typescript@6.0.3",
+  "emissionRegime": "js-ts6-inproc",
+  "reproduces": {
+    "status": "PARTIAL \u2014 BLOCKING FOR PUBLICATION",
+    "documentedPopulation": 2738,
+    "manifestMaterialises": 992,
+    "causes": [
+      "one package is pinned from its GIT tag but was MEASURED from its published npm artifact; its ~1,000 per-method files are generated at publish time and are not in the git tree at any SHA. A git-SHA manifest cannot reproduce it by construction \u2014 it needs an npm tarball plus an integrity hash.",
+      "a runtime standard library (423 files) was measured and is absent from the manifest entirely",
+      "the JSX stratum (38 files) is absent from the manifest entirely",
+      "two packages are pinned to a narrower subtree than was measured",
+      "one package's pinned tag yields a different file count than the measured checkout, so the version drifted"
+    ],
+    "consequence": "every number in section 0.3 and the measurements derived from it are currently reproducible only from a corpus nobody holds a recipe for. That is the failure this manifest exists to prevent, found by computing the digest rather than by trusting that materialisation implied reproduction.",
+    "howItWasMissed": "materialise.mjs verified that eight SHAs resolved and that a second run was idempotent. Both were true. NEITHER is the claim that the tree matches the measured population \u2014 the mechanism was verified and the thing was not."
+  },
+  "strata": {
+    "cjs-prototype": {
+      "files": 741,
+      "sha256": "c4a49ff7921d3edc0499f54da228052670ec202b476d369bd1240708c74cc133"
+    },
+    "dual": {
+      "files": 56,
+      "sha256": "2c4c02fa5d1f8902e909b7794be4935a3dd56362a6796ff75e3d6c4bee6dee85"
+    },
+    "esm": {
+      "files": 8,
+      "sha256": "9ed7d54df64a281c2ad38fdaf7ebba441bce6a14f6fc2d7709da722e0cc5c92b"
+    },
+    "jsdoc-typed": {
+      "files": 187,
+      "sha256": "aa95d5c6d5312490b9808a55f374089a5d7356b5a8e1c1780a576534ca613a03"
+    }
+  },
+  "exclusions": {
+    "$comment": "applied after materialisation, by content and path, never silently",
+    "MINIFIED_EXTENSION": "\\.min\\.(js|mjs|cjs)$",
+    "BUILD_DIR": "(^|/)(dist|build|bundle|vendor)(/|$)",
+    "BUNDLER_PREAMBLE": "bundler runtime preamble markers — a LABEL on emitted rows, not a drop (schema 3.1.1)",
+    "SOURCE_MAP_COMMENT": "//[#@]\\s*sourceMappingURL=",
+    "GENERATED_MONOLITH": "a concatenated build shipped beside the modules it was built from — a LABEL on emitted rows, not a drop (schema 3.1.1)",
+    "LONG_LINE": "any single line longer than 1000 characters"
+  },
+  "heldBack": {
+    "$comment": [
+      "Identities live in the PRIVATE manifest. What publishes is the DISCIPLINE, not the name.",
+      "A holdout was never cloned, so its name here would be an attestation about something",
+      "absent \u2014 and deleting the name outright would leave the census guard and the attestation",
+      "without a referent. So: named privately, attested publicly."
+    ],
+    "count": 2,
+    "attestation": "two named holdouts, identities in the private manifest, verified absent by seven checks, five of which have demonstrated synthetic positives",
+    "roles": [
+      "a Flow-throughout framework from a different vendor than the Flow population \u2014 the DETECTOR holdout",
+      "an application codebase in the dialect this corpus otherwise lacks"
+    ]
+  }
+}

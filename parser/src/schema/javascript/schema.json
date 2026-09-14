@@ -1,0 +1,848 @@
+{
+ "$comment": "FROZEN javascript fact schema \u2014 relation column order is the contract; new columns append only. Enum domains where the schema declares one. Generated once from the retired JAVASCRIPT-FACT-SCHEMA.md; edit here.",
+ "relations": {
+  "js_module": {
+   "columns": [
+    "name",
+    "qualifiedName",
+    "fileName",
+    "filePath",
+    "baseMservPath",
+    "moduleKind",
+    "scriptKind",
+    "moduleSystem",
+    "moduleSystemSource",
+    "governingPackageJsonPath",
+    "contradictsGoverningConfig",
+    "contradictionKind",
+    "packageName",
+    "isExternalModule",
+    "hasTopLevelAwait",
+    "hasJsxContent",
+    "hasFlowPragma",
+    "emissionRegime",
+    "targetTsVersion",
+    "startLine",
+    "endLine",
+    "moduleInitMethodLinkHash",
+    "moduleScopeLinkHash",
+    "defaultExportLinkHash",
+    "sourceProvenance",
+    "isExternal",
+    "serviceVersionLinkHash",
+    "jsModuleUniqueHash"
+   ],
+   "domains": {
+    "moduleKind": [
+     ".json",
+     "JSON_MODULE",
+     "SCRIPT_GLOBAL",
+     "SOURCE_MODULE"
+    ],
+    "scriptKind": [
+     "JS",
+     "JSX"
+    ],
+    "moduleSystem": [
+     "COMMONJS",
+     "ESM"
+    ],
+    "moduleSystemSource": [
+     "EXT_CJS",
+     "EXT_MJS",
+     "NO_PACKAGE_JSON_DEFAULT",
+     "PKG_TYPE_ABSENT_DEFAULT",
+     "PKG_TYPE_COMMONJS",
+     "PKG_TYPE_MODULE"
+    ],
+    "contradictionKind": [
+     "ESM_SYNTAX_UNDER_COMMONJS",
+     "MIXED",
+     "NONE",
+     "REQUIRE_UNDER_ESM"
+    ],
+    "sourceProvenance": [
+     "BUNDLED",
+     "FLOW_REJECTED",
+     "GENERATED_MONOLITH",
+     "PROJECT"
+    ]
+   }
+  },
+  "js_type": {
+   "columns": [
+    "name",
+    "qualifiedName",
+    "fileName",
+    "filePath",
+    "baseMservPath",
+    "startLine",
+    "endLine",
+    "startColumn",
+    "typeCategory",
+    "declarationForm",
+    "isAbstract",
+    "modifiers",
+    "evidenceKind",
+    "isTypeOnly",
+    "declaredMemberCount",
+    "hasPrototypeMembers",
+    "constructorMethodLinkHash",
+    "ownerModuleLinkHash",
+    "ownerScopeLinkHash",
+    "enclosingMethodLinkHash",
+    "sourceExpressionLinkHash",
+    "jsdocCommentLinkHash",
+    "isExported",
+    "isExternal",
+    "serviceVersionLinkHash",
+    "jsTypeUniqueHash"
+   ],
+   "domains": {
+    "typeCategory": [
+     "ANONYMOUS_CLASS",
+     "CLASS",
+     "CONSTRUCTOR_FUNCTION",
+     "JSDOC_CALLBACK",
+     "JSDOC_TYPEDEF"
+    ],
+    "declarationForm": [
+     "CLASS_DECLARATION",
+     "CLASS_EXPRESSION",
+     "JSDOC_TYPEDEF",
+     "PROTOTYPE_CONSTRUCTOR"
+    ],
+    "evidenceKind": [
+     "COMMENT_ONLY",
+     "SYNTAX"
+    ]
+   }
+  },
+  "js_type_heritage": {
+   "columns": [
+    "ownerTypeLinkHash",
+    "position",
+    "heritageForm",
+    "superTypeName",
+    "superTypeExpressionText",
+    "isComputedSuperclass",
+    "inheritsMembers",
+    "resolvedTypeLinkHash",
+    "resolvedFilePath",
+    "importLinkHash",
+    "sourceExpressionLinkHash",
+    "startLine",
+    "ownerModuleLinkHash",
+    "isExternal",
+    "serviceVersionLinkHash",
+    "jsTypeHeritageUniqueHash"
+   ],
+   "domains": {
+    "heritageForm": [
+     "EXTENDS_CLAUSE",
+     "OBJECT_CREATE_PROTOTYPE",
+     "PROTOTYPE_ASSIGNMENT",
+     "UTIL_INHERITS"
+    ]
+   }
+  },
+  "js_method": {
+   "columns": [
+    "name",
+    "qualifiedName",
+    "fileName",
+    "filePath",
+    "baseMservPath",
+    "startLine",
+    "endLine",
+    "startColumn",
+    "methodKind",
+    "declarationForm",
+    "hoisting",
+    "isAsync",
+    "isGenerator",
+    "isStatic",
+    "parameterCount",
+    "hasRestParameter",
+    "usesArguments",
+    "thisBinding",
+    "returnTypeName",
+    "declaredTypeSource",
+    "returnTypeReferenceLinkHash",
+    "bodyPresence",
+    "ownerTypeLinkHash",
+    "ownerModuleLinkHash",
+    "ownerScopeLinkHash",
+    "bodyScopeLinkHash",
+    "enclosingMethodLinkHash",
+    "sourceExpressionLinkHash",
+    "jsdocCommentLinkHash",
+    "isExported",
+    "isEntryPoint",
+    "methodReferenceKind",
+    "modifiers",
+    "isExternal",
+    "serviceVersionLinkHash",
+    "jsMethodUniqueHash"
+   ],
+   "domains": {
+    "methodKind": [
+     "ARROW",
+     "CLASS_METHOD",
+     "CONSTRUCTOR",
+     "FUNCTION_DECLARATION",
+     "FUNCTION_EXPRESSION",
+     "GETTER",
+     "MODULE_INITIALIZER",
+     "SETTER",
+     "STATIC_BLOCK"
+    ],
+    "declarationForm": [
+     "OBJECT_ASSIGN_PROTOTYPE",
+     "OBJECT_DEFINE_PROPERTY",
+     "PROTOTYPE_ASSIGNMENT",
+     "PROTOTYPE_OBJECT_LITERAL",
+     "STATIC_ASSIGNMENT",
+     "SYNTACTIC"
+    ],
+    "hoisting": [
+     "HOISTED_FULLY",
+     "NOT_APPLICABLE",
+     "NOT_HOISTED",
+     "TDZ"
+    ],
+    "thisBinding": [
+     ".bind",
+     "BOUND",
+     "DYNAMIC",
+     "LEXICAL",
+     "NONE"
+    ],
+    "declaredTypeSource": [
+     "JSDOC",
+     "NONE",
+     "SYNTACTIC_FLOW"
+    ],
+    "bodyPresence": [
+     "EXPRESSION_BODY",
+     "HAS_BODY",
+     "NO_BODY"
+    ]
+   }
+  },
+  "js_method_parameter": {
+   "columns": [
+    "name",
+    "position",
+    "ownerMethodLinkHash",
+    "declaredTypeName",
+    "declaredTypeSource",
+    "typeReferenceLinkHash",
+    "isOptional",
+    "hasDefault",
+    "defaultValueText",
+    "isRest",
+    "bindingForm",
+    "patternBindingCount",
+    "bindingRegime",
+    "scopeLinkHash",
+    "startLine",
+    "startColumn",
+    "isParameterProperty",
+    "jsdocCommentLinkHash",
+    "ownerModuleLinkHash",
+    "isExternal",
+    "serviceVersionLinkHash",
+    "jsMethodParameterUniqueHash"
+   ],
+   "domains": {
+    "declaredTypeSource": [
+     "JSDOC",
+     "NONE",
+     "SYNTACTIC_FLOW"
+    ],
+    "bindingForm": [
+     "ARRAY_PATTERN",
+     "ASSIGNMENT_PATTERN",
+     "IDENTIFIER",
+     "OBJECT_PATTERN"
+    ]
+   }
+  },
+  "js_field": {
+   "columns": [
+    "name",
+    "qualifiedName",
+    "ownerTypeLinkHash",
+    "declarationForm",
+    "isStatic",
+    "isPrivateName",
+    "isReadonly",
+    "declaredTypeName",
+    "declaredTypeSource",
+    "typeReferenceLinkHash",
+    "hasInitializer",
+    "initializerExpressionLinkHash",
+    "accessorPairKind",
+    "getterMethodLinkHash",
+    "setterMethodLinkHash",
+    "isComputedName",
+    "sourceExpressionLinkHash",
+    "startLine",
+    "startColumn",
+    "ownerModuleLinkHash",
+    "isExternal",
+    "serviceVersionLinkHash",
+    "jsFieldUniqueHash"
+   ],
+   "domains": {
+    "declarationForm": [
+     "CLASS_FIELD",
+     "CONSTRUCTOR_THIS_ASSIGNMENT",
+     "OBJECT_DEFINE_PROPERTY",
+     "PROTOTYPE_ASSIGNMENT",
+     "STATIC_ASSIGNMENT"
+    ],
+    "accessorPairKind": [
+     "GETTER_ONLY",
+     "GETTER_SETTER",
+     "NONE",
+     "SETTER_ONLY"
+    ]
+   }
+  },
+  "js_variable": {
+   "columns": [
+    "name",
+    "qualifiedName",
+    "bindingRegime",
+    "declarationScopeLinkHash",
+    "syntacticScopeLinkHash",
+    "hasTemporalDeadZone",
+    "bindingForm",
+    "patternRootVariableLinkHash",
+    "declaredTypeName",
+    "declaredTypeSource",
+    "typeReferenceLinkHash",
+    "hasInitializer",
+    "initializerExpressionLinkHash",
+    "initializerKind",
+    "importLinkHash",
+    "isReassigned",
+    "ownerMethodLinkHash",
+    "ownerModuleLinkHash",
+    "startLine",
+    "startColumn",
+    "endLine",
+    "isExported",
+    "isExternal",
+    "serviceVersionLinkHash",
+    "jsVariableUniqueHash",
+    "bindingPath",
+    "isRestBinding"
+   ],
+   "domains": {
+    "bindingRegime": [
+     "CATCH_PARAMETER",
+     "CLASS_TDZ",
+     "CONST_BLOCK_TDZ",
+     "FUNCTION_DECLARATION_HOISTED",
+     "GLOBAL_IMPLICIT",
+     "IMPORT_BINDING",
+     "LET_BLOCK_TDZ",
+     "VAR_FUNCTION_SCOPED_HOISTED"
+    ],
+    "bindingForm": [
+     "ARRAY_PATTERN",
+     "IDENTIFIER",
+     "OBJECT_PATTERN"
+    ],
+    "initializerKind": [
+     "CLASS",
+     "FUNCTION",
+     "IMPORT_BINDING",
+     "NONE",
+     "OBJECT_LITERAL",
+     "OTHER",
+     "REQUIRE_CALL"
+    ]
+   }
+  },
+  "js_import": {
+   "columns": [
+    "specifier",
+    "specifierKind",
+    "edgeBearer",
+    "importForm",
+    "isTopLevel",
+    "isConditional",
+    "bindingForm",
+    "importedName",
+    "localName",
+    "resolvedFilePath",
+    "resolutionOutcome",
+    "resolvedModuleLinkHash",
+    "isTypeOnly",
+    "sourceExpressionLinkHash",
+    "boundVariableLinkHash",
+    "ownerScopeLinkHash",
+    "ownerMethodLinkHash",
+    "ownerModuleLinkHash",
+    "startLine",
+    "startColumn",
+    "isExternal",
+    "serviceVersionLinkHash",
+    "jsImportUniqueHash"
+   ],
+   "domains": {
+    "specifierKind": [
+     "NON_LITERAL",
+     "STRING_LITERAL",
+     "TEMPLATE"
+    ],
+    "edgeBearer": [
+     "COMMENT",
+     "DECLARATION",
+     "EXPRESSION"
+    ],
+    "importForm": [
+     "CREATE_REQUIRE",
+     "DYNAMIC_IMPORT",
+     "IMPORT_DECLARATION",
+     "IMPORT_EQUALS",
+     "JSDOC_IMPORT_TYPE",
+     "REQUIRE_CALL"
+    ],
+    "bindingForm": [
+     "DEFAULT",
+     "DESTRUCTURED",
+     "NAMED",
+     "NAMESPACE",
+     "NO_LOCAL_BINDING",
+     "SIDE_EFFECT_ONLY"
+    ],
+    "resolutionOutcome": [
+     "RESOLVED_BUILTIN",
+     "RESOLVED_EXTERNAL",
+     "RESOLVED_PROJECT",
+     "UNRESOLVED_MISSING",
+     "UNRESOLVED_NON_LITERAL"
+    ]
+   }
+  },
+  "js_export": {
+   "columns": [
+    "exportedName",
+    "localName",
+    "edgeBearer",
+    "exportForm",
+    "exportedValueKind",
+    "isReExport",
+    "reExportSpecifier",
+    "reExportImportLinkHash",
+    "isTopLevel",
+    "isConditional",
+    "targetKind",
+    "targetLinkHash",
+    "sourceExpressionLinkHash",
+    "overwritesPreviousExport",
+    "ownerScopeLinkHash",
+    "ownerMethodLinkHash",
+    "ownerModuleLinkHash",
+    "startLine",
+    "startColumn",
+    "isExternal",
+    "serviceVersionLinkHash",
+    "jsExportUniqueHash"
+   ],
+   "domains": {
+    "edgeBearer": [
+     "DECLARATION",
+     "EXPRESSION"
+    ],
+    "exportForm": [
+     "EXPORTS_MEMBER",
+     "EXPORT_ALL",
+     "EXPORT_DECLARATION",
+     "EXPORT_DEFAULT",
+     "MODULE_EXPORTS_ASSIGNMENT",
+     "MODULE_EXPORTS_MEMBER",
+     "OBJECT_DEFINE_PROPERTY"
+    ],
+    "exportedValueKind": [
+     "CLASS",
+     "FUNCTION",
+     "IDENTIFIER",
+     "OBJECT_LITERAL",
+     "OTHER",
+     "REQUIRE_REEXPORT"
+    ],
+    "targetKind": [
+     "EXPRESSION_VALUE",
+     "FIELD",
+     "METHOD",
+     "TYPE",
+     "VARIABLE"
+    ]
+   }
+  },
+  "js_expression": {
+   "columns": [
+    "expressionKind",
+    "text",
+    "name",
+    "isComputedName",
+    "operatorString",
+    "depth",
+    "parentExpressionLinkHash",
+    "edgeRole",
+    "childIndex",
+    "rootContext",
+    "isModuleEdge",
+    "moduleEdgeLinkHash",
+    "isDeclarationBearing",
+    "declarationLinkHash",
+    "callSiteLinkHash",
+    "referencedName",
+    "referenceKind",
+    "resolvedBindingLinkHash",
+    "bindingResolution",
+    "isTypeOnlyReachable",
+    "literalKind",
+    "isTruncated",
+    "ownerScopeLinkHash",
+    "ownerMethodLinkHash",
+    "ownerModuleLinkHash",
+    "startLine",
+    "startColumn",
+    "endLine",
+    "endColumn",
+    "isExternal",
+    "serviceVersionLinkHash",
+    "jsExpressionUniqueHash",
+    "introducesDeclarationLinkHash",
+    "resolvedParameterLinkHash",
+    "bindingPath"
+   ],
+   "domains": {
+    "edgeRole": [
+     "ARGUMENT",
+     "ASSIGNMENT_TARGET",
+     "ASSIGNMENT_VALUE",
+     "CALLEE",
+     "CONDITION",
+     "ELEMENT",
+     "PROPERTY_VALUE",
+     "RECEIVER",
+     "SPREAD_OPERAND",
+     "TEMPLATE_SUBSTITUTION"
+    ],
+    "referenceKind": [
+     "DELETE",
+     "READ",
+     "READ_WRITE",
+     "TYPEOF",
+     "WRITE"
+    ],
+    "bindingResolution": [
+     "CLASS_PRIVATE",
+     "CLOSURE",
+     "GLOBAL_BUILTIN",
+     "IMPORTED",
+     "LOCAL",
+     "MODULE",
+     "UNRESOLVED_FREE"
+    ],
+    "literalKind": [
+     "BIGINT",
+     "NONE",
+     "NULL",
+     "NUMBER",
+     "REGEX",
+     "STRING",
+     "TEMPLATE",
+     "UNDEFINED"
+    ]
+   }
+  },
+  "js_call_site": {
+   "columns": [
+    "callKind",
+    "calleeText",
+    "calleeName",
+    "receiverText",
+    "receiverPosition",
+    "receiverExpressionLinkHash",
+    "argumentCount",
+    "hasSpreadArgument",
+    "isOptionalCall",
+    "declaredReceiverTypeName",
+    "receiverTypeSource",
+    "importLinkHash",
+    "resolvedMethodLinkHash",
+    "resolutionOutcome",
+    "isDynamicCode",
+    "enclosingMethodLinkHash",
+    "expressionLinkHash",
+    "ownerScopeLinkHash",
+    "ownerModuleLinkHash",
+    "startLine",
+    "startColumn",
+    "isTypeOnlyTarget",
+    "isExternal",
+    "serviceVersionLinkHash",
+    "jsCallSiteUniqueHash"
+   ],
+   "domains": {
+    "receiverPosition": [
+     ".apply",
+     ".call",
+     "FIRST_ARGUMENT",
+     "NONE",
+     "SYNTACTIC"
+    ],
+    "receiverTypeSource": [
+     "IMPORT_ALIAS",
+     "JSDOC",
+     "LOCAL_CLASS",
+     "NODE_BUILTIN",
+     "NONE"
+    ],
+    "resolutionOutcome": [
+     "AMBIENT_BUILTIN_TARGET",
+     "COMPUTED_NAME",
+     "DYNAMIC_CODE",
+     "IMPORT_HOP_AVAILABLE",
+     "RECEIVER_UNTYPED",
+     "SAME_FILE_RESOLVED"
+    ]
+   }
+  },
+  "js_block": {
+   "columns": [
+    "blockKind",
+    "label",
+    "parentBlockLinkHash",
+    "depth",
+    "childIndex",
+    "scopeLinkHash",
+    "opensScope",
+    "conditionExpressionLinkHash",
+    "ownerMethodLinkHash",
+    "ownerModuleLinkHash",
+    "startLine",
+    "startColumn",
+    "endLine",
+    "endColumn",
+    "isExternal",
+    "serviceVersionLinkHash",
+    "jsBlockUniqueHash"
+   ],
+   "domains": {
+    "blockKind": [
+     "BLOCK",
+     "CATCH",
+     "CLASS_BODY",
+     "CLASS_STATIC_BLOCK",
+     "DO",
+     "ELSE",
+     "FINALLY",
+     "FOR",
+     "FOR_IN",
+     "FOR_OF",
+     "FUNCTION_BODY",
+     "IF",
+     "LABELED",
+     "MODULE_BODY",
+     "SWITCH",
+     "SWITCH_CASE",
+     "TRY",
+     "WHILE"
+    ]
+   }
+  },
+  "js_scope": {
+   "columns": [
+    "scopeKind",
+    "parentScopeLinkHash",
+    "depth",
+    "isFunctionScope",
+    "bindsThis",
+    "bindsArguments",
+    "isStrictMode",
+    "strictModeSource",
+    "declaredBindingCount",
+    "hasWithStatement",
+    "ownerMethodLinkHash",
+    "ownerModuleLinkHash",
+    "startLine",
+    "startColumn",
+    "isExternal",
+    "serviceVersionLinkHash",
+    "jsScopeUniqueHash"
+   ],
+   "domains": {
+    "scopeKind": [
+     "ARROW",
+     "BLOCK",
+     "CATCH",
+     "CLASS",
+     "CLASS_STATIC_BLOCK",
+     "FUNCTION",
+     "GLOBAL",
+     "MODULE",
+     "WITH"
+    ],
+    "strictModeSource": [
+     "CLASS_BODY_IMPLICIT",
+     "ESM_IMPLICIT",
+     "SLOPPY",
+     "USE_STRICT_DIRECTIVE"
+    ]
+   }
+  },
+  "js_type_reference": {
+   "columns": [
+    "typeName",
+    "referenceKind",
+    "parentReferenceLinkHash",
+    "depth",
+    "childIndex",
+    "childCount",
+    "isTruncated",
+    "contextKind",
+    "tagName",
+    "ownerKind",
+    "ownerLinkHash",
+    "resolvedTypeLinkHash",
+    "resolvedFilePath",
+    "importLinkHash",
+    "isTypeOnly",
+    "isBuiltinType",
+    "commentLinkHash",
+    "ownerModuleLinkHash",
+    "startLine",
+    "startColumn",
+    "isExternal",
+    "serviceVersionLinkHash",
+    "jsTypeReferenceUniqueHash"
+   ],
+   "domains": {
+    "referenceKind": [
+     "ANY",
+     "ARRAY",
+     "FUNCTION_TYPE",
+     "GENERIC_APPLICATION",
+     "IMPORT_TYPE",
+     "INDEXED_ACCESS",
+     "INTERSECTION",
+     "NAMED",
+     "NON_NULLABLE",
+     "NULLABLE",
+     "OBJECT_TYPE",
+     "OPTIONAL",
+     "REST",
+     "TUPLE",
+     "TYPE_LITERAL",
+     "TYPE_PREDICATE",
+     "TYPE_QUERY",
+     "UNION",
+     "UNKNOWN_SYNTAX"
+    ],
+    "contextKind": [
+     "CAST",
+     "EXTENDS",
+     "FIELD",
+     "IMPLEMENTS",
+     "PARAM",
+     "RETURN",
+     "TEMPLATE",
+     "THIS",
+     "THROWS",
+     "TYPEDEF",
+     "VARIABLE"
+    ],
+    "ownerKind": [
+     "EXPRESSION",
+     "FIELD",
+     "METHOD",
+     "METHOD_PARAMETER",
+     "TYPE",
+     "VARIABLE"
+    ]
+   }
+  },
+  "js_comment": {
+   "columns": [
+    "commentKind",
+    "text",
+    "isJsdoc",
+    "jsdocTagNames",
+    "jsdocTagCount",
+    "declaresType",
+    "directiveKind",
+    "attachedToKind",
+    "attachedToLinkHash",
+    "ownerModuleLinkHash",
+    "startLine",
+    "startColumn",
+    "endLine",
+    "isExternal",
+    "serviceVersionLinkHash",
+    "jsCommentUniqueHash"
+   ],
+   "domains": {
+    "commentKind": [
+     "BLOCK",
+     "DIRECTIVE",
+     "JSDOC",
+     "LINE",
+     "SHEBANG"
+    ],
+    "directiveKind": [
+     "ESLINT",
+     "FLOW_PRAGMA",
+     "NONE",
+     "SOURCE_MAP",
+     "TS_CHECK",
+     "TS_NOCHECK",
+     "USE_STRICT"
+    ],
+    "attachedToKind": [
+     "FIELD",
+     "METHOD",
+     "MODULE",
+     "NONE",
+     "TYPE",
+     "VARIABLE"
+    ]
+   }
+  },
+  "js_parse_gap": {
+   "columns": [
+    "gapKind",
+    "detail",
+    "relatedRelation",
+    "relatedLinkHash",
+    "ownerModuleLinkHash",
+    "startLine",
+    "startColumn",
+    "isRecoverable",
+    "isExternal",
+    "serviceVersionLinkHash",
+    "jsParseGapUniqueHash"
+   ],
+   "domains": {
+    "gapKind": [
+     "DEPTH_CAP_REACHED",
+     "DYNAMIC_CODE",
+     "FLOW_SYNTAX",
+     "NON_LITERAL_SPECIFIER",
+     "PARSE_ERROR",
+     "UNKNOWN_JSDOC_SYNTAX",
+     "WITH_STATEMENT_SCOPE"
+    ]
+   }
+  }
+ }
+}

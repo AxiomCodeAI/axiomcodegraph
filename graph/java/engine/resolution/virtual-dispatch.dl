@@ -1,0 +1,141 @@
+// ============================================================================
+// Resolution · VIRTUAL DISPATCH  (Class Hierarchy Analysis)
+//
+// Interface / abstract dispatch. A call on an interface- or supertype-typed
+// receiver (the classic dependency-injection shape: a field/param typed to an
+// interface, the concrete implementation supplied elsewhere) must reach the
+// concrete override(s), not just the abstract declaration where no body lives.
+//
+// CHA is a sound over-approximation: the call fans out to EVERY concrete override
+// in a descendant type. No reverse-hierarchy table is needed — type_ancestor is
+// queried with the *ancestor* bound and the subtype free, so it enumerates all
+// implementors. Narrowing to the single injected implementation is a data-flow /
+// points-to concern for a later engine, not this layer.
+//
+// Depends only on java_method / java_type (raw EDB) plus type_ancestor and
+// method_name_in_type (derived IDB) — crucially, NO expr_type dependency, so this is
+// buildable before the call-resolution layer. Matching is name + parameterCount (not
+// full signature): type-parameter unification is beyond Datalog.
+//
+// Design note: method_override leads each clause with the restrictive constraint
+// (abstract method / interface type) so base is pinned to the few dispatch-relevant
+// declarations. virtual_override is intentionally BROADER — it also covers a concrete
+// class method overridden in a subclass (non-abstract base), which method_override
+// excludes, so the CHA call graph stays sound for plain class overrides too. This
+// form joins java_method on (name, parameterCount); on a ~45k-method client it added
+// ~2s (measured — not the bottleneck). If a much larger codebase with very popular
+// method names ever makes this join dominate, restrict it (interface/abstract only,
+// i.e. the inverse of method_override) and recover concrete-class overrides
+// demand-driven from resolved call sites instead.
+//
+// java_method (22): 0 name  7 typeRegistryLinkHash(owner)  16 methodKind
+//   17 parameterCount  21 methodRegistryUniqueHash
+// java_type (14): 3 typeCategory  13 hash
+// ============================================================================
+
+// ── method_override(ConcreteHash, BaseHash) ─────────────────────────────────
+// A concrete instance method overrides an abstract/interface declaration of the
+// same name and arity in a descendant type. Used to suppress the empty abstract
+// base as a call/flow target once a concrete override exists. Each clause leads
+// with the restrictive constraint (abstract method / interface type) so base is
+// pinned to the few dispatch-relevant declarations before the descendant match.
+
+// Clause 1: base method is declared abstract (abstract class or interface).
+method_override(concrete, base) :- java_method(name, _, _, _, _, _, _, baseType, _, _, _, _, _, _, _, _, "ABSTRACT_METHOD", pc, _, _, _, base),
+    name != "",
+    type_ancestor(subType, baseType),
+    subType != baseType,
+    java_method(name, _, _, _, _, _, _, subType, _, _, _, _, _, _, _, _, "INSTANCE_METHOD", pc, _, _, _, concrete),
+    concrete != base.
+
+// Clause 2: base method lives in an interface type (some interface methods are
+// not tagged ABSTRACT_METHOD; the type-level INTERFACE_TYPE check is the anchor).
+method_override(concrete, base) :- java_type(_, _, _, "INTERFACE_TYPE", _, _, _, _, _, _, _, _, _, ifaceType),
+    java_method(name, _, _, _, _, _, _, ifaceType, _, _, _, _, _, _, _, _, _, pc, _, _, _, base),
+    name != "",
+    type_ancestor(implType, ifaceType),
+    java_method(name, _, _, _, _, _, _, implType, _, _, _, _, _, _, _, _, "INSTANCE_METHOD", pc, _, _, _, concrete),
+    concrete != base.
+
+// Clause 3: enum-constant body override. Enum constants with bodies
+// (ADD { int apply(){…} }) are anonymous overrides of the enum's abstract method,
+// but the extractor attributes BOTH the abstract declaration and each constant body
+// to the enum type itself (as ABSTRACT_METHOD / ENUM_CONSTANT_METHOD) — there are no
+// distinct Op$ADD subtypes and no type_ancestor edge for CHA to follow. Match the two
+// method kinds within the same enum instead. (The concrete bodies are already
+// reachable via method_name_in_type on an enum-typed receiver, since they are
+// declared in the enum; this only suppresses the empty abstract as a flow target.)
+method_override(concrete, base) :- java_method(name, _, _, _, _, _, _, enum, _, _, _, _, _, _, _, _, "ABSTRACT_METHOD", pc, _, _, _, base),
+    name != "",
+    java_method(name, _, _, _, _, _, _, enum, _, _, _, _, _, _, _, _, "ENUM_CONSTANT_METHOD", pc, _, _, _, concrete).
+
+// ── virtual_override(BaseHash, OverrideHash) ────────────────────────────────
+// The CHA fan-out: for a base method, every same-name/same-arity method that a
+// descendant type would dispatch to. Binding baseType and leaving sub free makes
+// type_ancestor enumerate all subtypes/implementors. The override is taken from
+// method_name_in_type in the descendant, which includes methods INHERITED into it —
+// so an implementor that satisfies an interface by inheriting the method from an
+// unrelated ancestor (class Impl extends Base implements Handler, where Base, not a
+// Handler subtype, declares handle) is still reached. The final java_method join
+// only confirms the override's own name and arity (not that it is declared in sub).
+// Covers interface/abstract dispatch, concrete-class overrides, and inherited-into-
+// implementor satisfaction.
+virtual_override(base, override) :- java_method(name, _, _, _, _, _, _, baseType, _, _, _, _, _, _, _, _, _, pc, _, _, _, base),
+    name != "",
+    baseType != "",
+    type_ancestor(sub, baseType),
+    sub != baseType,
+    method_name_in_type(name, sub, override),
+    override != base,
+    java_method(name, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, pc, _, _, _, override).
+
+// ── LIBRARY-declared base, CLIENT override (the callback / SAM shape) ────────
+// The clause above reads java_method for the base, so it only fans CLIENT-declared bases.
+// Every client implementation of a LIBRARY interface/superclass method — Runnable.run,
+// Comparator.compare, Callable.call, Thread.run, ServletFilter.doFilter, a Spring callback —
+// therefore had NO fan at all: a call on the library-typed receiver stopped at the empty
+// library declaration and the client body was unreachable (measured: 06-anonymous-classes,
+// task.run() / t.run(), two edges the JVM really executes).
+// Pinned for cost: client_overridden_lib_type binds baseType to the FEW library types the
+// client actually extends/implements, and the override must be a client INSTANCE_METHOD
+// DECLARED in that subtype (no inherited-into fan, no lib->lib fan). java.lang.Object is
+// excluded — fanning toString/equals/hashCode over every client override is the classic CHA
+// blow-up and carries no dispatch information.
+// COST, measured (the clause shipped disabled as ABLATION-A with the measurement never recorded):
+// on a 7.9k-file Java project with the platform IR and 104 dependency IRs staged — 76,793 client
+// methods, 489,272 call sites — it adds 1,045 virtual_override rows off 474 library bases, and the
+// solve goes 264s -> 271s and 274s -> 280s on two clean interleaved pairs (+2.5%), peak RSS within
+// run-to-run variance. The pinning is what keeps it there: client_overridden_lib_type binds
+// baseType to the few library types the client actually extends or implements.
+// Its fan is capped like any other — resolution/dispatch-cap.dl carries the mirror clause, without
+// which this one is the only UNCAPPED fan in the engine.
+// lib_type (14): 2 qualifiedName 14 hash ; lib_method (22): 0 name 8 owner 18 paramCount 22 hash
+client_overridden_lib_type(libType) :- java_type(_, _, _, _, _, _, _, _, _, _, _, _, _, sub),
+    type_ancestor(sub, libType),
+    lib_type(_, qname, _, _, _, _, _, _, _, _, _, _, _, libType),
+    qname != "java.lang.Object".
+virtual_override(base, override) :- client_overridden_lib_type(baseType),
+    lib_method(name, _, _, _, _, _, _, baseType, _, _, _, _, _, _, _, _, _, pc, _, _, _, base),
+    name != "",
+    type_ancestor(sub, baseType),
+    java_method(name, _, _, _, _, _, _, sub, _, _, _, _, _, _, _, _, "INSTANCE_METHOD", pc, _, _, _, override).
+
+// Enum-constant fan-out (same enum type, no subtype edge — see method_override
+// Clause 3): the enum's abstract method dispatches to each constant body.
+virtual_override(base, override) :- java_method(name, _, _, _, _, _, _, enum, _, _, _, _, _, _, _, _, "ABSTRACT_METHOD", pc, _, _, _, base),
+    name != "",
+    java_method(name, _, _, _, _, _, _, enum, _, _, _, _, _, _, _, _, "ENUM_CONSTANT_METHOD", pc, _, _, _, override).
+
+// ── method_dispatch_candidate(BaseMethod, CandidateMethod, Basis) ───────────
+// THE DISPATCH ENVELOPE, in the shape every front end exports (#471). A call that
+// statically resolves to BaseMethod may at run time execute CandidateMethod instead;
+// Basis says which relation admitted it, because the three languages admit by
+// different means and a consumer that cannot tell them apart cannot judge the set.
+//
+// Java's basis is always `nominal` — the hierarchy is declared, so virtual_override is
+// already the answer and this is a rename, not a new analysis. TypeScript adds
+// `structural`, Python answers by `mro`. Keeping one relation name across the three is
+// the entire point: `overrides` was a core table of the output bundle that came back
+// empty in two of three languages while the data sat in per-language ext_ relations of
+// three different shapes.
+method_dispatch_candidate(base, override, "nominal") :- virtual_override(base, override).

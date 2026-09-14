@@ -1,0 +1,2 @@
+nominal	lib:base#LibClass.describe -> app#AppFromClass.describe
+nominal	lib:base#LibErr.describe -> app#AppError.describe

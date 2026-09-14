@@ -1,0 +1,2 @@
+org.acme.impl.JsonCodec
+org.acme.ext.ExtCodec

@@ -1,0 +1,44 @@
+{
+ "compilerVersion": "6.0.3",
+ "emissionRegime": "ts6-inproc",
+ "shapesTotal": 9,
+ "covered": [
+  {
+   "shape": "OVERLOAD_SET",
+   "groups": 13
+  },
+  {
+   "shape": "INTERFACE_INTERFACE",
+   "groups": 2
+  },
+  {
+   "shape": "INTERFACE_CROSS_FILE",
+   "groups": 5
+  },
+  {
+   "shape": "MODULE_AUGMENTATION",
+   "groups": 5
+  },
+  {
+   "shape": "CLASS_INTERFACE",
+   "groups": 1
+  },
+  {
+   "shape": "FUNCTION_NAMESPACE",
+   "groups": 2
+  },
+  {
+   "shape": "ENUM_NAMESPACE",
+   "groups": 1
+  },
+  {
+   "shape": "NAMESPACE_NAMESPACE",
+   "groups": 2
+  },
+  {
+   "shape": "GLOBAL_SCOPE",
+   "groups": 5
+  }
+ ],
+ "uncovered": []
+}

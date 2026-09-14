@@ -1,0 +1,4 @@
+# A setter's parameter: `set svc(v) { v.id() }` is fed by an assignment `x.svc = value`,
+# and SETTER_INVOCATION is a reserved call kind in the parser (zero rows) — no site links
+# the write to the accessor.
+lib/classes.js:13:29 id

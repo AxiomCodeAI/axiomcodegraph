@@ -1,0 +1,10 @@
+{
+ "count": 4,
+ "note": "Locally resolvable in principle, not resolved yet. May fall, never rise. When a case starts resolving, move it to resolution_edges.py.",
+ "cases": [
+  "L51 NAME.name()  recv=target",
+  "L58 NAME.name()  recv=value",
+  "L62 ATTRIBUTE.name()  recv=Property().inner",
+  "L68 SUBSCRIPT.name()  recv=items[0]"
+ ]
+}

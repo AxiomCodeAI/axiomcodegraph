@@ -1,0 +1,3 @@
+referenceExpression=buildNumber	referenceType=FIND_PROPERTY	rawFragment="findProperty(""buildNumber"")"	defaultValue=	resolutionKind=LOCAL_PROPERTY	resolvedContext=GRADLE_DECLARATION_d8c0676ea2199688c0f492773d102147	startLine=40	endLine=40	startColumn=19	endColumn=46
+referenceExpression=jackson.databind	referenceType=VERSION_CATALOG_ACCESSOR	rawFragment=libs.jackson.databind	defaultValue=	resolutionKind=EXTERNAL	resolvedContext=	startLine=27	endLine=27	startColumn=4	endColumn=41
+referenceExpression=springVersion	referenceType=GSTRING_SIMPLE	rawFragment=$springVersion	defaultValue=	resolutionKind=LOCAL_PROPERTY	resolvedContext=GRADLE_DECLARATION_c84021e5b5091c63702f32e26be9d465	startLine=24	endLine=24	startColumn=52	endColumn=66
