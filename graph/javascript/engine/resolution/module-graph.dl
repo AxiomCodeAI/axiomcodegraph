@@ -84,19 +84,9 @@ module_export_value(mod, n, k, i) :- export_decl(_, "default", _, "MODULE_EXPORT
     export_target_value(x, vk, vi),
     prop_value(vk, vi, n, k, i),
     n != "default".
-// `export default function () {}` — the ANONYMOUS form: the export row says
-// `default` but names no target and no expression (parser#176 fixed the named
-// forms; this residue is still filed under EXPRESSION_VALUE with nothing behind
-// it). The function-declaration row carries the `default` modifier, which is
-// exact: only a default-exported declaration has it.
-module_export_value(mod, "default", "func", m) :- method_decl(_, _, "FUNCTION_DECLARATION", _, _, _, mod, m),
-    method_modifiers(_, mods, m), contains("default", mods).
-// `export default class extends Base {}` — ANONYMOUS: the parser files it as
-// EXPRESSION_VALUE with no target and no expression (parser#176's class residue, #484).
-// An anonymous CLASS DECLARATION can only be a default export, and a module has at
-// most one, so the row and the type join on the module alone.
-module_export_value(mod, "default", "ctor", t) :- export_decl(_, "default", _, "EXPORT_DECLARATION", "CLASS", "EXPRESSION_VALUE", "", "", mod, _),
-    type_decl(_, _, "ANONYMOUS_CLASS", _, mod, t), type_form(_, "CLASS_DECLARATION", t).
+// `export default function () {}` / `export default class extends Base {}` — the
+// ANONYMOUS forms carry a DECLARATION target since parser#494 (PD-JS-3 closed; the
+// engine's modifier and type_form joins that recovered them are retired).
 // Re-exports: `export * from './y'`, `export { a } from './y'`,
 // `module.exports = require('./y')`. The import row carries the resolved file.
 // `export * from './y'` spreads y's surface; `export * as ns from './y'` — which the
@@ -128,6 +118,10 @@ import_value(imp, k, i) :- import_decl(_, _, _, bf, n, _, _, _, imp), import_bin
     import_module(imp, mod), module_export_value(mod, n, k, i).
 import_binding_is_named("NAMED").
 import_binding_is_named("DESTRUCTURED").
+// `const { nested: { inner } } = require('m')` — the imported name is the binding's
+// PATH (`nested.inner`), walked from the module value like any pattern (#487).
+import_value(imp, k, i) :- import_decl(_, _, _, "DESTRUCTURED", n, _, _, _, imp), contains(".", n),
+    import_module(imp, mod), path_value("module", mod, n, k, i).
 // A JSDoc `import('./x.js').Name` — no local binding; the imported name is the
 // member (`default` for the default export). Type-only, and read only by the
 // type-reference rules.
@@ -137,5 +131,5 @@ import_value(imp, k, i) :- import_decl(_, _, "JSDOC_IMPORT_TYPE", _, n, _, _, _,
 // ── import_binding_unresolved(ImportHash, Name) — countable ─────────────────
 // The module was reached and exports no such name (or the name's value is not
 // derivable). Distinct from import_unresolved: the dependency IS staged.
-import_binding_unresolved(imp, n) :- import_decl(_, _, _, bf, n, _, _, _, imp), import_binding_is_named(bf), n != "",
+import_binding_unresolved(imp, n) :- import_decl(_, _, _, bf, n, _, _, _, imp), import_binding_is_named(bf), n != "", !contains(".", n),
     import_module(imp, _), !import_value(imp, _, _).

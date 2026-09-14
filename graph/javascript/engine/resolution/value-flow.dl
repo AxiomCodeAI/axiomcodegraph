@@ -69,12 +69,12 @@ expr_value(e, "ctor", t) :- expr_kind(_, "FUNCTION_EXPRESSION", _, e),
 expr_value(e, "obj", e) :- expr_kind(_, "OBJECT_LITERAL", _, e).
 // An identifier holds what its binding holds — the binder's answer, never a name.
 expr_value(e, k, i) :- expr_binding(_, v, e), var_value(v, k, i).
-expr_value(e, k, i) :- expr_param(_, p, e), param_value(p, k, i), !param_binding_form(_, "OBJECT_PATTERN", p).
-// A name bound by a destructured parameter `function f({ a })` resolves to the
-// pattern's one parameter row; its value is the property of that name on whatever
-// the pattern receives.
-expr_value(e, k2, i2) :- expr_param(_, p, e), param_binding_form(_, "OBJECT_PATTERN", p),
-    expr_referenced_name(_, n, e), param_value(p, k, i), prop_value(k, i, n, k2, i2).
+expr_value(e, k, i) :- expr_param(_, p, e), param_value(p, k, i), !expr_binding_path(_, _, e).
+// A name bound by a destructured parameter `function f({ a: { b } }, [c])` resolves
+// to the pattern's one parameter row; the reference carries the binding's PATH from
+// the parameter's value (#487), and the value is what the path reaches.
+expr_value(e, k2, i2) :- expr_param(_, p, e), expr_binding_path(_, path, e),
+    param_value(p, k, i), path_value(k, i, path, k2, i2).
 // `this`.
 expr_value(e, k, i) :- expr_kind(_, "THIS", _, e), expr_owner(_, m, _, e), this_value(m, k, i).
 // `require('./x')` — the module edge's far side. What it evaluates to is the
@@ -155,13 +155,52 @@ assignment_op_writes_value("&&=").
 assignment_op_writes_value(cat("??", "=")).
 // `/** @type {T} */ let x` — the declared instance.
 var_value(v, "inst", t) :- var_type_name(_, _, tr, v), type_ref_type(tr, t).
-// `const { a, b } = value` — each binding is a property of the value. The parser
-// gives every binding of the pattern the same initializer expression; the import
-// form (`const { a } = require('m')`) comes through var_import instead and is
-// excluded here so it is not derived twice by different routes.
-var_value(v, k2, i2) :- var_binding_form(_, "OBJECT_PATTERN", v), !var_import(_, _, v),
-    var_decl(_, n, _, _, _, _, v), var_init(_, _, e, v), expr_value(e, k, i),
-    prop_value(k, i, n, k2, i2).
+// `const { a, b: [c] } = value` — each binding of a pattern carries its PATH from the
+// pattern's value (#487): a property name, an element index, a dotted chain of them,
+// or a rest. The parser gives every binding of the pattern the same initializer
+// expression; the import form (`const { a } = require('m')`) comes through
+// var_import instead and is excluded here so it is not derived twice.
+var_value(v, k2, i2) :- var_binding_path(_, path, v), !var_import(_, _, v),
+    var_init(_, _, e, v), expr_value(e, k, i), path_value(k, i, path, k2, i2).
+
+// ── path_value(K, I, Path, K2, I2) — a binding path walked from a value ─────
+// A path is `seg(.seg)*`, a segment a property name or an element index; a rest
+// binding is `base...` (`...` alone: the whole value; `1...`: the elements past
+// index 1). A rest of an array is a fresh array with the same elements, and a rest
+// of an object is that object less some keys — both are read as the value itself.
+// Index-insensitive on purpose: an `arr` value carries one element set.
+binding_path(p) :- var_binding_path(_, p, _).
+binding_path(p) :- expr_binding_path(_, p, _).
+binding_path(p) :- import_decl(_, _, _, "DESTRUCTURED", p, _, _, _, _), p != "".
+binding_path(h) :- path_split(_, h, _).
+binding_path(t) :- path_split(_, _, t).
+binding_path(b) :- path_rest_base(_, b), b != "".
+path_rest_base(p, substr(p, 0, strlen(p) - 3)) :- binding_path(p), strlen(p) >= 3, substr(p, strlen(p) - 3, 3) = "...".
+path_split(p, substr(p, 0, n), substr(p, n + 1, strlen(p) - n - 1)) :- binding_path(p), !match(".*[.][.][.]", p),
+    contains(".", p), n = range(1, strlen(p) - 1), substr(p, n, 1) = ".", !contains(".", substr(p, 0, n)).
+path_step(k, i, seg, k2, i2) :- binding_path(seg), !contains(".", seg), !match("[0-9]+", seg), prop_value(k, i, seg, k2, i2).
+path_step(k, i, seg, k2, i2) :- binding_path(seg), match("[0-9]+", seg), elem_value(i, k2, i2), value_has_elements(k).
+value_has_elements("arr").
+value_has_elements("coll").
+path_value(k, i, p, k2, i2) :- binding_path(p), !contains(".", p), path_step(k, i, p, k2, i2).
+path_value(k, i, p, k2, i2) :- path_split(p, h, t), path_step(k, i, h, k1, i1), path_value(k1, i1, t, k2, i2).
+// `...rest` at the top of a pattern: the value itself. `[a, ...rest]` (base `1`): the
+// ARRAY the elements came from — the parent of the index, or the value itself when
+// the index is at the top. `{ a: { ...rest } }` (base `a`): the object at `a`.
+path_rest_identity(p) :- path_rest_base(p, "").
+path_rest_identity(p) :- path_rest_base(p, b), match("[0-9]+", b).
+path_value(k, i, p, k, i) :- path_rest_identity(p), path_source(k, i).
+// The values a pattern is applied to — grounds the identity case.
+path_source(k, i) :- var_binding_path(_, _, v), var_init(_, _, e, v), expr_value(e, k, i).
+path_source(k, i) :- expr_param(_, p, e), expr_binding_path(_, _, e), param_value(p, k, i).
+path_source("module", mod) :- import_decl(_, _, _, "DESTRUCTURED", n, _, _, _, imp), contains(".", n), import_module(imp, mod).
+path_source(k, i) :- path_step(_, _, _, k, i).
+path_value(k, i, p, k2, i2) :- path_rest_base(p, b), path_parent(b, par), match("[0-9]+", substr(b, strlen(par) + 1, strlen(b) - strlen(par) - 1)),
+    path_value(k, i, par, k2, i2).
+path_value(k, i, p, k2, i2) :- path_rest_base(p, b), b != "", !match("([^.]*[.])*[0-9]+", b), path_value(k, i, b, k2, i2).
+path_parent(b, substr(b, 0, n)) :- path_rest_base(_, b), contains(".", b), n = range(1, strlen(b) - 1), substr(b, n, 1) = ".",
+    !contains(".", substr(b, n + 1, strlen(b) - n - 1)).
+binding_path(par) :- path_parent(_, par).
 
 // ── param_value ─────────────────────────────────────────────────────────────
 // `@param {T} x` — the one declared channel.

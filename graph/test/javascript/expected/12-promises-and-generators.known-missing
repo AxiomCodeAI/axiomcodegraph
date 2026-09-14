@@ -1,2 +1,0 @@
-# #487 (parser): `.then(([w]) => w.run())` — an array-pattern parameter carries no path.
-lib/async.js:28:38 run

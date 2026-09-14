@@ -50,7 +50,7 @@ lib/async.js:28:16 FUNCTION_CALL get  ->  known_edge  lib/async.js:17:1 get
 lib/async.js:28:3 METHOD_CALL Promise.all  ->  ambient_terminal  -
 lib/async.js:28:3 METHOD_CALL Promise.all([get()]).then  ->  ambient_terminal  -
 lib/async.js:28:3 METHOD_CALL Promise.all([get()]).then  ->  callback_registered  lib/async.js:28:29 <arrow>
-lib/async.js:28:38 METHOD_CALL w.run  ->  ambient_terminal  -
+lib/async.js:28:38 METHOD_CALL w.run  ->  known_edge  lib/async.js:4:16 run
 lib/async.js:29:19 METHOD_CALL Promise.race  ->  ambient_terminal  -
 lib/async.js:29:33 FUNCTION_CALL get  ->  known_edge  lib/async.js:17:1 get
 lib/async.js:29:42 METHOD_CALL c.run  ->  ambient_terminal  -

@@ -14,7 +14,7 @@ lib/classes.js:22:55 METHOD_CALL this.id  ->  multi_inferred  lib/classes.js:22:
 lib/classes.js:23:72 METHOD_CALL this.id  ->  multi_inferred  lib/classes.js:10:3 id
 lib/classes.js:23:72 METHOD_CALL this.id  ->  multi_inferred  lib/classes.js:22:17 id
 lib/classes.js:24:21 FUNCTION_CALL Mixin  ->  known_edge  lib/classes.js:23:15 <arrow>
-lib/classes.js:24:50 METHOD_CALL this.mixed  ->  ambiguous_unknown  -
+lib/classes.js:24:50 METHOD_CALL this.mixed  ->  known_edge  lib/classes.js:23:44 mixed
 lib/classes.js:26:45 METHOD_CALL this.id  ->  multi_inferred  lib/classes.js:20:26 id
 lib/classes.js:26:45 METHOD_CALL this.id  ->  multi_inferred  lib/classes.js:21:26 id
 lib/classes.js:29:18 FUNCTION_CALL_CALL Legacy.call  ->  known_edge  lib/classes.js:27:1 Legacy
@@ -46,11 +46,12 @@ lib/classes.js:9:42 METHOD_CALL this.id  ->  multi_inferred  lib/classes.js:21:2
 lib/classes.js:9:42 METHOD_CALL this.id  ->  multi_inferred  lib/classes.js:22:17 id
 lib/classes.js:9:42 METHOD_CALL this.id  ->  multi_inferred  main.js:23:39 id
 main.js:10:24 CONSTRUCTOR_CALL C.Mixed  ->  implicit_constructor  -
-main.js:10:24 METHOD_CALL new C.Mixed().mixed  ->  ambiguous_unknown  -
+main.js:10:24 METHOD_CALL new C.Mixed().mixed  ->  known_edge  lib/classes.js:23:44 mixed
 main.js:10:3 CONSTRUCTOR_CALL C.Mixed  ->  implicit_constructor  -
 main.js:10:3 METHOD_CALL new C.Mixed().own  ->  known_edge  lib/classes.js:24:35 own
 main.js:10:47 CONSTRUCTOR_CALL C.Mixed  ->  implicit_constructor  -
-main.js:10:47 METHOD_CALL new C.Mixed().id  ->  ambiguous_unknown  -
+main.js:10:47 METHOD_CALL new C.Mixed().id  ->  multi_inferred  lib/classes.js:10:3 id
+main.js:10:47 METHOD_CALL new C.Mixed().id  ->  multi_inferred  lib/classes.js:22:17 id
 main.js:10:67 CONSTRUCTOR_CALL C.Picked  ->  implicit_constructor  -
 main.js:10:67 METHOD_CALL new C.Picked().pick  ->  known_edge  lib/classes.js:26:29 pick
 main.js:10:90 CONSTRUCTOR_CALL C.Picked  ->  implicit_constructor  -

@@ -49,7 +49,7 @@ lib/doc.js:79:28 CONSTRUCTOR_CALL Widget  SYNTHESIZED_OK
 lib/doc.js:7:36 METHOD_CALL run  EXACT  lib/types.js:2:16
 lib/doc.js:80:43 METHOD_CALL run  EXACT  lib/types.js:2:16
 lib/doc.js:83:53 METHOD_CALL run  EXACT  lib/types.js:2:16
-lib/doc.js:84:66 METHOD_CALL spin  MISSED  
+lib/doc.js:84:66 METHOD_CALL spin  EXACT  lib/types.js:3:38
 lib/doc.js:9:35 METHOD_CALL run  EXACT  lib/types.js:2:16
 main.js:10:13 CONSTRUCTOR_CALL Doc  EXACT  lib/doc.js:65:3
 main.js:10:40 METHOD_CALL use  EXACT  lib/doc.js:70:3
@@ -101,4 +101,4 @@ main.js:8:74 METHOD_CALL qualified  EXACT  lib/doc.js:35:1
 main.js:8:90 METHOD_CALL inlineShape  EXACT  lib/doc.js:37:1
 main.js:9:18 METHOD_CALL generics  EXACT  lib/doc.js:58:1
 main.js:9:3 METHOD_CALL typedVars  EXACT  lib/doc.js:55:1
-# defects: 1
+# defects: 0

@@ -71,3 +71,13 @@ var_binding_form("lib", f, h) :- lib_js_variable(_, _, _, _, _, _, f, _, _, _, _
 // block-scoped case needs — see containment/ownership.dl.
 var_lines("client", mod, l, h) :- js_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, mod, l, _, _, _, _, _, h, _, _).
 var_lines("lib", mod, l, h) :- lib_js_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, mod, l, _, _, _, _, _, h, _, _).
+
+// ── var_binding_path(Prov, Path, VarHash) / var_is_rest(Prov, VarHash) ──────
+// A pattern binding's route from the pattern's value: `cb` for `{ cb }` and `{ cb:
+// renamed }` alike, `inner.deep` for `{ inner: { deep } }`, `0` / `1` for `[a, b]`,
+// `0.name` for `[{ name }]`; a rest binding is its position plus `...` (`...`, `1...`).
+// Empty for a plain binding. Appended after the hash (c25, c26), like js_expression.
+var_binding_path("client", p, h) :- js_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, p, _), p != "".
+var_binding_path("lib", p, h) :- lib_js_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, p, _), p != "".
+var_is_rest("client", h) :- js_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, "true").
+var_is_rest("lib", h) :- lib_js_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, "true").

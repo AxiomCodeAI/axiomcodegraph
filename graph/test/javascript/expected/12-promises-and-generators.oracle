@@ -38,7 +38,7 @@ lib/async.js:27:63 METHOD_CALL run  EXACT  lib/async.js:4:16
 lib/async.js:28:16 FUNCTION_CALL get  EXACT  lib/async.js:17:1
 lib/async.js:28:3 METHOD_CALL all  LIB_AMBIENT_OK  
 lib/async.js:28:3 METHOD_CALL then  LIB_AMBIENT_OK  
-lib/async.js:28:38 METHOD_CALL run  MISSED  
+lib/async.js:28:38 METHOD_CALL run  EXACT  lib/async.js:4:16
 lib/async.js:29:19 METHOD_CALL race  LIB_AMBIENT_OK  
 lib/async.js:29:33 FUNCTION_CALL get  EXACT  lib/async.js:17:1
 lib/async.js:29:42 METHOD_CALL run  EXACT  lib/async.js:4:16
@@ -105,4 +105,4 @@ main.js:5:3 METHOD_CALL fire  EXACT  lib/async.js:65:3
 main.js:5:3 METHOD_CALL fireDynamic  EXACT  lib/async.js:66:3
 main.js:5:44 METHOD_CALL externalRegistration  EXACT  lib/async.js:68:1
 main.js:7:1 FUNCTION_CALL main  EXACT  main.js:3:1
-# defects: 1
+# defects: 0

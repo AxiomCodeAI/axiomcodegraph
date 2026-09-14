@@ -194,3 +194,10 @@ expr_referenced_name("lib", n, h) :- lib_js_expression("IDENTIFIER", _, _, _, _,
 // STRING | NUMBER | BOOLEAN | NULL | UNDEFINED | REGEX | TEMPLATE | BIGINT | NONE.
 expr_literal_kind("client", k, h) :- js_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, k, _, _, _, _, _, _, _, _, _, _, h, _, _, _), k != "NONE".
 expr_literal_kind("lib", k, h) :- lib_js_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, k, _, _, _, _, _, _, _, _, _, _, h, _, _, _), k != "NONE".
+
+// ── expr_binding_path(Prov, Path, ExprHash) ─────────────────────────────────
+// A reference to a name bound by a PARAMETER pattern carries the binding's route
+// from the parameter's value (c34), spelled as js_variable.bindingPath is: `cb`,
+// `a.b`, `0`, `1...`. Empty for a plain parameter.
+expr_binding_path("client", p, h) :- js_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, _, p), p != "".
+expr_binding_path("lib", p, h) :- lib_js_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, _, p), p != "".

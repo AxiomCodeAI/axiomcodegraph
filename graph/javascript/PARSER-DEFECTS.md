@@ -81,7 +81,7 @@ for (const item of items) item.run();
 The binding has no initializer; the iterated expression is an ITERABLE root of the same
 method. **Workaround:** `resolution/arrays.dl` joins on (module, line).
 
-## PD-JS-7 — a dotted superclass is linked to an import by its LAST segment — parser#479
+## PD-JS-7 — a dotted superclass is linked to an import by its LAST segment — parser#479, FIXED (#494)
 
 ```js
 const { Base } = require('./other');   // an unrelated Base
@@ -91,23 +91,24 @@ class A extends ns.Base {}
 
 `js_type_heritage.importLinkHash` names the `{ Base }` import (matched by the simple
 name) and `superTypeName` is `Base`; only `superTypeExpressionText` holds `ns.Base`.
-Followed, the link gives a WRONG superclass. **Workaround:** `projections/types.dl`
-projects the text as `heritage_text`; `resolution/type-hierarchy.dl` decides the
-import rules on the text being undotted and walks a dotted text through the qualifier's
-module-scope binding, never through the parser's link.
+Followed, the link gave a WRONG superclass. Since #494 the link names the ROOT
+identifier's binding and every `EXTENDS_CLAUSE` row carries `sourceExpressionLinkHash`.
+**Retained:** `projections/types.dl` projects the text as `heritage_text`, and
+`resolution/type-hierarchy.dl` still decides the import rules on the text being undotted
+— harmless on the fixed IR, and the expression rule below now decides these rows.
 
-## PD-JS-8 — an `extends` expression that is not a name has no expression row — parser#479
+## PD-JS-8 — an `extends` expression that is not a name has no expression row — parser#479, FIXED (#494)
 
 ```js
 class Mixed extends Mixin(Base) {}
 class Sub extends require('./types').Gadget {}
 ```
 
-`EXTENDS_CLAUSE` rows carry an empty `sourceExpressionLinkHash`, and the walker emits no
-HERITAGE root for the expression, so there is nothing to evaluate. **No workaround** —
-`heritage_unresolved` counts the row (`heritage_dynamic` for `isComputedSuperclass`). A
-parameter as superclass (`(Sup) => class extends Sup`) and a conditional bound to a
-variable resolve through the name.
+`EXTENDS_CLAUSE` rows carried an empty `sourceExpressionLinkHash`, so there was nothing
+to evaluate. Since #494 the row links the expression, and one rule in
+`resolution/type-hierarchy.dl` — `type_super` from `expr_value` of the linked expression
+— resolves a mixin call, a member of a `require()`, a conditional and an awaited import.
+The name rules stay for the `OBJECT_CREATE_PROTOTYPE` form.
 
 ## PD-JS-9 — a getter is a js_method row like any method
 
@@ -117,3 +118,19 @@ resolve to the accessor. **Workaround:** `projections/methods.dl` projects
 `method_modifiers`; `type_own_getter` / `type_own_static_getter` hold accessors apart
 from `type_own_member`, and `prop_value` on a getter is its `return_value`. Not a
 defect as such — recorded because the split is the engine's, not the IR's.
+
+## PD-JS-10 — a destructuring binding carried no path — parser#487, FIXED (#494)
+
+```js
+const { cb: renamed, inner: { deep }, ...rest } = o;
+const [first, ...others] = xs;
+function f({ a: { b } }, [c]) {}
+```
+
+Every binding of a pattern was a row with the pattern's initializer and its own name —
+`renamed` could only be looked up as a property named `renamed`. Since #494 `js_variable`
+carries `bindingPath` (`cb`, `inner.deep`, `0`, `1...`) and `isRestBinding` (c25, c26,
+after the hash), and a reference to a parameter-pattern binding carries the same path on
+`js_expression` (c34). `resolution/value-flow.dl`'s `path_value` walks a path from a
+value; the three consumers are pattern variables, pattern-parameter references, and a
+destructured `require()` whose `importedName` is a path (`nested.inner`).

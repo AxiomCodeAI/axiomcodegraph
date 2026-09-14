@@ -2,7 +2,7 @@ lib/circ-a.js:3:43 METHOD_CALL B.fromB  ->  known_edge  lib/circ-b.js:3:17 fromB
 lib/circ-b.js:4:45 METHOD_CALL A.fromA  ->  known_edge  lib/circ-a.js:3:17 fromA
 lib/deep/leaf.js:6:19 FUNCTION_CALL fromIndex  ->  known_edge  lib/dir/index.js:2:1 fromIndex
 lib/deep/leaf.js:6:32 FUNCTION_CALL h  ->  known_edge  lib/impl.js:3:1 helper
-lib/deep/leaf.js:6:37 METHOD_CALL inner.deep  ->  ambiguous_unknown  -
+lib/deep/leaf.js:6:37 METHOD_CALL inner.deep  ->  known_edge  lib/multi.js:2:1 a
 lib/deep/leaf.js:6:58 CONSTRUCTOR_CALL impl  ->  implicit_constructor  -
 lib/deep/leaf.js:6:58 METHOD_CALL new impl().run  ->  known_edge  lib/impl.js:2:14 run
 lib/impl.js:2:62 CONSTRUCTOR_CALL Impl  ->  implicit_constructor  -

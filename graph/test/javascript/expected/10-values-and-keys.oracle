@@ -18,11 +18,11 @@ lib/values.js:33:3 COMPUTED_CALL   SOUND_SUPERSET  lib/values.js:3:1;lib/values.
 lib/values.js:34:26 FUNCTION_CALL x  SOUND_SUPERSET  lib/values.js:3:1;lib/values.js:5:1
 lib/values.js:34:31 FUNCTION_CALL y  SOUND_SUPERSET  lib/values.js:3:1;lib/values.js:5:1
 lib/values.js:35:41 FUNCTION_CALL first  SOUND_SUPERSET  lib/values.js:3:1;lib/values.js:4:1;lib/values.js:5:1
-lib/values.js:35:50 COMPUTED_CALL   MISSED  
-lib/values.js:40:38 FUNCTION_CALL deep  MISSED  
+lib/values.js:35:50 COMPUTED_CALL   SOUND_SUPERSET  lib/values.js:3:1;lib/values.js:4:1;lib/values.js:5:1
+lib/values.js:40:38 FUNCTION_CALL deep  EXACT  lib/values.js:3:1
 lib/values.js:40:46 FUNCTION_CALL cb  EXACT  lib/values.js:4:1
-lib/values.js:42:30 FUNCTION_CALL renamed  MISSED  
-lib/values.js:43:26 METHOD_CALL cb  MISSED  
+lib/values.js:42:30 FUNCTION_CALL renamed  EXACT  lib/values.js:4:1
+lib/values.js:43:26 METHOD_CALL cb  EXACT  lib/values.js:4:1
 lib/values.js:48:3 FUNCTION_CALL factory  EXACT  lib/values.js:46:1
 lib/values.js:48:3 METHOD_CALL run  EXACT  lib/values.js:46:31
 lib/values.js:49:3 FUNCTION_CALL factory  EXACT  lib/values.js:46:1
@@ -78,4 +78,4 @@ main.js:7:3 METHOD_CALL optional  EXACT  lib/values.js:55:1
 main.js:7:71 METHOD_CALL counters  EXACT  lib/values.js:57:1
 main.js:7:85 METHOD_CALL callsReturned  EXACT  lib/values.js:59:1
 main.js:9:1 FUNCTION_CALL main  EXACT  main.js:3:1
-# defects: 4
+# defects: 0

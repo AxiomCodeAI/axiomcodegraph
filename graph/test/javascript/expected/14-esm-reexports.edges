@@ -31,27 +31,27 @@ main.js:12:68 METHOD_CALL obj.m  ->  known_edge  lib/base.js:8:22 m
 main.js:12:77 METHOD_CALL inst.id  ->  known_edge  lib/base.js:1:21 id
 main.js:12:88 CONSTRUCTOR_CALL Base  ->  implicit_constructor  -
 main.js:12:88 METHOD_CALL new Base().id  ->  known_edge  lib/base.js:1:21 id
-main.js:13:112 METHOD_CALL barrel.default  ->  ambiguous_unknown  -
-main.js:13:130 METHOD_CALL barrel.baseDefault  ->  ambiguous_unknown  -
-main.js:13:18 METHOD_CALL barrel.utilAlias  ->  ambiguous_unknown  -
+main.js:13:112 METHOD_CALL barrel.default  ->  known_edge  lib/base.js:6:15 <arrow>
+main.js:13:130 METHOD_CALL barrel.baseDefault  ->  known_edge  lib/base.js:6:15 <arrow>
+main.js:13:18 METHOD_CALL barrel.utilAlias  ->  known_edge  lib/base.js:2:1 util
 main.js:13:3 METHOD_CALL barrel.util  ->  known_edge  lib/base.js:2:1 util
-main.js:13:38 CONSTRUCTOR_CALL barrel.BaseAlias  ->  ambiguous_unknown  -
-main.js:13:38 METHOD_CALL new barrel.BaseAlias().id  ->  ambiguous_unknown  -
+main.js:13:38 CONSTRUCTOR_CALL barrel.BaseAlias  ->  implicit_constructor  -
+main.js:13:38 METHOD_CALL new barrel.BaseAlias().id  ->  known_edge  lib/base.js:1:21 id
 main.js:13:67 METHOD_CALL barrel.ns.util  ->  known_edge  lib/base.js:2:1 util
 main.js:13:85 CONSTRUCTOR_CALL barrel.ns.Base  ->  implicit_constructor  -
 main.js:13:85 METHOD_CALL new barrel.ns.Base().id  ->  known_edge  lib/base.js:1:21 id
-main.js:14:17 METHOD_CALL chain.nested.util  ->  ambiguous_unknown  -
+main.js:14:17 METHOD_CALL chain.nested.util  ->  known_edge  lib/base.js:2:1 util
 main.js:14:3 METHOD_CALL chain.util  ->  known_edge  lib/base.js:2:1 util
 main.js:14:38 METHOD_CALL chain.ns.util  ->  known_edge  lib/base.js:2:1 util
 main.js:14:55 CONSTRUCTOR_CALL chain.Base  ->  implicit_constructor  -
 main.js:14:55 METHOD_CALL new chain.Base().id  ->  known_edge  lib/base.js:1:21 id
-main.js:15:16 CONSTRUCTOR_CALL BaseAlias  ->  ambiguous_unknown  -
-main.js:15:16 METHOD_CALL new BaseAlias().id  ->  ambiguous_unknown  -
-main.js:15:3 FUNCTION_CALL utilAlias  ->  ambiguous_unknown  -
+main.js:15:16 CONSTRUCTOR_CALL BaseAlias  ->  implicit_constructor  -
+main.js:15:16 METHOD_CALL new BaseAlias().id  ->  known_edge  lib/base.js:1:21 id
+main.js:15:3 FUNCTION_CALL utilAlias  ->  known_edge  lib/base.js:2:1 util
 main.js:15:38 METHOD_CALL ns.util  ->  known_edge  lib/base.js:2:1 util
-main.js:15:49 FUNCTION_CALL baseDefault  ->  ambiguous_unknown  -
-main.js:15:64 FUNCTION_CALL defBarrel  ->  ambiguous_unknown  -
-main.js:15:77 METHOD_CALL nested.util  ->  ambiguous_unknown  -
+main.js:15:49 FUNCTION_CALL baseDefault  ->  known_edge  lib/base.js:6:15 <arrow>
+main.js:15:64 FUNCTION_CALL defBarrel  ->  known_edge  lib/base.js:6:15 <arrow>
+main.js:15:77 METHOD_CALL nested.util  ->  known_edge  lib/base.js:2:1 util
 main.js:16:19 CONSTRUCTOR_CALL ViaNs  ->  implicit_constructor  -
 main.js:16:19 METHOD_CALL new ViaNs().own  ->  known_edge  lib/sub.js:4:37 own
 main.js:16:3 CONSTRUCTOR_CALL Sub  ->  implicit_constructor  -

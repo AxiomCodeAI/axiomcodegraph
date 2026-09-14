@@ -2,7 +2,7 @@ lib/circ-a.js:3:43 METHOD_CALL fromB  EXACT  lib/circ-b.js:3:17
 lib/circ-b.js:4:45 METHOD_CALL fromA  EXACT  lib/circ-a.js:3:17
 lib/deep/leaf.js:6:19 FUNCTION_CALL fromIndex  EXACT  lib/dir/index.js:2:1
 lib/deep/leaf.js:6:32 FUNCTION_CALL h  EXACT  lib/impl.js:3:1
-lib/deep/leaf.js:6:37 METHOD_CALL deep  MISSED  
+lib/deep/leaf.js:6:37 METHOD_CALL deep  EXACT  lib/multi.js:2:1
 lib/deep/leaf.js:6:58 CONSTRUCTOR_CALL impl  SYNTHESIZED_OK  
 lib/deep/leaf.js:6:58 METHOD_CALL run  EXACT  lib/impl.js:2:14
 lib/impl.js:2:62 CONSTRUCTOR_CALL Impl  SYNTHESIZED_OK  
@@ -59,4 +59,4 @@ main.js:30:48 FUNCTION_CALL lazyReq  EXACT  main.js:30:19
 main.js:30:48 METHOD_CALL make  EXACT  lib/impl.js:2:39
 main.js:30:48 METHOD_CALL run  EXACT  lib/impl.js:2:14
 main.js:33:1 FUNCTION_CALL main  EXACT  main.js:18:1
-# defects: 1
+# defects: 0

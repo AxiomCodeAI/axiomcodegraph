@@ -190,15 +190,6 @@ constructor), `TYPE_ONLY_TARGET` (the compiler named a JSDoc function type),
   string.
 * **Inner defaults of a destructured parameter** (`function f({ cb = () => {} })`) are
   not attributed (PD-JS-5).
-* **Destructuring paths.** A renamed (`{ cb: renamed }`), nested (`{ a: { b } }`) or
-  rest binding is a row with no property path (#487); only the shorthand form reaches
-  the value. Same for array-pattern parameters.
-* **Re-exports with a specifier.** `export { a as b } from`, `export { default } from`
-  mint no import row (#483, parser half). `export * from` and `export * as ns from`
-  resolve.
-* **A computed superclass.** `class M extends Mixin(Base)` has no expression row for
-  the `extends` (#479); the same mixin applied through a parameter
-  (`(Sup) => class extends Sup`) resolves.
 * **Strings are literals only.** `{ ['a' + 1]: f }` and `obj['pre' + k]()` are not
   concatenated.
 * **Library bodies are not expanded.** A `boundary_lib` edge is marked and not followed.

@@ -60,7 +60,7 @@ lib/doc.js:79:28 CONSTRUCTOR_CALL Widget  ->  implicit_constructor  -
 lib/doc.js:7:36 METHOD_CALL x.run  ->  known_edge  lib/types.js:2:16 run
 lib/doc.js:80:43 METHOD_CALL this.v.run  ->  known_edge  lib/types.js:2:16 run
 lib/doc.js:83:53 METHOD_CALL this.run  ->  known_edge  lib/types.js:2:16 run
-lib/doc.js:84:66 METHOD_CALL this.spin  ->  ambiguous_unknown  -
+lib/doc.js:84:66 METHOD_CALL this.spin  ->  known_edge  lib/types.js:3:38 spin
 lib/doc.js:9:35 METHOD_CALL x.run  ->  known_edge  lib/types.js:2:16 run
 main.js:10:13 CONSTRUCTOR_CALL D.Doc  ->  known_edge  lib/doc.js:65:3 <constructor>
 main.js:10:40 METHOD_CALL d.use  ->  known_edge  lib/doc.js:70:3 use

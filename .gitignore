@@ -238,6 +238,7 @@ __pycache__/
 # listed, so every run of the TypeScript suite left an untracked directory behind.
 graph/test/typescript/.work/
 graph/test/typescript/.work-*/
+graph/test/javascript/.work/
 
 # the one-command pipeline keeps its IR and scratch here
 .intermediate/

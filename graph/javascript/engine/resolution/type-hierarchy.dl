@@ -54,6 +54,14 @@ type_super(t, s) :- heritage(_, t, _, sn, _, "", _, h), sn != "", heritage_text(
     param_decl(_, sn, _, m, p),
     param_value(p, k, i), constructible_value(k, i, s).
 
+// The `extends` expression itself (#479, parser#494): every EXTENDS_CLAUSE row links
+// its expression, and the expression has a value — a call (`Mixin(Base)`), a member
+// of a call (`require('./x').Gadget`), a conditional, an awaited import. One rule
+// subsumes the name rules above; they stay for the OBJECT_CREATE_PROTOTYPE form and
+// for IR produced before the link existed.
+type_super(t, s) :- heritage(_, t, "EXTENDS_CLAUSE", _, _, _, se, _), se != "",
+    expr_value(se, k, i), constructible_value(k, i, s).
+
 // ── type_ancestor(TypeHash, AncestorHash) — transitive ──────────────────────
 type_ancestor(t, s) :- type_super(t, s).
 type_ancestor(t, a) :- type_ancestor(t, s), type_super(s, a).

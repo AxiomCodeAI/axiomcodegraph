@@ -109,8 +109,8 @@ var_value(v, k, i) :- var_decl(_, _, reg, _, _, mod, v), var_regime_is_block(reg
 var_regime_is_block("CONST_BLOCK_TDZ").
 var_regime_is_block("LET_BLOCK_TDZ").
 var_regime_is_block("VAR_FUNCTION_SCOPED_HOISTED").
-// `const [first, second] = a` — every binding of the pattern is an element.
-var_value(v, k, i) :- var_binding_form(_, "ARRAY_PATTERN", v), var_init(_, _, e, v), expr_value(e, "arr", a), elem_value(a, k, i).
+// `const [first, second] = a` — each binding walks its path (`0`, `1`, `1...`) from
+// the array: value-flow.dl's path_value.
 
 // ── Map and Set ─────────────────────────────────────────────────────────────
 // The same shape as an array: a `coll` value identified by the `new Map()` /

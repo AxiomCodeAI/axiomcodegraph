@@ -7,7 +7,7 @@ lib/classes.js:20:49 METHOD_CALL id  EXACT  lib/classes.js:10:3
 lib/classes.js:21:50 METHOD_CALL id  EXACT  lib/classes.js:20:26
 lib/classes.js:22:55 METHOD_CALL id  SOUND_SUPERSET  lib/classes.js:10:3;lib/classes.js:22:17
 lib/classes.js:24:21 FUNCTION_CALL Mixin  EXACT  lib/classes.js:23:15
-lib/classes.js:24:50 METHOD_CALL mixed  MISSED  
+lib/classes.js:24:50 METHOD_CALL mixed  EXACT  lib/classes.js:23:44
 lib/classes.js:26:45 METHOD_CALL id  SOUND_SUPERSET  lib/classes.js:20:26;lib/classes.js:21:26
 lib/classes.js:29:18 FUNCTION_CALL_CALL call  EXACT  lib/classes.js:27:1
 lib/classes.js:30:17 METHOD_CALL create  LIB_AMBIENT_OK  
@@ -28,7 +28,7 @@ lib/classes.js:6:33 METHOD_CALL map  LIB_AMBIENT_OK
 lib/classes.js:7:24 METHOD_CALL push  LIB_AMBIENT_OK  
 lib/classes.js:9:42 METHOD_CALL id  SOUND_SUPERSET  lib/classes.js:10:3;lib/classes.js:20:26;lib/classes.js:21:26;lib/classes.js:22:17;main.js:23:39
 main.js:10:24 CONSTRUCTOR_CALL Mixed  SYNTHESIZED_OK  
-main.js:10:24 METHOD_CALL mixed  MISSED  
+main.js:10:24 METHOD_CALL mixed  EXACT  lib/classes.js:23:44
 main.js:10:3 CONSTRUCTOR_CALL Mixed  SYNTHESIZED_OK  
 main.js:10:3 METHOD_CALL own  EXACT  lib/classes.js:24:35
 main.js:10:47 CONSTRUCTOR_CALL Mixed  SYNTHESIZED_OK  
@@ -97,4 +97,4 @@ main.js:6:61 METHOD_CALL run  EXACT  lib/classes.js:22:40
 main.js:6:82 CONSTRUCTOR_CALL Service  SYNTHESIZED_OK  
 main.js:6:99 METHOD_CALL viaPrivate  EXACT  lib/classes.js:17:3
 main.js:7:24 FUNCTION_CALL String  LIB_AMBIENT_OK  
-# defects: 3
+# defects: 1

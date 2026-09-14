@@ -22,27 +22,27 @@ main.js:12:68 METHOD_CALL m  EXACT  lib/base.js:8:22
 main.js:12:77 METHOD_CALL id  EXACT  lib/base.js:1:21
 main.js:12:88 CONSTRUCTOR_CALL Base  SYNTHESIZED_OK  
 main.js:12:88 METHOD_CALL id  EXACT  lib/base.js:1:21
-main.js:13:112 METHOD_CALL default  MISSED  
-main.js:13:130 METHOD_CALL baseDefault  MISSED  
-main.js:13:18 METHOD_CALL utilAlias  MISSED  
+main.js:13:112 METHOD_CALL default  EXACT  lib/base.js:6:15
+main.js:13:130 METHOD_CALL baseDefault  EXACT  lib/base.js:6:15
+main.js:13:18 METHOD_CALL utilAlias  EXACT  lib/base.js:2:1
 main.js:13:3 METHOD_CALL util  EXACT  lib/base.js:2:1
-main.js:13:38 CONSTRUCTOR_CALL BaseAlias  SYNTHESIZED_MISSED  
-main.js:13:38 METHOD_CALL id  MISSED  
+main.js:13:38 CONSTRUCTOR_CALL BaseAlias  SYNTHESIZED_OK  
+main.js:13:38 METHOD_CALL id  EXACT  lib/base.js:1:21
 main.js:13:67 METHOD_CALL util  EXACT  lib/base.js:2:1
 main.js:13:85 CONSTRUCTOR_CALL Base  SYNTHESIZED_OK  
 main.js:13:85 METHOD_CALL id  EXACT  lib/base.js:1:21
-main.js:14:17 METHOD_CALL util  MISSED  
+main.js:14:17 METHOD_CALL util  EXACT  lib/base.js:2:1
 main.js:14:3 METHOD_CALL util  EXACT  lib/base.js:2:1
 main.js:14:38 METHOD_CALL util  EXACT  lib/base.js:2:1
 main.js:14:55 CONSTRUCTOR_CALL Base  SYNTHESIZED_OK  
 main.js:14:55 METHOD_CALL id  EXACT  lib/base.js:1:21
-main.js:15:16 CONSTRUCTOR_CALL BaseAlias  SYNTHESIZED_MISSED  
-main.js:15:16 METHOD_CALL id  MISSED  
-main.js:15:3 FUNCTION_CALL utilAlias  MISSED  
+main.js:15:16 CONSTRUCTOR_CALL BaseAlias  SYNTHESIZED_OK  
+main.js:15:16 METHOD_CALL id  EXACT  lib/base.js:1:21
+main.js:15:3 FUNCTION_CALL utilAlias  EXACT  lib/base.js:2:1
 main.js:15:38 METHOD_CALL util  EXACT  lib/base.js:2:1
-main.js:15:49 FUNCTION_CALL baseDefault  MISSED  
-main.js:15:64 FUNCTION_CALL defBarrel  MISSED  
-main.js:15:77 METHOD_CALL util  MISSED  
+main.js:15:49 FUNCTION_CALL baseDefault  EXACT  lib/base.js:6:15
+main.js:15:64 FUNCTION_CALL defBarrel  EXACT  lib/base.js:6:15
+main.js:15:77 METHOD_CALL util  EXACT  lib/base.js:2:1
 main.js:16:19 CONSTRUCTOR_CALL ViaNs  SYNTHESIZED_OK  
 main.js:16:19 METHOD_CALL own  EXACT  lib/sub.js:4:37
 main.js:16:3 CONSTRUCTOR_CALL Sub  SYNTHESIZED_OK  
@@ -54,4 +54,4 @@ main.js:16:56 METHOD_CALL make  EXACT  lib/base.js:1:45
 main.js:17:14 FUNCTION_CALL loadAndCall  EXACT  lib/dyn.js:1:1
 main.js:17:3 FUNCTION_CALL callCjs  EXACT  lib/mixed.js:4:1
 main.js:19:1 FUNCTION_CALL main  EXACT  main.js:11:1
-# defects: 10
+# defects: 0
