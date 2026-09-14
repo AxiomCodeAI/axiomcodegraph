@@ -1,0 +1,53 @@
+a.js:10:17 CONSTRUCTOR_CALL Set  ->  ambient_terminal  -
+a.js:10:26 CONSTRUCTOR_CALL Plugin  ->  callback_registered  a.js:3:1 helper
+a.js:10:26 CONSTRUCTOR_CALL Plugin  ->  known_edge  a.js:5:16 <constructor>
+a.js:10:46 CONSTRUCTOR_CALL Plugin  ->  callback_registered  a.js:4:1 other
+a.js:10:46 CONSTRUCTOR_CALL Plugin  ->  known_edge  a.js:5:16 <constructor>
+a.js:11:16 CONSTRUCTOR_CALL Map  ->  ambient_terminal  -
+a.js:13:45 FUNCTION_CALL fn  ->  ambient_terminal  -
+a.js:13:45 FUNCTION_CALL fn  ->  multi_inferred  a.js:3:1 helper
+a.js:13:45 FUNCTION_CALL fn  ->  multi_inferred  a.js:4:1 other
+a.js:14:44 FUNCTION_CALL fn  ->  multi_inferred  a.js:3:1 helper
+a.js:14:44 FUNCTION_CALL fn  ->  multi_inferred  a.js:4:1 other
+a.js:15:38 METHOD_CALL Object.entries  ->  ambient_terminal  -
+a.js:15:61 FUNCTION_CALL fn  ->  multi_inferred  a.js:3:1 helper
+a.js:15:61 FUNCTION_CALL fn  ->  multi_inferred  a.js:4:1 other
+a.js:16:36 METHOD_CALL Object.entries  ->  ambient_terminal  -
+a.js:16:59 COMPUTED_CALL pair[1]  ->  multi_inferred  a.js:3:1 helper
+a.js:16:59 COMPUTED_CALL pair[1]  ->  multi_inferred  a.js:4:1 other
+a.js:17:51 FUNCTION_CALL String  ->  ambient_terminal  -
+a.js:17:51 FUNCTION_CALL String  ->  callback_registered  a.js:3:1 helper
+a.js:17:51 FUNCTION_CALL String  ->  callback_registered  a.js:4:1 other
+a.js:17:65 FUNCTION_CALL fn  ->  ambient_terminal  -
+a.js:17:65 FUNCTION_CALL fn  ->  multi_inferred  a.js:3:1 helper
+a.js:17:65 FUNCTION_CALL fn  ->  multi_inferred  a.js:4:1 other
+a.js:18:68 FUNCTION_CALL first  ->  multi_inferred  a.js:3:1 helper
+a.js:18:68 FUNCTION_CALL first  ->  multi_inferred  a.js:4:1 other
+a.js:19:48 FUNCTION_CALL run  ->  multi_inferred  a.js:3:1 helper
+a.js:19:48 FUNCTION_CALL run  ->  multi_inferred  a.js:4:1 other
+a.js:20:51 FUNCTION_CALL String  ->  ambient_terminal  -
+a.js:20:64 FUNCTION_CALL fn  ->  multi_inferred  a.js:3:1 helper
+a.js:20:64 FUNCTION_CALL fn  ->  multi_inferred  a.js:4:1 other
+a.js:21:69 FUNCTION_CALL first  ->  multi_inferred  a.js:3:1 helper
+a.js:21:69 FUNCTION_CALL first  ->  multi_inferred  a.js:4:1 other
+a.js:21:78 COMPUTED_CALL rest[0]  ->  multi_inferred  a.js:3:1 helper
+a.js:21:78 COMPUTED_CALL rest[0]  ->  multi_inferred  a.js:4:1 other
+a.js:22:54 FUNCTION_CALL renamed  ->  multi_inferred  a.js:3:1 helper
+a.js:22:54 FUNCTION_CALL renamed  ->  multi_inferred  a.js:4:1 other
+a.js:23:44 FUNCTION_CALL fn  ->  ambient_terminal  -
+a.js:23:44 FUNCTION_CALL fn  ->  multi_inferred  a.js:3:1 helper
+a.js:23:44 FUNCTION_CALL fn  ->  multi_inferred  a.js:4:1 other
+a.js:24:44 METHOD_CALL plain.fn  ->  multi_inferred  a.js:3:1 helper
+a.js:24:44 METHOD_CALL plain.fn  ->  multi_inferred  a.js:4:1 other
+main.js:3:1 METHOD_CALL A.f1  ->  known_edge  a.js:13:1 f1
+main.js:3:17 METHOD_CALL A.f3  ->  known_edge  a.js:15:1 f3
+main.js:3:25 METHOD_CALL A.f4  ->  known_edge  a.js:16:1 f4
+main.js:3:33 METHOD_CALL A.f5  ->  known_edge  a.js:17:1 f5
+main.js:3:41 METHOD_CALL A.f6  ->  known_edge  a.js:18:1 f6
+main.js:3:49 METHOD_CALL A.f7  ->  known_edge  a.js:19:1 f7
+main.js:3:57 METHOD_CALL A.f8  ->  known_edge  a.js:20:1 f8
+main.js:3:65 METHOD_CALL A.f9  ->  known_edge  a.js:21:1 f9
+main.js:3:73 METHOD_CALL A.f10  ->  known_edge  a.js:22:1 f10
+main.js:3:82 METHOD_CALL A.f11  ->  known_edge  a.js:23:1 f11
+main.js:3:9 METHOD_CALL A.f2  ->  known_edge  a.js:14:1 f2
+main.js:3:91 METHOD_CALL A.f12  ->  known_edge  a.js:24:1 f12

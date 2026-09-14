@@ -179,7 +179,11 @@ path_rest_base(p, substr(p, 0, strlen(p) - 3)) :- binding_path(p), strlen(p) >= 
 path_split(p, substr(p, 0, n), substr(p, n + 1, strlen(p) - n - 1)) :- binding_path(p), !match(".*[.][.][.]", p),
     contains(".", p), n = range(1, strlen(p) - 1), substr(p, n, 1) = ".", !contains(".", substr(p, 0, n)).
 path_step(k, i, seg, k2, i2) :- binding_path(seg), !contains(".", seg), !match("[0-9]+", seg), prop_value(k, i, seg, k2, i2).
-path_step(k, i, seg, k2, i2) :- binding_path(seg), match("[0-9]+", seg), elem_value(i, k2, i2), value_has_elements(k).
+// A numeric step reads an array's one element set, except a PAIR pseudo array (an
+// `Object.entries` element, a Map's `[key, value]`), which is read by index: `0` the
+// keys, `1` the values. The pair's identity is a string test, so nothing is negated.
+path_step(k, i, seg, k2, i2) :- binding_path(seg), match("[0-9]+", seg), !match("PAIR:.*", i), elem_value(i, k2, i2), value_has_elements(k).
+path_step(k, i, seg, k2, i2) :- binding_path(seg), match("[0-9]+", seg), pair_index_value(i, seg, k2, i2), value_has_elements(k).
 value_has_elements("arr").
 value_has_elements("coll").
 path_value(k, i, p, k2, i2) :- binding_path(p), !contains(".", p), path_step(k, i, p, k2, i2).
