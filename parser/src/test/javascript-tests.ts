@@ -562,7 +562,15 @@ const SCAFFOLD: ReadonlyArray<readonly [string, string]> = [
     'function positional([first, , third]) { return first + third; }',
     'function mixed([{ name }]) { return name; }',
     'function simple(plain, withDefault = 1) { return plain + withDefault; }',
-    'module.exports = { flat, renamed, nested, nestedAndRenamed, positional, mixed, simple };',
+    // REST in either pattern kind (#487): the path says where the rest starts.
+    'function rests({ keep, ...others }, [head, ...tail]) { return [keep, others, head, tail]; }',
+    // And the same routes on VARIABLE rows, where the engine had only the local name.
+    'const o = { inner: { deep: 1 }, cb: 2 };',
+    'const { inner: { deep } } = o;',
+    'const { cb: alias } = o;',
+    'const { ...objRest } = o;',
+    'const [first, ...arrRest] = [1, 2, 3];',
+    'module.exports = { flat, renamed, nested, nestedAndRenamed, positional, mixed, simple, rests, deep, alias, objRest, first, arrRest };',
     '',
   ].join('\n')],
 
@@ -5217,14 +5225,18 @@ function linkColumnsMeanWhatTheyClaim(): number {
     if (parameterLink !== '' || bindingPath !== '') {
       const want = r[col(h, 'referencedName')] ?? '';
       const parameter = parameters.get(parameterLink);
-      const segments = bindingPath.split('.');
+      // Segments are keys, indexes, or rest markers (`...`, `1...`); a naive
+      // split on `.` would tear the marker into empty pieces.
+      const segments = bindingPath === '' ? [] : (bindingPath.match(/\.\.\.|[^.]+(?:\.\.\.)?/g) ?? []);
       const ok = parameterLink !== '' && link === '' && parameter !== undefined
         && (bindingPath === ''
           ? (parameter.name === want
             && (parameter.form === 'IDENTIFIER' || parameter.form === 'ASSIGNMENT_PATTERN'))
           : (parameter.name === ''
             && (parameter.form === 'OBJECT_PATTERN' || parameter.form === 'ARRAY_PATTERN')
-            && segments.every((segment) => segment !== '')));
+            // A segment is a key, an index, or a rest marker: `...` at the
+            // root of an object pattern, `1...` for an array rest (#487).
+            && segments.every((segment) => segment !== '' && /^(\.\.\.|[^.]+(\.\.\.)?)$/.test(segment))));
       assert_('js_expression.resolvedParameterLinkHash', ok,
         () => `${lineOf(r, h)}: references ${want}, c17 ${link === '' ? 'empty' : 'SET'}, `
           + `parameter named ${JSON.stringify(parameter?.name)} of form ${parameter?.form}, `
@@ -5674,6 +5686,7 @@ function bindingPathsAreKeysNotNames(): number {
     [5, 'first', '0', 0], [5, 'third', '2', 0],
     [6, 'name', '0.name', 0],
     [7, 'plain', '', 0], [7, 'withDefault', '', 1],
+    [8, 'keep', 'keep', 0], [8, 'others', '...', 0], [8, 'head', '0', 1], [8, 'tail', '1...', 1],
   ];
   for (const [line, name, wantPath, position] of expected) {
     const row = mine.find((r) => Number(r[xLine]) === line && r[xName] === name
@@ -5695,7 +5708,23 @@ function bindingPathsAreKeysNotNames(): number {
     failures += fail(`${mine.filter((r) => (r[xParameter] ?? '') !== '').length} references resolve `
       + `to a parameter in the file, expected ${expected.length} — one per bound name read`);
   }
-  console.log(`  ${expected.length} bound names, each read once, paths asserted by value`);
+  // js_variable.bindingPath / isRestBinding (#487), by value.
+  const vars = relations.find((r) => r.name === 'js_variable')!;
+  const vOwner = vars.header.indexOf('ownerModuleLinkHash');
+  const vName = vars.header.indexOf('name');
+  const vPath = vars.header.indexOf('bindingPath');
+  const vRest = vars.header.indexOf('isRestBinding');
+  for (const [name, path, rest] of [
+    ['deep', 'inner.deep', 'false'], ['alias', 'cb', 'false'], ['objRest', '...', 'true'],
+    ['first', '0', 'false'], ['arrRest', '1...', 'true'], ['o', '', 'false'],
+  ] as const) {
+    const row = vars.rows.find((r) => r[vOwner] === module && r[vName] === name);
+    if (row?.[vPath] !== path || row[vRest] !== rest) {
+      failures += fail(`js_variable \`${name}\`: bindingPath ${JSON.stringify(row?.[vPath])} isRestBinding ${row?.[vRest]}; `
+        + `expected ${JSON.stringify(path)} / ${rest} — the key route from the pattern root, with \`...\` where the rest starts (#487)`);
+    }
+  }
+  console.log(`  ${expected.length} bound names, each read once, paths asserted by value; variable paths asserted`);
   return failures;
 }
 

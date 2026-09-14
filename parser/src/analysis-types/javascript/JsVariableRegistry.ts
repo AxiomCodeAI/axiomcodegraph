@@ -39,7 +39,13 @@ import { EntityUtils } from '@/utils/entity-utils';
  * alias, and the import row carries `resolvedFilePath`.
  */
 export class JsVariableRegistry implements EntityIdentifiable {
-  static readonly ARITY = 25;
+  /**
+   * 27: two columns APPENDED AFTER THE PRIMARY KEY (c25 bindingPath, c26
+   * isRestBinding), the same move js_expression made for c32–c34 — the
+   * schema is frozen and appending is the only safe edit, so a key located
+   * by position is wrong here too and must be located by name.
+   */
+  static readonly ARITY = 27;
 
   readonly name: string;
   readonly qualifiedName: string;
@@ -71,6 +77,17 @@ export class JsVariableRegistry implements EntityIdentifiable {
   private readonly isExternal = false;
   readonly serviceVersionLinkHash: string;
   private jsVariableUniqueHash = ABSENT;
+  /**
+   * The route from the destructuring pattern's root to this binding — `cb`
+   * for `{ cb: renamed }`, `inner.deep` for `{ inner: { deep } }`, `1` for
+   * `[x, y]`'s y, `1...` for `[a, ...others]`, `...` for `{ ...rest }` — and
+   * `""` for a binding that is not inside a pattern. The key route, never
+   * the local name (engine #487: the engine had to assume the local name was
+   * the property, which reads the wrong property on every renamed binding).
+   */
+  private bindingPath = '';
+  /** `...rest` in either pattern kind: the binding holds the source object or array. */
+  private isRestBinding = false;
 
   constructor(props: {
     name: string;
@@ -118,6 +135,10 @@ export class JsVariableRegistry implements EntityIdentifiable {
     );
   }
 
+  setBindingPath(path: string, isRest: boolean): void {
+    this.bindingPath = path;
+    this.isRestBinding = isRest;
+  }
   getHash(): string {
     return this.jsVariableUniqueHash;
   }
@@ -182,6 +203,8 @@ export class JsVariableRegistry implements EntityIdentifiable {
         bool(this.isExternal),
         this.serviceVersionLinkHash,
         this.jsVariableUniqueHash,
+        text(this.bindingPath),
+        bool(this.isRestBinding),
       ],
       JsVariableRegistry.ARITY,
       'js_variable'
@@ -216,6 +239,8 @@ export class JsVariableRegistry implements EntityIdentifiable {
         'isExternal',
         'serviceVersionLinkHash',
         'jsVariableUniqueHash',
+        'bindingPath',
+        'isRestBinding',
       ],
       JsVariableRegistry.ARITY,
       'js_variable'

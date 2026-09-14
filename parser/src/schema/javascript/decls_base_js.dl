@@ -115,9 +115,9 @@
 // is NOT recoverable from anything else — an engine would have to reimplement JavaScript
 // scoping to derive it. c13 initializerKind = REQUIRE_CALL is how a local name becomes a
 // module alias, which is the hop the engine walks for 83.6% of module edges.
-// (25 columns)
-.decl js_variable(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol)
-.decl lib_js_variable(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol)
+// (27 columns)
+.decl js_variable(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol)
+.decl lib_js_variable(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol)
 
 // One module edge IN. 83.6% of these rows are MINTED FROM EXPRESSIONS, not declarations, which
 // is the finding that made JavaScript its own front end: c2 edgeBearer partitions the table
