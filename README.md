@@ -33,15 +33,15 @@ Point it at a repository and it builds a **call graph**: a map of which function
 ## Language support
 
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/java/java-original.svg" width="46" height="46" alt="Java" title="Java — stable"/>
-  &nbsp;&nbsp;&nbsp;
-  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/typescript/typescript-original.svg" width="46" height="46" alt="TypeScript" title="TypeScript — stable"/>
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/javascript/javascript-original.svg" width="46" height="46" alt="JavaScript" title="JavaScript — engine in progress"/>
   &nbsp;&nbsp;&nbsp;
   <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/python/python-original.svg" width="46" height="46" alt="Python" title="Python — stable"/>
   &nbsp;&nbsp;&nbsp;
-  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/javascript/javascript-original.svg" width="46" height="46" alt="JavaScript" title="JavaScript — engine in progress"/>
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/typescript/typescript-original.svg" width="46" height="46" alt="TypeScript" title="TypeScript — stable"/>
   &nbsp;&nbsp;&nbsp;
   <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/csharp/csharp-original.svg" width="46" height="46" alt="C#" title="C# — planned"/>
+  &nbsp;&nbsp;&nbsp;
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/java/java-original.svg" width="46" height="46" alt="Java" title="Java — stable"/>
   &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
   <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/xml/xml-original.svg" width="34" height="34" alt="XML" title="XML — Spring beans, web.xml, pom.xml"/>
   &nbsp;&nbsp;
@@ -50,15 +50,15 @@ Point it at a repository and it builds a **call graph**: a map of which function
   <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/gradle/gradle-original.svg" width="34" height="34" alt="Gradle" title="Gradle — build graph and dependencies"/>
 </p>
 
-Two stages, two columns: the **parser** turns source into the relational IR; the **engine** turns the IR into the graph. A language is usable end to end when both are there.
+Two stages, two columns: the **parser** turns source into the relational IR; the **engine** turns the IR into the graph. A language is usable end to end when both are there. Ordered by use among professional developers ([Stack Overflow Developer Survey 2025](https://survey.stackoverflow.co/2025/technology#most-popular-technologies-language-language-prof)).
 
-| language | parser | engine | maturity | validated against |
-|---|---|---|---|---|
-| **Java** | stable | stable | **stable** — first front end; hand-crafted constructs (P/R 1.000) and five real commits of a large open-source project scored against bytecode; Spring/DI configuration wiring resolved | the JDK's own class-file parser over compiled artifacts; runtime tracing |
-| **TypeScript** | stable | stable | **stable** — 53 regression cases and real projects; structural typing, overload sets, module graph, `.d.ts` libraries | the TypeScript compiler's own resolution |
-| **Python** | stable | stable | **stable** — MRO, decorators, protocols, dynamic-attribute detection; 600-site torture suite | CPython bytecode and `sys.settrace` |
-| **JavaScript** | stable | in progress | **in progress** — the parser (binder, JSDoc as the type channel, CommonJS + ESM) is complete; the engine is under review | — |
-| **C#** | planned | planned | **planned** | — |
+| language | used by | parser | engine | maturity | validated against |
+|---|---|---|---|---|---|
+| **JavaScript** | 68.8 % | stable | in progress | **in progress** — the parser (binder, JSDoc as the type channel, CommonJS + ESM) is complete; the engine is under review | — |
+| **Python** | 54.8 % | stable | stable | **stable** — MRO, decorators, protocols, dynamic-attribute detection; 600-site torture suite | CPython bytecode and `sys.settrace` |
+| **TypeScript** | 48.8 % | stable | stable | **stable** — 53 regression cases and real projects; structural typing, overload sets, module graph, `.d.ts` libraries | the TypeScript compiler's own resolution |
+| **C#** | 29.9 % | planned | planned | **planned** | — |
+| **Java** | 29.6 % | stable | stable | **stable** — first front end; hand-crafted constructs (P/R 1.000) and five real commits of a large open-source project scored against bytecode; Spring/DI configuration wiring resolved | the JDK's own class-file parser over compiled artifacts; runtime tracing |
 
 Configuration and build files are part of the graph too — a change to a bean definition, a property key or a dependency version has a blast radius into methods, and the Java engine resolves it:
 
