@@ -153,10 +153,25 @@ expr_type("external", call, x) :- applicable_candidate(call, callee),
 // call_chain.dl reports the site multi_inferred even when one client method survives,
 // because the platform's own subclasses are the other possible targets and they are
 // not visible here — that is what the boundary row beside it says.
+// Matched by name AND written arity from the raw hierarchy (LOW: java_method and
+// type_ancestor only), which is what lets the accuracy-first cap apply here exactly as
+// dispatch-cap.dl applies it to a declared base: with dispatch_cap(K) set, a fan wider
+// than K client implementations is refused rather than guessed across. A varargs
+// implementation is matched only at its own count; that is the cap's own simplification.
+external_impl(x, name, pc, m) :- external_type(x),
+    type_ancestor(sub, x),
+    java_method(name, _, _, _, _, _, _, sub, _, _, _, _, _, _, _, _, _, pc, _, _, _, m),
+    name != "".
+external_impl_count(x, name, pc, n) :- external_impl(x, name, pc, _),
+    n = count : { external_impl(x, name, pc, _) }.
+external_wide(x, name, pc) :- dispatch_cap(k),
+    external_impl_count(x, name, pc, n),
+    n > to_number(k).
 expr_call_candidate(call, m) :- call_site(call, name, recv),
     expr_type("external", recv, x),
-    type_ancestor(sub, x),
-    method_declared_in(name, sub, m).
+    call_arity(call, pc),
+    external_impl(x, name, pc, m),
+    !external_wide(x, name, pc).
 
 // ── the boundary: a call that leaves the client hierarchy ───────────────────
 // external_target(Call, Label) — the site's target outside every staged IR, labelled
