@@ -5296,7 +5296,10 @@ function linkColumnsMeanWhatTheyClaim(): number {
     // The import binds the ROOT of the superclass expression: `Base` for
     // `extends Base`, `ns` for `extends ns.Base` (#479) — the root is the
     // first segment of the expression text, parentheses stripped.
-    const want = (r[col(h, 'superTypeExpressionText')] ?? '').replace(/^[\s(]+/, '').split(/[.[(\s)]/)[0]!;
+    // Leading parentheses and whitespace — including the writer's escaped
+    // `\n`/`\t` for a clause broken over lines — are not part of the root.
+    const want = (r[col(h, 'superTypeExpressionText')] ?? '')
+      .replace(/^(\\[nt]|[\s(])+/, '').split(/\\[nt]|[.[(\s)]/)[0]!;
     assert_('js_type_heritage.importLinkHash', imports.get(link)?.local === want,
       () => `${lineOf(r, h)}: extends ${want}, links an import binding ${imports.get(link)?.local}`);
   });
@@ -5347,7 +5350,7 @@ function linkColumnsMeanWhatTheyClaim(): number {
     // target is the anonymous row itself (engine #484), whose name is the
     // placeholder for its kind.
     const anonymousDefault = local === 'default'
-      && (got === '<anonymous-class>' || got === '<anonymous>' || got === 'default');
+      && (got === 'default' || (got?.startsWith('<') ?? false));
     assert_('js_export.targetLinkHash', got === local || anonymousDefault,
       () => `${lineOf(r, h)}: exports local ${local} as ${kind}, target is named ${got}`);
   });
