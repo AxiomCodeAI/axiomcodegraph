@@ -128,6 +128,12 @@ JVM model does not need:
 * **`fan_capped`** — more targets than `--dispatch-cap` (default 20): refused rather
   than emitted, as in the Java and Python rule sets, and counted.
 
+Plus two edge classes that are not resolutions of the site's callee but edges INTO a
+function the site hands over (`call-edge-generation/callbacks.dl`): **`callback_registered`**
+(`xs.forEach(f)`, `p.then(f)`, `emitter.on('x', h)`, `setTimeout(f)`) and
+**`event_dispatch`** (`x.emit('x')` → every `x.on('x', h)` on a value x may hold). Both
+feed reachability; neither is scored against the compiler, which has no notion of them.
+
 ## How it is measured
 
 Ground truth is **`checker.getResolvedSignature`** from a `ts.Program` built with

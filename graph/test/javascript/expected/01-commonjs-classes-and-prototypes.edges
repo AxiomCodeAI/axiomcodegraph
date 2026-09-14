@@ -48,5 +48,6 @@ src/main.js:35:22 FUNCTION_CALL local  ->  known_edge  src/main.js:7:1 local
 src/main.js:35:3 IIFE_CALL (function iife() { local(9); })  ->  known_edge  src/main.js:35:4 iife
 src/main.js:36:25 FUNCTION_CALL local  ->  known_edge  src/main.js:7:1 local
 src/main.js:36:3 METHOD_CALL [1, 2].forEach  ->  ambient_terminal  -
+src/main.js:36:3 METHOD_CALL [1, 2].forEach  ->  callback_registered  src/main.js:36:18 <arrow>
 src/main.js:37:3 METHOD_CALL console.log  ->  ambient_terminal  -
 src/main.js:40:1 FUNCTION_CALL run  ->  known_edge  src/main.js:10:1 run

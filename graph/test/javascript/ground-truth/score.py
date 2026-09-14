@@ -116,6 +116,10 @@ def main():
         eng_seen.add(key)
         if cls == 'ambient_terminal':
             eng_ambient.add(key)
+        # A callback-registration or event-dispatch row names a function the site HANDS
+        # OVER or fires, not the site's callee; the compiler's answer is about the callee.
+        if cls in ('callback_registered', 'event_dispatch'):
+            continue
         if key not in eng_class or cls != 'ambient_terminal':
             eng_class[key] = cls
         if callee != '-' and prov == 'client' and callee in method_ident:

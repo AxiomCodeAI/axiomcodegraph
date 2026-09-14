@@ -366,6 +366,8 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'call_edges', column: 'tier', value: 'implicit_constructor', languages: S, meaning: '`new C()` / `super()` where no constructor exists up the chain: the synthesized default runs. A correct end; callee is NULL.' },
   { table: 'call_edges', column: 'tier', value: 'dynamic_terminal', languages: S, meaning: '`obj[expr]()`, `eval`, `import()`: no static target by construction; callee is NULL.' },
   { table: 'call_edges', column: 'tier', value: 'fan_capped', languages: S, meaning: 'More targets than --dispatch-cap: the set was refused rather than emitted; callee is NULL.' },
+  { table: 'call_edges', column: 'tier', value: 'callback_registered', languages: S, meaning: 'The site HANDS the callee this function (`xs.forEach(f)`, `p.then(f)`, `emitter.on(\'x\', h)`, `setTimeout(f)`), which may invoke it. Not the site\'s own callee; a reachability edge, labelled so it is never read as a resolved call.' },
+  { table: 'call_edges', column: 'tier', value: 'event_dispatch', languages: S, meaning: '`x.emit(\'name\')` reaching a handler registered by `x.on(\'name\', h)` on a value x may hold — name-sensitive for literal names, every handler on that value for a computed one.' },
   { table: 'call_edges', column: 'tier', value: 'intrinsic_terminal', languages: T, meaning: 'The site is a JSX intrinsic element or a dynamic `import()` — a runtime intrinsic, not a function the graph can name.' },
 
   // call_edges.callee_provenance

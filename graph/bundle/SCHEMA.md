@@ -365,6 +365,8 @@ THE GRAPH. One row per (site, resolved target). A site with N possible targets h
 | `implicit_constructor` | javascript | `new C()` / `super()` where no constructor exists up the chain: the synthesized default runs. A correct end; callee is NULL. |
 | `dynamic_terminal` | javascript | `obj[expr]()`, `eval`, `import()`: no static target by construction; callee is NULL. |
 | `fan_capped` | javascript | More targets than --dispatch-cap: the set was refused rather than emitted; callee is NULL. |
+| `callback_registered` | javascript | The site HANDS the callee this function (`xs.forEach(f)`, `p.then(f)`, `emitter.on('x', h)`, `setTimeout(f)`), which may invoke it. Not the site's own callee; a reachability edge, labelled so it is never read as a resolved call. |
+| `event_dispatch` | javascript | `x.emit('name')` reaching a handler registered by `x.on('name', h)` on a value x may hold — name-sensitive for literal names, every handler on that value for a computed one. |
 | `intrinsic_terminal` | typescript | The site is a JSX intrinsic element or a dynamic `import()` — a runtime intrinsic, not a function the graph can name. |
 
 **`call_edges.callee_provenance` values**

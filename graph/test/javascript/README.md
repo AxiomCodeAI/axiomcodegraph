@@ -41,6 +41,7 @@ the previous engine.
 | 05 | arrays: literal elements, `[i]`, `push`, `forEach`/`map`/`find` callbacks, `for..of`, `[first] = xs`, `@type {T[]}`, `@type {Array<T>}` |
 | 06 | CommonJS idioms: `exports`/`module.exports` as the file's own surface, `var app = exports = module.exports = {}`, `module.exports = function` with properties, a computed member's `this`, `util.inherits`, a user-defined `apply`/`call` beside `Function.prototype`'s |
 | 07 | an ESM class hierarchy across files with default-exported classes, `super()`, `super.m()`, `new this.constructor()`, `@param {import('./x.js').default}`, a typedef alias, a JSDoc-typed field read on a subclass instance |
+| 09 | callbacks and events: `on`/`once` handlers reached from `emit` by literal name, a computed name matching every handler, `setTimeout`/`then`/`forEach` callbacks and a project function's callback parameter all carrying `callback_registered` edges |
 | 08 | a dependency under `node_modules`, staged as `--library` from a copy parsed separately: `require('dep')` as a function, a destructured class and function, an instance returned by the library, `boundary_lib` on every edge |
 
 ## Environment
