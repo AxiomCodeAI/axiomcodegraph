@@ -15,3 +15,4 @@ export * from './JsTypeReferenceRegistry';
 export * from './JsTypeRegistry';
 export * from './JsVariableRegistry';
 export * from './js-row';
+export * from './JsPackageEntryRegistry';

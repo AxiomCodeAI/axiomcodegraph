@@ -73,3 +73,14 @@ module_system_is_esm("ESM").
 // absolute `resolvedFilePath` the client's import row carries.
 module_base_path("client", bp, h) :- js_module(_, _, _, _, bp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), bp != "".
 module_base_path("lib", bp, h) :- lib_js_module(_, _, _, _, bp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), bp != "".
+
+// ── package_entry(Prov, Package, Specifier, Condition, TargetFile, TargetModule, EntryHash) ──
+// What a package EXPOSES, from its own package.json: `main` as (name, default) and every
+// `exports` entry as (name/subpath, condition path). TargetModule is the js_module of the
+// target when it was extracted, empty when the file is absent (a named absence).
+//
+// js_package_entry / lib_js_package_entry cols (9):
+//   0 packageName  1 specifier  2 condition  3 targetFilePath  4 targetModuleLinkHash
+//   5 packageJsonPath  6 isExternal  7 serviceVersionLinkHash  8 jsPackageEntryUniqueHash
+package_entry("client", pkg, spec, cond, f, mod, h) :- js_package_entry(pkg, spec, cond, f, mod, _, _, _, h).
+package_entry("lib", pkg, spec, cond, f, mod, h) :- lib_js_package_entry(pkg, spec, cond, f, mod, _, _, _, h).

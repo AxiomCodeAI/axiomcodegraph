@@ -53,6 +53,40 @@ import_module(imp, mod) :- import_decl(_, _, _, _, _, rf, "RESOLVED_EXTERNAL", _
     module_package("lib", pkg, mod), module_file("lib", fp, mod),
     contains(cat("/node_modules/", cat(pkg, cat("/", fp))), js).
 
+// A bare specifier the parser could NOT resolve (the client has no installed tree: a CI
+// checkout, a library IR set built elsewhere) reaches a staged package through the
+// package's own entry facts (#602, #616): `require('pkg')` and `require('pkg/sub')`
+// join the staged library's (specifier, condition) rows on the exact specifier. The
+// condition is chosen the way the runtime chooses it: an `exports` entry whose
+// condition path names the form's condition (`require` for require() and
+// createRequire, `import` or `module` for an import declaration or import()) when the
+// package publishes one for that specifier, else the `default` entry (`main`, or a
+// plain-string exports target). A fallback behind the path-based rules above, so an
+// installed client keeps today's answer. Both sides are parser facts, so the negation
+// is stratified.
+import_module(imp, mod) :- entry_conditional(imp, mod).
+import_module(imp, mod) :- entry_default(imp, mod), !entry_conditional(imp, _).
+entry_conditional(imp, mod) :- import_decl(_, spec, form, _, _, _, "UNRESOLVED_MISSING", _, imp), spec != "",
+    package_entry("lib", _, spec, cond, _, mod, _), mod != "", import_form_condition(form, c), contains(c, cond).
+entry_default(imp, mod) :- import_decl(_, spec, _, _, _, _, "UNRESOLVED_MISSING", _, imp), spec != "",
+    package_entry("lib", _, spec, cond, _, mod, _), mod != "", contains("default", cond).
+import_form_condition("REQUIRE_CALL", "require").
+import_form_condition("CREATE_REQUIRE", "require").
+import_form_condition("IMPORT_EQUALS", "require").
+import_form_condition("IMPORT_DECLARATION", "import").
+import_form_condition("IMPORT_DECLARATION", "module").
+import_form_condition("DYNAMIC_IMPORT", "import").
+import_form_condition("DYNAMIC_IMPORT", "module").
+import_form_condition("JSDOC_IMPORT_TYPE", "import").
+import_form_condition("JSDOC_IMPORT_TYPE", "require").
+// Countable: a staged package a client names by a bare specifier and does not reach
+// through any entry (the entry's file is absent from the library IR, a subpath the
+// package does not publish, or a condition the form does not select). This is the
+// "staged package, client not installed" outcome, kept apart from a package that was
+// never staged.
+import_staged_package_unreached(imp, spec, pkg) :- import_decl(_, spec, _, _, _, _, "UNRESOLVED_MISSING", _, imp), spec != "",
+    package_entry("lib", pkg, _, _, _, _, _), (spec = pkg; contains(cat(pkg, "/"), spec)), !import_module(imp, _).
+
 // ── import_unresolved(ImportHash, Specifier, Outcome) — countable ───────────
 // A dependency that is not staged (RESOLVED_EXTERNAL with no matching module), a
 // builtin, or a specifier the parser could not resolve. The reason is kept so the

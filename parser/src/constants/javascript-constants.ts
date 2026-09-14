@@ -185,6 +185,7 @@ export const JAVASCRIPT_CSV_FILES = {
   BLOCKS: 'all-javascript-blocks.csv',
   COMMENTS: 'all-javascript-comments.csv',
   PARSE_GAPS: 'all-javascript-parse-gaps.csv',
+  PACKAGE_ENTRIES: 'all-javascript-package-entries.csv',
   SKIPPED_FILES: 'skipped-javascript-files.csv',
 } as const;
 

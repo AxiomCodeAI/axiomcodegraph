@@ -56,6 +56,7 @@ the previous engine.
 | 21 | `concat` and `flat` results: the receiver's elements plus each array argument's elements and each non-array argument, `Array.of(...).concat(...).at(-1)`, a spread beside them, and the receiver left unchanged after `concat` (#606) |
 | 22 | `for..of` heads that are patterns: `[, fn]` over pairs, `{ fn }` over objects, `[, fn]` over `Object.entries`, a nested `{ meta: { hooks: [first] } }`, `{ run }` over a Set of instances, `[key, fn]` over a Map, `[first, ...rest]`, a renamed property, `let`, and the plain binding beside them (#604) |
 | 23 | `Object.setPrototypeOf(Child.prototype, Parent.prototype)` as constructor-function inheritance: an inherited method on a Child instance, a grandchild chained the same way, the static side `Object.setPrototypeOf(Child, Parent)` (`Child.make()`), and the plain-object form beside them (#605) |
+| 24 | a dependency DECLARED and NOT INSTALLED (no `node_modules` in the client): its IR staged with `--library` links through the package's own entry facts, `require('alpha')` to the `require` build, `import ... from 'alpha'` and `import('alpha')` to the `import` build, `alpha/sub` to the subpath, an export naming an absent file and a package never staged left `ambiguous_unknown` (#602, #616) |
 | 08 | a dependency under `node_modules`, staged as `--library` from a copy parsed separately: `require('dep')` as a function, a destructured class and function, an instance returned by the library, `boundary_lib` on every edge |
 
 ## Environment

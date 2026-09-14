@@ -21,6 +21,7 @@ import {
   IrCompletenessReport,
 } from '@/parsers/javascript/extractors/js-ir-completeness';
 import { moduleHashFor } from '@/parsers/javascript/extractors/js-module-extractor';
+import { extractPackageEntries } from '@/parsers/javascript/package-entry-extractor';
 import { PackageJsonResolver } from '@/parsers/javascript/package-json-resolver';
 import { EntityUtils } from '@/utils/entity-utils';
 import { JsRelationWriter } from '@/workflows/javascript/js-relation-writer';
@@ -35,6 +36,7 @@ import { JsImportRegistry } from '@/analysis-types/javascript/JsImportRegistry';
 import { JsMethodParameterRegistry } from '@/analysis-types/javascript/JsMethodParameterRegistry';
 import { JsMethodRegistry } from '@/analysis-types/javascript/JsMethodRegistry';
 import { JsModuleRegistry } from '@/analysis-types/javascript/JsModuleRegistry';
+import { JsPackageEntryRegistry } from '@/analysis-types/javascript/JsPackageEntryRegistry';
 import { JsParseGapRegistry } from '@/analysis-types/javascript/JsParseGapRegistry';
 import { JsScopeRegistry } from '@/analysis-types/javascript/JsScopeRegistry';
 import { JsTypeHeritageRegistry } from '@/analysis-types/javascript/JsTypeHeritageRegistry';
@@ -64,6 +66,7 @@ const HEADER_BY_FILE: Readonly<Record<string, string>> = {
   [JAVASCRIPT_CSV_FILES.BLOCKS]: JsBlockRegistry.prototype.getCsvHeader(),
   [JAVASCRIPT_CSV_FILES.COMMENTS]: JsCommentRegistry.prototype.getCsvHeader(),
   [JAVASCRIPT_CSV_FILES.PARSE_GAPS]: JsParseGapRegistry.prototype.getCsvHeader(),
+  [JAVASCRIPT_CSV_FILES.PACKAGE_ENTRIES]: JsPackageEntryRegistry.prototype.getCsvHeader(),
 };
 
 /**
@@ -357,6 +360,23 @@ export class JavaScriptProjectAnalyzer {
         accumulateFileCompleteness(completeness, facts);
       }
 
+      // What each package EXPOSES, once per governing package.json the walk met:
+      // `main` and every `exports` entry, with the target's module hash when the
+      // target was extracted (#616). Read after every file, so the hashes are known.
+      const manifestsSeen = new Set<string>();
+      for (const file of files) {
+        const governing = governingByFile.get(file)!;
+        if (governing.packageJsonPath === '' || manifestsSeen.has(governing.packageJsonPath)) continue;
+        manifestsSeen.add(governing.packageJsonPath);
+        await writerFor(JAVASCRIPT_CSV_FILES.PACKAGE_ENTRIES).append(extractPackageEntries({
+          packageJsonPath: governing.packageJsonPath,
+          packageName: governing.packageName,
+          toRelative: (absolute) => toRelative(pathAnchor, absolute),
+          projectModuleHashes,
+          serviceVersionLinkHash,
+        }));
+      }
+
       for (const filename of Object.values(JAVASCRIPT_CSV_FILES)) {
         if (filename === JAVASCRIPT_CSV_FILES.SKIPPED_FILES) {
           continue;
@@ -398,6 +418,7 @@ export class JavaScriptProjectAnalyzer {
         js_comment: writerFor(JAVASCRIPT_CSV_FILES.COMMENTS).rowCount,
         js_type_reference: writerFor(JAVASCRIPT_CSV_FILES.TYPE_REFERENCES).rowCount,
         js_parse_gap: writerFor(JAVASCRIPT_CSV_FILES.PARSE_GAPS).rowCount,
+        js_package_entry: writerFor(JAVASCRIPT_CSV_FILES.PACKAGE_ENTRIES).rowCount,
       },
       bundledFilesExcluded,
       skippedByDirectory: Object.fromEntries(

@@ -138,6 +138,10 @@
 .decl import_module(c0:symbol, c1:symbol)
 .decl import_module_exact(c0:symbol, c1:symbol)
 .decl import_unresolved(c0:symbol, c1:symbol, c2:symbol)
+.decl entry_conditional(c0:symbol, c1:symbol)
+.decl entry_default(c0:symbol, c1:symbol)
+.decl import_form_condition(c0:symbol, c1:symbol)
+.decl import_staged_package_unreached(c0:symbol, c1:symbol, c2:symbol)
 .decl export_target_value(c0:symbol, c1:symbol, c2:symbol)
 .decl module_export_value(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
 .decl import_value(c0:symbol, c1:symbol, c2:symbol)
@@ -308,3 +312,6 @@
 .decl map_coll(c0:symbol)
 .decl ambient_map(c0:symbol)
 .decl pair_index_value(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
+
+// ── projections/modules.dl (package entries) ──
+.decl package_entry(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol, c5:symbol, c6:symbol)

@@ -843,6 +843,19 @@
      "WITH_STATEMENT_SCOPE"
     ]
    }
+  },
+  "js_package_entry": {
+   "columns": [
+    "packageName",
+    "specifier",
+    "condition",
+    "targetFilePath",
+    "targetModuleLinkHash",
+    "packageJsonPath",
+    "isExternal",
+    "serviceVersionLinkHash",
+    "jsPackageEntryUniqueHash"
+   ]
   }
  }
 }
