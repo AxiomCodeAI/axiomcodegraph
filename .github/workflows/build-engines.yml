@@ -1,0 +1,143 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Build the engine binaries — every language, every platform — as artifacts.
+#
+# Reusable (workflow_call) so publish-npm.yml can build then publish in one run, and
+# dispatchable on its own to check that the rules still compile everywhere without
+# publishing anything. Soufflé is a BUILD-time dependency only: `souffle -g` turns each
+# language's rules into portable C++ once on Ubuntu (the pinned .deb), and every platform
+# compiles that C++ with its own C++17 compiler against Soufflé's headers. The result is
+# one self-contained executable per language per platform, linked against nothing but the
+# C++ runtime. Same flags as the local compile (no OpenMP/zlib/sqlite), portable targets.
+#
+# Artifacts: engines-<platform>/  holding <lang>/axiomcode-engine-<lang>[.exe] + <lang>/ENGINE_ID
+# Platforms are named the npm way (process.platform-process.arch): darwin-arm64, linux-x64,
+# linux-arm64, win32-x64. macOS builds on a SELF-HOSTED Apple Silicon runner (hosted macOS
+# minutes bill at 10x); pass macos=false to skip it while no runner is registered.
+# ─────────────────────────────────────────────────────────────────────────────
+name: build-engines
+
+on:
+  workflow_call:
+    inputs:
+      macos:
+        description: build the darwin-arm64 engines on the self-hosted macOS runner
+        type: boolean
+        default: true
+  workflow_dispatch:
+    inputs:
+      macos:
+        description: build the darwin-arm64 engines on the self-hosted macOS runner
+        type: boolean
+        default: false
+
+env:
+  LANGUAGES: java typescript python
+
+jobs:
+  generate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned Soufflé
+        run: |
+          . graph/pipeline/engine.conf
+          deb="x86_64-ubuntu-2404-souffle-${SOUFFLE_VERSION}-Linux.deb"
+          curl -fsSL -o "/tmp/$deb" "https://github.com/souffle-lang/souffle/releases/download/${SOUFFLE_VERSION}/$deb"
+          sudo apt-get update -qq && sudo apt-get install -y -qq "/tmp/$deb"
+          souffle --version | head -2
+          test -f /usr/include/souffle/CompiledSouffle.h
+      - name: Generate portable C++ per language
+        run: |
+          set -e
+          mkdir -p gen
+          for lang in $LANGUAGES; do
+            id="$(bash graph/pipeline/run-souffle.sh --language "$lang" --print-engine-id)"
+            echo "$lang: $id"; printf '%s' "$id" > "gen/$lang.id"
+            bash graph/pipeline/run-souffle.sh --language "$lang" --emit-program "gen/$lang.dl"
+            souffle -I graph -g "gen/$lang.cpp" "gen/$lang.dl" 2> "gen/$lang.gen.log" || { cat "gen/$lang.gen.log"; exit 1; }
+            awk '/No rules\/facts defined/{skip=2;next} skip>0{skip--;next} {print}' "gen/$lang.gen.log"
+          done
+          cp -r /usr/include/souffle gen/souffle
+      - uses: actions/upload-artifact@v4
+        with: { name: generated, path: gen, retention-days: 3, if-no-files-found: error }
+
+  build:
+    needs: generate
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { os: ubuntu-24.04,     platform: linux-x64 }
+          - { os: ubuntu-24.04-arm, platform: linux-arm64 }
+          - { os: windows-2025,     platform: win32-x64 }
+    runs-on: ${{ matrix.target.os }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: generated, path: gen }
+      - name: Compile every language (Linux)
+        if: startsWith(matrix.target.platform, 'linux')
+        run: |
+          set -e
+          for lang in $LANGUAGES; do
+            mkdir -p "engines/$lang"
+            c++ -std=c++17 -O3 -w -static-libstdc++ -static-libgcc -I gen "gen/$lang.cpp" -o "engines/$lang/axiomcode-engine-$lang"
+            cp "gen/$lang.id" "engines/$lang/ENGINE_ID"
+          done
+          ls -la engines/*; ldd engines/java/axiomcode-engine-java || true
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: startsWith(matrix.target.platform, 'win32')
+        with: { arch: x64 }
+      - name: Compile every language (Windows, MSVC)
+        if: startsWith(matrix.target.platform, 'win32')
+        shell: cmd
+        run: |
+          for %%L in (java typescript python) do (
+            mkdir engines\%%L
+            cl /nologo /std:c++17 /O2 /EHsc /bigobj /w /permissive- /Zc:__cplusplus /D_CRT_SECURE_NO_WARNINGS /DNOMINMAX /DUSE_CUSTOM_GETOPTLONG /I gen gen\%%L.cpp /Fe:engines\%%L\axiomcode-engine-%%L.exe
+            if errorlevel 1 exit /b 1
+            copy gen\%%L.id engines\%%L\ENGINE_ID
+          )
+          dir /s engines
+      - name: Smoke — every binary starts on empty inputs
+        shell: bash
+        run: |
+          set -e
+          for lang in $LANGUAGES; do
+            bin="$(ls engines/$lang/axiomcode-engine-$lang* )"; chmod +x "$bin" 2>/dev/null || true
+            mkdir -p "facts-$lang" "out-$lang"
+            sed -n 's/^\.input \([A-Za-z0-9_]*\)(.*/\1/p' "gen/$lang.dl" | while read -r r; do : > "facts-$lang/$r.facts"; done
+            "./$bin" -F "facts-$lang" -D "out-$lang"
+            echo "$lang: ok ($(ls out-$lang | wc -l) relations written)"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: engines-${{ matrix.target.platform }}
+          path: engines
+          if-no-files-found: error
+
+  build-macos:
+    needs: generate
+    if: inputs.macos
+    runs-on: [self-hosted, macOS, ARM64]
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: generated, path: gen }
+      - name: Compile every language (macOS arm64)
+        run: |
+          set -e
+          for lang in $LANGUAGES; do
+            mkdir -p "engines/$lang"
+            c++ -std=c++17 -O3 -w -arch arm64 -mmacosx-version-min=12.0 -I gen "gen/$lang.cpp" -o "engines/$lang/axiomcode-engine-$lang"
+            cp "gen/$lang.id" "engines/$lang/ENGINE_ID"
+          done
+          otool -L engines/java/axiomcode-engine-java
+      - name: Smoke — every binary starts on empty inputs
+        run: |
+          set -e
+          for lang in $LANGUAGES; do
+            mkdir -p "facts-$lang" "out-$lang"
+            sed -n 's/^\.input \([A-Za-z0-9_]*\)(.*/\1/p' "gen/$lang.dl" | while read -r r; do : > "facts-$lang/$r.facts"; done
+            "./engines/$lang/axiomcode-engine-$lang" -F "facts-$lang" -D "out-$lang"
+          done
+      - uses: actions/upload-artifact@v4
+        with: { name: engines-darwin-arm64, path: engines, if-no-files-found: error }

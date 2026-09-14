@@ -144,11 +144,14 @@ bin/axiomcode test [java|typescript|python|parser|all]
 `bin/axiomcode` is the whole pipeline as subcommands: the parser (`parser/`) extracts a relational IR
 from the source — every language it finds, in one pass — the engine (`graph/`) solves each language
 separately, and `<out-dir>/<lang>/graph.sqlite` is the result (graphs are per language; a Java→TypeScript
-call is not an edge in either). **No
-Soufflé and no C++ compiler**: the rules compile to one self-contained executable, CI builds it for
-Linux (x86_64, arm64), macOS (arm64) and Windows on every merge to `main` and commits it under
-`binaries/<lang>/<platform>/`, so a checkout carries the engine for every platform. With `souffle`
-installed the engine compiles locally instead.
+call is not an edge in either). **No Soufflé and no C++ compiler:** the rules compile to one
+self-contained executable per language and platform, CI publishes those to npm as
+`@axiomcode/engine-<os>-<cpu>`, and this package lists them as optional dependencies — so `npm install`
+fetches exactly the one for your machine (Linux x64/arm64, macOS arm64, Windows x64). With `souffle`
+installed the engine compiles locally instead; rules edited after the last published engines fall back
+to that automatically (the script compares the package's `ENGINE_ID` to the checkout's rules and never
+runs a stale binary). Publishing: `Actions → publish-npm → Run workflow` (dry run by default), or push a
+`v*` tag.
 
 **Outputs — the same in every language** ([`graph/bundle/SCHEMA.md`](graph/bundle/SCHEMA.md))
 
@@ -214,7 +217,7 @@ graph/                            the engine
   pipeline/run-souffle.sh           fact staging, engine resolution (committed / compiled / fetched), stage↔solve loop, then the bundle stage
   bundle/                           the output contract: schema as data (SCHEMA.md), per-language adapters, writers
   test/<lang>/                      the engine's regression suites, torture harnesses, oracles (graph/test/tools: platform preflights)
-binaries/<lang>/<platform>/       CI-built engines, committed on merge (ENGINE_ID = the rules they were built from)
+packaging/                        template + assembler for the @axiomcode/engine-<os>-<cpu> packages (publish-npm.yml)
 ```
 
 ## Tests
