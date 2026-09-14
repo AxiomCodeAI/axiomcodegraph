@@ -133,7 +133,7 @@ lib/async.js:49:3 CONSTRUCTOR_CALL Promise  ->  ambient_terminal  -
 lib/async.js:49:3 CONSTRUCTOR_CALL Promise  ->  callback_registered  lib/async.js:49:15 <arrow>
 lib/async.js:49:3 METHOD_CALL new Promise((res) => res(1)).then  ->  ambient_terminal  -
 lib/async.js:49:3 METHOD_CALL new Promise((res) => res(1)).then  ->  callback_registered  lib/async.js:38:1 h1
-lib/async.js:54:5 SUPER_CALL super  ->  ambiguous_unknown  -
+lib/async.js:54:5 SUPER_CALL super  ->  ambient_terminal  -
 lib/async.js:55:5 METHOD_CALL this.on  ->  ambient_terminal  -
 lib/async.js:55:5 METHOD_CALL this.on  ->  callback_registered  lib/async.js:62:3 onA
 lib/async.js:56:18 FUNCTION_CALL_BIND this.onB.bind  ->  known_edge  lib/async.js:63:3 onB

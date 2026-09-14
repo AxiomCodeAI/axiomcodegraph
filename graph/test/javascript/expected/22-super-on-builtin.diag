@@ -1,0 +1,18 @@
+package_entry    22-super-on-builtin  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       main.js:10:27  METHOD_CALL get  no_target
+unresolved       main.js:10:27  METHOD_CALL get  receiver_untyped
+unresolved       main.js:16:15  CONSTRUCTOR_CALL Map  no_target
+unresolved       main.js:17:30  METHOD_CALL get  no_target
+unresolved       main.js:21:26  SUPER_CALL   callee_untyped
+unresolved       main.js:22:25  METHOD_CALL get  no_target
+unresolved       main.js:22:25  METHOD_CALL get  receiver_untyped
+unresolved       main.js:23:12  METHOD_CALL forEach  no_target
+unresolved       main.js:23:12  METHOD_CALL forEach  receiver_untyped
+unresolved       main.js:29:30  METHOD_CALL forEach  no_target
+unresolved       main.js:34:30  METHOD_CALL values  no_target
+unresolved       main.js:34:30  METHOD_CALL values  receiver_untyped
+unresolved       main.js:41:18  METHOD_CALL set  no_target
+unresolved       main.js:42:22  METHOD_CALL get  no_target
+unresolved       main.js:50:26  SUPER_CALL   callee_untyped
+unresolved       main.js:51:23  METHOD_CALL toString  no_target
+unresolved       main.js:51:23  METHOD_CALL toString  receiver_untyped

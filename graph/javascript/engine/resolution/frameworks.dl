@@ -72,9 +72,29 @@ type_super_ambient(t, n) :- heritage(_, t, _, _, _, imp, _, _), imp != "", impor
 type_super_ambient(t, n) :- heritage(_, t, _, sn, _, "", _, _), sn != "", type_decl(_, _, _, _, mod, t),
     module_scope(_, ms, mod), var_decl(_, sn, _, ms, _, mod, v), var_value(v, "ambient", n).
 type_super_ambient(t, n) :- type_super(t, s), type_super_ambient(s, n).
+// A bare `extends Map` / `extends Error` / `extends stream.Writable` (#619): the
+// extends EXPRESSION is an ambient value, through the binder's GLOBAL_BUILTIN mark
+// or a property of one, and no binding or import stands between the class and the
+// platform. The two rules above never saw this shape.
+type_super_ambient(t, n) :- heritage(_, t, "EXTENDS_CLAUSE", _, _, _, se, _), se != "", expr_value(se, "ambient", n).
 prop_value("inst", t, n, "ambient", base) :- type_super_ambient(t, base), !type_own_member_name(t, n), member_name_used(n).
 prop_value("ctor", t, n, "ambient", base) :- type_super_ambient(t, base), !type_own_static_name(t, n), member_name_used(n).
 member_name_used(n) :- call_site(_, ck, n, "SYNTACTIC", _, _, _, _, _), call_kind_is_member_form(ck), n != "".
+// `super.m()` inside a class whose base is the platform is a call on the platform
+// (`Map.prototype.get`), so the callee is ambient and the site an ambient terminal
+// rather than a declared unknown; `super(...)` in its constructor likewise (#619).
+callee_value(ce, "ambient", n) :- call_site(_, ck, _, "SYNTACTIC", _, em, ce, _, _), call_kind_is_member_form(ck),
+    expr_child(_, ce, "RECEIVER", _, r), expr_kind(_, "SUPER", _, r),
+    method_home_type(em, t), type_super_ambient(t, n).
+ambient_site(ce) :- invocation_site(ce, "SUPER_CALL"), call_site(_, "SUPER_CALL", _, _, _, em, ce, _, _),
+    method_home_type(em, t), type_super_ambient(t, _).
+// `new C()` / `super()` where no constructor sits between C and the platform: the
+// synthesized default runs AND it calls the platform's constructor. The site keeps
+// its implicit_constructor class and carries the ambient row beside it, the way a
+// callee that may also be the platform does.
+call_ambient_alternative(ce) :- call_target_is_implicit_ctor(ce), new_constructs(ce, t), type_super_ambient(t, _).
+call_ambient_alternative(ce) :- call_target_is_implicit_ctor(ce), call_site(_, "SUPER_CALL", _, _, _, em, ce, _, _),
+    method_home_type(em, t), type_super_ambient(t, _).
 
 // ── express: what a route handler receives ──────────────────────────────────
 // `app.get('/x', (req, res, next) => ...)` — express invokes the handler from inside
