@@ -423,11 +423,15 @@ else
 fi
 ENGINE_COMMIT="$(git -C "$SRC" rev-parse HEAD 2>/dev/null || echo unknown)"
 BUNDLE_FLAGS=(); [ "$DEBUG_BUNDLE" = "1" ] && BUNDLE_FLAGS+=(--debug)
-"${BUNDLE[@]}" --language "$LANG_ARG" --src "$SRC" --client-ir "$CLIENT" --raw "$RAW" --out "$OUT" \
+# tsx resolves the `@/` path alias from the tsconfig it finds at the CURRENT directory, so
+# a caller running from elsewhere (an evaluation harness under /tmp) got "Cannot find
+# module '@/bundle/build'" after a successful solve. Run the bundle from the package root;
+# every path handed to it is absolute.
+(cd "$PKG" && "${BUNDLE[@]}" --language "$LANG_ARG" --src "$SRC" --client-ir "$CLIENT" --raw "$RAW" --out "$OUT" \
   --library "$LIB" --lib-facts "$LIBDIR" "${BUNDLE_FLAGS[@]}" \
   --meta "engine_commit=$ENGINE_COMMIT" \
   --meta "dispatch_cap=${CAP_EFF:-off}" --meta "jdk_depth=$JDK_DEPTH" --meta "lib_depth=${LIB_DEPTH:-uncapped}" \
-  --meta "engine_ii=$ENGINE_II_MODE" --meta "solve_iterations=$iter" --meta "solve_seconds=$((SOLVE_EPOCH-START_EPOCH))"
+  --meta "engine_ii=$ENGINE_II_MODE" --meta "solve_iterations=$iter" --meta "solve_seconds=$((SOLVE_EPOCH-START_EPOCH))")
 
 END_EPOCH=$(date +%s); END_TS=$(date '+%Y-%m-%d %H:%M:%S')
 echo "Elapsed: $((END_EPOCH-START_EPOCH))s"
