@@ -16,7 +16,8 @@
 set -uo pipefail
 
 OUT="${AXIOM_LIB_IR:-/Users/swapnilpaliwal/Documents/AxiomCode/other-lib}"
-PARSER="${AXIOM_PARSER:-/Users/swapnilpaliwal/Documents/AxiomCode/Parser/dist/index.js}"
+ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+PARSER="${AXIOM_PARSER:-$ROOT/parser/dist/index.js}"
 COORD=""; CHECK=0; FORCE=0
 while [ $# -gt 0 ]; do case "$1" in
   --coord) COORD="$2"; shift 2;; --out) OUT="$2"; shift 2;; --parser) PARSER="$2"; shift 2;;

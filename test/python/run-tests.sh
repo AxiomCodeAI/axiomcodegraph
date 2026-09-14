@@ -35,7 +35,7 @@
 # permanent expectation.
 #
 # Environment:
-#   AXIOM_PARSER      parser entrypoint        (default ../../../Parser/dist/index.js)
+#   AXIOM_PARSER      parser entrypoint        (default parser/dist/index.js — the parser in this repository)
 #   AXIOM_PY_ORACLE   harness checkout         (--oracle only; default ../../../callchain-oracle/python)
 #   AXIOM_PY_PYTHON   pinned interpreter       (default python3.10; also used by the
 #                     tier-1 attribution preflight, which is version-sensitive)
@@ -64,7 +64,7 @@ if ! bash "$ROOT/test/tools/bundle-test.sh"; then
   echo "aborting: the bundle stage does not produce the documented output"
   exit 1
 fi
-PARSER="${AXIOM_PARSER:-$ROOT/../Parser/dist/index.js}"
+PARSER="${AXIOM_PARSER:-$ROOT/parser/dist/index.js}"
 ORACLE_HOME="${AXIOM_PY_ORACLE:-$ROOT/../callchain-oracle/python}"
 # The oracle is PINNED to 3.10.4 because opcode shapes are not stable across minor
 # versions -- but pinning an absolute PATH is a different thing, and the wrong one: a

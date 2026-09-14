@@ -5,7 +5,7 @@ opposite: realistic projects big enough that mechanisms interact, scored against
 CPython ground truth (no frozen lock — the oracle is rebuilt each run).
 
 ```bash
-node ../../../../Parser/dist/index.js two-service-fastapi/ p false /tmp/ir
+node ../../../parser/dist/index.js two-service-fastapi/ p false /tmp/ir
 bash ../../../graph/pipeline/run-souffle.sh --language python \
   --client-ir /tmp/ir --library ~/Documents/AxiomCode/python/v3.10.4 \
   --intermediate /tmp/int --output /tmp/out

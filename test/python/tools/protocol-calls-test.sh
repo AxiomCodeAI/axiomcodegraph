@@ -34,7 +34,7 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 GUARD="$HERE/coverage_guard.py"
-PARSER="${AXIOM_PARSER:-$HERE/../../../Parser/dist/index.js}"
+PARSER="${AXIOM_PARSER:-$HERE/../../../parser/dist/index.js}"
 
 if [ ! -f "$GUARD" ]; then
   echo "  FAIL  tools/coverage_guard.py is missing; the 'no longer a gap' checks below"
