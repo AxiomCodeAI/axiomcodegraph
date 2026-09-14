@@ -300,3 +300,6 @@
 .decl path_parent(c0:symbol, c1:symbol)
 .decl path_rest_identity(c0:symbol)
 .decl path_source(c0:symbol, c1:symbol)
+.decl concat_arg_is_element(c0:symbol, c1:symbol)
+.decl concat_kind_never_array(c0:symbol)
+.decl type_extends_array_written(c0:symbol)

@@ -30,11 +30,39 @@ expr_value(ce, "arr", ce) :- array_method_call(ce, "map", _).
 expr_value(ce, "arr", a) :- array_method_call(ce, n, a), array_method_returns_same_elements(n).
 array_method_returns_same_elements("filter").
 array_method_returns_same_elements("slice").
-array_method_returns_same_elements("concat").
 array_method_returns_same_elements("reverse").
 array_method_returns_same_elements("sort").
-array_method_returns_same_elements("flat").
 array_method_returns_same_elements("splice").
+// `a.concat(b, x)` is a FRESH array (#606): the receiver's elements, each array
+// argument's elements, and each other argument itself. `a.flat()` (depth 1): the
+// elements of the receiver's array elements, plus its non-array elements. Neither
+// may be the receiver's own value: a call through the result would then commit
+// `known_edge` to a set the arguments were never added to.
+expr_value(ce, "arr", ce) :- array_method_call(ce, "concat", _).
+elem_value(ce, k, i) :- array_method_call(ce, "concat", a), elem_value(a, k, i).
+elem_value(ce, k, i) :- array_method_call(ce, "concat", _), call_arg(ce, _, arg), expr_value(arg, "arr", b), elem_value(b, k, i).
+// A non-array argument is itself an element. Only values that CANNOT be arrays
+// count: a function, a class, a string, a module, a prototype, a Map/Set, an
+// instance of a class with no Array ancestor. An `ambient` value, an instance of
+// a subclass of Array, and an object LITERAL are left out: the literal because
+// `this` inside a literal of methods mixed onto an array prototype is the
+// literal here and the array at runtime, and one element naming the literal's
+// own methods where its elements' were meant is a wrong edge.
+elem_value(ce, k, i) :- array_method_call(ce, "concat", _), call_arg(ce, _, arg), expr_value(arg, k, i), concat_arg_is_element(k, i).
+concat_arg_is_element(k, i) :- expr_value(_, k, i), concat_kind_never_array(k).
+// Syntactic (the written `extends Array`), because it is negated inside the value
+// fixpoint: a class two hops below Array is not caught, and stays a may-element.
+concat_arg_is_element("inst", t) :- expr_value(_, "inst", t), !type_extends_array_written(t).
+type_extends_array_written(t) :- heritage(_, t, _, _, _, _, _, h), heritage_text(_, "Array", h).
+concat_kind_never_array("func").
+concat_kind_never_array("ctor").
+concat_kind_never_array("str").
+concat_kind_never_array("module").
+concat_kind_never_array("proto").
+concat_kind_never_array("coll").
+expr_value(ce, "arr", ce) :- array_method_call(ce, "flat", _).
+elem_value(ce, k, i) :- array_method_call(ce, "flat", a), elem_value(a, "arr", b), elem_value(b, k, i).
+elem_value(ce, k, i) :- array_method_call(ce, "flat", a), elem_value(a, k, i), k != "arr".
 // `@type {T[]}` / `@type {Array<T>}`: the reference row IS the array's identity.
 var_value(v, "arr", r) :- var_type_name(_, _, r, v), type_ref_is_array(r).
 param_value(p, "arr", r) :- param_type_name(_, _, r, p), type_ref_is_array(r).
