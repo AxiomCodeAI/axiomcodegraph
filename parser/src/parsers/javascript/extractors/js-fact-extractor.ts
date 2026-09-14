@@ -362,6 +362,7 @@ export function extractJavaScriptFile(options: JsFileExtractionOptions): JsFileF
     expressionRowByNode: expressions.rowByNode,
     rootHashByNode: expressions.rootHashByNode,
     methodHashByNode: declarations.methodHashByNode,
+    typeHashByNode: declarations.typeHashByNode,
     moduleInitMethodHash: declarations.moduleInitMethodHash,
     toProjectRelative: options.toProjectRelative,
     projectModuleHashes: options.projectModuleHashes,
@@ -412,8 +413,11 @@ export function extractJavaScriptFile(options: JsFileExtractionOptions): JsFileF
       moduleResult.module.setDefaultExportLinkHash(row.getHash());
     }
   }
+  const exportedTargets = new Set(moduleEdges.exports.map((row) => row.targetLinkHashValue()));
   for (const type of declarations.types) {
-    if (exportedNames.has(type.name)) {
+    // By NAME for a named declaration, by TARGET for an anonymous one: the
+    // default-exported `class extends Base {}` has no name to be found by.
+    if (exportedNames.has(type.name) || exportedTargets.has(type.getHash())) {
       type.setIsExported();
     }
   }

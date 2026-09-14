@@ -872,6 +872,12 @@ const SCAFFOLD: ReadonlyArray<readonly [string, string]> = [
     'export default class Klass { run() { return 1; } }',
     '',
   ].join('\n')],
+  // The ANONYMOUS default class (engine #484): no name to look a target up
+  // by, so the target is the declaration itself, by node identity.
+  ['esm/default-anon.js', [
+    'export default class { run() { return 1; } }',
+    '',
+  ].join('\n')],
 
   ['cjs/typed-module.js.flow', [
     'declare export function connect(host: string, port: number): boolean;',
@@ -4801,16 +4807,19 @@ function separatorCommentsAndNamespaceReexportsEmit(): number {
   const ePk = pkIndexOf(exports_.header, 'js_export');
   for (const [file, local, target] of [
     ['default-named.js', 'named', 'METHOD'], ['default-class.js', 'Klass', 'TYPE'],
+    ['default-anon.js', 'default', 'TYPE'],
   ] as const) {
     const moduleRow = modules.rows.find((r) => (r[mPath] ?? '').endsWith(file));
     const moduleHash = moduleRow?.[mPk] ?? '';
     const row = exports_.rows.find((r) => r[eOwner] === moduleHash && r[eLocal] === local);
+    const eTargetLink = exports_.header.indexOf('targetLinkHash');
     if (row?.[eName] !== 'default' || row[eForm] !== 'EXPORT_DECLARATION' || row[eTarget] !== target
-      || moduleRow?.[mDefault] !== row[ePk]) {
+      || (row[eTargetLink] ?? '') === '' || moduleRow?.[mDefault] !== row[ePk]) {
       failures += fail(`${file}: \`export default ${target === 'TYPE' ? 'class' : 'function'} ${local}\` is exported as `
         + `${JSON.stringify(row?.[eName])} (${row?.[eForm]}/${row?.[eTarget]}), module default link `
         + `${moduleRow?.[mDefault] === row?.[ePk] ? 'set' : 'NOT this row'}; expected default/${local} with the `
-        + 'module naming it — the default modifier decides, not whether the declaration has a name (#176)');
+        + `module naming it${(row?.[eTargetLink] ?? '') === '' ? ' — and the target link is EMPTY' : ''} — the default modifier `
+        + 'decides, not whether the declaration has a name (#176); an anonymous declaration is its own target (#484)');
     }
     const control = exports_.rows.find((r) => r[eOwner] === moduleHash && r[eLocal] === 'plain');
     if (file === 'default-named.js' && control?.[eName] !== 'plain') {
@@ -5303,7 +5312,12 @@ function linkColumnsMeanWhatTheyClaim(): number {
     const got = kind === 'TYPE' ? types.get(link)?.name
       : kind === 'METHOD' ? methods.get(link)?.name
         : kind === 'VARIABLE' ? variables.get(link)?.name : undefined;
-    assert_('js_export.targetLinkHash', got === local,
+    // An ANONYMOUS default declaration has no local name to agree with: its
+    // target is the anonymous row itself (engine #484), whose name is the
+    // placeholder for its kind.
+    const anonymousDefault = local === 'default'
+      && (got === '<anonymous-class>' || got === '<anonymous>' || got === 'default');
+    assert_('js_export.targetLinkHash', got === local || anonymousDefault,
       () => `${lineOf(r, h)}: exports local ${local} as ${kind}, target is named ${got}`);
   });
 
