@@ -42,6 +42,11 @@ export enum JsImportForm {
    * expression and this is a type node. Minted so that a typedef whose file
    * the engine cannot locate is not the incomplete row §0.2 forbids — the
    * name present, the hop absent. `isTypeOnly = true` on every such row.
+   *
+   * Also the `@import` TAG (TypeScript 5.5+, #621): `/** @import { Y } from "./x" *\/`
+   * is the same construct with a binding, one row per bound name. The two are
+   * told apart by `bindingForm`: an import type node binds nothing
+   * (`NO_LOCAL_BINDING`); a tag binds `DEFAULT`, `NAMED` or `NAMESPACE`.
    */
   JSDOC_IMPORT_TYPE = 'JSDOC_IMPORT_TYPE',
 }

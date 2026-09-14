@@ -18,6 +18,15 @@ type_ref_type(r, t) :- type_ref(_, _, "NAMED", _, _, _, _, _, imp, _, r), imp !=
     import_value(imp, k, i), constructible_value(k, i, t).
 type_ref_type(r, t) :- type_ref(_, n, "NAMED", _, _, _, _, _, "", mod, r), !type_ref_builtin(_, r),
     type_decl(_, n, _, _, mod, t).
+// `@param {ns.Thing}` through a namespace binding (`@import * as ns`, `import * as
+// ns`, `const ns = require(...)`): the parser links the import that binds the ROOT,
+// and the member is the rest of the name, looked up on the module's surface (#621).
+type_ref_type(r, t) :- type_ref(_, n, "NAMED", _, _, _, _, _, imp, _, r), imp != "", contains(".", n),
+    import_local(_, q, imp), strlen(n) > strlen(q) + 1,
+    substr(n, 0, strlen(q) + 1) = cat(q, "."),
+    import_value(imp, "module", mod),
+    module_export_value(mod, substr(n, strlen(q) + 1, strlen(n) - strlen(q) - 1), k, i),
+    constructible_value(k, i, t).
 // `import('./x.js').T` — the reference names the import row, whose importedName
 // is the member.
 type_ref_type(r, t) :- type_ref(_, _, "IMPORT_TYPE", _, _, _, _, _, imp, _, r), imp != "",

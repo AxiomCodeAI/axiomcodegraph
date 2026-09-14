@@ -205,13 +205,45 @@ iterable_element(x, k, i) :- expr_value(x, "arr", a), elem_value(a, k, i).
 iterable_element(x, k, i) :- expr_value(x, "coll", c), elem_value(c, k, i).
 // `new Map(entries)` / `new Set(iterable)`: seeded from the argument. A Map entry is a
 // `[k, v]` pair — the value is the pair's second element, a literal key feeds the keyed
-// table.
-elem_value(ce, k, i) :- expr_value(ce, "coll", ce), new_callee_value(ce, "ambient", "Set"), call_arg(ce, 0, x), iterable_element(x, k, i).
-elem_value(ce, k, i) :- expr_value(ce, "coll", ce), new_callee_value(ce, "ambient", "Map"), call_arg(ce, 0, x),
+// table. coll_ctor names which platform constructor built the collection and
+// coll_seed the expression that seeded it, so a subclass instance (below) is seeded
+// by the same rules.
+coll_ctor(ce, n) :- expr_kind(_, "NEW", _, ce), new_callee_value(ce, "ambient", n), ambient_collection(n).
+coll_seed(ce, x) :- expr_kind(_, "NEW", _, ce), new_callee_value(ce, "ambient", n), ambient_collection(n), call_arg(ce, 0, x).
+elem_value(c, k, i) :- coll_seed(c, x), coll_ctor(c, "Set"), iterable_element(x, k, i).
+elem_value(c, k, i) :- coll_seed(c, x), coll_ctor(c, "Map"),
     expr_value(x, "arr", a), pair_of(a, pair), expr_child(_, pair, "ELEMENT", "1", v), expr_value(v, k, i).
-coll_keyed_value(ce, key, k, i) :- expr_value(ce, "coll", ce), new_callee_value(ce, "ambient", "Map"), call_arg(ce, 0, x),
+coll_keyed_value(c, key, k, i) :- coll_seed(c, x), coll_ctor(c, "Map"),
     expr_value(x, "arr", a), pair_of(a, pair), expr_child(_, pair, "ELEMENT", "0", ke), expr_value(ke, "str", key),
     expr_child(_, pair, "ELEMENT", "1", v), expr_value(v, k, i).
+
+// ── a class extending Map / Set (#619) ──────────────────────────────────────
+// `class LazyMap extends Map { get(k) { const load = super.get(k); return load(); } }`
+// is the lazy plugin registry: entries handed to the platform constructor, the
+// overridden accessor reads them back through `super.get`. The instance IS a
+// collection: its identity is the `new` expression, exactly as `new Map()`'s is.
+// It is seeded from the `new` argument when the class declares no constructor
+// (the platform's runs on those arguments), else from the `super(...)` argument of
+// the constructor that runs. Inside the class `super` reads that collection, and so
+// does `this` for a member the class does not define itself; an instance held
+// outside the class reads it through the members the class does not override.
+// The instance keeps its "inst" value, so an overridden `get` still resolves to the
+// class's own method and never to the platform's stored value.
+inst_coll(c, t, n) :- expr_kind(_, "NEW", _, c), new_constructs(c, t), type_super_ambient(t, n), ambient_collection(n).
+coll_ctor(c, n) :- inst_coll(c, _, n).
+coll_seed(c, x) :- inst_coll(c, t, _), !type_ctor(_, _, t), call_arg(c, 0, x).
+coll_seed(c, x) :- inst_coll(c, t, _), type_ctor(_, m, t), call_site(_, "SUPER_CALL", _, _, _, m, sc, _, _), call_arg(sc, 0, x).
+// The class a `super` or `this` inside a method reads as: the constructed class or
+// any class between it and the platform.
+inst_coll_of(c, t) :- inst_coll(c, t, _).
+inst_coll_of(c, t) :- inst_coll(c, s, _), type_ancestor(s, t).
+coll_method_call(ce, n, c) :- call_site(_, ck, n, "SYNTACTIC", _, em, ce, _, _), call_kind_is_member_form(ck),
+    expr_child(_, ce, "RECEIVER", _, r), expr_kind(_, "SUPER", _, r),
+    method_home_type(em, t), inst_coll_of(c, t).
+coll_method_call(ce, n, c) :- call_site(_, ck, n, "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck),
+    expr_child(_, ce, "RECEIVER", _, r), !expr_kind(_, "SUPER", _, r),
+    expr_value(r, "inst", t), inst_coll_of(c, t), !type_own_member_name(t, n).
+iterable_element(x, k, i) :- expr_value(x, "inst", t), inst_coll_of(c, t), elem_value(c, k, i).
 pair_of(a, pair) :- expr_kind(_, "ARRAY_LITERAL", _, a), expr_child(_, a, "ELEMENT", _, pair), expr_kind(_, "ARRAY_LITERAL", _, pair).
 // Iterating a Map yields `[key, value]` PAIRS. The pair is a pseudo array keyed by the
 // collection (as `Object.entries` keys one by the call) whose elements are the stored
@@ -222,6 +254,9 @@ pair_of(a, pair) :- expr_kind(_, "ARRAY_LITERAL", _, a), expr_child(_, a, "ELEME
 // inside the flow fixpoint.
 iterable_element(x, "arr", cat("PAIR:", c)) :- expr_value(x, "coll", c), map_coll(c).
 map_coll(c) :- expr_value(c, "coll", c), new_callee_value(c, "ambient", n), ambient_map(n).
+// An instance of a class extending Map iterates the same way (#619).
+map_coll(c) :- inst_coll(c, _, n), ambient_map(n).
+iterable_element(x, "arr", cat("PAIR:", c)) :- expr_value(x, "inst", t), inst_coll_of(c, t), map_coll(c).
 ambient_map("Map").
 ambient_map("WeakMap").
 elem_value(cat("PAIR:", c), k, i) :- map_coll(c), elem_value(c, k, i).

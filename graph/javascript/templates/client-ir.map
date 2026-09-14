@@ -1,5 +1,5 @@
 # Soufflé input-relation -> client IR CSV basename (the file staged as that relation's facts).
-# One relation per line: <relation><TAB><csv-basename>. All 16 relations of the JavaScript
+# One relation per line: <relation><TAB><csv-basename>. All 17 relations of the JavaScript
 # fact schema the parser emits.
 js_block	all-javascript-blocks
 js_call_site	all-javascript-call-sites
@@ -11,6 +11,7 @@ js_import	all-javascript-imports
 js_method	all-javascript-methods
 js_method_parameter	all-javascript-method-parameters
 js_module	all-javascript-modules
+js_package_entry	all-javascript-package-entries
 js_parse_gap	all-javascript-parse-gaps
 js_scope	all-javascript-scopes
 js_type	all-javascript-types

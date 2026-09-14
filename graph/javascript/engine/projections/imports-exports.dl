@@ -35,6 +35,12 @@
 import_decl("client", spec, form, bf, iname, rf, out, mod, h) :- js_import(spec, _, _, form, _, _, bf, iname, _, rf, out, _, _, _, _, _, _, mod, _, _, _, _, h).
 import_decl("lib", spec, form, bf, iname, rf, out, mod, h) :- lib_js_import(spec, _, _, form, _, _, bf, iname, _, rf, out, _, _, _, _, _, _, mod, _, _, _, _, h).
 
+// ── import_local(Prov, LocalName, ImportHash) ───────────────────────────────
+// The name the import binds in its module (col 8); the root of a qualified JSDoc
+// type name (`ns.Thing`) is one of these.
+import_local("client", ln, h) :- js_import(_, _, _, _, _, _, _, _, ln, _, _, _, _, _, _, _, _, _, _, _, _, _, h), ln != "".
+import_local("lib", ln, h) :- lib_js_import(_, _, _, _, _, _, _, _, ln, _, _, _, _, _, _, _, _, _, _, _, _, _, h), ln != "".
+
 // ── import_source_expr(Prov, ExprHash, ImportHash) ──────────────────────────
 // The `require(...)` / `import(...)` expression the row was minted from. This is
 // the value-bearing side: `require('./x').y` reaches the module through it.

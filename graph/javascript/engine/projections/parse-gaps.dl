@@ -1,0 +1,24 @@
+// ============================================================================
+// Projections · PARSE GAPS  (pure column views)
+//
+// What the parser could not represent, one row per construct: a file parsed WITH
+// errors, a computed `require()` specifier, a JSDoc type it could not read, an
+// `eval`, a `with` block, an expression past the depth cap. The parser records
+// every one; until #617 the executor staged the relation and no rule read it, so a
+// graph built over a file the parser only partly understood was indistinguishable
+// from a complete one. The rows are read in resolution/parse-gaps.dl.
+//
+// js_parse_gap / lib_js_parse_gap cols (11):
+//   0 gapKind  1 detail  2 relatedRelation  3 relatedLinkHash  4 ownerModuleLinkHash
+//   5 startLine  6 startColumn  7 isRecoverable  8 isExternal  9 serviceVersionLinkHash
+//   10 jsParseGapUniqueHash
+// ============================================================================
+
+// ── parse_gap(Prov, Kind, Module, Line, Col, Recoverable, RelatedRelation, RelatedHash, GapHash) ──
+// Kind: PARSE_ERROR | NON_LITERAL_SPECIFIER | UNKNOWN_JSDOC_SYNTAX | DEPTH_CAP_REACHED |
+//   DYNAMIC_CODE | WITH_STATEMENT_SCOPE | FLOW_SYNTAX
+// RelatedRelation names the relation whose row the gap is about, RelatedHash that
+// row: js_import for a computed specifier, js_type_reference for an unreadable
+// type, js_call_site for eval, js_scope for `with`, js_module for a file-level gap.
+parse_gap("client", k, mod, l, c, rec, rel, rh, h) :- js_parse_gap(k, _, rel, rh, mod, l, c, rec, _, _, h).
+parse_gap("lib", k, mod, l, c, rec, rel, rh, h) :- lib_js_parse_gap(k, _, rel, rh, mod, l, c, rec, _, _, h).

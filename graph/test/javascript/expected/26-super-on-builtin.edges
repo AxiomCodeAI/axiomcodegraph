@@ -1,0 +1,44 @@
+main.js:10:27 METHOD_CALL super.get  ->  ambient_terminal  -
+main.js:10:58 FUNCTION_CALL load  ->  ambient_terminal  -
+main.js:10:58 FUNCTION_CALL load  ->  multi_inferred  main.js:4:1 doA
+main.js:10:58 FUNCTION_CALL load  ->  multi_inferred  main.js:5:1 doB
+main.js:12:13 CONSTRUCTOR_CALL LazyMap  ->  ambient_terminal  -
+main.js:12:13 CONSTRUCTOR_CALL LazyMap  ->  implicit_constructor  -
+main.js:13:33 METHOD_CALL reg.get  ->  known_edge  main.js:10:3 get
+main.js:16:15 CONSTRUCTOR_CALL Map  ->  ambient_terminal  -
+main.js:17:30 FUNCTION_CALL plain.get('a')  ->  ambient_terminal  -
+main.js:17:30 FUNCTION_CALL plain.get('a')  ->  multi_inferred  main.js:4:1 doA
+main.js:17:30 METHOD_CALL plain.get  ->  ambient_terminal  -
+main.js:21:26 SUPER_CALL super  ->  ambient_terminal  -
+main.js:22:25 METHOD_CALL super.get  ->  ambient_terminal  -
+main.js:22:48 FUNCTION_CALL fn  ->  ambient_terminal  -
+main.js:22:48 FUNCTION_CALL fn  ->  multi_inferred  main.js:4:1 doA
+main.js:23:12 METHOD_CALL super.forEach  ->  ambient_terminal  -
+main.js:23:12 METHOD_CALL super.forEach  ->  callback_registered  main.js:23:26 <arrow>
+main.js:23:34 FUNCTION_CALL fn  ->  known_edge  main.js:4:1 doA
+main.js:25:14 CONSTRUCTOR_CALL Registry  ->  known_edge  main.js:21:3 <constructor>
+main.js:26:29 METHOD_CALL reg2.run  ->  known_edge  main.js:22:3 run
+main.js:27:29 METHOD_CALL reg2.each  ->  known_edge  main.js:23:3 each
+main.js:29:30 METHOD_CALL reg2.forEach  ->  ambient_terminal  -
+main.js:29:30 METHOD_CALL reg2.forEach  ->  callback_registered  main.js:29:43 <arrow>
+main.js:29:51 FUNCTION_CALL fn  ->  known_edge  main.js:4:1 doA
+main.js:30:56 FUNCTION_CALL fn  ->  known_edge  main.js:4:1 doA
+main.js:34:30 METHOD_CALL super.values  ->  ambient_terminal  -
+main.js:34:55 FUNCTION_CALL fn  ->  known_edge  main.js:5:1 doB
+main.js:36:13 CONSTRUCTOR_CALL Bag  ->  ambient_terminal  -
+main.js:36:13 CONSTRUCTOR_CALL Bag  ->  implicit_constructor  -
+main.js:37:28 METHOD_CALL bag.first  ->  known_edge  main.js:34:3 first
+main.js:41:18 METHOD_CALL this.set  ->  ambient_terminal  -
+main.js:41:18 METHOD_CALL this.set  ->  callback_registered  main.js:4:1 doA
+main.js:42:22 FUNCTION_CALL this.get(key)  ->  ambient_terminal  -
+main.js:42:22 FUNCTION_CALL this.get(key)  ->  multi_inferred  main.js:4:1 doA
+main.js:42:22 METHOD_CALL this.get  ->  ambient_terminal  -
+main.js:44:15 CONSTRUCTOR_CALL Store  ->  ambient_terminal  -
+main.js:44:15 CONSTRUCTOR_CALL Store  ->  implicit_constructor  -
+main.js:45:1 METHOD_CALL store.add  ->  callback_registered  main.js:4:1 doA
+main.js:45:1 METHOD_CALL store.add  ->  known_edge  main.js:41:3 add
+main.js:46:29 FUNCTION_CALL_CALL store.call  ->  known_edge  main.js:42:3 call
+main.js:50:26 SUPER_CALL super  ->  ambient_terminal  -
+main.js:51:23 METHOD_CALL super.toString  ->  ambient_terminal  -
+main.js:53:30 CONSTRUCTOR_CALL AppError  ->  known_edge  main.js:50:3 <constructor>
+main.js:53:30 METHOD_CALL new AppError('x').describe  ->  known_edge  main.js:51:3 describe

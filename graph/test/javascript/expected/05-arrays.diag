@@ -1,0 +1,14 @@
+package_entry    probe5  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       a.js:19:3  METHOD_CALL forEach  no_target
+unresolved       a.js:23:18  CONSTRUCTOR_CALL Map  no_target
+unresolved       a.js:24:3  METHOD_CALL set  no_target
+unresolved       a.js:25:3  METHOD_CALL get  no_target
+unresolved       a.js:26:3  METHOD_CALL forEach  no_target
+unresolved       a.js:27:16  CONSTRUCTOR_CALL Set  no_target
+unresolved       a.js:28:3  METHOD_CALL add  no_target
+unresolved       a.js:30:3  METHOD_CALL forEach  no_target
+unresolved       a.js:32:24  METHOD_CALL toUpperCase  no_target
+unresolved       a.js:5:3  METHOD_CALL push  no_target
+unresolved       a.js:6:3  METHOD_CALL forEach  no_target
+unresolved       a.js:7:16  METHOD_CALL map  no_target
+unresolved       a.js:8:17  METHOD_CALL find  no_target

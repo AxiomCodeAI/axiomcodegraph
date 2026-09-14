@@ -1,0 +1,13 @@
+import_cause     bus.js:2:22  events  builtin
+package_entry    case09  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       bus.js:11:1  METHOD_CALL on  no_target
+unresolved       bus.js:12:1  METHOD_CALL once  no_target
+unresolved       bus.js:13:1  METHOD_CALL on  no_target
+unresolved       bus.js:17:1  METHOD_CALL on  no_target
+unresolved       bus.js:18:25  FUNCTION_CALL setTimeout  no_target
+unresolved       bus.js:18:45  METHOD_CALL resolve  no_target
+unresolved       bus.js:18:45  METHOD_CALL then  no_target
+unresolved       bus.js:20:1  METHOD_CALL forEach  no_target
+unresolved       bus.js:4:13  METHOD_CALL emit  no_target
+unresolved       bus.js:4:36  METHOD_CALL emit  no_target
+unresolved       bus.js:5:39  METHOD_CALL emit  no_target
