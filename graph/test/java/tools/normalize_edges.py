@@ -86,6 +86,10 @@ class Names:
         if h in ('-', ''): return '-'
         if h in self.m: return self.m[h]
         if h in self.types: return f"{self.types[h]}#<type-initializer>()"
+        # An EXTERNAL target is a label, not a hash: `external:<type>.<name>`, the method of an
+        # ancestor no staged IR declares (resolution/external-types.dl). Printed whole — it is
+        # already a readable name, and truncating it would hide which type the call left for.
+        if h.startswith('external:'): return h
         return f"<unresolved:{h[:24]}>"
 
 def main():

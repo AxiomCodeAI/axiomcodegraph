@@ -1,2 +1,3 @@
 ambiguous_unknown	method	Caps#f() -> -
+boundary_lib	method	Caps#f() -> external:java.net.URI.getPath
 known_edge	method	Caps#f() -> JSON#parseObject(String)

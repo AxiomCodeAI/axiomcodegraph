@@ -1,5 +1,6 @@
 ambiguous_anon	anon_new	probe.QualifiedThis#anon() -> -
 ambiguous_unknown	method	probe.QualifiedThis#main(String[]) -> -
+boundary_lib	method	probe.QualifiedThis#main(String[]) -> external:Runnable.run
 known_edge	method	probe.Deeper#oneLevelOut() -> probe.Inner#tag()
 known_edge	method	probe.Deeper#ownTag() -> probe.Deeper#tag()
 known_edge	method	probe.Deeper#twoLevelsOut() -> probe.QualifiedThis#tag()
@@ -22,3 +23,4 @@ known_edge	new	probe.QualifiedThis#main(String[]) -> probe.Inner#<init>()
 known_edge	new	probe.QualifiedThis#main(String[]) -> probe.QualifiedThis#<init>()
 multi_inferred	method	probe.Inner#viaUnqualified() -> probe.Inner#tag()
 multi_inferred	method	probe.Inner#viaUnqualified() -> probe.QualifiedThis#tag()
+multi_inferred	method	probe.QualifiedThis#main(String[]) -> probe.QualifiedThis$anon:Runnable#run()

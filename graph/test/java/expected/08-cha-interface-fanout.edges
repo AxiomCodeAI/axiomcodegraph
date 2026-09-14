@@ -1,7 +1,7 @@
 ambiguous_anon	anon_new	testcases.engine.EdgeCHA#<type-initializer>() -> -
 ambiguous_unknown	method	testcases.engine.EdgeCHA$anon:Sink#accept(String) -> -
 ambiguous_unknown	method	testcases.engine.NamedSink#accept(String) -> -
-ambiguous_unknown	method	testcases.engine.UpperCodec#encode(String) -> -
+boundary_lib	method	testcases.engine.UpperCodec#encode(String) -> external:String.toUpperCase
 known_edge	method	testcases.engine.EdgeCHA#driver(Sink,Codec) -> testcases.engine.Codec#twice(String)
 known_edge	method	testcases.engine.EdgeCHA#driver(Sink,Codec) -> testcases.engine.SBox#set(String)
 known_edge	new	testcases.engine.EdgeCHA#driver(Sink,Codec) -> testcases.engine.SBox#<init>()

@@ -1,5 +1,5 @@
-ambiguous_unknown	method	probe.Item#equals(Object) -> -
-ambiguous_unknown	method	probe.Walk#viaZeroArg(Item) -> -
+boundary_lib	method	probe.Item#equals(Object) -> external:String.equals
+boundary_lib	method	probe.Walk#viaZeroArg(Item) -> external:String.equals
 known_edge	method	probe.Walk#viaOneArg(Item) -> probe.Item#equals(Object)
 known_edge	method	probe.Walk#viaOneArg(Item) -> probe.Item#name(String)
 known_edge	method	probe.Walk#viaSelf(Item) -> probe.Item#equals(Object)
