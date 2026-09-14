@@ -1,0 +1,71 @@
+{
+ "emissionRegime": "ts6-inproc",
+ "compilerVersion": "6.0.3",
+ "callSites": 5,
+ "resolved": 4,
+ "synthesized": 1,
+ "overloadedCalls": 2,
+ "choseNonFirst": 0,
+ "calls": [
+  {
+   "site": "consumer.ts:12:9",
+   "callKind": "FUNCTION_CALL",
+   "callee": "String",
+   "target": "lib:lib.es5.d.ts#StringConstructor.CallSignature",
+   "targetProvenance": "LIB",
+   "targetKind": "CallSignature",
+   "targetHasBody": false,
+   "candidateCount": 11,
+   "chosenIndex": -1,
+   "choseNonFirst": false
+  },
+  {
+   "site": "consumer.ts:13:9",
+   "callKind": "FUNCTION_CALL",
+   "callee": "String",
+   "target": "lib:lib.es5.d.ts#StringConstructor.CallSignature",
+   "targetProvenance": "LIB",
+   "targetKind": "CallSignature",
+   "targetHasBody": false,
+   "candidateCount": 11,
+   "chosenIndex": -1,
+   "choseNonFirst": false
+  },
+  {
+   "site": "consumer.ts:22:14",
+   "callKind": "FUNCTION_CALL",
+   "callee": "describeConfig",
+   "target": "consumer.ts:8:1",
+   "targetProvenance": "PROJECT",
+   "targetKind": "FunctionDeclaration",
+   "targetHasBody": true,
+   "candidateCount": 1,
+   "chosenIndex": 0,
+   "choseNonFirst": false
+  },
+  {
+   "site": "consumer.ts:26:24",
+   "callKind": "CONSTRUCTOR_CALL",
+   "callee": "LoggingPlugin",
+   "target": "SYNTHESIZED_NO_DECLARATION",
+   "targetProvenance": "NONE",
+   "targetKind": "NONE",
+   "targetHasBody": false,
+   "candidateCount": 1,
+   "chosenIndex": -1,
+   "choseNonFirst": false
+  },
+  {
+   "site": "consumer.ts:9:12",
+   "callKind": "METHOD_CALL",
+   "callee": "[\n        config.name, // from config-a.ts\n        config.ve",
+   "target": "lib:lib.es5.d.ts#Array.join",
+   "targetProvenance": "LIB",
+   "targetKind": "MethodSignature",
+   "targetHasBody": false,
+   "candidateCount": 1,
+   "chosenIndex": 0,
+   "choseNonFirst": false
+  }
+ ]
+}

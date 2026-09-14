@@ -1,0 +1,7 @@
+{
+  "name": "@fixture/flow",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Flow-annotated source, governed as ESM. Mirrors a Flow-throughout application framework, so the shape is covered here without touching any held-back corpus."
+}
