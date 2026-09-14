@@ -15,7 +15,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-ROOT="$(cd "$HERE/../../.." && pwd)"
+ROOT="$(d="$(cd "$(dirname "$0")" && pwd)"; while [ "$d" != / ] && { [ ! -f "$d/package.json" ] || [ ! -d "$d/graph" ]; }; do d="$(dirname "$d")"; done; echo "$d")"  # the repository root, found by its marker — no level counting
 . "$ROOT/graph/pipeline/souffle-include.sh"
 
 fail=0; checks=0

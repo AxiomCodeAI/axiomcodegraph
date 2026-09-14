@@ -2,7 +2,7 @@
 # parse both halves separately, link with --library, score per family
 set -u
 R="$(cd "$(dirname "$0")/.." && pwd)"
-ENG="$(cd "$R/../../../.." && pwd)"
+ENG="$(d="$(cd "$(dirname "$0")" && pwd)"; while [ "$d" != / ] && { [ ! -f "$d/package.json" ] || [ ! -d "$d/graph" ]; }; do d="$(dirname "$d")"; done; echo "$d")"  # the repository root, found by its marker — no level counting
 PARSER="${AXIOM_PARSER:-$ENG/parser/dist/index.js}"
 cd "$R"
 python3 harness/trace.py >/dev/null 2>&1 || { echo "trace failed"; exit 1; }

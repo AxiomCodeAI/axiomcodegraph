@@ -15,7 +15,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
-ROOT="$(cd "$HERE/../../.." && pwd)"
+ROOT="$(d="$(cd "$(dirname "$0")" && pwd)"; while [ "$d" != / ] && { [ ! -f "$d/package.json" ] || [ ! -d "$d/graph" ]; }; do d="$(dirname "$d")"; done; echo "$d")"  # the repository root, found by its marker — no level counting
 TSX="$ROOT/node_modules/.bin/tsx"
 [ -x "$TSX" ] || { echo "bundle-test: SKIP (no node_modules/.bin/tsx — run npm install)"; exit 0; }
 W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT

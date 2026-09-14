@@ -40,8 +40,7 @@ import sys
 # repo root is FOUR levels up: tools -> python -> test -> <repo>. Getting this wrong
 # makes os.walk find nothing and the gate pass vacuously, which is exactly what happened
 # on the first attempt and is why this tool is checked against an injected literal.
-_REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__))))))
+_REPO = next(str(p) for p in __import__('pathlib').Path(__file__).resolve().parents if (p / 'package.json').exists() and (p / 'graph').is_dir())  # the repository root, by its marker
 ENGINE = os.path.join(_REPO, "graph", "python", "engine")
 if not os.path.isdir(ENGINE):
     raise SystemExit(f"literal gate: engine dir not found at {ENGINE} -- refusing to pass vacuously")

@@ -42,7 +42,7 @@ LANG = sys.argv[sys.argv.index('--lang') + 1] if '--lang' in sys.argv else 'java
 # tools -> test -> <repo>. This file used to live at test/java/tools and was FOUR levels
 # up; it is shared now, so it is three. Getting it wrong makes every path miss and the
 # guard pass vacuously, which is the one failure mode a guard must not have.
-ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..')
+ROOT = next(str(p) for p in __import__('pathlib').Path(__file__).resolve().parents if (p / 'package.json').exists() and (p / 'graph').is_dir())  # the repository root, by its marker
 TPL  = os.path.join(ROOT, 'graph', LANG, 'templates')
 DECL = os.path.join(ROOT, 'graph', LANG, 'souffle', 'decls_base.dl')
 
