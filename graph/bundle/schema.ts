@@ -257,6 +257,8 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'run', column: 'key', value: 'solve_seconds', languages: 'all', meaning: 'Wall-clock seconds of staging + solving, before the bundle stage.' },
   { table: 'run', column: 'key', value: 'created_at', languages: 'all', meaning: 'ISO-8601 timestamp of the bundle.' },
   { table: 'run', column: 'key', value: 'raw_dir', languages: 'all', meaning: 'Where the per-language Soufflé relations were read from (`raw/` next to the bundle).' },
+  { table: 'run', column: 'key', value: 'source_version', languages: 'all', meaning: 'The version the IR was stamped with (bin/axiomcode): the git commit of the analysed source, or v1.0.0 when it was not a checkout. Present when the run went through bin/axiomcode all.' },
+  { table: 'run', column: 'key', value: 'source_dir', languages: 'all', meaning: 'The source directory that was parsed. Present when the run went through bin/axiomcode all.' },
 
   // provenance (methods, types)
   { table: 'methods', column: 'provenance', value: 'client', languages: 'all', meaning: 'Declared in the analysed project.' },
