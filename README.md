@@ -245,3 +245,7 @@ Stated because a graph you can't trust the boundaries of isn't useful:
 * **Function values in parameters or collections** are not tracked (fields and locals are).
 * **Reflection** is out of scope by construction, and is reported as `ambiguous_unknown` rather than
   silently omitted.
+
+## License
+
+[Functional Source License 1.1, Apache 2.0 Future License](LICENSE.md) (FSL-1.1-Apache-2.0) — Copyright 2026, AxiomCode Inc.
