@@ -388,3 +388,65 @@ export function jsDocHostsOf(callable: ts.Node): readonly ts.Node[] {
   }
   return hosts;
 }
+
+/**
+ * The route from a destructuring pattern's root to a bound name, and whether
+ * the name is a REST binding.
+ *
+ * `cb` for `{ cb: renamed }`, `inner.deep` for `{ inner: { deep } }`, `0` and
+ * `1` for array positions, `a.0.b` mixed — the key route, never the local
+ * name, because renaming is how a wire format is adapted to a codebase's
+ * naming. A rest binding is written as its position plus `...`: `...` for
+ * `{ ...rest }` at the root, `2...` for `[a, b, ...others]`, `opts....` for
+ * `{ opts: { ...rest } }` — so the path alone says where the rest starts.
+ *
+ * Shared by the reference rows (js_expression.bindingPath, for parameters)
+ * and the variable rows (js_variable.bindingPath): one walk, one spelling.
+ * The root is the Parameter or VariableDeclaration that owns the pattern;
+ * `undefined` root means the name is not inside a pattern at all.
+ */
+export function bindingPathOf(name: ts.Node): {
+  root: ts.ParameterDeclaration | ts.VariableDeclaration | undefined;
+  path: string;
+  isRest: boolean;
+} {
+  const segments: string[] = [];
+  let isRest = false;
+  let current: ts.Node = name;
+  for (;;) {
+    const parent: ts.Node | undefined = current.parent;
+    if (parent === undefined) {
+      return { root: undefined, path: '', isRest: false };
+    }
+    if (ts.isParameter(parent) || ts.isVariableDeclaration(parent)) {
+      return { root: parent, path: segments.join('.'), isRest };
+    }
+    if (ts.isBindingElement(parent)) {
+      const pattern = parent.parent;
+      const rest = parent.dotDotDotToken !== undefined;
+      if (current === name && rest) {
+        isRest = true;
+      }
+      if (ts.isArrayBindingPattern(pattern)) {
+        const index = String(pattern.elements.indexOf(parent));
+        segments.unshift(rest ? `${index}...` : index);
+      } else if (ts.isObjectBindingPattern(pattern)) {
+        if (rest) {
+          segments.unshift('...');
+        } else {
+          const key = parent.propertyName ?? parent.name;
+          segments.unshift(ts.isIdentifier(key) || ts.isStringLiteral(key) || ts.isNumericLiteral(key)
+            ? key.text
+            : key.getText());
+        }
+      }
+      current = pattern;
+      continue;
+    }
+    if (ts.isObjectBindingPattern(parent) || ts.isArrayBindingPattern(parent)) {
+      current = parent;
+      continue;
+    }
+    return { root: undefined, path: '', isRest: false };
+  }
+}
