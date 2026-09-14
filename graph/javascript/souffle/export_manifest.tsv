@@ -32,3 +32,4 @@ literal_owns_method	diag-literal-owns-method.csv
 param_fan_capped	param-fan-capped.csv
 callback_registered	callback-registered.csv
 event_dispatch	event-dispatch.csv
+platform_hook_call	platform-hook-call.csv

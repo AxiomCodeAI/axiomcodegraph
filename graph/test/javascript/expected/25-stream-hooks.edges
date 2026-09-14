@@ -1,0 +1,43 @@
+main.js:11:1 FUNCTION_CALL main  ->  known_edge  main.js:3:1 main
+main.js:4:13 CONSTRUCTOR_CALL Out  ->  implicit_constructor  -
+main.js:4:24 METHOD_CALL o.write  ->  ambient_terminal  -
+main.js:4:24 METHOD_CALL o.write  ->  callback_registered  streams.js:5:30 _write
+main.js:4:38 METHOD_CALL o.end  ->  ambient_terminal  -
+main.js:4:38 METHOD_CALL o.end  ->  callback_registered  streams.js:5:100 _destroy
+main.js:4:38 METHOD_CALL o.end  ->  callback_registered  streams.js:5:30 _write
+main.js:4:38 METHOD_CALL o.end  ->  callback_registered  streams.js:5:71 _final
+main.js:4:47 METHOD_CALL o.destroy  ->  ambient_terminal  -
+main.js:4:47 METHOD_CALL o.destroy  ->  callback_registered  streams.js:5:100 _destroy
+main.js:5:3 CONSTRUCTOR_CALL Src  ->  implicit_constructor  -
+main.js:5:3 METHOD_CALL new Src().resume  ->  ambient_terminal  -
+main.js:5:3 METHOD_CALL new Src().resume  ->  callback_registered  streams.js:6:30 _read
+main.js:6:24 CONSTRUCTOR_CALL Up  ->  implicit_constructor  -
+main.js:6:24 METHOD_CALL new Up().end  ->  ambient_terminal  -
+main.js:6:24 METHOD_CALL new Up().end  ->  callback_registered  streams.js:7:30 _transform
+main.js:6:24 METHOD_CALL new Up().end  ->  callback_registered  streams.js:7:86 _flush
+main.js:6:3 CONSTRUCTOR_CALL Up  ->  implicit_constructor  -
+main.js:6:3 METHOD_CALL new Up().write  ->  ambient_terminal  -
+main.js:6:3 METHOD_CALL new Up().write  ->  callback_registered  streams.js:7:30 _transform
+main.js:7:13 CONSTRUCTOR_CALL Both  ->  implicit_constructor  -
+main.js:7:25 METHOD_CALL b.write  ->  ambient_terminal  -
+main.js:7:25 METHOD_CALL b.write  ->  callback_registered  streams.js:8:36 _write
+main.js:7:39 METHOD_CALL b.resume  ->  ambient_terminal  -
+main.js:7:39 METHOD_CALL b.resume  ->  callback_registered  streams.js:8:63 _read
+main.js:8:3 CONSTRUCTOR_CALL SubOut  ->  implicit_constructor  -
+main.js:8:3 METHOD_CALL new SubOut().write  ->  ambient_terminal  -
+main.js:8:3 METHOD_CALL new SubOut().write  ->  callback_registered  streams.js:5:30 _write
+main.js:9:3 CONSTRUCTOR_CALL Plain  ->  implicit_constructor  -
+main.js:9:3 METHOD_CALL new Plain().write  ->  known_edge  streams.js:10:15 write
+streams.js:10:32 FUNCTION_CALL sink  ->  known_edge  streams.js:4:1 sink
+streams.js:5:120 FUNCTION_CALL cb  ->  ambiguous_unknown  -
+streams.js:5:55 FUNCTION_CALL sink  ->  known_edge  streams.js:4:1 sink
+streams.js:5:63 FUNCTION_CALL cb  ->  ambiguous_unknown  -
+streams.js:5:84 FUNCTION_CALL sink  ->  known_edge  streams.js:4:1 sink
+streams.js:5:92 FUNCTION_CALL cb  ->  ambiguous_unknown  -
+streams.js:6:40 FUNCTION_CALL sink  ->  known_edge  streams.js:4:1 sink
+streams.js:6:48 METHOD_CALL this.push  ->  ambient_terminal  -
+streams.js:7:59 FUNCTION_CALL sink  ->  known_edge  streams.js:4:1 sink
+streams.js:7:67 FUNCTION_CALL cb  ->  ambiguous_unknown  -
+streams.js:7:99 FUNCTION_CALL cb  ->  ambiguous_unknown  -
+streams.js:8:55 FUNCTION_CALL cb  ->  ambiguous_unknown  -
+streams.js:8:73 METHOD_CALL this.push  ->  ambient_terminal  -

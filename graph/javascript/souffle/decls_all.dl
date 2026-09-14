@@ -230,6 +230,11 @@
 .decl event_register_method(c0:symbol)
 .decl event_name_of(c0:symbol, c1:symbol)
 .decl event_dispatch(c0:symbol, c1:symbol)
+.decl platform_hook(c0:symbol, c1:symbol, c2:symbol)
+.decl platform_hook_call(c0:symbol, c1:symbol)
+.decl pipe_destination_trigger(c0:symbol)
+.decl stream_module(c0:symbol)
+.decl platform_stream_base(c0:symbol, c1:symbol)
 .decl event_emit_method(c0:symbol)
 // ── resolution/dispatch.dl ──
 .decl type_instantiated(c0:symbol)

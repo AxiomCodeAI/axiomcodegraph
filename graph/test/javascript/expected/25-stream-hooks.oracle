@@ -1,0 +1,15 @@
+main.js:11:1 FUNCTION_CALL main  EXACT  main.js:3:1
+main.js:4:13 CONSTRUCTOR_CALL Out  SYNTHESIZED_OK  
+main.js:5:3 CONSTRUCTOR_CALL Src  SYNTHESIZED_OK  
+main.js:6:24 CONSTRUCTOR_CALL Up  SYNTHESIZED_OK  
+main.js:6:3 CONSTRUCTOR_CALL Up  SYNTHESIZED_OK  
+main.js:7:13 CONSTRUCTOR_CALL Both  SYNTHESIZED_OK  
+main.js:8:3 CONSTRUCTOR_CALL SubOut  SYNTHESIZED_OK  
+main.js:9:3 CONSTRUCTOR_CALL Plain  SYNTHESIZED_OK  
+main.js:9:3 METHOD_CALL write  EXACT  streams.js:10:15
+streams.js:10:32 FUNCTION_CALL sink  EXACT  streams.js:4:1
+streams.js:5:55 FUNCTION_CALL sink  EXACT  streams.js:4:1
+streams.js:5:84 FUNCTION_CALL sink  EXACT  streams.js:4:1
+streams.js:6:40 FUNCTION_CALL sink  EXACT  streams.js:4:1
+streams.js:7:59 FUNCTION_CALL sink  EXACT  streams.js:4:1
+# defects: 0

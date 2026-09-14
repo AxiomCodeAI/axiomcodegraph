@@ -81,3 +81,59 @@ call_chain_edge(ce, caller, "-", m, "client", "event_dispatch", kind) :- event_d
     method_prov(m, "client"), call_from(ce, caller), invocation_site(ce, kind).
 method_call_edge(caller, m) :- callback_registered(ce, m), method_prov(m, "client"), call_from(ce, caller).
 method_call_edge(caller, m) :- event_dispatch(ce, m), method_prov(m, "client"), call_from(ce, caller).
+
+// ── platform_hook_call(CallExpr, HookMethod) — the platform calls back into a subclass ──
+// A class extending a platform stream base (`Writable`, `Readable`, `Transform`,
+// `Duplex`) has hook methods the platform alone invokes: `write()` on the instance
+// runs `_write`, `end()` runs `_final`, `resume()` / `pipe()` / `read()` run `_read`,
+// `destroy()` runs `_destroy`. The trigger site is an `ambient_terminal` (its callee IS
+// the platform); what was missing is the edge the platform makes into the subclass's
+// own body, without which a protocol parser fed only through `write()` hangs off an
+// unreachable `_write`. Stated as facts, like the framework handler models: base,
+// trigger, hook. `Duplex` inherits both sides; `Transform` is a Duplex whose `_write`
+// is the platform's own and dispatches to `_transform` / `_flush`.
+platform_hook("Writable", "write", "_write").
+platform_hook("Writable", "write", "_writev").
+platform_hook("Writable", "end", "_final").
+platform_hook("Writable", "end", "_write").
+platform_hook("Writable", "cork", "_writev").
+platform_hook("Readable", "read", "_read").
+platform_hook("Readable", "resume", "_read").
+platform_hook("Readable", "pipe", "_read").
+platform_hook("Readable", "on", "_read").
+platform_hook("Transform", "write", "_transform").
+platform_hook("Transform", "end", "_transform").
+platform_hook("Transform", "end", "_flush").
+platform_hook("Transform", "read", "_transform").
+platform_hook("Transform", "resume", "_transform").
+platform_hook("Transform", "pipe", "_transform").
+platform_hook(b, "destroy", "_destroy") :- platform_hook(b, _, _).
+platform_hook(b, "end", "_destroy") :- platform_hook(b, _, _).
+platform_hook("Duplex", tr, h) :- platform_hook("Writable", tr, h).
+platform_hook("Duplex", tr, h) :- platform_hook("Readable", tr, h).
+platform_hook("PassThrough", tr, h) :- platform_hook("Transform", tr, h).
+platform_hook("Transform", tr, h) :- platform_hook("Duplex", tr, h), h != "_write", h != "_writev", h != "_read".
+// The ambient value of `require('stream')` is the MODULE name, so the base class is read
+// from the heritage row's written name (`Writable`, `stream.Writable` -> Writable) on a
+// class whose superclass resolved to that platform module; a subclass of such a class
+// inherits the base.
+stream_module("stream").
+stream_module("node:stream").
+stream_module("stream/web").
+platform_stream_base(t, base) :- heritage(_, t, _, base, _, _, _, _), platform_hook(base, _, _), type_super_ambient(t, mod), stream_module(mod).
+platform_stream_base(t, base) :- type_super(t, s), platform_stream_base(s, base).
+platform_hook_call(ce, m) :- call_site(_, ck, tr, "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck),
+    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "inst", t), platform_stream_base(t, base),
+    platform_hook(base, tr, hook), type_member(t, hook, m).
+// `src.pipe(dest)`: the DESTINATION's write-side hooks run as `src` flows (`_write` /
+// `_transform` per chunk, `_final` / `_flush` when the source ends and the platform
+// calls `dest.end()`). What one piped stream's push does inside the next (`_transform`
+// -> the sink's `_write`) is platform-internal chaining and stays unmodelled.
+platform_hook_call(ce, m) :- call_site(_, ck, "pipe", "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck),
+    call_arg(ce, 0, d), expr_value(d, "inst", t), platform_stream_base(t, base),
+    pipe_destination_trigger(tr), platform_hook(base, tr, hook), type_member(t, hook, m).
+pipe_destination_trigger("write").
+pipe_destination_trigger("end").
+call_chain_edge(ce, caller, "-", m, "client", "callback_registered", kind) :- platform_hook_call(ce, m),
+    method_prov(m, "client"), call_from(ce, caller), invocation_site(ce, kind).
+method_call_edge(caller, m) :- platform_hook_call(ce, m), method_prov(m, "client"), call_from(ce, caller).
