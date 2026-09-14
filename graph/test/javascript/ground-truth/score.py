@@ -59,6 +59,22 @@ TEST_PATH = re.compile(
 def is_test_path(p):
     return bool(TEST_PATH.search(p))
 
+# A drive-letter path (`C:/...`, `C:\\...`) as the oracle writes it on Windows. os.path
+# on a POSIX host does not consider it absolute, so it is checked by shape as well.
+DRIVE_PATH = re.compile(r'^[A-Za-z]:[\\/]')
+
+def is_outside_project(p):
+    """An oracle target path that is OUTSIDE the analysed tree.
+
+    tsc-oracle.mjs writes an in-project file relative to the root, with `/`
+    separators, and leaves an out-of-project file (the standard library under
+    node_modules/typescript/lib, an installed package) absolute and unmodified. So
+    "absolute" is the discriminator, and it must be absolute on every platform the
+    oracle runs on: `/usr/...` on POSIX, `C:/...` on Windows. A leading-slash test
+    sent every standard-library verdict on Windows into the in-project branch (#614).
+    """
+    return os.path.isabs(p) or bool(DRIVE_PATH.match(p))
+
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith('--')]
     opts = [a for a in sys.argv[1:] if a.startswith('--')]
@@ -155,6 +171,11 @@ def main():
     rows_out = []
     conservation_missing = 0
     oracle_sites = 0
+    # Gate on the gate: an in-project declaration verdict whose target sits under
+    # node_modules (the standard library, an installed package) means the platform
+    # discriminator misread the path. Independent of that discriminator, and zero on
+    # a correct run on every platform.
+    decl_target_outside = 0
     per_kind = defaultdict(Counter)
     for r in orows:
         f = r[col['callFile']]
@@ -178,11 +199,13 @@ def main():
             undecided['resolved' if targets else cls] += 1
             rows_out.append((key, ckind, r[col['calleeName']], tk, 'UNDECIDED', cls, ';'.join('%s:%s:%s' % t for t in sorted(targets))))
             continue
-        if tk == 'bodiless' and otarget[0].endswith('.d.ts') and not otarget[0].startswith('/'):
+        if tk == 'bodiless' and otarget[0].endswith('.d.ts') and not is_outside_project(otarget[0]):
             # A `.d.ts` INSIDE the project: the compiler prefers the declaration to
             # the JavaScript body beside it. The engine's target is that body, and a
             # name match at the declaration is the agreement available.
             b = 'DECL_IMPL_OK' if any(method_name.get(h, '') == r[col['targetName']] for h in eng_hashes.get(key, ())) else 'DECL_FILE_TARGET'
+            if '/node_modules/' in otarget[0].replace('\\', '/'):
+                decl_target_outside += 1
         elif tk == 'bodiless' and otarget[0].endswith('.d.ts'):
             if key in eng_ambient:
                 b = 'LIB_AMBIENT_OK'
@@ -247,6 +270,8 @@ def main():
     for b in ('SYNTHESIZED_OK', 'SYNTHESIZED_OVER', 'SYNTHESIZED_MISSED', 'LIB_AMBIENT_OK', 'LIB_WRONG', 'LIB_MISSED', 'TARGET_OUTSIDE_IR', 'TYPE_ONLY_TARGET', 'DECL_IMPL_OK', 'DECL_FILE_TARGET', 'ENGINE_DROPPED'):
         if buckets[b]:
             print('  %-18s %6d' % (b, buckets[b]))
+    if decl_target_outside:
+        print('  SCORER_SELF_CHECK  %6d  DECL_FILE_TARGET rows under node_modules: the in-project test misread a path (#614)' % decl_target_outside)
     print('undecided by the compiler (any): %d' % sum(undecided.values()))
     for k, v in undecided.most_common():
         print('  %-20s %6d' % (k, v))
