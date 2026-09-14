@@ -711,7 +711,9 @@ export function extractJavaScriptFile(options: JsFileExtractionOptions): JsFileF
     if (linkedByImportType.has(reference)) {
       continue;
     }
-    const importRow = moduleEdges.importBinding(reference.typeName,
+    // `@param {ns.Thing}`: the import binds the ROOT of a qualified name, as it
+    // does for `extends ns.Base`; the member is the engine's to look up.
+    const importRow = moduleEdges.importBinding(reference.typeName.split('.')[0]!,
       offsetOfRow(sourceFile, reference.startLine, reference.startColumn));
     if (importRow === undefined) {
       continue;
