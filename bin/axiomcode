@@ -137,7 +137,7 @@ case "$cmd" in
     run_suite(){ local s="$1"; shift; echo "══ $s"; bash "$ROOT/graph/test/$s/run-tests.sh" "$@" || rc=1; }
     case "$which" in
       java|typescript|python|javascript) run_suite "$which" "$@";;
-      parser) for t in java-extractor-tests typescript-tests python-tests javascript-tests gradle-tests services-tests; do
+      parser) for t in java-extractor-tests typescript-tests python-tests javascript-tests gradle-tests services-tests discovery-tests; do
                 [ -f "$ROOT/parser/src/test/$t.ts" ] || continue; echo "══ parser: $t"; (cd "$ROOT/parser" && npx tsx "src/test/$t.ts") || rc=1; done;;
       all) for l in java typescript python javascript; do run_suite "$l" "$@"; done; "$0" test parser || rc=1;;
       *) die "test: unknown suite $which (java | typescript | python | javascript | parser | all)";;
