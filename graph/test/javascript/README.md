@@ -53,6 +53,7 @@ the previous engine.
 | 18 | precision: a module function, a static and an instance method sharing one name; a parameter, a local and an inner function shadowing it; `map(fn, this)` versus unbound; a getter returning a function; quoted, numeric, template and concatenated keys; polymorphic and pass-through receivers; a rebound `let`; a registry key written twice; `new.target` — the golden holds zero WRONG |
 | 20 | an ES module importing CommonJS files: a default import of an `exports.x =` surface, of a `module.exports = {…}` object, of a function with members added after `module.exports =`; the named and namespace spellings of the same file; a destructuring of the default binding |
 | 19 | class fields: `dep = new Service()`, `#priv = …`, `static shared = …`, `static #hidden = …`, an array field, an object field, a function-expression field whose `this` is the instance — read through `this`, `Holder.x` and `this.x` in a static |
+| 21 | `concat` and `flat` results: the receiver's elements plus each array argument's elements and each non-array argument, `Array.of(...).concat(...).at(-1)`, a spread beside them, and the receiver left unchanged after `concat` (#606) |
 | 08 | a dependency under `node_modules`, staged as `--library` from a copy parsed separately: `require('dep')` as a function, a destructured class and function, an instance returned by the library, `boundary_lib` on every edge |
 
 ## Environment
