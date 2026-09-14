@@ -140,6 +140,15 @@ DOCS = {
    "// An always-empty relation that suddenly has rows is a signal; a missing relation is a\n"
    "// silence. On one large project a nested config silently excluded 1,270 of 1,821 files\n"
    "// because nothing counted them.",
+ "js_package_entry":
+   "What a package EXPOSES: one row per (specifier, condition) its package.json publishes --\n"
+   "// `main` (with the index.js fallback) as specifier=<name> condition=default, and every\n"
+   "// `exports` entry: subpaths (`<name>/sub`), patterns kept literal (`<name>/*`), and\n"
+   "// conditional targets with the condition path as written (`require`, `import`, `node,import`).\n"
+   "// c3 targetFilePath is project-relative like js_module.filePath; c4 links the js_module when\n"
+   "// the target was extracted and stays EMPTY when the file does not exist (a named absence,\n"
+   "// never a guess). Without this a library IR built on its own could not say what\n"
+   "// require('pkg') loads, so it linked to a client only through that client's installed tree.",
 }
 
 #: The frozen first cut. Order here is the order in the .dl.
@@ -153,7 +162,8 @@ SPINE = ["js_module", "js_scope", "js_type", "js_method", "js_method_parameter",
 NOT_STAGED = ["lib_js_module", "lib_js_scope", "lib_js_type", "lib_js_type_heritage",
               "lib_js_method", "lib_js_method_parameter", "lib_js_field", "lib_js_variable",
               "lib_js_import", "lib_js_export", "lib_js_expression", "lib_js_call_site",
-              "lib_js_block", "lib_js_type_reference", "lib_js_comment", "lib_js_parse_gap"]
+              "lib_js_block", "lib_js_type_reference", "lib_js_comment", "lib_js_parse_gap",
+              "lib_js_package_entry"]
 
 #: Relations the PARSER never writes, in either provenance. None yet — js_type_heritage
 #: and js_call_site have tier-3 COLUMNS, but the parser does write their rows.

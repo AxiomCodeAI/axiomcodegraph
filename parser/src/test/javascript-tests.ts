@@ -1473,6 +1473,7 @@ function pkIndexOf(header: readonly string[], relation: string): number {
  */
 const FK_TARGET_BY_COLUMN: Readonly<Record<string, string>> = {
   ownerModuleLinkHash: 'js_module',
+  targetModuleLinkHash: 'js_module',
   ownerScopeLinkHash: 'js_scope',
   ownerTypeLinkHash: 'js_type',
   ownerMethodLinkHash: 'js_method',
@@ -3062,6 +3063,63 @@ async function packageSpecifiersResolveUnderTheSiteConditions(): Promise<number>
           + `(${row[outcome]}); node loads ${target}`);
       }
     }
+  }
+  return failures;
+}
+
+/**
+ * A package's IR says what the package EXPOSES.
+ *
+ * `js_package_entry`: one row per (specifier, condition) a governing package.json
+ * publishes, with the target's module hash when the target was extracted. Without
+ * it a library IR built on its own could not answer what `require('pkg')` loads,
+ * and the engine linked a staged dependency only through the client's installed
+ * tree (#616). Asserted on packages extracted as their own roots, the way library
+ * IR is built: `main`, `exports` with subpaths and require/import conditions, the
+ * `index.js` fallback, a scoped name, and a target that does not exist (a row with
+ * no module link, never a guess).
+ */
+async function packageEntriesSayWhatAPackageExposes(): Promise<number> {
+  let failures = 0;
+  const root = scratchDir('js-gate-entries-');
+  const write = (rel: string, text: string) => {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.writeFileSync(path.join(root, rel), text);
+  };
+  write('alpha/package.json', JSON.stringify({ name: 'alpha', main: 'lib/index.js', exports: { '.': { require: './lib/index.js', import: './lib/index.mjs' }, './sub': './lib/sub.js', './gone': './lib/gone.js', './feature/*': './lib/features/*.js' } }));
+  write('alpha/lib/index.js', 'module.exports = { a: 1 };\n');
+  write('alpha/lib/index.mjs', 'export const a = 1;\n');
+  write('alpha/lib/sub.js', 'exports.sub = 1;\n');
+  write('alpha/lib/features/x.js', 'exports.x = 1;\n');
+  write('beta/package.json', JSON.stringify({ name: '@scope/beta', main: 'cjs' }));
+  write('beta/cjs/index.js', 'exports.beta = 1;\n');
+  write('bare/package.json', JSON.stringify({ name: 'bare' }));
+  write('bare/index.js', 'exports.idx = 1;\n');
+  write('unnamed/package.json', JSON.stringify({ main: 'x.js' }));
+  write('unnamed/x.js', 'exports.u = 1;\n');
+  const want: Record<string, Array<[string, string, string, boolean]>> = {
+    alpha: [['alpha', 'require', 'lib/index.js', true], ['alpha', 'import', 'lib/index.mjs', true], ['alpha/sub', 'default', 'lib/sub.js', true],
+      ['alpha/gone', 'default', 'lib/gone.js', false], ['alpha/feature/*', 'default', 'lib/features/*.js', false], ['alpha', 'default', 'lib/index.js', true]],
+    beta: [['@scope/beta', 'default', 'cjs/index.js', true]],
+    bare: [['bare', 'default', 'index.js', true]],
+    unnamed: [],
+  };
+  for (const [pkg, rows] of Object.entries(want)) {
+    const out = scratchDir(`js-gate-entries-out-${pkg}-`);
+    const dir = path.join(root, pkg);
+    await new JavaScriptProjectAnalyzer().analyzeAll([dir], { outputDir: out, baseMservPath: dir, serviceVersionLink: 'gate-v1' });
+    const relations = readRelations(out);
+    const entries = relations.find((r) => r.name === 'js_package_entry');
+    const modules = relations.find((r) => r.name === 'js_module');
+    if (entries === undefined || modules === undefined) { failures += fail(`${pkg}: js_package_entry or js_module missing`); continue; }
+    const got = entries.rows.map((r) => [r[entries.header.indexOf('specifier')], r[entries.header.indexOf('condition')], r[entries.header.indexOf('targetFilePath')], (r[entries.header.indexOf('targetModuleLinkHash')] ?? '') !== ''] as [string, string, string, boolean]);
+    for (const w of rows) {
+      const hit = got.find((g) => g[0] === w[0] && g[1] === w[1]);
+      if (hit === undefined) { failures += fail(`${pkg}: no entry row for ${w[0]} / ${w[1]} (rows: ${got.map((g) => `${g[0]}/${g[1]}`).join(', ')})`); continue; }
+      if (hit[2] !== w[2]) failures += fail(`${pkg}: ${w[0]} / ${w[1]} targets ${hit[2]}, want ${w[2]}`);
+      if (hit[3] !== w[3]) failures += fail(`${pkg}: ${w[0]} / ${w[1]} ${hit[3] ? 'links a module' : 'links no module'}, want ${w[3] ? 'a link' : 'none (the file does not exist)'}`);
+    }
+    if (got.length !== rows.length) failures += fail(`${pkg}: ${got.length} entry rows, want ${rows.length}: ${got.map((g) => `${g[0]}/${g[1]}`).join(', ')}`);
   }
   return failures;
 }
@@ -5512,6 +5570,17 @@ function linkColumnsMeanWhatTheyClaim(): number {
     assert_('js_parse_gap.relatedLinkHash', prefix === rel,
       () => `${lineOf(r, h)}: relatedRelation ${rel}, link prefix ${prefix}`);
   });
+  // a package entry's module link names the module AT its target path
+  const modulePathOf = new Map<string, string>();
+  forEachRow(directory, 'js_module', (r, h) => {
+    modulePathOf.set(r[pkIndexOf(h, 'js_module')] ?? '', r[col(h, 'filePath')] ?? '');
+  });
+  forEachRow(directory, 'js_package_entry', (r, h) => {
+    const link = r[col(h, 'targetModuleLinkHash')] ?? '';
+    if (link === '') { return; }
+    assert_('js_package_entry.targetModuleLinkHash', modulePathOf.get(link) === r[col(h, 'targetFilePath')],
+      () => `${r[col(h, 'specifier')]}: target ${r[col(h, 'targetFilePath')]}, linked module is at ${modulePathOf.get(link)}`);
+  });
   forEachRow(directory, 'js_comment', (r, h) => {
     const link = r[col(h, 'attachedToLinkHash')] ?? '';
     if (link === '') { return; }
@@ -5648,7 +5717,7 @@ function linkColumnsMeanWhatTheyClaim(): number {
     'js_type.jsdocCommentLinkHash', 'js_field.getterMethodLinkHash',
     'js_field.setterMethodLinkHash', 'js_method.jsdocCommentLinkHash',
     'js_method_parameter.scopeLinkHash', 'js_method_parameter.jsdocCommentLinkHash',
-    'js_parse_gap.relatedLinkHash', 'js_comment.attachedToLinkHash',
+    'js_parse_gap.relatedLinkHash', 'js_package_entry.targetModuleLinkHash', 'js_comment.attachedToLinkHash',
     'js_scope.parentScopeLinkHash', 'js_block.parentBlockLinkHash',
   ];
   const assertedHere = new Set(ASSERTED_HERE);
@@ -6375,6 +6444,7 @@ const CHECKS: Check[] = [
   { name: 'module-edge 1:1', proves: 'every module-edge expression is pointed at by exactly one import or export, so the second pass cannot double-mint', run: moduleEdgeOneToOne },
   { name: 'call-site 1:1', proves: 'one call site per call-like expression, and require() has none because it is a module edge', run: callSiteOneToOne },
   { name: 'package specifiers resolve under the site conditions', proves: "a require() of an exports-only package resolves to its `require` build and an ES import to its `import` build, a subpath export and a main-only package either way, so a dual package links to the build the runtime loads (#601)", run: packageSpecifiersResolveUnderTheSiteConditions },
+  { name: 'package entries say what a package exposes', proves: 'main, exports subpaths and require/import conditions, the index.js fallback and a scoped name each produce a js_package_entry row linked to the module at the target, and a target that does not exist links nothing (#616)', run: packageEntriesSayWhatAPackageExposes },
   { name: 'several roots produce one set', proves: 'overlapping discovered roots merge into one flat fact base with no file extracted twice — the failure the real entry point found and a single-root harness cannot', run: severalRootsProduceOneSet },
   { name: 'every empty column is intended', devOnly: true, proves: 'a column that is never populated is a gap, a reservation or a corpus property — and the allowlist says which, so one that stops being filled fails by name', run: everyEmptyColumnIsIntended },
   { name: 'link columns mean what they claim', proves: 'every populated FK is asserted for meaning — name, kind, structure or position — or is named as integrity-only with the reason, so no link can be populated, resolvable and wrong without a check that would have said so', run: linkColumnsMeanWhatTheyClaim },

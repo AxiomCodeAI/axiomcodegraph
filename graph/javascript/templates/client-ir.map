@@ -17,3 +17,4 @@ js_type	all-javascript-types
 js_type_heritage	all-javascript-type-heritages
 js_type_reference	all-javascript-type-references
 js_variable	all-javascript-variables
+js_package_entry	all-javascript-package-entries

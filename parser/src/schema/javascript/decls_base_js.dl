@@ -52,7 +52,7 @@
 //     because the binder, not the type system, is what resolves a name here.
 //
 // NOT STAGED (declared for symmetry only — library IR is declarations, not bodies):
-//   lib_js_module, lib_js_scope, lib_js_type, lib_js_type_heritage, lib_js_method, lib_js_method_parameter, lib_js_field, lib_js_variable, lib_js_import, lib_js_export, lib_js_expression, lib_js_call_site, lib_js_block, lib_js_type_reference, lib_js_comment, lib_js_parse_gap
+//   lib_js_module, lib_js_scope, lib_js_type, lib_js_type_heritage, lib_js_method, lib_js_method_parameter, lib_js_field, lib_js_variable, lib_js_import, lib_js_export, lib_js_expression, lib_js_call_site, lib_js_block, lib_js_type_reference, lib_js_comment, lib_js_parse_gap, lib_js_package_entry
 // ============================================================================
 
 // ==========================================================================
@@ -230,3 +230,15 @@
 // (11 columns)
 .decl js_parse_gap(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol)
 .decl lib_js_parse_gap(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol)
+
+// What a package EXPOSES: one row per (specifier, condition) its package.json publishes --
+// `main` (with the index.js fallback) as specifier=<name> condition=default, and every
+// `exports` entry: subpaths (`<name>/sub`), patterns kept literal (`<name>/*`), and
+// conditional targets with the condition path as written (`require`, `import`, `node,import`).
+// c3 targetFilePath is project-relative like js_module.filePath; c4 links the js_module when
+// the target was extracted and stays EMPTY when the file does not exist (a named absence,
+// never a guess). Without this a library IR built on its own could not say what
+// require('pkg') loads, so it linked to a client only through that client's installed tree.
+// (9 columns)
+.decl js_package_entry(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol)
+.decl lib_js_package_entry(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol)
