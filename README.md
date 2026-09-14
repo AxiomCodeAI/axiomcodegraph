@@ -1,14 +1,7 @@
 <h1 align="center">AxiomCode Code Graph</h1>
 
 <p align="center">
-  <strong>A type-resolved call graph of your codebase — derived formally, validated against ground truth, queryable from one SQLite file.</strong>
-</p>
-
-<p align="center">
-  <a href="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/ci.yml"><img alt="Build" src="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/ci.yml/badge.svg?branch=main"></a>
-  <a href="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/publish-npm.yml"><img alt="Engines" src="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/publish-npm.yml/badge.svg"></a>
-  <a href="LICENSE.md"><img alt="License: FSL-1.1-Apache-2.0" src="https://img.shields.io/badge/license-FSL--1.1--Apache--2.0-blue"></a>
-  <img alt="Node ≥ 22.5" src="https://img.shields.io/badge/node-%E2%89%A5%2022.5-brightgreen">
+  <strong>Know exactly which code calls which — through interfaces, inheritance and callbacks — so you and your coding agents change software with the blast radius in view.</strong>
 </p>
 
 <p align="center">
@@ -19,6 +12,7 @@
   <a href="#how-it-works">How it works</a> ·
   <a href="#accuracy">Accuracy</a> ·
   <a href="#repository-layout">Layout</a> ·
+  <a href="#status">Status</a> ·
   <a href="#development">Development</a>
 </p>
 
@@ -26,7 +20,7 @@
 
 ## What it does
 
-Point it at a repository and it builds a **call graph**: a map of which function calls which, across the whole codebase. Unlike a text search, it knows about types — so when `shape.area()` could run `Circle.area` or `Square.area`, the graph says *both*, and when a call goes through an interface, an inherited override, or a function stored in a variable, the graph still finds the target. The result is one `graph.sqlite` file per language, with its own documentation inside, that you query with plain SQL.
+Point it at a repository and it builds a **call graph**: a map of which function calls which, across the whole codebase. Unlike a text search, it knows about types — so when `shape.area()` could run `Circle.area` or `Square.area`, the graph says *both*, and when a call goes through an interface, an inherited override, or a function stored in a variable, the graph still finds the target. From that map it answers the questions that matter when code changes: **what does this change affect, who can reach this, and what do I need to read** — with a confidence label on every answer.
 
 **Why coding agents need it.** An AI agent working on a real codebase has to decide what to read. Text search returns too much (thousands of unrelated methods that happen to share a name) and misses what matters (the caller that never mentions the name because it dispatches through an interface). Both cost tokens and both cause wrong answers. With the graph, an agent asks *"what does this change affect?"* and gets the causally connected methods — measured on a large project: **95 of 43,793 methods, with 100 % of the true direct callers included** — instead of reading the repository.
 
@@ -78,7 +72,7 @@ Configuration and build files are part of the graph too — a change to a bean d
 
 See [`parser/README.md`](parser/README.md) for every relation each format produces.
 
-A repository with several languages is one command: the parser emits every language it finds, and each is solved into its own `graph.sqlite`. Graphs are per language — a Java→TypeScript call is not an edge in either.
+A repository with several languages is one command: the parser emits every language it finds, and each gets its own graph. Graphs are per language — a Java→TypeScript call is not an edge in either.
 
 ## Quick start
 
@@ -206,6 +200,17 @@ graph/
 packaging/                    the @axiomcode/engine-<os>-<cpu> package template CI publishes
 .github/workflows/            engine builds and the npm publish
 ```
+
+## Status
+
+<p>
+  <a href="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/ci.yml"><img alt="Build" src="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+  <a href="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/publish-npm.yml"><img alt="Engines" src="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/publish-npm.yml/badge.svg"></a>
+  <a href="LICENSE.md"><img alt="License: FSL-1.1-Apache-2.0" src="https://img.shields.io/badge/license-FSL--1.1--Apache--2.0-blue"></a>
+  <img alt="Node ≥ 22.5" src="https://img.shields.io/badge/node-%E2%89%A5%2022.5-brightgreen">
+</p>
+
+Build: the three regression suites and the parser's suites, on every merge to `main`. Engines: the last run of the engine build and npm publish. (Workflow badges render once the repository is public; GitHub serves README images anonymously.)
 
 ## Development
 
