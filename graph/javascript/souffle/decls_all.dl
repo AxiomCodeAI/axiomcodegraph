@@ -303,3 +303,7 @@
 .decl concat_arg_is_element(c0:symbol, c1:symbol)
 .decl concat_kind_never_array(c0:symbol)
 .decl type_extends_array_written(c0:symbol)
+.decl loop_binding_element(c0:symbol, c1:symbol, c2:symbol)
+.decl map_coll(c0:symbol)
+.decl ambient_map(c0:symbol)
+.decl pair_index_value(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
