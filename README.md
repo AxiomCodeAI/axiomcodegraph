@@ -48,6 +48,12 @@ Point it at a repository and it builds a **call graph**: a map of which function
   <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/javascript/javascript-original.svg" width="46" height="46" alt="JavaScript" title="JavaScript — engine in progress"/>
   &nbsp;&nbsp;&nbsp;
   <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/csharp/csharp-original.svg" width="46" height="46" alt="C#" title="C# — planned"/>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/xml/xml-original.svg" width="34" height="34" alt="XML" title="XML — Spring beans, web.xml, pom.xml"/>
+  &nbsp;&nbsp;
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/yaml/yaml-original.svg" width="34" height="34" alt="YAML" title="YAML — application configuration"/>
+  &nbsp;&nbsp;
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/gradle/gradle-original.svg" width="34" height="34" alt="Gradle" title="Gradle — build graph and dependencies"/>
 </p>
 
 Two stages, two columns: the **parser** turns source into the relational IR; the **engine** turns the IR into the graph. A language is usable end to end when both are there.
@@ -60,7 +66,17 @@ Two stages, two columns: the **parser** turns source into the relational IR; the
 | **JavaScript** | stable | in progress | **in progress** — the parser (binder, JSDoc as the type channel, CommonJS + ESM) is complete; the engine is under review | — |
 | **C#** | planned | planned | **planned** | — |
 
-The parser also extracts build and configuration files the Java engine reads for wiring — Gradle, XML (Spring beans, `web.xml`, `pom.xml`), YAML, `.properties`, `META-INF/services`. See [`parser/README.md`](parser/README.md) for the full list and what each relation holds.
+Configuration and build files are part of the graph too — a change to a bean definition, a property key or a dependency version has a blast radius into methods, and the Java engine resolves it:
+
+| format | parser | engine (Java wiring) | what it contributes |
+|---|---|---|---|
+| **XML** — Spring beans, `web.xml`, `pom.xml` | stable | stable | bean definitions and injection points → `di_edge`, `bean_def`; entry points from servlet/handler declarations |
+| **`.properties`** | stable | stable | keys and typed value segments → `config_binding`, `config_affects_method` |
+| **YAML** — application configuration | beta | stable | the same bindings from YAML documents, anchors and aliases followed |
+| **Gradle** — Groovy and Kotlin DSL | beta | — | project graph, dependency coordinates and version catalogs, resolved; used for library discovery, not yet for edges |
+| **`META-INF/services`** | stable | stable | provider-configuration files → service entry points |
+
+See [`parser/README.md`](parser/README.md) for every relation each format produces.
 
 A repository with several languages is one command: the parser emits every language it finds, and each is solved into its own `graph.sqlite`. Graphs are per language — a Java→TypeScript call is not an edge in either.
 
