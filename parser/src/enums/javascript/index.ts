@@ -10,6 +10,7 @@ export * from './imports';
 export * from './method-parameters';
 export * from './methods';
 export * from './modules';
+export * from './packages';
 export * from './parse-gaps';
 export * from './scopes';
 export * from './type-references';

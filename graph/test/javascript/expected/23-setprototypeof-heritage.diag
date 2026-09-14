@@ -1,0 +1,5 @@
+package_entry    case23  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       child.js:4:1  METHOD_CALL setPrototypeOf  no_target
+unresolved       child.js:5:1  METHOD_CALL setPrototypeOf  no_target
+unresolved       child.js:8:1  METHOD_CALL setPrototypeOf  no_target
+unresolved       main.js:10:3  METHOD_CALL setPrototypeOf  no_target

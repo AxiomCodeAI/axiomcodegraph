@@ -1,3 +1,4 @@
+bus.js:10:13 CONSTRUCTOR_CALL Bus  ->  ambient_terminal  -
 bus.js:10:13 CONSTRUCTOR_CALL Bus  ->  implicit_constructor  -
 bus.js:11:1 METHOD_CALL bus.on  ->  ambient_terminal  -
 bus.js:11:1 METHOD_CALL bus.on  ->  callback_registered  bus.js:7:1 onReady
@@ -7,6 +8,7 @@ bus.js:13:1 METHOD_CALL bus.on  ->  ambient_terminal  -
 bus.js:13:1 METHOD_CALL bus.on  ->  callback_registered  bus.js:9:1 onAnything
 bus.js:14:1 METHOD_CALL bus.start  ->  known_edge  bus.js:4:3 start
 bus.js:15:1 METHOD_CALL bus.stop  ->  known_edge  bus.js:5:3 stop
+bus.js:16:15 CONSTRUCTOR_CALL Bus  ->  ambient_terminal  -
 bus.js:16:15 CONSTRUCTOR_CALL Bus  ->  implicit_constructor  -
 bus.js:17:1 METHOD_CALL other.on  ->  ambient_terminal  -
 bus.js:17:1 METHOD_CALL other.on  ->  callback_registered  bus.js:17:19 otherReady

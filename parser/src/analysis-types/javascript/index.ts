@@ -8,6 +8,7 @@ export * from './JsImportRegistry';
 export * from './JsMethodParameterRegistry';
 export * from './JsMethodRegistry';
 export * from './JsModuleRegistry';
+export * from './JsPackageEntryRegistry';
 export * from './JsParseGapRegistry';
 export * from './JsScopeRegistry';
 export * from './JsTypeHeritageRegistry';

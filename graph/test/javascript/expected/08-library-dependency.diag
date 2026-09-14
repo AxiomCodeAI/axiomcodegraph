@@ -1,0 +1,10 @@
+import_cause     app.js:2:13  dep  not_staged
+import_cause     app.js:3:17  dep  not_staged
+import_cause     app.js:3:9  dep  not_staged
+package_entry    probe6-app  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       app.js:4:11  FUNCTION_CALL dep  callee_untyped
+unresolved       app.js:5:1  METHOD_CALL get  receiver_untyped
+unresolved       app.js:6:1  CONSTRUCTOR_CALL Client  callee_untyped
+unresolved       app.js:6:1  METHOD_CALL request  receiver_untyped
+unresolved       app.js:7:1  FUNCTION_CALL helper  callee_untyped
+unresolved       app.js:8:1  METHOD_CALL helper  receiver_untyped

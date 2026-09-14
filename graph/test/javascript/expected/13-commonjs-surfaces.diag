@@ -1,0 +1,6 @@
+import_cause     main.js:13:14  ./lib/data.json  not_staged
+package_entry    d-cjs  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+package_entry    pkg  .  []  MAIN  entry.js  RESOLVED  -> lib/pkg/entry.js
+unresolved       lib/multi.js:7:1  METHOD_CALL defineProperty  no_target
+unresolved       lib/multi.js:8:1  METHOD_CALL defineProperty  no_target
+unresolved       main.js:22:104  CONSTRUCTOR_CALL Error  no_target

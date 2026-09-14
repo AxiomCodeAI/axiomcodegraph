@@ -1,0 +1,4 @@
+package_entry    probe4  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       a.js:3:67  FUNCTION_CALL modifier  callee_untyped
+unresolved       a.js:3:80  FUNCTION_CALL second  callee_untyped
+unresolved       a.js:8:11  METHOD_CALL typed  member_absent

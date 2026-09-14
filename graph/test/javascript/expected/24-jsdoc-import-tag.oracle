@@ -1,0 +1,6 @@
+main.js:11:37 METHOD_CALL getLocation  EXACT  named.js:1:16
+main.js:13:39 METHOD_CALL other  EXACT  named.js:2:15
+main.js:15:33 METHOD_CALL getLocation  EXACT  named.js:1:16
+main.js:20:35 METHOD_CALL getLocation  EXACT  named.js:1:16
+main.js:9:40 METHOD_CALL basicFunction  EXACT  tpl.js:1:25
+# defects: 0

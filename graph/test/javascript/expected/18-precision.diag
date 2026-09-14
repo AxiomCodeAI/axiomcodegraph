@@ -1,0 +1,8 @@
+package_entry    h-precision  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       lib/p.js:12:29  METHOD_CALL map  no_target
+unresolved       lib/p.js:13:36  METHOD_CALL map  no_target
+unresolved       lib/p.js:14:28  METHOD_CALL map  no_target
+unresolved       lib/p.js:16:41  METHOD_CALL hasOwnProperty  member_absent
+unresolved       lib/p.js:16:92  FUNCTION_CALL_CALL toString  no_target
+unresolved       lib/p.js:21:91  METHOD_CALL computed1  member_absent
+unresolved       lib/p.js:32:38  METHOD_CALL forEach  no_target

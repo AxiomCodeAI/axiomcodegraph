@@ -73,11 +73,20 @@ export interface GoverningPackageJson {
 }
 
 /** What one `package.json` says, once parsed. */
-interface PackageJsonFacts {
+export interface PackageJsonFacts {
   readonly path: string;
   /** `undefined` when the file has no `"type"` field — which is 76.0% of them. */
   readonly type: 'module' | 'commonjs' | undefined;
   readonly name: string;
+  /**
+   * The entry-point fields, as written (#616). `main` and `module` when they are
+   * strings; `exports` in any of its shapes (string, array, subpath map,
+   * conditions), left for `package-entry-extractor.ts` to walk. `undefined`
+   * where the field is absent or not a shape Node reads.
+   */
+  readonly main: string | undefined;
+  readonly module: string | undefined;
+  readonly exports: unknown;
 }
 
 export class PackageJsonResolver {
@@ -157,6 +166,17 @@ export class PackageJsonResolver {
   }
 
   /**
+   * The `package.json` sitting DIRECTLY in `directory`, if there is one.
+   *
+   * No walk: this is the question "is this directory a package", asked of a
+   * walk root (#620) and of every governing config (#616), not "which package
+   * governs this file".
+   */
+  packageAt(directory: string): PackageJsonFacts | undefined {
+    return this.read(path.join(directory, 'package.json'));
+  }
+
+  /**
    * Walks up from `directory` to the filesystem root, first `package.json` wins.
    *
    * Unlike `TsConfigResolver.resolve`, a found config never "disowns" the file,
@@ -223,7 +243,9 @@ export class PackageJsonResolver {
     let facts: PackageJsonFacts | undefined;
     try {
       const raw = fs.readFileSync(packageJsonPath, 'utf-8');
-      const json = JSON.parse(raw) as { type?: unknown; name?: unknown };
+      const json = JSON.parse(raw) as {
+        type?: unknown; name?: unknown; main?: unknown; module?: unknown; exports?: unknown;
+      };
       const declared = json.type === 'module' || json.type === 'commonjs'
         ? json.type
         : undefined;
@@ -231,6 +253,9 @@ export class PackageJsonResolver {
         path: packageJsonPath,
         type: declared,
         name: typeof json.name === 'string' ? json.name : '',
+        main: typeof json.main === 'string' ? json.main : undefined,
+        module: typeof json.module === 'string' ? json.module : undefined,
+        exports: json.exports,
       };
     } catch {
       facts = undefined;
