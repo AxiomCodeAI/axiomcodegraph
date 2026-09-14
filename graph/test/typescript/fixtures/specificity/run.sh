@@ -1,0 +1,14 @@
+#!/bin/bash
+set -e
+HERE="$(cd "$(dirname "$0")" && pwd)"
+REPO="$(cd "$HERE/../../../../.." && pwd)"
+WORK="${1:-/tmp/ts-specificity-fixture}"
+# Discovered, not hardcoded: this default used to be an absolute path inside one
+# developer's home directory, so the symlink below was silently skipped anywhere else
+# and the gate failed as though native resolution were broken (#331).
+NM="${2:-$(bash "$HERE/../../tools/find-node-modules.sh")}"
+rm -rf "$WORK"; mkdir -p "$WORK"
+cp -R "$HERE"/. "$WORK/project"
+rm -f "$WORK/project/run.sh" "$WORK/project/README.md"
+[ -d "$NM" ] && ln -sfn "$NM" "$WORK/project/node_modules"
+bash "$REPO/graph/test/typescript/run-evaluation.sh" "$WORK/project" "$WORK/eval"
