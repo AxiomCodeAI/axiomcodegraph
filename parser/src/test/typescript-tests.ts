@@ -3403,6 +3403,107 @@ async function computedMemberKeysAreNamedWhenKnowable(): Promise<number> {
   }
 }
 
+
+/**
+ * A callable that is not a MEMBER carries no member group key (#163).
+ *
+ * The member group key answers "which member of this owner is this", and it
+ * was being applied to any callable emitted inside a type context. An arrow
+ * assigned to a `const` inside a method is not a member -- it is an expression
+ * that merely occurs inside the class. Every arrow shares the sentinel name
+ * `<arrow>`, so all of them hashed to ONE key with consecutive
+ * `overloadIndex`, and a consumer committed a call through one `const` to a
+ * different method's arrow.
+ *
+ * Both directions are asserted, because the fix is a predicate and a predicate
+ * can be wrong either way: non-members must carry NO key, and real members --
+ * class methods, and the signatures of a reopened interface -- must keep
+ * theirs. Static blocks are the third case: tsc gives them no symbol and they
+ * share `<static-block>`, so they would collide exactly as arrows did.
+ */
+async function nonMembersCarryNoMemberGroupKey(): Promise<number> {
+  if (!parserPresent()) {
+    return pendingCheck('non-members carry no member group key',
+      'no extractor yet. An arrow inside a method is not a member of the class');
+  }
+  const { outputDir, cleanup } = await analyseInline('ts-arrowkey-', {
+    'a.ts': [
+      'export class Store {',
+      '  static { void 0; }',                  // two static blocks: same sentinel name
+      '  static { void 1; }',
+      '  countA(): number {',
+      '    const isA = (n: number): boolean => n > 0;',
+      '    return [1].filter((n) => isA(n)).length;',
+      '  }',
+      '  countB(): number {',
+      '    const isB = (n: number): boolean => n < 0;',
+      '    return [1].filter((n) => isB(n)).length;',
+      '  }',
+      '  pick(a: string): string;',            // a REAL overload set on a class
+      '  pick(a: string, b?: string): string { return b ?? a; }',
+      '}',
+      'export function free(): void {',
+      '  const isC = (n: number): boolean => n === 0;',
+      '  void isC;',
+      '}',
+    ].join('\n'),
+  });
+  try {
+    const methods = relation(outputDir, 'all-typescript-methods.csv');
+    const failures: string[] = [];
+    const keyed = (r: Record<string, string>): string => r['declarationGroupKey'] ?? '';
+
+    // 1. No arrow anywhere carries a member group key, in a class or not.
+    for (const r of methods.filter((m) => m['methodKind'] === 'ARROW_FUNCTION')) {
+      if (keyed(r) !== '') {
+        failures.push(`arrow at line ${r['startLine']} carries a group key — an arrow is not a `
+          + 'member of its enclosing class, and every arrow shares the name `<arrow>`, so a '
+          + 'key groups unrelated callables');
+      }
+    }
+    // 2. Static blocks likewise -- tsc gives them no symbol.
+    const blocks = methods.filter((m) => m['methodKind'] === 'CLASS_STATIC_BLOCK');
+    if (blocks.length !== 2) {
+      failures.push(`expected 2 static blocks, got ${blocks.length}`);
+    }
+    for (const r of blocks) {
+      if (keyed(r) !== '') {
+        failures.push(`static block at line ${r['startLine']} carries a group key — two of them `
+          + 'share `<static-block>` and would collide');
+      }
+    }
+    // 3. The other direction: a REAL class overload set must still group.
+    const pick = methods.filter((m) => m['name'] === 'pick');
+    if (pick.length !== 2) {
+      failures.push(`expected 2 \`pick\` rows, got ${pick.length}`);
+    } else if (keyed(pick[0]!) === '' || keyed(pick[0]!) !== keyed(pick[1]!)) {
+      failures.push('the two `pick` declarations must share one group key — they are a real '
+        + 'overload set, and the predicate must not have thrown members out with expressions');
+    }
+    // 4. The invariant the collision broke: no two callables at different
+    //    positions share a key unless they are genuinely one member.
+    const byKey = new Map<string, string[]>();
+    for (const r of methods) {
+      const k = keyed(r);
+      if (k === '') { continue; }
+      if (!byKey.has(k)) { byKey.set(k, []); }
+      byKey.get(k)!.push(`${r['name']}@${r['startLine']}`);
+    }
+    for (const [, members] of byKey) {
+      const names = new Set(members.map((m) => m.split('@')[0]));
+      if (names.size > 1) {
+        failures.push(`one group key is shared by differently-named callables [${members.join(', ')}]`);
+      }
+    }
+    console.log(`  ${methods.length} method row(s): 3 arrows and 2 static blocks ungrouped, `
+      + `a 2-signature class overload still grouped, ${byKey.size} group(s) all single-named`);
+    for (const f of failures.slice(0, 6)) { console.log(`  ${f}`); }
+    return failures.length ? 1 : 0;
+  } finally {
+    cleanup();
+  }
+}
+
 /** `all-typescript-method-parameters.csv` -> `ts_method_parameter`, via the .dl's own names. */
 function relationNameFor(file: string): string | undefined {
   const stem = file.replace('all-typescript-', '').replace('.csv', '');
@@ -4319,6 +4420,7 @@ const CHECKS: Check[] = [
   { name: 'subpath imports name their package', proves: 'a subpath reached through a node10-compat stub package.json still names its package, so library discovery can see the dependency', run: subpathImportsNameTheirPackage },
   { name: 'emitted values are in their declared domain', proves: 'no column emits a value the schema does not declare, so a rule written from the document cannot match nothing', run: emittedValuesAreInTheirDeclaredDomain },
   { name: 'computed member keys are named when knowable', proves: 'a well-known symbol and a literal key are named, a folded-const key is not, and distinct members never share one group key', run: computedMemberKeysAreNamedWhenKnowable },
+  { name: 'non-members carry no member group key', proves: 'an arrow or static block inside a class is not a member, so it never shares an identity, while real class and interface members keep theirs', run: nonMembersCarryNoMemberGroupKey },
   { name: 'fact-base invariants', proves: 'every PK unique, every FK resolves, every tree well-formed — the failures that load cleanly and count wrong', run: factBaseInvariants },
   { name: 'IR completeness', proves: 'every hop an engine needs in order to resolve is present — the measure that replaced resolution rate', run: irCompleteness },
 ];

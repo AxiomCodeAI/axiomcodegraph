@@ -1512,7 +1512,9 @@ export class TsDeclarationExtractor {
       // files. `(member as any).symbol` reports 1 declaration each, which is
       // the trap that makes this look like a non-merge.
       declarationGroupKey: binding?.declarationGroupKey
-        ?? memberGroupKeyOf(context.ownerGroupKey, name, isStaticMember(node)),
+        ?? (isMergeableMember(node)
+          ? memberGroupKeyOf(context.ownerGroupKey, name, isStaticMember(node))
+          : ''),
       mergeScopeKey: binding?.mergeScopeKey ?? '',
       escapedName: binding?.escapedName ?? name,
       // Provisional. Overload identity needs the whole set, and the sibling
@@ -2868,6 +2870,39 @@ function memberGroupKeyOf(ownerGroupKey: string | undefined, name: string,
     ENTITY_IDENTIFIERS.TS_DECLARATION_GROUP,
     `${ownerGroupKey}||${name}||${isStatic}`
   );
+}
+
+/**
+ * Is this callable a MEMBER of its owner, and therefore mergeable?
+ *
+ * The member group key answers "which member of this owner is this", so it
+ * belongs only to something that IS a member. An arrow assigned to a `const`
+ * inside a method is not: it is an expression that merely occurs inside the
+ * class, and its `tsTypeLinkHash` names the class only because that is the
+ * enclosing emit context.
+ *
+ * Keying those was a regression. Every arrow shares the sentinel name
+ * `<arrow>`, so `md5(ownerGroupKey || "<arrow>" || false)` is one value for
+ * every arrow in a class body — five distinct callables in three different
+ * methods emitted with one `declarationGroupKey` and consecutive
+ * `overloadIndex`, as though they were overloads of each other. A consumer
+ * then commits a call through one `const` to a different method's arrow. The
+ * module-scope arrows beside them were always right, because there is no
+ * owner there at all.
+ *
+ * `isClassElement` / `isTypeElement` are tsc's own predicates for membership,
+ * so a method, an accessor, a constructor, and the call and construct
+ * signatures of a reopened interface all keep the key they need.
+ *
+ * A static block is the one ClassElement excluded: tsc gives it no symbol, and
+ * several in one class would collide on `<static-block>` for the same reason
+ * arrows did.
+ */
+function isMergeableMember(node: ts.Node): boolean {
+  if (ts.isClassStaticBlockDeclaration(node)) {
+    return false;
+  }
+  return ts.isClassElement(node) || ts.isTypeElement(node);
 }
 
 function isStaticMember(node: ts.Node): boolean {
