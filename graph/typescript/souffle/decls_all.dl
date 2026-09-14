@@ -118,6 +118,8 @@
 .decl expr_call_dispatch(c0:symbol,c1:symbol)
 .decl expr_call_returns_awaited(c0:symbol,c1:symbol,c2:symbol)
 .decl expr_callable(c0:symbol,c1:symbol)
+.decl static_member_value(c0:symbol,c1:symbol,c2:symbol)
+.decl static_member_declared(c0:symbol,c1:symbol)
 .decl expr_child(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
 .decl expr_decl_ref(c0:symbol,c1:symbol)
 .decl name_is_computed_member(c0:symbol)
