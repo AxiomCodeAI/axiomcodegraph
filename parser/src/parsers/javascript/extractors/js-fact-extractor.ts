@@ -389,7 +389,14 @@ export function extractJavaScriptFile(options: JsFileExtractionOptions): JsFileF
   // engine had no way to find, which is an incompleteness invisible to every
   // count because the row exists and is correctly positioned.
   for (const heritage of declarations.heritages) {
-    const importRow = moduleEdges.importBinding(heritage.superTypeName,
+    // By the ROOT identifier: `class A extends ns.Base` is bound through `ns`.
+    // Joining on the last segment linked it to an unrelated `{ Base }` import
+    // when one existed, and to nothing when it did not (#479).
+    const root = heritage.rootIdentifierNameValue();
+    if (root === '') {
+      continue;
+    }
+    const importRow = moduleEdges.importBinding(root,
       offsetOfRow(sourceFile, heritage.startLine, 1));
     if (importRow === undefined) {
       continue;

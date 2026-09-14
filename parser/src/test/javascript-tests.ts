@@ -831,6 +831,16 @@ const SCAFFOLD: ReadonlyArray<readonly [string, string]> = [
     '}',                                                                   // 16
     'function Guarded() { if (!new.target) { throw new Error("call with new"); } }', // 17 META_PROPERTY
     'module.exports = { Legacy, Child, Other, Modern, Guarded };',         // 18
+    // #479: a dotted superclass is bound through its ROOT, not its last
+    // segment — `{ Base }` from one module and `ns` from another share a
+    // last segment and must not be confused; a mixin call and a parenthesised
+    // name each keep their expression link; parentheses are not computation.
+    "const { Base } = require('./base2');",                                 // 19
+    "const ns = require('./lib/base');",                                    // 20
+    'class Dotted extends ns.Base {}',                                      // 21 import link -> ns, superTypeName Base
+    'const Mixin = (Sup) => class extends Sup {};',                         // 22 Sup is a parameter: no import, expression linked
+    'class Mixed extends Mixin(Base) {}',                                   // 23 computed, expression linked
+    'class Wrapped extends (Base) {}',                                      // 24 parentheses: NOT computed, name Base
     '',
   ].join('\n')],
 
@@ -5265,7 +5275,10 @@ function linkColumnsMeanWhatTheyClaim(): number {
   forEachRow(directory, 'js_type_heritage', (r, h) => {
     const link = r[col(h, 'importLinkHash')] ?? '';
     if (link === '') { return; }
-    const want = (r[col(h, 'superTypeName')] ?? '').split('.')[0]!;
+    // The import binds the ROOT of the superclass expression: `Base` for
+    // `extends Base`, `ns` for `extends ns.Base` (#479) — the root is the
+    // first segment of the expression text, parentheses stripped.
+    const want = (r[col(h, 'superTypeExpressionText')] ?? '').replace(/^[\s(]+/, '').split(/[.[(\s)]/)[0]!;
     assert_('js_type_heritage.importLinkHash', imports.get(link)?.local === want,
       () => `${lineOf(r, h)}: extends ${want}, links an import binding ${imports.get(link)?.local}`);
   });
@@ -6165,6 +6178,20 @@ function tortureScriptsHold(): number {
     expect(file, 8, 'util.inherits', heritageOf('Child'), 'UTIL_INHERITS:Legacy');
     expect(file, 10, 'Object.create(Legacy.prototype)', heritageOf('Other'), 'OBJECT_CREATE_PROTOTYPE:Legacy');
     expect(file, 11, 'extends clause', heritageOf('Modern'), 'EXTENDS_CLAUSE:Legacy');
+    // #479. The import each heritage links, by the local name the import binds.
+    const { r: imp, rows: importRows } = rowsOf('js_import', module);
+    const importLocal = new Map(importRows.map((row) => [row[pkIndexOf(imp.header, 'js_import')] ?? '', row[col(imp, 'localName')] ?? '']));
+    const heritageDescribe = (owner: string): string => {
+      const row = heritage.find((r) => typeNameOf.get(r[col(h, 'ownerTypeLinkHash')] ?? '') === owner);
+      if (row === undefined) { return 'NO ROW'; }
+      const link = row[col(h, 'importLinkHash')] ?? '';
+      return `${row[col(h, 'superTypeName')]}/computed=${row[col(h, 'isComputedSuperclass')]}`
+        + `/import=${link === '' ? '-' : importLocal.get(link) ?? '?'}`
+        + `/expr=${(row[col(h, 'sourceExpressionLinkHash')] ?? '') === '' ? 'NONE' : 'linked'}`;
+    };
+    expect(file, 21, 'class Dotted extends ns.Base', heritageDescribe('Dotted'), 'Base/computed=false/import=ns/expr=linked');
+    expect(file, 23, 'class Mixed extends Mixin(Base)', heritageDescribe('Mixed'), 'Mixin(Base)/computed=true/import=-/expr=linked');
+    expect(file, 24, 'class Wrapped extends (Base)', heritageDescribe('Wrapped'), 'Base/computed=false/import=Base/expr=linked');
     expect(file, 13, 'static block kind', blocks.find((row) => Number(row[col(b, 'startLine')]) === 13)?.[col(b, 'blockKind')] ?? 'NO ROW', 'CLASS_STATIC_BLOCK');
     const { r: x, rows: expressions } = rowsOf('js_expression', module);
     expect(file, 15, '`#secret in o`', expressions.find((row) => Number(row[col(x, 'startLine')]) === 15
