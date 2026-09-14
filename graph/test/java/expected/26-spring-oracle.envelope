@@ -1,0 +1,6 @@
+nominal	testcases.springoracle.AuditSink.record -> testcases.springoracle.LoggingAuditSink.record
+nominal	testcases.springoracle.Clock.now -> testcases.springoracle.SystemClock.now
+nominal	testcases.springoracle.Notifier.notifyOf -> testcases.springoracle.EmailNotifier.notifyOf
+nominal	testcases.springoracle.Notifier.notifyOf -> testcases.springoracle.SmsNotifier.notifyOf
+nominal	testcases.springoracle.OrderRepo.find -> testcases.springoracle.JdbcOrderRepo.find
+nominal	testcases.springoracle.OrderRepo.find -> testcases.springoracle.NoopOrderRepo.find

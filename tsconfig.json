@@ -6,9 +6,9 @@
     "moduleResolution": "node",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["graph/*"]
     },
-    "rootDir": "./src",
+    "rootDir": "./graph",
     "outDir": "./dist",
     "declaration": true,
     "declarationMap": true,
@@ -29,6 +29,6 @@
     "incremental": true,
     "tsBuildInfoFile": "./dist/.tsbuildinfo"
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "include": ["graph/**/*"],
+  "exclude": ["node_modules", "dist", "graph/test"]
 }

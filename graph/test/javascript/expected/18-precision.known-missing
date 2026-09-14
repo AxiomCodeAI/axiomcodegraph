@@ -1,0 +1,3 @@
+# `{ ['computed' + 1]: helper }` — a key built by string concatenation. String values are
+# literals only; nothing concatenates them.
+lib/p.js:21:91 computed1

@@ -1,0 +1,22 @@
+app.js:10:39 CONSTRUCTOR_CALL Router  EXACT  lib/router.js:4:30
+app.js:12:1 METHOD_CALL forEach  LIB_AMBIENT_OK  
+app.js:13:35 METHOD_CALL lazyrouter  EXACT  app.js:9:18
+app.js:15:9 CONSTRUCTOR_CALL Layer  EXACT  lib/router.js:11:1
+app.js:16:1 METHOD_CALL match  EXACT  lib/router.js:12:25
+app.js:17:1 METHOD_CALL both  EXACT  lib/common.js:5:15
+app.js:18:1 METHOD_CALL dispatch  EXACT  lib/router.js:9:18
+app.js:19:9 FUNCTION_CALL Router  EXACT  lib/router.js:4:30
+app.js:22:1 FUNCTION_CALL_APPLY apply  EXACT  app.js:21:18
+app.js:23:1 FUNCTION_CALL_CALL call  EXACT  app.js:21:48
+app.js:25:1 FUNCTION_CALL_CALL call  EXACT  app.js:24:1
+app.js:26:1 FUNCTION_CALL_APPLY apply  EXACT  app.js:24:1
+app.js:7:30 METHOD_CALL defaultConfiguration  EXACT  app.js:8:28
+app.js:8:49 METHOD_CALL clone  EXACT  lib/common.js:3:17
+lib/common.js:3:46 METHOD_CALL assign  LIB_AMBIENT_OK  
+lib/common.js:4:49 METHOD_CALL clone  EXACT  lib/common.js:3:17
+lib/common.js:5:29 METHOD_CALL clone  EXACT  lib/common.js:3:17
+lib/common.js:5:48 METHOD_CALL longest  EXACT  lib/common.js:4:19
+lib/common.js:5:75 METHOD_CALL clone  EXACT  lib/common.js:3:17
+lib/router.js:10:32 METHOD_CALL dispatch  EXACT  lib/router.js:9:18
+lib/router.js:5:33 METHOD_CALL dispatch  EXACT  lib/router.js:9:18
+# defects: 0

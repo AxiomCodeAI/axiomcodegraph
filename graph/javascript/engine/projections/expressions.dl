@@ -1,0 +1,203 @@
+// ============================================================================
+// Projections · EXPRESSIONS AND CALL SITES  (pure column views)
+//
+// The spine. What the parser gives here that Java does not, and that this engine
+// leans on entirely:
+//
+//  1. `resolvedBindingLinkHash` (col 17) and `resolvedParameterLinkHash` (col 33)
+//     — the BINDER's answer. Every identifier reference points at its js_variable
+//     or js_method_parameter row, with `bindingResolution` (col 18) saying which
+//     scope it came from. No name lookup is written in this engine; a rule that
+//     re-bound a name from its text would be wrong wherever the binder is right.
+//
+//  2. `introducesDeclarationLinkHash` (col 32) — an arrow or function expression
+//     in the tree points at the js_method it introduces. This is what connects
+//     `emitter.on('x', () => {...})` to the body it installs.
+//
+//  3. `callSiteLinkHash` (col 14) — the 1:1 partner of a js_call_site row.
+//
+// What it does NOT give: the value of anything. `obj.m()` has a RECEIVER child
+// and a callee NAME on the call-site row, and what `obj` holds is this engine's job.
+//
+// js_expression / lib_js_expression cols (35):
+//   0 expressionKind  1 text  2 name  3 isComputedName  4 operatorString  5 depth
+//   6 parentExpressionLinkHash  7 edgeRole  8 childIndex  9 rootContext
+//   10 isModuleEdge  11 moduleEdgeLinkHash  12 isDeclarationBearing
+//   13 declarationLinkHash  14 callSiteLinkHash  15 referencedName
+//   16 referenceKind  17 resolvedBindingLinkHash  18 bindingResolution
+//   19 isTypeOnlyReachable  20 literalKind  21 isTruncated  22 ownerScopeLinkHash
+//   23 ownerMethodLinkHash  24 ownerModuleLinkHash  25 startLine  26 startColumn
+//   27 endLine  28 endColumn  29 isExternal  30 serviceVersionLinkHash
+//   31 jsExpressionUniqueHash  32 introducesDeclarationLinkHash
+//   33 resolvedParameterLinkHash  34 bindingPath
+//
+// THE KEY IS COLUMN 31, NOT THE LAST COLUMN. Columns 32–34 were appended after the
+// freeze. Every positional read below therefore ends on three trailing wildcards.
+//
+// js_call_site / lib_js_call_site cols (25):
+//   0 callKind  1 calleeText  2 calleeName  3 receiverText  4 receiverPosition
+//   5 receiverExpressionLinkHash  6 argumentCount  7 hasSpreadArgument
+//   8 isOptionalCall  9 declaredReceiverTypeName  10 receiverTypeSource
+//   11 importLinkHash  12 resolvedMethodLinkHash  13 resolutionOutcome
+//   14 isDynamicCode  15 enclosingMethodLinkHash  16 expressionLinkHash
+//   17 ownerScopeLinkHash  18 ownerModuleLinkHash  19 startLine  20 startColumn
+//   21 isTypeOnlyTarget  22 isExternal  23 serviceVersionLinkHash
+//   24 jsCallSiteUniqueHash
+// ============================================================================
+
+// ── expr_kind(Prov, Kind, EdgeRole, ExprHash) ───────────────────────────────
+// Kind: IDENTIFIER | THIS | SUPER | LITERAL | PROPERTY_ACCESS | ELEMENT_ACCESS |
+//   OPTIONAL_ACCESS | CALL | NEW | TAGGED_TEMPLATE | MODULE_EDGE_CALL | ASSIGNMENT |
+//   BINARY | UNARY | CONDITIONAL | SEQUENCE | OBJECT_LITERAL | ARRAY_LITERAL |
+//   PROPERTY_KEY | SPREAD | TEMPLATE | FUNCTION_EXPRESSION | AWAIT | YIELD |
+//   JSX_ELEMENT | JSX_INTRINSIC_ELEMENT | JSX_ATTRIBUTE_VALUE
+// EdgeRole: the role in the PARENT — CALLEE | RECEIVER | ARGUMENT | ACCESS_TARGET |
+//   ASSIGNMENT_TARGET | ASSIGNMENT_VALUE | PROPERTY_KEY | PROPERTY_VALUE | ELEMENT |
+//   OPERAND | CONDITION | COMPUTED_KEY | SPREAD_OPERAND | TEMPLATE_SUBSTITUTION
+expr_kind("client", k, r, h) :- js_expression(k, _, _, _, _, _, _, r, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, _, _).
+expr_kind("lib", k, r, h) :- lib_js_expression(k, _, _, _, _, _, _, r, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, _, _).
+
+// ── expr_name(Prov, Name, ExprHash) ─────────────────────────────────────────
+// The member name of a PROPERTY_ACCESS / OPTIONAL_ACCESS, the key of a
+// PROPERTY_KEY, the name of a shorthand PROPERTY_VALUE identifier. Empty when
+// computed (`obj[expr]`), and a row that says the name is unknown is complete.
+expr_name("client", n, h) :- js_expression(_, _, n, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, _, _), n != "".
+expr_name("lib", n, h) :- lib_js_expression(_, _, n, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, _, _), n != "".
+
+// ── expr_operator(Prov, Op, ExprHash) ───────────────────────────────────────
+// `=` vs `+=` vs `||=` on an ASSIGNMENT; `||`, `&&`, `??` on a BINARY. The operator
+// is a column, not a kind, so `a ||= b` is one wrapper with labelled children.
+expr_operator("client", op, h) :- js_expression(_, _, _, _, op, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, _, _), op != "".
+expr_operator("lib", op, h) :- lib_js_expression(_, _, _, _, op, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, _, _), op != "".
+
+// ── expr_child(Prov, ParentHash, EdgeRole, ChildIndex, ChildHash) ───────────
+// ChildIndex is the position among ALL children, not among arguments: in `f(a)` the
+// CALLEE is 0 and `a` is 1; in `g.call(o, a)` the CALLEE is 0, the RECEIVER (`o`,
+// moved into argument position by the parser) is 1, `a` is 2. Argument POSITION is
+// therefore derived by counting ARGUMENT siblings, in resolution/value-flow.dl.
+expr_child("client", p, r, idx, h) :- js_expression(_, _, _, _, _, _, p, r, idx, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, _, _), p != "".
+expr_child("lib", p, r, idx, h) :- lib_js_expression(_, _, _, _, _, _, p, r, idx, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, _, _), p != "".
+
+// ── expr_root(Prov, RootContext, ExprHash) ──────────────────────────────────
+// A depth-0 expression and the statement form it hangs under. RETURN is the one
+// the flow layer reads: a returned expression is a value of the function.
+expr_root("client", ctx, h) :- js_expression(_, _, _, _, _, _, "", _, _, ctx, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, _, _).
+expr_root("lib", ctx, h) :- lib_js_expression(_, _, _, _, _, _, "", _, _, ctx, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, _, _).
+
+// ── expr_owner(Prov, OwnerMethod, OwnerModule, ExprHash) ────────────────────
+// The callable whose body contains the expression (the module initializer for
+// top-level code) and the file. A returned expression's owner is the function it
+// returns FROM — the parser stops the walk at a nested function's boundary and
+// attributes its body to the nested function, so no filtering is needed here.
+expr_owner("client", m, mod, h) :- js_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m, mod, _, _, _, _, _, _, h, _, _, _).
+expr_owner("lib", m, mod, h) :- lib_js_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m, mod, _, _, _, _, _, _, h, _, _, _).
+
+// ── expr_span(Prov, Line, Col, EndLine, EndCol, ExprHash) ───────────────────
+expr_span("client", l, c, el, ec, h) :- js_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, l, c, el, ec, _, _, h, _, _, _).
+expr_span("lib", l, c, el, ec, h) :- lib_js_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, l, c, el, ec, _, _, h, _, _, _).
+
+// ── expr_binding(Prov, VarHash, ExprHash) / expr_param(Prov, ParamHash, ExprHash) ──
+// The binder's answer for an IDENTIFIER. Exactly one of the two is populated for a
+// resolved reference; a parameter is a js_method_parameter row and never mints a
+// js_variable, so the two columns are the sibling halves of one link.
+expr_binding("client", v, h) :- js_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, v, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, _, _), v != "".
+expr_binding("lib", v, h) :- lib_js_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, v, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, _, _), v != "".
+expr_param("client", p, h) :- js_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, p, _), p != "".
+expr_param("lib", p, h) :- lib_js_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, p, _), p != "".
+
+// ── expr_binding_resolution(Prov, Resolution, ExprHash) ─────────────────────
+// LOCAL | CLOSURE | MODULE | IMPORTED | GLOBAL_BUILTIN | CLASS_PRIVATE |
+// UNRESOLVED_FREE. GLOBAL_BUILTIN is the one read downstream: `console`, `Object`,
+// `Promise` — a platform name with no declaration in the project, whose call is a
+// correct terminal rather than a miss.
+expr_binding_resolution("client", r, h) :- js_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, r, _, _, _, _, _, _, _, _, _, _, _, _, h, _, _, _), r != "".
+expr_binding_resolution("lib", r, h) :- lib_js_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, r, _, _, _, _, _, _, _, _, _, _, _, _, h, _, _, _), r != "".
+
+// ── expr_introduces(Prov, MethodHash, ExprHash) ─────────────────────────────
+// A FUNCTION_EXPRESSION row (arrow, function expression) and the js_method it is.
+expr_introduces("client", m, h) :- js_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, m, _, _), m != "".
+expr_introduces("lib", m, h) :- lib_js_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, m, _, _), m != "".
+
+// ── expr_declares(Prov, DeclHash, ExprHash) ─────────────────────────────────
+// An ASSIGNMENT (or `Object.assign`/`defineProperty` call) that DECLARES a member:
+// `this.x = v` in a constructor -> a js_field; `F.prototype.m = function` -> a
+// js_method. The value written is the ASSIGNMENT_VALUE child.
+expr_declares("client", d, h) :- js_expression(_, _, _, _, _, _, _, _, _, _, _, _, "true", d, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, _, _), d != "".
+expr_declares("lib", d, h) :- lib_js_expression(_, _, _, _, _, _, _, _, _, _, _, _, "true", d, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, _, _), d != "".
+
+// ── expr_module_edge(Prov, EdgeHash, ExprHash) ──────────────────────────────
+// A `require(...)` / `import(...)` call (MODULE_EDGE_CALL) or a `module.exports`
+// assignment, and the js_import / js_export row minted from it.
+expr_module_edge("client", e, h) :- js_expression(_, _, _, _, _, _, _, _, _, _, "true", e, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, _, _), e != "".
+expr_module_edge("lib", e, h) :- lib_js_expression(_, _, _, _, _, _, _, _, _, _, "true", e, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, _, _), e != "".
+
+// ── expr_call_site_link(Prov, CallSiteHash, ExprHash) ───────────────────────
+expr_call_site_link("client", cs, h) :- js_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, cs, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, _, _), cs != "".
+expr_call_site_link("lib", cs, h) :- lib_js_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, cs, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, _, _), cs != "".
+
+// ── expr_text(Prov, Text, ExprHash) ─────────────────────────────────────────
+// Read in ONE place: to tell a class expression from a function expression, both of
+// which the parser emits as FUNCTION_EXPRESSION with no link to the js_type it
+// introduces (PARSER-DEFECTS.md, PD-JS-2).
+expr_text("client", t, h) :- js_expression(_, t, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, _, _).
+expr_text("lib", t, h) :- lib_js_expression(_, t, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, _, _).
+
+// ── call_site(Prov, Kind, CalleeName, ReceiverPos, ReceiverExpr, EnclosingMethod, CallExpr, OwnerModule, SiteHash) ──
+// Kind: METHOD_CALL | FUNCTION_CALL | CONSTRUCTOR_CALL | COMPUTED_CALL |
+//   FUNCTION_CALL_CALL | FUNCTION_CALL_APPLY | FUNCTION_CALL_BIND | SUPER_CALL |
+//   IIFE_CALL | OPTIONAL_CALL | TAGGED_TEMPLATE_CALL | DYNAMIC_CODE_CALL |
+//   DYNAMIC_IMPORT_CALL
+// ReceiverPos: SYNTACTIC (obj.m()) | NONE (f()) | FIRST_ARGUMENT (f.call(obj)).
+// `require()` is NOT a site by the parser's ruling — it is a module edge — and the
+// oracle skips it for the same reason, so the universes agree.
+call_site("client", k, cn, rp, re, em, ce, mod, h) :- js_call_site(k, _, cn, _, rp, re, _, _, _, _, _, _, _, _, _, em, ce, _, mod, _, _, _, _, _, h).
+call_site("lib", k, cn, rp, re, em, ce, mod, h) :- lib_js_call_site(k, _, cn, _, rp, re, _, _, _, _, _, _, _, _, _, em, ce, _, mod, _, _, _, _, _, h).
+
+// ── call_site_outcome(Prov, ReceiverTypeSource, ResolutionOutcome, SiteHash) ──
+// The parser's own triage: AMBIENT_BUILTIN_TARGET says the receiver is a platform
+// name (`Object.assign`, `console.log`, `path.join`), which this engine classifies
+// as a correct terminal rather than a miss.
+call_site_outcome("client", rts, ro, h) :- js_call_site(_, _, _, _, _, _, _, _, _, _, rts, _, _, ro, _, _, _, _, _, _, _, _, _, _, h).
+call_site_outcome("lib", rts, ro, h) :- lib_js_call_site(_, _, _, _, _, _, _, _, _, _, rts, _, _, ro, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── call_site_lines(Prov, Line, Col, SiteHash) ──────────────────────────────
+call_site_lines("client", l, c, h) :- js_call_site(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, l, c, _, _, _, h).
+call_site_lines("lib", l, c, h) :- lib_js_call_site(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, l, c, _, _, _, h).
+
+// ── call_kind_* — the kind splits, enumerated in one place ──────────────────
+// A call whose callee is the CALLEE child: bare name, IIFE, tag.
+call_kind_is_callee_form("FUNCTION_CALL").
+call_kind_is_callee_form("IIFE_CALL").
+call_kind_is_callee_form("TAGGED_TEMPLATE_CALL").
+// A call whose callee is `<receiver>.<calleeName>`: the member forms.
+call_kind_is_member_form("METHOD_CALL").
+call_kind_is_member_form("OPTIONAL_CALL").
+// `f.call(o, ...)` / `f.apply(o, ...)` / `f.bind(o)`: the function that runs is the
+// CALLEE child (`f`), and the syntactic receiver of `.call` is NOT the receiver.
+call_kind_is_reflective("FUNCTION_CALL_CALL").
+call_kind_is_reflective("FUNCTION_CALL_APPLY").
+call_kind_is_reflective("FUNCTION_CALL_BIND").
+// Forms with no static target BY CONSTRUCTION — complete because they say so.
+call_kind_is_dynamic("COMPUTED_CALL").
+call_kind_is_dynamic("DYNAMIC_CODE_CALL").
+call_kind_is_dynamic("DYNAMIC_IMPORT_CALL").
+
+// ── expr_referenced_name(Prov, Name, ExprHash) ──────────────────────────────
+// The identifier's text, for the ONE case the binder's answer is not enough: a
+// name bound inside a destructured PARAMETER (`function f({ a, b })`) resolves to
+// the pattern's single parameter row, and which property of the argument it reads
+// is the name itself.
+expr_referenced_name("client", n, h) :- js_expression("IDENTIFIER", _, _, _, _, _, _, _, _, _, _, _, _, _, _, n, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, _, _), n != "".
+expr_referenced_name("lib", n, h) :- lib_js_expression("IDENTIFIER", _, _, _, _, _, _, _, _, _, _, _, _, _, _, n, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, _, _), n != "".
+
+// ── expr_literal_kind(Prov, LiteralKind, ExprHash) ──────────────────────────
+// STRING | NUMBER | BOOLEAN | NULL | UNDEFINED | REGEX | TEMPLATE | BIGINT | NONE.
+expr_literal_kind("client", k, h) :- js_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, k, _, _, _, _, _, _, _, _, _, _, h, _, _, _), k != "NONE".
+expr_literal_kind("lib", k, h) :- lib_js_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, k, _, _, _, _, _, _, _, _, _, _, h, _, _, _), k != "NONE".
+
+// ── expr_binding_path(Prov, Path, ExprHash) ─────────────────────────────────
+// A reference to a name bound by a PARAMETER pattern carries the binding's route
+// from the parameter's value (c34), spelled as js_variable.bindingPath is: `cb`,
+// `a.b`, `0`, `1...`. Empty for a plain parameter.
+expr_binding_path("client", p, h) :- js_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, _, p), p != "".
+expr_binding_path("lib", p, h) :- lib_js_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, _, p), p != "".

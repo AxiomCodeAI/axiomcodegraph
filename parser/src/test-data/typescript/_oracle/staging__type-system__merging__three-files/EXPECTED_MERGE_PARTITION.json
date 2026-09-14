@@ -1,0 +1,172 @@
+{
+ "emissionRegime": "ts6-inproc",
+ "compilerVersion": "6.0.3",
+ "mergeableKinds": [
+  "ClassDeclaration",
+  "EnumDeclaration",
+  "FunctionDeclaration",
+  "InterfaceDeclaration",
+  "ModuleDeclaration",
+  "TypeAliasDeclaration",
+  "VariableDeclaration"
+ ],
+ "corpusFiles": [
+  {
+   "path": "consumer.ts",
+   "digest": "cd67f56ead89324d4b7fa05e650f862cc14d5587"
+  },
+  {
+   "path": "registry-cache.ts",
+   "digest": "6d07705baa79226d3642e4d7f9784fcc076762c8"
+  },
+  {
+   "path": "registry-core.ts",
+   "digest": "7fa4f1d59a9f0e4c03dbab7b90de312f388ac3f6"
+  },
+  {
+   "path": "registry-http.ts",
+   "digest": "dc0a8140dc134362aa20a8ecfd50045ddee1f7ab"
+  }
+ ],
+ "quarantinedFiles": [],
+ "declarationSites": 15,
+ "groups": [
+  {
+   "name": "readPlugins",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "FunctionDeclaration"
+   ],
+   "sites": [
+    "consumer.ts:16:1"
+   ]
+  },
+  {
+   "name": "registry",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "consumer.ts:31:7"
+   ]
+  },
+  {
+   "name": "readRegistry",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "FunctionDeclaration"
+   ],
+   "sites": [
+    "consumer.ts:7:1"
+   ]
+  },
+  {
+   "name": "Registry",
+   "spaces": [
+    "TYPE"
+   ],
+   "kinds": [
+    "InterfaceDeclaration"
+   ],
+   "sites": [
+    "registry-cache.ts:12:1",
+    "registry-core.ts:15:1",
+    "registry-http.ts:12:1"
+   ]
+  },
+  {
+   "name": "Plugins",
+   "spaces": [
+    "NAMESPACE",
+    "VALUE"
+   ],
+   "kinds": [
+    "ModuleDeclaration"
+   ],
+   "sites": [
+    "registry-cache.ts:18:1",
+    "registry-core.ts:21:1",
+    "registry-http.ts:19:1"
+   ]
+  },
+  {
+   "name": "CacheOptions",
+   "spaces": [
+    "TYPE"
+   ],
+   "kinds": [
+    "InterfaceDeclaration"
+   ],
+   "sites": [
+    "registry-cache.ts:19:5"
+   ]
+  },
+  {
+   "name": "cacheId",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "registry-cache.ts:22:18"
+   ]
+  },
+  {
+   "name": "Manifest",
+   "spaces": [
+    "TYPE"
+   ],
+   "kinds": [
+    "InterfaceDeclaration"
+   ],
+   "sites": [
+    "registry-core.ts:22:5"
+   ]
+  },
+  {
+   "name": "coreId",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "registry-core.ts:25:18"
+   ]
+  },
+  {
+   "name": "HttpOptions",
+   "spaces": [
+    "TYPE"
+   ],
+   "kinds": [
+    "InterfaceDeclaration"
+   ],
+   "sites": [
+    "registry-http.ts:20:5"
+   ]
+  },
+  {
+   "name": "httpId",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "registry-http.ts:23:18"
+   ]
+  }
+ ]
+}

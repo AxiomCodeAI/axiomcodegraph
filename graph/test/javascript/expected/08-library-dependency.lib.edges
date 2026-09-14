@@ -1,0 +1,6 @@
+app.js:4:11 FUNCTION_CALL dep  ->  boundary_lib  lib:lib/index.js:3:1 create
+app.js:5:1 METHOD_CALL c.get  ->  boundary_lib  lib:lib/index.js:2:16 get
+app.js:6:1 CONSTRUCTOR_CALL Client  ->  implicit_constructor  -
+app.js:6:1 METHOD_CALL new Client().request  ->  boundary_lib  lib:lib/index.js:2:62 request
+app.js:7:1 FUNCTION_CALL helper  ->  boundary_lib  lib:lib/index.js:6:25 helper
+app.js:8:1 METHOD_CALL dep.helper  ->  boundary_lib  lib:lib/index.js:6:25 helper

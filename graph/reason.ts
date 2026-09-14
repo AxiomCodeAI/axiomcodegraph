@@ -1,0 +1,102 @@
+import { spawnSync } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
+
+import { RUN_SOUFFLE_SH } from '@/constants/paths';
+import { validateRequiredEntities } from '@/validate';
+
+export interface ReasoningOptions {
+  /** Client-extracted IR (parser output) — passed through the agent CLI. */
+  clientIrDir?: string;
+  /** JDK library path — the folder holding the module sub-folders (jdk-26). */
+  libraryDir?: string;
+  /** Intermediate scratch: staged facts + the compiled-engine cache. */
+  intermediateDir?: string;
+  /** Final output: graph.sqlite + graph/*.csv + raw/ (see graph/bundle/SCHEMA.md). */
+  outputDir?: string;
+  /** Rule set to run — java (default), typescript, python. */
+  language?: string;
+  /** Keep raw/ and also write csv/*.csv next to graph.sqlite. */
+  debug?: boolean;
+}
+
+/**
+ * Reasoning entry: validate → run the Soufflé engine (run-souffle.sh) → outputs.
+ *
+ * run-souffle.sh is self-contained: it stages facts from the raw client/library IR
+ * (parsing the .map import map), compiles the .dl program to a native binary
+ * (cached by program checksum under `<intermediate>/souffle`, so only the first run —
+ * or a rule change — pays the compile cost), solves into `<output>/raw`, and then runs the
+ * bundle stage that writes `<output>/graph.sqlite` (and `<output>/csv/*.csv` with --debug) — the same
+ * schema in every language (graph/bundle/SCHEMA.md).
+ *
+ * Cleanups only ever touch the OWNED paths inside the given directories (`raw/`, `csv/`,
+ * `graph.sqlite`, the souffle scratch), never the caller's raw IR or anything else they keep
+ * next to the output. Throws on any problem so the agent can catch it.
+ */
+export function runReasoning(opts: ReasoningOptions = {}): void {
+  const errors: string[] = [];
+  const requireExisting = (raw: string | undefined, flag: string, label: string): string => {
+    if (!raw) return (errors.push(`  • ${flag}=DIR is required — ${label}`), '');
+    const resolved = path.resolve(raw);
+    if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
+      errors.push(`  • ${flag}: not a directory: ${resolved}`);
+      return '';
+    }
+    return resolved;
+  };
+
+  const clientIrDir = requireExisting(opts.clientIrDir, '--client-ir', 'client code IR');
+  // --library is an OPTIONAL comma-separated list of external-library IR roots (each with jdk-style
+  // module sub-folders, or a flat IR dir). Absent → a client-only scan of first-party source; the
+  // lib_* relations stay empty and the forward chain stays within first-party code (external sinks
+  // are still flagged by qualified name). The caller controls which libraries, if any, are loaded.
+  const libraryRoots = (opts.libraryDir ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((raw) => requireExisting(raw, '--library', 'external library IR root'));
+  if (!opts.intermediateDir) errors.push('  • --intermediate=DIR is required');
+  if (!opts.outputDir) errors.push('  • --output=DIR is required');
+
+  if (errors.length > 0) {
+    throw new Error(`reasoning: invalid arguments — cannot run:\n${errors.join('\n')}`);
+  }
+
+  const intermediateDir = path.resolve(opts.intermediateDir!);
+  const outputDir = path.resolve(opts.outputDir!);
+  const language = opts.language ?? 'java';
+
+  validateRequiredEntities(clientIrDir, libraryRoots, language);
+
+  // ── Owned paths ───────────────────────────────────────────────────────────
+  const souffleScratch = path.join(intermediateDir, 'souffle'); // staged facts + compile cache (persistent)
+  fs.mkdirSync(souffleScratch, { recursive: true });
+  // The stage rewrites these itself; wiping first means a failed run cannot leave the previous
+  // run's bundle in place looking like this one's.
+  for (const owned of ['raw', 'csv', 'graph.sqlite']) {
+    fs.rmSync(path.join(outputDir, owned), { recursive: true, force: true });
+  }
+  fs.mkdirSync(outputDir, { recursive: true });
+
+  console.log(`⚙️  reasoning (souffle, ${language})`);
+  console.log(`   client IR : ${clientIrDir}`);
+  console.log(`   library   : ${libraryRoots.length} root(s) — ${libraryRoots.join(', ')}`);
+  console.log(`▶ running souffle: ${outputDir}`);
+
+  const result = spawnSync(
+    'bash',
+    [RUN_SOUFFLE_SH,
+      '--language', language,
+      '--client-ir', clientIrDir,
+      '--library', libraryRoots.join(','),
+      '--intermediate', souffleScratch,
+      '--output', outputDir,
+      ...(opts.debug ? ['--debug'] : [])],
+    { stdio: 'inherit' }
+  );
+  if (result.error) throw new Error(`Failed to run run-souffle.sh: ${result.error.message}`);
+  if (result.status !== 0) throw new Error(`run-souffle.sh failed with exit code ${result.status ?? 'unknown'}`);
+
+  console.log(`✅ reasoning complete: ${path.join(outputDir, 'graph.sqlite')}`);
+}

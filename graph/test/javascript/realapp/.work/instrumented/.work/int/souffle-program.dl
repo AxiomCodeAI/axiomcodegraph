@@ -1,0 +1,96 @@
+#include "/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/graph/javascript/souffle/decls_base.dl"
+#include "/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/graph/javascript/souffle/decls_all.dl"
+.input dispatch_cap(IO=file, filename="dispatch_cap.facts", delimiter="\t", rfc4180=true)
+.input jdk_max_depth(IO=file, filename="jdk_max_depth.facts", delimiter="\t", rfc4180=true)
+.input js_block(IO=file, filename="js_block.facts", delimiter="\t", rfc4180=true)
+.input js_call_site(IO=file, filename="js_call_site.facts", delimiter="\t", rfc4180=true)
+.input js_comment(IO=file, filename="js_comment.facts", delimiter="\t", rfc4180=true)
+.input js_export(IO=file, filename="js_export.facts", delimiter="\t", rfc4180=true)
+.input js_expression(IO=file, filename="js_expression.facts", delimiter="\t", rfc4180=true)
+.input js_field(IO=file, filename="js_field.facts", delimiter="\t", rfc4180=true)
+.input js_import(IO=file, filename="js_import.facts", delimiter="\t", rfc4180=true)
+.input js_method(IO=file, filename="js_method.facts", delimiter="\t", rfc4180=true)
+.input js_method_parameter(IO=file, filename="js_method_parameter.facts", delimiter="\t", rfc4180=true)
+.input js_module(IO=file, filename="js_module.facts", delimiter="\t", rfc4180=true)
+.input js_parse_gap(IO=file, filename="js_parse_gap.facts", delimiter="\t", rfc4180=true)
+.input js_scope(IO=file, filename="js_scope.facts", delimiter="\t", rfc4180=true)
+.input js_type(IO=file, filename="js_type.facts", delimiter="\t", rfc4180=true)
+.input js_type_heritage(IO=file, filename="js_type_heritage.facts", delimiter="\t", rfc4180=true)
+.input js_type_reference(IO=file, filename="js_type_reference.facts", delimiter="\t", rfc4180=true)
+.input js_variable(IO=file, filename="js_variable.facts", delimiter="\t", rfc4180=true)
+.input lib_js_block(IO=file, filename="lib_js_block.facts", delimiter="\t", rfc4180=true)
+.input lib_js_call_site(IO=file, filename="lib_js_call_site.facts", delimiter="\t", rfc4180=true)
+.input lib_js_comment(IO=file, filename="lib_js_comment.facts", delimiter="\t", rfc4180=true)
+.input lib_js_export(IO=file, filename="lib_js_export.facts", delimiter="\t", rfc4180=true)
+.input lib_js_expression(IO=file, filename="lib_js_expression.facts", delimiter="\t", rfc4180=true)
+.input lib_js_field(IO=file, filename="lib_js_field.facts", delimiter="\t", rfc4180=true)
+.input lib_js_import(IO=file, filename="lib_js_import.facts", delimiter="\t", rfc4180=true)
+.input lib_js_method(IO=file, filename="lib_js_method.facts", delimiter="\t", rfc4180=true)
+.input lib_js_method_parameter(IO=file, filename="lib_js_method_parameter.facts", delimiter="\t", rfc4180=true)
+.input lib_js_module(IO=file, filename="lib_js_module.facts", delimiter="\t", rfc4180=true)
+.input lib_js_parse_gap(IO=file, filename="lib_js_parse_gap.facts", delimiter="\t", rfc4180=true)
+.input lib_js_scope(IO=file, filename="lib_js_scope.facts", delimiter="\t", rfc4180=true)
+.input lib_js_type(IO=file, filename="lib_js_type.facts", delimiter="\t", rfc4180=true)
+.input lib_js_type_heritage(IO=file, filename="lib_js_type_heritage.facts", delimiter="\t", rfc4180=true)
+.input lib_js_type_reference(IO=file, filename="lib_js_type_reference.facts", delimiter="\t", rfc4180=true)
+.input lib_js_variable(IO=file, filename="lib_js_variable.facts", delimiter="\t", rfc4180=true)
+.input lib_max_depth(IO=file, filename="lib_max_depth.facts", delimiter="\t", rfc4180=true)
+.input taint_gating(IO=file, filename="taint_gating.facts", delimiter="\t", rfc4180=true)
+#include "/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/graph/javascript/engine/projections/expressions.dl"
+#include "/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/graph/javascript/engine/projections/imports-exports.dl"
+#include "/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/graph/javascript/engine/projections/methods.dl"
+#include "/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/graph/javascript/engine/projections/modules.dl"
+#include "/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/graph/javascript/engine/projections/scopes.dl"
+#include "/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/graph/javascript/engine/projections/type-references.dl"
+#include "/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/graph/javascript/engine/projections/types.dl"
+#include "/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/graph/javascript/engine/projections/variables.dl"
+#include "/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/graph/javascript/engine/containment/ownership.dl"
+#include "/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/graph/javascript/engine/resolution/ambient.dl"
+#include "/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/graph/javascript/engine/resolution/arrays.dl"
+#include "/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/graph/javascript/engine/resolution/dispatch.dl"
+#include "/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/graph/javascript/engine/resolution/fan-cap.dl"
+#include "/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/graph/javascript/engine/resolution/frameworks.dl"
+#include "/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/graph/javascript/engine/resolution/generators.dl"
+#include "/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/graph/javascript/engine/resolution/module-graph.dl"
+#include "/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/graph/javascript/engine/resolution/promises.dl"
+#include "/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/graph/javascript/engine/resolution/reference-types.dl"
+#include "/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/graph/javascript/engine/resolution/type-hierarchy.dl"
+#include "/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/graph/javascript/engine/resolution/value-flow.dl"
+#include "/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/graph/javascript/engine/expression-resolution/callee-resolution.dl"
+#include "/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/graph/javascript/engine/call-edge-generation/call_chain.dl"
+#include "/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/graph/javascript/engine/call-edge-generation/callbacks.dl"
+#include "/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/graph/javascript/engine/call-edge-generation/calls.dl"
+.output call_chain_edge(IO=file, filename="call-chain-edges.csv", delimiter="\t")
+.output call_class(IO=file, filename="call-class.csv", delimiter="\t")
+.output call_target_is_implicit_ctor(IO=file, filename="call-implicit-ctor.csv", delimiter="\t")
+.output callback_registered(IO=file, filename="callback-registered.csv", delimiter="\t")
+.output callee_value(IO=file, filename="diag-callee-value.csv", delimiter="\t")
+.output client_calls_client(IO=file, filename="client-to-client-calls.csv", delimiter="\t")
+.output client_calls_lib(IO=file, filename="client-to-lib-calls.csv", delimiter="\t")
+.output client_calls_lib_detail(IO=file, filename="client-to-lib-navigation.csv", delimiter="\t")
+.output entry_point(IO=file, filename="entry-point.csv", delimiter="\t")
+.output entry_reachable(IO=file, filename="entry-reachable.csv", delimiter="\t")
+.output event_dispatch(IO=file, filename="event-dispatch.csv", delimiter="\t")
+.output expr_resolves_to_method(IO=file, filename="expr-resolves-to-method.csv", delimiter="\t")
+.output heritage_dynamic(IO=file, filename="heritage-dynamic.csv", delimiter="\t")
+.output heritage_unresolved(IO=file, filename="heritage-unresolved.csv", delimiter="\t")
+.output import_binding_unresolved(IO=file, filename="import-binding-unresolved.csv", delimiter="\t")
+.output import_module(IO=file, filename="import-module.csv", delimiter="\t")
+.output import_unresolved(IO=file, filename="import-unresolved.csv", delimiter="\t")
+.output invocation_site(IO=file, filename="invocation-site.csv", delimiter="\t")
+.output literal_owns_method(IO=file, filename="diag-literal-owns-method.csv", delimiter="\t")
+.output method_call_edge(IO=file, filename="method-call-edge.csv", delimiter="\t")
+.output method_has_unknown_call(IO=file, filename="method-has-unknown-call.csv", delimiter="\t")
+.output module_export_value(IO=file, filename="module-export-value.csv", delimiter="\t")
+.output param_fan_capped(IO=file, filename="param-fan-capped.csv", delimiter="\t")
+.output param_flow_assumes_closed_world(IO=file, filename="param-closed-world.csv", delimiter="\t")
+.output param_value(IO=file, filename="diag-param-value.csv", delimiter="\t")
+.output return_value(IO=file, filename="diag-return-value.csv", delimiter="\t")
+.output this_value(IO=file, filename="diag-this-value.csv", delimiter="\t")
+.output type_ancestor(IO=file, filename="resolution-type-ancestor.csv", delimiter="\t")
+.output type_member(IO=file, filename="type-member.csv", delimiter="\t")
+.output type_ref_type(IO=file, filename="type-ref-type.csv", delimiter="\t")
+.output type_ref_unresolved(IO=file, filename="type-ref-unresolved.csv", delimiter="\t")
+.output type_super(IO=file, filename="type-super.csv", delimiter="\t")
+.output unresolved_receiver(IO=file, filename="unresolved-receiver.csv", delimiter="\t")
+.output var_value(IO=file, filename="diag-var-value.csv", delimiter="\t")

@@ -1,0 +1,94 @@
+{
+ "emissionRegime": "ts6-inproc",
+ "compilerVersion": "6.0.3",
+ "mergeableKinds": [
+  "ClassDeclaration",
+  "EnumDeclaration",
+  "FunctionDeclaration",
+  "InterfaceDeclaration",
+  "ModuleDeclaration",
+  "TypeAliasDeclaration",
+  "VariableDeclaration"
+ ],
+ "corpusFiles": [
+  {
+   "path": "config-a.ts",
+   "digest": "ec6bcc31774630c2aa6918d5008434c739659ae3"
+  },
+  {
+   "path": "config-b.ts",
+   "digest": "d37ff47206df4193b0e70866c54d21a5c8a156e1"
+  },
+  {
+   "path": "consumer.ts",
+   "digest": "24156712a6e823e33efc24751939f176f3a4b462"
+  }
+ ],
+ "quarantinedFiles": [],
+ "declarationSites": 7,
+ "groups": [
+  {
+   "name": "AppConfig",
+   "spaces": [
+    "TYPE"
+   ],
+   "kinds": [
+    "InterfaceDeclaration"
+   ],
+   "sites": [
+    "config-a.ts:16:1",
+    "config-b.ts:8:1"
+   ]
+  },
+  {
+   "name": "Plugin",
+   "spaces": [
+    "TYPE"
+   ],
+   "kinds": [
+    "InterfaceDeclaration"
+   ],
+   "sites": [
+    "config-a.ts:21:1",
+    "config-b.ts:13:1"
+   ]
+  },
+  {
+   "name": "LoggingPlugin",
+   "spaces": [
+    "TYPE",
+    "VALUE"
+   ],
+   "kinds": [
+    "ClassDeclaration"
+   ],
+   "sites": [
+    "consumer.ts:17:1"
+   ]
+  },
+  {
+   "name": "plugin",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "VariableDeclaration"
+   ],
+   "sites": [
+    "consumer.ts:26:7"
+   ]
+  },
+  {
+   "name": "describeConfig",
+   "spaces": [
+    "VALUE"
+   ],
+   "kinds": [
+    "FunctionDeclaration"
+   ],
+   "sites": [
+    "consumer.ts:8:1"
+   ]
+  }
+ ]
+}

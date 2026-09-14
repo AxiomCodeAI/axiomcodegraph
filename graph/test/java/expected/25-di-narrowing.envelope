@@ -1,0 +1,4 @@
+nominal	testcases.config.Codec.encode -> testcases.config.JsonCodec.encode
+nominal	testcases.config.Codec.encode -> testcases.config.XmlCodec.encode
+nominal	testcases.config.Store.read -> testcases.config.DbStore.read
+nominal	testcases.config.Store.read -> testcases.config.InMemoryStore.read

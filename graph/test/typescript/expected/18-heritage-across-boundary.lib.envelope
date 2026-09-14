@@ -1,0 +1,3 @@
+nominal	lib:base#Base.describe -> derived#ClientChild.describe
+nominal	lib:base#Closeable.close -> derived#ClientSink.close
+nominal	lib:base#Sink.write -> derived#ClientSink.write

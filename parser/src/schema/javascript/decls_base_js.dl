@@ -1,0 +1,232 @@
+// ============================================================================
+// Base input relations — JAVASCRIPT parser IR. One relation pair per entity kind.
+//
+// GENERATED FROM schema.json BY gen_decls.py — DO NOT HAND-EDIT.
+// Re-run `python3 gen_decls.py --check` in CI; drift here is a silent schema break.
+//
+// NAMING: one prefix per core language; `lib_` is the EXTERNAL marker on top of it.
+//
+//     js_<entity>       JavaScript under analysis      <- the PARSER emits only these
+//     lib_js_<entity>   external / third-party         <- the ENGINE stages these
+//
+// COLUMN ORDER IS THE CONTRACT. All columns are `symbol`. New columns append ONLY.
+// The last column is the entity's own unique hash for every relation EXCEPT
+// js_expression, which has one column appended AFTER its hash (c32,
+// introducesDeclarationLinkHash) because the schema was already frozen and appending
+// is the only safe edit. So a check that locates a primary key BY POSITION is wrong
+// for js_expression and must locate it by name. Column NAMES live only in the schema
+// doc, so a rename is free after the freeze and a reorder is not.
+//
+// FIVE THINGS AN ENGINE AUTHOR MUST READ BEFORE JOINING ANYTHING:
+//
+//  1. THE MODULE GRAPH LIVES IN THE EXPRESSION RELATION. 83.6% of module edges are
+//     expression-borne: require() is a call, module.exports = X is an assignment.
+//     js_import/js_export rows are MINTED FROM js_expression in a second pass, and
+//     js_import.edgeBearer partitions the table (2,300 files wholly EXPRESSION, 431
+//     wholly DECLARATION, 0 mixed). 13.6% of require() calls are not even top-level.
+//
+//  2. THE PARSER RESOLVES NOTHING ACROSS FILES, AND CANNOT. The oracle itself —
+//     tsc with checkJs — decides only 52.6% of call sites, because JavaScript types
+//     are inferred, not declared (0.165% syntactic annotations). resolvedMethodLinkHash
+//     and resolvedTypeLinkHash are TIER 3 and stay empty. What every row DOES carry is
+//     the name as written, the import hop, and resolvedFilePath. That is the contract.
+//
+//  3. TYPES LIVE IN COMMENTS. 36.4% of parameters are typed by JSDoc and 0.165% by
+//     syntax. js_type_reference is a TREE parsed out of comment text, isTypeOnly is
+//     always true there, and 677 js_type rows have evidenceKind = COMMENT_ONLY —
+//     declarations whose only evidence is a comment. None may reach the call graph.
+//
+//  4. NO lib_js_* ROW IS EVER STAGED. There is ONE ambient population and it is
+//     provenance-tagged, not language-tagged: a lib row describes a declaration read
+//     from a .d.ts, and whether a JavaScript or TypeScript call site references it is a
+//     property of the CALL SITE -- but the parser stages NO pointer to one, because a
+//     pointer to a specific lib row IS a resolved link and tier 3 forbids it. The row
+//     carries the target NAME AS WRITTEN plus resolutionOutcome =
+//     AMBIENT_BUILTIN_TARGET, and the ENGINE joins. This matters more than it sounds:
+//     24.4% of all resolution declines are calls whose receiver is a Node builtin with
+//     no ambient declarations.
+//
+//  5. HOISTING IS TWO COLUMNS, NOT ONE. js_variable.declarationScopeLinkHash is where
+//     a name is VISIBLE FROM; syntacticScopeLinkHash is where it is WRITTEN. They
+//     differ for every `var` in a block. js_scope is a real relation with a parent FK
+//     because the binder, not the type system, is what resolves a name here.
+//
+// NOT STAGED (declared for symmetry only — library IR is declarations, not bodies):
+//   lib_js_module, lib_js_scope, lib_js_type, lib_js_type_heritage, lib_js_method, lib_js_method_parameter, lib_js_field, lib_js_variable, lib_js_import, lib_js_export, lib_js_expression, lib_js_call_site, lib_js_block, lib_js_type_reference, lib_js_comment, lib_js_parse_gap
+// ============================================================================
+
+// ==========================================================================
+// SPINE — the frozen first cut. Enough to build a call graph.
+// ==========================================================================
+
+// A .js/.mjs/.cjs/.jsx file. One row per file, always — JavaScript has no `declare module`.
+// c7 moduleSystem is IN THE KEY: `import` under a CommonJS config is a different program
+// from `import` under an ESM one. c8 moduleSystemSource says HOW it was decided, because
+// 91.4% of files are CommonJS by DEFAULT and not by declaration — without it a defaulted
+// CommonJS and a declared one are indistinguishable. c10 contradictsGoverningConfig is a
+// FLAG, never a skip: 6.2% of real files contradict their package.json and all of them are
+// bundler input, which package.json never governs.
+// (28 columns)
+.decl js_module(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol)
+.decl lib_js_module(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol)
+
+// The binder's output, and the relation with NO ts_* analogue. TypeScript needs no scope
+// relation because declared types carry resolution; here the oracle resolves only 52.6% of
+// call sites, so the BINDER is the resolution mechanism. c3 isFunctionScope is what `var`
+// hoists to; c6 isStrictMode decides whether assignment to an undeclared name creates a
+// global or throws; c9 hasWithStatement marks a scope where no name is statically
+// resolvable, which is the honest answer rather than confident wrong bindings.
+// (17 columns)
+.decl js_scope(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol)
+.decl lib_js_scope(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol)
+
+// A type DECLARATION: ES class, constructor function with prototype members, or a JSDoc
+// @typedef/@callback. Object literals are NOT here — they are values. There is deliberately
+// NO declarationGroupKey: JavaScript has no declaration merging, so TypeScript's central
+// problem does not exist. c12 evidenceKind = COMMENT_ONLY marks the 677 measured types whose
+// ONLY evidence is a comment, and c13 isTypeOnly must keep them out of the call graph.
+// (26 columns)
+.decl js_type(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol)
+.decl lib_js_type(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol)
+
+// Every callable: function declaration, function expression, arrow, class method, accessor,
+// prototype-assigned method, and the synthetic <module> initializer. c9 declarationForm
+// carries PROTOTYPE_ASSIGNMENT / STATIC_ASSIGNMENT — members DECLARED BY ASSIGNMENT (361 and
+// 521 measured), which is a declaration and an expression at once; c27 ties it back. c10
+// hoisting separates function declarations (hoisted) from function expressions (not), same
+// syntax category, different behaviour. c17 thisBinding is LEXICAL for arrows: `this` is
+// rebound by CALL FORM, 33,189 references measured.
+// (36 columns)
+.decl js_method(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol,c29:symbol,c30:symbol,c31:symbol,c32:symbol,c33:symbol,c34:symbol,c35:symbol)
+.decl lib_js_method(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol,c29:symbol,c30:symbol,c31:symbol,c32:symbol,c33:symbol,c34:symbol,c35:symbol)
+
+// A formal parameter. Only 0.165% carry a SYNTACTIC annotation and all of those are Flow, not
+// TypeScript; 36.4% carry a JSDoc one. So c4 declaredTypeSource is the column that matters
+// and NONE is the majority value. A destructured parameter is ONE row with c11
+// patternBindingCount > 0 plus N js_variable rows — emitting N parameter rows would break
+// c1 position, emitting one with no bindings would lose every name.
+// (22 columns)
+.decl js_method_parameter(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol)
+.decl lib_js_method_parameter(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol)
+
+// Every binding that is not a parameter or a member. c2 bindingRegime and the PAIR c3/c4 are
+// the hoisting model: c3 is where the name is VISIBLE FROM (function scope for var), c4 is
+// the block it is WRITTEN IN. They differ for every `var` inside a block, and the difference
+// is NOT recoverable from anything else — an engine would have to reimplement JavaScript
+// scoping to derive it. c13 initializerKind = REQUIRE_CALL is how a local name becomes a
+// module alias, which is the hop the engine walks for 83.6% of module edges.
+// (27 columns)
+.decl js_variable(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol)
+.decl lib_js_variable(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol)
+
+// One module edge IN. 83.6% of these rows are MINTED FROM EXPRESSIONS, not declarations, which
+// is the finding that made JavaScript its own front end: c2 edgeBearer partitions the table
+// and c14 sourceExpressionLinkHash points back at the expression so the second pass is
+// auditable rather than asserted. c4 isTopLevel is FALSE for 13.6% of require() calls, so a
+// statement-list walk misses one in seven. c12 resolverAgreement records where tsc and Node
+// disagree (exports maps, conditional exports, #-imports) instead of silently picking.
+// (23 columns)
+.decl js_import(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol)
+.decl lib_js_import(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol)
+
+// The spine. c32 introducesDeclarationLinkHash and c33 resolvedParameterLinkHash sit AFTER
+// the primary key: the schema was
+// already frozen and appending is the only safe edit, so this is the ONE relation whose PK
+// is not its last column -- find it by name, never by position. It links an arrow or
+// function expression to the js_method row it introduces, which is what connects
+// emitter.on('x', () => {...}) to the body it installs: 31.0% of callables sit in argument
+// position and 98.2% of those are anonymous, so without it every call inside a callback is
+// orphaned from the registration that reaches it. NOT c12/c13 -- those mean 'this assignment
+// declares a member', and widening them would break existing readers silently. c33 is the
+// SIBLING of c17: c17 is FK->js_variable and a parameter is a js_method_parameter row, so a
+// reference to a parameter resolved correctly and had nowhere to point -- 137,960 of 158,759
+// resolved-but-unlinked references, and 58,483 unreachable parameter rows. NOT a widened c17:
+// a polymorphic FK into two relations defeats the integrity gate, because 'the hash exists in
+// one of them' is not integrity. No parameter EVER mints a js_variable row, simple or
+// destructured, so the gap and the fix are both uniform.
+// ORIGINAL: Reached by an ALLOWLIST of expression positions, never a generic tree walk — a
+// generic walk puts JSDoc type names in here and type-only constructs then reach the call
+// graph. c4 operatorString is why one ASSIGNMENT kind covers += -= ??= ||=: the operator is
+// a COLUMN, not a kind, and the wrapper node with parented children is what makes
+// `a += 1; b += 2` survive. c10 isModuleEdge marks the rows the import/export second pass
+// reads; c12 isDeclarationBearing marks the assignments that DECLARE a member.
+// (35 columns)
+.decl js_expression(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol,c29:symbol,c30:symbol,c31:symbol,c32:symbol,c33:symbol,c34:symbol)
+.decl lib_js_expression(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol,c29:symbol,c30:symbol,c31:symbol,c32:symbol,c33:symbol,c34:symbol)
+
+// A call site — 1:1 with its call-like expression, so the key is a pure chain off c16.
+// require() is NOT here: it is a module edge, and counting it as an unresolved call is what
+// made the raw resolution figure look worse than it is. c4 receiverPosition admits
+// FIRST_ARGUMENT because .call/.apply move the receiver INTO an argument (859 sites) and an
+// engine reading the syntactic receiver gets Function.prototype.call as the target. c12
+// resolvedMethodLinkHash is TIER 3 and stays empty: the oracle itself decides only 52.6%,
+// so the parser emits the name, the declared receiver type and the import hop instead.
+// (25 columns)
+.decl js_call_site(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol)
+.decl lib_js_call_site(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol)
+
+// ==========================================================================
+// SECOND FREEZE — declared now so the column contract is fixed.
+// ==========================================================================
+
+// One inheritance edge. Separate from js_type because IN JAVASCRIPT AN EXTENDS EDGE CAN BE A
+// FUNCTION CALL: c2 heritageForm admits UTIL_INHERITS and OBJECT_CREATE_PROTOTYPE alongside
+// EXTENDS_CLAUSE. c7 resolvedTypeLinkHash is TIER 3 and stays empty — the parser emits the
+// name as written (c3), the file it came from (c8) and the import hop (c9), and the ENGINE
+// resolves, exactly as Java's referencedTypeRegistryLinkHash is populated 0 times in 67,938.
+// (16 columns)
+.decl js_type_heritage(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol)
+.decl lib_js_type_heritage(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol)
+
+// A class field, a prototype property, or a member installed by Object.defineProperty. c3
+// declarationForm is IN THE KEY because `this.x = 1` in a constructor and `Foo.prototype.x`
+// at module level are two real declarations of one member. c12 accessorPairKind marks the
+// members where a property READ invokes a function — which is why GETTER_INVOCATION is a
+// RESERVED call kind with a zero-row assertion and never emitted from syntax.
+// (23 columns)
+.decl js_field(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol)
+.decl lib_js_field(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol)
+
+// One module edge OUT. module.exports = X (2,102), module.exports.x (380), exports.x (118),
+// plus ESM declarations. c13 overwritesPreviousExport exists because
+// `exports.a = 1; module.exports = {b}` exports ONLY b — a fact base recording both edges
+// with no ordering asserts an export that does not exist at runtime. c5 isReExport marks the
+// 81 measured `module.exports = require('./y')`: one edge that is simultaneously in and out.
+// (22 columns)
+.decl js_export(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol)
+.decl lib_js_export(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol)
+
+// A lexical block — SYNTAX, where js_scope is BINDING. One block may open no scope and one
+// scope may span several blocks, which is why they are two relations. c1 label exists
+// because TypeScript emitted `outer: for (...)` as the loop and DROPPED the label. Every
+// block form gets a row including the ones that produce no other output: TS's enum audit
+// found NAMESPACE_BODY and MODULE_BODY emitting no block row at all.
+// (17 columns)
+.decl js_block(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol)
+.decl lib_js_block(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol)
+
+// A node in a JSDoc TYPE EXPRESSION — the JavaScript type system in its entirety, and it lives
+// in comments. Array<Object<string,number>> is three rows with c2 parentReferenceLinkHash.
+// c14 isTypeOnly is ALWAYS true and no call-graph rule may traverse this relation. c1
+// admits UNKNOWN_SYNTAX deliberately: JSDoc type syntax is not standardised (Closure,
+// TypeScript and jsdoc.app differ), so an undecomposable expression gets one row with its
+// text preserved rather than a guess or a dropped tag. Depth cap 32; max measured 67.
+// (23 columns)
+.decl js_type_reference(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol)
+.decl lib_js_type_reference(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol)
+
+// A comment, JSDoc block, or directive. c5 declaresType marks a comment that IS a declaration
+// (@typedef/@callback), which is what makes js_type.evidenceKind = COMMENT_ONLY checkable.
+// c6 directiveKind carries USE_STRICT, which decides the enclosing scope's strictness and
+// therefore whether an undeclared assignment binds a global or throws.
+// (16 columns)
+.decl js_comment(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol)
+.decl lib_js_comment(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol)
+
+// One row per construct the parser could not handle. RECORDS the gap, never rewrites source.
+// An always-empty relation that suddenly has rows is a signal; a missing relation is a
+// silence. On one large project a nested config silently excluded 1,270 of 1,821 files
+// because nothing counted them.
+// (11 columns)
+.decl js_parse_gap(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol)
+.decl lib_js_parse_gap(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol)

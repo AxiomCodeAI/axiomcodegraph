@@ -1,17 +1,17 @@
 {
-  "name": "@axiomcode/reasoning-java",
+  "name": "@axiomcode/code-graph",
   "version": "1.0.0",
-  "description": "AxiomCode reasoning engine (Java) — renders import templates for the external library modules and the client IR, then runs the pruning/call-chain stages. Invoked by @axiomcode/agent-search for --language=java.",
+  "description": "AxiomCode code graph: parser (IR extraction) + type-directed reasoning engine + language-neutral graph.sqlite output. bin/axiomcode runs the whole pipeline.",
   "main": "dist/reason.js",
   "types": "dist/reason.d.ts",
   "scripts": {
     "reason": "node dist/index.js",
     "clean": "rm -rf dist",
     "prebuild": "npm run clean",
-    "build": "tsc && tsc-alias",
+    "build": "npm run build -w parser && tsc && tsc-alias",
     "prepare": "npm run build",
     "typecheck": "tsc --noEmit",
-    "schema-doc": "tsx src/bundle/cli.ts --print-schema > src/bundle/SCHEMA.md"
+    "schema-doc": "tsx graph/bundle/cli.ts --print-schema > graph/bundle/SCHEMA.md"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -21,5 +21,15 @@
     "tsc-alias": "^1.8.16",
     "tsx": "^4.7.0",
     "typescript": "^5.3.3"
+  },
+  "workspaces": [
+    "parser"
+  ],
+  "license": "FSL-1.1-Apache-2.0",
+  "optionalDependencies": {
+    "@axiomcode/engine-darwin-arm64": "0.1.0",
+    "@axiomcode/engine-linux-x64": "0.1.0",
+    "@axiomcode/engine-linux-arm64": "0.1.0",
+    "@axiomcode/engine-win32-x64": "0.1.0"
   }
 }

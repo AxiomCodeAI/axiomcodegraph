@@ -1,0 +1,8 @@
+{
+  "name": "@fixture/esm",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "imports/import-forms.js",
+  "description": "Governing package.json for every fixture under esm/. moduleSystem = ESM, moduleSystemSource = PKG_TYPE_MODULE."
+}
