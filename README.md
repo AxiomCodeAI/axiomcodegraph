@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/javascript/javascript-original.svg" width="46" height="46" alt="JavaScript" title="JavaScript: engine in progress"/>
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/javascript/javascript-original.svg" width="46" height="46" alt="JavaScript" title="JavaScript: engine in beta"/>
   &nbsp;&nbsp;&nbsp;
   <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/python/python-original.svg" width="46" height="46" alt="Python" title="Python: stable"/>
   &nbsp;&nbsp;&nbsp;
@@ -54,7 +54,7 @@ Two stages, two columns: the **parser** turns source into the relational IR; the
 
 | language | parser | engine | maturity | validated against |
 |---|---|---|---|---|
-| **JavaScript** | stable | in progress | **in progress**. The parser (binder, JSDoc as the type channel, CommonJS + ESM) is complete; the engine is under review | none yet |
+| **JavaScript** | stable | beta | **beta**. The parser (binder, JSDoc as the type channel, CommonJS + ESM) is complete; the engine is merged and being scored against the TypeScript compiler over `allowJs`/`checkJs` | the TypeScript compiler over JavaScript with JSDoc |
 | **Python** | stable | stable | **stable**. MRO, decorators, protocols, dynamic-attribute detection; 600-site torture suite | CPython bytecode and `sys.settrace` |
 | **TypeScript** | stable | stable | **stable**. 53 regression cases and real projects; structural typing, overload sets, module graph, `.d.ts` libraries | the TypeScript compiler's own resolution |
 | **Java** | stable | stable | **stable**. First front end; hand-crafted constructs (P/R 1.000) and five real commits of a large open-source project scored against bytecode; Spring/DI configuration wiring resolved | the JDK's own class-file parser over compiled artifacts; runtime tracing |
