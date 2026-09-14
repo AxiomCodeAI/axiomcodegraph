@@ -114,6 +114,11 @@ import_value(imp, k, i) :- import_decl(_, _, "REQUIRE_CALL", "NAMESPACE", _, _, 
     module_decl(_, _, _, _, "COMMONJS", mod), module_export_value(mod, "default", k, i), k != "module".
 import_value(imp, k, i) :- import_decl(_, _, _, "DEFAULT", _, _, _, _, imp), import_module(imp, mod),
     module_export_value(mod, "default", k, i).
+// `import util from './util.cjs'` — an ES default import of a COMMONJS module is
+// `module.exports`: the module's own surface when the file exports through
+// `exports.x =`, beside any `module.exports = X` value the rule above found (#596).
+import_value(imp, "module", mod) :- import_decl(_, _, _, "DEFAULT", _, _, _, _, imp), import_module(imp, mod),
+    module_decl(_, _, _, _, "COMMONJS", mod).
 import_value(imp, k, i) :- import_decl(_, _, _, bf, n, _, _, _, imp), import_binding_is_named(bf), n != "",
     import_module(imp, mod), module_export_value(mod, n, k, i).
 import_binding_is_named("NAMED").
@@ -132,4 +137,8 @@ import_value(imp, k, i) :- import_decl(_, _, "JSDOC_IMPORT_TYPE", _, n, _, _, _,
 // The module was reached and exports no such name (or the name's value is not
 // derivable). Distinct from import_unresolved: the dependency IS staged.
 import_binding_unresolved(imp, n) :- import_decl(_, _, _, bf, n, _, _, _, imp), import_binding_is_named(bf), n != "", !contains(".", n),
+    import_module(imp, _), !import_value(imp, _, _).
+// A DEFAULT binding that reached its module and holds nothing: an ES module with
+// no default export, imported as one.
+import_binding_unresolved(imp, "default") :- import_decl(_, _, _, "DEFAULT", _, _, _, _, imp),
     import_module(imp, _), !import_value(imp, _, _).
