@@ -9,3 +9,9 @@ lib/functional.js:17:1 lib/functional.js:7:1
 # A Proxy `get` trap manufactures the callee at runtime; nothing static names it.
 lib/registry.js:10:1 lib/registry.js:9:38
 lib/registry.js:10:1 lib/registry.js:9:48
+
+# #611: a piped chain. `_transform` pushes into the next stream's `_write`, and `_flush`
+# ends into its `_final`: platform-internal chaining between two piped streams, which the
+# stream hook model (one trigger on one instance) does not express.
+lib/streams.js:17:3 lib/streams.js:8:3
+lib/streams.js:18:3 lib/streams.js:9:3

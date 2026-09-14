@@ -6,6 +6,7 @@ const { Bus, onStart, onTick, onAny, hookA, hookB, handlerX } = require('./lib/b
 const asyncy = require('./lib/asyncy');
 const reg = require('./lib/registry');
 const makePlugin = require('./plugins');
+const streams = require('./lib/streams');
 
 function classes() {
   const c = new Circle(2);
@@ -59,8 +60,9 @@ function dynamics() {
 function modules() {
   const p = makePlugin('p'); p.run(); makePlugin.shapes.Circle.create('z'); makePlugin.functional.twice(2); makePlugin.late(); if (typeof makePlugin.orphan === 'function') throw new Error('orphan must not be exported');
 }
+async function streamed() { await streams.drive(); await streams.pump(); }
 async function main() {
-  classes(); legacies(); functional(); events(); await asyncs(); dynamics(); modules();
+  classes(); legacies(); functional(); events(); await asyncs(); await streamed(); dynamics(); modules();
   (function iife() { F.inc(9); })();
   (() => F.twice(9))();
 }
