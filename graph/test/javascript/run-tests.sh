@@ -117,3 +117,9 @@ for dir in "$HERE"/cases/*/; do
 done
 echo; echo "passed: $pass  failed: $fail"
 [ $fail -eq 0 ] || { printf '  %s\n' "${failed[@]}"; exit 1; }
+# bin/axiomcode --library staging: every source-tree entry gets its own intermediate
+# directory whatever its basename, and a library row in graph.sqlite carries its package
+# (#600, #603). Skipped when a filter selects cases, as the other tool checks are.
+if [ ${#FILTERS[@]} -eq 0 ]; then
+  bash "$ROOT/graph/test/tools/library-staging-test.sh" || exit 1
+fi

@@ -33,15 +33,21 @@ import_module(imp, mod) :- import_decl(_, _, _, _, _, rf, _, _, imp), rf != "", 
 // A dependency: the parser resolved the specifier to an ABSOLUTE file under
 // node_modules. A library staged from that very directory joins on root + file; one
 // staged from a copy elsewhere joins on the package name and the file within it.
-import_module(imp, mod) :- import_decl(_, _, _, _, _, rf, "RESOLVED_EXTERNAL", _, imp),
+// The exact join comes first, and the package-name join is a FALLBACK in fact, not only
+// in name: with two staged copies of one package (a top-level copy and a nested second
+// version another dependency pins), the name join matched both, and the client got a
+// boundary_lib edge into the copy that can never run from it (#599). Both sides of the
+// join are parser facts, so the negation is stratified.
+import_module_exact(imp, mod) :- import_decl(_, _, _, _, _, rf, "RESOLVED_EXTERNAL", _, imp),
     module_base_path("lib", bp, mod), module_file("lib", fp, mod), rf = cat(bp, cat("/", fp)).
-import_module(imp, mod) :- import_decl(_, _, _, _, _, rf, "RESOLVED_EXTERNAL", _, imp),
+import_module(imp, mod) :- import_module_exact(imp, mod).
+import_module(imp, mod) :- import_decl(_, _, _, _, _, rf, "RESOLVED_EXTERNAL", _, imp), !import_module_exact(imp, _),
     module_package("lib", pkg, mod), module_file("lib", fp, mod),
     contains(cat("/node_modules/", cat(pkg, cat("/", fp))), rf).
 // A package that ships typings resolves to its `index.d.ts` — the compiler's answer,
 // and the right one for TYPES. The code that runs is the `.js` beside it, which is
 // what a library parsed from source holds; the declaration file is not in any IR.
-import_module(imp, mod) :- import_decl(_, _, _, _, _, rf, "RESOLVED_EXTERNAL", _, imp),
+import_module(imp, mod) :- import_decl(_, _, _, _, _, rf, "RESOLVED_EXTERNAL", _, imp), !import_module_exact(imp, _),
     strlen(rf) > 5, substr(rf, strlen(rf) - 5, 5) = ".d.ts",
     js = cat(substr(rf, 0, strlen(rf) - 5), ".js"),
     module_package("lib", pkg, mod), module_file("lib", fp, mod),
