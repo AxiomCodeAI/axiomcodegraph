@@ -254,6 +254,9 @@ pair_of(a, pair) :- expr_kind(_, "ARRAY_LITERAL", _, a), expr_child(_, a, "ELEME
 // inside the flow fixpoint.
 iterable_element(x, "arr", cat("PAIR:", c)) :- expr_value(x, "coll", c), map_coll(c).
 map_coll(c) :- expr_value(c, "coll", c), new_callee_value(c, "ambient", n), ambient_map(n).
+// An instance of a class extending Map iterates the same way (#619).
+map_coll(c) :- inst_coll(c, _, n), ambient_map(n).
+iterable_element(x, "arr", cat("PAIR:", c)) :- expr_value(x, "inst", t), inst_coll_of(c, t), map_coll(c).
 ambient_map("Map").
 ambient_map("WeakMap").
 elem_value(cat("PAIR:", c), k, i) :- map_coll(c), elem_value(c, k, i).
