@@ -78,7 +78,7 @@ EOF
 
 solve(){ # $1 = tree dir
   node "$PARSER" "$1/src" ambmod false "$1/ir" > "$1/parse.log" 2>&1 || return 1
-  bash "$ROOT/src/pipeline/run-souffle.sh" --language python \
+  bash "$ROOT/src/pipeline/run-souffle.sh" --debug --language python \
        --client-ir "$1/ir" --library "$EMPTY_LIB" \
        --intermediate "$1/int" --output "$1/out" > "$1/solve.log" 2>&1
 }
@@ -90,7 +90,7 @@ for t in amb ctl; do
   fi
 done
 
-A="$W/amb/out"; C="$W/ctl/out"
+A="$W/amb/out/raw"; C="$W/ctl/out/raw"
 
 # 1. THE DUPLICATED NAME IS REPORTED, WITH ITS MULTIPLICITY.
 if grep -qE '^client	tasks	2$' "$A/ambiguous-module-names.csv" 2>/dev/null; then

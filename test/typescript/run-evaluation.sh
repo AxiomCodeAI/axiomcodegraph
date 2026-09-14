@@ -714,7 +714,7 @@ fi
 
 # ── 3. solve ─────────────────────────────────────────────────────────────────
 echo "▶ solving..."
-bash "$REPO/src/pipeline/run-souffle.sh" --language typescript \
+bash "$REPO/src/pipeline/run-souffle.sh" --debug --language typescript \
   --client-ir "$WORK/ir" ${LIBS:+--library "$LIBS"} \
   --intermediate "$WORK/int" --output "$WORK/out" >"$WORK/solve.log" 2>&1 || {
   echo "   solve failed; see $WORK/solve.log" >&2; tail -20 "$WORK/solve.log" >&2; exit 1; }
@@ -732,7 +732,7 @@ grep -E '^Elapsed' "$WORK/solve.log" | tail -1
 # printed where it cannot be missed — the same treatment as the conservation line at 5b,
 # and for the same reason: a run that refuses to report teaches nothing about how bad it
 # is.
-if python3 "$HERE/tools/coverage_guard.py" "$WORK/ir" "$WORK/out" > "$WORK/coverage.txt" 2>&1; then
+if python3 "$HERE/tools/coverage_guard.py" "$WORK/ir" "$WORK/out/raw" > "$WORK/coverage.txt" 2>&1; then
   grep -E '^(call sites|absent from output)' "$WORK/coverage.txt" 2>/dev/null | sed 's/^/   /'
 else
   echo "   ⚠ SITES LEFT THE GRAPH — every rate below excludes them, so they read as"
@@ -844,7 +844,7 @@ echo "▶ score:"
 # test tree is routinely larger than the library it tests, and an unfiltered rate is
 # then mostly a statement about fixtures.
 MISSED_DUMP="$WORK/missed.tsv" SITE_DUMP="$WORK/sites.tsv" python3 "$HERE/ground-truth/score.py" \
-  "$WORK/ir" "$WORK/out" "$WORK/oracle.tsv" --envelope="$WORK/envelope.tsv" \
+  "$WORK/ir" "$WORK/out/raw" "$WORK/oracle.tsv" --envelope="$WORK/envelope.tsv" \
   --signature-impls="$WORK/signature-impls.tsv" \
   --overload-siblings="$WORK/overload-siblings.tsv" \
   ${LIBARGS[@]+"${LIBARGS[@]}"} \
@@ -874,5 +874,5 @@ fi
 # site, which the oracle now emits.
 echo "▶ chains:"
 python3 "$HERE/ground-truth/chain-check.py" \
-  "$WORK/ir" "$WORK/out" "$WORK/oracle.tsv" ${LIBARGS[@]+"${LIBARGS[@]}"} \
+  "$WORK/ir" "$WORK/out/raw" "$WORK/oracle.tsv" ${LIBARGS[@]+"${LIBARGS[@]}"} \
   | tee "$WORK/chains.txt"
