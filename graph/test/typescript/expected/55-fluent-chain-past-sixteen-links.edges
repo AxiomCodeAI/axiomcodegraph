@@ -1,0 +1,6 @@
+known_edge	CONSTRUCTOR_CALL	S#static c16() @L6 -> S#<new>()
+known_edge	CONSTRUCTOR_CALL	S#static c17() @L12 -> S#<new>()
+known_edge	CONSTRUCTOR_CALL	S#static v20() @L18 -> S#<new>()
+known_edge	METHOD_CALL	S#static c16() @L6 -> S#a(string[])
+known_edge	METHOD_CALL	S#static c17() @L12 -> S#a(string[])
+known_edge	METHOD_CALL	S#static v20() @L19 -> S#a(string[])

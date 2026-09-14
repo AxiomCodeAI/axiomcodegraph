@@ -46,8 +46,16 @@ export const TS_TYPE_REFERENCE_MAX_DEPTH = 32;
  *
  * Same cap, same reasoning. Deeper nodes are dropped with the parent marked, so
  * a lost subtree is visible rather than silent.
+ *
+ * 256, not 32: a fluent chain nests TWO expression levels per link (call ->
+ * property access -> receiver), so 32 cut every chain past sixteen links — the
+ * seventeenth `.a()` and the `new` at the head were never emitted, and the outer
+ * sixteen resolved to nothing because their receiver expression did not exist.
+ * Builders and config DSLs are routinely longer than that. The cap is a guard
+ * against pathological nesting, and 128 links is still far past anything written
+ * by hand. The worklist is explicit, so depth costs no stack.
  */
-export const TS_EXPRESSION_MAX_DEPTH = 32;
+export const TS_EXPRESSION_MAX_DEPTH = 256;
 
 /** Synthetic method minted per module so top-level executable code always has an owner. */
 export const TS_MODULE_INITIALIZER_NAME = '<module>';
