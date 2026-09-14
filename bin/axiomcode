@@ -3,8 +3,9 @@
 # axiomcode — the pipeline as subcommands. No npx, no argument order to remember.
 #
 #   bin/axiomcode parser <src-dir> <ir-dir> [--version V] [--exclude-tests]
-#                                                                    source → relational IR
-#   bin/axiomcode engine --language L --client-ir <ir-dir> --out <dir> [engine options]
+#                        source → relational IR, one folder per language found: <ir-dir>/java/,
+#                        <ir-dir>/typescript/, <ir-dir>/python/ (javascript, csharp as they land)
+#   bin/axiomcode engine --language L --client-ir <ir-dir>/<lang> --out <dir> [engine options]
 #                                                                    IR → graph.sqlite
 #   bin/axiomcode all    --src <src-dir> --out <dir> [--language L] [parser options] [engine options]
 #                                                                    source → <dir>/<lang>/graph.sqlite
@@ -26,7 +27,7 @@
 set -eu
 ROOT="$(d="$(cd "$(dirname "$0")" && pwd)"; while [ "$d" != / ] && { [ ! -f "$d/package.json" ] || [ ! -d "$d/graph" ]; }; do d="$(dirname "$d")"; done; echo "$d")"
 PARSER="${AXIOM_PARSER:-$ROOT/parser/dist/index.js}"
-usage(){ sed -n '3,24p' "$0" | sed 's/^# \{0,1\}//'; }
+usage(){ sed -n '3,26p' "$0" | sed 's/^# \{0,1\}//'; }
 die(){ echo "axiomcode: $*" >&2; exit 2; }
 need_parser(){ [ -f "$PARSER" ] || { echo "axiomcode: parser not built at $PARSER — run: npm install && npm run build" >&2; exit 1; }; }
 
@@ -46,7 +47,28 @@ case "$cmd" in
     [ -n "$version" ] || version="$(git -C "$src" rev-parse HEAD 2>/dev/null || echo v1.0.0)"
     mkdir -p "$ir"
     echo "▶ parser: version=$version exclude-tests=$exclude"
-    node "$PARSER" "$src" "$version" "$exclude" "$ir"
+    # The parser writes every language's tables into one flat directory. They are sorted here
+    # into <ir>/<lang>/ — the prefixed tables (all-typescript-*, all-python-*, all-javascript-*,
+    # skipped-<lang>-files) to their language, the unprefixed ones (Java's, and the config
+    # tables only Java's rules read) to java/. A language whose marker relation has no rows
+    # gets no folder: the parser emits zero-byte files for every language regardless.
+    flat="$ir/.flat"; rm -rf "$flat"; mkdir -p "$flat"
+    node "$PARSER" "$src" "$version" "$exclude" "$flat"
+    rows(){ [ -f "$flat/$1" ] && [ "$(wc -l < "$flat/$1" | tr -d ' ')" -gt 1 ]; }
+    found=()
+    for l in typescript python javascript csharp; do
+      rows "all-$l-modules.csv" || continue
+      found+=("$l"); rm -rf "$ir/$l"; mkdir -p "$ir/$l"
+      mv "$flat"/all-"$l"-*.csv "$ir/$l/" 2>/dev/null || true
+      [ -f "$flat/skipped-$l-files.csv" ] && mv "$flat/skipped-$l-files.csv" "$ir/$l/"
+    done
+    if rows all-types.csv || rows all-methods.csv; then
+      found+=(java); rm -rf "$ir/java"; mkdir -p "$ir/java"
+      for f in "$flat"/*.csv; do case "$(basename "$f")" in all-typescript-*|all-python-*|all-javascript-*|all-csharp-*|skipped-*) ;; *) mv "$f" "$ir/java/";; esac; done
+    fi
+    rm -rf "$flat"
+    [ ${#found[@]} -gt 0 ] || { echo "❌ the parser found no Java, TypeScript or Python source under $src" >&2; exit 1; }
+    echo "▶ IR: ${found[*]} → $ir/<lang>/"
     ;;
   engine)
     # every option is the engine's own; only --out is spelled for symmetry with `all`
@@ -77,13 +99,9 @@ case "$cmd" in
     echo "▶ parsing $src ($lang) → IR"
     "$0" parser "$src" "$ir" ${popts[@]+"${popts[@]}"} > "$int/parse.log" 2>&1 || { echo "❌ parser failed — see $int/parse.log" >&2; tail -5 "$int/parse.log" >&2; exit 1; }
     head -1 "$int/parse.log"
-    # which languages the IR holds — each language's marker relation has rows
-    rows(){ [ -f "$ir/$1" ] && [ "$(wc -l < "$ir/$1" | tr -d ' ')" -gt 1 ]; }
-    found=()
-    rows all-methods.csv            && found+=(java)
-    rows all-typescript-modules.csv && found+=(typescript)
-    rows all-python-modules.csv     && found+=(python)
-    [ ${#found[@]} -gt 0 ] || { echo "❌ the parser found no Java, TypeScript or Python source under $src" >&2; exit 1; }
+    # which languages the IR holds — one folder each — and which of them have an engine
+    found=(); for d in "$ir"/*/; do l="$(basename "$d")"; [ -d "$ROOT/graph/$l/engine" ] && found+=("$l"); done
+    [ ${#found[@]} -gt 0 ] || { echo "❌ no language with an engine in the IR (folders: $(ls "$ir" | tr '\n' ' '))" >&2; exit 1; }
     langs=("${found[@]}")
     if [ -n "$lang" ]; then
       case " ${found[*]} " in *" $lang "*) langs=("$lang");; *) echo "❌ --language=$lang, but the IR holds only: ${found[*]}" >&2; exit 1;; esac
@@ -91,7 +109,7 @@ case "$cmd" in
     echo "▶ languages: ${langs[*]}"
     for l in "${langs[@]}"; do
       echo "▶ solving $l → $out/$l/graph.sqlite"
-      "$0" engine --language "$l" --client-ir "$ir" --out "$out/$l" --intermediate "$int" \
+      "$0" engine --language "$l" --client-ir "$ir/$l" --out "$out/$l" --intermediate "$int" \
            --meta "source_version=$version" --meta "source_dir=$(cd "$src" && pwd)" ${rest[@]+"${rest[@]}"}
     done
     for l in "${langs[@]}"; do echo "$out/$l/graph.sqlite"; done
