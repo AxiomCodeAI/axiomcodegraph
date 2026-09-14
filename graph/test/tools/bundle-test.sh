@@ -24,8 +24,12 @@ fail=0; bad(){ echo "  ✗ $*"; fail=$((fail+1)); }
 # graph.sqlite alone — the CSVs are a debugging view of the same core tables, and a
 # consumer that queries the database does not want a second copy of it on disk. The
 # default is asserted separately at the end.
-BUNDLE(){ "$TSX" "$ROOT/graph/bundle/cli.ts" --src "$ROOT/graph" --debug "$@"; }
-BUNDLE_NO_DEBUG(){ "$TSX" "$ROOT/graph/bundle/cli.ts" --src "$ROOT/graph" "$@"; }
+# Run from a FOREIGN working directory on purpose, with the tsconfig named explicitly, the
+# way run-souffle.sh invokes the stage: tsx resolves the @/ alias from the tsconfig it finds
+# relative to the cwd, so a test that ran from the checkout passed while every consumer
+# running from its own repository failed with "Cannot find module '@/bundle/build'" (#470).
+BUNDLE(){ ( cd "$W" && "$TSX" --tsconfig "$ROOT/tsconfig.json" "$ROOT/graph/bundle/cli.ts" --src "$ROOT/graph" --debug "$@" ); }
+BUNDLE_NO_DEBUG(){ ( cd "$W" && "$TSX" --tsconfig "$ROOT/tsconfig.json" "$ROOT/graph/bundle/cli.ts" --src "$ROOT/graph" "$@" ); }
 SQL(){ command -v sqlite3 >/dev/null && sqlite3 "$1" "$2"; }
 HAVE_SQLITE=0; command -v sqlite3 >/dev/null && HAVE_SQLITE=1
 
