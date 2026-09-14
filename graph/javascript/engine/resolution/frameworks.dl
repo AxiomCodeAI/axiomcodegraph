@@ -168,8 +168,9 @@ expr_value(ce, "inst", t) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_C
     new_constructs(ce, t).
 // `Object.values(o)`: an array of every property value. `Object.entries(o)`: an array
 // of PAIRS — one synthetic `arr` per call holding the keys and the values, read
-// through a `[k, v]` pattern's path (`1`) or `pair[1]`. Index-insensitive, like every
-// array here: `k` may also hold a value and `v` a key string.
+// through a `[k, v]` pattern's path (`1`) or `pair[1]`. Index-insensitive when read as
+// an array (`pair[1]`); a PATTERN's numeric step reads the pair by index through
+// pair_index_value, so `k` holds only the keys and `v` only the values.
 expr_value(ce, "arr", ce) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", mn, _, _, _, ce, _, _), object_values_method(mn),
     expr_child(_, ce, "RECEIVER", _, recv), expr_value(recv, "ambient", "Object").
 elem_value(ce, k, i) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", "values", _, _, _, ce, _, _),
@@ -181,6 +182,12 @@ elem_value(cat("PAIR:", ce), k, i) :- expr_kind(_, "CALL", _, ce), call_site(_, 
     expr_child(_, ce, "RECEIVER", _, recv), expr_value(recv, "ambient", "Object"),
     call_arg(ce, 0, o), expr_value(o, k0, i0), prop_value(k0, i0, _, k, i).
 elem_value(cat("PAIR:", ce), "str", n) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", "entries", _, _, _, ce, _, _),
+    expr_child(_, ce, "RECEIVER", _, recv), expr_value(recv, "ambient", "Object"),
+    call_arg(ce, 0, o), expr_value(o, k0, i0), prop_value(k0, i0, n, _, _).
+pair_index_value(cat("PAIR:", ce), "1", k, i) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", "entries", _, _, _, ce, _, _),
+    expr_child(_, ce, "RECEIVER", _, recv), expr_value(recv, "ambient", "Object"),
+    call_arg(ce, 0, o), expr_value(o, k0, i0), prop_value(k0, i0, _, k, i).
+pair_index_value(cat("PAIR:", ce), "0", "str", n) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", "entries", _, _, _, ce, _, _),
     expr_child(_, ce, "RECEIVER", _, recv), expr_value(recv, "ambient", "Object"),
     call_arg(ce, 0, o), expr_value(o, k0, i0), prop_value(k0, i0, n, _, _).
 object_values_method("values").

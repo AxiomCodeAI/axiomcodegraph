@@ -130,10 +130,16 @@ array_method_iterates("every").
 array_method_iterates("flatMap").
 // `for (const x of a)`: the loop binding has no initializer and no link to the
 // iterated expression; the parser roots that expression under ITERABLE on the
-// same line, in the same module, which is the join.
-var_value(v, k, i) :- var_decl(_, _, reg, _, _, mod, v), var_regime_is_block(reg), !var_init(_, _, _, v),
+// same line, in the same module, which is the join. A loop head that is a PATTERN
+// (`for (const [, fn] of pairs)`, `for (const { run } of plugins)`) binds each name
+// to its path walked from the element, exactly as a `const` pattern walks it from
+// its initializer (value-flow.dl's path_value); a plain binding holds the element.
+loop_binding_element(v, k, i) :- var_decl(_, _, reg, _, _, mod, v), var_regime_is_block(reg), !var_init(_, _, _, v),
     var_lines(_, mod, l, v), expr_root(_, "ITERABLE", e), expr_owner(_, _, mod, e), expr_span(_, l, _, _, _, e),
     iterable_element(e, k, i).
+var_value(v, k, i) :- loop_binding_element(v, k, i), !var_binding_path(_, _, v).
+var_value(v, k2, i2) :- loop_binding_element(v, k, i), var_binding_path(_, path, v), path_value(k, i, path, k2, i2).
+path_source(k, i) :- loop_binding_element(_, k, i).
 var_regime_is_block("CONST_BLOCK_TDZ").
 var_regime_is_block("LET_BLOCK_TDZ").
 var_regime_is_block("VAR_FUNCTION_SCOPED_HOISTED").
@@ -176,10 +182,7 @@ expr_value(ce, k, i) :- coll_method_call(ce, "get", c), !get_key_is_literal(ce),
 expr_value(ce, "arr", c) :- coll_method_call(ce, "values", c).
 param_value(p, k, i) :- coll_method_call(ce, "forEach", c), call_arg(ce, 0, f), expr_value(f, "func", m),
     param_decl(_, _, "0", m, p), elem_value(c, k, i).
-// `for (const v of set)` and `[...set]` read it as an array would.
-var_value(v, k, i) :- var_decl(_, _, reg, _, _, mod, v), var_regime_is_block(reg), !var_init(_, _, _, v),
-    var_lines(_, mod, l, v), expr_root(_, "ITERABLE", e), expr_owner(_, _, mod, e), expr_span(_, l, _, _, _, e),
-    expr_value(e, "coll", c), elem_value(c, k, i).
+// `for (const v of set)` reads it as an array would (iterable_element, above); `[...set]`:
 elem_value(l, k, i) :- expr_kind(_, "ARRAY_LITERAL", _, l), expr_child(_, l, _, _, s), expr_kind(_, "SPREAD", _, s),
     expr_child(_, s, _, _, o), expr_value(o, "coll", c), elem_value(c, k, i).
 // A collection's own methods are the platform's.
@@ -210,6 +213,21 @@ coll_keyed_value(ce, key, k, i) :- expr_value(ce, "coll", ce), new_callee_value(
     expr_value(x, "arr", a), pair_of(a, pair), expr_child(_, pair, "ELEMENT", "0", ke), expr_value(ke, "str", key),
     expr_child(_, pair, "ELEMENT", "1", v), expr_value(v, k, i).
 pair_of(a, pair) :- expr_kind(_, "ARRAY_LITERAL", _, a), expr_child(_, a, "ELEMENT", _, pair), expr_kind(_, "ARRAY_LITERAL", _, pair).
+// Iterating a Map yields `[key, value]` PAIRS. The pair is a pseudo array keyed by the
+// collection (as `Object.entries` keys one by the call) whose elements are the stored
+// values and the literal keys, so `for (const [name, fn] of map)` walks `1` to the
+// values and `0` to the keys. It is added BESIDE the stored values (which a plain
+// `for (const v of map)` still reads, the index-insensitive may-answer): the
+// collection's constructor is a value, so the plain reading cannot be negated away
+// inside the flow fixpoint.
+iterable_element(x, "arr", cat("PAIR:", c)) :- expr_value(x, "coll", c), map_coll(c).
+map_coll(c) :- expr_value(c, "coll", c), new_callee_value(c, "ambient", n), ambient_map(n).
+ambient_map("Map").
+ambient_map("WeakMap").
+elem_value(cat("PAIR:", c), k, i) :- map_coll(c), elem_value(c, k, i).
+elem_value(cat("PAIR:", c), "str", key) :- map_coll(c), coll_keyed_value(c, key, _, _).
+pair_index_value(cat("PAIR:", c), "1", k, i) :- map_coll(c), elem_value(c, k, i).
+pair_index_value(cat("PAIR:", c), "0", "str", key) :- map_coll(c), coll_keyed_value(c, key, _, _).
 // `arr.forEach(fn, thisArg)` and friends: the callback's `this` is the second argument.
 this_value(m, k, i) :- array_method_call(ce, n, _), array_method_iterates(n), call_arg(ce, 0, f), expr_value(f, "func", m),
     method_this_binding(_, "DYNAMIC", m), call_arg(ce, 1, ta), expr_value(ta, k, i), k != "str".
