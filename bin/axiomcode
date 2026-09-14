@@ -26,7 +26,8 @@
 #   bin/axiomcode engine --language L --client-ir <ir-dir>/<lang> --out <dir> [options]
 #   bin/axiomcode test   [java|typescript|python|parser|all] [suite options]
 #
-# Requires Node ≥ 22.5; no Soufflé or compiler (binaries/, or a local souffle if present).
+# Requires Node ≥ 22.5; no Soufflé or compiler (the engine comes from npm as @axiomcode/engine-<os>-<cpu>,
+# or is compiled locally when souffle is present).
 # ─────────────────────────────────────────────────────────────────────────────
 set -eu
 ROOT="$(d="$(cd "$(dirname "$0")" && pwd)"; while [ "$d" != / ] && { [ ! -f "$d/package.json" ] || [ ! -d "$d/graph" ]; }; do d="$(dirname "$d")"; done; echo "$d")"

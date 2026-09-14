@@ -1,0 +1,76 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Publish the engine packages to npm: @axiomcode/engine-<os>-<cpu>, one per platform, each
+# holding every language's engine for that platform. This package lists them as optional
+# dependencies, so `npm install` fetches exactly the one for the machine — no Soufflé, no
+# compiler, no download of ours.
+#
+# Runs ONLY when asked:
+#   • manually (Actions → publish-npm → Run workflow): version, dry_run (default TRUE — packs
+#     and prints exactly what would be published, uploads nothing), macos.
+#   • on a version tag `v1.2.3`: a real publish of that version.
+# Needs the NPM_TOKEN secret (an npmjs automation token with publish rights on @axiomcode)
+# for a real publish; a dry run needs nothing.
+# ─────────────────────────────────────────────────────────────────────────────
+name: publish-npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: version to publish (e.g. 0.1.0)
+        required: true
+        type: string
+      dry_run:
+        description: pack and print, publish nothing
+        type: boolean
+        default: true
+      macos:
+        description: include darwin-arm64 (needs the self-hosted macOS runner)
+        type: boolean
+        default: true
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  engines:
+    uses: ./.github/workflows/build-engines.yml
+    with:
+      macos: ${{ github.event_name == 'push' || inputs.macos }}
+
+  publish:
+    needs: engines
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+      - uses: actions/download-artifact@v4
+        with: { pattern: engines-*, path: artifacts }
+      - name: Assemble one package per platform
+        run: |
+          set -e
+          if [ "${{ github.event_name }}" = push ]; then version="${GITHUB_REF_NAME#v}"; else version="${{ inputs.version }}"; fi
+          echo "version=$version" >> "$GITHUB_ENV"
+          for d in artifacts/engines-*; do
+            platform="${d#artifacts/engines-}"
+            bash packaging/assemble-engine-package.sh "$platform" "$version" "$d" "packages/engine-$platform"
+            cat "packages/engine-$platform/package.json"
+          done
+      - name: Publish (or dry-run)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          DRY: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: |
+          set -e
+          flag=""; [ "$DRY" = true ] && flag="--dry-run"
+          for p in packages/engine-*; do
+            echo "══ $p $flag"
+            ( cd "$p" && npm publish --access public $flag )
+          done
+          [ "$DRY" = true ] && echo "DRY RUN — nothing was uploaded. Re-run with dry_run=false, or push tag v$version, to publish." || echo "published version $version"
