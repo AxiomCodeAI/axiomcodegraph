@@ -136,8 +136,8 @@ bin/axiomcode all --src <project-dir> --out <out-dir>          # source → <out
 #                 --library <platform-ir>[,<lib-ir>...]    the platform library and real dependencies, when you have their IR
 #                 --debug                                  also write csv/*.csv and keep raw/
 
-bin/axiomcode parser <src-dir> <ir-dir>                                     # the two stages separately
-bin/axiomcode engine --language java --client-ir <ir-dir> --out <out-dir>
+bin/axiomcode parser <src-dir> <ir-dir>                                     # the two stages separately:
+bin/axiomcode engine --language java --client-ir <ir-dir>/java --out <out-dir>   #   IR is written per language, <ir-dir>/<lang>/
 bin/axiomcode test [java|typescript|python|parser|all]
 ```
 
