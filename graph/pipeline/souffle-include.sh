@@ -3,7 +3,7 @@
 #
 # Separate from run-souffle.sh so it can be tested: this resolution silently produced a path that
 # only compiled on the machine it was written on, and nothing could assert otherwise while it was
-# inlined in a script that runs the whole pipeline. See test/tools/souffle-include-test.sh.
+# inlined in a script that runs the whole pipeline. See graph/test/tools/souffle-include-test.sh.
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Soufflé's C++ headers. DERIVED, never hardcoded — the path is version- and

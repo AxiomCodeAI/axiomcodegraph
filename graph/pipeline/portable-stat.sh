@@ -18,8 +18,8 @@
 # Decide ONCE instead, by asking stat which spelling it understands, and never look at the exit
 # status of a stat that may already have written to the stream being captured.
 #
-# See graph/pipeline/run-souffle.sh (lib_cache_key) and test/java/tools/build-{jdk,lib}-ir.sh.
-# test/tools/portable-stat-test.sh asserts the behaviour these callers depend on.
+# See graph/pipeline/run-souffle.sh (lib_cache_key) and graph/test/java/tools/build-{jdk,lib}-ir.sh.
+# graph/test/tools/portable-stat-test.sh asserts the behaviour these callers depend on.
 # ─────────────────────────────────────────────────────────────────────────────
 
 if stat -c %Y . >/dev/null 2>&1; then
