@@ -1,0 +1,20 @@
+main.js:10:29 METHOD_CALL this.dep.run  ->  known_edge  main.js:2:17 run
+main.js:11:119 METHOD_CALL this.obj.s.run  ->  known_edge  main.js:2:17 run
+main.js:11:138 METHOD_CALL this.fn  ->  known_edge  main.js:10:8 fn
+main.js:11:17 METHOD_CALL this.dep.run  ->  known_edge  main.js:2:17 run
+main.js:11:34 METHOD_CALL this.#priv.run  ->  known_edge  main.js:2:17 run
+main.js:11:53 METHOD_CALL Holder.shared.run  ->  known_edge  main.js:2:17 run
+main.js:11:75 METHOD_CALL Holder.#hidden.run  ->  known_edge  main.js:2:17 run
+main.js:11:98 METHOD_CALL this.list[0].run  ->  ambient_terminal  -
+main.js:11:98 METHOD_CALL this.list[0].run  ->  multi_inferred  main.js:2:17 run
+main.js:12:25 METHOD_CALL this.shared.run  ->  known_edge  main.js:2:17 run
+main.js:14:1 CONSTRUCTOR_CALL Holder  ->  implicit_constructor  -
+main.js:14:1 METHOD_CALL new Holder().go  ->  known_edge  main.js:11:3 go
+main.js:14:20 METHOD_CALL Holder.sgo  ->  known_edge  main.js:12:3 sgo
+main.js:14:34 METHOD_CALL Holder.shared.run  ->  known_edge  main.js:2:17 run
+main.js:4:9 CONSTRUCTOR_CALL Service  ->  implicit_constructor  -
+main.js:5:11 CONSTRUCTOR_CALL Service  ->  implicit_constructor  -
+main.js:6:19 CONSTRUCTOR_CALL Service  ->  implicit_constructor  -
+main.js:7:20 CONSTRUCTOR_CALL Service  ->  implicit_constructor  -
+main.js:8:11 CONSTRUCTOR_CALL Service  ->  implicit_constructor  -
+main.js:9:14 CONSTRUCTOR_CALL Service  ->  implicit_constructor  -

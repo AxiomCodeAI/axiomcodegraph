@@ -1,0 +1,75 @@
+// ============================================================================
+// Projections · MODULES  (pure column views — no joins, no closures)
+//
+// A JavaScript module is the resolution unit, exactly as in TypeScript, and it is
+// load-bearing for one more reason here: 83.6% of module edges are EXPRESSIONS
+// (`require()` is a call, `module.exports = X` is an assignment), so the module row
+// is what an import's `resolvedFilePath` is joined to and nothing else identifies
+// the far side.
+//
+// The first column is a provenance tag ("client" / "lib") so downstream layers can
+// classify an edge as C->C vs C->L without re-deriving where a hash came from.
+//
+// js_module / lib_js_module cols (28):
+//   0 name  1 qualifiedName  2 fileName  3 filePath  4 baseMservPath  5 moduleKind
+//   6 scriptKind  7 moduleSystem  8 moduleSystemSource  9 governingPackageJsonPath
+//   10 contradictsGoverningConfig  11 contradictionKind  12 packageName
+//   13 isExternalModule  14 hasTopLevelAwait  15 hasJsxContent  16 hasFlowPragma
+//   17 emissionRegime  18 targetTsVersion  19 startLine  20 endLine
+//   21 moduleInitMethodLinkHash  22 moduleScopeLinkHash  23 defaultExportLinkHash
+//   24 sourceProvenance  25 isExternal  26 serviceVersionLinkHash  27 jsModuleUniqueHash
+// ============================================================================
+
+// ── module_decl(Prov, Name, QName, FilePath, ModuleSystem, ModuleHash) ───────
+// ModuleSystem (col 7): COMMONJS | ESM. IN THE KEY of the schema for a reason that
+// matters to resolution: a namespace binding of a CommonJS module is the VALUE of
+// `module.exports`, while the same binding of an ES module is the namespace object
+// whose `default` member is the default export. Which one a `require`/`import *`
+// evaluates to is decided by the TARGET module's system, not the importing one.
+module_decl("client", name, qname, fp, sys, h) :- js_module(name, qname, _, fp, _, _, _, sys, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+module_decl("lib", name, qname, fp, sys, h) :- lib_js_module(name, qname, _, fp, _, _, _, sys, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
+// ── module_qname(Prov, QName, ModuleHash) — the IMPORT JOIN KEY ─────────────
+// `js_import.resolvedFilePath` and `js_type_heritage.resolvedFilePath` are emitted
+// WITHOUT an extension (`lib/util`), and `qualifiedName` (col 1) is the same
+// extension-less project-relative path. `filePath` (col 3) carries the extension and
+// does not join. Measured on the probe: every RESOLVED_PROJECT import joins here and
+// none joins on filePath.
+module_qname("client", qn, h) :- js_module(_, qn, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), qn != "".
+module_qname("lib", qn, h) :- lib_js_module(_, qn, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), qn != "".
+
+// ── module_file(Prov, FilePath, ModuleHash) ─────────────────────────────────
+module_file("client", fp, h) :- js_module(_, _, _, fp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), fp != "".
+module_file("lib", fp, h) :- lib_js_module(_, _, _, fp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), fp != "".
+
+// ── module_package(Prov, PackageName, ModuleHash) ───────────────────────────
+module_package("client", pkg, h) :- js_module(_, _, _, _, _, _, _, _, _, _, _, _, pkg, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), pkg != "".
+module_package("lib", pkg, h) :- lib_js_module(_, _, _, _, _, _, _, _, _, _, _, _, pkg, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), pkg != "".
+
+// ── module_init(Prov, ModuleInitMethodHash, ModuleHash) ─────────────────────
+// The synthetic method that owns a module's TOP-LEVEL statements. A script-style
+// file is ALL top level — `app.listen(...)` in an entry point has no other caller.
+module_init("client", init, h) :- js_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, init, _, _, _, _, _, h), init != "".
+module_init("lib", init, h) :- lib_js_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, init, _, _, _, _, _, h), init != "".
+
+// ── module_scope(Prov, ScopeHash, ModuleHash) ───────────────────────────────
+// The module's own binding scope — where a top-level `function f` or `class C` is
+// declared, and therefore the scope a same-file `extends C` or a JSDoc `{C}` is
+// looked up in.
+module_scope("client", s, h) :- js_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, s, _, _, _, _, h), s != "".
+module_scope("lib", s, h) :- lib_js_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, s, _, _, _, _, h), s != "".
+
+// ── module_default_export(Prov, ExportHash, ModuleHash) ─────────────────────
+// `export default X` / `module.exports = X` — the js_export row, not the entity.
+module_default_export("client", x, h) :- js_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, x, _, _, _, h), x != "".
+module_default_export("lib", x, h) :- lib_js_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, x, _, _, _, h), x != "".
+
+// ── module_system_is_esm(ModuleSystem) ──────────────────────────────────────
+module_system_is_esm("ESM").
+
+// ── module_base_path(Prov, BasePath, ModuleHash) ────────────────────────────
+// The ROOT the module was parsed from (absolute). For a dependency parsed in place
+// (`<project>/node_modules/<pkg>`), `basePath + "/" + filePath` is exactly the
+// absolute `resolvedFilePath` the client's import row carries.
+module_base_path("client", bp, h) :- js_module(_, _, _, _, bp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), bp != "".
+module_base_path("lib", bp, h) :- lib_js_module(_, _, _, _, bp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h), bp != "".

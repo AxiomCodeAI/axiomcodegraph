@@ -1,0 +1,8 @@
+a.js:2:60 FUNCTION_CALL modifier  EXACT  a.js:2:33
+a.js:2:73 FUNCTION_CALL other  EXACT  a.js:1:1
+a.js:3:67 FUNCTION_CALL modifier  MISSED  
+a.js:3:80 FUNCTION_CALL second  MISSED  
+a.js:7:20 FUNCTION_CALL ident  EXACT  a.js:1:1
+a.js:8:11 METHOD_CALL typed  TYPE_ONLY_TARGET  
+a.js:8:28 METHOD_CALL handler  EXACT  a.js:7:13
+# defects: 2

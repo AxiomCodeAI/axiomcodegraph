@@ -1,0 +1,44 @@
+a.js:10:29 METHOD_CALL it.run  ->  known_edge  a.js:1:21 run
+a.js:11:44 METHOD_CALL items[i].tag  ->  ambient_terminal  -
+a.js:11:44 METHOD_CALL items[i].tag  ->  multi_inferred  a.js:1:41 tag
+a.js:13:3 METHOD_CALL first.run  ->  known_edge  a.js:1:21 run
+a.js:16:3 METHOD_CALL typed[0].run  ->  ambient_terminal  -
+a.js:16:3 METHOD_CALL typed[0].run  ->  multi_inferred  a.js:1:21 run
+a.js:19:26 METHOD_CALL g.tag  ->  known_edge  a.js:1:41 tag
+a.js:19:3 METHOD_CALL generic.forEach  ->  ambient_terminal  -
+a.js:19:3 METHOD_CALL generic.forEach  ->  callback_registered  a.js:19:19 <arrow>
+a.js:23:18 CONSTRUCTOR_CALL Map  ->  ambient_terminal  -
+a.js:24:19 CONSTRUCTOR_CALL Item  ->  implicit_constructor  -
+a.js:24:3 METHOD_CALL byName.set  ->  ambient_terminal  -
+a.js:25:3 METHOD_CALL byName.get  ->  ambient_terminal  -
+a.js:25:3 METHOD_CALL byName.get('a').run  ->  ambient_terminal  -
+a.js:25:3 METHOD_CALL byName.get('a').run  ->  multi_inferred  a.js:1:21 run
+a.js:26:26 METHOD_CALL it.tag  ->  known_edge  a.js:1:41 tag
+a.js:26:3 METHOD_CALL byName.forEach  ->  ambient_terminal  -
+a.js:26:3 METHOD_CALL byName.forEach  ->  callback_registered  a.js:26:18 <arrow>
+a.js:27:16 CONSTRUCTOR_CALL Set  ->  ambient_terminal  -
+a.js:28:12 CONSTRUCTOR_CALL Item  ->  implicit_constructor  -
+a.js:28:3 METHOD_CALL seen.add  ->  ambient_terminal  -
+a.js:29:26 METHOD_CALL it.run  ->  known_edge  a.js:1:21 run
+a.js:30:29 METHOD_CALL it.tag  ->  known_edge  a.js:1:41 tag
+a.js:30:3 METHOD_CALL [...seen].forEach  ->  ambient_terminal  -
+a.js:30:3 METHOD_CALL [...seen].forEach  ->  callback_registered  a.js:30:21 <arrow>
+a.js:32:24 METHOD_CALL s.toUpperCase  ->  ambient_terminal  -
+a.js:33:10 FUNCTION_CALL shout  ->  known_edge  a.js:32:17 <arrow>
+a.js:3:18 CONSTRUCTOR_CALL Item  ->  implicit_constructor  -
+a.js:3:30 CONSTRUCTOR_CALL Item  ->  implicit_constructor  -
+a.js:4:3 METHOD_CALL items[0].run  ->  ambient_terminal  -
+a.js:4:3 METHOD_CALL items[0].run  ->  multi_inferred  a.js:1:21 run
+a.js:5:14 CONSTRUCTOR_CALL Item  ->  implicit_constructor  -
+a.js:5:3 METHOD_CALL items.push  ->  ambient_terminal  -
+a.js:6:25 METHOD_CALL it.run  ->  known_edge  a.js:1:21 run
+a.js:6:3 METHOD_CALL items.forEach  ->  ambient_terminal  -
+a.js:6:3 METHOD_CALL items.forEach  ->  callback_registered  a.js:6:17 <arrow>
+a.js:7:16 METHOD_CALL items.map  ->  ambient_terminal  -
+a.js:7:16 METHOD_CALL items.map  ->  callback_registered  a.js:7:26 <arrow>
+a.js:7:34 METHOD_CALL it.tag  ->  known_edge  a.js:1:41 tag
+a.js:8:17 METHOD_CALL items.find  ->  ambient_terminal  -
+a.js:8:17 METHOD_CALL items.find  ->  callback_registered  a.js:8:28 <arrow>
+a.js:8:36 METHOD_CALL it.run  ->  known_edge  a.js:1:21 run
+a.js:9:3 METHOD_CALL found.run  ->  ambient_terminal  -
+a.js:9:3 METHOD_CALL found.run  ->  multi_inferred  a.js:1:21 run

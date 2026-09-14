@@ -1,0 +1,80 @@
+lib/p.js:10:56 FUNCTION_CALL helper  ->  known_edge  lib/p.js:10:34 <arrow>
+lib/p.js:11:58 FUNCTION_CALL helper  ->  known_edge  lib/p.js:11:13 helper
+lib/p.js:12:29 METHOD_CALL items.map  ->  ambient_terminal  -
+lib/p.js:12:29 METHOD_CALL items.map  ->  callback_registered  lib/p.js:12:39 <function-expression>
+lib/p.js:12:61 METHOD_CALL this.run  ->  multi_inferred  lib/p.js:19:40 <arrow>
+lib/p.js:12:61 METHOD_CALL this.run  ->  multi_inferred  lib/p.js:6:3 run
+lib/p.js:13:36 METHOD_CALL items.map  ->  ambient_terminal  -
+lib/p.js:13:36 METHOD_CALL items.map  ->  callback_registered  lib/p.js:13:46 <function-expression>
+lib/p.js:14:28 METHOD_CALL items.map  ->  ambient_terminal  -
+lib/p.js:14:28 METHOD_CALL items.map  ->  callback_registered  lib/p.js:14:38 <arrow>
+lib/p.js:14:45 METHOD_CALL this.run  ->  multi_inferred  lib/p.js:19:40 <arrow>
+lib/p.js:14:45 METHOD_CALL this.run  ->  multi_inferred  lib/p.js:6:3 run
+lib/p.js:16:23 METHOD_CALL this.toString  ->  known_edge  lib/p.js:15:3 toString
+lib/p.js:16:41 METHOD_CALL this.hasOwnProperty  ->  ambiguous_unknown  -
+lib/p.js:16:92 FUNCTION_CALL_CALL Object.prototype.toString.call  ->  ambient_terminal  -
+lib/p.js:21:117 METHOD_CALL literalKeys.quoted  ->  known_edge  lib/p.js:20:89 quoted
+lib/p.js:21:140 COMPUTED_CALL literalKeys['quoted']  ->  known_edge  lib/p.js:20:89 quoted
+lib/p.js:21:26 COMPUTED_CALL literalKeys['my-key']  ->  known_edge  lib/p.js:2:1 run
+lib/p.js:21:52 COMPUTED_CALL literalKeys[1]  ->  known_edge  lib/p.js:3:1 helper
+lib/p.js:21:71 METHOD_CALL literalKeys.tpl  ->  known_edge  lib/p.js:2:1 run
+lib/p.js:21:91 METHOD_CALL literalKeys.computed1  ->  ambiguous_unknown  -
+lib/p.js:22:37 CONSTRUCTOR_CALL X  ->  implicit_constructor  -
+lib/p.js:22:47 CONSTRUCTOR_CALL Y  ->  implicit_constructor  -
+lib/p.js:23:37 FUNCTION_CALL pick  ->  known_edge  lib/p.js:22:1 pick
+lib/p.js:23:37 METHOD_CALL pick(flag).run  ->  multi_inferred  lib/p.js:18:11 run
+lib/p.js:23:37 METHOD_CALL pick(flag).run  ->  multi_inferred  lib/p.js:6:3 run
+lib/p.js:25:34 FUNCTION_CALL passthrough  ->  known_edge  lib/p.js:24:1 passthrough
+lib/p.js:25:34 METHOD_CALL passthrough(new X()).run  ->  multi_inferred  lib/p.js:18:11 run
+lib/p.js:25:34 METHOD_CALL passthrough(new X()).run  ->  multi_inferred  lib/p.js:6:3 run
+lib/p.js:25:46 CONSTRUCTOR_CALL X  ->  implicit_constructor  -
+lib/p.js:25:63 FUNCTION_CALL passthrough  ->  known_edge  lib/p.js:24:1 passthrough
+lib/p.js:25:63 METHOD_CALL passthrough(new Y()).run  ->  multi_inferred  lib/p.js:18:11 run
+lib/p.js:25:63 METHOD_CALL passthrough(new Y()).run  ->  multi_inferred  lib/p.js:6:3 run
+lib/p.js:25:75 CONSTRUCTOR_CALL Y  ->  implicit_constructor  -
+lib/p.js:28:33 FUNCTION_CALL mutable  ->  multi_inferred  lib/p.js:2:1 run
+lib/p.js:28:33 FUNCTION_CALL mutable  ->  multi_inferred  lib/p.js:3:1 helper
+lib/p.js:31:34 METHOD_CALL registry.a  ->  multi_inferred  lib/p.js:2:1 run
+lib/p.js:31:34 METHOD_CALL registry.a  ->  multi_inferred  lib/p.js:3:1 helper
+lib/p.js:32:38 METHOD_CALL items.forEach  ->  ambient_terminal  -
+lib/p.js:32:38 METHOD_CALL items.forEach  ->  callback_registered  lib/p.js:32:52 <function-expression>
+lib/p.js:32:74 METHOD_CALL this.run  ->  known_edge  lib/p.js:18:11 run
+lib/p.js:32:89 CONSTRUCTOR_CALL Y  ->  implicit_constructor  -
+lib/p.js:33:33 CONSTRUCTOR_CALL X  ->  implicit_constructor  -
+lib/p.js:33:49 METHOD_CALL x.constructor.run  ->  known_edge  lib/p.js:5:3 run
+lib/p.js:34:31 FUNCTION_CALL_CALL X.prototype.run.call  ->  known_edge  lib/p.js:6:3 run
+lib/p.js:34:52 CONSTRUCTOR_CALL Y  ->  implicit_constructor  -
+lib/p.js:35:119 METHOD_CALL o.run  ->  known_edge  lib/p.js:35:41 run
+lib/p.js:35:129 METHOD_CALL o.inner.run  ->  known_edge  lib/p.js:35:77 run
+lib/p.js:8:19 METHOD_CALL X.run  ->  known_edge  lib/p.js:5:3 run
+lib/p.js:8:29 METHOD_CALL this.run  ->  multi_inferred  lib/p.js:19:40 <arrow>
+lib/p.js:8:29 METHOD_CALL this.run  ->  multi_inferred  lib/p.js:6:3 run
+lib/p.js:8:42 FUNCTION_CALL run  ->  known_edge  lib/p.js:2:1 run
+lib/p.js:8:50 FUNCTION_CALL helper  ->  known_edge  lib/p.js:3:1 helper
+lib/p.js:8:61 METHOD_CALL X.helper  ->  known_edge  lib/p.js:7:3 helper
+lib/p.js:9:24 FUNCTION_CALL run  ->  known_edge  lib/p.js:3:1 helper
+main.js:4:13 CONSTRUCTOR_CALL P.X  ->  implicit_constructor  -
+main.js:5:104 METHOD_CALL x.viaArrow  ->  known_edge  lib/p.js:14:3 viaArrow
+main.js:5:121 METHOD_CALL x.builtins  ->  known_edge  lib/p.js:16:3 builtins
+main.js:5:13 METHOD_CALL x.shadow  ->  callback_registered  lib/p.js:3:1 helper
+main.js:5:13 METHOD_CALL x.shadow  ->  known_edge  lib/p.js:9:3 shadow
+main.js:5:3 METHOD_CALL x.both  ->  known_edge  lib/p.js:8:3 both
+main.js:5:33 METHOD_CALL x.shadowLocal  ->  known_edge  lib/p.js:10:3 shadowLocal
+main.js:5:50 METHOD_CALL x.inner  ->  known_edge  lib/p.js:11:3 inner
+main.js:5:61 METHOD_CALL x.viaFnExpr  ->  known_edge  lib/p.js:12:3 viaFnExpr
+main.js:5:79 METHOD_CALL x.viaFnExprUnbound  ->  known_edge  lib/p.js:13:3 viaFnExprUnbound
+main.js:6:20 METHOD_CALL P.keys  ->  known_edge  lib/p.js:21:1 keys
+main.js:6:3 CONSTRUCTOR_CALL P.Z  ->  implicit_constructor  -
+main.js:6:3 METHOD_CALL new P.Z().run  ->  known_edge  lib/p.js:19:40 <arrow>
+main.js:6:30 METHOD_CALL P.polymorphic  ->  known_edge  lib/p.js:23:1 polymorphic
+main.js:6:51 METHOD_CALL P.polymorphic  ->  known_edge  lib/p.js:23:1 polymorphic
+main.js:6:73 METHOD_CALL P.identityFlow  ->  known_edge  lib/p.js:25:1 identityFlow
+main.js:7:101 METHOD_CALL P.protoCall  ->  known_edge  lib/p.js:34:1 protoCall
+main.js:7:116 METHOD_CALL P.nestedSameName  ->  known_edge  lib/p.js:35:1 nestedSameName
+main.js:7:20 METHOD_CALL P.rebind  ->  known_edge  lib/p.js:27:1 rebind
+main.js:7:3 METHOD_CALL P.callMutable  ->  known_edge  lib/p.js:28:1 callMutable
+main.js:7:32 METHOD_CALL P.callMutable  ->  known_edge  lib/p.js:28:1 callMutable
+main.js:7:49 METHOD_CALL P.callRegistry  ->  known_edge  lib/p.js:31:1 callRegistry
+main.js:7:67 METHOD_CALL P.withThisArg  ->  known_edge  lib/p.js:32:1 withThisArg
+main.js:7:87 METHOD_CALL P.ctorName  ->  known_edge  lib/p.js:33:1 ctorName
+main.js:9:1 FUNCTION_CALL main  ->  known_edge  main.js:3:1 main

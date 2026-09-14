@@ -1,0 +1,73 @@
+// ============================================================================
+// CALL-EDGE-GEN · CLIENT CALL EDGES
+//
+// Resolved call-graph edges out of client call sites, split by whether the callee
+// is CLIENT or LIBRARY code. A library here is a dependency parsed FROM SOURCE and
+// staged with --library; its methods are lib_js_method rows and an edge into one is
+// `client_calls_lib` — a real method hash in the library IR, not a name.
+//
+// Row: CallerProv  CallSiteExpr  CalleeProv  CalleeMethod
+//
+// ── STRATIFICATION ──────────────────────────────────────────────────────────
+// A leaf. Reads the resolution output and feeds nothing back, so the negations
+// here are legal.
+// ============================================================================
+
+method_prov(m, "client") :- method_decl("client", _, _, _, _, _, _, m).
+method_prov(m, "lib") :- method_decl("lib", _, _, _, _, _, _, m).
+
+client_calls_client("client", ce, "client", callee) :- expr_resolves_to_method(ce, callee),
+    call_site("client", _, _, _, _, _, ce, _, _),
+    method_prov(callee, "client").
+
+client_calls_lib("client", ce, "lib", callee) :- expr_resolves_to_method(ce, callee),
+    call_site("client", _, _, _, _, _, ce, _, _),
+    method_prov(callee, "lib").
+
+// ── client_calls_lib_detail — the navigation row ────────────────────────────
+client_calls_lib_detail(ce, callee, pkg, file, line) :- client_calls_lib(_, ce, _, callee),
+    method_module(callee, lmod),
+    lib_module_origin(lmod, pkg),
+    method_lines("lib", file, line, _, callee).
+lib_module_origin(m, pkg) :- module_package("lib", pkg, m).
+lib_module_origin(m, qn) :- module_decl("lib", _, qn, _, _, m), !module_package("lib", _, m).
+
+// ── unresolved_receiver(CallExpr, CalleeName, Kind, Reason) ─────────────────
+// A DECLARED blind spot with its cause attached:
+//
+//   receiver_untyped   the receiver expression got no value at all — an unstaged
+//                      dependency, a parameter nobody visible passes, a value the
+//                      flow rules do not model
+//   member_absent      the receiver WAS valued and the value has no member of that
+//                      name — an engine or parser defect, the row to read first
+//   callee_untyped     a receiverless call whose callee expression has no value
+//   no_target          the callee was valued but nothing callable came of it
+//   dynamic            a computed name, eval, or import() — complete by saying so
+call_resolved(ce) :- expr_resolves_to_method(ce, _).
+call_resolved(ce) :- call_target_is_implicit_ctor(ce).
+
+unresolved_receiver(ce, cn, ck, "receiver_untyped") :- call_site("client", ck, cn, "SYNTACTIC", _, _, ce, _, _),
+    !call_resolved(ce), !receiver_value_known(ce), !call_kind_is_dynamic(ck).
+unresolved_receiver(ce, cn, ck, "member_absent") :- call_site("client", ck, cn, "SYNTACTIC", _, _, ce, _, _),
+    !call_resolved(ce), receiver_value_known(ce), !callee_value_known(ce), !call_kind_is_dynamic(ck).
+unresolved_receiver(ce, cn, ck, "no_target") :- call_site("client", ck, cn, _, _, _, ce, _, _),
+    !call_resolved(ce), callee_value_known(ce), !call_kind_is_dynamic(ck).
+unresolved_receiver(ce, cn, ck, "callee_untyped") :- call_site("client", ck, cn, rp, _, _, ce, _, _), rp != "SYNTACTIC",
+    !call_resolved(ce), !callee_value_known(ce), !call_kind_is_dynamic(ck).
+// A receiver or callee that is a parameter of a capped function: see fan-cap.dl.
+unresolved_receiver(ce, cn, ck, "param_fan_capped") :- call_site("client", ck, cn, "SYNTACTIC", _, _, ce, _, _),
+    !call_resolved(ce), expr_child(_, ce, "RECEIVER", _, r), expr_param(_, p, r), param_fan_capped(p, _).
+unresolved_receiver(ce, cn, ck, "param_fan_capped") :- call_site("client", ck, cn, _, _, _, ce, _, _),
+    !call_resolved(ce), expr_child(_, ce, "CALLEE", _, c), expr_param(_, p, c), param_fan_capped(p, _).
+unresolved_receiver(ce, cn, ck, "dynamic") :- call_site("client", ck, cn, _, _, _, ce, _, _),
+    !call_resolved(ce), call_kind_is_dynamic(ck).
+// Conservation over the diagnostic table too: any unresolved site the reasons
+// above did not cover. Written over the CONDITIONS of the rules above, never over
+// their head — a negation of unresolved_receiver from inside a rule that derives
+// it is a cycle.
+unresolved_covered(ce) :- call_site("client", ck, _, "SYNTACTIC", _, _, ce, _, _), !call_kind_is_dynamic(ck).
+unresolved_covered(ce) :- call_site("client", ck, _, _, _, _, ce, _, _), callee_value_known(ce), !call_kind_is_dynamic(ck).
+unresolved_covered(ce) :- call_site("client", ck, _, rp, _, _, ce, _, _), rp != "SYNTACTIC", !call_kind_is_dynamic(ck).
+unresolved_covered(ce) :- call_site("client", ck, _, _, _, _, ce, _, _), call_kind_is_dynamic(ck).
+unresolved_receiver(ce, cn, ck, "other_form") :- call_site("client", ck, cn, _, _, _, ce, _, _),
+    !call_resolved(ce), !unresolved_covered(ce).
