@@ -137,6 +137,7 @@
 .decl param_type_external(c0:symbol,c1:symbol,c2:symbol)
 .decl external_is_object(c0:symbol)
 .decl string_supertype(c0:symbol)
+.decl arg_exact_external_match(c0:symbol,c1:symbol,c2:symbol)
 .decl import_single(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
 .decl import_static(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
 .decl import_static_wildcard(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
