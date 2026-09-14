@@ -1,9 +1,12 @@
 ambiguous_unknown	method	Lam#main(String[]) -> -
 ambiguous_unknown	method	Lam#viaForEach(String) -> -
-ambiguous_unknown	method	Lam#viaMethodRef(List) -> -
 ambiguous_unknown	method	Lam#viaParamList(List) -> -
 ambiguous_unknown	new	Lam#<type-initializer>() -> -
 ambiguous_unknown	new	Lam#main(String[]) -> -
+boundary_lib	method	Lam#main(String[]) -> external:java.util.Map.put
+boundary_lib	method	Lam#viaForEach(String) -> external:java.util.Map.values
+boundary_lib	method	Lam#viaMethodRef(List) -> external:java.util.List.forEach
+boundary_lib	method	Lam#viaParamList(List) -> external:java.util.List.forEach
 known_edge	lambda_body	Lam#viaClientSam(String) -> Item#validate(String)
 known_edge	method	Lam#main(String[]) -> Lam#viaClientSam(String)
 known_edge	method	Lam#main(String[]) -> Lam#viaForEach(String)

@@ -1,5 +1,5 @@
 ambiguous_unknown	method	app.Main#main(String[]) -> -
-ambiguous_unknown	method	util.Strings#trim(String) -> -
+boundary_lib	method	util.Strings#trim(String) -> external:String.trim
 known_edge	method	app.Main#main(String[]) -> core.Config#load()
 known_edge	method	app.Main#main(String[]) -> core.Engine#run(String)
 known_edge	method	app.Main#main(String[]) -> util.Strings#pad(String)

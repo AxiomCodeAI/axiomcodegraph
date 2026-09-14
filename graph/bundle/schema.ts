@@ -88,10 +88,10 @@ export const CORE_TABLES: readonly TableSpec[] = [
       { name: 'name', type: 'TEXT', indexed: true, description: 'Simple name.' },
       { name: 'qualified_name', type: 'TEXT', indexed: true, description: 'Parser-qualified name.' },
       { name: 'category', type: 'TEXT', description: 'The parser\'s typeCategory — see vocabulary.' },
-      { name: 'file_path', type: 'TEXT', indexed: true, description: 'Source file.' },
-      { name: 'start_line', type: 'INTEGER', description: '1-based first line.' },
-      { name: 'end_line', type: 'INTEGER', description: '1-based last line.' },
-      { name: 'provenance', type: 'TEXT', description: '`client` or `lib`.' },
+      { name: 'file_path', type: 'TEXT', nullable: true, indexed: true, description: 'Source file; NULL for an external type (no declaration was staged).' },
+      { name: 'start_line', type: 'INTEGER', nullable: true, description: '1-based first line; NULL for an external type.' },
+      { name: 'end_line', type: 'INTEGER', nullable: true, description: '1-based last line; NULL for an external type.' },
+      { name: 'provenance', type: 'TEXT', description: '`client`, `lib`, or `external` (Java: an unstaged ancestor, see vocabulary).' },
     ],
   },
   {
@@ -275,6 +275,7 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'methods', column: 'provenance', value: 'lib', languages: 'all', meaning: 'Declared in a staged library IR; listed because an edge reaches it.' },
   { table: 'types', column: 'provenance', value: 'client', languages: 'all', meaning: 'Declared in the analysed project.' },
   { table: 'types', column: 'provenance', value: 'lib', languages: 'all', meaning: 'Declared in a staged library IR.' },
+  { table: 'types', column: 'provenance', value: 'external', languages: J, meaning: 'Named by the client as an ancestor (`extends`/`implements`) but declared in no staged IR: id `external:<qualified name>`, category EXTERNAL_TYPE, no file, no members. Kept so the subtype edge survives; stage the library to replace it with the real declaration.' },
 
   // methods.kind — the parser's methodKind
   { table: 'methods', column: 'kind', value: 'INSTANCE_METHOD', languages: J, meaning: 'Non-static method.' },
@@ -342,6 +343,7 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'methods', column: 'kind', value: 'MODULE_INITIALIZER', languages: S, meaning: 'Synthetic method holding a module\'s top-level code. Every module has one; top-level call sites belong to it.' },
   // types.category — the parser's typeCategory
   { table: 'types', column: 'category', value: 'CLASS_TYPE', languages: 'all', meaning: 'A class.' },
+  { table: 'types', column: 'category', value: 'EXTERNAL_TYPE', languages: J, meaning: 'An unstaged ancestor named by the client — see provenance `external`. Class or interface is not known.' },
   { table: 'types', column: 'category', value: 'INTERFACE_TYPE', languages: ['java', 'typescript'], meaning: 'An interface.' },
   { table: 'types', column: 'category', value: 'ENUM_TYPE', languages: ['java', 'typescript'], meaning: 'An enum.' },
   { table: 'types', column: 'category', value: 'RECORD_TYPE', languages: J, meaning: 'A record.' },
@@ -385,7 +387,7 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'call_edges', column: 'callee_provenance', value: 'client', languages: 'all', meaning: 'Target is a client method (callee_method_id set).' },
   { table: 'call_edges', column: 'callee_provenance', value: 'lib', languages: 'all', meaning: 'Target is a method of a staged library IR (callee_method_id set, methods.provenance = lib).' },
   { table: 'call_edges', column: 'callee_provenance', value: 'builtin', languages: P, meaning: 'Target is a CPython builtin with no Python source (callee_label = `builtin:NAME`).' },
-  { table: 'call_edges', column: 'callee_provenance', value: 'external', languages: P, meaning: 'Target is named by an import path outside every staged IR (callee_label = the written path).' },
+  { table: 'call_edges', column: 'callee_provenance', value: 'external', languages: ['python', 'java'], meaning: 'Target is outside every staged IR and has no methods row. Python: an import path (callee_label = the written path). Java: a method of an unstaged ancestor type (callee_label = `external:<type>.<name>`), reached through a receiver declared as that type or inherited by a client subclass; see types.provenance external.' },
 
   // call_edges.kind / call_sites.kind — Java (engine-authored)
   { table: 'call_edges', column: 'kind', value: 'method', languages: J, meaning: '`obj.m()`, `Class.m()`, `super.m()`, or an unqualified `m()`.' },
@@ -480,6 +482,7 @@ export const NOTES: readonly NoteSpec[] = [
   { language: 'python', table: 'call_sites', note: 'PROPERTY_READ, CONTEXT_MANAGER and ITERATION_PROTOCOL rows are protocol edges with no written call: their site is the expression that triggers the protocol, and callee_name is NULL because nothing was written. Filter them out with kind NOT IN (…) when counting calls.' },
   { language: 'python', table: 'call_sites', note: 'The id is an EXPRESSION hash for a written call; a DECORATOR hash (PY_DECORATOR_…) for DECORATOR_APPLICATION and DECORATOR_* sites, positioned at the decorator line; and the class\'s TYPE hash for METACLASS_CREATION, positioned at the class declaration.' },
   { language: 'python', table: 'call_edges', note: 'A `boundary_lib` edge may point at a builtin (callee_provenance builtin, callee_label `builtin:NAME`) or at an unstaged import path (callee_provenance external) — neither has a methods row.' },
+  { language: 'java', table: 'call_edges', note: 'A `boundary_lib` edge with callee_provenance external names a method of an ancestor type no staged IR declares (callee_label `external:<type>.<name>`, no methods row). A site whose receiver is declared as such a type is multi_inferred even with one client override: the platform method itself, and the platform\'s own subclasses, are the other possible targets. Stage the library to replace the label with the real method.' },
   { language: 'python', table: 'call_edges', note: 'The reason a site is ambiguous_unknown is exported per site in ext_call_site_unresolved (site, caller, reason, detail).' },
   { language: 'python', table: 'entry_points', note: 'EMPTY. The Python rule set does not derive entry points; entry_reachable is therefore empty too.' },
   { language: 'python', table: 'overrides', note: 'EMPTY — this table is Java-shaped. The Python dispatch envelope is in dispatch_candidates with basis `mro`; the raw linearisation is in ext_mro_position.' },

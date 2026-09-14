@@ -285,10 +285,10 @@ Every class-like declaration the graph refers to: all client types, plus every l
 | 1 | `name` | TEXT |  | Simple name. |
 | 2 | `qualified_name` | TEXT |  | Parser-qualified name. |
 | 3 | `category` | TEXT |  | The parser's typeCategory — see vocabulary. |
-| 4 | `file_path` | TEXT |  | Source file. |
-| 5 | `start_line` | INTEGER |  | 1-based first line. |
-| 6 | `end_line` | INTEGER |  | 1-based last line. |
-| 7 | `provenance` | TEXT |  | `client` or `lib`. |
+| 4 | `file_path` | TEXT | yes | Source file; NULL for an external type (no declaration was staged). |
+| 5 | `start_line` | INTEGER | yes | 1-based first line; NULL for an external type. |
+| 6 | `end_line` | INTEGER | yes | 1-based last line; NULL for an external type. |
+| 7 | `provenance` | TEXT |  | `client`, `lib`, or `external` (Java: an unstaged ancestor, see vocabulary). |
 
 **`types.provenance` values**
 
@@ -296,12 +296,14 @@ Every class-like declaration the graph refers to: all client types, plus every l
 |---|---|---|
 | `client` | all | Declared in the analysed project. |
 | `lib` | all | Declared in a staged library IR. |
+| `external` | java | Named by the client as an ancestor (`extends`/`implements`) but declared in no staged IR: id `external:<qualified name>`, category EXTERNAL_TYPE, no file, no members. Kept so the subtype edge survives; stage the library to replace it with the real declaration. |
 
 **`types.category` values**
 
 | value | languages | meaning |
 |---|---|---|
 | `CLASS_TYPE` | all | A class. |
+| `EXTERNAL_TYPE` | java | An unstaged ancestor named by the client — see provenance `external`. Class or interface is not known. |
 | `INTERFACE_TYPE` | java, typescript | An interface. |
 | `ENUM_TYPE` | java, typescript | An enum. |
 | `RECORD_TYPE` | java | A record. |
@@ -392,7 +394,7 @@ THE GRAPH. One row per (site, resolved target). A site with N possible targets h
 | `client` | all | Target is a client method (callee_method_id set). |
 | `lib` | all | Target is a method of a staged library IR (callee_method_id set, methods.provenance = lib). |
 | `builtin` | python | Target is a CPython builtin with no Python source (callee_label = `builtin:NAME`). |
-| `external` | python | Target is named by an import path outside every staged IR (callee_label = the written path). |
+| `external` | python, java | Target is outside every staged IR and has no methods row. Python: an import path (callee_label = the written path). Java: a method of an unstaged ancestor type (callee_label = `external:<type>.<name>`), reached through a receiver declared as that type or inherited by a client subclass; see types.provenance external. |
 
 **`call_edges.kind` values**
 
@@ -451,6 +453,7 @@ THE GRAPH. One row per (site, resolved target). A site with N possible targets h
 
 - **javascript** — Targets are VALUES the receiver may hold, not declared types: a `multi_inferred` set is the union of what flowed into the receiver. An untyped receiver is `ambiguous_unknown`, never a name match.
 - **python** — A `boundary_lib` edge may point at a builtin (callee_provenance builtin, callee_label `builtin:NAME`) or at an unstaged import path (callee_provenance external) — neither has a methods row.
+- **java** — A `boundary_lib` edge with callee_provenance external names a method of an ancestor type no staged IR declares (callee_label `external:<type>.<name>`, no methods row). A site whose receiver is declared as such a type is multi_inferred even with one client override: the platform method itself, and the platform's own subclasses, are the other possible targets. Stage the library to replace the label with the real method.
 - **python** — The reason a site is ambiguous_unknown is exported per site in ext_call_site_unresolved (site, caller, reason, detail).
 - **all** — THE TRUST LINE, and it is not the same set of tiers in every language. RESOLVED (callee_method_id is set): known_edge, multi_inferred, boundary_lib, and in TypeScript ALSO ambient_terminal and intrinsic_terminal. BLIND SPOT (callee is NULL): ambiguous_unknown, and in Java ALSO ambiguous_anon. A filter written as `tier IN (known_edge, multi_inferred)` therefore drops resolved edges in TypeScript and nowhere else — derive the set from this note or from unresolved_sites, never from a hardcoded list.
 - **java** — A multi_inferred fan is CHA-wide: it is every override the hierarchy admits, bounded only by the dispatch cap. type_instantiated is computed and exported but NOT read by any rule, so the fan is not narrowed to types the program constructs. Narrow it yourself by joining dispatch_candidates to type_instantiated — see the dispatch_envelope_of query.

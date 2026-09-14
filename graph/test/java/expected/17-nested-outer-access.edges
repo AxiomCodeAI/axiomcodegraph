@@ -2,6 +2,7 @@ ambiguous_anon	anon_new	Middle#deep() -> -
 ambiguous_anon	anon_new	OuterAccess#anonToOuter() -> -
 ambiguous_anon	anon_new	OuterAccess#anonToOuterStatic() -> -
 ambiguous_unknown	method	OuterAccess#main(String[]) -> -
+boundary_lib	method	OuterAccess#main(String[]) -> external:java.util.function.Supplier.get
 known_edge	method	Inner#viaOuter() -> OuterAccess#outerInstance()
 known_edge	method	Local#go() -> OuterAccess#outerInstance()
 known_edge	method	Middle$anon:Supplier#get() -> OuterAccess#outerInstance()
@@ -20,3 +21,5 @@ known_edge	new	OuterAccess#main(String[]) -> Inner#<init>()
 known_edge	new	OuterAccess#main(String[]) -> Middle#<init>()
 known_edge	new	OuterAccess#main(String[]) -> Nested#<init>()
 known_edge	new	OuterAccess#main(String[]) -> OuterAccess#<init>()
+multi_inferred	method	OuterAccess#main(String[]) -> Middle$anon:Supplier#get()
+multi_inferred	method	OuterAccess#main(String[]) -> OuterAccess$anon:Supplier#get()

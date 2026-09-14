@@ -83,13 +83,23 @@ call_from(call, t) :- invocation_site(call, _), !named_method_call(call),
     expr_ultimate_type("client", call, t).
 
 // ── confidence class of each client call site ──────────────────────────────────────────
-call_class(call, "known_edge")        :- call_target_count(call, 1).
+// A site whose receiver is an EXTERNAL type (resolution/external-types.dl) is never
+// known_edge: the one client override that resolved is a target, and so is the platform
+// method it overrides, which the boundary row beside it names. multi_inferred is the class
+// that says "the true target is among these", and that is the claim being made.
+site_leaves_client(call) :- external_target(call, _).
+call_class(call, "known_edge")        :- call_target_count(call, 1), !site_leaves_client(call).
+call_class(call, "multi_inferred")    :- call_target_count(call, 1), site_leaves_client(call).
 call_class(call, "multi_inferred")    :- call_target_count(call, n), n >= 2.
 // zero targets — split by REASON: a KNOWN structural gap (anonymous-class creation, which has
 // no candidate rule yet) vs a GENUINE mystery (unresolved receiver / missing type / reflection).
 // Each call site has exactly one invocation kind, so these two rules are disjoint (no negation).
 call_class(call, "ambiguous_anon")    :- call_target_count(call, 0), invocation_site(call, "anon_new").
-call_class(call, "ambiguous_unknown") :- call_target_count(call, 0), invocation_site(call, kind), kind != "anon_new".
+call_class(call, "ambiguous_unknown") :- call_target_count(call, 0), invocation_site(call, kind), kind != "anon_new",
+    !site_leaves_client(call).
+// zero client targets but a known EXTERNAL one — an inherited unstaged method reached through a
+// client subclass. The boundary row below is its edge; it is not a blind spot.
+call_class(call, "boundary_lib")      :- call_target_count(call, 0), site_leaves_client(call).
 
 // (The method→method call_edge relation was removed — the merged call_chain_edge below is the
 // single source of truth; entry_reachable traverses it directly.)
@@ -123,6 +133,14 @@ call_chain_edge(call, caller, "-", callee, "client", cls, kind) :-
 call_chain_edge(call, caller, "-", callee, "lib", "boundary_lib", kind) :-
     client_calls_lib("client", call, "lib", callee),
     call_from(call, caller), invocation_site(call, kind).
+// client→EXTERNAL (boundary — the target is outside every staged IR, so ToMethod is a LABEL,
+// `external:<type>.<name>`, not a method hash; the bundle routes it to callee_label by the
+// "external" provenance, as it does for Python's unstaged import paths). A call on a receiver
+// declared as an unstaged base type, or an inherited unstaged method called through a client
+// subclass — resolution/external-types.dl.
+call_chain_edge(call, caller, "-", label, "external", "boundary_lib", kind) :-
+    external_target(call, label),
+    call_from(call, caller), invocation_site(call, kind).
 // unresolved sites — no callee, but keep the row so chain-ends are visible in the one CSV
 call_chain_edge(call, caller, "-", "-", "-", "ambiguous_unknown", kind) :-
     call_class(call, "ambiguous_unknown"), call_from(call, caller),
@@ -141,6 +159,7 @@ call_chain_edge(call, caller, "-", "-", "-", "ambiguous_unknown", kind) :-
 // above rather than competing with it.
 call_has_edge(call) :- client_calls_client("client", call, _, _).
 call_has_edge(call) :- client_calls_lib("client", call, _, _).
+call_has_edge(call) :- external_target(call, _).
 call_chain_edge(call, caller, "-", "-", "-", "ambiguous_unknown", kind) :-
     invocation_site(call, kind),
     call_from(call, caller),

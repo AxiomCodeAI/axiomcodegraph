@@ -5,12 +5,16 @@ boundary_lib	method	probe.TwoHop#nestedArgOnLibRef() -> dep.Lookup#entries()
 boundary_lib	method	probe.TwoHop#nestedArgOnLibRef() -> dep.Pair#value()
 boundary_lib	method	probe.TwoHop#oneHop() -> dep.Box#get(int)
 boundary_lib	method	probe.TwoHop#oneHopVar() -> dep.Box#get(int)
+boundary_lib	method	probe.TwoHop#oneHopVar() -> external:var.get
 boundary_lib	method	probe.TwoHop#twoHopBothVars() -> dep.Box#iterator()
 boundary_lib	method	probe.TwoHop#twoHopBothVars() -> dep.Iter#next()
+boundary_lib	method	probe.TwoHop#twoHopBothVars() -> external:var.iterator
+boundary_lib	method	probe.TwoHop#twoHopBothVars() -> external:var.next
 boundary_lib	method	probe.TwoHop#twoHopChain() -> dep.Box#iterator()
 boundary_lib	method	probe.TwoHop#twoHopChain() -> dep.Iter#next()
 boundary_lib	method	probe.TwoHop#twoHopVar() -> dep.Box#iterator()
 boundary_lib	method	probe.TwoHop#twoHopVar() -> dep.Iter#next()
+boundary_lib	method	probe.TwoHop#twoHopVar() -> external:var.next
 known_edge	method	probe.TwoHop#nestedArgOnClientRef() -> probe.TwoHop#pairs()
 known_edge	method	probe.TwoHop#nestedArgOnClientRef() -> probe.Widget#id()
 known_edge	method	probe.TwoHop#nestedArgOnLibRef() -> probe.TwoHop#lookup()

@@ -1,0 +1,15 @@
+ambiguous_unknown	new	app.Reader#overrideViaClientType(String) -> -
+ambiguous_unknown	new	app.Reader#overrideViaLibraryType(String) -> -
+ambiguous_unknown	new	app.StrictFormat#parseStrict(String,ParsePosition) -> -
+boundary_lib	method	app.Reader#inheritedViaClientType(String) -> external:java.text.DateFormat.parse
+boundary_lib	method	app.Reader#inheritedViaLibraryType(String) -> external:java.text.DateFormat.parse
+boundary_lib	method	app.Reader#overrideViaLibraryType(String) -> external:java.text.DateFormat.parse
+boundary_lib	method	app.StrictFormat#format(Date,StringBuffer,FieldPosition) -> external:StringBuffer.append
+boundary_lib	method	app.StrictFormat#format(Date,StringBuffer,FieldPosition) -> external:java.util.Date.getTime
+boundary_lib	method	app.StrictFormat#parseStrict(String,ParsePosition) -> external:String.length
+boundary_lib	method	app.StrictFormat#parseStrict(String,ParsePosition) -> external:java.text.ParsePosition.setIndex
+boundary_lib	method	app.StrictFormat#viaImplicitThis(String) -> external:java.text.DateFormat.parse
+known_edge	method	app.Reader#overrideViaClientType(String) -> app.StrictFormat#parse(String,ParsePosition)
+known_edge	method	app.StrictFormat#parse(String,ParsePosition) -> app.StrictFormat#parseStrict(String,ParsePosition)
+known_edge	new	app.Reader#<type-initializer>() -> app.StrictFormat#<init>()
+multi_inferred	method	app.Reader#overrideViaLibraryType(String) -> app.StrictFormat#parse(String,ParsePosition)

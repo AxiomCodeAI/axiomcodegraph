@@ -224,6 +224,18 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
     const lt = await libSource(inp, T.file);
     if (lt) log(`  library types named: ${await readTypes(lt, 'lib', missingTypes)} of ${missingTypes.size} referenced`);
   }
+  // An EXTERNAL type: an ancestor the client names (`extends DateFormat`) that no staged IR
+  // declares. The engine keeps the edge under the id `external:<qualified name>` rather than
+  // dropping it, so the subtype relation stays visible to impact queries; this is the row that
+  // makes the FK hold. No file, no lines, no members — the label is all that is known.
+  let external = 0;
+  for (const id of wantTypes) {
+    if (types.has(id) || !id.startsWith('external:')) continue;
+    const q = id.slice('external:'.length);
+    types.set(id, [id, q.slice(q.lastIndexOf('.') + 1), q, 'EXTERNAL_TYPE', null, null, null, 'external']);
+    external++;
+  }
+  if (external > 0) log(`  external types named: ${external}`);
   // A library module's file path is not staged; a library site never occurs (edges start in the client).
 
   // ── 5. call sites: name + position for every site the edges mention ───────
