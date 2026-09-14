@@ -1,0 +1,4 @@
+nominal	lib:geometry#Drawable.draw -> shapes#LibCircle.draw
+nominal	shapes#Shape.area -> shapes#Circle.area
+nominal	shapes#Shape.area -> shapes#Square.area
+nominal	shapes#Shape.prefix -> shapes#Circle.prefix

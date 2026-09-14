@@ -19,3 +19,4 @@ config_entry_point	config-entry-point.csv
 config_key_ref	config-key-ref.csv
 config_unresolved	config-unresolved.csv
 type_instantiated	type-instantiated.csv
+method_dispatch_candidate	dispatch-candidates.csv
