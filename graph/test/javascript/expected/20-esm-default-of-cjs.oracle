@@ -1,0 +1,11 @@
+main.js:10:3 FUNCTION_CALL clamp  EXACT  util.cjs:2:17
+main.js:11:3 METHOD_CALL clamp  EXACT  util.cjs:2:17
+main.js:12:3 METHOD_CALL area  EXACT  shape.cjs:1:15
+main.js:12:3 METHOD_CALL make  EXACT  shape.cjs:2:27
+main.js:13:3 FUNCTION_CALL mixed  EXACT  mixed.cjs:2:18
+main.js:14:3 METHOD_CALL late  EXACT  mixed.cjs:3:23
+main.js:16:1 FUNCTION_CALL main  EXACT  main.js:7:1
+main.js:8:3 METHOD_CALL isString  EXACT  util.cjs:1:20
+main.js:9:3 FUNCTION_CALL isString  EXACT  util.cjs:1:20
+shape.cjs:2:43 CONSTRUCTOR_CALL Shape  SYNTHESIZED_OK  
+# defects: 0

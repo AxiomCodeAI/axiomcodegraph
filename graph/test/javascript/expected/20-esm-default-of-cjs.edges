@@ -1,0 +1,10 @@
+main.js:10:3 FUNCTION_CALL clamp  ->  known_edge  util.cjs:2:17 clamp
+main.js:11:3 METHOD_CALL ns.clamp  ->  known_edge  util.cjs:2:17 clamp
+main.js:12:3 METHOD_CALL shape.make  ->  known_edge  shape.cjs:2:27 make
+main.js:12:3 METHOD_CALL shape.make().area  ->  known_edge  shape.cjs:1:15 area
+main.js:13:3 FUNCTION_CALL mixed  ->  known_edge  mixed.cjs:2:18 whole
+main.js:14:3 METHOD_CALL mixed.late  ->  known_edge  mixed.cjs:3:23 late
+main.js:16:1 FUNCTION_CALL main  ->  known_edge  main.js:7:1 main
+main.js:8:3 METHOD_CALL util.isString  ->  known_edge  util.cjs:1:20 <function-expression>
+main.js:9:3 FUNCTION_CALL isString  ->  known_edge  util.cjs:1:20 <function-expression>
+shape.cjs:2:43 CONSTRUCTOR_CALL Shape  ->  implicit_constructor  -
