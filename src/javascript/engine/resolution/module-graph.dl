@@ -76,42 +76,13 @@ module_export_value(mod, n, k, i) :- export_decl(_, "default", _, "MODULE_EXPORT
     export_target_value(x, vk, vi),
     prop_value(vk, vi, n, k, i),
     n != "default".
-// `export default function f() {}` — the export table files it under `f` and the
-// module's defaultExportLinkHash is empty (parser#176). The declaration's own
-// modifiers say `default`, so the default export is recovered from the method row.
-// The class form (`export default class C {}`) has no signal anywhere in the IR and
-// stays a known gap until the parser fix.
+// `export default function () {}` — the ANONYMOUS form: the export row says
+// `default` but names no target and no expression (parser#176 fixed the named
+// forms; this residue is still filed under EXPRESSION_VALUE with nothing behind
+// it). The function-declaration row carries the `default` modifier, which is
+// exact: only a default-exported declaration has it.
 module_export_value(mod, "default", "func", m) :- method_decl(_, _, "FUNCTION_DECLARATION", _, _, _, mod, m),
     method_modifiers(_, mods, m), contains("default", mods).
-// `export default class C {}` — filed under `C`, and the class row carries no
-// modifier at all (parser#176). Recovered only where it is certain: a module with
-// NO default export row that is imported by a DEFAULT binding somewhere, and
-// exactly one exported function or class declaration — a valid program's default
-// import of that module can only be reaching that declaration. Counted in
-// module_default_recovered so the workaround's footprint is visible.
-module_export_value(mod, "default", k, i) :- module_default_recovered(mod, x), export_target_value(x, k, i).
-module_default_recovered(mod, x) :- module_default_import_requested(mod, _),
-    !module_has_default_row(mod),
-    export_decl(_, _, _, "EXPORT_DECLARATION", vk, _, _, _, mod, x), export_value_kind_is_declaration(vk),
-    1 = count : { export_decl(_, _, _, "EXPORT_DECLARATION", vk2, _, _, _, mod, _), export_value_kind_is_declaration(vk2) }.
-// Or: the importer's local name for the default IS the name of one exported
-// declaration — `import Headers from './headers.js'` against `export default class
-// Headers`. A default import's local name is free, so agreement with a declared
-// name is not a coincidence.
-module_default_recovered(mod, x) :- module_default_import_requested(mod, local), local != "",
-    !module_has_default_row(mod),
-    export_decl(_, local, _, "EXPORT_DECLARATION", vk, _, _, _, mod, x), export_value_kind_is_declaration(vk).
-export_value_kind_is_declaration("CLASS").
-export_value_kind_is_declaration("FUNCTION").
-module_has_default_row(mod) :- export_decl(_, "default", _, _, _, _, _, _, mod, _).
-module_has_default_row(mod) :- method_decl(_, _, "FUNCTION_DECLARATION", _, _, _, mod, m), method_modifiers(_, mods, m), contains("default", mods).
-module_default_import_requested(mod, local) :- import_decl(_, _, _, "DEFAULT", _, _, _, _, imp), import_module(imp, mod),
-    import_local_name(_, local, imp).
-module_default_import_requested(mod, "") :- import_decl(_, "JSDOC_IMPORT_TYPE", _, _, "default", _, _, _, imp), import_module(imp, mod).
-// `export { default as LineElement } from './element.line.js'` — the barrel asks
-// for the default and names it; the name is the hint.
-module_default_import_requested(mod, en) :- export_decl(_, en, "default", form, _, _, _, _, _, x), form != "EXPORT_ALL",
-    export_reexport(_, _, imp, x), import_module(imp, mod).
 // Re-exports: `export * from './y'`, `export { a } from './y'`,
 // `module.exports = require('./y')`. The import row carries the resolved file.
 module_export_value(mod, n, k, i) :- export_decl(_, _, _, "EXPORT_ALL", _, _, _, _, mod, x),

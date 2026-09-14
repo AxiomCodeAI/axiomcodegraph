@@ -37,23 +37,14 @@ initializer is the expression, so the link is the only thing missing.
 method to a js_type at the same (module, line, column). `type_source_expr` is projected
 so the position join retires by itself once the column is populated.
 
-## PD-JS-3 — `export default function|class <Name>` is exported under its local name — parser#176
+## PD-JS-3 — `export default function|class <Name>` under its local name — parser#176, FIXED
 
-```js
-export default function named() {}
-export default class Klass {}
-```
-
-Both rows carry `exportedName = named` / `Klass`, EXPORT_DECLARATION, and the module's
-`defaultExportLinkHash` is empty; nothing distinguishes them from `export function named`.
-The anonymous and expression forms are emitted as `default` correctly.
-
-**Workaround:** `resolution/module-graph.dl`. The function form is recovered from
-`js_method.modifiers` (`default,export`). The class form has no signal in any row, so it
-is recovered only where certain — a module with no default row that a DEFAULT import
-reaches, whose one exported class/function declaration must be what the import binds,
-or whose exported declaration carries the same name the importer chose for the default.
-`module_default_recovered` exports the footprint.
+Fixed in the parser for the NAMED forms (exported as `default`, `defaultExportLinkHash`
+set); the engine-side class recovery (`module_default_recovered`) was retired the same
+day. Residue: the ANONYMOUS `export default function () {}` row still carries
+`targetKind = EXPRESSION_VALUE` with no target and no source expression. The
+function-declaration row's `modifiers` reads `default,export`, and
+`resolution/module-graph.dl` recovers the default export from that.
 
 ## PD-JS-4 — a function declaration inside a block is owned by the enclosing function scope
 
