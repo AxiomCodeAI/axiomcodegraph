@@ -380,7 +380,34 @@ for dir in "$HERE"/cases/*/; do
     [ $ok -eq 1 ] || { fail=$((fail+1)); failed+=("$name"); continue; }
   fi
 
+  # ── DISPATCH-ENVELOPE golden ──────────────────────────────────────────────
+  # The edge goldens record what the engine CONCLUDED. dispatch_candidates records what
+  # the hierarchy ADMITTED — the set those edges were narrowed from, and the only table
+  # in the output bundle that answers "what ELSE might run here". Nothing downstream
+  # consumes it, so a rule that stopped emitting it would move no other golden and no
+  # test would notice; the relation was Java-only for the whole life of the bundle for
+  # exactly that reason (#471). Both passes are scored: the library pass is where a
+  # library-declared base gains a client override, which the client-only pass cannot see.
+  # A case with envelope rows and NO golden fails, and a golden with no rows fails too.
+  envelope_golden() {
+    local raw="$1" exp="$2" out="$3" label="$4"
+    python3 "$HERE/../tools/envelope_report.py" "$w/ir" "$raw" all-typescript-methods.csv tsMethodUniqueHash \
+      --library "$w/libir" > "$out" 2>"$w/envelope.log" || { echo "FAIL ($label report — see $w/envelope.log)"; return 1; }
+    local n; n=$(wc -l < "$out" | tr -d ' ')
+    if [ "$BLESS" = "1" ]; then
+      if [ "${n:-0}" -gt 0 ]; then cp "$out" "$exp"; else rm -f "$exp"; fi; return 0
+    fi
+    [ -f "$exp" ] || [ "${n:-0}" -gt 0 ] || return 0
+    [ -f "$exp" ] || { echo "FAIL ($label rows but no golden — run with --bless)"; return 1; }
+    diff -q "$exp" "$out" >/dev/null && return 0
+    echo "FAIL ($label changed)"; diff -u "$exp" "$out" | sed 's/^/    /' | head -40; return 1
+  }
+
   bad=0
+  envelope_golden "$w/plain/out/raw" "$HERE/expected/$name.envelope" "$w/actual.envelope" "envelope" || bad=1
+  if [ "$HAS_LIB" = "1" ]; then
+    envelope_golden "$w/withlib/out/raw" "$HERE/expected/$name.lib.envelope" "$w/actual.lib.envelope" "lib-envelope" || bad=1
+  fi
   check_golden "$w/actual.edges" "$HERE/expected/$name.edges" "edges" || bad=1
   if [ "$HAS_LIB" = "1" ]; then
     check_golden "$w/actual.lib.edges" "$HERE/expected/$name.lib.edges" "lib-edges" || bad=1

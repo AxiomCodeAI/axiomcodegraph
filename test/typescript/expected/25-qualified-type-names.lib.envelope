@@ -1,0 +1,2 @@
+nominal	shapes#geo.Point.move -> shapes#geo.Origin.move
+nominal	shapes#geo.deep.Box.fit -> shapes#geo.deep.Impl.fit
