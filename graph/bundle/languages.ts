@@ -27,13 +27,21 @@ export interface MethodsIR {
   ownerTypeId: string; filePath: string; startLine: string; endLine: string;
   /** absent where the IR has no such column (JavaScript declares no signatures); the core column is then '' / NULL */
   signature?: string; ownerQualifiedName?: string;
+  /** the column naming the owning module, where a LIBRARY row's names are relative to its own package root and need the package prefixed (see ModulesIR.packageName) */
+  moduleId?: string;
 }
 export interface TypesIR {
   file: string; id: string; name: string; qualifiedName: string; category: string;
   filePath: string; startLine: string; endLine: string;
+  moduleId?: string;
 }
-/** A modules table, where the language has one: maps a module hash to a file path. */
-export interface ModulesIR { file: string; id: string; filePath: string }
+/**
+ * A modules table, where the language has one: maps a module hash to a file path. Where the
+ * parser names a library module's package (`packageName`) and its root on disk (`basePath`),
+ * the bundle prefixes every library row's qualified_name and file_path with the package, so
+ * a same-named file in two packages, or two staged versions of one package, stay apart.
+ */
+export interface ModulesIR { file: string; id: string; filePath: string; packageName?: string; basePath?: string }
 /** The expressions table — the universal fallback for a site's position. */
 export interface ExpressionsIR {
   file: string; id: string; kind: string; startLine: string; startColumn: string; endLine: string; endColumn: string;
@@ -204,16 +212,19 @@ const JAVASCRIPT: LanguageAdapter = {
   },
   ir: {
     // No signature and no owner qualified name: JavaScript declares neither.
+    // A library method's qualifiedName and filePath are relative to ITS package root and
+    // carry no package: `index.run` in `index.js` for every package with an index.js. The
+    // bundle prefixes them with the owning module's package (ModulesIR.packageName).
     methods: {
       file: 'all-javascript-methods.csv', id: 'jsMethodUniqueHash', name: 'name', qualifiedName: 'qualifiedName',
       kind: 'methodKind', ownerTypeId: 'ownerTypeLinkHash',
-      filePath: 'filePath', startLine: 'startLine', endLine: 'endLine',
+      filePath: 'filePath', startLine: 'startLine', endLine: 'endLine', moduleId: 'ownerModuleLinkHash',
     },
     types: {
       file: 'all-javascript-types.csv', id: 'jsTypeUniqueHash', name: 'name', qualifiedName: 'qualifiedName',
-      category: 'typeCategory', filePath: 'filePath', startLine: 'startLine', endLine: 'endLine',
+      category: 'typeCategory', filePath: 'filePath', startLine: 'startLine', endLine: 'endLine', moduleId: 'ownerModuleLinkHash',
     },
-    modules: { file: 'all-javascript-modules.csv', id: 'jsModuleUniqueHash', filePath: 'filePath' },
+    modules: { file: 'all-javascript-modules.csv', id: 'jsModuleUniqueHash', filePath: 'filePath', packageName: 'packageName', basePath: 'baseMservPath' },
     expressions: {
       file: 'all-javascript-expressions.csv', id: 'jsExpressionUniqueHash', kind: 'expressionKind',
       startLine: 'startLine', startColumn: 'startColumn', endLine: 'endLine', endColumn: 'endColumn',

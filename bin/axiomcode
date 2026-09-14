@@ -99,13 +99,27 @@ case "$cmd" in
         [ -f "$d/$m" ] && return 0
         for sub in "$d"/*/; do [ -f "$sub$m" ] && return 0; done
       done; return 1; }
-    libroots=""
+    # Every entry is staged under its OWN intermediate directory. Two libraries with one
+    # directory name are routine (a nested second version of a package, `@scope/x` beside
+    # `x`, two monorepo packages both called `core`); named by basename alone the second
+    # parse overwrote the first with nothing printed, and the client's calls then landed on
+    # the surviving copy. A name that is already taken gets a short hash of the absolute
+    # path appended; an entry that names a path already staged is skipped, not staged twice.
+    libroots=""; seen_paths=","; seen_names=","
     IFS=',' read -ra libentries <<< "$libs"
     for L in ${libentries[@]+"${libentries[@]}"}; do
       [ -n "$L" ] || continue; [ -d "$L" ] || die "--library: not a directory: $L"
+      abs="$(cd "$L" && pwd)"
+      case "$seen_paths" in *",$abs,"*) echo "▶ library $L is already staged; skipping the duplicate entry"; continue;; esac
+      seen_paths="$seen_paths$abs,"
       if is_ir "$L"; then libroots="$libroots,$L"
       else
-        n="$(basename "$(cd "$L" && pwd)")"; lir="$int/lib/$n"
+        n="$(basename "$abs")"
+        case "$seen_names" in *",$n,"*)
+          n="$n-$(printf '%s' "$abs" | shasum | cut -c1-8)"
+          echo "▶ a library named $(basename "$abs") is already staged; $L is staged as $n";; esac
+        seen_names="$seen_names$n,"
+        lir="$int/lib/$n"
         echo "▶ parsing library $L → $lir"
         "$0" parser "$L" "$lir" --version "$(git -C "$L" rev-parse HEAD 2>/dev/null || echo v1.0.0)" > "$int/parse-lib-$n.log" 2>&1 \
           || { echo "❌ parsing library $L failed — see $int/parse-lib-$n.log" >&2; exit 1; }

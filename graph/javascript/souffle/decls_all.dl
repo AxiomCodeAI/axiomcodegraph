@@ -136,6 +136,7 @@
 
 // ── resolution/module-graph.dl ──
 .decl import_module(c0:symbol, c1:symbol)
+.decl import_module_exact(c0:symbol, c1:symbol)
 .decl import_unresolved(c0:symbol, c1:symbol, c2:symbol)
 .decl export_target_value(c0:symbol, c1:symbol, c2:symbol)
 .decl module_export_value(c0:symbol, c1:symbol, c2:symbol, c3:symbol)

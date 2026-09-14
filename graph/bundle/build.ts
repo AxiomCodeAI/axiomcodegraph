@@ -169,19 +169,31 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
   const modules = new Map<string, string>(); // module hash → file path
 
   const M = A.ir.methods, T = A.ir.types;
+  // A LIBRARY row's qualified name and file path are relative to its own package root in
+  // some IRs (JavaScript: `index.run` in `index.js`, whichever package). The prefix that
+  // keeps two packages apart is the package's path under the client when it is installed
+  // there (`node_modules/delta/node_modules/gamma`, which is also how the runtime tells two
+  // versions apart), else the package name; a name two roots share gets `#2`, `#3` appended.
+  const libPrefix = new Map<string, string>(); // library module hash → prefix (no trailing slash)
+  const prefixed = (prov: 'client' | 'lib', moduleCol: number | undefined, r: string[], s: string): string => {
+    if (prov !== 'lib' || moduleCol === undefined) return s;
+    const p = libPrefix.get(r[moduleCol] ?? '');
+    return p && s ? `${p}/${s}` : s;
+  };
   const readMethods = async (src: EntitySource, prov: 'client' | 'lib', only?: Set<string>) => {
     const h = src.header;
     const [ci, cn, cq, ck, co, cf, cs1, ce1] = [M.id, M.name, M.qualifiedName, M.kind, M.ownerTypeId, M.filePath, M.startLine, M.endLine].map((n) => h.col(n));
     // optional columns: absent from the adapter means the language has no such thing
     const cs = M.signature ? h.col(M.signature) : undefined;
     const coq = M.ownerQualifiedName ? h.col(M.ownerQualifiedName) : undefined;
+    const cmod = M.moduleId && libPrefix.size > 0 ? h.col(M.moduleId) : undefined;
     let n = 0;
     for await (const r of rowsOf(src)) {
       const id = r[ci!] ?? '';
       if (only && !only.has(id)) continue;
       if (methods.has(id)) continue;
       const owner = nul(r[co!]);
-      methods.set(id, [id, r[cn!] ?? '', r[cq!] ?? '', cs === undefined ? '' : (r[cs] ?? ''), r[ck!] ?? '', owner, owner && coq !== undefined ? nul(r[coq]) : null, r[cf!] ?? '', int(r[cs1!]), int(r[ce1!]), prov]);
+      methods.set(id, [id, r[cn!] ?? '', prefixed(prov, cmod, r, r[cq!] ?? ''), cs === undefined ? '' : (r[cs] ?? ''), r[ck!] ?? '', owner, owner && coq !== undefined ? nul(r[coq]) : null, prefixed(prov, cmod, r, r[cf!] ?? ''), int(r[cs1!]), int(r[ce1!]), prov]);
       if (owner) wantTypes.add(owner);
       n++;
     }
@@ -190,15 +202,40 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
   const readTypes = async (src: EntitySource, prov: 'client' | 'lib', only?: Set<string>) => {
     const h = src.header;
     const [ci, cn, cq, cc, cf, cs1, ce1] = [T.id, T.name, T.qualifiedName, T.category, T.filePath, T.startLine, T.endLine].map((n) => h.col(n));
+    const cmod = T.moduleId && libPrefix.size > 0 ? h.col(T.moduleId) : undefined;
     let n = 0;
     for await (const r of rowsOf(src)) {
       const id = r[ci!] ?? '';
       if (only && !only.has(id)) continue;
       if (types.has(id)) continue;
-      types.set(id, [id, r[cn!] ?? '', r[cq!] ?? '', r[cc!] ?? '', r[cf!] ?? '', int(r[cs1!]), int(r[ce1!]), prov]);
+      types.set(id, [id, r[cn!] ?? '', prefixed(prov, cmod, r, r[cq!] ?? ''), r[cc!] ?? '', prefixed(prov, cmod, r, r[cf!] ?? ''), int(r[cs1!]), int(r[ce1!]), prov]);
       n++;
     }
     return n;
+  };
+  const readLibPrefixes = async () => {
+    const Mod = A.ir.modules;
+    if (!Mod || !Mod.packageName || !Mod.basePath) return;
+    const src = await libSource(inp, Mod.file);
+    if (!src) return;
+    const ci = src.header.col(Mod.id), cp = src.header.col(Mod.packageName), cb = src.header.col(Mod.basePath);
+    const sourceDir = inp.meta.source_dir ? path.resolve(inp.meta.source_dir) : null;
+    const labelOf = new Map<string, string>(); // base path → label, one per package root
+    const taken = new Map<string, number>();
+    for await (const r of rowsOf(src)) {
+      const base = r[cb] ?? '', pkg = r[cp] ?? '';
+      let label = labelOf.get(base);
+      if (label === undefined) {
+        const rel = sourceDir && base && !path.relative(sourceDir, base).startsWith('..') && path.isAbsolute(base) ? path.relative(sourceDir, base).split(path.sep).join('/') : '';
+        label = rel || pkg || path.basename(base);
+        const seen = (taken.get(label) ?? 0) + 1;
+        taken.set(label, seen);
+        if (seen > 1) label = `${label}#${seen}`;
+        labelOf.set(base, label);
+      }
+      libPrefix.set(r[ci] ?? '', label);
+    }
+    if (libPrefix.size > 0) log(`  library modules prefixed by package: ${libPrefix.size} (${[...new Set(labelOf.values())].length} roots)`);
   };
 
   const cm = await clientSource(inp.clientIrDir, M.file);
@@ -215,6 +252,8 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
 
   // ── 4. library entities — only the referenced ones ────────────────────────
   const missingMethods = new Set([...wantMethods].filter((id) => !methods.has(id)));
+  const missingTypesEarly = [...wantTypes].some((id) => !types.has(id));
+  if (missingMethods.size > 0 || missingTypesEarly) await readLibPrefixes();
   if (missingMethods.size > 0) {
     const lm = await libSource(inp, M.file);
     if (lm) log(`  library methods named: ${await readMethods(lm, 'lib', missingMethods)} of ${missingMethods.size} referenced`);
