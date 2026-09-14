@@ -1,0 +1,19 @@
+main.js:11:119 METHOD_CALL run  EXACT  main.js:2:17
+main.js:11:138 METHOD_CALL fn  EXACT  main.js:10:8
+main.js:11:17 METHOD_CALL run  EXACT  main.js:2:17
+main.js:11:34 METHOD_CALL run  EXACT  main.js:2:17
+main.js:11:53 METHOD_CALL run  EXACT  main.js:2:17
+main.js:11:75 METHOD_CALL run  EXACT  main.js:2:17
+main.js:11:98 METHOD_CALL run  EXACT  main.js:2:17
+main.js:12:25 METHOD_CALL run  EXACT  main.js:2:17
+main.js:14:1 CONSTRUCTOR_CALL Holder  SYNTHESIZED_OK  
+main.js:14:1 METHOD_CALL go  EXACT  main.js:11:3
+main.js:14:20 METHOD_CALL sgo  EXACT  main.js:12:3
+main.js:14:34 METHOD_CALL run  EXACT  main.js:2:17
+main.js:4:9 CONSTRUCTOR_CALL Service  SYNTHESIZED_OK  
+main.js:5:11 CONSTRUCTOR_CALL Service  SYNTHESIZED_OK  
+main.js:6:19 CONSTRUCTOR_CALL Service  SYNTHESIZED_OK  
+main.js:7:20 CONSTRUCTOR_CALL Service  SYNTHESIZED_OK  
+main.js:8:11 CONSTRUCTOR_CALL Service  SYNTHESIZED_OK  
+main.js:9:14 CONSTRUCTOR_CALL Service  SYNTHESIZED_OK  
+# defects: 0

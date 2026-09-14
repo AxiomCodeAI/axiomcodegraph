@@ -1,0 +1,21 @@
+// ============================================================================
+// Resolution · GENERATORS  (#486)
+//
+// A generator's product is what it YIELDS, not what it returns. A call to a generator
+// is an array-like value whose elements are the yields — `arrays.dl` already reads
+// `for..of`, spread, `[i]`, `Array.from` off an `arr` value, so the whole feature is
+// the element relation. `yield* e` delegates to e's elements. `it.next().value` is an
+// element of the iterator's array.
+// ============================================================================
+method_is_generator(m) :- method_generator_flag(_, "true", m).
+yield_value(m, k, i) :- expr_kind(_, "YIELD", _, y), expr_owner(_, m, _, y), !yield_delegates(y),
+    expr_child(_, y, _, _, e), expr_value(e, k, i).
+yield_value(m, k, i) :- expr_kind(_, "YIELD", _, y), expr_owner(_, m, _, y), yield_delegates(y),
+    expr_child(_, y, _, _, e), iterable_element(e, k, i).
+yield_delegates(y) :- expr_kind(_, "YIELD", _, y), expr_text(_, txt, y), substr(txt, 0, 6) = "yield*".
+expr_value(ce, "arr", ce) :- expr_kind(_, "CALL", _, ce), expr_resolves_to_method(ce, m), method_is_generator(m).
+elem_value(ce, k, i) :- expr_kind(_, "CALL", _, ce), expr_resolves_to_method(ce, m), method_is_generator(m), yield_value(m, k, i).
+// `gen().next().value`: `next()` on an array-like yields a result whose `value` is an
+// element. The `next` call is an object value with that one property.
+expr_value(ce, "obj", ce) :- array_method_call(ce, "next", _).
+prop_value("obj", ce, "value", k, i) :- array_method_call(ce, "next", a), elem_value(a, k, i).

@@ -1,0 +1,16 @@
+AbstractBlock.js:3:28 SUPER_CALL super  EXACT  Node.js:6:3
+AbstractBlock.js:4:12 METHOD_CALL walk  EXACT  Node.js:7:3
+AbstractBlock.js:4:26 METHOD_CALL error  EXACT  Component.js:4:3
+Component.js:12:5 METHOD_CALL walk  SOUND_SUPERSET  AbstractBlock.js:4:3;Node.js:7:3
+Component.js:16:1 CONSTRUCTOR_CALL Component  SYNTHESIZED_OK  
+Component.js:16:1 METHOD_CALL run  EXACT  Component.js:5:3
+Component.js:6:19 CONSTRUCTOR_CALL AbstractBlock  EXACT  AbstractBlock.js:3:3
+Component.js:7:15 CONSTRUCTOR_CALL AbstractBlock  EXACT  AbstractBlock.js:3:3
+Component.js:7:5 METHOD_CALL add  EXACT  Node.js:8:3
+Component.js:7:5 METHOD_CALL walk  EXACT  AbstractBlock.js:4:3
+Component.js:8:18 METHOD_CALL clone  EXACT  Node.js:9:3
+Node.js:7:12 METHOD_CALL warn  EXACT  Component.js:3:3
+Node.js:7:39 METHOD_CALL forEach  LIB_AMBIENT_OK  
+Node.js:8:16 METHOD_CALL push  LIB_AMBIENT_OK  
+Node.js:9:20 CONSTRUCTOR_CALL constructor  SYNTHESIZED_OVER  AbstractBlock.js:3:3;Node.js:6:3
+# defects: 0

@@ -1,0 +1,54 @@
+lib/util.js:11:20 SUPER_CALL super  ->  known_edge  lib/util.js:5:3 <constructor>
+lib/util.js:12:20 METHOD_CALL super.greet  ->  known_edge  lib/util.js:6:3 greet
+lib/util.js:13:20 METHOD_CALL this.greet  ->  known_edge  lib/util.js:12:3 greet
+lib/util.js:13:20 METHOD_CALL this.greet().toUpperCase  ->  ambiguous_unknown  -
+lib/util.js:17:39 CONSTRUCTOR_CALL Legacy  ->  known_edge  lib/util.js:15:1 Legacy
+lib/util.js:19:16 FUNCTION_CALL helper  ->  known_edge  lib/util.js:2:1 helper
+lib/util.js:20:27 FUNCTION_CALL arrow  ->  known_edge  lib/util.js:3:15 <arrow>
+lib/util.js:3:22 FUNCTION_CALL helper  ->  known_edge  lib/util.js:2:1 helper
+lib/util.js:5:48 METHOD_CALL this.greet  ->  multi_inferred  lib/util.js:12:3 greet
+lib/util.js:5:48 METHOD_CALL this.greet  ->  multi_inferred  lib/util.js:6:3 greet
+lib/util.js:7:27 CONSTRUCTOR_CALL Base  ->  known_edge  lib/util.js:5:3 <constructor>
+src/consumer.js:10:3 CONSTRUCTOR_CALL Local  ->  known_edge  lib/util.js:11:3 <constructor>
+src/consumer.js:10:3 METHOD_CALL new Local(1).extraLocal  ->  known_edge  src/consumer.js:6:3 extraLocal
+src/consumer.js:11:3 FUNCTION_CALL useD  ->  known_edge  src/consumer.js:4:1 useD
+src/consumer.js:11:8 CONSTRUCTOR_CALL Derived  ->  known_edge  lib/util.js:11:3 <constructor>
+src/consumer.js:13:3 FUNCTION_CALL fn  ->  known_edge  src/consumer.js:8:1 go
+src/consumer.js:15:3 METHOD_CALL o.inner  ->  known_edge  src/consumer.js:14:15 inner
+src/consumer.js:17:3 METHOD_CALL holder.fn  ->  known_edge  src/main.js:10:1 run
+src/consumer.js:19:1 FUNCTION_CALL go  ->  known_edge  src/consumer.js:8:1 go
+src/consumer.js:4:27 METHOD_CALL d.shout  ->  known_edge  lib/util.js:13:3 shout
+src/consumer.js:6:25 METHOD_CALL this.greet  ->  known_edge  lib/util.js:12:3 greet
+src/consumer.js:6:40 METHOD_CALL this.shout  ->  known_edge  lib/util.js:13:3 shout
+src/consumer.js:9:3 FUNCTION_CALL run  ->  known_edge  src/main.js:10:1 run
+src/main.js:11:3 FUNCTION_CALL local  ->  known_edge  src/main.js:7:1 local
+src/main.js:12:3 FUNCTION_CALL localArrow  ->  known_edge  src/main.js:8:20 <arrow>
+src/main.js:13:3 FUNCTION_CALL helper  ->  known_edge  lib/util.js:2:1 helper
+src/main.js:14:3 METHOD_CALL util.helper  ->  known_edge  lib/util.js:2:1 helper
+src/main.js:15:3 METHOD_CALL util.arrow  ->  known_edge  lib/util.js:3:15 <arrow>
+src/main.js:16:3 METHOD_CALL util.extra  ->  known_edge  lib/util.js:24:24 extra
+src/main.js:17:3 METHOD_CALL util.another  ->  known_edge  lib/util.js:25:19 <arrow>
+src/main.js:18:13 CONSTRUCTOR_CALL Base  ->  known_edge  lib/util.js:5:3 <constructor>
+src/main.js:19:3 METHOD_CALL b.greet  ->  known_edge  lib/util.js:6:3 greet
+src/main.js:20:13 CONSTRUCTOR_CALL Derived  ->  known_edge  lib/util.js:11:3 <constructor>
+src/main.js:21:3 METHOD_CALL d.greet  ->  known_edge  lib/util.js:12:3 greet
+src/main.js:22:3 METHOD_CALL d.shout  ->  known_edge  lib/util.js:13:3 shout
+src/main.js:23:13 CONSTRUCTOR_CALL util.Legacy  ->  known_edge  lib/util.js:15:1 Legacy
+src/main.js:24:3 METHOD_CALL l.value  ->  known_edge  lib/util.js:16:26 value
+src/main.js:25:3 METHOD_CALL util.Legacy.create  ->  known_edge  lib/util.js:17:17 create
+src/main.js:26:3 METHOD_CALL Base.make  ->  known_edge  lib/util.js:7:3 make
+src/main.js:27:3 METHOD_CALL util.obj.m  ->  known_edge  lib/util.js:19:3 m
+src/main.js:28:3 METHOD_CALL util.obj.f  ->  known_edge  lib/util.js:20:6 <function-expression>
+src/main.js:29:3 METHOD_CALL util.obj.g  ->  known_edge  lib/util.js:21:6 <arrow>
+src/main.js:30:3 METHOD_CALL path.join  ->  ambient_terminal  -
+src/main.js:31:3 FUNCTION_CALL_CALL helper.call  ->  known_edge  lib/util.js:2:1 helper
+src/main.js:32:3 FUNCTION_CALL_APPLY helper.apply  ->  known_edge  lib/util.js:2:1 helper
+src/main.js:33:17 FUNCTION_CALL_BIND helper.bind  ->  known_edge  lib/util.js:2:1 helper
+src/main.js:34:3 FUNCTION_CALL bound  ->  known_edge  lib/util.js:2:1 helper
+src/main.js:35:22 FUNCTION_CALL local  ->  known_edge  src/main.js:7:1 local
+src/main.js:35:3 IIFE_CALL (function iife() { local(9); })  ->  known_edge  src/main.js:35:4 iife
+src/main.js:36:25 FUNCTION_CALL local  ->  known_edge  src/main.js:7:1 local
+src/main.js:36:3 METHOD_CALL [1, 2].forEach  ->  ambient_terminal  -
+src/main.js:36:3 METHOD_CALL [1, 2].forEach  ->  callback_registered  src/main.js:36:18 <arrow>
+src/main.js:37:3 METHOD_CALL console.log  ->  ambient_terminal  -
+src/main.js:40:1 FUNCTION_CALL run  ->  known_edge  src/main.js:10:1 run

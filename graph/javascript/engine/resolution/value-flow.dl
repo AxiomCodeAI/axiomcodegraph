@@ -1,0 +1,419 @@
+// ============================================================================
+// Resolution · VALUE FLOW  (the type system JavaScript does not have)
+//
+// ── WHY FLOW AND NOT TYPES ──────────────────────────────────────────────────
+// 0.165% of parameters carry a syntactic annotation and all of those are Flow.
+// The receiver of `w.inc()` has no declared type anywhere; what it HOLDS is what
+// decides the target, and that is known only by following where the value came
+// from: `const w = new Widget()`, a `@param {Widget} w`, an argument at a resolved
+// call, a returned expression, an exported member. So the central relation here is
+// not "the type of an expression" but "a value an expression MAY hold":
+//
+//   expr_value(E, K, I)     expression E may evaluate to the value (K, I)
+//   var_value(V, K, I)      binding V may hold it
+//   param_value(P, K, I)    parameter P may receive it
+//   prop_value(K, I, N, K2, I2)   property N of value (K, I) may hold (K2, I2)
+//   this_value(M, K, I)     `this` inside callable M may be (K, I)
+//   return_value(M, K, I)   callable M may return (K, I)
+//
+// with SIX value kinds, each one a hash into one IR relation:
+//
+//   func    a js_method              — a callable
+//   ctor    a js_type                — the class / constructor-function VALUE itself
+//   inst    a js_type                — an instance of it
+//   proto   a js_type                — `T.prototype`
+//   module  a js_module              — a namespace object / a CommonJS exports value
+//   obj     a js_expression          — an object literal, keyed by the literal node
+//
+// ── SOUNDNESS, AND THE ONE PLACE IT IS CLOSED-WORLD ─────────────────────────
+// Every rule here is a may-analysis: a binding written twice holds both values, a
+// parameter passed two functions holds both, and a call through it fans to both.
+// That is the honest set. The closed-world assumption is on PARAMETERS — a
+// parameter's values are the arguments at the call sites this engine resolved,
+// and a caller it cannot see (a library invoking a callback, a test harness) is a
+// value it does not know. `param_flow_assumes_closed_world` records that per
+// parameter so the assumption is countable rather than implicit.
+//
+// An untyped receiver produces NOTHING. Fanning `x.get()` to every `get` in the
+// project has no soundness argument, and it is what makes a name-matching graph
+// worse than no graph. The site is a declared unknown instead.
+// ============================================================================
+
+// ── constructible_value / callable_value — the two projections of a value ──
+// A class value constructs its type; a function that is a constructor function
+// (a js_type carries it as constructorMethodLinkHash) constructs that type; a
+// CommonJS module whose `module.exports` is a class constructs THAT class —
+// `class X extends require('./base')` and `@param {Base} b` with
+// `var Base = require('./base')` both name the module. A function value is
+// callable; calling a MODULE value goes through its default export, which
+// callee-resolution.dl unwraps.
+constructible_value("ctor", t, t) :- type_decl(_, _, _, _, _, t).
+constructible_value("func", m, t) :- type_ctor(_, m, t).
+constructible_value("module", mod, t) :- module_export_value(mod, "default", k, i), constructible_value(k, i, t).
+callable_value("func", m, m) :- method_decl(_, _, _, _, _, _, _, m).
+callable_value("ctor", t, m) :- type_decl(_, _, "CONSTRUCTOR_FUNCTION", _, _, t), type_ctor(_, m, t).
+
+// ── expr_value: the sources ─────────────────────────────────────────────────
+// A function expression or arrow IS its js_method.
+expr_value(e, "func", m) :- expr_introduces(_, m, e).
+// A class expression is its js_type. The parser links neither the expression to
+// the type nor the type to the expression (PD-JS-2), so the join is on position:
+// a FUNCTION_EXPRESSION row with no introduced method, at the same line and column
+// as a js_type in the same module, is that class.
+expr_value(e, "ctor", t) :- type_source_expr(_, e, t).
+expr_value(e, "ctor", t) :- expr_kind(_, "FUNCTION_EXPRESSION", _, e),
+    !expr_introduces(_, _, e),
+    expr_owner(_, _, mod, e), expr_span(_, l, c, _, _, e),
+    type_decl(_, _, _, _, mod, t), type_lines(_, _, l, c, t).
+// An object literal is its own value.
+expr_value(e, "obj", e) :- expr_kind(_, "OBJECT_LITERAL", _, e).
+// An identifier holds what its binding holds — the binder's answer, never a name.
+expr_value(e, k, i) :- expr_binding(_, v, e), var_value(v, k, i).
+expr_value(e, k, i) :- expr_param(_, p, e), param_value(p, k, i), !expr_binding_path(_, _, e).
+// A name bound by a destructured parameter `function f({ a: { b } }, [c])` resolves
+// to the pattern's one parameter row; the reference carries the binding's PATH from
+// the parameter's value (#487), and the value is what the path reaches.
+expr_value(e, k2, i2) :- expr_param(_, p, e), expr_binding_path(_, path, e),
+    param_value(p, k, i), path_value(k, i, path, k2, i2).
+// `this`.
+expr_value(e, k, i) :- expr_kind(_, "THIS", _, e), expr_owner(_, m, _, e), this_value(m, k, i).
+// `require('./x')` — the module edge's far side. What it evaluates to is the
+// module value in both systems; its properties are the export surface.
+expr_value(e, "module", mod) :- expr_kind(_, "MODULE_EDGE_CALL", _, e),
+    expr_module_edge(_, imp, e), import_module(imp, mod).
+// `exports` and `module.exports` INSIDE a CommonJS module are that module's own
+// export surface: `exports.clone(x)` and `var self = module.exports; self.run()`
+// call into the file itself. The binder marks both names GLOBAL_BUILTIN.
+expr_value(e, "module", mod) :- expr_kind(_, "IDENTIFIER", _, e), expr_text(_, "exports", e),
+    expr_binding_resolution(_, "GLOBAL_BUILTIN", e), expr_owner(_, _, mod, e).
+expr_value(e, "module", mod) :- expr_kind(_, "PROPERTY_ACCESS", _, e), expr_name(_, "exports", e),
+    expr_child(_, e, "ACCESS_TARGET", _, r), expr_kind(_, "IDENTIFIER", _, r), expr_text(_, "module", r),
+    expr_binding_resolution(_, "GLOBAL_BUILTIN", r), expr_owner(_, _, mod, e).
+// A property read: the property of whatever the target holds.
+expr_value(e, k2, i2) :- expr_kind(_, "PROPERTY_ACCESS", _, e), expr_name(_, n, e),
+    expr_child(_, e, "ACCESS_TARGET", _, r), expr_value(r, k, i),
+    prop_value(k, i, n, k2, i2).
+expr_value(e, k2, i2) :- expr_kind(_, "OPTIONAL_ACCESS", _, e), expr_name(_, n, e),
+    expr_child(_, e, "ACCESS_TARGET", _, r), expr_value(r, k, i),
+    prop_value(k, i, n, k2, i2).
+// A STRING LITERAL is a value too — kind `str`, id = the text without its quotes. It
+// flows like any other value, so `obj[key]` resolves whenever the key's value is a
+// literal that reached it: `handlers['create']`, `byName('update')` → `handlers[name]`,
+// `methods.forEach((m) => proto[m] = ...)` over an array of literals. Nothing here
+// concatenates or transforms strings; a computed text stays unknown.
+expr_value(e, "str", n) :- expr_kind(_, "LITERAL", _, e), expr_literal_kind(_, "STRING", e), expr_text(_, txt, e),
+    strlen(txt) >= 2, n = substr(txt, 1, strlen(txt) - 2).
+// A NUMBER key is a string key at runtime (`keyed[1]` meets the property `1`), and a
+// template with no substitution is its text.
+expr_value(e, "str", txt) :- expr_kind(_, "LITERAL", _, e), expr_literal_kind(_, "NUMBER", e), expr_text(_, txt, e).
+expr_value(e, "str", n) :- expr_kind(_, "TEMPLATE", _, e), !expr_child(_, e, _, _, _), expr_text(_, txt, e),
+    strlen(txt) >= 2, n = substr(txt, 1, strlen(txt) - 2).
+// `obj[key]` where key holds a string: the property of that name.
+expr_value(e, k2, i2) :- expr_kind(_, "ELEMENT_ACCESS", _, e), expr_child(_, e, "COMPUTED_KEY", _, key), expr_value(key, "str", n),
+    expr_child(_, e, "ACCESS_TARGET", _, r), expr_value(r, k, i), k != "arr", k != "coll", k != "str",
+    prop_value(k, i, n, k2, i2).
+// A call's value is what the callee returns; `new` yields an instance.
+expr_value(e, k, i) :- expr_kind(_, "CALL", _, e), expr_resolves_to_method(e, m), return_value(m, k, i).
+expr_value(e, "inst", t) :- expr_kind(_, "NEW", _, e), new_constructs(e, t).
+// `new F()` on a plain function that RETURNS an object: the language substitutes the
+// returned object for the constructed one.
+expr_value(e, k, i) :- expr_kind(_, "NEW", _, e), new_callee_value(e, "func", m), !type_ctor(_, m, _), return_value(m, k, i), k != "inst".
+// `f.bind(o)` evaluates to a function that runs f. The site itself resolves to f
+// (callee-resolution.dl); the VALUE of the expression is f as well.
+expr_value(e, "func", m) :- expr_kind(_, "CALL", _, e), call_site(_, "FUNCTION_CALL_BIND", _, _, _, _, e, _, _),
+    expr_child(_, e, "CALLEE", _, c), expr_value(c, "func", m).
+// Transparent wrappers: `await x`, `(c ? a : b)`, `a || b`, `a && b`, `a ?? b`,
+// `x = v` (an assignment expression evaluates to v), `(a, b)`.
+expr_value(e, k, i) :- expr_kind(_, "AWAIT", _, e), expr_child(_, e, _, _, c), expr_value(c, k, i).
+expr_value(e, k, i) :- expr_kind(_, "CONDITIONAL", _, e), expr_child(_, e, r, _, c), r != "CONDITION", expr_value(c, k, i).
+expr_value(e, k, i) :- expr_kind(_, "BINARY", _, e), expr_operator(_, op, e), binary_op_passes_value(op),
+    expr_child(_, e, _, _, c), expr_value(c, k, i).
+binary_op_passes_value("||").
+binary_op_passes_value("&&").
+binary_op_passes_value("??").
+expr_value(e, k, i) :- expr_kind(_, "ASSIGNMENT", _, e), expr_child(_, e, "ASSIGNMENT_VALUE", _, c), expr_value(c, k, i).
+// `(0, f)()` — a comma expression is its LAST operand.
+expr_value(e, k, i) :- expr_kind(_, "SEQUENCE", _, e), sequence_last(e, c), expr_value(c, k, i).
+sequence_last(e, c) :- expr_kind(_, "SEQUENCE", _, e), expr_child(_, e, _, idx, c),
+    to_number(idx) = max n : { expr_child(_, e, _, idx2, _), n = to_number(idx2) }.
+
+// ── var_value ───────────────────────────────────────────────────────────────
+var_value(v, k, i) :- var_init(_, _, e, v), !var_binding_form(_, "OBJECT_PATTERN", v), !var_binding_form(_, "ARRAY_PATTERN", v),
+    expr_value(e, k, i).
+var_value(v, k, i) :- var_import(_, imp, v), import_value(imp, k, i).
+var_value(v, "func", m) :- function_binding_method(v, m).
+var_value(v, "ctor", t) :- class_binding_type(v, t).
+// `x = v` anywhere the binder resolved x to this binding. Plain `=` only: `x += v`
+// is arithmetic, `x ||= v` is a conditional write and is included as a may-write.
+var_value(v, k, i) :- expr_kind(_, "ASSIGNMENT", _, a), expr_operator(_, op, a), assignment_op_writes_value(op),
+    expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt), expr_binding(_, v, tgt),
+    expr_child(_, a, "ASSIGNMENT_VALUE", _, val), expr_value(val, k, i).
+assignment_op_writes_value("=").
+assignment_op_writes_value("||=").
+assignment_op_writes_value("&&=").
+// Spelled with cat(): the C preprocessor souffle runs first reads `??=` as a trigraph.
+assignment_op_writes_value(cat("??", "=")).
+// `/** @type {T} */ let x` — the declared instance.
+var_value(v, "inst", t) :- var_type_name(_, _, tr, v), type_ref_type(tr, t).
+// `const { a, b: [c] } = value` — each binding of a pattern carries its PATH from the
+// pattern's value (#487): a property name, an element index, a dotted chain of them,
+// or a rest. The parser gives every binding of the pattern the same initializer
+// expression; the import form (`const { a } = require('m')`) comes through
+// var_import instead and is excluded here so it is not derived twice.
+var_value(v, k2, i2) :- var_binding_path(_, path, v), !var_import(_, _, v),
+    var_init(_, _, e, v), expr_value(e, k, i), path_value(k, i, path, k2, i2).
+
+// ── path_value(K, I, Path, K2, I2) — a binding path walked from a value ─────
+// A path is `seg(.seg)*`, a segment a property name or an element index; a rest
+// binding is `base...` (`...` alone: the whole value; `1...`: the elements past
+// index 1). A rest of an array is a fresh array with the same elements, and a rest
+// of an object is that object less some keys — both are read as the value itself.
+// Index-insensitive on purpose: an `arr` value carries one element set.
+binding_path(p) :- var_binding_path(_, p, _).
+binding_path(p) :- expr_binding_path(_, p, _).
+binding_path(p) :- import_decl(_, _, _, "DESTRUCTURED", p, _, _, _, _), p != "".
+binding_path(h) :- path_split(_, h, _).
+binding_path(t) :- path_split(_, _, t).
+binding_path(b) :- path_rest_base(_, b), b != "".
+path_rest_base(p, substr(p, 0, strlen(p) - 3)) :- binding_path(p), strlen(p) >= 3, substr(p, strlen(p) - 3, 3) = "...".
+path_split(p, substr(p, 0, n), substr(p, n + 1, strlen(p) - n - 1)) :- binding_path(p), !match(".*[.][.][.]", p),
+    contains(".", p), n = range(1, strlen(p) - 1), substr(p, n, 1) = ".", !contains(".", substr(p, 0, n)).
+path_step(k, i, seg, k2, i2) :- binding_path(seg), !contains(".", seg), !match("[0-9]+", seg), prop_value(k, i, seg, k2, i2).
+path_step(k, i, seg, k2, i2) :- binding_path(seg), match("[0-9]+", seg), elem_value(i, k2, i2), value_has_elements(k).
+value_has_elements("arr").
+value_has_elements("coll").
+path_value(k, i, p, k2, i2) :- binding_path(p), !contains(".", p), path_step(k, i, p, k2, i2).
+path_value(k, i, p, k2, i2) :- path_split(p, h, t), path_step(k, i, h, k1, i1), path_value(k1, i1, t, k2, i2).
+// `...rest` at the top of a pattern: the value itself. `[a, ...rest]` (base `1`): the
+// ARRAY the elements came from — the parent of the index, or the value itself when
+// the index is at the top. `{ a: { ...rest } }` (base `a`): the object at `a`.
+path_rest_identity(p) :- path_rest_base(p, "").
+path_rest_identity(p) :- path_rest_base(p, b), match("[0-9]+", b).
+path_value(k, i, p, k, i) :- path_rest_identity(p), path_source(k, i).
+// The values a pattern is applied to — grounds the identity case.
+path_source(k, i) :- var_binding_path(_, _, v), var_init(_, _, e, v), expr_value(e, k, i).
+path_source(k, i) :- expr_param(_, p, e), expr_binding_path(_, _, e), param_value(p, k, i).
+path_source("module", mod) :- import_decl(_, _, _, "DESTRUCTURED", n, _, _, _, imp), contains(".", n), import_module(imp, mod).
+path_source(k, i) :- path_step(_, _, _, k, i).
+path_value(k, i, p, k2, i2) :- path_rest_base(p, b), path_parent(b, par), match("[0-9]+", substr(b, strlen(par) + 1, strlen(b) - strlen(par) - 1)),
+    path_value(k, i, par, k2, i2).
+path_value(k, i, p, k2, i2) :- path_rest_base(p, b), b != "", !match("([^.]*[.])*[0-9]+", b), path_value(k, i, b, k2, i2).
+path_parent(b, substr(b, 0, n)) :- path_rest_base(_, b), contains(".", b), n = range(1, strlen(b) - 1), substr(b, n, 1) = ".",
+    !contains(".", substr(b, n + 1, strlen(b) - n - 1)).
+binding_path(par) :- path_parent(_, par).
+
+// ── param_value ─────────────────────────────────────────────────────────────
+// `@param {T} x` — the one declared channel.
+param_value(p, "inst", t) :- param_type_name(_, _, tr, p), type_ref_type(tr, t).
+// Argument flow at every call this engine resolved: argument i -> parameter i.
+// A rest parameter receives every argument at or past its position.
+// A function with more than --dispatch-cap direct call sites is a generic utility
+// whose parameters are not tracked: see resolution/fan-cap.dl.
+//
+// CLIENT FUNCTIONS ONLY. A staged library's parameters are not tracked at all: its
+// bodies are read for what they DECLARE and RETURN (an export surface, a class, a
+// prototype member, `return app`), never for what its callers pass. Tracking them
+// turned a utility library's 1,000 tiny modules into one merged value set — 31,533
+// values on every export, a 20-minute solve — because a generic library is exactly
+// the shape whose parameters unify everything. What a library does with a callback it
+// is handed is a MODEL (resolution/frameworks.dl), stated per library, not inferred.
+param_value(p, k, i) :- call_arg(ce, pos, arg), expr_resolves_to_method(ce, m), !method_is_hot(m, _),
+    method_decl("client", _, _, _, _, _, _, m),
+    param_decl(_, _, ppos, m, p), to_number(ppos) = pos, !param_is_rest(_, p),
+    expr_value(arg, k, i).
+// A rest parameter IS an array; the arguments at and past its position are its elements.
+param_value(p, "arr", p) :- param_is_rest(_, p).
+elem_value(p, k, i) :- call_arg(ce, pos, arg), expr_resolves_to_method(ce, m), !method_is_hot(m, _),
+    method_decl("client", _, _, _, _, _, _, m),
+    param_decl(_, _, ppos, m, p), param_is_rest(_, p), to_number(ppos) <= pos,
+    expr_value(arg, k, i).
+// A default value: `cb = () => {}`. The parser gives the parameter the default's
+// text and emits the expression as a PARAMETER_DEFAULT root of the same method,
+// linked by nothing else, so the join is on the text. Two parameters of one
+// function with byte-identical defaults would share values — a may-answer.
+param_value(p, k, i) :- param_default_text(_, txt, m, p), param_binding_form(_, "ASSIGNMENT_PATTERN", p),
+    expr_root(_, "PARAMETER_DEFAULT", e), expr_owner(_, m, _, e), expr_text(_, txt, e),
+    expr_value(e, k, i).
+param_flow_assumes_closed_world(p) :- param_value(p, _, _), !param_type_name(_, _, _, p).
+
+// ── call_arg(CallExpr, Position, ArgExpr) — argument POSITION, not child index ──
+// The child index counts the callee/receiver too, and for `f.call(o, a)` the
+// receiver moved into argument position is a RECEIVER child, not an ARGUMENT — so
+// the position is the number of ARGUMENT siblings before this one. `.apply` passes
+// an array and contributes no positional flow.
+call_arg(ce, pos, arg) :- expr_child(_, ce, "ARGUMENT", idx, arg),
+    call_site(_, ck, _, _, _, _, ce, _, _), ck != "FUNCTION_CALL_APPLY",
+    pos = count : { expr_child(_, ce, "ARGUMENT", idx2, _), to_number(idx2) < to_number(idx) }.
+
+// ── this_value ──────────────────────────────────────────────────────────────
+// A class member's `this` is an instance; a static's is the class; a constructor
+// function's is the instance it builds. An arrow's is its enclosing callable's.
+this_value(m, "inst", t) :- method_decl(_, _, k, _, "false", t, _, m), t != "", k != "STATIC_BLOCK",
+    method_this_binding(_, "DYNAMIC", m).
+this_value(m, "ctor", t) :- method_decl(_, _, _, _, "true", t, _, m), t != "".
+this_value(m, "inst", t) :- type_ctor(_, m, t).
+this_value(m, k, i) :- method_this_binding(_, "LEXICAL", m), method_enclosing(m, e), this_value(e, k, i).
+// A function WRITTEN as a property is invoked as a method of the object it is
+// written into, so its `this` is that object: a literal's own members (`{ m() {} }`,
+// `{ m: function () {} }`), and `X.m = function () {}` for whatever X holds —
+// through `T.prototype.m = ...` the value is the instance, not the prototype object.
+//
+// DEFINITION-SITE ONLY, deliberately. An earlier version bound `this` through any
+// property that HELD the function (`prop_value(_, _, _, "func", m)`), which let an
+// options bag merged from 200 callers give 200 `this` values to every function it
+// carried, each `this.x = v` inside then multiplied by 200, and the fixpoint did not
+// terminate on a held-out project. A function passed around as a value and later
+// stored (`opts.cb = handler`) keeps its `this` unbound instead.
+this_value(m, "obj", l) :- expr_child(_, l, "PROPERTY_VALUE", _, v), expr_kind(_, "OBJECT_LITERAL", _, l),
+    expr_introduces(_, m, v), method_this_binding(_, "DYNAMIC", m), !method_owner_type(m, _).
+this_value(m, "obj", l) :- literal_owns_method(l, m), method_this_binding(_, "DYNAMIC", m), !method_owner_type(m, _).
+this_value(m, k, i) :- expr_kind(_, "ASSIGNMENT", _, a), expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt),
+    expr_kind(_, "PROPERTY_ACCESS", _, tgt), expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, k, i), k != "proto", k != "ambient",
+    expr_child(_, a, "ASSIGNMENT_VALUE", _, val), expr_introduces(_, m, val), method_this_binding(_, "DYNAMIC", m),
+    !method_owner_type(m, _).
+this_value(m, "inst", t) :- expr_kind(_, "ASSIGNMENT", _, a), expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt),
+    expr_kind(_, "PROPERTY_ACCESS", _, tgt), expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, "proto", t),
+    expr_child(_, a, "ASSIGNMENT_VALUE", _, val), expr_introduces(_, m, val), method_this_binding(_, "DYNAMIC", m),
+    !method_owner_type(m, _).
+// `obj[name] = function () { this.x() }` — a computed member name gives no
+// property to look up, but the function's `this` is still the object.
+this_value(m, k, i) :- expr_kind(_, "ASSIGNMENT", _, a), expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt),
+    expr_kind(_, "ELEMENT_ACCESS", _, tgt), expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, k, i), k != "proto",
+    expr_child(_, a, "ASSIGNMENT_VALUE", _, val), expr_introduces(_, m, val), method_this_binding(_, "DYNAMIC", m),
+    !method_owner_type(m, _).
+this_value(m, "inst", t) :- expr_kind(_, "ASSIGNMENT", _, a), expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt),
+    expr_kind(_, "ELEMENT_ACCESS", _, tgt), expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, "proto", t),
+    expr_child(_, a, "ASSIGNMENT_VALUE", _, val), expr_introduces(_, m, val), method_this_binding(_, "DYNAMIC", m),
+    !method_owner_type(m, _).
+
+// ── return_value ────────────────────────────────────────────────────────────
+// Every `return <expr>` in the body, and the expression body of an arrow (the
+// parser roots both under RETURN). The owner is the function returned FROM — the
+// parser attributes a nested function's body to the nested function, so no
+// filtering by nesting is needed. Plus `@returns {T}`.
+return_value(m, k, i) :- expr_root(_, "RETURN", e), expr_owner(_, m, _, e), !expr_kind(_, "THIS", _, e), expr_value(e, k, i).
+return_value(m, "inst", t) :- method_return_type(_, _, tr, m), type_ref_type(tr, t).
+// `return this` is POLYMORPHIC: a fluent `add()` declared on Node and called on an
+// AbstractBlock returns the AbstractBlock. So a `this`-return is not a value of the
+// method — it is the RECEIVER of each call, substituted at the site (below). A
+// receiverless call of such a function falls back to the function's own `this`.
+method_returns_this(m) :- expr_root(_, "RETURN", e), expr_owner(_, m, _, e), expr_kind(_, "THIS", _, e).
+expr_value(ce, k, i) :- expr_kind(_, "CALL", _, ce), expr_resolves_to_method(ce, m), method_returns_this(m),
+    call_site(_, ck, _, "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck),
+    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, k, i).
+expr_value(ce, k, i) :- expr_kind(_, "CALL", _, ce), expr_resolves_to_method(ce, m), method_returns_this(m),
+    call_site(_, ck, _, _, _, _, ce, _, _), !call_kind_is_member_form(ck),
+    this_value(m, k, i).
+
+// ── prop_value(K, I, Name, K2, I2) — reading a property off a value ────────
+// Object literal: `{ a: v }` (key + value children at the same child index),
+// `{ a }` (a shorthand value with no key sibling), and `{ m() {} }` — a method
+// the parser emits as a js_method with NO expression row in the literal
+// (PD-JS-1), reached by position: the innermost literal whose span contains the
+// method's start, in the same module.
+prop_value("obj", l, n, k, i) :- expr_child(_, l, "PROPERTY_KEY", idx, key), expr_name(_, n, key),
+    expr_child(_, l, "PROPERTY_VALUE", idx, v), expr_value(v, k, i).
+prop_value("obj", l, n, k, i) :- expr_child(_, l, "PROPERTY_VALUE", idx, v), !expr_child(_, l, "PROPERTY_KEY", idx, _),
+    expr_name(_, n, v), expr_value(v, k, i).
+// `{ [key]: v }` — a computed key whose value is a string.
+prop_value("obj", l, n, k, i) :- expr_child(_, l, "COMPUTED_KEY", idx, key), expr_value(key, "str", n),
+    expr_child(_, l, "PROPERTY_VALUE", idx, v), expr_value(v, k, i).
+prop_value("obj", l, n, "func", m) :- literal_owns_method(l, m), method_decl(_, n, k, _, _, _, _, m), !method_kind_is_accessor(k).
+// `{ ...other }` — every property of the spread value.
+prop_value("obj", l, n, k, i) :- expr_child(_, l, "SPREAD", _, s), expr_child(_, s, _, _, o), expr_value(o, k0, i0),
+    prop_value(k0, i0, n, k, i).
+prop_value("obj", l, n, k, i) :- expr_child(_, l, "SPREAD_OPERAND", _, o), expr_value(o, k0, i0),
+    prop_value(k0, i0, n, k, i).
+// Class value: statics, and `.prototype`.
+prop_value("ctor", t, n, "func", m) :- type_static(t, n, m).
+prop_value("ctor", t, "prototype", "proto", t) :- type_decl(_, _, _, _, _, t).
+prop_value("func", m, n, k, i) :- type_ctor(_, m, t), prop_value("ctor", t, n, k, i).
+// Instance: members up the chain; `T.prototype.m` reads the same members; and
+// `this.constructor` is the class — `new this.constructor()` in a `clone()`.
+prop_value("inst", t, n, "func", m) :- type_member(t, n, m).
+prop_value("inst", t, "constructor", "ctor", t) :- type_decl(_, _, _, _, _, t).
+// An accessor: reading the property runs the getter, so the value is what it returns.
+prop_value("inst", t, n, k, i) :- type_own_getter(t, n, m), return_value(m, k, i).
+prop_value("ctor", t, n, k, i) :- type_own_static_getter(t, n, m), return_value(m, k, i).
+prop_value("obj", l, n, k, i) :- literal_owns_method(l, m), method_decl(_, n, "GETTER", _, _, _, _, m), return_value(m, k, i).
+prop_value("proto", t, n, "func", m) :- type_member(t, n, m).
+// A class field's INITIALIZER: `dep = new Service()`, `static registry = []`,
+// `#priv = …`, `list = [new Service()]`. The IR links the field to its FIELD_INITIALIZER
+// expression; nothing had read it, so the everyday modern shape — a dependency held in
+// a field — was untyped. (A field holding a function is a js_method already.)
+prop_value("inst", t, n, k, i) :- field_decl(_, n, t, _, "false", ie, _, _), ie != "", expr_value(ie, k, i).
+prop_value("ctor", t, n, k, i) :- field_decl(_, n, t, _, "true", ie, _, _), ie != "", expr_value(ie, k, i).
+// A field documented `@type {T}` holds an instance of T, on every instance of the
+// owner — the field's declared type is the only thing said about it when the
+// constructor assigns a parameter nobody visible passes.
+prop_value("inst", t, n, "inst", t2) :- field_type_name(_, n, t, _, tr, _), type_ref_type(tr, t2).
+// Module: the export surface.
+prop_value("module", mod, n, k, i) :- module_export_value(mod, n, k, i).
+// `exports = module.exports = Base; exports.list = function ...` — a member row
+// written through `exports` after `module.exports = X` lands on X itself: the two
+// names are one object. So the CommonJS default value carries every member export
+// of its module.
+prop_value(k, i, n, k2, i2) :- export_decl(_, "default", _, "MODULE_EXPORTS_ASSIGNMENT", _, _, _, _, mod, x),
+    !export_overwritten(_, x), export_target_value(x, k, i), k != "module",
+    export_decl(_, n, _, form, _, _, _, _, mod, x2), export_form_is_member(form), !export_overwritten(_, x2),
+    export_target_value(x2, k2, i2).
+export_form_is_member("EXPORTS_MEMBER").
+export_form_is_member("MODULE_EXPORTS_MEMBER").
+export_form_is_member("OBJECT_DEFINE_PROPERTY").
+// Any property WRITE flows into the property: `this.x = fn` in a constructor or a
+// method, `app.init = function`, `exports.handler = ...` read back through the
+// module, `T.prototype.m = ...`. Instance writes through `this` reach every
+// instance of the type; a subtype without its own member of that name reads it.
+prop_value(k, i, n, k2, i2) :- member_write(k, i, n, k2, i2).
+// A write onto `T.prototype` (`Object.assign(T.prototype, mixin)`, `T.prototype.m = f`
+// where f is a binding) is a member of every instance, and a function written there
+// runs with the instance as `this`.
+prop_value("inst", t, n, k, i) :- member_write("proto", t, n, k, i).
+this_value(m, "inst", t) :- member_write("proto", t, _, "func", m), method_this_binding(_, "DYNAMIC", m), !method_owner_type(m, _).
+// Everything an instance of the superclass has — its methods, its constructor's
+// writes, its documented fields — an instance of the subclass has too, unless the
+// subclass declares the name itself. Recursive, so the whole chain is read.
+prop_value("inst", t, n, k, i) :- type_super(t, s), !type_own_member_name(t, n), prop_value("inst", s, n, k, i).
+prop_value("ctor", t, n, k, i) :- type_super(t, s), !type_own_static_name(t, n), prop_value("ctor", s, n, k, i), n != "prototype".
+
+// ── member_write(K, I, Name, K2, I2) — `<expr>.name = <value>` ─────────────
+// NEVER onto an ambient value: `("ambient", "Object")` is ONE identity shared by
+// every `@param {Object} opts` in the program, so a write through any of them would
+// be a read through all of them — a global merge point that made one held-out
+// solve 35x slower. The platform's properties are not tracked.
+member_write(k, i, n, k2, i2) :- expr_kind(_, "ASSIGNMENT", _, a), expr_operator(_, op, a), assignment_op_writes_value(op),
+    expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt), expr_kind(_, "PROPERTY_ACCESS", _, tgt), expr_name(_, n, tgt),
+    expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, k, i), k != "ambient",
+    expr_child(_, a, "ASSIGNMENT_VALUE", _, val), expr_value(val, k2, i2).
+member_write(k, i, n, k2, i2) :- expr_kind(_, "ASSIGNMENT", _, a), expr_operator(_, op, a), assignment_op_writes_value(op),
+    expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt), expr_kind(_, "ELEMENT_ACCESS", _, tgt),
+    expr_child(_, tgt, "COMPUTED_KEY", _, key), expr_value(key, "str", n),
+    expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, k, i), k != "ambient", k != "arr", k != "coll",
+    expr_child(_, a, "ASSIGNMENT_VALUE", _, val), expr_value(val, k2, i2).
+// `Object.assign` and its library cousins: resolution/frameworks.dl.
+
+// ── literal_owns_method(LiteralExpr, MethodHash) — PD-JS-1 workaround ───────
+// A shorthand method `{ m() {} }` has a js_method row and no expression row. It is
+// attributed to the innermost OBJECT_LITERAL whose span contains its start, in the
+// same module, and only when no expression introduces it (that would be the
+// `m: function () {}` form, which is linked properly). Position arithmetic is
+// confined to this one relation.
+literal_contains_method(l, m) :- expr_kind(_, "OBJECT_LITERAL", _, l), expr_owner(_, _, mod, l),
+    expr_span(_, sl, sc, el, ec, l),
+    method_decl(_, _, "FUNCTION_EXPRESSION", "SYNTACTIC", _, "", mod, m), !expr_introduces(_, m, _),
+    method_lines(_, _, ml, mc, m),
+    (to_number(ml) > to_number(sl); (to_number(ml) = to_number(sl), to_number(mc) >= to_number(sc))),
+    (to_number(ml) < to_number(el); (to_number(ml) = to_number(el), to_number(mc) <= to_number(ec))).
+literal_contains_method(l, m) :- expr_kind(_, "OBJECT_LITERAL", _, l), expr_owner(_, _, mod, l),
+    expr_span(_, sl, sc, el, ec, l),
+    method_decl(_, _, k, "SYNTACTIC", _, "", mod, m), !expr_introduces(_, m, _), method_kind_is_accessor(k),
+    method_lines(_, _, ml, mc, m),
+    (to_number(ml) > to_number(sl); (to_number(ml) = to_number(sl), to_number(mc) >= to_number(sc))),
+    (to_number(ml) < to_number(el); (to_number(ml) = to_number(el), to_number(mc) <= to_number(ec))).
+method_kind_is_accessor("GETTER").
+method_kind_is_accessor("SETTER").
+literal_owns_method(l, m) :- literal_contains_method(l, m),
+    !literal_contains_method_nested(l, m).
+literal_contains_method_nested(l, m) :- literal_contains_method(l, m), literal_contains_method(l2, m), l2 != l,
+    expr_span(_, sl, sc, _, _, l), expr_span(_, sl2, sc2, _, _, l2),
+    (to_number(sl2) > to_number(sl); (to_number(sl2) = to_number(sl), to_number(sc2) > to_number(sc))).
