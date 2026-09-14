@@ -118,6 +118,16 @@ export const PYTHON_CLIENT_REQUIRED_ENTITIES = [
   'all-python-scopes.csv',
 ] as const;
 
+/**
+ * TypeScript's minimum, by the same presence rule: every file the parser accepts yields a
+ * module row and that module's MODULE_INITIALIZER method, so these two blocks exist for any
+ * valid project. Mirrors IR_MARKER in src/typescript/templates/staging.conf.
+ */
+export const TYPESCRIPT_CLIENT_REQUIRED_ENTITIES = [
+  'all-typescript-modules.csv',
+  'all-typescript-methods.csv',
+] as const;
+
 /** @deprecated pre-split names, kept so existing callers keep compiling. */
 export const CLIENT_REQUIRED_ENTITIES = JAVA_CLIENT_REQUIRED_ENTITIES;
 export const JDK_REQUIRED_ENTITIES = JAVA_JDK_REQUIRED_ENTITIES;

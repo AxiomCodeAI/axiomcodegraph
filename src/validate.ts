@@ -5,6 +5,7 @@ import {
   JAVA_CLIENT_REQUIRED_ENTITIES,
   JDK_REQUIRED_ENTITIES,
   PYTHON_CLIENT_REQUIRED_ENTITIES,
+  TYPESCRIPT_CLIENT_REQUIRED_ENTITIES,
 } from '@/constants/schema';
 import { IR_MARKER, IR_MARKER_BY_LANGUAGE } from '@/constants/paths';
 
@@ -16,6 +17,7 @@ import { IR_MARKER, IR_MARKER_BY_LANGUAGE } from '@/constants/paths';
 const CLIENT_REQUIRED_BY_LANGUAGE: Record<string, readonly string[]> = {
   java: JAVA_CLIENT_REQUIRED_ENTITIES,
   python: PYTHON_CLIENT_REQUIRED_ENTITIES,
+  typescript: TYPESCRIPT_CLIENT_REQUIRED_ENTITIES,
 };
 
 /**

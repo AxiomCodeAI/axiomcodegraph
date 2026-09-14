@@ -194,5 +194,5 @@ contributes nothing, because a structural type has no hierarchy to search and it
 ```bash
 AXIOM_PY_ORACLE=~/Documents/AxiomCode/callchain-oracle/python \
   python3.10 test/python/tools/fan_report.py \
-    test/python/projects/name-collision /tmp/ir /tmp/out get_distance
+    test/python/projects/name-collision /tmp/ir /tmp/out/raw get_distance
 ```

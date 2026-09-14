@@ -34,4 +34,5 @@ export const IR_MARKER = 'all-types.csv';
 export const IR_MARKER_BY_LANGUAGE: Record<string, string> = {
   java: 'all-types.csv',
   python: 'all-python-modules.csv',
+  typescript: 'all-typescript-modules.csv',
 };

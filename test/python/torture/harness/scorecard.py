@@ -11,7 +11,7 @@ complete and an unobserved edge is a false positive.
 import csv, json, collections, os, ast, sys
 csv.field_size_limit(10**9)
 R = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(R, 'out')
+OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(R, 'out', 'raw')
 gt = json.load(open(os.path.join(R, 'gt-tier4.json')))
 DEC = {}
 BYFILE = collections.defaultdict(lambda: collections.defaultdict(list))

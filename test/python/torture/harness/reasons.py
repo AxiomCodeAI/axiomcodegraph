@@ -21,7 +21,7 @@ import os
 import sys
 
 R = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(R, 'out')
+OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(R, 'out', 'raw')
 
 by_reason = collections.Counter()
 by_kind = collections.Counter()
