@@ -31,6 +31,7 @@ import {
   isNodeBuiltinSpecifier,
   isRequireCall,
   rangeOf,
+  bindingPathOf,
 } from '@/utils/javascript';
 
 /**
@@ -1738,34 +1739,9 @@ function isRequireBound(declarationNode: ts.Node | null): boolean {
 function parameterOfBoundName(
   name: ts.Node
 ): { parameter: ts.ParameterDeclaration; path: string } | undefined {
-  const segments: string[] = [];
-  let current: ts.Node = name;
-  for (;;) {
-    const parent: ts.Node | undefined = current.parent;
-    if (parent === undefined) {
-      return undefined;
-    }
-    if (ts.isParameter(parent)) {
-      return { parameter: parent, path: segments.join('.') };
-    }
-    if (ts.isBindingElement(parent)) {
-      const pattern = parent.parent;
-      if (ts.isArrayBindingPattern(pattern)) {
-        segments.unshift(String(pattern.elements.indexOf(parent)));
-      } else if (ts.isObjectBindingPattern(pattern)) {
-        const key = parent.propertyName ?? parent.name;
-        segments.unshift(ts.isIdentifier(key) || ts.isStringLiteral(key) || ts.isNumericLiteral(key)
-          ? key.text
-          : key.getText());
-      }
-      current = pattern;
-      continue;
-    }
-    if (ts.isObjectBindingPattern(parent) || ts.isArrayBindingPattern(parent)) {
-      current = parent;
-      continue;
-    }
-    // Not a parameter's binding at all (a `var` in a body, a catch clause).
-    return undefined;
-  }
+  // One walk for every pattern, shared with the variable rows (#487).
+  const bound = bindingPathOf(name);
+  return bound.root !== undefined && ts.isParameter(bound.root)
+    ? { parameter: bound.root, path: bound.path }
+    : undefined;
 }
