@@ -2991,6 +2991,82 @@ async function severalRootsProduceOneSet(): Promise<number> {
 }
 
 /**
+ * Package specifiers resolve under the importing SITE's `exports` conditions.
+ *
+ * A package that publishes only an `exports` map, with `require` and `import`
+ * conditions, is loaded by the runtime as `dist/main.cjs` from `require()` and as
+ * `dist/main.mjs` from `import`; a subpath export and a `main`-only package
+ * resolve either way. Resolved under `Node10` a `require()` of such a package was
+ * UNRESOLVED_MISSING, and resolved without the mode an ES `import` was linked to
+ * the CommonJS build the runtime never loads (#601). The fixture is written here
+ * with its own `node_modules`, which the analyzer does not walk but the resolver
+ * reads, and each row is checked against what `node` loads for the same file.
+ */
+async function packageSpecifiersResolveUnderTheSiteConditions(): Promise<number> {
+  let failures = 0;
+  const root = scratchDir('js-gate-exports-');
+  const out = scratchDir('js-gate-exports-out-');
+  const write = (rel: string, text: string) => {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.writeFileSync(path.join(root, rel), text);
+  };
+  write('package.json', '{ "name": "exports-fixture" }');
+  write('node_modules/pkg/package.json', JSON.stringify({ name: 'pkg', exports: { '.': { require: './dist/main.cjs', import: './dist/main.mjs' }, './sub': './lib/sub.js' } }));
+  write('node_modules/pkg/dist/main.cjs', 'exports.hello = function hello() { return 1; };\n');
+  write('node_modules/pkg/dist/main.mjs', 'export function hello() { return 2; }\n');
+  write('node_modules/pkg/lib/sub.js', 'exports.sub = function sub() { return 3; };\n');
+  write('node_modules/legacy/package.json', '{ "name": "legacy", "main": "./entry.js" }');
+  write('node_modules/legacy/entry.js', 'exports.old = 1;\n');
+  write('node_modules/bare/package.json', '{ "name": "bare" }');
+  write('node_modules/bare/index.js', 'exports.idx = 1;\n');
+  write('lib/index.js', 'exports.dir = 1;\n');
+  write('app.cjs', "const a = require('pkg'); const b = require('pkg/sub'); const c = require('legacy'); const d = require('bare'); const e = require('./lib');\n");
+  write('app.mjs', "import a from 'pkg'; import b from 'pkg/sub'; import c from 'legacy'; import d from 'bare'; const e = await import('pkg');\n");
+  write('esm/package.json', '{ "type": "module" }');
+  write('esm/app.js', "import a from 'pkg'; import b from './helper.js'; const c = await import('./helper.js');\n");
+  write('esm/helper.js', 'export const h = 1;\n');
+  await new JavaScriptProjectAnalyzer().analyzeAll([root], { outputDir: out, baseMservPath: root, serviceVersionLink: 'gate-v1' });
+  const relations = readRelations(out);
+  const imports = relations.find((r) => r.name === 'js_import');
+  const modules = relations.find((r) => r.name === 'js_module');
+  if (imports === undefined || modules === undefined || imports.header.length === 0) {
+    return fail('the exports fixture produced no js_import rows');
+  }
+  const fileOf = new Map(modules.rows.map((row) => [row[pkIndexOf(modules.header, 'js_module')] ?? '', row[modules.header.indexOf('filePath')] ?? '']));
+  const spec = imports.header.indexOf('specifier'), owner = imports.header.indexOf('ownerModuleLinkHash');
+  const resolved = imports.header.indexOf('resolvedFilePath'), outcome = imports.header.indexOf('resolutionOutcome');
+  // what `node` loads for each (file, specifier), as the resolver must answer it
+  const want: Array<[string, string, string]> = [
+    ['app.cjs', 'pkg', 'node_modules/pkg/dist/main.cjs'],
+    ['app.cjs', 'pkg/sub', 'node_modules/pkg/lib/sub.js'],
+    ['app.cjs', 'legacy', 'node_modules/legacy/entry.js'],
+    ['app.cjs', 'bare', 'node_modules/bare/index.js'],
+    ['app.cjs', './lib', 'lib/index.js'],
+    ['app.mjs', 'pkg', 'node_modules/pkg/dist/main.mjs'],
+    ['app.mjs', 'pkg/sub', 'node_modules/pkg/lib/sub.js'],
+    ['app.mjs', 'legacy', 'node_modules/legacy/entry.js'],
+    ['app.mjs', 'bare', 'node_modules/bare/index.js'],
+    ['esm/app.js', 'pkg', 'node_modules/pkg/dist/main.mjs'],
+    ['esm/app.js', './helper.js', 'esm/helper.js'],
+  ];
+  for (const [file, specifier, target] of want) {
+    const rows = imports.rows.filter((row) => fileOf.get(row[owner] ?? '') === file && row[spec] === specifier);
+    if (rows.length === 0) { failures += fail(`${file}: no js_import row for '${specifier}'`); continue; }
+    for (const row of rows) {
+      const got = (row[resolved] ?? '').replace(/\\/g, '/');
+      // a project file is recorded extension-less (it joins js_module.qualifiedName)
+      const stripped = target.replace(/\.(js|mjs|cjs)$/, '');
+      const ok = got === target || got.endsWith('/' + target) || (row[outcome] === 'RESOLVED_PROJECT' && got === stripped);
+      if (!ok) {
+        failures += fail(`${file} '${specifier}': resolvedFilePath is '${got || '(empty)'}' `
+          + `(${row[outcome]}); node loads ${target}`);
+      }
+    }
+  }
+  return failures;
+}
+
+/**
  * IR completeness — the measure that replaces "resolution rate".
  *
  * ## What is asserted, and what is only reported
@@ -6298,6 +6374,7 @@ const CHECKS: Check[] = [
   { name: 'the hoisting model holds', proves: 'every VAR_* binding declares into a function scope, and at least one `var` differs between its two scope columns — one column would pass this', run: hoistingModelHolds },
   { name: 'module-edge 1:1', proves: 'every module-edge expression is pointed at by exactly one import or export, so the second pass cannot double-mint', run: moduleEdgeOneToOne },
   { name: 'call-site 1:1', proves: 'one call site per call-like expression, and require() has none because it is a module edge', run: callSiteOneToOne },
+  { name: 'package specifiers resolve under the site conditions', proves: "a require() of an exports-only package resolves to its `require` build and an ES import to its `import` build, a subpath export and a main-only package either way, so a dual package links to the build the runtime loads (#601)", run: packageSpecifiersResolveUnderTheSiteConditions },
   { name: 'several roots produce one set', proves: 'overlapping discovered roots merge into one flat fact base with no file extracted twice — the failure the real entry point found and a single-root harness cannot', run: severalRootsProduceOneSet },
   { name: 'every empty column is intended', devOnly: true, proves: 'a column that is never populated is a gap, a reservation or a corpus property — and the allowlist says which, so one that stops being filled fails by name', run: everyEmptyColumnIsIntended },
   { name: 'link columns mean what they claim', proves: 'every populated FK is asserted for meaning — name, kind, structure or position — or is named as integrity-only with the reason, so no link can be populated, resolvable and wrong without a check that would have said so', run: linkColumnsMeanWhatTheyClaim },

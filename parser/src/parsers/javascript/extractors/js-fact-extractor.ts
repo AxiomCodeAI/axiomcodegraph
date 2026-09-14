@@ -358,6 +358,7 @@ export function extractJavaScriptFile(options: JsFileExtractionOptions): JsFileF
     serviceVersionLinkHash: options.serviceVersionLinkHash,
     serviceVersion: '',
     compilerOptions: options.compilerOptions,
+    moduleSystem: options.moduleSystem,
     hashOfScope: scopes.hashOfScope,
     expressionRowByNode: expressions.rowByNode,
     rootHashByNode: expressions.rootHashByNode,
