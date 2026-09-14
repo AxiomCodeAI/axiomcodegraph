@@ -52,6 +52,7 @@ import {
   jsDocTagsOfAllBlocks,
   lastLineOf,
   rangeOf, jsDocParameterTagFor,
+  bindingPathOf,
 } from '@/utils/javascript';
 
 /**
@@ -2287,6 +2288,16 @@ export class JsDeclarationExtractor {
       });
       if (reassigned.has(binding.name)) {
         row.setIsReassigned();
+      }
+      // The binding's route from its pattern's root, and whether it is a
+      // rest (#487): `const { cb: renamed } = o` has path `cb`; the engine had
+      // only the local name and read the wrong property on every renamed
+      // binding. Empty for a name that is not inside a pattern.
+      if (node !== null) {
+        const bound = bindingPathOf(node);
+        if (bound.root !== undefined && ts.isVariableDeclaration(bound.root) && bound.path !== '') {
+          row.setBindingPath(bound.path, bound.isRest);
+        }
       }
       this.variables.push(row);
       this.variableRowByBinding.set(binding, row);

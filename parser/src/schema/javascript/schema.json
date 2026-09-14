@@ -337,7 +337,9 @@
     "isExported",
     "isExternal",
     "serviceVersionLinkHash",
-    "jsVariableUniqueHash"
+    "jsVariableUniqueHash",
+    "bindingPath",
+    "isRestBinding"
    ],
    "domains": {
     "bindingRegime": [
