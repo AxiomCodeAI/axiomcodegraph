@@ -1,7 +1,7 @@
 <h1 align="center">AxiomCode Code Graph</h1>
 
 <p align="center">
-  <strong> The most accurate graph builder you'll ever use.</strong>
+  <strong>A god's-eye view of your codebase for AI agents. Stop grepping; know exactly what every change touches, with nothing hallucinated.</strong>
 </p>
 
 <p align="center">
