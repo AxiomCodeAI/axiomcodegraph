@@ -372,3 +372,53 @@ assertion_narrowed_param(p, prov, t) :- expr_call_candidate(ce, am),
     predicate_target(pm, prov, t),
     expr_child("client", sub, "ARGUMENT", ppos, pae),
     expr_referenced("client", "PARAMETER", p, pae).
+
+// ── AN `instanceof` TEST TYPES A TOP-TYPED SUBJECT — `o instanceof C` ───────
+// `function f(o: unknown) { if (o instanceof Node) return o.outerHtml(); }`. Measured
+// before writing this: the call inside the branch produced NOTHING when the subject
+// was declared `unknown`, `any` or `object`, while the same call on a `Node | string`
+// subject resolved. That contrast is not narrowing at work: the union case resolves
+// because the fan over its members happens to contain `Node`. A top type has no
+// members to fan over, so there was no candidate at all. #585.
+//
+// FLOW-INSENSITIVE, AND SOUND FOR THE SAME REASON THE ASSERTION RULE IS. The tested
+// class is given to the subject throughout the enclosing function, not inside the
+// branch only. That over-approximates, and only into a declared type that had no
+// members: `unknown` and `any` answer nothing, `object` answers only `Object`'s own
+// members, so a use outside the branch does not typecheck (or reaches `Object`), and
+// the compiler names no target there for this to disagree with. Nothing is removed.
+//
+// ONLY TOP TYPES. A subject declared as a union, a class or an interface already
+// resolves to a sound superset through the existing rules; adding the tested class
+// there would at most duplicate a member the fan already reaches, and narrowing away
+// the other members is the riskier change the assertion rule also declines.
+//
+// THE TESTED CLASS comes off the INSTANCEOF_TYPE reference the parser attaches to
+// the binary expression, so an imported or a library class resolves the same way
+// every other type reference does. Both a parameter and a variable subject are
+// covered; `const x: unknown = read(); if (x instanceof Node) ...` is the same shape.
+instanceof_test(subject, prov, t) :- expr_operator("client", "instanceof", be),
+    expr_child("client", be, "LEFT_OPERAND", _, subject),
+    type_ref("client", _, "INSTANCEOF_TYPE", _, _, be, "EXPRESSION", ref),
+    ref_type_target(ref, prov, t).
+
+top_type_name("unknown").
+top_type_name("any").
+top_type_name("object").
+
+param_declared_top(p) :- param_type_ref("client", r, p),
+    type_ref("client", "PRIMITIVE", _, tn, _, _, _, r),
+    top_type_name(tn).
+var_declared_top(v) :- var_type_ref("client", r, v),
+    type_ref("client", "PRIMITIVE", _, tn, _, _, _, r),
+    top_type_name(tn).
+
+instanceof_narrowed_param(p, prov, t) :- instanceof_test(s, prov, t),
+    expr_referenced("client", "PARAMETER", p, s),
+    param_declared_top(p).
+instanceof_narrowed_var(v, prov, t) :- instanceof_test(s, prov, t),
+    expr_referenced("client", "VARIABLE", v, s),
+    var_declared_top(v).
+
+param_type(p, prov, t) :- instanceof_narrowed_param(p, prov, t).
+var_type(v, prov, t) :- instanceof_narrowed_var(v, prov, t).
