@@ -458,6 +458,10 @@ const SCAFFOLD: ReadonlyArray<readonly [string, string]> = [
     "export * from './service.js';",
     "export { helper as renamed } from './service.js';",
     "export * as ns from './service.js';",
+    // #483: the named forms are an import and an export in one statement too,
+    // and each carries its import row and link, as `export *` always did.
+    "export { default } from './service.js';",
+    "export { default as serviceDefault } from './service.js';",
     '',
   ].join('\n')],
 
@@ -558,7 +562,15 @@ const SCAFFOLD: ReadonlyArray<readonly [string, string]> = [
     'function positional([first, , third]) { return first + third; }',
     'function mixed([{ name }]) { return name; }',
     'function simple(plain, withDefault = 1) { return plain + withDefault; }',
-    'module.exports = { flat, renamed, nested, nestedAndRenamed, positional, mixed, simple };',
+    // REST in either pattern kind (#487): the path says where the rest starts.
+    'function rests({ keep, ...others }, [head, ...tail]) { return [keep, others, head, tail]; }',
+    // And the same routes on VARIABLE rows, where the engine had only the local name.
+    'const o = { inner: { deep: 1 }, cb: 2 };',
+    'const { inner: { deep } } = o;',
+    'const { cb: alias } = o;',
+    'const { ...objRest } = o;',
+    'const [first, ...arrRest] = [1, 2, 3];',
+    'module.exports = { flat, renamed, nested, nestedAndRenamed, positional, mixed, simple, rests, deep, alias, objRest, first, arrRest };',
     '',
   ].join('\n')],
 
@@ -831,6 +843,16 @@ const SCAFFOLD: ReadonlyArray<readonly [string, string]> = [
     '}',                                                                   // 16
     'function Guarded() { if (!new.target) { throw new Error("call with new"); } }', // 17 META_PROPERTY
     'module.exports = { Legacy, Child, Other, Modern, Guarded };',         // 18
+    // #479: a dotted superclass is bound through its ROOT, not its last
+    // segment — `{ Base }` from one module and `ns` from another share a
+    // last segment and must not be confused; a mixin call and a parenthesised
+    // name each keep their expression link; parentheses are not computation.
+    "const { Base } = require('./base2');",                                 // 19
+    "const ns = require('./lib/base');",                                    // 20
+    'class Dotted extends ns.Base {}',                                      // 21 import link -> ns, superTypeName Base
+    'const Mixin = (Sup) => class extends Sup {};',                         // 22 Sup is a parameter: no import, expression linked
+    'class Mixed extends Mixin(Base) {}',                                   // 23 computed, expression linked
+    'class Wrapped extends (Base) {}',                                      // 24 parentheses: NOT computed, name Base
     '',
   ].join('\n')],
 
@@ -870,6 +892,12 @@ const SCAFFOLD: ReadonlyArray<readonly [string, string]> = [
   ].join('\n')],
   ['esm/default-class.js', [
     'export default class Klass { run() { return 1; } }',
+    '',
+  ].join('\n')],
+  // The ANONYMOUS default class (engine #484): no name to look a target up
+  // by, so the target is the declaration itself, by node identity.
+  ['esm/default-anon.js', [
+    'export default class { run() { return 1; } }',
     '',
   ].join('\n')],
 
@@ -4779,8 +4807,10 @@ function separatorCommentsAndNamespaceReexportsEmit(): number {
   const rows = exports_.rows.filter((r) => r[eOwner] === exportModule);
   for (const [name, form, wantsImport, construct] of [
     ['*', 'EXPORT_ALL', true, "bare `export * from`"],
-    ['renamed', 'EXPORT_DECLARATION', false, "`export { a as b } from`"],
+    ['renamed', 'EXPORT_DECLARATION', true, "`export { a as b } from` (#483: an import in one statement too)"],
     ['ns', 'EXPORT_ALL', true, "`export * as ns from`"],
+    ['default', 'EXPORT_DECLARATION', true, "`export { default } from`"],
+    ['serviceDefault', 'EXPORT_DECLARATION', true, "`export { default as x } from`"],
   ] as const) {
     const row = rows.find((r) => r[eName] === name);
     if (row === undefined) {
@@ -4801,16 +4831,19 @@ function separatorCommentsAndNamespaceReexportsEmit(): number {
   const ePk = pkIndexOf(exports_.header, 'js_export');
   for (const [file, local, target] of [
     ['default-named.js', 'named', 'METHOD'], ['default-class.js', 'Klass', 'TYPE'],
+    ['default-anon.js', 'default', 'TYPE'],
   ] as const) {
     const moduleRow = modules.rows.find((r) => (r[mPath] ?? '').endsWith(file));
     const moduleHash = moduleRow?.[mPk] ?? '';
     const row = exports_.rows.find((r) => r[eOwner] === moduleHash && r[eLocal] === local);
+    const eTargetLink = exports_.header.indexOf('targetLinkHash');
     if (row?.[eName] !== 'default' || row[eForm] !== 'EXPORT_DECLARATION' || row[eTarget] !== target
-      || moduleRow?.[mDefault] !== row[ePk]) {
+      || (row[eTargetLink] ?? '') === '' || moduleRow?.[mDefault] !== row[ePk]) {
       failures += fail(`${file}: \`export default ${target === 'TYPE' ? 'class' : 'function'} ${local}\` is exported as `
         + `${JSON.stringify(row?.[eName])} (${row?.[eForm]}/${row?.[eTarget]}), module default link `
         + `${moduleRow?.[mDefault] === row?.[ePk] ? 'set' : 'NOT this row'}; expected default/${local} with the `
-        + 'module naming it — the default modifier decides, not whether the declaration has a name (#176)');
+        + `module naming it${(row?.[eTargetLink] ?? '') === '' ? ' — and the target link is EMPTY' : ''} — the default modifier `
+        + 'decides, not whether the declaration has a name (#176); an anonymous declaration is its own target (#484)');
     }
     const control = exports_.rows.find((r) => r[eOwner] === moduleHash && r[eLocal] === 'plain');
     if (file === 'default-named.js' && control?.[eName] !== 'plain') {
@@ -5192,14 +5225,18 @@ function linkColumnsMeanWhatTheyClaim(): number {
     if (parameterLink !== '' || bindingPath !== '') {
       const want = r[col(h, 'referencedName')] ?? '';
       const parameter = parameters.get(parameterLink);
-      const segments = bindingPath.split('.');
+      // Segments are keys, indexes, or rest markers (`...`, `1...`); a naive
+      // split on `.` would tear the marker into empty pieces.
+      const segments = bindingPath === '' ? [] : (bindingPath.match(/\.\.\.|[^.]+(?:\.\.\.)?/g) ?? []);
       const ok = parameterLink !== '' && link === '' && parameter !== undefined
         && (bindingPath === ''
           ? (parameter.name === want
             && (parameter.form === 'IDENTIFIER' || parameter.form === 'ASSIGNMENT_PATTERN'))
           : (parameter.name === ''
             && (parameter.form === 'OBJECT_PATTERN' || parameter.form === 'ARRAY_PATTERN')
-            && segments.every((segment) => segment !== '')));
+            // A segment is a key, an index, or a rest marker: `...` at the
+            // root of an object pattern, `1...` for an array rest (#487).
+            && segments.every((segment) => segment !== '' && /^(\.\.\.|[^.]+(\.\.\.)?)$/.test(segment))));
       assert_('js_expression.resolvedParameterLinkHash', ok,
         () => `${lineOf(r, h)}: references ${want}, c17 ${link === '' ? 'empty' : 'SET'}, `
           + `parameter named ${JSON.stringify(parameter?.name)} of form ${parameter?.form}, `
@@ -5256,7 +5293,13 @@ function linkColumnsMeanWhatTheyClaim(): number {
   forEachRow(directory, 'js_type_heritage', (r, h) => {
     const link = r[col(h, 'importLinkHash')] ?? '';
     if (link === '') { return; }
-    const want = (r[col(h, 'superTypeName')] ?? '').split('.')[0]!;
+    // The import binds the ROOT of the superclass expression: `Base` for
+    // `extends Base`, `ns` for `extends ns.Base` (#479) — the root is the
+    // first segment of the expression text, parentheses stripped.
+    // Leading parentheses and whitespace — including the writer's escaped
+    // `\n`/`\t` for a clause broken over lines — are not part of the root.
+    const want = (r[col(h, 'superTypeExpressionText')] ?? '')
+      .replace(/^(\\[nt]|[\s(])+/, '').split(/\\[nt]|[.[(\s)]/)[0]!;
     assert_('js_type_heritage.importLinkHash', imports.get(link)?.local === want,
       () => `${lineOf(r, h)}: extends ${want}, links an import binding ${imports.get(link)?.local}`);
   });
@@ -5303,7 +5346,12 @@ function linkColumnsMeanWhatTheyClaim(): number {
     const got = kind === 'TYPE' ? types.get(link)?.name
       : kind === 'METHOD' ? methods.get(link)?.name
         : kind === 'VARIABLE' ? variables.get(link)?.name : undefined;
-    assert_('js_export.targetLinkHash', got === local,
+    // An ANONYMOUS default declaration has no local name to agree with: its
+    // target is the anonymous row itself (engine #484), whose name is the
+    // placeholder for its kind.
+    const anonymousDefault = local === 'default'
+      && (got === 'default' || (got?.startsWith('<') ?? false));
+    assert_('js_export.targetLinkHash', got === local || anonymousDefault,
       () => `${lineOf(r, h)}: exports local ${local} as ${kind}, target is named ${got}`);
   });
 
@@ -5641,6 +5689,7 @@ function bindingPathsAreKeysNotNames(): number {
     [5, 'first', '0', 0], [5, 'third', '2', 0],
     [6, 'name', '0.name', 0],
     [7, 'plain', '', 0], [7, 'withDefault', '', 1],
+    [8, 'keep', 'keep', 0], [8, 'others', '...', 0], [8, 'head', '0', 1], [8, 'tail', '1...', 1],
   ];
   for (const [line, name, wantPath, position] of expected) {
     const row = mine.find((r) => Number(r[xLine]) === line && r[xName] === name
@@ -5662,7 +5711,23 @@ function bindingPathsAreKeysNotNames(): number {
     failures += fail(`${mine.filter((r) => (r[xParameter] ?? '') !== '').length} references resolve `
       + `to a parameter in the file, expected ${expected.length} — one per bound name read`);
   }
-  console.log(`  ${expected.length} bound names, each read once, paths asserted by value`);
+  // js_variable.bindingPath / isRestBinding (#487), by value.
+  const vars = relations.find((r) => r.name === 'js_variable')!;
+  const vOwner = vars.header.indexOf('ownerModuleLinkHash');
+  const vName = vars.header.indexOf('name');
+  const vPath = vars.header.indexOf('bindingPath');
+  const vRest = vars.header.indexOf('isRestBinding');
+  for (const [name, path, rest] of [
+    ['deep', 'inner.deep', 'false'], ['alias', 'cb', 'false'], ['objRest', '...', 'true'],
+    ['first', '0', 'false'], ['arrRest', '1...', 'true'], ['o', '', 'false'],
+  ] as const) {
+    const row = vars.rows.find((r) => r[vOwner] === module && r[vName] === name);
+    if (row?.[vPath] !== path || row[vRest] !== rest) {
+      failures += fail(`js_variable \`${name}\`: bindingPath ${JSON.stringify(row?.[vPath])} isRestBinding ${row?.[vRest]}; `
+        + `expected ${JSON.stringify(path)} / ${rest} — the key route from the pattern root, with \`...\` where the rest starts (#487)`);
+    }
+  }
+  console.log(`  ${expected.length} bound names, each read once, paths asserted by value; variable paths asserted`);
   return failures;
 }
 
@@ -6151,6 +6216,20 @@ function tortureScriptsHold(): number {
     expect(file, 8, 'util.inherits', heritageOf('Child'), 'UTIL_INHERITS:Legacy');
     expect(file, 10, 'Object.create(Legacy.prototype)', heritageOf('Other'), 'OBJECT_CREATE_PROTOTYPE:Legacy');
     expect(file, 11, 'extends clause', heritageOf('Modern'), 'EXTENDS_CLAUSE:Legacy');
+    // #479. The import each heritage links, by the local name the import binds.
+    const { r: imp, rows: importRows } = rowsOf('js_import', module);
+    const importLocal = new Map(importRows.map((row) => [row[pkIndexOf(imp.header, 'js_import')] ?? '', row[col(imp, 'localName')] ?? '']));
+    const heritageDescribe = (owner: string): string => {
+      const row = heritage.find((r) => typeNameOf.get(r[col(h, 'ownerTypeLinkHash')] ?? '') === owner);
+      if (row === undefined) { return 'NO ROW'; }
+      const link = row[col(h, 'importLinkHash')] ?? '';
+      return `${row[col(h, 'superTypeName')]}/computed=${row[col(h, 'isComputedSuperclass')]}`
+        + `/import=${link === '' ? '-' : importLocal.get(link) ?? '?'}`
+        + `/expr=${(row[col(h, 'sourceExpressionLinkHash')] ?? '') === '' ? 'NONE' : 'linked'}`;
+    };
+    expect(file, 21, 'class Dotted extends ns.Base', heritageDescribe('Dotted'), 'Base/computed=false/import=ns/expr=linked');
+    expect(file, 23, 'class Mixed extends Mixin(Base)', heritageDescribe('Mixed'), 'Mixin(Base)/computed=true/import=-/expr=linked');
+    expect(file, 24, 'class Wrapped extends (Base)', heritageDescribe('Wrapped'), 'Base/computed=false/import=Base/expr=linked');
     expect(file, 13, 'static block kind', blocks.find((row) => Number(row[col(b, 'startLine')]) === 13)?.[col(b, 'blockKind')] ?? 'NO ROW', 'CLASS_STATIC_BLOCK');
     const { r: x, rows: expressions } = rowsOf('js_expression', module);
     expect(file, 15, '`#secret in o`', expressions.find((row) => Number(row[col(x, 'startLine')]) === 15
