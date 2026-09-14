@@ -18,6 +18,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(d="$(cd "$(dirname "$0")" && pwd)"; while [ "$d" != / ] && { [ ! -f "$d/package.json" ] || [ ! -d "$d/graph" ]; }; do d="$(dirname "$d")"; done; echo "$d")"  # the repository root, found by its marker
 PYTHON_DIR="$(cd "$HERE/.." && pwd)"
 CASE=12-blind-spots
 SRC="$PYTHON_DIR/cases/$CASE/src"
@@ -25,7 +26,7 @@ KNOWN="$PYTHON_DIR/expected/$CASE.known-missing"
 PY="${AXIOM_PY_PYTHON:-/usr/local/bin/python3.10}"
 
 command -v "$PY" >/dev/null 2>&1 || { echo "known-missing: SKIP (no pinned interpreter at $PY)"; exit 0; }
-ORACLE="${AXIOM_PY_ORACLE:-$PYTHON_DIR/../../../callchain-oracle/python}"
+ORACLE="${AXIOM_PY_ORACLE:-$ROOT/../callchain-oracle/python}"
 [ -d "$ORACLE/callchain_oracle" ] || { echo "known-missing: SKIP (no harness at $ORACLE)"; exit 0; }
 [ -f "$KNOWN" ] || { echo "  FAIL  $KNOWN is missing"; echo "known-missing: FAILED"; exit 1; }
 

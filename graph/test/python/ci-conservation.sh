@@ -20,7 +20,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-ROOT="$(cd "$HERE/../../.." && pwd)"
+ROOT="$(d="$(cd "$(dirname "$0")" && pwd)"; while [ "$d" != / ] && { [ ! -f "$d/package.json" ] || [ ! -d "$d/graph" ]; }; do d="$(dirname "$d")"; done; echo "$d")"  # the repository root, found by its marker — no level counting
 # Resolve the pinned interpreter through PATH, never as an absolute prefix.
 # run-tests.sh states the reason for its own copy of this and it applies verbatim
 # here: "pinning an absolute PATH is a different thing, and the wrong one" — a

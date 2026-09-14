@@ -13,6 +13,7 @@
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 TS="$(cd "$HERE/.." && pwd)"
+REPO="$(d="$HERE"; while [ "$d" != / ] && { [ ! -f "$d/package.json" ] || [ ! -d "$d/graph" ]; }; do d="$(dirname "$d")"; done; echo "$d")"  # the repository root, found by its marker
 # NOT /tmp. Measured the hard way: all nine corpus projects lost every source file
 # mid-session to the system's /tmp reaper, directories and node_modules left standing and
 # .git gone, which surfaced as four unrelated-looking harness failures. A corpus in /tmp
@@ -38,7 +39,7 @@ PARSER="${AXIOM_PARSER:-}"
 # The parser's module arity and this engine's declaration must agree. They drift on
 # every schema append, and the symptom downstream is a drift-gate refusal per project
 # with nothing saying they share one cause.
-DECL=$(grep -o '^\.decl ts_module(.*' "$TS/../../graph/typescript/souffle/decls_base.dl" 2>/dev/null \
+DECL=$(grep -o '^\.decl ts_module(.*' "$REPO/graph/typescript/souffle/decls_base.dl" 2>/dev/null \
        | tr ',' '\n' | wc -l | tr -d ' ')
 echo "engine declares ts_module with $DECL columns; parser: $PARSER"
 

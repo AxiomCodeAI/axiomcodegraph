@@ -15,7 +15,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 R="$(cd "$(dirname "$0")/.." && pwd)"
-ENG="$(cd "$R/../../../.." && pwd)"
+ENG="$(d="$(cd "$(dirname "$0")" && pwd)"; while [ "$d" != / ] && { [ ! -f "$d/package.json" ] || [ ! -d "$d/graph" ]; }; do d="$(dirname "$d")"; done; echo "$d")"  # the repository root, found by its marker — no level counting
 TOOLS="$ENG/graph/test/java/tools"
 SHARED="$ENG/graph/test/tools"   # language-independent checks live here (compare_runs, check_staging)
 PARSER="${AXIOM_PARSER:-$ENG/parser/dist/index.js}"

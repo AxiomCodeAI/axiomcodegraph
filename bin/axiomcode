@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────────────
+# axiomcode — the pipeline as subcommands. No npx, no argument order to remember.
+#
+#   bin/axiomcode parser <src-dir> <ir-dir> [--slug NAME]          source → relational IR
+#   bin/axiomcode engine --language L --client-ir <ir-dir> --out <dir> [engine options]
+#                                                                    IR → graph.sqlite
+#   bin/axiomcode all    --language L --src <src-dir> --out <dir> [engine options]
+#                                                                    source → graph.sqlite
+#   bin/axiomcode test   [java|typescript|python|parser|all] [suite options]
+#
+# Engine options: --library <ir-root>[,…]  --intermediate <dir>  --debug  --dispatch-cap N|off
+#                 --lib-depth N  --jdk-depth N  --taint on|off   (see graph/pipeline/run-souffle.sh)
+# Output: <dir>/graph.sqlite — its schema is inside it (graph/bundle/SCHEMA.md). With --debug
+# also <dir>/csv/*.csv and <dir>/raw/. `all` keeps the IR under <dir>/.intermediate/ir.
+# Requires Node ≥ 22.5; no Soufflé or compiler (binaries/, or a local souffle if present).
+# ─────────────────────────────────────────────────────────────────────────────
+set -eu
+ROOT="$(d="$(cd "$(dirname "$0")" && pwd)"; while [ "$d" != / ] && { [ ! -f "$d/package.json" ] || [ ! -d "$d/graph" ]; }; do d="$(dirname "$d")"; done; echo "$d")"
+PARSER="${AXIOM_PARSER:-$ROOT/parser/dist/index.js}"
+usage(){ sed -n '3,16p' "$0" | sed 's/^# \{0,1\}//'; }
+die(){ echo "axiomcode: $*" >&2; exit 2; }
+need_parser(){ [ -f "$PARSER" ] || { echo "axiomcode: parser not built at $PARSER — run: npm install && npm run build" >&2; exit 1; }; }
+
+cmd="${1:-}"; [ $# -gt 0 ] && shift
+case "$cmd" in
+  parser)
+    need_parser
+    src="${1:-}"; ir="${2:-}"; [ -n "$src" ] && [ -n "$ir" ] || die "usage: axiomcode parser <src-dir> <ir-dir> [--slug NAME]"
+    shift 2; slug="$(basename "$(cd "$src" && pwd)")"
+    while [ $# -gt 0 ]; do case "$1" in --slug) slug="$2"; shift 2;; *) die "parser: unknown option $1";; esac; done
+    [ -d "$src" ] || die "not a directory: $src"
+    mkdir -p "$ir"
+    node "$PARSER" "$src" "$slug" false "$ir"
+    ;;
+  engine)
+    # every option is the engine's own; only --out is spelled for symmetry with `all`
+    args=()
+    while [ $# -gt 0 ]; do case "$1" in --out) args+=(--output "$2"); shift 2;; *) args+=("$1"); shift;; esac; done
+    has(){ for a in ${args[@]+"${args[@]}"}; do [ "$a" = "$1" ] && return 0; done; return 1; }
+    has --language && has --client-ir && has --output || die "usage: axiomcode engine --language L --client-ir <ir-dir> --out <dir> [options]"
+    has --intermediate || { out=""; for i in "${!args[@]}"; do [ "${args[$i]}" = --output ] && out="${args[$((i+1))]}"; done; args+=(--intermediate "$out/.intermediate"); }
+    has --library || args+=(--library "")
+    bash "$ROOT/graph/pipeline/run-souffle.sh" "${args[@]}"
+    ;;
+  all)
+    need_parser
+    lang=""; src=""; out=""; slug=""; rest=()
+    while [ $# -gt 0 ]; do case "$1" in
+      --language) lang="$2"; shift 2;; --src) src="$2"; shift 2;; --out) out="$2"; shift 2;; --slug) slug="$2"; shift 2;;
+      --library|--intermediate|--dispatch-cap|--lib-depth|--jdk-depth|--taint) rest+=("$1" "$2"); shift 2;;
+      --debug) rest+=(--debug); shift;;
+      *) die "all: unknown option $1";; esac; done
+    [ -n "$lang" ] && [ -n "$src" ] && [ -n "$out" ] || die "usage: axiomcode all --language L --src <src-dir> --out <dir> [options]"
+    [ -d "$src" ] || die "not a directory: $src"
+    [ -d "$ROOT/graph/$lang" ] || die "no engine for --language=$lang (have: $(ls -d "$ROOT"/graph/*/engine 2>/dev/null | sed 's#.*/graph/##; s#/engine##' | tr '\n' ' '))"
+    mkdir -p "$out"; out="$(cd "$out" && pwd)"; int="$out/.intermediate"; ir="$int/ir"
+    rm -rf "$ir"; mkdir -p "$ir"
+    echo "▶ parsing $src ($lang) → IR"
+    "$0" parser "$src" "$ir" ${slug:+--slug "$slug"} > "$int/parse.log" 2>&1 || { echo "❌ parser failed — see $int/parse.log" >&2; tail -5 "$int/parse.log" >&2; exit 1; }
+    echo "▶ solving"
+    "$0" engine --language "$lang" --client-ir "$ir" --out "$out" --intermediate "$int" ${rest[@]+"${rest[@]}"}
+    echo "$out/graph.sqlite"
+    ;;
+  test)
+    which="${1:-all}"; [ $# -gt 0 ] && shift
+    rc=0
+    run_suite(){ local s="$1"; shift; echo "══ $s"; bash "$ROOT/graph/test/$s/run-tests.sh" "$@" || rc=1; }
+    case "$which" in
+      java|typescript|python) run_suite "$which" "$@";;
+      parser) for t in java-extractor-tests typescript-tests python-tests javascript-tests gradle-tests services-tests; do
+                [ -f "$ROOT/parser/src/test/$t.ts" ] || continue; echo "══ parser: $t"; (cd "$ROOT/parser" && npx tsx "src/test/$t.ts") || rc=1; done;;
+      all) for l in java typescript python; do run_suite "$l" "$@"; done; "$0" test parser || rc=1;;
+      *) die "test: unknown suite $which (java | typescript | python | parser | all)";;
+    esac
+    exit $rc
+    ;;
+  -h|--help|help|"") usage; [ -n "$cmd" ] || exit 2;;
+  *) die "unknown command '$cmd' (parser | engine | all | test; --help)";;
+esac

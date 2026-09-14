@@ -41,7 +41,7 @@ WORK="$(cd "$2" && pwd)"
 # was told to use. That is how a fixture came to stage 27-column library IR against
 # 28-column declarations while the client IR was current.
 HERE="$(cd "$(dirname "$0")" && pwd)"
-REPO="$(cd "$HERE/../../.." && pwd)"
+REPO="$(d="$(cd "$(dirname "$0")" && pwd)"; while [ "$d" != / ] && { [ ! -f "$d/package.json" ] || [ ! -d "$d/graph" ]; }; do d="$(dirname "$d")"; done; echo "$d")"  # the repository root, found by its marker — no level counting
 PARSER_DIST="${3:-${AXIOM_PARSER:-$REPO/parser/dist/index.js}}"
 NAME="$(basename "$PROJECT")"
 

@@ -52,7 +52,7 @@ set -uo pipefail
 # coverage guard still proves the site was not silently dropped.
 # ─────────────────────────────────────────────────────────────────────────────
 HERE="$(cd "$(dirname "$0")" && pwd)"
-ROOT="$(cd "$HERE/../../.." && pwd)"
+ROOT="$(d="$(cd "$(dirname "$0")" && pwd)"; while [ "$d" != / ] && { [ ! -f "$d/package.json" ] || [ ! -d "$d/graph" ]; }; do d="$(dirname "$d")"; done; echo "$d")"  # the repository root, found by its marker — no level counting
 
 # ── Nothing this suite depends on may be invisible to git ────────────────────
 # Runs first because it is cheap and because the fault it catches makes every OTHER

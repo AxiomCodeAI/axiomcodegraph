@@ -33,8 +33,9 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(d="$(cd "$(dirname "$0")" && pwd)"; while [ "$d" != / ] && { [ ! -f "$d/package.json" ] || [ ! -d "$d/graph" ]; }; do d="$(dirname "$d")"; done; echo "$d")"  # the repository root, found by its marker
 GUARD="$HERE/coverage_guard.py"
-PARSER="${AXIOM_PARSER:-$HERE/../../../parser/dist/index.js}"
+PARSER="${AXIOM_PARSER:-$ROOT/parser/dist/index.js}"
 
 if [ ! -f "$GUARD" ]; then
   echo "  FAIL  tools/coverage_guard.py is missing; the 'no longer a gap' checks below"

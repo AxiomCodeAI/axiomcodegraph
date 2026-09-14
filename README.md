@@ -127,23 +127,24 @@ receiver is a lambda parameter. Restricted to files of 1,000 lines or more, d1 r
 ## Run
 
 ```bash
-npm install && npm run build          # builds the parser and the engine (Node ≥ 22.5)
+npm install && npm run build            # builds the parser and the engine (Node ≥ 22.5)
 
-bin/axiomcode-graph --language java --src <project-dir> --out <out-dir>
-#               --language java | typescript | python
-#               --library <platform-ir>[,<lib-ir>...]   the platform library and real dependencies, when you have their IR
-#               --debug                                 also write csv/*.csv and keep raw/
+bin/axiomcode all --language java --src <project-dir> --out <out-dir>       # source → graph.sqlite
+#                 --language java | typescript | python
+#                 --library <platform-ir>[,<lib-ir>...]   the platform library and real dependencies, when you have their IR
+#                 --debug                                 also write csv/*.csv and keep raw/
+
+bin/axiomcode parser <src-dir> <ir-dir>                                     # the two stages separately
+bin/axiomcode engine --language java --client-ir <ir-dir> --out <out-dir>
+bin/axiomcode test [java|typescript|python|parser|all]
 ```
 
-That is the whole pipeline: the parser (`parser/`) extracts a relational IR from the source,
-the engine (`graph/`) solves it, and `<out-dir>/graph.sqlite` is the result. **No Soufflé and
-no C++ compiler**: the rules compile to one self-contained executable, CI builds it for Linux
-(x86_64, arm64), macOS (arm64) and Windows on every merge to `main` and commits it under
-`binaries/<lang>/<platform>/`, so a checkout carries the engine for every platform. With
-`souffle` installed the engine compiles locally instead.
-
-The two stages can also be run separately (`node parser/dist/index.js <src> <slug> false <ir>`,
-then `graph/pipeline/run-souffle.sh --language L --client-ir <ir> … --output <out>`).
+`bin/axiomcode` is the whole pipeline as subcommands: the parser (`parser/`) extracts a relational IR
+from the source, the engine (`graph/`) solves it, and `<out-dir>/graph.sqlite` is the result. **No
+Soufflé and no C++ compiler**: the rules compile to one self-contained executable, CI builds it for
+Linux (x86_64, arm64), macOS (arm64) and Windows on every merge to `main` and commits it under
+`binaries/<lang>/<platform>/`, so a checkout carries the engine for every platform. With `souffle`
+installed the engine compiles locally instead.
 
 **Outputs — the same in every language** ([`graph/bundle/SCHEMA.md`](graph/bundle/SCHEMA.md))
 
@@ -196,7 +197,7 @@ the omission is reported.
 ## Layout
 
 ```
-bin/axiomcode-graph                   the one command: parse → solve → graph.sqlite
+bin/axiomcode                     parser | engine | all | test — the pipeline as subcommands
 parser/                           the IR extractor (its own package; merged in with history)
 graph/                            the engine
   <lang>/engine/projections/        IR → typed relations
@@ -215,10 +216,10 @@ binaries/<lang>/<platform>/       CI-built engines, committed on merge (ENGINE_I
 ## Tests
 
 ```bash
-bash graph/test/java/run-tests.sh          # regression suite; --oracle also scores against javac/javap ground truth
-bash graph/test/typescript/run-tests.sh    # --oracle scores against the TypeScript compiler
-bash graph/test/python/run-tests.sh        # --oracle scores against CPython bytecode and tracing
-npm test -w parser                   # the parser's own suite
+bin/axiomcode test java              # the engine's Java suite; --oracle also scores against javac/javap ground truth
+bin/axiomcode test typescript        # --oracle scores against the TypeScript compiler
+bin/axiomcode test python            # --oracle scores against CPython bytecode and tracing
+bin/axiomcode test parser            # the parser's own suites (bin/axiomcode test = everything)
 ```
 
 Each suite parses its fixture cases with the parser in this repository (`AXIOM_PARSER` overrides),

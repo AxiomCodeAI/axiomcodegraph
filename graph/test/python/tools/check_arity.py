@@ -14,7 +14,7 @@ exit 1 on any violation.
 """
 import os, re, sys, glob, collections
 
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..'))
+ROOT = next(str(p) for p in __import__('pathlib').Path(__file__).resolve().parents if (p / 'package.json').exists() and (p / 'graph').is_dir())  # the repository root, by its marker
 LANG = 'python'
 if '--lang' in sys.argv:
     LANG = sys.argv[sys.argv.index('--lang') + 1]
