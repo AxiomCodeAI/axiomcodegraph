@@ -1,5 +1,5 @@
 #!/bin/bash
-# Does library staging tell a lost sibling program from a dual-format build? (#230)
+# Does library staging tell a sibling program from a dual-format build? (#230, now fixed in the parser)
 #
 # Both shapes make the parser analyse more files than it publishes. Only one is a defect:
 #   dep/   sibling programs, each with its own manifest -> genuinely lost, stage them
@@ -37,24 +37,31 @@ if [ -n "$dual" ]; then
   fail=1
 fi
 
-# ── 2. the defect is real: one invocation publishes one program ─────────────
+# ── 2. one invocation over sibling programs publishes BOTH ───────────────────
+# This step used to assert the opposite — that one invocation published only one of the two
+# siblings — because that was the parser's behaviour (#230): per-project analyses ran into one
+# output directory with truncating writes, and the last one to finish won. The harness's
+# answer was to detect the shortfall and stage the siblings one at a time (add_lib in
+# run-evaluation.sh). The parser now merges per-project output, so the root invocation is
+# whole and that workaround stays dormant; this asserts the fix, and step 3 that the
+# shortfall detector has nothing to report.
 node "$PARSER" "$WORK/dep" mp false "$WORK/ir-dep" >"$WORK/dep.parser.log" 2>&1 || true
 pub=$(awk -F'\t' 'NR>1{print $4}' "$WORK/ir-dep/all-typescript-modules.csv" 2>/dev/null | wc -l | tr -d ' ')
-if [ "$pub" -ne 1 ]; then
-  echo "FAIL  one invocation over sibling packages published $pub modules, expected 1"
-  echo "      the fixture is no longer reproducing the defect it exists for"
+if [ "$pub" -ne 2 ]; then
+  echo "FAIL  one invocation over sibling packages published $pub modules, expected 2 (alpha and beta)"
+  echo "      the parser is losing a sibling program again"
   fail=1
 fi
+for s in alpha beta; do
+  grep -q "from_$s" "$WORK/ir-dep/all-typescript-methods.csv" 2>/dev/null || { echo "FAIL  root invocation did not publish dep/$s's declaration from_$s"; fail=1; }
+done
 
-# ── 3. and the shortfall is DETECTED rather than silent ────────────────────
+# ── 3. and the shortfall detector sees no shortfall ─────────────────────────
 sf="$(lib_shortfall "$WORK/ir-dep" "$WORK/dep.parser.log")"
-if [ -z "$sf" ]; then
-  echo "FAIL  lib_shortfall reported nothing; the parser's own count is not being read"
-  fail=1
-else
+if [ -n "$sf" ]; then
   set -- $sf
-  if [ "$1" -le "$2" ]; then
-    echo "FAIL  lib_shortfall says analysed=$1 published=$2 — no shortfall seen"
+  if [ "$1" -gt "$2" ]; then
+    echo "FAIL  lib_shortfall says analysed=$1 published=$2 — a shortfall on a whole root invocation"
     fail=1
   fi
 fi
@@ -68,5 +75,5 @@ for s in alpha beta; do
   fi
 done
 
-[ "$fail" -eq 0 ] && echo "multi-program fixture: gate ok (siblings staged, dual-format not, shortfall detected)"
+[ "$fail" -eq 0 ] && echo "multi-program fixture: gate ok (siblings both published by one invocation, dual-format not staged twice, no shortfall)"
 exit $fail

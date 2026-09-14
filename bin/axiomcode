@@ -52,26 +52,10 @@ case "$cmd" in
     [ -n "$version" ] || version="$(git -C "$src" rev-parse HEAD 2>/dev/null || echo v1.0.0)"
     mkdir -p "$ir"
     echo "▶ parser: version=$version exclude-tests=$exclude"
-    # The parser writes every language's tables into one flat directory. They are sorted here
-    # into <ir>/<lang>/ — the prefixed tables (all-typescript-*, all-python-*, all-javascript-*,
-    # skipped-<lang>-files) to their language, the unprefixed ones (Java's, and the config
-    # tables only Java's rules read) to java/. A language whose marker relation has no rows
-    # gets no folder: the parser emits zero-byte files for every language regardless.
-    flat="$ir/.flat"; rm -rf "$flat"; mkdir -p "$flat"
-    node "$PARSER" "$src" "$version" "$exclude" "$flat"
-    rows(){ [ -f "$flat/$1" ] && [ "$(wc -l < "$flat/$1" | tr -d ' ')" -gt 1 ]; }
-    found=()
-    for l in typescript python javascript csharp; do
-      rows "all-$l-modules.csv" || continue
-      found+=("$l"); rm -rf "$ir/$l"; mkdir -p "$ir/$l"
-      mv "$flat"/all-"$l"-*.csv "$ir/$l/" 2>/dev/null || true
-      [ -f "$flat/skipped-$l-files.csv" ] && mv "$flat/skipped-$l-files.csv" "$ir/$l/"
-    done
-    if rows all-types.csv || rows all-methods.csv; then
-      found+=(java); rm -rf "$ir/java"; mkdir -p "$ir/java"
-      for f in "$flat"/*.csv; do case "$(basename "$f")" in all-typescript-*|all-python-*|all-javascript-*|all-csharp-*|skipped-*) ;; *) mv "$f" "$ir/java/";; esac; done
-    fi
-    rm -rf "$flat"
+    # --per-language: the parser writes <ir>/<lang>/ itself, one folder per language that had
+    # a project (the config tables go with java/, whose rules are their only reader).
+    node "$PARSER" "$src" "$version" "$exclude" "$ir" --per-language
+    found=(); for d in "$ir"/*/; do [ -d "$d" ] && found+=("$(basename "$d")"); done
     [ ${#found[@]} -gt 0 ] || { echo "❌ the parser found no Java, TypeScript or Python source under $src" >&2; exit 1; }
     echo "▶ IR: ${found[*]} → $ir/<lang>/"
     ;;
