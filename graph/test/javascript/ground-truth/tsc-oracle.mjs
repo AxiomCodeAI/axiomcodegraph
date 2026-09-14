@@ -89,7 +89,10 @@ const options = {
   // package under a node_modules/@types it finds walking UP from the current directory,
   // so the answer for `require('path').join` depended on where the oracle was launched
   // from. Pinned empty; a Node builtin is then `any`, reported as undecided.
-  maxNodeModuleJsDepth: 0, types: [], typeRoots: [],
+  // With ORACLE_NODE_MODULES_DEPTH set the compiler READS the JavaScript of installed
+  // packages (to that depth) and can then name a declaration inside them — which is
+  // what scores a client->library edge. Default 0: a dependency is `any`.
+  maxNodeModuleJsDepth: Number(process.env.ORACLE_NODE_MODULES_DEPTH || 0), types: [], typeRoots: [],
 };
 const program = ts.createProgram(files, options);
 const checker = program.getTypeChecker();

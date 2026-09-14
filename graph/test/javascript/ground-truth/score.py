@@ -67,6 +67,10 @@ def main():
     ir, out, oracle_path = args
     production = '--production' in opts
     dump_path = next((o.split('=', 1)[1] for o in opts if o.startswith('--dump=')), None)
+    # --lib=<ir-dir> (repeatable): a staged library's methods, identified as the oracle
+    # names them — the package root relative to the project (`node_modules/<pkg>`) plus
+    # the file — so a client->library edge scores like a client->client one.
+    lib_dirs = [o.split('=', 1)[1] for o in opts if o.startswith('--lib=')]
 
     # ── IR: sites and methods ────────────────────────────────────────────────
     h, mods = read_tsv(os.path.join(ir, 'all-javascript-modules.csv'))
@@ -91,6 +95,20 @@ def main():
     mh, mf, ml, mc, mn = (h.index(c) for c in ('jsMethodUniqueHash', 'filePath', 'startLine', 'startColumn', 'name'))
     method_ident = {r[mh]: (r[mf], r[ml], r[mc]) for r in methods}
     method_name = {r[mh]: r[mn] for r in methods}
+    project_root = os.path.realpath(os.path.dirname(os.path.abspath(oracle_path)))
+    for d in lib_dirs:
+        lh, lrows = read_tsv(os.path.join(d, 'all-javascript-methods.csv'))
+        if not lh:
+            continue
+        j = {c: lh.index(c) for c in ('jsMethodUniqueHash', 'filePath', 'startLine', 'startColumn', 'name', 'baseMservPath')}
+        for r in lrows:
+            base = r[j['baseMservPath']]
+            # the package root relative to the project: the segment from node_modules on
+            k = base.find('/node_modules/')
+            rel_base = base[k + 1:] if k >= 0 else os.path.basename(base)
+            method_ident[r[j['jsMethodUniqueHash']]] = (rel_base + '/' + r[j['filePath']], r[j['startLine']], r[j['startColumn']])
+            method_name[r[j['jsMethodUniqueHash']]] = r[j['name']]
+            ir_files.add(rel_base + '/' + r[j['filePath']])
 
     # ── engine output ────────────────────────────────────────────────────────
     h, edges = read_tsv(os.path.join(out, 'call-chain-edges.csv'))
@@ -126,7 +144,8 @@ def main():
             eng_targets[key].add(method_ident[callee])
             eng_hashes[key].add(callee)
         elif callee != '-' and prov == 'lib':
-            eng_targets[key].add(('<lib>', '', ''))
+            eng_targets[key].add(method_ident.get(callee, ('<lib>', '', '')))
+            eng_hashes[key].add(callee)
 
     # ── oracle ───────────────────────────────────────────────────────────────
     h, orows = read_tsv(oracle_path)
