@@ -31,7 +31,7 @@ on:
         default: false
 
 env:
-  LANGUAGES: java typescript python
+  LANGUAGES: java typescript python javascript
 
 jobs:
   generate:
@@ -91,7 +91,7 @@ jobs:
         if: startsWith(matrix.target.platform, 'win32')
         shell: cmd
         run: |
-          for %%L in (java typescript python) do (
+          for %%L in (java typescript python javascript) do (
             mkdir engines\%%L
             cl /nologo /std:c++17 /O2 /EHsc /bigobj /w /permissive- /Zc:__cplusplus /D_CRT_SECURE_NO_WARNINGS /DNOMINMAX /DUSE_CUSTOM_GETOPTLONG /I gen gen\%%L.cpp /Fe:engines\%%L\axiomcode-engine-%%L.exe
             if errorlevel 1 exit /b 1

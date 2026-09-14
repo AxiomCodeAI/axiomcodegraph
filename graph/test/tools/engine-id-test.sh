@@ -22,7 +22,7 @@ for t in bash grep awk sed sort cut tr mktemp uname cat rm cp mv ls dirname base
 done
 id_at(){ ( cd "$1" && PATH="$W/bin" bash "$RUN" --language "$2" --print-engine-id ); }
 
-for lang in java typescript python; do
+for lang in java typescript python javascript; do
   a="$(id_at "$ROOT" "$lang")"; b="$(id_at "$W/copy" "$lang")"
   case "$a" in [0-9a-f]*) ;; *) bad "$lang: id is not a hex digest: '$a'";; esac
   [ "$a" = "$b" ] || bad "$lang: id differs between two paths ($a vs $b)"
