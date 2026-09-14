@@ -274,6 +274,7 @@ Every callable the graph refers to: all client methods/functions from the IR, pl
 
 - **all** — Library rows are the subset an edge reaches. To see a library method nothing calls, query the library IR itself.
 - **javascript** — signature is empty and owner_qualified_name is NULL: JavaScript declares neither. owner_type_id is set for class members, including members declared by assignment.
+- **javascript** — A library row's qualified_name and file_path are prefixed with the package: its path under the client when installed there (`node_modules/<pkg>/…`, nested versions included), else its package name (`<pkg>/…`; a second root with the same name gets `#2`). The parser records both relative to the package root, where two packages with an index.js are indistinguishable. Same for types.
 
 ### `types`
 
