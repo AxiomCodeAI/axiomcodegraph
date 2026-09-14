@@ -343,7 +343,7 @@ CACHE_DIR="$CACHE_ROOT"
 EXE=""; case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) EXE=".exe";; esac
 BIN="$CACHE_DIR/souffle-engine-$LANG_ARG-$ENGINE_ID$EXE"
 
-# The platform string CI names its assets by: <os>-<arch>. macOS is one universal binary.
+# The platform string CI names its assets by: <os>-<arch>.
 engine_platform(){
   local os arch
   case "$(uname -s)" in
@@ -354,7 +354,6 @@ engine_platform(){
     x86_64|amd64) arch=x86_64;; arm64|aarch64) arch=arm64;;
     *) echo "unsupported architecture: $(uname -m)" >&2; return 1;;
   esac
-  [ "$os" = darwin ] && arch=universal
   printf '%s-%s\n' "$os" "$arch"
 }
 # Fetch the CI-built binary for this platform and id into $BIN, verifying its sha256. Uses
