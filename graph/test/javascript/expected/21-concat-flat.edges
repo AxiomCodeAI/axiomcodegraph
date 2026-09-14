@@ -1,0 +1,28 @@
+main.js:10:1 FUNCTION_CALL k1  ->  known_edge  main.js:4:1 k1
+main.js:10:13 FUNCTION_CALL k3  ->  known_edge  main.js:6:1 k3
+main.js:10:19 FUNCTION_CALL k5  ->  known_edge  main.js:7:1 k5
+main.js:10:25 FUNCTION_CALL k4  ->  known_edge  main.js:8:1 k4
+main.js:10:31 FUNCTION_CALL k6  ->  known_edge  main.js:9:1 k6
+main.js:10:7 FUNCTION_CALL k2  ->  known_edge  main.js:5:1 k2
+main.js:4:24 COMPUTED_CALL [first].concat([second])[1]  ->  multi_inferred  main.js:2:1 first
+main.js:4:24 COMPUTED_CALL [first].concat([second])[1]  ->  multi_inferred  main.js:3:1 second
+main.js:4:24 METHOD_CALL [first].concat  ->  ambient_terminal  -
+main.js:5:24 COMPUTED_CALL [first].concat(second)[1]  ->  multi_inferred  main.js:2:1 first
+main.js:5:24 COMPUTED_CALL [first].concat(second)[1]  ->  multi_inferred  main.js:3:1 second
+main.js:5:24 METHOD_CALL [first].concat  ->  ambient_terminal  -
+main.js:5:24 METHOD_CALL [first].concat  ->  callback_registered  main.js:3:1 second
+main.js:6:24 COMPUTED_CALL [[first], [second]].flat()[1]  ->  ambient_terminal  -
+main.js:6:24 COMPUTED_CALL [[first], [second]].flat()[1]  ->  multi_inferred  main.js:2:1 first
+main.js:6:24 COMPUTED_CALL [[first], [second]].flat()[1]  ->  multi_inferred  main.js:3:1 second
+main.js:6:24 METHOD_CALL [[first], [second]].flat  ->  ambient_terminal  -
+main.js:7:24 FUNCTION_CALL Array.of(first).concat([second]).at(-1)  ->  ambient_terminal  -
+main.js:7:24 FUNCTION_CALL Array.of(first).concat([second]).at(-1)  ->  multi_inferred  main.js:2:1 first
+main.js:7:24 FUNCTION_CALL Array.of(first).concat([second]).at(-1)  ->  multi_inferred  main.js:3:1 second
+main.js:7:24 METHOD_CALL Array.of  ->  ambient_terminal  -
+main.js:7:24 METHOD_CALL Array.of  ->  callback_registered  main.js:2:1 first
+main.js:7:24 METHOD_CALL Array.of(first).concat  ->  ambient_terminal  -
+main.js:7:24 METHOD_CALL Array.of(first).concat([second]).at  ->  ambient_terminal  -
+main.js:8:57 COMPUTED_CALL ys[1]  ->  multi_inferred  main.js:2:1 first
+main.js:8:57 COMPUTED_CALL ys[1]  ->  multi_inferred  main.js:3:1 second
+main.js:9:48 METHOD_CALL xs.concat  ->  ambient_terminal  -
+main.js:9:76 COMPUTED_CALL xs[0]  ->  known_edge  main.js:2:1 first

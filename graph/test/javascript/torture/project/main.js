@@ -34,6 +34,7 @@ function functional() {
   F.withDefault(); F.withDefault(() => 5, { mapper: F.inc, tag: true });
   F.variadic(F.inc, F.twice, (x) => F.add(x, 1));
   F.applyAll([F.inc, F.twice], 1);
+  F.pipeline([F.fact]); F.nested([F.fib]);
   F.slowSquare(3); F.slowSquare(3);
   const bound = F.add.bind(null, 10); bound(1);
   F.add.call(null, 1, 2); F.add.apply(null, [1, 2]);
