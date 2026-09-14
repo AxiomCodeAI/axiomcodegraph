@@ -41,3 +41,5 @@ expr_shape	diag-expr-shape.csv
 call_signature_in_scope	diag-call-sig.csv
 ref_shape_target	diag-ref-shape.csv
 alias_step	diag-alias-step.csv
+method_dispatch_candidate	dispatch-candidates.csv
+type_instantiated	resolution-type-instantiated.csv

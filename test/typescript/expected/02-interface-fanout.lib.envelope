@@ -1,0 +1,5 @@
+nominal	handlers#Handler.handle -> handlers#LowerHandler.handle
+nominal	handlers#Handler.handle -> handlers#NeverBuiltHandler.handle
+nominal	handlers#Handler.handle -> handlers#UpperHandler.handle
+nominal	lib:contracts#Sink.accept -> handlers#ClientSink.accept
+nominal	lib:contracts#Sink.accept -> lib:contracts#ConsoleSink.accept

@@ -1,0 +1,2 @@
+nominal	lib:api#Contract.verify -> lib:api#Verifier.verify
+nominal	types#Spec.check -> types#Impl.check

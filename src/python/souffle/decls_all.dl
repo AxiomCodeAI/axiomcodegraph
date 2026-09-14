@@ -78,6 +78,8 @@
 .decl method_scope(c0:symbol,c1:symbol,c2:symbol)
 .decl method_declaring_binding(c0:symbol,c1:symbol,c2:symbol)
 .decl method_start_line(c0:symbol,c1:symbol,c2:symbol)
+.decl method_dispatch_candidate(c0:symbol,c1:symbol,c2:symbol)
+.decl py_init_name(c0:symbol)
 .decl def_separated_by_block(c0:symbol,c1:symbol,c2:symbol)
 .decl def_rebound_by_later_def(c0:symbol,c1:symbol)
 .decl method_file(c0:symbol,c1:symbol,c2:symbol)
