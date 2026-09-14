@@ -34,7 +34,7 @@ callback_registered(ce, m) :- invocation_site(ce, _), call_arg(ce, _, arg), expr
 // event_handler(K, I, Name, Handler): `<recv>.on(<name>, <handler>)` on value (K, I).
 event_handler(k, i, name, m) :- call_site(_, ck, mn, "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck),
     event_register_method(mn),
-    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, k, i),
+    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, k0, i0), receiver_identity(k0, i0, k, i),
     call_arg(ce, 0, ne), event_name_of(ne, name),
     call_arg(ce, 1, he), expr_value(he, "func", m).
 event_register_method("on").
@@ -43,16 +43,21 @@ event_register_method("addListener").
 event_register_method("prependListener").
 event_register_method("prependOnceListener").
 event_register_method("addEventListener").
-// A literal name, or "*" for a computed one.
-event_name_of(e, n) :- expr_kind(_, "LITERAL", _, e), expr_text(_, n, e).
-event_name_of(e, "*") :- expr_kind(_, k, _, e), k != "LITERAL".
+// The name's string value(s), or "*" for an expression no literal reaches.
+event_name_of(e, n) :- expr_value(e, "str", n).
+event_name_of(e, "*") :- expr_child(_, ce, "ARGUMENT", _, e), call_site(_, _, mn, _, _, _, ce, _, _),
+    (event_register_method(mn); event_emit_method(mn)), !expr_kind(_, "LITERAL", _, e).
 
 event_dispatch(ce, m) :- call_site(_, ck, mn, "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck),
     event_emit_method(mn),
-    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, k, i),
+    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, k0, i0), receiver_identity(k0, i0, k, i),
     call_arg(ce, 0, ne), event_name_of(ne, n1),
     event_handler(k, i, n2, m),
     (n1 = n2; n1 = "*"; n2 = "*").
+// `module.exports = new Store()` then `store.on(...)` elsewhere: the registration's
+// receiver is the MODULE value, the emit's `this` is the instance — one object.
+receiver_identity(k, i, k, i) :- expr_value(_, k, i).
+receiver_identity("module", mod, k, i) :- module_export_value(mod, "default", k, i), k != "module".
 event_emit_method("emit").
 event_emit_method("dispatchEvent").
 event_emit_method("trigger").

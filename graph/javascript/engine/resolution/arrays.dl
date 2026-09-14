@@ -131,17 +131,20 @@ coll_method_call(ce, n, c) :- call_site(_, ck, n, "SYNTACTIC", _, _, ce, _, _), 
 // flow fixpoint.
 elem_value(c, k, i) :- coll_method_call(ce, "set", c), call_arg(ce, 1, v), expr_value(v, k, i).
 elem_value(c, k, i) :- coll_method_call(ce, "add", c), call_arg(ce, 0, v), expr_value(v, k, i).
-coll_keyed_value(c, key, k, i) :- coll_method_call(ce, "set", c), call_arg(ce, 0, ke), expr_kind(_, "LITERAL", _, ke),
-    expr_text(_, key, ke), call_arg(ce, 1, v), expr_value(v, k, i).
+coll_keyed_value(c, key, k, i) :- coll_method_call(ce, "set", c), call_arg(ce, 0, ke), expr_value(ke, "str", key),
+    call_arg(ce, 1, v), expr_value(v, k, i).
 coll_dynamic_value(c, k, i) :- coll_method_call(ce, "set", c), call_arg(ce, 0, ke), !expr_kind(_, "LITERAL", _, ke),
     call_arg(ce, 1, v), expr_value(v, k, i).
 get_literal_key(ce, key) :- call_site(_, ck, "get", "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck),
-    call_arg(ce, 0, ke), expr_kind(_, "LITERAL", _, ke), expr_text(_, key, ke).
+    call_arg(ce, 0, ke), expr_value(ke, "str", key).
+// Syntactic, so the fallback below can negate it inside the flow fixpoint.
+get_key_is_literal(ce) :- call_site(_, ck, "get", "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck),
+    call_arg(ce, 0, ke), expr_kind(_, "LITERAL", _, ke).
 // `m.get(k)` is a stored value; `m.values()` / `s.values()` iterate them; `forEach`
 // hands them to the callback's first parameter.
 expr_value(ce, k, i) :- coll_method_call(ce, "get", c), get_literal_key(ce, key), coll_keyed_value(c, key, k, i).
-expr_value(ce, k, i) :- coll_method_call(ce, "get", c), get_literal_key(ce, _), coll_dynamic_value(c, k, i).
-expr_value(ce, k, i) :- coll_method_call(ce, "get", c), !get_literal_key(ce, _), elem_value(c, k, i).
+expr_value(ce, k, i) :- coll_method_call(ce, "get", c), get_key_is_literal(ce), coll_dynamic_value(c, k, i).
+expr_value(ce, k, i) :- coll_method_call(ce, "get", c), !get_key_is_literal(ce), elem_value(c, k, i).
 expr_value(ce, "arr", c) :- coll_method_call(ce, "values", c).
 param_value(p, k, i) :- coll_method_call(ce, "forEach", c), call_arg(ce, 0, f), expr_value(f, "func", m),
     param_decl(_, _, "0", m, p), elem_value(c, k, i).

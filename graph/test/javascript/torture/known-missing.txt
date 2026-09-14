@@ -6,11 +6,6 @@
 # link to the name it initialises.
 lib/functional.js:17:1 lib/functional.js:7:1
 
-# A hand-rolled dispatcher keyed by a COMPUTED member name: `this.handlers[name]` is
-# written and read with a non-literal key. dynamic_terminal by construction.
-lib/bus.js:11:75 lib/bus.js:18:1
-lib/registry.js:7:1 lib/registry.js:5:3
-
 # A Proxy `get` trap manufactures the callee at runtime; nothing static names it.
 lib/registry.js:10:1 lib/registry.js:9:38
 lib/registry.js:10:1 lib/registry.js:9:48

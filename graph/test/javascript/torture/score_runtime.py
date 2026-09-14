@@ -26,6 +26,10 @@ from collections import Counter, defaultdict
 
 ir, raw, edges_path = sys.argv[1:4]
 dump = '--dump' in sys.argv
+# --lib=<ir-dir> (repeatable) with --root=<project-dir>: a library method's id is its package
+# root relative to the project plus its file — `node_modules/express/lib/router/index.js:L:C`.
+lib_dirs = [a.split('=', 1)[1] for a in sys.argv if a.startswith('--lib=')]
+root = next((a.split('=', 1)[1] for a in sys.argv if a.startswith('--root=')), None)
 known_path = next((a.split('=', 1)[1] for a in sys.argv if a.startswith('--known=')), None)
 
 def read(path):
@@ -40,12 +44,21 @@ for r in methods:
     k = '%s:%s:%s' % (r[i['filePath']], r[i['startLine']], r[i['startColumn']])
     ident[r[i['jsMethodUniqueHash']]] = k; name_of[k] = r[i['name']]; kind_of[k] = r[i['methodKind']]
 
+for d in lib_dirs:
+    h, lm = read(os.path.join(d, 'all-javascript-methods.csv'))
+    j = {c: h.index(c) for c in ('jsMethodUniqueHash', 'filePath', 'startLine', 'startColumn', 'name', 'methodKind', 'baseMservPath')}
+    for r in lm:
+        base = os.path.relpath(os.path.realpath(r[j['baseMservPath']]), os.path.realpath(root)) if root else r[j['baseMservPath']]
+        k = '%s/%s:%s:%s' % (base, r[j['filePath']], r[j['startLine']], r[j['startColumn']])
+        ident[r[j['jsMethodUniqueHash']]] = k; name_of[k] = r[j['name']]; kind_of[k] = r[j['methodKind']]
+is_lib = lambda k: k.startswith('node_modules/')
+
 eng = defaultdict(set)   # caller id -> {callee id}
 status = {}
 with open(os.path.join(raw, 'call-chain-edges.csv')) as fh:
     for line in fh:
         f = line.rstrip('\n').split('\t')
-        if len(f) < 7 or f[3] == '-' or f[4] != 'client':
+        if len(f) < 7 or f[3] == '-':
             continue
         a, b = ident.get(f[1]), ident.get(f[3])
         if a and b:
@@ -58,6 +71,11 @@ mod_file = {}
 h2, mods = read(os.path.join(ir, 'all-javascript-modules.csv'))
 for r in mods:
     mod_file[r[h2.index('jsModuleUniqueHash')]] = r[h2.index('filePath')]
+for d in lib_dirs:
+    h2, mods = read(os.path.join(d, 'all-javascript-modules.csv'))
+    for r in mods:
+        base = os.path.relpath(os.path.realpath(r[h2.index('baseMservPath')]), os.path.realpath(root)) if root else r[h2.index('baseMservPath')]
+        mod_file[r[h2.index('jsModuleUniqueHash')]] = base + '/' + r[h2.index('filePath')]
 h3, imps = read(os.path.join(ir, 'all-javascript-imports.csv'))
 imp_owner = {r[h3.index('jsImportUniqueHash')]: r[h3.index('ownerModuleLinkHash')] for r in imps}
 with open(os.path.join(raw, 'import-module.csv')) as fh:
@@ -70,8 +88,24 @@ rt = json.load(open(edges_path))
 executed = [(e['caller'], e['callee']) for e in rt['edges'] if e['caller'] != '<root>']
 unknown_fn = [k for k in rt['functions'] if k not in name_of]
 found, missing, accessor = [], [], []
+registered = set()   # callbacks the engine says SOME client site hands to a callee
+for (a, b), st in status.items():
+    if st in ('callback_registered', 'event_dispatch'): registered.add(b)
+cat = Counter(); lib_lib = 0; lib_client_found = []
 module_edges = []
 for a, b in executed:
+    prov = ('lib' if is_lib(a) else 'client') + '->' + ('lib' if is_lib(b) else 'client')
+    if b not in name_of:
+        cat['callee has no method row (%s)' % prov] += 1; continue
+    if prov == 'lib->lib':
+        lib_lib += 1; continue
+    if prov == 'lib->client':
+        # a library invoking a client function: a callback it was handed. The engine has no
+        # edge from INSIDE the library (bodies are not expanded); the claim it makes is the
+        # callback_registered edge from the client site that handed it over.
+        if kind_of.get(b) == 'MODULE_INITIALIZER': continue
+        (found if b in registered or b in eng.get(a, ()) else missing).append((a, b)); cat[prov] += 1; continue
+    cat[prov] += 1
     if a.endswith(':1:1') and b.endswith(':1:1') and kind_of.get(b) == 'MODULE_INITIALIZER':
         (found if (a, b) in imports else missing).append((a, b)); module_edges.append((a, b)); continue
     if kind_of.get(b) in ('GETTER', 'SETTER'):
@@ -79,7 +113,8 @@ for a, b in executed:
     (found if b in eng.get(a, ()) else missing).append((a, b))
 static_only = [(a, b) for a, bs in eng.items() for b in bs if (a, b) not in set(executed)]
 
-print('runtime: %d functions entered, %d distinct executed edges (%d into accessors, reported apart)' % (len(rt['functions']), len(executed), len(accessor)))
+print('runtime: %d functions entered, %d distinct executed edges (%d into accessors, reported apart; %d lib->lib out of scope)' % (len(rt['functions']), len(executed), len(accessor), lib_lib))
+print('  by provenance: %s' % dict(cat))
 if unknown_fn:
     print('  ! %d executed function(s) have no js_method row at that position: %s' % (len(unknown_fn), unknown_fn[:5]))
 print('EXECUTED_FOUND    %4d  (of which %d module loads matched to import edges)' % (len(found), sum(1 for e in module_edges if e in found)))

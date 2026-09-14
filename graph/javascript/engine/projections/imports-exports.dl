@@ -63,12 +63,20 @@ export_decl("lib", en, ln, form, vk, tk, tgt, se, mod, h) :- lib_js_export(en, l
 export_reexport("client", spec, imp, h) :- js_export(_, _, _, _, _, "true", spec, imp, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
 export_reexport("lib", spec, imp, h) :- lib_js_export(_, _, _, _, _, "true", spec, imp, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
 
-// ── export_overwritten(Prov, ExportHash) ────────────────────────────────────
-// `exports.a = 1; module.exports = { b }` exports ONLY b. A row the parser marks as
-// overwritten is a fact about the source that is false at runtime, and it is
-// excluded from the export surface.
-export_overwritten("client", h) :- js_export(_, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, h).
-export_overwritten("lib", h) :- lib_js_export(_, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, h).
+// ── export_overwrites(Prov, Line, OwnerModule, ExportHash) ──────────────────
+// `overwritesPreviousExport` is set ON THE `module.exports = X` ROW that replaces what
+// came before it — it marks the LIVE row, not the dead ones. Every member export
+// written EARLIER in that module (`exports.a = 1; module.exports = { b }`) is what
+// runtime never sees; one written later lands on X. An earlier version of these rules
+// read the flag as "this row is dead" and dropped exactly the assignment that carries
+// a module's whole surface (a `module.exports = require('./common')(exports)` after
+// ten `exports.x =` lines), which is how a well-known logging package exported nothing.
+export_overwrites("client", l, mod, h) :- js_export(_, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, mod, l, _, _, _, h).
+export_overwrites("lib", l, mod, h) :- lib_js_export(_, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, mod, l, _, _, _, h).
+export_lines("client", l, mod, h) :- js_export(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, mod, l, _, _, _, h).
+export_lines("lib", l, mod, h) :- lib_js_export(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, mod, l, _, _, _, h).
+export_overwritten(p, x) :- export_lines(p, l1, mod, x), export_decl(p, _, _, form, _, _, _, _, mod, x), export_form_is_member(form),
+    export_overwrites(p, l2, mod, _), to_number(l2) > to_number(l1).
 
 // ── export_form_is_module_exports(Form) ─────────────────────────────────────
 // The forms whose exported VALUE replaces the whole exports object.

@@ -38,6 +38,14 @@ import_module(imp, mod) :- import_decl(_, _, _, _, _, rf, "RESOLVED_EXTERNAL", _
 import_module(imp, mod) :- import_decl(_, _, _, _, _, rf, "RESOLVED_EXTERNAL", _, imp),
     module_package("lib", pkg, mod), module_file("lib", fp, mod),
     contains(cat("/node_modules/", cat(pkg, cat("/", fp))), rf).
+// A package that ships typings resolves to its `index.d.ts` — the compiler's answer,
+// and the right one for TYPES. The code that runs is the `.js` beside it, which is
+// what a library parsed from source holds; the declaration file is not in any IR.
+import_module(imp, mod) :- import_decl(_, _, _, _, _, rf, "RESOLVED_EXTERNAL", _, imp),
+    strlen(rf) > 5, substr(rf, strlen(rf) - 5, 5) = ".d.ts",
+    js = cat(substr(rf, 0, strlen(rf) - 5), ".js"),
+    module_package("lib", pkg, mod), module_file("lib", fp, mod),
+    contains(cat("/node_modules/", cat(pkg, cat("/", fp))), js).
 
 // ── import_unresolved(ImportHash, Specifier, Outcome) — countable ───────────
 // A dependency that is not staged (RESOLVED_EXTERNAL with no matching module), a
@@ -96,6 +104,11 @@ module_export_value(mod, "default", "module", src) :- export_decl(_, "default", 
 
 // ── import_value(ImportHash, K, I) — what a binding introduced by an import holds ──
 import_value(imp, "module", mod) :- import_decl(_, _, _, "NAMESPACE", _, _, _, _, imp), import_module(imp, mod).
+// A CommonJS `require()` binding IS `module.exports` — when that is an array, a class
+// or a function, the binding holds that value too, so `methods.forEach(...)` over a
+// module that exports an array iterates it and `new (require('./x'))` constructs it.
+import_value(imp, k, i) :- import_decl(_, _, "REQUIRE_CALL", "NAMESPACE", _, _, _, _, imp), import_module(imp, mod),
+    module_decl(_, _, _, _, "COMMONJS", mod), module_export_value(mod, "default", k, i), k != "module".
 import_value(imp, k, i) :- import_decl(_, _, _, "DEFAULT", _, _, _, _, imp), import_module(imp, mod),
     module_export_value(mod, "default", k, i).
 import_value(imp, k, i) :- import_decl(_, _, _, bf, n, _, _, _, imp), import_binding_is_named(bf), n != "",

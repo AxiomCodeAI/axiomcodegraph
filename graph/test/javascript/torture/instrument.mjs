@@ -36,8 +36,10 @@ import * as path from 'node:path';
 import { createRequire } from 'node:module';
 const ts = createRequire(import.meta.url)('typescript');
 
-const [,, srcDir, outDir, edgesPath] = process.argv;
-if (!srcDir || !outDir || !edgesPath) { console.error('usage: instrument.mjs <src> <out> <edges.json>'); process.exit(2); }
+const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+const INCLUDE_NODE_MODULES = process.argv.includes('--node-modules');
+const [srcDir, outDir, edgesPath] = args;
+if (!srcDir || !outDir || !edgesPath) { console.error('usage: instrument.mjs <src> <out> <edges.json> [--node-modules]'); process.exit(2); }
 
 const RUNTIME = `
 const { AsyncLocalStorage } = require('node:async_hooks');
@@ -62,9 +64,12 @@ module.exports = __axiom;
 
 function walk(d, acc = []) {
   for (const e of fs.readdirSync(d, { withFileTypes: true })) {
-    if (e.name === 'node_modules') continue;
+    if (e.name === 'node_modules' && !INCLUDE_NODE_MODULES) continue;
+    if (e.name === '.bin' || e.name === '.git') continue;
     const p = path.join(d, e.name);
-    if (e.isDirectory()) walk(p, acc); else if (/\.(js|cjs|mjs)$/.test(e.name)) acc.push(p);
+    if (e.isDirectory()) walk(p, acc); else if (/\.(js|cjs)$/.test(e.name)) acc.push(p);
+    // everything else (package.json, .mjs, .json, .d.ts) is copied verbatim so `require` resolves
+    else acc.push({ copy: p });
   }
   return acc;
 }
@@ -89,7 +94,27 @@ function instrument(file, rel) {
       f.createArrowFunction(isAsync ? [f.createModifier(ts.SyntaxKind.AsyncKeyword)] : undefined, undefined, [], undefined,
         f.createToken(ts.SyntaxKind.EqualsGreaterThanToken), f.createBlock(stmts, true))]))], true);
   const isAsyncFn = (n) => !!(ts.getCombinedModifierFlags(n) & ts.ModifierFlags.Async);
-  const wrapBlock = (id, stmts, node) => node.asteriskToken ? wrapEnter(id, stmts) : wrapRun(id, stmts, isAsyncFn(node));
+  // A `var fn` in the body of `function use(fn)` re-declares the PARAMETER in the
+  // original — the same binding — but inside the arrow it would be a fresh, undefined
+  // binding shadowing the parameter (express's router.use has exactly this shape). Such
+  // functions, and generators, use the enter/exit form, which keeps the body in place.
+  const paramNames = (node) => { const out = new Set(); const walk = (n) => { if (ts.isIdentifier(n)) out.add(n.text); else ts.forEachChild(n, walk); };
+    for (const p of node.parameters) walk(p.name); return out; };
+  const redeclaresParam = (node) => {
+    const names = paramNames(node); let hit = false;
+    const walk = (n) => {
+      if (hit) return;
+      if (ts.isFunctionLike(n) && n !== node) return;               // a nested function has its own scope
+      if (ts.isVariableDeclarationList(n) && !(n.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const))) {
+        for (const d of n.declarations) { const w = (x) => { if (ts.isIdentifier(x)) { if (names.has(x.text)) hit = true; } else ts.forEachChild(x, w); }; w(d.name); }
+      }
+      if (ts.isFunctionDeclaration(n) && n.name && names.has(n.name.text)) hit = true;
+      ts.forEachChild(n, walk);
+    };
+    if (node.body) ts.forEachChild(node.body, walk);
+    return hit;
+  };
+  const wrapBlock = (id, stmts, node) => (node.asteriskToken || redeclaresParam(node)) ? wrapEnter(id, stmts) : wrapRun(id, stmts, isAsyncFn(node));
 
   const transformer = (ctx) => {
     const visit = (node) => {
@@ -131,15 +156,15 @@ fs.rmSync(outDir, { recursive: true, force: true });
 fs.mkdirSync(outDir, { recursive: true });
 fs.writeFileSync(path.join(outDir, '__axiom_runtime.js'), RUNTIME);
 let n = 0;
-for (const file of walk(srcDir)) {
+let skipped = 0;
+for (const entry of walk(srcDir)) {
+  const file = typeof entry === 'string' ? entry : entry.copy;
   const rel = path.relative(srcDir, file).replace(/\\/g, '/');
   const dst = path.join(outDir, rel);
   fs.mkdirSync(path.dirname(dst), { recursive: true });
-  fs.writeFileSync(dst, instrument(file, rel));
-  n++;
+  if (typeof entry !== 'string') { fs.copyFileSync(file, dst); continue; }
+  try { fs.writeFileSync(dst, instrument(file, rel)); n++; }
+  catch (e) { fs.copyFileSync(file, dst); skipped++; }
 }
-for (const extra of ['package.json']) {
-  const p = path.join(srcDir, extra);
-  if (fs.existsSync(p)) fs.copyFileSync(p, path.join(outDir, extra));
-}
+if (skipped) console.log(`copied ${skipped} file(s) uninstrumented (transform failed)`);
 console.log(`instrumented ${n} file(s) into ${outDir}`);

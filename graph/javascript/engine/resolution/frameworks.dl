@@ -1,0 +1,126 @@
+// ============================================================================
+// Resolution · LIBRARY MODELS  (what a handful of library calls DO to values)
+//
+// A static analysis reads declarations and flow. Three things a JavaScript program
+// does with values are neither: copying every property of one object onto another
+// (`Object.assign`, `merge-descriptors`), rewiring an object's prototype
+// (`Object.setPrototypeOf`, `setprototypeof`, `Object.create`), and a framework
+// invoking a callback it was handed with arguments it manufactured (`express`
+// calling a route handler with `req`, `res`, `next`). The first two are reflection;
+// the third happens inside `arguments`-forwarding and `apply` chains no flow rule
+// follows. Every practical JavaScript call-graph tool models these as FACTS about
+// named libraries, and so does this file — declaratively, so the list is readable
+// and each entry is a claim that can be checked against the library's source.
+//
+// Everything here is keyed by VALUE PROVENANCE (which package a function or module
+// value came from), never by a name alone: a project's own `assign()` is not
+// `Object.assign`.
+// ============================================================================
+
+// ── assign-like: every property of the sources is written onto the target ───
+// `Object.assign(dst, ...srcs)`; `merge-descriptors`' default export
+// (`mixin(app, proto)` in express); `util._extend(dst, src)`.
+assign_like_site(ce, tgt, src) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", "assign", _, _, _, ce, _, _),
+    expr_child(_, ce, "RECEIVER", _, recv), expr_value(recv, "ambient", "Object"),
+    call_arg(ce, 0, tgt), call_arg(ce, p, src), p >= 1.
+assign_like_site(ce, tgt, src) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", "_extend", _, _, _, ce, _, _),
+    expr_child(_, ce, "RECEIVER", _, recv), expr_value(recv, "ambient", "util"),
+    call_arg(ce, 0, tgt), call_arg(ce, 1, src).
+assign_like_site(ce, tgt, src) :- expr_kind(_, "CALL", _, ce), callee_value(ce, "func", m), model_assign_like_function(m),
+    call_arg(ce, 0, tgt), call_arg(ce, 1, src).
+model_assign_like_function(m) :- module_export_value(mod, "default", "func", m), module_package("lib", "merge-descriptors", mod).
+member_write(k, i, n, k2, i2) :- assign_like_site(_, tgt, src), expr_value(tgt, k, i), k != "ambient",
+    expr_value(src, k0, i0), prop_value(k0, i0, n, k2, i2).
+// The call evaluates to its target.
+expr_value(ce, k, i) :- assign_like_site(ce, tgt, _), expr_value(tgt, k, i).
+
+// ── inherit-like: the target's missing members are the source's ─────────────
+// `Object.setPrototypeOf(obj, proto)`, `setprototypeof`'s default export, and
+// `Object.create(proto)` — which also ALLOCATES: the call is a fresh object value,
+// so `var res = Object.create(http.ServerResponse.prototype); res.json = ...` gives
+// `res` its own members (writes through an ambient value are otherwise dropped).
+inherit_like_site(ce, tgt, src) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", "setPrototypeOf", _, _, _, ce, _, _),
+    expr_child(_, ce, "RECEIVER", _, recv), expr_value(recv, "ambient", "Object"),
+    call_arg(ce, 0, tgt), call_arg(ce, 1, src).
+inherit_like_site(ce, tgt, src) :- expr_kind(_, "CALL", _, ce), callee_value(ce, "func", m), model_setprototypeof_function(m),
+    call_arg(ce, 0, tgt), call_arg(ce, 1, src).
+model_setprototypeof_function(m) :- module_export_value(mod, "default", "func", m), module_package("lib", "setprototypeof", mod).
+object_create_site(ce, src) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", "create", _, _, _, ce, _, _),
+    expr_child(_, ce, "RECEIVER", _, recv), expr_value(recv, "ambient", "Object"),
+    call_arg(ce, 0, src).
+expr_value(ce, "obj", ce) :- object_create_site(ce, _).
+inherits_from(k, i, k0, i0) :- inherit_like_site(_, tgt, src), expr_value(tgt, k, i), k != "ambient", expr_value(src, k0, i0).
+inherits_from("obj", ce, k0, i0) :- object_create_site(ce, src), expr_value(src, k0, i0).
+prop_value(k, i, n, k2, i2) :- inherits_from(k, i, k0, i0), prop_value(k0, i0, n, k2, i2).
+// A function found through an inherited prototype runs with the receiver as `this`
+// only where the receiver is an instance; for a plain object the definition-site
+// binding already applies.
+expr_value(ce, k, i) :- inherit_like_site(ce, tgt, _), expr_value(tgt, k, i).
+
+// ── a class whose base is the platform: unknown members are the platform's ──
+// `class Store extends EventEmitter` — `store.on(...)` is `EventEmitter.prototype.on`,
+// an ambient terminal, not a missing member.
+type_super_ambient(t, n) :- heritage(_, t, _, _, _, imp, _, _), imp != "", import_value(imp, "ambient", n).
+type_super_ambient(t, n) :- heritage(_, t, _, sn, _, "", _, _), sn != "", type_decl(_, _, _, _, mod, t),
+    module_scope(_, ms, mod), var_decl(_, sn, _, ms, _, mod, v), var_value(v, "ambient", n).
+type_super_ambient(t, n) :- type_super(t, s), type_super_ambient(s, n).
+prop_value("inst", t, n, "ambient", base) :- type_super_ambient(t, base), !type_own_member_name(t, n), member_name_used(n).
+prop_value("ctor", t, n, "ambient", base) :- type_super_ambient(t, base), !type_own_static_name(t, n), member_name_used(n).
+member_name_used(n) :- call_site(_, ck, n, "SYNTACTIC", _, _, _, _, _), call_kind_is_member_form(ck), n != "".
+
+// ── express: what a route handler receives ──────────────────────────────────
+// `app.get('/x', (req, res, next) => ...)` — express invokes the handler from inside
+// `Layer.handle_request` with objects it built from Node's server (`req`, `res` with
+// the prototypes in lib/request and lib/response set by reflection) and a `next`
+// closure from `Router.handle`. No flow rule sees that; the facts below say it.
+//
+// An express app or router is recognised by VALUE, not by name: anything whose `use`
+// member is the one declared in the express package (lib/application.js or
+// lib/router/index.js). The handler is any function-valued argument of a
+// route-registering member call on such a value — directly, or as the value of a
+// project wrapper such as `wrap(async (req, res) => ...)`.
+model_express_receiver(k, i) :- prop_value(k, i, "use", "func", m), method_module(m, mod), module_package("lib", "express", mod).
+model_express_route_method("get").
+model_express_route_method("post").
+model_express_route_method("put").
+model_express_route_method("patch").
+model_express_route_method("delete").
+model_express_route_method("options").
+model_express_route_method("head").
+model_express_route_method("all").
+model_express_route_method("use").
+model_express_route_method("param").
+model_express_handler(h, mn) :- call_site(_, ck, mn, "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck),
+    model_express_route_method(mn),
+    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, k, i), model_express_receiver(k, i),
+    call_arg(ce, _, arg), expr_value(arg, "func", h).
+// The manufactured arguments, as values in the staged express IR.
+model_express_value("request", "module", mod) :- module_qname("lib", "lib/request", mod), module_package("lib", "express", mod).
+model_express_value("response", "module", mod) :- module_qname("lib", "lib/response", mod), module_package("lib", "express", mod).
+model_express_value("next", "func", m) :- method_decl("lib", "next", _, _, _, _, mod, m), module_qname("lib", "lib/router/index", mod), module_package("lib", "express", mod).
+model_express_value("paramCallback", "func", m) :- method_decl("lib", "paramCallback", _, _, _, _, mod, m), module_qname("lib", "lib/router/index", mod), module_package("lib", "express", mod).
+// (req, res, next) for a handler of up to three parameters; (err, req, res, next) for
+// four, unless registered through `param`, whose callback is (req, res, next, value).
+handler_arity(h, n) :- model_express_handler(h, _), n = count : { param_decl(_, _, _, h, _) }.
+param_value(p, k, i) :- model_express_handler(h, mn), mn != "param", handler_arity(h, n), n <= 3,
+    param_decl(_, _, pos, h, p), express_slot(pos, slot), model_express_value(slot, k, i).
+param_value(p, k, i) :- model_express_handler(h, mn), mn != "param", handler_arity(h, 4),
+    param_decl(_, _, pos, h, p), express_error_slot(pos, slot), model_express_value(slot, k, i).
+param_value(p, k, i) :- model_express_handler(h, "param"),
+    param_decl(_, _, pos, h, p), express_param_slot(pos, slot), model_express_value(slot, k, i).
+express_slot("0", "request").
+express_slot("1", "response").
+express_slot("2", "next").
+express_error_slot("1", "request").
+express_error_slot("2", "response").
+express_error_slot("3", "next").
+express_param_slot("0", "request").
+express_param_slot("1", "response").
+express_param_slot("2", "paramCallback").
+// The error handler's first parameter: whatever the project throws, or passes to
+// `next(...)`.
+param_value(p, k, i) :- model_express_handler(h, mn), mn != "param", handler_arity(h, 4),
+    param_decl(_, _, "0", h, p), express_error_value(k, i).
+express_error_value(k, i) :- expr_root("client", "THROW", e), expr_value(e, k, i).
+express_error_value(k, i) :- call_site("client", _, _, _, _, _, ce, _, _), callee_value(ce, "func", m), model_express_value("next", "func", m),
+    call_arg(ce, 0, arg), expr_value(arg, k, i).

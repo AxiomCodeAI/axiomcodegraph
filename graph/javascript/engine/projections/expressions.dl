@@ -189,3 +189,8 @@ call_kind_is_dynamic("DYNAMIC_IMPORT_CALL").
 // is the name itself.
 expr_referenced_name("client", n, h) :- js_expression("IDENTIFIER", _, _, _, _, _, _, _, _, _, _, _, _, _, _, n, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, _, _), n != "".
 expr_referenced_name("lib", n, h) :- lib_js_expression("IDENTIFIER", _, _, _, _, _, _, _, _, _, _, _, _, _, _, n, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, _, _), n != "".
+
+// ── expr_literal_kind(Prov, LiteralKind, ExprHash) ──────────────────────────
+// STRING | NUMBER | BOOLEAN | NULL | UNDEFINED | REGEX | TEMPLATE | BIGINT | NONE.
+expr_literal_kind("client", k, h) :- js_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, k, _, _, _, _, _, _, _, _, _, _, h, _, _, _), k != "NONE".
+expr_literal_kind("lib", k, h) :- lib_js_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, k, _, _, _, _, _, _, _, _, _, _, h, _, _, _), k != "NONE".

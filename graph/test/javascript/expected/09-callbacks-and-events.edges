@@ -1,14 +1,14 @@
 bus.js:10:13 CONSTRUCTOR_CALL Bus  ->  implicit_constructor  -
-bus.js:11:1 METHOD_CALL bus.on  ->  ambiguous_unknown  -
+bus.js:11:1 METHOD_CALL bus.on  ->  ambient_terminal  -
 bus.js:11:1 METHOD_CALL bus.on  ->  callback_registered  bus.js:7:1 onReady
-bus.js:12:1 METHOD_CALL bus.once  ->  ambiguous_unknown  -
+bus.js:12:1 METHOD_CALL bus.once  ->  ambient_terminal  -
 bus.js:12:1 METHOD_CALL bus.once  ->  callback_registered  bus.js:8:1 onData
-bus.js:13:1 METHOD_CALL bus.on  ->  ambiguous_unknown  -
+bus.js:13:1 METHOD_CALL bus.on  ->  ambient_terminal  -
 bus.js:13:1 METHOD_CALL bus.on  ->  callback_registered  bus.js:9:1 onAnything
 bus.js:14:1 METHOD_CALL bus.start  ->  known_edge  bus.js:4:3 start
 bus.js:15:1 METHOD_CALL bus.stop  ->  known_edge  bus.js:5:3 stop
 bus.js:16:15 CONSTRUCTOR_CALL Bus  ->  implicit_constructor  -
-bus.js:17:1 METHOD_CALL other.on  ->  ambiguous_unknown  -
+bus.js:17:1 METHOD_CALL other.on  ->  ambient_terminal  -
 bus.js:17:1 METHOD_CALL other.on  ->  callback_registered  bus.js:17:19 otherReady
 bus.js:18:25 FUNCTION_CALL setTimeout  ->  ambient_terminal  -
 bus.js:18:25 FUNCTION_CALL setTimeout  ->  callback_registered  bus.js:19:10 <arrow>
@@ -23,14 +23,14 @@ bus.js:19:16 METHOD_CALL bus.start  ->  known_edge  bus.js:4:3 start
 bus.js:20:1 METHOD_CALL [bus, other].forEach  ->  ambient_terminal  -
 bus.js:20:1 METHOD_CALL [bus, other].forEach  ->  callback_registered  bus.js:20:22 <arrow>
 bus.js:20:29 METHOD_CALL b.stop  ->  known_edge  bus.js:5:3 stop
-bus.js:4:13 METHOD_CALL this.emit  ->  ambiguous_unknown  -
+bus.js:4:13 METHOD_CALL this.emit  ->  ambient_terminal  -
 bus.js:4:13 METHOD_CALL this.emit  ->  event_dispatch  bus.js:17:19 otherReady
 bus.js:4:13 METHOD_CALL this.emit  ->  event_dispatch  bus.js:7:1 onReady
 bus.js:4:13 METHOD_CALL this.emit  ->  event_dispatch  bus.js:9:1 onAnything
-bus.js:4:36 METHOD_CALL this.emit  ->  ambiguous_unknown  -
+bus.js:4:36 METHOD_CALL this.emit  ->  ambient_terminal  -
 bus.js:4:36 METHOD_CALL this.emit  ->  event_dispatch  bus.js:8:1 onData
 bus.js:4:36 METHOD_CALL this.emit  ->  event_dispatch  bus.js:9:1 onAnything
-bus.js:5:39 METHOD_CALL this.emit  ->  ambiguous_unknown  -
+bus.js:5:39 METHOD_CALL this.emit  ->  ambient_terminal  -
 bus.js:5:39 METHOD_CALL this.emit  ->  event_dispatch  bus.js:17:19 otherReady
 bus.js:5:39 METHOD_CALL this.emit  ->  event_dispatch  bus.js:7:1 onReady
 bus.js:5:39 METHOD_CALL this.emit  ->  event_dispatch  bus.js:8:1 onData

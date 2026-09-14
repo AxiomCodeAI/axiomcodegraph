@@ -96,17 +96,17 @@ expr_value(e, k2, i2) :- expr_kind(_, "PROPERTY_ACCESS", _, e), expr_name(_, n, 
 expr_value(e, k2, i2) :- expr_kind(_, "OPTIONAL_ACCESS", _, e), expr_name(_, n, e),
     expr_child(_, e, "ACCESS_TARGET", _, r), expr_value(r, k, i),
     prop_value(k, i, n, k2, i2).
-// `obj['name']` with a LITERAL key is `obj.name`. The literal's text carries its quotes.
-expr_value(e, k2, i2) :- expr_kind(_, "ELEMENT_ACCESS", _, e), expr_child(_, e, "COMPUTED_KEY", _, key),
-    expr_kind(_, "LITERAL", _, key), expr_text(_, txt, key), literal_key_name(txt, n),
-    expr_child(_, e, "ACCESS_TARGET", _, r), expr_value(r, k, i), k != "arr", k != "coll",
+// A STRING LITERAL is a value too — kind `str`, id = the text without its quotes. It
+// flows like any other value, so `obj[key]` resolves whenever the key's value is a
+// literal that reached it: `handlers['create']`, `byName('update')` → `handlers[name]`,
+// `methods.forEach((m) => proto[m] = ...)` over an array of literals. Nothing here
+// concatenates or transforms strings; a computed text stays unknown.
+expr_value(e, "str", n) :- expr_kind(_, "LITERAL", _, e), expr_literal_kind(_, "STRING", e), expr_text(_, txt, e),
+    strlen(txt) >= 2, n = substr(txt, 1, strlen(txt) - 2).
+// `obj[key]` where key holds a string: the property of that name.
+expr_value(e, k2, i2) :- expr_kind(_, "ELEMENT_ACCESS", _, e), expr_child(_, e, "COMPUTED_KEY", _, key), expr_value(key, "str", n),
+    expr_child(_, e, "ACCESS_TARGET", _, r), expr_value(r, k, i), k != "arr", k != "coll", k != "str",
     prop_value(k, i, n, k2, i2).
-literal_key_name(txt, n) :- expr_text(_, txt, key), expr_kind(_, "LITERAL", _, key), expr_child(_, _, "COMPUTED_KEY", _, key), contains("'", txt),
-    strlen(txt) >= 2, n = substr(txt, 1, strlen(txt) - 2),
-    substr(txt, 0, 1) = "'".
-literal_key_name(txt, n) :- expr_text(_, txt, key), expr_kind(_, "LITERAL", _, key), expr_child(_, _, "COMPUTED_KEY", _, key), contains("\"", txt),
-    strlen(txt) >= 2, n = substr(txt, 1, strlen(txt) - 2),
-    substr(txt, 0, 1) = "\"".
 // A call's value is what the callee returns; `new` yields an instance.
 expr_value(e, k, i) :- expr_kind(_, "CALL", _, e), expr_resolves_to_method(e, m), return_value(m, k, i).
 expr_value(e, "inst", t) :- expr_kind(_, "NEW", _, e), new_constructs(e, t).
@@ -158,12 +158,22 @@ param_value(p, "inst", t) :- param_type_name(_, _, tr, p), type_ref_type(tr, t).
 // A rest parameter receives every argument at or past its position.
 // A function with more than --dispatch-cap direct call sites is a generic utility
 // whose parameters are not tracked: see resolution/fan-cap.dl.
+//
+// CLIENT FUNCTIONS ONLY. A staged library's parameters are not tracked at all: its
+// bodies are read for what they DECLARE and RETURN (an export surface, a class, a
+// prototype member, `return app`), never for what its callers pass. Tracking them
+// turned a utility library's 1,000 tiny modules into one merged value set — 31,533
+// values on every export, a 20-minute solve — because a generic library is exactly
+// the shape whose parameters unify everything. What a library does with a callback it
+// is handed is a MODEL (resolution/frameworks.dl), stated per library, not inferred.
 param_value(p, k, i) :- call_arg(ce, pos, arg), expr_resolves_to_method(ce, m), !method_is_hot(m, _),
+    method_decl("client", _, _, _, _, _, _, m),
     param_decl(_, _, ppos, m, p), to_number(ppos) = pos, !param_is_rest(_, p),
     expr_value(arg, k, i).
 // A rest parameter IS an array; the arguments at and past its position are its elements.
 param_value(p, "arr", p) :- param_is_rest(_, p).
 elem_value(p, k, i) :- call_arg(ce, pos, arg), expr_resolves_to_method(ce, m), !method_is_hot(m, _),
+    method_decl("client", _, _, _, _, _, _, m),
     param_decl(_, _, ppos, m, p), param_is_rest(_, p), to_number(ppos) <= pos,
     expr_value(arg, k, i).
 // A default value: `cb = () => {}`. The parser gives the parameter the default's
@@ -311,12 +321,12 @@ member_write(k, i, n, k2, i2) :- expr_kind(_, "ASSIGNMENT", _, a), expr_operator
     expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt), expr_kind(_, "PROPERTY_ACCESS", _, tgt), expr_name(_, n, tgt),
     expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, k, i), k != "ambient",
     expr_child(_, a, "ASSIGNMENT_VALUE", _, val), expr_value(val, k2, i2).
-// `Object.assign(target, { ... })` / `Object.defineProperty`-free spread of a
-// literal onto a value: each literal property is written onto the target.
-member_write(k, i, n, k2, i2) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", "assign", _, _, _, ce, _, _),
-    expr_child(_, ce, "RECEIVER", _, recv), expr_binding_resolution(_, "GLOBAL_BUILTIN", recv), expr_text(_, "Object", recv),
-    call_arg(ce, 0, tgt), expr_value(tgt, k, i), k != "ambient",
-    call_arg(ce, p, src), p >= 1, expr_value(src, k0, i0), prop_value(k0, i0, n, k2, i2).
+member_write(k, i, n, k2, i2) :- expr_kind(_, "ASSIGNMENT", _, a), expr_operator(_, op, a), assignment_op_writes_value(op),
+    expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt), expr_kind(_, "ELEMENT_ACCESS", _, tgt),
+    expr_child(_, tgt, "COMPUTED_KEY", _, key), expr_value(key, "str", n),
+    expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, k, i), k != "ambient", k != "arr", k != "coll",
+    expr_child(_, a, "ASSIGNMENT_VALUE", _, val), expr_value(val, k2, i2).
+// `Object.assign` and its library cousins: resolution/frameworks.dl.
 
 // ── literal_owns_method(LiteralExpr, MethodHash) — PD-JS-1 workaround ───────
 // A shorthand method `{ m() {} }` has a js_method row and no expression row. It is
