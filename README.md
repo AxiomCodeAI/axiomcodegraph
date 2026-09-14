@@ -7,12 +7,12 @@
 <p align="center">
   <a href="#what-it-does">What it does</a> ·
   <a href="#language-support">Language support</a> ·
+  <a href="#status">Status</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#what-you-get">What you get</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#accuracy">Accuracy</a> ·
   <a href="#repository-layout">Layout</a> ·
-  <a href="#status">Status</a> ·
   <a href="#development">Development</a>
 </p>
 
@@ -73,6 +73,17 @@ Configuration and build files are part of the graph too — a change to a bean d
 See [`parser/README.md`](parser/README.md) for every relation each format produces.
 
 A repository with several languages is one command: the parser emits every language it finds, and each gets its own graph. Graphs are per language — a Java→TypeScript call is not an edge in either.
+
+## Status
+
+<p>
+  <a href="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/ci.yml"><img alt="Build" src="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+  <a href="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/publish-npm.yml"><img alt="Engines" src="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/publish-npm.yml/badge.svg"></a>
+  <a href="LICENSE.md"><img alt="License: FSL-1.1-Apache-2.0" src="https://img.shields.io/badge/license-FSL--1.1--Apache--2.0-blue"></a>
+  <img alt="Node ≥ 22.5" src="https://img.shields.io/badge/node-%E2%89%A5%2022.5-brightgreen">
+</p>
+
+Build: the three regression suites and the parser's suites, on every merge to `main`. Engines: the last run of the engine build and npm publish. (Workflow badges render once the repository is public; GitHub serves README images anonymously.)
 
 ## Quick start
 
@@ -200,17 +211,6 @@ graph/
 packaging/                    the @axiomcode/engine-<os>-<cpu> package template CI publishes
 .github/workflows/            engine builds and the npm publish
 ```
-
-## Status
-
-<p>
-  <a href="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/ci.yml"><img alt="Build" src="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/ci.yml/badge.svg?branch=main"></a>
-  <a href="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/publish-npm.yml"><img alt="Engines" src="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/publish-npm.yml/badge.svg"></a>
-  <a href="LICENSE.md"><img alt="License: FSL-1.1-Apache-2.0" src="https://img.shields.io/badge/license-FSL--1.1--Apache--2.0-blue"></a>
-  <img alt="Node ≥ 22.5" src="https://img.shields.io/badge/node-%E2%89%A5%2022.5-brightgreen">
-</p>
-
-Build: the three regression suites and the parser's suites, on every merge to `main`. Engines: the last run of the engine build and npm publish. (Workflow badges render once the repository is public; GitHub serves README images anonymously.)
 
 ## Development
 
