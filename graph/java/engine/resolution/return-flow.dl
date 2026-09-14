@@ -76,5 +76,5 @@ method_ret_concrete(m, t) :-
 
 // PREFERRED positive typing: a call resolving to a concrete-return callee types to that
 // concrete type (the cap drops the residual declared-interface fan).
-expr_type("client", call, t) :- expr_call_candidate(call, callee),
+expr_type("client", call, t) :- applicable_candidate(call, callee),
     method_ret_concrete(callee, t).
