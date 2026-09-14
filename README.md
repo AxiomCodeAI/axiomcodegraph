@@ -7,12 +7,12 @@
 <p align="center">
   <a href="#what-it-does">What it does</a> ·
   <a href="#language-support">Language support</a> ·
+  <a href="#status">Status</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#what-you-get">What you get</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#accuracy">Accuracy</a> ·
   <a href="#repository-layout">Layout</a> ·
-  <a href="#status">Status</a> ·
   <a href="#development">Development</a>
 </p>
 
@@ -33,13 +33,13 @@ Point it at a repository and it builds a **call graph**: a map of which function
 ## Language support
 
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/java/java-original.svg" width="46" height="46" alt="Java" title="Java — stable"/>
-  &nbsp;&nbsp;&nbsp;
-  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/typescript/typescript-original.svg" width="46" height="46" alt="TypeScript" title="TypeScript — stable"/>
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/javascript/javascript-original.svg" width="46" height="46" alt="JavaScript" title="JavaScript — engine in progress"/>
   &nbsp;&nbsp;&nbsp;
   <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/python/python-original.svg" width="46" height="46" alt="Python" title="Python — stable"/>
   &nbsp;&nbsp;&nbsp;
-  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/javascript/javascript-original.svg" width="46" height="46" alt="JavaScript" title="JavaScript — engine in progress"/>
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/typescript/typescript-original.svg" width="46" height="46" alt="TypeScript" title="TypeScript — stable"/>
+  &nbsp;&nbsp;&nbsp;
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/java/java-original.svg" width="46" height="46" alt="Java" title="Java — stable"/>
   &nbsp;&nbsp;&nbsp;
   <img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/csharp/csharp-original.svg" width="46" height="46" alt="C#" title="C# — planned"/>
   &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
@@ -54,10 +54,10 @@ Two stages, two columns: the **parser** turns source into the relational IR; the
 
 | language | parser | engine | maturity | validated against |
 |---|---|---|---|---|
-| **Java** | stable | stable | **stable** — first front end; hand-crafted constructs (P/R 1.000) and five real commits of a large open-source project scored against bytecode; Spring/DI configuration wiring resolved | the JDK's own class-file parser over compiled artifacts; runtime tracing |
-| **TypeScript** | stable | stable | **stable** — 53 regression cases and real projects; structural typing, overload sets, module graph, `.d.ts` libraries | the TypeScript compiler's own resolution |
-| **Python** | stable | stable | **stable** — MRO, decorators, protocols, dynamic-attribute detection; 600-site torture suite | CPython bytecode and `sys.settrace` |
 | **JavaScript** | stable | in progress | **in progress** — the parser (binder, JSDoc as the type channel, CommonJS + ESM) is complete; the engine is under review | — |
+| **Python** | stable | stable | **stable** — MRO, decorators, protocols, dynamic-attribute detection; 600-site torture suite | CPython bytecode and `sys.settrace` |
+| **TypeScript** | stable | stable | **stable** — 53 regression cases and real projects; structural typing, overload sets, module graph, `.d.ts` libraries | the TypeScript compiler's own resolution |
+| **Java** | stable | stable | **stable** — first front end; hand-crafted constructs (P/R 1.000) and five real commits of a large open-source project scored against bytecode; Spring/DI configuration wiring resolved | the JDK's own class-file parser over compiled artifacts; runtime tracing |
 | **C#** | planned | planned | **planned** | — |
 
 Configuration and build files are part of the graph too — a change to a bean definition, a property key or a dependency version has a blast radius into methods, and the Java engine resolves it:
@@ -73,6 +73,17 @@ Configuration and build files are part of the graph too — a change to a bean d
 See [`parser/README.md`](parser/README.md) for every relation each format produces.
 
 A repository with several languages is one command: the parser emits every language it finds, and each gets its own graph. Graphs are per language — a Java→TypeScript call is not an edge in either.
+
+## Status
+
+<p>
+  <a href="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/ci.yml"><img alt="Build" src="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+  <a href="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/publish-npm.yml"><img alt="Engines" src="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/publish-npm.yml/badge.svg"></a>
+  <a href="LICENSE.md"><img alt="License: FSL-1.1-Apache-2.0" src="https://img.shields.io/badge/license-FSL--1.1--Apache--2.0-blue"></a>
+  <img alt="Node ≥ 22.5" src="https://img.shields.io/badge/node-%E2%89%A5%2022.5-brightgreen">
+</p>
+
+Build: the three regression suites and the parser's suites, on every merge to `main`. Engines: the last run of the engine build and npm publish. (Workflow badges render once the repository is public; GitHub serves README images anonymously.)
 
 ## Quick start
 
@@ -200,17 +211,6 @@ graph/
 packaging/                    the @axiomcode/engine-<os>-<cpu> package template CI publishes
 .github/workflows/            engine builds and the npm publish
 ```
-
-## Status
-
-<p>
-  <a href="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/ci.yml"><img alt="Build" src="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/ci.yml/badge.svg?branch=main"></a>
-  <a href="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/publish-npm.yml"><img alt="Engines" src="https://github.com/AxiomCodeAI/axiom-code-graph/actions/workflows/publish-npm.yml/badge.svg"></a>
-  <a href="LICENSE.md"><img alt="License: FSL-1.1-Apache-2.0" src="https://img.shields.io/badge/license-FSL--1.1--Apache--2.0-blue"></a>
-  <img alt="Node ≥ 22.5" src="https://img.shields.io/badge/node-%E2%89%A5%2022.5-brightgreen">
-</p>
-
-Build: the three regression suites and the parser's suites, on every merge to `main`. Engines: the last run of the engine build and npm publish. (Workflow badges render once the repository is public; GitHub serves README images anonymously.)
 
 ## Development
 
