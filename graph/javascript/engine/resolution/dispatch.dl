@@ -1,0 +1,38 @@
+// ============================================================================
+// Resolution · SELF DISPATCH  (what `this` may be inside a method)
+//
+// Inside a method of class T, `this` is an instance of T OR OF A SUBCLASS: a
+// `describe()` declared on Shape and run on a Circle calls Circle's `area()`. That is
+// a language guarantee, so fanning `this` over subclasses is SOUND — and it is bounded
+// by RTA: a subclass never constructed anywhere in the analysed program cannot be
+// `this`. T itself is always included, so a method of a class reached only through
+// `super()` keeps its own receiver. The same holds for a static method: `this` in
+// `static create()` is the class it was called through, so `new this(name)` in
+// Shape.create constructs a Square when called as Square.create.
+//
+// Measured on the torture project before this file: 9 of 25 missed executed edges
+// were exactly this — `this.area()` in a base method resolving only to the base.
+//
+// The closed-world assumption is the same one the parameter flow makes: every
+// construction is visible. For a library whose subclasses live in a consumer it is
+// not, and `self_dispatch_assumes_closed_world` records that per method.
+// ============================================================================
+
+// ── type_instantiated(TypeHash) — some `new` in the program constructs it ──
+type_instantiated(t) :- new_constructs(_, t).
+// A class used as a receiver of a static call (`Square.create()`) is live too.
+type_used_statically(t) :- call_site(_, ck, _, "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck),
+    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "ctor", t).
+
+// ── `this` in an instance member of T: every constructed subclass of T ──────
+this_value(m, "inst", s) :- method_decl(_, _, k, _, "false", t, _, m), t != "", k != "STATIC_BLOCK",
+    method_this_binding(_, "DYNAMIC", m),
+    type_ancestor(s, t), type_instantiated(s).
+// ── `this` in a static member of T: every subclass reached as a receiver ───
+this_value(m, "ctor", s) :- method_decl(_, _, _, _, "true", t, _, m), t != "",
+    type_ancestor(s, t), type_used_statically(s).
+// A constructor function's `this` fans the same way (`Animal.call(this, name)` in a
+// subclass constructor is the same receiver).
+this_value(m, "inst", s) :- type_ctor(_, m, t), type_ancestor(s, t), type_instantiated(s).
+
+self_dispatch_assumes_closed_world(m) :- method_decl(_, _, _, _, _, t, _, m), t != "", type_ancestor(_, t).

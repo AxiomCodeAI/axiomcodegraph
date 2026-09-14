@@ -23,8 +23,10 @@ export interface RawSource {
 
 /** Header names of one IR entity file that carry the core columns. */
 export interface MethodsIR {
-  file: string; id: string; name: string; qualifiedName: string; signature: string; kind: string;
-  ownerTypeId: string; ownerQualifiedName: string; filePath: string; startLine: string; endLine: string;
+  file: string; id: string; name: string; qualifiedName: string; kind: string;
+  ownerTypeId: string; filePath: string; startLine: string; endLine: string;
+  /** absent where the IR has no such column (JavaScript declares no signatures); the core column is then '' / NULL */
+  signature?: string; ownerQualifiedName?: string;
 }
 export interface TypesIR {
   file: string; id: string; name: string; qualifiedName: string; category: string;
@@ -191,7 +193,41 @@ const PYTHON: LanguageAdapter = {
   },
 };
 
-export const ADAPTERS: Record<Language, LanguageAdapter> = { java: JAVA, typescript: TYPESCRIPT, python: PYTHON };
+const JAVASCRIPT: LanguageAdapter = {
+  language: 'javascript',
+  prefixes: { method: 'JS_METHOD_', type: 'JS_TYPE_', expression: 'JS_EXPRESSION_', module: 'JS_MODULE_' },
+  raw: {
+    callEdges: CALL_EDGES,
+    typeAncestors: { file: 'resolution-type-ancestor.csv', columns: [0, 1] },
+    entryPoints: { file: 'entry-point.csv', columns: [0, 1] },
+    entryReachable: { file: 'entry-reachable.csv', columns: [0] },
+  },
+  ir: {
+    // No signature and no owner qualified name: JavaScript declares neither.
+    methods: {
+      file: 'all-javascript-methods.csv', id: 'jsMethodUniqueHash', name: 'name', qualifiedName: 'qualifiedName',
+      kind: 'methodKind', ownerTypeId: 'ownerTypeLinkHash',
+      filePath: 'filePath', startLine: 'startLine', endLine: 'endLine',
+    },
+    types: {
+      file: 'all-javascript-types.csv', id: 'jsTypeUniqueHash', name: 'name', qualifiedName: 'qualifiedName',
+      category: 'typeCategory', filePath: 'filePath', startLine: 'startLine', endLine: 'endLine',
+    },
+    modules: { file: 'all-javascript-modules.csv', id: 'jsModuleUniqueHash', filePath: 'filePath' },
+    expressions: {
+      file: 'all-javascript-expressions.csv', id: 'jsExpressionUniqueHash', kind: 'expressionKind',
+      startLine: 'startLine', startColumn: 'startColumn', endLine: 'endLine', endColumn: 'endColumn',
+      fileVia: { column: 'ownerModuleLinkHash', through: 'modules' },
+    },
+    callSites: {
+      file: 'all-javascript-call-sites.csv', expressionId: 'expressionLinkHash', calleeName: 'calleeName',
+      startLine: 'startLine', startColumn: 'startColumn',
+      fileVia: { column: 'ownerModuleLinkHash', through: 'modules' },
+    },
+  },
+};
+
+export const ADAPTERS: Record<Language, LanguageAdapter> = { java: JAVA, typescript: TYPESCRIPT, python: PYTHON, javascript: JAVASCRIPT };
 
 export function adapterFor(language: string): LanguageAdapter {
   const a = (ADAPTERS as Record<string, LanguageAdapter>)[language];

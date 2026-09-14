@@ -5,8 +5,8 @@
 #   bin/axiomcode <src-dir> <out-dir> [--library <path>[,…]] [--exclude-tests] [--version V]
 #                                     [--language L] [--debug] [engine options]
 #
-# It parses every language it finds (Java, TypeScript, Python — JavaScript and C# as they
-# land), solves each with its engine, and leaves <out-dir>/<lang>/graph.sqlite per language.
+# It parses every language it finds (Java, TypeScript, Python, JavaScript — C# as it
+# lands), solves each with its engine, and leaves <out-dir>/<lang>/graph.sqlite per language.
 # Nothing about the repository has to be known in advance. Graphs are per language: a
 # Java→TypeScript call is not an edge in either.
 #
@@ -24,7 +24,7 @@
 # The pieces, when you want them separately:
 #   bin/axiomcode parser <src-dir> <ir-dir> [--version V] [--exclude-tests]   → <ir-dir>/<lang>/
 #   bin/axiomcode engine --language L --client-ir <ir-dir>/<lang> --out <dir> [options]
-#   bin/axiomcode test   [java|typescript|python|parser|all] [suite options]
+#   bin/axiomcode test   [java|typescript|python|javascript|parser|all] [suite options]
 #
 # Requires Node ≥ 22.5; no Soufflé or compiler (the engine comes from npm as @axiomcode/engine-<os>-<cpu>,
 # or is compiled locally when souffle is present).
@@ -57,7 +57,7 @@ case "$cmd" in
     # a project (the config tables go with java/, whose rules are their only reader).
     node "$PARSER" "$src" "$version" "$exclude" "$ir" --per-language
     found=(); for d in "$ir"/*/; do [ -d "$d" ] && found+=("$(basename "$d")"); done
-    [ ${#found[@]} -gt 0 ] || { echo "❌ the parser found no Java, TypeScript or Python source under $src" >&2; exit 1; }
+    [ ${#found[@]} -gt 0 ] || { echo "❌ the parser found no Java, TypeScript, Python or JavaScript source under $src" >&2; exit 1; }
     echo "▶ IR: ${found[*]} → $ir/<lang>/"
     ;;
   engine)
@@ -137,11 +137,11 @@ case "$cmd" in
     rc=0
     run_suite(){ local s="$1"; shift; echo "══ $s"; bash "$ROOT/graph/test/$s/run-tests.sh" "$@" || rc=1; }
     case "$which" in
-      java|typescript|python) run_suite "$which" "$@";;
+      java|typescript|python|javascript) run_suite "$which" "$@";;
       parser) for t in java-extractor-tests typescript-tests python-tests javascript-tests gradle-tests services-tests; do
                 [ -f "$ROOT/parser/src/test/$t.ts" ] || continue; echo "══ parser: $t"; (cd "$ROOT/parser" && npx tsx "src/test/$t.ts") || rc=1; done;;
-      all) for l in java typescript python; do run_suite "$l" "$@"; done; "$0" test parser || rc=1;;
-      *) die "test: unknown suite $which (java | typescript | python | parser | all)";;
+      all) for l in java typescript python javascript; do run_suite "$l" "$@"; done; "$0" test parser || rc=1;;
+      *) die "test: unknown suite $which (java | typescript | python | javascript | parser | all)";;
     esac
     exit $rc
     ;;

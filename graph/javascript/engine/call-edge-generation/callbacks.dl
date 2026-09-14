@@ -1,0 +1,83 @@
+// ============================================================================
+// CALL-EDGE-GEN · CALLBACKS AND EVENTS  (edges into functions handed to others)
+//
+// Measured before this file existed: 3,992 function literals were passed as
+// arguments across the corpora and 406 had any incoming edge. A callback's body
+// was analysed — the calls inside it resolved — but nothing pointed INTO it, so
+// reachability stopped at every `.forEach`, `.then`, `.on` and `setTimeout`.
+//
+// Two edge classes, both labelled so a reader never mistakes them for a resolved
+// call of the site's own callee:
+//
+//   callback_registered   the site's callee RECEIVES the function and may invoke it:
+//                         `xs.forEach(f)`, `p.then(a, b)`, `emitter.on('x', h)`,
+//                         `app.get('/', h)`, `setTimeout(f)`. Emitted for every call
+//                         site with a function-valued argument, whatever the callee
+//                         resolved to. When the callee is project code that calls its
+//                         parameter, the ordinary edge exists too — from INSIDE the
+//                         callee — and this one says the same thing from the outside.
+//   event_dispatch        `x.emit('name', …)` runs every handler registered by
+//                         `x.on('name', h)` (`once`, `addListener`, `prependListener`)
+//                         on a value x may hold. Name-sensitive when both names are
+//                         string literals; a computed name on either side matches
+//                         every handler on that receiver value. Requires the receiver
+//                         to HAVE a value — an untyped emitter registers nothing.
+//
+// Both feed method_call_edge and so entry_reachable: a handler registered from a
+// reachable function is reachable, which is what a change-impact query needs.
+// ============================================================================
+
+// ── callback_registered(CallExpr, CallbackMethod) ───────────────────────────
+callback_registered(ce, m) :- invocation_site(ce, _), call_arg(ce, _, arg), expr_value(arg, "func", m).
+
+// A listener runs with the EMITTER as `this` (`e.on('x', function () { this.other(); })`).
+this_value(m, k, i) :- event_handler(k, i, _, m), method_this_binding(_, "DYNAMIC", m), !method_owner_type(m, _), k != "module".
+
+// ── event registration and emission ─────────────────────────────────────────
+// event_handler(K, I, Name, Handler): `<recv>.on(<name>, <handler>)` on value (K, I).
+event_handler(k, i, name, m) :- call_site(_, ck, mn, "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck),
+    event_register_method(mn),
+    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, k0, i0), receiver_identity(k0, i0, k, i),
+    call_arg(ce, 0, ne), event_name_of(ne, name),
+    call_arg(ce, 1, he), expr_value(he, "func", m).
+event_register_method("on").
+event_register_method("once").
+event_register_method("addListener").
+event_register_method("prependListener").
+event_register_method("prependOnceListener").
+event_register_method("addEventListener").
+// The name's string value(s), or "*" for an expression no literal reaches.
+event_name_of(e, n) :- expr_value(e, "str", n).
+event_name_of(e, "*") :- expr_child(_, ce, "ARGUMENT", _, e), call_site(_, _, mn, _, _, _, ce, _, _),
+    (event_register_method(mn); event_emit_method(mn)), !expr_kind(_, "LITERAL", _, e).
+
+event_dispatch(ce, m) :- call_site(_, ck, mn, "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck),
+    event_emit_method(mn),
+    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, k0, i0), receiver_identity(k0, i0, k, i),
+    call_arg(ce, 0, ne), event_name_of(ne, n1),
+    event_handler(k, i, n2, m),
+    (n1 = n2; n1 = "*"; n2 = "*").
+// `module.exports = new Store()` then `store.on(...)` elsewhere: the registration's
+// receiver is the MODULE value, the emit's `this` is the instance — one object.
+receiver_identity(k, i, k, i) :- expr_value(_, k, i).
+receiver_identity("module", mod, k, i) :- module_export_value(mod, "default", k, i), k != "module".
+event_emit_method("emit").
+event_emit_method("dispatchEvent").
+event_emit_method("trigger").
+
+// ── what the handler receives, and what a registration call evaluates to ─────
+// `emit('x', a, b)` passes a, b to the handler's first two parameters.
+param_value(p, k, i) :- event_dispatch(ce, m), call_arg(ce, pos, arg), pos >= 1,
+    param_decl(_, _, ppos, m, p), to_number(ppos) = pos - 1, expr_value(arg, k, i).
+// `on()` / `once()` / `addListener()` on an emitter RETURN THE EMITTER — `b.on(...).once(...)`
+// chains — so the registration call's value is its receiver's value.
+expr_value(ce, k, i) :- call_site(_, ck, mn, "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck),
+    event_register_method(mn), expr_child(_, ce, "RECEIVER", _, r), expr_value(r, k, i), k != "obj".
+
+// ── the rows ────────────────────────────────────────────────────────────────
+call_chain_edge(ce, caller, "-", m, "client", "callback_registered", kind) :- callback_registered(ce, m),
+    method_prov(m, "client"), call_from(ce, caller), invocation_site(ce, kind).
+call_chain_edge(ce, caller, "-", m, "client", "event_dispatch", kind) :- event_dispatch(ce, m),
+    method_prov(m, "client"), call_from(ce, caller), invocation_site(ce, kind).
+method_call_edge(caller, m) :- callback_registered(ce, m), method_prov(m, "client"), call_from(ce, caller).
+method_call_edge(caller, m) :- event_dispatch(ce, m), method_prov(m, "client"), call_from(ce, caller).

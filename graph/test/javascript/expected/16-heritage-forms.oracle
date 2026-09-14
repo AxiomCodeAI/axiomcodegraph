@@ -1,0 +1,33 @@
+main.js:10:55 METHOD_CALL id  EXACT  base.js:2:14
+main.js:11:53 METHOD_CALL id  EXACT  base.js:2:14
+main.js:12:49 METHOD_CALL id  EXACT  base.js:2:14
+main.js:13:11 CONSTRUCTOR_CALL InDecl  SYNTHESIZED_OK  
+main.js:13:11 METHOD_CALL e  EXACT  main.js:9:34
+main.js:13:29 CONSTRUCTOR_CALL InExpr  SYNTHESIZED_OK  
+main.js:13:29 METHOD_CALL f  EXACT  main.js:10:42
+main.js:13:47 CONSTRUCTOR_CALL InPlain  SYNTHESIZED_OK  
+main.js:13:47 METHOD_CALL g  EXACT  main.js:11:40
+main.js:13:66 CONSTRUCTOR_CALL InPlainDecl  SYNTHESIZED_OK  
+main.js:13:66 METHOD_CALL h  EXACT  main.js:12:36
+main.js:16:14 FUNCTION_CALL makeClass  EXACT  main.js:15:1
+main.js:18:22 CONSTRUCTOR_CALL TopExpr  SYNTHESIZED_OK  
+main.js:18:22 METHOD_CALL b  EXACT  main.js:5:41
+main.js:18:3 CONSTRUCTOR_CALL TopDecl  SYNTHESIZED_OK  
+main.js:18:3 METHOD_CALL a  EXACT  main.js:4:33
+main.js:18:41 CONSTRUCTOR_CALL TopExprNamed  SYNTHESIZED_OK  
+main.js:18:41 METHOD_CALL c  EXACT  main.js:6:52
+main.js:18:65 CONSTRUCTOR_CALL TopPlain  SYNTHESIZED_OK  
+main.js:18:65 METHOD_CALL d  EXACT  main.js:7:39
+main.js:18:85 FUNCTION_CALL inFn  EXACT  main.js:8:1
+main.js:18:93 CONSTRUCTOR_CALL Made  SYNTHESIZED_OK  
+main.js:18:93 METHOD_CALL k  EXACT  main.js:15:54
+main.js:19:112 CONSTRUCTOR_CALL CondSub  SYNTHESIZED_OK  
+main.js:19:112 METHOD_CALL m  EXACT  main.js:19:84
+main.js:19:97 METHOD_CALL id  SOUND_SUPERSET  base.js:2:14;base.js:3:15
+main.js:21:1 FUNCTION_CALL main  EXACT  main.js:17:1
+main.js:4:46 METHOD_CALL id  EXACT  base.js:2:14
+main.js:5:54 METHOD_CALL id  EXACT  base.js:2:14
+main.js:6:65 METHOD_CALL id  EXACT  base.js:2:14
+main.js:7:52 METHOD_CALL id  EXACT  base.js:2:14
+main.js:9:47 METHOD_CALL id  EXACT  base.js:2:14
+# defects: 0

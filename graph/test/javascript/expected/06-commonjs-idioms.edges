@@ -1,0 +1,26 @@
+app.js:10:39 CONSTRUCTOR_CALL Router  ->  known_edge  lib/router.js:4:30 router
+app.js:10:69 METHOD_CALL this._router.use  ->  ambiguous_unknown  -
+app.js:10:69 METHOD_CALL this._router.use  ->  callback_registered  app.js:10:86 <function-expression>
+app.js:12:1 METHOD_CALL methods.forEach  ->  ambient_terminal  -
+app.js:12:1 METHOD_CALL methods.forEach  ->  callback_registered  app.js:12:17 <function-expression>
+app.js:13:35 METHOD_CALL this.lazyrouter  ->  known_edge  app.js:9:18 <function-expression>
+app.js:15:9 CONSTRUCTOR_CALL Layer  ->  known_edge  lib/router.js:11:1 Layer
+app.js:16:1 METHOD_CALL l.match  ->  known_edge  lib/router.js:12:25 match
+app.js:17:1 METHOD_CALL common.both  ->  known_edge  lib/common.js:5:15 <function-expression>
+app.js:18:1 METHOD_CALL Router.dispatch  ->  known_edge  lib/router.js:9:18 dispatch
+app.js:19:9 FUNCTION_CALL Router  ->  known_edge  lib/router.js:4:30 router
+app.js:22:1 FUNCTION_CALL_APPLY Selector.apply  ->  known_edge  app.js:21:18 apply
+app.js:23:1 FUNCTION_CALL_CALL Selector.call  ->  known_edge  app.js:21:48 call
+app.js:25:1 FUNCTION_CALL_CALL plain.call  ->  known_edge  app.js:24:1 plain
+app.js:26:1 FUNCTION_CALL_APPLY plain.apply  ->  known_edge  app.js:24:1 plain
+app.js:7:30 METHOD_CALL this.defaultConfiguration  ->  known_edge  app.js:8:28 <function-expression>
+app.js:8:49 METHOD_CALL common.clone  ->  known_edge  lib/common.js:3:17 clone
+lib/common.js:3:46 METHOD_CALL Object.assign  ->  ambient_terminal  -
+lib/common.js:4:49 METHOD_CALL common.clone  ->  known_edge  lib/common.js:3:17 clone
+lib/common.js:5:29 METHOD_CALL exports.clone  ->  known_edge  lib/common.js:3:17 clone
+lib/common.js:5:48 METHOD_CALL common.longest  ->  known_edge  lib/common.js:4:19 longest
+lib/common.js:5:75 METHOD_CALL module.exports.clone  ->  known_edge  lib/common.js:3:17 clone
+lib/router.js:10:32 METHOD_CALL this.dispatch  ->  known_edge  lib/router.js:9:18 dispatch
+lib/router.js:13:1 METHOD_CALL util.inherits  ->  ambient_terminal  -
+lib/router.js:13:1 METHOD_CALL util.inherits  ->  callback_registered  lib/router.js:11:1 Layer
+lib/router.js:5:33 METHOD_CALL proto.dispatch  ->  known_edge  lib/router.js:9:18 dispatch

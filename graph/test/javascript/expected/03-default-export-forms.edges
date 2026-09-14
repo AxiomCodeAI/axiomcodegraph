@@ -1,0 +1,6 @@
+use.js:2:1 FUNCTION_CALL a  ->  known_edge  a.js:1:1 named
+use.js:2:21 FUNCTION_CALL c  ->  known_edge  c.js:1:11 <arrow>
+use.js:2:26 FUNCTION_CALL d  ->  known_edge  d.js:1:1 <function-expression>
+use.js:2:31 METHOD_CALL e.go  ->  known_edge  e.js:1:18 go
+use.js:2:6 CONSTRUCTOR_CALL B  ->  implicit_constructor  -
+use.js:2:6 METHOD_CALL new B().run  ->  known_edge  b.js:1:30 run

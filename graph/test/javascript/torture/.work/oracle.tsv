@@ -1,0 +1,187 @@
+callFile	callLine	callCol	callEndLine	callEndCol	callKind	calleeName	targetFile	targetLine	targetCol	targetName	targetKind	overloadCount	chosenIndex	enclLine	enclCol	enclName
+lib/asyncy.js	3	28	3	85	CONSTRUCTOR_CALL	Promise	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.promise.d.ts	31	5	__new	bodiless	1	0	3	1	delay
+lib/asyncy.js	3	53	3	84	FUNCTION_CALL	setTimeout	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.dom.d.ts	39150	1	setTimeout	bodiless	1	0	3	40	__function
+lib/asyncy.js	3	70	3	80	FUNCTION_CALL	resolve	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.promise.d.ts	31	33	__type	bodiless	1	0	3	64	__function
+lib/asyncy.js	6	30	6	39	FUNCTION_CALL	String	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts	536	5	__call	bodiless	1	0	6	1	onError
+lib/asyncy.js	8	19	8	27	FUNCTION_CALL	delay	lib/asyncy.js	3	1	delay	implementation	1	0	7	1	pipeline
+lib/asyncy.js	9	19	9	80	METHOD_CALL	then	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts	1557	5	then	bodiless	1	0	7	1	pipeline
+lib/asyncy.js	9	19	9	49	METHOD_CALL	then	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts	1557	5	then	bodiless	1	0	7	1	pipeline
+lib/asyncy.js	9	19	9	37	METHOD_CALL	resolve	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.promise.d.ts	72	5	resolve	bodiless	3	1	7	1	pipeline
+lib/asyncy.js	9	62	9	70	FUNCTION_CALL	step2	lib/asyncy.js	5	1	step2	implementation	1	0	9	55	__function
+lib/asyncy.js	12	22	12	38	FUNCTION_CALL	setImmediate					any	1	0	12	1	later
+lib/asyncy.js	12	40	12	69	METHOD_CALL	nextTick					any	1	0	12	1	later
+lib/asyncy.js	12	63	12	68	FUNCTION_CALL	fn					any	1	0	12	57	__function
+lib/asyncy.js	13	32	13	50	FUNCTION_CALL	cb					any	1	0	13	1	withCallback
+lib/asyncy.js	13	41	13	49	FUNCTION_CALL	step1	lib/asyncy.js	4	1	step1	implementation	1	0	13	1	withCallback
+lib/asyncy.js	14	39	14	113	CONSTRUCTOR_CALL	Promise	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.promise.d.ts	31	5	__new	bodiless	1	0	14	32	__function
+lib/asyncy.js	14	65	14	112	FUNCTION_CALL	f					any	1	0	14	51	__function
+lib/asyncy.js	14	91	14	99	FUNCTION_CALL	rej	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.promise.d.ts	31	78	__type	bodiless	1	0	14	70	__function
+lib/asyncy.js	14	102	14	110	FUNCTION_CALL	res	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.promise.d.ts	31	33	__type	bodiless	1	0	14	70	__function
+lib/asyncy.js	15	23	15	46	FUNCTION_CALL	promisify	lib/asyncy.js	14	1	promisify	implementation	1	0	0	0	<module>
+lib/bus.js	5	19	5	26	SUPER_CALL	super					any	1	0	5	3	Bus.constructor
+lib/bus.js	6	13	6	34	METHOD_CALL	emit					any	1	0	6	3	start
+lib/bus.js	6	36	6	56	METHOD_CALL	emit					any	1	0	6	3	start
+lib/bus.js	7	16	7	34	METHOD_CALL	emit					any	1	0	7	3	fire
+lib/bus.js	8	14	8	33	METHOD_CALL	push	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts	1347	5	push	bodiless	1	0	8	3	hook
+lib/bus.js	9	24	9	51	METHOD_CALL	map	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts	1470	5	map	bodiless	1	0	9	3	runHooks
+lib/bus.js	9	46	9	50	FUNCTION_CALL	h					any	1	0	9	39	__function
+lib/bus.js	10	24	10	82	METHOD_CALL	push					any	1	0	10	3	register
+lib/bus.js	11	68	11	98	METHOD_CALL	map					any	1	0	11	3	dispatch
+lib/bus.js	11	82	11	97	FUNCTION_CALL_CALL	call					any	1	0	11	75	__function
+lib/functional.js	3	63	3	70	FUNCTION_CALL	f					any	1	0	3	33	composed
+lib/functional.js	3	65	3	69	FUNCTION_CALL	g					any	1	0	3	33	composed
+lib/functional.js	4	37	4	45	FUNCTION_CALL	fn					any	1	0	4	30	__function
+lib/functional.js	6	26	6	35	FUNCTION_CALL	add	lib/functional.js	5	1	add	implementation	1	0	6	1	inc
+lib/functional.js	7	28	7	37	FUNCTION_CALL	add	lib/functional.js	5	1	add	implementation	1	0	7	1	twice
+lib/functional.js	8	16	8	29	FUNCTION_CALL		lib/functional.js	4	23	__function	implementation	1	0	0	0	<module>
+lib/functional.js	8	16	8	26	FUNCTION_CALL	curry	lib/functional.js	4	15	__function	implementation	1	0	0	0	<module>
+lib/functional.js	9	18	9	37	FUNCTION_CALL	compose	lib/functional.js	3	1	compose	implementation	1	0	0	0	<module>
+lib/functional.js	10	44	10	55	FUNCTION_CALL	fact	lib/functional.js	10	1	fact	implementation	1	0	10	1	fact
+lib/functional.js	11	56	11	72	FUNCTION_CALL	fibonacci	lib/functional.js	11	13	fibonacci	implementation	1	0	11	13	fibonacci
+lib/functional.js	11	75	11	91	FUNCTION_CALL	fibonacci	lib/functional.js	11	13	fibonacci	implementation	1	0	11	13	fibonacci
+lib/functional.js	12	17	16	5	IIFE_CALL		lib/functional.js	12	18	__function	implementation	1	0	0	0	<module>
+lib/functional.js	15	42	15	48	FUNCTION_CALL	bump	lib/functional.js	14	3	bump	implementation	1	0	15	18	reset
+lib/functional.js	17	33	17	39	FUNCTION_CALL	inc	lib/functional.js	6	1	inc	implementation	1	0	17	27	__function
+lib/functional.js	17	80	17	92	FUNCTION_CALL	mapper	lib/functional.js	7	1	twice	implementation	1	0	17	1	withDefault
+lib/functional.js	17	87	17	91	FUNCTION_CALL	cb	lib/functional.js	17	27	__function	implementation	1	0	17	1	withDefault
+lib/functional.js	18	44	18	85	METHOD_CALL	reduce	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts	1489	5	reduce	bodiless	3	1	18	1	variadic
+lib/functional.js	18	68	18	74	FUNCTION_CALL	f					any	1	0	18	56	__function
+lib/functional.js	18	76	18	84	FUNCTION_CALL	first					any	1	0	18	1	variadic
+lib/functional.js	19	69	19	75	FUNCTION_CALL	f					any	1	0	19	1	applyAll
+lib/functional.js	20	35	20	44	CONSTRUCTOR_CALL	Map	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.iterable.d.ts	182	5	__new	bodiless	2	0	20	1	memo
+lib/functional.js	20	67	20	79	METHOD_CALL	has	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.collection.d.ts	37	5	has	bodiless	1	0	20	53	__function
+lib/functional.js	20	81	20	100	METHOD_CALL	set	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.collection.d.ts	41	5	set	bodiless	1	0	20	53	__function
+lib/functional.js	20	94	20	99	FUNCTION_CALL	fn					any	1	0	20	53	__function
+lib/functional.js	20	109	20	121	METHOD_CALL	get	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.collection.d.ts	33	5	get	bodiless	1	0	20	53	__function
+lib/functional.js	21	20	21	45	FUNCTION_CALL	memo	lib/functional.js	20	1	memo	implementation	1	0	0	0	<module>
+lib/functional.js	21	32	21	40	FUNCTION_CALL	twice	lib/functional.js	7	1	twice	implementation	1	0	21	25	__function
+lib/legacy.js	6	47	6	59	METHOD_CALL	sound	lib/legacy.js	7	26	__function	implementation	1	0	6	26	__function
+lib/legacy.js	8	40	8	56	CONSTRUCTOR_CALL	Animal	lib/legacy.js	5	1	Animal	implementation	2	0	8	15	__function
+lib/legacy.js	9	22	9	45	FUNCTION_CALL_CALL	call	lib/legacy.js	5	1	Animal	implementation	2	0	9	1	Dog
+lib/legacy.js	10	1	10	27	METHOD_CALL	inherits					any	1	0	0	0	<module>
+lib/legacy.js	12	22	12	45	FUNCTION_CALL_CALL	call	lib/legacy.js	5	1	Animal	implementation	2	0	12	1	Cat
+lib/legacy.js	13	17	13	48	METHOD_CALL	create	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts	188	5	create	bodiless	2	0	0	0	<module>
+lib/legacy.js	17	20	17	46	METHOD_CALL	toUpperCase					any	1	0	17	3	shout
+lib/legacy.js	17	20	17	32	METHOD_CALL	speak					any	1	0	17	3	shout
+lib/legacy.js	19	1	19	35	METHOD_CALL	assign	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.core.d.ts	286	5	assign	bodiless	4	0	0	0	<module>
+lib/legacy.js	20	21	20	44	FUNCTION_CALL_CALL	call					any	1	0	20	1	Kennel
+lib/legacy.js	21	1	21	36	METHOD_CALL	inherits					any	1	0	0	0	<module>
+lib/legacy.js	22	41	22	60	METHOD_CALL	push	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts	1347	5	push	bodiless	1	0	22	24	__function
+lib/legacy.js	22	62	22	85	METHOD_CALL	emit					any	1	0	22	24	__function
+lib/legacy.js	23	46	23	95	METHOD_CALL	map	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts	1470	5	map	bodiless	1	0	23	25	__function
+lib/legacy.js	23	82	23	91	METHOD_CALL	speak					any	1	0	23	60	__function
+lib/registry.js	7	35	7	52	COMPUTED_CALL						any	1	0	7	1	byName
+lib/registry.js	8	32	8	53	COMPUTED_CALL		lib/registry.js	4	3	create	implementation	1	0	8	1	byBracket
+lib/registry.js	9	17	9	63	CONSTRUCTOR_CALL	Proxy	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.proxy.d.ts	126	5	__new	bodiless	1	0	0	0	<module>
+lib/registry.js	10	31	10	50	METHOD_CALL	anything					any	1	0	10	1	viaProxy
+lib/registry.js	11	33	11	74	FUNCTION_CALL_APPLY	apply	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2015.reflect.d.ts	27	5	apply	bodiless	2	0	11	1	viaReflect
+lib/registry.js	12	34	12	102	METHOD_CALL	map					any	1	0	12	1	viaArguments
+lib/registry.js	12	34	12	71	FUNCTION_CALL_CALL	call	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts	1384	5	slice	bodiless	1	0	12	1	viaArguments
+lib/registry.js	12	83	12	101	METHOD_CALL	create	lib/registry.js	4	3	create	implementation	1	0	12	76	__function
+lib/registry.js	13	41	13	58	METHOD_CALL	join					any	1	0	13	1	tag
+lib/registry.js	14	29	14	40	TAGGED_TEMPLATE_CALL	tag	lib/registry.js	13	1	tag	implementation	1	0	14	1	tagged
+lib/shapes.js	4	85	4	99	METHOD_CALL	notify	lib/shapes.js	13	3	notify	implementation	1	0	4	78	__function
+lib/shapes.js	6	41	6	52	METHOD_CALL	area	lib/shapes.js	5	3	area	implementation	1	0	6	3	describe
+lib/shapes.js	7	32	7	46	CONSTRUCTOR_CALL		lib/shapes.js	4	3	Shape.constructor	implementation	1	0	7	3	create
+lib/shapes.js	8	33	8	41	METHOD_CALL	area					any	1	0	8	3	compare
+lib/shapes.js	8	44	8	52	METHOD_CALL	area					any	1	0	8	3	compare
+lib/shapes.js	9	24	9	39	METHOD_CALL	describe	lib/shapes.js	6	3	describe	implementation	1	0	9	3	label
+lib/shapes.js	11	20	11	51	CONSTRUCTOR_CALL	constructor					synthesized	1	0	11	3	clone
+lib/shapes.js	12	19	12	42	METHOD_CALL	push	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts	1347	5	push	bodiless	1	0	12	3	subscribe
+lib/shapes.js	13	15	13	50	METHOD_CALL	forEach	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts	1464	5	forEach	bodiless	1	0	13	3	notify
+lib/shapes.js	13	45	13	49	FUNCTION_CALL	l					any	1	0	13	38	__function
+lib/shapes.js	16	20	16	35	SUPER_CALL	super	lib/shapes.js	4	3	Shape.constructor	implementation	1	0	16	3	Circle.constructor
+lib/shapes.js	18	34	18	50	METHOD_CALL	describe	lib/shapes.js	6	3	describe	implementation	1	0	18	3	describe
+lib/shapes.js	25	21	25	35	METHOD_CALL	#secret	lib/shapes.js	24	3	#secret	implementation	1	0	25	3	reveal
+plugins/index.js	4	72	4	97	METHOD_CALL	create	lib/shapes.js	7	3	create	implementation	1	0	4	66	__function
+plugins/index.js	7	48	7	80	METHOD_CALL	inc	lib/functional.js	6	1	inc	implementation	1	0	7	23	late
+main.js	11	13	11	26	CONSTRUCTOR_CALL	Circle	lib/shapes.js	16	3	Circle.constructor	implementation	1	0	10	1	classes
+main.js	12	3	12	15	METHOD_CALL	describe	lib/shapes.js	18	3	describe	implementation	1	0	10	1	classes
+main.js	12	17	12	25	METHOD_CALL	area	lib/shapes.js	17	3	area	implementation	1	0	10	1	classes
+main.js	13	13	13	33	METHOD_CALL	create	lib/shapes.js	7	3	create	implementation	1	0	10	1	classes
+main.js	13	35	13	47	METHOD_CALL	describe	lib/shapes.js	6	3	describe	implementation	1	0	10	1	classes
+main.js	14	14	14	33	METHOD_CALL	create	lib/shapes.js	7	3	create	implementation	1	0	10	1	classes
+main.js	14	35	14	48	METHOD_CALL	describe	lib/shapes.js	6	3	describe	implementation	1	0	10	1	classes
+main.js	15	13	15	28	CONSTRUCTOR_CALL	Tagged	lib/shapes.js	4	3	Shape.constructor	implementation	1	0	10	1	classes
+main.js	15	30	15	40	METHOD_CALL	reveal	lib/shapes.js	25	3	reveal	implementation	1	0	10	1	classes
+main.js	15	42	15	54	METHOD_CALL	describe	lib/shapes.js	6	3	describe	implementation	1	0	10	1	classes
+main.js	16	3	16	51	METHOD_CALL	map	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts	1470	5	map	bodiless	1	0	10	1	classes
+main.js	16	3	16	30	METHOD_CALL	sort	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es5.d.ts	1395	5	sort	bodiless	1	0	10	1	classes
+main.js	16	42	16	50	METHOD_CALL	area	lib/shapes.js	5	3	area	implementation	1	0	16	35	__function
+main.js	17	3	17	23	METHOD_CALL	describe					any	1	0	10	1	classes
+main.js	17	3	17	12	METHOD_CALL	clone	lib/shapes.js	11	3	clone	implementation	1	0	10	1	classes
+main.js	18	3	18	60	METHOD_CALL	notify	lib/shapes.js	13	3	notify	implementation	1	0	10	1	classes
+main.js	18	3	18	50	METHOD_CALL	subscribe	lib/shapes.js	12	3	subscribe	implementation	1	0	10	1	classes
+main.js	18	3	18	31	METHOD_CALL	subscribe	lib/shapes.js	12	3	subscribe	implementation	1	0	10	1	classes
+main.js	18	22	18	30	METHOD_CALL	inc	lib/functional.js	6	1	inc	implementation	1	0	18	15	__function
+main.js	19	3	19	16	METHOD_CALL	onChange	lib/shapes.js	4	78	__function	implementation	1	0	10	1	classes
+main.js	23	13	23	34	CONSTRUCTOR_CALL	Dog	lib/legacy.js	9	1	Dog	implementation	1	0	22	1	legacies
+main.js	23	36	23	45	METHOD_CALL	speak					any	1	0	22	1	legacies
+main.js	23	47	23	56	METHOD_CALL	shout					any	1	0	22	1	legacies
+main.js	24	15	24	36	CONSTRUCTOR_CALL	Cat	lib/legacy.js	12	1	Cat	implementation	2	0	22	1	legacies
+main.js	24	38	24	49	METHOD_CALL	speak					any	1	0	22	1	legacies
+main.js	25	3	25	40	METHOD_CALL	speak	lib/legacy.js	6	26	__function	implementation	1	0	22	1	legacies
+main.js	25	3	25	32	METHOD_CALL	make	lib/legacy.js	8	15	__function	implementation	1	0	22	1	legacies
+main.js	26	13	26	32	CONSTRUCTOR_CALL	Kennel	lib/legacy.js	20	1	Kennel	implementation	1	0	22	1	legacies
+main.js	27	3	27	63	METHOD_CALL	on					any	1	0	22	1	legacies
+main.js	27	48	27	59	METHOD_CALL	sound					any	1	0	27	17	onAdded
+main.js	28	3	28	20	METHOD_CALL	add	lib/legacy.js	22	24	__function	implementation	1	0	22	1	legacies
+main.js	28	3	28	11	METHOD_CALL	add	lib/legacy.js	22	24	__function	implementation	1	0	22	1	legacies
+main.js	28	22	28	30	METHOD_CALL	roll	lib/legacy.js	23	25	__function	implementation	1	0	22	1	legacies
+main.js	32	3	32	16	METHOD_CALL	incTwice	lib/functional.js	3	33	composed	implementation	1	0	31	1	functional
+main.js	32	18	32	29	METHOD_CALL	addOne	lib/functional.js	4	30	__function	implementation	1	0	31	1	functional
+main.js	32	31	32	40	METHOD_CALL	fact	lib/functional.js	10	1	fact	implementation	1	0	31	1	functional
+main.js	32	42	32	50	METHOD_CALL	fib	lib/functional.js	11	13	fibonacci	implementation	1	0	31	1	functional
+main.js	33	3	33	19	METHOD_CALL	bump	lib/functional.js	14	3	bump	implementation	1	0	31	1	functional
+main.js	33	21	33	38	METHOD_CALL	reset	lib/functional.js	15	18	reset	implementation	1	0	31	1	functional
+main.js	34	3	34	18	METHOD_CALL	withDefault	lib/functional.js	17	1	withDefault	implementation	1	0	31	1	functional
+main.js	34	20	34	72	METHOD_CALL	withDefault	lib/functional.js	17	1	withDefault	implementation	1	0	31	1	functional
+main.js	35	3	35	49	METHOD_CALL	variadic	lib/functional.js	18	1	variadic	implementation	1	0	31	1	functional
+main.js	35	37	35	48	METHOD_CALL	add	lib/functional.js	5	1	add	implementation	1	0	35	30	__function
+main.js	36	3	36	34	METHOD_CALL	applyAll	lib/functional.js	19	1	applyAll	implementation	1	0	31	1	functional
+main.js	37	3	37	18	METHOD_CALL	slowSquare	lib/functional.js	20	53	__function	implementation	1	0	31	1	functional
+main.js	37	20	37	35	METHOD_CALL	slowSquare	lib/functional.js	20	53	__function	implementation	1	0	31	1	functional
+main.js	38	17	38	37	FUNCTION_CALL_BIND	bind	lib/functional.js	5	1	add	implementation	1	0	31	1	functional
+main.js	38	39	38	47	FUNCTION_CALL	bound					any	1	0	31	1	functional
+main.js	39	3	39	25	FUNCTION_CALL_CALL	call	lib/functional.js	5	1	add	implementation	1	0	31	1	functional
+main.js	39	27	39	52	FUNCTION_CALL_APPLY	apply	lib/functional.js	5	1	add	implementation	1	0	31	1	functional
+main.js	42	13	42	22	CONSTRUCTOR_CALL	Bus	lib/bus.js	5	3	Bus.constructor	implementation	1	0	41	1	events
+main.js	43	3	43	83	METHOD_CALL	on					any	1	0	41	1	events
+main.js	43	3	43	46	METHOD_CALL	once					any	1	0	41	1	events
+main.js	43	3	43	25	METHOD_CALL	on					any	1	0	41	1	events
+main.js	44	3	44	12	METHOD_CALL	start	lib/bus.js	6	3	start	implementation	1	0	41	1	events
+main.js	44	14	44	27	METHOD_CALL	fire	lib/bus.js	7	3	fire	implementation	1	0	41	1	events
+main.js	45	3	45	42	METHOD_CALL	runHooks	lib/bus.js	9	3	runHooks	implementation	1	0	41	1	events
+main.js	45	3	45	28	METHOD_CALL	hook	lib/bus.js	8	3	hook	implementation	1	0	41	1	events
+main.js	45	3	45	16	METHOD_CALL	hook	lib/bus.js	8	3	hook	implementation	1	0	41	1	events
+main.js	46	3	46	28	METHOD_CALL	register	lib/bus.js	10	3	register	implementation	1	0	41	1	events
+main.js	46	30	46	48	METHOD_CALL	dispatch	lib/bus.js	11	3	dispatch	implementation	1	0	41	1	events
+main.js	50	9	50	27	METHOD_CALL	pipeline	lib/asyncy.js	7	1	pipeline	implementation	1	0	49	1	asyncs
+main.js	51	3	51	22	METHOD_CALL	later	lib/asyncy.js	12	1	later	implementation	1	0	49	1	asyncs
+main.js	52	3	52	49	METHOD_CALL	withCallback	lib/asyncy.js	13	1	withCallback	implementation	1	0	49	1	asyncs
+main.js	52	38	52	48	METHOD_CALL	twice	lib/functional.js	7	1	twice	implementation	1	0	52	26	__function
+main.js	53	9	53	32	METHOD_CALL	withCallbackP	lib/asyncy.js	14	32	__function	implementation	1	0	49	1	asyncs
+main.js	56	3	56	26	METHOD_CALL	byName	lib/registry.js	7	1	byName	implementation	1	0	55	1	dynamics
+main.js	56	28	56	44	METHOD_CALL	byBracket	lib/registry.js	8	1	byBracket	implementation	1	0	55	1	dynamics
+main.js	56	46	56	61	METHOD_CALL	viaProxy	lib/registry.js	10	1	viaProxy	implementation	1	0	55	1	dynamics
+main.js	56	63	56	80	METHOD_CALL	viaReflect	lib/registry.js	11	1	viaReflect	implementation	1	0	55	1	dynamics
+main.js	56	82	56	104	METHOD_CALL	viaArguments	lib/registry.js	12	1	viaArguments	implementation	1	0	55	1	dynamics
+main.js	56	106	56	119	METHOD_CALL	tagged	lib/registry.js	14	1	tagged	implementation	1	0	55	1	dynamics
+main.js	59	13	59	28	FUNCTION_CALL	makePlugin	plugins/index.js	4	18	makePlugin	implementation	1	0	58	1	modules
+main.js	59	30	59	37	METHOD_CALL	run	plugins/index.js	4	66	__function	implementation	1	0	58	1	modules
+main.js	59	39	59	75	METHOD_CALL	create	lib/shapes.js	7	3	create	implementation	1	0	58	1	modules
+main.js	59	77	59	107	METHOD_CALL	twice	lib/functional.js	7	1	twice	implementation	1	0	58	1	modules
+main.js	59	109	59	126	METHOD_CALL	late	plugins/index.js	7	23	late	implementation	1	0	58	1	modules
+main.js	59	179	59	219	CONSTRUCTOR_CALL	Error	/Users/swapnilpaliwal/Documents/AxiomCode/wt/js-reshape/node_modules/typescript/lib/lib.es2022.error.d.ts	30	5	__new	bodiless	1	0	58	1	modules
+main.js	62	3	62	12	FUNCTION_CALL	classes	main.js	10	1	classes	implementation	1	0	61	1	main
+main.js	62	14	62	24	FUNCTION_CALL	legacies	main.js	22	1	legacies	implementation	1	0	61	1	main
+main.js	62	26	62	38	FUNCTION_CALL	functional	main.js	31	1	functional	implementation	1	0	61	1	main
+main.js	62	40	62	48	FUNCTION_CALL	events	main.js	41	1	events	implementation	1	0	61	1	main
+main.js	62	56	62	64	FUNCTION_CALL	asyncs	main.js	49	1	asyncs	implementation	1	0	61	1	main
+main.js	62	66	62	76	FUNCTION_CALL	dynamics	main.js	55	1	dynamics	implementation	1	0	61	1	main
+main.js	62	78	62	87	FUNCTION_CALL	modules	main.js	58	1	modules	implementation	1	0	61	1	main
+main.js	63	3	63	36	IIFE_CALL		main.js	63	4	iife	implementation	1	0	61	1	main
+main.js	63	22	63	30	METHOD_CALL	inc	lib/functional.js	6	1	inc	implementation	1	0	63	4	iife
+main.js	64	3	64	23	IIFE_CALL		main.js	64	4	__function	implementation	1	0	61	1	main
+main.js	64	10	64	20	METHOD_CALL	twice	lib/functional.js	7	1	twice	implementation	1	0	64	4	__function
+main.js	66	1	66	7	FUNCTION_CALL	main	main.js	61	1	main	implementation	1	0	0	0	<module>

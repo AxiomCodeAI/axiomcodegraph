@@ -1,0 +1,966 @@
+{
+ "functions": [
+  "main.js:1:1",
+  "lib/shapes.js:1:1",
+  "lib/legacy.js:1:1",
+  "lib/functional.js:1:1",
+  "lib/functional.js:4:15",
+  "lib/functional.js:4:23",
+  "lib/functional.js:3:1",
+  "lib/functional.js:12:18",
+  "lib/functional.js:20:1",
+  "lib/bus.js:1:1",
+  "lib/asyncy.js:1:1",
+  "lib/asyncy.js:14:1",
+  "lib/registry.js:1:1",
+  "plugins/index.js:1:1",
+  "main.js:61:1",
+  "main.js:10:1",
+  "lib/shapes.js:16:3",
+  "lib/shapes.js:4:3",
+  "lib/shapes.js:18:3",
+  "lib/shapes.js:6:3",
+  "lib/shapes.js:17:3",
+  "lib/shapes.js:9:3",
+  "lib/shapes.js:10:3",
+  "lib/shapes.js:7:3",
+  "lib/shapes.js:5:3",
+  "lib/shapes.js:21:3",
+  "lib/shapes.js:25:3",
+  "lib/shapes.js:24:3",
+  "lib/shapes.js:8:3",
+  "main.js:16:35",
+  "lib/shapes.js:11:3",
+  "lib/shapes.js:12:3",
+  "lib/shapes.js:13:3",
+  "lib/shapes.js:13:38",
+  "main.js:18:15",
+  "lib/functional.js:6:1",
+  "lib/functional.js:5:1",
+  "lib/functional.js:7:1",
+  "lib/shapes.js:4:78",
+  "main.js:22:1",
+  "lib/legacy.js:9:1",
+  "lib/legacy.js:5:1",
+  "lib/legacy.js:6:26",
+  "lib/legacy.js:11:23",
+  "lib/legacy.js:17:3",
+  "lib/legacy.js:12:1",
+  "lib/legacy.js:15:23",
+  "lib/legacy.js:8:15",
+  "lib/legacy.js:7:26",
+  "lib/legacy.js:20:1",
+  "lib/legacy.js:22:24",
+  "main.js:27:17",
+  "lib/legacy.js:23:25",
+  "lib/legacy.js:23:60",
+  "main.js:31:1",
+  "lib/functional.js:3:33",
+  "lib/functional.js:4:30",
+  "lib/functional.js:10:1",
+  "lib/functional.js:11:13",
+  "lib/functional.js:14:3",
+  "lib/functional.js:15:18",
+  "lib/functional.js:17:1",
+  "lib/functional.js:17:27",
+  "main.js:34:34",
+  "lib/functional.js:18:1",
+  "lib/functional.js:18:56",
+  "main.js:35:30",
+  "lib/functional.js:19:1",
+  "lib/functional.js:20:53",
+  "lib/functional.js:21:25",
+  "main.js:41:1",
+  "lib/bus.js:5:3",
+  "lib/bus.js:6:3",
+  "lib/bus.js:13:1",
+  "lib/bus.js:14:1",
+  "lib/bus.js:7:3",
+  "lib/bus.js:15:1",
+  "lib/bus.js:8:3",
+  "lib/bus.js:9:3",
+  "lib/bus.js:9:39",
+  "lib/bus.js:16:1",
+  "lib/bus.js:17:1",
+  "lib/bus.js:10:3",
+  "lib/bus.js:11:3",
+  "lib/bus.js:11:75",
+  "lib/bus.js:18:1",
+  "main.js:49:1",
+  "lib/asyncy.js:7:1",
+  "lib/asyncy.js:3:1",
+  "lib/asyncy.js:3:40",
+  "lib/asyncy.js:3:64",
+  "lib/asyncy.js:4:1",
+  "lib/asyncy.js:9:55",
+  "lib/asyncy.js:5:1",
+  "lib/asyncy.js:12:1",
+  "lib/asyncy.js:13:1",
+  "main.js:52:26",
+  "lib/asyncy.js:14:32",
+  "lib/asyncy.js:14:51",
+  "lib/asyncy.js:14:70",
+  "main.js:55:1",
+  "lib/registry.js:7:1",
+  "lib/registry.js:5:3",
+  "lib/registry.js:8:1",
+  "lib/registry.js:4:3",
+  "lib/registry.js:10:1",
+  "lib/registry.js:9:38",
+  "lib/registry.js:9:48",
+  "lib/registry.js:11:1",
+  "lib/registry.js:12:1",
+  "lib/registry.js:12:76",
+  "lib/registry.js:14:1",
+  "lib/registry.js:13:1",
+  "main.js:58:1",
+  "plugins/index.js:4:18",
+  "plugins/index.js:4:66",
+  "plugins/index.js:7:23",
+  "main.js:63:4",
+  "main.js:64:4",
+  "lib/asyncy.js:12:57"
+ ],
+ "edges": [
+  {
+   "caller": "<root>",
+   "callee": "main.js:1:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:1:1",
+   "callee": "lib/shapes.js:1:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:1:1",
+   "callee": "lib/legacy.js:1:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:1:1",
+   "callee": "lib/functional.js:1:1",
+   "n": 1
+  },
+  {
+   "caller": "lib/functional.js:1:1",
+   "callee": "lib/functional.js:4:15",
+   "n": 1
+  },
+  {
+   "caller": "lib/functional.js:1:1",
+   "callee": "lib/functional.js:4:23",
+   "n": 1
+  },
+  {
+   "caller": "lib/functional.js:1:1",
+   "callee": "lib/functional.js:3:1",
+   "n": 1
+  },
+  {
+   "caller": "lib/functional.js:1:1",
+   "callee": "lib/functional.js:12:18",
+   "n": 1
+  },
+  {
+   "caller": "lib/functional.js:1:1",
+   "callee": "lib/functional.js:20:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:1:1",
+   "callee": "lib/bus.js:1:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:1:1",
+   "callee": "lib/asyncy.js:1:1",
+   "n": 1
+  },
+  {
+   "caller": "lib/asyncy.js:1:1",
+   "callee": "lib/asyncy.js:14:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:1:1",
+   "callee": "lib/registry.js:1:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:1:1",
+   "callee": "plugins/index.js:1:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:1:1",
+   "callee": "main.js:61:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:61:1",
+   "callee": "main.js:10:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:10:1",
+   "callee": "lib/shapes.js:16:3",
+   "n": 1
+  },
+  {
+   "caller": "lib/shapes.js:16:3",
+   "callee": "lib/shapes.js:4:3",
+   "n": 3
+  },
+  {
+   "caller": "main.js:10:1",
+   "callee": "lib/shapes.js:18:3",
+   "n": 2
+  },
+  {
+   "caller": "lib/shapes.js:18:3",
+   "callee": "lib/shapes.js:6:3",
+   "n": 3
+  },
+  {
+   "caller": "lib/shapes.js:6:3",
+   "callee": "lib/shapes.js:17:3",
+   "n": 3
+  },
+  {
+   "caller": "main.js:10:1",
+   "callee": "lib/shapes.js:17:3",
+   "n": 1
+  },
+  {
+   "caller": "main.js:10:1",
+   "callee": "lib/shapes.js:9:3",
+   "n": 1
+  },
+  {
+   "caller": "lib/shapes.js:9:3",
+   "callee": "lib/shapes.js:18:3",
+   "n": 1
+  },
+  {
+   "caller": "main.js:10:1",
+   "callee": "lib/shapes.js:10:3",
+   "n": 1
+  },
+  {
+   "caller": "main.js:10:1",
+   "callee": "lib/shapes.js:7:3",
+   "n": 2
+  },
+  {
+   "caller": "lib/shapes.js:7:3",
+   "callee": "lib/shapes.js:4:3",
+   "n": 3
+  },
+  {
+   "caller": "main.js:10:1",
+   "callee": "lib/shapes.js:6:3",
+   "n": 3
+  },
+  {
+   "caller": "lib/shapes.js:6:3",
+   "callee": "lib/shapes.js:5:3",
+   "n": 1
+  },
+  {
+   "caller": "lib/shapes.js:6:3",
+   "callee": "lib/shapes.js:21:3",
+   "n": 2
+  },
+  {
+   "caller": "main.js:10:1",
+   "callee": "lib/shapes.js:4:3",
+   "n": 1
+  },
+  {
+   "caller": "main.js:10:1",
+   "callee": "lib/shapes.js:25:3",
+   "n": 1
+  },
+  {
+   "caller": "lib/shapes.js:25:3",
+   "callee": "lib/shapes.js:24:3",
+   "n": 1
+  },
+  {
+   "caller": "main.js:10:1",
+   "callee": "lib/shapes.js:8:3",
+   "n": 1
+  },
+  {
+   "caller": "lib/shapes.js:8:3",
+   "callee": "lib/shapes.js:21:3",
+   "n": 1
+  },
+  {
+   "caller": "lib/shapes.js:8:3",
+   "callee": "lib/shapes.js:17:3",
+   "n": 1
+  },
+  {
+   "caller": "main.js:10:1",
+   "callee": "main.js:16:35",
+   "n": 2
+  },
+  {
+   "caller": "main.js:16:35",
+   "callee": "lib/shapes.js:21:3",
+   "n": 1
+  },
+  {
+   "caller": "main.js:16:35",
+   "callee": "lib/shapes.js:17:3",
+   "n": 1
+  },
+  {
+   "caller": "main.js:10:1",
+   "callee": "lib/shapes.js:11:3",
+   "n": 1
+  },
+  {
+   "caller": "lib/shapes.js:11:3",
+   "callee": "lib/shapes.js:16:3",
+   "n": 1
+  },
+  {
+   "caller": "main.js:10:1",
+   "callee": "lib/shapes.js:12:3",
+   "n": 2
+  },
+  {
+   "caller": "main.js:10:1",
+   "callee": "lib/shapes.js:13:3",
+   "n": 1
+  },
+  {
+   "caller": "lib/shapes.js:13:3",
+   "callee": "lib/shapes.js:13:38",
+   "n": 4
+  },
+  {
+   "caller": "lib/shapes.js:13:38",
+   "callee": "main.js:18:15",
+   "n": 2
+  },
+  {
+   "caller": "main.js:18:15",
+   "callee": "lib/functional.js:6:1",
+   "n": 2
+  },
+  {
+   "caller": "lib/functional.js:6:1",
+   "callee": "lib/functional.js:5:1",
+   "n": 11
+  },
+  {
+   "caller": "lib/shapes.js:13:38",
+   "callee": "lib/functional.js:7:1",
+   "n": 2
+  },
+  {
+   "caller": "lib/functional.js:7:1",
+   "callee": "lib/functional.js:5:1",
+   "n": 10
+  },
+  {
+   "caller": "main.js:10:1",
+   "callee": "lib/shapes.js:4:78",
+   "n": 1
+  },
+  {
+   "caller": "lib/shapes.js:4:78",
+   "callee": "lib/shapes.js:13:3",
+   "n": 1
+  },
+  {
+   "caller": "main.js:61:1",
+   "callee": "main.js:22:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:22:1",
+   "callee": "lib/legacy.js:9:1",
+   "n": 1
+  },
+  {
+   "caller": "lib/legacy.js:9:1",
+   "callee": "lib/legacy.js:5:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:22:1",
+   "callee": "lib/legacy.js:6:26",
+   "n": 3
+  },
+  {
+   "caller": "lib/legacy.js:6:26",
+   "callee": "lib/legacy.js:11:23",
+   "n": 3
+  },
+  {
+   "caller": "main.js:22:1",
+   "callee": "lib/legacy.js:17:3",
+   "n": 1
+  },
+  {
+   "caller": "lib/legacy.js:17:3",
+   "callee": "lib/legacy.js:6:26",
+   "n": 1
+  },
+  {
+   "caller": "main.js:22:1",
+   "callee": "lib/legacy.js:12:1",
+   "n": 1
+  },
+  {
+   "caller": "lib/legacy.js:12:1",
+   "callee": "lib/legacy.js:5:1",
+   "n": 1
+  },
+  {
+   "caller": "lib/legacy.js:6:26",
+   "callee": "lib/legacy.js:15:23",
+   "n": 2
+  },
+  {
+   "caller": "main.js:22:1",
+   "callee": "lib/legacy.js:8:15",
+   "n": 1
+  },
+  {
+   "caller": "lib/legacy.js:8:15",
+   "callee": "lib/legacy.js:5:1",
+   "n": 1
+  },
+  {
+   "caller": "lib/legacy.js:6:26",
+   "callee": "lib/legacy.js:7:26",
+   "n": 1
+  },
+  {
+   "caller": "main.js:22:1",
+   "callee": "lib/legacy.js:20:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:22:1",
+   "callee": "lib/legacy.js:22:24",
+   "n": 2
+  },
+  {
+   "caller": "lib/legacy.js:22:24",
+   "callee": "main.js:27:17",
+   "n": 2
+  },
+  {
+   "caller": "main.js:27:17",
+   "callee": "lib/legacy.js:11:23",
+   "n": 1
+  },
+  {
+   "caller": "main.js:27:17",
+   "callee": "lib/legacy.js:15:23",
+   "n": 1
+  },
+  {
+   "caller": "main.js:22:1",
+   "callee": "lib/legacy.js:23:25",
+   "n": 1
+  },
+  {
+   "caller": "lib/legacy.js:23:25",
+   "callee": "lib/legacy.js:23:60",
+   "n": 2
+  },
+  {
+   "caller": "lib/legacy.js:23:60",
+   "callee": "lib/legacy.js:6:26",
+   "n": 2
+  },
+  {
+   "caller": "main.js:61:1",
+   "callee": "main.js:31:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:31:1",
+   "callee": "lib/functional.js:3:33",
+   "n": 1
+  },
+  {
+   "caller": "lib/functional.js:3:33",
+   "callee": "lib/functional.js:6:1",
+   "n": 1
+  },
+  {
+   "caller": "lib/functional.js:3:33",
+   "callee": "lib/functional.js:7:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:31:1",
+   "callee": "lib/functional.js:4:30",
+   "n": 1
+  },
+  {
+   "caller": "lib/functional.js:4:30",
+   "callee": "lib/functional.js:5:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:31:1",
+   "callee": "lib/functional.js:10:1",
+   "n": 1
+  },
+  {
+   "caller": "lib/functional.js:10:1",
+   "callee": "lib/functional.js:10:1",
+   "n": 3
+  },
+  {
+   "caller": "main.js:31:1",
+   "callee": "lib/functional.js:11:13",
+   "n": 1
+  },
+  {
+   "caller": "lib/functional.js:11:13",
+   "callee": "lib/functional.js:11:13",
+   "n": 14
+  },
+  {
+   "caller": "main.js:31:1",
+   "callee": "lib/functional.js:14:3",
+   "n": 1
+  },
+  {
+   "caller": "main.js:31:1",
+   "callee": "lib/functional.js:15:18",
+   "n": 1
+  },
+  {
+   "caller": "lib/functional.js:15:18",
+   "callee": "lib/functional.js:14:3",
+   "n": 1
+  },
+  {
+   "caller": "main.js:31:1",
+   "callee": "lib/functional.js:17:1",
+   "n": 2
+  },
+  {
+   "caller": "lib/functional.js:17:1",
+   "callee": "lib/functional.js:17:27",
+   "n": 1
+  },
+  {
+   "caller": "lib/functional.js:17:27",
+   "callee": "lib/functional.js:6:1",
+   "n": 1
+  },
+  {
+   "caller": "lib/functional.js:17:1",
+   "callee": "lib/functional.js:7:1",
+   "n": 1
+  },
+  {
+   "caller": "lib/functional.js:17:1",
+   "callee": "main.js:34:34",
+   "n": 1
+  },
+  {
+   "caller": "lib/functional.js:17:1",
+   "callee": "lib/functional.js:6:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:31:1",
+   "callee": "lib/functional.js:18:1",
+   "n": 1
+  },
+  {
+   "caller": "lib/functional.js:18:1",
+   "callee": "lib/functional.js:6:1",
+   "n": 1
+  },
+  {
+   "caller": "lib/functional.js:18:1",
+   "callee": "lib/functional.js:18:56",
+   "n": 2
+  },
+  {
+   "caller": "lib/functional.js:18:56",
+   "callee": "lib/functional.js:7:1",
+   "n": 1
+  },
+  {
+   "caller": "lib/functional.js:18:56",
+   "callee": "main.js:35:30",
+   "n": 1
+  },
+  {
+   "caller": "main.js:35:30",
+   "callee": "lib/functional.js:5:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:31:1",
+   "callee": "lib/functional.js:19:1",
+   "n": 1
+  },
+  {
+   "caller": "lib/functional.js:19:1",
+   "callee": "lib/functional.js:6:1",
+   "n": 1
+  },
+  {
+   "caller": "lib/functional.js:19:1",
+   "callee": "lib/functional.js:7:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:31:1",
+   "callee": "lib/functional.js:20:53",
+   "n": 2
+  },
+  {
+   "caller": "lib/functional.js:20:53",
+   "callee": "lib/functional.js:21:25",
+   "n": 1
+  },
+  {
+   "caller": "lib/functional.js:21:25",
+   "callee": "lib/functional.js:7:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:31:1",
+   "callee": "lib/functional.js:5:1",
+   "n": 3
+  },
+  {
+   "caller": "main.js:61:1",
+   "callee": "main.js:41:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:41:1",
+   "callee": "lib/bus.js:5:3",
+   "n": 1
+  },
+  {
+   "caller": "main.js:41:1",
+   "callee": "lib/bus.js:6:3",
+   "n": 1
+  },
+  {
+   "caller": "lib/bus.js:6:3",
+   "callee": "lib/bus.js:13:1",
+   "n": 1
+  },
+  {
+   "caller": "lib/bus.js:6:3",
+   "callee": "lib/bus.js:14:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:41:1",
+   "callee": "lib/bus.js:7:3",
+   "n": 1
+  },
+  {
+   "caller": "lib/bus.js:7:3",
+   "callee": "lib/bus.js:15:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:41:1",
+   "callee": "lib/bus.js:8:3",
+   "n": 2
+  },
+  {
+   "caller": "main.js:41:1",
+   "callee": "lib/bus.js:9:3",
+   "n": 1
+  },
+  {
+   "caller": "lib/bus.js:9:3",
+   "callee": "lib/bus.js:9:39",
+   "n": 2
+  },
+  {
+   "caller": "lib/bus.js:9:39",
+   "callee": "lib/bus.js:16:1",
+   "n": 1
+  },
+  {
+   "caller": "lib/bus.js:9:39",
+   "callee": "lib/bus.js:17:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:41:1",
+   "callee": "lib/bus.js:10:3",
+   "n": 1
+  },
+  {
+   "caller": "main.js:41:1",
+   "callee": "lib/bus.js:11:3",
+   "n": 1
+  },
+  {
+   "caller": "lib/bus.js:11:3",
+   "callee": "lib/bus.js:11:75",
+   "n": 1
+  },
+  {
+   "caller": "lib/bus.js:11:75",
+   "callee": "lib/bus.js:18:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:61:1",
+   "callee": "main.js:49:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:49:1",
+   "callee": "lib/asyncy.js:7:1",
+   "n": 1
+  },
+  {
+   "caller": "lib/asyncy.js:7:1",
+   "callee": "lib/asyncy.js:3:1",
+   "n": 1
+  },
+  {
+   "caller": "lib/asyncy.js:3:1",
+   "callee": "lib/asyncy.js:3:40",
+   "n": 1
+  },
+  {
+   "caller": "lib/asyncy.js:3:40",
+   "callee": "lib/asyncy.js:3:64",
+   "n": 1
+  },
+  {
+   "caller": "lib/asyncy.js:7:1",
+   "callee": "lib/asyncy.js:4:1",
+   "n": 1
+  },
+  {
+   "caller": "lib/asyncy.js:7:1",
+   "callee": "lib/asyncy.js:9:55",
+   "n": 1
+  },
+  {
+   "caller": "lib/asyncy.js:9:55",
+   "callee": "lib/asyncy.js:5:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:49:1",
+   "callee": "lib/asyncy.js:12:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:49:1",
+   "callee": "lib/asyncy.js:13:1",
+   "n": 1
+  },
+  {
+   "caller": "lib/asyncy.js:13:1",
+   "callee": "lib/asyncy.js:4:1",
+   "n": 2
+  },
+  {
+   "caller": "lib/asyncy.js:13:1",
+   "callee": "main.js:52:26",
+   "n": 1
+  },
+  {
+   "caller": "main.js:52:26",
+   "callee": "lib/functional.js:7:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:49:1",
+   "callee": "lib/asyncy.js:14:32",
+   "n": 1
+  },
+  {
+   "caller": "lib/asyncy.js:14:32",
+   "callee": "lib/asyncy.js:14:51",
+   "n": 1
+  },
+  {
+   "caller": "lib/asyncy.js:14:51",
+   "callee": "lib/asyncy.js:13:1",
+   "n": 1
+  },
+  {
+   "caller": "lib/asyncy.js:13:1",
+   "callee": "lib/asyncy.js:14:70",
+   "n": 1
+  },
+  {
+   "caller": "main.js:61:1",
+   "callee": "main.js:55:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:55:1",
+   "callee": "lib/registry.js:7:1",
+   "n": 1
+  },
+  {
+   "caller": "lib/registry.js:7:1",
+   "callee": "lib/registry.js:5:3",
+   "n": 1
+  },
+  {
+   "caller": "main.js:55:1",
+   "callee": "lib/registry.js:8:1",
+   "n": 1
+  },
+  {
+   "caller": "lib/registry.js:8:1",
+   "callee": "lib/registry.js:4:3",
+   "n": 1
+  },
+  {
+   "caller": "main.js:55:1",
+   "callee": "lib/registry.js:10:1",
+   "n": 1
+  },
+  {
+   "caller": "lib/registry.js:10:1",
+   "callee": "lib/registry.js:9:38",
+   "n": 1
+  },
+  {
+   "caller": "lib/registry.js:10:1",
+   "callee": "lib/registry.js:9:48",
+   "n": 1
+  },
+  {
+   "caller": "main.js:55:1",
+   "callee": "lib/registry.js:11:1",
+   "n": 1
+  },
+  {
+   "caller": "lib/registry.js:11:1",
+   "callee": "lib/registry.js:5:3",
+   "n": 1
+  },
+  {
+   "caller": "main.js:55:1",
+   "callee": "lib/registry.js:12:1",
+   "n": 1
+  },
+  {
+   "caller": "lib/registry.js:12:1",
+   "callee": "lib/registry.js:12:76",
+   "n": 2
+  },
+  {
+   "caller": "lib/registry.js:12:76",
+   "callee": "lib/registry.js:4:3",
+   "n": 2
+  },
+  {
+   "caller": "main.js:55:1",
+   "callee": "lib/registry.js:14:1",
+   "n": 1
+  },
+  {
+   "caller": "lib/registry.js:14:1",
+   "callee": "lib/registry.js:13:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:61:1",
+   "callee": "main.js:58:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:58:1",
+   "callee": "plugins/index.js:4:18",
+   "n": 1
+  },
+  {
+   "caller": "main.js:58:1",
+   "callee": "plugins/index.js:4:66",
+   "n": 1
+  },
+  {
+   "caller": "plugins/index.js:4:66",
+   "callee": "lib/shapes.js:7:3",
+   "n": 1
+  },
+  {
+   "caller": "main.js:58:1",
+   "callee": "lib/shapes.js:7:3",
+   "n": 1
+  },
+  {
+   "caller": "lib/shapes.js:7:3",
+   "callee": "lib/shapes.js:16:3",
+   "n": 1
+  },
+  {
+   "caller": "main.js:58:1",
+   "callee": "lib/functional.js:7:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:58:1",
+   "callee": "plugins/index.js:7:23",
+   "n": 1
+  },
+  {
+   "caller": "plugins/index.js:7:23",
+   "callee": "lib/functional.js:6:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:61:1",
+   "callee": "main.js:63:4",
+   "n": 1
+  },
+  {
+   "caller": "main.js:63:4",
+   "callee": "lib/functional.js:6:1",
+   "n": 1
+  },
+  {
+   "caller": "main.js:61:1",
+   "callee": "main.js:64:4",
+   "n": 1
+  },
+  {
+   "caller": "main.js:64:4",
+   "callee": "lib/functional.js:7:1",
+   "n": 1
+  },
+  {
+   "caller": "lib/asyncy.js:12:1",
+   "callee": "lib/asyncy.js:12:57",
+   "n": 1
+  },
+  {
+   "caller": "lib/asyncy.js:12:57",
+   "callee": "lib/functional.js:6:1",
+   "n": 1
+  },
+  {
+   "caller": "lib/asyncy.js:12:1",
+   "callee": "lib/functional.js:6:1",
+   "n": 1
+  }
+ ]
+}

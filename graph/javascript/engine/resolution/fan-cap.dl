@@ -1,0 +1,93 @@
+// ============================================================================
+// Resolution · THE PARAMETER FAN CAP
+//
+// Argument→parameter flow is flow-insensitive and context-insensitive: a helper
+// called from 200 sites has parameters that hold the union of 200 argument sets,
+// returns the union, and writes it into every property its callers pass. On one
+// held-out project that union reached 300 values on single bindings and the
+// fixpoint did not terminate in 40 minutes; on every development project the same
+// helpers were the widest bindings by an order of magnitude.
+//
+// The cap: a function with more than N DIRECT call sites is a generic utility, and
+// its parameters are not tracked. Calls through them inside it are declared
+// unknown (`param_fan_capped`), which is the honest answer for `each(arr, fn)` —
+// the compiler answers `any` there too. Everything reached by other means (a
+// class member, a callback, a return) is unaffected.
+//
+// "Direct" is counted SYNTACTICALLY, in a stratum below the flow: a bare call whose
+// callee the binder bound to the function's own binding, or a member call on an
+// import binding of the module that declares the function under that name. A site
+// reached only through the flow is not counted — an undercount, which caps LESS,
+// the safe direction for accuracy. The cap value is the executor's --dispatch-cap
+// (default 20; `off` disables it), the same knob that bounds a dispatch fan in the
+// Java and Python rule sets.
+// ============================================================================
+
+// ── function_binding_value(VarHash, MethodHash) — a binding that IS a function ──
+// Declared functions, and `const f = function () {}` / `const f = () => {}`.
+function_binding_value(v, m) :- function_binding_method(v, m).
+function_binding_value(v, m) :- var_init(_, _, e, v), expr_introduces(_, m, e).
+
+// ── direct_export_func(ModuleHash, Name, MethodHash) — declared, not derived ──
+direct_export_func(mod, n, m) :- export_decl(_, n, _, _, _, "METHOD", m, _, mod, _), m != "".
+direct_export_func(mod, n, m) :- export_decl(_, n, _, _, _, "VARIABLE", v, _, mod, _), v != "", function_binding_value(v, m).
+direct_export_func(mod, n, m) :- export_decl(_, n, _, _, _, _, _, se, mod, _), se != "",
+    expr_kind(_, "ASSIGNMENT", _, se), expr_child(_, se, "ASSIGNMENT_VALUE", _, val), expr_introduces(_, m, val).
+direct_export_func(mod, n, m) :- export_decl(_, n, _, _, _, _, _, se, mod, _), se != "",
+    expr_kind(_, "ASSIGNMENT", _, se), expr_child(_, se, "ASSIGNMENT_VALUE", _, val), expr_binding(_, v, val), function_binding_value(v, m).
+// `module.exports = { a, b }` — a shorthand property naming a function binding.
+direct_export_func(mod, n, m) :- export_decl(_, "default", _, "MODULE_EXPORTS_ASSIGNMENT", _, _, _, se, mod, _), se != "",
+    expr_child(_, se, "ASSIGNMENT_VALUE", _, lit), expr_kind(_, "OBJECT_LITERAL", _, lit),
+    expr_child(_, lit, "PROPERTY_VALUE", idx, pv), !expr_child(_, lit, "PROPERTY_KEY", idx, _),
+    expr_name(_, n, pv), expr_binding(_, v, pv), function_binding_value(v, m).
+direct_export_func(mod, n, m) :- export_decl(_, "default", _, "MODULE_EXPORTS_ASSIGNMENT", _, _, _, se, mod, _), se != "",
+    expr_child(_, se, "ASSIGNMENT_VALUE", _, lit), expr_kind(_, "OBJECT_LITERAL", _, lit),
+    expr_child(_, lit, "PROPERTY_KEY", idx, key), expr_name(_, n, key),
+    expr_child(_, lit, "PROPERTY_VALUE", idx, pv), expr_introduces(_, m, pv).
+
+// ── direct_call_site(CallExpr, MethodHash) ──────────────────────────────────
+// `f(...)` bound to the function; `ns.f(...)` on a namespace import of its module;
+// `f(...)` on a named/destructured import of it.
+direct_call_site(ce, m) :- call_site(_, ck, _, _, _, _, ce, _, _), call_kind_is_callee_form(ck),
+    expr_child(_, ce, "CALLEE", _, c), expr_binding(_, v, c), function_binding_value(v, m).
+direct_call_site(ce, m) :- call_site(_, ck, _, _, _, _, ce, _, _), call_kind_is_callee_form(ck),
+    expr_child(_, ce, "CALLEE", _, c), expr_binding(_, v, c), var_import(_, imp, v),
+    import_decl(_, _, _, bf, n, _, _, _, imp), import_binding_is_named(bf), import_module(imp, mod),
+    direct_export_func(mod, n, m).
+// `const isObject = require('./isObject'); isObject(x)` — the module's default.
+direct_call_site(ce, m) :- call_site(_, ck, _, _, _, _, ce, _, _), call_kind_is_callee_form(ck),
+    expr_child(_, ce, "CALLEE", _, c), expr_binding(_, v, c), var_import(_, imp, v),
+    import_decl(_, _, _, bf, _, _, _, _, imp), import_binding_is_default_like(bf), import_module(imp, mod),
+    direct_export_func(mod, "default", m).
+import_binding_is_default_like("NAMESPACE").
+import_binding_is_default_like("DEFAULT").
+direct_call_site(ce, m) :- call_site(_, ck, n, "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck),
+    expr_child(_, ce, "RECEIVER", _, r), expr_binding(_, v, r), var_import(_, imp, v),
+    import_decl(_, _, _, "NAMESPACE", _, _, _, _, imp), import_module(imp, mod),
+    direct_export_func(mod, n, m).
+
+// `exports.isObject = require('./helpers/isObject')` — a re-exported default, one hop.
+direct_export_func(mod, n, m) :- export_decl(_, n, _, _, _, _, _, se, mod, _), se != "",
+    expr_kind(_, "ASSIGNMENT", _, se), expr_child(_, se, "ASSIGNMENT_VALUE", _, val),
+    expr_kind(_, "MODULE_EDGE_CALL", _, val), expr_module_edge(_, imp, val), import_module(imp, src),
+    direct_export_func(src, "default", m).
+
+// ── method_is_hot(MethodHash, SiteCount) ────────────────────────────────────
+// Two counts, either over the cap makes a function hot. The DIRECT count is exact
+// and undercounts (a re-export chain, a call through a stored reference). The NAME
+// count — every site whose callee is written with the function's name — overcounts,
+// so it applies only to MODULE-LEVEL functions: a class method named `add` or `set`
+// shares its name with hundreds of unrelated sites and must not be capped by them,
+// while a module-level `each` or `merge` called under its own name from everywhere
+// is exactly the generic utility the cap exists for.
+param_flow_capped_at(n) :- dispatch_cap(s), n = to_number(s).
+direct_call_count(m, n) :- direct_call_site(_, m), n = count : { direct_call_site(_, m) }.
+method_is_hot(m, n) :- direct_call_count(m, n), param_flow_capped_at(c), n > c.
+name_call_count(cn, n) :- call_site(_, _, cn, _, _, _, _, _, _), cn != "", n = count : { call_site(_, _, cn, _, _, _, _, _, _) }.
+module_level_function(m, n) :- method_decl(_, n, "FUNCTION_DECLARATION", _, _, "", mod, m), method_scopes(_, _, _, init, m), module_init(_, init, mod).
+module_level_function(m, n) :- var_decl(_, n, _, _, _, mod, v), function_binding_value(v, m), method_decl(_, _, _, _, _, "", mod, m),
+    method_scopes(_, _, _, init, m), module_init(_, init, mod).
+method_is_hot(m, n) :- module_level_function(m, cn), name_call_count(cn, n), param_flow_capped_at(c), n > c.
+
+// ── param_fan_capped(ParamHash, SiteCount) — countable ──────────────────────
+param_fan_capped(p, n) :- method_is_hot(m, n), param_decl(_, _, _, m, p).
