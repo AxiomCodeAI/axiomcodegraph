@@ -38,7 +38,7 @@ export const JS_EMISSION_REGIME = 'js-ts6-inproc';
  * two large library trees both reach past it. Deeper nodes are dropped with the parent
  * marked `isTruncated`, so a lost subtree is visible rather than silent.
  */
-export const JS_EXPRESSION_MAX_DEPTH = 32;
+export const JS_EXPRESSION_MAX_DEPTH = 256;   // 2 levels per fluent link; 32 cut chains past 16 links (TS: same)
 
 /** Same cap for the JSDoc type tree, for the same reason. */
 export const JS_TYPE_REFERENCE_MAX_DEPTH = 32;
