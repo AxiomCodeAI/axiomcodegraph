@@ -33,3 +33,8 @@ param_fan_capped	param-fan-capped.csv
 callback_registered	callback-registered.csv
 event_dispatch	event-dispatch.csv
 platform_hook_call	platform-hook-call.csv
+parse_gap	parse-gap.csv
+module_partial	module-partial.csv
+import_unresolved_cause	import-unresolved-cause.csv
+site_in_partial_module	site-in-partial-module.csv
+package_entry	package-entry.csv

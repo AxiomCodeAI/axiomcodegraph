@@ -10,6 +10,9 @@
 #   3. solve CLIENT-ONLY (empty --library)          -> expected/<name>.edges
 #   4. solve WITH LIBRARY, if present               -> expected/<name>.lib.edges
 #   5. COVERAGE GUARD on both: no call site may vanish silently
+#   5b. DIAGNOSTICS GOLDEN on both: expected/<name>.diag (and .lib.diag) — the declared
+#       blind spots (parse gaps, partial modules, import causes, unresolved reasons)
+#       and the package entries, so a refusal cannot turn into a silent nothing
 #   6. with --oracle, score against the TypeScript compiler (allowJs/checkJs):
 #        expected/<name>.oracle — one line per compiler-decided site with its bucket.
 #      A MISSED or WRONG line fails the run whether or not the golden was rewritten:
@@ -101,6 +104,10 @@ for dir in "$HERE"/cases/*/; do
     python3 "$HERE/tools/normalize_edges.py" "$w/ir" "$w/plain/out/raw" > "$w/actual.edges" 2>"$w/norm.log" || { echo "FAIL (normalize)"; ok=0; }
   fi
   if [ $ok = 1 ]; then check_golden "$w/actual.edges" "$HERE/expected/$name.edges" "edges" || ok=0; fi
+  if [ $ok = 1 ]; then
+    python3 "$HERE/tools/normalize_diagnostics.py" "$w/ir" "$w/plain/out/raw" > "$w/actual.diag" 2>>"$w/norm.log" || { echo "FAIL (normalize diagnostics)"; ok=0; }
+  fi
+  if [ $ok = 1 ]; then check_golden "$w/actual.diag" "$HERE/expected/$name.diag" "diagnostics" || ok=0; fi
   if [ $ok = 1 ] && [ "$ORACLE" = "1" ]; then
     oracle_check "$w/ir" "$w/plain/out/raw" "$dir/src" "$w" "$HERE/expected/$name.oracle" "$HERE/expected/$name.known-missing" || ok=0
   fi
@@ -110,6 +117,10 @@ for dir in "$HERE"/cases/*/; do
     if [ $ok = 1 ]; then
       python3 "$HERE/tools/normalize_edges.py" "$w/ir" "$w/withlib/out/raw" "$w/libir" > "$w/actual.lib.edges" 2>>"$w/norm.log"
       check_golden "$w/actual.lib.edges" "$HERE/expected/$name.lib.edges" "lib edges" || ok=0
+    fi
+    if [ $ok = 1 ]; then
+      python3 "$HERE/tools/normalize_diagnostics.py" "$w/ir" "$w/withlib/out/raw" "$w/libir" > "$w/actual.lib.diag" 2>>"$w/norm.log"
+      check_golden "$w/actual.lib.diag" "$HERE/expected/$name.lib.diag" "lib diagnostics" || ok=0
     fi
   fi
   if [ $ok = 1 ]; then echo "ok"; pass=$((pass+1)); else fail=$((fail+1)); failed+=("$name"); fi

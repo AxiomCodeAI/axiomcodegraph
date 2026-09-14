@@ -1,0 +1,26 @@
+import_cause     computed.js:5:13  name  computed_specifier
+import_cause     computed.js:6:17  ./not-here  not_staged
+import_cause     computed.js:7:12  fs  builtin
+module_partial   dynamic.js  DYNAMIC_CODE
+module_partial   dynamic.js  WITH_STATEMENT_SCOPE
+module_partial   partial.js  PARSE_ERROR
+package_entry    23-parse-gaps  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+parse_gap        computed.js:5:13  NON_LITERAL_SPECIFIER  recoverable=false  about=js_import
+parse_gap        dynamic.js:3:29  DYNAMIC_CODE  recoverable=false  about=js_call_site
+parse_gap        dynamic.js:4:23  WITH_STATEMENT_SCOPE  recoverable=false  about=js_scope
+parse_gap        jsdoc.js:4:13  UNKNOWN_JSDOC_SYNTAX  recoverable=true  about=js_type_reference
+parse_gap        partial.js:4:27  PARSE_ERROR  recoverable=true  about=js_module
+parse_gap        partial.js:4:33  PARSE_ERROR  recoverable=true  about=js_module
+parse_gap        partial.js:4:34  PARSE_ERROR  recoverable=true  about=js_module
+parse_gap        partial.js:4:37  PARSE_ERROR  recoverable=true  about=js_module
+partial_site     dynamic.js:3:29  eval  DYNAMIC_CODE
+partial_site     dynamic.js:3:29  eval  WITH_STATEMENT_SCOPE
+partial_site     partial.js:5:42  unknownThing  PARSE_ERROR
+unresolved       computed.js:9:25  METHOD_CALL go  receiver_untyped
+unresolved       computed.js:9:36  METHOD_CALL go  receiver_untyped
+unresolved       computed.js:9:51  METHOD_CALL readFileSync  no_target
+unresolved       dynamic.js:3:29  DYNAMIC_CODE_CALL eval  dynamic
+unresolved       jsdoc.js:5:33  METHOD_CALL render  receiver_type_unreadable
+unresolved       jsdoc.js:5:33  METHOD_CALL render  receiver_untyped
+unresolved       jsdoc.js:8:30  METHOD_CALL render  receiver_untyped
+unresolved       partial.js:5:42  FUNCTION_CALL unknownThing  callee_untyped

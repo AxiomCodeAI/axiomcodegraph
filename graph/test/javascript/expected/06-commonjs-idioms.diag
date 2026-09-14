@@ -1,0 +1,7 @@
+import_cause     lib/router.js:2:12  util  builtin
+import_cause     lib/router.js:3:20  events  builtin
+package_entry    case06  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       app.js:10:69  METHOD_CALL use  member_absent
+unresolved       app.js:12:1  METHOD_CALL forEach  no_target
+unresolved       lib/common.js:3:46  METHOD_CALL assign  no_target
+unresolved       lib/router.js:13:1  METHOD_CALL inherits  no_target

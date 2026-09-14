@@ -1,0 +1,3 @@
+package_entry    case07  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       Node.js:7:39  METHOD_CALL forEach  no_target
+unresolved       Node.js:8:16  METHOD_CALL push  no_target

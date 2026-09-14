@@ -1,0 +1,2 @@
+package_entry    dep  .  []  MAIN  lib/index.js  RESOLVED  -> lib:lib/index.js
+package_entry    probe6-app  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -

@@ -75,6 +75,7 @@
 
 // ── projections/imports-exports.dl ──
 .decl import_decl(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol, c5:symbol, c6:symbol, c7:symbol, c8:symbol)
+.decl import_local(c0:symbol, c1:symbol, c2:symbol)
 .decl import_source_expr(c0:symbol, c1:symbol, c2:symbol)
 .decl import_is_type_only(c0:symbol, c1:symbol)
 .decl export_decl(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol, c5:symbol, c6:symbol, c7:symbol, c8:symbol, c9:symbol)
@@ -104,6 +105,17 @@
 .decl module_scope(c0:symbol, c1:symbol, c2:symbol)
 .decl module_default_export(c0:symbol, c1:symbol, c2:symbol)
 .decl module_system_is_esm(c0:symbol)
+.decl package_entry(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol, c5:symbol, c6:symbol, c7:symbol)
+
+// ── projections/parse-gaps.dl ──
+.decl parse_gap(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol, c5:symbol, c6:symbol, c7:symbol, c8:symbol)
+
+// ── resolution/parse-gaps.dl ──
+.decl module_partial(c0:symbol, c1:symbol, c2:symbol)
+.decl gap_kind_makes_partial(c0:symbol)
+.decl import_unresolved_cause(c0:symbol, c1:symbol)
+.decl type_ref_unreadable(c0:symbol)
+.decl site_in_partial_module(c0:symbol, c1:symbol)
 
 // ── projections/scopes.dl ──
 .decl scope_decl(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol, c5:symbol)
@@ -207,6 +219,12 @@
 .decl call_ambient_alternative(c0:symbol)
 .decl method_returns_this(c0:symbol)
 .decl module_base_path(c0:symbol, c1:symbol, c2:symbol)
+// ── resolution/arrays.dl: a class extending Map / Set (#619) ──
+.decl coll_ctor(c0:symbol, c1:symbol)
+.decl coll_seed(c0:symbol, c1:symbol)
+.decl inst_coll(c0:symbol, c1:symbol, c2:symbol)
+.decl inst_coll_of(c0:symbol, c1:symbol)
+
 // ── resolution/fan-cap.dl ──
 .decl function_binding_value(c0:symbol, c1:symbol)
 .decl direct_export_func(c0:symbol, c1:symbol, c2:symbol)

@@ -1,0 +1,8 @@
+import_cause     lib/mixed.js:1:10  node:module  builtin
+package_entry    e-esm  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       lib/dyn.js:2:19  DYNAMIC_IMPORT_CALL   dynamic
+unresolved       lib/dyn.js:4:26  DYNAMIC_IMPORT_CALL   dynamic
+unresolved       lib/dyn.js:6:3  DYNAMIC_IMPORT_CALL   dynamic
+unresolved       lib/dyn.js:6:3  METHOD_CALL then  member_absent
+unresolved       lib/mixed.js:2:17  FUNCTION_CALL createRequire  no_target
+unresolved       lib/sub.js:5:40  DYNAMIC_IMPORT_CALL   dynamic

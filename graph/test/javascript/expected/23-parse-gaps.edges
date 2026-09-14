@@ -1,0 +1,11 @@
+computed.js:9:25 METHOD_CALL mod.go  ->  ambiguous_unknown  -
+computed.js:9:36 METHOD_CALL missing.go  ->  ambiguous_unknown  -
+computed.js:9:51 METHOD_CALL fs.readFileSync  ->  ambient_terminal  -
+computed.js:9:74 FUNCTION_CALL helper  ->  known_edge  helpers.js:1:1 helper
+dynamic.js:3:29 DYNAMIC_CODE_CALL eval  ->  dynamic_terminal  -
+dynamic.js:4:41 FUNCTION_CALL helper  ->  known_edge  helpers.js:1:1 helper
+jsdoc.js:5:33 METHOD_CALL w.render  ->  ambiguous_unknown  -
+jsdoc.js:7:31 METHOD_CALL w.render  ->  known_edge  jsdoc.js:3:16 render
+jsdoc.js:8:30 METHOD_CALL w.render  ->  ambiguous_unknown  -
+partial.js:5:31 FUNCTION_CALL helper  ->  known_edge  helpers.js:1:1 helper
+partial.js:5:42 FUNCTION_CALL unknownThing  ->  ambiguous_unknown  -

@@ -99,10 +99,11 @@ arrays. That is the engine, entirely.
 | module graph | `resolution/module-graph.dl` | one export surface for both systems, keyed by name with `default` for `module.exports = X`; a CommonJS default value's properties ARE its members |
 | hierarchy | `resolution/type-hierarchy.dl` | ONE closure — every heritage form inherits members, there is no `implements` |
 | value flow | `resolution/value-flow.dl` | the may-analysis above |
-| arrays | `resolution/arrays.dl` | the one platform type modelled: `push`, `[i]`, `map`, `forEach`, `for..of`, `T[]` |
+| arrays | `resolution/arrays.dl` | the one platform type modelled: `push`, `[i]`, `map`, `forEach`, `for..of`, `T[]`; `Map` / `Set` as collections, including an instance of a class that extends one (#619) |
 | ambient | `resolution/ambient.dl` | platform names as values, so a site reached through one is classified from the value, not the syntax |
 | JSDoc types | `resolution/reference-types.dl` | `@param`/`@type`/`@returns`, `import()` types, typedef aliases, wrappers |
-| library models | `resolution/frameworks.dl` | what a handful of library calls DO to values, as facts: assign-like (`Object.assign`, `merge-descriptors`), inherit-like (`Object.setPrototypeOf`, `setprototypeof`, `Object.create`), a platform superclass, and what express hands a route handler |
+| library models | `resolution/frameworks.dl` | what a handful of library calls DO to values, as facts: assign-like (`Object.assign`, `merge-descriptors`), inherit-like (`Object.setPrototypeOf`, `setprototypeof`, `Object.create`), a platform superclass (through an import, a binding, or a bare `extends Map`; `super.m()` and `super()` on it are ambient), and what express hands a route handler |
+| parse gaps | `resolution/parse-gaps.dl` | what the parser could not read, joined to what it costs: a module marked partial, an unresolved import's cause, a receiver whose written type could not be read (#617) |
 | callee resolution | `expression-resolution/callee-resolution.dl` | one rule per CALL FORM — the callee lives somewhere different in each |
 | call edges | `call-edge-generation/*.dl` | eight confidence classes |
 
@@ -175,8 +176,11 @@ constructor), `TYPE_ONLY_TARGET` (the compiler named a JSDoc function type),
 
 | relation | what it records |
 |---|---|
-| `unresolved_receiver` | every unresolved site with its reason: `receiver_untyped`, `member_absent` (the row to read first), `callee_untyped`, `no_target`, `dynamic` |
+| `unresolved_receiver` | every unresolved site with its reason: `receiver_untyped`, `member_absent` (the row to read first), `callee_untyped`, `no_target`, `dynamic`; beside `receiver_untyped`, `receiver_type_unreadable` when the receiver's written JSDoc type is a parse gap |
 | `import_unresolved` / `import_binding_unresolved` | a dependency not staged vs a name the module does not export |
+| `import_unresolved_cause` | why: `computed_specifier` (no static answer exists), `not_staged` (a staging decision), `builtin` (a terminal) |
+| `parse_gap` / `module_partial` / `site_in_partial_module` | every construct the parser could not represent, per module; the modules a `PARSE_ERROR`, `eval` or `with` leaves partial; the unresolved sites inside one |
+| `package_entry` | what each package exposes under a specifier (`main` / `module` / `exports`, per condition), resolved to a module or a named absence (#616) |
 | `heritage_unresolved` / `heritage_dynamic` | a supertype that did not resolve; a computed `extends` |
 | `type_ref_unresolved` | which JSDoc type NAMES reached no class |
 | `param_flow_assumes_closed_world` | every parameter whose values are the visible callers' arguments |
