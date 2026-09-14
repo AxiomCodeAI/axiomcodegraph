@@ -187,6 +187,24 @@ value_mismatch(call, callee) :- expr_call_candidate(call, callee),
     arg_value_type(call, pos, "String"),
     param_type_external(callee, pos, x),
     !string_supertype(x).
+// MOST-SPECIFIC among unstaged parameter types (JLS 15.12.2.5). Two same-arity overloads whose
+// parameters at a position are both unstaged — `update(ctx, ClientModel)` beside
+// `update(ctx, RealmModel)` — and an argument whose static type is exactly one of them: the
+// exact one is applicable, and any other overload applicable to the same argument would have
+// to take a SUPERTYPE of it there, which is strictly less specific, so the compiler chooses
+// the exact one. An overload naming a different unstaged type at that position is therefore
+// never the chosen one. Object is the one supertype every name has, so it is excluded, and
+// an argument whose type is not exactly known (a call into the library) prunes nothing.
+arg_exact_external_match(call, pos, x) :- expr_call_candidate(call, c1),
+    arg_type_hash(call, pos, x),
+    external_type(x),
+    param_type_external(c1, pos, x).
+hash_mismatch(call, callee) :- expr_call_candidate(call, callee),
+    arg_exact_external_match(call, pos, x),
+    param_type_external(callee, pos, y),
+    y != x,
+    !external_is_object(y),
+    !arg_is_target_typed(call, pos).
 
 // ── Tier 2 (value regime): primitives / wrappers / String / null by NAME ────────
 literal_value_type("INTEGER",    "int").
