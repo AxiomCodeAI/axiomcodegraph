@@ -445,18 +445,16 @@ export class JavaScriptProjectAnalyzer {
 }
 
 /**
- * Module-resolution options for `ts.resolveModuleName`, by module system.
+ * Module-resolution options for `ts.resolveModuleName`.
  *
- * Chosen per file rather than per run for the same reason everything else here
- * is: a `.cjs` and a `.mjs` in one directory resolve the same specifier
- * differently, and `resolvedFilePath` is one of the three columns that make a
- * call site complete.
- *
- * - **ESM** gets `NodeNext`, which models `exports` maps, `#`-prefixed `imports`
- *   maps and conditional exports — the parts of resolution that only exist for
- *   ES modules.
- * - **CommonJS** gets `Node10`, which is `require.resolve`'s algorithm:
- *   `index.js` fallbacks, directory `main` fields, and no `exports` gating.
+ * `NodeNext` for every file: it is the one resolver that models `exports` maps,
+ * `#`-prefixed `imports` maps and conditional exports, and Node's own `require`
+ * has honoured `exports` (under the `require` condition) since the map was
+ * introduced, so `Node10` for CommonJS files described a loader that no longer
+ * exists and left a `require()` of an exports-only package unresolved (#601).
+ * WHICH conditions apply is decided per import site, not per file: the module
+ * edge extractor passes the resolution mode (`require` for `require()` and
+ * `createRequire`, `import` for `import` declarations and `import()`).
  *
  * Where tsc's model and Node's real resolver disagree, the disagreement is
  * worth recording — and it is recorded in `../parser-oracle/javascript`, not
@@ -464,19 +462,11 @@ export class JavaScriptProjectAnalyzer {
  * work, which is exactly what `js_import.resolverAgreement` was deleted for.
  */
 function compilerOptionsFor(moduleSystem: string): ts.CompilerOptions {
-  if (moduleSystem === 'ESM') {
-    return {
-      allowJs: true,
-      target: ts.ScriptTarget.ESNext,
-      module: ts.ModuleKind.NodeNext,
-      moduleResolution: ts.ModuleResolutionKind.NodeNext,
-    };
-  }
   return {
     allowJs: true,
     target: ts.ScriptTarget.ESNext,
-    module: ts.ModuleKind.CommonJS,
-    moduleResolution: ts.ModuleResolutionKind.Node10,
+    module: moduleSystem === 'ESM' ? ts.ModuleKind.NodeNext : ts.ModuleKind.CommonJS,
+    moduleResolution: ts.ModuleResolutionKind.NodeNext,
   };
 }
 
