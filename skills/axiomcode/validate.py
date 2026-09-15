@@ -1,36 +1,54 @@
 #!/usr/bin/env python3
-"""validate.py <dogfood-dir> [task-id …]  — end-to-end check of the two surfaces against real tasks, no agent.
+"""validate.py <tasks.json> <work-dir> --lang java|typescript|python|javascript [task-id …]
+   validate.py <dogfood-dir> [task-id …]                                         (the parser corpus, as before)
 
-For every task whose base-commit graph exists under <dogfood>/work/<id>/*/repo/.axiomcode:
+End-to-end check of the two surfaces against real, issue-linked commits — no agent. For each task the graph is
+built at the BASE commit (a worktree from the task's bare clone, the skill's own axiomcode-build), then:
 
   search  — the issue TITLE as words, then each `identifier` quoted in the issue body, one call each.
-            PASS when a gold source file (the file the fix touched) is among the printed rows.
-            Reported: which call found it (title / identifier / neither) and its rank.
-  impact  — the functions the gold patch changed (hunk start lines → enclosing method), one
-            `impact <method>` each. PASS when an oracle test file (the tests the commit added
-            or changed) appears in the blast radius. Also reported: gold files named by impact of
-            OTHER changed functions (the "if you change this, you must also touch that" signal).
-
-Nothing here runs a model. It measures whether the graph, through these two verbs, names the files
-a human's fix and tests touched — the precondition for an agent skipping search.
+            PASS when a gold source file (a file the fix touched) is among the printed rows.
+  impact  — the functions the gold patch changed (hunk start lines → enclosing method), `impact <method>` each.
+            PASS when an oracle test file (a test the commit added or changed) is named.
+Reported per task: which call found it, its rank, calls and characters ingested (the context an agent would pay).
 """
-import json, os, re, subprocess, sys, glob, collections
-HERE = os.path.dirname(os.path.abspath(__file__)); AX = os.path.join(HERE, 'scripts', 'axiomcode'); IDX = os.path.join(HERE, 'scripts', 'axiomcode-index')
-DOG = os.path.abspath(sys.argv[1]); only = set(sys.argv[2:])
-tasks = {t['id']: t for t in json.load(open(os.path.join(DOG, 'tasks.json')))}
-PARSER = os.path.join(DOG, '..', '..', 'Parser')
+import json, os, re, subprocess, sys, glob, collections, argparse
+HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(os.path.dirname(HERE))
+AX = os.path.join(HERE, 'scripts', 'axiomcode'); IDX = os.path.join(HERE, 'scripts', 'axiomcode-index'); BUILD = os.path.join(HERE, 'scripts', 'axiomcode-build')
+ap = argparse.ArgumentParser(); ap.add_argument('tasks'); ap.add_argument('work', nargs='?'); ap.add_argument('--lang', default=None); ap.add_argument('ids', nargs='*')
+a = ap.parse_args()
+if os.path.isdir(a.tasks):                                   # the dogfood layout: <dir>/tasks.json, graphs already under <dir>/work/<id>/*/repo
+    DOG = os.path.abspath(a.tasks); TASKS = os.path.join(DOG, 'tasks.json'); WORK = None; only = set(([a.work] if a.work else []) + a.ids); LANG = a.lang or 'typescript'
+    GIT = os.path.join(DOG, '..', '..', 'Parser')
+else:
+    TASKS = os.path.abspath(a.tasks); WORK = os.path.abspath(a.work); only = set(a.ids); LANG = a.lang; GIT = None
+    assert LANG, '--lang is required for a mined corpus'
+tasks = {t['id']: t for t in json.load(open(TASKS))}
+EXT = r'ts|tsx|js|mjs|py|java'
 
 def run(repo, *args):
     r = subprocess.run([sys.executable, AX, *args], cwd=repo, capture_output=True, text=True, env=dict(os.environ, AXIOMCODE_LOGGED='1'))
     return r.stdout
-def files_in(out): return set(re.findall(r'(?<![\w/])((?:[\w.-]+/)+[\w.-]+\.(?:ts|tsx|js|mjs|py|java))(?=[:\s,)]|$)', out))
+def files_in(out): return set(re.findall(rf'(?<![\w/])((?:[\w.-]+/)+[\w.-]+\.(?:{EXT}))(?=[:\s,)]|$)', out))
+def repo_for(tid, t):
+    """the base-commit checkout with its graph: found (dogfood) or made (a mined corpus)"""
+    if WORK is None:
+        rs = [d for d in glob.glob(os.path.join(DOG, 'work', tid, '*', 'repo')) if os.path.exists(os.path.join(d, '.axiomcode', 'out', 'graph.sqlite'))]
+        return rs[0] if rs else None
+    repo = os.path.join(WORK, tid, 'repo')
+    if not os.path.exists(os.path.join(repo, '.axiomcode', 'out', 'graph.sqlite')):
+        os.makedirs(os.path.dirname(repo), exist_ok=True)
+        if not os.path.isdir(repo):
+            r = subprocess.run(['git', '-C', t['git_dir'], 'worktree', 'add', '-f', '--detach', repo, t['base']], capture_output=True, text=True)
+            if r.returncode: print(f"{tid}: checkout failed: {r.stderr.strip()[:200]}"); return None
+        r = subprocess.run(['bash', BUILD, '.'], cwd=repo, capture_output=True, text=True, env=dict(os.environ, AXIOMCODE_LANG=LANG, AXIOMCODE_ENGINE=ROOT))
+        if r.returncode: print(f"{tid}: build failed: {(r.stdout + r.stderr)[-300:]}"); return None
+    return repo
 
 rows = []
 for tid, t in sorted(tasks.items()):
     if only and tid not in only: continue
-    repos = [d for d in glob.glob(os.path.join(DOG, 'work', tid, '*', 'repo')) if os.path.exists(os.path.join(d, '.axiomcode', 'out', 'graph.sqlite'))]
-    if not repos: continue
-    repo = repos[0]
+    repo = repo_for(tid, t)
+    if not repo: continue
     subprocess.run([sys.executable, IDX, repo], capture_output=True)
     gold = set(t['gold_files']); tests = set(t['test_files'])
     # ── search ─────────────────────────────────────────────────────────────────────────────────
@@ -47,7 +65,7 @@ for tid, t in sorted(tasks.items()):
                 if files_in(line) & gold: found_by, rank = f'`{w}`', i; break
             if found_by: break
     # ── impact ─────────────────────────────────────────────────────────────────────────────────
-    diff = subprocess.run(['git', 'show', '--format=', '--unified=0', t['sha'], '--', *sorted(gold)], cwd=PARSER, capture_output=True, text=True).stdout
+    diff = subprocess.run(['git', 'show', '--format=', '--unified=0', t['sha'], '--', *sorted(gold)], cwd=GIT or t['git_dir'], capture_output=True, text=True).stdout
     cur = None; hunks = []
     for line in diff.splitlines():
         if line.startswith('--- a/'): cur = line[6:]
@@ -56,7 +74,7 @@ for tid, t in sorted(tasks.items()):
     methods = collections.OrderedDict()
     for f, ln in hunks[:12]:
         out = run(repo, 'search', f'{f}:{ln}')
-        m = re.search(r'^(?:method|function|constructor) (\S+)', out, re.M)
+        m = re.search(r'^(?:method|function|constructor) (\S+)', out, re.M)          # a hunk inside a type/interface lands on the module initializer: not a changed method
         if m: methods.setdefault(m.group(1), f)
     test_hit, cross_hit, ichars = None, set(), 0
     for disp, f in list(methods.items())[:6]:

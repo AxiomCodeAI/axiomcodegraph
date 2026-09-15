@@ -402,7 +402,19 @@ def v_search():
         if not found: say(f"nothing declared or mentioned as '{text}' in the {LANG} graph"); skipped_note(last)
         if rows: say(f"  nearest declarations ({how}):"); [row(fmt(r)) for r in rows[:10]]
         return
-    if not words_search(text): say(f"nothing declared, commented or quoted matches '{text}'" + (f" under *{IN}*" if IN else ''))
+    # words that CONTAIN a name — `Elements.before(Node node)`, `toJSONSchema()`, `HttpConnection.Response` — are tried as names first
+    named = []
+    for cand in dict.fromkeys(re.findall(r'\b[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+\b|\b[A-Za-z_]\w{2,}(?=\()', text)):
+        if cand.lower() in STOP or re.match(r'^\d', cand): continue
+        rows, how = resolve(cand, None, IN)
+        if rows and how in ('exact', 'qualified name') or how.startswith(('suffix', 'constructor', 'inherited')):
+            named += [r for r in rows if r['method_id'] or r['type_id']][:2]
+    if named:
+        seen_ = set(); named = [r for r in named if not ((r['display'], r['file']) in seen_ or seen_.add((r['display'], r['file'])))]
+        say(f"names in the question: " + ', '.join(r['display'] for r in named[:4])); say()
+        GROUP.clear(); set_body(len(named) == 1)
+        for r in named[:2]: GROUP[(r['display'], r['file'])] = [r]; node_card(r)
+    if not words_search(text) and not named: say(f"nothing declared, commented or quoted matches '{text}'" + (f" under *{IN}*" if IN else ''))
 
 def v_impact():
     """the whole transitive answer, computed in full; only the PRINTING is budgeted (limit=)"""
