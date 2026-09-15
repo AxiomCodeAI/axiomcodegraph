@@ -79,6 +79,42 @@ entry_source_is_main("DEFAULT_INDEX").
 import_module(imp, mod) :- entry_exports_selected(imp, mod).
 import_module(imp, mod) :- entry_exports_default(imp, mod), !entry_exports_selected(imp, _).
 import_module(imp, mod) :- entry_main(imp, mod), !entry_has_exports(imp).
+// A subpath PATTERN export (`"./feat/*": "./lib/feat/*.js"`) stands for a family: the
+// parser records one PATTERN row (#616) and a deep import `pkg/feat/alpha` matched no
+// exact entry (#642). The pattern's prefix and suffix bracket the specifier's rest, the
+// captured part fills the target's `*`, and the file joins the staged module by package
+// and path; the runtime's rule that exports name exact files means no extension or
+// index fallback applies. An exact entry for the same subpath wins, a BLOCKED pattern
+// (`"./internal/*": null`) that also matches refuses the family, and the condition is
+// selected as for the exact entries.
+pattern_parts(pkg, sp, cond, substr(sp, 2, n - 2), substr(sp, n + 1, strlen(sp) - n - 1), tgt, m) :-
+    package_entry("lib", pkg, sp, cond, "EXPORTS", tgt, "PATTERN", _), strlen(sp) > 2, substr(sp, 0, 2) = "./",
+    n = range(2, strlen(sp)), substr(sp, n, 1) = "*", !contains("*", substr(sp, 0, n)),
+    m = range(0, strlen(tgt)), substr(tgt, m, 1) = "*", !contains("*", substr(tgt, 0, m)).
+pattern_blocked(pkg, substr(sp, 2, n - 2), substr(sp, n + 1, strlen(sp) - n - 1)) :-
+    package_entry("lib", pkg, sp, _, "EXPORTS", _, "BLOCKED", _), strlen(sp) > 2, substr(sp, 0, 2) = "./",
+    n = range(2, strlen(sp)), substr(sp, n, 1) = "*", !contains("*", substr(sp, 0, n)).
+// the specifier's rest after `<pkg>/`, and what the pattern captures from it
+bare_rest(imp, spec, form, pkg, substr(spec, strlen(pkg) + 1, strlen(spec) - strlen(pkg) - 1)) :-
+    import_decl(_, spec, form, _, _, _, "UNRESOLVED_MISSING", _, imp), spec != "",
+    package_entry("lib", pkg, _, _, _, _, _, _), strlen(spec) > strlen(pkg) + 1, substr(spec, 0, strlen(pkg) + 1) = cat(pkg, "/").
+pattern_capture(imp, pkg, cond, tgt, m, substr(rest, strlen(pre), strlen(rest) - strlen(pre) - strlen(suf))) :-
+    bare_rest(imp, _, _, pkg, rest), pattern_parts(pkg, _, cond, pre, suf, tgt, m),
+    strlen(rest) > strlen(pre) + strlen(suf),
+    substr(rest, 0, strlen(pre)) = pre, substr(rest, strlen(rest) - strlen(suf), strlen(suf)) = suf,
+    !package_entry("lib", pkg, cat("./", rest), _, "EXPORTS", _, _, _),
+    !pattern_blocks(imp, pkg).
+pattern_blocks(imp, pkg) :- bare_rest(imp, _, _, pkg, rest), pattern_blocked(pkg, pre, suf),
+    strlen(rest) >= strlen(pre) + strlen(suf),
+    substr(rest, 0, strlen(pre)) = pre, substr(rest, strlen(rest) - strlen(suf), strlen(suf)) = suf.
+pattern_target(imp, cond, mod) :- pattern_capture(imp, pkg, cond, tgt, m, cap),
+    file = cat(substr(tgt, 0, m), cat(cap, substr(tgt, m + 1, strlen(tgt) - m - 1))),
+    module_package("lib", pkg, mod), module_file("lib", file, mod).
+entry_pattern_selected(imp, mod) :- pattern_target(imp, cond, mod), cond != "", bare_rest(imp, _, form, _, _),
+    import_form_condition(form, c), contains(c, cond).
+entry_pattern_default(imp, mod) :- pattern_target(imp, cond, mod), (cond = ""; contains("default", cond)).
+import_module(imp, mod) :- entry_pattern_selected(imp, mod).
+import_module(imp, mod) :- entry_pattern_default(imp, mod), !entry_pattern_selected(imp, _).
 import_form_condition("REQUIRE_CALL", "require").
 import_form_condition("CREATE_REQUIRE", "require").
 import_form_condition("IMPORT_EQUALS", "require").
