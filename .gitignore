@@ -239,6 +239,10 @@ __pycache__/
 graph/test/typescript/.work/
 graph/test/typescript/.work-*/
 graph/test/javascript/.work/
+# the torture and realapp harnesses' own per-run work directories (217 generated files of
+# them were committed with the engine and rewritten by every run)
+graph/test/javascript/torture/.work/
+graph/test/javascript/realapp/.work/
 
 # the one-command pipeline keeps its IR and scratch here
 .intermediate/

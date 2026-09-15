@@ -40,8 +40,12 @@ def read(path):
 h, methods = read(os.path.join(ir, 'all-javascript-methods.csv'))
 i = {c: h.index(c) for c in ('jsMethodUniqueHash', 'filePath', 'startLine', 'startColumn', 'name', 'methodKind')}
 ident = {}; name_of = {}; kind_of = {}
+# A module's initializer is keyed `<file>:0:0`, as the tracer records it, so it never
+# shares a key with a function that starts at the file's first token.
+def key_of(file, line, col, kind):
+    return '%s:0:0' % file if kind == 'MODULE_INITIALIZER' else '%s:%s:%s' % (file, line, col)
 for r in methods:
-    k = '%s:%s:%s' % (r[i['filePath']], r[i['startLine']], r[i['startColumn']])
+    k = key_of(r[i['filePath']], r[i['startLine']], r[i['startColumn']], r[i['methodKind']])
     ident[r[i['jsMethodUniqueHash']]] = k; name_of[k] = r[i['name']]; kind_of[k] = r[i['methodKind']]
 
 for d in lib_dirs:
@@ -49,7 +53,7 @@ for d in lib_dirs:
     j = {c: h.index(c) for c in ('jsMethodUniqueHash', 'filePath', 'startLine', 'startColumn', 'name', 'methodKind', 'baseMservPath')}
     for r in lm:
         base = os.path.relpath(os.path.realpath(r[j['baseMservPath']]), os.path.realpath(root)) if root else r[j['baseMservPath']]
-        k = '%s/%s:%s:%s' % (base, r[j['filePath']], r[j['startLine']], r[j['startColumn']])
+        k = key_of(base + '/' + r[j['filePath']], r[j['startLine']], r[j['startColumn']], r[j['methodKind']])
         ident[r[j['jsMethodUniqueHash']]] = k; name_of[k] = r[j['name']]; kind_of[k] = r[j['methodKind']]
 is_lib = lambda k: k.startswith('node_modules/')
 
@@ -82,10 +86,20 @@ with open(os.path.join(raw, 'import-module.csv')) as fh:
     for line in fh:
         f = line.rstrip('\n').split('\t')
         if len(f) >= 2 and f[0] in imp_owner and f[1] in mod_file:
-            imports.add((mod_file[imp_owner[f[0]]] + ':1:1', mod_file[f[1]] + ':1:1'))
+            imports.add((mod_file[imp_owner[f[0]]] + ':0:0', mod_file[f[1]] + ':0:0'))
 
 rt = json.load(open(edges_path))
 executed = [(e['caller'], e['callee']) for e in rt['edges'] if e['caller'] != '<root>']
+# (natural caller, callee) -> registrars: the tracer wrapped the function when it was
+# passed as an argument and, when THAT invocation ran, recorded who had passed it beside
+# the natural caller. A callback fired by platform I/O (a stream, a socket) runs in the
+# async context of the function that CREATED the resource, so its natural caller is not
+# the registrar; the engine's edge is from the registrar, and that is what is checked
+# when the natural edge is not in the graph. Keyed by the natural caller too, so a direct
+# call of the same function from somewhere else is never excused by a registration.
+registrations = defaultdict(set)
+for e in rt.get('registrations', []):
+    if e['registrar'] != '<root>': registrations[(e['caller'], e['callee'])].add(e['registrar'])
 unknown_fn = [k for k in rt['functions'] if k not in name_of]
 found, missing, accessor = [], [], []
 registered = set()   # callbacks the engine says SOME client site hands to a callee
@@ -93,6 +107,8 @@ for (a, b), st in status.items():
     if st in ('callback_registered', 'event_dispatch'): registered.add(b)
 cat = Counter(); lib_lib = 0; lib_client_found = []
 module_edges = []
+reordered_loads = []
+via_registrar = []   # natural caller absent from the graph; the registrar's edge is
 for a, b in executed:
     prov = ('lib' if is_lib(a) else 'client') + '->' + ('lib' if is_lib(b) else 'client')
     if b not in name_of:
@@ -106,18 +122,30 @@ for a, b in executed:
         if kind_of.get(b) == 'MODULE_INITIALIZER': continue
         (found if b in registered or b in eng.get(a, ()) else missing).append((a, b)); cat[prov] += 1; continue
     cat[prov] += 1
-    if a.endswith(':1:1') and b.endswith(':1:1') and kind_of.get(b) == 'MODULE_INITIALIZER':
-        (found if (a, b) in imports else missing).append((a, b)); module_edges.append((a, b)); continue
+    if a.endswith(':0:0') and b.endswith(':0:0') and kind_of.get(b) == 'MODULE_INITIALIZER':
+        # An ES module's imports are hoisted and loaded in link order, and a top-level
+        # `await` in one module leaves the NEXT module's evaluation in its async context,
+        # so the tracer names the awaiting module as the loader. The import edge is still
+        # the graph's claim; a load recorded from a module that does not import the callee
+        # is accepted when some module does, and counted apart.
+        if (a, b) in imports: found.append((a, b))
+        elif any(x == b for _, x in imports): found.append((a, b)); reordered_loads.append((a, b))
+        else: missing.append((a, b))
+        module_edges.append((a, b)); continue
     if kind_of.get(b) in ('GETTER', 'SETTER'):
         accessor.append((a, b)); continue
-    (found if b in eng.get(a, ()) else missing).append((a, b))
+    if b in eng.get(a, ()): found.append((a, b))
+    elif any(b in eng.get(r, ()) for r in registrations.get((a, b), ())): found.append((a, b)); via_registrar.append((a, b))
+    else: missing.append((a, b))
 static_only = [(a, b) for a, bs in eng.items() for b in bs if (a, b) not in set(executed)]
 
 print('runtime: %d functions entered, %d distinct executed edges (%d into accessors, reported apart; %d lib->lib out of scope)' % (len(rt['functions']), len(executed), len(accessor), lib_lib))
 print('  by provenance: %s' % dict(cat))
 if unknown_fn:
     print('  ! %d executed function(s) have no js_method row at that position: %s' % (len(unknown_fn), unknown_fn[:5]))
-print('EXECUTED_FOUND    %4d  (of which %d module loads matched to import edges)' % (len(found), sum(1 for e in module_edges if e in found)))
+print('EXECUTED_FOUND    %4d  (of which %d module loads matched to import edges%s%s)' % (len(found), sum(1 for e in module_edges if e in found),
+      ', %d of them from a module reordered by a top-level await' % len(reordered_loads) if reordered_loads else '',
+      '; %d platform callbacks matched through their registrar' % len(via_registrar) if via_registrar else ''))
 print('EXECUTED_MISSING  %4d' % len(missing))
 print('STATIC_ONLY       %4d  (engine edges the entry script did not execute)' % len(static_only))
 print('recall vs runtime: %.3f' % (len(found) / max(1, len(found) + len(missing))))
@@ -128,6 +156,9 @@ if missing:
 if accessor:
     print('\naccessor reads (no site in the parser universe):')
     for a, b in accessor: print('  %-40s -> %s' % (lab(a), lab(b)))
+if via_registrar:
+    print('\nplatform callbacks matched through their registrar (the tracer named the resource\'s creator as caller):')
+    for a, b in via_registrar: print('  %-40s -> %s   registered by %s' % (lab(a), lab(b), ', '.join(sorted(lab(r) for r in registrations[(a, b)] if b in eng.get(r, ())))))
 if dump:
     print('\nstatic-only:')
     for a, b in sorted(static_only): print('  %-40s -> %s  [%s]' % (lab(a), lab(b), status[(a, b)]))

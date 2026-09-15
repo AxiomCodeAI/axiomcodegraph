@@ -35,7 +35,6 @@ lib/doc.js:58:23 METHOD_CALL run  EXACT  lib/types.js:2:16
 lib/doc.js:58:32 CONSTRUCTOR_CALL Widget  SYNTHESIZED_OK  
 lib/doc.js:58:82 METHOD_CALL run  EXACT  lib/types.js:2:16
 lib/doc.js:58:83 FUNCTION_CALL identity  EXACT  lib/doc.js:57:1
-lib/doc.js:5:28 METHOD_CALL run  SOUND_SUPERSET  lib/types.js:2:16;lib/types.js:3:16
 lib/doc.js:64:37 CONSTRUCTOR_CALL Widget  SYNTHESIZED_OK  
 lib/doc.js:65:51 CONSTRUCTOR_CALL Gadget  SYNTHESIZED_OK  
 lib/doc.js:70:11 METHOD_CALL run  EXACT  lib/types.js:2:16

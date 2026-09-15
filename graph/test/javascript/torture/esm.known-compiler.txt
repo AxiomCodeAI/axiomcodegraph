@@ -1,0 +1,3 @@
+# Compiler-decided sites the engine gets MISSED or WRONG, each a named gap. Format:
+# <file>:<line>:<col> (the rest of the line is the reason). A new defect fails run.sh; a
+# listed site that starts agreeing fails too. None yet for the ES module program.

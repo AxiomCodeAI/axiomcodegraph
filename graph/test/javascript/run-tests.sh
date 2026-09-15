@@ -70,13 +70,9 @@ oracle_check() {
   node "$HERE/ground-truth/tsc-oracle.mjs" "$src" "$w/oracle.tsv" >"$w/oracle.log" 2>&1 || { echo "FAIL (oracle — see $w/oracle.log)"; return 1; }
   python3 "$HERE/ground-truth/score.py" "$ir" "$out" "$w/oracle.tsv" --dump="$w/score-rows.tsv" >"$w/score.txt" 2>&1 || { echo "FAIL (score — see $w/score.txt)"; return 1; }
   python3 "$HERE/tools/oracle_diff.py" "$ir" "$out" "$w/oracle.tsv" "$w/score-rows.tsv" >"$w/actual.oracle"
-  # a defect is a MISSED/WRONG line not listed as known; a known one that stopped being a defect fails too
-  local defects; defects="$(grep -E '  (MISSED|WRONG|LIB_WRONG|ENGINE_DROPPED)  ' "$w/actual.oracle" | cut -d' ' -f1)"
-  local kn=""; [ -f "$known" ] && kn="$(grep -vE '^\s*(#|$)' "$known" | cut -d' ' -f1)"
-  local new_defects; new_defects="$(comm -23 <(printf '%s\n' $defects | sort -u) <(printf '%s\n' $kn | sort -u) | sed '/^$/d')"
-  local fixed; fixed="$(comm -13 <(printf '%s\n' $defects | sort -u) <(printf '%s\n' $kn | sort -u) | sed '/^$/d')"
-  if [ -n "$new_defects" ]; then echo "FAIL (oracle: the compiler decided these and the engine did not agree)"; printf '    %s\n' $new_defects; return 1; fi
-  if [ -n "$fixed" ]; then echo "FAIL (oracle: known-missing entries now resolve — remove them from $(basename "$known"))"; printf '    %s\n' $fixed; return 1; fi
+  # a defect is a MISSED/WRONG line not listed as known; a known one that stopped being a
+  # defect fails too (tools/oracle_gate.py, shared with torture/run.sh and realapp/run.sh)
+  python3 "$HERE/tools/oracle_gate.py" "$w/actual.oracle" "$known" || return 1
   check_golden "$w/actual.oracle" "$golden" "oracle golden"
 }
 

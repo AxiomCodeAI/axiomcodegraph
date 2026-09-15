@@ -168,6 +168,7 @@ def main():
     col = {c: h.index(c) for c in h}
     buckets = Counter()
     undecided = Counter()
+    ambiguous = Counter()  # the type_ambiguous subset of undecided
     rows_out = []
     conservation_missing = 0
     oracle_sites = 0
@@ -195,7 +196,12 @@ def main():
         cls = eng_class.get(key, '')
         targets = eng_targets.get(key, set())
         otarget = (r[col['targetFile']], r[col['targetLine']], r[col['targetCol']])
-        if tk == 'any' or tk == 'oracle_error' or tk == 'unresolved':
+        if tk == 'any' or tk == 'oracle_error' or tk == 'unresolved' or tk == 'type_ambiguous':
+            # `type_ambiguous`: the checker named a declaration by type identity (two
+            # same-typed functions, a widened symbol key) — an inference, not a truth;
+            # counted apart so the exclusion is visible.
+            if tk == 'type_ambiguous':
+                ambiguous['resolved' if targets else cls] += 1
             undecided['resolved' if targets else cls] += 1
             rows_out.append((key, ckind, r[col['calleeName']], tk, 'UNDECIDED', cls, ';'.join('%s:%s:%s' % t for t in sorted(targets))))
             continue
@@ -275,6 +281,10 @@ def main():
     print('undecided by the compiler (any): %d' % sum(undecided.values()))
     for k, v in undecided.most_common():
         print('  %-20s %6d' % (k, v))
+    if sum(ambiguous.values()):
+        print('  of which type_ambiguous (a declaration named by type identity, not by value): %d' % sum(ambiguous.values()))
+        for k, v in ambiguous.most_common():
+            print('    %-18s %6d' % (k, v))
     print('by call kind (decided):')
     for k, c in sorted(per_kind.items(), key=lambda kv: -sum(kv[1].values())):
         d = sum(c[b] for b in ('EXACT', 'SOUND_SUPERSET', 'WRONG', 'MISSED'))

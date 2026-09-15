@@ -12,7 +12,7 @@ templates; and a module graph with `module.exports = function` carrying properti
 re-exports and an `exports.x` written after `module.exports` was reassigned (which is
 NOT exported — the program asserts it).
 
-`run.sh` solves it and scores the graph against two independent oracles:
+`run.sh` solves each project and scores the graph against two independent oracles:
 
 1. **The compiler**, per site (`../ground-truth/tsc-oracle.mjs`) — the declared target.
 2. **Execution**, per function→function edge. `instrument.mjs` rewrites every function
@@ -27,5 +27,24 @@ compiler names the base declaration while execution names the subclass override 
 receiver actually was. The engine reports both (a `multi_inferred` set over the
 constructed subclasses), so it is a SOUND_SUPERSET to the compiler and FOUND at runtime.
 
-`known-missing.txt` lists the executed edges the engine cannot have, each with its
+`project.known-missing.txt` lists the executed edges the engine cannot have, each with its
 reason; a new miss fails the run and a listed one that starts resolving fails too.
+`project.known-compiler.txt` does the same for the compiler's verdicts: a site the compiler
+decided and the engine got MISSED or WRONG on must be listed there with its reason, or the
+run fails (before this gate a WRONG site was printed and the run passed).
+
+## The ES module twin
+
+`esm/` is the same idea as a `"type": "module"` package: named, default and namespace
+imports, every re-export form (`export *`, `export { a as b } from`, `export * as ns from`,
+`export { default } from`), a default-exported class with `extends`, a class expression
+exported by name, a live `let` binding, dynamic `import()`, top-level `await`, an
+`EventEmitter` subclass, promise chains, and CommonJS interop through a default import and
+`createRequire`. Its lists are `esm.known-missing.txt` and `esm.known-compiler.txt`.
+
+The tracer instruments ES modules with an `import` of the runtime (a `.cjs` both formats can
+load), entered after the file's hoisted imports; module tops are keyed `<file>:0:0` so a
+function starting at the first token never shares the initializer's key. A top-level `await`
+leaves the next module's evaluation in the awaiting module's async context, so a module load
+the tracer attributes to a module that does not import it is accepted when some module does,
+and counted apart.
