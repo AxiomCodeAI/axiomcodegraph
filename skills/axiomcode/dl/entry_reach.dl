@@ -1,0 +1,13 @@
+// Is $M reachable from any entry point (main, test, HTTP handler, unimported module), and from which?
+// Java and TypeScript derive entry points; Python does not (the table is empty there, and this says so).
+.decl sound(caller:symbol, callee:symbol)
+sound(c, t) :- call_edges(_, c, t, _, "client", tier, _), t != "", (tier = "known_edge" ; tier = "multi_inferred").
+.decl up(m:symbol, d:number)
+up("$M", 0).
+up(c, d+1) :- up(t, d), sound(c, t), d < 12.
+.decl entry_reach(entry:symbol, reason:symbol, hops:number)
+entry_reach(e, r, d) :- up(e, d), entry_points(e, r), d = min x : up(e, x).
+.decl entry_points_known(n:number)
+entry_points_known(n) :- n = count : entry_points(_, _).
+.output entry_reach
+.output entry_points_known

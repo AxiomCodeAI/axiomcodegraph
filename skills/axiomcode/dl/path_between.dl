@@ -1,0 +1,12 @@
+// Is there a resolved call path from $FROM to $TO within $DEPTH hops, and which methods lie on it?
+.decl sound(caller:symbol, callee:symbol)
+sound(c, t) :- call_edges(_, c, t, _, "client", tier, _), t != "", (tier = "known_edge" ; tier = "multi_inferred").
+.decl fwd(m:symbol, d:number)
+fwd("$FROM", 0).
+fwd(t, d+1) :- fwd(c, d), sound(c, t), d < $DEPTH.
+.decl bwd(m:symbol)
+bwd("$TO").
+bwd(c) :- bwd(t), sound(c, t), fwd(c, _).
+.decl path_between(m:symbol, depth:number)
+path_between(m, d) :- fwd(m, d), bwd(m), d = min x : fwd(m, x).
+.output path_between

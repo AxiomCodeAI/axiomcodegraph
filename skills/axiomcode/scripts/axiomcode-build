@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# axiomcode-build [repo-dir] — build the AxiomCode graph for a repository into <repo>/.axiomcode/out/graph.sqlite
+# (parser + engine via bin/axiomcode all, tests INCLUDED), then index it for the query frontend (axiomcode-index:
+# symbols, refs, literals, comments, nesting, views). Prints how much of the graph is resolved vs unknown.
+#   AXIOMCODE_ENGINE  checkout of axiom-code-graph (default: the one this skill lives in)
+#   AXIOMCODE_SRC     subtree to analyse (e.g. one module of a monorepo); the graph still lives at <repo>/.axiomcode
+#   AXIOMCODE_LANG    restrict to java | typescript | python | javascript (default: the language with the most files)
+#   AXIOMCODE_LIBRARY comma-separated library roots (source trees or IR) passed as --library; without them, calls into
+#                     dependencies are declared unknown rather than guessed
+set -euo pipefail
+H="$(cd "$(dirname "$0")" && pwd)"
+REPO="$(cd "${1:-.}" && pwd)"; SRC="$REPO/${AXIOMCODE_SRC:-}"; SRC="${SRC%/}"
+ENGINE="${AXIOMCODE_ENGINE:-$(cd "$H/../../.." && pwd)}"
+[ -x "$ENGINE/bin/axiomcode" ] || { echo "no bin/axiomcode under $ENGINE (set AXIOMCODE_ENGINE)"; exit 1; }
+count(){ find "$SRC" \( -path '*/node_modules' -o -path '*/.axiomcode' -o -path '*/.git' \) -prune -o -type f \( "$@" \) -print 2>/dev/null | head -5000 | wc -l | tr -d ' '; }
+py=$(count -name '*.py'); ja=$(count -name '*.java'); ts=$(count -name '*.ts' -o -name '*.tsx'); js=$(count -name '*.js' -o -name '*.mjs' -o -name '*.cjs' -o -name '*.jsx')
+LANG_ARG="${AXIOMCODE_LANG:-}"
+if [ -z "$LANG_ARG" ]; then
+  LANG_ARG=java; best=$ja
+  [ "$ts" -gt "$best" ] && { LANG_ARG=typescript; best=$ts; }
+  [ "$py" -gt "$best" ] && { LANG_ARG=python; best=$py; }
+  [ "$js" -gt "$best" ] && { LANG_ARG=javascript; best=$js; }
+fi
+OUT="$REPO/.axiomcode/out"; mkdir -p "$OUT"
+GD="$(cd "$REPO" && git rev-parse --git-common-dir 2>/dev/null || true)"
+[ -n "$GD" ] && mkdir -p "$GD/info" && { grep -qx '.axiomcode' "$GD/info/exclude" 2>/dev/null || echo '.axiomcode' >> "$GD/info/exclude"; } || true
+STAMP="$(cd "$REPO" && git rev-parse HEAD 2>/dev/null || echo nogit)-$LANG_ARG-${AXIOMCODE_SRC:-.}-${AXIOMCODE_LIBRARY:-nolib}"
+if [ -f "$OUT/stamp" ] && [ "$(cat "$OUT/stamp")" = "$STAMP" ] && [ -f "$OUT/graph.sqlite" ] && [ -z "$(cd "$REPO" && git status --porcelain 2>/dev/null | head -1)" ]; then
+  sqlite3 "$OUT/graph.sqlite" "SELECT 1 FROM sqlite_master WHERE name='symbols'" | grep -q 1 || python3 "$H/axiomcode-index" "$REPO"
+  echo "graph up to date ($LANG_ARG) at $OUT/graph.sqlite"; exit 0; fi
+echo "building $LANG_ARG graph for $SRC … (java $ja · typescript $ts · python $py · javascript $js files)"
+rm -rf "$OUT/$LANG_ARG" "$OUT/graph.sqlite"
+LIB=(); [ -n "${AXIOMCODE_LIBRARY:-}" ] && LIB=(--library "$AXIOMCODE_LIBRARY")
+"$ENGINE/bin/axiomcode" all "$SRC" "$OUT" --language "$LANG_ARG" ${LIB[@]+"${LIB[@]}"} > "$REPO/.axiomcode/build.log" 2>&1 || { echo "build failed — see $REPO/.axiomcode/build.log"; tail -5 "$REPO/.axiomcode/build.log"; exit 1; }
+DB="$(find "$OUT" -name graph.sqlite -path "*/$LANG_ARG/*" | head -1)"; [ -n "$DB" ] || DB="$(find "$OUT" -name graph.sqlite | head -1)"
+[ -n "$DB" ] || { echo "build produced no graph.sqlite — see $REPO/.axiomcode/build.log"; exit 1; }
+ln -sfn "$DB" "$OUT/graph.sqlite"; echo "$STAMP" > "$OUT/stamp"
+python3 "$H/axiomcode-index" "$REPO"
+sqlite3 -column "$OUT/graph.sqlite" "SELECT tier, count(*) AS edges FROM call_edges GROUP BY tier ORDER BY edges DESC;"
+echo "graph at $OUT/graph.sqlite"
