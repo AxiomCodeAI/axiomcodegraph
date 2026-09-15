@@ -7,6 +7,7 @@ const asyncy = require('./lib/asyncy');
 const reg = require('./lib/registry');
 const makePlugin = require('./plugins');
 const streams = require('./lib/streams');
+const io = require('./lib/io');
 
 function classes() {
   const c = new Circle(2);
@@ -50,6 +51,7 @@ function events() {
 }
 async function asyncs() {
   await asyncy.pipeline(1);
+  await io.readAll();
   asyncy.later(F.inc);
   asyncy.withCallback(1, (err, v) => F.twice(v));
   await asyncy.withCallbackP(2);

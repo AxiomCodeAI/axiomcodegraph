@@ -27,7 +27,10 @@ cases/<NN-name>/
    entries (`main` / `exports`) of every package in the parse. A rule change that turns
    a refusal into a silent nothing fails here.
 4. **ORACLE** — `expected/<name>.oracle`: one line per compiler-decided site with the
-   scorer's bucket. A MISSED or WRONG line that is not in
+   scorer's bucket. A site the checker names by TYPE identity rather than by value (two
+   same-typed functions in one array, a widened `symbol` key, a call result, a ternary) is
+   `type_ambiguous` and undecided: the checker's declaration there is an inference, not a
+   fact, and scoring it called a correct engine answer WRONG (#607). A MISSED or WRONG line that is not in
    `expected/<name>.known-missing` fails the run whether or not the golden was
    rewritten, and a known-missing entry that STARTS resolving fails too, so the debt
    list cannot rot.
@@ -75,7 +78,9 @@ the previous engine.
 ## Execution oracles
 
 `torture/run.sh` and `realapp/run.sh` score the graph against what actually RAN — see their
-READMEs. `realapp` needs network once (`npm ci`) and exits 77 without it.
+READMEs. `realapp` needs network once (`npm ci`) and exits 77 without it. Both gate the
+compiler's verdicts too, through `tools/oracle_gate.py` (the same gate as the cases) against
+a `known-compiler.txt` beside the `known-missing.txt` of executed edges (#610).
 
 ## The corpus evaluation
 

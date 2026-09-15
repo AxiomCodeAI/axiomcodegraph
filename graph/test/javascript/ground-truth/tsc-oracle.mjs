@@ -25,10 +25,21 @@
  *   targetFile targetLine targetCol targetName targetKind
  *   overloadCount chosenIndex enclLine enclCol enclName
  *
- * targetKind: implementation | bodiless | synthesized | any | unresolved | oracle_error
+ * targetKind: implementation | bodiless | synthesized | any | type_ambiguous | unresolved | oracle_error
  *   `bodiless` covers a `.d.ts` declaration (the standard library) — a correct END.
  *   `synthesized` is an implicit constructor: the compiler resolved and there is no
  *   declaration to point at.
+ *   `type_ambiguous`: the checker named a declaration by TYPE identity, not by value.
+ *   `getResolvedSignature` returns the declaration behind the callee's TYPE; when two
+ *   functions share one structural type (`first`/`second`, both `() => number`) the
+ *   checker interns one and answers the first declaration for `fns[1]()`,
+ *   `(flag ? first : second)()`, `fns.pop()()`. That is an inference, not a fact, and
+ *   scoring it as ground truth calls a correct engine answer WRONG. A site is
+ *   decided only when the callee expression's own VALUE symbol (through aliases and
+ *   single-initializer variables) declares the function the signature named; a
+ *   callee with no symbol, a symbol declared elsewhere, a union property with
+ *   several declarations, or an element access keyed by a widened `symbol` is
+ *   undecided under this kind. Counted in the tally so the exclusion is visible.
  *
  * `require(...)` is NOT a site, by the parser's ruling (it is a module edge), so it is
  * skipped here too; the site universes must agree or nothing downstream joins.
@@ -111,6 +122,155 @@ function pos(sf, offset) {
 function isRequireCall(n) {
   return ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'require'
     && n.arguments.length >= 1;
+}
+/** The callee node of a call-like node. */
+function calleeOf(node) {
+  if (ts.isTaggedTemplateExpression(node)) return node.tag;
+  if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) return node.tagName;
+  const kind = callKindOf(node);
+  // `.call`/`.apply`/`.bind`: the function that runs is the receiver of the member call
+  if (kind === 'FUNCTION_CALL_CALL' || kind === 'FUNCTION_CALL_APPLY' || kind === 'FUNCTION_CALL_BIND') return node.expression.expression;
+  return node.expression;
+}
+function stripParens(e) {
+  while (e && (ts.isParenthesizedExpression(e) || ts.isNonNullExpression(e) || ts.isAsExpression?.(e) || ts.isTypeAssertionExpression?.(e))) e = e.expression;
+  return e;
+}
+/**
+ * Does the callee's own VALUE name the declaration the signature came from?
+ * Walks identifiers through aliases (imports, `const g = f`) and property accesses to
+ * the symbol's declarations; a function-like declaration among them that IS `decl`
+ * (or an overload sibling of it) decides the site. A callee with no symbol (an element
+ * access, a call result, a conditional) is decided by type identity alone and is not
+ * accepted; nor is a union property with declarations at more than one function; nor
+ * an element access whose key is a widened `symbol`.
+ */
+function isDecidedByValue(node, decl) {
+  const kind = callKindOf(node);
+  // `.call` / `.apply` / `.bind`: the member itself first (a user-defined `apply` on the
+  // receiver is the callee), then the receiver (Function.prototype's, the function runs)
+  if ((kind === 'FUNCTION_CALL_CALL' || kind === 'FUNCTION_CALL_APPLY' || kind === 'FUNCTION_CALL_BIND')
+    && ts.isPropertyAccessExpression(node.expression)) {
+    const member = checker.getSymbolAtLocation(node.expression.name);
+    const memberDecls = member ? (member.getDeclarations?.() ?? []) : [];
+    if (memberDecls.some((d) => d === decl)) return true;
+  }
+  return isCalleeDecidedByValue(stripParens(calleeOf(node)), decl);
+}
+function isCalleeDecidedByValue(callee, decl) {
+  if (!callee) return false;
+  // `(function iife() { ... })()`: the callee IS the function
+  if (ts.isFunctionLike(callee)) return callee === decl || callee.symbol === decl.symbol;
+  let sym = checker.getSymbolAtLocation(callee);
+  // `obj.m` where getSymbolAtLocation on the access itself returned nothing: try the name,
+  // then the property of the receiver's type (a member declared under a computed key)
+  if (!sym && ts.isPropertyAccessExpression(callee)) sym = checker.getSymbolAtLocation(callee.name);
+  if (!sym && ts.isPropertyAccessExpression(callee)) sym = checker.getTypeAtLocation(callee.expression).getProperty?.(callee.name.text) ?? null;
+  // `require('./x')()`: the module's own value (`module.exports = f` types the call as `typeof f`)
+  if (!sym && isRequireCall(callee)) sym = checker.getTypeAtLocation(callee).symbol ?? null;
+  if (!sym && ts.isElementAccessExpression(callee)) {
+    // `o['lit']` names the property; `o[k]` with k a UNIQUE symbol names the member declared
+    // under `[k]`; a widened `symbol` (a Symbol() crossing a module boundary) or an index
+    // into an array names nothing — the checker then answers by element type identity.
+    const key = stripParens(callee.argumentExpression);
+    const objType = checker.getTypeAtLocation(callee.expression);
+    if (ts.isStringLiteralLike(key) || ts.isNumericLiteral(key)) sym = objType.getProperty?.(String(key.text)) ?? null;
+    else {
+      const keyType = checker.getTypeAtLocation(key);
+      if (keyType && (keyType.flags & ts.TypeFlags.UniqueESSymbol)) {
+        let keySym = checker.getSymbolAtLocation(key);
+        if (keySym && (keySym.flags & ts.SymbolFlags.Alias)) keySym = checker.getAliasedSymbol(keySym);
+        const declaredUnder = (d) => d.name && ts.isComputedPropertyName(d.name) && checker.getSymbolAtLocation(stripParens(d.name.expression)) === keySym;
+        const declaredByAssignment = (d) => ts.isBinaryExpression(d) && ts.isElementAccessExpression(d.left)
+          && checker.getSymbolAtLocation(stripParens(d.left.argumentExpression)) === keySym;
+        sym = checker.getPropertiesOfType(objType).find((p) => (p.getDeclarations?.() ?? []).some((d) => declaredUnder(d) || declaredByAssignment(d))) ?? null;
+      }
+    }
+  }
+  if (!sym) return false;
+  const seen = new Set();
+  for (let hops = 0; sym && hops < 8; hops++) {
+    if (seen.has(sym)) return false;
+    seen.add(sym);
+    if (sym.flags & ts.SymbolFlags.Alias) { sym = checker.getAliasedSymbol(sym); continue; }
+    const decls = sym.getDeclarations?.() ?? [];
+    const fnLike = decls.filter((d) => ts.isFunctionLike(d) || ts.isClassLike(d));
+    if (fnLike.length > 0) {
+      // a union's property symbol carries every member's declaration (`(W | V).run`): the
+      // checker's signature is ONE of them by type order, which decides nothing
+      const owners = new Set(fnLike.map((d) => d.symbol));
+      if (owners.size > 1) return false;
+      if (fnLike.some((d) => d === decl)) return true;
+      // `new C()`: the callee names the class, the signature names a constructor — C's own,
+      // or an ancestor's when C declares none
+      if (fnLike.some((d) => ts.isClassLike(d)) && ts.isConstructorDeclaration(decl)) return true;
+      // a function-valued property written as `name: function () {}` / `name: () => {}` /
+      // `name: someFunction` — the property's declaration is the assignment, the signature's
+      // declaration is the function it holds
+      return fnLike.some((d) => d.symbol === decl.symbol);
+    }
+    // a variable or property declared once with an initializer: follow the initializer when
+    // it is a name or an access (a single value), never a conditional, a call or a literal
+    if (decls.length === 1) {
+      const d = decls[0];
+      let init = null;
+      if (ts.isVariableDeclaration(d) || ts.isPropertyAssignment(d) || ts.isPropertyDeclaration(d)) init = d.initializer ?? null;
+      else if (ts.isParameter(d) && d.initializer) init = d.initializer; // `cb = other`: the default is a value
+      else if (ts.isShorthandPropertyAssignment(d)) {
+        // `{ local }`: the name is the property; the VALUE is the binding it abbreviates
+        const v = checker.getShorthandAssignmentValueSymbol(d);
+        if (v) { sym = v; continue; }
+        return false;
+      }
+      else if (ts.isBinaryExpression(d) && d.operatorToken.kind === ts.SyntaxKind.EqualsToken) init = d.right;
+      else if (ts.isPropertyAccessExpression(d) && d.parent && ts.isBinaryExpression(d.parent)
+        && d.parent.operatorToken.kind === ts.SyntaxKind.EqualsToken && d.parent.left === d) {
+        // `exports.x = v`, `module.exports.x = v`, `F.prototype.x = v`: the binder declares
+        // the member AT the access; the value is the assignment's right side
+        init = d.parent.right;
+      }
+      else if (ts.isCallExpression(d) && d.arguments.length >= 3 && ts.isObjectLiteralExpression(d.arguments[2])) {
+        // `Object.defineProperty(exports, 'e', { value: v })` / `{ get() { return v; } }`
+        const desc = d.arguments[2];
+        const valueProp = desc.properties.find((p) => ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === 'value');
+        const getProp = desc.properties.find((p) => (ts.isMethodDeclaration(p) || ts.isPropertyAssignment(p)) && ts.isIdentifier(p.name) && p.name.text === 'get');
+        if (valueProp) init = valueProp.initializer;
+        else if (getProp) {
+          const fn = ts.isMethodDeclaration(getProp) ? getProp : getProp.initializer;
+          const body = fn && ts.isFunctionLike(fn) ? fn.body : null;
+          const ret = body && ts.isBlock(body) ? body.statements.find((st) => ts.isReturnStatement(st)) : null;
+          init = ret ? ret.expression ?? null : (body && !ts.isBlock(body) ? body : null);
+        }
+      }
+      else if (ts.isBindingElement(d) && d.initializer) {
+        // `{ mapper = twice } = {}`: the checker's answer for a binding with a default is
+        // the default's own value, which is a value, not a type identity
+        init = d.initializer;
+      } else if (ts.isBindingElement(d)) {
+        // `const { a } = o` / `const { a: b } = o`: the property of the initializer's value
+        const prop = d.propertyName ?? d.name;
+        const parent = d.parent?.parent;
+        if (ts.isIdentifier(prop) && parent && ts.isVariableDeclaration(parent) && parent.initializer) {
+          const t = checker.getTypeAtLocation(parent.initializer);
+          const ps = t.getProperty?.(prop.text);
+          if (ps) { sym = ps; continue; }
+        }
+        return false;
+      }
+      init = init ? stripParens(init) : null;
+      // `exports.a = exports.b = f`: the value is the innermost right side
+      while (init && ts.isBinaryExpression(init) && init.operatorToken.kind === ts.SyntaxKind.EqualsToken) init = stripParens(init.right);
+      if (init && ts.isFunctionLike(init)) return init === decl || init.symbol === decl.symbol;
+      if (init && (ts.isIdentifier(init) || ts.isPropertyAccessExpression(init))) {
+        let next = checker.getSymbolAtLocation(init);
+        if (!next && ts.isPropertyAccessExpression(init)) next = checker.getSymbolAtLocation(init.name);
+        if (next) { sym = next; continue; }
+      }
+      return false;
+    }
+    return false;
+  }
+  return false;
 }
 /** The parser's JsCallKind for this node. */
 function callKindOf(node) {
@@ -237,6 +397,8 @@ for (const sf of program.getSourceFiles()) {
           const calleeType = checker.getTypeAtLocation(calleeNode);
           if (calleeType.flags & ts.TypeFlags.Any) targetKind = 'any';
           else targetKind = 'synthesized';
+        } else if (decl && !isBodiless(decl) && !isDecidedByValue(node, decl)) {
+          targetKind = 'type_ambiguous';
         } else if (decl) {
           const dsf = decl.getSourceFile();
           const [dl, dc] = pos(dsf, decl.getStart(dsf));

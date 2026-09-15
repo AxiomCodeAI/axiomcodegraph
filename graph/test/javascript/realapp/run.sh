@@ -33,6 +33,11 @@ python3 "$HERE/../tools/coverage_guard.py" "$W/ir" "$W/out/raw" || exit 1
 echo "── compiler (per site; node_modules present, so tsc follows into the packages)"
 node "$HERE/../ground-truth/tsc-oracle.mjs" "$HERE" "$W/oracle.tsv" > "$W/oracle.log" 2>&1
 python3 "$HERE/../ground-truth/score.py" "$W/ir" "$W/out/raw" "$W/oracle.tsv" --dump="$W/score-rows.tsv" | sed -n '2,7p'
+# The compiler's verdicts GATE the run, as they do per case in run-tests.sh: a MISSED or
+# WRONG site not listed in known-compiler.txt fails, and a listed one that starts agreeing
+# fails too. Before this the verdicts were printed and the run passed whatever they said.
+python3 "$HERE/../tools/oracle_diff.py" "$W/ir" "$W/out/raw" "$W/oracle.tsv" "$W/score-rows.tsv" > "$W/actual.oracle"
+python3 "$HERE/../tools/oracle_gate.py" "$W/actual.oracle" "$HERE/known-compiler.txt" || exit 1
 echo "── execution (per function->function edge; node_modules instrumented)"
 node "$HERE/../torture/instrument.mjs" "$HERE" "$W/instrumented" "$W/edges.json" --node-modules > "$W/instrument.log" 2>&1 || { cat "$W/instrument.log"; exit 1; }
 (cd "$W/instrumented" && node exercise.js > "$W/run.log" 2>&1) || { echo "the app did not run cleanly under instrumentation:"; tail -8 "$W/run.log"; exit 1; }
