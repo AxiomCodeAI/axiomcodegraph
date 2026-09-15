@@ -1,0 +1,13 @@
+main.js:11:61 METHOD_CALL toObject  EXACT  main.js:4:18
+main.js:14:10 METHOD_CALL exec  EXACT  main.js:5:41
+main.js:17:37 METHOD_CALL ping  EXACT  remote.js:1:16
+main.js:26:10 METHOD_CALL concat  LIB_AMBIENT_OK  
+main.js:26:10 METHOD_CALL map  LIB_AMBIENT_OK  
+main.js:27:39 METHOD_CALL toObject  EXACT  main.js:4:18
+main.js:32:39 METHOD_CALL getTime  LIB_AMBIENT_OK  
+main.js:38:36 METHOD_CALL toObject  EXACT  main.js:5:15
+main.js:41:18 FUNCTION_CALL viaTyped  EXACT  main.js:37:1
+main.js:41:27 CONSTRUCTOR_CALL Query  SYNTHESIZED_OK  
+main.js:41:41 FUNCTION_CALL viaMember  EXACT  main.js:21:1
+main.js:8:41 METHOD_CALL toObject  EXACT  main.js:4:18
+# defects: 0

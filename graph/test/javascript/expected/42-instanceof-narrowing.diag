@@ -1,0 +1,5 @@
+package_entry    42-instanceof-narrowing  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       main.js:22:48  METHOD_CALL toObject  no_target
+unresolved       main.js:26:10  METHOD_CALL concat  no_target
+unresolved       main.js:26:10  METHOD_CALL map  no_target
+unresolved       main.js:32:39  METHOD_CALL getTime  no_target
