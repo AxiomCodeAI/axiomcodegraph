@@ -293,6 +293,7 @@
 .decl module_export_assignment(c0:symbol,c1:symbol,c2:symbol)
 .decl module_export_recovered(c0:symbol,c1:symbol)
 .decl module_export_type_only(c0:symbol,c1:symbol,c2:symbol)
+.decl module_export_runtime_row(c0:symbol, c1:symbol, c2:symbol)
 .decl module_file(c0:symbol,c1:symbol,c2:symbol)
 .decl module_has_default_export(c0:symbol,c1:symbol)
 .decl module_has_export_surface(c0:symbol)
