@@ -51,6 +51,7 @@ A = {
               refKinds={'IDENTIFIER_REFERENCE', 'FIELD_ACCESS'}, entityKind='referencedEntityKind',
               litKinds={'LITERAL'}, litType=('literalType', 'STRING'), litValue='literalValue'),
     comments=dict(file='all-comments.csv', text='commentText', kind='commentKind', line='startLine', filePath='filePath'),
+    typeRefs=dict(file='all-type-references.csv', name='typeName', context='context', ownerKind='referenceOwnerKind', line='startLine', fileVia=('types', 'typeRegistryLinkHash')),
     decls=[dict(file='all-fields.csv', kind=lambda r: 'const' if 'STATIC' in r.get('fieldModifier', '') and 'FINAL' in r.get('fieldModifier', '') else 'field',
                 name='name', owner='ownerQualifiedName', filePath='filePath', line='startLine', end='endLine'),
            dict(file='all-enum-constants.csv', kind=lambda r: 'enum_member', name='name', owner='ownerQualifiedName', filePath='filePath', line='startLine', end='endLine')],
@@ -61,6 +62,7 @@ A = {
               refKinds={'IDENTIFIER_REFERENCE', 'PROPERTY_ACCESS'}, entityKind='referencedEntityKind',
               litKinds={'LITERAL'}, litType=('literalType', 'STRING'), litValue='literalValue'),
     comments=dict(file='all-typescript-comments.csv', text='commentText', kind='commentKind', line='startLine', filePath='filePath'),
+    typeRefs=dict(file='all-typescript-type-references.csv', name='typeName', context='context', ownerKind='referenceOwnerKind', line='startLine', fileVia=('modules', 'tsModuleLinkHash')),
     decls=[dict(file='all-typescript-variables.csv', only=lambda r: r.get('scopeKind') == 'MODULE_SCOPE',
                 kind=lambda r: 'const' if r.get('isConst') == 'true' else 'variable', name='name', owner=None, filePath='filePath', line='startLine', end='endLine'),
            dict(file='all-typescript-fields.csv', kind=lambda r: 'field', name='name', owner='ownerQualifiedName', filePath='filePath', line='startLine', end='endLine'),
@@ -74,6 +76,7 @@ A = {
               refKinds={'NAME_REFERENCE', 'ATTRIBUTE_ACCESS'}, entityKind='referencedEntityKind',
               litKinds={'LITERAL'}, litType=('literalType', 'STRING'), litValue='literalValue'),
     comments=dict(file='all-python-comments.csv', text='text', kind='kind', line='startLine', filePath='filePath'),
+    typeRefs=dict(file='all-python-type-references.csv', name='typeName', context='context', ownerKind='referenceOwnerKind', line='startLine', fileVia=('modules', 'pyModuleLinkHash')),
     decls=[dict(file='all-python-bindings.csv', only=lambda r: r.get('bindingKind') == 'MODULE_LEVEL' and r.get('bindingOrigin') not in ('FUNCTION_DEF', 'CLASS_DEF', 'IMPORT'),
                 kind=lambda r: 'const' if r['name'].isupper() else 'variable', name='name', owner=None, filePath='filePath', line='firstBindingLine', end='lastBindingLine'),
            dict(file='all-python-fields.csv', kind=lambda r: 'field', name='name', owner='ownerQualifiedName', filePath='filePath', line='startLine', end='endLine')],
@@ -118,18 +121,19 @@ def rows(name):
     return csv.DictReader(f, delimiter='\t', quoting=csv.QUOTE_NONE)
 
 # an older augment step left `symbols` as a VIEW; a name is dropped as whichever it is
-for name in ('symbols', 'refs', 'literals', 'comments', 'nesting', 'skipped', 'index_meta', 'callers', 'callees', 'source'):
+for name in ('symbols', 'refs', 'literals', 'comments', 'nesting', 'type_refs', 'skipped', 'index_meta', 'callers', 'callees', 'source'):
     kind = c.execute("SELECT type FROM sqlite_master WHERE name=?", (name,)).fetchone()
     if kind: c.execute(f"DROP {kind[0].upper()} IF EXISTS {name}")
 c.executescript('''
 DROP TABLE IF EXISTS symbols; DROP TABLE IF EXISTS refs; DROP TABLE IF EXISTS literals; DROP TABLE IF EXISTS comments;
-DROP TABLE IF EXISTS nesting; DROP TABLE IF EXISTS skipped; DROP TABLE IF EXISTS index_meta;
+DROP TABLE IF EXISTS nesting; DROP TABLE IF EXISTS type_refs; DROP TABLE IF EXISTS skipped; DROP TABLE IF EXISTS index_meta;
 DROP VIEW IF EXISTS callers; DROP VIEW IF EXISTS callees; DROP VIEW IF EXISTS source;
 CREATE TABLE symbols(id TEXT, name TEXT, display TEXT, kind TEXT, qualified_name TEXT, signature TEXT, file TEXT, line INT, end_line INT, owner TEXT, is_test INT, method_id TEXT, type_id TEXT);
 CREATE TABLE refs(name TEXT, file TEXT, line INT, kind TEXT, entity_kind TEXT);
 CREATE TABLE literals(value TEXT, file TEXT, line INT);
 CREATE TABLE comments(text TEXT, file TEXT, line INT, kind TEXT);
 CREATE TABLE nesting(type_id TEXT, outer_type_id TEXT);
+CREATE TABLE type_refs(name TEXT, file TEXT, line INT, context TEXT, owner_kind TEXT);
 CREATE TABLE skipped(file TEXT, reason TEXT);
 CREATE TABLE index_meta(key TEXT, value TEXT);
 ''')
@@ -229,13 +233,20 @@ for r in rows(e['file']):
 c.executemany("INSERT INTO refs VALUES (?,?,?,?,?)", refs); c.executemany("INSERT INTO literals VALUES (?,?,?)", lits)
 cm = A['comments']
 c.executemany("INSERT INTO comments VALUES (?,?,?,?)", ((r.get(cm['text'], '')[:400], file_of(r, cm), int(r.get(cm['line']) or 0), r.get(cm['kind'], '')) for r in rows(cm['file']) if r.get(cm['text'])))
+# where a TYPE is used in a declaration or expression — field type, parameter, return, generic argument, `new` —
+# by the parser's type-reference rows. Resolved by NAME at query time (the parser leaves the target hash empty).
+tr = A.get('typeRefs')
+if tr:
+    try:
+        c.executemany("INSERT INTO type_refs VALUES (?,?,?,?,?)", ((r.get(tr['name'], '').split('.')[-1].split('<')[0], file_of(r, tr), int(r.get(tr['line']) or 0), r.get(tr['context'], ''), r.get(tr['ownerKind'], '')) for r in rows(tr['file']) if r.get(tr['name'])))
+    except (KeyError, ValueError): pass
 c.executemany("INSERT INTO skipped VALUES (?,?)", ((rel(r.get('filePath') or r.get('file') or ''), r.get('reason') or r.get('skipReason') or '') for r in rows(A['skipped'])))
 
 # ── views: the joins written once ────────────────────────────────────────────────────────────────
 c.executescript('''
 CREATE INDEX IF NOT EXISTS symbols_name ON symbols(name); CREATE INDEX IF NOT EXISTS symbols_display ON symbols(display);
 CREATE INDEX IF NOT EXISTS symbols_file ON symbols(file, line); CREATE INDEX IF NOT EXISTS symbols_mid ON symbols(method_id);
-CREATE INDEX IF NOT EXISTS refs_name ON refs(name); CREATE INDEX IF NOT EXISTS literals_value ON literals(value); CREATE INDEX IF NOT EXISTS comments_file ON comments(file);
+CREATE INDEX IF NOT EXISTS refs_name ON refs(name); CREATE INDEX IF NOT EXISTS type_refs_name ON type_refs(name); CREATE INDEX IF NOT EXISTS literals_value ON literals(value); CREATE INDEX IF NOT EXISTS comments_file ON comments(file);
 CREATE INDEX IF NOT EXISTS ce_callee ON call_edges(callee_method_id); CREATE INDEX IF NOT EXISTS ce_caller ON call_edges(caller_id);
 -- who calls a method: one row per (site, target), with the engine's tier. caller_id is symbols.id: a
 -- Java call written in a field initializer has the TYPE as its caller, and that row is kept, not dropped
@@ -256,7 +267,7 @@ CREATE VIEW source AS SELECT display, qualified_name, name, kind, file, line, en
 ''')
 n = lambda t: c.execute(f"SELECT count(*) FROM {t}").fetchone()[0]
 meta = dict(language=LANG, repo=REPO, source_dir=SRC, ir=IR if HAVE_IR else '', ir_present=str(HAVE_IR).lower(), built_at=time.strftime('%Y-%m-%dT%H:%M:%S'),
-            symbols=n('symbols'), refs=n('refs'), literals=n('literals'), comments=n('comments'), nested_types=n('nesting'), skipped_files=n('skipped'))
+            symbols=n('symbols'), refs=n('refs'), type_refs=n('type_refs'), literals=n('literals'), comments=n('comments'), nested_types=n('nesting'), skipped_files=n('skipped'))
 c.executemany("INSERT INTO index_meta VALUES (?,?)", [(k, str(v)) for k, v in meta.items()])
 con.commit()
 print(f"indexed {DB} [{LANG}]: symbols={meta['symbols']} refs={meta['refs']} literals={meta['literals']} comments={meta['comments']} nested_types={meta['nested_types']}" + ("" if HAVE_IR else "  (IR absent: refs/literals/comments empty — `uses` will say so)"))

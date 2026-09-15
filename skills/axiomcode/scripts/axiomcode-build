@@ -12,7 +12,8 @@ H="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "${1:-.}" && pwd)"; SRC="$REPO/${AXIOMCODE_SRC:-}"; SRC="${SRC%/}"
 ENGINE="${AXIOMCODE_ENGINE:-$(cd "$H/../../.." && pwd)}"
 [ -x "$ENGINE/bin/axiomcode" ] || { echo "no bin/axiomcode under $ENGINE (set AXIOMCODE_ENGINE)"; exit 1; }
-count(){ find "$SRC" \( -path '*/node_modules' -o -path '*/.axiomcode' -o -path '*/.git' \) -prune -o -type f \( "$@" \) -print 2>/dev/null | head -5000 | wc -l | tr -d ' '; }
+# no `head` in this pipeline: under pipefail a closed pipe kills find and, with set -e, the script — silently
+count(){ find "$SRC" \( -path '*/node_modules' -o -path '*/.axiomcode' -o -path '*/.git' -o -path '*/.venv' -o -path '*/venv' -o -path '*/site-packages' -o -path '*/dist' -o -path '*/build' \) -prune -o -type f \( "$@" \) -print 2>/dev/null | wc -l | tr -d ' '; }
 py=$(count -name '*.py'); ja=$(count -name '*.java'); ts=$(count -name '*.ts' -o -name '*.tsx'); js=$(count -name '*.js' -o -name '*.mjs' -o -name '*.cjs' -o -name '*.jsx')
 LANG_ARG="${AXIOMCODE_LANG:-}"
 if [ -z "$LANG_ARG" ]; then
