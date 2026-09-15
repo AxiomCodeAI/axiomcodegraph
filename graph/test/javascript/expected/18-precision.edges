@@ -11,7 +11,7 @@ lib/p.js:14:28 METHOD_CALL items.map  ->  callback_registered  lib/p.js:14:38 <a
 lib/p.js:14:45 METHOD_CALL this.run  ->  multi_inferred  lib/p.js:19:40 <arrow>
 lib/p.js:14:45 METHOD_CALL this.run  ->  multi_inferred  lib/p.js:6:3 run
 lib/p.js:16:23 METHOD_CALL this.toString  ->  known_edge  lib/p.js:15:3 toString
-lib/p.js:16:41 METHOD_CALL this.hasOwnProperty  ->  ambiguous_unknown  -
+lib/p.js:16:41 METHOD_CALL this.hasOwnProperty  ->  ambient_terminal  -
 lib/p.js:16:92 FUNCTION_CALL_CALL Object.prototype.toString.call  ->  ambient_terminal  -
 lib/p.js:21:117 METHOD_CALL literalKeys.quoted  ->  known_edge  lib/p.js:20:89 quoted
 lib/p.js:21:140 COMPUTED_CALL literalKeys['quoted']  ->  known_edge  lib/p.js:20:89 quoted
