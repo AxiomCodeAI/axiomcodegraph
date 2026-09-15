@@ -15,3 +15,9 @@ lib/registry.js:10:1 lib/registry.js:9:48
 # stream hook model (one trigger on one instance) does not express.
 lib/streams.js:17:3 lib/streams.js:8:3
 lib/streams.js:18:3 lib/streams.js:9:3
+
+# `Function.prototype.call.bind(helper)` makes a function whose every call runs `helper`;
+# the engine has no model for a bound `call`. Listed here because before #640 this direct
+# call was credited through the setTimeout registration in another function and never
+# appeared.
+lib/direct.js:7:1 lib/direct.js:4:1
