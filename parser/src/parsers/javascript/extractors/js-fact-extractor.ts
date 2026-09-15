@@ -260,6 +260,9 @@ export function extractJavaScriptFile(options: JsFileExtractionOptions): JsFileF
     methodHashByNode: declarations.methodHashByNode,
     moduleInitMethodHash: declarations.moduleInitMethodHash,
   }).run();
+  // c35: a reference to a pattern binding with a default links the default's root,
+  // which exists only now that every root is emitted (#673).
+  expressions.linkBindingDefaults();
 
   // c32 `introducesDeclarationLinkHash`: the callable an expression IS.
   //

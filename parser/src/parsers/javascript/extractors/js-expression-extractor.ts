@@ -122,6 +122,21 @@ export class JsExpressionExtractor {
     this.sourceFile = options.sourceFile;
   }
 
+  /** References to a pattern binding with a default, linked to the default's root once it exists (c35). */
+  private readonly bindingDefaultPending: Array<{ row: JsExpressionRegistry; initializer: ts.Expression }> = [];
+
+  /** Closes the c35 links; call after every root has been emitted. */
+  linkBindingDefaults(): void {
+    for (const pending of this.bindingDefaultPending) {
+      const hash = this.rootHashByNode.get(nodeKey(pending.initializer))
+        ?? this.rowByNode.get(nodeKey(pending.initializer))?.getHash();
+      if (hash !== undefined && hash !== '') {
+        pending.row.setBindingDefaultLinkHash(hash);
+      }
+    }
+    this.bindingDefaultPending.length = 0;
+  }
+
   /** Emits the tree rooted at one allowlisted position. */
   emitRoot(root: RootPosition): void {
     const unwrapped = unwrap(root.node);
@@ -1094,6 +1109,17 @@ export class JsExpressionExtractor {
     row.setBindingResolution(where);
     if (binding.declarationNode === null) {
       return;
+    }
+    // c35. A binding declared inside a destructuring pattern WITH a default
+    // (`({ mapper = twice } = {})`, `const { a = f } = o`) links the reference to
+    // that default's root: the default is rooted on its own (PARAMETER_DEFAULT /
+    // VARIABLE_INITIALIZER) and nothing else joins it to the name it initialises,
+    // so a reference saw only what the pattern's source supplied (#673). The root's
+    // row exists once every root is emitted; closed then (bindingDefaultPending).
+    const element = binding.declarationNode.parent;
+    if (element !== undefined && ts.isBindingElement(element) && element.initializer !== undefined
+      && element.name === binding.declarationNode) {
+      this.bindingDefaultPending.push({ row, initializer: element.initializer });
     }
     if (binding.regime === JsBindingRegime.PARAMETER) {
       // c33/c34. A parameter has no js_variable row — its name, position and

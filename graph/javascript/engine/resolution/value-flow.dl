@@ -75,6 +75,11 @@ expr_value(e, k, i) :- expr_param(_, p, e), param_value(p, k, i), !expr_binding_
 // the parameter's value (#487), and the value is what the path reaches.
 expr_value(e, k2, i2) :- expr_param(_, p, e), expr_binding_path(_, path, e),
     param_value(p, k, i), path_value(k, i, path, k2, i2).
+// A pattern binding WITH a default (`{ mapper = twice } = {}`, `const { a = f } = o`)
+// also holds the default's value: the parser links the reference to the default's root
+// (#673). Without it `mapper(...)` saw only what one caller passed and was committed as
+// known_edge to it while the compiler named the default.
+expr_value(e, k, i) :- expr_binding_default(_, d, e), expr_value(d, k, i).
 // `this`.
 expr_value(e, k, i) :- expr_kind(_, "THIS", _, e), expr_owner(_, m, _, e), this_value(m, k, i).
 // `require('./x')` — the module edge's far side. What it evaluates to is the

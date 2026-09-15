@@ -69,8 +69,10 @@ function f(cb = () => {}) { cb(); }
 as a PARAMETER_DEFAULT root expression owned by the method. No column joins the two.
 
 **Workaround:** `resolution/value-flow.dl` joins on (owner method, text). Inner defaults
-of a destructured parameter (`function f({ cb = () => {} })`) cannot be attributed and
-are not.
+of a destructured parameter (`function f({ cb = () => {} })`) are linked since #673: a
+reference to the pattern binding carries the default's root in `js_expression` c35
+(`bindingDefaultLinkHash`), and `expr_binding_default` adds the default's value to the
+reference's, for parameter and variable patterns alike.
 
 ## PD-JS-6 — a `for..of` binding is linked to the iterated expression by nothing
 
