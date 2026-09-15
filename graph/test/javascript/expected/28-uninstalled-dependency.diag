@@ -1,0 +1,18 @@
+import_cause     app.js:4:15  alpha  not_staged
+import_cause     app.js:5:9  alpha/sub  not_staged
+import_cause     app.js:6:14  alpha/missing  not_staged
+import_cause     app.js:7:14  never-staged  not_staged
+import_cause     app.mjs:1:10  alpha  not_staged
+import_cause     app.mjs:2:17  alpha  not_staged
+package_entry    case26-app  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       app.js:10:3  METHOD_CALL createClient  receiver_untyped
+unresolved       app.js:10:3  METHOD_CALL run  receiver_untyped
+unresolved       app.js:11:3  METHOD_CALL run  member_absent
+unresolved       app.js:12:3  FUNCTION_CALL subHelper  callee_untyped
+unresolved       app.js:13:3  METHOD_CALL anything  receiver_untyped
+unresolved       app.js:14:3  METHOD_CALL thing  receiver_untyped
+unresolved       app.mjs:2:17  DYNAMIC_IMPORT_CALL   dynamic
+unresolved       app.mjs:3:1  FUNCTION_CALL createClient  callee_untyped
+unresolved       app.mjs:3:1  METHOD_CALL run  receiver_untyped
+unresolved       app.mjs:4:1  METHOD_CALL createClient  receiver_untyped
+unresolved       app.mjs:4:1  METHOD_CALL run  receiver_untyped

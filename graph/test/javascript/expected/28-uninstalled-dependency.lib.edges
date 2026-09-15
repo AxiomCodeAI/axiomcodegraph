@@ -1,0 +1,13 @@
+app.js:10:3 METHOD_CALL alpha.createClient  ->  boundary_lib  lib:lib/index.js:3:1 createClient
+app.js:10:3 METHOD_CALL alpha.createClient().run  ->  boundary_lib  lib:lib/index.js:2:14 run
+app.js:11:3 CONSTRUCTOR_CALL Mine  ->  implicit_constructor  -
+app.js:11:3 METHOD_CALL new Mine().run  ->  boundary_lib  lib:lib/index.js:2:14 run
+app.js:12:3 FUNCTION_CALL subHelper  ->  boundary_lib  lib:lib/sub.js:2:21 subHelper
+app.js:13:3 METHOD_CALL gone.anything  ->  ambiguous_unknown  -
+app.js:14:3 METHOD_CALL nope.thing  ->  ambiguous_unknown  -
+app.js:16:1 FUNCTION_CALL main  ->  known_edge  app.js:9:1 main
+app.mjs:2:17 DYNAMIC_IMPORT_CALL import  ->  dynamic_terminal  -
+app.mjs:3:1 FUNCTION_CALL createClient  ->  boundary_lib  lib:lib/index.mjs:2:1 createClient
+app.mjs:3:1 METHOD_CALL createClient().run  ->  boundary_lib  lib:lib/index.mjs:1:21 run
+app.mjs:4:1 METHOD_CALL m.createClient  ->  boundary_lib  lib:lib/index.mjs:2:1 createClient
+app.mjs:4:1 METHOD_CALL m.createClient().run  ->  boundary_lib  lib:lib/index.mjs:1:21 run
