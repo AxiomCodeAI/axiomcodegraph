@@ -1,0 +1,19 @@
+main.js:10:46 METHOD_CALL gHelper  EXACT  setup.js:2:1
+main.js:12:19 FUNCTION_CALL g1  EXACT  main.js:3:1
+main.js:12:25 FUNCTION_CALL g2  EXACT  main.js:4:1
+main.js:12:31 FUNCTION_CALL g3  EXACT  main.js:5:1
+main.js:12:37 FUNCTION_CALL g4  EXACT  main.js:6:1
+main.js:12:43 FUNCTION_CALL g5  EXACT  main.js:7:1
+main.js:12:49 FUNCTION_CALL g6  EXACT  main.js:8:1
+main.js:12:55 FUNCTION_CALL g7  EXACT  main.js:9:1
+main.js:12:61 FUNCTION_CALL g8  EXACT  main.js:10:1
+main.js:12:67 FUNCTION_CALL g9  EXACT  main.js:11:1
+main.js:13:1 FUNCTION_CALL main  EXACT  main.js:12:1
+main.js:3:24 METHOD_CALL gHelper  EXACT  setup.js:2:1
+main.js:4:24 METHOD_CALL gOther  EXACT  setup.js:3:1
+main.js:5:24 FUNCTION_CALL gHelper  EXACT  setup.js:2:1
+main.js:7:24 METHOD_CALL run  EXACT  setup.js:5:1
+main.js:8:24 METHOD_CALL run  EXACT  setup.js:5:1
+main.js:9:24 METHOD_CALL setTimeout  LIB_AMBIENT_OK  
+setup.js:8:1 METHOD_CALL assign  LIB_AMBIENT_OK  
+# defects: 0
