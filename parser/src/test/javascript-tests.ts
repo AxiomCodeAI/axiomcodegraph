@@ -1554,6 +1554,7 @@ const FK_TARGET_BY_COLUMN: Readonly<Record<string, string>> = {
   boundVariableLinkHash: 'js_variable',
   patternRootVariableLinkHash: 'js_variable',
   resolvedBindingLinkHash: 'js_variable',
+  computedNameExpressionLinkHash: 'js_expression',
   resolvedMethodLinkHash: 'js_method',
   resolvedTypeLinkHash: 'js_type',
   resolvedModuleLinkHash: 'js_module',
@@ -3118,6 +3119,85 @@ async function packageSpecifiersResolveUnderTheSiteConditions(): Promise<number>
       }
     }
   }
+  return failures;
+}
+
+/**
+ * A member declared under a computed name links its KEY, and a literal key names it.
+ *
+ * `[kRun]() {}` had an empty `name` and no link to `kRun`, so a symbol-keyed member
+ * could not be joined to its key at all; and `['lit']() {}` was equally nameless
+ * although the syntax fixes the name (#598). Asserted here on a class method, a
+ * getter, a class field, an object-literal method, a prototype-literal method and
+ * a prototype-literal function property: the literal keys fill `name`, the dynamic
+ * ones link an expression rooted COMPUTED_NAME whose binding is the key's `const`,
+ * and every link points at an expression inside the member's own span.
+ */
+async function computedMemberNamesLinkTheirKey(): Promise<number> {
+  let failures = 0;
+  const root = scratchDir('js-gate-computed-');
+  const out = scratchDir('js-gate-computed-out-');
+  fs.writeFileSync(path.join(root, 'package.json'), '{ "name": "computed" }');
+  fs.writeFileSync(path.join(root, 'queue.js'), [
+    "const kRun = Symbol('run');",
+    "const kField = Symbol('field');",
+    'class Queue {',
+    '  [kRun]() { return 1; }',
+    '  [`tpl`]() { return 2; }',
+    "  ['lit']() { return 3; }",
+    '  [42]() { return 4; }',
+    "  get ['acc']() { return 5; }",
+    '  [kField] = 6;',
+    "  ['named'] = 7;",
+    '}',
+    'const o = { [kRun]() { return 8; }, [`olit`]() { return 9; } };',
+    'function P() {}',
+    "P.prototype = { [kRun]: function () { return 10; }, ['plit']() { return 11; } };",
+    'module.exports = { Queue, o, P };',
+    '',
+  ].join('\n'));
+  await new JavaScriptProjectAnalyzer().analyzeAll([root], { outputDir: out, baseMservPath: root, serviceVersionLink: 'gate-v1' });
+  const relations = readRelations(out);
+  const methods = relations.find((r) => r.name === 'js_method');
+  const fields = relations.find((r) => r.name === 'js_field');
+  const expressions = relations.find((r) => r.name === 'js_expression');
+  const variables = relations.find((r) => r.name === 'js_variable');
+  if (!methods || !fields || !expressions || !variables) return fail('computed fixture: a relation is missing');
+  const col = (rel: Relation, c: string): number => rel.header.indexOf(c);
+  const exprByHash = new Map(expressions.rows.map((r) => [r[pkIndexOf(expressions.header, 'js_expression')] ?? '', r]));
+  const varNameByHash = new Map(variables.rows.map((r) => [r[pkIndexOf(variables.header, 'js_variable')] ?? '', r[col(variables, 'name')] ?? '']));
+  const methodAt = (line: number) => methods.rows.find((r) => Number(r[col(methods, 'startLine')]) === line && r[col(methods, 'methodKind')] !== 'MODULE_INITIALIZER');
+  const fieldAt = (line: number) => fields.rows.find((r) => Number(r[col(fields, 'startLine')]) === line);
+  // line, relation, expected name, expected key binding ('' for a literal key)
+  const want: Array<[number, 'method' | 'field', string, string]> = [
+    [4, 'method', '', 'kRun'], [5, 'method', 'tpl', ''], [6, 'method', 'lit', ''], [7, 'method', '42', ''],
+    [8, 'method', 'acc', ''], [9, 'field', '', 'kField'], [10, 'field', 'named', ''],
+    [12, 'method', '', 'kRun'], [14, 'method', '', 'kRun'],
+  ];
+  for (const [line, kind, name, key] of want) {
+    const rel = kind === 'method' ? methods : fields;
+    const row = kind === 'method' ? methodAt(line) : fieldAt(line);
+    if (!row) { failures += fail(`line ${line}: no ${kind} row`); continue; }
+    const got = row[col(rel, 'name')] ?? '';
+    if (got !== name) failures += fail(`line ${line}: name is '${got}', want '${name}'`);
+    const link = row[col(rel, 'computedNameExpressionLinkHash')] ?? '';
+    if (link === '') { failures += fail(`line ${line}: no computedNameExpressionLinkHash`); continue; }
+    const e = exprByHash.get(link);
+    if (!e) { failures += fail(`line ${line}: the key link names no js_expression row`); continue; }
+    // a declaration-form member roots its key under COMPUTED_NAME; a property of a
+    // prototype literal (`P.prototype = { [k]: f }`) carries the key as the literal's
+    // COMPUTED_KEY child, inside the assignment's own tree
+    const rooted = e[col(expressions, 'rootContext')] === 'COMPUTED_NAME' || e[col(expressions, 'edgeRole')] === 'COMPUTED_KEY';
+    if (!rooted) failures += fail(`line ${line}: the key expression is rooted ${e[col(expressions, 'rootContext')]} with edge role ${e[col(expressions, 'edgeRole')]}, want COMPUTED_NAME or COMPUTED_KEY`);
+    if (Number(e[col(expressions, 'startLine')]) !== line) failures += fail(`line ${line}: the key expression sits on line ${e[col(expressions, 'startLine')]}`);
+    if (key !== '') {
+      const bound = varNameByHash.get(e[col(expressions, 'resolvedBindingLinkHash')] ?? '') ?? '';
+      if (bound !== key) failures += fail(`line ${line}: the key resolves to '${bound}', want the const ${key}`);
+    }
+  }
+  // literal-key members on a line that also has a written-name sibling must not gain a link
+  const plain = methods.rows.filter((r) => (r[col(methods, 'computedNameExpressionLinkHash')] ?? '') !== '' && ![4, 5, 6, 7, 8, 12, 14].includes(Number(r[col(methods, 'startLine')])));
+  if (plain.length > 0) failures += fail(`${plain.length} method row(s) carry a key link without a computed name: lines ${plain.map((r) => r[col(methods, 'startLine')]).join(', ')}`);
   return failures;
 }
 
@@ -5639,6 +5719,8 @@ function linkColumnsMeanWhatTheyClaim(): number {
     'js_variable.declarationScopeLinkHash': 'the hoisting model holds',
     'js_variable.syntacticScopeLinkHash': 'the hoisting model holds',
     'js_package_entry.targetModuleLinkHash': 'package entries name what a package exposes',
+    'js_method.computedNameExpressionLinkHash': 'computed member names link their key',
+    'js_field.computedNameExpressionLinkHash': 'computed member names link their key',
   };
   const INTEGRITY_ONLY: Record<string, string> = {
     'js_*.ownerModuleLinkHash': 'same-module links only asserts membership; no finer meaning exists',
@@ -6653,6 +6735,7 @@ const CHECKS: Check[] = [
   { name: 'module-edge 1:1', proves: 'every module-edge expression is pointed at by exactly one import or export, so the second pass cannot double-mint', run: moduleEdgeOneToOne },
   { name: 'call-site 1:1', proves: 'one call site per call-like expression, and require() has none because it is a module edge', run: callSiteOneToOne },
   { name: 'package specifiers resolve under the site conditions', proves: "a require() of an exports-only package resolves to its `require` build and an ES import to its `import` build, a subpath export and a main-only package either way, so a dual package links to the build the runtime loads (#601)", run: packageSpecifiersResolveUnderTheSiteConditions },
+  { name: 'computed member names link their key', proves: "a member declared under a computed name links its key expression (rooted COMPUTED_NAME, bound to the key's const) and a literal key fills name, on class methods, a getter, class fields, object-literal and prototype-literal members (#598)", run: computedMemberNamesLinkTheirKey },
   { name: 'several roots produce one set', proves: 'overlapping discovered roots merge into one flat fact base with no file extracted twice — the failure the real entry point found and a single-root harness cannot', run: severalRootsProduceOneSet },
   { name: 'every empty column is intended', devOnly: true, proves: 'a column that is never populated is a gap, a reservation or a corpus property — and the allowlist says which, so one that stops being filled fails by name', run: everyEmptyColumnIsIntended },
   { name: 'link columns mean what they claim', proves: 'every populated FK is asserted for meaning — name, kind, structure or position — or is named as integrity-only with the reason, so no link can be populated, resolvable and wrong without a check that would have said so', run: linkColumnsMeanWhatTheyClaim },

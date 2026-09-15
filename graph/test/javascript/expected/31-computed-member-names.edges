@@ -1,0 +1,8 @@
+main.js:13:13 CONSTRUCTOR_CALL Queue  ->  implicit_constructor  -
+main.js:14:12 METHOD_CALL q.tpl  ->  known_edge  main.js:5:3 tpl
+main.js:14:21 COMPUTED_CALL q[42]  ->  known_edge  main.js:7:3 42
+main.js:14:3 METHOD_CALL q.lit  ->  known_edge  main.js:6:3 lit
+main.js:14:37 METHOD_CALL q.named  ->  known_edge  main.js:9:15 named
+main.js:15:3 METHOD_CALL o.olit  ->  known_edge  main.js:11:37 olit
+main.js:17:1 FUNCTION_CALL main  ->  known_edge  main.js:12:1 main
+main.js:2:14 FUNCTION_CALL Symbol  ->  ambient_terminal  -

@@ -24,14 +24,14 @@
 //   10 sourceExpressionLinkHash  11 startLine  12 ownerModuleLinkHash  13 isExternal
 //   14 serviceVersionLinkHash  15 jsTypeHeritageUniqueHash
 //
-// js_field / lib_js_field cols (23):
+// js_field / lib_js_field cols (24; c23 sits AFTER the primary key, appended):
 //   0 name  1 qualifiedName  2 ownerTypeLinkHash  3 declarationForm  4 isStatic
 //   5 isPrivateName  6 isReadonly  7 declaredTypeName  8 declaredTypeSource
 //   9 typeReferenceLinkHash  10 hasInitializer  11 initializerExpressionLinkHash
 //   12 accessorPairKind  13 getterMethodLinkHash  14 setterMethodLinkHash
 //   15 isComputedName  16 sourceExpressionLinkHash  17 startLine  18 startColumn
 //   19 ownerModuleLinkHash  20 isExternal  21 serviceVersionLinkHash
-//   22 jsFieldUniqueHash
+//   22 jsFieldUniqueHash  23 computedNameExpressionLinkHash
 // ============================================================================
 
 // ── type_decl(Prov, Name, Category, OwnerScope, OwnerModule, TypeHash) ──────
@@ -92,9 +92,9 @@ heritage_computed("lib", t, h) :- lib_js_type_heritage(t, _, _, _, _, "true", _,
 // on every measured row; the value is reached from the assignment expression that
 // DECLARES the field instead (`js_expression.declarationLinkHash` -> this row, its
 // ASSIGNMENT_VALUE child is the value). resolution/value-flow.dl does that join.
-field_decl("client", n, t, form, st, ie, se, h) :- js_field(n, _, t, form, st, _, _, _, _, _, _, ie, _, _, _, _, se, _, _, _, _, _, h).
-field_decl("lib", n, t, form, st, ie, se, h) :- lib_js_field(n, _, t, form, st, _, _, _, _, _, _, ie, _, _, _, _, se, _, _, _, _, _, h).
-field_accessor("client", n, t, getter, setter, h) :- js_field(n, _, t, _, _, _, _, _, _, _, _, _, _, getter, setter, _, _, _, _, _, _, _, h).
-field_accessor("lib", n, t, getter, setter, h) :- lib_js_field(n, _, t, _, _, _, _, _, _, _, _, _, _, getter, setter, _, _, _, _, _, _, _, h).
-field_type_name("client", n, t, tn, tr, h) :- js_field(n, _, t, _, _, _, _, tn, _, tr, _, _, _, _, _, _, _, _, _, _, _, _, h), tn != "".
-field_type_name("lib", n, t, tn, tr, h) :- lib_js_field(n, _, t, _, _, _, _, tn, _, tr, _, _, _, _, _, _, _, _, _, _, _, _, h), tn != "".
+field_decl("client", n, t, form, st, ie, se, h) :- js_field(n, _, t, form, st, _, _, _, _, _, _, ie, _, _, _, _, se, _, _, _, _, _, h, _).
+field_decl("lib", n, t, form, st, ie, se, h) :- lib_js_field(n, _, t, form, st, _, _, _, _, _, _, ie, _, _, _, _, se, _, _, _, _, _, h, _).
+field_accessor("client", n, t, getter, setter, h) :- js_field(n, _, t, _, _, _, _, _, _, _, _, _, _, getter, setter, _, _, _, _, _, _, _, h, _).
+field_accessor("lib", n, t, getter, setter, h) :- lib_js_field(n, _, t, _, _, _, _, _, _, _, _, _, _, getter, setter, _, _, _, _, _, _, _, h, _).
+field_type_name("client", n, t, tn, tr, h) :- js_field(n, _, t, _, _, _, _, tn, _, tr, _, _, _, _, _, _, _, _, _, _, _, _, h, _), tn != "".
+field_type_name("lib", n, t, tn, tr, h) :- lib_js_field(n, _, t, _, _, _, _, tn, _, tr, _, _, _, _, _, _, _, _, _, _, _, _, h, _), tn != "".
