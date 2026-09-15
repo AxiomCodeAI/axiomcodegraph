@@ -188,7 +188,7 @@
 .decl type_ref_type(c0:symbol, c1:symbol)
 .decl type_ref_module(c0:symbol, c1:symbol)
 .decl type_ref_shape(c0:symbol, c1:symbol)
-.decl type_ref_kind_names_import(c0:symbol)
+.decl type_ref_names(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol)
 .decl type_ref_kind_is_wrapper(c0:symbol)
 .decl type_ref_unresolved(c0:symbol, c1:symbol)
 
