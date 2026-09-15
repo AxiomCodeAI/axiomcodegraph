@@ -123,6 +123,12 @@ def resolve(sel, kinds=None, in_=None):
     def filt(rows):
         if sig: rows = [r for r in rows if r['signature'] and sig in re.sub(r'\s+', '', r['signature'])] or rows
         return dedupe(rows)
+    # 0. "the constructor of X": X.<constructor> · X.<init> · X.__init__ · X.constructor · new X — every language names it differently
+    m = re.match(r'^(?:new\s+(.+)|(.+)\.(?:<constructor>|<init>|<new>|__init__|constructor))$', sel)
+    if m:
+        owner = (m.group(1) or m.group(2)).strip()
+        rows = sym("kind = 'constructor' AND (owner = ? OR owner LIKE ?)", [owner, f"%.{owner}"], None, in_)
+        if rows: return filt(rows), f"constructor of {owner}"
     # 1. the parser's own spelling
     rows = sym("qualified_name = ?", [sel], kinds, in_)
     if rows: return filt(rows), 'qualified name'
@@ -244,6 +250,11 @@ def node_card(r):
         who = q("""SELECT cr.display AS caller, count(*) AS n FROM call_edges e JOIN methods me ON me.id=e.callee_method_id JOIN symbols cr ON cr.id=e.caller_id
                    WHERE me.owner_type_id=? AND e.callee_provenance='client' AND cr.type_id IS NULL GROUP BY cr.id ORDER BY n DESC LIMIT 8""", r['type_id'])
         if who: say("  used by: " + ', '.join(f"{w['caller']} ({w['n']})" for w in who))
+        # Java: a call written in a field initializer or a static block has the TYPE as its caller
+        init = q("SELECT callee, written, line, tier FROM callees WHERE caller_id=? ORDER BY line", r['type_id'])
+        if init:
+            res_ = [e for e in init if e['callee']]; unr_ = [e for e in init if not e['callee']]
+            say(f"  → its field/static initializers call ({len(res_)} resolved, {len(unr_)} unresolved): " + ', '.join(f"L{e['line']} {e['callee']}" for e in res_[:12]) + (f"; UNRESOLVED: " + ', '.join(f"L{e['line']} {e['written'] or '?'}" for e in unr_[:8]) if unr_ else ''))
         say(f"  next: axiomcode search {r['display']}.<member>"); say(); return
     m = r['method_id']
     # an overload set (TypeScript signatures + implementation, Java overloads by arity) is ONE node to an agent:
@@ -354,7 +365,8 @@ def v_search():
             infile = q("SELECT count(*) n FROM symbols WHERE file = ? OR file LIKE ?", f, f"%/{f}")[0]['n']
             say(f"no declaration spans {f}:{ln}" + (" — the file is in the graph (top-level code?)" if infile else f" — the file is not in the {LANG} graph")); skipped_note(os.path.basename(f)); return
         say(f"{f}:{ln} is inside:"); set_body(opt.get('body', 'yes') != 'no'); node_card(rows[0]); return
-    is_words = ' ' in text and not re.match(r'^[\w.$#:/()<>,\[\]-]+$', text)
+    bare = re.sub(r'<[^>]*>', '<>', text)                                                      # `Outer.<anon Runnable>.run` is a name, not words
+    is_words = ' ' in bare and not re.match(r'^[\w.$#:/()<>,\[\]-]+$', bare)
     if not is_words:
         rows, how = resolve(text, None, IN)
         nodes = [r for r in rows if r['method_id'] or r['type_id']]; others = [r for r in rows if not (r['method_id'] or r['type_id'])]

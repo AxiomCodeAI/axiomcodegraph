@@ -243,11 +243,13 @@ CREATE VIEW callers AS
   SELECT ce.display AS callee, cr.display AS caller, cr.file, s.start_line AS line, e.tier, e.kind, cr.id AS caller_id, ce.method_id AS callee_id
   FROM call_edges e JOIN symbols ce ON ce.method_id = e.callee_method_id JOIN symbols cr ON cr.id = e.caller_id
   LEFT JOIN call_sites s ON s.id = e.call_site_id;
--- what a method calls; an unresolved site keeps its written name and a NULL callee
+-- what a method calls; a LIBRARY target has a methods row but no symbols row (symbols are client declarations), so it
+-- is named from methods; an unresolved site keeps its written name and a NULL callee
 CREATE VIEW callees AS
-  SELECT cr.display AS caller, COALESCE(ce.display, e.callee_label) AS callee, s.callee_name AS written, COALESCE(ce.file, '') AS file,
+  SELECT cr.display AS caller, COALESCE(ce.display, lm.qualified_name, e.callee_label) AS callee, s.callee_name AS written, COALESCE(ce.file, '') AS file,
          s.start_line AS line, e.tier, e.callee_provenance AS provenance, cr.id AS caller_id, ce.method_id AS callee_id
   FROM call_edges e JOIN symbols cr ON cr.id = e.caller_id LEFT JOIN symbols ce ON ce.method_id = e.callee_method_id
+  LEFT JOIN methods lm ON lm.id = e.callee_method_id AND lm.provenance <> 'client'
   LEFT JOIN call_sites s ON s.id = e.call_site_id;
 -- where a body is: what to read
 CREATE VIEW source AS SELECT display, qualified_name, name, kind, file, line, end_line, end_line - line + 1 AS lines FROM symbols WHERE method_id IS NOT NULL;
