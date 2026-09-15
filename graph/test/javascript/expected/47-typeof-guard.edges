@@ -1,0 +1,18 @@
+main.js:12:13 METHOD_CALL paths.split  ->  ambient_terminal  -
+main.js:16:61 METHOD_CALL n.toFixed  ->  ambient_terminal  -
+main.js:18:36 METHOD_CALL val.map  ->  ambient_terminal  -
+main.js:18:36 METHOD_CALL val.map  ->  callback_registered  main.js:18:44 <arrow>
+main.js:18:7 METHOD_CALL Array.isArray  ->  ambient_terminal  -
+main.js:19:10 METHOD_CALL Array.isArray  ->  ambient_terminal  -
+main.js:19:31 METHOD_CALL val.slice  ->  ambient_terminal  -
+main.js:24:39 METHOD_CALL q.trim  ->  ambient_terminal  -
+main.js:25:10 METHOD_CALL q.exec  ->  known_edge  main.js:4:42 exec
+main.js:28:39 METHOD_CALL q.exec  ->  known_edge  main.js:4:42 exec
+main.js:31:18 FUNCTION_CALL viaPolymorphic  ->  known_edge  main.js:23:1 viaPolymorphic
+main.js:31:33 CONSTRUCTOR_CALL Query  ->  implicit_constructor  -
+main.js:31:47 FUNCTION_CALL viaNegated  ->  known_edge  main.js:27:1 viaNegated
+main.js:31:58 CONSTRUCTOR_CALL Query  ->  implicit_constructor  -
+main.js:6:63 METHOD_CALL path.split  ->  ambient_terminal  -
+main.js:8:10 METHOD_CALL items.filter  ->  ambiguous_unknown  -
+main.js:8:10 METHOD_CALL items.filter  ->  callback_registered  main.js:8:23 <arrow>
+main.js:8:69 METHOD_CALL p.startsWith  ->  ambient_terminal  -

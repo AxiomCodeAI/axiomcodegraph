@@ -24,3 +24,14 @@
 // EXPRESSION of a `for..in` / `for..of`; empty for the block forms without one.
 block_condition("client", k, c, h) :- js_block(k, _, _, _, _, _, _, c, _, _, _, _, _, _, _, _, h), c != "".
 block_condition("lib", k, c, h) :- lib_js_block(k, _, _, _, _, _, _, c, _, _, _, _, _, _, _, _, h), c != "".
+
+// ── block_child(Parent, Kind, ChildIndex, BlockHash) ────────────────────────
+// An `if`'s body is its child BLOCK at index 0; an `else` or `else if` sits at 1.
+block_child("client", p, k, idx, h) :- js_block(k, _, p, _, idx, _, _, _, _, _, _, _, _, _, _, _, h), p != "".
+block_child("lib", p, k, idx, h) :- lib_js_block(k, _, p, _, idx, _, _, _, _, _, _, _, _, _, _, _, h), p != "".
+
+// ── block_span(Prov, OwnerModule, StartLine, StartCol, EndLine, EndCol, BlockHash) ──
+// A block opens no scope of its own unless it declares something, so the span is
+// the one handle on "the expressions inside this block" (#701).
+block_span("client", mod, l1, c1, l2, c2, h) :- js_block(_, _, _, _, _, _, _, _, _, mod, l1, c1, l2, c2, _, _, h).
+block_span("lib", mod, l1, c1, l2, c2, h) :- lib_js_block(_, _, _, _, _, _, _, _, _, mod, l1, c1, l2, c2, _, _, h).
