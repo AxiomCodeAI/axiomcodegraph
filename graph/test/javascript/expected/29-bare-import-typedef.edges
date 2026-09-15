@@ -1,0 +1,6 @@
+main.js:11:30 METHOD_CALL m.identifier  ->  known_edge  Module.js:1:16 identifier
+main.js:13:33 METHOD_CALL m.identifier  ->  known_edge  Module.js:1:16 identifier
+main.js:15:32 METHOD_CALL m.identifier  ->  known_edge  Module.js:1:16 identifier
+main.js:17:35 METHOD_CALL rt.basicFunction  ->  known_edge  RuntimeTemplate.js:1:25 basicFunction
+main.js:19:33 METHOD_CALL s.run  ->  known_edge  surface.js:3:15 run
+main.js:23:32 METHOD_CALL w.render  ->  known_edge  esm.mjs:1:23 render
