@@ -1,0 +1,11 @@
+main.js:11:13 CONSTRUCTOR_CALL Sub  SYNTHESIZED_OK  
+main.js:12:3 METHOD_CALL clone  EXACT  main.js:3:3
+main.js:13:3 METHOD_CALL build  EXACT  main.js:6:3
+main.js:13:3 METHOD_CALL run  SOUND_SUPERSET  main.js:5:3;main.js:8:26
+main.js:14:3 CONSTRUCTOR_CALL Base  SYNTHESIZED_OK  
+main.js:14:3 METHOD_CALL make  EXACT  main.js:4:3
+main.js:16:1 FUNCTION_CALL main  EXACT  main.js:10:1
+main.js:3:20 CONSTRUCTOR_CALL constructor  SYNTHESIZED_OK  
+main.js:4:19 CONSTRUCTOR_CALL constructor  SYNTHESIZED_OK  
+main.js:6:27 CONSTRUCTOR_CALL   SYNTHESIZED_OK  
+# defects: 0
