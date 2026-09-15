@@ -918,7 +918,7 @@ export class JsDeclarationExtractor {
           member.initializer as ts.FunctionLikeDeclaration, context,
           JsMethodKind.CLASS_METHOD, JsHoisting.NOT_APPLICABLE,
           JsMethodDeclarationForm.SYNTACTIC, undefined,
-          ts.isComputedPropertyName(member.name) ? '' : propertyNameText(member.name),
+          propertyNameText(member.name),
           // NO assignedOwner: the owner resolves through `context.ownerType`,
           // which is this class, and passing it explicitly would ALSO increment
           // `declaredMemberCount` — which already counted this member as part of
@@ -928,7 +928,8 @@ export class JsDeclarationExtractor {
           // members discovered by assignment OUTSIDE the class body, which are
           // not in `node.members` and genuinely need counting.
           undefined,
-          hasModifier(member, ts.SyntaxKind.StaticKeyword)
+          hasModifier(member, ts.SyntaxKind.StaticKeyword),
+          ts.isComputedPropertyName(member.name) ? member.name : undefined
         );
       } else if (member.initializer !== undefined) {
         // A field initializer that is NOT itself a callable can still CONTAIN
@@ -966,7 +967,13 @@ export class JsDeclarationExtractor {
     /** For an assignment-declared method, the name it was given. */
     assignedName?: string,
     assignedOwner?: JsTypeRegistry,
-    isStaticMember?: boolean
+    isStaticMember?: boolean,
+    /**
+     * The KEY of a member declared under a computed name whose callable is not the
+     * member node itself (`{ [k]: function () {} }`, `[k] = () => {}`); a method
+     * node carries its own `name`.
+     */
+    computedKey?: ts.ComputedPropertyName
   ): JsMethodRegistry {
     // CONSUMED. This callable and everything inside it is handled here, so the
     // generic descent must not reach it again — see {@link consumedNodes}.
@@ -1030,6 +1037,21 @@ export class JsDeclarationExtractor {
     this.methodNodeByIdentity.set(nodeKey(node), node);
     if (assignedOwner !== undefined) {
       this.countMember(assignedOwner);
+    }
+    // A member declared under a computed name links its KEY expression (#598): the
+    // engine joins the value the key holds (a symbol, a string) to the member, which
+    // `name` alone cannot carry. The expression row exists only after the expression
+    // pass, so the link closes with the others.
+    const key = computedKey
+      ?? (!ts.isClassStaticBlockDeclaration(node) && node.name !== undefined && ts.isComputedPropertyName(node.name)
+        ? node.name : undefined);
+    if (key !== undefined) {
+      this.pendingExpressionLinks.push({
+        nodeIdentity: nodeKey(key.expression),
+        link: (hash) => {
+          row.setComputedNameExpressionLinkHash(hash);
+        },
+      });
     }
 
     if (sourceNode !== undefined) {
@@ -1142,9 +1164,10 @@ export class JsDeclarationExtractor {
     if (ts.isPrivateIdentifier(name)) {
       return name.text;
     }
-    // A computed member name. Syntax does not fix it, so the row says so rather
-    // than guessing — 715 computed member names were measured.
-    return '';
+    // A computed member name: `['lit']() {}` and `` [`tpl`]() {} `` are fixed by syntax
+    // and named; `[kRun]() {}` is not, so the row says so rather than guessing (715
+    // computed member names were measured) and links the key instead (#598).
+    return staticComputedNameText(name);
   }
 
   private emitParameter(
@@ -1235,7 +1258,7 @@ export class JsDeclarationExtractor {
     const at = this.positionOf(member);
     const fieldType = declaredTypeFromJsDoc(member, this.sourceFile, 'type');
     const computed = ts.isComputedPropertyName(member.name);
-    const name = computed ? '' : propertyNameText(member.name);
+    const name = propertyNameText(member.name);
     const row = new JsFieldRegistry({
       name,
       qualifiedName: `${context.ownerType.qualifiedName}.${name}`,
@@ -1257,6 +1280,15 @@ export class JsDeclarationExtractor {
     });
     this.fields.push(row);
     this.fieldHashByNode.set(nodeKey(member), row.getHash());
+    if (computed) {
+      // the KEY of `[k] = v` (#598), closed with the other expression links
+      this.pendingExpressionLinks.push({
+        nodeIdentity: nodeKey(member.name.expression),
+        link: (hash) => {
+          row.setComputedNameExpressionLinkHash(hash);
+        },
+      });
+    }
     if (fieldType.source !== JsDeclaredTypeSource.NONE) {
       this.pendingTypeReferences.push({
         node: member,
@@ -1397,7 +1429,7 @@ export class JsDeclarationExtractor {
     if (context.ownerType === undefined) {
       return;
     }
-    const name = ts.isComputedPropertyName(member.name) ? '' : propertyNameText(member.name);
+    const name = propertyNameText(member.name);
     // THE PAIRING KEY, and both of its discriminators were missing.
     //
     // It was `ownerHash:name`. Two defects in one key, and the measured one is
@@ -1418,7 +1450,9 @@ export class JsDeclarationExtractor {
     // INDEX_CALL is reserved. So a computed accessor keys on its own BYTE RANGE
     // and therefore pairs with nothing, which loses a pairing that was never
     // knowable and prevents inventing one that is wrong.
-    const discriminator = ts.isComputedPropertyName(member.name)
+    // A computed key that is itself a literal (`get ['x']()`) is a static name and pairs
+    // by it, like a written one.
+    const discriminator = ts.isComputedPropertyName(member.name) && name === ''
       ? `computed@${member.getStart(this.sourceFile)}:${member.getEnd()}`
       : `${name}:${hasModifier(member, ts.SyntaxKind.StaticKeyword)}`;
     const key = `${context.ownerType.getHash()}:${discriminator}`;
@@ -1648,14 +1682,14 @@ export class JsDeclarationExtractor {
         continue;
       }
       if (ts.isPropertyAssignment(property)) {
-        const name = ts.isComputedPropertyName(property.name)
-          ? '' : propertyNameText(property.name);
+        const name = propertyNameText(property.name);
         if (isCallableExpression(property.initializer)) {
           this.visitFunctionLike(
             property.initializer as ts.FunctionLikeDeclaration, context,
             JsMethodKind.CLASS_METHOD,
             JsHoisting.NOT_HOISTED, JsMethodDeclarationForm.PROTOTYPE_OBJECT_LITERAL,
-            assignment, name, owner, false);
+            assignment, name, owner, false,
+            ts.isComputedPropertyName(property.name) ? property.name : undefined);
           continue;
         }
         this.emitAssignedField({
@@ -2999,6 +3033,26 @@ function propertyNameText(name: ts.PropertyName | undefined): string {
   if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)
     || ts.isPrivateIdentifier(name)) {
     return name.text;
+  }
+  return staticComputedNameText(name);
+}
+
+/**
+ * The name a computed key fixes by syntax alone: `['lit']`, `[42]`, `` [`tpl`] `` (a
+ * template with no substitution). Anything else (`[kRun]`, `['a' + b]`) is decided at
+ * runtime and is `''` here; the member then carries the key expression instead (#598).
+ */
+function staticComputedNameText(name: ts.PropertyName): string {
+  if (!ts.isComputedPropertyName(name)) {
+    return '';
+  }
+  let expression: ts.Expression = name.expression;
+  while (ts.isParenthesizedExpression(expression)) {
+    expression = expression.expression;
+  }
+  if (ts.isStringLiteral(expression) || ts.isNumericLiteral(expression)
+    || ts.isNoSubstitutionTemplateLiteral(expression)) {
+    return expression.text;
   }
   return '';
 }
