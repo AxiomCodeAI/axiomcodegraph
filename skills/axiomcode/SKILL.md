@@ -1,6 +1,6 @@
 ---
 name: axiomcode
-description: Find code and reason about change impact in a Java, TypeScript, Python or JavaScript codebase with AxiomCode's type-resolved call graph instead of grep — where a name is declared or used, who calls what, what a change affects, which tests reach it, where the engine could not resolve a call. Ten verbs, names written the way they appear in the issue, no schema to learn. In a gated run, reading and editing unlock only after the graph has named the file.
+description: Find code and reason about change impact in a Java, TypeScript, Python or JavaScript codebase with AxiomCode's type-resolved call graph instead of grep — where a name is declared or used, who calls what, what a change affects, which tests reach it, where the engine could not resolve a call. Two verbs — search and impact — names written the way they appear in the issue, no schema to learn. In a gated run, reading and editing unlock only after the graph has named the file.
 ---
 
 # axiomcode — ask the graph in the words of the question
@@ -12,22 +12,24 @@ could not resolve a call it says so, and every verb below carries that with the 
 All tools live in `scripts/` next to this file; run them via Bash from the repository root.
 
 ```
-axiomcode-build .                       build or refresh .axiomcode/out/graph.sqlite (+ index). Always first.
+axiomcode-build .                             build or refresh .axiomcode/out/graph.sqlite (+ index). Always first.
 
-axiomcode explore <name>                      THE HOP: node + callers + callees (resolved · library · unresolved) + dispatch + tests, one call
-axiomcode search  "<words from the issue>"      no name yet: candidates ranked by name, comment and literal hits
-axiomcode find    <name> [in=<path>] [kind=fn|method|class|const|field|enum|type]   where it is declared
-axiomcode uses    <name> [in=<path>]          every reference, string literal and comment — your grep
-axiomcode show    <name | file:a-b> …         the body, numbered; several per call
-axiomcode callers <name> [depth=N]            who calls it, with the tier of every edge; depth>1 is transitive
-axiomcode callees <name> [depth=N]            what it calls: resolved · library · UNRESOLVED (the blind spots)
-axiomcode path    from=<name> to=<name>       a resolved call path between two functions
-axiomcode impact  <name> [depth=N]            blast radius + dispatch siblings + tests reaching + unresolved inside
-axiomcode type    <T>                         members, ancestors, subtypes, code that calls methods of T
-axiomcode at      <file>:<line>               the method containing a location (a diff hunk, a stack frame)
-axiomcode sql     "<SELECT>"                  over the views symbols · callers · callees · source
-axiomcode-brief   .axiomcode <issue-file>     an issue → ranked starting set with real edges
+axiomcode search <anything> [in=<path>]       a name (bar · Foo.bar · Outer.Inner.bar · file.ts:bar · m(int,String)),
+                                              words from the issue, an error message in quotes, or file:line.
+                                              → the matching nodes, each with one hop in every direction: who calls it,
+                                                what it calls (resolved · library · UNRESOLVED), dispatch, tests reaching it.
+                                              A constant / flag / message → where it is declared and every mention.
+                                              A miss → the nearest names. Never empty. The next call is
+                                              `search <a name from the output>`: that is how you walk the graph.
+axiomcode impact <name> [depth=N] [to=<name>] what changing it touches: callers to N hops (default 3) and the files
+                                              they live in, the dispatch envelope, every test that reaches it (searched
+                                              to 12 hops), the unresolved sites that bound the claim, entry reachability,
+                                              and with to= whether a resolved path connects the two and through what.
+axiomcode-brief .axiomcode <issue-file>       an issue → ranked starting set with real edges
 ```
+
+Two verbs on purpose. Everything else an agent used to do with the graph — find, uses, callers, callees, path, type,
+at — is a mode of one of these, chosen by the shape of the input, so there is no schema and no verb to pick.
 
 **Names are written as they appear in the code or the issue**, in every language: `bar`, `Foo.bar`,
 `Outer.Inner.bar`, `type=Foo method=bar`, `pkg.Foo.bar`, `m(int,String)`. You never need the parser's
@@ -39,14 +41,11 @@ references, literals and comments for the same word.
 ## The procedure
 
 1. `axiomcode-build .` — quote the resolved / unresolved counts it prints.
-2. **Anchor** every identifier, type, error message or `file#Lnn` in the question:
-   `axiomcode find <name>` (a declaration), `axiomcode uses <string>` (a message or a flag),
-   `axiomcode at <file>:<line>` (a hunk or a frame). Two or three names per issue; run them in one turn.
-3. **Traverse**, not read: `explore <name>` is one hop in every direction in one call; walk it node to node.
-   `callers … depth=3`,
-   `path from= to=`, `impact` for anything further. Ask the graph "what connects A to B" instead of
-   scrolling for it.
-4. **Bound the claim**: `impact` and `callees` list the unresolved sites. An unresolved site is
+2. **Anchor** with `axiomcode search`: the issue title as words, then each identifier, message or
+   `file:line` it quotes — two or three calls, in one turn. Each result is a node with its neighbourhood.
+3. **Traverse**, not read: `search <a name from the last output>` is one hop; walk node to node.
+   `impact <name>` for the transitive question, `impact <a> to=<b>` for "what connects A to B".
+4. **Bound the claim**: `search` and `impact` list the unresolved sites. An unresolved site is
    *unknown, not absent* — a "nothing else is affected" claim is a lower bound when any are present.
 5. **Read only what the graph pointed at**: `axiomcode show <name>` for bodies (several per call),
    Read for the exact `file:line` ranges it returned.
@@ -55,13 +54,13 @@ references, literals and comments for the same word.
 
 ## Rules
 
-- `axiomcode find` / `uses` before grep for any name; `uses` is grep over what the parser saw.
+- `axiomcode search` before grep for any name; its mentions mode is grep over what the parser saw.
 - Never call a name match an edge. Tiers: `known_edge` one target · `multi_inferred` a sound set ·
   `boundary_lib` leaves the client · `ambiguous_*` a declared unknown — say which.
-- Transitive claims ("nothing reaches X", "X cannot affect Y") come from `callers depth=`, `path`
-  or `impact`, never from reading, and are lower bounds when unresolved sites are reported.
-- `sql` is the escape hatch, only over the documented views; if a question needs it, the verb that
-  should have answered it is a bug — note it.
+- Transitive claims ("nothing reaches X", "X cannot affect Y") come from `impact`, never from
+  reading, and are lower bounds when unresolved sites are reported.
+- If a question cannot be asked with these two verbs, that is a bug in the skill — note it in the
+  report rather than working around it.
 
 ## What the environment enforces (in a gated run)
 

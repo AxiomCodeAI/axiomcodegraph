@@ -1,25 +1,24 @@
 #!/usr/bin/env python3
-"""axiomcode <verb> <name> [k=v …]  — ask the AxiomCode graph in the words of the question.
+"""axiomcode search | impact  — the two questions an agent asks a call graph.
 
-  search  "<words from the issue>" [in=<path>]   no name yet: candidates ranked by name, comment and literal hits
-  explore <name> [in=<path>]           THE HOP: the node, who calls it, what it calls (resolved · library · unresolved),
-                                       dispatch siblings, tests reaching it — one call per step of a traversal
-  find    <name> [in=<path>] [kind=fn|method|class|const|field|enum|type|any]   where is it declared
-  uses    <name> [in=<path>]           every reference, string literal and comment that mentions it (the grep replacement)
-  show    <name | file:a-b | file:n> … the body, numbered; several per call
-  callers <name> [depth=N]             who calls it (depth>1: transitively), with the tier of every edge
-  callees <name> [depth=N]             what it calls: resolved, library, and the sites the engine could not resolve
-  path    from=<name> to=<name> [depth=N]   a resolved call path between two functions, and the methods on it
-  impact  <name> [depth=N]             what a change touches: blast radius, dispatch siblings, tests reaching, unresolved inside
-  type    <T>                          members, ancestors, subtypes, and the code that calls methods on T
-  at      <file>:<line>                the method (and type) containing a location
-  sql     "<SELECT>"                   over the views  symbols · callers · callees · source  (LIMIT 60 applied)
+  axiomcode search <anything> [in=<path>]
+      <anything> = a name (bar, Foo.bar, Outer.Inner.bar, file.ts:bar, m(int,String)), words from an
+      issue ("overload signatures group key"), an error message or flag in quotes, or file:line.
+      Returns the matching NODES, each with its one-hop neighbourhood: who calls it, what it calls
+      (resolved · library · UNRESOLVED), dispatch siblings, tests reaching it — so the next call is
+      `search <a name from the output>` and you walk the graph. A name that is not a declaration
+      falls through to references / literals / comments (grep over what the parser saw), and a miss
+      lists the nearest names. Never empty.
 
-A <name> is written the way it appears in the code or the issue — bar, Foo.bar, Outer.Inner.bar,
-type=Foo method=bar, pkg.Foo.bar, file.ts:bar, m(int,String), path/file.ts:123 — in every language. When several
-declarations share a name, the most connected one (callers + callees) is listed first and tests last.
-Every row carries a repo-relative file:line; every edge carries its tier. Nothing here returns empty
-without saying what was tried and what is nearest.
+  axiomcode impact <name> [depth=N] [to=<name>]
+      What changing <name> touches: transitive callers to depth N (default 3) with the tests among
+      them, the dispatch envelope (what may run instead / what it overrides), the unresolved call
+      sites that bound the claim, entry reachability, and — with to= — whether a resolved path
+      connects <name> to <to> and through what.
+
+Every row carries a repo-relative file:line; every edge carries its tier; every printed path is
+logged, which is what unlocks Read/Edit under the gate. Options: in=<path-substring> narrows,
+depth=N, limit=N rows (default 60).
 """
 import os as _os, sys as _sys, subprocess as _sp
 if not _os.environ.get("AXIOMCODE_LOGGED"):   # every printed path is logged: that is what unlocks Read/Edit under the gate
@@ -212,301 +211,218 @@ def symof(i):
 def unresolved_in(i): return q("SELECT count(*) AS n FROM unresolved_sites WHERE caller_id = ?", i)[0]['n']
 def has(t): return bool(q("SELECT 1 FROM sqlite_master WHERE name=?", t))
 
-# ── verbs ────────────────────────────────────────────────────────────────────────────────────────
-def v_find():
-    sel = selector()
-    if not sel: say("usage: axiomcode find <name> [in=<path>] [kind=fn|method|class|const|field|enum|type|any]"); return
-    kinds = KINDS.get(opt.get('kind', 'any'), None)
-    rows, how = resolve(sel, kinds, IN)
-    if rows:
-        say(f"declarations for '{sel}' ({how}): {len(rows)}" + (f" in *{IN}*" if IN else '') + (f" kind={opt['kind']}" if opt.get('kind') else ''))
-        for r in rows[:MAXROWS]: row(fmt(r, sig=len(rows) > 1 and LANG == 'java'))
-        if how.startswith('nearest'): say(f"  (no declaration named '{sel}'; these share its words)"); v_uses(sel.split('.')[-1], quiet=True)
-        return
-    say(f"nothing declared as '{sel}' in the {LANG} graph"); skipped_note(sel.split('.')[-1])
-    v_uses(sel.split('.')[-1], quiet=True)
+# ── the two surfaces ─────────────────────────────────────────────────────────────────────────────
+def dispatch_of(m):
+    sib = []
+    if has('dispatch_candidates'):
+        sib += [(symof(x['candidate_method_id']), f"may run instead ({x['basis']})") for x in q("SELECT candidate_method_id, basis FROM dispatch_candidates WHERE base_method_id=?", m)]
+        sib += [(symof(x['base_method_id']), f"overrides ({x['basis']})") for x in q("SELECT base_method_id, basis FROM dispatch_candidates WHERE candidate_method_id=?", m)]
+    if not sib and has('overrides'):
+        sib += [(symof(x['overriding_method_id']), "may run instead (override)") for x in q("SELECT overriding_method_id FROM overrides WHERE method_id=?", m)]
+        sib += [(symof(x['method_id']), "overrides") for x in q("SELECT method_id FROM overrides WHERE overriding_method_id=?", m)]
+    return [(x, w) for x, w in sib if x]
 
-def v_uses(name=None, quiet=False):
-    name = (name or selector()).strip('"\'')
-    if not name: say("usage: axiomcode uses <name> [in=<path>]"); return
-    last = name.split('.')[-1].split('#')[-1]
+def skipped_note(name):
+    for h in q("SELECT file, reason FROM skipped WHERE file LIKE ? LIMIT 3", f"%{name}%"): say(f"  note: {h['file']} exists but was not indexed in this {LANG} graph ({h['reason'] or 'skipped'})")
+
+def node_card(r):
+    """a node and one hop in every direction — what search prints per match; one traversal step"""
+    if r['type_id'] and not r['method_id']:
+        say(f"{r['kind']} {r['display']}   {loc(r)}" + ("  [test]" if r['is_test'] else ''))
+        mem = q("SELECT kind, name, line FROM symbols WHERE owner=? ORDER BY line", r['display'])
+        if mem: say("  members: " + ', '.join(f"{m['name']}" + ('()' if m['kind'] in CALLABLE else '') for m in mem[:30]) + (f" … +{len(mem)-30}" if len(mem) > 30 else ''))
+        anc = q("SELECT s.display FROM type_ancestors a JOIN symbols s ON s.type_id=a.ancestor_type_id WHERE a.type_id=?", r['type_id'])
+        ancx = q("SELECT ty.qualified_name AS display FROM type_ancestors a JOIN types ty ON ty.id=a.ancestor_type_id WHERE a.type_id=? AND ty.provenance<>'client'", r['type_id'])
+        if anc or ancx: say("  extends: " + ', '.join([x['display'] for x in anc] + [x['display'] + ' (library)' for x in ancx]))
+        sub = q("SELECT s.display FROM type_ancestors a JOIN symbols s ON s.type_id=a.type_id WHERE a.ancestor_type_id=? ORDER BY s.is_test, s.display", r['type_id'])
+        if sub: say(f"  subtypes ({len(sub)}): " + ', '.join(x['display'] for x in sub[:15]) + (' …' if len(sub) > 15 else ''))
+        who = q("""SELECT cr.display AS caller, count(*) AS n FROM call_edges e JOIN methods me ON me.id=e.callee_method_id JOIN symbols cr ON cr.id=e.caller_id
+                   WHERE me.owner_type_id=? AND e.callee_provenance='client' AND cr.type_id IS NULL GROUP BY cr.id ORDER BY n DESC LIMIT 8""", r['type_id'])
+        if who: say("  used by: " + ', '.join(f"{w['caller']} ({w['n']})" for w in who))
+        say(f"  next: axiomcode search {r['display']}.<member>"); say(); return
+    m = r['method_id']
+    say(f"{r['kind']} {r['display']}" + (f" {r['signature']}" if r['signature'] and LANG == 'java' else '') + f"   {loc(r)}" + (f"   in {r['owner']}" if r['owner'] else '') + ("  [test]" if r['is_test'] else ''))
+    up = q("SELECT caller, file, line, tier FROM callers WHERE callee_id=? ORDER BY file, line", m)
+    byc = collections.OrderedDict()
+    for e in up: byc.setdefault(e['caller'], []).append(e)
+    say(f"  ← called by ({len(up)} sites, {len(byc)} callers):")
+    for c, es in list(byc.items())[:12]: row(f"      {c}   {es[0]['file']}:{','.join(str(e['line']) for e in es[:4])}   {es[0]['tier']}")
+    if len(byc) > 12: say(f"      … +{len(byc)-12} (axiomcode impact {r['display']} depth=1)")
+    if not up:
+        ep = q("SELECT reason FROM entry_points WHERE method_id=?", m) if has('entry_points') else []
+        say("      none resolved" + (" — ENTRY POINT: " + ', '.join(x['reason'] for x in ep) if ep else (" (a lower bound: the graph has unresolved sites)" if q("SELECT 1 FROM unresolved_sites LIMIT 1") else '')))
+    dn = q("SELECT callee, written, file, line, tier, callee_id FROM callees WHERE caller_id=? ORDER BY line", m)
+    res = [e for e in dn if e['callee_id']]; lib = [e for e in dn if not e['callee_id'] and e['callee']]; unr = [e for e in dn if not e['callee_id'] and not e['callee']]
+    seen = collections.OrderedDict()
+    for e in res: seen.setdefault(e['callee'], e)
+    say(f"  → calls ({len(seen)} client targets, {len(lib)} library, {len(unr)} unresolved):")
+    for c, e in list(seen.items())[:14]: row(f"      L{e['line']}  {c}   {e['file']}   {e['tier']}")
+    if len(seen) > 14: say(f"      … +{len(seen)-14}")
+    if lib: say("      library: " + ', '.join(sorted({e['callee'] for e in lib})[:8]))
+    if unr:
+        say("      UNRESOLVED (unknown, not absent): " + ', '.join(f"L{e['line']} {e['written'] or '?'}" for e in unr[:8]) + (f" … +{len(unr)-8}" if len(unr) > 8 else ''))
+        # the graph stops here; a by-name lookup lets the agent keep walking, labelled as what it is
+        for w in list(collections.OrderedDict.fromkeys(e['written'] for e in unr if e['written']))[:5]:
+            cands = q("SELECT display, file, line FROM symbols WHERE name=? AND method_id IS NOT NULL AND is_test=0 ORDER BY file LIMIT 4", w)
+            if cands: say(f"        {w}: NOT an edge — client declarations with that name: " + ', '.join(f"{c['display']} ({c['file']}:{c['line']})" for c in cands))
+    sib = dispatch_of(m)
+    if sib: say("  ⇄ dispatch (may run instead / overrides): " + ', '.join(x['display'] for x, _ in sib[:8]))
+    t = reach([m], edges_up(), 3); tests = [symof(i) for i, (d, _) in t.items() if d > 0 and symof(i) and symof(i)['is_test']]
+    say(f"  ✓ tests reaching it within 3 hops: {len(tests)}" + (" — " + ', '.join(x['display'] for x in tests[:5]) + (' …' if len(tests) > 5 else '') if tests else ''))
+    say(f"  next: axiomcode search <a name above>   ·   axiomcode impact {r['display']}")
+    say()
+
+def uses_of(last, quiet=False):
+    """references, literals, comments — grep over what the parser saw"""
     if META.get('ir_present') != 'true':
-        say(f"(references were not indexed: the parser IR was absent when the graph was built — `uses` can only search declarations)"); return
+        if not quiet: say("(references were not indexed: the parser IR was absent when the graph was built)")
+        return False
     we = " AND file LIKE ?" if IN else ''; pe = [f"%{IN}%"] if IN else []
-    refs = q(f"SELECT file, line, kind, entity_kind FROM refs WHERE name = ?{we} ORDER BY file, line LIMIT 400", last, *pe)
+    refs = q(f"SELECT file, line FROM refs WHERE name = ?{we} ORDER BY file, line LIMIT 400", last, *pe)
     lits = q(f"SELECT file, line, value FROM literals WHERE (value = ? OR (length(?) >= 4 AND value LIKE ?)){we} ORDER BY file, line LIMIT 60", last, last, f"%{last}%", *pe)
     coms = q(f"SELECT file, line, text FROM comments WHERE text LIKE ?{we} ORDER BY file, line LIMIT 30", f"%{last}%", *pe)
-    if not (refs or lits or coms):
-        if not quiet:
-            say(f"no reference, literal or comment mentions '{last}' in the {LANG} graph" + (f" under *{IN}*" if IN else ''))
-            near = resolve(last, None, None)[0][:6]
-            if near: say("  nearest declarations:"); [say(fmt(r)) for r in near]
-        return
+    if not (refs or lits or coms): return False
     by = collections.OrderedDict()
     for r in refs: by.setdefault(r['file'], []).append((r['line'], 'ref', ''))
     for r in lits: by.setdefault(r['file'], []).append((r['line'], 'literal', repr(r['value'][:50])))
     for r in coms: by.setdefault(r['file'], []).append((r['line'], 'comment', r['text'].strip().replace('\n', ' ')[:60]))
-    say(f"uses of '{last}': {len(refs)} references, {len(lits)} literals, {len(coms)} comments in {len(by)} files" + (f" under *{IN}*" if IN else ''))
+    say(f"mentions of '{last}': {len(refs)} references, {len(lits)} literals, {len(coms)} comments in {len(by)} files" + (f" under *{IN}*" if IN else ''))
     for f, ls in sorted(by.items(), key=lambda x: (bool(re.search(r'(^|/)(tests?|test-data|__tests__)(/|$)|\.(spec|test)\.', x[0] or '')), x[0] or '')):
-        ls.sort()
-        row(f"  {f}: " + ', '.join(f"L{l}" + (f" {k} {e}" if k != 'ref' else '') for l, k, e in ls[:10]) + (f" … +{len(ls) - 10}" if len(ls) > 10 else ''))
-    if refs and len(by) > 0: say(f"  declaration: axiomcode find {last}   ·   body: axiomcode show {last}")
+        ls.sort(); row(f"  {f}: " + ', '.join(f"L{l}" + (f" {k} {e}" if k != 'ref' else '') for l, k, e in ls[:10]) + (f" … +{len(ls)-10}" if len(ls) > 10 else ''))
+    # the method that contains the most mentions is usually the node to walk from
+    top = collections.Counter()
+    for f, ls in by.items():
+        for l, k, e in ls[:40]:
+            for d in q("SELECT display FROM symbols WHERE file=? AND line<=? AND end_line>=? AND method_id IS NOT NULL AND kind<>'module' ORDER BY (end_line-line) LIMIT 1", f, l, l): top[d['display']] += 1
+    if top: say("  inside: " + ', '.join(f"{d} ({n})" for d, n in top.most_common(6)) + "   → axiomcode search <one of these>")
+    return True
 
-def body(f, a, b, title):
-    p = os.path.join(REPO, f)
-    if not os.path.exists(p): say(f"  (file not on disk: {f})"); return
-    lines = open(p, encoding='utf-8', errors='replace').read().split('\n')
-    b = min(b, len(lines), a + 250)
-    say(f"── {title}  {f}:{a}-{b}" + ("  (cut at 250 lines; show file:a-b for the rest)" if b < a + 250 and b == a + 250 else ''))
-    for i in range(a, b + 1): say(f"{i:6d}  {lines[i - 1]}")
-def v_show():
-    if not pos and not (opt.get('type') or opt.get('method')): say("usage: axiomcode show <name | file:a-b | file:n> …"); return
-    targets = pos or [selector()]
-    for t in targets:
-        m = re.match(r'^(.+?):(\d+)(?:-(\d+))?$', t)
-        if m and '/' in m.group(1) or (m and os.path.exists(os.path.join(REPO, m.group(1)))):
-            f, a = m.group(1), int(m.group(2)); b = int(m.group(3)) if m.group(3) else a + 40
-            body(f, a, b, f); continue
-        want = pick(t, None, 'callable') or [r for r in resolve(t, None, IN)[0] if r['type_id']][:1]
-        for r in want[:3]: body(r['file'], r['line'], r['end_line'] or r['line'], r['display'])
-
-def v_callers():
-    sel = selector(); depth = opt_int('depth', 1)
-    for r in pick(sel, None, 'callable'):
-        if depth <= 1:
-            rows = q("SELECT * FROM callers WHERE callee_id = ? ORDER BY file, line", r['method_id'])
-            say(f"callers of {r['display']}  [{loc(r)}]: {len(rows)} site(s)")
-            for e in rows: row(f"  {e['caller']}   {e['file']}:{e['line']}   {e['tier']}")
-            if not rows:
-                u = q("SELECT count(*) n FROM call_edges WHERE callee_method_id = ?", r['method_id'])[0]['n']
-                say("  no resolved caller." + (" This is a lower bound: the graph has unresolved sites, one of them may call it." if q("SELECT 1 FROM unresolved_sites LIMIT 1") else ''))
-                if has('entry_points') and q("SELECT 1 FROM entry_points WHERE method_id=?", r['method_id']): say("  it is an ENTRY POINT: " + ', '.join(x['reason'] for x in q("SELECT reason FROM entry_points WHERE method_id=?", r['method_id'])))
-        else:
-            seen = reach([r['method_id']], edges_up(), depth)
-            say(f"transitive callers of {r['display']} within {depth} hops: {len(seen) - 1}")
-            for i, (d, _) in sorted(seen.items(), key=lambda x: (x[1][0], symof(x[0])['file'] if symof(x[0]) else '')):
-                if d == 0: continue
-                s = symof(i)
-                if s: row(f"  {d}  {s['display']}   {loc(s)}" + ("  [test]" if s['is_test'] else '') + (f"  ({unresolved_in(i)} unresolved inside)" if unresolved_in(i) else ''))
-        say()
-
-def v_callees():
-    sel = selector(); depth = opt_int('depth', 1)
-    for r in pick(sel, None, 'callable'):
-        if depth <= 1:
-            rows = q("SELECT * FROM callees WHERE caller_id = ? ORDER BY line, callee", r['method_id'])
-            res = [e for e in rows if e['callee_id']]; lib = [e for e in rows if not e['callee_id'] and e['callee']]; unr = [e for e in rows if not e['callee_id'] and not e['callee']]
-            say(f"callees of {r['display']}  [{loc(r)}]: {len(res)} resolved, {len(lib)} library/external, {len(unr)} unresolved")
-            for e in res: row(f"  L{e['line']}  {e['callee']}   {e['file']}   {e['tier']}")
-            for e in lib: row(f"  L{e['line']}  {e['callee']}   [{e['provenance'] or 'lib'}]   {e['tier']}")
-            for e in unr: row(f"  L{e['line']}  {e['written'] or '<' + (e['kind'] if 'kind' in e.keys() else 'protocol') + '>'}   UNRESOLVED ({e['tier']})")
-        else:
-            seen = reach([r['method_id']], edges_down(), depth)
-            say(f"transitive callees of {r['display']} within {depth} hops: {len(seen) - 1}")
-            for i, (d, _) in sorted(seen.items(), key=lambda x: x[1][0]):
-                if d == 0: continue
-                s = symof(i)
-                if s: row(f"  {d}  {s['display']}   {loc(s)}" + (f"  ({unresolved_in(i)} unresolved inside)" if unresolved_in(i) else ''))
-        say()
-
-def v_path():
-    a, b = opt.get('from'), opt.get('to')
-    if not (a and b):
-        if len(pos) >= 2: a, b = pos[0], pos[-1]
-        else: say("usage: axiomcode path from=<name> to=<name> [depth=N]"); return
-    depth = opt_int('depth', 6)
-    A = pick(a, None, 'callable'); B = pick(b, None, 'callable')
-    if not (A and B): return
-    dn = edges_down(); bids = {r['method_id'] for r in B}
-    for s in A:
-        seen = reach([s['method_id']], dn, depth)
-        hit = [i for i in bids if i in seen]
-        if not hit:
-            say(f"no resolved call path from {s['display']} to {', '.join(r['display'] for r in B)} within {depth} hops")
-            n = sum(1 for i in seen if unresolved_in(i))
-            say(f"  ({len(seen) - 1} methods reachable; {n} of them contain unresolved calls — the path may exist through one of those)"); continue
-        for t in hit:
-            chain = []; x = t
-            while x is not None: chain.append(x); x = seen[x][1]
-            chain.reverse()
-            say(f"path {s['display']} → {symof(t)['display']}: {len(chain) - 1} hop(s)")
-            for i, m in enumerate(chain):
-                r = symof(m); row(f"  {i}  {r['display'] if r else m}   {loc(r) if r else ''}" + (f"  ({unresolved_in(m)} unresolved inside)" if unresolved_in(m) else ''))
-        say()
-
-def v_impact():
-    sel = selector(); depth = opt_int('depth', 2)
-    for r in pick(sel, None, 'callable'):
-        m = r['method_id']
-        say(f"impact of changing {r['display']}  [{loc(r)}]")
-        u = q("SELECT s.start_line, s.callee_name, s.kind FROM unresolved_sites u LEFT JOIN call_sites s ON s.id = u.call_site_id WHERE u.caller_id = ? ORDER BY 1", m)
-        if u: say(f"  unresolved calls INSIDE it ({len(u)}) — every claim below is a lower bound: " + ', '.join(f"L{x['start_line']} {x['callee_name'] or x['kind']}" for x in u[:8]) + (' …' if len(u) > 8 else ''))
-        # dispatch: what may run instead of it, and what it may run instead of
-        sib = []
-        if has('dispatch_candidates'):
-            sib += [(x['candidate_method_id'], f"may run instead ({x['basis']})") for x in q("SELECT candidate_method_id, basis FROM dispatch_candidates WHERE base_method_id=?", m)]
-            sib += [(x['base_method_id'], f"this overrides ({x['basis']})") for x in q("SELECT base_method_id, basis FROM dispatch_candidates WHERE candidate_method_id=?", m)]
-        if not sib and has('overrides'):
-            sib += [(x['overriding_method_id'], "may run instead (override)") for x in q("SELECT overriding_method_id FROM overrides WHERE method_id=?", m)]
-            sib += [(x['method_id'], "this overrides") for x in q("SELECT method_id FROM overrides WHERE overriding_method_id=?", m)]
-        if sib:
-            say(f"  dispatch ({len(sib)}): a call typed at the base may run any of these")
-            for i, why in sib[:10]:
-                s = symof(i); row(f"    {s['display'] if s else i}   {loc(s) if s else ''}   {why}")
-        seen = reach([m] + [i for i, _ in sib], edges_up(), depth)
-        rows = [(d, i) for i, (d, _) in seen.items() if d > 0]
-        tests = [i for d, i in rows if symof(i) and symof(i)['is_test']]
-        say(f"  blast radius within {depth} hop(s): {len(rows)} method(s), {len(tests)} of them tests")
-        for d, i in sorted(rows, key=lambda x: (x[0], symof(x[1])['is_test'] if symof(x[1]) else 0, symof(x[1])['file'] if symof(x[1]) else '')):
-            s = symof(i)
-            if s: row(f"    {d}  {s['display']}   {loc(s)}" + ("  [test]" if s['is_test'] else '') + (f"  ({unresolved_in(i)} unresolved inside)" if unresolved_in(i) else ''))
-        if not tests: say("    no test reaches it through resolved edges within this depth (try depth=4)")
-        if has('entry_points'):
-            n = q("SELECT count(*) n FROM entry_points")[0]['n']
-            if n == 0: say(f"  entry reachability: not derived for {LANG}")
-            else: say("  entry reachable: " + ("yes" if q("SELECT 1 FROM entry_reachable WHERE method_id=?", m) else "NO — dead from every known entry, or reachable only through an unresolved call"))
-        say()
-
-def v_type():
-    sel = selector()
-    if not sel: say("usage: axiomcode type <TypeName>"); return
-    for t in pick(sel, TYPES, 'type'):
-        say(f"{t['kind']} {t['display']}   {loc(t)}" + (f"   ({t['qualified_name']})" if t['qualified_name'] != t['display'] else ''))
-        mem = q("SELECT * FROM symbols WHERE owner = ? ORDER BY line", t['display'])
-        say(f"  members ({len(mem)}):")
-        for r in mem: row(f"    {r['kind']:<11} {r['name']}" + (f" {r['signature']}" if r['signature'] and LANG == 'java' else '') + f"   L{r['line']}" + (f"-{r['end_line']}" if r['end_line'] and r['end_line'] != r['line'] else ''))
-        anc = q("SELECT s.display, s.file, s.line, s.end_line, s.kind, s.is_test FROM type_ancestors a JOIN symbols s ON s.type_id = a.ancestor_type_id WHERE a.type_id = ?", t['type_id'])
-        ancx = q("SELECT ty.qualified_name FROM type_ancestors a JOIN types ty ON ty.id = a.ancestor_type_id WHERE a.type_id = ? AND ty.provenance <> 'client'", t['type_id'])
-        if anc or ancx: say("  extends/implements: " + ', '.join([a['display'] for a in anc] + [a['qualified_name'] + ' (library)' for a in ancx]))
-        sub = q("SELECT s.display, s.file, s.line, s.end_line, s.kind, s.is_test FROM type_ancestors a JOIN symbols s ON s.type_id = a.type_id WHERE a.ancestor_type_id = ? ORDER BY s.is_test, s.file", t['type_id'])
-        if sub:
-            say(f"  subtypes ({len(sub)}):")
-            for s in sub[:20]: row(f"    {s['display']}   {loc(s)}" + ("  [test]" if s['is_test'] else ''))
-        who = q("""SELECT cr.display AS caller, cr.file, count(*) AS sites FROM call_edges e JOIN methods me ON me.id = e.callee_method_id
-                   JOIN symbols cr ON cr.id = e.caller_id WHERE me.owner_type_id = ? AND e.callee_provenance='client' AND cr.type_id IS NULL GROUP BY cr.id ORDER BY sites DESC LIMIT 15""", t['type_id'])
-        if who:
-            say(f"  code that calls methods of {t['display']} (top {len(who)}):")
-            for w in who: row(f"    {w['caller']}   {w['file']}   {w['sites']} site(s)")
-        say()
-
-def v_at():
-    sel = ' '.join(pos)
-    m = re.match(r'^(.+?)[: ](\d+)$', sel)
-    if not m: say("usage: axiomcode at <file>:<line>"); return
-    f, ln = m.group(1).lstrip('/'), int(m.group(2))
-    rows = q("SELECT * FROM symbols WHERE (file = ? OR file LIKE ?) AND line <= ? AND end_line >= ? AND (method_id IS NOT NULL OR type_id IS NOT NULL) ORDER BY (kind = 'module'), (end_line - line) LIMIT 3", f, f"%/{f}", ln, ln)
-    if not rows:
-        anyf = q("SELECT count(DISTINCT file) n FROM symbols WHERE file = ? OR file LIKE ?", f, f"%/{f}")[0]['n']
-        say(f"no declaration spans {f}:{ln}" + (" — the file is in the graph (top-level code?)" if anyf else f" — the file is not in the {LANG} graph")); skipped_note(os.path.basename(f)); return
-    say(f"{f}:{ln} is inside:")
-    for r in rows: row(fmt(r))
-
-def v_sql():
-    s = ' '.join(pos).strip().rstrip(';')
-    if not s: say('usage: axiomcode sql "SELECT … FROM symbols|callers|callees|source …"'); return
-    if not re.search(r'\blimit\s+\d+', s, re.I): s += f" LIMIT {MAXROWS}"
-    try:
-        cur = con.execute(s); rows = cur.fetchall()
-    except sqlite3.Error as e:
-        say(f"sql error: {e}"); say("views: symbols(name, display, kind, qualified_name, signature, file, line, end_line, owner, is_test) · callers(callee, caller, file, line, tier, kind) · callees(caller, callee, written, file, line, tier, provenance) · source(display, qualified_name, name, kind, file, line, end_line, lines)"); return
-    if not rows: say("(no rows)"); return
-    cols = [d[0] for d in cur.description]; say(' | '.join(cols))
-    for r in rows: row(' | '.join('' if v is None else str(v) for v in r))
-
-def v_search():
-    words = ' '.join(pos).strip('"\'')
-    if not words: say('usage: axiomcode search "<words from the issue>" [in=<path>]'); return
-    toks = [t for t in tokens(words) if t not in STOP]
-    if not toks: say("no searchable words (3+ letters, not stop words)"); return
+STOP = {'the', 'and', 'for', 'with', 'when', 'that', 'this', 'from', 'into', 'not', 'are', 'was', 'should', 'does', 'have', 'has', 'but', 'its', 'can', 'will', 'all', 'any', 'get', 'set', 'add', 'use', 'new', 'never', 'each', 'every', 'only'}
+def words_search(text):
+    toks = [t for t in tokens(text) if t not in STOP]
+    if not toks: return False
     we, pe = where_extra(None, IN)
-    score = collections.defaultdict(lambda: [0, 0, 0, 0])            # [name hits, comment hits, literal hits, refs] per declaration key
-    hits = {}
+    score = collections.defaultdict(lambda: [0, 0, 0]); hits = {}
     for t in toks:
         for r in q(f"SELECT * FROM symbols WHERE lower(name) LIKE ?{we} LIMIT 400", f"%{t}%", *pe):
             k = (r['display'], r['file'], r['line']); hits[k] = r; score[k][0] += 1
-    if META.get('ir_present') == 'true':
-        for t in toks:
-            for r in q(f"SELECT file, line FROM comments WHERE lower(text) LIKE ?{we} LIMIT 300", f"%{t}%", *pe):
-                for d in q("SELECT * FROM symbols WHERE file=? AND line <= ? + 2 AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY (end_line-line) LIMIT 1", r['file'], r['line'], r['line']):
-                    k = (d['display'], d['file'], d['line']); hits[k] = d; score[k][1] += 1
-            for r in q(f"SELECT file, line FROM literals WHERE lower(value) LIKE ?{we} LIMIT 300", f"%{t}%", *pe):
-                for d in q("SELECT * FROM symbols WHERE file=? AND line <= ? AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY (end_line-line) LIMIT 1", r['file'], r['line'], r['line']):
-                    k = (d['display'], d['file'], d['line']); hits[k] = d; score[k][2] += 1
-    if not hits: say(f"nothing declared, commented or quoted matches {'+'.join(toks)}" + (f" under *{IN}*" if IN else '')); return
+        if META.get('ir_present') == 'true':
+            for tbl, col, idx in (('comments', 'text', 1), ('literals', 'value', 2)):
+                for r in q(f"SELECT file, line FROM {tbl} WHERE lower({col}) LIKE ?{we} LIMIT 300", f"%{t}%", *pe):
+                    for d in q("SELECT * FROM symbols WHERE file=? AND line <= ? + 2 AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY (end_line-line) LIMIT 1", r['file'], r['line'], r['line']):
+                        k = (d['display'], d['file'], d['line']); hits[k] = d; score[k][idx] += 1
+    if not hits: return False
     def total(r):
         sc = score[(r['display'], r['file'], r['line'])]; t = sc[0] * 4 + min(sc[1], 3) + min(sc[2], 3)
         return t / 2 if r['is_test'] else t                       # a fixture that mentions every word is not the code that implements it
     ranked = sorted(hits.values(), key=lambda r: (-total(r), r['is_test'], -degree(r)))
     say(f"search {'+'.join(toks)}: {len(hits)} candidate(s), ranked by name hits, then comments and literals in the body, then how connected" + (f" under *{IN}*" if IN else ''))
-    for r in ranked[:20]:
+    for r in ranked[:15]:
         sc = score[(r['display'], r['file'], r['line'])]
         row(fmt(r) + f"   name×{sc[0]} comment×{sc[1]} literal×{sc[2]} edges {degree(r)}")
-    say("  next: axiomcode show <display>   ·   axiomcode callers <display>   ·   narrow with in=<path>")
-def v_explore():
-    """one hop in every direction from a node, in one call: the traversal primitive"""
-    sel = selector()
-    if not sel: say("usage: axiomcode explore <name> [in=<path>]"); return
+    say("  next: axiomcode search <one of these> for its neighbourhood")
+    return True
+
+def v_search():
+    text = ' '.join(pos).strip().strip('"\'')
+    if opt.get('type') or opt.get('method'): text = selector()
+    if not text: say('usage: axiomcode search <name | "words from the issue" | file:line> [in=<path>]'); return
+    m = re.match(r'^(.+?)[: ](\d+)$', text)                                                   # file:line — a hunk or a stack frame
+    if m and ('/' in m.group(1) or re.search(r'\.[a-z]{1,4}$', m.group(1))):
+        f, ln = m.group(1).lstrip('/'), int(m.group(2))
+        rows = q("SELECT * FROM symbols WHERE (file = ? OR file LIKE ?) AND line <= ? AND end_line >= ? AND (method_id IS NOT NULL OR type_id IS NOT NULL) ORDER BY (kind='module'), (end_line - line) LIMIT 2", f, f"%/{f}", ln, ln)
+        if not rows:
+            infile = q("SELECT count(*) n FROM symbols WHERE file = ? OR file LIKE ?", f, f"%/{f}")[0]['n']
+            say(f"no declaration spans {f}:{ln}" + (" — the file is in the graph (top-level code?)" if infile else f" — the file is not in the {LANG} graph")); skipped_note(os.path.basename(f)); return
+        say(f"{f}:{ln} is inside:"); node_card(rows[0]); return
+    is_words = ' ' in text and not re.match(r'^[\w.$#:/()<>,\[\]-]+$', text)
+    if not is_words:
+        rows, how = resolve(text, None, IN)
+        nodes = [r for r in rows if r['method_id'] or r['type_id']]; others = [r for r in rows if not (r['method_id'] or r['type_id'])]
+        if nodes and not how.startswith('nearest'):
+            if len(nodes) > 3:
+                say(f"'{text}' → {len(nodes)} declarations ({how}); the 3 most connected in full, then the rest — narrow with in=<path> or Owner.name:")
+                for r in nodes[3:15]: row(fmt(r, sig=LANG == 'java'))
+                say()
+            elif how not in ('exact', 'qualified name') or len(nodes) > 1: say(f"'{text}' → {len(nodes)} by {how}"); say()
+            for r in nodes[:3]: node_card(r)
+            if others and len(nodes) <= 3: say("also declared as: " + ', '.join(f"{r['kind']} {r['display']} ({loc(r)})" for r in others[:5]))
+            return
+        if others and not how.startswith('nearest'):                                            # a constant, field, enum member: where it is, and where it is used
+            say(f"'{text}' is not a function or type ({how}):")
+            for r in others[:8]: row(fmt(r))
+            say(); uses_of(text.split('.')[-1].split('#')[-1], quiet=True); return
+        # nothing declared by that name: mentions first (a message, a flag, a tree-sitter node type), then nearest names
+        last = text.split('.')[-1].split('#')[-1]
+        found = uses_of(last)
+        if not found: say(f"nothing declared or mentioned as '{text}' in the {LANG} graph"); skipped_note(last)
+        if rows: say(f"  nearest declarations ({how}):"); [row(fmt(r)) for r in rows[:10]]
+        return
+    if not words_search(text): say(f"nothing declared, commented or quoted matches '{text}'" + (f" under *{IN}*" if IN else ''))
+
+def v_impact():
+    sel = selector(); depth = opt_int('depth', 3); to = opt.get('to')
+    if not sel: say("usage: axiomcode impact <name> [depth=N] [to=<name>]"); return
     rows, how = resolve(sel, None, IN)
-    nodes = [r for r in rows if r['method_id'] or r['type_id']]
-    if not nodes: pick(sel, None, 'callable'); return
-    if len(nodes) > 3:
-        say(f"'{sel}' → {len(nodes)} nodes ({how}); exploring the 3 most connected — narrow with in=<path> or Owner.name for another:")
-        [say(fmt(r)) for r in nodes[:8]]; say()
-    for r in nodes[:3]:
-        if r['type_id'] and not r['method_id']:
-            say(f"{r['kind']} {r['display']}   {loc(r)}"); mem = q("SELECT kind, name, line FROM symbols WHERE owner=? ORDER BY line", r['display'])
-            say("  members: " + ', '.join(f"{m['name']}" + ('()' if m['kind'] in CALLABLE else '') for m in mem[:30]) + (f" … +{len(mem)-30}" if len(mem) > 30 else ''))
-            sub = q("SELECT s.display FROM type_ancestors a JOIN symbols s ON s.type_id=a.type_id WHERE a.ancestor_type_id=?", r['type_id'])
-            if sub: say("  subtypes: " + ', '.join(x['display'] for x in sub[:15]))
-            anc = q("SELECT s.display FROM type_ancestors a JOIN symbols s ON s.type_id=a.ancestor_type_id WHERE a.type_id=?", r['type_id'])
-            if anc: say("  extends: " + ', '.join(x['display'] for x in anc))
-            say(f"  next: axiomcode type {r['display']}   ·   axiomcode explore {r['display']}.<member>"); say(); continue
+    want = [r for r in rows if r['method_id']]
+    if not want:
+        if rows and not how.startswith('nearest'):
+            say(f"'{sel}' is a {rows[0]['kind']}, not a function — its impact is its uses:"); [row(fmt(r)) for r in rows[:5]]; say(); uses_of(sel.split('.')[-1], quiet=True); return
+        say(f"nothing named '{sel}' in the {LANG} graph"); skipped_note(sel.split('.')[-1])
+        if rows: say(f"  nearest ({how}):"); [row(fmt(r)) for r in rows[:8]]
+        return
+    if len(want) > 5:
+        say(f"'{sel}' is ambiguous ({len(want)} {how} matches) — pick one with in=<path>, Owner.name" + (" or a signature m(int,String)" if LANG == 'java' else '') + ":")
+        [row(fmt(r, sig=True)) for r in want[:12]]; return
+    if how not in ('exact', 'qualified name') or len(want) > 1: say(f"'{sel}' → {len(want)} by {how}"); say()
+    up = edges_up()
+    for r in want:
         m = r['method_id']
-        say(f"{r['kind']} {r['display']}" + (f" {r['signature']}" if r['signature'] and LANG == 'java' else '') + f"   {loc(r)}" + (f"   in {r['owner']}" if r['owner'] else '') + ("  [test]" if r['is_test'] else ''))
-        up = q("SELECT caller, file, line, tier FROM callers WHERE callee_id=? ORDER BY file, line", m)
-        byc = collections.OrderedDict()
-        for e in up: byc.setdefault(e['caller'], []).append(e)
-        say(f"  ← called by ({len(up)} sites, {len(byc)} callers):")
-        for c, es in list(byc.items())[:12]: row(f"      {c}   {es[0]['file']}:{','.join(str(e['line']) for e in es[:4])}   {es[0]['tier']}")
-        if len(byc) > 12: say(f"      … +{len(byc)-12} (axiomcode callers {r['display']})")
-        if not up:
-            ep = q("SELECT reason FROM entry_points WHERE method_id=?", m) if has('entry_points') else []
-            say("      none resolved" + (" — ENTRY POINT: " + ', '.join(x['reason'] for x in ep) if ep else ''))
-        dn = q("SELECT callee, written, file, line, tier, callee_id FROM callees WHERE caller_id=? ORDER BY line", m)
-        res = [e for e in dn if e['callee_id']]; lib = [e for e in dn if not e['callee_id'] and e['callee']]; unr = [e for e in dn if not e['callee_id'] and not e['callee']]
-        seen = collections.OrderedDict()
-        for e in res: seen.setdefault(e['callee'], e)
-        say(f"  → calls ({len(seen)} client targets, {len(lib)} library, {len(unr)} unresolved):")
-        for c, e in list(seen.items())[:14]: row(f"      L{e['line']}  {c}   {e['file']}   {e['tier']}")
-        if len(seen) > 14: say(f"      … +{len(seen)-14} (axiomcode callees {r['display']})")
-        if lib: say("      library: " + ', '.join(sorted({e['callee'] for e in lib})[:8]))
-        if unr:
-            say("      UNRESOLVED (unknown, not absent): " + ', '.join(f"L{e['line']} {e['written'] or '?'}" for e in unr[:8]) + (f" … +{len(unr)-8}" if len(unr) > 8 else ''))
-            # the graph stops here; a by-name lookup lets the agent keep walking, labelled as what it is
-            for w in list(collections.OrderedDict.fromkeys(e['written'] for e in unr if e['written']))[:5]:
-                cands = q("SELECT display, file, line FROM symbols WHERE name=? AND method_id IS NOT NULL AND is_test=0 ORDER BY file LIMIT 4", w)
-                if cands: say(f"        {w}: NOT an edge — client declarations with that name: " + ', '.join(f"{c['display']} ({c['file']}:{c['line']})" for c in cands))
-        sib = []
-        if has('dispatch_candidates'):
-            sib = [symof(x['candidate_method_id']) for x in q("SELECT candidate_method_id FROM dispatch_candidates WHERE base_method_id=?", m)] + \
-                  [symof(x['base_method_id']) for x in q("SELECT base_method_id FROM dispatch_candidates WHERE candidate_method_id=?", m)]
-        elif has('overrides'):
-            sib = [symof(x['overriding_method_id']) for x in q("SELECT overriding_method_id FROM overrides WHERE method_id=?", m)] + \
-                  [symof(x['method_id']) for x in q("SELECT method_id FROM overrides WHERE overriding_method_id=?", m)]
-        sib = [x for x in sib if x]
-        if sib: say("  ⇄ dispatch (may run instead / is overridden by): " + ', '.join(x['display'] for x in sib[:8]))
-        t = reach([m], edges_up(), 3); tests = [symof(i) for i, (d, _) in t.items() if d > 0 and symof(i) and symof(i)['is_test']]
-        say(f"  ✓ tests reaching it within 3 hops: {len(tests)}" + (" — " + ', '.join(x['display'] for x in tests[:5]) + (' …' if len(tests) > 5 else '') if tests else ''))
-        say(f"  next: axiomcode explore <any name above>   ·   show {r['display']}   ·   impact {r['display']}   ·   path from={r['display']} to=<name>")
+        say(f"impact of changing {r['display']}" + (f" {r['signature']}" if r['signature'] and LANG == 'java' else '') + f"   {loc(r)}")
+        u = q("SELECT s.start_line, s.callee_name, s.kind FROM unresolved_sites u LEFT JOIN call_sites s ON s.id = u.call_site_id WHERE u.caller_id = ? ORDER BY 1", m)
+        if u: say(f"  unresolved calls INSIDE it ({len(u)}) — every claim below is a lower bound: " + ', '.join(f"L{x['start_line']} {x['callee_name'] or x['kind']}" for x in u[:8]) + (' …' if len(u) > 8 else ''))
+        sib = dispatch_of(m)
+        if sib:
+            say(f"  dispatch ({len(sib)}): a call typed at the base may run any of these, so they share the blast radius")
+            for s_, why in sib[:10]: row(f"    {s_['display']}   {loc(s_)}   {why}")
+        seen = reach([m] + [s_['method_id'] for s_, _ in sib if s_['method_id']], up, depth)
+        rr = [(d, i) for i, (d, _) in seen.items() if d > 0]
+        tests = [i for d, i in rr if symof(i) and symof(i)['is_test']]
+        say(f"  blast radius within {depth} hop(s): {len(rr)} method(s), {len(tests)} of them tests")
+        for d, i in sorted(rr, key=lambda x: (x[0], symof(x[1])['is_test'] if symof(x[1]) else 0, symof(x[1])['file'] if symof(x[1]) else '')):
+            s_ = symof(i)
+            if s_: row(f"    {d}  {s_['display']}   {loc(s_)}" + ("  [test]" if s_['is_test'] else '') + (f"  ({unresolved_in(i)} unresolved inside)" if unresolved_in(i) else ''))
+        files = collections.Counter(symof(i)['file'] for d, i in rr if symof(i))
+        if files: say("  files touched: " + ', '.join(f"{f} ({n})" for f, n in files.most_common(10)) + (f" … +{len(files)-10}" if len(files) > 10 else ''))
+        # which tests reach it is a yes/no over the whole graph, not a reading budget: always search deep
+        far = reach([m] + [s_['method_id'] for s_, _ in sib if s_['method_id']], up, 12)
+        tfar = sorted(((d, i) for i, (d, _) in far.items() if d > 0 and symof(i) and symof(i)['is_test']), key=lambda x: x[0])
+        tfiles = collections.OrderedDict()
+        for d, i in tfar: tfiles.setdefault(symof(i)['file'], (d, symof(i)['display']))
+        if tfar: say(f"  tests reaching it within 12 hops: {len(tfar)} in {len(tfiles)} file(s) — " + ', '.join(f"{f} (nearest {disp} at {d} hops)" for f, (d, disp) in list(tfiles.items())[:6]) + (' …' if len(tfiles) > 6 else ''))
+        else: say("  no test reaches it through resolved edges within 12 hops" + (" — a lower bound: unresolved sites on the way up may hide one" if q("SELECT 1 FROM unresolved_sites LIMIT 1") else ''))
+        if has('entry_points'):
+            n = q("SELECT count(*) n FROM entry_points")[0]['n']
+            if n == 0: say(f"  entry reachability: not derived for {LANG}")
+            else: say("  entry reachable: " + ("yes" if q("SELECT 1 FROM entry_reachable WHERE method_id=?", m) else "NO — dead from every known entry, or reachable only through an unresolved call"))
+        if to:
+            B = [b for b in resolve(to, None, None)[0] if b['method_id']]
+            if not B: say(f"  to={to}: no such function")
+            else:
+                D = max(depth, 6); dn = edges_down(); fw = reach([m], dn, D)
+                hit = [b for b in B if b['method_id'] in fw]
+                rhit = [b for b in B if b not in hit and m in reach([b['method_id']], dn, D)]
+                for b in hit:
+                    chain = []; x = b['method_id']
+                    while x is not None: chain.append(x); x = fw[x][1]
+                    chain.reverse(); say(f"  path {r['display']} → {b['display']}: {len(chain)-1} hop(s): " + ' → '.join(symof(c)['display'] if symof(c) else c for c in chain))
+                for b in rhit: say(f"  {b['display']} reaches {r['display']} (transitively), not the other way round")
+                if not hit and not rhit:
+                    say(f"  no resolved path between {r['display']} and {', '.join(b['display'] for b in B)} within {D} hops; {sum(1 for i in fw if unresolved_in(i))} method(s) on the forward frontier contain unresolved calls — the path may exist through one of those")
         say()
 
-STOP = {'the', 'and', 'for', 'with', 'when', 'that', 'this', 'from', 'into', 'not', 'are', 'was', 'should', 'does', 'have', 'has', 'but', 'its', 'can', 'will', 'all', 'any', 'get', 'set', 'add', 'use', 'new'}
-
-VERBS = {'find': v_find, 'search': v_search, 'explore': v_explore, 'uses': v_uses, 'show': v_show, 'callers': v_callers, 'callees': v_callees, 'path': v_path, 'impact': v_impact, 'type': v_type, 'at': v_at, 'sql': v_sql,
-         'summary': lambda: (say(f"{LANG} graph at {DB}"), [say(f"  {k}: {v}") for k, v in META.items() if k not in ('repo', 'source_dir', 'ir')],
-                             [say(f"  {r['tier']}: {r['n']} edges") for r in q("SELECT tier, count(*) n FROM call_edges GROUP BY tier ORDER BY n DESC")])}
+VERBS = {'search': v_search, 'impact': v_impact}
 if verb not in VERBS:
-    # `axiomcode Foo.bar` with no verb: the agent most likely wants find
-    if verb not in OPT_KEYS and not verb.startswith('-'): pos.insert(0, verb); verb = 'find'
+    if verb not in OPT_KEYS and not verb.startswith('-'): pos.insert(0, verb); verb = 'search'      # `axiomcode Foo.bar` means search
     else: print(__doc__.strip()); sys.exit(2)
 VERBS[verb](); flush()
