@@ -135,7 +135,10 @@ expr_value(e, k2, i2) :- expr_kind(_, "ELEMENT_ACCESS", _, e), expr_child(_, e, 
     expr_child(_, e, "ACCESS_TARGET", _, r), expr_value(r, k, i), k != "arr", k != "coll", k != "str",
     prop_value(k, i, n, k2, i2).
 // A call's value is what the callee returns; `new` yields an instance.
-expr_value(e, k, i) :- expr_kind(_, "CALL", _, e), expr_resolves_to_method(e, m), return_value(m, k, i).
+// Not a `.bind`: `f.bind(x)` resolves to f as its target (the call-kind rules) but its
+// value is the BOUND FUNCTION (the rule above), not what f returns.
+expr_value(e, k, i) :- expr_kind(_, "CALL", _, e), expr_resolves_to_method(e, m), return_value(m, k, i),
+    !call_site(_, "FUNCTION_CALL_BIND", _, _, _, _, e, _, _).
 expr_value(e, "inst", t) :- expr_kind(_, "NEW", _, e), new_constructs(e, t).
 // `new F()` on a plain function that RETURNS an object: the language substitutes the
 // returned object for the constructed one.
