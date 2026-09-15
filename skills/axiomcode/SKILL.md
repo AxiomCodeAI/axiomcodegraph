@@ -14,6 +14,8 @@ All tools live in `scripts/` next to this file; run them via Bash from the repos
 ```
 axiomcode-build .                       build or refresh .axiomcode/out/graph.sqlite (+ index). Always first.
 
+axiomcode explore <name>                      THE HOP: node + callers + callees (resolved · library · unresolved) + dispatch + tests, one call
+axiomcode search  "<words from the issue>"      no name yet: candidates ranked by name, comment and literal hits
 axiomcode find    <name> [in=<path>] [kind=fn|method|class|const|field|enum|type]   where it is declared
 axiomcode uses    <name> [in=<path>]          every reference, string literal and comment — your grep
 axiomcode show    <name | file:a-b> …         the body, numbered; several per call
@@ -40,7 +42,8 @@ references, literals and comments for the same word.
 2. **Anchor** every identifier, type, error message or `file#Lnn` in the question:
    `axiomcode find <name>` (a declaration), `axiomcode uses <string>` (a message or a flag),
    `axiomcode at <file>:<line>` (a hunk or a frame). Two or three names per issue; run them in one turn.
-3. **Expand along edges**, not by reading files: `callers` / `callees` for one hop, `callers … depth=3`,
+3. **Traverse**, not read: `explore <name>` is one hop in every direction in one call; walk it node to node.
+   `callers … depth=3`,
    `path from= to=`, `impact` for anything further. Ask the graph "what connects A to B" instead of
    scrolling for it.
 4. **Bound the claim**: `impact` and `callees` list the unresolved sites. An unresolved site is
