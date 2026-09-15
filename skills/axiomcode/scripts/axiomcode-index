@@ -36,6 +36,15 @@ if not os.path.isdir(IR):
     cands = glob.glob(os.path.join(GDIR, 'out', '.intermediate', 'ir', LANG)) + glob.glob(os.path.join(GDIR, 'ir'))
     IR = cands[0] if cands else ''
 HAVE_IR = bool(IR and os.path.isdir(IR))
+# never DEGRADE: an index built from the IR must not be rebuilt without it (the intermediates are routinely cleaned
+# to save disk). If only newer tables are missing, add them empty and keep everything else.
+prev = {r[0]: r[1] for r in c.execute("SELECT key, value FROM index_meta")} if c.execute("SELECT 1 FROM sqlite_master WHERE name='index_meta'").fetchone() else {}
+if not HAVE_IR and prev.get('ir_present') == 'true' and '--force' not in sys.argv:
+    for t, ddl in (('type_refs', 'CREATE TABLE type_refs(name TEXT, file TEXT, line INT, context TEXT, owner_kind TEXT)'),
+                   ('decorations', 'CREATE TABLE decorations(owner_id TEXT, name TEXT, text TEXT, file TEXT, line INT)'),
+                   ('skipped', 'CREATE TABLE skipped(file TEXT, reason TEXT)')):
+        if not c.execute("SELECT 1 FROM sqlite_master WHERE name=?", (t,)).fetchone(): c.execute(ddl)
+    con.commit(); print(f"index kept: IR is gone but the index was built from it ({prev.get('built_at')}); newer tables added empty. Rebuild the graph to fill them."); sys.exit(0)
 
 # ── the adapter table: which IR file and which HEADER NAMES carry each thing, per language ────────
 # ref:      expression rows that are a use of a name.  kinds -> the expression kinds; name -> the
