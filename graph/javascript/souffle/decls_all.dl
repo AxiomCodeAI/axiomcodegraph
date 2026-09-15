@@ -269,6 +269,8 @@
 .decl reflective_site(c0:symbol)
 .decl reflective_ambient(c0:symbol)
 .decl options_member_func(c0:symbol, c1:symbol, c2:symbol)
+.decl options_member_func_own(c0:symbol, c1:symbol, c2:symbol)
+.decl options_object_member(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
 .decl options_value_kind(c0:symbol)
 .decl call_has_client_target(c0:symbol)
 .decl callback_registered(c0:symbol, c1:symbol)

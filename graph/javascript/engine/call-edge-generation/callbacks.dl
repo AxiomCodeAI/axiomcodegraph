@@ -49,8 +49,16 @@ reflective_ambient("Object").
 reflective_ambient("Reflect").
 reflective_ambient("JSON").
 reflective_ambient("Array").
-options_member_func(k, i, m) :- prop_value(k, i, _, "func", m).
-options_member_func(k, i, m) :- prop_value(k, i, _, k1, i1), options_value_kind(k1), prop_value(k1, i1, _, "func", m).
+// Two levels, each side materialised WITHOUT the name wildcard (#671): joining
+// prop_value with itself through `_` in the name column left neither side a
+// prefix index for the other's lookup, and on lodash (26M prop_value tuples after
+// its mixin copies every function onto every object) that one join took 43 of a
+// 51-minute solve to produce 16.8K rows. The projections below are deduplicated
+// per (object, member value), and each join is a prefix lookup.
+options_member_func(k, i, m) :- options_member_func_own(k, i, m).
+options_member_func(k, i, m) :- options_object_member(k, i, k1, i1), options_member_func_own(k1, i1, m).
+options_member_func_own(k, i, m) :- prop_value(k, i, _, "func", m).
+options_object_member(k, i, k1, i1) :- prop_value(k, i, _, k1, i1), options_value_kind(k1).
 // Object values only: an INSTANCE passed to the platform is data (`arr.push(this)`,
 // `Promise.resolve(w)`, `items.map(fn, this)`), and registering every method it has
 // would invent an edge per method at every such site.
