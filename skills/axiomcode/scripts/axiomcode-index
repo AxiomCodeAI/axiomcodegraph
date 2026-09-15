@@ -270,4 +270,5 @@ meta = dict(language=LANG, repo=REPO, source_dir=SRC, ir=IR if HAVE_IR else '', 
             symbols=n('symbols'), refs=n('refs'), type_refs=n('type_refs'), literals=n('literals'), comments=n('comments'), nested_types=n('nesting'), skipped_files=n('skipped'))
 c.executemany("INSERT INTO index_meta VALUES (?,?)", [(k, str(v)) for k, v in meta.items()])
 con.commit()
+con.execute("VACUUM")                 # the tables above are dropped and recreated on every run; without this the file only grows
 print(f"indexed {DB} [{LANG}]: symbols={meta['symbols']} refs={meta['refs']} literals={meta['literals']} comments={meta['comments']} nested_types={meta['nested_types']}" + ("" if HAVE_IR else "  (IR absent: refs/literals/comments empty — `uses` will say so)"))
