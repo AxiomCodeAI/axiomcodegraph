@@ -42,7 +42,7 @@ if not argv or argv[0] in ('-h', '--help', 'help'): print(__doc__.strip()); sys.
 if not os.path.exists(DB): print(f"no graph at {DB} — run axiomcode-build . first"); sys.exit(2)
 con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
 def q(sql, *p): return con.execute(sql, p).fetchall()
-INDEX_TABLES = ('symbols', 'refs', 'literals', 'comments', 'nesting', 'type_refs', 'skipped', 'index_meta')   # an older index lacks the newer ones: rebuild it
+INDEX_TABLES = ('symbols', 'refs', 'literals', 'comments', 'nesting', 'type_refs', 'decorations', 'skipped', 'index_meta')   # an older index lacks the newer ones: rebuild it
 if any(not q("SELECT 1 FROM sqlite_master WHERE name=? AND type='table'", t) for t in INDEX_TABLES):
     r = subprocess.run([sys.executable, os.path.join(HERE, 'axiomcode-index')], env=dict(os.environ, AXIOMCODE_GRAPH=GDIR), capture_output=True, text=True)
     if r.returncode: print(r.stdout + r.stderr); sys.exit(2)
@@ -209,6 +209,32 @@ def config_key_impact(key):
     for d, (s_, how, k) in list(seen.items())[:30]: row(f"    {d}   {loc(s_)}   {how}" + (f"  via `{k}`" if k != key else ''))
     return True
 
+TESTF = re.compile(r'(^|/)(tests?|test-data|__tests__)(/|$)|\.(spec|test)\.|Tests?\.java$|/src/test/|(^|/)test_[^/]*\.py$')
+def decorations_of(i):
+    return [r['text'].replace('""', '"').strip('"') for r in q("SELECT text FROM decorations WHERE owner_id=? ORDER BY line", i)] if has('decorations') else []
+def literal_bridge(strings, label):
+    """the flows a call graph cannot see: a route path, a reflected name, a bean id — the same STRING in a test or another
+    method is the evidence. Prints where each string appears, tests first."""
+    if META.get('ir_present') != 'true' or not strings: return
+    for sv in list(dict.fromkeys(s_ for s_ in strings if s_ and len(s_) >= 2))[:4]:
+        if sv.startswith('/') and ('{' in sv or ':' in sv or '<' in sv):            # a route TEMPLATE: /items/{id} matches the literal /items/7 a test uses
+            pat = re.sub(r'\{[^}]*\}|:[A-Za-z_]\w*|<[^>]*>', r'[^/]+', re.escape(sv).replace('\\{', '{').replace('\\}', '}').replace('\\:', ':').replace('\\<', '<').replace('\\>', '>'))
+            hits = [h for h in q("SELECT file, line, value FROM literals WHERE value LIKE ? LIMIT 2000", sv.split('{')[0].split(':')[0].split('<')[0] + '%') if re.fullmatch(pat + r'(\?.*)?', h['value'])]
+        else:
+            hits = q("SELECT file, line FROM literals WHERE value=? ORDER BY file, line LIMIT 200", sv)
+        if not hits: continue
+        by = collections.OrderedDict()
+        for h in hits:
+            e = enclosing(h['file'], h['line']); by.setdefault(h['file'], set()).add(e['display'] if e else f"L{h['line']}")
+        tests = [f for f in by if TESTF.search(f)]; other = [f for f in by if not TESTF.search(f)]
+        say(f"  ≈ {label} {sv!r} also appears as a string in {len(hits)} place(s): " + ('tests ' + ', '.join(f"{f.split('/')[-1]} [{', '.join(sorted(by[f])[:3])}]" for f in tests[:6]) + ('; ' if other else '') if tests else '')
+            + (', '.join(f"{f.split('/')[-1]} [{', '.join(sorted(by[f])[:2])}]" for f in other[:4]) if other else '') + " — a name/route match, not a resolved edge")
+def route_strings(texts):
+    out = []
+    for t in texts:
+        out += re.findall(r'["\']([^"\']{2,})["\']', t)
+    return out
+
 def skipped_note(name):
     hits = q("SELECT file, reason FROM skipped WHERE file LIKE ? LIMIT 3", f"%{name}%")
     for h in hits: say(f"  note: {h['file']} exists but was not indexed in this {LANG} graph ({h['reason'] or 'skipped'})")
@@ -314,6 +340,10 @@ def node_card(r):
         if who: say("  used by: " + ', '.join(f"{w['caller']} ({w['n']})" for w in who))
         b = beans_of_type(r['type_id'])
         if b: say("  ⚙ container: " + '; '.join(b))
+        decs = decorations_of(r['type_id'])
+        if decs: say("  @ " + '  '.join(decs[:4]))
+        cl = q("SELECT file, line FROM refs WHERE name=? AND kind='CLASS_LITERAL' ORDER BY file, line LIMIT 40", r['name'])
+        if cl: say(f"  {r['name']}.class literals ({len(cl)}): " + ', '.join(f"{x['file'].split('/')[-1]}:{x['line']}" for x in cl[:8]) + (' …' if len(cl) > 8 else '') + " — reflection / registration by class")
         # Java: a call written in a field initializer or a static block has the TYPE as its caller
         init = q("SELECT callee, written, line, tier FROM callees WHERE caller_id=? ORDER BY line", r['type_id'])
         if init:
@@ -334,9 +364,13 @@ def node_card(r):
     for c, es in list(byc.items())[:12]: row(f"      {c}   {es[0]['file']}:{','.join(str(e['line']) for e in es[:12])}{' …+%d' % (len(es)-12) if len(es) > 12 else ''}   {es[0]['tier']}")
     if len(byc) > 12: say(f"      … +{len(byc)-12} (axiomcode impact {r['display']} depth=1)")
     ep = entry_reasons(m)
-    if ep: say(f"      ENTRY POINT — invoked by the runtime/container: {', '.join(ep)}" + (f"; type is {', '.join(beans_of_type(r['owner_tid']) if 'owner_tid' in r.keys() else [])}" if False else ''))
+    if ep: say(f"      ENTRY POINT — invoked by the runtime/container: {', '.join(ep)}")
     if not up: say("      none resolved" + ("" if ep else (" (a lower bound: the graph has unresolved sites)" if q("SELECT 1 FROM unresolved_sites LIMIT 1") else '')))
     for line_ in config_of_method(m): say(f"  ⚙ config: {line_}")
+    decs = decorations_of(m)
+    if decs: say("  @ " + '  '.join(decs[:4]))
+    literal_bridge(route_strings(decs), 'route/argument')
+    if not up: literal_bridge([r['name']], 'its name')                    # reflection, config-by-name, string-dispatched handlers
     dn = q(f"SELECT callee, written, file, line, tier, callee_id FROM callees WHERE caller_id IN ({ph}) ORDER BY line", *ids)
     res = [e for e in dn if e['callee_id']]; lib = [e for e in dn if not e['callee_id'] and e['callee']]
     # a NULL callee is a blind spot only for ambiguous_*; the other NULL-callee tiers (JavaScript/TypeScript: ambient_terminal,
@@ -567,6 +601,9 @@ def impact_method(r, to):
     ep = entry_reasons(m)
     if ep: say(f"  ENTRY POINT — the runtime/container invokes it without a client call site: {', '.join(ep)}")
     for line_ in config_of_method(m): say(f"  ⚙ config: {line_}")
+    decs = decorations_of(m)
+    if decs: say("  @ " + '  '.join(decs[:4]))
+    literal_bridge(route_strings(decs), 'route/argument')
     # 1. must change if the SIGNATURE changes: every direct caller, by site
     direct = q("SELECT caller, file, line, tier FROM callers WHERE callee_id=? ORDER BY file, line", m)
     byc = collections.OrderedDict()
