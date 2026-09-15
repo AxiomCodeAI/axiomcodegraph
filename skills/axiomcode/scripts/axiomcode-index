@@ -289,7 +289,7 @@ c.executemany("INSERT INTO skipped VALUES (?,?)", ((rel(r.get('filePath') or r.g
 # ── views: the joins written once ────────────────────────────────────────────────────────────────
 c.executescript('''
 CREATE INDEX IF NOT EXISTS symbols_name ON symbols(name); CREATE INDEX IF NOT EXISTS symbols_display ON symbols(display);
-CREATE INDEX IF NOT EXISTS symbols_file ON symbols(file, line); CREATE INDEX IF NOT EXISTS symbols_mid ON symbols(method_id);
+CREATE INDEX IF NOT EXISTS symbols_file ON symbols(file, line); CREATE INDEX IF NOT EXISTS symbols_mid ON symbols(method_id); CREATE INDEX IF NOT EXISTS symbols_tid ON symbols(type_id);
 CREATE INDEX IF NOT EXISTS refs_name ON refs(name); CREATE INDEX IF NOT EXISTS type_refs_name ON type_refs(name); CREATE INDEX IF NOT EXISTS decorations_owner ON decorations(owner_id); CREATE INDEX IF NOT EXISTS literals_value ON literals(value); CREATE INDEX IF NOT EXISTS comments_file ON comments(file);
 CREATE INDEX IF NOT EXISTS ce_callee ON call_edges(callee_method_id); CREATE INDEX IF NOT EXISTS ce_caller ON call_edges(caller_id);
 -- who calls a method: one row per (site, target), with the engine's tier. caller_id is symbols.id: a
