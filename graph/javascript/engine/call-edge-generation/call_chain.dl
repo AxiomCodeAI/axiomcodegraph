@@ -55,6 +55,33 @@ ambient_site(ce) :- invocation_site(ce, _), call_site("client", _, _, _, _, _, c
 expr_kind_is_literal("LITERAL").
 expr_kind_is_literal("ARRAY_LITERAL").
 expr_kind_is_literal("TEMPLATE").
+// An `Object.prototype` member on a project value (#686): `this.hasOwnProperty('x')`,
+// `opts.hasOwnProperty(k)`, `this.toString()`, `Ctor.valueOf()`. The receiver is known
+// (an instance, a constructor, a literal, a prototype, a function) and no value it
+// holds declares the member, so the callee is empty and the site read as a declared
+// unknown (member_absent); every object inherits these from `Object.prototype`, so
+// the site is the platform's, as `arr.push` on an `arr` already is. A class that
+// declares its own `toString` resolves to it first (call_target_count >= 1, this
+// row is not consulted); a receiver whose class has an UNRESOLVED superclass may
+// inherit an override the engine cannot see and keeps its declared unknown.
+// heritage_unresolved is a negation of the hierarchy and this relation feeds only
+// call_class, both above the value fixpoint.
+ambient_site(ce) :- invocation_site(ce, ck), call_kind_is_member_form(ck),
+    call_site("client", ck, n, "SYNTACTIC", _, _, ce, _, _), object_prototype_member(n),
+    receiver_value_known(ce), !receiver_may_inherit_unknown(ce).
+receiver_may_inherit_unknown(ce) :- expr_child(_, ce, "RECEIVER", _, r), expr_value(r, k, t),
+    receiver_kind_is_type(k), type_or_ancestor(t, a), heritage_unresolved(a, _, _).
+receiver_kind_is_type("inst").
+receiver_kind_is_type("ctor").
+receiver_kind_is_type("proto").
+type_or_ancestor(t, t) :- type_decl(_, _, _, _, _, t).
+type_or_ancestor(t, a) :- type_ancestor(t, a).
+object_prototype_member("hasOwnProperty").
+object_prototype_member("isPrototypeOf").
+object_prototype_member("propertyIsEnumerable").
+object_prototype_member("toString").
+object_prototype_member("toLocaleString").
+object_prototype_member("valueOf").
 
 // ── confidence class ────────────────────────────────────────────────────────
 // A site whose callee value may ALSO be the platform (`const f = cond ? mine :
@@ -63,6 +90,15 @@ expr_kind_is_literal("TEMPLATE").
 // project edge so the alternative is in the graph.
 call_ambient_alternative(ce) :- call_target_count(ce, n), n >= 1, callee_value(ce, "ambient", _).
 call_ambient_alternative(ce) :- call_target_count(ce, n), n >= 1, new_callee_value(ce, "ambient", _).
+// `this.toString()` in a base class that declares none while a subclass does (#686):
+// the subclass's method is a target through `this` widening, and on the base's own
+// instances the call is `Object.prototype.toString`. The platform row stands beside
+// the project edge. type_member is the resolved hierarchy's lookup, complete once
+// the value fixpoint is, and this relation feeds only call_class.
+call_ambient_alternative(ce) :- call_target_count(ce, n), n >= 1, object_prototype_call_on_bare_type(ce).
+object_prototype_call_on_bare_type(ce) :- invocation_site(ce, ck), call_kind_is_member_form(ck),
+    call_site("client", ck, n, "SYNTACTIC", _, _, ce, _, _), object_prototype_member(n),
+    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "inst", t), !type_member(t, n, _), !receiver_may_inherit_unknown(ce).
 // A fan wider than --dispatch-cap is REFUSED rather than emitted, as in the Java and
 // Python rule sets: a capped site is a declared unknown (`fan_capped`), never a
 // silent drop and never a 70-way edge set a reader would have to distrust.
