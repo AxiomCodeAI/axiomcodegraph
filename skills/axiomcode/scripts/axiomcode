@@ -8,7 +8,8 @@
       (resolved · library · UNRESOLVED), dispatch siblings, tests reaching it — so the next call is
       `search <a name from the output>` and you walk the graph. A name that is not a declaration
       falls through to references / literals / comments (grep over what the parser saw), and a miss
-      lists the nearest names. Never empty.
+      lists the nearest names. Never empty. When exactly one node matches, its body is printed too
+      (first 120 lines) — that is usually the Read you were about to do. body=no turns it off.
 
   axiomcode impact <name> [to=<name>]
       Everything that changing <name> can touch, computed in FULL (no depth): every method that
@@ -46,7 +47,7 @@ META = {r['key']: r['value'] for r in q("SELECT key, value FROM index_meta")}
 LANG = META.get('language', '?')
 
 # ── arguments: <verb> positionals k=v ─────────────────────────────────────────────────────────────
-OPT_KEYS = {'in', 'kind', 'depth', 'from', 'to', 'type', 'method', 'file', 'limit'}
+OPT_KEYS = {'in', 'kind', 'depth', 'from', 'to', 'type', 'method', 'file', 'limit', 'body'}
 verb, pos, opt = argv[0], [], {}
 for a in argv[1:]:
     k, _, v = a.partition('=')
@@ -107,7 +108,7 @@ def dedupe(rows):
     for r in sorted(rows, key=lambda r: (0 if r['method_id'] or r['type_id'] else 1)):
         k = (r['display'], r['file'], r['line'])
         if k not in seen: seen[k] = 1; out.append(r)
-    if len(out) > 1: out.sort(key=lambda r: (r['is_test'], -degree(r), r['file'] or '', r['line'] or 0))
+    if len(out) > 1: out.sort(key=lambda r: (r['is_test'], -degree(r), -((r['end_line'] or 0) - (r['line'] or 0)), r['file'] or '', r['line'] or 0))   # a body outranks an overload signature
     return out
 def tokens(s): return [t.lower() for t in re.findall(r'[A-Z]?[a-z]+|[A-Z]+(?![a-z])|\d+', s) if len(t) >= 3]
 
@@ -226,6 +227,9 @@ def dispatch_of(m):
 def skipped_note(name):
     for h in q("SELECT file, reason FROM skipped WHERE file LIKE ? LIMIT 3", f"%{name}%"): say(f"  note: {h['file']} exists but was not indexed in this {LANG} graph ({h['reason'] or 'skipped'})")
 
+GROUP = {}; BODY = False; BODY_MAX = 120
+def set_body(v):
+    global BODY; BODY = v
 def node_card(r):
     """a node and one hop in every direction — what search prints per match; one traversal step"""
     if r['type_id'] and not r['method_id']:
@@ -242,35 +246,49 @@ def node_card(r):
         if who: say("  used by: " + ', '.join(f"{w['caller']} ({w['n']})" for w in who))
         say(f"  next: axiomcode search {r['display']}.<member>"); say(); return
     m = r['method_id']
-    say(f"{r['kind']} {r['display']}" + (f" {r['signature']}" if r['signature'] and LANG == 'java' else '') + f"   {loc(r)}" + (f"   in {r['owner']}" if r['owner'] else '') + ("  [test]" if r['is_test'] else ''))
-    up = q("SELECT caller, file, line, tier FROM callers WHERE callee_id=? ORDER BY file, line", m)
+    # an overload set (TypeScript signatures + implementation, Java overloads by arity) is ONE node to an agent:
+    # callers of any member, callees of every member, one card
+    group = [r] + [g for g in (GROUP.get((r['display'], r['file'])) or []) if g['method_id'] != m]
+    ids = [g['method_id'] for g in group]; ph = ','.join('?' * len(ids))
+    say(f"{r['kind']} {r['display']}" + (f" {r['signature']}" if r['signature'] and LANG == 'java' and len(group) == 1 else '') + f"   {loc(r)}" + (f"   in {r['owner']}" if r['owner'] else '') + ("  [test]" if r['is_test'] else '')
+        + (f"   ({len(group)} declarations: " + ', '.join(f"L{g['line']}" + (f"-{g['end_line']}" if g['end_line'] and g['end_line'] != g['line'] else '') + (f" {g['signature']}" if g['signature'] else '') for g in sorted(group, key=lambda g: g['line'])) + ")" if len(group) > 1 else ''))
+    up = q(f"SELECT caller, file, line, tier FROM callers WHERE callee_id IN ({ph}) ORDER BY file, line", *ids)
     byc = collections.OrderedDict()
     for e in up: byc.setdefault(e['caller'], []).append(e)
     say(f"  ← called by ({len(up)} sites, {len(byc)} callers):")
-    for c, es in list(byc.items())[:12]: row(f"      {c}   {es[0]['file']}:{','.join(str(e['line']) for e in es[:4])}   {es[0]['tier']}")
+    for c, es in list(byc.items())[:12]: row(f"      {c}   {es[0]['file']}:{','.join(str(e['line']) for e in es[:12])}{' …+%d' % (len(es)-12) if len(es) > 12 else ''}   {es[0]['tier']}")
     if len(byc) > 12: say(f"      … +{len(byc)-12} (axiomcode impact {r['display']} depth=1)")
     if not up:
         ep = q("SELECT reason FROM entry_points WHERE method_id=?", m) if has('entry_points') else []
         say("      none resolved" + (" — ENTRY POINT: " + ', '.join(x['reason'] for x in ep) if ep else (" (a lower bound: the graph has unresolved sites)" if q("SELECT 1 FROM unresolved_sites LIMIT 1") else '')))
-    dn = q("SELECT callee, written, file, line, tier, callee_id FROM callees WHERE caller_id=? ORDER BY line", m)
+    dn = q(f"SELECT callee, written, file, line, tier, callee_id FROM callees WHERE caller_id IN ({ph}) ORDER BY line", *ids)
     res = [e for e in dn if e['callee_id']]; lib = [e for e in dn if not e['callee_id'] and e['callee']]; unr = [e for e in dn if not e['callee_id'] and not e['callee']]
-    seen = collections.OrderedDict()
-    for e in res: seen.setdefault(e['callee'], e)
-    say(f"  → calls ({len(seen)} client targets, {len(lib)} library, {len(unr)} unresolved):")
-    for c, e in list(seen.items())[:14]: row(f"      L{e['line']}  {c}   {e['file']}   {e['tier']}")
-    if len(seen) > 14: say(f"      … +{len(seen)-14}")
+    seen = collections.OrderedDict()                       # one row per (line, target): the same target called on three lines is three sites
+    for e in res: seen.setdefault((e['line'], e['callee']), e)
+    say(f"  → calls ({len({c for _, c in seen})} client targets at {len(seen)} sites, {len(lib)} library, {len(unr)} unresolved):")
+    for (ln, c), e in list(seen.items())[:20]: row(f"      L{ln}  {c}   {e['file']}   {e['tier']}")
+    if len(seen) > 20: say(f"      … +{len(seen)-20} sites (axiomcode impact {r['display']} for the full set)")
     if lib: say("      library: " + ', '.join(sorted({e['callee'] for e in lib})[:8]))
     if unr:
-        say("      UNRESOLVED (unknown, not absent): " + ', '.join(f"L{e['line']} {e['written'] or '?'}" for e in unr[:8]) + (f" … +{len(unr)-8}" if len(unr) > 8 else ''))
+        say("      UNRESOLVED (unknown, not absent): " + ', '.join(f"L{e['line']} {e['written'] or '?'}" for e in unr[:16]) + (f" … +{len(unr)-16}" if len(unr) > 16 else ''))
         # the graph stops here; a by-name lookup lets the agent keep walking, labelled as what it is
         for w in list(collections.OrderedDict.fromkeys(e['written'] for e in unr if e['written']))[:5]:
             cands = q("SELECT display, file, line FROM symbols WHERE name=? AND method_id IS NOT NULL AND is_test=0 ORDER BY file LIMIT 4", w)
             if cands: say(f"        {w}: NOT an edge — client declarations with that name: " + ', '.join(f"{c['display']} ({c['file']}:{c['line']})" for c in cands))
-    sib = dispatch_of(m)
+    sib = [x for i in ids for x in dispatch_of(i)]
     if sib: say("  ⇄ dispatch (may run instead / overrides): " + ', '.join(x['display'] for x, _ in sib[:8]))
-    t = reach([m], edges_up(), 3); tests = [symof(i) for i, (d, _) in t.items() if d > 0 and symof(i) and symof(i)['is_test']]
+    t = reach(ids, edges_up(), 3); tests = [symof(i) for i, (d, _) in t.items() if d > 0 and symof(i) and symof(i)['is_test']]
     say(f"  ✓ tests reaching it within 3 hops: {len(tests)}" + (" — " + ', '.join(x['display'] for x in tests[:5]) + (' …' if len(tests) > 5 else '') if tests else ''))
     say(f"  next: axiomcode search <a name above>   ·   axiomcode impact {r['display']}")
+    if BODY:                                                     # one node matched: the body is the context the agent would Read next — print it, bounded
+        impl = max(group, key=lambda g: (g['end_line'] or 0) - (g['line'] or 0))
+        a, b = impl['line'], impl['end_line'] or impl['line']
+        p = os.path.join(REPO, impl['file'])
+        if os.path.exists(p) and a:
+            lines = open(p, encoding='utf-8', errors='replace').read().split('\n'); cut = b > a + BODY_MAX
+            b2 = min(b, a + BODY_MAX, len(lines))
+            say(f"  body {impl['file']}:{a}-{b}" + (f"  (first {BODY_MAX} of {b - a + 1} lines; Read {impl['file']}:{a + BODY_MAX + 1}-{b} for the rest)" if cut else ''))
+            for i in range(a, b2 + 1): say(f"  {i:5d}  {lines[i - 1]}")
     say()
 
 def uses_of(last, quiet=False):
@@ -335,17 +353,24 @@ def v_search():
         if not rows:
             infile = q("SELECT count(*) n FROM symbols WHERE file = ? OR file LIKE ?", f, f"%/{f}")[0]['n']
             say(f"no declaration spans {f}:{ln}" + (" — the file is in the graph (top-level code?)" if infile else f" — the file is not in the {LANG} graph")); skipped_note(os.path.basename(f)); return
-        say(f"{f}:{ln} is inside:"); node_card(rows[0]); return
+        say(f"{f}:{ln} is inside:"); set_body(opt.get('body', 'yes') != 'no'); node_card(rows[0]); return
     is_words = ' ' in text and not re.match(r'^[\w.$#:/()<>,\[\]-]+$', text)
     if not is_words:
         rows, how = resolve(text, None, IN)
         nodes = [r for r in rows if r['method_id'] or r['type_id']]; others = [r for r in rows if not (r['method_id'] or r['type_id'])]
         if nodes and not how.startswith('nearest'):
+            GROUP.clear(); merged = []
+            for n_ in nodes:
+                k = (n_['display'], n_['file'])
+                if n_['method_id'] and k in GROUP: GROUP[k].append(n_)
+                else: GROUP[k] = [n_]; merged.append(n_)
+            nodes = merged
             if len(nodes) > 3:
                 say(f"'{text}' → {len(nodes)} declarations ({how}); the 3 most connected in full, then the rest — narrow with in=<path> or Owner.name:")
                 for r in nodes[3:15]: row(fmt(r, sig=LANG == 'java'))
                 say()
             elif how not in ('exact', 'qualified name') or len(nodes) > 1: say(f"'{text}' → {len(nodes)} by {how}"); say()
+            set_body(len(nodes) == 1 and opt.get('body', 'yes') != 'no')
             for r in nodes[:3]: node_card(r)
             if others and len(nodes) <= 3: say("also declared as: " + ', '.join(f"{r['kind']} {r['display']} ({loc(r)})" for r in others[:5]))
             return
