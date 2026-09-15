@@ -14,7 +14,7 @@ Reported per task: which call found it, its rank, calls and characters ingested 
 import json, os, re, subprocess, sys, glob, collections, argparse
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(os.path.dirname(HERE))
 AX = os.path.join(HERE, 'scripts', 'axiomcode'); IDX = os.path.join(HERE, 'scripts', 'axiomcode-index'); BUILD = os.path.join(HERE, 'scripts', 'axiomcode-build')
-ap = argparse.ArgumentParser(); ap.add_argument('tasks'); ap.add_argument('work', nargs='?'); ap.add_argument('--lang', default=None); ap.add_argument('ids', nargs='*')
+ap = argparse.ArgumentParser(); ap.add_argument('tasks'); ap.add_argument('work', nargs='?'); ap.add_argument('--lang', default=None); ap.add_argument('--src', default=None, help='subtree to analyse (AXIOMCODE_SRC), e.g. src for a solution-style tsconfig'); ap.add_argument('ids', nargs='*')
 a = ap.parse_args()
 if os.path.isdir(a.tasks):                                   # the dogfood layout: <dir>/tasks.json, graphs already under <dir>/work/<id>/*/repo
     DOG = os.path.abspath(a.tasks); TASKS = os.path.join(DOG, 'tasks.json'); WORK = None; only = set(([a.work] if a.work else []) + a.ids); LANG = a.lang or 'typescript'
@@ -40,7 +40,9 @@ def repo_for(tid, t):
         if not os.path.isdir(repo):
             r = subprocess.run(['git', '-C', t['git_dir'], 'worktree', 'add', '-f', '--detach', repo, t['base']], capture_output=True, text=True)
             if r.returncode: print(f"{tid}: checkout failed: {r.stderr.strip()[:200]}"); return None
-        r = subprocess.run(['bash', BUILD, '.'], cwd=repo, capture_output=True, text=True, env=dict(os.environ, AXIOMCODE_LANG=LANG, AXIOMCODE_ENGINE=ROOT))
+        env = dict(os.environ, AXIOMCODE_LANG=LANG, AXIOMCODE_ENGINE=ROOT)
+        if a.src: env['AXIOMCODE_SRC'] = a.src
+        r = subprocess.run(['bash', BUILD, '.'], cwd=repo, capture_output=True, text=True, env=env)
         if r.returncode: print(f"{tid}: build failed: {(r.stdout + r.stderr)[-300:]}"); return None
     return repo
 
