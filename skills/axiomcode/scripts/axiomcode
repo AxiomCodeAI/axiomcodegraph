@@ -449,19 +449,23 @@ def v_impact():
         say(f"  everything that can reach it through resolved edges: {len(prod)} non-test method(s) in {len({symof(i)['file'] for _, i in prod})} file(s), {len(tests)} test(s)" +
             (" — by hop: " + ', '.join(f"{d}:{n}" for d, n in sorted(byhop.items())) if byhop else ''))
         files = collections.Counter(symof(i)['file'] for _, i in prod)
-        if files: say("  files, all of them: " + ', '.join(f"{f} ({n})" for f, n in files.most_common()))
+        if files: say(f"  files ({len(files)}): " + ', '.join(f"{f} ({n})" for f, n in files.most_common(20)) + (f" … +{len(files)-20} more files (limit=N shows more rows)" if len(files) > 20 else ''))
         tfiles = collections.OrderedDict()
         for d, i in tests: tfiles.setdefault(symof(i)['file'], (d, symof(i)['display']))
-        if tests: say(f"  tests that reach it, every file: " + ', '.join(f"{f} ({sum(1 for _, i in tests if symof(i)['file'] == f)}; nearest {disp} at {d} hops)" for f, (d, disp) in tfiles.items()))
+        if tests:
+            tf = list(tfiles.items())                                    # already nearest-first
+            say(f"  tests: {len(tests)} in {len(tf)} file(s), nearest first: " + ', '.join(f"{f} ({sum(1 for _, i in tests if symof(i)['file'] == f)}; nearest {disp} at {d} hops)" for f, (d, disp) in tf[:8])
+                + (("; then " + ', '.join(f for f, _ in tf[8:24]) + (f" … +{len(tf)-24} more test files" if len(tf) > 24 else '')) if len(tf) > 8 else ''))
         else: say("  no test reaches it through resolved edges" + (" — a lower bound: unresolved sites on the way up may hide one" if q("SELECT 1 FROM unresolved_sites LIMIT 1") else ''))
         if has('entry_points'):
             n = q("SELECT count(*) n FROM entry_points")[0]['n']
             if n == 0: say(f"  entry reachability: not derived for {LANG}")
             else: say("  entry reachable: " + ("yes" if q("SELECT 1 FROM entry_reachable WHERE method_id=?", m) else "NO — dead from every known entry, or reachable only through an unresolved call"))
         unres = sum(1 for _, i in prod if unresolved_in(i))
-        if prod: say(f"  the methods, nearest first (limit= to see more):")
-        for d, i in prod:
-            s_ = symof(i); row(f"    {d}  {s_['display']}   {loc(s_)}" + (f"  ({unresolved_in(i)} unresolved inside)" if unresolved_in(i) else ''))
+        cap = opt_int('limit', 20)                                   # the files/tests lines above ARE the answer; the rows are a short page unless limit= asks for more
+        if prod: say(f"  the nearest {min(cap, len(prod))} of {len(prod)} (limit=N for more):")
+        for d, i in prod[:cap]:
+            s_ = symof(i); say(f"    {d}  {s_['display']}   {loc(s_)}" + (f"  ({unresolved_in(i)} unresolved inside)" if unresolved_in(i) else ''))
         if unres: say(f"  {unres} of these contain unresolved calls — something reachable only through those is missing above")
         if to:
             B = [b for b in resolve(to, None, None)[0] if b['method_id']]
