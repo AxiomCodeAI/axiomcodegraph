@@ -1,0 +1,52 @@
+main.js:10:32 METHOD_CALL this.map.keys  ->  ambient_terminal  -
+main.js:10:51 METHOD_CALL m.identifier  ->  known_edge  Module.js:1:16 identifier
+main.js:11:23 METHOD_CALL Array.from  ->  ambient_terminal  -
+main.js:11:23 METHOD_CALL Array.from  ->  callback_registered  main.js:11:51 <arrow>
+main.js:11:34 METHOD_CALL this.map.keys  ->  ambient_terminal  -
+main.js:11:56 METHOD_CALL m.identifier  ->  known_edge  Module.js:1:16 identifier
+main.js:12:55 METHOD_CALL module.identifier  ->  known_edge  Module.js:1:16 identifier
+main.js:12:76 METHOD_CALL chunk.id  ->  known_edge  Module.js:2:15 id
+main.js:13:45 METHOD_CALL this.map.entries  ->  ambient_terminal  -
+main.js:13:67 METHOD_CALL module.identifier  ->  known_edge  Module.js:1:16 identifier
+main.js:13:88 METHOD_CALL chunk.id  ->  known_edge  Module.js:2:15 id
+main.js:14:12 METHOD_CALL this.map.forEach  ->  ambient_terminal  -
+main.js:14:12 METHOD_CALL this.map.forEach  ->  callback_registered  main.js:14:29 <arrow>
+main.js:14:50 METHOD_CALL module.identifier  ->  known_edge  Module.js:1:16 identifier
+main.js:14:71 METHOD_CALL chunk.id  ->  known_edge  Module.js:2:15 id
+main.js:15:30 METHOD_CALL this.map.values  ->  ambient_terminal  -
+main.js:15:51 METHOD_CALL c.id  ->  known_edge  Module.js:2:15 id
+main.js:18:37 METHOD_CALL m.keys  ->  ambient_terminal  -
+main.js:18:49 METHOD_CALL k.identifier  ->  known_edge  Module.js:1:16 identifier
+main.js:20:40 METHOD_CALL s.keys  ->  ambient_terminal  -
+main.js:20:52 METHOD_CALL k.identifier  ->  known_edge  Module.js:1:16 identifier
+main.js:20:70 METHOD_CALL s.forEach  ->  ambient_terminal  -
+main.js:20:70 METHOD_CALL s.forEach  ->  callback_registered  main.js:20:80 <arrow>
+main.js:20:87 METHOD_CALL m.identifier  ->  known_edge  Module.js:1:16 identifier
+main.js:23:20 CONSTRUCTOR_CALL Map  ->  ambient_terminal  -
+main.js:24:16 CONSTRUCTOR_CALL Module  ->  implicit_constructor  -
+main.js:24:3 METHOD_CALL byModule.set  ->  ambient_terminal  -
+main.js:24:30 CONSTRUCTOR_CALL Chunk  ->  implicit_constructor  -
+main.js:25:36 METHOD_CALL m.identifier  ->  known_edge  Module.js:1:16 identifier
+main.js:25:52 METHOD_CALL c.id  ->  known_edge  Module.js:2:15 id
+main.js:26:19 METHOD_CALL byModule.keys  ->  ambient_terminal  -
+main.js:26:38 METHOD_CALL m.identifier  ->  known_edge  Module.js:1:16 identifier
+main.js:27:3 METHOD_CALL byModule.forEach  ->  ambient_terminal  -
+main.js:27:3 METHOD_CALL byModule.forEach  ->  callback_registered  main.js:27:20 <arrow>
+main.js:27:32 METHOD_CALL m.identifier  ->  known_edge  Module.js:1:16 identifier
+main.js:27:48 METHOD_CALL c.id  ->  known_edge  Module.js:2:15 id
+main.js:28:18 CONSTRUCTOR_CALL Map  ->  ambient_terminal  -
+main.js:28:28 CONSTRUCTOR_CALL Module  ->  implicit_constructor  -
+main.js:29:19 METHOD_CALL seeded.keys  ->  ambient_terminal  -
+main.js:29:36 METHOD_CALL k.identifier  ->  known_edge  Module.js:1:16 identifier
+main.js:30:15 CONSTRUCTOR_CALL Set  ->  ambient_terminal  -
+main.js:30:24 CONSTRUCTOR_CALL Module  ->  implicit_constructor  -
+main.js:31:19 METHOD_CALL set.keys  ->  ambient_terminal  -
+main.js:31:33 METHOD_CALL k.identifier  ->  known_edge  Module.js:1:16 identifier
+main.js:36:31 CONSTRUCTOR_CALL Set  ->  ambient_terminal  -
+main.js:36:40 CONSTRUCTOR_CALL Module  ->  implicit_constructor  -
+main.js:37:42 FUNCTION_CALL modulesOf  ->  known_edge  main.js:36:1 modulesOf
+main.js:37:57 METHOD_CALL m.identifier  ->  known_edge  Module.js:1:16 identifier
+main.js:39:32 METHOD_CALL chunks.forEach  ->  ambient_terminal  -
+main.js:39:32 METHOD_CALL chunks.forEach  ->  callback_registered  main.js:39:47 <arrow>
+main.js:39:54 METHOD_CALL c.id  ->  known_edge  Module.js:2:15 id
+main.js:8:16 CONSTRUCTOR_CALL Map  ->  ambient_terminal  -

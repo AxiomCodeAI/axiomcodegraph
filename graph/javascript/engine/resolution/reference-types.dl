@@ -128,3 +128,9 @@ elem_value(r, "inst", t) :- type_ref_is_coll(r), type_ref(_, _, _, r, _, _, _, _
 elem_value(r, "arr", c) :- type_ref_is_coll(r), coll_last_child(r, c), type_ref_is_array(c).
 coll_last_child(r, c) :- type_ref_is_coll(r), type_ref_child_index(r, c, idx),
     to_number(idx) = max n : { type_ref_child_index(r, _, idx2), n = to_number(idx2) }.
+// `Map<K, V>` / `WeakMap<K, V>`: the FIRST type argument is the key type (#659).
+coll_key_value(r, "inst", t) :- map_coll(r), type_ref_child_index(r, c, "0"), type_ref_type(c, t).
+coll_key_value(r, "module", mod) :- map_coll(r), type_ref_child_index(r, c, "0"), type_ref_module(c, mod).
+coll_key_value(r, "shape", s) :- map_coll(r), type_ref_child_index(r, c, "0"), type_ref_shape(c, s).
+elem_value(r, "module", mod) :- type_ref_is_coll(r), coll_last_child(r, c), type_ref_module(c, mod).
+elem_value(r, "shape", s) :- type_ref_is_coll(r), coll_last_child(r, c), type_ref_shape(c, s).
