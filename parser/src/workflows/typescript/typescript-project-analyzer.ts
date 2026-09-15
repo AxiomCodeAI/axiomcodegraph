@@ -152,6 +152,7 @@ export class TypeScriptProjectAnalyzer {
   ): Promise<TypeScriptAnalysisSummary> {
     const shared = this.newSharedWriteContext(options.outputDir);
     const summaries: TypeScriptAnalysisSummary[] = [];
+    this.skippedFiles = [];
     // A nested program can nest further, so roots drain from a queue rather
     // than one level of walking. Keyed by resolved path because two programs
     // can decline files to each other, which would otherwise recur forever.
@@ -255,7 +256,16 @@ export class TypeScriptProjectAnalyzer {
     const toProjectRelative = (absolutePath: string): string =>
       stripExtension(toRelative(pathAnchor, absolutePath));
 
-    this.skippedFiles = [];
+    // Skips accumulate across the programs one analyzePrograms call drives; a
+    // standalone analyze starts its own list.
+    if (shared === undefined) {
+      this.skippedFiles = [];
+    }
+    for (const orphan of rootProgram?.orphans ?? []) {
+      this.recordSkip(orphan, pathAnchor, options, serviceVersionLinkHash,
+        SkippedFileReason.NO_PROGRAM_CLAIMS_FILE,
+        `no tsconfig under ${toRelative(pathAnchor, rootDir) || '.'} claims the file and no claimed file imports it`);
+    }
     await fsp.mkdir(options.outputDir, { recursive: true });
     //
     // Rows are STREAMED, not accumulated.
@@ -486,7 +496,11 @@ export class TypeScriptProjectAnalyzer {
   private async exportSkippedFilesCsv(outputDir: string): Promise<void> {
     const header = ['filePath', 'baseMservPath', 'serviceVersionLinkHash', 'reason', 'detail']
       .join('\t');
+    // One row per (file, reason): an orphan under a nested program root is seen by the
+    // root program and by the nested one.
+    const seen = new Set<string>();
     const rows = [...this.skippedFiles]
+      .filter((f) => { const k = `${f.filePath}\t${f.reason}`; if (seen.has(k)) { return false; } seen.add(k); return true; })
       .sort((a, b) => a.filePath.localeCompare(b.filePath))
       .map((f) => [f.filePath, f.baseMservPath, f.serviceVersionLinkHash, f.reason, f.detail]
         .join('\t'));
@@ -508,17 +522,37 @@ export class TypeScriptProjectAnalyzer {
 function filesOfRootProgram(
   rootDir: string,
   configResolver: TsConfigResolver
-): { readonly files: string[]; readonly others: string[] } | undefined {
+): { readonly files: string[]; readonly others: string[]; readonly orphans: string[] } | undefined {
   const configPath = path.join(rootDir, 'tsconfig.json');
   if (!fs.existsSync(configPath)) {
     return undefined;
+  }
+  // The root program is the root config's own files PLUS the files of every config it
+  // references that lives in the SAME directory: a solution-style root (`files: []`,
+  // `references: [tsconfig.build.json, tsconfig.spec.json, ...]`) claims nothing itself,
+  // and its build and spec configs are that directory's programs. A reference into a
+  // subdirectory is a nested program and is reached through `others` as before (#660).
+  const rootConfigs = new Set<string>([path.resolve(configPath)]);
+  const rootConfig = configResolver.configAt(configPath);
+  const pending = [...(rootConfig?.references ?? [])];
+  const seenReferences = new Set<string>();
+  while (pending.length > 0) {
+    const referenced = pending.pop()!;
+    if (seenReferences.has(referenced)) {
+      continue;
+    }
+    seenReferences.add(referenced);
+    if (path.dirname(referenced) === path.resolve(rootDir)) {
+      rootConfigs.add(referenced);
+      pending.push(...(configResolver.configAt(referenced)?.references ?? []));
+    }
   }
   const claimed: string[] = [];
   const unclaimed: string[] = [];
   const others: string[] = [];
   for (const file of collectTypeScriptFiles(rootDir, new Set(TS_SKIP_DIRECTORIES))) {
     const governing = configResolver.resolve(file);
-    if (path.resolve(governing.configPath) === path.resolve(configPath)) {
+    if (governing.configPath !== '' && rootConfigs.has(path.resolve(governing.configPath))) {
       claimed.push(file);
     } else if (governing.configPath === '') {
       unclaimed.push(file);
@@ -571,12 +605,16 @@ function filesOfRootProgram(
 
   const files = [...included].map((f) => available.get(f) ?? f);
   const pulled = new Set(files.map((f) => path.normalize(f)));
+  // A file no config claims and no claimed file imports belongs to no program at
+  // all; it is reported, not dropped (NO_PROGRAM_CLAIMS_FILE).
+  const orphans: string[] = [];
   for (const f of unclaimed) {
     if (!pulled.has(path.normalize(f))) {
       others.push(f);
+      orphans.push(f);
     }
   }
-  return { files, others };
+  return { files, others, orphans };
 }
 
 /**
