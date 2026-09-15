@@ -7,7 +7,7 @@
 //     Caller#name(p1,p2) -> Callee#name(p1,p2)
 //
 // Conventions (identical on both sides of every comparison — see normalize_edges.py):
-//   * nested types flattened to `pkg.SimpleName`
+//   * nested types named by their dotted chain, `pkg.Outer.Inner` (the IR's qualifiedName form)
 //   * anonymous classes keyed by SUPERTYPE (`Outer$anon:Runnable`), never by javac's numbering
 //   * an enum-constant body (an anonymous subclass of the enum) is folded back to the ENUM
 //   * a local class's javac index is stripped (`Outer$1Local` -> `Local`)
@@ -212,25 +212,34 @@ public class ClassFileOracle {
         String c = NAME_CACHE.get(internal);
         if (c != null) return c;
         String qn = internal.replace('/', '.');
-        String pkg = qn.contains(".") ? qn.substring(0, qn.lastIndexOf('.')) : "";
         String tail = qn.substring(qn.lastIndexOf('.') + 1);          // Outer$Inner / Outer$1
         String simple = tail.substring(tail.lastIndexOf('$') + 1);
         String res;
         if (simple.chars().allMatch(Character::isDigit) && APP.contains(internal)) {
             String sup = supertypeOf(internal);
             if (ENUMS.contains(sup)) {
-                res = (pkg.isEmpty() ? "" : pkg + ".") + simpleOf(sup.replace('/', '.'));   // enum-constant body
+                res = chain(sup.replace('/', '.'));   // enum-constant body
             } else {
-                String outer = tail.split("\\$")[0];
-                res = (pkg.isEmpty() ? "" : pkg + ".") + outer + "$anon:" + simpleOf(sup.replace('/', '.'));
+                res = chain(qn.substring(0, qn.lastIndexOf('$'))) + "$anon:" + simpleOf(sup.replace('/', '.'));
             }
         } else {
-            // a LOCAL class carries javac's index: Outer$1Local -> Local
-            String s = simple.replaceFirst("^\\d+(?=[A-Za-z_$])", "");
-            res = pkg.isEmpty() ? s : pkg + "." + s;
+            res = chain(qn);
         }
         NAME_CACHE.put(internal, res);
         return res;
+    }
+    /** The binary name's `$`-separated tail as a dotted nesting chain, `pkg.Outer.Inner`. A LOCAL
+     *  class carries javac's index (Outer$1Local); the index is a compiler artefact, so it is
+     *  stripped from every segment and the source name `Local` is what appears. */
+    static String chain(String qn) {
+        String pkg = qn.contains(".") ? qn.substring(0, qn.lastIndexOf('.')) : "";
+        String tail = qn.substring(qn.lastIndexOf('.') + 1);
+        StringBuilder dotted = new StringBuilder();
+        for (String part : tail.split("\\$")) {
+            if (dotted.length() > 0) dotted.append('.');
+            dotted.append(part.replaceFirst("^\\d+(?=[A-Za-z_$])", ""));
+        }
+        return pkg.isEmpty() ? dotted.toString() : pkg + "." + dotted;
     }
     static String supertypeOf(String internal) {
         String s = SUPER.get(internal);

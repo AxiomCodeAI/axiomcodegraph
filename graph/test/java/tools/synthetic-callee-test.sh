@@ -96,7 +96,7 @@ public class Cov {
 EOF
 javac -g -d "$W/cls2" "$W/src2/p/Cov.java" || { echo "  FAIL (javac, covariant fixture)"; exit 1; }
 cov="$(java -cp "$W/oc" ClassFileOracle --app "$W/cls2" --app-only 2>/dev/null | grep -- '->' || true)"
-echo "$cov" | grep -q 'p.Sub#make() -> p.Base#make()'   && ok "a real method sharing its key with a bridge is still ground truth"   || { echo "  FAIL  the covariant override's super.make() edge was dropped as synthetic:";
+echo "$cov" | grep -q 'p.Cov.Sub#make() -> p.Cov.Base#make()'   && ok "a real method sharing its key with a bridge is still ground truth"   || { echo "  FAIL  the covariant override's super.make() edge was dropped as synthetic:";
        echo "${cov:-(no edges at all)}" | sed 's/^/          /'; fail=1; }
 
 [ "$fail" = 0 ] && echo "synthetic-callee: ok" || echo "synthetic-callee: FAILED"

@@ -6,8 +6,8 @@ sorted, deduplicated. Hashes are resolved to names so a golden file is human-rev
 NOT sensitive to hash churn.
 
 CONVENTIONS (deliberate, not defects):
-  * NESTED TYPES ARE FLATTENED. `package p; class A { class B {} }` yields owners `p.A` and `p.B`,
-    not `p.A.B`. This mirrors the IR and is accepted behaviour.
+  * NESTED TYPES ARE NAMED BY THEIR CHAIN. `package p; class A { class B {} }` yields owners `p.A`
+    and `p.A.B`, the IR's qualifiedName form (a local class is `p.A.Local`, without javac's index).
   * ANONYMOUS classes are keyed by their SUPERTYPE (`Outer$anon:Runnable`), because javac and the
     engine number anonymous classes differently — numbering would make goldens brittle.
   * TYPE VARIABLES are erased to their bound (default Object), so `add(E)` reads `add(Object)`.

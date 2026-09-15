@@ -54,10 +54,18 @@ reached_lib(t) :- java_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, "TYP
     lib_type(_, qname, _, _, _, _, _, _, _, _, _, _, _, t).
 
 // ── lib_type_pkg(TypeHash, Package) — precomputed once (packaged lib types) ──
-lib_type_pkg(t, pkg) :- lib_type(name, qname, _, _, _, _, _, _, _, _, _, _, _, t),
+// A top-level type's package is its qualifiedName minus its name. A nested type
+// takes the package of the top-level type it sits in (line-range containment): a
+// library IR may name it by its full chain (java.util.Map.Entry), whose prefix
+// `java.util.Map.` is not a package, or by the older flattened form, which happens
+// to strip correctly; the containment rule is right under both.
+lib_type_pkg(t, pkg) :- lib_type(name, qname, _, _, _, _, "TOP_LEVEL_PLACEMENT", _, _, _, _, _, _, t),
     plen = strlen(qname) - strlen(name),
     plen > 0,
     pkg = substr(qname, 0, plen).
+lib_type_pkg(t, pkg) :- type_in_type("lib", t, top),
+    lib_type(_, _, _, _, _, _, "TOP_LEVEL_PLACEMENT", _, _, _, _, _, _, top),
+    lib_type_pkg(top, pkg).
 
 // ── String precomputes — hoist the concatenations out of the resolution rules ───────
 // The java.lang and wildcard-import paths below match a constructed qualifiedName /
@@ -237,11 +245,11 @@ lib_type_ref_resolves("lib", retRef, rt) :- lib_ret_ref_hash(m, retRef),
 lib_type_ref_resolves("lib", ref, ft) :- field_type_resolves("lib", _, ref, ft).
 
 // ── A NESTED library type named `Outer.Inner` ──────────────────────────────────────────────────
-// The type registry flattens a nested type to pkg.SimpleName, so `Map.Entry` is stored as
+// A library IR parsed before nested types were named by their chain stores `Map.Entry` as
 // java.util.Entry — a name shared, in java.base alone, by the Entry of Map, Hashtable, TreeMap,
 // EnumMap, LinkedHashMap, WeakHashMap and IdentityHashMap. A reference writes typeName=Entry and
-// completeTypeName=Map.Entry, so the enclosing type IS available on the reference; it is the
-// registry that cannot express it. That is a naming convention, not a defect, and it is consistent
+// completeTypeName=Map.Entry, so the enclosing type IS available on the reference even when the
+// registry cannot express it. Resolving through the nesting works under either naming, and it is consistent
 // across both ground-truth readers — so the enclosing type is recovered here instead.
 //
 // filePath, not fileName: a nested type is declared in the same FILE as its enclosing type, and

@@ -1,0 +1,2 @@
+oracle=30 engine=31 agree=30 missing=0 (known 0, NEW 0) extra=1
+  extra    probe.Use#viaInheritedMemberType -> probe.Sub#use(Kind)
