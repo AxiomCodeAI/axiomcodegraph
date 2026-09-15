@@ -21,9 +21,9 @@ axiomcode search <anything> [in=<path>]       a name (bar · Foo.bar · Outer.In
                                               A constant / flag / message → where it is declared and every mention.
                                               A miss → the nearest names. Never empty. The next call is
                                               `search <a name from the output>`: that is how you walk the graph.
-axiomcode impact <name> [depth=N] [to=<name>] what changing it touches: callers to N hops (default 3) and the files
-                                              they live in, the dispatch envelope, every test that reaches it (searched
-                                              to 12 hops), the unresolved sites that bound the claim, entry reachability,
+axiomcode impact <name> [to=<name>]           everything changing it can touch, in FULL: every method that reaches it, by hop, the files
+                                              they live in, every test file that reaches it, the dispatch envelope,
+                                              the unresolved sites that bound the claim, entry reachability,
                                               and with to= whether a resolved path connects the two and through what.
 axiomcode-brief .axiomcode <issue-file>       an issue → ranked starting set with real edges
 ```

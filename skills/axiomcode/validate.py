@@ -7,7 +7,7 @@ For every task whose base-commit graph exists under <dogfood>/work/<id>/*/repo/.
             PASS when a gold source file (the file the fix touched) is among the printed rows.
             Reported: which call found it (title / identifier / neither) and its rank.
   impact  — the functions the gold patch changed (hunk start lines → enclosing method), one
-            `impact <method> depth=3` each. PASS when an oracle test file (the tests the commit added
+            `impact <method>` each. PASS when an oracle test file (the tests the commit added
             or changed) appears in the blast radius. Also reported: gold files named by impact of
             OTHER changed functions (the "if you change this, you must also touch that" signal).
 
@@ -34,15 +34,15 @@ for tid, t in sorted(tasks.items()):
     subprocess.run([sys.executable, IDX, repo], capture_output=True)
     gold = set(t['gold_files']); tests = set(t['test_files'])
     # ── search ─────────────────────────────────────────────────────────────────────────────────
-    found_by, rank = None, None
-    out = run(repo, 'search', re.sub(r'^\w+:\s*', '', t['title']))          # strip the "ts:" / "python:" prefix
+    found_by, rank, chars = None, None, 0
+    out = run(repo, 'search', re.sub(r'^\w+:\s*', '', t['title'])); chars += len(out)          # strip the "ts:" / "python:" prefix
     for i, line in enumerate(out.splitlines()):
         if files_in(line) & gold: found_by, rank = 'title', i; break
     idents = [w for w in re.findall(r'`([A-Za-z_][\w.]*)`', t['body'] or '') if len(w) >= 4][:8]
     calls = 1
     if not found_by:
         for w in idents:
-            calls += 1; out = run(repo, 'search', w)
+            calls += 1; out = run(repo, 'search', w); chars += len(out)
             for i, line in enumerate(out.splitlines()):
                 if files_in(line) & gold: found_by, rank = f'`{w}`', i; break
             if found_by: break
@@ -58,17 +58,18 @@ for tid, t in sorted(tasks.items()):
         out = run(repo, 'search', f'{f}:{ln}')
         m = re.search(r'^(?:method|function|constructor) (\S+)', out, re.M)
         if m: methods.setdefault(m.group(1), f)
-    test_hit, cross_hit, impacted = None, set(), 0
+    test_hit, cross_hit, ichars = None, set(), 0
     for disp, f in list(methods.items())[:6]:
-        out = run(repo, 'impact', disp, 'depth=3'); fs = files_in(out); impacted += 1
+        out = run(repo, 'impact', disp); fs = files_in(out); ichars += len(out) if not test_hit else 0
         if fs & tests and not test_hit: test_hit = disp
         cross_hit |= (fs & gold) - {f}
-    rows.append(dict(id=tid, search=found_by or 'MISS', rank=rank, calls=calls, gold=len(gold), tests=len(tests), methods=len(methods), impact=test_hit or ('MISS' if methods else 'no hunk→method'), cross=len(cross_hit)))
-    print(f"{tid:12} search={rows[-1]['search']:<28} rank={str(rank):<5} calls={calls}  | changed methods={len(methods):<2} impact→oracle test={'yes: ' + test_hit if test_hit else rows[-1]['impact']:<50} other gold files named={len(cross_hit)}", flush=True)
+    rows.append(dict(id=tid, search=found_by or 'MISS', rank=rank, calls=calls, gold=len(gold), tests=len(tests), methods=len(methods), impact=test_hit or ('MISS' if methods else 'no hunk→method'), cross=len(cross_hit), chars=chars, ichars=ichars))
+    print(f"{tid:12} search={rows[-1]['search']:<28} rank={str(rank):<5} calls={calls} chars={chars:<6} | changed methods={len(methods):<2} impact→oracle test={'yes: ' + test_hit if test_hit else rows[-1]['impact']:<50} other gold files named={len(cross_hit)}", flush=True)
 
 n = len(rows)
 if n:
     s = sum(1 for r in rows if r['search'] != 'MISS'); s1 = sum(1 for r in rows if r['search'] == 'title')
     im = [r for r in rows if r['methods']]; ih = sum(1 for r in im if not r['impact'].startswith(('MISS', 'no hunk')))
-    print(f"\nsearch: gold file named in {s}/{n} tasks ({s1} from the title alone, median calls {sorted(r['calls'] for r in rows)[n//2]})")
-    print(f"impact: oracle test file in the blast radius for {ih}/{len(im)} tasks with a changed method; other gold files named in {sum(1 for r in im if r['cross'])}/{len(im)}")
+    med = lambda xs: sorted(xs)[len(xs)//2] if xs else 0
+    print(f"\nsearch: gold file named in {s}/{n} tasks ({s1} from the title alone); median calls {med([r['calls'] for r in rows])}, median chars ingested to get there {med([r['chars'] for r in rows if r['search'] != 'MISS'])} (~{med([r['chars'] for r in rows if r['search'] != 'MISS'])//4} tokens)")
+    print(f"impact: oracle test file named for {ih}/{len(im)} tasks with a changed method (median chars {med([r['ichars'] for r in im if not r['impact'].startswith(('MISS','no hunk'))])}); other gold files named in {sum(1 for r in im if r['cross'])}/{len(im)}")
