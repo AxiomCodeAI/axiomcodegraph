@@ -1,0 +1,2 @@
+nominal	testcases.engine.QuietAppendable.append -> testcases.engine.NullAppendable.append
+nominal	testcases.engine.QuietAppendable.append -> testcases.engine.StringBuilderAppendable.append
