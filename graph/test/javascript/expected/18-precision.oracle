@@ -9,17 +9,14 @@ lib/p.js:21:140 COMPUTED_CALL   EXACT  lib/p.js:20:89
 lib/p.js:21:26 COMPUTED_CALL   EXACT  lib/p.js:2:1
 lib/p.js:21:52 COMPUTED_CALL   EXACT  lib/p.js:3:1
 lib/p.js:21:71 METHOD_CALL tpl  EXACT  lib/p.js:2:1
-lib/p.js:21:91 METHOD_CALL computed1  MISSED  
 lib/p.js:22:37 CONSTRUCTOR_CALL X  SYNTHESIZED_OK  
 lib/p.js:22:47 CONSTRUCTOR_CALL Y  SYNTHESIZED_OK  
 lib/p.js:23:37 FUNCTION_CALL pick  EXACT  lib/p.js:22:1
-lib/p.js:23:37 METHOD_CALL run  SOUND_SUPERSET  lib/p.js:18:11;lib/p.js:6:3
 lib/p.js:25:34 FUNCTION_CALL passthrough  EXACT  lib/p.js:24:1
 lib/p.js:25:46 CONSTRUCTOR_CALL X  SYNTHESIZED_OK  
 lib/p.js:25:63 FUNCTION_CALL passthrough  EXACT  lib/p.js:24:1
 lib/p.js:25:75 CONSTRUCTOR_CALL Y  SYNTHESIZED_OK  
 lib/p.js:28:33 FUNCTION_CALL mutable  SOUND_SUPERSET  lib/p.js:2:1;lib/p.js:3:1
-lib/p.js:31:34 METHOD_CALL a  SOUND_SUPERSET  lib/p.js:2:1;lib/p.js:3:1
 lib/p.js:32:89 CONSTRUCTOR_CALL Y  SYNTHESIZED_OK  
 lib/p.js:33:33 CONSTRUCTOR_CALL X  SYNTHESIZED_OK  
 lib/p.js:34:31 FUNCTION_CALL_CALL call  EXACT  lib/p.js:6:3
@@ -42,7 +39,6 @@ main.js:5:61 METHOD_CALL viaFnExpr  EXACT  lib/p.js:12:3
 main.js:5:79 METHOD_CALL viaFnExprUnbound  EXACT  lib/p.js:13:3
 main.js:6:20 METHOD_CALL keys  EXACT  lib/p.js:21:1
 main.js:6:3 CONSTRUCTOR_CALL Z  SYNTHESIZED_OK  
-main.js:6:3 METHOD_CALL run  EXACT  lib/p.js:19:40
 main.js:6:30 METHOD_CALL polymorphic  EXACT  lib/p.js:23:1
 main.js:6:51 METHOD_CALL polymorphic  EXACT  lib/p.js:23:1
 main.js:6:73 METHOD_CALL identityFlow  EXACT  lib/p.js:25:1
@@ -55,4 +51,4 @@ main.js:7:49 METHOD_CALL callRegistry  EXACT  lib/p.js:31:1
 main.js:7:67 METHOD_CALL withThisArg  EXACT  lib/p.js:32:1
 main.js:7:87 METHOD_CALL ctorName  EXACT  lib/p.js:33:1
 main.js:9:1 FUNCTION_CALL main  EXACT  main.js:3:1
-# defects: 1
+# defects: 0
