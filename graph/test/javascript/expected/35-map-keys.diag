@@ -1,0 +1,19 @@
+package_entry    35-map-keys  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       main.js:10:32  METHOD_CALL keys  no_target
+unresolved       main.js:11:23  METHOD_CALL from  no_target
+unresolved       main.js:11:34  METHOD_CALL keys  no_target
+unresolved       main.js:13:45  METHOD_CALL entries  no_target
+unresolved       main.js:14:12  METHOD_CALL forEach  no_target
+unresolved       main.js:15:30  METHOD_CALL values  no_target
+unresolved       main.js:18:37  METHOD_CALL keys  member_absent
+unresolved       main.js:20:40  METHOD_CALL keys  member_absent
+unresolved       main.js:20:70  METHOD_CALL forEach  member_absent
+unresolved       main.js:23:20  CONSTRUCTOR_CALL Map  no_target
+unresolved       main.js:24:3  METHOD_CALL set  no_target
+unresolved       main.js:26:19  METHOD_CALL keys  no_target
+unresolved       main.js:27:3  METHOD_CALL forEach  no_target
+unresolved       main.js:28:18  CONSTRUCTOR_CALL Map  no_target
+unresolved       main.js:29:19  METHOD_CALL keys  no_target
+unresolved       main.js:30:15  CONSTRUCTOR_CALL Set  no_target
+unresolved       main.js:31:19  METHOD_CALL keys  no_target
+unresolved       main.js:8:16  CONSTRUCTOR_CALL Map  no_target

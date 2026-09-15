@@ -263,6 +263,37 @@ elem_value(cat("PAIR:", c), k, i) :- map_coll(c), elem_value(c, k, i).
 elem_value(cat("PAIR:", c), "str", key) :- map_coll(c), coll_keyed_value(c, key, _, _).
 pair_index_value(cat("PAIR:", c), "1", k, i) :- map_coll(c), elem_value(c, k, i).
 pair_index_value(cat("PAIR:", c), "0", "str", key) :- map_coll(c), coll_keyed_value(c, key, _, _).
+
+// ── the KEYS of a collection (#659) ─────────────────────────────────────────
+// A Map's keys are values too: an object key written by `set(k, v)` or seeded by
+// `new Map([[k, v]])`, or the FIRST type argument of a declared `Map<K, V>`; a Set's
+// keys are its elements. Read back by `keys()` (a pseudo array `KEYS:` + c, as the
+// pair array is), `entries()` (the pair array), the `[key, value]` pair's index 0,
+// and `forEach`'s SECOND parameter. A declared `Map<K, V>` (a type reference, not a
+// `new`) is a map_coll too, so its pair iteration yields both halves.
+coll_key_value(c, k, i) :- coll_method_call(ce, "set", c), call_arg(ce, 0, ke), expr_value(ke, k, i), k != "str".
+coll_key_value(c, k, i) :- coll_seed(c, x), coll_ctor(c, "Map"),
+    expr_value(x, "arr", a), pair_of(a, pair), expr_child(_, pair, "ELEMENT", "0", ke), expr_value(ke, k, i), k != "str".
+coll_key_value(c, k, i) :- set_coll(c), elem_value(c, k, i).
+set_coll(c) :- expr_value(c, "coll", c), new_callee_value(c, "ambient", n), ambient_set(n).
+set_coll(c) :- inst_coll(c, _, n), ambient_set(n).
+set_coll(r) :- type_ref_is_coll(r), type_ref(_, n, "GENERIC_APPLICATION", _, _, _, _, _, _, _, r), ambient_set(n).
+ambient_set("Set").
+ambient_set("WeakSet").
+map_coll(r) :- type_ref_is_coll(r), type_ref(_, n, "GENERIC_APPLICATION", _, _, _, _, _, _, _, r), ambient_map(n).
+expr_value(ce, "arr", cat("KEYS:", c)) :- coll_method_call(ce, "keys", c).
+elem_value(cat("KEYS:", c), k, i) :- coll_method_call(_, "keys", c), coll_key_value(c, k, i).
+elem_value(cat("KEYS:", c), "str", key) :- coll_method_call(_, "keys", c), coll_keyed_value(c, key, _, _).
+// `entries()` is an array whose ELEMENTS are the pairs, so `for (const [k, v] of
+// m.entries())` walks index 0 and 1 of each element.
+expr_value(ce, "arr", cat("ENTRIES:", c)) :- coll_method_call(ce, "entries", c), map_coll(c).
+elem_value(cat("ENTRIES:", c), "arr", cat("PAIR:", c)) :- coll_method_call(_, "entries", c), map_coll(c).
+elem_value(cat("PAIR:", c), k, i) :- map_coll(c), coll_key_value(c, k, i).
+pair_index_value(cat("PAIR:", c), "0", k, i) :- map_coll(c), coll_key_value(c, k, i).
+param_value(p, k, i) :- coll_method_call(ce, "forEach", c), call_arg(ce, 0, f), expr_value(f, "func", m),
+    param_decl(_, _, "1", m, p), coll_key_value(c, k, i).
+param_value(p, "str", key) :- coll_method_call(ce, "forEach", c), call_arg(ce, 0, f), expr_value(f, "func", m),
+    param_decl(_, _, "1", m, p), coll_keyed_value(c, key, _, _).
 // `arr.forEach(fn, thisArg)` and friends: the callback's `this` is the second argument.
 this_value(m, k, i) :- array_method_call(ce, n, _), array_method_iterates(n), call_arg(ce, 0, f), expr_value(f, "func", m),
     method_this_binding(_, "DYNAMIC", m), call_arg(ce, 1, ta), expr_value(ta, k, i), k != "str".

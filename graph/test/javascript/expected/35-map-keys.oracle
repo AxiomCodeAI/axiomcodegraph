@@ -1,0 +1,37 @@
+main.js:10:32 METHOD_CALL keys  LIB_AMBIENT_OK  
+main.js:10:51 METHOD_CALL identifier  EXACT  Module.js:1:16
+main.js:11:23 METHOD_CALL from  LIB_AMBIENT_OK  
+main.js:11:34 METHOD_CALL keys  LIB_AMBIENT_OK  
+main.js:11:56 METHOD_CALL identifier  EXACT  Module.js:1:16
+main.js:12:55 METHOD_CALL identifier  EXACT  Module.js:1:16
+main.js:12:76 METHOD_CALL id  EXACT  Module.js:2:15
+main.js:13:45 METHOD_CALL entries  LIB_AMBIENT_OK  
+main.js:13:67 METHOD_CALL identifier  EXACT  Module.js:1:16
+main.js:13:88 METHOD_CALL id  EXACT  Module.js:2:15
+main.js:14:12 METHOD_CALL forEach  LIB_AMBIENT_OK  
+main.js:14:50 METHOD_CALL identifier  EXACT  Module.js:1:16
+main.js:14:71 METHOD_CALL id  EXACT  Module.js:2:15
+main.js:15:30 METHOD_CALL values  LIB_AMBIENT_OK  
+main.js:15:51 METHOD_CALL id  EXACT  Module.js:2:15
+main.js:18:37 METHOD_CALL keys  LIB_AMBIENT_OK  
+main.js:18:49 METHOD_CALL identifier  EXACT  Module.js:1:16
+main.js:20:40 METHOD_CALL keys  LIB_AMBIENT_OK  
+main.js:20:52 METHOD_CALL identifier  EXACT  Module.js:1:16
+main.js:20:70 METHOD_CALL forEach  LIB_AMBIENT_OK  
+main.js:20:87 METHOD_CALL identifier  EXACT  Module.js:1:16
+main.js:23:20 CONSTRUCTOR_CALL Map  LIB_AMBIENT_OK  
+main.js:24:16 CONSTRUCTOR_CALL Module  SYNTHESIZED_OK  
+main.js:24:3 METHOD_CALL set  LIB_AMBIENT_OK  
+main.js:24:30 CONSTRUCTOR_CALL Chunk  SYNTHESIZED_OK  
+main.js:26:19 METHOD_CALL keys  LIB_AMBIENT_OK  
+main.js:27:3 METHOD_CALL forEach  LIB_AMBIENT_OK  
+main.js:28:18 CONSTRUCTOR_CALL Map  LIB_AMBIENT_OK  
+main.js:28:28 CONSTRUCTOR_CALL Module  SYNTHESIZED_OK  
+main.js:29:19 METHOD_CALL keys  LIB_AMBIENT_OK  
+main.js:29:36 METHOD_CALL identifier  EXACT  Module.js:1:16
+main.js:30:15 CONSTRUCTOR_CALL Set  LIB_AMBIENT_OK  
+main.js:30:24 CONSTRUCTOR_CALL Module  SYNTHESIZED_OK  
+main.js:31:19 METHOD_CALL keys  LIB_AMBIENT_OK  
+main.js:31:33 METHOD_CALL identifier  EXACT  Module.js:1:16
+main.js:8:16 CONSTRUCTOR_CALL Map  LIB_AMBIENT_OK  
+# defects: 0
