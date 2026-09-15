@@ -34,8 +34,10 @@ axiomcode-brief .axiomcode <issue-file>       an issue → ranked starting set w
 
 Three verbs on purpose. Everything else an agent used to do with the graph — find, uses, callers, callees, path, type,
 at — is a mode of one of these, chosen by the shape of the input, so there is no schema and no verb to pick.
-`impact <a> to=<b>` prints the call path between two functions at any depth, each hop with its tier (a hop that is one
-member of a dispatch set is marked `[dispatch]`). Either end may be a type (= any of its methods): you get one shortest
+`impact <a> to=<b>` prints the call path between two functions at any depth, each hop with its tier: unmarked = a
+resolved call, `[dispatch]` = one member of a dispatch set (also applied at every hop of a closure, so an override is
+reached through its base), `[defines]` = a closure/lambda/anonymous body defined inside the caller, `[by name]` = the
+owner looks members up as strings (getattr / getDeclaredMethod). VERIFY also lists test classes that inherit a listed one. Either end may be a type (= any of its methods): you get one shortest
 path per connected (source, target) pair, `limit=N` for more pairs; `all=yes` enumerates EVERY simple path for the
 first pair (up to shortest+2 hops, `maxhops=N` to widen). `impact <field>` / `impact <Type>` / `impact <config.key>` answer the
 non-call questions with their limits stated.

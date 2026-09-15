@@ -51,6 +51,9 @@ if any(not q("SELECT 1 FROM sqlite_master WHERE name=? AND type='table'", t) for
     r = subprocess.run([sys.executable, os.path.join(HERE, 'axiomcode-index')], env=dict(os.environ, AXIOMCODE_GRAPH=GDIR), capture_output=True, text=True)
     if r.returncode: print(r.stdout + r.stderr); sys.exit(2)
     con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
+if not q("SELECT 1 FROM sqlite_master WHERE type='index' AND name='symbols_tid'"):      # an index built before this index existed
+    try: con.execute("CREATE INDEX IF NOT EXISTS symbols_tid ON symbols(type_id)"); con.commit()
+    except sqlite3.OperationalError: pass
 META = {r['key']: r['value'] for r in q("SELECT key, value FROM index_meta")}
 LANG = META.get('language', '?')
 
@@ -289,7 +292,41 @@ def edges_up():
         if r['tier'] == 'known_edge' or (r['caller_id'], r['callee_method_id']) not in TIER: TIER[(r['caller_id'], r['callee_method_id'])] = r['tier']
     for inner, outer in enclosing_edges():
         if outer not in up[inner]: up[inner].add(outer); TIER.setdefault((outer, inner), 'enclosing')
+    for base, cand in dispatch_pairs():
+        if base not in up[cand]: up[cand].add(base); TIER.setdefault((base, cand), 'dispatch')
+    for x, m in reflective_pairs():
+        if x not in up[m]: up[m].add(x); TIER.setdefault((x, m), 'reflective')
     return up
+_RP = None
+REFLECT = {'getattr', 'getDeclaredMethod', 'getMethod'}
+def reflective_pairs():
+    """(dispatcher, method): a method X of type T that looks members up BY NAME (Python getattr, Java getDeclaredMethod /
+    getMethod) may call any method of T the graph shows no caller for — a handler table built from strings
+    (`getattr(self, f'{kind}_schema')`). For reachability X's callers are those methods', tier 'reflective'"""
+    global _RP
+    if _RP is None:
+        _RP = []
+        if has('refs'):
+            for r in q("SELECT DISTINCT file, line FROM refs WHERE name IN (%s)" % ','.join('?' * len(REFLECT)), *sorted(REFLECT)):
+                x = q("""SELECT method_id, owner FROM symbols WHERE file=? AND line<=? AND end_line>=? AND method_id IS NOT NULL AND kind<>'module'
+                          ORDER BY (end_line-line) LIMIT 1""", r['file'], r['line'], r['line'])
+                if not x or not x[0]['owner']: continue
+                for m in q("""SELECT s.method_id FROM symbols s WHERE s.owner=? AND s.file=? AND s.method_id IS NOT NULL AND s.method_id<>?
+                              AND NOT EXISTS (SELECT 1 FROM call_edges e WHERE e.callee_method_id=s.method_id)""", x[0]['owner'], r['file'], x[0]['method_id']):
+                    _RP.append((x[0]['method_id'], m['method_id']))
+    return _RP
+_DP = None
+def dispatch_pairs():
+    """(base, candidate) from the engine's own dispatch table, candidates of INSTANTIATED types only: a call that resolves to
+    the base may run any of them, so for reachability the base's callers are the candidate's. This is the dispatch step
+    applied at EVERY hop of a closure, not only at the method asked about — a site whose edge set was narrowed or capped
+    (#664, #702) is still followed through the base"""
+    global _DP
+    if _DP is None:
+        _DP = [(r['base_method_id'], r['candidate_method_id']) for r in q("""SELECT DISTINCT dc.base_method_id, dc.candidate_method_id FROM dispatch_candidates dc
+                 JOIN methods m ON m.id = dc.candidate_method_id WHERE m.provenance = 'client' AND dc.base_method_id <> dc.candidate_method_id
+                 AND (m.owner_type_id IS NULL OR m.owner_type_id IN (SELECT type_id FROM type_instantiated) OR NOT EXISTS (SELECT 1 FROM type_instantiated))""")] if has('dispatch_candidates') else []
+    return _DP
 def edges_down():
     dn = collections.defaultdict(set)
     for r in q("SELECT caller_id, callee_method_id, tier FROM call_edges WHERE callee_method_id IS NOT NULL AND callee_provenance='client'"):
@@ -297,6 +334,10 @@ def edges_down():
         if r['tier'] == 'known_edge' or (r['caller_id'], r['callee_method_id']) not in TIER: TIER[(r['caller_id'], r['callee_method_id'])] = r['tier']
     for inner, outer in enclosing_edges():
         if inner not in dn[outer]: dn[outer].add(inner); TIER.setdefault((outer, inner), 'enclosing')
+    for base, cand in dispatch_pairs():
+        if cand not in dn[base]: dn[base].add(cand); TIER.setdefault((base, cand), 'dispatch')
+    for x, m in reflective_pairs():
+        if m not in dn[x]: dn[x].add(m); TIER.setdefault((x, m), 'reflective')
     return dn
 def best_path(src, dst, adj, forward=True):
     """shortest path that prefers known_edge hops (weight 1) over multi_inferred ones (weight 3): a printed chain should
@@ -620,7 +661,7 @@ def endpoints(sel):
 def adj_sorted(x, adj):
     return sorted(adj.get(x, ()), key=lambda y: 0 if TIER.get((x, y)) == 'known_edge' else 1)
 def show_chain(ch):
-    return ' → '.join((symof(c)['display'] if symof(c) else c) + ('' if i == 0 or t == 'known_edge' else ' [defines]' if t == 'enclosing' else ' [dispatch]') for i, (c, t) in enumerate(ch))
+    return ' → '.join((symof(c)['display'] if symof(c) else c) + ('' if i == 0 or t == 'known_edge' else ' [defines]' if t == 'enclosing' else ' [by name]' if t == 'reflective' else ' [dispatch]') for i, (c, t) in enumerate(ch))
 def path_between(src_sel, dst_sel):
     """impact <A> to=<B> where either side may be a TYPE: shortest known_edge-preferring path from any source method to any
     target method; one line per distinct (source, target) pair, shortest first"""
@@ -657,7 +698,7 @@ def path_between(src_sel, dst_sel):
             allp.sort(key=len)
             say(f"  ALL simple paths {symof(a)['display']} → {symof(b)['display']} (≤{maxh} hops = shortest+2 unless maxhops=N, cycle-free): {len(allp)}" + (" (capped at 200)" if len(allp) >= 200 else ''))
             for pth in allp[:opt_int('limit', 30)]:
-                say("    " + ' → '.join((symof(c)['display'] if symof(c) else c) + ('' if i == 0 or TIER.get((pth[i-1], c)) == 'known_edge' else ' [defines]' if TIER.get((pth[i-1], c)) == 'enclosing' else ' [dispatch]') for i, c in enumerate(pth)))
+                say("    " + ' → '.join((symof(c)['display'] if symof(c) else c) + ('' if i == 0 or TIER.get((pth[i-1], c)) == 'known_edge' else ' [defines]' if TIER.get((pth[i-1], c)) == 'enclosing' else ' [by name]' if TIER.get((pth[i-1], c)) == 'reflective' else ' [dispatch]') for i, c in enumerate(pth)))
             if len(allp) > opt_int('limit', 30): say(f"    … +{len(allp) - opt_int('limit', 30)} more (limit=N)")
         else: say("    all=yes enumerates every simple path for the first pair; maxhops=N bounds it")
         return
@@ -724,6 +765,8 @@ def impact_method(r, to):
     say(f"  MUST change if its signature changes — direct callers: {len(direct)} sites in {len(byc)} methods, {len({f for _, f in byc})} files")
     for (c, f), ls in list(byc.items())[:20]: row(f"    {c}   {f}:{','.join(map(str, ls[:8]))}" + (f"…+{len(ls)-8}" if len(ls) > 8 else ''))
     if len(byc) > 20: say(f"    … +{len(byc)-20} methods (limit=N)")
+    refl = [x for x, mm in reflective_pairs() if mm == m and symof(x)]
+    if refl: say("  REACHED BY NAME — the owner looks members up as strings, so these run it without a resolved call: " + ', '.join(f"{symof(x)['display']} ({loc(symof(x))})" for x in refl[:4]))
     # 2. may change if the CONTRACT changes: what may run instead of it, what it overrides
     sib = dispatch_of(m)
     if sib:
@@ -737,10 +780,14 @@ def impact_method(r, to):
     for d, i in tests: tfiles.setdefault(symof(i)['file'], (d, symof(i)['display']))
     # a test class that EXTENDS one of these runs the same test methods again under its own name (JUnit, pytest): its file
     # is exercised too, at the same distance
-    for f, (d, disp) in list(tfiles.items()):
-        for sub in q("""SELECT DISTINCT s2.file FROM symbols s1 JOIN type_ancestors ta ON ta.ancestor_type_id = s1.type_id
-                        JOIN symbols s2 ON s2.type_id = ta.type_id WHERE s1.type_id IS NOT NULL AND s1.file = ? AND s2.is_test = 1 AND s2.file <> ?""", f, f):
-            tfiles.setdefault(sub['file'], (d, f"inherits {disp.split('.')[0]}"))
+    if tests:
+        sub_of = collections.defaultdict(set)                                       # ancestor test file -> files of test types extending it
+        tfile = {r['type_id']: r['file'] for r in q("SELECT type_id, file FROM symbols WHERE type_id IS NOT NULL AND is_test = 1")}
+        for r in q("SELECT type_id, ancestor_type_id FROM type_ancestors"):
+            af, tf = tfile.get(r['ancestor_type_id']), tfile.get(r['type_id'])
+            if af and tf and af != tf: sub_of[af].add(tf)
+        for f, (d, disp) in list(tfiles.items()):
+            for sf in sorted(sub_of.get(f, ())): tfiles.setdefault(sf, (d, f"inherits {disp.split('.')[0]}"))
     if tests:
         tf = list(tfiles.items())
         say(f"  VERIFY with — tests that reach it: {len(tests)} in {len(tf)} file(s), nearest first: " + ', '.join(f"{f} ({sum(1 for _, i in tests if symof(i)['file'] == f)}; {disp} at {d} hops)" for f, (d, disp) in tf[:8])
