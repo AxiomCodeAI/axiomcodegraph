@@ -194,15 +194,36 @@ def pick(sel, kinds, need):
     return want
 
 # ── graph helpers ────────────────────────────────────────────────────────────────────────────────
+TIER = {}                                                   # (caller, callee) -> best tier seen; a path prefers known_edge hops
 def edges_up():
     """caller <- callee over RESOLVED client edges (callee_method_id set, provenance client): the sound set in every language"""
     up = collections.defaultdict(set)
-    for r in q("SELECT caller_id, callee_method_id FROM call_edges WHERE callee_method_id IS NOT NULL AND callee_provenance='client'"): up[r['callee_method_id']].add(r['caller_id'])
+    for r in q("SELECT caller_id, callee_method_id, tier FROM call_edges WHERE callee_method_id IS NOT NULL AND callee_provenance='client'"):
+        up[r['callee_method_id']].add(r['caller_id'])
+        if r['tier'] == 'known_edge' or (r['caller_id'], r['callee_method_id']) not in TIER: TIER[(r['caller_id'], r['callee_method_id'])] = r['tier']
     return up
 def edges_down():
     dn = collections.defaultdict(set)
-    for r in q("SELECT caller_id, callee_method_id FROM call_edges WHERE callee_method_id IS NOT NULL AND callee_provenance='client'"): dn[r['caller_id']].add(r['callee_method_id'])
+    for r in q("SELECT caller_id, callee_method_id, tier FROM call_edges WHERE callee_method_id IS NOT NULL AND callee_provenance='client'"):
+        dn[r['caller_id']].add(r['callee_method_id'])
+        if r['tier'] == 'known_edge' or (r['caller_id'], r['callee_method_id']) not in TIER: TIER[(r['caller_id'], r['callee_method_id'])] = r['tier']
     return dn
+def best_path(src, dst, adj, forward=True):
+    """shortest path that prefers known_edge hops (weight 1) over multi_inferred ones (weight 3): a printed chain should
+    be made of certain edges wherever one exists; returns [(node, tier_of_hop_into_it)] or None"""
+    import heapq
+    dist = {src: 0}; par = {src: (None, None)}; pq = [(0, src)]
+    while pq:
+        d, x = heapq.heappop(pq)
+        if x == dst: break
+        if d > dist.get(x, 1e9): continue
+        for y in adj.get(x, ()):
+            t = TIER.get((x, y) if forward else (y, x), 'multi_inferred'); nd = d + (1 if t == 'known_edge' else 3)
+            if nd < dist.get(y, 1e9): dist[y] = nd; par[y] = (x, t); heapq.heappush(pq, (nd, y))
+    if dst not in par: return None
+    chain = []; x = dst
+    while x is not None: chain.append((x, par[x][1])); x = par[x][0]
+    return chain[::-1]
 def reach(start_ids, adj, depth):
     """{id: (min depth, parent)} by BFS, bounded"""
     seen = {s: (0, None) for s in start_ids}; frontier = list(start_ids)
@@ -538,14 +559,14 @@ def impact_method(r, to):
         else:
             dn = edges_down(); fw = reach([m], dn, 10**6)
             hit = [b for b in B if b['method_id'] in fw]; rhit = [b for b in B if b not in hit and b['method_id'] in seen]
+            def show_chain(chain):   # a hop through a dispatch fan is marked: it is one of a set, not a certainty
+                return ' → '.join((symof(c)['display'] if symof(c) else c) + ('' if i == 0 or t == 'known_edge' else ' [dispatch]') for i, (c, t) in enumerate(chain))
             for b in hit:
-                chain = []; x = b['method_id']
-                while x is not None: chain.append(x); x = fw[x][1]
-                chain.reverse(); say(f"  path {r['display']} → {b['display']}: {len(chain)-1} hop(s): " + ' → '.join(symof(c)['display'] if symof(c) else c for c in chain))
+                chain = best_path(m, b['method_id'], dn, True)
+                say(f"  path {r['display']} → {b['display']}: {len(chain)-1} hop(s): " + show_chain(chain) + ("   (every hop known_edge)" if all(t == 'known_edge' for _, t in chain[1:]) else "   ([dispatch] = a hop that is one member of a dispatch set)"))
             for b in rhit:
-                chain = []; x = b['method_id']
-                while x is not None: chain.append(x); x = seen[x][1]
-                say(f"  {b['display']} reaches {r['display']} in {len(chain)-1} hop(s): " + ' → '.join(symof(c)['display'] if symof(c) else c for c in chain))
+                chain = best_path(b['method_id'], m, dn, True)
+                say(f"  {b['display']} reaches {r['display']} in {len(chain)-1} hop(s): " + show_chain(chain))
             if not hit and not rhit: say(f"  no resolved path between {r['display']} and {', '.join(b['display'] for b in B)}; {sum(1 for i in fw if unresolved_in(i))} method(s) it can reach contain unresolved calls — the path may exist through one of those")
 
 def v_impact():
