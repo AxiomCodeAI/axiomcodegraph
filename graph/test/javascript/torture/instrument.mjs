@@ -64,8 +64,28 @@ const __record = (id) => { const prev = __als.getStore() || '<root>'; __seen.add
 // scorer accepts when the natural edge is not in the graph. A Proxy keeps length, name,
 // prototype, properties and instanceof; one wrapper per function, so removeListener(fn)
 // finds what on(fn) stored. Classes are not wrapped (their identity is compared).
+//
+// The registrars are recorded ONLY when the wrapper is invoked by the platform (a timer,
+// an event loop callback, a microtask, a library): the first stack frame above the trap
+// that is neither the runtime nor a native builtin is then outside the instrumented tree.
+// A wrapper invoked from project code (a bound function called directly, a stored
+// callback called by the project) is a direct call, and a registration made anywhere
+// else must not excuse it (#640).
 const __wrapOf = new WeakMap(); const __regsOf = new WeakMap(); const __origOf = new WeakMap();
 const __isClass = (v) => { try { return /^class[\\s{]/.test(Function.prototype.toString.call(v)); } catch { return false; } };
+const __TREE = ${JSON.stringify(path.resolve(outDir) + path.sep)};
+const __RUNTIME = ${JSON.stringify(path.resolve(outDir, '__axiom_runtime.cjs'))};
+const __platformInvoked = () => {
+  const lines = (new Error().stack || '').split('\\n').slice(1);
+  for (const line of lines) {
+    if (line.includes(__RUNTIME)) continue;            // the trap and the runtime's own frames
+    if (/\\(<anonymous>\\)|\\(native\\)/.test(line) || !/[(\\s]([^()\\s]+):\\d+:\\d+\\)?$/.test(line)) continue;  // a native builtin (Array.forEach, a bound call)
+    let file = line.replace(/^\\s*at\\s+/, ''); const m = /\\(?([^()]+?):\\d+:\\d+\\)?$/.exec(file); file = m ? m[1] : file;
+    if (file.startsWith('file://')) file = decodeURIComponent(file.slice(7));
+    return !file.startsWith(__TREE);
+  }
+  return true;
+};
 const __cb = (v0) => {
   if (typeof v0 !== 'function' || v0 === __cb) return v0;
   const v = __origOf.get(v0) || v0;
@@ -76,8 +96,8 @@ const __cb = (v0) => {
   let w = __wrapOf.get(v);
   if (!w) {
     w = new Proxy(v, {
-      apply(t, thisArg, args) { return __regAls.run(regs, () => Reflect.apply(t, thisArg, args)); },
-      construct(t, args, nt) { return __regAls.run(regs, () => Reflect.construct(t, args, nt === w ? t : nt)); },
+      apply(t, thisArg, args) { return __regAls.run(__platformInvoked() ? regs : undefined, () => Reflect.apply(t, thisArg, args)); },
+      construct(t, args, nt) { return __regAls.run(__platformInvoked() ? regs : undefined, () => Reflect.construct(t, args, nt === w ? t : nt)); },
     });
     __wrapOf.set(v, w); __origOf.set(w, v);
   }
