@@ -1,0 +1,8 @@
+main.js:14:32 FUNCTION_CALL localWalk  EXACT  main.js:9:1
+main.js:15:19 FUNCTION_CALL direct  EXACT  main.js:10:1
+main.js:15:29 FUNCTION_CALL viaVar  EXACT  main.js:11:1
+main.js:15:39 FUNCTION_CALL viaPlatform  EXACT  main.js:12:1
+main.js:15:54 FUNCTION_CALL viaCtor  EXACT  main.js:13:1
+main.js:15:65 FUNCTION_CALL viaProject  EXACT  main.js:14:1
+main.js:16:1 FUNCTION_CALL main  EXACT  main.js:15:1
+# defects: 0
