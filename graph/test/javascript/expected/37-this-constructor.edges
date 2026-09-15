@@ -1,0 +1,15 @@
+main.js:11:13 CONSTRUCTOR_CALL Sub  ->  implicit_constructor  -
+main.js:12:3 METHOD_CALL s.clone  ->  known_edge  main.js:3:3 clone
+main.js:12:3 METHOD_CALL s.clone().run  ->  multi_inferred  main.js:5:3 run
+main.js:12:3 METHOD_CALL s.clone().run  ->  multi_inferred  main.js:8:26 run
+main.js:13:3 METHOD_CALL Sub.build  ->  known_edge  main.js:6:3 build
+main.js:13:3 METHOD_CALL Sub.build().run  ->  multi_inferred  main.js:5:3 run
+main.js:13:3 METHOD_CALL Sub.build().run  ->  multi_inferred  main.js:8:26 run
+main.js:14:3 CONSTRUCTOR_CALL Base  ->  implicit_constructor  -
+main.js:14:3 METHOD_CALL new Base().make  ->  known_edge  main.js:4:3 make
+main.js:14:3 METHOD_CALL new Base().make().run  ->  multi_inferred  main.js:5:3 run
+main.js:14:3 METHOD_CALL new Base().make().run  ->  multi_inferred  main.js:8:26 run
+main.js:16:1 FUNCTION_CALL main  ->  known_edge  main.js:10:1 main
+main.js:3:20 CONSTRUCTOR_CALL this.constructor  ->  implicit_constructor  -
+main.js:4:19 CONSTRUCTOR_CALL this.constructor  ->  implicit_constructor  -
+main.js:6:27 CONSTRUCTOR_CALL this  ->  implicit_constructor  -
