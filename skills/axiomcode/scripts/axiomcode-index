@@ -18,7 +18,7 @@ to --src). The language's IR is read through the ADAPTER table below — header 
 positions — mirroring graph/bundle/languages.ts. When the IR is absent the index degrades: symbols
 come from methods/types alone, refs/literals/comments are empty, and index_meta says so.
 """
-import csv, os, re, sqlite3, sys, time, glob
+import csv, os, re, sqlite3, sys, time, glob, collections
 csv.field_size_limit(10**9)
 
 REPO = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith('-') else os.environ.get('AXIOMCODE_REPO') or '.')
@@ -178,10 +178,25 @@ if A['boundNames']:
     b = A['boundNames']
     for r in rows(b['file']):
         if r.get(b['method']): bound.setdefault(r[b['method']], r[b['name']])
+# Java: a method declared in an enum CONSTANT's body (`Initial { boolean process(...) {…} }`) is registered per constant with the
+# same qualified_name and the enum as owner — 23 `HtmlTreeBuilderState.process` rows in jsoup. The constant's span names it.
+econst = collections.defaultdict(list)
+for d in A['decls']:
+    if 'enum-constants' in d['file']:
+        for r in rows(d['file']):
+            try: econst[rel(r.get('filePath', ''))].append((int(r.get('startLine') or 0), int(r.get('endLine') or 0), r.get('name', '')))
+            except ValueError: pass
+def enum_constant_of(fp, ln):
+    for a, b, n in econst.get(fp, ()):
+        if a <= ln <= b and b > a: return n
+    return None
 for m in c.execute("SELECT id, name, qualified_name, signature, kind, owner_type_id, owner_qualified_name, file_path, start_line, end_line FROM methods WHERE provenance='client'"):
     name = m['name'] or ''
     if name.startswith('<') and m['id'] in bound: name = bound[m['id']]
     od = tdisplay(m['owner_type_id']) if m['owner_type_id'] else None
+    if m['kind'] == 'ENUM_CONSTANT_METHOD' and od:
+        k_ = enum_constant_of(rel(m['file_path']), m['start_line'] or 0)
+        if k_: od = f"{od}.{k_}"
     if m['kind'] == 'MODULE_INITIALIZER':
         fp = rel(m['file_path']); stem = os.path.splitext(os.path.basename(fp or ''))[0]
         sym.append((m['id'], '<module>', f"{stem}.<module>", 'module', m['qualified_name'], m['signature'], fp, m['start_line'], m['end_line'], None, 1 if fp and TESTRE.search(fp) else 0, m['id'], None)); continue
