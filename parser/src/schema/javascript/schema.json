@@ -727,7 +727,8 @@
     "startColumn",
     "isExternal",
     "serviceVersionLinkHash",
-    "jsTypeReferenceUniqueHash"
+    "jsTypeReferenceUniqueHash",
+    "memberName"
    ],
    "domains": {
     "referenceKind": [

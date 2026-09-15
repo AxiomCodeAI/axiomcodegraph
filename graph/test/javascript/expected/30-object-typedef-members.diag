@@ -1,0 +1,2 @@
+package_entry    30-object-typedef-members  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       plugin.js:13:36  METHOD_CALL trim  no_target

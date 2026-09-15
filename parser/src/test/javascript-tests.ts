@@ -1014,6 +1014,24 @@ const SCAFFOLD: ReadonlyArray<readonly [string, string]> = [
     'module.exports = { viaDefault, viaNamed, viaRenamed, viaTypedef };',
     '',
   ].join('\n')],
+  // An object typedef with @property members and an inline object type (#651):
+  // the child rows carry the member NAME, a nested `a.b` name as written, and
+  // every non-member node carries none.
+  ['cjs/object-typedef.js', [
+    '/**',
+    ' * @typedef {Object} State',
+    ' * @property {Router} module',
+    ' * @property {string} source',
+    ' * @property {number} opts.depth',
+    ' */',
+    '/** @param {{ router: Router, tags: string[] }} opts */',
+    'function inline(opts) { return opts.router; }',
+    '/** @param {State} s */',
+    'function typed(s) { return s.module; }',
+    "const Router = require('./router');",
+    'module.exports = { inline, typed };',
+    '',
+  ].join('\n')],
   // A package declaring every entry shape (#616): `exports` as a subpath map with
   // a plain target, a pattern, a null block, a non-JavaScript target, a missing
   // target and a fallback list; `main` beside it; a scoped sibling with nested
@@ -6168,6 +6186,59 @@ async function publishedPackageWalksItsBuildOutput(): Promise<number> {
 }
 
 /**
+ * An object type's children carry their member names (#651).
+ *
+ * `@typedef {Object} State` + `@property {Router} module` and an inline
+ * `{ router: Router }` both emit the member's type as a child of the OBJECT_TYPE
+ * row; without the name nothing downstream can say which member is a Router.
+ * Asserted by value: each member child's `memberName`, a nested `opts.depth` kept
+ * as written, and `""` on every node that is not an object member.
+ */
+function objectTypeMembersCarryTheirNames(): number {
+  let failures = 0;
+  const relations = readRelations(outputDir);
+  const modules = relations.find((r) => r.name === 'js_module')!;
+  const mPk = pkIndexOf(modules.header, 'js_module');
+  const mPath = modules.header.indexOf('filePath');
+  const module = modules.rows.find((r) => (r[mPath] ?? '').endsWith('object-typedef.js'))?.[mPk];
+  const refs = relations.find((r) => r.name === 'js_type_reference')!;
+  const col = (c: string): number => refs.header.indexOf(c);
+  if (col('memberName') < 0) {
+    return fail('js_type_reference has no memberName column');
+  }
+  const mine = refs.rows.filter((r) => r[col('ownerModuleLinkHash')] === module);
+  const byKey = new Map(mine.map((r) => [r[pkIndexOf(refs.header, 'js_type_reference')] ?? '', r]));
+  const expected: ReadonlyArray<readonly [string, string, string]> = [
+    // typeName, memberName, parent kind
+    ['Router', 'module', 'OBJECT_TYPE'], ['string', 'source', 'OBJECT_TYPE'], ['number', 'opts.depth', 'OBJECT_TYPE'],
+    ['Router', 'router', 'OBJECT_TYPE'], ['Array', 'tags', 'OBJECT_TYPE'],
+  ];
+  for (const [typeName, memberName, parentKind] of expected) {
+    const row = mine.find((r) => r[col('typeName')] === typeName && r[col('memberName')] === memberName);
+    const parent = row === undefined ? undefined : byKey.get(row[col('parentReferenceLinkHash')] ?? '');
+    if (row === undefined || parent?.[col('referenceKind')] !== parentKind) {
+      failures += fail(`no ${typeName} child named ${JSON.stringify(memberName)} under an ${parentKind} node`);
+    }
+  }
+  const named = mine.filter((r) => (r[col('memberName')] ?? '') !== '');
+  if (named.length !== expected.length) {
+    failures += fail(`${named.length} rows carry a memberName, expected ${expected.length}: only an object type's members do`);
+  }
+  for (const r of named) {
+    const parent = byKey.get(r[col('parentReferenceLinkHash')] ?? '');
+    if (parent?.[col('referenceKind')] !== 'OBJECT_TYPE') {
+      failures += fail(`${r[col('typeName')]} carries memberName ${r[col('memberName')]} under a ${parent?.[col('referenceKind')]} parent`);
+    }
+  }
+  // The frozen order holds: the key is still c22 and the new column sits after it.
+  if (refs.header[22] !== 'jsTypeReferenceUniqueHash' || refs.header[23] !== 'memberName') {
+    failures += fail(`columns 22 and 23 are ${refs.header[22]}, ${refs.header[23]}: memberName must be appended after the key`);
+  }
+  console.log(`  ${expected.length} member names asserted by value, none elsewhere, column appended after the key`);
+  return failures;
+}
+
+/**
  * `UNKNOWN_SYNTAX` names only what the vocabulary cannot.
  *
  * The value is deliberate and expected to be non-empty — JSDoc type syntax is
@@ -6759,6 +6830,7 @@ const CHECKS: Check[] = [
   { name: '@import tags mint bindings', proves: 'a JSDoc @import tag mints one type-only js_import row per bound name with its real binding form, and a @param through the name links it, so the new spelling of a typedef import is not a silent nothing (#621)', run: jsdocImportTagsMintBindings },
   { name: 'package entries name what a package exposes', proves: 'js_package_entry carries every main/module/exports entry of every package in the parse, resolved to a module hash only when the target is a staged JavaScript file and a named absence otherwise (#616)', run: packageEntriesNameWhatAPackageExposes },
   { name: 'a published package walks its build output', proves: 'a walk root whose own package.json ships from dist/ stages the modules under it, while a nested dist/ and node_modules stay skipped and the exception is listed in the summary (#620)', run: publishedPackageWalksItsBuildOutput },
+  { name: 'object type members carry their names', proves: 'an OBJECT_TYPE child row names the member it types, nested names as written, nothing else does, and the column is appended after the frozen key (#651)', run: objectTypeMembersCarryTheirNames },
   { name: 'binding paths are keys, not names', proves: 'a destructured parameter\'s path is the key route (`wire` for `{ wire: local }`) on c33 alone, asserted by value on every pattern shape', run: bindingPathsAreKeysNotNames },
   { name: 'UNKNOWN_SYNTAX names only what the vocabulary cannot', proves: 'a callback is a FUNCTION_TYPE tree, a heritage operand is NAMED, parentheses are unwrapped and keywords are named — and no UNKNOWN_SYNTAX row anywhere carries text the vocabulary already covers', run: unknownSyntaxNamesOnlyWhatTheVocabularyCannot },
   { name: 'JSDoc tags reach exactly one row', proves: 'every @template parameter the compiler parsed becomes one row and no block is read twice — counted from node.jsDoc[].tags, because ts.getJSDocTags both loses blocks and inherits to children', run: jsdocTagsReachExactlyOneRow },
