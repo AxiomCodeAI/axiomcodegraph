@@ -68,6 +68,43 @@ var_value(v, "module", mod) :- var_type_name(_, _, r, v), type_ref_module(r, mod
 return_value(m, "module", mod) :- method_return_type(_, _, r, m), type_ref_module(r, mod).
 prop_value("inst", t, n, "module", mod) :- field_type_name(_, n, t, _, r, _), type_ref_module(r, mod).
 
+// ── type_ref_shape(RefHash, ShapeHash): a type that is an OBJECT TYPE (#651) ──
+// `@typedef {Object} State` + `@property {Module} module`, or an inline
+// `{ module: Module }`: a record type whose members are the OBJECT_TYPE node's
+// children, each carrying its name. A value declared with such a type is a
+// "shape" value identified by the OBJECT_TYPE row, and reading a member of it is
+// reading the member's declared type. Reached the same three ways a class is:
+// the node itself, a typedef alias, and a wrapper; plus an INTERSECTION, whose
+// every arm contributes (`Record<string, any> & State` is still a State).
+type_ref_shape(r, r) :- type_ref(_, _, "OBJECT_TYPE", _, _, _, _, _, _, _, r).
+type_ref_shape(r, s) :- type_ref(_, n, "NAMED", _, _, _, _, _, "", m, r),
+    type_only_decl(_, n, "JSDOC_TYPEDEF", m, td),
+    type_ref(_, _, _, "", "TYPEDEF", "TYPE", td, _, _, _, c), c != r,
+    type_ref_shape(c, s).
+type_ref_shape(r, s) :- type_ref(_, _, k, _, _, _, _, _, _, _, r), type_ref_kind_is_wrapper(k),
+    type_ref(_, _, _, r, _, _, _, _, _, _, c), type_ref_shape(c, s).
+type_ref_shape(r, s) :- type_ref(_, _, "INTERSECTION", _, _, _, _, _, _, _, r),
+    type_ref(_, _, _, r, _, _, _, _, _, _, c), type_ref_shape(c, s).
+// A typedef imported from another file: `@typedef {import("./Parser").ParserStateBase} S`.
+// The import-type row names the typedef, whose own reference is the shape.
+type_ref_shape(r, s) :- type_ref(_, _, "IMPORT_TYPE", _, _, _, _, _, imp, _, r), imp != "",
+    import_decl(_, _, "JSDOC_IMPORT_TYPE", _, n, _, _, _, imp), n != "", import_module(imp, mod),
+    type_only_decl(_, n, "JSDOC_TYPEDEF", mod, td),
+    type_ref(_, _, _, "", "TYPEDEF", "TYPE", td, _, _, _, c), type_ref_shape(c, s).
+// The members: each child of the shape with a name gives the shape's property
+// that name's declared type, whatever kind it resolves to.
+prop_value("shape", s, n, "inst", t) :- type_ref_shape(_, s), type_ref(_, _, _, s, _, _, _, _, _, _, c), type_ref_member(_, n, c), type_ref_type(c, t).
+prop_value("shape", s, n, "module", mod) :- type_ref_shape(_, s), type_ref(_, _, _, s, _, _, _, _, _, _, c), type_ref_member(_, n, c), type_ref_module(c, mod).
+prop_value("shape", s, n, "shape", s2) :- type_ref_shape(_, s), type_ref(_, _, _, s, _, _, _, _, _, _, c), type_ref_member(_, n, c), type_ref_shape(c, s2).
+prop_value("shape", s, n, "coll", c) :- type_ref_shape(_, s), type_ref(_, _, _, s, _, _, _, _, _, _, c), type_ref_member(_, n, c), type_ref_is_coll(c).
+prop_value("shape", s, n, "arr", c) :- type_ref_shape(_, s), type_ref(_, _, _, s, _, _, _, _, _, _, c), type_ref_member(_, n, c), type_ref_is_array(c).
+prop_value("shape", s, n, "ambient", b) :- type_ref_shape(_, s), type_ref(_, _, _, s, _, _, _, _, _, _, c), type_ref_member(_, n, c),
+    type_ref(_, b, "NAMED", _, _, _, _, _, _, _, c), type_ref_builtin(_, c).
+param_value(p, "shape", s) :- param_type_name(_, _, r, p), type_ref_shape(r, s).
+var_value(v, "shape", s) :- var_type_name(_, _, r, v), type_ref_shape(r, s).
+return_value(m, "shape", s) :- method_return_type(_, _, r, m), type_ref_shape(r, s).
+prop_value("inst", t, n, "shape", s) :- field_type_name(_, n, t, _, r, _), type_ref_shape(r, s).
+
 // ── type_ref_unresolved(RefHash, TypeName) — countable ──────────────────────
 // A NAMED reference that reached no class: a typedef (type-only by design), a
 // builtin, or a dependency not staged. The fastest read on what is missing.

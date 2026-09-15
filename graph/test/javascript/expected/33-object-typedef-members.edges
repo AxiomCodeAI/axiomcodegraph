@@ -1,0 +1,8 @@
+Parser.js:15:18 METHOD_CALL this.state.module.addDependency  ->  ambient_terminal  -
+Parser.js:15:18 METHOD_CALL this.state.module.addDependency  ->  multi_inferred  NormalModule.js:1:22 addDependency
+plugin.js:11:59 METHOD_CALL m.addDependency  ->  known_edge  NormalModule.js:1:22 addDependency
+plugin.js:13:36 METHOD_CALL state.source.trim  ->  ambient_terminal  -
+plugin.js:5:33 METHOD_CALL parser.state.module.addDependency  ->  ambient_terminal  -
+plugin.js:5:33 METHOD_CALL parser.state.module.addDependency  ->  multi_inferred  NormalModule.js:1:22 addDependency
+plugin.js:7:33 METHOD_CALL state.module.addDependency  ->  known_edge  NormalModule.js:1:22 addDependency
+plugin.js:9:32 METHOD_CALL opts.module.addDependency  ->  known_edge  NormalModule.js:1:22 addDependency
