@@ -25,7 +25,7 @@
  *   targetFile targetLine targetCol targetName targetKind
  *   overloadCount chosenIndex enclLine enclCol enclName
  *
- * targetKind: implementation | bodiless | synthesized | any | type_ambiguous | unresolved | oracle_error
+ * targetKind: implementation | bodiless | synthesized | any | type_ambiguous | global_expando | unresolved | oracle_error
  *   `bodiless` covers a `.d.ts` declaration (the standard library) — a correct END.
  *   `synthesized` is an implicit constructor: the compiler resolved and there is no
  *   declaration to point at.
@@ -40,6 +40,12 @@
  *   callee with no symbol, a symbol declared elsewhere, a union property with
  *   several declarations, or an element access keyed by a widened `symbol` is
  *   undecided under this kind. Counted in the tally so the exclusion is visible.
+ *   `global_expando`: the callee's root name is a PLATFORM global (`Buffer`, `process`,
+ *   `setTimeout`) that some project file assigns onto the global object
+ *   (`globalThis.Buffer = Buffer`, a browser shim), and the checker lifted that expando
+ *   into a program-wide declaration although the file may never load. Which one runs
+ *   depends on load order, which the compiler cannot see: undecided, counted apart, and
+ *   execution is the adjudicator (#644).
  *
  * `require(...)` is NOT a site, by the parser's ruling (it is a module edge), so it is
  * skipped here too; the site universes must agree or nothing downstream joins.
@@ -272,6 +278,40 @@ function isCalleeDecidedByValue(callee, decl) {
   }
   return false;
 }
+const GLOBAL_OBJECT_NAMES = new Set(['globalThis', 'window', 'global', 'self']);
+/** `globalThis.X = ...` (or window / global / self): a declaration the binder made from an expando assignment. */
+function isGlobalExpandoDeclaration(d) {
+  let access = null;
+  if (ts.isPropertyAccessExpression(d) || ts.isElementAccessExpression(d)) access = d;
+  else if (ts.isBinaryExpression(d) && d.operatorToken.kind === ts.SyntaxKind.EqualsToken
+    && (ts.isPropertyAccessExpression(d.left) || ts.isElementAccessExpression(d.left))) access = d.left;
+  if (!access) return false;
+  const target = stripParens(access.expression);
+  return ts.isIdentifier(target) && GLOBAL_OBJECT_NAMES.has(target.text);
+}
+/**
+ * Is the callee's root name a platform global that a project file merely ASSIGNS onto the
+ * global object? `Buffer.isBuffer(x)` in Node source resolves, under checkJs, to a browser
+ * shim's `globalThis.Buffer = Buffer` anywhere in the program, even in a module nothing
+ * imports. The platform's own `Buffer` is what runs. Platform-ness is decided by the
+ * runtime the oracle itself runs on: the name is a property of THIS process's globalThis.
+ * A project's own global (`globalThis.gHelper = helper`) is not a platform name and stays
+ * decided; that value is real once the assigning module has loaded.
+ */
+function isPlatformGlobalExpando(node) {
+  let root = stripParens(calleeOf(node));
+  while (root && (ts.isPropertyAccessExpression(root) || ts.isElementAccessExpression(root) || ts.isCallExpression(root) || ts.isNewExpression(root))) {
+    root = stripParens(root.expression);
+  }
+  if (!root || !ts.isIdentifier(root)) return false;
+  if (!Object.prototype.hasOwnProperty.call(globalThis, root.text)) return false;
+  let sym = checker.getSymbolAtLocation(root);
+  if (sym && (sym.flags & ts.SymbolFlags.Alias)) sym = checker.getAliasedSymbol(sym);
+  const decls = sym ? (sym.getDeclarations?.() ?? []) : [];
+  if (decls.length === 0) return false;
+  // every declaration of the name is an expando in a project file: nothing else declares it
+  return decls.every((d) => isGlobalExpandoDeclaration(d) && !relPath(d.getSourceFile().fileName).startsWith('..'));
+}
 /** The parser's JsCallKind for this node. */
 function callKindOf(node) {
   if (ts.isNewExpression(node)) return 'CONSTRUCTOR_CALL';
@@ -397,6 +437,8 @@ for (const sf of program.getSourceFiles()) {
           const calleeType = checker.getTypeAtLocation(calleeNode);
           if (calleeType.flags & ts.TypeFlags.Any) targetKind = 'any';
           else targetKind = 'synthesized';
+        } else if (decl && !isBodiless(decl) && isPlatformGlobalExpando(node)) {
+          targetKind = 'global_expando';
         } else if (decl && !isBodiless(decl) && !isDecidedByValue(node, decl)) {
           targetKind = 'type_ambiguous';
         } else if (decl) {
