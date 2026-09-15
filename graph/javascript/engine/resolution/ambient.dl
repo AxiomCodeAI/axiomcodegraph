@@ -44,3 +44,28 @@ param_value(p, "ambient", n) :- param_type_name(_, _, r, p), type_ref(_, n, "NAM
 var_value(v, "ambient", n) :- var_type_name(_, _, r, v), type_ref(_, n, "NAMED", _, _, _, _, _, _, _, r), type_ref_builtin(_, r).
 return_value(m, "ambient", n) :- method_return_type(_, _, r, m), type_ref(_, n, "NAMED", _, _, _, _, _, _, _, r), type_ref_builtin(_, r).
 prop_value("inst", t, fn, "ambient", n) :- field_type_name(_, fn, t, _, r, _), type_ref(_, n, "NAMED", _, _, _, _, _, _, _, r), type_ref_builtin(_, r).
+
+// ── the global object: the one platform value programs WRITE to (#641) ───────
+// `globalThis.x = f`, `global.x = f`, `Object.assign(globalThis, { x: f })` install a
+// function every file can call as `globalThis.x()` or as a bare `x()`. The global
+// object is ONE value of its own, `("global", "globalThis")`, distinct from `ambient`
+// so the member_write guard against writing through the platform's shared identities
+// (`@param {Object}` is one `("ambient", "Object")` for the whole program) stays intact:
+// no annotation ever evaluates to it. `globalThis`, `global`, `window` and `self`
+// evaluate to it whether the binder marked them GLOBAL_BUILTIN or left them
+// UNRESOLVED_FREE, and keep their ambient value beside it, so `globalThis.setTimeout`
+// stays a platform terminal while `globalThis.gHelper` reads the project write. A site
+// whose value is both is multi_inferred with an ambient_terminal row, per the
+// existing rule. An unbound name (`gHelper()`) reads the same property.
+global_object_name("globalThis").
+global_object_name("global").
+global_object_name("window").
+global_object_name("self").
+global_name_resolution("GLOBAL_BUILTIN").
+global_name_resolution("UNRESOLVED_FREE").
+expr_value(e, "global", "globalThis") :- expr_kind(_, "IDENTIFIER", _, e), expr_text(_, n, e), global_object_name(n),
+    expr_binding_resolution(_, res, e), global_name_resolution(res).
+expr_value(e, "ambient", n) :- expr_kind(_, "IDENTIFIER", _, e), expr_text(_, n, e), global_object_name(n),
+    expr_binding_resolution(_, "UNRESOLVED_FREE", e).
+expr_value(e, k, i) :- expr_kind(_, "IDENTIFIER", _, e), expr_text(_, n, e), !global_object_name(n),
+    expr_binding_resolution(_, res, e), global_name_resolution(res), prop_value("global", "globalThis", n, k, i).
