@@ -55,7 +55,7 @@ META = {r['key']: r['value'] for r in q("SELECT key, value FROM index_meta")}
 LANG = META.get('language', '?')
 
 # ── arguments: <verb> positionals k=v ─────────────────────────────────────────────────────────────
-OPT_KEYS = {'in', 'kind', 'depth', 'from', 'to', 'type', 'method', 'file', 'limit', 'body', 'budget'}
+OPT_KEYS = {'in', 'kind', 'depth', 'from', 'to', 'type', 'method', 'file', 'limit', 'body', 'budget', 'all', 'maxhops'}
 verb, pos, opt = argv[0], [], {}
 for a in argv[1:]:
     k, _, v = a.partition('=')
@@ -595,6 +595,8 @@ def endpoints(sel):
     ts = [r for r in rows if r['type_id']]
     if ts: return f"{ts[0]['display']} (any of its {len(methods_of_type(ts[0]['type_id']))} methods)", methods_of_type(ts[0]['type_id'])
     return None, []
+def adj_sorted(x, adj):
+    return sorted(adj.get(x, ()), key=lambda y: 0 if TIER.get((x, y)) == 'known_edge' else 1)
 def show_chain(ch):
     return ' → '.join((symof(c)['display'] if symof(c) else c) + ('' if i == 0 or t == 'known_edge' else ' [dispatch]') for i, (c, t) in enumerate(ch))
 def path_between(src_sel, dst_sel):
@@ -603,7 +605,7 @@ def path_between(src_sel, dst_sel):
     sl, S = endpoints(src_sel); dl, D = endpoints(dst_sel)
     if not S: say(f"  from={src_sel}: " + ("that type declares no methods (a data interface / type alias) — a path starts at code" if sl else "no such function or type")); return
     if not D: say(f"  to={dst_sel}: " + ("that type declares no methods (a data interface / type alias) — a path ends at code" if dl else "no such function or type")); return
-    dn = edges_down(); found = []
+    dn = edges_down(); up = edges_up(); found = []
     for a in S:
         fw = reach([a], dn, 10**6)
         for b in D:
@@ -611,10 +613,31 @@ def path_between(src_sel, dst_sel):
                 ch = best_path(a, b, dn, True)
                 if ch: found.append((len(ch) - 1, ch))
     if found:
-        found.sort(key=lambda x: x[0]); shown = 0
-        say(f"  paths {sl} → {dl}: {len(found)} found, shortest first  ([dispatch] = a hop that is one member of a dispatch set)")
-        for n_, ch in found[:6]: say(f"    {n_} hop(s): " + show_chain(ch))
-        if len(found) > 6: say(f"    … +{len(found) - 6} more")
+        found.sort(key=lambda x: x[0]); cap = opt_int('limit', 6)
+        say(f"  paths {sl} → {dl}: {len(found)} (source, target) pair(s) connected; one shortest path each, shortest first  ([dispatch] = a hop that is one member of a dispatch set)")
+        for n_, ch in found[:cap]: say(f"    {n_} hop(s): " + show_chain(ch))
+        if len(found) > cap: say(f"    … +{len(found) - cap} more pairs (limit=N)")
+        if opt.get('all', '').lower() in ('yes', '1', 'true'):                     # EVERY simple path for the first pair, not just the shortest
+            a, b = found[0][1][0][0], found[0][1][-1][0]; maxh = opt_int('maxhops', found[0][0] + 2); allp = []
+            dist_to = {b: 0}; fr = [b]                                             # hops-to-target, to prune branches that cannot make it in time
+            while fr:
+                nxt = []
+                for x in fr:
+                    for y in up.get(x, ()):
+                        if y not in dist_to: dist_to[y] = dist_to[x] + 1; nxt.append(y)
+                fr = nxt
+            def dfs(x, path, seen):
+                if len(allp) >= 200: return
+                for y in adj_sorted(x, dn):
+                    if y == b: allp.append(path + [y])
+                    elif y not in seen and len(path) + dist_to.get(y, 10**6) <= maxh: dfs(y, path + [y], seen | {y})
+            dfs(a, [a], {a})
+            allp.sort(key=len)
+            say(f"  ALL simple paths {symof(a)['display']} → {symof(b)['display']} (≤{maxh} hops = shortest+2 unless maxhops=N, cycle-free): {len(allp)}" + (" (capped at 200)" if len(allp) >= 200 else ''))
+            for pth in allp[:opt_int('limit', 30)]:
+                say("    " + ' → '.join((symof(c)['display'] if symof(c) else c) + ('' if i == 0 or TIER.get((pth[i-1], c)) == 'known_edge' else ' [dispatch]') for i, c in enumerate(pth)))
+            if len(allp) > opt_int('limit', 30): say(f"    … +{len(allp) - opt_int('limit', 30)} more (limit=N)")
+        else: say("    all=yes enumerates every simple path for the first pair; maxhops=N bounds it")
         return
     back = []
     for b in D:
