@@ -1,0 +1,48 @@
+// ============================================================================
+// Resolution · NARROWING  (what a guard says about its subject)
+//
+// `if (doc instanceof Document) { doc.toObject(); }`,
+// `doc instanceof Document ? doc.toObject() : doc`,
+// `if (!(x instanceof C)) return; x.run();`
+//
+// The subject of an `instanceof` test is, wherever the test is true, an instance of
+// the tested class: a value the engine can name (#687). A callback parameter over an
+// untyped array, or a parameter every caller passes an unknown object to, holds
+// nothing otherwise, and the guarded call was receiver_untyped where the compiler
+// names the class's member.
+//
+// FLOW-INSENSITIVE, like every binding value here: the class is added to the
+// subject for the whole enclosing function, not the branch only, which is why the
+// negated guard and the early-return form need no rule of their own. It ADDS a
+// value and removes none, so it is a sound superset; where the subject already
+// resolves the added class is either the same one or one more target beside it.
+// The TypeScript engine's rule (#585) is the same shape gated on a top declared
+// type; JavaScript has no declared type to gate on. `this` is never narrowed: its
+// value is the class it is written in.
+//
+// The tested class is the right operand's VALUE (a class, a constructor function,
+// a module whose default export is one), so an imported class works as any other.
+// A platform class (`value instanceof Date`, `err instanceof Error`) makes the
+// subject the platform's, so `value.getTime()` is an ambient terminal; `Object` and
+// `Function` are left out, since everything is one and the ambient row would sit
+// beside every project target the subject has.
+// ============================================================================
+
+instanceof_test(subj, t) :- expr_kind(_, "BINARY", _, be), expr_operator(_, "instanceof", be),
+    expr_child(_, be, "OPERAND", "0", subj), expr_child(_, be, "OPERAND", "1", c),
+    expr_value(c, k, i), constructible_value(k, i, t).
+// A parameter or a variable subject.
+param_value(p, "inst", t) :- instanceof_test(s, t), expr_param(_, p, s).
+var_value(v, "inst", t) :- instanceof_test(s, t), expr_binding(_, v, s).
+// A MEMBER subject (`concat.rootModule instanceof NormalModule`) is left alone: the
+// member usually has a declared type already (`@param {Module} rootModule`), the
+// guard names a subclass of it, and writing the subclass onto the member widened
+// five exact webpack sites into supersets for no miss recovered. A member subject
+// wants the branch, not the function, and that is a flow-sensitive rule.
+instanceof_ambient_test(subj, n) :- expr_kind(_, "BINARY", _, be), expr_operator(_, "instanceof", be),
+    expr_child(_, be, "OPERAND", "0", subj), expr_child(_, be, "OPERAND", "1", c),
+    expr_value(c, "ambient", n), !instanceof_umbrella(n).
+instanceof_umbrella("Object").
+instanceof_umbrella("Function").
+param_value(p, "ambient", n) :- instanceof_ambient_test(s, n), expr_param(_, p, s).
+var_value(v, "ambient", n) :- instanceof_ambient_test(s, n), expr_binding(_, v, s).
