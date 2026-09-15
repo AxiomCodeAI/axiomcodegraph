@@ -1,0 +1,7 @@
+known_edge	FUNCTION_CALL	classic/schemas#<module-init>() @L5 -> core/core#$constructor(string,(inst: object) =)
+known_edge	FUNCTION_CALL	core/core#$constructor(string,(inst: object) =) @L3 -> core/core#<arrow@3>(object)
+known_edge	METHOD_CALL	classic/schemas#<arrow@4>(?) @L4 -> core/core#helper()
+known_edge	METHOD_CALL	classic/schemas#<module-init>() @L4 -> core/core#$constructor(string,(inst: object) =)
+known_edge	METHOD_CALL	core/schemas#<arrow@3>(?) @L3 -> core/core#helper()
+known_edge	METHOD_CALL	core/schemas#<module-init>() @L3 -> core/core#$constructor(string,(inst: object) =)
+known_edge	METHOD_CALL	core/schemas#<module-init>() @L4 -> core/core#plain()

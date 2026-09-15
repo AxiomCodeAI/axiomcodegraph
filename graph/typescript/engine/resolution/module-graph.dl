@@ -350,8 +350,17 @@ module_export_any(prov, mod, name, "VARIABLE", ent) :- module_export_any(prov, m
 // A name whose export row is type-only is removed from the call-graph surface. The
 // negation reads only base export rows (never module_export_any), so it stratifies
 // below the re-export recursion.
+// A MERGED declaration (`export interface $constructor<T> {...}` beside
+// `export function $constructor(...)`) exports one name through two rows, one
+// type-only and one not. The name is on the runtime surface: what is removed is a
+// name EVERY row of which is type-only. Keyed by name alone, the interface's row
+// removed the function too, and `core.$constructor(...)` through a direct namespace
+// import resolved to nothing while the same call through a barrel (whose `export *`
+// has no per-name row) resolved (#645).
 module_export_type_only(prov, mod, en) :- export_decl(prov, en, _, _, mod, h),
-    export_is_type_only(prov, h).
+    export_is_type_only(prov, h), !module_export_runtime_row(prov, mod, en).
+module_export_runtime_row(prov, mod, en) :- export_decl(prov, en, _, _, mod, h),
+    !export_is_type_only(prov, h).
 module_export(prov, mod, en, k, h) :- module_export_any(prov, mod, en, k, h),
     !module_export_type_only(prov, mod, en).
 
