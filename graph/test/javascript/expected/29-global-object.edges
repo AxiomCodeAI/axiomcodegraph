@@ -1,0 +1,27 @@
+main.js:10:46 METHOD_CALL g.gHelper  ->  ambient_terminal  -
+main.js:10:46 METHOD_CALL g.gHelper  ->  multi_inferred  setup.js:2:1 helper
+main.js:11:24 METHOD_CALL global.process.cwd  ->  ambient_terminal  -
+main.js:12:19 FUNCTION_CALL g1  ->  known_edge  main.js:3:1 g1
+main.js:12:25 FUNCTION_CALL g2  ->  known_edge  main.js:4:1 g2
+main.js:12:31 FUNCTION_CALL g3  ->  known_edge  main.js:5:1 g3
+main.js:12:37 FUNCTION_CALL g4  ->  known_edge  main.js:6:1 g4
+main.js:12:43 FUNCTION_CALL g5  ->  known_edge  main.js:7:1 g5
+main.js:12:49 FUNCTION_CALL g6  ->  known_edge  main.js:8:1 g6
+main.js:12:55 FUNCTION_CALL g7  ->  known_edge  main.js:9:1 g7
+main.js:12:61 FUNCTION_CALL g8  ->  known_edge  main.js:10:1 g8
+main.js:12:67 FUNCTION_CALL g9  ->  known_edge  main.js:11:1 g9
+main.js:13:1 FUNCTION_CALL main  ->  known_edge  main.js:12:1 main
+main.js:3:24 METHOD_CALL globalThis.gHelper  ->  ambient_terminal  -
+main.js:3:24 METHOD_CALL globalThis.gHelper  ->  multi_inferred  setup.js:2:1 helper
+main.js:4:24 METHOD_CALL global.gOther  ->  ambient_terminal  -
+main.js:4:24 METHOD_CALL global.gOther  ->  multi_inferred  setup.js:3:1 other
+main.js:5:24 FUNCTION_CALL gHelper  ->  known_edge  setup.js:2:1 helper
+main.js:6:24 METHOD_CALL globalThis.gThird  ->  ambient_terminal  -
+main.js:6:24 METHOD_CALL globalThis.gThird  ->  multi_inferred  setup.js:4:1 third
+main.js:7:24 METHOD_CALL globalThis.registry.run  ->  ambient_terminal  -
+main.js:7:24 METHOD_CALL globalThis.registry.run  ->  multi_inferred  setup.js:5:1 fourth
+main.js:8:24 METHOD_CALL registry.run  ->  known_edge  setup.js:5:1 fourth
+main.js:9:24 METHOD_CALL globalThis.setTimeout  ->  ambient_terminal  -
+main.js:9:24 METHOD_CALL globalThis.setTimeout  ->  callback_registered  main.js:9:46 <arrow>
+main.js:9:52 FUNCTION_CALL gOther  ->  known_edge  setup.js:3:1 other
+setup.js:8:1 METHOD_CALL Object.assign  ->  ambient_terminal  -

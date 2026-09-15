@@ -342,3 +342,7 @@
 .decl map_coll(c0:symbol)
 .decl ambient_map(c0:symbol)
 .decl pair_index_value(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
+
+// ── resolution/ambient.dl (the global object) ──
+.decl global_object_name(c0:symbol)
+.decl global_name_resolution(c0:symbol)
