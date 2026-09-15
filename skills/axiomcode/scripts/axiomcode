@@ -11,6 +11,10 @@
       lists the nearest names. Never empty. When exactly one node matches, its body is printed too
       (first 120 lines) — that is usually the Read you were about to do. body=no turns it off.
 
+  axiomcode pack "<what you want to do>" [budget=6000]
+      One reply to start editing from: WHERE (ranked change sites, with bodies) · CO-CHANGE (direct callers,
+      overrides, entry points, config) · TESTS to run · FLOWS beyond the graph · UNKNOWNS. Ask again, sharper.
+
   axiomcode impact <method | Owner.field | Type> [to=<name>]
       What a change touches, as the sets to act on. A METHOD: MUST change if its signature changes
       (every direct caller, by site) · MAY change if its contract changes (overrides/implementations) ·
@@ -51,7 +55,7 @@ META = {r['key']: r['value'] for r in q("SELECT key, value FROM index_meta")}
 LANG = META.get('language', '?')
 
 # ── arguments: <verb> positionals k=v ─────────────────────────────────────────────────────────────
-OPT_KEYS = {'in', 'kind', 'depth', 'from', 'to', 'type', 'method', 'file', 'limit', 'body'}
+OPT_KEYS = {'in', 'kind', 'depth', 'from', 'to', 'type', 'method', 'file', 'limit', 'body', 'budget'}
 verb, pos, opt = argv[0], [], {}
 for a in argv[1:]:
     k, _, v = a.partition('=')
@@ -432,7 +436,25 @@ def uses_of(last, quiet=False):
     if top: say("  inside: " + ', '.join(f"{d} ({n})" for d, n in top.most_common(6)) + "   → axiomcode search <one of these>")
     return True
 
-STOP = {'the', 'and', 'for', 'with', 'when', 'that', 'this', 'from', 'into', 'not', 'are', 'was', 'should', 'does', 'have', 'has', 'but', 'its', 'can', 'will', 'all', 'any', 'get', 'set', 'add', 'use', 'new', 'never', 'each', 'every', 'only'}
+STOP = {'the', 'and', 'for', 'with', 'when', 'that', 'this', 'from', 'into', 'not', 'are', 'was', 'should', 'does', 'have', 'has', 'but', 'its', 'can', 'will', 'all', 'any', 'get', 'set', 'add', 'use', 'new', 'never', 'each', 'every', 'only', 'function', 'method', 'class', 'type', 'value', 'error', 'issue', 'doesn', 'when', 'after', 'before'}
+def words_ranked(text):
+    """the ranked candidates for words from an issue — name hits ×4, comment and literal hits in the body, tests halved, ties by connectedness"""
+    toks = [t for t in tokens(text) if t not in STOP]
+    if not toks: return [], toks
+    we, pe = where_extra(None, IN)
+    score = collections.defaultdict(lambda: [0, 0, 0]); hits = {}
+    for t in toks:
+        for r in q(f"SELECT * FROM symbols WHERE lower(name) LIKE ?{we} LIMIT 400", f"%{t}%", *pe):
+            k = (r['display'], r['file'], r['line']); hits[k] = r; score[k][0] += 1
+        if META.get('ir_present') == 'true':
+            for tbl, col, idx in (('comments', 'text', 1), ('literals', 'value', 2)):
+                for r in q(f"SELECT file, line FROM {tbl} WHERE lower({col}) LIKE ?{we} LIMIT 300", f"%{t}%", *pe):
+                    for d in q("SELECT * FROM symbols WHERE file=? AND line <= ? + 2 AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY (end_line-line) LIMIT 1", r['file'], r['line'], r['line']):
+                        k = (d['display'], d['file'], d['line']); hits[k] = d; score[k][idx] += 1
+    def total(r):
+        sc = score[(r['display'], r['file'], r['line'])]; t = sc[0] * 4 + min(sc[1], 3) + min(sc[2], 3)
+        return t / 2 if r['is_test'] else t
+    return sorted(hits.values(), key=lambda r: (-total(r), r['is_test'], 0 if (r['end_line'] or 0) > (r['line'] or 0) else 1, -degree(r))), toks
 def words_search(text):
     toks = [t for t in tokens(text) if t not in STOP]
     if not toks: return False
@@ -675,7 +697,80 @@ def v_impact():
         else: impact_field(r)
         say()
 
-VERBS = {'search': v_search, 'impact': v_impact}
+def v_pack():
+    """pack "<what you want to do>" [budget=N] [in=<path>] — everything to start editing, in one reply, within a token budget:
+    WHERE (ranked change sites with bodies) · CO-CHANGE (what must/may change with them) · TESTS to run · FLOWS beyond the
+    graph (config, routes, reflection) · UNKNOWNS. Call it again with a sharper ask once you know the node."""
+    ask = ' '.join(pos).strip().strip('"\''); budget = opt_int('budget', 6000) * 4     # chars
+    if not ask: say('usage: axiomcode pack "<what you want to do, or the issue title>" [budget=6000] [in=<path>]'); return
+    # 1. anchors: names in the ask first, then words
+    anchors = []
+    names = [m.strip('`') for m in re.findall(r'`[^`\n]{2,60}`', ask)] + re.findall(r'\b[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+\b|\b[A-Za-z_]\w{2,}(?=\()|\b[a-z]+[A-Z]\w+\b', ask)
+    for cand in dict.fromkeys(c.split('(')[0] for c in names):
+        if not cand or cand.lower() in STOP or ' ' in cand: continue
+        rows, how = resolve(cand, None, IN)
+        if rows and (how in ('exact', 'qualified name', 'name') or how.startswith(('suffix', 'constructor', 'inherited'))): anchors += [(r, f"named: {cand}") for r in rows if r['method_id'] or r['type_id'] or r['kind'] in ('const', 'field', 'enum_member')][:2]
+    ranked, toks = words_ranked(ask)
+    ranked = [r for r in ranked if not (r['name'] or '').startswith('<')]                       # synthetic names (<function-type>, <arrow>) are not answers
+    seen = {(a['display'], a['file']) for a, _ in anchors}
+    anchors += [(r, f"words: {'+'.join(t for t in toks if t in (r['name'] or '').lower()) or 'body mentions'}") for r in ranked if (r['display'], r['file']) not in seen and (r['method_id'] or r['type_id'] or r['kind'] in ('const', 'field', 'enum_member'))][:8]
+    if not anchors: say(f"nothing in the graph matches '{ask}' — give a name from the issue, or 3-6 words the code would use"); return
+    out = []; used = 0
+    def emit(line):
+        nonlocal used
+        if used + len(line) + 1 > budget: return False
+        out.append(line); used += len(line) + 1; return True
+    emit(f"PACK for: {ask}   (budget {budget//4} tokens)")
+    emit(f"WHERE — candidate change sites, ranked ({len(anchors)}):")
+    for i, (r, why) in enumerate(anchors[:8]): emit(f"  {i+1}. {r['kind']} {r['display']}   {loc(r)}   [{why}]" + ("  [test]" if r['is_test'] else ''))
+    # bodies of the top two callables
+    for r, _ in [a for a in anchors if a[0]['method_id']][:2]:
+        p = os.path.join(REPO, r['file'])
+        if os.path.exists(p) and r['line']:
+            lines = open(p, encoding='utf-8', errors='replace').read().split('\n'); a, b = r['line'], min(r['end_line'] or r['line'], r['line'] + 40, len(lines))
+            emit(f"  body {r['display']}  {r['file']}:{a}-{b}" + (f" (of {r['end_line']})" if (r['end_line'] or 0) > b else ''))
+            for i in range(a, b + 1):
+                if not emit(f"  {i:5d}  {lines[i-1]}"): break
+    # 2. co-change for the top callables
+    up = edges_up()
+    for r, _ in [a for a in anchors if a[0]['method_id']][:3]:
+        m = r['method_id']
+        direct = q("SELECT caller, file, line, tier FROM callers WHERE callee_id=? ORDER BY file, line", m)
+        byc = collections.OrderedDict()
+        for e in direct: byc.setdefault((e['caller'], e['file']), []).append(e['line'])
+        sib = dispatch_of(m); ep = entry_reasons(m)
+        emit(f"CO-CHANGE with {r['display']}: {len(byc)} direct caller(s)" + (f", {len(sib)} override(s)/implementation(s)" if sib else '') + (f"; ENTRY POINT: {', '.join(ep)}" if ep else ''))
+        for (c, f), ls in list(byc.items())[:8]:
+            if not emit(f"    ← {c}   {f}:{','.join(map(str, ls[:4]))}"): break
+        for s_, why in sib[:4]: emit(f"    ⇄ {s_['display']}   {loc(s_)}   {why}")
+        dn = q("SELECT callee, line, tier, callee_id FROM callees WHERE caller_id=? AND callee_id IS NOT NULL ORDER BY line", m)
+        cs = list(dict.fromkeys(e['callee'] for e in dn))
+        if cs: emit(f"    → calls: {', '.join(cs[:10])}" + (f" … +{len(cs)-10}" if len(cs) > 10 else ''))
+        decs = decorations_of(m)
+        if decs: emit("    @ " + '  '.join(decs[:3]))
+        for line_ in config_of_method(m)[:3]: emit(f"    ⚙ {line_}")
+        u = q("SELECT count(*) n FROM unresolved_sites WHERE caller_id=?", m)[0]['n']
+        if u: emit(f"    ? {u} call(s) inside it the engine could not resolve — the sets above are a lower bound")
+    # 3. tests, over the top callables together
+    ids = [a[0]['method_id'] for a in anchors if a[0]['method_id']][:3]
+    if ids:
+        far = reach(ids, up, 10**6); tf = collections.OrderedDict()
+        for i, (d, _) in sorted(far.items(), key=lambda x: x[1][0]):
+            s_ = symof(i)
+            if s_ and d > 0 and s_['is_test']: tf.setdefault(s_['file'], (d, s_['display']))
+        if tf: emit(f"TESTS that reach the change sites ({len(tf)} files, nearest first): " + ', '.join(f"{f} ({disp} at {d} hops)" for f, (d, disp) in list(tf.items())[:6]) + (f" … +{len(tf)-6}" if len(tf) > 6 else ''))
+        else: emit("TESTS: none reach the change sites through resolved edges" + (" — see FLOWS" if True else ''))
+    # 4. flows beyond the graph: routes / reflected names, bridged by string
+    for r, _ in [a for a in anchors if a[0]['method_id']][:3]:
+        strs = route_strings(decorations_of(r['method_id'])) + ([r['name']] if not q("SELECT 1 FROM callers WHERE callee_id=? LIMIT 1", r['method_id']) else [])
+        for sv in list(dict.fromkeys(x for x in strs if x and len(x) >= 2))[:2]:
+            hits = q("SELECT file FROM literals WHERE value=? LIMIT 100", sv) if META.get('ir_present') == 'true' else []
+            tf_ = sorted({h['file'] for h in hits if TESTF.search(h['file'])})
+            if tf_: emit(f"FLOWS: {sv!r} (from {r['display']}) appears as a string in tests: {', '.join(f.split('/')[-1] for f in tf_[:5])} — string match, not an edge")
+    emit(f"NEXT: axiomcode pack \"<sharper ask>\" · search <node> · impact <node>   ({used//4} tokens used)")
+    for l in out: say(l)
+
+VERBS = {'search': v_search, 'impact': v_impact, 'pack': v_pack}
 if verb not in VERBS:
     if verb not in OPT_KEYS and not verb.startswith('-'): pos.insert(0, verb); verb = 'search'      # `axiomcode Foo.bar` means search
     else: print(__doc__.strip()); sys.exit(2)
