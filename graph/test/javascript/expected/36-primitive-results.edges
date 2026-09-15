@@ -1,0 +1,51 @@
+main.js:18:20 METHOD_CALL this.greet  ->  known_edge  main.js:14:3 greet
+main.js:18:20 METHOD_CALL this.greet().toUpperCase  ->  ambient_terminal  -
+main.js:19:18 METHOD_CALL this.count  ->  known_edge  main.js:15:3 count
+main.js:19:18 METHOD_CALL this.count().toFixed  ->  ambient_terminal  -
+main.js:20:19 METHOD_CALL this.list  ->  known_edge  main.js:16:3 list
+main.js:20:19 METHOD_CALL this.list().join  ->  ambient_terminal  -
+main.js:21:19 METHOD_CALL `${this.greet()}`.trim  ->  ambient_terminal  -
+main.js:21:22 METHOD_CALL this.greet  ->  known_edge  main.js:14:3 greet
+main.js:22:27 METHOD_CALL (await this.load()).trim  ->  ambient_terminal  -
+main.js:22:34 METHOD_CALL this.load  ->  known_edge  main.js:17:3 load
+main.js:23:21 CONSTRUCTOR_CALL Promise  ->  ambient_terminal  -
+main.js:23:21 CONSTRUCTOR_CALL Promise  ->  callback_registered  main.js:23:33 <arrow>
+main.js:23:60 METHOD_CALL this.count  ->  known_edge  main.js:15:3 count
+main.js:23:74 FUNCTION_CALL resolve  ->  ambient_terminal  -
+main.js:23:91 FUNCTION_CALL reject  ->  ambient_terminal  -
+main.js:23:98 CONSTRUCTOR_CALL Error  ->  ambient_terminal  -
+main.js:26:13 CONSTRUCTOR_CALL Greeter  ->  implicit_constructor  -
+main.js:27:14 METHOD_CALL g.pad  ->  known_edge  main.js:19:3 pad
+main.js:27:23 METHOD_CALL g.join  ->  known_edge  main.js:20:3 join
+main.js:27:3 METHOD_CALL g.shout  ->  known_edge  main.js:18:3 shout
+main.js:27:33 METHOD_CALL g.tmpl  ->  known_edge  main.js:21:3 tmpl
+main.js:27:43 METHOD_CALL g.loaded  ->  known_edge  main.js:22:3 loaded
+main.js:27:55 METHOD_CALL g.settle  ->  known_edge  main.js:23:3 settle
+main.js:28:25 FUNCTION_CALL count  ->  known_edge  main.js:3:1 count
+main.js:28:25 METHOD_CALL count().toFixed  ->  ambient_terminal  -
+main.js:28:3 FUNCTION_CALL name  ->  known_edge  main.js:2:1 name
+main.js:28:3 METHOD_CALL name().toUpperCase  ->  ambient_terminal  -
+main.js:28:45 FUNCTION_CALL flag  ->  known_edge  main.js:4:1 flag
+main.js:28:45 METHOD_CALL flag().toString  ->  ambient_terminal  -
+main.js:28:64 FUNCTION_CALL combined  ->  known_edge  main.js:5:1 combined
+main.js:28:64 METHOD_CALL combined(1).trim  ->  ambient_terminal  -
+main.js:29:3 FUNCTION_CALL viaConcat  ->  known_edge  main.js:6:1 viaConcat
+main.js:29:3 METHOD_CALL viaConcat('a', 'b').split  ->  ambient_terminal  -
+main.js:29:35 FUNCTION_CALL viaArith  ->  known_edge  main.js:7:1 viaArith
+main.js:29:35 METHOD_CALL viaArith(2, 3).toFixed  ->  ambient_terminal  -
+main.js:29:62 FUNCTION_CALL viaCompare  ->  known_edge  main.js:8:1 viaCompare
+main.js:29:62 METHOD_CALL viaCompare(1, 2).toString  ->  ambient_terminal  -
+main.js:30:3 FUNCTION_CALL viaTypeof  ->  known_edge  main.js:9:1 viaTypeof
+main.js:30:3 METHOD_CALL viaTypeof(1).toUpperCase  ->  ambient_terminal  -
+main.js:30:31 FUNCTION_CALL viaNegate  ->  known_edge  main.js:10:1 viaNegate
+main.js:30:31 METHOD_CALL viaNegate(0).valueOf  ->  ambient_terminal  -
+main.js:30:55 FUNCTION_CALL viaMinus  ->  known_edge  main.js:11:1 viaMinus
+main.js:30:55 METHOD_CALL viaMinus(1).toFixed  ->  ambient_terminal  -
+main.js:31:26 METHOD_CALL (count() + 1).toFixed  ->  ambient_terminal  -
+main.js:31:27 FUNCTION_CALL count  ->  known_edge  main.js:3:1 count
+main.js:31:3 METHOD_CALL (name() + '!').trim  ->  ambient_terminal  -
+main.js:31:4 FUNCTION_CALL name  ->  known_edge  main.js:2:1 name
+main.js:32:3 FUNCTION_CALL stays  ->  known_edge  main.js:12:1 stays
+main.js:32:3 FUNCTION_CALL stays(0)  ->  ambient_terminal  -
+main.js:32:3 FUNCTION_CALL stays(0)  ->  multi_inferred  main.js:2:1 name
+main.js:34:1 FUNCTION_CALL main  ->  known_edge  main.js:25:1 main

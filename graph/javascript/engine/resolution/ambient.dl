@@ -69,3 +69,18 @@ expr_value(e, "ambient", n) :- expr_kind(_, "IDENTIFIER", _, e), expr_text(_, n,
     expr_binding_resolution(_, "UNRESOLVED_FREE", e).
 expr_value(e, k, i) :- expr_kind(_, "IDENTIFIER", _, e), expr_text(_, n, e), !global_object_name(n),
     expr_binding_resolution(_, res, e), global_name_resolution(res), prop_value("global", "globalThis", n, k, i).
+
+// ── operators yield primitives, and a primitive is the platform's (#674) ────
+// `a + '-' + b`, `x * 2`, `a === b`, `!x`, `typeof x`, `-n`: every operator except the
+// value-passing `||` / `&&` / `??` (value-flow.dl) and the assignment forms yields a
+// number, a string, a boolean, a bigint or a symbol, whose methods are the platform's.
+// A call on such a result (`viaConcat(a, b).split('-')`) was receiver_untyped; it is an
+// ambient terminal, as a call on a literal already is. Nothing resolves to a project
+// method through this, so it cannot invent an edge.
+expr_value(e, "ambient", "LITERAL") :- expr_kind(_, "BINARY", _, e), expr_operator(_, op, e), !binary_op_passes_value(op).
+expr_value(e, "ambient", "LITERAL") :- expr_kind(_, "UNARY", _, e).
+// A Promise executor's `resolve` and `reject` are the platform's functions: a call through
+// either is an ambient terminal, not a callee the project declares.
+param_value(p, "ambient", "Promise") :- promise_executor_resolve(_, p).
+param_value(p, "ambient", "Promise") :- expr_kind(_, "NEW", _, ne), new_callee_value(ne, "ambient", "Promise"),
+    call_arg(ne, 0, ex), expr_value(ex, "func", m), param_decl(_, _, "1", m, p).
