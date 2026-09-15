@@ -357,6 +357,10 @@
 .decl type_extends_array_written(c0:symbol)
 .decl loop_binding_element(c0:symbol, c1:symbol, c2:symbol)
 .decl map_coll(c0:symbol)
+.decl coll_key_value(c0:symbol, c1:symbol, c2:symbol)
+.decl set_coll(c0:symbol)
+.decl ambient_array_generic(c0:symbol)
+.decl ambient_set(c0:symbol)
 .decl ambient_map(c0:symbol)
 .decl pair_index_value(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
 
