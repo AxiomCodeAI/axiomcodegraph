@@ -277,6 +277,39 @@ expr_type("client", e, enum) :- java_expression("IDENTIFIER_REFERENCE", _, _, _,
     expr_ultimate_type("client", e, enum),
     java_enum_constant(name, _, _, _, _, _, _, _, _, enum, _, _, _).
 
+// ── STATIC-IMPORTED member as a bare receiver (import static Outer.Mode.FAST; FAST.label(),
+// import static Entities.EscapeMode.extended; extended.codepointForName(..)) ─────────────
+// The bare name is a constant or field of the type the file's static import names (owner in
+// packageOrTypeName, resolved by qualifiedName, so a nested owner needs the full chain), not of
+// the enclosing type. The rules above only look at the enclosing type and its ancestors, so the
+// receiver stayed untyped and every call on it died. An enum constant types as its enum; a field
+// as its declared type. Both single (static_import_owner) and on-demand (static_import_star_owner)
+// forms, client and library owners. static_import_* read java_import only, so no stratum moves.
+static_import_ident(e, name, ownerQName) :- java_expression("IDENTIFIER_REFERENCE", _, _, _, _, _, _, _, _, _, name, _, _, _, "FIELD", _, _, _, _, _, _, _, _, _, e),
+    name != "",
+    expr_ultimate_type("client", e, encl),
+    java_type(_, _, _, _, _, _, _, file, _, _, _, _, _, encl),
+    static_import_owner(name, ownerQName, file).
+static_import_ident(e, name, ownerQName) :- java_expression("IDENTIFIER_REFERENCE", _, _, _, _, _, _, _, _, _, name, _, _, _, "FIELD", _, _, _, _, _, _, _, _, _, e),
+    name != "",
+    expr_ultimate_type("client", e, encl),
+    java_type(_, _, _, _, _, _, _, file, _, _, _, _, _, encl),
+    static_import_star_owner(ownerQName, file).
+expr_type("client", e, enum) :- static_import_ident(e, name, ownerQName),
+    java_type(_, ownerQName, _, _, _, _, _, _, _, _, _, _, _, enum),
+    java_enum_constant(name, _, _, _, _, _, _, _, _, enum, _, _, _).
+expr_type("lib", e, enum) :- static_import_ident(e, name, ownerQName),
+    lib_type(_, ownerQName, _, _, _, _, _, _, _, _, _, _, _, enum),
+    lib_enum_constant(name, _, _, _, _, _, _, _, _, enum, _, _, _).
+expr_type(prov, e, t) :- static_import_ident(e, name, ownerQName),
+    java_type(_, ownerQName, _, _, _, _, _, _, _, _, _, _, _, owner),
+    java_field(name, _, _, _, _, _, _, _, owner, _, _, _, _, field),
+    field_type_resolves(prov, field, _, t).
+expr_type(prov, e, t) :- static_import_ident(e, name, ownerQName),
+    lib_type(_, ownerQName, _, _, _, _, _, _, _, _, _, _, _, owner),
+    lib_field(name, _, _, _, _, _, _, _, owner, _, _, _, _, field),
+    field_type_resolves(prov, field, _, t).
+
 // ── Static-qualifier receiver (Arrays.asList()) — the receiver is a TYPE
 // reference; its "type" is that type itself. The parser records the resolved
 // qualified name in potentialQualifiedName (col 17); match it to a type's
@@ -301,6 +334,25 @@ expr_type("client", e, t) :- java_expression(_, _, _, _, _, _, _, _, _, _, name,
     java_type(_, _, _, _, _, _, _, file, _, _, _, _, _, encl),
     type_resolves_in_file("client", name, file, t).
 
+// ── Nested type reached THROUGH ITS OUTER (Outer.Inner.m(), HttpConnection.KeyVal.create(..)) ──
+// The extractor emits `Outer.Inner` as a TYPE-kinded FIELD_ACCESS whose literalValue is the inner
+// simple name and whose QUALIFIER is the outer; its potentialQualifiedName is a package-level
+// guess (`pkg.Inner`) that names nothing once a nested type is registered by its chain. Type the
+// qualifier first, then take the member type of that name: declared in the outer or inherited
+// from an ancestor (member_type), for a client outer; declared directly in it, for a library
+// outer (lib_member_type). Positive recursion through expr_type; member_type reads containment
+// and the type hierarchy only.
+expr_type("client", e, inner) :- java_expression("FIELD_ACCESS", _, _, _, _, _, _, _, _, _, name, _, _, _, "TYPE", _, _, _, _, _, _, _, _, _, e),
+    name != "",
+    java_expression(_, "QUALIFIER", _, _, _, _, e, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, q),
+    expr_type("client", q, outer),
+    member_type(outer, name, inner).
+expr_type("lib", e, inner) :- java_expression("FIELD_ACCESS", _, _, _, _, _, _, _, _, _, name, _, _, _, "TYPE", _, _, _, _, _, _, _, _, _, e),
+    name != "",
+    java_expression(_, "QUALIFIER", _, _, _, _, e, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, q),
+    expr_type("lib", q, outer),
+    lib_member_type(outer, name, inner).
+
 // ── FIX-18: a potentialQualifiedName that names NO KNOWN TYPE is a GUESS, not a fact ─────
 // For a type reached by WILDCARD import (`import util.*; Strings.trim(x)`) the extractor cannot
 // know the package and stamps the CURRENT one — `app.Strings`, which does not exist. The pqn rules
@@ -321,11 +373,15 @@ expr_type(prov, e, t) :- java_expression(_, _, _, _, _, _, _, _, _, _, name, _, 
 // QUALIFIER chain spells the package, so neither the pqn rules nor the simple-name rules match.
 // Rebuild the dotted name from the chain and match it against a real type's qualifiedName. Works
 // for any package depth because the reconstruction recurses through the qualifier chain.
-dotted_qualifier(e, name) :- java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+// Only a NAME can spell a segment of an FQN: an IDENTIFIER_REFERENCE at the head, FIELD_ACCESS
+// steps after it. Without the kind guard a STRING LITERAL whose value happens to equal a type's
+// qualifiedName ("com.x.Outer.Inner" handed to Class.forName) was typed as that type, and the
+// parameter it flowed into then contradicted every String-typed overload.
+dotted_qualifier(e, name) :- java_expression("IDENTIFIER_REFERENCE", _, _, _, _, _, _, _, _, _, name, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
     name != "",
     !expr_has_qualifier_child(e).
 expr_has_qualifier_child(e) :- java_expression(_, "QUALIFIER", _, _, _, _, e, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _).
-dotted_qualifier(e, full) :- java_expression(_, _, _, _, _, _, _, _, _, _, name, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+dotted_qualifier(e, full) :- java_expression("FIELD_ACCESS", _, _, _, _, _, _, _, _, _, name, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
     name != "",
     java_expression(_, "QUALIFIER", _, _, _, _, e, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, q),
     dotted_qualifier(q, prefix),

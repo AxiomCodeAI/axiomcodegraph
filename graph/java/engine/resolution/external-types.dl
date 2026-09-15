@@ -63,7 +63,7 @@ ext_ref_context("CAST_EXPRESSION").
 // imports, java.lang. A name any of those answers is left to the resolver. Two further
 // guards keep this conservative: a single-type import whose path a staged type carries,
 // and a simple name any staged type declares at all — measured before the second guard,
-// a nested type imported as `Outer.Inner` (flattened to `pkg.Inner` by the parser) was
+// a nested type imported as `Outer.Inner` (then registered flattened, as `pkg.Inner`) was
 // given an external node beside its real declaration, and an argument of that type then
 // contradicted every overload whose parameter resolved.
 qualified_name_declared(q) :- java_type(_, q, _, _, _, _, _, _, _, _, _, _, _, _).

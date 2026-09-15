@@ -8,11 +8,11 @@ edges  engine=181  certain(G_lb)=146  possible(G_ub)=190   [one rule both sides:
   FP split: SOUND(in G_ub) 40   FABRICATED(outside G_ub) 5
 
 MISSING-EDGE CENSUS  (10 edges)
-       3  callee type torture.Store
-       2  callee type torture.Base
-       1  callee type torture.Item
+       3  callee type torture.F05Annotations.Store
+       2  callee type torture.F01Polymorphism.Base
+       1  callee type torture.F06Functional.Item
+       1  callee type torture.F07Modern.Op
        1  callee type torture.F08Nesting$anon:Callable
-       1  callee type torture.Fast
-       1  callee type torture.Slow
-       1  callee type torture.Op
+       1  callee type torture.F10Flow.Fast
+       1  callee type torture.F10Flow.Slow
   (full list: /tmp/qa-missing.txt, fabricated: /tmp/qa-fabricated.txt)
