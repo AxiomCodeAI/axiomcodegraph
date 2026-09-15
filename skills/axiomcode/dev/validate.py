@@ -12,7 +12,7 @@ built at the BASE commit (a worktree from the task's bare clone, the skill's own
 Reported per task: which call found it, its rank, calls and characters ingested (the context an agent would pay).
 """
 import json, os, re, subprocess, sys, glob, collections, argparse
-HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(os.path.dirname(HERE))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); ROOT = os.path.dirname(os.path.dirname(HERE))
 AX = os.path.join(HERE, 'scripts', 'axiomcode'); IDX = os.path.join(HERE, 'scripts', 'axiomcode-index'); BUILD = os.path.join(HERE, 'scripts', 'axiomcode-build')
 ap = argparse.ArgumentParser(); ap.add_argument('tasks'); ap.add_argument('work', nargs='?'); ap.add_argument('--lang', default=None); ap.add_argument('--src', default=None, help='subtree to analyse (AXIOMCODE_SRC), e.g. src for a solution-style tsconfig'); ap.add_argument('ids', nargs='*')
 a = ap.parse_args()
