@@ -76,7 +76,10 @@ export class JsTypeReferenceRegistry implements EntityIdentifiable {
   /**
    * The member this node is the type OF, when its parent is an OBJECT_TYPE (#651):
    * `module` for the `@property {NormalModule} module` line of a
-   * `@typedef {Object}`, or the `name` of `{ name: string }`. `""` on every other
+   * `@typedef {Object}`, or the `name` of `{ name: string }`. When the parent is a
+   * FUNCTION_TYPE (#691): `param:N` for the parameter written at position N
+   * (counting untyped ones, which have no row) and `return` for the return type,
+   * so a reader never mistakes the one for the other. `""` on every other
    * node. Appended AFTER the primary key, as `js_expression`'s late columns are:
    * the column order before it is frozen, and a positional reader of c0..c22 is
    * unaffected.

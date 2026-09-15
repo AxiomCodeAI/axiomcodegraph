@@ -381,7 +381,7 @@ export class JsDocExtractor {
     context: JsTypeReferenceContextKind;
     tagName: string;
     node: ts.Node;
-    /** The member this node types, when the parent is an OBJECT_TYPE (#651). */
+    /** The member this node types when the parent is an OBJECT_TYPE (#651); `param:N` or `return` under a FUNCTION_TYPE (#691). */
     memberName?: string;
   }): JsTypeReferenceRegistry {
     const at = pointOf(init.node, this.sourceFile);
@@ -589,8 +589,17 @@ interface TypedChild { readonly type: ts.Node; readonly memberName: string }
  * An object type's members are its children, exactly as a union's arms are, and
  * the NAME rides on the child row's `memberName` (#651): `{ name: string }` and
  * `@typedef {Object} T` + `@property {string} name` both give the child `name`.
- * A `@property {T} a.b` nested name is kept as written. Every other node's
- * children carry `""`.
+ * A `@property {T} a.b` nested name is kept as written.
+ *
+ * A FUNCTION TYPE's children are its parameters and its return, and the child
+ * row says which (#691): `param:N` for the parameter written at position N,
+ * `return` for the return type. Without the label the reader could not tell
+ * `function(Snapshot)` (one parameter) from `function(): Snapshot` (one return),
+ * and a parameter written without a type (`(a, b: T) => void` is `any` for `a`)
+ * would shift every later parameter one place left. The position counts every
+ * written parameter, typed or not.
+ *
+ * Every other node's children carry `""`.
  */
 function typedChildrenOf(node: ts.Node): TypedChild[] {
   if (ts.isTypeLiteralNode(node)) {
@@ -604,6 +613,19 @@ function typedChildrenOf(node: ts.Node): TypedChild[] {
       tag.typeExpression === undefined
         ? []
         : [{ type: tag.typeExpression.type, memberName: tag.name.getText(node.getSourceFile()) }]));
+  }
+  if (ts.isFunctionTypeNode(node) || ts.isJSDocFunctionType(node) || ts.isConstructorTypeNode(node)) {
+    const parameters = node.parameters.flatMap((parameter, index) => (
+      parameter.type === undefined ? [] : [{ type: parameter.type, memberName: `param:${index}` }]));
+    return node.type === undefined ? parameters : [...parameters, { type: node.type, memberName: 'return' }];
+  }
+  if (ts.isJSDocSignature(node)) {
+    const parameters = node.parameters.flatMap((parameter, index) => (
+      parameter.typeExpression === undefined
+        ? []
+        : [{ type: parameter.typeExpression.type, memberName: `param:${index}` }]));
+    const returned = node.type?.typeExpression?.type;
+    return returned === undefined ? parameters : [...parameters, { type: returned, memberName: 'return' }];
   }
   return childTypesOf(node).map((type) => ({ type, memberName: '' }));
 }
