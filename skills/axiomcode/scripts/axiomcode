@@ -273,13 +273,19 @@ def node_card(r):
         ep = q("SELECT reason FROM entry_points WHERE method_id=?", m) if has('entry_points') else []
         say("      none resolved" + (" — ENTRY POINT: " + ', '.join(x['reason'] for x in ep) if ep else (" (a lower bound: the graph has unresolved sites)" if q("SELECT 1 FROM unresolved_sites LIMIT 1") else '')))
     dn = q(f"SELECT callee, written, file, line, tier, callee_id FROM callees WHERE caller_id IN ({ph}) ORDER BY line", *ids)
-    res = [e for e in dn if e['callee_id']]; lib = [e for e in dn if not e['callee_id'] and e['callee']]; unr = [e for e in dn if not e['callee_id'] and not e['callee']]
+    res = [e for e in dn if e['callee_id']]; lib = [e for e in dn if not e['callee_id'] and e['callee']]
+    # a NULL callee is a blind spot only for ambiguous_*; the other NULL-callee tiers (JavaScript/TypeScript: ambient_terminal,
+    # implicit_constructor, dynamic_terminal, fan_capped, intrinsic_terminal) are correct ENDS — the platform, a synthesised
+    # constructor, a computed target — and must never be read as "unknown"
+    unr = [e for e in dn if not e['callee_id'] and not e['callee'] and (e['tier'] or '').startswith('ambiguous')]
+    term = [e for e in dn if not e['callee_id'] and not e['callee'] and not (e['tier'] or '').startswith('ambiguous')]
     seen = collections.OrderedDict()                       # one row per (line, target): the same target called on three lines is three sites
     for e in res: seen.setdefault((e['line'], e['callee']), e)
-    say(f"  → calls ({len({c for _, c in seen})} client targets at {len(seen)} sites, {len(lib)} library, {len(unr)} unresolved):")
+    say(f"  → calls ({len({c for _, c in seen})} client targets at {len(seen)} sites, {len(lib)} library, {len(term)} terminal, {len(unr)} unresolved):")
     for (ln, c), e in list(seen.items())[:20]: row(f"      L{ln}  {c}   {e['file']}   {e['tier']}")
     if len(seen) > 20: say(f"      … +{len(seen)-20} sites (axiomcode impact {r['display']} for the full set)")
     if lib: say("      library: " + ', '.join(sorted({e['callee'] for e in lib})[:8]))
+    if term: say("      terminal (a correct end, not a blind spot): " + ', '.join(f"L{e['line']} {e['written'] or '?'} [{e['tier']}]" for e in term[:10]) + (f" … +{len(term)-10}" if len(term) > 10 else ''))
     if unr:
         say("      UNRESOLVED (unknown, not absent): " + ', '.join(f"L{e['line']} {e['written'] or '?'}" for e in unr[:16]) + (f" … +{len(unr)-16}" if len(unr) > 16 else ''))
         # the graph stops here; a by-name lookup lets the agent keep walking, labelled as what it is
