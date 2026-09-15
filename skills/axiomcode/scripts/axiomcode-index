@@ -180,7 +180,7 @@ for m in c.execute("SELECT id, name, qualified_name, signature, kind, owner_type
     od = tdisplay(m['owner_type_id']) if m['owner_type_id'] else None
     if m['kind'] == 'MODULE_INITIALIZER':
         fp = rel(m['file_path']); stem = os.path.splitext(os.path.basename(fp or ''))[0]
-        sym.append((m['id'], stem, stem, 'module', m['qualified_name'], m['signature'], fp, m['start_line'], m['end_line'], None, 1 if fp and TESTRE.search(fp) else 0, m['id'], None)); continue
+        sym.append((m['id'], '<module>', f"{stem}.<module>", 'module', m['qualified_name'], m['signature'], fp, m['start_line'], m['end_line'], None, 1 if fp and TESTRE.search(fp) else 0, m['id'], None)); continue
     fp = rel(m['file_path'])
     sym.append((m['id'], name, (od + '.' if od else '') + name, method_kind(m['kind'], od), m['qualified_name'], m['signature'], fp, m['start_line'], m['end_line'], od, 1 if fp and TESTRE.search(fp) else 0, m['id'], None))
 
