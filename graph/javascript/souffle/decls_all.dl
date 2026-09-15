@@ -199,6 +199,7 @@
 .decl constructible_value(c0:symbol, c1:symbol, c2:symbol)
 .decl callable_value(c0:symbol, c1:symbol, c2:symbol)
 .decl expr_value(c0:symbol, c1:symbol, c2:symbol)
+.decl key_name(c0:symbol, c1:symbol)
 .decl binary_op_passes_value(c0:symbol)
 .decl var_value(c0:symbol, c1:symbol, c2:symbol)
 .decl assignment_op_writes_value(c0:symbol)

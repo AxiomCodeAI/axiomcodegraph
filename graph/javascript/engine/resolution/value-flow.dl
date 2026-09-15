@@ -108,8 +108,25 @@ expr_value(e, "str", n) :- expr_kind(_, "LITERAL", _, e), expr_literal_kind(_, "
 expr_value(e, "str", txt) :- expr_kind(_, "LITERAL", _, e), expr_literal_kind(_, "NUMBER", e), expr_text(_, txt, e).
 expr_value(e, "str", n) :- expr_kind(_, "TEMPLATE", _, e), !expr_child(_, e, _, _, _), expr_text(_, txt, e),
     strlen(txt) >= 2, n = substr(txt, 1, strlen(txt) - 2).
-// `obj[key]` where key holds a string: the property of that name.
-expr_value(e, k2, i2) :- expr_kind(_, "ELEMENT_ACCESS", _, e), expr_child(_, e, "COMPUTED_KEY", _, key), expr_value(key, "str", n),
+// ── key_name(KeyExpr, Name) — what a computed key NAMES ─────────────────────
+// A key holding a string names that property. A key holding a symbol names the
+// property `@sym:<creation site>` (#597): `const kRun = Symbol('run')` is a module-level
+// constant with one creation site, as static as a string literal, and `this[kRun]()` is
+// how CommonJS libraries hide internal members. Every write, literal pair, member
+// declaration and read of a computed key goes through this one relation, so the two
+// carriers behave alike. A key whose value is still only `("ambient", "Symbol")` (the
+// platform function itself, or a symbol the engine could not follow) names nothing and
+// the site stays dynamic: that is the fabrication guard.
+key_name(key, n) :- expr_value(key, "str", n).
+key_name(key, cat("@sym:", i)) :- expr_value(key, "sym", i).
+// `Symbol('x')` is a value of its own, keyed by the call, so two `Symbol('x')` calls stay
+// distinct; `Symbol.for('x')` is keyed by its string, which is what the registry does.
+expr_value(ce, "sym", ce) :- expr_kind(_, "CALL", _, ce), call_site(_, "FUNCTION_CALL", "Symbol", _, _, _, ce, _, _),
+    callee_value(ce, "ambient", "Symbol").
+expr_value(ce, "sym", cat("for:", s)) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", "for", _, _, _, ce, _, _),
+    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "ambient", "Symbol"), call_arg(ce, 0, a), expr_value(a, "str", s).
+// `obj[key]` where key names a property: the property of that name.
+expr_value(e, k2, i2) :- expr_kind(_, "ELEMENT_ACCESS", _, e), expr_child(_, e, "COMPUTED_KEY", _, key), key_name(key, n),
     expr_child(_, e, "ACCESS_TARGET", _, r), expr_value(r, k, i), k != "arr", k != "coll", k != "str",
     prop_value(k, i, n, k2, i2).
 // A call's value is what the callee returns; `new` yields an instance.
@@ -319,10 +336,13 @@ prop_value("obj", l, n, k, i) :- expr_child(_, l, "PROPERTY_KEY", idx, key), exp
     expr_child(_, l, "PROPERTY_VALUE", idx, v), expr_value(v, k, i).
 prop_value("obj", l, n, k, i) :- expr_child(_, l, "PROPERTY_VALUE", idx, v), !expr_child(_, l, "PROPERTY_KEY", idx, _),
     expr_name(_, n, v), expr_value(v, k, i).
-// `{ [key]: v }` — a computed key whose value is a string.
-prop_value("obj", l, n, k, i) :- expr_child(_, l, "COMPUTED_KEY", idx, key), expr_value(key, "str", n),
+// `{ [key]: v }` — a computed key naming a property (a string or a symbol).
+prop_value("obj", l, n, k, i) :- expr_child(_, l, "COMPUTED_KEY", idx, key), key_name(key, n),
     expr_child(_, l, "PROPERTY_VALUE", idx, v), expr_value(v, k, i).
-prop_value("obj", l, n, "func", m) :- literal_owns_method(l, m), method_decl(_, n, k, _, _, _, _, m), !method_kind_is_accessor(k).
+prop_value("obj", l, n, "func", m) :- literal_owns_method(l, m), method_decl(_, n, k, _, _, _, _, m), n != "", !method_kind_is_accessor(k).
+// `{ [kRun]() {} }` — a shorthand method under a computed key: the key names it (#598 links it).
+prop_value("obj", l, n, "func", m) :- literal_owns_method(l, m), method_decl(_, "", k, _, _, _, _, m), !method_kind_is_accessor(k),
+    method_computed_key(_, e, m), key_name(e, n).
 // `{ ...other }` — every property of the spread value.
 prop_value("obj", l, n, k, i) :- expr_child(_, l, "SPREAD", _, s), expr_child(_, s, _, _, o), expr_value(o, k0, i0),
     prop_value(k0, i0, n, k, i).
@@ -391,7 +411,7 @@ member_write(k, i, n, k2, i2) :- expr_kind(_, "ASSIGNMENT", _, a), expr_operator
     expr_child(_, a, "ASSIGNMENT_VALUE", _, val), expr_value(val, k2, i2).
 member_write(k, i, n, k2, i2) :- expr_kind(_, "ASSIGNMENT", _, a), expr_operator(_, op, a), assignment_op_writes_value(op),
     expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt), expr_kind(_, "ELEMENT_ACCESS", _, tgt),
-    expr_child(_, tgt, "COMPUTED_KEY", _, key), expr_value(key, "str", n),
+    expr_child(_, tgt, "COMPUTED_KEY", _, key), key_name(key, n),
     expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, k, i), k != "ambient", k != "arr", k != "coll",
     expr_child(_, a, "ASSIGNMENT_VALUE", _, val), expr_value(val, k2, i2).
 // `Object.assign` and its library cousins: resolution/frameworks.dl.
