@@ -1,6 +1,6 @@
 ---
 name: axiomcode
-description: Find code and reason about change impact in a Java, TypeScript, Python or JavaScript codebase with AxiomCode's type-resolved call graph instead of grep — where a name is declared or used, who calls what, what a change affects, which tests reach it, where the engine could not resolve a call. Three verbs — search, impact, pack — names written the way they appear in the issue, no schema to learn. In a gated run, reading and editing unlock only after the graph has named the file.
+description: Find code and reason about change impact in a Java, TypeScript, Python or JavaScript codebase with AxiomCode's type-resolved call graph instead of grep — where a name is declared or used, who calls what, what a change affects, which tests reach it, where the engine could not resolve a call. Three verbs — search, impact, pack — plus localize for a failing test; names written the way they appear in the issue, no schema to learn. In a gated run, reading and editing unlock only after the graph has named the file.
 ---
 
 # axiomcode — ask the graph in the words of the question
@@ -29,10 +29,15 @@ axiomcode impact <name> [to=<name>]           everything changing it can touch, 
                                               they live in, every test file that reaches it, the dispatch envelope,
                                               the unresolved sites that bound the claim, entry reachability,
                                               and with to= whether a resolved path connects the two and through what.
+axiomcode localize <failing test> ["failure    a failing test → what to read first: the test's forward (dispatch-aware) path ∩ the
+   text: message, assertion, stack trace"]   methods that emit the strings / bear the frame names the failure mentions, ranked
+                                              (on path ∧ emits > named by a frame > neighbour of those > the path by hop), off-path
+                                              string matches last. A test the graph has not seen (new in the PR): paste its body —
+                                              the calls in it, the one under the assertion first, become the entry points.
 axiomcode-brief .axiomcode <issue-file>       an issue → ranked starting set with real edges
 ```
 
-Three verbs on purpose. Everything else an agent used to do with the graph — find, uses, callers, callees, path, type,
+Three verbs plus a localizer, on purpose. Everything else an agent used to do with the graph — find, uses, callers, callees, path, type,
 at — is a mode of one of these, chosen by the shape of the input, so there is no schema and no verb to pick.
 `impact <a> to=<b>` prints the call path between two functions at any depth, each hop with its tier: unmarked = a
 resolved call, `[dispatch]` = one member of a dispatch set (also applied at every hop of a closure, so an override is

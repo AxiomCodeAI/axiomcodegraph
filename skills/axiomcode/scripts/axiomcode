@@ -58,7 +58,7 @@ META = {r['key']: r['value'] for r in q("SELECT key, value FROM index_meta")}
 LANG = META.get('language', '?')
 
 # ── arguments: <verb> positionals k=v ─────────────────────────────────────────────────────────────
-OPT_KEYS = {'in', 'kind', 'depth', 'from', 'to', 'type', 'method', 'file', 'limit', 'body', 'budget', 'all', 'maxhops'}
+OPT_KEYS = {'in', 'kind', 'depth', 'from', 'to', 'type', 'method', 'file', 'limit', 'body', 'budget', 'all', 'maxhops', 'tests'}
 verb, pos, opt = argv[0], [], {}
 for a in argv[1:]:
     k, _, v = a.partition('=')
@@ -366,6 +366,23 @@ def reach(start_ids, adj, depth):
         frontier = nxt
         if not frontier: break
     return seen
+GRADE_WORD = {'dispatch': 'an instantiated override', 'enclosing': '[defines]', 'reflective': '[by name]'}
+grade_kind = {}
+def weakest_hop(starts, adj):
+    """{id: grade} — the best path's weakest hop: 0 known_edge only, 1 crosses a multi_inferred set, 2 crosses a heuristic hop
+    (dispatch / enclosing / reflective). Dijkstra on (grade, hops)"""
+    import heapq
+    G = {'known_edge': 0, 'multi_inferred': 1}; best = {s: (0, 0) for s in starts}; pq = [((0, 0), s) for s in starts]
+    while pq:
+        (g, h), x = heapq.heappop(pq)
+        if (g, h) > best.get(x, (9, 9)): continue
+        for y in adj.get(x, ()):
+            t = TIER.get((y, x), 'multi_inferred'); ng = max(g, G.get(t, 2)); nd = (ng, h + 1)
+            if nd < best.get(y, (9, 10**9)):
+                best[y] = nd; heapq.heappush(pq, (nd, y))
+                if ng == 2 and G.get(t, 2) == 2: grade_kind[y] = t
+                elif ng == 2: grade_kind[y] = grade_kind.get(x)
+    return {k: v[0] for k, v in best.items()}
 SYM = {}
 def symof(i):
     if i not in SYM:
@@ -773,11 +790,13 @@ def impact_method(r, to):
         say(f"  MAY change if its contract changes — overrides / implementations ({len(sib)}):")
         for s_, why in sib[:10]: row(f"    {s_['display']}   {loc(s_)}   {why}")
     # 3. verify with: tests that reach it, whole graph
-    seen = reach([m] + [s_['method_id'] for s_, _ in sib if s_['method_id']], up, 10**6)
+    starts = [m] + [s_['method_id'] for s_, _ in sib if s_['method_id']]
+    seen = reach(starts, up, 10**6)
+    grade = weakest_hop(starts, up)                       # per reached node: 0 = resolved calls only, 1 = a dispatch set on the way, 2 = a heuristic hop
     rr = [(d, i) for i, (d, _) in seen.items() if d > 0 and symof(i)]
-    tests = sorted(((d, i) for d, i in rr if symof(i)['is_test']), key=lambda x: x[0]); prod = [(d, i) for d, i in rr if not symof(i)['is_test']]
+    tests = sorted(((d, i) for d, i in rr if symof(i)['is_test']), key=lambda x: (grade.get(x[1], 2), x[0])); prod = [(d, i) for d, i in rr if not symof(i)['is_test']]
     tfiles = collections.OrderedDict()
-    for d, i in tests: tfiles.setdefault(symof(i)['file'], (d, symof(i)['display']))
+    for d, i in tests: tfiles.setdefault(symof(i)['file'], (d, symof(i)['display'] + ('' if grade.get(i, 0) == 0 else ' via a dispatch set' if grade[i] == 1 else ' via ' + GRADE_WORD.get(grade_kind.get(i), 'a heuristic hop'))))
     # a test class that EXTENDS one of these runs the same test methods again under its own name (JUnit, pytest): its file
     # is exercised too, at the same distance
     if tests:
@@ -788,10 +807,15 @@ def impact_method(r, to):
             if af and tf and af != tf: sub_of[af].add(tf)
         for f, (d, disp) in list(tfiles.items()):
             for sf in sorted(sub_of.get(f, ())): tfiles.setdefault(sf, (d, f"inherits {disp.split('.')[0]}"))
+        say(f"  VERIFY grades — {sum(1 for f, (d, w) in tfiles.items() if ' via ' not in w and 'inherits' not in w)} file(s) reached by resolved calls only, "
+            f"{sum(1 for f, (d, w) in tfiles.items() if 'via a dispatch set' in w)} through a dispatch set, {sum(1 for f, (d, w) in tfiles.items() if ' via ' in w and 'dispatch set' not in w)} through [defines]/[by name]/instantiated-override hops, "
+            f"{sum(1 for f, (d, w) in tfiles.items() if 'inherits' in w)} by test inheritance — listed in that order")
     if tests:
         tf = list(tfiles.items())
         say(f"  VERIFY with — tests that reach it: {len(tests)} in {len(tf)} file(s), nearest first: " + ', '.join(f"{f} ({sum(1 for _, i in tests if symof(i)['file'] == f)}; {disp} at {d} hops)" for f, (d, disp) in tf[:8])
             + (("; then " + ', '.join(f for f, _ in tf[8:opt_int('limit', 30)]) + (f" … +{len(tf)-opt_int('limit', 30)} more test files (limit=N)" if len(tf) > opt_int('limit', 30) else '')) if len(tf) > 8 else ''))
+        if opt.get('tests') == 'all':
+            for f, (d, w) in tf: say(f"    TEST {f}   {'inherits' if 'inherits' in w else 'resolved' if ' via ' not in w else 'dispatch-set' if 'dispatch set' in w else 'heuristic'}   {d} hops")
     else: say("  VERIFY with — no test reaches it through resolved edges" + (" (a lower bound: unresolved sites on the way up may hide one)" if q("SELECT 1 FROM unresolved_sites LIMIT 1") else ''))
     # 4. the rest of the closure, by file
     files = collections.Counter(symof(i)['file'] for _, i in prod); byhop = collections.Counter(d for d, _ in prod)
@@ -900,7 +924,98 @@ def v_pack():
     emit(f"NEXT: axiomcode pack \"<sharper ask>\" · search <node> · impact <node>   ({used//4} tokens used)")
     for l in out: say(l)
 
-VERBS = {'search': v_search, 'impact': v_impact, 'pack': v_pack}
+def v_localize():
+    """where a failing test's failure comes from: the test's forward (dispatch-aware) closure ∩ the methods that emit the
+    strings / bear the names the failure mentions, ranked — on-path emitters, then on-path neighbours of an emitter, then
+    the path by hop; off-path emitters last (the test cannot reach them through resolved edges)"""
+    if not pos: say('usage: axiomcode localize <failing test | test file> ["failure text: message, assertion, stack trace"] [limit=N]'); return
+    sel, text = pos[0], ' '.join(pos[1:]).strip('"\'')
+    rows, how = resolve(sel, None, IN)
+    tests = [r for r in rows if r['method_id'] and r['is_test']]
+    if not tests and rows and rows[0]['kind'] == 'module':                          # a test FILE: every test in it
+        tests = q("SELECT * FROM symbols WHERE file=? AND is_test=1 AND method_id IS NOT NULL", rows[0]['file'])
+    if not tests and how in ('exact', 'qualified name'):
+        tests = [r for r in rows if r['method_id']]
+    starts = []
+    if not tests:                                                                   # a test the graph has not seen (new in the PR): its
+        text = (sel + ' ' + text).strip()                                           #   body's calls are the entry points instead
+        calls = set(re.findall(r'\.([a-z_]\w*)\s*\(', text)) | set(re.findall(r'\bnew\s+([A-Z]\w*)\s*\(', text)) | set(re.findall(r'(?<![\w.])([a-z_]\w{2,})\s*\(', text))
+        calls -= {'assertThrows', 'assertEquals', 'assertSame', 'assertNull', 'assertNotNull', 'assertTrue', 'assertFalse', 'assertThat', 'expect', 'raises', 'toBe', 'toEqual', 'describe', 'it', 'test', 'println', 'print', 'format', 'length', 'size', 'get', 'equals', 'toString', 'valueOf', 'stream', 'map', 'filter', 'forEach', 'collect'}
+        asserted = set()                                                            # calls INSIDE an assertion are the behaviour under test; the rest is setup
+        for stmt in re.findall(r'(?:assert\w*|expect|pytest\.raises|assertThrows|toThrow)\s*\((.*?)(?:;|\n|$)', text):
+            asserted |= set(re.findall(r'\.([a-z_]\w*)\s*\(', stmt)) | set(re.findall(r'(?<![\w.])([a-z_]\w{2,})\s*\(', stmt))
+        if re.search(r'to be thrown|DID NOT RAISE|did not raise|nothing was thrown|to throw', text):     # the failing assertion is the throw one
+            thrown = set()
+            for stmt in re.findall(r'(?:assertThrows|assertRaises|pytest\.raises|toThrow|expectThrows)\s*\((.*?)(?:;|\n|$)', text):
+                thrown |= set(re.findall(r'\.([a-z_]\w*)\s*\(', stmt)) | set(re.findall(r'(?<![\w.])([a-z_]\w{2,})\s*\(', stmt))
+            if thrown & calls: asserted = thrown
+        asserted &= calls
+        for c in sorted(calls):
+            for r in q("SELECT * FROM symbols WHERE method_id IS NOT NULL AND is_test=0 AND name=? LIMIT 40", c): starts.append((r, 0 if c in asserted or not asserted else 2))
+        if not starts: say(f"no test named '{sel}' in the {LANG} graph and no call in the text resolves to a method" + (f"; nearest: " + ', '.join(r['display'] for r in rows[:5]) if rows else '')); return
+        say(f"localize from the calls in the text ({len({r['name'] for r, _ in starts})} names → {len(starts)} method(s)): " + ', '.join(sorted({r['name'] for r, _ in starts})[:12])
+            + (f"; under assertion: {', '.join(sorted(asserted))} (ranked first, setup calls +2 hops)" if asserted else ''))
+    else:
+        if len(tests) > 30: say(f"'{sel}' → {len(tests)} tests; localizing over the first 30"); tests = tests[:30]
+        say(f"localize {', '.join(r['display'] for r in tests[:3])}{' …' if len(tests) > 3 else ''} ({len(tests)} test(s))")
+    # ── the failure's words: quoted strings, stack-frame names, identifiers; plus the strings the test body itself asserts
+    strs = set(re.findall(r'["\'\u2018\u2019\u201c\u201d]([^"\'\u2018\u2019\u201c\u201d]{3,80})["\'\u2018\u2019\u201c\u201d]', text))
+    frames = {(c, m) for c, m in set(re.findall(r'\b([A-Z][A-Za-z0-9_]*)\.([a-z_][A-Za-z0-9_]*)\b', text)) | set(re.findall(r'(?:at |in |File ")\S*?([A-Za-z_][\w$]*)\.([a-z_][\w$]*)\(', text)) if m not in ('class', 'java', 'py', 'ts', 'js')}
+    idents = {w for w in re.findall(r'[A-Za-z_][A-Za-z0-9_]{3,}', text) if w not in STOP and not w.isupper() or (w.isupper() and len(w) > 6)} - {'Error', 'Exception', 'expected', 'actual', 'assert', 'AssertionError', 'test', 'Test', 'null', 'None', 'true', 'false', 'String', 'Object', 'java', 'lang', 'org', 'self', 'return'}
+    SCAFFOLD = re.compile(r'^(expected|but was|actual|to be thrown|nothing was thrown|assertion|AssertionFailedError|AssertionError|Traceback|at org|at com|File|line|in test|Error|Exception)\b', re.I)
+    for ph in re.findall(r"[A-Za-z][A-Za-z ,:'/-]{11,}", text):                  # message PHRASES (3+ words): the template a method emits
+        ph = re.sub(r"\s*(expected|but was|actual|to be thrown|nothing was thrown)\s*:?\s*$", '', ph.strip(" ,:'-"))
+        if len(ph.split()) >= 3 and not SCAFFOLD.match(ph): strs.add(ph)
+    strs = {x for x in strs if x.strip() and not re.fullmatch(r'[\W\d_]+', x)}
+    weak = set()                                                                    # strings the TEST BODY quotes: data or messages, weaker evidence
+    for t in tests:
+        for r in q("SELECT value FROM literals WHERE file=? AND line BETWEEN ? AND ?", t['file'], t['line'], t['end_line'] or t['line']):
+            if r['value'] and 8 <= len(r['value']) <= 80 and r['value'] not in strs: weak.add(r['value'])
+    if not tests: weak |= {x for x in strs if len(x) < 8 or ' ' not in x}; strs -= weak   # from pasted text we cannot tell message from data: short bare words are weak
+    # ── path side: everything the tests can run, dispatch-aware, by hop
+    dn = edges_down(); hop = {}
+    for t, base in ([(t, 0) for t in tests] or starts):
+        for i, (d, _) in reach([t['method_id']], dn, 10**6).items():
+            if (d > 0 or starts) and (i not in hop or d + base < hop[i]): hop[i] = d + base
+    onpath = {i for i in hop if symof(i) and not symof(i)['is_test']}
+    # ── string side: who emits / is named
+    emits = collections.defaultdict(set); weak_emits = collections.defaultdict(set)
+    for sv, bag in [(x, emits) for x in list(strs)[:40]] + [(x, weak_emits) for x in list(weak)[:20]]:
+        for r in q("SELECT file, line FROM literals WHERE value LIKE ? LIMIT 400", f"%{sv}%"):
+            if TESTF.search(r['file']): continue
+            e = enclosing(r['file'], r['line'])
+            if e: bag[e['method_id']].add(sv)
+    named = collections.defaultdict(set)                                            # named by a stack frame / Owner.method in the failure
+    for cls, mth in frames:
+        for r in q("SELECT method_id FROM symbols WHERE method_id IS NOT NULL AND is_test=0 AND name=? AND (owner=? OR owner LIKE ?)", mth, cls, f"%.{cls}"): named[r['method_id']].add(f"{cls}.{mth}")
+    # ── rank
+    near = {}
+    up = edges_up()
+    for e in list(emits) + list(named):
+        if e in onpath:
+            for n in list(up.get(e, ())) + list(dn.get(e, ())):
+                if n in onpath and n not in emits and n not in named: near.setdefault(n, symof(e)['display'] if symof(e) else e)
+    def score(i):
+        return (0 if i in emits else 1 if i in named else 2 if i in near else 3, hop.get(i, 10**6))
+    ranked = sorted(onpath, key=score); lim = opt_int('limit', 20)
+    say(f"  failure words: {len(strs)} message string(s) {sorted(strs, key=len, reverse=True)[:4]}, {len(weak)} data-like string(s), {len(frames)} frame name(s)")
+    say(f"  path: {len(onpath)} production method(s) the test(s) can run through resolved edges; {sum(1 for i in emits if i in onpath)} of them emit a failure string, {sum(1 for i in named if i in onpath)} bear a failure name")
+    say("  READ FIRST — ranked: on path ∧ emits a message string > on path ∧ named by a frame > neighbour of those / quotes test data > the path by hop:")
+    for i in ranked[:lim]:
+        r = symof(i); why = []
+        if i in emits: why.append('emits ' + ', '.join(repr(x)[:40] for x in sorted(emits[i])[:2]))
+        if i in named: why.append('named: ' + ', '.join(sorted(named[i])[:2]))
+        if i in weak_emits: why.append('quotes ' + ', '.join(repr(x)[:30] for x in sorted(weak_emits[i])[:2]) + ' (test data?)')
+        if i in near: why.append(f'1 hop from {near[i]}')
+        row(f"    {r['display']}   {loc(r)}   {hop[i]} hop(s)" + (f"   {'; '.join(why)}" if why else ''))
+    if len(ranked) > lim: say(f"    … +{len(ranked) - lim} more on the path (limit=N)")
+    off = [i for i in list(emits) + list(named) if i not in onpath and i not in hop and symof(i)]
+    if off:
+        say(f"  OFF PATH — match the failure but the test cannot reach them through resolved edges ({len(off)}): " + ', '.join(f"{symof(i)['display']} ({loc(symof(i))})" for i in list(dict.fromkeys(off))[:6]) + (' …' if len(off) > 6 else ''))
+    unres = sum(1 for i in onpath if unresolved_in(i))
+    if unres: say(f"  BLIND SPOTS — {unres} on-path method(s) contain unresolved calls; something reachable only through those is not ranked")
+
+VERBS = {'search': v_search, 'impact': v_impact, 'pack': v_pack, 'localize': v_localize}
 if verb not in VERBS:
     if verb not in OPT_KEYS and not verb.startswith('-'): pos.insert(0, verb); verb = 'search'      # `axiomcode Foo.bar` means search
     else: print(__doc__.strip()); sys.exit(2)
