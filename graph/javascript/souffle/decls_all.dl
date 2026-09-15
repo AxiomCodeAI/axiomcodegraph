@@ -266,6 +266,11 @@
 .decl get_literal_key(c0:symbol, c1:symbol)
 .decl call_over_cap(c0:symbol)
 // ── call-edge-generation/callbacks.dl ──
+.decl reflective_site(c0:symbol)
+.decl reflective_ambient(c0:symbol)
+.decl options_member_func(c0:symbol, c1:symbol, c2:symbol)
+.decl options_value_kind(c0:symbol)
+.decl call_has_client_target(c0:symbol)
 .decl callback_registered(c0:symbol, c1:symbol)
 .decl event_handler(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
 .decl event_register_method(c0:symbol)

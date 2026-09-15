@@ -29,6 +29,34 @@
 
 // ── callback_registered(CallExpr, CallbackMethod) ───────────────────────────
 callback_registered(ce, m) :- invocation_site(ce, _), call_arg(ce, _, arg), expr_value(arg, "func", m).
+// A function handed over as a PROPERTY of an options object (`lib({ filter: f })`,
+// `opts.resolve = f; lib(opts)`, `https.request({ createConnection: f })`,
+// `new Transform({ transform })`) is a callback too (#643): the callee reads the property
+// and invokes it, and nothing else in the project points into the function. Followed
+// two levels (`{ hooks: { visit } }`), and only across the boundary: a callee that is
+// NOT a project function (a staged library, the platform, an unknown, a dynamic call),
+// because a project callee that reads the property has the ordinary edge from inside
+// its body. Only object values carry it (below); an array, a collection, a string, a
+// module, an instance and the platform are left out.
+callback_registered(ce, m) :- invocation_site(ce, _), !call_has_client_target(ce), !reflective_site(ce),
+    call_arg(ce, _, arg), expr_value(arg, k, i), options_value_kind(k), options_member_func(k, i, m).
+// `Object.assign(dst, src)`, `Object.entries(o)`, `Object.setPrototypeOf(a, b)`,
+// `Reflect.ownKeys(o)`, `JSON.stringify(o)`: reflection over an object reads its
+// properties and never invokes them; an options-object edge there would be invented.
+reflective_site(ce) :- call_site(_, ck, _, "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck),
+    expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "ambient", n), reflective_ambient(n).
+reflective_ambient("Object").
+reflective_ambient("Reflect").
+reflective_ambient("JSON").
+reflective_ambient("Array").
+options_member_func(k, i, m) :- prop_value(k, i, _, "func", m).
+options_member_func(k, i, m) :- prop_value(k, i, _, k1, i1), options_value_kind(k1), prop_value(k1, i1, _, "func", m).
+// Object values only: an INSTANCE passed to the platform is data (`arr.push(this)`,
+// `Promise.resolve(w)`, `items.map(fn, this)`), and registering every method it has
+// would invent an edge per method at every such site.
+options_value_kind("obj").
+call_has_client_target(ce) :- expr_resolves_to_method(ce, m), method_prov(m, "client").
+call_has_client_target(ce) :- new_constructs(ce, t), type_decl("client", _, _, _, _, t).
 
 // A listener runs with the EMITTER as `this` (`e.on('x', function () { this.other(); })`).
 this_value(m, k, i) :- event_handler(k, i, _, m), method_this_binding(_, "DYNAMIC", m), !method_owner_type(m, _), k != "module".
