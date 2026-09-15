@@ -11,12 +11,15 @@
       lists the nearest names. Never empty. When exactly one node matches, its body is printed too
       (first 120 lines) — that is usually the Read you were about to do. body=no turns it off.
 
-  axiomcode impact <name> [to=<name>]
-      Everything that changing <name> can touch, computed in FULL (no depth): every method that
-      reaches it through resolved edges, by hop and by file; every test file that reaches it; the
-      dispatch envelope (what may run instead / what it overrides); the unresolved call sites that
-      make the answer a lower bound; entry reachability; and — with to= — the resolved path
-      between <name> and <to>. limit= only caps how many method rows print.
+  axiomcode impact <method | Owner.field | Type> [to=<name>]
+      What a change touches, as the sets to act on. A METHOD: MUST change if its signature changes
+      (every direct caller, by site) · MAY change if its contract changes (overrides/implementations) ·
+      VERIFY with (every test that reaches it, whole graph) · TRANSITIVE (everything that can reach it,
+      by file) · BLIND SPOTS (unresolved calls that make each set a lower bound); to= adds the path.
+      A FIELD / constant: every access grouped by the method it is in — certain inside the owner and
+      its subtypes, by-name elsewhere (the engine resolves calls, not field accesses). A TYPE: subtypes,
+      who constructs it, who calls its methods, and every declaration that uses it (field type,
+      parameter, return, generic argument, new) by context and file.
 
 Every row carries a repo-relative file:line; every edge carries its tier; every printed path is
 logged, which is what unlocks Read/Edit under the gate. Options: in=<path-substring> narrows,
@@ -423,74 +426,148 @@ def v_search():
         say(f"nothing declared, commented or quoted matches '{text}'" + (f" under *{IN}*" if IN else ''))
         say("  try fewer, more specific words (the nouns the code would use, not the symptom), or one identifier from the issue, or in=<dir> to scope it")
 
+def enclosing(f, ln):
+    r = q("SELECT * FROM symbols WHERE file=? AND line<=? AND end_line>=? AND method_id IS NOT NULL AND kind<>'module' ORDER BY (end_line-line) LIMIT 1", f, ln, ln)
+    return r[0] if r else None
+def type_row(display):
+    r = q("SELECT * FROM symbols WHERE type_id IS NOT NULL AND (display=? OR display LIKE ?) LIMIT 1", display, f"%.{display}")
+    return r[0] if r else None
+def is_subtype(sub_tid, sup_tid):
+    return sub_tid == sup_tid or bool(q("SELECT 1 FROM type_ancestors WHERE type_id=? AND ancestor_type_id=?", sub_tid, sup_tid))
+def group_sites(sites, cap=14):
+    """[(file, line, encl_display)] -> lines grouped by file with the methods they fall in"""
+    by = collections.OrderedDict()
+    for f, ln, enc in sites: by.setdefault(f, collections.OrderedDict()).setdefault(enc or '<top level>', []).append(ln)
+    out = 0
+    for f, ms in by.items():
+        row(f"    {f}: " + '; '.join(f"{m} L{','.join(map(str, ls[:6]))}" + (f"…+{len(ls)-6}" if len(ls) > 6 else '') for m, ls in list(ms.items())[:6]) + (f" … +{len(ms)-6} methods" if len(ms) > 6 else ''))
+        out += 1
+        if out >= cap: say(f"    … +{len(by)-cap} more files (limit= / in= to see them)"); break
+
+def impact_field(r):
+    """a field / constant / enum member: every access, grouped by the method it is in — the collection to change"""
+    say(f"impact of changing {r['kind']} {r['display']}   {loc(r)}" + (f"   in {r['owner']}" if r['owner'] else ''))
+    if META.get('ir_present') != 'true': say("  (references were not indexed: the parser IR was absent when the graph was built)"); return
+    owner = type_row(r['owner']) if r['owner'] else None
+    refs = q("SELECT file, line, kind, entity_kind FROM refs WHERE name=? ORDER BY file, line LIMIT 2000", r['name'])
+    certain, byname = [], []
+    for x in refs:
+        if x['file'] == r['file'] and x['line'] == r['line']: continue                      # the declaration itself
+        enc = enclosing(x['file'], x['line'])
+        if owner and enc and enc['owner'] and (encT := type_row(enc['owner'])) and is_subtype(encT['type_id'], owner['type_id']):
+            certain.append((x['file'], x['line'], enc['display']))                         # inside the owner or a subtype: this IS the field
+        else: byname.append((x['file'], x['line'], enc['display'] if enc else None))
+    say(f"  NOTE: the engine resolves calls, not field accesses — accesses inside {r['owner'] or 'the declaring scope'} (and its subtypes) are certain; the rest match by name only")
+    say(f"  accessed inside the owner/subtypes — change these with it ({len(certain)} sites in {len({e for _, _, e in certain})} methods):")
+    group_sites(certain)
+    if byname:
+        say(f"  same name elsewhere — verify the receiver ({len(byname)} sites in {len({f for f, _, _ in byname})} files):")
+        group_sites(byname, cap=8)
+    if not refs: say("  no reference by that name anywhere in the graph")
+    tests = {f for f, _, _ in certain + byname if re.search(r'(^|/)(tests?|test-data|__tests__)(/|$)|\.(spec|test)\.|Tests?\.java$|/src/test/', f or '')}
+    if tests: say("  tests that touch it: " + ', '.join(sorted(tests)[:8]) + (' …' if len(tests) > 8 else ''))
+
+def impact_type(r):
+    """a class / interface / type: where it is used in declarations, who constructs it, who calls its methods, what extends it"""
+    say(f"{r['kind']} {r['display']}   {loc(r)}")
+    tid = r['type_id']
+    sub = q("SELECT s.display, s.file, s.line, s.end_line, s.kind, s.is_test FROM type_ancestors a JOIN symbols s ON s.type_id=a.type_id WHERE a.ancestor_type_id=? ORDER BY s.is_test, s.file", tid)
+    if sub: say(f"  subtypes / implementations ({len(sub)}) — a contract change lands on each: " + ', '.join(f"{x['display']} ({x['file']}:{x['line']})" for x in sub[:10]) + (' …' if len(sub) > 10 else ''))
+    mem = q("SELECT display, kind, name, line, method_id FROM symbols WHERE owner=? ORDER BY line", r['display'])
+    fields = [m for m in mem if m['kind'] in ('field', 'const', 'enum_member')]; meths = [m for m in mem if m['method_id']]
+    say(f"  members: {len(fields)} fields, {len(meths)} methods" + (" — " + ', '.join(m['name'] for m in fields[:12]) if fields else ''))
+    # who constructs it, and who calls its methods (resolved edges)
+    ctor = q("SELECT cr.display AS caller, cr.file, s.start_line AS line FROM call_edges e JOIN methods me ON me.id=e.callee_method_id JOIN symbols cr ON cr.id=e.caller_id LEFT JOIN call_sites s ON s.id=e.call_site_id WHERE me.owner_type_id=? AND me.kind IN ('CONSTRUCTOR','DEFAULT_CONSTRUCTOR','COMPACT_CONSTRUCTOR','ALLOCATOR') AND e.callee_provenance='client' ORDER BY cr.file", tid)
+    if ctor: say(f"  constructed in ({len(ctor)} sites): " + ', '.join(f"{c['caller']} ({c['file']}:{c['line']})" for c in ctor[:8]) + (' …' if len(ctor) > 8 else ''))
+    who = q("SELECT cr.display AS caller, cr.file, count(*) AS n FROM call_edges e JOIN methods me ON me.id=e.callee_method_id JOIN symbols cr ON cr.id=e.caller_id WHERE me.owner_type_id=? AND e.callee_provenance='client' AND cr.type_id IS NULL GROUP BY cr.id ORDER BY n DESC", tid)
+    if who: say(f"  methods that call its methods ({len(who)}, {len({w['file'] for w in who})} files): " + ', '.join(f"{w['caller']} ({w['n']})" for w in who[:12]) + (' …' if len(who) > 12 else ''))
+    # declaration uses, by context — resolved by NAME (the parser leaves the target of a type reference empty)
+    tr = q("SELECT file, line, context FROM type_refs WHERE name=? ORDER BY file, line LIMIT 3000", r['name'])
+    if tr:
+        byc = collections.Counter(x['context'] for x in tr); files = collections.Counter(x['file'] for x in tr)
+        say(f"  used in declarations ({len(tr)} places, {len(files)} files; by name — a same-named type elsewhere would be counted): " + ', '.join(f"{c.lower()} {n}" for c, n in byc.most_common(8)))
+        say("    files: " + ', '.join(f"{f} ({n})" for f, n in files.most_common(12)) + (f" … +{len(files)-12}" if len(files) > 12 else ''))
+        encl = collections.Counter()
+        for x in tr:
+            e = enclosing(x['file'], x['line'])
+            if e: encl[e['display']] += 1
+        if encl: say("    inside methods: " + ', '.join(f"{d} ({n})" for d, n in encl.most_common(12)) + (' …' if len(encl) > 12 else ''))
+    elif META.get('ir_present') == 'true': say("  no type reference by that name (only calls and subtypes above)")
+    inst = q("SELECT count(*) n FROM type_instantiated WHERE type_id=?", tid)[0]['n']
+    say(f"  instantiated: {'yes' if inst else 'no — never constructed in this run (dispatch to it cannot happen)'}")
+
+def impact_method(r, to):
+    m = r['method_id']; up = edges_up()
+    say(f"impact of changing {r['display']}" + (f" {r['signature']}" if r['signature'] and LANG == 'java' else '') + f"   {loc(r)}")
+    u = q("SELECT s.start_line, s.callee_name, s.kind FROM unresolved_sites u LEFT JOIN call_sites s ON s.id = u.call_site_id WHERE u.caller_id = ? ORDER BY 1", m)
+    # 1. must change if the SIGNATURE changes: every direct caller, by site
+    direct = q("SELECT caller, file, line, tier FROM callers WHERE callee_id=? ORDER BY file, line", m)
+    byc = collections.OrderedDict()
+    for e in direct: byc.setdefault((e['caller'], e['file']), []).append(e['line'])
+    say(f"  MUST change if its signature changes — direct callers: {len(direct)} sites in {len(byc)} methods, {len({f for _, f in byc})} files")
+    for (c, f), ls in list(byc.items())[:20]: row(f"    {c}   {f}:{','.join(map(str, ls[:8]))}" + (f"…+{len(ls)-8}" if len(ls) > 8 else ''))
+    if len(byc) > 20: say(f"    … +{len(byc)-20} methods (limit=N)")
+    # 2. may change if the CONTRACT changes: what may run instead of it, what it overrides
+    sib = dispatch_of(m)
+    if sib:
+        say(f"  MAY change if its contract changes — overrides / implementations ({len(sib)}):")
+        for s_, why in sib[:10]: row(f"    {s_['display']}   {loc(s_)}   {why}")
+    # 3. verify with: tests that reach it, whole graph
+    seen = reach([m] + [s_['method_id'] for s_, _ in sib if s_['method_id']], up, 10**6)
+    rr = [(d, i) for i, (d, _) in seen.items() if d > 0 and symof(i)]
+    tests = sorted(((d, i) for d, i in rr if symof(i)['is_test']), key=lambda x: x[0]); prod = [(d, i) for d, i in rr if not symof(i)['is_test']]
+    tfiles = collections.OrderedDict()
+    for d, i in tests: tfiles.setdefault(symof(i)['file'], (d, symof(i)['display']))
+    if tests:
+        tf = list(tfiles.items())
+        say(f"  VERIFY with — tests that reach it: {len(tests)} in {len(tf)} file(s), nearest first: " + ', '.join(f"{f} ({sum(1 for _, i in tests if symof(i)['file'] == f)}; {disp} at {d} hops)" for f, (d, disp) in tf[:8])
+            + (("; then " + ', '.join(f for f, _ in tf[8:30]) + (f" … +{len(tf)-30} more test files" if len(tf) > 30 else '')) if len(tf) > 8 else ''))
+    else: say("  VERIFY with — no test reaches it through resolved edges" + (" (a lower bound: unresolved sites on the way up may hide one)" if q("SELECT 1 FROM unresolved_sites LIMIT 1") else ''))
+    # 4. the rest of the closure, by file
+    files = collections.Counter(symof(i)['file'] for _, i in prod); byhop = collections.Counter(d for d, _ in prod)
+    say(f"  TRANSITIVE — everything that can reach it: {len(prod)} methods in {len(files)} files" + (" (by hop " + ', '.join(f"{d}:{n}" for d, n in sorted(byhop.items())) + ")" if byhop else ''))
+    if files: say("    files: " + ', '.join(f"{f} ({n})" for f, n in files.most_common(15)) + (f" … +{len(files)-15}" if len(files) > 15 else ''))
+    unres = sum(1 for _, i in prod if unresolved_in(i))
+    if u: say(f"  BLIND SPOTS — unresolved calls inside it ({len(u)}): " + ', '.join(f"L{x['start_line']} {x['callee_name'] or x['kind']}" for x in u[:8]) + (' …' if len(u) > 8 else '') + " — every set above is a lower bound")
+    if unres: say(f"  {unres} of the transitive methods contain unresolved calls — something reachable only through those is missing")
+    if has('entry_points') and q("SELECT count(*) n FROM entry_points")[0]['n']:
+        say("  entry reachable: " + ("yes" if q("SELECT 1 FROM entry_reachable WHERE method_id=?", m) else "NO — dead from every known entry, or reachable only through an unresolved call"))
+    if to:
+        B = [b for b in resolve(to, None, None)[0] if b['method_id']]
+        if not B: say(f"  to={to}: no such function")
+        else:
+            dn = edges_down(); fw = reach([m], dn, 10**6)
+            hit = [b for b in B if b['method_id'] in fw]; rhit = [b for b in B if b not in hit and b['method_id'] in seen]
+            for b in hit:
+                chain = []; x = b['method_id']
+                while x is not None: chain.append(x); x = fw[x][1]
+                chain.reverse(); say(f"  path {r['display']} → {b['display']}: {len(chain)-1} hop(s): " + ' → '.join(symof(c)['display'] if symof(c) else c for c in chain))
+            for b in rhit:
+                chain = []; x = b['method_id']
+                while x is not None: chain.append(x); x = seen[x][1]
+                say(f"  {b['display']} reaches {r['display']} in {len(chain)-1} hop(s): " + ' → '.join(symof(c)['display'] if symof(c) else c for c in chain))
+            if not hit and not rhit: say(f"  no resolved path between {r['display']} and {', '.join(b['display'] for b in B)}; {sum(1 for i in fw if unresolved_in(i))} method(s) it can reach contain unresolved calls — the path may exist through one of those")
+
 def v_impact():
-    """the whole transitive answer, computed in full; only the PRINTING is budgeted (limit=)"""
+    """what a change touches, as the sets an agent must act on — for a method, a field/constant, or a type"""
     sel = selector(); to = opt.get('to')
-    if not sel: say("usage: axiomcode impact <name> [to=<name>] [limit=N]"); return
+    if not sel: say("usage: axiomcode impact <method | Owner.field | Type> [to=<name>] [in=<path>] [limit=N]"); return
     rows, how = resolve(sel, None, IN)
-    want = [r for r in rows if r['method_id']]
-    if not want:
-        if rows and not how.startswith('nearest'):
-            say(f"'{sel}' is a {rows[0]['kind']}, not a function — its impact is its uses:"); [row(fmt(r)) for r in rows[:5]]; say(); uses_of(sel.split('.')[-1], quiet=True); return
+    nodes = [r for r in rows if r['method_id'] or r['type_id'] or r['kind'] in ('field', 'const', 'variable', 'enum_member')]
+    if not nodes:
         say(f"nothing named '{sel}' in the {LANG} graph"); skipped_note(sel.split('.')[-1])
         if rows: say(f"  nearest ({how}):"); [row(fmt(r)) for r in rows[:8]]
+        say("  which one did you mean? re-run `impact <one of these>`")
         return
-    if len(want) > 5:
-        say(f"'{sel}' is ambiguous ({len(want)} {how} matches) — pick one with in=<path>, Owner.name" + (" or a signature m(int,String)" if LANG == 'java' else '') + ":")
-        [row(fmt(r, sig=True)) for r in want[:12]]; return
-    if how not in ('exact', 'qualified name') or len(want) > 1: say(f"'{sel}' → {len(want)} by {how}"); say()
-    up = edges_up()
-    for r in want:
-        m = r['method_id']
-        say(f"impact of changing {r['display']}" + (f" {r['signature']}" if r['signature'] and LANG == 'java' else '') + f"   {loc(r)}")
-        u = q("SELECT s.start_line, s.callee_name, s.kind FROM unresolved_sites u LEFT JOIN call_sites s ON s.id = u.call_site_id WHERE u.caller_id = ? ORDER BY 1", m)
-        if u: say(f"  unresolved calls INSIDE it ({len(u)}) — every claim below is a lower bound: " + ', '.join(f"L{x['start_line']} {x['callee_name'] or x['kind']}" for x in u[:8]) + (' …' if len(u) > 8 else ''))
-        sib = dispatch_of(m)
-        if sib:
-            say(f"  dispatch ({len(sib)}): a call typed at the base may run any of these, so they share the blast radius")
-            for s_, why in sib[:10]: row(f"    {s_['display']}   {loc(s_)}   {why}")
-        seen = reach([m] + [s_['method_id'] for s_, _ in sib if s_['method_id']], up, 10**6)        # the FULL closure
-        rr = sorted(((d, i) for i, (d, _) in seen.items() if d > 0 and symof(i)), key=lambda x: (x[0], symof(x[1])['is_test'], symof(x[1])['file']))
-        tests = [(d, i) for d, i in rr if symof(i)['is_test']]; prod = [(d, i) for d, i in rr if not symof(i)['is_test']]
-        byhop = collections.Counter(d for d, _ in prod)
-        say(f"  everything that can reach it through resolved edges: {len(prod)} non-test method(s) in {len({symof(i)['file'] for _, i in prod})} file(s), {len(tests)} test(s)" +
-            (" — by hop: " + ', '.join(f"{d}:{n}" for d, n in sorted(byhop.items())) if byhop else ''))
-        files = collections.Counter(symof(i)['file'] for _, i in prod)
-        if files: say(f"  files ({len(files)}): " + ', '.join(f"{f} ({n})" for f, n in files.most_common(20)) + (f" … +{len(files)-20} more files (limit=N shows more rows)" if len(files) > 20 else ''))
-        tfiles = collections.OrderedDict()
-        for d, i in tests: tfiles.setdefault(symof(i)['file'], (d, symof(i)['display']))
-        if tests:
-            tf = list(tfiles.items())                                    # already nearest-first
-            say(f"  tests: {len(tests)} in {len(tf)} file(s), nearest first: " + ', '.join(f"{f} ({sum(1 for _, i in tests if symof(i)['file'] == f)}; nearest {disp} at {d} hops)" for f, (d, disp) in tf[:8])
-                + (("; then " + ', '.join(f for f, _ in tf[8:24]) + (f" … +{len(tf)-24} more test files" if len(tf) > 24 else '')) if len(tf) > 8 else ''))
-        else: say("  no test reaches it through resolved edges" + (" — a lower bound: unresolved sites on the way up may hide one" if q("SELECT 1 FROM unresolved_sites LIMIT 1") else ''))
-        if has('entry_points'):
-            n = q("SELECT count(*) n FROM entry_points")[0]['n']
-            if n == 0: say(f"  entry reachability: not derived for {LANG}")
-            else: say("  entry reachable: " + ("yes" if q("SELECT 1 FROM entry_reachable WHERE method_id=?", m) else "NO — dead from every known entry, or reachable only through an unresolved call"))
-        unres = sum(1 for _, i in prod if unresolved_in(i))
-        cap = opt_int('limit', 20)                                   # the files/tests lines above ARE the answer; the rows are a short page unless limit= asks for more
-        if prod: say(f"  the nearest {min(cap, len(prod))} of {len(prod)} (limit=N for more):")
-        for d, i in prod[:cap]:
-            s_ = symof(i); say(f"    {d}  {s_['display']}   {loc(s_)}" + (f"  ({unresolved_in(i)} unresolved inside)" if unresolved_in(i) else ''))
-        if unres: say(f"  {unres} of these contain unresolved calls — something reachable only through those is missing above")
-        if to:
-            B = [b for b in resolve(to, None, None)[0] if b['method_id']]
-            if not B: say(f"  to={to}: no such function")
-            else:
-                dn = edges_down(); fw = reach([m], dn, 10**6)
-                hit = [b for b in B if b['method_id'] in fw]
-                rhit = [b for b in B if b not in hit and b['method_id'] in seen]
-                for b in hit:
-                    chain = []; x = b['method_id']
-                    while x is not None: chain.append(x); x = fw[x][1]
-                    chain.reverse(); say(f"  path {r['display']} → {b['display']}: {len(chain)-1} hop(s): " + ' → '.join(symof(c)['display'] if symof(c) else c for c in chain))
-                for b in rhit:
-                    chain = []; x = b['method_id']
-                    while x is not None: chain.append(x); x = seen[x][1]
-                    say(f"  {b['display']} reaches {r['display']} in {len(chain)-1} hop(s): " + ' → '.join(symof(c)['display'] if symof(c) else c for c in chain))
-                if not hit and not rhit:
-                    say(f"  no resolved path between {r['display']} and {', '.join(b['display'] for b in B)}; {sum(1 for i in fw if unresolved_in(i))} method(s) it can reach contain unresolved calls — the path may exist through one of those")
+    if len(nodes) > 5:
+        say(f"'{sel}' is ambiguous ({len(nodes)} {how} matches) — pick one with in=<path>, Owner.name" + (" or a signature m(int,String)" if LANG == 'java' else '') + ":")
+        [row(fmt(r, sig=True)) for r in nodes[:12]]; return
+    if how not in ('exact', 'qualified name') or len(nodes) > 1: say(f"'{sel}' → {len(nodes)} by {how}"); say()
+    GROUP.clear()
+    for r in nodes:
+        if r['method_id']: impact_method(r, to)
+        elif r['type_id']: impact_type(r)
+        else: impact_field(r)
         say()
 
 VERBS = {'search': v_search, 'impact': v_impact}
