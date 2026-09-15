@@ -169,6 +169,7 @@ def main():
     buckets = Counter()
     undecided = Counter()
     ambiguous = Counter()  # the type_ambiguous subset of undecided
+    expando = Counter()    # the global_expando subset of undecided (#644)
     rows_out = []
     conservation_missing = 0
     oracle_sites = 0
@@ -196,12 +197,14 @@ def main():
         cls = eng_class.get(key, '')
         targets = eng_targets.get(key, set())
         otarget = (r[col['targetFile']], r[col['targetLine']], r[col['targetCol']])
-        if tk == 'any' or tk == 'oracle_error' or tk == 'unresolved' or tk == 'type_ambiguous':
+        if tk == 'any' or tk == 'oracle_error' or tk == 'unresolved' or tk == 'type_ambiguous' or tk == 'global_expando':
             # `type_ambiguous`: the checker named a declaration by type identity (two
             # same-typed functions, a widened symbol key) — an inference, not a truth;
             # counted apart so the exclusion is visible.
             if tk == 'type_ambiguous':
                 ambiguous['resolved' if targets else cls] += 1
+            if tk == 'global_expando':
+                expando['resolved' if targets else cls] += 1
             undecided['resolved' if targets else cls] += 1
             rows_out.append((key, ckind, r[col['calleeName']], tk, 'UNDECIDED', cls, ';'.join('%s:%s:%s' % t for t in sorted(targets))))
             continue
@@ -284,6 +287,10 @@ def main():
     if sum(ambiguous.values()):
         print('  of which type_ambiguous (a declaration named by type identity, not by value): %d' % sum(ambiguous.values()))
         for k, v in ambiguous.most_common():
+            print('    %-18s %6d' % (k, v))
+    if sum(expando.values()):
+        print('  of which global_expando (a platform global assigned by a project shim; load order decides): %d' % sum(expando.values()))
+        for k, v in expando.most_common():
             print('    %-18s %6d' % (k, v))
     print('by call kind (decided):')
     for k, c in sorted(per_kind.items(), key=lambda kv: -sum(kv[1].values())):
