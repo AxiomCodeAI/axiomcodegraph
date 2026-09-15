@@ -26,6 +26,8 @@
 .decl lib_shadow_param_differs(c0:symbol,c1:symbol)
 .decl call_has_edge(c0:symbol)
 .decl site_leaves_client(c0:symbol)
+.decl call_fan_capped(c0:symbol)
+.decl dispatch_capped_site(c0:symbol,c1:symbol,c2:number)
 .decl call_target_count(c0:symbol,c1:number)
 .decl call_unqualified(c0:symbol,c1:symbol)
 .decl cli_entry_ann(c0:symbol)
