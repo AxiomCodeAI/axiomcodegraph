@@ -1,0 +1,260 @@
+#!/usr/bin/env python3
+"""axiomcode-index [<repo-dir>]  — make graph.sqlite answer an agent's questions without the schema.
+
+Adds to <repo>/.axiomcode/out/graph.sqlite, idempotently:
+
+  symbols   every DECLARATION with a language-neutral display name and a fixed kind vocabulary:
+            function | method | constructor | class | interface | enum | enum_member | type |
+            namespace | const | variable | field | module
+  refs      every place an identifier or member is USED (the question grep answers)
+  literals  string literals;  comments  comments and docstrings
+  nesting   (type, outer type) recovered by line containment — Java's qualified_name drops the outer
+  skipped   files the parser skipped (so `find` can say "exists, not indexed" instead of nothing)
+  index_meta what was indexed, from where, and whether the IR was available
+  views     callers, callees, source — the joins written once, so a query cannot mis-join
+
+Every path stored is REPO-RELATIVE (the bundle stores Java paths absolute and Python paths relative
+to --src). The language's IR is read through the ADAPTER table below — header names, never
+positions — mirroring graph/bundle/languages.ts. When the IR is absent the index degrades: symbols
+come from methods/types alone, refs/literals/comments are empty, and index_meta says so.
+"""
+import csv, os, re, sqlite3, sys, time, glob
+csv.field_size_limit(10**9)
+
+REPO = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith('-') else os.environ.get('AXIOMCODE_REPO') or '.')
+GDIR = os.environ.get('AXIOMCODE_GRAPH') or os.path.join(REPO, '.axiomcode')
+DB = os.path.join(GDIR, 'out', 'graph.sqlite')
+if not os.path.exists(DB): sys.exit(f"axiomcode-index: no graph at {DB} — run axiomcode-build first")
+REPO = os.path.realpath(os.path.join(GDIR, '..'))   # the repository root: .axiomcode/ lives directly under it
+
+con = sqlite3.connect(DB); con.row_factory = sqlite3.Row; c = con.cursor()
+run = {r['key']: r['value'] for r in c.execute("SELECT key, value FROM run")}
+LANG = run.get('language', 'java')
+SRC = run.get('source_dir') or REPO
+IR = run.get('client_ir') or ''
+if not os.path.isdir(IR):
+    cands = glob.glob(os.path.join(GDIR, 'out', '.intermediate', 'ir', LANG)) + glob.glob(os.path.join(GDIR, 'ir'))
+    IR = cands[0] if cands else ''
+HAVE_IR = bool(IR and os.path.isdir(IR))
+
+# ── the adapter table: which IR file and which HEADER NAMES carry each thing, per language ────────
+# ref:      expression rows that are a use of a name.  kinds -> the expression kinds; name -> the
+#           column holding the simple name (or a dotted path whose last segment is the name);
+#           file -> how to find the file: ('modules', column) joins a modules file, ('types', column)
+#           joins the bundle's types table (Java rows carry no file)
+# literal:  string literal rows;  comment: the comments file;  decls: extra declaration files with a
+#           (kind-or-callable, filter) — a callable filter picks which rows are symbols
+A = {
+ 'java': dict(
+    modules=None,
+    expr=dict(file='all-expressions.csv', kind='kind', name='literalValue', line='startLine', fileVia=('types', 'typeRegistryLinkHash'),
+              refKinds={'IDENTIFIER_REFERENCE', 'FIELD_ACCESS'}, entityKind='referencedEntityKind',
+              litKinds={'LITERAL'}, litType=('literalType', 'STRING'), litValue='literalValue'),
+    comments=dict(file='all-comments.csv', text='commentText', kind='commentKind', line='startLine', filePath='filePath'),
+    decls=[dict(file='all-fields.csv', kind=lambda r: 'const' if 'STATIC' in r.get('fieldModifier', '') and 'FINAL' in r.get('fieldModifier', '') else 'field',
+                name='name', owner='ownerQualifiedName', filePath='filePath', line='startLine', end='endLine'),
+           dict(file='all-enum-constants.csv', kind=lambda r: 'enum_member', name='name', owner='ownerQualifiedName', filePath='filePath', line='startLine', end='endLine')],
+    boundNames=None, skipped='skipped-java-files.csv'),
+ 'typescript': dict(
+    modules=dict(file='all-typescript-modules.csv', id='tsModuleUniqueHash', filePath='filePath'),
+    expr=dict(file='all-typescript-expressions.csv', kind='kind', name='potentialQualifiedName', line='startLine', fileVia=('modules', 'tsModuleLinkHash'),
+              refKinds={'IDENTIFIER_REFERENCE', 'PROPERTY_ACCESS'}, entityKind='referencedEntityKind',
+              litKinds={'LITERAL'}, litType=('literalType', 'STRING'), litValue='literalValue'),
+    comments=dict(file='all-typescript-comments.csv', text='commentText', kind='commentKind', line='startLine', filePath='filePath'),
+    decls=[dict(file='all-typescript-variables.csv', only=lambda r: r.get('scopeKind') == 'MODULE_SCOPE',
+                kind=lambda r: 'const' if r.get('isConst') == 'true' else 'variable', name='name', owner=None, filePath='filePath', line='startLine', end='endLine'),
+           dict(file='all-typescript-fields.csv', kind=lambda r: 'field', name='name', owner='ownerQualifiedName', filePath='filePath', line='startLine', end='endLine'),
+           dict(file='all-typescript-enum-members.csv', kind=lambda r: 'enum_member', name='name', owner='ownerQualifiedName', filePath='filePath', line='startLine', end='endLine')],
+    # `const foo = () => …` : the method is named <arrow>; its name is the variable's
+    boundNames=dict(file='all-typescript-variables.csv', name='name', method='boundFunctionLinkHash'),
+    skipped='skipped-typescript-files.csv'),
+ 'python': dict(
+    modules=dict(file='all-python-modules.csv', id='pyModuleUniqueHash', filePath='filePath'),
+    expr=dict(file='all-python-expressions.csv', kind='kind', name=('NAME_REFERENCE:literalValue', 'ATTRIBUTE_ACCESS:dottedPath'), line='startLine', fileVia=('modules', 'pyModuleLinkHash'),
+              refKinds={'NAME_REFERENCE', 'ATTRIBUTE_ACCESS'}, entityKind='referencedEntityKind',
+              litKinds={'LITERAL'}, litType=('literalType', 'STRING'), litValue='literalValue'),
+    comments=dict(file='all-python-comments.csv', text='text', kind='kind', line='startLine', filePath='filePath'),
+    decls=[dict(file='all-python-bindings.csv', only=lambda r: r.get('bindingKind') == 'MODULE_LEVEL' and r.get('bindingOrigin') not in ('FUNCTION_DEF', 'CLASS_DEF', 'IMPORT'),
+                kind=lambda r: 'const' if r['name'].isupper() else 'variable', name='name', owner=None, filePath='filePath', line='firstBindingLine', end='lastBindingLine'),
+           dict(file='all-python-fields.csv', kind=lambda r: 'field', name='name', owner='ownerQualifiedName', filePath='filePath', line='startLine', end='endLine')],
+    boundNames=None, skipped='skipped-python-files.csv'),
+ 'javascript': dict(
+    modules=dict(file='all-javascript-modules.csv', id='jsModuleUniqueHash', filePath='filePath'),
+    expr=dict(file='all-javascript-expressions.csv', kind='expressionKind', name='name', line='startLine', fileVia=('modules', 'ownerModuleLinkHash'),
+              refKinds={'IDENTIFIER', 'PROPERTY_ACCESS'}, entityKind='referenceKind',
+              litKinds={'LITERAL'}, litType=('literalKind', 'STRING'), litValue='text'),
+    comments=dict(file='all-javascript-comments.csv', text='text', kind='commentKind', line='startLine', fileVia=('modules', 'ownerModuleLinkHash')),
+    decls=[dict(file='all-javascript-variables.csv', only=lambda r: not r.get('ownerMethodLinkHash') and r.get('bindingRegime') != 'IMPORT_BINDING',
+                kind=lambda r: 'const' if r.get('bindingRegime', '').startswith('CONST') else 'variable', name='name', owner=None, fileVia=('modules', 'ownerModuleLinkHash'), line='startLine', end='endLine'),
+           dict(file='all-javascript-fields.csv', kind=lambda r: 'field', name='name', owner=None, fileVia=('modules', 'ownerModuleLinkHash'), line='startLine', end='startLine')],
+    boundNames=None, skipped='skipped-javascript-files.csv'),
+}[LANG]
+
+# ── the fixed kind vocabulary, from the parser's methodKind / typeCategory ─────────────────────────
+def method_kind(k, owner):
+    if k in ('CONSTRUCTOR', 'DEFAULT_CONSTRUCTOR', 'COMPACT_CONSTRUCTOR', 'ALLOCATOR'): return 'constructor'
+    if k in ('MODULE_INITIALIZER', 'CLASS_INITIALIZER'): return 'module'
+    return 'method' if owner else 'function'
+def type_kind(cat):
+    if 'INTERFACE' in cat or cat == 'PROTOCOL_TYPE': return 'interface'
+    if 'ENUM' in cat: return 'enum'
+    if cat == 'NAMESPACE_TYPE': return 'namespace'
+    if cat in ('TYPE_ALIAS_TYPE', 'JSDOC_TYPEDEF', 'JSDOC_CALLBACK'): return 'type'
+    return 'class'
+
+TESTRE = re.compile(r'(^|/)(tests?|testing|__tests__|test-data|fixtures?)(/|$)|(^|/)test_|conftest\.py$|/src/test/|Tests?\.java$|\.(spec|test)\.[cm]?[tj]sx?$')
+def rel(p):
+    """repo-relative path: the bundle stores Java paths absolute and Python paths relative to --src"""
+    if not p: return p
+    a = p if os.path.isabs(p) else os.path.join(SRC, p)
+    a = os.path.realpath(a) if os.path.exists(a) else os.path.normpath(a)
+    r = os.path.relpath(a, REPO)
+    return p.lstrip('/') if r.startswith('..') else r
+
+def rows(name):
+    p = os.path.join(IR, name)
+    if not HAVE_IR or not os.path.exists(p): return iter(())
+    f = open(p, newline='', encoding='utf-8', errors='replace')
+    return csv.DictReader(f, delimiter='\t', quoting=csv.QUOTE_NONE)
+
+# an older augment step left `symbols` as a VIEW; a name is dropped as whichever it is
+for name in ('symbols', 'refs', 'literals', 'comments', 'nesting', 'skipped', 'index_meta', 'callers', 'callees', 'source'):
+    kind = c.execute("SELECT type FROM sqlite_master WHERE name=?", (name,)).fetchone()
+    if kind: c.execute(f"DROP {kind[0].upper()} IF EXISTS {name}")
+c.executescript('''
+DROP TABLE IF EXISTS symbols; DROP TABLE IF EXISTS refs; DROP TABLE IF EXISTS literals; DROP TABLE IF EXISTS comments;
+DROP TABLE IF EXISTS nesting; DROP TABLE IF EXISTS skipped; DROP TABLE IF EXISTS index_meta;
+DROP VIEW IF EXISTS callers; DROP VIEW IF EXISTS callees; DROP VIEW IF EXISTS source;
+CREATE TABLE symbols(id TEXT, name TEXT, display TEXT, kind TEXT, qualified_name TEXT, signature TEXT, file TEXT, line INT, end_line INT, owner TEXT, is_test INT, method_id TEXT, type_id TEXT);
+CREATE TABLE refs(name TEXT, file TEXT, line INT, kind TEXT, entity_kind TEXT);
+CREATE TABLE literals(value TEXT, file TEXT, line INT);
+CREATE TABLE comments(text TEXT, file TEXT, line INT, kind TEXT);
+CREATE TABLE nesting(type_id TEXT, outer_type_id TEXT);
+CREATE TABLE skipped(file TEXT, reason TEXT);
+CREATE TABLE index_meta(key TEXT, value TEXT);
+''')
+
+# ── types: display names with nesting recovered by line containment ───────────────────────────────
+types = {r['id']: dict(r) for r in c.execute("SELECT id, name, qualified_name, category, file_path, start_line, end_line, provenance FROM types")}
+byfile = {}
+for t in types.values():
+    if t['file_path'] and t['start_line'] is not None: byfile.setdefault(t['file_path'], []).append(t)
+outer_of = {}
+for fp, ts in byfile.items():
+    ts.sort(key=lambda t: (t['start_line'], -(t['end_line'] or 0)))
+    for i, t in enumerate(ts):
+        best = None
+        for o in ts[:i]:   # the narrowest earlier type whose range contains t
+            if o['start_line'] < t['start_line'] and (o['end_line'] or 0) >= (t['end_line'] or 0) and (best is None or (o['end_line'] - o['start_line']) < (best['end_line'] - best['start_line'])):
+                best = o
+        if best: outer_of[t['id']] = best['id']
+c.executemany("INSERT INTO nesting VALUES (?,?)", outer_of.items())
+def tname(t):
+    n = t['name'] or ''
+    m = re.match(r'^(.*)\$anon:(.+)$', n)      # Java: Outer$anon:Iface
+    return f"<anon {m.group(2)}>" if m else n
+disp = {}
+def tdisplay(tid, seen=()):
+    if tid in disp: return disp[tid]
+    t = types.get(tid)
+    if not t: return ''
+    o = outer_of.get(tid)
+    d = (tdisplay(o, seen + (tid,)) + '.' if o and o not in seen else '') + tname(t)
+    disp[tid] = d; return d
+sym = []
+for t in types.values():
+    if t['provenance'] != 'client': continue
+    d = tdisplay(t['id']); fp = rel(t['file_path'])
+    sym.append((t['id'], tname(t), d, type_kind(t['category'] or ''), t['qualified_name'], None, fp, t['start_line'], t['end_line'],
+                tdisplay(outer_of[t['id']]) if t['id'] in outer_of else None, 1 if fp and TESTRE.search(fp) else 0, None, t['id']))
+
+# ── methods ───────────────────────────────────────────────────────────────────────────────────────
+bound = {}
+if A['boundNames']:
+    b = A['boundNames']
+    for r in rows(b['file']):
+        if r.get(b['method']): bound.setdefault(r[b['method']], r[b['name']])
+for m in c.execute("SELECT id, name, qualified_name, signature, kind, owner_type_id, owner_qualified_name, file_path, start_line, end_line FROM methods WHERE provenance='client'"):
+    name = m['name'] or ''
+    if name.startswith('<') and m['id'] in bound: name = bound[m['id']]
+    od = tdisplay(m['owner_type_id']) if m['owner_type_id'] else None
+    if m['kind'] == 'MODULE_INITIALIZER':
+        fp = rel(m['file_path']); stem = os.path.splitext(os.path.basename(fp or ''))[0]
+        sym.append((m['id'], stem, stem, 'module', m['qualified_name'], m['signature'], fp, m['start_line'], m['end_line'], None, 1 if fp and TESTRE.search(fp) else 0, m['id'], None)); continue
+    fp = rel(m['file_path'])
+    sym.append((m['id'], name, (od + '.' if od else '') + name, method_kind(m['kind'], od), m['qualified_name'], m['signature'], fp, m['start_line'], m['end_line'], od, 1 if fp and TESTRE.search(fp) else 0, m['id'], None))
+
+# ── other declarations from the IR: fields, constants, enum members ───────────────────────────────
+modules = {}
+if A['modules']:
+    md = A['modules']
+    modules = {r[md['id']]: r[md['filePath']] for r in rows(md['file'])}
+tq2id = {}
+for t in types.values(): tq2id.setdefault(t['qualified_name'], t['id'])
+def owner_display(qn):
+    tid = tq2id.get(qn)
+    return tdisplay(tid) if tid else (qn.rsplit('.', 1)[-1] if qn else None)
+def file_of(r, d):
+    if d.get('filePath'): return rel(r.get(d['filePath'], ''))
+    via = d.get('fileVia')
+    if via and via[0] == 'modules': return rel(modules.get(r.get(via[1], ''), ''))
+    if via and via[0] == 'types':
+        t = types.get(r.get(via[1], '')); return rel(t['file_path']) if t else ''
+    return ''
+for d in A['decls']:
+    for r in rows(d['file']):
+        if d.get('only') and not d['only'](r): continue
+        name = r.get(d['name'], '');
+        if not name: continue
+        fp = file_of(r, d); od = owner_display(r.get(d['owner'], '')) if d.get('owner') else None
+        ln = int(r.get(d['line']) or 0); en = int(r.get(d['end']) or ln)
+        sym.append((None, name, (od + '.' if od else '') + name, d['kind'](r), (r.get('qualifiedName') or ((r.get(d['owner'], '') + '.') if d.get('owner') else (fp + '#')) + name), None, fp, ln, en, od, 1 if fp and TESTRE.search(fp) else 0, None, None))
+c.executemany("INSERT INTO symbols VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", sym)
+
+# ── references, literals, comments ───────────────────────────────────────────────────────────────
+e = A['expr']; refs = []; lits = []
+namecol = e['name'] if isinstance(e['name'], str) else dict(x.split(':') for x in e['name'])
+for r in rows(e['file']):
+    k = r.get(e['kind'], '')
+    if k in e['refKinds']:
+        col = namecol if isinstance(namecol, str) else namecol.get(k)
+        n = r.get(col, '') if col else ''
+        if not n: continue
+        n = n.rsplit('.', 1)[-1]
+        refs.append((n, file_of(r, e), int(r.get(e['line']) or 0), k, r.get(e['entityKind'], '')))
+    elif k in e['litKinds'] and r.get(e['litType'][0]) == e['litType'][1]:
+        v = (r.get(e['litValue']) or '')
+        if len(v) >= 2 and v[0] in '\'"`' and v[-1] == v[0]: v = v[1:-1]   # JavaScript keeps the quotes
+        if v: lits.append((v[:200], file_of(r, e), int(r.get(e['line']) or 0)))
+c.executemany("INSERT INTO refs VALUES (?,?,?,?,?)", refs); c.executemany("INSERT INTO literals VALUES (?,?,?)", lits)
+cm = A['comments']
+c.executemany("INSERT INTO comments VALUES (?,?,?,?)", ((r.get(cm['text'], '')[:400], file_of(r, cm), int(r.get(cm['line']) or 0), r.get(cm['kind'], '')) for r in rows(cm['file']) if r.get(cm['text'])))
+c.executemany("INSERT INTO skipped VALUES (?,?)", ((rel(r.get('filePath') or r.get('file') or ''), r.get('reason') or r.get('skipReason') or '') for r in rows(A['skipped'])))
+
+# ── views: the joins written once ────────────────────────────────────────────────────────────────
+c.executescript('''
+CREATE INDEX IF NOT EXISTS symbols_name ON symbols(name); CREATE INDEX IF NOT EXISTS symbols_display ON symbols(display);
+CREATE INDEX IF NOT EXISTS symbols_file ON symbols(file, line); CREATE INDEX IF NOT EXISTS symbols_mid ON symbols(method_id);
+CREATE INDEX IF NOT EXISTS refs_name ON refs(name); CREATE INDEX IF NOT EXISTS literals_value ON literals(value); CREATE INDEX IF NOT EXISTS comments_file ON comments(file);
+CREATE INDEX IF NOT EXISTS ce_callee ON call_edges(callee_method_id); CREATE INDEX IF NOT EXISTS ce_caller ON call_edges(caller_id);
+-- who calls a method: one row per (site, target), with the engine's tier. caller_id is symbols.id: a
+-- Java call written in a field initializer has the TYPE as its caller, and that row is kept, not dropped
+CREATE VIEW callers AS
+  SELECT ce.display AS callee, cr.display AS caller, cr.file, s.start_line AS line, e.tier, e.kind, cr.id AS caller_id, ce.method_id AS callee_id
+  FROM call_edges e JOIN symbols ce ON ce.method_id = e.callee_method_id JOIN symbols cr ON cr.id = e.caller_id
+  LEFT JOIN call_sites s ON s.id = e.call_site_id;
+-- what a method calls; an unresolved site keeps its written name and a NULL callee
+CREATE VIEW callees AS
+  SELECT cr.display AS caller, COALESCE(ce.display, e.callee_label) AS callee, s.callee_name AS written, COALESCE(ce.file, '') AS file,
+         s.start_line AS line, e.tier, e.callee_provenance AS provenance, cr.id AS caller_id, ce.method_id AS callee_id
+  FROM call_edges e JOIN symbols cr ON cr.id = e.caller_id LEFT JOIN symbols ce ON ce.method_id = e.callee_method_id
+  LEFT JOIN call_sites s ON s.id = e.call_site_id;
+-- where a body is: what to read
+CREATE VIEW source AS SELECT display, qualified_name, name, kind, file, line, end_line, end_line - line + 1 AS lines FROM symbols WHERE method_id IS NOT NULL;
+''')
+n = lambda t: c.execute(f"SELECT count(*) FROM {t}").fetchone()[0]
+meta = dict(language=LANG, repo=REPO, source_dir=SRC, ir=IR if HAVE_IR else '', ir_present=str(HAVE_IR).lower(), built_at=time.strftime('%Y-%m-%dT%H:%M:%S'),
+            symbols=n('symbols'), refs=n('refs'), literals=n('literals'), comments=n('comments'), nested_types=n('nesting'), skipped_files=n('skipped'))
+c.executemany("INSERT INTO index_meta VALUES (?,?)", [(k, str(v)) for k, v in meta.items()])
+con.commit()
+print(f"indexed {DB} [{LANG}]: symbols={meta['symbols']} refs={meta['refs']} literals={meta['literals']} comments={meta['comments']} nested_types={meta['nested_types']}" + ("" if HAVE_IR else "  (IR absent: refs/literals/comments empty — `uses` will say so)"))

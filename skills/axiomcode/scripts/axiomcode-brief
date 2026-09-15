@@ -1,0 +1,351 @@
+#!/usr/bin/env python3
+"""axiomcode-brief <graph-dir> <issue-file> [--budget N]
+
+Query the AxiomCode graph the way the engine resolves calls, using ITS exports:
+
+  issue names a type T     -> T (by name), T's declared methods, T's subclasses and ancestors
+                              (resolution-type-ancestor), and — the engine's own knowledge —
+                              every call site whose RECEIVER TYPE is T (expression-receiver-type),
+                              grouped by the method that contains it: the code that operates on T.
+  issue names a method m   -> resolved inside the mentioned types first (declared in T or in an
+                              ancestor of T), only then anywhere.
+  issue quotes a string    -> the function whose body contains that literal (IR expressions).
+  every resolved method    -> real callers/callees (call-chain-edges) and its unresolved sites
+                              WITH the engine's reason (call-site-unresolved).
+
+Word matching is used for one thing only: mapping an identifier in the issue to an entity by
+name. Ranking is by count of distinct structural evidence, never by word overlap.
+
+READS graph.sqlite, NOT the raw CSV exports. It used to read .axiomcode/out/*.csv and
+.axiomcode/ir/*.csv, and those stopped being written: the bundle made the database the
+deliverable and put the raw relations behind --debug, which axiomcode-build does not pass. The
+brief then loaded zero methods and zero edges and printed an empty ranking -- silently, because
+an empty starting set looks exactly like "the graph found nothing". Every graph-arm agent run
+since that change had no localization at all.
+
+Reading the database also removes two shape bugs the CSV path was hiding, both of which made
+the Java brief strictly worse than the Python one:
+  - resolution-type-ancestor.csv was read as (row[1], row[2]) -- Python's (prov, sub, anc). Java
+    exports (sub, anc), so `len(row) >= 3` failed on every row and Java had NO ancestry.
+  - the instantiated set was read from resolution-type-instantiated.csv as row[1]; Java writes
+    type-instantiated.csv as (type, how), so row[1] would have been the string "new".
+`type_ancestors` and `type_instantiated` are single core tables with one shape in every
+language, so neither bug is expressible any more.
+
+The only thing still read from the IR is expression literals (for "the function whose body
+contains this flag or message"), which no core table carries; it degrades to skipping that one
+evidence kind when the intermediate IR is absent."""
+import os as _os, sys as _sys, subprocess as _sp
+if not _os.environ.get("AXIOMCODE_LOGGED"):
+    _e=dict(_os.environ, AXIOMCODE_LOGGED="1"); _p=_sp.run([_sys.executable, _sys.argv[0], *_sys.argv[1:]], env=_e, capture_output=True, text=True)
+    _sp.run([_sys.executable, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "_log_query.py"), _os.path.basename(_sys.argv[0]), *_sys.argv[1:]], input=_p.stdout + _p.stderr, text=True)
+    raise SystemExit(_p.returncode)
+import csv, sys, re, os, sqlite3, collections
+csv.field_size_limit(10**9)
+G, ISSUE = sys.argv[1], sys.argv[2]; BUDGET = int(sys.argv[sys.argv.index('--budget')+1]) if '--budget' in sys.argv else 2000
+PREFIX = sys.argv[sys.argv.index('--prefix')+1] if '--prefix' in sys.argv else ''
+
+DB = os.path.join(G, 'out', 'graph.sqlite')
+if not os.path.exists(DB):
+    print(f"no graph at {DB} — run axiomcode-build . first", file=sys.stderr); raise SystemExit(2)
+db = sqlite3.connect(f'file:{DB}?mode=ro', uri=True); db.row_factory = sqlite3.Row
+def q(sql, *a):
+    try: return db.execute(sql, a).fetchall()
+    except sqlite3.Error: return []          # an ext_ table this language does not have
+def has(t): return bool(q("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", t))
+
+# `run.language` is the authority; probing filenames was only ever a proxy for it.
+LANG = (q("SELECT value FROM run WHERE key='language'") or [{'value': 'java'}])[0]['value']
+TESTRE = {'python': r'(^|/)(tests?|testing)(/|$)|(^|/)test_|conftest\.py$',
+          'typescript': r'(^|/)__tests__/|\.(spec|test)\.[tj]sx?$',
+          'java': r'/src/test/|Test\.java$'}[LANG]
+SKIP_KINDS = {'python': {'MODULE_INITIALIZER', 'CLASS_INITIALIZER'},
+              'typescript': {'MODULE_INITIALIZER'}, 'java': {'STATIC_INITIALIZER'}}[LANG]
+# REPO-RELATIVE PATHS. methods.file_path is ABSOLUTE -- it is whatever --src the build was
+# given. The old rule stripped through '/repo/', which worked only because the harness happens
+# to name its checkouts `repo`; against a checkout named anything else it was a no-op and every
+# line printed a 90-character absolute path. The repo root is instead derived from the graph:
+# the longest common directory prefix of the client files IS the tree that was analysed.
+def _repo_root(paths):
+    paths = [q for q in paths if q]
+    if not paths: return ''
+    pre = os.path.commonpath(paths) if len(paths) > 1 else os.path.dirname(paths[0])
+    # commonpath of a single package would strip real structure; walk up to a plausible root
+    while pre and not any(os.path.exists(os.path.join(pre, m))
+                          for m in ('.git', 'pom.xml', 'setup.py', 'pyproject.toml', 'package.json')):
+        nxt = os.path.dirname(pre)
+        if nxt == pre: break
+        pre = nxt
+    return pre
+def rel(p):
+    p = p or ''
+    if ROOT and p.startswith(ROOT): p = p[len(ROOT):].lstrip('/')
+    else: p = re.sub(r'^.*?/repo/', '', p)
+    return PREFIX + p
+is_test = lambda p: bool(re.search(TESTRE, p or ''))
+
+# ── graph: types, methods, edges, receiver types, unresolved reasons, ancestry ──
+types = {r['id']: dict(name=r['name'], path=r['file_path'])
+         for r in q("SELECT id, name, file_path FROM types")}
+meth, by_type = {}, collections.defaultdict(list)
+for r in q("SELECT id, name, kind, owner_type_id, file_path, start_line, end_line "
+           "FROM methods WHERE provenance = 'client'"):
+    if r['kind'] in SKIP_KINDS: continue
+    th = r['owner_type_id'] or ''
+    owner = types[th]['name'] if th in types else ''
+    meth[r['id']] = dict(name=r['name'], owner=owner, thash=th, path=r['file_path'],
+                         line=r['start_line'], end=r['end_line'],
+                         label=(owner + '.' if owner else '') + r['name'],
+                         test=is_test(r['file_path']))
+    by_type[th].append(r['id'])
+ROOT = _repo_root([m['path'] for m in meth.values()])
+
+out, inc = collections.defaultdict(set), collections.defaultdict(set)
+for r in q("SELECT caller_id, callee_method_id FROM call_edges WHERE callee_method_id IS NOT NULL"):
+    a, b = r['caller_id'], r['callee_method_id']
+    if a in meth and b in meth: out[a].add(b); inc[b].add(a)
+
+# the engine's reason for a blind spot. ext_call_site_unresolved carries it where the front end
+# exports one; everywhere else the tier and the site's syntactic kind say the same thing in the
+# same words, so the evidence line reads identically instead of vanishing for two languages.
+unres = collections.defaultdict(collections.Counter)
+if has('ext_call_site_unresolved'):
+    for r in q("SELECT c1 AS caller, c2 AS reason, c3 AS detail FROM ext_call_site_unresolved"):
+        if r['caller'] in meth:
+            unres[r['caller']][f"{str(r['detail'] or r['reason']).lower().replace('_',' ')} ({r['reason']})"] += 1
+else:
+    for r in q("SELECT e.caller_id AS caller, e.tier AS tier, COALESCE(s.kind, e.kind) AS kind "
+               "FROM call_edges e LEFT JOIN call_sites s ON s.id = e.call_site_id "
+               "WHERE e.callee_method_id IS NULL"):
+        if r['caller'] in meth:
+            unres[r['caller']][f"{str(r['tier']).replace('ambiguous_','').replace('_',' ')} ({r['kind']})"] += 1
+
+# type -> [(enclosing method, the name called on it)] — the code that OPERATES on a type.
+# Still per-language: no core table carries a call site's receiver type.
+recv_sites = collections.defaultdict(list)
+if has('ext_expression_receiver_type'):
+    for r in q("SELECT r.c1 AS ty, s.caller_id AS caller, s.callee_name AS nm "
+               "FROM ext_expression_receiver_type r JOIN call_sites s ON s.id = r.c0"):
+        if r['caller'] in meth: recv_sites[r['ty']].append((r['caller'], r['nm'] or ''))
+
+anc, desc = collections.defaultdict(set), collections.defaultdict(set)
+for r in q("SELECT type_id, ancestor_type_id FROM type_ancestors"):
+    if r['type_id'] in types and r['ancestor_type_id'] in types:
+        anc[r['type_id']].add(r['ancestor_type_id']); desc[r['ancestor_type_id']].add(r['type_id'])
+instantiated = {r['type_id'] for r in q("SELECT type_id FROM type_instantiated")}
+
+# expression literals: the one input with no core table. The intermediate IR survives a
+# non---debug build, so use it when it is there and skip this evidence kind when it is not.
+def ir_expressions():
+    base = os.path.join(G, 'out', '.intermediate', 'ir')
+    names = {'python': 'all-python-expressions.csv', 'typescript': 'all-typescript-expressions.csv',
+             'java': 'all-expressions.csv'}[LANG]
+    for cand in (os.path.join(base, LANG, names), os.path.join(base, names)):
+        if os.path.exists(cand):
+            with open(cand, newline='', errors='replace') as f:
+                yield from csv.DictReader(f, delimiter='\t')
+            return
+
+# ── the issue: identifiers by kind ───────────────────────────────────────────
+text = open(ISSUE, errors='replace').read()
+code = ' '.join(re.findall(r'```.*?```', text, re.S)) + ' ' + ' '.join(re.findall(r'`([^`\n]+)`', text))
+code_idents = set(re.findall(r'[A-Za-z_][A-Za-z0-9_]{2,}', code))
+camel = set(re.findall(r'\b[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)*\b', text)) | {i for i in code_idents if i[:1].isupper()}
+snake = set(re.findall(r'\b[a-z]+_[a-z0-9_]+\b', text)) | {i for i in code_idents if i[:1].islower()}
+flags = {f for f in re.findall(r'--[a-z][a-z0-9-]{3,}', text)}
+quoted = {q.strip() for q in re.findall(r'["“]([^"”\n]{14,120})["”]', text)}
+type_by_name = collections.defaultdict(list)
+for th, t in types.items(): type_by_name[t['name'].lower()].append(th)
+meth_by_name = collections.defaultdict(list)
+for h, m in meth.items():
+    if not m['test']: meth_by_name[m['name'].lower()].append(h)
+
+title = text.strip().splitlines()[0] if text.strip() else ''
+title_types = {th for c in re.findall(r'\b[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)*\b', title) for th in type_by_name.get(c.lower(), [])}
+seed_types = sorted({th for c in camel for th in type_by_name.get(c.lower(), []) if not is_test(types[th]['path'])}, key=lambda th: (th not in title_types, types[th]['name']))
+seed_set = set(seed_types); family = set(seed_set)
+for th in seed_types: family |= anc[th] | desc[th]
+
+ev = collections.defaultdict(dict)   # method -> {evidence kind: detail}
+# methods named in the issue, resolved within the mentioned types (or their ancestors) first
+for ident in (snake | {i for i in code_idents if i[:1].islower()}):
+    hits = meth_by_name.get(ident.lower(), [])
+    if not hits: continue
+    typed = [h for h in hits if meth[h]['thash'] in family]
+    for h in (typed or hits)[:6]: ev[h]['named in issue' + (' (within a mentioned type)' if typed else '')] = 1
+# x.y(...) in the issue's code: y resolved on x's type when x names a type
+for a, b in re.findall(r'\b([A-Za-z_][A-Za-z0-9_]*)\.([a-z_][A-Za-z0-9_]*)\s*\(', code):
+    hits = meth_by_name.get(b.lower(), []); typed = [h for h in hits if meth[h]['owner'].lower() == a.lower() or meth[h]['thash'] in family]
+    for h in (typed or hits)[:6]: ev[h]['called in the issue'] = 1
+# the engine's knowledge: code that operates on the mentioned types
+for th in seed_types:
+    ops = collections.Counter()
+    for m, n in recv_sites.get(th, []):
+        if not meth[m]['test']: ops[m] += 1
+    for m, c in ops.most_common(12): ev[m][f"operates on {types[th]['name']} ({c} call sites)"] = c
+# literals: the function whose body contains the issue's flag or message
+needles = {f for f in flags} | {q for q in quoted}
+if needles:
+    OWNER_COL = {'python': 'pyMethodLinkHash', 'typescript': 'tsMethodLinkHash',
+                 'java': 'expressionOwnerHash'}[LANG]
+    for r in ir_expressions():
+        lv = r.get('literalValue') or ''
+        if len(lv) < 6: continue
+        o = r.get(OWNER_COL) or r.get('expressionOwnerHash') or ''
+        if o not in meth or meth[o]['test']: continue
+        for n in needles:
+            if n in lv: ev[o][f"contains {n!r}"] = 1; break
+# methods declared in the mentioned types get weak evidence (so the type's API is listable)
+for th in seed_types:
+    for h in by_type[th]:
+        if not meth[h]['test']: ev[h].setdefault(f"declared in {types[th]['name']}", 0.3)
+
+words_issue = {w.lower() for w in re.findall(r'[A-Za-z_][A-Za-z0-9_]{3,}', text)}
+for h, m in meth.items():
+    if m['test']: continue
+    hits = [c for c in inc[h] if meth[c]['test'] and len({p.lower() for p in re.findall(r'[A-Za-z]+', meth[c]['name']) if len(p) >= 4} & words_issue) >= 2]
+    if hits: ev[h][f"exercised by a test named like the issue ({meth[hits[0]]['name']})"] = 1.5
+# INFORMATION CONTENT. A method that every test reaches discriminates nothing: on gson,
+# Gson.toJson/fromJson/Gson took the top three slots for a DateFormat issue whose fix was in
+# three date adapters, because the issue's repro snippet calls the library entry point
+# ("called in the issue") and because 478 tests reach it. Fan-in was previously only ever a
+# BONUS, via the fallback's connectivity term. Here it is a penalty, scaled by where the
+# method sits in this repo's own fan-in distribution rather than by an absolute count, so it
+# transfers across codebases of different sizes. Evidence that is intrinsically specific --
+# a literal from the issue found in the body -- is exempt: that is not a hub signal.
+_fanin = sorted(len(inc[h]) for h in meth) or [0]
+def _hubness(h):
+    """0.0 for a leaf, ~1.0 for the most-called method in the repo (percentile, not count)."""
+    n = len(inc[h])
+    if n <= 1 or len(_fanin) < 8: return 0.0
+    import bisect
+    return bisect.bisect_left(_fanin, n) / len(_fanin)
+def strength(h):
+    k = ev[h]; s = 0
+    s += 3 * sum(1 for x in k if x.startswith('contains'))
+    s += 3 if any(x.endswith('(within a mentioned type)') for x in k) else (1 if any(x.startswith('named') for x in k) else 0)
+    s += 2 if 'called in the issue' in k else 0
+    s += min(2.5, 0.5 * sum(v for x, v in k.items() if x.startswith('operates on')))
+    s += 0.3 if any(x.startswith('declared in') for x in k) else 0
+    s += 2.5 if any(x.startswith('exercised by a test') for x in k) else 0
+    s += 1.5 if meth[h]['thash'] in title_types else 0     # a method of the type the title is about
+    # the penalty applies to issue-snippet evidence, which a hub always attracts, and never to
+    # a literal match, which a hub does not get for free
+    if not any(x.startswith('contains') for x in k):
+        s -= 2.2 * _hubness(h) ** 3
+    return s
+ranked = sorted((h for h in ev if strength(h) >= 1), key=lambda h: (-strength(h), meth[h]['path'], int(meth[h]['line'])))
+# FALLBACK, ranked strictly beneath typed evidence: when the issue names no type and no method
+# ("Barplot bars order", "-v flag not working"), resolve by vocabulary — tokens of a function's
+# name that appear as words in the issue — weighted toward connected code. This is the only
+# place word overlap is allowed to rank anything, and it never outranks a typed hit.
+if True:   # always fill the tail with vocabulary candidates, ranked beneath every typed hit
+    STOP = {'the','and','for','with','this','that','from','when','into','python','error','issue','test','tests','none','true','false','self','import','class','def','return','which','would','should','could','file','files','running','using','also','after','before','have','been','does','will','only','than','then','them','there','their','what','where','while','more','some','make','like','just','code','value','values','type','object','method','function','call','called','following','example','expected','actual','output','input','result','line','name','case','default'}
+    words = {w.lower() for w in re.findall(r'[A-Za-z_][A-Za-z0-9_]{3,}', text)} - STOP
+    def toks(n): return {p.lower() for p in re.findall(r'[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+', n) if len(p) >= 4}
+    fb = collections.Counter()
+    for h, m in meth.items():
+        if m['test'] or h in ev: continue
+        k = sum(1 for t in toks(m['name']) if t in words) + (1 if m['owner'] and m['owner'].lower() in words else 0)
+        if k: fb[h] = k + min(len(out[h]), 12) / 40 - 0.5 * _hubness(h)   # callees, not callers
+    for h, k in fb.most_common(max(4, 14 - len(ranked))):
+        ev[h]['name overlaps the issue (fallback)'] = 0.5; ranked.append(h)
+
+# PATH HYGIENE. Unfiltered, this printed `Gson.toJson -> Gson.toJson -> Gson.toJson` (two
+# overloads of one method are two nodes, and they call each other) and
+# `Gson.toJsonTree -> MapTest.testInterfaceTypeMapWithSerializer -> Gson.Gson` (a path that
+# exists only because a test calls both ends). Neither tells a reader anything: the first is a
+# method reaching itself, the second is "these two are both tested". Overloads collapse to one
+# node by label, tests are not traversable as intermediates, and a path whose endpoints share a
+# label is dropped entirely.
+def bfs_path(a, b, limit=5):
+    if meth[a]['label'] == meth[b]['label']: return None
+    _lab = {meth[a]['label'], meth[b]['label']}
+    prev = {a: None}; frontier = [a]
+    for _ in range(limit):
+        nxt = []
+        for h in frontier:
+            for n in out[h] | inc[h]:
+                if n in prev: continue
+                if n != b and (meth[n]['test'] or meth[n]['label'] in _lab): continue
+                prev[n] = h; nxt.append(n)
+                if n == b:
+                    p = [b]
+                    while prev[p[-1]] is not None: p.append(prev[p[-1]])
+                    return p[::-1]
+        frontier = nxt
+    return None
+bridges = []
+top = ranked[:6]
+for i, a in enumerate(top):
+    for b in top[i+1:]:
+        p = bfs_path(a, b)
+        if p and 2 < len(p) <= 5: bridges.append(p)
+
+# ── render ───────────────────────────────────────────────────────────────────
+def loc(m): return f"{rel(m['path'])}:{m['line']}-{m['end']}"
+def names(hs, n=6): xs = sorted({meth[c]['label'] for c in hs if c in meth}); return ", ".join(xs[:n]) + (f" (+{len(xs)-n})" if len(xs) > n else "")
+L = ["Call-graph context for this issue, from a type-resolved graph of the repository.", ""]
+if seed_types:
+    L.append("Types the issue mentions:")
+    for th in seed_types[:4]:
+        t = types[th]; ms = [h for h in by_type[th] if not meth[h]['test']]
+        subs = sorted(types[s]['name'] for s in desc.get(th, []) if not is_test(types[s]['path']))[:6]
+        sups = sorted(types[s]['name'] for s in anc.get(th, []) if not is_test(types[s]['path']))[:4]
+        L.append(f"  {t['name']}  {rel(t['path'])}  — {len(ms)} methods" + (f"; extends {', '.join(sups)}" if sups else "") + (f"; subclasses {', '.join(subs)}" if subs else "") + ("; instantiated in this codebase" if th in instantiated else ""))
+        L.append(f"    methods: {names(ms, 12)}")
+    L.append("")
+L.append("Functions, ranked by structural evidence:")
+budget_chars = BUDGET * 4; used = sum(len(x) + 1 for x in L)
+# OVERLOADS ARE ONE ENTRY. `Gson.fromJson` has nine of them; they rank adjacently, and their
+# caller/test/callee lists are near-identical because callers resolve to the overload set.
+# Emitted separately they spent 3 of 5 blocks on one name and the brief reached 1 of 7 gold
+# files (14% recall). Merged -- one header carrying every line range, one union of the edges --
+# the same budget reaches distinct files instead of re-describing one.
+groups, order = {}, []
+for h in ranked[:80]:
+    k = meth[h]['label']
+    if k not in groups: groups[k] = []; order.append(k)
+    groups[k].append(h)
+for _label in order[:40]:
+    hs = groups[_label]; h = hs[0]
+    m = meth[h]
+    _ev = {}
+    for _h in hs: _ev.update(ev[_h])
+    why = [k for k in sorted(_ev, key=lambda k: -_ev[k]) if not k.startswith('declared in')][:3] or list(_ev)[:1]
+    _where = loc(m) if len(hs) == 1 else f"{rel(m['path'])}:" + ",".join(
+        sorted({f"{meth[x]['line']}-{meth[x]['end']}" for x in hs}, key=lambda r: int(r.split('-')[0]))[:4]) + \
+        (f" ({len(hs)} overloads)" if len(hs) > 1 else "")
+    block = [f"  {m['label']}  {_where}   [{'; '.join(why)}]"]
+    _inc = set().union(*(inc[x] for x in hs)); _out = set().union(*(out[x] for x in hs))
+    _unres = collections.Counter()
+    for x in hs: _unres.update(unres[x])
+    prod = {c for c in _inc if not meth[c]['test']}; tests = {c for c in _inc if meth[c]['test']}
+    if prod: block.append(f"      called by: {names(prod)}")
+    # A test that calls this function is the requirement written down. Highest-value edge an agent can be handed.
+    # A list of 4 test paths plus "(+478)" costs ~300 characters to say "many tests reach this",
+    # which is the same information as the number. Names are printed only when the whole set is
+    # small enough to be a lead the reader can follow.
+    if tests:
+        if len(tests) <= 5:
+            block.append("      exercised by tests: " + ", ".join(
+                f"{meth[c]['name']} ({rel(meth[c]['path'])}:{meth[c]['line']})"
+                for c in sorted(tests, key=lambda c: meth[c]['label'])))
+        else:
+            block.append(f"      exercised by {len(tests)} tests (many — not a localization signal)")
+    if _out:    block.append(f"      calls:     {names(_out)}")
+    if _unres:  block.append(f"      unresolved here: " + ", ".join(f"{c}× {k}" for k, c in _unres.most_common(2)))
+    txt = "\n".join(block) + "\n"
+    if used + len(txt) > budget_chars * 0.85: break
+    L.append(txt); used += len(txt)
+if bridges:
+    L.append("How the evidence connects (shortest real call paths):")
+    _seen_paths = set()
+    for p in bridges[:4]:
+        _key = tuple(meth[h]['label'] for h in p)
+        if len(set(_key)) < len(_key) or _key in _seen_paths: continue
+        _seen_paths.add(_key)
+        s = "  " + " -> ".join(_key) + "\n"
+        if used + len(s) > budget_chars: break
+        L.append(s); used += len(s)
+print("\n".join(L))

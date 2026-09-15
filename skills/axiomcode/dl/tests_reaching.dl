@@ -1,0 +1,10 @@
+// The TEST functions that reach $M through resolved edges within $DEPTH hops — the tests that would
+// catch a regression in $M, transitively, not only its direct callers.
+.decl sound(caller:symbol, callee:symbol)
+sound(c, t) :- call_edges(_, c, t, _, "client", tier, _), t != "", (tier = "known_edge" ; tier = "multi_inferred").
+.decl reach(m:symbol, d:number)
+reach("$M", 0).
+reach(c, d+1) :- reach(t, d), sound(c, t), d < $DEPTH.
+.decl tests_reaching(m:symbol, depth:number)
+tests_reaching(m, d) :- reach(m, d), d = min x : reach(m, x), d > 0, is_test(m).
+.output tests_reaching
