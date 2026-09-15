@@ -1,0 +1,11 @@
+main.js:12:21 CONSTRUCTOR_CALL Aggregate  EXACT  main.js:3:1
+main.js:13:3 METHOD_CALL model  EXACT  main.js:4:29
+main.js:14:10 METHOD_CALL exec  EXACT  main.js:5:28
+main.js:19:20 FUNCTION_CALL applyDefaults  EXACT  main.js:18:23
+main.js:25:63 FUNCTION_CALL countDown  EXACT  main.js:25:19
+main.js:28:3 METHOD_CALL aggregate  EXACT  main.js:11:19
+main.js:29:3 METHOD_CALL applyDefaults  EXACT  main.js:18:23
+main.js:30:14 CONSTRUCTOR_CALL Aggregate  EXACT  main.js:3:1
+main.js:30:3 METHOD_CALL walk  EXACT  main.js:23:14
+main.js:31:10 FUNCTION_CALL countDown  EXACT  main.js:25:19
+# defects: 0

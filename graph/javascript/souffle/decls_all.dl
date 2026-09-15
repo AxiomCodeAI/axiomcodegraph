@@ -38,6 +38,7 @@
 .decl type_scope(c0:symbol, c1:symbol)
 .decl class_binding_type(c0:symbol, c1:symbol)
 .decl function_binding_method(c0:symbol, c1:symbol)
+.decl nested_function_declaration(c0:symbol, c1:symbol)
 
 // ── expression-resolution/callee-resolution.dl ──
 .decl callee_value(c0:symbol, c1:symbol, c2:symbol)
