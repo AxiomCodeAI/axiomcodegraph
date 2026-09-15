@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """axiomcode <verb> <name> [k=v …]  — ask the AxiomCode graph in the words of the question.
 
+  search  "<words from the issue>" [in=<path>]   no name yet: candidates ranked by name, comment and literal hits
   find    <name> [in=<path>] [kind=fn|method|class|const|field|enum|type|any]   where is it declared
   uses    <name> [in=<path>]           every reference, string literal and comment that mentions it (the grep replacement)
   show    <name | file:a-b | file:n> … the body, numbered; several per call
@@ -13,7 +14,8 @@
   sql     "<SELECT>"                   over the views  symbols · callers · callees · source  (LIMIT 60 applied)
 
 A <name> is written the way it appears in the code or the issue — bar, Foo.bar, Outer.Inner.bar,
-type=Foo method=bar, pkg.Foo.bar, file#Foo.bar, m(int,String), path/file.ts:123 — in every language.
+type=Foo method=bar, pkg.Foo.bar, file.ts:bar, m(int,String), path/file.ts:123 — in every language. When several
+declarations share a name, the most connected one (callers + callees) is listed first and tests last.
 Every row carries a repo-relative file:line; every edge carries its tier. Nothing here returns empty
 without saying what was tried and what is nearest.
 """
@@ -85,18 +87,33 @@ def where_extra(kinds, in_):
 def sym(where, params, kinds, in_, order="is_test, file, line", limit=200):
     we, pe = where_extra(kinds, in_)
     return q(f"SELECT * FROM symbols WHERE ({where}){we} ORDER BY {order} LIMIT {limit}", *params, *pe)
+DEG = {}
+def degree(r):
+    """how connected a declaration is: resolved callers + callees of a method, callers of a type's methods — the
+    definition everything uses ranks above a same-named helper in a fixture"""
+    i = r['method_id'] or r['type_id']
+    if not i: return 0
+    if i not in DEG:
+        if r['method_id']:
+            DEG[i] = q("SELECT (SELECT count(*) FROM call_edges WHERE callee_method_id=?) + (SELECT count(*) FROM call_edges WHERE caller_id=? AND callee_method_id IS NOT NULL) AS n", i, i)[0]['n']
+        else:
+            DEG[i] = q("SELECT count(*) AS n FROM call_edges e JOIN methods m ON m.id=e.callee_method_id WHERE m.owner_type_id=?", i)[0]['n']
+    return DEG[i]
 def dedupe(rows):
     """a TS `const foo = () => …` is both a const and a function at the same line: keep the callable"""
     seen, out = {}, []
     for r in sorted(rows, key=lambda r: (0 if r['method_id'] or r['type_id'] else 1)):
         k = (r['display'], r['file'], r['line'])
         if k not in seen: seen[k] = 1; out.append(r)
-    return sorted(out, key=lambda r: (r['is_test'], r['file'] or '', r['line'] or 0))
+    if len(out) > 1: out.sort(key=lambda r: (r['is_test'], -degree(r), r['file'] or '', r['line'] or 0))
+    return out
 def tokens(s): return [t.lower() for t in re.findall(r'[A-Z]?[a-z]+|[A-Z]+(?![a-z])|\d+', s) if len(t) >= 3]
 
 def resolve(sel, kinds=None, in_=None):
     """-> (rows, how). Tiers, first non-empty wins; kind= and in= filter every tier."""
     sel = sel.strip().strip('"\'')
+    m = re.match(r'^([\w./\\-]+\.[a-z]{1,4})[:#]([A-Za-z_$<][\w.$<>]*)$', sel)      # file.ts:name / file.py#Class.m → narrow to that file
+    if m and not re.match(r'^\d+$', m.group(2)): in_ = in_ or m.group(1); sel = m.group(2)
     sig = None
     m = re.match(r'^([^(]+)\((.*)\)$', sel)
     if m: sel, sig = m.group(1), re.sub(r'\s+', '', m.group(2))
@@ -394,7 +411,38 @@ def v_sql():
     cols = [d[0] for d in cur.description]; say(' | '.join(cols))
     for r in rows: row(' | '.join('' if v is None else str(v) for v in r))
 
-VERBS = {'find': v_find, 'uses': v_uses, 'show': v_show, 'callers': v_callers, 'callees': v_callees, 'path': v_path, 'impact': v_impact, 'type': v_type, 'at': v_at, 'sql': v_sql,
+def v_search():
+    words = ' '.join(pos).strip('"\'')
+    if not words: say('usage: axiomcode search "<words from the issue>" [in=<path>]'); return
+    toks = [t for t in tokens(words) if t not in STOP]
+    if not toks: say("no searchable words (3+ letters, not stop words)"); return
+    we, pe = where_extra(None, IN)
+    score = collections.defaultdict(lambda: [0, 0, 0, 0])            # [name hits, comment hits, literal hits, refs] per declaration key
+    hits = {}
+    for t in toks:
+        for r in q(f"SELECT * FROM symbols WHERE lower(name) LIKE ?{we} LIMIT 400", f"%{t}%", *pe):
+            k = (r['display'], r['file'], r['line']); hits[k] = r; score[k][0] += 1
+    if META.get('ir_present') == 'true':
+        for t in toks:
+            for r in q(f"SELECT file, line FROM comments WHERE lower(text) LIKE ?{we} LIMIT 300", f"%{t}%", *pe):
+                for d in q("SELECT * FROM symbols WHERE file=? AND line <= ? + 2 AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY (end_line-line) LIMIT 1", r['file'], r['line'], r['line']):
+                    k = (d['display'], d['file'], d['line']); hits[k] = d; score[k][1] += 1
+            for r in q(f"SELECT file, line FROM literals WHERE lower(value) LIKE ?{we} LIMIT 300", f"%{t}%", *pe):
+                for d in q("SELECT * FROM symbols WHERE file=? AND line <= ? AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY (end_line-line) LIMIT 1", r['file'], r['line'], r['line']):
+                    k = (d['display'], d['file'], d['line']); hits[k] = d; score[k][2] += 1
+    if not hits: say(f"nothing declared, commented or quoted matches {'+'.join(toks)}" + (f" under *{IN}*" if IN else '')); return
+    def total(r):
+        sc = score[(r['display'], r['file'], r['line'])]; t = sc[0] * 4 + min(sc[1], 3) + min(sc[2], 3)
+        return t / 2 if r['is_test'] else t                       # a fixture that mentions every word is not the code that implements it
+    ranked = sorted(hits.values(), key=lambda r: (-total(r), r['is_test'], -degree(r)))
+    say(f"search {'+'.join(toks)}: {len(hits)} candidate(s), ranked by name hits, then comments and literals in the body, then how connected" + (f" under *{IN}*" if IN else ''))
+    for r in ranked[:20]:
+        sc = score[(r['display'], r['file'], r['line'])]
+        row(fmt(r) + f"   name×{sc[0]} comment×{sc[1]} literal×{sc[2]} edges {degree(r)}")
+    say("  next: axiomcode show <display>   ·   axiomcode callers <display>   ·   narrow with in=<path>")
+STOP = {'the', 'and', 'for', 'with', 'when', 'that', 'this', 'from', 'into', 'not', 'are', 'was', 'should', 'does', 'have', 'has', 'but', 'its', 'can', 'will', 'all', 'any', 'get', 'set', 'add', 'use', 'new'}
+
+VERBS = {'find': v_find, 'search': v_search, 'uses': v_uses, 'show': v_show, 'callers': v_callers, 'callees': v_callees, 'path': v_path, 'impact': v_impact, 'type': v_type, 'at': v_at, 'sql': v_sql,
          'summary': lambda: (say(f"{LANG} graph at {DB}"), [say(f"  {k}: {v}") for k, v in META.items() if k not in ('repo', 'source_dir', 'ir')],
                              [say(f"  {r['tier']}: {r['n']} edges") for r in q("SELECT tier, count(*) n FROM call_edges GROUP BY tier ORDER BY n DESC")])}
 if verb not in VERBS:
