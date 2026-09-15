@@ -89,6 +89,9 @@ if ! bash "$ROOT/graph/test/tools/portable-stat-test.sh"; then
   echo "aborting: the library-facts cache key is not a function of the library IR"
   exit 1
 fi
+if ! bash "$ROOT/graph/test/tools/lib-cache-key-test.sh"; then
+  echo "FAIL: the library-facts cache key is not a function of the staged modules' content (#588)"; exit 1
+fi
 # ── The -I for soufflé's headers must be the one that actually compiles ──────
 # Also a preflight, and for the same reason: the old resolution returned a path that only built on
 # the machine it was written on, and every run here compiles the engine through it.
