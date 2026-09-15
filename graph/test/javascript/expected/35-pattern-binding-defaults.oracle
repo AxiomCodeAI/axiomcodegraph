@@ -1,0 +1,17 @@
+main.js:11:18 FUNCTION_CALL withDefault  EXACT  main.js:5:1
+main.js:11:3 FUNCTION_CALL withDefault  EXACT  main.js:5:1
+main.js:12:13 FUNCTION_CALL nested  EXACT  main.js:6:1
+main.js:12:3 FUNCTION_CALL nested  EXACT  main.js:6:1
+main.js:13:16 FUNCTION_CALL fromArray  EXACT  main.js:7:1
+main.js:13:3 FUNCTION_CALL fromArray  EXACT  main.js:7:1
+main.js:14:3 FUNCTION_CALL fromVariable  EXACT  main.js:8:1
+main.js:14:47 FUNCTION_CALL fromVariable  EXACT  main.js:8:1
+main.js:15:3 FUNCTION_CALL onlyDefault  EXACT  main.js:9:1
+main.js:17:1 FUNCTION_CALL main  EXACT  main.js:10:1
+main.js:5:70 FUNCTION_CALL mapper  SOUND_SUPERSET  main.js:2:1;main.js:3:1
+main.js:5:77 FUNCTION_CALL cb  SOUND_SUPERSET  main.js:11:30;main.js:5:27
+main.js:6:61 FUNCTION_CALL run  SOUND_SUPERSET  main.js:2:1;main.js:3:1
+main.js:7:65 FUNCTION_CALL first  SOUND_SUPERSET  main.js:3:1;main.js:4:1
+main.js:7:71 FUNCTION_CALL second  SOUND_SUPERSET  main.js:2:1;main.js:4:1
+main.js:9:55 FUNCTION_CALL hook  EXACT  main.js:4:1
+# defects: 0

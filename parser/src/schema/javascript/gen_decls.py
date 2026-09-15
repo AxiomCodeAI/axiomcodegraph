@@ -93,7 +93,9 @@ DOCS = {
    "// with no ordering asserts an export that does not exist at runtime. c5 isReExport marks the\n"
    "// 81 measured `module.exports = require('./y')`: one edge that is simultaneously in and out.",
  "js_expression":
-   "The spine. c32 introducesDeclarationLinkHash and c33 resolvedParameterLinkHash sit AFTER\n"
+   "The spine. c32 introducesDeclarationLinkHash, c33 resolvedParameterLinkHash, c34 bindingPath\n"
+   "// and c35 bindingDefaultLinkHash (a reference to a pattern binding with a default -> the\n"
+   "// default's root expression, #673) sit AFTER\n"
    "// the primary key: the schema was\n"
    "// already frozen and appending is the only safe edit, so this is the ONE relation whose PK\n"
    "// is not its last column -- find it by name, never by position. It links an arrow or\n"

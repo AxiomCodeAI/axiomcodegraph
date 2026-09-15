@@ -344,6 +344,7 @@
 .decl scope_enclosing_method(c0:symbol, c1:symbol)
 .decl var_binding_path(c0:symbol, c1:symbol, c2:symbol)
 .decl var_is_rest(c0:symbol, c1:symbol)
+.decl expr_binding_default(c0:symbol, c1:symbol, c2:symbol)
 .decl expr_binding_path(c0:symbol, c1:symbol, c2:symbol)
 .decl binding_path(c0:symbol)
 .decl path_split(c0:symbol, c1:symbol, c2:symbol)
