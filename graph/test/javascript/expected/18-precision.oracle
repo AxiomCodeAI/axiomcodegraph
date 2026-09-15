@@ -2,7 +2,7 @@ lib/p.js:10:56 FUNCTION_CALL helper  EXACT  lib/p.js:10:34
 lib/p.js:11:58 FUNCTION_CALL helper  EXACT  lib/p.js:11:13
 lib/p.js:14:45 METHOD_CALL run  SOUND_SUPERSET  lib/p.js:19:40;lib/p.js:6:3
 lib/p.js:16:23 METHOD_CALL toString  EXACT  lib/p.js:15:3
-lib/p.js:16:41 METHOD_CALL hasOwnProperty  LIB_MISSED  
+lib/p.js:16:41 METHOD_CALL hasOwnProperty  LIB_AMBIENT_OK  
 lib/p.js:16:92 FUNCTION_CALL_CALL call  LIB_AMBIENT_OK  
 lib/p.js:21:117 METHOD_CALL quoted  EXACT  lib/p.js:20:89
 lib/p.js:21:140 COMPUTED_CALL   EXACT  lib/p.js:20:89

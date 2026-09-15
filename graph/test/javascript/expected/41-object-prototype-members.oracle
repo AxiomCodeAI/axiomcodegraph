@@ -1,0 +1,19 @@
+main.js:14:23 METHOD_CALL toString  EXACT  main.js:13:3
+main.js:14:41 METHOD_CALL hasOwnProperty  LIB_AMBIENT_OK  
+main.js:18:33 METHOD_CALL hasOwnProperty  LIB_AMBIENT_OK  
+main.js:18:66 METHOD_CALL toString  LIB_AMBIENT_OK  
+main.js:20:13 CONSTRUCTOR_CALL SchemaType  EXACT  main.js:5:3
+main.js:20:31 METHOD_CALL has  EXACT  main.js:6:3
+main.js:20:43 METHOD_CALL label  EXACT  main.js:7:3
+main.js:20:54 METHOD_CALL own  EXACT  main.js:8:3
+main.js:20:75 METHOD_CALL fromCtor  EXACT  main.js:9:3
+main.js:21:3 CONSTRUCTOR_CALL Named  EXACT  main.js:5:3
+main.js:21:3 METHOD_CALL describe  EXACT  main.js:14:3
+main.js:22:3 FUNCTION_CALL viaFunction  EXACT  main.js:18:1
+main.js:6:22 METHOD_CALL hasOwnProperty  LIB_AMBIENT_OK  
+main.js:6:51 METHOD_CALL hasOwnProperty  LIB_AMBIENT_OK  
+main.js:7:20 METHOD_CALL toString  LIB_AMBIENT_OK  main.js:13:3
+main.js:7:38 METHOD_CALL valueOf  LIB_AMBIENT_OK  
+main.js:8:29 METHOD_CALL hasOwnProperty  LIB_AMBIENT_OK  
+main.js:9:27 METHOD_CALL hasOwnProperty  LIB_AMBIENT_OK  
+# defects: 0
