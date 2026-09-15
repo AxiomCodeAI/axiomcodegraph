@@ -197,7 +197,7 @@ def main():
         cls = eng_class.get(key, '')
         targets = eng_targets.get(key, set())
         otarget = (r[col['targetFile']], r[col['targetLine']], r[col['targetCol']])
-        if tk == 'any' or tk == 'oracle_error' or tk == 'unresolved' or tk == 'type_ambiguous' or tk == 'global_expando':
+        if tk == 'any' or tk == 'oracle_error' or tk == 'unresolved' or tk == 'type_ambiguous' or tk == 'global_expando' or tk == 'jsdoc_extends':
             # `type_ambiguous`: the checker named a declaration by type identity (two
             # same-typed functions, a widened symbol key) — an inference, not a truth;
             # counted apart so the exclusion is visible.
