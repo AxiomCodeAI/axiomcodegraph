@@ -66,6 +66,14 @@ callee_value(ce, k, i) :- call_site(_, "COMPUTED_CALL", _, _, _, _, ce, _, _),
 callee_value(ce, "func", m) :- call_site(_, ck, n, "SYNTACTIC", _, em, ce, _, _), call_kind_is_member_form(ck), n != "",
     expr_child(_, ce, "RECEIVER", _, r), expr_kind(_, "SUPER", _, r),
     method_home_type(em, t), type_super(t, s), type_member(s, n, m).
+// `super.apply(dep, source)` / `super.call(x)` (#697): classified by name as a
+// reflective call with `super` as the CALLEE, and `super` has no value of its own,
+// so neither reflective reading above finds anything. It is `super.<name>()`: the
+// base's member of that name. A base without one yields nothing, which is right,
+// since the prototype `super` stands for has no Function.prototype.apply.
+callee_value(ce, "func", m) :- call_site(_, ck, _, _, _, em, ce, _, _), call_kind_is_reflective(ck), reflective_kind_member(ck, n),
+    expr_child(_, ce, "CALLEE", _, c), expr_kind(_, "SUPER", _, c),
+    method_home_type(em, t), type_super(t, s), type_member(s, n, m).
 
 // A module VALUE is called or constructed through its default export:
 // `require('./router')()` runs `module.exports = function`, `new (require('./x'))`
