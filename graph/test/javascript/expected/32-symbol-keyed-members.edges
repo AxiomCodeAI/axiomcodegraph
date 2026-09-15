@@ -1,0 +1,23 @@
+main.js:3:1 FUNCTION_CALL main  ->  known_edge  queue.js:25:1 main
+main.js:4:15 FUNCTION_CALL Symbol  ->  ambient_terminal  -
+main.js:4:7 FUNCTION_CALL dynamic  ->  known_edge  queue.js:33:1 dynamic
+queue.js:10:27 COMPUTED_CALL this[kRun]  ->  known_edge  queue.js:12:3 
+queue.js:12:21 FUNCTION_CALL helper  ->  known_edge  queue.js:6:1 helper
+queue.js:16:5 COMPUTED_CALL this[kRun]  ->  known_edge  queue.js:12:3 
+queue.js:17:5 COMPUTED_CALL this[kDone]  ->  known_edge  queue.js:10:19 <arrow>
+queue.js:18:5 COMPUTED_CALL this[kClose]  ->  known_edge  queue.js:13:3 
+queue.js:19:10 METHOD_CALL Symbol.for  ->  ambient_terminal  -
+queue.js:19:5 COMPUTED_CALL this[Symbol.for('shared')]  ->  known_edge  queue.js:14:3 
+queue.js:26:13 CONSTRUCTOR_CALL Queue  ->  known_edge  queue.js:9:3 <constructor>
+queue.js:27:3 METHOD_CALL q.add  ->  known_edge  queue.js:15:3 add
+queue.js:28:3 COMPUTED_CALL q[kWrite]  ->  known_edge  queue.js:22:27 <function-expression>
+queue.js:29:3 COMPUTED_CALL handlers[kRun]  ->  known_edge  queue.js:23:28 run
+queue.js:30:3 COMPUTED_CALL handlers[kDone]  ->  known_edge  queue.js:23:58 
+queue.js:33:41 CONSTRUCTOR_CALL Queue  ->  known_edge  queue.js:9:3 <constructor>
+queue.js:33:54 COMPUTED_CALL q[Symbol]  ->  dynamic_terminal  -
+queue.js:33:76 COMPUTED_CALL q[anySymbol]  ->  dynamic_terminal  -
+queue.js:3:14 FUNCTION_CALL Symbol  ->  ambient_terminal  -
+queue.js:4:15 FUNCTION_CALL Symbol  ->  ambient_terminal  -
+queue.js:5:17 METHOD_CALL Symbol.for  ->  ambient_terminal  -
+symbols.js:2:28 FUNCTION_CALL Symbol  ->  ambient_terminal  -
+symbols.js:2:53 FUNCTION_CALL Symbol  ->  ambient_terminal  -

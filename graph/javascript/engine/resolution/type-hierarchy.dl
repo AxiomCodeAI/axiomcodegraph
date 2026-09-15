@@ -77,8 +77,16 @@ heritage_dynamic(t, h) :- heritage_computed(_, t, h).
 // A GETTER is not a callable member: `z.run()` reads the accessor and calls what it
 // RETURNS. The getter's name still shadows an inherited member of that name; its
 // value is `return_value` of the getter (value-flow.dl).
-type_own_member(t, n, m) :- method_decl(_, n, k, _, "false", t, _, m), t != "", method_kind_is_member(k), !method_kind_is_accessor(k).
-type_own_member_name(t, n) :- type_own_member(t, n, _).
+type_own_member(t, n, m) :- method_decl(_, n, k, _, "false", t, _, m), t != "", n != "", method_kind_is_member(k), !method_kind_is_accessor(k).
+// `[kRun]() {}` — a member under a computed name is a member under what the key NAMES
+// (a symbol's creation site, a string the parser could not fix): #598 links the key.
+type_own_member(t, n, m) :- method_decl(_, "", k, _, "false", t, _, m), t != "", method_kind_is_member(k), !method_kind_is_accessor(k),
+    method_computed_key(_, e, m), key_name(e, n).
+// SYNTACTIC names only: type_own_member_name is negated in the closure rules below, and a
+// computed member's name comes from the value its key holds, which is in the same
+// fixpoint. A subclass member under a symbol key therefore does not shadow an inherited
+// one under the same symbol; both are reached, the may-answer.
+type_own_member_name(t, n) :- method_decl(_, n, k, _, "false", t, _, _), t != "", n != "", method_kind_is_member(k), !method_kind_is_accessor(k).
 type_own_member_name(t, n) :- method_decl(_, n, k, _, "false", t, _, _), t != "", method_kind_is_accessor(k).
 type_own_getter(t, n, m) :- method_decl(_, n, "GETTER", _, "false", t, _, m), t != "".
 type_own_getter(t, n, m) :- type_super(t, s), type_own_getter(s, n, m), !type_own_member_name(t, n).
