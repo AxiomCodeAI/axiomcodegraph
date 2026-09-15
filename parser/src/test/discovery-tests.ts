@@ -145,6 +145,47 @@ const CHECKS: Check[] = [
     },
   },
   {
+    name: 'a-tsconfig-directory-with-loose-js-files-is-a-javascript-root-too',
+    proves: 'a directory holding tsconfig.json AND its own .js files is claimed for JavaScript beside TypeScript, at the root and in a nested package, while a tsconfig directory with no loose .js file is not',
+    rulesOut: 'a tsconfig.json disqualifying the directory for JavaScript outright: the TypeScript '
+      + 'analyzer emits nothing for .js program members and no descendant JavaScript project '
+      + 'covers the directory\'s own files, so the package entry points vanished from every IR '
+      + 'folder with no skip row (#595)',
+    run: async (tmp) => {
+      const root = build(tmp, 'tsconfig-root', {
+        'package.json': '{"name":"x","version":"1.0.0"}',
+        'tsconfig.json': '{"compilerOptions":{"allowJs":true,"checkJs":true,"noEmit":true},"include":["lib"]}',
+        'index.js': "const { greet } = require('./lib/greet'); greet('a');\n",
+        'lib/greet.js': 'function greet(n) { return n; }\nmodule.exports = { greet };\n',
+        'packages/pkg/package.json': '{"name":"pkg"}',
+        'packages/pkg/tsconfig.json': '{"compilerOptions":{"allowJs":true}}',
+        'packages/pkg/update-package-json.js': 'module.exports = 1;\n',
+        'packages/pkg/src/a.ts': TS,
+        'packages/pure/tsconfig.json': '{"compilerOptions":{"target":"ES2020"}}',
+        'packages/pure/src/a.ts': TS,
+      });
+      const found = await projectsIn(root);
+      const js = found.filter((p) => p.startsWith(`${ProjectLanguage.JAVASCRIPT} @ `));
+      // the root's own walk covers lib/ and packages/pkg/, so they are not roots of their own
+      if (String(js) !== String([`${ProjectLanguage.JAVASCRIPT} @ .`])) return `JavaScript roots ${js}, want the root alone`;
+      if (!found.includes(`${ProjectLanguage.TYPESCRIPT} @ .`)) return `the root lost its TypeScript claim: ${found}`;
+      // a pure TypeScript root: only the nested package with a loose .js file is JavaScript
+      const nested = await projectsIn(build(tmp, 'tsconfig-nested', {
+        'tsconfig.json': '{"compilerOptions":{"target":"ES2020"}}',
+        'src/a.ts': TS,
+        'packages/pkg/package.json': '{"name":"pkg"}',
+        'packages/pkg/tsconfig.json': '{"compilerOptions":{"allowJs":true}}',
+        'packages/pkg/update-package-json.js': 'module.exports = 1;\n',
+        'packages/pkg/src/a.ts': TS,
+        'packages/pure/tsconfig.json': '{"compilerOptions":{"target":"ES2020"}}',
+        'packages/pure/src/a.ts': TS,
+      }));
+      const nestedJs = nested.filter((p) => p.startsWith(`${ProjectLanguage.JAVASCRIPT} @ `));
+      if (String(nestedJs) !== String([`${ProjectLanguage.JAVASCRIPT} @ packages/pkg`])) return `nested: JavaScript roots ${nestedJs}, want packages/pkg alone`;
+      return null;
+    },
+  },
+  {
     name: 'exclude-tests-keeps-a-test-directory-from-becoming-a-root',
     proves: 'with excludeTests, test/, tests/, __tests__/ and e2e/ are not project roots, and src/ still is',
     rulesOut: 'excluding test names only while walking BELOW a root — a test directory that '
