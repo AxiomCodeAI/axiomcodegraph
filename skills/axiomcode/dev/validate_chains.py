@@ -14,7 +14,7 @@ Reports recall per case and the misses verbatim. A miss is a frontend bug (namin
 engine's suite passes on the same case, and an engine bug otherwise — the engine suite says which.
 """
 import os, re, subprocess, sys, glob, collections, shutil
-HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(os.path.dirname(HERE))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); ROOT = os.path.dirname(os.path.dirname(HERE))
 AX = os.path.join(HERE, 'scripts', 'axiomcode'); BUILD = os.path.join(HERE, 'scripts', 'axiomcode-build')
 lang = sys.argv[1]; only = sys.argv[2:]
 T = os.path.join(ROOT, 'graph', 'test', lang)

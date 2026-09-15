@@ -3,7 +3,7 @@
 gold files, and how dense is it? recall = gold files named / gold files; density = gold files named / distinct files named;
 also whether an oracle test file present at base is named. No agent."""
 import json, os, re, subprocess, sys, glob, argparse
-HERE = os.path.dirname(os.path.abspath(__file__)); AX = os.path.join(HERE, 'scripts', 'axiomcode')
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); AX = os.path.join(HERE, 'scripts', 'axiomcode')
 ap = argparse.ArgumentParser(); ap.add_argument('tasks'); ap.add_argument('work', nargs='?'); ap.add_argument('--lang', default=None); ap.add_argument('--budget', default='6000'); ap.add_argument('ids', nargs='*')
 a = ap.parse_args()
 if os.path.isdir(a.tasks): DOG = os.path.abspath(a.tasks); TASKS = os.path.join(DOG, 'tasks.json'); WORK = None; only = set(([a.work] if a.work else []) + a.ids)

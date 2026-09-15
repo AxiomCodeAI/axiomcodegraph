@@ -1,6 +1,6 @@
 ---
 name: axiomcode
-description: Find code and reason about change impact in a Java, TypeScript, Python or JavaScript codebase with AxiomCode's type-resolved call graph instead of grep — where a name is declared or used, who calls what, what a change affects, which tests reach it, where the engine could not resolve a call. Two verbs — search and impact — names written the way they appear in the issue, no schema to learn. In a gated run, reading and editing unlock only after the graph has named the file.
+description: Find code and reason about change impact in a Java, TypeScript, Python or JavaScript codebase with AxiomCode's type-resolved call graph instead of grep — where a name is declared or used, who calls what, what a change affects, which tests reach it, where the engine could not resolve a call. Three verbs — search, impact, pack — names written the way they appear in the issue, no schema to learn. In a gated run, reading and editing unlock only after the graph has named the file.
 ---
 
 # axiomcode — ask the graph in the words of the question
@@ -21,6 +21,10 @@ axiomcode search <anything> [in=<path>]       a name (bar · Foo.bar · Outer.In
                                               A constant / flag / message → where it is declared and every mention.
                                               A miss → the nearest names. Never empty. The next call is
                                               `search <a name from the output>`: that is how you walk the graph.
+axiomcode pack "<what you want to do>"         one reply to start editing from: WHERE (ranked change sites, with bodies) ·
+                                              CO-CHANGE (direct callers that must change with them, overrides, entry points,
+                                              config) · TESTS to run · FLOWS beyond the graph (routes, reflection, config keys).
+                                              Ask again, sharper, once you know the node.
 axiomcode impact <name> [to=<name>]           everything changing it can touch, in FULL: every method that reaches it, by hop, the files
                                               they live in, every test file that reaches it, the dispatch envelope,
                                               the unresolved sites that bound the claim, entry reachability,
@@ -28,8 +32,11 @@ axiomcode impact <name> [to=<name>]           everything changing it can touch, 
 axiomcode-brief .axiomcode <issue-file>       an issue → ranked starting set with real edges
 ```
 
-Two verbs on purpose. Everything else an agent used to do with the graph — find, uses, callers, callees, path, type,
+Three verbs on purpose. Everything else an agent used to do with the graph — find, uses, callers, callees, path, type,
 at — is a mode of one of these, chosen by the shape of the input, so there is no schema and no verb to pick.
+`impact <a> to=<b>` prints the call path between two functions at any depth, each hop with its tier (a hop that is one
+member of a dispatch set is marked `[dispatch]`); `impact <field>` / `impact <Type>` / `impact <config.key>` answer the
+non-call questions with their limits stated.
 
 **Names are written as they appear in the code or the issue**, in every language: `bar`, `Foo.bar`,
 `Outer.Inner.bar`, `type=Foo method=bar`, `pkg.Foo.bar`, `m(int,String)`. You never need the parser's
