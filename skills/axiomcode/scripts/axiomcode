@@ -608,6 +608,22 @@ def v_search():
         if rows: say(f"  nearest declarations ({how}):"); [row(fmt(r)) for r in rows[:10]]
         say("  which one did you mean? re-run `search <one of these>`; if none, describe it instead: search \"<3-6 words from the issue>\" — or, for a string you expect in the code, quote it exactly")
         return
+    # an exact PHRASE that some string literal contains — a message, a flag, a route — names its emitters outright (grep's answer,
+    # with the enclosing method and its edges), before the word ranking
+    if has('literals') and len(text) >= 8:
+        hits = q("SELECT file, line, value FROM literals WHERE value LIKE ? LIMIT 60", f"%{text}%")
+        if hits:
+            ems = collections.OrderedDict()
+            for h in hits:
+                e = enclosing(h['file'], h['line'])
+                if e: ems.setdefault((e['display'], e['file']), (e, h))
+            if ems:
+                say(f"the phrase {text!r} is in a string literal of {len(ems)} method(s):")
+                for (d, f), (e, h) in list(ems.items())[:8]: row(f"    {e['display']}   {f}:{h['line']}   {h['value'][:70]!r}")
+                say()
+                GROUP.clear(); set_body(len(ems) == 1 and opt.get('body', 'yes') != 'no')
+                for (d, f), (e, h) in list(ems.items())[:2]: GROUP[(d, f)] = [e]; node_card(e)
+                return
     # words that CONTAIN a name — `Elements.before(Node node)`, `toJSONSchema()`, `HttpConnection.Response` — are tried as names first
     named = []
     for cand in dict.fromkeys(re.findall(r'\b[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+\b|\b[A-Za-z_]\w{2,}(?=\()', text)):
