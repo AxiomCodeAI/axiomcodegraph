@@ -1,0 +1,11 @@
+package_entry    47-typeof-guard  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       main.js:12:13  METHOD_CALL split  no_target
+unresolved       main.js:16:61  METHOD_CALL toFixed  no_target
+unresolved       main.js:18:36  METHOD_CALL map  member_absent
+unresolved       main.js:18:7  METHOD_CALL isArray  no_target
+unresolved       main.js:19:10  METHOD_CALL isArray  no_target
+unresolved       main.js:19:31  METHOD_CALL slice  member_absent
+unresolved       main.js:24:39  METHOD_CALL trim  no_target
+unresolved       main.js:6:63  METHOD_CALL split  no_target
+unresolved       main.js:8:10  METHOD_CALL filter  receiver_untyped
+unresolved       main.js:8:69  METHOD_CALL startsWith  no_target
