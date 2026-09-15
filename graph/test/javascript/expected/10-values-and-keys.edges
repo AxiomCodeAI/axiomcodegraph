@@ -40,7 +40,7 @@ lib/values.js:35:50 COMPUTED_CALL others[0]  ->  multi_inferred  lib/values.js:4
 lib/values.js:35:50 COMPUTED_CALL others[0]  ->  multi_inferred  lib/values.js:5:1 c
 lib/values.js:40:38 FUNCTION_CALL deep  ->  known_edge  lib/values.js:3:1 a
 lib/values.js:40:46 FUNCTION_CALL cb  ->  known_edge  lib/values.js:4:1 b
-lib/values.js:41:31 FUNCTION_CALL missing  ->  ambiguous_unknown  -
+lib/values.js:41:31 FUNCTION_CALL missing  ->  known_edge  lib/values.js:5:1 c
 lib/values.js:42:30 FUNCTION_CALL renamed  ->  known_edge  lib/values.js:4:1 b
 lib/values.js:43:26 METHOD_CALL rest.cb  ->  known_edge  lib/values.js:4:1 b
 lib/values.js:48:3 FUNCTION_CALL factory  ->  known_edge  lib/values.js:46:1 factory

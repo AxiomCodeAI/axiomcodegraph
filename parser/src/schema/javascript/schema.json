@@ -524,7 +524,8 @@
     "jsExpressionUniqueHash",
     "introducesDeclarationLinkHash",
     "resolvedParameterLinkHash",
-    "bindingPath"
+    "bindingPath",
+    "bindingDefaultLinkHash"
    ],
    "domains": {
     "edgeRole": [

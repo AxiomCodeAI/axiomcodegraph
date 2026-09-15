@@ -2,7 +2,5 @@
 # <file>:<line>:<col> (the rest of the line is the reason). A new defect fails run.sh; a
 # listed site that starts agreeing fails too, so this list cannot rot.
 
-# PD-JS-5: a default INSIDE a destructured parameter (`{ mapper = twice } = {}`) has no link
-# to the name it initialises, so `mapper(...)` sees only the value a caller passed (`inc`)
-# and is committed as known_edge to it; the compiler names the default, `twice`.
-lib/functional.js:17:80 mapper(cb()) known_edge inc, compiler twice
+# (PD-JS-5, the `{ mapper = twice } = {}` default, was listed here as the one WRONG site;
+# the reference links its default since #673 and the site is a SOUND_SUPERSET.)

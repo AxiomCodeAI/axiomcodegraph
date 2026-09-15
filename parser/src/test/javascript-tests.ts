@@ -1573,6 +1573,7 @@ const FK_TARGET_BY_COLUMN: Readonly<Record<string, string>> = {
   patternRootVariableLinkHash: 'js_variable',
   resolvedBindingLinkHash: 'js_variable',
   computedNameExpressionLinkHash: 'js_expression',
+  bindingDefaultLinkHash: 'js_expression',
   resolvedMethodLinkHash: 'js_method',
   resolvedTypeLinkHash: 'js_type',
   resolvedModuleLinkHash: 'js_module',
@@ -3216,6 +3217,60 @@ async function computedMemberNamesLinkTheirKey(): Promise<number> {
   // literal-key members on a line that also has a written-name sibling must not gain a link
   const plain = methods.rows.filter((r) => (r[col(methods, 'computedNameExpressionLinkHash')] ?? '') !== '' && ![4, 5, 6, 7, 8, 12, 14].includes(Number(r[col(methods, 'startLine')])));
   if (plain.length > 0) failures += fail(`${plain.length} method row(s) carry a key link without a computed name: lines ${plain.map((r) => r[col(methods, 'startLine')]).join(', ')}`);
+  return failures;
+}
+
+/**
+ * A reference to a binding declared inside a destructuring pattern WITH a default
+ * links the default's root expression (c35, #673).
+ *
+ * `({ mapper = twice } = {})` rooted `twice` as a free PARAMETER_DEFAULT and the
+ * reference `mapper` carried only its parameter and path, so the engine saw what a
+ * caller passed and nothing of the default. Asserted on an object pattern parameter,
+ * a nested one, an array pattern parameter, a variable pattern, and a top-level
+ * parameter default and a plain binding as controls (no c35).
+ */
+async function patternBindingDefaultsAreLinked(): Promise<number> {
+  let failures = 0;
+  const root = scratchDir('js-gate-defaults-');
+  const out = scratchDir('js-gate-defaults-out-');
+  fs.writeFileSync(path.join(root, 'package.json'), '{ "name": "defaults" }');
+  fs.writeFileSync(path.join(root, 'main.js'), [
+    'function inc(x) { return x + 1; }',
+    'function twice(x) { return x * 2; }',
+    'function withDefault(cb = () => 0, { mapper = twice } = {}) { return mapper(cb()); }',           // 3
+    'function nested({ opts: { run = inc } = {} } = {}) { return run(1); }',                            // 4
+    'function fromArray([first = twice, second] = []) { return first(second); }',                       // 5
+    'function fromVariable(o) { const { handler = inc, plain } = o; return handler(plain); }',          // 6
+    'withDefault(); nested(); fromArray(); fromVariable({});',
+    '',
+  ].join('\n'));
+  await new JavaScriptProjectAnalyzer().analyzeAll([root], { outputDir: out, baseMservPath: root, serviceVersionLink: 'gate-v1' });
+  const relations = readRelations(out);
+  const expressions = relations.find((r) => r.name === 'js_expression');
+  if (!expressions) return fail('defaults fixture: js_expression missing');
+  const col = (c: string): number => expressions.header.indexOf(c);
+  const byHash = new Map(expressions.rows.map((r) => [r[pkIndexOf(expressions.header, 'js_expression')] ?? '', r]));
+  const refs = (name: string, line: number) => expressions.rows.filter((r) => r[col('expressionKind')] === 'IDENTIFIER' && r[col('text')] === name
+    && Number(r[col('startLine')]) === line && r[col('rootContext')] !== 'PARAMETER_DEFAULT' && r[col('rootContext')] !== 'VARIABLE_INITIALIZER');
+  // name, line of the reference, text of the default it must link
+  const want: Array<[string, number, string]> = [['mapper', 3, 'twice'], ['run', 4, 'inc'], ['first', 5, 'twice'], ['handler', 6, 'inc']];
+  for (const [name, line, def] of want) {
+    const rows = refs(name, line).filter((r) => (r[col('referenceKind')] ?? '') !== '' || (r[col('resolvedParameterLinkHash')] ?? '') !== '' || (r[col('resolvedBindingLinkHash')] ?? '') !== '');
+    const ref = rows.find((r) => (r[col('bindingDefaultLinkHash')] ?? '') !== '') ?? rows[0];
+    if (!ref) { failures += fail(`${name} on line ${line}: no reference row`); continue; }
+    const link = ref[col('bindingDefaultLinkHash')] ?? '';
+    if (link === '') { failures += fail(`${name} on line ${line}: no bindingDefaultLinkHash`); continue; }
+    const d = byHash.get(link);
+    if (!d) { failures += fail(`${name}: the default link names no js_expression row`); continue; }
+    if ((d[col('text')] ?? '') !== def) failures += fail(`${name}: the default links '${d[col('text')]}', want '${def}'`);
+    if ((d[col('parentExpressionLinkHash')] ?? '') !== '') failures += fail(`${name}: the linked default is not a root expression`);
+  }
+  // controls: a top-level parameter default and a binding with no default link nothing
+  for (const [name, line] of [['cb', 3], ['second', 5], ['plain', 6]] as Array<[string, number]>) {
+    const bad = refs(name, line).filter((r) => (r[col('bindingDefaultLinkHash')] ?? '') !== '');
+    if (bad.length > 0) failures += fail(`${name} on line ${line}: carries a default link it should not`);
+  }
   return failures;
 }
 
@@ -5739,6 +5794,7 @@ function linkColumnsMeanWhatTheyClaim(): number {
     'js_package_entry.targetModuleLinkHash': 'package entries name what a package exposes',
     'js_method.computedNameExpressionLinkHash': 'computed member names link their key',
     'js_field.computedNameExpressionLinkHash': 'computed member names link their key',
+    'js_expression.bindingDefaultLinkHash': 'a pattern binding with a default links it from every reference',
   };
   const INTEGRITY_ONLY: Record<string, string> = {
     'js_*.ownerModuleLinkHash': 'same-module links only asserts membership; no finer meaning exists',
@@ -6807,6 +6863,7 @@ const CHECKS: Check[] = [
   { name: 'call-site 1:1', proves: 'one call site per call-like expression, and require() has none because it is a module edge', run: callSiteOneToOne },
   { name: 'package specifiers resolve under the site conditions', proves: "a require() of an exports-only package resolves to its `require` build and an ES import to its `import` build, a subpath export and a main-only package either way, so a dual package links to the build the runtime loads (#601)", run: packageSpecifiersResolveUnderTheSiteConditions },
   { name: 'computed member names link their key', proves: "a member declared under a computed name links its key expression (rooted COMPUTED_NAME, bound to the key's const) and a literal key fills name, on class methods, a getter, class fields, object-literal and prototype-literal members (#598)", run: computedMemberNamesLinkTheirKey },
+  { name: 'pattern binding defaults are linked', proves: "a reference to a binding declared inside a destructuring pattern with a default links the default's root expression (c35), for object, nested and array parameter patterns and a variable pattern; a top-level parameter default and a binding without one link nothing (#673)", run: patternBindingDefaultsAreLinked },
   { name: 'several roots produce one set', proves: 'overlapping discovered roots merge into one flat fact base with no file extracted twice — the failure the real entry point found and a single-root harness cannot', run: severalRootsProduceOneSet },
   { name: 'every empty column is intended', devOnly: true, proves: 'a column that is never populated is a gap, a reservation or a corpus property — and the allowlist says which, so one that stops being filled fails by name', run: everyEmptyColumnIsIntended },
   { name: 'link columns mean what they claim', proves: 'every populated FK is asserted for meaning — name, kind, structure or position — or is named as integrity-only with the reason, so no link can be populated, resolvable and wrong without a check that would have said so', run: linkColumnsMeanWhatTheyClaim },
