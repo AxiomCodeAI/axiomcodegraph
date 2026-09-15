@@ -8,6 +8,7 @@ const reg = require('./lib/registry');
 const makePlugin = require('./plugins');
 const streams = require('./lib/streams');
 const io = require('./lib/io');
+const direct = require('./lib/direct');
 
 function classes() {
   const c = new Circle(2);
@@ -62,9 +63,10 @@ function dynamics() {
 function modules() {
   const p = makePlugin('p'); p.run(); makePlugin.shapes.Circle.create('z'); makePlugin.functional.twice(2); makePlugin.late(); if (typeof makePlugin.orphan === 'function') throw new Error('orphan must not be exported');
 }
+async function directs() { await direct.registers(); direct.direct(); direct.keep(); direct.callStored(); }
 async function streamed() { await streams.drive(); await streams.pump(); }
 async function main() {
-  classes(); legacies(); functional(); events(); await asyncs(); await streamed(); dynamics(); modules();
+  classes(); legacies(); functional(); events(); await asyncs(); await streamed(); await directs(); dynamics(); modules();
   (function iife() { F.inc(9); })();
   (() => F.twice(9))();
 }
