@@ -1,0 +1,9 @@
+lazy-set.js:1:45 CONSTRUCTOR_CALL Set  ->  ambient_terminal  -
+main.js:16:33 METHOD_CALL set.addAll  ->  known_edge  lazy-set.js:1:58 addAll
+main.js:18:33 METHOD_CALL ctx.compilation.graph.addReason  ->  known_edge  main.js:6:15 addReason
+main.js:23:79 METHOD_CALL graph.addReason  ->  known_edge  main.js:6:15 addReason
+main.js:23:95 METHOD_CALL module.render  ->  known_edge  main.js:4:16 render
+main.js:25:38 CONSTRUCTOR_CALL Widget  ->  implicit_constructor  -
+main.js:26:38 METHOD_CALL (await viaPromise()).render  ->  known_edge  main.js:4:16 render
+main.js:26:45 FUNCTION_CALL viaPromise  ->  known_edge  main.js:25:1 viaPromise
+main.js:5:50 CONSTRUCTOR_CALL Graph  ->  implicit_constructor  -
