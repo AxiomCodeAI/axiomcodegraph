@@ -1,0 +1,16 @@
+main.js:16:13 CONSTRUCTOR_CALL Optimization  ->  callback_registered  main.js:16:30 <arrow>
+main.js:16:13 CONSTRUCTOR_CALL Optimization  ->  callback_registered  main.js:16:54 <arrow>
+main.js:16:13 CONSTRUCTOR_CALL Optimization  ->  known_edge  main.js:13:3 <constructor>
+main.js:16:35 METHOD_CALL s.hasTimestamps  ->  known_edge  main.js:3:18 hasTimestamps
+main.js:16:64 METHOD_CALL v.render  ->  known_edge  main.js:4:16 render
+main.js:20:19 METHOD_CALL w.render  ->  known_edge  main.js:4:16 render
+main.js:30:15 METHOD_CALL w.render  ->  known_edge  main.js:4:16 render
+main.js:31:21 METHOD_CALL s.hasTimestamps  ->  known_edge  main.js:3:18 hasTimestamps
+main.js:48:39 METHOD_CALL object.render  ->  known_edge  main.js:4:16 render
+main.js:48:56 METHOD_CALL module.identifier  ->  known_edge  main.js:5:16 identifier
+main.js:48:77 METHOD_CALL factory.create  ->  known_edge  main.js:6:17 create
+main.js:49:32 METHOD_CALL module.identifier  ->  known_edge  main.js:5:16 identifier
+main.js:52:30 METHOD_CALL snapshot.hasTimestamps  ->  known_edge  main.js:3:18 hasTimestamps
+main.js:64:1 FUNCTION_CALL walk  ->  callback_registered  main.js:64:6 <arrow>
+main.js:64:1 FUNCTION_CALL walk  ->  known_edge  main.js:63:1 walk
+main.js:64:11 METHOD_CALL w.render  ->  known_edge  main.js:4:16 render

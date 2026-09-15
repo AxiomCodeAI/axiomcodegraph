@@ -1,0 +1,122 @@
+// ============================================================================
+// Resolution · JSDOC FUNCTION TYPES  (what a function literal's parameters are)
+//
+// `/** @param {function(Snapshot): boolean} has */`, called as
+// `new SnapshotOptimization(s => s.hasFileTimestamps())`; a `@typedef {Object}
+// Extractors` + `@property {(object: O, module: Module) => void} module` over a
+// literal `{ module: (object, module) => module.identifier() }`; a `/** @type
+// {(w: Widget) => void} */ const draw = w => w.render()`. The arrow is written
+// without types and gets them from the function type its position is declared
+// with (#691). The parser labels a FUNCTION_TYPE's children `param:N` and
+// `return`, so a parameter written without a type shifts nothing.
+//
+// A GENERIC typedef (`@template T` + `@typedef {Record<string, (data: T) => void>}
+// Extractors<T>`) applied as `Extractors<Module>` binds `T` to `Module` for the
+// function type reached through it: the application row is carried as the
+// CONTEXT, and a NAMED node that is one of the typedef's template names reads as
+// the argument at its position. `Record<string, X>` types every property as X.
+// ============================================================================
+
+// ── the function type's own structure ───────────────────────────────────────
+fn_type_param(f, idx, c) :- type_ref(_, _, "FUNCTION_TYPE", _, _, _, _, _, _, _, f), type_ref_child_index(f, c, _),
+    type_ref_member(_, lbl, c), strlen(lbl) > 6, substr(lbl, 0, 6) = "param:", idx = substr(lbl, 6, strlen(lbl) - 6).
+
+// ── type_ref_fn(RefHash, FnTypeHash, App): a reference that denotes a function type ──
+// Reached as a shape is: the node itself, a typedef alias (NAMED or a generic
+// application, which becomes the context), a wrapper, an imported typedef.
+type_ref_fn(r, r, "") :- type_ref(_, _, "FUNCTION_TYPE", _, _, _, _, _, _, _, r).
+// `@callback Visitor` is a typedef of category JSDOC_CALLBACK whose own reference is
+// the signature; `@typedef {function(...)} F` is a JSDOC_TYPEDEF whose own reference is a
+// FUNCTION_TYPE. Both are read here.
+type_ref_fn(r, f, app) :- type_ref(_, n, "NAMED", _, _, _, _, _, "", m, r),
+    type_only_decl(_, n, tc, m, td), typedef_category(tc),
+    type_ref(_, _, _, "", "TYPEDEF", "TYPE", td, _, _, _, c), c != r,
+    type_ref_fn(c, f, app).
+type_ref_fn(r, f, r) :- type_ref(_, n, "GENERIC_APPLICATION", _, _, _, _, _, "", m, r), !type_ref_builtin(_, r),
+    type_only_decl(_, n, tc, m, td), typedef_category(tc),
+    type_ref(_, _, _, "", "TYPEDEF", "TYPE", td, _, _, _, c), c != r,
+    type_ref_fn(c, f, _).
+typedef_category("JSDOC_TYPEDEF").
+typedef_category("JSDOC_CALLBACK").
+type_ref_fn(r, f, app) :- type_ref(_, _, k, _, _, _, _, _, _, _, r), type_ref_kind_is_wrapper(k),
+    type_ref(_, _, _, r, _, _, _, _, _, _, c), type_ref_fn(c, f, app).
+type_ref_fn(r, f, app) :- type_ref(_, _, "IMPORT_TYPE", _, _, _, _, _, imp, _, r), imp != "",
+    import_decl(_, _, "JSDOC_IMPORT_TYPE", _, n, _, _, _, imp), n != "", import_module(imp, mod),
+    type_only_decl(_, n, "JSDOC_TYPEDEF", mod, td),
+    type_ref(_, _, _, "", "TYPEDEF", "TYPE", td, _, _, _, c), type_ref_fn(c, f, app).
+
+// ── generics: a typedef's template names, and what an application binds them to ──
+// Each `@template` tag is its own line, so the line orders them.
+template_pos(td, tn, k) :- type_ref(_, tn, "NAMED", _, "TEMPLATE", "TYPE", td, _, _, _, r), type_ref_lines(_, l, _, r),
+    k = count : { type_ref(_, _, "NAMED", _, "TEMPLATE", "TYPE", td, _, _, _, r2), type_ref_lines(_, l2, _, r2), to_number(l2) < to_number(l) }.
+template_binding(app, tn, arg) :- type_ref(_, n, "GENERIC_APPLICATION", _, _, _, _, _, "", m, app), !type_ref_builtin(_, app),
+    type_only_decl(_, n, "JSDOC_TYPEDEF", m, td), template_pos(td, tn, k),
+    type_ref_child_index(app, arg, idx), to_number(idx) = k.
+
+// ── declared_value(RefHash, K, I): the value a declared type stands for ─────
+declared_value(c, "inst", t) :- type_ref_type(c, t).
+declared_value(c, "module", mod) :- type_ref_module(c, mod).
+declared_value(c, "shape", s) :- type_ref_shape(c, s).
+declared_value(c, "coll", c) :- type_ref_is_coll(c).
+declared_value(c, "arr", c) :- type_ref_is_array(c).
+declared_value(c, "ambient", b) :- type_ref(_, b, "NAMED", _, _, _, _, _, _, _, c), type_ref_builtin(_, c).
+
+// ── the function value in a typed position, and the function type it is given ──
+// func_declared_fn(Method, FnType, Ctx): the function value m sits where a function
+// type f is declared, under the generic application ctx ("" when none).
+// Argument position: `helper(s => s.run())` where helper declares `@param {function(Snapshot)} f`.
+func_declared_fn(m, f, ctx) :- call_arg(ce, idx, arg), expr_value(arg, "func", m),
+    expr_resolves_to_method(ce, callee), param_decl(_, _, pidx, callee, p), to_number(pidx) = idx,
+    param_type_name(_, _, r, p), type_ref_fn(r, f, ctx).
+// Variable position: `/** @type {(w: Widget) => void} */ const draw = w => ...`.
+func_declared_fn(m, f, ctx) :- var_type_name(_, _, r, v), var_init(_, _, e, v), expr_value(e, "func", m), type_ref_fn(r, f, ctx).
+// Property position: a literal declared with a type whose member's type is a
+// function type. literal_declared(Literal, TypeRef, Ctx) walks nested literals down
+// through the members' declared types; stepping into a generic application of a
+// typedef makes it the context, and a member typed by a template name reads as
+// the argument bound to it.
+literal_declared(l, r, "") :- var_type_name(_, _, r, v), var_init(_, _, l, v), expr_kind(_, "OBJECT_LITERAL", _, l).
+literal_declared(l, arg, ctx) :- literal_declared(l, r, ctx), type_ref(_, tn, "NAMED", _, _, _, _, _, _, _, r), template_binding(ctx, tn, arg).
+// literal_member_type(Literal, TypeRef, Name, MemberRef): the declared type of the
+// literal's member n under its declared type r. A shape's member by name;
+// `Record<string, X>` (through a typedef alias or a wrapper) gives each of the
+// literal's own properties X. Keyed by the literal so the Record case is never a
+// product of every Record in the program with every property name.
+literal_member_type(l, r, n, c) :- literal_declared(l, r, _), type_ref_shape(r, s), literal_prop(l, n, _),
+    type_ref(_, _, _, s, _, _, _, _, _, _, c), type_ref_member(_, n, c).
+literal_member_type(l, r, n, c) :- literal_declared(l, r, _), type_ref_record(r, c), literal_prop(l, n, _).
+literal_member_type(l, r, n, c) :- literal_declared(l, r, _), type_ref_shape(r, s), literal_owns_method(l, m),
+    method_decl(_, n, _, _, _, _, _, m), n != "", type_ref(_, _, _, s, _, _, _, _, _, _, c), type_ref_member(_, n, c).
+literal_member_type(l, r, n, c) :- literal_declared(l, r, _), type_ref_record(r, c), literal_owns_method(l, m),
+    method_decl(_, n, _, _, _, _, _, m), n != "".
+// The context a member is read in: the application when r is one, else the literal's.
+member_context(l, r, r) :- literal_declared(l, r, _), type_ref_is_app(r).
+member_context(l, r, ctx) :- literal_declared(l, r, ctx), !type_ref_is_app(r).
+literal_declared(inner, c, ctx) :- literal_member_type(l, r, n, c), member_context(l, r, ctx),
+    literal_prop(l, n, inner), expr_kind(_, "OBJECT_LITERAL", _, inner).
+func_declared_fn(m, f, ctx) :- literal_member_type(l, r, n, c), member_context(l, r, ctx),
+    literal_prop(l, n, val), expr_value(val, "func", m), type_ref_fn(c, f, "").
+func_declared_fn(m, f, own) :- literal_member_type(l, r, n, c),
+    literal_prop(l, n, val), expr_value(val, "func", m), type_ref_fn(c, f, own), own != "".
+// `{ check(s) { ... } }`: a shorthand method has no expression row (PD-JS-1); it is
+// the literal's member by name through literal_owns_method.
+func_declared_fn(m, f, ctx) :- literal_member_type(l, r, n, c), member_context(l, r, ctx),
+    literal_owns_method(l, m), method_decl(_, n, _, _, _, _, _, m), type_ref_fn(c, f, "").
+func_declared_fn(m, f, own) :- literal_member_type(l, r, n, c),
+    literal_owns_method(l, m), method_decl(_, n, _, _, _, _, _, m), type_ref_fn(c, f, own), own != "".
+type_ref_is_app(r) :- type_ref(_, _, "GENERIC_APPLICATION", _, _, _, _, _, _, _, r), !type_ref_builtin(_, r).
+literal_prop(l, n, v) :- expr_child(_, l, "PROPERTY_KEY", idx, key), expr_name(_, n, key), expr_child(_, l, "PROPERTY_VALUE", idx, v).
+literal_prop(l, n, v) :- expr_child(_, l, "PROPERTY_VALUE", idx, v), !expr_child(_, l, "PROPERTY_KEY", idx, _), expr_name(_, n, v).
+type_ref_record(r, c) :- type_ref(_, "Record", "GENERIC_APPLICATION", _, _, _, _, _, _, _, r), type_ref_child_index(r, c, "1").
+type_ref_record(r, c) :- type_ref_names(_, n, "", m, r),
+    type_only_decl(_, n, "JSDOC_TYPEDEF", m, td),
+    type_ref(_, _, _, "", "TYPEDEF", "TYPE", td, _, _, _, c0), c0 != r,
+    type_ref_record(c0, c).
+type_ref_record(r, c) :- type_ref(_, _, k, _, _, _, _, _, _, _, r), type_ref_kind_is_wrapper(k),
+    type_ref(_, _, _, r, _, _, _, _, _, _, c0), type_ref_record(c0, c).
+
+// ── the parameters: each takes the declared value at its position ───────────
+// Under an application, a template name reads as the argument bound to it.
+param_value(q, k, i) :- func_declared_fn(m, f, _), fn_type_param(f, idx, c), param_decl(_, _, idx, m, q), declared_value(c, k, i).
+param_value(q, k, i) :- func_declared_fn(m, f, ctx), fn_type_param(f, idx, c), param_decl(_, _, idx, m, q),
+    type_ref(_, tn, "NAMED", _, _, _, _, _, _, _, c), template_binding(ctx, tn, arg), declared_value(arg, k, i).
