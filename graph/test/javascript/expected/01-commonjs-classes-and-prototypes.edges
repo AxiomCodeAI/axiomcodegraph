@@ -1,7 +1,7 @@
 lib/util.js:11:20 SUPER_CALL super  ->  known_edge  lib/util.js:5:3 <constructor>
 lib/util.js:12:20 METHOD_CALL super.greet  ->  known_edge  lib/util.js:6:3 greet
 lib/util.js:13:20 METHOD_CALL this.greet  ->  known_edge  lib/util.js:12:3 greet
-lib/util.js:13:20 METHOD_CALL this.greet().toUpperCase  ->  ambiguous_unknown  -
+lib/util.js:13:20 METHOD_CALL this.greet().toUpperCase  ->  ambient_terminal  -
 lib/util.js:17:39 CONSTRUCTOR_CALL Legacy  ->  known_edge  lib/util.js:15:1 Legacy
 lib/util.js:19:16 FUNCTION_CALL helper  ->  known_edge  lib/util.js:2:1 helper
 lib/util.js:20:27 FUNCTION_CALL arrow  ->  known_edge  lib/util.js:3:15 <arrow>

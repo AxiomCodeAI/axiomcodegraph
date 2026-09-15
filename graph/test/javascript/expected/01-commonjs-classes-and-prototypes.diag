@@ -1,6 +1,6 @@
 import_cause     src/main.js:5:14  path  builtin
 package_entry    probe  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
-unresolved       lib/util.js:13:20  METHOD_CALL toUpperCase  receiver_untyped
+unresolved       lib/util.js:13:20  METHOD_CALL toUpperCase  no_target
 unresolved       src/main.js:30:3  METHOD_CALL join  no_target
 unresolved       src/main.js:36:3  METHOD_CALL forEach  no_target
 unresolved       src/main.js:37:3  METHOD_CALL log  no_target
