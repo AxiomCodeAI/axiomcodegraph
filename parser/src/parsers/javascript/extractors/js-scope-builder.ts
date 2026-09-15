@@ -418,15 +418,15 @@ class JsScopeBuilder {
    *
    * Three things happen in a deliberate order:
    *
-   * 1. **A named function expression binds its own name inside itself.**
-   *    `function g() { return g; }` assigned to `f` — `g` is visible in the body
-   *    and nowhere else. Bound first so a parameter of the same name shadows it,
-   *    which is what the runtime does.
-   * 2. **Parameters are bound in the function's own scope**, before the body, so
+   * 1. **Parameters are bound in the function's own scope**, before the body, so
    *    a default expression can refer to an earlier parameter.
-   * 3. **The body is descended into.** Explicitly, because the worklist stopping
+   * 2. **The body is descended into.** Explicitly, because the worklist stopping
    *    at a function boundary is how `return function () { … }` emitted the
    *    function and nothing inside it.
+   * 3. **A named function expression binds its own name inside itself, last.**
+   *    `function g() { return g; }` assigned to `f` — `g` is visible in the body
+   *    and nowhere else, and a parameter or declaration of the same name in the
+   *    function shadows it, which is what the runtime does (#682).
    */
   private visitFunctionLike(
     node: ts.FunctionLikeDeclaration,
@@ -449,17 +449,6 @@ class JsScopeBuilder {
       strictModeSource: strictness.strictModeSource,
       ownerNode: node,
     });
-
-    if ((ts.isFunctionExpression(node)) && node.name !== undefined) {
-      this.declare({
-        name: node.name.text,
-        regime: JsBindingRegime.FUNCTION_DECLARATION_HOISTED,
-        declarationScope: child,
-        syntacticScope: child,
-        declarationNode: node.name,
-        hasTemporalDeadZone: false,
-      });
-    }
 
     for (const parameter of node.parameters) {
       // The PARAMETER NODE sits in the function's own scope. Its name is
@@ -498,6 +487,27 @@ class JsScopeBuilder {
         // A concise arrow body: `x => x * 2`. One expression, same scope.
         this.visit(node.body, child);
       }
+    }
+    // The own name of a named function expression, bound LAST (#682). At runtime
+    // it lives in a scope of its own between the outer scope and the function's,
+    // so a parameter, `var`, `let` or `const` of the same name in the function
+    // shadows it: `Model.aggregate = function aggregate() { const aggregate =
+    // new Aggregate(); aggregate.model(this); }` reads the instance. The symbol
+    // table keeps the first binding of a name in a scope, so binding the name
+    // first (as this once did, "so a parameter of the same name shadows it")
+    // dropped the parameter and the const instead, and every reference resolved
+    // to the function. Bound only when nothing in the function holds the name:
+    // that is the intermediate scope without a scope row for it.
+    if (ts.isFunctionExpression(node) && node.name !== undefined
+      && !child.bindings.has(node.name.text)) {
+      this.declare({
+        name: node.name.text,
+        regime: JsBindingRegime.FUNCTION_DECLARATION_HOISTED,
+        declarationScope: child,
+        syntacticScope: child,
+        declarationNode: node.name,
+        hasTemporalDeadZone: false,
+      });
     }
   }
 

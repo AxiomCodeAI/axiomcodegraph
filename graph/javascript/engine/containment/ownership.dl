@@ -66,6 +66,23 @@ function_binding_method(v, m) :- var_decl(_, n, "FUNCTION_DECLARATION_HOISTED", 
 function_binding_method(v, m) :- var_decl(_, n, "FUNCTION_DECLARATION_HOISTED", _, _, _, v),
     var_owner_method(_, m, v),
     method_decl(_, n, "FUNCTION_EXPRESSION", _, _, _, _, m).
+// The same own name when the function expression is the right-hand side of
+// `Ctor.name = function name() {}` or `Ctor.prototype.name = function name() {}`
+// on a class-like function (#683): the method is then a CLASS_METHOD by
+// STATIC_ASSIGNMENT or PROTOTYPE_ASSIGNMENT, and its name is the SLOT's, which
+// need not be the function's own name. What identifies the binding is not the
+// kind: it is declared in the method's own body scope, owned by the method, and
+// its name token sits on the method's first line. A function declaration nested
+// in the body (`inner() { function helper() {} return helper(); }`, case 18) is
+// declared in the same scope, on the same line when written that way, and is a
+// method of its own owned by that scope: it is excluded by name.
+function_binding_method(v, m) :- var_decl(_, n, "FUNCTION_DECLARATION_HOISTED", bs, bs, mod, v),
+    var_owner_method(_, m, v),
+    method_scopes(_, _, bs, _, m),
+    var_lines(_, mod, l, v),
+    method_lines(_, _, l, _, m),
+    !nested_function_declaration(bs, n).
+nested_function_declaration(os, n) :- method_decl(_, n, "FUNCTION_DECLARATION", _, _, _, _, m2), method_scopes(_, os, _, _, m2).
 // A function declaration INSIDE A BLOCK: the binder declares the name in the block
 // scope, the method row is owned by the enclosing function scope, and the two
 // never meet on scope. The name token is on the `function` keyword's line, so
