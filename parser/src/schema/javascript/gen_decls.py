@@ -54,7 +54,10 @@ DOCS = {
    "// 521 measured), which is a declaration and an expression at once; c27 ties it back. c10\n"
    "// hoisting separates function declarations (hoisted) from function expressions (not), same\n"
    "// syntax category, different behaviour. c17 thisBinding is LEXICAL for arrows: `this` is\n"
-   "// rebound by CALL FORM, 33,189 references measured.",
+   "// rebound by CALL FORM, 33,189 references measured. c36 computedNameExpressionLinkHash sits\n"
+   "// AFTER the primary key (c35), appended the way js_expression's c32 was: it links a member\n"
+   "// declared with a computed name (`[kRun]() {}`) to its KEY expression, so the engine can\n"
+   "// join a symbol-keyed member to the symbol; a literal key (`['lit']() {}`) also fills c0.",
  "js_method_parameter":
    "A formal parameter. Only 0.165% carry a SYNTACTIC annotation and all of those are Flow, not\n"
    "// TypeScript; 36.4% carry a JSDoc one. So c4 declaredTypeSource is the column that matters\n"
@@ -66,7 +69,9 @@ DOCS = {
    "// declarationForm is IN THE KEY because `this.x = 1` in a constructor and `Foo.prototype.x`\n"
    "// at module level are two real declarations of one member. c12 accessorPairKind marks the\n"
    "// members where a property READ invokes a function — which is why GETTER_INVOCATION is a\n"
-   "// RESERVED call kind with a zero-row assertion and never emitted from syntax.",
+   "// RESERVED call kind with a zero-row assertion and never emitted from syntax. c23\n"
+   "// computedNameExpressionLinkHash sits AFTER the primary key (c22): the KEY expression of a\n"
+   "// field declared with a computed name (`[k] = v`, `{ [k]: v }`), empty otherwise.",
  "js_variable":
    "Every binding that is not a parameter or a member. c2 bindingRegime and the PAIR c3/c4 are\n"
    "// the hoisting model: c3 is where the name is VISIBLE FROM (function scope for var), c4 is\n"
@@ -223,10 +228,11 @@ def render(rels):
 //
 // COLUMN ORDER IS THE CONTRACT. All columns are `symbol`. New columns append ONLY.
 // The last column is the entity's own unique hash for every relation EXCEPT
-// js_expression, which has one column appended AFTER its hash (c32,
-// introducesDeclarationLinkHash) because the schema was already frozen and appending
+// js_expression, js_method and js_field, which have columns appended AFTER their hash
+// (js_expression c32 introducesDeclarationLinkHash and c33; js_method c36 and js_field c23
+// computedNameExpressionLinkHash) because the schema was already frozen and appending
 // is the only safe edit. So a check that locates a primary key BY POSITION is wrong
-// for js_expression and must locate it by name. Column NAMES live only in the schema
+// for those three and must locate it by name. Column NAMES live only in the schema
 // doc, so a rename is free after the freeze and a reorder is not.
 //
 // FIVE THINGS AN ENGINE AUTHOR MUST READ BEFORE JOINING ANYTHING:

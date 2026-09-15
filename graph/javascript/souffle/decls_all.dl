@@ -84,6 +84,7 @@
 .decl export_form_is_module_exports(c0:symbol)
 
 // ── projections/methods.dl ──
+.decl method_computed_key(c0:symbol, c1:symbol, c2:symbol)
 .decl method_decl(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol, c5:symbol, c6:symbol, c7:symbol)
 .decl method_scopes(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol)
 .decl method_lines(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol)

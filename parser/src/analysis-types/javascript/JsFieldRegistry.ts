@@ -34,7 +34,7 @@ import { EntityUtils } from '@/utils/entity-utils';
  * boundary the runtime enforces, the second is a naming convention.
  */
 export class JsFieldRegistry implements EntityIdentifiable {
-  static readonly ARITY = 23;
+  static readonly ARITY = 24;
 
   readonly name: string;
   readonly qualifiedName: string;
@@ -63,6 +63,8 @@ export class JsFieldRegistry implements EntityIdentifiable {
   private readonly isExternal = false;
   readonly serviceVersionLinkHash: string;
   private jsFieldUniqueHash = ABSENT;
+  /** FK->js_expression, the KEY of a field declared with a computed name (`[k] = v`, `{ [k]: v }`); appended after the primary key (#598). */
+  private computedNameExpressionLinkHash = '';
 
   constructor(props: {
     name: string;
@@ -108,6 +110,14 @@ export class JsFieldRegistry implements EntityIdentifiable {
 
   getHash(): string {
     return this.jsFieldUniqueHash;
+  }
+
+  setComputedNameExpressionLinkHash(hash: string): void {
+    this.computedNameExpressionLinkHash = hash;
+  }
+
+  getComputedNameExpressionLinkHash(): string {
+    return this.computedNameExpressionLinkHash;
   }
 
   setIsReadonly(value = true): void {
@@ -175,6 +185,7 @@ export class JsFieldRegistry implements EntityIdentifiable {
         bool(this.isExternal),
         this.serviceVersionLinkHash,
         this.jsFieldUniqueHash,
+        this.computedNameExpressionLinkHash,
       ],
       JsFieldRegistry.ARITY,
       'js_field'
@@ -207,6 +218,7 @@ export class JsFieldRegistry implements EntityIdentifiable {
         'isExternal',
         'serviceVersionLinkHash',
         'jsFieldUniqueHash',
+        'computedNameExpressionLinkHash',
       ],
       JsFieldRegistry.ARITY,
       'js_field'
