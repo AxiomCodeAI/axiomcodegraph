@@ -220,3 +220,16 @@ pair_index_value(cat("PAIR:", ce), "0", "str", n) :- expr_kind(_, "CALL", _, ce)
     call_arg(ce, 0, o), expr_value(o, k0, i0), prop_value(k0, i0, n, _, _).
 object_values_method("values").
 object_values_method("entries").
+// `Object.keys(o)`, `Object.getOwnPropertyNames(o)`: an array of property NAMES, and
+// a name is a string, the platform's (#685). `("ambient", "LITERAL")` is the value an
+// operator result already carries (#674), so `key.startsWith(...)` in a `for..of`, a
+// `forEach`/`map`/`filter`/`reduce` callback, a spread or `keys[i]` is an ambient
+// terminal where it was receiver_untyped. It is NOT a key name (key_name reads `str`
+// and `sym` only), so `obj[key] = v` over it writes nothing: no product, and the
+// property-wise copy of case 38 stays a separate refinement.
+expr_value(ce, "arr", ce) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", mn, _, _, _, ce, _, _), object_keys_method(mn),
+    expr_child(_, ce, "RECEIVER", _, recv), expr_value(recv, "ambient", "Object").
+elem_value(ce, "ambient", "LITERAL") :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", mn, _, _, _, ce, _, _), object_keys_method(mn),
+    expr_child(_, ce, "RECEIVER", _, recv), expr_value(recv, "ambient", "Object").
+object_keys_method("keys").
+object_keys_method("getOwnPropertyNames").
