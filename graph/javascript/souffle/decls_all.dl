@@ -167,6 +167,8 @@
 
 // ── resolution/reference-types.dl ──
 .decl type_ref_type(c0:symbol, c1:symbol)
+.decl type_ref_module(c0:symbol, c1:symbol)
+.decl type_ref_kind_names_import(c0:symbol)
 .decl type_ref_kind_is_wrapper(c0:symbol)
 .decl type_ref_unresolved(c0:symbol, c1:symbol)
 

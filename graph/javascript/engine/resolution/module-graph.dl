@@ -180,6 +180,16 @@ import_value(imp, k, i) :- import_decl(_, _, _, "DESTRUCTURED", n, _, _, _, imp)
 // type-reference rules.
 import_value(imp, k, i) :- import_decl(_, _, "JSDOC_IMPORT_TYPE", _, n, _, _, _, imp), n != "",
     import_module(imp, mod), module_export_value(mod, n, k, i).
+// A bare `import('./x')` with no qualifier (#631): `@typedef {import("../Module")} Module`,
+// the JSDoc-typed CommonJS idiom for "the class that file exports". Of a CommonJS module
+// it is `module.exports`, exactly as `require('./x')` is at runtime and as an ES default
+// import of one is (#596): the default export's value. Of any module it is also the
+// module value, the namespace object, whose properties are the export surface.
+import_value(imp, k, i) :- import_decl(_, _, "JSDOC_IMPORT_TYPE", "NO_LOCAL_BINDING", "", _, _, _, imp),
+    import_module(imp, mod), module_decl(_, _, _, _, "COMMONJS", mod),
+    module_export_value(mod, "default", k, i), k != "module".
+import_value(imp, "module", mod) :- import_decl(_, _, "JSDOC_IMPORT_TYPE", "NO_LOCAL_BINDING", "", _, _, _, imp),
+    import_module(imp, mod).
 
 // ── import_binding_unresolved(ImportHash, Name) — countable ─────────────────
 // The module was reached and exports no such name (or the name's value is not
