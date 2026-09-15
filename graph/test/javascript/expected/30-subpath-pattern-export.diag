@@ -1,0 +1,18 @@
+import_cause     app.js:3:9  kit  not_staged
+import_cause     app.js:4:9  kit/feat/alpha  not_staged
+import_cause     app.js:5:9  kit/feat/beta  not_staged
+import_cause     app.js:6:9  kit/mjs/gamma  not_staged
+import_cause     app.js:7:18  kit/internal/secret  not_staged
+import_cause     app.js:8:16  kit/feat/deep/none  not_staged
+import_cause     app.mjs:1:10  kit/mjs/gamma  not_staged
+import_cause     app.mjs:2:10  kit/feat/alpha  not_staged
+package_entry    case30-app  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       app.js:9:19  FUNCTION_CALL createApp  callee_untyped
+unresolved       app.js:9:19  METHOD_CALL start  receiver_untyped
+unresolved       app.js:9:40  FUNCTION_CALL alpha  callee_untyped
+unresolved       app.js:9:49  FUNCTION_CALL beta  callee_untyped
+unresolved       app.js:9:57  FUNCTION_CALL gamma  callee_untyped
+unresolved       app.js:9:66  METHOD_CALL secret  receiver_untyped
+unresolved       app.js:9:85  METHOD_CALL x  receiver_untyped
+unresolved       app.mjs:3:1  FUNCTION_CALL gamma  callee_untyped
+unresolved       app.mjs:3:10  FUNCTION_CALL alpha  callee_untyped
