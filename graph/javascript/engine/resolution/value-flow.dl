@@ -417,11 +417,46 @@ member_write(k, i, n, k2, i2) :- expr_kind(_, "ASSIGNMENT", _, a), expr_operator
     expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt), expr_kind(_, "PROPERTY_ACCESS", _, tgt), expr_name(_, n, tgt),
     expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, k, i), k != "ambient",
     expr_child(_, a, "ASSIGNMENT_VALUE", _, val), expr_value(val, k2, i2).
-member_write(k, i, n, k2, i2) :- expr_kind(_, "ASSIGNMENT", _, a), expr_operator(_, op, a), assignment_op_writes_value(op),
-    expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt), expr_kind(_, "ELEMENT_ACCESS", _, tgt),
-    expr_child(_, tgt, "COMPUTED_KEY", _, key), key_name(key, n),
+member_write(k, i, n, k2, i2) :- computed_key_write(a, tgt, key, val), !keyed_copy_write(a, _, _), !generic_setter_write(a),
+    key_name(key, n),
     expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, k, i), k != "ambient", k != "arr", k != "coll",
-    expr_child(_, a, "ASSIGNMENT_VALUE", _, val), expr_value(val, k2, i2).
+    expr_value(val, k2, i2).
+computed_key_write(a, tgt, key, val) :- expr_kind(_, "ASSIGNMENT", _, a), expr_operator(_, op, a), assignment_op_writes_value(op),
+    expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt), expr_kind(_, "ELEMENT_ACCESS", _, tgt),
+    expr_child(_, tgt, "COMPUTED_KEY", _, key), expr_child(_, a, "ASSIGNMENT_VALUE", _, val).
+// `object[name] = source[name]`, or `var func = source[name]; object[name] = func;`
+// (#676): the write's key and the read's key are the SAME binding, so the write is
+// a property-wise copy, one name at a time. The product rule above (every name the
+// key holds times every value the read holds) made lodash's `mixin(lodash, lodash)`
+// give every property the union of every property's values: 5.67M export rows for
+// ~300 names, a quadratic solve, and a wrong answer. All three conditions are
+// syntactic (the children, the binding columns, the initializer), so the exclusion
+// stratifies below the flow fixpoint.
+keyed_copy_write(a, key, src) :- computed_key_write(a, _, key, val), keyed_read(val, src, key2), same_key_binding(key, key2).
+keyed_read(e, src, key) :- expr_kind(_, "ELEMENT_ACCESS", _, e), expr_child(_, e, "ACCESS_TARGET", _, src), expr_child(_, e, "COMPUTED_KEY", _, key).
+keyed_read(e, src, key) :- expr_kind(_, "IDENTIFIER", _, e), expr_binding(_, v, e), var_init(_, _, init, v), keyed_read(init, src, key).
+same_key_binding(k1, k2) :- expr_param(_, p, k1), expr_param(_, p, k2).
+same_key_binding(k1, k2) :- expr_binding(_, v, k1), expr_binding(_, v, k2).
+// `function baseAssignValue(object, key, value) { object[key] = value; }`: a write whose
+// target AND key are both parameters of the enclosing function is a generic setter,
+// the one helper every copy in a library goes through. Context-insensitively its
+// parameters hold every object, every name and every value that any caller passes,
+// and the write is their product: on lodash seven such sites (this one, `_hashSet`,
+// their copies in the minified bundle) each wrote 96 names x 530 values onto 535
+// objects, 27M rows apiece, every property of the lodash object ended up holding
+// 19K values, and the sites reached through them were fan_capped noise. REFUSED and
+// declared (member_write_refused), exactly as a hot function's parameters are: what
+// a generic setter stores is not knowledge without the caller's context. A
+// correlated copy (`object[key] = source[key]`, above) is not refused: it is exact.
+// A write whose target is a module-level registry or a member of `this` keeps its
+// model, because those are the registry and the store patterns the engine is for.
+generic_setter_write(a) :- computed_key_write(a, tgt, key, _), expr_child(_, tgt, "ACCESS_TARGET", _, r),
+    expr_param(_, _, r), expr_param(_, _, key), !keyed_copy_write(a, _, _).
+member_write_refused(a, "generic_setter") :- generic_setter_write(a).
+member_write(k, i, n, k2, i2) :- keyed_copy_write(a, key, src), computed_key_write(a, tgt, key, _),
+    key_name(key, n),
+    expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, k, i), k != "ambient", k != "arr", k != "coll",
+    expr_value(src, k0, i0), prop_value(k0, i0, n, k2, i2).
 // `Object.assign` and its library cousins: resolution/frameworks.dl.
 
 // ── literal_owns_method(LiteralExpr, MethodHash) — PD-JS-1 workaround ───────
