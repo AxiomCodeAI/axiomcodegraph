@@ -1,0 +1,49 @@
+main.js:18:20 METHOD_CALL greet  EXACT  main.js:14:3
+main.js:18:20 METHOD_CALL toUpperCase  LIB_AMBIENT_OK  
+main.js:19:18 METHOD_CALL count  EXACT  main.js:15:3
+main.js:19:18 METHOD_CALL toFixed  LIB_AMBIENT_OK  
+main.js:20:19 METHOD_CALL join  LIB_AMBIENT_OK  
+main.js:20:19 METHOD_CALL list  EXACT  main.js:16:3
+main.js:21:19 METHOD_CALL trim  LIB_AMBIENT_OK  
+main.js:21:22 METHOD_CALL greet  EXACT  main.js:14:3
+main.js:22:27 METHOD_CALL trim  LIB_AMBIENT_OK  
+main.js:22:34 METHOD_CALL load  EXACT  main.js:17:3
+main.js:23:21 CONSTRUCTOR_CALL Promise  LIB_AMBIENT_OK  
+main.js:23:60 METHOD_CALL count  EXACT  main.js:15:3
+main.js:23:74 FUNCTION_CALL resolve  LIB_AMBIENT_OK  
+main.js:23:91 FUNCTION_CALL reject  LIB_AMBIENT_OK  
+main.js:23:98 CONSTRUCTOR_CALL Error  LIB_AMBIENT_OK  
+main.js:26:13 CONSTRUCTOR_CALL Greeter  SYNTHESIZED_OK  
+main.js:27:14 METHOD_CALL pad  EXACT  main.js:19:3
+main.js:27:23 METHOD_CALL join  EXACT  main.js:20:3
+main.js:27:3 METHOD_CALL shout  EXACT  main.js:18:3
+main.js:27:33 METHOD_CALL tmpl  EXACT  main.js:21:3
+main.js:27:43 METHOD_CALL loaded  EXACT  main.js:22:3
+main.js:27:55 METHOD_CALL settle  EXACT  main.js:23:3
+main.js:28:25 FUNCTION_CALL count  EXACT  main.js:3:1
+main.js:28:25 METHOD_CALL toFixed  LIB_AMBIENT_OK  
+main.js:28:3 FUNCTION_CALL name  EXACT  main.js:2:1
+main.js:28:3 METHOD_CALL toUpperCase  LIB_AMBIENT_OK  
+main.js:28:45 FUNCTION_CALL flag  EXACT  main.js:4:1
+main.js:28:45 METHOD_CALL toString  LIB_AMBIENT_OK  
+main.js:28:64 FUNCTION_CALL combined  EXACT  main.js:5:1
+main.js:28:64 METHOD_CALL trim  LIB_AMBIENT_OK  
+main.js:29:3 FUNCTION_CALL viaConcat  EXACT  main.js:6:1
+main.js:29:3 METHOD_CALL split  LIB_AMBIENT_OK  
+main.js:29:35 FUNCTION_CALL viaArith  EXACT  main.js:7:1
+main.js:29:35 METHOD_CALL toFixed  LIB_AMBIENT_OK  
+main.js:29:62 FUNCTION_CALL viaCompare  EXACT  main.js:8:1
+main.js:29:62 METHOD_CALL toString  LIB_AMBIENT_OK  
+main.js:30:3 FUNCTION_CALL viaTypeof  EXACT  main.js:9:1
+main.js:30:3 METHOD_CALL toUpperCase  LIB_AMBIENT_OK  
+main.js:30:31 FUNCTION_CALL viaNegate  EXACT  main.js:10:1
+main.js:30:31 METHOD_CALL valueOf  LIB_AMBIENT_OK  
+main.js:30:55 FUNCTION_CALL viaMinus  EXACT  main.js:11:1
+main.js:30:55 METHOD_CALL toFixed  LIB_AMBIENT_OK  
+main.js:31:26 METHOD_CALL toFixed  LIB_AMBIENT_OK  
+main.js:31:27 FUNCTION_CALL count  EXACT  main.js:3:1
+main.js:31:3 METHOD_CALL trim  LIB_AMBIENT_OK  
+main.js:31:4 FUNCTION_CALL name  EXACT  main.js:2:1
+main.js:32:3 FUNCTION_CALL stays  EXACT  main.js:12:1
+main.js:34:1 FUNCTION_CALL main  EXACT  main.js:25:1
+# defects: 0
