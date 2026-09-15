@@ -143,9 +143,17 @@ array_method_iterates("flatMap").
 // (`for (const [, fn] of pairs)`, `for (const { run } of plugins)`) binds each name
 // to its path walked from the element, exactly as a `const` pattern walks it from
 // its initializer (value-flow.dl's path_value); a plain binding holds the element.
+// A `for (const k in o)` head is rooted under ITERABLE too, and its binding is a
+// KEY, never an element (#685): a string, the platform's, whatever `o` holds. The
+// FOR_IN block row's condition link names the iterated expression, which is how
+// the two loop forms are told apart.
 loop_binding_element(v, k, i) :- var_decl(_, _, reg, _, _, mod, v), var_regime_is_block(reg), !var_init(_, _, _, v),
     var_lines(_, mod, l, v), expr_root(_, "ITERABLE", e), expr_owner(_, _, mod, e), expr_span(_, l, _, _, _, e),
-    iterable_element(e, k, i).
+    !for_in_iterable(e), iterable_element(e, k, i).
+loop_binding_element(v, "ambient", "LITERAL") :- var_decl(_, _, reg, _, _, mod, v), var_regime_is_block(reg), !var_init(_, _, _, v),
+    var_lines(_, mod, l, v), expr_root(_, "ITERABLE", e), expr_owner(_, _, mod, e), expr_span(_, l, _, _, _, e),
+    for_in_iterable(e).
+for_in_iterable(e) :- block_condition(_, "FOR_IN", e, _).
 var_value(v, k, i) :- loop_binding_element(v, k, i), !var_binding_path(_, _, v).
 var_value(v, k2, i2) :- loop_binding_element(v, k, i), var_binding_path(_, path, v), path_value(k, i, path, k2, i2).
 path_source(k, i) :- loop_binding_element(_, k, i).

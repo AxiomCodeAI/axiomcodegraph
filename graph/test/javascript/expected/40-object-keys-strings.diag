@@ -1,0 +1,22 @@
+package_entry    40-object-keys-strings  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       main.js:10:32  METHOD_CALL push  no_target
+unresolved       main.js:10:41  METHOD_CALL split  no_target
+unresolved       main.js:10:9  METHOD_CALL startsWith  no_target
+unresolved       main.js:15:17  METHOD_CALL filter  no_target
+unresolved       main.js:15:17  METHOD_CALL getOwnPropertyNames  no_target
+unresolved       main.js:15:81  METHOD_CALL indexOf  no_target
+unresolved       main.js:16:17  METHOD_CALL trim  no_target
+unresolved       main.js:17:3  METHOD_CALL forEach  no_target
+unresolved       main.js:17:3  METHOD_CALL keys  no_target
+unresolved       main.js:17:46  METHOD_CALL concat  no_target
+unresolved       main.js:17:59  METHOD_CALL toUpperCase  no_target
+unresolved       main.js:18:10  METHOD_CALL keys  no_target
+unresolved       main.js:18:10  METHOD_CALL reduce  no_target
+unresolved       main.js:21:19  METHOD_CALL keys  no_target
+unresolved       main.js:22:10  METHOD_CALL map  no_target
+unresolved       main.js:22:40  METHOD_CALL padEnd  no_target
+unresolved       main.js:26:32  METHOD_CALL push  no_target
+unresolved       main.js:26:42  METHOD_CALL toLowerCase  no_target
+unresolved       main.js:34:26  METHOD_CALL padStart  no_target
+unresolved       main.js:35:34  COMPUTED_CALL   dynamic
+unresolved       main.js:9:21  METHOD_CALL keys  no_target
