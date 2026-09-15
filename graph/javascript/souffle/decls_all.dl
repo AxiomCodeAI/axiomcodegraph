@@ -122,6 +122,9 @@
 // ── projections/scopes.dl ──
 .decl scope_decl(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol, c5:symbol)
 .decl scope_lines(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol)
+.decl block_condition(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
+.decl for_in_iterable(c0:symbol)
+.decl object_keys_method(c0:symbol)
 
 // ── projections/type-references.dl ──
 .decl type_ref(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol, c5:symbol, c6:symbol, c7:symbol, c8:symbol, c9:symbol, c10:symbol)
