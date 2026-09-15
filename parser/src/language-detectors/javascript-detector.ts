@@ -18,14 +18,22 @@ import { isJavaScriptSourceFile } from '@/utils/javascript';
  * file, claims TypeScript repositories and their facts land under the wrong
  * language.
  *
- * Two rules prevent that:
+ * The rule that prevents that: **a manifest alone is not enough.** JavaScript
+ * source must actually be present in the directory itself. `package.json` is
+ * the manifest of *both* languages and of plenty of repositories that contain
+ * neither.
  *
- * 1. **A `tsconfig.json` disqualifies the directory outright.** It DEFINES a
- *    TypeScript program, which is a stronger claim than any JavaScript manifest
- *    can make, and `TypeScriptDetector` runs first for the same reason.
- * 2. **A `package.json` alone is not enough.** JavaScript source must actually
- *    be present. `package.json` is the manifest of *both* languages and of
- *    plenty of repositories that contain neither.
+ * A `tsconfig.json` used to disqualify the directory outright, on the ground
+ * that it DEFINES a TypeScript program. Since a directory can be several
+ * projects at once (#566), that exclusion cost real code: a JavaScript
+ * repository typechecked through a root `tsconfig.json` with `allowJs` (the
+ * standard JSDoc setup) lost every loose `.js` file of that directory, because
+ * the TypeScript analyzer emits nothing for `.js` program members and no
+ * descendant JavaScript project covers the directory's own files. Those files
+ * were exactly the package entry points, and they left no skip row (#595). The
+ * TypeScript claim still stands beside this one; the JavaScript claim only adds
+ * the `.js` files, which the TypeScript analyzer never emits, so nothing is
+ * extracted twice.
  *
  * ## `isProject` is SHALLOW and `hasSourceFiles` is deep
  *
@@ -45,17 +53,6 @@ export class JavaScriptDetector implements LanguageDetector {
   readonly language = ProjectLanguage.JAVASCRIPT;
   readonly MAX_DEPTH = 5;
 
-  /**
-   * A config that claims the directory for TypeScript.
-   *
-   * `jsconfig.json` is deliberately NOT here: it is the JavaScript spelling of
-   * the same file and is a positive signal, not a disqualifying one.
-   */
-  private static readonly TYPESCRIPT_MANIFESTS = [
-    'tsconfig.json',
-    'tsconfig.base.json',
-  ];
-
   /** Files that mark a JavaScript project, given that source is also present. */
   private static readonly MANIFESTS = [
     'package.json',
@@ -67,9 +64,6 @@ export class JavaScriptDetector implements LanguageDetector {
   async isProject(projectPath: string): Promise<boolean> {
     try {
       const files = await fs.readdir(projectPath);
-      if (JavaScriptDetector.TYPESCRIPT_MANIFESTS.some((m) => files.includes(m))) {
-        return false;
-      }
       if (!JavaScriptDetector.MANIFESTS.some((m) => files.includes(m))) {
         // No manifest at all: a loose directory of scripts is still a project,
         // and 15.4% of measured files have no `package.json` anywhere above
