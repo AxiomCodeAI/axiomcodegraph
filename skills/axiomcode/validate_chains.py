@@ -90,7 +90,8 @@ for case in sorted(os.listdir(os.path.join(T, 'cases'))):
             if not hit: misses.append(f"{tier} {csel} -> {tsel}: not on the class card's initializer line")
             ok += hit; miss += (not hit); continue
         if tsel is None:                                                            # an expected blind spot must show as UNRESOLVED, not as an edge
-            pat = rf"UNRESOLVED.*\bL{ln}\b" if ln else r"UNRESOLVED \(unknown"
+            blk = 'UNRESOLVED' if tier.startswith('ambiguous') else 'terminal'     # a JS/TS terminal tier is a correct end, shown on its own line
+            pat = rf"{blk}.*\bL{ln}\b" if ln else rf"{blk}"
             hit = any(re.search(pat, c) for c in cards(csel))
             if not hit: misses.append(f"{tier} {csel}" + (f" @L{ln}" if ln else '') + " -> - : not shown as UNRESOLVED")
         elif tier == 'boundary_lib':                                                # a library target is a name on the `library:` line, not a client row
