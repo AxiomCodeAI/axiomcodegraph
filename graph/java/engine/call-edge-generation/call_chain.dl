@@ -17,6 +17,8 @@
 //
 // CONFIDENCE CLASSES (call_class):
 //   known_edge        — exactly ONE resolved target (concrete / monomorphic). Chain continues.
+//   fan_capped        — the CHA fan exceeded --dispatch-cap and was refused; the row names the
+//                       declared base, dispatch_capped_site the count. Not monomorphic (#664).
 //   multi_inferred    — 2+ resolved targets (virtual-dispatch / overload fan-out). Chain branches
 //                       across a SOUND set (the true target is among them).
 //   ambiguous_unknown — a real call site that resolved to NOTHING (unresolved receiver, missing
@@ -88,9 +90,22 @@ call_from(call, t) :- invocation_site(call, _), !named_method_call(call),
 // method it overrides, which the boundary row beside it names. multi_inferred is the class
 // that says "the true target is among these", and that is the claim being made.
 site_leaves_client(call) :- external_target(call, _).
-call_class(call, "known_edge")        :- call_target_count(call, 1), !site_leaves_client(call).
-call_class(call, "multi_inferred")    :- call_target_count(call, 1), site_leaves_client(call).
-call_class(call, "multi_inferred")    :- call_target_count(call, n), n >= 2.
+// A site whose CHA fan the dispatch cap REFUSED (resolution/dispatch-cap.dl) keeps the declared
+// base as its one candidate. That is not a resolution: the truth is "one of N overrides, not
+// enumerated", and calling it known_edge told a consumer the site was monomorphic while a
+// reverse closure from any override found no caller (#664). Such a site is `fan_capped`, the
+// tier JavaScript and Python already use: the edge row names the declared base so the site's
+// declared target stays in the graph, the tier says the fan was refused, and
+// dispatch_capped_site carries the count. The conditions are exactly the ones under which the
+// fan would have applied: not an exactly typed receiver, not a super call, a wide base.
+call_fan_capped(call) :- invocation_site(call, _), expr_call_candidate(call, base), cha_wide_base(base),
+    !call_exact_receiver(call), !call_super_receiver(call).
+dispatch_capped_site(call, base, n) :- call_fan_capped(call), expr_call_candidate(call, base),
+    cha_wide_base(base), cha_override_count(base, n).
+call_class(call, "fan_capped")        :- call_fan_capped(call).
+call_class(call, "known_edge")        :- call_target_count(call, 1), !site_leaves_client(call), !call_fan_capped(call).
+call_class(call, "multi_inferred")    :- call_target_count(call, 1), site_leaves_client(call), !call_fan_capped(call).
+call_class(call, "multi_inferred")    :- call_target_count(call, n), n >= 2, !call_fan_capped(call).
 // zero targets — split by REASON: a KNOWN structural gap (anonymous-class creation, which has
 // no candidate rule yet) vs a GENUINE mystery (unresolved receiver / missing type / reflection).
 // Each call site has exactly one invocation kind, so these two rules are disjoint (no negation).
@@ -108,6 +123,8 @@ call_class(call, "boundary_lib")      :- call_target_count(call, 0), site_leaves
 // so change-impact/queries can flag the methods that contain analysis blind spots. ─────────
 method_has_unknown_call(caller, call) :- call_class(call, "ambiguous_unknown"),
     call_from(call, caller).
+method_has_unknown_call(caller, call) :- call_class(call, "fan_capped"),
+    call_from(call, caller).
 
 // ============================================================================
 // MERGED CALL-CHAIN EDGE — one self-describing row per edge (the single export).
@@ -118,7 +135,7 @@ method_has_unknown_call(caller, call) :- call_class(call, "ambiguous_unknown"),
 //                reserved for expression-level linkage)
 //     ToMethod   the resolved callee method  ("-" when unresolved)
 //     Prov       "client" | "lib"
-//     EdgeStatus known_edge | multi_inferred | boundary_lib | ambiguous_unknown | ambiguous_anon
+//     EdgeStatus known_edge | multi_inferred | fan_capped | boundary_lib | ambiguous_unknown | ambiguous_anon
 //     Kind       method | new | ref | ctor_delegate | anon_new
 // Every invocation site appears exactly once per (resolved callee); unresolved sites appear once
 // with ToMethod = "-" so the CSV alone shows where each chain ends. Replaces the split
