@@ -71,6 +71,7 @@ the previous engine.
 | 24 | the `@import` JSDoc tag (TypeScript 5.5+): a default, a named, a renamed and a namespace binding, each read through a `@param`, beside the older `@typedef {import(…)}` as the control (#621) |
 | 26 | a class extending a platform builtin (#619): a lazy registry reading `super.get`, a constructor seeding through `super(entries)`, `super.forEach` / `super.values` on `Map` and `Set` subclasses, `this.set` / `this.get` inside the subclass, an instance iterated and `forEach`ed from outside, an `Error` subclass, the plain `Map` control |
 | 27 | parse gaps (#617): a computed `require`, a missing and a builtin specifier, a file parsed with errors, a JSDoc type the parser cannot read beside a readable and an absent one, `eval` and `with`; pinned in the diagnostics golden |
+| 29 | a qualifier-less `import("./x")` JSDoc type (#631): `@typedef {import("./Module")} Module` of a CommonJS class module, the inline `@param {import("./Module")}` form, a module that exports through `exports.x =` (the type is the namespace object), an ES module and its `.Widget` member, beside the `.default` control |
 
 ## Environment
 

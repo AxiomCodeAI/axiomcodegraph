@@ -47,6 +47,27 @@ type_ref_kind_is_wrapper("OPTIONAL").
 type_ref_kind_is_wrapper("UNION").
 type_ref_kind_is_wrapper("TYPE_QUERY").
 
+// ── type_ref_module(RefHash, ModuleHash): a type that names a MODULE (#631) ──
+// `@typedef {import("./surface")} Surface` of a file that exports through
+// `exports.x =`, or `import("./esm.mjs")` of an ES module: the type is the namespace
+// object, and a value declared with it holds the module, whose properties are the
+// export surface. The same hops as type_ref_type: the import row, a typedef alias, a
+// wrapper.
+type_ref_module(r, mod) :- type_ref(_, _, k, _, _, _, _, _, imp, _, r), imp != "", type_ref_kind_names_import(k),
+    import_value(imp, "module", mod).
+type_ref_kind_names_import("NAMED").
+type_ref_kind_names_import("IMPORT_TYPE").
+type_ref_module(r, mod) :- type_ref(_, n, "NAMED", _, _, _, _, _, "", m, r),
+    type_only_decl(_, n, "JSDOC_TYPEDEF", m, td),
+    type_ref(_, _, _, "", "TYPEDEF", "TYPE", td, _, _, _, c), c != r,
+    type_ref_module(c, mod).
+type_ref_module(r, mod) :- type_ref(_, _, k, _, _, _, _, _, _, _, r), type_ref_kind_is_wrapper(k),
+    type_ref(_, _, _, r, _, _, _, _, _, _, c), type_ref_module(c, mod).
+param_value(p, "module", mod) :- param_type_name(_, _, r, p), type_ref_module(r, mod).
+var_value(v, "module", mod) :- var_type_name(_, _, r, v), type_ref_module(r, mod).
+return_value(m, "module", mod) :- method_return_type(_, _, r, m), type_ref_module(r, mod).
+prop_value("inst", t, n, "module", mod) :- field_type_name(_, n, t, _, r, _), type_ref_module(r, mod).
+
 // ── type_ref_unresolved(RefHash, TypeName) — countable ──────────────────────
 // A NAMED reference that reached no class: a typedef (type-only by design), a
 // builtin, or a dependency not staged. The fastest read on what is missing.
