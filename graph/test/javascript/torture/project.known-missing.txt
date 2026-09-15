@@ -2,9 +2,8 @@
 # (function ids as file:line:col). A new missing edge fails run.sh; a listed one that
 # starts resolving fails too, so this list cannot rot.
 
-# PD-JS-5: a default INSIDE a destructured parameter (`{ mapper = twice } = {}`) has no
-# link to the name it initialises.
-lib/functional.js:17:1 lib/functional.js:7:1
+# (PD-JS-5, `withDefault -> twice` through the `{ mapper = twice } = {}` default, was listed
+# here until #673 linked the default to the binding.)
 
 # A Proxy `get` trap manufactures the callee at runtime; nothing static names it.
 lib/registry.js:10:1 lib/registry.js:9:38
