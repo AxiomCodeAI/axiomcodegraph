@@ -41,4 +41,15 @@ export enum SkippedFileReason {
    * run that still reports success.
    */
   EXTRACTION_ERROR = 'EXTRACTION_ERROR',
+
+  /**
+   * A TypeScript file under a root that declares programs (a `tsconfig.json`), which
+   * no program claims and no claimed file imports.
+   *
+   * A root config that delegates to references, or one whose `include` leaves a
+   * directory out, is saying those files are not part of any program it knows.
+   * Before this reason existed the file was simply absent from every relation, and
+   * a consumer could not tell an unparsed file from an empty one (#660).
+   */
+  NO_PROGRAM_CLAIMS_FILE = 'NO_PROGRAM_CLAIMS_FILE',
 }
