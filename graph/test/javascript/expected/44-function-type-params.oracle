@@ -1,0 +1,14 @@
+main.js:16:13 CONSTRUCTOR_CALL Optimization  EXACT  main.js:13:3
+main.js:16:35 METHOD_CALL hasTimestamps  EXACT  main.js:3:18
+main.js:16:64 METHOD_CALL render  EXACT  main.js:4:16
+main.js:20:19 METHOD_CALL render  EXACT  main.js:4:16
+main.js:30:15 METHOD_CALL render  EXACT  main.js:4:16
+main.js:31:21 METHOD_CALL hasTimestamps  EXACT  main.js:3:18
+main.js:48:39 METHOD_CALL render  EXACT  main.js:4:16
+main.js:48:56 METHOD_CALL identifier  EXACT  main.js:5:16
+main.js:48:77 METHOD_CALL create  EXACT  main.js:6:17
+main.js:49:32 METHOD_CALL identifier  EXACT  main.js:5:16
+main.js:52:30 METHOD_CALL hasTimestamps  EXACT  main.js:3:18
+main.js:64:1 FUNCTION_CALL walk  EXACT  main.js:63:1
+main.js:64:11 METHOD_CALL render  EXACT  main.js:4:16
+# defects: 0
