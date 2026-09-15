@@ -25,7 +25,7 @@
  *   targetFile targetLine targetCol targetName targetKind
  *   overloadCount chosenIndex enclLine enclCol enclName
  *
- * targetKind: implementation | bodiless | synthesized | any | type_ambiguous | global_expando | unresolved | oracle_error
+ * targetKind: implementation | bodiless | synthesized | any | type_ambiguous | global_expando | jsdoc_extends | unresolved | oracle_error
  *   `bodiless` covers a `.d.ts` declaration (the standard library) — a correct END.
  *   `synthesized` is an implicit constructor: the compiler resolved and there is no
  *   declaration to point at.
@@ -46,6 +46,12 @@
  *   into a program-wide declaration although the file may never load. Which one runs
  *   depends on load order, which the compiler cannot see: undecided, counted apart, and
  *   execution is the adjudicator (#644).
+ *   `jsdoc_extends`: the site is `super(...)`, `super.m()` or `this.m()` inside a class
+ *   whose `@extends` / `@augments` tag names a class OTHER than its syntactic `extends`
+ *   clause. Under checkJs the checker takes the base type from the tag
+ *   (getEffectiveBaseTypeNode), so it names the tagged class's constructor or member;
+ *   what runs is the clause's. The tag is documentation, the clause is the program:
+ *   undecided, counted apart (#656).
  *
  * `require(...)` is NOT a site, by the parser's ruling (it is a module edge), so it is
  * skipped here too; the site universes must agree or nothing downstream joins.
@@ -151,6 +157,28 @@ function stripParens(e) {
  * accepted; nor is a union property with declarations at more than one function; nor
  * an element access whose key is a widened `symbol`.
  */
+// A `super(...)`, `super.m()` or `this.m()` site inside a class whose `@extends` /
+// `@augments` tag names a class other than its syntactic `extends` clause (#656). The
+// checker types the base from the tag; runtime uses the clause.
+function jsdocExtendsDisagrees(node) {
+  const callee = stripParens(calleeOf(node));
+  if (!callee) return false;
+  const root = ts.isPropertyAccessExpression(callee) || ts.isElementAccessExpression(callee)
+    ? stripParens(callee.expression) : callee;
+  if (!root || (root.kind !== ts.SyntaxKind.SuperKeyword && root.kind !== ts.SyntaxKind.ThisKeyword)) return false;
+  let cls = node.parent;
+  while (cls && !ts.isClassLike(cls)) {
+    // an ordinary function rebinds `this`; an arrow, a method or an accessor does not
+    if (ts.isFunctionDeclaration(cls) || ts.isFunctionExpression(cls)) return false;
+    cls = cls.parent;
+  }
+  if (!cls) return false;
+  const clause = ts.getClassExtendsHeritageElement(cls);
+  const tags = ts.getAllJSDocTags(cls, ts.isJSDocAugmentsTag);
+  if (!clause || tags.length === 0) return false;
+  const written = stripParens(clause.expression).getText(cls.getSourceFile()).replace(/\s+/g, '');
+  return tags.some((t) => t.class.expression.getText(cls.getSourceFile()).replace(/\s+/g, '') !== written);
+}
 function isDecidedByValue(node, decl) {
   const kind = callKindOf(node);
   // `.call` / `.apply` / `.bind`: the member itself first (a user-defined `apply` on the
@@ -439,6 +467,8 @@ for (const sf of program.getSourceFiles()) {
           else targetKind = 'synthesized';
         } else if (decl && !isBodiless(decl) && isPlatformGlobalExpando(node)) {
           targetKind = 'global_expando';
+        } else if (decl && !isBodiless(decl) && jsdocExtendsDisagrees(node)) {
+          targetKind = 'jsdoc_extends';
         } else if (decl && !isBodiless(decl) && !isDecidedByValue(node, decl)) {
           targetKind = 'type_ambiguous';
         } else if (decl) {
