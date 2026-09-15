@@ -1,0 +1,13 @@
+boundary_lib	method	testcases.engine.Use#hash(QuietAppendable) -> external:java.lang.Object.hashCode
+boundary_lib	method	testcases.engine.Use#render(QuietAppendable) -> external:java.lang.Object.toString
+boundary_lib	method	testcases.engine.Use#same(QuietAppendable,Object) -> external:java.lang.Object.equals
+known_edge	method	testcases.engine.Use#exact() -> testcases.engine.StringBuilderAppendable#toString()
+known_edge	method	testcases.engine.Use#main(String[]) -> testcases.engine.Use#exact()
+known_edge	method	testcases.engine.Use#main(String[]) -> testcases.engine.Use#hash(QuietAppendable)
+known_edge	method	testcases.engine.Use#main(String[]) -> testcases.engine.Use#render(QuietAppendable)
+known_edge	method	testcases.engine.Use#main(String[]) -> testcases.engine.Use#same(QuietAppendable,Object)
+known_edge	new	testcases.engine.Use#exact() -> testcases.engine.StringBuilderAppendable#<init>()
+known_edge	new	testcases.engine.Use#main(String[]) -> testcases.engine.NullAppendable#<init>()
+known_edge	new	testcases.engine.Use#main(String[]) -> testcases.engine.StringBuilderAppendable#<init>()
+multi_inferred	method	testcases.engine.Use#render(QuietAppendable) -> testcases.engine.StringBuilderAppendable#toString()
+multi_inferred	method	testcases.engine.Use#same(QuietAppendable,Object) -> testcases.engine.StringBuilderAppendable#equals(Object)
