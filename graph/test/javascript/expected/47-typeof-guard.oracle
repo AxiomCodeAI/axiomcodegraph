@@ -1,0 +1,14 @@
+main.js:12:13 METHOD_CALL split  LIB_AMBIENT_OK  
+main.js:16:61 METHOD_CALL toFixed  LIB_AMBIENT_OK  
+main.js:18:36 METHOD_CALL map  LIB_AMBIENT_OK  
+main.js:18:7 METHOD_CALL isArray  LIB_AMBIENT_OK  
+main.js:19:10 METHOD_CALL isArray  LIB_AMBIENT_OK  
+main.js:19:31 METHOD_CALL slice  LIB_AMBIENT_OK  
+main.js:24:39 METHOD_CALL trim  LIB_AMBIENT_OK  
+main.js:31:18 FUNCTION_CALL viaPolymorphic  EXACT  main.js:23:1
+main.js:31:33 CONSTRUCTOR_CALL Query  SYNTHESIZED_OK  
+main.js:31:47 FUNCTION_CALL viaNegated  EXACT  main.js:27:1
+main.js:31:58 CONSTRUCTOR_CALL Query  SYNTHESIZED_OK  
+main.js:6:63 METHOD_CALL split  LIB_AMBIENT_OK  
+main.js:8:69 METHOD_CALL startsWith  LIB_AMBIENT_OK  
+# defects: 0
