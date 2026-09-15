@@ -585,10 +585,56 @@ def impact_field(r):
     tests = {f for f, _, _ in certain + byname if re.search(r'(^|/)(tests?|test-data|__tests__)(/|$)|\.(spec|test)\.|Tests?\.java$|/src/test/', f or '')}
     if tests: say("  tests that touch it: " + ', '.join(sorted(tests)[:8]) + (' …' if len(tests) > 8 else ''))
 
-def impact_type(r):
+def methods_of_type(tid):
+    return [x['method_id'] for x in q("SELECT method_id FROM symbols WHERE method_id IS NOT NULL AND owner=(SELECT display FROM symbols WHERE type_id=? LIMIT 1)", tid)]
+def endpoints(sel):
+    """a selector for a path endpoint: a method → itself; a type → every method it declares; returns (label, [method ids])"""
+    rows, how = resolve(sel, None, None)
+    ms = [r for r in rows if r['method_id']]
+    if ms: return (ms[0]['display'] if len(ms) == 1 else f"{sel} ({len(ms)} overloads)"), [r['method_id'] for r in ms[:12]]
+    ts = [r for r in rows if r['type_id']]
+    if ts: return f"{ts[0]['display']} (any of its {len(methods_of_type(ts[0]['type_id']))} methods)", methods_of_type(ts[0]['type_id'])
+    return None, []
+def show_chain(ch):
+    return ' → '.join((symof(c)['display'] if symof(c) else c) + ('' if i == 0 or t == 'known_edge' else ' [dispatch]') for i, (c, t) in enumerate(ch))
+def path_between(src_sel, dst_sel):
+    """impact <A> to=<B> where either side may be a TYPE: shortest known_edge-preferring path from any source method to any
+    target method; one line per distinct (source, target) pair, shortest first"""
+    sl, S = endpoints(src_sel); dl, D = endpoints(dst_sel)
+    if not S: say(f"  from={src_sel}: " + ("that type declares no methods (a data interface / type alias) — a path starts at code" if sl else "no such function or type")); return
+    if not D: say(f"  to={dst_sel}: " + ("that type declares no methods (a data interface / type alias) — a path ends at code" if dl else "no such function or type")); return
+    dn = edges_down(); found = []
+    for a in S:
+        fw = reach([a], dn, 10**6)
+        for b in D:
+            if b in fw and b != a:
+                ch = best_path(a, b, dn, True)
+                if ch: found.append((len(ch) - 1, ch))
+    if found:
+        found.sort(key=lambda x: x[0]); shown = 0
+        say(f"  paths {sl} → {dl}: {len(found)} found, shortest first  ([dispatch] = a hop that is one member of a dispatch set)")
+        for n_, ch in found[:6]: say(f"    {n_} hop(s): " + show_chain(ch))
+        if len(found) > 6: say(f"    … +{len(found) - 6} more")
+        return
+    back = []
+    for b in D:
+        fw = reach([b], dn, 10**6)
+        for a in S:
+            if a in fw and a != b:
+                ch = best_path(b, a, dn, True)
+                if ch: back.append((len(ch) - 1, ch))
+    if back:
+        back.sort(key=lambda x: x[0]); say(f"  no path {sl} → {dl}; the other direction exists:")
+        for n_, ch in back[:4]: say(f"    {n_} hop(s): " + show_chain(ch))
+        return
+    unres = sum(1 for a in S for i in reach([a], dn, 10**6) if unresolved_in(i))
+    say(f"  no resolved path in either direction between {sl} and {dl}; {unres} method(s) reachable from the source contain unresolved calls — the path may exist through one of those")
+
+def impact_type(r, to=None):
     """a class / interface / type: where it is used in declarations, who constructs it, who calls its methods, what extends it"""
     say(f"{r['kind']} {r['display']}   {loc(r)}")
     tid = r['type_id']
+    if to: path_between(r['display'], to); return
     sub = q("SELECT s.display, s.file, s.line, s.end_line, s.kind, s.is_test FROM type_ancestors a JOIN symbols s ON s.type_id=a.type_id WHERE a.ancestor_type_id=? ORDER BY s.is_test, s.file", tid)
     if sub: say(f"  subtypes / implementations ({len(sub)}) — a contract change lands on each: " + ', '.join(f"{x['display']} ({x['file']}:{x['line']})" for x in sub[:10]) + (' …' if len(sub) > 10 else ''))
     mem = q("SELECT display, kind, name, line, method_id FROM symbols WHERE owner=? ORDER BY line", r['display'])
@@ -658,21 +704,7 @@ def impact_method(r, to):
     if unres: say(f"  {unres} of the transitive methods contain unresolved calls — something reachable only through those is missing")
     if has('entry_points') and q("SELECT count(*) n FROM entry_points")[0]['n']:
         say("  entry reachable: " + ("yes" if q("SELECT 1 FROM entry_reachable WHERE method_id=?", m) else "NO — dead from every known entry, or reachable only through an unresolved call"))
-    if to:
-        B = [b for b in resolve(to, None, None)[0] if b['method_id']]
-        if not B: say(f"  to={to}: no such function")
-        else:
-            dn = edges_down(); fw = reach([m], dn, 10**6)
-            hit = [b for b in B if b['method_id'] in fw]; rhit = [b for b in B if b not in hit and b['method_id'] in seen]
-            def show_chain(chain):   # a hop through a dispatch fan is marked: it is one of a set, not a certainty
-                return ' → '.join((symof(c)['display'] if symof(c) else c) + ('' if i == 0 or t == 'known_edge' else ' [dispatch]') for i, (c, t) in enumerate(chain))
-            for b in hit:
-                chain = best_path(m, b['method_id'], dn, True)
-                say(f"  path {r['display']} → {b['display']}: {len(chain)-1} hop(s): " + show_chain(chain) + ("   (every hop known_edge)" if all(t == 'known_edge' for _, t in chain[1:]) else "   ([dispatch] = a hop that is one member of a dispatch set)"))
-            for b in rhit:
-                chain = best_path(b['method_id'], m, dn, True)
-                say(f"  {b['display']} reaches {r['display']} in {len(chain)-1} hop(s): " + show_chain(chain))
-            if not hit and not rhit: say(f"  no resolved path between {r['display']} and {', '.join(b['display'] for b in B)}; {sum(1 for i in fw if unresolved_in(i))} method(s) it can reach contain unresolved calls — the path may exist through one of those")
+    if to: path_between(r['display'], to)
 
 def v_impact():
     """what a change touches, as the sets an agent must act on — for a method, a field/constant, or a type"""
@@ -693,7 +725,7 @@ def v_impact():
     GROUP.clear()
     for r in nodes:
         if r['method_id']: impact_method(r, to)
-        elif r['type_id']: impact_type(r)
+        elif r['type_id']: impact_type(r, to)
         else: impact_field(r)
         say()
 
