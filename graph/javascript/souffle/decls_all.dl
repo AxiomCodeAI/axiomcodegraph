@@ -269,6 +269,7 @@
 .decl array_method_adds_args(c0:symbol)
 .decl array_method_returns_element(c0:symbol)
 .decl array_method_iterates(c0:symbol)
+.decl array_method_reduces(c0:symbol)
 .decl type_ref_is_array(c0:symbol)
 .decl type_ref_array_child(c0:symbol, c1:symbol)
 .decl var_regime_is_block(c0:symbol)

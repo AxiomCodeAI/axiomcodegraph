@@ -122,8 +122,25 @@ array_method_returns_element("at").
 // `some`, `every`, `flatMap`, `findIndex`); `reduce`'s second parameter is.
 param_value(p, k, i) :- array_method_call(ce, n, a), array_method_iterates(n), call_arg(ce, 0, f),
     expr_value(f, "func", m), param_decl(_, _, "0", m, p), elem_value(a, k, i).
-param_value(p, k, i) :- array_method_call(ce, "reduce", a), call_arg(ce, 0, f),
+param_value(p, k, i) :- array_method_call(ce, n, a), array_method_reduces(n), call_arg(ce, 0, f),
     expr_value(f, "func", m), param_decl(_, _, "1", m, p), elem_value(a, k, i).
+// `reduce`'s ACCUMULATOR (the callback's first parameter) holds the initial value
+// and whatever the callback returns, and the reduce call evaluates to the same two
+// (#699): `keys.reduce((vals, key) => vals.concat(x), [])` reads the literal's
+// `concat`, `hooks.reduce((s, h) => s.add(h), new Set())` the Set's `add`. Without
+// an initial value the accumulator starts as an element.
+param_value(p, k, i) :- array_method_call(ce, n, _), array_method_reduces(n), call_arg(ce, 0, f),
+    expr_value(f, "func", m), param_decl(_, _, "0", m, p), call_arg(ce, 1, init), expr_value(init, k, i).
+param_value(p, k, i) :- array_method_call(ce, n, _), array_method_reduces(n), call_arg(ce, 0, f),
+    expr_value(f, "func", m), param_decl(_, _, "0", m, p), return_value(m, k, i).
+param_value(p, k, i) :- array_method_call(ce, n, a), array_method_reduces(n), call_arg(ce, 0, f),
+    expr_value(f, "func", m), param_decl(_, _, "0", m, p), !call_arg(ce, 1, _), elem_value(a, k, i).
+expr_value(ce, k, i) :- array_method_call(ce, n, _), array_method_reduces(n), call_arg(ce, 1, init), expr_value(init, k, i).
+expr_value(ce, k, i) :- array_method_call(ce, n, _), array_method_reduces(n), call_arg(ce, 0, f),
+    expr_value(f, "func", m), return_value(m, k, i).
+expr_value(ce, k, i) :- array_method_call(ce, n, a), array_method_reduces(n), !call_arg(ce, 1, _), elem_value(a, k, i).
+array_method_reduces("reduce").
+array_method_reduces("reduceRight").
 // `sort(cmp)` hands the comparator two elements.
 param_value(p, k, i) :- array_method_call(ce, "sort", a), call_arg(ce, 0, f),
     expr_value(f, "func", m), param_decl(_, _, "1", m, p), elem_value(a, k, i).
