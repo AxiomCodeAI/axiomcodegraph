@@ -147,12 +147,13 @@ array_method_iterates("flatMap").
 // KEY, never an element (#685): a string, the platform's, whatever `o` holds. The
 // FOR_IN block row's condition link names the iterated expression, which is how
 // the two loop forms are told apart.
-loop_binding_element(v, k, i) :- var_decl(_, _, reg, _, _, mod, v), var_regime_is_block(reg), !var_init(_, _, _, v),
-    var_lines(_, mod, l, v), expr_root(_, "ITERABLE", e), expr_owner(_, _, mod, e), expr_span(_, l, _, _, _, e),
-    !for_in_iterable(e), iterable_element(e, k, i).
-loop_binding_element(v, "ambient", "LITERAL") :- var_decl(_, _, reg, _, _, mod, v), var_regime_is_block(reg), !var_init(_, _, _, v),
-    var_lines(_, mod, l, v), expr_root(_, "ITERABLE", e), expr_owner(_, _, mod, e), expr_span(_, l, _, _, _, e),
-    for_in_iterable(e).
+// loop_head(Binding, Iterable) is the syntactic half, materialised once: the
+// element join below sits inside the value fixpoint, and joining the binding to
+// its head by line on every iteration was 35 s of a 120 s webpack solve.
+loop_head(v, e) :- var_decl(_, _, reg, _, _, mod, v), var_regime_is_block(reg), !var_init(_, _, _, v),
+    var_lines(_, mod, l, v), expr_root(_, "ITERABLE", e), expr_owner(_, _, mod, e), expr_span(_, l, _, _, _, e).
+loop_binding_element(v, k, i) :- loop_head(v, e), !for_in_iterable(e), iterable_element(e, k, i).
+loop_binding_element(v, "ambient", "LITERAL") :- loop_head(v, e), for_in_iterable(e).
 for_in_iterable(e) :- block_condition(_, "FOR_IN", e, _).
 var_value(v, k, i) :- loop_binding_element(v, k, i), !var_binding_path(_, _, v).
 var_value(v, k2, i2) :- loop_binding_element(v, k, i), var_binding_path(_, path, v), path_value(k, i, path, k2, i2).

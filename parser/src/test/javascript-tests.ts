@@ -1031,8 +1031,14 @@ const SCAFFOLD: ReadonlyArray<readonly [string, string]> = [
     'function inline(opts) { return opts.router; }',
     '/** @param {State} s */',
     'function typed(s) { return s.module; }',
+    '/** @param {function(Router, string=): boolean} keep */',           // #691: param:0, param:1, return
+    'function closure(keep) { return keep; }',
+    '/** @param {(a, r: Router) => void} visit */',                     // an untyped first parameter has no row; r is still param:1
+    'function arrow(visit) { return visit; }',
+    '/** @param {function(Router)} onlyParam */',                        // one parameter, no return
+    'function bare(onlyParam) { return onlyParam; }',
     "const Router = require('./router');",
-    'module.exports = { inline, typed };',
+    'module.exports = { inline, typed, closure, arrow, bare };',
     '',
   ].join('\n')],
   // A package declaring every entry shape (#616): `exports` as a subpath map with
@@ -6271,6 +6277,9 @@ function objectTypeMembersCarryTheirNames(): number {
     // typeName, memberName, parent kind
     ['Router', 'module', 'OBJECT_TYPE'], ['string', 'source', 'OBJECT_TYPE'], ['number', 'opts.depth', 'OBJECT_TYPE'],
     ['Router', 'router', 'OBJECT_TYPE'], ['Array', 'tags', 'OBJECT_TYPE'],
+    // A function type's children say which parameter, and which is the return (#691).
+    ['Router', 'param:0', 'FUNCTION_TYPE'], ['', 'param:1', 'FUNCTION_TYPE'], ['boolean', 'return', 'FUNCTION_TYPE'],
+    ['Router', 'param:1', 'FUNCTION_TYPE'], ['void', 'return', 'FUNCTION_TYPE'],
   ];
   for (const [typeName, memberName, parentKind] of expected) {
     const row = mine.find((r) => r[col('typeName')] === typeName && r[col('memberName')] === memberName);
@@ -6279,14 +6288,22 @@ function objectTypeMembersCarryTheirNames(): number {
       failures += fail(`no ${typeName} child named ${JSON.stringify(memberName)} under an ${parentKind} node`);
     }
   }
+  // `function(Router)` has one child, and it is param:0, not the return.
+  const bare = mine.filter((r) => r[col('memberName')] === 'param:0' && r[col('typeName')] === 'Router');
+  if (bare.length !== 2) {
+    failures += fail(`${bare.length} Router children labelled param:0, expected 2 (the closure's and the bare function type's)`);
+  }
   const named = mine.filter((r) => (r[col('memberName')] ?? '') !== '');
-  if (named.length !== expected.length) {
-    failures += fail(`${named.length} rows carry a memberName, expected ${expected.length}: only an object type's members do`);
+  if (named.length !== expected.length + 1) {
+    failures += fail(`${named.length} rows carry a memberName, expected ${expected.length + 1}: only an object type's members and a function type's parameters and return do`);
   }
   for (const r of named) {
     const parent = byKey.get(r[col('parentReferenceLinkHash')] ?? '');
-    if (parent?.[col('referenceKind')] !== 'OBJECT_TYPE') {
-      failures += fail(`${r[col('typeName')]} carries memberName ${r[col('memberName')]} under a ${parent?.[col('referenceKind')]} parent`);
+    const kind = parent?.[col('referenceKind')];
+    const label = r[col('memberName')] ?? '';
+    const isFunctionLabel = label === 'return' || label.startsWith('param:');
+    if (kind !== (isFunctionLabel ? 'FUNCTION_TYPE' : 'OBJECT_TYPE')) {
+      failures += fail(`${r[col('typeName')]} carries memberName ${label} under a ${kind} parent`);
     }
   }
   // The frozen order holds: the key is still c22 and the new column sits after it.

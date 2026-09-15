@@ -129,6 +129,7 @@
 .decl scope_lines(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol)
 .decl block_condition(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
 .decl for_in_iterable(c0:symbol)
+.decl loop_head(c0:symbol, c1:symbol)
 .decl object_keys_method(c0:symbol)
 
 // ── projections/type-references.dl ──
@@ -186,6 +187,20 @@
 
 // ── resolution/reference-types.dl ──
 .decl type_ref_type(c0:symbol, c1:symbol)
+.decl type_ref_lines(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
+.decl fn_type_param(c0:symbol, c1:symbol, c2:symbol)
+.decl type_ref_fn(c0:symbol, c1:symbol, c2:symbol)
+.decl template_pos(c0:symbol, c1:symbol, c2:number)
+.decl template_binding(c0:symbol, c1:symbol, c2:symbol)
+.decl declared_value(c0:symbol, c1:symbol, c2:symbol)
+.decl func_declared_fn(c0:symbol, c1:symbol, c2:symbol)
+.decl literal_declared(c0:symbol, c1:symbol, c2:symbol)
+.decl type_ref_is_app(c0:symbol)
+.decl literal_prop(c0:symbol, c1:symbol, c2:symbol)
+.decl literal_member_type(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
+.decl member_context(c0:symbol, c1:symbol, c2:symbol)
+.decl type_ref_record(c0:symbol, c1:symbol)
+.decl typedef_category(c0:symbol)
 .decl type_ref_module(c0:symbol, c1:symbol)
 .decl type_ref_shape(c0:symbol, c1:symbol)
 .decl type_ref_names(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol)

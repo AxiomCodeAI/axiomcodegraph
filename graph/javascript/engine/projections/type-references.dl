@@ -36,3 +36,8 @@ type_ref_child_index(p, h, idx) :- lib_js_type_reference(_, _, p, _, idx, _, _, 
 // Column 23, appended after the key; "" on every other node.
 type_ref_member("client", n, h) :- js_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, n), n != "".
 type_ref_member("lib", n, h) :- lib_js_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, n), n != "".
+
+// ── type_ref_lines(Prov, Line, Col, RefHash) ────────────────────────────────
+// The position of a node: the only order a typedef's `@template` tags have (#691).
+type_ref_lines("client", l, c, h) :- js_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, l, c, _, _, h, _).
+type_ref_lines("lib", l, c, h) :- lib_js_type_reference(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, l, c, _, _, h, _).
