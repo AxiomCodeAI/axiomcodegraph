@@ -1,0 +1,9 @@
+lazy-set.js:1:45 CONSTRUCTOR_CALL Set  LIB_AMBIENT_OK  
+main.js:18:33 METHOD_CALL addReason  EXACT  main.js:6:15
+main.js:23:79 METHOD_CALL addReason  EXACT  main.js:6:15
+main.js:23:95 METHOD_CALL render  EXACT  main.js:4:16
+main.js:25:38 CONSTRUCTOR_CALL Widget  SYNTHESIZED_OK  
+main.js:26:38 METHOD_CALL render  EXACT  main.js:4:16
+main.js:26:45 FUNCTION_CALL viaPromise  EXACT  main.js:25:1
+main.js:5:50 CONSTRUCTOR_CALL Graph  SYNTHESIZED_OK  
+# defects: 0
