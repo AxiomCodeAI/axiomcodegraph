@@ -1,0 +1,6 @@
+{ "name": "kit", "version": "1.0.0",
+  "exports": { ".": { "node": { "require": "./src/index.js" }, "default": "./src/index.js" },
+               "./feat/*": "./lib/feat/*.js",
+               "./feat/beta": "./lib/feat/beta-exact.js",
+               "./internal/*": null,
+               "./mjs/*": { "import": "./lib/feat/*.mjs", "require": "./lib/feat/*.js" } } }
