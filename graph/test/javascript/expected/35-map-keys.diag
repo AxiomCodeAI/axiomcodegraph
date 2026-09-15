@@ -16,4 +16,6 @@ unresolved       main.js:28:18  CONSTRUCTOR_CALL Map  no_target
 unresolved       main.js:29:19  METHOD_CALL keys  no_target
 unresolved       main.js:30:15  CONSTRUCTOR_CALL Set  no_target
 unresolved       main.js:31:19  METHOD_CALL keys  no_target
+unresolved       main.js:36:31  CONSTRUCTOR_CALL Set  no_target
+unresolved       main.js:39:32  METHOD_CALL forEach  member_absent
 unresolved       main.js:8:16  CONSTRUCTOR_CALL Map  no_target

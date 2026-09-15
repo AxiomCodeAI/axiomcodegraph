@@ -31,3 +31,11 @@ function plain() {
   for (const k of set.keys()) { k.identifier(); }
 }
 module.exports = { Results, param, setParam, plain };
+// A generic platform iterable in a declared type: read as an array of its argument.
+/** @returns {Iterable<Module>} */
+function modulesOf() { return new Set([new Module()]); }
+function viaIterable() { for (const m of modulesOf()) { m.identifier(); } }
+/** @param {ReadonlyArray<Chunk>} chunks */
+function viaReadonly(chunks) { chunks.forEach((c) => c.id()); }
+module.exports.viaIterable = viaIterable;
+module.exports.viaReadonly = viaReadonly;

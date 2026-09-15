@@ -69,7 +69,16 @@ param_value(p, "arr", r) :- param_type_name(_, _, r, p), type_ref_is_array(r).
 return_value(m, "arr", r) :- method_return_type(_, _, r, m), type_ref_is_array(r).
 prop_value("inst", t, n, "arr", r) :- field_type_name(_, n, t, _, r, _), type_ref_is_array(r).
 type_ref_is_array(r) :- type_ref(_, _, "ARRAY", _, _, _, _, _, _, _, r).
-type_ref_is_array(r) :- type_ref(_, "Array", "GENERIC_APPLICATION", _, _, _, _, _, _, _, r).
+type_ref_is_array(r) :- type_ref(_, n, "GENERIC_APPLICATION", _, _, _, _, _, _, _, r), ambient_array_generic(n).
+// The generic platform types whose ONE argument is what iterating them yields (#659):
+// `@returns {Iterable<Module>}` is read the way `Module[]` is.
+ambient_array_generic("Array").
+ambient_array_generic("ReadonlyArray").
+ambient_array_generic("Iterable").
+ambient_array_generic("IterableIterator").
+ambient_array_generic("Generator").
+ambient_array_generic("AsyncIterable").
+ambient_array_generic("AsyncGenerator").
 // Through a wrapper (`?T[]`, `T[] | undefined`) the array is the child.
 type_ref_array_child(r, a) :- type_ref(_, _, k, _, _, _, _, _, _, _, r), type_ref_kind_is_wrapper(k),
     type_ref(_, _, _, r, _, _, _, _, _, _, a), type_ref_is_array(a).
