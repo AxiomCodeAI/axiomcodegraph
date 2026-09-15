@@ -201,14 +201,34 @@ export class JavaTreeSitterUtils {
         c.type === 'type_identifier' || c.type === 'scoped_type_identifier'
       );
       if (!nameNode) return null;
-      // Return the full text of the name node (including dots for scoped types)
-      return nameNode.text;
+      // Return the full name (including dots for scoped types)
+      return JavaTreeSitterUtils.scopedTypeName(nameNode);
     }
     if (actualType.type === 'scoped_type_identifier') {
       // Return the full scoped name (e.g., "KeyRangeIterator.Builder")
-      return actualType.text;
+      return JavaTreeSitterUtils.scopedTypeName(actualType);
     }
     return actualType.text;
+  }
+
+  /**
+   * The dotted name of a (possibly scoped) type identifier with any type annotation between the
+   * segments left out: `Connection.@Nullable Response` is `Connection.Response`.
+   *
+   * A JLS type annotation on a nested type sits AFTER the qualifier's dot, so tree-sitter keeps
+   * it as a child of the scoped_type_identifier, between the segments. The node's raw text then
+   * carries the annotation into completeTypeName, and the qualified-name walk that resolves
+   * `Connection.Response` never sees a name it can match.
+   */
+  static scopedTypeName(node: Parser.SyntaxNode): string {
+    if (node.type !== 'scoped_type_identifier') return node.text;
+    const segments: string[] = [];
+    for (const child of node.children) {
+      if (child.type === 'scoped_type_identifier' || child.type === 'type_identifier') {
+        segments.push(JavaTreeSitterUtils.scopedTypeName(child));
+      }
+    }
+    return segments.length > 0 ? segments.join('.') : node.text;
   }
 
   /**

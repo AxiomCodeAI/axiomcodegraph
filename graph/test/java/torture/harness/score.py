@@ -42,8 +42,9 @@ def fam(caller):
 
 
 def ancestors_of(ir, out):
-    """(sub -> {ancestors}) by flattened name, from the engine's own type_ancestor export. Flattened
-    the way normalize_edges names a type, so both sides of every comparison agree."""
+    """(sub -> {ancestors}) by qualifiedName, from the engine's own type_ancestor export. The IR's
+    qualifiedName is the name normalize_edges gives a type (`pkg.Outer.Inner`, `pkg.Outer$anon:Sup`),
+    so both sides of every comparison agree."""
     import csv
     csv.field_size_limit(10**9)   # an IR literalValue can be a base64 asset; see test/tools/csv-limit-test.sh
     name = {}
@@ -59,8 +60,7 @@ def ancestors_of(ir, out):
             i, j = h.index('typeRegistryUniqueHash'), h.index('qualifiedName')
             for x in r:
                 if len(x) > max(i, j):
-                    q = x[j]; pkg = q[:q.rindex('.')] if '.' in q else ''
-                    name[x[i]] = (pkg + '.' if pkg else '') + q.split('.')[-1].split('$')[-1]
+                    name[x[i]] = x[j]
     anc = collections.defaultdict(set)
     p = os.path.join(out, 'resolution-type-ancestor.csv')
     if os.path.exists(p):

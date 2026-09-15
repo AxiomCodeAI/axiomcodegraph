@@ -16,5 +16,5 @@
 # The sibling shapes in the same case DO resolve, which is what makes this a bounded gap rather
 # than "lambdas do not work": viaClientSam (a client-declared functional interface) and viaForLoop
 # (the same call in a plain loop) both produce the edge.
-Lam#viaForEach -> Item#validate(String)
-Lam#viaParamList -> Item#validate(String)
+Lam#viaForEach -> Lam.Item#validate(String)
+Lam#viaParamList -> Lam.Item#validate(String)

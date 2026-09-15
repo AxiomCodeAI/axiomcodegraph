@@ -178,8 +178,10 @@ cfg_name_type(n, "lib", t) :- cfg_name_demand(n),
     lib_type(_, n, _, _, _, _, _, _, _, _, _, _, _, t).
 
 // (b) NESTED type written with the binary `$` separator (com.x.Outer$Inner), which
-// is what a config file must use for a nested class. The IR flattens a nested
-// type's qualifiedName to package + simple name, so match on that instead.
+// is what a config file must use for a nested class. The client IR names it by its
+// dotted chain (com.x.Outer.Inner) and an older library IR by package + simple name;
+// matching on the simple name after the last `$` serves both, at the cost of naming
+// every same-named nested type when two exist.
 cfg_dollar(n, i) :- cfg_name_demand(n), contains("$", n),
     i = range(0, strlen(n)), substr(n, i, 1) = "$".
 cfg_dollar_last(n, m) :- cfg_dollar(n, _), m = max i : cfg_dollar(n, i).
