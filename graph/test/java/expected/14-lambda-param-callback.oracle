@@ -1,4 +1,4 @@
 oracle=8 engine=5 agree=5 missing=3 (known 3, NEW 0) extra=0
-  known-missing  LambdaParamCallback#viaMapValues -> Item#validate(String)
-  known-missing  LambdaParamCallback#viaStream -> Item#validate(String)
-  known-missing  LambdaParamCallback#viaTypedList -> Item#validate(String)
+  known-missing  LambdaParamCallback#viaMapValues -> LambdaParamCallback.Item#validate(String)
+  known-missing  LambdaParamCallback#viaStream -> LambdaParamCallback.Item#validate(String)
+  known-missing  LambdaParamCallback#viaTypedList -> LambdaParamCallback.Item#validate(String)

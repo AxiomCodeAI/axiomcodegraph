@@ -1,0 +1,3 @@
+# providers for the Codec service
+probe.Plugins$UpperCodec
+probe.Plugins$ReverseCodec
