@@ -42,7 +42,8 @@ if not argv or argv[0] in ('-h', '--help', 'help'): print(__doc__.strip()); sys.
 if not os.path.exists(DB): print(f"no graph at {DB} — run axiomcode-build . first"); sys.exit(2)
 con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
 def q(sql, *p): return con.execute(sql, p).fetchall()
-if not q("SELECT 1 FROM sqlite_master WHERE name='symbols' AND type='table'"):
+INDEX_TABLES = ('symbols', 'refs', 'literals', 'comments', 'nesting', 'type_refs', 'skipped', 'index_meta')   # an older index lacks the newer ones: rebuild it
+if any(not q("SELECT 1 FROM sqlite_master WHERE name=? AND type='table'", t) for t in INDEX_TABLES):
     r = subprocess.run([sys.executable, os.path.join(HERE, 'axiomcode-index')], env=dict(os.environ, AXIOMCODE_GRAPH=GDIR), capture_output=True, text=True)
     if r.returncode: print(r.stdout + r.stderr); sys.exit(2)
     con = sqlite3.connect(DB); con.row_factory = sqlite3.Row
@@ -171,6 +172,43 @@ def selector():
     if opt.get('type') or opt.get('method'):
         return '.'.join(x for x in (opt.get('type'), opt.get('method')) if x)
     return ' '.join(pos)
+def entry_reasons(mid):
+    """why the runtime invokes this method without a client call site (Java: web_servlet, bean_ctor, lifecycle_init, http, …)"""
+    return [r['reason'] for r in q("SELECT reason FROM entry_points WHERE method_id=?", mid)] if has('entry_points') else []
+def config_of_method(mid):
+    """config keys bound to this method (a setter/param the container injects) and keys whose change reaches it"""
+    out = []
+    if has('ext_config_binding'):
+        out += [f"key `{r['c0']}` ({r['c1']}) is injected into this {r['c2']}" for r in q("SELECT c0, c1, c2 FROM ext_config_binding WHERE c3=?", mid)]
+    if has('ext_config_affects_method'):
+        out += [f"changing key `{r['c0']}` reaches it ({r['c2']})" for r in q("SELECT c0, c2 FROM ext_config_affects_method WHERE c1=? AND c0 NOT IN (SELECT c0 FROM ext_config_binding WHERE c3=?)", mid, mid)]
+    return out
+def beans_of_type(tid):
+    """how the container knows this type: bean definitions (xml / stereotype / factory) and config class references"""
+    out = []
+    if has('ext_bean_def'): out += [f"bean `{r['c0']}` ({r['c2']})" for r in q("SELECT c0, c2 FROM ext_bean_def WHERE c1=?", tid)]
+    if has('ext_config_class_ref'): out += [f"named in {r['c0']} config as `{r['c2']}`" for r in q("SELECT c0, c2 FROM ext_config_class_ref WHERE c3=? LIMIT 5", tid)]
+    return out
+def config_key_impact(key):
+    """impact <config.key>: the methods a config key reaches (bindings, then the closure the engine computed) and the placeholder chain"""
+    if not has('ext_config_affects_method'): return False
+    rows = q("SELECT c0 AS key, c1 AS mid, c2 AS how FROM ext_config_affects_method WHERE c0=? OR c0 LIKE ?", key, f"%{key}%")
+    if not rows and has('ext_config_key_ref'):
+        rows = q("SELECT a.c0 AS key, a.c1 AS mid, a.c2 AS how FROM ext_config_key_ref k JOIN ext_config_affects_method a ON a.c0=k.c0 WHERE k.c1=?", key)
+    if not rows: return False
+    keys = sorted({r['key'] for r in rows})
+    say(f"impact of changing config key `{key}`" + (f" (matched keys: {', '.join(keys[:6])})" if keys != [key] else ''))
+    if has('ext_config_key_ref'):
+        chain = q("SELECT c0, c1, c2 FROM ext_config_key_ref WHERE c1=? OR c0=?", key, key)
+        for c in chain: say(f"  placeholder: `{c['c0']}` = …${{{c['c1']}{(':' + c['c2']) if c['c2'] else ''}}}…")
+    seen = collections.OrderedDict()
+    for r in rows:
+        s_ = symof(r['mid'])
+        if s_: seen.setdefault(s_['display'], (s_, r['how'], r['key']))
+    say(f"  methods it reaches ({len(seen)}):")
+    for d, (s_, how, k) in list(seen.items())[:30]: row(f"    {d}   {loc(s_)}   {how}" + (f"  via `{k}`" if k != key else ''))
+    return True
+
 def skipped_note(name):
     hits = q("SELECT file, reason FROM skipped WHERE file LIKE ? LIMIT 3", f"%{name}%")
     for h in hits: say(f"  note: {h['file']} exists but was not indexed in this {LANG} graph ({h['reason'] or 'skipped'})")
@@ -274,6 +312,8 @@ def node_card(r):
         who = q("""SELECT cr.display AS caller, count(*) AS n FROM call_edges e JOIN methods me ON me.id=e.callee_method_id JOIN symbols cr ON cr.id=e.caller_id
                    WHERE me.owner_type_id=? AND e.callee_provenance='client' AND cr.type_id IS NULL GROUP BY cr.id ORDER BY n DESC LIMIT 8""", r['type_id'])
         if who: say("  used by: " + ', '.join(f"{w['caller']} ({w['n']})" for w in who))
+        b = beans_of_type(r['type_id'])
+        if b: say("  ⚙ container: " + '; '.join(b))
         # Java: a call written in a field initializer or a static block has the TYPE as its caller
         init = q("SELECT callee, written, line, tier FROM callees WHERE caller_id=? ORDER BY line", r['type_id'])
         if init:
@@ -293,9 +333,10 @@ def node_card(r):
     say(f"  ← called by ({len(up)} sites, {len(byc)} callers):")
     for c, es in list(byc.items())[:12]: row(f"      {c}   {es[0]['file']}:{','.join(str(e['line']) for e in es[:12])}{' …+%d' % (len(es)-12) if len(es) > 12 else ''}   {es[0]['tier']}")
     if len(byc) > 12: say(f"      … +{len(byc)-12} (axiomcode impact {r['display']} depth=1)")
-    if not up:
-        ep = q("SELECT reason FROM entry_points WHERE method_id=?", m) if has('entry_points') else []
-        say("      none resolved" + (" — ENTRY POINT: " + ', '.join(x['reason'] for x in ep) if ep else (" (a lower bound: the graph has unresolved sites)" if q("SELECT 1 FROM unresolved_sites LIMIT 1") else '')))
+    ep = entry_reasons(m)
+    if ep: say(f"      ENTRY POINT — invoked by the runtime/container: {', '.join(ep)}" + (f"; type is {', '.join(beans_of_type(r['owner_tid']) if 'owner_tid' in r.keys() else [])}" if False else ''))
+    if not up: say("      none resolved" + ("" if ep else (" (a lower bound: the graph has unresolved sites)" if q("SELECT 1 FROM unresolved_sites LIMIT 1") else '')))
+    for line_ in config_of_method(m): say(f"  ⚙ config: {line_}")
     dn = q(f"SELECT callee, written, file, line, tier, callee_id FROM callees WHERE caller_id IN ({ph}) ORDER BY line", *ids)
     res = [e for e in dn if e['callee_id']]; lib = [e for e in dn if not e['callee_id'] and e['callee']]
     # a NULL callee is a blind spot only for ambiguous_*; the other NULL-callee tiers (JavaScript/TypeScript: ambient_terminal,
@@ -514,6 +555,8 @@ def impact_type(r):
             if e: encl[e['display']] += 1
         if encl: say("    inside methods: " + ', '.join(f"{d} ({n})" for d, n in encl.most_common(12)) + (' …' if len(encl) > 12 else ''))
     elif META.get('ir_present') == 'true': say("  no type reference by that name (only calls and subtypes above)")
+    b = beans_of_type(tid)
+    if b: say("  ⚙ container: " + '; '.join(b) + " — a signature change here lands in the config that names it")
     inst = q("SELECT count(*) n FROM type_instantiated WHERE type_id=?", tid)[0]['n']
     say(f"  instantiated: {'yes' if inst else 'no — never constructed in this run (dispatch to it cannot happen)'}")
 
@@ -521,6 +564,9 @@ def impact_method(r, to):
     m = r['method_id']; up = edges_up()
     say(f"impact of changing {r['display']}" + (f" {r['signature']}" if r['signature'] and LANG == 'java' else '') + f"   {loc(r)}")
     u = q("SELECT s.start_line, s.callee_name, s.kind FROM unresolved_sites u LEFT JOIN call_sites s ON s.id = u.call_site_id WHERE u.caller_id = ? ORDER BY 1", m)
+    ep = entry_reasons(m)
+    if ep: say(f"  ENTRY POINT — the runtime/container invokes it without a client call site: {', '.join(ep)}")
+    for line_ in config_of_method(m): say(f"  ⚙ config: {line_}")
     # 1. must change if the SIGNATURE changes: every direct caller, by site
     direct = q("SELECT caller, file, line, tier FROM callers WHERE callee_id=? ORDER BY file, line", m)
     byc = collections.OrderedDict()
@@ -575,6 +621,7 @@ def v_impact():
     if not sel: say("usage: axiomcode impact <method | Owner.field | Type> [to=<name>] [in=<path>] [limit=N]"); return
     rows, how = resolve(sel, None, IN)
     nodes = [r for r in rows if r['method_id'] or r['type_id'] or r['kind'] in ('field', 'const', 'variable', 'enum_member')]
+    if not nodes and config_key_impact(sel.strip('"\'')): return                       # `impact mail.endpoint`: a configuration key
     if not nodes:
         say(f"nothing named '{sel}' in the {LANG} graph"); skipped_note(sel.split('.')[-1])
         if rows: say(f"  nearest ({how}):"); [row(fmt(r)) for r in rows[:8]]
