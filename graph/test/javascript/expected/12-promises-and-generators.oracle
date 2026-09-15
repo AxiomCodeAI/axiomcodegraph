@@ -76,7 +76,6 @@ lib/async.js:46:3 METHOD_CALL forEach  LIB_AMBIENT_OK
 lib/async.js:46:3 METHOD_CALL keys  LIB_AMBIENT_OK  
 lib/async.js:46:38 METHOD_CALL entries  LIB_AMBIENT_OK  
 lib/async.js:46:38 METHOD_CALL forEach  LIB_AMBIENT_OK  
-lib/async.js:46:84 FUNCTION_CALL v  EXACT  lib/async.js:38:1
 lib/async.js:47:3 CONSTRUCTOR_CALL Map  LIB_AMBIENT_OK  
 lib/async.js:47:3 METHOD_CALL forEach  LIB_AMBIENT_OK  
 lib/async.js:47:36 CONSTRUCTOR_CALL Set  LIB_AMBIENT_OK  
