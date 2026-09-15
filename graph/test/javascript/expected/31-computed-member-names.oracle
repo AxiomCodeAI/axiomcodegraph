@@ -1,0 +1,9 @@
+main.js:13:13 CONSTRUCTOR_CALL Queue  SYNTHESIZED_OK  
+main.js:14:12 METHOD_CALL tpl  EXACT  main.js:5:3
+main.js:14:21 COMPUTED_CALL   EXACT  main.js:7:3
+main.js:14:3 METHOD_CALL lit  EXACT  main.js:6:3
+main.js:14:37 METHOD_CALL named  EXACT  main.js:9:15
+main.js:15:3 METHOD_CALL olit  EXACT  main.js:11:37
+main.js:17:1 FUNCTION_CALL main  EXACT  main.js:12:1
+main.js:2:14 FUNCTION_CALL Symbol  LIB_AMBIENT_OK  
+# defects: 0

@@ -183,7 +183,8 @@
     "modifiers",
     "isExternal",
     "serviceVersionLinkHash",
-    "jsMethodUniqueHash"
+    "jsMethodUniqueHash",
+    "computedNameExpressionLinkHash"
    ],
    "domains": {
     "methodKind": [
@@ -293,7 +294,8 @@
     "ownerModuleLinkHash",
     "isExternal",
     "serviceVersionLinkHash",
-    "jsFieldUniqueHash"
+    "jsFieldUniqueHash",
+    "computedNameExpressionLinkHash"
    ],
    "domains": {
     "declarationForm": [

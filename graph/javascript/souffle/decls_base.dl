@@ -11,10 +11,11 @@
 //
 // COLUMN ORDER IS THE CONTRACT. All columns are `symbol`. New columns append ONLY.
 // The last column is the entity's own unique hash for every relation EXCEPT
-// js_expression, which has one column appended AFTER its hash (c32,
-// introducesDeclarationLinkHash) because the schema was already frozen and appending
+// js_expression, js_method and js_field, which have columns appended AFTER their hash
+// (js_expression c32 introducesDeclarationLinkHash and c33; js_method c36 and js_field c23
+// computedNameExpressionLinkHash) because the schema was already frozen and appending
 // is the only safe edit. So a check that locates a primary key BY POSITION is wrong
-// for js_expression and must locate it by name. Column NAMES live only in the schema
+// for those three and must locate it by name. Column NAMES live only in the schema
 // doc, so a rename is free after the freeze and a reorder is not.
 //
 // FIVE THINGS AN ENGINE AUTHOR MUST READ BEFORE JOINING ANYTHING:
@@ -95,10 +96,13 @@
 // 521 measured), which is a declaration and an expression at once; c27 ties it back. c10
 // hoisting separates function declarations (hoisted) from function expressions (not), same
 // syntax category, different behaviour. c17 thisBinding is LEXICAL for arrows: `this` is
-// rebound by CALL FORM, 33,189 references measured.
-// (36 columns)
-.decl js_method(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol,c29:symbol,c30:symbol,c31:symbol,c32:symbol,c33:symbol,c34:symbol,c35:symbol)
-.decl lib_js_method(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol,c29:symbol,c30:symbol,c31:symbol,c32:symbol,c33:symbol,c34:symbol,c35:symbol)
+// rebound by CALL FORM, 33,189 references measured. c36 computedNameExpressionLinkHash sits
+// AFTER the primary key (c35), appended the way js_expression's c32 was: it links a member
+// declared with a computed name (`[kRun]() {}`) to its KEY expression, so the engine can
+// join a symbol-keyed member to the symbol; a literal key (`['lit']() {}`) also fills c0.
+// (37 columns)
+.decl js_method(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol,c29:symbol,c30:symbol,c31:symbol,c32:symbol,c33:symbol,c34:symbol,c35:symbol,c36:symbol)
+.decl lib_js_method(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol,c24:symbol,c25:symbol,c26:symbol,c27:symbol,c28:symbol,c29:symbol,c30:symbol,c31:symbol,c32:symbol,c33:symbol,c34:symbol,c35:symbol,c36:symbol)
 
 // A formal parameter. Only 0.165% carry a SYNTACTIC annotation and all of those are Flow, not
 // TypeScript; 36.4% carry a JSDoc one. So c4 declaredTypeSource is the column that matters
@@ -182,10 +186,12 @@
 // declarationForm is IN THE KEY because `this.x = 1` in a constructor and `Foo.prototype.x`
 // at module level are two real declarations of one member. c12 accessorPairKind marks the
 // members where a property READ invokes a function — which is why GETTER_INVOCATION is a
-// RESERVED call kind with a zero-row assertion and never emitted from syntax.
-// (23 columns)
-.decl js_field(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol)
-.decl lib_js_field(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol)
+// RESERVED call kind with a zero-row assertion and never emitted from syntax. c23
+// computedNameExpressionLinkHash sits AFTER the primary key (c22): the KEY expression of a
+// field declared with a computed name (`[k] = v`, `{ [k]: v }`), empty otherwise.
+// (24 columns)
+.decl js_field(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol)
+.decl lib_js_field(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol,c10:symbol,c11:symbol,c12:symbol,c13:symbol,c14:symbol,c15:symbol,c16:symbol,c17:symbol,c18:symbol,c19:symbol,c20:symbol,c21:symbol,c22:symbol,c23:symbol)
 
 // One module edge OUT. module.exports = X (2,102), module.exports.x (380), exports.x (118),
 // plus ESM declarations. c13 overwritesPreviousExport exists because
