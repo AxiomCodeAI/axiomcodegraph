@@ -806,6 +806,9 @@ const SCAFFOLD: ReadonlyArray<readonly [string, string]> = [
     'const paint = { paint: 1 };',                                         // 15 a property key is not a reference
     'const alsoOuter = outer;',                                            // 16 MODULE, links line 1
     'module.exports = { shadow, named, cbs, Late, useBefore, paint, alsoOuter, self: typeof self };', // 17 self is UNRESOLVED_FREE out here
+    'const rebound = function rebound() {',                                 // 18 the expression's own name ...
+    '  const rebound = 1; return rebound; };',                              // 19 ... is shadowed by a const in the body (#682)
+    'const shadowed = function shadowed(shadowed) { return shadowed; };',  // 20 ... and by a parameter of the same name
     '',
   ].join('\n')],
 
@@ -6699,6 +6702,8 @@ function tortureScriptsHold(): number {
       [13, 'declaredAfter', 'MODULE@14'], // a hoisted function, referenced before its line
       [16, 'outer', 'MODULE@1'],
       [17, 'self', 'UNRESOLVED_FREE'], // the expression's name is not visible outside it
+      [19, 'rebound', 'LOCAL@19'],     // the const in the body shadows the expression's own name (#682)
+      [20, 'shadowed', 'LOCAL@param'], // so does a parameter of the same name
     ] as const) {
       expect(file, line, `\`${name}\``, resolution(line, name), want);
     }
