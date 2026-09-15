@@ -1,0 +1,13 @@
+app.js:10:3 METHOD_CALL alpha.createClient  ->  ambiguous_unknown  -
+app.js:10:3 METHOD_CALL alpha.createClient().run  ->  ambiguous_unknown  -
+app.js:11:3 CONSTRUCTOR_CALL Mine  ->  implicit_constructor  -
+app.js:11:3 METHOD_CALL new Mine().run  ->  ambiguous_unknown  -
+app.js:12:3 FUNCTION_CALL subHelper  ->  ambiguous_unknown  -
+app.js:13:3 METHOD_CALL gone.anything  ->  ambiguous_unknown  -
+app.js:14:3 METHOD_CALL nope.thing  ->  ambiguous_unknown  -
+app.js:16:1 FUNCTION_CALL main  ->  known_edge  app.js:9:1 main
+app.mjs:2:17 DYNAMIC_IMPORT_CALL import  ->  dynamic_terminal  -
+app.mjs:3:1 FUNCTION_CALL createClient  ->  ambiguous_unknown  -
+app.mjs:3:1 METHOD_CALL createClient().run  ->  ambiguous_unknown  -
+app.mjs:4:1 METHOD_CALL m.createClient  ->  ambiguous_unknown  -
+app.mjs:4:1 METHOD_CALL m.createClient().run  ->  ambiguous_unknown  -

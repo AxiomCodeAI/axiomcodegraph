@@ -53,6 +53,48 @@ import_module(imp, mod) :- import_decl(_, _, _, _, _, rf, "RESOLVED_EXTERNAL", _
     module_package("lib", pkg, mod), module_file("lib", fp, mod),
     contains(cat("/node_modules/", cat(pkg, cat("/", fp))), js).
 
+// A bare specifier the parser could NOT resolve (the client has no installed tree: a CI
+// checkout, a library IR set built elsewhere) reaches a staged package through the
+// package's own entry facts (#602; the facts are #616): `require('pkg')` and
+// `require('pkg/sub')` join the staged library's package_entry rows on the exact
+// specifier (package + subpath). The entry is chosen the way the runtime chooses it:
+// an `exports` entry governs when the package publishes one for that subpath, and
+// among those the condition the import form selects (`require` for require() and
+// createRequire, `import` or `module` for an import declaration or import()) before
+// an unconditional or `default` target; `main` (or the index.js fallback) only when
+// no `exports` entry names the subpath. A fallback behind the path-based rules above,
+// so an installed client keeps today's answer. Every side of every negation is a
+// parser fact, so the stratification holds.
+entry_specifier(pkg, ".", pkg) :- package_entry("lib", pkg, ".", _, _, _, _, _).
+entry_specifier(pkg, sp, cat(pkg, substr(sp, 1, strlen(sp) - 1))) :- package_entry("lib", pkg, sp, _, _, _, _, _), sp != ".", strlen(sp) > 2, substr(sp, 0, 2) = "./".
+bare_import(imp, spec, form, pkg, sp) :- import_decl(_, spec, form, _, _, _, "UNRESOLVED_MISSING", _, imp), spec != "", entry_specifier(pkg, sp, spec).
+entry_exports_selected(imp, mod) :- bare_import(imp, _, form, pkg, sp),
+    package_entry("lib", pkg, sp, cond, "EXPORTS", _, "RESOLVED", mod), mod != "", cond != "", import_form_condition(form, c), contains(c, cond).
+entry_exports_default(imp, mod) :- bare_import(imp, _, _, pkg, sp),
+    package_entry("lib", pkg, sp, cond, "EXPORTS", _, "RESOLVED", mod), mod != "", (cond = ""; contains("default", cond)).
+entry_has_exports(imp) :- bare_import(imp, _, _, pkg, sp), package_entry("lib", pkg, sp, _, "EXPORTS", _, _, _).
+entry_main(imp, mod) :- bare_import(imp, _, _, pkg, sp), package_entry("lib", pkg, sp, _, src, _, "RESOLVED", mod), mod != "", entry_source_is_main(src).
+entry_source_is_main("MAIN").
+entry_source_is_main("DEFAULT_INDEX").
+import_module(imp, mod) :- entry_exports_selected(imp, mod).
+import_module(imp, mod) :- entry_exports_default(imp, mod), !entry_exports_selected(imp, _).
+import_module(imp, mod) :- entry_main(imp, mod), !entry_has_exports(imp).
+import_form_condition("REQUIRE_CALL", "require").
+import_form_condition("CREATE_REQUIRE", "require").
+import_form_condition("IMPORT_EQUALS", "require").
+import_form_condition("IMPORT_DECLARATION", "import").
+import_form_condition("IMPORT_DECLARATION", "module").
+import_form_condition("DYNAMIC_IMPORT", "import").
+import_form_condition("DYNAMIC_IMPORT", "module").
+import_form_condition("JSDOC_IMPORT_TYPE", "import").
+import_form_condition("JSDOC_IMPORT_TYPE", "require").
+// Countable: a staged package a client names by a bare specifier and does not reach
+// through any entry (the entry's file is absent from the library IR, a subpath the
+// package does not publish, or a condition the form does not select). The "staged
+// package, client not installed" outcome, kept apart from a package never staged.
+import_staged_package_unreached(imp, spec, pkg) :- import_decl(_, spec, _, _, _, _, "UNRESOLVED_MISSING", _, imp), spec != "",
+    package_entry("lib", pkg, _, _, _, _, _, _), (spec = pkg; contains(cat(pkg, "/"), spec)), !import_module(imp, _).
+
 // ── import_unresolved(ImportHash, Specifier, Outcome) — countable ───────────
 // A dependency that is not staged (RESOLVED_EXTERNAL with no matching module), a
 // builtin, or a specifier the parser could not resolve. The reason is kept so the

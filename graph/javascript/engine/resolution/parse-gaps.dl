@@ -28,6 +28,11 @@ gap_kind_makes_partial("WITH_STATEMENT_SCOPE").
 //   builtin              a platform module (`fs`, `node:path`): a terminal, not a gap
 //   not_staged           a literal specifier the parser resolved (or could not find
 //                        on disk) whose module is in no staged IR: the fix is staging
+//   staged_unreached     a bare specifier naming a package that IS staged, reached
+//                        through none of its entries (the entry's file is absent from
+//                        the library IR, a subpath the package does not publish, a
+//                        condition the import form does not select): the fix is in
+//                        the package's entries or the library IR, not in staging (#602)
 // Distinct rows for distinct owners: one has no static answer, one is a staging
 // decision. Before this they were one relation and read as one problem.
 import_unresolved_cause(imp, "computed_specifier") :- import_unresolved(imp, _, _),
@@ -36,7 +41,9 @@ import_unresolved_cause(imp, "computed_specifier") :- import_unresolved(imp, _, 
 import_unresolved_cause(imp, "builtin") :- import_unresolved(imp, _, "RESOLVED_BUILTIN").
 import_unresolved_cause(imp, "not_staged") :- import_unresolved(imp, _, out),
     out != "RESOLVED_BUILTIN", out != "UNRESOLVED_NON_LITERAL",
-    !parse_gap(_, "NON_LITERAL_SPECIFIER", _, _, _, _, "js_import", imp, _).
+    !parse_gap(_, "NON_LITERAL_SPECIFIER", _, _, _, _, "js_import", imp, _),
+    !import_staged_package_unreached(imp, _, _).
+import_unresolved_cause(imp, "staged_unreached") :- import_staged_package_unreached(imp, _, _).
 
 // ── type_ref_unreadable(TypeRefHash): a declared type the parser could not read ──
 // UNKNOWN_JSDOC_SYNTAX names the node it could not decompose; the reference the
