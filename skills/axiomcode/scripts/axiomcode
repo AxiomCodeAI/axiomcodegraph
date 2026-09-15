@@ -362,7 +362,11 @@ def words_search(text):
 def v_search():
     text = ' '.join(pos).strip().strip('"\'')
     if opt.get('type') or opt.get('method'): text = selector()
-    if not text: say('usage: axiomcode search <name | "words from the issue" | file:line> [in=<path>]'); return
+    if not text:
+        # an empty name usually means the shell ate it: search "$ZodCheck" → ""  (double quotes expand $)
+        if any(a == '' for a in argv[1:]): say('search got an EMPTY name — a name starting with $ must be single-quoted: axiomcode search \'$ZodCheckGreaterThan\'')
+        else: say('search needs something to look for. Give ONE of: a name as written in the code (bar · Foo.bar · file.ts:bar), 3–6 words from the issue in quotes, an error message in quotes, or file:line.')
+        return
     m = re.match(r'^(.+?)[: ](\d+)$', text)                                                   # file:line — a hunk or a stack frame
     if m and ('/' in m.group(1) or re.search(r'\.[a-z]{1,4}$', m.group(1))):
         f, ln = m.group(1).lstrip('/'), int(m.group(2))
@@ -399,8 +403,9 @@ def v_search():
         # nothing declared by that name: mentions first (a message, a flag, a tree-sitter node type), then nearest names
         last = text.split('.')[-1].split('#')[-1]
         found = uses_of(last)
-        if not found: say(f"nothing declared or mentioned as '{text}' in the {LANG} graph"); skipped_note(last)
+        if not found: say(f"nothing declared or mentioned as '{text}' in the {LANG} graph — the name may be guessed, renamed, or in a file this language's graph does not index"); skipped_note(last)
         if rows: say(f"  nearest declarations ({how}):"); [row(fmt(r)) for r in rows[:10]]
+        say("  which one did you mean? re-run `search <one of these>`; if none, describe it instead: search \"<3-6 words from the issue>\" — or, for a string you expect in the code, quote it exactly")
         return
     # words that CONTAIN a name — `Elements.before(Node node)`, `toJSONSchema()`, `HttpConnection.Response` — are tried as names first
     named = []
@@ -414,7 +419,9 @@ def v_search():
         say(f"names in the question: " + ', '.join(r['display'] for r in named[:4])); say()
         GROUP.clear(); set_body(len(named) == 1)
         for r in named[:2]: GROUP[(r['display'], r['file'])] = [r]; node_card(r)
-    if not words_search(text) and not named: say(f"nothing declared, commented or quoted matches '{text}'" + (f" under *{IN}*" if IN else ''))
+    if not words_search(text) and not named:
+        say(f"nothing declared, commented or quoted matches '{text}'" + (f" under *{IN}*" if IN else ''))
+        say("  try fewer, more specific words (the nouns the code would use, not the symptom), or one identifier from the issue, or in=<dir> to scope it")
 
 def v_impact():
     """the whole transitive answer, computed in full; only the PRINTING is budgeted (limit=)"""
