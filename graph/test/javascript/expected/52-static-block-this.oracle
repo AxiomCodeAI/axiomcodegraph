@@ -1,0 +1,10 @@
+main.js:12:5 METHOD_CALL configure  EXACT  main.js:5:3
+main.js:13:5 METHOD_CALL configure  EXACT  main.js:5:3
+main.js:14:5 METHOD_CALL own  EXACT  main.js:10:3
+main.js:16:5 METHOD_CALL hook  EXACT  main.js:6:3
+main.js:18:31 METHOD_CALL configure  EXACT  main.js:5:3
+main.js:25:18 METHOD_CALL helper  EXACT  main.js:26:3
+main.js:28:26 METHOD_CALL viaMethod  EXACT  main.js:18:3
+main.js:28:45 CONSTRUCTOR_CALL Inst  SYNTHESIZED_OK  
+main.js:28:45 METHOD_CALL run  EXACT  main.js:25:3
+# defects: 0

@@ -293,6 +293,12 @@ call_arg(ce, pos, arg) :- expr_child(_, ce, "ARGUMENT", idx, arg),
 this_value(m, "inst", t) :- method_decl(_, _, k, _, "false", t, _, m), t != "", k != "STATIC_BLOCK",
     method_this_binding(_, "DYNAMIC", m).
 this_value(m, "ctor", t) :- method_decl(_, _, _, _, "true", t, _, m), t != "".
+// `static { ... }` — the block's `this` is the class constructor (#729). Keyed on the
+// KIND, as the instance clause above is: a static block's row carries isStatic = false
+// (it is not a static MEMBER), so the static clause never fired for it and the block's
+// `this` had no value at all, while the same call by name and the same call in a static
+// method both resolved.
+this_value(m, "ctor", t) :- method_decl(_, _, "STATIC_BLOCK", _, _, t, _, m), t != "".
 this_value(m, "inst", t) :- type_ctor(_, m, t).
 this_value(m, k, i) :- method_this_binding(_, "LEXICAL", m), method_enclosing(m, e), this_value(e, k, i).
 // A function WRITTEN as a property is invoked as a method of the object it is
