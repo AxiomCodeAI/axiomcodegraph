@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """axiomcode-graph — the graph of a codebase, from the engine, as an artifact.
 
-  axiomcode-graph build  [<repo>] [--no-html] [--top N]   run the engine (axiomcode-build) then export
-  axiomcode-graph export [<repo>] [--no-html] [--top N]   (re)write the artifact from an existing graph.sqlite
+  axiomcode-graph build  [<repo>] [--out <dir|page.html>] [--no-html] [--top N]   run the engine (axiomcode-build) then export
+  axiomcode-graph export [<repo>] [--out <dir|page.html>] [--no-html] [--top N]   (re)write the artifact from an existing graph.sqlite
+      --out a directory: every file goes there instead of <repo>/.axiomcode/graph/; --out something.html: the page goes
+      there (the data files stay under .axiomcode/graph/), so one folder can hold the pages of several repositories
   axiomcode-graph query  "<words>" [--budget N] [--dfs]   the nodes whose labels carry the words, one hop out, budgeted
   axiomcode-graph explain <name>                          one node: location, community, every edge by relation, tiered
   axiomcode-graph path   <A> <B>                          shortest resolved call path (overrides count as a dispatch hop),
@@ -48,6 +50,7 @@ def parse(argv):
     while i < len(argv):
         a = argv[i]
         if a in ('--top', '--budget') and i + 1 < len(argv): opt[a[2:]] = int(argv[i + 1]); i += 2; continue
+        if a in ('--out', '-o') and i + 1 < len(argv): opt['out'] = argv[i + 1]; i += 2; continue
         if a.startswith('--'): opt[a[2:]] = True
         else: pos.append(a)
         i += 1
@@ -350,7 +353,7 @@ def report(nodes, links, meta, comms, deg):
     return '\n'.join(L)
 
 
-def write_html(out, nodes, links, comms, between, meta, deg, top):
+def write_html(out, nodes, links, comms, between, meta, deg, top, page=None):
     tpl = open(os.path.join(HERE, 'viewer.html'), encoding='utf-8').read()
     keep = {n['id'] for n in nodes.values() if n['kind'] in ('type', 'method', 'library')}
     if len(keep) > top:        # keep every type and the most connected methods; say so
@@ -367,8 +370,8 @@ def write_html(out, nodes, links, comms, between, meta, deg, top):
     C = [dict(id=c['id'], name=c['name'], size=c['size'], types=c['types'], methods=c['methods'], tests=c['tests'], dirs=[d['path'] for d in c['directories'][:3]], hubs=[h['label'] for h in c['hubs'][:3]]) for c in comms]
     data = dict(meta=dict(repo=os.path.basename(meta['repo']), language=meta['language'], built=meta['built_at'], shown=len(N), total=sum(1 for n in nodes.values() if n['kind'] in ('type', 'method', 'library')),
                           tiers=meta['tiers']), nodes=N, links=E, communities=C, between=between)
-    page = tpl.replace('/*__DATA__*/null', json.dumps(data, separators=(',', ':')).replace('</', '<\\/'))
-    open(os.path.join(out, 'graph.html'), 'w', encoding='utf-8').write(page)
+    page_html = tpl.replace('/*__DATA__*/null', json.dumps(data, separators=(',', ':')).replace('</', '<\\/'))
+    open(page or os.path.join(out, 'graph.html'), 'w', encoding='utf-8').write(page_html)
 
 
 def do_export(repo, opt):
@@ -376,7 +379,12 @@ def do_export(repo, opt):
     t0 = time.time()
     nodes, links, meta = read_graph(repo, gdir)
     comms, between, deg = communities(nodes, links)
-    out = os.path.join(gdir, 'graph'); os.makedirs(out, exist_ok=True)
+    out, page = os.path.join(gdir, 'graph'), None
+    if opt.get('out'):
+        o = os.path.abspath(os.path.expanduser(opt['out']))
+        if o.lower().endswith('.html'): page = o; os.makedirs(os.path.dirname(o), exist_ok=True)
+        else: out = o
+    os.makedirs(out, exist_ok=True)
     meta['counts'] = dict(collections.Counter(n['kind'] for n in nodes.values()))
     meta['links'] = dict(collections.Counter(l['relation'] for l in links.values()))
     meta['communities'] = len(comms)
@@ -386,10 +394,10 @@ def do_export(repo, opt):
     json.dump(g, open(os.path.join(out, 'graph.json'), 'w', encoding='utf-8'), ensure_ascii=False)
     json.dump(dict(communities=comms, between=between), open(os.path.join(out, 'communities.json'), 'w', encoding='utf-8'), ensure_ascii=False)
     open(os.path.join(out, 'GRAPH_REPORT.md'), 'w', encoding='utf-8').write(report(nodes, links, meta, comms, deg))
-    if not opt.get('no-html'): write_html(out, nodes, links, comms, between, meta, deg, opt.get('top', 3000))
-    r = os.path.relpath(out, os.getcwd())
+    if not opt.get('no-html'): write_html(out, nodes, links, comms, between, meta, deg, opt.get('top', 3000), page)
+    r = os.path.relpath(out, os.getcwd()); pg = 'skipped' if opt.get('no-html') else os.path.relpath(page or os.path.join(out, 'graph.html'), os.getcwd())
     print(f"graph at {r}/: {meta['counts']} · links {meta['links']} · {len(comms)} communities · {time.time() - t0:.1f}s")
-    print(f"  {r}/graph.json · {r}/communities.json · {r}/GRAPH_REPORT.md" + ('' if opt.get('no-html') else f" · {r}/graph.html"))
+    print(f"  page: {pg} · data: {r}/graph.json · {r}/communities.json · {r}/GRAPH_REPORT.md")
 
 
 def do_build(repo, opt):

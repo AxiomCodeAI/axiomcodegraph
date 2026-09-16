@@ -197,12 +197,18 @@ function sideOverview() {
 }
 function sideRest(rest) { const S = document.getElementById('side'); S.innerHTML = `<h2>${rest.length} smaller communities</h2><ul>${rest.map(c => `<li data-c="${c.id}"><span class="lbl">${esc(c.name)}</span><span class="loc">${c.size}</span></li>`).join('')}</ul>`; S.querySelectorAll('li[data-c]').forEach(li => li.onclick = () => community(+li.dataset.c)); }
 
+let showTests = null;   // null = decide per community: tests fold into one box per test file when they outnumber the code
 var community = function community_(cid) {
   clear(); legend(['shapes', 'edges']);
   const c = C.get(cid); let members = (byComm.get(cid) || []).filter(n => n.k !== 'library');
   const CAP = 260; let note = '';
-  if (members.length > CAP) { const types = members.filter(n => n.k === 'type'), ms = members.filter(n => n.k !== 'type').sort((a, b) => b.d - a.d).slice(0, CAP); members = [...types, ...ms]; note = `${ms.length} of ${c.size - types.length} methods drawn (the most connected; every type is); the rest are reachable through search and the node view.`; }
+  const nTests = members.filter(n => n.t && n.k !== 'type').length, nCode = members.filter(n => !n.t && n.k !== 'type').length;
+  const fold = showTests === null ? nTests > Math.max(20, nCode * .6) : !showTests;
+  let folded = new Map();   // test file → { n, calls } when folded
+  if (fold && nTests) { for (const n of members) if (n.t && n.k !== 'type') { const f = folded.get(n.f) || folded.set(n.f, { n: 0, calls: 0, ids: [] }).get(n.f); f.n++; f.ids.push(n.id); } members = members.filter(n => !(n.t && n.k !== 'type')); }
+  if (members.length > CAP) { const types = members.filter(n => n.k === 'type'), ms = members.filter(n => n.k !== 'type').sort((a, b) => b.d - a.d).slice(0, CAP); members = [...types, ...ms]; note = `${ms.length} of ${members.length - types.length + (c.size - types.length - ms.length)} methods drawn (the most connected; every type is); the rest are reachable through search and the node view.`; }
   const M = new Set(members.map(n => n.id));
+  for (const [f, t] of folded) for (const id of t.ids) for (const l of (OUT.get(id) || [])) if (M.has(l.t) && l.r === 'calls') t.calls += l.w || 1;
   // one box per type (its methods as rows); free functions boxed by file — a class diagram, not a particle cloud
   const typeOf = new Map(); for (const n of members) if (n.k === 'type') typeOf.set(n.l, n);
   const groupKey = id => { const n = N.get(id); if (n.k === 'type') return 'T:' + id; const owner = n.l.includes('.') ? n.l.slice(0, n.l.lastIndexOf('.')) : ''; const t = owner && typeOf.get(owner); return t ? 'T:' + t.id : 'F:' + n.f; };
@@ -213,13 +219,16 @@ var community = function community_(cid) {
     const title = g.kind === 'file' ? g.title.split('/').slice(-2).join('/') : g.title; g.head = title;
     const longest = Math.max(title.length * 7 + 26, ...g.shown.map(n => n.l.split('.').pop().length * 6.2 + 34), 120);
     g.W = Math.min(longest, 300); g.H = 30 + (g.shown.length + (g.more ? 1 : 0)) * ROW + PAD; return Object.assign(g, { r: Math.max(g.W, g.H) / 2, hw: g.W / 2, hh: g.H / 2 }); });
-  const portsOf = new Map();   // computed before layout so a box with ports reserves a strip for them
-  for (const n of members) for (const l of (OUT.get(n.id) || [])) { if (M.has(l.t)) continue; const tn = N.get(l.t); if (!tn) continue; const to = tn.k === 'library' ? 'lib' : tn.c; const gk = groupKey(n.id); const m = portsOf.get(gk) || portsOf.set(gk, new Map()).get(gk); m.set(to, (m.get(to) || 0) + 1); }
-  for (const g of items) if (portsOf.has(g.id)) { g.H += 20; g.hh = g.H / 2; }
   // edges between boxes, aggregated: count, best tier, a few example pairs
   const agg = new Map();
   for (const n of members) for (const l of (OUT.get(n.id) || [])) { if (!M.has(l.t)) continue; const a = groupKey(l.s), b = groupKey(l.t); if (a === b) continue; const k = a + '|' + b; const e = agg.get(k) || agg.set(k, { s: a, t: b, w: 0, tier: 'x', rel: l.r, ex: [] }).get(k); e.w += l.w || 1; if (rank(l) < rank(e)) { e.tier = l.tier || ''; e.rel = l.r; } if (e.ex.length < 5) e.ex.push(`${N.get(l.s).l} → ${N.get(l.t).l}${l.tier ? ' [' + l.tier + ']' : ''}`); }
   function rank(l) { return l.r === 'extends' || l.r === 'overrides' ? 0 : l.tier === 'known_edge' ? 1 : l.tier === 'multi_inferred' ? 2 : 3; }
+  const testBoxes = [...folded].filter(([, t]) => t.calls).sort((a, b) => b[1].calls - a[1].calls).slice(0, 14);
+  for (const [f, t] of testBoxes) { const id = 'X:' + f, head = f.split('/').slice(-2).join('/'); const W = Math.max(150, head.length * 7 + 26); items.push({ id, kind: 'tests', title: f, head, ms: [], shown: [], more: 0, W, H: 44, r: W / 2, hw: W / 2, hh: 22, t }); }
+  for (const [f, t] of testBoxes) for (const id of t.ids) for (const l of (OUT.get(id) || [])) { if (!M.has(l.t) || l.r !== 'calls') continue; const b = groupKey(l.t), k = 'X:' + f + '|' + b; const e = agg.get(k) || agg.set(k, { s: 'X:' + f, t: b, w: 0, tier: 'x', rel: 'calls', ex: [] }).get(k); e.w += l.w || 1; if (rank(l) < rank(e)) e.tier = l.tier || ''; if (e.ex.length < 5) e.ex.push(`${N.get(l.s).l} → ${N.get(l.t).l}${l.tier ? ' [' + l.tier + ']' : ''}`); }
+  const portsOf = new Map();   // computed before layout so a box with ports reserves a strip for them
+  for (const n of members) for (const l of (OUT.get(n.id) || [])) { if (M.has(l.t)) continue; const tn = N.get(l.t); if (!tn) continue; const to = tn.k === 'library' ? 'lib' : tn.c; const gk = groupKey(n.id); const m = portsOf.get(gk) || portsOf.set(gk, new Map()).get(gk); m.set(to, (m.get(to) || 0) + 1); }
+  for (const g of items) if (portsOf.has(g.id)) { g.H += 20; g.hh = g.H / 2; }
   const { w, h } = force(items, [...agg.values()], { W: 1800, H: 1100, gravity: .012, spring: .02, margin: 34 });
   const G = new Map(items.map(g => [g.id, g]));
   const gE = el('g'), gG = el('g'); root.append(gE, gG);
@@ -228,6 +237,10 @@ var community = function community_(cid) {
     if (e.w > 1) { const mx = (p.x + q.x) / 2, my = (p.y + q.y) / 2; gE.append(el('rect', { x: mx - 9, y: my - 7, width: 18, height: 13, rx: 6, fill: '#fff', stroke: '#d6d3d1', 'stroke-width': .6 })); gE.append(el('text', { x: mx, y: my + 3, 'text-anchor': 'middle', 'font-size': 9, fill: '#57534e' }, String(e.w))); } }
   for (const g of items) {
     const x0 = g.x - g.W / 2, y0 = g.y - g.H / 2, box = el('g', { class: 'cluster', transform: `translate(${x0},${y0})` });
+    if (g.kind === 'tests') { box.append(el('rect', { width: g.W, height: g.H, rx: 6, fill: '#f8fafc', stroke: '#94a3b8', 'stroke-width': 1, 'stroke-dasharray': '3,2' }));
+      box.append(el('text', { x: 10, y: 16, 'font-size': 11, 'font-weight': 600, fill: '#475569', class: 'lbl-mono' }, short(g.head, Math.floor((g.W - 16) / 6.8))));
+      box.append(el('text', { x: 10, y: 33, 'font-size': 10, fill: '#64748b' }, `${g.t.n} tests · ${g.t.calls} call sites in`));
+      box.append(el('title', {}, `${g.title}\n${g.t.n} test methods; ${g.t.calls} call sites into this community\nclick to expand tests`)); box.onclick = () => { showTests = true; community(cid); }; gG.append(box); continue; }
     box.append(el('rect', { width: g.W, height: g.H, rx: 6, fill: '#fff', stroke: g.kind === 'type' ? col(cid) : '#a8a29e', 'stroke-width': g.kind === 'type' ? 1.4 : 1, 'stroke-dasharray': g.kind === 'type' ? '' : '5,3' }));
     box.append(el('rect', { width: g.W, height: 24, rx: 6, fill: g.kind === 'type' ? col(cid) : '#e7e5e4', 'fill-opacity': g.kind === 'type' ? .12 : .6 }));
     box.append(el('line', { x1: 0, y1: 24, x2: g.W, y2: 24, stroke: g.kind === 'type' ? col(cid) : '#d6d3d1', 'stroke-width': .8 }));
@@ -254,7 +267,7 @@ var community = function community_(cid) {
     gG.append(box);
   }
   fit(w, h); setCrumbs([{ label: 'overview', go: overview }, { label: `community ${cid}: ${c.name}`, go: () => community(cid) }]);
-  sideCommunity(c, note);
+  sideCommunity(c, note + (fold && nTests ? ` ${nTests} test methods are folded into one box per test file (${testBoxes.length} shown, those with calls into the community).` : ''), nTests ? { folded: fold, cid } : null);
 }
 function nodeGlyph(n, x, y, r, withLabel) {
   const g = el('g', { class: 'node', transform: `translate(${x},${y})` }); g.append(shape(n, r));
@@ -264,13 +277,13 @@ function nodeGlyph(n, x, y, r, withLabel) {
   g.onclick = e => { e.stopPropagation(); ego(n.id); }; return g;
 }
 function drawEdge(layer, a, b, l) { if (!a || !b) return; const st = edgeStyle(l); const [p, q] = clip(a, b, a.r + 2, b.r + 5); layer.append(el('path', { class: 'edge', d: curve(p, q), stroke: st.stroke, 'stroke-width': st.w, 'stroke-dasharray': st.dash, 'marker-end': st.marker, 'stroke-opacity': .8 }, el('title', {}, `${N.get(l.s).l} ${l.r} ${N.get(l.t).l}${l.tier ? ' [' + l.tier + ']' : ''}${l.w > 1 ? ' ×' + l.w : ''}`))); }
-function sideCommunity(c, note) {
+function sideCommunity(c, note, tests) {
   const S = document.getElementById('side');
   S.innerHTML = `<h2><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${col(c.id)};margin-right:6px"></span>community ${c.id}</h2><div class="k">${esc(c.name)}</div>
-  <div class="k">${c.size} nodes · ${c.types} types · ${c.methods} methods · ${c.tests} tests</div>${note ? `<div class="note">${esc(note)}</div>` : ''}
+  <div class="k">${c.size} nodes · ${c.types} types · ${c.methods} methods · ${c.tests} tests${tests ? ` · <a id="tt" style="cursor:pointer;text-decoration:underline">${tests.folded ? 'expand tests' : 'fold tests'}</a>` : ''}</div>${note ? `<div class="note">${esc(note)}</div>` : ''}
   <h3>directories</h3><ul>${c.dirs.map(d => `<li><span class="lbl mono">${esc(d)}</span></li>`).join('')}</ul>
   <h3>hubs</h3><ul>${(byComm.get(c.id) || []).filter(n => n.k === 'method').sort((a, b) => b.d - a.d).slice(0, 12).map(n => `<li data-n="${esc(n.id)}"><span class="lbl">${esc(n.l)}</span><span class="loc">${n.d}</span></li>`).join('')}</ul>`;
-  S.querySelectorAll('li[data-n]').forEach(li => li.onclick = () => ego(li.dataset.n));
+  S.querySelectorAll('li[data-n]').forEach(li => li.onclick = () => ego(li.dataset.n)); const tt = S.querySelector('#tt'); if (tt) tt.onclick = () => { showTests = !!tests.folded; community(tests.cid); };
 }
 
 var ego = function ego_(id) {
