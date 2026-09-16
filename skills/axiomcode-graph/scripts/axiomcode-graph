@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
-"""axiomcode-graph — the call chains of a codebase, from the engine, as a page.
+"""axiomcode-graph — the graph of a codebase, from the engine, as one page.
 
   axiomcode-graph build  [<repo>] [--out <page.html>]   run the engine (axiomcode-build) then write the page
   axiomcode-graph export [<repo>] [--out <page.html>]   write the page from an existing graph.sqlite (no engine run)
 
-The page (default <repo>/.axiomcode/graph/graph.html, one file, no network) lists one call chain per root —
-an entry point (main, a handler, a test) or a method nothing calls — following the heaviest callee at each
-hop. Click a chain and it is drawn end to end; `+` under a hop expands its other callees, and each of those
-expands again. Every hop carries file:line; every arrow carries the engine's tier. A call the engine could not
-resolve is a `?N` count on the hop, never a drawn edge.
+The page (default <repo>/.axiomcode/graph/graph.html; one file, no network) draws the codebase as a disc:
+directories in the centre, their files on the next ring, the types in those files, and every method on the
+outside, each placed under its parent — and the engine's call edges across it, each with its tier. Hover a
+node to light up what it calls and what calls it; click it for the detail panel, its impact (everything that
+can reach it through resolved calls) or the chain from it. A call the engine could not resolve is a count on
+the caller, never a drawn edge.
 """
 import os, re, sys, json, time, sqlite3, collections, subprocess
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TESTRE = re.compile(r'(^|/)(tests?|testing|__tests__|test-data|fixtures?)(/|$)|(^|/)test_|conftest\.py$|/src/test/|Tests?\.java$|\.(spec|test)\.[cm]?[tj]sx?$')
-RESOLVED = ('known_edge', 'multi_inferred')
-MAX_HOPS = 10
+METHOD_KINDS = ('function', 'method', 'constructor', 'module')
+TYPE_KINDS = ('class', 'interface', 'enum', 'type', 'namespace')
 
 
 def export(repo, page=None):
@@ -33,74 +34,76 @@ def export(repo, page=None):
         a = os.path.realpath(a) if os.path.exists(a) else os.path.normpath(a)
         r = os.path.relpath(a, repo); return p.lstrip('/') if r.startswith('..') else r
 
-    # methods: display name the way the query skill shows it when the index is there, Owner.name otherwise
-    M = {}
+    # ── declarations: types and methods, with the display names the query skill uses when the index is there ──
+    nodes = {}
+    owner = {r['id']: r['owner_type_id'] for r in q("SELECT id, owner_type_id FROM methods WHERE provenance='client'")}
     if has('symbols'):
-        for r in q("SELECT method_id, display, file, line, end_line, is_test, signature FROM symbols WHERE method_id IS NOT NULL"):
-            M[r['method_id']] = dict(id=r['method_id'], l=r['display'], f=r['file'], a=r['line'], b=r['end_line'], t=int(bool(r['is_test'])), sig=r['signature'] or '')
-    for r in q("SELECT id, name, owner_qualified_name, file_path, start_line, end_line, signature FROM methods WHERE provenance='client'"):
-        if r['id'] in M: continue
-        f = rel(r['file_path']); o = (r['owner_qualified_name'] or '').replace('#', '.').split('.')[-1].replace('$', '.')
-        M[r['id']] = dict(id=r['id'], l=f"{o}.{r['name']}" if o else r['name'], f=f, a=r['start_line'], b=r['end_line'], t=int(bool(TESTRE.search(f))), sig=r['signature'] or '')
+        for r in q("SELECT * FROM symbols WHERE (method_id IS NOT NULL OR type_id IS NOT NULL)"):
+            if r['method_id'] and r['kind'] in METHOD_KINDS:
+                nodes[r['method_id']] = dict(id=r['method_id'], k='method', sk=r['kind'], l=r['display'], f=r['file'], a=r['line'], b=r['end_line'], t=int(bool(r['is_test'])), sig=r['signature'] or '')
+            elif r['type_id'] and r['kind'] in TYPE_KINDS:
+                nodes[r['type_id']] = dict(id=r['type_id'], k='type', sk=r['kind'], l=r['display'], f=r['file'], a=r['line'], b=r['end_line'], t=int(bool(r['is_test'])))
+    else:
+        cat = lambda c: 'interface' if 'INTERFACE' in c else 'enum' if 'ENUM' in c else 'namespace' if 'NAMESPACE' in c else 'type' if 'ALIAS' in c or 'TYPEDEF' in c else 'class'
+        for r in q("SELECT * FROM types WHERE provenance='client'"):
+            f = rel(r['file_path']); nodes[r['id']] = dict(id=r['id'], k='type', sk=cat(r['category']), l=r['name'].replace('$', '.'), f=f, a=r['start_line'], b=r['end_line'], t=int(bool(TESTRE.search(f))))
+        for r in q("SELECT * FROM methods WHERE provenance='client'"):
+            f = rel(r['file_path']); o = (r['owner_qualified_name'] or '').replace('#', '.').split('.')[-1].replace('$', '.')
+            sk = 'constructor' if 'CONSTRUCTOR' in r['kind'] else 'module' if 'MODULE' in r['kind'] else 'method' if r['owner_type_id'] else 'function'
+            nodes[r['id']] = dict(id=r['id'], k='method', sk=sk, l=f"{o}.{r['name']}" if o else r['name'], f=f, a=r['start_line'], b=r['end_line'], t=int(bool(TESTRE.search(f))), sig=r['signature'] or '')
     lib = {r['id']: r['qualified_name'] for r in q("SELECT id, qualified_name FROM methods WHERE provenance<>'client'")}
 
-    # edges: one per (caller, callee), the best tier among its sites, the number of sites
+    # ── containment: dir → file → type → method (nested types under their outer; free functions under the file) ──
+    nesting = {r['type_id']: r['outer_type_id'] for r in q("SELECT type_id, outer_type_id FROM nesting")} if has('nesting') else {}
+    for n in list(nodes.values()):
+        fid = 'F:' + n['f']
+        if fid not in nodes:
+            d = os.path.dirname(n['f']) or '.'
+            nodes[fid] = dict(id=fid, k='file', l=n['f'], f=n['f'], t=int(bool(TESTRE.search(n['f']))), p='D:' + d)
+            if 'D:' + d not in nodes: nodes['D:' + d] = dict(id='D:' + d, k='dir', l=d, f='', t=int(bool(TESTRE.search(d + '/'))))
+        if n['k'] == 'type': n['p'] = nesting[n['id']] if nesting.get(n['id']) in nodes else fid
+        elif n['k'] == 'method': o = owner.get(n['id']); n['p'] = o if o in nodes else fid
+
+    # ── calls: one edge per (caller, callee) with the best tier and the site count; unresolved → a count on the caller ──
     E, unresolved, libcalls = {}, collections.Counter(), collections.defaultdict(collections.Counter)
-    for r in q("SELECT e.caller_id, e.callee_method_id, e.tier, s.callee_name, s.start_line FROM call_edges e LEFT JOIN call_sites s ON s.id = e.call_site_id"):
+    for r in q("SELECT e.caller_id, e.callee_method_id, e.tier FROM call_edges e"):
         c, t = r['caller_id'], r['callee_method_id']
-        if c not in M: continue
-        if not t or t not in M:
+        if c not in nodes: continue
+        if not t or t not in nodes:
             if t in lib: libcalls[c][lib[t]] += 1
             else: unresolved[c] += 1
             continue
-        k = (c, t); e = E.get(k)
-        if e is None: E[k] = dict(s=c, t=t, tier=r['tier'], w=1, line=r['start_line'] or 0)
+        e = E.get((c, t))
+        if e is None: E[(c, t)] = dict(s=c, t=t, tier=r['tier'], w=1)
         else:
             e['w'] += 1
-            if r['tier'] == 'known_edge' and e['tier'] != 'known_edge': e['tier'] = 'known_edge'; e['line'] = r['start_line'] or e['line']
-    for m, n in unresolved.items(): M[m]['u'] = n
-    for m, c in libcalls.items(): M[m]['lib'] = [f"{k}×{v}" if v > 1 else k for k, v in c.most_common(6)]
-    entries = collections.defaultdict(list)
+            if r['tier'] == 'known_edge': e['tier'] = 'known_edge'
+    for m, n in unresolved.items(): nodes[m]['u'] = n
+    for m, c in libcalls.items(): nodes[m]['lib'] = [f"{k}×{v}" if v > 1 else k for k, v in c.most_common(6)]
     for r in q("SELECT method_id, reason FROM entry_points"):
-        if r['method_id'] in M: entries[r['method_id']].append(r['reason'])
-    for m, rs in entries.items(): M[m]['e'] = rs
+        if r['method_id'] in nodes: nodes[r['method_id']].setdefault('e', []).append(r['reason'])
+    X = []   # extends / implements: direct ancestors only (type_ancestors is a closure)
+    anc = collections.defaultdict(set)
+    for r in q("SELECT type_id, ancestor_type_id FROM type_ancestors"): anc[r['type_id']].add(r['ancestor_type_id'])
+    for t, A in anc.items():
+        if t in nodes:
+            for a in A:
+                if a in nodes and not any(b != a and a in anc.get(b, ()) for b in A): X.append(dict(s=t, t=a))
+    deg = collections.Counter()
+    for e in E.values(): deg[e['s']] += 1; deg[e['t']] += 1
+    for n in nodes.values():
+        if deg[n['id']]: n['d'] = deg[n['id']]
 
-    out = collections.defaultdict(list); indeg = collections.Counter()
-    for e in E.values(): out[e['s']].append(e); indeg[e['t']] += 1
-    for lst in out.values(): lst.sort(key=lambda e: (e['tier'] not in RESOLVED, -e['w'], -len(out.get(e['t'], ())), M[e['t']]['l']))
-
-    # reach: how many methods a root can get to through resolved edges (what ranks the chains)
-    def reach(root):
-        seen = {root}; dq = collections.deque([root])
-        while dq:
-            u = dq.popleft()
-            for e in out.get(u, ()):
-                if e['tier'] in RESOLVED and e['t'] not in seen: seen.add(e['t']); dq.append(e['t'])
-        return len(seen) - 1
-
-    # roots: entry points that are not tests, then non-test methods nothing calls, then tests. One chain per root:
-    # the heaviest resolved callee at every hop, until a leaf, a repeat, or MAX_HOPS
-    roots = [m for m in M if entries.get(m) and not M[m]['t'] and any(r != 'test' for r in entries[m])]
-    roots += [m for m in M if m not in set(roots) and not M[m]['t'] and indeg[m] == 0 and out.get(m)]
-    roots += [m for m in M if M[m]['t'] and out.get(m)]
-    chains = []
-    for r in roots:
-        path, seen = [r], {r}
-        while len(path) <= MAX_HOPS:
-            nxt = next((e for e in out.get(path[-1], ()) if e['tier'] in RESOLVED and e['t'] not in seen), None)
-            if not nxt: break
-            path.append(nxt['t']); seen.add(nxt['t'])
-        if len(path) > 1: chains.append(dict(root=r, path=path, reach=reach(r)))
-    chains.sort(key=lambda c: (M[c['root']]['t'], -c['reach'], -len(c['path']), M[c['root']]['l']))
-
-    data = dict(meta=dict(repo=os.path.basename(repo), language=run.get('language', '?'), built=time.strftime('%Y-%m-%d %H:%M'),
-                          methods=len(M), edges=len(E), resolved=sum(1 for e in E.values() if e['tier'] in RESOLVED), unresolved_sites=sum(unresolved.values()), chains=len(chains)),
-                nodes=list(M.values()), edges=list(E.values()), chains=chains)
+    tiers = collections.Counter(r[0] for r in q("SELECT tier FROM call_edges"))
+    resolved = sum(1 for e in E.values() if e['tier'] in ('known_edge', 'multi_inferred'))
+    data = dict(meta=dict(repo=os.path.basename(repo), language=run.get('language', '?'), built=time.strftime('%Y-%m-%d %H:%M'), sites=sum(tiers.values()),
+                          resolved_sites=tiers.get('known_edge', 0) + tiers.get('multi_inferred', 0), counts=dict(collections.Counter(n['k'] for n in nodes.values())), edges=len(E), resolved=resolved),
+                nodes=list(nodes.values()), calls=list(E.values()), extends=X)
     page = page or os.path.join(gdir, 'graph', 'graph.html'); os.makedirs(os.path.dirname(page), exist_ok=True)
     tpl = open(os.path.join(HERE, 'viewer.html'), encoding='utf-8').read()
     open(page, 'w', encoding='utf-8').write(tpl.replace('/*__DATA__*/null', json.dumps(data, separators=(',', ':')).replace('</', '<\\/')))
     m = data['meta']
-    print(f"{m['methods']} methods · {m['edges']} call edges ({m['resolved']} resolved) · {m['unresolved_sites']} unresolved sites · {m['chains']} chains")
+    print(f"{m['counts']} · {m['edges']} call edges · {m['sites']} call sites, {100 * m['resolved_sites'] // max(1, m['sites'])}% resolved · {len(X)} extends")
     print(f"page: {os.path.relpath(page)}")
 
 
@@ -115,8 +118,7 @@ def build(repo, page):
 
 
 if __name__ == '__main__':
-    a = sys.argv[1:]
-    page = None
+    a = sys.argv[1:]; page = None
     if '--out' in a: i = a.index('--out'); page = os.path.abspath(os.path.expanduser(a[i + 1])); del a[i:i + 2]
     verb, pos = (a[0] if a else ''), a[1:]
     if verb == 'build': build(pos[0] if pos else '.', page)
