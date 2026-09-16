@@ -28,8 +28,8 @@ def edges(mid, sid):
     up = q("SELECT DISTINCT cr.display d FROM call_edges e JOIN symbols cr ON cr.id = e.caller_id WHERE e.callee_method_id = ? LIMIT 40", mid)
     dn = q("SELECT DISTINCT ce.display d FROM call_edges e JOIN symbols ce ON ce.method_id = e.callee_method_id WHERE e.caller_id = ? AND e.callee_provenance = 'client' LIMIT 40", sid)
     un = q("SELECT count(*) n FROM unresolved_sites WHERE caller_id = ?", sid)[0]['n']
-    s = f"← {len(up)} caller(s)" + (": " + ', '.join(r['d'] for r in up[:3]) + (' …' if len(up) > 3 else '') if up else '') + f"   → {len(dn)} callee(s)" + (": " + ', '.join(r['d'] for r in dn[:3]) + (' …' if len(dn) > 3 else '') if dn else '')
-    return s + (f"   ? {un} unresolved" if un else '')
+    s = f"← {len(up)}" + (" (" + ', '.join(r['d'].split('.')[-1] for r in up[:2]) + (', …' if len(up) > 2 else '') + ")" if up else '') + f"  → {len(dn)}"
+    return s + (f"  ? {un}" if un else '')
 
 # a grep / sed / cat run through Bash is the same action — in a session where the Grep tool is deferred, that is what the agent does
 if tool == 'Bash':
@@ -58,7 +58,10 @@ def reach_counts(mid):
         return ''
     try:
         sc = sqlite3.connect(SUMMARY); r = sc.execute("SELECT tests, entries FROM reach WHERE method = ?", (mid,)).fetchone()
-        return f"   reached by {r[0]} test(s), {r[1]} entry point(s)" if r else "   reached by no test / entry point"
+        if not r: return ''
+        # a number that is the same for almost everything (a hub graph: 1,375 tests reach every parser method) says nothing — omit it
+        tot = q("SELECT count(*) n FROM symbols WHERE is_test = 1 AND method_id IS NOT NULL")[0]['n']
+        return f"  tests {r[0]}" + (f" entries {r[1]}" if r[1] else '') if tot and r[0] < 0.25 * tot else ''
     except Exception: return ''
 
 # where the agent IS: the callables it read most recently (per session, last 6 reads). A later grep for a common name is
@@ -115,9 +118,11 @@ elif tool == 'Read':
     rows = q("SELECT id, method_id, display, line, end_line FROM symbols WHERE (file = ? OR file LIKE ?) AND method_id IS NOT NULL AND kind <> 'module' AND line <= ? AND end_line >= ? ORDER BY line", rel, '%/' + rel.lstrip('/'), b, a)
     if rows:
         st = load_state(); st['reads'] = ([{'file': rel, 'ids': [r['id'] for r in rows[:12]], 'names': [r['display'] for r in rows[:12]]}] + st['reads'])[:6]; save_state(st)
-        lines.append(f"graph: {len(rows)} callable(s) in {rel}:{a}-{min(b, rows[-1]['end_line'] or b)} —")
-        for r in rows[:8]: lines.append(f"  {r['display']} L{r['line']}  {edges(r['method_id'], r['id'])}{reach_counts(r['method_id'])}")
-        if len(rows) > 8: lines.append(f"  … +{len(rows) - 8}; axiomcode path / impact for any of them")
+        # the block is re-read on every later turn: 4 lines at most — the callables whose span overlaps the read range the most
+        mid = (a + min(b, a + 200)) / 2
+        show = sorted(rows, key=lambda r: abs(((r['line'] + (r['end_line'] or r['line'])) / 2) - mid))[:4]; show.sort(key=lambda r: r['line'])
+        lines.append(f"graph: {os.path.basename(rel)}:{a}-{min(b, rows[-1]['end_line'] or b)} — {len(rows)} callable(s)" + (f", {len(show)} shown" if len(rows) > len(show) else '') + "  (← callers → callees ? unresolved)")
+        for r in show: lines.append(f"  {r['display'].split('.')[-1] if r['display'].count('.') > 1 else r['display']} L{r['line']}  {edges(r['method_id'], r['id'])}{reach_counts(r['method_id'])}")
 elif tool == 'Grep':
     # a real search is rarely one identifier: `hasNext\(\)|\.next\(\)|close\(\)`, `getScanner|RTBoundValidator|withSSTablesIterated`.
     # Split the alternation, strip the regex around each branch, keep the identifiers, look each one up — in parallel, one
@@ -149,22 +154,22 @@ elif tool == 'Grep':
                     or c.execute(f"SELECT ce.id AS who, 'calls' AS how FROM call_edges e JOIN symbols ce ON ce.method_id = e.callee_method_id WHERE e.caller_id = ? AND ce.id IN ({ph}) LIMIT 1", (r['id'], *ctx)).fetchone()
                 if e: rel_[r['id']] = (e['how'], ctx_names.get(e['who'], '?'))
             rows = sorted(rows, key=lambda r: (r['id'] not in rel_, r['file']))
-        rows = rows[:4]
+        rows = rows[:2]
         out = []
         for r in rows:
             up = c.execute("SELECT DISTINCT cr.display d FROM call_edges e JOIN symbols cr ON cr.id = e.caller_id WHERE e.callee_method_id = ? LIMIT 40", (r['method_id'],)).fetchall()
             dn = c.execute("SELECT count(DISTINCT e.callee_method_id) n FROM call_edges e WHERE e.caller_id = ? AND e.callee_provenance = 'client'", (r['id'],)).fetchone()['n']
             un = c.execute("SELECT count(*) n FROM unresolved_sites WHERE caller_id = ?", (r['id'],)).fetchone()['n']
             tag = f"  ★ {rel_[r['id']][0]} {rel_[r['id']][1]} (which you just read)" if r['id'] in rel_ else ''
-            out.append(f"  {r['display']}  {os.path.basename(r['file'])}:{r['line']}  ← {len(up)}" + (": " + ', '.join(x['d'] for x in up[:3]) + (' …' if len(up) > 3 else '') if up else '') + f"  → {dn}" + (f"  ? {un}" if un else '') + tag)
+            out.append(f"  {r['display']}  {os.path.basename(r['file'])}:{r['line']}  ← {len(up)}" + (" (" + ', '.join(x['d'].split('.')[-1] for x in up[:2]) + (', …' if len(up) > 2 else '') + ")" if up else '') + f"  → {dn}" + (f"  ? {un}" if un else '') + tag)
         if unres: out.append(f"  ({ctx_names.get(unres[0]['caller_id'], '?')}, which you just read, calls a `{n}` at L{unres[0]['start_line']} whose receiver is not typed — it may be any of the above)")
         return n, rows, out
     if idents:
         with concurrent.futures.ThreadPoolExecutor(max_workers=min(6, len(idents))) as ex: found = list(ex.map(lookup, idents))
         found = [(n, rows, out) for n, rows, out in found if rows]
         if found:
-            lines.append(f"graph: {len(found)} of {len(idents)} name(s) in the pattern are callables here — (← callers  → callees  ? unresolved)")
-            budget = 9
+            lines.append(f"graph: {len(found)}/{len(idents)} name(s) are callables (← callers → callees ? unresolved)")
+            budget = 6
             for n, rows, out in found:
                 if budget <= 0: lines.append("  …"); break
                 take = out[:max(1, min(len(out), budget // max(1, len(found) - found.index((n, rows, out)))))]
