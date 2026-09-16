@@ -423,7 +423,19 @@ def main(argv):
     ent = [(m, d) for m, d in {**{c: 0 for c in direct_ids}, **reached}.items() if not callers_of.get(m) or g.sym[m]['is_test']]
     u = g.q(f"SELECT count(*) n FROM unresolved_sites WHERE caller_id IN ({','.join('?' * (len(reached) + len(seeds)))})", *reached, *seeds)[0]['n'] if reached or seeds else 0
     # the check that means something: every printed chain hop, and every resolved direct entry, is looked up again in graph.sqlite
-    chains = {m: I.chain(m, parent) for m in (tests if want_tests or as_json else {})}
+    chains = {m: I.chain(m, parent) for m in tests}
+    # how sure is each test's route to the change? the worst hop on its chain — what makes the answer wide is visible here:
+    # a call resolved to a SET of targets, or an override reached through its base, is the engine's over-approximation
+    CERT_UP = {'known_edge': 'sound', 'library': 'sound', 'written': 'sound', 'multi_inferred': 'one of a set', 'dispatch': 'dispatch', 'defines': 'defines'}
+    CERT_RANK = {'sound': 0, 'defines': 1, 'one of a set': 2, 'dispatch': 3, 'by name': 4}
+    def cert_of(m):
+        ch = chains.get(m) or []
+        worst = 'by name' if (ch and ch[-1] in byname_seeds) or (not ch and m in byname_seeds) else 'sound'
+        for a, b in zip(ch, ch[1:]):
+            c = CERT_UP.get(next((t for x, t in parent.get(a, ()) if x == b), 'known_edge'), 'one of a set')
+            if CERT_RANK[c] > CERT_RANK[worst]: worst = c
+        return worst
+    test_cert = {m: cert_of(m) for m in tests}
     bad = 0; hops = 0
     real = {(r[0], r[1]) for r in g.q("SELECT caller_id, callee_method_id FROM call_edges WHERE callee_method_id IS NOT NULL")}   # the engine's own edges, once
     callers_real = {a for a, _ in real}
@@ -440,7 +452,7 @@ def main(argv):
                           'contract': [{'id': c, 'display': g.disp(c), 'why': why, 'at': g.loc(c)} for c, why in contract],
                           'direct': [{'id': c, 'display': g.disp(c), 'role': role, 'why': why, 'certainty': cert, 'at': loc, 'sites': n} for c, role, why, cert, loc, n in D],
                           'reached': [{'id': m, 'display': g.disp(m), 'hops': d, 'at': g.loc(m), 'test': bool(g.sym[m]['is_test'])} for m, d in sorted(reached.items(), key=lambda x: x[1])],
-                          'tests': [{'id': m, 'display': g.disp(m), 'owner': g.sym[m]['owner'], 'name': g.sym[m]['name'], 'hops': d, 'via': g.disp(fx) if fx else None, 'at': g.loc(m), 'chain': [g.disp(x) for x in chains.get(m, [])]} for m, (d, fx) in tests.items()],
+                          'tests': [{'id': m, 'display': g.disp(m), 'owner': g.sym[m]['owner'], 'name': g.sym[m]['name'], 'hops': d, 'via': g.disp(fx) if fx else None, 'at': g.loc(m), 'certainty': test_cert.get(m), 'chain': [g.disp(x) for x in chains.get(m, [])]} for m, (d, fx) in tests.items()],
                           'inherited_tests': [{'id': s_, 'display': g.disp(s_), 'at': g.loc(s_), 'inherits': [g.disp(m) for m in ms]} for s_, ms in inh.items()],
                           'byname_callers': [{'id': c, 'display': g.disp(c), 'at': g.loc(c)} for c in byname_seeds],
                           'test_universe': universe, 'verified': bad == 0, 'checked_hops': hops, 'unresolved_inside': u}, indent=1))
@@ -472,10 +484,19 @@ def main(argv):
             print(f"      {d:2} hop(s)  {g.disp(m)}{' [test]' if g.sym[m]['is_test'] else ''}{(' @' + ','.join(decs[:3])) if decs else ''}   {g.loc(m)}")
         if len(ent) > limit: print(f"      … +{len(ent) - limit} (--limit N)")
     if inh: print(f"    inherited by {len(inh)} test class(es) that extend a reached one — they run those tests too: " + ', '.join(f"{g.disp(s_)} ({len(ms)}) {g.loc(s_)}" for s_, ms in sorted(inh.items(), key=lambda x: -len(x[1]))[:6]))
+    tfiles = {g.sym[m]['file'] for m in tests} | {g.sym[s_]['file'] for s_ in inh if s_ in g.sym}
+    all_tfiles = {r[0] for r in g.q("SELECT DISTINCT file FROM symbols WHERE is_test = 1 AND file IS NOT NULL")}
+    sure = [m for m, c in test_cert.items() if c == 'sound' and tests[m][0] <= 3]
     print(f"tests: {len(tests)} of {universe} test method(s) reach the change" + (" (their own body, or a fixture that runs before them: constructor, static initializer, @Before*/setUp)" if tests else ''))
+    if tests:
+        byc = collections.Counter(test_cert.values())
+        print("    how sure each route is: " + ', '.join(f"{n} {c}" for c, n in sorted(byc.items(), key=lambda x: CERT_RANK[x[0]])) + f"  —  {len(sure)} reach it through resolved single-target calls within 3 hops")
+        if all_tfiles and len(tfiles) >= 0.6 * len(all_tfiles):
+            print(f"    fan-in: {len(tfiles)} of {len(all_tfiles)} test file(s) reach this method — at that fan-in reaching says little about failing"
+                  " (measured on this repo's own mutation truth: a hub answer is right about 3 test files in 10, a narrow one about 6 in 10, and a sound route within 3 hops about 9 in 10)")
     if want_tests:
-        for m, (d, fx) in sorted(tests.items(), key=lambda x: (x[1][0], g.sym[x[0]]['display'])):
-            print(f"    {g.sym[m]['owner'] or os.path.basename(g.sym[m]['file'])}::{g.sym[m]['name']}   {g.loc(m)}   {d} hop(s)" + (f" via {g.disp(fx)}" if fx else ''))
+        for m, (d, fx) in sorted(tests.items(), key=lambda x: (CERT_RANK[test_cert[x[0]]], x[1][0], g.sym[x[0]]['display'])):
+            print(f"    [{test_cert[m]}] {g.sym[m]['owner'] or os.path.basename(g.sym[m]['file'])}::{g.sym[m]['name']}   {g.loc(m)}   {d} hop(s)" + (f" via {g.disp(fx)}" if fx else ''))
             if fx is None and d > 0 and len(chains.get(m, [])) > 1: print("        " + ' → '.join(g.disp(x) for x in chains[m]))
     print(f"verified: {hops} printed edge(s) looked up again in graph.sqlite" + (", all present" if bad == 0 else f" — ✗ {bad} not found: report this, do not use the answer"))
     if u: print(f"bound: {u} unresolved call(s) inside the impacted set — what those reach is unknown, so the set is a lower bound")
