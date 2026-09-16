@@ -19,7 +19,7 @@ function copyInline(dst, src) {
   return dst;
 }
 const copied = copyInline({}, source);
-function viaInline() { return copied.beta(); }          // unresolved: Object.keys() yields no key names yet
+function viaInline() { return copied.beta(); }          // beta only: the keys are enumerated from src (#707)
 
 // The self-mixin that made every property hold every value.
 const lodash = { alpha, beta };

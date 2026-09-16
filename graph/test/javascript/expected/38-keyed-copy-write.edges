@@ -2,7 +2,7 @@ main.js:14:16 FUNCTION_CALL mixin  ->  known_edge  main.js:7:1 mixin
 main.js:15:30 METHOD_CALL target.alpha  ->  known_edge  main.js:3:1 alpha
 main.js:18:21 METHOD_CALL Object.keys  ->  ambient_terminal  -
 main.js:21:16 FUNCTION_CALL copyInline  ->  known_edge  main.js:17:1 copyInline
-main.js:22:31 METHOD_CALL copied.beta  ->  ambiguous_unknown  -
+main.js:22:31 METHOD_CALL copied.beta  ->  known_edge  main.js:4:1 beta
 main.js:26:1 FUNCTION_CALL mixin  ->  known_edge  main.js:7:1 mixin
 main.js:27:29 METHOD_CALL lodash.alpha  ->  known_edge  main.js:3:1 alpha
 main.js:30:33 METHOD_CALL names.forEach  ->  ambient_terminal  -

@@ -327,7 +327,6 @@ this_value(m, "inst", t) :- expr_kind(_, "ASSIGNMENT", _, a), expr_child(_, a, "
     expr_kind(_, "ELEMENT_ACCESS", _, tgt), expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, "proto", t),
     expr_child(_, a, "ASSIGNMENT_VALUE", _, val), expr_introduces(_, m, val), method_this_binding(_, "DYNAMIC", m),
     !method_owner_type(m, _).
-
 // ── return_value ────────────────────────────────────────────────────────────
 // Every `return <expr>` in the body, and the expression body of an arrow (the
 // parser roots both under RETURN). The owner is the function returned FROM — the
@@ -482,6 +481,56 @@ member_write(k, i, n, k2, i2) :- keyed_copy_write(a, key, src), computed_key_wri
     key_name(key, n),
     expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, k, i), k != "ambient", k != "arr", k != "coll",
     expr_value(src, k0, i0), prop_value(k0, i0, n, k2, i2).
+// A copy whose keys are ENUMERATED FROM THE SOURCE (#707): `for (const k in src)
+// dst[k] = src[k]`, `for (const k of Object.keys(src))`, `Object.keys(src).forEach(k
+// => { dst[k] = src[k]; })`, the same through `Object.getOwnPropertyNames`, an alias
+// of `Object.keys`, or a project `keys(o)` helper written over `for..in`. The key
+// binding holds a string, the platform's (#685), and no name: what names the copy
+// is the ENUMERATION, so every property of the source's value is copied, one name
+// to its own value, and the key never widens. The body of every `extend` / `mixin`
+// / `assign` helper. A key enumerated from ANOTHER object (`for (k in defaults)
+// out[k] = opts[k]`) is not the source's enumeration and stays a keyed copy under
+// whatever names the key holds. `constructor` and `prototype` are not enumerable.
+enumerated_copy(a, src) :- keyed_copy_write(a, key, src), key_enumerates(key2, o),
+    same_key_binding(key, key2), same_subject(src, o).
+same_subject(e1, e2) :- same_key_binding(e1, e2).
+same_subject(e1, e2) :- expr_kind(_, "THIS", _, e1), expr_kind(_, "THIS", _, e2), expr_owner(_, m, _, e1), expr_owner(_, m, _, e2).
+member_write(k, i, n, k2, i2) :- enumerated_copy(a, src), computed_key_write(a, tgt, _, _),
+    expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, k, i), k != "ambient", k != "arr", k != "coll",
+    expr_value(src, k0, i0), prop_value(k0, i0, n, k2, i2), n != "constructor", n != "prototype".
+// key_enumerates(KeyExpr, Source): a reference to a binding that enumerates Source's
+// own property names.
+key_enumerates(key, src) :- loop_head(v, src), for_in_iterable(src), expr_binding(_, v, key).
+key_enumerates(key, src) :- loop_head(v, e), keys_array_expr(e, src), expr_binding(_, v, key).
+key_enumerates(key, src) :- call_site(_, ck, n, "SYNTACTIC", _, _, ce2, _, _), call_kind_is_member_form(ck), array_method_iterates(n),
+    expr_child(_, ce2, "RECEIVER", _, e), keys_array_expr(e, src),
+    call_arg(ce2, 0, f), expr_value(f, "func", m), param_decl(_, _, "0", m, p), expr_param(_, p, key).
+// keys_array_expr(Expr, Source): an expression that IS the array of Source's own
+// property names: the keys call itself, or a name initialised with one
+// (`const names = Object.keys(src); names.forEach(…)`). Syntactic on purpose: a
+// project helper's returned array is one literal shared by every call of the helper,
+// so the array VALUE would tie every call's keys to every call's argument.
+keys_array_expr(e, src) :- object_keys_call(e, src).
+keys_array_expr(e, src) :- expr_kind(_, "IDENTIFIER", _, e), expr_binding(_, v, e), var_init(_, _, init, v), keys_array_expr(init, src).
+// object_keys_call(CallExpr, Arg): `Object.keys(o)` / `Object.getOwnPropertyNames(o)`,
+// the same through an alias (`const keys = Object.keys; keys(o)`, read from the alias's
+// initializer, or by the call's own name when the platform value, which keeps only its
+// root name, is all that is known), and a call of a project keys helper.
+object_keys_call(ce, o) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", mn, _, _, _, ce, _, _), object_keys_method(mn),
+    expr_child(_, ce, "RECEIVER", _, recv), expr_value(recv, "ambient", "Object"), call_arg(ce, 0, o).
+object_keys_call(ce, o) :- expr_kind(_, "CALL", _, ce), call_site(_, "FUNCTION_CALL", mn, _, _, _, ce, _, _), object_keys_method(mn),
+    callee_value(ce, "ambient", "Object"), call_arg(ce, 0, o).
+object_keys_call(ce, o) :- expr_kind(_, "CALL", _, ce), call_site(_, "FUNCTION_CALL", _, _, _, _, ce, _, _),
+    expr_child(_, ce, "CALLEE", _, c), expr_binding(_, v, c), var_init(_, _, init, v),
+    expr_kind(_, "PROPERTY_ACCESS", _, init), expr_name(_, mn, init), object_keys_method(mn),
+    expr_child(_, init, "ACCESS_TARGET", _, recv), expr_value(recv, "ambient", "Object"), call_arg(ce, 0, o).
+object_keys_call(ce, o) :- expr_kind(_, "CALL", _, ce), expr_resolves_to_method(ce, m), keys_helper(m), call_arg(ce, 0, o).
+// keys_helper(Method): `function keys(o) { const a = []; for (const k in o) a.push(k);
+// return a; }`, or `function keys(o) { return Object.keys(o); }`: returns an array of
+// its first parameter's property names.
+keys_helper(m) :- param_decl(_, _, "0", m, p), loop_head(v, e), for_in_iterable(e), expr_param(_, p, e),
+    expr_binding(_, v, kref), array_method_call(pce, "push", a), call_arg(pce, _, kref), return_value(m, "arr", a).
+keys_helper(m) :- param_decl(_, _, "0", m, p), object_keys_call(ce, e), expr_param(_, p, e), return_value(m, "arr", ce).
 // `Object.assign` and its library cousins: resolution/frameworks.dl.
 
 // ── literal_owns_method(LiteralExpr, MethodHash) — PD-JS-1 workaround ───────
