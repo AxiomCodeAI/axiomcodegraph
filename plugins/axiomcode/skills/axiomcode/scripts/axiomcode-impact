@@ -694,22 +694,30 @@ def main(argv):
         # is it safe to delete? every reason it is not, and — when there is none — what the graph cannot vouch for
         names = {g.sym[t]['name'] for k, _, pay in targets if k == 'method' for t in (pay if isinstance(pay, list) else []) if t in g.sym}
         calls = [x for x in D if x[3] == 'resolved' and ('calls' in x[2] or 'instantiates' in x[2] or 'through' in x[2] or 'inject' in x[2])]
-        byname = [x for x in D if x[3] in ('by name', 'text')]
+        weak = [x for x in D if x[3] in ('one of a set', 'by name', 'text', 'in scope')]
         lits = [r for n_ in names for r in g.q("SELECT file, line FROM literals WHERE value = ?", n_)] if g.has('literals') else []
         decs = sorted({r[0].split('.')[-1] for k, _, pay in targets if k == 'method' for t in (pay if isinstance(pay, list) else []) for r in g.q("SELECT name FROM decorations WHERE owner_id = ?", t)})
+        # an override the engine put in dispatch_candidates is a caller too: the base's callers land here at run time
+        ov = [r['d'] for k, _, pay in targets if k == 'method' for t in (pay if isinstance(pay, list) else []) if t in g.sym and g.sym[t].get('method_id')
+              for r in (g.q("""SELECT DISTINCT b.display d FROM dispatch_candidates dc JOIN symbols b ON b.method_id = dc.base_method_id JOIN symbols c ON c.method_id = dc.candidate_method_id
+                              WHERE dc.candidate_method_id = ? AND dc.base_method_id <> dc.candidate_method_id AND b.owner <> c.owner""", g.sym[t]['method_id']) if g.has('dispatch_candidates') else [])]
         print("\nsafe to delete?")
-        if calls or contract:
-            print(f"  NO — {len({x[0] for x in calls})} callable(s) call or receive it, {len(contract)} declaration(s) are bound to it by a contract (above).")
-        else:
-            print("  no resolved caller and no contract in this graph. Before deleting, check what the graph cannot see:")
+        # one verdict word, decided on the whole population the answer printed, never on [resolved] alone: on a dynamic
+        # language almost every real caller is [one of a set] or [by name], and "no resolved caller" reads as "unused"
+        why = []
+        if calls: why.append(f"{len({x[0] for x in calls})} callable(s) call or receive it")
+        if contract: why.append(f"{len(contract)} declaration(s) are bound to it by a contract")
+        if weak: why.append(f"{len({x[0] for x in weak})} dependent(s) that are not exact edges (" + ', '.join(f"{n} {c}" for c, n in collections.Counter(x[3] for x in weak).most_common()) + "), each of which may be a same-named other thing and may be the real caller")
+        if ov: why.append("it overrides " + ', '.join(sorted(set(ov))[:3]) + ", so the base's callers reach this body with no call site of its own")
+        if why: print("  NOT SAFE — " + '; '.join(why) + ". They are listed above.")
+        else: print("  no dependent at any certainty in this graph. Before deleting, check what the graph cannot see:")
         bits = []
-        if byname: bits.append(f"{len(byname)} by-name / text match(es) — a receiver the parser could not type")
         if lits: bits.append(f"{len(lits)} string literal(s) equal to the name (reflection? a bean name? a config key?): " + ', '.join(f"{f}:{l}" for f, l in lits[:4]) + (' …' if len(lits) > 4 else ''))
-        if decs: bits.append("decorations on it: @" + ', @'.join(decs[:5]) + " — a framework may call it with no call site")
+        if decs: bits.append("decorations on it: @" + ', @'.join(decs[:5]) + " — a framework may call it with no call site, and a decorator can hand the wrapper to the caller instead of this declaration")
         if u: bits.append(f"{u} unresolved call(s) inside the impacted set")
         if tests: bits.append(f"{len(tests)} test(s) reach it")
         for b in bits: print(f"    · {b}")
-        if not bits and not calls and not contract: print("    · nothing — no by-name match, no literal, no decoration, no unresolved call inside")
+        if not bits and not calls and not contract and not weak and not ov: print("    · nothing — no by-name match, no literal, no decoration, no unresolved call inside")
     print("verified: nothing to check — no resolved edge is claimed in this answer (every entry is by name, in scope, text, or one of a target set)" if hops == 0 else
           f"verified: {hops} printed edge(s) looked up again in graph.sqlite" + (", all present" if bad == 0 else f" — ✗ {bad} not found: report this, do not use the answer"))
     if not reached and D: print("bound: the closure could not start — every dependent above is reached by something other than a resolved call (by name, in scope, text), so what reaches THEM is not in this answer")

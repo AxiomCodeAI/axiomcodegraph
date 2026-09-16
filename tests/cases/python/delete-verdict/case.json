@@ -1,0 +1,9 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "a declaration whose only callers are by-name or one-of-a-set is not reported as having no caller",
+   "run": ["impact", "Scaffold.post", "--delete"],
+   "want": ["NOT SAFE"],
+   "avoid": ["no dependent at any certainty"]},
+  {"why": "a declaration nothing touches at any certainty still says what the graph cannot see",
+   "run": ["impact", "unused_helper", "--delete"],
+   "want": ["no dependent at any certainty"]}]}

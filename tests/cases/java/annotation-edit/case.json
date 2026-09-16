@@ -1,0 +1,9 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "an annotation added above a method whose route template holds a brace is a signature-level decoration change, not a body change, and its arguments are not read as parameters",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.java", "--new", "{repo}/new.java", "--file", "src/pkg/Env.java"],
+   "want": ["signature  Env.labelled", "decoration changed: @Cacheable", "impact Env.labelled"],
+   "avoid": ["body       Env.labelled", "+name", "-\"/{name}"]},
+  {"why": "an annotation added above a plain method is reported for that method too",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.java", "--new", "{repo}/new.java", "--file", "src/pkg/Env.java"],
+   "want": ["Env.plain", "@Async"]}]}

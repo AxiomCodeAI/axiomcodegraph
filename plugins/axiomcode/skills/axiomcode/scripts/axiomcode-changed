@@ -86,9 +86,11 @@ class Changed:
     # ── the text-level structure of a declaration ─────────────────────────────────────────────────────────────
     @staticmethod
     def header_end(L, start):
-        """the last line of a header starting at `start`: up to the first line holding `{`, ending with `;`, or (Python) `:`"""
+        """the last line of a header starting at `start`: up to the first line holding `{`, ending with `;`, or (Python) `:`.
+        Read on stripped text: a route template, a cache key or an authorization expression inside an annotation holds a
+        brace, and taking that for the end of the header classified an annotation edit as body-only, its exact inverse"""
         for i in range(start - 1, min(len(L), start + 15)):
-            t = L[i]
+            t = strip_code(L[i])
             if '{' in t or t.rstrip().endswith(';') or (t.rstrip().endswith(':') and not t.strip().startswith(('case', 'default'))): return i + 1
         return start
     @staticmethod
@@ -199,7 +201,11 @@ class Changed:
                     # the new header: from the mapped line, the first line holding the name, to its end
                     for s in range(max(1, na - 2), min(len(NL), na + 6) + 1):
                         if re.search(rf'\b{re.escape(n)}\b', NL[s - 1]): nh = ' '.join(x.strip() for x in NL[s - 1:self.header_end(NL, s)]); break
-                op, np_ = self.params(oh), self.params(nh) if nh else []
+                # the header may start on an annotation line: its arguments are not a parameter list, and its text is
+                # not a return type. Read the signature from the first line that is not a decoration
+                sig = lambda h: re.sub(r'^\s*(@\w[\w.]*\s*(\([^)]*\))?\s*)+', '', h).strip()
+                oh_s, nh_s = sig(oh), sig(nh)
+                op, np_ = self.params(oh_s), self.params(nh_s) if nh_s else []
                 on, nn = [x for x, _ in op], [x for x, _ in np_]
                 detail = []
                 if nh and not re.search(rf'\b{re.escape(n)}\b', nh): detail.append('renamed')
@@ -209,11 +215,12 @@ class Changed:
                     if x not in on: detail.append(f'+{x}')
                 for (x, t1), (y, t2) in zip(op, np_):
                     if x == y and t1 != t2 and t1 and t2: detail.append(f'{x}: {t1} → {t2}')
-                pre_o = re.sub(r'\(.*$', '', oh); pre_n = re.sub(r'\(.*$', '', nh) if nh else ''
+                pre_o = re.sub(r'\(.*$', '', oh_s); pre_n = re.sub(r'\(.*$', '', nh_s) if nh_s else ''
                 if nh and pre_o.split() != pre_n.split():
                     ro = [w for w in pre_o.split() if w != n]; rn = [w for w in pre_n.split() if w != n]
                     if ro != rn: detail.append('return type / modifiers: ' + ' '.join(ro) + ' → ' + ' '.join(rn))
                 if not detail and nh and re.sub(r'\s', '', oh) != re.sub(r'\s', '', nh): detail.append('header text changed (annotations / throws / generics)')
+                if detail and not decs and re.sub(r'\s', '', oh_s) == re.sub(r'\s', '', nh_s) and nh_s: detail = ['decoration changed above the signature (the signature itself is unchanged)']
                 if not detail and not nh: detail.append('header changed (the new header could not be located — renamed?)')
                 if decs: detail.append('decoration changed: ' + ', '.join(dict.fromkeys(decs)) + ' — what the framework does with it (a proxy, a transaction, a cache, a route) is NOT in the graph; only the code that names it is')
                 if not detail: entry['kind'] = 'body'                                                  # whitespace or a comment in the header
