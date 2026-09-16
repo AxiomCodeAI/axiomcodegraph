@@ -3,11 +3,15 @@ export class Session {
   close() { this.closed = true; }
 }
 
+export class FileHandle {
+  close() { this.fd = -1; }
+}
+
 export function shutdown(anything) {
   anything.close();
 }
 
 export function run() {
-  const s = new Session(1);
-  shutdown(s);
+  shutdown(new Session(1));
+  shutdown(new FileHandle());
 }
