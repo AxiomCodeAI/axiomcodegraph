@@ -3,11 +3,15 @@
 #
 #   axiomcode index [<repo>] [--lang java|typescript|python|javascript] [--src <subdir>] [--library <root>[,<root>…]]
 #       the pipeline: parser → engine → .axiomcode/out/graph.sqlite (+ index). <repo> defaults to the current directory.
-#   axiomcode graph [<repo>] [--out <page.html>] [same flags]
-#       the graph as one page. Runs `index` first if the repo has no graph yet. <repo> defaults to the current directory;
-#       the page goes to <repo>/.axiomcode/graph/graph.html unless --out names another path.
-#   axiomcode graph export [<repo>] [--out <page.html>]
-#       the page from an existing graph.sqlite, no pipeline run (~1 s).
+#   axiomcode graph [<repo>] [--out <folder | page.html>] [same flags]
+#       the graph as one page. Runs the pipeline only when the repo has no up-to-date graph (~1 s otherwise). <repo>
+#       defaults to the current directory; the page goes to <repo>/.axiomcode/graph/graph.html, or to --out: a folder
+#       gets <folder>/<repo>.html, a .html path is used as given. The page embeds the sources, so a node opens its code.
+#   axiomcode path <from> <to> [<repo>] [--every | --paths N] [--all] [--limit N] [--in <path fragment>]
+#       the shortest chain of calls from A to B per reached target, and with --every all the routes; through what?
+#       '*' as one endpoint: path '*' X = everything that can reach X, with the entry points among them; path X '*' = everything X reaches. Endpoints exactly as written in the code: Owner.method,
+#       method (free function or any owner), Type (all its methods), file.ts:123, file.py. Datalog over the graph; every
+#       printed hop re-checked against graph.sqlite. `axiomcode path --selftest <lang>` replays the engine's expected edges.
 #
 # --lang picks the language when the repo mixes several (auto-detection counts files, so a TypeScript project with many
 # .js test scripts is taken for JavaScript); --src limits the analysed tree (e.g. src); --library names dependency roots.
@@ -24,7 +28,8 @@ while [ $# -gt 0 ]; do
 done
 case "$cmd" in
   index|build) exec bash "$H/axiomcode-build" ${ARGS[@]+"${ARGS[@]}"} ;;
-  graph)  case "${ARGS[0]:-}" in export) exec python3 "$H/axiomcode-graph" export "${ARGS[@]:1}" ;; *) exec python3 "$H/axiomcode-graph" build ${ARGS[@]+"${ARGS[@]}"} ;; esac ;;
-  ""|-h|--help|help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//' ;;
-  *) echo "axiomcode: unknown subcommand '$cmd' — the entry point has: index, graph" >&2; exit 2 ;;
+  path)   exec python3 "$H/axiomcode-path" ${ARGS[@]+"${ARGS[@]}"} ;;
+  graph)  exec python3 "$H/axiomcode-graph" build ${ARGS[@]+"${ARGS[@]}"} ;;
+  ""|-h|--help|help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) echo "axiomcode: unknown subcommand '$cmd' — the entry point has: index, graph, path" >&2; exit 2 ;;
 esac

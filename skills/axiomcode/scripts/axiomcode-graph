@@ -78,24 +78,29 @@ def export(repo, page=None):
     def box(c, owner, name):
         b = boxes[owner]; b['sites'] += 1; b['callers'].add(c); b['methods'][name] += 1
         le = LE.get((c, owner)); LE[(c, owner)] = dict(s=c, t='L:' + owner, w=(le['w'] + 1) if le else 1)
-    for r in q("SELECT e.caller_id, e.callee_method_id, e.tier, e.callee_label FROM call_edges e"):
+    sites = collections.defaultdict(list)   # per caller: [line, written name, target id ('' = none), tier] — what makes a call in the source a link
+    def site(c, r, target):
+        if r['line'] and len(sites[c]) < 400: sites[c].append([r['line'], r['written'] or '', target, r['tier']])
+    for r in q("SELECT e.caller_id, e.callee_method_id, e.tier, e.callee_label, s.start_line AS line, s.callee_name AS written FROM call_edges e LEFT JOIN call_sites s ON s.id = e.call_site_id"):
         c, t = r['caller_id'], r['callee_method_id']
         if c not in nodes: continue
         if not t or t not in nodes:
-            if t in lib: box(c, *lib[t])
+            if t in lib: box(c, *lib[t]); site(c, r, 'L:' + lib[t][0])
             elif r['tier'] == 'boundary_lib' and r['callee_label']:
                 # Python / JavaScript: the library target is a label — builtin:len, external:asyncio.get_running_loop — not a method row
                 prov, _, name = r['callee_label'].partition(':'); owner, _, meth = name.rpartition('.')
-                box(c, owner or (('builtins' if prov == 'builtin' else name)), meth or name)
-            elif (r['tier'] or '').startswith('ambiguous'): unresolved[c] += 1
+                owner = owner or (('builtins' if prov == 'builtin' else name)); box(c, owner, meth or name); site(c, r, 'L:' + owner)
+            elif (r['tier'] or '').startswith('ambiguous'): unresolved[c] += 1; site(c, r, '')
             else: terminal[c] += 1
             continue
+        site(c, r, t)
         e = E.get((c, t))
         if e is None: E[(c, t)] = dict(s=c, t=t, tier=r['tier'], w=1)
         else:
             e['w'] += 1
             if r['tier'] == 'known_edge': e['tier'] = 'known_edge'
     for m, n in unresolved.items(): nodes[m]['u'] = n
+    for m, ss in sites.items(): nodes[m]['cs'] = ss
     for owner, b in boxes.items():
         nodes['L:' + owner] = dict(id='L:' + owner, k='lib', l=owner, f='', sites=b['sites'], callers=len(b['callers']), methods=[f"{k}×{v}" if v > 1 else k for k, v in b['methods'].most_common(8)])
     for r in q("SELECT method_id, reason FROM entry_points"):
@@ -122,7 +127,17 @@ def export(repo, page=None):
                           client_rate=round(100 * client / max(1, sites - external - terminal_n)), overall_rate=round(100 * (sites - unres) / max(1, sites)),
                           tiers=dict(tiers), library_roots=run.get('library_roots', '') or (run.get('language') != 'java' and 'n/a') or '', counts=dict(collections.Counter(n['k'] for n in nodes.values())), edges=len(E)),
                 nodes=list(nodes.values()), calls=list(E.values()), libcalls=list(LE.values()), extends=X)
+    if page and (os.path.isdir(page) or not page.lower().endswith('.html')): page = os.path.join(page, os.path.basename(repo) + '.html')   # --out <folder> → <folder>/<repo>.html
     page = page or os.path.join(gdir, 'graph', 'graph.html'); os.makedirs(os.path.dirname(page), exist_ok=True)
+    # the sources, so the page can show the code a node points at (one file, still no network); skipped past 40 MB
+    files, size = {}, 0
+    for f in sorted({n['f'] for n in nodes.values() if n.get('f')}):
+        try:
+            t = open(os.path.join(repo, f), encoding='utf-8', errors='replace').read(); size += len(t)
+            if size > 40_000_000: files = {}; break
+            files[f] = t
+        except OSError: pass
+    data['files'] = files; data['meta']['repo_path'] = repo; data['meta']['sources'] = bool(files)
     tpl = open(os.path.join(HERE, 'viewer.html'), encoding='utf-8').read()
     open(page, 'w', encoding='utf-8').write(tpl.replace('/*__DATA__*/null', json.dumps(data, separators=(',', ':')).replace('</', '<\\/')))
     m = data['meta']
