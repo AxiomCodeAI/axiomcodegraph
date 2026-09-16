@@ -1,11 +1,9 @@
 package_entry    b-classes  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
 unresolved       lib/classes.js:13:29  METHOD_CALL id  receiver_untyped
 unresolved       lib/classes.js:30:17  METHOD_CALL create  no_target
-unresolved       lib/classes.js:30:88  METHOD_CALL get  member_absent
 unresolved       lib/classes.js:31:1  METHOD_CALL setPrototypeOf  no_target
 unresolved       lib/classes.js:6:33  METHOD_CALL map  no_target
 unresolved       lib/classes.js:7:24  METHOD_CALL push  no_target
-unresolved       main.js:12:35  METHOD_CALL extra  member_absent
 unresolved       main.js:18:77  METHOD_CALL then  member_absent
 unresolved       main.js:26:17  FUNCTION_CALL_BIND Holder  no_target
 unresolved       main.js:26:55  CONSTRUCTOR_CALL Bound  callee_untyped

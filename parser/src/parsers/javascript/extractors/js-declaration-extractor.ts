@@ -1554,6 +1554,38 @@ export class JsDeclarationExtractor {
     assignment: ts.BinaryExpression,
     context: WalkContext
   ): boolean {
+    // A CHAIN, `t1 = t2 = … = value` (#706). The parser only saw the outermost
+    // link, so `W.api = W.prototype = { … }` declared a static field `api` whose
+    // value was an assignment and the prototype literal's methods fell through to
+    // the generic walk as free function expressions, and `W.mixin = W.api.mixin =
+    // function () {}` declared a static FIELD where the unchained spelling
+    // declares a static method. The value is what the innermost link holds, and
+    // it is declared under EVERY link whose target is a member form. `exports.a
+    // = exports.b = f` walks the same chain on the export side already.
+    const links: ts.BinaryExpression[] = [];
+    let value: ts.Expression = assignment;
+    while (ts.isBinaryExpression(value) && value.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+      links.push(value);
+      value = value.right;
+    }
+    let declared = false;
+    for (const link of links) {
+      if (this.visitDeclaringLink(link, value, context)) {
+        declared = true;
+      }
+    }
+    return declared;
+  }
+
+  /**
+   * One link of an assignment chain: `<target> = …`, with `value` the chain's
+   * innermost right-hand side (the link's own `right` when it is not chained).
+   */
+  private visitDeclaringLink(
+    assignment: ts.BinaryExpression,
+    value: ts.Expression,
+    context: WalkContext
+  ): boolean {
     const target = assignment.left;
     if (!ts.isPropertyAccessExpression(target) && !ts.isElementAccessExpression(target)) {
       return false;
@@ -1564,7 +1596,7 @@ export class JsDeclarationExtractor {
     if (ts.isPropertyAccessExpression(target) && target.name.text === 'prototype') {
       const ownerName = typeNameOfExpression(target.expression);
       if (ownerName !== undefined) {
-        return this.visitPrototypeReplacement(assignment, ownerName, context);
+        return this.visitPrototypeReplacement(assignment, value, ownerName, context);
       }
     }
 
@@ -1575,6 +1607,7 @@ export class JsDeclarationExtractor {
       && typeNameOfExpression(target.expression.expression) !== undefined) {
       return this.emitAssignedMember({
         assignment,
+        value,
         ownerName: typeNameOfExpression(target.expression.expression)!,
         memberName: target.name.text,
         isStatic: false,
@@ -1594,6 +1627,7 @@ export class JsDeclarationExtractor {
       if (owner !== undefined) {
         return this.emitAssignedMember({
           assignment,
+          value,
           ownerName: target.expression.text,
           memberName: target.name.text,
           isStatic: true,
@@ -1621,6 +1655,8 @@ export class JsDeclarationExtractor {
    */
   private visitPrototypeReplacement(
     assignment: ts.BinaryExpression,
+    /** The chain's innermost right-hand side — `assignment.right` when unchained. */
+    value: ts.Expression,
     ownerName: string,
     context: WalkContext
   ): boolean {
@@ -1628,7 +1664,6 @@ export class JsDeclarationExtractor {
     if (owner === undefined) {
       return false;
     }
-    const value = assignment.right;
 
     if (ts.isCallExpression(value) && isObjectCreate(value) && value.arguments.length > 0) {
       this.emitHeritage({
@@ -1708,6 +1743,8 @@ export class JsDeclarationExtractor {
 
   private emitAssignedMember(init: {
     assignment: ts.BinaryExpression;
+    /** The chain's innermost right-hand side — `assignment.right` when unchained. */
+    value: ts.Expression;
     ownerName: string;
     memberName: string;
     isStatic: boolean;
@@ -1721,8 +1758,12 @@ export class JsDeclarationExtractor {
       return false;
     }
     owner.setHasPrototypeMembers();
-    const value = init.assignment.right;
-    if (isCallableExpression(value)) {
+    const value = init.value;
+    // A callable has ONE method row. In a chain (`W.both = W.prototype.both =
+    // function () {}`) the first member link owns it and every further link
+    // declares a field of its own name, whose value the engine reads from the
+    // link's assignment exactly as it reads `T.m = existingFunction`.
+    if (isCallableExpression(value) && !this.consumedNodes.has(nodeKey(value))) {
       // CLASS_METHOD, not FUNCTION_EXPRESSION. The syntax is a function
       // expression and the ROLE is a member of `owner` — `declarationForm`
       // already records the syntax, and `methodKind` records what the thing is.

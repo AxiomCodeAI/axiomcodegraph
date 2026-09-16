@@ -253,6 +253,7 @@
 .decl return_value(c0:symbol, c1:symbol, c2:symbol)
 .decl prop_value(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol)
 .decl member_write(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol)
+.decl prototype_object(c0:symbol, c1:symbol)
 .decl computed_key_write(c0:symbol, c1:symbol, c2:symbol, c3:symbol)
 .decl keyed_copy_write(c0:symbol, c1:symbol, c2:symbol)
 .decl keyed_read(c0:symbol, c1:symbol, c2:symbol)
