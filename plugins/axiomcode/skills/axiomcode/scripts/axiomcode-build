@@ -10,7 +10,9 @@
 set -euo pipefail
 H="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "${1:-.}" && pwd)"; SRC="$REPO/${AXIOMCODE_SRC:-}"; SRC="${SRC%/}"
-ENGINE="${AXIOMCODE_ENGINE:-$(cd "$H/../../.." && pwd)}"
+# the engine checkout: walk up from this script until a bin/axiomcode is found (skills/… or plugins/axiomcode/skills/…)
+if [ -z "${AXIOMCODE_ENGINE:-}" ]; then E="$H"; while [ "$E" != "/" ] && [ ! -x "$E/bin/axiomcode" ]; do E="$(dirname "$E")"; done; AXIOMCODE_ENGINE="$E"; fi
+ENGINE="$AXIOMCODE_ENGINE"
 [ -x "$ENGINE/bin/axiomcode" ] || { echo "no bin/axiomcode under $ENGINE (set AXIOMCODE_ENGINE)"; exit 1; }
 # no `head` in this pipeline: under pipefail a closed pipe kills find and, with set -e, the script — silently
 count(){ find "$SRC" \( -path '*/node_modules' -o -path '*/.axiomcode' -o -path '*/.git' -o -path '*/.venv' -o -path '*/venv' -o -path '*/site-packages' -o -path '*/dist' -o -path '*/build' \) -prune -o -type f \( "$@" \) -print 2>/dev/null | wc -l | tr -d ' '; }
