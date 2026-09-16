@@ -453,6 +453,7 @@
 .decl local_assign_value(c0:symbol,c1:symbol)
 .decl local_flow_type(c0:symbol,c1:symbol)
 .decl param_flow_type(c0:symbol,c1:symbol)
+.decl this_flow_type(c0:symbol,c1:symbol)
 .decl method_owner_type(c0:symbol,c1:symbol)
 .decl ret_multi(c0:symbol)
 .decl ret_has_receiver(c0:symbol)
