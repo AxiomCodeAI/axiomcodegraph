@@ -74,6 +74,7 @@ main.js:15:16 CONSTRUCTOR_CALL C.Service  ->  implicit_constructor  -
 main.js:15:3 CONSTRUCTOR_CALL C.Holder  ->  known_edge  lib/classes.js:35:16 <constructor>
 main.js:15:3 METHOD_CALL new C.Holder(new C.Service()).go  ->  known_edge  lib/classes.js:35:79 go
 main.js:16:3 METHOD_CALL C.Container.inst.run  ->  known_edge  lib/classes.js:22:40 run
+main.js:16:3 PROPERTY_READ C.Container.inst  ->  known_edge  lib/classes.js:36:33 inst
 main.js:17:24 METHOD_CALL C.Late.staticLate  ->  known_edge  lib/classes.js:39:19 staticLate
 main.js:17:24 METHOD_CALL C.Late.staticLate().late  ->  known_edge  lib/classes.js:38:23 late
 main.js:17:3 CONSTRUCTOR_CALL C.Late  ->  implicit_constructor  -
@@ -89,6 +90,7 @@ main.js:18:77 METHOD_CALL C.AsyncCls.build().then  ->  ambiguous_unknown  -
 main.js:18:77 METHOD_CALL C.AsyncCls.build().then  ->  callback_registered  main.js:18:101 <arrow>
 main.js:19:3 CONSTRUCTOR_CALL C.Accessors  ->  implicit_constructor  -
 main.js:19:3 METHOD_CALL new C.Accessors().pair.run  ->  known_edge  lib/classes.js:41:46 <arrow>
+main.js:19:3 PROPERTY_READ new C.Accessors().pair  ->  known_edge  lib/classes.js:41:19 pair
 main.js:20:3 CONSTRUCTOR_CALL C.Nested  ->  implicit_constructor  -
 main.js:20:3 METHOD_CALL new C.Nested().outer  ->  known_edge  lib/classes.js:42:16 outer
 main.js:21:3 CONSTRUCTOR_CALL C.WithNewTarget  ->  known_edge  lib/classes.js:43:23 <constructor>
@@ -130,6 +132,8 @@ main.js:6:37 METHOD_CALL l.chain  ->  known_edge  lib/classes.js:11:3 chain
 main.js:6:37 METHOD_CALL l.chain().chain  ->  known_edge  lib/classes.js:11:3 chain
 main.js:6:37 METHOD_CALL l.chain().chain().id  ->  known_edge  lib/classes.js:21:26 id
 main.js:6:61 METHOD_CALL l.svc.run  ->  known_edge  lib/classes.js:22:40 run
+main.js:6:61 PROPERTY_READ l.svc  ->  known_edge  lib/classes.js:12:3 svc
+main.js:6:74 PROPERTY_WRITE l.svc  ->  known_edge  lib/classes.js:13:3 svc
 main.js:6:82 CONSTRUCTOR_CALL C.Service  ->  implicit_constructor  -
 main.js:6:99 METHOD_CALL l.viaPrivate  ->  known_edge  lib/classes.js:17:3 viaPrivate
 main.js:7:24 FUNCTION_CALL String  ->  ambient_terminal  -

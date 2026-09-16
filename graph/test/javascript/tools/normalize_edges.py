@@ -43,6 +43,18 @@ if h:
     i = {c: h.index(c) for c in ('expressionLinkHash', 'ownerModuleLinkHash', 'startLine', 'startColumn', 'callKind', 'calleeText')}
     for r in sites:
         site[r[i['expressionLinkHash']]] = '%s:%s:%s %s %s' % (modfile.get(r[i['ownerModuleLinkHash']], '?'), r[i['startLine']], r[i['startColumn']], r[i['callKind']], r[i['calleeText']].replace('\n', ' ')[:60])
+# An ACCESSOR edge (#731) is keyed on the PROPERTY_ACCESS expression, which is no call
+# site, so its position comes from the expressions table. Written second so a real call
+# site keeps the text the parser gave it.
+access = {}
+h, exprs = read(os.path.join(ir, 'all-javascript-expressions.csv'))
+if h:
+    i = {c: h.index(c) for c in ('jsExpressionUniqueHash', 'ownerModuleLinkHash', 'startLine', 'startColumn', 'expressionKind', 'text')}
+    for r in exprs:
+        if r[i['expressionKind']] in ('PROPERTY_ACCESS', 'OPTIONAL_ACCESS', 'ELEMENT_ACCESS'):
+            access[r[i['jsExpressionUniqueHash']]] = '%s:%s:%s %%s %s' % (
+                modfile.get(r[i['ownerModuleLinkHash']], '?'), r[i['startLine']], r[i['startColumn']],
+                r[i['text']].replace('\n', ' ')[:60])
 lines = set()
 with open(os.path.join(out, 'call-chain-edges.csv')) as fh:
     for line in fh:
@@ -51,6 +63,9 @@ with open(os.path.join(out, 'call-chain-edges.csv')) as fh:
             continue
         ce, caller, _, callee, prov, cls, kind = f[:7]
         tgt = m.get(callee, '-') if callee != '-' else '-'
-        lines.add('%s  ->  %s  %s' % (site.get(ce, ce), cls, tgt))
+        # An accessor edge has no call site: its position comes from the expression and
+        # the KIND (PROPERTY_READ / PROPERTY_WRITE) says which half of the protocol ran.
+        where = site.get(ce) or (access[ce] % kind if ce in access else ce)
+        lines.add('%s  ->  %s  %s' % (where, cls, tgt))
 for l in sorted(lines):
     print(l)
