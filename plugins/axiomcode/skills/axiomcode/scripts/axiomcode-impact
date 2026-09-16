@@ -283,7 +283,7 @@ class Impact:
         return [ln for ln in range(s['line'], min(s['end_line'], len(L)) + 1) if pat.search(L[ln - 1])]
 
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
-    IMPACT_VERSION = '9'          # 3: decl_file facts (the import-time test-file rule)
+    IMPACT_VERSION = '11'          # 3: decl_file facts (the import-time test-file rule)
     def export(self):
         g = self.g; D = os.path.join(g.facts, 'impact'); stamp = os.path.join(D, 'stamp'); want = f"{os.path.getmtime(g.db)}:{self.IMPACT_VERSION}"
         # a cache written by an older program, or one an interrupted run left half written, breaks every query with
@@ -294,8 +294,11 @@ class Impact:
         tid_of = {}                                                                     # owner display -> type id
         for r in g.q("SELECT display, type_id FROM symbols WHERE type_id IS NOT NULL"): tid_of.setdefault(r['display'], r['type_id'])
         cat = {r['id']: (r['category'] or '') for r in g.q("SELECT id, category FROM types")}
-        W('typ', [(i, s['name'], 'record' if 'RECORD' in cat.get(i, '') else s['kind']) for i, s in g.sym.items() if s.get('type_id') and not s.get('method_id')])
-        W('type_in_file', [(i, s['file']) for i, s in g.sym.items() if s.get('type_id') and not s.get('method_id') and s.get('file')])
+        mods = {i for i, sy in g.sym.items() if sy['kind'] == 'module' and sy.get('file')}
+        W('typ', [(i, s['name'], 'record' if 'RECORD' in cat.get(i, '') else s['kind']) for i, s in g.sym.items() if s.get('type_id') and not s.get('method_id')]
+                 + [(i, g.sym[i]['name'], 'module') for i in sorted(mods)])
+        W('type_in_file', [(i, s['file']) for i, s in g.sym.items() if s.get('type_id') and not s.get('method_id') and s.get('file')]
+                          + [(i, g.sym[i]['file']) for i in sorted(mods)])
         W('kind', [(i, s['kind']) for i, s in g.sym.items()])
         W('decl_file', [(i, s['file']) for i, s in g.sym.items() if s.get('file')])
         def owner_tid(disp):                                                          # Enum.CONSTANT.m and <anon> bodies: the nearest enclosing type
@@ -309,9 +312,18 @@ class Impact:
             t = owner_tid(s['owner'])
             if t: members.append((t, i, s['name'], s['kind'])); owners.append((i, t))
         fields = []; acc = []
+        # a module-level declaration (an exported const, a top-level binding) has no owner TYPE. Dropping it here left
+        # every such declaration with no dependents at all and made --delete call it safe. Its module is its owner: the
+        # <module> callable of the file it is declared in, which is emitted as a type node so the scope rules apply
+        mod_of = {}
+        for i, sy in g.sym.items():
+            if sy['kind'] == 'module' and sy.get('file'): mod_of.setdefault(sy['file'], i)
+        modules_used = set()
         for rid, f in self.fields.items():
             fid = f"f:{rid}"; t = tid_of.get(f['owner'] or '')
+            if not t: t = mod_of.get(f.get('file') or '')
             if not t: continue
+            if t in mod_of.values(): modules_used.add(t)
             members.append((t, fid, f['name'], f['kind'])); fields.append((fid, t, f['name'], f['file'] or '', f['line'] or 0))
             cap = f['name'][:1].upper() + f['name'][1:]
             # the bean names, the fluent name (a record accessor, a plain-name getter), and the same name without a
@@ -319,6 +331,7 @@ class Impact:
             acc += [(fid, 'get' + cap, 'read'), (fid, 'is' + cap, 'read'), (fid, 'set' + cap, 'write'), (fid, f['name'], 'read')]
             if f['name'].startswith('_') and len(f['name']) > 1: acc.append((fid, f['name'].lstrip('_'), 'read'))
         W('member', members); W('owner', owners); W('field', fields); W('accessor', acc)
+        self.module_owners = modules_used
         # the type written on the field's own declaration line. Without it `holds` is file scoped: one field of type T
         # in a file makes every type declared in that file a holder of T
         ftypes = []
@@ -396,6 +409,19 @@ class Impact:
             for v in set(re.findall(r'"{1,3}([^"]{1,120})"{1,3}', r['text'] or '')):
                 if c: decl.append((c, r['name'].split('.')[-1], v, r['file'] or '', r['line'] or 0))
         W('dec_literal', sorted(set(decl)))
+        # a barrel: `export { alpha } from './core.js'`. The parser records no reference for that line, so the file
+        # that has to change in the same commit as a rename was invisible. Read from the source, per module
+        rex = []
+        for f, mid in sorted(mod_of.items()):
+            if not re.search(r'\.(ts|tsx|js|jsx|mjs|cjs)$', f): continue
+            for i, line in enumerate(self.code(f), 1):
+                m = re.match(r'\s*export\s*(type\s*)?\{([^}]*)\}\s*from\s', line)
+                if m:
+                    for part in m.group(2).split(','):
+                        w = re.findall(r'[A-Za-z_$][\w$]*', part)
+                        if w: rex.append((mid, w[0], f, i))
+                elif re.match(r'\s*export\s*\*\s*from\s', line): rex.append((mid, '*', f, i))
+        W('reexport', sorted(set(rex)))
         decs = collections.defaultdict(set)
         for r in (g.q("SELECT owner_id, name FROM decorations") if g.has('decorations') else []): decs[r[0]].add(r[1].split('.')[-1])
         tm = [i for i, s in g.sym.items() if s['is_test'] and s.get('method_id') and s['kind'] in ('method', 'function') and (any(TEST_DECOR.search(d) for d in decs.get(i, ())) or s['name'].startswith(('test', 'it')))]
@@ -647,15 +673,27 @@ def main(argv):
         print(f"must change with it ({len(contract)}: " + (f"{len(contract) - nm} bound by a contract the engine resolved, {nm} matched by name" if nm else "bound by a contract the engine resolved") + "):")
         for c, why in contract[:limit]: print(f"    {g.disp(c)}   {g.loc(c)}   — {why}" + (f"   [for {', '.join(sorted(contract_of[(c, why)]))}]" if multi else ''))
         if len(contract) > limit: print(f"    … +{len(contract) - limit} (--limit N)")
-    D.sort(key=lambda x: (CERT[x[3]], x[2], g.disp(x[0])))
+    # the window a reader actually sees must not be decided by ASCII: `<arrow>`, `<lambda>`, `<anon …>` sort before
+    # every letter, and in a callback-heavy language they are most of the list, so the file that breaks is pushed into
+    # the hidden tail. Surest first, then named before anonymous, then the entries with the most sites
+    anon = lambda c: g.disp(c).split('.')[-1].startswith('<')
+    D.sort(key=lambda x: (CERT[x[3]], anon(x[0]), -(x[5] or 1), x[2], g.disp(x[0])))
     groups = [('produces or writes it', [x for x in D if x[1] in ('produces', 'writes')]), ('reads or uses it', [x for x in D if x[1] in ('reads', 'uses')])]
     if not D: print("directly touches it: nothing the graph can see" + (" — the declaration is used only where it is declared, or through something the parser did not record" if not contract else ''))
     for title, rows in groups:
         if not rows: continue
         by = collections.Counter(cert for _, _, _, cert, _, _ in rows)
         print(f"{title} ({len({c for c, *_ in rows})} callable(s): " + ', '.join(f"{n} {c}" for c, n in sorted(by.items(), key=lambda x: CERT[x[0]])) + "):")
-        for c, role, why, cert, loc, n in rows[:limit]: print(f"    [{cert}] {g.disp(c)}   {loc}   — {why}" + (f" ({n} sites)" if n > 1 else '') + (f"   [for {', '.join(sorted(from_target[(c, why)]))}]" if multi else ''))
-        if len(rows) > limit: print(f"    … +{len(rows) - limit} (--limit N)")
+        # and no single file may fill the window: one test file with 21 anonymous callbacks used to hide every other file
+        cap = max(3, limit // 5); per = collections.Counter(); shown = []; hidden = []
+        for r in rows:
+            f = (r[4] or '').rsplit(':', 1)[0]
+            if len(shown) < limit and per[f] < cap: per[f] += 1; shown.append(r)
+            else: hidden.append(r)
+        for c, role, why, cert, loc, n in shown: print(f"    [{cert}] {g.disp(c)}   {loc}   — {why}" + (f" ({n} sites)" if n > 1 else '') + (f"   [for {', '.join(sorted(from_target[(c, why)]))}]" if multi else ''))
+        if hidden:
+            byf = collections.Counter((r[4] or '').rsplit(':', 1)[0] for r in hidden)
+            print(f"    … +{len(hidden)} more in {len(byf)} file(s): " + ', '.join(f"{f} ({n})" for f, n in byf.most_common(6)) + (' …' if len(byf) > 6 else '') + "   (--limit N for all of them)")
     nfiles = len({g.sym[m]['file'] for m in reached})
     if any(k == 'var' for k, _, _ in targets) and not reached:
         print("reaches those through resolved calls: nothing — a local lives inside its method; it escapes only through what the method returns or writes, and the callers of the method are its impact only if it does")

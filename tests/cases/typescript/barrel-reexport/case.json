@@ -1,0 +1,8 @@
+{"lang": "typescript", "src": "src",
+ "checks": [
+  {"why": "a barrel that re-exports the declaration by name is a dependent: that line must change with a rename",
+   "run": ["impact", "alpha"],
+   "want": ["src/lib/index.ts:1", "re-exports it"]},
+  {"why": "and the renamed form (export { beta as renamedBeta }) is found under the original name",
+   "run": ["impact", "beta"],
+   "want": ["src/lib/index.ts:2", "re-exports it"]}]}
