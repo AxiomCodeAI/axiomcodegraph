@@ -1,0 +1,9 @@
+{"lang": "java", "src": "src",
+ "sql": ["CREATE TABLE IF NOT EXISTS ext_inject_point (c0 TEXT, c1 TEXT, c2 TEXT, c3 TEXT, c4 TEXT)",
+         "INSERT INTO ext_inject_point (c0, c1, c2, c3, c4) SELECT 'field', 'repo', (SELECT type_id FROM symbols WHERE display='Repo' AND method_id IS NULL), (SELECT type_id FROM symbols WHERE display='Consumer' AND method_id IS NULL), '-'",
+         "CREATE TABLE IF NOT EXISTS ext_bean_def (c0 TEXT, c1 TEXT, c2 TEXT)",
+         "INSERT INTO ext_bean_def (c0, c1, c2) SELECT 'repo', type_id, 'bean' FROM symbols WHERE display='Repo' AND method_id IS NULL"],
+ "checks": [
+  {"why": "a bean injected into a FIELD has a visible consumer: the type that declares the field, since there is no call site",
+   "run": ["impact", "Repo"],
+   "want": ["dependency injection (field)", "Consumer"]}]}

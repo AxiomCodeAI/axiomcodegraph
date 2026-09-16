@@ -32,6 +32,8 @@ for l, name, path in cases:
     build = ['bash', AX, 'index', path, '--lang', spec.get('lang', l)] + (['--src', spec['src']] if spec.get('src') else [])
     r = subprocess.run(build, capture_output=True, text=True)
     if r.returncode: print(f"FAIL {l}/{name}: index failed: {(r.stderr or r.stdout)[-300:]}"); fail += 1; continue
+    for stmt in spec.get('sql', []):                                  # facts a framework extension would have written
+        subprocess.run(['sqlite3', os.path.join(path, '.axiomcode', 'out', 'graph.sqlite'), stmt], capture_output=True, text=True)
     for ch in spec['checks']:
         tot += 1
         out = subprocess.run(['bash', AX] + [a.replace('{repo}', path) for a in ch['run']] + ([path] if ch['run'][0] != 'index' else []), capture_output=True, text=True)

@@ -1,0 +1,5 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "a member asked under the subclass that inherits it is answered for the declaration, not with a zero",
+   "run": ["impact", "Request.headers"],
+   "want": ["inherited from", "read_one", "read_two"]}]}

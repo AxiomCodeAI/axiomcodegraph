@@ -50,6 +50,7 @@
 .decl typeref_file(f:symbol, n:symbol, ctx:symbol)                .input typeref_file
 .decl type_in_file(t:symbol, f:symbol)                            .input type_in_file
 .decl literal(c:symbol, v:symbol, f:symbol, l:number)             .input literal
+.decl dec_literal(c:symbol, d:symbol, v:symbol, f:symbol, l:number) .input dec_literal
 .decl field(fl:symbol, t:symbol, n:symbol, f:symbol, l:number)    .input field
 .decl accessor(fl:symbol, n:symbol, rw:symbol)                    .input accessor
 .decl gen_table(d:symbol, what:symbol)                            .input gen_table
@@ -269,6 +270,11 @@ direct_edge(q, c, m) :- tmember(q, m, _, _), calls(c, m, _, _, _).
 direct_edge(q, c, m) :- target(q, "param", m, _), calls(c, m, _, _, _).
 direct_edge(q, c, m) :- target(q, "typeparam", m, _), calls(c, m, _, _, _).
 .output direct_edge
+
+// ── a STRING target: a topic, a queue, a route, a bean qualifier — a name in a namespace that is not the code's ──
+direct(q, c, "uses", "names it in a string literal", "text", f, l) :- target(q, "string", _, v), literal(c, v, f, l).
+direct(q, c, "uses", cat("binds to it through @", d), "text", f, l) :- target(q, "string", _, v), dec_literal(c, d, v, f, l).
+seed(q, c) :- target(q, "string", _, _), direct(q, c, _, _, _, _, _).
 
 // ── the transitive layer: everything that can reach a seed through resolved calls, shortest hop count ──────────
 // A call site written with the target's simple name that the engine could not resolve (the receiver was not typed —

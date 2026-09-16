@@ -1,0 +1,12 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a decoration is an endpoint for path, not a declaration impact can act on: refused, not answered with a complete looking zero",
+   "run": ["impact", "@Deprecated"],
+   "want": ["not a declaration the impact rules can act on"],
+   "avoid": ["test method(s) reach the change"],
+   "expect_error": true},
+  {"why": "a configuration key with no configuration facts says what is not visible",
+   "run": ["impact", "app.server.prefix"],
+   "want": ["is NOT visible"],
+   "avoid": ["test method(s) reach the change"],
+   "expect_error": true}]}

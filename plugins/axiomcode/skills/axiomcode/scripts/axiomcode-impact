@@ -151,7 +151,16 @@ class Impact:
     def resolve(self, sel, kind=None):
         """-> list of (kind, label, payload). payload: method ids (method), field row (field), type symbol (type),
         (method id, name) (param / var), (owner symbol, name) (typeparam). Several when the name is declared as several kinds."""
-        s = sel.strip().strip('`"\'')
+        raw = sel.strip()
+        if len(raw) > 2 and raw[0] in '"\'' and raw[-1] == raw[0]:
+            v = raw[1:-1]
+            n = len(self.g.q("SELECT 1 FROM literals WHERE value = ?", v)) if self.g.has('literals') else 0
+            d = len(self.g.q("SELECT 1 FROM decorations WHERE text LIKE ?", f'%"{v}"%')) if self.g.has('decorations') else 0
+            if not n and not d: die(f"the string {raw} appears in no literal and in no decoration in this graph: what binds to it is\n"
+                                    f"  UNKNOWN, not empty. It may be built from parts, or live in a file the index does not read (a\n"
+                                    f"  properties file, a YAML, an XML). Do not read this as 'nothing uses it'.")
+            return [('string', f"the string {raw} ({n} literal site(s), {d} decoration site(s))", v)]
+        s = raw.strip('`"\'')
         if (kind == 'config' or (not kind and self.CONFIG_RE.match(s) and not self.field_rows(s) and not self.types(s, soft=True) and not self.methods(s, soft=True))): return self.config_target(s)
         m = re.match(r'^(.+?):([A-Za-z_]\w*)$', s)
         if m and '/' not in m.group(2):                                                # Owner.m:v — a local
@@ -196,8 +205,36 @@ class Impact:
             if mids and any(k == 'type' for k, _, _ in out) and all(self.g.sym[i]['kind'] == 'constructor' for i in mids): mids = []   # `Type` is the type; its construction is Type.<init>
             if mids: out.append(('method', (self.g.disp(mids[0]) if len(mids) == 1 else f"{s} ({len(mids)} declarations)"), mids))
         if not out:
+            # an inherited member is written under the name the code uses: Sub.member, declared in a base. Answer for the
+            # declaration and say where it is, instead of falling through to a name match that no rule can act on
+            m = re.match(r'^(.+)\.([A-Za-z_]\w*)$', base)
+            if m and self.types(m.group(1), soft=True):
+                for tid in self.types(m.group(1)):
+                    anc = self.g.q("""SELECT s.display d FROM symbols s JOIN type_ancestors a ON a.ancestor_type_id = s.type_id
+                                      WHERE a.type_id = ? AND s.method_id IS NULL AND s.type_id IS NOT NULL""", self.g.sym[tid]['type_id']) if self.g.sym[tid].get('type_id') else []
+                    for r in anc:
+                        inh = self.resolve(f"{r['d']}.{m.group(2)}", kind) if (self.field_rows(f"{r['d']}.{m.group(2)}") or self.methods(f"{r['d']}.{m.group(2)}", soft=True)) else []
+                        if inh:
+                            print(f"note: {s} is not declared in {self.g.disp(tid)}; it is inherited from {r['d']}, and this is the answer for that declaration", file=sys.stderr)
+                            return inh
             if kind: die(f"nothing of kind {kind} named {s} in the graph")
+            if s.startswith('@'):
+                # `path` takes a decoration as an endpoint; there is no rule here for "what depends on this annotation",
+                # and answering for the methods that carry it would be a different question than the one asked
+                n = len(self.g.q("SELECT 1 FROM decorations WHERE name = ? OR name LIKE ?", s[1:], '%.' + s[1:])) if self.g.has('decorations') else 0
+                die(f"{s} is a decoration ({n} site(s) in this graph), not a declaration the impact rules can act on.\n"
+                    f"  Ask `axiomcode path '{s}' <target>` for what the methods carrying it reach, or name a declaration:\n"
+                    f"  a method (Owner.m), a field (Owner.f), a type (Type), a parameter (Owner.m(p)), a type parameter\n"
+                    f"  (Type<T>), a local (Owner.m:v), a construction (Type.<init>) or a static initializer (Type.<clinit>).")
             label, ids = self.g.resolve(s)                                                 # the path finder's endpoints: written / library / decoration
+            # a decoration, a library call, a file, a name matched in text: the path finder can take these as endpoints,
+            # the impact rules cannot. A zero in every section would read as "nothing depends on it", which is not what
+            # was computed, so the query stops here instead
+            if not ids or not any(i in self.g.sym and (self.g.sym[i].get('method_id') or self.g.sym[i].get('type_id')) for i in ids):
+                die(f"{s} matched {label}, which is not a declaration the impact rules can act on.\n"
+                    f"  They take: a method (Owner.m), a field / constant / enum member (Owner.f), a type (Type), a parameter\n"
+                    f"  (Owner.m(p)), a type parameter (Type<T>), a local (Owner.m:v), a construction (Type.<init>) or a static\n"
+                    f"  initializer (Type.<clinit>). For a decoration, a library call or a file, ask `axiomcode path` instead.")
             out.append(('method', label, ids))
         return out
     def methods(self, s, soft=False):
@@ -246,7 +283,7 @@ class Impact:
         return [ln for ln in range(s['line'], min(s['end_line'], len(L)) + 1) if pat.search(L[ln - 1])]
 
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
-    IMPACT_VERSION = '8'          # 3: decl_file facts (the import-time test-file rule)
+    IMPACT_VERSION = '9'          # 3: decl_file facts (the import-time test-file rule)
     def export(self):
         g = self.g; D = os.path.join(g.facts, 'impact'); stamp = os.path.join(D, 'stamp'); want = f"{os.path.getmtime(g.db)}:{self.IMPACT_VERSION}"
         # a cache written by an older program, or one an interrupted run left half written, breaks every query with
@@ -351,6 +388,14 @@ class Impact:
                     c = self.at(r['file'], r['line'])
                     if c: lits.append((c, r['value'], r['file'], r['line']))
         W('literal', lits)
+        # a string written inside a decoration (@Listener(topics = "topicOne"), @RequestMapping("/a/{b}")) is in no
+        # other table: literals does not carry it, and it is how a topic, a queue, a route or a bean qualifier binds
+        decl = []
+        for r in (g.q("SELECT owner_id, name, text, file, line FROM decorations WHERE text IS NOT NULL AND text <> ''") if g.has('decorations') else []):
+            c = self.at(r['file'], r['line']) or r['owner_id']
+            for v in set(re.findall(r'"{1,3}([^"]{1,120})"{1,3}', r['text'] or '')):
+                if c: decl.append((c, r['name'].split('.')[-1], v, r['file'] or '', r['line'] or 0))
+        W('dec_literal', sorted(set(decl)))
         decs = collections.defaultdict(set)
         for r in (g.q("SELECT owner_id, name FROM decorations") if g.has('decorations') else []): decs[r[0]].add(r[1].split('.')[-1])
         tm = [i for i, s in g.sym.items() if s['is_test'] and s.get('method_id') and s['kind'] in ('method', 'function') and (any(TEST_DECOR.search(d) for d in decs.get(i, ())) or s['name'].startswith(('test', 'it')))]
@@ -366,7 +411,14 @@ class Impact:
             if g.has(t): keys |= {r[0] for r in g.q(f"SELECT DISTINCT c0 FROM {t}")}
         if g.has('ext_bean_def'): beans = [(r[0], r[1], r[2] or 'bean') for r in g.q("SELECT c0, c1, c2 FROM ext_bean_def")]
         if g.has('ext_inject_point'):
-            inj = [(r[0], r[1], r[2] or 'injected') for r in g.q("SELECT i.c2, i.c4, i.c0 FROM ext_inject_point i JOIN symbols s ON s.method_id = i.c4 WHERE i.c2 <> ''")]
+            # c4 is the method that receives the value and is '-' for a FIELD injection, which is the case with no call
+            # site at all: an inner join here dropped about half of every project's injection points. A field injection
+            # is attributed to the type that declares it (c3), so the bean has a visible consumer either way
+            inj = [(r['t'], r['target'], r['kind'] or 'injected') for r in g.q("""
+                SELECT i.c2 t, COALESCE(s.id, o.id) target, i.c0 kind FROM ext_inject_point i
+                     LEFT JOIN symbols s ON s.method_id = i.c4
+                     LEFT JOIN symbols o ON o.type_id = i.c3 AND o.method_id IS NULL
+                WHERE i.c2 <> '' AND COALESCE(s.id, o.id) IS NOT NULL""")]
         W('config', cfg); W('config_key_known', [(k,) for k in sorted(keys)]); W('bean', beans); W('injected', sorted(set(inj)))
         open(stamp, 'w').write(want); return D
 
@@ -419,6 +471,7 @@ class Impact:
                 mids, v = payload
                 for m in mids: T.append((q, 'var', m, v))
             elif kind == 'config': T.append((q, 'config', payload, ''))
+            elif kind == 'string': T.append((q, 'string', '', payload))
             elif kind == 'typeparam':
                 ids, tp = payload
                 for oid in ids:
@@ -582,6 +635,13 @@ def main(argv):
                           'test_universe': universe, 'verified': bad == 0, 'checked_hops': hops, 'unresolved_inside': u}, indent=1))
         return 0
     for k, lab, _ in targets: print(f"change: {lab}   [{k}]")
+    for k, lab, _ in targets:
+        if k in ('method', 'field', 'type'):
+            nm = lab.split()[-1].split('(')[0].split('.')[-1]
+            n = len(g.q("SELECT 1 FROM literals WHERE value = ?", nm)) if g.has('literals') else 0
+            d = len(g.q("SELECT 1 FROM decorations WHERE text LIKE ?", f'%"{nm}"%')) if g.has('decorations') else 0
+            if n + d > 1: print(f"  the name {nm} is also written as a string in {n + d} place(s) (a topic, a route, a key, a bean qualifier bind by string, not by the Java name): ask for it quoted, `impact '\"{nm}\"'`, to get those")
+            break
     if contract:
         nm = sum(1 for _, why in contract if 'name match' in why)
         print(f"must change with it ({len(contract)}: " + (f"{len(contract) - nm} bound by a contract the engine resolved, {nm} matched by name" if nm else "bound by a contract the engine resolved") + "):")
