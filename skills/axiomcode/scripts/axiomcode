@@ -408,6 +408,23 @@ def skipped_note(name):
 GROUP = {}; BODY = False; BODY_MAX = 120
 def set_body(v):
     global BODY; BODY = v
+def by_name_unresolved(r, exclude=(), cap=8):
+    """call sites the engine could not resolve whose written name is this method's name: the receiver's type is unknown,
+    so each one MAY be a caller. Shown by position (file:line, the enclosing method) — the join no resolution is needed for"""
+    if not r['name'] or r['kind'] in ('type', 'class', 'interface', 'enum', 'module'): return
+    u = q("""SELECT s.file_path AS file, s.start_line AS line, s.caller_id FROM call_sites s JOIN unresolved_sites x ON x.call_site_id = s.id
+             WHERE s.callee_name = ? ORDER BY s.file_path, s.start_line LIMIT 41""", r['name'])
+    u = [e for e in u if e['caller_id'] not in exclude]
+    if not u: return
+    if len(u) > 40:                                                    # push, get, map…: a platform name the engine could not type; listing 1,299 sites names nothing
+        say(f"      ? `{r['name']}` is written at 40+ call sites the engine could not type — too many to list here; any of them MAY be this method (impact {r['display']} groups them by file)"); return
+    by = collections.OrderedDict()
+    for e in u:
+        c = symof(e['caller_id']); by.setdefault((c['display'] if c else '<top level>', e['file']), []).append(e['line'])
+    say(f"      ? {len(u)} unresolved call(s) written `{r['name']}` — the receiver's type was not resolved, so each MAY be this method:")
+    for (d, f), ls in list(by.items())[:cap]: row(f"          {d}   {f}:{','.join(map(str, ls[:6]))}" + (f" …+{len(ls)-6}" if len(ls) > 6 else ''))
+    if len(by) > cap: say(f"          … +{len(by)-cap} more methods (axiomcode impact {r['display']})")
+
 def node_card(r):
     """a node and one hop in every direction — what search prints per match; one traversal step"""
     if r['type_id'] and not r['method_id']:
@@ -441,7 +458,7 @@ def node_card(r):
     ids = [g['method_id'] for g in group]; ph = ','.join('?' * len(ids))
     say(f"{r['kind']} {r['display']}" + (f" {r['signature']}" if r['signature'] and LANG == 'java' and len(group) == 1 else '') + f"   {loc(r)}" + (f"   in {r['owner']}" if r['owner'] else '') + ("  [test]" if r['is_test'] else '')
         + (f"   ({len(group)} declarations: " + ', '.join(f"L{g['line']}" + (f"-{g['end_line']}" if g['end_line'] and g['end_line'] != g['line'] else '') + (f" {g['signature']}" if g['signature'] else '') for g in sorted(group, key=lambda g: g['line'])) + ")" if len(group) > 1 else ''))
-    up = q(f"SELECT caller, file, line, tier FROM callers WHERE callee_id IN ({ph}) ORDER BY file, line", *ids)
+    up = q(f"SELECT caller, file, line, tier, caller_id FROM callers WHERE callee_id IN ({ph}) ORDER BY file, line", *ids)
     byc = collections.OrderedDict()
     for e in up: byc.setdefault(e['caller'], []).append(e)
     say(f"  ← called by ({len(up)} sites, {len(byc)} callers):")
@@ -455,6 +472,7 @@ def node_card(r):
     if decs: say("  @ " + '  '.join(decs[:4]))
     literal_bridge(route_strings(decs), 'route/argument')
     if not up: literal_bridge([r['name']], 'its name')                    # reflection, config-by-name, string-dispatched handlers
+    by_name_unresolved(r, exclude={e['caller_id'] for e in up})
     dn = q(f"SELECT callee, written, file, line, tier, callee_id FROM callees WHERE caller_id IN ({ph}) ORDER BY line", *ids)
     res = [e for e in dn if e['callee_id']]; lib = [e for e in dn if not e['callee_id'] and e['callee']]
     # a NULL callee is a blind spot only for ambiguous_*; the other NULL-callee tiers (JavaScript/TypeScript: ambient_terminal,
@@ -575,6 +593,7 @@ def v_search():
         if not rows:
             infile = q("SELECT count(*) n FROM symbols WHERE file = ? OR file LIKE ?", f, f"%/{f}")[0]['n']
             say(f"no declaration spans {f}:{ln}" + (" — the file is in the graph (top-level code?)" if infile else f" — the file is not in the {LANG} graph")); skipped_note(os.path.basename(f)); return
+        at_line(rows[0]['file'], ln)
         say(f"{f}:{ln} is inside:"); set_body(opt.get('body', 'yes') != 'no'); node_card(rows[0]); return
     bare = re.sub(r'<[^>]*>', '<>', text)                                                      # `Outer.<anon Runnable>.run` is a name, not words
     is_words = ' ' in bare and not re.match(r'^[\w.$#:/()<>,\[\]-]+$', bare)
@@ -600,7 +619,10 @@ def v_search():
         if others and not how.startswith('nearest'):                                            # a constant, field, enum member: where it is, and where it is used
             say(f"'{text}' is not a function or type ({how}):")
             for r in others[:8]: row(fmt(r))
-            say(); uses_of(text.split('.')[-1].split('#')[-1], quiet=True); return
+            say()
+            if len(others) == 1 and others[0]['kind'] in ('field', 'const', 'variable', 'enum_member'): impact_field(others[0]); say()
+            else: uses_of(text.split('.')[-1].split('#')[-1], quiet=True)
+            return
         # nothing declared by that name: mentions first (a message, a flag, a tree-sitter node type), then nearest names
         last = text.split('.')[-1].split('#')[-1]
         found = uses_of(last)
@@ -639,6 +661,27 @@ def v_search():
     if not words_search(text) and not named:
         say(f"nothing declared, commented or quoted matches '{text}'" + (f" under *{IN}*" if IN else ''))
         say("  try fewer, more specific words (the nouns the code would use, not the symptom), or one identifier from the issue, or in=<dir> to scope it")
+
+def at_line(f, ln):
+    """what the graph knows about ONE line: the calls on it (resolved target and tier, or the written name of an unresolved one),
+    the identifiers it references, the strings it holds — every table carries file:line, so no resolution is needed to answer"""
+    calls = q("""SELECT s.callee_name AS written, e.tier, COALESCE(ce.display, lm.qualified_name, e.callee_label) AS target
+                 FROM call_sites s LEFT JOIN call_edges e ON e.call_site_id = s.id LEFT JOIN symbols ce ON ce.method_id = e.callee_method_id
+                 LEFT JOIN methods lm ON lm.id = e.callee_method_id AND lm.provenance <> 'client'
+                 WHERE s.file_path = ? AND s.start_line = ? ORDER BY s.start_column""", f, ln)
+    refs = q("SELECT name, max(CASE WHEN entity_kind IS NULL OR entity_kind = 'UNKNOWN' THEN '' ELSE entity_kind END) AS entity_kind FROM refs WHERE file = ? AND line = ? GROUP BY name LIMIT 12", f, ln) if has('refs') else []
+    lits = q("SELECT value FROM literals WHERE file = ? AND line = ? LIMIT 4", f, ln) if has('literals') else []
+    if not (calls or refs or lits): return
+    say(f"on {f}:{ln}:")
+    for c in calls:
+        if c['target']: row(f"    calls {c['target']}   {c['tier']}")
+        elif c['written'] and q("SELECT 1 FROM symbols WHERE name = ? AND method_id IS NOT NULL LIMIT 1", c['written']) and q("SELECT count(*) n FROM call_sites s JOIN unresolved_sites x ON x.call_site_id = s.id WHERE s.callee_name = ?", c['written'])[0]['n'] <= 40:
+            row(f"    calls `{c['written']}`   UNRESOLVED ({c['tier'] or 'no edge'}) — search {c['written']} lists what it may be")
+        elif c['written'] and q("SELECT 1 FROM symbols WHERE name = ? AND method_id IS NOT NULL LIMIT 1", c['written']): row(f"    calls `{c['written']}`   UNRESOLVED ({c['tier'] or 'no edge'}) — a name this repo declares AND a common platform one; the receiver decides")
+        else: row(f"    calls `{c['written'] or '?'}`   UNRESOLVED ({c['tier'] or 'no edge'}) — nothing in this repo declares that name: a library or platform call")
+    if refs: row("    references " + ', '.join(f"{r['name']}" + (f" ({r['entity_kind'].lower()})" if r['entity_kind'] else '') for r in refs))
+    if lits: row("    strings " + ', '.join(repr(l['value'][:40]) for l in lits))
+    say()
 
 def enclosing(f, ln):
     r = q("SELECT * FROM symbols WHERE file=? AND line<=? AND end_line>=? AND method_id IS NOT NULL AND kind<>'module' ORDER BY (end_line-line) LIMIT 1", f, ln, ln)

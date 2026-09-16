@@ -17,8 +17,15 @@ axiomcode-build .                             build or refresh .axiomcode/out/gr
 axiomcode search <anything> [in=<path>]       a name (bar · Foo.bar · Outer.Inner.bar · file.ts:bar · m(int,String)),
                                               words from the issue, an error message in quotes, or file:line.
                                               → the matching nodes, each with one hop in every direction: who calls it,
-                                                what it calls (resolved · library · UNRESOLVED), dispatch, tests reaching it.
-                                              A constant / flag / message → where it is declared and every mention.
+                                                what it calls (resolved · library · UNRESOLVED), dispatch, tests reaching it,
+                                                and `? N unresolved call(s) written <name>` — sites whose receiver the engine
+                                                could not type; each MAY be a caller, listed by file:line and enclosing method.
+                                              A field / constant / enum member → its accesses grouped by the method they are
+                                                in (certain inside the owner, by name elsewhere). A message → its emitters.
+                                              file:line (from the issue, a stack frame, a hunk) → what is ON that line: the
+                                                calls (target and tier, or the written name of an unresolved one), the
+                                                identifiers, the strings — then the enclosing method's card. Start here
+                                                when the issue quotes a position; it is one call, not a Read.
                                               A miss → the nearest names. Never empty. The next call is
                                               `search <a name from the output>`: that is how you walk the graph.
 axiomcode pack "<what you want to do>"         one reply to start editing from: WHERE (ranked change sites, with bodies) ·
