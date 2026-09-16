@@ -1,0 +1,7 @@
+import_cause     app.js:3:13  umdlib  not_staged
+import_cause     app.js:4:9  umdlib  not_staged
+package_entry    case48-app  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       app.js:5:1  METHOD_CALL format  receiver_untyped
+unresolved       app.js:6:1  FUNCTION_CALL format  callee_untyped
+unresolved       app.js:7:1  CONSTRUCTOR_CALL Formatter  receiver_untyped
+unresolved       app.js:7:1  METHOD_CALL render  receiver_untyped
