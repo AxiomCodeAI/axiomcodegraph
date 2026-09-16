@@ -305,28 +305,46 @@ this_value(m, k, i) :- method_this_binding(_, "LEXICAL", m), method_enclosing(m,
 // options bag merged from 200 callers give 200 `this` values to every function it
 // carried, each `this.x = v` inside then multiplied by 200, and the fixpoint did not
 // terminate on a held-out project. A function passed around as a value and later
-// stored (`opts.cb = handler`) keeps its `this` unbound instead.
+// stored (`opts.cb = handler` inside a helper, `handler` a parameter) keeps its `this`
+// unbound instead. Writing a NAME that is bound to a function (`Model.extend = extend`,
+// #708) is a definition site: see installed_function below.
 this_value(m, "obj", l) :- expr_child(_, l, "PROPERTY_VALUE", _, v), expr_kind(_, "OBJECT_LITERAL", _, l),
     expr_introduces(_, m, v), method_this_binding(_, "DYNAMIC", m), !method_owner_type(m, _).
 this_value(m, "obj", l) :- literal_owns_method(l, m), method_this_binding(_, "DYNAMIC", m), !method_owner_type(m, _).
+// `T.prototype.constructor = T` is a BACK-REFERENCE, not an installation: nothing
+// calls it with the prototype as `this`, and reading it as one gave a constructor
+// the `Object.create(Base.prototype)` object as `this` (#708).
 this_value(m, k, i) :- expr_kind(_, "ASSIGNMENT", _, a), expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt),
-    expr_kind(_, "PROPERTY_ACCESS", _, tgt), expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, k, i), k != "proto", k != "ambient",
-    expr_child(_, a, "ASSIGNMENT_VALUE", _, val), expr_introduces(_, m, val), method_this_binding(_, "DYNAMIC", m),
+    expr_kind(_, "PROPERTY_ACCESS", _, tgt), !expr_name(_, "constructor", tgt),
+    expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, k, i), k != "proto", k != "ambient",
+    expr_child(_, a, "ASSIGNMENT_VALUE", _, val), installed_function(val, m), method_this_binding(_, "DYNAMIC", m),
     !method_owner_type(m, _).
 this_value(m, "inst", t) :- expr_kind(_, "ASSIGNMENT", _, a), expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt),
-    expr_kind(_, "PROPERTY_ACCESS", _, tgt), expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, "proto", t),
-    expr_child(_, a, "ASSIGNMENT_VALUE", _, val), expr_introduces(_, m, val), method_this_binding(_, "DYNAMIC", m),
+    expr_kind(_, "PROPERTY_ACCESS", _, tgt), !expr_name(_, "constructor", tgt),
+    expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, "proto", t),
+    expr_child(_, a, "ASSIGNMENT_VALUE", _, val), installed_function(val, m), method_this_binding(_, "DYNAMIC", m),
     !method_owner_type(m, _).
 // `obj[name] = function () { this.x() }` — a computed member name gives no
 // property to look up, but the function's `this` is still the object.
 this_value(m, k, i) :- expr_kind(_, "ASSIGNMENT", _, a), expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt),
     expr_kind(_, "ELEMENT_ACCESS", _, tgt), expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, k, i), k != "proto",
-    expr_child(_, a, "ASSIGNMENT_VALUE", _, val), expr_introduces(_, m, val), method_this_binding(_, "DYNAMIC", m),
+    expr_child(_, a, "ASSIGNMENT_VALUE", _, val), installed_function(val, m), method_this_binding(_, "DYNAMIC", m),
     !method_owner_type(m, _).
 this_value(m, "inst", t) :- expr_kind(_, "ASSIGNMENT", _, a), expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt),
     expr_kind(_, "ELEMENT_ACCESS", _, tgt), expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_value(r, "proto", t),
-    expr_child(_, a, "ASSIGNMENT_VALUE", _, val), expr_introduces(_, m, val), method_this_binding(_, "DYNAMIC", m),
+    expr_child(_, a, "ASSIGNMENT_VALUE", _, val), installed_function(val, m), method_this_binding(_, "DYNAMIC", m),
     !method_owner_type(m, _).
+
+// installed_function(ValueExpr, Method): the function an assignment's right-hand side
+// INSTALLS. A function expression written there, a NAME bound to a function (a
+// declaration or a const holding one: `Model.extend = extend`, `obj.handler = handler`,
+// #708), and the same through a chain (`Base.extend = List.extend = extend`). A
+// PARAMETER holding a function is not an installation: `opts.cb = handler` inside a
+// helper is the function passed around as a value, whose `this` stays unbound.
+installed_function(val, m) :- expr_introduces(_, m, val).
+installed_function(val, m) :- expr_kind(_, "IDENTIFIER", _, val), expr_binding(_, v, val), var_value(v, "func", m).
+installed_function(val, m) :- expr_kind(_, "ASSIGNMENT", _, val), expr_child(_, val, "ASSIGNMENT_VALUE", _, c), installed_function(c, m).
+
 // ── return_value ────────────────────────────────────────────────────────────
 // Every `return <expr>` in the body, and the expression body of an arrow (the
 // parser roots both under RETURN). The owner is the function returned FROM — the

@@ -250,6 +250,7 @@
 .decl param_flow_assumes_closed_world(c0:symbol)
 .decl call_arg(c0:symbol, c1:number, c2:symbol)
 .decl this_value(c0:symbol, c1:symbol, c2:symbol)
+.decl installed_function(c0:symbol, c1:symbol)
 .decl return_value(c0:symbol, c1:symbol, c2:symbol)
 .decl prop_value(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol)
 .decl member_write(c0:symbol, c1:symbol, c2:symbol, c3:symbol, c4:symbol)
