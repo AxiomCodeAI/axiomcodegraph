@@ -271,6 +271,35 @@ for (const sf of program.getSourceFiles()) {
       }
       if (target !== undefined) pairs.add(`${callerOf(node)} -> ${target}`);
     }
+    // AN ACCESSOR IS INVOKED BY THE ACCESS. `c.req.url` runs `get url()` and `c.res = r`
+    // runs `set res(v)`, and the compiler knows which declaration each is: the symbol at
+    // the property name carries the get and set declarations. A read names the getter; an
+    // assignment target names the setter; a compound assignment or an update (`x.n += 1`,
+    // `x.n++`) reads then writes and names both. The engine emits these as PROPERTY_READ /
+    // PROPERTY_WRITE edges (#703), and without this they would be unscored extras: the
+    // one shape whose ground truth is the compiler's and was never asked of it.
+    if (ts.isPropertyAccessExpression(node)) {
+      let sym;
+      try { sym = checker.getSymbolAtLocation(node.name); } catch { sym = undefined; }
+      if (sym && (sym.flags & ts.SymbolFlags.Alias)) sym = checker.getAliasedSymbol(sym);
+      if (sym && (sym.flags & (ts.SymbolFlags.GetAccessor | ts.SymbolFlags.SetAccessor))) {
+        const parent = node.parent;
+        const isLeft = ts.isBinaryExpression(parent) && parent.left === node
+          && parent.operatorToken.kind >= ts.SyntaxKind.FirstAssignment
+          && parent.operatorToken.kind <= ts.SyntaxKind.LastAssignment;
+        const plain = isLeft && parent.operatorToken.kind === ts.SyntaxKind.EqualsToken;
+        const update = (ts.isPrefixUnaryExpression(parent) || ts.isPostfixUnaryExpression(parent))
+          && (parent.operator === ts.SyntaxKind.PlusPlusToken || parent.operator === ts.SyntaxKind.MinusMinusToken);
+        const reads = !plain;
+        const writes = isLeft || update;
+        for (const d of sym.declarations ?? []) {
+          if ((reads && ts.isGetAccessorDeclaration(d)) || (writes && ts.isSetAccessorDeclaration(d))) {
+            const target = labelOf(d);
+            if (target !== undefined) pairs.add(`${callerOf(node)} -> ${target}`);
+          }
+        }
+      }
+    }
     ts.forEachChild(node, visit);
   };
   ts.forEachChild(sf, visit);

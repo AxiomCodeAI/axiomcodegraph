@@ -353,6 +353,7 @@ One row per place a call is written (or, for a synthesised edge, the construct t
 - **java** — A record_accessor site is the RECORD_PATTERN expression, positioned where the pattern is written.
 - **typescript** — end_line / end_column come from the expression row; the call-site row itself records only the start.
 - **javascript** — caller_id is the parser's enclosing method, or the module initializer for top-level code. end_line / end_column come from the expression row. `require()` is a module edge, not a call site.
+- **typescript** — PROPERTY_READ and PROPERTY_WRITE rows are accessor invocations with no written call: the site is the property-access expression that runs the getter or setter, positioned from the expressions table, and callee_name is NULL because nothing was written; the accessor's name is on the callee's methods row. Filter them out with kind NOT IN (…) when counting calls.
 - **python** — PROPERTY_READ, CONTEXT_MANAGER and ITERATION_PROTOCOL rows are protocol edges with no written call: their site is the expression that triggers the protocol, and callee_name is NULL because nothing was written. Filter them out with kind NOT IN (…) when counting calls.
 - **python** — The id is an EXPRESSION hash for a written call; a DECORATOR hash (PY_DECORATOR_…) for DECORATOR_APPLICATION and DECORATOR_* sites, positioned at the decorator line; and the class's TYPE hash for METACLASS_CREATION, positioned at the class declaration.
 
@@ -417,6 +418,8 @@ THE GRAPH. One row per (site, resolved target). A site with N possible targets h
 | `DECORATOR_CALL` | typescript | A decorator application `@d` / `@d(…)`. |
 | `OPTIONAL_CALL` | typescript | `f?.(…)`. |
 | `JSX_COMPONENT_CALL` | typescript | `<Component …/>` (reserved by the parser; emitted by nothing yet). |
+| `PROPERTY_READ` | typescript | Reading `obj.x` where `x` is a `get` accessor runs the getter (engine-authored). No written call; the site is the property-access expression. A compound assignment or `++` reads before it writes, so it carries this and PROPERTY_WRITE. |
+| `PROPERTY_WRITE` | typescript | Assigning `obj.x = v` where `x` is a `set` accessor runs the setter (engine-authored). No written call; the site is the property-access expression on the left. |
 | `FUNCTION_CALL` | javascript | `f(…)` — a bare callee, resolved by the binder. |
 | `METHOD_CALL` | javascript | `obj.m(…)`. |
 | `CONSTRUCTOR_CALL` | javascript | `new X(…)`. |
