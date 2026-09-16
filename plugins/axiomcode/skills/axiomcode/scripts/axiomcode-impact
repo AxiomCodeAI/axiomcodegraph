@@ -202,7 +202,7 @@ class Impact:
         return [ln for ln in range(s['line'], min(s['end_line'], len(L)) + 1) if pat.search(L[ln - 1])]
 
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
-    IMPACT_VERSION = '2'
+    IMPACT_VERSION = '3'          # 3: decl_file facts (the import-time test-file rule)
     def export(self):
         g = self.g; D = os.path.join(g.facts, 'impact'); stamp = os.path.join(D, 'stamp'); want = f"{os.path.getmtime(g.db)}:{self.IMPACT_VERSION}"
         if os.path.exists(stamp) and open(stamp).read() == want: return D
@@ -213,6 +213,7 @@ class Impact:
         W('typ', [(i, s['name'], 'record' if 'RECORD' in cat.get(i, '') else s['kind']) for i, s in g.sym.items() if s.get('type_id') and not s.get('method_id')])
         W('type_in_file', [(i, s['file']) for i, s in g.sym.items() if s.get('type_id') and not s.get('method_id') and s.get('file')])
         W('kind', [(i, s['kind']) for i, s in g.sym.items()])
+        W('decl_file', [(i, s['file']) for i, s in g.sym.items() if s.get('file')])
         def owner_tid(disp):                                                          # Enum.CONSTANT.m and <anon> bodies: the nearest enclosing type
             while disp:
                 if disp in tid_of: return tid_of[disp]
@@ -333,7 +334,7 @@ class Impact:
         prof('query facts written'); r = subprocess.run(self.program() + ['-F', F, '-D', O], capture_output=True, text=True); prof('souffle returned')
         if r.returncode: die("souffle failed:\n" + r.stderr[-1200:])
         out = {}
-        for n in ('contract', 'direct', 'seed', 'reach', 'parent_up', 'test_near', 'test_hit'):
+        for n in ('contract', 'direct', 'seed', 'seed_byname', 'reach', 'parent_up', 'test_near', 'test_hit', 'inherited_test'):
             rows = []
             for l in open(os.path.join(O, n + '.csv')):
                 p = l.rstrip('\n').split('\t')
@@ -412,6 +413,11 @@ def main(argv):
     tests = {}
     for m, d in res['test_near']:
         if m in g.sym and int(d) <= depth: tests[m] = (int(d), next((fx for mm, dd, fx in res['test_hit'] if mm == m and int(dd) == int(d) and fx), None))
+    # the same test, inherited: the subclass runs the base's test method, in its own file
+    inh = {}
+    for s_, m, d in {(x[0], x[1], int(x[2])) for x in res['inherited_test']}:
+        if m in tests and int(d) <= depth and s_ in g.sym: inh.setdefault(s_, []).append(m)
+    byname_seeds = {x[0] for x in res['seed_byname'] if x[0] in g.sym}
     universe = sum(1 for _ in open(os.path.join(g.facts, 'impact', 'test_method.facts')))
     direct_ids = {c for c, *_ in D} | {c for c, _ in contract}
     ent = [(m, d) for m, d in {**{c: 0 for c in direct_ids}, **reached}.items() if not callers_of.get(m) or g.sym[m]['is_test']]
@@ -435,6 +441,8 @@ def main(argv):
                           'direct': [{'id': c, 'display': g.disp(c), 'role': role, 'why': why, 'certainty': cert, 'at': loc, 'sites': n} for c, role, why, cert, loc, n in D],
                           'reached': [{'id': m, 'display': g.disp(m), 'hops': d, 'at': g.loc(m), 'test': bool(g.sym[m]['is_test'])} for m, d in sorted(reached.items(), key=lambda x: x[1])],
                           'tests': [{'id': m, 'display': g.disp(m), 'owner': g.sym[m]['owner'], 'name': g.sym[m]['name'], 'hops': d, 'via': g.disp(fx) if fx else None, 'at': g.loc(m), 'chain': [g.disp(x) for x in chains.get(m, [])]} for m, (d, fx) in tests.items()],
+                          'inherited_tests': [{'id': s_, 'display': g.disp(s_), 'at': g.loc(s_), 'inherits': [g.disp(m) for m in ms]} for s_, ms in inh.items()],
+                          'byname_callers': [{'id': c, 'display': g.disp(c), 'at': g.loc(c)} for c in byname_seeds],
                           'test_universe': universe, 'verified': bad == 0, 'checked_hops': hops, 'unresolved_inside': u}, indent=1))
         return 0
     for k, lab, _ in targets: print(f"change: {lab}   [{k}]")
@@ -463,6 +471,7 @@ def main(argv):
             decs = [r[0].split('.')[-1] for r in g.q("SELECT name FROM decorations WHERE owner_id = ?", m)] if g.has('decorations') else []
             print(f"      {d:2} hop(s)  {g.disp(m)}{' [test]' if g.sym[m]['is_test'] else ''}{(' @' + ','.join(decs[:3])) if decs else ''}   {g.loc(m)}")
         if len(ent) > limit: print(f"      … +{len(ent) - limit} (--limit N)")
+    if inh: print(f"    inherited by {len(inh)} test class(es) that extend a reached one — they run those tests too: " + ', '.join(f"{g.disp(s_)} ({len(ms)}) {g.loc(s_)}" for s_, ms in sorted(inh.items(), key=lambda x: -len(x[1]))[:6]))
     print(f"tests: {len(tests)} of {universe} test method(s) reach the change" + (" (their own body, or a fixture that runs before them: constructor, static initializer, @Before*/setUp)" if tests else ''))
     if want_tests:
         for m, (d, fx) in sorted(tests.items(), key=lambda x: (x[1][0], g.sym[x[0]]['display'])):
@@ -470,6 +479,14 @@ def main(argv):
             if fx is None and d > 0 and len(chains.get(m, [])) > 1: print("        " + ' → '.join(g.disp(x) for x in chains[m]))
     print(f"verified: {hops} printed edge(s) looked up again in graph.sqlite" + (", all present" if bad == 0 else f" — ✗ {bad} not found: report this, do not use the answer"))
     if u: print(f"bound: {u} unresolved call(s) inside the impacted set — what those reach is unknown, so the set is a lower bound")
+    # an override of a type the graph does not contain is called BY that library / framework: "nothing reaches it" would be a lie
+    outside = []
+    for own in {g.sym[m]['owner'] for m in seeds if m in g.sym and g.sym[m].get('owner')}:
+        for r in g.q("SELECT DISTINCT x.name FROM symbols s JOIN type_ancestors a ON a.type_id = s.type_id JOIN types x ON x.id = a.ancestor_type_id WHERE s.display = ? AND s.method_id IS NULL AND x.provenance <> 'client'", own): outside.append((own, r[0]))
+    dunder = sorted({g.sym[m]['name'] for m in seeds if m in g.sym and re.fullmatch(r'__\w+__', g.sym[m]['name'] or '')})
+    if dunder and not reached: print(f"outside the graph: {', '.join(dunder)} is a protocol method — the language runtime calls it (an operator, a conversion, a lifecycle hook), which is no call site, so nothing reaching it here does NOT mean nothing does")
+    if outside and not reached: print("outside the graph: " + ', '.join(f"{o} extends / implements {a}, which the graph does not contain" for o, a in outside[:3]) + " — a library or framework can call this method, so nothing reaching it here does NOT mean nothing does")
+    if byname_seeds: print(f"through a call the engine could not resolve: {len(byname_seeds)} caller(s) write this method's name on an untyped receiver — counted in the reach above, so that part of it MAY not be real: " + ', '.join(f"{g.disp(c)} {g.loc(c)}" for c in sorted(byname_seeds)[:4]))
     byname = [x for x in D if x[3] in ('by name', 'text')]
     if byname: print(f"note: {len(byname)} entr{'y' if len(byname) == 1 else 'ies'} matched by name or text may be a same-named other thing — the receiver was not typed by the parser")
     return 0

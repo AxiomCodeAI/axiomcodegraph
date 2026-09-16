@@ -84,6 +84,15 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
   call to `getZipCode()` or `new Address(…)` is an unresolved site; the unresolved sites written with the generated name are listed
   as calling the generated getter / setter / constructor `[by name]`, with the decoration that generates it. A string literal
   equal to the field's name (a map key, a serialized name, a request parameter) is listed `[text]`.
+- **the upstream answer is measured against behaviour, not against itself** — `validate/upstream.py <repo>` takes a tree with
+  `.axiomcode/mutation.json` (a method broken, the test files that then failed), asks `impact <m> --tests` which test files
+  reach it, and classifies every miss from the graph. jsoup, 24 methods, 244 (method, test file) pairs: recall 0.795 → **0.988**,
+  precision 0.328 → 0.338, after the three rules the misses named — a test class that *extends* a reached one runs its tests
+  (jsoup's java11 `HttpClient*Test` declare almost nothing: 20 of the 27 misses), a call site written with the target's name
+  that the engine could not resolve (`import static Outer.Inner` left `res.prepareResponse(…)` untyped: 8 more), and a test
+  file's import-time code (a class body, a fixture). pydantic (Python), 14 methods, 180 pairs: 0.678 → 0.717 — what remains
+  is dispatch a static graph cannot see (`__eq__` and the other protocol methods the interpreter calls, a method reached
+  through `getattr(self, f"_{kind}_schema")`), and the answer now says that instead of printing nothing.
 - **reaches those through resolved calls** — the transitive impact: everything that can reach a touched callable, by hop and by
   file, with the entry points among the reached callables *and* the direct dependents (a `@PostMapping` handler that reads the
   field is where the change is observed from, though nothing resolved calls it); `--tests` lists the tests, each with its
