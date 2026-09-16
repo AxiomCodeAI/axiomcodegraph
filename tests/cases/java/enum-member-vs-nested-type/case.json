@@ -1,0 +1,6 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a TYPE reference to an unrelated nested class of the same name is not a read of the enum member",
+   "run": ["impact", "State.Header", "--kind", "field"],
+   "want": ["Machine.go"],
+   "avoid": ["Filter.allow", "Filter.first"]}]}

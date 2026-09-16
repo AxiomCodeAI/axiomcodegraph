@@ -1,0 +1,5 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "a @property named like the field without its underscore is the field's door",
+   "run": ["impact", "Doc._size", "--kind", "field"],
+   "want": ["through size()"]}]}

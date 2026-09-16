@@ -1,0 +1,5 @@
+{"lang": "javascript", "src": "src",
+ "checks": [
+  {"why": "a call on an untyped receiver is reported as a by-name caller, not dropped and not claimed as resolved",
+   "run": ["impact", "Session.close"],
+   "want": ["shutdown", "by name"]}]}

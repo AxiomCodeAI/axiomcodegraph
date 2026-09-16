@@ -1,0 +1,5 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "with no override table the subtypes that declare the same member are still the contract, named as a name match",
+   "run": ["impact", "Body.emit"],
+   "want": ["BytesBody.emit", "FileBody.emit", "matched by name"]}]}

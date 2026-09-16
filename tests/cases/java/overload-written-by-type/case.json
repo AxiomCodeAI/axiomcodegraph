@@ -1,0 +1,9 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "Store.get(String) is an overload, not a parameter named String",
+   "run": ["impact", "Store.get(String)"],
+   "want": ["[method]"],
+   "avoid": ["parameter String"]},
+  {"why": "Store.get(key) is the parameter",
+   "run": ["impact", "Store.get(key)"],
+   "want": ["parameter key"]}]}
