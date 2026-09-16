@@ -93,6 +93,17 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
   file's import-time code (a class body, a fixture). pydantic (Python), 14 methods, 180 pairs: 0.678 → 0.717 — what remains
   is dispatch a static graph cannot see (`__eq__` and the other protocol methods the interpreter calls, a method reached
   through `getattr(self, f"_{kind}_schema")`), and the answer now says that instead of printing nothing.
+- **precision is not a bug to fix, it is a property to report** — `validate/precision.py <repo>` places every predicted
+  (method, test file) pair by the worst hop on its best route and by distance, against the same truth. jsoup: a route of
+  single-target resolved calls is right 0.765 of the time, one through a call resolved to a SET 0.301, through an override
+  reached from its base 0.170; within 3 hops 0.70, beyond 5 hops 0.24; a sound route within 3 hops 0.889 — but that keeps
+  only 48 of 219 true pairs. The split that explains the 0.34 overall is fan-in, not error: 10 of the 24 methods are hubs
+  every test reaches (jsoup parses HTML in every suite) — those answers are 60 of 98 test files at precision 0.285 with
+  recall 1.000, while the 14 narrow methods score 0.642 with 7 of them exactly right. A test that *reaches* a change and
+  does not fail is not a wrong edge: it runs the code and does not observe the change. So `--tests` answers "which tests
+  CAN observe this" and says how sure each route is (`[sound]`, `[one of a set]`, `[dispatch]`, `[by name]`, nearest and
+  surest first) and, when most of the suite reaches the method, that at this fan-in reaching says little about failing.
+  It is a ranking, not a test selection; a narrow answer can be used as one.
 - **reaches those through resolved calls** — the transitive impact: everything that can reach a touched callable, by hop and by
   file, with the entry points among the reached callables *and* the direct dependents (a `@PostMapping` handler that reads the
   field is where the change is observed from, though nothing resolved calls it); `--tests` lists the tests, each with its
