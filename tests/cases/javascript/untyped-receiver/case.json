@@ -1,0 +1,6 @@
+{"lang": "javascript", "src": "src",
+ "checks": [
+  {"why": "a close() on an untyped receiver, with two classes declaring close, is one of a set and never presented as an exact edge",
+   "run": ["impact", "Session.close"],
+   "want": ["shutdown", "one of a set"],
+   "avoid": ["1 resolved"]}]}
