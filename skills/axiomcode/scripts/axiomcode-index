@@ -70,7 +70,8 @@ A = {
     boundNames=None, skipped='skipped-java-files.csv'),
  'typescript': dict(
     modules=dict(file='all-typescript-modules.csv', id='tsModuleUniqueHash', filePath='filePath'),
-    expr=dict(file='all-typescript-expressions.csv', kind='kind', name='potentialQualifiedName', line='startLine', fileVia=('modules', 'tsModuleLinkHash'),
+    # a property's name (`this.pending`, `row.setX`) is in literalValue with an empty potentialQualifiedName — 36k of 60k references in the parser repo
+    expr=dict(file='all-typescript-expressions.csv', kind='kind', name='potentialQualifiedName', nameFallback='literalValue', line='startLine', fileVia=('modules', 'tsModuleLinkHash'),
               refKinds={'IDENTIFIER_REFERENCE', 'PROPERTY_ACCESS'}, entityKind='referencedEntityKind',
               litKinds={'LITERAL'}, litType=('literalType', 'STRING'), litValue='literalValue'),
     comments=dict(file='all-typescript-comments.csv', text='commentText', kind='commentKind', line='startLine', filePath='filePath'),
@@ -251,7 +252,7 @@ for r in rows(e['file']):
     k = r.get(e['kind'], '')
     if k in e['refKinds']:
         col = namecol if isinstance(namecol, str) else namecol.get(k)
-        n = r.get(col, '') if col else ''
+        n = (r.get(col, '') if col else '') or (r.get(e['nameFallback'], '') if e.get('nameFallback') else '')
         if not n: continue
         n = n.rsplit('.', 1)[-1]
         refs.append((n, file_of(r, e), int(r.get(e['line']) or 0), k, r.get(e['entityKind'], '')))
