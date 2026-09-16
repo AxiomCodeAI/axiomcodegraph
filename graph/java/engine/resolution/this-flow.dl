@@ -1,0 +1,71 @@
+// ============================================================================
+// Resolution · THIS FLOW — interprocedural (invocation linking). Type a method's `this`
+// by the RECEIVER types of the calls that reach the method, in addition to the type that
+// declares it. The dual of param-flow: that file types a parameter by what callers pass
+// at its position; this one types the implicit first parameter by what callers invoke on.
+//
+// `interface NodeVisitor { default void traverse(Node root) { NodeTraversor.traverse(this, root); } }`
+// `new TextAccumulator(sb).traverse(el)` resolves to NodeVisitor.traverse, and inside it
+// `this` was typed as NodeVisitor alone, so param-flow handed NodeTraversor.traverse the
+// interface type, which it already had from the declaration. With the base's fan wider
+// than the dispatch cap, `visitor.head(..)` / `visitor.tail(..)` reached only the
+// implementors passed to the parameter DIRECTLY; every implementor that arrived as `this`
+// through the default method had no caller at all, and a reverse closure from it found no
+// test (#702, measured: 8 of 24 implementors, 57 overrides with zero callers).
+//
+// The runtime type of `this` in a method body is the receiver's runtime type at the call,
+// and the receiver's static type is the best context-insensitive answer for it. Only a
+// PROPER SUBTYPE of the declaring type is added: the declaring type itself is already the
+// answer in expr-type.dl, and a receiver typed as something ELSE (an interface the
+// declaring class implements, seen through a CHA fan) says nothing about `this`.
+//
+// COMPOSES WITH THE CAP, like local-flow and param-flow: purely POSITIVE additions to
+// expr_type (a flow-in type resolves the member directly; the declared type's residual fan
+// is the cap's business). No negation → stratifies: this_flow_type reads
+// applicable_candidate + expr_type(recv), and expr_type(this) reads this_flow_type — one
+// positive mutual-recursion SCC, the same one param_flow_type already lives in.
+//
+// An unqualified call `m()` has `this` as its receiver, so the caller's enclosing type and
+// the caller's own flow-in types are what reach `this` in m — the second clause is what makes
+// `traverse(root)` and `this.traverse(root)` written inside an implementor agree.
+//
+// java_expression (25): 0 kind 24 uniqueHash
+// ============================================================================
+
+// this_flow_type(Method, T): a proper subtype of Method's declaring type that is the static
+// type of the receiver of some call the method is an arity-applicable candidate for.
+this_flow_type(m, t) :-
+    applicable_candidate(call, m),
+    call_site(call, _, recv),
+    expr_type(_, recv, t),
+    method_owner("client", encl, m),
+    t != encl,
+    type_ancestor(t, encl).
+
+// receiverless call: the receiver is the caller's `this` — its declaring type, and whatever
+// flowed into the caller's `this` in turn.
+this_flow_type(m, t) :-
+    applicable_candidate(call, m),
+    call_unqualified(call, _),
+    expr_ultimate_type("client", call, t),
+    method_owner("client", encl, m),
+    t != encl,
+    type_ancestor(t, encl).
+this_flow_type(m, t) :-
+    applicable_candidate(call, m),
+    call_unqualified(call, _),
+    expr_ultimate_method("client", call, caller),
+    this_flow_type(caller, t),
+    method_owner("client", encl, m),
+    t != encl,
+    type_ancestor(t, encl).
+
+// A bare `this` in the method takes the flow-in type(s) (positive; the declared type stays,
+// from expr-type.dl). The parser emits a bare `this` as a THIS_REFERENCE node and a qualified
+// `Outer.this` as a FIELD_ACCESS whose referencedEntityKind is THIS, so keying on the node
+// kind is what keeps the qualified form out: it names a type, and the flow into the current
+// method's `this` says nothing about it.
+expr_type("client", e, t) :-
+    java_expression("THIS_REFERENCE", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
+    expr_ultimate_method("client", e, m),
+    this_flow_type(m, t).
