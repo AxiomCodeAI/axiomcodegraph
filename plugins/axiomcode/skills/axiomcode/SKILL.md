@@ -140,12 +140,18 @@ new nested type is named as well as its members; one miss stands — a method ex
 lands in a replaced region. Nothing in the tool's answers was bent toward the benchmark: where the two differ, the diff
 was the judge.
 
-The plugin's **PostToolUse hook on Edit / Write / MultiEdit** does this without being asked: `changed` on the edited file,
-`impact` on each changed declaration (up to three, in parallel), condensed to a few lines per declaration — the kind of
-change, what must change with it (only for a signature, a field, a type or a removal), who produces or writes it, who reads
-it, how many callables and tests reach it, and the unresolved-call bound. That is where the agent that changed
-`String zipCode` to `Integer` would have been told, before its next action, about the five `getZipCode().length()` uses in
-another service, the generated constructor call in a controller, and the four repositories that deserialize a holder.
+The plugin's hooks do this without being asked, at every moment an edit can happen (`hooks/enrich.py`, `hooks/changes.py`):
+**PreToolUse on Edit / Write / MultiEdit** applies the edit to a copy and, when it changes a signature, a field's type, a type
+header or removes a declaration, gives the blast radius *before* the file changes; **PostToolUse on Edit / Write / MultiEdit**
+reports every changed declaration after it lands (a body-only edit included); **PostToolUse on Bash** re-reads the working
+tree after a command that can modify sources (`sed -i`, `patch`, `git apply / checkout / pull / merge / stash pop`, a redirect
+into a source file, a script run); **UserPromptSubmit** is the safety net — whatever changed the tree since the graph's commit
+by any means and was not reported yet. Each declaration is reported once per session; each report is `changed` (which
+declaration, how) and `impact` (up to three declarations in parallel, a few lines each: what must change with it — for a
+signature, a field, a type or a removal —, who produces or writes it, who reads it, how many callables and tests reach it,
+the unresolved-call bound). That is where the agent that changed `String zipCode` to `Integer` is told, before the edit
+lands, about the five `getZipCode().length()` uses in another service, the generated constructor call in a controller, and
+the four repositories that deserialize a holder.
 
 ## path — asking the graph
 

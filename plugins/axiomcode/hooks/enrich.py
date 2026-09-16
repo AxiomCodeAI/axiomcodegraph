@@ -86,6 +86,7 @@ if tool in ('Edit', 'Write', 'MultiEdit'):
     except Exception: ch = {}
     decls = [d for d in ch.get('changed', []) if d.get('target')]
     if not decls and not ch.get('notes'): sys.exit(0)
+    st = load_state(); st['reported'] = list(dict.fromkeys(st.get('reported', []) + [f"{d['file']}:{d['symbol']}:{d['kind']}:{d.get('detail', '')}" for d in decls])); save_state(st)   # once per session (changes.py reads this)
     def impact(d):
         try: return d, json.loads(subprocess.run([sys.executable, os.path.join(SCR, 'axiomcode-impact'), d['target'], cwd, '--json', '--depth', '12'], capture_output=True, text=True, timeout=14).stdout or '{}')
         except Exception: return d, {}

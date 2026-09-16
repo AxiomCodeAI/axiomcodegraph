@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+"""Change impact at every moment an edit happens, not only through the Edit tool.
+
+  PreToolUse   Edit / Write / MultiEdit   the edit is applied to a copy of the file; when it changes a SIGNATURE, a FIELD's
+                                          type, a TYPE header, or removes a declaration, the blast radius is given BEFORE the
+                                          file changes (a body-only edit is reported after, by enrich.py — nothing breaks)
+  PostToolUse  Bash                       a command that can modify sources (sed -i, patch, git apply / checkout / pull / merge /
+                                          stash pop / cherry-pick / revert, a redirect into a source file, a script run): the
+                                          whole working tree against the graph's commit, the declarations not reported yet
+  UserPromptSubmit                        the safety net: whatever changed the tree since the graph's commit — by any means —
+                                          and has not been reported in this session, on the next prompt
+
+Every declaration is reported once per session (state next to the graph). Each line comes from `axiomcode changed` (which
+declaration, how) and `axiomcode impact` (what must change with it, who produces / writes it, who reads it, what reaches
+those, the tests) — ≤ 3 declarations per event, in parallel, a few lines each."""
+import concurrent.futures, json, os, re, subprocess, sys, tempfile
+
+ev = json.load(sys.stdin); event = ev.get('hook_event_name', ''); tool = ev.get('tool_name', ''); inp = ev.get('tool_input', {}) or {}; cwd = ev.get('cwd') or os.getcwd()
+if not os.path.exists(os.path.join(cwd, '.axiomcode', 'out', 'graph.sqlite')): sys.exit(0)
+SCR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'skills', 'axiomcode', 'scripts')
+SRC = re.compile(r'\.(java|ts|tsx|js|mjs|cjs|py)$'); TEST = re.compile(r'(^|/)(tests?|__tests__)/|/src/test/|Tests?\.java$|\.(spec|test)\.[jt]sx?$|(^|/)test_')
+STATE = os.path.join(cwd, '.axiomcode', f"hooks-state-{ev.get('session_id', 'x')}.json")
+def load_state():
+    try: return json.load(open(STATE))
+    except Exception: return {}
+def save_state(st):
+    try: json.dump(st, open(STATE, 'w'))
+    except OSError: pass
+def rel_of(fp):
+    fp = str(fp)
+    for a, b in ((fp, cwd), (os.path.realpath(fp), os.path.realpath(cwd)), (os.path.realpath(fp), cwd), (fp, os.path.realpath(cwd))):
+        r = os.path.relpath(a, b)
+        if not r.startswith('..'): return r
+    return fp
+
+def changed(args, timeout=12):
+    try: return json.loads(subprocess.run([sys.executable, os.path.join(SCR, 'axiomcode-changed'), cwd, *args, '--json'], capture_output=True, text=True, timeout=timeout).stdout or '{}')
+    except Exception: return {}
+
+def summarize(decls, head, contract_kinds=('signature', 'field', 'type', 'removed')):
+    """the blast radius of up to three changed declarations, a few lines each"""
+    def impact(d):
+        try: return d, json.loads(subprocess.run([sys.executable, os.path.join(SCR, 'axiomcode-impact'), d['target'], cwd, '--json', '--depth', '12'], capture_output=True, text=True, timeout=14).stdout or '{}')
+        except Exception: return d, {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex: results = list(ex.map(impact, decls[:3]))
+    lines = [head]
+    rank = {'resolved': 0, 'in scope': 1, 'by name': 2, 'text': 3}
+    for d, j in results:
+        hd = f"  {d['kind']} {d['symbol']}" + (f" — {d['detail']}" if d.get('detail') else '')
+        if not j: lines.append(hd + "  (impact unavailable)"); continue
+        con = j.get('contract', []); dr = sorted(j.get('direct', []), key=lambda x: (rank.get(x['certainty'], 9), x['display'])); rc = j.get('reached', []); ts = j.get('tests', [])
+        prod = [x for x in dr if x['role'] in ('produces', 'writes')]; reads = [x for x in dr if x['role'] in ('reads', 'uses')]
+        names = lambda xs, k=4: ', '.join(f"{x['display']} {x['at'].split('/')[-1]}" for x in xs[:k]) + (f" … +{len(xs) - k}" if len(xs) > k else '')
+        lines.append(hd)
+        if con and d['kind'] in contract_kinds: lines.append(f"    must change with it ({len(con)}): " + ', '.join(f"{x['display']} ({x['why']})" for x in con[:4]) + (' …' if len(con) > 4 else ''))
+        if prod: lines.append(f"    produces / writes it ({len(prod)}): " + names(prod))
+        if reads: lines.append(f"    reads / uses it ({len(reads)}): " + names(reads))
+        lines.append(f"    reaches {len(rc)} more callable(s) through resolved calls; {len(ts)} test(s) reach the change" + (": " + ', '.join(f"{t['owner']}::{t['name']}" for t in ts[:3]) + (' …' if len(ts) > 3 else '') if ts else '') + (f"; {j['unresolved_inside']} unresolved call(s) inside — a lower bound" if j.get('unresolved_inside') else ''))
+    if len(decls) > 3: lines.append(f"  … +{len(decls) - 3} more: axiomcode changed --impact")
+    return lines
+
+def key(d): return f"{d['file']}:{d['symbol']}:{d['kind']}:{d.get('detail', '')}"
+
+lines = []
+if event == 'PreToolUse' and tool in ('Edit', 'Write', 'MultiEdit'):
+    fp = str(inp.get('file_path', '')); rel = rel_of(fp)
+    if not SRC.search(rel) or TEST.search(rel) or not os.path.exists(fp): sys.exit(0)
+    cur = open(fp, errors='replace').read(); new = cur
+    if tool == 'Write': new = str(inp.get('content', ''))
+    else:
+        for e in (inp.get('edits') or [inp]):
+            o, n = str(e.get('old_string', '')), str(e.get('new_string', ''))
+            if o: new = new.replace(o, n) if e.get('replace_all') else new.replace(o, n, 1)
+    if new == cur: sys.exit(0)
+    with tempfile.NamedTemporaryFile('w', suffix=os.path.splitext(rel)[1], delete=False) as f: f.write(new); tmp = f.name
+    j = changed(['--old', fp, '--new', tmp, '--file', rel]); os.unlink(tmp)
+    risky = [d for d in j.get('changed', []) if d.get('target') and d['kind'] in ('signature', 'field', 'type', 'removed')]
+    if risky:
+        lines = summarize(risky, f"graph: this edit is about to change {len(risky)} declaration(s) in {rel} in a way that reaches callers — before it lands:")
+        st = load_state(); st['reported'] = list(dict.fromkeys(st.get('reported', []) + [key(d) for d in risky])); save_state(st)
+elif event == 'PostToolUse' and tool == 'Bash':
+    c = str(inp.get('command', ''))
+    if not re.search(r'\bsed\s+-i|\bpatch\b|\bgit\s+(apply|checkout|switch|pull|merge|rebase|revert|cherry-pick|stash\s+pop|reset\s+--hard|restore)\b|>>?\s*\S+\.(java|ts|tsx|js|py)\b|\b(python3?|node|bash|sh)\s+\S+|\bmv\b|\bcp\b|\brm\b', c): sys.exit(0)
+    j = changed([], timeout=18)
+    st = load_state(); seen = set(st.get('reported', []))
+    new = [d for d in j.get('changed', []) if d.get('target') and key(d) not in seen and not TEST.search(d['file'])]
+    if new:
+        lines = summarize(new, f"graph: after that command, {len(new)} declaration(s) changed in the working tree (against the graph's commit {(j.get('built_at') or '')[:10]}) —")
+        st['reported'] = list(seen | {key(d) for d in new}); save_state(st)
+elif event == 'UserPromptSubmit':
+    j = changed([], timeout=18)
+    st = load_state(); seen = set(st.get('reported', []))
+    new = [d for d in j.get('changed', []) if d.get('target') and key(d) not in seen and not TEST.search(d['file'])]
+    if new:
+        lines = summarize(new, f"graph: {len(new)} declaration(s) changed in the working tree since the graph's commit {(j.get('built_at') or '')[:10]} and were not reported yet —")
+        st['reported'] = list(seen | {key(d) for d in new}); save_state(st)
+try:
+    with open(os.path.join(cwd, '.axiomcode', 'hooks.jsonl'), 'a') as f: f.write(json.dumps({'event': event, 'tool': tool, 'lines': len(lines)}) + '\n')
+except OSError: pass
+if lines: print(json.dumps({'hookSpecificOutput': {'hookEventName': event, 'additionalContext': '\n'.join(lines)}}))
