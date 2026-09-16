@@ -13,3 +13,4 @@ export const helper = Item.prototype.helper = function () { return log(); }; // 
 export const Model = function () {};
 Model.prototype = Object.create(Item.prototype);
 Model.tag = Item.tag = function () { return log(); };       // two statics
+Item.tag2 = Model.tag2 = function () { return log(); };     // known gap: the const-function constructor as the SECOND link is its function in this module and its type through the export
