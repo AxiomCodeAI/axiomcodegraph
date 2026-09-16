@@ -1,10 +1,13 @@
 #!/bin/bash
 # axiomcode — the one entry point. Every capability is a subcommand here; a new skill is a new subcommand, never a new tool.
 #
-#   axiomcode build [<repo>] [--lang java|typescript|python|javascript] [--src <subdir>] [--library <root>[,<root>…]]
-#                                                            build the graph: parser + engine → .axiomcode/out/graph.sqlite (+ index)
-#   axiomcode graph [<repo>] [--out <page.html>] [same flags] build (if needed) and draw the graph as one page: .axiomcode/graph/graph.html
-#   axiomcode graph export [<repo>] [--out <page.html>]       the page from an existing graph.sqlite, no engine run
+#   axiomcode index [<repo>] [--lang java|typescript|python|javascript] [--src <subdir>] [--library <root>[,<root>…]]
+#       the pipeline: parser → engine → .axiomcode/out/graph.sqlite (+ index). <repo> defaults to the current directory.
+#   axiomcode graph [<repo>] [--out <page.html>] [same flags]
+#       the graph as one page. Runs `index` first if the repo has no graph yet. <repo> defaults to the current directory;
+#       the page goes to <repo>/.axiomcode/graph/graph.html unless --out names another path.
+#   axiomcode graph export [<repo>] [--out <page.html>]
+#       the page from an existing graph.sqlite, no pipeline run (~1 s).
 #
 # --lang picks the language when the repo mixes several (auto-detection counts files, so a TypeScript project with many
 # .js test scripts is taken for JavaScript); --src limits the analysed tree (e.g. src); --library names dependency roots.
@@ -20,8 +23,8 @@ while [ $# -gt 0 ]; do
   esac
 done
 case "$cmd" in
-  build)  exec bash "$H/axiomcode-build" ${ARGS[@]+"${ARGS[@]}"} ;;
+  index|build) exec bash "$H/axiomcode-build" ${ARGS[@]+"${ARGS[@]}"} ;;
   graph)  case "${ARGS[0]:-}" in export) exec python3 "$H/axiomcode-graph" export "${ARGS[@]:1}" ;; *) exec python3 "$H/axiomcode-graph" build ${ARGS[@]+"${ARGS[@]}"} ;; esac ;;
-  ""|-h|--help|help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//' ;;
-  *) echo "axiomcode: unknown subcommand '$cmd' — the entry point has: build, graph" >&2; exit 2 ;;
+  ""|-h|--help|help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) echo "axiomcode: unknown subcommand '$cmd' — the entry point has: index, graph" >&2; exit 2 ;;
 esac
