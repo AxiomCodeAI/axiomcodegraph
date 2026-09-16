@@ -254,3 +254,4 @@ package-lock.json
 # the parser resolves and the shape the library join is written for.
 !graph/test/javascript/cases/*/src/node_modules/
 graph/test/*/.work-skill/
+__pycache__/

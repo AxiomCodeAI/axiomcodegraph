@@ -7,6 +7,10 @@ description: Build AxiomCode's type-resolved call graph of a Java, TypeScript, P
 
 One command, run from the repository root via Bash: `<this dir>/scripts/axiomcode <subcommand> …`
 
+The same subcommands are MCP tools when this plugin is loaded (`mcp__plugin_axiomcode_axiomcode__axiomcode_path`, `…_impact`,
+`…_index`, `…_graph`, from `plugins/axiomcode/.mcp.json` → `mcp/server.py`): typed parameters, the same verified output.
+Prefer the MCP tool when it is in your tool list; the CLI is the same code.
+
 ```
 axiomcode index [<repo>] [--lang <l>] [--src <dir>] [--library <root>,…]   the pipeline: parser → engine → .axiomcode/out/graph.sqlite (+ index)
 axiomcode graph [<repo>] [--out <folder | page.html>] [same flags]        the graph as one page; runs the pipeline only when there is no up-to-date graph

@@ -199,7 +199,7 @@ class Impact:
         return [ln for ln in range(s['line'], min(s['end_line'], len(L)) + 1) if pat.search(L[ln - 1])]
 
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
-    IMPACT_VERSION = '1'
+    IMPACT_VERSION = '2'
     def export(self):
         g = self.g; D = os.path.join(g.facts, 'impact'); stamp = os.path.join(D, 'stamp'); want = f"{os.path.getmtime(g.db)}:{self.IMPACT_VERSION}"
         if os.path.exists(stamp) and open(stamp).read() == want: return D
@@ -210,9 +210,16 @@ class Impact:
         W('typ', [(i, s['name'], 'record' if 'RECORD' in cat.get(i, '') else s['kind']) for i, s in g.sym.items() if s.get('type_id') and not s.get('method_id')])
         W('type_in_file', [(i, s['file']) for i, s in g.sym.items() if s.get('type_id') and not s.get('method_id') and s.get('file')])
         W('kind', [(i, s['kind']) for i, s in g.sym.items()])
+        def owner_tid(disp):                                                          # Enum.CONSTANT.m and <anon> bodies: the nearest enclosing type
+            while disp:
+                if disp in tid_of: return tid_of[disp]
+                disp = disp.rsplit('.', 1)[0] if '.' in disp else ''
+            return None
         members = []; owners = []
         for i, s in g.sym.items():
-            if s.get('method_id') and s.get('owner') and s['owner'] in tid_of: members.append((tid_of[s['owner']], i, s['name'], s['kind'])); owners.append((i, tid_of[s['owner']]))
+            if not (s.get('method_id') and s.get('owner')): continue
+            t = owner_tid(s['owner'])
+            if t: members.append((t, i, s['name'], s['kind'])); owners.append((i, t))
         fields = []; acc = []
         for rid, f in self.fields.items():
             fid = f"f:{rid}"; t = tid_of.get(f['owner'] or '')
