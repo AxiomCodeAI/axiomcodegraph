@@ -1,0 +1,21 @@
+main.js:12:25 FUNCTION_CALL_APPLY apply  EXACT  main.js:7:3
+main.js:13:45 FUNCTION_CALL_CALL call  EXACT  main.js:8:3
+main.js:14:20 FUNCTION_CALL_CALL call  EXACT  main.js:7:3
+main.js:15:25 FUNCTION_CALL_BIND bind  EXACT  main.js:9:3
+main.js:16:21 METHOD_CALL render  EXACT  main.js:8:3
+main.js:20:28 FUNCTION_CALL_APPLY apply  EXACT  main.js:8:3
+main.js:20:61 FUNCTION_CALL run  EXACT  main.js:20:22
+main.js:29:13 CONSTRUCTOR_CALL Child  SYNTHESIZED_OK  
+main.js:30:19 METHOD_CALL render  EXACT  main.js:13:3
+main.js:30:3 METHOD_CALL defaultTo  EXACT  main.js:12:3
+main.js:30:31 METHOD_CALL bound  EXACT  main.js:14:3
+main.js:30:42 METHOD_CALL rebound  EXACT  main.js:15:3
+main.js:30:55 METHOD_CALL direct  EXACT  main.js:16:3
+main.js:31:21 CONSTRUCTOR_CALL Orphan  SYNTHESIZED_OK  
+main.js:31:21 METHOD_CALL nope  EXACT  main.js:25:3
+main.js:31:3 CONSTRUCTOR_CALL Grand  SYNTHESIZED_OK  
+main.js:31:3 METHOD_CALL go  EXACT  main.js:20:3
+main.js:7:25 FUNCTION_CALL log  EXACT  main.js:5:1
+main.js:8:21 FUNCTION_CALL log  EXACT  main.js:5:1
+main.js:9:21 FUNCTION_CALL log  EXACT  main.js:5:1
+# defects: 0
