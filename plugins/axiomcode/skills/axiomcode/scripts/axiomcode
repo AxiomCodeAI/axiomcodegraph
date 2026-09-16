@@ -17,6 +17,10 @@
 #       parameter (Owner.m(p)), a type parameter (Type<T>), a local (Owner.m:v), Type.<init> / Type.<clinit>. Prints what
 #       must change with it (overrides, subtypes), what directly touches it with WHY and how sure ([resolved] / [in scope] /
 #       [by name] / [text]), the transitive callers by hop with the entry points and tests, and the unresolved-site bound.
+#   axiomcode changed [<repo>] [<file>…] [--range a..b | --staged] [--impact] [--json]
+#       which declarations an edit changed and HOW (signature: params added / removed / retyped, return type; field: its type,
+#       name, initializer; type header; body only; removed; added) — the working tree against the commit the graph was built
+#       from, or two commits — each with the target `impact` takes; --impact runs impact on all of them as one change set.
 #
 # --lang picks the language when the repo mixes several (auto-detection counts files, so a TypeScript project with many
 # .js test scripts is taken for JavaScript); --src limits the analysed tree (e.g. src); --library names dependency roots.
@@ -35,7 +39,8 @@ case "$cmd" in
   index|build) exec bash "$H/axiomcode-build" ${ARGS[@]+"${ARGS[@]}"} ;;
   path)   exec python3 "$H/axiomcode-path" ${ARGS[@]+"${ARGS[@]}"} ;;
   impact) exec python3 "$H/axiomcode-impact" ${ARGS[@]+"${ARGS[@]}"} ;;
+  changed) exec python3 "$H/axiomcode-changed" ${ARGS[@]+"${ARGS[@]}"} ;;
   graph)  exec python3 "$H/axiomcode-graph" build ${ARGS[@]+"${ARGS[@]}"} ;;
-  ""|-h|--help|help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//' ;;
-  *) echo "axiomcode: unknown subcommand '$cmd' — the entry point has: index, graph, path, impact" >&2; exit 2 ;;
+  ""|-h|--help|help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) echo "axiomcode: unknown subcommand '$cmd' — the entry point has: index, graph, path, impact, changed" >&2; exit 2 ;;
 esac

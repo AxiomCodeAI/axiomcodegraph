@@ -22,6 +22,7 @@ axiomcode graph [<repo>] [--out <folder | page.html>] [same flags]        the gr
 axiomcode path <from> <to> [<repo>] [--every|--paths N] [--in <path>]     the shortest chain of calls from A to B per target (--every: all routes) — or why there is none
 axiomcode path '*' <X>  ·  path <X> '*'                                   everything that can reach X (with its entry points) · everything X reaches
 axiomcode impact <target>… [<repo>] [--tests] [--depth N] [--in <path>]  what a change to a method / field / type / parameter / type parameter / local reaches, and how sure
+axiomcode changed [<repo>] [<file>…] [--range a..b | --staged] [--impact]  which declarations an edit changed and HOW (signature, field type, body …) — then impact on all of them
 ```
 
 `<repo>` defaults to the current directory. The page goes to `<repo>/.axiomcode/graph/graph.html`; `--out <folder>`
@@ -117,6 +118,25 @@ files, including a chained `product.getPrice().getAmount()` a grep for the type 
 every accessor caller across three services plus the `"stockQuantity"` map key. Other languages share every code path except
 the static-import rule (Java syntax) and are not yet measured.
 
+## changed — from an edit to the declarations it touched
+
+`axiomcode changed` maps a change onto the graph's declarations and says *how* each changed, in every language from the text:
+`signature` (parameters added / removed / renamed / retyped — `+reason`, `-x`, `zip: String → Integer` —, the return type),
+`body` (only lines inside a method), `field` (its type `String → Integer`, its name, its initializer), `type` (a header: name,
+extends / implements, type parameters), `removed`, and `added` lines outside any known declaration (listed, not analysed —
+nothing depends on new code yet). By default it reads the working tree against **the commit the graph was built from** (the
+build stamps it), so an uncommitted edit is always measured against the tree the graph describes; `--range a..b` reads two
+commits (when the graph is at the newer side, the declarations are the new text's and the direction is turned around),
+`--staged` the index, `--old/--new/--file` two texts of one file. Each line ends with the target `impact` takes for it — a
+signature with one parameter changed is `Owner.m(param)` — and `--impact` runs impact on all of them as one change set.
+
+The plugin's **PostToolUse hook on Edit / Write / MultiEdit** does this without being asked: `changed` on the edited file,
+`impact` on each changed declaration (up to three, in parallel), condensed to a few lines per declaration — the kind of
+change, what must change with it (only for a signature, a field, a type or a removal), who produces or writes it, who reads
+it, how many callables and tests reach it, and the unresolved-call bound. That is where the agent that changed
+`String zipCode` to `Integer` would have been told, before its next action, about the five `getZipCode().length()` uses in
+another service, the generated constructor call in a controller, and the four repositories that deserialize a holder.
+
 ## path — asking the graph
 
 - **Endpoints are names as written in the code**, never guesses: `Owner.method`, `Outer.Inner.method`, `method` (a free
@@ -180,4 +200,4 @@ the static-import rule (Java syntax) and are not yet measured.
 - `axiomcode path --selftest <lang>` replays the engine's own expected edges through the tool and separates engine gaps
   from tool losses; run it after touching `dl/path.dl` or the exporter. Needs `souffle` on PATH.
 
-`scripts/` holds `axiomcode` (the entry) and what it dispatches to: `axiomcode-build` (the pipeline), `axiomcode-index`, `axiomcode-graph`, `viewer.html`, `axiomcode-path` with `dl/path.dl`, `axiomcode-impact` with `dl/impact.dl` (the path tool's resolver and edge facts, its own rules and fact export).
+`scripts/` holds `axiomcode` (the entry) and what it dispatches to: `axiomcode-build` (the pipeline), `axiomcode-index`, `axiomcode-graph`, `viewer.html`, `axiomcode-path` with `dl/path.dl`, `axiomcode-impact` with `dl/impact.dl` (the path tool's resolver and edge facts, its own rules and fact export), `axiomcode-changed` (an edit → the declarations it touched, with the kind of change).
