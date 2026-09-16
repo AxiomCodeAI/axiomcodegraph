@@ -135,9 +135,9 @@ def export(repo, page=None):
 def build(repo, page, library=None):
     repo = os.path.realpath(repo or '.')
     if library: os.environ['AXIOMCODE_LIBRARY'] = ','.join(os.path.abspath(os.path.expanduser(x)) for x in library.split(','))
-    cands = [os.path.join(HERE, '..', '..', 'axiomcode', 'scripts', 'axiomcode-build'), os.path.join(os.environ.get('AXIOMCODE_ENGINE', ''), 'skills', 'axiomcode', 'scripts', 'axiomcode-build')]
+    cands = [os.path.join(HERE, 'axiomcode-build'), os.path.join(os.environ.get('AXIOMCODE_ENGINE', ''), 'skills', 'axiomcode', 'scripts', 'axiomcode-build')]
     b = next((os.path.realpath(c) for c in cands if os.path.isfile(c)), None)
-    if not b: sys.exit("axiomcode-build not found: the axiomcode skill must live beside this one (skills/axiomcode) or AXIOMCODE_ENGINE must point at the engine checkout")
+    if not b: sys.exit("axiomcode-build not found beside this script (set AXIOMCODE_ENGINE to the engine checkout)")
     r = subprocess.run([b, repo])
     if r.returncode: sys.exit(r.returncode)
     export(repo, page)

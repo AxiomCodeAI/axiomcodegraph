@@ -20,6 +20,8 @@ come from methods/types alone, refs/literals/comments are empty, and index_meta 
 """
 import csv, os, re, sqlite3, sys, time, glob, collections
 csv.field_size_limit(10**9)
+INDEX_VERSION = '3'      # bump when the tables' CONTENT changes shape (v2: JavaScript arrows named after their variable; v3: paths table, sites view, no variable row for a bound function); the query
+                         # frontend re-indexes an older graph when the IR is still there
 
 REPO = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith('-') else os.environ.get('AXIOMCODE_REPO') or '.')
 GDIR = os.environ.get('AXIOMCODE_GRAPH') or os.path.join(REPO, '.axiomcode')
@@ -36,14 +38,27 @@ if not os.path.isdir(IR):
     cands = glob.glob(os.path.join(GDIR, 'out', '.intermediate', 'ir', LANG)) + glob.glob(os.path.join(GDIR, 'ir'))
     IR = cands[0] if cands else ''
 HAVE_IR = bool(IR and os.path.isdir(IR))
+def rel(p):
+    """repo-relative path: the bundle stores Java paths absolute and Python paths relative to --src"""
+    if not p: return p
+    a = p if os.path.isabs(p) else os.path.join(SRC, p)
+    a = os.path.realpath(a) if os.path.exists(a) else os.path.normpath(a)
+    r = os.path.relpath(a, REPO)
+    return p.lstrip('/') if r.startswith('..') else r
 # never DEGRADE: an index built from the IR must not be rebuilt without it (the intermediates are routinely cleaned
 # to save disk). If only newer tables are missing, add them empty and keep everything else.
 prev = {r[0]: r[1] for r in c.execute("SELECT key, value FROM index_meta")} if c.execute("SELECT 1 FROM sqlite_master WHERE name='index_meta'").fetchone() else {}
 if not HAVE_IR and prev.get('ir_present') == 'true' and '--force' not in sys.argv:
     for t, ddl in (('type_refs', 'CREATE TABLE type_refs(name TEXT, file TEXT, line INT, context TEXT, owner_kind TEXT)'),
                    ('decorations', 'CREATE TABLE decorations(owner_id TEXT, name TEXT, text TEXT, file TEXT, line INT)'),
-                   ('skipped', 'CREATE TABLE skipped(file TEXT, reason TEXT)')):
+                   ('skipped', 'CREATE TABLE skipped(file TEXT, reason TEXT)'),
+                   ('paths', 'CREATE TABLE paths(raw TEXT PRIMARY KEY, rel TEXT)'),
+                   ('sites', 'CREATE VIEW sites AS SELECT s.*, COALESCE(p.rel, s.file_path) AS file FROM call_sites s LEFT JOIN paths p ON p.raw = s.file_path')):
         if not c.execute("SELECT 1 FROM sqlite_master WHERE name=?", (t,)).fetchone(): c.execute(ddl)
+    if not c.execute("SELECT 1 FROM paths LIMIT 1").fetchone():        # the mapping needs no IR: the bundle's own paths against the repo root
+        raw_paths = {r[0] for t in ('call_sites', 'methods', 'types') for r in c.execute(f"SELECT DISTINCT file_path FROM {t} WHERE file_path IS NOT NULL")}
+        c.executemany("INSERT OR IGNORE INTO paths VALUES (?,?)", ((p, rel(p)) for p in raw_paths))
+    c.execute("DELETE FROM index_meta WHERE key='index_version'"); c.execute("INSERT INTO index_meta VALUES ('index_version', ?)", (INDEX_VERSION,))   # or every query would retry this
     con.commit(); print(f"index kept: IR is gone but the index was built from it ({prev.get('built_at')}); newer tables added empty. Rebuild the graph to fill them."); sys.exit(0)
 
 # ── the adapter table: which IR file and which HEADER NAMES carry each thing, per language ────────
@@ -104,7 +119,11 @@ A = {
     decls=[dict(file='all-javascript-variables.csv', only=lambda r: not r.get('ownerMethodLinkHash') and r.get('bindingRegime') != 'IMPORT_BINDING',
                 kind=lambda r: 'const' if r.get('bindingRegime', '').startswith('CONST') else 'variable', name='name', owner=None, fileVia=('modules', 'ownerModuleLinkHash'), line='startLine', end='endLine'),
            dict(file='all-javascript-fields.csv', kind=lambda r: 'field', name='name', owner=None, fileVia=('modules', 'ownerModuleLinkHash'), line='startLine', end='startLine')],
-    boundNames=None, skipped='skipped-javascript-files.csv'),
+    # `const foo = () => …`: the variable's initializerExpressionLinkHash is the FUNCTION_EXPRESSION row whose
+    # introducesDeclarationLinkHash is the method — two hops, where TypeScript has boundFunctionLinkHash in one
+    boundNames=dict(file='all-javascript-variables.csv', name='name', only=lambda r: r.get('initializerKind') == 'FUNCTION',
+                    via=dict(key='initializerExpressionLinkHash', file='all-javascript-expressions.csv', id='jsExpressionUniqueHash', method='introducesDeclarationLinkHash')),
+    skipped='skipped-javascript-files.csv'),
 }[LANG]
 
 # ── the fixed kind vocabulary, from the parser's methodKind / typeCategory ─────────────────────────
@@ -120,13 +139,6 @@ def type_kind(cat):
     return 'class'
 
 TESTRE = re.compile(r'(^|/)(tests?|testing|__tests__|test-data|fixtures?)(/|$)|(^|/)test_|conftest\.py$|/src/test/|Tests?\.java$|\.(spec|test)\.[cm]?[tj]sx?$')
-def rel(p):
-    """repo-relative path: the bundle stores Java paths absolute and Python paths relative to --src"""
-    if not p: return p
-    a = p if os.path.isabs(p) else os.path.join(SRC, p)
-    a = os.path.realpath(a) if os.path.exists(a) else os.path.normpath(a)
-    r = os.path.relpath(a, REPO)
-    return p.lstrip('/') if r.startswith('..') else r
 
 def rows(name):
     p = os.path.join(IR, name)
@@ -135,13 +147,13 @@ def rows(name):
     return csv.DictReader(f, delimiter='\t', quoting=csv.QUOTE_NONE)
 
 # an older augment step left `symbols` as a VIEW; a name is dropped as whichever it is
-for name in ('symbols', 'refs', 'literals', 'comments', 'nesting', 'type_refs', 'decorations', 'skipped', 'index_meta', 'callers', 'callees', 'source'):
+for name in ('symbols', 'refs', 'literals', 'comments', 'nesting', 'type_refs', 'decorations', 'skipped', 'index_meta', 'paths', 'callers', 'callees', 'source', 'sites'):
     kind = c.execute("SELECT type FROM sqlite_master WHERE name=?", (name,)).fetchone()
     if kind: c.execute(f"DROP {kind[0].upper()} IF EXISTS {name}")
 c.executescript('''
 DROP TABLE IF EXISTS symbols; DROP TABLE IF EXISTS refs; DROP TABLE IF EXISTS literals; DROP TABLE IF EXISTS comments;
-DROP TABLE IF EXISTS nesting; DROP TABLE IF EXISTS type_refs; DROP TABLE IF EXISTS decorations; DROP TABLE IF EXISTS skipped; DROP TABLE IF EXISTS index_meta;
-DROP VIEW IF EXISTS callers; DROP VIEW IF EXISTS callees; DROP VIEW IF EXISTS source;
+DROP TABLE IF EXISTS nesting; DROP TABLE IF EXISTS type_refs; DROP TABLE IF EXISTS decorations; DROP TABLE IF EXISTS skipped; DROP TABLE IF EXISTS index_meta; DROP TABLE IF EXISTS paths;
+DROP VIEW IF EXISTS callers; DROP VIEW IF EXISTS callees; DROP VIEW IF EXISTS source; DROP VIEW IF EXISTS sites;
 CREATE TABLE symbols(id TEXT, name TEXT, display TEXT, kind TEXT, qualified_name TEXT, signature TEXT, file TEXT, line INT, end_line INT, owner TEXT, is_test INT, method_id TEXT, type_id TEXT);
 CREATE TABLE refs(name TEXT, file TEXT, line INT, kind TEXT, entity_kind TEXT);
 CREATE TABLE literals(value TEXT, file TEXT, line INT);
@@ -151,7 +163,12 @@ CREATE TABLE type_refs(name TEXT, file TEXT, line INT, context TEXT, owner_kind 
 CREATE TABLE decorations(owner_id TEXT, name TEXT, text TEXT, file TEXT, line INT);
 CREATE TABLE skipped(file TEXT, reason TEXT);
 CREATE TABLE index_meta(key TEXT, value TEXT);
+CREATE TABLE paths(raw TEXT PRIMARY KEY, rel TEXT);
 ''')
+# every spelling of a file the bundle uses (call_sites and methods carry the path as the parser wrote it — absolute for Java,
+# --src-relative for the others) mapped to the ONE repo-relative spelling the index prints; `sites` below is call_sites in that spelling
+raw_paths = {r[0] for t in ('call_sites', 'methods', 'types') for r in c.execute(f"SELECT DISTINCT file_path FROM {t} WHERE file_path IS NOT NULL")}
+c.executemany("INSERT OR IGNORE INTO paths VALUES (?,?)", ((p, rel(p)) for p in raw_paths))
 
 # ── types: display names with nesting recovered by line containment ───────────────────────────────
 types = {r['id']: dict(r) for r in c.execute("SELECT id, name, qualified_name, category, file_path, start_line, end_line, provenance FROM types")}
@@ -191,8 +208,17 @@ for t in types.values():
 bound = {}
 if A['boundNames']:
     b = A['boundNames']
-    for r in rows(b['file']):
-        if r.get(b['method']): bound.setdefault(r[b['method']], r[b['name']])
+    if b.get('via'):                                   # variable -> expression -> method
+        v = b['via']; expr2m = {}
+        for r in rows(v['file']):
+            if r.get(v['method']) and r.get(v['id']): expr2m[r[v['id']]] = r[v['method']]
+        for r in rows(b['file']):
+            if b.get('only') and not b['only'](r): continue
+            m_ = expr2m.get(r.get(v['key'], ''))
+            if m_ and r.get(b['name']): bound.setdefault(m_, r[b['name']])
+    else:
+        for r in rows(b['file']):
+            if r.get(b['method']): bound.setdefault(r[b['method']], r[b['name']])
 # Java: a method declared in an enum CONSTANT's body (`Initial { boolean process(...) {…} }`) is registered per constant with the
 # same qualified_name and the enum as owner — 23 `HtmlTreeBuilderState.process` rows in jsoup. The constant's span names it.
 econst = collections.defaultdict(list)
@@ -205,9 +231,10 @@ def enum_constant_of(fp, ln):
     for a, b, n in econst.get(fp, ()):
         if a <= ln <= b and b > a: return n
     return None
+bound_at = set()                                     # (file, line, name) of a variable that IS a function: the variable row is not a second symbol
 for m in c.execute("SELECT id, name, qualified_name, signature, kind, owner_type_id, owner_qualified_name, file_path, start_line, end_line FROM methods WHERE provenance='client'"):
     name = m['name'] or ''
-    if name.startswith('<') and m['id'] in bound: name = bound[m['id']]
+    if name.startswith('<') and m['id'] in bound: name = bound[m['id']]; bound_at.add((rel(m['file_path']), m['start_line'], name))
     od = tdisplay(m['owner_type_id']) if m['owner_type_id'] else None
     if m['kind'] == 'ENUM_CONSTANT_METHOD' and od:
         k_ = enum_constant_of(rel(m['file_path']), m['start_line'] or 0)
@@ -242,6 +269,7 @@ for d in A['decls']:
         if not name: continue
         fp = file_of(r, d); od = owner_display(r.get(d['owner'], '')) if d.get('owner') else None
         ln = int(r.get(d['line']) or 0); en = int(r.get(d['end']) or ln)
+        if (fp, ln, name) in bound_at: continue     # `const foo = () => …` is already the function foo
         sym.append((None, name, (od + '.' if od else '') + name, d['kind'](r), (r.get('qualifiedName') or ((r.get(d['owner'], '') + '.') if d.get('owner') else (fp + '#')) + name), None, fp, ln, en, od, 1 if fp and TESTRE.search(fp) else 0, None, None))
 c.executemany("INSERT INTO symbols VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", sym)
 
@@ -309,9 +337,11 @@ CREATE VIEW callees AS
   LEFT JOIN call_sites s ON s.id = e.call_site_id;
 -- where a body is: what to read
 CREATE VIEW source AS SELECT display, qualified_name, name, kind, file, line, end_line, end_line - line + 1 AS lines FROM symbols WHERE method_id IS NOT NULL;
+-- call sites with the repo-relative file the rest of the index speaks: join on (file, start_line), never on file_path
+CREATE VIEW sites AS SELECT s.*, COALESCE(p.rel, s.file_path) AS file FROM call_sites s LEFT JOIN paths p ON p.raw = s.file_path;
 ''')
 n = lambda t: c.execute(f"SELECT count(*) FROM {t}").fetchone()[0]
-meta = dict(language=LANG, repo=REPO, source_dir=SRC, ir=IR if HAVE_IR else '', ir_present=str(HAVE_IR).lower(), built_at=time.strftime('%Y-%m-%dT%H:%M:%S'),
+meta = dict(language=LANG, repo=REPO, source_dir=SRC, ir=IR if HAVE_IR else '', ir_present=str(HAVE_IR).lower(), built_at=time.strftime('%Y-%m-%dT%H:%M:%S'), index_version=INDEX_VERSION,
             symbols=n('symbols'), refs=n('refs'), type_refs=n('type_refs'), decorations=n('decorations'), literals=n('literals'), comments=n('comments'), nested_types=n('nesting'), skipped_files=n('skipped'))
 c.executemany("INSERT INTO index_meta VALUES (?,?)", [(k, str(v)) for k, v in meta.items()])
 con.commit()
