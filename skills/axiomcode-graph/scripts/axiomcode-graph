@@ -1,0 +1,603 @@
+#!/usr/bin/env python3
+"""axiomcode-graph — the graph of a codebase, from the engine, as an artifact.
+
+  axiomcode-graph build  [<repo>] [--no-html] [--top N]   run the engine (axiomcode-build) then export
+  axiomcode-graph export [<repo>] [--no-html] [--top N]   (re)write the artifact from an existing graph.sqlite
+  axiomcode-graph query  "<words>" [--budget N] [--dfs]   the nodes whose labels carry the words, one hop out, budgeted
+  axiomcode-graph explain <name>                          one node: location, community, every edge by relation, tiered
+  axiomcode-graph path   <A> <B>                          shortest resolved call path (overrides count as a dispatch hop),
+                                                          then the undirected fallback; every hop carries its tier
+  axiomcode-graph stats  [<repo>]                         what is in the artifact
+
+The artifact is <repo>/.axiomcode/graph/:
+  graph.json        {meta, directed:true, nodes, links} — nodes: file · type · method · library; links: contains ·
+                    calls (tier + confidence) · extends · overrides. A call the engine could not resolve is NOT a
+                    link: it is counted on its caller, with the names written at the sites.
+  communities.json  Louvain over the call graph; each with its hubs and dominant directories
+  GRAPH_REPORT.md   counts, resolution by tier, communities, god nodes, entry points, blind spots
+  graph.html        self-contained viewer (no network): community overview → community → node
+
+Names are written as they appear in the code: bar · Foo.bar · Outer.Inner.bar · file.ts:bar. A miss lists the
+nearest labels. Every printed path is repo-relative and logged (that is what unlocks Read/Edit under the gate).
+"""
+import os as _os, sys as _sys, subprocess as _sp
+_QUERY_VERBS = ('query', 'explain', 'path')
+if len(_sys.argv) > 1 and _sys.argv[1] in _QUERY_VERBS and not _os.environ.get("AXIOMCODE_LOGGED"):
+    _e = dict(_os.environ, AXIOMCODE_LOGGED="1"); _p = _sp.run([_sys.executable, _sys.argv[0], *_sys.argv[1:]], env=_e, capture_output=True, text=True)
+    _sp.run([_sys.executable, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "_log_query.py"), "axiomcode-graph", *_sys.argv[1:]], input=_p.stdout + _p.stderr, text=True)
+    raise SystemExit(_p.returncode)
+
+import os, re, sys, json, time, sqlite3, random, collections, subprocess, html
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+TESTRE = re.compile(r'(^|/)(tests?|testing|__tests__|test-data|fixtures?)(/|$)|(^|/)test_|conftest\.py$|/src/test/|Tests?\.java$|\.(spec|test)\.[cm]?[tj]sx?$')
+CONFIDENCE = {'known_edge': 'EXTRACTED', 'multi_inferred': 'INFERRED'}          # anything else the engine names is a declared unknown
+TIER_RANK = {'known_edge': 0, 'multi_inferred': 1}
+METHOD_KINDS = ('function', 'method', 'constructor', 'module')
+TYPE_KINDS = ('class', 'interface', 'enum', 'type', 'namespace')
+
+
+def usage(code=0):
+    print(__doc__.strip()); sys.exit(code)
+
+
+def parse(argv):
+    """<verb> positionals --flags; --top N / --budget N take a value"""
+    verb, pos, opt = (argv[0] if argv else ''), [], {}
+    i = 1
+    while i < len(argv):
+        a = argv[i]
+        if a in ('--top', '--budget') and i + 1 < len(argv): opt[a[2:]] = int(argv[i + 1]); i += 2; continue
+        if a.startswith('--'): opt[a[2:]] = True
+        else: pos.append(a)
+        i += 1
+    return verb, pos, opt
+
+
+def graph_dir(repo):
+    repo = os.path.realpath(repo or '.')
+    g = os.environ.get('AXIOMCODE_GRAPH') or os.path.join(repo, '.axiomcode')
+    return os.path.realpath(os.path.join(g, '..')), g
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+# export: graph.sqlite → nodes / links
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+def read_graph(repo, gdir):
+    db = os.path.join(gdir, 'out', 'graph.sqlite')
+    if not os.path.exists(db): sys.exit(f"no graph at {db} — run `axiomcode-graph build {repo}` first")
+    con = sqlite3.connect(db); con.row_factory = sqlite3.Row
+    q = lambda sql, *p: con.execute(sql, p).fetchall()
+    has = lambda t: bool(q("SELECT 1 FROM sqlite_master WHERE name=?", t))
+    run = {r['key']: r['value'] for r in q("SELECT key, value FROM run")}
+    lang, src = run.get('language', '?'), run.get('source_dir') or repo
+    indexed = has('symbols')
+
+    def rel(p):
+        if not p: return p
+        a = p if os.path.isabs(p) else os.path.join(src, p)
+        a = os.path.realpath(a) if os.path.exists(a) else os.path.normpath(a)
+        r = os.path.relpath(a, repo)
+        return p.lstrip('/') if r.startswith('..') else r
+
+    nodes, links = {}, {}
+    def node(id, **kw):
+        n = nodes.get(id)
+        if n is None: n = nodes[id] = dict(id=id, **kw); n.setdefault('metadata', {})
+        return n
+    def link(s, t, rel_, **kw):
+        k = (s, t, rel_)
+        l = links.get(k)
+        if l is None: l = links[k] = dict(source=s, target=t, relation=rel_, weight=0, **kw)
+        l['weight'] += 1
+        return l
+
+    owner_of = {r['id']: r['owner_type_id'] for r in q("SELECT id, owner_type_id FROM methods WHERE provenance='client'")}
+    # ── declarations ───────────────────────────────────────────────────────────────────────────
+    if indexed:
+        for r in q("SELECT * FROM symbols WHERE method_id IS NOT NULL OR type_id IS NOT NULL"):
+            if r['method_id'] and r['kind'] in METHOD_KINDS:
+                node(r['method_id'], label=r['display'], kind='method', file_type='code', source_file=r['file'],
+                     source_location=f"L{r['line']}-L{r['end_line']}",
+                     metadata=dict(kind=r['kind'], signature=r['signature'] or '', owner=r['owner'] or '', is_test=bool(r['is_test']),
+                                   qualified_name=r['qualified_name'], language=lang))
+            elif r['type_id'] and r['kind'] in TYPE_KINDS:
+                node(r['type_id'], label=r['display'], kind='type', file_type='code', source_file=r['file'],
+                     source_location=f"L{r['line']}-L{r['end_line']}",
+                     metadata=dict(kind=r['kind'], is_test=bool(r['is_test']), qualified_name=r['qualified_name'], language=lang))
+    else:
+        cat = lambda c: 'interface' if 'INTERFACE' in c else 'enum' if 'ENUM' in c else 'namespace' if 'NAMESPACE' in c else 'type' if 'ALIAS' in c or 'TYPEDEF' in c else 'class'
+        for r in q("SELECT * FROM types WHERE provenance='client'"):
+            f = rel(r['file_path'])
+            node(r['id'], label=r['name'].replace('$', '.'), kind='type', file_type='code', source_file=f,
+                 source_location=f"L{r['start_line']}-L{r['end_line']}", metadata=dict(kind=cat(r['category']), is_test=bool(TESTRE.search(f)), qualified_name=r['qualified_name'], language=lang))
+        for r in q("SELECT * FROM methods WHERE provenance='client'"):
+            f = rel(r['file_path']); k = 'constructor' if 'CONSTRUCTOR' in r['kind'] else 'module' if 'MODULE' in r['kind'] else 'method' if r['owner_type_id'] else 'function'
+            owner = (r['owner_qualified_name'] or '').replace('#', '.').split('.')[-1].replace('$', '.')
+            node(r['id'], label=f"{owner}.{r['name']}" if owner else r['name'], kind='method', file_type='code', source_file=f,
+                 source_location=f"L{r['start_line']}-L{r['end_line']}", metadata=dict(kind=k, signature=r['signature'], owner=(r['owner_qualified_name'] or '').split('.')[-1], is_test=bool(TESTRE.search(f)), qualified_name=r['qualified_name'], language=lang))
+
+    # ── containment: file → top-level declaration, type → member, outer → inner ─────────────────
+    nesting = {r['type_id']: r['outer_type_id'] for r in q("SELECT type_id, outer_type_id FROM nesting")} if has('nesting') else {}
+    if not nesting:   # recover by line containment within a file: the Java qualified_name drops the outer
+        by_file = collections.defaultdict(list)
+        for n in nodes.values():
+            if n['kind'] == 'type': by_file[n['source_file']].append(n)
+        for ts in by_file.values():
+            for t in ts:
+                a, b = span(t['source_location'])
+                outer = [o for o in ts if o is not t and span(o['source_location'])[0] <= a and span(o['source_location'])[1] >= b]
+                if outer: nesting[t['id']] = min(outer, key=lambda o: span(o['source_location'])[1] - span(o['source_location'])[0])['id']
+    for n in list(nodes.values()):
+        f = n['source_file']
+        fid = 'file:' + f
+        node(fid, label=f, kind='file', file_type='code', source_file=f, source_location='L1', metadata=dict(kind='file', is_test=bool(TESTRE.search(f)), language=lang))
+        if n['kind'] == 'type':
+            link(nesting[n['id']] if nesting.get(n['id']) in nodes else fid, n['id'], 'contains', source_file=f, source_location=n['source_location'].split('-')[0])
+        elif n['kind'] == 'method':
+            o = owner_of.get(n['id'])
+            link(o if o in nodes else fid, n['id'], 'contains', source_file=f, source_location=n['source_location'].split('-')[0])
+
+    # ── calls: one link per (caller, callee, relation); sites collected, tier = the best among them ──
+    unresolved = collections.defaultdict(list)
+    lib = {r['id']: r for r in q("SELECT id, qualified_name, name, owner_qualified_name, provenance FROM methods WHERE provenance<>'client'")}
+    for r in q("SELECT e.caller_id, e.callee_method_id, e.tier, e.kind, s.callee_name, s.file_path, s.start_line FROM call_edges e LEFT JOIN call_sites s ON s.id = e.call_site_id"):
+        c = r['caller_id']
+        if c not in nodes: continue
+        if not r['callee_method_id'] or r['callee_method_id'] not in nodes and r['callee_method_id'] not in lib:
+            unresolved[c].append((r['callee_name'] or '?', r['tier']))
+            continue
+        t = r['callee_method_id']
+        if t in lib:
+            m = lib[t]
+            node(t, label=m['qualified_name'], kind='library', file_type='code', source_file='', source_location='',
+                 metadata=dict(kind='library', owner=(m['owner_qualified_name'] or '').split('.')[-1], provenance=m['provenance'], language=lang))
+        cf = nodes[c]['source_file']
+        l = link(c, t, 'calls', tier=r['tier'], confidence=CONFIDENCE.get(r['tier'], 'AMBIGUOUS'), source_file=cf, source_location=f"L{r['start_line']}" if r['start_line'] else '', sites=[])
+        if TIER_RANK.get(r['tier'], 9) < TIER_RANK.get(l['tier'], 9): l['tier'], l['confidence'] = r['tier'], CONFIDENCE.get(r['tier'], 'AMBIGUOUS')
+        if r['start_line'] and len(l['sites']) < 20: l['sites'].append(r['start_line'])
+    for c, sites in unresolved.items():
+        names = collections.Counter(n for n, _ in sites)
+        nodes[c]['metadata']['unresolved'] = len(sites)
+        nodes[c]['metadata']['unresolved_names'] = [f"{n}×{k}" if k > 1 else n for n, k in names.most_common(12)]
+        nodes[c]['metadata']['unresolved_tiers'] = dict(collections.Counter(t for _, t in sites))
+
+    # ── hierarchy: type_ancestors is a closure; keep the direct edges ───────────────────────────
+    anc = collections.defaultdict(set)
+    for r in q("SELECT type_id, ancestor_type_id FROM type_ancestors"): anc[r['type_id']].add(r['ancestor_type_id'])
+    for t, A in anc.items():
+        if t not in nodes: continue
+        direct = [a for a in A if not any(b != a and a in anc.get(b, ()) for b in A)]
+        for a in direct:
+            if a in nodes: link(t, a, 'extends', source_file=nodes[t]['source_file'], source_location=nodes[t]['source_location'].split('-')[0])
+            else: nodes[t]['metadata']['library_ancestors'] = nodes[t]['metadata'].get('library_ancestors', 0) + 1
+    for r in q("SELECT method_id, overriding_method_id FROM overrides"):
+        if r['overriding_method_id'] in nodes and r['method_id'] in nodes:
+            link(r['overriding_method_id'], r['method_id'], 'overrides', source_file=nodes[r['overriding_method_id']]['source_file'], source_location=nodes[r['overriding_method_id']]['source_location'].split('-')[0])
+    for r in q("SELECT method_id, reason FROM entry_points"):
+        if r['method_id'] in nodes: nodes[r['method_id']]['metadata'].setdefault('entry', []).append(r['reason'])
+    reach = {r[0] for r in q("SELECT method_id FROM entry_reachable")} if has('entry_reachable') else set()
+    for m in reach:
+        if m in nodes: nodes[m]['metadata']['entry_reachable'] = True
+
+    tiers = collections.Counter(r['tier'] for r in q("SELECT tier FROM call_edges"))
+    meta = dict(language=lang, repo=repo, source_version=run.get('source_version', ''), engine_commit=run.get('engine_commit', ''),
+                built_at=time.strftime('%Y-%m-%dT%H:%M:%S'), index_present=indexed, tiers=dict(tiers),
+                skipped=[r[0] for r in q("SELECT file FROM skipped")] if has('skipped') else [])
+    return nodes, links, meta
+
+
+def span(loc):
+    m = re.findall(r'\d+', loc or '')
+    return (int(m[0]), int(m[-1])) if m else (0, 0)
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+# communities: Louvain over methods + types (calls + overrides at weight 1 per site, containment at 0.5)
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+def louvain(adj, seed=0):
+    """adj: {u: {v: w}} symmetric. Returns {u: community}. Standard two-phase Louvain, deterministic."""
+    rnd = random.Random(seed)
+    part = {u: u for u in adj}
+    levels = []
+    cur = adj
+    while True:
+        m2 = sum(sum(nb.values()) for nb in cur.values())          # 2m
+        if m2 == 0: break
+        k = {u: sum(nb.values()) for u, nb in cur.items()}
+        com = {u: u for u in cur}
+        tot = dict(k)
+        moved_any = False
+        for _ in range(50):
+            moved = False
+            order = list(cur); rnd.shuffle(order)
+            for u in order:
+                cu, ku = com[u], k[u]
+                w_to = collections.defaultdict(float)
+                for v, w in cur[u].items():
+                    if v != u: w_to[com[v]] += w
+                tot[cu] -= ku
+                best, best_gain = cu, w_to.get(cu, 0.0) - tot[cu] * ku / m2
+                for c, w in w_to.items():
+                    g = w - tot[c] * ku / m2
+                    if g > best_gain + 1e-12: best, best_gain = c, g
+                tot[best] += ku
+                if best != cu: com[u] = best; moved = moved_any = True
+            if not moved: break
+        if not moved_any: break
+        levels.append(com)
+        # aggregate
+        nxt = collections.defaultdict(lambda: collections.defaultdict(float))
+        for u, nb in cur.items():
+            for v, w in nb.items(): nxt[com[u]][com[v]] += w
+        if len(nxt) == len(cur): break
+        cur = {u: dict(nb) for u, nb in nxt.items()}
+    for lvl in levels:
+        part = {u: lvl.get(c, c) for u, c in part.items()}
+    ids = {c: i for i, c in enumerate(sorted(set(part.values()), key=lambda c: (-sum(1 for x in part.values() if x == c), str(c))))}
+    return {u: ids[c] for u, c in part.items()}
+
+
+def communities(nodes, links):
+    adj = collections.defaultdict(lambda: collections.defaultdict(float))
+    for l in links.values():
+        s, t = l['source'], l['target']
+        if nodes[s]['kind'] not in ('method', 'type') or nodes[t]['kind'] not in ('method', 'type'): continue
+        w = {'calls': min(l['weight'], 3.0), 'overrides': 1.0, 'extends': 1.0, 'contains': 0.5}[l['relation']]
+        adj[s][t] += w; adj[t][s] += w
+    for n in nodes.values():
+        if n['kind'] in ('method', 'type'): adj.setdefault(n['id'], collections.defaultdict(float))
+    part = louvain(adj) if adj else {}
+    deg = collections.Counter()
+    for l in links.values():
+        if l['relation'] == 'calls': deg[l['source']] += 1; deg[l['target']] += 1
+    members = collections.defaultdict(list)
+    for u, c in part.items(): members[c].append(u)
+    # a community under 4 nodes is a declaration the engine saw no edge for (a signature, an unused helper): it goes
+    # where the rest of its file went, or into one 'unconnected' bucket per directory — never 2 000 boxes of one
+    small = {c for c, ms in members.items() if len(ms) < 4}
+    if small:
+        file_comm = collections.defaultdict(collections.Counter)
+        for u, c in part.items():
+            if c not in small: file_comm[nodes[u]['source_file']][c] += 1
+        bucket = {}
+        for c in small:
+            for u in members[c]:
+                fc = file_comm.get(nodes[u]['source_file'])
+                if fc: part[u] = fc.most_common(1)[0][0]
+                else:
+                    d = os.path.dirname(nodes[u]['source_file']) or '.'
+                    part[u] = bucket.setdefault(d, ('unconnected', d))
+        members = collections.defaultdict(list)
+        for u, c in part.items(): members[c].append(u)
+    out = []
+    for c, ms in sorted(members.items(), key=lambda kv: -len(kv[1])):
+        dirs = collections.Counter(os.path.dirname(nodes[m]['source_file']) or '.' for m in ms)
+        code_dirs = collections.Counter(os.path.dirname(nodes[m]['source_file']) or '.' for m in ms if not nodes[m]['metadata'].get('is_test'))
+        if code_dirs: dirs = code_dirs + collections.Counter({d: 0 for d in dirs})    # named by the code it holds, not by the tests that reach it
+        hubs = sorted(ms, key=lambda m: -deg[m])[:5]
+        top_dirs = [d for d, _ in dirs.most_common(3)]
+        if isinstance(c, tuple): name = f"{c[1]} · unconnected declarations"
+        else: name = f"{top_dirs[0]} · " + ', '.join(nodes[h]['label'] for h in hubs[:2] if deg[h]) if hubs else top_dirs[0]
+        ntypes = sum(1 for m in ms if nodes[m]['kind'] == 'type'); ntests = sum(1 for m in ms if nodes[m]['metadata'].get('is_test'))
+        out.append(dict(id=c, name=name, size=len(ms), types=ntypes, methods=len(ms) - ntypes, tests=ntests,
+                        directories=[dict(path=d, n=k) for d, k in dirs.most_common(5)],
+                        hubs=[dict(id=h, label=nodes[h]['label'], degree=deg[h], file=nodes[h]['source_file'], line=span(nodes[h]['source_location'])[0]) for h in hubs],
+                        members=ms))
+    for i, c in enumerate(out):
+        c['id'] = i
+        for m in c['members']: nodes[m]['community'] = i
+    # a file belongs where most of its declarations do
+    fc = collections.defaultdict(collections.Counter)
+    for n in nodes.values():
+        if 'community' in n: fc['file:' + n['source_file']][n['community']] += 1
+    for f, cnt in fc.items():
+        if f in nodes: nodes[f]['community'] = cnt.most_common(1)[0][0]
+    # between-community call volume, for the overview
+    between = collections.Counter()
+    for l in links.values():
+        if l['relation'] != 'calls': continue
+        a, b = nodes[l['source']].get('community'), nodes[l['target']].get('community')
+        if a is not None and b is not None and a != b: between[(a, b)] += l['weight']
+    return out, [dict(source=a, target=b, weight=w) for (a, b), w in between.most_common()], deg
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+# report + html
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+def report(nodes, links, meta, comms, deg):
+    L = []
+    kinds = collections.Counter(n['kind'] for n in nodes.values())
+    rels = collections.Counter(l['relation'] for l in links.values())
+    sites = sum(meta['tiers'].values())
+    resolved = sum(v for t, v in meta['tiers'].items() if t in CONFIDENCE)
+    unresolved = sum(n['metadata'].get('unresolved', 0) for n in nodes.values())
+    L += [f"# Graph report — {os.path.basename(meta['repo'])} ({meta['language']})", '',
+          f"Built {meta['built_at']} · engine `{meta['engine_commit'][:10]}` · source `{meta['source_version'][:10]}`"
+          + ('' if meta['index_present'] else ' · **without the index** (display names derived from qualified names; no test flags from the parser)'), '',
+          '## What is in the graph', '', '| | count |', '|---|---|']
+    L += [f"| {k} nodes | {v} |" for k, v in sorted(kinds.items())]
+    L += [f"| `{r}` links | {v} |" for r, v in sorted(rels.items())]
+    L += ['', '## Resolution', '', f"{sites} call sites · {resolved} resolved to a target ({100 * resolved // max(sites, 1)}%) · {unresolved} carried as unresolved counts on their callers", '',
+          '| tier | sites | in the graph as |', '|---|---|---|']
+    L += [f"| `{t}` | {v} | {CONFIDENCE.get(t, 'a count on the caller (AMBIGUOUS)')} |" for t, v in sorted(meta['tiers'].items(), key=lambda kv: -kv[1])]
+    L += ['', f"## Communities ({len(comms)}; Louvain over calls, overrides, extends, containment)", '']
+    for c in comms[:25]:
+        L += [f"### {c['id']}: {c['name']}", '',
+              f"{c['size']} nodes ({c['types']} types, {c['methods']} methods, {c['tests']} tests) · "
+              + ' · '.join(f"`{d['path']}` ({d['n']})" for d in c['directories'][:3]), '']
+        L += [f"- {h['label']} — degree {h['degree']} — {h['file']}:{h['line']}" for h in c['hubs']]
+        L += ['']
+    if len(comms) > 25: L += [f"… {len(comms) - 25} more in communities.json", '']
+    god = [n for n in sorted(nodes.values(), key=lambda n: -deg[n['id']]) if n['kind'] == 'method' and not n['metadata'].get('is_test')][:20]
+    L += ['## God nodes (most connected methods, tests excluded)', '', '| method | callers+callees | community | where |', '|---|---|---|---|']
+    L += [f"| {n['label']} | {deg[n['id']]} | {n.get('community', '')} | {n['source_file']}:{span(n['source_location'])[0]} |" for n in god]
+    ent = collections.defaultdict(list)
+    for n in nodes.values():
+        for r in n['metadata'].get('entry', []): ent[r].append(n)
+    L += ['', '## Entry points', '']
+    L += [f"- `{r}`: {len(ns)} — e.g. " + ', '.join(f"{n['label']} ({n['source_file']}:{span(n['source_location'])[0]})" for n in ns[:3]) for r, ns in sorted(ent.items(), key=lambda kv: -len(kv[1]))] or ['- none recorded']
+    blind = sorted((n for n in nodes.values() if n['metadata'].get('unresolved')), key=lambda n: -n['metadata']['unresolved'])[:15]
+    L += ['', '## Blind spots (the methods with the most unresolved call sites — each is a caller the graph may be missing)', '', '| method | unresolved sites | written as | where |', '|---|---|---|---|']
+    L += [f"| {n['label']} | {n['metadata']['unresolved']} | {', '.join(n['metadata']['unresolved_names'][:5])} | {n['source_file']}:{span(n['source_location'])[0]} |" for n in blind]
+    byfile = collections.Counter()
+    for n in nodes.values(): byfile[n['source_file']] += n['metadata'].get('unresolved', 0)
+    L += ['', 'Files with the most unresolved sites: ' + ', '.join(f"`{f}` ({k})" for f, k in byfile.most_common(8) if k), '']
+    if meta['skipped']: L += [f"Files the parser skipped: {len(meta['skipped'])} — " + ', '.join(f"`{f}`" for f in meta['skipped'][:10]), '']
+    L += ['## Not in this graph', '', '- calls the engine could not resolve (counted per caller above; an unresolved site is unknown, not absent)',
+          '- field accesses and type uses (the engine resolves calls; see `axiomcode impact <field>` / `<Type>` for the by-name answer)',
+          '- imports as edges (a file→file `imports` link is not derived; containment and calls are)', '']
+    return '\n'.join(L)
+
+
+def write_html(out, nodes, links, comms, between, meta, deg, top):
+    tpl = open(os.path.join(HERE, 'viewer.html'), encoding='utf-8').read()
+    keep = {n['id'] for n in nodes.values() if n['kind'] in ('type', 'method', 'library')}
+    if len(keep) > top:        # keep every type and the most connected methods; say so
+        ranked = sorted((i for i in keep if nodes[i]['kind'] != 'type'), key=lambda i: (-deg[i], nodes[i]['label']))
+        keep = {i for i in keep if nodes[i]['kind'] == 'type'} | set(ranked[:top])
+        for c in comms:
+            keep.update(h['id'] for h in c['hubs'])
+    N = [dict(id=n['id'], l=n['label'], k=n['kind'], sk=n['metadata'].get('kind', ''), f=n['source_file'], a=span(n['source_location'])[0], b=span(n['source_location'])[1],
+              c=n.get('community', -1), t=int(bool(n['metadata'].get('is_test'))), e=n['metadata'].get('entry', []), u=n['metadata'].get('unresolved', 0),
+              un=n['metadata'].get('unresolved_names', [])[:6], d=deg[n['id']], sig=n['metadata'].get('signature', ''))
+         for n in nodes.values() if n['id'] in keep]
+    E = [dict(s=l['source'], t=l['target'], r=l['relation'], tier=l.get('tier', ''), w=l['weight']) for l in links.values()
+         if l['source'] in keep and l['target'] in keep and l['relation'] != 'contains']
+    C = [dict(id=c['id'], name=c['name'], size=c['size'], types=c['types'], methods=c['methods'], tests=c['tests'], dirs=[d['path'] for d in c['directories'][:3]], hubs=[h['label'] for h in c['hubs'][:3]]) for c in comms]
+    data = dict(meta=dict(repo=os.path.basename(meta['repo']), language=meta['language'], built=meta['built_at'], shown=len(N), total=sum(1 for n in nodes.values() if n['kind'] in ('type', 'method', 'library')),
+                          tiers=meta['tiers']), nodes=N, links=E, communities=C, between=between)
+    page = tpl.replace('/*__DATA__*/null', json.dumps(data, separators=(',', ':')).replace('</', '<\\/'))
+    open(os.path.join(out, 'graph.html'), 'w', encoding='utf-8').write(page)
+
+
+def do_export(repo, opt):
+    repo, gdir = graph_dir(repo)
+    t0 = time.time()
+    nodes, links, meta = read_graph(repo, gdir)
+    comms, between, deg = communities(nodes, links)
+    out = os.path.join(gdir, 'graph'); os.makedirs(out, exist_ok=True)
+    meta['counts'] = dict(collections.Counter(n['kind'] for n in nodes.values()))
+    meta['links'] = dict(collections.Counter(l['relation'] for l in links.values()))
+    meta['communities'] = len(comms)
+    g = dict(meta=meta, directed=True, input_tokens=0, output_tokens=0, failed_sources=meta['skipped'],
+             nodes=sorted(nodes.values(), key=lambda n: (n['kind'], n['source_file'], span(n['source_location'])[0])),
+             links=[dict(l, sites=l['sites'][:20]) if 'sites' in l else l for l in links.values()])
+    json.dump(g, open(os.path.join(out, 'graph.json'), 'w', encoding='utf-8'), ensure_ascii=False)
+    json.dump(dict(communities=comms, between=between), open(os.path.join(out, 'communities.json'), 'w', encoding='utf-8'), ensure_ascii=False)
+    open(os.path.join(out, 'GRAPH_REPORT.md'), 'w', encoding='utf-8').write(report(nodes, links, meta, comms, deg))
+    if not opt.get('no-html'): write_html(out, nodes, links, comms, between, meta, deg, opt.get('top', 3000))
+    r = os.path.relpath(out, os.getcwd())
+    print(f"graph at {r}/: {meta['counts']} · links {meta['links']} · {len(comms)} communities · {time.time() - t0:.1f}s")
+    print(f"  {r}/graph.json · {r}/communities.json · {r}/GRAPH_REPORT.md" + ('' if opt.get('no-html') else f" · {r}/graph.html"))
+
+
+def do_build(repo, opt):
+    repo_, gdir = graph_dir(repo)
+    cands = [os.path.join(HERE, '..', '..', 'axiomcode', 'scripts', 'axiomcode-build'),
+             os.path.join(os.environ.get('AXIOMCODE_ENGINE', ''), 'skills', 'axiomcode', 'scripts', 'axiomcode-build')]
+    b = next((os.path.realpath(c) for c in cands if os.path.isfile(c)), None)
+    if not b: sys.exit("axiomcode-build not found: the axiomcode skill must live beside this one (skills/axiomcode) or AXIOMCODE_ENGINE must point at the engine checkout")
+    r = subprocess.run([b, repo_])
+    if r.returncode: sys.exit(r.returncode)
+    do_export(repo_, opt)
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+# query / explain / path over graph.json
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+class G:
+    def __init__(self, repo=None):
+        repo, gdir = graph_dir(repo)
+        p = os.path.join(gdir, 'graph', 'graph.json')
+        if not os.path.exists(p): sys.exit(f"no artifact at {os.path.relpath(p)} — run `axiomcode-graph build .` first")
+        g = json.load(open(p, encoding='utf-8'))
+        self.meta = g['meta']; self.nodes = {n['id']: n for n in g['nodes']}
+        self.out = collections.defaultdict(list); self.inn = collections.defaultdict(list)
+        for l in g['links']:
+            self.out[l['source']].append(l); self.inn[l['target']].append(l)
+        cp = os.path.join(gdir, 'graph', 'communities.json')
+        self.comms = {c['id']: c for c in json.load(open(cp, encoding='utf-8'))['communities']} if os.path.exists(cp) else {}
+        self.by_label = collections.defaultdict(list); self.by_name = collections.defaultdict(list)
+        for n in self.nodes.values():
+            if n['kind'] == 'file': continue
+            self.by_label[n['label'].lower()].append(n); self.by_name[n['label'].rsplit('.', 1)[-1].lower()].append(n)
+
+    def resolve(self, sel):
+        """the same ladder as axiomcode: display · Owner.name suffix · simple name · case-fold · substring · tokens"""
+        s = sel.strip().strip('"\'')
+        if ':' in s and '/' in s.split(':')[0] or s.endswith(('.ts', '.py', '.java', '.js')):   # file.ts:name or a file
+            f, _, nm = s.partition(':')
+            c = [n for n in self.nodes.values() if n['kind'] != 'file' and n['source_file'].endswith(f) and (not nm or n['label'].rsplit('.', 1)[-1] == nm)]
+            if c: return c, 'file'
+        low = s.lower()
+        for tier, cands in (('exact', self.by_label.get(low, [])),
+                            ('suffix', [n for k, ns in self.by_label.items() if k.endswith('.' + low) for n in ns]),
+                            ('name', self.by_name.get(low, [])),
+                            ('qualified', [n for n in self.nodes.values() if n['kind'] != 'file' and n.get('metadata', {}).get('qualified_name', '').lower().endswith(low)]),
+                            ('substring', [n for k, ns in self.by_label.items() if len(low) >= 3 and low in k for n in ns])):
+            if cands:
+                cands = sorted(cands, key=lambda n: (n['metadata'].get('is_test', False), n['kind'] != 'method', -self.degree(n['id'])))
+                return cands, tier
+        return [], 'none'
+
+    def nearest(self, s, k=8):
+        toks = set(tokens(s))
+        scored = []
+        for n in self.nodes.values():
+            if n['kind'] == 'file': continue
+            t = set(tokens(n['label'])); hit = len(toks & t)
+            if hit: scored.append((-hit, -self.degree(n['id']), n['label'], n))
+        return [x[3] for x in sorted(scored, key=lambda x: x[:3])[:k]]
+
+    def degree(self, i): return sum(1 for l in self.out[i] if l['relation'] == 'calls') + sum(1 for l in self.inn[i] if l['relation'] == 'calls')
+    def loc(self, n): return f"{n['source_file']}:{span(n['source_location'])[0]}" if n['source_file'] else '(library)'
+    def cname(self, n):
+        c = self.comms.get(n.get('community'))
+        return f"community {c['id']} ({c['name']})" if c else ''
+
+
+def tokens(s):
+    return [t.lower() for t in re.findall(r'[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+|\d+', re.sub(r'[^\w]', ' ', s or '')) if len(t) >= 2]
+
+
+def edge_line(g, l, other):
+    n = g.nodes[other]
+    tier = f" [{l['tier']}]" if l.get('tier') else ''
+    return f"{n['label']}{tier}  {g.loc(n)}" + (f"  ×{l['weight']}" if l.get('weight', 1) > 1 else '')
+
+
+def card(g, n, budget=None):
+    m = n['metadata']; out = []
+    head = n['kind'] if m.get('kind') in (n['kind'], '') else m['kind'] if n['kind'] == 'method' else f"{m['kind']} {n['kind']}"
+    out.append(f"{n['label']}  ({head})  {g.loc(n)}" + (f"  {m['signature']}" if m.get('signature') and m['signature'] != n['label'] else ''))
+    flags = []
+    if m.get('is_test'): flags.append('test')
+    if m.get('entry'): flags.append('entry point: ' + ', '.join(m['entry']))
+    if g.cname(n): flags.append(g.cname(n))
+    if flags: out.append('  ' + ' · '.join(flags))
+    groups = collections.OrderedDict()
+    for l in g.inn[n['id']]:
+        groups.setdefault({'contains': 'in', 'calls': 'called by', 'extends': 'subtypes', 'overrides': 'overridden by'}[l['relation']], []).append((l, l['source']))
+    for l in g.out[n['id']]:
+        groups.setdefault({'contains': 'contains', 'calls': 'calls', 'extends': 'extends', 'overrides': 'overrides'}[l['relation']], []).append((l, l['target']))
+    order = ['in', 'contains', 'called by', 'calls', 'overrides', 'overridden by', 'extends', 'subtypes']
+    for k in order:
+        if k not in groups: continue
+        rows = sorted(groups[k], key=lambda x: (TIER_RANK.get(x[0].get('tier', ''), 9), -x[0].get('weight', 1), g.nodes[x[1]]['label']))
+        lim = 30 if k in ('called by', 'calls') else 40
+        out.append(f"  {k} ({len(rows)}):")
+        out += [f"    {edge_line(g, l, o)}" for l, o in rows[:lim]]
+        if len(rows) > lim: out.append(f"    … {len(rows) - lim} more")
+    if m.get('unresolved'):
+        out.append(f"  ? {m['unresolved']} unresolved call site(s) in this body — written as: " + ', '.join(m.get('unresolved_names', [])[:8]) + " (each MAY be a call the graph is missing)")
+    return '\n'.join(out)
+
+
+def do_explain(pos):
+    if not pos: sys.exit("explain <name>")
+    g = G(); sel = ' '.join(pos)
+    c, how = g.resolve(sel)
+    if not c:
+        near = g.nearest(sel)
+        print(f"nothing in the graph is named `{sel}`" + (". Nearest labels:\n  " + '\n  '.join(f"{n['label']}  {g.loc(n)}" for n in near) if near else ". No label shares a word with it."))
+        return
+    if len(c) > 5:
+        print(f"{len(c)} nodes match `{sel}` ({how}); the 5 most connected — narrow with file.ts:name or Owner.name:")
+    for n in c[:5]:
+        print(card(g, n)); print()
+
+
+def do_query(pos, opt):
+    if not pos: sys.exit('query "<words>"')
+    g = G(); question = ' '.join(pos)
+    toks = tokens(question)
+    if not toks: print("no words in the question"); return
+    df = collections.Counter()
+    for n in g.nodes.values():
+        if n['kind'] != 'file':
+            for t in set(tokens(n['label'])): df[t] += 1
+    N = max(1, len(g.nodes))
+    import math
+    idf = {t: math.log(N / (1 + df.get(t, 0))) for t in toks}
+    scored = []
+    for n in g.nodes.values():
+        if n['kind'] == 'file': continue
+        lt = set(tokens(n['label']))
+        s = sum(idf[t] for t in set(toks) if t in lt)
+        if s > 0: scored.append((-s, n['metadata'].get('is_test', False), -g.degree(n['id']), n['label'], n))
+    scored.sort(key=lambda x: x[:4])
+    if not scored:
+        print(f"no node label carries any of: {', '.join(sorted(set(toks)))}. Rephrase with a name from the code (a class, a method, a file)."); return
+    budget = 4 * opt.get('budget', 1500)
+    seeds = [x[4] for x in scored[:5]]
+    out = [f"matched {len(scored)} node(s) for [{', '.join(sorted(set(toks)))}]; the top {len(seeds)}, each with one hop out:", '']
+    if opt.get('dfs') and len(seeds) >= 2:
+        out += [path_text(g, seeds[0], seeds[1]), '']
+    for n in seeds:
+        block = card(g, n)
+        if sum(len(x) + 1 for x in out) + len(block) > budget:
+            out.append(f"… budget reached ({opt.get('budget', 1500)} tokens); `explain {n['label']}` for the rest"); break
+        out += [block, '']
+    rest = [x[4] for x in scored[5:12]]
+    if rest: out.append('also matched: ' + ', '.join(n['label'] for n in rest))
+    print('\n'.join(out))
+
+
+def bfs(g, a, b, directed=True):
+    prev = {a['id']: None}; dq = collections.deque([a['id']])
+    while dq:
+        u = dq.popleft()
+        if u == b['id']: break
+        steps = [(l['target'], l) for l in g.out[u] if l['relation'] in ('calls', 'overrides')] + [(l['source'], l) for l in g.inn[u] if l['relation'] == 'overrides']
+        if not directed: steps += [(l['source'], l) for l in g.inn[u] if l['relation'] == 'calls']
+        for v, l in steps:
+            if v not in prev: prev[v] = (u, l); dq.append(v)
+    if b['id'] not in prev: return None
+    hops, v = [], b['id']
+    while prev[v]: u, l = prev[v]; hops.append((u, l, v)); v = u
+    return hops[::-1]
+
+
+def path_text(g, a, b):
+    for directed in (True, False):
+        hops = bfs(g, a, b, directed)
+        if hops is not None:
+            lines = [f"{'resolved call path' if directed else 'no resolved call path; an undirected connection'} {a['label']} → {b['label']} ({len(hops)} hop{'s' * (len(hops) != 1)}):"]
+            lines.append(f"  {a['label']}  {g.loc(a)}")
+            for u, l, v in hops:
+                mark = '[dispatch]' if l['relation'] == 'overrides' else f"[{l.get('tier', '')}]" if l.get('tier') else ''
+                arrow = '→' if l['source'] == u else '←'
+                lines.append(f"  {arrow} {g.nodes[v]['label']} {mark}  {g.loc(g.nodes[v])}")
+            return '\n'.join(lines)
+    return f"no path between {a['label']} and {b['label']} in the graph (calls + overrides, either direction). Unresolved sites on either side would not show here."
+
+
+def do_path(pos):
+    if len(pos) < 2: sys.exit("path <A> <B>")
+    g = G(); ends = []
+    for s in pos[:2]:
+        c, _ = g.resolve(s)
+        if not c:
+            near = g.nearest(s); print(f"nothing named `{s}`" + ("; nearest: " + ', '.join(n['label'] for n in near) if near else '')); return
+        ends.append(c[0])
+        if len(c) > 1: print(f"`{s}` → {c[0]['label']} ({g.loc(c[0])}); {len(c) - 1} other match(es): " + ', '.join(n['label'] for n in c[1:4]))
+    print(path_text(g, *ends))
+
+
+def do_stats(repo):
+    g = G(repo); m = g.meta
+    print(f"{os.path.basename(m['repo'])} ({m['language']}) built {m['built_at']} — nodes {m['counts']} · links {m['links']} · communities {m.get('communities')}")
+    print('call sites by tier: ' + ', '.join(f"{t}={v}" for t, v in sorted(m['tiers'].items(), key=lambda kv: -kv[1])))
+
+
+if __name__ == '__main__':
+    verb, pos, opt = parse(sys.argv[1:])
+    if verb in ('', '-h', '--help', 'help'): usage()
+    if verb == 'build': do_build(pos[0] if pos else '.', opt)
+    elif verb == 'export': do_export(pos[0] if pos else '.', opt)
+    elif verb == 'query': do_query(pos, opt)
+    elif verb == 'explain': do_explain(pos)
+    elif verb == 'path': do_path(pos)
+    elif verb == 'stats': do_stats(pos[0] if pos else '.')
+    else: print(f"unknown verb `{verb}`"); usage(2)
