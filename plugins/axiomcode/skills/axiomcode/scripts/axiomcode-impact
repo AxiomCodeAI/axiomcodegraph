@@ -41,13 +41,13 @@ _spec = importlib.util.spec_from_loader('axpath', importlib.machinery.SourceFile
 P = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(P)
 G, run_dl, die = P.G, P.run_dl, P.die
 
-CERT = {'resolved': 0, 'in scope': 1, 'by name': 2, 'text': 3}
+CERT = {'resolved': 0, 'one of a set': 1, 'in scope': 2, 'by name': 3, 'text': 4}
 LOCAL_KINDS = {'LOCAL_VARIABLE', 'PARAMETER', 'LAMBDA_PARAMETER', 'VARIABLE', 'PARAM'}          # a ref the parser says is a local, not a member
 QUALIFIED_KINDS = {'FIELD_ACCESS', 'PROPERTY_ACCESS', 'ATTRIBUTE_ACCESS'}
 MEMBER_KINDS = {'FIELD', 'PROPERTY', 'ATTRIBUTE', 'METHOD', 'FUNCTION'}                          # written `x.name`, against a receiver; the rest are bare names
 # the fixtures a test framework runs before a test, own or inherited: a language-neutral convention table, printed as such
 FIXTURE_DECOR = re.compile(r'^(Before\w*|BeforeEach|BeforeAll|BeforeClass|fixture|setup\w*)$', re.I)
-FIXTURE_NAMES = {'setUp', 'setUpClass', 'setup', 'setup_method', 'setup_class', 'setUpBeforeClass', 'beforeEach', 'beforeAll', 'before', 'init'}
+FIXTURE_NAMES = {'setUp', 'setUpClass', 'setup', 'setup_method', 'setup_class', 'setUpBeforeClass', 'beforeEach', 'beforeAll'}   # `init` / `before` alone are ordinary helper names: they count as a fixture only with the decoration
 TEST_DECOR = re.compile(r'(^|\.)(\w*Test\w*|it|test)$')
 # a decoration that GENERATES members the source never declares — the parser cannot see them, so a call to a generated
 # accessor is an unresolved site. Which members each one generates, per convention (Lombok, records, dataclasses); a
@@ -202,7 +202,7 @@ class Impact:
         return [ln for ln in range(s['line'], min(s['end_line'], len(L)) + 1) if pat.search(L[ln - 1])]
 
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
-    IMPACT_VERSION = '3'          # 3: decl_file facts (the import-time test-file rule)
+    IMPACT_VERSION = '4'          # 3: decl_file facts (the import-time test-file rule)
     def export(self):
         g = self.g; D = os.path.join(g.facts, 'impact'); stamp = os.path.join(D, 'stamp'); want = f"{os.path.getmtime(g.db)}:{self.IMPACT_VERSION}"
         if os.path.exists(stamp) and open(stamp).read() == want: return D
@@ -334,7 +334,7 @@ class Impact:
         prof('query facts written'); r = subprocess.run(self.program() + ['-F', F, '-D', O], capture_output=True, text=True); prof('souffle returned')
         if r.returncode: die("souffle failed:\n" + r.stderr[-1200:])
         out = {}
-        for n in ('contract', 'direct', 'seed', 'seed_byname', 'reach', 'parent_up', 'test_near', 'test_hit', 'inherited_test'):
+        for n in ('contract', 'direct', 'direct_edge', 'seed', 'seed_byname', 'reach', 'parent_up', 'test_near', 'test_hit', 'inherited_test'):
             rows = []
             for l in open(os.path.join(O, n + '.csv')):
                 p = l.rstrip('\n').split('\t')
@@ -420,8 +420,10 @@ def main(argv):
     byname_seeds = {x[0] for x in res['seed_byname'] if x[0] in g.sym}
     universe = sum(1 for _ in open(os.path.join(g.facts, 'impact', 'test_method.facts')))
     direct_ids = {c for c, *_ in D} | {c for c, _ in contract}
+    direct_ids = {c for c in direct_ids if c in g.sym}
     ent = [(m, d) for m, d in {**{c: 0 for c in direct_ids}, **reached}.items() if not callers_of.get(m) or g.sym[m]['is_test']]
-    u = g.q(f"SELECT count(*) n FROM unresolved_sites WHERE caller_id IN ({','.join('?' * (len(reached) + len(seeds)))})", *reached, *seeds)[0]['n'] if reached or seeds else 0
+    inside = list({*reached, *seeds, *direct_ids})               # the direct rows are not in seed for a method target
+    u = g.q(f"SELECT count(*) n FROM unresolved_sites WHERE caller_id IN ({','.join('?' * len(inside))})", *inside)[0]['n'] if inside else 0
     # the check that means something: every printed chain hop, and every resolved direct entry, is looked up again in graph.sqlite
     chains = {m: I.chain(m, parent) for m in tests}
     # how sure is each test's route to the change? the worst hop on its chain — what makes the answer wide is visible here:
@@ -443,10 +445,12 @@ def main(argv):
         for a, b in zip(ch, ch[1:]):
             hops += 1
             if (a, b) not in real and not any(x == b and t in ('dispatch', 'defines') for x, t in parent.get(a, [])): bad += 1
+    asserted = collections.defaultdict(set)                      # the callee each direct row claims an edge to
+    for c, callee in {(x[0], x[1]) for x in res['direct_edge']}: asserted[c].add(callee)
     for c, role, why, cert, loc, n in D:
         if cert == 'resolved' and ('calls' in why or 'through' in why or 'constructs' in why or 'instantiates' in why or 'passes an argument' in why):
             hops += 1
-            if c not in callers_real: bad += 1
+            if not any((c, t) in real for t in asserted.get(c, ())): bad += 1
     if as_json:
         print(json.dumps({'targets': [{'kind': k, 'label': lab} for k, lab, _ in targets],
                           'contract': [{'id': c, 'display': g.disp(c), 'why': why, 'at': g.loc(c)} for c, why in contract],
@@ -498,7 +502,10 @@ def main(argv):
         for m, (d, fx) in sorted(tests.items(), key=lambda x: (CERT_RANK[test_cert[x[0]]], x[1][0], g.sym[x[0]]['display'])):
             print(f"    [{test_cert[m]}] {g.sym[m]['owner'] or os.path.basename(g.sym[m]['file'])}::{g.sym[m]['name']}   {g.loc(m)}   {d} hop(s)" + (f" via {g.disp(fx)}" if fx else ''))
             if fx is None and d > 0 and len(chains.get(m, [])) > 1: print("        " + ' → '.join(g.disp(x) for x in chains[m]))
-    print(f"verified: {hops} printed edge(s) looked up again in graph.sqlite" + (", all present" if bad == 0 else f" — ✗ {bad} not found: report this, do not use the answer"))
+    # a green line over an empty set would be printed exactly where the answer is least trustworthy: say what was checked
+    print("verified: nothing to check — no resolved edge is claimed in this answer (every entry is by name, in scope, text, or one of a target set)" if hops == 0 else
+          f"verified: {hops} printed edge(s) looked up again in graph.sqlite" + (", all present" if bad == 0 else f" — ✗ {bad} not found: report this, do not use the answer"))
+    if not reached and D: print("bound: the closure could not start — every dependent above is reached by something other than a resolved call (by name, in scope, text), so what reaches THEM is not in this answer")
     if u: print(f"bound: {u} unresolved call(s) inside the impacted set — what those reach is unknown, so the set is a lower bound")
     # an override of a type the graph does not contain is called BY that library / framework: "nothing reaches it" would be a lie
     outside = []
@@ -508,8 +515,8 @@ def main(argv):
     if dunder and not reached: print(f"outside the graph: {', '.join(dunder)} is a protocol method — the language runtime calls it (an operator, a conversion, a lifecycle hook), which is no call site, so nothing reaching it here does NOT mean nothing does")
     if outside and not reached: print("outside the graph: " + ', '.join(f"{o} extends / implements {a}, which the graph does not contain" for o, a in outside[:3]) + " — a library or framework can call this method, so nothing reaching it here does NOT mean nothing does")
     if byname_seeds: print(f"through a call the engine could not resolve: {len(byname_seeds)} caller(s) write this method's name on an untyped receiver — counted in the reach above, so that part of it MAY not be real: " + ', '.join(f"{g.disp(c)} {g.loc(c)}" for c in sorted(byname_seeds)[:4]))
-    byname = [x for x in D if x[3] in ('by name', 'text')]
-    if byname: print(f"note: {len(byname)} entr{'y' if len(byname) == 1 else 'ies'} matched by name or text may be a same-named other thing — the receiver was not typed by the parser")
+    byname = [x for x in D if x[3] in ('one of a set', 'by name', 'text')]
+    if byname: print(f"note: {len(byname)} entr{'y' if len(byname) == 1 else 'ies'} are not an exact edge — [one of a set] is one member of a target set the engine could not narrow (its own oracle: right 126 of 351 times, against 528 of 585 for a resolved edge), [by name] / [text] may be a same-named other thing")
     return 0
 
 if __name__ == '__main__':

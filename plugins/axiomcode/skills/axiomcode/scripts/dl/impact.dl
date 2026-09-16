@@ -111,7 +111,7 @@ contract(q, s, "extends / implements it") :- target(q, "clinit", t, _), extends(
 
 // a METHOD: its callers, and the unresolved sites written with its name
 direct(q, c, "uses", "calls it", "resolved", f, l) :- target(q, "method", m, _), calls(c, m, t, f, l), t != "multi_inferred".
-direct(q, c, "uses", "calls it [one of a set]", "resolved", f, l) :- target(q, "method", m, _), calls(c, m, "multi_inferred", f, l).
+direct(q, c, "uses", "calls it", "one of a set", f, l) :- target(q, "method", m, _), calls(c, m, "multi_inferred", f, l).
 direct(q, c, "uses", "calls a method of this name (receiver not typed)", "by name", f, l) :- target(q, "method", m, _), named(n, m), unresolved(c, n, k, f, l), !ctor_kind(k).
 
 // a FIELD: references by name, judged by where they are and how they are written
@@ -160,7 +160,7 @@ direct(q, c, "produces", why, cert, f, l) :- produces(q, c, why, cert, f, l), !i
 tmember(q, m, n, k) :- target(q, "type", t, _), member(t, m, n, k).
 direct(q, c, "produces", "instantiates it", "resolved", f, l) :- tmember(q, m, _, "constructor"), calls(c, m, _, f, l), !inside_target(q, c).
 direct(q, c, "uses", cat("calls ", n), "resolved", f, l) :- tmember(q, m, n, k), k != "constructor", calls(c, m, t, f, l), t != "multi_inferred", !inside_target(q, c).
-direct(q, c, "uses", cat("calls ", n, " [one of a set]"), "resolved", f, l) :- tmember(q, m, n, k), k != "constructor", calls(c, m, "multi_inferred", f, l), !inside_target(q, c).
+direct(q, c, "uses", cat("calls ", n), "one of a set", f, l) :- tmember(q, m, n, k), k != "constructor", calls(c, m, "multi_inferred", f, l), !inside_target(q, c).
 direct(q, c, "produces", "instantiates it (unresolved site)", "by name", f, l) :- target(q, "type", t, _), typ(t, n, _), unresolved(c, n, k, f, l), ctor_kind(k), !inside_target(q, c).
 direct(q, c, "produces", "reflects on its .class — deserialization or a framework produces it here", "by name", f, l) :- target(q, "type", t, _), typ(t, n, _), ref(c, n, _, "CLASS_LITERAL", f, l), !inside_target(q, c).
 direct(q, c, "uses", "references it", "by name", f, l) :- target(q, "type", t, _), typ(t, n, _), ref(c, n, _, ek, f, l), ek != "CLASS_LITERAL", !local_kind(ek), !member_kind(ek), !inside_target(q, c).
@@ -202,6 +202,18 @@ seed(q, c) :- target(q, k, _, _), k != "method", k != "param", k != "var", direc
 seed(q, c) :- target(q, "typeparam", t, _), typ(t, _, _), direct(q, c, _, _, _, _, _).
 seed(q, c) :- contract(q, c, _).
 .output seed
+
+// every resolved direct row names the declaration its edge lands on, so `verified:` can check THAT pair — not
+// merely that the caller calls something
+.decl direct_edge(q:symbol, c:symbol, callee:symbol)
+direct_edge(q, c, m) :- target(q, "method", m, _), calls(c, m, _, _, _).
+direct_edge(q, c, a) :- target(q, "field", fl, _), field(fl, t, _, _, _), accessor(fl, an, _), member(t, a, an, _), calls(c, a, _, _, _).
+direct_edge(q, c, k) :- target(q, "field", fl, _), field(fl, t, _, _, _), member(t, k, _, "constructor"), calls(c, k, _, _, _).
+direct_edge(q, c, k) :- target(q, "field", fl, _), field(fl, t, _, _, _), holds(h, t), member(h, k, _, "constructor"), calls(c, k, _, _, _).
+direct_edge(q, c, m) :- tmember(q, m, _, _), calls(c, m, _, _, _).
+direct_edge(q, c, m) :- target(q, "param", m, _), calls(c, m, _, _, _).
+direct_edge(q, c, m) :- target(q, "typeparam", m, _), calls(c, m, _, _, _).
+.output direct_edge
 
 // ── the transitive layer: everything that can reach a seed through resolved calls, shortest hop count ──────────
 // A call site written with the target's simple name that the engine could not resolve (the receiver was not typed —
