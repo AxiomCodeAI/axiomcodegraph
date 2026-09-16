@@ -1,0 +1,30 @@
+main.js:10:32 METHOD_CALL Object.keys  ->  ambient_terminal  -
+main.js:11:16 METHOD_CALL Object.keys  ->  ambient_terminal  -
+main.js:11:16 METHOD_CALL Object.keys(src).forEach  ->  ambient_terminal  -
+main.js:11:16 METHOD_CALL Object.keys(src).forEach  ->  callback_registered  main.js:11:41 <function-expression>
+main.js:12:24 METHOD_CALL d1.alpha  ->  known_edge  main.js:7:15 alpha
+main.js:13:24 METHOD_CALL d2.alpha  ->  known_edge  main.js:7:15 alpha
+main.js:14:24 METHOD_CALL d3.beta  ->  known_edge  main.js:7:42 beta
+main.js:18:53 METHOD_CALL a.push  ->  ambient_terminal  -
+main.js:19:31 FUNCTION_CALL keys  ->  known_edge  main.js:18:1 keys
+main.js:19:31 METHOD_CALL keys(obj2).forEach  ->  ambient_terminal  -
+main.js:19:31 METHOD_CALL keys(obj2).forEach  ->  callback_registered  main.js:19:50 <function-expression>
+main.js:20:12 FUNCTION_CALL extend  ->  known_edge  main.js:19:1 extend
+main.js:21:24 METHOD_CALL d4.alpha  ->  known_edge  main.js:7:15 alpha
+main.js:25:55 FUNCTION_CALL ownKeys  ->  ambient_terminal  -
+main.js:25:55 FUNCTION_CALL ownKeys  ->  callback_registered  main.js:7:15 alpha
+main.js:25:55 FUNCTION_CALL ownKeys  ->  callback_registered  main.js:7:42 beta
+main.js:26:12 FUNCTION_CALL assign  ->  known_edge  main.js:25:1 assign
+main.js:27:24 METHOD_CALL d5.beta  ->  known_edge  main.js:7:42 beta
+main.js:28:16 METHOD_CALL Object.getOwnPropertyNames  ->  ambient_terminal  -
+main.js:28:16 METHOD_CALL Object.getOwnPropertyNames(src).forEach  ->  ambient_terminal  -
+main.js:28:16 METHOD_CALL Object.getOwnPropertyNames(src).forEach  ->  callback_registered  main.js:28:56 <function-expression>
+main.js:29:24 METHOD_CALL d6.alpha  ->  known_edge  main.js:7:15 alpha
+main.js:30:15 METHOD_CALL Object.keys  ->  ambient_terminal  -
+main.js:32:24 METHOD_CALL d9.beta  ->  known_edge  main.js:7:42 beta
+main.js:36:34 FUNCTION_CALL log  ->  known_edge  main.js:6:1 log
+main.js:38:24 METHOD_CALL d7.alpha  ->  ambiguous_unknown  -
+main.js:39:40 METHOD_CALL k.toUpperCase  ->  ambient_terminal  -
+main.js:40:24 METHOD_CALL d8.ALPHA  ->  ambiguous_unknown  -
+main.js:7:32 FUNCTION_CALL log  ->  known_edge  main.js:6:1 log
+main.js:7:58 FUNCTION_CALL log  ->  known_edge  main.js:6:1 log

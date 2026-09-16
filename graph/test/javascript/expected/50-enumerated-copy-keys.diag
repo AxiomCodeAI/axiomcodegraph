@@ -1,0 +1,13 @@
+package_entry    50-enumerated-copy-keys  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       main.js:10:32  METHOD_CALL keys  no_target
+unresolved       main.js:11:16  METHOD_CALL forEach  no_target
+unresolved       main.js:11:16  METHOD_CALL keys  no_target
+unresolved       main.js:18:53  METHOD_CALL push  no_target
+unresolved       main.js:19:31  METHOD_CALL forEach  no_target
+unresolved       main.js:25:55  FUNCTION_CALL ownKeys  no_target
+unresolved       main.js:28:16  METHOD_CALL forEach  no_target
+unresolved       main.js:28:16  METHOD_CALL getOwnPropertyNames  no_target
+unresolved       main.js:30:15  METHOD_CALL keys  no_target
+unresolved       main.js:38:24  METHOD_CALL alpha  member_absent
+unresolved       main.js:39:40  METHOD_CALL toUpperCase  no_target
+unresolved       main.js:40:24  METHOD_CALL ALPHA  member_absent
