@@ -31,7 +31,10 @@ about values: a callable that is reached may or may not change behaviour; a call
 resolved chain to the change or reaches it through something the graph cannot see (reflection, a framework, a library
 callback) — the bound line says how many such sites there are.
 """
-import collections, contextlib, importlib.util, io, json, os, re, shutil, subprocess, sys, tempfile
+import collections, contextlib, importlib.util, io, json, os, re, shutil, subprocess, sys, tempfile, time
+PROF = os.environ.get('AXIOMCODE_PROFILE'); _t0 = time.time()
+def prof(what):
+    if PROF: print(f"  [{time.time() - _t0:5.1f}s] {what}", file=sys.stderr)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 _spec = importlib.util.spec_from_loader('axpath', importlib.machinery.SourceFileLoader('axpath', os.path.join(HERE, 'axiomcode-path')))
@@ -327,7 +330,7 @@ class Impact:
                     if g.sym[oid].get('type_id'): type_query(q + ':type', oid)
         g.write('target', T, F); g.write('textuse', sorted(set(textuse)), F); g.write('importuse', sorted(set(importuse)), F); g.write('inside_target', sorted(set(inside)), F)
         if not shutil.which('souffle'): die("souffle is not installed (brew install souffle-lang/souffle/souffle)")
-        r = subprocess.run(['souffle', '-F', F, '-D', O, os.path.join(HERE, 'dl', 'impact.dl')], capture_output=True, text=True)
+        prof('query facts written'); r = subprocess.run(['souffle', '-F', F, '-D', O, os.path.join(HERE, 'dl', 'impact.dl')], capture_output=True, text=True); prof('souffle returned')
         if r.returncode: die("souffle failed:\n" + r.stderr[-1200:])
         out = {}
         for n in ('contract', 'direct', 'seed', 'reach', 'parent_up', 'test_near', 'test_hit'):
@@ -362,14 +365,14 @@ def main(argv):
     repo = '.'
     if len(args) > 1 and os.path.isdir(args[-1]): repo = args.pop()
     if not args: die("usage: axiomcode impact <target> [<target>…] [<repo>] [--depth N] [--in <path>] [--tests] [--limit N] [--json] [--kind k]")
-    g = G(repo); g.IN = IN; I = Impact(g)
+    g = G(repo); g.IN = IN; I = Impact(g); prof('graph loaded, path facts exported')
     targets = []
     for a in args:
         rs = I.resolve(a, kind)
         if len(rs) > 1 and not kind:
             die(f"{a} is declared as more than one kind: " + ' · '.join(f"{k} ({lab})" for k, lab, _ in rs) + " — say which with --kind " + '|'.join(k for k, _, _ in rs))
         targets += rs
-    res = I.run(targets)
+    prof('targets resolved'); res = I.run(targets); prof('souffle done')
     contract = list(dict.fromkeys((c, why) for c, why in res['contract'] if c in g.sym))
     seeds = {m for (m,) in res['seed']}
     # one row per (callable, reason): the surest certainty, the first location, the number of sites
@@ -386,6 +389,7 @@ def main(argv):
     for a, b, t in res['parent_up']: parent[a].append((b, t))
     callers_of = collections.defaultdict(set)
     for a, b, _ in g.edges(): callers_of[b].add(a)
+    prof('outputs read')
     tests = {}
     for m, d in res['test_near']:
         if m in g.sym and int(d) <= depth: tests[m] = (int(d), next((fx for mm, dd, fx in res['test_hit'] if mm == m and int(dd) == int(d) and fx), None))
@@ -396,14 +400,16 @@ def main(argv):
     # the check that means something: every printed chain hop, and every resolved direct entry, is looked up again in graph.sqlite
     chains = {m: I.chain(m, parent) for m in (tests if want_tests or as_json else {})}
     bad = 0; hops = 0
+    real = {(r[0], r[1]) for r in g.q("SELECT caller_id, callee_method_id FROM call_edges WHERE callee_method_id IS NOT NULL")}   # the engine's own edges, once
+    callers_real = {a for a, _ in real}
     for ch in chains.values():
         for a, b in zip(ch, ch[1:]):
             hops += 1
-            if not g.q("SELECT 1 FROM call_edges WHERE caller_id = ? AND callee_method_id = ? LIMIT 1", a, b) and not any(x == b and t in ('dispatch', 'defines') for x, t in parent.get(a, [])): bad += 1
+            if (a, b) not in real and not any(x == b and t in ('dispatch', 'defines') for x, t in parent.get(a, [])): bad += 1
     for c, role, why, cert, loc, n in D:
         if cert == 'resolved' and ('calls' in why or 'through' in why or 'constructs' in why or 'instantiates' in why or 'passes an argument' in why):
             hops += 1
-            if not g.q("SELECT 1 FROM call_edges WHERE caller_id = ? LIMIT 1", c): bad += 1
+            if c not in callers_real: bad += 1
     if as_json:
         print(json.dumps({'targets': [{'kind': k, 'label': lab} for k, lab, _ in targets],
                           'contract': [{'id': c, 'display': g.disp(c), 'why': why, 'at': g.loc(c)} for c, why in contract],
