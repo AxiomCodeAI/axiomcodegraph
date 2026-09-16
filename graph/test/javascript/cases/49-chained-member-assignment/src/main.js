@@ -11,5 +11,7 @@ export function main() {
   helper();
   Model.tag();
   Item.tag();
+  Model.tag2();
+  Item.tag2();
   new Model().run();
 }

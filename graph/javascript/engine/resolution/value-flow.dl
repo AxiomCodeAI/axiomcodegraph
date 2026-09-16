@@ -372,11 +372,16 @@ prop_value("obj", l, n, k, i) :- expr_child(_, l, "SPREAD_OPERAND", _, o), expr_
 prop_value("ctor", t, n, "func", m) :- type_static(t, n, m).
 prop_value("ctor", t, "prototype", "proto", t) :- type_decl(_, _, _, _, _, t).
 prop_value("func", m, n, k, i) :- type_ctor(_, m, t), prop_value("ctor", t, n, k, i).
-// And the other way for WRITES: `const W = function () {}` evaluates to its function
-// in its own module and to its type through an export, so `W.helper = helper` written
-// onto the function must be readable on the class (#706: `Model.tag = Item.tag = f`
-// across a module boundary).
-prop_value("ctor", t, n, k, i) :- type_ctor(_, m, t), member_write("func", m, n, k, i).
+// NOT the other way. `const W = function () {}` evaluates to its function in its own
+// module and to its type through an export, so `Item.tag2 = Model.tag2 = f` written
+// onto the function is not read on the class from another module (case 49's known
+// gap). A bridge from member_write on the function value to the class, even by the
+// constructor's own name and for function values only, carried mongoose's
+// `SchemaBoolean._cast = castBoolean` statics into `new Constructor()` and
+// `this.base.Schema` chains until `Schema`'s `path` held 160 values: 11 compiler-decided
+// `this.path(...)` sites fan-capped and the solve 16 s to 27 s. The parser's chained
+// method row covers the first link; the second link on a const-function constructor
+// waits for a context-sensitive read.
 // Instance: members up the chain; `T.prototype.m` reads the same members; and
 // `this.constructor` is the class — `new this.constructor()` in a `clone()`.
 prop_value("inst", t, n, "func", m) :- type_member(t, n, m).
@@ -423,8 +428,11 @@ this_value(m, "inst", t) :- member_write("proto", t, _, "func", m), method_this_
 // the literal is a member of every instance, including one written later through
 // an alias of it (`T.api = T.prototype = { … }; T.api.m = function () {}`, #706),
 // and a function written there runs with the instance as `this`.
+// An OWN member wins over the literal's property of the same name, as it does over
+// an inherited one: `T.prototype = Object.create(Base.prototype)` carries Base's
+// members through the Object.create model, and `T.prototype.save = …` shadows them.
 prototype_object(t, l) :- member_write(k, i, "prototype", "obj", l), constructible_value(k, i, t).
-prop_value("inst", t, n, k, i) :- prototype_object(t, l), prop_value("obj", l, n, k, i).
+prop_value("inst", t, n, k, i) :- prototype_object(t, l), prop_value("obj", l, n, k, i), !type_own_member_name(t, n).
 this_value(m, "inst", t) :- prototype_object(t, l), prop_value("obj", l, _, "func", m), method_this_binding(_, "DYNAMIC", m), !method_owner_type(m, _).
 // Everything an instance of the superclass has — its methods, its constructor's
 // writes, its documented fields — an instance of the subclass has too, unless the
