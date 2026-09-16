@@ -1,0 +1,29 @@
+main.js:15:38 CONSTRUCTOR_CALL reg['Ctor']  ->  known_edge  main.js:6:1 Ctor
+main.js:15:38 METHOD_CALL new reg['Ctor']().run  ->  known_edge  main.js:7:22 run
+main.js:16:31 CONSTRUCTOR_CALL reg.Ctor  ->  known_edge  main.js:6:1 Ctor
+main.js:16:31 METHOD_CALL new reg.Ctor().run  ->  known_edge  main.js:7:22 run
+main.js:17:52 CONSTRUCTOR_CALL C  ->  known_edge  main.js:6:1 Ctor
+main.js:17:52 METHOD_CALL new C().run  ->  known_edge  main.js:7:22 run
+main.js:18:39 COMPUTED_CALL reg['Ctor']  ->  known_edge  main.js:6:1 Ctor
+main.js:19:36 CONSTRUCTOR_CALL reg['Klass']  ->  known_edge  main.js:8:15 <constructor>
+main.js:19:36 METHOD_CALL new reg['Klass']().tick  ->  known_edge  main.js:8:45 tick
+main.js:24:37 CONSTRUCTOR_CALL reg[type]  ->  ambiguous_unknown  -
+main.js:24:37 METHOD_CALL new reg[type]().run  ->  ambiguous_unknown  -
+main.js:27:15 METHOD_CALL Object.create  ->  ambient_terminal  -
+main.js:29:1 FUNCTION_CALL DEF  ->  callback_registered  main.js:29:13 Call
+main.js:29:1 FUNCTION_CALL DEF  ->  known_edge  main.js:28:1 DEF
+main.js:30:26 CONSTRUCTOR_CALL TYPES['Call']  ->  ambient_terminal  -
+main.js:30:26 CONSTRUCTOR_CALL TYPES['Call']  ->  multi_inferred  main.js:29:13 Call
+main.js:34:30 CONSTRUCTOR_CALL list[0]  ->  ambient_terminal  -
+main.js:34:30 CONSTRUCTOR_CALL list[0]  ->  multi_inferred  main.js:6:1 Ctor
+main.js:34:30 METHOD_CALL new list[0]().run  ->  ambient_terminal  -
+main.js:34:30 METHOD_CALL new list[0]().run  ->  multi_inferred  main.js:7:22 run
+main.js:37:23 FUNCTION_CALL viaNewDot  ->  known_edge  main.js:16:1 viaNewDot
+main.js:37:3 FUNCTION_CALL viaNewLiteralKey  ->  known_edge  main.js:15:1 viaNewLiteralKey
+main.js:37:36 FUNCTION_CALL viaVar  ->  known_edge  main.js:17:1 viaVar
+main.js:37:46 FUNCTION_CALL viaCallLiteralKey  ->  known_edge  main.js:18:1 viaCallLiteralKey
+main.js:37:67 FUNCTION_CALL viaNewClassKey  ->  known_edge  main.js:19:1 viaNewClassKey
+main.js:38:3 FUNCTION_CALL viaComputed  ->  known_edge  main.js:24:1 viaComputed
+main.js:38:33 FUNCTION_CALL make  ->  known_edge  main.js:30:1 make
+main.js:38:41 FUNCTION_CALL viaIndex  ->  known_edge  main.js:34:1 viaIndex
+main.js:7:43 FUNCTION_CALL log  ->  known_edge  main.js:5:1 log
