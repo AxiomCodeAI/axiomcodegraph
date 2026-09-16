@@ -10,6 +10,14 @@ what a graph knows and a file does not — the edges. Nothing when the repo has 
 import json, os, re, sqlite3, subprocess, sys
 
 ev = json.load(sys.stdin); tool = ev.get('tool_name', ''); inp = ev.get('tool_input', {}) or {}; cwd = ev.get('cwd') or os.getcwd()
+def rel_of(fp):
+    """the graph stores repo-relative paths; the tool's file_path may reach the tree through a symlink while cwd is resolved (or the
+    reverse) — compare real paths, and if the file still is not under the tree, fall back to the graph's own suffix match"""
+    fp = str(fp)
+    for a, b in ((fp, cwd), (os.path.realpath(fp), os.path.realpath(cwd)), (os.path.realpath(fp), cwd), (fp, os.path.realpath(cwd))):
+        r = os.path.relpath(a, b)
+        if not r.startswith('..'): return r
+    return fp
 db = os.path.join(cwd, '.axiomcode', 'out', 'graph.sqlite')
 if not os.path.exists(db): sys.exit(0)
 con = sqlite3.connect(db); con.row_factory = sqlite3.Row
@@ -57,14 +65,14 @@ lines = []
 if tool in ('Edit', 'Write', 'MultiEdit'):
     # the agent changed a method: the callers that must change with it, its overrides, the tests that reach it — the moment
     # this is useful is now, not when the agent thinks to ask. One single-source closure (Datalog, ~0.3–0.6 s), ≤ 8 lines
-    fp = str(inp.get('file_path', '')); rel = os.path.relpath(fp, cwd) if fp.startswith(cwd) else fp
+    fp = str(inp.get('file_path', '')); rel = rel_of(fp)
     if not re.search(r'\.(java|ts|tsx|js|py)$', rel) or '/test' in rel: sys.exit(0)
     frag = str(inp.get('old_string') or inp.get('new_string') or (inp.get('edits') or [{}])[0].get('new_string', ''))
     try: src = open(fp, errors='replace').read()
     except OSError: sys.exit(0)
     at = src.find(frag.strip()[:80]) if frag.strip() else -1
     ln = src.count('\n', 0, at) + 1 if at >= 0 else None
-    rows = q("SELECT id, method_id, display, line, end_line FROM symbols WHERE file = ? AND method_id IS NOT NULL AND kind <> 'module' AND line <= ? AND end_line >= ? ORDER BY (end_line - line) LIMIT 1", rel, ln, ln) if ln else []
+    rows = q("SELECT id, method_id, display, line, end_line FROM symbols WHERE (file = ? OR file LIKE ?) AND method_id IS NOT NULL AND kind <> 'module' AND line <= ? AND end_line >= ? ORDER BY (end_line - line) LIMIT 1", rel, '%/' + rel.lstrip('/'), ln, ln) if ln else []
     if not rows: sys.exit(0)
     m = rows[0]
     up = q("SELECT DISTINCT cr.display d, cs.start_line ln FROM call_edges e JOIN symbols cr ON cr.id = e.caller_id LEFT JOIN call_sites cs ON cs.id = e.call_site_id WHERE e.callee_method_id = ? LIMIT 30", m['method_id'])
@@ -83,9 +91,9 @@ if tool in ('Edit', 'Write', 'MultiEdit'):
     except subprocess.TimeoutExpired: lines.append("  (reach closure timed out)")
     if un: lines.append(f"  {un} call(s) inside it the graph could not resolve — callers through those are not listed")
 elif tool == 'Read':
-    fp = str(inp.get('file_path', '')); rel = os.path.relpath(fp, cwd) if fp.startswith(cwd) else fp
+    fp = str(inp.get('file_path', '')); rel = rel_of(fp)
     a = int(inp.get('offset') or 1); b = a + int(inp.get('limit') or 100000)
-    rows = q("SELECT id, method_id, display, line, end_line FROM symbols WHERE file = ? AND method_id IS NOT NULL AND kind <> 'module' AND line <= ? AND end_line >= ? ORDER BY line", rel, b, a)
+    rows = q("SELECT id, method_id, display, line, end_line FROM symbols WHERE (file = ? OR file LIKE ?) AND method_id IS NOT NULL AND kind <> 'module' AND line <= ? AND end_line >= ? ORDER BY line", rel, '%/' + rel.lstrip('/'), b, a)
     if rows:
         lines.append(f"graph: {len(rows)} callable(s) in {rel}:{a}-{min(b, rows[-1]['end_line'] or b)} —")
         for r in rows[:8]: lines.append(f"  {r['display']} L{r['line']}  {edges(r['method_id'], r['id'])}{reach_counts(r['method_id'])}")
