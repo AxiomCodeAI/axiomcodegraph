@@ -11,6 +11,10 @@ The same subcommands are MCP tools when this plugin is loaded (`mcp__plugin_axio
 `…_index`, `…_graph`, from `plugins/axiomcode/.mcp.json` → `mcp/server.py`): typed parameters, the same verified output.
 Prefer the MCP tool when it is in your tool list; the CLI is the same code.
 
+When the plugin is loaded, a PostToolUse hook adds the graph's edges to your own Read and Grep results (`graph: …` — who
+calls each callable in the lines you read, what it calls, how many calls in it are unresolved; a grep for an identifier
+gets its declarations with the same). Nothing is added when the repo has no graph.
+
 ```
 axiomcode index [<repo>] [--lang <l>] [--src <dir>] [--library <root>,…]   the pipeline: parser → engine → .axiomcode/out/graph.sqlite (+ index)
 axiomcode graph [<repo>] [--out <folder | page.html>] [same flags]        the graph as one page; runs the pipeline only when there is no up-to-date graph
