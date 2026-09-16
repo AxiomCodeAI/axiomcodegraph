@@ -25,7 +25,7 @@
  *   targetFile targetLine targetCol targetName targetKind
  *   overloadCount chosenIndex enclLine enclCol enclName
  *
- * targetKind: implementation | bodiless | synthesized | any | type_ambiguous | global_expando | jsdoc_extends | unresolved | oracle_error
+ * targetKind: implementation | bodiless | synthesized | any | type_ambiguous | global_expando | jsdoc_extends | jsdoc_type | unresolved | oracle_error
  *   `bodiless` covers a `.d.ts` declaration (the standard library) — a correct END.
  *   `synthesized` is an implicit constructor: the compiler resolved and there is no
  *   declaration to point at.
@@ -52,6 +52,12 @@
  *   (getEffectiveBaseTypeNode), so it names the tagged class's constructor or member;
  *   what runs is the clause's. The tag is documentation, the clause is the program:
  *   undecided, counted apart (#656).
+ *   `jsdoc_type`: the checker named a LIBRARY declaration only because a JSDoc `@type` tag
+ *   widened the receiver's value to a base class or interface it satisfies
+ *   (`/** @type {Map<string, Function>} *\/ module.exports = new LazyMap(...)` names
+ *   `Map.get`); the value's own class overrides that member in the project, and that
+ *   override is what runs. Deleting the tag turns the same site's answer into the override:
+ *   the verdict is decided by a comment. Undecided, counted apart (#723).
  *
  * `require(...)` is NOT a site, by the parser's ruling (it is a module edge), so it is
  * skipped here too; the site universes must agree or nothing downstream joins.
@@ -178,6 +184,49 @@ function jsdocExtendsDisagrees(node) {
   if (!clause || tags.length === 0) return false;
   const written = stripParens(clause.expression).getText(cls.getSourceFile()).replace(/\s+/g, '');
   return tags.some((t) => t.class.expression.getText(cls.getSourceFile()).replace(/\s+/g, '') !== written);
+}
+// `jsdoc_type`: the site's named declaration is a LIBRARY one reached only because a JSDoc
+// `@type` tag widened the receiver's value to a base class or interface it satisfies
+// (`/** @type {Map<string, Function>} */ module.exports = new LazyMap(...)`). The value's own
+// class declares an override of that member in the project, and that override is what runs:
+// deleting the tag alone turns the site's answer into that override. The tag is
+// documentation, the value is the program. Same family as `jsdoc_extends` (#656) with the tag
+// on the value instead of on the class, and the one member of it still scored against the
+// engine (#723): undecided, counted apart.
+function jsdocTypeWidens(node, decl) {
+  if (!decl || !isBodiless(decl)) return false;          // only when the compiler named a library declaration
+  const callee = stripParens(calleeOf(node));
+  if (!callee || !ts.isPropertyAccessExpression(callee)) return false;
+  const name = callee.name.getText();
+  const annotated = annotatedValueDeclaration(stripParens(callee.expression), new Set());
+  if (!annotated) return false;
+  const valueType = checker.getTypeAtLocation(annotated);
+  const prop = valueType?.getProperty?.(name);
+  if (!prop) return false;
+  // the value's own type declares the member, with a body, inside the project
+  return (prop.getDeclarations() ?? []).some((d) => !isBodiless(d) && !d.getSourceFile().isDeclarationFile);
+}
+// The expression a `@type`-annotated declaration was initialised with, following a variable
+// to its initializer and an import to the exported value. Returns undefined when no `@type`
+// tag is in the chain, which is every ordinary program.
+function annotatedValueDeclaration(expr, seen) {
+  const sym = checker.getSymbolAtLocation(expr);
+  if (!sym) return undefined;
+  const resolved = (sym.flags & ts.SymbolFlags.Alias) ? checker.getAliasedSymbol(sym) : sym;
+  for (const d of resolved.getDeclarations() ?? []) {
+    if (seen.has(d)) continue;
+    seen.add(d);
+    const init = ts.isVariableDeclaration(d) || ts.isPropertyAssignment(d) ? d.initializer
+      : ts.isExportAssignment(d) ? d.expression
+      : ts.isBinaryExpression(d) ? d.right
+      : undefined;
+    if (!init) continue;
+    if (ts.getJSDocTypeTag(d) || ts.getJSDocTypeTag(d.parent) || ts.getJSDocTypeTag(d.parent?.parent)) return init;
+    // `const registry = require('./registry')` — the tag is on the module's export
+    const through = annotatedValueDeclaration(stripParens(init), seen);
+    if (through) return through;
+  }
+  return undefined;
 }
 function isDecidedByValue(node, decl) {
   const kind = callKindOf(node);
@@ -469,6 +518,8 @@ for (const sf of program.getSourceFiles()) {
           targetKind = 'global_expando';
         } else if (decl && !isBodiless(decl) && jsdocExtendsDisagrees(node)) {
           targetKind = 'jsdoc_extends';
+        } else if (jsdocTypeWidens(node, decl)) {
+          targetKind = 'jsdoc_type';
         } else if (decl && !isBodiless(decl) && !isDecidedByValue(node, decl)) {
           targetKind = 'type_ambiguous';
         } else if (decl) {

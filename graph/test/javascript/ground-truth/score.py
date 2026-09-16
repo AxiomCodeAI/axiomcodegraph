@@ -170,6 +170,7 @@ def main():
     undecided = Counter()
     ambiguous = Counter()  # the type_ambiguous subset of undecided
     expando = Counter()    # the global_expando subset of undecided (#644)
+    widened = Counter()    # the jsdoc_type subset of undecided (#723)
     rows_out = []
     conservation_missing = 0
     oracle_sites = 0
@@ -197,7 +198,7 @@ def main():
         cls = eng_class.get(key, '')
         targets = eng_targets.get(key, set())
         otarget = (r[col['targetFile']], r[col['targetLine']], r[col['targetCol']])
-        if tk == 'any' or tk == 'oracle_error' or tk == 'unresolved' or tk == 'type_ambiguous' or tk == 'global_expando' or tk == 'jsdoc_extends':
+        if tk in ('any', 'oracle_error', 'unresolved', 'type_ambiguous', 'global_expando', 'jsdoc_extends', 'jsdoc_type'):
             # `type_ambiguous`: the checker named a declaration by type identity (two
             # same-typed functions, a widened symbol key) — an inference, not a truth;
             # counted apart so the exclusion is visible.
@@ -205,6 +206,10 @@ def main():
                 ambiguous['resolved' if targets else cls] += 1
             if tk == 'global_expando':
                 expando['resolved' if targets else cls] += 1
+            # `jsdoc_type` (#723): a `@type` tag widened the value to a base the compiler
+            # then named; the value's own override runs. Deleting the tag flips the verdict.
+            if tk == 'jsdoc_type':
+                widened['resolved' if targets else cls] += 1
             undecided['resolved' if targets else cls] += 1
             rows_out.append((key, ckind, r[col['calleeName']], tk, 'UNDECIDED', cls, ';'.join('%s:%s:%s' % t for t in sorted(targets))))
             continue
@@ -291,6 +296,10 @@ def main():
     if sum(expando.values()):
         print('  of which global_expando (a platform global assigned by a project shim; load order decides): %d' % sum(expando.values()))
         for k, v in expando.most_common():
+            print('    %-18s %6d' % (k, v))
+    if sum(widened.values()):
+        print('  of which jsdoc_type (a @type tag widened the value to a base; its own override runs): %d' % sum(widened.values()))
+        for k, v in widened.most_common():
             print('    %-18s %6d' % (k, v))
     print('by call kind (decided):')
     for k, c in sorted(per_kind.items(), key=lambda kv: -sum(kv[1].values())):
