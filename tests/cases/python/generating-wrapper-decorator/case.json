@@ -1,0 +1,5 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "a house decorator that wraps dataclass generates the same constructor",
+   "run": ["impact", "Point.x", "--kind", "field"],
+   "want": ["build"]}]}

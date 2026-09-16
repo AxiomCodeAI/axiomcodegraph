@@ -1,0 +1,9 @@
+{"lang": "python", "src": ".",
+ "checks": [
+  {"why": "renaming a local does not reach the method's callers",
+   "run": ["impact", "compute:running"],
+   "want": ["a local lives inside its method"],
+   "avoid": ["caller_three"]},
+  {"why": "changing the method itself does reach them",
+   "run": ["impact", "compute"],
+   "want": ["caller_one", "caller_two"]}]}

@@ -1,0 +1,6 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "only the type that declares a Payload field holds one, not its file mates",
+   "run": ["impact", "Payload.body", "--kind", "field", "--limit", "200"],
+   "want": ["which holds Payload"],
+   "avoid": ["constructs Sibling, which holds"]}]}

@@ -1,0 +1,6 @@
+{"lang": "typescript", "src": "src",
+ "checks": [
+  {"why": "a name inside a regex literal is not a use of the class",
+   "run": ["impact", "Widget"],
+   "want": ["run"],
+   "avoid": ["pattern"]}]}
