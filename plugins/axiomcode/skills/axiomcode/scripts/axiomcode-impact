@@ -196,8 +196,36 @@ class Impact:
             if mids and any(k == 'type' for k, _, _ in out) and all(self.g.sym[i]['kind'] == 'constructor' for i in mids): mids = []   # `Type` is the type; its construction is Type.<init>
             if mids: out.append(('method', (self.g.disp(mids[0]) if len(mids) == 1 else f"{s} ({len(mids)} declarations)"), mids))
         if not out:
+            # an inherited member is written under the name the code uses: Sub.member, declared in a base. Answer for the
+            # declaration and say where it is, instead of falling through to a name match that no rule can act on
+            m = re.match(r'^(.+)\.([A-Za-z_]\w*)$', base)
+            if m and self.types(m.group(1), soft=True):
+                for tid in self.types(m.group(1)):
+                    anc = self.g.q("""SELECT s.display d FROM symbols s JOIN type_ancestors a ON a.ancestor_type_id = s.type_id
+                                      WHERE a.type_id = ? AND s.method_id IS NULL AND s.type_id IS NOT NULL""", self.g.sym[tid]['type_id']) if self.g.sym[tid].get('type_id') else []
+                    for r in anc:
+                        inh = self.resolve(f"{r['d']}.{m.group(2)}", kind) if (self.field_rows(f"{r['d']}.{m.group(2)}") or self.methods(f"{r['d']}.{m.group(2)}", soft=True)) else []
+                        if inh:
+                            print(f"note: {s} is not declared in {self.g.disp(tid)}; it is inherited from {r['d']}, and this is the answer for that declaration", file=sys.stderr)
+                            return inh
             if kind: die(f"nothing of kind {kind} named {s} in the graph")
+            if s.startswith('@'):
+                # `path` takes a decoration as an endpoint; there is no rule here for "what depends on this annotation",
+                # and answering for the methods that carry it would be a different question than the one asked
+                n = len(self.g.q("SELECT 1 FROM decorations WHERE name = ? OR name LIKE ?", s[1:], '%.' + s[1:])) if self.g.has('decorations') else 0
+                die(f"{s} is a decoration ({n} site(s) in this graph), not a declaration the impact rules can act on.\n"
+                    f"  Ask `axiomcode path '{s}' <target>` for what the methods carrying it reach, or name a declaration:\n"
+                    f"  a method (Owner.m), a field (Owner.f), a type (Type), a parameter (Owner.m(p)), a type parameter\n"
+                    f"  (Type<T>), a local (Owner.m:v), a construction (Type.<init>) or a static initializer (Type.<clinit>).")
             label, ids = self.g.resolve(s)                                                 # the path finder's endpoints: written / library / decoration
+            # a decoration, a library call, a file, a name matched in text: the path finder can take these as endpoints,
+            # the impact rules cannot. A zero in every section would read as "nothing depends on it", which is not what
+            # was computed, so the query stops here instead
+            if not ids or not any(i in self.g.sym and (self.g.sym[i].get('method_id') or self.g.sym[i].get('type_id')) for i in ids):
+                die(f"{s} matched {label}, which is not a declaration the impact rules can act on.\n"
+                    f"  They take: a method (Owner.m), a field / constant / enum member (Owner.f), a type (Type), a parameter\n"
+                    f"  (Owner.m(p)), a type parameter (Type<T>), a local (Owner.m:v), a construction (Type.<init>) or a static\n"
+                    f"  initializer (Type.<clinit>). For a decoration, a library call or a file, ask `axiomcode path` instead.")
             out.append(('method', label, ids))
         return out
     def methods(self, s, soft=False):
@@ -366,7 +394,14 @@ class Impact:
             if g.has(t): keys |= {r[0] for r in g.q(f"SELECT DISTINCT c0 FROM {t}")}
         if g.has('ext_bean_def'): beans = [(r[0], r[1], r[2] or 'bean') for r in g.q("SELECT c0, c1, c2 FROM ext_bean_def")]
         if g.has('ext_inject_point'):
-            inj = [(r[0], r[1], r[2] or 'injected') for r in g.q("SELECT i.c2, i.c4, i.c0 FROM ext_inject_point i JOIN symbols s ON s.method_id = i.c4 WHERE i.c2 <> ''")]
+            # c4 is the method that receives the value and is '-' for a FIELD injection, which is the case with no call
+            # site at all: an inner join here dropped about half of every project's injection points. A field injection
+            # is attributed to the type that declares it (c3), so the bean has a visible consumer either way
+            inj = [(r['t'], r['target'], r['kind'] or 'injected') for r in g.q("""
+                SELECT i.c2 t, COALESCE(s.id, o.id) target, i.c0 kind FROM ext_inject_point i
+                     LEFT JOIN symbols s ON s.method_id = i.c4
+                     LEFT JOIN symbols o ON o.type_id = i.c3 AND o.method_id IS NULL
+                WHERE i.c2 <> '' AND COALESCE(s.id, o.id) IS NOT NULL""")]
         W('config', cfg); W('config_key_known', [(k,) for k in sorted(keys)]); W('bean', beans); W('injected', sorted(set(inj)))
         open(stamp, 'w').write(want); return D
 
