@@ -36,6 +36,7 @@
 .decl named(n:symbol, m:symbol)                                   .input named
 .decl calls(c:symbol, m:symbol, tier:symbol, f:symbol, l:number)  .input calls
 .decl unresolved(c:symbol, n:symbol, k:symbol, f:symbol, l:number) .input unresolved
+.decl named_site(c:symbol, n:symbol, k:symbol, f:symbol, l:number) .input named_site
 .decl member(t:symbol, s:symbol, n:symbol, k:symbol)              .input member
 .decl owner(c:symbol, t:symbol)                                   .input owner
 .decl typ(t:symbol, n:symbol, k:symbol)                           .input typ
@@ -56,10 +57,21 @@
 .decl fixture(m:symbol)                                           .input fixture
 .decl kind(s:symbol, k:symbol)                                    .input kind
 .decl decl_file(s:symbol, f:symbol)                               .input decl_file
+.decl flag(n:symbol)                                              .input flag
+.decl file_dir(f:symbol, d:symbol)                                .input file_dir
+.decl field_type(fl:symbol, n:symbol)                             .input field_type
 .decl target(q:symbol, k:symbol, s:symbol, x:symbol)              .input target
 .decl textuse(c:symbol, n:symbol, f:symbol, l:number)             .input textuse
 .decl importuse(c:symbol, n:symbol, f:symbol, l:number)           .input importuse
 .decl inside_target(q:symbol, c:symbol)                           .input inside_target
+//   config(key, m, why)               a configuration key the engine bound to a method (@Value, @ConfigurationProperties, a .yml/.properties key)
+//   config_key_known(key)             every key the engine's configuration extension saw — an unknown key is said to be unknown, never guessed
+//   bean(name, t, kind)               a type registered as a bean (a stereotype, an @Bean factory)
+//   injected(t, into, kind)           a value of type t is handed to `into` by the container, not by a call the graph can see
+.decl config(k:symbol, m:symbol, why:symbol)                      .input config
+.decl config_key_known(k:symbol)                                  .input config_key_known
+.decl bean(n:symbol, t:symbol, kind:symbol)                       .input bean
+.decl injected(t:symbol, into:symbol, kind:symbol)                .input injected
 
 // ── vocabulary ─────────────────────────────────────────────────────────────────────────────────────────────────
 .decl local_kind(k:symbol)
@@ -68,6 +80,12 @@ local_kind("LOCAL_VARIABLE"). local_kind("PARAMETER"). local_kind("LAMBDA_PARAME
 member_kind("FIELD"). member_kind("PROPERTY"). member_kind("ATTRIBUTE"). member_kind("METHOD"). member_kind("FUNCTION").
 .decl ctor_kind(k:symbol)
 ctor_kind("new"). ctor_kind("anon_new"). ctor_kind("CONSTRUCTOR_CALL").
+// the parser tells a field reference from a type reference and from a call: a field rule must not take the other two
+.decl type_or_call_kind(k:symbol)
+type_or_call_kind("TYPE"). type_or_call_kind("METHOD"). type_or_call_kind("FUNCTION"). type_or_call_kind("CONSTRUCTOR"). type_or_call_kind("METHOD_CALL"). type_or_call_kind("METHOD_REFERENCE").
+// a qualifier that names the enclosing instance is not another type: this.x / self.x is the enclosing type's own x
+.decl self_qualifier(q:symbol)
+self_qualifier("this"). self_qualifier("self"). self_qualifier("cls"). self_qualifier("super").
 
 // ── derived structure ──────────────────────────────────────────────────────────────────────────────────────────
 // scope(T, S): a member of T is visible unqualified inside S — S is T, a subtype, or a type nested in one of those
@@ -84,22 +102,35 @@ inside(x, t) :- nested(n, t), inside(x, n).
 .decl declares(t:symbol, n:symbol)
 declares(t, n) :- member(t, _, n, _).
 declares(t, n) :- extends(t, u), member(u, _, n, _).
+declares(t, n) :- nested(x, t), typ(x, n, _).                     // a nested type of that name is a member too
 // what a type's decorations generate
 .decl gen(t:symbol, what:symbol)
 gen(t, w) :- decorated(t, d), gen_table(d, w).
-gen(t, "fluent") :- typ(t, _, "record").
+gen(t, w) :- extends(t, u), decorated(u, d), gen_table(d, w).     // a base class that generates, generates for its subtypes
+gen(t, w) :- field(fl, t, _, _, _), decorated(fl, d), gen_table(d, w).   // a decoration on the field itself
+gen(t, "fluent_read") :- typ(t, _, "record").                    // a record accessor reads; only a builder / wither writes
 gen(t, "ctor") :- typ(t, _, "record").
 // holds(H, T): type H has a field whose type is T — a value of T is produced whenever an H is
 .decl holds(h:symbol, t:symbol)
 holds(h, t) :- typ(t, n, _), typeref(c, n, "FIELD_TYPE", _, _), owner(c, h).
-holds(h, t) :- typ(t, n, _), typeref_file(f, n, "FIELD_TYPE"), type_in_file(h, f), h != t.
-holds(h, t) :- typ(t, n, _), field(_, h, _, _, _), typeref_file(f, n, "FIELD_TYPE"), type_in_file(h, f), h != t.
+// the type written on the field's own line: the holder is the type that declares the field, not every type in the file
+holds(h, t) :- field(fl, h, _, _, _), field_type(fl, n), typ(t, n, _), h != t.
+// the file-scoped fallback, only where no field declaration in that file could be read (the parser gives no line)
+.decl file_field_typed(f:symbol)
+file_field_typed(f) :- field(fl, _, _, f, _), field_type(fl, _).
+holds(h, t) :- typ(t, n, _), typeref_file(f, n, "FIELD_TYPE"), type_in_file(h, f), h != t, !file_field_typed(f).
 
 // ── must change with it: a contract the engine resolved ──────────────────────────────────────────────────────
 .decl contract(q:symbol, c:symbol, why:symbol)
-contract(q, o, "overrides it") :- target(q, "method", m, _), override(m, o).
-contract(q, b, "it overrides this") :- target(q, "method", m, _), override(b, m).
-contract(q, o, "overrides the method — same parameter list") :- target(q, "param", m, _), override(m, o).
+contract(q, o, "overrides it") :- target(q, "method", m, _), override(m, o), !target(q, _, o, _).
+contract(q, b, "it overrides this") :- target(q, "method", m, _), override(b, m), !target(q, _, b, _).
+// a language whose engine emits no override rows still has the types: a subtype (or supertype) declaring the same
+// member name is bound by the same contract — said as a name match, not as a resolved override
+contract(q, o, "declares the same member in a subtype (a name match: this graph has no override table)") :- flag("no_overrides"),
+    target(q, "method", m, _), owner(m, t), member(t, m, n, _), extends(s, t), member(s, o, n, _), o != m.
+contract(q, o, "declares the same member in a supertype (a name match: this graph has no override table)") :- flag("no_overrides"),
+    target(q, "method", m, _), owner(m, t), member(t, m, n, _), extends(t, u), member(u, o, n, _), o != m.
+contract(q, o, "overrides the method — same parameter list") :- target(q, "param", m, _), override(m, o), !target(q, _, o, _).
 contract(q, b, "the method overrides this — same parameter list") :- target(q, "param", m, _), override(b, m).
 contract(q, s, "extends / implements it") :- target(q, "type", t, _), extends(s, t).
 contract(q, s, "extends / implements it") :- target(q, "typeparam", t, _), typ(t, _, _), extends(s, t).
@@ -109,6 +140,15 @@ contract(q, s, "extends / implements it") :- target(q, "clinit", t, _), extends(
 // ── direct(q, c, role, why, cert, f, l): c's text uses the target. role: writes | reads | uses ─────────────────
 .decl direct(q:symbol, c:symbol, role:symbol, why:symbol, cert:symbol, f:symbol, l:number)
 
+// a CONFIGURATION KEY: the methods the container binds it into — no call reaches them, so nothing else would find these
+direct(q, m, "reads", cat("reads this configuration key (", why, ")"), "resolved", "", 0) :- target(q, "config", k, _), config(k, m, why).
+
+// a type the container INJECTS: its consumers receive it without a call the graph can see
+direct(q, c, "uses", cat("receives it by dependency injection (", kind, ") — the container hands it over, no call site"), "resolved", "", 0) :- target(q, "type", t, _), injected(t, c, kind), !inside_target(q, c).
+direct(q, c, "uses", cat("receives it by dependency injection (", kind, ") — the container hands it over, no call site"), "resolved", "", 0) :- target(q, "clinit", t, _), injected(t, c, kind).
+// a method that DEFINES a bean (@Bean): whoever is injected with the type it returns
+direct(q, c, "uses", cat("is injected with the bean this defines (", kind, ")"), "resolved", "", 0) :- target(q, "method", m, _), owner(m, ot), bean(_, ot, _), injected(ot, c, kind), c != m.
+
 // a METHOD: its callers, and the unresolved sites written with its name
 direct(q, c, "uses", "calls it", "resolved", f, l) :- target(q, "method", m, _), calls(c, m, t, f, l), t != "multi_inferred".
 direct(q, c, "uses", "calls it", "one of a set", f, l) :- target(q, "method", m, _), calls(c, m, "multi_inferred", f, l).
@@ -116,7 +156,17 @@ direct(q, c, "uses", "calls a method of this name (receiver not typed)", "by nam
 
 // a FIELD: references by name, judged by where they are and how they are written
 .decl fref(q:symbol, c:symbol, rk:symbol, f:symbol, l:number)
-fref(q, c, rk, f, l) :- target(q, "field", fl, _), field(fl, _, n, ff, fll), ref(c, n, rk, ek, f, l), !local_kind(ek), (f != ff ; l != fll).
+fref(q, c, rk, f, l) :- target(q, "field", fl, _), field(fl, _, n, ff, fll), ref(c, n, rk, ek, f, l), !local_kind(ek), !type_or_call_kind(ek), (f != ff ; l != fll).
+// an enum member is written like a type, so the parser labels the genuine reference TYPE: keep those, but only in a
+// file that can see the enum — its own directory, or a file that names the enum type somewhere
+.decl enum_member_target(q:symbol, fl:symbol)
+enum_member_target(q, fl) :- target(q, "field", fl, _), member(_, fl, _, "enum_member").
+fref(q, c, rk, f, l) :- enum_member_target(q, fl), field(fl, t, n, ff, fll), ref(c, n, rk, "TYPE", f, l), (f != ff ; l != fll),
+    file_dir(f, d), type_in_file(t, tf), file_dir(tf, d).
+fref(q, c, rk, f, l) :- enum_member_target(q, fl), field(fl, t, n, ff, fll), ref(c, n, rk, "TYPE", f, l), (f != ff ; l != fll),
+    typ(t, tn, _), typeref_file(f, tn, _).
+fref(q, c, rk, f, l) :- enum_member_target(q, fl), field(fl, t, n, ff, fll), ref(c, n, rk, "TYPE", f, l), (f != ff ; l != fll),
+    typ(t, tn, _), typeref(_, tn, _, f, _).
 .decl frole(rk:symbol, role:symbol, why:symbol)
 frole("qualified", "uses", "writes/reads it"). frole("bare", "reads", "reads it").
 // in scope: inside the owner, a subtype, or a nested type — or the type node itself (a field initializer)
@@ -126,9 +176,9 @@ direct(q, c, role, why, "in scope", f, l) :- fref(q, c, rk, f, l), frole(rk, rol
 direct(q, c, "uses", "writes/reads it", "in scope", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), typ(t, tn, _),
     owner(c, s), !scope(t, s), qualifier(f, l, n, tn).
 direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), typ(t, tn, _),
-    owner(c, s), !scope(t, s), qualifier(f, l, n, qn), qn != tn, !typ(_, qn, _).
+    owner(c, s), !scope(t, s), !declares(s, n), qualifier(f, l, n, qn), qn != tn, !typ(_, qn, _), !self_qualifier(qn).
 direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _),
-    owner(c, s), !scope(t, s), !qualifier(f, l, n, _).
+    owner(c, s), !scope(t, s), !declares(s, n), !qualifier(f, l, n, _).
 // bare elsewhere: only when the enclosing type has no member of that name itself
 direct(q, c, "reads", "reads it", "by name", f, l) :- fref(q, c, "bare", f, l), target(q, "field", fl, _), field(fl, t, n, _, _),
     owner(c, s), !scope(t, s), !declares(s, n).
@@ -137,10 +187,11 @@ direct(q, c, "reads", "reads it", "by name", f, l) :- fref(q, c, "bare", f, l), 
 direct(q, c, "reads", cat("reads it through ", an, "()"), "resolved", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), accessor(fl, an, "read"), member(t, a, an, _), calls(c, a, _, f, l).
 direct(q, c, "writes", cat("writes it through ", an, "()"), "resolved", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), accessor(fl, an, "write"), member(t, a, an, _), calls(c, a, _, f, l).
 // a GENERATED accessor: the unresolved sites written with its name (the decoration says it exists)
-direct(q, c, "reads", cat("calls the generated getter ", an, "() — receiver not typed"), "by name", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), gen(t, "get"), accessor(fl, an, "read"), unresolved(c, an, k, f, l), !ctor_kind(k).
-direct(q, c, "writes", cat("calls the generated setter ", an, "() — receiver not typed"), "by name", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), gen(t, "set"), accessor(fl, an, "write"), unresolved(c, an, k, f, l), !ctor_kind(k).
-direct(q, c, "writes", cat("sets it through the generated builder / fluent ", n, "()"), "by name", f, l) :- target(q, "field", fl, _), field(fl, t, n, _, _), gen(t, w), (w = "builder" ; w = "fluent"), unresolved(c, n, k, f, l), !ctor_kind(k).
-direct(q, c, "writes", "passes it to the generated constructor", "by name", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), gen(t, "ctor"), typ(t, tn, _), unresolved(c, tn, k, f, l), ctor_kind(k).
+direct(q, c, "reads", cat("calls the generated getter ", an, "() — receiver not typed"), "by name", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), gen(t, "get"), accessor(fl, an, "read"), named_site(c, an, k, f, l), !ctor_kind(k).
+direct(q, c, "writes", cat("calls the generated setter ", an, "() — receiver not typed"), "by name", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), gen(t, "set"), accessor(fl, an, "write"), named_site(c, an, k, f, l), !ctor_kind(k).
+direct(q, c, "writes", cat("sets it through the generated builder / fluent ", n, "()"), "by name", f, l) :- target(q, "field", fl, _), field(fl, t, n, _, _), gen(t, w), (w = "builder" ; w = "fluent"), named_site(c, n, k, f, l), !ctor_kind(k).
+direct(q, c, "reads", cat("reads it through the generated accessor ", n, "()"), "by name", f, l) :- target(q, "field", fl, _), field(fl, t, n, _, _), gen(t, "fluent_read"), named_site(c, n, k, f, l), !ctor_kind(k).
+direct(q, c, "writes", "passes it to the generated constructor", "by name", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), gen(t, "ctor"), typ(t, tn, _), named_site(c, tn, k, f, l).
 // a string literal equal to its name: a serialized name, a map key, a request parameter
 direct(q, c, "uses", "names it in a string literal (serialization? a map key? a request key?)", "text", f, l) :- target(q, "field", fl, _), field(fl, _, n, _, _), literal(c, n, f, l).
 // where values of the owning type are PRODUCED: every constructor of the owner, its deserialization (a class literal handed
@@ -176,6 +227,7 @@ direct(q, c, role, cat(why, " — first use runs the static initializer"), cert,
 // a PARAMETER: the method itself, its callers, (the overrides are the contract)
 direct(q, m, "uses", "declares it", "resolved", "", 0) :- target(q, "param", m, _).
 direct(q, c, "uses", "passes an argument for it", "resolved", f, l) :- target(q, "param", m, _), calls(c, m, _, f, l).
+direct(q, c, "uses", "calls a method of this name (receiver not typed) — its argument list must match", "by name", f, l) :- target(q, "param", m, _), named(n, m), unresolved(c, n, k, f, l), !ctor_kind(k).
 
 // a TYPE PARAMETER of a type: every callable inside the type that spells it; of a method: the method. A bound reaches the uses of Type<…> too
 direct(q, c, "uses", cat("uses ", x, " in its body or signature"), "text", f, l) :- target(q, "typeparam", _, x), textuse(c, x, f, l).
@@ -192,8 +244,11 @@ direct(q, c, "uses", "captures it (defined inside the method)", "resolved", f, l
 .decl seed(q:symbol, m:symbol)
 seed(q, m) :- target(q, "method", m, _).
 seed(q, m) :- target(q, "param", m, _).
-seed(q, m) :- target(q, "var", m, _).
+// a local is not the method: seeding the method would answer a signature change. Only the closures declared inside
+// it carry the value out, and they are already direct rows
+seed(q, c) :- target(q, "var", m, _), edge(m, c, "defines").
 seed(q, m) :- target(q, "clinit", _, m).
+seed(q, m) :- target(q, "config", k, _), config(k, m, _).
 seed(q, t) :- target(q, "field", fl, _), field(fl, t, _, _, _).
 seed(q, m) :- target(q, "type", t, _), member(t, m, _, _), kind(m, k), (k = "method" ; k = "constructor" ; k = "function" ; k = "module").
 seed(q, t) :- target(q, "type", t, _).
@@ -233,6 +288,22 @@ reach(q, m, d) :- up(q, m, d), d = min x : up(q, m, x).
 parent_up(q, a, b, t) :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, edge(a, b, t).
 .output reach
 .output parent_up
+
+// the same closure from the seeds that are an exact edge only: what is reached ONLY through a [by name] / [text] /
+// [one of a set] dependent is everything outside it, and the answer says how much of itself rests on those
+.decl seed_sure(q:symbol, m:symbol)
+seed_sure(q, m) :- seed(q, m), !weak_seed(q, m).
+.decl weak_seed(q:symbol, m:symbol)
+weak_seed(q, c) :- direct(q, c, _, _, cert, _, _), (cert = "by name" ; cert = "text" ; cert = "one of a set"), !strong_direct(q, c).
+.decl strong_direct(q:symbol, c:symbol)
+strong_direct(q, c) :- direct(q, c, _, _, "resolved", _, _).
+strong_direct(q, c) :- direct(q, c, _, _, "in scope", _, _).
+.decl up_sure(q:symbol, m:symbol, d:number)
+up_sure(q, m, 0) :- seed_sure(q, m).
+up_sure(q, a, d+1) :- up_sure(q, b, d), edge(a, b, _), d < 40.
+.decl reach_sure(q:symbol, m:symbol)
+reach_sure(q, m) :- up_sure(q, m, _).
+.output reach_sure
 
 // ── tests: a test's own body reaches the change, or a fixture its framework runs before it does ───────────────
 .decl test_hit(q:symbol, m:symbol, d:number, via:symbol)

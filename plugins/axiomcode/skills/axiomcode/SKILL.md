@@ -65,6 +65,14 @@ the interpreter when there is no `c++`). Direct dependents, the contract, the se
 the tests are all derived in the same run; nothing is recomputed a second way. What is verified afterwards is the export:
 every printed chain hop and every `[resolved]` entry is looked up again in `graph.sqlite` (the `verified:` line).
 
+- **a configuration key is a target** — `axiomcode impact server.error.path`: the methods the container binds it into
+  (`@Value`, `@ConfigurationProperties`, a `.yml` / `.properties` key), from the engine's framework facts, then everything
+  that reaches them. No call site carries these edges, so nothing else finds them. A key the engine never saw **stops with
+  that sentence** — its impact is unknown, not empty — and a graph with no configuration facts at all says so; a key is
+  never answered as a by-name match on code, which is what made a wrong answer look like an answer.
+- **what the container injects** — a type registered as a bean, or a method that defines one, lists the callables the
+  container hands it to (`ctor_param`, a field injection): `receives it by dependency injection — the container hands it
+  over, no call site`. Swapping a `@Bean` implementation reaches its consumers this way.
 - **must change with it** — declarations bound to the target by a contract the engine resolved: the overrides of a method (and what
   it overrides), the subtypes of a type. A signature change reaches these first.
 - **produces or writes it** — the blast radius read top-down starts where a value of the new shape has to be *made*: setter and
@@ -113,13 +121,25 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
 - **verified** — every printed edge looked up again in graph.sqlite; **bound** counts the unresolved calls inside the impacted
   set, so the set is a lower bound on the real one; a **note** counts the entries matched by name or text.
 
+`--delete` adds a verdict: **is it safe to delete** — the callers and contracts that say no, or, when there are none, exactly
+what the graph cannot vouch for (by-name matches, string literals equal to the name — a reflective call, a bean name, a config
+key —, the decorations a framework may dispatch on, the unresolved calls inside, the tests that reach it). With **several
+targets** (a PR touching many files) each row says which target it came from — `[for Owner.method]` — so a combined radius is
+still attributable per change.
+
 What it cannot see, by construction — say so instead of guessing: a callable that touches a type only through a value it never
 names (`t.asStartTag().normalName()` where the engine resolved `normalName` to the inherited `Tag.normalName`) — the graph keeps
 no receiver type at a call site, so the compiler sees that dependency and this tool does not; the `[one of a set]` callers are
 the engine's over-approximation and most of them will not compile against the change; a bound change on a type parameter
 reaches the sites that instantiate `Type<…>`, listed, but nothing checks the argument against the bound; the transitive layer
-is the call graph's, so everything `path` cannot find (callbacks handed to a library, reflection, framework dispatch, DI) is a
-missing chain here too and is counted in `bound:`, never guessed.
+is the call graph's, so everything `path` cannot find (callbacks handed to a library, reflection, framework dispatch) is a
+missing chain here too and is counted in `bound:`, never guessed. What a **decoration turns on** is not in the graph either —
+`changed` reports `@Transactional` / `@Cacheable` / a route as a decoration change and says in the same line that the proxying,
+the transaction or the cache behind it is invisible; only the code that names it is. Still **not expressible today**, and said
+so rather than answered: which `switch` arms an added enum constant breaks, who must catch an added `throws`, which call sites
+an added overload rebinds (no argument types per call site), and what a dependency bump reaches (one graph, no library diff).
+Test selection from a body change is sound but wide — 41–87 % of a suite on a hub graph — because every path through the hub
+is real; narrowing it is ranking, not reachability, and is not attempted here.
 
 Measured two ways, Java first. (1) Defects4J: the methods each fix changed as the change set, `--tests` against the tests
 Defects4J observed failing on the buggy tree — 273 bugs of 17 projects, every triggering test found in 266, trigger recall 0.929,
@@ -174,6 +194,14 @@ signature, a field, a type or a removal —, who produces or writes it, who read
 the unresolved-call bound). That is where the agent that changed `String zipCode` to `Integer` is told, before the edit
 lands, about the five `getZipCode().length()` uses in another service, the generated constructor call in a controller, and
 the four repositories that deserialize a holder.
+
+**Does it find what it says it finds?** `tests/run.py` at the repository root: a synthetic project per behaviour under
+`tests/cases/<language>/<name>/`, each with the claim it checks, what must appear in the answer and what must not. It
+covers the shapes that used to be answered wrongly: a `this.field` write in an unrelated class, an enum member against a
+nested type of the same name, an overload written by its parameter type (`Store.get(String)`), a Java text block and a
+JavaScript regex literal, `holds` scoped to the declaring type, a subtype contract where the engine emits no override
+rows, a Python `@property` as a private field's door, a house decorator that wraps `dataclass`, and a local variable
+that must not carry the method's blast radius. Java, Python, TypeScript and JavaScript.
 
 **Is what the hooks put in context true?** `hooks/validate.py <repo>` generates events (Reads of whole files and ranges, Greps of
 declared identifiers, edits that change a body, a signature, a field's type — before and after landing) or replays recorded

@@ -1,0 +1,8 @@
+{"lang": "typescript", "src": "src",
+ "checks": [
+  {"why": "a call through an interface reaches the implementation that is instantiated",
+   "run": ["path", "main", "FileSink.flush"],
+   "want": ["main", "emit", "flush"]},
+  {"why": "everything that reaches the implementation names the entry point",
+   "run": ["path", "*", "FileSink.flush"],
+   "want": ["main"]}]}
