@@ -1,0 +1,4 @@
+package_entry    52-element-access-new  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       main.js:24:37  CONSTRUCTOR_CALL   member_absent
+unresolved       main.js:24:37  METHOD_CALL run  receiver_untyped
+unresolved       main.js:27:15  METHOD_CALL create  no_target
