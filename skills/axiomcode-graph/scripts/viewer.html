@@ -5,38 +5,45 @@
 <title>axiomcode call chains</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  :root { --bg:#fafaf9; --ink:#1c1917; --mute:#78716c; --line:#e7e5e4; --known:#44403c; --inf:#0284c7; --amb:#a8a29e; --hi:#fef3c7; --test:#64748b; }
+  :root { --bg:#fafaf9; --ink:#1c1917; --mute:#78716c; --line:#e7e5e4; --known:#57534e; --inf:#0284c7; --amb:#b8b3ae; --hi:#f59e0b; --test:#64748b; }
   * { box-sizing:border-box } html,body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:13px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif }
   .mono { font-family:ui-monospace,Menlo,monospace; font-size:11px; color:var(--mute) }
   #top { display:flex; align-items:center; gap:16px; padding:8px 14px; border-bottom:1px solid var(--line); background:#fff }
-  #top h1 { font-size:14px; margin:0; font-weight:600 } #top h1 span { color:var(--mute); font-weight:400 }
-  #top input { margin-left:auto; width:340px; padding:6px 10px; border:1px solid var(--line); border-radius:8px; font:inherit }
+  #top h1 { font-size:14px; margin:0; font-weight:600; white-space:nowrap } #top h1 span { color:var(--mute); font-weight:400 }
+  #top input { margin-left:auto; width:320px; padding:6px 10px; border:1px solid var(--line); border-radius:8px; font:inherit }
   #main { display:flex; height:calc(100% - 45px) }
-  #list { width:400px; border-right:1px solid var(--line); background:#fff; overflow:auto }
-  #list h3, #view h3 { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--mute); margin:12px 14px 4px }
-  .chain { padding:8px 14px; border-bottom:1px solid #f5f5f4; cursor:pointer } .chain:hover { background:#fafaf9 } .chain.sel { background:var(--hi) }
-  .chain .root { font-weight:600 } .chain .meta { color:var(--mute); font-size:11px; margin-left:6px } .chain .prev { color:var(--mute); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px }
-  .chain.test .root { color:var(--test) }
-  #view { flex:1; overflow:auto; padding:14px 18px }
-  #view .empty { color:var(--mute); margin-top:40px; text-align:center }
-  .row { display:flex; align-items:flex-start; gap:0; flex-wrap:wrap; row-gap:18px; margin:10px 0 }
-  .hop { background:#fff; border:1.5px solid var(--ink); border-radius:8px; padding:8px 12px; min-width:150px; max-width:260px; position:relative }
-  .hop.test { border-style:dashed; border-color:var(--test) } .hop.entry { border-width:2.5px } .hop.sel { background:var(--hi) }
-  .hop .name { font-weight:600; word-break:break-word } .hop .loc { display:block; margin-top:2px; word-break:break-all; white-space:normal }
-  .hop .sig { display:block; margin-top:2px; color:#a8a29e; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
-  .hop .flags { margin-top:5px; display:flex; gap:6px; flex-wrap:wrap }
-  .tag { font-size:10px; padding:1px 6px; border-radius:4px; background:#f5f5f4; color:var(--mute) } .tag.u { background:#fef3c7; color:#92400e } .tag.e { background:#dcfce7; color:#166534 } .tag.lib { background:#f1f5f9; color:#475569 }
-  .hop .acts { margin-top:6px; display:flex; gap:8px } .hop .acts a { font-size:11px; color:#0369a1; cursor:pointer; text-decoration:none } .hop .acts a:hover { text-decoration:underline } .hop .acts a.on { font-weight:600 }
-  .arr { display:flex; align-items:center; align-self:flex-start; margin-top:18px; width:46px; flex:none } .arr svg { width:46px; height:14px }
-  .branch { margin:6px 0 14px 28px; padding-left:14px; border-left:2px solid var(--line) }
-  .branch > .bh { color:var(--mute); font-size:11.5px; margin:6px 0 } .branch .item { display:flex; align-items:flex-start; gap:0; margin:6px 0 }
-  .lead { width:34px; flex:none; margin-top:18px } .lead svg { width:34px; height:14px }
-  .legend { color:var(--mute); font-size:11.5px; margin:0 0 8px; display:flex; gap:18px; flex-wrap:wrap; align-items:center } .legend svg { width:40px; height:12px; vertical-align:middle }
+  #list { width:330px; border-right:1px solid var(--line); background:#fff; overflow:auto; flex:none }
+  h3 { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--mute); margin:12px 14px 4px }
+  .chain { padding:7px 14px; border-bottom:1px solid #f5f5f4; cursor:pointer } .chain:hover { background:#fafaf9 } .chain.sel { background:#fef3c7 }
+  .chain .root { font-weight:600 } .chain .meta { color:var(--mute); font-size:11px; margin-left:6px } .chain .prev { color:var(--mute); font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:1px }
+  .chain.test .root { color:var(--test) } .chain.off { opacity:.55 }
+  #canvas { flex:1; position:relative; overflow:hidden; cursor:grab } #canvas:active { cursor:grabbing } svg { width:100%; height:100%; display:block }
+  #side { width:340px; border-left:1px solid var(--line); background:#fff; overflow:auto; padding:12px 14px; flex:none }
+  #side h2 { font-size:14px; margin:0 0 2px; word-break:break-word }
+  #side .hop { padding:5px 0; border-bottom:1px solid #f5f5f4; cursor:pointer; display:flex; gap:8px; align-items:baseline } #side .hop:hover { background:#fafaf9 } #side .hop.sel { background:#fef3c7 }
+  #side .hop .i { width:18px; text-align:right; color:var(--mute); font-size:11px; flex:none } #side .hop .l { flex:1; min-width:0 } #side .hop .l small { display:block; color:var(--mute); font-family:ui-monospace,Menlo,monospace; font-size:10.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+  .btn { display:inline-block; font-size:11.5px; color:#0369a1; cursor:pointer; margin:6px 10px 0 0 } .btn:hover { text-decoration:underline }
+  .tag { font-size:10px; padding:1px 6px; border-radius:4px; background:#f5f5f4; color:var(--mute); margin-right:4px } .tag.u { background:#fef3c7; color:#92400e } .tag.e { background:#dcfce7; color:#166534 }
+  .note { color:var(--mute); font-size:11.5px; margin:6px 0 }
+  #legend { position:absolute; left:12px; bottom:12px; background:rgba(255,255,255,.94); border:1px solid var(--line); border-radius:10px; padding:8px 12px; font-size:11px; line-height:1.7 }
+  #legend svg { width:auto; height:auto; vertical-align:middle } #legend .r { display:flex; align-items:center; gap:8px }
+  #hint { position:absolute; right:12px; bottom:12px; color:var(--mute); font-size:11px; background:rgba(255,255,255,.9); padding:4px 8px; border-radius:6px }
+  text { font-family:ui-sans-serif,system-ui,sans-serif; pointer-events:none; user-select:none }
+  .node { cursor:pointer } .dim { opacity:.18 } .edge { fill:none } .edge.dim { opacity:.07 }
+  .node.new .shape { stroke:var(--hi); stroke-width:3 }
 </style>
 </head>
 <body>
-<div id="top"><h1>axiomcode call chains <span id="ttl"></span></h1><input id="q" placeholder="filter chains, or type a method name to start a chain there" autocomplete="off"></div>
-<div id="main"><div id="list"></div><div id="view"><div class="empty">pick a chain on the left</div></div></div>
+<div id="top"><h1>axiomcode call chains <span id="ttl"></span></h1><input id="q" placeholder="filter chains, or a method name to start a chain there" autocomplete="off"></div>
+<div id="main">
+  <div id="list"></div>
+  <div id="canvas"><svg id="svg"><defs>
+    <marker id="a-known" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,1 L9,5 L0,9 z" fill="#57534e"/></marker>
+    <marker id="a-inf" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,1 L9,5 L0,9 z" fill="#0284c7"/></marker>
+    <marker id="a-amb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,1 L9,5 L0,9 z" fill="#b8b3ae"/></marker>
+  </defs><g id="root"></g></svg><div id="legend"></div><div id="hint">scroll to zoom · drag to pan · click a circle to select its chain · double-click to expand its callees</div></div>
+  <div id="side"></div>
+</div>
 <script>
 const DATA = /*__DATA__*/null;
 const N = new Map(DATA.nodes.map(n => [n.id, n]));
@@ -45,70 +52,111 @@ for (const e of DATA.edges) { (OUT.get(e.s) || OUT.set(e.s, []).get(e.s)).push(e
 const RES = t => t === 'known_edge' || t === 'multi_inferred';
 const rank = e => (RES(e.tier) ? 0 : 1) * 1e6 - e.w * 1000 - (OUT.get(e.t) || []).length;
 for (const l of OUT.values()) l.sort((a, b) => rank(a) - rank(b));
+const EDGE = new Map(DATA.edges.map(e => [e.s + '>' + e.t, e]));
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const loc = n => `${n.f}:${n.a}`;
-const m = DATA.meta; document.getElementById('ttl').textContent = `${m.repo} · ${m.language} · ${m.methods} methods · ${m.edges} call edges, ${m.resolved} resolved · ${m.unresolved_sites} unresolved sites · ${m.chains} chains`;
+const short = (s, n) => s.length > n ? s.slice(0, n - 1) + '…' : s;
+const m = DATA.meta; document.getElementById('ttl').textContent = `${m.repo} · ${m.language} · ${m.methods} methods · ${m.resolved} resolved call edges · ${m.unresolved_sites} unresolved sites`;
+const PAL = ['#2563eb', '#dc2626', '#059669', '#d97706', '#7c3aed', '#db2777', '#0891b2', '#65a30d', '#ea580c', '#4f46e5', '#0d9488', '#b45309', '#9333ea', '#be123c', '#0369a1', '#15803d'];
+// colour = the directory a method lives in (what a reader knows the code by), assigned in order of first appearance
+const dirColor = new Map(); const dirOf = n => n.f.slice(0, n.f.lastIndexOf('/')); const col = n => { const d = dirOf(n); if (!dirColor.has(d)) dirColor.set(d, PAL[dirColor.size % PAL.length]); return dirColor.get(d); };
+const mainChain = from => { const p = [from], seen = new Set(p); while (p.length <= 10) { const e = (OUT.get(p[p.length - 1]) || []).find(e => RES(e.tier) && !seen.has(e.t)); if (!e) break; p.push(e.t); seen.add(e.t); } return p; };
+const chainOf = new Map(DATA.chains.map(c => [c.root, c]));
 
-// an arrow that says how sure the engine is: solid = one resolved target · dashed blue = a sound set · dotted grey = ambiguous
-const arrow = (e, w = 46) => { const c = e.tier === 'known_edge' ? 'var(--known)' : e.tier === 'multi_inferred' ? 'var(--inf)' : 'var(--amb)', d = e.tier === 'known_edge' ? '' : e.tier === 'multi_inferred' ? '5,3' : '2,3';
-  return `<svg viewBox="0 0 ${w} 14"><title>${esc(e.tier)}${e.w > 1 ? ' · ' + e.w + ' call sites' : ''}${e.line ? ' · line ' + e.line : ''}</title><line x1="1" y1="7" x2="${w - 8}" y2="7" stroke="${c}" stroke-width="1.6" stroke-dasharray="${d}"/><path d="M${w - 9},2 L${w - 1},7 L${w - 9},12 z" fill="${c}"/></svg>`; };
+// ── the visible graph: chain nodes and chain edges, grown by expansion ─────────────────────────────
+const NS = 'http://www.w3.org/2000/svg', el = (t, a = {}, ...k) => { const e = document.createElementNS(NS, t); for (const x in a) e.setAttribute(x, a[x]); for (const c of k) e.append(c); return e; };
+const root = document.getElementById('root'), canvas = document.getElementById('canvas');
+let view = { x: 0, y: 0, k: 1 }, drag = null;
+const applyView = () => root.setAttribute('transform', `translate(${view.x},${view.y}) scale(${view.k})`);
+canvas.addEventListener('wheel', e => { e.preventDefault(); const r = canvas.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top, k = Math.min(6, Math.max(.1, view.k * (e.deltaY < 0 ? 1.12 : .89))); view.x = mx - (mx - view.x) * k / view.k; view.y = my - (my - view.y) * k / view.k; view.k = k; applyView(); }, { passive: false });
+canvas.addEventListener('mousedown', e => { if (e.target.closest('.node')) return; drag = { x: e.clientX - view.x, y: e.clientY - view.y }; });
+window.addEventListener('mousemove', e => { if (drag) { view.x = e.clientX - drag.x; view.y = e.clientY - drag.y; applyView(); } }); window.addEventListener('mouseup', () => drag = null);
+function fit(w, h) { const r = canvas.getBoundingClientRect(), pad = 30, k = Math.min(1.5, (r.width - 2 * pad) / w, (r.height - 2 * pad) / h); view = { k, x: pad + (r.width - 2 * pad - w * k) / 2, y: pad + (r.height - 2 * pad - h * k) / 2 }; applyView(); }
 
-function hop(n, opts = {}) {
-  const outs = OUT.get(n.id) || [], ins = IN.get(n.id) || [];
-  const others = outs.filter(e => e.t !== opts.next);
-  return `<div class="hop${n.t ? ' test' : ''}${n.e ? ' entry' : ''}${opts.sel ? ' sel' : ''}" data-id="${esc(n.id)}">
-    <div class="name">${esc(n.l)}</div><span class="loc mono">${esc(loc(n))}${n.b > n.a ? '–' + n.b : ''}</span>${n.sig && n.sig !== n.l ? `<span class="sig mono" title="${esc(n.sig)}">${esc(n.sig)}</span>` : ''}
-    <div class="flags">${n.e ? `<span class="tag e">entry: ${esc(n.e.join(', '))}</span>` : ''}${n.t ? '<span class="tag">test</span>' : ''}${n.u ? `<span class="tag u" title="call sites in this body whose target the engine could not resolve — each MAY be a call this page is not showing">? ${n.u} unresolved</span>` : ''}${n.lib ? `<span class="tag lib" title="${esc(n.lib.join('\n'))}">→ library ×${n.lib.length}</span>` : ''}</div>
-    <div class="acts">${others.length ? `<a data-act="down">+ ${others.length} more callee${others.length > 1 ? 's' : ''}</a>` : '<span class="mono">leaf</span>'}${ins.length ? `<a data-act="up">↑ ${ins.length} caller${ins.length > 1 ? 's' : ''}</a>` : ''}<a data-act="chain" title="start a chain from here">chain ⇢</a></div></div>`;
+let showTests = false, vis = new Map() /* id → {n, depth, fresh} */, vedges = new Set() /* 's>t' */, shownChains = new Set(), selected = null, selNode = null;
+function addChain(c, fresh = false) { c.path.forEach((id, i) => { if (!vis.has(id)) vis.set(id, { n: N.get(id), depth: i, fresh }); if (i) vedges.add(c.path[i - 1] + '>' + id); }); shownChains.add(c.root); }
+function initial() { vis.clear(); vedges.clear(); shownChains.clear(); let budget = 420;
+  for (const c of DATA.chains) { if (!showTests && N.get(c.root).t) continue; const add = c.path.filter(id => !vis.has(id)).length; if (vis.size && vis.size + add > budget) continue; addChain(c); }
 }
-// expand under a hop: its other callees (down) or its callers (up), each expandable again
-function branch(id, act, skip) {
-  const n = N.get(id); const list = act === 'down' ? (OUT.get(id) || []).filter(e => e.t !== skip) : (IN.get(id) || []);
-  const items = list.map(e => { const o = N.get(act === 'down' ? e.t : e.s); return `<div class="item"><div class="lead">${arrow(e, 34)}</div>${hop(o)}</div>`; }).join('');
-  return `<div class="branch" data-for="${esc(id)}" data-act="${act}"><div class="bh">${esc(n.l)} ${act === 'down' ? 'also calls' : 'is called by'} (${list.length}):</div>${items}</div>`;
+// layers: x = depth from a root along the visible edges (an expanded callee is one deeper than its parent, a caller one shallower)
+function layout() {
+  const ids = [...vis.keys()], inV = new Map(ids.map(id => [id, []])), outV = new Map(ids.map(id => [id, []]));
+  for (const k of vedges) { const [s, t] = k.split('>'); if (vis.has(s) && vis.has(t)) { outV.get(s).push(t); inV.get(t).push(s); } }
+  const depth = new Map(); const roots = ids.filter(id => !inV.get(id).length);
+  const dq = [...roots.map(id => [id, 0])]; for (const id of roots) depth.set(id, 0);
+  while (dq.length) { const [u, d] = dq.shift(); for (const v of outV.get(u)) if (!depth.has(v)) { depth.set(v, d + 1); dq.push([v, d + 1]); } }
+  for (const id of ids) if (!depth.has(id)) depth.set(id, 0);   // a cycle with no root: put it at the left
+  const layers = new Map(); for (const [id, d] of depth) (layers.get(d) || layers.set(d, []).get(d)).push(id);
+  const L = [...layers.keys()].sort((a, b) => a - b).map(d => layers.get(d));
+  const pos = new Map(); L.forEach(l => l.forEach((id, i) => pos.set(id, i)));
+  const bary = (id, nb) => { const ps = nb.map(x => pos.get(x)).filter(x => x != null); return ps.length ? ps.reduce((a, b) => a + b, 0) / ps.length : pos.get(id); };
+  for (let it = 0; it < 6; it++) { for (let i = 1; i < L.length; i++) { L[i].sort((a, b) => bary(a, inV.get(a)) - bary(b, inV.get(b))); L[i].forEach((id, j) => pos.set(id, j)); } for (let i = L.length - 2; i >= 0; i--) { L[i].sort((a, b) => bary(a, outV.get(a)) - bary(b, outV.get(b))); L[i].forEach((id, j) => pos.set(id, j)); } }
+  const r = canvas.getBoundingClientRect(), tallest = Math.max(...L.map(l => l.length)), gap = 28, H = Math.max(r.height - 60, tallest * gap), W = Math.max(H * r.width / r.height - 300, 150 * L.length);   // the canvas's aspect, minus room for the root labels (layout units)
+  const xs = L.length > 1 ? L.map((_, i) => i * W / (L.length - 1)) : [W / 2];
+  L.forEach((l, i) => { const g = Math.max(gap, H / (l.length + 1)); l.forEach((id, j) => { const v = vis.get(id); v.x = xs[i]; v.y = (j + 1) * g - (l.length + 1) * g / 2 + H / 2; v.depth = i; }); });
+  return { W, H };
 }
-function mainChain(from) { const path = [from], seen = new Set(path); while (path.length <= 10) { const e = (OUT.get(path[path.length - 1]) || []).find(e => RES(e.tier) && !seen.has(e.t)); if (!e) break; path.push(e.t); seen.add(e.t); } return path; }
-
-let cur = null;
-function show(path, title) {
-  cur = path; const V = document.getElementById('view');
-  let row = '';
-  path.forEach((id, i) => { const e = i ? (OUT.get(path[i - 1]) || []).find(e => e.t === id) : null; row += (e ? `<div class="arr">${arrow(e)}</div>` : '') + hop(N.get(id), { next: path[i + 1] }); });
-  V.innerHTML = `<h3 style="margin-left:0">${esc(title)}</h3><div class="legend"><span>${arrow({ tier: 'known_edge', w: 1 }, 40)} one resolved target</span><span>${arrow({ tier: 'multi_inferred', w: 1 }, 40)} a sound set of targets</span><span>${arrow({ tier: 'x', w: 1 }, 40)} declared ambiguous</span><span>dashed box = test · thick box = entry point · <b>+</b> expands, deeper each time</span></div><div class="row">${row}</div>`;
-  document.querySelectorAll('.chain').forEach(c => c.classList.toggle('sel', c.dataset.root === path[0] && !title.startsWith('from ')));
+function rad(id) { const n = N.get(id); return 5 + 1.6 * Math.log2(1 + (IN.get(id) || []).length + (OUT.get(id) || []).length); }
+function shape(id, r) { const n = N.get(id); const a = { class: 'shape', fill: n.t ? '#fff' : col(n), stroke: n.t ? col(n) : '#fff', 'stroke-width': 1.5, 'stroke-dasharray': n.t ? '3,2' : '' };
+  if (n.e) return el('path', { ...a, d: `M${-r},${-r * 1.05} L${r * 1.15},0 L${-r},${r * 1.05} z`, stroke: n.t ? col(n) : '#1c1917' }); return el('circle', { ...a, r }); }
+function render() {
+  const { W, H } = layout(); root.innerHTML = '';
+  const gE = el('g'), gN = el('g'), gL = el('g'); root.append(gE, gN, gL);
+  const sel = selected ? new Set(selected.path) : null, selE = selected ? new Set(selected.path.slice(1).map((id, i) => selected.path[i] + '>' + id)) : null;
+  for (const k of vedges) { const [s, t] = k.split('>'); const a = vis.get(s), b = vis.get(t); if (!a || !b) continue; const e = EDGE.get(k) || { tier: 'x', w: 1 };
+    const c = e.tier === 'known_edge' ? 'known' : e.tier === 'multi_inferred' ? 'inf' : 'amb', ra = rad(s), rb = rad(t);
+    const x1 = a.x + ra + 1, x2 = b.x - rb - 4, mx = (x1 + x2) / 2; const d = b.x > a.x ? `M${x1},${a.y} C${mx},${a.y} ${mx},${b.y} ${x2},${b.y}` : `M${a.x},${a.y + ra} C${a.x},${a.y + 60} ${b.x},${b.y + 60} ${b.x},${b.y + rb + 3}`;
+    const on = selE && selE.has(k), fresh = a.fresh || b.fresh; gE.append(el('path', { class: 'edge' + (sel && !on && !fresh ? ' dim' : ''), d, stroke: `var(--${c})`, 'stroke-width': on ? 2.6 : 1.2 + .3 * Math.min(4, e.w), 'stroke-dasharray': c === 'known' ? '' : c === 'inf' ? '5,3' : '2,3', 'stroke-opacity': on ? 1 : .55, 'marker-end': `url(#a-${c})` }, el('title', {}, `${N.get(s).l} → ${N.get(t).l} [${e.tier}]${e.w > 1 ? ' ×' + e.w : ''}`))); }
+  for (const [id, v] of vis) { const r = rad(id), n = v.n; const g = el('g', { class: 'node' + (v.fresh ? ' new' : '') + (sel && !sel.has(id) && !v.fresh ? ' dim' : ''), transform: `translate(${v.x},${v.y})` }); g.append(shape(id, r));
+    if (n.u) g.append(el('circle', { cx: r * .75, cy: -r * .75, r: 3, fill: '#f59e0b', stroke: '#fff', 'stroke-width': 1 }));
+    if (id === selNode) g.append(el('circle', { r: r + 4, fill: 'none', stroke: 'var(--hi)', 'stroke-width': 2.5 }));
+    g.append(el('title', {}, `${n.l}\n${loc(n)}${n.u ? `\n? ${n.u} unresolved call site(s)` : ''}${n.e ? '\nentry point: ' + n.e.join(', ') : ''}`));
+    g.onclick = ev => { ev.stopPropagation(); pick(id); }; g.ondblclick = ev => { ev.stopPropagation(); expand(id, 'down'); }; gN.append(g);
+    const isRoot = v.depth === 0, lab = isRoot || (sel && sel.has(id)) || id === selNode || v.fresh || vis.size <= 60;
+    if (lab) gL.append(el('text', { x: v.x + (isRoot ? -r - 6 : 0), y: v.y + (isRoot ? 4 : -r - 4), 'text-anchor': isRoot ? 'end' : 'middle', 'font-size': sel && sel.has(id) ? 11.5 : 10, 'font-weight': isRoot || (sel && sel.has(id)) ? 600 : 400, fill: '#1c1917', stroke: '#fafaf9', 'stroke-width': 3, 'paint-order': 'stroke' }, short(isRoot ? n.l : n.l.split('.').pop(), 34))); }
+  legend();
 }
-document.getElementById('view').addEventListener('click', ev => {
-  const a = ev.target.closest('a[data-act]'); if (!a) return; const h = a.closest('.hop'), id = h.dataset.id, act = a.dataset.act;
-  if (act === 'chain') { show(mainChain(id), 'from ' + N.get(id).l); return; }
-  const parent = h.parentElement, existing = [...parent.children].find(x => x.classList && x.classList.contains('branch') && x.dataset.for === id && x.dataset.act === act);
-  if (existing) { existing.remove(); a.classList.remove('on'); return; }
-  const skip = cur && cur.includes(id) ? cur[cur.indexOf(id) + 1] : null;
-  const wrap = document.createElement('div'); wrap.innerHTML = branch(id, act, skip); const b = wrap.firstElementChild;
-  if (parent.classList.contains('row')) { parent.insertAdjacentElement('afterend', b); b.dataset.for = id; } else h.insertAdjacentElement('afterend', b);
-  a.classList.add('on');
-});
+function pick(id) { selNode = id; const c = chainOf.get(id); if (c && shownChains.has(id)) selected = c; else if (!selected || !selected.path.includes(id)) selected = { root: id, path: mainChain(id), reach: 0, virtual: true }; if (selected.virtual) addChain(selected); render(); side(); syncList(); }
+function selectChain(c) { if (!shownChains.has(c.root)) addChain(c, true); selected = c; selNode = c.root; render(); side(); syncList(); fitAll(); }
+function expand(id, act) { for (const v of vis.values()) v.fresh = false; const list = act === 'down' ? (OUT.get(id) || []) : (IN.get(id) || []); let added = 0;
+  for (const e of list) { const o = act === 'down' ? e.t : e.s; if (!vis.has(o)) { vis.set(o, { n: N.get(o), depth: 0, fresh: true }); added++; } vedges.add(e.s + '>' + e.t); }
+  selNode = id; render(); side(); if (added) fitAll(); return added; }
+function fitAll() { const xs = [...vis.values()].map(v => v.x), ys = [...vis.values()].map(v => v.y); fit(Math.max(...xs) - Math.min(...xs) + 160, Math.max(...ys) - Math.min(...ys) + 80); view.x -= (Math.min(...xs) - 80) * view.k; view.y -= (Math.min(...ys) - 40) * view.k; applyView(); }
+function legend() { const L = document.getElementById('legend'); const dirs = [...dirColor].filter(([d]) => [...vis.values()].some(v => dirOf(v.n) === d)).slice(0, 14);
+  L.innerHTML = `<div class="r"><svg width="22" height="12"><line x1="1" y1="6" x2="16" y2="6" stroke="#57534e" stroke-width="1.6"/><path d="M15,2 L21,6 L15,10z" fill="#57534e"/></svg>one resolved target</div><div class="r"><svg width="22" height="12"><line x1="1" y1="6" x2="16" y2="6" stroke="#0284c7" stroke-width="1.6" stroke-dasharray="4,2"/><path d="M15,2 L21,6 L15,10z" fill="#0284c7"/></svg>a sound set of targets</div><div class="r"><svg width="22" height="12"><path d="M4,1 L18,6 L4,11z" fill="#1c1917"/></svg>entry point &nbsp;·&nbsp; <svg width="14" height="14"><circle cx="7" cy="7" r="5.5" fill="#fff" stroke="#2563eb" stroke-dasharray="3,2"/></svg> test &nbsp;·&nbsp; <svg width="14" height="14"><circle cx="7" cy="7" r="5" fill="#2563eb"/><circle cx="11" cy="3" r="3" fill="#f59e0b" stroke="#fff"/></svg> has unresolved calls</div>` + dirs.map(([d, c]) => `<div class="r"><svg width="12" height="12"><circle cx="6" cy="6" r="5" fill="${c}"/></svg><span class="mono">${esc(d)}</span></div>`).join(''); }
 
-// the list: code chains first, tests after; filter by text; a method name that is not a chain root starts a chain there
-function list(filter = '') {
-  const L = document.getElementById('list'); const f = filter.trim().toLowerCase();
+// ── side: the selected chain as a list, the selected node's actions ────────────────────────────────
+function side() { const S = document.getElementById('side'); if (!selected) { S.innerHTML = '<div class="note">click a chain on the left, or a circle</div>'; return; }
+  const n = N.get(selNode || selected.root), outs = OUT.get(n.id) || [], ins = IN.get(n.id) || [];
+  const hops = selected.path.map((id, i) => { const h = N.get(id), e = i ? EDGE.get(selected.path[i - 1] + '>' + id) : null; return `<div class="hop${id === selNode ? ' sel' : ''}" data-id="${esc(id)}"><span class="i">${i ? (e && e.tier === 'known_edge' ? '→' : '⇢') : '●'}</span><span class="l">${esc(h.l)}${h.u ? ` <span class="tag u">?${h.u}</span>` : ''}${h.e ? ` <span class="tag e">${esc(h.e[0])}</span>` : ''}<small>${esc(loc(h))}</small></span></div>`; }).join('');
+  const shown = outs.filter(e => vis.has(e.t)).length, shownIn = ins.filter(e => vis.has(e.s)).length;
+  S.innerHTML = `<h3 style="margin-left:0">chain${selected.virtual ? ' from' : ''}</h3><h2>${esc(N.get(selected.root).l)}</h2><div class="note">${selected.path.length} hops${selected.reach ? ' · reaches ' + selected.reach + ' methods' : ''} · the heaviest resolved callee at every hop; the others are one expand away</div>${hops}
+  <h3 style="margin-left:0">selected</h3><h2>${esc(n.l)}</h2><div class="mono" style="word-break:break-all">${esc(loc(n))}${n.b > n.a ? '–' + n.b : ''}</div>${n.sig && n.sig !== n.l ? `<div class="mono" style="word-break:break-all">${esc(n.sig)}</div>` : ''}
+  <div style="margin-top:6px">${n.e ? `<span class="tag e">entry: ${esc(n.e.join(', '))}</span>` : ''}${n.t ? '<span class="tag">test</span>' : ''}${n.u ? `<span class="tag u" title="call sites in this body the engine could not resolve — each MAY be a call not drawn">? ${n.u} unresolved</span>` : ''}${n.lib ? `<span class="tag" title="${esc(n.lib.join('\n'))}">→ library ×${n.lib.length}</span>` : ''}</div>
+  <div>${outs.length ? `<span class="btn" data-x="down">+ callees (${shown} of ${outs.length} drawn)</span>` : '<span class="note">leaf — calls nothing the engine resolved</span>'}${ins.length ? `<span class="btn" data-x="up">↑ callers (${shownIn} of ${ins.length} drawn)</span>` : ''}<span class="btn" data-x="chain">chain from here ⇢</span></div>`;
+  S.querySelectorAll('.hop').forEach(h => h.onclick = () => { selNode = h.dataset.id; render(); side(); });
+  S.querySelectorAll('.btn').forEach(b => b.onclick = () => { if (b.dataset.x === 'chain') selectChain({ root: n.id, path: mainChain(n.id), reach: 0, virtual: true }); else expand(n.id, b.dataset.x); });
+}
+
+// ── the chain list ───────────────────────────────────────────────────────────────────────────────
+function list(filter = '') { const L = document.getElementById('list'), f = filter.trim().toLowerCase();
   const rows = DATA.chains.filter(c => !f || c.path.some(id => N.get(id).l.toLowerCase().includes(f)));
   const code = rows.filter(c => !N.get(c.root).t), tests = rows.filter(c => N.get(c.root).t);
-  const item = c => { const r = N.get(c.root); return `<div class="chain${r.t ? ' test' : ''}" data-root="${esc(c.root)}"><span class="root">${esc(r.l)}</span><span class="meta">${c.path.length} hops · reaches ${c.reach}${r.e ? ' · ' + esc(r.e.join(', ')) : ''}</span><div class="prev">${c.path.slice(1).map(id => esc(N.get(id).l.split('.').pop())).join(' → ')}</div></div>`; };
-  let starts = '';
-  if (f.length >= 3) { const hits = DATA.nodes.filter(n => n.l.toLowerCase().includes(f) && (OUT.get(n.id) || []).length && !DATA.chains.some(c => c.root === n.id)).slice(0, 12);
-    if (hits.length) starts = `<h3>start a chain at</h3>${hits.map(n => `<div class="chain" data-start="${esc(n.id)}"><span class="root">${esc(n.l)}</span><span class="meta">${(OUT.get(n.id) || []).length} callees</span><div class="prev mono">${esc(loc(n))}</div></div>`).join('')}`; }
-  L.innerHTML = `${starts}<h3>chains from entry points and roots (${code.length})</h3>${code.slice(0, 300).map(item).join('')}${code.length > 300 ? `<div class="chain mono">… ${code.length - 300} more — filter to find them</div>` : ''}<h3>chains from tests (${tests.length})</h3>${tests.slice(0, 200).map(item).join('')}${tests.length > 200 ? `<div class="chain mono">… ${tests.length - 200} more</div>` : ''}`;
-  L.querySelectorAll('.chain[data-root]').forEach(d => d.onclick = () => { const c = DATA.chains.find(c => c.root === d.dataset.root); show(c.path, N.get(c.root).l); });
-  L.querySelectorAll('.chain[data-start]').forEach(d => d.onclick = () => show(mainChain(d.dataset.start), 'from ' + N.get(d.dataset.start).l));
-}
+  const item = c => { const r = N.get(c.root); return `<div class="chain${r.t ? ' test' : ''}${shownChains.has(c.root) ? '' : ' off'}" data-root="${esc(c.root)}" title="${shownChains.has(c.root) ? '' : 'not drawn yet — click to add it to the view'}"><span class="root">${esc(r.l)}</span><span class="meta">${c.path.length} hops · ${c.reach}${r.e ? ' · ' + esc(r.e[0]) : ''}</span><div class="prev">${c.path.slice(1).map(id => esc(N.get(id).l.split('.').pop())).join(' → ')}</div></div>`; };
+  let starts = ''; if (f.length >= 3) { const hits = DATA.nodes.filter(n => n.l.toLowerCase().includes(f) && (OUT.get(n.id) || []).length && !chainOf.has(n.id)).slice(0, 10); if (hits.length) starts = `<h3>start a chain at</h3>${hits.map(n => `<div class="chain off" data-start="${esc(n.id)}"><span class="root">${esc(n.l)}</span><span class="meta">${(OUT.get(n.id) || []).length} callees</span><div class="prev mono">${esc(loc(n))}</div></div>`).join('')}`; }
+  L.innerHTML = `<div style="padding:8px 14px 0"><label style="font-size:11.5px;color:var(--mute)"><input id="tt" type="checkbox" ${showTests ? 'checked' : ''}> draw chains from tests</label></div>${starts}<h3>from entry points and roots (${code.length})</h3>${code.slice(0, 300).map(item).join('')}<h3>from tests (${tests.length})</h3>${tests.slice(0, 200).map(item).join('')}${tests.length > 200 ? `<div class="chain mono">… ${tests.length - 200} more — filter</div>` : ''}`;
+  L.querySelectorAll('.chain[data-root]').forEach(d => d.onclick = () => selectChain(chainOf.get(d.dataset.root)));
+  L.querySelectorAll('.chain[data-start]').forEach(d => d.onclick = () => selectChain({ root: d.dataset.start, path: mainChain(d.dataset.start), reach: 0, virtual: true }));
+  L.querySelector('#tt').onchange = e => { showTests = e.target.checked; selected = null; selNode = null; initial(); render(); side(); list(document.getElementById('q').value); fitAll(); };
+  syncList(); }
+function syncList() { document.querySelectorAll('.chain[data-root]').forEach(d => { d.classList.toggle('sel', !!selected && selected.root === d.dataset.root); d.classList.toggle('off', !shownChains.has(d.dataset.root)); }); }
 document.getElementById('q').oninput = e => list(e.target.value);
-list();
-// #from=<Owner.method>[&open=<Owner.method>] opens a chain from a method, optionally with one hop expanded — a link to a chain
-function route() { const h = new URLSearchParams(location.hash.slice(1)); const byLabel = l => DATA.nodes.find(n => n.l === l);
-  const from = h.get('from') && byLabel(h.get('from')); if (!from) { if (DATA.chains.length) { const c = DATA.chains[0]; show(c.path, N.get(c.root).l); } return; }
-  const c = DATA.chains.find(c => c.root === from.id); show(c ? c.path : mainChain(from.id), (c ? '' : 'from ') + from.l);
-  const open = h.get('open') && byLabel(h.get('open')); if (open) { const a = document.querySelector(`.hop[data-id="${CSS.escape(open.id)}"] a[data-act="down"]`); if (a) a.click(); } }
-window.addEventListener('hashchange', route); route();
+canvas.addEventListener('click', e => { if (!e.target.closest('.node')) { selected = null; selNode = null; render(); side(); syncList(); } });
+
+initial(); render(); list(); side(); fitAll();
+// #from=Owner.method opens that chain; &open=Owner.method also expands that hop's callees
+(function route() { const h = new URLSearchParams(location.hash.slice(1)), by = l => DATA.nodes.find(n => n.l === l); const f = h.get('from') && by(h.get('from')); if (!f) return;
+  selectChain(chainOf.get(f.id) || { root: f.id, path: mainChain(f.id), reach: 0, virtual: true }); const o = h.get('open') && by(h.get('open')); if (o) expand(o.id, 'down'); })();
 </script>
 </body>
 </html>
