@@ -51,6 +51,7 @@
 .decl type_in_file(t:symbol, f:symbol)                            .input type_in_file
 .decl literal(c:symbol, v:symbol, f:symbol, l:number)             .input literal
 .decl dec_literal(c:symbol, d:symbol, v:symbol, f:symbol, l:number) .input dec_literal
+.decl reexport(c:symbol, n:symbol, f:symbol, l:number)            .input reexport
 .decl field(fl:symbol, t:symbol, n:symbol, f:symbol, l:number)    .input field
 .decl accessor(fl:symbol, n:symbol, rw:symbol)                    .input accessor
 .decl gen_table(d:symbol, what:symbol)                            .input gen_table
@@ -270,6 +271,12 @@ direct_edge(q, c, m) :- tmember(q, m, _, _), calls(c, m, _, _, _).
 direct_edge(q, c, m) :- target(q, "param", m, _), calls(c, m, _, _, _).
 direct_edge(q, c, m) :- target(q, "typeparam", m, _), calls(c, m, _, _, _).
 .output direct_edge
+
+// ── a barrel that re-exports the declaration: the line must change with a rename, and it is in no other table ──
+direct(q, c, "uses", "re-exports it (a barrel: this line must change with a rename)", "text", f, l) :- target(q, "method", m, _), named(n, m), reexport(c, n, f, l).
+direct(q, c, "uses", "re-exports it (a barrel: this line must change with a rename)", "text", f, l) :- target(q, "field", fl, _), field(fl, _, n, _, _), reexport(c, n, f, l).
+direct(q, c, "uses", "re-exports it (a barrel: this line must change with a rename)", "text", f, l) :- target(q, "type", t, _), typ(t, n, _), reexport(c, n, f, l).
+direct(q, c, "uses", "re-exports the whole module it is declared in (export * — a rename changes what this file exports)", "text", f, l) :- target(q, "method", m, _), decl_file(m, df), reexport(c, "*", f, l), f != df.
 
 // ── a STRING target: a topic, a queue, a route, a bean qualifier — a name in a namespace that is not the code's ──
 direct(q, c, "uses", "names it in a string literal", "text", f, l) :- target(q, "string", _, v), literal(c, v, f, l).
