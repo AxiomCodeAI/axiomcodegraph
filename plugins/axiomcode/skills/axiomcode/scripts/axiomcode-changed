@@ -180,12 +180,13 @@ class Changed:
         for ii, text in enumerate(strip_code(new).split('\n'), 1): nd[ii] = nd[ii - 1] + text.count('{') - text.count('}')
         ndepth_ok = lambda j: nd[j - 1] <= 2
         out = []
+        KIND = lambda k: 'field' if k in ('field', 'const', 'enum_member', 'variable') else 'type' if k in ('class', 'interface', 'enum', 'type', 'namespace') else 'method'
         for (a, b, i, k, d, n), decs in decorated.items():
             key = ('field' if k in ('field', 'const', 'enum_member', 'variable') else 'type' if k in ('class', 'interface', 'enum', 'type', 'namespace') else 'signature', (a, b, i, k, d, n))
             hits.setdefault(key, set()); hits[key].add(-1)                                                # -1: the decoration line, outside the header
         for (kind, (a, b, i, k, d, n)), lines in hits.items():
             decs = decorated.get((a, b, i, k, d, n))
-            entry = dict(kind=kind, symbol=d, id=i, file=rel, line=a, end=b, old_lines=sorted(x for x in lines if x > 0))
+            entry = dict(kind=kind, symbol=d, id=i, file=rel, line=a, end=b, old_lines=sorted(x for x in lines if x > 0), target_kind=('param' if kind == 'signature' else KIND(k)))
             span_lines = [x for x in range(a, b + 1) if not noise(OL[x - 1])]
             gone = a in removed_lines and span_lines and sum(1 for x in span_lines if x in removed_lines) >= 0.6 * len(span_lines) and \
                    not any(re.search(rf'\b{re.escape(n)}\s*\(', NL[j - 1]) and ndepth_ok(j) for j in range(max(1, (new_of.get(a) or a) - 3), min(len(NL), (new_of.get(a) or a) + 3) + 1))
@@ -219,6 +220,7 @@ class Changed:
                 entry['detail'] = ', '.join(detail); entry['old_header'] = oh; entry['new_header'] = nh
                 changed_params = [x for x, _ in op if any(dd.startswith(f'{x}:') or dd == f'-{x}' for dd in detail)]
                 entry['target'] = (f"{d}({changed_params[0]})" if len(changed_params) == 1 and entry['kind'] == 'signature' else d)
+                entry['target_kind'] = 'param' if '(' in entry['target'] else 'method'
             elif kind == 'field':
                 ot, on_ = self.field_parts(OL[a - 1]); na = new_of.get(a)
                 nline = ''
@@ -244,7 +246,7 @@ class Changed:
             owner = narrowest(after, {'method', 'function', 'constructor', 'module'}) if after else None
             if is_add and owner and owner[0] <= after < owner[1]:                                         # strictly inside a callable's body: that callable changed
                 if not any(e['id'] == owner[2] for e in out):
-                    out.append(dict(kind='body', symbol=owner[4], id=owner[2], file=rel, line=owner[0], end=owner[1], old_lines=[after], target=owner[4]))
+                    out.append(dict(kind='body', symbol=owner[4], id=owner[2], file=rel, line=owner[0], end=owner[1], old_lines=[after], target=owner[4], target_kind='method'))
                 # and the inserted lines may still declare something at the type's level (a method extracted from this body)
             t = narrowest(after, {'class', 'interface', 'enum', 'type', 'namespace'}) if after else None
             # a declaration the new text introduces: named from its header, owner = the type around the insertion point
@@ -356,10 +358,15 @@ def main(argv):
     for e in results:
         print(f"  {e['kind']:<10} {e['symbol']}   {e['file']}:{e['line']}" + (f"   — {e['detail']}" if e.get('detail') else '') + (f"   → impact {e['target']}" if e.get('target') else ('   (nothing depends on it yet)' if e['kind'] == 'added' else '')))
     for _, n, _ in notes: print(f"  {'added':<10} {n}")
-    targets = list(dict.fromkeys(e['target'] for e in results if e.get('target') and e['kind'] != 'added'))
-    if want_impact and targets:
-        print(); sys.stdout.flush()
-        os.execvp(sys.executable, [sys.executable, os.path.join(HERE, 'axiomcode-impact'), *targets, C.repo])
+    groups = {}
+    for e in results:
+        if e.get('target') and e['kind'] != 'added':
+            k = 'method' if e.get('target_kind') == 'param' and '(' not in e['target'] else e.get('target_kind', 'method')
+            groups.setdefault('' if '(' in e['target'] else k, []).append(e['target'])
+    if want_impact and groups:
+        for k, ts in groups.items():                                                                    # one impact run per kind (a field named like a method needs to be told apart)
+            print(); sys.stdout.flush()
+            subprocess.run([sys.executable, os.path.join(HERE, 'axiomcode-impact'), *dict.fromkeys(ts), C.repo] + (['--kind', k] if k else []))
     return 0
 
 if __name__ == '__main__':
