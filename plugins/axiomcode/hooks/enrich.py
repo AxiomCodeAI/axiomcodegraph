@@ -91,7 +91,7 @@ if tool in ('Edit', 'Write', 'MultiEdit'):
     if not decls and not ch.get('notes'): sys.exit(0)
     st = load_state(); st['reported'] = list(dict.fromkeys(st.get('reported', []) + [f"{d['file']}:{d['symbol']}:{d['kind']}:{d.get('detail', '')}" for d in decls])); save_state(st)   # once per session (changes.py reads this)
     def impact(d):
-        try: return d, json.loads(subprocess.run([sys.executable, os.path.join(SCR, 'axiomcode-impact'), d['target'], cwd, '--json', '--depth', '12'], capture_output=True, text=True, timeout=14).stdout or '{}')
+        try: return d, json.loads(subprocess.run([sys.executable, os.path.join(SCR, 'axiomcode-impact'), d['target'], cwd, '--json', '--depth', '12'] + (['--kind', d['target_kind']] if d.get('target_kind') and d['target_kind'] != 'param' and '(' not in d['target'] else []), capture_output=True, text=True, timeout=14).stdout or '{}')
         except Exception: return d, {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex: results = list(ex.map(impact, decls[:3]))
     base = (ch.get('built_at') or '')[:10]
@@ -115,13 +115,20 @@ if tool in ('Edit', 'Write', 'MultiEdit'):
 elif tool == 'Read':
     fp = str(inp.get('file_path', '')); rel = rel_of(fp)
     a = int(inp.get('offset') or 1); b = a + int(inp.get('limit') or 100000)
-    rows = q("SELECT id, method_id, display, line, end_line FROM symbols WHERE (file = ? OR file LIKE ?) AND method_id IS NOT NULL AND kind <> 'module' AND line <= ? AND end_line >= ? ORDER BY line", rel, '%/' + rel.lstrip('/'), b, a)
+    # a member the language synthesises (an enum's values() / valueOf(), a default constructor) is not declared on any line: not listed as one
+    rows = q("SELECT s.id, s.method_id, s.display, s.line, s.end_line FROM symbols s JOIN methods m ON m.id = s.method_id WHERE (s.file = ? OR s.file LIKE ?) AND s.method_id IS NOT NULL AND s.kind <> 'module' AND m.kind NOT IN ('ENUM_VALUES', 'ENUM_VALUE_OF', 'DEFAULT_CONSTRUCTOR') AND s.line <= ? AND s.end_line >= ? ORDER BY s.line", rel, '%/' + rel.lstrip('/'), b, a)
+    # the graph describes the tree at the commit it was built from: a file edited since has moved lines and maybe other declarations
+    stale = ''
+    try:
+        built = open(os.path.join(cwd, '.axiomcode', 'out', 'stamp')).read().split('-')[0]
+        if built != 'nogit' and subprocess.run(['git', 'diff', '--quiet', built, '--', rel], cwd=cwd, capture_output=True).returncode == 1: stale = f" — this file changed since the graph was built at {built[:10]}: lines are the graph's, not the file's"
+    except Exception: pass
     if rows:
         st = load_state(); st['reads'] = ([{'file': rel, 'ids': [r['id'] for r in rows[:12]], 'names': [r['display'] for r in rows[:12]]}] + st['reads'])[:6]; save_state(st)
         # the block is re-read on every later turn: 4 lines at most — the callables whose span overlaps the read range the most
         mid = (a + min(b, a + 200)) / 2
         show = sorted(rows, key=lambda r: abs(((r['line'] + (r['end_line'] or r['line'])) / 2) - mid))[:4]; show.sort(key=lambda r: r['line'])
-        lines.append(f"graph: {os.path.basename(rel)}:{a}-{min(b, rows[-1]['end_line'] or b)} — {len(rows)} callable(s)" + (f", {len(show)} shown" if len(rows) > len(show) else '') + "  (← callers → callees ? unresolved)")
+        lines.append(f"graph: {os.path.basename(rel)}:{a}-{min(b, rows[-1]['end_line'] or b)} — {len(rows)} callable(s)" + (f", {len(show)} shown" if len(rows) > len(show) else '') + "  (← callers → callees ? unresolved)" + stale)
         for r in show: lines.append(f"  {r['display'].split('.')[-1] if r['display'].count('.') > 1 else r['display']} L{r['line']}  {edges(r['method_id'], r['id'])}{reach_counts(r['method_id'])}")
 elif tool == 'Grep':
     # a real search is rarely one identifier: `hasNext\(\)|\.next\(\)|close\(\)`, `getScanner|RTBoundValidator|withSSTablesIterated`.
@@ -188,6 +195,6 @@ elif tool == 'Glob':
 # every invocation is logged next to the graph — stream-json does not carry additionalContext, so this is how a run proves the
 # hook fired and what it added
 try:
-    with open(os.path.join(cwd, '.axiomcode', 'hooks.jsonl'), 'a') as f: f.write(json.dumps({'tool': ev.get('tool_name'), 'as': tool, 'lines': len(lines), 'chars': sum(len(l) for l in lines)}) + '\n')
+    with open(os.path.join(cwd, '.axiomcode', 'hooks.jsonl'), 'a') as f: f.write(json.dumps({'tool': ev.get('tool_name'), 'as': tool, 'lines': len(lines), 'chars': sum(len(l) for l in lines), 'input': {k: v for k, v in inp.items() if k in ('file_path', 'offset', 'limit', 'pattern', 'old_string', 'new_string')}, 'text': '\n'.join(lines)}) + '\n')
 except OSError: pass
 if lines: print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PostToolUse', 'additionalContext': '\n'.join(lines)}}))

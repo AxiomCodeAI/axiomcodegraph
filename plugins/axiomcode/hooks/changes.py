@@ -40,7 +40,7 @@ def changed(args, timeout=12):
 def summarize(decls, head, contract_kinds=('signature', 'field', 'type', 'removed')):
     """the blast radius of up to three changed declarations, a few lines each"""
     def impact(d):
-        try: return d, json.loads(subprocess.run([sys.executable, os.path.join(SCR, 'axiomcode-impact'), d['target'], cwd, '--json', '--depth', '12'], capture_output=True, text=True, timeout=14).stdout or '{}')
+        try: return d, json.loads(subprocess.run([sys.executable, os.path.join(SCR, 'axiomcode-impact'), d['target'], cwd, '--json', '--depth', '12'] + (['--kind', d['target_kind']] if d.get('target_kind') and d['target_kind'] != 'param' and '(' not in d['target'] else []), capture_output=True, text=True, timeout=14).stdout or '{}')
         except Exception: return d, {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex: results = list(ex.map(impact, decls[:3]))
     lines = [head]
@@ -95,6 +95,6 @@ elif event == 'UserPromptSubmit':
         lines = summarize(new, f"graph: {len(new)} declaration(s) changed in the working tree since the graph's commit {(j.get('built_at') or '')[:10]} and were not reported yet —")
         st['reported'] = list(seen | {key(d) for d in new}); save_state(st)
 try:
-    with open(os.path.join(cwd, '.axiomcode', 'hooks.jsonl'), 'a') as f: f.write(json.dumps({'event': event, 'tool': tool, 'lines': len(lines)}) + '\n')
+    with open(os.path.join(cwd, '.axiomcode', 'hooks.jsonl'), 'a') as f: f.write(json.dumps({'event': event, 'tool': tool, 'lines': len(lines), 'chars': sum(len(l) for l in lines), 'input': {k: v for k, v in inp.items() if k in ('file_path', 'command', 'old_string', 'new_string')}, 'text': '\n'.join(lines)}) + '\n')
 except OSError: pass
 if lines: print(json.dumps({'hookSpecificOutput': {'hookEventName': event, 'additionalContext': '\n'.join(lines)}}))

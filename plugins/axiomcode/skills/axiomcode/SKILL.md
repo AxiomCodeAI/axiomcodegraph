@@ -153,6 +153,17 @@ the unresolved-call bound). That is where the agent that changed `String zipCode
 lands, about the five `getZipCode().length()` uses in another service, the generated constructor call in a controller, and
 the four repositories that deserialize a holder.
 
+**Is what the hooks put in context true?** `hooks/validate.py <repo>` generates events (Reads of whole files and ranges, Greps of
+declared identifiers, edits that change a body, a signature, a field's type — before and after landing) or replays recorded
+ones (every hook block is logged in full with its input in `.axiomcode/hooks.jsonl`), and checks every stated fact against
+`graph.sqlite` and the source: each callable named is declared at that line in that file (or the block says the file changed
+since the graph was built — the Read block now says so), each caller / callee named has an edge, each count is the table's,
+each changed declaration spans a changed line, each name under must-change / produces / reads is in `impact`'s answer with
+that role. On the Lombok system 1,036 facts, 0 wrong; on jsoup 2,693 facts, 0 wrong — after it found two real errors: an
+enum's synthesised `values()` / `valueOf()` listed as callables "at L3", and a field named like its fluent accessor handed to
+`impact` without its kind. What the hook cannot vouch for is what the graph cannot: an edge the engine did not resolve is
+absent, never wrong, and the `? n` count says how many.
+
 ## path — asking the graph
 
 - **Endpoints are names as written in the code**, never guesses: `Owner.method`, `Outer.Inner.method`, `method` (a free
