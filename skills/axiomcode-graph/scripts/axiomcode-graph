@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """axiomcode-graph — the graph of a codebase, from the engine, as one page.
 
-  axiomcode-graph build  [<repo>] [--out <page.html>]   run the engine (axiomcode-build) then write the page
-  axiomcode-graph export [<repo>] [--out <page.html>]   write the page from an existing graph.sqlite (no engine run)
+  axiomcode-graph build  [<repo>] [--library <root>[,<root>…]] [--out <page.html>]   run the engine (axiomcode-build) then write the page
+  axiomcode-graph export [<repo>] [--out <page.html>]                                 write the page from an existing graph.sqlite (no engine run)
+
+--library (or AXIOMCODE_LIBRARY) names the dependency roots — for Java the JDK and the third-party sources/IR. With them a call
+into a dependency resolves to a BLACK BOX (one per library type, drawn outside the disc in its own colour); without them it
+is unresolved, and the resolution rate is understated. The rate the page reports is over calls into client code; external
+calls are counted separately.
 
 The page (default <repo>/.axiomcode/graph/graph.html; one file, no network) draws the codebase as a disc:
 directories in the centre, their files on the next ring, the types in those files, and every method on the
@@ -51,7 +56,7 @@ def export(repo, page=None):
             f = rel(r['file_path']); o = (r['owner_qualified_name'] or '').replace('#', '.').split('.')[-1].replace('$', '.')
             sk = 'constructor' if 'CONSTRUCTOR' in r['kind'] else 'module' if 'MODULE' in r['kind'] else 'method' if r['owner_type_id'] else 'function'
             nodes[r['id']] = dict(id=r['id'], k='method', sk=sk, l=f"{o}.{r['name']}" if o else r['name'], f=f, a=r['start_line'], b=r['end_line'], t=int(bool(TESTRE.search(f))), sig=r['signature'] or '')
-    lib = {r['id']: r['qualified_name'] for r in q("SELECT id, qualified_name FROM methods WHERE provenance<>'client'")}
+    lib = {r['id']: (r['owner_qualified_name'] or r['qualified_name'].rsplit('.', 1)[0], r['name']) for r in q("SELECT id, qualified_name, name, owner_qualified_name FROM methods WHERE provenance<>'client'")}
 
     # ── containment: dir → file → type → method (nested types under their outer; free functions under the file) ──
     nesting = {r['type_id']: r['outer_type_id'] for r in q("SELECT type_id, outer_type_id FROM nesting")} if has('nesting') else {}
@@ -65,13 +70,20 @@ def export(repo, page=None):
         elif n['k'] == 'method': o = owner.get(n['id']); n['p'] = o if o in nodes else fid
 
     # ── calls: one edge per (caller, callee) with the best tier and the site count; unresolved → a count on the caller ──
-    E, unresolved, libcalls = {}, collections.Counter(), collections.defaultdict(collections.Counter)
+    # only an ambiguous_* tier is unresolved. boundary_lib is a call into a library; the *_terminal, implicit_constructor and
+    # fan_capped tiers are correct ends (the platform, a synthesised constructor, a computed target) — the same rule as the
+    # query skill, so the two never disagree about what is a blind spot
+    E, unresolved, terminal, LE = {}, collections.Counter(), collections.Counter(), {}
+    boxes = collections.defaultdict(lambda: dict(sites=0, callers=set(), methods=collections.Counter()))   # one black box per library type
     for r in q("SELECT e.caller_id, e.callee_method_id, e.tier FROM call_edges e"):
         c, t = r['caller_id'], r['callee_method_id']
         if c not in nodes: continue
         if not t or t not in nodes:
-            if t in lib: libcalls[c][lib[t]] += 1
-            else: unresolved[c] += 1
+            if t in lib:
+                owner, name = lib[t]; b = boxes[owner]; b['sites'] += 1; b['callers'].add(c); b['methods'][name] += 1
+                le = LE.get((c, owner)); LE[(c, owner)] = dict(s=c, t='L:' + owner, w=(le['w'] + 1) if le else 1)
+            elif (r['tier'] or '').startswith('ambiguous'): unresolved[c] += 1
+            else: terminal[c] += 1
             continue
         e = E.get((c, t))
         if e is None: E[(c, t)] = dict(s=c, t=t, tier=r['tier'], w=1)
@@ -79,7 +91,8 @@ def export(repo, page=None):
             e['w'] += 1
             if r['tier'] == 'known_edge': e['tier'] = 'known_edge'
     for m, n in unresolved.items(): nodes[m]['u'] = n
-    for m, c in libcalls.items(): nodes[m]['lib'] = [f"{k}×{v}" if v > 1 else k for k, v in c.most_common(6)]
+    for owner, b in boxes.items():
+        nodes['L:' + owner] = dict(id='L:' + owner, k='lib', l=owner, f='', sites=b['sites'], callers=len(b['callers']), methods=[f"{k}×{v}" if v > 1 else k for k, v in b['methods'].most_common(8)])
     for r in q("SELECT method_id, reason FROM entry_points"):
         if r['method_id'] in nodes: nodes[r['method_id']].setdefault('e', []).append(r['reason'])
     X = []   # extends / implements: direct ancestors only (type_ancestors is a closure)
@@ -91,24 +104,32 @@ def export(repo, page=None):
                 if a in nodes and not any(b != a and a in anc.get(b, ()) for b in A): X.append(dict(s=t, t=a))
     deg = collections.Counter()
     for e in E.values(): deg[e['s']] += 1; deg[e['t']] += 1
+    for e in LE.values(): deg[e['t']] += 1
     for n in nodes.values():
         if deg[n['id']]: n['d'] = deg[n['id']]
 
     tiers = collections.Counter(r[0] for r in q("SELECT tier FROM call_edges"))
-    resolved = sum(1 for e in E.values() if e['tier'] in ('known_edge', 'multi_inferred'))
-    data = dict(meta=dict(repo=os.path.basename(repo), language=run.get('language', '?'), built=time.strftime('%Y-%m-%d %H:%M'), sites=sum(tiers.values()),
-                          resolved_sites=tiers.get('known_edge', 0) + tiers.get('multi_inferred', 0), counts=dict(collections.Counter(n['k'] for n in nodes.values())), edges=len(E), resolved=resolved),
-                nodes=list(nodes.values()), calls=list(E.values()), extends=X)
+    sites = sum(tiers.values()); unres = sum(v for t, v in tiers.items() if t.startswith('ambiguous'))
+    client = tiers.get('known_edge', 0) + tiers.get('multi_inferred', 0); external = sum(b['sites'] for b in boxes.values())
+    terminal_n = sites - unres - client - external
+    data = dict(meta=dict(repo=os.path.basename(repo), language=run.get('language', '?'), built=time.strftime('%Y-%m-%d %H:%M'), sites=sites,
+                          client_sites=client, external_sites=external, terminal_sites=terminal_n, unresolved=unres, boxes=len(boxes),
+                          client_rate=round(100 * client / max(1, sites - external - terminal_n)), overall_rate=round(100 * (sites - unres) / max(1, sites)),
+                          tiers=dict(tiers), library_roots=run.get('library_roots', '') or (run.get('language') != 'java' and 'n/a') or '', counts=dict(collections.Counter(n['k'] for n in nodes.values())), edges=len(E)),
+                nodes=list(nodes.values()), calls=list(E.values()), libcalls=list(LE.values()), extends=X)
     page = page or os.path.join(gdir, 'graph', 'graph.html'); os.makedirs(os.path.dirname(page), exist_ok=True)
     tpl = open(os.path.join(HERE, 'viewer.html'), encoding='utf-8').read()
     open(page, 'w', encoding='utf-8').write(tpl.replace('/*__DATA__*/null', json.dumps(data, separators=(',', ':')).replace('</', '<\\/')))
     m = data['meta']
-    print(f"{m['counts']} · {m['edges']} call edges · {m['sites']} call sites, {100 * m['resolved_sites'] // max(1, m['sites'])}% resolved · {len(X)} extends")
+    print(f"{m['counts']} · {m['edges']} call edges · {m['sites']} call sites: client calls {m['client_rate']}% resolved ({m['client_sites']} resolved, {m['unresolved']} unresolved) · "
+          f"{m['external_sites']} external calls into {m['boxes']} black boxes · {m['terminal_sites']} terminal · {len(X)} extends"
+          + ("" if m['library_roots'] else "\n  built WITHOUT library roots: calls into the JDK / dependencies cannot resolve and count as unresolved — rerun `axiomcode-graph build . --library <jdk>,<other-lib>`"))
     print(f"page: {os.path.relpath(page)}")
 
 
-def build(repo, page):
+def build(repo, page, library=None):
     repo = os.path.realpath(repo or '.')
+    if library: os.environ['AXIOMCODE_LIBRARY'] = ','.join(os.path.abspath(os.path.expanduser(x)) for x in library.split(','))
     cands = [os.path.join(HERE, '..', '..', 'axiomcode', 'scripts', 'axiomcode-build'), os.path.join(os.environ.get('AXIOMCODE_ENGINE', ''), 'skills', 'axiomcode', 'scripts', 'axiomcode-build')]
     b = next((os.path.realpath(c) for c in cands if os.path.isfile(c)), None)
     if not b: sys.exit("axiomcode-build not found: the axiomcode skill must live beside this one (skills/axiomcode) or AXIOMCODE_ENGINE must point at the engine checkout")
@@ -118,9 +139,10 @@ def build(repo, page):
 
 
 if __name__ == '__main__':
-    a = sys.argv[1:]; page = None
+    a = sys.argv[1:]; page = None; library = None
     if '--out' in a: i = a.index('--out'); page = os.path.abspath(os.path.expanduser(a[i + 1])); del a[i:i + 2]
+    if '--library' in a: i = a.index('--library'); library = a[i + 1]; del a[i:i + 2]
     verb, pos = (a[0] if a else ''), a[1:]
-    if verb == 'build': build(pos[0] if pos else '.', page)
+    if verb == 'build': build(pos[0] if pos else '.', page, library)
     elif verb == 'export': export(pos[0] if pos else '.', page)
     else: print(__doc__.strip()); sys.exit(0 if verb in ('', '-h', '--help') else 2)

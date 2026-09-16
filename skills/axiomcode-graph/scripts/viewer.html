@@ -50,16 +50,18 @@ const DATA = /*__DATA__*/null;
 const N = new Map(DATA.nodes.map(n => [n.id, n]));
 const KIDS = new Map(); for (const n of DATA.nodes) if (n.p) (KIDS.get(n.p) || KIDS.set(n.p, []).get(n.p)).push(n);
 const OUT = new Map(), IN = new Map(); for (const e of DATA.calls) { (OUT.get(e.s) || OUT.set(e.s, []).get(e.s)).push(e); (IN.get(e.t) || IN.set(e.t, []).get(e.t)).push(e); }
+const LOUT = new Map(), LIN = new Map(); for (const e of (DATA.libcalls || [])) { (LOUT.get(e.s) || LOUT.set(e.s, []).get(e.s)).push(e); (LIN.get(e.t) || LIN.set(e.t, []).get(e.t)).push(e); }
 const XOUT = new Map(), XIN = new Map(); for (const e of DATA.extends) { (XOUT.get(e.s) || XOUT.set(e.s, []).get(e.s)).push(e.t); (XIN.get(e.t) || XIN.set(e.t, []).get(e.t)).push(e.s); }
 const RES = t => t === 'known_edge' || t === 'multi_inferred';
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const loc = n => n.f ? `${n.f}${n.a ? ':' + n.a : ''}` : n.l;
-const short = n => n.k === 'file' ? n.l.split('/').pop() : n.k === 'method' ? n.l.split('.').slice(-2).join('.') : n.l;
-const m = DATA.meta; document.getElementById('ttl').textContent = `${m.repo} · ${m.language} · ${DATA.nodes.length} nodes · ${m.edges} call edges · ${Math.round(100 * m.resolved_sites / Math.max(1, m.sites))}% of ${m.sites} call sites resolved`;
+const short = n => n.k === 'file' ? n.l.split('/').pop() : n.k === 'method' ? n.l.split('.').slice(-2).join('.') : n.k === 'lib' ? n.l.split('.').slice(-2).join('.') : n.l;
+const m = DATA.meta; document.getElementById('ttl').textContent = `${m.repo} · ${m.language} · ${m.edges} call edges · client calls ${m.client_rate}% resolved (${m.unresolved} unresolved) · ${m.external_sites} external calls into ${m.boxes} black boxes` + (m.library_roots ? '' : ' · built without --library');
 const KIND = n => n.k === 'method' ? (n.sk === 'method' || n.sk === 'constructor' ? 'method' : 'function') : n.k === 'type' ? (n.sk === 'interface' ? 'interface' : n.sk === 'enum' ? 'enum' : 'class') : n.k;
-const COL = { dir: '#818cf8', file: '#60a5fa', class: '#f59e0b', interface: '#f472b6', enum: '#fb923c', method: '#2dd4bf', function: '#34d399' };
+const COL = { dir: '#818cf8', file: '#60a5fa', class: '#f59e0b', interface: '#f472b6', enum: '#fb923c', method: '#2dd4bf', function: '#34d399', lib: '#e5e7eb' };
+const LIBC = '#f97316';   // calls that leave the client: their own colour, whether or not the library was analysed
 const colOf = n => COL[KIND(n)];
-const rad = n => n.k === 'dir' ? 7 : n.k === 'file' ? 3.6 : n.k === 'type' ? 2.6 + Math.log2(1 + (n.d || 0)) * .5 : 1.4 + Math.log2(1 + (n.d || 0)) * .45;
+const rad = n => n.k === 'dir' ? 7 : n.k === 'file' ? 3.6 : n.k === 'lib' ? 3 + Math.log2(1 + n.sites) * .9 : n.k === 'type' ? 2.6 + Math.log2(1 + (n.d || 0)) * .5 : 1.4 + Math.log2(1 + (n.d || 0)) * .45;
 
 // ── layout: the disc — directories in the centre, files, types, then every method outside, each under its parent ──
 const weight = new Map(); const W = n => { if (weight.has(n.id)) return weight.get(n.id); const w = (n.k === 'method' ? 1 : 0.4) + (KIDS.get(n.id) || []).reduce((a, c) => a + W(c), 0); weight.set(n.id, w); return w; };
@@ -77,11 +79,16 @@ for (const d of dirs) { const span = 2 * Math.PI * W(d) / total; d.span = span; 
     if (free.length) { const s = fspan * free.length / fw; arcGrid(free, b, b + s, R3, 7); b += s; }
     a += fspan; }
   ang += span; }
+// black boxes: an outer ring, each near the methods that call it (circular mean of its callers' angles), spread so they never overlap
+const libs = DATA.nodes.filter(n => n.k === 'lib'); const RMAX = Math.max(R3, ...methods.map(n => Math.hypot(n.x, n.y))), R4 = RMAX + 110;
+for (const b of libs) { let sx = 0, sy = 0; for (const e of (LIN.get(b.id) || [])) { const c = N.get(e.s); const d = Math.hypot(c.x, c.y) || 1; sx += c.x / d * e.w; sy += c.y / d * e.w; } b.ang = Math.atan2(sy, sx); }
+libs.sort((a, b) => a.ang - b.ang); { const gap = Math.max(16 / R4, 2 * Math.PI / Math.max(1, libs.length)); for (let pass = 0; pass < 3; pass++) for (let i = 1; i < libs.length; i++) if (libs[i].ang - libs[i - 1].ang < gap) libs[i].ang = libs[i - 1].ang + gap; }
+for (const b of libs) { b.x = R4 * Math.cos(b.ang); b.y = R4 * Math.sin(b.ang); }
 for (const n of DATA.nodes) { n.dx = n.x; n.dy = n.y; }   // the disc position; a filtered view lays its few nodes out afresh
 const PREFIX = (() => { if (dirs.length < 2) return ''; const parts = dirs.map(d => d.l.split('/')); let i = 0; while (parts.every(p => p.length > i + 1 && p[i] === parts[0][i])) i++; return parts[0].slice(0, i).map(x => x + '/').join(''); })();
 
 // ── what is shown: type toggles · only-flags · edge toggles · focus depth · search filter ──────────────────────
-const show = { dir: true, file: true, class: true, interface: true, enum: true, method: true, function: true }, only = { u: false, e: false, t: false }, edges = { known: true, inf: true, ext: true, tree: true };
+const show = { dir: true, file: true, class: true, interface: true, enum: true, method: true, function: true, lib: true }, only = { u: false, e: false, t: false }, edges = { known: true, inf: true, lib: true, ext: true, tree: true };
 let hops = 0, filter = null /* Set of ids from search or focus depth */, sel = null, hover = null, focus = null, layoutSet = null;
 const isEntry = n => n.e && !(n.e.length === 1 && n.e[0] === 'test');
 const passes = n => show[KIND(n)] && (!only.u || n.u) && (!only.e || isEntry(n)) && (!only.t || n.t) && (!filter || filter.has(n.id));
@@ -91,7 +98,7 @@ function recompute() { VIS = DATA.nodes.filter(passes); VISSET = new Set(VIS.map
   const small = filter && VIS.length <= 400;
   if (small) { const key = [...VISSET].sort().join('|'); if (layoutSet !== key) { layoutSet = key; localLayout(VIS); } } else { layoutSet = null; for (const n of DATA.nodes) { n.x = n.dx; n.y = n.dy; } }
   rebuildGrid(); counts(); mark(); }
-function localLayout(nodes) { const ids = new Set(nodes.map(n => n.id)); const links = [...DATA.calls.filter(e => ids.has(e.s) && ids.has(e.t)).map(e => [e.s, e.t]), ...DATA.extends.filter(e => ids.has(e.s) && ids.has(e.t)).map(e => [e.s, e.t]), ...nodes.filter(n => n.p && ids.has(n.p)).map(n => [n.p, n.id])];
+function localLayout(nodes) { const ids = new Set(nodes.map(n => n.id)); const links = [...DATA.calls.filter(e => ids.has(e.s) && ids.has(e.t)).map(e => [e.s, e.t]), ...(DATA.libcalls || []).filter(e => ids.has(e.s) && ids.has(e.t)).map(e => [e.s, e.t]), ...DATA.extends.filter(e => ids.has(e.s) && ids.has(e.t)).map(e => [e.s, e.t]), ...nodes.filter(n => n.p && ids.has(n.p)).map(n => [n.p, n.id])];
   nodes.forEach((n, i) => { const a = i * 2.4, r = 14 * Math.sqrt(i + 1); n.x = r * Math.cos(a); n.y = r * Math.sin(a); n.vx = n.vy = 0; });
   const L = links.map(([s, t]) => [N.get(s), N.get(t)]);
   for (let it = 0; it < 260; it++) { const T = 1 - it / 260;
@@ -99,7 +106,7 @@ function localLayout(nodes) { const ids = new Set(nodes.map(n => n.id)); const l
     for (const [a, b] of L) { const dx = b.x - a.x, dy = b.y - a.y, d = Math.sqrt(dx * dx + dy * dy) || 1, f = .03 * (d - 50); a.vx += dx / d * f; a.vy += dy / d * f; b.vx -= dx / d * f; b.vy -= dy / d * f; }
     for (const n of nodes) { n.vx -= n.x * .004; n.vy -= n.y * .004; n.x += n.vx * .5 * T; n.y += n.vy * .5 * T; n.vx *= .55; n.vy *= .55; } } }
 const grid = new Map(), CELL = 20; function rebuildGrid() { grid.clear(); for (const n of VIS) { const k = ((n.x / CELL) | 0) + ',' + ((n.y / CELL) | 0); (grid.get(k) || grid.set(k, []).get(k)).push(n); } }
-function within(start, depth) { const seen = new Set([start.id]); let front = [start.id]; for (let d = 0; d < depth && front.length; d++) { const nxt = []; for (const u of front) { for (const e of (OUT.get(u) || [])) if (!seen.has(e.t)) { seen.add(e.t); nxt.push(e.t); } for (const e of (IN.get(u) || [])) if (!seen.has(e.s)) { seen.add(e.s); nxt.push(e.s); } for (const t of (XOUT.get(u) || [])) if (!seen.has(t)) { seen.add(t); nxt.push(t); } for (const t of (XIN.get(u) || [])) if (!seen.has(t)) { seen.add(t); nxt.push(t); } } front = nxt; } return seen; }
+function within(start, depth) { const seen = new Set([start.id]); let front = [start.id]; for (let d = 0; d < depth && front.length; d++) { const nxt = []; for (const u of front) { for (const e of (OUT.get(u) || [])) if (!seen.has(e.t)) { seen.add(e.t); nxt.push(e.t); } for (const e of (IN.get(u) || [])) if (!seen.has(e.s)) { seen.add(e.s); nxt.push(e.s); } for (const e of (LOUT.get(u) || [])) if (!seen.has(e.t)) { seen.add(e.t); nxt.push(e.t); } for (const e of (LIN.get(u) || [])) if (!seen.has(e.s)) { seen.add(e.s); nxt.push(e.s); } for (const t of (XOUT.get(u) || [])) if (!seen.has(t)) { seen.add(t); nxt.push(t); } for (const t of (XIN.get(u) || [])) if (!seen.has(t)) { seen.add(t); nxt.push(t); } } front = nxt; } return seen; }
 let search = null;   // { text, matches: Set }
 function applyFilter() { if (search) { const base = search.matches; filter = new Set(base); if (hops) for (const id of base) for (const x of within(N.get(id), hops)) filter.add(x); } else if (sel && hops) filter = within(sel, hops); else filter = null; recompute(); if (filter) fitVisible(); }
 
@@ -111,7 +118,7 @@ function resize() { cv.width = wrap.clientWidth * dpr; cv.height = wrap.clientHe
 function fitVisible() { const xs = VIS.map(n => n.x), ys = VIS.map(n => n.y); if (!xs.length) return; const x0 = Math.min(...xs) - 40, x1 = Math.max(...xs) + 40, y0 = Math.min(...ys) - 40, y1 = Math.max(...ys) + 40; const w = wrap.clientWidth, h = wrap.clientHeight; view.k = Math.min(4, (w - 40) / (x1 - x0), (h - 40) / (y1 - y0)); view.x = w / 2 - (x0 + x1) / 2 * view.k; view.y = h / 2 - (y0 + y1) / 2 * view.k; mark(); }
 function centre(n, k) { view.k = k || Math.max(view.k, 3); view.x = wrap.clientWidth / 2 - n.x * view.k; view.y = wrap.clientHeight / 2 - n.y * view.k; mark(); }
 function pick(px, py) { const x = (px - view.x) / view.k, y = (py - view.y) / view.k, gx = (x / CELL) | 0, gy = (y / CELL) | 0; let best = null, bd = 1e9; const tol = 7 / view.k; for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) for (const n of (grid.get((gx + i) + ',' + (gy + j)) || [])) { const d = Math.hypot(n.x - x, n.y - y) - rad(n); if (d < tol && d < bd) { bd = d; best = n; } } return best; }
-const neighbours = n => { const s = new Set([n.id]); for (const e of (OUT.get(n.id) || [])) s.add(e.t); for (const e of (IN.get(n.id) || [])) s.add(e.s); for (const t of (XOUT.get(n.id) || [])) s.add(t); for (const t of (XIN.get(n.id) || [])) s.add(t); if (n.p) s.add(n.p); for (const c of (KIDS.get(n.id) || [])) s.add(c.id); return s; };
+const neighbours = n => { const s = new Set([n.id]); for (const e of (OUT.get(n.id) || [])) s.add(e.t); for (const e of (IN.get(n.id) || [])) s.add(e.s); for (const e of (LOUT.get(n.id) || [])) s.add(e.t); for (const e of (LIN.get(n.id) || [])) s.add(e.s); for (const t of (XOUT.get(n.id) || [])) s.add(t); for (const t of (XIN.get(n.id) || [])) s.add(t); if (n.p) s.add(n.p); for (const c of (KIDS.get(n.id) || [])) s.add(c.id); return s; };
 function chip(n, k, colour, big) { const t = short(n); ctx.font = `${big ? '600 ' : ''}${(big ? 11.5 : 10.5) / k}px ui-monospace, Menlo, monospace`; const w = ctx.measureText(t).width + 12 / k, h = 16 / k, x = n.x - w / 2, y = n.y - rad(n) - 14 / k - h;
   ctx.strokeStyle = colour; ctx.lineWidth = 1 / k; ctx.beginPath(); ctx.moveTo(n.x, n.y - rad(n)); ctx.lineTo(n.x, y + h); ctx.stroke();
   ctx.fillStyle = 'rgba(11,13,20,.92)'; ctx.beginPath(); ctx.roundRect(x, y, w, h, 4 / k); ctx.fill(); ctx.stroke();
@@ -125,20 +132,25 @@ function draw() { const k = view.k; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.
   if (edges.known) pass(e => e.tier === 'known_edge' && !lit(e), F ? 'rgba(148,163,184,.03)' : few ? 'rgba(148,163,184,.35)' : 'rgba(148,163,184,.09)', few ? .8 : .5);
   if (edges.inf) pass(e => e.tier !== 'known_edge' && !lit(e), F ? 'rgba(34,211,238,.04)' : few ? 'rgba(34,211,238,.45)' : 'rgba(34,211,238,.12)', few ? .8 : .5);
   if (F) { if (edges.known) pass(e => e.tier === 'known_edge' && lit(e), mode === 'impact' ? 'rgba(244,63,94,.8)' : mode === 'chain' ? 'rgba(245,158,11,.9)' : 'rgba(226,232,240,.85)', 1.3); if (edges.inf) pass(e => e.tier !== 'known_edge' && lit(e), mode === 'impact' ? 'rgba(251,113,133,.8)' : 'rgba(34,211,238,.95)', 1.3); }
+  if (edges.lib) { ctx.setLineDash([3 / k, 3 / k]); const lp = (pred, style, w) => { ctx.strokeStyle = style; ctx.lineWidth = w / k; ctx.beginPath(); for (const e of (DATA.libcalls || [])) { if (!on(e.s) || !on(e.t) || !pred(e)) continue; const a = N.get(e.s), b = N.get(e.t); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); } ctx.stroke(); };
+    const lLit = e => F && F.has(e.s) && F.has(e.t) && ((mode !== 'hover' && mode !== 'select') || e.s === focus.id || e.t === focus.id);
+    lp(e => !lLit(e), F ? 'rgba(249,115,22,.04)' : few ? 'rgba(249,115,22,.5)' : 'rgba(249,115,22,.13)', few ? .8 : .5); if (F) lp(lLit, 'rgba(249,115,22,.95)', 1.3); ctx.setLineDash([]); }
   if (edges.ext) { ctx.strokeStyle = F ? 'rgba(167,139,250,.12)' : 'rgba(167,139,250,.5)'; ctx.lineWidth = .8 / k; ctx.setLineDash([4 / k, 3 / k]); ctx.beginPath(); for (const e of DATA.extends) { if (!on(e.s) || !on(e.t)) continue; if (F && !(F.has(e.s) && F.has(e.t))) continue; const a = N.get(e.s), b = N.get(e.t); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); } ctx.stroke(); ctx.setLineDash([]); }
-  for (const n of VIS) { const r = rad(n) * (few ? 1.8 : 1), dim = F && !F.has(n.id); ctx.globalAlpha = dim ? .12 : n.t ? .55 : .9; ctx.fillStyle = F && F.has(n.id) && mode === 'impact' && n.id !== focus.id ? '#fb7185' : colOf(n); ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 7); ctx.fill();
+  for (const n of VIS) { const r = rad(n) * (few ? 1.8 : 1), dim = F && !F.has(n.id); ctx.globalAlpha = dim ? .12 : n.t ? .55 : .9;
+    if (n.k === 'lib') { ctx.fillStyle = '#0b0d14'; ctx.strokeStyle = COL.lib; ctx.lineWidth = 1.2 / k; ctx.beginPath(); ctx.rect(n.x - r, n.y - r, 2 * r, 2 * r); ctx.fill(); ctx.stroke(); continue; }   // a black box: library code the engine did not analyse
+    ctx.fillStyle = F && F.has(n.id) && mode === 'impact' && n.id !== focus.id ? '#fb7185' : colOf(n); ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 7); ctx.fill();
     if (isEntry(n)) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 1 / k; ctx.beginPath(); ctx.arc(n.x, n.y, r + 1.8 / k, 0, 7); ctx.stroke(); }
     if (n.u && (k > 3 || few || (F && F.has(n.id)))) { ctx.fillStyle = '#fbbf24'; ctx.beginPath(); ctx.arc(n.x + r * .9, n.y - r * .9, Math.max(.9, r * .35), 0, 7); ctx.fill(); } }
   ctx.globalAlpha = 1;
   // directory names around the rim of the full disc
-  if (!filter) for (const d of dirs) { if (!on(d.id) || (d.span * (R3 + 80) < 14 && d !== hover && d !== sel)) continue; const a = Math.atan2(d.dy, d.dx), R = R3 + 90, right = Math.cos(a) >= 0; ctx.textAlign = right ? 'left' : 'right'; ctx.textBaseline = 'middle'; ctx.font = `600 ${11 / k}px ui-monospace, Menlo, monospace`; ctx.fillStyle = F && !F.has(d.id) ? 'rgba(129,140,248,.3)' : 'rgba(165,180,252,.85)'; ctx.fillText(d.l.slice(PREFIX.length) || d.l, R * Math.cos(a) + (right ? 4 : -4) / k, R * Math.sin(a)); }
+  if (!filter) for (const d of dirs) { if (!on(d.id) || (d.span * (R3 + 80) < 14 && d !== hover && d !== sel)) continue; const a = Math.atan2(d.dy, d.dx), R = (libs.length ? R4 : R3) + 90, right = Math.cos(a) >= 0; ctx.textAlign = right ? 'left' : 'right'; ctx.textBaseline = 'middle'; ctx.font = `600 ${11 / k}px ui-monospace, Menlo, monospace`; ctx.fillStyle = F && !F.has(d.id) ? 'rgba(129,140,248,.3)' : 'rgba(165,180,252,.85)'; ctx.fillText(d.l.slice(PREFIX.length) || d.l, R * Math.cos(a) + (right ? 4 : -4) / k, R * Math.sin(a)); }
   // chips: only what matters — the selection and its neighbours, matches, hover, and the big things when zoomed in
   const chips = [];
   if (hover && on(hover.id)) chips.push([hover, '#e5e7eb', true]);
   if (sel && on(sel.id) && sel !== hover) chips.push([sel, '#f59e0b', true]);
   if (F && (mode === 'select' || mode === 'chain' || (mode === 'impact' && F.size <= 60))) for (const id of F) { if (chips.length > 70) break; const n = N.get(id); if (n !== sel && n !== hover && on(id)) chips.push([n, mode === 'impact' ? '#fb7185' : mode === 'chain' ? '#f59e0b' : '#22d3ee', false]); }
   if (search && !F) for (const id of search.matches) { if (chips.length > 70) break; const n = N.get(id); if (on(id) && n !== hover) chips.push([n, '#22d3ee', false]); }
-  if (!F && !search) for (const n of VIS) { if (chips.length > 90) break; if ((n.k === 'dir' && k > 1.2) || (n.k === 'file' && k > 2.2) || (n.k === 'type' && k > 3.2) || (n.k === 'method' && k > 7)) chips.push([n, colOf(n), false]); }
+  if (!F && !search) for (const n of VIS) { if (chips.length > 90) break; if ((n.k === 'dir' && k > 1.2) || (n.k === 'file' && k > 2.2) || (n.k === 'type' && k > 3.2) || (n.k === 'method' && k > 7) || (n.k === 'lib' && (k > 1.6 || n.sites > 200))) chips.push([n, n.k === 'lib' ? LIBC : colOf(n), false]); }
   if (few && !F && !search) for (const n of VIS) { if (chips.length > 120) break; if (!chips.some(c => c[0] === n)) chips.push([n, colOf(n), false]); }
   for (const [n, c, big] of chips) chip(n, k, c, big);
   status(); }
@@ -161,9 +173,18 @@ function panel() { const P = document.getElementById('panel');
   if (!sel) { const gods = methods.filter(n => !n.t).sort((a, b) => (b.d || 0) - (a.d || 0)).slice(0, 12);
     P.innerHTML = filt + `<h2>${esc(m.repo)}</h2><div class="note">${esc(m.language)} · built ${esc(m.built)} · ${m.counts.dir || 0} directories · ${m.counts.file || 0} files · ${m.counts.type || 0} types · ${m.counts.method || 0} methods</div>
       <div class="note">The disc is the repository: directories in the centre, then files, then the types in them, then every method outside, each under its parent. Lines are calls the engine resolved; an amber dot marks a method with calls it could not resolve.</div>
+      <h3>call sites — ${m.sites}</h3><ul><li><span class="lbl">into client code, resolved</span><span class="loc">${m.client_sites}</span></li><li><span class="lbl" style="color:#fbbf24">into client code or unknown, unresolved</span><span class="loc">${m.unresolved}</span></li><li><span class="lbl" style="color:${LIBC}">external — into ${m.boxes} black boxes</span><span class="loc">${m.external_sites}</span></li><li><span class="lbl">terminal (platform, synthesised, computed)</span><span class="loc">${m.terminal_sites}</span></li></ul>
+      <div class="note"><b>${m.client_rate}%</b> of client calls resolved (external calls excluded; ${m.overall_rate}% of all sites are a known end).</div>
+      ${m.library_roots ? '' : '<div class="filt" style="background:#3b2a0a;border-color:#92400e;color:#fde68a">Built without <span class="mono" style="color:#fde68a">--library</span> — calls into the JDK / dependencies could not resolve and are counted as unresolved. Rebuild with <span class="mono" style="color:#fde68a">axiomcode-graph build . --library &lt;jdk&gt;,&lt;libs&gt;</span> to get them as black boxes.</div>'}
       <h3>most connected methods</h3><ul>${gods.map(n => `<li data-n="${esc(n.id)}">${dot(n)}<span class="lbl">${esc(n.l)}</span><span class="loc">${n.d}</span></li>`).join('')}</ul>
       <h3>directories</h3><ul>${dirs.map(d => `<li data-n="${esc(d.id)}">${dot(d)}<span class="lbl">${esc(d.l)}</span><span class="loc">${(KIDS.get(d.id) || []).length} files</span></li>`).join('')}</ul>`; }
-  else { const n = sel, outs = OUT.get(n.id) || [], ins = IN.get(n.id) || [], kids = KIDS.get(n.id) || [];
+  else if (sel.k === 'lib') { const n = sel, ins = LIN.get(n.id) || [];
+    P.innerHTML = filt + `<h2>${esc(n.l)}</h2><div class="note">black box — library code the engine did not analyse; calls end here</div><div class="note">${n.sites} call sites from ${n.callers} client methods</div>
+      <h3>methods called</h3><div class="mono" style="word-break:break-word">${esc(n.methods.join(' · '))}</div>
+      <div><span class="btn" data-x="zoom">zoom to</span><span class="btn" data-x="clear">deselect</span></div>
+      <h3>called by (${ins.length})</h3><ul>${ins.slice().sort((a, b) => b.w - a.w).slice(0, 80).map(e => { const o = N.get(e.s); return `<li data-n="${esc(o.id)}">${dot(o)}<span class="lbl">${esc(o.l)}</span><span class="loc">${esc(loc(o))}${e.w > 1 ? ' ×' + e.w : ''}</span></li>`; }).join('')}${ins.length > 80 ? `<li class="note">… ${ins.length - 80} more</li>` : ''}</ul>`;
+    P.querySelectorAll('.btn[data-x]').forEach(b => b.onclick = () => { if (b.dataset.x === 'zoom') centre(n, Math.max(view.k, 5)); else select(null); }); }
+  else { const n = sel, outs = OUT.get(n.id) || [], ins = IN.get(n.id) || [], kids = KIDS.get(n.id) || [], louts = LOUT.get(n.id) || [];
     const li = (e, other) => { const o = N.get(other); return `<li data-n="${esc(o.id)}"><span class="tier ${esc(e.tier)}">${esc(e.tier)}</span><span class="lbl">${esc(o.l)}</span><span class="loc">${esc(loc(o))}${e.w > 1 ? ' ×' + e.w : ''}</span></li>`; };
     const kid = o => `<li data-n="${esc(o.id)}">${dot(o)}<span class="lbl">${esc(short(o))}</span><span class="loc">${o.k === 'method' ? o.a : (KIDS.get(o.id) || []).length}</span></li>`;
     P.innerHTML = filt + `<h2>${esc(n.l)}</h2><div class="note">${esc(KIND(n))}${n.t ? ' · test' : ''}</div><div class="mono" style="word-break:break-all">${esc(loc(n))}${n.b > n.a ? '–' + n.b : ''}</div>${n.sig && n.sig !== n.l ? `<div class="mono" style="word-break:break-all">${esc(n.sig)}</div>` : ''}
@@ -173,6 +194,7 @@ function panel() { const P = document.getElementById('panel');
       ${focus && focus.mode === 'chain' ? `<h3>chain</h3><ul>${focus.path.map((id, i) => `<li data-n="${esc(id)}"><span class="tier">${i}</span><span class="lbl">${esc(N.get(id).l)}</span><span class="loc">${esc(loc(N.get(id)))}</span></li>`).join('')}</ul>` : ''}
       ${ins.length ? `<h3>called by (${ins.length})</h3><ul>${ins.slice(0, 60).map(e => li(e, e.s)).join('')}${ins.length > 60 ? `<li class="note">… ${ins.length - 60} more</li>` : ''}</ul>` : ''}
       ${outs.length ? `<h3>calls (${outs.length})</h3><ul>${outs.slice(0, 60).map(e => li(e, e.t)).join('')}${outs.length > 60 ? `<li class="note">… ${outs.length - 60} more</li>` : ''}</ul>` : ''}
+      ${louts.length ? `<h3>calls into libraries (${louts.length} black boxes)</h3><ul>${louts.slice().sort((a, b) => b.w - a.w).map(e => { const o = N.get(e.t); return `<li data-n="${esc(o.id)}"><span class="tier" style="color:${LIBC}">external</span><span class="lbl">${esc(o.l)}</span><span class="loc">${e.w > 1 ? '×' + e.w : ''}</span></li>`; }).join('')}</ul>` : ''}
       ${(XOUT.get(n.id) || []).length ? `<h3>extends</h3><ul>${XOUT.get(n.id).map(t => kid(N.get(t))).join('')}</ul>` : ''}${(XIN.get(n.id) || []).length ? `<h3>subtypes</h3><ul>${XIN.get(n.id).map(t => kid(N.get(t))).join('')}</ul>` : ''}
       ${kids.length ? `<h3>contains (${kids.length})</h3><ul>${kids.slice(0, 80).map(kid).join('')}</ul>` : ''}${n.p ? `<h3>in</h3><ul>${kid(N.get(n.p))}</ul>` : ''}`;
     P.querySelectorAll('.btn[data-x]').forEach(b => b.onclick = () => { const x = b.dataset.x; if (x === 'impact') doImpact(n); else if (x === 'chain') doChain(n); else if (x === 'zoom') centre(n, Math.max(view.k, 5)); else select(null); }); }
@@ -180,15 +202,15 @@ function panel() { const P = document.getElementById('panel');
   const c = P.querySelector('#clr'); if (c) c.onclick = clearSearch; }
 
 // ── left panel: toggles ───────────────────────────────────────────────────────────────────────────
-const T = document.getElementById('types'); T.innerHTML = Object.keys(COL).map(k => `<div class="tog" data-k="${k}"><i style="background:${COL[k]}"></i>${k === 'dir' ? 'directory' : k}<span class="n"></span></div>`).join('');
+const T = document.getElementById('types'); T.innerHTML = Object.keys(COL).map(k => `<div class="tog" data-k="${k}"><i style="${k === 'lib' ? 'background:#0b0d14;border:1.5px solid #e5e7eb;border-radius:1px' : 'background:' + COL[k]}"></i>${k === 'dir' ? 'directory' : k === 'lib' ? 'external (black box)' : k}<span class="n"></span></div>`).join('');
 T.querySelectorAll('.tog').forEach(t => t.onclick = () => { show[t.dataset.k] = !show[t.dataset.k]; t.classList.toggle('off', !show[t.dataset.k]); recompute(); });
 const FL = document.getElementById('flags'); FL.innerHTML = `<div class="tog" data-f="u"><i style="background:#fbbf24"></i>has unresolved calls</div><div class="tog" data-f="e"><i style="background:#0b0d14;border:1.5px solid #fff"></i>entry point</div><div class="tog" data-f="t"><i style="background:#0b0d14;border:1.5px dotted #94a3b8"></i>test</div>`;
 FL.querySelectorAll('.tog').forEach(t => t.onclick = () => { only[t.dataset.f] = !only[t.dataset.f]; t.classList.toggle('only', only[t.dataset.f]); recompute(); if (only.u || only.e || only.t) fitVisible(); });
-const ED = document.getElementById('edges'); ED.innerHTML = `<div class="tog edge" data-e="known"><i style="border-color:#94a3b8"></i>call, one resolved target</div><div class="tog edge" data-e="inf"><i style="border-color:#22d3ee"></i>call, a sound set of targets</div><div class="tog edge" data-e="ext"><i style="border-color:#a78bfa;border-top-style:dashed"></i>extends / implements</div><div class="tog edge" data-e="tree"><i style="border-color:#6366f1;opacity:.6"></i>structure (parent → child)</div>`;
+const ED = document.getElementById('edges'); ED.innerHTML = `<div class="tog edge" data-e="known"><i style="border-color:#94a3b8"></i>call, one resolved target</div><div class="tog edge" data-e="inf"><i style="border-color:#22d3ee"></i>call, a sound set of targets</div><div class="tog edge" data-e="lib"><i style="border-color:#f97316;border-top-style:dotted"></i>call into a library (black box)</div><div class="tog edge" data-e="ext"><i style="border-color:#a78bfa;border-top-style:dashed"></i>extends / implements</div><div class="tog edge" data-e="tree"><i style="border-color:#6366f1;opacity:.6"></i>structure (parent → child)</div>`;
 ED.querySelectorAll('.tog').forEach(t => t.onclick = () => { edges[t.dataset.e] = !edges[t.dataset.e]; t.classList.toggle('off', !edges[t.dataset.e]); mark(); });
 const H = document.getElementById('hops'); H.innerHTML = ['all', 1, 2, 3].map(h => `<span data-h="${h === 'all' ? 0 : h}" class="${h === 'all' ? 'on' : ''}">${h === 'all' ? 'all' : h + ' hop' + (h > 1 ? 's' : '')}</span>`).join('');
 H.querySelectorAll('span').forEach(s => s.onclick = () => { hops = +s.dataset.h; H.querySelectorAll('span').forEach(x => x.classList.toggle('on', x === s)); applyFilter(); if (!filter) fitAll(); panel(); });
-function fitAll() { for (const n of DATA.nodes) { n.x = n.dx; n.y = n.dy; } rebuildGrid(); const w = wrap.clientWidth, h = wrap.clientHeight, ext = R3 + 200; view.k = Math.min(w - 260, h) / (2 * ext) * .98; view.x = w / 2; view.y = h / 2; mark(); }
+function fitAll() { for (const n of DATA.nodes) { n.x = n.dx; n.y = n.dy; } rebuildGrid(); const w = wrap.clientWidth, h = wrap.clientHeight, ext = (libs.length ? R4 : R3) + 200; view.k = Math.min(Math.max(240, w - 260), h) / (2 * ext) * .98; view.x = w / 2; view.y = h / 2; mark(); }
 
 // ── search (right): type to see matches; Enter or a click shows ONLY the matches (and their hops) ─────────────
 const q = document.getElementById('q'), hits = document.getElementById('hits'), sbox = document.getElementById('search'); let cur = [];
