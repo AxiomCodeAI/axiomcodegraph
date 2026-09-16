@@ -55,6 +55,7 @@
 .decl test_method(m:symbol)                                       .input test_method
 .decl fixture(m:symbol)                                           .input fixture
 .decl kind(s:symbol, k:symbol)                                    .input kind
+.decl decl_file(s:symbol, f:symbol)                               .input decl_file
 .decl target(q:symbol, k:symbol, s:symbol, x:symbol)              .input target
 .decl textuse(c:symbol, n:symbol, f:symbol, l:number)             .input textuse
 .decl importuse(c:symbol, n:symbol, f:symbol, l:number)           .input importuse
@@ -203,8 +204,15 @@ seed(q, c) :- contract(q, c, _).
 .output seed
 
 // ── the transitive layer: everything that can reach a seed through resolved calls, shortest hop count ──────────
+// A call site written with the target's simple name that the engine could not resolve (the receiver was not typed —
+// a nested type reached through `import static Outer.Inner`, a dynamic receiver) MAY be a call to the target. It is
+// not a resolved edge, so it is kept out of seed / direct and enters only here, marked, so the answer can say so.
+.decl seed_byname(q:symbol, c:symbol)
+seed_byname(q, c) :- target(q, "method", m, _), named(n, m), unresolved(c, n, _, _, _), !seed(q, c).
+.output seed_byname
 .decl up(q:symbol, m:symbol, d:number)
 up(q, m, 0) :- seed(q, m).
+up(q, c, 1) :- seed_byname(q, c).
 up(q, a, d+1) :- up(q, b, d), edge(a, b, _), d < 40.
 .decl reach(q:symbol, m:symbol, d:number)
 reach(q, m, d) :- up(q, m, d), d = min x : up(q, m, x).
@@ -219,6 +227,14 @@ parent_up(q, a, b, t) :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, edg
 test_hit(q, m, d, "") :- reach(q, m, d), test_method(m).
 test_hit(q, m, d, fx) :- reach(q, fx, d), fixture(fx), owner(fx, t), scope(t, s), member(s, m, _, _), test_method(m).
 test_hit(q, m, d, fx) :- reach(q, fx, d), fixture(fx), typ(fx, _, _), member(fx, m, _, _), test_method(m).
+// a test file is imported as a whole: a class body or a fixture at its top level runs before every test in it — pytest
+// injects a fixture by parameter name and a pydantic model class is built at import, and neither is a call edge
+test_hit(q, m, d, c) :- reach(q, c, d), decl_file(c, f), decl_file(m, f), test_method(m), !test_method(c), (kind(c, "class") ; kind(c, "module") ; fixture(c)).
+// a class that extends a test class runs that class's tests as its own — the subclass declares nothing, and a
+// change reaching the base's test breaks the subclass's run of it too (jsoup's java11 HttpClient*Test)
+.decl inherited_test(q:symbol, s:symbol, m:symbol, d:number)
+inherited_test(q, s, m, d) :- test_hit(q, m, d, _), owner(m, t), extends(s, t), typ(s, _, _), s != t.
+.output inherited_test
 .decl test_near(q:symbol, m:symbol, d:number)
 test_near(q, m, d) :- test_hit(q, m, d, _), d = min x : test_hit(q, m, x, _).
 .output test_near
