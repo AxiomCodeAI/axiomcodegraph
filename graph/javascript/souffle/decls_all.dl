@@ -392,6 +392,7 @@
 .decl object_passthrough_method(c0:symbol)
 .decl object_values_method(c0:symbol)
 .decl array_from_site(c0:symbol, c1:symbol)
+.decl iterated_expr(c0:symbol)
 .decl iterable_element(c0:symbol, c1:symbol, c2:symbol)
 .decl pair_of(c0:symbol, c1:symbol)
 .decl method_generator_flag(c0:symbol, c1:symbol, c2:symbol)
