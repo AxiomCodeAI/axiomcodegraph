@@ -1,0 +1,28 @@
+main.js:11:38 METHOD_CALL this.create  ->  known_edge  main.js:6:16 create
+main.js:13:27 METHOD_CALL this.hello  ->  known_edge  main.js:12:15 hello
+main.js:17:30 METHOD_CALL this.make  ->  known_edge  main.js:15:11 make
+main.js:18:27 METHOD_CALL this.save  ->  multi_inferred  main.js:27:24 save
+main.js:18:27 METHOD_CALL this.save  ->  multi_inferred  main.js:7:24 save
+main.js:21:39 METHOD_CALL this.create  ->  known_edge  main.js:6:16 create
+main.js:23:20 METHOD_CALL this.save  ->  known_edge  main.js:27:24 save
+main.js:25:19 METHOD_CALL Object.create  ->  ambient_terminal  -
+main.js:28:28 METHOD_CALL this.make  ->  known_edge  main.js:24:14 make
+main.js:35:38 FUNCTION_CALL_APPLY parent.apply  ->  known_edge  main.js:5:1 Model
+main.js:36:21 METHOD_CALL Object.create  ->  ambient_terminal  -
+main.js:41:13 METHOD_CALL Model.extend  ->  known_edge  main.js:33:1 extend
+main.js:41:44 METHOD_CALL this.save  ->  known_edge  main.js:7:24 save
+main.js:44:20 METHOD_CALL Model.viaExpr  ->  known_edge  main.js:11:17 viaExpr
+main.js:44:3 METHOD_CALL Model.viaDecl  ->  known_edge  main.js:9:1 viaDecl
+main.js:44:37 METHOD_CALL obj.onObj  ->  known_edge  main.js:13:1 onObj
+main.js:44:50 METHOD_CALL K.viaDeclK  ->  known_edge  main.js:17:1 viaDeclK
+main.js:44:64 CONSTRUCTOR_CALL Model  ->  known_edge  main.js:5:1 Model
+main.js:44:64 METHOD_CALL new Model().viaProto  ->  known_edge  main.js:18:1 proto
+main.js:45:21 METHOD_CALL Model.shared  ->  known_edge  main.js:28:1 shared
+main.js:45:3 METHOD_CALL Model.viaConst  ->  known_edge  main.js:21:18 <function-expression>
+main.js:45:37 METHOD_CALL Other.shared  ->  known_edge  main.js:28:1 shared
+main.js:45:53 CONSTRUCTOR_CALL Other  ->  known_edge  main.js:23:1 Other
+main.js:46:21 CONSTRUCTOR_CALL Sub  ->  known_edge  main.js:35:17 <function-expression>
+main.js:46:21 METHOD_CALL new Sub().save  ->  known_edge  main.js:7:24 save
+main.js:46:3 CONSTRUCTOR_CALL Sub  ->  known_edge  main.js:35:17 <function-expression>
+main.js:46:3 METHOD_CALL new Sub().tick  ->  known_edge  main.js:41:28 tick
+main.js:9:29 METHOD_CALL this.create  ->  known_edge  main.js:6:16 create
