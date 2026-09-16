@@ -19,7 +19,7 @@ lib/classes.js:26:45 METHOD_CALL this.id  ->  multi_inferred  lib/classes.js:20:
 lib/classes.js:26:45 METHOD_CALL this.id  ->  multi_inferred  lib/classes.js:21:26 id
 lib/classes.js:29:18 FUNCTION_CALL_CALL Legacy.call  ->  known_edge  lib/classes.js:27:1 Legacy
 lib/classes.js:30:17 METHOD_CALL Object.create  ->  ambient_terminal  -
-lib/classes.js:30:88 METHOD_CALL this.get  ->  ambiguous_unknown  -
+lib/classes.js:30:88 METHOD_CALL this.get  ->  known_edge  lib/classes.js:28:24 get
 lib/classes.js:31:1 METHOD_CALL Object.setPrototypeOf  ->  ambient_terminal  -
 lib/classes.js:31:1 METHOD_CALL Object.setPrototypeOf  ->  callback_registered  lib/classes.js:27:1 Legacy
 lib/classes.js:31:1 METHOD_CALL Object.setPrototypeOf  ->  callback_registered  lib/classes.js:29:1 Sub
@@ -59,7 +59,7 @@ main.js:10:90 METHOD_CALL new C.Picked().id  ->  multi_inferred  lib/classes.js:
 main.js:10:90 METHOD_CALL new C.Picked().id  ->  multi_inferred  lib/classes.js:21:26 id
 main.js:12:13 CONSTRUCTOR_CALL C.Sub  ->  known_edge  lib/classes.js:29:1 Sub
 main.js:12:26 METHOD_CALL s.get  ->  known_edge  lib/classes.js:28:24 get
-main.js:12:35 METHOD_CALL s.extra  ->  ambiguous_unknown  -
+main.js:12:35 METHOD_CALL s.extra  ->  known_edge  lib/classes.js:30:67 <function-expression>
 main.js:12:57 METHOD_CALL Reflect.construct  ->  ambient_terminal  -
 main.js:12:57 METHOD_CALL Reflect.construct  ->  callback_registered  lib/classes.js:29:1 Sub
 main.js:12:57 METHOD_CALL Reflect.construct  ->  multi_inferred  lib/classes.js:29:1 Sub
