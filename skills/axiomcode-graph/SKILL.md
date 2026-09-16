@@ -1,6 +1,6 @@
 ---
 name: axiomcode-graph
-description: Show the call chains of a Java, TypeScript, Python or JavaScript codebase as a page — built from AxiomCode's type-resolved engine, one chain per entry point or root, each hop with file:line and each arrow with the engine's tier; click a chain to read it end to end, expand any hop to go deeper. Use when someone wants to see how the code flows, not to ask the graph a question.
+description: Show the call chains of a Java, TypeScript, Python or JavaScript codebase as a page — a graph of only the chain nodes, built from AxiomCode's type-resolved engine, roots left and hops flowing right, each arrow with the engine's tier; click a chain to select it end to end, expand any hop to grow the graph deeper. Use when someone wants to see how the code flows, not to ask the graph a question.
 ---
 
 # axiomcode-graph — the call chains of a codebase, as a page
@@ -29,17 +29,20 @@ Default page: `<repo>/.axiomcode/graph/graph.html` — one file, works from `fil
 
 ## What the page shows
 
-- **Left: the chains.** One per root — entry points that are not tests first (`main`, handlers, lifecycle),
-  then methods nothing calls, then tests. A chain follows the heaviest resolved callee at each hop until a
-  leaf, a repeat, or 10 hops; it is ranked by how much of the code it reaches. Filter by any name; a name that
-  is not a root offers "start a chain at" it.
-- **Right: the selected chain, end to end.** One box per hop — name, `file:line–line`, signature, `entry`,
-  `test`, `? N unresolved` (call sites in that body the engine could not resolve: each MAY be a call the page
-  is not showing), `→ library ×N`. Arrows: solid = one resolved target · dashed blue = a sound set of
-  targets · dotted grey = declared ambiguous. Dashed box = test, thick box = entry point.
-- **Deeper on demand.** `+ N more callees` under a hop lists its other callees below the chain, each with its
-  own `+`; `↑ N callers` does the same upward; `chain ⇢` restarts the chain from that hop. Nothing is drawn
-  until asked for.
+- **The canvas: the chain graph.** A circle per method that is on a chain, a line per chain edge, roots on the
+  left and hops flowing right by depth — so the whole view is call chains and nothing else. Size = how
+  connected the method is, colour = the directory it lives in (legend bottom-left), triangle = entry point,
+  dashed = test, orange dot = has unresolved call sites. Line style is the tier: solid = one resolved target,
+  dashed blue = a sound set. It opens with the chains from entry points and roots (~400 nodes); a checkbox
+  adds the chains from tests.
+- **Left: the chain list.** One per root, ranked by reach, with a preview; filter by any name, or type a
+  method that is not a root to start a chain at it. Click a chain (or its root circle) and its path is
+  selected end to end — everything else dims.
+- **Right: the selected chain as a list** (hop, `file:line`, `?N` unresolved) and the selected node with
+  `+ callees` / `↑ callers` / `chain from here`. Expanding draws the new methods as circles next to the node
+  (outlined orange until the next action), each expandable again — deeper on demand. Double-click a circle
+  is `+ callees`.
+- `#from=Owner.method` opens that chain; `&open=Owner.method` also expands that hop.
 
 ## Rules
 
