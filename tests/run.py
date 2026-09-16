@@ -44,5 +44,5 @@ for l, name, path in cases:
             print('     ' + '\n     '.join(text.strip().split('\n')[:14]))
         elif verbose: print(f"ok   {l}/{name}: {ch['why']}")
     if not keep: shutil.rmtree(os.path.join(path, '.axiomcode'), ignore_errors=True)
-print(f"\n{tot - fail} of {tot} check(s) passed in {len(cases)} case(s)" + ('' if not fail else f" — {fail} FAILED"))
+print(f"\n{tot - fail} of {tot} check(s) passed in {len(cases)} case(s)" + ('' if not fail else f" - {fail} FAILED"))
 sys.exit(1 if fail else 0)
