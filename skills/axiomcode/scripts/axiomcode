@@ -586,6 +586,13 @@ def v_search():
         if any(a == '' for a in argv[1:]): say('search got an EMPTY name — a name starting with $ must be single-quoted: axiomcode search \'$ZodCheckGreaterThan\'')
         else: say('search needs something to look for. Give ONE of: a name as written in the code (bar · Foo.bar · file.ts:bar), 3–6 words from the issue in quotes, an error message in quotes, or file:line.')
         return
+    # a file name, a path, or a fragment of one (`type-method-extractor`, `extractors/ts-`, `HtmlTreeBuilder.java`) → the
+    # files whose path contains it and what each declares. Tried before names: `Foo.java` is a file, not a type called java
+    if not re.match(r'^(.+?)[: ](\d+)$', text) and ('/' in text or re.search(r'\.[a-z]{1,4}$', text) or (re.search(r'[-_]', text) and not re.search(r'[A-Z(]', text))) \
+       and not (lambda rh: rh[0] and not rh[1].startswith('nearest'))(resolve(text, None, IN)):      # `src/dir/file.name` IS a JavaScript name
+        if file_card(text.lstrip('/')): return
+        if '/' in text or re.search(r'\.(ts|tsx|js|mjs|cjs|py|java|kt|json|md|dl|csv|xml|yml|yaml|txt)$', text):
+            say(f"no file in the {LANG} graph has *{text}* in its path — fixtures, test data, docs and other languages' files are not nodes; `ls`/`find` for those (always allowed). For code, search a name from the issue."); return
     m = re.match(r'^(.+?)[: ](\d+)$', text)                                                   # file:line — a hunk or a stack frame
     if m and ('/' in m.group(1) or re.search(r'\.[a-z]{1,4}$', m.group(1))):
         f, ln = m.group(1).lstrip('/'), int(m.group(2))
@@ -661,6 +668,28 @@ def v_search():
     if not words_search(text) and not named:
         say(f"nothing declared, commented or quoted matches '{text}'" + (f" under *{IN}*" if IN else ''))
         say("  try fewer, more specific words (the nouns the code would use, not the symptom), or one identifier from the issue, or in=<dir> to scope it")
+
+def file_card(frag, cap=5):
+    """the files whose path CONTAINS frag, and what each declares (types and methods with lines, caller counts, tests reaching
+    the file); a single file with few declarations is listed whole — every declaration's file:line is a key into every table"""
+    files = q("SELECT file, count(*) n FROM symbols WHERE file LIKE ? AND kind<>'module' GROUP BY file ORDER BY (file = ?) DESC, length(file) LIMIT 40", f"%{frag}%", frag)
+    if not files:
+        sk = q("SELECT file, reason FROM skipped WHERE file LIKE ? LIMIT 5", f"%{frag}%") if has('skipped') else []
+        if sk: say(f"no declarations under *{frag}* — the graph skipped: " + ', '.join(f"{r['file']} ({r['reason']})" for r in sk)); return True
+        return False
+    say(f"*{frag}* names {len(files)} file(s)" + (f"; the {cap} closest, then use in=<path> or a longer fragment" if len(files) > cap else '') + ":")
+    for fr in files[:cap]:
+        f = fr['file']; decl = q("SELECT * FROM symbols WHERE file=? AND kind<>'module' ORDER BY line", f)
+        ncall = q("SELECT count(DISTINCT e.caller_id) n FROM call_edges e JOIN symbols ce ON ce.method_id=e.callee_method_id JOIN symbols cr ON cr.id=e.caller_id WHERE ce.file=? AND cr.file<>ce.file", f)[0]['n']
+        say(f"  {f}   {len(decl)} declarations, called from {ncall} method(s) in other files")
+        named_ = [r for r in decl if not (r['display'] or '').startswith('<') and '.<' not in (r['display'] or '')] or decl   # anonymous callables last resort only
+        shown = named_ if len(named_) <= 24 else sorted(named_, key=lambda r: -(q("SELECT count(*) n FROM call_edges WHERE callee_method_id=?", r['method_id'])[0]['n'] if r['method_id'] else 0))[:16]
+        for r in sorted(shown, key=lambda r: r['line'] or 0):
+            cs = q("SELECT count(*) n FROM call_edges WHERE callee_method_id=?", r['method_id'])[0]['n'] if r['method_id'] else 0
+            row(f"    {r['kind']:11} {r['display']}   L{r['line']}" + (f"-{r['end_line']}" if r['end_line'] and r['end_line'] != r['line'] else '') + (f"   {cs} call sites" if cs else '') + ("  [test]" if r['is_test'] else ''))
+        if len(decl) > len(shown): say(f"    … +{len(decl) - len(shown)} more (the {len(shown)} most called shown; search <file>:<line> for any position)")
+    say("  next: search <a name above>   ·   search <file>:<line>   ·   impact <a name above>")
+    return True
 
 def at_line(f, ln):
     """what the graph knows about ONE line: the calls on it (resolved target and tier, or the written name of an unresolved one),
