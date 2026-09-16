@@ -34,14 +34,21 @@
 //                               the same function.
 //   PROPERTY / SETTER / DELETER descriptors — they turn an attribute ACCESS into a call
 //                               on this exact function.
-//   ABSTRACTMETHOD / FINAL      metadata only.
+//   ABSTRACTMETHOD / FINAL / NO_TYPE_CHECK
+//                               metadata only. `@no_type_check` on a metaclass __new__
+//                               was read as an unknown replacing decorator, which made
+//                               the class statement's creation edge disappear (#704).
 //   OVERLOAD                    the stub is excluded from lookup by bodyIsStub already.
 //   WRAPS                       applied to the WRAPPER, and only copies metadata.
-//   LRU_CACHE / CACHED_PROPERTY / CONTEXTMANAGER / DATACLASS
+//   LRU_CACHE / CACHED_PROPERTY / CONTEXTMANAGER / DATACLASS / DEPRECATED
 //                               a library wrapper that CALLS THROUGH. The direct edge
 //                               skips one library hop; it does not point at the wrong
 //                               body. Recorded as decorator_hop_elided so the elision is
-//                               a fact rather than an omission.
+//                               a fact rather than an omission. DEPRECATED is
+//                               warnings.deprecated / typing_extensions.deprecated: it
+//                               warns and calls the function; stacked under @property it
+//                               left the getter opaque, so the property had no callers
+//                               and a read of it resolved to nothing (#704).
 decorator_transparent("STATICMETHOD").
 decorator_transparent("CLASSMETHOD").
 decorator_transparent("PROPERTY").
@@ -49,17 +56,20 @@ decorator_transparent("SETTER").
 decorator_transparent("DELETER").
 decorator_transparent("ABSTRACTMETHOD").
 decorator_transparent("FINAL").
+decorator_transparent("NO_TYPE_CHECK").
 decorator_transparent("OVERLOAD").
 decorator_transparent("WRAPS").
 decorator_transparent("LRU_CACHE").
 decorator_transparent("CACHED_PROPERTY").
 decorator_transparent("CONTEXTMANAGER").
 decorator_transparent("DATACLASS").
+decorator_transparent("DEPRECATED").
 
 // ── decorator_elides_hop(BuiltinKind) — transparent, but through a wrapper ───
 decorator_elides_hop("LRU_CACHE").
 decorator_elides_hop("CACHED_PROPERTY").
 decorator_elides_hop("CONTEXTMANAGER").
+decorator_elides_hop("DEPRECATED").
 
 // ── decorator_opaque(Prov, DecoratorHash) ────────────────────────────────────
 // replacesTarget=true AND the builtinKind is not in the modelled set. `@audit("child")`
