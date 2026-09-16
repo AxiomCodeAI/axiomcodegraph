@@ -250,6 +250,19 @@ param_value(p, k, i) :- call_arg(ce, pos, arg), expr_resolves_to_method(ce, m), 
     method_decl("client", _, _, _, _, _, _, m),
     param_decl(_, _, ppos, m, p), to_number(ppos) = pos, !param_is_rest(_, p),
     expr_value(arg, k, i).
+// THE ONE LIBRARY EXCEPTION: a UMD wrapper (#710). `(function (root, factory) {
+// … module.exports = factory(); … })(this, function () { … })` is how a library that
+// predates ES modules ships its entry file, and its export value is what `factory`
+// returns, reached only through the wrapper's parameter. The parameter has exactly
+// one caller, the IIFE on the same expression, so admitting its binding merges nothing
+// across callers, which is the reason library parameters are not tracked. Only a
+// FUNCTION value flows, and only into an IIFE's own parameter; every other library
+// parameter stays untracked.
+param_value(p, "func", f) :- call_site(_, "IIFE_CALL", _, _, _, _, ce, _, _), call_arg(ce, pos, arg),
+    expr_resolves_to_method(ce, m), !method_is_hot(m, _),
+    method_decl("lib", _, _, _, _, _, _, m),
+    param_decl(_, _, ppos, m, p), to_number(ppos) = pos, !param_is_rest(_, p),
+    expr_value(arg, "func", f).
 // A rest parameter IS an array; the arguments at and past its position are its elements.
 param_value(p, "arr", p) :- param_is_rest(_, p).
 elem_value(p, k, i) :- call_arg(ce, pos, arg), expr_resolves_to_method(ce, m), !method_is_hot(m, _),

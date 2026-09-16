@@ -66,6 +66,10 @@ for what callers pass; a generic library is the shape whose parameters unify eve
 (one utility library's modular files reached 31,533 values per export). What a library
 does with a callback it is handed is a MODEL, stated per library in
 `resolution/frameworks.dl`, and checked against execution in `test/javascript/realapp`.
+The one exception is a UMD wrapper's parameter (#710): `(function (root, factory) {
+module.exports = factory(); })(this, function () { … })` has exactly one caller, the
+IIFE on the same expression, so the function literal flows into `factory` and the
+library's export value is what it returns.
 
 The one closed-world assumption is on parameters: their values are the arguments at
 the calls this engine resolved, and a caller it cannot see is a value it does not know.
