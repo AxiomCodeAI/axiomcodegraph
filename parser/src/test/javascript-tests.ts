@@ -856,6 +856,15 @@ const SCAFFOLD: ReadonlyArray<readonly [string, string]> = [
     'const Mixin = (Sup) => class extends Sup {};',                         // 22 Sup is a parameter: no import, expression linked
     'class Mixed extends Mixin(Base) {}',                                   // 23 computed, expression linked
     'class Wrapped extends (Base) {}',                                      // 24 parentheses: NOT computed, name Base
+    // #706: a member declared by one LINK of a chained assignment. The value is
+    // the innermost right-hand side, declared under every member-form target;
+    // a callable has one method row (the first member link) and a field row
+    // under every further member name.
+    'const Chained = function () {};',                                      // 25 a constructor function
+    'Chained.api = Chained.prototype = { each() { return 1; } };',          // 26 static field api, prototype literal method each
+    'Chained.mixin = Chained.api.mixin = function () { return 2; };',       // 27 static method mixin
+    'Chained.both = Chained.prototype.both = function () { return 3; };',   // 28 static method both, prototype field both
+    'Chained.prototype.run = Chained.prototype.alias = function () {};',    // 29 prototype method run, prototype field alias
     '',
   ].join('\n')],
 
@@ -6816,6 +6825,23 @@ function tortureScriptsHold(): number {
     expect(file, 23, 'class Mixed extends Mixin(Base)', heritageDescribe('Mixed'), 'Mixin(Base)/computed=true/import=-/expr=linked');
     expect(file, 24, 'class Wrapped extends (Base)', heritageDescribe('Wrapped'), 'Base/computed=false/import=Base/expr=linked');
     expect(file, 13, 'static block kind', blocks.find((row) => Number(row[col(b, 'startLine')]) === 13)?.[col(b, 'blockKind')] ?? 'NO ROW', 'CLASS_STATIC_BLOCK');
+    // #706: chained assignments. One method row per callable, under the first
+    // member link; a field row under every further member name; the prototype
+    // literal's methods owned by the type.
+    const { r: fld, rows: fieldRows } = rowsOf('js_field', module);
+    const fieldsAt = (line: number): string => fieldRows.filter((row) => Number(row[col(fld, 'startLine')]) === line)
+      .map((row) => `${row[col(fld, 'name')]}:${row[col(fld, 'declarationForm')]}/owner=${typeNameOf.get(row[col(fld, 'ownerTypeLinkHash')] ?? '') ?? '-'}/static=${row[col(fld, 'isStatic')]}`)
+      .sort().join(',');
+    const methodsAt = (line: number): string => methods.filter((row) => Number(row[col(m, 'startLine')]) === line)
+      .map((row) => `${row[col(m, 'name')]}=${describeMethod(row)}`).sort().join(',');
+    expect(file, 26, 'chained prototype literal: the static field', fieldsAt(26), 'api:STATIC_ASSIGNMENT/owner=Chained/static=true');
+    expect(file, 26, 'chained prototype literal: the method', methodsAt(26), 'each=CLASS_METHOD/PROTOTYPE_OBJECT_LITERAL/owner=Chained/static=false');
+    expect(file, 27, 'chained static through the alias', methodsAt(27), 'mixin=CLASS_METHOD/STATIC_ASSIGNMENT/owner=Chained/static=true');
+    expect(file, 27, 'no field for the static method', fieldsAt(27), '');
+    expect(file, 28, 'static and prototype member: the method', methodsAt(28), 'both=CLASS_METHOD/STATIC_ASSIGNMENT/owner=Chained/static=true');
+    expect(file, 28, 'static and prototype member: the field', fieldsAt(28), 'both:PROTOTYPE_ASSIGNMENT/owner=Chained/static=false');
+    expect(file, 29, 'two prototype names: the method', methodsAt(29), 'run=CLASS_METHOD/PROTOTYPE_ASSIGNMENT/owner=Chained/static=false');
+    expect(file, 29, 'two prototype names: the field', fieldsAt(29), 'alias:PROTOTYPE_ASSIGNMENT/owner=Chained/static=false');
     const { r: x, rows: expressions } = rowsOf('js_expression', module);
     expect(file, 15, '`#secret in o`', expressions.find((row) => Number(row[col(x, 'startLine')]) === 15
       && row[col(x, 'referencedName')] === '#secret')?.[col(x, 'bindingResolution')] ?? 'NO ROW', 'CLASS_PRIVATE');
