@@ -1,0 +1,13 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a topic name asked as a string names the producer and the consumer bound by the annotation, not a same-named field",
+   "run": ["impact", "\"topicOne\""],
+   "want": ["Producer.publish", "binds to it through @Listener", "Consumer.listen"],
+   "avoid": ["Unrelated.topicOne"]},
+  {"why": "asking for the bare name answers about the code and says the string sites exist",
+   "run": ["impact", "topicOne", "--kind", "field"],
+   "want": ["is also written as a string"]},
+  {"why": "a string that binds nothing in this graph is refused rather than answered as empty",
+   "run": ["impact", "\"topicNine\""],
+   "want": ["UNKNOWN, not empty"],
+   "expect_error": true}]}
