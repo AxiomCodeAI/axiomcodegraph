@@ -61,6 +61,18 @@ def reach_counts(mid):
         return f"   reached by {r[0]} test(s), {r[1]} entry point(s)" if r else "   reached by no test / entry point"
     except Exception: return ''
 
+# where the agent IS: the callables it read most recently (per session, last 6 reads). A later grep for a common name is
+# read against them — the `close` that the method you were just reading calls is the one you mean
+STATE = os.path.join(cwd, '.axiomcode', f"hooks-state-{ev.get('session_id', 'x')}.json")
+def load_state():
+    try: return json.load(open(STATE))
+    except Exception: return {'reads': []}
+def save_state(st):
+    try: json.dump(st, open(STATE, 'w'))
+    except OSError: pass
+def context_ids():
+    return [i for r in load_state()['reads'] for i in r['ids']]
+
 lines = []
 if tool in ('Edit', 'Write', 'MultiEdit'):
     # the agent changed a method: the callers that must change with it, its overrides, the tests that reach it — the moment
@@ -95,6 +107,7 @@ elif tool == 'Read':
     a = int(inp.get('offset') or 1); b = a + int(inp.get('limit') or 100000)
     rows = q("SELECT id, method_id, display, line, end_line FROM symbols WHERE (file = ? OR file LIKE ?) AND method_id IS NOT NULL AND kind <> 'module' AND line <= ? AND end_line >= ? ORDER BY line", rel, '%/' + rel.lstrip('/'), b, a)
     if rows:
+        st = load_state(); st['reads'] = ([{'file': rel, 'ids': [r['id'] for r in rows[:12]], 'names': [r['display'] for r in rows[:12]]}] + st['reads'])[:6]; save_state(st)
         lines.append(f"graph: {len(rows)} callable(s) in {rel}:{a}-{min(b, rows[-1]['end_line'] or b)} —")
         for r in rows[:8]: lines.append(f"  {r['display']} L{r['line']}  {edges(r['method_id'], r['id'])}{reach_counts(r['method_id'])}")
         if len(rows) > 8: lines.append(f"  … +{len(rows) - 8}; axiomcode path / impact for any of them")
@@ -111,16 +124,33 @@ elif tool == 'Grep':
         for n in re.findall(r'[A-Za-z_]\w{2,}', b):
             if not re.fullmatch(r'(the|and|for|new|return|null|true|false|this|void|int|String|public|private)', n) and n not in idents: idents.append(n)
     idents = idents[:6]
+    ctx = context_ids(); ctx_names = {i: nm for r in load_state()['reads'] for i, nm in zip(r['ids'], r['names'])}
     def lookup(n):
         c = sqlite3.connect(db); c.row_factory = sqlite3.Row
-        rows = c.execute("SELECT id, method_id, display, file, line FROM symbols WHERE name = ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY file LIMIT 4", (n,)).fetchall() \
-            or c.execute("SELECT id, method_id, display, file, line FROM symbols WHERE name LIKE ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY length(name), file LIMIT 4", (n + '%',)).fetchall()
+        rows = c.execute("SELECT id, method_id, display, file, line FROM symbols WHERE name = ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY file LIMIT 12", (n,)).fetchall() \
+            or c.execute("SELECT id, method_id, display, file, line FROM symbols WHERE name LIKE ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY length(name), file LIMIT 12", (n + '%',)).fetchall()
+        # the declarations connected to what the agent just read: called BY a read callable, or CALLING one — first, and marked
+        rel_ = {}
+        unres = []
+        if ctx:
+            ph = ','.join('?' * len(ctx))
+            # a call written `n` inside what was read whose receiver the engine could not type: it may be any of these — say so
+            unres = c.execute(f"SELECT cs.caller_id, cs.start_line FROM call_sites cs JOIN unresolved_sites u ON u.call_site_id = cs.id WHERE cs.callee_name = ? AND cs.caller_id IN ({ph}) LIMIT 3", (n, *ctx)).fetchall()
+        if ctx and len(rows) > 1:
+            for r in rows:
+                e = c.execute(f"SELECT cr.id AS who, 'called from' AS how FROM call_edges e JOIN symbols cr ON cr.id = e.caller_id WHERE e.callee_method_id = ? AND e.caller_id IN ({ph}) LIMIT 1", (r['method_id'], *ctx)).fetchone() \
+                    or c.execute(f"SELECT ce.id AS who, 'calls' AS how FROM call_edges e JOIN symbols ce ON ce.method_id = e.callee_method_id WHERE e.caller_id = ? AND ce.id IN ({ph}) LIMIT 1", (r['id'], *ctx)).fetchone()
+                if e: rel_[r['id']] = (e['how'], ctx_names.get(e['who'], '?'))
+            rows = sorted(rows, key=lambda r: (r['id'] not in rel_, r['file']))
+        rows = rows[:4]
         out = []
         for r in rows:
             up = c.execute("SELECT DISTINCT cr.display d FROM call_edges e JOIN symbols cr ON cr.id = e.caller_id WHERE e.callee_method_id = ? LIMIT 40", (r['method_id'],)).fetchall()
             dn = c.execute("SELECT count(DISTINCT e.callee_method_id) n FROM call_edges e WHERE e.caller_id = ? AND e.callee_provenance = 'client'", (r['id'],)).fetchone()['n']
             un = c.execute("SELECT count(*) n FROM unresolved_sites WHERE caller_id = ?", (r['id'],)).fetchone()['n']
-            out.append(f"  {r['display']}  {os.path.basename(r['file'])}:{r['line']}  ← {len(up)}" + (": " + ', '.join(x['d'] for x in up[:3]) + (' …' if len(up) > 3 else '') if up else '') + f"  → {dn}" + (f"  ? {un}" if un else ''))
+            tag = f"  ★ {rel_[r['id']][0]} {rel_[r['id']][1]} (which you just read)" if r['id'] in rel_ else ''
+            out.append(f"  {r['display']}  {os.path.basename(r['file'])}:{r['line']}  ← {len(up)}" + (": " + ', '.join(x['d'] for x in up[:3]) + (' …' if len(up) > 3 else '') if up else '') + f"  → {dn}" + (f"  ? {un}" if un else '') + tag)
+        if unres: out.append(f"  ({ctx_names.get(unres[0]['caller_id'], '?')}, which you just read, calls a `{n}` at L{unres[0]['start_line']} whose receiver is not typed — it may be any of the above)")
         return n, rows, out
     if idents:
         with concurrent.futures.ThreadPoolExecutor(max_workers=min(6, len(idents))) as ex: found = list(ex.map(lookup, idents))
