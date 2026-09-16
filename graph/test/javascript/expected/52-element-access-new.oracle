@@ -1,0 +1,21 @@
+main.js:15:38 CONSTRUCTOR_CALL   EXACT  main.js:6:1
+main.js:15:38 METHOD_CALL run  EXACT  main.js:7:22
+main.js:16:31 CONSTRUCTOR_CALL Ctor  EXACT  main.js:6:1
+main.js:16:31 METHOD_CALL run  EXACT  main.js:7:22
+main.js:17:52 METHOD_CALL run  EXACT  main.js:7:22
+main.js:18:39 COMPUTED_CALL   EXACT  main.js:6:1
+main.js:19:36 CONSTRUCTOR_CALL   EXACT  main.js:8:15
+main.js:19:36 METHOD_CALL tick  EXACT  main.js:8:45
+main.js:27:15 METHOD_CALL create  LIB_AMBIENT_OK  
+main.js:29:1 FUNCTION_CALL DEF  EXACT  main.js:28:1
+main.js:34:30 METHOD_CALL run  EXACT  main.js:7:22
+main.js:37:23 FUNCTION_CALL viaNewDot  EXACT  main.js:16:1
+main.js:37:3 FUNCTION_CALL viaNewLiteralKey  EXACT  main.js:15:1
+main.js:37:36 FUNCTION_CALL viaVar  EXACT  main.js:17:1
+main.js:37:46 FUNCTION_CALL viaCallLiteralKey  EXACT  main.js:18:1
+main.js:37:67 FUNCTION_CALL viaNewClassKey  EXACT  main.js:19:1
+main.js:38:3 FUNCTION_CALL viaComputed  EXACT  main.js:24:1
+main.js:38:33 FUNCTION_CALL make  EXACT  main.js:30:1
+main.js:38:41 FUNCTION_CALL viaIndex  EXACT  main.js:34:1
+main.js:7:43 FUNCTION_CALL log  EXACT  main.js:5:1
+# defects: 0
