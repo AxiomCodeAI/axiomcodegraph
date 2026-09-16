@@ -373,6 +373,11 @@ prop_value("obj", l, n, k, i) :- expr_child(_, l, "SPREAD_OPERAND", _, o), expr_
 prop_value("ctor", t, n, "func", m) :- type_static(t, n, m).
 prop_value("ctor", t, "prototype", "proto", t) :- type_decl(_, _, _, _, _, t).
 prop_value("func", m, n, k, i) :- type_ctor(_, m, t), prop_value("ctor", t, n, k, i).
+// And the other way for WRITES: `const W = function () {}` evaluates to its function
+// in its own module and to its type through an export, so `W.helper = helper` written
+// onto the function must be readable on the class (#706: `Model.tag = Item.tag = f`
+// across a module boundary).
+prop_value("ctor", t, n, k, i) :- type_ctor(_, m, t), member_write("func", m, n, k, i).
 // Instance: members up the chain; `T.prototype.m` reads the same members; and
 // `this.constructor` is the class — `new this.constructor()` in a `clone()`.
 prop_value("inst", t, n, "func", m) :- type_member(t, n, m).
@@ -415,6 +420,13 @@ prop_value(k, i, n, k2, i2) :- member_write(k, i, n, k2, i2).
 // runs with the instance as `this`.
 prop_value("inst", t, n, k, i) :- member_write("proto", t, n, k, i).
 this_value(m, "inst", t) :- member_write("proto", t, _, "func", m), method_this_binding(_, "DYNAMIC", m), !method_owner_type(m, _).
+// `T.prototype = { … }` REPLACES the prototype with the literal: every property of
+// the literal is a member of every instance, including one written later through
+// an alias of it (`T.api = T.prototype = { … }; T.api.m = function () {}`, #706),
+// and a function written there runs with the instance as `this`.
+prototype_object(t, l) :- member_write(k, i, "prototype", "obj", l), constructible_value(k, i, t).
+prop_value("inst", t, n, k, i) :- prototype_object(t, l), prop_value("obj", l, n, k, i).
+this_value(m, "inst", t) :- prototype_object(t, l), prop_value("obj", l, _, "func", m), method_this_binding(_, "DYNAMIC", m), !method_owner_type(m, _).
 // Everything an instance of the superclass has — its methods, its constructor's
 // writes, its documented fields — an instance of the subclass has too, unless the
 // subclass declares the name itself. Recursive, so the whole chain is read.
