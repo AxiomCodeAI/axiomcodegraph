@@ -330,7 +330,7 @@ class Impact:
                     if g.sym[oid].get('type_id'): type_query(q + ':type', oid)
         g.write('target', T, F); g.write('textuse', sorted(set(textuse)), F); g.write('importuse', sorted(set(importuse)), F); g.write('inside_target', sorted(set(inside)), F)
         if not shutil.which('souffle'): die("souffle is not installed (brew install souffle-lang/souffle/souffle)")
-        prof('query facts written'); r = subprocess.run(['souffle', '-F', F, '-D', O, os.path.join(HERE, 'dl', 'impact.dl')], capture_output=True, text=True); prof('souffle returned')
+        prof('query facts written'); r = subprocess.run(self.program() + ['-F', F, '-D', O], capture_output=True, text=True); prof('souffle returned')
         if r.returncode: die("souffle failed:\n" + r.stderr[-1200:])
         out = {}
         for n in ('contract', 'direct', 'seed', 'reach', 'parent_up', 'test_near', 'test_hit'):
@@ -342,6 +342,25 @@ class Impact:
         shutil.rmtree(F, ignore_errors=True); shutil.rmtree(O, ignore_errors=True)
         return out
 
+    def program(self):
+        """the rules compiled to a native binary once (souffle -g, then c++ as the engine does), cached by the program's hash next to
+        it; the interpreter when there is no compiler. Loading 60 MB of facts is what a query costs, and the binary halves it."""
+        import hashlib
+        dl = os.path.join(HERE, 'dl', 'impact.dl'); ver = subprocess.run(['souffle', '--version'], capture_output=True, text=True).stdout.strip()
+        key = hashlib.sha1((open(dl).read() + ver).encode()).hexdigest()[:16]
+        cache = os.path.join(HERE, 'dl', '.cache'); binp = os.path.join(cache, f'impact-{key}')
+        if os.path.exists(binp): return [binp]
+        if not shutil.which('c++') or os.environ.get('AXIOMCODE_INTERPRET'): return ['souffle', dl]
+        os.makedirs(cache, exist_ok=True); cpp = binp + '.cpp'
+        inc = None
+        for cand in ('/opt/homebrew/Cellar/souffle', '/usr/local/Cellar/souffle', '/usr/include', '/usr/local/include', '/opt/homebrew/include'):
+            hits = [os.path.join(r, 'souffle') for r, ds, fs in os.walk(cand) if 'souffle' in ds and os.path.exists(os.path.join(r, 'souffle', 'CompiledSouffle.h'))] if os.path.isdir(cand) else []
+            if hits: inc = hits[0]; break
+        print(f"compiling {os.path.basename(dl)} to a native binary once (~20 s) …", file=sys.stderr)
+        g1 = subprocess.run(['souffle', '-g', cpp, dl], capture_output=True, text=True)
+        g2 = subprocess.run(['c++', '-std=c++17', '-O3', '-march=native', '-w'] + (['-I', inc] if inc else []) + [cpp, '-o', binp + '.tmp'], capture_output=True, text=True) if g1.returncode == 0 else g1
+        if g2.returncode == 0: os.replace(binp + '.tmp', binp); os.remove(cpp); return [binp]
+        print(f"  could not compile ({(g2.stderr or '').strip().split(chr(10))[-1][:120]}) — using the interpreter", file=sys.stderr); return ['souffle', dl]
     def chain(self, start, parent):
         """one chain from start down to a seed, read back from parent_up (a is one hop further than b); the surest tier first"""
         out = [start]; cur = start; seen = {start}
