@@ -1,0 +1,21 @@
+main.js:12:25 FUNCTION_CALL_APPLY super.defaultTo.apply  ->  known_edge  main.js:7:3 defaultTo
+main.js:13:45 FUNCTION_CALL_CALL f.call  ->  known_edge  main.js:8:3 render
+main.js:14:20 FUNCTION_CALL_CALL super.defaultTo.call  ->  known_edge  main.js:7:3 defaultTo
+main.js:15:25 FUNCTION_CALL_BIND super.merge.bind  ->  known_edge  main.js:9:3 merge
+main.js:15:56 FUNCTION_CALL g  ->  known_edge  main.js:9:3 merge
+main.js:16:21 METHOD_CALL super.render  ->  known_edge  main.js:8:3 render
+main.js:20:28 FUNCTION_CALL_APPLY super.render.apply  ->  known_edge  main.js:8:3 render
+main.js:20:61 FUNCTION_CALL run  ->  known_edge  main.js:20:22 <arrow>
+main.js:29:13 CONSTRUCTOR_CALL Child  ->  implicit_constructor  -
+main.js:30:19 METHOD_CALL c.render  ->  known_edge  main.js:13:3 render
+main.js:30:3 METHOD_CALL c.defaultTo  ->  known_edge  main.js:12:3 defaultTo
+main.js:30:31 METHOD_CALL c.bound  ->  known_edge  main.js:14:3 bound
+main.js:30:42 METHOD_CALL c.rebound  ->  known_edge  main.js:15:3 rebound
+main.js:30:55 METHOD_CALL c.direct  ->  known_edge  main.js:16:3 direct
+main.js:31:21 CONSTRUCTOR_CALL Orphan  ->  implicit_constructor  -
+main.js:31:21 METHOD_CALL new Orphan().nope  ->  known_edge  main.js:25:3 nope
+main.js:31:3 CONSTRUCTOR_CALL Grand  ->  implicit_constructor  -
+main.js:31:3 METHOD_CALL new Grand().go  ->  known_edge  main.js:20:3 go
+main.js:7:25 FUNCTION_CALL log  ->  known_edge  main.js:5:1 log
+main.js:8:21 FUNCTION_CALL log  ->  known_edge  main.js:5:1 log
+main.js:9:21 FUNCTION_CALL log  ->  known_edge  main.js:5:1 log

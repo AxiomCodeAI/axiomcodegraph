@@ -98,6 +98,14 @@ expr_value(e, "module", mod) :- expr_kind(_, "PROPERTY_ACCESS", _, e), expr_name
 expr_value(e, k2, i2) :- expr_kind(_, "PROPERTY_ACCESS", _, e), expr_name(_, n, e),
     expr_child(_, e, "ACCESS_TARGET", _, r), expr_value(r, k, i),
     prop_value(k, i, n, k2, i2).
+// `super.m` READ AS A VALUE (#716): `super.m.apply(this, arguments)`, `const f = super.m`.
+// `super` has no value of its own, so the rule above finds nothing; the member is the
+// base's, by the same walk `super.m()` uses. Giving the READ a value makes every
+// existing rule apply — the reflective kinds (#697), a variable initialised from it, a
+// function value passed on — instead of naming apply and call again.
+expr_value(e, "func", m) :- expr_kind(_, "PROPERTY_ACCESS", _, e), expr_name(_, n, e), n != "",
+    expr_child(_, e, "ACCESS_TARGET", _, r), expr_kind(_, "SUPER", _, r),
+    expr_owner(_, em, _, e), method_home_type(em, t), type_super(t, s), type_member(s, n, m).
 expr_value(e, k2, i2) :- expr_kind(_, "OPTIONAL_ACCESS", _, e), expr_name(_, n, e),
     expr_child(_, e, "ACCESS_TARGET", _, r), expr_value(r, k, i),
     prop_value(k, i, n, k2, i2).
