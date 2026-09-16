@@ -56,7 +56,10 @@ case "$cmd" in
     # a project (the config tables go with java/, whose rules are their only reader).
     node "$PARSER" "$src" "$version" "$exclude" "$ir" --per-language
     found=(); for d in "$ir"/*/; do [ -d "$d" ] && found+=("$(basename "$d")"); done
-    [ ${#found[@]} -gt 0 ] || { echo "❌ the parser found no Java, TypeScript, Python or JavaScript source under $src" >&2; exit 1; }
+    # exit 3 is "the parser ran and found nothing", apart from 1 for a parser that failed:
+    # `all` reads it for a library entry, whose absence is a warning rather than a reason to
+    # abort every other library and language in the run (#709).
+    [ ${#found[@]} -gt 0 ] || { echo "❌ the parser found no Java, TypeScript, Python or JavaScript source under $src" >&2; exit 3; }
     echo "▶ IR: ${found[*]} → $ir/<lang>/"
     ;;
   engine)
@@ -121,9 +124,14 @@ case "$cmd" in
         seen_names="$seen_names$n,"
         lir="$int/lib/$n"
         echo "▶ parsing library $L → $lir"
-        "$0" parser "$L" "$lir" --version "$(git -C "$L" rev-parse HEAD 2>/dev/null || echo v1.0.0)" > "$int/parse-lib-$n.log" 2>&1 \
-          || { echo "❌ parsing library $L failed — see $int/parse-lib-$n.log" >&2; exit 1; }
-        libroots="$libroots,$lir"
+        # A library with no source the parser can stage (an assets-only package, a
+        # native addon) is named and skipped; only a parser FAILURE aborts the run.
+        rc=0; "$0" parser "$L" "$lir" --version "$(git -C "$L" rev-parse HEAD 2>/dev/null || echo v1.0.0)" > "$int/parse-lib-$n.log" 2>&1 || rc=$?
+        case "$rc" in
+          0) libroots="$libroots,$lir";;
+          3) echo "⚠️  library $L holds no Java, TypeScript, Python or JavaScript source; not staged (see $int/parse-lib-$n.log)" >&2;;
+          *) echo "❌ parsing library $L failed — see $int/parse-lib-$n.log" >&2; exit 1;;
+        esac
       fi
     done
     libroots="${libroots#,}"
