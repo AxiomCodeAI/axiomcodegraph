@@ -1,0 +1,224 @@
+// impact.dl — what has to be looked at again when a declaration changes. Every judgement is a rule here; the Python
+// side only produces facts (from graph.sqlite and, for the few text-level facts, from the source) and prints.
+//
+// Facts exported once per graph (impact-*.facts, next to the path finder's edge.facts):
+//   edge(a, b, t)                     a calls b (the path finder's facts: resolved client edges, dispatch, defines)
+//   named(n, m)                       a client callable m declared with simple name n
+//   calls(c, m, tier, f, l)           a resolved call site in c to client method m, at f:l
+//   unresolved(c, n, kind, f, l)      an unresolved site in c written n (kind: new | method), at f:l
+//   member(T, s, n, k)                symbol s named n of kind k (method, constructor, field, const, enum_member …) declared in type T
+//   owner(c, T)                       callable c is declared in type T
+//   typ(T, n, k)                      type T has simple name n and kind k (class | interface | enum | record)
+//   extends(S, T)                     S extends / implements T (transitively, the engine's type_ancestors)
+//   nested(N, T)                      N is declared inside T
+//   decorated(s, d)                   symbol s carries decoration d (simple name)
+//   override(base, o)                 o overrides base
+//   ref(c, n, rk, ek, f, l)           a reference to name n inside callable c: rk the reference kind (bare | qualified),
+//                                     ek the parser's entity kind (FIELD | LOCAL | TYPE | …), at f:l
+//   qualifier(f, l, n, Q)             on line f:l the name n is written qualified as Q.n
+//   typeref(c, n, ctx, f, l)          a type reference to n in context ctx (field type, method param …) inside c, at f:l
+//   typeref_file(f, n, ctx)           the same when the parser gives no line (Java): the file only
+//   type_in_file(T, f)                type T is declared in file f
+//   literal(c, v, f, l)               a string literal v inside c
+//   field(F, T, n, f, l)              field F named n declared in type T at f:l
+//   accessor(F, n, rw)                the bean accessor name for field F (getX / setX / isX / x) and whether it reads or writes
+//   gen_table(d, what)                what decoration d generates: get | set | is | ctor | builder | fluent | with
+//   test_method(m) / fixture(m)       a test; a callable a test framework runs before the tests of its type
+//   kind(s, k)                        the symbol's kind (method | constructor | module | class | …)
+// Facts written per query:
+//   target(q, kind, s, x)             the change: kind ∈ method | field | type | param | typeparam | var | clinit; s the symbol; x a name
+//   textuse(c, n, f, l)               the name n found in the source of c (comments and strings stripped) — for Java type
+//                                     references without a line, type parameters, and parameters
+//   importuse(c, n, f, l)             c uses member n imported by name from the target type (import static)
+//   inside_target(q, c)               c lies within the target type's own span (its members, nested types) — the change, not a dependent
+
+.decl edge(a:symbol, b:symbol, t:symbol)                          .input edge
+.decl named(n:symbol, m:symbol)                                   .input named
+.decl calls(c:symbol, m:symbol, tier:symbol, f:symbol, l:number)  .input calls
+.decl unresolved(c:symbol, n:symbol, k:symbol, f:symbol, l:number) .input unresolved
+.decl member(t:symbol, s:symbol, n:symbol, k:symbol)              .input member
+.decl owner(c:symbol, t:symbol)                                   .input owner
+.decl typ(t:symbol, n:symbol, k:symbol)                           .input typ
+.decl extends(s:symbol, t:symbol)                                 .input extends
+.decl nested(n:symbol, t:symbol)                                  .input nested
+.decl decorated(s:symbol, d:symbol)                               .input decorated
+.decl override(b:symbol, o:symbol)                                .input override
+.decl ref(c:symbol, n:symbol, rk:symbol, ek:symbol, f:symbol, l:number) .input ref
+.decl qualifier(f:symbol, l:number, n:symbol, q:symbol)           .input qualifier
+.decl typeref(c:symbol, n:symbol, ctx:symbol, f:symbol, l:number) .input typeref
+.decl typeref_file(f:symbol, n:symbol, ctx:symbol)                .input typeref_file
+.decl type_in_file(t:symbol, f:symbol)                            .input type_in_file
+.decl literal(c:symbol, v:symbol, f:symbol, l:number)             .input literal
+.decl field(fl:symbol, t:symbol, n:symbol, f:symbol, l:number)    .input field
+.decl accessor(fl:symbol, n:symbol, rw:symbol)                    .input accessor
+.decl gen_table(d:symbol, what:symbol)                            .input gen_table
+.decl test_method(m:symbol)                                       .input test_method
+.decl fixture(m:symbol)                                           .input fixture
+.decl kind(s:symbol, k:symbol)                                    .input kind
+.decl target(q:symbol, k:symbol, s:symbol, x:symbol)              .input target
+.decl textuse(c:symbol, n:symbol, f:symbol, l:number)             .input textuse
+.decl importuse(c:symbol, n:symbol, f:symbol, l:number)           .input importuse
+.decl inside_target(q:symbol, c:symbol)                           .input inside_target
+
+// ── vocabulary ─────────────────────────────────────────────────────────────────────────────────────────────────
+.decl local_kind(k:symbol)
+local_kind("LOCAL_VARIABLE"). local_kind("PARAMETER"). local_kind("LAMBDA_PARAMETER"). local_kind("VARIABLE"). local_kind("PARAM").
+.decl member_kind(k:symbol)
+member_kind("FIELD"). member_kind("PROPERTY"). member_kind("ATTRIBUTE"). member_kind("METHOD"). member_kind("FUNCTION").
+.decl ctor_kind(k:symbol)
+ctor_kind("new"). ctor_kind("anon_new"). ctor_kind("CONSTRUCTOR_CALL").
+
+// ── derived structure ──────────────────────────────────────────────────────────────────────────────────────────
+// scope(T, S): a member of T is visible unqualified inside S — S is T, a subtype, or a type nested in one of those
+.decl scope(t:symbol, s:symbol)
+scope(t, t) :- typ(t, _, _).
+scope(t, s) :- scope(t, u), extends(s, u).
+scope(t, s) :- scope(t, u), nested(s, u).
+// inside(x, T): x is declared within T's span — a member, or a member of a nested type
+.decl inside(x:symbol, t:symbol)
+inside(x, t) :- owner(x, t).
+inside(n, t) :- nested(n, t).
+inside(x, t) :- nested(n, t), inside(x, n).
+// declares(T, n): T or a type it extends declares a member named n
+.decl declares(t:symbol, n:symbol)
+declares(t, n) :- member(t, _, n, _).
+declares(t, n) :- extends(t, u), member(u, _, n, _).
+// what a type's decorations generate
+.decl gen(t:symbol, what:symbol)
+gen(t, w) :- decorated(t, d), gen_table(d, w).
+gen(t, "fluent") :- typ(t, _, "record").
+gen(t, "ctor") :- typ(t, _, "record").
+// holds(H, T): type H has a field whose type is T — a value of T is produced whenever an H is
+.decl holds(h:symbol, t:symbol)
+holds(h, t) :- typ(t, n, _), typeref(c, n, "FIELD_TYPE", _, _), owner(c, h).
+holds(h, t) :- typ(t, n, _), typeref_file(f, n, "FIELD_TYPE"), type_in_file(h, f), h != t.
+holds(h, t) :- typ(t, n, _), field(_, h, _, _, _), typeref_file(f, n, "FIELD_TYPE"), type_in_file(h, f), h != t.
+
+// ── must change with it: a contract the engine resolved ──────────────────────────────────────────────────────
+.decl contract(q:symbol, c:symbol, why:symbol)
+contract(q, o, "overrides it") :- target(q, "method", m, _), override(m, o).
+contract(q, b, "it overrides this") :- target(q, "method", m, _), override(b, m).
+contract(q, o, "overrides the method — same parameter list") :- target(q, "param", m, _), override(m, o).
+contract(q, b, "the method overrides this — same parameter list") :- target(q, "param", m, _), override(b, m).
+contract(q, s, "extends / implements it") :- target(q, "type", t, _), extends(s, t).
+contract(q, s, "extends / implements it") :- target(q, "typeparam", t, _), typ(t, _, _), extends(s, t).
+contract(q, s, "extends / implements it") :- target(q, "clinit", t, _), extends(s, t).
+.output contract
+
+// ── direct(q, c, role, why, cert, f, l): c's text uses the target. role: writes | reads | uses ─────────────────
+.decl direct(q:symbol, c:symbol, role:symbol, why:symbol, cert:symbol, f:symbol, l:number)
+
+// a METHOD: its callers, and the unresolved sites written with its name
+direct(q, c, "uses", "calls it", "resolved", f, l) :- target(q, "method", m, _), calls(c, m, t, f, l), t != "multi_inferred".
+direct(q, c, "uses", "calls it [one of a set]", "resolved", f, l) :- target(q, "method", m, _), calls(c, m, "multi_inferred", f, l).
+direct(q, c, "uses", "calls a method of this name (receiver not typed)", "by name", f, l) :- target(q, "method", m, _), named(n, m), unresolved(c, n, k, f, l), !ctor_kind(k).
+
+// a FIELD: references by name, judged by where they are and how they are written
+.decl fref(q:symbol, c:symbol, rk:symbol, f:symbol, l:number)
+fref(q, c, rk, f, l) :- target(q, "field", fl, _), field(fl, _, n, ff, fll), ref(c, n, rk, ek, f, l), !local_kind(ek), (f != ff ; l != fll).
+.decl frole(rk:symbol, role:symbol, why:symbol)
+frole("qualified", "uses", "writes/reads it"). frole("bare", "reads", "reads it").
+// in scope: inside the owner, a subtype, or a nested type
+direct(q, c, role, why, "in scope", f, l) :- fref(q, c, rk, f, l), frole(rk, role, why), target(q, "field", fl, _), field(fl, t, _, _, _), owner(c, s), scope(t, s).
+// qualified elsewhere: the qualifier written on the line decides — the owner's own name confirms, another type's name excludes
+direct(q, c, "uses", "writes/reads it", "in scope", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), typ(t, tn, _),
+    owner(c, s), !scope(t, s), qualifier(f, l, n, tn).
+direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), typ(t, tn, _),
+    owner(c, s), !scope(t, s), qualifier(f, l, n, qn), qn != tn, !typ(_, qn, _).
+direct(q, c, "uses", "writes/reads it", "by name", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _),
+    owner(c, s), !scope(t, s), !qualifier(f, l, n, _).
+// bare elsewhere: only when the enclosing type has no member of that name itself
+direct(q, c, "reads", "reads it", "by name", f, l) :- fref(q, c, "bare", f, l), target(q, "field", fl, _), field(fl, t, n, _, _),
+    owner(c, s), !scope(t, s), !declares(s, n).
+direct(q, c, "reads", "reads it", "by name", f, l) :- fref(q, c, "bare", f, l), target(q, "field", fl, _), field(fl, t, _, _, _), !owner(c, _), !scope(t, c).
+// a declared accessor is the field's door
+direct(q, c, "reads", cat("reads it through ", an, "()"), "resolved", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), accessor(fl, an, "read"), member(t, a, an, _), calls(c, a, _, f, l).
+direct(q, c, "writes", cat("writes it through ", an, "()"), "resolved", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), accessor(fl, an, "write"), member(t, a, an, _), calls(c, a, _, f, l).
+// a GENERATED accessor: the unresolved sites written with its name (the decoration says it exists)
+direct(q, c, "reads", cat("calls the generated getter ", an, "() — receiver not typed"), "by name", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), gen(t, "get"), accessor(fl, an, "read"), unresolved(c, an, k, f, l), !ctor_kind(k).
+direct(q, c, "writes", cat("calls the generated setter ", an, "() — receiver not typed"), "by name", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), gen(t, "set"), accessor(fl, an, "write"), unresolved(c, an, k, f, l), !ctor_kind(k).
+direct(q, c, "writes", cat("sets it through the generated builder / fluent ", n, "()"), "by name", f, l) :- target(q, "field", fl, _), field(fl, t, n, _, _), gen(t, w), (w = "builder" ; w = "fluent"), unresolved(c, n, k, f, l), !ctor_kind(k).
+direct(q, c, "writes", "passes it to the generated constructor", "by name", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), gen(t, "ctor"), typ(t, tn, _), unresolved(c, tn, k, f, l), ctor_kind(k).
+// a string literal equal to its name: a serialized name, a map key, a request parameter
+direct(q, c, "uses", "names it in a string literal (serialization? a map key? a request key?)", "text", f, l) :- target(q, "field", fl, _), field(fl, _, n, _, _), literal(c, n, f, l).
+// where values of the owning type are PRODUCED: every constructor of the owner, its deserialization (a class literal handed
+// somewhere), and the same for every type that holds one — a new shape of the field has to be produced there
+.decl produces(q:symbol, c:symbol, why:symbol, cert:symbol, f:symbol, l:number)
+produces(q, c, cat("constructs ", tn), "resolved", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), typ(t, tn, _), member(t, k, _, "constructor"), calls(c, k, _, f, l).
+produces(q, c, cat("constructs ", tn, " (unresolved site)"), "by name", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), typ(t, tn, _), unresolved(c, tn, k, f, l), ctor_kind(k), !gen(t, "ctor").
+produces(q, c, cat("reflects on ", tn, ".class — deserialization or a framework produces it here"), "by name", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), typ(t, tn, _), ref(c, tn, _, "CLASS_LITERAL", f, l).
+produces(q, c, cat("constructs ", hn, ", which holds ", tn), "resolved", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), typ(t, tn, _), holds(h, t), typ(h, hn, _), member(h, k, _, "constructor"), calls(c, k, _, f, l).
+produces(q, c, cat("constructs ", hn, ", which holds ", tn, " (unresolved site)"), "by name", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), typ(t, tn, _), holds(h, t), typ(h, hn, _), unresolved(c, hn, k, f, l), ctor_kind(k).
+produces(q, c, cat("reflects on ", hn, ".class, which holds ", tn, " — deserialization produces the value here"), "by name", f, l) :- target(q, "field", fl, _), field(fl, t, _, _, _), typ(t, tn, _), holds(h, t), typ(h, hn, _), ref(c, hn, _, "CLASS_LITERAL", f, l).
+direct(q, c, "produces", why, cert, f, l) :- produces(q, c, why, cert, f, l), !inside_target(q, c).
+.output produces
+
+// a TYPE: callers of its members, its instantiations, references to its name, generated accessors, imported members
+.decl tmember(q:symbol, m:symbol, n:symbol, k:symbol)
+tmember(q, m, n, k) :- target(q, "type", t, _), member(t, m, n, k).
+direct(q, c, "produces", "instantiates it", "resolved", f, l) :- tmember(q, m, _, "constructor"), calls(c, m, _, f, l), !inside_target(q, c).
+direct(q, c, "uses", cat("calls ", n), "resolved", f, l) :- tmember(q, m, n, k), k != "constructor", calls(c, m, t, f, l), t != "multi_inferred", !inside_target(q, c).
+direct(q, c, "uses", cat("calls ", n, " [one of a set]"), "resolved", f, l) :- tmember(q, m, n, k), k != "constructor", calls(c, m, "multi_inferred", f, l), !inside_target(q, c).
+direct(q, c, "produces", "instantiates it (unresolved site)", "by name", f, l) :- target(q, "type", t, _), typ(t, n, _), unresolved(c, n, k, f, l), ctor_kind(k), !inside_target(q, c).
+direct(q, c, "produces", "reflects on its .class — deserialization or a framework produces it here", "by name", f, l) :- target(q, "type", t, _), typ(t, n, _), ref(c, n, _, "CLASS_LITERAL", f, l), !inside_target(q, c).
+direct(q, c, "uses", "references it", "by name", f, l) :- target(q, "type", t, _), typ(t, n, _), ref(c, n, _, ek, f, l), ek != "CLASS_LITERAL", !local_kind(ek), !member_kind(ek), !inside_target(q, c).
+direct(q, c, "uses", cat("names it (", ctx, ")"), "by name", f, l) :- target(q, "type", t, _), typ(t, n, _), typeref(c, n, ctx, f, l), !inside_target(q, c).
+direct(q, c, "uses", "names it (a signature or a declaration)", "text", f, l) :- target(q, "type", t, _), typ(t, n, _), textuse(c, n, f, l), !inside_target(q, c).
+direct(q, c, "uses", cat("uses ", n, ", imported from it"), "by name", f, l) :- target(q, "type", _, _), importuse(c, n, f, l), !inside_target(q, c).
+direct(q, c, "reads", cat("calls the generated getter ", an, "()"), "by name", f, l) :- target(q, "type", t, _), gen(t, "get"), field(fl, t, _, _, _), accessor(fl, an, "read"), unresolved(c, an, k, f, l), !ctor_kind(k), !inside_target(q, c).
+direct(q, c, "writes", cat("calls the generated setter ", an, "()"), "by name", f, l) :- target(q, "type", t, _), gen(t, "set"), field(fl, t, _, _, _), accessor(fl, an, "write"), unresolved(c, an, k, f, l), !ctor_kind(k), !inside_target(q, c).
+
+// static initialization: whoever first touches the type
+direct(q, c, role, cat(why, " — first use runs the static initializer"), cert, f, l) :- target(q, "clinit", t, _), target(qq, "type", t, _), qq = cat(q, ":type"), direct(qq, c, role, why, cert, f, l).
+
+// a PARAMETER: the method itself, its callers, (the overrides are the contract)
+direct(q, m, "uses", "declares it", "resolved", "", 0) :- target(q, "param", m, _).
+direct(q, c, "uses", "passes an argument for it", "resolved", f, l) :- target(q, "param", m, _), calls(c, m, _, f, l).
+
+// a TYPE PARAMETER of a type: every callable inside the type that spells it; of a method: the method. A bound reaches the uses of Type<…> too
+direct(q, c, "uses", cat("uses ", x, " in its body or signature"), "text", f, l) :- target(q, "typeparam", t, x), textuse(c, x, f, l).
+direct(q, c, "uses", cat(why, " — the argument must satisfy ", x), cert, f, l) :- target(q, "typeparam", t, x), typ(t, _, _), target(qq, "type", t, _), qq = cat(q, ":type"), direct(qq, c, "uses", why, cert, f, l), (cert = "text" ; cert = "by name").
+direct(q, c, "produces", cat(why, " — the argument must satisfy ", x), cert, f, l) :- target(q, "typeparam", t, x), typ(t, _, _), target(qq, "type", t, _), qq = cat(q, ":type"), direct(qq, c, "produces", why, cert, f, l).
+direct(q, c, "uses", cat("calls it — its arguments must satisfy ", x), "resolved", f, l) :- target(q, "typeparam", m, x), !typ(m, _, _), calls(c, m, _, f, l).
+
+// a LOCAL: the method, and a closure inside it that captures the name
+direct(q, m, "uses", "declares it", "resolved", "", 0) :- target(q, "var", m, _).
+direct(q, c, "uses", "captures it (defined inside the method)", "resolved", f, l) :- target(q, "var", m, x), edge(m, c, "defines"), ref(c, x, _, ek, f, l), local_kind(ek).
+.output direct
+
+// ── seeds: where the change lands. A callable: itself. A declaration: every callable whose text uses it ────────
+.decl seed(q:symbol, m:symbol)
+seed(q, m) :- target(q, "method", m, _).
+seed(q, m) :- target(q, "param", m, _).
+seed(q, m) :- target(q, "var", m, _).
+seed(q, m) :- target(q, "clinit", _, m).
+seed(q, t) :- target(q, "field", fl, _), field(fl, t, _, _, _).
+seed(q, m) :- target(q, "type", t, _), member(t, m, _, _), kind(m, k), (k = "method" ; k = "constructor" ; k = "function" ; k = "module").
+seed(q, t) :- target(q, "type", t, _).
+seed(q, t) :- target(q, "typeparam", t, _).
+seed(q, c) :- target(q, k, _, _), k != "method", k != "param", k != "var", direct(q, c, _, _, _, _, _).
+seed(q, c) :- target(q, "typeparam", t, _), typ(t, _, _), direct(q, c, _, _, _, _, _).
+seed(q, c) :- contract(q, c, _).
+.output seed
+
+// ── the transitive layer: everything that can reach a seed through resolved calls, shortest hop count ──────────
+.decl up(q:symbol, m:symbol, d:number)
+up(q, m, 0) :- seed(q, m).
+up(q, a, d+1) :- up(q, b, d), edge(a, b, _), d < 40.
+.decl reach(q:symbol, m:symbol, d:number)
+reach(q, m, d) :- up(q, m, d), d = min x : up(q, m, x).
+// the chain read-back: a is one hop further from the change than b, through edge a → b
+.decl parent_up(q:symbol, a:symbol, b:symbol, t:symbol)
+parent_up(q, a, b, t) :- reach(q, a, d), d > 0, reach(q, b, d1), d1 = d - 1, edge(a, b, t).
+.output reach
+.output parent_up
+
+// ── tests: a test's own body reaches the change, or a fixture its framework runs before it does ───────────────
+.decl test_hit(q:symbol, m:symbol, d:number, via:symbol)
+test_hit(q, m, d, "") :- reach(q, m, d), test_method(m).
+test_hit(q, m, d, fx) :- reach(q, fx, d), fixture(fx), owner(fx, t), scope(t, s), member(s, m, _, _), test_method(m).
+test_hit(q, m, d, fx) :- reach(q, fx, d), fixture(fx), typ(fx, _, _), member(fx, m, _, _), test_method(m).
+.decl test_near(q:symbol, m:symbol, d:number)
+test_near(q, m, d) :- test_hit(q, m, d, _), d = min x : test_hit(q, m, x, _).
+.output test_near
+.output test_hit
