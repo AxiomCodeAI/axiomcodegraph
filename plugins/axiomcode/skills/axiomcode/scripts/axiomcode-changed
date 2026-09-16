@@ -215,7 +215,7 @@ class Changed:
                     if ro != rn: detail.append('return type / modifiers: ' + ' '.join(ro) + ' → ' + ' '.join(rn))
                 if not detail and nh and re.sub(r'\s', '', oh) != re.sub(r'\s', '', nh): detail.append('header text changed (annotations / throws / generics)')
                 if not detail and not nh: detail.append('header changed (the new header could not be located — renamed?)')
-                if decs: detail.append('decoration changed: ' + ', '.join(dict.fromkeys(decs)))
+                if decs: detail.append('decoration changed: ' + ', '.join(dict.fromkeys(decs)) + ' — what the framework does with it (a proxy, a transaction, a cache, a route) is NOT in the graph; only the code that names it is')
                 if not detail: entry['kind'] = 'body'                                                  # whitespace or a comment in the header
                 entry['detail'] = ', '.join(detail); entry['old_header'] = oh; entry['new_header'] = nh
                 changed_params = [x for x, _ in op if any(dd.startswith(f'{x}:') or dd == f'-{x}' for dd in detail)]
@@ -231,10 +231,10 @@ class Changed:
                 elif ot and nt and ot != nt: detail = f'type {ot} → {nt}'
                 elif nn_ and nn_ != n: detail = f'renamed → {nn_}'
                 else: detail = 'initializer / modifiers changed'
-                if decs: detail += '; decoration changed: ' + ', '.join(dict.fromkeys(decs))
+                if decs: detail += '; decoration changed: ' + ', '.join(dict.fromkeys(decs)) + ' — the framework behaviour it turns on is NOT in the graph'
                 entry['detail'] = detail; entry['target'] = d
             elif kind == 'type':
-                entry['detail'] = 'header changed (name, extends / implements, type parameters)' + ('; decoration changed: ' + ', '.join(dict.fromkeys(decs)) if decs else ''); entry['target'] = d
+                entry['detail'] = 'header changed (name, extends / implements, type parameters)' + ('; decoration changed: ' + ', '.join(dict.fromkeys(decs)) + ' — the framework behaviour it turns on is NOT in the graph' if decs else ''); entry['target'] = d
             elif kind == 'body': entry['target'] = d
             else: entry['target'] = None
             out.append(entry)
