@@ -34,7 +34,7 @@
   text { font-family:ui-sans-serif,system-ui,sans-serif; pointer-events:none; user-select:none } .lbl-mono { font-family:ui-monospace,Menlo,monospace }
   .node { cursor:pointer } .node:hover .shape { stroke-width:2.6 } .cluster { cursor:pointer } .cluster:hover > rect { stroke:var(--ink) }
   .edge { fill:none; pointer-events:stroke } .edge:hover { stroke:var(--focus) !important; stroke-width:2.4 !important }
-  .dim { opacity:.18 }
+  .dim { opacity:.08 } line.dim { opacity:.04 }
 </style>
 </head>
 <body>
@@ -48,7 +48,7 @@
     <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9 z" fill="context-stroke"/></marker>
     <marker id="arr-hollow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9 z" fill="#fff" stroke="context-stroke" stroke-width="1.2"/></marker>
   </defs><g id="root"></g></svg>
-    <div id="legend"></div><div id="hint">scroll to zoom · drag to pan · click a box to open it · click a node for its neighbourhood</div>
+    <div id="legend"></div><div id="hint">scroll to zoom · drag to pan · hover a node to isolate its calls · click it for callers and callees · a community in the list opens its class map</div>
   </div>
   <div id="side"></div>
 </div>
@@ -157,46 +157,78 @@ const crumbs = [];
 function setCrumbs(list) { crumbs.length = 0; crumbs.push(...list); const c = document.getElementById('crumbs'); c.innerHTML = ''; list.forEach((it, i) => { if (i) { const s = document.createElement('span'); s.className = 'sep'; s.textContent = '›'; c.append(s); } const a = document.createElement('a'); a.textContent = it.label; a.title = it.label; if (i === list.length - 1) a.className = 'cur'; a.onclick = it.go; c.append(a); }); }
 function clear() { root.innerHTML = ''; }
 
-var overview = function overview_() {
-  clear(); legend(['comm']);
-  const MAX = 40, cs = DATA.communities.slice(0, MAX), rest = DATA.communities.slice(MAX);
-  const box = c => { const r = 40 + 11 * Math.sqrt(c.size); return { r, hw: r * 1.2, hh: r * .72 }; };
-  const items = cs.map(c => ({ id: c.id, c, ...box(c) }));
-  if (rest.length) items.push({ id: -2, c: { id: -2, name: `${rest.length} smaller communities`, size: rest.reduce((a, c) => a + c.size, 0), types: 0, methods: 0, tests: 0, dirs: [], hubs: [] }, ...box({ size: 40 }) });
-  const idOf = i => i < MAX ? i : -2;
-  const agg = new Map(); for (const b of DATA.between) { const s = idOf(b.source), t = idOf(b.target); if (s === t) continue; const k = s + '>' + t; agg.set(k, (agg.get(k) || 0) + b.weight); }
-  const links = [...agg].map(([k, w]) => { const [s, t] = k.split('>').map(Number); return { s, t, w }; });
-  const { w, h } = force(items, links, { W: 1600, H: 1000, gravity: .015 });
-  const pos = new Map(items.map(i => [i.id, i]));
-  const gE = el('g'), gN = el('g'); root.append(gE, gN);
-  const maxw = Math.max(1, ...links.map(l => l.w));
-  for (const l of links) { const a = pos.get(l.s), b = pos.get(l.t); if (!a || !b) continue; const [p, q] = clipRect(a, b, 4, 8); gE.append(el('path', { class: 'edge', d: curve(p, q, .1), stroke: col(l.s), 'stroke-opacity': .55, 'stroke-width': 1.2 + 6 * Math.sqrt(l.w / maxw), 'marker-end': 'url(#arr)' }, el('title', {}, `${l.w} call site(s) from community ${l.s} into ${l.t}`))); }
-  for (const it of items) {
-    const c = it.c, g = el('g', { class: 'cluster', transform: `translate(${it.x},${it.y})` });
-    const W = it.hw * 2, H = it.hh * 2;
-    g.append(el('rect', { x: -W / 2, y: -H / 2, width: W, height: H, rx: 10, fill: '#fff', stroke: col(c.id), 'stroke-width': 2.2 }));
-    g.append(el('rect', { x: -W / 2, y: -H / 2, width: W, height: 8, rx: 3, fill: col(c.id) }));
-    const name = c.dirs[0] || c.name, fs = Math.max(14, Math.min(22, it.r / 4));
-    const parts = name.split('/'), tail = parts.length > 2 ? '…/' + parts.slice(-2).join('/') : name;   // the last two path segments carry the meaning
-    g.append(el('text', { x: 0, y: -H / 2 + 14 + fs, 'text-anchor': 'middle', 'font-size': fs, 'font-weight': 600, class: 'lbl-mono' }, short(tail, Math.floor(W / (fs * .62)))));
-    g.append(el('text', { x: 0, y: -H / 2 + 14 + fs * 2.1, 'text-anchor': 'middle', 'font-size': fs * .78, fill: '#78716c' }, `${c.size} nodes · ${c.types} types${c.tests ? ' · ' + c.tests + ' tests' : ''}`));
-    c.hubs.slice(0, Math.max(0, Math.floor((H - fs * 3.4) / (fs * .95)))).forEach((hb, i) => g.append(el('text', { x: 0, y: -H / 2 + 14 + fs * 3.2 + i * fs * .95, 'text-anchor': 'middle', 'font-size': fs * .78, fill: '#44403c' }, short(hb, Math.floor(W / (fs * .78 * .58))))));
-    g.append(el('title', {}, `${c.name}\n${c.dirs.join('\n')}`));
-    g.onclick = () => c.id === -2 ? sideRest(rest) : community(c.id);
-    gN.append(g);
+// ── overview: the call graph itself — a circle per method, a line per call ────────────────────────
+// size = how connected · colour = community · triangle = entry point · dashed = test · line style = tier.
+// It opens on the most connected methods (a whole repository is a hairball); the slider widens it.
+let ovN = 400, ovTests = false, ovPos = null;
+function forceGraph(pts, links, W, H) {
+  const idx = new Map(pts.map((p, i) => [p.id, i]));
+  const comms = [...new Set(pts.map(p => p.n.c))];
+  const ang = new Map(comms.map((c, i) => [c, i / comms.length * 2 * Math.PI]));
+  pts.forEach((p, i) => { const a = ang.get(p.n.c) + (Math.random() - .5) * .6, r = Math.min(W, H) * (.18 + .22 * Math.random()); p.x = W / 2 + r * Math.cos(a); p.y = H / 2 + r * Math.sin(a); p.vx = p.vy = 0; });
+  const ls = links.map(l => [idx.get(l.s), idx.get(l.t), Math.min(3, l.w || 1)]).filter(l => l[0] != null && l[1] != null && l[0] !== l[1]);
+  const iters = pts.length > 900 ? 160 : pts.length > 400 ? 220 : 300, cell = 130;
+  const cen = new Map();
+  for (let t = 0; t < iters; t++) {
+    const T = 1 - t / iters, k = 2600;
+    const grid = new Map();
+    for (const p of pts) { const key = ((p.x / cell) | 0) + ',' + ((p.y / cell) | 0); (grid.get(key) || grid.set(key, []).get(key)).push(p); }
+    for (const p of pts) { const gx = (p.x / cell) | 0, gy = (p.y / cell) | 0;
+      for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) { const bucket = grid.get((gx + i) + ',' + (gy + j)); if (!bucket) continue;
+        for (const q of bucket) { if (q === p) continue; let dx = p.x - q.x, dy = p.y - q.y; let d2 = dx * dx + dy * dy; if (d2 < 1) { dx = Math.random() - .5; dy = Math.random() - .5; d2 = 1; } const d = Math.sqrt(d2), min = p.r + q.r + 6; let f = k / d2; if (d < min) f += (min - d) * .8; p.vx += dx / d * f; p.vy += dy / d * f; } } }
+    for (const [i, j, w] of ls) { const a = pts[i], b = pts[j]; const dx = b.x - a.x, dy = b.y - a.y, d = Math.sqrt(dx * dx + dy * dy) || 1, want = a.r + b.r + 48; const f = .012 * (d - want) * (.7 + .3 * w); a.vx += dx / d * f; a.vy += dy / d * f; b.vx -= dx / d * f; b.vy -= dy / d * f; }
+    if (t % 8 === 0) { cen.clear(); for (const p of pts) { const c = cen.get(p.n.c) || cen.set(p.n.c, { x: 0, y: 0, n: 0 }).get(p.n.c); c.x += p.x; c.y += p.y; c.n++; } }
+    for (const p of pts) { const c = cen.get(p.n.c); if (c && c.n > 1) { p.vx += (c.x / c.n - p.x) * .012; p.vy += (c.y / c.n - p.y) * .012; }   // a community holds together, so colour reads as a region
+      p.vx += (W / 2 - p.x) * .004; p.vy += (H / 2 - p.y) * .004; p.x += p.vx * .5 * T; p.y += p.vy * .5 * T; p.vx *= .55; p.vy *= .55; }
   }
-  fit(w, h); setCrumbs([{ label: 'overview', go: overview }]);
-  sideOverview();
+  const minx = Math.min(...pts.map(p => p.x - p.r)), miny = Math.min(...pts.map(p => p.y - p.r));
+  for (const p of pts) { p.x -= minx - 30; p.y -= miny - 30; }
+  return { w: Math.max(...pts.map(p => p.x + p.r)) + 30, h: Math.max(...pts.map(p => p.y + p.r)) + 30 };
 }
-function sideOverview() {
+var overview = function overview_() {
+  clear(); legend(['shapes', 'edges']);
+  const pool = DATA.nodes.filter(n => n.k === 'method' && (ovTests || !n.t) && n.d > 0).sort((a, b) => b.d - a.d);
+  const shown = pool.slice(0, ovN), S = new Map(shown.map(n => [n.id, n]));
+  const links = DATA.links.filter(l => (l.r === 'calls' || l.r === 'overrides') && S.has(l.s) && S.has(l.t));
+  const pts = shown.map(n => ({ id: n.id, n, r: 2.6 + 2.3 * Math.log2(1 + n.d) }));
+  const side = Math.round(500 + 46 * Math.sqrt(shown.length));
+  const { w, h } = forceGraph(pts, links, side * 1.35, side);
+  const P = new Map(pts.map(p => [p.id, p]));
+  const gE = el('g'), gN = el('g'), gL = el('g'); root.append(gE, gN, gL);
+  const adj = new Map();
+  for (const l of links) { const a = P.get(l.s), b = P.get(l.t); const st = edgeStyle(l); const [p, q] = clip(a, b, a.r, b.r + 3);
+    const e = el('line', { class: 'edge', x1: p.x, y1: p.y, x2: q.x, y2: q.y, stroke: st.stroke, 'stroke-width': l.r === 'overrides' ? 1 : .8 + .25 * Math.min(4, l.w || 1), 'stroke-dasharray': st.dash, 'stroke-opacity': .32, 'data-s': l.s, 'data-t': l.t });
+    e.append(el('title', {}, `${a.n.l} ${l.r} ${b.n.l}${l.tier ? ' [' + l.tier + ']' : ''}${l.w > 1 ? ' ×' + l.w : ''}`)); gE.append(e);
+    (adj.get(l.s) || adj.set(l.s, new Set()).get(l.s)).add(l.t); (adj.get(l.t) || adj.set(l.t, new Set()).get(l.t)).add(l.s); }
+  const labelled = new Set(shown.slice(0, Math.min(30, Math.ceil(shown.length / 12))).map(n => n.id));
+  for (const p of pts) { const g = nodeGlyph(p.n, p.x, p.y, p.r, false); g.dataset.id = p.id; gN.append(g);
+    if (labelled.has(p.id)) gL.append(el('text', { x: p.x, y: p.y - p.r - 3, 'text-anchor': 'middle', 'font-size': p.n.d >= shown[Math.min(11, shown.length - 1)].d ? 12.5 : 10.5, 'font-weight': 600, fill: '#1c1917', stroke: '#fafaf9', 'stroke-width': 3.5, 'paint-order': 'stroke', 'data-id': p.id }, short(p.n.l, 30)));
+    g.onmouseenter = () => focus(p.id); g.onmouseleave = () => focus(null); }
+  const hover = el('g'); gL.append(hover);
+  function focus(id) { hover.innerHTML = '';
+    if (!id) { gE.querySelectorAll('line').forEach(e => { e.classList.remove('dim'); e.setAttribute('stroke-opacity', .32); }); gN.querySelectorAll('.node').forEach(g => g.classList.remove('dim')); gL.querySelectorAll('text').forEach(t => t.classList.remove('dim')); return; }
+    const nb = adj.get(id) || new Set();
+    gE.querySelectorAll('line').forEach(e => { const on = e.dataset.s === id || e.dataset.t === id; e.classList.toggle('dim', !on); if (on) e.setAttribute('stroke-opacity', .95); });
+    gN.querySelectorAll('.node').forEach(g => g.classList.toggle('dim', !(g.dataset.id === id || nb.has(g.dataset.id))));
+    gL.querySelectorAll('text[data-id]').forEach(t => t.classList.toggle('dim', !(t.dataset.id === id || nb.has(t.dataset.id))));
+    for (const q of [id, ...nb]) { if (labelled.has(q) && q !== id) continue; const p = P.get(q); hover.append(el('text', { x: p.x, y: p.y - p.r - 3, 'text-anchor': 'middle', 'font-size': q === id ? 12 : 10, 'font-weight': q === id ? 700 : 500, fill: '#1c1917', stroke: '#fff', 'stroke-width': 3, 'paint-order': 'stroke' }, short(p.n.l, 34))); } }
+  fit(w, h); setCrumbs([{ label: 'overview', go: overview }]);
+  sideOverview(shown.length, pool.length, links.length);
+}
+function sideOverview(shown, pool, nl) {
   const S = document.getElementById('side'); const t = DATA.meta.tiers, sites = Object.values(t).reduce((a, b) => a + b, 0), res = (t.known_edge || 0) + (t.multi_inferred || 0);
+  const god = DATA.nodes.filter(n => n.k === 'method' && !n.t).sort((a, b) => b.d - a.d).slice(0, 12);
   S.innerHTML = `<h2>${esc(DATA.meta.repo)}</h2><div class="k">${esc(DATA.meta.language)} · built ${esc(DATA.meta.built)}</div>
   <div class="k">${sites} call sites · <b>${Math.round(100 * res / Math.max(1, sites))}% resolved</b> · ${DATA.communities.length} communities</div>
-  <h3>communities by size</h3><ul>${DATA.communities.map(c => `<li data-c="${c.id}"><span style="width:10px;height:10px;border-radius:3px;background:${col(c.id)};flex:none"></span><span class="lbl">${esc(c.name)}</span><span class="loc">${c.size}</span></li>`).join('')}</ul>`;
-  S.querySelectorAll('li[data-c]').forEach(li => li.onclick = () => community(+li.dataset.c));
+  <h3>what is drawn</h3><div class="k">${shown} of ${pool} connected ${ovTests ? '' : 'non-test '}methods · ${nl} calls between them<br>
+  <input id="ovn" type="range" min="100" max="${Math.min(1500, Math.max(100, pool))}" step="50" value="${Math.min(ovN, pool)}" style="width:70%;vertical-align:middle"> <span id="ovnv">${Math.min(ovN, pool)}</span><br>
+  <label><input id="ovt" type="checkbox" ${ovTests ? 'checked' : ''}> include test methods</label></div>
+  <h3>most connected</h3><ul>${god.map(n => `<li data-n="${esc(n.id)}"><span style="width:8px;height:8px;border-radius:50%;background:${col(n.c)};flex:none"></span><span class="lbl">${esc(n.l)}</span><span class="loc">${n.d}</span></li>`).join('')}</ul>
+  <h3>communities — click for its class map</h3><ul>${DATA.communities.map(c => `<li data-c="${c.id}"><span style="width:10px;height:10px;border-radius:3px;background:${col(c.id)};flex:none"></span><span class="lbl">${esc(c.name)}</span><span class="loc">${c.size}</span></li>`).join('')}</ul>`;
+  S.querySelectorAll('li[data-c]').forEach(li => li.onclick = () => community(+li.dataset.c)); S.querySelectorAll('li[data-n]').forEach(li => li.onclick = () => ego(li.dataset.n));
+  const r = S.querySelector('#ovn'); r.oninput = () => S.querySelector('#ovnv').textContent = r.value; r.onchange = () => { ovN = +r.value; overview(); };
+  S.querySelector('#ovt').onchange = e => { ovTests = e.target.checked; overview(); };
 }
-function sideRest(rest) { const S = document.getElementById('side'); S.innerHTML = `<h2>${rest.length} smaller communities</h2><ul>${rest.map(c => `<li data-c="${c.id}"><span class="lbl">${esc(c.name)}</span><span class="loc">${c.size}</span></li>`).join('')}</ul>`; S.querySelectorAll('li[data-c]').forEach(li => li.onclick = () => community(+li.dataset.c)); }
-
 let showTests = null;   // null = decide per community: tests fold into one box per test file when they outnumber the code
 var community = function community_(cid) {
   clear(); legend(['shapes', 'edges']);
@@ -271,7 +303,7 @@ var community = function community_(cid) {
 }
 function nodeGlyph(n, x, y, r, withLabel) {
   const g = el('g', { class: 'node', transform: `translate(${x},${y})` }); g.append(shape(n, r));
-  if (n.u) g.append(el('circle', { cx: r * .9, cy: -r * .9, r: 3.5, fill: '#f59e0b', stroke: '#fff', 'stroke-width': 1 }));
+  if (n.u && r >= 7) g.append(el('circle', { cx: r * .8, cy: -r * .8, r: Math.min(3.5, r * .3), fill: '#f59e0b', stroke: '#fff', 'stroke-width': 1 }));
   if (withLabel) g.append(el('text', { y: r + 11, 'text-anchor': 'middle', 'font-size': 9, fill: '#44403c' }, short(n.l.split('.').pop(), 11)));
   g.append(el('title', {}, `${n.l}\n${loc(n)}${n.sig ? '\n' + n.sig : ''}${n.u ? `\n? ${n.u} unresolved call site(s)` : ''}${n.e && n.e.length ? '\nentry point: ' + n.e.join(', ') : ''}`));
   g.onclick = e => { e.stopPropagation(); ego(n.id); }; return g;
