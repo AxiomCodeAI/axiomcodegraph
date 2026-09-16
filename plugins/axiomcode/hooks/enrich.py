@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """PostToolUse on Read / Grep: the agent used its own action; the graph adds what it knows about what came back, for free.
 
-  Read  <file> [offset, limit]  → the callables declared in the lines read: who calls each (count, nearest names), what each
-                                 calls, how many calls in it the engine could not resolve
+  Read  <file> [offset, limit]  → for the callables declared in the lines read, the edges the text cannot show: callers and
+                                 callees in other files or in this file outside the range (with their line), overrides in
+                                 other files or in this file's inner / enum classes, unresolved calls. Counts by default,
+                                 names for 1–3 callers or when the other end was read earlier this session (★, first);
+                                 the rest as one `+N more` line. ≤ 6 lines
   Grep  <pattern>               → when the pattern is an identifier: its declarations, with callers and callees
 
 Short on purpose (≤ 10 lines, names not bodies): the transcripts showed pasted context makes runs longer, so this says only
 what a graph knows and a file does not — the edges. Nothing when the repo has no graph, or the read is not source."""
-import json, os, re, sqlite3, subprocess, sys
+import collections, json, os, re, sqlite3, subprocess, sys
 
 ev = json.load(sys.stdin); tool = ev.get('tool_name', ''); inp = ev.get('tool_input', {}) or {}; cwd = ev.get('cwd') or os.getcwd()
 def rel_of(fp):
@@ -124,12 +127,59 @@ elif tool == 'Read':
         if built != 'nogit' and subprocess.run(['git', 'diff', '--quiet', built, '--', rel], cwd=cwd, capture_output=True).returncode == 1: stale = f" — this file changed since the graph was built at {built[:10]}: lines are the graph's, not the file's"
     except Exception: pass
     if rows:
-        st = load_state(); st['reads'] = ([{'file': rel, 'ids': [r['id'] for r in rows[:12]], 'names': [r['display'] for r in rows[:12]]}] + st['reads'])[:6]; save_state(st)
-        # the block is re-read on every later turn: 4 lines at most — the callables whose span overlaps the read range the most
-        mid = (a + min(b, a + 200)) / 2
-        show = sorted(rows, key=lambda r: abs(((r['line'] + (r['end_line'] or r['line'])) / 2) - mid))[:4]; show.sort(key=lambda r: r['line'])
-        lines.append(f"graph: {os.path.basename(rel)}:{a}-{min(b, rows[-1]['end_line'] or b)} — {len(rows)} callable(s)" + (f", {len(show)} shown" if len(rows) > len(show) else '') + "  (← callers → callees ? unresolved)" + stale)
-        for r in show: lines.append(f"  {r['display'].split('.')[-1] if r['display'].count('.') > 1 else r['display']} L{r['line']}  {edges(r['method_id'], r['id'])}{reach_counts(r['method_id'])}")
+        st = load_state(); ctx = set(context_ids())
+        st['reads'] = ([{'file': rel, 'ids': [r['id'] for r in rows[:12]], 'names': [r['display'] for r in rows[:12]]}] + st['reads'])[:6]; save_state(st)
+        # the model has the text it read; the block carries only what that text cannot show: an edge whose other end is in
+        # another file, or in this file but OUTSIDE the range read (a whole-file read shows every intra-file call already);
+        # overrides (a same-file inner / enum class overriding is not visible as a call either); unresolved sites.
+        # Counts by default, names only where they carry information (1–3 callers, an edge to what was read before);
+        # ranked ★ (connected to earlier Reads) first, then few-caller methods, then the rest as one line; 6 lines at most
+        lo, hi = rows[0]['line'], rows[-1]['end_line'] or b                          # the lines the text actually covers
+        mids = [r['method_id'] for r in rows]; ids = [r['id'] for r in rows]; ph = ','.join('?' * len(rows))
+        def visible(f, ln): return f == rel and lo <= ln <= hi                     # the other end is in the text the model just read
+        up = collections.defaultdict(list)
+        for e in q(f"SELECT DISTINCT e.callee_method_id m, cr.id, cr.display d, cr.file f, cr.line ln FROM call_edges e JOIN symbols cr ON cr.id = e.caller_id WHERE e.callee_method_id IN ({ph})", *mids):
+            if not visible(e['f'], e['ln']) and e['d'] not in {x['d'] for x in up[e['m']]}: up[e['m']].append(e)   # overloads of one caller are one name
+        dn = collections.defaultdict(list)
+        for e in q(f"SELECT DISTINCT e.caller_id c, ce.id, ce.display d, ce.file f, ce.line ln FROM call_edges e JOIN symbols ce ON ce.method_id = e.callee_method_id WHERE e.caller_id IN ({ph}) AND e.callee_provenance = 'client'", *ids):
+            if not visible(e['f'], e['ln']) and e['d'] not in {x['d'] for x in dn[e['c']]}: dn[e['c']].append(e)
+        ov_in, ov_out = collections.Counter(), collections.Counter()
+        if q("SELECT 1 FROM sqlite_master WHERE name='dispatch_candidates'"):
+            # same-owner candidates are overloads, not overrides — never reported as dispatch
+            for e in q(f"SELECT DISTINCT dc.base_method_id b, s.file f, s.owner o FROM dispatch_candidates dc JOIN symbols s ON s.method_id = dc.candidate_method_id JOIN symbols bs ON bs.method_id = dc.base_method_id WHERE dc.base_method_id IN ({ph}) AND dc.candidate_method_id <> dc.base_method_id AND s.owner <> bs.owner", *mids):
+                (ov_in if e['f'] == rel else ov_out)[e['b']] += 1
+        unres = collections.Counter()
+        if q("SELECT 1 FROM sqlite_master WHERE name='unresolved_sites'"):
+            for e in q(f"SELECT caller_id c, count(*) n FROM unresolved_sites WHERE caller_id IN ({ph}) GROUP BY caller_id", *ids): unres[e['c']] = e['n']
+        info = []
+        for r in rows:
+            u, d = up[r['method_id']], dn[r['id']]
+            su, sd = [x for x in u if x['id'] in ctx], [x for x in d if x['id'] in ctx]
+            if u or d or ov_in[r['method_id']] or ov_out[r['method_id']] or unres[r['id']]: info.append(dict(r=r, up=u, dn=d, ovi=ov_in[r['method_id']], ovo=ov_out[r['method_id']], un=unres[r['id']], su=su, sd=sd, star=su + sd))
+        short = lambda d: d.split('.')[-1] if d.count('.') > 1 else d
+        def nm(y): return y['d'] + (f" L{y['ln']}" if y['f'] == rel else '')       # a same-file end outside the range: say where
+        def line(x):
+            r = x['r']; parts = []
+            if x['su']: parts.append("← " + ', '.join(f"{nm(y)} ★" for y in x['su'][:2]) + (f", +{len(x['up']) - min(2, len(x['su']))}" if len(x['up']) > min(2, len(x['su'])) else ''))
+            elif 1 <= len(x['up']) <= 3: parts.append("← " + ', '.join(nm(y) for y in x['up']))
+            elif x['up']: parts.append(f"←{len(x['up'])}")
+            if x['ovi'] or x['ovo']: parts.append("→ dispatch: " + ', '.join(filter(None, [f"{x['ovi']} override(s) in this file" if x['ovi'] else '', f"{x['ovo']} elsewhere" if x['ovo'] else ''])))
+            if x['sd']: parts.append(f"→ {', '.join(f'{nm(y)} ★' for y in x['sd'][:2])}" + (f", +{len(x['dn']) - min(2, len(x['sd']))}" if len(x['dn']) > min(2, len(x['sd'])) else ''))
+            elif x['dn']: parts.append(f"→{len(x['dn'])}" + (" " + ', '.join(nm(y) for y in x['dn'][:2]) if len(x['dn']) <= 2 else ''))
+            if x['un']: parts.append(f"?{x['un']} unresolved call(s)")
+            return f"  {short(r['display'])} L{r['line']}  " + '   '.join(parts)
+        # ★ lines ranked by how many DISTINCT earlier-read methods reach them; one hub caller cannot claim every slot
+        stars = sorted([x for x in info if x['star']], key=lambda x: -len({y['id'] for y in x['star']}))
+        seen = collections.Counter(); picked = []
+        for x in stars:
+            k = tuple(sorted({y['id'] for y in x['star']}))
+            if seen[k] < 2: picked.append(x); seen[k] += 1
+        few = [x for x in info if x not in picked and (1 <= len(x['up']) <= 3 or x['ovi'] or x['ovo'])]
+        lines.append(f"graph: {os.path.basename(rel)}:{lo}-{hi} — {len(rows)} callable(s); edges the text does not show (cross-file, outside the range, overrides, unresolved)" + (" ★ = what you read before" if picked else '') + ":" + stale)
+        shown = (picked + few)[:5]
+        for x in shown: lines.append(line(x))
+        left = [x for x in info if x not in shown]
+        if left: lines.append("  " + ('+%d more: ' % len(left)) + ', '.join(f"{short(x['r']['display'])} ←{len(x['up'])}" + (f" →{len(x['dn'])}" if x['dn'] and not x['up'] else '') + (f" ?{x['un']}" if x['un'] else '') for x in sorted(left, key=lambda x: -(len(x['up']) + x['un']))[:6]) + (' …' if len(left) > 6 else '') + "   (grep Type.name or axiomcode path to narrow)")
 elif tool == 'Grep':
     # a real search is rarely one identifier: `hasNext\(\)|\.next\(\)|close\(\)`, `getScanner|RTBoundValidator|withSSTablesIterated`.
     # Split the alternation, strip the regex around each branch, keep the identifiers, look each one up — in parallel, one
