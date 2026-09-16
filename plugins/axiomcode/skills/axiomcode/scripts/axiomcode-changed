@@ -29,6 +29,24 @@ G, die = P.G, P.die
 def sh(*a, cwd=None):
     r = subprocess.run(a, capture_output=True, text=True, cwd=cwd); return r.stdout if r.returncode == 0 else None
 
+def strip_code(t):
+    """the text with comments and string literals blanked, same length and line breaks — a brace in a string is not a brace"""
+    out = []; i = 0; n = len(t)
+    while i < n:
+        c = t[i]
+        if t.startswith('/*', i): j = t.find('*/', i + 2); j = n if j < 0 else j + 2
+        elif t.startswith('//', i) or c == '#': j = t.find('\n', i); j = n if j < 0 else j
+        elif c in '"\'`':
+            q = t[i:i + 3] if t[i:i + 3] in ('"""', "\'\'\'") else c; j = i + len(q)
+            while j < n and not t.startswith(q, j):
+                if t[j] == '\\': j += 1
+                if t[j] == '\n' and len(q) == 1 and c != '`': break
+                j += 1
+            j = min(n, j + len(q))
+        else: out.append(c); i += 1; continue
+        out.append(''.join('\n' if ch == '\n' else ' ' for ch in t[i:j])); i = j
+    return ''.join(out)
+
 class Changed:
     def __init__(self, repo):
         self.g = G(repo); self.repo = self.g.repo
@@ -95,7 +113,7 @@ class Changed:
     @staticmethod
     def field_parts(line):
         """(declared type, name) of a field line, in either spelling: `Type name = …;` or `name: Type = …`"""
-        t = line.strip()
+        t = re.sub(r'\s*(//.*|/\*.*?\*/\s*|#.*)$', '', line).strip()
         m = re.match(r'^(?:(?:public|private|protected|static|final|volatile|transient|readonly|export|const|let|var|declare|abstract|override)\s+)*([A-Za-z_$][\w$<>\[\],.? ]*?)\s+([A-Za-z_$][\w$]*)\s*(=|;|$)', t)
         if m and not m.group(1).strip() in ('return', 'new', 'else', 'throw'): return re.sub(r'\s+', ' ', m.group(1).strip()), m.group(2)
         m = re.match(r'^(?:(?:public|private|protected|static|readonly|export|const|let|var|declare|abstract|override)\s+)*([A-Za-z_$][\w$]*)\s*[?!]?\s*:\s*([^=;]+?)\s*(=|;|$)', t)
@@ -108,22 +126,46 @@ class Changed:
     def file_changes(self, rel, old, new):
         OL, NL = old.split('\n'), new.split('\n')
         sm = difflib.SequenceMatcher(None, OL, NL, autojunk=False)
-        old_changed = set(); new_of = {}; added = []; removed_lines = set()
+        old_changed = set(); new_of = {}; added = []; removed_lines = set(); replaced = []
+        # a blank line, a comment line, a brace on its own: not a change to a declaration
+        TRIPLE = ('"' * 3, "'" * 3)
+        noise = lambda t: not t.strip() or t.strip().startswith(('//', '*', '/*', '#') + TRIPLE) or t.strip() in ('{', '}', '};', ')', ');')
         for tag, i1, i2, j1, j2 in sm.get_opcodes():
             if tag == 'equal':
                 for k in range(i2 - i1): new_of[i1 + k + 1] = j1 + k + 1
-            elif tag == 'replace': old_changed |= set(range(i1 + 1, i2 + 1)); new_of.update({i1 + 1: j1 + 1})
-            elif tag == 'delete': old_changed |= set(range(i1 + 1, i2 + 1)); removed_lines |= set(range(i1 + 1, i2 + 1))
-            elif tag == 'insert': added.append((i1, j1 + 1, j2))                                      # after old line i1, new lines j1+1..j2
+            elif tag == 'replace':
+                old_changed |= {i + 1 for i in range(i1, i2) if not noise(OL[i])} or ({i1 + 1} if any(not noise(NL[j]) for j in range(j1, j2)) else set())
+                new_of.update({i1 + 1: j1 + 1}); replaced.append((i1, j1 + 1, j2))                      # the new side may declare something new too
+            elif tag == 'delete':
+                got = {i + 1 for i in range(i1, i2) if not noise(OL[i])}; old_changed |= got; removed_lines |= got
+            elif tag == 'insert':
+                if any(not noise(NL[j]) for j in range(j1, j2)): added.append((i1, j1 + 1, j2))               # after old line i1, new lines j1+1..j2
         decls = self.spans.get(rel, [])
-        if not decls: return [], [(rel, 'no declarations known here (not in the graph, or a different file spelling)', None)]
+        if not decls and not old.strip() and new.strip():                                                # a new file: its declarations, all added
+            decls = []; added = [(0, 1, len(NL))]; old_changed = set(); removed_lines = set(); new_of = {}; replaced = []
+        elif not decls: return [], [(rel, 'no declarations known here (not in the graph, or a different file spelling)', None)]
         hits = {}
         def narrowest(ln, kinds=None):
             best = None
             for a, b, i, k, d, n in decls:
                 if a <= ln <= b and (kinds is None or k in kinds) and (best is None or (b - a) < (best[1] - best[0])): best = (a, b, i, k, d, n)
             return best
+        def decl_after(ln, L):
+            """the declaration whose header starts within 3 lines after ln (an annotation / decorator line belongs to it)"""
+            for a, b, i, k, d, n in decls:
+                if ln < a <= ln + 3 and all(not L[x - 1].strip() or L[x - 1].strip().startswith('@') for x in range(ln + 1, a)): return (a, b, i, k, d, n)
+            return None
+        decorated = {}
         for ln in sorted(old_changed):
+            if OL[ln - 1].strip().startswith('@') and not narrowest(ln, {'method', 'function', 'constructor', 'module'}):
+                dd = decl_after(ln, OL)
+                if dd: decorated.setdefault(dd, []).append(OL[ln - 1].strip().split('(')[0])
+        for after, j1, j2 in list(added):
+            if all(NL[j - 1].strip().startswith('@') or not NL[j - 1].strip() for j in range(j1, j2 + 1)):
+                dd = decl_after(after, OL)
+                if dd: decorated.setdefault(dd, []).extend(NL[j - 1].strip().split('(')[0] for j in range(j1, j2 + 1) if NL[j - 1].strip()); added.remove((after, j1, j2))
+        for ln in sorted(old_changed):
+            if OL[ln - 1].strip().startswith('@') and any(ln in range(1, dd[0]) for dd in decorated): continue
             f = next(((a, b, i, k, d, n) for a, b, i, k, d, n in decls if a == ln and k in ('field', 'const', 'enum_member', 'variable')), None)
             m = narrowest(ln, {'method', 'function', 'constructor', 'module'})
             t = narrowest(ln, {'class', 'interface', 'enum', 'type', 'namespace'})
@@ -134,10 +176,19 @@ class Changed:
             elif t and t[0] <= ln <= self.header_end(OL, t[0]): key = ('type', t)
             elif t: key = ('inside', t)                                                                 # between members: a field the graph did not record, a comment
             if key: hits.setdefault(key, set()).add(ln)
+        nd = [0] * (len(NL) + 2)
+        for ii, text in enumerate(strip_code(new).split('\n'), 1): nd[ii] = nd[ii - 1] + text.count('{') - text.count('}')
+        ndepth_ok = lambda j: nd[j - 1] <= 2
         out = []
+        for (a, b, i, k, d, n), decs in decorated.items():
+            key = ('field' if k in ('field', 'const', 'enum_member', 'variable') else 'type' if k in ('class', 'interface', 'enum', 'type', 'namespace') else 'signature', (a, b, i, k, d, n))
+            hits.setdefault(key, set()); hits[key].add(-1)                                                # -1: the decoration line, outside the header
         for (kind, (a, b, i, k, d, n)), lines in hits.items():
-            entry = dict(kind=kind, symbol=d, id=i, file=rel, line=a, end=b, old_lines=sorted(lines))
-            gone = all(ln in removed_lines for ln in range(a, b + 1)) and (b - a) >= 0 and set(range(a, b + 1)) <= old_changed
+            decs = decorated.get((a, b, i, k, d, n))
+            entry = dict(kind=kind, symbol=d, id=i, file=rel, line=a, end=b, old_lines=sorted(x for x in lines if x > 0))
+            span_lines = [x for x in range(a, b + 1) if not noise(OL[x - 1])]
+            gone = a in removed_lines and span_lines and sum(1 for x in span_lines if x in removed_lines) >= 0.6 * len(span_lines) and \
+                   not any(re.search(rf'\b{re.escape(n)}\s*\(', NL[j - 1]) and ndepth_ok(j) for j in range(max(1, (new_of.get(a) or a) - 3), min(len(NL), (new_of.get(a) or a) + 3) + 1))
             if gone: entry['kind'] = 'removed'; entry['target'] = self.target(kind, d, k, n); out.append(entry); continue
             if kind == 'signature':
                 oh = ' '.join(x.strip() for x in OL[a - 1:self.header_end(OL, a)])
@@ -163,6 +214,7 @@ class Changed:
                     if ro != rn: detail.append('return type / modifiers: ' + ' '.join(ro) + ' → ' + ' '.join(rn))
                 if not detail and nh and re.sub(r'\s', '', oh) != re.sub(r'\s', '', nh): detail.append('header text changed (annotations / throws / generics)')
                 if not detail and not nh: detail.append('header changed (the new header could not be located — renamed?)')
+                if decs: detail.append('decoration changed: ' + ', '.join(dict.fromkeys(decs)))
                 if not detail: entry['kind'] = 'body'                                                  # whitespace or a comment in the header
                 entry['detail'] = ', '.join(detail); entry['old_header'] = oh; entry['new_header'] = nh
                 changed_params = [x for x, _ in op if any(dd.startswith(f'{x}:') or dd == f'-{x}' for dd in detail)]
@@ -177,17 +229,78 @@ class Changed:
                 elif ot and nt and ot != nt: detail = f'type {ot} → {nt}'
                 elif nn_ and nn_ != n: detail = f'renamed → {nn_}'
                 else: detail = 'initializer / modifiers changed'
+                if decs: detail += '; decoration changed: ' + ', '.join(dict.fromkeys(decs))
                 entry['detail'] = detail; entry['target'] = d
             elif kind == 'type':
-                entry['detail'] = 'header changed (name, extends / implements, type parameters)'; entry['target'] = d
+                entry['detail'] = 'header changed (name, extends / implements, type parameters)' + ('; decoration changed: ' + ', '.join(dict.fromkeys(decs)) if decs else ''); entry['target'] = d
             elif kind == 'body': entry['target'] = d
             else: entry['target'] = None
             out.append(entry)
         adds = []
-        for after, j1, j2 in added:
-            owner = narrowest(after) if after else None
-            if owner and any(e['id'] == owner[2] for e in out): continue                                # inside a declaration already listed
-            adds.append((rel, f"{j2 - j1 + 1} new line(s) at {rel}:{j1}" + (f" inside {owner[4]}" if owner else ''), None))
+        ndepth = [0] * (len(NL) + 2)                                                                     # brace depth at the START of each new line
+        for i, text in enumerate(strip_code(new).split('\n'), 1): ndepth[i] = ndepth[i - 1] + text.count('{') - text.count('}')
+        for after, j1, j2 in added + [(a, b, c) for a, b, c in replaced]:
+            is_add = (after, j1, j2) in added
+            owner = narrowest(after, {'method', 'function', 'constructor', 'module'}) if after else None
+            if is_add and owner and owner[0] <= after < owner[1]:                                         # strictly inside a callable's body: that callable changed
+                if not any(e['id'] == owner[2] for e in out):
+                    out.append(dict(kind='body', symbol=owner[4], id=owner[2], file=rel, line=owner[0], end=owner[1], old_lines=[after], target=owner[4]))
+                # and the inserted lines may still declare something at the type's level (a method extracted from this body)
+            t = narrowest(after, {'class', 'interface', 'enum', 'type', 'namespace'}) if after else None
+            # a declaration the new text introduces: named from its header, owner = the type around the insertion point
+            names = []; hdrs = {}
+            # the type's body level in the NEW text: brace depth just after its header (indentation for Python); a declaration
+            # the insertion introduces sits exactly there — a local inside a new method's body sits deeper
+            py = rel.endswith('.py'); tline = new_of.get(t[0]) if t else None
+            if t and not tline:                                                                       # the type's header line moved: find it in the new text by name
+                tline = next((j for j in range(1, len(NL) + 1) if re.search(rf'\b(class|interface|enum|record|trait|struct)\s+{re.escape(t[5])}\b', NL[j - 1])), None)
+            if tline: body_depth = ndepth[self.header_end(NL, tline)] if not py else len(NL[tline - 1]) - len(NL[tline - 1].lstrip()) + 4
+            else: body_depth = 0
+            for j in range(j1, j2 + 1):
+                text = NL[j - 1]; st = re.sub(r'\s*(//.*|/\*.*?\*/\s*)$', '', text).strip()
+                st = re.sub(r'^(@[\w.]+(\([^)]*\))?\s+)+(?=\w)', '', st)                                # `@Override public …` on one line
+                here = (ndepth[j - 1] if not py else len(text) - len(text.lstrip()))
+                if here != body_depth or not st or st.startswith(('//', '*', '/*', '@', '#', 'return', 'if', 'for', 'while', 'switch', 'else', 'throw', 'new ', 'case', 'try', 'catch')): continue
+                tm = re.match(r'^(?:(?:public|private|protected|static|final|abstract|sealed)\s+)*(class|interface|enum|record|@interface)\s+([A-Za-z_$][\w$]*)', st)
+                if tm: names.append((tm.group(2), tm.group(1).lstrip('@') + ' (with its members)')); hdrs[tm.group(2)] = st; continue
+                m = re.match(r'^(?:def|function|async function)\s+([A-Za-z_$][\w$]*)\s*\(', st) or \
+                    re.match(r'^(?:[\w<>\[\],.?$ ]+\s+)?([A-Za-z_$][\w$]*)\s*\([^;=]*\)\s*(?:throws[\w.,\s]+)?\s*(\{|;|$)', st) or \
+                    re.match(r'^(?:[\w<>\[\],.?$ ]+\s+)?([A-Za-z_$][\w$]*)\s*\([^;={]*$', st)
+                if m and not re.match(r'^(if|for|while|switch|catch|synchronized|return|new|super|this|else)$', m.group(1)) and '=' not in st.split('(')[0]:
+                    names.append((m.group(1), 'method')); hdrs[m.group(1)] = ' '.join(x.strip() for x in NL[j - 1:self.header_end(NL, j)]); continue
+                ty, nm = self.field_parts(st)
+                if nm and ty and st.endswith(';') and '(' not in st.split('=')[0]: names.append((nm, 'field'))
+            # a declaration the old file already has — same owner, same name, same arity — is not new (an added OVERLOAD is)
+            def types_of(hdr):
+                """the parameter types of a header, as simple names: `List<String> xs, int n` → [List, int]; a signature without names too"""
+                out = []
+                for name, typ in self.params(hdr):
+                    tt = typ or name                                                                  # a signature spells types only
+                    out.append(re.sub(r'<.*', '', tt.split('.')[-1]).replace('...', '[]').strip())
+                return out
+            def old_has(nm, hdr):
+                ht = types_of(hdr) if '(' in hdr else None
+                for a, b, i, k, d, n in decls:
+                    if n != nm or (t and not d.startswith(t[4] + '.') and d != t[4] + '.' + nm and k not in ('class', 'interface', 'enum')): continue
+                    if ht is not None and k in ('field', 'const', 'enum_member', 'variable'): continue     # a field of that name is not this method
+                    if ht is None or k in ('class', 'interface', 'enum', 'field', 'const', 'enum_member'): return True
+                    sig = self.g.sym.get(i, {}).get('signature') or ''
+                    if not sig or '(' not in sig: return True
+                    if types_of(sig) == ht: return True
+                return False
+            for nm, k in names:
+                if old_has(nm, hdrs.get(nm, '')): continue
+                out.append(dict(kind='added', symbol=(t[4] + '.' if t else '') + nm, id=None, file=rel, line=j1, end=j2, old_lines=[], detail=f'new {k}', target=None))
+                if 'members' in k:                                                                        # the new type's own declarations, one level deeper — its whole body in the new text
+                    hj = next((j for j in range(j1, j2 + 1) if re.search(rf'\b{re.escape(nm)}\b', NL[j - 1])), j1); j = hj + 1
+                    while j <= len(NL) and (ndepth[j - 1] > body_depth if not py else (not NL[j - 1].strip() or len(NL[j - 1]) - len(NL[j - 1].lstrip()) > body_depth)):
+                        st2 = re.sub(r'^(@[\w.]+(\([^)]*\))?\s+)+(?=\w)', '', re.sub(r'\s*(//.*|/\*.*?\*/\s*)$', '', NL[j - 1]).strip()); here2 = (ndepth[j - 1] if not py else len(NL[j - 1]) - len(NL[j - 1].lstrip())); j += 1
+                        if here2 != body_depth + (1 if not py else 4) or not st2 or st2.startswith(('//', '*', '/*', '@', '#', '}', '{')): continue
+                        mm = re.match(r'^(?:[\w<>\[\],.?$ ]+\s+)?([A-Za-z_$][\w$]*)\s*\([^;={]*', st2) or re.match(r'^(?:def|function)\s+([A-Za-z_$][\w$]*)\s*\(', st2)
+                        if mm and mm.group(1) not in ('if', 'for', 'while', 'switch', 'catch', 'return', 'new', 'super', 'this'): out.append(dict(kind='added', symbol=f"{(t[4] + '.' if t else '')}{nm}.{mm.group(1)}", id=None, file=rel, line=j - 1, end=j - 1, old_lines=[], detail='new method', target=None)); continue
+                        ty2, nm2 = self.field_parts(st2)
+                        if nm2 and ty2 and st2.endswith(';') and '(' not in st2.split('=')[0]: out.append(dict(kind='added', symbol=f"{(t[4] + '.' if t else '')}{nm}.{nm2}", id=None, file=rel, line=j - 1, end=j - 1, old_lines=[], detail='new field', target=None))
+            if not names and is_add: adds.append((rel, f"{j2 - j1 + 1} new line(s) at {rel}:{j1}" + (f" inside {t[4]}" if t else ''), None))
         return out, adds
     @staticmethod
     def target(kind, d, k, n):
@@ -241,7 +354,7 @@ def main(argv):
     if not results and not notes: print("no change to a declaration the graph knows" + (f" (working tree against {C.built_at[:10]})" if C.built_at and mode == 'worktree' else '')); return 0
     print(f"changed declarations ({len(results)})" + (f" — against the graph's commit {C.built_at[:10]}" if C.built_at and mode == 'worktree' else (f" — {rng}" if rng else '')) + ":")
     for e in results:
-        print(f"  {e['kind']:<10} {e['symbol']}   {e['file']}:{e['line']}" + (f"   — {e['detail']}" if e.get('detail') else '') + (f"   → impact {e['target']}" if e.get('target') else ''))
+        print(f"  {e['kind']:<10} {e['symbol']}   {e['file']}:{e['line']}" + (f"   — {e['detail']}" if e.get('detail') else '') + (f"   → impact {e['target']}" if e.get('target') else ('   (nothing depends on it yet)' if e['kind'] == 'added' else '')))
     for _, n, _ in notes: print(f"  {'added':<10} {n}")
     targets = list(dict.fromkeys(e['target'] for e in results if e.get('target') and e['kind'] != 'added'))
     if want_impact and targets:
