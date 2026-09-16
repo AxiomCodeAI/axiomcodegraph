@@ -99,16 +99,39 @@ elif tool == 'Read':
         for r in rows[:8]: lines.append(f"  {r['display']} L{r['line']}  {edges(r['method_id'], r['id'])}{reach_counts(r['method_id'])}")
         if len(rows) > 8: lines.append(f"  … +{len(rows) - 8}; axiomcode path / impact for any of them")
 elif tool == 'Grep':
+    # a real search is rarely one identifier: `hasNext\(\)|\.next\(\)|close\(\)`, `getScanner|RTBoundValidator|withSSTablesIterated`.
+    # Split the alternation, strip the regex around each branch, keep the identifiers, look each one up — in parallel, one
+    # connection per thread — and cap the whole block so a 6-way grep still reads as a glance
+    import concurrent.futures
     pat = str(inp.get('pattern', ''))
-    names = [n for n in re.findall(r'[A-Za-z_]\w{2,}', pat) if not re.fullmatch(r'(the|and|for|new|return|null|true|false)', n)]
-    if len(names) == 1 and re.fullmatch(r'[\w.\\|()]*', pat.replace('\\b', '')):
-        n = names[0]
-        # a grep pattern is a prefix as often as a name (`insertEmpty` for insertEmptyElementFor): exact first, then names starting with it
-        rows = q("SELECT id, method_id, display, file, line FROM symbols WHERE name = ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY file LIMIT 6", n) \
-            or q("SELECT id, method_id, display, file, line FROM symbols WHERE name LIKE ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY length(name), file LIMIT 6", n + '%')
-        if rows:
-            lines.append(f"graph: `{n}` " + ("is declared" if rows[0]['display'].endswith('.' + n) or rows[0]['display'] == n else "matches") + f" {len(rows)} callable(s) —")
-            for r in rows[:5]: lines.append(f"  {r['display']}  {r['file']}:{r['line']}  {edges(r['method_id'], r['id'])}")
+    idents = []
+    for br in re.split(r'(?<!\\)\|', pat):
+        b = re.sub(r'\\[bBwWsSdD.()\[\]{}+*?^$|]', ' ', br)              # \( \) \. \b … → separators
+        b = re.sub(r'[()\[\]{}+*?^$.]', ' ', b)                            # unescaped regex syntax → separators
+        for n in re.findall(r'[A-Za-z_]\w{2,}', b):
+            if not re.fullmatch(r'(the|and|for|new|return|null|true|false|this|void|int|String|public|private)', n) and n not in idents: idents.append(n)
+    idents = idents[:6]
+    def lookup(n):
+        c = sqlite3.connect(db); c.row_factory = sqlite3.Row
+        rows = c.execute("SELECT id, method_id, display, file, line FROM symbols WHERE name = ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY file LIMIT 4", (n,)).fetchall() \
+            or c.execute("SELECT id, method_id, display, file, line FROM symbols WHERE name LIKE ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY length(name), file LIMIT 4", (n + '%',)).fetchall()
+        out = []
+        for r in rows:
+            up = c.execute("SELECT DISTINCT cr.display d FROM call_edges e JOIN symbols cr ON cr.id = e.caller_id WHERE e.callee_method_id = ? LIMIT 40", (r['method_id'],)).fetchall()
+            dn = c.execute("SELECT count(DISTINCT e.callee_method_id) n FROM call_edges e WHERE e.caller_id = ? AND e.callee_provenance = 'client'", (r['id'],)).fetchone()['n']
+            un = c.execute("SELECT count(*) n FROM unresolved_sites WHERE caller_id = ?", (r['id'],)).fetchone()['n']
+            out.append(f"  {r['display']}  {os.path.basename(r['file'])}:{r['line']}  ← {len(up)}" + (": " + ', '.join(x['d'] for x in up[:3]) + (' …' if len(up) > 3 else '') if up else '') + f"  → {dn}" + (f"  ? {un}" if un else ''))
+        return n, rows, out
+    if idents:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(6, len(idents))) as ex: found = list(ex.map(lookup, idents))
+        found = [(n, rows, out) for n, rows, out in found if rows]
+        if found:
+            lines.append(f"graph: {len(found)} of {len(idents)} name(s) in the pattern are callables here — (← callers  → callees  ? unresolved)")
+            budget = 9
+            for n, rows, out in found:
+                if budget <= 0: lines.append("  …"); break
+                take = out[:max(1, min(len(out), budget // max(1, len(found) - found.index((n, rows, out)))))]
+                lines += take; budget -= len(take)
 elif tool == 'Glob':
     # a file search: the files the graph knows under that name, with what each declares (its callables, most-called first)
     toks = [t for t in re.findall(r'[A-Za-z_][\w-]{2,}', str(inp.get('pattern', '')).split('/')[-1]) if t.lower() not in ('java', 'ts', 'tsx', 'js', 'py', 'test', 'src', 'main')]
