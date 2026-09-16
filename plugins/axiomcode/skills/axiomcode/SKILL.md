@@ -12,8 +12,10 @@ The same subcommands are MCP tools when this plugin is loaded (`mcp__plugin_axio
 Prefer the MCP tool when it is in your tool list; the CLI is the same code.
 
 When the plugin is loaded, a PostToolUse hook adds the graph's edges to your own Read, Grep, Glob and shell grep/sed/cat
-results (`graph: …` — who calls each callable in the lines you read, what it calls, how many calls in it are unresolved;
-a grep for an identifier gets the callables it names or prefixes, with the same; a file glob gets the files' callables).
+results (`graph: …`). A Read gets only the edges its text cannot show: callers and callees in other files or in this file
+outside the lines read (`L240`), overrides elsewhere or in this file's inner classes, unresolved calls — counts by default,
+names when there are ≤ 3 or when the other end is something you read earlier (★), the rest as one `+N more` line, ≤ 6 lines.
+A grep for an identifier gets the callables it names or prefixes, with the same; a file glob gets the files' callables.
 SQLite lookups only, ~0.1–0.5 s; nothing is added when the repo has no graph.
 
 ```

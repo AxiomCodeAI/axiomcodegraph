@@ -2,9 +2,11 @@
 """validate.py <repo> [--reads N] [--greps N] [--edits N] [--replay]  — is what the hooks put in context TRUE?
 
 Every fact a hook block states is checked again, against graph.sqlite and the source:
-  Read   each callable named is a symbol in that file whose span meets the lines read, its declaration line holds its name in
-         the file (or the block says the file changed since the graph was built); `← k caller(s): A, B` — k is the number of
-         distinct callers in call_edges and A, B are among them; `→ m callee(s)` likewise; `? u unresolved` is the table's count
+  Read   each callable named is a symbol in that file at that line, its declaration line holds its name in the file (or the
+         block says the file changed since the graph was built); each caller / callee named has an edge whose other end is
+         outside the text read (another file, or this file outside the range), `+k` / `←k` / `→k` are the counts of such
+         edges, `dispatch: n override(s)` counts different-owner candidates here / elsewhere, `?u` is unresolved_sites',
+         `+N more` is the remainder and each entry in it matches a callable of the file with those counts
   Grep   each declaration named has that identifier as its name and is at the file:line printed; callers as above
   Edit   (PreToolUse / PostToolUse / Bash / UserPromptSubmit blocks) each declaration named spans a line the edit changed (from
          `axiomcode changed` on the same texts); every name under must-change / produces / reads is in `axiomcode impact`'s
@@ -36,18 +38,70 @@ class V:
     def callees(self, sid): return {r[0] for r in self.q("SELECT DISTINCT ce.display FROM call_edges e JOIN symbols ce ON ce.method_id = e.callee_method_id WHERE e.caller_id = ? AND e.callee_provenance = 'client'", sid)}
     def unresolved(self, sid): return self.q("SELECT count(*) FROM unresolved_sites WHERE caller_id = ?", sid)[0][0]
     def line_holds(self, file, line, name):
-        try: L = open(os.path.join(self.repo, file), errors='replace').read().split('\n'); return any(re.search(rf'\b{re.escape(name.split(".")[-1].replace("<anon ", "").rstrip(">"))}\b', L[i]) for i in range(max(0, line - 1), min(len(L), line + 3)))
+        try: L = open(os.path.join(self.repo, file), errors='replace').read().split('\n'); return any(re.search(rf'\b{re.escape(name.split(".")[-1].replace("<anon ", "").strip("<>"))}\b', L[i]) for i in range(max(0, line - 1), min(len(L), line + 3)))
         except OSError: return False
 
     # ── Read ──────────────────────────────────────────────────────────────────────────────────────────────────
     def check_read(self, text, rel, a, b):
-        m = re.match(r'graph: (\S+?):(\d+)-(\d+) — (\d+) callable\(s\)(?:, (\d+) shown)?\s+\(← callers → callees \? unresolved\)(.*)$', text.split('\n')[0])
+        m = re.match(r'graph: (\S+?):(\d+)-(\d+) — (\d+) callable\(s\); edges the text does not show \(cross-file, outside the range, overrides, unresolved\)( ★ = what you read before)?:(.*)$', text.split('\n')[0])
         if not m: self.fact(text == '', f"Read {rel}: unparseable block: {text[:80]}"); return
-        stale = 'changed since the graph' in m.group(6)
-        n = int(m.group(4)); rows = self.q("SELECT count(*) FROM symbols s JOIN methods m ON m.id = s.method_id WHERE (s.file = ? OR s.file LIKE ?) AND s.method_id IS NOT NULL AND s.kind <> 'module' AND m.kind NOT IN ('ENUM_VALUES', 'ENUM_VALUE_OF', 'DEFAULT_CONSTRUCTOR') AND s.line <= ? AND s.end_line >= ?", rel, '%/' + rel, b, a)[0][0]
-        self.fact(n == rows, f"Read {rel}:{a}-{b}: says {n} callables, graph has {rows}")
+        stale = 'changed since the graph' in m.group(6); lo, hi = int(m.group(2)), int(m.group(3))
+        rows = self.q("SELECT s.* FROM symbols s JOIN methods m ON m.id = s.method_id WHERE (s.file = ? OR s.file LIKE ?) AND s.method_id IS NOT NULL AND s.kind <> 'module' AND m.kind NOT IN ('ENUM_VALUES', 'ENUM_VALUE_OF', 'DEFAULT_CONSTRUCTOR') AND s.line <= ? AND s.end_line >= ? ORDER BY s.line", rel, '%/' + rel, b, a)
+        self.fact(int(m.group(4)) == len(rows), f"Read {rel}:{a}-{b}: says {m.group(4)} callables, graph has {len(rows)}")
         self.fact(os.path.basename(rel) == m.group(1), f"Read {rel}: block names file {m.group(1)}")
-        for l in text.split('\n')[1:]: self.check_line(l, rel, a, b, stale, f"Read {rel}")
+        if rows: self.fact(lo == rows[0]['line'] and hi == (rows[-1]['end_line'] or b), f"Read {rel}: block says lines {lo}-{hi}, callables span {rows[0]['line']}-{rows[-1]['end_line']}")
+        def invisible(r): return not ((r['file'] == rel or r['file'].endswith('/' + rel)) and lo <= r['line'] <= hi)
+        def up(s):      # callers the text cannot show, one per display (overloads of one caller are one name)
+            return {r['display']: r for r in self.q("SELECT DISTINCT cr.* FROM call_edges e JOIN symbols cr ON cr.id = e.caller_id WHERE e.callee_method_id = ?", s['method_id']) if invisible(r)}
+        def dn(s):
+            return {r['display']: r for r in self.q("SELECT DISTINCT ce.* FROM call_edges e JOIN symbols ce ON ce.method_id = e.callee_method_id WHERE e.caller_id = ? AND e.callee_provenance = 'client'", s['id']) if invisible(r)}
+        def ov(s):
+            rs = self.q("SELECT DISTINCT c.file, c.owner FROM dispatch_candidates dc JOIN symbols c ON c.method_id = dc.candidate_method_id JOIN symbols b ON b.method_id = dc.base_method_id WHERE dc.base_method_id = ? AND dc.candidate_method_id <> dc.base_method_id AND c.owner <> b.owner", s['method_id']) if self.q("SELECT 1 FROM sqlite_master WHERE name='dispatch_candidates'") else []
+            return sum(1 for r in rs if r['file'] == rel or r['file'].endswith('/' + rel)), sum(1 for r in rs if not (r['file'] == rel or r['file'].endswith('/' + rel)))
+        def find(disp, ln):
+            c = [r for r in rows if (r['display'] == disp or r['display'].endswith('.' + disp)) and r['line'] == ln]
+            self.fact(bool(c), f"Read {rel}: {disp} L{ln} is not a callable at that line in the graph"); return c[0] if c else None
+        def names(seg):     # "A ★, B L12 ★, +3"  →  ([A, B], 3, starred)
+            ns, plus = [], 0
+            for t in [x.strip() for x in seg.split(',') if x.strip()]:
+                if t.startswith('+'): plus = int(t[1:])
+                else: ns.append(re.sub(r'( L\d+)? ★$', '', t).split(' L')[0])
+            return ns, plus
+        shown = 0
+        for l in text.split('\n')[1:]:
+            mm = re.match(r'  (\S+) L(\d+)  (.*)$', l)
+            if mm and not l.strip().startswith('+'):
+                shown += 1; s = find(mm.group(1), int(mm.group(2)))
+                if not s: continue
+                self.fact(stale or self.line_holds(s['file'], s['line'], s['name']), f"Read {rel}: line {s['line']} of {s['file']} does not hold {s['name']} (no staleness note)")
+                U, D = up(s), dn(s); oi, oo = ov(s); rest = mm.group(3)
+                for part in [x for x in re.split(r'   ', rest) if x]:
+                    if part.startswith('← '):
+                        ns, plus = names(part[2:])
+                        for nname in ns: self.fact(nname in U, f"Read {rel}: {s['display']} caller {nname} has no edge the text cannot show")
+                        self.fact(len(ns) + plus == len(U), f"Read {rel}: {s['display']} says {len(ns)}+{plus} callers, graph has {len(U)}")
+                    elif re.match(r'←\d+$', part): self.fact(int(part[1:]) == len(U), f"Read {rel}: {s['display']} says {part} callers, graph has {len(U)}")
+                    elif part.startswith('→ dispatch: '):
+                        mi = re.search(r'(\d+) override\(s\) in this file', part); mo = re.search(r'(\d+) elsewhere', part)
+                        self.fact((int(mi.group(1)) if mi else 0) == oi and (int(mo.group(1)) if mo else 0) == oo, f"Read {rel}: {s['display']} says overrides {part}, graph has {oi} here / {oo} elsewhere")
+                    elif re.match(r'→\d+', part):
+                        k = int(re.match(r'→(\d+)', part).group(1)); self.fact(k == len(D), f"Read {rel}: {s['display']} says {k} callees, graph has {len(D)}")
+                        for nname in names(part[len(str(k)) + 1:])[0]: self.fact(nname in D, f"Read {rel}: {s['display']} callee {nname} has no edge the text cannot show")
+                    elif part.startswith('→ '):
+                        ns, plus = names(part[2:])
+                        for nname in ns: self.fact(nname in D, f"Read {rel}: {s['display']} callee {nname} has no edge the text cannot show")
+                        self.fact(len(ns) + plus == len(D), f"Read {rel}: {s['display']} says {len(ns)}+{plus} callees, graph has {len(D)}")
+                    elif part.startswith('?'): self.fact(int(part[1:].split()[0]) == self.unresolved(s['id']), f"Read {rel}: {s['display']} says {part}, table has {self.unresolved(s['id'])}")
+                    else: self.fact(False, f"Read {rel}: {s['display']} has an unparseable part: {part}")
+            elif l.strip().startswith('+'):
+                mr = re.match(r'  \+(\d+) more: (.*?)\s+\(grep', l); n = int(mr.group(1))
+                withedges = [r for r in rows if up(r) or dn(r) or any(ov(r)) or self.unresolved(r['id'])]
+                self.fact(n == len(withedges) - shown, f"Read {rel}: says +{n} more, graph has {len(withedges)} callables with such edges and {shown} were shown")
+                for t in [x.strip().rstrip(' …') for x in mr.group(2).split(',') if x.strip() and x.strip() != '…']:
+                    tm = re.match(r'(\S+) ←(\d+)(?: →(\d+))?(?: \?(\d+))?$', t)
+                    if not tm: self.fact(False, f"Read {rel}: unparseable summary entry {t}"); continue
+                    cands = [r for r in withedges if r['display'] == tm.group(1) or r['display'].endswith('.' + tm.group(1))]
+                    self.fact(any(len(up(r)) == int(tm.group(2)) and (tm.group(3) is None or len(dn(r)) == int(tm.group(3))) and (tm.group(4) is None or self.unresolved(r['id']) == int(tm.group(4))) for r in cands), f"Read {rel}: summary entry {t} matches no callable in the file")
     def check_line(self, l, rel, a, b, stale, what, ident=None):
         mm = re.match(r'\s+(\S+)(?:\s+(\S+?):(\d+))?\s+L?(\d+)?\s*← (\d+)(?: \((.*?)\))?\s+→ (\d+)(?:\s+\? (\d+))?(?:\s+tests (\d+))?(?:\s+entries (\d+))?', l)
         if not mm: return
