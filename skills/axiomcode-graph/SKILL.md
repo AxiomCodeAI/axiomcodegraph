@@ -27,19 +27,21 @@ Default page: `<repo>/.axiomcode/graph/graph.html` — one file, works from `fil
 
 ## What the page shows
 
-- **The disc.** Directories in the centre (named around the rim at their angle), their files on the next
-  ring, the types in each file on the next, and every method in the band outside — each placed in an arc
-  under its parent, so a package is a wedge and a class is a fan of methods. Colour is what a thing is:
-  directory · file · class · interface · enum · method · function. Dotted = test, white ring = entry point
-  (`main`, a handler, lifecycle — not tests), amber dot = has unresolved call sites.
-- **Edges.** Faint grey spokes are the structure tree. Curves across the disc are calls: grey = one resolved
-  target, blue = a sound set of targets; violet dashes = extends/implements. Checkboxes hide either family
-  or the tests.
-- **Hover** a node: its callers, callees, parent and children stay lit, the rest dims. **Click** to pin it:
-  the panel gives `file:line`, signature, flags, callers and callees with tiers, what it contains, what it
-  is in; **impact ↑** colours every method that can reach it through resolved calls rose and counts them
-  (and says when unresolved sites in its body make that a lower bound); **chain ⇢** highlights the heaviest
-  resolved path from it in amber. Double-click zooms to a node; search finds anything by name or path.
+- **The disc.** Directories in the centre (named around the rim), their files on the next ring, the types in
+  each file on the next, every method in the band outside — each in an arc under its parent, so a package is
+  a wedge and a class a fan. Tiny dots, faint edges; only what matters gets a label chip: the hovered node,
+  the selection and its neighbours, search matches, and the big things as you zoom in.
+- **Left panel — what is drawn.** *Node types* (directory / file / class / interface / enum / method /
+  function, with counts) hide or show a kind. *Only* narrows to methods with unresolved calls, entry points
+  (`main`, handlers — not tests), or tests. *Edges* hide or show calls with one resolved target (grey), calls
+  with a sound set of targets (cyan), extends (violet dashes), and the structure spokes. *Focus depth* keeps
+  only what is within 1–3 hops of the selection or the search.
+- **Right panel — search and detail.** Type a name: Enter shows **only** the matching nodes and the edges
+  between them (a row shows only that one); everything else is cleared, and a small result set is laid out on
+  its own. `clear ✕` restores the disc. Click a node for `file:line`, signature, flags, callers and callees
+  with tiers, contains / in; **impact ↑** colours every method that can reach it through resolved calls rose
+  and counts them (a lower bound when its body has unresolved sites); **chain ⇢** the heaviest resolved path.
+- Links: `graph.html#q=Tokeniser.emit` opens that search; `#n=Owner.method[&impact=1|&chain=1]` a node.
 
 ## Rules
 
