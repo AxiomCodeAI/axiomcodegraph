@@ -11,7 +11,18 @@
   #top { display:flex; align-items:center; gap:14px; padding:0 14px; border-bottom:1px solid var(--line); background:var(--panel); height:44px }
   #top h1 { font-size:14px; margin:0; font-weight:600; white-space:nowrap } #top h1 span { color:var(--mute); font-weight:400; font-size:12px }
   #main { display:flex; height:calc(100% - 44px) }
-  #left { width:210px; border-right:1px solid var(--line); background:var(--panel); overflow:auto; padding:10px 12px; flex:none }
+  #left { width:210px; border-right:1px solid var(--line); background:var(--panel); overflow:auto; padding:10px 12px; flex:none; display:flex; flex-direction:column }
+  #left.code { width:560px } #code { display:none; flex:none; margin:-4px -12px 0; flex-direction:column; overflow:auto; height:60% } #left.code #code { display:flex }
+  #split { display:none; flex:none; height:8px; margin:0 -12px 6px; cursor:row-resize; background:linear-gradient(var(--line), var(--line)) center / 40px 2px no-repeat, #0b0d14; border-top:1px solid var(--line); border-bottom:1px solid var(--line) } #left.code #split { display:block } #split:hover, #split.on { background-color:#132a33 }
+  #vsplit { width:6px; flex:none; cursor:col-resize; background:var(--panel); border-right:1px solid var(--line) } #vsplit:hover, #vsplit.on { background:#132a33 }
+  .win { border-bottom:1px solid var(--line); flex:none } .win .hd { display:flex; align-items:center; gap:8px; padding:5px 10px; background:#0b0d14; border-bottom:1px solid var(--line); position:sticky; top:0; z-index:1 }
+  .win .hd .t { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0 } .win .hd .f { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:ui-monospace,Menlo,monospace; font-size:10.5px; color:var(--mute) }
+  .win .hd a, .win .hd .tg { color:var(--cyan); font-size:11px; text-decoration:none; white-space:nowrap; cursor:pointer } .win .hd a:hover, .win .hd .tg:hover { text-decoration:underline } .win .hd .x { cursor:pointer; color:var(--mute); padding-left:4px }
+  .win pre { margin:0; overflow-x:auto; font:11px/1.5 ui-monospace,Menlo,monospace; color:#cbd5e1; tab-size:4 } .win.whole pre { max-height:420px; overflow-y:auto }
+  .ln { display:flex } .ln:hover { background:#141826 } .ln.hi { background:#151f10 } .ln.at { background:#1f3016 } .ln .no { width:44px; flex:none; text-align:right; padding-right:10px; color:#4b5563; user-select:none } .ln .no.mark { color:#fbbf24 } .ln .tx { white-space:pre; padding-right:12px; position:relative }
+  a.cs { text-decoration:underline; text-decoration-thickness:1px; text-underline-offset:2px; cursor:pointer } a.cs.known_edge { color:#e2e8f0 } a.cs.multi_inferred { color:#67e8f9; text-decoration-style:dashed } a.cs.lib { color:#fb923c; text-decoration-style:dotted } a.cs.unres { color:#fbbf24; text-decoration-style:dotted; cursor:help }
+  a.cs:hover { background:#1e293b } #left .togs { overflow:auto }
+  .menu { position:absolute; background:#10131b; border:1px solid var(--line); border-radius:8px; box-shadow:0 10px 30px rgba(0,0,0,.6); z-index:9; max-height:280px; overflow:auto; font-family:ui-sans-serif,system-ui,sans-serif; white-space:normal } .menu div { padding:5px 10px; cursor:pointer; font-size:11.5px; display:flex; gap:10px } .menu div:hover { background:#1c2129 } .menu small { color:var(--mute); margin-left:auto; font-family:ui-monospace,Menlo,monospace; font-size:10px } .codehint { padding:4px 10px; color:var(--mute); font-size:10.5px; background:#0b0d14 }
   h3 { font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--mute); margin:12px 0 6px } h3:first-child { margin-top:2px }
   .tog { display:flex; align-items:center; gap:8px; padding:4px 6px; border-radius:6px; cursor:pointer; user-select:none; color:var(--ink) } .tog:hover { background:#171b26 } .tog.off { color:var(--mute); opacity:.55 } .tog.only { background:#132a33; color:var(--cyan) }
   .tog i { width:9px; height:9px; border-radius:50%; flex:none } .tog .n { margin-left:auto; color:var(--mute); font-size:10.5px; font-family:ui-monospace,Menlo,monospace }
@@ -37,11 +48,16 @@
 <div id="top"><h1>axiomcode graph <span id="ttl"></span></h1></div>
 <div id="main">
   <div id="left">
+    <div id="code"><div class="codehint">a call in the code is a link: <b>click</b> opens the callee below · <b>⌘/Ctrl-click</b> goes there · grey = one target · cyan = a sound set · orange = library · amber = the engine could not resolve it</div><div id="stack"></div></div>
+    <div id="split" title="drag to give the code or the node types more room"></div>
+    <div class="togs">
     <h3>node types <span class="mono" style="text-transform:none;letter-spacing:0">· click to hide/show</span></h3><div id="types"></div>
     <h3>only <span class="mono" style="text-transform:none;letter-spacing:0">· click to narrow</span></h3><div id="flags"></div>
     <h3>edges</h3><div id="edges"></div>
     <h3>focus depth <span class="mono" style="text-transform:none;letter-spacing:0">· hops from the selection</span></h3><div class="hops" id="hops"></div>
+    </div>
   </div>
+  <div id="vsplit" title="drag to widen the left panel"></div>
   <div id="wrap"><canvas id="c"></canvas><div id="status"></div><div id="counts"></div><div id="hint">scroll to zoom · drag to pan · hover a dot · click to select · double-click to zoom in</div></div>
   <div id="right"><div id="search" ><input id="q" placeholder="search a method, class, file… (Enter = show only matches)" autocomplete="off"><span class="x" id="qx">✕</span></div><div id="hits"></div><div id="panel"></div></div>
 </div>
@@ -88,10 +104,10 @@ for (const n of DATA.nodes) { n.dx = n.x; n.dy = n.y; }   // the disc position; 
 const PREFIX = (() => { if (dirs.length < 2) return ''; const parts = dirs.map(d => d.l.split('/')); let i = 0; while (parts.every(p => p.length > i + 1 && p[i] === parts[0][i])) i++; return parts[0].slice(0, i).map(x => x + '/').join(''); })();
 
 // ── what is shown: type toggles · only-flags · edge toggles · focus depth · search filter ──────────────────────
-const show = { dir: true, file: true, class: true, interface: true, enum: true, method: true, function: true, lib: true }, only = { u: false, e: false, t: false }, edges = { known: true, inf: true, lib: true, ext: true, tree: true };
+const show = { dir: true, file: true, class: true, interface: true, enum: true, method: true, function: true, lib: true, test: true }, only = { u: false, e: false, t: false }, edges = { known: true, inf: true, lib: true, ext: true, tree: true };
 let hops = 0, filter = null /* Set of ids from search or focus depth */, sel = null, hover = null, focus = null, layoutSet = null;
 const isEntry = n => n.e && !(n.e.length === 1 && n.e[0] === 'test');
-const passes = n => show[KIND(n)] && (!only.u || n.u) && (!only.e || isEntry(n)) && (!only.t || n.t) && (!filter || filter.has(n.id));
+const passes = n => show[KIND(n)] && (show.test || !n.t) && (!only.u || n.u) && (!only.e || isEntry(n)) && (!only.t || n.t) && (!filter || filter.has(n.id));
 let VIS = DATA.nodes, VISSET = null;
 function recompute() { VIS = DATA.nodes.filter(passes); VISSET = new Set(VIS.map(n => n.id));
   // a small filtered view is laid out on its own so it reads as a graph, not as leftovers of the disc
@@ -155,7 +171,7 @@ function draw() { const k = view.k; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.
   for (const [n, c, big] of chips) chip(n, k, c, big);
   status(); }
 function status() { const S = document.getElementById('status'); if (!focus || focus.mode === 'hover' || focus.mode === 'select') { S.textContent = ''; return; } const n = N.get(focus.id); S.textContent = focus.mode === 'impact' ? `impact of ${n.l}: ${focus.set.size - 1} methods in ${focus.files} files can reach it through resolved calls` + (n.u ? ` · ${n.u} unresolved sites in its body make that a lower bound` : '') : `chain from ${n.l}: ${focus.path.length} hops, the heaviest resolved callee at each`; }
-function counts() { const c = {}; for (const n of VIS) c[KIND(n)] = (c[KIND(n)] || 0) + 1; document.getElementById('counts').textContent = `${VIS.length} of ${DATA.nodes.length} nodes shown` + (filter ? ' · filtered' : ''); document.querySelectorAll('#types .tog').forEach(t => t.querySelector('.n').textContent = c[t.dataset.k] || 0); }
+function counts() { const c = {}; for (const n of VIS) { c[KIND(n)] = (c[KIND(n)] || 0) + 1; if (n.t) c.test = (c.test || 0) + 1; } document.getElementById('counts').textContent = `${VIS.length} of ${DATA.nodes.length} nodes shown` + (filter ? ' · filtered' : ''); document.querySelectorAll('#types .tog').forEach(t => t.querySelector('.n').textContent = c[t.dataset.k] || 0); }
 cv.addEventListener('wheel', e => { e.preventDefault(); const r = cv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top, k = Math.min(60, Math.max(.05, view.k * (e.deltaY < 0 ? 1.15 : .87))); view.x = mx - (mx - view.x) * k / view.k; view.y = my - (my - view.y) * k / view.k; view.k = k; mark(); }, { passive: false });
 cv.addEventListener('mousedown', e => { drag = { x: e.clientX - view.x, y: e.clientY - view.y, moved: false }; cv.classList.add('grab'); });
 window.addEventListener('mousemove', e => { if (drag) { drag.moved = true; view.x = e.clientX - drag.x; view.y = e.clientY - drag.y; mark(); return; } const r = cv.getBoundingClientRect(), n = pick(e.clientX - r.left, e.clientY - r.top); if (n !== hover) { hover = n; if (!sel) focus = n ? { id: n.id, set: neighbours(n), mode: 'hover' } : null; mark(); } });
@@ -164,7 +180,39 @@ cv.addEventListener('dblclick', e => { const r = cv.getBoundingClientRect(), n =
 window.addEventListener('resize', resize);
 
 // ── selection · impact · chain · panel ────────────────────────────────────────────────────────────
-function select(n) { sel = n; focus = n ? { id: n.id, set: neighbours(n), mode: 'select' } : null; if (hops && !search) applyFilter(); else mark(); panel(); }
+function select(n) { sel = n; focus = n ? { id: n.id, set: neighbours(n), mode: 'select' } : null; if (hops && !search) applyFilter(); else mark(); panel(); code(n); }
+// the source on the left, as a stack of windows: each is one method's lines (or its whole file), and every call in the
+// text is a link to what the engine resolved it to — click opens the callee below, ⌘/Ctrl-click goes there instead
+const FILES = DATA.files || {}; let stack = [];
+function code(n) { if (!n || !n.f || !(n.f in FILES)) { if (!n) { stack = []; renderStack(); } return; } stack = [{ n, whole: false }]; renderStack(); }
+function pushWin(n) { if (!n.f || !(n.f in FILES)) return; const i = stack.findIndex(w => w.n === n); if (i >= 0) stack.splice(i, 1); stack.push({ n, whole: false }); renderStack(true); }
+function renderStack(scrollLast) { const L = document.getElementById('left'), S = document.getElementById('stack'); if (!stack.length) { L.classList.remove('code'); S.innerHTML = ''; return; } L.classList.add('code');
+  S.innerHTML = stack.map((w, i) => win(w, i)).join('');
+  S.querySelectorAll('.win').forEach((el, i) => { const w = stack[i]; const pre = el.querySelector('pre'), at = pre.querySelector('.at'); if (w.whole && at) pre.scrollTop = Math.max(0, at.offsetTop - 120);
+    el.querySelector('.x').onclick = () => { stack.splice(i, 1); renderStack(); };
+    el.querySelector('.tg').onclick = () => { w.whole = !w.whole; renderStack(); };
+    el.querySelector('.t').onclick = () => { select(w.n); centre(w.n, Math.max(view.k, 4)); };
+    el.querySelectorAll('a.cs[data-t]').forEach(a => a.onclick = ev => { ev.preventDefault(); const ids = a.dataset.t.split(' ').filter(Boolean); const go = t => { if (ev.metaKey || ev.ctrlKey) { select(t); centre(t, Math.max(view.k, 4)); } else { sel = t; focus = { id: t.id, set: neighbours(t), mode: 'select' }; mark(); panel(); if (t.k === 'lib') { renderStack(); } else pushWin(t); } };
+      if (ids.length === 1) return go(N.get(ids[0]));
+      const menu = document.createElement('div'); menu.className = 'menu'; menu.innerHTML = ids.map(id => { const t = N.get(id); return `<div data-id="${esc(id)}">${esc(t.l)}<small>${esc(t.f ? t.f.split('/').pop() + ':' + t.a : 'library')}</small></div>`; }).join(''); a.after(menu);
+      menu.querySelectorAll('div[data-id]').forEach(d => d.onclick = e => { e.stopPropagation(); menu.remove(); go(N.get(d.dataset.id)); }); setTimeout(() => document.addEventListener('click', () => menu.remove(), { once: true }), 0); }); });
+  if (scrollLast) { const last = S.lastElementChild; if (last) last.scrollIntoView({ block: 'start' }); } }
+function win(w, i) { const n = w.n, lines = FILES[n.f].split('\n'), a = n.a || 1, b = n.b || a, from = w.whole ? 1 : Math.max(1, a - 2), to = w.whole ? lines.length : Math.min(lines.length, b + 2);
+  const byLine = new Map(); for (const [l, name, t, tier] of (n.cs || [])) (byLine.get(l) || byLine.set(l, []).get(l)).push([name, t, tier]);
+  const abs = (m.repo_path || '') + '/' + n.f;
+  let out = `<div class="win${w.whole ? ' whole' : ''}"><div class="hd"><span class="t" title="select in the graph">${esc(n.k === 'file' ? n.l.split('/').pop() : n.l)}</span><span class="f" title="${esc(n.f)}">${esc(n.f)}:${a}${b > a ? '–' + b : ''}</span><span class="tg">${w.whole ? 'method only' : 'whole file'}</span><a href="vscode://file/${esc(abs)}:${a}" title="open in VS Code">editor ↗</a><span class="x">✕</span></div><pre>`;
+  for (let no = from; no <= to; no++) { const ss = byLine.get(no); let tx = esc(lines[no - 1] ?? '');
+    if (ss) { // one link per written name on the line; several targets (a dispatch set) share it and open a chooser
+      const byName = new Map(); for (const [name, t, tier] of ss) { if (!name) continue; const k = name.split('.').pop(); const g = byName.get(k) || byName.set(k, { targets: [], tier, unres: false }).get(k); if (t) { if (!g.targets.includes(t)) g.targets.push(t); if (tier === 'known_edge') g.tier = tier; } else g.unres = true; }
+      let parts = [tx];   // strings are still scannable; objects are links already made and never scanned again
+      for (const [nm, g] of byName) { const re = new RegExp('(^|[^\\w$])(' + nm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')(?=\\s*\\(|[^\\w$]|$)');
+        for (let i = 0; i < parts.length; i++) { if (typeof parts[i] !== 'string') continue; const mt = re.exec(parts[i]); if (!mt) continue;
+          const pos = mt.index + mt[1].length; const cls = !g.targets.length ? 'unres' : g.targets[0].startsWith('L:') ? 'lib' : g.tier;
+          const title = !g.targets.length ? 'unresolved: the engine could not type the receiver — a blind spot' : g.targets.length > 1 ? `${g.targets.length} possible targets [${g.tier}] — click to choose` : (t => `${t.l}${t.f ? ' · ' + t.f + ':' + t.a : ' · library black box'} [${g.tier}]`)(N.get(g.targets[0]));
+          parts.splice(i, 1, parts[i].slice(0, pos), { html: `<a class="cs ${cls}" data-t="${esc(g.targets.join(' '))}" title="${esc(title)}">${nm}</a>` }, parts[i].slice(pos + nm.length)); break; } }
+      tx = parts.map(x => typeof x === 'string' ? x : x.html).join(''); }
+    out += `<div class="ln${no >= a && no <= b ? (no === a ? ' hi at' : ' hi') : ''}"><span class="no${no === a ? ' mark' : ''}">${no}</span><span class="tx">${tx}</span></div>`; }
+  return out + '</pre></div>'; }
 function doImpact(n) { const seen = new Set([n.id]), dq = [n.id]; while (dq.length) { const u = dq.shift(); for (const e of (IN.get(u) || [])) if (RES(e.tier) && !seen.has(e.s)) { seen.add(e.s); dq.push(e.s); } } focus = { id: n.id, set: seen, mode: 'impact', files: new Set([...seen].map(id => N.get(id).f)).size }; mark(); panel(); }
 function doChain(n) { const p = [n.id], seen = new Set(p); while (p.length <= 12) { const es = (OUT.get(p[p.length - 1]) || []).filter(e => RES(e.tier) && !seen.has(e.t)).sort((a, b) => b.w - a.w || ((OUT.get(b.t) || []).length - (OUT.get(a.t) || []).length)); if (!es.length) break; p.push(es[0].t); seen.add(es[0].t); } focus = { id: n.id, set: seen, mode: 'chain', path: p }; mark(); panel(); }
 const dot = o => `<i style="background:${colOf(o)}"></i>`;
@@ -202,7 +250,7 @@ function panel() { const P = document.getElementById('panel');
   const c = P.querySelector('#clr'); if (c) c.onclick = clearSearch; }
 
 // ── left panel: toggles ───────────────────────────────────────────────────────────────────────────
-const T = document.getElementById('types'); T.innerHTML = Object.keys(COL).map(k => `<div class="tog" data-k="${k}"><i style="${k === 'lib' ? 'background:#0b0d14;border:1.5px solid #e5e7eb;border-radius:1px' : 'background:' + COL[k]}"></i>${k === 'dir' ? 'directory' : k === 'lib' ? 'external (black box)' : k}<span class="n"></span></div>`).join('');
+const T = document.getElementById('types'); T.innerHTML = Object.keys(COL).map(k => `<div class="tog" data-k="${k}"><i style="${k === 'lib' ? 'background:#0b0d14;border:1.5px solid #e5e7eb;border-radius:1px' : 'background:' + COL[k]}"></i>${k === 'dir' ? 'directory' : k === 'lib' ? 'external (black box)' : k}<span class="n"></span></div>`).join('') + `<div class="tog" data-k="test"><i style="background:#0b0d14;border:1.5px dotted #94a3b8"></i>tests (files, types, methods)<span class="n"></span></div>`;
 T.querySelectorAll('.tog').forEach(t => t.onclick = () => { show[t.dataset.k] = !show[t.dataset.k]; t.classList.toggle('off', !show[t.dataset.k]); recompute(); });
 const FL = document.getElementById('flags'); FL.innerHTML = `<div class="tog" data-f="u"><i style="background:#fbbf24"></i>has unresolved calls</div><div class="tog" data-f="e"><i style="background:#0b0d14;border:1.5px solid #fff"></i>entry point</div><div class="tog" data-f="t"><i style="background:#0b0d14;border:1.5px dotted #94a3b8"></i>test</div>`;
 FL.querySelectorAll('.tog').forEach(t => t.onclick = () => { only[t.dataset.f] = !only[t.dataset.f]; t.classList.toggle('only', only[t.dataset.f]); recompute(); if (only.u || only.e || only.t) fitVisible(); });
@@ -224,6 +272,13 @@ function showOnly(nodes, text) { if (!nodes.length) return; search = { text, mat
 function clearSearch() { search = null; q.value = ''; sbox.classList.remove('has'); hits.innerHTML = ''; filter = null; recompute(); fitAll(); panel(); }
 document.getElementById('qx').onclick = clearSearch;
 
+// the two splitters: code ↕ node types, and the left panel ↔ the canvas; sizes are remembered per browser
+(() => { const L = document.getElementById('left'), C = document.getElementById('code'), H = document.getElementById('split'), V = document.getElementById('vsplit');
+  try { const h = localStorage.getItem('ax.codeH'), w = localStorage.getItem('ax.leftW'); if (h) C.style.height = h; if (w) L.style.setProperty('--w', w); } catch (e) {}
+  const applyW = () => { const w = L.style.getPropertyValue('--w'); L.style.width = (w && L.classList.contains('code')) ? w : ''; resize(); };
+  new MutationObserver(applyW).observe(L, { attributes: true, attributeFilter: ['class'] });
+  H.onmousedown = e => { e.preventDefault(); H.classList.add('on'); const y0 = e.clientY, h0 = C.getBoundingClientRect().height; const mv = ev => { C.style.height = Math.max(80, Math.min(L.clientHeight - 60, h0 + ev.clientY - y0)) + 'px'; }; const up = () => { H.classList.remove('on'); window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up); try { localStorage.setItem('ax.codeH', C.style.height); } catch (e) {} }; window.addEventListener('mousemove', mv); window.addEventListener('mouseup', up); };
+  V.onmousedown = e => { e.preventDefault(); V.classList.add('on'); const x0 = e.clientX, w0 = L.getBoundingClientRect().width; const mv = ev => { const w = Math.max(210, Math.min(window.innerWidth - 600, w0 + ev.clientX - x0)) + 'px'; L.style.width = w; L.style.setProperty('--w', w); resize(); }; const up = () => { V.classList.remove('on'); window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up); try { localStorage.setItem('ax.leftW', L.style.getPropertyValue('--w')); } catch (e) {} }; window.addEventListener('mousemove', mv); window.addEventListener('mouseup', up); }; })();
 resize(); recompute(); fitAll(); panel();
 (function route() { const h = new URLSearchParams(location.hash.slice(1)); if (h.get('q')) { q.value = h.get('q'); q.oninput(); q.onkeydown({ key: 'Enter' }); return; } const n = h.get('n') && DATA.nodes.find(x => x.l === h.get('n')); if (!n) return; select(n); centre(n, 5); if (h.get('impact')) doImpact(n); if (h.get('chain')) doChain(n); })();
 </script>

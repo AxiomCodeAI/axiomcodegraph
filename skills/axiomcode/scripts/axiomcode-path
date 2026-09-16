@@ -1,0 +1,574 @@
+#!/usr/bin/env python3
+"""axiomcode path <from> <to> [<repo>] [--every | --paths N] [--all] [--limit N] [--in <path>]   is there a chain of calls from A to B, and through what?
+   axiomcode path --selftest <lang>                                 the engine's own expected edges, replayed through this tool
+
+An endpoint is anything that names code, written the way it appears in the code — resolved EXACTLY, never guessed:
+    Owner.method   Owner.Inner.method   method (a free function, or that name under any owner)   Type (every method it declares)
+    file.ts:123 (the method containing that line)   file.py / dir/file.ts (every method in the file)
+A miss lists the exact names that are close and stops. It does not answer a question about a name that does not exist.
+
+`*` as one endpoint asks for a closure instead of a chain: path '*' X = everything that can reach X (upstream, by hop, with the
+entry points among them: tests, main, decorated handlers, and methods nothing resolved calls); path X '*' = everything X reaches (--depth N bounds either; the library calls at the ends are listed, never traversed).
+
+By default the answer is ONE SHORTEST chain per reached target. --every adds every route: the full set of methods and calls
+that lie on any chain from a source to a target (computed in Datalog, polynomial), then the simple paths through it,
+shortest first, up to --paths N (default 20).
+
+The chains are computed in Datalog (dl/path.dl, Soufflé) over facts exported from graph.sqlite: the engine's resolved
+client edges, dispatch steps to instantiated overrides, and closures under the callable that defines them. Every
+answer is then checked twice before it is printed: each hop is looked up again in graph.sqlite, and a plain BFS over
+the same facts must find the same length. The line `verified …` says so; if either check fails the answer is marked.
+
+When no resolved chain exists, the optimistic closure — every unresolved site taken as a call to the client method
+written there — says whether one WOULD exist and through which unresolved site(s). That is printed as a bridge to
+look at, never as a path.
+"""
+import os, re, sys, sqlite3, subprocess, tempfile, shutil, collections, glob
+
+HERE = os.path.dirname(os.path.abspath(__file__)); DL = os.path.join(HERE, 'dl', 'path.dl')
+TIER_RANK = {'known_edge': 0, 'library': 0, 'written': 0, 'multi_inferred': 1, 'dispatch': 2, 'defines': 3, 'by-name': 9}
+
+def die(msg, code=2): print(msg); sys.exit(code)
+
+# ── the graph ────────────────────────────────────────────────────────────────────────────────────────────────────
+class G:
+    def __init__(self, repo):
+        self.repo = os.path.realpath(repo or '.')
+        gdir = os.environ.get('AXIOMCODE_GRAPH') or os.path.join(self.repo, '.axiomcode')
+        self.db = os.path.join(gdir, 'out', 'graph.sqlite')
+        if not os.path.exists(self.db): die(f"no graph at {self.db} — run `axiomcode index {self.repo}` first")
+        self.con = sqlite3.connect(self.db); self.con.row_factory = sqlite3.Row
+        if not self.has('symbols'): die(f"{self.db} has no index — run `axiomcode index {self.repo}`")
+        self.sym = {r['id']: dict(r) for r in self.q("SELECT * FROM symbols WHERE method_id IS NOT NULL OR type_id IS NOT NULL")}
+        for r in self.q("SELECT DISTINCT m.id, m.qualified_name q FROM call_edges e JOIN methods m ON m.id = e.callee_method_id WHERE e.tier = 'boundary_lib' AND m.provenance <> 'client'"):
+            self.sym.setdefault(r['id'], {'id': r['id'], 'display': r['q'], 'file': '<library>', 'line': None, 'end_line': None, 'kind': 'library', 'owner': r['q'].rsplit('.', 1)[0], 'is_test': 0, 'name': r['q'].rsplit('.', 1)[-1], 'method_id': r['id']})
+        self.facts = os.path.join(gdir, 'out', 'dl')
+        self.callers_ids = {r['caller_id'] for r in self.q("SELECT DISTINCT caller_id FROM call_edges")}   # a type whose field initializers call: a node too
+    def q(self, s, *p): return self.con.execute(s, p).fetchall()
+    def has(self, t): return bool(self.q("SELECT 1 FROM sqlite_master WHERE name=?", t))
+    def loc(self, i):
+        r = self.sym.get(i)
+        return f"{r['file']}:{r['line']}" if r and r['line'] else (({'<library>': 'library', '<written>': 'as written, unresolved'}.get(r['file'], r['file'])) if r else '?')
+    def disp(self, i):
+        r = self.sym.get(i); return r['display'] if r else i
+
+    # ── endpoints: exact, or a short list of what is close ───────────────────────────────────────────────────
+    IN = None
+    def resolve(self, sel):
+        """-> (label, [method symbol ids]) or dies with the near misses. Same rules for every language."""
+        label, ids = self._resolve(sel)
+        if self.IN and not all(self.sym[i]['kind'] in ('library', 'written') for i in ids):        # a library endpoint has no file; --in applies to the other end
+            kept = [i for i in ids if self.IN in (self.sym[i]['file'] or '')]
+            if not kept: die(f"{label}: none of its {len(ids)} declaration(s) is under *{self.IN}*")
+            if len(kept) < len(ids): label += f" [{len(kept)} under *{self.IN}*]"
+            ids = kept
+        return label, ids
+    def _resolve(self, sel):
+        s = sel.strip().strip('`"\'')
+        m = re.match(r'^(.+?):(\d+)$', s)
+        if m and ('/' in m.group(1) or '.' in m.group(1)):                            # file:line → the method containing it
+            f, ln = m.group(1).lstrip('/'), int(m.group(2))
+            # the smallest callable(s) spanning the line — several when they share it (`class Item { run(){} tag(){} }`);
+            # top-level code belongs to the file's module node, which is a caller like any other
+            r = self.q("SELECT id, end_line - line AS span FROM symbols WHERE (file = ? OR file LIKE ?) AND line <= ? AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY span", f, f"%/{f}", ln, ln)
+            if r: ids = [x['id'] for x in r if x['span'] == r[0]['span']]; return (f"{self.disp(ids[0])} (at {s})" if len(ids) == 1 else f"{len(ids)} callables at {s}"), ids
+            r = self.q("SELECT id FROM symbols WHERE (file = ? OR file LIKE ?) AND kind = 'module' AND method_id IS NOT NULL LIMIT 1", f, f"%/{f}")
+            if r: return f"{self.disp(r[0]['id'])} (top-level code at {s})", [r[0]['id']]
+            die(f"no callable spans {s}")
+        if s.startswith('@') and self.has('decorations'):                                # @GetMapping / @*Mapping / @Test → every method carrying it
+            pat = s[1:].replace('*', '%')
+            r = self.q("SELECT DISTINCT d.owner_id AS id FROM decorations d JOIN symbols x ON x.id = d.owner_id WHERE x.method_id IS NOT NULL AND (d.name LIKE ? OR d.name LIKE ?)", pat, f"%.{pat}")
+            if r: return f"{s} ({len(r)} methods)", [x['id'] for x in r]
+            near = self.q("SELECT name, count(*) n FROM decorations GROUP BY name ORDER BY n DESC LIMIT 8")
+            die(f"no method carries {s}. Decorations in this graph: " + ', '.join(f"@{x['name']} ({x['n']})" for x in near))
+        if re.search(r'\.(ts|tsx|js|mjs|cjs|py|java)$', s):                             # a file → every method in it
+            r = self.q("SELECT id FROM symbols WHERE (file = ? OR file LIKE ?) AND method_id IS NOT NULL AND kind <> 'module'", s.lstrip('/'), f"%/{s.lstrip('/')}")
+            if r: return f"{s} ({len(r)} methods)", [x['id'] for x in r]
+            die(f"no methods in a file named {s}")
+        # the name as the agent writes it, normalised: Outer$Inner.m, Outer.Inner#m, m(int,String), pkg.Outer.Inner.m are all
+        # Outer.Inner.m. Java's parser names a nested type without its outer (#667) and the index recovers most of them, so the
+        # same name is tried with leading segments dropped — Outer.Inner.m, then Inner.m — against display AND qualified name,
+        # exact first, then as a dotted suffix. The label says which form matched when it was not the one written.
+        s = re.sub(r'\(.*\)$', '', s).replace('#', '.').strip('.')
+        # Outer$Inner.m and Outer$1.m: the type is looked up STRUCTURALLY through the nesting table — Inner declared (at any
+        # depth) inside Outer, or the 1st/2nd… anonymous class inside Outer in source order, as javac numbers them
+        mn = re.match(r'^(.*?)([\w.]+)\$([\w$]+)\.(\w+)$', s)
+        if mn and self.has('nesting'):
+            outer, inner, mem = mn.group(2).split('.')[-1], mn.group(3), mn.group(4)
+            ids = self.nested_methods(outer, inner, mem)
+            if ids: return f"{s} (nested in {outer}: {len(ids)} declaration(s))", ids
+            die(self.nested_miss(outer, inner, mem, s))
+        s = s.replace('$', '.')
+        parts = s.split('.'); rows = []; used = s
+        # an owner the agent WROTE is never dropped: Owner.m that does not exist is a miss, not a search for any `m`
+        for k in range(max(1, len(parts) - 1)):
+            cand = '.'.join(parts[k:])
+            rows = self.q("SELECT id, kind, display, type_id, method_id FROM symbols WHERE display = ? OR qualified_name = ? OR qualified_name LIKE ?", cand, cand, f"%.{cand}")
+            if not rows: rows = self.q("SELECT id, kind, display, type_id, method_id FROM symbols WHERE display LIKE ? OR display LIKE ?", f"%.{cand}", f"%#{cand}")
+            if rows: used = cand; break
+        exact = [r for r in rows if r['display'] == used or (r['display'] or '').endswith('.' + used) and r['display'].count('.') == used.count('.') + 1] or rows
+        methods = [r['id'] for r in exact if r['method_id'] and r['kind'] != 'module']
+        types = [r for r in exact if r['type_id'] and not r['method_id']]
+        via = '' if used == s else f" (matched as {used})"
+        if methods and not types: return (s if len(methods) == 1 else f"{s} ({len(methods)} declarations)") + via, methods
+        if types:                                                                        # a type → the methods it declares (+ its initializer node if it has one)
+            ids = []
+            for t in types:
+                ids += [r['id'] for r in self.q("SELECT id FROM symbols WHERE owner = ? AND method_id IS NOT NULL", t['display'])]
+                if t['id'] in self.callers_ids: ids.append(t['id'])
+            if ids: return f"{s} (type: {len(ids)} methods){via}", ids
+            die(f"{s} is a type with no methods in the graph")
+        if '.' not in s:                                                                 # a bare name → that method under any owner, or a free function
+            r = self.q("SELECT id FROM symbols WHERE name = ? AND method_id IS NOT NULL AND kind <> 'module'", s)
+            if r: return (s if len(r) == 1 else f"{s} ({len(r)} declarations, any owner)"), [x['id'] for x in r]
+        # not declared in the client code: a JDK / dependency method the code calls into (staged with --library), or the same
+        # call as the parser wrote it down at an unresolved site (no staging needed) — a client declaration always wins over both
+        lib = self.library(s)
+        if lib: return lib
+        w = self.written(s)
+        if w: return w
+        t = self.type_use(s)                                                              # a type the code USES but does not declare: File, Path, Socket
+        if t: return t
+        near = self.q("SELECT DISTINCT display FROM symbols WHERE (method_id IS NOT NULL OR type_id IS NOT NULL) AND (lower(display) = lower(?) OR lower(name) = lower(?) OR display LIKE ?) LIMIT 6", s, s.split('.')[-1], f"%{s.split('.')[-1]}%")
+        die(f"nothing named '{s}' in the graph" + (". Exact names that are close: " + ', '.join(r['display'] for r in near) if near else '') + "\n  use one of them as written, or file:line")
+
+    def nested_methods(self, outer, inner, mem):
+        """methods named mem on the type(s) `inner` nested inside a type named `outer` — inner = a name (Inner, or Inner$Deeper
+        as a chain) or an ordinal (1, 2 …: the n-th anonymous class in the outer, by source line)"""
+        outers = [r['type_id'] for r in self.q("SELECT type_id FROM symbols WHERE type_id IS NOT NULL AND (display = ? OR display LIKE ? OR name = ?)", outer, f"%.{outer}", outer)]
+        if inner.isdigit() and self.q("SELECT 1 FROM symbols WHERE type_id IN (%s) AND kind = 'enum'" % ','.join('?' * len(outers)), *outers):
+            # an enum: javac's Enum$N is the N-th constant that declares a body, in declaration order; the parser keeps each
+            # body's methods under the owner Enum.CONSTANT (no type row), so the constants are read off the methods
+            ed = self.q("SELECT display FROM symbols WHERE type_id IN (%s) AND kind = 'enum'" % ','.join('?' * len(outers)), *outers)[0]['display']
+            consts = self.q("SELECT owner, min(line) l FROM symbols WHERE owner LIKE ? AND method_id IS NOT NULL AND owner <> ? GROUP BY owner ORDER BY l", f"{ed}.%", ed)
+            consts = [c['owner'] for c in consts if c['owner'].count('.') == ed.count('.') + 1]
+            if len(consts) >= int(inner):
+                return [r['id'] for r in self.q("SELECT id FROM symbols WHERE owner = ? AND name = ? AND method_id IS NOT NULL", consts[int(inner) - 1], mem)]
+            return []
+        for part in inner.split('$'):
+            nxt = []
+            for o in outers:
+                kids = self.q("SELECT s.type_id, s.display, s.name, s.line FROM nesting n JOIN symbols s ON s.type_id = n.type_id WHERE n.outer_type_id = ? ORDER BY s.line", o)
+                if part.isdigit():
+                    anon = [k for k in kids if '<anon' in (k['display'] or '')]
+                    if len(anon) >= int(part): nxt.append(anon[int(part) - 1]['type_id'])
+                else: nxt += [k['type_id'] for k in kids if k['name'] == part or (k['display'] or '').endswith('.' + part)]
+            outers = nxt
+            if not outers: return []
+        ids = []
+        for t in outers:
+            disp = self.q("SELECT display FROM symbols WHERE type_id = ? LIMIT 1", t)[0]['display']
+            ids += [r['id'] for r in self.q("SELECT id FROM symbols WHERE owner = ? AND name = ? AND method_id IS NOT NULL", disp, mem)]
+        return ids
+
+    def library(self, s):
+        """a library method as an endpoint — `java.nio.file.Files.readAllBytes`, `Files.readAllBytes`, `new ArrayList` /
+        `ArrayList.ArrayList`, `Files.*` — resolved against the methods the client code actually calls into
+        (boundary_lib edges), never against a library's whole surface. Its id is a node with in-edges only."""
+        m = re.match(r'^new\s+([\w.]+)$', s)
+        if m: s = m.group(1) + '.' + m.group(1).split('.')[-1]
+        star = s.endswith('.*'); base = s[:-2] if star else s
+        rows = self.q("""SELECT DISTINCT m.id, m.qualified_name q FROM call_edges e JOIN methods m ON m.id = e.callee_method_id
+                         WHERE e.tier = 'boundary_lib' AND m.provenance <> 'client' AND (m.qualified_name = ? OR m.qualified_name LIKE ? OR m.qualified_name LIKE ? OR m.qualified_name LIKE ?)""",
+                      base, f"%.{base}", f"{base}.%" if star else base, f"%.{base}.%" if star else base)
+        if not rows: return None
+        if not star:                                                                          # exact tail only: Files.readAllBytes, not Files.readAllBytesX
+            rows = [r for r in rows if r['q'] == base or r['q'].endswith('.' + base)]
+            if not rows: return None
+        for r in rows: self.sym.setdefault(r['id'], {'id': r['id'], 'display': r['q'], 'file': '<library>', 'line': None, 'end_line': None, 'kind': 'library', 'owner': r['q'].rsplit('.', 1)[0], 'is_test': 0, 'name': r['q'].rsplit('.', 1)[-1], 'method_id': r['id']})
+        return (f"{s} (library" + (f": {len(rows)} methods" if len(rows) > 1 else '') + ")"), [r['id'] for r in rows]
+    EXTRA = []                                                                            # per-query edges into written nodes
+    def written(self, s):
+        """the call as written at UNRESOLVED sites: `new ArrayList` (kind new), `readAllBytes` (any receiver),
+        `Files.readAllBytes` (a receiver named Files referenced on the same line), `Files.*`. Every such site's caller gets an
+        edge into a node named by the written form, tier 'written' — the receiver was not typed, so this is by name."""
+        m = re.match(r'^new\s+([\w.]+)$', s)
+        kind, recv, name, star = ('new', None, m.group(1).split('.')[-1], False) if m else (None, None, None, False)
+        if not m:
+            parts = s.split('.'); name = parts[-1]; recv = parts[-2] if len(parts) > 1 else None; star = name == '*'
+        if star and not recv: return None
+        CTOR = ('new', 'anon_new', 'CONSTRUCTOR_CALL')                                    # the parsers' constructor-call kinds; Python has none (a class call is a call)
+        has_ctor = bool(self.q("SELECT 1 FROM call_sites WHERE kind IN (%s) LIMIT 1" % ','.join('?' * len(CTOR)), *CTOR))
+        ph = ','.join(f"'{k}'" for k in CTOR)
+        sql = """SELECT cs.id, cs.caller_id, cs.kind, cs.callee_name, cs.file_path, cs.start_line FROM call_sites cs JOIN unresolved_sites u ON u.call_site_id = cs.id
+                 WHERE 1=1""" + ((f" AND cs.kind IN ({ph})" if kind == 'new' else f" AND cs.kind NOT IN ({ph})") if has_ctor and not star else '') + ("" if star else " AND cs.callee_name = ?")
+        rows = self.q(sql, *([] if star else [name]))
+        if recv:                                                                          # Files.readAllBytes: the receiver is written before the name on that line
+            keep = []; cache = {}
+            for r in rows:
+                f = self.site_file(r['file_path']); hit = self.has('refs') and self.q("SELECT 1 FROM refs WHERE name = ? AND line = ? AND (file = ? OR file LIKE ?) LIMIT 1", recv, r['start_line'], f, f"%/{f}")
+                if not hit:                                                               # the parser may not record the receiver as a reference (a module in Python): read the line
+                    try:
+                        if f not in cache: cache[f] = open(os.path.join(self.repo, f), errors='replace').read().split('\n')
+                        L = cache[f]; hit = r['start_line'] <= len(L) and re.search(rf'\b{re.escape(recv)}\s*\.\s*{re.escape(name if not star else "")}', L[r['start_line'] - 1]) is not None
+                    except OSError: hit = False
+                if hit: keep.append(r)
+            rows = keep
+        if not rows: return None
+        node = f"w:{s}"; callers = {r['caller_id'] for r in rows}
+        self.sym[node] = {'id': node, 'display': s, 'file': '<written>', 'line': None, 'end_line': None, 'kind': 'written', 'owner': recv or '', 'is_test': 0, 'name': name, 'method_id': node}
+        self.EXTRA += [(c, node, 'written') for c in callers]
+        self.SITES = getattr(self, 'SITES', {}); self.SITES[node] = rows
+        return f"`{s}` as written at {len(rows)} unresolved call site(s) in {len(callers)} method(s) — receiver not typed, matched by name", [node]
+    def type_use(self, s):
+        """a type the code uses without declaring it (java.io.File, pathlib.Path): every place it is touched, as one endpoint —
+        constructor calls written `new T` (unresolved sites), the library methods of T when staged, and the methods whose body
+        references T where the parser gives a line (type references / identifier references). Java type references carry no
+        line, so there the constructor calls and identifier uses are what is found; the answer says which kinds were matched."""
+        name = s.split('.')[-1]; ids = []; parts = []
+        w = self.written('new ' + name)
+        if w: ids += w[1]; parts.append(f"new {name} at {len(self.SITES[w[1][0]])} site(s)")
+        lib = self.library(s + '.*') if '.' in s else self.library(name + '.*')
+        if lib: ids += lib[1]; parts.append(f"{len(lib[1])} library method(s) of {s}")
+        callers = set()
+        if self.has('type_refs'):
+            for r in self.q("SELECT file, line FROM type_refs WHERE name = ? AND line > 0", name):
+                e = self.q("SELECT id FROM symbols WHERE file = ? AND line <= ? AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY (end_line - line) LIMIT 1", r['file'], r['line'], r['line'])
+                if e: callers.add(e[0]['id'])
+        if self.has('refs'):
+            for r in self.q("SELECT file, line FROM refs WHERE name = ? AND line > 0", name):
+                e = self.q("SELECT id FROM symbols WHERE file = ? AND line <= ? AND end_line >= ? AND method_id IS NOT NULL AND kind <> 'module' ORDER BY (end_line - line) LIMIT 1", r['file'], r['line'], r['line'])
+                if e: callers.add(e[0]['id'])
+        if callers:
+            node = f"t:{s}"
+            self.sym[node] = {'id': node, 'display': f"uses of type {s}", 'file': '<written>', 'line': None, 'end_line': None, 'kind': 'written', 'owner': '', 'is_test': 0, 'name': name, 'method_id': node}
+            self.EXTRA += [(c, node, 'written') for c in callers]; self.SITES = getattr(self, 'SITES', {}); self.SITES[node] = [{'caller_id': c, 'file_path': self.sym[c]['file'], 'start_line': self.sym[c]['line']} for c in callers]
+            ids.append(node); parts.append(f"referenced by name in {len(callers)} method(s)")
+        if not ids: return None
+        return f"type {s} (not declared here; matched: " + ', '.join(parts) + ")", ids
+    def nested_miss(self, outer, inner, mem, s):
+        """why Outer$Inner.m did not resolve: which of the three parts is wrong, with the exact alternatives"""
+        outers = self.q("SELECT type_id, display FROM symbols WHERE type_id IS NOT NULL AND (display = ? OR display LIKE ? OR name = ?)", outer, f"%.{outer}", outer)
+        if not outers: return f"no type named {outer} in the graph"
+        kids = [k for o in outers for k in self.q("SELECT s.display, s.line FROM nesting n JOIN symbols s ON s.type_id = n.type_id WHERE n.outer_type_id = ? ORDER BY s.line", o['type_id'])]
+        first = inner.split('$')[0]
+        if first.isdigit():
+            anon = [k for k in kids if '<anon' in (k['display'] or '')]
+            if len(anon) < int(first): return f"{outer} has {len(anon)} anonymous class(es)" + (": " + ', '.join(f"{k['display']} (L{k['line']})" for k in anon) if anon else '') + f" — no ${first}"
+        elif not any(k['display'].endswith('.' + first) for k in kids):
+            return f"{outer} declares no nested type {first}" + (f"; it nests: " + ', '.join(k['display'].split('.')[-1] for k in kids[:8]) if kids else " and nests nothing")
+        tdisp = [k['display'] for k in kids if k['display'].endswith('.' + first) or (first.isdigit() and '<anon' in k['display'])]
+        ms = [r['name'] for d in tdisp for r in self.q("SELECT name FROM symbols WHERE owner = ? AND method_id IS NOT NULL", d)]
+        return f"{'.'.join(tdisp[:1]) or outer + '.' + inner} has no method {mem}; it declares: " + ', '.join(sorted(set(ms))[:12])
+    def library_calls(self, ids, cap=10):
+        """the library / platform methods these methods call (boundary_lib edges) — the ends of the client graph, listed, never traversed"""
+        if not ids: return []
+        rows = self.q(f"""SELECT COALESCE(m.qualified_name, e.callee_label) AS lib, count(*) n FROM call_edges e LEFT JOIN methods m ON m.id = e.callee_method_id
+                         WHERE e.caller_id IN ({','.join('?' * len(ids))}) AND e.tier = 'boundary_lib' AND COALESCE(m.qualified_name, e.callee_label) IS NOT NULL
+                         GROUP BY lib ORDER BY n DESC""", *ids)
+        return [(r['lib'], r['n']) for r in rows][:cap]
+    def site_file(self, raw):
+        """a call site's file as the repo sees it: Java bundles store absolute paths; the index's paths table maps them"""
+        if self.has('paths'):
+            r = self.q("SELECT rel FROM paths WHERE raw = ?", raw)
+            if r: return r[0]['rel']
+        return os.path.relpath(raw, self.repo) if os.path.isabs(raw) and raw.startswith(self.repo) else raw
+
+    # ── facts: exported once per graph, reused while graph.sqlite is unchanged ───────────────────────────────
+    def export(self):
+        stamp = os.path.join(self.facts, 'stamp'); want = str(os.path.getmtime(self.db))
+        if os.path.exists(stamp) and open(stamp).read() == want: return
+        os.makedirs(self.facts, exist_ok=True)
+        edges = [(r['caller_id'], r['callee_method_id'], r['tier']) for r in self.q("SELECT caller_id, callee_method_id, tier FROM call_edges WHERE callee_method_id IS NOT NULL AND callee_provenance = 'client'")]
+        # calls into libraries: an edge to a terminal node (a library method has no out-edges here — nothing is inferred about its
+        # body), so `path '*' java.nio.file.Files.readAllBytes` can ask who reaches that library call
+        edges += [(r['caller_id'], r['callee_method_id'], 'library') for r in self.q("SELECT DISTINCT caller_id, callee_method_id FROM call_edges WHERE tier = 'boundary_lib' AND callee_method_id IS NOT NULL")]
+        # a callable defined inside another one's body: nobody calls it by name, but it runs only after its definer did
+        byfile = collections.defaultdict(list)
+        for r in self.sym.values():
+            if r['method_id'] and r['kind'] != 'module' and r['line'] and r['end_line']: byfile[r['file']].append((r['line'], -r['end_line'], r['id']))
+        for rows in byfile.values():
+            rows.sort(); st = []
+            for ln, neg, i in rows:
+                while st and st[-1][1] < -neg: st.pop()
+                if st and st[-1][2] != i: edges.append((st[-1][2], i, 'defines'))
+                st.append((ln, -neg, i))
+        # a call resolved to a base may run any instantiated override: the engine's own dispatch table
+        if self.has('dispatch_candidates'):
+            disp = {(r[0], r[1]) for r in self.q("""SELECT DISTINCT dc.base_method_id, dc.candidate_method_id FROM dispatch_candidates dc JOIN methods m ON m.id = dc.candidate_method_id
+                WHERE m.provenance = 'client' AND dc.base_method_id <> dc.candidate_method_id
+                AND (m.owner_type_id IS NULL OR m.owner_type_id IN (SELECT type_id FROM type_instantiated) OR NOT EXISTS (SELECT 1 FROM type_instantiated))""")}
+            # a hop from a base method to one of its overrides is a dispatch choice whatever tier the engine stored on it (over the
+            # fan cap it emits base → candidate rows, #664): label it so, then add the candidates the edge rows do not carry
+            have = {(a, b) for a, b, _ in edges}
+            edges = [(a, b, 'dispatch' if (a, b) in disp else t) for a, b, t in edges] + [(a, b, 'dispatch') for a, b in disp if (a, b) not in have]
+        self.write('edge', edges)
+        self.write('byname', [(r[0], r[1]) for r in self.q("SELECT DISTINCT s.caller_id, s.callee_name FROM call_sites s JOIN unresolved_sites u ON u.call_site_id = s.id WHERE s.callee_name IS NOT NULL AND s.callee_name <> ''")])
+        self.write('named', [(r['name'], r['id']) for r in self.sym.values() if r['method_id'] and r['kind'] != 'module' and r['name']])
+        open(stamp, 'w').write(want)
+    def write(self, name, rows, d=None):
+        with open(os.path.join(d or self.facts, name + '.facts'), 'w') as f:
+            for r in rows: f.write('\t'.join(str(x) for x in r) + '\n')
+    def edges(self):
+        return [tuple(l.rstrip('\n').split('\t')) for l in open(os.path.join(self.facts, 'edge.facts'))] + list(self.EXTRA)
+
+# ── run Soufflé for a set of queries: {q: (src_ids, dst_ids)} ───────────────────────────────────────────────────
+def run_dl(g, queries):
+    if not shutil.which('souffle'): die("souffle is not installed (brew install souffle-lang/souffle/souffle)")
+    F = tempfile.mkdtemp(prefix='axpath-'); O = tempfile.mkdtemp(prefix='axpath-out-')
+    for n in ('byname', 'named'): os.symlink(os.path.join(g.facts, n + '.facts'), os.path.join(F, n + '.facts'))
+    if g.EXTRA:
+        shutil.copy(os.path.join(g.facts, 'edge.facts'), os.path.join(F, 'edge.facts'))
+        with open(os.path.join(F, 'edge.facts'), 'a') as f:
+            for a, b, t in g.EXTRA: f.write(f"{a}\t{b}\t{t}\n")
+    else: os.symlink(os.path.join(g.facts, 'edge.facts'), os.path.join(F, 'edge.facts'))
+    g.write('src', [(q, m) for q, (s, _) in queries.items() for m in s], F)
+    g.write('dst', [(q, m) for q, (_, d) in queries.items() for m in d], F)
+    r = subprocess.run(['souffle', '-F', F, '-D', O, DL], capture_output=True, text=True)
+    if r.returncode: die("souffle failed:\n" + r.stderr[-800:])
+    out = {}
+    for n in ('hit', 'parent', 'hit_opt', 'parent_opt', 'between_edge', 'dist_up', 'dist'):
+        rows = collections.defaultdict(list)
+        for l in open(os.path.join(O, n + '.csv')):
+            p = l.rstrip('\n').split('\t'); rows[p[0]].append(p[1:])
+        out[n] = rows
+    shutil.rmtree(F, ignore_errors=True); shutil.rmtree(O, ignore_errors=True)
+    return out
+
+def read_back(parent, q, end, srcs):
+    """one chain src → … → end from the parent relation, preferring the most certain tier at every hop;
+    each element is (node, tier of the hop INTO it), the source's tier None"""
+    par = collections.defaultdict(list)
+    for b, a, t in parent[q]: par[b].append((TIER_RANK.get(t, 5), a, t))
+    out = []; cur = end; seen = {end}
+    while cur not in srcs:
+        opts = sorted(x for x in par.get(cur, []) if x[1] not in seen)
+        if not opts: return None
+        _, a, t = opts[0]; out.append((cur, t)); cur = a; seen.add(a)
+    out.append((cur, None))
+    return out[::-1]
+
+# ── verification: the printed hops against graph.sqlite, and the length against a second implementation ────────
+def verify(g, chain, srcs, dst, adj):
+    hops = [(chain[i][0], chain[i + 1][0], chain[i + 1][1]) for i in range(len(chain) - 1)]
+    edge_set = getattr(g, '_edge_set', None)
+    if edge_set is None: edge_set = g._edge_set = {(a, b): t for a, b, t in g.edges()}
+    bad = [h for h in hops if edge_set.get((h[0], h[1])) != h[2]]
+    for a, b, t in hops:                                                     # a resolved hop must exist as an engine edge, not only as a fact we wrote
+        if t in ('known_edge', 'multi_inferred') and not g.q("SELECT 1 FROM call_edges WHERE caller_id = ? AND callee_method_id = ? AND tier = ? LIMIT 1", a, b, t): bad.append((a, b, t))
+        if t == 'library' and not g.q("SELECT 1 FROM call_edges WHERE caller_id = ? AND callee_method_id = ? AND tier = 'boundary_lib' LIMIT 1", a, b): bad.append((a, b, t))
+        if t == 'written' and not any(r['caller_id'] == a for r in getattr(g, 'SITES', {}).get(b, [])): bad.append((a, b, t))
+    # plain BFS over the same facts: the second implementation must agree on the shortest length
+    seen = {s: 0 for s in srcs}; fr = list(srcs); d = 0; found = None
+    while fr and found is None:
+        d += 1; nxt = []
+        for x in fr:
+            for y in adj.get(x, ()):
+                if y not in seen: seen[y] = d; nxt.append(y)
+                if y == dst: found = d
+        fr = nxt
+    if dst in srcs: found = 0
+    return bad, found
+
+def every_route(g, res, q, srcs, dsts, max_paths, adj):
+    """the subgraph of every method on ANY chain from a source to a target, and the simple paths through it (bounded)"""
+    E = collections.defaultdict(list); nodes = set()
+    for a, b, t in res['between_edge'][q]: E[a].append((b, t)); nodes.add(a); nodes.add(b)
+    if not nodes: return
+    print(f"  every route: {len(nodes)} methods and {sum(len(v) for v in E.values())} calls lie on some chain from a source to a target")
+    byfile = collections.Counter(g.sym[n]['file'] for n in nodes if n in g.sym)
+    print("    files: " + ', '.join(f"{f} ({n})" for f, n in byfile.most_common(10)) + (f" … +{len(byfile) - 10}" if len(byfile) > 10 else ''))
+    # enumerate simple paths, shortest first, up to max_paths — each one re-checked against the edge set like the nearest chain
+    out = []; edge_set = {(a, b): t for a, b, t in g.edges()}
+    starts = sorted(n for n in nodes if n in srcs); ends = {n for n in nodes if n in dsts}
+    import heapq
+    pq = [(0, i, [s0], None) for i, s0 in enumerate(starts)]; cnt = len(starts)
+    while pq and len(out) < max_paths:
+        d, _, pth, _ = heapq.heappop(pq)
+        if pth[-1] in ends and len(pth) > 1: out.append(pth); continue
+        if pth[-1] in ends and len(pth) == 1 and pth[-1] in dsts and len(starts) == 1: pass
+        for b, t in E.get(pth[-1], []):
+            if b in pth: continue                                   # simple: no node twice
+            cnt += 1; heapq.heappush(pq, (d + 1, cnt, pth + [b], t))
+    print(f"  {len(out)} simple path(s)" + (f" (first {max_paths}; --paths N for more)" if len(pq) and len(out) >= max_paths else '') + ", shortest first:")
+    for pth in out:
+        hops = [(pth[i], pth[i + 1]) for i in range(len(pth) - 1)]
+        bad = [h for h in hops if h not in edge_set]
+        print(f"    {len(hops)} hop(s): " + ' → '.join((f"[{edge_set[(pth[i-1], n)]}] " if i and edge_set.get((pth[i-1], n)) not in ('known_edge', None) else '') + g.disp(n) for i, n in enumerate(pth)) + ("   ✗ hop not in graph" if bad else ''))
+
+def print_chain(g, chain):
+    lines = [f"    {g.disp(chain[0][0])}   {g.loc(chain[0][0])}"]
+    for n, t in chain[1:]:
+        mark = '' if t == 'known_edge' else f" [{t}]"
+        lines.append(f"      →{mark} {g.disp(n)}   {g.loc(n)}")
+    return '\n'.join(lines)
+
+# ── one endpoint: everything upstream of X (who can reach it) or downstream (what it can reach) ──────────────────
+def closure(g, sel, upstream, limit=40, depth=40):
+    g.export(); label, ids = g.resolve(sel)
+    res = run_dl(g, {'c': (ids if not upstream else [], ids if upstream else [])})
+    rows = [(m, int(d)) for m, d in (res['dist_up'] if upstream else res['dist'])['c'] if 0 < int(d) <= depth and m in g.sym]
+    if g.IN: rows = [(m, d) for m, d in rows if g.IN in (g.sym[m]['file'] or '')]        # --in: only the part of the closure under that path
+    if not upstream: rows = [(m, d) for m, d in rows if g.sym[m]['kind'] not in ('library', 'written')]    # downstream: library ends are listed separately, not counted as reached methods
+    # second implementation: a plain BFS over the same facts, in the same direction, must give the same set and depths
+    adj = collections.defaultdict(set)
+    for a, b, _ in g.edges(): (adj[b].add(a) if upstream else adj[a].add(b))
+    seen = {i: 0 for i in ids}; fr = list(ids); d = 0
+    while fr:
+        d += 1; nxt = []
+        for x in fr:
+            for y in adj.get(x, ()):
+                if y not in seen: seen[y] = d; nxt.append(y)
+        fr = nxt
+    bfs = {m: dd for m, dd in seen.items() if 0 < dd <= depth and m in g.sym and (not g.IN or g.IN in (g.sym[m]['file'] or '')) and (upstream or g.sym[m]['kind'] not in ('library', 'written'))}
+    agree = bfs == dict(rows)
+    word = 'can reach' if upstream else 'is reached from'
+    print(f"{'everything that ' + word + ' ' if upstream else 'everything reached from '}{label}: {len(rows)} method(s) in {len({g.sym[m]['file'] for m, _ in rows})} file(s)" + (" through resolved calls" if rows else '') + (f" within {depth} hop(s)" if depth < 40 else ''))
+    if not upstream:
+        libs = g.library_calls(ids)
+        if libs: print("  it calls into libraries directly (not traversed — where the client graph ends): " + ', '.join(f"{l} ×{n}" if n > 1 else l for l, n in libs))
+    if not rows:
+        u = g.q(f"SELECT count(*) n FROM unresolved_sites WHERE caller_id IN ({','.join('?' * len(ids))})", *ids)[0]['n'] if not upstream else 0
+        print("  none — " + ("its body has %d unresolved call(s), so what it reaches is unknown, not nothing" % u if not upstream and u else "no resolved call " + ("into it; " if upstream else "out of it; ") + "an unresolved site elsewhere may still " + ("call it" if upstream else "be it")))
+        return 1
+    byhop = collections.Counter(d for _, d in rows); print("  by hop: " + ', '.join(f"{d}:{n}" for d, n in sorted(byhop.items())))
+    byfile = collections.Counter(g.sym[m]['file'] for m, _ in rows); print("  files: " + ', '.join(f"{f} ({n})" for f, n in byfile.most_common(12)) + (f" … +{len(byfile) - 12}" if len(byfile) > 12 else ''))
+    if upstream and ids and g.sym[ids[0]]['kind'] == 'written':
+        sites = g.SITES[ids[0]]
+        print("  the sites, as written: " + ', '.join(f"{g.site_file(r['file_path'])}:{r['start_line']}" for r in sites[:8]) + (f" … +{len(sites) - 8}" if len(sites) > 8 else ''))
+    if upstream:
+        # the ends of the chains: tests, main, request handlers and other entry points among the callers — where a change
+        # is observed from. A decoration (@GetMapping, @Test…) is read from the index when it has one
+        # the ends of the chains: methods NOTHING resolved calls (the framework, a test runner, main, a reflective caller — whatever
+        # it is, it is outside the graph) and tests. One criterion in every language; a decoration is shown as information only
+        decs = {}
+        if g.has('decorations'):
+            for r in g.q("SELECT owner_id, name FROM decorations WHERE owner_id IN (%s)" % ','.join('?' * len(rows)), *[m for m, _ in rows]): decs.setdefault(r['owner_id'], []).append(r['name'].split('.')[-1])
+        ent = [(m, d) for m, d in rows if not adj.get(m) or g.sym[m]['is_test']]
+        ent.sort(key=lambda x: (x[1], g.sym[x[0]]['display']))
+        print(f"  entry points among them ({len(ent)}: nothing resolved calls them — the caller is outside the graph — or a test), nearest first:")
+        for m, d in ent[:limit]:
+            tag = (' [test]' if g.sym[m]['is_test'] else '') + (' @' + ','.join(decs[m][:3]) if m in decs else '')
+            print(f"    {d:2} hop(s)  {g.disp(m)}{tag}   {g.loc(m)}")
+        if len(ent) > limit: print(f"    … +{len(ent) - limit} (--limit N)")
+    else:
+        print(f"  nearest first:")
+        for m, d in sorted(rows, key=lambda x: (x[1], g.sym[x[0]]['display']))[:limit]: print(f"    {d:2} hop(s)  {g.disp(m)}   {g.loc(m)}")
+        if len(rows) > limit: print(f"    … +{len(rows) - limit} (--limit N)")
+    # bound: unresolved sites on the way
+    u = g.q(f"SELECT count(*) n FROM unresolved_sites WHERE caller_id IN ({','.join('?' * (len(rows) + len(ids)))})", *[m for m, _ in rows], *ids)[0]['n']
+    print(f"  verified: a plain BFS over the same facts gives the same {len(rows)} methods at the same depths" if agree else f"  ✗ BFS disagrees with Datalog ({len(bfs)} vs {len(rows)}) — report this")
+    if u: print(f"  bound: {u} unresolved call(s) inside these methods — the set is a lower bound; `path <one of them> {sel}` for the chain")
+    print(f"  (chain from any one of them: path <that method> {sel}" + (")" if upstream else " — or the reverse)"))
+    return 0
+
+# ── the query ────────────────────────────────────────────────────────────────────────────────────────────────────
+def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
+    g.export()
+    la, A = g.resolve(a); lb, B = g.resolve(b)
+    res = run_dl(g, {'fwd': (A, B), 'rev': (B, A)})
+    adj = collections.defaultdict(set)
+    for x, y, _ in g.edges(): adj[x].add(y)
+    A_, B_ = set(A), set(B)
+    for q, srcs, dsts, word in (('fwd', A_, B_, f"{la} → {lb}"), ('rev', B_, A_, f"{lb} → {la}  (the reverse direction)")):
+        hits = sorted(res['hit'][q], key=lambda h: int(h[1]))
+        if not hits: continue
+        print(f"{word}: {len(hits)} of {len(dsts)} target(s) reached through resolved calls; nearest at {hits[0][1]} hop(s)")
+        if len(hits) > limit and not show_all:
+            # a name declared under many owners (close · toString · run): say WHICH owners' declarations are reached and how far,
+            # then print the nearest chains only; the rest is one more call away
+            own = collections.OrderedDict()
+            for m, d in hits: own.setdefault(g.sym[m]['owner'] or os.path.basename(g.sym[m]['file'] or '?'), []).append(int(d))
+            print(f"  reached under {len(own)} owner(s), nearest first: " + ', '.join(f"{o} ({min(ds)} hop{'s' if min(ds) != 1 else ''})" for o, ds in list(own.items())[:12]) + (f" … +{len(own) - 12}" if len(own) > 12 else ''))
+            print(f"  the {limit} nearest chains follow; --all for every one, or narrow the target: Owner.{g.sym[hits[0][0]]['name']} · --in <path>")
+        shown = 0; vbad = 0; vlen = 0
+        for m, d in hits:
+            d = int(d)
+            if d == 0: print(f"    {g.disp(m)} is itself an endpoint of both"); continue
+            chain = read_back(res['parent'], q, m, srcs)
+            if not chain: print(f"    {g.disp(m)} at {d} hops (chain could not be read back)"); continue
+            bad, bfs = verify(g, chain, srcs, m, adj); vbad += len(bad); vlen += (bfs != d)
+            print(f"  {d} hop(s):" + (f"   ✗ {len(bad)} hop(s) NOT in graph.sqlite" if bad else '') + (f"   ✗ BFS says {bfs}" if bfs != d else ''))
+            print(print_chain(g, chain)); shown += 1
+            if shown >= limit and not show_all: print(f"  … +{len(hits) - shown} more targets (--all)"); break
+        blind = {n for n, _ in (read_back(res['parent'], q, hits[0][0], srcs) or [])}
+        u = g.q(f"SELECT count(*) n FROM unresolved_sites WHERE caller_id IN ({','.join('?' * len(blind))})", *blind)[0]['n'] if blind else 0
+        print(f"  verified: every printed hop is an edge in graph.sqlite and a plain BFS finds the same length" if not (vbad or vlen) else f"  ✗ verification failed on {vbad} hop(s) / {vlen} length(s) — report this")
+        libs = g.library_calls([m for m, _ in hits[:limit]])
+        if libs: print("  the target(s) call into libraries (not traversed — where the client graph ends): " + ', '.join(f"{l} ×{n}" if n > 1 else l for l, n in libs))
+        if every: every_route(g, res, q, srcs, dsts, max_paths, adj)
+        else: print(f"  (one shortest chain per reached target; --every for all the routes and every method on any of them)")
+        if u: print(f"  bound: the methods on the nearest chain contain {u} unresolved call(s) — other chains may exist that the graph cannot see")
+        return 0
+    # nothing resolved either way: say so, then whether unresolved sites would connect them
+    print(f"no chain of resolved calls connects {la} and {lb} in either direction (searched {len(g.edges())} edges, depth ≤ 40)")
+    for q, srcs, word in (('fwd', A_, f"{la} → {lb}"), ('rev', B_, f"{lb} → {la}")):
+        hits = sorted(res['hit_opt'][q], key=lambda h: int(h[1]))
+        if not hits: continue
+        m, d = hits[0]; chain = read_back(res['parent_opt'], q, m, srcs)
+        if not chain: continue
+        bridges = [(chain[i][0], chain[i + 1][0]) for i in range(len(chain) - 1) if chain[i + 1][1] == 'by-name']
+        print(f"  {word} WOULD connect in {d} hop(s) if {len(bridges)} unresolved call(s) resolve the way their name suggests — look at:")
+        for c, m2 in bridges:
+            sites = g.q("SELECT s.file_path f, s.start_line ln FROM call_sites s JOIN unresolved_sites u ON u.call_site_id = s.id WHERE s.caller_id = ? AND s.callee_name = ?", c, g.sym[m2]['name'])
+            print(f"    `{g.sym[m2]['name']}` called in {g.disp(c)} at " + ', '.join(f"{g.site_file(s['f'])}:{s['ln']}" for s in sites[:4]) + f" — receiver not typed; if it is {g.disp(m2)}, the chain is real")
+        return 1
+    print("  and no unresolved site would connect them by name either: the two are independent in this graph")
+    return 1
+
+# ── self-test: the engine's expected edges, through the whole tool ───────────────────────────────────────────────
+def selftest(lang):
+    root = os.path.abspath(os.path.join(HERE, '..', '..', '..', 'graph', 'test', lang)); work = os.path.join(root, '.work-skill')
+    cases = sorted(d for d in glob.glob(os.path.join(work, '*')) if os.path.exists(os.path.join(d, '.axiomcode', 'out', 'graph.sqlite')))
+    if not cases: die(f"no built cases under {work} — build one with: axiomcode index {root}/cases/<case> --lang {lang} --src src (copy it under .work-skill first)")
+    def sel(n):   # `Owner#member(sig)` / `pkg.Owner.member` / `mod.f.<locals>.g` → the display this tool resolves
+        if '#' in n:
+            owner, _, mem = n.partition('#'); mem = re.sub(r'^static ', '', mem).split('(')[0]
+            if mem.startswith('<') or '$anon' in owner: return None
+            return f"{owner.split('.')[-1]}.{mem}" if owner and not owner.islower() and '/' not in owner else mem   # a lowercase or path-like owner is a module
+        parts = n.split('.'); mem = parts[-1]
+        if mem.startswith('<') or '<locals>' in parts or '$anon' in n: return None
+        return f"{parts[-2]}.{mem}" if len(parts) > 1 and parts[-2][:1].isupper() else mem
+    tot = ok = engine_gaps = 0; misses = []; tool_bugs = []
+    for case in cases:
+        exp = os.path.join(root, 'expected', os.path.basename(case) + '.edges')
+        if not os.path.exists(exp): continue
+        g = G(case); g.export(); qs = {}; want = {}
+        for line in open(exp):
+            line = line.rstrip('\n')
+            m = re.match(r'^(known_edge|multi_inferred)\t\S+\t(.+?)(?: @L\d+)? -> (.+)$', line)
+            if m: a, b = sel(m.group(2)), sel(m.group(3))
+            else:                                                       # JavaScript: `file:line:col kind name -> file:line:col name  tier`
+                mj = re.match(r'^(\S+?):(\d+):\d+\s+\S+\s+\S+\s+->\s+(known_edge|multi_inferred)\s+(\S+?):(\d+):\d+\s+(\S+)$', line)
+                if not mj: continue
+                a, b = f"{mj.group(1)}:{mj.group(2)}", f"{mj.group(4)}:{mj.group(5)}"; m = mj
+            if not m: continue
+            if not a or not b or '<' in a or '<' in b: continue
+            try: la, A = g.resolve(a); lb, B = g.resolve(b)
+            except SystemExit: misses.append(f"{os.path.basename(case)}: cannot resolve {a} or {b}"); tot += 1; continue
+            q = f"{a}->{b}"; qs[q] = (A, B); want[q] = (m.group(1) if m.re.groups < 6 else m.group(3), a, b)
+        if not qs: continue
+        res = run_dl(g, qs)
+        for q, (tier, a, b) in want.items():
+            tot += 1; hits = res['hit'][q]
+            if any(int(d) == 1 for _, d in hits) or any(int(d) == 0 for _, d in hits): ok += 1
+            elif hits: ok += 1; misses.append(f"{os.path.basename(case)}: {a} -> {b} found at {min(int(d) for _, d in hits)} hops, expected 1 ({tier})")
+            else:
+                # not found: is the edge in the engine's output at all? absent = the ENGINE did not resolve it (a graph gap,
+                # tracked by the engine's own suite); present = THIS TOOL lost it between graph.sqlite and the answer
+                A, B = qs[q]; ph = lambda xs: ','.join('?' * len(xs))
+                present = g.q(f"SELECT 1 FROM call_edges WHERE caller_id IN ({ph(A)}) AND callee_method_id IN ({ph(B)}) LIMIT 1", *A, *B)
+                if present: tool_bugs.append(f"{os.path.basename(case)}: {a} -> {b} is in call_edges but this tool found no chain")
+                else: engine_gaps += 1
+    for m in misses[:12]: print("  " + m)
+    for m in tool_bugs: print("  TOOL BUG " + m)
+    print(f"{lang}: {ok}/{tot} expected resolved edges found as chains ({len(cases)} cases); {engine_gaps} not in the engine's output (its suite tracks those), {len(tool_bugs)} lost by this tool")
+    return 0 if not tool_bugs else 1
+
+if __name__ == '__main__':
+    args = sys.argv[1:]
+    if not args or args[0] in ('-h', '--help'): print(__doc__); sys.exit(0)
+    if args[0] == '--selftest': sys.exit(selftest(args[1] if len(args) > 1 else 'typescript'))
+    show_all = '--all' in args; args = [a for a in args if a != '--all']
+    depth = 40
+    if '--depth' in args: i = args.index('--depth'); depth = int(args[i + 1]); del args[i:i + 2]
+    limit = 10; IN = None; every = '--every' in args; args = [a for a in args if a != '--every']; max_paths = 20
+    if '--paths' in args: i = args.index('--paths'); max_paths = int(args[i + 1]); every = True; del args[i:i + 2]
+    if '--limit' in args: i = args.index('--limit'); limit = int(args[i + 1]); del args[i:i + 2]
+    if '--in' in args: i = args.index('--in'); IN = args[i + 1]; del args[i:i + 2]
+    if len(args) < 2: die("usage: axiomcode path <from> <to> [<repo>] [--all] [--limit N] [--in <path fragment>]")
+    g = G(args[2] if len(args) > 2 else '.'); g.IN = IN
+    if args[0] == '*' and args[1] != '*': sys.exit(closure(g, args[1], upstream=True, limit=limit if limit != 10 else 40, depth=depth))
+    if args[1] == '*' and args[0] != '*': sys.exit(closure(g, args[0], upstream=False, limit=limit if limit != 10 else 40, depth=depth))
+    if args[0] == '*' and args[1] == '*': die("one endpoint must be named: path '*' X (everything that reaches X) or path X '*' (everything X reaches)")
+    sys.exit(path(g, args[0], args[1], show_all, limit, every, max_paths))
