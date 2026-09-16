@@ -1,0 +1,8 @@
+main.js:5:31 METHOD_CALL get  EXACT  plain.js:5:3
+main.js:6:25 FUNCTION_CALL read  EXACT  main.js:4:1
+main.js:6:34 FUNCTION_CALL readPlain  EXACT  main.js:5:1
+plain.js:5:21 METHOD_CALL get  LIB_AMBIENT_OK  
+plain.js:7:18 CONSTRUCTOR_CALL EagerMap  LIB_AMBIENT_OK  
+registry.js:6:21 METHOD_CALL get  LIB_AMBIENT_OK  
+registry.js:9:18 CONSTRUCTOR_CALL LazyMap  LIB_AMBIENT_OK  
+# defects: 0
