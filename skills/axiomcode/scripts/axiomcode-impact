@@ -1,0 +1,447 @@
+#!/usr/bin/env python3
+"""axiomcode impact <target> [<target>…] [<repo>] [--depth N] [--in <path>] [--tests] [--limit N] [--json]
+   what has to be looked at again when a declaration changes — and how sure each entry is.
+
+A target is a declaration, written as it appears in the code. Its kind is read from the index, never guessed:
+    Owner.method  ·  method  ·  file.java:123          a method (or every declaration of that name — one impact per kind)
+    Owner.field   ·  CONSTANT  ·  Enum.MEMBER          a field, constant or enum member
+    Type                                               a class / interface / enum
+    Owner.method(param)                                one parameter of a method (its type, its position, its name)
+    Type<T>  ·  Owner.method<T>                        a type parameter (a generic, or a bound on it)
+    Owner.method:name                                  a local variable inside that method
+    --kind method|field|type|param|typeparam|var       when the same name is declared as more than one kind
+
+The answer has the same shape for every kind and every language:
+    must change with it     the declarations bound to it by a contract the engine resolved: the overrides of a method
+                            (and what it overrides), the subtypes of a type — a signature change reaches them first
+    directly touches it     every callable whose text uses the declaration, grouped by WHY (calls it, reads the field,
+                            instantiates the type, names it in a signature, …) and by HOW SURE that is:
+                              [resolved]  an edge the engine resolved (a call, an override, a subtype, a constructor)
+                              [in scope]  a reference by that name inside the owner type (or a subtype / nested type)
+                              [by name]   a reference by that name elsewhere — the receiver was not typed; may be
+                                          a same-named other thing
+                              [text]      the name found in the source where the parser records no line (Java type
+                                          references); a same-named other thing is possible
+    reaches those           everything that can reach a touched callable through resolved calls, by hop — the
+                            transitive impact — with the entry points and tests among them (--tests lists the tests)
+    bound                   the unresolved calls inside the impacted set: the graph cannot see what those reach, so the
+                            set is a lower bound on the real one
+Every closure is cross-checked against a plain BFS over the same facts (the `verified:` line). The tool infers nothing
+about values: a callable that is reached may or may not change behaviour; a callable that is NOT listed either has no
+resolved chain to the change or reaches it through something the graph cannot see (reflection, a framework, a library
+callback) — the bound line says how many such sites there are.
+"""
+import collections, contextlib, importlib.util, io, json, os, re, shutil, subprocess, sys, tempfile
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+_spec = importlib.util.spec_from_loader('axpath', importlib.machinery.SourceFileLoader('axpath', os.path.join(HERE, 'axiomcode-path')))
+P = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(P)
+G, run_dl, die = P.G, P.run_dl, P.die
+
+CERT = {'resolved': 0, 'in scope': 1, 'by name': 2, 'text': 3}
+LOCAL_KINDS = {'LOCAL_VARIABLE', 'PARAMETER', 'LAMBDA_PARAMETER', 'VARIABLE', 'PARAM'}          # a ref the parser says is a local, not a member
+QUALIFIED_KINDS = {'FIELD_ACCESS', 'PROPERTY_ACCESS', 'ATTRIBUTE_ACCESS'}
+MEMBER_KINDS = {'FIELD', 'PROPERTY', 'ATTRIBUTE', 'METHOD', 'FUNCTION'}                          # written `x.name`, against a receiver; the rest are bare names
+# the fixtures a test framework runs before a test, own or inherited: a language-neutral convention table, printed as such
+FIXTURE_DECOR = re.compile(r'^(Before\w*|BeforeEach|BeforeAll|BeforeClass|fixture|setup\w*)$', re.I)
+FIXTURE_NAMES = {'setUp', 'setUpClass', 'setup', 'setup_method', 'setup_class', 'setUpBeforeClass', 'beforeEach', 'beforeAll', 'before', 'init'}
+TEST_DECOR = re.compile(r'(^|\.)(\w*Test\w*|it|test)$')
+# a decoration that GENERATES members the source never declares — the parser cannot see them, so a call to a generated
+# accessor is an unresolved site. Which members each one generates, per convention (Lombok, records, dataclasses); a
+# language-neutral idea with a per-framework table, printed as such. get/set/is: bean accessors; fluent: a method named as
+# the field; ctor: a constructor taking the fields; builder: Type.builder().field(...); with: withField(...)
+GENERATED = {'Data': {'get', 'set', 'is', 'ctor'}, 'Getter': {'get', 'is'}, 'Setter': {'set'}, 'Value': {'get', 'is', 'ctor'},
+             'Builder': {'builder'}, 'AllArgsConstructor': {'ctor'}, 'RequiredArgsConstructor': {'ctor'}, 'With': {'with'},
+             'Accessors': {'fluent'}, 'dataclass': {'ctor'}, 'attrs': {'ctor'}, 'define': {'ctor'}, 'BaseModel': {'ctor'}}
+
+class Impact:
+    def __init__(self, g):
+        self.g = g; g.export()
+        self.spans = collections.defaultdict(list)            # file -> [(line, end, id)] for every callable and type with a span
+        for r in g.sym.values():
+            if r.get('file') and r.get('line') and r.get('end_line'): self.spans[r['file']].append((r['line'], r['end_line'], r['id']))
+        for v in self.spans.values(): v.sort()
+        self.fields = {r['rowid']: dict(r) for r in g.q("SELECT rowid, * FROM symbols WHERE method_id IS NULL AND type_id IS NULL AND kind IN ('field','const','enum_member','variable')")}
+        self.cols = {t: {r[1] for r in g.q(f"PRAGMA table_info({t})")} for t in ('refs', 'type_refs', 'symbols')}
+        self.src = {}
+    # ── where a line lives ───────────────────────────────────────────────────────────────────────────────────────
+    def at(self, file, line, callables_only=True):
+        """the narrowest callable spanning (file, line); or the type whose body (a field initializer) holds it"""
+        best = None
+        for a, b, i in self.spans.get(file, ()):
+            if a <= line <= b and (callables_only is False or self.g.sym[i].get('method_id')):
+                if best is None or (b - a) < best[0]: best = (b - a, i)
+            if a > line: break
+        if best: return best[1]
+        if callables_only:                                                             # a field initializer: charged to the type, as the engine does
+            for a, b, i in self.spans.get(file, ()):
+                if a <= line <= b and self.g.sym[i].get('type_id') and (best is None or (b - a) < best[0]): best = (b - a, i)
+        return best[1] if best else None
+    def lines(self, file):
+        if file not in self.src:
+            try: self.src[file] = open(os.path.join(self.g.repo, file), errors='replace').read().split('\n')
+            except OSError: self.src[file] = []
+        return self.src[file]
+    def code(self, file):
+        """the source with comments and string literals blanked (same length, same line breaks): a name in a javadoc, a
+        docstring or a string is not a use. Block /* */, line // and # (Python), '…' "…" `…` and triple-quoted strings."""
+        if ('code', file) in self.src: return self.src[('code', file)]
+        t = '\n'.join(self.lines(file)); out = []; i = 0; n = len(t); py = file.endswith('.py')
+        while i < n:
+            c = t[i]
+            if not py and t.startswith('/*', i):
+                j = t.find('*/', i + 2); j = n if j < 0 else j + 2
+            elif (not py and t.startswith('//', i)) or (py and c == '#'):
+                j = t.find('\n', i); j = n if j < 0 else j
+            elif c in '"\'`':
+                q = t[i:i + 3] if py and t[i:i + 3] in ('"""', "\'\'\'") else c; j = i + len(q)
+                while j < n and not t.startswith(q, j):
+                    if t[j] == '\\': j += 1
+                    if t[j] == '\n' and len(q) == 1 and c != '`': break
+                    j += 1
+                j = min(n, j + len(q))
+            else: out.append(c); i += 1; continue
+            out.append(''.join('\n' if ch == '\n' else ' ' for ch in t[i:j])); i = j
+        self.src[('code', file)] = ''.join(out).split('\n'); return self.src[('code', file)]
+
+
+    # ── targets ──────────────────────────────────────────────────────────────────────────────────────────────────
+    def resolve(self, sel, kind=None):
+        """-> list of (kind, label, payload). payload: method ids (method), field row (field), type symbol (type),
+        (method id, name) (param / var), (owner symbol, name) (typeparam). Several when the name is declared as several kinds."""
+        s = sel.strip().strip('`"\'')
+        m = re.match(r'^(.+?):([A-Za-z_]\w*)$', s)
+        if m and '/' not in m.group(2):                                                # Owner.m:v — a local
+            mids = self.methods(m.group(1)); found = []
+            for mid in mids:
+                if self.refs_in(mid, m.group(2), LOCAL_KINDS): found.append(mid)
+            if found: return [('var', f"local {m.group(2)} in {self.g.disp(found[0])}" + (f" (+{len(found)-1} declarations)" if len(found) > 1 else ''), (found, m.group(2)))]
+            die(f"no local named {m.group(2)} is used in {m.group(1)} — locals the parser recorded there: " + ', '.join(sorted({r['name'] for mid in mids for r in self.refs_in(mid, None, LOCAL_KINDS)})[:12]))
+        m = re.match(r'^(.+?)<(\w+)>$', s)
+        if m and m.group(2) not in ('init', 'clinit'):                                 # Type<T> / Owner.m<T>
+            owner, tp = m.group(1), m.group(2)
+            ids = self.types(owner, soft=True) or self.methods(owner, soft=True)
+            if not ids: die(f"nothing named {owner} in the graph")
+            hits = [i for i in ids if self.text_hits(i, tp)]
+            if not hits: die(f"{owner} does not use a type parameter {tp} in its body (checked the source between its start and end line)")
+            return [('typeparam', f"type parameter {tp} of {self.g.disp(hits[0])}", (hits, tp))]
+        m = re.match(r'^(.+?)\((\w+)\)$', s)
+        if m and self.methods(m.group(1), soft=True):                                  # Owner.m(p): a parameter — when p is one; a signature otherwise
+            mids = self.methods(m.group(1)); hits = [i for i in mids if self.refs_in(i, m.group(2), {'PARAMETER', 'PARAM', 'LAMBDA_PARAMETER'}) or self.param_declared(i, m.group(2))]
+            if hits: return [('param', f"parameter {m.group(2)} of {self.g.disp(hits[0])}" + (f" (+{len(hits)-1} declarations)" if len(hits) > 1 else ''), (hits, m.group(2)))]
+        out = []
+        base = re.sub(r'\(.*\)$', '', s).replace('#', '.').strip('.')
+        if not (self.field_rows(base) or self.types(base, soft=True) or self.methods(base, soft=True)): base = base.replace('$', '.')   # Outer$Inner — unless $ is part of the name ($Gson$Types)
+        m = re.match(r'^(.+)\.<(init|clinit)>$', base)
+        if m:                                                                          # Type.<init> = its construction; Type.<clinit> = its static initialization
+            tids = self.types(m.group(1)); ids = []
+            for tid in tids:
+                d = self.g.sym[tid]['display']
+                ids += [r[0] for r in self.g.q("SELECT id FROM symbols WHERE owner = ? AND method_id IS NOT NULL AND " + ("kind = 'constructor'" if m.group(2) == 'init' else "name = '<clinit>'"), d)]
+                if tid in self.g.callers_ids or m.group(2) == 'clinit': ids.append(tid)   # field initializers run in the type node
+            if not ids: die(f"{m.group(1)} has no {'constructor' if m.group(2) == 'init' else 'static initializer'} in the graph")
+            if m.group(2) == 'clinit': return [('clinit', f"static initialization of {self.g.disp(tids[0])} ({len(ids)} callable(s))", (ids, tids))]
+            return [('method', f"construction of {self.g.disp(tids[0])} ({len(ids)} callable(s))", ids)]
+        if kind in (None, 'field'):
+            rows = self.field_rows(base)
+            if rows: out.append(('field', f"{rows[0]['kind']} {rows[0]['display']}" + (f" (+{len(rows)-1} declarations of that name)" if len(rows) > 1 else ''), rows))
+        if kind in (None, 'type'):
+            tids = self.types(base, soft=True)
+            if tids: out.append(('type', f"{self.g.sym[tids[0]]['kind']} {self.g.disp(tids[0])}" + (f" (+{len(tids)-1})" if len(tids) > 1 else ''), tids))
+        if kind in (None, 'method'):
+            mids = self.methods(s, soft=True)
+            if mids and any(k == 'type' for k, _, _ in out) and all(self.g.sym[i]['kind'] == 'constructor' for i in mids): mids = []   # `Type` is the type; its construction is Type.<init>
+            if mids: out.append(('method', (self.g.disp(mids[0]) if len(mids) == 1 else f"{s} ({len(mids)} declarations)"), mids))
+        if not out:
+            if kind: die(f"nothing of kind {kind} named {s} in the graph")
+            label, ids = self.g.resolve(s)                                                 # the path finder's endpoints: written / library / decoration
+            out.append(('method', label, ids))
+        return out
+    def methods(self, s, soft=False):
+        """the path finder's resolver, restricted to method declarations whose NAME is the last segment written (a type name
+        expands to its methods there; SQLite's LIKE folds case — neither is a method of that name)"""
+        try:
+            with contextlib.redirect_stdout(io.StringIO()) as buf: _, ids = self.g._resolve(s)
+        except SystemExit:
+            if soft: return []
+            print(buf.getvalue(), end=''); raise
+        last = re.sub(r'\(.*\)$', '', s).replace('#', '.').replace('$', '.').rstrip('.').split('.')[-1]
+        ids = [i for i in ids if self.g.sym.get(i, {}).get('method_id') and self.g.sym[i]['kind'] not in ('library', 'written') and (self.g.sym[i]['name'] == last or ':' in s)]
+        if not ids and not soft: die(f"{s} is not a method in the graph")
+        return ids
+    def types(self, s, soft=False):
+        parts = s.split('.')
+        for k in range(len(parts)):
+            cand = '.'.join(parts[k:])
+            r = self.g.q("SELECT id FROM symbols WHERE type_id IS NOT NULL AND (display = ? OR qualified_name = ?)", cand, cand) or \
+                [x for x in self.g.q("SELECT id, display FROM symbols WHERE type_id IS NOT NULL AND display LIKE ?", f"%.{cand}") if x['display'].endswith('.' + cand)]
+            if r: return [x[0] for x in r]
+        if soft: return []
+        die(f"no type named {s}")
+    def field_rows(self, s):
+        parts = s.split('.'); name = parts[-1]; owner = '.'.join(parts[:-1])
+        rows = [f for f in self.fields.values() if f['name'] == name and (not owner or (f['owner'] or '') == owner or (f['owner'] or '').endswith('.' + owner) or (f['qualified_name'] or '').endswith('.' + s))]
+        return rows
+    def refs_in(self, cid, name, kinds):
+        s = self.g.sym[cid]
+        if not s.get('line') or not self.g.has('refs'): return []
+        q = "SELECT name, line, entity_kind FROM refs WHERE file = ? AND line BETWEEN ? AND ?" + (" AND name = ?" if name else '')
+        return [r for r in self.g.q(q, s['file'], s['line'], s['end_line'], *([name] if name else [])) if r['entity_kind'] in kinds]
+    def param_declared(self, mid, p):
+        s = self.g.sym[mid]; L = self.lines(s['file'])
+        head = ' '.join(L[s['line'] - 1: min(s['end_line'], s['line'] + 6)])
+        return re.search(rf'\b{re.escape(p)}\b', head.split('{')[0]) is not None
+    def text_hits(self, cid, name):
+        """source lines inside cid's span that mention `name` as a word, comment lines excluded"""
+        s = self.g.sym[cid]
+        if not s.get('line'): return []
+        L = self.code(s['file']); pat = re.compile(rf'\b{re.escape(name)}\b')
+        return [ln for ln in range(s['line'], min(s['end_line'], len(L)) + 1) if pat.search(L[ln - 1])]
+
+    # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
+    IMPACT_VERSION = '1'
+    def export(self):
+        g = self.g; D = os.path.join(g.facts, 'impact'); stamp = os.path.join(D, 'stamp'); want = f"{os.path.getmtime(g.db)}:{self.IMPACT_VERSION}"
+        if os.path.exists(stamp) and open(stamp).read() == want: return D
+        os.makedirs(D, exist_ok=True); W = lambda n, rows: g.write(n, rows, D)
+        tid_of = {}                                                                     # owner display -> type id
+        for r in g.q("SELECT display, type_id FROM symbols WHERE type_id IS NOT NULL"): tid_of.setdefault(r['display'], r['type_id'])
+        cat = {r['id']: (r['category'] or '') for r in g.q("SELECT id, category FROM types")}
+        W('typ', [(i, s['name'], 'record' if 'RECORD' in cat.get(i, '') else s['kind']) for i, s in g.sym.items() if s.get('type_id') and not s.get('method_id')])
+        W('type_in_file', [(i, s['file']) for i, s in g.sym.items() if s.get('type_id') and not s.get('method_id') and s.get('file')])
+        W('kind', [(i, s['kind']) for i, s in g.sym.items()])
+        members = []; owners = []
+        for i, s in g.sym.items():
+            if s.get('method_id') and s.get('owner') and s['owner'] in tid_of: members.append((tid_of[s['owner']], i, s['name'], s['kind'])); owners.append((i, tid_of[s['owner']]))
+        fields = []; acc = []
+        for rid, f in self.fields.items():
+            fid = f"f:{rid}"; t = tid_of.get(f['owner'] or '')
+            if not t: continue
+            members.append((t, fid, f['name'], f['kind'])); fields.append((fid, t, f['name'], f['file'] or '', f['line'] or 0))
+            cap = f['name'][:1].upper() + f['name'][1:]
+            acc += [(fid, 'get' + cap, 'read'), (fid, 'is' + cap, 'read'), (fid, 'set' + cap, 'write')]
+        W('member', members); W('owner', owners); W('field', fields); W('accessor', acc)
+        W('extends', [(r[0], r[1]) for r in g.q("SELECT type_id, ancestor_type_id FROM type_ancestors")])
+        W('nested', [(r[0], r[1]) for r in g.q("SELECT type_id, outer_type_id FROM nesting")] if g.has('nesting') else [])
+        W('decorated', [(r[0], r[1].split('.')[-1]) for r in g.q("SELECT owner_id, name FROM decorations")] if g.has('decorations') else [])
+        W('override', [(r[0], r[1]) for r in g.q("SELECT method_id, overriding_method_id FROM overrides")] if g.has('overrides') else [])
+        W('gen_table', [(d, w) for d, ws in GENERATED.items() for w in ws])
+        W('calls', [(r['caller_id'], r['callee_method_id'], r['tier'], g.site_file(r['file_path']) if r['file_path'] else '', r['start_line'] or 0)
+                    for r in g.q("SELECT e.caller_id, e.callee_method_id, e.tier, s.file_path, s.start_line FROM call_edges e LEFT JOIN call_sites s ON s.id = e.call_site_id WHERE e.callee_provenance = 'client' AND e.callee_method_id IS NOT NULL")])
+        CTOR = ('new', 'anon_new', 'CONSTRUCTOR_CALL')
+        W('unresolved', [(r['caller_id'], (r['callee_name'] or '').split('.')[-1], 'new' if r['kind'] in CTOR else 'method', g.site_file(r['file_path']) if r['file_path'] else '', r['start_line'] or 0)
+                         for r in g.q("SELECT s.caller_id, s.callee_name, s.kind, s.file_path, s.start_line FROM call_sites s JOIN unresolved_sites u ON u.call_site_id = s.id WHERE s.callee_name IS NOT NULL AND s.callee_name <> ''")])
+        refs = []; quals = []
+        if g.has('refs'):
+            for r in g.q("SELECT name, file, line, kind, entity_kind FROM refs WHERE line > 0"):
+                c = self.at(r['file'], r['line'])
+                if not c: continue
+                rk = 'qualified' if r['kind'] in QUALIFIED_KINDS else 'bare'; ek = 'CLASS_LITERAL' if r['kind'] == 'CLASS_LITERAL' else (r['entity_kind'] or '')
+                refs.append((c, r['name'], rk, ek, r['file'], r['line']))
+                if rk == 'qualified':
+                    L = self.code(r['file']); text = L[r['line'] - 1] if r['line'] <= len(L) else ''
+                    for qn in re.findall(rf'([A-Za-z_$][\w$]*)\s*\.\s*{re.escape(r["name"])}\b', text): quals.append((r['file'], r['line'], r['name'], qn))
+        W('ref', refs); W('qualifier', sorted(set(quals)))
+        trs = []; trf = set()
+        if g.has('type_refs'):
+            for r in g.q("SELECT name, file, line, context FROM type_refs"):
+                if r['line'] and r['line'] > 0:
+                    c = self.at(r['file'], r['line'])
+                    if c: trs.append((c, r['name'], r['context'], r['file'], r['line']))
+                else: trf.add((r['file'], r['name'], r['context']))
+        W('typeref', trs); W('typeref_file', sorted(trf))
+        lits = []
+        if g.has('literals'):
+            for r in g.q("SELECT value, file, line FROM literals WHERE value GLOB '[A-Za-z_]*' AND length(value) < 64"):
+                if re.fullmatch(r'[A-Za-z_]\w*', r['value']):
+                    c = self.at(r['file'], r['line'])
+                    if c: lits.append((c, r['value'], r['file'], r['line']))
+        W('literal', lits)
+        decs = collections.defaultdict(set)
+        for r in (g.q("SELECT owner_id, name FROM decorations") if g.has('decorations') else []): decs[r[0]].add(r[1].split('.')[-1])
+        tm = [i for i, s in g.sym.items() if s['is_test'] and s.get('method_id') and s['kind'] in ('method', 'function') and (any(TEST_DECOR.search(d) for d in decs.get(i, ())) or s['name'].startswith(('test', 'it')))]
+        fx = [i for i, s in g.sym.items() if s['is_test'] and ((s.get('type_id') and not s.get('method_id')) or s['kind'] in ('constructor', 'module') or s['name'] in FIXTURE_NAMES or any(FIXTURE_DECOR.match(d) for d in decs.get(i, ())))]
+        W('test_method', [(m,) for m in tm]); W('fixture', [(m,) for m in fx])
+        open(stamp, 'w').write(want); return D
+
+    # ── one query: the target facts, the text-level facts, one Soufflé run ──────────────────────────────────────
+    def run(self, targets, q='q'):
+        g = self.g; D = self.export()
+        F = tempfile.mkdtemp(prefix='aximpact-'); O = tempfile.mkdtemp(prefix='aximpact-out-')
+        for n in os.listdir(D):
+            if n.endswith('.facts'): os.symlink(os.path.join(D, n), os.path.join(F, n))
+        for n in ('edge', 'named'): os.symlink(os.path.join(g.facts, n + '.facts'), os.path.join(F, n + '.facts'))
+        T = []; textuse = []; importuse = []; inside = []
+        def type_query(qq, tid):
+            t = g.sym[tid]; T.append((qq, 'type', tid, ''))
+            for a, b, i in self.spans.get(t['file'], ()):
+                if t['line'] and a >= t['line'] and b <= (t['end_line'] or 0): inside.append((qq, i))
+            inside.append((qq, tid))
+            files = {r[0] for r in g.q("SELECT DISTINCT file FROM type_refs WHERE name = ? AND (line IS NULL OR line = 0)", t['name'])} if g.has('type_refs') else set()
+            pat = re.compile(rf'\b{re.escape(t["name"])}\b')
+            for f in files:
+                for ln, text in enumerate(self.code(f), 1):
+                    if pat.search(text) and not text.lstrip().startswith(('import ', 'package ')):
+                        c = self.at(f, ln)
+                        if c: textuse.append((c, t['name'], f, ln))
+            members = {r[0] for r in g.q("SELECT name FROM symbols WHERE owner = ?", t['display'])}
+            for f in ({r[0] for r in g.q("SELECT DISTINCT file FROM refs")} if g.has('refs') else ()):
+                imp = list(re.finditer(rf'^\s*import\s+static\s+[\w.]*\b{re.escape(t["name"])}\.(\*|\w+)\s*;', '\n'.join(self.lines(f)), re.M))
+                if not imp: continue
+                names = members if any(m.group(1) == '*' for m in imp) else {m.group(1) for m in imp}
+                for r in g.q("SELECT name, line FROM refs WHERE file = ? AND line > 0", f):
+                    if r['name'] in names:
+                        c = self.at(f, r['line'])
+                        if c: importuse.append((c, r['name'], f, r['line']))
+        for kind, lab, payload in targets:
+            if kind == 'method':
+                for m in payload: T.append((q, 'method', m, ''))
+            elif kind == 'field':
+                for f in payload: T.append((q, 'field', f"f:{f['rowid']}", ''))
+            elif kind == 'type':
+                for tid in payload: type_query(q, tid)
+            elif kind == 'clinit':
+                ids, tids = payload
+                for i in ids: T.append((q, 'clinit', tids[0], i))
+                for tid in tids: type_query(q + ':type', tid)
+            elif kind == 'param':
+                mids, p = payload
+                for m in mids: T.append((q, 'param', m, p))
+            elif kind == 'var':
+                mids, v = payload
+                for m in mids: T.append((q, 'var', m, v))
+            elif kind == 'typeparam':
+                ids, tp = payload
+                for oid in ids:
+                    T.append((q, 'typeparam', oid, tp))
+                    for ln in self.text_hits(oid, tp):
+                        c = self.at(g.sym[oid]['file'], ln)
+                        if c: textuse.append((c, tp, g.sym[oid]['file'], ln))
+                    if g.sym[oid].get('type_id'): type_query(q + ':type', oid)
+        g.write('target', T, F); g.write('textuse', sorted(set(textuse)), F); g.write('importuse', sorted(set(importuse)), F); g.write('inside_target', sorted(set(inside)), F)
+        if not shutil.which('souffle'): die("souffle is not installed (brew install souffle-lang/souffle/souffle)")
+        r = subprocess.run(['souffle', '-F', F, '-D', O, os.path.join(HERE, 'dl', 'impact.dl')], capture_output=True, text=True)
+        if r.returncode: die("souffle failed:\n" + r.stderr[-1200:])
+        out = {}
+        for n in ('contract', 'direct', 'seed', 'reach', 'parent_up', 'test_near', 'test_hit'):
+            rows = []
+            for l in open(os.path.join(O, n + '.csv')):
+                p = l.rstrip('\n').split('\t')
+                if p[0] == q: rows.append(p[1:])
+            out[n] = rows
+        shutil.rmtree(F, ignore_errors=True); shutil.rmtree(O, ignore_errors=True)
+        return out
+
+    def chain(self, start, parent):
+        """one chain from start down to a seed, read back from parent_up (a is one hop further than b); the surest tier first"""
+        out = [start]; cur = start; seen = {start}
+        while cur in parent:
+            opts = sorted(parent[cur], key=lambda x: P.TIER_RANK.get(x[1], 5))
+            nxt = next((b for b, _ in opts if b not in seen), None)
+            if nxt is None: break
+            out.append(nxt); seen.add(nxt); cur = nxt
+        return out
+
+def main(argv):
+    args = list(argv); depth = 40; limit = 25; IN = None; want_tests = '--tests' in args; as_json = '--json' in args; kind = None
+    args = [a for a in args if a not in ('--tests', '--json')]
+    for flag, conv in (('--depth', int), ('--limit', int), ('--in', str), ('--kind', str)):
+        if flag in args:
+            i = args.index(flag); v = conv(args[i + 1]); del args[i:i + 2]
+            if flag == '--depth': depth = v
+            elif flag == '--limit': limit = v
+            elif flag == '--in': IN = v
+            else: kind = v
+    repo = '.'
+    if len(args) > 1 and os.path.isdir(args[-1]): repo = args.pop()
+    if not args: die("usage: axiomcode impact <target> [<target>…] [<repo>] [--depth N] [--in <path>] [--tests] [--limit N] [--json] [--kind k]")
+    g = G(repo); g.IN = IN; I = Impact(g)
+    targets = []
+    for a in args:
+        rs = I.resolve(a, kind)
+        if len(rs) > 1 and not kind:
+            die(f"{a} is declared as more than one kind: " + ' · '.join(f"{k} ({lab})" for k, lab, _ in rs) + " — say which with --kind " + '|'.join(k for k, _, _ in rs))
+        targets += rs
+    res = I.run(targets)
+    contract = list(dict.fromkeys((c, why) for c, why in res['contract'] if c in g.sym))
+    seeds = {m for (m,) in res['seed']}
+    # one row per (callable, reason): the surest certainty, the first location, the number of sites
+    best = {}
+    for c, role, why, cert, f, l in res['direct']:
+        if c not in g.sym: continue
+        loc = f"{f}:{l}" if f and int(l) > 0 else g.loc(c); k = (c, why)
+        if k not in best or CERT[cert] < CERT[best[k][1]]: best[k] = (role, cert, loc, best.get(k, (0, 0, 0, 0))[3] + 1)
+        else: best[k] = (best[k][0], best[k][1], best[k][2], best[k][3] + 1)
+    D = [(c, role, why, cert, loc, n) for (c, why), (role, cert, loc, n) in best.items()]
+    reached = {m: int(d) for m, d in res['reach'] if 0 < int(d) <= depth and m in g.sym}
+    if IN: reached = {m: d for m, d in reached.items() if IN in (g.sym[m]['file'] or '')}
+    parent = collections.defaultdict(list)
+    for a, b, t in res['parent_up']: parent[a].append((b, t))
+    callers_of = collections.defaultdict(set)
+    for a, b, _ in g.edges(): callers_of[b].add(a)
+    tests = {}
+    for m, d in res['test_near']:
+        if m in g.sym and int(d) <= depth: tests[m] = (int(d), next((fx for mm, dd, fx in res['test_hit'] if mm == m and int(dd) == int(d) and fx), None))
+    universe = sum(1 for _ in open(os.path.join(g.facts, 'impact', 'test_method.facts')))
+    direct_ids = {c for c, *_ in D} | {c for c, _ in contract}
+    ent = [(m, d) for m, d in {**{c: 0 for c in direct_ids}, **reached}.items() if not callers_of.get(m) or g.sym[m]['is_test']]
+    u = g.q(f"SELECT count(*) n FROM unresolved_sites WHERE caller_id IN ({','.join('?' * (len(reached) + len(seeds)))})", *reached, *seeds)[0]['n'] if reached or seeds else 0
+    # the check that means something: every printed chain hop, and every resolved direct entry, is looked up again in graph.sqlite
+    chains = {m: I.chain(m, parent) for m in (tests if want_tests or as_json else {})}
+    bad = 0; hops = 0
+    for ch in chains.values():
+        for a, b in zip(ch, ch[1:]):
+            hops += 1
+            if not g.q("SELECT 1 FROM call_edges WHERE caller_id = ? AND callee_method_id = ? LIMIT 1", a, b) and not any(x == b and t in ('dispatch', 'defines') for x, t in parent.get(a, [])): bad += 1
+    for c, role, why, cert, loc, n in D:
+        if cert == 'resolved' and ('calls' in why or 'through' in why or 'constructs' in why or 'instantiates' in why or 'passes an argument' in why):
+            hops += 1
+            if not g.q("SELECT 1 FROM call_edges WHERE caller_id = ? LIMIT 1", c): bad += 1
+    if as_json:
+        print(json.dumps({'targets': [{'kind': k, 'label': lab} for k, lab, _ in targets],
+                          'contract': [{'id': c, 'display': g.disp(c), 'why': why, 'at': g.loc(c)} for c, why in contract],
+                          'direct': [{'id': c, 'display': g.disp(c), 'role': role, 'why': why, 'certainty': cert, 'at': loc, 'sites': n} for c, role, why, cert, loc, n in D],
+                          'reached': [{'id': m, 'display': g.disp(m), 'hops': d, 'at': g.loc(m), 'test': bool(g.sym[m]['is_test'])} for m, d in sorted(reached.items(), key=lambda x: x[1])],
+                          'tests': [{'id': m, 'display': g.disp(m), 'owner': g.sym[m]['owner'], 'name': g.sym[m]['name'], 'hops': d, 'via': g.disp(fx) if fx else None, 'at': g.loc(m), 'chain': [g.disp(x) for x in chains.get(m, [])]} for m, (d, fx) in tests.items()],
+                          'test_universe': universe, 'verified': bad == 0, 'checked_hops': hops, 'unresolved_inside': u}, indent=1))
+        return 0
+    for k, lab, _ in targets: print(f"change: {lab}   [{k}]")
+    if contract:
+        print(f"must change with it ({len(contract)}: bound by a contract the engine resolved):")
+        for c, why in contract[:limit]: print(f"    {g.disp(c)}   {g.loc(c)}   — {why}")
+        if len(contract) > limit: print(f"    … +{len(contract) - limit} (--limit N)")
+    D.sort(key=lambda x: (CERT[x[3]], x[2], g.disp(x[0])))
+    groups = [('produces or writes it', [x for x in D if x[1] in ('produces', 'writes')]), ('reads or uses it', [x for x in D if x[1] in ('reads', 'uses')])]
+    if not D: print("directly touches it: nothing the graph can see" + (" — the declaration is used only where it is declared, or through something the parser did not record" if not contract else ''))
+    for title, rows in groups:
+        if not rows: continue
+        by = collections.Counter(cert for _, _, _, cert, _, _ in rows)
+        print(f"{title} ({len({c for c, *_ in rows})} callable(s): " + ', '.join(f"{n} {c}" for c, n in sorted(by.items(), key=lambda x: CERT[x[0]])) + "):")
+        for c, role, why, cert, loc, n in rows[:limit]: print(f"    [{cert}] {g.disp(c)}   {loc}   — {why}" + (f" ({n} sites)" if n > 1 else ''))
+        if len(rows) > limit: print(f"    … +{len(rows) - limit} (--limit N)")
+    nfiles = len({g.sym[m]['file'] for m in reached})
+    print(f"reaches those through resolved calls: {len(reached)} more callable(s) in {nfiles} file(s)" + (f" within {depth} hop(s)" if depth < 40 else '') + (f" under *{IN}*" if IN else ''))
+    if reached:
+        byhop = collections.Counter(reached.values()); print("    by hop: " + ', '.join(f"{d}:{n}" for d, n in sorted(byhop.items())))
+        byfile = collections.Counter(g.sym[m]['file'] for m in reached); print("    files: " + ', '.join(f"{f} ({n})" for f, n in byfile.most_common(8)) + (f" … +{len(byfile) - 8}" if len(byfile) > 8 else ''))
+    if ent:
+        ent.sort(key=lambda x: (x[1], g.sym[x[0]]['display']))
+        print(f"    entry points ({len(ent)}: nothing resolved calls them — a framework, a runner, reflection — or a test; 0 hops = touches it directly), nearest first:")
+        for m, d in ent[:limit]:
+            decs = [r[0].split('.')[-1] for r in g.q("SELECT name FROM decorations WHERE owner_id = ?", m)] if g.has('decorations') else []
+            print(f"      {d:2} hop(s)  {g.disp(m)}{' [test]' if g.sym[m]['is_test'] else ''}{(' @' + ','.join(decs[:3])) if decs else ''}   {g.loc(m)}")
+        if len(ent) > limit: print(f"      … +{len(ent) - limit} (--limit N)")
+    print(f"tests: {len(tests)} of {universe} test method(s) reach the change" + (" (their own body, or a fixture that runs before them: constructor, static initializer, @Before*/setUp)" if tests else ''))
+    if want_tests:
+        for m, (d, fx) in sorted(tests.items(), key=lambda x: (x[1][0], g.sym[x[0]]['display'])):
+            print(f"    {g.sym[m]['owner'] or os.path.basename(g.sym[m]['file'])}::{g.sym[m]['name']}   {g.loc(m)}   {d} hop(s)" + (f" via {g.disp(fx)}" if fx else ''))
+            if fx is None and d > 0 and len(chains.get(m, [])) > 1: print("        " + ' → '.join(g.disp(x) for x in chains[m]))
+    print(f"verified: {hops} printed edge(s) looked up again in graph.sqlite" + (", all present" if bad == 0 else f" — ✗ {bad} not found: report this, do not use the answer"))
+    if u: print(f"bound: {u} unresolved call(s) inside the impacted set — what those reach is unknown, so the set is a lower bound")
+    byname = [x for x in D if x[3] in ('by name', 'text')]
+    if byname: print(f"note: {len(byname)} entr{'y' if len(byname) == 1 else 'ies'} matched by name or text may be a same-named other thing — the receiver was not typed by the parser")
+    return 0
+
+if __name__ == '__main__':
+    if not sys.argv[1:] or sys.argv[1] in ('-h', '--help'): print(__doc__); sys.exit(0)
+    sys.exit(main(sys.argv[1:]))

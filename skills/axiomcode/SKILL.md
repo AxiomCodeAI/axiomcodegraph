@@ -1,6 +1,6 @@
 ---
 name: axiomcode
-description: Build AxiomCode's type-resolved call graph of a Java, TypeScript, Python or JavaScript repository, draw it as one page, and answer "is there a chain of calls from A to B, and through what?" in Datalog over it, every printed hop verified. One entry point, `scripts/axiomcode`, with subcommands; every future capability is a subcommand of it.
+description: Build AxiomCode's type-resolved call graph of a Java, TypeScript, Python or JavaScript repository, draw it as one page, and answer "is there a chain of calls from A to B, and through what?" and "what has to be looked at again if this declaration changes?" in Datalog over it, every printed hop verified. One entry point, `scripts/axiomcode`, with subcommands; every future capability is a subcommand of it.
 ---
 
 # axiomcode
@@ -12,6 +12,7 @@ axiomcode index [<repo>] [--lang <l>] [--src <dir>] [--library <root>,…]   the
 axiomcode graph [<repo>] [--out <folder | page.html>] [same flags]        the graph as one page; runs the pipeline only when there is no up-to-date graph
 axiomcode path <from> <to> [<repo>] [--every|--paths N] [--in <path>]     the shortest chain of calls from A to B per target (--every: all routes) — or why there is none
 axiomcode path '*' <X>  ·  path <X> '*'                                   everything that can reach X (with its entry points) · everything X reaches
+axiomcode impact <target>… [<repo>] [--tests] [--depth N] [--in <path>]  what a change to a method / field / type / parameter / type parameter / local reaches, and how sure
 ```
 
 `<repo>` defaults to the current directory. The page goes to `<repo>/.axiomcode/graph/graph.html`; `--out <folder>`
@@ -98,4 +99,4 @@ puts it at `<folder>/<repo>.html`, `--out x.html` at that path. With an up-to-da
 - `axiomcode path --selftest <lang>` replays the engine's own expected edges through the tool and separates engine gaps
   from tool losses; run it after touching `dl/path.dl` or the exporter. Needs `souffle` on PATH.
 
-`scripts/` holds `axiomcode` (the entry) and what it dispatches to: `axiomcode-build` (the pipeline), `axiomcode-index`, `axiomcode-graph`, `viewer.html`, `axiomcode-path` with `dl/path.dl`.
+`scripts/` holds `axiomcode` (the entry) and what it dispatches to: `axiomcode-build` (the pipeline), `axiomcode-index`, `axiomcode-graph`, `viewer.html`, `axiomcode-path` with `dl/path.dl`, `axiomcode-impact` (imports the path tool's resolver, facts and Datalog).

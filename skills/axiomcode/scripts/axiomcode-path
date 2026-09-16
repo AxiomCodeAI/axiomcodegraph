@@ -25,7 +25,7 @@ look at, never as a path.
 """
 import os, re, sys, sqlite3, subprocess, tempfile, shutil, collections, glob
 
-HERE = os.path.dirname(os.path.abspath(__file__)); DL = os.path.join(HERE, 'dl', 'path.dl')
+HERE = os.path.dirname(os.path.abspath(__file__))
 TIER_RANK = {'known_edge': 0, 'library': 0, 'written': 0, 'multi_inferred': 1, 'dispatch': 2, 'defines': 3, 'by-name': 9}
 
 def die(msg, code=2): print(msg); sys.exit(code)
@@ -303,7 +303,9 @@ class G:
         return [tuple(l.rstrip('\n').split('\t')) for l in open(os.path.join(self.facts, 'edge.facts'))] + list(self.EXTRA)
 
 # ── run Soufflé for a set of queries: {q: (src_ids, dst_ids)} ───────────────────────────────────────────────────
-def run_dl(g, queries):
+def run_dl(g, queries, programs=('path.dl',)):
+    """the sound program always; path-every.dl only for --every; path-opt.dl only when nothing resolved connects the endpoints —
+    on a large graph the by-name closure is the expensive part, so it is never computed unasked"""
     if not shutil.which('souffle'): die("souffle is not installed (brew install souffle-lang/souffle/souffle)")
     F = tempfile.mkdtemp(prefix='axpath-'); O = tempfile.mkdtemp(prefix='axpath-out-')
     for n in ('byname', 'named'): os.symlink(os.path.join(g.facts, n + '.facts'), os.path.join(F, n + '.facts'))
@@ -314,14 +316,16 @@ def run_dl(g, queries):
     else: os.symlink(os.path.join(g.facts, 'edge.facts'), os.path.join(F, 'edge.facts'))
     g.write('src', [(q, m) for q, (s, _) in queries.items() for m in s], F)
     g.write('dst', [(q, m) for q, (_, d) in queries.items() for m in d], F)
-    r = subprocess.run(['souffle', '-F', F, '-D', O, DL], capture_output=True, text=True)
-    if r.returncode: die("souffle failed:\n" + r.stderr[-800:])
-    out = {}
-    for n in ('hit', 'parent', 'hit_opt', 'parent_opt', 'between_edge', 'dist_up', 'dist'):
-        rows = collections.defaultdict(list)
-        for l in open(os.path.join(O, n + '.csv')):
-            p = l.rstrip('\n').split('\t'); rows[p[0]].append(p[1:])
-        out[n] = rows
+    out = {n: collections.defaultdict(list) for n in ('hit', 'parent', 'hit_opt', 'parent_opt', 'between_edge', 'dist_up', 'dist')}
+    for prog in programs:
+        r = subprocess.run(['souffle', '-F', F, '-D', O, os.path.join(HERE, 'dl', prog)], capture_output=True, text=True)
+        if r.returncode: die(f"souffle failed on {prog}:\n" + r.stderr[-800:])
+        for n in out:
+            f = os.path.join(O, n + '.csv')
+            if not os.path.exists(f): continue
+            for l in open(f):
+                p = l.rstrip('\n').split('\t'); out[n][p[0]].append(p[1:])
+            os.remove(f)
     shutil.rmtree(F, ignore_errors=True); shutil.rmtree(O, ignore_errors=True)
     return out
 
@@ -456,7 +460,9 @@ def closure(g, sel, upstream, limit=40, depth=40):
 def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
     g.export()
     la, A = g.resolve(a); lb, B = g.resolve(b)
-    res = run_dl(g, {'fwd': (A, B), 'rev': (B, A)})
+    res = run_dl(g, {'fwd': (A, B), 'rev': (B, A)}, ('path.dl', 'path-every.dl') if every else ('path.dl',))
+    if not res['hit']['fwd'] and not res['hit']['rev']:                      # nothing resolved connects them: now, and only now, the by-name closure
+        res_opt = run_dl(g, {'fwd': (A, B), 'rev': (B, A)}, ('path-opt.dl',)); res['hit_opt'] = res_opt['hit_opt']; res['parent_opt'] = res_opt['parent_opt']
     adj = collections.defaultdict(set)
     for x, y, _ in g.edges(): adj[x].add(y)
     A_, B_ = set(A), set(B)

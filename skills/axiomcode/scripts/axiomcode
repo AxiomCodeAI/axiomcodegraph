@@ -12,6 +12,11 @@
 #       '*' as one endpoint: path '*' X = everything that can reach X, with the entry points among them; path X '*' = everything X reaches. Endpoints exactly as written in the code: Owner.method,
 #       method (free function or any owner), Type (all its methods), file.ts:123, file.py. Datalog over the graph; every
 #       printed hop re-checked against graph.sqlite. `axiomcode path --selftest <lang>` replays the engine's expected edges.
+#   axiomcode impact <target> [<target>…] [<repo>] [--tests] [--depth N] [--in <path>] [--limit N] [--json] [--kind k]
+#       what has to be looked at again when a declaration changes: a method, a field / constant / enum member, a type, a
+#       parameter (Owner.m(p)), a type parameter (Type<T>), a local (Owner.m:v), Type.<init> / Type.<clinit>. Prints what
+#       must change with it (overrides, subtypes), what directly touches it with WHY and how sure ([resolved] / [in scope] /
+#       [by name] / [text]), the transitive callers by hop with the entry points and tests, and the unresolved-site bound.
 #
 # --lang picks the language when the repo mixes several (auto-detection counts files, so a TypeScript project with many
 # .js test scripts is taken for JavaScript); --src limits the analysed tree (e.g. src); --library names dependency roots.
@@ -29,7 +34,8 @@ done
 case "$cmd" in
   index|build) exec bash "$H/axiomcode-build" ${ARGS[@]+"${ARGS[@]}"} ;;
   path)   exec python3 "$H/axiomcode-path" ${ARGS[@]+"${ARGS[@]}"} ;;
+  impact) exec python3 "$H/axiomcode-impact" ${ARGS[@]+"${ARGS[@]}"} ;;
   graph)  exec python3 "$H/axiomcode-graph" build ${ARGS[@]+"${ARGS[@]}"} ;;
-  ""|-h|--help|help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//' ;;
-  *) echo "axiomcode: unknown subcommand '$cmd' — the entry point has: index, graph, path" >&2; exit 2 ;;
+  ""|-h|--help|help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) echo "axiomcode: unknown subcommand '$cmd' — the entry point has: index, graph, path, impact" >&2; exit 2 ;;
 esac

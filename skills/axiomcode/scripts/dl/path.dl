@@ -41,33 +41,3 @@ dist_up(q, m, d) :- step_up(q, m, d), d = min x : step_up(q, m, x).
 .output dist_up
 .output dist
 
-// ── every route, not only the shortest: a method lies on SOME chain from a source to a target iff a source reaches it
-//    and it reaches a target. The set of such methods and the edges among them is every path at once, in polynomial
-//    size; the driver enumerates simple paths from it on request
-.decl fwd(q:symbol, m:symbol)
-fwd(q, m) :- src(q, m).
-fwd(q, b) :- fwd(q, a), edge(a, b, _).
-.decl bwd(q:symbol, m:symbol)
-bwd(q, m) :- dst(q, m).
-bwd(q, a) :- bwd(q, b), edge(a, b, _).
-.decl between(q:symbol, m:symbol)
-between(q, m) :- fwd(q, m), bwd(q, m).
-.decl between_edge(q:symbol, a:symbol, b:symbol, t:symbol)
-between_edge(q, a, b, t) :- between(q, a), between(q, b), edge(a, b, t).
-.output between_edge
-
-// ── the optimistic closure: unresolved sites taken by name ─────────────────────────────────────────────────────
-.decl edge_opt(a:symbol, b:symbol, t:symbol)
-edge_opt(a, b, t) :- edge(a, b, t).
-edge_opt(c, m, "by-name") :- byname(c, n), named(n, m).
-.decl step_opt(q:symbol, m:symbol, d:number)
-step_opt(q, m, 0) :- src(q, m).
-step_opt(q, b, d+1) :- step_opt(q, a, d), edge_opt(a, b, _), d < 40.
-.decl dist_opt(q:symbol, m:symbol, d:number)
-dist_opt(q, m, d) :- step_opt(q, m, d), d = min x : step_opt(q, m, x).
-.decl hit_opt(q:symbol, m:symbol, d:number)
-hit_opt(q, m, d) :- dst(q, m), dist_opt(q, m, d), !hit(q, m, _).
-.decl parent_opt(q:symbol, b:symbol, a:symbol, t:symbol)
-parent_opt(q, b, a, t) :- dist_opt(q, b, d), d > 0, dist_opt(q, a, d1), d1 = d - 1, edge_opt(a, b, t).
-.output hit_opt
-.output parent_opt
