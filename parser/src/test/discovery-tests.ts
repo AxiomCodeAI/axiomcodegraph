@@ -24,6 +24,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
+import { extractProject } from '@/extract';
 import { ProjectLanguage } from '@/types/ProjectInfo';
 import { resolveFileOwners } from '@/utils/file-ownership';
 import { ProjectScanner } from '@/utils/project-scanner';
@@ -211,6 +212,34 @@ const CHECKS: Check[] = [
       if (testRoots(withTests).length === 0) return `control: without the flag no test directory became a root (${withTests}) — the check proves nothing`;
       if (testRoots(without).length > 0) return `with excludeTests these test directories are still roots: ${testRoots(without)}`;
       if (!without.some((p) => p === '.' || p.startsWith('src'))) return `with excludeTests the source itself vanished: ${without}`;
+      return null;
+    },
+  },
+  {
+    name: 'per-language-keeps-the-javascript-of-a-package-that-is-no-project',
+    proves: 'extractProject in per-language layout writes javascript/ for a package whose only '
+      + 'JavaScript is the dist/ its package.json ships from, which discovery does not call a project',
+    rulesOut: 'choosing the javascript/ folder by whether discovery found a JavaScript project: the '
+      + 'analyzer walked dist/ regardless (#620), wrote the tables to a scratch folder, and the '
+      + 'scratch folder was deleted as a stray, so the package staged nothing through --library (#709)',
+    run: async (tmp) => {
+      const root = build(tmp, 'dist-only', {
+        'package.json': '{"name":"distpkg","version":"1.0.0","main":"dist/index.js"}',
+        'dist/index.js': 'exports.connect = function connect(opts) { return opts; };\n',
+      });
+      if ((await languagesIn(root)).length !== 0) return 'control: discovery found a project here, so the check exercises nothing';
+      const out = path.join(tmp, 'dist-only-out');
+      const silence = console.log;
+      console.log = () => {};
+      try {
+        await extractProject({ projectPath: root, versionLink: 'v1', outputDir: out, layout: 'per-language' });
+      } finally {
+        console.log = silence;
+      }
+      const folders = fs.readdirSync(out).sort();
+      if (String(folders) !== 'javascript') return `output folders ${JSON.stringify(folders)}, want javascript alone`;
+      const modules = fs.readFileSync(path.join(out, 'javascript', 'all-javascript-modules.csv'), 'utf-8').trim().split('\n');
+      if (modules.length !== 2 || !modules[1]!.includes('dist/index.js')) return `javascript/all-javascript-modules.csv has ${modules.length - 1} row(s), want the one for dist/index.js`;
       return null;
     },
   },
