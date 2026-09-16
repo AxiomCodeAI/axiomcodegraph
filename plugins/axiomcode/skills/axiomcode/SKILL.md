@@ -11,9 +11,10 @@ The same subcommands are MCP tools when this plugin is loaded (`mcp__plugin_axio
 `…_index`, `…_graph`, from `plugins/axiomcode/.mcp.json` → `mcp/server.py`): typed parameters, the same verified output.
 Prefer the MCP tool when it is in your tool list; the CLI is the same code.
 
-When the plugin is loaded, a PostToolUse hook adds the graph's edges to your own Read and Grep results (`graph: …` — who
-calls each callable in the lines you read, what it calls, how many calls in it are unresolved; a grep for an identifier
-gets its declarations with the same). Nothing is added when the repo has no graph.
+When the plugin is loaded, a PostToolUse hook adds the graph's edges to your own Read, Grep, Glob and shell grep/sed/cat
+results (`graph: …` — who calls each callable in the lines you read, what it calls, how many calls in it are unresolved;
+a grep for an identifier gets the callables it names or prefixes, with the same; a file glob gets the files' callables).
+SQLite lookups only, ~0.1–0.5 s; nothing is added when the repo has no graph.
 
 ```
 axiomcode index [<repo>] [--lang <l>] [--src <dir>] [--library <root>,…]   the pipeline: parser → engine → .axiomcode/out/graph.sqlite (+ index)
@@ -43,6 +44,78 @@ puts it at `<folder>/<repo>.html`, `--out x.html` at that path. With an up-to-da
   file* and an *editor ↗* (`vscode://`) link per window. The left panel hides or shows each node kind — tests included — narrows
   to unresolved / entry points / tests, toggles each edge kind, and limits the view to 1–3 hops.
   `graph.html#n=Owner.method&impact=1` links to a node. Tell the user to `open .axiomcode/graph/graph.html`.
+
+## impact — what a change to a declaration reaches
+
+`axiomcode impact <target>`, the target written as it appears in the code and its kind read from the index, never guessed:
+`Owner.method` · `method` · `file.java:123` (a method), `Owner.field` · `CONSTANT` · `Enum.MEMBER` (a field), `Type` (a class /
+interface / enum), `Owner.method(param)` (one parameter), `Type<T>` · `Owner.method<T>` (a type parameter — a generic, or a
+bound on it), `Owner.method:name` (a local), `Type.<init>` (its construction) / `Type.<clinit>` (its static initialization: whoever
+first uses the type). Several targets in one call are one change set. A name declared as more than one kind stops and asks for
+`--kind`. The same answer shape for every kind and language:
+
+Every judgement is a rule in `dl/impact.dl`: the Python side exports facts from graph.sqlite once per graph (members, owners,
+extends, nesting, decorations, overrides, resolved and unresolved call sites, references with the qualifier written on the
+line, type references, string literals, tests and fixtures), writes the target and the few text-level facts for the query, and
+runs one Soufflé program — compiled to a native binary on first use (~20 s, cached by the program's hash under `dl/.cache/`,
+the interpreter when there is no `c++`). Direct dependents, the contract, the seeds, the closure, the chains (`parent_up`) and
+the tests are all derived in the same run; nothing is recomputed a second way. What is verified afterwards is the export:
+every printed chain hop and every `[resolved]` entry is looked up again in `graph.sqlite` (the `verified:` line).
+
+- **must change with it** — declarations bound to the target by a contract the engine resolved: the overrides of a method (and what
+  it overrides), the subtypes of a type. A signature change reaches these first.
+- **produces or writes it** — the blast radius read top-down starts where a value of the new shape has to be *made*: setter and
+  builder calls, constructor calls (declared or generated), and the **holders** — a type with a field of the target's type, where
+  that holder is constructed or deserialized (`Holder.class` handed to a deserializer or a framework: reflection produces the
+  field's value there, through the generated setters). A field's declared or generated setter, a generated constructor.
+- **reads or uses it** — every callable whose text uses the declaration, grouped by *why* (calls it, reads it, instantiates it,
+  names it in a signature, uses a member imported from it, …) and by *how sure*: `[resolved]` an edge the engine resolved (a call
+  — `[one of a set]` when it is a multi_inferred target set —, an override, a subtype, a constructor); `[in scope]` a reference by
+  that name inside the owner type, a subtype or a nested type; `[by name]` a reference by that name elsewhere — the receiver was
+  not typed, so it may be a same-named other thing; `[text]` the name found in the source where the parser records no line (Java
+  type references in signatures), comments and strings stripped. A bare name inside a type that declares its own member of that
+  name is that member, not the target; a qualified `X.name` is confirmed when `X` is the owner and dropped when `X` is another
+  type. For a field, a **declared accessor** in the owner (`getF` / `setF` / `isF` / `f()`) is its door: the accessor's callers are
+  listed as reading or writing the field through it. A **generating decoration** — Lombok `@Data` / `@Getter` / `@Setter` /
+  `@Value` / `@Builder` / `@AllArgsConstructor` / `@With`, a record, a dataclass — declares members the source never spells, so a
+  call to `getZipCode()` or `new Address(…)` is an unresolved site; the unresolved sites written with the generated name are listed
+  as calling the generated getter / setter / constructor `[by name]`, with the decoration that generates it. A string literal
+  equal to the field's name (a map key, a serialized name, a request parameter) is listed `[text]`.
+- **reaches those through resolved calls** — the transitive impact: everything that can reach a touched callable, by hop and by
+  file, with the entry points among the reached callables *and* the direct dependents (a `@PostMapping` handler that reads the
+  field is where the change is observed from, though nothing resolved calls it); `--tests` lists the tests, each with its
+  shortest chain to the change. A test counts when
+  its own body reaches the change **or a fixture its framework runs first does** (a constructor, a static initializer, `@Before*`,
+  `setUp` — a convention table, printed as such). `--in <path>` and `--depth N` bound it; `--json` is the same answer as data.
+- **verified** — every printed edge looked up again in graph.sqlite; **bound** counts the unresolved calls inside the impacted
+  set, so the set is a lower bound on the real one; a **note** counts the entries matched by name or text.
+
+What it cannot see, by construction — say so instead of guessing: a callable that touches a type only through a value it never
+names (`t.asStartTag().normalName()` where the engine resolved `normalName` to the inherited `Tag.normalName`) — the graph keeps
+no receiver type at a call site, so the compiler sees that dependency and this tool does not; the `[one of a set]` callers are
+the engine's over-approximation and most of them will not compile against the change; a bound change on a type parameter
+reaches the sites that instantiate `Type<…>`, listed, but nothing checks the argument against the bound; the transitive layer
+is the call graph's, so everything `path` cannot find (callbacks handed to a library, reflection, framework dispatch, DI) is a
+missing chain here too and is counted in `bound:`, never guessed.
+
+Measured two ways, Java first. (1) Defects4J: the methods each fix changed as the change set, `--tests` against the tests
+Defects4J observed failing on the buggy tree — 273 bugs of 17 projects, every triggering test found in 266, trigger recall 0.929,
+mean selection 50 % of the suite, and the same verdict as the benchmark's own independent reading of the same graphs in 252 of
+256 bugs (better in 3, worse in 1 — a method the fix *added*, absent from the buggy tree); every remaining miss is an engine gap
+(an overload set, a callback through `Function.apply`), not a tool loss. (2) The compiler: on five of those projects, 412 sampled
+declarations, one edit each — rename a field, a method (all its overloads), a type (plus an empty stub with the old name, so member
+uses fail too), a type parameter; remove a parameter — and `javac` over the whole tree names the dependents. Recall: fields 0.997,
+methods 1.000, types 0.962, parameters 0.944, type parameters 0.977. Precision by certainty, all kinds: `[resolved]` 528/585,
+`[in scope]` 249/256, `[text]` 683/773, `[by name]` 157/291, `[one of a set]` 126/351, contract 69/144 (the compiler confirms
+only the override direction that breaks). The harnesses are `impact-arena.py` and `oracle-b.py` next to the arena. (3) By hand, on a
+multi-module Spring / SOFA-RPC / Lombok `@Data` system where every model is generated accessors: a `String zipCode` field on a
+shared `Address` → the three places an `Integer` breaks (the owner's formatter, the five `getZipCode().length()` / `.trim()` uses
+in another service, the generated all-args constructor call in a web controller) and nothing else; a facade method called
+through `@SofaReference` fields in two other services → the override, the three callers, the three REST entry points; an enum
+member → its one use, with `PaymentStatus.PENDING` and `ShipmentStatus.PENDING` correctly excluded; a shared value type → all six
+files, including a chained `product.getPrice().getAmount()` a grep for the type cannot see; a field with declared accessors →
+every accessor caller across three services plus the `"stockQuantity"` map key. Other languages share every code path except
+the static-import rule (Java syntax) and are not yet measured.
 
 ## path — asking the graph
 
@@ -107,4 +180,4 @@ puts it at `<folder>/<repo>.html`, `--out x.html` at that path. With an up-to-da
 - `axiomcode path --selftest <lang>` replays the engine's own expected edges through the tool and separates engine gaps
   from tool losses; run it after touching `dl/path.dl` or the exporter. Needs `souffle` on PATH.
 
-`scripts/` holds `axiomcode` (the entry) and what it dispatches to: `axiomcode-build` (the pipeline), `axiomcode-index`, `axiomcode-graph`, `viewer.html`, `axiomcode-path` with `dl/path.dl`, `axiomcode-impact` (imports the path tool's resolver, facts and Datalog).
+`scripts/` holds `axiomcode` (the entry) and what it dispatches to: `axiomcode-build` (the pipeline), `axiomcode-index`, `axiomcode-graph`, `viewer.html`, `axiomcode-path` with `dl/path.dl`, `axiomcode-impact` with `dl/impact.dl` (the path tool's resolver and edge facts, its own rules and fact export).

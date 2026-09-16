@@ -177,7 +177,7 @@ direct(q, m, "uses", "declares it", "resolved", "", 0) :- target(q, "param", m, 
 direct(q, c, "uses", "passes an argument for it", "resolved", f, l) :- target(q, "param", m, _), calls(c, m, _, f, l).
 
 // a TYPE PARAMETER of a type: every callable inside the type that spells it; of a method: the method. A bound reaches the uses of Type<…> too
-direct(q, c, "uses", cat("uses ", x, " in its body or signature"), "text", f, l) :- target(q, "typeparam", t, x), textuse(c, x, f, l).
+direct(q, c, "uses", cat("uses ", x, " in its body or signature"), "text", f, l) :- target(q, "typeparam", _, x), textuse(c, x, f, l).
 direct(q, c, "uses", cat(why, " — the argument must satisfy ", x), cert, f, l) :- target(q, "typeparam", t, x), typ(t, _, _), target(qq, "type", t, _), qq = cat(q, ":type"), direct(qq, c, "uses", why, cert, f, l), (cert = "text" ; cert = "by name").
 direct(q, c, "produces", cat(why, " — the argument must satisfy ", x), cert, f, l) :- target(q, "typeparam", t, x), typ(t, _, _), target(qq, "type", t, _), qq = cat(q, ":type"), direct(qq, c, "produces", why, cert, f, l).
 direct(q, c, "uses", cat("calls it — its arguments must satisfy ", x), "resolved", f, l) :- target(q, "typeparam", m, x), !typ(m, _, _), calls(c, m, _, f, l).
