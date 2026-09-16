@@ -2,389 +2,113 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>axiomcode graph</title>
+<title>axiomcode call chains</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  :root { --bg:#fafaf9; --panel:#ffffff; --ink:#1c1917; --mute:#78716c; --line:#e7e5e4; --edge:#a8a29e; --edge-known:#57534e; --edge-inf:#0284c7; --edge-amb:#c4c0bb; --hier:#7c3aed; --focus:#f59e0b; --test:#94a3b8; --lib:#d6d3d1; }
+  :root { --bg:#fafaf9; --ink:#1c1917; --mute:#78716c; --line:#e7e5e4; --known:#44403c; --inf:#0284c7; --amb:#a8a29e; --hi:#fef3c7; --test:#64748b; }
   * { box-sizing:border-box } html,body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:13px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif }
-  #top { display:flex; align-items:center; gap:14px; padding:8px 14px; border-bottom:1px solid var(--line); background:var(--panel); position:relative; z-index:2 }
+  .mono { font-family:ui-monospace,Menlo,monospace; font-size:11px; color:var(--mute) }
+  #top { display:flex; align-items:center; gap:16px; padding:8px 14px; border-bottom:1px solid var(--line); background:#fff }
   #top h1 { font-size:14px; margin:0; font-weight:600 } #top h1 span { color:var(--mute); font-weight:400 }
-  #crumbs { display:flex; gap:6px; align-items:center; flex:1; min-width:0; overflow:hidden; white-space:nowrap }
-  #crumbs a { color:var(--ink); text-decoration:none; padding:2px 8px; border-radius:6px; background:#f5f5f4; cursor:pointer; max-width:340px; overflow:hidden; text-overflow:ellipsis; display:inline-block }
-  #crumbs a.cur { background:var(--ink); color:#fff } #crumbs .sep { color:var(--mute) }
-  #search { position:relative } #search input { width:320px; padding:6px 10px; border:1px solid var(--line); border-radius:8px; font:inherit; background:#fff }
-  #hits { position:absolute; top:34px; left:0; right:0; background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.08); display:none; max-height:360px; overflow:auto; z-index:5 }
-  #hits div { padding:6px 10px; cursor:pointer; display:flex; gap:8px; align-items:baseline } #hits div:hover, #hits div.sel { background:#f5f5f4 }
-  #hits small { color:var(--mute); margin-left:auto; font-family:ui-monospace,Menlo,monospace; font-size:11px; white-space:nowrap }
-  #main { display:flex; height:calc(100% - 45px) } #canvas { flex:1; position:relative; overflow:hidden; cursor:grab } #canvas:active { cursor:grabbing }
-  svg { width:100%; height:100%; display:block }
-  #side { width:360px; border-left:1px solid var(--line); background:var(--panel); overflow:auto; padding:14px 16px }
-  #side h2 { font-size:15px; margin:0 0 2px; word-break:break-word } #side .k { color:var(--mute); font-size:12px; margin-bottom:10px }
-  #side h3 { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--mute); margin:14px 0 4px }
-  #side ul { list-style:none; margin:0; padding:0 } #side li { padding:3px 0; border-bottom:1px solid #f5f5f4; display:flex; gap:6px; align-items:baseline; cursor:pointer }
-  #side li:hover { background:#fafaf9 } #side li .lbl { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
-  #side li .loc, .mono { color:var(--mute); font-family:ui-monospace,Menlo,monospace; font-size:11px; white-space:nowrap }
-  #side li .loc { max-width:42%; overflow:hidden; text-overflow:ellipsis; direction:rtl; text-align:left } #side .mono.wrap { white-space:normal; word-break:break-all }
-  .tier { font-size:10px; padding:1px 5px; border-radius:4px; background:#f5f5f4; color:var(--mute) } .tier.known_edge { background:#e7e5e4; color:#44403c } .tier.multi_inferred { background:#e0f2fe; color:#0369a1 } .tier.dispatch { background:#ede9fe; color:#6d28d9 }
-  .note { background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:8px 10px; margin:10px 0; font-size:12px }
-  #legend.min > *:not(b:first-child) { display:none } #legend b:first-child { cursor:pointer; margin-top:0 } #legend b:first-child::after { content:'  ▾'; } #legend.min b:first-child::after { content:'  ▸' }
-  #legend { position:absolute; left:14px; bottom:14px; background:rgba(255,255,255,.94); border:1px solid var(--line); border-radius:10px; padding:10px 12px; font-size:11.5px; line-height:1.7; z-index:2 }
-  #legend svg { width:auto; height:auto; vertical-align:middle } #legend .row { display:flex; gap:8px; align-items:center } #legend b { display:block; font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:var(--mute); margin-top:4px }
-  #hint { position:absolute; right:14px; bottom:14px; color:var(--mute); font-size:11px; background:rgba(255,255,255,.9); padding:4px 8px; border-radius:6px }
-  text { font-family:ui-sans-serif,system-ui,sans-serif; pointer-events:none; user-select:none } .lbl-mono { font-family:ui-monospace,Menlo,monospace }
-  .node { cursor:pointer } .node:hover .shape { stroke-width:2.6 } .cluster { cursor:pointer } .cluster:hover > rect { stroke:var(--ink) }
-  .edge { fill:none; pointer-events:stroke } .edge:hover { stroke:var(--focus) !important; stroke-width:2.4 !important }
-  .dim { opacity:.08 } line.dim { opacity:.04 }
+  #top input { margin-left:auto; width:340px; padding:6px 10px; border:1px solid var(--line); border-radius:8px; font:inherit }
+  #main { display:flex; height:calc(100% - 45px) }
+  #list { width:400px; border-right:1px solid var(--line); background:#fff; overflow:auto }
+  #list h3, #view h3 { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--mute); margin:12px 14px 4px }
+  .chain { padding:8px 14px; border-bottom:1px solid #f5f5f4; cursor:pointer } .chain:hover { background:#fafaf9 } .chain.sel { background:var(--hi) }
+  .chain .root { font-weight:600 } .chain .meta { color:var(--mute); font-size:11px; margin-left:6px } .chain .prev { color:var(--mute); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px }
+  .chain.test .root { color:var(--test) }
+  #view { flex:1; overflow:auto; padding:14px 18px }
+  #view .empty { color:var(--mute); margin-top:40px; text-align:center }
+  .row { display:flex; align-items:flex-start; gap:0; flex-wrap:wrap; row-gap:18px; margin:10px 0 }
+  .hop { background:#fff; border:1.5px solid var(--ink); border-radius:8px; padding:8px 12px; min-width:150px; max-width:260px; position:relative }
+  .hop.test { border-style:dashed; border-color:var(--test) } .hop.entry { border-width:2.5px } .hop.sel { background:var(--hi) }
+  .hop .name { font-weight:600; word-break:break-word } .hop .loc { display:block; margin-top:2px; word-break:break-all; white-space:normal }
+  .hop .sig { display:block; margin-top:2px; color:#a8a29e; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+  .hop .flags { margin-top:5px; display:flex; gap:6px; flex-wrap:wrap }
+  .tag { font-size:10px; padding:1px 6px; border-radius:4px; background:#f5f5f4; color:var(--mute) } .tag.u { background:#fef3c7; color:#92400e } .tag.e { background:#dcfce7; color:#166534 } .tag.lib { background:#f1f5f9; color:#475569 }
+  .hop .acts { margin-top:6px; display:flex; gap:8px } .hop .acts a { font-size:11px; color:#0369a1; cursor:pointer; text-decoration:none } .hop .acts a:hover { text-decoration:underline } .hop .acts a.on { font-weight:600 }
+  .arr { display:flex; align-items:center; align-self:flex-start; margin-top:18px; width:46px; flex:none } .arr svg { width:46px; height:14px }
+  .branch { margin:6px 0 14px 28px; padding-left:14px; border-left:2px solid var(--line) }
+  .branch > .bh { color:var(--mute); font-size:11.5px; margin:6px 0 } .branch .item { display:flex; align-items:flex-start; gap:0; margin:6px 0 }
+  .lead { width:34px; flex:none; margin-top:18px } .lead svg { width:34px; height:14px }
+  .legend { color:var(--mute); font-size:11.5px; margin:0 0 8px; display:flex; gap:18px; flex-wrap:wrap; align-items:center } .legend svg { width:40px; height:12px; vertical-align:middle }
 </style>
 </head>
 <body>
-<div id="top">
-  <h1 id="title">axiomcode graph <span></span></h1>
-  <div id="crumbs"></div>
-  <div id="search"><input id="q" placeholder="find a class, method, file…  (Enter jumps)" autocomplete="off"><div id="hits"></div></div>
-</div>
-<div id="main">
-  <div id="canvas"><svg id="svg"><defs>
-    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9 z" fill="context-stroke"/></marker>
-    <marker id="arr-hollow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9 z" fill="#fff" stroke="context-stroke" stroke-width="1.2"/></marker>
-  </defs><g id="root"></g></svg>
-    <div id="legend"></div><div id="hint">scroll to zoom · drag to pan · hover a node to isolate its calls · click it for callers and callees · a community in the list opens its class map</div>
-  </div>
-  <div id="side"></div>
-</div>
+<div id="top"><h1>axiomcode call chains <span id="ttl"></span></h1><input id="q" placeholder="filter chains, or type a method name to start a chain there" autocomplete="off"></div>
+<div id="main"><div id="list"></div><div id="view"><div class="empty">pick a chain on the left</div></div></div>
 <script>
 const DATA = /*__DATA__*/null;
-// ── palette for communities (distinct, printable) ───────────────────────────────────────────────
-const PAL = ['#2563eb','#dc2626','#059669','#d97706','#7c3aed','#db2777','#0891b2','#65a30d','#ea580c','#4f46e5','#0d9488','#b45309','#9333ea','#be123c','#0369a1','#15803d'];
-const col = c => c < 0 ? '#a8a29e' : PAL[c % PAL.length];
 const N = new Map(DATA.nodes.map(n => [n.id, n]));
 const OUT = new Map(), IN = new Map();
-for (const l of DATA.links) { (OUT.get(l.s) || OUT.set(l.s, []).get(l.s)).push(l); (IN.get(l.t) || IN.set(l.t, []).get(l.t)).push(l); }
-const C = new Map(DATA.communities.map(c => [c.id, c]));
-const byComm = new Map(); for (const n of DATA.nodes) { if (!byComm.has(n.c)) byComm.set(n.c, []); byComm.get(n.c).push(n); }
-const esc = s => String(s).replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
-const short = (s, n = 34) => s.length > n ? s.slice(0, n - 1) + '…' : s;
-const loc = n => n.f ? `${n.f}:${n.a}` : '(library)';
-document.querySelector('#title span').textContent = `${DATA.meta.repo} · ${DATA.meta.language} · ${DATA.meta.total} declarations` + (DATA.meta.shown < DATA.meta.total ? ` (the ${DATA.meta.shown} most connected are drawn)` : '');
+for (const e of DATA.edges) { (OUT.get(e.s) || OUT.set(e.s, []).get(e.s)).push(e); (IN.get(e.t) || IN.set(e.t, []).get(e.t)).push(e); }
+const RES = t => t === 'known_edge' || t === 'multi_inferred';
+const rank = e => (RES(e.tier) ? 0 : 1) * 1e6 - e.w * 1000 - (OUT.get(e.t) || []).length;
+for (const l of OUT.values()) l.sort((a, b) => rank(a) - rank(b));
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const loc = n => `${n.f}:${n.a}`;
+const m = DATA.meta; document.getElementById('ttl').textContent = `${m.repo} · ${m.language} · ${m.methods} methods · ${m.edges} call edges, ${m.resolved} resolved · ${m.unresolved_sites} unresolved sites · ${m.chains} chains`;
 
-// ── svg helpers ─────────────────────────────────────────────────────────────────────────────────
-const NS = 'http://www.w3.org/2000/svg';
-const el = (t, a = {}, ...kids) => { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); for (const k of kids) e.append(k); return e; };
-const root = document.getElementById('root'), svg = document.getElementById('svg'), canvas = document.getElementById('canvas');
-let view = { x: 0, y: 0, k: 1 };
-const applyView = () => root.setAttribute('transform', `translate(${view.x},${view.y}) scale(${view.k})`);
-canvas.addEventListener('wheel', e => { e.preventDefault(); const r = canvas.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top; const k = Math.min(6, Math.max(.08, view.k * (e.deltaY < 0 ? 1.12 : 0.89))); view.x = mx - (mx - view.x) * k / view.k; view.y = my - (my - view.y) * k / view.k; view.k = k; applyView(); }, { passive: false });
-let drag = null; canvas.addEventListener('mousedown', e => { if (e.target.closest('.node,.cluster,.port')) return; drag = { x: e.clientX - view.x, y: e.clientY - view.y }; });
-window.addEventListener('mousemove', e => { if (drag) { view.x = e.clientX - drag.x; view.y = e.clientY - drag.y; applyView(); } }); window.addEventListener('mouseup', () => drag = null);
-function fit(w, h, pad = 30) { const r = canvas.getBoundingClientRect(); const k = Math.min(1.6, (r.width - pad * 2) / Math.max(w, 1), (r.height - pad * 2 - 40) / Math.max(h, 1)); view = { k, x: (r.width - w * k) / 2, y: pad + (r.height - pad * 2 - 40 - h * k) / 2 }; applyView(); }
+// an arrow that says how sure the engine is: solid = one resolved target · dashed blue = a sound set · dotted grey = ambiguous
+const arrow = (e, w = 46) => { const c = e.tier === 'known_edge' ? 'var(--known)' : e.tier === 'multi_inferred' ? 'var(--inf)' : 'var(--amb)', d = e.tier === 'known_edge' ? '' : e.tier === 'multi_inferred' ? '5,3' : '2,3';
+  return `<svg viewBox="0 0 ${w} 14"><title>${esc(e.tier)}${e.w > 1 ? ' · ' + e.w + ' call sites' : ''}${e.line ? ' · line ' + e.line : ''}</title><line x1="1" y1="7" x2="${w - 8}" y2="7" stroke="${c}" stroke-width="1.6" stroke-dasharray="${d}"/><path d="M${w - 9},2 L${w - 1},7 L${w - 9},12 z" fill="${c}"/></svg>`; };
 
-// ── shapes: what a thing IS is readable from its outline ───────────────────────────────────────
-// type: class = rounded rect · interface = diamond · enum = hexagon · alias/namespace = dashed rect
-// method: circle · constructor = circle with a core · module initializer = small square · entry point = triangle
-// test = dashed outline, pale · library = grey square
-function shape(n, r) {
-  const fill = n.t ? '#fff' : col(n.c), stroke = n.t ? col(n.c) : shade(col(n.c)), dash = n.t ? '3,2' : (n.sk === 'type' || n.sk === 'namespace') ? '4,2' : '';
-  const a = { class: 'shape', fill, stroke, 'stroke-width': 1.4, 'stroke-dasharray': dash, 'fill-opacity': n.t ? 1 : .9 };
-  let s;
-  if (n.k === 'library') s = el('rect', { ...a, x: -r, y: -r, width: 2 * r, height: 2 * r, fill: '#e7e5e4', stroke: '#a8a29e' });
-  else if (n.k === 'type') {
-    if (n.sk === 'interface') s = el('path', { ...a, d: `M0,${-r * 1.2} L${r * 1.2},0 L0,${r * 1.2} L${-r * 1.2},0 z` });
-    else if (n.sk === 'enum') s = el('path', { ...a, d: hex(r * 1.15) });
-    else s = el('rect', { ...a, x: -r * 1.25, y: -r * .95, width: 2.5 * r, height: 1.9 * r, rx: 4 });
-  } else if (n.e && n.e.length) s = el('path', { ...a, d: `M${-r},${-r * 1.05} L${r * 1.15},0 L${-r},${r * 1.05} z` });
-  else if (n.sk === 'module') s = el('rect', { ...a, x: -r * .85, y: -r * .85, width: 1.7 * r, height: 1.7 * r, rx: 2 });
-  else s = el('circle', { ...a, r });
-  const g = el('g', {}, s);
-  if (n.sk === 'constructor') g.append(el('circle', { r: r * .35, fill: n.t ? col(n.c) : '#fff', 'pointer-events': 'none' }));
-  return g;
+function hop(n, opts = {}) {
+  const outs = OUT.get(n.id) || [], ins = IN.get(n.id) || [];
+  const others = outs.filter(e => e.t !== opts.next);
+  return `<div class="hop${n.t ? ' test' : ''}${n.e ? ' entry' : ''}${opts.sel ? ' sel' : ''}" data-id="${esc(n.id)}">
+    <div class="name">${esc(n.l)}</div><span class="loc mono">${esc(loc(n))}${n.b > n.a ? '–' + n.b : ''}</span>${n.sig && n.sig !== n.l ? `<span class="sig mono" title="${esc(n.sig)}">${esc(n.sig)}</span>` : ''}
+    <div class="flags">${n.e ? `<span class="tag e">entry: ${esc(n.e.join(', '))}</span>` : ''}${n.t ? '<span class="tag">test</span>' : ''}${n.u ? `<span class="tag u" title="call sites in this body whose target the engine could not resolve — each MAY be a call this page is not showing">? ${n.u} unresolved</span>` : ''}${n.lib ? `<span class="tag lib" title="${esc(n.lib.join('\n'))}">→ library ×${n.lib.length}</span>` : ''}</div>
+    <div class="acts">${others.length ? `<a data-act="down">+ ${others.length} more callee${others.length > 1 ? 's' : ''}</a>` : '<span class="mono">leaf</span>'}${ins.length ? `<a data-act="up">↑ ${ins.length} caller${ins.length > 1 ? 's' : ''}</a>` : ''}<a data-act="chain" title="start a chain from here">chain ⇢</a></div></div>`;
 }
-const hex = r => [0, 1, 2, 3, 4, 5].map(i => { const a = Math.PI / 3 * i; return `${i ? 'L' : 'M'}${(r * Math.cos(a)).toFixed(1)},${(r * Math.sin(a)).toFixed(1)}`; }).join(' ') + ' z';
-function shade(h) { const n = parseInt(h.slice(1), 16), f = x => Math.max(0, Math.round(x * .72)).toString(16).padStart(2, '0'); return '#' + f(n >> 16) + f((n >> 8) & 255) + f(n & 255); }
-function edgeStyle(l) {
-  if (l.r === 'overrides') return { stroke: 'var(--hier)', dash: '5,3', marker: 'url(#arr-hollow)', w: 1.2 };
-  if (l.r === 'extends') return { stroke: 'var(--hier)', dash: '', marker: 'url(#arr-hollow)', w: 1.4 };
-  if (l.tier === 'known_edge') return { stroke: 'var(--edge-known)', dash: '', marker: 'url(#arr)', w: 1.2 + Math.min(1.2, Math.log2(l.w || 1) * .3) };
-  if (l.tier === 'multi_inferred') return { stroke: 'var(--edge-inf)', dash: '6,3', marker: 'url(#arr)', w: 1.2 };
-  return { stroke: 'var(--edge-amb)', dash: '2,3', marker: 'url(#arr)', w: 1 };
+// expand under a hop: its other callees (down) or its callers (up), each expandable again
+function branch(id, act, skip) {
+  const n = N.get(id); const list = act === 'down' ? (OUT.get(id) || []).filter(e => e.t !== skip) : (IN.get(id) || []);
+  const items = list.map(e => { const o = N.get(act === 'down' ? e.t : e.s); return `<div class="item"><div class="lead">${arrow(e, 34)}</div>${hop(o)}</div>`; }).join('');
+  return `<div class="branch" data-for="${esc(id)}" data-act="${act}"><div class="bh">${esc(n.l)} ${act === 'down' ? 'also calls' : 'is called by'} (${list.length}):</div>${items}</div>`;
 }
-function legend(items) {
-  const L = document.getElementById('legend'); L.innerHTML = ''; { const h = document.createElement('b'); h.textContent = 'legend'; h.onclick = () => L.classList.toggle('min'); L.append(h); }
-  const sw = (n, r = 6) => { const s = el('svg', { width: 26, height: 20, viewBox: '-13 -10 26 20' }); s.append(shape(n, r)); return s; };
-  const line = (l) => { const st = edgeStyle(l), s = el('svg', { width: 34, height: 12, viewBox: '0 0 34 12' }); s.append(el('path', { d: 'M1,6 L30,6', stroke: st.stroke.startsWith('var') ? getComputedStyle(document.documentElement).getPropertyValue(st.stroke.slice(4, -1)).trim() : st.stroke, 'stroke-width': st.w, 'stroke-dasharray': st.dash, fill: 'none', 'marker-end': st.marker })); return s; };
-  const row = (sym, txt) => { const d = document.createElement('div'); d.className = 'row'; d.append(sym, txt); L.append(d); };
-  const b = t => { const x = document.createElement('b'); x.textContent = t; L.append(x); };
-  if (items.includes('shapes')) {
-    b('nodes'); row(sw({ k: 'type', sk: 'class', c: 0 }), 'class'); row(sw({ k: 'type', sk: 'interface', c: 0 }), 'interface'); row(sw({ k: 'type', sk: 'enum', c: 0 }), 'enum');
-    row(sw({ k: 'method', sk: 'method', c: 0 }), 'method / function'); row(sw({ k: 'method', sk: 'constructor', c: 0 }), 'constructor'); row(sw({ k: 'method', sk: 'method', c: 0, e: ['x'] }), 'entry point');
-    row(sw({ k: 'method', sk: 'method', c: 0, t: 1 }), 'test (dashed)'); row(sw({ k: 'library', c: 0 }), 'library target');
-  }
-  if (items.includes('edges')) { b('edges'); row(line({ tier: 'known_edge' }), 'call, one resolved target'); row(line({ tier: 'multi_inferred' }), 'call, a sound set of targets'); row(line({ tier: 'x' }), 'call, declared ambiguous'); row(line({ r: 'overrides' }), 'overrides'); row(line({ r: 'extends' }), 'extends / implements'); }
-  if (items.includes('comm')) { b('overview'); const d = document.createElement('div'); d.textContent = 'one box per community (Louvain over calls); edge width = call volume between them; colour is the community and is kept in every view'; L.append(d); }
-}
+function mainChain(from) { const path = [from], seen = new Set(path); while (path.length <= 10) { const e = (OUT.get(path[path.length - 1]) || []).find(e => RES(e.tier) && !seen.has(e.t)); if (!e) break; path.push(e.t); seen.add(e.t); } return path; }
 
-// ── a small force layout for a few hundred boxes ───────────────────────────────────────────────
-function force(items, links, { iters = 320, spring = 0.03, gravity = 0.02, W = 1400, H = 900, margin = 36 } = {}) {
-  // every item is a box: hw/hh half-sizes (r is kept for callers that draw circles); separation is on the rectangles
-  for (const it of items) { it.hw = it.hw || it.r; it.hh = it.hh || it.r; }
-  const idx = new Map(items.map((it, i) => [it.id, i]));
-  items.forEach((it, i) => { const a = i * 2.399, r = 40 * Math.sqrt(i + 1); it.x = W / 2 + r * Math.cos(a); it.y = H / 2 + r * Math.sin(a); it.vx = it.vy = 0; });
-  const ls = links.map(l => [idx.get(l.s), idx.get(l.t), l.w || 1]).filter(l => l[0] != null && l[1] != null);
-  for (let t = 0; t < iters; t++) {
-    const T = 1 - t / iters;
-    for (let i = 0; i < items.length; i++) for (let j = i + 1; j < items.length; j++) {
-      const a = items[i], b = items[j]; let dx = b.x - a.x, dy = b.y - a.y; const d = Math.sqrt(dx * dx + dy * dy) || 1;
-      const ox = (a.hw + b.hw + margin) - Math.abs(dx), oy = (a.hh + b.hh + margin) - Math.abs(dy);
-      let fx = 0, fy = 0;
-      if (ox > 0 && oy > 0) { if (ox / (a.hw + b.hw) < oy / (a.hh + b.hh)) fx = Math.sign(dx || 1) * ox * .5; else fy = Math.sign(dy || 1) * oy * .5; }   // overlapping boxes: push apart on the axis with the smaller RELATIVE overlap (wide boxes would otherwise stack)
-      const rep = 2200 / (d * d); fx += dx / d * rep; fy += dy / d * rep;                                                  // and a gentle general repulsion
-      a.vx -= fx; a.vy -= fy; b.vx += fx; b.vy += fy;
-    }
-    for (const [i, j, w] of ls) { const a = items[i], b = items[j]; const dx = b.x - a.x, dy = b.y - a.y, d = Math.sqrt(dx * dx + dy * dy) || 1, want = Math.max(a.hw + b.hw, a.hh + b.hh) + margin + 40; if (d > want) { const f = spring * (d - want) * Math.min(3, .6 + Math.log2(w + 1)); a.vx += dx / d * f; a.vy += dy / d * f; b.vx -= dx / d * f; b.vy -= dy / d * f; } }
-    for (const it of items) { it.vx += (W / 2 - it.x) * gravity * .7; it.vy += (H / 2 - it.y) * gravity * 1.6; it.x += it.vx * .45 * T; it.y += it.vy * .45 * T; it.vx *= .5; it.vy *= .5; }
-  }
-  // a final pass that resolves any overlap left, deterministically
-  for (let k = 0; k < 400; k++) { let moved = false; for (let i = 0; i < items.length; i++) for (let j = i + 1; j < items.length; j++) { const a = items[i], b = items[j]; const dx = b.x - a.x, dy = b.y - a.y; const ox = (a.hw + b.hw + margin * .8) - Math.abs(dx), oy = (a.hh + b.hh + margin * .8) - Math.abs(dy); if (ox > 0 && oy > 0) { moved = true; if (ox / (a.hw + b.hw) < oy / (a.hh + b.hh)) { a.x -= Math.sign(dx || 1) * ox / 2; b.x += Math.sign(dx || 1) * ox / 2; } else { a.y -= Math.sign(dy || 1) * oy / 2; b.y += Math.sign(dy || 1) * oy / 2; } } } if (!moved) break; }
-  const minx = Math.min(...items.map(i => i.x - i.hw)), miny = Math.min(...items.map(i => i.y - i.hh));
-  for (const it of items) { it.x -= minx - 20; it.y -= miny - 20; }
-  return { w: Math.max(...items.map(i => i.x + i.hw)) + 20, h: Math.max(...items.map(i => i.y + i.hh)) + 20 };
+let cur = null;
+function show(path, title) {
+  cur = path; const V = document.getElementById('view');
+  let row = '';
+  path.forEach((id, i) => { const e = i ? (OUT.get(path[i - 1]) || []).find(e => e.t === id) : null; row += (e ? `<div class="arr">${arrow(e)}</div>` : '') + hop(N.get(id), { next: path[i + 1] }); });
+  V.innerHTML = `<h3 style="margin-left:0">${esc(title)}</h3><div class="legend"><span>${arrow({ tier: 'known_edge', w: 1 }, 40)} one resolved target</span><span>${arrow({ tier: 'multi_inferred', w: 1 }, 40)} a sound set of targets</span><span>${arrow({ tier: 'x', w: 1 }, 40)} declared ambiguous</span><span>dashed box = test · thick box = entry point · <b>+</b> expands, deeper each time</span></div><div class="row">${row}</div>`;
+  document.querySelectorAll('.chain').forEach(c => c.classList.toggle('sel', c.dataset.root === path[0] && !title.startsWith('from ')));
 }
-const curve = (a, b, bend = .18) => { const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, dx = b.x - a.x, dy = b.y - a.y; return `M${a.x},${a.y} Q${mx - dy * bend},${my + dx * bend} ${b.x},${b.y}`; };
-const clipRect = (a, b, pa, pb) => { const f = (o, t, pad) => { const dx = t.x - o.x, dy = t.y - o.y; const sx = Math.abs(dx) > 1e-6 ? (o.hw + pad) / Math.abs(dx) : 1e9, sy = Math.abs(dy) > 1e-6 ? (o.hh + pad) / Math.abs(dy) : 1e9; const s = Math.min(sx, sy); return { x: o.x + dx * s, y: o.y + dy * s }; }; return [f(a, b, pa), f(b, a, pb)]; };
-const clip = (a, b, ra, rb) => { const dx = b.x - a.x, dy = b.y - a.y, d = Math.sqrt(dx * dx + dy * dy) || 1; return [{ x: a.x + dx / d * ra, y: a.y + dy / d * ra }, { x: b.x - dx / d * rb, y: b.y - dy / d * rb }]; };
+document.getElementById('view').addEventListener('click', ev => {
+  const a = ev.target.closest('a[data-act]'); if (!a) return; const h = a.closest('.hop'), id = h.dataset.id, act = a.dataset.act;
+  if (act === 'chain') { show(mainChain(id), 'from ' + N.get(id).l); return; }
+  const parent = h.parentElement, existing = [...parent.children].find(x => x.classList && x.classList.contains('branch') && x.dataset.for === id && x.dataset.act === act);
+  if (existing) { existing.remove(); a.classList.remove('on'); return; }
+  const skip = cur && cur.includes(id) ? cur[cur.indexOf(id) + 1] : null;
+  const wrap = document.createElement('div'); wrap.innerHTML = branch(id, act, skip); const b = wrap.firstElementChild;
+  if (parent.classList.contains('row')) { parent.insertAdjacentElement('afterend', b); b.dataset.for = id; } else h.insertAdjacentElement('afterend', b);
+  a.classList.add('on');
+});
 
-// ── views ───────────────────────────────────────────────────────────────────────────────────────
-const crumbs = [];
-function setCrumbs(list) { crumbs.length = 0; crumbs.push(...list); const c = document.getElementById('crumbs'); c.innerHTML = ''; list.forEach((it, i) => { if (i) { const s = document.createElement('span'); s.className = 'sep'; s.textContent = '›'; c.append(s); } const a = document.createElement('a'); a.textContent = it.label; a.title = it.label; if (i === list.length - 1) a.className = 'cur'; a.onclick = it.go; c.append(a); }); }
-function clear() { root.innerHTML = ''; }
-
-// ── overview: the call graph itself — a circle per method, a line per call ────────────────────────
-// size = how connected · colour = community · triangle = entry point · dashed = test · line style = tier.
-// It opens on the most connected methods (a whole repository is a hairball); the slider widens it.
-let ovN = 400, ovTests = false, ovPos = null;
-function forceGraph(pts, links, W, H) {
-  const idx = new Map(pts.map((p, i) => [p.id, i]));
-  const comms = [...new Set(pts.map(p => p.n.c))];
-  const ang = new Map(comms.map((c, i) => [c, i / comms.length * 2 * Math.PI]));
-  pts.forEach((p, i) => { const a = ang.get(p.n.c) + (Math.random() - .5) * .6, r = Math.min(W, H) * (.18 + .22 * Math.random()); p.x = W / 2 + r * Math.cos(a); p.y = H / 2 + r * Math.sin(a); p.vx = p.vy = 0; });
-  const ls = links.map(l => [idx.get(l.s), idx.get(l.t), Math.min(3, l.w || 1)]).filter(l => l[0] != null && l[1] != null && l[0] !== l[1]);
-  const iters = pts.length > 900 ? 160 : pts.length > 400 ? 220 : 300, cell = 130;
-  const cen = new Map();
-  for (let t = 0; t < iters; t++) {
-    const T = 1 - t / iters, k = 2600;
-    const grid = new Map();
-    for (const p of pts) { const key = ((p.x / cell) | 0) + ',' + ((p.y / cell) | 0); (grid.get(key) || grid.set(key, []).get(key)).push(p); }
-    for (const p of pts) { const gx = (p.x / cell) | 0, gy = (p.y / cell) | 0;
-      for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) { const bucket = grid.get((gx + i) + ',' + (gy + j)); if (!bucket) continue;
-        for (const q of bucket) { if (q === p) continue; let dx = p.x - q.x, dy = p.y - q.y; let d2 = dx * dx + dy * dy; if (d2 < 1) { dx = Math.random() - .5; dy = Math.random() - .5; d2 = 1; } const d = Math.sqrt(d2), min = p.r + q.r + 6; let f = k / d2; if (d < min) f += (min - d) * .8; p.vx += dx / d * f; p.vy += dy / d * f; } } }
-    for (const [i, j, w] of ls) { const a = pts[i], b = pts[j]; const dx = b.x - a.x, dy = b.y - a.y, d = Math.sqrt(dx * dx + dy * dy) || 1, want = a.r + b.r + 48; const f = .012 * (d - want) * (.7 + .3 * w); a.vx += dx / d * f; a.vy += dy / d * f; b.vx -= dx / d * f; b.vy -= dy / d * f; }
-    if (t % 8 === 0) { cen.clear(); for (const p of pts) { const c = cen.get(p.n.c) || cen.set(p.n.c, { x: 0, y: 0, n: 0 }).get(p.n.c); c.x += p.x; c.y += p.y; c.n++; } }
-    for (const p of pts) { const c = cen.get(p.n.c); if (c && c.n > 1) { p.vx += (c.x / c.n - p.x) * .012; p.vy += (c.y / c.n - p.y) * .012; }   // a community holds together, so colour reads as a region
-      p.vx += (W / 2 - p.x) * .004; p.vy += (H / 2 - p.y) * .004; p.x += p.vx * .5 * T; p.y += p.vy * .5 * T; p.vx *= .55; p.vy *= .55; }
-  }
-  const minx = Math.min(...pts.map(p => p.x - p.r)), miny = Math.min(...pts.map(p => p.y - p.r));
-  for (const p of pts) { p.x -= minx - 30; p.y -= miny - 30; }
-  return { w: Math.max(...pts.map(p => p.x + p.r)) + 30, h: Math.max(...pts.map(p => p.y + p.r)) + 30 };
+// the list: code chains first, tests after; filter by text; a method name that is not a chain root starts a chain there
+function list(filter = '') {
+  const L = document.getElementById('list'); const f = filter.trim().toLowerCase();
+  const rows = DATA.chains.filter(c => !f || c.path.some(id => N.get(id).l.toLowerCase().includes(f)));
+  const code = rows.filter(c => !N.get(c.root).t), tests = rows.filter(c => N.get(c.root).t);
+  const item = c => { const r = N.get(c.root); return `<div class="chain${r.t ? ' test' : ''}" data-root="${esc(c.root)}"><span class="root">${esc(r.l)}</span><span class="meta">${c.path.length} hops · reaches ${c.reach}${r.e ? ' · ' + esc(r.e.join(', ')) : ''}</span><div class="prev">${c.path.slice(1).map(id => esc(N.get(id).l.split('.').pop())).join(' → ')}</div></div>`; };
+  let starts = '';
+  if (f.length >= 3) { const hits = DATA.nodes.filter(n => n.l.toLowerCase().includes(f) && (OUT.get(n.id) || []).length && !DATA.chains.some(c => c.root === n.id)).slice(0, 12);
+    if (hits.length) starts = `<h3>start a chain at</h3>${hits.map(n => `<div class="chain" data-start="${esc(n.id)}"><span class="root">${esc(n.l)}</span><span class="meta">${(OUT.get(n.id) || []).length} callees</span><div class="prev mono">${esc(loc(n))}</div></div>`).join('')}`; }
+  L.innerHTML = `${starts}<h3>chains from entry points and roots (${code.length})</h3>${code.slice(0, 300).map(item).join('')}${code.length > 300 ? `<div class="chain mono">… ${code.length - 300} more — filter to find them</div>` : ''}<h3>chains from tests (${tests.length})</h3>${tests.slice(0, 200).map(item).join('')}${tests.length > 200 ? `<div class="chain mono">… ${tests.length - 200} more</div>` : ''}`;
+  L.querySelectorAll('.chain[data-root]').forEach(d => d.onclick = () => { const c = DATA.chains.find(c => c.root === d.dataset.root); show(c.path, N.get(c.root).l); });
+  L.querySelectorAll('.chain[data-start]').forEach(d => d.onclick = () => show(mainChain(d.dataset.start), 'from ' + N.get(d.dataset.start).l));
 }
-var overview = function overview_() {
-  clear(); legend(['shapes', 'edges']);
-  const pool = DATA.nodes.filter(n => n.k === 'method' && (ovTests || !n.t) && n.d > 0).sort((a, b) => b.d - a.d);
-  const shown = pool.slice(0, ovN), S = new Map(shown.map(n => [n.id, n]));
-  const links = DATA.links.filter(l => (l.r === 'calls' || l.r === 'overrides') && S.has(l.s) && S.has(l.t));
-  const pts = shown.map(n => ({ id: n.id, n, r: 2.6 + 2.3 * Math.log2(1 + n.d) }));
-  const side = Math.round(500 + 46 * Math.sqrt(shown.length));
-  const { w, h } = forceGraph(pts, links, side * 1.35, side);
-  const P = new Map(pts.map(p => [p.id, p]));
-  const gE = el('g'), gN = el('g'), gL = el('g'); root.append(gE, gN, gL);
-  const adj = new Map();
-  for (const l of links) { const a = P.get(l.s), b = P.get(l.t); const st = edgeStyle(l); const [p, q] = clip(a, b, a.r, b.r + 3);
-    const e = el('line', { class: 'edge', x1: p.x, y1: p.y, x2: q.x, y2: q.y, stroke: st.stroke, 'stroke-width': l.r === 'overrides' ? 1 : .8 + .25 * Math.min(4, l.w || 1), 'stroke-dasharray': st.dash, 'stroke-opacity': .32, 'data-s': l.s, 'data-t': l.t });
-    e.append(el('title', {}, `${a.n.l} ${l.r} ${b.n.l}${l.tier ? ' [' + l.tier + ']' : ''}${l.w > 1 ? ' ×' + l.w : ''}`)); gE.append(e);
-    (adj.get(l.s) || adj.set(l.s, new Set()).get(l.s)).add(l.t); (adj.get(l.t) || adj.set(l.t, new Set()).get(l.t)).add(l.s); }
-  const labelled = new Set(shown.slice(0, Math.min(30, Math.ceil(shown.length / 12))).map(n => n.id));
-  for (const p of pts) { const g = nodeGlyph(p.n, p.x, p.y, p.r, false); g.dataset.id = p.id; gN.append(g);
-    if (labelled.has(p.id)) gL.append(el('text', { x: p.x, y: p.y - p.r - 3, 'text-anchor': 'middle', 'font-size': p.n.d >= shown[Math.min(11, shown.length - 1)].d ? 12.5 : 10.5, 'font-weight': 600, fill: '#1c1917', stroke: '#fafaf9', 'stroke-width': 3.5, 'paint-order': 'stroke', 'data-id': p.id }, short(p.n.l, 30)));
-    g.onmouseenter = () => focus(p.id); g.onmouseleave = () => focus(null); }
-  const hover = el('g'); gL.append(hover);
-  function focus(id) { hover.innerHTML = '';
-    if (!id) { gE.querySelectorAll('line').forEach(e => { e.classList.remove('dim'); e.setAttribute('stroke-opacity', .32); }); gN.querySelectorAll('.node').forEach(g => g.classList.remove('dim')); gL.querySelectorAll('text').forEach(t => t.classList.remove('dim')); return; }
-    const nb = adj.get(id) || new Set();
-    gE.querySelectorAll('line').forEach(e => { const on = e.dataset.s === id || e.dataset.t === id; e.classList.toggle('dim', !on); if (on) e.setAttribute('stroke-opacity', .95); });
-    gN.querySelectorAll('.node').forEach(g => g.classList.toggle('dim', !(g.dataset.id === id || nb.has(g.dataset.id))));
-    gL.querySelectorAll('text[data-id]').forEach(t => t.classList.toggle('dim', !(t.dataset.id === id || nb.has(t.dataset.id))));
-    for (const q of [id, ...nb]) { if (labelled.has(q) && q !== id) continue; const p = P.get(q); hover.append(el('text', { x: p.x, y: p.y - p.r - 3, 'text-anchor': 'middle', 'font-size': q === id ? 12 : 10, 'font-weight': q === id ? 700 : 500, fill: '#1c1917', stroke: '#fff', 'stroke-width': 3, 'paint-order': 'stroke' }, short(p.n.l, 34))); } }
-  fit(w, h); setCrumbs([{ label: 'overview', go: overview }]);
-  sideOverview(shown.length, pool.length, links.length);
-}
-function sideOverview(shown, pool, nl) {
-  const S = document.getElementById('side'); const t = DATA.meta.tiers, sites = Object.values(t).reduce((a, b) => a + b, 0), res = (t.known_edge || 0) + (t.multi_inferred || 0);
-  const god = DATA.nodes.filter(n => n.k === 'method' && !n.t).sort((a, b) => b.d - a.d).slice(0, 12);
-  S.innerHTML = `<h2>${esc(DATA.meta.repo)}</h2><div class="k">${esc(DATA.meta.language)} · built ${esc(DATA.meta.built)}</div>
-  <div class="k">${sites} call sites · <b>${Math.round(100 * res / Math.max(1, sites))}% resolved</b> · ${DATA.communities.length} communities</div>
-  <h3>what is drawn</h3><div class="k">${shown} of ${pool} connected ${ovTests ? '' : 'non-test '}methods · ${nl} calls between them<br>
-  <input id="ovn" type="range" min="100" max="${Math.min(1500, Math.max(100, pool))}" step="50" value="${Math.min(ovN, pool)}" style="width:70%;vertical-align:middle"> <span id="ovnv">${Math.min(ovN, pool)}</span><br>
-  <label><input id="ovt" type="checkbox" ${ovTests ? 'checked' : ''}> include test methods</label></div>
-  <h3>most connected</h3><ul>${god.map(n => `<li data-n="${esc(n.id)}"><span style="width:8px;height:8px;border-radius:50%;background:${col(n.c)};flex:none"></span><span class="lbl">${esc(n.l)}</span><span class="loc">${n.d}</span></li>`).join('')}</ul>
-  <h3>communities — click for its class map</h3><ul>${DATA.communities.map(c => `<li data-c="${c.id}"><span style="width:10px;height:10px;border-radius:3px;background:${col(c.id)};flex:none"></span><span class="lbl">${esc(c.name)}</span><span class="loc">${c.size}</span></li>`).join('')}</ul>`;
-  S.querySelectorAll('li[data-c]').forEach(li => li.onclick = () => community(+li.dataset.c)); S.querySelectorAll('li[data-n]').forEach(li => li.onclick = () => ego(li.dataset.n));
-  const r = S.querySelector('#ovn'); r.oninput = () => S.querySelector('#ovnv').textContent = r.value; r.onchange = () => { ovN = +r.value; overview(); };
-  S.querySelector('#ovt').onchange = e => { ovTests = e.target.checked; overview(); };
-}
-let showTests = null;   // null = decide per community: tests fold into one box per test file when they outnumber the code
-var community = function community_(cid) {
-  clear(); legend(['shapes', 'edges']);
-  const c = C.get(cid); let members = (byComm.get(cid) || []).filter(n => n.k !== 'library');
-  const CAP = 260; let note = '';
-  const nTests = members.filter(n => n.t && n.k !== 'type').length, nCode = members.filter(n => !n.t && n.k !== 'type').length;
-  const fold = showTests === null ? nTests > Math.max(20, nCode * .6) : !showTests;
-  let folded = new Map();   // test file → { n, calls } when folded
-  if (fold && nTests) { for (const n of members) if (n.t && n.k !== 'type') { const f = folded.get(n.f) || folded.set(n.f, { n: 0, calls: 0, ids: [] }).get(n.f); f.n++; f.ids.push(n.id); } members = members.filter(n => !(n.t && n.k !== 'type')); }
-  if (members.length > CAP) { const types = members.filter(n => n.k === 'type'), ms = members.filter(n => n.k !== 'type').sort((a, b) => b.d - a.d).slice(0, CAP); members = [...types, ...ms]; note = `${ms.length} of ${members.length - types.length + (c.size - types.length - ms.length)} methods drawn (the most connected; every type is); the rest are reachable through search and the node view.`; }
-  const M = new Set(members.map(n => n.id));
-  for (const [f, t] of folded) for (const id of t.ids) for (const l of (OUT.get(id) || [])) if (M.has(l.t) && l.r === 'calls') t.calls += l.w || 1;
-  // one box per type (its methods as rows); free functions boxed by file — a class diagram, not a particle cloud
-  const typeOf = new Map(); for (const n of members) if (n.k === 'type') typeOf.set(n.l, n);
-  const groupKey = id => { const n = N.get(id); if (n.k === 'type') return 'T:' + id; const owner = n.l.includes('.') ? n.l.slice(0, n.l.lastIndexOf('.')) : ''; const t = owner && typeOf.get(owner); return t ? 'T:' + t.id : 'F:' + n.f; };
-  const groups = new Map();
-  for (const n of members) { const key = groupKey(n.id); if (!groups.has(key)) groups.set(key, { id: key, kind: key[0] === 'T' ? 'type' : 'file', title: key[0] === 'T' ? N.get(key.slice(2)).l : n.f, ms: [], type: key[0] === 'T' ? N.get(key.slice(2)) : null }); if (n.k !== 'type') groups.get(key).ms.push(n); }
-  const ROW = 15, ROWS = 14, PAD = 8;
-  const items = [...groups.values()].map(g => { g.ms.sort((a, b) => b.d - a.d || a.a - b.a); g.shown = g.ms.slice(0, ROWS); g.more = g.ms.length - g.shown.length;
-    const title = g.kind === 'file' ? g.title.split('/').slice(-2).join('/') : g.title; g.head = title;
-    const longest = Math.max(title.length * 7 + 26, ...g.shown.map(n => n.l.split('.').pop().length * 6.2 + 34), 120);
-    g.W = Math.min(longest, 300); g.H = 30 + (g.shown.length + (g.more ? 1 : 0)) * ROW + PAD; return Object.assign(g, { r: Math.max(g.W, g.H) / 2, hw: g.W / 2, hh: g.H / 2 }); });
-  // edges between boxes, aggregated: count, best tier, a few example pairs
-  const agg = new Map();
-  for (const n of members) for (const l of (OUT.get(n.id) || [])) { if (!M.has(l.t)) continue; const a = groupKey(l.s), b = groupKey(l.t); if (a === b) continue; const k = a + '|' + b; const e = agg.get(k) || agg.set(k, { s: a, t: b, w: 0, tier: 'x', rel: l.r, ex: [] }).get(k); e.w += l.w || 1; if (rank(l) < rank(e)) { e.tier = l.tier || ''; e.rel = l.r; } if (e.ex.length < 5) e.ex.push(`${N.get(l.s).l} → ${N.get(l.t).l}${l.tier ? ' [' + l.tier + ']' : ''}`); }
-  function rank(l) { return l.r === 'extends' || l.r === 'overrides' ? 0 : l.tier === 'known_edge' ? 1 : l.tier === 'multi_inferred' ? 2 : 3; }
-  const testBoxes = [...folded].filter(([, t]) => t.calls).sort((a, b) => b[1].calls - a[1].calls).slice(0, 14);
-  for (const [f, t] of testBoxes) { const id = 'X:' + f, head = f.split('/').slice(-2).join('/'); const W = Math.max(150, head.length * 7 + 26); items.push({ id, kind: 'tests', title: f, head, ms: [], shown: [], more: 0, W, H: 44, r: W / 2, hw: W / 2, hh: 22, t }); }
-  for (const [f, t] of testBoxes) for (const id of t.ids) for (const l of (OUT.get(id) || [])) { if (!M.has(l.t) || l.r !== 'calls') continue; const b = groupKey(l.t), k = 'X:' + f + '|' + b; const e = agg.get(k) || agg.set(k, { s: 'X:' + f, t: b, w: 0, tier: 'x', rel: 'calls', ex: [] }).get(k); e.w += l.w || 1; if (rank(l) < rank(e)) e.tier = l.tier || ''; if (e.ex.length < 5) e.ex.push(`${N.get(l.s).l} → ${N.get(l.t).l}${l.tier ? ' [' + l.tier + ']' : ''}`); }
-  const portsOf = new Map();   // computed before layout so a box with ports reserves a strip for them
-  for (const n of members) for (const l of (OUT.get(n.id) || [])) { if (M.has(l.t)) continue; const tn = N.get(l.t); if (!tn) continue; const to = tn.k === 'library' ? 'lib' : tn.c; const gk = groupKey(n.id); const m = portsOf.get(gk) || portsOf.set(gk, new Map()).get(gk); m.set(to, (m.get(to) || 0) + 1); }
-  for (const g of items) if (portsOf.has(g.id)) { g.H += 20; g.hh = g.H / 2; }
-  const { w, h } = force(items, [...agg.values()], { W: 1800, H: 1100, gravity: .012, spring: .02, margin: 34 });
-  const G = new Map(items.map(g => [g.id, g]));
-  const gE = el('g'), gG = el('g'); root.append(gE, gG);
-  for (const e of agg.values()) { const a = G.get(e.s), b = G.get(e.t); if (!a || !b) continue; const st = edgeStyle({ r: e.rel, tier: e.tier, w: e.w }); const [p, q] = clipRect(a, b, 3, 7);
-    gE.append(el('path', { class: 'edge', d: curve(p, q, .08), stroke: st.stroke, 'stroke-width': Math.min(5, st.w + Math.log2(e.w)), 'stroke-dasharray': st.dash, 'marker-end': st.marker, 'stroke-opacity': .75 }, el('title', {}, `${e.w} call site(s) ${a.head} → ${b.head}\n` + e.ex.join('\n') + (e.w > e.ex.length ? '\n…' : ''))));
-    if (e.w > 1) { const mx = (p.x + q.x) / 2, my = (p.y + q.y) / 2; gE.append(el('rect', { x: mx - 9, y: my - 7, width: 18, height: 13, rx: 6, fill: '#fff', stroke: '#d6d3d1', 'stroke-width': .6 })); gE.append(el('text', { x: mx, y: my + 3, 'text-anchor': 'middle', 'font-size': 9, fill: '#57534e' }, String(e.w))); } }
-  for (const g of items) {
-    const x0 = g.x - g.W / 2, y0 = g.y - g.H / 2, box = el('g', { class: 'cluster', transform: `translate(${x0},${y0})` });
-    if (g.kind === 'tests') { box.append(el('rect', { width: g.W, height: g.H, rx: 6, fill: '#f8fafc', stroke: '#94a3b8', 'stroke-width': 1, 'stroke-dasharray': '3,2' }));
-      box.append(el('text', { x: 10, y: 16, 'font-size': 11, 'font-weight': 600, fill: '#475569', class: 'lbl-mono' }, short(g.head, Math.floor((g.W - 16) / 6.8))));
-      box.append(el('text', { x: 10, y: 33, 'font-size': 10, fill: '#64748b' }, `${g.t.n} tests · ${g.t.calls} call sites in`));
-      box.append(el('title', {}, `${g.title}\n${g.t.n} test methods; ${g.t.calls} call sites into this community\nclick to expand tests`)); box.onclick = () => { showTests = true; community(cid); }; gG.append(box); continue; }
-    box.append(el('rect', { width: g.W, height: g.H, rx: 6, fill: '#fff', stroke: g.kind === 'type' ? col(cid) : '#a8a29e', 'stroke-width': g.kind === 'type' ? 1.4 : 1, 'stroke-dasharray': g.kind === 'type' ? '' : '5,3' }));
-    box.append(el('rect', { width: g.W, height: 24, rx: 6, fill: g.kind === 'type' ? col(cid) : '#e7e5e4', 'fill-opacity': g.kind === 'type' ? .12 : .6 }));
-    box.append(el('line', { x1: 0, y1: 24, x2: g.W, y2: 24, stroke: g.kind === 'type' ? col(cid) : '#d6d3d1', 'stroke-width': .8 }));
-    if (g.type) { const sh = shape(g.type, 6); sh.setAttribute('transform', 'translate(13,12)'); box.append(sh); }
-    box.append(el('text', { x: g.type ? 26 : 10, y: 16, 'font-size': 11.5, 'font-weight': 600, class: g.kind === 'file' ? 'lbl-mono' : '' }, short(g.head, Math.floor((g.W - (g.type ? 32 : 16)) / 6.8))));
-    box.append(el('title', {}, g.kind === 'type' ? `${g.title}\n${g.type ? loc(g.type) : ''}\n${g.ms.length} methods` : `${g.title}\n${g.ms.length} functions`));
-    if (g.type) { box.querySelector('rect').style.cursor = 'pointer'; box.onclick = e => { if (!e.target.closest('.row')) ego(g.type.id); }; }
-    g.shown.forEach((n, i) => { const y = 30 + i * ROW + 8; const row = el('g', { class: 'node row', transform: `translate(0,${y})` });
-      row.append(el('rect', { x: 2, y: -8, width: g.W - 4, height: ROW, fill: '#fff', 'fill-opacity': 0 }));
-      const sh = shape(n, 4.5); sh.setAttribute('transform', 'translate(13,-1)'); row.append(sh);
-      row.append(el('text', { x: 26, y: 3, 'font-size': 10.5, fill: '#1c1917' }, short(n.l.split('.').pop() + (n.sk === 'constructor' ? '()' : ''), Math.floor((g.W - 40) / 6.2))));
-      if (n.u) row.append(el('text', { x: g.W - 6, y: 3, 'text-anchor': 'end', 'font-size': 8.5, fill: '#b45309', 'fill-opacity': .7 }, `?${n.u}`));
-      row.append(el('title', {}, `${n.l}\n${loc(n)}${n.sig && n.sig !== n.l ? '\n' + n.sig : ''}\n${n.d} call edge(s)${n.u ? `\n? ${n.u} unresolved call site(s)` : ''}${n.e && n.e.length ? '\nentry point: ' + n.e.join(', ') : ''}`));
-      row.onclick = e => { e.stopPropagation(); ego(n.id); }; box.append(row); });
-    if (g.more) box.append(el('text', { x: 26, y: 30 + g.shown.length * ROW + 11, 'font-size': 9.5, fill: '#78716c' }, `+ ${g.more} more`));
-    // ports: calls leaving the community, one pill per destination community, in a strip at the foot of the box
-    const pm = portsOf.get(g.id); if (pm) { let x = 6; const y = g.H - 11;
-      for (const [to, n] of [...pm].sort((a, b) => b[1] - a[1])) { const label = to === 'lib' ? 'lib' : '→ ' + short(((C.get(to) || {}).dirs?.[0] || 'c' + to).split('/').slice(-1)[0], 12); const pw = label.length * 5.4 + String(n).length * 5.4 + 16; if (x + pw > g.W - 4) { if (x > 6) { box.append(el('text', { x, y: y + 3, 'font-size': 9, fill: '#78716c' }, '…')); } break; }
-        const pg = el('g', { class: 'port', transform: `translate(${x},${y})`, cursor: to === 'lib' ? 'default' : 'pointer' });
-        pg.append(el('rect', { x: 0, y: -7, width: pw, height: 13, rx: 6, fill: to === 'lib' ? '#a8a29e' : col(to), 'fill-opacity': .92 }));
-        pg.append(el('text', { x: 6, y: 3, 'font-size': 9, fill: '#fff', class: 'lbl-mono' }, `${label} ${n}`));
-        pg.append(el('title', {}, `${n} call site(s) from ${g.head} into ${to === 'lib' ? 'library code' : 'community ' + to + ': ' + (C.get(to) || {}).name}`));
-        if (to !== 'lib') pg.onclick = e => { e.stopPropagation(); community(to); }; box.append(pg); x += pw + 4; } }
-    gG.append(box);
-  }
-  fit(w, h); setCrumbs([{ label: 'overview', go: overview }, { label: `community ${cid}: ${c.name}`, go: () => community(cid) }]);
-  sideCommunity(c, note + (fold && nTests ? ` ${nTests} test methods are folded into one box per test file (${testBoxes.length} shown, those with calls into the community).` : ''), nTests ? { folded: fold, cid } : null);
-}
-function nodeGlyph(n, x, y, r, withLabel) {
-  const g = el('g', { class: 'node', transform: `translate(${x},${y})` }); g.append(shape(n, r));
-  if (n.u && r >= 7) g.append(el('circle', { cx: r * .8, cy: -r * .8, r: Math.min(3.5, r * .3), fill: '#f59e0b', stroke: '#fff', 'stroke-width': 1 }));
-  if (withLabel) g.append(el('text', { y: r + 11, 'text-anchor': 'middle', 'font-size': 9, fill: '#44403c' }, short(n.l.split('.').pop(), 11)));
-  g.append(el('title', {}, `${n.l}\n${loc(n)}${n.sig ? '\n' + n.sig : ''}${n.u ? `\n? ${n.u} unresolved call site(s)` : ''}${n.e && n.e.length ? '\nentry point: ' + n.e.join(', ') : ''}`));
-  g.onclick = e => { e.stopPropagation(); ego(n.id); }; return g;
-}
-function drawEdge(layer, a, b, l) { if (!a || !b) return; const st = edgeStyle(l); const [p, q] = clip(a, b, a.r + 2, b.r + 5); layer.append(el('path', { class: 'edge', d: curve(p, q), stroke: st.stroke, 'stroke-width': st.w, 'stroke-dasharray': st.dash, 'marker-end': st.marker, 'stroke-opacity': .8 }, el('title', {}, `${N.get(l.s).l} ${l.r} ${N.get(l.t).l}${l.tier ? ' [' + l.tier + ']' : ''}${l.w > 1 ? ' ×' + l.w : ''}`))); }
-function sideCommunity(c, note, tests) {
-  const S = document.getElementById('side');
-  S.innerHTML = `<h2><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${col(c.id)};margin-right:6px"></span>community ${c.id}</h2><div class="k">${esc(c.name)}</div>
-  <div class="k">${c.size} nodes · ${c.types} types · ${c.methods} methods · ${c.tests} tests${tests ? ` · <a id="tt" style="cursor:pointer;text-decoration:underline">${tests.folded ? 'expand tests' : 'fold tests'}</a>` : ''}</div>${note ? `<div class="note">${esc(note)}</div>` : ''}
-  <h3>directories</h3><ul>${c.dirs.map(d => `<li><span class="lbl mono">${esc(d)}</span></li>`).join('')}</ul>
-  <h3>hubs</h3><ul>${(byComm.get(c.id) || []).filter(n => n.k === 'method').sort((a, b) => b.d - a.d).slice(0, 12).map(n => `<li data-n="${esc(n.id)}"><span class="lbl">${esc(n.l)}</span><span class="loc">${n.d}</span></li>`).join('')}</ul>`;
-  S.querySelectorAll('li[data-n]').forEach(li => li.onclick = () => ego(li.dataset.n)); const tt = S.querySelector('#tt'); if (tt) tt.onclick = () => { showTests = !!tests.folded; community(tests.cid); };
-}
-
-var ego = function ego_(id) {
-  const n = N.get(id); if (!n) return;
-  clear(); legend(['shapes', 'edges']);
-  const cols = { left: [], right: [], up: [], down: [] };
-  for (const l of (IN.get(id) || [])) { const m = N.get(l.s); if (!m) continue; (l.r === 'calls' ? cols.left : l.r === 'overrides' ? cols.down : cols.down).push({ n: m, l }); }
-  for (const l of (OUT.get(id) || [])) { const m = N.get(l.t); if (!m) continue; (l.r === 'calls' ? cols.right : cols.up).push({ n: m, l }); }
-  const rank = e => (e.l.tier === 'known_edge' ? 0 : e.l.tier === 'multi_inferred' ? 1 : 2);
-  for (const k in cols) cols[k].sort((a, b) => rank(a) - rank(b) || b.n.d - a.n.d);
-  const CAPN = 40, notes = [];
-  for (const k of ['left', 'right']) if (cols[k].length > CAPN) { notes.push(`${cols[k].length} ${k === 'left' ? 'callers' : 'callees'}; the ${CAPN} best-resolved and most connected are drawn`); cols[k] = cols[k].slice(0, CAPN); }
-  const cx = 700, cy = 60 + Math.max(cols.left.length, cols.right.length, 6) * 13, pos = new Map();
-  const gE = el('g'), gN = el('g'), gT = el('g'); root.append(gE, gT, gN);
-  pos.set(id, { x: cx, y: cy, r: 16 }); gN.append(nodeGlyph(n, cx, cy, 16, false));
-  gT.append(el('text', { x: cx, y: cy + 34, 'text-anchor': 'middle', 'font-size': 13, 'font-weight': 600 }, n.l));
-  gT.append(el('text', { x: cx, y: cy + 48, 'text-anchor': 'middle', 'font-size': 10, fill: '#78716c', class: 'lbl-mono' }, loc(n)));
-  const column = (list, x, anchor, dir) => {
-    const gap = 26, y0 = cy - (list.length - 1) * gap / 2;
-    list.forEach((e, i) => { const y = y0 + i * gap; pos.set(e.n.id + '#' + dir, { x, y, r: 9 }); gN.append(nodeGlyph(e.n, x, y, 9, false));
-      gT.append(el('text', { x: x + (anchor === 'end' ? -15 : 15), y: y + 3.5, 'text-anchor': anchor, 'font-size': 10.5, fill: '#1c1917' }, short(e.n.l, 40)));
-      gT.append(el('text', { x: x + (anchor === 'end' ? -15 : 15), y: y + 14, 'text-anchor': anchor, 'font-size': 8.5, fill: '#a8a29e', class: 'lbl-mono' }, short(loc(e.n), 46)));
-      const a = pos.get(id), b = pos.get(e.n.id + '#' + dir); if (dir === 'left' || dir === 'down') drawEdge(gE, b, a, e.l); else drawEdge(gE, a, b, e.l); });
-  };
-  column(cols.left, cx - 330, 'end', 'left'); column(cols.right, cx + 330, 'start', 'right');
-  const rowAt = (list, y, dir, title) => { if (!list.length) return; gT.append(el('text', { x: cx, y: y + (dir === 'up' ? -30 : 42), 'text-anchor': 'middle', 'font-size': 9.5, fill: '#7c3aed', 'letter-spacing': '.06em' }, title.toUpperCase()));
-    const gap = 120, x0 = cx - (list.length - 1) * gap / 2; list.slice(0, 9).forEach((e, i) => { const x = x0 + i * gap; pos.set(e.n.id + '#' + dir, { x, y, r: 9 }); gN.append(nodeGlyph(e.n, x, y, 9, false)); gT.append(el('text', { x, y: y + (dir === 'up' ? -14 : 24), 'text-anchor': 'middle', 'font-size': 9.5 }, short(e.n.l, 22))); const a = pos.get(id), b = pos.get(e.n.id + '#' + dir); if (dir === 'up') drawEdge(gE, a, b, e.l); else drawEdge(gE, b, a, e.l); }); };
-  rowAt(cols.up, cy - 120, 'up', n.k === 'type' ? 'extends' : 'overrides'); rowAt(cols.down, cy + 120, 'down', n.k === 'type' ? 'subtypes' : 'overridden by');
-  gT.append(el('text', { x: cx - 330, y: cy - Math.max(cols.left.length, 1) * 13 - 22, 'text-anchor': 'end', 'font-size': 9.5, fill: '#78716c', 'letter-spacing': '.06em' }, `CALLED BY (${(IN.get(id) || []).filter(l => l.r === 'calls').length})`));
-  gT.append(el('text', { x: cx + 330, y: cy - Math.max(cols.right.length, 1) * 13 - 22, 'text-anchor': 'start', 'font-size': 9.5, fill: '#78716c', 'letter-spacing': '.06em' }, `CALLS (${(OUT.get(id) || []).filter(l => l.r === 'calls').length})`));
-  const H = Math.max(cols.left.length, cols.right.length, 6) * 26 + 300; fit(1400, H);
-  setCrumbs([{ label: 'overview', go: overview }, ...(n.c >= 0 ? [{ label: `community ${n.c}: ${(C.get(n.c) || {}).name || ''}`, go: () => community(n.c) }] : []), { label: n.l, go: () => ego(id) }]);
-  sideNode(n, notes);
-}
-function sideNode(n, notes) {
-  const S = document.getElementById('side'); const c = C.get(n.c);
-  const li = (l, other, dir) => { const m = N.get(other); if (!m) return ''; return `<li data-n="${esc(m.id)}"><span class="tier ${l.r === 'overrides' || l.r === 'extends' ? 'dispatch' : esc(l.tier)}">${l.r === 'calls' ? esc(l.tier) : esc(l.r)}</span><span class="lbl">${esc(m.l)}</span><span class="loc">${esc(loc(m))}${l.w > 1 ? ' ×' + l.w : ''}</span></li>`; };
-  const ins = (IN.get(n.id) || []), outs = (OUT.get(n.id) || []);
-  S.innerHTML = `<h2>${esc(n.l)}</h2><div class="k">${esc(n.sk === n.k || !n.sk ? n.k : n.k === 'method' ? n.sk : n.sk + ' (' + n.k + ')')}${n.t ? ' · test' : ''}${n.e && n.e.length ? ' · <b>entry point</b> (' + esc(n.e.join(', ')) + ')' : ''}</div>
-  <div class="mono wrap">${esc(loc(n))}${n.b > n.a ? '–' + n.b : ''}</div>${n.sig && n.sig !== n.l ? `<div class="mono wrap" style="margin-top:4px">${esc(n.sig)}</div>` : ''}
-  ${c ? `<div class="k" style="margin-top:8px"><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${col(c.id)};margin-right:5px"></span><a style="cursor:pointer;text-decoration:underline" id="gocomm">community ${c.id}</a> · ${esc(c.name)}</div>` : ''}
-  ${notes.map(x => `<div class="note">${esc(x)}</div>`).join('')}
-  ${n.u ? `<div class="note">? <b>${n.u} unresolved call site(s)</b> in this body — written as ${esc(n.un.join(', '))}. Each MAY be a call this graph is missing.</div>` : ''}
-  <h3>called by (${ins.filter(l => l.r === 'calls').length})</h3><ul>${ins.filter(l => l.r === 'calls').map(l => li(l, l.s)).join('') || '<li><span class="lbl" style="color:var(--mute)">none in the graph</span></li>'}</ul>
-  <h3>calls (${outs.filter(l => l.r === 'calls').length})</h3><ul>${outs.filter(l => l.r === 'calls').map(l => li(l, l.t)).join('') || '<li><span class="lbl" style="color:var(--mute)">none in the graph</span></li>'}</ul>
-  ${outs.some(l => l.r !== 'calls') ? `<h3>${n.k === 'type' ? 'extends' : 'overrides'}</h3><ul>${outs.filter(l => l.r !== 'calls').map(l => li(l, l.t)).join('')}</ul>` : ''}
-  ${ins.some(l => l.r !== 'calls') ? `<h3>${n.k === 'type' ? 'subtypes' : 'overridden by'}</h3><ul>${ins.filter(l => l.r !== 'calls').map(l => li(l, l.s)).join('')}</ul>` : ''}`;
-  S.querySelectorAll('li[data-n]').forEach(x => x.onclick = () => ego(x.dataset.n)); const gc = S.querySelector('#gocomm'); if (gc) gc.onclick = () => community(n.c);
-}
-
-// ── search: label · Owner.name suffix · simple name · substring ────────────────────────────────
-const q = document.getElementById('q'), hits = document.getElementById('hits'); let sel = -1, cur = [];
-q.oninput = () => { const s = q.value.trim().toLowerCase(); if (s.length < 2) { hits.style.display = 'none'; return; }
-  const score = n => { const l = n.l.toLowerCase(); if (n.k === 'library') return 9; if (l === s) return 0; if (l.endsWith('.' + s)) return 1; if (l.split('.').pop() === s) return 2; if (l.startsWith(s)) return 3; if (l.includes(s)) return 4; if (n.f.toLowerCase().includes(s)) return 6; return 9; };
-  cur = DATA.nodes.map(n => [score(n), n]).filter(x => x[0] < 9).sort((a, b) => a[0] - b[0] || b[1].d - a[1].d).slice(0, 14).map(x => x[1]);
-  hits.innerHTML = cur.map((n, i) => `<div data-i="${i}"><span style="width:8px;height:8px;border-radius:2px;background:${col(n.c)};flex:none"></span>${esc(n.l)}<small>${esc(loc(n))}</small></div>`).join('') || '<div style="color:var(--mute)">nothing named like that</div>';
-  hits.style.display = 'block'; sel = -1; hits.querySelectorAll('div[data-i]').forEach(d => d.onclick = () => go(cur[+d.dataset.i])); };
-q.onkeydown = e => { if (e.key === 'ArrowDown') { sel = Math.min(cur.length - 1, sel + 1); mark(); } else if (e.key === 'ArrowUp') { sel = Math.max(0, sel - 1); mark(); } else if (e.key === 'Enter') { if (cur[Math.max(0, sel)]) go(cur[Math.max(0, sel)]); } else if (e.key === 'Escape') hits.style.display = 'none'; };
-const mark = () => hits.querySelectorAll('div[data-i]').forEach((d, i) => d.classList.toggle('sel', i === sel));
-const go = n => { hits.style.display = 'none'; q.value = ''; ego(n.id); };
-document.addEventListener('click', e => { if (!e.target.closest('#search')) hits.style.display = 'none'; });
-// ── routing: #c=<community> / #n=<node id> open a view directly (a link that can be shared) ────────
-function route() { const h = location.hash.slice(1); const m = /^([cn])=(.+)$/.exec(decodeURIComponent(h)); if (m && m[1] === 'c' && C.has(+m[2])) return community(+m[2], true); if (m && m[1] === 'n' && N.has(m[2])) return ego(m[2], true); overview(true); }
-const _ov = overview, _cm = community, _eg = ego;
-overview = function (fromHash) { if (!fromHash) history.replaceState(null, '', location.pathname); _ov(); };
-community = function (cid, fromHash) { if (!fromHash) history.replaceState(null, '', '#c=' + cid); _cm(cid); };
-ego = function (id, fromHash) { if (!fromHash) history.replaceState(null, '', '#n=' + encodeURIComponent(id)); _eg(id); };
-window.addEventListener('hashchange', route);
-route();
+document.getElementById('q').oninput = e => list(e.target.value);
+list();
+// #from=<Owner.method>[&open=<Owner.method>] opens a chain from a method, optionally with one hop expanded — a link to a chain
+function route() { const h = new URLSearchParams(location.hash.slice(1)); const byLabel = l => DATA.nodes.find(n => n.l === l);
+  const from = h.get('from') && byLabel(h.get('from')); if (!from) { if (DATA.chains.length) { const c = DATA.chains[0]; show(c.path, N.get(c.root).l); } return; }
+  const c = DATA.chains.find(c => c.root === from.id); show(c ? c.path : mainChain(from.id), (c ? '' : 'from ') + from.l);
+  const open = h.get('open') && byLabel(h.get('open')); if (open) { const a = document.querySelector(`.hop[data-id="${CSS.escape(open.id)}"] a[data-act="down"]`); if (a) a.click(); } }
+window.addEventListener('hashchange', route); route();
 </script>
 </body>
 </html>
