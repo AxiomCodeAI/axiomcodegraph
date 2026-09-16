@@ -32,6 +32,12 @@ def axiomcode_impact(targets: list[str], repo: str, tests: bool = False, depth: 
     return run(a)
 
 @srv.tool()
+def axiomcode_changed(repo: str, files: list[str] = [], range: str = '', staged: bool = False, impact: bool = False) -> str:
+    """Which declarations an edit changed and HOW — signature (parameters added / removed / retyped, return type), field (its type, name, initializer), type header, body only, removed, added — the working tree against the commit the graph was built from (default), two commits (range='a..b'), or the index (staged=True); each with the target impact takes. impact=True runs impact on all of them as one change set and returns its answer."""
+    a = ['changed', repo, *files] + (['--range', range] if range else []) + (['--staged'] if staged else []) + (['--impact'] if impact else [])
+    return run(a)
+
+@srv.tool()
 def axiomcode_graph(repo: str, out: str = '') -> str:
     """Draw the graph as one interactive HTML page (<repo>/.axiomcode/graph/graph.html, or out=<folder|page.html>); runs index first if there is no graph yet."""
     return run(['graph', repo] + (['--out', out] if out else []))

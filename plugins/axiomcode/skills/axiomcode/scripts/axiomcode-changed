@@ -1,0 +1,254 @@
+#!/usr/bin/env python3
+"""axiomcode changed [<repo>] [<file>…] [--range <a>..<b> | --staged] [--old <text-file> --new <text-file> --file <path>] [--impact] [--json]
+   which declarations an edit changed, and HOW — then (--impact) what that reaches.
+
+The graph describes the tree as it was when it was built (the build stamps the commit). An edit is read against that version:
+by default the working tree against the graph's commit (falling back to HEAD), `--range a..b` two commits, `--staged` the
+index, or `--old/--new/--file` two texts of one file (what a hook has). Each changed line is mapped onto the declarations
+the graph knows at that line, and the change is classified — the same way in every language, from the text:
+
+    signature   a method's header changed: parameters added / removed / renamed / retyped, the return type, type parameters
+    body        only lines inside a method's body changed
+    field       a field's declared type, name or initializer changed
+    type        a type's header changed (its name, what it extends or implements, its type parameters)
+    removed     a declaration the new text no longer has
+    added       lines the old text did not have, outside any changed declaration (a new method, a new field): nothing
+                depends on them yet, so they are listed, not analysed
+
+The output is one line per changed declaration with the target `axiomcode impact` takes for it; `--impact` runs impact on all
+of them as one change set (the union) and prints its answer. A method whose only change is its body is a `method` target; a
+signature change with one parameter changed is `Owner.m(param)`; a field is `Owner.field`; a type header is `Type`.
+"""
+import difflib, importlib.util, json, os, re, subprocess, sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+_spec = importlib.util.spec_from_loader('axpath', importlib.machinery.SourceFileLoader('axpath', os.path.join(HERE, 'axiomcode-path')))
+P = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(P)
+G, die = P.G, P.die
+
+def sh(*a, cwd=None):
+    r = subprocess.run(a, capture_output=True, text=True, cwd=cwd); return r.stdout if r.returncode == 0 else None
+
+class Changed:
+    def __init__(self, repo):
+        self.g = G(repo); self.repo = self.g.repo
+        st = os.path.join(self.repo, '.axiomcode', 'out', 'stamp')
+        self.built_at = open(st).read().split('-')[0] if os.path.exists(st) else None            # the commit the graph describes
+        self.spans = {}                                                                           # file -> [(line, end, id, kind)]
+        for r in self.g.sym.values():
+            if r.get('file') and r.get('line'): self.spans.setdefault(r['file'], []).append((r['line'], r['end_line'] or r['line'], r['id'], r['kind'], r['display'], r['name']))
+        for r in self.g.q("SELECT rowid, display, name, kind, file, line, end_line, owner FROM symbols WHERE method_id IS NULL AND type_id IS NULL AND kind IN ('field','const','enum_member','variable')"):
+            if r['file'] and r['line']: self.spans.setdefault(r['file'], []).append((r['line'], r['end_line'] or r['line'], f"f:{r['rowid']}", r['kind'], r['display'], r['name']))
+        for v in self.spans.values(): v.sort()
+    def rel(self, f):
+        f = os.path.realpath(f) if os.path.exists(f) else f
+        r = os.path.relpath(f, self.repo) if os.path.isabs(f) else f
+        return r
+    # ── the two texts of a file ────────────────────────────────────────────────────────────────────────────────
+    def texts(self, rel, mode, rng):
+        if mode == 'range':
+            a, b = rng.split('..'); return sh('git', 'show', f'{a}:{rel}', cwd=self.repo) or '', sh('git', 'show', f'{b}:{rel}', cwd=self.repo) or ''
+        base = self.built_at if self.built_at and self.built_at != 'nogit' and sh('git', 'cat-file', '-e', self.built_at, cwd=self.repo) is not None else 'HEAD'
+        old = sh('git', 'show', f'{base}:{rel}', cwd=self.repo) or ''
+        if mode == 'staged': new = sh('git', 'show', f':{rel}', cwd=self.repo) or ''
+        else:
+            try: new = open(os.path.join(self.repo, rel), errors='replace').read()
+            except OSError: new = ''
+        return old, new
+    def files(self, mode, rng, given):
+        if given: return [self.rel(f) for f in given]
+        if mode == 'range': out = sh('git', 'diff', '--name-only', rng, cwd=self.repo)
+        elif mode == 'staged': out = sh('git', 'diff', '--name-only', '--cached', cwd=self.repo)
+        else:
+            base = self.built_at if self.built_at and self.built_at != 'nogit' else 'HEAD'
+            out = sh('git', 'diff', '--name-only', base, cwd=self.repo)
+            if out is None: out = sh('git', 'diff', '--name-only', 'HEAD', cwd=self.repo)
+        return [l for l in (out or '').split('\n') if re.search(r'\.(java|ts|tsx|js|mjs|cjs|py)$', l)]
+
+    # ── the text-level structure of a declaration ─────────────────────────────────────────────────────────────
+    @staticmethod
+    def header_end(L, start):
+        """the last line of a header starting at `start`: up to the first line holding `{`, ending with `;`, or (Python) `:`"""
+        for i in range(start - 1, min(len(L), start + 15)):
+            t = L[i]
+            if '{' in t or t.rstrip().endswith(';') or (t.rstrip().endswith(':') and not t.strip().startswith(('case', 'default'))): return i + 1
+        return start
+    @staticmethod
+    def params(header):
+        m = re.search(r'\(([^()]*(?:\([^()]*\)[^()]*)*)\)', header)
+        if not m: return []
+        out = []; depth = 0; cur = ''
+        for ch in m.group(1):
+            depth += ch in '<[('; depth -= ch in '>])'
+            if ch == ',' and depth == 0: out.append(cur); cur = ''
+            else: cur += ch
+        if cur.strip(): out.append(cur)
+        res = []
+        for p in out:
+            p = re.sub(r'=.*$', '', p).strip(); p = re.sub(r'@\w+(\([^)]*\))?\s*', '', p)
+            if not p: continue
+            if ':' in p: name, typ = p.split(':', 1)[0].strip(), p.split(':', 1)[1].strip()          # TS / Python: name: Type
+            else:
+                toks = re.findall(r'[A-Za-z_$][\w$]*', p); name = toks[-1] if toks else p; typ = p[:p.rfind(name)].strip() if toks else ''
+            res.append((name.lstrip('*.'), re.sub(r'\s+', ' ', typ)))
+        return res
+    @staticmethod
+    def field_parts(line):
+        """(declared type, name) of a field line, in either spelling: `Type name = …;` or `name: Type = …`"""
+        t = line.strip()
+        m = re.match(r'^(?:(?:public|private|protected|static|final|volatile|transient|readonly|export|const|let|var|declare|abstract|override)\s+)*([A-Za-z_$][\w$<>\[\],.? ]*?)\s+([A-Za-z_$][\w$]*)\s*(=|;|$)', t)
+        if m and not m.group(1).strip() in ('return', 'new', 'else', 'throw'): return re.sub(r'\s+', ' ', m.group(1).strip()), m.group(2)
+        m = re.match(r'^(?:(?:public|private|protected|static|readonly|export|const|let|var|declare|abstract|override)\s+)*([A-Za-z_$][\w$]*)\s*[?!]?\s*:\s*([^=;]+?)\s*(=|;|$)', t)
+        if m: return re.sub(r'\s+', ' ', m.group(2).strip()), m.group(1)
+        m = re.match(r'^(?:self\.)?([A-Za-z_$][\w$]*)\s*=', t)
+        if m: return '', m.group(1)
+        return '', ''
+
+    # ── one file: the declarations touched and how ────────────────────────────────────────────────────────────
+    def file_changes(self, rel, old, new):
+        OL, NL = old.split('\n'), new.split('\n')
+        sm = difflib.SequenceMatcher(None, OL, NL, autojunk=False)
+        old_changed = set(); new_of = {}; added = []; removed_lines = set()
+        for tag, i1, i2, j1, j2 in sm.get_opcodes():
+            if tag == 'equal':
+                for k in range(i2 - i1): new_of[i1 + k + 1] = j1 + k + 1
+            elif tag == 'replace': old_changed |= set(range(i1 + 1, i2 + 1)); new_of.update({i1 + 1: j1 + 1})
+            elif tag == 'delete': old_changed |= set(range(i1 + 1, i2 + 1)); removed_lines |= set(range(i1 + 1, i2 + 1))
+            elif tag == 'insert': added.append((i1, j1 + 1, j2))                                      # after old line i1, new lines j1+1..j2
+        decls = self.spans.get(rel, [])
+        if not decls: return [], [(rel, 'no declarations known here (not in the graph, or a different file spelling)', None)]
+        hits = {}
+        def narrowest(ln, kinds=None):
+            best = None
+            for a, b, i, k, d, n in decls:
+                if a <= ln <= b and (kinds is None or k in kinds) and (best is None or (b - a) < (best[1] - best[0])): best = (a, b, i, k, d, n)
+            return best
+        for ln in sorted(old_changed):
+            f = next(((a, b, i, k, d, n) for a, b, i, k, d, n in decls if a == ln and k in ('field', 'const', 'enum_member', 'variable')), None)
+            m = narrowest(ln, {'method', 'function', 'constructor', 'module'})
+            t = narrowest(ln, {'class', 'interface', 'enum', 'type', 'namespace'})
+            key = None
+            if f: key = ('field', f)
+            elif m and m[0] <= ln <= self.header_end(OL, m[0]): key = ('signature', m)
+            elif m: key = ('body', m)
+            elif t and t[0] <= ln <= self.header_end(OL, t[0]): key = ('type', t)
+            elif t: key = ('inside', t)                                                                 # between members: a field the graph did not record, a comment
+            if key: hits.setdefault(key, set()).add(ln)
+        out = []
+        for (kind, (a, b, i, k, d, n)), lines in hits.items():
+            entry = dict(kind=kind, symbol=d, id=i, file=rel, line=a, end=b, old_lines=sorted(lines))
+            gone = all(ln in removed_lines for ln in range(a, b + 1)) and (b - a) >= 0 and set(range(a, b + 1)) <= old_changed
+            if gone: entry['kind'] = 'removed'; entry['target'] = self.target(kind, d, k, n); out.append(entry); continue
+            if kind == 'signature':
+                oh = ' '.join(x.strip() for x in OL[a - 1:self.header_end(OL, a)])
+                na = new_of.get(a) or (new_of.get(max((x for x in new_of if x < a), default=0), 0) + 1)
+                nh = ''
+                if na and na <= len(NL):
+                    # the new header: from the mapped line, the first line holding the name, to its end
+                    for s in range(max(1, na - 2), min(len(NL), na + 6) + 1):
+                        if re.search(rf'\b{re.escape(n)}\b', NL[s - 1]): nh = ' '.join(x.strip() for x in NL[s - 1:self.header_end(NL, s)]); break
+                op, np_ = self.params(oh), self.params(nh) if nh else []
+                on, nn = [x for x, _ in op], [x for x, _ in np_]
+                detail = []
+                if nh and not re.search(rf'\b{re.escape(n)}\b', nh): detail.append('renamed')
+                for x in on:
+                    if x not in nn: detail.append(f'-{x}')
+                for x in nn:
+                    if x not in on: detail.append(f'+{x}')
+                for (x, t1), (y, t2) in zip(op, np_):
+                    if x == y and t1 != t2 and t1 and t2: detail.append(f'{x}: {t1} → {t2}')
+                pre_o = re.sub(r'\(.*$', '', oh); pre_n = re.sub(r'\(.*$', '', nh) if nh else ''
+                if nh and pre_o.split() != pre_n.split():
+                    ro = [w for w in pre_o.split() if w != n]; rn = [w for w in pre_n.split() if w != n]
+                    if ro != rn: detail.append('return type / modifiers: ' + ' '.join(ro) + ' → ' + ' '.join(rn))
+                if not detail and nh and re.sub(r'\s', '', oh) != re.sub(r'\s', '', nh): detail.append('header text changed (annotations / throws / generics)')
+                if not detail and not nh: detail.append('header changed (the new header could not be located — renamed?)')
+                if not detail: entry['kind'] = 'body'                                                  # whitespace or a comment in the header
+                entry['detail'] = ', '.join(detail); entry['old_header'] = oh; entry['new_header'] = nh
+                changed_params = [x for x, _ in op if any(dd.startswith(f'{x}:') or dd == f'-{x}' for dd in detail)]
+                entry['target'] = (f"{d}({changed_params[0]})" if len(changed_params) == 1 and entry['kind'] == 'signature' else d)
+            elif kind == 'field':
+                ot, on_ = self.field_parts(OL[a - 1]); na = new_of.get(a)
+                nline = ''
+                for s in range(max(1, (na or a) - 2), min(len(NL), (na or a) + 3) + 1):
+                    if re.search(rf'\b{re.escape(n)}\b', NL[s - 1]): nline = NL[s - 1]; break
+                nt, nn_ = self.field_parts(nline) if nline else ('', '')
+                if not nline: detail = 'removed or renamed'
+                elif ot and nt and ot != nt: detail = f'type {ot} → {nt}'
+                elif nn_ and nn_ != n: detail = f'renamed → {nn_}'
+                else: detail = 'initializer / modifiers changed'
+                entry['detail'] = detail; entry['target'] = d
+            elif kind == 'type':
+                entry['detail'] = 'header changed (name, extends / implements, type parameters)'; entry['target'] = d
+            elif kind == 'body': entry['target'] = d
+            else: entry['target'] = None
+            out.append(entry)
+        adds = []
+        for after, j1, j2 in added:
+            owner = narrowest(after) if after else None
+            if owner and any(e['id'] == owner[2] for e in out): continue                                # inside a declaration already listed
+            adds.append((rel, f"{j2 - j1 + 1} new line(s) at {rel}:{j1}" + (f" inside {owner[4]}" if owner else ''), None))
+        return out, adds
+    @staticmethod
+    def target(kind, d, k, n):
+        return d
+
+def main(argv):
+    a = list(argv); mode = 'worktree'; rng = None; want_impact = '--impact' in a; as_json = '--json' in a
+    a = [x for x in a if x not in ('--impact', '--json')]
+    old_f = new_f = one = None
+    for flag in ('--range', '--old', '--new', '--file'):
+        if flag in a:
+            i = a.index(flag); v = a[i + 1]; del a[i:i + 2]
+            if flag == '--range': mode, rng = 'range', v
+            elif flag == '--old': old_f = v
+            elif flag == '--new': new_f = v
+            else: one = v
+    if '--staged' in a: mode = 'staged'; a.remove('--staged')
+    repo = '.'
+    if a and os.path.isdir(a[0]): repo = a.pop(0)
+    C = Changed(repo)
+    results = []; notes = []
+    if old_f or new_f:
+        if not one: die("--old/--new need --file <path in the repo>")
+        rel = C.rel(one); old = open(old_f, errors='replace').read() if old_f else ''; new = open(new_f, errors='replace').read() if new_f else ''
+        r, n = C.file_changes(rel, old, new); results += r; notes += n
+    else:
+        files = C.files(mode, rng, a)
+        # the graph describes ONE commit. For a range whose newer side is that commit, the declarations are read on the new
+        # text and the classification runs with the two texts swapped, then its direction is turned around
+        flipped = False
+        if mode == 'range' and C.built_at and rng:
+            b = rng.split('..')[1]; hb = sh('git', 'rev-parse', b, cwd=C.repo)
+            flipped = bool(hb) and hb.strip().startswith(C.built_at[:10]) is False and hb.strip() == C.built_at
+            if hb and not flipped and hb.strip()[:10] == C.built_at[:10]: flipped = True
+        for rel in files:
+            old, new = C.texts(rel, mode, rng)
+            if old == new: continue
+            if flipped:
+                r, n = C.file_changes(rel, new, old)
+                for e in r:
+                    if e['kind'] == 'removed': e['kind'] = 'added (declaration)'; e['target'] = None
+                    if e.get('detail'):
+                        e['detail'] = ' → '.join(reversed(e['detail'].split(' → '))) if ' → ' in e['detail'] and ':' not in e['detail'] else re.sub(r'(\w+): (.+?) → (.+?)(,|$)', r'\1: \3 → \2\4', e['detail'])
+                        e['detail'] = re.sub(r'(^|, )([+-])(\w+)', lambda m: m.group(1) + ('-' if m.group(2) == '+' else '+') + m.group(3), e['detail'])
+                    e['old_header'], e['new_header'] = e.get('new_header'), e.get('old_header')
+                results += r; notes += [(f, x.replace('new line(s)', 'line(s) gone'), z) for f, x, z in n]
+            else:
+                r, n = C.file_changes(rel, old, new); results += r; notes += n
+        if flipped: notes.append(('', f"the graph is built at the newer commit {C.built_at[:10]}: declarations are the new text's; a declaration the range removed is not in it", None))
+    if as_json: print(json.dumps({'built_at': C.built_at, 'changed': results, 'notes': [x[1] for x in notes]}, indent=1)); return 0
+    if not results and not notes: print("no change to a declaration the graph knows" + (f" (working tree against {C.built_at[:10]})" if C.built_at and mode == 'worktree' else '')); return 0
+    print(f"changed declarations ({len(results)})" + (f" — against the graph's commit {C.built_at[:10]}" if C.built_at and mode == 'worktree' else (f" — {rng}" if rng else '')) + ":")
+    for e in results:
+        print(f"  {e['kind']:<10} {e['symbol']}   {e['file']}:{e['line']}" + (f"   — {e['detail']}" if e.get('detail') else '') + (f"   → impact {e['target']}" if e.get('target') else ''))
+    for _, n, _ in notes: print(f"  {'added':<10} {n}")
+    targets = list(dict.fromkeys(e['target'] for e in results if e.get('target') and e['kind'] != 'added'))
+    if want_impact and targets:
+        print(); sys.stdout.flush()
+        os.execvp(sys.executable, [sys.executable, os.path.join(HERE, 'axiomcode-impact'), *targets, C.repo])
+    return 0
+
+if __name__ == '__main__':
+    if sys.argv[1:] and sys.argv[1] in ('-h', '--help'): print(__doc__); sys.exit(0)
+    sys.exit(main(sys.argv[1:]))
