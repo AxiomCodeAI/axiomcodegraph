@@ -75,13 +75,18 @@ def export(repo, page=None):
     # query skill, so the two never disagree about what is a blind spot
     E, unresolved, terminal, LE = {}, collections.Counter(), collections.Counter(), {}
     boxes = collections.defaultdict(lambda: dict(sites=0, callers=set(), methods=collections.Counter()))   # one black box per library type
-    for r in q("SELECT e.caller_id, e.callee_method_id, e.tier FROM call_edges e"):
+    def box(c, owner, name):
+        b = boxes[owner]; b['sites'] += 1; b['callers'].add(c); b['methods'][name] += 1
+        le = LE.get((c, owner)); LE[(c, owner)] = dict(s=c, t='L:' + owner, w=(le['w'] + 1) if le else 1)
+    for r in q("SELECT e.caller_id, e.callee_method_id, e.tier, e.callee_label FROM call_edges e"):
         c, t = r['caller_id'], r['callee_method_id']
         if c not in nodes: continue
         if not t or t not in nodes:
-            if t in lib:
-                owner, name = lib[t]; b = boxes[owner]; b['sites'] += 1; b['callers'].add(c); b['methods'][name] += 1
-                le = LE.get((c, owner)); LE[(c, owner)] = dict(s=c, t='L:' + owner, w=(le['w'] + 1) if le else 1)
+            if t in lib: box(c, *lib[t])
+            elif r['tier'] == 'boundary_lib' and r['callee_label']:
+                # Python / JavaScript: the library target is a label — builtin:len, external:asyncio.get_running_loop — not a method row
+                prov, _, name = r['callee_label'].partition(':'); owner, _, meth = name.rpartition('.')
+                box(c, owner or (('builtins' if prov == 'builtin' else name)), meth or name)
             elif (r['tier'] or '').startswith('ambiguous'): unresolved[c] += 1
             else: terminal[c] += 1
             continue
