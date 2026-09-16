@@ -1,0 +1,109 @@
+// ============================================================================
+// CALL-EDGE-GEN · ACCESSOR INVOCATIONS  (a property access that is really a call)
+//
+// `get url() { return this.parse(this._raw.url); }`, read everywhere as `r.url`. The
+// runtime invokes the getter at the access, and the member lookup for it already
+// exists — resolution/value-flow.dl reads a getter's RETURN as the property's value,
+// so `type_own_getter` and its inheritance are proven. What was missing is the EDGE:
+// every accessor in a JavaScript project had zero callers, and the ordinary methods an
+// accessor's body calls had no caller at all (#731). Python and TypeScript both emit
+// this edge; this is the last front end without it.
+//
+// THE MODEL, the one #727 used on the TypeScript side and Python uses for @property:
+// an EDGE without being a SITE. The author wrote no call, the parser emits no
+// js_call_site, and the coverage guard's denominator is the parser's site list, so
+// these rows join the graph and NOT `invocation_site`. Adding them there would make
+// conservation unmeasurable. The reserved GETTER_INVOCATION / SETTER_INVOCATION call
+// kinds stay reserved and at zero rows for the same reason.
+//
+// The kind says which half of the protocol ran:
+//   PROPERTY_READ    the getter: any read of the member
+//   PROPERTY_WRITE   the setter: the member as the target of an assignment
+// A compound assignment (`a.x += 1`) and an update (`a.x++`) read and then write, so
+// they carry both; a plain `=` writes only, which is why property_write_only gates the
+// read rule.
+//
+// Tiered by target count like every other edge, and a library accessor is
+// boundary_lib. The caller is the enclosing method of the ACCESS (`expr_owner`), since
+// there is no call site to attribute through.
+//
+// STRATIFICATION: a leaf. It reads the value layer and the hierarchy and feeds nothing
+// back into either; the negation is over syntactic positions only.
+// ============================================================================
+
+// ── the accessor a receiver VALUE exposes under a name ──────────────────────
+// The getter side mirrors value-flow.dl's own reads of `type_own_getter` /
+// `type_own_static_getter` / a literal's GETTER, so an inherited accessor and an
+// accessor on a plain object both resolve. The setter side needs the same lookup,
+// which the rule set had no reason to derive before this edge existed.
+type_own_setter(t, n, m) :- method_decl(_, n, "SETTER", _, "false", t, _, m), t != "".
+type_own_setter(t, n, m) :- type_super(t, s), type_own_setter(s, n, m), !type_own_member_name(t, n).
+type_own_static_setter(t, n, m) :- method_decl(_, n, "SETTER", _, "true", t, _, m), t != "".
+accessor_member("inst", t, n, "GETTER", m) :- type_own_getter(t, n, m).
+accessor_member("proto", t, n, "GETTER", m) :- type_own_getter(t, n, m).
+accessor_member("ctor", t, n, "GETTER", m) :- type_own_static_getter(t, n, m).
+accessor_member("inst", t, n, "SETTER", m) :- type_own_setter(t, n, m).
+accessor_member("proto", t, n, "SETTER", m) :- type_own_setter(t, n, m).
+accessor_member("ctor", t, n, "SETTER", m) :- type_own_static_setter(t, n, m).
+accessor_member("obj", l, n, "GETTER", m) :- literal_owns_method(l, m), method_decl(_, n, "GETTER", _, _, _, _, m).
+accessor_member("obj", l, n, "SETTER", m) :- literal_owns_method(l, m), method_decl(_, n, "SETTER", _, _, _, _, m).
+// `Object.defineProperty(T.prototype, 'x', { get() {}, set() {} })` — ONE field row
+// carrying both halves (projections/types.dl's field_accessor), joined back to
+// field_decl for the side it sits on.
+accessor_member("inst", t, n, "GETTER", g) :- field_accessor(_, n, t, g, _, h), g != "", field_decl(_, n, t, _, "false", _, _, h).
+accessor_member("inst", t, n, "SETTER", st) :- field_accessor(_, n, t, _, st, h), st != "", field_decl(_, n, t, _, "false", _, _, h).
+accessor_member("ctor", t, n, "GETTER", g) :- field_accessor(_, n, t, g, _, h), g != "", field_decl(_, n, t, _, "true", _, _, h).
+accessor_member("ctor", t, n, "SETTER", st) :- field_accessor(_, n, t, _, st, h), st != "", field_decl(_, n, t, _, "true", _, _, h).
+
+// ── the positions ───────────────────────────────────────────────────────────
+// A plain `=` never reads the old value; `+=`, `||=` and `++` read and then write.
+property_write_only(e) :- expr_kind(_, "ASSIGNMENT", _, a), expr_operator(_, "=", a),
+    expr_child(_, a, "ASSIGNMENT_TARGET", _, e).
+property_access_name(e, n, r) :- expr_kind(_, "PROPERTY_ACCESS", _, e), expr_name(_, n, e),
+    expr_child(_, e, "ACCESS_TARGET", _, r).
+property_access_name(e, n, r) :- expr_kind(_, "OPTIONAL_ACCESS", _, e), expr_name(_, n, e),
+    expr_child(_, e, "ACCESS_TARGET", _, r).
+// `obj[key]` names a property when the key does (value-flow.dl's key_name), which is
+// the same condition the member read already goes through.
+property_access_name(e, n, r) :- expr_kind(_, "ELEMENT_ACCESS", _, e),
+    expr_child(_, e, "COMPUTED_KEY", _, key), key_name(key, n),
+    expr_child(_, e, "ACCESS_TARGET", _, r).
+// A NAME GUARD, and it is load-bearing. Without it the rule enumerates every property
+// access in the program and joins each receiver's whole value set against the member
+// table: on the held-out project that cost 7 s to 75 s of solve for 118 edges, all of
+// the time in the join and none of it in the answer. An accessor name is a small set
+// (a few dozen in a large project), so filtering the accesses by name first leaves the
+// value join with almost nothing to do.
+accessor_name(n) :- accessor_member(_, _, n, _, _).
+property_read_position(e) :- property_access_name(e, n, _), accessor_name(n), !property_write_only(e).
+property_write_position(e) :- expr_kind(_, "ASSIGNMENT", _, a),
+    expr_child(_, a, "ASSIGNMENT_TARGET", _, e), property_access_name(e, n, _), accessor_name(n).
+property_write_position(e) :- expr_kind(_, "UNARY", _, u), expr_operator(_, op, u), update_operator(op),
+    expr_child(_, u, _, _, e), property_access_name(e, n, _), accessor_name(n).
+update_operator("++").
+update_operator("--").
+
+// ── accessor_invocation(AccessExpr, Method, Kind) ───────────────────────────
+accessor_invocation(e, m, "PROPERTY_READ") :- property_read_position(e), property_access_name(e, n, r),
+    expr_value(r, k, i), accessor_member(k, i, n, "GETTER", m).
+accessor_invocation(e, m, "PROPERTY_WRITE") :- property_write_position(e), property_access_name(e, n, r),
+    expr_value(r, k, i), accessor_member(k, i, n, "SETTER", m).
+// `super.url` inside a subclass accessor: the base's accessor, from the enclosing
+// method's own class, exactly as callee-resolution.dl resolves `super.m()`.
+accessor_invocation(e, m, "PROPERTY_READ") :- property_read_position(e), property_access_name(e, n, r),
+    expr_kind(_, "SUPER", _, r), expr_owner(_, em, _, e), method_home_type(em, t), type_super(t, s),
+    accessor_member("inst", s, n, "GETTER", m).
+accessor_invocation(e, m, "PROPERTY_WRITE") :- property_write_position(e), property_access_name(e, n, r),
+    expr_kind(_, "SUPER", _, r), expr_owner(_, em, _, e), method_home_type(em, t), type_super(t, s),
+    accessor_member("inst", s, n, "SETTER", m).
+
+// ── tier, per access and half of the protocol ───────────────────────────────
+accessor_target_count(e, k, n) :- accessor_invocation(e, _, k), n = count : { accessor_invocation(e, _, k) }.
+accessor_class(e, k, "known_edge") :- accessor_target_count(e, k, 1).
+accessor_class(e, k, "multi_inferred") :- accessor_target_count(e, k, n), n >= 2.
+
+// ── the edges ───────────────────────────────────────────────────────────────
+call_chain_edge(e, caller, "-", m, "client", cls, k) :- accessor_invocation(e, m, k),
+    method_prov(m, "client"), expr_owner(_, caller, _, e), accessor_class(e, k, cls).
+call_chain_edge(e, caller, "-", m, "lib", "boundary_lib", k) :- accessor_invocation(e, m, k),
+    method_prov(m, "lib"), expr_owner(_, caller, _, e).

@@ -54,6 +54,7 @@ lib/doc.js:70:35 METHOD_CALL this.g.spin  ->  multi_inferred  lib/types.js:3:38 
 lib/doc.js:70:50 METHOD_CALL Doc.sw.run  ->  known_edge  lib/types.js:2:16 run
 lib/doc.js:70:64 METHOD_CALL this.gg.spin  ->  known_edge  lib/types.js:3:38 spin
 lib/doc.js:70:80 METHOD_CALL this.widget.run  ->  known_edge  lib/types.js:2:16 run
+lib/doc.js:70:80 PROPERTY_READ this.widget  ->  known_edge  lib/doc.js:69:3 widget
 lib/doc.js:73:45 METHOD_CALL this.run  ->  known_edge  lib/types.js:2:16 run
 lib/doc.js:75:45 METHOD_CALL this.spin  ->  known_edge  lib/types.js:3:38 spin
 lib/doc.js:79:28 CONSTRUCTOR_CALL Widget  ->  implicit_constructor  -
@@ -63,8 +64,10 @@ lib/doc.js:83:53 METHOD_CALL this.run  ->  known_edge  lib/types.js:2:16 run
 lib/doc.js:84:66 METHOD_CALL this.spin  ->  known_edge  lib/types.js:3:38 spin
 lib/doc.js:9:35 METHOD_CALL x.run  ->  known_edge  lib/types.js:2:16 run
 main.js:10:13 CONSTRUCTOR_CALL D.Doc  ->  known_edge  lib/doc.js:65:3 <constructor>
+main.js:10:26 PROPERTY_WRITE d.widget  ->  known_edge  lib/doc.js:67:3 widget
 main.js:10:40 METHOD_CALL d.use  ->  known_edge  lib/doc.js:70:3 use
 main.js:10:49 METHOD_CALL d.widget.run  ->  known_edge  lib/types.js:2:16 run
+main.js:10:49 PROPERTY_READ d.widget  ->  known_edge  lib/doc.js:69:3 widget
 main.js:11:108 CONSTRUCTOR_CALL D.Sub3  ->  implicit_constructor  -
 main.js:11:108 METHOD_CALL new D.Sub3().extra3  ->  known_edge  lib/doc.js:84:48 extra3
 main.js:11:24 CONSTRUCTOR_CALL D.Aug  ->  implicit_constructor  -
