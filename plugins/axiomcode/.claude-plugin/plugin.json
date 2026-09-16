@@ -1,0 +1,6 @@
+{
+  "name": "axiomcode",
+  "description": "AxiomCode's type-resolved call graph of a Java, TypeScript, Python or JavaScript repository: build it, draw it, ask it for a chain of calls between two things, or what a change to a declaration reaches. Every answer verified against the graph; nothing guessed.",
+  "version": "0.1.0",
+  "author": { "name": "AxiomCode" }
+}

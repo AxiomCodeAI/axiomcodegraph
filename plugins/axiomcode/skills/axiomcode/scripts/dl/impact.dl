@@ -118,8 +118,9 @@ direct(q, c, "uses", "calls a method of this name (receiver not typed)", "by nam
 fref(q, c, rk, f, l) :- target(q, "field", fl, _), field(fl, _, n, ff, fll), ref(c, n, rk, ek, f, l), !local_kind(ek), (f != ff ; l != fll).
 .decl frole(rk:symbol, role:symbol, why:symbol)
 frole("qualified", "uses", "writes/reads it"). frole("bare", "reads", "reads it").
-// in scope: inside the owner, a subtype, or a nested type
+// in scope: inside the owner, a subtype, or a nested type — or the type node itself (a field initializer)
 direct(q, c, role, why, "in scope", f, l) :- fref(q, c, rk, f, l), frole(rk, role, why), target(q, "field", fl, _), field(fl, t, _, _, _), owner(c, s), scope(t, s).
+direct(q, c, role, why, "in scope", f, l) :- fref(q, c, rk, f, l), frole(rk, role, why), target(q, "field", fl, _), field(fl, t, _, _, _), scope(t, c).
 // qualified elsewhere: the qualifier written on the line decides — the owner's own name confirms, another type's name excludes
 direct(q, c, "uses", "writes/reads it", "in scope", f, l) :- fref(q, c, "qualified", f, l), target(q, "field", fl, _), field(fl, t, n, _, _), typ(t, tn, _),
     owner(c, s), !scope(t, s), qualifier(f, l, n, tn).
