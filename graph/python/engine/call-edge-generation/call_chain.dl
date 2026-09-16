@@ -338,6 +338,25 @@ property_read_edge(e, caller, getter) :-
     type_property_getter("lib", t, n, getter),
     expr_ultimate_method("client", e, caller).
 
+// ── A PROPERTY READ ON A CLASS OBJECT GOES THROUGH THE METACLASS ─────────────
+// `Model.model_fields` and `cls.model_fields` inside a classmethod: the object is the
+// CLASS, and a property defined on the class itself is not invoked by reading it on the
+// class (that yields the property object). A property defined on the class's METACLASS
+// is: the class is an instance of its metaclass, and the descriptor protocol runs the
+// metaclass's getter. A framework that keeps its model introspection on the metaclass
+// is read this way everywhere, and every one of those getters had zero callers (#704).
+// The object is typed by expr_type_class_object, never by expr_type, so the three
+// clauses above cannot fire for it and this one cannot double-count.
+property_read_edge(e, caller, getter) :-
+    expr_node("client", "ATTRIBUTE_ACCESS", _, n, e),
+    expr_name_context("client", "LOAD", e),
+    !call_receiver_of(e),
+    expr_parent("client", e, "ATTRIBUTE_OBJECT", _, obj),
+    expr_type_class_object("client", obj, t),
+    metaclass_of("client", t, mcls),
+    type_property_getter("client", mcls, n, getter),
+    expr_ultimate_method("client", e, caller).
+
 // An ATTRIBUTE_ACCESS that IS a call's callee is not a property read — it is the call.
 call_receiver_of(e) :- call_callee_expr(_, e).
 
@@ -480,6 +499,15 @@ call_chain_edge(t, caller, "-", m, "client", "known_edge", "METACLASS_CREATION")
     metaclass_of("client", t, mcls),
     class_creation_caller("client", t, caller),
     mro_lookup("client", mcls, "__init__", m).
+// ...and `__init_subclass__` of the nearest BASE that defines it: the class statement
+// calls it on the new class with the class itself skipped (type.__new__ invokes
+// `super(cls, cls).__init_subclass__()`), which is exactly the after-anchor MRO walk
+// super() uses, anchored at the new class. No metaclass is needed for this hook; a plain
+// `class Plugin(Base)` runs Base.__init_subclass__ at import time (#704).
+call_chain_edge(t, caller, "-", m, "client", "known_edge", "METACLASS_CREATION") :-
+    type_decl("client", _, _, _, t),
+    class_creation_caller("client", t, caller),
+    mro_lookup_after("client", t, t, "__init_subclass__", m).
 
 // ── THE THREE PROTOCOL EDGES ARE TIERED BY TARGET COUNT, like every other edge ──
 //

@@ -314,3 +314,12 @@ builtin_method_returns("frozenset", "union", "frozenset").
 // name is a language fact, and language facts belong in a reviewable list. The gate found
 // this one -- it was the last inline literal in a join position anywhere in the engine.
 class_definition_keyword("metaclass").
+
+// ── instance_receiver_name(Name) ─────────────────────────────────────────────
+// The conventional name of the first parameter of an instance method. Not a language
+// rule: `self` is convention (PEP 8), and the language binds whatever the first
+// parameter is called. The engine reads it in exactly one place, to recognise a lambda
+// written in a class body as a function that will be handed the instance
+// (expression-resolution/expr-type.dl, clause a'), where the convention is the only
+// signal there is: a lambda has no annotation and no `def` to classify.
+instance_receiver_name("self").
