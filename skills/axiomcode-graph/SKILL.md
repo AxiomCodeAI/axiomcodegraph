@@ -35,9 +35,11 @@ axiomcode-graph path   <A> <B>          shortest resolved call path (overrides =
 
 ## What the page shows
 
-- **Overview** — one box per community (Louvain over calls, overrides, extends and containment), sized by
-  members, titled by its dominant directory and hubs; arrows between boxes are call volume. Colour is the
-  community and stays the same in every view. Click a box.
+- **Overview** — the call graph itself: a circle per method, a line per call. Size = how connected, colour =
+  community (Louvain over calls, overrides, extends and containment — a colour is a region), triangle = entry
+  point, dashed = test, line style = tier. It opens on the 400 most connected non-test methods with the hubs
+  labelled; a slider widens it to 1 500 and a checkbox adds tests. Hover a node to isolate its calls, click it
+  for the node view. The side panel lists the communities — click one for its class map.
 - **Community** — a class-diagram map: each type is a box listing its methods; free functions are boxed by
   file; arrows between boxes are aggregated with a count and coloured by the best tier among them
   (solid = one resolved target, dashed blue = a sound set, dotted = declared ambiguous; purple = overrides /
