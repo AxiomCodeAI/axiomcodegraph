@@ -22,6 +22,9 @@ axiomcode search <anything> [in=<path>]       a name (bar · Foo.bar · Outer.In
                                                 could not type; each MAY be a caller, listed by file:line and enclosing method.
                                               A field / constant / enum member → its accesses grouped by the method they are
                                                 in (certain inside the owner, by name elsewhere). A message → its emitters.
+                                              a file name or any fragment of a path (`HtmlTreeBuilder.java`, `extractors/ts-`)
+                                                → the files whose path contains it and what each declares, with lines and
+                                                call-site counts; a path the graph has no nodes for says so in one line.
                                               file:line (from the issue, a stack frame, a hunk) → what is ON that line: the
                                                 calls (target and tier, or the written name of an unresolved one), the
                                                 identifiers, the strings — then the enclosing method's card. Start here
