@@ -293,7 +293,7 @@ export class JsExpressionWalker {
       return;
     }
     this.options.extractor.emitRoot({ node, rootContext, ownerMethodHash });
-    this.descendIntoCallables(node);
+    this.descendIntoCallables(node, ownerMethodHash);
   }
 
   /**
@@ -316,7 +316,7 @@ export class JsExpressionWalker {
    * the function directly, and `(function () { … })()` unwraps to a call whose
    * callee is one.
    */
-  private descendIntoCallables(node: ts.Node): void {
+  private descendIntoCallables(node: ts.Node, ownerMethodHash: string): void {
     if (ts.isFunctionExpression(node) || ts.isArrowFunction(node)) {
       this.visitCallable(node);
       return;
@@ -331,18 +331,24 @@ export class JsExpressionWalker {
     if (ts.isMethodDeclaration(node) || ts.isGetAccessorDeclaration(node)
       || ts.isSetAccessorDeclaration(node)) {
       if (ts.isComputedPropertyName(node.name)) {
-        this.root(node.name.expression, JsRootContext.COMPUTED_NAME,
-          this.options.moduleInitMethodHash);
+        this.root(node.name.expression, JsRootContext.COMPUTED_NAME, ownerMethodHash);
       }
       this.visitCallable(node);
       return;
     }
+    // A CLASS EXPRESSION's heritage clause runs where the class is WRITTEN, so it
+    // belongs to the callable that encloses it, not to the module (#730). Passing
+    // the module initializer here gave `static extend() { return class extends
+    // this {}; }` a `this` looked up against the module, so the returned class had
+    // no superclass and the whole hierarchy under a class-system factory
+    // disconnected. The class's own BODY is unaffected: visitClass gives each
+    // member its own hash.
     if (ts.isClassExpression(node)) {
-      this.visitClass(node, this.options.moduleInitMethodHash);
+      this.visitClass(node, ownerMethodHash);
       return;
     }
     ts.forEachChild(node, (child) => {
-      this.descendIntoCallables(child);
+      this.descendIntoCallables(child, ownerMethodHash);
     });
   }
 
