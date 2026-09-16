@@ -317,6 +317,19 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
   // order, and removed. In flat mode the language folder IS outputDir.
   await mergeProjectOutputs(typescriptProjects.map((_, i) => path.join(typescriptOut ?? baseOut, `.typescript-project-${i}`)), typescriptOut ?? baseOut);
   await mergeProjectOutputs(pythonProjects.map((_, i) => path.join(pythonOut ?? baseOut, `.python-project-${i}`)), pythonOut ?? baseOut);
+  // The JavaScript analyzer walks the root whether or not discovery called it a project,
+  // and a package that ships only `dist/` (#620) is exactly the case where it did not:
+  // `dist` is a skip directory for discovery, so the package is no project, yet the
+  // analyzer read its entry files. Its tables were written to the scratch folder and then
+  // thrown away as a stray, so `--library` on such a package staged nothing and the CLI
+  // aborted the whole run (#709). The output folder is decided by what the analyzer
+  // EMITTED, not by what discovery found: a scratch run that analysed a file is promoted
+  // to javascript/ like any discovered project's output.
+  if (perLanguage && javascriptOut === undefined
+      && javascriptSummaries.value.some((s) => s.filesAnalysed > 0)) {
+    const promoted = dirFor('javascript', true)!;
+    await mergeProjectOutputs([path.join(baseOut, '.javascript-project-0')], promoted);
+  }
   if (perLanguage) {
     for (const stray of ['.config-project-0', '.java-project-0', '.javascript-project-0']) {
       fs.rmSync(path.join(baseOut, stray), { recursive: true, force: true });
