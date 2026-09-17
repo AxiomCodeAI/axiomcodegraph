@@ -1,0 +1,5 @@
+main.js:13:37 METHOD_CALL declared.build  ->  known_edge  main.js:12:18 <function-expression>
+main.js:15:25 METHOD_CALL target.all  ->  known_edge  main.js:8:14 <function-expression>
+main.js:15:40 METHOD_CALL declared.all  ->  known_edge  main.js:13:16 <function-expression>
+main.js:8:35 METHOD_CALL target.build  ->  known_edge  main.js:6:16 <function-expression>
+main.js:8:52 METHOD_CALL target.test  ->  known_edge  main.js:7:15 <function-expression>
