@@ -948,7 +948,9 @@ def main(argv):
     LAB = res['_targets']; multi = len(LAB) > 1
     contract_of = collections.defaultdict(set)
     for c, why, q_ in res['contract']: contract_of[(c, why)].add(LAB[q_])
-    contract = [k for k in contract_of if k[0] in g.sym]
+    # sorted once, here: the JSON and the printed answer both read this list, and a relation has no inherent
+    # order — leaving it as the solver emitted it made the same answer come out shuffled between engines.
+    contract = sorted((k for k in contract_of if k[0] in g.sym), key=lambda cw: (g.disp(cw[0]), g.loc(cw[0]), cw[1]))
     seeds = {x[0] for x in res['seed']}
     # one row per (callable, reason): the surest certainty, the first location, the number of sites
     best = {}
@@ -964,8 +966,12 @@ def main(argv):
                 p_, _, n_ = v.rpartition(':')
                 return (p_ or v, int(n_) if n_.isdigit() else 10 ** 9)
             return x if key(x) <= key(y) else y
-        if k not in best or CERT[cert] < CERT[best[k][1]]: best[k] = (role, cert, loc, best.get(k, (0, 0, 0, 0))[3] + 1)
-        else: best[k] = (best[k][0], best[k][1], _lower(best[k][2], loc), best[k][3] + 1)
+        if k not in best or CERT[cert] < CERT[best[k][1]]:
+            best[k] = (role, cert, loc, best.get(k, (0, 0, 0, 0))[3] + 1)          # a better certainty: its own line
+        elif CERT[cert] == CERT[best[k][1]]:
+            best[k] = (best[k][0], best[k][1], _lower(best[k][2], loc), best[k][3] + 1)   # same certainty: the lowest line
+        else:
+            best[k] = (best[k][0], best[k][1], best[k][2], best[k][3] + 1)         # a worse one: counted, not located
     D = [(c, role, why, cert, loc, n) for (c, why), (role, cert, loc, n) in best.items()]
     # `alongside` is unbounded by nature — a 200-member type would bury the rest of the answer. Keep the ones that share a
     # field with the target first, then the nearest by file, and say how many were left out (#762).
@@ -990,7 +996,10 @@ def main(argv):
     tests = {}
     for m, d, q_ in res['test_near']:
         if m in g.sym and int(d) <= depth and int(d) < tests.get(m, (10 ** 9,))[0]:
-            tests[m] = (int(d), next((x[2] for x in res['test_hit'] if x[0] == m and int(x[1]) == int(d) and x[2]), None))
+            # the lowest candidate, not the first emitted: a test reached at the same hop count through two
+            # fixtures has two rows, and `next()` reported whichever the solver happened to output first.
+            _vias = sorted(x[2] for x in res['test_hit'] if x[0] == m and int(x[1]) == int(d) and x[2])
+            tests[m] = (int(d), _vias[0] if _vias else None)
     # the same test, inherited: the subclass runs the base's test method, in its own file
     inh = {}
     for s_, m, d in {(x[0], x[1], int(x[2])) for x in res['inherited_test']}:
@@ -1040,10 +1049,10 @@ def main(argv):
     if as_json:
         print(json.dumps({'targets': [{'kind': k, 'label': lab} for k, lab, _ in targets],
                           'contract': [{'id': c, 'display': g.disp(c), 'why': why, 'at': g.loc(c), 'for': sorted(contract_of[(c, why)])} for c, why in contract],
-                          'direct': [{'id': c, 'display': g.disp(c), 'role': role, 'why': why, 'certainty': cert, 'at': loc, 'sites': n, 'for': sorted(from_target[(c, why)])} for c, role, why, cert, loc, n in sorted(D, key=lambda x: (CERT[x[3]], x[1], g.disp(x[0]), x[2]))],
-                          'reached': [{'id': m, 'display': g.disp(m), 'hops': d, 'for': sorted(reach_from[m]), 'at': g.loc(m), 'test': bool(g.sym[m]['is_test'])} for m, d in sorted(reached.items(), key=lambda x: (x[1], g.disp(x[0])))],
-                          'tests': [{'id': m, 'display': g.disp(m), 'owner': g.sym[m]['owner'], 'name': g.sym[m]['name'], 'hops': d, 'via': g.disp(fx) if fx else None, 'at': g.loc(m), 'certainty': test_cert.get(m), 'chain': [g.disp(x) for x in chains.get(m, [])]} for m, (d, fx) in sorted(tests.items(), key=lambda kv: (kv[1][0], g.disp(kv[0])))],
-                          'inherited_tests': [{'id': s_, 'display': g.disp(s_), 'at': g.loc(s_), 'inherits': sorted(g.disp(m) for m in ms)} for s_, ms in sorted(inh.items(), key=lambda kv: g.disp(kv[0]))],
+                          'direct': [{'id': c, 'display': g.disp(c), 'role': role, 'why': why, 'certainty': cert, 'at': loc, 'sites': n, 'for': sorted(from_target[(c, why)])} for c, role, why, cert, loc, n in sorted(D, key=lambda x: (CERT[x[3]], x[1], g.disp(x[0]), x[2], x[4]))],
+                          'reached': [{'id': m, 'display': g.disp(m), 'hops': d, 'for': sorted(reach_from[m]), 'at': g.loc(m), 'test': bool(g.sym[m]['is_test'])} for m, d in sorted(reached.items(), key=lambda x: (x[1], g.disp(x[0]), g.loc(x[0])))],
+                          'tests': [{'id': m, 'display': g.disp(m), 'owner': g.sym[m]['owner'], 'name': g.sym[m]['name'], 'hops': d, 'via': g.disp(fx) if fx else None, 'at': g.loc(m), 'certainty': test_cert.get(m), 'chain': [g.disp(x) for x in chains.get(m, [])]} for m, (d, fx) in sorted(tests.items(), key=lambda kv: (kv[1][0], g.disp(kv[0]), g.loc(kv[0])))],
+                          'inherited_tests': [{'id': s_, 'display': g.disp(s_), 'at': g.loc(s_), 'inherits': sorted(g.disp(m) for m in ms)} for s_, ms in sorted(inh.items(), key=lambda kv: (g.disp(kv[0]), g.loc(kv[0])))],
                           'byname_callers': [{'id': c, 'display': g.disp(c), 'at': g.loc(c)} for c in sorted(byname_seeds, key=lambda x: (g.disp(x), x))],
                           'external': [{'at': f'{f}:{l}', 'name': n, 'how': how} for f, l, n, how in sorted({(r[0], int(r[1]), r[2], r[3]) for r in res.get('extbind', [])})],
                           'test_universe': universe, 'verified': bad == 0, 'checked_hops': hops, 'unresolved_inside': u}, indent=1))
@@ -1061,7 +1070,6 @@ def main(argv):
         print(f"must change with it ({len(contract)}: " + (f"{len(contract) - nm} bound by a contract the engine resolved, {nm} matched by name" if nm else "bound by a contract the engine resolved") + "):")
         # printed in a fixed order — by display, then reason. The rows are a set; leaving them in the order the
         # engine emitted them makes the same answer come out shuffled from one solver to another.
-        contract = sorted(contract, key=lambda cw: (g.disp(cw[0]), g.loc(cw[0]), cw[1]))   # two overloads share a display; the location breaks the tie
         for c, why in contract[:limit]: print(f"    {g.disp(c)}   {g.loc(c)}   — {why}" + (f"   [for {', '.join(sorted(contract_of[(c, why)]))}]" if multi else ''))
         if len(contract) > limit: print(f"    … +{len(contract) - limit} (--limit N)")
     # the window a reader actually sees must not be decided by ASCII: `<arrow>`, `<lambda>`, `<anon …>` sort before
