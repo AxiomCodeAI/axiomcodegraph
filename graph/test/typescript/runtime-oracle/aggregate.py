@@ -79,7 +79,8 @@ for (s, d), n in pairs.items():
 out = os.path.join(work, "runtime-sites.tsv")
 with open(out, "w") as fh:
     fh.write(
-        "file\tline\tcol\tcallee_text\tn_targets\tinvocations\ttargets\tcallbacks\timplicit\tnote\n"
+        "file\tline\tcol\tend_line\tend_col\tcallee_text\tn_targets\tinvocations"
+        "\ttargets\tcallbacks\timplicit\tnote\n"
     )
     for s in sorted(direct, key=lambda x: int(x)):
         si = sites[s]
@@ -98,6 +99,8 @@ with open(out, "w") as fh:
                     si["file"],
                     si["start_line"],
                     si["start_col"],
+                    si["end_line"],
+                    si["end_col"],
                     si["callee_text"],
                     str(len(ts)),
                     str(sum(n for _, n in ts)),
