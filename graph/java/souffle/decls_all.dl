@@ -579,6 +579,7 @@
 // Source is `annotation` for a written destination and `placeholder` for a ${key},
 // in which case Destination IS the key -- the join, when neither side writes the string.
 .decl message_destination(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl cfg_string_literal(c0:symbol,c1:symbol)
 .decl cfg_arg_part(c0:symbol,c1:symbol)
 .decl call_arg_literal(c0:symbol,c1:symbol)
 .decl cfg_whole_arg_literal(c0:symbol,c1:symbol)
