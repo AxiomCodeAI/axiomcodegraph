@@ -110,6 +110,62 @@ export function isCallableExpression(node: ts.Node): boolean {
 }
 
 /**
+ * Does a class field initializer RUN anything? A `this`, a call, a `new` or a tagged
+ * template is code whose owner matters (#798): it runs at class evaluation or during
+ * construction, not where the class is written. A literal, an identifier read or an array
+ * of literals is not, and minting a callable for it would add a member row to every class
+ * in the corpus that has a plain field.
+ *
+ * Shared by the scope builder and the declaration extractor so the scope that is opened
+ * and the method row that points at it are decided by ONE predicate. Two copies would
+ * drift, and the failure would be a method row whose body scope does not exist.
+ */
+export function initializerRunsCode(node: ts.Expression): boolean {
+  let found = false;
+  const visit = (n: ts.Node): void => {
+    if (found) {
+      return;
+    }
+    if (n.kind === ts.SyntaxKind.ThisKeyword || ts.isCallExpression(n)
+      || ts.isNewExpression(n) || ts.isTaggedTemplateExpression(n)) {
+      found = true;
+      return;
+    }
+    // A nested callable has its own owner; what it does inside is not this initializer
+    // running code, it is a function being defined.
+    if (isCallableExpression(n) || ts.isClassLike(n)) {
+      return;
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(node);
+  return found;
+}
+
+/**
+ * The field whose initializer opens the class's static or instance initialization scope:
+ * the FIRST one that runs code, in source order. One scope and one callable per class per
+ * staticness, and both sides pick it the same way (#798).
+ */
+export function firstRunningFieldInitializer(
+  node: ts.ClassLikeDeclaration, isStatic: boolean,
+): ts.PropertyDeclaration | undefined {
+  for (const member of node.members) {
+    if (!ts.isPropertyDeclaration(member) || member.initializer === undefined) {
+      continue;
+    }
+    if (isCallableExpression(member.initializer) || !initializerRunsCode(member.initializer)) {
+      continue;
+    }
+    const memberIsStatic = (ts.getCombinedModifierFlags(member) & ts.ModifierFlags.Static) !== 0;
+    if (memberIsStatic === isStatic) {
+      return member;
+    }
+  }
+  return undefined;
+}
+
+/**
  * The nearest ancestor satisfying a predicate, `node` itself included.
  *
  * ## Why a primitive rather than fifteen hand-rolled loops
