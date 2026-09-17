@@ -32,8 +32,17 @@ def rows(path):
     hdr = r[0]
     return [dict(zip(hdr, x + [''] * (len(hdr) - len(x)))) for x in r[1:]]
 
+# A TYPE-USE ANNOTATION is written in the type position and the parser keeps it in the declared
+# type name: `@Nullable Response`. It is not part of the type, and leaving it in makes the
+# parameter list of every annotated method differ from the one the bytecode oracle prints, so a
+# caller that is annotated cannot be compared on either side. Stripped for the same reason type
+# arguments are.
+# It can sit mid-name, on the qualified form: `HttpConnection.@Nullable Response`.
+ANNOTATED = re.compile(r'@[\w$.]+(?:\([^)]*\))?\s*')
+
+
 def simple(t):
-    t = (t or '').strip(); arr = ''
+    t = ANNOTATED.sub('', (t or '')).strip(); arr = ''
     while t.endswith('[]'): arr += '[]'; t = t[:-2]
     if t.endswith('...'): arr += '[]'; t = t[:-3]
     out, d = [], 0

@@ -1,0 +1,8 @@
+23-config-xml-wiring
+  precision 0.7500   (3 correct, 1 wrong)
+  recall    1.0000   (3 of 3 in the bytecode)
+  sites 4   resolved 4 (100.0%)
+  tiers known_edge=4
+  access read=2  write=2
+  not scored: 0 initializer-owned, 0 in a class the build did not compile, 0 oracle rows in a static initializer, 0 reads of an inlined constant
+    WRONG   testcases.config.MailSender#<init>(Transport) WRITE testcases.config.MailSender#transport

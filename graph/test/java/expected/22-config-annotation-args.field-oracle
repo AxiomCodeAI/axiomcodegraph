@@ -1,0 +1,7 @@
+22-config-annotation-args
+  precision 1.0000   (7 correct, 0 wrong)
+  recall    1.0000   (7 of 7 in the bytecode)
+  sites 7   resolved 7 (100.0%)
+  tiers known_edge=7
+  access read=7
+  not scored: 0 initializer-owned, 0 in a class the build did not compile, 0 oracle rows in a static initializer, 0 reads of an inlined constant

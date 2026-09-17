@@ -26,13 +26,14 @@ Identifiers are the parser's hashes and are opaque; join them to `methods` / `ty
 1. This is a call graph of one codebase, derived by a type-directed Datalog engine. Start with `SELECT value FROM run WHERE key='language'` — every language-specific fact below is keyed on it.
 2. The graph is `call_edges`: one row per (call site, possible target). Rows join to `methods` (names, files, lines) on `caller_id` / `callee_method_id`, and to `call_sites` on `call_site_id` for where the call is written. Identifiers are opaque hashes — never parse them, always join.
 3. Trust is explicit. `tier` says what kind of claim a row is: `known_edge` (one resolved target), `multi_inferred` (a sound set — every row of the set is a real possibility), `boundary_lib` (leaves the client; not expanded further), `ambiguous_*` (a declared unknown: callee is NULL). Pick the tiers your question tolerates and filter on them; never treat an `ambiguous_*` row as an edge.
-4. `call_edges` is what the engine CONCLUDED; `dispatch_candidates` is what the hierarchy ADMITTED. Read the second when you need an upper bound rather than a best answer — a candidate whose owner is absent from `type_instantiated` is admitted by the hierarchy but never constructed in this run, which is how you narrow it yourself. `basis` separates a declared relationship from a shape match.
-5. Before answering "nothing calls X" or "X cannot reach Y", check `unresolved_sites` for the methods on the path: a caller listed there has a call the engine could not resolve, so the answer is a lower bound and should say so.
-6. Library targets (`callee_provenance = lib`) are named in `methods` with `provenance = lib` but their bodies were not analysed; a Python `builtin`/`external` target has no methods row and lives in `callee_label`.
-7. `schema_vocab` lists every value a column can hold FOR THIS LANGUAGE with its meaning — filter on `language = (SELECT value FROM run WHERE key='language')`. `schema_notes` lists the caveats for this language (empty tables, what an id may point at). Read both before interpreting `kind`, `tier` or an empty table.
-8. `schema_queries` holds tested SQL for the common questions (callers, callees, blast radius, entry reachability, the method at a file:line, the blind spots of a method, the dispatch envelope of a method). Bind the named parameters and run.
-9. Tables named `ext_<relation>` are the language's raw engine relations with positional columns c0…cN; `schema_tables` carries each one's description lifted from its rule. Use them only when a core table does not hold what you need.
-10. When you report a result, carry the tier and the unresolved count with it. A consumer who cannot see the confidence of an edge cannot use it.
+4. For a FIELD rather than a callable, the graph is `field_access`: one row per (site, resolved field), joined to `fields` on `field_id` and to `methods` on `caller_id`, with `access` saying read / write / readwrite. It carries the same four tiers and the same promise as `call_edges`, so "who writes Foo.bar" is answered with a confidence, not with a name match. Java only so far; the table is present and empty elsewhere.
+5. `call_edges` is what the engine CONCLUDED; `dispatch_candidates` is what the hierarchy ADMITTED. Read the second when you need an upper bound rather than a best answer — a candidate whose owner is absent from `type_instantiated` is admitted by the hierarchy but never constructed in this run, which is how you narrow it yourself. `basis` separates a declared relationship from a shape match.
+6. Before answering "nothing calls X" or "X cannot reach Y", check `unresolved_sites` for the methods on the path: a caller listed there has a call the engine could not resolve, so the answer is a lower bound and should say so.
+7. Library targets (`callee_provenance = lib`) are named in `methods` with `provenance = lib` but their bodies were not analysed; a Python `builtin`/`external` target has no methods row and lives in `callee_label`.
+8. `schema_vocab` lists every value a column can hold FOR THIS LANGUAGE with its meaning — filter on `language = (SELECT value FROM run WHERE key='language')`. `schema_notes` lists the caveats for this language (empty tables, what an id may point at). Read both before interpreting `kind`, `tier` or an empty table.
+9. `schema_queries` holds tested SQL for the common questions (callers, callees, blast radius, entry reachability, the method at a file:line, the blind spots of a method, the dispatch envelope of a method). Bind the named parameters and run.
+10. Tables named `ext_<relation>` are the language's raw engine relations with positional columns c0…cN; `schema_tables` carries each one's description lifted from its rule. Use them only when a core table does not hold what you need.
+11. When you report a result, carry the tier and the unresolved count with it. A consumer who cannot see the confidence of an edge cannot use it.
 
 ## Canonical queries (`schema_queries`)
 
@@ -139,6 +140,27 @@ ORDER BY sub.qualified_name
 SELECT value, meaning FROM schema_vocab
 WHERE table_name = :table_name AND column_name = :column_name AND language = (SELECT value FROM run WHERE key='language')
 ORDER BY value
+```
+
+**`field_impact`** — Who reads or writes this field — and which of those answers are certain? _(:owner_qualified_name, :field_name)_
+
+```sql
+SELECT m.qualified_name AS accessor, fa.access, fa.tier, fa.file_path, fa.start_line
+FROM field_access fa
+JOIN fields f ON f.id = fa.field_id
+LEFT JOIN methods m ON m.id = fa.caller_id
+WHERE f.owner_qualified_name = :owner_qualified_name AND f.name = :field_name
+ORDER BY fa.tier, m.qualified_name, fa.start_line
+```
+
+**`field_blind_spots`** — Which field accesses could the engine not resolve — the caveat to attach to any answer about a field?
+
+```sql
+SELECT m.qualified_name AS accessor, fa.access, fa.file_path, fa.start_line
+FROM field_access fa
+LEFT JOIN methods m ON m.id = fa.caller_id
+WHERE fa.tier = 'ambiguous_unknown'
+ORDER BY fa.file_path, fa.start_line
 ```
 
 **`tier_summary`** — How much of this graph is certain, inferred, at a library boundary, or unknown?
@@ -551,6 +573,92 @@ The blind spots, attributed to the code that contains them: (caller, site) for e
 |---|---|---|---|---|
 | 0 | `caller_id` 🔑 | TEXT |  | Same domain as call_sites.caller_id: usually FK → methods.id. |
 | 1 | `call_site_id` 🔑 | TEXT |  | FK → call_sites.id. |
+
+### `fields`
+
+Every field-like storage location the graph refers to: all client fields and enum constants from the IR, plus every LIBRARY field some field_access edge reaches. A field is not a callable, so it has no row in `methods`; this is where `field_access.field_id` resolves to a name, an owner and a position.
+
+| # | column | type | null | meaning |
+|---|---|---|---|---|
+| 0 | `id` 🔑 | TEXT |  | The parser's unique hash for the field or enum constant (FIELD_REGISTRY_… / ENUM_CONSTANT_…). The value field_access.field_id refers to. |
+| 1 | `name` | TEXT |  | Simple name as written (`count`, `RED`). |
+| 2 | `kind` | TEXT |  | `field` or `enum_constant` — see vocabulary. An enum constant is a static final field of its enum and is recorded here so `Colour.RED` resolves like any other read. |
+| 3 | `owner_type_id` | TEXT | yes | FK → types.id of the declaring class/interface/enum/record. |
+| 4 | `owner_qualified_name` | TEXT | yes | Qualified name of the owner, denormalised so a row prints without a join. |
+| 5 | `type_name` | TEXT | yes | The declared type as the parser wrote it; NULL for an enum constant, whose type is its own enum. |
+| 6 | `modifiers` | TEXT | yes | The parser's comma-separated modifier set (`STATIC,FINAL`); NULL where the IR records none. |
+| 7 | `file_path` | TEXT | yes | Source file. |
+| 8 | `start_line` | INTEGER | yes | 1-based first line of the declaration. |
+| 9 | `end_line` | INTEGER | yes | 1-based last line. |
+| 10 | `provenance` | TEXT |  | `client` — from the analysed project; `lib` — from a staged library IR. |
+
+**`fields.kind` values**
+
+| value | languages | meaning |
+|---|---|---|
+| `field` | java | An ordinary field declaration. |
+| `enum_constant` | java | An enum constant. It is a static final field of its enum, and is listed here so `Colour.RED` resolves like any other read; the parser gives it its own table and its own hash prefix. |
+
+**`fields.provenance` values**
+
+| value | languages | meaning |
+|---|---|---|
+| `client` | java | Declared in the analysed project. |
+| `lib` | java | Declared in a staged library IR. |
+
+**Notes**
+
+- **all** — JAVA ONLY so far, for the same reason as field_access: declared everywhere, populated by the Java front end.
+- **java** — A library field is listed only when some field_access edge reaches it, exactly as methods lists only the library methods an edge reaches.
+
+### `field_access`
+
+THE DATA GRAPH. One row per (site, resolved field), and the answer to "who reads or writes this field" — the question call_edges cannot answer, because a field access is not a call. A site with N possible fields has N rows carrying the same tier; a site the engine could not resolve has exactly one row with a NULL field and tier `ambiguous_unknown`, so every field access written in the client appears at least once and the table alone shows where the resolution stopped. A field is NOT virtually dispatched: a `known_edge` row names the storage location, not a best estimate of one.
+
+| # | column | type | null | meaning |
+|---|---|---|---|---|
+| 0 | `site_id` | TEXT |  | The expression where the access is written. Not a call_sites id: a field access is not a call site. The location columns on this row are the site's own. |
+| 1 | `caller_id` | TEXT |  | The method whose body contains the access (FK → methods.id) — or, for an access written in a field initializer or an initializer block, the enclosing TYPE, exactly as call_sites.caller_id does. Never NULL. |
+| 2 | `field_id` | TEXT | yes | FK → fields.id of the resolved field or enum constant. NULL when the site is unresolved. |
+| 3 | `field_provenance` | TEXT | yes | Where the field is declared — `client` or `lib`. NULL for an unresolved site. |
+| 4 | `access` | TEXT |  | Which way the data moves — see vocabulary. Present on an unresolved row too: the direction is decided by how the access is WRITTEN, which does not need the receiver to resolve. |
+| 5 | `tier` | TEXT |  | Confidence class of this edge — see vocabulary. Same four values and same promises as call_edges.tier. |
+| 6 | `file_path` | TEXT | yes | Source file of the site. |
+| 7 | `start_line` | INTEGER | yes | 1-based line of the site. |
+| 8 | `start_column` | INTEGER | yes | Column, as the parser counts it. |
+| 9 | `end_line` | INTEGER | yes | 1-based last line. |
+| 10 | `end_column` | INTEGER | yes | End column. |
+
+**`field_access.access` values**
+
+| value | languages | meaning |
+|---|---|---|
+| `read` | java | The value is used and not replaced. |
+| `write` | java | The value is replaced without being read: a plain assignment `f = v`. |
+| `readwrite` | java | The value is read and replaced at the one site: a compound assignment `f += v`, or `f++` / `--f`. One row, not two — a consumer asking "who writes f" and one asking "who reads f" must both match it. |
+
+**`field_access.tier` values**
+
+| value | languages | meaning |
+|---|---|---|
+| `known_edge` | java | Exactly one field resolved. Stronger than the call_edges tier of the same name: a field is not virtually dispatched, so this IS the storage location the access binds to. |
+| `multi_inferred` | java | A sound SET: the receiver has more than one possible type, or two unrelated ancestors declare the name (which Java itself treats as ambiguous). Each member is one row. |
+| `boundary_lib` | java | The field is declared in a staged library type. field_id is set and resolves in `fields` with provenance lib. |
+| `ambiguous_unknown` | java | Declared blind spot: the receiver could not be typed, or the name is not a member of the type it was typed to. field_id is NULL. Never dropped, and never replaced by a match on simple name. |
+
+**`field_access.field_provenance` values**
+
+| value | languages | meaning |
+|---|---|---|
+| `client` | java | The field is declared in the analysed project. |
+| `lib` | java | The field is declared in a staged library IR. |
+
+**Notes**
+
+- **all** — JAVA ONLY so far. The table is declared in every bundle and is EMPTY for TypeScript, Python and JavaScript, so the schema does not churn as the remaining front ends land (#663). Check `SELECT count(*) FROM field_access` before reading an empty result as "nothing reads this field".
+- **java** — A field access written in a SWITCH CASE LABEL is deliberately absent. An enum constant in a case label is recorded TYPE for some arms and FIELD for others (#760), and javac compiles the switch through a $SwitchMap array rather than through a read of the constant, so there is no field access in the bytecode either.
+- **java** — A field read that PRECEDES a same-named local declared later in the same method is missing: the parser classifies such a name LOCAL_VARIABLE against the whole body rather than against the scope at the use site (#725), so the site never reaches the engine and is absent rather than ambiguous. Rare (1 in 5,647 local references measured) but it is an absence, not a declared unknown.
+- **java** — ARRAY ELEMENTS are not tracked: `a[i] = v` where `a` is a field is recorded as a READ of `a` (the array reference is read; the element write is not a field write). This matches the bytecode, where the instruction is `getfield a` followed by `aastore`.
 
 ### `type_instantiated`
 

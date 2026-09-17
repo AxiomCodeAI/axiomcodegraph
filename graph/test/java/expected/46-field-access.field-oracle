@@ -1,0 +1,8 @@
+46-field-access
+  precision 1.0000   (28 correct, 0 wrong)
+  recall    0.9655   (28 of 29 in the bytecode)
+  sites 25   resolved 24 (96.0%)
+  tiers ambiguous_unknown=1  known_edge=24
+  access read=16  readwrite=4  write=5
+  not scored: 0 initializer-owned, 0 in a class the build did not compile, 0 oracle rows in a static initializer, 0 reads of an inlined constant
+    MISSING probe.FieldAccess#shadowedByLaterLocal() READ probe.FieldAccess#count

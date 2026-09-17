@@ -1,0 +1,7 @@
+08-cha-interface-fanout
+  precision 1.0000   (3 correct, 0 wrong)
+  recall    1.0000   (3 of 3 in the bytecode)
+  sites 5   resolved 3 (60.0%)
+  tiers ambiguous_unknown=2  known_edge=3
+  access read=3  write=2
+  not scored: 0 initializer-owned, 0 in a class the build did not compile, 0 oracle rows in a static initializer, 0 reads of an inlined constant

@@ -1,0 +1,11 @@
+18-enum-record-sealed
+  precision 1.0000   (6 correct, 0 wrong)
+  recall    0.6000   (6 of 10 in the bytecode)
+  sites 9   resolved 8 (88.9%)
+  tiers ambiguous_unknown=1  known_edge=8
+  access read=9
+  not scored: 0 initializer-owned, 0 in a class the build did not compile, 0 oracle rows in a static initializer, 0 reads of an inlined constant
+    MISSING LangFeatures.Circle#r() READ LangFeatures.Circle#r
+    MISSING LangFeatures.Point#x() READ LangFeatures.Point#x
+    MISSING LangFeatures.Point#y() READ LangFeatures.Point#y
+    MISSING LangFeatures.Square#s() READ LangFeatures.Square#s

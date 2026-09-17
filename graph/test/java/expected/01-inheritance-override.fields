@@ -1,0 +1,5 @@
+ambiguous_unknown	read	InheritanceOverride#main(String[]) -> -
+ambiguous_unknown	read	InheritanceOverride.LoggingList#add(Object) -> -
+ambiguous_unknown	read	InheritanceOverride.LoggingList#remove(int) -> -
+known_edge	read	InheritanceOverride.TaggedException#getMessage() -> InheritanceOverride.TaggedException#tag
+known_edge	write	InheritanceOverride.TaggedException#<init>(String,String) -> InheritanceOverride.TaggedException#tag
