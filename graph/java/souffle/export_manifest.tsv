@@ -29,3 +29,4 @@ http_route	config-http-route.csv
 message_destination	config-message-destination.csv
 http_route_role	config-http-route-role.csv
 service_call_edge	config-service-call-edge.csv
+outbound_destination	config-outbound-destination.csv

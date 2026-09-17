@@ -187,3 +187,72 @@ service_call_edge(p, cm, "config_key_destination") :-
     // of the same name orders the last two `access, tier`. Writing "read" in the
     // fifth position -- where the table puts it -- silently matches nothing.
     field_access(_, p, f, _, _, "read").
+
+// ============================================================================
+// THE CALLER'S SIDE OF THE DESTINATION
+//
+// A handler DECLARES where it is reachable from; a caller WRITES where it is
+// going. Without the second there is nothing to join the first to, and the IR has
+// carried it all along -- `literalValue` on the expression row, projected as
+// expr_literal -- with nothing reading it.
+//
+// FRAGMENTS COUNT. `getForObject(base + "/api/inventory/" + sku, ...)` has no
+// literal that is the URL; it has a PIECE of one, and that piece is the only
+// statically known part. Descending through the operands of a concatenation
+// collects the pieces, so a built URL contributes evidence instead of nothing.
+// What is done with a fragment is a matching decision, made below and
+// deliberately conservative.
+// ============================================================================
+
+// ── the parts of a call's argument ──────────────────────────────────────────
+// The argument itself, plus the operands of any concatenation inside it. Bounded
+// by the expression tree, so a long concatenation is a short walk and not a
+// closure over the program.
+cfg_arg_part(call, arg) :- expr_child("client", call, "ARGUMENT", arg).
+cfg_arg_part(call, d) :- cfg_arg_part(call, x), expr_child("client", x, "LEFT_OPERAND", d).
+cfg_arg_part(call, d) :- cfg_arg_part(call, x), expr_child("client", x, "RIGHT_OPERAND", d).
+
+// expr_literal projects the literalValue column of EVERY expression, so the
+// non-literals arrive as "" and are dropped here rather than becoming a
+// destination that matches everything.
+call_arg_literal(call, lit) :- cfg_arg_part(call, p), expr_literal("client", lit, p), lit != "".
+
+// ── outbound_destination(Method, Value, Completeness) ───────────────────────
+// `whole` means this literal is the entire argument -- the caller wrote the
+// destination and nothing else. `fragment` means it is one operand of a
+// concatenation, so the real destination is this plus something not known here.
+// The distinction is the whole reason a fragment cannot be matched like a whole.
+// A CONSTRUCTOR is not a send. `new Queue("inventory.q")` inside a @Bean factory
+// DECLARES the queue; it does not put a message on it. Without this guard that
+// literal matched the @RabbitListener that drains the queue and produced an edge
+// from the factory method to the listener -- an edge the trace never saw, and the
+// only false positive this linker has produced.
+outbound_destination(caller, lit, "whole") :- expr_child("client", call, "ARGUMENT", arg),
+    expr_literal("client", lit, arg), lit != "",
+    invocation_site(call, "method"),
+    call_from(call, caller).
+outbound_destination(caller, lit, "fragment") :- call_arg_literal(call, lit),
+    invocation_site(call, "method"),
+    call_from(call, caller),
+    !cfg_whole_arg_literal(call, lit).
+cfg_whole_arg_literal(call, lit) :- expr_child("client", call, "ARGUMENT", arg),
+    expr_literal("client", lit, arg), lit != "".
+
+// ── linking on a WHOLE literal ──────────────────────────────────────────────
+// Equality, not matching. `kafka.send("orders.created", ...)` against
+// `@KafkaListener(topics = "orders.created")`, and `.uri("/api/orders/{id}/detail")`
+// against `@GetMapping("/api/orders/{id}/detail")` -- in the second the caller
+// wrote the ROUTE TEMPLATE itself, so there is nothing to expand.
+//
+// A FRAGMENT IS NOT MATCHED HERE. `"http://inventory-service:8082/api/inventory/"`
+// plainly belongs to `/api/inventory/{sku}`, but matching it needs a
+// most-specific-prefix rule, and a containment test would also pair
+// `/api/orders/` with `/api/orders/{id}/summary` and with `/api/orders/{id}/detail`
+// at once. Reporting three edges where one is real is worse than reporting none,
+// so fragments are recorded and left for a rule that can rank them.
+service_call_edge(p, cm, "literal_destination") :-
+    outbound_destination(p, lit, "whole"),
+    message_destination(cm, _, lit, "annotation"), p != cm.
+service_call_edge(p, s, "literal_route") :-
+    outbound_destination(p, lit, "whole"),
+    http_route(s, _, lit, _), http_route_role(s, "server"), p != s.

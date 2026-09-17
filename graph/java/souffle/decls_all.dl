@@ -579,6 +579,13 @@
 // Source is `annotation` for a written destination and `placeholder` for a ${key},
 // in which case Destination IS the key -- the join, when neither side writes the string.
 .decl message_destination(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl cfg_arg_part(c0:symbol,c1:symbol)
+.decl call_arg_literal(c0:symbol,c1:symbol)
+.decl cfg_whole_arg_literal(c0:symbol,c1:symbol)
+// outbound_destination(Method, Value, "whole"|"fragment") -- where a CALLER says it
+// is going. `fragment` is one operand of a concatenation: real evidence, not a
+// whole destination, and never matched as one.
+.decl outbound_destination(c0:symbol,c1:symbol,c2:symbol)
 .decl cfg_declarative_client_type(c0:symbol)
 // http_route_role(Method, "client"|"server") -- a @FeignClient interface declares a
 // route it CALLS; a controller declares one it SERVES. Same annotations, opposite ends.
