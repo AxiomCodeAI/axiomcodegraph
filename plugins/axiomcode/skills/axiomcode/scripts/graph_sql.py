@@ -784,12 +784,17 @@ def solve_path(rows, queries, every=False, opt=False, cap=MAX_HOP):
     con = sqlite3.connect(':memory:'); cur = con.cursor()
     cur.executescript(PATH_DDL)
     cur.executemany("INSERT INTO edge VALUES(?,?,?)", rows.get('edge', ()))
-    cur.executemany("INSERT INTO src VALUES(?,?)", [(q, m) for q, (s, _) in queries.items() for m in s])
-    cur.executemany("INSERT INTO dst VALUES(?,?)", [(q, m) for q, (_, d) in queries.items() for m in d])
     if opt:
         cur.executemany("INSERT INTO byname VALUES(?,?)", rows.get('byname', ()))
         cur.executemany("INSERT INTO named VALUES(?,?)", rows.get('named', ()))
-    cur.executescript(PATH_IDX)
+    # only the indices this question needs. On a 107k-edge bundle each one is a measurable share of a query that
+    # Soufflé answers in a third of a second, and a single-endpoint query uses exactly one direction.
+    need_fwd = any(s for s, _ in queries.values()) or every
+    need_up = any(d for _, d in queries.values()) or every
+    if need_fwd: cur.execute("CREATE INDEX e_a ON edge(a)")
+    if need_up: cur.execute("CREATE INDEX e_b ON edge(b)")
+    if opt:
+        cur.execute("CREATE INDEX bn_c ON byname(c)"); cur.execute("CREATE INDEX nm_n ON named(n)")
     if opt:
         # edge_opt(a,b,t) :- edge(a,b,t).  edge_opt(c,m,"by-name") :- byname(c,n), named(n,m).
         cur.execute("CREATE TABLE edge_opt(a TEXT, b TEXT, t TEXT)")
@@ -799,13 +804,13 @@ def solve_path(rows, queries, every=False, opt=False, cap=MAX_HOP):
     out = {n: collections.defaultdict(list) for n in ('hit', 'parent', 'hit_opt', 'parent_opt', 'between_edge', 'dist_up', 'dist')}
     for q, (s, d) in queries.items():
         s, dset = list(s), set(d)
-        fwd = _level_walk(cur, s, 'edge', cap)
+        fwd = _level_walk(cur, s, 'edge', cap) if s else {}
         out['dist'][q] = [(m, str(x)) for m, x in fwd.items()]
         out['hit'][q] = [(m, str(fwd[m])) for m in dset if m in fwd]
         if out['hit'][q]: out['parent'][q] = _parent_rows(cur, fwd, 'edge')
-        up = _level_walk_up(cur, list(dset), 'edge', cap)
+        up = _level_walk_up(cur, list(dset), 'edge', cap) if dset else {}
         out['dist_up'][q] = [(m, str(x)) for m, x in up.items()]
-        if opt:
+        if opt and s:
             fo = _level_walk(cur, s, 'edge_opt', cap)
             out['hit_opt'][q] = [(m, str(fo[m])) for m in dset if m in fo]
             if out['hit_opt'][q]: out['parent_opt'][q] = _parent_rows(cur, fo, 'edge_opt')
