@@ -234,6 +234,7 @@ export class JavaScriptProjectAnalyzer {
     const excludes = new Set<string>(options.excludeDirs ?? JS_SKIP_DIRECTORIES);
     // Counted, not merely skipped. See `collectJavaScriptFiles`.
     const skippedByDirectory = new Map<string, number>();
+    const prunedDirectories: Array<{ directory: string; name: string; files: number }> = [];
     const baseMservPath = options.baseMservPath === ''
       ? '' : realPathOf(path.resolve(options.baseMservPath));
     const pathAnchor = pathAnchorFor(rootDir, baseMservPath);
@@ -261,7 +262,7 @@ export class JavaScriptProjectAnalyzer {
       for (const name of walkUnderRoot) {
         buildOutputWalked.push(path.join(root, name));
       }
-      for (const file of collectJavaScriptFiles(root, excludes, skippedByDirectory, walkUnderRoot, packageJsonsSeen)) {
+      for (const file of collectJavaScriptFiles(root, excludes, skippedByDirectory, prunedDirectories, walkUnderRoot, packageJsonsSeen)) {
         discovered.set(path.normalize(file), file);
       }
     }
@@ -324,6 +325,15 @@ export class JavaScriptProjectAnalyzer {
     }
 
     this.skippedFiles = [];
+    // The pruned directories reach the skip table, one row each (#790), AFTER the
+    // reset above so the rows survive it. One row per directory, not per file: the
+    // files inside were counted but never enumerated, and inventing paths for them
+    // would be a worse answer than naming the directory and the count.
+    for (const pruned of prunedDirectories) {
+      this.recordSkip(pruned.directory, pathAnchor, options, serviceVersionLinkHash,
+        SkippedFileReason.DIRECTORY_EXCLUDED,
+        `${pruned.files} JavaScript file(s) under an excluded directory named ${pruned.name}`);
+    }
     await fsp.mkdir(options.outputDir, { recursive: true });
     const writers = new Map<string, JsRelationWriter>();
     // Unique per WRITER SET, not per millisecond: two analyzers started together
@@ -632,6 +642,13 @@ function collectJavaScriptFiles(
    */
   skippedByDirectory: Map<string, number>,
   /**
+   * One entry per pruned directory, with its path, so the skip table can carry a
+   * row for it (#790). The name-keyed counts above answer "how much was pruned";
+   * this answers "where", which is what a reader needs to tell a first-party
+   * package under `packages/node_modules` from an installed dependency.
+   */
+  prunedDirectories: Array<{ directory: string; name: string; files: number }>,
+  /**
    * Excluded names to walk anyway when they sit DIRECTLY under `rootDir` (#620):
    * the build directory a package root's own `package.json` ships from.
    */
@@ -675,6 +692,7 @@ function collectJavaScriptFiles(
         if (cost > 0) {
           skippedByDirectory.set(entry.name,
             (skippedByDirectory.get(entry.name) ?? 0) + cost);
+          prunedDirectories.push({ directory: full, name: entry.name, files: cost });
         }
         continue;
       }

@@ -6349,6 +6349,26 @@ async function publishedPackageWalksItsBuildOutput(): Promise<number> {
     failures += fail(`skippedByDirectory ${JSON.stringify(summary.skippedByDirectory)}: the nested dist/ file and `
       + 'the node_modules file are still counted as skipped');
   }
+  // #790: the count is not enough. A pruned directory must leave a ROW in the skip
+  // table, because that table is what every reader downstream consults, and without
+  // one a repository whose first-party packages sit under an excluded name analyses
+  // as a handful of files with nothing to say the rest was dropped.
+  {
+    const skippedCsv = path.join(output, JAVASCRIPT_CSV_FILES.SKIPPED_FILES);
+    const lines = fs.readFileSync(skippedCsv, 'utf8').trim().split('\n').slice(1)
+      .filter((l) => l.length > 0);
+    const excluded = lines.map((l) => l.split('\t'))
+      .filter((f) => f[3] === 'DIRECTORY_EXCLUDED');
+    const named = excluded.map((f) => f[0]).sort();
+    if (excluded.length !== 2) {
+      failures += fail(`DIRECTORY_EXCLUDED rows ${JSON.stringify(named)}: one per pruned directory, `
+        + 'so the loss is visible where readers look');
+    }
+    if (!excluded.every((f) => /\d+ JavaScript file\(s\) under an excluded directory named/.test(f[4] ?? ''))) {
+      failures += fail(`DIRECTORY_EXCLUDED detail ${JSON.stringify(excluded.map((f) => f[4]))}: `
+        + 'the detail carries the count and the directory name');
+    }
+  }
   // The control: the same tree with no entry into dist/ stages nothing from it.
   write('package.json', '{"name":"shipped","main":"src/main.js"}\n');
   const control = scratchDir('js-gate-published-control-');
