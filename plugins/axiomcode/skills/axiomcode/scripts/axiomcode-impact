@@ -772,6 +772,14 @@ class Impact:
         if os.environ.get('AXIOMCODE_SQL'):
             import graph_sql
             _sql = graph_sql.solve_from_targets(g.q, T, QS, g.site_file, _nonsource)
+            # AXIOMCODE_SQL_COVER=<file>: record whether SQL answered this query or declined it, so a parity run can
+            # tell "ported and identical" from "declined, so both engines ran the same rules". Without it a harness
+            # reports green on a kind nobody has ported.
+            if os.environ.get('AXIOMCODE_SQL_COVER'):
+                with open(os.environ['AXIOMCODE_SQL_COVER'], 'a') as _cf:
+                    _cf.write(('sql' if _sql is not None else 'fallback') + '\t' + ','.join(sorted({k for _, k, _, _ in T})) + '\n')
+            if os.environ.get('AXIOMCODE_SQL_STRICT') and _sql is None:
+                die("AXIOMCODE_SQL_STRICT: no SQL rule for target kind(s) " + ','.join(sorted({k for _, k, _, _ in T})))
             if _sql is not None:
                 shutil.rmtree(F, ignore_errors=True); shutil.rmtree(O, ignore_errors=True)
                 if os.environ.get('AXIOMCODE_DUMP_SOLVE'):

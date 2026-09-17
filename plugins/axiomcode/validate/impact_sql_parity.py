@@ -17,7 +17,12 @@ def run(t, sql):
     t0 = time.time()
     r = subprocess.run(['python3', os.path.join(S, 'axiomcode-impact'), t, repo, '--json', '--depth', '12'],
                        capture_output=True, text=True, timeout=300, env=env)
-    return time.time() - t0, (json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip() else None)
+    # a target the tool refuses (declared as more than one kind, not in the graph) prints prose, not JSON, on both
+    # engines. That is a valid answer to compare as text; crashing the harness on it loses the whole run.
+    out = r.stdout or ''
+    if r.returncode != 0 or not out.strip(): return time.time() - t0, None
+    try: return time.time() - t0, json.loads(out)
+    except json.JSONDecodeError: return time.time() - t0, ('text', out)
 bad = 0
 print(f"{'target':46} {'souffle':>8} {'sql':>7} {'speedup':>8}  verdict")
 print('-' * 86)
