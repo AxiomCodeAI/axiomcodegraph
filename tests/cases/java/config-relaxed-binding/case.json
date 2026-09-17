@@ -48,6 +48,17 @@
     "BINDS the key here",
     "@Value"
    ]
+  },
+  {
+   "why": "the properties file that DEFINES the key is named, found from the other spelling, which is what a rename must also edit",
+   "run": [
+    "impact",
+    "app.server.prefixInvalidProperties"
+   ],
+   "want": [
+    "application.properties",
+    "defines or overrides the key"
+   ]
   }
  ]
 }
