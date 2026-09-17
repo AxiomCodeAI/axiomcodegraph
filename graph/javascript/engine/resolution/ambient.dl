@@ -34,7 +34,23 @@ callee_value(ce, "ambient", n) :- call_site(_, ck, _, "SYNTACTIC", _, _, ce, _, 
     expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "ambient", n).
 new_callee_value(ce, "ambient", n) :- call_site(_, "CONSTRUCTOR_CALL", _, "SYNTACTIC", _, _, ce, _, _),
     expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "ambient", n).
-expr_value(ce, "ambient", n) :- expr_kind(_, "CALL", _, ce), callee_value(ce, "ambient", n).
+// A call on the platform is the platform — EXCEPT where the platform call is MODELLED
+// (#721). `Object.assign(dst, src)` evaluates to its target object (frameworks.dl), and
+// this rule used to give it the ambient `Object` beside that: a read through the result
+// with a key the analysis cannot pin down then landed on the platform and was filed
+// `ambient_terminal`, a claimed correct end, where the identical read on the un-merged
+// object says `ambiguous_unknown`. The model is the better answer, so it is the only one.
+// Recognised syntactically, so the negation sits below the value fixpoint it is read in.
+expr_value(ce, "ambient", n) :- expr_kind(_, "CALL", _, ce), callee_value(ce, "ambient", n),
+    !modelled_platform_call(ce).
+modelled_platform_call(ce) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", m, _, _, _, ce, _, _),
+    modelled_object_method(m), expr_child(_, ce, "RECEIVER", _, recv),
+    expr_kind(_, "IDENTIFIER", _, recv), expr_text(_, "Object", recv).
+modelled_platform_call(ce) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", "_extend", _, _, _, ce, _, _),
+    expr_child(_, ce, "RECEIVER", _, recv), expr_kind(_, "IDENTIFIER", _, recv), expr_text(_, "util", recv).
+// The Object statics whose result frameworks.dl gives a value of its own.
+modelled_object_method("assign").
+modelled_object_method("create").
 expr_value(ce, "ambient", n) :- expr_kind(_, "NEW", _, ce), new_callee_value(ce, "ambient", n).
 // A literal receiver is a platform object: `"a,b".split`, `[1, 2].forEach`, `` `x`.trim ``.
 expr_value(e, "ambient", k) :- expr_kind(_, k, _, e), expr_kind_is_literal(k).
