@@ -55,4 +55,5 @@ for x in mut:
 tp = sum(r.get('hit', 0) for r in rows); T = sum(r.get('truth', 0) for r in rows); G = sum(r.get('got', 0) for r in rows)
 cls = collections.Counter(v for r in rows for v in r.get('miss', {}).values())
 for r in rows: print(json.dumps(r))
-print(f"\n[{SPLIT}{' ' + os.path.basename(os.path.dirname(SCRIPTS.rstrip('/'))) if SCRIPTS else ''}] {len(rows)} mutants  recall {tp}/{T} = {tp / T:.3f}  precision {tp}/{G} = {tp / G:.3f}  misses by cause: {dict(cls)}")
+pc = f"{tp / G:.3f}" if G else "n/a (the answer named no test file at all)"
+print(f"\n[{SPLIT}{' ' + os.path.basename(os.path.dirname(SCRIPTS.rstrip('/'))) if SCRIPTS else ''}] {len(rows)} mutants  recall {tp}/{T} = {tp / T if T else 0:.3f}  precision {tp}/{G} = {pc}  misses by cause: {dict(cls)}")
