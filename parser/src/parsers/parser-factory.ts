@@ -1,3 +1,4 @@
+import { CSharpParser } from '@/parsers/csharp/csharp-parser';
 import { JavaParser } from '@/parsers/java/java-parser';
 import { LanguageParser } from '@/parsers/language-parser';
 import { PythonParser } from '@/parsers/python/python-parser';
@@ -21,6 +22,12 @@ export class ParserFactory {
   private registerDefaultParsers(): void {
     this.registerParser(new JavaParser());
     this.registerParser(new PythonParser());
+    // Registered once the C# sweeps converged, not before: a factory that
+    // claims a language it cannot emit facts for makes every cross-language
+    // gate read absent relations as dangling FKs. Constructing the parser runs
+    // the grammar gate, so a wrong grammar fails HERE, at factory construction,
+    // rather than as a quietly smaller fact base.
+    this.registerParser(new CSharpParser());
   }
 
   /**
