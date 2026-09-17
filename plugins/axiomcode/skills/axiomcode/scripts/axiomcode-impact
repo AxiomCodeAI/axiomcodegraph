@@ -773,12 +773,16 @@ class Impact:
             import graph_sql
             _sql = graph_sql.solve_from_targets(g.q, T, QS, g.site_file, _nonsource)
             if _sql is not None:
+                if os.environ.get('AXIOMCODE_BACKEND'): print('backend=sql', file=sys.stderr)
                 shutil.rmtree(F, ignore_errors=True); shutil.rmtree(O, ignore_errors=True)
                 if os.environ.get('AXIOMCODE_DUMP_SOLVE'):
                     d = os.environ['AXIOMCODE_DUMP_SOLVE']; os.makedirs(d, exist_ok=True)
                     with open(os.path.join(d, re.sub(r'[^A-Za-z0-9_.-]', '_', str(QS)[:60]) + '.json'), 'w') as fh:
                         json.dump(_sql, fh)
                 return _sql
+        # AXIOMCODE_BACKEND=1 says which side answered, so a parity run can tell a real match from both arms
+        # falling back to the same rules — a type target scored "identical" six times while SQL never ran.
+        if os.environ.get('AXIOMCODE_BACKEND'): print('backend=datalog', file=sys.stderr)
         prog = self.program()                                                        # the compiled rules, or the interpreter
         if prog[0] == 'souffle' and not shutil.which('souffle'):
             die("this query needs soufflé and none is installed (brew install souffle-lang/souffle/souffle) — or a compiled\n"
