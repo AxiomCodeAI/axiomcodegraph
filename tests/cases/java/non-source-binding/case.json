@@ -1,0 +1,11 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a type bound by name from an XML mapper is named, instead of the answer claiming nothing outside the source sees it",
+   "run": ["impact", "PersonMapper"],
+   "want": ["person-mapper.xml"]},
+  {"why": "a services file that makes the class load is named too",
+   "run": ["impact", "PersonMapper"],
+   "want": ["META-INF/services"]},
+  {"why": "a method bound by name from the same mapper is named at the line that binds it",
+   "run": ["impact", "PersonMapper.getPerson"],
+   "want": ["person-mapper.xml:2"]}]}
