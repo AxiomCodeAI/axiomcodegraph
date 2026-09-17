@@ -6294,6 +6294,80 @@ async function aSymlinkedRootIsTheSameTree(): Promise<number> {
 }
 
 /**
+ * A PROJECT'S COMMITTED BUILD OUTPUT IS NOT ITS SOURCE (#796).
+ *
+ * Committing `dist/` is ordinary for a library published to a CDN or consumed without a
+ * build step, and the walk introduced for a dist-only DEPENDENCY (#620) could not tell
+ * the two apart: it decided from the root's `package.json` alone, so a project with its
+ * own `src/` had every build of itself extracted beside the source, and labelled
+ * `PROJECT` — a readable Rollup or esbuild build has no `.min` name, no long line and no
+ * preamble, so none of the bundled heuristics fire.
+ *
+ * The copies then changed the answers FOR THE REAL SOURCE. `resolution/fan-cap.dl`
+ * counts call sites by callee NAME across the whole IR, so the same six calls repeated
+ * in three builds is 24 against a cap of 20: the source's own `ease` went hot and its
+ * parameter stopped being tracked, turning a `known_edge` in `src/` into
+ * `ambiguous_unknown`. On one corpus project 18 of 144 source functions went hot only
+ * because of the copies, and the IR was 8.5x the real size.
+ *
+ * Asserted both ways on ONE tree, because the distinction is the whole fix: as a
+ * project only the source is staged, as a dependency the build directory still is.
+ */
+async function aProjectsBuildOutputIsNotItsSource(): Promise<number> {
+  let failures = 0;
+  const root = scratchDir('js-gate-committed-dist-');
+  const write = (relative: string, contents: string): void => {
+    const full = path.join(root, relative);
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, contents);
+  };
+  // `main` points into dist/, which is what makes the directory a walk candidate. The
+  // package also has its own src/ — it is a project that commits its build output.
+  write('package.json', JSON.stringify({ name: 'pkg', version: '1.0.0', main: 'dist/lib.cjs.js' }) + '\n');
+  write('index.js', "module.exports = require('./src/index.js');\n");
+  const body = 'function linear(t) { return t; }\n'
+    + 'function ease(fn) { return fn(0.5); }\n'
+    + 'function a1() { return ease(linear); }\n'
+    + 'function a2() { return ease(linear); }\n'
+    + 'module.exports = { linear, ease, a1, a2 };\n';
+  write('src/index.js', body);
+  // Readable builds: no `.min` name, no long line, no bundler preamble, so `provenanceOf`
+  // labels each of them PROJECT and nothing downstream can filter them out.
+  for (const build of ['lib.cjs.js', 'lib.esm.js', 'lib.umd.js']) {
+    write(path.join('dist', build), body);
+  }
+
+  const stagedBy = async (libraryRoot: boolean): Promise<string[]> => {
+    const output = scratchDir('js-gate-committed-dist-out-');
+    await new JavaScriptProjectAnalyzer().analyze({
+      rootDir: root, outputDir: output, baseMservPath: 'pkg', serviceVersionLink: 'gate-v1',
+      libraryRoot,
+    });
+    const relations = readRelations(output);
+    const modules = relations.find((r) => r.name === 'js_module')!;
+    return modules.rows.map((r) => r[modules.header.indexOf('filePath')] ?? '').sort();
+  };
+
+  const asProject = await stagedBy(false);
+  const wantProject = ['index.js', 'src/index.js'];
+  if (JSON.stringify(asProject) !== JSON.stringify(wantProject)) {
+    failures += fail(`as a project: modules ${JSON.stringify(asProject)}, expected ${JSON.stringify(wantProject)} — `
+      + "a project's committed build output is the artefact beside the source, not source");
+  }
+
+  // The control, and #620 itself: the same tree handed over as a dependency still stages
+  // what it ships. Without this the check would pass on a parser that never walks dist/.
+  const asLibrary = await stagedBy(true);
+  const wantLibrary = ['dist/lib.cjs.js', 'dist/lib.esm.js', 'dist/lib.umd.js', 'index.js', 'src/index.js'];
+  if (JSON.stringify(asLibrary) !== JSON.stringify(wantLibrary)) {
+    failures += fail(`as a dependency: modules ${JSON.stringify(asLibrary)}, expected ${JSON.stringify(wantLibrary)} — `
+      + 'a staged package ships from its build directory (#620) and that must still hold');
+  }
+  console.log(`  ${asProject.length} modules as a project, ${asLibrary.length} as a dependency, from one tree`);
+  return failures;
+}
+
+/**
  * A walk root that is a package shipping from a build directory walks it (#620).
  *
  * `dist/` is skipped for a project because it is the artefact beside the
@@ -6324,6 +6398,10 @@ async function publishedPackageWalksItsBuildOutput(): Promise<number> {
   const output = scratchDir('js-gate-published-out-');
   const summary = await new JavaScriptProjectAnalyzer().analyze({
     rootDir: root, outputDir: output, baseMservPath: 'shipped', serviceVersionLink: 'gate-v1',
+    // A PUBLISHED PACKAGE handed to the parser on its own, which is what this check is
+    // about and what walking a build directory is for. The project case — where the same
+    // tree's dist/ is a copy of its own source — is the check below (#796).
+    libraryRoot: true,
   });
   const relations = readRelations(output);
   const modules = relations.find((r) => r.name === 'js_module')!;
@@ -6354,6 +6432,7 @@ async function publishedPackageWalksItsBuildOutput(): Promise<number> {
   const control = scratchDir('js-gate-published-control-');
   const controlSummary = await new JavaScriptProjectAnalyzer().analyze({
     rootDir: root, outputDir: control, baseMservPath: 'shipped', serviceVersionLink: 'gate-v1',
+    libraryRoot: true,
   });
   if (controlSummary.counts['js_module'] !== 1 || controlSummary.buildOutputWalked.length !== 0) {
     failures += fail(`control: ${controlSummary.counts['js_module']} modules, walked ${JSON.stringify(controlSummary.buildOutputWalked)}; `
@@ -7039,6 +7118,7 @@ const CHECKS: Check[] = [
   { name: '@import tags mint bindings', proves: 'a JSDoc @import tag mints one type-only js_import row per bound name with its real binding form, and a @param through the name links it, so the new spelling of a typedef import is not a silent nothing (#621)', run: jsdocImportTagsMintBindings },
   { name: 'package entries name what a package exposes', proves: 'js_package_entry carries every main/module/exports entry of every package in the parse, resolved to a module hash only when the target is a staged JavaScript file and a named absence otherwise (#616)', run: packageEntriesNameWhatAPackageExposes },
   { name: 'a symlinked root is the same tree', proves: 'a workspace package linked into node_modules resolves as RESOLVED_PROJECT whether the analysis root is spelled through a symlink or not, and both spellings produce one identical fact base (#795)', run: aSymlinkedRootIsTheSameTree },
+  { name: "a project's build output is not its source", proves: 'a committed dist/ the package.json ships from is staged only when the tree is handed over as a dependency (#620), and skipped for the project, whose own source it copies and whose answers the copies change through the name-keyed fan cap (#796)', run: aProjectsBuildOutputIsNotItsSource },
   { name: 'a published package walks its build output', proves: 'a walk root whose own package.json ships from dist/ stages the modules under it, while a nested dist/ and node_modules stay skipped and the exception is listed in the summary (#620)', run: publishedPackageWalksItsBuildOutput },
   { name: 'object type members carry their names', proves: 'an OBJECT_TYPE child row names the member it types, nested names as written, nothing else does, and the column is appended after the frozen key (#651)', run: objectTypeMembersCarryTheirNames },
   { name: 'binding paths are keys, not names', proves: 'a destructured parameter\'s path is the key route (`wire` for `{ wire: local }`) on c33 alone, asserted by value on every pattern shape', run: bindingPathsAreKeysNotNames },

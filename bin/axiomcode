@@ -41,10 +41,14 @@ case "$cmd" in
   parser)
     need_parser
     src="${1:-}"; ir="${2:-}"; [ -n "$src" ] && [ -n "$ir" ] || die "usage: axiomcode parser <src-dir> <ir-dir> [--version V] [--exclude-tests]"
-    shift 2; version=""; exclude=false
+    shift 2; version=""; exclude=false; libmode=()
     while [ $# -gt 0 ]; do case "$1" in
       --version) version="$2"; shift 2;; --exclude-tests) exclude=true; shift;;
       --slug) version="$2"; shift 2;;   # the old name for the same thing
+      # This tree is a DEPENDENCY, not the project: a build output directory its
+      # package.json ships from is its source (#620) rather than a copy of the source
+      # beside it, which is what a project's committed dist/ is (#796).
+      --library) libmode=(--library); shift;;
       *) die "parser: unknown option $1";; esac; done
     [ -d "$src" ] || die "not a directory: $src"
     # The version stamps every IR row (serviceVersionLink): the commit of the source when it is a
@@ -54,7 +58,7 @@ case "$cmd" in
     echo "▶ parser: version=$version exclude-tests=$exclude"
     # --per-language: the parser writes <ir>/<lang>/ itself, one folder per language that had
     # a project (the config tables go with java/, whose rules are their only reader).
-    node "$PARSER" "$src" "$version" "$exclude" "$ir" --per-language
+    node "$PARSER" "$src" "$version" "$exclude" "$ir" --per-language ${libmode[@]+"${libmode[@]}"}
     found=(); for d in "$ir"/*/; do [ -d "$d" ] && found+=("$(basename "$d")"); done
     # exit 3 is "the parser ran and found nothing", apart from 1 for a parser that failed:
     # `all` reads it for a library entry, whose absence is a warning rather than a reason to
@@ -126,7 +130,7 @@ case "$cmd" in
         echo "▶ parsing library $L → $lir"
         # A library with no source the parser can stage (an assets-only package, a
         # native addon) is named and skipped; only a parser FAILURE aborts the run.
-        rc=0; "$0" parser "$L" "$lir" --version "$(git -C "$L" rev-parse HEAD 2>/dev/null || echo v1.0.0)" > "$int/parse-lib-$n.log" 2>&1 || rc=$?
+        rc=0; "$0" parser "$L" "$lir" --library --version "$(git -C "$L" rev-parse HEAD 2>/dev/null || echo v1.0.0)" > "$int/parse-lib-$n.log" 2>&1 || rc=$?
         case "$rc" in
           0) libroots="$libroots,$lir";;
           3) echo "⚠️  library $L holds no Java, TypeScript, Python or JavaScript source; not staged (see $int/parse-lib-$n.log)" >&2;;

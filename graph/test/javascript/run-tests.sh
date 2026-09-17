@@ -88,7 +88,9 @@ for dir in "$HERE"/cases/*/; do
     echo "FAIL (parse client — see $w/parse.log)"; fail=$((fail+1)); failed+=("$name"); continue; fi
   HAS_LIB=0
   if [ -d "$dir/lib" ] && [ -n "$(ls -A "$dir/lib" 2>/dev/null)" ]; then
-    if ! node "$PARSER" "$dir/lib" "$name-lib" false "$w/libir" >"$w/parse-lib.log" 2>&1; then
+    # --library: the case's lib/ is a DEPENDENCY, so a build directory it ships from is
+    # its source (#620); the case's src/ is the project, where dist/ stays skipped (#796).
+    if ! node "$PARSER" "$dir/lib" "$name-lib" false "$w/libir" --library >"$w/parse-lib.log" 2>&1; then
       echo "FAIL (parse library — see $w/parse-lib.log)"; fail=$((fail+1)); failed+=("$name"); continue; fi
     [ -s "$w/libir/all-javascript-modules.csv" ] && HAS_LIB=1
   fi
