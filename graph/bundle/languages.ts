@@ -27,6 +27,8 @@ export interface MethodsIR {
   ownerTypeId: string; filePath: string; startLine: string; endLine: string;
   /** absent where the IR has no such column (JavaScript declares no signatures); the core column is then '' / NULL */
   signature?: string; ownerQualifiedName?: string;
+  /** declared visibility (Java: methodAccess). Absent where the language has no access modifiers. */
+  access?: string;
   /** the column naming the owning module, where a LIBRARY row's names are relative to its own package root and need the package prefixed (see ModulesIR.packageName) */
   moduleId?: string;
 }
@@ -34,6 +36,8 @@ export interface TypesIR {
   file: string; id: string; name: string; qualifiedName: string; category: string;
   filePath: string; startLine: string; endLine: string;
   moduleId?: string;
+  /** declared visibility (Java: typeAccess). Absent where the language has no access modifiers. */
+  access?: string;
 }
 /**
  * A modules table, where the language has one: maps a module hash to a file path. Where the
@@ -109,10 +113,12 @@ const JAVA: LanguageAdapter = {
       file: 'all-methods.csv', id: 'methodRegistryUniqueHash', name: 'name', qualifiedName: 'qualifiedName',
       signature: 'signature', kind: 'methodKind', ownerTypeId: 'typeRegistryLinkHash',
       ownerQualifiedName: 'ownerQualifiedName', filePath: 'filePath', startLine: 'startLine', endLine: 'endLine',
+      access: 'methodAccess',
     },
     types: {
       file: 'all-types.csv', id: 'typeRegistryUniqueHash', name: 'name', qualifiedName: 'qualifiedName',
       category: 'typeCategory', filePath: 'filePath', startLine: 'startLine', endLine: 'endLine',
+      access: 'typeAccess',
     },
     // A Java expression row carries no file; its owning type does.
     expressions: {
