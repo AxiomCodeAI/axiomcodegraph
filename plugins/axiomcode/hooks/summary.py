@@ -6,6 +6,10 @@ entry points only."""
 import os, sqlite3, subprocess, sys, tempfile, shutil
 repo = os.path.abspath(sys.argv[1]); out = os.path.join(repo, '.axiomcode', 'out'); db = os.path.join(out, 'graph.sqlite'); SUM = os.path.join(out, 'summary.sqlite')
 DL = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'summary.dl')
+# the compiled binary when there is one — `axiomcode index` warms it. Interpreted, this closure exceeded the 600 s
+# below on jackson-databind (1,373 files): the reach counts then never exist at all.
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'skills', 'axiomcode', 'scripts')))
+import dl_program
 try:
     con = sqlite3.connect(db); q = lambda s: con.execute(s).fetchall()
     F = tempfile.mkdtemp(prefix='axsum-'); O = tempfile.mkdtemp(prefix='axsum-out-')
@@ -17,7 +21,7 @@ try:
     open(os.path.join(F, 'test.facts'), 'w').write(''.join(t + '\n' for t in tests))
     callees = {b for _, b in edges}; allm = {r[0] for r in q("SELECT id FROM symbols WHERE method_id IS NOT NULL AND kind<>'module'")}
     open(os.path.join(F, 'entry.facts'), 'w').write(''.join(m + '\n' for m in allm if m not in callees and m not in tests))
-    r = subprocess.run(['souffle', '-F', F, '-D', O, DL], capture_output=True, text=True, timeout=600)
+    r = subprocess.run(dl_program.program(DL) + ['-F', F, '-D', O], capture_output=True, text=True, timeout=600)
     if r.returncode: raise RuntimeError(r.stderr[-300:])
     rows = {}
     for name, col in (('tests_reaching', 0), ('entries_reaching', 1)):

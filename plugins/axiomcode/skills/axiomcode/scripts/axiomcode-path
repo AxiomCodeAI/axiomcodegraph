@@ -26,6 +26,7 @@ look at, never as a path.
 import os, re, sys, sqlite3, subprocess, tempfile, shutil, collections, glob
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE); import dl_program
 TIER_RANK = {'known_edge': 0, 'library': 0, 'written': 0, 'multi_inferred': 1, 'dispatch': 2, 'defines': 3, 'by-name': 9}
 
 def die(msg, code=2): print(msg); sys.exit(code)
@@ -318,7 +319,11 @@ class G:
 def run_dl(g, queries, programs=('path.dl',)):
     """the sound program always; path-every.dl only for --every; path-opt.dl only when nothing resolved connects the endpoints —
     on a large graph the by-name closure is the expensive part, so it is never computed unasked"""
-    if not shutil.which('souffle'): die("souffle is not installed (brew install souffle-lang/souffle/souffle)")
+    # each program as a cached native binary when there is one (dl_program, warmed by `axiomcode index`); soufflé itself
+    # is only needed for the ones that fall back to the interpreter.
+    progs = {p: dl_program.program(p) for p in programs}
+    if any(v[0] == 'souffle' for v in progs.values()) and not shutil.which('souffle'):
+        die("souffle is not installed (brew install souffle-lang/souffle/souffle)")
     F = tempfile.mkdtemp(prefix='axpath-'); O = tempfile.mkdtemp(prefix='axpath-out-')
     for n in ('byname', 'named'): os.symlink(os.path.join(g.facts, n + '.facts'), os.path.join(F, n + '.facts'))
     if g.EXTRA:
@@ -330,7 +335,7 @@ def run_dl(g, queries, programs=('path.dl',)):
     g.write('dst', [(q, m) for q, (_, d) in queries.items() for m in d], F)
     out = {n: collections.defaultdict(list) for n in ('hit', 'parent', 'hit_opt', 'parent_opt', 'between_edge', 'dist_up', 'dist')}
     for prog in programs:
-        r = subprocess.run(['souffle', '-F', F, '-D', O, os.path.join(HERE, 'dl', prog)], capture_output=True, text=True)
+        r = subprocess.run(progs[prog] + ['-F', F, '-D', O], capture_output=True, text=True)
         if r.returncode: die(f"souffle failed on {prog}:\n" + r.stderr[-800:])
         for n in out:
             f = os.path.join(O, n + '.csv')
