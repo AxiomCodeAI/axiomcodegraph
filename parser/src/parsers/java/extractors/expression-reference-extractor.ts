@@ -107,6 +107,9 @@ export class ExpressionReferenceExtractor {
   
   // Local variable names in scope for classifying LOCAL_VARIABLE references
   private currentLocalVariableNames: Set<string> = new Set();
+  // Where each local of that name is first declared. A use BEFORE it is not that local: in Java a local's
+  // scope starts at its declaration, so a field read that precedes a same-named local is a field read.
+  private currentLocalVariableDeclStart: Map<string, number> = new Map();
   
   // Pattern binding variable names in scope for classifying PATTERN_BINDING references
   private currentPatternBindingNames: Set<string> = new Set();
@@ -3429,8 +3432,12 @@ export class ExpressionReferenceExtractor {
     
     // Local variable references (identifiers matching local variable names in scope)
     if (this.currentLocalVariableNames.has(identifierName)) {
-      builder.referencesEntity(ReferencedEntityKind.LOCAL_VARIABLE);
-      return;
+      const declStart = this.currentLocalVariableDeclStart.get(identifierName);
+      if (declStart === undefined || node.startIndex >= declStart) {
+        builder.referencesEntity(ReferencedEntityKind.LOCAL_VARIABLE);
+        return;
+      }
+      // falls through: this use precedes every local of that name, so it is the field
     }
     
     // Pattern binding variable usage (identifier matching a pattern variable from instanceof/switch)
@@ -3452,6 +3459,14 @@ export class ExpressionReferenceExtractor {
    */
   setMethodPatternBindings(bindings: Array<{ name: string; startIndex: number; endIndex: number }>): void {
     this.methodPatternBindings = bindings;
+  }
+
+  /**
+   * Set once per method body: the source offset where each local name is first declared, so a use that
+   * precedes the declaration is not classified as that local.
+   */
+  setLocalVariableDeclStarts(starts: Map<string, number>): void {
+    this.currentLocalVariableDeclStart = starts;
   }
 
   /**
