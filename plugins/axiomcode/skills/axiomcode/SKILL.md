@@ -60,8 +60,11 @@ first uses the type). Several targets in one call are one change set. A name dec
 Every judgement is a rule in `dl/impact.dl`: the Python side exports facts from graph.sqlite once per graph (members, owners,
 extends, nesting, decorations, overrides, resolved and unresolved call sites, references with the qualifier written on the
 line, type references, string literals, tests and fixtures), writes the target and the few text-level facts for the query, and
-runs one Soufflé program — compiled to a native binary on first use (~20 s, cached by the program's hash under `dl/.cache/`,
-the interpreter when there is no `c++`). Direct dependents, the contract, the seeds, the closure, the chains (`parent_up`) and
+runs one Soufflé program — compiled to a native binary by `axiomcode index` (~20 s once for all of them, cached by the
+program's hash under `dl/.cache/` and shared by every repository on the machine; on first use if the index did not warm it,
+the interpreter when there is no `c++`). Warming it at index time is what keeps a caller with a timeout — `hooks/changes.py`
+runs impact with `timeout=14` on every edit — from killing the compile before it can finish and caching nothing.
+Direct dependents, the contract, the seeds, the closure, the chains (`parent_up`) and
 the tests are all derived in the same run; nothing is recomputed a second way. What is verified afterwards is the export:
 every printed chain hop and every `[resolved]` entry is looked up again in `graph.sqlite` (the `verified:` line).
 

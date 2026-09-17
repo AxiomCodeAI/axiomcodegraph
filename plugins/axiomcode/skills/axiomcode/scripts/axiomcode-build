@@ -30,6 +30,9 @@ GD="$(cd "$REPO" && git rev-parse --git-common-dir 2>/dev/null || true)"
 STAMP="$(cd "$REPO" && git rev-parse HEAD 2>/dev/null || echo nogit)-$LANG_ARG-${AXIOMCODE_SRC:-.}-${AXIOMCODE_LIBRARY:-nolib}"
 if [ -f "$OUT/stamp" ] && [ "$(cat "$OUT/stamp")" = "$STAMP" ] && [ -f "$OUT/graph.sqlite" ] && [ -z "$(cd "$REPO" && git status --porcelain 2>/dev/null | head -1)" ]; then
   sqlite3 "$OUT/graph.sqlite" "SELECT 1 FROM sqlite_master WHERE name='symbols'" | grep -q 1 || python3 "$H/axiomcode-index" "$REPO"
+  python3 "$H/dl_program.py" || true   # compile the query rules once, here where ~20 s is noise against the build:
+# a later query under a caller's timeout (hooks/changes.py runs impact with timeout=14) cannot outlast the compile, so
+# left to first use it is killed every time, caches nothing, and repeats on the next edit forever.
   echo "graph up to date ($LANG_ARG) at $OUT/graph.sqlite"; exit 0; fi
 echo "building $LANG_ARG graph for $SRC … (java $ja · typescript $ts · python $py · javascript $js files)"
 rm -rf "$OUT/$LANG_ARG" "$OUT/graph.sqlite"
@@ -40,4 +43,7 @@ DB="$(find "$OUT" -name graph.sqlite -path "*/$LANG_ARG/*" | head -1)"; [ -n "$D
 ln -sfn "$DB" "$OUT/graph.sqlite"; echo "$STAMP" > "$OUT/stamp"
 python3 "$H/axiomcode-index" "$REPO"
 sqlite3 -column "$OUT/graph.sqlite" "SELECT tier, count(*) AS edges FROM call_edges GROUP BY tier ORDER BY edges DESC;"
+python3 "$H/dl_program.py" || true   # compile the query rules once, here where ~20 s is noise against the build:
+# a later query under a caller's timeout (hooks/changes.py runs impact with timeout=14) cannot outlast the compile, so
+# left to first use it is killed every time, caches nothing, and repeats on the next edit forever.
 echo "graph at $OUT/graph.sqlite"
