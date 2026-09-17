@@ -23,6 +23,8 @@
 //   field(F, T, n, f, l)              field F named n declared in type T at f:l
 //   accessor(F, n, rw)                the bean accessor name for field F (getX / setX / isX / x) and whether it reads or writes
 //   gen_table(d, what)                what decoration d generates: get | set | is | ctor | builder | fluent | with
+//   base_name(t, n)                   type t is declared with a supertype WRITTEN n — the base may be a library type the
+//                                     graph never resolved (pydantic's BaseModel), which is exactly the case `extends` misses
 //   test_method(m) / fixture(m)       a test; a callable a test framework runs before the tests of its type
 //   kind(s, k)                        the symbol's kind (method | constructor | module | class | …)
 // Facts written per query:
@@ -55,6 +57,7 @@
 .decl field(fl:symbol, t:symbol, n:symbol, f:symbol, l:number)    .input field
 .decl accessor(fl:symbol, n:symbol, rw:symbol)                    .input accessor
 .decl gen_table(d:symbol, what:symbol)                            .input gen_table
+.decl base_name(t:symbol, n:symbol)                               .input base_name
 .decl test_method(m:symbol)                                       .input test_method
 .decl fixture(m:symbol)                                           .input fixture
 .decl kind(s:symbol, k:symbol)                                    .input kind
@@ -115,6 +118,27 @@ declares(t, n) :- nested(x, t), typ(x, n, _).                     // a nested ty
 gen(t, w) :- decorated(t, d), gen_table(d, w).
 gen(t, w) :- extends(t, u), decorated(u, d), gen_table(d, w).     // a base class that generates, generates for its subtypes
 gen(t, w) :- field(fl, t, _, _, _), decorated(fl, d), gen_table(d, w).   // a decoration on the field itself
+// a generator that is a BASE CLASS, not a decoration: `class User(BaseModel)` declares its members by inheritance, and
+// the base is usually a library type the graph never resolved, so `extends` cannot see it — the written name can (#750)
+gen(t, w) :- base_name(t, n), gen_table(n, w).
+// a project's own decorator that wraps a generator (`def frozen(cls): return dataclass(frozen=True)(cls)`): the alias is
+// recognised by what its body calls, so a house decorator, an aliased import or a decorator factory is no longer invisible
+.decl gen_alias(d:symbol, w:symbol)
+gen_alias(d, w) :- named(d, m), ref(m, g, _, _, _, _), gen_table(g, w), d != g.
+gen(t, w) :- decorated(t, d), gen_alias(d, w).
+gen(t, w) :- field(fl, t, _, _, _), decorated(fl, d), gen_alias(d, w).
+// which entries fired for THIS query, so the answer can say which convention it assumed rather than leave it implicit
+.decl gen_source(t:symbol, d:symbol, why:symbol)
+gen_source(t, d, "a decoration on the type") :- decorated(t, d), gen_table(d, _).
+gen_source(t, d, "a project-local decorator wrapping one") :- decorated(t, d), gen_alias(d, _), !gen_table(d, _).
+gen_source(t, n, "a base class") :- base_name(t, n), gen_table(n, _).
+gen_source(t, d, "a decoration on a field") :- field(fl, t, _, _, _), decorated(fl, d), gen_table(d, _).
+.decl gen_fired(q:symbol, d:symbol, why:symbol)
+gen_fired(q, d, why) :- target(q, "type", t, _), gen_source(t, d, why).
+gen_fired(q, d, why) :- target(q, "clinit", t, _), gen_source(t, d, why).
+gen_fired(q, d, why) :- target(q, "field", fl, _), field(fl, t, _, _, _), gen_source(t, d, why).
+gen_fired(q, d, why) :- target(q, "method", m, _), owner(m, t), gen_source(t, d, why).
+.output gen_fired
 gen(t, "fluent_read") :- typ(t, _, "record").                    // a record accessor reads; only a builder / wither writes
 gen(t, "ctor") :- typ(t, _, "record").
 // holds(H, T): type H has a field whose type is T — a value of T is produced whenever an H is
