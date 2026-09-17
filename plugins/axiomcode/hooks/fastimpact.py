@@ -140,3 +140,54 @@ def impact_shaped(repo, target, depth=DEPTH, tests_shown=3):
                     direct=direct, reached=[None] * r['reached'], tests=tests, unresolved_inside=0, _sql=True)
     finally:
         con.close()
+
+
+# ── path: the chain of calls from A to B ──────────────────────────────────────────────────────────────────
+TRAVERSE = ('known_edge', 'multi_inferred', 'ambient_terminal', 'intrinsic_terminal')
+
+
+def _ids(q, name):
+    r = [x[0] for x in q("SELECT id FROM symbols WHERE display=? AND method_id IS NOT NULL", (name,))]
+    return r or [x[0] for x in q("SELECT id FROM symbols WHERE display=?", (name,))]
+
+
+def path(repo, src, dst, max_hops=8, tiers=TRAVERSE):
+    """the shortest chain src -> dst as [(display, tier_into_it)], or None. BFS from src, one indexed frontier a hop."""
+    db = os.path.join(repo, '.axiomcode', 'out', 'graph.sqlite')
+    if not os.path.exists(db): return None
+    con = sqlite3.connect(f'file:{db}?mode=ro', uri=True)
+    try:
+        q = con.execute
+        s, d = _ids(q, src), set(_ids(q, dst))
+        if not s or not d: return None
+        # src and dst may be the same declaration (or two overloads of it): the chain is that node, zero hops. The
+        # BFS below only tests membership after taking an edge, so this case has to be answered before it starts.
+        both = [i for i in s if i in d]
+        if both:
+            nm = q("SELECT display FROM symbols WHERE id=?", (both[0],)).fetchone()
+            return [(nm[0] if nm else both[0], None)]
+        seen = {i: None for i in s}; frontier = list(s); ph = ','.join('?' * len(tiers))
+        for _ in range(max_hops):
+            if not frontier: break
+            fp = ','.join('?' * len(frontier))
+            rows = q(f"""SELECT ce.caller_id, ce.callee_method_id, ce.tier FROM call_edges ce
+                         WHERE ce.caller_id IN ({fp}) AND ce.callee_method_id IS NOT NULL
+                           AND ce.tier IN ({ph})""", frontier + list(tiers)).fetchall()
+            nxt = []
+            for a, b, tier in rows:
+                if b in seen: continue
+                seen[b] = (a, tier); nxt.append(b)
+                if b in d:
+                    chain = []; cur = b
+                    while cur is not None:
+                        prev = seen[cur]
+                        chain.append((cur, prev[1] if prev else None))
+                        cur = prev[0] if prev else None
+                    chain.reverse()
+                    names = dict(q(f"SELECT id, display FROM symbols WHERE id IN ({','.join('?'*len(chain))})",
+                                   [c[0] for c in chain]).fetchall())
+                    return [(names.get(i, i), t) for i, t in chain]
+            frontier = nxt
+        return None
+    finally:
+        con.close()

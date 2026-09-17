@@ -780,6 +780,12 @@ class Impact:
                 if p[0] in QS: rows.append(p[1:] + [p[0]])                                   # … + the query id, so each row says which target it came from
             out[n] = rows
         out['_targets'] = QS
+        # AXIOMCODE_DUMP_SOLVE=<dir>: record what the rules derived, so the SQL port can be developed and diffed
+        # against real output without re-running a 26 s query for every iteration.
+        if os.environ.get('AXIOMCODE_DUMP_SOLVE'):
+            d = os.environ['AXIOMCODE_DUMP_SOLVE']; os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, re.sub(r'[^A-Za-z0-9_.-]', '_', str(QS)[:60]) + '.json'), 'w') as fh:
+                json.dump(out, fh)
         shutil.rmtree(F, ignore_errors=True); shutil.rmtree(O, ignore_errors=True)
         return out
 

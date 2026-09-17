@@ -1,7 +1,6 @@
 """dl_program.py — a Datalog program compiled to a native binary once, cached by the program's hash.
 
-Every query program goes through here: `dl/impact.dl` (axiomcode-impact), `dl/path*.dl` (axiomcode-path) and
-`hooks/summary.dl` (the enrich hook's closure). The cache is keyed by the RULES alone and lives next to them in
+Every query program goes through here: `dl/impact.dl` (axiomcode-impact), and `dl/path*.dl` (axiomcode-path). The cache is keyed by the RULES alone and lives next to them in
 `dl/.cache/`, so it is shared by every repository on the machine and survives until the program itself changes.
 
 What this buys is the COMPILE STEP, not query speed: on a 5 MB fact set the binary ran the same program in 1.3 s
@@ -52,7 +51,7 @@ def souffle_include():
 
 
 def resolve(dl):
-    """a bare name ('impact.dl', 'summary.dl') against dl/ then hooks/; an absolute path as given."""
+    """a bare name ('impact.dl') against dl/; an absolute path as given."""
     if os.path.isabs(dl): return dl
     for d in (DL_DIR, HOOKS_DIR):
         p = os.path.join(d, dl)
@@ -101,8 +100,6 @@ def program(dl, verbose=True):
 
 def all_programs():
     out = [os.path.join(DL_DIR, f) for f in sorted(os.listdir(DL_DIR)) if f.endswith('.dl')] if os.path.isdir(DL_DIR) else []
-    s = os.path.join(HOOKS_DIR, 'summary.dl')
-    if os.path.exists(s): out.append(s)
     return out
 
 

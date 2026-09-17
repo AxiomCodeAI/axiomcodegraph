@@ -49,22 +49,26 @@ if tool == 'Bash':
 try: con.execute("CREATE INDEX IF NOT EXISTS symbols_name ON symbols(name)"); con.commit()
 except Exception: pass
 
-# the closure the index computed once (tests / entry points reaching each method): a row when it exists, silence when not;
-# the first Read on a graph without it starts the computation in the background, so no hook call waits for Datalog
-SUMMARY = os.path.join(cwd, '.axiomcode', 'out', 'summary.sqlite')
+# how many tests reach this method, answered ON DEMAND from graph.sqlite rather than from a precomputed table.
+# The table was built by summary.dl, an all-sources closure over every test and entry point: on a 1.23M-LOC Java
+# bundle that is up to 15,789 tests x 25,154 methods, and it never finished — 594 s of CPU and then its own 600 s
+# timeout, with or without a compiled binary, so the counts never existed on a graph large enough to want them.
+# Seeded from one method the same closure is small, and the cap keeps a hub method flat. Each edge table joins in
+# its OWN recursive branch so SQLite drives them by index; one combined edge CTE rescans every edge per call.
+REACH_DEPTH = 6
 def reach_counts(mid):
-    if not os.path.exists(SUMMARY):
-        lock = SUMMARY + '.building'
-        if not os.path.exists(lock):
-            open(lock, 'w').close()
-            subprocess.Popen([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'summary.py'), cwd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-        return ''
     try:
-        sc = sqlite3.connect(SUMMARY); r = sc.execute("SELECT tests, entries FROM reach WHERE method = ?", (mid,)).fetchone()
-        if not r: return ''
-        # a number that is the same for almost everything (a hub graph: 1,375 tests reach every parser method) says nothing — omit it
         tot = q("SELECT count(*) n FROM symbols WHERE is_test = 1 AND method_id IS NOT NULL")[0]['n']
-        return f"  tests {r[0]}" + (f" entries {r[1]}" if r[1] else '') if tot and r[0] < 0.25 * tot else ''
+        if not tot: return ''
+        rows = q("""WITH RECURSIVE r(id,d) AS (
+                      SELECT ?, 0
+                      UNION SELECT ce.caller_id, r.d+1 FROM call_edges ce JOIN r ON ce.callee_method_id=r.id WHERE r.d<?
+                      UNION SELECT dc.base_method_id, r.d+1 FROM dispatch_candidates dc JOIN r ON dc.candidate_method_id=r.id WHERE r.d<?)
+                    SELECT count(DISTINCT CASE WHEN s.is_test=1 THEN r.id END) t
+                    FROM r LEFT JOIN symbols s ON s.id=r.id""", (mid, REACH_DEPTH, REACH_DEPTH))
+        n = rows[0]['t'] if rows else 0
+        # a number that is the same for almost everything says nothing — omit it
+        return f"  tests {n}" if n and n < 0.25 * tot else ''
     except Exception: return ''
 
 # where the agent IS: the callables it read most recently (per session, last 6 reads). A later grep for a common name is
