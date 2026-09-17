@@ -45,6 +45,12 @@ P = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(P)
 G, run_dl, die = P.G, P.run_dl, P.die
 
 PER_QUERY = {'target', 'textuse', 'importuse', 'inside_target'}      # written per query, not part of the cached export
+def ckey(k):
+    """the canonical form of a configuration key. A framework binds app.serverPrefix, app.server-prefix,
+    app.server_prefix and APP_SERVER_PREFIX to the same property; the graph stores whichever spelling it saw,
+    so a key is matched on this form and every spelling that shares it is one target."""
+    return re.sub(r'[^a-z0-9.]', '', k.lower())
+
 CERT = {'resolved': 0, 'one of a set': 1, 'in scope': 2, 'by name': 3, 'text': 4}
 LOCAL_KINDS = {'LOCAL_VARIABLE', 'PARAMETER', 'LAMBDA_PARAMETER', 'VARIABLE', 'PARAM'}          # a ref the parser says is a local, not a member
 QUALIFIED_KINDS = {'FIELD_ACCESS', 'PROPERTY_ACCESS', 'ATTRIBUTE_ACCESS'}
@@ -140,14 +146,18 @@ class Impact:
             die(f"'{s}' looks like a configuration key, and this graph has no configuration facts (the engine's framework extension\n"
                 f"  did not run, or found none here): what reads this key is NOT visible. Re-index with the extension, or ask for the\n"
                 f"  code that reads it by name (a @Value / @ConfigurationProperties method).")
-        rows = g.q("SELECT DISTINCT c0 FROM ext_config_affects_method WHERE c0 = ?", s) if g.has('ext_config_affects_method') else []
-        bound = g.q("SELECT DISTINCT c0 FROM ext_config_binding WHERE c0 = ?", s) if g.has('ext_config_binding') else []
-        if not rows and not bound:
+        want = ckey(s); written = set()
+        for tb in ('ext_config_affects_method', 'ext_config_binding', 'ext_config_key_ref', 'ext_config_unresolved'):
+            if g.has(tb): written |= {r[0] for r in g.q(f"SELECT DISTINCT c0 FROM {tb}") if ckey(r[0]) == want}
+        if not written:
             near = [r[0] for r in g.q("SELECT DISTINCT c0 FROM ext_config_binding WHERE c0 LIKE ? LIMIT 6", s.split('.')[0] + '%')] if g.has('ext_config_binding') else []
             die(f"no configuration fact for the key '{s}' in this graph: nothing the engine saw binds or reads it, so its impact is\n"
                 f"  UNKNOWN, not empty." + (" Keys under the same prefix that are known: " + ', '.join(near) if near else ''))
-        n = len(g.q("SELECT DISTINCT c1 FROM ext_config_affects_method WHERE c0 = ?", s)) if rows else 0
-        return [('config', f"configuration key {s}" + (f" ({n} method(s) bound to it)" if n else " (bound, but no method reads it in this graph)"), s)]
+        n = len({r[0] for r in g.q("SELECT c1, c0 FROM ext_config_affects_method")
+                 if ckey(r[1]) == want}) if g.has('ext_config_affects_method') else 0
+        others = sorted(written - {s})
+        return [('config', f"configuration key {s}" + (f" ({n} method(s) bound to it)" if n else " (bound, but no method reads it in this graph)")
+                 + (f", also written {', '.join(others)}" if others else ''), want)]
     def resolve(self, sel, kind=None):
         """-> list of (kind, label, payload). payload: method ids (method), field row (field), type symbol (type),
         (method id, name) (param / var), (owner symbol, name) (typeparam). Several when the name is declared as several kinds."""
@@ -476,6 +486,14 @@ class Impact:
             for v in set(re.findall(r'"{1,3}([^"]{1,120})"{1,3}', r['text'] or '')):
                 if c: decl.append((c, r['name'].split('.')[-1], v, r['file'] or '', r['line'] or 0))
         W('dec_literal', sorted(set(decl)))
+        # the BINDING SITE of a configuration key: the one line that connects the key to the code, written as a
+        # placeholder inside a decoration (@Value("${app.server.prefix}"), @ConditionalOnProperty(name = "...")).
+        # Matched on the canonical key, so the spelling at the site need not be the spelling that was asked for.
+        sites = []
+        for c, d, v, f, l in decl:
+            for k in re.findall(r'\$\{\s*([A-Za-z0-9_.\-]+)\s*(?::[^}]*)?\}', v) or ([v] if re.fullmatch(r'[A-Za-z0-9_.\-]+\.[A-Za-z0-9_.\-]+', v) else []):
+                sites.append((ckey(k), c, d, f, l))
+        W('config_site', sorted(set(sites)))
         # a barrel: `export { alpha } from './core.js'`. The parser records no reference for that line, so the file
         # that has to change in the same commit as a rename was invisible. Read from the source, per module
         rex = []
@@ -498,10 +516,10 @@ class Impact:
         # These are edges no call site carries — without them a change to a key or a bean has no visible consumer at all.
         cfg = []; keys = set(); beans = []; inj = []
         if g.has('ext_config_affects_method'):
-            for r in g.q("SELECT a.c0, a.c1, a.c2 FROM ext_config_affects_method a JOIN symbols s ON s.method_id = a.c1"): cfg.append((r[0], r[1], r[2] or 'bound'))
-            keys |= {r[0] for r in g.q("SELECT DISTINCT c0 FROM ext_config_affects_method")}
+            for r in g.q("SELECT a.c0, a.c1, a.c2 FROM ext_config_affects_method a JOIN symbols s ON s.method_id = a.c1"): cfg.append((ckey(r[0]), r[1], r[2] or 'bound'))
+            keys |= {ckey(r[0]) for r in g.q("SELECT DISTINCT c0 FROM ext_config_affects_method")}
         for t in ('ext_config_binding', 'ext_config_key_ref', 'ext_config_unresolved'):
-            if g.has(t): keys |= {r[0] for r in g.q(f"SELECT DISTINCT c0 FROM {t}")}
+            if g.has(t): keys |= {ckey(r[0]) for r in g.q(f"SELECT DISTINCT c0 FROM {t}")}
         if g.has('ext_bean_def'): beans = [(r[0], r[1], r[2] or 'bean') for r in g.q("SELECT c0, c1, c2 FROM ext_bean_def")]
         if g.has('ext_inject_point'):
             # c4 is the method that receives the value and is '-' for a FIELD injection, which is the case with no call
