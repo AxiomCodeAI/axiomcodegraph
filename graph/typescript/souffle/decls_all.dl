@@ -90,6 +90,7 @@
 .decl edge_role_is_operand(c0:symbol)
 .decl edge_role_is_ternary_branch(c0:symbol)
 .decl entry_module(c0:symbol)
+.decl cfg_placeholder_name(c0:symbol)
 .decl entry_point(c0:symbol,c1:symbol)
 .decl entry_reachable(c0:symbol)
 .decl enum_member_decl(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
