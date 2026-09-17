@@ -132,7 +132,6 @@ export const FILE_EXTENSIONS = {
   PYTHON_STUB: '.pyi',
   TYPESCRIPT: '.ts',
   JAVASCRIPT: '.js',
-  CSHARP: '.cs',
   PROPERTIES: '.properties',
   XML: '.xml',
   YAML: '.yml',
