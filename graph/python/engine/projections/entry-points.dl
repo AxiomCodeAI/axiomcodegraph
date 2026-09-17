@@ -1,0 +1,58 @@
+// ============================================================================
+// Projections · ENTRY POINTS  (who calls the code nothing in the client calls)
+//
+// WHY THIS EXISTS. Python emitted NO entry_point rows at all — the relation was
+// declared nowhere and the bundle adapter did not even read entry-point.csv, while
+// Java, TypeScript and JavaScript all did. Measured on two live services (a FastAPI
+// pair and a Flask pair, both driven through their real frameworks under the CPython
+// oracle): ten declarations that demonstrably RUN — four FastAPI route handlers, two
+// Depends() providers, two Flask view functions, a Blueprint view and a CLI command —
+// each had zero callers and zero entry-point rows. `impact read_item` answered
+// "nothing the graph can see" for a live HTTP route. That is the shape #778 reports.
+//
+// WHY NOT PORT JAVA'S RULE UNCHANGED. decorators.dl projects py_decorator onto the
+// shared annotation_on shape precisely so Java's rules port. For the entry-point rule
+// it must NOT be ported on the NAME, because the names are not comparable:
+//
+//     Java    @GetMapping      distinctive, owned by the framework
+//     Python  @router.get      the bare name is `get`
+//
+// `http_entry_ann("get")` would mark every method decorated with anything called `get`
+// — a cached property, a descriptor, a local helper — as an HTTP entry point. Matching
+// the bare name is how a by-name match fabricates an answer, so the rule matches the
+// DOTTED PATH instead: a receiver, then one of the HTTP verbs, and at least one
+// argument (a route decorator always carries its path: `@app.route("/x")`,
+// `@router.get("/items/{key}")`). A bare `@get` with no receiver is NOT matched.
+// ============================================================================
+
+// ── http_route_deco(DottedPath) ─────────────────────────────────────────────
+// `<receiver>.<verb>` — app.route, router.get, bp.post, api.websocket. The verb comes
+// from the py_http_route_verb catalogue (resolution/builtins.dl); the receiver is not
+// constrained beyond existing, because the author names it (app, router, bp, api, v1)
+// and pinning that list would miss the next spelling.
+//
+// THREE CONDITIONS, and each one is load-bearing:
+//   a receiver and a dot   a bare `@get` is a descriptor or a local helper, not a route.
+//   a catalogued verb      matching the bare name would claim every `@x.get`-decorated
+//                          method in the codebase.
+//   at least one argument  a route decorator always carries its path: @app.route("/x").
+// Measured: 8 matches on two web services, all 8 correct, and 0 matches on 3,799
+// decorators of a large non-web subject (pytest.mark.parametrize x914, classmethod x556,
+// property x182, dataclass, field_validator) — no false positive.
+.decl http_route_deco(dp:symbol)
+http_route_deco(dp) :- decorator_text("client", dp, _, argc, _), argc != "0",
+    py_http_route_verb(v),
+    strlen(dp) > strlen(v) + 1,
+    substr(dp, strlen(dp) - strlen(v), strlen(v)) = v,
+    substr(dp, strlen(dp) - strlen(v) - 1, 1) = ".".
+
+// ── entry points ────────────────────────────────────────────────────────────
+
+// (a) HTTP handlers — Flask/FastAPI/Starlette register the function with the framework
+// and the server invokes it on a request. No client call site reaches it, by design.
+entry_point(m, "http") :- decorator_target("client", _, m, h),
+    decorator_text("client", dp, _, _, h), http_route_deco(dp).
+
+// Only the HTTP rule is written here. A `__main__` guard and a CLI command are also
+// entry points, but neither was MEASURED on a subject yet, and an unmeasured rule is how
+// a fabricated edge gets in. They belong in a follow-up with their own numbers.
