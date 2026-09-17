@@ -19,16 +19,14 @@ groups = {
   'const':  sample("SELECT display FROM symbols WHERE kind IN ('const','enum_member') AND display IS NOT NULL GROUP BY id", N),
   'type':   sample("SELECT display FROM symbols WHERE kind IN ('class','interface','enum') AND display IS NOT NULL AND display NOT LIKE '%<anon%' GROUP BY id", N),
 }
-COVER = '/tmp/_ax_cover.tsv'
+# which side answered comes from AXIOMCODE_BACKEND, the flag the skill already ships
 def run(t, sql):
     env = dict(os.environ); env['AXIOMCODE_SQL'] = '1' if sql else ''
-    if sql: env['AXIOMCODE_SQL_COVER'] = COVER
-    if os.path.exists(COVER): os.remove(COVER)
+    env['AXIOMCODE_BACKEND'] = '1'
     t0 = time.time()
     r = subprocess.run(['python3', os.path.join(S, 'axiomcode-impact'), t, repo, '--json', '--depth', '12'],
                        capture_output=True, text=True, timeout=300, env=env)
-    cov = ''
-    if sql and os.path.exists(COVER): cov = open(COVER).read().split('\t')[0].strip()
+    cov = 'sql' if 'backend=sql' in (r.stderr or '') else ('fallback' if 'backend=datalog' in (r.stderr or '') else '')
     out = r.stdout or ''
     try: payload = json.loads(out) if out.strip() else None
     except json.JSONDecodeError: payload = ('text', out)

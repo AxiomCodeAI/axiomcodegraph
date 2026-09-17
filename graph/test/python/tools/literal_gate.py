@@ -47,8 +47,10 @@ if not os.path.isdir(ENGINE):
 
 PROVENANCE = {"client", "lib", "external", "builtin"}
 TIERS = {"known_edge", "multi_inferred", "boundary_lib", "ambiguous_unknown"}
-SCAFFOLD = {"", "-", ".", "true", "false", "lib:", "builtin:", "external:",
+SCAFFOLD = {"", "-", ".", "/", "true", "false", "lib:", "builtin:", "external:",
             "untyped_receiver:", "builtin:object.__init__", "_total_sites"}
+# "/" joins "." above: both are separators fixed by a specification (a dotted name, a URL
+# path — RFC 3986 admits no other leading form), not a token read out of any project.
 ENUMISH = re.compile(r"^[A-Z][A-Z0-9_]*$")
 NUMERIC = re.compile(r"^\d+$")
 DUNDER = re.compile(r"^__\w+__$")
@@ -60,7 +62,14 @@ REASON_HEADS = ("call_unresolvable(", "site_reason(", "expr_type_untypable(",
                 # ends). It is written into the output and never joined on, so it is the
                 # same category as the reasons above -- an output vocabulary term, not a
                 # literal the resolution could be fitted to.
-                "method_dispatch_candidate(")
+                "method_dispatch_candidate(",
+                # entry_point's second column is `reason`: WHY nothing calls this — "http"
+                # for a route a framework invokes, as Java writes "http"/"cli"/"main" into
+                # the same relation. It is written into the output and never joined on, so
+                # it is an output vocabulary term like the reasons above. The literal that
+                # DOES decide resolution here — the HTTP verb — is a catalogue
+                # (py_http_route_verb in resolution/builtins.dl), not a literal in a body.
+                "entry_point(")
 
 
 GROUND_FACT = re.compile(r'^[a-z_]+\((?:\s*"[^"]*"\s*,?)+\)\.\s*$')
