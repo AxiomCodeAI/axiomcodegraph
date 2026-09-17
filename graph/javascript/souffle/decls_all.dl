@@ -242,6 +242,8 @@
 .decl constructible_value(c0:symbol, c1:symbol, c2:symbol)
 .decl callable_value(c0:symbol, c1:symbol, c2:symbol)
 .decl expr_value(c0:symbol, c1:symbol, c2:symbol)
+.decl well_known_symbol(c0:symbol)
+.decl well_known_symbol_read(c0:symbol)
 .decl modelled_platform_call(c0:symbol)
 .decl modelled_object_method(c0:symbol)
 .decl key_name(c0:symbol, c1:symbol)
