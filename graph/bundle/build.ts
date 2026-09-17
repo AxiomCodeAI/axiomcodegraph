@@ -193,7 +193,9 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
     const cs = M.signature ? h.col(M.signature) : undefined;
     const coq = M.ownerQualifiedName ? h.col(M.ownerQualifiedName) : undefined;
     const cmod = M.moduleId && libPrefix.size > 0 ? h.col(M.moduleId) : undefined;
-    const cacc = M.access ? h.col(M.access) : undefined;
+    // best effort: an IR that predates the column, or a fixture that does not carry it, still bundles
+    // and the column is NULL, rather than the whole bundle refusing over a fact nothing depends on.
+    const cacc = M.access && h.has(M.access) ? h.col(M.access) : undefined;
     let n = 0;
     for await (const r of rowsOf(src)) {
       const id = r[ci!] ?? '';
@@ -210,7 +212,7 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
     const h = src.header;
     const [ci, cn, cq, cc, cf, cs1, ce1] = [T.id, T.name, T.qualifiedName, T.category, T.filePath, T.startLine, T.endLine].map((n) => h.col(n));
     const cmod = T.moduleId && libPrefix.size > 0 ? h.col(T.moduleId) : undefined;
-    const cacc = T.access ? h.col(T.access) : undefined;
+    const cacc = T.access && h.has(T.access) ? h.col(T.access) : undefined;
     let n = 0;
     for await (const r of rowsOf(src)) {
       const id = r[ci!] ?? '';
