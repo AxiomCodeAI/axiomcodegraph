@@ -20,7 +20,7 @@ come from methods/types alone, refs/literals/comments are empty, and index_meta 
 """
 import csv, os, re, sqlite3, sys, time, glob, collections
 csv.field_size_limit(10**9)
-INDEX_VERSION = '3'      # bump when the tables' CONTENT changes shape (v2: JavaScript arrows named after their variable; v3: paths table, sites view, no variable row for a bound function); the query
+INDEX_VERSION = '4'      # bump when the tables' CONTENT changes shape (v2: JavaScript arrows named after their variable; v3: paths table, sites view, no variable row for a bound function); the query
                          # frontend re-indexes an older graph when the IR is still there
 
 REPO = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith('-') else os.environ.get('AXIOMCODE_REPO') or '.')
@@ -79,7 +79,7 @@ A = {
     # @Annotation(args) on a method or type: the arguments live in a second file keyed by the annotation hash
     decorations=dict(file='all-annotations.csv', name='annotationName', owner='ownerHash', line='startLine', fileVia=('types', 'typeRegistryHash'), id='typeAnnotationUniqueHash',
                      args=dict(file='all-annotation-arguments.csv', parent='parentAnnotationHash', value='argumentValue')),
-    decls=[dict(file='all-fields.csv', kind=lambda r: 'const' if 'STATIC' in r.get('fieldModifier', '') and 'FINAL' in r.get('fieldModifier', '') else 'field',
+    decls=[dict(file='all-fields.csv', id='fieldRegistryUniqueHash', kind=lambda r: 'const' if 'STATIC' in r.get('fieldModifier', '') and 'FINAL' in r.get('fieldModifier', '') else 'field',
                 name='name', owner='ownerQualifiedName', filePath='filePath', line='startLine', end='endLine'),
            dict(file='all-enum-constants.csv', kind=lambda r: 'enum_member', name='name', owner='ownerQualifiedName', filePath='filePath', line='startLine', end='endLine')],
     boundNames=None, skipped='skipped-java-files.csv'),
@@ -93,7 +93,7 @@ A = {
     typeRefs=dict(file='all-typescript-type-references.csv', name='typeName', context='context', ownerKind='referenceOwnerKind', line='startLine', fileVia=('modules', 'tsModuleLinkHash')),
     decls=[dict(file='all-typescript-variables.csv', only=lambda r: r.get('scopeKind') == 'MODULE_SCOPE',
                 kind=lambda r: 'const' if r.get('isConst') == 'true' else 'variable', name='name', owner=None, filePath='filePath', line='startLine', end='endLine'),
-           dict(file='all-typescript-fields.csv', kind=lambda r: 'field', name='name', owner='ownerQualifiedName', filePath='filePath', line='startLine', end='endLine'),
+           dict(file='all-typescript-fields.csv', id='tsFieldUniqueHash', kind=lambda r: 'field', name='name', owner='ownerQualifiedName', filePath='filePath', line='startLine', end='endLine'),
            dict(file='all-typescript-enum-members.csv', kind=lambda r: 'enum_member', name='name', owner='ownerQualifiedName', filePath='filePath', line='startLine', end='endLine')],
     # `const foo = () => …` : the method is named <arrow>; its name is the variable's
     boundNames=dict(file='all-typescript-variables.csv', name='name', method='boundFunctionLinkHash'),
@@ -108,7 +108,7 @@ A = {
     decorations=dict(file='all-python-decorators.csv', name='decoratorName', owner='ownerHash', line='startLine', fileVia=('modules', 'pyModuleLinkHash'), text='fullText'),
     decls=[dict(file='all-python-bindings.csv', only=lambda r: r.get('bindingKind') == 'MODULE_LEVEL' and r.get('bindingOrigin') not in ('FUNCTION_DEF', 'CLASS_DEF', 'IMPORT'),
                 kind=lambda r: 'const' if r['name'].isupper() else 'variable', name='name', owner=None, filePath='filePath', line='firstBindingLine', end='lastBindingLine'),
-           dict(file='all-python-fields.csv', kind=lambda r: 'field', name='name', owner='ownerQualifiedName', filePath='filePath', line='startLine', end='endLine')],
+           dict(file='all-python-fields.csv', id='pyFieldUniqueHash', kind=lambda r: 'field', name='name', owner='ownerQualifiedName', filePath='filePath', line='startLine', end='endLine')],
     boundNames=None, skipped='skipped-python-files.csv'),
  'javascript': dict(
     modules=dict(file='all-javascript-modules.csv', id='jsModuleUniqueHash', filePath='filePath'),
@@ -270,7 +270,7 @@ for d in A['decls']:
         fp = file_of(r, d); od = owner_display(r.get(d['owner'], '')) if d.get('owner') else None
         ln = int(r.get(d['line']) or 0); en = int(r.get(d['end']) or ln)
         if (fp, ln, name) in bound_at: continue     # `const foo = () => …` is already the function foo
-        sym.append((None, name, (od + '.' if od else '') + name, d['kind'](r), (r.get('qualifiedName') or ((r.get(d['owner'], '') + '.') if d.get('owner') else (fp + '#')) + name), None, fp, ln, en, od, 1 if fp and TESTRE.search(fp) else 0, None, None))
+        sym.append((r.get(d['id']) if d.get('id') else None, name, (od + '.' if od else '') + name, d['kind'](r), (r.get('qualifiedName') or ((r.get(d['owner'], '') + '.') if d.get('owner') else (fp + '#')) + name), None, fp, ln, en, od, 1 if fp and TESTRE.search(fp) else 0, None, None))
 c.executemany("INSERT INTO symbols VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", sym)
 
 # ── references, literals, comments ───────────────────────────────────────────────────────────────

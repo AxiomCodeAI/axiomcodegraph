@@ -60,8 +60,11 @@ first uses the type). Several targets in one call are one change set. A name dec
 Every judgement is a rule in `dl/impact.dl`: the Python side exports facts from graph.sqlite once per graph (members, owners,
 extends, nesting, decorations, overrides, resolved and unresolved call sites, references with the qualifier written on the
 line, type references, string literals, tests and fixtures), writes the target and the few text-level facts for the query, and
-runs one Soufflé program — compiled to a native binary on first use (~20 s, cached by the program's hash under `dl/.cache/`,
-the interpreter when there is no `c++`). Direct dependents, the contract, the seeds, the closure, the chains (`parent_up`) and
+runs one Soufflé program — compiled to a native binary by `axiomcode index` (~20 s once for all of them, cached by the
+program's hash under `dl/.cache/` and shared by every repository on the machine; on first use if the index did not warm it,
+the interpreter when there is no `c++`). Warming it at index time is what keeps a caller with a timeout — `hooks/changes.py`
+runs impact with `timeout=14` on every edit — from killing the compile before it can finish and caching nothing.
+Direct dependents, the contract, the seeds, the closure, the chains (`parent_up`) and
 the tests are all derived in the same run; nothing is recomputed a second way. What is verified afterwards is the export:
 every printed chain hop and every `[resolved]` entry is looked up again in `graph.sqlite` (the `verified:` line).
 
@@ -131,6 +134,15 @@ what the graph cannot vouch for (by-name matches, string literals equal to the n
 key —, the decorations a framework may dispatch on, the unresolved calls inside, the tests that reach it). With **several
 targets** (a PR touching many files) each row says which target it came from — `[for Owner.method]` — so a combined radius is
 still attributable per change.
+
+**The unit of change is a declaration in the graph, and half of real Java commits change something else** (592 commits over
+five projects: 47 % touch no Java file at all, 30 % touch Java plus a build or resource file). Three of those kinds now have a
+target of their own: `@Transactional` (an annotation — every declaration carrying it, and their dependents), `Enum.<new>` (a
+constant that does not exist yet — the switches that need a new arm), and a configuration key. A method target also reports
+its **throws** contract: adding a checked exception reaches *every* resolved caller, and the answer says how many of them
+already catch or declare the ones it has. Still outside the unit, and said rather than guessed: a build file or a dependency
+bump, an added overload's rebinding of existing call sites, and what a framework does with an annotation (the proxy, the
+transaction, the cache) — `changed` says that in the same line as the decoration change.
 
 What it cannot see, by construction — say so instead of guessing: a callable that touches a type only through a value it never
 names (`t.asStartTag().normalName()` where the engine resolved `normalName` to the inherited `Tag.normalName`) — the graph keeps
