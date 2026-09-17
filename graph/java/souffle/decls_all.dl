@@ -746,3 +746,21 @@
 .decl remote_edge_via(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol)
 .decl amqp_call_linked(c0:symbol)
 .decl remote_undetermined(c0:symbol,c1:symbol,c2:symbol)
+// ── GENERATED MEMBERS (engine/resolution/generated-members.dl) ───────────────
+// Members an annotation processor declares on the compile path: present in the
+// artefact and in every caller's source, absent from the IR. Issue #848.
+.decl gen_field_getter_ann(c0:symbol)                           // annotation on a FIELD declaring a getter
+.decl gen_field_setter_ann(c0:symbol)                           // annotation on a FIELD declaring a setter
+.decl gen_type_getter_ann(c0:symbol)                            // annotation on a TYPE declaring a getter per field
+.decl gen_type_setter_ann(c0:symbol)                            // annotation on a TYPE declaring a setter per field
+.decl gen_logger_ann(c0:symbol,c1:symbol)                       // (annotation, generated field name)
+.decl gen_field_static(c0:symbol)                               // field hash carrying STATIC
+.decl gen_accessor_demand(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol) // (prov,owner,fieldName,fieldType,kind)
+.decl gen_capitalized(c0:symbol,c1:symbol)                      // (name, Name)
+.decl gen_accessor(c0:symbol,c1:symbol,c2:symbol,c3:symbol)     // (prov,owner,methodName,arity)
+.decl gen_method(c0:symbol,c1:symbol,c2:symbol,c3:symbol)       // (owner,name,arity,generatedId)
+.decl gen_source_sig(c0:symbol,c1:symbol,c2:symbol)             // (owner,name,arity) the IR really carries
+.decl gen_shadowed(c0:symbol,c1:symbol,c2:symbol)               // (owner,name,arity) also written out in source
+.decl gen_method_live(c0:symbol,c1:symbol,c2:symbol,c3:symbol)  // gen_method minus gen_shadowed
+.decl gen_field(c0:symbol,c1:symbol,c2:symbol)                  // (owner,name,generatedId)
+.decl gen_field_shadowed(c0:symbol,c1:symbol)                   // (owner,name) also written out in source
