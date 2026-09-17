@@ -17,7 +17,9 @@ WHAT IS ALLOWED, and why each category is safe:
   diagnostic labels         "no_rule", "escape_hatch", ... These are OUTPUT arguments of
                             call_unresolvable / site_reason / expr_type_untypable and are
                             never matched against input, so they cannot bias resolution.
-  catalogue members         Anything declared as a one-argument fact in resolution/builtins.dl
+  catalogue members         Anything declared as a one-argument fact in a catalogue —
+                            resolution/builtins.dl for a CPython fact, config-resolution/knobs.dl
+                            for a framework name
                             (py_builtin_callable, builtin_method_returns, dict_lookup_method,
                             builtin_container_alias, ...). These ARE language facts, they are
                             reviewable as a list in one file, and builtin_method_returns is
@@ -68,7 +70,7 @@ REASON_HEADS = ("call_unresolvable(", "site_reason(", "expr_type_untypable(",
                 # the same relation. It is written into the output and never joined on, so
                 # it is an output vocabulary term like the reasons above. The literal that
                 # DOES decide resolution here — the HTTP verb — is a catalogue
-                # (py_http_route_verb in resolution/builtins.dl), not a literal in a body.
+                # (py_http_route_verb in config-resolution/knobs.dl), not a literal in a body.
                 "entry_point(")
 
 
@@ -123,7 +125,8 @@ def main() -> int:
     if offenders:
         print(f"FAIL: {len(offenders)} string literal(s) in a rule body are not a declared "
               f"schema or language fact.")
-        print("Move each into a catalogue in resolution/builtins.dl with a justification, "
+        print("Move each into a catalogue with a justification — config-resolution/knobs.dl for a "
+              "framework name, resolution/builtins.dl for a CPython one, "
               "or remove it.")
         for rel, lineno, value in offenders:
             print(f"  {rel}:{lineno}  {value!r}")

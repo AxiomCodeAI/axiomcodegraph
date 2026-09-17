@@ -1,5 +1,12 @@
 // ============================================================================
-// Projections · ENTRY POINTS  (who calls the code nothing in the client calls)
+// CONFIG-RESOLUTION · ENTRY POINTS  (who calls the code nothing in the client calls)
+//
+// This phase is the counterpart of java/engine/config-resolution/, where java's
+// entry-points.dl and knobs.dl already live. It is the layer that links EXTERNAL
+// behaviour — a framework that invokes a handler, a container that wires a bean, a
+// config key that names a class — as distinct from resolution/ (what the language
+// itself means) and projections/ (pure column views, no joins). This rule joins three
+// relations, so it was never a projection.
 //
 // WHY THIS EXISTS. Python emitted NO entry_point rows at all — the relation was
 // declared nowhere and the bundle adapter did not even read entry-point.csv, while
@@ -27,7 +34,7 @@
 
 // ── http_route_deco(DottedPath) ─────────────────────────────────────────────
 // `<receiver>.<verb>` — app.route, router.get, bp.post, api.websocket. The verb comes
-// from the py_http_route_verb catalogue (resolution/builtins.dl); the receiver is not
+// from the py_http_route_verb catalogue (config-resolution/knobs.dl); the receiver is not
 // constrained beyond existing, because the author names it (app, router, bp, api, v1)
 // and pinning that list would miss the next spelling.
 //
