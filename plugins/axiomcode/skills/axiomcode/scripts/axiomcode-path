@@ -98,6 +98,13 @@ class G:
             ids = self.nested_methods(outer, inner, mem)
             if ids: return f"{s} (nested in {outer}: {len(ids)} declaration(s))", ids
             die(self.nested_miss(outer, inner, mem, s))
+        # Outer$Inner / Outer$1 with no member: the nested type itself, which is every method it declares
+        tn = re.match(r'^(.*?)([\w.]+)\$([\w$]+)$', s)
+        if tn and self.has('nesting'):
+            outer, inner = tn.group(2).split('.')[-1], tn.group(3)
+            ids = self.nested_methods(outer, inner, None)
+            if ids: return f"{s} (nested in {outer}: {len(ids)} method(s))", ids
+            die(self.nested_miss(outer, inner, '*', s))
         s = s.replace('$', '.')
         parts = s.split('.'); rows = []; used = s
         # an owner the agent WROTE is never dropped: Owner.m that does not exist is a miss, not a search for any `m`
@@ -157,8 +164,12 @@ class G:
             if not outers: return []
         ids = []
         for t in outers:
-            disp = self.q("SELECT display FROM symbols WHERE type_id = ? LIMIT 1", t)[0]['display']
-            ids += [r['id'] for r in self.q("SELECT id FROM symbols WHERE owner = ? AND name = ? AND method_id IS NOT NULL", disp, mem)]
+            row = self.q("SELECT display FROM symbols WHERE type_id = ? LIMIT 1", t)
+            if not row: continue
+            disp = row[0]['display']
+            # mem is None when the type itself is the endpoint: every method it declares
+            ids += [r['id'] for r in (self.q("SELECT id FROM symbols WHERE owner = ? AND method_id IS NOT NULL", disp) if mem is None
+                                      else self.q("SELECT id FROM symbols WHERE owner = ? AND name = ? AND method_id IS NOT NULL", disp, mem))]
         return ids
 
     def library(self, s):
@@ -249,6 +260,7 @@ class G:
             return f"{outer} declares no nested type {first}" + (f"; it nests: " + ', '.join(k['display'].split('.')[-1] for k in kids[:8]) if kids else " and nests nothing")
         tdisp = [k['display'] for k in kids if k['display'].endswith('.' + first) or (first.isdigit() and '<anon' in k['display'])]
         ms = [r['name'] for d in tdisp for r in self.q("SELECT name FROM symbols WHERE owner = ? AND method_id IS NOT NULL", d)]
+        if mem == '*': return f"{'.'.join(tdisp[:1]) or outer + '.' + inner} declares no method in the graph"
         return f"{'.'.join(tdisp[:1]) or outer + '.' + inner} has no method {mem}; it declares: " + ', '.join(sorted(set(ms))[:12])
     def library_calls(self, ids, cap=10):
         """the library / platform methods these methods call (boundary_lib edges) — the ends of the client graph, listed, never traversed"""
