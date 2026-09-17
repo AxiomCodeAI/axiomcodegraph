@@ -79,8 +79,52 @@ export interface PythonAnalysisSummary {
   resolution: { importsResolved: number; callSitesResolved: number };
 }
 
-/** Directories that never contain source worth analysing. */
-const DEFAULT_EXCLUDES = ['__pycache__', '.git', 'node_modules', '.venv', 'venv', '.tox'];
+/**
+ * Directories that never contain source worth analysing, matched by NAME
+ * anywhere in the walk.
+ *
+ * `build` is deliberately NOT here, at any depth. `build/lib` (and its
+ * platform-suffixed siblings) is the setuptools output that duplicated every
+ * `qualifiedName` project-wide in #564 — but `build` alone is also a real
+ * top-level package name (PyPA ships the PEP 517 frontend as `import build`),
+ * and #531 / #542 are what a bare-name exclusion applied at every depth
+ * already did to Python once: pruned a legitimate package whose segment
+ * happened to be `build`, `out`, `env` or `spec`, silently. What distinguishes
+ * the artifact from a package is POSITION and SHAPE, not name — it sits at
+ * the project ROOT, and its children are `lib`, `lib.<plat>-<pyver>`,
+ * `bdist.*`, `scripts-*`, `temp.*` — so `collectRootBuildFiles` below excludes
+ * exactly that combination, at the root only, and a `build/` two levels down,
+ * or a root `build/` with any OTHER child, is walked like any other package.
+ *
+ * `dist/` is here, at any depth, matching the TypeScript list: it holds built
+ * wheels and sdists, has the same duplication shape as `build/lib`, and
+ * unlike `build` there is no comparably known PyPI package shipping SOURCE
+ * under that exact name. TypeScript's other two, `out` and `coverage`, are
+ * NOT added: neither is an established Python packaging or coverage-tool
+ * convention (`coverage.py`'s own default is `htmlcov/`) the way they are for
+ * a JS bundler, so there is no evidence for them one way or the other and
+ * adding them would be a different language's convention copied across
+ * without a reason.
+ *
+ * `site-packages` and `*.egg-info` (suffix-matched in `collectPythonFiles`)
+ * are excluded unconditionally, at any depth: neither is a syntactically
+ * valid Python import name (both contain a hyphen), so excluding them can
+ * never drop real source.
+ */
+export const DEFAULT_EXCLUDES = [
+  '__pycache__', '.git', 'node_modules', '.venv', 'venv', '.tox',
+  'dist', '.eggs', '.mypy_cache', '.pytest_cache', '_build', 'site-packages',
+];
+
+/**
+ * The setuptools `build_py` / `build_ext` / `build_scripts` / `bdist` output
+ * shapes: `lib`, `lib.<platform>-<pyver>`, `temp.<platform>-<pyver>`,
+ * `scripts-<pyver>`, `bdist.<platform>`. Checked ONLY against the immediate
+ * children of the project ROOT's `build/` directory — see
+ * `collectRootBuildFiles` — never at another depth, so this cannot become the
+ * bare-name-at-every-depth mistake #531 and #542 already were for Python.
+ */
+const BUILD_ARTIFACT_SHAPE = /^(lib(\.|$)|temp\.|scripts-|bdist\.)/;
 
 /** Chunk size for CSV writes, matching the Java analyzer. */
 const CHUNK_SIZE = 50_000;
@@ -177,6 +221,8 @@ export class PythonProjectAnalyzer {
 
     let analysed = 0;
     for (const filePath of files) {
+      const moduleQualifiedName = this.moduleQualifiedNameFor(options.rootDir, filePath);
+
       let sourceCode: string;
       try {
         sourceCode = await fsp.readFile(filePath, 'utf-8');
@@ -191,7 +237,7 @@ export class PythonProjectAnalyzer {
           sourceCode,
           filePath: this.recordedFilePath(filePath, options.rootDir, options.baseMservPath),
           baseMservPath: options.baseMservPath,
-          moduleQualifiedName: this.moduleQualifiedNameFor(options.rootDir, filePath),
+          moduleQualifiedName,
           serviceVersionLinkHash,
           emissionRegime: PythonEmissionRegime.PY3_0_11,
         });
@@ -500,17 +546,61 @@ export class PythonProjectAnalyzer {
 
   private async collectPythonFiles(
     dir: string,
-    excludes: Set<string>
+    excludes: Set<string>,
+    // Whether `dir` IS the walk's root, so its `build` child (if any) is the
+    // ONE place `collectRootBuildFiles` applies. `false` at every other
+    // depth, deliberately: a `build/` two levels down is walked like any
+    // other directory, never shape-matched (#564).
+    isRoot = true
   ): Promise<string[]> {
     const found: string[] = [];
     const entries = await fsp.readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        if (excludes.has(entry.name)) {
+        if (excludes.has(entry.name) || entry.name.endsWith('.egg-info')) {
           continue;
         }
-        found.push(...(await this.collectPythonFiles(full, excludes)));
+        if (isRoot && entry.name === 'build') {
+          found.push(...(await this.collectRootBuildFiles(full, excludes)));
+          continue;
+        }
+        found.push(...(await this.collectPythonFiles(full, excludes, false)));
+        continue;
+      }
+      if (entry.name.endsWith('.py') || entry.name.endsWith('.pyi')) {
+        found.push(full);
+      }
+    }
+    return found;
+  }
+
+  /**
+   * Walks the project ROOT's `build/` directory specifically (never one at
+   * another depth — see `collectPythonFiles`), excluding only the immediate
+   * children matching `BUILD_ARTIFACT_SHAPE`. Everything else under it —
+   * `build/__init__.py`, `build/frontend.py`, a data file, a submodule with
+   * some other name — is walked exactly like source anywhere else, because a
+   * real package literally named `build` (the PyPA PEP 517 frontend is one)
+   * is exactly as legitimate here as anywhere (#564).
+   */
+  private async collectRootBuildFiles(
+    buildDir: string,
+    excludes: Set<string>
+  ): Promise<string[]> {
+    const found: string[] = [];
+    const entries = await fsp.readdir(buildDir, { withFileTypes: true });
+    for (const entry of entries) {
+      const full = path.join(buildDir, entry.name);
+      if (entry.isDirectory()) {
+        if (
+          excludes.has(entry.name) ||
+          entry.name.endsWith('.egg-info') ||
+          BUILD_ARTIFACT_SHAPE.test(entry.name)
+        ) {
+          continue;
+        }
+        found.push(...(await this.collectPythonFiles(full, excludes, false)));
         continue;
       }
       if (entry.name.endsWith('.py') || entry.name.endsWith('.pyi')) {
