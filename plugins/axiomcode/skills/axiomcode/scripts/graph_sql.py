@@ -20,7 +20,7 @@ WHAT IT DECLINES. A constructor: impact.dl counts who instantiates the type, whi
 answering from call_edges alone under-reported (4 callers as 2). impact() returns None there and the caller falls
 back, which is right for that kind.
 """
-import os, sqlite3, json
+import os, sqlite3, json, collections
 
 NEEDED = ('symbols', 'call_edges', 'overrides', 'call_sites', 'unresolved_sites')
 DEPTH = 6                     # the counts are a summary line; the cap is what keeps a hub target flat
@@ -262,6 +262,12 @@ def solve(rows, targets, depth_cap=MAX_HOP):
             if m not in near or int(d) < int(near[m]): near[m] = d
         out['test_near'] = [[m, d, q] for m, d in near.items()]
     con.close()
+    # Soufflé writes each relation in its btree order, and the formatter's tie-breaks (the files line, the entry
+    # points) inherit whatever order the rows arrive in. Sorting to the same canonical order is what makes the two
+    # engines byte-identical rather than merely set-equal — it was the only difference on the first hub target tried.
+    for name, per_q in out.items():
+        for q, rows in per_q.items():
+            per_q[q] = sorted(rows, key=lambda r: tuple(int(x) if isinstance(x, str) and x.lstrip('-').isdigit() else x for x in r))
     return out
 
 
@@ -709,4 +715,108 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=()):
         th = tests_reaching(q, depth, sets)
         out['test_near'] += [[m, str(d), qq] for m, (d, _v) in th.items()]
     out['_targets'] = QS
+    return out
+
+
+# ── path.dl / path-opt.dl / path-every.dl, in SQL ────────────────────────────────────────────────────────────
+# Same three answers, same shape as run_dl() returns, with no .facts written and no Soufflé process. The closures
+# are walked a LEVEL at a time against an indexed in-memory table, never a query per node: one statement per hop
+# (chunked only because SQLite caps host variables), and `parent` is a single set-based join, not a lookup per
+# reached method. `dist` is the MINIMUM hop count a node is found at, which is why this is a level walk and not one
+# recursive CTE — a CTE that UNIONs on (id, depth) keeps every depth and then needs a second pass to take the min.
+PATH_DDL = """
+CREATE TABLE edge(a TEXT, b TEXT, t TEXT);
+CREATE TABLE src(q TEXT, m TEXT);
+CREATE TABLE dst(q TEXT, m TEXT);
+CREATE TABLE byname(c TEXT, n TEXT);
+CREATE TABLE named(n TEXT, m TEXT);
+"""
+PATH_IDX = """
+CREATE INDEX e_a ON edge(a); CREATE INDEX e_b ON edge(b);
+CREATE INDEX s_q ON src(q); CREATE INDEX d_q ON dst(q);
+CREATE INDEX bn_c ON byname(c); CREATE INDEX nm_n ON named(n);
+"""
+CHUNK = 400
+
+
+def _level_walk(cur, seeds, table, cap):
+    """{node: shortest hop count} from seeds, following `table` forward (a->b). One query per hop."""
+    depth = {m: 0 for m in seeds}
+    frontier, d = list(depth), 0
+    while frontier and d < cap:
+        nxt = []
+        for i in range(0, len(frontier), CHUNK):
+            chunk = frontier[i:i + CHUNK]
+            ph = ','.join('?' * len(chunk))
+            for (b,) in cur.execute(f"SELECT DISTINCT b FROM {table} WHERE a IN ({ph})", chunk):
+                if b not in depth: depth[b] = d + 1; nxt.append(b)
+        frontier = nxt; d += 1
+    return depth
+
+
+def _level_walk_up(cur, seeds, table, cap):
+    """the same walk backwards (b->a): everything that reaches a seed, at its shortest hop count."""
+    depth = {m: 0 for m in seeds}
+    frontier, d = list(depth), 0
+    while frontier and d < cap:
+        nxt = []
+        for i in range(0, len(frontier), CHUNK):
+            chunk = frontier[i:i + CHUNK]
+            ph = ','.join('?' * len(chunk))
+            for (a,) in cur.execute(f"SELECT DISTINCT a FROM {table} WHERE b IN ({ph})", chunk):
+                if a not in depth: depth[a] = d + 1; nxt.append(a)
+        frontier = nxt; d += 1
+    return depth
+
+
+def _parent_rows(cur, dist, table):
+    """parent(b,a,t) :- dist(b,d), d>0, dist(a,d-1), edge(a,b,t) — one join over a temp table, not a query per node."""
+    cur.execute("DROP TABLE IF EXISTS _d"); cur.execute("CREATE TEMP TABLE _d(m TEXT PRIMARY KEY, d INT)")
+    cur.executemany("INSERT OR REPLACE INTO _d VALUES(?,?)", list(dist.items()))
+    cur.execute("CREATE INDEX IF NOT EXISTS _d_d ON _d(d)")
+    return [(b, a, t) for b, a, t in cur.execute(
+        f"SELECT DISTINCT db.m, da.m, e.t FROM _d db JOIN {table} e ON e.b = db.m JOIN _d da ON da.m = e.a AND da.d = db.d - 1 WHERE db.d > 0")]
+
+
+def solve_path(rows, queries, every=False, opt=False, cap=MAX_HOP):
+    """rows: {'edge': [(a,b,t)…], 'byname': [(c,n)…], 'named': [(n,m)…]}. queries: {q: (src_ids, dst_ids)}.
+    Returns exactly what run_dl() returns, so the driver cannot tell which engine answered."""
+    con = sqlite3.connect(':memory:'); cur = con.cursor()
+    cur.executescript(PATH_DDL)
+    cur.executemany("INSERT INTO edge VALUES(?,?,?)", rows.get('edge', ()))
+    cur.executemany("INSERT INTO src VALUES(?,?)", [(q, m) for q, (s, _) in queries.items() for m in s])
+    cur.executemany("INSERT INTO dst VALUES(?,?)", [(q, m) for q, (_, d) in queries.items() for m in d])
+    if opt:
+        cur.executemany("INSERT INTO byname VALUES(?,?)", rows.get('byname', ()))
+        cur.executemany("INSERT INTO named VALUES(?,?)", rows.get('named', ()))
+    cur.executescript(PATH_IDX)
+    if opt:
+        # edge_opt(a,b,t) :- edge(a,b,t).  edge_opt(c,m,"by-name") :- byname(c,n), named(n,m).
+        cur.execute("CREATE TABLE edge_opt(a TEXT, b TEXT, t TEXT)")
+        cur.execute("INSERT INTO edge_opt SELECT a, b, t FROM edge")
+        cur.execute("INSERT INTO edge_opt SELECT DISTINCT b.c, n.m, 'by-name' FROM byname b JOIN named n ON n.n = b.n")
+        cur.execute("CREATE INDEX eo_a ON edge_opt(a)"); cur.execute("CREATE INDEX eo_b ON edge_opt(b)")
+    out = {n: collections.defaultdict(list) for n in ('hit', 'parent', 'hit_opt', 'parent_opt', 'between_edge', 'dist_up', 'dist')}
+    for q, (s, d) in queries.items():
+        s, dset = list(s), set(d)
+        fwd = _level_walk(cur, s, 'edge', cap)
+        out['dist'][q] = [(m, str(x)) for m, x in fwd.items()]
+        out['hit'][q] = [(m, str(fwd[m])) for m in dset if m in fwd]
+        if out['hit'][q]: out['parent'][q] = _parent_rows(cur, fwd, 'edge')
+        up = _level_walk_up(cur, list(dset), 'edge', cap)
+        out['dist_up'][q] = [(m, str(x)) for m, x in up.items()]
+        if opt:
+            fo = _level_walk(cur, s, 'edge_opt', cap)
+            out['hit_opt'][q] = [(m, str(fo[m])) for m in dset if m in fo]
+            if out['hit_opt'][q]: out['parent_opt'][q] = _parent_rows(cur, fo, 'edge_opt')
+        if every:
+            # between(m) :- fwd(m), bwd(m) — both closures uncapped, as the rules are, then the edges among them
+            f_all = _level_walk(cur, s, 'edge', 10 ** 9)
+            b_all = _level_walk_up(cur, list(dset), 'edge', 10 ** 9)
+            btw = f_all.keys() & b_all.keys()
+            cur.execute("DROP TABLE IF EXISTS _b"); cur.execute("CREATE TEMP TABLE _b(m TEXT PRIMARY KEY)")
+            cur.executemany("INSERT OR REPLACE INTO _b VALUES(?)", [(m,) for m in btw])
+            out['between_edge'][q] = [(a, b, t) for a, b, t in cur.execute(
+                "SELECT DISTINCT e.a, e.b, e.t FROM edge e JOIN _b x ON x.m = e.a JOIN _b y ON y.m = e.b")]
+    con.close()
     return out
