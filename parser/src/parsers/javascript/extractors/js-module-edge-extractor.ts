@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import * as path from 'path';
 
 import * as ts from 'typescript';
@@ -138,6 +139,28 @@ export function extractModuleEdges(
   options: ModuleEdgeExtractionOptions
 ): ModuleEdgeResult {
   return new JsModuleEdgeExtractor(options).run();
+}
+
+/**
+ * `fs.realpathSync` memoised per resolved path.
+ *
+ * One syscall per DISTINCT module the resolver names, not one per import: a repository
+ * that imports one package from a thousand files asks the filesystem once. A path that
+ * cannot be read keeps its spelling, so an unreadable file is still compared rather
+ * than dropped.
+ */
+const realPathCache = new Map<string, string>();
+function realPathOfResolved(absolutePath: string): string {
+  const cached = realPathCache.get(absolutePath);
+  if (cached !== undefined) {
+    return cached;
+  }
+  let real = absolutePath;
+  try {
+    real = fs.realpathSync(absolutePath);
+  } catch { /* keep the spelling given */ }
+  realPathCache.set(absolutePath, real);
+  return real;
 }
 
 class JsModuleEdgeExtractor {
@@ -1180,7 +1203,12 @@ class JsModuleEdgeExtractor {
     if (resolved === undefined) {
       return { filePath: '', outcome: JsImportResolutionOutcome.UNRESOLVED_MISSING };
     }
-    const absolute = path.normalize(resolved);
+    // BOTH SIDES CANONICAL. `projectModuleHashes` is keyed by the files the analyzer
+    // walked from a root it has already resolved through its symlinks; the resolver
+    // answers with the real path for a package found under `node_modules` but does NOT
+    // realpath a relative specifier, so the two sides are compared as real paths and the
+    // spelling of the root cannot decide the outcome any more (#795).
+    const absolute = realPathOfResolved(path.normalize(resolved));
     if (this.options.projectModuleHashes.has(absolute)) {
       return {
         filePath: this.options.toProjectRelative(absolute),
