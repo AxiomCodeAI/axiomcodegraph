@@ -223,11 +223,20 @@ export class JavaScriptProjectAnalyzer {
         )
       : options.serviceVersionLinkHash ?? '';
 
-    const rootDir = path.resolve(options.rootDir);
+    // CANONICAL, not as spelled — see `realPathOf`. Every workspace package is linked
+    // into `node_modules` by a symlink, and TypeScript's resolver answers with the
+    // package's real path, so a root spelled through a symlink put one side of the
+    // `projectModuleHashes` comparison in real paths and the other in the spelling
+    // given: every cross-package import in a monorepo came out RESOLVED_EXTERNAL (#795).
+    // `baseMservPath` is canonicalised with it, or `pathAnchorFor` would stop
+    // recognising an ancestor spelled the other way and re-anchor every emitted path.
+    const rootDir = realPathOf(path.resolve(options.rootDir));
     const excludes = new Set<string>(options.excludeDirs ?? JS_SKIP_DIRECTORIES);
     // Counted, not merely skipped. See `collectJavaScriptFiles`.
     const skippedByDirectory = new Map<string, number>();
-    const pathAnchor = pathAnchorFor(rootDir, options.baseMservPath);
+    const baseMservPath = options.baseMservPath === ''
+      ? '' : realPathOf(path.resolve(options.baseMservPath));
+    const pathAnchor = pathAnchorFor(rootDir, baseMservPath);
     const packageJson = new PackageJsonResolver();
     // The union of every root's files, by absolute path. A monorepo root and its
     // packages both claim the same files, and extracting one twice would mint
@@ -238,7 +247,7 @@ export class JavaScriptProjectAnalyzer {
     // a skipped directory still states its entries (#616): the row that says
     // "this package stages nothing" must exist for exactly that package.
     const packageJsonsSeen = new Set<string>();
-    const roots = [rootDir, ...(options.additionalRoots ?? []).map((r) => path.resolve(r))];
+    const roots = [rootDir, ...(options.additionalRoots ?? []).map((r) => realPathOf(path.resolve(r)))];
     for (const root of roots) {
       // A root that is a PACKAGE shipping from a build directory (#620): its
       // `main` / `exports` name `dist/`, `build/` or `out/`, and that directory is
@@ -274,7 +283,7 @@ export class JavaScriptProjectAnalyzer {
         path.normalize(file),
         moduleHashFor(
           toRelative(pathAnchor, file),
-          options.baseMservPath,
+          baseMservPath,
           governing.moduleSystem,
           serviceVersionLinkHash
         )
@@ -362,7 +371,7 @@ export class JavaScriptProjectAnalyzer {
           facts = extractJavaScriptFile({
             absoluteFilePath: file,
             filePath: toRelative(pathAnchor, file),
-            baseMservPath: options.baseMservPath,
+            baseMservPath: baseMservPath,
             moduleQualifiedName: toProjectRelative(file),
             sourceText,
             serviceVersionLinkHash,
@@ -541,6 +550,27 @@ function compilerOptionsFor(moduleSystem: string): ts.CompilerOptions {
  * that ancestor, so two runs over two subtrees of one service produce paths that
  * join. Otherwise `rootDir` is the anchor.
  */
+/**
+ * A path with every symlink resolved, or the path itself when it cannot be.
+ *
+ * Two spellings of one directory must not produce two IRs. A root reached through a
+ * symlink is ordinary — macOS `/tmp` and `/var`, a symlinked checkout or home, a
+ * container bind mount — and the module resolver always answers in real paths for a
+ * package found under `node_modules`, which is how every workspace package is linked.
+ * Resolving at the root makes both sides one spelling; relative emitted paths are
+ * unchanged, because they are relative to that root either way (#795, and #588 for
+ * the same class of defect in the library cache key).
+ */
+function realPathOf(absolutePath: string): string {
+  try {
+    return fs.realpathSync(absolutePath);
+  } catch {
+    // A path that does not exist, or that cannot be read, is left exactly as given:
+    // the caller's error is better than one invented here.
+    return absolutePath;
+  }
+}
+
 function pathAnchorFor(rootDir: string, baseMservPath: string): string {
   if (baseMservPath === '') {
     return rootDir;

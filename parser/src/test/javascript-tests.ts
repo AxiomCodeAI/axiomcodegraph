@@ -6194,6 +6194,106 @@ function packageEntriesNameWhatAPackageExposes(): number {
 }
 
 /**
+ * A ROOT SPELLED THROUGH A SYMLINK IS THE SAME TREE (#795).
+ *
+ * Every npm, yarn and pnpm workspace links its packages into `node_modules`
+ * (`node_modules/@ws/util -> ../../packages/util`), and TypeScript's resolver answers
+ * with the package's REAL path. `projectModuleHashes` was keyed by the files walked from
+ * the root AS GIVEN, so with a root reached through a symlink — macOS `/tmp` and `/var`,
+ * a symlinked checkout, a container bind mount — one side of the comparison was canonical
+ * and the other was not: every cross-package import came out RESOLVED_EXTERNAL and the
+ * engine then declared the calls unknown ("dependency not staged", for code in the tree).
+ * On one workspace monorepo that was 720 MISSED of 5,219 decided sites against 1.
+ *
+ * Asserted on both spellings of ONE directory: the outcomes are RESOLVED_PROJECT either
+ * way, and the whole relation set is byte-identical, which is the property that the
+ * spelling of the root cannot change the IR. The relative import is the control that was
+ * never broken, and the check refuses to pass if the fixture's link is missing.
+ */
+async function aSymlinkedRootIsTheSameTree(): Promise<number> {
+  let failures = 0;
+  const outer = scratchDir('js-gate-symlink-root-');
+  const real = path.join(outer, 'real');
+  const write = (relative: string, contents: string): void => {
+    const full = path.join(real, relative);
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, contents);
+  };
+  write('ws/package.json', JSON.stringify({ name: 'ws', private: true, workspaces: ['packages/*'] }) + '\n');
+  write('ws/packages/util/package.json', JSON.stringify({ name: '@ws/util', type: 'module', main: 'index.js' }) + '\n');
+  write('ws/packages/util/index.js', 'export function helper(x) { return x + 1; }\n');
+  write('ws/packages/util/lib/deep.js', 'export function deepFn(x) { return x * 2; }\n');
+  write('ws/packages/app/package.json', JSON.stringify({ name: '@ws/app', type: 'module', main: 'src/main.js' }) + '\n');
+  write('ws/packages/app/src/local.js', 'export function local(x) { return x - 1; }\n');
+  write('ws/packages/app/src/main.js',
+    "import { helper } from '@ws/util';\n"
+    + "import { deepFn } from '@ws/util/lib/deep.js';\n"
+    + "import { local } from './local.js';\n"
+    + 'export function run(x) { return helper(x) + deepFn(x) + local(x); }\n');
+  // What npm, yarn and pnpm create for a workspace package.
+  const linkDir = path.join(real, 'ws', 'node_modules', '@ws');
+  fs.mkdirSync(linkDir, { recursive: true });
+  fs.symlinkSync(path.join('..', '..', 'packages', 'util'), path.join(linkDir, 'util'));
+  // A second spelling of one directory. `real/` is reached directly; `link/` goes through
+  // a symlink, which is what /tmp -> /private/tmp does to every path under it on macOS.
+  fs.symlinkSync(real, path.join(outer, 'link'));
+
+  if (!fs.existsSync(path.join(linkDir, 'util', 'index.js'))) {
+    return fail('the fixture\'s workspace link does not resolve, so the check would pass on any implementation');
+  }
+
+  const parseFrom = async (root: string): Promise<Relation[]> => {
+    const output = scratchDir('js-gate-symlink-root-out-');
+    await new JavaScriptProjectAnalyzer().analyze({
+      rootDir: root, outputDir: output, baseMservPath: root, serviceVersionLink: 'gate-v1',
+    });
+    return readRelations(output);
+  };
+  const canonical = await parseFrom(fs.realpathSync(path.join(real, 'ws')));
+  const symlinked = await parseFrom(path.join(outer, 'link', 'ws'));
+
+  const outcomesOf = (relations: Relation[]): string[] => {
+    const imports = relations.find((r) => r.name === 'js_import')!;
+    const specifier = imports.header.indexOf('specifier');
+    const outcome = imports.header.indexOf('resolutionOutcome');
+    const resolvedFile = imports.header.indexOf('resolvedFilePath');
+    return imports.rows
+      .map((r) => `${r[specifier]} ${r[outcome]} ${r[resolvedFile]}`)
+      .sort();
+  };
+  // The file each one names is asserted too: RESOLVED_PROJECT with a path outside the
+  // tree, or pointing through `node_modules/`, would be a different defect wearing the
+  // right outcome.
+  const want = [
+    './local.js RESOLVED_PROJECT packages/app/src/local',
+    '@ws/util RESOLVED_PROJECT packages/util/index',
+    '@ws/util/lib/deep.js RESOLVED_PROJECT packages/util/lib/deep',
+  ];
+  for (const [label, relations] of [['canonical', canonical], ['symlinked', symlinked]] as const) {
+    const got = outcomesOf(relations);
+    if (JSON.stringify(got) !== JSON.stringify(want)) {
+      failures += fail(`${label} root: imports ${JSON.stringify(got)}, expected ${JSON.stringify(want)} — `
+        + 'a workspace package linked into node_modules is the project, not an external dependency');
+    }
+  }
+
+  // The whole IR, not only the column the defect was read from: the two spellings must
+  // produce one fact base. Before the fix these differed in every relation, because
+  // baseMservPath feeds the module hash.
+  const asText = (relations: Relation[]): string => relations
+    .map((r) => `${r.name}\n${r.header.join('\t')}\n${r.rows.map((row) => row.join('\t')).sort().join('\n')}`)
+    .sort()
+    .join('\n');
+  if (asText(canonical) !== asText(symlinked)) {
+    const a = canonical.map((r) => `${r.name}:${r.rows.length}`).sort().join(' ');
+    const b = symlinked.map((r) => `${r.name}:${r.rows.length}`).sort().join(' ');
+    failures += fail(`the two spellings of one root produced different IR\n    canonical  ${a}\n    symlinked  ${b}`);
+  }
+  console.log('  3 imports asserted under both spellings of one root; the full relation set is identical');
+  return failures;
+}
+
+/**
  * A walk root that is a package shipping from a build directory walks it (#620).
  *
  * `dist/` is skipped for a project because it is the artefact beside the
@@ -6238,7 +6338,11 @@ async function publishedPackageWalksItsBuildOutput(): Promise<number> {
   if (entries.rows.length !== 2 || outcomes.some((o) => o !== 'RESOLVED')) {
     failures += fail(`entries ${JSON.stringify(outcomes)}: both exports conditions must RESOLVE to a staged module`);
   }
-  if (summary.buildOutputWalked.length !== 1 || summary.buildOutputWalked[0] !== path.join(root, 'dist')) {
+  // The analyzer resolves its root through symlinks before walking (#795), and the
+  // summary names the path it actually walked, so the expectation is canonical too —
+  // on macOS the scratch root is under /var, which is a symlink to /private/var.
+  if (summary.buildOutputWalked.length !== 1
+      || summary.buildOutputWalked[0] !== path.join(fs.realpathSync(root), 'dist')) {
     failures += fail(`buildOutputWalked ${JSON.stringify(summary.buildOutputWalked)}: the exception is visible in the summary`);
   }
   if ((summary.skippedByDirectory['dist'] ?? 0) !== 1 || (summary.skippedByDirectory['node_modules'] ?? 0) !== 1) {
@@ -6934,6 +7038,7 @@ const CHECKS: Check[] = [
   { name: 'JSX tag names are references', proves: 'a component tag is a JSX_TAG_NAME child reading its binding and an intrinsic tag is none — by the language\'s rule, with `_Private`, `widgets.panel` and `Foo-Bar` each asserted where the folk rule fails', run: jsxTagNamesAreReferences },
   { name: '@import tags mint bindings', proves: 'a JSDoc @import tag mints one type-only js_import row per bound name with its real binding form, and a @param through the name links it, so the new spelling of a typedef import is not a silent nothing (#621)', run: jsdocImportTagsMintBindings },
   { name: 'package entries name what a package exposes', proves: 'js_package_entry carries every main/module/exports entry of every package in the parse, resolved to a module hash only when the target is a staged JavaScript file and a named absence otherwise (#616)', run: packageEntriesNameWhatAPackageExposes },
+  { name: 'a symlinked root is the same tree', proves: 'a workspace package linked into node_modules resolves as RESOLVED_PROJECT whether the analysis root is spelled through a symlink or not, and both spellings produce one identical fact base (#795)', run: aSymlinkedRootIsTheSameTree },
   { name: 'a published package walks its build output', proves: 'a walk root whose own package.json ships from dist/ stages the modules under it, while a nested dist/ and node_modules stay skipped and the exception is listed in the summary (#620)', run: publishedPackageWalksItsBuildOutput },
   { name: 'object type members carry their names', proves: 'an OBJECT_TYPE child row names the member it types, nested names as written, nothing else does, and the column is appended after the frozen key (#651)', run: objectTypeMembersCarryTheirNames },
   { name: 'binding paths are keys, not names', proves: 'a destructured parameter\'s path is the key route (`wire` for `{ wire: local }`) on c33 alone, asserted by value on every pattern shape', run: bindingPathsAreKeysNotNames },
