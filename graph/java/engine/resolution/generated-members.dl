@@ -167,6 +167,23 @@ method_declared_in(name, t, m) :- gen_method_live(t, name, _, m), lookup_type(t)
 sig_declared_in(t, name, pc, m) :- gen_method_live(t, name, pc, m).
 sig_concrete_in(t, name, pc) :- gen_method_live(t, name, pc, _).
 
+// OWNERSHIP, which is what actually emits the edge. calls.dl gates every edge on
+// method_owner, and projections/methods.dl builds that from java_method /
+// lib_method alone. Without this clause a generated member reached expr_pruned and
+// then produced nothing: it owns no row there. The provenance carried through from
+// gen_accessor is what decides `known_edge` against `boundary_lib`, so a generated
+// member on a library type is a boundary edge exactly as a hand-written one is.
+method_owner(p, owner, id) :- gen_method_live(owner, name, pc, id),
+    gen_accessor(p, owner, name, pc).
+
+// ARITY. overload.dl counts parameters from java_method_parameter /
+// lib_method_parameter, so a generated method has no count and only the zero-arg
+// clause of arity_match can fire: every getter resolved and every SETTER was
+// dropped at the arity gate. A setter takes exactly one argument, which the
+// annotation determines without any parameter row, so state it directly. The
+// getters need no clause: zero args against zero params is already a match.
+method_paramc(m, 1) :- gen_method_live(_, _, "1", m).
+
 // A field the source declares hides the generated one: same law, same reason.
 gen_field_shadowed(owner, name) :- gen_field(owner, name, _),
     field_decl(_, name, _, owner, _).
