@@ -360,7 +360,7 @@ class Impact:
         return [ln for ln in range(s['line'], min(s['end_line'], len(L)) + 1) if pat.search(L[ln - 1])]
 
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
-    IMPACT_VERSION = '11'          # 3: decl_file facts (the import-time test-file rule)
+    IMPACT_VERSION = '12'          # 3: decl_file facts (the import-time test-file rule)
     def export(self):
         g = self.g; D = os.path.join(g.facts, 'impact'); stamp = os.path.join(D, 'stamp'); want = f"{os.path.getmtime(g.db)}:{self.IMPACT_VERSION}"
         # a cache written by an older program, or one an interrupted run left half written, breaks every query with
@@ -510,6 +510,15 @@ class Impact:
         decs = collections.defaultdict(set)
         for r in (g.q("SELECT owner_id, name FROM decorations") if g.has('decorations') else []): decs[r[0]].add(r[1].split('.')[-1])
         tm = [i for i, s in g.sym.items() if s['is_test'] and s.get('method_id') and s['kind'] in ('method', 'function') and (any(TEST_DECOR.search(d) for d in decs.get(i, ())) or s['name'].startswith(('test', 'it')))]
+        # a vitest / jest / mocha test is an ANONYMOUS callable handed to it(…) / test(…) / bench(…): on one TypeScript
+        # project 6,661 of the 7,723 callables in test files are <arrow> and exactly 2 carried a name the rule above
+        # accepts, so the whole test layer was empty. The registrar on the declaration's own line names it as a test.
+        REGISTRAR = re.compile(r'\b(it|test|bench)\s*(\.\w+)*\s*(\.\w+)?\s*[(<]')
+        for i, sy in g.sym.items():
+            if not (sy['is_test'] and sy.get('method_id') and (sy['name'] or '').startswith('<')): continue
+            if not sy.get('file') or not sy.get('line'): continue
+            L = self.lines(sy['file'])
+            if sy['line'] - 1 < len(L) and REGISTRAR.search(L[sy['line'] - 1]): tm.append(i)
         fx = [i for i, s in g.sym.items() if s['is_test'] and ((s.get('type_id') and not s.get('method_id')) or s['kind'] in ('constructor', 'module') or s['name'] in FIXTURE_NAMES or any(FIXTURE_DECOR.match(d) for d in decs.get(i, ())))]
         W('test_method', [(m,) for m in tm]); W('fixture', [(m,) for m in fx])
         # the engine's framework extension, when it ran: what a configuration key is bound into, and what the container injects.
