@@ -1,0 +1,4 @@
+boundary_lib	method	probe.FieldAccess#receiverOfCall() -> external:String.length
+known_edge	method	probe.FieldAccess#callNamedLabel() -> probe.FieldAccess#label()
+known_edge	method	probe.FieldAccess#receiverOfCall() -> probe.FieldAccess.Holder#describe()
+known_edge	new	probe.FieldAccess#<type-initializer>() -> probe.FieldAccess.Holder#<init>()

@@ -1,0 +1,7 @@
+ambiguous_unknown	read	shop.OrderService#main(String[]) -> -
+known_edge	read	shop.OrderService#total(int) -> shop.OrderService#calc
+known_edge	read	shop.OrderService#total(int) -> shop.OrderService#discount
+known_edge	read	shop.PercentDiscount#apply(int) -> shop.PercentDiscount#pct
+known_edge	read	shop.PriceCalculator#subtotal(int) -> shop.PriceCalculator#UNIT
+known_edge	write	shop.OrderService#useDiscount(Discount) -> shop.OrderService#discount
+known_edge	write	shop.PercentDiscount#<init>(int) -> shop.PercentDiscount#pct

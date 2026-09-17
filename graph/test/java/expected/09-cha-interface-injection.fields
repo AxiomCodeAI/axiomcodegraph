@@ -1,0 +1,2 @@
+known_edge	read	testcases.engine.InterfaceDI#process(String) -> testcases.engine.InterfaceDI#handler
+known_edge	write	testcases.engine.InterfaceDI#<init>(Handler) -> testcases.engine.InterfaceDI#handler

@@ -1,0 +1,3 @@
+known_edge	read	probe.Item#equals(Object) -> probe.Item#key
+known_edge	read	probe.Item#name() -> probe.Item#key
+known_edge	write	probe.Item#<init>(String) -> probe.Item#key

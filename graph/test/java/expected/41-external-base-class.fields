@@ -1,0 +1,4 @@
+known_edge	read	app.Reader#inheritedViaClientType(String) -> app.Reader#strict
+known_edge	read	app.Reader#inheritedViaLibraryType(String) -> app.Reader#fmt
+known_edge	read	app.Reader#overrideViaClientType(String) -> app.Reader#strict
+known_edge	read	app.Reader#overrideViaLibraryType(String) -> app.Reader#fmt

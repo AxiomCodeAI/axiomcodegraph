@@ -1,0 +1,7 @@
+41-external-base-class
+  precision 1.0000   (4 correct, 0 wrong)
+  recall    1.0000   (4 of 4 in the bytecode)
+  sites 4   resolved 4 (100.0%)
+  tiers known_edge=4
+  access read=4
+  not scored: 0 initializer-owned, 0 in a class the build did not compile, 0 oracle rows in a static initializer, 0 reads of an inlined constant

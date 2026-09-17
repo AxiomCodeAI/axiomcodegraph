@@ -1,0 +1,2 @@
+known_edge	read	LambdaParamCallback#main(String[]) -> LambdaParamCallback#byName
+known_edge	read	LambdaParamCallback#viaMapValues(String) -> LambdaParamCallback#byName
