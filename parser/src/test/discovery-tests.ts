@@ -51,6 +51,7 @@ const POM = '<project><groupId>g</groupId><artifactId>a</artifactId><version>1</
 const JAVA = 'package com.x;\npublic class Foo { public int bar(int a) { return a + 1; } }\n';
 const PY = 'def hello(n):\n    return n + 1\n';
 const TS = 'export function greet(name: string): string { return `hi ${name}`; }\n';
+const JS = 'module.exports = function run() { return 1; };\n';
 
 /** Languages discovered under `root`, deduplicated and sorted. */
 async function languagesIn(root: string): Promise<string[]> {
@@ -77,6 +78,53 @@ const POLYGLOT: Record<string, string> = {
 const ALL_THREE = [ProjectLanguage.JAVA, ProjectLanguage.PYTHON, ProjectLanguage.TYPESCRIPT].sort();
 
 const CHECKS: Check[] = [
+  {
+    // #797: a published package that ships from `dist/` and keeps `src/` in the tarball
+    // has no JavaScript directly in its package directory, so `isProject` said no, the
+    // scanner descended, and `src/`, `examples/` and `tests/` became projects while the
+    // entry points under `dist/` were never staged. Every import of such a package read
+    // as `not_staged` although it was passed with `--library`.
+    name: 'dist-shipping-package-is-one-project-at-its-root',
+    proves: 'a package whose manifest points into dist/ is a project at the package directory',
+    rulesOut: 'descending past it and registering src/, examples/ and tests/ instead',
+    run: async (tmp) => {
+      const found = await projectsIn(build(tmp, 'dist-pkg', {
+        'package.json': JSON.stringify({
+          name: 'pkg',
+          main: './dist/pkg.js',
+          module: './dist/pkg.mjs',
+          exports: { '.': { require: './dist/pkg.js', import: './dist/pkg.mjs' } },
+        }),
+        'dist/pkg.js': JS,
+        'dist/pkg.mjs': JS,
+        'src/pkg.js': JS,
+        'examples/demo.js': JS,
+        'tests/pkg.test.js': JS,
+      }));
+      const want = [`${ProjectLanguage.JAVASCRIPT} @ .`];
+      return String(found) === String(want)
+        ? null
+        : `found ${found}, want ${want} — the package directory is the root, not its subdirectories`;
+    },
+  },
+  {
+    // The paired negative (§11): the same tree with a manifest that names a file which
+    // was never published must NOT claim the root, or the inference would swallow the
+    // sub-projects of any directory holding a package.json.
+    name: 'unpublished-entry-does-not-claim-the-root',
+    proves: 'only an entry that RESOLVES makes the package directory a project',
+    rulesOut: 'treating any package.json with a dist-shaped entry as a project',
+    run: async (tmp) => {
+      const found = await projectsIn(build(tmp, 'ghost-entry', {
+        'package.json': JSON.stringify({ name: 'pkg', main: './dist/missing.js' }),
+        'src/pkg.js': JS,
+      }));
+      const want = [`${ProjectLanguage.JAVASCRIPT} @ src`];
+      return String(found) === String(want)
+        ? null
+        : `found ${found}, want ${want} — a manifest naming a file that does not exist claimed the root`;
+    },
+  },
   {
     name: 'siblings-are-all-found',
     proves: 'three single-language services side by side are three projects',
@@ -216,7 +264,7 @@ const CHECKS: Check[] = [
     },
   },
   {
-    name: 'per-language-keeps-the-javascript-of-a-package-that-is-no-project',
+    name: 'per-language-keeps-the-javascript-of-a-dist-shipping-package',
     proves: 'extractProject in per-language layout writes javascript/ for a package whose only '
       + 'JavaScript is the dist/ its package.json ships from, which discovery does not call a project',
     rulesOut: 'choosing the javascript/ folder by whether discovery found a JavaScript project: the '
@@ -227,7 +275,11 @@ const CHECKS: Check[] = [
         'package.json': '{"name":"distpkg","version":"1.0.0","main":"dist/index.js"}',
         'dist/index.js': 'exports.connect = function connect(opts) { return opts; };\n',
       });
-      if ((await languagesIn(root)).length !== 0) return 'control: discovery found a project here, so the check exercises nothing';
+      // Since #797 a package that NAMES its dist entry is discovered as a project at its
+      // own directory, so this is no longer the "discovery found nothing" path. What the
+      // check is for is unchanged and still asserted below: per-language layout writes the
+      // tables to `javascript/`, not to a scratch folder that is then deleted as a stray.
+      if ((await languagesIn(root)).length === 0) return 'control: discovery found no project, so #797 regressed';
       const out = path.join(tmp, 'dist-only-out');
       const silence = console.log;
       console.log = () => {};
