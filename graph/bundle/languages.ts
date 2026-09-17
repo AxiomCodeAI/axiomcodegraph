@@ -169,6 +169,8 @@ const TYPESCRIPT: LanguageAdapter = {
     dispatchCandidates: { file: 'dispatch-candidates.csv', columns: [0, 1, 2] },
     // (type, how) — `new` is the only form TypeScript emits
     typeInstantiated: { file: 'resolution-type-instantiated.csv', columns: [0, 1] },
+    fieldAccess: { file: 'field-access.csv', columns: [0, 1, 2, 3, 4, 5] },
+    typeUse: { file: 'type-use.csv', columns: [0, 5, 7, 8, 2, 1, 4, 3, 6, 9] },
   },
   ir: {
     methods: {
@@ -179,6 +181,14 @@ const TYPESCRIPT: LanguageAdapter = {
     types: {
       file: 'all-typescript-types.csv', id: 'tsTypeUniqueHash', name: 'name', qualifiedName: 'qualifiedName',
       category: 'typeCategory', filePath: 'filePath', startLine: 'startLine', endLine: 'endLine',
+    },
+    // TypeScript has no separate enum-constant table shaped like Java's: an enum member is
+    // reached through ts_enum_member, whose columns do not carry a declared type, and the
+    // property-access relation resolves through ts_field. Only the field table is mapped.
+    fields: {
+      file: 'all-typescript-fields.csv', id: 'tsFieldUniqueHash', name: 'name', ownerTypeId: 'tsTypeLinkHash',
+      ownerQualifiedName: 'ownerQualifiedName', typeName: 'fieldTypeName', modifiers: 'fieldModifier',
+      filePath: 'filePath', startLine: 'startLine', endLine: 'endLine',
     },
     modules: { file: 'all-typescript-modules.csv', id: 'tsModuleUniqueHash', filePath: 'filePath' },
     expressions: {

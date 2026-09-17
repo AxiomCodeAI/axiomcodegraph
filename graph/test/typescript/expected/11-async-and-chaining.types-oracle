@@ -1,0 +1,7 @@
+11-async-and-chaining [types]
+  precision 1.0000   (3 correct, 0 wrong)
+  recall    1.0000   (3 of 3 the compiler resolved)
+  sites 10   resolved 6 (60.0%)
+  tiers ambiguous_unknown=4  known_edge=6
+  contexts METHOD_RETURN=5  OBJECT_CREATION_TYPE=4  TYPE_ARGUMENT=1
+  not scored: 4 rows whose target is not a client declaration

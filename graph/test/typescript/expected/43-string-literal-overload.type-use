@@ -1,0 +1,2 @@
+known_edge	METHOD_PARAM	0	main [METHOD_PARAM] -> LiteralFirst
+known_edge	METHOD_PARAM	0	main [METHOD_PARAM] -> StringFirst

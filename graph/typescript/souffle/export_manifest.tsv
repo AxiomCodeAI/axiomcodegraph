@@ -43,3 +43,6 @@ ref_shape_target	diag-ref-shape.csv
 alias_step	diag-alias-step.csv
 method_dispatch_candidate	dispatch-candidates.csv
 type_instantiated	resolution-type-instantiated.csv
+field_access	field-access.csv
+type_use	type-use.csv
+field_site_excluded	field-site-excluded.csv

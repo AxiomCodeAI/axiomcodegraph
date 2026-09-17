@@ -1,0 +1,7 @@
+54-subclass-of-value-declared-base [types]
+  precision 1.0000   (4 correct, 0 wrong)
+  recall    1.0000   (4 of 4 the compiler resolved)
+  sites 6   resolved 4 (66.7%)
+  tiers ambiguous_unknown=2  known_edge=4
+  contexts OBJECT_CREATION_TYPE=3  SUPER_TYPE=3
+  not scored: 2 rows whose target is not a client declaration

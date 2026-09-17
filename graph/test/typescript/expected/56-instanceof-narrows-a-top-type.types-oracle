@@ -1,0 +1,7 @@
+56-instanceof-narrows-a-top-type [types]
+  precision 1.0000   (1 correct, 0 wrong)
+  recall    1.0000   (1 of 1 the compiler resolved)
+  sites 9   resolved 9 (100.0%)
+  tiers known_edge=9
+  contexts INSTANCEOF_TYPE=7  TYPE_ELEMENT=2
+  not scored: 0 rows whose target is not a client declaration

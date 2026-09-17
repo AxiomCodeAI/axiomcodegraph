@@ -1,0 +1,4 @@
+ambiguous_unknown	METHOD_PARAM	0	consumer [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_TYPE_PARAM_BOUND	0	- [TYPE_PARAMETER] -> -
+ambiguous_unknown	TYPE_ARGUMENT	1	consumer [METHOD_PARAM] -> -
+ambiguous_unknown	TYPE_ELEMENT	2	consumer [METHOD_PARAM] -> -

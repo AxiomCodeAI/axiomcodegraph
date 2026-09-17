@@ -1,0 +1,6 @@
+ambiguous_unknown	SUPER_TYPE	0	LibCircle [HERITAGE] -> -
+known_edge	OBJECT_CREATION_TYPE	0	shapes [EXPRESSION] -> Circle
+known_edge	OBJECT_CREATION_TYPE	0	shapes [EXPRESSION] -> LibCircle
+known_edge	OBJECT_CREATION_TYPE	0	shapes [EXPRESSION] -> Square
+known_edge	SUPER_TYPE	0	Circle [HERITAGE] -> Shape
+known_edge	SUPER_TYPE	0	Square [HERITAGE] -> Shape

@@ -1,0 +1,8 @@
+known_edge	METHOD_PARAM	0	Builder [METHOD_PARAM] -> Meta
+known_edge	SUPER_TYPE	0	CallableFunction [HERITAGE] -> Function
+known_edge	SUPER_TYPE	0	NewableFunction [HERITAGE] -> Function
+known_edge	TYPE_ELEMENT	1	Builder [METHOD] -> Column
+known_edge	TYPE_ELEMENT	1	Meta [FIELD] -> Column
+known_edge	TYPE_ELEMENT	1	Meta [METHOD] -> Column
+known_edge	TYPE_ELEMENT	1	chain [METHOD] -> Column
+known_edge	TYPE_ELEMENT	1	chain [METHOD_PARAM] -> Column

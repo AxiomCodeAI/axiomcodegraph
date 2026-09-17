@@ -1,0 +1,13 @@
+ambiguous_unknown	FIELD_TYPE	0	Holder [FIELD] -> -
+ambiguous_unknown	METHOD_PARAM	0	receivers [METHOD_PARAM] -> -
+ambiguous_unknown	OBJECT_CREATION_TYPE	0	receivers [EXPRESSION] -> -
+ambiguous_unknown	TYPE_ELEMENT	1	receivers [METHOD_PARAM] -> -
+known_edge	AS_TARGET	0	receivers [EXPRESSION] -> Node
+known_edge	FIELD_TYPE	0	Node [FIELD] -> Node
+known_edge	METHOD_PARAM	0	receivers [METHOD_PARAM] -> Holder
+known_edge	METHOD_RETURN	0	Holder [METHOD] -> Node
+known_edge	OBJECT_CREATION_TYPE	0	Holder [EXPRESSION] -> Node
+known_edge	OBJECT_CREATION_TYPE	0	receivers [EXPRESSION] -> Node
+known_edge	TYPE_ARGUMENT	1	Holder [FIELD] -> Node
+known_edge	TYPE_ELEMENT	1	Holder [FIELD] -> Node
+known_edge	TYPE_ELEMENT	1	receivers [METHOD_PARAM] -> Node

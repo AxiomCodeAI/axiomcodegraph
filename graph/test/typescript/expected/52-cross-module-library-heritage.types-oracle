@@ -1,0 +1,7 @@
+52-cross-module-library-heritage [types]
+  precision 1.0000   (1 correct, 0 wrong)
+  recall    1.0000   (1 of 1 the compiler resolved)
+  sites 4   resolved 1 (25.0%)
+  tiers ambiguous_unknown=3  known_edge=1
+  contexts METHOD_PARAM=3  SUPER_TYPE=1
+  not scored: 3 rows whose target is not a client declaration
