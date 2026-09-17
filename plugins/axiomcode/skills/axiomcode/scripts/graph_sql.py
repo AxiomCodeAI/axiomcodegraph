@@ -20,7 +20,7 @@ WHAT IT DECLINES. A constructor: impact.dl counts who instantiates the type, whi
 answering from call_edges alone under-reported (4 callers as 2). impact() returns None there and the caller falls
 back, which is right for that kind.
 """
-import os, sqlite3, json
+import os, re, sqlite3, json
 
 NEEDED = ('symbols', 'call_edges', 'overrides', 'call_sites', 'unresolved_sites')
 DEPTH = 6                     # the counts are a summary line; the cap is what keeps a hub target flat
@@ -786,7 +786,31 @@ def inherited_tests(q, hits):
     return sorted(out)
 
 
-def solve_from_targets(q, T, QS, site_file=None, nonsource=()):
+def _throws_catches(code, f, ln, en):
+    """`throws_(m,e)` and `catches(m,e)` for ONE callable, read from its own text.
+
+    Java records a throws clause with no line and (#760) mislabels switch arms, so the exporter reads both from
+    the callable's source — the same source the [text] certainty already trusts — and these are the identical
+    expressions. `code` hands back the file with comments and string literals blanked, so a name in a javadoc or
+    a string is not a use.
+
+    The exporter scans every symbol in the bundle once (6,402 rows on jackson) because the rules need the whole
+    relation; a query needs it only for the target and the target's own callers, which is far less work.
+    """
+    L = code(f) if f else []
+    a = ln or 0
+    if not a or a > len(L): return set(), set()
+    b = min(en or a, len(L))
+    head = ' '.join(L[a - 1:min(b, a + 8)]).split('{')[0]
+    thr = {e for m in re.finditer(r'\bthrows\s+([\w.,\s]+)', head)
+           for e in re.findall(r'[A-Z][\w$]*', m.group(1))}
+    body = '\n'.join(L[a - 1:b])
+    cat = {x for e in re.findall(r'\bcatch\s*\(\s*(?:final\s+)?([\w.|\s]+?)\s+\w+\s*\)', body)
+           for x in re.findall(r'[A-Z][\w$]*', e)}
+    return thr, cat
+
+
+def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None):
     """Return exactly what Impact.run() returns — {relation: [row…, query_id]} — or None to fall back.
 
     T is the target relation: (query_id, kind, symbol_id, extra). Only method targets are answered here; a
@@ -843,6 +867,31 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=()):
             for n, f, l in nonsource:
                 if n in simple: out['extbind'].append([f, str(l), n, 'names the method', qq])
                 elif n in full: out['extbind'].append([f, str(l), n, 'names the method in full', qq])
+        # ── the throws contract ────────────────────────────────────────────────────────────────────────────
+        #   target_throws(q,e)      :- target(q,"method",m,_), throws_(m,e)
+        #   caller_handles(q,c,e)   :- throws_(m,e), calls(c,m,_,_,_), (throws_(c,e) ; catches(c,e))
+        #   caller_unhandled(q,c,e) :- throws_(m,e), calls(c,m,_,_,_), !caller_handles(q,c,e)
+        # Only the human-readable output prints this, never --json, so a parity harness that compares --json
+        # cannot see it missing — it was empty here while the rules gave 2 and 22 rows on the first method that
+        # declares a `throws` at all.
+        if code is not None:
+            tthrows = set()
+            for f, ln, en in q(f"SELECT file, line, end_line FROM symbols WHERE id IN ({ph})", *ids):
+                tthrows |= _throws_catches(code, f, ln, en)[0]
+            out['target_throws'] += [[e, qq] for e in sorted(tthrows)]
+            if tthrows:
+                callers = sorted({c for (c,) in q(
+                    f"""SELECT DISTINCT caller_id FROM call_edges
+                         WHERE callee_method_id IN ({ph}) AND callee_provenance='client'""", *ids)})
+                cph = ','.join('?' * len(callers)) if callers else "''"
+                span = {r[0]: (r[1], r[2], r[3]) for r in q(
+                    f"SELECT id, file, line, end_line FROM symbols WHERE id IN ({cph})", *callers)} if callers else {}
+                for c in callers:
+                    f, ln, en = span.get(c, (None, None, None))
+                    ct, cc = _throws_catches(code, f, ln, en)
+                    for e in sorted(tthrows):
+                        if e in ct or e in cc: out['caller_handles'].append([c, e, qq])
+                        else: out['caller_unhandled'].append([c, e, qq])
         th = tests_reaching(q, depth, sets)
         out['test_near'] += [[m, str(d), qq] for m, (d, _v) in th.items()]
     out['_targets'] = QS
