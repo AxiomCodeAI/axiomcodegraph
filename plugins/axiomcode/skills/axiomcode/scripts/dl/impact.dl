@@ -379,6 +379,11 @@ test_hit(q, m, d, fx) :- reach(q, fx, d), fixture(fx), typ(fx, _, _), member(fx,
 // a test file is imported as a whole: a class body or a fixture at its top level runs before every test in it — pytest
 // injects a fixture by parameter name and a pydantic model class is built at import, and neither is a call edge
 test_hit(q, m, d, c) :- reach(q, c, d), decl_file(c, f), decl_file(m, f), test_method(m), !test_method(c), (kind(c, "class") ; kind(c, "module") ; fixture(c)).
+// and a helper declared in a test file: a callable in that file that is not itself a test is written for the tests
+// beside it (a builder, a describe callback, a fixture arrow), so what it reaches, those tests reach
+test_hit(q, m, d, c) :- reach(q, c, d), decl_file(c, f), decl_file(m, f), test_method(m), !test_method(c), is_test_file(f).
+.decl is_test_file(f:symbol)
+is_test_file(f) :- test_method(m), decl_file(m, f).
 // a class that extends a test class runs that class's tests as its own — the subclass declares nothing, and a
 // change reaching the base's test breaks the subclass's run of it too (jsoup's java11 HttpClient*Test)
 .decl inherited_test(q:symbol, s:symbol, m:symbol, d:number)
