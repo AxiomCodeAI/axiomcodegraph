@@ -47,8 +47,10 @@ if not os.path.isdir(ENGINE):
 
 PROVENANCE = {"client", "lib", "external", "builtin"}
 TIERS = {"known_edge", "multi_inferred", "boundary_lib", "ambiguous_unknown"}
-SCAFFOLD = {"", "-", ".", "true", "false", "lib:", "builtin:", "external:",
+SCAFFOLD = {"", "-", ".", "/", "true", "false", "lib:", "builtin:", "external:",
             "untyped_receiver:", "builtin:object.__init__", "_total_sites"}
+# "/" joins "." above: both are separators fixed by a specification (a dotted name, a URL
+# path — RFC 3986 admits no other leading form), not a token read out of any project.
 ENUMISH = re.compile(r"^[A-Z][A-Z0-9_]*$")
 NUMERIC = re.compile(r"^\d+$")
 DUNDER = re.compile(r"^__\w+__$")
