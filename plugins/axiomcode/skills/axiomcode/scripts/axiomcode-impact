@@ -938,7 +938,9 @@ def main(argv):
     byname_seeds = {x[0] for x in res['seed_byname'] if x[0] in g.sym}
     sure_set = {x[0] for x in res['reach_sure']}                 # reached from the dependents that ARE an exact edge
     universe = sum(1 for _ in open(os.path.join(g.facts, 'impact', 'test_method.facts')))
-    direct_ids = {c for c, *_ in D} | {c for c, _ in contract}
+    # an `alongside` row is not a place the change is observed from: it must stay out of the entry points, as it stays out
+    # of the seeds — a reader is promised that an entry point reaches the change (#762)
+    direct_ids = {c for c, role, why, cert, loc, n in D if cert != 'alongside'} | {c for c, _ in contract}
     direct_ids = {c for c in direct_ids if c in g.sym}
     ent = [(m, d) for m, d in {**{c: 0 for c in direct_ids}, **reached}.items() if not callers_of.get(m) or g.sym[m]['is_test']]
     inside = list({*reached, *seeds, *direct_ids})               # the direct rows are not in seed for a method target
