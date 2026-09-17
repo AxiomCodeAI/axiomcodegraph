@@ -120,6 +120,7 @@ function reportLanguage(
     filesRejected?: number;
     extractionErrors?: number;
     counts?: Record<string, number>;
+    skippedByDirectory?: Readonly<Record<string, number>>;
   }>
 ): void {
   if (summaries.length === 0) {
@@ -136,6 +137,22 @@ function reportLanguage(
   // report rather than two formats.
   const field = (text: string): string => `${label} ${text}:`.padEnd(30);
   console.log(`\n📊 ${field('files analysed')}${analysed}`);
+  // What the walk PRUNED, by directory name (#790). Without this line a repository
+  // whose first-party packages sit under an excluded directory name reports a
+  // plausible small file count and nothing else, and the loss is invisible to
+  // every reader downstream.
+  const prunedByName = new Map<string, number>();
+  for (const summary of summaries) {
+    for (const [name, count] of Object.entries(summary.skippedByDirectory ?? {})) {
+      prunedByName.set(name, (prunedByName.get(name) ?? 0) + count);
+    }
+  }
+  const pruned = [...prunedByName.entries()].sort((a, b) => b[1] - a[1]);
+  const prunedTotal = pruned.reduce((sum, [, count]) => sum + count, 0);
+  if (prunedTotal > 0) {
+    const detail = pruned.slice(0, 4).map(([name, count]) => `${name} ${count}`).join(', ');
+    console.log(`📊 ${field('files under excluded dirs')}${prunedTotal}  (${detail})`);
+  }
   console.log(`📊 ${field('rows extracted')}${rows}`);
   const rejected = total((s) => s.filesRejected);
   const errored = total((s) => s.extractionErrors);

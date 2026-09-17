@@ -132,14 +132,21 @@ for a, b in executed:
         elif any(x == b for _, x in imports): found.append((a, b)); reordered_loads.append((a, b))
         else: missing.append((a, b))
         module_edges.append((a, b)); continue
+    # An accessor edge USED to be set aside here, because the engine emitted none and
+    # the bucket's message said so: "no site in the parser universe". #788 changed that
+    # — the engine now emits PROPERTY_READ / PROPERTY_WRITE as edges without sites, as
+    # Python and TypeScript do — so setting them aside meant an accessor edge could
+    # never be credited and a missing one could never fail a harness (#791). They are
+    # now scored like every other edge, and still LISTED apart so the report keeps
+    # saying which of them ran.
     if kind_of.get(b) in ('GETTER', 'SETTER'):
-        accessor.append((a, b)); continue
+        accessor.append((a, b))
     if b in eng.get(a, ()): found.append((a, b))
     elif any(b in eng.get(r, ()) for r in registrations.get((a, b), ())): found.append((a, b)); via_registrar.append((a, b))
     else: missing.append((a, b))
 static_only = [(a, b) for a, bs in eng.items() for b in bs if (a, b) not in set(executed)]
 
-print('runtime: %d functions entered, %d distinct executed edges (%d into accessors, reported apart; %d lib->lib out of scope)' % (len(rt['functions']), len(executed), len(accessor), lib_lib))
+print('runtime: %d functions entered, %d distinct executed edges (%d into accessors, scored and listed apart; %d lib->lib out of scope)' % (len(rt['functions']), len(executed), len(accessor), lib_lib))
 print('  by provenance: %s' % dict(cat))
 if unknown_fn:
     print('  ! %d executed function(s) have no js_method row at that position: %s' % (len(unknown_fn), unknown_fn[:5]))
@@ -154,8 +161,9 @@ if missing:
     print('\nmissing (caller -> callee):')
     for a, b in missing: print('  %-40s -> %s' % (lab(a), lab(b)))
 if accessor:
-    print('\naccessor reads (no site in the parser universe):')
-    for a, b in accessor: print('  %-40s -> %s' % (lab(a), lab(b)))
+    print('\naccessor reads (scored above; the engine emits these without a call site):')
+    for a, b in accessor:
+        print('  %-40s -> %s   %s' % (lab(a), lab(b), 'FOUND' if (a, b) in set(found) else 'MISSING'))
 if via_registrar:
     print('\nplatform callbacks matched through their registrar (the tracer named the resource\'s creator as caller):')
     for a, b in via_registrar: print('  %-40s -> %s   registered by %s' % (lab(a), lab(b), ', '.join(sorted(lab(r) for r in registrations[(a, b)] if b in eng.get(r, ())))))

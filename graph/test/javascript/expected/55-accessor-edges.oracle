@@ -3,8 +3,15 @@ main.js:17:17 METHOD_CALL store  EXACT  main.js:19:3
 main.js:21:35 FUNCTION_CALL literalHelper  EXACT  main.js:22:1
 main.js:25:13 CONSTRUCTOR_CALL Sub  EXACT  main.js:6:3
 main.js:28:13 CONSTRUCTOR_CALL Both  SYNTHESIZED_OK  
-main.js:36:35 CONSTRUCTOR_CALL Plain  EXACT  main.js:35:15
-main.js:36:70 METHOD_CALL m  EXACT  main.js:35:45
+main.js:36:1 METHOD_CALL defineProperty  LIB_AMBIENT_OK  
+main.js:36:57 FUNCTION_CALL helper  EXACT  main.js:37:1
+main.js:39:19 METHOD_CALL defineProperty  LIB_AMBIENT_OK  
+main.js:39:67 METHOD_CALL build  EXACT  main.js:40:3
+main.js:43:13 CONSTRUCTOR_CALL Sub  EXACT  main.js:6:3
+main.js:45:20 CONSTRUCTOR_CALL Both  SYNTHESIZED_OK  
+main.js:47:13 CONSTRUCTOR_CALL Lazy  EXACT  main.js:39:3
+main.js:54:35 CONSTRUCTOR_CALL Plain  EXACT  main.js:53:15
+main.js:54:70 METHOD_CALL m  EXACT  main.js:53:45
 main.js:7:22 METHOD_CALL parse  EXACT  main.js:9:3
 main.js:8:28 METHOD_CALL clamp  EXACT  main.js:10:3
 # defects: 0

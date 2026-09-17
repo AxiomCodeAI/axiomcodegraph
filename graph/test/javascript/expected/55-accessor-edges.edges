@@ -11,7 +11,18 @@ main.js:29:3 PROPERTY_WRITE b.size  ->  known_edge  main.js:17:3 size
 main.js:30:3 PROPERTY_READ b.size  ->  known_edge  main.js:16:3 size
 main.js:30:3 PROPERTY_WRITE b.size  ->  known_edge  main.js:17:3 size
 main.js:31:14 PROPERTY_READ obj.name  ->  known_edge  main.js:21:15 name
-main.js:36:35 CONSTRUCTOR_CALL Plain  ->  known_edge  main.js:35:15 <constructor>
-main.js:36:70 METHOD_CALL p.m  ->  known_edge  main.js:35:45 m
+main.js:36:1 METHOD_CALL Object.defineProperty  ->  ambient_terminal  -
+main.js:36:57 FUNCTION_CALL helper  ->  known_edge  main.js:37:1 helper
+main.js:39:19 METHOD_CALL Object.defineProperty  ->  ambient_terminal  -
+main.js:39:67 METHOD_CALL this.build  ->  known_edge  main.js:40:3 build
+main.js:43:13 CONSTRUCTOR_CALL Sub  ->  known_edge  main.js:6:3 <constructor>
+main.js:44:11 PROPERTY_READ {url}  ->  known_edge  main.js:13:3 url
+main.js:45:11 PROPERTY_READ {size}  ->  known_edge  main.js:16:3 size
+main.js:45:20 CONSTRUCTOR_CALL Both  ->  implicit_constructor  -
+main.js:46:13 PROPERTY_READ holder.label  ->  known_edge  main.js:36:42 get
+main.js:47:13 CONSTRUCTOR_CALL Lazy  ->  known_edge  main.js:39:3 <constructor>
+main.js:47:13 PROPERTY_READ new Lazy().own  ->  known_edge  main.js:39:61 <arrow>
+main.js:54:35 CONSTRUCTOR_CALL Plain  ->  known_edge  main.js:53:15 <constructor>
+main.js:54:70 METHOD_CALL p.m  ->  known_edge  main.js:53:45 m
 main.js:7:22 METHOD_CALL this.parse  ->  known_edge  main.js:9:3 parse
 main.js:8:28 METHOD_CALL this.clamp  ->  known_edge  main.js:10:3 clamp

@@ -13,6 +13,11 @@ const direct = require('./lib/direct');
 function classes() {
   const c = new Circle(2);
   c.describe(); c.area(); c.label; c.label = 'x';
+  // A destructured accessor read and a Reflect.get read. The first is an edge
+  // (#792); the second runs the getter through a reflective call the engine does
+  // not model, so it is a declared debt in project.known-missing.txt. Both only
+  // count at all because the execution oracle now scores accessor edges (#791).
+  const { label } = c;
   const s = Shape.create('base'); s.describe();
   const sq = Square.create('sq'); sq.describe();
   const t = new Tagged('t'); t.reveal(); t.describe();
@@ -60,13 +65,19 @@ async function asyncs() {
 function dynamics() {
   reg.byName('update', 1); reg.byBracket(2); reg.viaProxy(3); reg.viaReflect(4); reg.viaArguments(5, 6); reg.tagged(7);
 }
+// A getter run through Reflect.get, from a caller that reads it no other way. The
+// engine models no reflective property read, so this is an executed accessor edge it
+// lacks, and it is listed in project.known-missing.txt. It is the test that the
+// execution oracle SCORES accessor edges (#791): if they were set aside again, this
+// entry would stop being missing and run.sh would fail on the stale list.
+function reflective() { const c = new Circle(1); return Reflect.get(c, 'label'); }
 function modules() {
   const p = makePlugin('p'); p.run(); makePlugin.shapes.Circle.create('z'); makePlugin.functional.twice(2); makePlugin.late(); if (typeof makePlugin.orphan === 'function') throw new Error('orphan must not be exported');
 }
 async function directs() { await direct.registers(); direct.direct(); direct.keep(); direct.callStored(); }
 async function streamed() { await streams.drive(); await streams.pump(); }
 async function main() {
-  classes(); legacies(); functional(); events(); await asyncs(); await streamed(); await directs(); dynamics(); modules();
+  classes(); reflective(); legacies(); functional(); events(); await asyncs(); await streamed(); await directs(); dynamics(); modules();
   (function iife() { F.inc(9); })();
   (() => F.twice(9))();
 }
