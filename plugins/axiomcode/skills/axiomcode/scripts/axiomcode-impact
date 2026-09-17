@@ -52,6 +52,28 @@ G, run_dl, die = P.G, P.run_dl, P.die
 # `nonsource` / `qual_name` / `edge` / `named` out of this set made the completeness check below unsatisfiable, so the 15 MB
 # export re-ran on EVERY query — the cache never hit once.
 PER_QUERY = {'target', 'textuse', 'importuse', 'inside_target', 'nonsource', 'qual_name', 'edge', 'named'}
+
+# WHICH FACTS A QUESTION ACTUALLY NEEDS. Soufflé loads and joins every .input relation of the program, so a query about a
+# METHOD was reading the 4 MB reference layer that only a field or type target can use — and computing `gen`, `holds` and
+# the rest over the whole graph to derive nothing. The rules are unchanged; a relation a kind cannot reach is handed an
+# EMPTY file, so the answer is identical by construction and the cost is not paid. This table is also the seam the separate
+# per-task programs will be cut along: one binary per question rather than one binary that can answer every question.
+# AXIOMCODE_ALL_FACTS=1 turns the pruning off, which is how validate/prune.py checks the two agree.
+# `decorated`, `bean` and `injected` are NOT in here: a method query reads them for the proxy rule ("called on an instance
+# it obtained itself, so an added proxied annotation does not apply") — the differential test caught that immediately.
+# `ref` is not here either: the alongside layer reads it to tell a sibling that touches the same field from one that does
+# not, for EVERY target kind. What is left is the layer only a field or type target can reach.
+_REF_LAYER = {'qualifier', 'typeref', 'typeref_file', 'literal', 'dec_literal', 'field', 'accessor', 'gen_table',
+              'base_name', 'field_type', 'reexport', 'switch_over'}
+_CONFIG = {'config', 'config_key_known', 'config_site'}
+KIND_SKIPS = {                                     # relations a query of this kind can never reach
+ 'method':    _REF_LAYER | _CONFIG,
+ 'param':     _REF_LAYER | _CONFIG,
+ 'var':       _REF_LAYER | _CONFIG,
+ 'decoration': _REF_LAYER | _CONFIG,
+ 'config':    _REF_LAYER,
+ 'newconst':  (_REF_LAYER - {'switch_over'}) | _CONFIG,
+}
 def ckey(k):
     """the canonical form of a configuration key. A framework binds app.serverPrefix, app.server-prefix,
     app.server_prefix and APP_SERVER_PREFIX to the same property; the graph stores whichever spelling it saw,
@@ -661,8 +683,13 @@ class Impact:
         QS = {}                                                                     # query id -> the target's label, so a multi-target answer says which target each row came from
         g = self.g; D = self.export()
         F = tempfile.mkdtemp(prefix='aximpact-'); O = tempfile.mkdtemp(prefix='aximpact-out-')
+        kinds = {k for k, _, _ in targets}
+        skip = set.intersection(*[KIND_SKIPS.get(k, set()) for k in kinds]) if kinds and all(k in KIND_SKIPS for k in kinds) else set()
+        if os.environ.get('AXIOMCODE_ALL_FACTS'): skip = set()
         for n in os.listdir(D):
-            if n.endswith('.facts'): os.symlink(os.path.join(D, n), os.path.join(F, n))
+            if not n.endswith('.facts'): continue
+            if n[:-6] in skip: open(os.path.join(F, n), 'w').close()                  # an empty file: declared, never read
+            else: os.symlink(os.path.join(D, n), os.path.join(F, n))
         for n in ('edge', 'named'): os.symlink(os.path.join(g.facts, n + '.facts'), os.path.join(F, n + '.facts'))
         T = []; textuse = []; importuse = []; inside = []
         def type_query(qq, tid):
@@ -1023,11 +1050,11 @@ def main(argv):
     if as_json:
         print(json.dumps({'targets': [{'kind': k, 'label': lab} for k, lab, _ in targets],
                           'contract': [{'id': c, 'display': g.disp(c), 'why': why, 'at': g.loc(c), 'for': sorted(contract_of[(c, why)])} for c, why in contract],
-                          'direct': [{'id': c, 'display': g.disp(c), 'role': role, 'why': why, 'certainty': cert, 'at': loc, 'sites': n, 'for': sorted(from_target[(c, why)])} for c, role, why, cert, loc, n in D],
-                          'reached': [{'id': m, 'display': g.disp(m), 'hops': d, 'for': sorted(reach_from[m]), 'at': g.loc(m), 'test': bool(g.sym[m]['is_test'])} for m, d in sorted(reached.items(), key=lambda x: x[1])],
-                          'tests': [{'id': m, 'display': g.disp(m), 'owner': g.sym[m]['owner'], 'name': g.sym[m]['name'], 'hops': d, 'via': g.disp(fx) if fx else None, 'at': g.loc(m), 'certainty': test_cert.get(m), 'chain': [g.disp(x) for x in chains.get(m, [])]} for m, (d, fx) in tests.items()],
-                          'inherited_tests': [{'id': s_, 'display': g.disp(s_), 'at': g.loc(s_), 'inherits': [g.disp(m) for m in ms]} for s_, ms in inh.items()],
-                          'byname_callers': [{'id': c, 'display': g.disp(c), 'at': g.loc(c)} for c in byname_seeds],
+                          'direct': [{'id': c, 'display': g.disp(c), 'role': role, 'why': why, 'certainty': cert, 'at': loc, 'sites': n, 'for': sorted(from_target[(c, why)])} for c, role, why, cert, loc, n in sorted(D, key=lambda x: (CERT[x[3]], x[1], g.disp(x[0]), x[2]))],
+                          'reached': [{'id': m, 'display': g.disp(m), 'hops': d, 'for': sorted(reach_from[m]), 'at': g.loc(m), 'test': bool(g.sym[m]['is_test'])} for m, d in sorted(reached.items(), key=lambda x: (x[1], g.disp(x[0])))],
+                          'tests': [{'id': m, 'display': g.disp(m), 'owner': g.sym[m]['owner'], 'name': g.sym[m]['name'], 'hops': d, 'via': g.disp(fx) if fx else None, 'at': g.loc(m), 'certainty': test_cert.get(m), 'chain': [g.disp(x) for x in chains.get(m, [])]} for m, (d, fx) in sorted(tests.items(), key=lambda kv: (kv[1][0], g.disp(kv[0])))],
+                          'inherited_tests': [{'id': s_, 'display': g.disp(s_), 'at': g.loc(s_), 'inherits': sorted(g.disp(m) for m in ms)} for s_, ms in sorted(inh.items(), key=lambda kv: g.disp(kv[0]))],
+                          'byname_callers': [{'id': c, 'display': g.disp(c), 'at': g.loc(c)} for c in sorted(byname_seeds, key=lambda x: (g.disp(x), x))],
                           'external': [{'at': f'{f}:{l}', 'name': n, 'how': how} for f, l, n, how in sorted({(r[0], int(r[1]), r[2], r[3]) for r in res.get('extbind', [])})],
                           'test_universe': universe, 'verified': bad == 0, 'checked_hops': hops, 'unresolved_inside': u}, indent=1))
         return 0
