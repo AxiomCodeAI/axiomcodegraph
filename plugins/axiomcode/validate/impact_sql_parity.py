@@ -19,12 +19,20 @@ import json, os, random, shutil, sqlite3, subprocess, sys, tempfile, time
 
 S = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'skills', 'axiomcode', 'scripts')
 repo = os.path.abspath(sys.argv[1]); N = int(sys.argv[2]) if len(sys.argv) > 2 else 10
+KIND = sys.argv[3] if len(sys.argv) > 3 else 'method'      # which class of target to sample: method | type
 con = sqlite3.connect(f"file:{os.path.join(repo,'.axiomcode','out','graph.sqlite')}?mode=ro", uri=True)
 # sample in PYTHON, not with sqlite's random(): sqlite's RNG does not take random.seed, so PARITY_SEED changed
 # nothing and a failing target could not be re-run. Order by id first so the population itself is stable.
 random.seed(int(os.environ.get("PARITY_SEED", "5")))
-pool = [r[0] for r in con.execute("""SELECT s.display FROM symbols s JOIN call_edges ce ON ce.callee_method_id=s.id
-    WHERE s.method_id IS NOT NULL GROUP BY s.id ORDER BY s.id""")]
+POOL = {
+    'method': """SELECT s.display FROM symbols s JOIN call_edges ce ON ce.callee_method_id=s.id
+                 WHERE s.method_id IS NOT NULL GROUP BY s.id ORDER BY s.id""",
+    # a type target: classes only. An enum declines by design (rule 343 reads switch_over, which is scanned from
+    # source and not in the bundle), so sampling enums here would only measure the fallback.
+    'type': """SELECT display FROM symbols WHERE type_id IS NOT NULL AND method_id IS NULL
+               AND kind='class' ORDER BY id""",
+}
+pool = [r[0] for r in con.execute(POOL[KIND])]
 targets = random.sample(pool, min(N, len(pool)))
 
 
@@ -61,8 +69,12 @@ for t in targets:
     if ra and rb:
         for k in sorted(set(ra) | set(rb)):
             if k == '_targets': continue
-            sa = {json.dumps(r) for r in ra.get(k, [])}; sb = {json.dumps(r) for r in rb.get(k, [])}
+            la = [json.dumps(r) for r in ra.get(k, [])]; lb = [json.dumps(r) for r in rb.get(k, [])]
+            sa, sb = set(la), set(lb)
             if sa != sb: det.append(f"{k}(miss {len(sa-sb)}, extra {len(sb-sa)})")
+            # a Soufflé relation is a set, so a duplicate row can only come from this side — and comparing as
+            # sets hides it until it reaches a count downstream (`sites: 2` against `sites: 1`).
+            elif len(lb) != len(sb): det.append(f"{k}({len(lb)-len(sb)} duplicate rows)")
     if a != b: det.append('--json')
     if det:
         bad += 1

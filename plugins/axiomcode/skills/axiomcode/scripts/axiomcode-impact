@@ -771,7 +771,8 @@ class Impact:
         # rules run as before. See graph_sql.solve_from_targets.
         if not os.environ.get('AXIOMCODE_DATALOG'):          # SQL is the default; AXIOMCODE_DATALOG=1 falls back to the rules
             import graph_sql
-            _sql = graph_sql.solve_from_targets(g.q, T, QS, g.site_file, _nonsource, self.code)
+            _sql = graph_sql.solve_from_targets(g.q, T, QS, g.site_file, _nonsource, self.code, self.at,
+                                                inside, textuse, importuse)
             if _sql is not None:
                 if os.environ.get('AXIOMCODE_BACKEND'): print('backend=sql', file=sys.stderr)
                 shutil.rmtree(F, ignore_errors=True); shutil.rmtree(O, ignore_errors=True)
