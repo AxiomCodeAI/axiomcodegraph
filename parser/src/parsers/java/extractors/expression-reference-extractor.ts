@@ -3418,6 +3418,20 @@ export class ExpressionReferenceExtractor {
       return;
     }
     
+    // A constant in a case label. Without types the parser cannot tell an enum constant from another
+    // compile-time constant, and both are fields of some type, so one kind is used for every arm rather
+    // than TYPE for the PascalCase ones and FIELD for the ALL_CAPS one.
+    const inCaseLabel = (() => {
+      let p = node.parent;
+      for (let i = 0; p && i < 4; i += 1, p = p.parent) if (p.type === 'switch_label') return true;
+      return false;
+    })();
+    if ((edgeRole === EdgeRole.SWITCH_CASE_LABEL || inCaseLabel) && !this.currentLocalVariableNames.has(identifierName)
+        && !this.currentMethodParamNames.has(identifierName) && !this.currentLambdaParamNames.has(identifierName)) {
+      builder.referencesEntity(ReferencedEntityKind.FIELD);
+      return;
+    }
+
     // Lambda parameter usage (identifier in lambda body matching a lambda param)
     if (this.currentLambdaParamNames.has(identifierName)) {
       builder.referencesEntity(ReferencedEntityKind.LAMBDA_PARAMETER);
