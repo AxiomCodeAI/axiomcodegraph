@@ -766,6 +766,19 @@ class Impact:
         cfgkeys = {payload for kind, lab, payload in targets if kind == 'config'}
         prof('  per-query: targets walked'); g.write('nonsource', sorted(set(self.nonsource_hits(want)) | set(self.config_key_sites(cfgkeys))), F); g.write('qual_name', sorted(set(qn)), F); prof('  per-query: non-source scanned')
         g.write('target', T, F); g.write('textuse', sorted(set(textuse)), F); g.write('importuse', sorted(set(importuse)), F); g.write('inside_target', sorted(set(inside)), F)
+        # AXIOMCODE_SQL: answer from graph.sqlite instead. Same dict, so everything below — the grouping, the
+        # wording, the `verified:` check — is untouched. Returns None for a target kind it does not cover, and the
+        # rules run as before. See graph_sql.solve_from_targets.
+        if os.environ.get('AXIOMCODE_SQL'):
+            import graph_sql
+            _sql = graph_sql.solve_from_targets(g.q, T, QS, g.site_file)
+            if _sql is not None:
+                shutil.rmtree(F, ignore_errors=True); shutil.rmtree(O, ignore_errors=True)
+                if os.environ.get('AXIOMCODE_DUMP_SOLVE'):
+                    d = os.environ['AXIOMCODE_DUMP_SOLVE']; os.makedirs(d, exist_ok=True)
+                    with open(os.path.join(d, re.sub(r'[^A-Za-z0-9_.-]', '_', str(QS)[:60]) + '.json'), 'w') as fh:
+                        json.dump(_sql, fh)
+                return _sql
         prog = self.program()                                                        # the compiled rules, or the interpreter
         if prog[0] == 'souffle' and not shutil.which('souffle'):
             die("this query needs soufflé and none is installed (brew install souffle-lang/souffle/souffle) — or a compiled\n"
@@ -802,7 +815,11 @@ class Impact:
         """one chain from start down to a seed, read back from parent_up (a is one hop further than b); the surest tier first"""
         out = [start]; cur = start; seen = {start}
         while cur in parent:
-            opts = sorted(parent[cur], key=lambda x: P.TIER_RANK.get(x[1], 5))
+            # (tier, then the id) — NOT tier alone. `sorted` is stable, so tier alone leaves ties to the order the
+            # rows arrived in, which is the engine's own emission order: the same graph could be walked down a
+            # different chain and report a different certainty for a test's route depending on it. Breaking the
+            # tie on the id makes the chain a property of the graph rather than of the solver.
+            opts = sorted(parent[cur], key=lambda x: (P.TIER_RANK.get(x[1], 5), x[0]))
             nxt = next((b for b, _ in opts if b not in seen), None)
             if nxt is None: break
             out.append(nxt); seen.add(nxt); cur = nxt
@@ -990,7 +1007,12 @@ def main(argv):
         ch = chains.get(m) or []
         worst = 'by name' if (ch and ch[-1] in byname_seeds) or (not ch and m in byname_seeds) else 'sound'
         for a, b in zip(ch, ch[1:]):
-            c = CERT_UP.get(next((t for x, t in parent.get(a, ()) if x == b), 'known_edge'), 'one of a set')
+            # the WORST tier this hop carries, not the first one listed. The same (a, b) can appear as both a
+            # known_edge and a multi_inferred dispatch; `next()` then reports whichever the engine happened to
+            # emit first, so the same graph could call a route sound or `one of a set` depending on row order.
+            # If a hop is also a multi-target dispatch, the route is not sound.
+            ts = [t for x, t in parent.get(a, ()) if x == b] or ['known_edge']
+            c = max((CERT_UP.get(t, 'one of a set') for t in ts), key=lambda x: CERT_RANK[x])
             if CERT_RANK[c] > CERT_RANK[worst]: worst = c
         return worst
     test_cert = {m: cert_of(m) for m in tests}
@@ -1029,6 +1051,9 @@ def main(argv):
     if contract:
         nm = sum(1 for _, why in contract if 'name match' in why)
         print(f"must change with it ({len(contract)}: " + (f"{len(contract) - nm} bound by a contract the engine resolved, {nm} matched by name" if nm else "bound by a contract the engine resolved") + "):")
+        # printed in a fixed order — by display, then reason. The rows are a set; leaving them in the order the
+        # engine emitted them makes the same answer come out shuffled from one solver to another.
+        contract = sorted(contract, key=lambda cw: (g.disp(cw[0]), g.loc(cw[0]), cw[1]))   # two overloads share a display; the location breaks the tie
         for c, why in contract[:limit]: print(f"    {g.disp(c)}   {g.loc(c)}   — {why}" + (f"   [for {', '.join(sorted(contract_of[(c, why)]))}]" if multi else ''))
         if len(contract) > limit: print(f"    … +{len(contract) - limit} (--limit N)")
     # the window a reader actually sees must not be decided by ASCII: `<arrow>`, `<lambda>`, `<anon …>` sort before

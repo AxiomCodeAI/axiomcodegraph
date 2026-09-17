@@ -366,9 +366,15 @@ def reach_from(rev, seeds, byname=(), cap=40):
 
 def parent_up(edges, depth):
     """the chain read-back: `parent_up(q,a,b,t) :- reach(q,a,d), d>0, reach(q,b,d-1), edge(a,b,t)` — a is one hop
-    further from the change than b, so following it from any reached node walks down to a seed."""
-    return [(a, b, t) for a, b, t in edges
-            if a in depth and b in depth and depth[a] and depth[a] == depth[b] + 1]
+    further from the change than b, so following it from any reached node walks down to a seed.
+
+    DEDUPED, and sorted. A Datalog relation is a set; the edge list is not — the same call edge appears once per
+    row in call_edges, so a caller with five sites to the same callee produced the same parent_up row five times.
+    The chain walk sorts candidates by tier and `sorted` is stable, so duplicates skew which parent a chain takes
+    and, through that, how sure the answer says a test's route is.
+    """
+    return sorted({(a, b, t) for a, b, t in edges
+                   if a in depth and b in depth and depth[a] and depth[a] == depth[b] + 1})
 
 
 import re as _re
@@ -399,7 +405,7 @@ def _test_sets(q):
     return tm, fx
 
 
-def tests_reaching(q, depth, sets=None):
+def tests_reaching(q, depth, sets=None, every=False):
     """test_hit: a test whose own body reaches the change, one a reached fixture runs before it, or one declared
     beside a reached carrier in a test file. Returns {test_id: (hops, via)} at the nearest hop.
 
@@ -449,8 +455,12 @@ def tests_reaching(q, depth, sets=None):
                 if v not in seen: seen.add(v); stack.append(v)
         subs[k] = list(seen)
     test_files = {file_of[t] for t in tm if file_of.get(t)}
-    out = {}
+    # `every=True` returns EVERY (test, hops, via) the rules derive — test_hit is not one row per test: a test
+    # reached by its own body and by two fixtures is three rows, and the answer classifies routes from all of
+    # them. test_near is the nearest of those, which is what the dict form gives.
+    out = {}; rows = set()
     def put(m, d, via):
+        rows.add((m, d, via))
         if m not in out or d < out[m][0]: out[m] = (d, via)
     for sid, d in depth.items():
         if sid in tm: put(sid, d, '')
@@ -460,7 +470,7 @@ def tests_reaching(q, depth, sets=None):
                 for m in tests_by_owner.get(key, ()): put(m, d, sid)
         if sid not in tm and (kind_of.get(sid) in ('class', 'module') or sid in fx or file_of.get(sid) in test_files):
             for m in tests_by_file.get(file_of.get(sid), ()): put(m, d, sid)
-    return out
+    return rows if every else out
 
 
 def _has(q, table):
@@ -479,9 +489,12 @@ def direct_for_method(q, ids):
     """
     ph = ','.join('?' * len(ids))
     rows = []
+    # ordered by site line: when a caller has several call sites the answer names one of them, and the rules name
+    # the lowest. Leaving the order to the table printed a different site (254 against 257) for the same caller.
     for c, tier, f, l in q(f"""SELECT e.caller_id, e.tier, s.file_path, s.start_line
                                FROM call_edges e LEFT JOIN call_sites s ON s.id=e.call_site_id
-                               WHERE e.callee_method_id IN ({ph}) AND e.callee_provenance='client'""", *ids):
+                               WHERE e.callee_method_id IN ({ph}) AND e.callee_provenance='client'
+                               ORDER BY s.start_line""", *ids):
         rows.append((c, 'uses', 'calls it',
                      'one of a set' if tier == 'multi_inferred' else 'resolved', f or '', l or 0))
     names = {r[0] for r in q(f"SELECT name FROM symbols WHERE id IN ({ph})", *ids) if r[0]}
@@ -565,4 +578,57 @@ def contract_for_method(q, ids):
         if o not in ids: out.append((o, 'overrides it'))
     for (b,) in q(f"SELECT method_id FROM overrides WHERE overriding_method_id IN ({ph})", *ids):
         if b not in ids: out.append((b, 'it overrides this'))
+    return out
+
+
+# ── solve: the dict `Impact.run()` returns, without the .facts round trip ─────────────────────────────────────
+
+SOLVE_KINDS = {'method'}     # the kinds answered here; anything else falls back to the rules
+
+def solve_from_targets(q, T, QS, site_file=None):
+    """Return exactly what Impact.run() returns — {relation: [row…, query_id]} — or None to fall back.
+
+    T is the target relation: (query_id, kind, symbol_id, extra). Only method targets are answered here; a
+    config key, a field, a type or a decoration still goes to the rules, which carry their own ~20 cases.
+
+    Every relation this does not derive is returned empty, which is what the rules return for a method target
+    anyway: on sampled targets extbind, gen_fired, caller_handles, caller_unhandled, target_throws and
+    inherited_test had no rows.
+    """
+    if not T or any(k not in SOLVE_KINDS for _, k, _, _ in T): return None
+    # a call site's file as the REPO sees it: Java bundles store absolute paths and the index's `paths` table maps
+    # them. Without this the answer prints the machine's absolute path where the rules print src/main/java/…
+    rel = site_file or (lambda x: x)
+    out = {k: [] for k in ('contract', 'direct', 'direct_edge', 'seed', 'seed_byname', 'reach', 'reach_sure',
+                           'parent_up', 'test_near', 'test_hit', 'inherited_test', 'extbind', 'gen_fired',
+                           'caller_handles', 'caller_unhandled', 'target_throws')}
+    E = _edges(q); rev = _rev(E); sets = _test_sets(q)
+    for qq in QS:
+        ids = sorted({s for r, _k, s, _x in T if r == qq})
+        if not ids: continue
+        con = contract_for_method(q, ids)
+        out['contract'] += [[c, why, qq] for c, why in con]
+        dr = direct_for_method(q, ids)
+        out['direct'] += [[c, role, why, cert, (rel(f) if f else ''), str(l), qq] for c, role, why, cert, f, l in dr]
+        # seed_of(q,m) for a method target is the target and what the contract binds to it
+        seeds = sorted(set(ids) | {c for c, _ in con})
+        out['seed'] += [[m, qq] for m in seeds]
+        ph = ','.join('?' * len(ids))
+        out['direct_edge'] += [[c, m, qq] for c, m in q(
+            f"""SELECT DISTINCT caller_id, callee_method_id FROM call_edges
+                WHERE callee_method_id IN ({ph}) AND callee_provenance='client'""", *ids)]
+        byname = sorted({c for c, _r, _w, cert, _f, _l in dr if cert == 'by name'} - set(seeds))
+        out['seed_byname'] += [[c, qq] for c in byname]
+        depth = reach_from(rev, seeds, byname)
+        out['reach'] += [[m, str(d), qq] for m, d in depth.items()]
+        # reach_sure: the same closure from the seeds that are an exact edge only — a seed reached ONLY through a
+        # by-name / text / one-of-a-set dependent is weak, and the answer says how much of itself rests on those
+        strong = {c for c, _r, _w, cert, _f, _l in dr if cert in ('resolved', 'in scope')}
+        weak = {c for c, _r, _w, cert, _f, _l in dr if cert in ('by name', 'text', 'one of a set')} - strong
+        out['reach_sure'] += [[m, qq] for m in reach_from(rev, [m for m in seeds if m not in weak])]
+        out['parent_up'] += [[a, b, t, qq] for a, b, t in parent_up(E, depth)]
+        out['test_hit'] += [[m, str(d), via, qq] for m, d, via in tests_reaching(q, depth, sets, every=True)]
+        th = tests_reaching(q, depth, sets)
+        out['test_near'] += [[m, str(d), qq] for m, (d, _v) in th.items()]
+    out['_targets'] = QS
     return out
