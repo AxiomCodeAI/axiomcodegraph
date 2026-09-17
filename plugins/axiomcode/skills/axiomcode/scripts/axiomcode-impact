@@ -764,14 +764,14 @@ class Impact:
                 for f in payload: want.add(f['name'])
             elif kind == 'config': want.add(payload)
         cfgkeys = {payload for kind, lab, payload in targets if kind == 'config'}
-        prof('  per-query: targets walked'); g.write('nonsource', sorted(set(self.nonsource_hits(want)) | set(self.config_key_sites(cfgkeys))), F); g.write('qual_name', sorted(set(qn)), F); prof('  per-query: non-source scanned')
+        prof('  per-query: targets walked'); _nonsource = sorted(set(self.nonsource_hits(want)) | set(self.config_key_sites(cfgkeys))); g.write('nonsource', _nonsource, F); g.write('qual_name', sorted(set(qn)), F); prof('  per-query: non-source scanned')
         g.write('target', T, F); g.write('textuse', sorted(set(textuse)), F); g.write('importuse', sorted(set(importuse)), F); g.write('inside_target', sorted(set(inside)), F)
         # AXIOMCODE_SQL: answer from graph.sqlite instead. Same dict, so everything below — the grouping, the
         # wording, the `verified:` check — is untouched. Returns None for a target kind it does not cover, and the
         # rules run as before. See graph_sql.solve_from_targets.
         if os.environ.get('AXIOMCODE_SQL'):
             import graph_sql
-            _sql = graph_sql.solve_from_targets(g.q, T, QS, g.site_file)
+            _sql = graph_sql.solve_from_targets(g.q, T, QS, g.site_file, _nonsource)
             if _sql is not None:
                 shutil.rmtree(F, ignore_errors=True); shutil.rmtree(O, ignore_errors=True)
                 if os.environ.get('AXIOMCODE_DUMP_SOLVE'):
