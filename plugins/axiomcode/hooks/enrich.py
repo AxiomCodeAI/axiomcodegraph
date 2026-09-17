@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """PostToolUse on Read / Grep: the agent used its own action; the graph adds what it knows about what came back, for free.
-
   Read  <file> [offset, limit]  → for the callables declared in the lines read, the edges the text cannot show: callers and
                                  callees in other files or in this file outside the range (with their line), overrides in
                                  other files or in this file's inner / enum classes, unresolved calls. Counts by default,
@@ -11,6 +10,8 @@
 Short on purpose (≤ 10 lines, names not bodies): the transcripts showed pasted context makes runs longer, so this says only
 what a graph knows and a file does not — the edges. Nothing when the repo has no graph, or the read is not source."""
 import collections, json, os, re, sqlite3, subprocess, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import fastimpact
 
 ev = json.load(sys.stdin); tool = ev.get('tool_name', ''); inp = ev.get('tool_input', {}) or {}; cwd = ev.get('cwd') or os.getcwd()
 def rel_of(fp):
@@ -98,6 +99,14 @@ if tool in ('Edit', 'Write', 'MultiEdit'):
     if not decls and not ch.get('notes'): sys.exit(0)
     st = load_state(); st['reported'] = list(dict.fromkeys(st.get('reported', []) + [f"{d['file']}:{d['symbol']}:{d['kind']}:{d.get('detail', '')}" for d in decls])); save_state(st)   # once per session (changes.py reads this)
     def impact(d):
+        """SQL first, as changes.py does — the second call site, and the last Datalog dependency in the hooks.
+        Shelling to axiomcode-impact cost a median 6.94 s on a 1.23M-LOC bundle and blew this timeout=14 on
+        19 of 40 sampled methods; it also carries #833, which kills that script at import wherever
+        importlib.machinery is not incidentally bound."""
+        try:
+            j = fastimpact.impact_shaped(cwd, d['target'])
+            if j is not None: return d, j
+        except Exception: pass
         try: return d, json.loads(subprocess.run([sys.executable, os.path.join(SCR, 'axiomcode-impact'), d['target'], cwd, '--json', '--depth', '12'] + (['--kind', d['target_kind']] if d.get('target_kind') and d['target_kind'] != 'param' and '(' not in d['target'] else []), capture_output=True, text=True, timeout=14).stdout or '{}')
         except Exception: return d, {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex: results = list(ex.map(impact, decls[:3]))
