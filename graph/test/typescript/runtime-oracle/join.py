@@ -38,6 +38,19 @@ import sqlite3
 import sys
 
 work, db_path = sys.argv[1], sys.argv[2]
+production_only = "--production" in sys.argv
+
+# THE SAME production filter the scorer uses, imported rather than restated: a
+# second copy of this regex is a second definition of what "production" means, and
+# the two would drift. zustand without it reads as 702 disagreements, 680 of which
+# are sites in its own test files -- the manifest calls zustand a 218-production-site
+# project for exactly this reason.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ground-truth"))
+try:
+    from score import is_test_path
+except Exception:  # pragma: no cover - the scorer moved; say so rather than guess
+    def is_test_path(_p):
+        raise SystemExit("cannot import is_test_path from ground-truth/score.py")
 
 # ── the run ─────────────────────────────────────────────────────────────────
 runtime = {}
@@ -55,7 +68,7 @@ with open(os.path.join(work, "runtime-sites.tsv")) as fh:
                 out[(f, int(line))] = out.get((f, int(line)), 0) + int(n)
             return out
 
-        runtime[(r["file"], int(r["line"]), int(r["col"]))] = {
+        runtime[(r["file"], int(r["line"]), int(r["col"]), int(r["end_line"]), int(r["end_col"]))] = {
             "col": int(r["col"]),
             "callee_text": r["callee_text"],
             "targets": parse(tg),
@@ -67,7 +80,14 @@ with open(os.path.join(work, "runtime-sites.tsv")) as fh:
 instrumented = set()
 with open(os.path.join(work, "tables", "sites.tsv")) as fh:
     for r in csv.DictReader(fh, delimiter="\t"):
-        instrumented.add((r["file"], int(r["start_line"]), int(r["start_col"])))
+        # THE KEY IS THE WHOLE SPAN, not the start. `a.b().c()` and `a.b()` begin at
+        # the same character, so a start-only key silently merges every method chain --
+        # 881 of zustand's 4209 sites, whose engine answers then pooled into one. The
+        # bundle has 4209 distinct full spans and only 3328 distinct starts.
+        instrumented.add(
+            (r["file"], int(r["start_line"]), int(r["start_col"]),
+             int(r["end_line"]), int(r["end_col"]))
+        )
 
 # ── the engine ──────────────────────────────────────────────────────────────
 con = sqlite3.connect(db_path)
@@ -75,17 +95,19 @@ con.row_factory = sqlite3.Row
 engine = collections.defaultdict(lambda: {"tiers": set(), "targets": {}, "names": set()})
 for row in con.execute(
     """
-    SELECT s.file_path, s.start_line, s.start_column, s.callee_name, e.tier,
+    SELECT s.file_path, s.start_line, s.start_column, s.end_line, s.end_column,
+           s.callee_name, e.tier,
            m.file_path AS tf, m.start_line AS tl, m.qualified_name AS tq,
            m.provenance AS tp
     FROM call_edges e
     JOIN call_sites s ON s.id = e.call_site_id
     LEFT JOIN methods m ON m.id = e.callee_method_id
     WHERE s.file_path IS NOT NULL AND s.start_line IS NOT NULL
-      AND s.start_column IS NOT NULL
+      AND s.start_column IS NOT NULL AND s.end_line IS NOT NULL
     """
 ):
-    k = (row["file_path"], row["start_line"], row["start_column"])
+    k = (row["file_path"], row["start_line"], row["start_column"],
+         row["end_line"], row["end_column"])
     slot = engine[k]
     slot["tiers"].add(row["tier"])
     if row["callee_name"]:
@@ -114,6 +136,8 @@ examples = collections.defaultdict(list)
 unjoinable = []
 
 for key, rt in sorted(runtime.items()):
+    if production_only and is_test_path(key[0]):
+        continue
     eng = engine.get(key)
     if eng is None:
         unjoinable.append(key)
@@ -127,8 +151,13 @@ for key, rt in sorted(runtime.items()):
 
     if not rts:
         b = "NOT_EXECUTED"
-    elif tiers <= {"boundary_lib", "ambient_terminal", "intrinsic_terminal"} and not outside:
-        b = "LIB_BOUNDARY"
+    elif tiers <= {"boundary_lib", "ambient_terminal", "intrinsic_terminal"}:
+        # The engine says this call LEAVES THE CLIENT -- `Object.fromEntries(...)`,
+        # `new Error(...)`. A project declaration seen running at such a site cannot
+        # be the site's callee; it is a function the library called back into, and
+        # the tracer cannot see the library frame in between. Scoring it as a
+        # disagreement would accuse the engine of missing an edge that is not there.
+        b = "LIB_BOUNDARY" if not outside else "LIB_CALLBACK"
     elif all(t.startswith("ambiguous") for t in tiers):
         b = "MISSED"
     elif outside:
@@ -143,7 +172,7 @@ for key, rt in sorted(runtime.items()):
     if len(examples[b]) < 12:
         examples[b].append(
             {
-                "site": "%s:%d:%d" % key,
+                "site": "%s:%d:%d-%d:%d" % key,
                 "written": rt["callee_text"][:50],
                 "tiers": sorted(tiers),
                 "engine_targets": len(et),
@@ -153,10 +182,12 @@ for key, rt in sorted(runtime.items()):
             }
         )
 
-never = len(instrumented - set(runtime))
+scope = {k for k in instrumented if not (production_only and is_test_path(k[0]))}
+never = len(scope - set(runtime))
 summary = {
-    "sites_instrumented": len(instrumented),
-    "sites_executed": len(runtime),
+    "scope": "production only" if production_only else "every instrumented site",
+    "sites_instrumented": len(scope),
+    "sites_executed": len([k for k in runtime if k in scope]),
     "sites_never_executed": never,
     "sites_executed_and_joined": sum(buckets.values()),
     "sites_executed_not_in_bundle": len(unjoinable),

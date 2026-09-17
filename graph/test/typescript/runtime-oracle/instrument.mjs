@@ -17,6 +17,12 @@
 // WHAT IS DELIBERATELY NOT INSTRUMENTED
 // Each skip is counted and printed, because a site that is silently dropped is
 // indistinguishable from one the engine got right.
+//   vi.mock / jest.mock a test runner HOISTS these to the top of the module by
+//                       rewriting the source before it runs, and it recognises them
+//                       by SYNTAX. Wrapped in `__ax.e(__ax.s(n), ...)` the hoister
+//                       no longer sees a top-level call and emits a broken module
+//                       ('})const __vi_import_0__ = ...'). Caught by the integrity
+//                       check on zustand: 13 files passed, 12 after instrumenting.
 //   super(...)          wrapping it is not worth the constructor-ordering risk
 //   direct eval(...)    wrapping turns direct eval into indirect eval, which is
 //                       a different scope. A semantic change, not a cost.
@@ -67,6 +73,8 @@ const EXTS = ['.ts', '.tsx', '.mts', '.cts']
 // -- vite bundles vitest.config.ts in its own process, outside the tracer -- so a
 // rewritten one dies with `__ax is not defined` before a single test runs.
 const CONFIG_FILE = /\.config\.[cm]?tsx?$/
+// Calls a test runner rewrites statically, before anything executes.
+const HOISTED_CALL = /^(vi|jest)\.(mock|doMock|unmock|doUnmock|hoisted|requireActual|requireMock)$/
 
 function walk(dir, acc) {
   for (const e of fs.readdirSync(dir, {withFileTypes: true})) {
@@ -364,6 +372,13 @@ function callSkipReason(node, isCall, sf) {
   if (isCall && node.expression.kind === ts.SyntaxKind.ImportKeyword) return 'dynamic_import'
   if (isCall && ts.isIdentifier(node.expression) && node.expression.text === 'eval')
     return 'direct_eval'
+  if (isCall) {
+    let callee = ''
+    try {
+      callee = node.expression.getText(sf)
+    } catch {}
+    if (HOISTED_CALL.test(callee)) return 'hoisted_by_test_runner'
+  }
   if (insideDecorator(node)) return 'decorator'
   if (isAmbient(node)) return 'ambient'
   const ch = chainInfo(node)
