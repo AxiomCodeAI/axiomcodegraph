@@ -20,3 +20,9 @@ lib/streams.js:18:3 lib/streams.js:9:3
 # call was credited through the setTimeout registration in another function and never
 # appeared.
 lib/direct.js:7:1 lib/direct.js:4:1
+
+# A getter read through `Reflect.get`: the engine models no reflective property read,
+# so the accessor edge is absent. Listed here rather than fixed, and it is also the
+# test that the execution oracle scores accessor edges at all (#791) - if they were set
+# aside again this entry would stop being missing and the run would fail on a stale list.
+main.js:73:1 lib/shapes.js:9:3
