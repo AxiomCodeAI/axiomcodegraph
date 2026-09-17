@@ -1,0 +1,5 @@
+# Accepted gaps for 61-new-expression-type-argument with the library staged. See the
+# client-only file beside this one for the two shapes; `viaLibraryGeneric` is absent here
+# because it RESOLVES once LibBox is a known declaration.
+r587#viaInferredTypeArgument() -> AlphaOp#run(number)
+r587#viaNestedGeneric() -> AlphaOp#run(number)
