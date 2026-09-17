@@ -14,8 +14,8 @@ Every declaration is reported once per session (state next to the graph). Each l
 declaration, how) and `axiomcode impact` (what must change with it, who produces / writes it, who reads it, what reaches
 those, the tests) — ≤ 3 declarations per event, in parallel, a few lines each."""
 import concurrent.futures, json, os, re, subprocess, sys, tempfile
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import fastimpact
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'skills', 'axiomcode', 'scripts'))
+import graph_sql
 
 ev = json.load(sys.stdin); event = ev.get('hook_event_name', ''); tool = ev.get('tool_name', ''); inp = ev.get('tool_input', {}) or {}; cwd = ev.get('cwd') or os.getcwd()
 if not os.path.exists(os.path.join(cwd, '.axiomcode', 'out', 'graph.sqlite')): sys.exit(0)
@@ -49,7 +49,7 @@ def summarize(decls, head, contract_kinds=('signature', 'field', 'type', 'remove
         It returns None for what it does not cover (a constructor, whose callers are instantiations rather than call
         edges); that falls through to impact.dl, which is still right for those."""
         try:
-            j = fastimpact.impact_shaped(cwd, d['target'])
+            j = graph_sql.impact_shaped(cwd, d['target'])
             if j is not None: return d, j
         except Exception: pass
         try: return d, json.loads(subprocess.run([sys.executable, os.path.join(SCR, 'axiomcode-impact'), d['target'], cwd, '--json', '--depth', '12'] + (['--kind', d['target_kind']] if d.get('target_kind') and d['target_kind'] != 'param' and '(' not in d['target'] else []), capture_output=True, text=True, timeout=14).stdout or '{}')

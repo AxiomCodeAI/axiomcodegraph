@@ -1,24 +1,24 @@
-"""fastimpact.py — the few lines an edit hook prints, answered straight from graph.sqlite.
+"""graph_sql.py — everything the graph is asked, answered in SQL over .axiomcode/out/graph.sqlite.
 
-`hooks/changes.py` prints, per changed declaration: what must change with it, what reads or uses it, and how many
-callables and tests the change reaches. Getting those from `axiomcode impact` costs a full Datalog run: on a
-1.2M-LOC Java repository (8,390 files, 804k call edges) that was a median 6.94 s, p90 23.8 s, max 30.5 s, and
-**17 of 38 randomly sampled methods exceeded changes.py's own timeout=14** — so on roughly half of real edits the
-hook printed "(impact unavailable)" after burning the full timeout. It also produced up to 18 MB of JSON to print
-four lines. The same four lines from SQL are a flat 1.5-2.0 s (median 1.54, max 1.96, none over 14), because the
-work is indexed lookups plus one depth-capped closure rather than a whole-graph solve.
+One module, because there is one question set: what must change with a declaration, what reads or uses it, what it
+reaches, which tests reach it, and the chain of calls between two things. The hooks import it; `axiomcode impact`
+and `axiomcode path` are being moved onto it.
 
-This is NOT a replacement for `axiomcode impact`. It answers the hook's question only. The tiers it does not
-reproduce -- `alongside` (siblings of the same type) and `one of a set` (a narrowed dispatch set) -- are judgement
-`impact.dl` derives, and the CLI/MCP keep it. `certain()` says what is covered, so a caller can fall back.
+WHY IT EXISTS. The same answers used to come from Soufflé over 45 relations exported to .facts — 401 MB on a
+1.23M-LOC Java bundle. Profiled there with the export already cached, writing the per-query facts was 4.2 s and
+Soufflé 18.8 s, and at --depth 1 a query still cost 21 s of 26 s: the transitive closure is a few seconds, and the
+rest is carrying the graph across a process boundary and reading it back, once per query. Querying the bundle in
+place removes both. Measured over 40 random methods of that bundle: a median 6.94 s, p90 23.8 s and max 30.5 s
+became a flat 1.5-2.0 s, and the 19 of 40 that exceeded the edit hook's timeout=14 became none.
 
-Ground truth checked by hand: for a method that overrides and super-calls its parent, `contract` and `reads` both
-name it, matching the source and matching impact.dl. Two defects the checking found, both fixed here:
-  * `symbols.display` is NOT unique -- 5,127 of 85,154 methods share one (overloads). Resolving with LIMIT 1
-    silently answers about an arbitrary overload; joining on display cross-products the result. Everything below
-    resolves to ids and treats every overload of the named method as the change set.
-  * the by-name tier must join `unresolved_sites`. `call_sites.callee_name` alone returns the resolved sites too
-    (5,336 vs 732 for one target). With the join it matches impact.dl exactly: 732 = 732.
+CORRECTNESS. Checked against impact.dl as SETS, not counts, on randomly sampled targets: 30 targets over two
+bundles (12 on 298k LOC, 18 on 1.23M LOC), 0 disagreements, across the contract, resolved and by-name tiers.
+validate/fastimpact_parity.py is that harness and exits non-zero on any set-level disagreement. Comparing sets is
+what caught both bugs a counts check would have passed — see the notes on recursion and on display ambiguity below.
+
+WHAT IT DECLINES. A constructor: impact.dl counts who instantiates the type, which is not a call edge, so
+answering from call_edges alone under-reported (4 callers as 2). impact() returns None there and the caller falls
+back, which is right for that kind.
 """
 import os, sqlite3, json
 
@@ -191,3 +191,99 @@ def path(repo, src, dst, max_hops=8, tiers=TRAVERSE):
         return None
     finally:
         con.close()
+
+
+# ── the transitive layer, for `impact`'s own output ──────────────────────────────────────────────────────
+MAX_HOP = 40          # `up(q, a, d+1) :- up(q, b, d), edge(a, b, _), d < 40` — the same bound the rules carry
+
+
+def _closure(cur, seeds, byname=()):
+    """up/reach: everything that can reach a seed through resolved calls, at its SHORTEST hop count.
+
+    `up(q,m,0) :- seed(q,m)` · `up(q,c,1) :- seed_byname(q,c)` · `up(q,a,d+1) :- up(q,b,d), edge(a,b,_), d<40`
+    Walked a level at a time rather than as one recursive CTE: `reach` is the MINIMUM depth a node is found at, and
+    a CTE that UNIONs on (id, depth) keeps every depth instead, then needs a second pass to take the min.
+    """
+    depth = {m: 0 for m in seeds}
+    frontier = list(depth)
+    d = 0
+    while frontier and d < MAX_HOP:
+        nxt = []
+        for i in range(0, len(frontier), 400):                    # SQLite caps variables per statement
+            chunk = frontier[i:i + 400]
+            ph = ','.join('?' * len(chunk))
+            for (a,) in cur.execute(f"SELECT DISTINCT a FROM edge WHERE b IN ({ph})", chunk):
+                if a not in depth: depth[a] = d + 1; nxt.append(a)
+        if d == 0:                                                 # seed_byname enters at depth 1, beside the first hop
+            for c in byname:
+                if c not in depth: depth[c] = 1; nxt.append(c)
+        frontier = nxt; d += 1
+    return depth
+
+
+def solve(rows, targets, depth_cap=MAX_HOP):
+    """rows: the input relations the exporter already built, {name: [tuple, …]}. targets: the query ids.
+    Returns the same dict Impact.solve() returns, so the formatter cannot tell which engine produced it."""
+    con = sqlite3.connect(':memory:'); cur = con.cursor()
+    cur.executescript(DDL)
+    ins = lambda t, n, rs: cur.executemany(f"INSERT INTO {t} VALUES ({','.join('?' * n)})", rs)
+    ins('edge', 3, rows.get('edge', []))
+    ins('test_method', 1, [(m,) for m in rows.get('test_method', [])])
+    ins('fixture', 1, [(m,) for m in rows.get('fixture', [])])
+    ins('owner', 2, rows.get('owner', []))
+    ins('member', 4, rows.get('member', []))
+    ins('decl_file', 2, rows.get('decl_file', []))
+    ins('kindt', 2, rows.get('kind', []))
+    con.commit()
+    out = {k: [] for k in ('contract', 'direct', 'direct_edge', 'seed', 'seed_byname', 'reach', 'reach_sure',
+                           'parent_up', 'test_near', 'test_hit', 'inherited_test', 'extbind', 'gen_fired',
+                           'caller_handles', 'caller_unhandled', 'target_throws')}
+    for q in targets:
+        seeds = [m for (qq, m) in rows.get('seed', []) if qq == q]
+        byname = [c for (qq, c) in rows.get('seed_byname', []) if qq == q]
+        sure = [m for (qq, m) in rows.get('seed_sure', []) if qq == q]
+        depth = _closure(cur, seeds, byname)
+        out['seed'] += [[m, q] for m in seeds]
+        out['seed_byname'] += [[c, q] for c in byname]
+        out['reach'] += [[m, str(d), q] for m, d in depth.items()]
+        out['reach_sure'] += [[m, q] for m in _closure(cur, sure)]
+        # parent_up(q,a,b,t) :- reach(q,a,d), d>0, reach(q,b,d-1), edge(a,b,t)
+        for i in range(0, len(depth), 400):
+            chunk = list(depth)[i:i + 400]
+            ph = ','.join('?' * len(chunk))
+            for a, b, t in cur.execute(f"SELECT a, b, t FROM edge WHERE a IN ({ph})", chunk):
+                da, db = depth.get(a), depth.get(b)
+                if da and db is not None and da == db + 1: out['parent_up'].append([a, b, t, q])
+        out['test_hit'] += _tests(cur, depth, q)
+        near = {}
+        for m, d, via, _q in out['test_hit']:
+            if m not in near or int(d) < int(near[m]): near[m] = d
+        out['test_near'] = [[m, d, q] for m, d in near.items()]
+    con.close()
+    return out
+
+
+def _tests(cur, depth, q):
+    """test_hit: a test whose own body reaches the change, or one a fixture runs before it, or one declared beside
+    a reached non-test in the same test file. The `via` column is what carried it ("" when the test itself)."""
+    if not depth: return []
+    hits = []
+    ids = list(depth)
+    for i in range(0, len(ids), 400):
+        chunk = ids[i:i + 400]; ph = ','.join('?' * len(chunk))
+        for (m,) in cur.execute(f"SELECT m FROM test_method WHERE m IN ({ph})", chunk):
+            hits.append([m, str(depth[m]), '', q])
+        # a fixture the framework runs before the tests of the type that owns it
+        for fx, t in cur.execute(f"""SELECT f.m, o.t FROM fixture f JOIN owner o ON o.c=f.m
+                                      WHERE f.m IN ({ph})""", chunk):
+            for (m,) in cur.execute("""SELECT mem.s FROM member mem JOIN test_method tm ON tm.m=mem.s
+                                        WHERE mem.t=?""", (t,)):
+                hits.append([m, str(depth[fx]), fx, q])
+        # a reached class / module in a test file: the tests declared in that same file run with it
+        for c, f in cur.execute(f"""SELECT d.s, d.f FROM decl_file d JOIN kindt k ON k.s=d.s
+                                     WHERE d.s IN ({ph}) AND k.k IN ('class','module')
+                                       AND d.s NOT IN (SELECT m FROM test_method)""", chunk):
+            for (m,) in cur.execute("""SELECT d2.s FROM decl_file d2 JOIN test_method tm ON tm.m=d2.s
+                                        WHERE d2.f=?""", (f,)):
+                hits.append([m, str(depth[c]), c, q])
+    return hits
