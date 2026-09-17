@@ -314,3 +314,27 @@ builtin_method_returns("frozenset", "union", "frozenset").
 // name is a language fact, and language facts belong in a reviewable list. The gate found
 // this one -- it was the last inline literal in a join position anywhere in the engine.
 class_definition_keyword("metaclass").
+
+// ── py_http_route_verb(Verb) — the HTTP method a route decorator is named after ──
+// A WSGI/ASGI framework registers a handler by decorating it with the HTTP verb:
+// `@app.route(...)` (Flask, Bottle), `@router.get(...)` / `@app.post(...)` (FastAPI,
+// Starlette), `@api.websocket(...)`. The verb set is HTTP's, not any project's — it is
+// RFC 9110's methods plus `route` (a verb-agnostic registration) and `websocket` (the
+// upgrade handshake), so it generalises by construction rather than by sampling.
+//
+// It is a catalogue for the same reason http_entry_ann is one in Java: a decorator is
+// treated as a route ONLY if its final segment is NAMED here, so the list can only ever
+// move a declaration from "no entry point" to "entry point", never silently the other way.
+//
+// The bare name is NOT sufficient and is never matched alone — `get` is also a dict
+// accessor, a descriptor and a thousand local helpers. projections/entry-points.dl
+// requires a receiver and a dot before the verb, and at least one argument.
+py_http_route_verb("route").
+py_http_route_verb("get").
+py_http_route_verb("post").
+py_http_route_verb("put").
+py_http_route_verb("delete").
+py_http_route_verb("patch").
+py_http_route_verb("head").
+py_http_route_verb("options").
+py_http_route_verb("websocket").
