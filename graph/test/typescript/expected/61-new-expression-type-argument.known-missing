@@ -1,0 +1,19 @@
+# Accepted gaps for 61-new-expression-type-argument — each line is an edge the TypeScript
+# compiler resolves and this engine does not. A NEW missing edge fails the suite; a line
+# here that STARTS working also fails, so the debt cannot rot.
+#
+# The type argument is INFERRED from the constructor's argument (`new Held(new AlphaOp())`).
+# That is unification, not substitution: nothing is written down to bind T to. The same gap
+# is pinned for a free function in 09-generics-substitution.
+r587#viaInferredTypeArgument() -> AlphaOp#run(number)
+# NESTED — `new Box<Box<AlphaOp>>()` binds T to the OUTER `Box<AlphaOp>` reference and
+# `bb.get()` is typed Box, which is why `Box#get` itself resolves. The SECOND hop has
+# nothing to read: expr_decl_ref of a chained call is the callee's DECLARED return
+# reference (`T`), not the argument reference the substitution came from, so the argument's
+# own child (`AlphaOp`) never reaches the next call. Fixing it means carrying the binding's
+# reference through the call, which is a wider change than this issue.
+r587#viaNestedGeneric() -> AlphaOp#run(number)
+# CLIENT-ONLY: no library IR is staged in this pass, so `LibBox` is not a known declaration
+# and `new LibBox<AlphaOp>()` has no type parameter to bind to. The .lib pass resolves it,
+# which is the delta the two goldens exist to show.
+r587#viaLibraryGeneric() -> AlphaOp#run(number)
