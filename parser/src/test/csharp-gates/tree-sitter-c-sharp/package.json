@@ -1,0 +1,30 @@
+{
+  "name": "tree-sitter-c-sharp-fork",
+  "version": "0.23.5-abi14-fork26",
+  "description": "tree-sitter-c-sharp 0.23.5, regenerated at ABI 14, plus fork.patch: the async change and thirty-nine grammar rules for shapes upstream cannot parse, and scanner.patch: a verbatim interpolated string ends at one quote, and a #pragma ends at a newline or end of file. Vendored so the parser needs no install-time codegen.",
+  "main": "bindings/node",
+  "license": "MIT",
+  "tree-sitter": [
+    {
+      "scope": "source.cs",
+      "file-types": [
+        "cs"
+      ]
+    }
+  ],
+  "dependencies": {
+    "node-addon-api": "^8.9.2",
+    "node-gyp-build": "^4.8.4"
+  },
+  "peerDependencies": {
+    "tree-sitter": "^0.21.1"
+  },
+  "peerDependenciesMeta": {
+    "tree-sitter": {
+      "optional": true
+    }
+  },
+  "scripts": {
+    "install": "node-gyp-build"
+  }
+}
