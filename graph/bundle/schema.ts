@@ -103,7 +103,7 @@ export const CORE_TABLES: readonly TableSpec[] = [
       { name: 'id', type: 'TEXT', key: true, description: 'Site identifier — an expression hash in every language; in Python it may also be a decorator hash or, for METACLASS_CREATION, the class\'s type hash (see notes).' },
       { name: 'caller_id', type: 'TEXT', indexed: true, description: 'The method whose body contains the site (FK → methods.id) — or, for code that runs outside any method, the enclosing TYPE (Java: TYPE_REGISTRY_… = the type\'s static/instance initializer) or MODULE (TypeScript: TS_MODULE_… as a fallback marker). Never NULL. See notes.' },
       { name: 'kind', type: 'TEXT', description: 'What syntactic form the call takes — the same value as call_edges.kind for this site; see vocabulary (language-specific sets).' },
-      { name: 'callee_name', type: 'TEXT', nullable: true, description: 'The name written at the site (`render` in `w.render()`, the class name in `new Widget()`); NULL when the form has no written name (a constructor delegation, a record deconstruction).' },
+      { name: 'callee_name', type: 'TEXT', nullable: true, indexed: true, description: 'The name written at the site (`render` in `w.render()`, the class name in `new Widget()`); NULL when the form has no written name (a constructor delegation, a record deconstruction).' },
       { name: 'file_path', type: 'TEXT', nullable: true, indexed: true, description: 'Source file.' },
       { name: 'start_line', type: 'INTEGER', nullable: true, description: '1-based line.' },
       { name: 'start_column', type: 'INTEGER', nullable: true, description: 'Column, as the parser counts it.' },
@@ -478,8 +478,9 @@ export const NOTES: readonly NoteSpec[] = [
   { language: 'all', table: 'methods', note: 'Library rows are the subset an edge reaches. To see a library method nothing calls, query the library IR itself.' },
   { language: 'java', table: 'call_sites', note: 'caller_id is a TYPE_REGISTRY_ id (a types row, not a methods row) for a call written in a field initializer or a static/instance initializer block: the parser gives such code no enclosing method, and the rule set attributes it to the type — read it as "runs in this type\'s <clinit>/<init>".' },
   { language: 'typescript', table: 'call_sites', note: 'caller_id is normally the parser\'s caller method, or the module initializer for top-level code; when neither exists it is the TS_MODULE_ hash itself, kept as a greppable marker rather than a blank.' },
-  { language: 'java', table: 'call_sites', note: 'callee_name for `new X()` is the class name written at the site; NULL for ctor_delegate (`this(…)`/`super(…)`), anon_new, and record_accessor.' },
+  { language: 'java', table: 'call_sites', note: 'callee_name for `new X()` and for `new X() { … }` (anon_new) is the class name written at the site; NULL for ctor_delegate (`this(…)`/`super(…)`) and record_accessor, which write no name. A by-name lookup must therefore exclude kind IN (new, anon_new) to avoid counting a construction as a call to a same-named method.' },
   { language: 'java', table: 'call_sites', note: 'A record_accessor site is the RECORD_PATTERN expression, positioned where the pattern is written.' },
+  { language: 'python', table: 'call_sites', note: 'A DECORATOR_APPLICATION edge targets the callable the decorator factory RETURNS, not the name written at the `@` — `@deco(X)` applies the inner callable that `deco` returned. The written name is carried by the separate DECORATOR_CALL row, so a by-name lookup must exclude DECORATOR_APPLICATION or it will read the wrapper as a mismatch.' },
   { language: 'typescript', table: 'call_sites', note: 'end_line / end_column come from the expression row; the call-site row itself records only the start.' },
   { language: 'javascript', table: 'methods', note: 'signature is empty and owner_qualified_name is NULL: JavaScript declares neither. owner_type_id is set for class members, including members declared by assignment.' },
   { language: 'javascript', table: 'methods', note: 'A library row\'s qualified_name and file_path are prefixed with the package: its path under the client when installed there (`node_modules/<pkg>/…`, nested versions included), else its package name (`<pkg>/…`; a second root with the same name gets `#2`). The parser records both relative to the package root, where two packages with an index.js are indistinguishable. Same for types.' },
@@ -487,7 +488,7 @@ export const NOTES: readonly NoteSpec[] = [
   { language: 'javascript', table: 'call_edges', note: 'Targets are VALUES the receiver may hold, not declared types: a `multi_inferred` set is the union of what flowed into the receiver. An untyped receiver is `ambiguous_unknown`, never a name match.' },
   { language: 'typescript', table: 'overrides', note: 'EMPTY — this table is Java-shaped. The TypeScript dispatch envelope is in dispatch_candidates, with basis `nominal` or `structural`.' },
   { language: 'typescript', table: 'type_instantiated', note: 'Every row has how = `new`. Not restricted to client provenance: a type the library constructs is still a type that exists at run time, and dropping it would narrow the envelope unsoundly.' },
-  { language: 'python', table: 'call_sites', note: 'PROPERTY_READ, CONTEXT_MANAGER and ITERATION_PROTOCOL rows are protocol edges with no written call: their site is the expression that triggers the protocol, and callee_name is NULL because nothing was written. Filter them out with kind NOT IN (…) when counting calls.' },
+  { language: 'python', table: 'call_sites', note: 'PROPERTY_READ, CONTEXT_MANAGER, ITERATION_PROTOCOL, METACLASS_CREATION and DYNAMIC_CALL rows are protocol or indirect edges with no written call: their site is the expression that triggers them, and callee_name is always NULL because nothing was written. SUBSCRIPT_CALL is NULL only when the subscript is not a written name (measured 206 of 337 rows on a Python subject). Filter them out with kind NOT IN (…) when counting calls.' },
   { language: 'python', table: 'call_sites', note: 'The id is an EXPRESSION hash for a written call; a DECORATOR hash (PY_DECORATOR_…) for DECORATOR_APPLICATION and DECORATOR_* sites, positioned at the decorator line; and the class\'s TYPE hash for METACLASS_CREATION, positioned at the class declaration.' },
   { language: 'python', table: 'call_edges', note: 'A `boundary_lib` edge may point at a builtin (callee_provenance builtin, callee_label `builtin:NAME`) or at an unstaged import path (callee_provenance external) — neither has a methods row.' },
   { language: 'java', table: 'call_edges', note: 'A `boundary_lib` edge with callee_provenance external names a method of an ancestor type no staged IR declares (callee_label `external:<type>.<name>`, no methods row). A site whose receiver is declared as such a type is multi_inferred even with one client override: the platform method itself, and the platform\'s own subclasses, are the other possible targets. Stage the library to replace the label with the real method.' },
@@ -686,10 +687,10 @@ export function renderSchemaMarkdown(): string {
     out.push('');
     out.push(t.description);
     out.push('');
-    out.push('| # | column | type | null | meaning |');
-    out.push('|---|---|---|---|---|');
+    out.push('| # | column | type | key | null | idx | meaning |');
+    out.push('|---|---|---|---|---|---|---|');
     t.columns.forEach((c, i) => {
-      out.push(`| ${i} | \`${c.name}\`${c.key ? ' 🔑' : ''} | ${c.type} | ${c.nullable ? 'yes' : ''} | ${mdEscape(c.description)} |`);
+      out.push(`| ${i} | \`${c.name}\` | ${c.type} | ${c.key ? 'yes' : ''} | ${c.nullable ? 'yes' : ''} | ${c.indexed ? 'yes' : ''} | ${mdEscape(c.description)} |`);
     });
     out.push('');
     const vocab = VOCAB.filter((v) => v.table === t.name);

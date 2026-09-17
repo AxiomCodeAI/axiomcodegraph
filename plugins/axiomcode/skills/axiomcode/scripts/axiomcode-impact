@@ -13,6 +13,10 @@ A target is a declaration, written as it appears in the code. Its kind is read f
                                                        engine's framework facts — an unknown key stops and says so, never a name match
     --kind method|field|type|param|typeparam|var|config  when the same name is declared as more than one kind
     --delete                                           add a verdict: is it safe to delete, and what the graph cannot vouch for
+    --from-text <file|->  [--top N]                    an ISSUE REPORT instead of a target: every identifier it names (stack
+                                                       frames, file:line, code blocks, prose) resolved against the index and
+                                                       ranked by where it was written, how specific it is and how central it
+                                                       is; --top N runs the impact of the best N as one change set
 
 The answer has the same shape for every kind and every language:
     must change with it     the declarations bound to it by a contract the engine resolved: the overrides of a method
@@ -40,11 +44,37 @@ def prof(what):
     if PROF: print(f"  [{time.time() - _t0:5.1f}s] {what}", file=sys.stderr)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE); import dl_program
 _spec = importlib.util.spec_from_loader('axpath', importlib.machinery.SourceFileLoader('axpath', os.path.join(HERE, 'axiomcode-path')))
 P = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(P)
 G, run_dl, die = P.G, P.run_dl, P.die
 
-PER_QUERY = {'target', 'textuse', 'importuse', 'inside_target'}      # written per query, not part of the cached export
+# written per query (or supplied by the path tool's own export), so the cached export is NOT expected to hold them. Leaving
+# `nonsource` / `qual_name` / `edge` / `named` out of this set made the completeness check below unsatisfiable, so the 15 MB
+# export re-ran on EVERY query — the cache never hit once.
+PER_QUERY = {'target', 'textuse', 'importuse', 'inside_target', 'nonsource', 'qual_name', 'edge', 'named'}
+
+# WHICH FACTS A QUESTION ACTUALLY NEEDS. Soufflé loads and joins every .input relation of the program, so a query about a
+# METHOD was reading the 4 MB reference layer that only a field or type target can use — and computing `gen`, `holds` and
+# the rest over the whole graph to derive nothing. The rules are unchanged; a relation a kind cannot reach is handed an
+# EMPTY file, so the answer is identical by construction and the cost is not paid. This table is also the seam the separate
+# per-task programs will be cut along: one binary per question rather than one binary that can answer every question.
+# AXIOMCODE_ALL_FACTS=1 turns the pruning off, which is how validate/prune.py checks the two agree.
+# `decorated`, `bean` and `injected` are NOT in here: a method query reads them for the proxy rule ("called on an instance
+# it obtained itself, so an added proxied annotation does not apply") — the differential test caught that immediately.
+# `ref` is not here either: the alongside layer reads it to tell a sibling that touches the same field from one that does
+# not, for EVERY target kind. What is left is the layer only a field or type target can reach.
+_REF_LAYER = {'qualifier', 'typeref', 'typeref_file', 'literal', 'dec_literal', 'field', 'accessor', 'gen_table',
+              'base_name', 'field_type', 'reexport', 'switch_over'}
+_CONFIG = {'config', 'config_key_known', 'config_site'}
+KIND_SKIPS = {                                     # relations a query of this kind can never reach
+ 'method':    _REF_LAYER | _CONFIG,
+ 'param':     _REF_LAYER | _CONFIG,
+ 'var':       _REF_LAYER | _CONFIG,
+ 'decoration': _REF_LAYER | _CONFIG,
+ 'config':    _REF_LAYER,
+ 'newconst':  (_REF_LAYER - {'switch_over'}) | _CONFIG,
+}
 def ckey(k):
     """the canonical form of a configuration key. A framework binds app.serverPrefix, app.server-prefix,
     app.server_prefix and APP_SERVER_PREFIX to the same property; the graph stores whichever spelling it saw,
@@ -89,6 +119,14 @@ class Impact:
         if callables_only:                                                             # a field initializer: charged to the type, as the engine does
             for a, b, i in self.spans.get(file, ()):
                 if a <= line <= b and self.g.sym[i].get('type_id') and (best is None or (b - a) < best[0]): best = (b - a, i)
+        return best[1] if best else None
+    def type_at(self, file, line):
+        """the narrowest TYPE whose span holds the line — not the narrowest span, which at a Python `class X(Base):` line is
+        the class BODY (a module-kind symbol) and would drop every base-class row"""
+        best = None
+        for a, b, i in self.spans.get(file, ()):
+            if a <= line <= b and self.g.sym.get(i, {}).get('type_id') and (best is None or (b - a) < best[0]): best = (b - a, i)
+            if a > line: break
         return best[1] if best else None
     def lines(self, file):
         if file not in self.src:
@@ -180,6 +218,14 @@ class Impact:
             return [('string', f"the string {raw} ({n} literal site(s), {d} decoration site(s))", v)]
         s = raw.strip('`"\'')
         if (kind == 'config' or (not kind and self.CONFIG_RE.match(s) and not self.field_rows(s) and not self.types(s, soft=True) and not self.methods(s, soft=True))): return self.config_target(s)
+        if s.startswith('@'):                                                          # an annotation: half of Java-touching commits change one (#758)
+            pat = s[1:].replace('*', '%')
+            rows = self.g.q("SELECT DISTINCT d.owner_id FROM decorations d JOIN symbols x ON x.id = d.owner_id WHERE d.name LIKE ? OR d.name LIKE ?", pat, f"%.{pat}")
+            ids = [r[0] for r in rows if r[0] in self.g.sym]
+            if not ids:
+                near = self.g.q("SELECT name, count(*) n FROM decorations GROUP BY name ORDER BY n DESC LIMIT 8")
+                die(f"nothing carries {s} in this graph." + (" Decorations here: " + ', '.join(f"@{x[0]} ({x[1]})" for x in near) if near else ''))
+            return [('decoration', f"{s} ({len(ids)} declaration(s) carry it)", ids)]
         m = re.match(r'^(.+?):([A-Za-z_]\w*)$', s)
         if m and '/' not in m.group(2):                                                # Owner.m:v — a local
             mids = self.methods(m.group(1)); found = []
@@ -188,7 +234,7 @@ class Impact:
             if found: return [('var', f"local {m.group(2)} in {self.g.disp(found[0])}" + (f" (+{len(found)-1} declarations)" if len(found) > 1 else ''), (found, m.group(2)))]
             die(f"no local named {m.group(2)} is used in {m.group(1)} — locals the parser recorded there: " + ', '.join(sorted({r['name'] for mid in mids for r in self.refs_in(mid, None, LOCAL_KINDS)})[:12]))
         m = re.match(r'^(.+?)<(\w+)>$', s)
-        if m and m.group(2) not in ('init', 'clinit'):                                 # Type<T> / Owner.m<T>
+        if m and m.group(2) not in ('init', 'clinit', 'new'):                                 # Type<T> / Owner.m<T>
             owner, tp = m.group(1), m.group(2)
             ids = self.types(owner, soft=True) or self.methods(owner, soft=True)
             if not ids: die(f"nothing named {owner} in the graph")
@@ -209,6 +255,10 @@ class Impact:
         out = []
         base = re.sub(r'\(.*\)$', '', s).replace('#', '.').strip('.')
         if not (self.field_rows(base) or self.types(base, soft=True) or self.methods(base, soft=True)): base = base.replace('$', '.')   # Outer$Inner — unless $ is part of the name ($Gson$Types)
+        m0 = re.match(r'^(.+)\.<new>$', base)
+        if m0:                                                                         # a member that does not exist yet: the switches are the impact
+            tids = self.types(m0.group(1))
+            return [('newconst', f"a constant to be added to {self.g.disp(tids[0])}", tids)]
         m = re.match(r'^(.+)\.<(init|clinit)>$', base)
         if m:                                                                          # Type.<init> = its construction; Type.<clinit> = its static initialization
             tids = self.types(m.group(1)); ids = []
@@ -344,6 +394,58 @@ class Impact:
                 f"{re.sub(r'\(.*', '', whole)}. Its declaration(s) take: " + ' · '.join(sigs or ['(unknown)']))
         die(f"{whole}: no declaration of {re.sub(r'\(.*', '', whole)} takes ({', '.join(want)}). "
             f"It is declared as: " + ' · '.join(sigs or ['(unknown)']) + " — write one of those, or drop the parentheses for all of them")
+    SOURCE_EXT = {'.java','.py','.ts','.tsx','.js','.jsx','.mjs','.cjs','.kt','.kts','.scala','.go','.rb','.cs','.class','.jar'}
+    SKIP_DIR = {'.git','node_modules','target','build','out','dist','.axiomcode','.idea','.gradle','venv','.venv','__pycache__','.mvn'}
+    # prose is not a run-time binding: a name in a changelog does not break when it is renamed
+    PROSE_EXT = {'.md','.adoc','.rst','.log','.lock','.txt'}
+    def nonsource_files(self):
+        """every text file in the tree that is NOT source the index read. A name bound from one of these (a mapper XML,
+        a services file, a properties file, a build script, a spec) breaks at run time and the compiler is silent."""
+        if hasattr(self, '_nsf'): return self._nsf
+        out = []
+        for root, dirs, files in os.walk(self.g.repo):
+            dirs[:] = [d for d in dirs if d not in self.SKIP_DIR and not d.startswith('.axiomcode')]
+            for fn in files:
+                ext = os.path.splitext(fn)[1].lower()
+                if ext in self.SOURCE_EXT or ext in self.PROSE_EXT: continue
+                fp = os.path.join(root, fn)
+                try:
+                    if os.path.getsize(fp) > 512 * 1024: continue
+                    with open(fp, 'rb') as fh: head = fh.read(2048)
+                    if b'\0' in head: continue
+                except OSError: continue
+                out.append(os.path.relpath(fp, self.g.repo))
+                if len(out) > 4000: break
+        self._nsf = sorted(out); return self._nsf
+    def nonsource_hits(self, names):
+        """-> [(name, file, line)] where one of `names` is written as a whole token in a non-source file"""
+        names = sorted({n for n in names if n and len(n) > 2}, key=len, reverse=True)
+        if not names: return []
+        pat = re.compile(r'(?<![\w.$-])(' + '|'.join(re.escape(n) for n in names) + r')(?![\w$-])')
+        hits = []
+        for rel in self.nonsource_files():
+            try: text = open(os.path.join(self.g.repo, rel), errors='replace').read()
+            except OSError: continue
+            if not any(n in text for n in names): continue
+            for i, line in enumerate(text.split('\n'), 1):
+                for m in pat.finditer(line): hits.append((m.group(1), rel, i))
+                if len(hits) > 2000: break
+        return hits
+    KEYFILE_EXT = {'.properties','.yml','.yaml','.conf','.ini','.cfg','.env'}
+    def config_key_sites(self, keys):
+        """a key DEFINED or overridden in a settings file, matched on the canonical form so the spelling there
+        need not be the spelling that was asked for. -> [(canonical key, file, line)]"""
+        keys = {k for k in keys if k}
+        if not keys: return []
+        out = []
+        for rel in self.nonsource_files():
+            if os.path.splitext(rel)[1].lower() not in self.KEYFILE_EXT: continue
+            try: text = open(os.path.join(self.g.repo, rel), errors='replace').read()
+            except OSError: continue
+            for i, line in enumerate(text.split('\n'), 1):
+                m = re.match(r'\s*([A-Za-z0-9_.\-]+)\s*[:=]', line)
+                if m and ckey(m.group(1)) in keys: out.append((ckey(m.group(1)), rel, i))
+        return out
     def param_declared(self, mid, p):
         s = self.g.sym[mid]; L = self.lines(s['file'])
         head = ' '.join(L[s['line'] - 1: min(s['end_line'], s['line'] + 6)]).split('{')[0]
@@ -360,7 +462,7 @@ class Impact:
         return [ln for ln in range(s['line'], min(s['end_line'], len(L)) + 1) if pat.search(L[ln - 1])]
 
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
-    IMPACT_VERSION = '12'          # 3: decl_file facts (the import-time test-file rule)
+    IMPACT_VERSION = '13'          # 3: decl_file facts (the import-time test-file rule)
     def export(self):
         g = self.g; D = os.path.join(g.facts, 'impact'); stamp = os.path.join(D, 'stamp'); want = f"{os.path.getmtime(g.db)}:{self.IMPACT_VERSION}"
         # a cache written by an older program, or one an interrupted run left half written, breaks every query with
@@ -397,7 +499,8 @@ class Impact:
             if sy['kind'] == 'module' and sy.get('file'): mod_of.setdefault(sy['file'], i)
         modules_used = set()
         for rid, f in self.fields.items():
-            fid = f"f:{rid}"; t = tid_of.get(f['owner'] or '')
+            # the field's own registry hash when the index has it, so a decoration ON the field joins (#750)
+            fid = f['id'] or f"f:{rid}"; t = tid_of.get(f['owner'] or '')
             if not t: t = mod_of.get(f.get('file') or '')
             if not t: continue
             if t in mod_of.values(): modules_used.add(t)
@@ -539,6 +642,40 @@ class Impact:
                      LEFT JOIN symbols s ON s.method_id = i.c4
                      LEFT JOIN symbols o ON o.type_id = i.c3 AND o.method_id IS NULL
                 WHERE i.c2 <> '' AND COALESCE(s.id, o.id) IS NOT NULL""")]
+        # a supertype as WRITTEN: BASE_CLASS (Python), SUPER_TYPE / IMPLEMENTS_INTERFACE (Java, TS) — a library base the
+        # engine never resolved is still a generator when the convention table names it
+        bn = []
+        if g.has('type_refs'):
+            for r in g.q("SELECT name, file, line, context FROM type_refs WHERE context IN ('BASE_CLASS','SUPER_TYPE','IMPLEMENTS_INTERFACE','EXTENDS_TYPE')"):
+                t = self.type_at(r['file'], r['line']) if r['line'] and r['line'] > 0 else None
+                if t: bn.append((t, r['name'].split('.')[-1]))
+                elif not r['line']:                                                       # Java gives no line: the types declared in that file
+                    for x in g.q("SELECT id FROM symbols WHERE file = ? AND type_id IS NOT NULL", r['file']): bn.append((x[0], r['name'].split('.')[-1]))
+        W('base_name', sorted(set(bn)))
+        # a checked exception a callable DECLARES or CATCHES, and a switch over an enum. Java records a throws clause with
+        # no line and (#760) mislabels switch arms, so both are read from the callable's own text — the same source the
+        # [text] certainty already trusts — and handed to the rules as facts
+        thr = []; cat_ = []; sw = []
+        enum_consts = collections.defaultdict(set)
+        for r in g.q("SELECT s.owner, s.name FROM symbols s WHERE s.kind = 'enum_member'"):
+            if r[0]: enum_consts[r[0]].add(r[1])
+        enum_disp = {r[0]: r[1] for r in g.q("SELECT display, id FROM symbols WHERE kind = 'enum' AND type_id IS NOT NULL")}
+        for i, sy in g.sym.items():
+            if not (sy.get('method_id') and sy.get('file') and sy.get('line')): continue
+            L = self.code(sy['file']); a, b = sy['line'], min(sy['end_line'] or sy['line'], len(L))
+            if a > len(L): continue
+            head = ' '.join(L[a - 1:min(b, a + 8)]).split('{')[0]
+            for m_ in re.finditer(r'\bthrows\s+([\w.,\s]+)', head):
+                for e in re.findall(r'[A-Z][\w$]*', m_.group(1)): thr.append((i, e))
+            body = '\n'.join(L[a - 1:b])
+            for e in re.findall(r'\bcatch\s*\(\s*(?:final\s+)?([\w.|\s]+?)\s+\w+\s*\)', body):
+                for x in re.findall(r'[A-Z][\w$]*', e): cat_.append((i, x))
+            if re.search(r'\bswitch\s*[\(\s]', body) or re.search(r'\bmatch\s+\w+\s*:', body):
+                names = set(re.findall(r'\b[A-Z][A-Z0-9_]{1,}\b', body))
+                for disp, tid in enum_disp.items():
+                    hit = names & enum_consts.get(disp, set())
+                    if hit: sw.append((i, tid, str(len(hit))))
+        W('throws_', sorted(set(thr))); W('catches', sorted(set(cat_))); W('switch_over', sorted(set(sw)))
         W('config', cfg); W('config_key_known', [(k,) for k in sorted(keys)]); W('bean', beans); W('injected', sorted(set(inj)))
         open(stamp, 'w').write(want); return D
 
@@ -547,8 +684,13 @@ class Impact:
         QS = {}                                                                     # query id -> the target's label, so a multi-target answer says which target each row came from
         g = self.g; D = self.export()
         F = tempfile.mkdtemp(prefix='aximpact-'); O = tempfile.mkdtemp(prefix='aximpact-out-')
+        kinds = {k for k, _, _ in targets}
+        skip = set.intersection(*[KIND_SKIPS.get(k, set()) for k in kinds]) if kinds and all(k in KIND_SKIPS for k in kinds) else set()
+        if os.environ.get('AXIOMCODE_ALL_FACTS'): skip = set()
         for n in os.listdir(D):
-            if n.endswith('.facts'): os.symlink(os.path.join(D, n), os.path.join(F, n))
+            if not n.endswith('.facts'): continue
+            if n[:-6] in skip: open(os.path.join(F, n), 'w').close()                  # an empty file: declared, never read
+            else: os.symlink(os.path.join(D, n), os.path.join(F, n))
         for n in ('edge', 'named'): os.symlink(os.path.join(g.facts, n + '.facts'), os.path.join(F, n + '.facts'))
         T = []; textuse = []; importuse = []; inside = []
         def type_query(qq, tid):
@@ -572,12 +714,13 @@ class Impact:
                     if r['name'] in names:
                         c = self.at(f, r['line'])
                         if c: importuse.append((c, r['name'], f, r['line']))
+        prof('  per-query: facts linked')
         for i, (kind, lab, payload) in enumerate(targets):
             q = f"q{i}"; QS[q] = lab
             if kind in ('method', 'name match'):            # a name match is answered as the declarations it matched, labelled as what it is
                 for m in payload: T.append((q, 'method', m, ''))
             elif kind == 'field':
-                for f in payload: T.append((q, 'field', f"f:{f['rowid']}", ''))
+                for f in payload: T.append((q, 'field', f['id'] or f"f:{f['rowid']}", ''))
             elif kind == 'type':
                 for tid in payload: type_query(q, tid)
             elif kind == 'clinit':
@@ -591,6 +734,10 @@ class Impact:
                 mids, v = payload
                 for m in mids: T.append((q, 'var', m, v))
             elif kind == 'config': T.append((q, 'config', payload, ''))
+            elif kind == 'decoration':
+                for i in payload: T.append((q, 'decoration', i, ''))
+            elif kind == 'newconst':
+                for tid in payload: T.append((q, 'newconst', tid, ''))
             elif kind == 'string': T.append((q, 'string', '', payload))
             elif kind == 'typeparam':
                 ids, tp = payload
@@ -600,59 +747,156 @@ class Impact:
                         c = self.at(g.sym[oid]['file'], ln)
                         if c: textuse.append((c, tp, g.sym[oid]['file'], ln))
                     if g.sym[oid].get('type_id'): type_query(q + ':type', oid)
+        # names bound from OUTSIDE the source: an XML mapper, a services file, a properties file, a build script.
+        # The compiler is silent about every one of these, so they are the renames that break at run time.
+        want = set(); qn = []
+        for kind, lab, payload in targets:
+            if kind == 'type':
+                for tid in payload:
+                    s = g.sym[tid]; want.add(s['name'])
+                    for nm in (s.get('qualified_name'), s.get('display')):
+                        if nm and nm != s['name']: want.add(nm); qn.append((tid, nm))
+            elif kind == 'method':
+                for mid in payload:
+                    s = g.sym[mid]; want.add(s['name'])
+                    if s.get('display'): want.add(s['display']); qn.append((mid, s['display']))
+            elif kind == 'field':
+                for f in payload: want.add(f['name'])
+            elif kind == 'config': want.add(payload)
+        cfgkeys = {payload for kind, lab, payload in targets if kind == 'config'}
+        prof('  per-query: targets walked'); _nonsource = sorted(set(self.nonsource_hits(want)) | set(self.config_key_sites(cfgkeys))); g.write('nonsource', _nonsource, F); g.write('qual_name', sorted(set(qn)), F); prof('  per-query: non-source scanned')
         g.write('target', T, F); g.write('textuse', sorted(set(textuse)), F); g.write('importuse', sorted(set(importuse)), F); g.write('inside_target', sorted(set(inside)), F)
-        if not shutil.which('souffle'): die("souffle is not installed (brew install souffle-lang/souffle/souffle)")
-        prof('query facts written'); r = subprocess.run(self.program() + ['-F', F, '-D', O], capture_output=True, text=True); prof('souffle returned')
+        # AXIOMCODE_SQL: answer from graph.sqlite instead. Same dict, so everything below — the grouping, the
+        # wording, the `verified:` check — is untouched. Returns None for a target kind it does not cover, and the
+        # rules run as before. See graph_sql.solve_from_targets.
+        if os.environ.get('AXIOMCODE_SQL'):
+            import graph_sql
+            _sql = graph_sql.solve_from_targets(g.q, T, QS, g.site_file, _nonsource)
+            if _sql is not None:
+                shutil.rmtree(F, ignore_errors=True); shutil.rmtree(O, ignore_errors=True)
+                if os.environ.get('AXIOMCODE_DUMP_SOLVE'):
+                    d = os.environ['AXIOMCODE_DUMP_SOLVE']; os.makedirs(d, exist_ok=True)
+                    with open(os.path.join(d, re.sub(r'[^A-Za-z0-9_.-]', '_', str(QS)[:60]) + '.json'), 'w') as fh:
+                        json.dump(_sql, fh)
+                return _sql
+        prog = self.program()                                                        # the compiled rules, or the interpreter
+        if prog[0] == 'souffle' and not shutil.which('souffle'):
+            die("this query needs soufflé and none is installed (brew install souffle-lang/souffle/souffle) — or a compiled\n"
+                f"  rule binary in {os.path.relpath(os.path.join(HERE, 'dl', '.cache'))}/, which runs without it")
+        prof('query facts written'); r = subprocess.run(prog + ['-F', F, '-D', O], capture_output=True, text=True); prof('souffle returned')
         if r.returncode: die("souffle failed:\n" + r.stderr[-1200:])
         out = {}
-        for n in ('contract', 'direct', 'direct_edge', 'seed', 'seed_byname', 'reach', 'reach_sure', 'parent_up', 'test_near', 'test_hit', 'inherited_test'):
+        for n in ('contract', 'direct', 'direct_edge', 'seed', 'seed_byname', 'reach', 'reach_sure', 'parent_up', 'test_near', 'test_hit', 'inherited_test', 'extbind', 'gen_fired', 'caller_handles', 'caller_unhandled', 'target_throws'):
             rows = []
             for l in open(os.path.join(O, n + '.csv')):
                 p = l.rstrip('\n').split('\t')
                 if p[0] in QS: rows.append(p[1:] + [p[0]])                                   # … + the query id, so each row says which target it came from
             out[n] = rows
         out['_targets'] = QS
+        # AXIOMCODE_DUMP_SOLVE=<dir>: record what the rules derived, so the SQL port can be developed and diffed
+        # against real output without re-running a 26 s query for every iteration.
+        if os.environ.get('AXIOMCODE_DUMP_SOLVE'):
+            d = os.environ['AXIOMCODE_DUMP_SOLVE']; os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, re.sub(r'[^A-Za-z0-9_.-]', '_', str(QS)[:60]) + '.json'), 'w') as fh:
+                json.dump(out, fh)
         shutil.rmtree(F, ignore_errors=True); shutil.rmtree(O, ignore_errors=True)
         return out
 
+    def souffle_include(self):
+        return dl_program.souffle_include()
+
     def program(self):
-        """the rules compiled to a native binary once (souffle -g, then c++ as the engine does), cached by the program's hash next to
-        it; the interpreter when there is no compiler. Loading 60 MB of facts is what a query costs, and the binary halves it."""
-        import hashlib
-        dl = os.path.join(HERE, 'dl', 'impact.dl'); ver = subprocess.run(['souffle', '--version'], capture_output=True, text=True).stdout.strip()
-        key = hashlib.sha1((open(dl).read() + ver).encode()).hexdigest()[:16]
-        cache = os.path.join(HERE, 'dl', '.cache'); binp = os.path.join(cache, f'impact-{key}')
-        if os.path.exists(binp): return [binp]
-        if not shutil.which('c++') or os.environ.get('AXIOMCODE_INTERPRET'): return ['souffle', dl]
-        # two runs compiling the same program at once used to share one .cpp and one .tmp: the first to finish removed
-        # the file under the second, which then died with "no such file". Per process names, one atomic rename.
-        os.makedirs(cache, exist_ok=True); cpp = f"{binp}.{os.getpid()}.cpp"; out = f"{binp}.{os.getpid()}.tmp"
-        inc = None
-        for cand in ('/opt/homebrew/Cellar/souffle', '/usr/local/Cellar/souffle', '/usr/include', '/usr/local/include', '/opt/homebrew/include'):
-            hits = [os.path.join(r, 'souffle') for r, ds, fs in os.walk(cand) if 'souffle' in ds and os.path.exists(os.path.join(r, 'souffle', 'CompiledSouffle.h'))] if os.path.isdir(cand) else []
-            if hits: inc = hits[0]; break
-        print(f"compiling {os.path.basename(dl)} to a native binary once (~20 s) …", file=sys.stderr)
-        g1 = subprocess.run(['souffle', '-g', cpp, dl], capture_output=True, text=True)
-        g2 = subprocess.run(['c++', '-std=c++17', '-O3', '-march=native', '-w'] + (['-I', inc] if inc else []) + [cpp, '-o', out], capture_output=True, text=True) if g1.returncode == 0 else g1
-        for f in (cpp,):
-            try: os.remove(f)
-            except OSError: pass
-        if g2.returncode == 0: os.replace(out, binp); return [binp]
-        print(f"  could not compile ({(g2.stderr or '').strip().split(chr(10))[-1][:120]}) — using the interpreter", file=sys.stderr); return ['souffle', dl]
+        """the rules compiled to a native binary once and cached by the program's hash — see dl_program.py, which every
+        query program now shares, and which `axiomcode index` warms so that no query (least of all one under a hook's
+        timeout, which cannot outlast the compile) ever pays the compile itself."""
+        return dl_program.program(os.path.join(HERE, 'dl', 'impact.dl'))
+
     def chain(self, start, parent):
         """one chain from start down to a seed, read back from parent_up (a is one hop further than b); the surest tier first"""
         out = [start]; cur = start; seen = {start}
         while cur in parent:
-            opts = sorted(parent[cur], key=lambda x: P.TIER_RANK.get(x[1], 5))
+            # (tier, then the id) — NOT tier alone. `sorted` is stable, so tier alone leaves ties to the order the
+            # rows arrived in, which is the engine's own emission order: the same graph could be walked down a
+            # different chain and report a different certainty for a test's route depending on it. Breaking the
+            # tie on the id makes the chain a property of the graph rather than of the solver.
+            opts = sorted(parent[cur], key=lambda x: (P.TIER_RANK.get(x[1], 5), x[0]))
             nxt = next((b for b, _ in opts if b not in seen), None)
             if nxt is None: break
             out.append(nxt); seen.add(nxt); cur = nxt
         return out
 
+
+# ── an issue report as the input: which declaration should the question be asked about? ──────────────────────────────
+STOP = {'the', 'this', 'that', 'when', 'with', 'from', 'into', 'null', 'true', 'false', 'void', 'int', 'string', 'list',
+        'map', 'set', 'new', 'return', 'class', 'public', 'private', 'static', 'final', 'issue', 'bug', 'error', 'exception',
+        'expected', 'actual', 'should', 'would', 'test', 'java', 'python', 'main', 'src', 'org', 'com', 'net', 'get', 'set'}
+
+def candidates_from_text(text):
+    """every identifier an issue report offers, with WHERE it was written — a stack frame and a file:line are the strongest
+    signals a report carries, a code block is next, prose last. Returns [(candidate, source, weight)] best source first."""
+    out = []
+    def add(c, src, w):
+        c = c.strip('`"\'.,;:()[]{}')
+        if c and c.lower() not in STOP and len(c) > 2: out.append((c, src, w))
+    # a stack frame: `at pkg.Type.method(File.java:123)` — the frame names the declaration outright
+    for m in re.finditer(r'\bat\s+([\w$.]+)\.([\w$<>]+)\s*\(([\w$.]+\.(?:java|kt|py|ts|js)):(\d+)\)', text):
+        add(f"{m.group(1).split('.')[-1]}.{m.group(2)}", 'a stack frame', 100); add(f"{m.group(3)}:{m.group(4)}", 'a stack frame', 100)
+    for m in re.finditer(r'^\s*File "([^"]+)", line (\d+), in ([\w$]+)', text, re.M):      # a Python traceback
+        add(f"{os.path.basename(m.group(1))}:{m.group(2)}", 'a stack frame', 100); add(m.group(3), 'a stack frame', 95)
+    # an explicit file:line anywhere
+    for m in re.finditer(r'\b([\w./-]+\.(?:java|kt|py|ts|tsx|js|jsx))[:#](\d+)\b', text): add(f"{m.group(1)}:{m.group(2)}", 'a file:line', 90)
+    # a code block or inline code
+    for m in re.finditer(r'```[a-z]*\n(.*?)```', text, re.S):
+        for id_ in re.findall(r'[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*', m.group(1)): add(id_, 'a code block', 60)
+    for m in re.finditer(r'`([^`\n]{2,80})`', text):
+        for id_ in re.findall(r'[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*', m.group(1)): add(id_, 'inline code', 50)
+    # prose: a dotted name, a CamelCase word, a method-looking word
+    for m in re.finditer(r'\b([A-Z][\w$]*\.[\w$]+|[A-Z][a-z]\w{2,}[A-Z]\w+|\b[a-z]\w+[A-Z]\w+)\b\(?\)?', text): add(m.group(1), 'prose', 20)
+    best = {}
+    for c, src, w in out:
+        if c not in best or w > best[c][1]: best[c] = (src, w)
+    return sorted(((c, src, w) for c, (src, w) in best.items()), key=lambda x: -x[2])
+
+def rank_targets(I, g, text, top=5):
+    """resolve every candidate with the tool's own resolver and rank: where it was written, how specific it is (a method
+    over a type), and how central it is (the edges at it). Returns [(score, label, kind, target, why)]."""
+    seen = set(); ranked = []
+    for cand, src, w in candidates_from_text(text)[:120]:
+        if cand in seen: continue
+        seen.add(cand)
+        try:
+            with contextlib.redirect_stdout(io.StringIO()): rs = I.resolve(cand)
+        except SystemExit: continue
+        except Exception: continue
+        for kind, label, payload in rs[:1]:
+            ids = payload if isinstance(payload, list) else (payload[0] if isinstance(payload, tuple) else [])
+            ids = [x for x in ids if isinstance(x, str) and x in g.sym] if isinstance(ids, list) else []
+            deg = 0
+            for i in ids[:8]:
+                m = g.sym[i].get('method_id')
+                if m: deg += g.q("SELECT count(*) FROM call_edges WHERE callee_method_id = ?", m)[0][0]
+                deg += g.q("SELECT count(*) FROM call_edges WHERE caller_id = ?", i)[0][0]
+            spec = {'method': 30, 'param': 25, 'field': 20, 'var': 15, 'config': 25, 'type': 10, 'clinit': 10}.get(kind, 5)
+            if g.sym.get(ids[0], {}).get('is_test') if ids else False: spec -= 25          # the test that reproduces is rarely the thing to change
+            ranked.append((w + spec + min(deg, 20), label, kind, cand, src))
+    # two spellings of one declaration (a stack frame names `Type.method` and `File.java:line` for the same thing) are one
+    # candidate: keep the best-scoring spelling, and keep the order the text put them in when scores tie
+    byl = {}
+    for i, (sc, label, kind, cand, src) in enumerate(ranked):
+        key = re.sub(r'\s*\(.*', '', label)
+        if key not in byl or sc > byl[key][0]: byl[key] = (sc, label, kind, cand, src, i)
+    out = sorted(byl.values(), key=lambda x: (-x[0], x[5]))
+    return [(a, b, c, d, e) for a, b, c, d, e, _ in out][:top]
+
 def main(argv):
     args = list(argv); depth = 40; limit = 25; IN = None; want_tests = '--tests' in args; as_json = '--json' in args; kind = None
-    want_delete = '--delete' in args
-    args = [a for a in args if a not in ('--tests', '--json', '--delete')]
+    want_delete = '--delete' in args; want_warm = '--warm' in args
+    args = [a for a in args if a not in ('--tests', '--json', '--delete', '--warm')]
+    from_text = None; take_top = 0
+    if '--from-text' in args:
+        i = args.index('--from-text'); from_text = args[i + 1]; del args[i:i + 2]
+    if '--top' in args:
+        i = args.index('--top'); take_top = int(args[i + 1]); del args[i:i + 2]
     for flag, conv in (('--depth', int), ('--limit', int), ('--in', str), ('--kind', str)):
         if flag in args:
             i = args.index(flag); v = conv(args[i + 1]); del args[i:i + 2]
@@ -661,8 +905,32 @@ def main(argv):
             elif flag == '--in': IN = v
             else: kind = v
     repo = '.'
-    if len(args) > 1 and os.path.isdir(args[-1]): repo = args.pop()
-    if not args: die("usage: axiomcode impact <target> [<target>…] [<repo>] [--depth N] [--in <path>] [--tests] [--limit N] [--json] [--kind k] [--delete]")
+    if args and os.path.isdir(args[-1]) and (len(args) > 1 or from_text is not None or want_warm): repo = args.pop()
+    if want_warm:
+        # export the graph's facts now, so the FIRST real query does not. It is a per-repo cache keyed by graph.sqlite's
+        # mtime, and building it costs ~8.6 s on jackson-databind (1,373 files) against ~1.3 s for a query that finds it
+        # warm. `axiomcode index` calls this: left to first use, that cost lands inside hooks/changes.py's timeout=14,
+        # several queries at once, and the edit-time impact is lost exactly when a change is being made.
+        g = G(repo); g.IN = IN; I = Impact(g); D = I.export()
+        print(f"impact facts ready ({os.path.relpath(D, os.path.abspath(repo))})")
+        return 0
+    if from_text is not None:
+        # the question an issue report poses is "which declaration is this about?", and the answer decides everything after
+        text = sys.stdin.read() if from_text == '-' else open(from_text, errors='replace').read()
+        gg = G(repo); gg.IN = IN; II = Impact(gg)
+        ranked = rank_targets(II, gg, text, top=max(take_top, 5))
+        if not ranked: die("no identifier in that text resolves to a declaration in this graph — name one, or pass a file:line from a stack frame")
+        print(f"candidate targets from the text ({len(ranked)} shown, best first — where it was written, how specific it is, how central):")
+        for sc, label, kind, cand, src in ranked: print(f"  {sc:>4}  {label}   [{kind}]   — `{cand}` in {src}")
+        if not take_top:
+            print("\n(run the impact of the best one with --top 1, or of the best few as one change set with --top N)")
+            return 0
+        chosen = ranked[:take_top]
+        print(f"\nimpact of the top {len(chosen)} as one change set: " + ', '.join(c[3] for c in chosen) + "\n")
+        args = [c[3] for c in chosen]
+    if not args: die("usage: axiomcode impact <target> [<target>…] [<repo>] [--depth N] [--in <path>] [--tests] [--limit N] [--json] [--kind k] [--delete]\n"
+                     "       axiomcode impact --from-text <file|-> [<repo>] [--top N]   — an issue report in, the candidate declarations out\n"
+                     "       axiomcode impact --warm [<repo>]                            — export the graph's facts now so the first query need not")
     g = G(repo); g.IN = IN; I = Impact(g); prof('graph loaded, path facts exported')
     targets = []
     for a in args:
@@ -680,7 +948,9 @@ def main(argv):
     LAB = res['_targets']; multi = len(LAB) > 1
     contract_of = collections.defaultdict(set)
     for c, why, q_ in res['contract']: contract_of[(c, why)].add(LAB[q_])
-    contract = [k for k in contract_of if k[0] in g.sym]
+    # sorted once, here: the JSON and the printed answer both read this list, and a relation has no inherent
+    # order — leaving it as the solver emitted it made the same answer come out shuffled between engines.
+    contract = sorted((k for k in contract_of if k[0] in g.sym), key=lambda cw: (g.disp(cw[0]), g.loc(cw[0]), cw[1]))
     seeds = {x[0] for x in res['seed']}
     # one row per (callable, reason): the surest certainty, the first location, the number of sites
     best = {}
@@ -688,8 +958,20 @@ def main(argv):
     for c, role, why, cert, f, l, q_ in res['direct']:
         if c not in g.sym: continue
         loc = f"{f}:{l}" if f and int(l) > 0 else g.loc(c); k = (c, why); from_target[k].add(LAB[q_])
-        if k not in best or CERT[cert] < CERT[best[k][1]]: best[k] = (role, cert, loc, best.get(k, (0, 0, 0, 0))[3] + 1)
-        else: best[k] = (best[k][0], best[k][1], best[k][2], best[k][3] + 1)
+        # the LOWEST location, not the first one the solver emitted. A callable with several sites has several
+        # rows and "first" was whichever the engine happened to output first, so the same answer named a
+        # different line from one solver to another. Lowest makes it the first site in the file.
+        def _lower(x, y):
+            def key(v):
+                p_, _, n_ = v.rpartition(':')
+                return (p_ or v, int(n_) if n_.isdigit() else 10 ** 9)
+            return x if key(x) <= key(y) else y
+        if k not in best or CERT[cert] < CERT[best[k][1]]:
+            best[k] = (role, cert, loc, best.get(k, (0, 0, 0, 0))[3] + 1)          # a better certainty: its own line
+        elif CERT[cert] == CERT[best[k][1]]:
+            best[k] = (best[k][0], best[k][1], _lower(best[k][2], loc), best[k][3] + 1)   # same certainty: the lowest line
+        else:
+            best[k] = (best[k][0], best[k][1], best[k][2], best[k][3] + 1)         # a worse one: counted, not located
     D = [(c, role, why, cert, loc, n) for (c, why), (role, cert, loc, n) in best.items()]
     # `alongside` is unbounded by nature — a 200-member type would bury the rest of the answer. Keep the ones that share a
     # field with the target first, then the nearest by file, and say how many were left out (#762).
@@ -714,7 +996,10 @@ def main(argv):
     tests = {}
     for m, d, q_ in res['test_near']:
         if m in g.sym and int(d) <= depth and int(d) < tests.get(m, (10 ** 9,))[0]:
-            tests[m] = (int(d), next((x[2] for x in res['test_hit'] if x[0] == m and int(x[1]) == int(d) and x[2]), None))
+            # the lowest candidate, not the first emitted: a test reached at the same hop count through two
+            # fixtures has two rows, and `next()` reported whichever the solver happened to output first.
+            _vias = sorted(x[2] for x in res['test_hit'] if x[0] == m and int(x[1]) == int(d) and x[2])
+            tests[m] = (int(d), _vias[0] if _vias else None)
     # the same test, inherited: the subclass runs the base's test method, in its own file
     inh = {}
     for s_, m, d in {(x[0], x[1], int(x[2])) for x in res['inherited_test']}:
@@ -722,7 +1007,9 @@ def main(argv):
     byname_seeds = {x[0] for x in res['seed_byname'] if x[0] in g.sym}
     sure_set = {x[0] for x in res['reach_sure']}                 # reached from the dependents that ARE an exact edge
     universe = sum(1 for _ in open(os.path.join(g.facts, 'impact', 'test_method.facts')))
-    direct_ids = {c for c, *_ in D} | {c for c, _ in contract}
+    # an `alongside` row is not a place the change is observed from: it must stay out of the entry points, as it stays out
+    # of the seeds — a reader is promised that an entry point reaches the change (#762)
+    direct_ids = {c for c, role, why, cert, loc, n in D if cert != 'alongside'} | {c for c, _ in contract}
     direct_ids = {c for c in direct_ids if c in g.sym}
     ent = [(m, d) for m, d in {**{c: 0 for c in direct_ids}, **reached}.items() if not callers_of.get(m) or g.sym[m]['is_test']]
     inside = list({*reached, *seeds, *direct_ids})               # the direct rows are not in seed for a method target
@@ -737,7 +1024,12 @@ def main(argv):
         ch = chains.get(m) or []
         worst = 'by name' if (ch and ch[-1] in byname_seeds) or (not ch and m in byname_seeds) else 'sound'
         for a, b in zip(ch, ch[1:]):
-            c = CERT_UP.get(next((t for x, t in parent.get(a, ()) if x == b), 'known_edge'), 'one of a set')
+            # the WORST tier this hop carries, not the first one listed. The same (a, b) can appear as both a
+            # known_edge and a multi_inferred dispatch; `next()` then reports whichever the engine happened to
+            # emit first, so the same graph could call a route sound or `one of a set` depending on row order.
+            # If a hop is also a multi-target dispatch, the route is not sound.
+            ts = [t for x, t in parent.get(a, ()) if x == b] or ['known_edge']
+            c = max((CERT_UP.get(t, 'one of a set') for t in ts), key=lambda x: CERT_RANK[x])
             if CERT_RANK[c] > CERT_RANK[worst]: worst = c
         return worst
     test_cert = {m: cert_of(m) for m in tests}
@@ -757,11 +1049,12 @@ def main(argv):
     if as_json:
         print(json.dumps({'targets': [{'kind': k, 'label': lab} for k, lab, _ in targets],
                           'contract': [{'id': c, 'display': g.disp(c), 'why': why, 'at': g.loc(c), 'for': sorted(contract_of[(c, why)])} for c, why in contract],
-                          'direct': [{'id': c, 'display': g.disp(c), 'role': role, 'why': why, 'certainty': cert, 'at': loc, 'sites': n, 'for': sorted(from_target[(c, why)])} for c, role, why, cert, loc, n in D],
-                          'reached': [{'id': m, 'display': g.disp(m), 'hops': d, 'for': sorted(reach_from[m]), 'at': g.loc(m), 'test': bool(g.sym[m]['is_test'])} for m, d in sorted(reached.items(), key=lambda x: x[1])],
-                          'tests': [{'id': m, 'display': g.disp(m), 'owner': g.sym[m]['owner'], 'name': g.sym[m]['name'], 'hops': d, 'via': g.disp(fx) if fx else None, 'at': g.loc(m), 'certainty': test_cert.get(m), 'chain': [g.disp(x) for x in chains.get(m, [])]} for m, (d, fx) in tests.items()],
-                          'inherited_tests': [{'id': s_, 'display': g.disp(s_), 'at': g.loc(s_), 'inherits': [g.disp(m) for m in ms]} for s_, ms in inh.items()],
-                          'byname_callers': [{'id': c, 'display': g.disp(c), 'at': g.loc(c)} for c in byname_seeds],
+                          'direct': [{'id': c, 'display': g.disp(c), 'role': role, 'why': why, 'certainty': cert, 'at': loc, 'sites': n, 'for': sorted(from_target[(c, why)])} for c, role, why, cert, loc, n in sorted(D, key=lambda x: (CERT[x[3]], x[1], g.disp(x[0]), x[2], x[4]))],
+                          'reached': [{'id': m, 'display': g.disp(m), 'hops': d, 'for': sorted(reach_from[m]), 'at': g.loc(m), 'test': bool(g.sym[m]['is_test'])} for m, d in sorted(reached.items(), key=lambda x: (x[1], g.disp(x[0]), g.loc(x[0])))],
+                          'tests': [{'id': m, 'display': g.disp(m), 'owner': g.sym[m]['owner'], 'name': g.sym[m]['name'], 'hops': d, 'via': g.disp(fx) if fx else None, 'at': g.loc(m), 'certainty': test_cert.get(m), 'chain': [g.disp(x) for x in chains.get(m, [])]} for m, (d, fx) in sorted(tests.items(), key=lambda kv: (kv[1][0], g.disp(kv[0]), g.loc(kv[0])))],
+                          'inherited_tests': [{'id': s_, 'display': g.disp(s_), 'at': g.loc(s_), 'inherits': sorted(g.disp(m) for m in ms)} for s_, ms in sorted(inh.items(), key=lambda kv: (g.disp(kv[0]), g.loc(kv[0])))],
+                          'byname_callers': [{'id': c, 'display': g.disp(c), 'at': g.loc(c)} for c in sorted(byname_seeds, key=lambda x: (g.disp(x), x))],
+                          'external': [{'at': f'{f}:{l}', 'name': n, 'how': how} for f, l, n, how in sorted({(r[0], int(r[1]), r[2], r[3]) for r in res.get('extbind', [])})],
                           'test_universe': universe, 'verified': bad == 0, 'checked_hops': hops, 'unresolved_inside': u}, indent=1))
         return 0
     for k, lab, _ in targets: print(f"change: {lab}   [{k}]")
@@ -775,6 +1068,8 @@ def main(argv):
     if contract:
         nm = sum(1 for _, why in contract if 'name match' in why)
         print(f"must change with it ({len(contract)}: " + (f"{len(contract) - nm} bound by a contract the engine resolved, {nm} matched by name" if nm else "bound by a contract the engine resolved") + "):")
+        # printed in a fixed order — by display, then reason. The rows are a set; leaving them in the order the
+        # engine emitted them makes the same answer come out shuffled from one solver to another.
         for c, why in contract[:limit]: print(f"    {g.disp(c)}   {g.loc(c)}   — {why}" + (f"   [for {', '.join(sorted(contract_of[(c, why)]))}]" if multi else ''))
         if len(contract) > limit: print(f"    … +{len(contract) - limit} (--limit N)")
     # the window a reader actually sees must not be decided by ASCII: `<arrow>`, `<lambda>`, `<anon …>` sort before
@@ -784,6 +1079,18 @@ def main(argv):
     D.sort(key=lambda x: (CERT[x[3]], anon(x[0]), -(x[5] or 1), x[2], g.disp(x[0])))
     groups = [('produces or writes it', [x for x in D if x[1] in ('produces', 'writes')]), ('reads or uses it', [x for x in D if x[1] in ('reads', 'uses')])]
     if not D: print("directly touches it: nothing the graph can see" + (" — the declaration is used only where it is declared, or through something the parser did not record" if not contract else ''))
+    # a throws clause is a contract: say what adding one to this method would cost, and who already handles the ones it has
+    n_callers = len({c for c, role, why, cert, loc, n in D if cert == 'resolved' and 'calls it' in why})
+    thrown = sorted({x[0] for x in res.get('target_throws', [])})
+    handled = sorted({(x[0], x[1]) for x in res.get('caller_handles', [])}); unhandled = sorted({(x[0], x[1]) for x in res.get('caller_unhandled', [])})
+    if thrown or unhandled:
+        tot = len({c for c, _ in handled} | {c for c, _ in unhandled})
+        print(f"throws: this method declares {', '.join(thrown) or 'nothing'}; ADDING a checked exception reaches all {n_callers} resolved caller(s) — each must catch or declare it."
+              + (f" Of the {tot} caller(s) of the exception(s) it already declares, {len({c for c, _ in handled})} catch or declare them: " + ', '.join(sorted({g.disp(c) for c, _ in handled})[:4]) if handled else ''))
+    fired = sorted({(x[0], x[1]) for x in res.get('gen_fired', [])})
+    if fired:
+        print("generated members assumed from a fixed convention list (Lombok, records, dataclasses, attrs, pydantic): "
+              + ', '.join(f"{d} ({why})" for d, why in fired[:6]) + (f" … +{len(fired) - 6}" if len(fired) > 6 else ''))
     if any(x[3] == 'alongside' for x in D):
         if dropped_alongside: print(f"({dropped_alongside} further `alongside` row(s) not shown — AXIOMCODE_ALONGSIDE_CAP={ALONG_CAP}; those kept share a field with the target or sit in its file)")
         print("(`alongside` = no call, no reference, no contract — only that a fix touching one of these often touches the other;\n"
@@ -805,6 +1112,13 @@ def main(argv):
     nfiles = len({g.sym[m]['file'] for m in reached})
     if any(k == 'var' for k, _, _ in targets) and not reached:
         print("reaches those through resolved calls: nothing — a local lives inside its method; it escapes only through what the method returns or writes, and the callers of the method are its impact only if it does")
+    ext = sorted({(r[0], int(r[1]), r[2], r[3]) for r in res.get('extbind', [])}, key=lambda x: (x[0], x[1]))
+    if ext:
+        byfile = collections.Counter(f for f, *_ in ext)
+        print(f"bound from outside the source ({len(ext)} site(s) in {len(byfile)} file(s): a name matched in a file the index does"
+              " not read as source, so the compiler is silent and a rename breaks it at run time):")
+        for f, l, n, how in ext[:limit]: print(f"    [text] {f}:{l}   — {how} ({n})")
+        if len(ext) > limit: print(f"    … +{len(ext) - limit} (--limit N)")
     print(f"reaches those through resolved calls: {len(reached)} more callable(s) in {nfiles} file(s)" + (f" within {depth} hop(s)" if depth < 40 else '') + (f" under *{IN}*" if IN else ''))
     weak = [m for m in reached if m not in sure_set]
     if weak: print(f"    {len(weak)} of those {len(reached)} are reached ONLY through a dependent that is not an exact edge ([by name], [text], [one of a set]): they stand or fall with it")
@@ -818,7 +1132,7 @@ def main(argv):
             decs = [r[0].split('.')[-1] for r in g.q("SELECT name FROM decorations WHERE owner_id = ?", m)] if g.has('decorations') else []
             print(f"      {d:2} hop(s)  {g.disp(m)}{' [test]' if g.sym[m]['is_test'] else ''}{(' @' + ','.join(decs[:3])) if decs else ''}   {g.loc(m)}")
         if len(ent) > limit: print(f"      … +{len(ent) - limit} (--limit N)")
-    if inh: print(f"    inherited by {len(inh)} test class(es) that extend a reached one — they run those tests too: " + ', '.join(f"{g.disp(s_)} ({len(ms)}) {g.loc(s_)}" for s_, ms in sorted(inh.items(), key=lambda x: -len(x[1]))[:6]))
+    if inh: print(f"    inherited by {len(inh)} test class(es) that extend a reached one — they run those tests too: " + ', '.join(f"{g.disp(s_)} ({len(ms)}) {g.loc(s_)}" for s_, ms in sorted(inh.items(), key=lambda x: (-len(x[1]), g.disp(x[0])))[:6]))
     tfiles = {g.sym[m]['file'] for m in tests} | {g.sym[s_]['file'] for s_ in inh if s_ in g.sym}
     all_tfiles = {r[0] for r in g.q("SELECT DISTINCT file FROM symbols WHERE is_test = 1 AND file IS NOT NULL")}
     sure = [m for m, c in test_cert.items() if c == 'sound' and tests[m][0] <= 3]
