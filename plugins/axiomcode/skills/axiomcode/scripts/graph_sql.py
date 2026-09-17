@@ -540,13 +540,19 @@ def direct_for_method(q, ids):
             shared = sorted(by_caller.get(r[0], set()) & tgt_fields)
             if shared:
                 rows[i] = (r[0], r[1], f'a sibling of the same type, using the same field {shared[0]}', r[3], r[4], r[5])
-    sib = {r[0] for r in rows}
+    # only the ALONGSIDE rows emitted so far — building this from every row folds in the resolved callers, and a
+    # caller that also lives in the target's file then never gets its `declared in the same file` row.
+    sib = {r[0] for r in rows if r[3] == 'alongside'}
     for o in owners:
         # `symbols.owner` is a DISPLAY name, not an id — looking the owning type up by id silently found nothing.
         for (f,) in q("SELECT file FROM symbols WHERE display=? AND type_id IS NOT NULL AND file IS NOT NULL LIMIT 1", o):
             for (c,) in q("""SELECT s.id FROM symbols s WHERE s.file=? AND s.method_id IS NOT NULL
                              AND s.owner IS NOT NULL AND s.owner<>?""", f, o):
-                if c not in ids and c not in seen and c not in sib:
+                # same as the sibling rule: a CALLER can also be declared in the same file, and rule 330 has no
+                # "already reported" guard — only `t2 != t`. Excluding callers here dropped the one row that kept
+                # this bundle from parity (LDAPOperationManager.<anon LdapOperation>.execute, which calls the
+                # target AND lives in its file).
+                if c not in ids and c not in sib:
                     rows.append((c, 'uses', 'declared in the same file', 'alongside', '', 0)); sib.add(c)
     return rows
 
