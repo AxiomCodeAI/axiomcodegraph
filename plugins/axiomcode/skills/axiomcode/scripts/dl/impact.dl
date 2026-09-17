@@ -261,22 +261,56 @@ direct(q, m, "uses", "declares it", "resolved", "", 0) :- target(q, "var", m, _)
 direct(q, c, "uses", "captures it (defined inside the method)", "resolved", f, l) :- target(q, "var", m, x), edge(m, c, "defines"), ref(c, x, _, ek, f, l), local_kind(ek).
 .output direct
 
+
+// ── declared alongside it: the sibling members of the target's own type, and the other types declared in the same file.
+//    The weakest certainty there is — no call, no reference, no contract binds them; only "a fix that touches one of these
+//    very often touches the other". Excluded from `seed` below, or the closure would pull in the whole file's upstream.
+.decl alongside(q:symbol, c:symbol, why:symbol)
+.decl target_owner(q:symbol, t:symbol)
+target_owner(q, t) :- target(q, "method", m, _), owner(m, t).
+target_owner(q, t) :- target(q, "param", m, _), owner(m, t).
+target_owner(q, t) :- target(q, "var", m, _), owner(m, t).
+target_owner(q, t) :- target(q, "field", fl, _), field(fl, t, _, _, _).
+target_owner(q, t) :- target(q, "type", t, _).
+target_owner(q, t) :- target(q, "clinit", t, _).
+.decl is_target_decl(q:symbol, c:symbol)                          // the declaration(s) the query is ABOUT — never "alongside" itself
+is_target_decl(q, c) :- target(q, "method", c, _).
+is_target_decl(q, c) :- target(q, "param", c, _).
+is_target_decl(q, c) :- target(q, "var", c, _).
+is_target_decl(q, c) :- target(q, "clinit", _, c).
+is_target_decl(q, c) :- target(q, "typeparam", c, _).
+.decl callable_member(t:symbol, c:symbol)
+callable_member(t, c) :- member(t, c, _, k), k != "field", k != "const", k != "enum_member", k != "variable".
+// a sibling that touches the same state as the target is the one worth reading first (#762: "restrict it to the members
+// that share a field with the target"), so it is told apart from the rest rather than ranked by chance
+.decl target_field(q:symbol, n:symbol)
+target_field(q, n) :- is_target_decl(q, m), ref(m, n, _, _, _, _), target_owner(q, t), member(t, _, n, k), (k = "field" ; k = "const").
+target_field(q, n) :- target(q, "field", fl, _), field(fl, _, n, _, _).
+.decl shares_field(q:symbol, c:symbol, n:symbol)
+shares_field(q, c, n) :- target_field(q, n), ref(c, n, _, _, _, _), target_owner(q, t), callable_member(t, c).
+alongside(q, c, cat("a sibling of the same type, using the same field ", n)) :- shares_field(q, c, n), !inside_target(q, c), !is_target_decl(q, c).
+alongside(q, c, "a sibling of the same type") :- target_owner(q, t), callable_member(t, c), !inside_target(q, c), !is_target_decl(q, c), !shares_field(q, c, _).
+alongside(q, c, "declared in the same file") :- target_owner(q, t), type_in_file(t, f), type_in_file(t2, f), t2 != t, callable_member(t2, c), !inside_target(q, c), !is_target_decl(q, c).
+direct(q, c, "uses", why, "alongside", "", 0) :- alongside(q, c, why).
+
 // ── seeds: where the change lands. A callable: itself. A declaration: every callable whose text uses it ────────
+.decl seed_of(q:symbol, m:symbol)                                 // the seeds proper — what `alongside` must never be, nor feed
 .decl seed(q:symbol, m:symbol)
-seed(q, m) :- target(q, "method", m, _).
-seed(q, m) :- target(q, "param", m, _).
+seed_of(q, m) :- target(q, "method", m, _).
+seed_of(q, m) :- target(q, "param", m, _).
 // a local is not the method: seeding the method would answer a signature change. Only the closures declared inside
 // it carry the value out, and they are already direct rows
-seed(q, c) :- target(q, "var", m, _), edge(m, c, "defines").
-seed(q, m) :- target(q, "clinit", _, m).
-seed(q, m) :- target(q, "config", k, _), config(k, m, _).
-seed(q, t) :- target(q, "field", fl, _), field(fl, t, _, _, _).
-seed(q, m) :- target(q, "type", t, _), member(t, m, _, _), kind(m, k), (k = "method" ; k = "constructor" ; k = "function" ; k = "module").
-seed(q, t) :- target(q, "type", t, _).
-seed(q, t) :- target(q, "typeparam", t, _).
-seed(q, c) :- target(q, k, _, _), k != "method", k != "param", k != "var", direct(q, c, _, _, _, _, _).
-seed(q, c) :- target(q, "typeparam", t, _), typ(t, _, _), direct(q, c, _, _, _, _, _).
-seed(q, c) :- contract(q, c, _).
+seed_of(q, c) :- target(q, "var", m, _), edge(m, c, "defines").
+seed_of(q, m) :- target(q, "clinit", _, m).
+seed_of(q, m) :- target(q, "config", k, _), config(k, m, _).
+seed_of(q, t) :- target(q, "field", fl, _), field(fl, t, _, _, _).
+seed_of(q, m) :- target(q, "type", t, _), member(t, m, _, _), kind(m, k), (k = "method" ; k = "constructor" ; k = "function" ; k = "module").
+seed_of(q, t) :- target(q, "type", t, _).
+seed_of(q, t) :- target(q, "typeparam", t, _).
+seed_of(q, c) :- target(q, k, _, _), k != "method", k != "param", k != "var", direct(q, c, _, _, cert, _, _), cert != "alongside".
+seed_of(q, c) :- target(q, "typeparam", t, _), typ(t, _, _), direct(q, c, _, _, cert, _, _), cert != "alongside".
+seed_of(q, c) :- contract(q, c, _).
+seed(q, m) :- seed_of(q, m).
 .output seed
 
 // every resolved direct row names the declaration its edge lands on, so `verified:` can check THAT pair — not
@@ -300,7 +334,7 @@ direct(q, c, "uses", "re-exports the whole module it is declared in (export * �
 // ── a STRING target: a topic, a queue, a route, a bean qualifier — a name in a namespace that is not the code's ──
 direct(q, c, "uses", "names it in a string literal", "text", f, l) :- target(q, "string", _, v), literal(c, v, f, l).
 direct(q, c, "uses", cat("binds to it through @", d), "text", f, l) :- target(q, "string", _, v), dec_literal(c, d, v, f, l).
-seed(q, c) :- target(q, "string", _, _), direct(q, c, _, _, _, _, _).
+seed_of(q, c) :- target(q, "string", _, _), direct(q, c, _, _, cert, _, _), cert != "alongside".
 
 // ── the transitive layer: everything that can reach a seed through resolved calls, shortest hop count ──────────
 // A call site written with the target's simple name that the engine could not resolve (the receiver was not typed —

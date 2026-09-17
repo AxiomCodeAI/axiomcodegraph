@@ -51,7 +51,7 @@ def ckey(k):
     so a key is matched on this form and every spelling that shares it is one target."""
     return re.sub(r'[^a-z0-9.]', '', k.lower())
 
-CERT = {'resolved': 0, 'one of a set': 1, 'in scope': 2, 'by name': 3, 'text': 4}
+CERT = {'resolved': 0, 'one of a set': 1, 'in scope': 2, 'by name': 3, 'text': 4, 'alongside': 5}
 LOCAL_KINDS = {'LOCAL_VARIABLE', 'PARAMETER', 'LAMBDA_PARAMETER', 'VARIABLE', 'PARAM'}          # a ref the parser says is a local, not a member
 QUALIFIED_KINDS = {'FIELD_ACCESS', 'PROPERTY_ACCESS', 'ATTRIBUTE_ACCESS'}
 MEMBER_KINDS = {'FIELD', 'PROPERTY', 'ATTRIBUTE', 'METHOD', 'FUNCTION'}                          # written `x.name`, against a receiver; the rest are bare names
@@ -666,6 +666,7 @@ def main(argv):
         elif len(rs) > 1 and not kind:
             die(f"{a} is declared as more than one kind: " + ' · '.join(f"{k} ({lab})" for k, lab, _ in rs) + " — say which with --kind " + '|'.join(k for k, _, _ in rs))
         targets += rs
+    targets_files = [t for k, _, pay in targets for t in (pay if isinstance(pay, list) else []) if isinstance(t, str) and t in g.sym]
     prof('targets resolved'); res = I.run(targets); prof('souffle done')
     LAB = res['_targets']; multi = len(LAB) > 1
     contract_of = collections.defaultdict(set)
@@ -681,6 +682,15 @@ def main(argv):
         if k not in best or CERT[cert] < CERT[best[k][1]]: best[k] = (role, cert, loc, best.get(k, (0, 0, 0, 0))[3] + 1)
         else: best[k] = (best[k][0], best[k][1], best[k][2], best[k][3] + 1)
     D = [(c, role, why, cert, loc, n) for (c, why), (role, cert, loc, n) in best.items()]
+    # `alongside` is unbounded by nature — a 200-member type would bury the rest of the answer. Keep the ones that share a
+    # field with the target first, then the nearest by file, and say how many were left out (#762).
+    ALONG_CAP = int(os.environ.get('AXIOMCODE_ALONGSIDE_CAP', '0'))                              # 0 = keep them all: the PRINTED answer is already bounded by --limit
+    al = [x for x in D if x[3] == 'alongside']
+    al.sort(key=lambda x: (0 if 'same field' in x[2] else 1, g.sym[x[0]]['file'] != (g.sym[targets_files[0]]['file'] if targets_files else ''), g.disp(x[0])))
+    if ALONG_CAP and len(al) > ALONG_CAP:
+        dropped_alongside = len(al) - ALONG_CAP
+        keep = set(id(x) for x in al[:ALONG_CAP]); D = [x for x in D if x[3] != 'alongside' or id(x) in keep]
+    else: dropped_alongside = 0
     reached = {}
     reach_from = collections.defaultdict(set)
     for m, d, q_ in res['reach']:
@@ -765,6 +775,10 @@ def main(argv):
     D.sort(key=lambda x: (CERT[x[3]], anon(x[0]), -(x[5] or 1), x[2], g.disp(x[0])))
     groups = [('produces or writes it', [x for x in D if x[1] in ('produces', 'writes')]), ('reads or uses it', [x for x in D if x[1] in ('reads', 'uses')])]
     if not D: print("directly touches it: nothing the graph can see" + (" — the declaration is used only where it is declared, or through something the parser did not record" if not contract else ''))
+    if any(x[3] == 'alongside' for x in D):
+        if dropped_alongside: print(f"({dropped_alongside} further `alongside` row(s) not shown — AXIOMCODE_ALONGSIDE_CAP={ALONG_CAP}; those kept share a field with the target or sit in its file)")
+        print("(`alongside` = no call, no reference, no contract — only that a fix touching one of these often touches the other;\n"
+              " it is never a seed, so the transitive layer below is unaffected by it)")
     for title, rows in groups:
         if not rows: continue
         by = collections.Counter(cert for _, _, _, cert, _, _ in rows)
