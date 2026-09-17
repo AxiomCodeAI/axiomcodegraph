@@ -152,7 +152,23 @@ direct(q, c, "uses", cat("receives it by dependency injection (", kind, ") — t
 direct(q, c, "uses", cat("is injected with the bean this defines (", kind, ")"), "resolved", "", 0) :- target(q, "method", m, _), owner(m, ot), bean(_, ot, _), injected(ot, c, kind), c != m.
 
 // a METHOD: its callers, and the unresolved sites written with its name
-direct(q, c, "uses", "calls it", "resolved", f, l) :- target(q, "method", m, _), calls(c, m, t, f, l), t != "multi_inferred".
+direct(q, c, "uses", "calls it", "resolved", f, l) :- target(q, "method", m, _), calls(c, m, t, f, l), t != "multi_inferred", !bean_call(q, c, m).
+// A call INTO a method of a container-managed bean. Whether the container's proxy is on the path decides whether a
+// behavioural annotation added to the method (a transaction, a cache, an async dispatch, a retry, an authorization
+// check) reaches this caller at all: a call from inside the bean goes through `this` and never through the proxy.
+// This is a per-framework convention stated as such, and it fires only where the graph actually found a container.
+.decl bean_call(q:symbol, c:symbol, m:symbol)
+bean_call(q, c, m) :- target(q, "method", m, _), owner(m, ot), bean(_, ot, _), calls(c, m, t, _, _), t != "multi_inferred".
+// the type that the container hands the bean to: a field injection names the type, a constructor or setter names the method
+.decl receives_bean(t:symbol, into:symbol)
+receives_bean(t, into) :- injected(t, into, _), typ(into, _, _).
+receives_bean(t, into) :- injected(t, x, _), owner(x, into).
+direct(q, c, "uses", "calls it from inside the same bean — through this, not through the container proxy, so an added proxied annotation does NOT apply to this caller", "resolved", f, l) :-
+    bean_call(q, c, m), owner(m, ot), owner(c, ot), calls(c, m, _, f, l).
+direct(q, c, "uses", "calls it on the injected bean — the container proxy is on the path, so an added proxied annotation applies here", "resolved", f, l) :-
+    bean_call(q, c, m), owner(m, ot), owner(c, cot), cot != ot, receives_bean(ot, cot), calls(c, m, _, f, l).
+direct(q, c, "uses", "calls it on an instance it obtained itself, not from the container — no proxy on the path, so an added proxied annotation does not apply here", "resolved", f, l) :-
+    bean_call(q, c, m), owner(m, ot), owner(c, cot), cot != ot, !receives_bean(ot, cot), calls(c, m, _, f, l).
 direct(q, c, "uses", "calls it", "one of a set", f, l) :- target(q, "method", m, _), calls(c, m, "multi_inferred", f, l).
 direct(q, c, "uses", "calls a method of this name (receiver not typed)", "by name", f, l) :- target(q, "method", m, _), named(n, m), unresolved(c, n, k, f, l), !ctor_kind(k).
 
