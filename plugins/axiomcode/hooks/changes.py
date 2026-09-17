@@ -14,6 +14,8 @@ Every declaration is reported once per session (state next to the graph). Each l
 declaration, how) and `axiomcode impact` (what must change with it, who produces / writes it, who reads it, what reaches
 those, the tests) — ≤ 3 declarations per event, in parallel, a few lines each."""
 import concurrent.futures, json, os, re, subprocess, sys, tempfile
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import fastimpact
 
 ev = json.load(sys.stdin); event = ev.get('hook_event_name', ''); tool = ev.get('tool_name', ''); inp = ev.get('tool_input', {}) or {}; cwd = ev.get('cwd') or os.getcwd()
 if not os.path.exists(os.path.join(cwd, '.axiomcode', 'out', 'graph.sqlite')): sys.exit(0)
@@ -40,6 +42,16 @@ def changed(args, timeout=12):
 def summarize(decls, head, contract_kinds=('signature', 'field', 'type', 'removed')):
     """the blast radius of up to three changed declarations, a few lines each"""
     def impact(d):
+        """SQL first. The Datalog run this replaced was a median 6.94 s on a 1.2M-LOC bundle, p90 23.8 s, and 17 of 38
+        randomly sampled methods blew the 14 s timeout below — so on roughly half of real edits the hook printed
+        "(impact unavailable)" after waiting the full timeout. fastimpact answers the same lines in a flat ~1.7 s and
+        matched impact.dl exactly on 14/14 sampled targets (contract, resolved and by-name tiers as SETS).
+        It returns None for what it does not cover (a constructor, whose callers are instantiations rather than call
+        edges); that falls through to impact.dl, which is still right for those."""
+        try:
+            j = fastimpact.impact_shaped(cwd, d['target'])
+            if j is not None: return d, j
+        except Exception: pass
         try: return d, json.loads(subprocess.run([sys.executable, os.path.join(SCR, 'axiomcode-impact'), d['target'], cwd, '--json', '--depth', '12'] + (['--kind', d['target_kind']] if d.get('target_kind') and d['target_kind'] != 'param' and '(' not in d['target'] else []), capture_output=True, text=True, timeout=14).stdout or '{}')
         except Exception: return d, {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex: results = list(ex.map(impact, decls[:3]))
