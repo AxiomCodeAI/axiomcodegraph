@@ -586,7 +586,8 @@
 // outbound_destination(Method, Value, "whole"|"fragment") -- where a CALLER says it
 // is going. `fragment` is one operand of a concatenation: real evidence, not a
 // whole destination, and never matched as one.
-.decl outbound_destination(c0:symbol,c1:symbol,c2:symbol)
+.decl cfg_expr_pos(c0:symbol,c1:symbol,c2:symbol)
+.decl outbound_destination(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
 .decl cfg_declarative_client_type(c0:symbol)
 // http_route_role(Method, "client"|"server") -- a @FeignClient interface declares a
 // route it CALLS; a controller declares one it SERVES. Same annotations, opposite ends.

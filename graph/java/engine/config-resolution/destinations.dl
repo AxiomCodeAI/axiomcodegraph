@@ -226,7 +226,13 @@ cfg_string_literal(h, lit) :- expr_literal("client", lit, h),
 
 call_arg_literal(call, lit) :- cfg_arg_part(call, p), cfg_string_literal(p, lit).
 
-// ── outbound_destination(Method, Value, Completeness) ───────────────────────
+// The expression's own position. Needed because the ORDER of the fragments is the
+// whole discriminator: `/api/inventory/` then `/reserved` builds
+// `/api/inventory/*/reserved`, and the other order builds nonsense. Relation row
+// order is not source order and must never be used as one.
+cfg_expr_pos(h, sl, sc) :- java_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, sl, sc, _, _, h).
+
+// ── outbound_destination(Method, Value, Completeness, Line, Column) ─────────
 // `whole` means this literal is the entire argument -- the caller wrote the
 // destination and nothing else. `fragment` means it is one operand of a
 // concatenation, so the real destination is this plus something not known here.
@@ -236,11 +242,14 @@ call_arg_literal(call, lit) :- cfg_arg_part(call, p), cfg_string_literal(p, lit)
 // literal matched the @RabbitListener that drains the queue and produced an edge
 // from the factory method to the listener -- an edge the trace never saw, and the
 // only false positive this linker has produced.
-outbound_destination(caller, lit, "whole") :- expr_child("client", call, "ARGUMENT", arg),
+outbound_destination(caller, lit, "whole", sl, sc) :- expr_child("client", call, "ARGUMENT", arg),
     cfg_string_literal(arg, lit),
+    cfg_expr_pos(arg, sl, sc),
     invocation_site(call, "method"),
     call_from(call, caller).
-outbound_destination(caller, lit, "fragment") :- call_arg_literal(call, lit),
+outbound_destination(caller, lit, "fragment", sl, sc) :- cfg_arg_part(call, p),
+    cfg_string_literal(p, lit),
+    cfg_expr_pos(p, sl, sc),
     invocation_site(call, "method"),
     call_from(call, caller),
     !cfg_whole_arg_literal(call, lit).
@@ -260,8 +269,8 @@ cfg_whole_arg_literal(call, lit) :- expr_child("client", call, "ARGUMENT", arg),
 // at once. Reporting three edges where one is real is worse than reporting none,
 // so fragments are recorded and left for a rule that can rank them.
 service_call_edge(p, cm, "literal_destination") :-
-    outbound_destination(p, lit, "whole"),
+    outbound_destination(p, lit, "whole", _, _),
     message_destination(cm, _, lit, "annotation"), p != cm.
 service_call_edge(p, s, "literal_route") :-
-    outbound_destination(p, lit, "whole"),
+    outbound_destination(p, lit, "whole", _, _),
     http_route(s, _, lit, _), http_route_role(s, "server"), p != s.
