@@ -1,0 +1,8 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "every arm of a switch over an enum is classified the same way, so the constant's readers are found whatever the constant is called",
+   "run": ["impact", "Type.EOF", "--kind", "field"],
+   "want": ["Token.name"]},
+  {"why": "a PascalCase constant in the same switch is found too",
+   "run": ["impact", "Type.StartTag", "--kind", "field"],
+   "want": ["Token.name"]}]}
