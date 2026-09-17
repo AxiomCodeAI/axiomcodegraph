@@ -15,8 +15,7 @@ lib/values.js:20:10 METHOD_CALL cfg.deep.deeper.deepest.fn  ->  known_edge  lib/
 lib/values.js:22:76 METHOD_CALL o.m  ->  known_edge  lib/values.js:6:16 m
 lib/values.js:22:90 METHOD_CALL o.extra  ->  known_edge  lib/values.js:22:49 extra
 lib/values.js:23:37 METHOD_CALL Object.assign  ->  ambient_terminal  -
-lib/values.js:23:69 METHOD_CALL o.m  ->  ambient_terminal  -
-lib/values.js:23:69 METHOD_CALL o.m  ->  multi_inferred  lib/values.js:6:16 m
+lib/values.js:23:69 METHOD_CALL o.m  ->  known_edge  lib/values.js:6:16 m
 lib/values.js:24:31 METHOD_CALL Object.freeze  ->  ambient_terminal  -
 lib/values.js:24:63 METHOD_CALL o.m  ->  ambient_terminal  -
 lib/values.js:24:63 METHOD_CALL o.m  ->  multi_inferred  lib/values.js:3:1 a
