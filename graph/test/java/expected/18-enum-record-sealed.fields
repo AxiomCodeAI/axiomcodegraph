@@ -1,0 +1,7 @@
+ambiguous_unknown	read	LangFeatures#main(String[]) -> -
+known_edge	read	LangFeatures#main(String[]) -> LangFeatures.Op#ADD
+known_edge	read	LangFeatures#main(String[]) -> LangFeatures.Op#MUL
+known_edge	read	LangFeatures.Circle#area() -> LangFeatures.Circle#r
+known_edge	read	LangFeatures.Point#norm() -> LangFeatures.Point#x
+known_edge	read	LangFeatures.Point#norm() -> LangFeatures.Point#y
+known_edge	read	LangFeatures.Square#area() -> LangFeatures.Square#s

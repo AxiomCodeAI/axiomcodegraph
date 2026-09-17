@@ -1,0 +1,2 @@
+known_edge	read	lowering.Lowering.Bag#iterator() -> lowering.Lowering.Bag#items
+known_edge	read	lowering.Lowering.Bag#size() -> lowering.Lowering.Bag#items

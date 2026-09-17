@@ -1,0 +1,5 @@
+known_edge	read	testcases.config.Service1#a(String) -> testcases.config.Service1#store
+known_edge	read	testcases.config.Service1#b(String) -> testcases.config.Service1#codec
+known_edge	read	testcases.config.Service1#c(String) -> testcases.config.Service1#picked
+known_edge	read	testcases.config.Service2#d(String) -> testcases.config.Service2#store
+known_edge	write	testcases.config.Service2#<init>(Store) -> testcases.config.Service2#store

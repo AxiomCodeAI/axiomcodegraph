@@ -1,0 +1,11 @@
+ambiguous_unknown	read	Asset#<init>() -> -
+ambiguous_unknown	read	Asset#main(String[]) -> -
+known_edge	read	Asset#handle(String) -> Asset#loader
+known_edge	read	Asset#handleBlock(String) -> Asset#blockLambda
+known_edge	read	Asset#handleInit(String) -> Asset#initField
+known_edge	read	Asset#handleRef(String) -> Asset#ref
+known_edge	read	Asset#handleTwoWay(String) -> Asset#twoWay
+known_edge	write	Asset#<init>() -> Asset#blockLambda
+known_edge	write	Asset#<init>() -> Asset#loader
+known_edge	write	Asset#pickA() -> Asset#twoWay
+known_edge	write	Asset#pickB() -> Asset#twoWay

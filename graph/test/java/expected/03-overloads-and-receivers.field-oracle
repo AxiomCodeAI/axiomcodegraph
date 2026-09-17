@@ -1,0 +1,7 @@
+03-overloads-and-receivers
+  precision 1.0000   (2 correct, 0 wrong)
+  recall    1.0000   (2 of 2 in the bytecode)
+  sites 2   resolved 2 (100.0%)
+  tiers known_edge=2
+  access read=2
+  not scored: 0 initializer-owned, 0 in a class the build did not compile, 0 oracle rows in a static initializer, 0 reads of an inlined constant

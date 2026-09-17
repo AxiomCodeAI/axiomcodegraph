@@ -1,0 +1,69 @@
+// ============================================================================
+// Resolution · FIELD LOOKUP  (name in type, with ancestors, hiding-aware)
+//
+// Given a type, the fields readable/writable on it — declared directly or inherited.
+// The field analogue of method-lookup.dl, and deliberately its twin in shape: the same
+// scoping discipline, the same "declared wins over inherited" law, the same
+// client/library span. It is simpler in exactly one way, which is why it is a much
+// shorter file: a field has no signature, so there is no overload set, no arity, no
+// bridge, no erased override. One name in one type is at most one field (JLS 8.3).
+//
+// SCOPED, for the same reason method-lookup.dl is scoped: lib_field over a platform IR
+// is ~10^5 rows and joining it unscoped against every name in the client materializes a
+// relation nothing reads. Fields are looked up only in `field_lookup_type` = the client's
+// own types + every type a reference resolves to + every type a receiver EXPRESSION was
+// given + all of their ancestors. That is exactly the set a client field access can name.
+//
+// STRATIFICATION. field_lookup_type reads expr_type, so this whole layer sits ABOVE the
+// expr_type <-> expr_call_candidate fixpoint rather than inside it, and nothing in that
+// fixpoint reads back. The two hiding negations below are therefore stratified, which is
+// what lets this file state the JLS rule directly where method-lookup.dl has to express
+// its equivalent (DECLARED-WINS) over base facts only.
+//
+// java_field / lib_field (14): 0 name  8 typeRegistryLinkHash (owner)  13 hash
+// java_type (14): 13 hash
+// ============================================================================
+
+// ── field_lookup_type(TypeHash) — the types we search fields in ─────────────
+field_lookup_type(t) :- java_type(_, _, _, _, _, _, _, _, _, _, _, _, _, t).
+field_lookup_type(t) :- type_ref_resolves(_, _, t).
+field_lookup_type(t) :- expr_type(_, _, t).
+field_lookup_type(t) :- field_lookup_type(sub), type_ancestor(sub, t).
+
+// ── field_declared_in(Name, TypeHash, FieldHash) — declared directly ────────
+field_declared_in(name, t, f) :- field_lookup_type(t),
+    java_field(name, _, _, _, _, _, _, _, t, _, _, _, _, f).
+field_declared_in(name, t, f) :- field_lookup_type(t),
+    lib_field(name, _, _, _, _, _, _, _, t, _, _, _, _, f).
+// An ENUM CONSTANT is a field of its enum (`public static final Colour RED`), and the
+// parser gives it its own table rather than a java_field row, so without this clause
+// `Colour.RED` resolves to nothing and every enum constant is a declared unknown.
+// java_enum_constant (13): 0 name  9 typeRegistryLinkHash (owner enum)  12 hash
+field_declared_in(name, t, f) :- field_lookup_type(t),
+    java_enum_constant(name, _, _, _, _, _, _, _, _, t, _, _, f).
+field_declared_in(name, t, f) :- field_lookup_type(t),
+    lib_enum_constant(name, _, _, _, _, _, _, _, _, t, _, _, f).
+
+// ── field_name_in_type(Name, TypeHash, FieldHash) — declared or inherited ────
+// HIDING, not overriding (JLS 8.3). A field declaration in t hides every inherited field
+// of the same name; a declaration in a nearer ancestor hides one in a further ancestor.
+// There is no dynamic dispatch on a field, so unlike a method there is no fan: the
+// access binds to the single declaration the receiver's STATIC type sees, and that is
+// what these two negations pin down. Getting this wrong is not an imprecision, it is a
+// wrong answer — `super.x` and `this.x` in a class that redeclares `x` are two different
+// storage locations, and an impact answer that merges them is confidently wrong.
+field_declared_name(t, name) :- field_declared_in(name, t, _).
+
+// f, declared in an ancestor of t, is hidden for t because a STRICTLY NEARER ancestor of
+// t (one that is itself a subtype of f's owner) declares the same name.
+field_hidden_for(t, f) :- type_ancestor(t, anc), field_declared_in(name, anc, f),
+    type_ancestor(t, near), near != anc, type_ancestor(near, anc),
+    field_declared_name(near, name).
+
+field_name_in_type(name, t, f) :- field_declared_in(name, t, f).
+field_name_in_type(name, t, f) :- type_ancestor(t, anc), field_declared_in(name, anc, f),
+    !field_declared_name(t, name),
+    !field_hidden_for(t, f).
+
+// ── does a field of this name exist on this type at all? ────────────────────
+field_name_exists_in_type(name, t) :- field_name_in_type(name, t, _).
