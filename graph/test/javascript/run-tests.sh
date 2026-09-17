@@ -129,4 +129,12 @@ echo; echo "passed: $pass  failed: $fail"
 # (#600, #603). Skipped when a filter selects cases, as the other tool checks are.
 if [ ${#FILTERS[@]} -eq 0 ]; then
   bash "$ROOT/graph/test/tools/library-staging-test.sh" || exit 1
+  # The ground-truth harness checks its own two path defects. Synthesised inputs (and one
+  # symlinked fixture) only, so they cost a second and cannot skip on a missing corpus:
+  #   oracle-symlink  one call site is one oracle row whatever the root is spelled like,
+  #                   and the scorer reports a repeated site key (#794)
+  #   library-path    the scorer tells an in-project .d.ts from the standard library on
+  #                   every platform (#614) — written then, never wired in
+  python3 "$HERE/tools/oracle-symlink-test.py" || exit 1
+  python3 "$HERE/tools/library-path-test.py" || exit 1
 fi
