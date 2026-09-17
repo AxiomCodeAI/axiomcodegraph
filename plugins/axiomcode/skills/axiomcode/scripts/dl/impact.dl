@@ -70,6 +70,7 @@
 //   config_key_known(key)             every key the engine's configuration extension saw — an unknown key is said to be unknown, never guessed
 //   bean(name, t, kind)               a type registered as a bean (a stereotype, an @Bean factory)
 //   injected(t, into, kind)           a value of type t is handed to `into` by the container, not by a call the graph can see
+.decl config_site(k:symbol, c:symbol, d:symbol, f:symbol, l:number) .input config_site
 .decl config(k:symbol, m:symbol, why:symbol)                      .input config
 .decl config_key_known(k:symbol)                                  .input config_key_known
 .decl bean(n:symbol, t:symbol, kind:symbol)                       .input bean
@@ -144,6 +145,8 @@ contract(q, s, "extends / implements it") :- target(q, "clinit", t, _), extends(
 
 // a CONFIGURATION KEY: the methods the container binds it into — no call reaches them, so nothing else would find these
 direct(q, m, "reads", cat("reads this configuration key (", why, ")"), "resolved", "", 0) :- target(q, "config", k, _), config(k, m, why).
+// the binding site: the line that ties the key to the code, and the one that must be edited with it
+direct(q, c, "produces", cat("BINDS the key here, through @", dn, " — this is the line a rename must change"), "resolved", f, l) :- target(q, "config", k, _), config_site(k, c, dn, f, l).
 
 // a type the container INJECTS: its consumers receive it without a call the graph can see
 direct(q, c, "uses", cat("receives it by dependency injection (", kind, ") — the container hands it over, no call site"), "resolved", "", 0) :- target(q, "type", t, _), injected(t, c, kind), !inside_target(q, c).
