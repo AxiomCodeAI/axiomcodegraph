@@ -1,5 +1,5 @@
 // ============================================================================
-// FRAMEWORK-BEHAVIOUR · DESTINATIONS  (the cross-process edge)
+// FRAMEWORK-BEHAVIOR · DESTINATIONS  (the cross-process edge)
 //
 // ── WHY THIS IS ITS OWN PHASE ───────────────────────────────────────────────
 // Every phase before this one answers "what does this code mean", and is checkable
