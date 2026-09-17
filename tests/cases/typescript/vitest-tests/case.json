@@ -1,0 +1,9 @@
+{"lang": "typescript", "src": "src",
+ "checks": [
+  {"why": "a vitest test is an anonymous callback handed to it(), so it must count as a test method rather than leaving the test universe empty",
+   "run": ["impact", "normalize", "--tests"],
+   "want": ["src/lib.test.ts"],
+   "avoid": ["0 of 0 test method(s)"]},
+  {"why": "a helper declared in the test file carries the tests beside it",
+   "run": ["impact", "shout", "--tests"],
+   "want": ["src/lib.test.ts"]}]}

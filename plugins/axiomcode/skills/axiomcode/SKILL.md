@@ -100,7 +100,12 @@ every printed chain hop and every `[resolved]` entry is looked up again in `grap
   that the engine could not resolve (`import static Outer.Inner` left `res.prepareResponse(…)` untyped: 8 more), and a test
   file's import-time code (a class body, a fixture). pydantic (Python), 14 methods, 180 pairs: 0.678 → 0.717 — what remains
   is dispatch a static graph cannot see (`__eq__` and the other protocol methods the interpreter calls, a method reached
-  through `getattr(self, f"_{kind}_schema")`), and the answer now says that instead of printing nothing.
+  through `getattr(self, f"_{kind}_schema")`), and the answer now says that instead of printing nothing. hono
+  (TypeScript, 16 methods, 96 pairs, `validate/mutants.py` builds the truth: break a method, run the suite, record
+  which test FILES newly fail): 0.000 → 0.790. It was zero because a vitest test is an anonymous callback handed to
+  `it(…)` — 6,661 of hono's 7,723 callables in test files are `<arrow>` and two carried a name the old rule accepted,
+  so the test universe was empty and every answer named no test file at all. A callable registered by `it` / `test` /
+  `bench` on its own line is a test, and a helper declared beside them carries them.
 - **precision is not a bug to fix, it is a property to report** — `validate/precision.py <repo>` places every predicted
   (method, test file) pair by the worst hop on its best route and by distance, against the same truth. jsoup: a route of
   single-target resolved calls is right 0.765 of the time, one through a call resolved to a SET 0.301, through an override
