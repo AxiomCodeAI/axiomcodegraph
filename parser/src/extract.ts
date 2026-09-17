@@ -33,6 +33,14 @@ export interface ExtractOptions {
    * one language at a time points at one folder and sees nothing else.
    */
   layout?: 'flat' | 'per-language';
+  /**
+   * The tree is a DEPENDENCY being staged, not the project under analysis.
+   *
+   * Passed to the JavaScript analyzer, where it decides whether a root's own build
+   * output directory is walked as its source (#620) or skipped as the artefact beside
+   * the source (#796). `bin/axiomcode` sets it for every `--library` entry.
+   */
+  library?: boolean;
 }
 
 /**
@@ -300,6 +308,7 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
         outputDir: javascriptOut ?? (perLanguage ? scratchFor(baseOut, 'javascript', 0) : baseOut),
         baseMservPath: absolutePath,
         serviceVersionLink: opts.versionLink,
+        libraryRoot: opts.library === true,
         // excludeDirs REPLACES the defaults rather than adding to them, so the
         // defaults are repeated — passing only the test names would have started
         // analysing node_modules as project source, which is the one thing the
