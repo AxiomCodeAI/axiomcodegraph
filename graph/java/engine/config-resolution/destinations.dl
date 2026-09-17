@@ -1,0 +1,189 @@
+// ============================================================================
+// CONFIG-RESOLUTION · WHERE A HANDLER IS REACHABLE FROM
+//
+// entry-points.dl answers "does the framework call this method". This answers the
+// question immediately after it, which nothing answered before: FROM WHERE. The
+// route a controller serves, the topic a listener consumes, the queue a
+// @RabbitListener drains.
+//
+// WHY IT MATTERS, measured. On a four-service Spring testbed whose real edges were
+// recorded with OpenTelemetry (#837), every producer and consumer method was in the
+// bundle and every handler was correctly an entry point -- and no route template,
+// topic, queue or exchange name appeared in ANY column of ANY table. The annotation
+// was read to decide the method is a root and its argument was then dropped, so a
+// caller in one service could never be joined to its handler in another. Ten of
+// eleven cross-service shapes had no join key at all.
+//
+// WHAT THIS FILE DOES NOT DO. It states what a handler DECLARES. It does not match
+// a caller's URL to a route, and it does not link services; those need the caller's
+// side (a literal or folded value at the send site) and a matching rule. Stating
+// the destination is the fact both of those are missing.
+//
+// PLACEHOLDERS ARE KEPT AS KEYS, NOT GUESSED. `@KafkaListener(topics =
+// "${app.topics.orders}")` declares a KEY, and on the testbed the producer names
+// the same key while neither side's source contains the topic string. Emitting a
+// guessed value would lose exactly the join that works; the key is the answer, and
+// `source` says which kind of answer it is.
+// ============================================================================
+
+// ── knob: annotation name -> HTTP verb ──────────────────────────────────────
+// @RequestMapping carries its verb in an argument instead, and is handled below.
+cfg_http_verb_ann("GetMapping", "GET").        cfg_http_verb_ann("PostMapping", "POST").
+cfg_http_verb_ann("PutMapping", "PUT").        cfg_http_verb_ann("DeleteMapping", "DELETE").
+cfg_http_verb_ann("PatchMapping", "PATCH").
+
+// ── knob: which argument of a messaging annotation names the destination ────
+// The argument NAME differs per framework even though the concept does not, and a
+// rule keyed on "value" alone finds none of these: Kafka says `topics`, Rabbit says
+// `queues`, JMS says `destination`.
+cfg_dest_arg("KafkaListener", "kafka", "topics").
+cfg_dest_arg("KafkaListener", "kafka", "topicPattern").
+cfg_dest_arg("RabbitListener", "rabbitmq", "queues").
+cfg_dest_arg("JmsListener", "jms", "destination").
+cfg_dest_arg("SqsListener", "sqs", "value").
+cfg_dest_arg("StreamListener", "stream", "value").
+cfg_dest_arg("SqsListener", "sqs", "queueNames").
+
+// ── the path an annotation names ────────────────────────────────────────────
+// Spring accepts the path as the unnamed `value` or as `path`; both mean the same
+// thing and a rule that reads only one of them misses half of real code.
+cfg_mapping_path(a, p) :- ann_arg(a, "value", p, _, _).
+cfg_mapping_path(a, p) :- ann_arg(a, "path", p, _, _).
+
+// A mapping annotation with NO path argument maps the type's own prefix
+// (`@GetMapping` bare under a class-level `@RequestMapping("/x")`).
+cfg_mapping_bare(a) :- ann_on_method(a, n, _, _), cfg_http_verb_ann(n, _), !cfg_mapping_path(a, _).
+cfg_mapping_bare(a) :- ann_on_method(a, "RequestMapping", _, _), !cfg_mapping_path(a, _).
+
+// ── the class-level prefix ──────────────────────────────────────────────────
+// `@RequestMapping("/api")` on the controller, prepended to every method's own
+// path. A controller without one contributes the empty prefix, which is why the
+// second rule exists rather than the join being optional.
+cfg_type_prefix(t, p) :- ann_on_type(a, "RequestMapping", t), cfg_mapping_path(a, p).
+cfg_type_prefix(t, "") :- ann_on_type(_, n, t), cfg_stereotype_web_ann(n),
+    !cfg_type_has_prefix(t).
+cfg_type_has_prefix(t) :- ann_on_type(a, "RequestMapping", t), cfg_mapping_path(a, _).
+
+cfg_stereotype_web_ann("RestController").  cfg_stereotype_web_ann("Controller").
+cfg_stereotype_web_ann("RequestMapping").  cfg_stereotype_web_ann("FeignClient").
+cfg_stereotype_web_ann("Path").
+
+// ── http_route(Method, Verb, PathTemplate, Source) ──────────────────────────
+// Source: `annotation` when the template is written out, `placeholder` when it is a
+// ${key} that resolves elsewhere.
+//
+// The path is the class prefix followed by the method's own, as Spring composes it.
+// It is NOT normalised beyond that: a route is matched against a caller's URL by a
+// rule that has to understand `{id}` anyway, and silently rewriting the template
+// here would make the two sides disagree about what was written.
+http_route(m, verb, path, "annotation") :- ann_on_method(a, n, m, t),
+    cfg_http_verb_ann(n, verb), cfg_mapping_path(a, mp),
+    cfg_type_prefix(t, tp), path = cat(tp, mp).
+http_route(m, verb, path, "annotation") :- ann_on_method(a, n, m, t),
+    cfg_http_verb_ann(n, verb), cfg_mapping_bare(a),
+    cfg_type_prefix(t, path).
+
+// @RequestMapping's verb is an argument; with none it answers every verb, which is
+// stated as ANY rather than expanded into five rows that claim more than the source.
+http_route(m, verb, path, "annotation") :- ann_on_method(a, "RequestMapping", m, t),
+    ann_arg(a, "method", v, _, _), cfg_request_method_verb(v, verb),
+    cfg_mapping_path(a, mp), cfg_type_prefix(t, tp), path = cat(tp, mp).
+http_route(m, "ANY", path, "annotation") :- ann_on_method(a, "RequestMapping", m, t),
+    !ann_arg(a, "method", _, _, _),
+    cfg_mapping_path(a, mp), cfg_type_prefix(t, tp), path = cat(tp, mp).
+
+// `RequestMethod.GET` and a bare `GET` both occur, depending on how the parser
+// recorded the enum reference.
+cfg_request_method_verb(v, verb) :- cfg_http_verb_name(verb), v = verb.
+cfg_request_method_verb(v, verb) :- cfg_http_verb_name(verb), v = cat("RequestMethod.", verb).
+cfg_http_verb_name("GET").   cfg_http_verb_name("POST").    cfg_http_verb_name("PUT").
+cfg_http_verb_name("DELETE"). cfg_http_verb_name("PATCH").  cfg_http_verb_name("HEAD").
+cfg_http_verb_name("OPTIONS").
+
+// JAX-RS: the verb is the annotation NAME and the path is @Path, on the method and
+// on the class. Included because "a route" is not a Spring-only concept and a
+// linker keyed on Spring alone silently reports a JAX-RS service as having none.
+http_route(m, verb, path, "annotation") :- ann_on_method(_, verb, m, t),
+    cfg_jaxrs_verb(verb), ann_on_method(a2, "Path", m, t), cfg_mapping_path(a2, mp),
+    cfg_type_prefix(t, tp), path = cat(tp, mp).
+cfg_jaxrs_verb("GET").  cfg_jaxrs_verb("POST"). cfg_jaxrs_verb("PUT").
+cfg_jaxrs_verb("DELETE"). cfg_jaxrs_verb("PATCH"). cfg_jaxrs_verb("HEAD").
+
+// ── message_destination(Method, System, Destination, Source) ────────────────
+// An array argument -- `@KafkaListener(topics = {"a", "b"})` -- is already one
+// ann_arg row per element, so a listener on two topics is two rows here with no
+// array handling of its own.
+message_destination(m, sys, d, "annotation") :- ann_on_method(a, n, m, _),
+    cfg_dest_arg(n, sys, argName), ann_arg(a, argName, d, _, _),
+    !cfg_placeholder(d, _, _).
+message_destination(m, sys, k, "placeholder") :- ann_on_method(a, n, m, _),
+    cfg_dest_arg(n, sys, argName), ann_arg(a, argName, d, _, _),
+    cfg_placeholder(d, k, _).
+
+// A listener annotation on the TYPE registers every handler method in it
+// (@KafkaListener on the class with @KafkaHandler methods).
+message_destination(m, sys, d, "annotation") :- ann_on_type(a, n, t),
+    cfg_dest_arg(n, sys, argName), ann_arg(a, argName, d, _, _),
+    !cfg_placeholder(d, _, _),
+    java_method(_, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, "INSTANCE_METHOD", _, _, _, _, m).
+
+// `${app.topics.orders}` and `${a.b:default}` both name the key `a.b`.
+// cfg_placeholder already separates the key from the default, so nothing here has
+// to re-parse one: the DEFAULT is not a destination and must never be reported as
+// one, and that distinction is made in exactly one place.
+
+// ============================================================================
+// WHO REACHES A HANDLER — the first cross-service edges
+//
+// Two shapes can be linked from what is now stated, with no string folding and no
+// guessing. Both were verified against an OpenTelemetry trace of the running
+// system, so each is an edge something actually took, not one that looks plausible.
+//
+// The OTHER nine shapes in the testbed need the PRODUCER's side of the
+// destination -- the URL or topic literal written at the send site, folded through
+// concatenation where there is any -- which is a separate fact and a separate
+// piece of work. They are deliberately not guessed at here.
+// ============================================================================
+
+// ── a DECLARATIVE client declares a route it CALLS, not one it serves ───────
+// @FeignClient / @HttpExchange turn an interface into an outbound caller. Its
+// methods carry exactly the same @GetMapping annotations a controller does, so
+// without this distinction a Feign interface looks like a second server for the
+// same route -- and joining routes to routes would pair it with itself.
+cfg_declarative_client_type(t) :- ann_on_type(_, "FeignClient", t).
+cfg_declarative_client_type(t) :- ann_on_type(_, "HttpExchange", t).
+cfg_declarative_client_type(t) :- ann_on_type(_, "RegisterRestClient", t).
+
+http_route_role(m, "client") :- http_route(m, _, _, _),
+    method_owner("client", t, m), cfg_declarative_client_type(t).
+http_route_role(m, "server") :- http_route(m, _, _, _),
+    method_owner("client", t, m), !cfg_declarative_client_type(t).
+
+// ── service_call_edge(Caller, Callee, Basis) ────────────────────────────────
+// R4: a declarative client's route and a handler's route are the SAME TEMPLATE.
+// No URL is built anywhere -- the caller's `@GetMapping("/api/orders/{id}")` and
+// the server's are the same string, so this is equality, not matching. The verb
+// must agree too: two handlers commonly share a path and differ only by method.
+service_call_edge(c, s, "declarative_client_route") :-
+    http_route(c, verb, path, _), http_route_role(c, "client"),
+    http_route(s, verb, path, _), http_route_role(s, "server"),
+    c != s.
+
+// K2: the destination is a CONFIG KEY on both sides, and the topic string appears
+// in neither service's source. The consumer's annotation resolved to the key; the
+// producer reads a field bound to the same key. field_access carries which METHOD
+// reads it, which is what makes this a method-level edge rather than a file-level
+// guess.
+//
+// LIMIT, stated because it bounds what this row means: it links the method that
+// READS the key-bound field, not specifically the one that passes it to a send
+// call. A method that reads the field for another purpose would be linked too. The
+// send site itself is identified once the producer-side destination fact exists.
+service_call_edge(p, cm, "config_key_destination") :-
+    message_destination(cm, _, key, "placeholder"),
+    config_binding(key, _, "field", f, _),
+    // NOTE the argument order: the RELATION is
+    // field_access(Site, Caller, Field, Prov, Tier, Access) while the BUNDLE TABLE
+    // of the same name orders the last two `access, tier`. Writing "read" in the
+    // fifth position -- where the table puts it -- silently matches nothing.
+    field_access(_, p, f, _, _, "read").

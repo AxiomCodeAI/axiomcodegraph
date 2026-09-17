@@ -25,3 +25,7 @@ field_access	field-access.csv
 field_access_site	field-access-site.csv
 field_site_excluded	field-site-excluded.csv
 type_use	type-use.csv
+http_route	config-http-route.csv
+message_destination	config-message-destination.csv
+http_route_role	config-http-route-role.csv
+service_call_edge	config-service-call-edge.csv

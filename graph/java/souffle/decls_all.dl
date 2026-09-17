@@ -572,6 +572,29 @@
 .decl cfg_xml_ref_resolved(c0:symbol)
 .decl cfg_xml_wire_elem(c0:symbol,c1:symbol)
 .decl config_affects_method(c0:symbol,c1:symbol,c2:symbol)
+// ── WHERE A HANDLER IS REACHABLE FROM (config-resolution/destinations.dl) ──
+// http_route(Method, Verb, PathTemplate, Source)
+.decl http_route(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+// message_destination(Method, System, Destination, Source)
+// Source is `annotation` for a written destination and `placeholder` for a ${key},
+// in which case Destination IS the key -- the join, when neither side writes the string.
+.decl message_destination(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl cfg_declarative_client_type(c0:symbol)
+// http_route_role(Method, "client"|"server") -- a @FeignClient interface declares a
+// route it CALLS; a controller declares one it SERVES. Same annotations, opposite ends.
+.decl http_route_role(c0:symbol,c1:symbol)
+// service_call_edge(Caller, Callee, Basis) -- an edge that crosses a service boundary.
+.decl service_call_edge(c0:symbol,c1:symbol,c2:symbol)
+.decl cfg_http_verb_ann(c0:symbol,c1:symbol)
+.decl cfg_dest_arg(c0:symbol,c1:symbol,c2:symbol)
+.decl cfg_mapping_path(c0:symbol,c1:symbol)
+.decl cfg_mapping_bare(c0:symbol)
+.decl cfg_type_prefix(c0:symbol,c1:symbol)
+.decl cfg_type_has_prefix(c0:symbol)
+.decl cfg_stereotype_web_ann(c0:symbol)
+.decl cfg_request_method_verb(c0:symbol,c1:symbol)
+.decl cfg_http_verb_name(c0:symbol)
+.decl cfg_jaxrs_verb(c0:symbol)
 .decl config_binding(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
 .decl config_binding_effective(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
 .decl config_bound_method(c0:symbol,c1:symbol,c2:symbol)
