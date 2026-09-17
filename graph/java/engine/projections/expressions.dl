@@ -57,6 +57,13 @@ expr_kind("lib", kind, edgeRole, h) :- lib_expression(kind, edgeRole, _, _, _, _
 expr_child("client", parent, edgeRole, child) :- java_expression(_, edgeRole, _, _, _, _, parent, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, child).
 expr_child("lib", parent, edgeRole, child) :- lib_expression(_, edgeRole, _, _, _, _, parent, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, child).
 
+// ── expr_position(Prov, ExprHash, Position) ─────────────────────────────────
+// The expression's index among its siblings — which argument of a call this is.
+// Needed wherever an argument's MEANING depends on its position, as a broker's
+// send(topic, key, value) does.
+expr_position("client", h, pos) :- java_expression(_, _, _, _, _, _, _, pos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+expr_position("lib", h, pos) :- lib_expression(_, _, _, _, _, _, _, pos, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h).
+
 // ── expr_owner(Prov, OwnerHash, OwnerTypeHash, ExprHash) ────────────────────
 // The entity that owns the expression (expressionOwnerHash) and the enclosing
 // type (typeRegistryLinkHash). OwnerHash is the caller for the common case; when
