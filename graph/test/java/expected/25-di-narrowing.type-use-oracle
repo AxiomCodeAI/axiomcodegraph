@@ -1,0 +1,7 @@
+25-di-narrowing
+  precision 1.0000   (8 correct, 0 wrong)
+  recall    1.0000   (8 of 8 in the bytecode)
+  references 36   resolved 14 (38.9%)
+  tiers ambiguous_unknown=22  known_edge=14
+  not scored: 5 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts ANNOTATION_TYPE=5  FIELD_TYPE=4  IMPLEMENTS_INTERFACE=4  METHOD_PARAM=11  METHOD_RETURN=12

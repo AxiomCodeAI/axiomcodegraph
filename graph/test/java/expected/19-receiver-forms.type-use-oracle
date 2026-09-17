@@ -1,0 +1,10 @@
+19-receiver-forms
+  precision 1.0000   (14 correct, 0 wrong)
+  recall    0.8235   (14 of 17 in the bytecode)
+  references 43   resolved 24 (55.8%)
+  tiers ambiguous_unknown=19  known_edge=24
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts ARRAY_CREATION_TYPE=1  CAST_EXPRESSION=1  FIELD_TYPE=1  IMPLEMENTS_INTERFACE=2  INSTANCEOF_TYPE=1  LOCAL_VARIABLE=3  METHOD_PARAM=11  METHOD_RETURN=13  OBJECT_CREATION_TYPE=10
+    MISSING ReceiverForms CAST_EXPRESSION ReceiverForms.Node
+    MISSING ReceiverForms CAST_EXPRESSION ReceiverForms.Twig
+    MISSING ReceiverForms LOCAL_VARIABLE ReceiverForms.Twig

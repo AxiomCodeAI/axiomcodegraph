@@ -1,0 +1,8 @@
+33-compiler-lowering
+  precision 1.0000   (3 correct, 0 wrong)
+  recall    0.7500   (3 of 4 in the bytecode)
+  references 34   resolved 6 (17.6%)
+  tiers ambiguous_unknown=28  known_edge=6
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts ANNOTATION_TYPE=1  FIELD_TYPE=2  IMPLEMENTS_INTERFACE=2  LOCAL_VARIABLE=5  METHOD_PARAM=18  METHOD_RETURN=3  OBJECT_CREATION_TYPE=2  THROWS_CLAUSE=1
+    MISSING lowering.Lowering CAST_EXPRESSION lowering.Lowering.Sink

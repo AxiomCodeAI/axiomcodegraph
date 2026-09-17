@@ -1,0 +1,7 @@
+39-library-supertype-dispatch
+  precision 1.0000   (6 correct, 0 wrong)
+  recall    1.0000   (6 of 6 in the bytecode)
+  references 34   resolved 12 (35.3%)
+  tiers ambiguous_unknown=22  boundary_lib=6  known_edge=6
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts IMPLEMENTS_INTERFACE=4  METHOD_PARAM=4  METHOD_RETURN=22  SUPER_TYPE=4

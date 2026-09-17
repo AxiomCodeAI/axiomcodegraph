@@ -1,0 +1,8 @@
+03-overloads-and-receivers
+  precision 1.0000   (3 correct, 0 wrong)
+  recall    0.7500   (3 of 4 in the bytecode)
+  references 20   resolved 3 (15.0%)
+  tiers ambiguous_unknown=17  known_edge=3
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts FIELD_TYPE=4  LOCAL_VARIABLE=1  METHOD_PARAM=10  METHOD_RETURN=2  OBJECT_CREATION_TYPE=2  SUPER_TYPE=1
+    MISSING testcases.engine.ComplexDispatch$anon:Sink METHOD_PARAM testcases.engine.ComplexDispatch

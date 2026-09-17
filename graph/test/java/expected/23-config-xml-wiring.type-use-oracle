@@ -1,0 +1,7 @@
+23-config-xml-wiring
+  precision 1.0000   (4 correct, 0 wrong)
+  recall    1.0000   (4 of 4 in the bytecode)
+  references 6   resolved 4 (66.7%)
+  tiers ambiguous_unknown=2  known_edge=4
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts FIELD_TYPE=2  METHOD_PARAM=2  OBJECT_CREATION_TYPE=2

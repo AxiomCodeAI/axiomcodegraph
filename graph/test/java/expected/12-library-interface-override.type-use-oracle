@@ -1,0 +1,10 @@
+12-library-interface-override
+  precision 0.2500   (1 correct, 3 wrong)
+  recall    1.0000   (1 of 1 in the bytecode)
+  references 34   resolved 5 (14.7%)
+  tiers ambiguous_unknown=29  known_edge=5
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts ANNOTATION_TYPE=2  IMPLEMENTS_INTERFACE=5  LOCAL_VARIABLE=3  METHOD_PARAM=16  METHOD_RETURN=3  OBJECT_CREATION_TYPE=5
+    WRONG   LibIfaceOverride OBJECT_CREATION_TYPE LibIfaceOverride
+    WRONG   LibIfaceOverride OBJECT_CREATION_TYPE LibIfaceOverride.ByLength
+    WRONG   LibIfaceOverride OBJECT_CREATION_TYPE LibIfaceOverride.Shouty

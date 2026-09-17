@@ -1,0 +1,6 @@
+ambiguous_unknown	FIELD_TYPE	0	testcases.config.MailSender [FIELD] -> -
+ambiguous_unknown	METHOD_PARAM	0	testcases.config.MailSender#setEndpoint(String) [METHOD_PARAM] -> -
+known_edge	FIELD_TYPE	0	testcases.config.MailSender [FIELD] -> testcases.config.Transport
+known_edge	METHOD_PARAM	0	testcases.config.MailSender#<init>(Transport) [METHOD_PARAM] -> testcases.config.Transport
+known_edge	OBJECT_CREATION_TYPE	0	testcases.config.MyServlet#doGet() [EXPRESSION] -> testcases.config.MailSender
+known_edge	OBJECT_CREATION_TYPE	0	testcases.config.MyServlet#doGet() [EXPRESSION] -> testcases.config.Transport

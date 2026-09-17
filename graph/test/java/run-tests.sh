@@ -304,6 +304,23 @@ for dir in "$HERE"/cases/*/; do
             fail=$((fail+1)); failed+=("$name"); continue; fi
         fi
       fi
+      # ── TYPE USE, scored against the descriptors and signatures (#663) ────────────────
+      # A class file records which types its own declarations name: the header, the field and
+      # method descriptors, the generic Signature attributes beside them, the Exceptions
+      # attribute, the local-variable tables, and the new / checkcast / instanceof instructions.
+      # tools/type_use_oracle.py reads those; the whole report is a golden.
+      if python3 "$HERE/tools/type_use_oracle.py" "$dir/src" "$w/oracle" --app-only ${orc_lib[@]+"${orc_lib[@]}"} > "$w/typeuse.gt" 2>"$w/typeuse-oracle.log"; then
+        python3 "$HERE/tools/score_type_use.py" "$w/ir" "$w/out/raw" "$w/typeuse.gt" --label "$name" \
+             --show-wrong --show-missing > "$w/typeuse.score" 2>&1
+        texp2="$HERE/expected/$name.type-use-oracle"
+        if [ "$BLESS" = "1" ]; then
+          if [ -s "$w/typeuse.gt" ]; then cp "$w/typeuse.score" "$texp2"; else rm -f "$texp2"; fi
+        elif [ -f "$texp2" ]; then
+          if ! diff -q "$texp2" "$w/typeuse.score" >/dev/null; then
+            echo "FAIL (type-use score changed)"; diff -u "$texp2" "$w/typeuse.score" | sed 's/^/    /' | head -30
+            fail=$((fail+1)); failed+=("$name"); continue; fi
+        fi
+      fi
       orc_summary="  [oracle: $(head -1 "$w/oracle.diff")]"
     else
       # The REASON, not just the label. bytecode_oracle.py writes `javac failed:` on line 1 and the
@@ -351,6 +368,23 @@ for dir in "$HERE"/cases/*/; do
       echo "FAIL (field-access rows but no golden — run with --bless)"; fail=$((fail+1)); failed+=("$name"); continue; fi
     if ! diff -q "$fexp" "$w/actual.fields" >/dev/null; then
       echo "FAIL (field access changed)"; diff -u "$fexp" "$w/actual.fields" | sed 's/^/    /' | head -40
+      fail=$((fail+1)); failed+=("$name"); continue; fi
+  fi
+
+  # ── TYPE-USE golden (#663) ────────────────────────────────────────────────
+  # Every place a type is NAMED, with the context and the depth on each row, so a resolution
+  # that stops working (or a type argument that stops being a use) is a reviewable diff.
+  python3 "$HERE/tools/normalize_type_use.py" "$w/ir" "$w/out/raw" ${lib_args[@]+"${lib_args[@]}"} > "$w/actual.typeuse" 2>"$w/typeuse.log" || {
+    echo "FAIL (type-use report — see $w/typeuse.log)"; fail=$((fail+1)); failed+=("$name"); continue; }
+  tu_rows=$(wc -l < "$w/actual.typeuse" | tr -d ' ')
+  texp="$HERE/expected/$name.type-use"
+  if [ "$BLESS" = "1" ]; then
+    if [ "${tu_rows:-0}" -gt 0 ]; then cp "$w/actual.typeuse" "$texp"; else rm -f "$texp"; fi
+  elif [ -f "$texp" ] || [ "${tu_rows:-0}" -gt 0 ]; then
+    if [ ! -f "$texp" ]; then
+      echo "FAIL (type-use rows but no golden — run with --bless)"; fail=$((fail+1)); failed+=("$name"); continue; fi
+    if ! diff -q "$texp" "$w/actual.typeuse" >/dev/null; then
+      echo "FAIL (type use changed)"; diff -u "$texp" "$w/actual.typeuse" | sed 's/^/    /' | head -40
       fail=$((fail+1)); failed+=("$name"); continue; fi
   fi
 
