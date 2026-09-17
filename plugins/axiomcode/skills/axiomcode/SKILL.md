@@ -132,6 +132,15 @@ key —, the decorations a framework may dispatch on, the unresolved calls insid
 targets** (a PR touching many files) each row says which target it came from — `[for Owner.method]` — so a combined radius is
 still attributable per change.
 
+**The unit of change is a declaration in the graph, and half of real Java commits change something else** (592 commits over
+five projects: 47 % touch no Java file at all, 30 % touch Java plus a build or resource file). Three of those kinds now have a
+target of their own: `@Transactional` (an annotation — every declaration carrying it, and their dependents), `Enum.<new>` (a
+constant that does not exist yet — the switches that need a new arm), and a configuration key. A method target also reports
+its **throws** contract: adding a checked exception reaches *every* resolved caller, and the answer says how many of them
+already catch or declare the ones it has. Still outside the unit, and said rather than guessed: a build file or a dependency
+bump, an added overload's rebinding of existing call sites, and what a framework does with an annotation (the proxy, the
+transaction, the cache) — `changed` says that in the same line as the decoration change.
+
 What it cannot see, by construction — say so instead of guessing: a callable that touches a type only through a value it never
 names (`t.asStartTag().normalName()` where the engine resolved `normalName` to the inherited `Tag.normalName`) — the graph keeps
 no receiver type at a call site, so the compiler sees that dependency and this tool does not; the `[one of a set]` callers are

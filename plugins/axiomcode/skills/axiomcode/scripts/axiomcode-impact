@@ -192,6 +192,14 @@ class Impact:
             return [('string', f"the string {raw} ({n} literal site(s), {d} decoration site(s))", v)]
         s = raw.strip('`"\'')
         if (kind == 'config' or (not kind and self.CONFIG_RE.match(s) and not self.field_rows(s) and not self.types(s, soft=True) and not self.methods(s, soft=True))): return self.config_target(s)
+        if s.startswith('@'):                                                          # an annotation: half of Java-touching commits change one (#758)
+            pat = s[1:].replace('*', '%')
+            rows = self.g.q("SELECT DISTINCT d.owner_id FROM decorations d JOIN symbols x ON x.id = d.owner_id WHERE d.name LIKE ? OR d.name LIKE ?", pat, f"%.{pat}")
+            ids = [r[0] for r in rows if r[0] in self.g.sym]
+            if not ids:
+                near = self.g.q("SELECT name, count(*) n FROM decorations GROUP BY name ORDER BY n DESC LIMIT 8")
+                die(f"nothing carries {s} in this graph." + (" Decorations here: " + ', '.join(f"@{x[0]} ({x[1]})" for x in near) if near else ''))
+            return [('decoration', f"{s} ({len(ids)} declaration(s) carry it)", ids)]
         m = re.match(r'^(.+?):([A-Za-z_]\w*)$', s)
         if m and '/' not in m.group(2):                                                # Owner.m:v — a local
             mids = self.methods(m.group(1)); found = []
@@ -200,7 +208,7 @@ class Impact:
             if found: return [('var', f"local {m.group(2)} in {self.g.disp(found[0])}" + (f" (+{len(found)-1} declarations)" if len(found) > 1 else ''), (found, m.group(2)))]
             die(f"no local named {m.group(2)} is used in {m.group(1)} — locals the parser recorded there: " + ', '.join(sorted({r['name'] for mid in mids for r in self.refs_in(mid, None, LOCAL_KINDS)})[:12]))
         m = re.match(r'^(.+?)<(\w+)>$', s)
-        if m and m.group(2) not in ('init', 'clinit'):                                 # Type<T> / Owner.m<T>
+        if m and m.group(2) not in ('init', 'clinit', 'new'):                                 # Type<T> / Owner.m<T>
             owner, tp = m.group(1), m.group(2)
             ids = self.types(owner, soft=True) or self.methods(owner, soft=True)
             if not ids: die(f"nothing named {owner} in the graph")
@@ -221,6 +229,10 @@ class Impact:
         out = []
         base = re.sub(r'\(.*\)$', '', s).replace('#', '.').strip('.')
         if not (self.field_rows(base) or self.types(base, soft=True) or self.methods(base, soft=True)): base = base.replace('$', '.')   # Outer$Inner — unless $ is part of the name ($Gson$Types)
+        m0 = re.match(r'^(.+)\.<new>$', base)
+        if m0:                                                                         # a member that does not exist yet: the switches are the impact
+            tids = self.types(m0.group(1))
+            return [('newconst', f"a constant to be added to {self.g.disp(tids[0])}", tids)]
         m = re.match(r'^(.+)\.<(init|clinit)>$', base)
         if m:                                                                          # Type.<init> = its construction; Type.<clinit> = its static initialization
             tids = self.types(m.group(1)); ids = []
@@ -424,7 +436,7 @@ class Impact:
         return [ln for ln in range(s['line'], min(s['end_line'], len(L)) + 1) if pat.search(L[ln - 1])]
 
     # ── facts: the graph, exported once (reused while graph.sqlite is unchanged) ────────────────────────────────
-    IMPACT_VERSION = '12'          # 3: decl_file facts (the import-time test-file rule)
+    IMPACT_VERSION = '13'          # 3: decl_file facts (the import-time test-file rule)
     def export(self):
         g = self.g; D = os.path.join(g.facts, 'impact'); stamp = os.path.join(D, 'stamp'); want = f"{os.path.getmtime(g.db)}:{self.IMPACT_VERSION}"
         # a cache written by an older program, or one an interrupted run left half written, breaks every query with
@@ -614,6 +626,30 @@ class Impact:
                 elif not r['line']:                                                       # Java gives no line: the types declared in that file
                     for x in g.q("SELECT id FROM symbols WHERE file = ? AND type_id IS NOT NULL", r['file']): bn.append((x[0], r['name'].split('.')[-1]))
         W('base_name', sorted(set(bn)))
+        # a checked exception a callable DECLARES or CATCHES, and a switch over an enum. Java records a throws clause with
+        # no line and (#760) mislabels switch arms, so both are read from the callable's own text — the same source the
+        # [text] certainty already trusts — and handed to the rules as facts
+        thr = []; cat_ = []; sw = []
+        enum_consts = collections.defaultdict(set)
+        for r in g.q("SELECT s.owner, s.name FROM symbols s WHERE s.kind = 'enum_member'"):
+            if r[0]: enum_consts[r[0]].add(r[1])
+        enum_disp = {r[0]: r[1] for r in g.q("SELECT display, id FROM symbols WHERE kind = 'enum' AND type_id IS NOT NULL")}
+        for i, sy in g.sym.items():
+            if not (sy.get('method_id') and sy.get('file') and sy.get('line')): continue
+            L = self.code(sy['file']); a, b = sy['line'], min(sy['end_line'] or sy['line'], len(L))
+            if a > len(L): continue
+            head = ' '.join(L[a - 1:min(b, a + 8)]).split('{')[0]
+            for m_ in re.finditer(r'\bthrows\s+([\w.,\s]+)', head):
+                for e in re.findall(r'[A-Z][\w$]*', m_.group(1)): thr.append((i, e))
+            body = '\n'.join(L[a - 1:b])
+            for e in re.findall(r'\bcatch\s*\(\s*(?:final\s+)?([\w.|\s]+?)\s+\w+\s*\)', body):
+                for x in re.findall(r'[A-Z][\w$]*', e): cat_.append((i, x))
+            if re.search(r'\bswitch\s*[\(\s]', body) or re.search(r'\bmatch\s+\w+\s*:', body):
+                names = set(re.findall(r'\b[A-Z][A-Z0-9_]{1,}\b', body))
+                for disp, tid in enum_disp.items():
+                    hit = names & enum_consts.get(disp, set())
+                    if hit: sw.append((i, tid, str(len(hit))))
+        W('throws_', sorted(set(thr))); W('catches', sorted(set(cat_))); W('switch_over', sorted(set(sw)))
         W('config', cfg); W('config_key_known', [(k,) for k in sorted(keys)]); W('bean', beans); W('injected', sorted(set(inj)))
         open(stamp, 'w').write(want); return D
 
@@ -666,6 +702,10 @@ class Impact:
                 mids, v = payload
                 for m in mids: T.append((q, 'var', m, v))
             elif kind == 'config': T.append((q, 'config', payload, ''))
+            elif kind == 'decoration':
+                for i in payload: T.append((q, 'decoration', i, ''))
+            elif kind == 'newconst':
+                for tid in payload: T.append((q, 'newconst', tid, ''))
             elif kind == 'string': T.append((q, 'string', '', payload))
             elif kind == 'typeparam':
                 ids, tp = payload
@@ -698,7 +738,7 @@ class Impact:
         prof('query facts written'); r = subprocess.run(self.program() + ['-F', F, '-D', O], capture_output=True, text=True); prof('souffle returned')
         if r.returncode: die("souffle failed:\n" + r.stderr[-1200:])
         out = {}
-        for n in ('contract', 'direct', 'direct_edge', 'seed', 'seed_byname', 'reach', 'reach_sure', 'parent_up', 'test_near', 'test_hit', 'inherited_test', 'extbind', 'gen_fired'):
+        for n in ('contract', 'direct', 'direct_edge', 'seed', 'seed_byname', 'reach', 'reach_sure', 'parent_up', 'test_near', 'test_hit', 'inherited_test', 'extbind', 'gen_fired', 'caller_handles', 'caller_unhandled', 'target_throws'):
             rows = []
             for l in open(os.path.join(O, n + '.csv')):
                 p = l.rstrip('\n').split('\t')
@@ -961,6 +1001,14 @@ def main(argv):
     D.sort(key=lambda x: (CERT[x[3]], anon(x[0]), -(x[5] or 1), x[2], g.disp(x[0])))
     groups = [('produces or writes it', [x for x in D if x[1] in ('produces', 'writes')]), ('reads or uses it', [x for x in D if x[1] in ('reads', 'uses')])]
     if not D: print("directly touches it: nothing the graph can see" + (" — the declaration is used only where it is declared, or through something the parser did not record" if not contract else ''))
+    # a throws clause is a contract: say what adding one to this method would cost, and who already handles the ones it has
+    n_callers = len({c for c, role, why, cert, loc, n in D if cert == 'resolved' and 'calls it' in why})
+    thrown = sorted({x[0] for x in res.get('target_throws', [])})
+    handled = sorted({(x[0], x[1]) for x in res.get('caller_handles', [])}); unhandled = sorted({(x[0], x[1]) for x in res.get('caller_unhandled', [])})
+    if thrown or unhandled:
+        tot = len({c for c, _ in handled} | {c for c, _ in unhandled})
+        print(f"throws: this method declares {', '.join(thrown) or 'nothing'}; ADDING a checked exception reaches all {n_callers} resolved caller(s) — each must catch or declare it."
+              + (f" Of the {tot} caller(s) of the exception(s) it already declares, {len({c for c, _ in handled})} catch or declare them: " + ', '.join(sorted({g.disp(c) for c, _ in handled})[:4]) if handled else ''))
     fired = sorted({(x[0], x[1]) for x in res.get('gen_fired', [])})
     if fired:
         print("generated members assumed from a fixed convention list (Lombok, records, dataclasses, attrs, pydantic): "
