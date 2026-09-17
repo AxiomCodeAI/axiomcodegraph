@@ -827,6 +827,31 @@ const SCAFFOLD: ReadonlyArray<readonly [string, string]> = [
     '',
   ].join('\n')],
 
+  // #798: a field initializer is code that RUNS, and it needs the callable it runs inside.
+  // Owned by the module, `this` in it had no value and the call it makes was attributed to
+  // the module, putting constructor-time work on every importer's path.
+  ['torture/field-initializers.js', [
+    'export class Base {',                                                 // 1
+    "  static make(tag) { return 'made:' + tag; }",                        // 2
+    "  make2() { return 'inst'; }",                                        // 3
+    '}',                                                                   // 4
+    'export class Child extends Base {',                                   // 5
+    "  static fromField = this.make('static');",                           // 6  runs at class evaluation: this = Child
+    '  instField = this.make2();',                                         // 7  runs during construction: this = the instance
+    '  bound = this.make2.bind(this);',                                    // 8  a member READ in an initializer
+    '}',                                                                   // 9
+    'export class WithCtor extends Base {',                                // 10
+    '  field = this.make2();',                                             // 11 a class that DOES declare a constructor
+    '  constructor() { super(); this.n = 1; }',                            // 12
+    '}',                                                                   // 13
+    'export class WithBlock {',                                            // 14
+    "  static tag = String('t');",                                         // 15 a static field beside a static block
+    '  static { WithBlock.ready = true; }',                                // 16
+    '}',                                                                   // 17
+    'export function drive() { return new Child().instField; }',           // 18
+    '',
+  ].join('\n')],
+
   ['torture/prototypes.js', [
     "const util = require('util');",                                       // 1
     'function Legacy(name) { this.name = name; }',                         // 2  a constructor function: a js_type by assignment-declared members
@@ -6986,6 +7011,55 @@ function tortureScriptsHold(): number {
     expect(file, 9, 're-export links its import', (exportAt(9)?.[col(e, 'reExportImportLinkHash')] ?? '') === '' ? 'no link' : 'linked', 'linked');
     expect(file, 11, 'a member after the overwrite', describeExport(exportAt(11)),
       'MODULE_EXPORTS_MEMBER:extra/reexport=false/overwritten=false');
+  }
+
+  // ---- field initializers (#798) ----------------------------------------------
+  {
+    const file = 'torture/field-initializers.js';
+    const module = moduleOf(file);
+    const { r: m, rows: methods } = rowsOf('js_method', module);
+    const { r: e, rows: expressions } = rowsOf('js_expression', module);
+    const { r: c, rows: sites } = rowsOf('js_call_site', module);
+    const mPk = pkIndexOf(m.header, 'js_method');
+    const nameOf = new Map(methods.map((row) => [row[mPk] ?? '', row[col(m, 'name')] ?? '']));
+    const kindOf = new Map(methods.map((row) => [row[mPk] ?? '', row[col(m, 'methodKind')] ?? '']));
+    const ownerOfThisAt = (line: number): string => {
+      const row = expressions.find((x) => x[col(e, 'expressionKind')] === 'THIS'
+        && Number(x[col(e, 'startLine')]) === line);
+      return row === undefined ? 'NO ROW' : nameOf.get(row[col(e, 'ownerMethodLinkHash')] ?? '') ?? 'UNKNOWN';
+    };
+    const callerAt = (line: number): string => {
+      const row = sites.find((x) => Number(x[col(c, 'startLine')]) === line);
+      return row === undefined ? 'NO ROW' : nameOf.get(row[col(c, 'enclosingMethodLinkHash')] ?? '') ?? 'UNKNOWN';
+    };
+    // A STATIC field initializer runs at class evaluation, where `this` is the constructor.
+    expect(file, 6, 'this in a static field initializer', ownerOfThisAt(6), '<static-init>');
+    expect(file, 6, 'the call it makes', callerAt(6), '<static-init>');
+    // An INSTANCE field initializer runs during construction, where `this` is the instance.
+    expect(file, 7, 'this in an instance field initializer', ownerOfThisAt(7), '<instance-init>');
+    expect(file, 7, 'the call it makes', callerAt(7), '<instance-init>');
+    expect(file, 8, 'a member read in an instance field initializer', ownerOfThisAt(8), '<instance-init>');
+    // The synthetic owner carries the kind whose `this` the engine already knows: a static
+    // initializer is a STATIC_BLOCK (this = the constructor), an instance one is an ordinary
+    // non-static member (this = the instance). It is deliberately NOT a CONSTRUCTOR, or a
+    // class with no declared constructor would stop answering `implicit_constructor`.
+    const syntheticKind = (name: string): string => {
+      const hash = [...nameOf.entries()].find(([, n]) => n === name)?.[0];
+      return hash === undefined ? 'NO ROW' : kindOf.get(hash) ?? 'UNKNOWN';
+    };
+    expect(file, 6, 'the static initializer kind', syntheticKind('<static-init>'), 'STATIC_BLOCK');
+    expect(file, 7, 'the instance initializer kind', syntheticKind('<instance-init>'), 'CLASS_METHOD');
+    // A class that declares a constructor gets the same synthetic owner. The constructor is
+    // where the initializer runs, but a field written ABOVE the constructor would then sit
+    // outside its owner's span, and that containment invariant is what catches context
+    // leaking down the traversal. The synthetic row spans the class instead.
+    expect(file, 11, 'this in a field initializer of a class with a constructor',
+      ownerOfThisAt(11), '<instance-init>');
+    // A static field beside a `static { }` block gets the synthetic static owner, for the
+    // same containment reason: the block may be written after the field.
+    expect(file, 15, 'a static field beside a static block', callerAt(15), '<static-init>');
+    // The control: a call OUTSIDE any class body is still owned by the function it is in.
+    expect(file, 18, 'a call in an ordinary function', callerAt(18), 'drive');
   }
 
   // ---- prototypes -------------------------------------------------------------
