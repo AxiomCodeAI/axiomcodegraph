@@ -194,6 +194,8 @@ def path(repo, src, dst, max_hops=8, tiers=TRAVERSE):
 
 
 # ── the transitive layer, for `impact`'s own output ──────────────────────────────────────────────────────
+LOCAL_KINDS = {'LOCAL_VARIABLE', 'PARAMETER', 'LAMBDA_PARAMETER', 'VARIABLE', 'PARAM'}
+
 MAX_HOP = 40          # `up(q, a, d+1) :- up(q, b, d), edge(a, b, _), d < 40` — the same bound the rules carry
 
 
@@ -540,7 +542,13 @@ def direct_for_method(q, ids):
         tgt_fields, by_caller = set(), {}
         for f, sp in spans.items():
             sp.sort(key=lambda x: (x[0], -x[1]))
-            for name, rf, rl in q("SELECT name, file, line FROM refs WHERE file=? AND name IS NOT NULL", f):
+            # `!local_kind(ek)`: a LOCAL_VARIABLE / PARAMETER / LAMBDA_PARAMETER reference that happens to share a
+            # field's name is not a use of the field. Ignoring the entity kind made every sibling declaring a local
+            # of that name look like it shared the field, so they were reported as
+            # "…, using the same field X" where the rules say plainly "a sibling of the same type".
+            for name, rf, rl, ek in q("""SELECT name, file, line, entity_kind FROM refs
+                                         WHERE file=? AND name IS NOT NULL""", f):
+                if ek in LOCAL_KINDS: continue
                 if name not in fields: continue
                 inner = None
                 for ln, en, cid in sp:
@@ -569,9 +577,14 @@ def direct_for_method(q, ids):
     sib = {r[0] for r in rows if r[3] == 'alongside'}
     for o in owners:
         # `symbols.owner` is a DISPLAY name, not an id — looking the owning type up by id silently found nothing.
+        # `type_in_file(t2, f)` resolves t2 through the same {display: type_id} map, first id wins — so a member
+        # whose owner DISPLAY is ambiguous belongs to whichever file that first id sits in, not to the file the
+        # member is written in. This bundle has six classes called `Config`; matching by file alone attributed
+        # seven members of one of them to a nested class in another.
         for (f,) in q("SELECT file FROM symbols WHERE display=? AND type_id IS NOT NULL AND file IS NOT NULL LIMIT 1", o):
-            for (c,) in q("""SELECT s.id FROM symbols s WHERE s.file=? AND s.method_id IS NOT NULL
-                             AND s.owner IS NOT NULL AND s.owner<>?""", f, o):
+            for c, c_owner in q("""SELECT s.id, s.owner FROM symbols s WHERE s.file=? AND s.method_id IS NOT NULL
+                                   AND s.owner IS NOT NULL AND s.owner<>?""", f, o):
+                if _owner_file(q, c_owner) != f: continue
                 # same as the sibling rule: a CALLER can also be declared in the same file, and rule 330 has no
                 # "already reported" guard — only `t2 != t`. Excluding callers here dropped the one row that kept
                 # this bundle from parity (LDAPOperationManager.<anon LdapOperation>.execute, which calls the
@@ -585,6 +598,15 @@ def direct_for_method(q, ids):
     for r in rows:
         if r not in seen_row: seen_row.add(r); uniq.append(r)
     return uniq
+
+
+_OWNER_FILE = {}
+def _owner_file(q, disp):
+    """the file of the type a DISPLAY resolves to — first id wins, as the exporter's tid_of does."""
+    if disp not in _OWNER_FILE:
+        r = q("SELECT file FROM symbols WHERE display=? AND type_id IS NOT NULL LIMIT 1", disp)
+        _OWNER_FILE[disp] = r[0][0] if r else None
+    return _OWNER_FILE[disp]
 
 
 def contract_for_method(q, ids):
@@ -678,7 +700,9 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=()):
         #   extbind(q,f,l,n,"names the method in full") :- target(q,"method",m,_), qual_name(m,n),  nonsource(n,f,l)
         if nonsource:
             simple = {r[0] for r in q(f"SELECT name FROM symbols WHERE id IN ({ph})", *ids) if r[0]}
-            full = {r[0] for r in q(f"SELECT qualified_name FROM symbols WHERE id IN ({ph})", *ids) if r[0]}
+            # `qual_name(m, n)` for a METHOD target is the DISPLAY (`SequenceWriter.writeAll`), not the fully
+            # qualified name — that is what the exporter appends, and it is what a CREDITS file or an XSD writes.
+            full = {r[0] for r in q(f"SELECT display FROM symbols WHERE id IN ({ph})", *ids) if r[0]}
             for n, f, l in nonsource:
                 if n in simple: out['extbind'].append([f, str(l), n, 'names the method', qq])
                 elif n in full: out['extbind'].append([f, str(l), n, 'names the method in full', qq])
