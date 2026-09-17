@@ -1085,6 +1085,16 @@ def main(argv):
     anon = lambda c: g.disp(c).split('.')[-1].startswith('<')
     D.sort(key=lambda x: (CERT[x[3]], anon(x[0]), -(x[5] or 1), x[2], g.disp(x[0])))
     groups = [('produces or writes it', [x for x in D if x[1] in ('produces', 'writes')]), ('reads or uses it', [x for x in D if x[1] in ('reads', 'uses')])]
+    # AN ENTRY POINT IS NOT "NOTHING". A route handler, a queue consumer or a CLI command is invoked BY THE
+    # FRAMEWORK, which is exactly WHY no client call site reaches it. Printing only "nothing the graph can see"
+    # for a live HTTP route reads as dead code and is the single most misleading line this command can emit
+    # (#778). The bundle records why, so say it.
+    try:
+        eps = g.q("SELECT method_id, reason FROM entry_points WHERE method_id IN (%s)" % ','.join('?' * len(seeds)), *sorted(seeds)) if seeds else []
+    except Exception:
+        eps = []          # a bundle built before entry_points existed — say nothing rather than fail the query
+    for r in eps:
+        print(f"entry point: {g.disp(r['method_id'])} is a {r['reason']} entry point — a framework invokes it, so no client call site reaches it. Changing it changes what the outside world can call.")
     if not D: print("directly touches it: nothing the graph can see" + (" — the declaration is used only where it is declared, or through something the parser did not record" if not contract else ''))
     # a throws clause is a contract: say what adding one to this method would cost, and who already handles the ones it has
     n_callers = len({c for c, role, why, cert, loc, n in D if cert == 'resolved' and 'calls it' in why})
