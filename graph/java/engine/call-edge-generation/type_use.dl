@@ -1,0 +1,112 @@
+// ============================================================================
+// CALL-EDGE-GEN · TYPE USE  (every place a type is named, resolved and tiered)
+//
+// The second half of what change impact of a DECLARATION needs. `field_access` answers
+// "who touches this field"; this answers "what breaks if I change this type" — every
+// signature, field, local, `new`, cast, `instanceof`, throws clause and generic argument
+// that names it, each carrying the CONTEXT it was written in, so an answer can say
+// "seventeen method parameters and four fields" rather than "twenty-one mentions".
+//
+// THIS IS AN EXPORT, NOT A RESOLUTION. type_ref_resolves (resolution/type-resolution.dl)
+// already resolves every java_type_reference to a types.id, with the file's import
+// context, at every depth of a generic tree, and resolution/reference-types.dl is a stack
+// of one-line projections off it. The parser leaves referencedTypeRegistryLinkHash empty
+// on all 22,129 rows of a jsoup IR and all 105,457 of a rocketmq one, which is what issue
+// #663 measured, but the engine has had the answer all along and the export manifest
+// simply never named it. Nothing here re-resolves anything; it pairs the resolution with
+// the reference's owner, context and depth, and puts a tier on it.
+//
+// DEPTH IS KEPT, and that is the difference between this and reference-types.dl. That file
+// filters to depth 0 on purpose — a field of type `Map<String, Widget>` has receiver type
+// Map and dispatching on Widget would flood the call graph. But "what uses Widget" must
+// include that field, so every depth is exported and the column says which: 0 is the type
+// as written, >= 1 is a type argument of the one above it.
+//
+// TIERS, the same four, with the same promises:
+//   known_edge        exactly one type. A type reference is not dispatched, so this is the
+//                     declaration the name denotes.
+//   multi_inferred    2+, from a simple name that two resolution paths both answer.
+//   boundary_lib      the type is declared in a staged library IR.
+//   ambiguous_unknown the name resolved to nothing: an unstaged third party, or a type
+//                     variable with no bound in view. Type = "-", kept as a row.
+//
+// java_type_reference (18): 0 kind  1 context  6 position  7 depth  8 typeName
+//   13 startLine  14 endLine  15 typeReferenceOwnerHash  16 referenceOwnerKind
+//   17 typeReferenceUniqueHash
+// ============================================================================
+
+// ── THE SITE UNIVERSE ───────────────────────────────────────────────────────
+// Every type reference the parser emitted, minus the ones that do not NAME a type:
+//   * a TYPE_VARIABLE reference (`T`, `E`) is a use of the declaration's own parameter,
+//     not of a type. type-var-bound.dl resolves such a use to the parameter's BOUND where
+//     one is written, and that resolution IS exported here — `<T extends Node>` is a real
+//     use of Node — but a bare `T` with no bound resolves to nothing and would be a
+//     declared unknown for a name that denotes nothing to change.
+//   * a PRIMITIVE (`int`, `boolean`, `void`), which has no declaration to change.
+type_use_site(ref, ctx, owner, ownerKind, depth) :-
+    java_type_reference(kind, ctx, _, _, _, _, _, depth, tn, _, _, _, _, _, _, owner, ownerKind, ref),
+    kind != "TYPE_VARIABLE",
+    !java_primitive_name(tn).
+java_primitive_name("int").     java_primitive_name("long").    java_primitive_name("short").
+java_primitive_name("byte").    java_primitive_name("char").    java_primitive_name("boolean").
+java_primitive_name("float").   java_primitive_name("double").  java_primitive_name("void").
+java_primitive_name("var").     java_primitive_name("").
+
+// ── TIER ────────────────────────────────────────────────────────────────────
+type_use_count(ref, n) :- type_use_site(ref, _, _, _, _),
+    n = count : { type_ref_resolves(_, ref, _) }.
+type_use_leaves_client(ref) :- type_ref_resolves("lib", ref, _).
+type_use_class(ref, "known_edge")        :- type_use_count(ref, 1), !type_use_leaves_client(ref).
+type_use_class(ref, "multi_inferred")    :- type_use_count(ref, n), n >= 2.
+type_use_class(ref, "ambiguous_unknown") :- type_use_count(ref, 0).
+
+// ── THE ENCLOSING DECLARATION ───────────────────────────────────────────────
+// The owner of a reference is whatever entity carries it, and four of the eight owner kinds
+// are entities the bundle does not table on their own (a parameter, a local, an expression,
+// an annotation argument). The METHOD and TYPE that contain it are what an impact answer
+// joins on, so they ride on the row rather than being rediscovered per owner kind by the
+// consumer. Both are "-" where there is none: a field's type reference has no method, and a
+// reference in a top-level annotation has neither.
+// java_type_reference (18): 2 typeRegistryLinkHash (enclosing type)
+type_use_encl_type(ref, t) :- java_type_reference(_, _, t, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ref), t != "".
+type_use_encl_method(ref, m) :- type_use_site(ref, _, owner, "METHOD", _), m = owner.
+type_use_encl_method(ref, m) :- type_use_site(ref, _, owner, "METHOD_PARAM", _),
+    java_method_parameter(_, _, m, _, _, _, _, _, _, _, _, _, owner).
+type_use_encl_method(ref, m) :- type_use_site(ref, _, owner, "LOCAL_VARIABLE", _),
+    java_local_variable(_, _, _, _, _, _, _, _, _, _, _, _, _, m, _, _, _, _, owner), m != "".
+type_use_encl_method(ref, m) :- type_use_site(ref, _, owner, "EXPRESSION", _),
+    expr_ultimate_method("client", owner, m), m != "".
+type_use_has_method(ref) :- type_use_encl_method(ref, _).
+type_use_method(ref, m) :- type_use_encl_method(ref, m).
+type_use_method(ref, "-") :- type_use_site(ref, _, _, _, _), !type_use_has_method(ref).
+type_use_has_type(ref) :- type_use_encl_type(ref, _).
+type_use_type(ref, t) :- type_use_encl_type(ref, t).
+type_use_type(ref, "-") :- type_use_site(ref, _, _, _, _), !type_use_has_type(ref).
+
+// ── THE EXPORTED ROW ────────────────────────────────────────────────────────
+// type_use(Ref, Owner, OwnerKind, EnclType, EnclMethod, Type, Prov, Context, Depth, Tier)
+//   Ref        the type-reference node (the site)
+//   Owner      the declaration the reference belongs to: a field, a method, a method
+//              parameter, a local, a type, or the EXPRESSION for a cast / new / instanceof
+//   OwnerKind  which of those it is (FIELD, METHOD, METHOD_PARAM, LOCAL_VARIABLE, TYPE,
+//              EXPRESSION, ANNOTATION, ANNOTATION_ARGUMENT)
+//   EnclType   the type whose source contains the reference, "-" if none
+//   EnclMethod the method whose declaration or body contains it, "-" if none
+//   Type       the resolved types.id, "-" when the name resolved to nothing
+//   Prov       "client" | "lib" | "-"
+//   Context    the parser's own context (FIELD_TYPE, METHOD_PARAM, METHOD_RETURN,
+//              OBJECT_CREATION_TYPE, CAST_EXPRESSION, THROWS_CLAUSE, SUPER_TYPE, …)
+//   Depth      "0" for the written type, "1"+ for a type argument of the one above
+//   Tier       known_edge | multi_inferred | boundary_lib | ambiguous_unknown
+type_use(ref, owner, ownerKind, et, em, t, "client", ctx, depth, cls) :-
+    type_use_site(ref, ctx, owner, ownerKind, depth),
+    type_ref_resolves("client", ref, t),
+    type_use_class(ref, cls), type_use_type(ref, et), type_use_method(ref, em).
+type_use(ref, owner, ownerKind, et, em, t, "lib", ctx, depth, "boundary_lib") :-
+    type_use_site(ref, ctx, owner, ownerKind, depth),
+    type_ref_resolves("lib", ref, t),
+    type_use_type(ref, et), type_use_method(ref, em).
+type_use(ref, owner, ownerKind, et, em, "-", "-", ctx, depth, "ambiguous_unknown") :-
+    type_use_site(ref, ctx, owner, ownerKind, depth),
+    type_use_class(ref, "ambiguous_unknown"),
+    type_use_type(ref, et), type_use_method(ref, em).

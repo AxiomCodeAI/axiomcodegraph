@@ -42,6 +42,20 @@ export interface TypesIR {
  * a same-named file in two packages, or two staged versions of one package, stay apart.
  */
 export interface ModulesIR { file: string; id: string; filePath: string; packageName?: string; basePath?: string }
+/**
+ * The field tables, where the language has them. Two files, because a Java enum constant is a
+ * field the parser gives its own table and its own hash prefix; both land in one `fields` core
+ * table with a `kind` column, since `Colour.RED` is resolved and read exactly as a static field
+ * is. A language with no such relation omits this and its `fields` / `field_access` tables stay
+ * empty rather than absent (see schema.ts NOTES).
+ */
+export interface FieldsIR {
+  file: string; id: string; name: string; ownerTypeId: string;
+  ownerQualifiedName?: string; typeName?: string; modifiers?: string;
+  filePath: string; startLine: string; endLine: string;
+  /** a second file holding enum constants, with the same column roles */
+  enumConstants?: { file: string; id: string; name: string; ownerTypeId: string; ownerQualifiedName?: string; filePath: string; startLine: string; endLine: string };
+}
 /** The expressions table — the universal fallback for a site's position. */
 export interface ExpressionsIR {
   file: string; id: string; kind: string; startLine: string; startColumn: string; endLine: string; endColumn: string;
@@ -77,10 +91,15 @@ export interface LanguageAdapter {
     entryPoints?: RawSource;
     entryReachable?: RawSource;
     typeInstantiated?: RawSource;
+    /** (site, caller, field, fieldProv, tier, access) — #663; absent means the table stays empty */
+    fieldAccess?: RawSource;
+    /** (ref, owner, ownerKind, enclType, enclMethod, type, prov, context, depth, tier) — #663 */
+    typeUse?: RawSource;
   };
   ir: {
     methods: MethodsIR;
     types: TypesIR;
+    fields?: FieldsIR;
     modules?: ModulesIR;
     expressions: ExpressionsIR;
     callSites?: CallSitesIR;
@@ -103,6 +122,10 @@ const JAVA: LanguageAdapter = {
     entryPoints: { file: 'entry-point.csv', columns: [0, 1] },
     entryReachable: { file: 'entry-reachable.csv', columns: [0] },
     typeInstantiated: { file: 'type-instantiated.csv', columns: [0, 1] },
+    // site, caller, field, fieldProvenance, tier, access — the relation is already in this order
+    fieldAccess: { file: 'field-access.csv', columns: [0, 1, 2, 3, 4, 5] },
+    // ref, type, context, depth, ownerKind, owner, enclMethod, enclType, typeProv, tier
+    typeUse: { file: 'type-use.csv', columns: [0, 5, 7, 8, 2, 1, 4, 3, 6, 9] },
   },
   ir: {
     methods: {
@@ -113,6 +136,16 @@ const JAVA: LanguageAdapter = {
     types: {
       file: 'all-types.csv', id: 'typeRegistryUniqueHash', name: 'name', qualifiedName: 'qualifiedName',
       category: 'typeCategory', filePath: 'filePath', startLine: 'startLine', endLine: 'endLine',
+    },
+    fields: {
+      file: 'all-fields.csv', id: 'fieldRegistryUniqueHash', name: 'name', ownerTypeId: 'typeRegistryLinkHash',
+      ownerQualifiedName: 'ownerQualifiedName', typeName: 'fieldTypeName', modifiers: 'fieldModifier',
+      filePath: 'filePath', startLine: 'startLine', endLine: 'endLine',
+      enumConstants: {
+        file: 'all-enum-constants.csv', id: 'enumConstantUniqueHash', name: 'name',
+        ownerTypeId: 'typeRegistryLinkHash', ownerQualifiedName: 'ownerQualifiedName',
+        filePath: 'filePath', startLine: 'startLine', endLine: 'endLine',
+      },
     },
     // A Java expression row carries no file; its owning type does.
     expressions: {

@@ -373,19 +373,19 @@ for dir in "$HERE"/cases/*/; do
 done
 
 # ── THE WHOLE-PROJECT FIXTURES ───────────────────────────────────────────────
-# test/python/projects holds two realistic projects, 29 files and ~1,040 lines, and its
-# README credits them with catching six engine defects the single-construct cases could
-# not. THE SUITE NEVER RAN THEM: the loop above iterates cases/*/ and requires a src/
-# subdirectory, which these do not have, so nothing checked them and their README table
-# was transcribed by hand.
+# test/python/projects holds two realistic projects, 29 files and ~1,040 lines, which
+# caught six engine defects the single-construct cases could not. THE SUITE NEVER RAN
+# THEM: the loop above iterates cases/*/ and requires a src/ subdirectory, which these do
+# not have, so nothing checked them and the tier counts recorded beside them were
+# transcribed by hand.
 #
-# It had drifted. Against the engine's own per-tier SITE counts: known_edge 123 -> 124,
+# They had drifted. Against the engine's own per-tier SITE counts: known_edge 123 -> 124,
 # boundary_lib 76 -> 70, ambiguous_unknown 5 -> 10; the site total (227) and
 # multi_inferred (23) still hold. The ambiguous_unknown row is the one that matters,
-# because the README's prose names five unknowns — four route decorators and
-# functools.wraps — and there are five MORE it never mentioned: bare @abstractmethod in
-# four shared modules. Confirmed NOT recent: identical at 4345f2f, before the six Python
-# changes that landed after it.
+# because five unknowns were accounted for — four route decorators and functools.wraps —
+# and there are five MORE nobody had counted: bare @abstractmethod in four shared modules.
+# Confirmed NOT recent: identical at 4345f2f, before the six Python changes that landed
+# after it.
 #
 # Pinned with the same artifact the cases use, for the same reason: an edge list cannot
 # see a tier count move.

@@ -1,0 +1,4 @@
+known_edge	read	testcases.config.MailSender#start() -> testcases.config.MailSender#transport
+known_edge	read	testcases.config.MailSender#stop() -> testcases.config.MailSender#transport
+known_edge	write	testcases.config.MailSender#<init>(Transport) -> testcases.config.MailSender#transport
+known_edge	write	testcases.config.MailSender#setEndpoint(String) -> testcases.config.MailSender#endpoint

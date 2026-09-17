@@ -1,0 +1,17 @@
+ambiguous_unknown	METHOD_RETURN	0	probe.TwoHop#nestedArgOnClientRef() [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	0	probe.TwoHop#nestedArgOnLibRef() [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	0	probe.TwoHop#oneHop() [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	0	probe.TwoHop#oneHopVar() [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	0	probe.TwoHop#twoHopBothVars() [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	0	probe.TwoHop#twoHopChain() [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	0	probe.TwoHop#twoHopVar() [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	0	probe.TwoHop.Widget#id() [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	1	probe.TwoHop#lookup() [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	2	probe.TwoHop#pairs() [METHOD] -> -
+boundary_lib	METHOD_RETURN	0	probe.TwoHop#box() [METHOD] -> dep.Box
+boundary_lib	METHOD_RETURN	0	probe.TwoHop#lookup() [METHOD] -> dep.Lookup
+boundary_lib	METHOD_RETURN	0	probe.TwoHop#pairs() [METHOD] -> dep.Box
+boundary_lib	METHOD_RETURN	1	probe.TwoHop#pairs() [METHOD] -> dep.Pair
+known_edge	METHOD_RETURN	1	probe.TwoHop#box() [METHOD] -> probe.TwoHop.Widget
+known_edge	METHOD_RETURN	1	probe.TwoHop#lookup() [METHOD] -> probe.TwoHop.Widget
+known_edge	METHOD_RETURN	2	probe.TwoHop#pairs() [METHOD] -> probe.TwoHop.Widget

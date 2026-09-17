@@ -1,0 +1,14 @@
+46-field-access
+  precision 0.9000   (9 correct, 1 wrong)
+  recall    0.6000   (9 of 15 in the bytecode)
+  references 18   resolved 13 (72.2%)
+  tiers ambiguous_unknown=5  known_edge=13
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts CAST_EXPRESSION=1  FIELD_TYPE=2  METHOD_PARAM=8  METHOD_RETURN=3  OBJECT_CREATION_TYPE=1  SUPER_TYPE=3
+    WRONG   probe.FieldAccess.ShadowSub CAST_EXPRESSION probe.FieldAccess.ShadowBase
+    MISSING probe.FieldAccess.Mode ARRAY_CREATION_TYPE probe.FieldAccess.Mode
+    MISSING probe.FieldAccess.Mode CAST_EXPRESSION probe.FieldAccess.Mode
+    MISSING probe.FieldAccess.Mode FIELD_TYPE probe.FieldAccess.Mode
+    MISSING probe.FieldAccess.Mode METHOD_RETURN probe.FieldAccess.Mode
+    MISSING probe.FieldAccess.Mode OBJECT_CREATION_TYPE probe.FieldAccess.Mode
+    MISSING probe.FieldAccess.Mode SUPER_TYPE probe.FieldAccess.Mode

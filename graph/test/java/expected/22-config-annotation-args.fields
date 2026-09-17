@@ -1,0 +1,7 @@
+known_edge	read	testcases.config.Consumer#use() -> testcases.config.Consumer#host
+known_edge	read	testcases.config.Consumer#use() -> testcases.config.Consumer#missing
+known_edge	read	testcases.config.Consumer#use() -> testcases.config.Consumer#plain
+known_edge	read	testcases.config.Consumer#use() -> testcases.config.Consumer#timeout
+known_edge	read	testcases.config.Nested#path() -> testcases.config.Nested#path
+known_edge	read	testcases.config.SvcProps#host() -> testcases.config.SvcProps#host
+known_edge	read	testcases.config.SvcProps#retries() -> testcases.config.SvcProps#maxRetries

@@ -1,0 +1,7 @@
+01-inheritance-override
+  precision 1.0000   (4 correct, 0 wrong)
+  recall    1.0000   (4 of 4 in the bytecode)
+  references 15   resolved 4 (26.7%)
+  tiers ambiguous_unknown=11  known_edge=4
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts ANNOTATION_TYPE=3  FIELD_TYPE=1  LOCAL_VARIABLE=3  METHOD_PARAM=3  METHOD_RETURN=1  OBJECT_CREATION_TYPE=2  SUPER_TYPE=2

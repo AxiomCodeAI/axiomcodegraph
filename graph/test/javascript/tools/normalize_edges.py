@@ -55,6 +55,15 @@ if h:
             access[r[i['jsExpressionUniqueHash']]] = '%s:%s:%s %%s %s' % (
                 modfile.get(r[i['ownerModuleLinkHash']], '?'), r[i['startLine']], r[i['startColumn']],
                 r[i['text']].replace('\n', ' ')[:60])
+# A DESTRUCTURED accessor read (#792) is keyed on the BINDING, which is neither a call
+# site nor an expression, so its position comes from the variables table.
+h, vars_ = read(os.path.join(ir, 'all-javascript-variables.csv'))
+if h:
+    i = {c: h.index(c) for c in ('jsVariableUniqueHash', 'ownerModuleLinkHash', 'startLine', 'startColumn', 'name')}
+    for r in vars_:
+        access.setdefault(r[i['jsVariableUniqueHash']], '%s:%s:%s %%s {%s}' % (
+            modfile.get(r[i['ownerModuleLinkHash']], '?'), r[i['startLine']], r[i['startColumn']],
+            r[i['name']]))
 lines = set()
 with open(os.path.join(out, 'call-chain-edges.csv')) as fh:
     for line in fh:

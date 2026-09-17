@@ -78,7 +78,18 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { createRequire } from 'node:module';
 
-const projectDir = path.resolve(process.argv[2] ?? '');
+// CANONICAL, not as spelled. The compiler resolves a workspace import through
+// `node_modules/@scope/pkg -> ../../packages/pkg` to the package's REAL path, so a root
+// given as a path through a symlink (macOS `/tmp`, a symlinked checkout, a bind mount)
+// made the same file both a root file under one spelling and an imported file under the
+// other. The program then held two source files for it, and both relativised to one site
+// key, so every call site in a workspace-linked package was emitted TWICE and every
+// bucket the scorer prints was inflated (#794). Realpath'ing the root makes the two
+// spellings one, and changes nothing for a root that is already canonical.
+const projectDir = (() => {
+  const given = path.resolve(process.argv[2] ?? '');
+  try { return fs.realpathSync(given); } catch { return given; }
+})();
 const outPath = path.resolve(process.argv[3] ?? '');
 if (!process.argv[2] || !process.argv[3]) {
   console.error('usage: tsc-oracle.mjs <project-dir> <out.tsv>');

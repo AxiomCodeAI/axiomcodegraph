@@ -23,7 +23,6 @@ PARSER="${2:-${AXIOM_PARSER:-}}"
 fail=0
 rm -rf "$WORK"; mkdir -p "$WORK"
 cp -R "$HERE/repo" "$WORK/src-repo"
-rm -f "$WORK/src-repo/README.md"
 PROJECT="$WORK/src-repo/packages/pkg"
 
 # ── 1. the plan ─────────────────────────────────────────────────────────────

@@ -1,0 +1,9 @@
+36-generic-two-hop
+  precision 1.0000   (1 correct, 0 wrong)
+  recall    0.3333   (1 of 3 in the bytecode)
+  references 17   resolved 7 (41.2%)
+  tiers ambiguous_unknown=10  boundary_lib=4  known_edge=3
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts METHOD_RETURN=17
+    MISSING probe.TwoHop CAST_EXPRESSION probe.TwoHop.Widget
+    MISSING probe.TwoHop LOCAL_VARIABLE probe.TwoHop.Widget
