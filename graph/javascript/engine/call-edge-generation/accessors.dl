@@ -50,6 +50,21 @@ accessor_member("obj", l, n, "SETTER", m) :- literal_owns_method(l, m), method_d
 // `Object.defineProperty(T.prototype, 'x', { get() {}, set() {} })` — ONE field row
 // carrying both halves (projections/types.dl's field_accessor), joined back to
 // field_decl for the side it sits on.
+// `Object.defineProperty(target, 'x', { get() { … } })` on ANYTHING but a prototype
+// (#792): `this` in a constructor, `exports` for a lazy export, a plain object. Only
+// the prototype form reaches field_accessor, because only that form gets a field row
+// from the parser; the rest are known to the engine as a define_property_site whose
+// descriptor carries a `get`, which is the same knowledge in a different table. The
+// member lands on whatever value the target holds, exactly as the member_write for the
+// descriptor's value already does.
+accessor_member(k, i, n, "GETTER", g) :- define_property_site(_, tgt, key, desc),
+    expr_value(tgt, k, i), k != "ambient", expr_value(key, "str", n), descriptor_accessor(desc, "get", g).
+accessor_member(k, i, n, "SETTER", st) :- define_property_site(_, tgt, key, desc),
+    expr_value(tgt, k, i), k != "ambient", expr_value(key, "str", n), descriptor_accessor(desc, "set", st).
+descriptor_accessor(d, half, f) :- expr_kind(_, "OBJECT_LITERAL", _, d), prop_value("obj", d, half, "func", f), accessor_half(half).
+descriptor_accessor(d, half, f) :- literal_owns_method(d, f), method_decl(_, half, _, _, _, _, _, f), accessor_half(half).
+accessor_half("get").
+accessor_half("set").
 accessor_member("inst", t, n, "GETTER", g) :- field_accessor(_, n, t, g, _, h), g != "", field_decl(_, n, t, _, "false", _, _, h).
 accessor_member("inst", t, n, "SETTER", st) :- field_accessor(_, n, t, _, st, h), st != "", field_decl(_, n, t, _, "false", _, _, h).
 accessor_member("ctor", t, n, "GETTER", g) :- field_accessor(_, n, t, g, _, h), g != "", field_decl(_, n, t, _, "true", _, _, h).
@@ -83,6 +98,18 @@ property_write_position(e) :- expr_kind(_, "UNARY", _, u), expr_operator(_, op, 
 update_operator("++").
 update_operator("--").
 
+// A DESTRUCTURING read runs the getter too (#792): `const { method } = req` is a read
+// of `method` on whatever `req` holds, and the value layer already walks it (a binding
+// path's first segment through path_step, which reads prop_value and so reads the
+// getter's return). There is no PROPERTY_ACCESS expression to key an edge on, so the
+// pattern's own binding is the site: one edge per bound name whose first path segment
+// names an accessor on the initialiser's value. A nested or rest pattern walks further
+// and is left alone, since the member it ran is not the binding's own name.
+destructured_read(v, n, k, i) :- var_binding_path(_, n, v), !contains(".", n), !match("[0-9]+", n),
+    accessor_name(n), var_init(_, _, e, v), expr_value(e, k, i).
+accessor_invocation(v, m, "PROPERTY_READ") :- destructured_read(v, n, k, i),
+    accessor_member(k, i, n, "GETTER", m).
+
 // ── accessor_invocation(AccessExpr, Method, Kind) ───────────────────────────
 accessor_invocation(e, m, "PROPERTY_READ") :- property_read_position(e), property_access_name(e, n, r),
     expr_value(r, k, i), accessor_member(k, i, n, "GETTER", m).
@@ -107,3 +134,9 @@ call_chain_edge(e, caller, "-", m, "client", cls, k) :- accessor_invocation(e, m
     method_prov(m, "client"), expr_owner(_, caller, _, e), accessor_class(e, k, cls).
 call_chain_edge(e, caller, "-", m, "lib", "boundary_lib", k) :- accessor_invocation(e, m, k),
     method_prov(m, "lib"), expr_owner(_, caller, _, e).
+// A destructured read is keyed on the BINDING, which is no expression, so its caller is
+// the variable's own owning method rather than expr_owner (#792).
+call_chain_edge(v, caller, "-", m, "client", cls, k) :- accessor_invocation(v, m, k),
+    method_prov(m, "client"), var_owner_method(_, caller, v), accessor_class(v, k, cls).
+call_chain_edge(v, caller, "-", m, "lib", "boundary_lib", k) :- accessor_invocation(v, m, k),
+    method_prov(m, "lib"), var_owner_method(_, caller, v).

@@ -30,8 +30,26 @@ function drive() {
   b.size += 2;
   return a + obj.name + b;
 }
+// A DESTRUCTURING read runs the getter, and so does a getter installed by
+// defineProperty on a target that is not a prototype (#792).
+const holder = {};
+Object.defineProperty(holder, 'label', { get() { return helper(); } });
+function helper() { return 'h'; }
+class Lazy {
+  constructor() { Object.defineProperty(this, 'own', { get: () => this.build() }); }
+  build() { return 'b'; }
+}
+function destructure() {
+  const r = new Sub();
+  const { url } = r;
+  const { size } = new Both();
+  const l = holder.label;
+  const o = new Lazy().own;
+  return url + size + l + o;
+}
+
 // The control: a plain member read is not an accessor edge, and a write to a
 // plain field is not a setter edge.
 class Plain { constructor() { this.v = 1; } m() { return 2; } }
 function plainDrive() { const p = new Plain(); p.v = 3; return p.v + p.m(); }
-module.exports = { drive, plainDrive };
+module.exports = { drive, plainDrive, destructure };
