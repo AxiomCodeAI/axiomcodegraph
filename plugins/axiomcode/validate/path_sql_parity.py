@@ -29,11 +29,16 @@ for n in names[:max(2, N // 3)]:
     cases.append(('*', n, [])); cases.append((n, '*', []))
 
 def run(a, b, extra, sql):
+    # a pathological case (--every between two hubs) exceeds any bound on BOTH engines; record it rather than
+    # aborting the sweep, so the aggregate covers every other case.
     env = dict(os.environ); env['AXIOMCODE_SQL'] = '1' if sql else ''
     t0 = time.time()
-    r = subprocess.run(['python3', os.path.join(S, 'axiomcode-path'), a, b, repo] + extra,
-                       capture_output=True, text=True, timeout=600, env=env)
-    return time.time() - t0, (r.stdout or '') + (r.stderr or '')
+    try:
+        r = subprocess.run(['python3', os.path.join(S, 'axiomcode-path'), a, b, repo] + extra,
+                           capture_output=True, text=True, timeout=60, env=env)
+        return time.time() - t0, (r.stdout or '') + (r.stderr or '')
+    except subprocess.TimeoutExpired:
+        return 60.0, '<<TIMEOUT>>'
 
 bad = tot_s = tot_q = 0
 print(f"{'case':58} {'souffle':>8} {'sql':>7} {'speedup':>8}  verdict")

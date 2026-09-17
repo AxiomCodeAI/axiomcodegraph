@@ -1183,6 +1183,24 @@ def main(argv):
                         elif tid: vis |= {r[0] for r in g.q("SELECT visibility FROM types WHERE id = ? AND visibility IS NOT NULL", tid)}
             except Exception: vis = set()
         exported = sorted(v for v in vis if v in ('PUBLIC', 'PROTECTED'))
+        # Deleting an override is not one question but two, and the answer is opposite either way. If the target
+        # implements an ABSTRACT supertype method and no concrete implementation is left, the class stops
+        # implementing it and the COMPILE breaks. If every supertype method it overrides is concrete, deleting it
+        # compiles clean and the inherited body runs instead: a behaviour change, not a build break.
+        # `overrides` joined to `methods.kind` says which, for a library supertype too when the library is staged.
+        # A method can do both (Map.size is abstract, AbstractMap.size is concrete): if ANY concrete implementation
+        # remains, the compile survives, so the concrete case wins.
+        abstract_over, concrete_over = [], []
+        for k, _lab, pay in targets:
+            if k != 'method': continue
+            for t in (pay if isinstance(pay, list) else []):
+                mid = g.sym[t].get('method_id') if t in g.sym else None
+                if not mid: continue
+                for r in g.q("""SELECT sup.kind k, COALESCE(sb.display, sup.qualified_name) d FROM overrides o
+                                JOIN methods sup ON sup.id = o.method_id
+                                LEFT JOIN symbols sb ON sb.method_id = sup.id
+                                WHERE o.overriding_method_id = ?""", mid):
+                    (abstract_over if r['k'] == 'ABSTRACT_METHOD' else concrete_over).append(r['d'])
         print("\nsafe to delete?")
         # one verdict word, decided on the whole population the answer printed, never on [resolved] alone: on a dynamic
         # language almost every real caller is [one of a set] or [by name], and "no resolved caller" reads as "unused"
@@ -1190,13 +1208,18 @@ def main(argv):
         if calls: why.append(f"{len({x[0] for x in calls})} callable(s) call or receive it")
         if contract: why.append(f"{len(contract)} declaration(s) are bound to it by a contract")
         if weak: why.append(f"{len({x[0] for x in weak})} dependent(s) that are not exact edges (" + ', '.join(f"{n} {c}" for c, n in collections.Counter(x[3] for x in weak).most_common()) + "), each of which may be a same-named other thing and may be the real caller")
-        if ov: why.append("it overrides " + ', '.join(sorted(set(ov))[:3]) + ", so the base's callers reach this body with no call site of its own")
+        if abstract_over and not concrete_over:
+            why.append("it implements the abstract " + ', '.join(sorted(set(abstract_over))[:3]) +
+                       ", so deleting it leaves the type without an implementation and the build fails")
+        elif ov: why.append("it overrides " + ', '.join(sorted(set(ov))[:3]) + ", so the base's callers reach this body with no call site of its own")
         if why: print("  NOT SAFE — " + '; '.join(why) + ". They are listed above.")
         elif exported: print("  NOT SAFE TO ASSUME — no dependent in this graph, but it is declared " + '/'.join(exported) +
                              ": exported surface. For a library, no in-repo caller is the normal state of the public API,"
                              " and a consumer outside this graph is not visible here. Check what else the graph cannot see:")
         else: print("  no dependent at any certainty in this graph. Before deleting, check what the graph cannot see:")
         bits = []
+        if concrete_over: bits.append("it overrides the concrete " + ', '.join(sorted(set(concrete_over))[:3]) +
+                                      " — deleting it COMPILES, and the inherited body runs instead: a behaviour change, not a build break")
         if exported and why: bits.append("it is declared " + '/'.join(exported) + " — exported surface, so consumers outside this graph may call it too")
         if lits: bits.append(f"{len(lits)} string literal(s) equal to the name (reflection? a bean name? a config key?): " + ', '.join(f"{f}:{l}" for f, l in lits[:4]) + (' …' if len(lits) > 4 else ''))
         if decs: bits.append("decorations on it: @" + ', @'.join(decs[:5]) + " — a framework may call it with no call site, and a decorator can hand the wrapper to the caller instead of this declaration")

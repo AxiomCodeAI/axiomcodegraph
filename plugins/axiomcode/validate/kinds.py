@@ -24,8 +24,14 @@ CASES = [                                       # (target, extra args, [substrin
  ('Svc.plain', [], []),                          # no throws clause: no throws line at all
  ('Status.<new>', [], ['a constant to be added to Status', 'Router.label', 'a new constant needs an arm here']),
  ('Status', ['--kind', 'type'], ['switches over the enum']),
+ # deleting an override: abstract and concrete are opposite answers, and the tool used to print the same
+ # sentence for both. `overrides` joined to methods.kind decides it.
+ ('Impl.must', ['--delete'], ['implements the abstract', 'Base.must', 'the build fails']),
+ ('Impl.may', ['--delete'], ['overrides the concrete', 'Base.may', 'COMPILES']),
 ]
-NEVER = {'Svc.plain': ['throws:']}
+NEVER = {'Svc.plain': ['throws:'],
+         # the concrete case must NOT be given as a build-breaking reason
+         'Impl.may': ['leaves the type without an implementation']}
 
 def main():
     if not graph(): print("kinds: skipped — could not build the fixture graph (needs the engine)"); return 0
