@@ -401,56 +401,63 @@ def _test_sets(q):
 
 def tests_reaching(q, depth, sets=None):
     """test_hit: a test whose own body reaches the change, one a reached fixture runs before it, or one declared
-    beside a reached carrier in the same file. Returns {test_id: (hops, via)} at the nearest hop.
+    beside a reached carrier in a test file. Returns {test_id: (hops, via)} at the nearest hop.
 
-    Built from three maps read ONCE, not a query per reached node: on a 1.23M-LOC bundle a hub target reaches
-    28,080 nodes, and asking the database about each of them cost 8.07 s against 0.12 s for the whole closure —
-    the query was not slow, the loop around it was.
+    Keyed on `methods.owner_type_id`, never on `symbols.owner`, which is a DISPLAY: this bundle has two distinct
+    UserProfileTest classes in different files, and matching by name merged their tests.
+
+    Read from three maps built once. Asking the database per reached node cost 8.07 s on a hub target that
+    reaches 28,080, against 0.16 s for all of it — the query was not slow, the loop around it was.
     """
     if not depth: return {}
     tm, fx = sets or _test_sets(q)
-    owner_of, file_of, disp_of, kind_of, tests_by_owner, tests_by_file = {}, {}, {}, {}, {}, {}
-    for sid, owner, f, disp, tid, mid, knd in q("SELECT id, owner, file, display, type_id, method_id, kind FROM symbols"):
-        owner_of[sid] = owner; file_of[sid] = f; kind_of[sid] = knd
-        if tid and not mid: disp_of[sid] = disp          # a TYPE: its members are owned by its own display
-        if sid in tm:
-            if owner: tests_by_owner.setdefault(owner, []).append(sid)
-            if f: tests_by_file.setdefault(f, []).append(sid)
-    # ancestor display -> the displays of every type that extends or nests inside it: the `scope(t,s)` closure.
-    subtypes_of = {}
+    # The exporter resolves an owner through `tid_of = {display: type_id}` built with setdefault — FIRST id wins —
+    # so two distinct classes that share a display collapse to one type, and the rules inherit that. This bundle
+    # has two SecureRedirectUrisEnforcerExecutorTest classes in different modules, only one of which extends
+    # AbstractKeycloakTest; the rules attribute the other one's 22 tests to it anyway. Keying on the real
+    # owner_type_id is strictly more precise and therefore does NOT match, so the same collapse is reproduced here.
+    # (Worth fixing in the exporter — but it is a behaviour change, not a port.)
+    tid_of = {}
+    for disp, tid in q("SELECT display, type_id FROM symbols WHERE type_id IS NOT NULL"): tid_of.setdefault(disp, tid)
+    owner_id, file_of, kind_of = {}, {}, {}
+    for sid, f, knd, tid, mid, owner, disp in q("SELECT id, file, kind, type_id, method_id, owner, display FROM symbols"):
+        file_of[sid] = f; kind_of[sid] = knd
+        if owner and owner in tid_of: owner_id[sid] = tid_of[owner]
+        if tid and not mid: owner_id.setdefault(sid, tid_of.get(disp, sid))
+    tests_by_owner, tests_by_file = {}, {}
+    for t in tm:
+        o = owner_id.get(t)
+        if o: tests_by_owner.setdefault(o, []).append(t)
+        if file_of.get(t): tests_by_file.setdefault(file_of[t], []).append(t)
+    # scope(t,s): t itself, then every type that extends or nests inside it — a fixture on a base class runs
+    # before the tests of all its subclasses.
+    # `scope(t,t)` · `scope(t,s) :- scope(t,u), extends(s,u)` · `scope(t,s) :- scope(t,u), nested(s,u)` — both
+    # the subtype closure AND the nested-type one. Ancestors alone lost 22 tests declared in inner classes.
+    subs = {}
     if _has(q, 'type_ancestors'):
-        name = {r[0]: r[1] for r in q("SELECT id, display FROM symbols WHERE type_id IS NOT NULL")}
         for tid, aid in q("SELECT type_id, ancestor_type_id FROM type_ancestors"):
-            an, tn = name.get(aid), name.get(tid)
-            if an and tn and an != tn: subtypes_of.setdefault(an, []).append(tn)
-    test_files = {file_of[t] for t in tm if file_of.get(t)}      # is_test_file(f): a file that declares a test
+            if tid != aid: subs.setdefault(aid, []).append(tid)
+    if _has(q, 'nesting'):
+        for inner, outer in q("SELECT type_id, outer_type_id FROM nesting"):
+            if inner and outer and inner != outer: subs.setdefault(outer, []).append(inner)
+    # close it: a subtype of a nested type (and vice versa) is still in scope
+    for k in list(subs):
+        seen, stack = set(subs[k]), list(subs[k])
+        while stack:
+            u = stack.pop()
+            for v in subs.get(u, ()):
+                if v not in seen: seen.add(v); stack.append(v)
+        subs[k] = list(seen)
+    test_files = {file_of[t] for t in tm if file_of.get(t)}
     out = {}
     def put(m, d, via):
         if m not in out or d < out[m][0]: out[m] = (d, via)
-    # Every rule that applies fires — they are a union in the rules, not a chain. A reached node can be a fixture
-    # AND sit in a test file, and Soufflé takes both; running them as elif lost 171 tests on one hub target.
     for sid, d in depth.items():
         if sid in tm: put(sid, d, '')
         if sid in fx:
-            # `test_hit(q,m,d,fx) :- fixture(fx), owner(fx,t), member(t,m,…)` for a fixture METHOD, and
-            # `… fixture(fx), typ(fx,_,_), member(fx,m,…)` for a fixture that is a TYPE — whose members are keyed
-            # by its own display, not by its parent's. Using the parent for both lost the type-fixture tests.
-            # `scope(t,s)`: t itself, then every SUBTYPE of it. A fixture declared on a base class runs before the
-            # tests of all its subclasses — AbstractKeycloakTest.beforeAbstractKeycloakTest brings 139 tests that
-            # live in subclasses, which matching the owner exactly never reached.
-            for key in (disp_of.get(sid), owner_of.get(sid)):
-                if not key: continue
+            o = owner_id.get(sid)
+            for key in ([o] + subs.get(o, [])) if o else []:
                 for m in tests_by_owner.get(key, ()): put(m, d, sid)
-                for sub in subtypes_of.get(key, ()):
-                    for m in tests_by_owner.get(sub, ()): put(m, d, sid)
-        # `… reach(q,c,d), decl_file(c,f), decl_file(m,f), test_method(m), !test_method(c),
-        #    (kind(c,"class") ; kind(c,"module") ; fixture(c))` — the carrier is a TYPE or a fixture. Letting any
-        # reached method carry its file's tests added three UserProfileTest cases the rules never reach.
-        # Two rules, both without a "already reported" guard:
-        #   447  … !test_method(c), (kind(c,"class") ; kind(c,"module") ; fixture(c))   — a type or fixture carrier
-        #   450  … !test_method(c), is_test_file(f)                                     — ANY non-test in a TEST FILE
-        # 450 is why a plain helper in a test file carries that file's tests; restricting carriers to types alone
-        # lost 419 of them, and dropping the restriction entirely gained three from a non-test file.
         if sid not in tm and (kind_of.get(sid) in ('class', 'module') or sid in fx or file_of.get(sid) in test_files):
             for m in tests_by_file.get(file_of.get(sid), ()): put(m, d, sid)
     return out
