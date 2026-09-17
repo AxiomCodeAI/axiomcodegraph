@@ -1,0 +1,6 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a new get(String) beside an existing get(String...) is an addition, not a file with no change: the graph drops the varargs marker, so the signature key collides",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.java", "--new", "{repo}/new.java", "--file", "src/pkg/Params.java"],
+   "want": ["added", "Params.get"],
+   "avoid": ["no change to a declaration"]}]}

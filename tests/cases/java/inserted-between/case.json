@@ -1,0 +1,6 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a method inserted in the blank line between two others is an addition, not a body change to the one above it",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.java", "--new", "{repo}/new.java", "--file", "src/pkg/Port.java"],
+   "want": ["added", "hasPort"],
+   "avoid": ["body       Port.getPort"]}]}
