@@ -1,0 +1,13 @@
+{"lang": "java", "src": "src",
+ "sql": ["CREATE TABLE IF NOT EXISTS ext_bean_def (c0 TEXT, c1 TEXT, c2 TEXT)",
+         "INSERT INTO ext_bean_def (c0, c1, c2) SELECT 'svc', type_id, 'stereotype' FROM symbols WHERE display='Svc' AND method_id IS NULL",
+         "CREATE TABLE IF NOT EXISTS ext_inject_point (c0 TEXT, c1 TEXT, c2 TEXT, c3 TEXT, c4 TEXT)",
+         "INSERT INTO ext_inject_point (c0, c1, c2, c3, c4) SELECT 'field', 'svc', (SELECT type_id FROM symbols WHERE display='Svc' AND method_id IS NULL), (SELECT type_id FROM symbols WHERE display='Client' AND method_id IS NULL), '-'"],
+ "checks": [
+  {"why": "a call from inside the bean goes through this, never through the container proxy, so an added proxied annotation does not apply to it",
+   "run": ["impact", "Svc.load"],
+   "want": ["Svc.both", "proxy"],
+   "avoid": []},
+  {"why": "a caller that receives the bean by injection is the one that does get the new behaviour",
+   "run": ["impact", "Svc.load"],
+   "want": ["Client.use"]}]}
