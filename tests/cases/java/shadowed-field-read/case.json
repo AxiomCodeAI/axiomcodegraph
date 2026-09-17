@@ -1,0 +1,9 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a field read that precedes a same-named local declaration is a field read, so the field's dependents include it",
+   "run": ["impact", "Shadow.value", "--kind", "field"],
+   "want": ["Shadow.hashCode"]},
+  {"why": "and the use after the local declaration is still the local, so it is not counted twice as a field read",
+   "run": ["impact", "Shadow.count", "--kind", "field"],
+   "want": ["Shadow.plain"],
+   "avoid": ["Shadow.after"]}]}

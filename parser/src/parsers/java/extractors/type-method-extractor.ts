@@ -708,6 +708,7 @@ export class TypeMethodExtractor {
     // A pattern binding is declared in one statement and used in another, so the extractor is
     // told the whole body's bindings once rather than per statement.
     this.expressionExtractor.setMethodPatternBindings(this.collectPatternBindings(bodyBlock));
+    this.expressionExtractor.setLocalVariableDeclStarts(this.collectLocalVariableDeclStarts(bodyBlock));
     
     // IMPORTANT: Extract expression statements FIRST to get actual lambda hashes,
     // then use those hashes when processing return statements inside those lambdas.
@@ -1056,6 +1057,32 @@ export class TypeMethodExtractor {
   }
 
   /**
+   * Where each local name is FIRST declared in this body, as a source offset. A use before that offset
+   * cannot be that local (a local's scope starts at its declaration), so it is a field read.
+   */
+  private collectLocalVariableDeclStarts(bodyBlock: Parser.SyntaxNode): Map<string, number> {
+    const starts = new Map<string, number>();
+    const walk = (node: Parser.SyntaxNode): void => {
+      if (node.type === 'local_variable_declaration' || node.type === 'for_statement' || node.type === 'enhanced_for_statement') {
+        const consider = (declarator: Parser.SyntaxNode): void => {
+          const nameNode = declarator.childForFieldName('name');
+          if (!nameNode) return;
+          const prev = starts.get(nameNode.text);
+          if (prev === undefined || nameNode.startIndex < prev) starts.set(nameNode.text, nameNode.startIndex);
+        };
+        if (node.type === 'enhanced_for_statement') consider(node);
+        for (const child of node.children) {
+          if (child.type === 'variable_declarator') consider(child);
+          else if (child.type === 'local_variable_declaration') for (const d of child.children) if (d.type === 'variable_declarator') consider(d);
+        }
+      }
+      for (const child of node.children) walk(child);
+    };
+    walk(bodyBlock);
+    return starts;
+  }
+
+  /**
    * Recursively collects local variable names from a node and its children.
    */
   private collectLocalVariableNamesRecursive(node: Parser.SyntaxNode, names: Set<string>): void {
@@ -1236,6 +1263,7 @@ export class TypeMethodExtractor {
     // A pattern binding is declared in one statement and used in another, so the extractor is
     // told the whole body's bindings once rather than per statement.
     this.expressionExtractor.setMethodPatternBindings(this.collectPatternBindings(bodyBlock));
+    this.expressionExtractor.setLocalVariableDeclStarts(this.collectLocalVariableDeclStarts(bodyBlock));
     
     // Build position-to-hash map for block ownership lookups in initializer expression extraction
     const blockPositionToHash = this.buildBlockPositionMapFromAST(bodyBlock, typeRegistryHash, methodHash, filePath);
