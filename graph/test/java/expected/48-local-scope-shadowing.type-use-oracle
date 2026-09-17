@@ -1,0 +1,8 @@
+48-local-scope-shadowing
+  precision 1.0000   (5 correct, 0 wrong)
+  recall    0.8333   (5 of 6 in the bytecode)
+  references 35   resolved 19 (54.3%)
+  tiers ambiguous_unknown=16  known_edge=19
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts FIELD_TYPE=5  INSTANCEOF_TYPE=1  LOCAL_VARIABLE=9  METHOD_PARAM=1  METHOD_RETURN=9  OBJECT_CREATION_TYPE=10
+    MISSING probe.Shadow CAST_EXPRESSION probe.LocalSide
