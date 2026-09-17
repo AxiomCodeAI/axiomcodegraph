@@ -189,6 +189,13 @@ class Impact:
         if m and self.methods(m.group(1), soft=True):                                  # Owner.m(p): a parameter — when p is one; a signature otherwise
             mids = self.methods(m.group(1)); hits = [i for i in mids if self.refs_in(i, m.group(2), {'PARAMETER', 'PARAM', 'LAMBDA_PARAMETER'}) or self.param_declared(i, m.group(2))]
             if hits: return [('param', f"parameter {m.group(2)} of {self.g.disp(hits[0])}" + (f" (+{len(hits)-1} declarations)" if len(hits) > 1 else ''), (hits, m.group(2)))]
+        if m and self.methods(m.group(1), soft=True):                                  # not a parameter name: a signature
+            ids, note = self.sig_narrow(self.methods(m.group(1)), m.group(2), s)
+            return [('method', f"{m.group(1)}{note}" + (f" ({len(ids)} declarations)" if len(ids) > 1 else ''), ids)]
+        msig = re.match(r'^(.+?)\(([^()]*)\)$', s)
+        if msig and msig.group(2).strip() and self.methods(msig.group(1), soft=True):  # a multi-argument signature
+            ids, note = self.sig_narrow(self.methods(msig.group(1)), msig.group(2), s)
+            return [('method', f"{msig.group(1)}{note}" + (f" ({len(ids)} declarations)" if len(ids) > 1 else ''), ids)]
         out = []
         base = re.sub(r'\(.*\)$', '', s).replace('#', '.').strip('.')
         if not (self.field_rows(base) or self.types(base, soft=True) or self.methods(base, soft=True)): base = base.replace('$', '.')   # Outer$Inner — unless $ is part of the name ($Gson$Types)
@@ -275,6 +282,58 @@ class Impact:
         if not s.get('line') or not self.g.has('refs'): return []
         q = "SELECT name, line, entity_kind FROM refs WHERE file = ? AND line BETWEEN ? AND ?" + (" AND name = ?" if name else '')
         return [r for r in self.g.q(q, s['file'], s['line'], s['end_line'], *([name] if name else [])) if r['entity_kind'] in kinds]
+    PRIMITIVE = {'int','long','double','float','boolean','char','byte','short','void','String','Object'}
+    def declared_params(self, mid):
+        """the simple type names of mid's declared parameters, in order; None when the header cannot be read"""
+        s = self.g.sym[mid]
+        if not s.get('line'): return None
+        L = self.lines(s['file']); head = ' '.join(L[s['line'] - 1: min(s.get('end_line') or s['line'], s['line'] + 8)])
+        i = head.find('(')
+        if i < 0: return None
+        depth = 0; j = i
+        while j < len(head):
+            if head[j] == '(': depth += 1
+            elif head[j] == ')':
+                depth -= 1
+                if depth == 0: break
+            j += 1
+        inner = head[i + 1:j]
+        if not inner.strip(): return []
+        parts = []; d = 0; cur = ''
+        for ch in inner:
+            if ch in '<([': d += 1
+            elif ch in '>)]': d -= 1
+            if ch == ',' and d == 0: parts.append(cur); cur = ''
+            else: cur += ch
+        parts.append(cur)
+        out = []
+        for raw in parts:
+            w = raw.strip()
+            w = re.sub(r'^(?:final\s+|@\w+(?:\([^)]*\))?\s+)*', '', w)          # modifiers and annotations
+            w = re.sub(r'\s+[A-Za-z_$][\w$]*\s*$', '', w).strip()                 # drop the parameter NAME
+            w = re.sub(r'<.*?>', '', w)                                            # erase generic arguments
+            w = w.replace('...', '[]')
+            w = w.split('.')[-1] if '.' in w and '[' not in w else w.split('.')[-1] + ('[]' if w.endswith('[]') else '')
+            out.append(w.strip())
+        return out
+    def sig_narrow(self, mids, sig, whole):
+        """`Owner.m(A,B)` selects the declarations whose parameter TYPES are written that way.
+        Returns (ids, note). Stops with a diagnostic rather than answering for a spelling that matches nothing."""
+        want = [w.strip() for w in re.split(r',', sig) if w.strip()] if sig.strip() else []
+        want = [re.sub(r'<.*?>', '', w).replace('...', '[]').split('.')[-1].strip() for w in want]
+        unknown = [w for w in want if w.rstrip('[]') not in self.PRIMITIVE and not self.types(w.rstrip('[]'), soft=True)]
+        have = {}
+        for i in mids:
+            d = self.declared_params(i)
+            if d is not None: have[i] = d
+        hits = [i for i, d in have.items() if d == want]
+        if hits: return hits, ' '.join(want) and f"({', '.join(want)})"
+        sigs = sorted({'(' + ', '.join(d) + ')' for d in have.values()})
+        if unknown:
+            die(f"{whole}: {', '.join(unknown)} is not a type in the graph, and it is not a parameter name of "
+                f"{re.sub(r'\(.*', '', whole)}. Its declaration(s) take: " + ' · '.join(sigs or ['(unknown)']))
+        die(f"{whole}: no declaration of {re.sub(r'\(.*', '', whole)} takes ({', '.join(want)}). "
+            f"It is declared as: " + ' · '.join(sigs or ['(unknown)']) + " — write one of those, or drop the parentheses for all of them")
     def param_declared(self, mid, p):
         s = self.g.sym[mid]; L = self.lines(s['file'])
         head = ' '.join(L[s['line'] - 1: min(s['end_line'], s['line'] + 6)]).split('{')[0]
