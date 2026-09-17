@@ -1,0 +1,11 @@
+main.js:11:22 METHOD_CALL make  EXACT  main.js:7:3
+main.js:12:15 METHOD_CALL make2  EXACT  main.js:8:3
+main.js:13:11 FUNCTION_CALL_BIND bind  EXACT  main.js:8:3
+main.js:19:11 METHOD_CALL make2  EXACT  main.js:8:3
+main.js:20:19 SUPER_CALL super  SYNTHESIZED_OK  
+main.js:25:27 CONSTRUCTOR_CALL Child  SYNTHESIZED_OK  
+main.js:25:51 CONSTRUCTOR_CALL WithCtor  EXACT  main.js:20:3
+main.js:25:74 CONSTRUCTOR_CALL Plain  SYNTHESIZED_OK  
+main.js:7:29 FUNCTION_CALL log  EXACT  main.js:5:1
+main.js:8:20 FUNCTION_CALL log  EXACT  main.js:5:1
+# defects: 0

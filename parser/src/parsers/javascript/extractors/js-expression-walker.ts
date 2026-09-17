@@ -34,6 +34,8 @@ export interface ExpressionWalkOptions {
   readonly extractor: JsExpressionExtractor;
   /** `nodeKey` of a callable -> its `js_method` hash, from the declaration pass. */
   readonly methodHashByNode: ReadonlyMap<string, string>;
+  /** Field declaration node -> the callable its initializer runs inside (#798). */
+  readonly fieldInitOwnerByNode: ReadonlyMap<string, string>;
   /** The `<module>` initializer, which owns every top-level expression. */
   readonly moduleInitMethodHash: string;
 }
@@ -224,7 +226,11 @@ export class JsExpressionWalker {
         this.root(member.name.expression, JsRootContext.COMPUTED_NAME, ownerMethodHash);
       }
       if (ts.isPropertyDeclaration(member)) {
-        this.root(member.initializer, JsRootContext.FIELD_INITIALIZER, ownerMethodHash);
+        // A field initializer runs inside the class's initialization callable, not inside
+        // whatever encloses the class (#798): the module used to own it, so `this` had no
+        // value and the call was attributed to the module rather than to the constructor.
+        const owner = this.options.fieldInitOwnerByNode.get(nodeKey(member)) ?? ownerMethodHash;
+        this.root(member.initializer, JsRootContext.FIELD_INITIALIZER, owner);
         continue;
       }
       if (ts.isMethodDeclaration(member) || ts.isConstructorDeclaration(member)
