@@ -123,6 +123,24 @@ export interface JavaScriptAnalysisOptions {
    * double the row count with nothing looking wrong.
    */
   readonly additionalRoots?: readonly string[];
+  /**
+   * This root is a DEPENDENCY handed to the parser, not the project under analysis.
+   *
+   * The only thing it changes is the build output directory a root's own
+   * `package.json` ships from (`main` / `module` / `exports` naming `dist/`,
+   * `build/` or `out/`). For a dependency that directory is the source of truth and
+   * is walked (#620); for a project it is the artefact beside the source, and walking
+   * it extracts every function of the project a second time — which silently changed
+   * the answers for the REAL source, because the name-keyed parameter fan cap counts
+   * call sites across the whole IR and the copies pushed the project's own functions
+   * over it (#796).
+   *
+   * It is stated by the caller rather than inferred: a published package very often
+   * ships `src/` beside `dist/` in its tarball, so "the root has source outside the
+   * build directory" would switch #620 back off for exactly those packages.
+   * `bin/axiomcode` knows which trees are `--library` entries and says so.
+   */
+  readonly libraryRoot?: boolean;
 }
 
 export interface JavaScriptAnalysisSummary {
@@ -254,9 +272,13 @@ export class JavaScriptProjectAnalyzer {
       // the only code the package ships. Walked, directly under this root only;
       // every nested occurrence stays a skipped artefact.
       const rootPackage = packageJson.packageAt(root);
+      // ONLY FOR A DEPENDENCY. See `libraryRoot`: for the project under analysis, a
+      // committed `dist/` is a copy of its own source and extracting it changes the
+      // answers for the source itself (#796).
       const walkUnderRoot = new Set<string>(
-        rootPackage === undefined ? [] : buildOutputDirectoriesNamedBy(rootPackage)
-          .filter((name) => excludes.has(name))
+        rootPackage === undefined || options.libraryRoot !== true
+          ? []
+          : buildOutputDirectoriesNamedBy(rootPackage).filter((name) => excludes.has(name))
       );
       for (const name of walkUnderRoot) {
         buildOutputWalked.push(path.join(root, name));
