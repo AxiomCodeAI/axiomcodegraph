@@ -71,6 +71,10 @@
 //   bean(name, t, kind)               a type registered as a bean (a stereotype, an @Bean factory)
 //   injected(t, into, kind)           a value of type t is handed to `into` by the container, not by a call the graph can see
 .decl config_site(k:symbol, c:symbol, d:symbol, f:symbol, l:number) .input config_site
+//   nonsource(n, f, l)                the name n written in a file the index does NOT read as source
+//   qual_name(s, n)                   a qualified spelling of symbol s, for a binding written in full
+.decl nonsource(n:symbol, f:symbol, l:number)                     .input nonsource
+.decl qual_name(s:symbol, n:symbol)                               .input qual_name
 .decl config(k:symbol, m:symbol, why:symbol)                      .input config
 .decl config_key_known(k:symbol)                                  .input config_key_known
 .decl bean(n:symbol, t:symbol, kind:symbol)                       .input bean
@@ -146,7 +150,7 @@ contract(q, s, "extends / implements it") :- target(q, "clinit", t, _), extends(
 // a CONFIGURATION KEY: the methods the container binds it into — no call reaches them, so nothing else would find these
 direct(q, m, "reads", cat("reads this configuration key (", why, ")"), "resolved", "", 0) :- target(q, "config", k, _), config(k, m, why).
 // the binding site: the line that ties the key to the code, and the one that must be edited with it
-direct(q, c, "produces", cat("BINDS the key here, through @", dn, " — this is the line a rename must change"), "resolved", f, l) :- target(q, "config", k, _), config_site(k, c, dn, f, l).
+direct(q, c, "produces", cat("BINDS the key here, at the @", dn, " placeholder — this is the line a rename must change"), "resolved", f, l) :- target(q, "config", k, _), config_site(k, c, dn, f, l).
 
 // a type the container INJECTS: its consumers receive it without a call the graph can see
 direct(q, c, "uses", cat("receives it by dependency injection (", kind, ") — the container hands it over, no call site"), "resolved", "", 0) :- target(q, "type", t, _), injected(t, c, kind), !inside_target(q, c).
@@ -393,3 +397,16 @@ inherited_test(q, s, m, d) :- test_hit(q, m, d, _), owner(m, t), extends(s, t), 
 test_near(q, m, d) :- test_hit(q, m, d, _), d = min x : test_hit(q, m, x, _).
 .output test_near
 .output test_hit
+
+// ── bound from outside the source ──────────────────────────────────────────────────────────────────────────────
+// A name written in a file the index does not read as source: an XML mapper, a META-INF/services file, a
+// properties or yaml file, a build script, a spec. The binding is made by name at run time, so the compiler is
+// silent and a rename breaks it. There is no callable to attribute it to, so it is its own answer.
+.decl extbind(q:symbol, f:symbol, l:number, n:symbol, how:symbol)
+extbind(q, f, l, n, "names the type") :- target(q, "type", t, _), typ(t, n, _), nonsource(n, f, l).
+extbind(q, f, l, n, "names the type in full") :- target(q, "type", t, _), qual_name(t, n), nonsource(n, f, l).
+extbind(q, f, l, n, "names the method") :- target(q, "method", m, _), named(n, m), nonsource(n, f, l).
+extbind(q, f, l, n, "names the method in full") :- target(q, "method", m, _), qual_name(m, n), nonsource(n, f, l).
+extbind(q, f, l, n, "names the field") :- target(q, "field", fl, _), field(fl, _, n, _, _), nonsource(n, f, l).
+extbind(q, f, l, n, "defines or overrides the key") :- target(q, "config", k, _), nonsource(n, f, l), n = k.
+.output extbind
