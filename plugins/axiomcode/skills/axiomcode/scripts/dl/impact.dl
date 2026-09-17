@@ -319,10 +319,12 @@ callable_member(t, c) :- member(t, c, _, k), k != "field", k != "const", k != "e
 // a sibling that touches the same state as the target is the one worth reading first (#762: "restrict it to the members
 // that share a field with the target"), so it is told apart from the rest rather than ranked by chance
 .decl target_field(q:symbol, n:symbol)
-target_field(q, n) :- is_target_decl(q, m), ref(m, n, _, _, _, _), target_owner(q, t), member(t, _, n, k), (k = "field" ; k = "const").
+target_field(q, n) :- is_target_decl(q, m), ref(m, n, _, ek, _, _), !local_kind(ek), target_owner(q, t), member(t, _, n, k), (k = "field" ; k = "const").
 target_field(q, n) :- target(q, "field", fl, _), field(fl, _, n, _, _).
 .decl shares_field(q:symbol, c:symbol, n:symbol)
-shares_field(q, c, n) :- target_field(q, n), ref(c, n, _, _, _, _), target_owner(q, t), callable_member(t, c).
+// a same-named LOCAL is not this field — the field layer rules that out and this leg must rule it out too, or a sibling
+// is credited with using state it never touches (#762)
+shares_field(q, c, n) :- target_field(q, n), ref(c, n, _, ek, _, _), !local_kind(ek), target_owner(q, t), callable_member(t, c).
 alongside(q, c, cat("a sibling of the same type, using the same field ", n)) :- shares_field(q, c, n), !inside_target(q, c), !is_target_decl(q, c).
 alongside(q, c, "a sibling of the same type") :- target_owner(q, t), callable_member(t, c), !inside_target(q, c), !is_target_decl(q, c), !shares_field(q, c, _).
 alongside(q, c, "declared in the same file") :- target_owner(q, t), type_in_file(t, f), type_in_file(t2, f), t2 != t, callable_member(t2, c), !inside_target(q, c), !is_target_decl(q, c).

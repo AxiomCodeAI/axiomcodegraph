@@ -1,9 +1,35 @@
-{"lang": "java", "src": "src",
+{
+ "lang": "java",
+ "src": "src",
  "checks": [
-  {"why": "a field read that precedes a same-named local declaration is a field read, so the field's dependents include it",
-   "run": ["impact", "Shadow.value", "--kind", "field"],
-   "want": ["Shadow.hashCode"]},
-  {"why": "and the use after the local declaration is still the local, so it is not counted twice as a field read",
-   "run": ["impact", "Shadow.count", "--kind", "field"],
-   "want": ["Shadow.plain"],
-   "avoid": ["Shadow.after"]}]}
+  {
+   "why": "a field read that precedes a same-named local declaration is a field read, so the field's dependents include it",
+   "run": [
+    "impact",
+    "Shadow.value",
+    "--kind",
+    "field"
+   ],
+   "want": [
+    "Shadow.hashCode"
+   ]
+  },
+  {
+   "why": "and the use after the local declaration is still the local, so it is not counted as a field read (it may still appear as a plain [alongside] sibling, which claims nothing about the field)",
+   "run": [
+    "impact",
+    "Shadow.count",
+    "--kind",
+    "field"
+   ],
+   "want": [
+    "Shadow.plain"
+   ],
+   "avoid": [
+    "[in scope] Shadow.after",
+    "[by name] Shadow.after",
+    "using the same field count\n    [alongside] Shadow.after"
+   ]
+  }
+ ]
+}

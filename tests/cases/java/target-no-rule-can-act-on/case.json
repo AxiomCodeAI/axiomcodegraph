@@ -1,12 +1,34 @@
-{"lang": "java", "src": "src",
+{
+ "lang": "java",
+ "src": "src",
  "checks": [
-  {"why": "a decoration is an endpoint for path, not a declaration impact can act on: refused, not answered with a complete looking zero",
-   "run": ["impact", "@Deprecated"],
-   "want": ["not a declaration the impact rules can act on"],
-   "avoid": ["test method(s) reach the change"],
-   "expect_error": true},
-  {"why": "a configuration key with no configuration facts says what is not visible",
-   "run": ["impact", "app.server.prefix"],
-   "want": ["is NOT visible"],
-   "avoid": ["test method(s) reach the change"],
-   "expect_error": true}]}
+  {
+   "why": "a decoration IS a target since #758 (half of Java-touching commits change one): it answers with the declarations carrying it and their dependents \u2014 the point of the original case, that a target with no rule must not return a complete looking zero, is kept by the second check",
+   "run": [
+    "impact",
+    "@Deprecated"
+   ],
+   "want": [
+    "carry it",
+    "carries this decoration"
+   ],
+   "avoid": [
+    "nothing the graph can see"
+   ]
+  },
+  {
+   "why": "a configuration key with no configuration facts says what is not visible",
+   "run": [
+    "impact",
+    "app.server.prefix"
+   ],
+   "want": [
+    "is NOT visible"
+   ],
+   "avoid": [
+    "test method(s) reach the change"
+   ],
+   "expect_error": true
+  }
+ ]
+}
