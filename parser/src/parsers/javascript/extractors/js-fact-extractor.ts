@@ -7,6 +7,7 @@ import { JsFieldRegistry } from '@/analysis-types/javascript/JsFieldRegistry';
 import { JsMethodParameterRegistry } from
   '@/analysis-types/javascript/JsMethodParameterRegistry';
 import { JsMethodRegistry } from '@/analysis-types/javascript/JsMethodRegistry';
+import { JsMethodKind } from '@/enums/javascript/methods/JsMethodKind';
 import { JsModuleRegistry } from '@/analysis-types/javascript/JsModuleRegistry';
 import { JsScopeRegistry } from '@/analysis-types/javascript/JsScopeRegistry';
 import { JsTypeHeritageRegistry } from
@@ -344,8 +345,15 @@ export function extractJavaScriptFile(options: JsFileExtractionOptions): JsFileF
     addTarget(type.name, JsExportTargetKind.TYPE, type.getHash(),
       type.startLine, type.startColumn);
   }
+  // DECLARATIONS ONLY (#793). A named function EXPRESSION binds its name inside its
+  // own body and nowhere else, so `export const compute = cond ? fast : function
+  // compute(x) {}` has no module-scope `compute` function: the export is the const.
+  // Registering the expression as a name candidate let the METHOD priority beat the
+  // VARIABLE that actually holds the value, and the import then committed known_edge
+  // to the operand that does not run while dropping the one that does.
   for (const method of declarations.methods) {
-    if (method.ownerTypeLinkHash === '') {
+    if (method.ownerTypeLinkHash === ''
+      && method.methodKind === JsMethodKind.FUNCTION_DECLARATION) {
       addTarget(method.name, JsExportTargetKind.METHOD, method.getHash(),
         method.startLine, method.startColumn);
     }
