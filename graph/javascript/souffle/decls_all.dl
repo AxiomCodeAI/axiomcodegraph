@@ -247,6 +247,8 @@
 .decl modelled_platform_call(c0:symbol)
 .decl modelled_object_method(c0:symbol)
 .decl free_namespace(c0:symbol, c1:symbol)
+.decl ts_export_star(c0:symbol, c1:symbol)
+.decl ts_export_star_helper(c0:symbol)
 .decl key_name(c0:symbol, c1:symbol)
 .decl binary_op_passes_value(c0:symbol)
 .decl var_value(c0:symbol, c1:symbol, c2:symbol)

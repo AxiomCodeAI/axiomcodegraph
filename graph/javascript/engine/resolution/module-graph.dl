@@ -183,6 +183,19 @@ module_export_value(mod, en, "module", src) :- export_decl(_, en, _, "EXPORT_ALL
     export_reexport(_, _, imp, x), import_module(imp, src).
 export_all_is_spread("").
 export_all_is_spread("*").
+// A dependency compiled from TypeScript to CommonJS re-exports its barrel through the
+// emit helpers (#717): `__exportStar(require("./api"), exports)`. The helper's body is a
+// for..in copy over keys the engine cannot name, so the barrel exposed NO name and every
+// call into the package was declared unknown although the import resolved and the package
+// was staged. Modelled by name and argument shape, the way Object.assign is: the helper is
+// emitted by one compiler with one spelling, and the shape (a module value in, this
+// module's own `exports` out) is what makes it a re-export rather than any other copy.
+ts_export_star_helper("__exportStar").
+ts_export_star_helper("__export").
+ts_export_star(mod, src) :- expr_kind(_, "CALL", _, ce), call_site(_, "FUNCTION_CALL", n, _, _, _, ce, _, _),
+    ts_export_star_helper(n), call_arg(ce, 0, a0), expr_value(a0, "module", src),
+    call_arg(ce, 1, a1), expr_value(a1, "module", mod), mod != src.
+module_export_value(mod, n, k, i) :- ts_export_star(mod, src), module_export_value(src, n, k, i), n != "default".
 module_export_value(mod, en, k, i) :- export_decl(_, en, ln, form, _, _, _, _, mod, x), form != "EXPORT_ALL",
     export_reexport(_, _, imp, x), import_module(imp, src), ln != "",
     module_export_value(src, ln, k, i).

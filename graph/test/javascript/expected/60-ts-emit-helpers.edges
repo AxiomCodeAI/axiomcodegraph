@@ -1,0 +1,2 @@
+main.js:7:26 CONSTRUCTOR_CALL Client  ->  ambiguous_unknown  -
+main.js:7:26 METHOD_CALL new Client().send  ->  ambiguous_unknown  -
