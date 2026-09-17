@@ -1027,42 +1027,58 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
                            'caller_handles', 'caller_unhandled', 'target_throws')}
     E = _edges(q); rev = _rev(E); sets = _test_sets(q)
     for qq in QS:
-        ids = sorted({s for r, _k, s, _x in T if r == qq})
+        # A query can carry SEVERAL target kinds at once: a name match that hits both a method and a field
+        # resolves to both, and the rules simply union what each kind derives. Dispatch per kind and union here
+        # too — testing `any(kind == 'type')` and taking one branch drops the other kind's rows entirely.
+        mine = [(k, s_) for r, k, s_, _x in T if r == qq]
+        ids = sorted({s_ for _k, s_ in mine})
         if not ids: continue
-        is_type = any(k == 'type' for r, k, _s, _x in T if r == qq)
+        by_kind = {}
+        for k, s_ in mine: by_kind.setdefault(k, set()).add(s_)
         ph = ','.join('?' * len(ids))
-        if is_type:
+        con, dr, seeds, de, byname = [], [], set(), [], []
+        ins = {c for r, c in inside if r == qq}
+
+        if 'method' in by_kind:
+            mids = sorted(by_kind['method'])
+            mph = ','.join('?' * len(mids))
+            con += contract_for_method(q, mids)
+            d = direct_for_method(q, mids)
+            dr += d
+            # seed_of(q,m) for a method target is the target and what the contract binds to it
+            seeds |= set(mids) | {c for c, _ in con}
+            de += q(f"""SELECT DISTINCT caller_id, callee_method_id FROM call_edges
+                        WHERE callee_method_id IN ({mph}) AND callee_provenance='client'""", *mids)
+            byname = sorted({c for c, _r, _w, cert, _f, _l in d if cert == 'by name'} - seeds)
+
+        if 'type' in by_kind:
+            tids = sorted(by_kind['type'])
+            tph = ','.join('?' * len(tids))
             # contract(q,s,"extends / implements it") :- extends(s,t) — the subtypes, which is the whole point of
             # asking about a type: a change to it is a change to everything that extends or implements it.
-            con = sorted({(r[0], 'extends / implements it') for r in q(
-                f"SELECT type_id FROM type_ancestors WHERE ancestor_type_id IN ({ph})", *ids)}) \
+            tcon = sorted({(r[0], 'extends / implements it') for r in q(
+                f"SELECT type_id FROM type_ancestors WHERE ancestor_type_id IN ({tph})", *tids)}) \
                 if _has(q, 'type_ancestors') else []
-            ins = {c for r, c in inside if r == qq}
-            dr = direct_for_type(q, ids, at, ins, [x for x in textuse], [x for x in importuse], rel)
+            con += tcon
+            d = direct_for_type(q, tids, at, ins, textuse, importuse, rel)
             # alongside, through target_owner(q,t) :- target(q,"type",t,_) — the type IS its own owner here
-            dr += _alongside_for_type(q, ids, ins)
+            d += _alongside_for_type(q, tids, ins)
+            dr += d
             _memb, _od, _tf, _tid, by_tid = _members(q)
-            mem = [(m, n, k) for t in ids for (m, n, k) in by_tid.get(t, ())]
+            mem = [(m, n, k) for t in tids for (m, n, k) in by_tid.get(t, ())]
             # seed_of: the type's own callable members (373), the type node itself (374), every non-alongside
             # direct row (376) and everything the contract binds (378)
-            seeds = sorted(set(ids)
-                           | {m for m, _n, k in mem if k in ('method', 'constructor', 'function', 'module')}
-                           | {c for c, _r, _w, cert, _f, _l in dr if cert != 'alongside'}
-                           | {c for c, _ in con})
+            seeds |= (set(tids)
+                      | {m for m, _n, k in mem if k in ('method', 'constructor', 'function', 'module')}
+                      | {c for c, _r, _w, cert, _f, _l in d if cert != 'alongside'}
+                      | {c for c, _ in tcon})
             # direct_edge(q,c,m) :- tmember(q,m,_,_), calls(c,m,_,_,_)
-            mids = [m for m, _n, _k in mem]
-            de = q(f"""SELECT DISTINCT caller_id, callee_method_id FROM call_edges
-                       WHERE callee_method_id IN ({','.join('?' * len(mids))}) AND callee_provenance='client'""",
-                   *mids) if mids else []
-            byname = []                                  # seed_byname fires only for a method target (rule 410)
-        else:
-            con = contract_for_method(q, ids)
-            dr = direct_for_method(q, ids)
-            # seed_of(q,m) for a method target is the target and what the contract binds to it
-            seeds = sorted(set(ids) | {c for c, _ in con})
-            de = q(f"""SELECT DISTINCT caller_id, callee_method_id FROM call_edges
-                       WHERE callee_method_id IN ({ph}) AND callee_provenance='client'""", *ids)
-            byname = sorted({c for c, _r, _w, cert, _f, _l in dr if cert == 'by name'} - set(seeds))
+            memids = [m for m, _n, _k in mem]
+            if memids:
+                de += q(f"""SELECT DISTINCT caller_id, callee_method_id FROM call_edges
+                            WHERE callee_method_id IN ({','.join('?' * len(memids))})
+                              AND callee_provenance='client'""", *memids)
+        seeds = sorted(seeds)
         out['contract'] += [[c, why, qq] for c, why in con]
         # a Soufflé relation is a SET. Two call_edges rows for the same caller, member and site — different
         # tiers, or a site the engine recorded twice — collapse to one `direct` row there and to two here, and
@@ -1093,19 +1109,30 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
         #   extbind(q,f,l,n,"names the method")         :- target(q,"method",m,_), named(n,m),      nonsource(n,f,l)
         #   extbind(q,f,l,n,"names the method in full") :- target(q,"method",m,_), qual_name(m,n),  nonsource(n,f,l)
         if nonsource:
-            simple = {r[0] for r in q(f"SELECT name FROM symbols WHERE id IN ({ph})", *ids) if r[0]}
-            # `qual_name(m, n)` for a METHOD target is the DISPLAY (`SequenceWriter.writeAll`), not the fully
-            # qualified name — that is what the exporter appends, and it is what a CREDITS file or an XSD writes.
-            full = {r[0] for r in q(f"SELECT display FROM symbols WHERE id IN ({ph})", *ids) if r[0]}
-            if is_type:
-                # qual_name(t,n) for a TYPE is both its qualified name and its display, where either differs
-                # from the simple name — that is what the exporter appends for a type target.
-                full = {x for r in q(f"SELECT qualified_name, display, name FROM symbols WHERE id IN ({ph})", *ids)
-                        for x in (r[0], r[1]) if x and x != r[2]}
-            word = 'type' if is_type else 'method'
+            #   method: extbind(…,"names the method")      :- named(n,m), nonsource(n,f,l)
+            #           extbind(…,"names the method in full") :- qual_name(m,n), nonsource(n,f,l)
+            #   type:   the same pair over typ(t,n,_) and the type's qualified name
+            # Built per KIND, not once over every id: a query carrying both a method and a type would otherwise
+            # word one of them after the other.
+            simple, full = {}, {}
+            for kind, kids in (('method', by_kind.get('method')), ('type', by_kind.get('type'))):
+                if not kids: continue
+                kph = ','.join('?' * len(kids)); kl = sorted(kids)
+                for (n,) in q(f"SELECT name FROM symbols WHERE id IN ({kph})", *kl):
+                    if n: simple.setdefault(n, kind)
+                if kind == 'method':
+                    # `qual_name(m,n)` for a METHOD is the DISPLAY (`SequenceWriter.writeAll`), not the fully
+                    # qualified name — that is what the exporter appends, and what a CREDITS file or an XSD writes.
+                    for (d,) in q(f"SELECT display FROM symbols WHERE id IN ({kph})", *kl):
+                        if d: full.setdefault(d, kind)
+                else:
+                    # for a TYPE it is both the qualified name and the display, where either differs from the name
+                    for qn, d, n in q(f"SELECT qualified_name, display, name FROM symbols WHERE id IN ({kph})", *kl):
+                        for x in (qn, d):
+                            if x and x != n: full.setdefault(x, kind)
             for n, f, l in nonsource:
-                if n in simple: out['extbind'].append([f, str(l), n, f'names the {word}', qq])
-                elif n in full: out['extbind'].append([f, str(l), n, f'names the {word} in full', qq])
+                if n in simple: out['extbind'].append([f, str(l), n, f'names the {simple[n]}', qq])
+                elif n in full: out['extbind'].append([f, str(l), n, f'names the {full[n]} in full', qq])
         # ── the throws contract ────────────────────────────────────────────────────────────────────────────
         #   target_throws(q,e)      :- target(q,"method",m,_), throws_(m,e)
         #   caller_handles(q,c,e)   :- throws_(m,e), calls(c,m,_,_,_), (throws_(c,e) ; catches(c,e))
