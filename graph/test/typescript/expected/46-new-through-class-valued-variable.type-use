@@ -1,0 +1,3 @@
+ambiguous_unknown	OBJECT_CREATION_TYPE	0	main [EXPRESSION] -> -
+known_edge	METHOD_RETURN	1	main [VARIABLE] -> Dog
+known_edge	OBJECT_CREATION_TYPE	0	main [EXPRESSION] -> Dog

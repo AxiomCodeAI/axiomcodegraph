@@ -1,0 +1,7 @@
+known_edge	FIELD_TYPE	0	Ctx [FIELD] -> IncrementOp
+known_edge	METHOD_PARAM	0	r388 [METHOD_PARAM] -> Ctx
+known_edge	OBJECT_CREATION_TYPE	0	r388 [EXPRESSION] -> DoubleOp
+known_edge	OBJECT_CREATION_TYPE	0	r388 [EXPRESSION] -> IncrementOp
+known_edge	TYPE_ELEMENT	1	r388 [METHOD] -> DoubleOp
+known_edge	TYPE_ELEMENT	1	r388 [METHOD] -> IncrementOp
+known_edge	TYPE_ELEMENT	1	r388 [METHOD_PARAM] -> IncrementOp

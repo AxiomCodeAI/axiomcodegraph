@@ -1,0 +1,3 @@
+ambiguous_unknown	OBJECT_CREATION_TYPE	0	cycle [EXPRESSION] -> -
+known_edge	OBJECT_CREATION_TYPE	0	cycle [EXPRESSION] -> Tree
+known_edge	TYPE_ELEMENT	1	Tree [FIELD] -> Tree

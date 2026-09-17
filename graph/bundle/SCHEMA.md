@@ -611,19 +611,20 @@ Every field-like storage location the graph refers to: all client fields and enu
 
 | value | languages | meaning |
 |---|---|---|
-| `field` | java | An ordinary field declaration. |
+| `field` | java, typescript | An ordinary field declaration. |
 | `enum_constant` | java | An enum constant. It is a static final field of its enum, and is listed here so `Colour.RED` resolves like any other read; the parser gives it its own table and its own hash prefix. |
 
 **`fields.provenance` values**
 
 | value | languages | meaning |
 |---|---|---|
-| `client` | java | Declared in the analysed project. |
-| `lib` | java | Declared in a staged library IR. |
+| `client` | java, typescript | Declared in the analysed project. |
+| `lib` | java, typescript | Declared in a staged library IR. |
 
 **Notes**
 
-- **all** — JAVA ONLY so far, for the same reason as field_access: declared everywhere, populated by the Java front end.
+- **all** — JAVA AND TYPESCRIPT, for the same reason as field_access: declared everywhere, populated by those two front ends.
+- **typescript** — An enum member is absent: the parser gives it its own table with no declared type, and the property-access relation resolves through the field table. `Colour.Red` is therefore an unresolved field access, unlike Java where an enum constant is a fields row.
 - **java** — A library field is listed only when some field_access edge reaches it, exactly as methods lists only the library methods an edge reaches.
 
 ### `field_access`
@@ -648,29 +649,32 @@ THE DATA GRAPH. One row per (site, resolved field), and the answer to "who reads
 
 | value | languages | meaning |
 |---|---|---|
-| `read` | java | The value is used and not replaced. |
-| `write` | java | The value is replaced without being read: a plain assignment `f = v`. |
-| `readwrite` | java | The value is read and replaced at the one site: a compound assignment `f += v`, or `f++` / `--f`. One row, not two — a consumer asking "who writes f" and one asking "who reads f" must both match it. |
+| `read` | java, typescript | The value is used and not replaced. |
+| `write` | java, typescript | The value is replaced without being read: a plain assignment `f = v`. |
+| `readwrite` | java, typescript | The value is read and replaced at the one site: a compound assignment `f += v`, or `f++` / `--f`. One row, not two — a consumer asking "who writes f" and one asking "who reads f" must both match it. |
 
 **`field_access.tier` values**
 
 | value | languages | meaning |
 |---|---|---|
-| `known_edge` | java | Exactly one field resolved. Stronger than the call_edges tier of the same name: a field is not virtually dispatched, so this IS the storage location the access binds to. |
-| `multi_inferred` | java | A sound SET: the receiver has more than one possible type, or two unrelated ancestors declare the name (which Java itself treats as ambiguous). Each member is one row. |
-| `boundary_lib` | java | The field is declared in a staged library type. field_id is set and resolves in `fields` with provenance lib. |
-| `ambiguous_unknown` | java | Declared blind spot: the receiver could not be typed, or the name is not a member of the type it was typed to. field_id is NULL. Never dropped, and never replaced by a match on simple name. |
+| `known_edge` | java, typescript | Exactly one field resolved. Stronger than the call_edges tier of the same name: a field is not virtually dispatched, so this IS the storage location the access binds to. |
+| `multi_inferred` | java, typescript | A sound SET: the receiver has more than one possible type, or two unrelated ancestors declare the name (which Java itself treats as ambiguous). Each member is one row. |
+| `boundary_lib` | java, typescript | The field is declared in a staged library type. field_id is set and resolves in `fields` with provenance lib. |
+| `ambiguous_unknown` | java, typescript | Declared blind spot: the receiver could not be typed, or the name is not a member of the type it was typed to. field_id is NULL. Never dropped, and never replaced by a match on simple name. |
 
 **`field_access.field_provenance` values**
 
 | value | languages | meaning |
 |---|---|---|
-| `client` | java | The field is declared in the analysed project. |
-| `lib` | java | The field is declared in a staged library IR. |
+| `client` | java, typescript | The field is declared in the analysed project. |
+| `lib` | java, typescript | The field is declared in a staged library IR. |
 
 **Notes**
 
-- **all** — JAVA ONLY so far. The table is declared in every bundle and is EMPTY for TypeScript, Python and JavaScript, so the schema does not churn as the remaining front ends land (#663). Check `SELECT count(*) FROM field_access` before reading an empty result as "nothing reads this field".
+- **all** — JAVA AND TYPESCRIPT. The table is declared in every bundle and is EMPTY for Python and JavaScript, so the schema does not churn as the remaining front ends land (#663). Check `SELECT count(*) FROM field_access` before reading an empty result as "nothing reads this field".
+- **typescript** — AN ACCESSOR IS NOT HERE. `get url()` read as `c.url` is a CALL, and call_edges already carries it with kind PROPERTY_READ or PROPERTY_WRITE (#703). The two tables are disjoint by construction: this one holds properties, call_edges holds accessors. Ask both when you want every read of a member.
+- **typescript** — AN ELEMENT ACCESS IS NOT HERE either: `obj["x"]` with a literal key is a different node kind and is not yet a site. A known gap, not a silent one.
+- **typescript** — A METHOD IS NOT A SITE. The callee of `obj.m()` is a PROPERTY_ACCESS node (37% of them, measured on immer), and `const f = obj.m` reads a method as a value; neither is a data edge, and admitting them would fill the ambiguous_unknown tier with sites the engine HAS resolved elsewhere. Both are excluded and counted in ext_field_site_excluded with reasons method_callee and method_value.
 - **java** — A field access written in a SWITCH CASE LABEL is deliberately absent. An enum constant in a case label is recorded TYPE for some arms and FIELD for others (#760), and javac compiles the switch through a $SwitchMap array rather than through a read of the constant, so there is no field access in the bytecode either.
 - **java** — A field read that PRECEDES a same-named local declared later in the same method is missing: the parser classifies such a name LOCAL_VARIABLE against the whole body rather than against the scope at the use site (#725), so the site never reaches the engine and is absent rather than ambiguous. Rare (1 in 5,647 local references measured) but it is an absence, not a declared unknown.
 - **java** — ARRAY ELEMENTS are not tracked: `a[i] = v` where `a` is a field is recorded as a READ of `a` (the array reference is read; the element write is not a field write). This matches the bytecode, where the instruction is `getfield a` followed by `aastore`.
@@ -696,59 +700,89 @@ THE OTHER HALF OF CHANGE IMPACT: one row per place a type is NAMED, with the con
 
 | value | languages | meaning |
 |---|---|---|
-| `known_edge` | java | Exactly one type. A type reference is not dispatched, so this IS the declaration the name denotes. |
-| `multi_inferred` | java | A sound SET: two resolution paths both answer a simple name. Each member is one row. |
-| `boundary_lib` | java | The type is declared in a staged library IR. type_id resolves in `types` with provenance lib. |
-| `ambiguous_unknown` | java | Declared blind spot: the name resolved to nothing — an unstaged third party, or a type variable with no bound in view. type_id is NULL. Never dropped. |
+| `known_edge` | java, typescript | Exactly one type. A type reference is not dispatched, so this IS the declaration the name denotes. |
+| `multi_inferred` | java, typescript | A sound SET: two resolution paths both answer a simple name. Each member is one row. |
+| `boundary_lib` | java, typescript | The type is declared in a staged library IR. type_id resolves in `types` with provenance lib. |
+| `ambiguous_unknown` | java, typescript | Declared blind spot: the name resolved to nothing — an unstaged third party, or a type variable with no bound in view. type_id is NULL. Never dropped. |
 
 **`type_use.type_provenance` values**
 
 | value | languages | meaning |
 |---|---|---|
-| `client` | java | The referenced type is declared in the analysed project. |
-| `lib` | java | The referenced type is declared in a staged library IR. |
+| `client` | java, typescript | The referenced type is declared in the analysed project. |
+| `lib` | java, typescript | The referenced type is declared in a staged library IR. |
 
 **`type_use.owner_kind` values**
 
 | value | languages | meaning |
 |---|---|---|
-| `TYPE` | java | The reference is on the type declaration itself: an extends or implements clause, or a type parameter bound. owner_id is a types.id. |
-| `METHOD` | java | A return type, a throws clause, or a method type-parameter bound. owner_id is a methods.id. |
-| `METHOD_PARAM` | java | A formal parameter's declared type. owner_id is the parameter's parser hash; join on owner_method_id. |
-| `FIELD` | java | A field's declared type. owner_id is a fields.id. |
+| `TYPE` | java, typescript | The reference is on the type declaration itself: an extends or implements clause, or a type parameter bound. owner_id is a types.id. |
+| `METHOD` | java, typescript | A return type, a throws clause, or a method type-parameter bound. owner_id is a methods.id. |
+| `METHOD_PARAM` | java, typescript | A formal parameter's declared type. owner_id is the parameter's parser hash; join on owner_method_id. |
+| `FIELD` | java, typescript | A field's declared type. owner_id is a fields.id. |
 | `LOCAL_VARIABLE` | java | A local, a catch parameter or a resource's declared type. owner_id is the local's parser hash; join on owner_method_id. |
-| `EXPRESSION` | java | A type written inside an expression: `new T()`, a cast, an `instanceof`, a pattern, a method-reference qualifier. owner_id is the expression hash; join on owner_method_id. |
+| `EXPRESSION` | java, typescript | A type written inside an expression: `new T()`, a cast, an `instanceof`, a pattern, a method-reference qualifier. owner_id is the expression hash; join on owner_method_id. |
 | `ANNOTATION` | java | The annotation type itself, on whatever it annotates. |
 | `ANNOTATION_ARGUMENT` | java | A type named as an annotation argument, e.g. a `Class<?>` value. |
+| `VARIABLE` | typescript | A `const` / `let` declaration's written type. A module-scope variable is a first-class declaration in TypeScript, so this covers what Java splits between FIELD and LOCAL_VARIABLE. |
+| `HERITAGE` | typescript | An extends or implements clause, which the parser gives its own entity rather than hanging off the type. |
+| `TYPE_PARAMETER` | typescript | A type parameter's bound or default. |
+| `TYPE_REFERENCE` | typescript | Another type reference: the row is a type ARGUMENT or an element of the reference named in owner_id. depth says how deep. |
+| `DECORATOR` | typescript | A decorator application. |
+| `ENUM_MEMBER` | typescript | An enum member's written type. |
+| `EXPORT` | typescript | An `export type` clause. |
+| `MODULE` | typescript | A module-level position with no finer owner. |
 
 **`type_use.context` values**
 
 | value | languages | meaning |
 |---|---|---|
-| `FIELD_TYPE` | java | The declared type of a field. |
-| `METHOD_PARAM` | java | The declared type of a formal parameter. |
-| `METHOD_RETURN` | java | The declared return type. |
+| `FIELD_TYPE` | java, typescript | The declared type of a field. |
+| `METHOD_PARAM` | java, typescript | The declared type of a formal parameter. |
+| `METHOD_RETURN` | java, typescript | The declared return type. |
 | `LOCAL_VARIABLE` | java | The declared type of a local, a catch parameter or a try-with-resources resource. |
-| `OBJECT_CREATION_TYPE` | java | The type of a `new T(...)`. |
+| `OBJECT_CREATION_TYPE` | java, typescript | The type of a `new T(...)`. |
 | `ARRAY_CREATION_TYPE` | java | The element type of a `new T[n]`. |
 | `CAST_EXPRESSION` | java | The type of a `(T) x`. |
-| `INSTANCEOF_TYPE` | java | The type tested by an `x instanceof T`. |
-| `SUPER_TYPE` | java | An `extends` clause. |
-| `IMPLEMENTS_INTERFACE` | java | An `implements` clause. |
+| `INSTANCEOF_TYPE` | java, typescript | The type tested by an `x instanceof T`. |
+| `SUPER_TYPE` | java, typescript | An `extends` clause. |
+| `IMPLEMENTS_INTERFACE` | java, typescript | An `implements` clause. |
 | `THROWS_CLAUSE` | java | A declared thrown type. |
 | `ANNOTATION_TYPE` | java | The annotation type applied to a declaration. |
 | `ANNOTATION_PARAM` | java | A type named as an annotation argument. |
-| `TYPE_PARAM_BOUND` | java | The bound of a type parameter declared on a TYPE. |
-| `METHOD_TYPE_PARAM_BOUND` | java | The bound of a type parameter declared on a METHOD. |
-| `METHOD_TYPE_ARGUMENT` | java | An explicit type argument at a call site, `x.<T>m()`. |
+| `TYPE_PARAM_BOUND` | java, typescript | The bound of a type parameter declared on a TYPE. |
+| `METHOD_TYPE_PARAM_BOUND` | java, typescript | The bound of a type parameter declared on a METHOD. |
+| `METHOD_TYPE_ARGUMENT` | java, typescript | An explicit type argument at a call site, `x.<T>m()`. |
 | `METHOD_REFERENCE_QUALIFIER` | java | The qualifier of a method reference, `T::m`. |
 | `PATTERN_BINDING_TYPE` | java | The type of a record-pattern component. |
 | `SWITCH_TYPE_PATTERN` | java | The type of a switch type pattern, `case T t ->`. |
 | `RECORD_PATTERN_TYPE` | java | The record type a deconstruction pattern matches. |
+| `VARIABLE_TYPE` | typescript | The written type of a `const` / `let` / `var`. |
+| `TYPE_ELEMENT` | typescript | A member's type inside an interface or a type literal. |
+| `HERITAGE_TWIN` | typescript | The second half of a heritage clause a declaration-merged type carries. |
+| `AS_TARGET` | typescript | The target of an `x as T`. |
+| `SATISFIES_TARGET` | typescript | The target of an `x satisfies T`. |
+| `TYPE_ASSERTION` | typescript | The target of a `<T>x` assertion. |
+| `TYPE_ARGUMENT` | typescript | A type argument of the reference in owner_id — `Widget` in `Map<string, Widget>`. |
+| `TYPE_PARAM_DEFAULT` | typescript | A type parameter's default, the `= T` in `<K = string>`. |
+| `TYPE_ALIAS_RHS` | typescript | The right-hand side of a `type X = …`. |
+| `INDEX_SIGNATURE_KEY` | typescript | The key type of an index signature. |
+| `INDEX_SIGNATURE_VALUE` | typescript | The value type of an index signature. |
+| `MAPPED_CONSTRAINT` | typescript | The constraint of a mapped type. |
+| `MAPPED_TEMPLATE` | typescript | The template of a mapped type. |
+| `CONDITIONAL_*` | typescript | A prefix: the check, extends, true and false branches of a conditional type. |
+| `TEMPLATE_SPAN` | typescript | A span of a template-literal type. |
+| `IMPORT_TYPE_QUALIFIER` | typescript | The qualifier of an `import("m").T`. |
+| `TYPE_PREDICATE_TARGET` | typescript | The target of an `x is T` predicate. |
+| `ENUM_MEMBER_TYPE` | typescript | An enum member's written type. |
+| `DECORATOR_TYPE` | typescript | The decorator itself. |
+| `DECORATOR_ARGUMENT_TYPE` | typescript | A type named in a decorator argument. |
 
 **Notes**
 
-- **all** — JAVA ONLY so far. Declared in every bundle and EMPTY for TypeScript, Python and JavaScript, so the schema does not churn as the remaining front ends land (#663).
+- **all** — JAVA AND TYPESCRIPT. Declared in every bundle and EMPTY for Python and JavaScript, so the schema does not churn as the remaining front ends land (#663).
+- **typescript** — The context set is TypeScript's own and is wider than Java's: AS_TARGET, SATISFIES_TARGET, TYPE_ALIAS_RHS, the CONDITIONAL_* family, MAPPED_*, INDEX_SIGNATURE_* and TEMPLATE_SPAN have no Java counterpart. A use inside a conditional type IS a use of that type and is recorded as one.
+- **typescript** — Only a reference whose KIND can name a declaration is a row: TYPE_REFERENCE and IMPORT_TYPE. ARRAY, UNION, TUPLE and PARENTHESIZED are structure whose CHILDREN are the named references; PRIMITIVE, LITERAL, TYPE_VARIABLE, MAPPED, CONDITIONAL, INDEXED_ACCESS and INTRINSIC name nothing declared.
 - **java** — EVERY DEPTH is here, unlike the receiver-typing relations the engine uses internally, which filter to depth 0. A field of type `Map<String, Widget>` produces three rows. Filter on `depth = 0` when you want the type an expression has rather than every type its declaration mentions.
 - **java** — A TYPE_VARIABLE reference (`T`, `E`) is not a row: it names the declaration's own parameter, not a type. Where the parameter has a written bound the USE resolves to that bound and IS a row, so `<T extends Node> void f(T t)` records a use of Node.
 - **java** — The reference rows carry no line in the Java IR (every all-type-references row has an empty startLine), so this table has no position columns. Use owner_method_id, or owner_type_id plus the types row, to locate a use.

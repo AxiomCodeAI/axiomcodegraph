@@ -1,0 +1,5 @@
+ambiguous_unknown	read	members#drive() -> -
+ambiguous_unknown	read	members#useLibrary() -> -
+known_edge	read	Counter#current() -> Counter#n
+known_edge	read	members#drive() -> Counter#static zero
+known_edge	write	Counter#current(number) -> Counter#n

@@ -1,0 +1,7 @@
+21-callable-function-members [types]
+  precision 1.0000   (5 correct, 0 wrong)
+  recall    1.0000   (5 of 5 the compiler resolved)
+  sites 5   resolved 5 (100.0%)
+  tiers known_edge=5
+  contexts METHOD_PARAM=3  SUPER_TYPE=2
+  not scored: 0 rows whose target is not a client declaration

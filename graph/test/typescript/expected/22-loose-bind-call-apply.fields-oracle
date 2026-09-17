@@ -1,0 +1,9 @@
+22-loose-bind-call-apply [fields]
+  precision 0.0000   (0 correct, 1 wrong)
+  recall    0.0000   (0 of 1 the compiler resolved)
+  sites 1   resolved 1 (100.0%)
+  tiers known_edge=1
+  access read=1
+  not scored: 0 rows whose target is not a client declaration
+    WRONG   loose-bind#objectLiteralGainsNothing({ a: number }) READ { a: number }#a
+    MISSING loose-bind#objectLiteralGainsNothing({ a: number }) READ loose-bind#a

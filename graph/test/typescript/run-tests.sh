@@ -320,6 +320,13 @@ for dir in "$HERE"/cases/*/; do
     fail=$((fail+1)); failed+=("$name"); continue; fi
   python3 "$HERE/tools/normalize_edges.py" "$w/ir" "$w/plain/out/raw" > "$w/actual.edges" 2>"$w/norm.log" || {
     echo "FAIL (normalize — see $w/norm.log)"; fail=$((fail+1)); failed+=("$name"); continue; }
+  # ── the DATA graph beside the call graph (#663) ────────────────────────────
+  # field_access says who reads or writes each property, type_use where each type is
+  # named. Both carry the tier, so a receiver that stops resolving is a reviewable diff.
+  python3 "$HERE/tools/normalize_members.py" --fields "$w/ir" "$w/plain/out/raw" > "$w/actual.fields" 2>>"$w/norm.log" || {
+    echo "FAIL (normalize fields — see $w/norm.log)"; fail=$((fail+1)); failed+=("$name"); continue; }
+  python3 "$HERE/tools/normalize_members.py" --types "$w/ir" "$w/plain/out/raw" > "$w/actual.typeuse" 2>>"$w/norm.log" || {
+    echo "FAIL (normalize type use — see $w/norm.log)"; fail=$((fail+1)); failed+=("$name"); continue; }
 
   # ── pass 2: WITH THE CASE'S LIBRARY IR ────────────────────────────────────
   if [ "$HAS_LIB" = "1" ]; then
@@ -344,6 +351,18 @@ for dir in "$HERE"/cases/*/; do
       check_golden "$w/oracle.diff" "$HERE/expected/$name.oracle" "oracle" || ok=0
       [ $rc -eq 0 ] || { echo "FAIL (oracle: NEW missing edge, or a known-missing one started working)"
         grep -E 'MISSING|NOW-FIXED|^oracle=' "$w/oracle.diff" | head -12 | sed 's/^/    /'; ok=0; }
+      # ── FIELD ACCESS and TYPE USE, scored against the compiler's symbol resolution ──
+      # `checker.getSymbolAtLocation` answers exactly what the engine claims: for this
+      # property access, and for this type name, which declaration. The whole report is a
+      # golden, so a precision drop and a recall gain both show up as a diff.
+      for m in fields types; do
+        gt="$w/members.$m.gt"; sc="$w/members.$m.score"
+        if node "$HERE/tools/tsc_member_oracle.mjs" "--$m" "$dir/src" > "$gt" 2>"$w/members.$m.log"; then
+          python3 "$HERE/tools/score_members.py" "--$m" "$w/ir" "$w/plain/out/raw" "$gt" \
+               --label "$name" --show-wrong --show-missing > "$sc" 2>&1
+          check_golden "$sc" "$HERE/expected/$name.$m-oracle" "$m-oracle" || ok=0
+        fi
+      done
       orc="  [oracle: $(head -1 "$w/oracle.diff")]"
     else
       # A REFUSED ORACLE IS NOT A PASS (#235). The oracle declines a case that does not
@@ -409,6 +428,8 @@ for dir in "$HERE"/cases/*/; do
     envelope_golden "$w/withlib/out/raw" "$HERE/expected/$name.lib.envelope" "$w/actual.lib.envelope" "lib-envelope" || bad=1
   fi
   check_golden "$w/actual.edges" "$HERE/expected/$name.edges" "edges" || bad=1
+  check_golden "$w/actual.fields" "$HERE/expected/$name.fields" "field-access" || bad=1
+  check_golden "$w/actual.typeuse" "$HERE/expected/$name.type-use" "type-use" || bad=1
   if [ "$HAS_LIB" = "1" ]; then
     check_golden "$w/actual.lib.edges" "$HERE/expected/$name.lib.edges" "lib-edges" || bad=1
   fi
