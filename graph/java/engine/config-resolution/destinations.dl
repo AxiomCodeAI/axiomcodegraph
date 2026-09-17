@@ -231,9 +231,26 @@ url_path(s, u) :- url_no_scheme(s, p), url_no_query(p, q), strlen(q) > 0,
 url_path(s, u) :- url_no_scheme(s, p), url_no_query(p, q), strlen(q) > 0,
     substr(q, 0, 1) != "/", u = cat("/", q).
 
-sends_destination(m, "http", u) :- sends_via(call, "http"), call_site(call, name, _),
+sends_destination_at(call, m, "http", u) :- sends_via(call, "http"), call_site(call, name, _),
     cfg_sends_http(name), call_arg(call, _, arg), expr_descendant(arg, d),
     arg_destination(d, p), url_path(p, u), expr_ultimate_method("client", call, m).
+sends_destination(m, tr, u) :- sends_destination_at(_, m, tr, u).
+
+// EVERY path fragment this one call writes. A URL built by concatenation leaves more
+// than one — "/api/inventory/" + sku + "/reserved" leaves two — and a prefix rule that
+// looks at only the first will answer the route that the second one rules out.
+send_fragment(call, f) :- sends_via(call, "http"), call_arg(call, _, arg),
+    expr_descendant(arg, d), expr_kind("client", "LITERAL", _, d),
+    expr_literal("client", raw, d), url_path(raw, f).
+// NOTE: deliberately NOT gated on http_path_shaped. That guard wants two segments,
+// and the fragment that rules a route out is usually a single one — "/reserved".
+// Gating this on it let /api/inventory/{sku}/reserved be reported as
+// /api/inventory/{sku}, which is the exact wrong edge the guard exists to stop.
+// A candidate route that does not contain one of this call's own fragments is not the
+// route this call names. Measured: without it, a client reaching
+// /api/inventory/{sku}/reserved was reported as reaching /api/inventory/{sku}.
+route_contradicted(call, s) :- send_fragment(call, f), serves_destination(_, "http", s),
+    !contains(f, s).
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 4. THE JOIN
@@ -275,12 +292,19 @@ remote_edge(from, to, "http", d, "exact") :- sends_destination(from, "http", d),
 //     applied when the CLIENT wrote no template of its own: matching two templates on
 //     their common prefix made /api/x/{id}/reserve and /api/x/{id}/reservation each
 //     other's answer, which is a wrong edge rather than a missing one.
-remote_edge(from, to, "http", d, "route_shape") :- sends_destination(from, "http", d),
+remote_edge(from, to, "http", d, "route_shape") :- sends_destination_at(call, from, "http", d),
     serves_destination(to, "http", s), d != s, from != to,
     !contains("{", d), http_path_shaped(d),
     route_prefix(s, d),
     route_segments(d, n), route_segments(s, n),
+    !route_contradicted(call, s),
     send_verb(from, sv), method_verb(to, mv), verb_compatible(sv, mv).
+
+// NOTE — a second clause that linked a call whose fragments were ALL contained in a
+// route was tried and reverted: `contains(prefix, fragment)` is satisfied by every
+// route sharing a prefix, so one call became an edge to four handlers. The prefix
+// rule stays anchored on route_prefix equality, and a URL built from several
+// fragments that no single route explains stays unlinked and reported.
 
 route_prefix(p, pre) :- http_route(p), !contains("{", p), pre = p.
 route_brace(p, i) :- http_route(p), contains("{", p),
