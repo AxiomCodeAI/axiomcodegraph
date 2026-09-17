@@ -1,0 +1,15 @@
+main.js:10:39 FUNCTION_CALL made  ->  known_edge  main.js:6:1 made
+main.js:11:19 COMPUTED_CALL this[Symbol.iterator]  ->  known_edge  main.js:9:3 
+main.js:12:19 COMPUTED_CALL this[Symbol.toPrimitive]  ->  known_edge  main.js:10:3 
+main.js:15:14 FUNCTION_CALL Symbol  ->  ambient_terminal  -
+main.js:17:21 FUNCTION_CALL made  ->  known_edge  main.js:6:1 made
+main.js:18:17 COMPUTED_CALL this[kRun]  ->  known_edge  main.js:17:3 
+main.js:21:37 COMPUTED_CALL b[Symbol[x]]  ->  dynamic_terminal  -
+main.js:24:13 CONSTRUCTOR_CALL Bag  ->  known_edge  main.js:8:3 <constructor>
+main.js:25:13 METHOD_CALL b.prim  ->  known_edge  main.js:12:3 prim
+main.js:25:23 CONSTRUCTOR_CALL Local  ->  implicit_constructor  -
+main.js:25:23 METHOD_CALL new Local().go  ->  known_edge  main.js:18:3 go
+main.js:25:3 METHOD_CALL b.read  ->  known_edge  main.js:11:3 read
+main.js:25:41 FUNCTION_CALL viaComputed  ->  known_edge  main.js:21:1 viaComputed
+main.js:9:32 FUNCTION_CALL made  ->  known_edge  main.js:6:1 made
+main.js:9:40 COMPUTED_CALL this.items[Symbol.iterator]  ->  dynamic_terminal  -

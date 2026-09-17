@@ -27,14 +27,55 @@ import_value(imp, "ambient", spec) :- import_decl(_, spec, _, bf, n, _, "RESOLVE
 // The id stays the ROOT name (`Math`, `path`): a constructed `Math.floor.call`
 // string would grow without bound through the recursion, and the root is all the
 // classification needs.
-expr_value(e, "ambient", n) :- expr_kind(_, "PROPERTY_ACCESS", _, e), expr_child(_, e, "ACCESS_TARGET", _, r), expr_value(r, "ambient", n).
+expr_value(e, "ambient", n) :- expr_kind(_, "PROPERTY_ACCESS", _, e), expr_child(_, e, "ACCESS_TARGET", _, r), expr_value(r, "ambient", n),
+    !well_known_symbol_read(e).
 expr_value(e, "ambient", n) :- expr_kind(_, "OPTIONAL_ACCESS", _, e), expr_child(_, e, "ACCESS_TARGET", _, r), expr_value(r, "ambient", n).
+
+// ── a well-known symbol is a constant, not an opaque platform value (#722) ──
+// `Symbol.iterator` is a fixed, unique, program-wide key: as static as a string literal,
+// and the member declared `[Symbol.iterator]() {}` three lines up is the one it names.
+// Without a value of its own the read stays `("ambient", "Symbol")`, the #597 fabrication
+// guard keeps the key nameless, and every call on the iteration protocol is a
+// `dynamic_terminal` — which also states, wrongly, that the site has no static target by
+// construction. Both sides (the key of the declaration and the key at the call) go through
+// `key_name`, so one value makes them meet.
+// The set is enumerated on purpose: each of these is a program-wide constant, while
+// `Symbol('x')` has an identity per creation site (#597) and `Symbol[x]` names nothing.
+well_known_symbol("iterator").      well_known_symbol("asyncIterator").
+well_known_symbol("hasInstance").   well_known_symbol("isConcatSpreadable").
+well_known_symbol("match").         well_known_symbol("matchAll").
+well_known_symbol("replace").       well_known_symbol("search").
+well_known_symbol("species").       well_known_symbol("split").
+well_known_symbol("toPrimitive").   well_known_symbol("toStringTag").
+well_known_symbol("unscopables").   well_known_symbol("dispose").
+well_known_symbol("asyncDispose").
+// Recognised syntactically (`Symbol` written as a free/global identifier), so the rule sits
+// outside the value fixpoint the negation above is read in.
+well_known_symbol_read(e) :- expr_kind(_, "PROPERTY_ACCESS", _, e), expr_name(_, n, e), well_known_symbol(n),
+    expr_child(_, e, "ACCESS_TARGET", _, r), expr_kind(_, "IDENTIFIER", _, r), expr_text(_, "Symbol", r).
+expr_value(e, "sym", cat("Symbol.", n)) :- well_known_symbol_read(e), expr_name(_, n, e).
 expr_value(e, "ambient", n) :- expr_kind(_, "ELEMENT_ACCESS", _, e), expr_child(_, e, "ACCESS_TARGET", _, r), expr_value(r, "ambient", n).
 callee_value(ce, "ambient", n) :- call_site(_, ck, _, "SYNTACTIC", _, _, ce, _, _), call_kind_is_member_form(ck),
     expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "ambient", n).
 new_callee_value(ce, "ambient", n) :- call_site(_, "CONSTRUCTOR_CALL", _, "SYNTACTIC", _, _, ce, _, _),
     expr_child(_, ce, "RECEIVER", _, r), expr_value(r, "ambient", n).
-expr_value(ce, "ambient", n) :- expr_kind(_, "CALL", _, ce), callee_value(ce, "ambient", n).
+// A call on the platform is the platform — EXCEPT where the platform call is MODELLED
+// (#721). `Object.assign(dst, src)` evaluates to its target object (frameworks.dl), and
+// this rule used to give it the ambient `Object` beside that: a read through the result
+// with a key the analysis cannot pin down then landed on the platform and was filed
+// `ambient_terminal`, a claimed correct end, where the identical read on the un-merged
+// object says `ambiguous_unknown`. The model is the better answer, so it is the only one.
+// Recognised syntactically, so the negation sits below the value fixpoint it is read in.
+expr_value(ce, "ambient", n) :- expr_kind(_, "CALL", _, ce), callee_value(ce, "ambient", n),
+    !modelled_platform_call(ce).
+modelled_platform_call(ce) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", m, _, _, _, ce, _, _),
+    modelled_object_method(m), expr_child(_, ce, "RECEIVER", _, recv),
+    expr_kind(_, "IDENTIFIER", _, recv), expr_text(_, "Object", recv).
+modelled_platform_call(ce) :- expr_kind(_, "CALL", _, ce), call_site(_, "METHOD_CALL", "_extend", _, _, _, ce, _, _),
+    expr_child(_, ce, "RECEIVER", _, recv), expr_kind(_, "IDENTIFIER", _, recv), expr_text(_, "util", recv).
+// The Object statics whose result frameworks.dl gives a value of its own.
+modelled_object_method("assign").
+modelled_object_method("create").
 expr_value(ce, "ambient", n) :- expr_kind(_, "NEW", _, ce), new_callee_value(ce, "ambient", n).
 // A literal receiver is a platform object: `"a,b".split`, `[1, 2].forEach`, `` `x`.trim ``.
 expr_value(e, "ambient", k) :- expr_kind(_, k, _, e), expr_kind_is_literal(k).
