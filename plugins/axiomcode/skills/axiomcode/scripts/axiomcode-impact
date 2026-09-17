@@ -344,6 +344,58 @@ class Impact:
                 f"{re.sub(r'\(.*', '', whole)}. Its declaration(s) take: " + ' · '.join(sigs or ['(unknown)']))
         die(f"{whole}: no declaration of {re.sub(r'\(.*', '', whole)} takes ({', '.join(want)}). "
             f"It is declared as: " + ' · '.join(sigs or ['(unknown)']) + " — write one of those, or drop the parentheses for all of them")
+    SOURCE_EXT = {'.java','.py','.ts','.tsx','.js','.jsx','.mjs','.cjs','.kt','.kts','.scala','.go','.rb','.cs','.class','.jar'}
+    SKIP_DIR = {'.git','node_modules','target','build','out','dist','.axiomcode','.idea','.gradle','venv','.venv','__pycache__','.mvn'}
+    # prose is not a run-time binding: a name in a changelog does not break when it is renamed
+    PROSE_EXT = {'.md','.adoc','.rst','.log','.lock','.txt'}
+    def nonsource_files(self):
+        """every text file in the tree that is NOT source the index read. A name bound from one of these (a mapper XML,
+        a services file, a properties file, a build script, a spec) breaks at run time and the compiler is silent."""
+        if hasattr(self, '_nsf'): return self._nsf
+        out = []
+        for root, dirs, files in os.walk(self.g.repo):
+            dirs[:] = [d for d in dirs if d not in self.SKIP_DIR and not d.startswith('.axiomcode')]
+            for fn in files:
+                ext = os.path.splitext(fn)[1].lower()
+                if ext in self.SOURCE_EXT or ext in self.PROSE_EXT: continue
+                fp = os.path.join(root, fn)
+                try:
+                    if os.path.getsize(fp) > 512 * 1024: continue
+                    with open(fp, 'rb') as fh: head = fh.read(2048)
+                    if b'\0' in head: continue
+                except OSError: continue
+                out.append(os.path.relpath(fp, self.g.repo))
+                if len(out) > 4000: break
+        self._nsf = sorted(out); return self._nsf
+    def nonsource_hits(self, names):
+        """-> [(name, file, line)] where one of `names` is written as a whole token in a non-source file"""
+        names = sorted({n for n in names if n and len(n) > 2}, key=len, reverse=True)
+        if not names: return []
+        pat = re.compile(r'(?<![\w.$-])(' + '|'.join(re.escape(n) for n in names) + r')(?![\w$-])')
+        hits = []
+        for rel in self.nonsource_files():
+            try: text = open(os.path.join(self.g.repo, rel), errors='replace').read()
+            except OSError: continue
+            if not any(n in text for n in names): continue
+            for i, line in enumerate(text.split('\n'), 1):
+                for m in pat.finditer(line): hits.append((m.group(1), rel, i))
+                if len(hits) > 2000: break
+        return hits
+    KEYFILE_EXT = {'.properties','.yml','.yaml','.conf','.ini','.cfg','.env'}
+    def config_key_sites(self, keys):
+        """a key DEFINED or overridden in a settings file, matched on the canonical form so the spelling there
+        need not be the spelling that was asked for. -> [(canonical key, file, line)]"""
+        keys = {k for k in keys if k}
+        if not keys: return []
+        out = []
+        for rel in self.nonsource_files():
+            if os.path.splitext(rel)[1].lower() not in self.KEYFILE_EXT: continue
+            try: text = open(os.path.join(self.g.repo, rel), errors='replace').read()
+            except OSError: continue
+            for i, line in enumerate(text.split('\n'), 1):
+                m = re.match(r'\s*([A-Za-z0-9_.\-]+)\s*[:=]', line)
+                if m and ckey(m.group(1)) in keys: out.append((ckey(m.group(1)), rel, i))
+        return out
     def param_declared(self, mid, p):
         s = self.g.sym[mid]; L = self.lines(s['file'])
         head = ' '.join(L[s['line'] - 1: min(s['end_line'], s['line'] + 6)]).split('{')[0]
@@ -591,12 +643,30 @@ class Impact:
                         c = self.at(g.sym[oid]['file'], ln)
                         if c: textuse.append((c, tp, g.sym[oid]['file'], ln))
                     if g.sym[oid].get('type_id'): type_query(q + ':type', oid)
+        # names bound from OUTSIDE the source: an XML mapper, a services file, a properties file, a build script.
+        # The compiler is silent about every one of these, so they are the renames that break at run time.
+        want = set(); qn = []
+        for kind, lab, payload in targets:
+            if kind == 'type':
+                for tid in payload:
+                    s = g.sym[tid]; want.add(s['name'])
+                    for nm in (s.get('qualified_name'), s.get('display')):
+                        if nm and nm != s['name']: want.add(nm); qn.append((tid, nm))
+            elif kind == 'method':
+                for mid in payload:
+                    s = g.sym[mid]; want.add(s['name'])
+                    if s.get('display'): want.add(s['display']); qn.append((mid, s['display']))
+            elif kind == 'field':
+                for f in payload: want.add(f['name'])
+            elif kind == 'config': want.add(payload)
+        cfgkeys = {payload for kind, lab, payload in targets if kind == 'config'}
+        g.write('nonsource', sorted(set(self.nonsource_hits(want)) | set(self.config_key_sites(cfgkeys))), F); g.write('qual_name', sorted(set(qn)), F)
         g.write('target', T, F); g.write('textuse', sorted(set(textuse)), F); g.write('importuse', sorted(set(importuse)), F); g.write('inside_target', sorted(set(inside)), F)
         if not shutil.which('souffle'): die("souffle is not installed (brew install souffle-lang/souffle/souffle)")
         prof('query facts written'); r = subprocess.run(self.program() + ['-F', F, '-D', O], capture_output=True, text=True); prof('souffle returned')
         if r.returncode: die("souffle failed:\n" + r.stderr[-1200:])
         out = {}
-        for n in ('contract', 'direct', 'direct_edge', 'seed', 'seed_byname', 'reach', 'reach_sure', 'parent_up', 'test_near', 'test_hit', 'inherited_test'):
+        for n in ('contract', 'direct', 'direct_edge', 'seed', 'seed_byname', 'reach', 'reach_sure', 'parent_up', 'test_near', 'test_hit', 'inherited_test', 'extbind'):
             rows = []
             for l in open(os.path.join(O, n + '.csv')):
                 p = l.rstrip('\n').split('\t')
@@ -743,6 +813,7 @@ def main(argv):
                           'tests': [{'id': m, 'display': g.disp(m), 'owner': g.sym[m]['owner'], 'name': g.sym[m]['name'], 'hops': d, 'via': g.disp(fx) if fx else None, 'at': g.loc(m), 'certainty': test_cert.get(m), 'chain': [g.disp(x) for x in chains.get(m, [])]} for m, (d, fx) in tests.items()],
                           'inherited_tests': [{'id': s_, 'display': g.disp(s_), 'at': g.loc(s_), 'inherits': [g.disp(m) for m in ms]} for s_, ms in inh.items()],
                           'byname_callers': [{'id': c, 'display': g.disp(c), 'at': g.loc(c)} for c in byname_seeds],
+                          'external': [{'at': f'{f}:{l}', 'name': n, 'how': how} for f, l, n, how in sorted({(r[0], int(r[1]), r[2], r[3]) for r in res.get('extbind', [])})],
                           'test_universe': universe, 'verified': bad == 0, 'checked_hops': hops, 'unresolved_inside': u}, indent=1))
         return 0
     for k, lab, _ in targets: print(f"change: {lab}   [{k}]")
@@ -782,6 +853,13 @@ def main(argv):
     nfiles = len({g.sym[m]['file'] for m in reached})
     if any(k == 'var' for k, _, _ in targets) and not reached:
         print("reaches those through resolved calls: nothing — a local lives inside its method; it escapes only through what the method returns or writes, and the callers of the method are its impact only if it does")
+    ext = sorted({(r[0], int(r[1]), r[2], r[3]) for r in res.get('extbind', [])}, key=lambda x: (x[0], x[1]))
+    if ext:
+        byfile = collections.Counter(f for f, *_ in ext)
+        print(f"bound from outside the source ({len(ext)} site(s) in {len(byfile)} file(s): a name matched in a file the index does"
+              " not read as source, so the compiler is silent and a rename breaks it at run time):")
+        for f, l, n, how in ext[:limit]: print(f"    [text] {f}:{l}   — {how} ({n})")
+        if len(ext) > limit: print(f"    … +{len(ext) - limit} (--limit N)")
     print(f"reaches those through resolved calls: {len(reached)} more callable(s) in {nfiles} file(s)" + (f" within {depth} hop(s)" if depth < 40 else '') + (f" under *{IN}*" if IN else ''))
     weak = [m for m in reached if m not in sure_set]
     if weak: print(f"    {len(weak)} of those {len(reached)} are reached ONLY through a dependent that is not an exact edge ([by name], [text], [one of a set]): they stand or fall with it")
