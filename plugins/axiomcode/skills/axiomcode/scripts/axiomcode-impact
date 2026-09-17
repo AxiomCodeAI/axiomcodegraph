@@ -847,6 +847,20 @@ def main(argv):
         ov = [r['d'] for k, _, pay in targets if k == 'method' for t in (pay if isinstance(pay, list) else []) if t in g.sym and g.sym[t].get('method_id')
               for r in (g.q("""SELECT DISTINCT b.display d FROM dispatch_candidates dc JOIN symbols b ON b.method_id = dc.base_method_id JOIN symbols c ON c.method_id = dc.candidate_method_id
                               WHERE dc.candidate_method_id = ? AND dc.base_method_id <> dc.candidate_method_id AND b.owner <> c.owner""", g.sym[t]['method_id']) if g.has('dispatch_candidates') else [])]
+        # declared visibility: a public or protected declaration with no in-repo dependent is exported
+        # surface, not dead code. NULL on a graph built before the column existed, and on a language
+        # with no access modifiers, in which case this says nothing rather than guessing.
+        vis = set()
+        if g.has('methods'):
+            try:
+                for k, _, pay in targets:
+                    for t in (pay if isinstance(pay, list) else []):
+                        if t not in g.sym: continue
+                        mid, tid = g.sym[t].get('method_id'), g.sym[t].get('type_id')
+                        if mid: vis |= {r[0] for r in g.q("SELECT visibility FROM methods WHERE id = ? AND visibility IS NOT NULL", mid)}
+                        elif tid: vis |= {r[0] for r in g.q("SELECT visibility FROM types WHERE id = ? AND visibility IS NOT NULL", tid)}
+            except Exception: vis = set()
+        exported = sorted(v for v in vis if v in ('PUBLIC', 'PROTECTED'))
         print("\nsafe to delete?")
         # one verdict word, decided on the whole population the answer printed, never on [resolved] alone: on a dynamic
         # language almost every real caller is [one of a set] or [by name], and "no resolved caller" reads as "unused"
@@ -856,14 +870,19 @@ def main(argv):
         if weak: why.append(f"{len({x[0] for x in weak})} dependent(s) that are not exact edges (" + ', '.join(f"{n} {c}" for c, n in collections.Counter(x[3] for x in weak).most_common()) + "), each of which may be a same-named other thing and may be the real caller")
         if ov: why.append("it overrides " + ', '.join(sorted(set(ov))[:3]) + ", so the base's callers reach this body with no call site of its own")
         if why: print("  NOT SAFE — " + '; '.join(why) + ". They are listed above.")
+        elif exported: print("  NOT SAFE TO ASSUME — no dependent in this graph, but it is declared " + '/'.join(exported) +
+                             ": exported surface. For a library, no in-repo caller is the normal state of the public API,"
+                             " and a consumer outside this graph is not visible here. Check what else the graph cannot see:")
         else: print("  no dependent at any certainty in this graph. Before deleting, check what the graph cannot see:")
         bits = []
+        if exported and why: bits.append("it is declared " + '/'.join(exported) + " — exported surface, so consumers outside this graph may call it too")
         if lits: bits.append(f"{len(lits)} string literal(s) equal to the name (reflection? a bean name? a config key?): " + ', '.join(f"{f}:{l}" for f, l in lits[:4]) + (' …' if len(lits) > 4 else ''))
         if decs: bits.append("decorations on it: @" + ', @'.join(decs[:5]) + " — a framework may call it with no call site, and a decorator can hand the wrapper to the caller instead of this declaration")
         if u: bits.append(f"{u} unresolved call(s) inside the impacted set")
         if tests: bits.append(f"{len(tests)} test(s) reach it")
         for b in bits: print(f"    · {b}")
         if not bits and not calls and not contract and not weak and not ov: print("    · nothing — no by-name match, no literal, no decoration, no unresolved call inside")
+        if not vis and g.has('methods'): print("    · visibility is not recorded in this graph, so exported surface cannot be told from internal")
     print("verified: nothing to check — no resolved edge is claimed in this answer (every entry is by name, in scope, text, or one of a target set)" if hops == 0 else
           f"verified: {hops} printed edge(s) looked up again in graph.sqlite" + (", all present" if bad == 0 else f" — ✗ {bad} not found: report this, do not use the answer"))
     if not reached and D: print("bound: the closure could not start — every dependent above is reached by something other than a resolved call (by name, in scope, text), so what reaches THEM is not in this answer")

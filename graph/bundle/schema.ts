@@ -78,6 +78,7 @@ export const CORE_TABLES: readonly TableSpec[] = [
       { name: 'start_line', type: 'INTEGER', description: '1-based first line of the declaration.' },
       { name: 'end_line', type: 'INTEGER', description: '1-based last line of the declaration.' },
       { name: 'provenance', type: 'TEXT', description: '`client` — from the analysed project; `lib` — from a staged library IR.' },
+      { name: 'visibility', type: 'TEXT', nullable: true, indexed: true, description: 'Declared access as the parser recorded it, normalised (PUBLIC / PROTECTED / PACKAGE / PRIVATE). NULL where the language has no access modifiers. A public or protected declaration with no dependent in this graph is exported surface, not dead code.' },
     ],
   },
   {
@@ -92,6 +93,7 @@ export const CORE_TABLES: readonly TableSpec[] = [
       { name: 'start_line', type: 'INTEGER', nullable: true, description: '1-based first line; NULL for an external type.' },
       { name: 'end_line', type: 'INTEGER', nullable: true, description: '1-based last line; NULL for an external type.' },
       { name: 'provenance', type: 'TEXT', description: '`client`, `lib`, or `external` (Java: an unstaged ancestor, see vocabulary).' },
+      { name: 'visibility', type: 'TEXT', nullable: true, indexed: true, description: 'Declared access as the parser recorded it, normalised (PUBLIC / PROTECTED / PACKAGE / PRIVATE). NULL where the language has no access modifiers.' },
     ],
   },
   {
@@ -270,6 +272,11 @@ export const VOCAB: readonly VocabSpec[] = [
   { table: 'run', column: 'key', value: 'source_version', languages: 'all', meaning: 'The version the IR was stamped with (bin/axiomcode): the git commit of the analysed source, or v1.0.0 when it was not a checkout. Present when the run went through bin/axiomcode all.' },
   { table: 'run', column: 'key', value: 'source_dir', languages: 'all', meaning: 'The source directory that was parsed. Present when the run went through bin/axiomcode all.' },
 
+  // visibility (methods, types)
+  { table: 'methods', column: 'visibility', value: 'PUBLIC', languages: ['java'], meaning: 'Callable from anywhere; exported surface. No in-repo caller does not mean unused.' },
+  { table: 'methods', column: 'visibility', value: 'PROTECTED', languages: ['java'], meaning: 'Callable by subclasses outside the package; exported surface for extension.' },
+  { table: 'methods', column: 'visibility', value: 'PACKAGE', languages: ['java'], meaning: 'Default access; callable only within the declaring package.' },
+  { table: 'methods', column: 'visibility', value: 'PRIVATE', languages: ['java'], meaning: 'Callable only within the declaring type.' },
   // provenance (methods, types)
   { table: 'methods', column: 'provenance', value: 'client', languages: 'all', meaning: 'Declared in the analysed project.' },
   { table: 'methods', column: 'provenance', value: 'lib', languages: 'all', meaning: 'Declared in a staged library IR; listed because an edge reaches it.' },
