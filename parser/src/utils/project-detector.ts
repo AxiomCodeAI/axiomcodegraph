@@ -1,4 +1,3 @@
-import { CSharpDetector } from '@/language-detectors/csharp-detector';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -22,11 +21,6 @@ export class ProjectDetector {
     // directory of .py files is a valid Python project and would otherwise be a
     // greedy match on mixed repositories.
     this.registerDetector(new JavaDetector());
-    // C# next, for the reason Java is first: `.csproj` and `.sln` are
-    // unambiguous manifests, and a repository holding both C# and TypeScript
-    // (an ASP.NET app with a client folder) should be claimed by the project
-    // file at its root rather than by the `tsconfig.json` under it.
-    this.registerDetector(new CSharpDetector());
     // TypeScript before Python: `tsconfig.json` DEFINES a program, so it is a
     // stronger claim than any Python manifest, and a repository holding both
     // should not have its TypeScript swallowed by a bare directory of .py files
