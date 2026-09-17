@@ -548,11 +548,22 @@ def direct_for_method(q, ids):
                 if inner is None: continue
                 if inner in ids: tgt_fields.add(name)
                 by_caller.setdefault(inner, set()).add(name)
-        for i, r in enumerate(rows):
-            if r[3] != 'alongside' or r[2] != 'a sibling of the same type': continue
+        # ONE ROW PER SHARED FIELD: `shares_field(q,c,n)` is keyed on the field, so a sibling that references three
+        # of the target's fields is three rows, each naming one — and rule 329 only emits the plain
+        # "a sibling of the same type" for siblings that share NONE. Collapsing them to a single row naming the
+        # first field gave 40 rows where the rules give 80, and it only shows on a type with more than one field,
+        # which is why six hand-picked fixtures did not catch it.
+        expanded = []
+        for r in rows:
+            if r[3] != 'alongside' or r[2] != 'a sibling of the same type':
+                expanded.append(r); continue
             shared = sorted(by_caller.get(r[0], set()) & tgt_fields)
             if shared:
-                rows[i] = (r[0], r[1], f'a sibling of the same type, using the same field {shared[0]}', r[3], r[4], r[5])
+                for n in shared:
+                    expanded.append((r[0], r[1], f'a sibling of the same type, using the same field {n}', r[3], r[4], r[5]))
+            else:
+                expanded.append(r)
+        rows = expanded
     # only the ALONGSIDE rows emitted so far — building this from every row folds in the resolved callers, and a
     # caller that also lives in the target's file then never gets its `declared in the same file` row.
     sib = {r[0] for r in rows if r[3] == 'alongside'}

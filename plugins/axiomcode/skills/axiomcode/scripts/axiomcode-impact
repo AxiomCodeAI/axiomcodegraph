@@ -956,8 +956,16 @@ def main(argv):
     for c, role, why, cert, f, l, q_ in res['direct']:
         if c not in g.sym: continue
         loc = f"{f}:{l}" if f and int(l) > 0 else g.loc(c); k = (c, why); from_target[k].add(LAB[q_])
+        # the LOWEST location, not the first one the solver emitted. A callable with several sites has several
+        # rows and "first" was whichever the engine happened to output first, so the same answer named a
+        # different line from one solver to another. Lowest makes it the first site in the file.
+        def _lower(x, y):
+            def key(v):
+                p_, _, n_ = v.rpartition(':')
+                return (p_ or v, int(n_) if n_.isdigit() else 10 ** 9)
+            return x if key(x) <= key(y) else y
         if k not in best or CERT[cert] < CERT[best[k][1]]: best[k] = (role, cert, loc, best.get(k, (0, 0, 0, 0))[3] + 1)
-        else: best[k] = (best[k][0], best[k][1], best[k][2], best[k][3] + 1)
+        else: best[k] = (best[k][0], best[k][1], _lower(best[k][2], loc), best[k][3] + 1)
     D = [(c, role, why, cert, loc, n) for (c, why), (role, cert, loc, n) in best.items()]
     # `alongside` is unbounded by nature — a 200-member type would bury the rest of the answer. Keep the ones that share a
     # field with the target first, then the nearest by file, and say how many were left out (#762).
@@ -1116,7 +1124,7 @@ def main(argv):
             decs = [r[0].split('.')[-1] for r in g.q("SELECT name FROM decorations WHERE owner_id = ?", m)] if g.has('decorations') else []
             print(f"      {d:2} hop(s)  {g.disp(m)}{' [test]' if g.sym[m]['is_test'] else ''}{(' @' + ','.join(decs[:3])) if decs else ''}   {g.loc(m)}")
         if len(ent) > limit: print(f"      … +{len(ent) - limit} (--limit N)")
-    if inh: print(f"    inherited by {len(inh)} test class(es) that extend a reached one — they run those tests too: " + ', '.join(f"{g.disp(s_)} ({len(ms)}) {g.loc(s_)}" for s_, ms in sorted(inh.items(), key=lambda x: -len(x[1]))[:6]))
+    if inh: print(f"    inherited by {len(inh)} test class(es) that extend a reached one — they run those tests too: " + ', '.join(f"{g.disp(s_)} ({len(ms)}) {g.loc(s_)}" for s_, ms in sorted(inh.items(), key=lambda x: (-len(x[1]), g.disp(x[0])))[:6]))
     tfiles = {g.sym[m]['file'] for m in tests} | {g.sym[s_]['file'] for s_ in inh if s_ in g.sym}
     all_tfiles = {r[0] for r in g.q("SELECT DISTINCT file FROM symbols WHERE is_test = 1 AND file IS NOT NULL")}
     sure = [m for m, c in test_cert.items() if c == 'sound' and tests[m][0] <= 3]
