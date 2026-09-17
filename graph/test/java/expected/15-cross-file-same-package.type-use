@@ -1,0 +1,10 @@
+ambiguous_unknown	ANNOTATION_TYPE	0	shop.PercentDiscount [ANNOTATION] -> -
+ambiguous_unknown	METHOD_PARAM	0	shop.OrderService#main(String[]) [METHOD_PARAM] -> -
+known_edge	FIELD_TYPE	0	shop.OrderService [FIELD] -> shop.Discount
+known_edge	FIELD_TYPE	0	shop.OrderService [FIELD] -> shop.PriceCalculator
+known_edge	IMPLEMENTS_INTERFACE	0	shop.PercentDiscount [TYPE] -> shop.Discount
+known_edge	LOCAL_VARIABLE	0	shop.OrderService#main(String[]) [LOCAL_VARIABLE] -> shop.OrderService
+known_edge	METHOD_PARAM	0	shop.OrderService#useDiscount(Discount) [METHOD_PARAM] -> shop.Discount
+known_edge	OBJECT_CREATION_TYPE	0	shop.OrderService [EXPRESSION] -> shop.PriceCalculator
+known_edge	OBJECT_CREATION_TYPE	0	shop.OrderService#main(String[]) [EXPRESSION] -> shop.OrderService
+known_edge	OBJECT_CREATION_TYPE	0	shop.OrderService#main(String[]) [EXPRESSION] -> shop.PercentDiscount

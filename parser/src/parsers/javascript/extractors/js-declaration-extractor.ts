@@ -47,6 +47,8 @@ import { JsBinding, JsScopeNode, nodeKey, resolveName } from
   '@/parsers/javascript/extractors/js-symbol-table';
 import {
   enclosingStatement,
+  firstRunningFieldInitializer,
+  initializerRunsCode,
   isCallableExpression,
   isRequireCall,
   jsDocTagsOfAllBlocks,
@@ -772,6 +774,108 @@ export class JsDeclarationExtractor {
     for (const member of node.members) {
       this.visitClassMember(member, { ...childContext, block: classBlock });
     }
+    // Second pass: a field initializer is CODE THAT RUNS, and it needs the callable it
+    // runs inside. A constructor declared after the field must already be visited, which
+    // is why this is not done in the loop above.
+    this.attributeFieldInitializers(node, { ...childContext, block: classBlock });
+  }
+
+  /**
+   * `static fromField = this.make()` / `instField = this.make2()` — a field initializer
+   * was owned by the MODULE initializer (#798), so `this` in it had no value and the call
+   * it makes was attributed to the module rather than to the code that runs it. That is
+   * the wrong caller for any reachability question: constructor-time work appeared on the
+   * import path of every module that loads the file.
+   *
+   * The owner it runs in, so the engine needs no new rule:
+   *   static   -> the class's `static { }` callable, or a synthetic row of that kind,
+   *               whose `this` is the constructor already;
+   *   instance -> a synthetic non-static member row, whose `this` is the instance.
+   *
+   * The synthetic row is deliberately NOT a CONSTRUCTOR: a class with no declared
+   * constructor must keep answering `implicit_constructor` at its `new` sites, and
+   * `type_ctor` is read from the class row, so a method row of another kind cannot become
+   * its construct target.
+   *
+   * A declared constructor is NOT reused as the owner even though it is where the
+   * initializer runs: a field written above the constructor would then be an expression
+   * outside its owner's span, which is the containment invariant that catches context
+   * leaking down the traversal. The synthetic row spans the class, so it contains every
+   * initializer in it whatever the member order.
+   */
+  private attributeFieldInitializers(node: ts.ClassLikeDeclaration, context: WalkContext): void {
+    if (context.ownerType === undefined) {
+      return;
+    }
+    for (const isStatic of [true, false]) {
+      const first = firstRunningFieldInitializer(node, isStatic);
+      if (first === undefined) {
+        continue;
+      }
+      // One callable per class per staticness, hung off the same field the scope builder
+      // opened the scope on, so the row's body scope is a scope that exists.
+      const owner = this.synthesizeInitializerOwner(node, first, context, isStatic);
+      for (const member of node.members) {
+        if (!ts.isPropertyDeclaration(member) || member.initializer === undefined
+          || isCallableExpression(member.initializer) || !initializerRunsCode(member.initializer)) {
+          continue;
+        }
+        if (hasModifier(member, ts.SyntaxKind.StaticKeyword) === isStatic) {
+          this.fieldInitOwnerByNode.set(nodeKey(member), owner);
+        }
+      }
+    }
+  }
+
+  /** The synthetic callable a class's field initializers run inside. */
+  private synthesizeInitializerOwner(
+    node: ts.ClassLikeDeclaration, first: ts.PropertyDeclaration,
+    context: WalkContext, isStatic: boolean,
+  ): string {
+    const at = this.positionOf(node);
+    const bodyScope = this.options.binder.scopeOpenedBy.get(nodeKey(first)) ?? context.scope;
+    const ownerType = context.ownerType;
+    const name = isStatic ? '<static-init>' : '<instance-init>';
+    const row = new JsMethodRegistry({
+      name,
+      qualifiedName: `${ownerType?.qualifiedName ?? context.ownerMethodQualifiedName}.${name}`,
+      fileName: this.options.fileName,
+      filePath: this.options.filePath,
+      baseMservPath: this.options.baseMservPath,
+      startLine: at.startLine,
+      endLine: at.endLine,
+      startColumn: at.startColumn,
+      methodKind: isStatic ? JsMethodKind.STATIC_BLOCK : JsMethodKind.CLASS_METHOD,
+      declarationForm: JsMethodDeclarationForm.SYNTACTIC,
+      hoisting: JsHoisting.NOT_APPLICABLE,
+      isAsync: false,
+      isGenerator: false,
+      isStatic,
+      parameterCount: 0,
+      hasRestParameter: false,
+      usesArguments: false,
+      thisBinding: JsThisBinding.DYNAMIC,
+      returnTypeName: '',
+      declaredTypeSource: JsDeclaredTypeSource.NONE,
+      bodyPresence: JsBodyPresence.HAS_BODY,
+      ownerTypeLinkHash: ownerType?.getHash() ?? '',
+      ownerModuleLinkHash: this.options.moduleHash,
+      ownerScopeLinkHash: this.options.hashOfScope(context.scope),
+      bodyScopeLinkHash: this.options.hashOfScope(bodyScope),
+      enclosingMethodLinkHash: context.ownerMethod?.getHash() ?? '',
+      isEntryPoint: false,
+      methodReferenceKind: '',
+      modifiers: isStatic ? 'STATIC' : '',
+      serviceVersionLinkHash: this.options.serviceVersionLinkHash,
+    });
+    this.methods.push(row);
+    // A js_method row carrying an ownerTypeLinkHash IS a member row to every consumer,
+    // including the structural gate that compares `declaredMemberCount` against the
+    // distinct member names. Count it, or the class reports fewer members than it has rows.
+    if (ownerType !== undefined) {
+      this.countMember(ownerType);
+    }
+    return row.getHash();
   }
 
   /**
@@ -900,8 +1004,15 @@ export class JsDeclarationExtractor {
       return;
     }
     if (ts.isClassStaticBlockDeclaration(member)) {
-      this.visitFunctionLike(member, context, JsMethodKind.STATIC_BLOCK,
+      const row = this.visitFunctionLike(member, context, JsMethodKind.STATIC_BLOCK,
         JsHoisting.NOT_APPLICABLE, JsMethodDeclarationForm.SYNTACTIC, undefined);
+      if (context.ownerType !== undefined) {
+        // A class may have several `static { }` blocks; the first is the one a static
+        // field initializer is attributed to, matching evaluation order.
+        if (!this.staticBlockByTypeHash.has(context.ownerType.getHash())) {
+          this.staticBlockByTypeHash.set(context.ownerType.getHash(), row.getHash());
+        }
+      }
       return;
     }
     if (ts.isPropertyDeclaration(member)) {
@@ -2474,6 +2585,12 @@ export class JsDeclarationExtractor {
   }
 
   private readonly constructorByTypeHash = new Map<string, string>();
+
+  /** Class type hash -> its `static { }` method row, for #798's static field initializers. */
+  private readonly staticBlockByTypeHash = new Map<string, string>();
+
+  /** Field declaration node -> the callable its initializer runs inside (#798). */
+  readonly fieldInitOwnerByNode = new Map<string, string>();
 
   /** The type declared under `name` in this file, for same-file one-hop linking. */
   typeNamed(name: string): JsTypeRegistry | undefined {

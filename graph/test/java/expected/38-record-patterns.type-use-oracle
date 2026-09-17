@@ -1,0 +1,15 @@
+38-record-patterns
+  precision 1.0000   (7 correct, 0 wrong)
+  recall    0.4667   (7 of 15 in the bytecode)
+  references 44   resolved 33 (75.0%)
+  tiers ambiguous_unknown=11  known_edge=33
+  not scored: 18 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts FIELD_TYPE=3  IMPLEMENTS_INTERFACE=3  INSTANCEOF_TYPE=2  METHOD_PARAM=9  METHOD_RETURN=9  PATTERN_BINDING_TYPE=8  PERMITS=3  RECORD_PATTERN_TYPE=5  SWITCH_TYPE_PATTERN=2
+    MISSING probe.Patterns CAST_EXPRESSION probe.Patterns.Leaf
+    MISSING probe.Patterns CAST_EXPRESSION probe.Patterns.Other
+    MISSING probe.Patterns CAST_EXPRESSION probe.Patterns.Pair
+    MISSING probe.Patterns INSTANCEOF_TYPE probe.Patterns.Pair
+    MISSING probe.Patterns LOCAL_VARIABLE probe.Patterns.Leaf
+    MISSING probe.Patterns LOCAL_VARIABLE probe.Patterns.Node
+    MISSING probe.Patterns LOCAL_VARIABLE probe.Patterns.Other
+    MISSING probe.Patterns.Pair METHOD_RETURN probe.Patterns.Node

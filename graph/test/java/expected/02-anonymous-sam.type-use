@@ -1,0 +1,13 @@
+ambiguous_unknown	ANNOTATION_TYPE	0	AnonymousClasses$anon:Comparator [ANNOTATION] -> -
+ambiguous_unknown	ANNOTATION_TYPE	0	AnonymousClasses$anon:Runnable [ANNOTATION] -> -
+ambiguous_unknown	ANNOTATION_TYPE	0	AnonymousClasses$anon:Thread [ANNOTATION] -> -
+ambiguous_unknown	LOCAL_VARIABLE	0	AnonymousClasses#main(String[]) [LOCAL_VARIABLE] -> -
+ambiguous_unknown	LOCAL_VARIABLE	1	AnonymousClasses#main(String[]) [LOCAL_VARIABLE] -> -
+ambiguous_unknown	METHOD_PARAM	0	AnonymousClasses#main(String[]) [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_PARAM	0	AnonymousClasses$anon:Comparator#compare(String,String) [METHOD_PARAM] -> -
+ambiguous_unknown	OBJECT_CREATION_TYPE	0	AnonymousClasses#main(String[]) [EXPRESSION] -> -
+ambiguous_unknown	OBJECT_CREATION_TYPE	1	AnonymousClasses#main(String[]) [EXPRESSION] -> -
+ambiguous_unknown	SUPER_TYPE	0	AnonymousClasses$anon:Comparator [TYPE] -> -
+ambiguous_unknown	SUPER_TYPE	0	AnonymousClasses$anon:Runnable [TYPE] -> -
+ambiguous_unknown	SUPER_TYPE	0	AnonymousClasses$anon:Thread [TYPE] -> -
+ambiguous_unknown	SUPER_TYPE	1	AnonymousClasses$anon:Comparator [TYPE] -> -

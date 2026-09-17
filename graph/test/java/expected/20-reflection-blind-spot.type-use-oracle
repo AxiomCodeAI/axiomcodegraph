@@ -1,0 +1,7 @@
+20-reflection-blind-spot
+  precision 1.0000   (2 correct, 0 wrong)
+  recall    1.0000   (2 of 2 in the bytecode)
+  references 21   resolved 2 (9.5%)
+  tiers ambiguous_unknown=19  known_edge=2
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts CAST_EXPRESSION=2  LOCAL_VARIABLE=5  METHOD_PARAM=5  METHOD_RETURN=4  OBJECT_CREATION_TYPE=1  THROWS_CLAUSE=4

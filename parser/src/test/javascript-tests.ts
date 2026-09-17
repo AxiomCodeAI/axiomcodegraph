@@ -827,6 +827,31 @@ const SCAFFOLD: ReadonlyArray<readonly [string, string]> = [
     '',
   ].join('\n')],
 
+  // #798: a field initializer is code that RUNS, and it needs the callable it runs inside.
+  // Owned by the module, `this` in it had no value and the call it makes was attributed to
+  // the module, putting constructor-time work on every importer's path.
+  ['torture/field-initializers.js', [
+    'export class Base {',                                                 // 1
+    "  static make(tag) { return 'made:' + tag; }",                        // 2
+    "  make2() { return 'inst'; }",                                        // 3
+    '}',                                                                   // 4
+    'export class Child extends Base {',                                   // 5
+    "  static fromField = this.make('static');",                           // 6  runs at class evaluation: this = Child
+    '  instField = this.make2();',                                         // 7  runs during construction: this = the instance
+    '  bound = this.make2.bind(this);',                                    // 8  a member READ in an initializer
+    '}',                                                                   // 9
+    'export class WithCtor extends Base {',                                // 10
+    '  field = this.make2();',                                             // 11 a class that DOES declare a constructor
+    '  constructor() { super(); this.n = 1; }',                            // 12
+    '}',                                                                   // 13
+    'export class WithBlock {',                                            // 14
+    "  static tag = String('t');",                                         // 15 a static field beside a static block
+    '  static { WithBlock.ready = true; }',                                // 16
+    '}',                                                                   // 17
+    'export function drive() { return new Child().instField; }',           // 18
+    '',
+  ].join('\n')],
+
   ['torture/prototypes.js', [
     "const util = require('util');",                                       // 1
     'function Legacy(name) { this.name = name; }',                         // 2  a constructor function: a js_type by assignment-declared members
@@ -6194,6 +6219,180 @@ function packageEntriesNameWhatAPackageExposes(): number {
 }
 
 /**
+ * A ROOT SPELLED THROUGH A SYMLINK IS THE SAME TREE (#795).
+ *
+ * Every npm, yarn and pnpm workspace links its packages into `node_modules`
+ * (`node_modules/@ws/util -> ../../packages/util`), and TypeScript's resolver answers
+ * with the package's REAL path. `projectModuleHashes` was keyed by the files walked from
+ * the root AS GIVEN, so with a root reached through a symlink — macOS `/tmp` and `/var`,
+ * a symlinked checkout, a container bind mount — one side of the comparison was canonical
+ * and the other was not: every cross-package import came out RESOLVED_EXTERNAL and the
+ * engine then declared the calls unknown ("dependency not staged", for code in the tree).
+ * On one workspace monorepo that was 720 MISSED of 5,219 decided sites against 1.
+ *
+ * Asserted on both spellings of ONE directory: the outcomes are RESOLVED_PROJECT either
+ * way, and the whole relation set is byte-identical, which is the property that the
+ * spelling of the root cannot change the IR. The relative import is the control that was
+ * never broken, and the check refuses to pass if the fixture's link is missing.
+ */
+async function aSymlinkedRootIsTheSameTree(): Promise<number> {
+  let failures = 0;
+  const outer = scratchDir('js-gate-symlink-root-');
+  const real = path.join(outer, 'real');
+  const write = (relative: string, contents: string): void => {
+    const full = path.join(real, relative);
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, contents);
+  };
+  write('ws/package.json', JSON.stringify({ name: 'ws', private: true, workspaces: ['packages/*'] }) + '\n');
+  write('ws/packages/util/package.json', JSON.stringify({ name: '@ws/util', type: 'module', main: 'index.js' }) + '\n');
+  write('ws/packages/util/index.js', 'export function helper(x) { return x + 1; }\n');
+  write('ws/packages/util/lib/deep.js', 'export function deepFn(x) { return x * 2; }\n');
+  write('ws/packages/app/package.json', JSON.stringify({ name: '@ws/app', type: 'module', main: 'src/main.js' }) + '\n');
+  write('ws/packages/app/src/local.js', 'export function local(x) { return x - 1; }\n');
+  write('ws/packages/app/src/main.js',
+    "import { helper } from '@ws/util';\n"
+    + "import { deepFn } from '@ws/util/lib/deep.js';\n"
+    + "import { local } from './local.js';\n"
+    + 'export function run(x) { return helper(x) + deepFn(x) + local(x); }\n');
+  // What npm, yarn and pnpm create for a workspace package.
+  const linkDir = path.join(real, 'ws', 'node_modules', '@ws');
+  fs.mkdirSync(linkDir, { recursive: true });
+  fs.symlinkSync(path.join('..', '..', 'packages', 'util'), path.join(linkDir, 'util'));
+  // A second spelling of one directory. `real/` is reached directly; `link/` goes through
+  // a symlink, which is what /tmp -> /private/tmp does to every path under it on macOS.
+  fs.symlinkSync(real, path.join(outer, 'link'));
+
+  if (!fs.existsSync(path.join(linkDir, 'util', 'index.js'))) {
+    return fail('the fixture\'s workspace link does not resolve, so the check would pass on any implementation');
+  }
+
+  const parseFrom = async (root: string): Promise<Relation[]> => {
+    const output = scratchDir('js-gate-symlink-root-out-');
+    await new JavaScriptProjectAnalyzer().analyze({
+      rootDir: root, outputDir: output, baseMservPath: root, serviceVersionLink: 'gate-v1',
+    });
+    return readRelations(output);
+  };
+  const canonical = await parseFrom(fs.realpathSync(path.join(real, 'ws')));
+  const symlinked = await parseFrom(path.join(outer, 'link', 'ws'));
+
+  const outcomesOf = (relations: Relation[]): string[] => {
+    const imports = relations.find((r) => r.name === 'js_import')!;
+    const specifier = imports.header.indexOf('specifier');
+    const outcome = imports.header.indexOf('resolutionOutcome');
+    const resolvedFile = imports.header.indexOf('resolvedFilePath');
+    return imports.rows
+      .map((r) => `${r[specifier]} ${r[outcome]} ${r[resolvedFile]}`)
+      .sort();
+  };
+  // The file each one names is asserted too: RESOLVED_PROJECT with a path outside the
+  // tree, or pointing through `node_modules/`, would be a different defect wearing the
+  // right outcome.
+  const want = [
+    './local.js RESOLVED_PROJECT packages/app/src/local',
+    '@ws/util RESOLVED_PROJECT packages/util/index',
+    '@ws/util/lib/deep.js RESOLVED_PROJECT packages/util/lib/deep',
+  ];
+  for (const [label, relations] of [['canonical', canonical], ['symlinked', symlinked]] as const) {
+    const got = outcomesOf(relations);
+    if (JSON.stringify(got) !== JSON.stringify(want)) {
+      failures += fail(`${label} root: imports ${JSON.stringify(got)}, expected ${JSON.stringify(want)} — `
+        + 'a workspace package linked into node_modules is the project, not an external dependency');
+    }
+  }
+
+  // The whole IR, not only the column the defect was read from: the two spellings must
+  // produce one fact base. Before the fix these differed in every relation, because
+  // baseMservPath feeds the module hash.
+  const asText = (relations: Relation[]): string => relations
+    .map((r) => `${r.name}\n${r.header.join('\t')}\n${r.rows.map((row) => row.join('\t')).sort().join('\n')}`)
+    .sort()
+    .join('\n');
+  if (asText(canonical) !== asText(symlinked)) {
+    const a = canonical.map((r) => `${r.name}:${r.rows.length}`).sort().join(' ');
+    const b = symlinked.map((r) => `${r.name}:${r.rows.length}`).sort().join(' ');
+    failures += fail(`the two spellings of one root produced different IR\n    canonical  ${a}\n    symlinked  ${b}`);
+  }
+  console.log('  3 imports asserted under both spellings of one root; the full relation set is identical');
+  return failures;
+}
+
+/**
+ * A PROJECT'S COMMITTED BUILD OUTPUT IS NOT ITS SOURCE (#796).
+ *
+ * Committing `dist/` is ordinary for a library published to a CDN or consumed without a
+ * build step, and the walk introduced for a dist-only DEPENDENCY (#620) could not tell
+ * the two apart: it decided from the root's `package.json` alone, so a project with its
+ * own `src/` had every build of itself extracted beside the source, and labelled
+ * `PROJECT` — a readable Rollup or esbuild build has no `.min` name, no long line and no
+ * preamble, so none of the bundled heuristics fire.
+ *
+ * The copies then changed the answers FOR THE REAL SOURCE. `resolution/fan-cap.dl`
+ * counts call sites by callee NAME across the whole IR, so the same six calls repeated
+ * in three builds is 24 against a cap of 20: the source's own `ease` went hot and its
+ * parameter stopped being tracked, turning a `known_edge` in `src/` into
+ * `ambiguous_unknown`. On one corpus project 18 of 144 source functions went hot only
+ * because of the copies, and the IR was 8.5x the real size.
+ *
+ * Asserted both ways on ONE tree, because the distinction is the whole fix: as a
+ * project only the source is staged, as a dependency the build directory still is.
+ */
+async function aProjectsBuildOutputIsNotItsSource(): Promise<number> {
+  let failures = 0;
+  const root = scratchDir('js-gate-committed-dist-');
+  const write = (relative: string, contents: string): void => {
+    const full = path.join(root, relative);
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, contents);
+  };
+  // `main` points into dist/, which is what makes the directory a walk candidate. The
+  // package also has its own src/ — it is a project that commits its build output.
+  write('package.json', JSON.stringify({ name: 'pkg', version: '1.0.0', main: 'dist/lib.cjs.js' }) + '\n');
+  write('index.js', "module.exports = require('./src/index.js');\n");
+  const body = 'function linear(t) { return t; }\n'
+    + 'function ease(fn) { return fn(0.5); }\n'
+    + 'function a1() { return ease(linear); }\n'
+    + 'function a2() { return ease(linear); }\n'
+    + 'module.exports = { linear, ease, a1, a2 };\n';
+  write('src/index.js', body);
+  // Readable builds: no `.min` name, no long line, no bundler preamble, so `provenanceOf`
+  // labels each of them PROJECT and nothing downstream can filter them out.
+  for (const build of ['lib.cjs.js', 'lib.esm.js', 'lib.umd.js']) {
+    write(path.join('dist', build), body);
+  }
+
+  const stagedBy = async (libraryRoot: boolean): Promise<string[]> => {
+    const output = scratchDir('js-gate-committed-dist-out-');
+    await new JavaScriptProjectAnalyzer().analyze({
+      rootDir: root, outputDir: output, baseMservPath: 'pkg', serviceVersionLink: 'gate-v1',
+      libraryRoot,
+    });
+    const relations = readRelations(output);
+    const modules = relations.find((r) => r.name === 'js_module')!;
+    return modules.rows.map((r) => r[modules.header.indexOf('filePath')] ?? '').sort();
+  };
+
+  const asProject = await stagedBy(false);
+  const wantProject = ['index.js', 'src/index.js'];
+  if (JSON.stringify(asProject) !== JSON.stringify(wantProject)) {
+    failures += fail(`as a project: modules ${JSON.stringify(asProject)}, expected ${JSON.stringify(wantProject)} — `
+      + "a project's committed build output is the artefact beside the source, not source");
+  }
+
+  // The control, and #620 itself: the same tree handed over as a dependency still stages
+  // what it ships. Without this the check would pass on a parser that never walks dist/.
+  const asLibrary = await stagedBy(true);
+  const wantLibrary = ['dist/lib.cjs.js', 'dist/lib.esm.js', 'dist/lib.umd.js', 'index.js', 'src/index.js'];
+  if (JSON.stringify(asLibrary) !== JSON.stringify(wantLibrary)) {
+    failures += fail(`as a dependency: modules ${JSON.stringify(asLibrary)}, expected ${JSON.stringify(wantLibrary)} — `
+      + 'a staged package ships from its build directory (#620) and that must still hold');
+  }
+  console.log(`  ${asProject.length} modules as a project, ${asLibrary.length} as a dependency, from one tree`);
+  return failures;
+}
+
+/**
  * A walk root that is a package shipping from a build directory walks it (#620).
  *
  * `dist/` is skipped for a project because it is the artefact beside the
@@ -6224,6 +6423,10 @@ async function publishedPackageWalksItsBuildOutput(): Promise<number> {
   const output = scratchDir('js-gate-published-out-');
   const summary = await new JavaScriptProjectAnalyzer().analyze({
     rootDir: root, outputDir: output, baseMservPath: 'shipped', serviceVersionLink: 'gate-v1',
+    // A PUBLISHED PACKAGE handed to the parser on its own, which is what this check is
+    // about and what walking a build directory is for. The project case — where the same
+    // tree's dist/ is a copy of its own source — is the check below (#796).
+    libraryRoot: true,
   });
   const relations = readRelations(output);
   const modules = relations.find((r) => r.name === 'js_module')!;
@@ -6238,18 +6441,43 @@ async function publishedPackageWalksItsBuildOutput(): Promise<number> {
   if (entries.rows.length !== 2 || outcomes.some((o) => o !== 'RESOLVED')) {
     failures += fail(`entries ${JSON.stringify(outcomes)}: both exports conditions must RESOLVE to a staged module`);
   }
-  if (summary.buildOutputWalked.length !== 1 || summary.buildOutputWalked[0] !== path.join(root, 'dist')) {
+  // The analyzer resolves its root through symlinks before walking (#795), and the
+  // summary names the path it actually walked, so the expectation is canonical too —
+  // on macOS the scratch root is under /var, which is a symlink to /private/var.
+  if (summary.buildOutputWalked.length !== 1
+      || summary.buildOutputWalked[0] !== path.join(fs.realpathSync(root), 'dist')) {
     failures += fail(`buildOutputWalked ${JSON.stringify(summary.buildOutputWalked)}: the exception is visible in the summary`);
   }
   if ((summary.skippedByDirectory['dist'] ?? 0) !== 1 || (summary.skippedByDirectory['node_modules'] ?? 0) !== 1) {
     failures += fail(`skippedByDirectory ${JSON.stringify(summary.skippedByDirectory)}: the nested dist/ file and `
       + 'the node_modules file are still counted as skipped');
   }
+  // #790: the count is not enough. A pruned directory must leave a ROW in the skip
+  // table, because that table is what every reader downstream consults, and without
+  // one a repository whose first-party packages sit under an excluded name analyses
+  // as a handful of files with nothing to say the rest was dropped.
+  {
+    const skippedCsv = path.join(output, JAVASCRIPT_CSV_FILES.SKIPPED_FILES);
+    const lines = fs.readFileSync(skippedCsv, 'utf8').trim().split('\n').slice(1)
+      .filter((l) => l.length > 0);
+    const excluded = lines.map((l) => l.split('\t'))
+      .filter((f) => f[3] === 'DIRECTORY_EXCLUDED');
+    const named = excluded.map((f) => f[0]).sort();
+    if (excluded.length !== 2) {
+      failures += fail(`DIRECTORY_EXCLUDED rows ${JSON.stringify(named)}: one per pruned directory, `
+        + 'so the loss is visible where readers look');
+    }
+    if (!excluded.every((f) => /\d+ JavaScript file\(s\) under an excluded directory named/.test(f[4] ?? ''))) {
+      failures += fail(`DIRECTORY_EXCLUDED detail ${JSON.stringify(excluded.map((f) => f[4]))}: `
+        + 'the detail carries the count and the directory name');
+    }
+  }
   // The control: the same tree with no entry into dist/ stages nothing from it.
   write('package.json', '{"name":"shipped","main":"src/main.js"}\n');
   const control = scratchDir('js-gate-published-control-');
   const controlSummary = await new JavaScriptProjectAnalyzer().analyze({
     rootDir: root, outputDir: control, baseMservPath: 'shipped', serviceVersionLink: 'gate-v1',
+    libraryRoot: true,
   });
   if (controlSummary.counts['js_module'] !== 1 || controlSummary.buildOutputWalked.length !== 0) {
     failures += fail(`control: ${controlSummary.counts['js_module']} modules, walked ${JSON.stringify(controlSummary.buildOutputWalked)}; `
@@ -6785,6 +7013,55 @@ function tortureScriptsHold(): number {
       'MODULE_EXPORTS_MEMBER:extra/reexport=false/overwritten=false');
   }
 
+  // ---- field initializers (#798) ----------------------------------------------
+  {
+    const file = 'torture/field-initializers.js';
+    const module = moduleOf(file);
+    const { r: m, rows: methods } = rowsOf('js_method', module);
+    const { r: e, rows: expressions } = rowsOf('js_expression', module);
+    const { r: c, rows: sites } = rowsOf('js_call_site', module);
+    const mPk = pkIndexOf(m.header, 'js_method');
+    const nameOf = new Map(methods.map((row) => [row[mPk] ?? '', row[col(m, 'name')] ?? '']));
+    const kindOf = new Map(methods.map((row) => [row[mPk] ?? '', row[col(m, 'methodKind')] ?? '']));
+    const ownerOfThisAt = (line: number): string => {
+      const row = expressions.find((x) => x[col(e, 'expressionKind')] === 'THIS'
+        && Number(x[col(e, 'startLine')]) === line);
+      return row === undefined ? 'NO ROW' : nameOf.get(row[col(e, 'ownerMethodLinkHash')] ?? '') ?? 'UNKNOWN';
+    };
+    const callerAt = (line: number): string => {
+      const row = sites.find((x) => Number(x[col(c, 'startLine')]) === line);
+      return row === undefined ? 'NO ROW' : nameOf.get(row[col(c, 'enclosingMethodLinkHash')] ?? '') ?? 'UNKNOWN';
+    };
+    // A STATIC field initializer runs at class evaluation, where `this` is the constructor.
+    expect(file, 6, 'this in a static field initializer', ownerOfThisAt(6), '<static-init>');
+    expect(file, 6, 'the call it makes', callerAt(6), '<static-init>');
+    // An INSTANCE field initializer runs during construction, where `this` is the instance.
+    expect(file, 7, 'this in an instance field initializer', ownerOfThisAt(7), '<instance-init>');
+    expect(file, 7, 'the call it makes', callerAt(7), '<instance-init>');
+    expect(file, 8, 'a member read in an instance field initializer', ownerOfThisAt(8), '<instance-init>');
+    // The synthetic owner carries the kind whose `this` the engine already knows: a static
+    // initializer is a STATIC_BLOCK (this = the constructor), an instance one is an ordinary
+    // non-static member (this = the instance). It is deliberately NOT a CONSTRUCTOR, or a
+    // class with no declared constructor would stop answering `implicit_constructor`.
+    const syntheticKind = (name: string): string => {
+      const hash = [...nameOf.entries()].find(([, n]) => n === name)?.[0];
+      return hash === undefined ? 'NO ROW' : kindOf.get(hash) ?? 'UNKNOWN';
+    };
+    expect(file, 6, 'the static initializer kind', syntheticKind('<static-init>'), 'STATIC_BLOCK');
+    expect(file, 7, 'the instance initializer kind', syntheticKind('<instance-init>'), 'CLASS_METHOD');
+    // A class that declares a constructor gets the same synthetic owner. The constructor is
+    // where the initializer runs, but a field written ABOVE the constructor would then sit
+    // outside its owner's span, and that containment invariant is what catches context
+    // leaking down the traversal. The synthetic row spans the class instead.
+    expect(file, 11, 'this in a field initializer of a class with a constructor',
+      ownerOfThisAt(11), '<instance-init>');
+    // A static field beside a `static { }` block gets the synthetic static owner, for the
+    // same containment reason: the block may be written after the field.
+    expect(file, 15, 'a static field beside a static block', callerAt(15), '<static-init>');
+    // The control: a call OUTSIDE any class body is still owned by the function it is in.
+    expect(file, 18, 'a call in an ordinary function', callerAt(18), 'drive');
+  }
+
   // ---- prototypes -------------------------------------------------------------
   {
     const file = 'torture/prototypes.js';
@@ -6934,6 +7211,8 @@ const CHECKS: Check[] = [
   { name: 'JSX tag names are references', proves: 'a component tag is a JSX_TAG_NAME child reading its binding and an intrinsic tag is none — by the language\'s rule, with `_Private`, `widgets.panel` and `Foo-Bar` each asserted where the folk rule fails', run: jsxTagNamesAreReferences },
   { name: '@import tags mint bindings', proves: 'a JSDoc @import tag mints one type-only js_import row per bound name with its real binding form, and a @param through the name links it, so the new spelling of a typedef import is not a silent nothing (#621)', run: jsdocImportTagsMintBindings },
   { name: 'package entries name what a package exposes', proves: 'js_package_entry carries every main/module/exports entry of every package in the parse, resolved to a module hash only when the target is a staged JavaScript file and a named absence otherwise (#616)', run: packageEntriesNameWhatAPackageExposes },
+  { name: 'a symlinked root is the same tree', proves: 'a workspace package linked into node_modules resolves as RESOLVED_PROJECT whether the analysis root is spelled through a symlink or not, and both spellings produce one identical fact base (#795)', run: aSymlinkedRootIsTheSameTree },
+  { name: "a project's build output is not its source", proves: 'a committed dist/ the package.json ships from is staged only when the tree is handed over as a dependency (#620), and skipped for the project, whose own source it copies and whose answers the copies change through the name-keyed fan cap (#796)', run: aProjectsBuildOutputIsNotItsSource },
   { name: 'a published package walks its build output', proves: 'a walk root whose own package.json ships from dist/ stages the modules under it, while a nested dist/ and node_modules stay skipped and the exception is listed in the summary (#620)', run: publishedPackageWalksItsBuildOutput },
   { name: 'object type members carry their names', proves: 'an OBJECT_TYPE child row names the member it types, nested names as written, nothing else does, and the column is appended after the frozen key (#651)', run: objectTypeMembersCarryTheirNames },
   { name: 'binding paths are keys, not names', proves: 'a destructured parameter\'s path is the key route (`wire` for `{ wire: local }`) on c33 alone, asserted by value on every pattern shape', run: bindingPathsAreKeysNotNames },

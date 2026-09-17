@@ -197,14 +197,23 @@ export class TsTypeReferenceExtractor {
    *
    * The root always has `depth = 0` and an empty `parentReferenceHash`, which is
    * invariant 7 and which `type-hierarchy.dl` depends on in Java.
+   *
+   * `position` is the root's own index among its SIBLINGS, and defaults to 0
+   * because almost every caller extracts a single type node. The exception is a
+   * list written in an EXPRESSION — `two<A, B>()`, `new Pair<A, B>()` — whose
+   * arguments are siblings with no parent row to number them, and which were all
+   * emitted at position 0. The engine binds a type parameter to its argument BY
+   * POSITION (graph/typescript/engine/resolution/generics.dl), so the first
+   * parameter bound to every argument and the second to none (#587).
    */
   extract(
     node: ts.TypeNode,
     context: TsTypeRefContext,
     owner: TypeReferenceOwner,
-    isTypeOnlyPosition = true
+    isTypeOnlyPosition = true,
+    position = 0
   ): string {
-    return this.emit(node, context, owner, '', 0, 0, isTypeOnlyPosition, {});
+    return this.emit(node, context, owner, '', position, 0, isTypeOnlyPosition, {});
   }
 
   private emit(

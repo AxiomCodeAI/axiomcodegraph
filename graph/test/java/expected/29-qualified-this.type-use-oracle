@@ -1,0 +1,10 @@
+29-qualified-this
+  precision 1.0000   (6 correct, 0 wrong)
+  recall    0.6667   (6 of 9 in the bytecode)
+  references 22   resolved 6 (27.3%)
+  tiers ambiguous_unknown=16  known_edge=6
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts LOCAL_VARIABLE=3  METHOD_PARAM=1  METHOD_RETURN=13  OBJECT_CREATION_TYPE=4  SUPER_TYPE=1
+    MISSING probe.QualifiedThis$anon:Runnable METHOD_PARAM probe.QualifiedThis
+    MISSING probe.QualifiedThis.Inner METHOD_PARAM probe.QualifiedThis
+    MISSING probe.QualifiedThis.Inner.Deeper METHOD_PARAM probe.QualifiedThis.Inner

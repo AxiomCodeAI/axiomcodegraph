@@ -1,3 +1,4 @@
+import { CSharpProjectAnalyzer } from '@/workflows/csharp/csharp-project-analyzer';
 import * as fs from 'fs';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
@@ -8,7 +9,7 @@ import { ProjectScanner } from '@/utils/project-scanner';
 import { GradleProjectAnalyzer } from '@/workflows/gradle/gradle-project-analyzer';
 import { JavaProjectAnalyzer } from '@/workflows/java/java-project-analyzer';
 import { PropertiesProjectAnalyzer } from '@/workflows/properties/properties-project-analyzer';
-import { PythonProjectAnalyzer } from '@/workflows/python/python-project-analyzer';
+import { DEFAULT_EXCLUDES as PYTHON_DEFAULT_EXCLUDES, PythonProjectAnalyzer } from '@/workflows/python/python-project-analyzer';
 import { ServicesProjectAnalyzer } from '@/workflows/services/services-project-analyzer';
 import { JavaScriptProjectAnalyzer } from '@/workflows/javascript/javascript-project-analyzer';
 import { TypeScriptProjectAnalyzer } from '@/workflows/typescript/typescript-project-analyzer';
@@ -33,6 +34,14 @@ export interface ExtractOptions {
    * one language at a time points at one folder and sees nothing else.
    */
   layout?: 'flat' | 'per-language';
+  /**
+   * The tree is a DEPENDENCY being staged, not the project under analysis.
+   *
+   * Passed to the JavaScript analyzer, where it decides whether a root's own build
+   * output directory is walked as its source (#620) or skipped as the artefact beside
+   * the source (#796). `bin/axiomcode` sets it for every `--library` entry.
+   */
+  library?: boolean;
 }
 
 /**
@@ -112,6 +121,7 @@ function reportLanguage(
     filesRejected?: number;
     extractionErrors?: number;
     counts?: Record<string, number>;
+    skippedByDirectory?: Readonly<Record<string, number>>;
   }>
 ): void {
   if (summaries.length === 0) {
@@ -128,6 +138,22 @@ function reportLanguage(
   // report rather than two formats.
   const field = (text: string): string => `${label} ${text}:`.padEnd(30);
   console.log(`\n📊 ${field('files analysed')}${analysed}`);
+  // What the walk PRUNED, by directory name (#790). Without this line a repository
+  // whose first-party packages sit under an excluded directory name reports a
+  // plausible small file count and nothing else, and the loss is invisible to
+  // every reader downstream.
+  const prunedByName = new Map<string, number>();
+  for (const summary of summaries) {
+    for (const [name, count] of Object.entries(summary.skippedByDirectory ?? {})) {
+      prunedByName.set(name, (prunedByName.get(name) ?? 0) + count);
+    }
+  }
+  const pruned = [...prunedByName.entries()].sort((a, b) => b[1] - a[1]);
+  const prunedTotal = pruned.reduce((sum, [, count]) => sum + count, 0);
+  if (prunedTotal > 0) {
+    const detail = pruned.slice(0, 4).map(([name, count]) => `${name} ${count}`).join(', ');
+    console.log(`📊 ${field('files under excluded dirs')}${prunedTotal}  (${detail})`);
+  }
   console.log(`📊 ${field('rows extracted')}${rows}`);
   const rejected = total((s) => s.filesRejected);
   const errored = total((s) => s.extractionErrors);
@@ -188,6 +214,7 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
   const pythonProjects = scanner.filterByLanguage(allProjects, ProjectLanguage.PYTHON);
   const typescriptProjects = scanner.filterByLanguage(allProjects, ProjectLanguage.TYPESCRIPT);
   const javascriptProjects = scanner.filterByLanguage(allProjects, ProjectLanguage.JAVASCRIPT);
+  const csharpProjects = scanner.filterByLanguage(allProjects, ProjectLanguage.CSHARP);
 
   // Where each language writes. Flat: everything into outputDir. Per-language: a folder per
   // language, created only for a language that had a project, so an absent language leaves
@@ -205,6 +232,7 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
   const typescriptOut = dirFor('typescript', typescriptProjects.length > 0);
   const pythonOut = dirFor('python', pythonProjects.length > 0);
   const javascriptOut = dirFor('javascript', javascriptProjects.length > 0);
+  const csharpOut = dirFor('csharp', csharpProjects.length > 0);
   // The config analyzers walk every scan target and always write; without a Java project
   // their tables have no reader, so in per-language mode they go to a scratch folder that
   // is discarded rather than into a java/ folder that would announce a language absent here.
@@ -219,13 +247,14 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
   const pythonAnalyzer = new PythonProjectAnalyzer();
   const typescriptAnalyzer = new TypeScriptProjectAnalyzer();
   const javascriptAnalyzer = new JavaScriptProjectAnalyzer();
+  const csharpAnalyzer = new CSharpProjectAnalyzer();
 
   // Positions matter: java, properties, xml, yaml, gradle, services, typescript,
-  // python, javascript. Counting them wrong bound typescriptSummaries to
+  // python, javascript, csharp. Counting them wrong bound typescriptSummaries to
   // gradle's void return, and the mistake surfaced only as a type error — so a
   // new analyzer is APPENDED rather than inserted, and the destructuring below
   // is checked against this list rather than against memory.
-  const [, , , , , , typescriptSummaries, pythonSummaries, javascriptSummaries]
+  const [, , , , , , typescriptSummaries, pythonSummaries, javascriptSummaries, csharpSummaries]
     = await Promise.all([
     javaAnalyzer.analyzeJavaProjects(javaProjects, opts.versionLink, excludeTests),
     propertiesAnalyzer.analyzePropertiesFiles(scanTargets, opts.versionLink),
@@ -276,12 +305,14 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
         serviceVersionLink: opts.versionLink,
         // Python has no excludeTests flag; test discovery is by convention, so
         // the equivalent is skipping the directories those conventions use.
-        // The defaults are repeated because excludeDirs REPLACES them rather
-        // than adding to them — passing only the test names would have started
-        // analysing .venv and site-packages as project source.
+        // excludeDirs REPLACES the analyzer's own defaults rather than adding
+        // to them, so PYTHON_DEFAULT_EXCLUDES is spread in here rather than
+        // hand-copied — a hand-copy is exactly how this list and the
+        // analyzer's fell out of step and left `build/lib*` unexcluded on
+        // this branch while the analyzer's default list separately lacked it
+        // too (#564).
         excludeDirs: excludeTests
-          ? ['__pycache__', '.git', 'node_modules', '.venv', 'venv', '.tox',
-             'tests', 'test', '__tests__']
+          ? [...PYTHON_DEFAULT_EXCLUDES, 'tests', 'test', '__tests__']
           : undefined,
       })))),
     // JavaScript takes one root per call, as Python and TypeScript do, and
@@ -300,6 +331,7 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
         outputDir: javascriptOut ?? (perLanguage ? scratchFor(baseOut, 'javascript', 0) : baseOut),
         baseMservPath: absolutePath,
         serviceVersionLink: opts.versionLink,
+        libraryRoot: opts.library === true,
         // excludeDirs REPLACES the defaults rather than adding to them, so the
         // defaults are repeated — passing only the test names would have started
         // analysing node_modules as project source, which is the one thing the
@@ -311,6 +343,29 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
           : undefined,
       }),
     ])),
+    // C# takes one root per call, as Python and TypeScript do, and hashes
+    // serviceVersionLink the same way. What it does NOT take from the project is
+    // its CONFIGURATION: target frameworks, define constants and implicit usings
+    // are in cs_module's primary key and are INPUTS by design. Reading a .csproj
+    // would eventually mean evaluating MSBuild, and no .NET runs in this
+    // process — the parser is a Node library that runs on arbitrary customer
+    // checkouts, and a .NET runtime dependency is a different product.
+    //
+    // ALL the C# projects go through ONE analyzer call: they share an output
+    // directory, so they must share the writers, or each project's publish
+    // replaces the last one's rows (CS-ORACLE-3 — 52 projects, and two publishes
+    // in one millisecond collided on a temporary name).
+    timed(csharpProjects.length === 0
+      ? Promise.resolve([])
+      : csharpAnalyzer.analyzeMany(csharpProjects.map((project) => project.path), {
+          outputDir: csharpOut ?? (perLanguage ? scratchFor(baseOut, 'csharp', 0) : baseOut),
+          baseMservPath: absolutePath,
+          serviceVersionLink: opts.versionLink,
+          excludeDirs: excludeTests
+            ? ['obj', 'bin', '.git', 'node_modules', 'packages', '.vs',
+               'test', 'tests', 'Tests', 'UnitTests', 'IntegrationTests']
+            : undefined,
+        }).then((summary) => [summary])),
   ]);
 
   // Every per-project scratch folder is merged into its language's folder now, in project
@@ -344,6 +399,7 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
   reportLanguage('Python', pythonSummaries.seconds, pythonSummaries.value);
   reportLanguage('TypeScript', typescriptSummaries.seconds, typescriptSummaries.value);
   reportLanguage('JavaScript', javascriptSummaries.seconds, javascriptSummaries.value);
+  reportLanguage('C#', csharpSummaries.seconds, csharpSummaries.value);
 
   // Wall clock for the whole run. The per-language figures above will NOT sum to
   // it: the analyzers run concurrently, so their durations overlap. Reporting

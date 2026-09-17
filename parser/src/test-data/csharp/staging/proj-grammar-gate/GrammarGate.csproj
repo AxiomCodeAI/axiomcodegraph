@@ -1,0 +1,37 @@
+<!-- GATE FIXTURES FOR cs-impl, not language coverage.
+     Everything here exists to make a PARSER-LEVEL gate able to FAIL. It is
+     ordinary, compiling C# — the point is not that the language is unusual, it
+     is that the grammar has a known defect on it.
+
+     `AsyncAsIdentifier.cs` targets the three-line `async` patch in the vendored
+     tree-sitter-c-sharp fork. Measured by cs-oracle: `async` used as an
+     ordinary identifier in expression position is an ERROR in every published
+     grammar version, it accounts for 25.1% of parse errors on 0.23.1 and 65.1%
+     on 0.23.5, and it TRUNCATES — one bad occurrence mid-file took a 50-class
+     file down to 25 recovered classes and a real file from corpus stratum
+     linq-heavy-A down to 0 of 9
+     methods. Patched, the fork goes 8.62% -> 3.01% errors and 6.44% -> 0.37%
+     declarations lost.
+
+     BUILDING-A-PARSER.md section 11: before trusting a null result, make the
+     check produce a non-null one on purpose. A gate asserting "the async patch
+     is present" cannot be shown to fail without a file it fails on. This is
+     that file. Revert the patch and the gate must go red; if it stays green it
+     was never testing anything. -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- a successful build is the expected outcome: this is legal C# -->
+    <CsFixtureCompiles>true</CsFixtureCompiles>
+    <CsFixtureVerifiable>true</CsFixtureVerifiable>
+    <CsFixtureRole>parser-gate</CsFixtureRole>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>12</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <DefineConstants></DefineConstants>
+    <OutputType>Library</OutputType>
+    <AssemblyName>Fixtures.GrammarGate</AssemblyName>
+    <RootNamespace>Fixtures.GrammarGate</RootNamespace>
+    <NoWarn>$(NoWarn);CS0219;CS1998;CS0168</NoWarn>
+  </PropertyGroup>
+</Project>

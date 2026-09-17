@@ -214,13 +214,22 @@ export class TsExpressionExtractor {
 
     // `makeList<string>()` — Java's METHOD_TYPE_ARGUMENT, distinguished from a
     // type argument in a TYPE position because this one appears in an expression.
+    //
+    // NUMBERED, as the Java extractor numbers them
+    // (parsers/java/extractors/type-reference-extractor.ts:666). These are siblings
+    // with no parent row to carry their order, so the index is the only record of it
+    // and it is what the engine's positional binding reads. Emitted at 0 for every
+    // argument, `two<A, B>()` bound the first type parameter to BOTH A and B (#587).
+    let typeArgumentPosition = 0;
     for (const typeArgument of typeArgumentsOf(item.node) ?? []) {
       this.options.typeReferenceExtractor.extract(
         typeArgument,
         TsTypeRefContext.METHOD_TYPE_ARGUMENT,
         owner,
-        false
+        false,
+        typeArgumentPosition
       );
+      typeArgumentPosition += 1;
     }
 
     // `new Repo()` — Java's OBJECT_CREATION_TYPE. The constructed type is named

@@ -1,0 +1,7 @@
+boundary_lib	SIMPLE_CALL	main.main -> builtin:print
+known_edge	CHAINED_CALL	main.main -> pkg.core.Greeter.greet
+known_edge	SIMPLE_CALL	build.frontend.run -> pkg.core.greet
+known_edge	SIMPLE_CALL	main.<module> -> main.main
+known_edge	SIMPLE_CALL	main.main -> build.frontend.run
+known_edge	SIMPLE_CALL	main.main -> pkg.core.Greeter.__init__
+known_edge	SIMPLE_CALL	pkg.core.Greeter.greet -> pkg.core.greet

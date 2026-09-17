@@ -55,6 +55,18 @@ dist/
 build/
 out/
 lib-cov/
+
+# ...EXCEPT the Python case that tests the parser's OWN build-output exclusion (#564).
+# `build/lib/pkg` inside it is a byte-identical setuptools artifact and must stay
+# checked in for the case to catch a regression; `build/__init__.py` beside it is the
+# CONTROL — a legitimate source package literally named `build` — which the blanket
+# `build/` rule above would otherwise drop silently, same as the vendor case above. A
+# negation MUST come after the rule it excepts — gitignore is last-match-wins, and a
+# negation placed before the blanket it is meant to except (as the vendor `build/`
+# lines above are) is dead: the blanket re-ignores everything the exception just
+# re-included.
+!graph/test/python/cases/15-build-artifact-exclusion/src/build/
+!graph/test/python/cases/15-build-artifact-exclusion/src/build/**
 *.tsbuildinfo
 .tsbuildinfo
 *.d.ts.map

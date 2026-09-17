@@ -1,0 +1,10 @@
+main.js:11:22 METHOD_CALL this.make  ->  known_edge  main.js:7:3 make
+main.js:12:15 METHOD_CALL this.make2  ->  known_edge  main.js:8:3 make2
+main.js:13:11 FUNCTION_CALL_BIND this.make2.bind  ->  known_edge  main.js:8:3 make2
+main.js:19:11 METHOD_CALL this.make2  ->  known_edge  main.js:8:3 make2
+main.js:20:19 SUPER_CALL super  ->  implicit_constructor  -
+main.js:25:27 CONSTRUCTOR_CALL Child  ->  implicit_constructor  -
+main.js:25:51 CONSTRUCTOR_CALL WithCtor  ->  known_edge  main.js:20:3 <constructor>
+main.js:25:74 CONSTRUCTOR_CALL Plain  ->  implicit_constructor  -
+main.js:7:29 FUNCTION_CALL log  ->  known_edge  main.js:5:1 log
+main.js:8:20 FUNCTION_CALL log  ->  known_edge  main.js:5:1 log

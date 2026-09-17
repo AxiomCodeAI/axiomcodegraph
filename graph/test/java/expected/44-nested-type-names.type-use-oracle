@@ -1,0 +1,19 @@
+44-nested-type-names
+  precision 1.0000   (23 correct, 0 wrong)
+  recall    0.6571   (23 of 35 in the bytecode)
+  references 37   resolved 24 (64.9%)
+  tiers ambiguous_unknown=13  known_edge=24
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts ANNOTATION_PARAM=1  ANNOTATION_TYPE=2  IMPLEMENTS_INTERFACE=1  LOCAL_VARIABLE=3  METHOD_PARAM=4  METHOD_RETURN=16  OBJECT_CREATION_TYPE=10
+    MISSING probe.Base.Kind ARRAY_CREATION_TYPE probe.Base.Kind
+    MISSING probe.Base.Kind CAST_EXPRESSION probe.Base.Kind
+    MISSING probe.Base.Kind FIELD_TYPE probe.Base.Kind
+    MISSING probe.Base.Kind METHOD_RETURN probe.Base.Kind
+    MISSING probe.Base.Kind OBJECT_CREATION_TYPE probe.Base.Kind
+    MISSING probe.Base.Kind SUPER_TYPE probe.Base.Kind
+    MISSING probe.Outer.Mode ARRAY_CREATION_TYPE probe.Outer.Mode
+    MISSING probe.Outer.Mode CAST_EXPRESSION probe.Outer.Mode
+    MISSING probe.Outer.Mode FIELD_TYPE probe.Outer.Mode
+    MISSING probe.Outer.Mode METHOD_RETURN probe.Outer.Mode
+    MISSING probe.Outer.Mode OBJECT_CREATION_TYPE probe.Outer.Mode
+    MISSING probe.Outer.Mode SUPER_TYPE probe.Outer.Mode

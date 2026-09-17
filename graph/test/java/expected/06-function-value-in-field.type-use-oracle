@@ -1,0 +1,7 @@
+06-function-value-in-field
+  precision 1.0000   (2 correct, 0 wrong)
+  recall    1.0000   (2 of 2 in the bytecode)
+  references 44   resolved 2 (4.5%)
+  tiers ambiguous_unknown=42  known_edge=2
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts FIELD_TYPE=15  LOCAL_VARIABLE=4  METHOD_PARAM=13  METHOD_RETURN=11  OBJECT_CREATION_TYPE=1

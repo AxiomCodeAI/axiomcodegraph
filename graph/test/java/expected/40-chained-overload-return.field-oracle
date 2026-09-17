@@ -1,0 +1,8 @@
+40-chained-overload-return
+  precision 0.6667   (2 correct, 1 wrong)
+  recall    1.0000   (2 of 2 in the bytecode)
+  sites 4   resolved 4 (100.0%)
+  tiers known_edge=4
+  access read=3  write=1
+  not scored: 0 initializer-owned, 0 in a class the build did not compile, 0 oracle rows in a static initializer, 0 reads of an inlined constant
+    WRONG   probe.Item#<init>(String) WRITE probe.Item#key

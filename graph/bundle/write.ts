@@ -116,6 +116,15 @@ export async function writeSqlite(inp: SqliteInputs): Promise<void> {
     observe('call_edges', 'kind', c.call_edges.map((r) => r[6] as string));
     observe('entry_points', 'reason', c.entry_points.map((r) => r[1] as string));
     observe('type_instantiated', 'how', c.type_instantiated.map((r) => r[1] as string));
+    observe('fields', 'kind', c.fields.map((r) => r[2] as string));
+    observe('fields', 'provenance', c.fields.map((r) => r[10] as string));
+    observe('field_access', 'access', c.field_access.map((r) => r[4] as string));
+    observe('field_access', 'tier', c.field_access.map((r) => r[5] as string));
+    observe('field_access', 'field_provenance', c.field_access.map((r) => r[3] as string | null));
+    observe('type_use', 'context', c.type_use.map((r) => r[2] as string));
+    observe('type_use', 'owner_kind', c.type_use.map((r) => r[4] as string));
+    observe('type_use', 'tier', c.type_use.map((r) => r[9] as string));
+    observe('type_use', 'type_provenance', c.type_use.map((r) => r[8] as string | null));
     const note = db.prepare('INSERT INTO schema_notes VALUES (?, ?, ?)');
     for (const n of NOTES) if (n.language === 'all' || n.language === inp.language) note.run(n.language, n.table, n.note);
     const guide = db.prepare('INSERT INTO schema_guide VALUES (?, ?)');

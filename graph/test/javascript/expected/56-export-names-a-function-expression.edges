@@ -1,0 +1,8 @@
+main.js:3:10 FUNCTION_CALL compute  ->  multi_inferred  impl.js:3:1 fast
+main.js:3:10 FUNCTION_CALL compute  ->  multi_inferred  impl.js:5:41 compute
+main.js:3:23 FUNCTION_CALL other  ->  multi_inferred  impl.js:3:1 fast
+main.js:3:23 FUNCTION_CALL other  ->  multi_inferred  impl.js:6:39 slowOther
+main.js:3:34 FUNCTION_CALL cbrt  ->  ambient_terminal  -
+main.js:3:34 FUNCTION_CALL cbrt  ->  multi_inferred  impl.js:8:34 cbrt
+main.js:3:44 FUNCTION_CALL plain  ->  known_edge  impl.js:11:1 plain
+main.js:3:55 FUNCTION_CALL named  ->  known_edge  impl.js:12:1 named

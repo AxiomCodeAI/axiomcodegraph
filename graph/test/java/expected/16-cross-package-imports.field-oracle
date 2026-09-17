@@ -1,0 +1,7 @@
+16-cross-package-imports
+  precision 1.0000   (1 correct, 0 wrong)
+  recall    1.0000   (1 of 1 in the bytecode)
+  sites 6   resolved 1 (16.7%)
+  tiers ambiguous_unknown=5  known_edge=1
+  access read=6
+  not scored: 0 initializer-owned, 0 in a class the build did not compile, 0 oracle rows in a static initializer, 0 reads of an inlined constant

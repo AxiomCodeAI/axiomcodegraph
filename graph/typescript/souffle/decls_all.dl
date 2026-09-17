@@ -316,6 +316,7 @@
 .decl name_binds_any(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
 .decl name_bound_locally(c0:symbol,c1:symbol)
 .decl namespace_member(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
+.decl new_expression_ref(c0:symbol,c1:symbol)
 .decl new_expression_type(c0:symbol,c1:symbol,c2:symbol)
 .decl object_prototype_member(c0:symbol,c1:symbol)
 .decl overload_beaten(c0:symbol,c1:symbol)

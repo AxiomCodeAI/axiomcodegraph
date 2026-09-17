@@ -12,8 +12,7 @@ main.js:24:37 METHOD_CALL new reg[type]().run  ->  ambiguous_unknown  -
 main.js:27:15 METHOD_CALL Object.create  ->  ambient_terminal  -
 main.js:29:1 FUNCTION_CALL DEF  ->  callback_registered  main.js:29:13 Call
 main.js:29:1 FUNCTION_CALL DEF  ->  known_edge  main.js:28:1 DEF
-main.js:30:26 CONSTRUCTOR_CALL TYPES['Call']  ->  ambient_terminal  -
-main.js:30:26 CONSTRUCTOR_CALL TYPES['Call']  ->  multi_inferred  main.js:29:13 Call
+main.js:30:26 CONSTRUCTOR_CALL TYPES['Call']  ->  known_edge  main.js:29:13 Call
 main.js:34:30 CONSTRUCTOR_CALL list[0]  ->  ambient_terminal  -
 main.js:34:30 CONSTRUCTOR_CALL list[0]  ->  multi_inferred  main.js:6:1 Ctor
 main.js:34:30 METHOD_CALL new list[0]().run  ->  ambient_terminal  -

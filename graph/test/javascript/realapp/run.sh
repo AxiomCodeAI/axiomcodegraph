@@ -21,7 +21,9 @@ node "$PARSER" "$HERE" realapp false "$W/ir" > "$W/parse.log" 2>&1 || { tail -3 
 LIBS=""; n=0
 for pkg in $(ls "$HERE/node_modules" | grep -v '^\.'); do
   d="$HERE/node_modules/$pkg"; [ -f "$d/package.json" ] || continue
-  node "$PARSER" "$d" "lib-$pkg" false "$W/libir/$pkg" > /dev/null 2>&1 || true
+  # --library: an installed package is a dependency, and many publish only a build
+  # directory — which is the case #620 exists for.
+  node "$PARSER" "$d" "lib-$pkg" false "$W/libir/$pkg" --library > /dev/null 2>&1 || true
   [ -s "$W/libir/$pkg/all-javascript-modules.csv" ] && { LIBS="$LIBS,$W/libir/$pkg"; n=$((n+1)); }
 done
 LIBS="${LIBS#,}"

@@ -179,12 +179,21 @@ def main():
     # discriminator misread the path. Independent of that discriminator, and zero on
     # a correct run on every platform.
     decl_target_outside = 0
+    # Gate on the ORACLE: one call site must be one row. A site key emitted twice means
+    # the compiler held the same file twice — what a symlinked root did to a workspace
+    # package (#794) — and it inflates every bucket below while leaving the rates
+    # plausible. Counted here so any future cause is caught whatever it is.
+    oracle_key_seen = set()
+    oracle_duplicate_rows = 0
     per_kind = defaultdict(Counter)
     for r in orows:
         f = r[col['callFile']]
         if production and is_test_path(f):
             continue
         key = (f, r[col['callLine']], r[col['callCol']], r[col['callEndLine']], r[col['callEndCol']])
+        if key in oracle_key_seen:
+            oracle_duplicate_rows += 1
+        oracle_key_seen.add(key)
         oracle_sites += 1
         tk = r[col['targetKind']]
         ckind = r[col['callKind']]
@@ -286,6 +295,9 @@ def main():
             print('  %-18s %6d' % (b, buckets[b]))
     if decl_target_outside:
         print('  SCORER_SELF_CHECK  %6d  DECL_FILE_TARGET rows under node_modules: the in-project test misread a path (#614)' % decl_target_outside)
+    if oracle_duplicate_rows:
+        print('  SCORER_SELF_CHECK  %6d  oracle rows repeating a site key: the compiler held a file twice, so every bucket above is inflated (#794)'
+              % oracle_duplicate_rows)
     print('undecided by the compiler (any): %d' % sum(undecided.values()))
     for k, v in undecided.most_common():
         print('  %-20s %6d' % (k, v))

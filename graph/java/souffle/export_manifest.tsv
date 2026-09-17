@@ -21,3 +21,7 @@ config_unresolved	config-unresolved.csv
 type_instantiated	type-instantiated.csv
 method_dispatch_candidate	dispatch-candidates.csv
 dispatch_capped_site	dispatch-capped-sites.csv
+field_access	field-access.csv
+field_access_site	field-access-site.csv
+field_site_excluded	field-site-excluded.csv
+type_use	type-use.csv

@@ -1,0 +1,7 @@
+40-chained-overload-return
+  precision 1.0000   (4 correct, 0 wrong)
+  recall    1.0000   (4 of 4 in the bytecode)
+  references 13   resolved 7 (53.8%)
+  tiers ambiguous_unknown=6  known_edge=7
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts ANNOTATION_TYPE=1  CAST_EXPRESSION=1  FIELD_TYPE=1  INSTANCEOF_TYPE=1  METHOD_PARAM=6  METHOD_RETURN=3
