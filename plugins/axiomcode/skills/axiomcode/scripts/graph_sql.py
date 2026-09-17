@@ -427,11 +427,29 @@ def tests_reaching(q, depth, sets=None, every=False):
     # (Worth fixing in the exporter — but it is a behaviour change, not a port.)
     tid_of = {}
     for disp, tid in q("SELECT display, type_id FROM symbols WHERE type_id IS NOT NULL"): tid_of.setdefault(disp, tid)
+
+    def owner_tid(disp):
+        """the exporter's own owner resolution: walk the display up until a type answers, so `Enum.CONSTANT.run`
+        and an `<anon>` body land on the nearest enclosing type instead of on nothing."""
+        while disp:
+            if disp in tid_of: return tid_of[disp]
+            disp = disp.rsplit('.', 1)[0] if '.' in disp else ''
+        return None
+
     owner_id, file_of, kind_of = {}, {}, {}
-    for sid, f, knd, tid, mid, owner, disp in q("SELECT id, file, kind, type_id, method_id, owner, display FROM symbols"):
+    # the SAME row set `decl_file` is built from — g.sym is
+    #   {r['id']: r for r in SELECT * WHERE method_id IS NOT NULL OR type_id IS NOT NULL}
+    # so an id appearing in several files takes its file from the last row OF THAT SET. Reading every row instead
+    # lets a different row win, and for ids that collide across files (a subclass test sharing a base's display)
+    # that collapsed thousands of tests onto one file — 5,170 test hits that do not exist.
+    for sid, f, knd, tid, mid, owner, disp in q("""SELECT id, file, kind, type_id, method_id, owner, display
+                                                   FROM symbols WHERE method_id IS NOT NULL OR type_id IS NOT NULL"""):
         file_of[sid] = f; kind_of[sid] = knd
-        if owner and owner in tid_of: owner_id[sid] = tid_of[owner]
-        if tid and not mid: owner_id.setdefault(sid, tid_of.get(disp, sid))
+        # `member(t,m,…)` / `owner(m,t)` exist only for a symbol that is a method AND carries an owner — the
+        # exporter writes no owner row for a type. That is what keeps rule 443 off type fixtures; see below.
+        if mid and owner:
+            t = owner_tid(owner)
+            if t: owner_id[sid] = t
     tests_by_owner, tests_by_file = {}, {}
     for t in tm:
         o = owner_id.get(t)
@@ -457,6 +475,7 @@ def tests_reaching(q, depth, sets=None, every=False):
                 if v not in seen: seen.add(v); stack.append(v)
         subs[k] = list(seen)
     test_files = {file_of[t] for t in tm if file_of.get(t)}
+    istype = {r[0] for r in q("SELECT id FROM symbols WHERE type_id IS NOT NULL AND method_id IS NULL")}
     # `every=True` returns EVERY (test, hops, via) the rules derive — test_hit is not one row per test: a test
     # reached by its own body and by two fixtures is three rows, and the answer classifies routes from all of
     # them. test_near is the nearest of those, which is what the dict form gives.
@@ -467,9 +486,17 @@ def tests_reaching(q, depth, sets=None, every=False):
     for sid, d in depth.items():
         if sid in tm: put(sid, d, '')
         if sid in fx:
+            # 443 — a fixture METHOD: its owner, every subtype and every nested type run it before their own
+            #       tests.  `… fixture(fx), owner(fx,t), scope(t,s), member(s,m,_,_) …`
             o = owner_id.get(sid)
             for key in ([o] + subs.get(o, [])) if o else []:
                 for m in tests_by_owner.get(key, ()): put(m, d, sid)
+            # 444 — a fixture TYPE (a test class is itself a fixture): only its OWN members, no scope walk, and
+            #       keyed on the symbol id because that is what `typ(fx,_,_), member(fx,m,_,_)` unifies on.
+            #       Handing type fixtures the 443 scope walk instead attributed every subclass's tests to the
+            #       base: 3,676 phantom hits through AbstractKeycloakTest alone on this bundle.
+            if sid in istype:
+                for m in tests_by_owner.get(sid, ()): put(m, d, sid)
         if sid not in tm and (kind_of.get(sid) in ('class', 'module') or sid in fx or file_of.get(sid) in test_files):
             for m in tests_by_file.get(file_of.get(sid), ()): put(m, d, sid)
     return rows if every else out
@@ -478,6 +505,58 @@ def tests_reaching(q, depth, sets=None, every=False):
 def _has(q, table):
     try: return bool(q("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", table))
     except Exception: return False
+
+
+def _bean_call(q, ids, sites):
+    """The container-bean layer on `calls it`, and the only rules in `direct` that a bundle without a container
+    never exercises — which is why jackson (0 rows in ext_bean_def) was clean on it and keycloak (213) was not.
+
+        bean_call(q,c,m) :- target(q,"method",m,_), owner(m,ot), bean(_,ot,_), calls(c,m,t,_,_), t != "multi_inferred"
+
+    Whether the container's proxy is on the path decides whether a behavioural annotation added to the method — a
+    transaction, a cache, a retry, an authorization check — reaches this caller at all. A call from inside the bean
+    goes through `this` and never through the proxy. Returns the callers the plain `calls it` rule must skip, and
+    the reason each one gets instead.
+    """
+    if not (_has(q, 'ext_bean_def') and _has(q, 'ext_inject_point')): return set(), {}
+    memb, owner_disp, _tfile, tid_of = _members(q)
+
+    def type_of(sid):
+        """owner(x, t) — the type id the symbol's owner display resolves to."""
+        r = q("SELECT owner FROM symbols WHERE id=?", sid)
+        d = owner_disp(r[0][0]) if r and r[0][0] else None
+        return tid_of.get(d) if d else None
+
+    ots = {t for t in (type_of(i) for i in ids) if t}
+    beans = {r[0] for r in q("SELECT c1 FROM ext_bean_def")}
+    ot = next((t for t in ots if t in beans), None)
+    if ot is None: return set(), {}
+    # receives_bean(t, into): the type the container hands the bean to — a field injection names the type (c3), a
+    # constructor or setter names the method (c4) and the type is that method's owner.
+    #   receives_bean(t,into) :- injected(t,into,_), typ(into,_,_)
+    #   receives_bean(t,into) :- injected(t,x,_), owner(x,into)
+    istype = {r[0] for r in q("SELECT id FROM symbols WHERE type_id IS NOT NULL AND method_id IS NULL")}
+    recv = set()
+    for t, tgt in q("""SELECT i.c2, COALESCE(s.id, o.id) FROM ext_inject_point i
+                            LEFT JOIN symbols s ON s.method_id = i.c4
+                            LEFT JOIN symbols o ON o.type_id = i.c3 AND o.method_id IS NULL
+                       WHERE i.c2 <> '' AND COALESCE(s.id, o.id) IS NOT NULL"""):
+        if t != ot: continue
+        recv.add(tgt if tgt in istype else type_of(tgt))
+    callers = {c for c, tier, _f, _l in sites if tier != 'multi_inferred'}
+    why = {}
+    for c in callers:
+        cot = type_of(c)
+        if cot == ot:
+            why[c] = ('calls it from inside the same bean — through this, not through the container proxy, so an '
+                      'added proxied annotation does NOT apply to this caller')
+        elif cot in recv:
+            why[c] = ('calls it on the injected bean — the container proxy is on the path, so an added proxied '
+                      'annotation applies here')
+        else:
+            why[c] = ('calls it on an instance it obtained itself, not from the container — no proxy on the path, '
+                      'so an added proxied annotation does not apply here')
+    return callers, why
 
 
 def direct_for_method(q, ids):
@@ -493,12 +572,21 @@ def direct_for_method(q, ids):
     rows = []
     # ordered by site line: when a caller has several call sites the answer names one of them, and the rules name
     # the lowest. Leaving the order to the table printed a different site (254 against 257) for the same caller.
-    for c, tier, f, l in q(f"""SELECT e.caller_id, e.tier, s.file_path, s.start_line
-                               FROM call_edges e LEFT JOIN call_sites s ON s.id=e.call_site_id
-                               WHERE e.callee_method_id IN ({ph}) AND e.callee_provenance='client'
-                               ORDER BY s.start_line""", *ids):
-        rows.append((c, 'uses', 'calls it',
-                     'one of a set' if tier == 'multi_inferred' else 'resolved', f or '', l or 0))
+    sites = q(f"""SELECT e.caller_id, e.tier, s.file_path, s.start_line
+                  FROM call_edges e LEFT JOIN call_sites s ON s.id=e.call_site_id
+                  WHERE e.callee_method_id IN ({ph}) AND e.callee_provenance='client'
+                  ORDER BY s.start_line""", *ids)
+    bean_callers, why_of = _bean_call(q, ids, sites)
+    for c, tier, f, l in sites:
+        if tier == 'multi_inferred':
+            # rule 208 carries no `!bean_call` guard, so a multi_inferred site stays `one of a set` even into a bean
+            rows.append((c, 'uses', 'calls it', 'one of a set', f or '', l or 0))
+        elif c not in bean_callers:                                          # `… , !bean_call(q, c, m)`
+            rows.append((c, 'uses', 'calls it', 'resolved', f or '', l or 0))
+    # …and for a caller into a container-managed bean, EVERY site of it — the three bean rules end in a bare
+    # `calls(c, m, _, f, l)` with no tier test, so a multi_inferred site of a bean caller is a row here too.
+    for c, tier, f, l in sites:
+        if c in bean_callers: rows.append((c, 'uses', why_of[c], 'resolved', f or '', l or 0))
     names = {r[0] for r in q(f"SELECT name FROM symbols WHERE id IN ({ph})", *ids) if r[0]}
     seen = {r[0] for r in rows}
     for n in names:
@@ -508,8 +596,10 @@ def direct_for_method(q, ids):
             rows.append((c, 'uses', 'calls a method of this name (receiver not typed)', 'by name', f or '', l or 0))
     # alongside: siblings of the target's own type, then the other types declared in the same file
     owners = {r[0] for r in q(f"SELECT owner FROM symbols WHERE id IN ({ph})", *ids) if r[0]}
+    memb, owner_disp, tfile, _tid = _members(q)
+    owners = {owner_disp(o) or o for o in owners}          # target_owner(q,t) :- target(q,"method",m,_), owner(m,t)
     for o in owners:
-        for (c,) in q("SELECT id FROM symbols WHERE owner=? AND method_id IS NOT NULL", o):
+        for c in memb.get(o, ()):
             # a caller can ALSO be a sibling: the rules have no "already reported" guard, so both rows exist and
             # the answer groups the same callable under `calls it` and under `alongside`.
             if c not in ids:
@@ -583,8 +673,13 @@ def direct_for_method(q, ids):
         # seven members of one of them to a nested class in another.
         for (f,) in q("SELECT file FROM symbols WHERE display=? AND type_id IS NOT NULL AND file IS NOT NULL LIMIT 1", o):
             for c, c_owner in q("""SELECT s.id, s.owner FROM symbols s WHERE s.file=? AND s.method_id IS NOT NULL
-                                   AND s.owner IS NOT NULL AND s.owner<>?""", f, o):
-                if _owner_file(q, c_owner) != f: continue
+                                   AND s.owner IS NOT NULL""", f):
+                # `t2 != t` is a test on the TYPE, not on the owner string: `MyEnum2457Base.B` is a different
+                # display from `MyEnum2457Base` but the same type, so comparing the raw displays filed a sibling
+                # under `declared in the same file`.
+                ro = owner_disp(c_owner)
+                if ro is None or ro == o: continue
+                if tfile.get(ro) != f: continue
                 # same as the sibling rule: a CALLER can also be declared in the same file, and rule 330 has no
                 # "already reported" guard — only `t2 != t`. Excluding callers here dropped the one row that kept
                 # this bundle from parity (LDAPOperationManager.<anon LdapOperation>.execute, which calls the
@@ -598,6 +693,40 @@ def direct_for_method(q, ids):
     for r in rows:
         if r not in seen_row: seen_row.add(r); uniq.append(r)
     return uniq
+
+
+_MEM_IDX = {}
+def _members(q):
+    """`member(t,c,_,k)` for the callables, keyed by the type DISPLAY the owner resolves to, plus that resolver
+    and each type's file.
+
+    `symbols.owner` is a display and does not have to name a type: a method on an enum constant body is owned by
+    `MyEnum2457Base.B`, which has no type row at all. The exporter walks the display up until a type answers
+    (`owner_tid`), so `B.foo` is a member of `MyEnum2457Base`. Matching `owner = ?` exactly instead dropped every
+    such method — three `alongside` rows on EnumAsMapKeySerializationTest, where each enum constant overrides
+    `foo`, and `B.foo` was not even recognised as a sibling of its own enum.
+    """
+    key = id(q)
+    if key not in _MEM_IDX:
+        # tid_of: display -> type id, FIRST id wins, exactly as the exporter builds it
+        tfile, tid_of = {}, {}
+        for disp, f, t in q("SELECT display, file, type_id FROM symbols WHERE type_id IS NOT NULL"):
+            tfile.setdefault(disp, f); tid_of.setdefault(disp, t)
+        up = {}
+        def owner_disp(d):
+            """the display of the nearest enclosing type, or None — `owner_tid` without the last lookup."""
+            if d in up: return up[d]
+            o = d
+            while o and o not in tfile: o = o.rsplit('.', 1)[0] if '.' in o else ''
+            up[d] = o or None
+            return up[d]
+        idx = {}
+        # table order, so a sibling list comes out in the same order the old `WHERE owner = ?` gave it
+        for i, o in q("SELECT id, owner FROM symbols WHERE method_id IS NOT NULL AND owner IS NOT NULL"):
+            t = owner_disp(o)
+            if t: idx.setdefault(t, []).append(i)
+        _MEM_IDX[key] = (idx, owner_disp, tfile, tid_of)
+    return _MEM_IDX[key]
 
 
 _OWNER_FILE = {}
@@ -633,8 +762,16 @@ def inherited_tests(q, hits):
     # rules give 458; see the note in tests_reaching.
     tid_of = {}
     for disp, tid in q("SELECT display, type_id FROM symbols WHERE type_id IS NOT NULL"): tid_of.setdefault(disp, tid)
-    owner_id = {sid: tid_of[owner] for sid, owner in q("SELECT id, owner FROM symbols WHERE owner IS NOT NULL")
-                if owner in tid_of}
+    # `owner(m,t)` the way the exporter writes it: methods only, and the display walked up until a type answers
+    def owner_tid(disp):
+        while disp:
+            if disp in tid_of: return tid_of[disp]
+            disp = disp.rsplit('.', 1)[0] if '.' in disp else ''
+        return None
+    owner_id = {}
+    for sid, owner in q("SELECT id, owner FROM symbols WHERE owner IS NOT NULL AND method_id IS NOT NULL"):
+        t = owner_tid(owner)
+        if t: owner_id[sid] = t
     subs = {}
     if _has(q, 'type_ancestors'):
         for tid, aid in q("SELECT type_id, ancestor_type_id FROM type_ancestors"):
@@ -710,3 +847,4 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=()):
         out['test_near'] += [[m, str(d), qq] for m, (d, _v) in th.items()]
     out['_targets'] = QS
     return out
+
