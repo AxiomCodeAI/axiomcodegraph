@@ -10,8 +10,8 @@
 Short on purpose (≤ 10 lines, names not bodies): the transcripts showed pasted context makes runs longer, so this says only
 what a graph knows and a file does not — the edges. Nothing when the repo has no graph, or the read is not source."""
 import collections, json, os, re, sqlite3, subprocess, sys
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import fastimpact
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'skills', 'axiomcode', 'scripts'))
+import graph_sql
 
 ev = json.load(sys.stdin); tool = ev.get('tool_name', ''); inp = ev.get('tool_input', {}) or {}; cwd = ev.get('cwd') or os.getcwd()
 def rel_of(fp):
@@ -104,7 +104,7 @@ if tool in ('Edit', 'Write', 'MultiEdit'):
         19 of 40 sampled methods; it also carries #833, which kills that script at import wherever
         importlib.machinery is not incidentally bound."""
         try:
-            j = fastimpact.impact_shaped(cwd, d['target'])
+            j = graph_sql.impact_shaped(cwd, d['target'])
             if j is not None: return d, j
         except Exception: pass
         try: return d, json.loads(subprocess.run([sys.executable, os.path.join(SCR, 'axiomcode-impact'), d['target'], cwd, '--json', '--depth', '12'] + (['--kind', d['target_kind']] if d.get('target_kind') and d['target_kind'] != 'param' and '(' not in d['target'] else []), capture_output=True, text=True, timeout=14).stdout or '{}')
