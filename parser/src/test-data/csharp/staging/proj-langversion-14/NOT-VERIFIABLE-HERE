@@ -1,0 +1,20 @@
+This directory CANNOT BE COMPILED BY THE TOOLCHAIN IN THIS CHECKOUT, and its
+one construct IS NOT PARSED BY THE VENDORED GRAMMAR. Both labels are load-bearing.
+
+  SDK 8.0.401 rejects <LangVersion>14</LangVersion> (CS1617). C# 14 extension
+  members need the .NET 10 SDK.
+
+  tree-sitter-c-sharp at fork11 has no rule for `extension(T receiver) { … }`
+  blocks. The file will produce a parse gap, and the QUESTION the fixture asks
+  is how much of the file survives it: the bookend types before and after the
+  block are the measurement of whole-file recovery.
+
+The rules that attach, the same as ../proj-langversion-13/NOT-VERIFIABLE-HERE:
+  1. excluded from compile-status gates by CsFixtureVerifiable=false or this marker;
+  2. cs-oracle may PARSE it to measure recovery; it may not bless facts from it;
+  3. skipping it silently is worse than not having it.
+
+And one more, specific to NOT PARSED:
+  4. recovery on this file is MEASURED — error bytes, and which of the two
+     bookend types survive — and never ABSORBED into a neighbouring fixture.
+     That is why the construct is alone in a file and alone in a project.

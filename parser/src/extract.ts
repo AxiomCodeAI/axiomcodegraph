@@ -8,6 +8,7 @@ import { ProjectScanner } from '@/utils/project-scanner';
 import { GradleProjectAnalyzer } from '@/workflows/gradle/gradle-project-analyzer';
 import { JavaProjectAnalyzer } from '@/workflows/java/java-project-analyzer';
 import { PropertiesProjectAnalyzer } from '@/workflows/properties/properties-project-analyzer';
+import { CSharpProjectAnalyzer } from '@/workflows/csharp/csharp-project-analyzer';
 import { DEFAULT_EXCLUDES as PYTHON_DEFAULT_EXCLUDES, PythonProjectAnalyzer } from '@/workflows/python/python-project-analyzer';
 import { ServicesProjectAnalyzer } from '@/workflows/services/services-project-analyzer';
 import { JavaScriptProjectAnalyzer } from '@/workflows/javascript/javascript-project-analyzer';
@@ -213,6 +214,7 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
   const pythonProjects = scanner.filterByLanguage(allProjects, ProjectLanguage.PYTHON);
   const typescriptProjects = scanner.filterByLanguage(allProjects, ProjectLanguage.TYPESCRIPT);
   const javascriptProjects = scanner.filterByLanguage(allProjects, ProjectLanguage.JAVASCRIPT);
+  const csharpProjects = scanner.filterByLanguage(allProjects, ProjectLanguage.CSHARP);
 
   // Where each language writes. Flat: everything into outputDir. Per-language: a folder per
   // language, created only for a language that had a project, so an absent language leaves
@@ -230,6 +232,7 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
   const typescriptOut = dirFor('typescript', typescriptProjects.length > 0);
   const pythonOut = dirFor('python', pythonProjects.length > 0);
   const javascriptOut = dirFor('javascript', javascriptProjects.length > 0);
+  const csharpOut = dirFor('csharp', csharpProjects.length > 0);
   // The config analyzers walk every scan target and always write; without a Java project
   // their tables have no reader, so in per-language mode they go to a scratch folder that
   // is discarded rather than into a java/ folder that would announce a language absent here.
@@ -244,13 +247,14 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
   const pythonAnalyzer = new PythonProjectAnalyzer();
   const typescriptAnalyzer = new TypeScriptProjectAnalyzer();
   const javascriptAnalyzer = new JavaScriptProjectAnalyzer();
+  const csharpAnalyzer = new CSharpProjectAnalyzer();
 
   // Positions matter: java, properties, xml, yaml, gradle, services, typescript,
   // python, javascript. Counting them wrong bound typescriptSummaries to
   // gradle's void return, and the mistake surfaced only as a type error — so a
   // new analyzer is APPENDED rather than inserted, and the destructuring below
   // is checked against this list rather than against memory.
-  const [, , , , , , typescriptSummaries, pythonSummaries, javascriptSummaries]
+  const [, , , , , , typescriptSummaries, pythonSummaries, javascriptSummaries, csharpSummaries]
     = await Promise.all([
     javaAnalyzer.analyzeJavaProjects(javaProjects, opts.versionLink, excludeTests),
     propertiesAnalyzer.analyzePropertiesFiles(scanTargets, opts.versionLink),
@@ -339,6 +343,25 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
           : undefined,
       }),
     ])),
+    // C# is APPENDED, which is what the comment above the destructuring asks
+    // for: a new analyzer inserted in the middle rebinds every summary after
+    // it, and that mistake shows up only as a type error.
+    //
+    // ONE call for every C# root, not one per project: the analyzer holds one
+    // set of writers for its twenty-two relations, and a second call against
+    // the same output directory would overwrite rather than merge. There is no
+    // per-project scratch folder to merge afterwards for the same reason.
+    timed(csharpProjects.length === 0
+      ? Promise.resolve([])
+      : csharpAnalyzer.analyzeMany(csharpProjects.map((project) => project.path), {
+          outputDir: csharpOut ?? (perLanguage ? scratchFor(baseOut, 'csharp', 0) : baseOut),
+          baseMservPath: absolutePath,
+          serviceVersionLink: opts.versionLink,
+          excludeDirs: excludeTests
+            ? ['obj', 'bin', '.git', 'node_modules', 'packages', '.vs',
+               'test', 'tests', 'Tests', 'UnitTests', 'IntegrationTests']
+            : undefined,
+        }).then((summary) => [summary])),
   ]);
 
   // Every per-project scratch folder is merged into its language's folder now, in project
@@ -371,6 +394,7 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
   // summaries were already returned by the analyzers and simply discarded.
   reportLanguage('Python', pythonSummaries.seconds, pythonSummaries.value);
   reportLanguage('TypeScript', typescriptSummaries.seconds, typescriptSummaries.value);
+  reportLanguage('C#', csharpSummaries.seconds, csharpSummaries.value);
   reportLanguage('JavaScript', javascriptSummaries.seconds, javascriptSummaries.value);
 
   // Wall clock for the whole run. The per-language figures above will NOT sum to
