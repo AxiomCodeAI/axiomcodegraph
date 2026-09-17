@@ -1,0 +1,9 @@
+05-lambda-and-method-refs
+  precision 0.7500   (6 correct, 2 wrong)
+  recall    1.0000   (6 of 6 in the bytecode)
+  references 27   resolved 14 (51.9%)
+  tiers ambiguous_unknown=13  known_edge=14
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts FIELD_TYPE=3  LOCAL_VARIABLE=5  METHOD_PARAM=12  METHOD_RETURN=1  OBJECT_CREATION_TYPE=6
+    WRONG   Lam OBJECT_CREATION_TYPE Lam
+    WRONG   Lam OBJECT_CREATION_TYPE Lam.Item

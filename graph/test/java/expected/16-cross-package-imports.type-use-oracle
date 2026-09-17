@@ -1,0 +1,7 @@
+16-cross-package-imports
+  precision 1.0000   (5 correct, 0 wrong)
+  recall    1.0000   (5 of 5 in the bytecode)
+  references 27   resolved 5 (18.5%)
+  tiers ambiguous_unknown=22  known_edge=5
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts ANNOTATION_TYPE=1  FIELD_TYPE=1  IMPLEMENTS_INTERFACE=1  LOCAL_VARIABLE=2  METHOD_PARAM=9  METHOD_RETURN=11  OBJECT_CREATION_TYPE=2

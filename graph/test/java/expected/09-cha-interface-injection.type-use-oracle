@@ -1,0 +1,7 @@
+09-cha-interface-injection
+  precision 1.0000   (8 correct, 0 wrong)
+  recall    1.0000   (8 of 8 in the bytecode)
+  references 21   resolved 9 (42.9%)
+  tiers ambiguous_unknown=12  known_edge=9
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts ANNOTATION_TYPE=2  FIELD_TYPE=1  IMPLEMENTS_INTERFACE=2  LOCAL_VARIABLE=1  METHOD_PARAM=7  METHOD_RETURN=6  OBJECT_CREATION_TYPE=2

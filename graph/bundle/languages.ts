@@ -93,6 +93,8 @@ export interface LanguageAdapter {
     typeInstantiated?: RawSource;
     /** (site, caller, field, fieldProv, tier, access) — #663; absent means the table stays empty */
     fieldAccess?: RawSource;
+    /** (ref, owner, ownerKind, enclType, enclMethod, type, prov, context, depth, tier) — #663 */
+    typeUse?: RawSource;
   };
   ir: {
     methods: MethodsIR;
@@ -122,6 +124,8 @@ const JAVA: LanguageAdapter = {
     typeInstantiated: { file: 'type-instantiated.csv', columns: [0, 1] },
     // site, caller, field, fieldProvenance, tier, access — the relation is already in this order
     fieldAccess: { file: 'field-access.csv', columns: [0, 1, 2, 3, 4, 5] },
+    // ref, type, context, depth, ownerKind, owner, enclMethod, enclType, typeProv, tier
+    typeUse: { file: 'type-use.csv', columns: [0, 5, 7, 8, 2, 1, 4, 3, 6, 9] },
   },
   ir: {
     methods: {

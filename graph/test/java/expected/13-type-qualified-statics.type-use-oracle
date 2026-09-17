@@ -1,0 +1,7 @@
+13-type-qualified-statics
+  precision 1.0000   (2 correct, 0 wrong)
+  recall    1.0000   (2 of 2 in the bytecode)
+  references 17   resolved 2 (11.8%)
+  tiers ambiguous_unknown=15  known_edge=2
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts LOCAL_VARIABLE=1  METHOD_PARAM=8  METHOD_RETURN=7  OBJECT_CREATION_TYPE=1

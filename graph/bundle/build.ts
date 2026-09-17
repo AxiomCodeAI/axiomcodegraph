@@ -31,6 +31,7 @@ export interface CoreTables {
   type_instantiated: Row[];
   fields: Row[];
   field_access: Row[];
+  type_use: Row[];
 }
 
 export interface BuildInputs {
@@ -132,6 +133,7 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
   const rawReach = A.raw.entryReachable ? await readSource(rawDir, A.raw.entryReachable) : [];
   const rawInst = A.raw.typeInstantiated ? await readSource(rawDir, A.raw.typeInstantiated) : [];
   const rawFieldAccess = A.raw.fieldAccess ? await readSource(rawDir, A.raw.fieldAccess) : [];
+  const rawTypeUse = A.raw.typeUse ? await readSource(rawDir, A.raw.typeUse) : [];
   log(`  raw: ${rawEdges.length} edge rows, ${rawAncestors.length} ancestor rows, ${rawOverrides.length} override rows`);
 
   // call_edges: split the raw ToMethod into a method key or a label by provenance
@@ -167,6 +169,14 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
     if (at) at.push(row); else fieldSites.set(site!, [row]);
   }
 
+  // type_use: (ref, type, context, depth, ownerKind, owner, enclMethod, enclType, prov, tier).
+  // The type reference rows carry no line in the Java IR, so there is nothing to position and
+  // this is a straight projection of the relation.
+  const type_use: Row[] = rawTypeUse.map((r) => {
+    const [ref, type, context, depth, ownerKind, owner, enclMethod, enclType, prov, tier] = r as string[];
+    return [ref!, nul(type), context!, int(depth) ?? 0, ownerKind!, owner!, nul(enclMethod), nul(enclType), nul(prov), tier!];
+  });
+
   // ── 2. which ids the bundle must name ─────────────────────────────────────
   const wantMethods = new Set<string>();
   const wantTypes = new Set<string>();
@@ -179,6 +189,11 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
   for (const r of rawReach) wantMethods.add(r[0] as string);
   for (const r of rawAncestors) { wantTypes.add(r[0] as string); wantTypes.add(r[1] as string); }
   for (const r of rawInst) wantTypes.add(r[0] as string);
+  for (const r of type_use) {
+    if (r[1] !== null) wantTypes.add(r[1] as string);
+    if (r[6] !== null) wantMethods.add(r[6] as string);
+    if (r[7] !== null) wantTypes.add(r[7] as string);
+  }
   const wantFields = new Set<string>();
   for (const r of field_access) {
     wantMethods.add(r[1] as string);
@@ -448,6 +463,7 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
     type_instantiated: dedupe(rawInst),
     fields: [...fields.values()],
     field_access,
+    type_use,
   };
 }
 

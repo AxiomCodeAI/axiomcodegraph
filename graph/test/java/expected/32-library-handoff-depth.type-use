@@ -1,0 +1,4 @@
+boundary_lib	METHOD_PARAM	0	probe.Handoff#atDepth0(Sink) [METHOD_PARAM] -> dep.Sink
+boundary_lib	METHOD_PARAM	0	probe.Handoff#atDepth1(BufferedSink) [METHOD_PARAM] -> dep.BufferedSink
+boundary_lib	METHOD_PARAM	0	probe.Handoff#atDepth2(FileSink) [METHOD_PARAM] -> dep.FileSink
+boundary_lib	METHOD_PARAM	0	probe.Handoff#siblingOverload(BufferedSink) [METHOD_PARAM] -> dep.BufferedSink
