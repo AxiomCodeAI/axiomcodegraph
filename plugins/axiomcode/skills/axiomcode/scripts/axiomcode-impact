@@ -13,6 +13,10 @@ A target is a declaration, written as it appears in the code. Its kind is read f
                                                        engine's framework facts — an unknown key stops and says so, never a name match
     --kind method|field|type|param|typeparam|var|config  when the same name is declared as more than one kind
     --delete                                           add a verdict: is it safe to delete, and what the graph cannot vouch for
+    --from-text <file|->  [--top N]                    an ISSUE REPORT instead of a target: every identifier it names (stack
+                                                       frames, file:line, code blocks, prose) resolved against the index and
+                                                       ranked by where it was written, how specific it is and how central it
+                                                       is; --top N runs the impact of the best N as one change set
 
 The answer has the same shape for every kind and every language:
     must change with it     the declarations bound to it by a contract the engine resolved: the overrides of a method
@@ -668,10 +672,78 @@ class Impact:
             out.append(nxt); seen.add(nxt); cur = nxt
         return out
 
+
+# ── an issue report as the input: which declaration should the question be asked about? ──────────────────────────────
+STOP = {'the', 'this', 'that', 'when', 'with', 'from', 'into', 'null', 'true', 'false', 'void', 'int', 'string', 'list',
+        'map', 'set', 'new', 'return', 'class', 'public', 'private', 'static', 'final', 'issue', 'bug', 'error', 'exception',
+        'expected', 'actual', 'should', 'would', 'test', 'java', 'python', 'main', 'src', 'org', 'com', 'net', 'get', 'set'}
+
+def candidates_from_text(text):
+    """every identifier an issue report offers, with WHERE it was written — a stack frame and a file:line are the strongest
+    signals a report carries, a code block is next, prose last. Returns [(candidate, source, weight)] best source first."""
+    out = []
+    def add(c, src, w):
+        c = c.strip('`"\'.,;:()[]{}')
+        if c and c.lower() not in STOP and len(c) > 2: out.append((c, src, w))
+    # a stack frame: `at pkg.Type.method(File.java:123)` — the frame names the declaration outright
+    for m in re.finditer(r'\bat\s+([\w$.]+)\.([\w$<>]+)\s*\(([\w$.]+\.(?:java|kt|py|ts|js)):(\d+)\)', text):
+        add(f"{m.group(1).split('.')[-1]}.{m.group(2)}", 'a stack frame', 100); add(f"{m.group(3)}:{m.group(4)}", 'a stack frame', 100)
+    for m in re.finditer(r'^\s*File "([^"]+)", line (\d+), in ([\w$]+)', text, re.M):      # a Python traceback
+        add(f"{os.path.basename(m.group(1))}:{m.group(2)}", 'a stack frame', 100); add(m.group(3), 'a stack frame', 95)
+    # an explicit file:line anywhere
+    for m in re.finditer(r'\b([\w./-]+\.(?:java|kt|py|ts|tsx|js|jsx))[:#](\d+)\b', text): add(f"{m.group(1)}:{m.group(2)}", 'a file:line', 90)
+    # a code block or inline code
+    for m in re.finditer(r'```[a-z]*\n(.*?)```', text, re.S):
+        for id_ in re.findall(r'[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*', m.group(1)): add(id_, 'a code block', 60)
+    for m in re.finditer(r'`([^`\n]{2,80})`', text):
+        for id_ in re.findall(r'[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*', m.group(1)): add(id_, 'inline code', 50)
+    # prose: a dotted name, a CamelCase word, a method-looking word
+    for m in re.finditer(r'\b([A-Z][\w$]*\.[\w$]+|[A-Z][a-z]\w{2,}[A-Z]\w+|\b[a-z]\w+[A-Z]\w+)\b\(?\)?', text): add(m.group(1), 'prose', 20)
+    best = {}
+    for c, src, w in out:
+        if c not in best or w > best[c][1]: best[c] = (src, w)
+    return sorted(((c, src, w) for c, (src, w) in best.items()), key=lambda x: -x[2])
+
+def rank_targets(I, g, text, top=5):
+    """resolve every candidate with the tool's own resolver and rank: where it was written, how specific it is (a method
+    over a type), and how central it is (the edges at it). Returns [(score, label, kind, target, why)]."""
+    seen = set(); ranked = []
+    for cand, src, w in candidates_from_text(text)[:120]:
+        if cand in seen: continue
+        seen.add(cand)
+        try:
+            with contextlib.redirect_stdout(io.StringIO()): rs = I.resolve(cand)
+        except SystemExit: continue
+        except Exception: continue
+        for kind, label, payload in rs[:1]:
+            ids = payload if isinstance(payload, list) else (payload[0] if isinstance(payload, tuple) else [])
+            ids = [x for x in ids if isinstance(x, str) and x in g.sym] if isinstance(ids, list) else []
+            deg = 0
+            for i in ids[:8]:
+                m = g.sym[i].get('method_id')
+                if m: deg += g.q("SELECT count(*) FROM call_edges WHERE callee_method_id = ?", m)[0][0]
+                deg += g.q("SELECT count(*) FROM call_edges WHERE caller_id = ?", i)[0][0]
+            spec = {'method': 30, 'param': 25, 'field': 20, 'var': 15, 'config': 25, 'type': 10, 'clinit': 10}.get(kind, 5)
+            if g.sym.get(ids[0], {}).get('is_test') if ids else False: spec -= 25          # the test that reproduces is rarely the thing to change
+            ranked.append((w + spec + min(deg, 20), label, kind, cand, src))
+    # two spellings of one declaration (a stack frame names `Type.method` and `File.java:line` for the same thing) are one
+    # candidate: keep the best-scoring spelling, and keep the order the text put them in when scores tie
+    byl = {}
+    for i, (sc, label, kind, cand, src) in enumerate(ranked):
+        key = re.sub(r'\s*\(.*', '', label)
+        if key not in byl or sc > byl[key][0]: byl[key] = (sc, label, kind, cand, src, i)
+    out = sorted(byl.values(), key=lambda x: (-x[0], x[5]))
+    return [(a, b, c, d, e) for a, b, c, d, e, _ in out][:top]
+
 def main(argv):
     args = list(argv); depth = 40; limit = 25; IN = None; want_tests = '--tests' in args; as_json = '--json' in args; kind = None
     want_delete = '--delete' in args
     args = [a for a in args if a not in ('--tests', '--json', '--delete')]
+    from_text = None; take_top = 0
+    if '--from-text' in args:
+        i = args.index('--from-text'); from_text = args[i + 1]; del args[i:i + 2]
+    if '--top' in args:
+        i = args.index('--top'); take_top = int(args[i + 1]); del args[i:i + 2]
     for flag, conv in (('--depth', int), ('--limit', int), ('--in', str), ('--kind', str)):
         if flag in args:
             i = args.index(flag); v = conv(args[i + 1]); del args[i:i + 2]
@@ -680,8 +752,23 @@ def main(argv):
             elif flag == '--in': IN = v
             else: kind = v
     repo = '.'
-    if len(args) > 1 and os.path.isdir(args[-1]): repo = args.pop()
-    if not args: die("usage: axiomcode impact <target> [<target>…] [<repo>] [--depth N] [--in <path>] [--tests] [--limit N] [--json] [--kind k] [--delete]")
+    if args and os.path.isdir(args[-1]) and (len(args) > 1 or from_text is not None): repo = args.pop()
+    if from_text is not None:
+        # the question an issue report poses is "which declaration is this about?", and the answer decides everything after
+        text = sys.stdin.read() if from_text == '-' else open(from_text, errors='replace').read()
+        gg = G(repo); gg.IN = IN; II = Impact(gg)
+        ranked = rank_targets(II, gg, text, top=max(take_top, 5))
+        if not ranked: die("no identifier in that text resolves to a declaration in this graph — name one, or pass a file:line from a stack frame")
+        print(f"candidate targets from the text ({len(ranked)} shown, best first — where it was written, how specific it is, how central):")
+        for sc, label, kind, cand, src in ranked: print(f"  {sc:>4}  {label}   [{kind}]   — `{cand}` in {src}")
+        if not take_top:
+            print("\n(run the impact of the best one with --top 1, or of the best few as one change set with --top N)")
+            return 0
+        chosen = ranked[:take_top]
+        print(f"\nimpact of the top {len(chosen)} as one change set: " + ', '.join(c[3] for c in chosen) + "\n")
+        args = [c[3] for c in chosen]
+    if not args: die("usage: axiomcode impact <target> [<target>…] [<repo>] [--depth N] [--in <path>] [--tests] [--limit N] [--json] [--kind k] [--delete]\n"
+                     "       axiomcode impact --from-text <file|-> [<repo>] [--top N]   — an issue report in, the candidate declarations out")
     g = G(repo); g.IN = IN; I = Impact(g); prof('graph loaded, path facts exported')
     targets = []
     for a in args:
