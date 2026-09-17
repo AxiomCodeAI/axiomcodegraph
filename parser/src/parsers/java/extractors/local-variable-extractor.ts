@@ -10,6 +10,7 @@ import { BlockKind } from '@/enums/java/blocks';
 import { LocalVariableScopeKind } from '@/enums/java/local-variables';
 import { AnnotationExtractor } from '@/parsers/java/extractors/annotation-extractor';
 import { ExpressionReferenceExtractor, AnonymousClassInfo } from '@/parsers/java/extractors/expression-reference-extractor';
+import { collectLocalScopes } from '@/parsers/java/extractors/local-scopes';
 import { ScopeContext, extractLambdaParameterNames } from '@/parsers/java/extractors/scope-context';
 import { TypeReferenceExtractor } from '@/parsers/java/extractors/type-reference-extractor';
 import { EntityUtils } from '@/utils/entity-utils';
@@ -194,6 +195,9 @@ export class LocalVariableExtractor {
     this.currentMethodParamNames = methodParamNames;
     // Reset local variable names - will be populated as we extract
     this.currentLocalVariableNames = new Set();
+    // This extractor owns the expressions of every local's initializer, including a switch
+    // expression's arms, so it needs the same scope ranges the method extractor uses (#725).
+    this.expressionExtractor.setMethodLocalScopes(collectLocalScopes(bodyNode));
     
     const variables: LocalVariableRegistry[] = [];
     const lambdaDepth = scopeKind === LocalVariableScopeKind.LAMBDA_BODY ? 1 : 0;
@@ -249,6 +253,7 @@ export class LocalVariableExtractor {
     // Reset tracking sets
     this.currentMethodParamNames = new Set();
     this.currentLocalVariableNames = new Set();
+    this.expressionExtractor.setMethodLocalScopes(collectLocalScopes(initializerNode));
     // ScopeContext handles lambda params and hash tracking
     
     const variables: LocalVariableRegistry[] = [];

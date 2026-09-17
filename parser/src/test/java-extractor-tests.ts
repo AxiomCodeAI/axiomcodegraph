@@ -1427,6 +1427,72 @@ export class JavaExtractorTestRunner {
         }));
       }
 
+      // WHERE a local is in scope, not merely whether the method declares one somewhere (#725).
+      // Every expectation below is javac's: renaming the field makes exactly the FIELD lines fail
+      // to compile and no others.
+      if (filename === 'LocalScopeShadowing.java') {
+        // All rows at a (line, name), so a line carrying the name twice cannot pass on one of them.
+        const kindsAt = (e: ExtractedEntities, line: number, name: string) => e.expressions
+          .filter(x => x.getKind() === ExpressionKind.IDENTIFIER_REFERENCE &&
+                       x.getStartLine() === line && x.getLiteralValue() === name)
+          .map(x => x.getReferencedEntityKind());
+
+        const F = ReferencedEntityKind.FIELD;
+        const L = ReferencedEntityKind.LOCAL_VARIABLE;
+        const B = ReferencedEntityKind.PATTERN_BINDING_VARIABLE;
+        const P = ReferencedEntityKind.LAMBDA_PARAMETER;
+        const expected: ReadonlyArray<readonly [number, string, ReferencedEntityKind]> = [
+          [31, 'value', F],    // the report: the field, read above a local declared at line 34
+          [35, 'value', L],
+          [42, 'count', L],    // a block-local, inside the block that declares it
+          [44, 'count', F],    // the same name after that block closed: the field
+          [50, 'index', L],    // a for header declares into its own statement
+          [51, 'index', L],
+          [53, 'index', F],    // and not into the rest of the method
+          [59, 'item', L],     // enhanced for
+          [60, 'item', L],
+          [63, 'item', F],
+          [71, 'error', L],    // catch parameter, in its clause
+          [73, 'error', F],    // not in the finally block
+          [80, 'reader', L],   // try-with-resources header, in the try body
+          [82, 'reader', F],   // not in the finally block
+          [88, 'shape', F],    // the field, read above the pattern that binds the name
+          [90, 'shape', B],
+          [99, 'count', L],    // a local declared in a lambda body
+          [101, 'count', F],   // is not in scope after the lambda
+          [107, 'count', F],   // CONTROL: a field, no local of the name anywhere in the method
+          [113, 'count', L],   // CONTROL: a genuine local, read after its declaration
+          [126, 'reader', L],  // CONTROL: a local declared inside one lambda
+          [128, 'reader', P],  // CONTROL: and a lambda parameter of that name in a sibling lambda
+        ];
+
+        validations.push(this.rule('A name is a local only where a local of that name is in scope', (e) => {
+          const wrong = expected
+            .map(([line, name, want]) => {
+              const got = kindsAt(e, line, name);
+              const bad = got.length === 0 || got.some(k => k !== want);
+              return bad ? `L${line} ${name}: expected ${want}, got ${JSON.stringify(got)}` : null;
+            })
+            .filter((m): m is string => m !== null);
+          return { passed: wrong.length === 0, message: wrong.join('; ') };
+        }));
+
+        // The gate on the other direction: a rule that narrowed scope too far would turn genuine
+        // local reads into field reads, which is the trade this fix must not make. Thirteen of the
+        // rows above are in scope, and every one is a read of a local, a binding or a lambda
+        // parameter; the last two are the shape a corpus run caught the first attempt breaking.
+        validations.push(this.rule('No genuine local read is demoted to FIELD', (e) => {
+          const locals = expected.filter(([, , want]) => want !== ReferencedEntityKind.FIELD);
+          const demoted = locals
+            .filter(([line, name]) => kindsAt(e, line, name).some(k => k === ReferencedEntityKind.FIELD))
+            .map(([line, name]) => `L${line} ${name}`);
+          return {
+            passed: demoted.length === 0 && locals.length === 13,
+            message: `${demoted.length} demoted (${JSON.stringify(demoted)}), ${locals.length} in-scope reads asserted`
+          };
+        }));
+      }
+
       // A comment inside a conditional expression.
       if (filename === 'TernaryWithComments.java') {
         const withRole = (e: ExtractedEntities, role: EdgeRole) =>

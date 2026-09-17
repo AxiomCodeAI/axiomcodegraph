@@ -15,6 +15,7 @@ import {
 } from '@/enums/java/expressions';
 import { AnnotationExtractor } from '@/parsers/java/extractors/annotation-extractor';
 import { TypeReferenceExtractor } from '@/parsers/java/extractors/type-reference-extractor';
+import { MethodLocalScopes } from '@/parsers/java/extractors/local-scopes';
 import { EntityUtils } from '@/utils/entity-utils';
 import { resolveTypeQualifiedName } from '@/utils/java/type-resolution-utils';
 
@@ -133,6 +134,26 @@ export class ExpressionReferenceExtractor {
   // Matching on the name alone would call all three the binding, which trades one wrong answer
   // for another. A use is the binding only when it falls inside the declaring statement.
   private methodPatternBindings: Array<{ name: string; startIndex: number; endIndex: number }> = [];
+
+  // Where each local declared in the method body currently being extracted is IN SCOPE, as a byte
+  // range per declaration.
+  //
+  // `currentLocalVariableNames` is every local name declared ANYWHERE in the body, so on its own it
+  // answers "is this name a local somewhere in this method", not "is this name a local here". Two
+  // shapes make those different questions, and Java answers both by position (JLS 6.3):
+  //
+  //     Object value;                       // the field
+  //     void m() {
+  //         if (value == null) { ... }      // (1) the FIELD: the local below is not in scope yet
+  //         long value = 7L;                //     scope of the local starts at its declarator
+  //         { int t = 1; }                  // (2) `t` leaves scope with the block that declared it
+  //         use(t);                         //     so this `t` is not that local
+  //     }
+  //
+  // The range is [start of the declarator, end of the scope that contains it], so a use is the local
+  // only when it falls inside one. A name with no range recorded keeps the old name-only answer, so
+  // a declaration form this walk does not model cannot make an answer worse.
+  private methodLocalScopes: MethodLocalScopes | null = null;
   
   // Return statement index for distinguishing multiple returns in a method
   private currentReturnStatementIndex?: number;
@@ -3427,8 +3448,8 @@ export class ExpressionReferenceExtractor {
       return;
     }
     
-    // Local variable references (identifiers matching local variable names in scope)
-    if (this.currentLocalVariableNames.has(identifierName)) {
+    // Local variable references (identifiers matching a local variable in scope AT THIS SITE)
+    if (this.isLocalVariableInScopeAt(identifierName, node)) {
       builder.referencesEntity(ReferencedEntityKind.LOCAL_VARIABLE);
       return;
     }
@@ -3452,6 +3473,40 @@ export class ExpressionReferenceExtractor {
    */
   setMethodPatternBindings(bindings: Array<{ name: string; startIndex: number; endIndex: number }>): void {
     this.methodPatternBindings = bindings;
+  }
+
+  /**
+   * Records where every local declared in the method body about to be extracted is in scope.
+   *
+   * Set once per method, for the same reason the pattern bindings are: a local's declaration and
+   * its uses are in different statements, and therefore different extraction calls.
+   */
+  setMethodLocalScopes(scopes: MethodLocalScopes | null): void {
+    this.methodLocalScopes = scopes;
+  }
+
+  /**
+   * True when a local of this name is in scope at this use site.
+   *
+   * Falls back to the name-only answer when there is no range information for the name, or when the
+   * site is outside the body the ranges were collected from: another file (byte offsets are per
+   * file and this extractor is reused across them), or a field initializer extracted between two
+   * method bodies.
+   */
+  private isLocalVariableInScopeAt(identifierName: string, node: Parser.SyntaxNode): boolean {
+    if (!this.currentLocalVariableNames.has(identifierName)) return false;
+
+    const scopes = this.methodLocalScopes;
+    if (!scopes) return true;
+    if (node.tree !== scopes.tree) return true;
+    if (node.startIndex < scopes.bodyStartIndex || node.endIndex > scopes.bodyEndIndex) return true;
+
+    const ranges = scopes.byName.get(identifierName);
+    if (!ranges || ranges.length === 0) return true;
+
+    return ranges.some(
+      range => node.startIndex >= range.startIndex && node.endIndex <= range.endIndex
+    );
   }
 
   /**
