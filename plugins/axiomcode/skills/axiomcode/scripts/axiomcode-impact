@@ -152,6 +152,14 @@ class Impact:
         """-> list of (kind, label, payload). payload: method ids (method), field row (field), type symbol (type),
         (method id, name) (param / var), (owner symbol, name) (typeparam). Several when the name is declared as several kinds."""
         raw = sel.strip()
+        # a build coordinate (group:artifact[:version]) is not a declaration, and nothing in this graph is a build file.
+        # Answering it by name matching gave a confident empty answer on a tree where 55 poms declare the artifact
+        if re.fullmatch(r'[A-Za-z_][\w.-]*\.[\w.-]+:[A-Za-z_][\w.-]*(:[\w.+-]+){0,3}', raw):
+            die(f"'{raw}' is a build coordinate (group:artifact), not a declaration, and this graph indexes source only:\n"
+                f"  no pom, no build script, no dependency tree is in it, so what depends on that artifact is UNKNOWN here,\n"
+                f"  not empty. What this graph can answer: the declarations that name a type from the artifact, once you give\n"
+                f"  a type or a call — `impact <TypeFromThatArtifact>` for the code that names it, or `path '*' <Type>.<method>`\n"
+                f"  for what reaches a call into it. For the modules that declare the dependency, read the build files.")
         if len(raw) > 2 and raw[0] in '"\'' and raw[-1] == raw[0]:
             v = raw[1:-1]
             n = len(self.g.q("SELECT 1 FROM literals WHERE value = ?", v)) if self.g.has('literals') else 0
@@ -235,7 +243,7 @@ class Impact:
                     f"  They take: a method (Owner.m), a field / constant / enum member (Owner.f), a type (Type), a parameter\n"
                     f"  (Owner.m(p)), a type parameter (Type<T>), a local (Owner.m:v), a construction (Type.<init>) or a static\n"
                     f"  initializer (Type.<clinit>). For a decoration, a library call or a file, ask `axiomcode path` instead.")
-            out.append(('method', label, ids))
+            out.append(('name match', label, ids))
         return out
     def methods(self, s, soft=False):
         """the path finder's resolver, restricted to method declarations whose NAME is the last segment written (a type name
@@ -480,7 +488,7 @@ class Impact:
                         if c: importuse.append((c, r['name'], f, r['line']))
         for i, (kind, lab, payload) in enumerate(targets):
             q = f"q{i}"; QS[q] = lab
-            if kind == 'method':
+            if kind in ('method', 'name match'):            # a name match is answered as the declarations it matched, labelled as what it is
                 for m in payload: T.append((q, 'method', m, ''))
             elif kind == 'field':
                 for f in payload: T.append((q, 'field', f"f:{f['rowid']}", ''))
