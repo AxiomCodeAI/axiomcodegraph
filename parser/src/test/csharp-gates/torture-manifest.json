@@ -1,0 +1,142 @@
+{
+  "generatedFrom": "KNOWN_GRAMMAR_LIMITATIONS in src/parsers/csharp/grammar-gate.ts",
+  "pipeline": "inactive #if arms are blanked before parsing; the manifest describes THAT parser",
+  "shapes": [
+    {
+      "file": "src/test-data/csharp/torture/newer-syntax/a-type-declaration-whose-body-is-a-semicolon.cs",
+      "what": "a type declaration whose body is a semicolon (C# 12)",
+      "kind": "ERROR",
+      "node": "interface_declaration"
+    },
+    {
+      "file": "src/test-data/csharp/torture/misparse/a-ref-returning-call-on-the-left-of-an-assignment.cs",
+      "what": "a ref-returning call on the left of an assignment",
+      "kind": "MISPARSE",
+      "node": "assignment_expression"
+    },
+    {
+      "file": "src/test-data/csharp/torture/newer-syntax/a-slice-pattern-with-a-sub-pattern.cs",
+      "what": "a slice pattern with a sub-pattern",
+      "kind": "ERROR",
+      "node": "slice_pattern"
+    },
+    {
+      "file": "src/test-data/csharp/torture/misparse/a-relational-pattern-as-the-condition-of-a-conditional-exp.cs",
+      "what": "a relational pattern as the condition of a conditional expression",
+      "kind": "MISPARSE",
+      "node": "conditional_expression",
+      "withChild": "is_pattern_expression"
+    },
+    {
+      "file": "src/test-data/csharp/torture/misparse/a-generic-object-creation-with-arguments-and-an-initialize.cs",
+      "what": "a generic object creation with arguments and an initializer",
+      "kind": "MISPARSE",
+      "node": "object_creation_expression",
+      "withChild": "initializer_expression"
+    },
+    {
+      "file": "src/test-data/csharp/torture/misparse/a-positional-pattern-with-designations-after-is.cs",
+      "what": "a positional pattern with designations after is",
+      "kind": "MISPARSE",
+      "node": "is_pattern_expression",
+      "withChild": "recursive_pattern"
+    },
+    {
+      "file": "src/test-data/csharp/torture/misparse/a-cast-prefixed-generic-method-call.cs",
+      "what": "a cast-prefixed generic method call",
+      "kind": "MISPARSE",
+      "node": "cast_expression",
+      "withChild": "invocation_expression"
+    },
+    {
+      "file": "src/test-data/csharp/torture/newer-syntax/a-pointer-indirection-of-a-cast.cs",
+      "what": "a pointer indirection of a cast",
+      "kind": "ERROR",
+      "node": "prefix_unary_expression",
+      "withChild": "cast_expression"
+    },
+    {
+      "file": "src/test-data/csharp/torture/scanner/a-verbatim-interpolated-string-beginning-and-ending-with-a.cs",
+      "what": "a verbatim interpolated string beginning and ending with an escaped quote, after an is-pattern fork",
+      "kind": "ERROR",
+      "node": "interpolated_string_expression",
+      "withChild": "interpolation"
+    },
+    {
+      "file": "src/test-data/csharp/torture/newer-syntax/a-where-clause-with-the-allows-ref-struct-anti-constraint.cs",
+      "what": "a where clause with the allows ref struct anti-constraint",
+      "kind": "ERROR",
+      "node": "type_parameter_constraints_clause",
+      "withChild": "type_parameter_constraint"
+    },
+    {
+      "file": "src/test-data/csharp/torture/scanner/a-pragma-as-the-last-line-of-a-file-with-no-trailing-newli.cs",
+      "what": "a #pragma as the last line of a file with no trailing newline",
+      "kind": "ERROR",
+      "node": "preproc_pragma"
+    },
+    {
+      "file": "src/test-data/csharp/torture/newer-syntax/a-pointer-indirection-of-a-parenthesized-operand-assigned-.cs",
+      "what": "a pointer indirection of a parenthesized operand, assigned to",
+      "kind": "ERROR",
+      "node": "assignment_expression",
+      "withChild": "prefix_unary_expression"
+    },
+    {
+      "file": "src/test-data/csharp/torture/newer-syntax/a-struct-header-with-modifiers-after-ref.cs",
+      "what": "a struct header with modifiers after ref",
+      "kind": "ERROR",
+      "node": "struct_declaration",
+      "withChild": "declaration_list"
+    },
+    {
+      "file": "src/test-data/csharp/torture/preprocessor-residual/a-where-clause-under-a-if-between-the-signature-and-the-bo.cs",
+      "what": "a where clause under a #if between the signature and the body",
+      "kind": "ERROR",
+      "node": "method_declaration",
+      "withChild": "preproc_if"
+    },
+    {
+      "file": "src/test-data/csharp/torture/newer-syntax/a-collection-expression-whose-element-is-a-local-named-pro.cs",
+      "what": "a collection expression whose element is a local named property",
+      "kind": "ERROR",
+      "node": "collection_expression",
+      "withChild": "collection_element"
+    },
+    {
+      "file": "src/test-data/csharp/torture/newer-syntax/the-safe-modifier-on-a-field.cs",
+      "what": "the safe modifier on a field",
+      "kind": "ERROR",
+      "node": "field_declaration",
+      "withChild": "modifier"
+    },
+    {
+      "file": "src/test-data/csharp/torture/newer-syntax/a-null-conditional-element-assignment.cs",
+      "what": "a null-conditional element assignment",
+      "kind": "ERROR",
+      "node": "assignment_expression",
+      "withChild": "conditional_access_expression"
+    },
+    {
+      "file": "src/test-data/csharp/torture/preprocessor-residual/a-constraint-continuation-with-a-leading-comma-under-a-if.cs",
+      "what": "a constraint continuation with a leading comma under a #if",
+      "kind": "ERROR",
+      "node": "type_parameter_constraints_clause",
+      "withChild": "preproc_if"
+    },
+    {
+      "file": "src/test-data/csharp/torture/misparse/a-null-conditional-call-after-a-binary-operator-its-receiv.cs",
+      "what": "a null-conditional call after a binary operator, its receiver a name",
+      "kind": "MISPARSE",
+      "node": "conditional_access_expression",
+      "withChild": "identifier"
+    },
+    {
+      "file": "src/test-data/csharp/torture/misparse/a-creation-whose-generic-argument-is-a-named-tuple-type.cs",
+      "what": "a creation whose generic argument is a named tuple type",
+      "kind": "MISPARSE",
+      "node": "object_creation_expression",
+      "withChild": "argument_list"
+    }
+  ]
+}
