@@ -1,0 +1,16 @@
+ambiguous_unknown	ANNOTATION_TYPE	0	probe.Plugins.ReverseCodec [ANNOTATION] -> -
+ambiguous_unknown	ANNOTATION_TYPE	0	probe.Plugins.Unregistered [ANNOTATION] -> -
+ambiguous_unknown	ANNOTATION_TYPE	0	probe.Plugins.UpperCodec [ANNOTATION] -> -
+ambiguous_unknown	METHOD_PARAM	0	probe.Plugins.Codec#encode(String) [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_PARAM	0	probe.Plugins.ReverseCodec#encode(String) [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_PARAM	0	probe.Plugins.Unregistered#encode(String) [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_PARAM	0	probe.Plugins.UpperCodec#encode(String) [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_PARAM	0	probe.Plugins.UpperCodec#helper(String) [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_RETURN	0	probe.Plugins.Codec#encode(String) [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	0	probe.Plugins.ReverseCodec#encode(String) [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	0	probe.Plugins.Unregistered#encode(String) [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	0	probe.Plugins.UpperCodec#encode(String) [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	0	probe.Plugins.UpperCodec#helper(String) [METHOD] -> -
+known_edge	IMPLEMENTS_INTERFACE	0	probe.Plugins.ReverseCodec [TYPE] -> probe.Plugins.Codec
+known_edge	IMPLEMENTS_INTERFACE	0	probe.Plugins.Unregistered [TYPE] -> probe.Plugins.Codec
+known_edge	IMPLEMENTS_INTERFACE	0	probe.Plugins.UpperCodec [TYPE] -> probe.Plugins.Codec

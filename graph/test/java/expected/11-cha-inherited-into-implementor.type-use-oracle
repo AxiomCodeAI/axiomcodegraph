@@ -1,0 +1,7 @@
+11-cha-inherited-into-implementor
+  precision 1.0000   (15 correct, 0 wrong)
+  recall    1.0000   (15 of 15 in the bytecode)
+  references 31   resolved 16 (51.6%)
+  tiers ambiguous_unknown=15  known_edge=16
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts ANNOTATION_TYPE=2  IMPLEMENTS_INTERFACE=3  LOCAL_VARIABLE=1  METHOD_PARAM=10  METHOD_RETURN=6  OBJECT_CREATION_TYPE=6  SUPER_TYPE=3

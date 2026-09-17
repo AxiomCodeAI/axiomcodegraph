@@ -1,0 +1,17 @@
+ambiguous_unknown	METHOD_PARAM	0	TypeQualifiedStatics#main(String[]) [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_PARAM	0	TypeQualifiedStatics#self(String) [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_PARAM	0	TypeQualifiedStatics#viaLibraryType(String) [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_PARAM	0	TypeQualifiedStatics#viaNestedType(String) [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_PARAM	0	TypeQualifiedStatics#viaOwnTypeName(String) [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_PARAM	0	TypeQualifiedStatics#viaSiblingType(String) [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_PARAM	0	TypeQualifiedStatics.Helper#help(String) [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_PARAM	0	TypeQualifiedStatics.Outer.Inner#deep(String) [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_RETURN	0	TypeQualifiedStatics#self(String) [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	0	TypeQualifiedStatics#viaLibraryType(String) [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	0	TypeQualifiedStatics#viaNestedType(String) [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	0	TypeQualifiedStatics#viaOwnTypeName(String) [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	0	TypeQualifiedStatics#viaSiblingType(String) [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	0	TypeQualifiedStatics.Helper#help(String) [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	0	TypeQualifiedStatics.Outer.Inner#deep(String) [METHOD] -> -
+known_edge	LOCAL_VARIABLE	0	TypeQualifiedStatics#main(String[]) [LOCAL_VARIABLE] -> TypeQualifiedStatics
+known_edge	OBJECT_CREATION_TYPE	0	TypeQualifiedStatics#main(String[]) [EXPRESSION] -> TypeQualifiedStatics
