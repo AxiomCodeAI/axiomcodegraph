@@ -251,7 +251,9 @@ class Changed:
         for after, j1, j2 in added + [(a, b, c) for a, b, c in replaced]:
             is_add = (after, j1, j2) in added
             owner = narrowest(after, {'method', 'function', 'constructor', 'module'}) if after else None
-            if is_add and owner and owner[0] <= after < owner[1]:                                         # strictly inside a callable's body: that callable changed
+            # a blank line between two declarations belongs to neither: an insertion anchored there used to be charged
+            # to the preceding one, so the whole answer could be about a declaration whose text did not change
+            if is_add and owner and owner[0] <= after < owner[1] and after <= len(OL) and not noise(OL[after - 1]):   # strictly inside a callable's body: that callable changed
                 if not any(e['id'] == owner[2] for e in out):
                     out.append(dict(kind='body', symbol=owner[4], id=owner[2], file=rel, line=owner[0], end=owner[1], old_lines=[after], target=owner[4], target_kind='method'))
                 # and the inserted lines may still declare something at the type's level (a method extracted from this body)
@@ -295,11 +297,28 @@ class Changed:
                     if ht is None or k in ('class', 'interface', 'enum', 'field', 'const', 'enum_member'): return True
                     sig = self.g.sym.get(i, {}).get('signature') or ''
                     if not sig or '(' not in sig: return True
-                    if types_of(sig) == ht: return True
+                    if types_of(sig) == ht:
+                        # the graph drops a varargs marker, so `get(String...)` is stored as `get(String)` and a genuinely
+                        # new `get(String)` used to match it and read as unchanged, which printed "no change" on a file
+                        # git reports as changed. Compare the declaration's own text before believing the signature key
+                        old_hdr = ' '.join(x.strip() for x in OL[a - 1:self.header_end(OL, a)])
+                        if ('...' in old_hdr) != ('...' in hdr): continue
+                        return True
                 return False
             for nm, k in names:
                 if old_has(nm, hdrs.get(nm, '')): continue
-                out.append(dict(kind='added', symbol=(t[4] + '.' if t else '') + nm, id=None, file=rel, line=j1, end=j2, old_lines=[], detail=f'new {k}', target=None))
+                # an added method whose name already exists on this owner is an OVERLOAD: the compiler may rebind
+                # existing call sites of that name to it, and a call site records no argument types, so which of them
+                # rebind cannot be decided here. Never claim nothing depends on it
+                sib = []
+                if k in ('method', 'function', 'constructor') and t:
+                    for i, sy in self.g.sym.items():
+                        if sy.get('method_id') and sy['name'] == nm and (sy['owner'] or '') == t[4]:
+                            sib += [r[0] for r in self.g.q("SELECT DISTINCT s.display FROM call_edges e JOIN symbols s ON s.id = e.caller_id WHERE e.callee_method_id = ?", sy['method_id'])]
+                note = f'new {k}'
+                if sib: note += f"; an overload: {len(set(sib))} existing call site(s) of {(t[4] + '.') if t else ''}{nm} may rebind to it (a call site records no argument types, so which of them is NOT decidable here): " + ', '.join(sorted(set(sib))[:4]) + (' …' if len(set(sib)) > 4 else '')
+                out.append(dict(kind='added', symbol=(t[4] + '.' if t else '') + nm, id=None, file=rel, line=j1, end=j2, old_lines=[], detail=note,
+                                target=((t[4] + '.' if t else '') + nm) if sib else None))
                 if 'members' in k:                                                                        # the new type's own declarations, one level deeper — its whole body in the new text
                     hj = next((j for j in range(j1, j2 + 1) if re.search(rf'\b{re.escape(nm)}\b', NL[j - 1])), j1); j = hj + 1
                     while j <= len(NL) and (ndepth[j - 1] > body_depth if not py else (not NL[j - 1].strip() or len(NL[j - 1]) - len(NL[j - 1].lstrip()) > body_depth)):
@@ -363,7 +382,7 @@ def main(argv):
     if not results and not notes: print("no change to a declaration the graph knows" + (f" (working tree against {C.built_at[:10]})" if C.built_at and mode == 'worktree' else '')); return 0
     print(f"changed declarations ({len(results)})" + (f" — against the graph's commit {C.built_at[:10]}" if C.built_at and mode == 'worktree' else (f" — {rng}" if rng else '')) + ":")
     for e in results:
-        print(f"  {e['kind']:<10} {e['symbol']}   {e['file']}:{e['line']}" + (f"   — {e['detail']}" if e.get('detail') else '') + (f"   → impact {e['target']}" if e.get('target') else ('   (nothing depends on it yet)' if e['kind'] == 'added' else '')))
+        print(f"  {e['kind']:<10} {e['symbol']}   {e['file']}:{e['line']}" + (f"   — {e['detail']}" if e.get('detail') else '') + (f"   → impact {e['target']}" if e.get('target') else ('   (no declaration of that name existed before, so nothing in the old tree names it)' if e['kind'] == 'added' else '')))
     for _, n, _ in notes: print(f"  {'added':<10} {n}")
     groups = {}
     for e in results:

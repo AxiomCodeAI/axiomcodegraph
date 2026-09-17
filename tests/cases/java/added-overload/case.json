@@ -1,0 +1,6 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "an added overload says the existing call sites of that name may rebind to it, instead of claiming nothing depends on it",
+   "run": ["changed", "{repo}", "--old", "{repo}/old.java", "--new", "{repo}/new.java", "--file", "src/pkg/Reader.java"],
+   "want": ["an overload", "may rebind", "Reader.use"],
+   "avoid": ["nothing depends on it yet"]}]}
