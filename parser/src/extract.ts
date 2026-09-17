@@ -8,7 +8,7 @@ import { ProjectScanner } from '@/utils/project-scanner';
 import { GradleProjectAnalyzer } from '@/workflows/gradle/gradle-project-analyzer';
 import { JavaProjectAnalyzer } from '@/workflows/java/java-project-analyzer';
 import { PropertiesProjectAnalyzer } from '@/workflows/properties/properties-project-analyzer';
-import { PythonProjectAnalyzer } from '@/workflows/python/python-project-analyzer';
+import { DEFAULT_EXCLUDES as PYTHON_DEFAULT_EXCLUDES, PythonProjectAnalyzer } from '@/workflows/python/python-project-analyzer';
 import { ServicesProjectAnalyzer } from '@/workflows/services/services-project-analyzer';
 import { JavaScriptProjectAnalyzer } from '@/workflows/javascript/javascript-project-analyzer';
 import { TypeScriptProjectAnalyzer } from '@/workflows/typescript/typescript-project-analyzer';
@@ -301,12 +301,14 @@ export async function extractProject(opts: ExtractOptions): Promise<void> {
         serviceVersionLink: opts.versionLink,
         // Python has no excludeTests flag; test discovery is by convention, so
         // the equivalent is skipping the directories those conventions use.
-        // The defaults are repeated because excludeDirs REPLACES them rather
-        // than adding to them — passing only the test names would have started
-        // analysing .venv and site-packages as project source.
+        // excludeDirs REPLACES the analyzer's own defaults rather than adding
+        // to them, so PYTHON_DEFAULT_EXCLUDES is spread in here rather than
+        // hand-copied — a hand-copy is exactly how this list and the
+        // analyzer's fell out of step and left `build/lib*` unexcluded on
+        // this branch while the analyzer's default list separately lacked it
+        // too (#564).
         excludeDirs: excludeTests
-          ? ['__pycache__', '.git', 'node_modules', '.venv', 'venv', '.tox',
-             'tests', 'test', '__tests__']
+          ? [...PYTHON_DEFAULT_EXCLUDES, 'tests', 'test', '__tests__']
           : undefined,
       })))),
     // JavaScript takes one root per call, as Python and TypeScript do, and
