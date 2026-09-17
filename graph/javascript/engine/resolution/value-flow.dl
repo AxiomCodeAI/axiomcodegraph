@@ -472,6 +472,28 @@ this_value(m, "inst", t) :- prototype_object(t, l), prop_value("obj", l, _, "fun
 prop_value("inst", t, n, k, i) :- type_super(t, s), !type_own_member_name(t, n), prop_value("inst", s, n, k, i).
 prop_value("ctor", t, n, k, i) :- type_super(t, s), !type_own_static_name(t, n), prop_value("ctor", s, n, k, i), n != "prototype".
 
+// ── a namespace object that is never declared in the tree (#724) ───────────
+// A task runner or a pre-bundler script installs one object on the global and the
+// project's file fills it in and calls between its members: `target.build = ...` then
+// `target.build()`. The identifier is UNRESOLVED_FREE and held no value, so the member
+// written onto it had no owner and the read a line later found nothing, while the
+// identical shape on a declared object resolved.
+// The identity is the free NAME, scoped to the module that writes it. Program-wide would
+// be truer to the runtime and is what a global really is, but it would also make one
+// popular free name ($, _) a merge point across every file that uses it, which is the
+// shape the ambient-write note below records as a 35x solve.
+// Only a free name this module WRITES A MEMBER ONTO is a namespace object. A free name that
+// is merely called or read is a genuinely unknown global, and giving it a value would turn
+// its honest `callee_untyped` blind spot into `no_target`, which claims the value is known
+// and lacks the member. That distinction is the one #721 is about; do not spend it here.
+free_namespace(mod, n) :- expr_kind(_, "ASSIGNMENT", _, a),
+    expr_child(_, a, "ASSIGNMENT_TARGET", _, tgt), expr_kind(_, "PROPERTY_ACCESS", _, tgt),
+    expr_child(_, tgt, "ACCESS_TARGET", _, r), expr_kind(_, "IDENTIFIER", _, r),
+    expr_binding_resolution(_, "UNRESOLVED_FREE", r), expr_text(_, n, r), expr_owner(_, _, mod, r).
+expr_value(e, "free", cat(mod, ":", n)) :- expr_kind(_, "IDENTIFIER", _, e),
+    expr_binding_resolution(_, "UNRESOLVED_FREE", e), expr_text(_, n, e), expr_owner(_, _, mod, e),
+    free_namespace(mod, n).
+
 // ── member_write(K, I, Name, K2, I2) — `<expr>.name = <value>` ─────────────
 // NEVER onto an ambient value: `("ambient", "Object")` is ONE identity shared by
 // every `@param {Object} opts` in the program, so a write through any of them would
