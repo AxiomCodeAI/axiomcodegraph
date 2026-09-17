@@ -26,7 +26,7 @@ look at, never as a path.
 import os, re, sys, sqlite3, subprocess, tempfile, shutil, collections, glob
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE); import dl_program
+sys.path.insert(0, HERE); import dl_program, graph_sql
 TIER_RANK = {'known_edge': 0, 'library': 0, 'written': 0, 'multi_inferred': 1, 'dispatch': 2, 'defines': 3, 'by-name': 9}
 
 def die(msg, code=2): print(msg); sys.exit(code)
@@ -315,6 +315,31 @@ class G:
     def edges(self):
         return [tuple(l.rstrip('\n').split('\t')) for l in open(os.path.join(self.facts, 'edge.facts'))] + list(self.EXTRA)
 
+# ── the same answers in SQL: no .facts written, no Soufflé process ──────────────────────────────────────────────
+def _facts_rows(g, programs):
+    """the input relations the rules read, as lists. `edge` carries g.EXTRA exactly as run_dl appends it."""
+    rows = {'edge': g.edges()}
+    if 'path-opt.dl' in programs:
+        for n in ('byname', 'named'):
+            f = os.path.join(g.facts, n + '.facts')
+            rows[n] = [tuple(l.rstrip('\n').split('\t')) for l in open(f)] if os.path.exists(f) else []
+    return rows
+
+
+def run_sql(g, queries, programs=('path.dl',)):
+    """AXIOMCODE_SQL: answer the path relations from an indexed in-memory table instead of Soufflé.
+    Same return shape as run_dl, so read_back and every caller below are unchanged."""
+    return graph_sql.solve_path(_facts_rows(g, programs), queries,
+                                every='path-every.dl' in programs, opt='path-opt.dl' in programs)
+
+
+def run(g, queries, programs=('path.dl',)):
+    """one door: SQL when asked for, Soufflé otherwise."""
+    if os.environ.get('AXIOMCODE_SQL'):
+        return run_sql(g, queries, programs)
+    return run_dl(g, queries, programs)
+
+
 # ── run Soufflé for a set of queries: {q: (src_ids, dst_ids)} ───────────────────────────────────────────────────
 def run_dl(g, queries, programs=('path.dl',)):
     """the sound program always; path-every.dl only for --every; path-opt.dl only when nothing resolved connects the endpoints —
@@ -385,10 +410,15 @@ def every_route(g, res, q, srcs, dsts, max_paths, adj):
     """the subgraph of every method on ANY chain from a source to a target, and the simple paths through it (bounded)"""
     E = collections.defaultdict(list); nodes = set()
     for a, b, t in res['between_edge'][q]: E[a].append((b, t)); nodes.add(a); nodes.add(b)
+    # the enumeration below pushes successors in adjacency order and breaks heap ties on the push counter, so the
+    # order between_edge rows arrived in decides which equal-length routes are printed. Sort each adjacency list so
+    # the route list is a property of the graph, not of the engine that produced the rows.
+    for a in E: E[a].sort()
     if not nodes: return
     print(f"  every route: {len(nodes)} methods and {sum(len(v) for v in E.values())} calls lie on some chain from a source to a target")
     byfile = collections.Counter(g.sym[n]['file'] for n in nodes if n in g.sym)
-    print("    files: " + ', '.join(f"{f} ({n})" for f, n in byfile.most_common(10)) + (f" … +{len(byfile) - 10}" if len(byfile) > 10 else ''))
+    top10 = sorted(byfile.items(), key=lambda kv: (-kv[1], kv[0]))[:10]     # tie by name, not by arrival order
+    print("    files: " + ', '.join(f"{f} ({n})" for f, n in top10) + (f" … +{len(byfile) - 10}" if len(byfile) > 10 else ''))
     # enumerate simple paths, shortest first, up to max_paths — each one re-checked against the edge set like the nearest chain
     out = []; edge_set = {(a, b): t for a, b, t in g.edges()}
     starts = sorted(n for n in nodes if n in srcs); ends = {n for n in nodes if n in dsts}
@@ -417,7 +447,7 @@ def print_chain(g, chain):
 # ── one endpoint: everything upstream of X (who can reach it) or downstream (what it can reach) ──────────────────
 def closure(g, sel, upstream, limit=40, depth=40):
     g.export(); label, ids = g.resolve(sel)
-    res = run_dl(g, {'c': (ids if not upstream else [], ids if upstream else [])})
+    res = run(g, {'c': (ids if not upstream else [], ids if upstream else [])})
     rows = [(m, int(d)) for m, d in (res['dist_up'] if upstream else res['dist'])['c'] if 0 < int(d) <= depth and m in g.sym]
     if g.IN: rows = [(m, d) for m, d in rows if g.IN in (g.sym[m]['file'] or '')]        # --in: only the part of the closure under that path
     if not upstream: rows = [(m, d) for m, d in rows if g.sym[m]['kind'] not in ('library', 'written')]    # downstream: library ends are listed separately, not counted as reached methods
@@ -443,7 +473,11 @@ def closure(g, sel, upstream, limit=40, depth=40):
         print("  none — " + ("its body has %d unresolved call(s), so what it reaches is unknown, not nothing" % u if not upstream and u else "no resolved call " + ("into it; " if upstream else "out of it; ") + "an unresolved site elsewhere may still " + ("call it" if upstream else "be it")))
         return 1
     byhop = collections.Counter(d for _, d in rows); print("  by hop: " + ', '.join(f"{d}:{n}" for d, n in sorted(byhop.items())))
-    byfile = collections.Counter(g.sym[m]['file'] for m, _ in rows); print("  files: " + ', '.join(f"{f} ({n})" for f, n in byfile.most_common(12)) + (f" … +{len(byfile) - 12}" if len(byfile) > 12 else ''))
+    # most_common breaks a tie by insertion order, which is the order the closure rows arrived in: two files with the
+    # same count then swap depending on which engine answered. Sort the tie by name so the line is stable either way.
+    byfile = collections.Counter(g.sym[m]['file'] for m, _ in rows)
+    top = sorted(byfile.items(), key=lambda kv: (-kv[1], kv[0]))[:12]
+    print("  files: " + ', '.join(f"{f} ({n})" for f, n in top) + (f" … +{len(byfile) - 12}" if len(byfile) > 12 else ''))
     if upstream and ids and g.sym[ids[0]]['kind'] == 'written':
         sites = g.SITES[ids[0]]
         print("  the sites, as written: " + ', '.join(f"{g.site_file(r['file_path'])}:{r['start_line']}" for r in sites[:8]) + (f" … +{len(sites) - 8}" if len(sites) > 8 else ''))
@@ -456,7 +490,9 @@ def closure(g, sel, upstream, limit=40, depth=40):
         if g.has('decorations'):
             for r in g.q("SELECT owner_id, name FROM decorations WHERE owner_id IN (%s)" % ','.join('?' * len(rows)), *[m for m, _ in rows]): decs.setdefault(r['owner_id'], []).append(r['name'].split('.')[-1])
         ent = [(m, d) for m, d in rows if not adj.get(m) or g.sym[m]['is_test']]
-        ent.sort(key=lambda x: (x[1], g.sym[x[0]]['display']))
+        # two overloads share a display name, so (depth, display) is not a total order and a stable sort then keeps
+        # whichever came first: add the id, which is unique, so the list does not depend on the row order.
+        ent.sort(key=lambda x: (x[1], g.sym[x[0]]['display'], x[0]))
         print(f"  entry points among them ({len(ent)}: nothing resolved calls them — the caller is outside the graph — or a test), nearest first:")
         for m, d in ent[:limit]:
             tag = (' [test]' if g.sym[m]['is_test'] else '') + (' @' + ','.join(decs[m][:3]) if m in decs else '')
@@ -464,7 +500,7 @@ def closure(g, sel, upstream, limit=40, depth=40):
         if len(ent) > limit: print(f"    … +{len(ent) - limit} (--limit N)")
     else:
         print(f"  nearest first:")
-        for m, d in sorted(rows, key=lambda x: (x[1], g.sym[x[0]]['display']))[:limit]: print(f"    {d:2} hop(s)  {g.disp(m)}   {g.loc(m)}")
+        for m, d in sorted(rows, key=lambda x: (x[1], g.sym[x[0]]['display'], x[0]))[:limit]: print(f"    {d:2} hop(s)  {g.disp(m)}   {g.loc(m)}")
         if len(rows) > limit: print(f"    … +{len(rows) - limit} (--limit N)")
     # bound: unresolved sites on the way
     u = g.q(f"SELECT count(*) n FROM unresolved_sites WHERE caller_id IN ({','.join('?' * (len(rows) + len(ids)))})", *[m for m, _ in rows], *ids)[0]['n']
@@ -477,14 +513,14 @@ def closure(g, sel, upstream, limit=40, depth=40):
 def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
     g.export()
     la, A = g.resolve(a); lb, B = g.resolve(b)
-    res = run_dl(g, {'fwd': (A, B), 'rev': (B, A)}, ('path.dl', 'path-every.dl') if every else ('path.dl',))
+    res = run(g, {'fwd': (A, B), 'rev': (B, A)}, ('path.dl', 'path-every.dl') if every else ('path.dl',))
     if not res['hit']['fwd'] and not res['hit']['rev']:                      # nothing resolved connects them: now, and only now, the by-name closure
-        res_opt = run_dl(g, {'fwd': (A, B), 'rev': (B, A)}, ('path-opt.dl',)); res['hit_opt'] = res_opt['hit_opt']; res['parent_opt'] = res_opt['parent_opt']
+        res_opt = run(g, {'fwd': (A, B), 'rev': (B, A)}, ('path-opt.dl',)); res['hit_opt'] = res_opt['hit_opt']; res['parent_opt'] = res_opt['parent_opt']
     adj = collections.defaultdict(set)
     for x, y, _ in g.edges(): adj[x].add(y)
     A_, B_ = set(A), set(B)
     for q, srcs, dsts, word in (('fwd', A_, B_, f"{la} → {lb}"), ('rev', B_, A_, f"{lb} → {la}  (the reverse direction)")):
-        hits = sorted(res['hit'][q], key=lambda h: int(h[1]))
+        hits = sorted(res['hit'][q], key=lambda h: (int(h[1]), h[0]))
         if not hits: continue
         print(f"{word}: {len(hits)} of {len(dsts)} target(s) reached through resolved calls; nearest at {hits[0][1]} hop(s)")
         if len(hits) > limit and not show_all:
@@ -516,7 +552,7 @@ def path(g, a, b, show_all=False, limit=10, every=False, max_paths=20):
     # nothing resolved either way: say so, then whether unresolved sites would connect them
     print(f"no chain of resolved calls connects {la} and {lb} in either direction (searched {len(g.edges())} edges, depth ≤ 40)")
     for q, srcs, word in (('fwd', A_, f"{la} → {lb}"), ('rev', B_, f"{lb} → {la}")):
-        hits = sorted(res['hit_opt'][q], key=lambda h: int(h[1]))
+        hits = sorted(res['hit_opt'][q], key=lambda h: (int(h[1]), h[0]))
         if not hits: continue
         m, d = hits[0]; chain = read_back(res['parent_opt'], q, m, srcs)
         if not chain: continue
@@ -561,7 +597,7 @@ def selftest(lang):
             except SystemExit: misses.append(f"{os.path.basename(case)}: cannot resolve {a} or {b}"); tot += 1; continue
             q = f"{a}->{b}"; qs[q] = (A, B); want[q] = (m.group(1) if m.re.groups < 6 else m.group(3), a, b)
         if not qs: continue
-        res = run_dl(g, qs)
+        res = run(g, qs)
         for q, (tier, a, b) in want.items():
             tot += 1; hits = res['hit'][q]
             if any(int(d) == 1 for _, d in hits) or any(int(d) == 0 for _, d in hits): ok += 1
