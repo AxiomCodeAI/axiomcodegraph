@@ -287,3 +287,269 @@ def _tests(cur, depth, q):
                                         WHERE d2.f=?""", (f,)):
                 hits.append([m, str(depth[c]), c, q])
     return hits
+
+
+# ── solve: the relations `axiomcode impact` prints, built from the bundle, no .facts and no Soufflé ───────────
+# `edge` is what the closure walks, and it is four things, exactly as the path tool exports them: a resolved
+# client call (its tier), a call into a library (terminal — nothing is inferred past it), `defines` (a callable
+# declared inside another, by line span), and `dispatch` (a candidate the engine narrowed a virtual call to).
+
+def _edges(q):
+    e = [(r[0], r[1], r[2]) for r in q("""SELECT caller_id, callee_method_id, tier FROM call_edges
+                                          WHERE callee_method_id IS NOT NULL AND callee_provenance='client'""")]
+    e += [(r[0], r[1], 'library') for r in q("""SELECT DISTINCT caller_id, callee_method_id FROM call_edges
+                                                WHERE tier='boundary_lib' AND callee_method_id IS NOT NULL""")]
+    # defines: the innermost enclosing callable, from the line spans of the callables in each file
+    # ONE row per id, the last, exactly as the path tool's `{r['id']: dict(r) for r in …}` keeps it. The id is a
+    # hash of the display, so an anonymous class collides across files: `Database.Vendor.<anon TriFunction>.apply`
+    # is one id with rows in six files. Taking every row put that id into six span buckets and nested it under
+    # unrelated methods in each — 13 defines edges that do not exist, and 56 phantom nodes in the closure.
+    # The path tool builds `{r['id']: dict(r) for r in SELECT * WHERE method_id IS NOT NULL OR type_id IS NOT NULL}`
+    # and filters AFTER — so an id whose last row is a TYPE row is dropped there. Filtering first and deduping
+    # second keeps it, which is not the same set. The id is a hash of the display, so an anonymous class collides
+    # across files (`Database.Vendor.<anon TriFunction>.apply` has rows in six), which is why this matters at all.
+    one = {}
+    for i, f, ln, en, mid, kind in q("""SELECT id, file, line, end_line, method_id, kind FROM symbols
+                                        WHERE method_id IS NOT NULL OR type_id IS NOT NULL"""):
+        one[i] = (f, ln, en, mid, kind)
+    byfile = {}
+    for i, (f, ln, en, mid, kind) in one.items():
+        if mid and kind != 'module' and ln and en:
+            byfile.setdefault(f, []).append((ln, -en, i))
+    # The stack pops on END LINE against the current end line — `while st and st[-1][1] < -neg` — not on the top's
+    # end against the current's START. The two agree on properly nested spans and disagree on overlapping ones,
+    # which is 10 defines edges here and 56 phantom nodes once the closure walks them.
+    for f, rows in byfile.items():
+        rows.sort(); st = []
+        for ln, neg, i in rows:
+            while st and st[-1][1] < -neg: st.pop()
+            if st and st[-1][2] != i: e.append((st[-1][2], i, 'defines'))
+            st.append((ln, -neg, i))
+    have = {(a, b) for a, b, _ in e}
+    # the same narrowing the path tool applies: a candidate whose owner type is never instantiated anywhere is not a
+    # dispatch the program can take. Without it the closure gains edges Soufflé never had (25 extra nodes on a
+    # sampled target), because every same-named override of an uninstantiated type becomes reachable.
+    disp = {(r[0], r[1]) for r in q("""SELECT DISTINCT dc.base_method_id, dc.candidate_method_id
+                                       FROM dispatch_candidates dc JOIN methods m ON m.id=dc.candidate_method_id
+                                       WHERE m.provenance='client' AND dc.base_method_id<>dc.candidate_method_id
+                                         AND (m.owner_type_id IS NULL
+                                              OR m.owner_type_id IN (SELECT type_id FROM type_instantiated)
+                                              OR NOT EXISTS (SELECT 1 FROM type_instantiated))""")}
+    e = [(a, b, 'dispatch' if (a, b) in disp else t) for a, b, t in e] + [(a, b, 'dispatch') for a, b in disp if (a, b) not in have]
+    return e
+
+
+def _rev(edges):
+    r = {}
+    for a, b, t in edges: r.setdefault(b, []).append((a, t))
+    return r
+
+
+def reach_from(rev, seeds, byname=(), cap=40):
+    """up/reach: everything that can reach a seed, at its SHORTEST hop count.
+    `up(q,m,0) :- seed(q,m)` · `up(q,c,1) :- seed_byname(q,c)` · `up(q,a,d+1) :- up(q,b,d), edge(a,b,_), d<cap`
+    Walked a level at a time: `reach` is the MINIMUM depth, and a recursive CTE unioning on (id, depth) keeps every
+    depth a node is reached at instead, which then needs a second pass to take the min."""
+    depth = {m: 0 for m in seeds}
+    frontier = list(depth); d = 0
+    while frontier and d < cap:
+        nxt = []
+        for b in frontier:
+            for a, _t in rev.get(b, ()):
+                if a not in depth: depth[a] = d + 1; nxt.append(a)
+        if d == 0:
+            for c in byname:
+                if c not in depth: depth[c] = 1; nxt.append(c)
+        frontier = nxt; d += 1
+    return depth
+
+
+def parent_up(edges, depth):
+    """the chain read-back: `parent_up(q,a,b,t) :- reach(q,a,d), d>0, reach(q,b,d-1), edge(a,b,t)` — a is one hop
+    further from the change than b, so following it from any reached node walks down to a seed."""
+    return [(a, b, t) for a, b, t in edges
+            if a in depth and b in depth and depth[a] and depth[a] == depth[b] + 1]
+
+
+import re as _re
+TEST_DECOR = _re.compile(r'(^|\.)(\w*Test\w*|it|test)$')
+FIXTURE_DECOR = _re.compile(r'^(Before\w*|BeforeEach|BeforeAll|BeforeClass|fixture|setup\w*)$', _re.I)
+FIXTURE_NAMES = {'setUp', 'setUpClass', 'setup', 'setup_method', 'setup_class', 'setUpBeforeClass', 'beforeEach', 'beforeAll'}
+
+
+def _test_sets(q):
+    """test_method and fixture, the same two sets the exporter builds — the distinction the whole test layer rests on.
+
+    A TEST is is_test, a method or function, and either carries a @Test-shaped decoration or is named test*/it*.
+    A helper in a test file (`_assertAsBigInteger`) is neither, so it is not a test: it is a CARRIER, and the tests
+    it brings are the ones declared beside it. Counting every is_test callable as a test returned the helpers and
+    lost the seven @Test methods they carry.
+    A FIXTURE is a test type, a constructor or module, a known setUp name, or a Before*/fixture/setup* decoration.
+    """
+    dec = {}
+    for oid, name in q("SELECT owner_id, name FROM decorations") if _has(q, 'decorations') else []:
+        dec.setdefault(oid, []).append(name or '')
+    tm, fx = set(), set()
+    for sid, name, kind, mid, tid in q("SELECT id, name, kind, method_id, type_id FROM symbols WHERE is_test=1"):
+        d = dec.get(sid, ())
+        if mid and kind in ('method', 'function') and (any(TEST_DECOR.search(x) for x in d) or (name or '').startswith(('test', 'it'))):
+            tm.add(sid)
+        if (tid and not mid) or kind in ('constructor', 'module') or name in FIXTURE_NAMES or any(FIXTURE_DECOR.match((x or '').split('.')[-1]) for x in d):
+            fx.add(sid)
+    return tm, fx
+
+
+def tests_reaching(q, depth, sets=None):
+    """test_hit: a test whose own body reaches the change, one a reached fixture runs before it, or one declared
+    beside a reached carrier in the same file. Returns {test_id: (hops, via)} at the nearest hop.
+
+    Built from three maps read ONCE, not a query per reached node: on a 1.23M-LOC bundle a hub target reaches
+    28,080 nodes, and asking the database about each of them cost 8.07 s against 0.12 s for the whole closure —
+    the query was not slow, the loop around it was.
+    """
+    if not depth: return {}
+    tm, fx = sets or _test_sets(q)
+    owner_of, file_of, disp_of, kind_of, tests_by_owner, tests_by_file = {}, {}, {}, {}, {}, {}
+    for sid, owner, f, disp, tid, mid, knd in q("SELECT id, owner, file, display, type_id, method_id, kind FROM symbols"):
+        owner_of[sid] = owner; file_of[sid] = f; kind_of[sid] = knd
+        if tid and not mid: disp_of[sid] = disp          # a TYPE: its members are owned by its own display
+        if sid in tm:
+            if owner: tests_by_owner.setdefault(owner, []).append(sid)
+            if f: tests_by_file.setdefault(f, []).append(sid)
+    # ancestor display -> the displays of every type that extends or nests inside it: the `scope(t,s)` closure.
+    subtypes_of = {}
+    if _has(q, 'type_ancestors'):
+        name = {r[0]: r[1] for r in q("SELECT id, display FROM symbols WHERE type_id IS NOT NULL")}
+        for tid, aid in q("SELECT type_id, ancestor_type_id FROM type_ancestors"):
+            an, tn = name.get(aid), name.get(tid)
+            if an and tn and an != tn: subtypes_of.setdefault(an, []).append(tn)
+    test_files = {file_of[t] for t in tm if file_of.get(t)}      # is_test_file(f): a file that declares a test
+    out = {}
+    def put(m, d, via):
+        if m not in out or d < out[m][0]: out[m] = (d, via)
+    # Every rule that applies fires — they are a union in the rules, not a chain. A reached node can be a fixture
+    # AND sit in a test file, and Soufflé takes both; running them as elif lost 171 tests on one hub target.
+    for sid, d in depth.items():
+        if sid in tm: put(sid, d, '')
+        if sid in fx:
+            # `test_hit(q,m,d,fx) :- fixture(fx), owner(fx,t), member(t,m,…)` for a fixture METHOD, and
+            # `… fixture(fx), typ(fx,_,_), member(fx,m,…)` for a fixture that is a TYPE — whose members are keyed
+            # by its own display, not by its parent's. Using the parent for both lost the type-fixture tests.
+            # `scope(t,s)`: t itself, then every SUBTYPE of it. A fixture declared on a base class runs before the
+            # tests of all its subclasses — AbstractKeycloakTest.beforeAbstractKeycloakTest brings 139 tests that
+            # live in subclasses, which matching the owner exactly never reached.
+            for key in (disp_of.get(sid), owner_of.get(sid)):
+                if not key: continue
+                for m in tests_by_owner.get(key, ()): put(m, d, sid)
+                for sub in subtypes_of.get(key, ()):
+                    for m in tests_by_owner.get(sub, ()): put(m, d, sid)
+        # `… reach(q,c,d), decl_file(c,f), decl_file(m,f), test_method(m), !test_method(c),
+        #    (kind(c,"class") ; kind(c,"module") ; fixture(c))` — the carrier is a TYPE or a fixture. Letting any
+        # reached method carry its file's tests added three UserProfileTest cases the rules never reach.
+        # Two rules, both without a "already reported" guard:
+        #   447  … !test_method(c), (kind(c,"class") ; kind(c,"module") ; fixture(c))   — a type or fixture carrier
+        #   450  … !test_method(c), is_test_file(f)                                     — ANY non-test in a TEST FILE
+        # 450 is why a plain helper in a test file carries that file's tests; restricting carriers to types alone
+        # lost 419 of them, and dropping the restriction entirely gained three from a non-test file.
+        if sid not in tm and (kind_of.get(sid) in ('class', 'module') or sid in fx or file_of.get(sid) in test_files):
+            for m in tests_by_file.get(file_of.get(sid), ()): put(m, d, sid)
+    return out
+
+
+def _has(q, table):
+    try: return bool(q("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", table))
+    except Exception: return False
+
+
+def direct_for_method(q, ids):
+    """direct(q,c,role,why,cert,f,l) for a method target — the rows the answer groups by *why* and *how sure*.
+
+      calls it                                         resolved      a typed edge, any tier but multi_inferred
+      calls it                                         one of a set  a multi_inferred edge: one member of a set
+      calls a method of this name (receiver not typed) by name       an unresolved site naming it (not a ctor)
+      a sibling of the same type / same file           alongside     no call, no reference: only that a fix touching
+                                                                     one often touches the other. Never a seed.
+    """
+    ph = ','.join('?' * len(ids))
+    rows = []
+    for c, tier, f, l in q(f"""SELECT e.caller_id, e.tier, s.file_path, s.start_line
+                               FROM call_edges e LEFT JOIN call_sites s ON s.id=e.call_site_id
+                               WHERE e.callee_method_id IN ({ph}) AND e.callee_provenance='client'""", *ids):
+        rows.append((c, 'uses', 'calls it',
+                     'one of a set' if tier == 'multi_inferred' else 'resolved', f or '', l or 0))
+    names = {r[0] for r in q(f"SELECT name FROM symbols WHERE id IN ({ph})", *ids) if r[0]}
+    seen = {r[0] for r in rows}
+    for n in names:
+        for c, f, l, kind in q("""SELECT s.caller_id, s.file_path, s.start_line, s.kind FROM call_sites s
+                                  JOIN unresolved_sites u ON u.call_site_id=s.id WHERE s.callee_name=?""", n):
+            if kind in ('new', 'anon_new', 'CONSTRUCTOR_CALL'): continue      # !ctor_kind(k)
+            rows.append((c, 'uses', 'calls a method of this name (receiver not typed)', 'by name', f or '', l or 0))
+    # alongside: siblings of the target's own type, then the other types declared in the same file
+    owners = {r[0] for r in q(f"SELECT owner FROM symbols WHERE id IN ({ph})", *ids) if r[0]}
+    for o in owners:
+        for (c,) in q("SELECT id FROM symbols WHERE owner=? AND method_id IS NOT NULL", o):
+            # a caller can ALSO be a sibling: the rules have no "already reported" guard, so both rows exist and
+            # the answer groups the same callable under `calls it` and under `alongside`.
+            if c not in ids:
+                rows.append((c, 'uses', 'a sibling of the same type', 'alongside', '', 0))
+    # …and the callables of the OTHER types declared in the same file as the target's owner:
+    #   alongside(q,c,"declared in the same file") :- target_owner(q,t), type_in_file(t,f), type_in_file(t2,f),
+    #                                                t2 != t, callable_member(t2,c)
+    # On JsonNode that is the nested OverwriteMode enum — three rows the sibling rule alone does not reach.
+    # shares_field: a sibling that references the SAME field of the owner as the target does. Soufflé words those
+    #   "a sibling of the same type, using the same field X"
+    # and the plain ones "a sibling of the same type" — the ids are the same either way, only the wording differs,
+    # which is why an id-only comparison called this exact when it was not.
+    #   target_field(q,n) :- is_target_decl(q,m), ref(m,n,_,ek,_,_), !local_kind(ek), target_owner(q,t),
+    #                        member(t,_,n,k), (k="field" ; k="const")
+    #   shares_field(q,c,n) :- target_field(q,n), ref(c,n,_,ek,_,_), !local_kind(ek), callable_member(t,c)
+    # `refs` carries (name, file, line) with no owning callable, so each ref is attributed to the innermost
+    # callable whose line span contains it — the same span walk `defines` uses.
+    fields = set()
+    for o in owners:
+        for (n, k) in q("SELECT name, kind FROM symbols WHERE owner=? AND kind IN ('field','const','enum_member')", o):
+            if n: fields.add(n)
+    if fields:
+        spans = {}
+        for o in owners:
+            for (f,) in q("SELECT file FROM symbols WHERE display=? AND type_id IS NOT NULL AND file IS NOT NULL LIMIT 1", o):
+                spans.setdefault(f, [])
+                for cid, ln, en in q("""SELECT id, line, end_line FROM symbols WHERE file=? AND method_id IS NOT NULL
+                                        AND line IS NOT NULL AND end_line IS NOT NULL""", f):
+                    spans[f].append((ln, en, cid))
+        tgt_fields, by_caller = set(), {}
+        for f, sp in spans.items():
+            sp.sort(key=lambda x: (x[0], -x[1]))
+            for name, rf, rl in q("SELECT name, file, line FROM refs WHERE file=? AND name IS NOT NULL", f):
+                if name not in fields: continue
+                inner = None
+                for ln, en, cid in sp:
+                    if ln <= (rl or 0) <= en: inner = cid
+                if inner is None: continue
+                if inner in ids: tgt_fields.add(name)
+                by_caller.setdefault(inner, set()).add(name)
+        for i, r in enumerate(rows):
+            if r[3] != 'alongside' or r[2] != 'a sibling of the same type': continue
+            shared = sorted(by_caller.get(r[0], set()) & tgt_fields)
+            if shared:
+                rows[i] = (r[0], r[1], f'a sibling of the same type, using the same field {shared[0]}', r[3], r[4], r[5])
+    sib = {r[0] for r in rows}
+    for o in owners:
+        # `symbols.owner` is a DISPLAY name, not an id — looking the owning type up by id silently found nothing.
+        for (f,) in q("SELECT file FROM symbols WHERE display=? AND type_id IS NOT NULL AND file IS NOT NULL LIMIT 1", o):
+            for (c,) in q("""SELECT s.id FROM symbols s WHERE s.file=? AND s.method_id IS NOT NULL
+                             AND s.owner IS NOT NULL AND s.owner<>?""", f, o):
+                if c not in ids and c not in seen and c not in sib:
+                    rows.append((c, 'uses', 'declared in the same file', 'alongside', '', 0)); sib.add(c)
+    return rows
+
+
+def contract_for_method(q, ids):
+    """contract(q,c,why) for a method target: `overrides it` / `it overrides this`, the target never itself."""
+    ph = ','.join('?' * len(ids))
+    out = []
+    for (o,) in q(f"SELECT overriding_method_id FROM overrides WHERE method_id IN ({ph})", *ids):
+        if o not in ids: out.append((o, 'overrides it'))
+    for (b,) in q(f"SELECT method_id FROM overrides WHERE overriding_method_id IN ({ph})", *ids):
+        if b not in ids: out.append((b, 'it overrides this'))
+    return out
