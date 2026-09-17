@@ -1,0 +1,7 @@
+03-structural-satisfaction [types]
+  precision 1.0000   (3 correct, 0 wrong)
+  recall    1.0000   (3 of 3 the compiler resolved)
+  sites 5   resolved 4 (80.0%)
+  tiers ambiguous_unknown=1  known_edge=4
+  contexts METHOD_PARAM=1  OBJECT_CREATION_TYPE=3  VARIABLE_TYPE=1
+  not scored: 1 rows whose target is not a client declaration

@@ -1,0 +1,7 @@
+50-asserts-condition-narrowing [types]
+  precision 1.0000   (3 correct, 0 wrong)
+  recall    1.0000   (3 of 3 the compiler resolved)
+  sites 9   resolved 7 (77.8%)
+  tiers ambiguous_unknown=2  known_edge=7
+  contexts OBJECT_CREATION_TYPE=2  SUPER_TYPE=1  TYPE_ELEMENT=4  TYPE_PREDICATE_TARGET=2
+  not scored: 2 rows whose target is not a client declaration

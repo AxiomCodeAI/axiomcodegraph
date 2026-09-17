@@ -1,0 +1,3 @@
+known_edge	METHOD_PARAM	0	main [METHOD_PARAM] -> ListT
+known_edge	TYPE_ELEMENT	1	main [METHOD_PARAM] -> ListT
+known_edge	TYPE_ELEMENT	1	main [METHOD_PARAM] -> NamedT

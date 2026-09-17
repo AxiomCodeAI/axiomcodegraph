@@ -1,0 +1,7 @@
+39-tagged-template-overload [types]
+  precision 0.0000   (0 correct, 0 wrong)
+  recall    0.0000   (0 of 0 the compiler resolved)
+  sites 5   resolved 0 (0.0%)
+  tiers ambiguous_unknown=5
+  contexts METHOD_PARAM=4  VARIABLE_TYPE=1
+  not scored: 5 rows whose target is not a client declaration

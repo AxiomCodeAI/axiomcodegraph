@@ -1,0 +1,12 @@
+ambiguous_unknown	IMPLEMENTS_INTERFACE	0	ClientSink [HERITAGE] -> -
+ambiguous_unknown	METHOD_PARAM	0	handlers [METHOD_PARAM] -> -
+ambiguous_unknown	OBJECT_CREATION_TYPE	0	handlers [EXPRESSION] -> -
+ambiguous_unknown	VARIABLE_TYPE	0	handlers [VARIABLE] -> -
+known_edge	IMPLEMENTS_INTERFACE	0	LowerHandler [HERITAGE] -> Handler
+known_edge	IMPLEMENTS_INTERFACE	0	NeverBuiltHandler [HERITAGE] -> Handler
+known_edge	IMPLEMENTS_INTERFACE	0	UpperHandler [HERITAGE] -> Handler
+known_edge	METHOD_PARAM	0	handlers [METHOD_PARAM] -> Handler
+known_edge	OBJECT_CREATION_TYPE	0	handlers [EXPRESSION] -> ClientSink
+known_edge	OBJECT_CREATION_TYPE	0	handlers [EXPRESSION] -> LowerHandler
+known_edge	OBJECT_CREATION_TYPE	0	handlers [EXPRESSION] -> UpperHandler
+known_edge	VARIABLE_TYPE	0	handlers [VARIABLE] -> Handler

@@ -1,0 +1,7 @@
+01-class-dispatch-and-super [types]
+  precision 1.0000   (5 correct, 0 wrong)
+  recall    1.0000   (5 of 5 the compiler resolved)
+  sites 6   resolved 5 (83.3%)
+  tiers ambiguous_unknown=1  known_edge=5
+  contexts OBJECT_CREATION_TYPE=3  SUPER_TYPE=3
+  not scored: 1 rows whose target is not a client declaration

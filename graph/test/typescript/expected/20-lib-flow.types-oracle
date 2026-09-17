@@ -1,0 +1,7 @@
+20-lib-flow [types]
+  precision 0.0000   (0 correct, 0 wrong)
+  recall    0.0000   (0 of 0 the compiler resolved)
+  sites 17   resolved 0 (0.0%)
+  tiers ambiguous_unknown=17
+  contexts AS_TARGET=1  METHOD_PARAM=2  OBJECT_CREATION_TYPE=11  TYPE_ARGUMENT=1  TYPE_ELEMENT=2
+  not scored: 17 rows whose target is not a client declaration

@@ -1,0 +1,8 @@
+known_edge	FIELD_TYPE	2	Runner [TYPE] -> Meta
+known_edge	METHOD_PARAM	0	members [METHOD_PARAM] -> Holder
+known_edge	METHOD_PARAM	0	members [METHOD_PARAM] -> LiteralMethod
+known_edge	METHOD_PARAM	0	members [METHOD_PARAM] -> LiteralProperty
+known_edge	METHOD_PARAM	0	members [METHOD_PARAM] -> OptionalLiteralProperty
+known_edge	METHOD_PARAM	0	members [METHOD_PARAM] -> Runner
+known_edge	SUPER_TYPE	0	CallableFunction [HERITAGE] -> Function
+known_edge	SUPER_TYPE	0	NewableFunction [HERITAGE] -> Function

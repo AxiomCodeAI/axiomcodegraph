@@ -1,0 +1,2 @@
+known_edge	METHOD_RETURN	0	Counter [METHOD] -> Counter
+known_edge	OBJECT_CREATION_TYPE	0	Counter [EXPRESSION] -> Counter
