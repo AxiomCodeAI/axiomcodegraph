@@ -48,7 +48,10 @@ _spec = importlib.util.spec_from_loader('axpath', importlib.machinery.SourceFile
 P = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(P)
 G, run_dl, die = P.G, P.run_dl, P.die
 
-PER_QUERY = {'target', 'textuse', 'importuse', 'inside_target'}      # written per query, not part of the cached export
+# written per query (or supplied by the path tool's own export), so the cached export is NOT expected to hold them. Leaving
+# `nonsource` / `qual_name` / `edge` / `named` out of this set made the completeness check below unsatisfiable, so the 15 MB
+# export re-ran on EVERY query — the cache never hit once.
+PER_QUERY = {'target', 'textuse', 'importuse', 'inside_target', 'nonsource', 'qual_name', 'edge', 'named'}
 def ckey(k):
     """the canonical form of a configuration key. A framework binds app.serverPrefix, app.server-prefix,
     app.server_prefix and APP_SERVER_PREFIX to the same property; the graph stores whichever spelling it saw,
@@ -683,6 +686,7 @@ class Impact:
                     if r['name'] in names:
                         c = self.at(f, r['line'])
                         if c: importuse.append((c, r['name'], f, r['line']))
+        prof('  per-query: facts linked')
         for i, (kind, lab, payload) in enumerate(targets):
             q = f"q{i}"; QS[q] = lab
             if kind in ('method', 'name match'):            # a name match is answered as the declarations it matched, labelled as what it is
@@ -732,7 +736,7 @@ class Impact:
                 for f in payload: want.add(f['name'])
             elif kind == 'config': want.add(payload)
         cfgkeys = {payload for kind, lab, payload in targets if kind == 'config'}
-        g.write('nonsource', sorted(set(self.nonsource_hits(want)) | set(self.config_key_sites(cfgkeys))), F); g.write('qual_name', sorted(set(qn)), F)
+        prof('  per-query: targets walked'); g.write('nonsource', sorted(set(self.nonsource_hits(want)) | set(self.config_key_sites(cfgkeys))), F); g.write('qual_name', sorted(set(qn)), F); prof('  per-query: non-source scanned')
         g.write('target', T, F); g.write('textuse', sorted(set(textuse)), F); g.write('importuse', sorted(set(importuse)), F); g.write('inside_target', sorted(set(inside)), F)
         prog = self.program()                                                        # the compiled rules, or the interpreter
         if prog[0] == 'souffle' and not shutil.which('souffle'):
