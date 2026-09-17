@@ -3,6 +3,7 @@ export enum ProjectLanguage {
   PYTHON = 'PYTHON',
   TYPESCRIPT = 'TYPESCRIPT',
   JAVASCRIPT = 'JAVASCRIPT',
+  CSHARP = 'CSHARP',
   GO = 'GO',
   RUST = 'RUST',
   C = 'C',
