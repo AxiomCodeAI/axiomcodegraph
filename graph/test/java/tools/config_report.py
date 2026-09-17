@@ -98,6 +98,8 @@ def main():
          lambda r: f"{r[1]:<7} {r[2]:<34} {L.lbl(r[0])}"),
         ('remote-unsent.csv', 'remote_unsent  [SERVED, NO PRODUCER HERE]',
          lambda r: f"{r[1]:<7} {r[2]:<34} {L.lbl(r[0])}"),
+        ('remote-undetermined.csv', 'remote_undetermined  [DECLARED UNKNOWNS]',
+         lambda r: f"{r[1]:<7} {r[2]:<34} {L.lbl(r[0])}"),
     ]
 
     for fname, title, fmt in SECTIONS:

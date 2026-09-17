@@ -57,6 +57,12 @@ expr_kind("lib", kind, edgeRole, h) :- lib_expression(kind, edgeRole, _, _, _, _
 expr_child("client", parent, edgeRole, child) :- java_expression(_, edgeRole, _, _, _, _, parent, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, child).
 expr_child("lib", parent, edgeRole, child) :- lib_expression(_, edgeRole, _, _, _, _, parent, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, child).
 
+// ── expr_src_pos(Prov, ExprHash, StartLine, StartColumn) ────────────────────
+// Where the expression is written. Needed to order the pieces of a concatenation:
+// `base + "/api/x/" + id + "/detail"` only reconstructs to a route if the fragments
+// are taken in the order they appear, and the tree shape does not give that directly.
+expr_src_pos("client", h, line, col) :- java_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, line, col, _, _, h).
+
 // ── expr_position(Prov, ExprHash, Position) ─────────────────────────────────
 // The expression's index among its siblings — which argument of a call this is.
 // Needed wherever an argument's MEANING depends on its position, as a broker's

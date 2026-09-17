@@ -145,6 +145,7 @@ cfg_serves_ann("StreamListener", "stream", "value").
 cfg_route_ann("RequestMapping"). cfg_route_ann("GetMapping").    cfg_route_ann("PostMapping").
 cfg_route_ann("PutMapping").     cfg_route_ann("DeleteMapping"). cfg_route_ann("PatchMapping").
 cfg_route_ann("Path").                                            // JAX-RS
+cfg_route_ann("FeignClient").    // its url= is the client's base
 cfg_route_ann("HttpExchange").   cfg_route_ann("GetExchange").   cfg_route_ann("PostExchange").
 cfg_route_ann("PutExchange").    cfg_route_ann("DeleteExchange"). cfg_route_ann("PatchExchange").
 
@@ -206,3 +207,9 @@ cfg_sends_verb("postForLocation", "POST"). cfg_sends_verb("put", "PUT").
 cfg_sends_verb("delete", "DELETE").        cfg_sends_verb("patchForObject", "PATCH").
 cfg_sends_verb("get", "GET").              cfg_sends_verb("post", "POST").
 cfg_sends_verb("patch", "PATCH").
+
+// (i) an annotation that makes a TYPE a declarative HTTP CLIENT. Its methods carry the
+//     same mapping annotations a controller does, so without this a Feign interface is
+//     read as a handler and answers "who serves this route".
+cfg_client_type_ann("FeignClient").  cfg_client_type_ann("HttpExchange").
+cfg_client_type_ann("RegisterRestClient").   // MicroProfile
