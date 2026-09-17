@@ -1,0 +1,7 @@
+33-container-element-receiver [types]
+  precision 1.0000   (4 correct, 0 wrong)
+  recall    1.0000   (4 of 4 the compiler resolved)
+  sites 17   resolved 10 (58.8%)
+  tiers ambiguous_unknown=7  known_edge=10
+  contexts METHOD_PARAM=2  METHOD_RETURN=6  OBJECT_CREATION_TYPE=4  TYPE_ARGUMENT=4  TYPE_ELEMENT=1
+  not scored: 7 rows whose target is not a client declaration

@@ -1,0 +1,3 @@
+known_edge	read	Circle#area() -> Circle#r
+known_edge	read	Shape#describe() -> Shape#label
+known_edge	read	Square#area() -> Square#side

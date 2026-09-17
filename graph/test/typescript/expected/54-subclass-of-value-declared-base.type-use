@@ -1,0 +1,6 @@
+ambiguous_unknown	SUPER_TYPE	0	Bucket [HERITAGE] -> -
+ambiguous_unknown	SUPER_TYPE	0	Explicit [HERITAGE] -> -
+known_edge	OBJECT_CREATION_TYPE	0	main [EXPRESSION] -> Bucket
+known_edge	OBJECT_CREATION_TYPE	0	main [EXPRESSION] -> Derived
+known_edge	OBJECT_CREATION_TYPE	0	main [EXPRESSION] -> Explicit
+known_edge	SUPER_TYPE	0	Derived [HERITAGE] -> Base

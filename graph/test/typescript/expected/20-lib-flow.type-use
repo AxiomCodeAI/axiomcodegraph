@@ -1,0 +1,5 @@
+ambiguous_unknown	AS_TARGET	0	flow [EXPRESSION] -> -
+ambiguous_unknown	METHOD_PARAM	0	flow [METHOD_PARAM] -> -
+ambiguous_unknown	OBJECT_CREATION_TYPE	0	flow [EXPRESSION] -> -
+ambiguous_unknown	TYPE_ARGUMENT	1	flow [METHOD_PARAM] -> -
+ambiguous_unknown	TYPE_ELEMENT	1	flow [VARIABLE] -> -

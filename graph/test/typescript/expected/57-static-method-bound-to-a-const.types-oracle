@@ -1,0 +1,7 @@
+57-static-method-bound-to-a-const [types]
+  precision 1.0000   (1 correct, 0 wrong)
+  recall    1.0000   (1 of 1 the compiler resolved)
+  sites 1   resolved 1 (100.0%)
+  tiers known_edge=1
+  contexts SUPER_TYPE=1
+  not scored: 0 rows whose target is not a client declaration

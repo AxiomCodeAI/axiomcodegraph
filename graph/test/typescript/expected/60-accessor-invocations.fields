@@ -1,0 +1,15 @@
+ambiguous_unknown	read	handler#handle(Context) -> -
+ambiguous_unknown	read	handler#metrics(Gauge) -> -
+known_edge	read	Context#count() -> Context#hits
+known_edge	read	Context#req() -> Context##req
+known_edge	read	Context#res() -> Context##res
+known_edge	read	Request#method() -> Request##raw
+known_edge	read	Request#method() -> { url: string; method: string }#method
+known_edge	read	Request#routePath() -> Request##routePath
+known_edge	read	Request#url() -> Request##raw
+known_edge	read	Request#url() -> { url: string; method: string }#url
+known_edge	write	Context#<new>(Request) -> Context##req
+known_edge	write	Context#count(number) -> Context#hits
+known_edge	write	Context#res(Response) -> Context##res
+known_edge	write	Request#<new>({ url: string; method: string }) -> Request##raw
+known_edge	write	Request#routePath(string) -> Request##routePath

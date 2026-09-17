@@ -1,0 +1,6 @@
+known_edge	read	Builder#viaField() -> Builder#meta
+known_edge	read	Builder#viaField() -> Meta#columns
+known_edge	read	Builder#viaGetter() -> Builder#meta
+known_edge	read	Builder#viaLocal() -> Builder#meta
+known_edge	read	Builder#viaLocal() -> Meta#columns
+known_edge	read	Meta#active() -> Meta#columns

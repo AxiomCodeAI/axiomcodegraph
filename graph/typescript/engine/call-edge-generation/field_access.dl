@@ -1,0 +1,152 @@
+// ============================================================================
+// CALL-EDGE-GEN · PROPERTY ACCESS AS A DATA EDGE  (#663)
+//
+// The TypeScript half of field_access: one row per (property access, resolved member),
+// with the direction the data moves and how well the site resolved. `obj.field` had
+// nothing sound behind it — every PROPERTY_ACCESS arrives with
+// referencedEntityKind = UNKNOWN, 105,051 of them in this repository's own source — so
+// "who reads or writes Config.retries" could only be answered by matching a name.
+//
+// NOTHING NEW IS RESOLVED HERE. expr-type.dl already looks a property access's member up
+// on the receiver's type: three rules, one per way a receiver can be typed (a VALUE type,
+// a class name's STATIC side, a structural SHAPE), each ending in field_in_scope. Those
+// three joins are the resolution; this file pairs them with the access direction and a
+// tier. The member lookup carries TypeScript's own shadowing law (a subclass declaration
+// hides every inherited one of the same name and staticness), so the row names the
+// declaration the access binds to rather than a member somewhere with that name.
+//
+// AN ACCESSOR IS NOT HERE, DELIBERATELY. `get url()` read as `c.url` is a CALL: the
+// runtime invokes the getter, and call-edge-generation/accessors.dl already emits it as
+// a call_edges row with kind PROPERTY_READ or PROPERTY_WRITE (#703, #727). Emitting it
+// here as well would give one construct two answers in two tables. A consumer asking
+// "who reads this member" of an accessor reads call_edges; of a property, field_access.
+// The two are disjoint by construction, because field_in_scope holds fields and
+// method_in_scope holds accessors.
+//
+// AN ELEMENT ACCESS IS NOT HERE EITHER. `obj["x"]` with a literal key resolves in
+// expr-type.dl, but it is a different node kind and a different site universe, and
+// adding it without a measurement would be a guess about how much it is worth. Recorded
+// as a gap rather than silently folded in.
+//
+// TIERS, the same four with the same promises as call_edges:
+//   known_edge        exactly one member. There is no dispatch on a property, so this
+//                     is the declaration, not an estimate of it.
+//   multi_inferred    2+, because the receiver has more than one possible type (a union,
+//                     a merged declaration) or two declarations both satisfy the lookup.
+//   boundary_lib      the member is declared in a staged library.
+//   ambiguous_unknown the receiver could not be typed, or the name is not a member of
+//                     what it was typed to. Field = "-", kept as a row.
+// ============================================================================
+
+// ── THE SITE UNIVERSE ───────────────────────────────────────────────────────
+// Every PROPERTY_ACCESS that carries a name, MINUS the ones whose member is an accessor.
+// property_access_name reads the name off the PROPERTY_NAME child, because a
+// PROPERTY_ACCESS row's own literalValue is empty.
+//
+// The accessor exclusion is what keeps the ambiguous_unknown tier meaning what it says.
+// Without it `c.url` on a `get url()` is a field-access site that resolves to no FIELD,
+// so it arrives as a declared unknown -- while the engine has in fact resolved it, as a
+// call, in call_edges. A tier that reports a blind spot where there is none is worse than
+// no row: it makes every consumer's caveat count wrong. The site is excluded and the
+// reason is published, as Java publishes its three.
+// A METHOD IS NOT A FIELD, in either of the two shapes it takes:
+//
+//   * `obj.m()`. The parser gives the callee of a call the edge role METHOD_NAME, and it
+//     is 343 of immer's 927 PROPERTY_ACCESS nodes -- 37% of the population. Every one of
+//     them is already a call_edges row, and as a field-access site each would resolve to
+//     no field and arrive as a declared unknown. A tier that reports a blind spot where
+//     the engine has in fact resolved the site makes every consumer's caveat count wrong,
+//     which is worse than emitting nothing. Excluded on the edge role alone: syntactic,
+//     exact, and it needs no member lookup.
+//   * `const f = obj.m`, a method read as a VALUE. Not a data edge either, and not a
+//     resolved one: which function the value is eventually called through is the shape
+//     JavaScript models with callback_registered and TypeScript does not model at all.
+//     A known gap, excluded by name rather than left to look like an unresolved field.
+ts_field_access_site(e) :- property_access_name(e, _),
+    !ts_field_site_is_accessor(e), !ts_field_site_is_method(e).
+ts_field_site_is_accessor(e) :- property_access_getter(e, _).
+ts_field_site_is_accessor(e) :- property_access_setter(e, _).
+ts_field_site_is_method(e) :- expr_kind("client", "PROPERTY_ACCESS", "METHOD_NAME", e).
+ts_field_site_is_method(e) :- property_access_name(e, n),
+    expr_child("client", e, "RECEIVER", _, q), expr_type(q, _, qt),
+    method_in_scope(qt, n, "false", _).
+ts_field_site_is_method(e) :- property_access_name(e, n),
+    expr_child("client", e, "RECEIVER", _, q), expr_static_type(q, _, qt),
+    method_in_scope(qt, n, "true", _).
+ts_field_site_is_method(e) :- property_access_name(e, n),
+    expr_child("client", e, "RECEIVER", _, q), expr_shape(q, qs),
+    method_in_scope(qs, n, _, _).
+
+// ── THE CONSERVATION LEDGER, as Java's copy publishes it ────────────────────
+// Every PROPERTY_ACCESS is a site or an exclusion named here, so the difference between
+// the IR's population and the relation's is countable rather than assumed.
+field_site_excluded(e, "accessor") :- ts_field_site_is_accessor(e).
+field_site_excluded(e, "method_callee") :- expr_kind("client", "PROPERTY_ACCESS", "METHOD_NAME", e).
+field_site_excluded(e, "method_value") :- ts_field_site_is_method(e),
+    !expr_kind("client", "PROPERTY_ACCESS", "METHOD_NAME", e).
+
+// ── RESOLUTION — the three receiver-typing paths expr-type.dl already has ───
+ts_field_access_target(e, f) :- property_access_name(e, n),
+    expr_child("client", e, "RECEIVER", _, q),
+    expr_type(q, _, qt),
+    field_in_scope(qt, n, "false", f).
+ts_field_access_target(e, f) :- property_access_name(e, n),
+    expr_child("client", e, "RECEIVER", _, q),
+    expr_static_type(q, _, qt),
+    field_in_scope(qt, n, "true", f).
+ts_field_access_target(e, f) :- property_access_name(e, n),
+    expr_child("client", e, "RECEIVER", _, q),
+    expr_shape(q, qs),
+    field_in_scope(qs, n, _, f).
+
+// ── ACCESS DIRECTION ────────────────────────────────────────────────────────
+// property_written and property_write_only are accessors.dl's, and are reused rather
+// than restated: the question "is this member at a write position" has one answer, and
+// the two relations must not be able to disagree about it.
+//   write      a plain assignment; the old value is never read
+//   readwrite  a compound assignment or an update (`a.x += 1`, `a.x++`)
+//   read       everything else
+ts_field_access_kind(e, "write")     :- ts_field_access_site(e), property_written(e), property_write_only(e).
+ts_field_access_kind(e, "readwrite") :- ts_field_access_site(e), property_written(e), !property_write_only(e).
+ts_field_access_kind(e, "read")      :- ts_field_access_site(e), !property_written(e).
+
+// ── TIER ────────────────────────────────────────────────────────────────────
+ts_field_access_count(e, n) :- ts_field_access_site(e),
+    n = count : { ts_field_access_target(e, _) }.
+ts_field_prov("client", f) :- field_decl("client", _, _, _, f).
+ts_field_prov("lib", f) :- field_decl("lib", _, _, _, f).
+ts_field_site_leaves_client(e) :- ts_field_access_target(e, f), ts_field_prov("lib", f).
+ts_field_access_class(e, "known_edge")        :- ts_field_access_count(e, 1), !ts_field_site_leaves_client(e).
+ts_field_access_class(e, "multi_inferred")    :- ts_field_access_count(e, n), n >= 2.
+ts_field_access_class(e, "ambiguous_unknown") :- ts_field_access_count(e, 0).
+
+// ── THE CALLER ──────────────────────────────────────────────────────────────
+// The enclosing function of the ACCESS, by expr_enclosing_method, exactly as accessors.dl
+// attributes an accessor invocation: there is no call site to attribute through. Top-level
+// code is the module initializer, which that relation already supplies.
+ts_field_access_named(e) :- expr_enclosing_method(e, m), m != "".
+ts_field_access_from(e, m) :- ts_field_access_site(e), expr_enclosing_method(e, m), m != "".
+// ...and the MODULE itself for the residue expr_enclosing_method cannot place, which is
+// the marker call_sites.caller_id already uses in TypeScript rather than a blank. Never
+// NULL, so a site can always be attributed to the code that contains it.
+ts_field_access_from(e, mod) :- ts_field_access_site(e), !ts_field_access_named(e),
+    expr_module("client", mod, e), mod != "".
+
+// ── THE EXPORTED ROW — field_access(Site, Caller, Field, Prov, Tier, Access) ─
+// The same six columns Java emits, so the bundle reads one shape for both front ends.
+field_access(e, caller, f, "client", cls, acc) :- ts_field_access_target(e, f),
+    ts_field_prov("client", f),
+    ts_field_access_from(e, caller), ts_field_access_class(e, cls), ts_field_access_kind(e, acc).
+field_access(e, caller, f, "lib", "boundary_lib", acc) :- ts_field_access_target(e, f),
+    ts_field_prov("lib", f),
+    ts_field_access_from(e, caller), ts_field_access_kind(e, acc).
+field_access(e, caller, "-", "-", "ambiguous_unknown", acc) :-
+    ts_field_access_class(e, "ambiguous_unknown"),
+    ts_field_access_from(e, caller), ts_field_access_kind(e, acc).
+// ── AND UNCONDITIONALLY, for any site that emitted no row at all ────────────
+// The structural guard Java's copy carries for the same reason: a resolution that is
+// removed by a later filter must degrade to a declared unknown, never to silence.
+ts_field_access_has_row(e) :- ts_field_access_target(e, f), ts_field_prov(_, f).
+field_access(e, caller, "-", "-", "ambiguous_unknown", acc) :- ts_field_access_site(e),
+    !ts_field_access_has_row(e),
+    ts_field_access_from(e, caller), ts_field_access_kind(e, acc).

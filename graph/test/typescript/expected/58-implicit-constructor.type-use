@@ -1,0 +1,10 @@
+known_edge	METHOD_RETURN	0	bag [METHOD] -> Bag
+known_edge	METHOD_RETURN	0	bag [METHOD] -> Explicit
+known_edge	METHOD_RETURN	0	bag [METHOD] -> Named
+known_edge	METHOD_RETURN	0	bag [METHOD] -> Tagged
+known_edge	OBJECT_CREATION_TYPE	0	bag [EXPRESSION] -> Bag
+known_edge	OBJECT_CREATION_TYPE	0	bag [EXPRESSION] -> Explicit
+known_edge	OBJECT_CREATION_TYPE	0	bag [EXPRESSION] -> Named
+known_edge	OBJECT_CREATION_TYPE	0	bag [EXPRESSION] -> Tagged
+known_edge	SUPER_TYPE	0	Named [HERITAGE] -> Explicit
+known_edge	SUPER_TYPE	0	Tagged [HERITAGE] -> Bag

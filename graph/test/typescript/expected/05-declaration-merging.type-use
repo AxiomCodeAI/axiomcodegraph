@@ -1,0 +1,3 @@
+ambiguous_unknown	METHOD_PARAM	0	merged [METHOD_PARAM] -> -
+multi_inferred	IMPLEMENTS_INTERFACE	0	AppConfig [HERITAGE] -> Config
+multi_inferred	METHOD_PARAM	0	merged [METHOD_PARAM] -> Config

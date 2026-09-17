@@ -1,0 +1,7 @@
+51-polymorphic-this-across-boundary [fields]
+  precision 0.0000   (0 correct, 0 wrong)
+  recall    0.0000   (0 of 0 the compiler resolved)
+  sites 0   resolved 0 
+  tiers 
+  access 
+  not scored: 0 rows whose target is not a client declaration

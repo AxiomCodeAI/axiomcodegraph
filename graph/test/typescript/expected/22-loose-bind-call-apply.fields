@@ -1,0 +1,1 @@
+known_edge	read	loose-bind#objectLiteralGainsNothing({ a: number }) -> { a: number }#a

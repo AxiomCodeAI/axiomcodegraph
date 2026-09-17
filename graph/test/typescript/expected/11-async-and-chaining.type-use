@@ -1,0 +1,8 @@
+ambiguous_unknown	METHOD_RETURN	0	Repo [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	0	async [METHOD] -> -
+ambiguous_unknown	OBJECT_CREATION_TYPE	0	async [EXPRESSION] -> -
+known_edge	METHOD_RETURN	0	Repo [METHOD] -> Repo
+known_edge	METHOD_RETURN	0	Repo [METHOD] -> Row
+known_edge	OBJECT_CREATION_TYPE	0	Repo [EXPRESSION] -> Row
+known_edge	OBJECT_CREATION_TYPE	0	async [EXPRESSION] -> Repo
+known_edge	TYPE_ARGUMENT	1	Repo [METHOD] -> Row

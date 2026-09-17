@@ -1,0 +1,7 @@
+46-new-through-class-valued-variable [types]
+  precision 1.0000   (1 correct, 0 wrong)
+  recall    1.0000   (1 of 1 the compiler resolved)
+  sites 5   resolved 2 (40.0%)
+  tiers ambiguous_unknown=3  known_edge=2
+  contexts METHOD_RETURN=1  OBJECT_CREATION_TYPE=4
+  not scored: 3 rows whose target is not a client declaration
