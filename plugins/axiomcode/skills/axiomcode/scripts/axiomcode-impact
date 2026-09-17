@@ -84,6 +84,14 @@ class Impact:
             for a, b, i in self.spans.get(file, ()):
                 if a <= line <= b and self.g.sym[i].get('type_id') and (best is None or (b - a) < best[0]): best = (b - a, i)
         return best[1] if best else None
+    def type_at(self, file, line):
+        """the narrowest TYPE whose span holds the line — not the narrowest span, which at a Python `class X(Base):` line is
+        the class BODY (a module-kind symbol) and would drop every base-class row"""
+        best = None
+        for a, b, i in self.spans.get(file, ()):
+            if a <= line <= b and self.g.sym.get(i, {}).get('type_id') and (best is None or (b - a) < best[0]): best = (b - a, i)
+            if a > line: break
+        return best[1] if best else None
     def lines(self, file):
         if file not in self.src:
             try: self.src[file] = open(os.path.join(self.g.repo, file), errors='replace').read().split('\n')
@@ -328,7 +336,8 @@ class Impact:
             if sy['kind'] == 'module' and sy.get('file'): mod_of.setdefault(sy['file'], i)
         modules_used = set()
         for rid, f in self.fields.items():
-            fid = f"f:{rid}"; t = tid_of.get(f['owner'] or '')
+            # the field's own registry hash when the index has it, so a decoration ON the field joins (#750)
+            fid = f['id'] or f"f:{rid}"; t = tid_of.get(f['owner'] or '')
             if not t: t = mod_of.get(f.get('file') or '')
             if not t: continue
             if t in mod_of.values(): modules_used.add(t)
@@ -453,6 +462,16 @@ class Impact:
                      LEFT JOIN symbols s ON s.method_id = i.c4
                      LEFT JOIN symbols o ON o.type_id = i.c3 AND o.method_id IS NULL
                 WHERE i.c2 <> '' AND COALESCE(s.id, o.id) IS NOT NULL""")]
+        # a supertype as WRITTEN: BASE_CLASS (Python), SUPER_TYPE / IMPLEMENTS_INTERFACE (Java, TS) — a library base the
+        # engine never resolved is still a generator when the convention table names it
+        bn = []
+        if g.has('type_refs'):
+            for r in g.q("SELECT name, file, line, context FROM type_refs WHERE context IN ('BASE_CLASS','SUPER_TYPE','IMPLEMENTS_INTERFACE','EXTENDS_TYPE')"):
+                t = self.type_at(r['file'], r['line']) if r['line'] and r['line'] > 0 else None
+                if t: bn.append((t, r['name'].split('.')[-1]))
+                elif not r['line']:                                                       # Java gives no line: the types declared in that file
+                    for x in g.q("SELECT id FROM symbols WHERE file = ? AND type_id IS NOT NULL", r['file']): bn.append((x[0], r['name'].split('.')[-1]))
+        W('base_name', sorted(set(bn)))
         W('config', cfg); W('config_key_known', [(k,) for k in sorted(keys)]); W('bean', beans); W('injected', sorted(set(inj)))
         open(stamp, 'w').write(want); return D
 
@@ -491,7 +510,7 @@ class Impact:
             if kind in ('method', 'name match'):            # a name match is answered as the declarations it matched, labelled as what it is
                 for m in payload: T.append((q, 'method', m, ''))
             elif kind == 'field':
-                for f in payload: T.append((q, 'field', f"f:{f['rowid']}", ''))
+                for f in payload: T.append((q, 'field', f['id'] or f"f:{f['rowid']}", ''))
             elif kind == 'type':
                 for tid in payload: type_query(q, tid)
             elif kind == 'clinit':
@@ -519,7 +538,7 @@ class Impact:
         prof('query facts written'); r = subprocess.run(self.program() + ['-F', F, '-D', O], capture_output=True, text=True); prof('souffle returned')
         if r.returncode: die("souffle failed:\n" + r.stderr[-1200:])
         out = {}
-        for n in ('contract', 'direct', 'direct_edge', 'seed', 'seed_byname', 'reach', 'reach_sure', 'parent_up', 'test_near', 'test_hit', 'inherited_test'):
+        for n in ('contract', 'direct', 'direct_edge', 'seed', 'seed_byname', 'reach', 'reach_sure', 'parent_up', 'test_near', 'test_hit', 'inherited_test', 'gen_fired'):
             rows = []
             for l in open(os.path.join(O, n + '.csv')):
                 p = l.rstrip('\n').split('\t')
@@ -688,6 +707,10 @@ def main(argv):
     D.sort(key=lambda x: (CERT[x[3]], anon(x[0]), -(x[5] or 1), x[2], g.disp(x[0])))
     groups = [('produces or writes it', [x for x in D if x[1] in ('produces', 'writes')]), ('reads or uses it', [x for x in D if x[1] in ('reads', 'uses')])]
     if not D: print("directly touches it: nothing the graph can see" + (" — the declaration is used only where it is declared, or through something the parser did not record" if not contract else ''))
+    fired = sorted({(x[0], x[1]) for x in res.get('gen_fired', [])})
+    if fired:
+        print("generated members assumed from a fixed convention list (Lombok, records, dataclasses, attrs, pydantic): "
+              + ', '.join(f"{d} ({why})" for d, why in fired[:6]) + (f" … +{len(fired) - 6}" if len(fired) > 6 else ''))
     for title, rows in groups:
         if not rows: continue
         by = collections.Counter(cert for _, _, _, cert, _, _ in rows)
