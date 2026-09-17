@@ -1,0 +1,6 @@
+known_edge	read	probe.Shadow#catchParameter() -> probe.Shadow#shape
+known_edge	read	probe.Shadow#closedSiblingBlock() -> probe.Shadow#count
+known_edge	read	probe.Shadow#forHeader() -> probe.Shadow#index
+known_edge	read	probe.Shadow#laterLocal() -> probe.Shadow#value
+known_edge	read	probe.Shadow#patternVariable(Object) -> probe.Shadow#shape
+known_edge	read	probe.Shadow#plain() -> probe.Shadow#count
