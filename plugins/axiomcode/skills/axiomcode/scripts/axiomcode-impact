@@ -734,8 +734,11 @@ class Impact:
         cfgkeys = {payload for kind, lab, payload in targets if kind == 'config'}
         g.write('nonsource', sorted(set(self.nonsource_hits(want)) | set(self.config_key_sites(cfgkeys))), F); g.write('qual_name', sorted(set(qn)), F)
         g.write('target', T, F); g.write('textuse', sorted(set(textuse)), F); g.write('importuse', sorted(set(importuse)), F); g.write('inside_target', sorted(set(inside)), F)
-        if not shutil.which('souffle'): die("souffle is not installed (brew install souffle-lang/souffle/souffle)")
-        prof('query facts written'); r = subprocess.run(self.program() + ['-F', F, '-D', O], capture_output=True, text=True); prof('souffle returned')
+        prog = self.program()                                                        # the compiled rules, or the interpreter
+        if prog[0] == 'souffle' and not shutil.which('souffle'):
+            die("this query needs soufflé and none is installed (brew install souffle-lang/souffle/souffle) — or a compiled\n"
+                f"  rule binary in {os.path.relpath(os.path.join(HERE, 'dl', '.cache'))}/, which runs without it")
+        prof('query facts written'); r = subprocess.run(prog + ['-F', F, '-D', O], capture_output=True, text=True); prof('souffle returned')
         if r.returncode: die("souffle failed:\n" + r.stderr[-1200:])
         out = {}
         for n in ('contract', 'direct', 'direct_edge', 'seed', 'seed_byname', 'reach', 'reach_sure', 'parent_up', 'test_near', 'test_hit', 'inherited_test', 'extbind', 'gen_fired', 'caller_handles', 'caller_unhandled', 'target_throws'):
@@ -784,11 +787,13 @@ class Impact:
         interpreted — there, loading the facts dominates and the binary wins nothing. Do not quote a speed-up without saying
         which graph it was measured on."""
         import hashlib
-        dl = os.path.join(HERE, 'dl', 'impact.dl'); ver = subprocess.run(['souffle', '--version'], capture_output=True, text=True).stdout.strip()
-        key = hashlib.sha1((open(dl).read() + ver).encode()).hexdigest()[:16]
+        dl = os.path.join(HERE, 'dl', 'impact.dl')
+        # keyed by the RULES alone. The soufflé runtime is compiled INTO the binary, so the version that generated it does
+        # not matter at run time; and keying on it meant a cached (or shipped) binary was unusable without soufflé present.
+        key = hashlib.sha1(open(dl).read().encode()).hexdigest()[:16]
         cache = os.path.join(HERE, 'dl', '.cache'); binp = os.path.join(cache, f'impact-{key}'); nope = binp + '.nocompile'
         if os.path.exists(binp): return [binp]
-        if os.path.exists(nope) or not shutil.which('c++') or os.environ.get('AXIOMCODE_INTERPRET'): return ['souffle', dl]
+        if os.path.exists(nope) or not shutil.which('c++') or not shutil.which('souffle') or os.environ.get('AXIOMCODE_INTERPRET'): return ['souffle', dl]
         inc = self.souffle_include()
         if not inc:
             open(nope, 'w').write("no souffle/CompiledSouffle.h found; set AXIOM_SOUFFLE_INCLUDE to the directory CONTAINING souffle/\n")
