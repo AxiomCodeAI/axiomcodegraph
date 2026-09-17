@@ -1,0 +1,4 @@
+import_cause     main.js:5:9  tspkg  not_staged
+package_entry    60-ts-emit-helpers  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       main.js:7:26  CONSTRUCTOR_CALL Client  callee_untyped
+unresolved       main.js:7:26  METHOD_CALL send  receiver_untyped
