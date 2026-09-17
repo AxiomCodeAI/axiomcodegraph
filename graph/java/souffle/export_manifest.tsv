@@ -25,3 +25,6 @@ field_access	field-access.csv
 field_access_site	field-access-site.csv
 field_site_excluded	field-site-excluded.csv
 type_use	type-use.csv
+remote_edge	remote-edge.csv
+remote_unserved	remote-unserved.csv
+remote_unsent	remote-unsent.csv
