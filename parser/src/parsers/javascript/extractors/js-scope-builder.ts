@@ -10,7 +10,7 @@ import {
   nearestFunctionScope,
   nodeKey,
 } from '@/parsers/javascript/extractors/js-symbol-table';
-import { pointOf } from '@/utils/javascript';
+import { firstRunningFieldInitializer, pointOf } from '@/utils/javascript';
 
 /**
  * Builds the scope tree and every `(scope, name)` binding — the JavaScript
@@ -558,6 +558,28 @@ class JsScopeBuilder {
         syntacticScope: child,
         declarationNode: node.name,
         hasTemporalDeadZone: true,
+      });
+    }
+    // A field initializer that RUNS code is a body of its own (#798): it executes at class
+    // evaluation or during construction, with `this` bound there, not where the class is
+    // written. One scope per class per staticness, opened on the first such field, which is
+    // the same field the declaration extractor hangs its synthetic callable off.
+    for (const isStatic of [true, false]) {
+      const field = firstRunningFieldInitializer(node, isStatic);
+      if (field === undefined) {
+        continue;
+      }
+      const strictness = this.strictnessFor(child, JsScopeKind.CLASS_STATIC_BLOCK, field);
+      this.openScope({
+        node: field,
+        kind: JsScopeKind.CLASS_STATIC_BLOCK,
+        parent: child,
+        isFunctionScope: true,
+        bindsThis: true,
+        bindsArguments: false,
+        isStrictMode: strictness.isStrictMode,
+        strictModeSource: strictness.strictModeSource,
+        ownerNode: field,
       });
     }
     for (const member of node.members) {
