@@ -567,7 +567,13 @@ def direct_for_method(q, ids):
                 # target AND lives in its file).
                 if c not in ids and c not in sib:
                     rows.append((c, 'uses', 'declared in the same file', 'alongside', '', 0)); sib.add(c)
-    return rows
+    # DEDUPED: a Datalog relation is a set. Duplicate rows here inflate the per-caller site count the formatter
+    # sorts on and caps by, so the same answer prints a different subset — 35 rows for 31 distinct ones was enough
+    # to change which callers appeared at all.
+    seen_row = set(); uniq = []
+    for r in rows:
+        if r not in seen_row: seen_row.add(r); uniq.append(r)
+    return uniq
 
 
 def contract_for_method(q, ids):
@@ -578,14 +584,39 @@ def contract_for_method(q, ids):
         if o not in ids: out.append((o, 'overrides it'))
     for (b,) in q(f"SELECT method_id FROM overrides WHERE overriding_method_id IN ({ph})", *ids):
         if b not in ids: out.append((b, 'it overrides this'))
-    return out
+    return sorted(set(out))                       # a set, for the same reason
 
 
 # ── solve: the dict `Impact.run()` returns, without the .facts round trip ─────────────────────────────────────
 
 SOLVE_KINDS = {'method'}     # the kinds answered here; anything else falls back to the rules
 
-def solve_from_targets(q, T, QS, site_file=None):
+def inherited_tests(q, hits):
+    """`inherited_test(q,s,m,d) :- test_hit(q,m,d,_), owner(m,t), extends(s,t), typ(s,_,_), s != t` — the test
+    classes that extend a class whose test was reached run that test too, in their own file."""
+    if not hits: return []
+    # the owner resolved the way the exporter does — through {display: type_id} with setdefault, first id wins —
+    # not through methods.owner_type_id. The real id is more precise and gives 475 inheriting classes where the
+    # rules give 458; see the note in tests_reaching.
+    tid_of = {}
+    for disp, tid in q("SELECT display, type_id FROM symbols WHERE type_id IS NOT NULL"): tid_of.setdefault(disp, tid)
+    owner_id = {sid: tid_of[owner] for sid, owner in q("SELECT id, owner FROM symbols WHERE owner IS NOT NULL")
+                if owner in tid_of}
+    subs = {}
+    if _has(q, 'type_ancestors'):
+        for tid, aid in q("SELECT type_id, ancestor_type_id FROM type_ancestors"):
+            if tid != aid: subs.setdefault(aid, []).append(tid)
+    istype = {r[0] for r in q("SELECT id FROM symbols WHERE type_id IS NOT NULL AND method_id IS NULL")}
+    out = set()
+    for m, d, _via in hits:
+        t = owner_id.get(m)
+        if not t: continue
+        for sub in subs.get(t, ()):
+            if sub in istype and sub != t: out.add((sub, m, d))
+    return sorted(out)
+
+
+def solve_from_targets(q, T, QS, site_file=None, nonsource=()):
     """Return exactly what Impact.run() returns — {relation: [row…, query_id]} — or None to fall back.
 
     T is the target relation: (query_id, kind, symbol_id, extra). Only method targets are answered here; a
@@ -627,7 +658,19 @@ def solve_from_targets(q, T, QS, site_file=None):
         weak = {c for c, _r, _w, cert, _f, _l in dr if cert in ('by name', 'text', 'one of a set')} - strong
         out['reach_sure'] += [[m, qq] for m in reach_from(rev, [m for m in seeds if m not in weak])]
         out['parent_up'] += [[a, b, t, qq] for a, b, t in parent_up(E, depth)]
-        out['test_hit'] += [[m, str(d), via, qq] for m, d, via in tests_reaching(q, depth, sets, every=True)]
+        hits = tests_reaching(q, depth, sets, every=True)
+        out['test_hit'] += [[m, str(d), via, qq] for m, d, via in hits]
+        out['inherited_test'] += [[s_, m, str(d), qq] for s_, m, d in inherited_tests(q, hits)]
+        # extbind: the target's name written in a NON-SOURCE file — an XSD, a template, a config. Nothing in the
+        # graph carries these; run() regex-scans the tree for them and hands the hits over.
+        #   extbind(q,f,l,n,"names the method")         :- target(q,"method",m,_), named(n,m),      nonsource(n,f,l)
+        #   extbind(q,f,l,n,"names the method in full") :- target(q,"method",m,_), qual_name(m,n),  nonsource(n,f,l)
+        if nonsource:
+            simple = {r[0] for r in q(f"SELECT name FROM symbols WHERE id IN ({ph})", *ids) if r[0]}
+            full = {r[0] for r in q(f"SELECT qualified_name FROM symbols WHERE id IN ({ph})", *ids) if r[0]}
+            for n, f, l in nonsource:
+                if n in simple: out['extbind'].append([f, str(l), n, 'names the method', qq])
+                elif n in full: out['extbind'].append([f, str(l), n, 'names the method in full', qq])
         th = tests_reaching(q, depth, sets)
         out['test_near'] += [[m, str(d), qq] for m, (d, _v) in th.items()]
     out['_targets'] = QS
