@@ -22,6 +22,8 @@
 .decl call_is_conditional(c0:symbol,c1:symbol)
 .decl call_span(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl annotation_on(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol)
+.decl entry_point(c0:symbol,c1:symbol)
+.decl py_http_route_verb(v:symbol)
 .decl decorator_order(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl decorator_target(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl decorator_text(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
