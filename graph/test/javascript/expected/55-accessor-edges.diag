@@ -1,1 +1,3 @@
 package_entry    55-accessor-edges  .  []  DEFAULT_INDEX  index.js  MISSING_FILE  -> -
+unresolved       main.js:36:1  METHOD_CALL defineProperty  no_target
+unresolved       main.js:39:19  METHOD_CALL defineProperty  no_target
