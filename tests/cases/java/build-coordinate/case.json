@@ -1,0 +1,14 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a build coordinate is refused, with what the graph does and does not hold, instead of a confident empty answer",
+   "run": ["impact", "org.apache.commons:commons-lang3"],
+   "want": ["is a build coordinate", "UNKNOWN here"],
+   "avoid": ["test method(s) reach the change", "nothing the graph can see"],
+   "expect_error": true},
+  {"why": "a coordinate with a version is refused the same way",
+   "run": ["impact", "org.apache.commons:commons-lang3:3.14.0"],
+   "want": ["is a build coordinate"],
+   "expect_error": true},
+  {"why": "a file:line target still works and is not taken for a coordinate",
+   "run": ["impact", "src/pkg/Util.java:4"],
+   "want": ["Util.blank"]}]}
