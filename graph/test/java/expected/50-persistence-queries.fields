@@ -1,0 +1,5 @@
+known_edge	read	testcases.persistence.PetStore#all() -> testcases.persistence.PetStore#em
+known_edge	read	testcases.persistence.PetStore#byName(String) -> testcases.persistence.PetStore#em
+known_edge	read	testcases.persistence.PetStore#byNickname(String) -> testcases.persistence.PetStore#em
+known_edge	read	testcases.persistence.PetStore#ordered(String) -> testcases.persistence.PetStore#em
+known_edge	read	testcases.persistence.PetStore#undeclared() -> testcases.persistence.PetStore#em
