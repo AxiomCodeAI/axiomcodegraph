@@ -793,7 +793,13 @@ class Impact:
         # Answered from graph.sqlite. Same dict, so everything below — the grouping, the
         # wording, the `verified:` check — is untouched. Returns None for a target kind it does not cover, and the
         # rules run as before. See graph_sql.solve_from_targets.
-        if not os.environ.get('AXIOMCODE_DATALOG'):          # SQL is the default; AXIOMCODE_DATALOG=1 falls back to the rules
+        # The RULES are the default here, unlike the path tool. The SQL port answers every target kind and
+        # agrees with them, but it is SLOWER for this question on every graph measured: 0.8x on a 4k-symbol
+        # bundle and 0.6x on a 34k one. The rules amortise — the fact export is written once per graph and
+        # stamped, and the program is a native binary compiled once — while this side rebuilds members,
+        # edges, test sets and the symbol view in Python on every invocation, and a CLI call is a fresh
+        # process. Until that setup is cached per graph the rules win. AXIOMCODE_SQL=1 selects this path.
+        if os.environ.get('AXIOMCODE_SQL'):
             import graph_sql
             _sql = graph_sql.solve_from_targets(g.q, T, QS, g.site_file, _nonsource, self.code, self.at,
                                                 inside, textuse, importuse, self.lines)
