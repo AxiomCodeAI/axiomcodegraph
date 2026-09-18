@@ -35,9 +35,16 @@ bash trace-subject.sh --root ~/src/click --src src/click \
 ### The integrity check
 
 The suite is run twice, once untouched and once traced, and the two verdicts must be
-identical. If tracing changes what passes, the trace describes a different program. The
-check also fails when the baseline reports **no** test counts, because "identical" is
-true of nothing and reads as a pass.
+identical. If tracing changes what passes, the trace describes a different program.
+
+**Equality is not enough, and the check asks a positive question instead.** A suite that
+never ran satisfies equality: both sides agree on having produced nothing. One subject
+aborted during collection, the verdict was the non-empty string `1 error` on both sides,
+and the harness went on to score 4,510 call sites reached while importing the package.
+That result is not merely useless, it looks **best**: import-time code is nearly all
+straight-line calls, so it scored the highest agree figure in the corpus. The baseline
+must therefore report at least one **passed** test; errors, failures and skips alone stop
+the run.
 
 ## The verdicts
 
