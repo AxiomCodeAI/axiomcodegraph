@@ -166,7 +166,17 @@ for key, rt in sorted(runtime.items()):
 
     if not rts:
         b = "NOT_EXECUTED"
-    elif tiers <= {"boundary_lib", "ambient_terminal", "intrinsic_terminal"}:
+    elif tiers <= {
+        "boundary_lib",
+        "ambient_terminal",
+        "intrinsic_terminal",
+        # The site names no callee of its own: it leaves the client and hands a
+        # function over. What ran there is the callback, reached through a frame the
+        # tracer cannot see inside, so there is no engine answer to contradict.
+        # Without these two, `stream.on('end', flush)` reads as a disagreement.
+        "callback_registered",
+        "event_dispatch",
+    }:
         # The engine says this call LEAVES THE CLIENT -- `Object.fromEntries(...)`,
         # `new Error(...)`. A project declaration seen running at such a site cannot
         # be the site's callee; it is a function the library called back into, and
