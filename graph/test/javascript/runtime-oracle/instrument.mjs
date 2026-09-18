@@ -33,28 +33,29 @@
 //                       short-circuit: the original returns undefined, the
 //                       rewrite calls `.c()` on undefined. Only the OUTERMOST
 //                       link of a chain is wrapped, where that cannot happen.
-//   a minified file     `.min.js` is a build product with one line and no
-//                       positions worth joining on, and instrumenting it doubles
-//                       the file for nothing.
+//
+//   a minified file     `.min.js` is a build product with one line and no positions
+//                       worth joining on, and instrumenting it doubles the file for
+//                       nothing.
 //
 // A REALM THE TRACER IS NOT IN
 // `__ax` is a free identifier, so a rewritten file loaded into a FRESH V8 context
-// (`vm.runInNewContext`, a worker with its own global, a realm a test makes to check
-// `noConflict`) throws `__ax is not defined` and takes the test with it. One lodash
-// test does exactly this and the suite goes 6831/0 to 6829/2. Each rewritten file
-// therefore opens by binding `__ax` from the global, installing a no-op when there is
-// none, and saying so ONCE on stderr: a file that ran untraced has to be countable,
-// because silence is indistinguishable from a file with nothing in it.
+// (`vm.runInNewContext`, a realm a test makes to check `noConflict`) throws
+// `__ax is not defined` and takes the test with it. One lodash test does exactly
+// this and the suite goes 6831/0 to 6829/2. Each rewritten file therefore opens by
+// binding `__ax` from the global, installing a no-op when there is none, and saying
+// so ONCE on stderr: a file that ran untraced has to be countable, because silence
+// is indistinguishable from a file with nothing in it.
 //
 // THE DIRECTIVE PROLOGUE, WHICH IS A JAVASCRIPT-ONLY HAZARD
-// `__ax.enter(n);` inserted straight after `{` moves a function's `'use strict'`
-// out of the prologue, and the function silently stops being strict: an
-// assignment to an undeclared name starts creating a global instead of throwing,
-// `this` in a plain call becomes the global object, and duplicate parameter names
-// stop being an error. Nothing fails loudly; the program just runs under
-// different rules than the one being measured. The insertion point is therefore
-// the end of the prologue, not the start of the body, and it carries a leading
-// `;` because a directive is written without one as often as with it.
+// `__ax.enter(n);` inserted straight after `{` moves a function's `'use strict'` out
+// of the prologue, and the function silently stops being strict: an assignment to an
+// undeclared name starts creating a global instead of throwing, `this` in a plain
+// call becomes the global object, and duplicate parameter names stop being an error.
+// Nothing fails loudly; the program just runs under different rules than the one
+// being measured. The insertion point is therefore the end of the prologue, not the
+// start of the body, and it carries a leading `;` because a directive is written
+// without one as often as with it.
 //
 // Usage: instrument.mjs --src <dir> --out <dir> --tables <dir> [--ts <typescript.js>]
 // =============================================================================
@@ -70,12 +71,18 @@ function arg(name, fallback) {
 const SRC = path.resolve(arg('src'))
 const OUT = path.resolve(arg('out'))
 const TABLES = path.resolve(arg('tables'))
-// The PARSER only: this rewrite never asks the checker anything, so the compiler
-// that ships with this repository is the one used, resolved from here rather than
-// named by an absolute path.
-const require_ = createRequire(import.meta.url)
-const TS_PATH = arg('ts', process.env.AX_TYPESCRIPT || 'typescript')
-const ts = require_(TS_PATH)
+// The compiler is the PARSER only: this rewrite never asks the checker anything.
+// `--ts` then $TS_MODULE_PATH then the resolved `typescript`, which is the order the
+// tsc oracle in this tree already uses. Loading a package that does not ship the
+// JavaScript API refuses here and names what is missing (#239), rather than failing
+// somewhere inside the walk with a TypeError.
+const req = createRequire(import.meta.url)
+const TS_SPEC = arg('ts', process.env.TS_MODULE_PATH || 'typescript')
+const ts = req(TS_SPEC)
+if (!ts.createSourceFile || !ts.forEachChild || !ts.ScriptKind) {
+  console.error(`instrument: the loaded typescript (${ts.version}) has no parser API, refusing`)
+  process.exit(2)
+}
 
 const SKIP_DIRS = new Set([
   'node_modules',
@@ -233,17 +240,84 @@ function objectLiteralIsProxyHandler(obj) {
   return false
 }
 
+// A HANDLER IS NOT ALWAYS AN OBJECT LITERAL. The check above reaches a trap written
+// as a member of one, and misses every trap ASSIGNED INTO a handler afterwards:
+//
+//     const arrayTraps: ProxyHandler<[S]> = {}
+//     for (const key in objectTraps) arrayTraps[key] = function () { ... }
+//     arrayTraps.set = function (state, prop, value) { ... }
+//
+// which is how a handler that forwards to another one is written. Those functions
+// were instrumented as ordinary declarations, so they CONSUMED the marker of
+// whatever site was open when the language invoked them -- and because the receiver
+// is a draft, that is any native operation on a draft anywhere in the program.
+// Measured on immer 061c242: 19 of 366 executed production sites carried the array
+// handler as a target, `base.push`, `obj.map`, `Reflect.getOwnPropertyDescriptor`
+// and `getPrototypeOf` among them. None of them calls it.
+//
+// The names of these are collected per file before the walk, so an assignment that
+// appears before the declaration it targets is still recognised.
+const proxyHandlerNames = new Set()
+
+function collectProxyHandlers(sf) {
+  proxyHandlerNames.clear()
+  const note = (n) => { if (n && ts.isIdentifier(n)) proxyHandlerNames.add(n.text) }
+  const walk = (n) => {
+    // `const X: ProxyHandler<...> = ...`, whatever the initialiser is
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name)) {
+      try {
+        if (n.type && n.type.getText().includes('ProxyHandler')) note(n.name)
+      } catch {}
+      if (n.initializer && ts.isObjectLiteralExpression(n.initializer)
+          && objectLiteralIsProxyHandler(n.initializer)) note(n.name)
+    }
+    // `new Proxy(target, X)` / `Proxy.revocable(target, X)`
+    if (ts.isNewExpression(n) || ts.isCallExpression(n)) {
+      let callee = ''
+      try { callee = n.expression.getText() } catch {}
+      if ((callee === 'Proxy' || callee === 'Proxy.revocable') && n.arguments) {
+        note(n.arguments[1])
+      }
+    }
+    ts.forEachChild(n, walk)
+  }
+  walk(sf)
+}
+
+// The object an assignment target is rooted at: `X.set` and `X[key]` are both X.
+function assignmentRootName(target) {
+  if (ts.isPropertyAccessExpression(target) || ts.isElementAccessExpression(target)) {
+    return ts.isIdentifier(target.expression) ? target.expression.text : null
+  }
+  return null
+}
+
 function isProxyTrap(node) {
   const holder = ts.isMethodDeclaration(node)
     ? node
     : node.parent && ts.isPropertyAssignment(node.parent)
       ? node.parent
       : null
-  if (!holder) return false
-  const nm = memberName(holder)
-  if (!nm || !PROXY_TRAPS.has(nm)) return false
-  const obj = holder.parent
-  return !!obj && ts.isObjectLiteralExpression(obj) && objectLiteralIsProxyHandler(obj)
+  if (holder) {
+    const nm = memberName(holder)
+    if (!nm || !PROXY_TRAPS.has(nm)) return false
+    const obj = holder.parent
+    return !!obj && ts.isObjectLiteralExpression(obj) && objectLiteralIsProxyHandler(obj)
+  }
+  // `<handler>.<trap> = function () {}` / `<handler>[<expr>] = function () {}`
+  const a = node.parent
+  if (!a || !ts.isBinaryExpression(a) || a.operatorToken.kind !== ts.SyntaxKind.EqualsToken) {
+    return false
+  }
+  if (a.right !== node) return false
+  const root = assignmentRootName(a.left)
+  if (!root || !proxyHandlerNames.has(root)) return false
+  // A COMPUTED key on a handler is a trap whatever it resolves to: the object exists
+  // to hold traps and nothing else is assigned into it. A NAMED key has to be one of
+  // the thirteen, so a helper parked on the same object stays scoreable.
+  if (ts.isElementAccessExpression(a.left)) return true
+  const nm = a.left.name && ts.isIdentifier(a.left.name) ? a.left.name.text : null
+  return !!nm && PROXY_TRAPS.has(nm)
 }
 
 // a declaration whose body does not start at a call site: see runtime.cjs `aux`
@@ -280,8 +354,8 @@ function moduleInsertPos(sf, text) {
   return pos
 }
 
-// Bound per file rather than read from the global at every site: one property load
-// at module load instead of one per call, and it is what makes a fresh realm run.
+// Bound per file rather than read from the global at every site: one property load at
+// module load instead of one per call, and it is what makes a fresh realm run.
 const GUARD =
   ';var __ax=globalThis.__ax||(globalThis.__ax=(globalThis.__axWarned||' +
   '(globalThis.__axWarned=1,globalThis.process&&process.stderr&&' +
@@ -289,9 +363,9 @@ const GUARD =
   '{s:function(){return 0},e:function(d,v){return v},enter:function(){},aux:function(){}}));'
 
 // The end of a function's DIRECTIVE PROLOGUE: the position after the last leading
-// `'use strict'`-shaped statement, or just after `{` when there is none. See the
-// header. A directive is an ExpressionStatement whose expression is a plain string
-// literal; a template literal is not one, and `ts.isStringLiteral` already says so.
+// `'use strict'`-shaped statement, or just after `{` when there is none. A directive
+// is an ExpressionStatement whose expression is a plain string literal; a template
+// literal is not one, and `ts.isStringLiteral` already says so.
 function afterPrologue(body, sf) {
   let pos = body.getStart(sf) + 1
   for (const st of body.statements) {
@@ -306,6 +380,7 @@ function instrumentFile(abs) {
   const rel = path.relative(SRC, abs)
   const text = fs.readFileSync(abs, 'utf8')
   const sf = ts.createSourceFile(abs, text, ts.ScriptTarget.Latest, true, scriptKind(abs))
+  collectProxyHandlers(sf)
   const edits = [] // {pos, text, rank}
   const lc = (p) => {
     const {line, character} = sf.getLineAndCharacterOfPosition(p)
