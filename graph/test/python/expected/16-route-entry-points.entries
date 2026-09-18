@@ -1,0 +1,7 @@
+── entry_point (6) ──
+  http       main.fastapi_post   main.py:40
+  http       main.fastapi_style   main.py:35
+  http       main.flask_style   main.py:30
+  http       main.genuine_patch_route   main.py:50
+  http       main.route_table_style   main.py:45
+  http       main.socket_style   main.py:56

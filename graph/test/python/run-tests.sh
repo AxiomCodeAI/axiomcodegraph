@@ -333,6 +333,22 @@ for dir in "$HERE"/cases/*/; do
     fail=$((fail+1)); failed+=("$name"); continue
   fi
 
+  # ── the ENTRY POINT golden ────────────────────────────────────────────────
+  # A third artifact, because an entry point is a declaration NOTHING CALLS: it
+  # contributes no edge, so .edges and .tiers are both blind to it. Losing the relation
+  # or gaining a wrong member moves neither file. See tools/entry_report.py.
+  if ! "$PY" "$HERE/tools/entry_report.py" "$w/ir" "$w/out/raw" > "$w/actual.entries" 2>"$w/entry.log"; then
+    echo "FAIL (entry report — see $w/entry.log)"; fail=$((fail+1)); failed+=("$name"); continue; fi
+  eexp="$HERE/expected/$name.entries"
+  if [ "$BLESS" = "1" ]; then
+    cp "$w/actual.entries" "$eexp"
+  elif [ ! -f "$eexp" ]; then
+    echo "FAIL (no entry golden — run with --bless)"; fail=$((fail+1)); failed+=("$name"); continue
+  elif ! diff -q "$eexp" "$w/actual.entries" >/dev/null; then
+    echo "FAIL (entry points changed)"; diff -u "$eexp" "$w/actual.entries" | sed 's/^/    /' | head -20
+    fail=$((fail+1)); failed+=("$name"); continue
+  fi
+
 
   # ── DISPATCH-ENVELOPE golden ──────────────────────────────────────────────
   # The edge golden records what the engine CONCLUDED. dispatch_candidates records what

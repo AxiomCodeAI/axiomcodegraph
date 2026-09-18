@@ -1,0 +1,9 @@
+ambiguous_unknown	DECORATOR_APPLICATION	main.<module> -> -
+ambiguous_unknown	DECORATOR_ATTRIBUTE	main.<module> -> -
+boundary_lib	DECORATOR_CALL	main.<module> -> external:mock.patch
+boundary_lib	SIMPLE_CALL	main.<module> -> builtin:object.__init__
+known_edge	DECORATOR_CALL	main.<module> -> main._App.get
+known_edge	DECORATOR_CALL	main.<module> -> main._App.patch
+known_edge	DECORATOR_CALL	main.<module> -> main._App.post
+known_edge	DECORATOR_CALL	main.<module> -> main._App.route
+known_edge	DECORATOR_CALL	main.<module> -> main._App.websocket
