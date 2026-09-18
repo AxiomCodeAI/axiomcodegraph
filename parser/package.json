@@ -1,6 +1,6 @@
 {
   "name": "@axiomcode/parser",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "AxiomCode Parser \u2014 extracts Java/Python/TypeScript/Gradle/XML/YAML/Properties facts from a codebase.",
   "main": "dist/extract.js",
   "types": "dist/extract.d.ts",
