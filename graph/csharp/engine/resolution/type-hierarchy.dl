@@ -1,0 +1,181 @@
+// ============================================================================
+// RESOLUTION · TYPE HIERARCHY
+//
+// THIS IS THE FILE THE WHOLE ENGINE TURNS ON, and the reason is a single fact about
+// C# syntax:
+//
+//     class C : B, I1, I2      <-- which of these is the base CLASS?
+//
+// Nothing in the syntax says. Java writes `extends` and `implements` and its parser
+// records two relations; C# writes one comma-separated list and the parser records
+// heritageKind = BASE_OR_INTERFACE for every entry, because that is all syntax
+// supports. The distinction is recovered HERE, by resolving each name and reading
+// the resolved type's own typeCategory.
+//
+// WHY IT MATTERS, CONCRETELY:
+//
+//   Treat a base class as an interface, and members inherited from it are not found
+//   through the subclass. Every `subclass.InheritedHelper()` becomes unresolved.
+//
+//   Treat an interface as a base class, and single inheritance is violated. "The
+//   nearest base declaration", which is what non-virtual dispatch and `base.M()`
+//   resolve to, stops being well defined, so those edges become arbitrary.
+//
+// C# gives one ordering fact Java does not need: IF a base class is present it is
+// at position 0. That is a CROSS-CHECK, not the decision procedure, because
+// position 0 is an interface whenever the type derives from no class — which is
+// most interfaces and most structs. The check is exported so a disagreement between
+// the two methods is visible.
+//
+// A STRUCT AND AN ENUM HAVE AN IMPLICIT BASE the source never writes: ValueType and
+// Enum, and object above them. A record's base is object unless written. Those are
+// library types, so they only appear when a library IR is staged, and the engine
+// does not invent them.
+// ============================================================================
+
+// ── heritage_resolves(Prov, GroupKey, Position, BaseGroup) ──────────────────
+// A heritage entry, resolved to the type it names. Goes through type_ref_resolves
+// where the entry has a reference (the normal case), and falls back to the written
+// name where it does not.
+heritage_resolves(prov, gk, pos, bgk) :-
+    heritage_of_entity(prov, gk, pos, _, _, tr), tr != "",
+    type_ref_resolves(prov, tr, bgk),
+    bgk != gk.
+heritage_resolves(prov, gk, pos, bgk) :-
+    heritage_of_entity(prov, gk, pos, bn, ba, ""),
+    type_group(prov, t, gk), type_module(prov, t, mod),
+    type_name_resolves(prov, mod, bn, ba, bgk),
+    bgk != gk.
+
+// ── THE SPLIT ───────────────────────────────────────────────────────────────
+// Decided by the RESOLVED type's category, which is the only thing that can decide
+// it. An entry naming a type that did not resolve is neither, and that is recorded
+// below rather than guessed at.
+type_extends(prov, gk, bgk) :-
+    heritage_resolves(prov, gk, _, bgk),
+    type_group(prov, bt, bgk), type_is_class(prov, bt).
+type_implements(prov, gk, igk) :-
+    heritage_resolves(prov, gk, _, igk),
+    type_group(prov, it, igk), type_is_interface(prov, it).
+
+// An interface's OWN heritage list is all interfaces: `interface I : J, K`. Covered
+// by type_implements above, since J and K resolve to interfaces. Named separately
+// because "what interfaces does this interface extend" reads better at the use site
+// and because an interface has no base class to look for.
+interface_extends(prov, igk, jgk) :-
+    type_implements(prov, igk, jgk),
+    type_group(prov, it, igk), type_is_interface(prov, it).
+
+// A DELEGATE type names its signature, not a base. A STRUCT's heritage list is all
+// interfaces (a struct cannot derive). Recorded so a struct entry that resolved to a
+// class is visible as a contradiction rather than silently becoming a base.
+type_struct_heritage_is_class(prov, gk, bgk) :-
+    type_extends(prov, gk, bgk),
+    type_group(prov, t, gk), type_is_struct(prov, t).
+
+// ── THE POSITION-0 CROSS-CHECK ──────────────────────────────────────────────
+// The language guarantees a base class, if present, is written first. So a resolved
+// base class at a position other than 0 means either the resolution is wrong or the
+// parser's positions are. Either way it is a defect, and this is where it surfaces.
+//
+// Not applied as a filter. Using it to REJECT a base class at position > 0 would
+// turn a resolution bug into a missing hierarchy edge, which is harder to find than
+// a reported disagreement.
+hierarchy_base_not_first(prov, gk, bgk, pos) :-
+    heritage_resolves(prov, gk, pos, bgk),
+    type_group(prov, bt, bgk), type_is_class(prov, bt),
+    pos != "0".
+
+// A type with TWO resolved base classes. Impossible in C#, so it means two parts of
+// a partial type resolved their position-0 entry differently, or a name resolved
+// ambiguously. Exported.
+type_base_count(prov, gk, c) :-
+    type_extends(prov, gk, _),
+    c = count : { type_extends(prov, gk, _) }.
+type_multiple_bases(prov, gk) :- type_base_count(prov, gk, c), c >= 2.
+
+// ── AN UNRESOLVED HERITAGE ENTRY ────────────────────────────────────────────
+// The name is not in any staged IR: an unstaged package, or a framework base whose
+// assembly nobody passed. This is the single most consequential kind of unresolved
+// name, because every member the base would have contributed is now invisible, so it
+// is recorded per entry with the name that failed.
+type_base_unresolved(prov, gk, pos, bn, ba) :-
+    heritage_of_entity(prov, gk, pos, bn, ba, _),
+    !heritage_resolves(prov, gk, pos, _).
+
+// type_hierarchy_incomplete(Prov, GroupKey) — this type has an unresolved base, so
+// any "no such member" answer about it is a boundary rather than a fact. Consumed by
+// the call-edge layer, which classifies a miss on such a receiver as boundary_lib
+// instead of ambiguous_unknown.
+type_hierarchy_incomplete(prov, gk) :- type_base_unresolved(prov, gk, _, _, _).
+
+// ── ANCESTORS ───────────────────────────────────────────────────────────────
+// type_parent — one relation over both kinds, for reachability. The two are kept
+// distinct above because dispatch needs them distinct; here they are unioned because
+// "can this type be used where that one is expected" spans both.
+type_parent(prov, gk, pgk) :- type_extends(prov, gk, pgk).
+type_parent(prov, gk, pgk) :- type_implements(prov, gk, pgk).
+
+// type_ancestor — transitive, NOT reflexive. Crosses provenance: a client class
+// deriving from a staged library base has that base and everything above it as
+// ancestors, which is the whole point of staging library heritage.
+type_ancestor(prov, gk, agk) :- type_parent(prov, gk, agk).
+type_ancestor(prov, gk, agk) :- type_parent(prov, gk, mid), type_ancestor(prov, mid, agk).
+
+// A client type's ancestor may be a LIBRARY type, and the provenance term on
+// type_parent is the CHILD's. So the ancestor chain has to be able to continue in
+// the library's own relations once it crosses the boundary.
+type_ancestor("client", gk, agk) :-
+    type_parent("client", gk, mid), type_ancestor("lib", mid, agk).
+
+type_self_or_ancestor(prov, gk, gk) :- type_group(prov, _, gk).
+type_self_or_ancestor(prov, gk, agk) :- type_ancestor(prov, gk, agk).
+
+// type_subtype(Prov, Sub, Super) — the reverse direction, which is what CHA fan-out
+// needs: given a declared receiver type, every type that could be there at runtime.
+type_subtype(prov, sub, super) :- type_ancestor(prov, sub, super).
+
+// ── THE BASE CLASS CHAIN, ORDERED ───────────────────────────────────────────
+// `base.M()` and non-virtual dispatch need the NEAREST declaration going up the
+// CLASS chain, and "nearest" requires the chain to be a sequence. It is: single
+// inheritance, guaranteed by the language and checked by type_multiple_bases above.
+//
+// Interfaces are excluded here on purpose. Interface inheritance is a lattice, not
+// a chain, so there is no nearest and a rule that pretended otherwise would pick
+// one arbitrarily.
+type_base_chain(prov, gk, bgk, 1) :- type_extends(prov, gk, bgk).
+type_base_chain(prov, gk, bgk, d) :-
+    type_extends(prov, gk, mid), type_base_chain(prov, mid, bgk, dm), d = dm + 1.
+type_base_chain("client", gk, bgk, d) :-
+    type_extends("client", gk, mid), type_base_chain("lib", mid, bgk, dm), d = dm + 1.
+
+// ── A CYCLE IN THE HIERARCHY ────────────────────────────────────────────────
+// Impossible in a program that compiles, so a cycle means the name resolution
+// collapsed two distinct types onto one group. Caught here rather than being left to
+// make the ancestor closure meaningless.
+type_hierarchy_cycle(prov, gk) :- type_ancestor(prov, gk, gk).
+
+// ── INTERFACE SATISFACTION ──────────────────────────────────────────────────
+// type_satisfies(Prov, GroupKey, InterfaceGroup) — every interface a type presents,
+// including those inherited from its base class and from the interfaces' own
+// hierarchies. A call through an interface-typed receiver fans over the types that
+// satisfy it, and a type that satisfies an interface only through its base is
+// reachable the same way, so both paths are needed.
+type_satisfies(prov, gk, igk) :- type_implements(prov, gk, igk).
+type_satisfies(prov, gk, jgk) :- type_satisfies(prov, gk, igk), interface_extends(prov, igk, jgk).
+type_satisfies(prov, gk, igk) :- type_extends(prov, gk, bgk), type_satisfies(prov, bgk, igk).
+type_satisfies("client", gk, igk) :- type_extends("client", gk, bgk), type_satisfies("lib", bgk, igk).
+type_satisfies("client", gk, jgk) :- type_satisfies("client", gk, igk), interface_extends("lib", igk, jgk).
+
+// ── CONCRETE IMPLEMENTORS ───────────────────────────────────────────────────
+// The set a dispatch on an interface-typed receiver can actually reach. Abstract
+// classes and interfaces are excluded because no instance of them exists: the
+// runtime target is always a concrete type, and including the abstract ones inflates
+// every fan width with types that cannot be the receiver.
+type_is_concrete(prov, gk) :-
+    type_group(prov, t, gk), type_is_class(prov, t),
+    !type_is_abstract_entity(prov, gk), !type_is_static_entity(prov, gk).
+type_is_concrete(prov, gk) :- type_group(prov, t, gk), type_is_struct(prov, t).
+
+type_concrete_implementor(prov, igk, gk) :- type_satisfies(prov, gk, igk), type_is_concrete(prov, gk).
+type_concrete_subclass(prov, bgk, gk) :- type_ancestor(prov, gk, bgk), type_is_concrete(prov, gk).
