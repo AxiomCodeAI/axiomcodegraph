@@ -1,0 +1,8 @@
+boundary_lib	SIMPLE_CALL	main.Bag.__init__ -> builtin:dict
+known_edge	SIMPLE_CALL	main.main -> main.Bag.__init__
+known_edge	SIMPLE_CALL	main.main -> main.annotated
+known_edge	SIMPLE_CALL	main.main -> main.read
+known_edge	SIMPLE_CALL	main.main -> main.write
+known_edge	SUBSCRIPT_PROTOCOL	main.<module> -> main.Bag.__class_getitem__
+known_edge	SUBSCRIPT_PROTOCOL	main.read -> main.Bag.__getitem__
+known_edge	SUBSCRIPT_PROTOCOL	main.write -> main.Bag.__setitem__
