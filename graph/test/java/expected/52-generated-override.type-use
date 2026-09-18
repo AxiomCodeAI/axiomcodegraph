@@ -1,0 +1,13 @@
+ambiguous_unknown	FIELD_TYPE	0	probe.GenOverride.Person [FIELD] -> -
+ambiguous_unknown	METHOD_PARAM	0	probe.GenOverride#main(String[]) [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_RETURN	0	probe.GenOverride#viaInterface(Named) [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	0	probe.GenOverride.Named#describe() [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	0	probe.GenOverride.Named#getName() [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	0	probe.GenOverride.Person#describe() [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	0	probe.GenOverride.Robot#describe() [METHOD] -> -
+ambiguous_unknown	METHOD_RETURN	0	probe.GenOverride.Robot#getName() [METHOD] -> -
+known_edge	IMPLEMENTS_INTERFACE	0	probe.GenOverride.Person [TYPE] -> probe.GenOverride.Named
+known_edge	IMPLEMENTS_INTERFACE	0	probe.GenOverride.Robot [TYPE] -> probe.GenOverride.Named
+known_edge	METHOD_PARAM	0	probe.GenOverride#viaInterface(Named) [METHOD_PARAM] -> probe.GenOverride.Named
+known_edge	OBJECT_CREATION_TYPE	0	probe.GenOverride#main(String[]) [EXPRESSION] -> probe.GenOverride.Person
+known_edge	OBJECT_CREATION_TYPE	0	probe.GenOverride#main(String[]) [EXPRESSION] -> probe.GenOverride.Robot
