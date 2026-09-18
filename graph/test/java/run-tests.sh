@@ -99,6 +99,14 @@ if ! bash "$ROOT/graph/test/tools/souffle-include-test.sh"; then
   echo "aborting: the soufflé include path does not resolve to a compilable -I"
   exit 1
 fi
+# ── The program text must not follow the user's locale ─────────────────────
+# Bash orders a glob by LC_COLLATE, so an unpinned collation made the cache key, and with it
+# whether a published engine is accepted, a function of the environment rather than the rules.
+# Invisible on macOS, whose collation matches C either way. See #895.
+if ! bash "$ROOT/graph/test/tools/engine-id-locale-test.sh"; then
+  echo "aborting: the program text depends on the shell locale"
+  exit 1
+fi
 # ── The bundle stage must build the language-neutral output ─────────────────
 # Every solve below ends by joining the raw relations to the IR and writing graph.sqlite
 # (graph/bundle/SCHEMA.md); graph/*.csv is the same core tables and is written only under

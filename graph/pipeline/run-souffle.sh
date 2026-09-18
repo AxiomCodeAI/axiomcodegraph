@@ -112,6 +112,21 @@ input_relations(){
   printf '%s\n' jdk_max_depth lib_max_depth taint_gating dispatch_cap
 }
 write_program(){ # $1 = destination file
+  # COLLATION IS PART OF THE PROGRAM TEXT, so it is pinned here rather than inherited. The
+  # #include lines below come from shell globs, and bash orders a glob by LC_COLLATE, not by
+  # byte value. A UTF-8 collation ignores punctuation when comparing, so call-site.dl and
+  # callee-resolution.dl swap places against their byte order. The include order is part of
+  # the program text, the program text is hashed, and that hash is the engine id -- so
+  # whether a published binary is accepted becomes a function of the user's locale rather
+  # than of the rules, and the refusal names the rules. CI runs under a C-ish locale while a
+  # UTF-8 locale is the default on most Linux desktops, in macOS terminals and in Git Bash,
+  # so the mismatch is the common case. Measured: java and python ids differ between macOS
+  # and MSYS2, and between LC_ALL=C and en_US.UTF-8 on glibc; typescript and javascript
+  # agree only because no pair of their filenames collides. Invisible on macOS, whose
+  # collation matches C either way, which is why it survived. The sorts below were already
+  # forced to C for this reason; the globs were not.
+  # See issue #895 and graph/test/tools/engine-id-locale-test.sh.
+  local LC_ALL=C LC_COLLATE=C
   {
     echo "#include \"$LANG_ARG/souffle/decls_base.dl\""; echo "#include \"$LANG_ARG/souffle/decls_all.dl\""
     # rfc4180=true: the IR is CSV, not TSV. The parser quotes any field containing a
