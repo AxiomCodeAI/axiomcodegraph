@@ -26,6 +26,12 @@
     "parser"
   ],
   "license": "FSL-1.1-Apache-2.0",
+  "optionalDependencies": {
+    "@axiomcode/engine-darwin-arm64": "0.1.0",
+    "@axiomcode/engine-linux-x64": "0.1.0",
+    "@axiomcode/engine-linux-arm64": "0.1.0",
+    "@axiomcode/engine-win32-x64": "0.1.0"
+  },
   "bin": {
     "axiomcode": "bin/axiomcode"
   },

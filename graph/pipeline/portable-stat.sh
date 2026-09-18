@@ -52,3 +52,13 @@ sha1_stdin(){
   [ -n "$_SHA1_CMD" ] || { echo "neither shasum nor sha1sum is on PATH" >&2; return 1; }
   "$_SHA1_CMD" | cut -d' ' -f1
 }
+
+# sha256 of stdin, for the engine id. Same three spellings as sha1 above: `shasum -a 256`
+# (macOS, perl shasum in Git Bash) or `sha256sum` (coreutils).
+if command -v sha256sum >/dev/null 2>&1;  then _SHA256_CMD="sha256sum"
+elif command -v shasum >/dev/null 2>&1;   then _SHA256_CMD="shasum -a 256"
+else _SHA256_CMD=""; fi
+sha256_stdin(){
+  [ -n "$_SHA256_CMD" ] || { echo "neither sha256sum nor shasum is on PATH" >&2; return 1; }
+  $_SHA256_CMD | cut -d' ' -f1
+}
