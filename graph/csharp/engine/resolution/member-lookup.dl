@@ -1,0 +1,168 @@
+// ============================================================================
+// RESOLUTION · MEMBER LOOKUP
+//
+// member_lookup(Prov, GroupKey, Name, MemberKind, MemberHash) -- what the name `Foo`
+// means on a receiver of this type. The DECLARED member, before dispatch: dispatch
+// (virtual-dispatch.dl) then asks which override actually runs.
+//
+// C# LOOKUP RULES THAT A JAVA-SHAPED LOOKUP GETS WRONG:
+//
+//  1. THE NEAREST DECLARATION WINS, AND `new` MAKES ONE. C# lets a derived type
+//     HIDE a base member with `public new void M()`. That is not an override: a
+//     base-typed receiver reaches the BASE method and only a derived-typed receiver
+//     reaches the hiding one. So lookup is by DISTANCE up the hierarchy, and the
+//     nearest declaration is the answer -- which also handles ordinary overriding.
+//
+//  2. AN EXPLICIT INTERFACE IMPLEMENTATION IS NOT A MEMBER OF THE CLASS.
+//     `void IFoo.Bar()` is reachable through an IFoo-typed receiver and NOT through
+//     a class-typed one. Treating it as a class member creates an edge the compiler
+//     rejects; omitting it from the interface lookup loses the only real target.
+//
+//  3. INTERFACE INHERITANCE IS A LATTICE, NOT A CHAIN. A type may reach the same
+//     name through two unrelated interfaces, and C# itself calls that ambiguous.
+//     The answer is a SET, and it is labelled as such rather than resolved by
+//     picking one.
+//
+//  4. MEMBERS SHARE ONE NAME SPACE. `x.Foo` may be a method, a property, a field or
+//     an event, and the lookup has to consider all of them at once. Asking only
+//     about methods cannot distinguish "no such member" from "a property".
+//
+//  5. AN EXTENSION METHOD IS NOT A MEMBER AT ALL. It is a static method that LOOKS
+//     like one. It is deliberately absent from this file and handled in
+//     resolution/extensions.dl, which runs only where member lookup found nothing,
+//     which is exactly the language's own rule.
+// ============================================================================
+
+// ── DECLARED MEMBERS, BY DISTANCE ───────────────────────────────────────────
+// Distance 0 is the type's own declaration (every part of a partial type, via
+// type_member_name's group scope). Distance n is n steps up the CLASS chain.
+member_cand(prov, gk, n, kind, mem, 0) :- type_member_name(prov, gk, n, kind, mem).
+member_cand(prov, gk, n, kind, mem, d) :-
+    type_base_chain(prov, gk, bgk, d),
+    type_member_name(prov, bgk, n, kind, mem).
+// The chain may cross into a staged library.
+member_cand("client", gk, n, kind, mem, d) :-
+    type_base_chain("client", gk, bgk, d),
+    type_member_name("lib", bgk, n, kind, mem).
+
+// ── AN EXPLICIT INTERFACE IMPLEMENTATION IS EXCLUDED ────────────────────────
+// It is not a member of the declaring type. Removed from the candidate set rather
+// than filtered at the use site, so every consumer inherits the rule.
+member_is_explicit_impl(prov, mem) :- method_explicit_interface(prov, mem, _).
+member_is_explicit_impl(prov, mem) :- property_explicit_interface(prov, mem, _).
+
+// ── AN ACCESSOR IS NOT LOOKED UP BY ITS OWN NAME ────────────────────────────
+// `get_Name` is not a name anyone writes; the caller writes `Name`. Accessors are
+// reached through the property (resolution/properties.dl), so they are kept out of
+// the name table. type_member_name already excludes them; this states the reason.
+
+// ── THE NEAREST DECLARATION ─────────────────────────────────────────────────
+// min over distance, per (type, name). This is what makes `new`-hiding correct
+// without a special case: the hiding declaration is at a smaller distance than the
+// one it hides, so it wins, and the hidden one is not in the answer.
+member_best_rank(prov, gk, n, d) :-
+    member_cand(prov, gk, n, _, _, _),
+    d = min k : { member_cand(prov, gk, n, _, m, k), !member_is_explicit_impl(prov, m) }.
+
+member_lookup(prov, gk, n, kind, mem) :-
+    member_cand(prov, gk, n, kind, mem, d),
+    member_best_rank(prov, gk, n, d),
+    !member_is_explicit_impl(prov, mem).
+
+// ── INTERFACE MEMBERS ───────────────────────────────────────────────────────
+// A call through an interface-typed receiver looks up in the interface and in every
+// interface it extends. No distance ordering: interface inheritance is a lattice and
+// there is no nearest, so every reachable declaration is an answer and two unrelated
+// ones make the site genuinely ambiguous.
+interface_member(prov, igk, n, kind, mem) :- type_member_name(prov, igk, n, kind, mem).
+interface_member(prov, igk, n, kind, mem) :-
+    interface_extends(prov, igk, jgk), interface_member(prov, jgk, n, kind, mem).
+interface_member("client", igk, n, kind, mem) :-
+    interface_extends("client", igk, jgk), interface_member("lib", jgk, n, kind, mem).
+
+// Lookup ON AN INTERFACE TYPE goes through the lattice, not the class chain.
+member_lookup(prov, igk, n, kind, mem) :-
+    type_group(prov, it, igk), type_is_interface(prov, it),
+    interface_member(prov, igk, n, kind, mem).
+
+// ── DEFAULT INTERFACE IMPLEMENTATIONS (C# 8) ────────────────────────────────
+// An interface member MAY have a body. `interface ILogger { void Log(string s) =>
+// Console.WriteLine(s); }` is a real method with real calls in it, and a type that
+// implements ILogger without overriding Log inherits that body. So the interface
+// declaration is not always an abstract stub, and a dispatch that only looks at
+// implementing classes misses the case where the interface itself is the target.
+interface_has_default_impl(prov, mem) :-
+    method_owner(prov, it, mem), type_is_interface(prov, it),
+    method_has_body(prov, mem).
+
+// ── MEMBER LOOKUP FAILURE, RECORDED ─────────────────────────────────────────
+// The name is not a member of the type or of anything it inherits. Three very
+// different situations, and they must not be conflated, because only the first is a
+// defect in this engine:
+//
+//   the receiver type was resolved and the member genuinely is not there
+//     -> either an extension method (extensions.dl), or a real blind spot
+//   the type's hierarchy is INCOMPLETE (an unresolved base)
+//     -> a boundary: the member may well be declared in the base nobody staged
+//   the receiver type was never resolved at all
+//     -> a different failure, handled where the receiver is typed
+member_lookup_miss(prov, gk, n) :-
+    member_lookup_demand(prov, gk, n),
+    !member_lookup(prov, gk, n, _, _).
+
+// Demand: the (type, name) pairs something actually asked about. Keyed on real call
+// sites and member accesses, so the miss count counts failures rather than names.
+member_lookup_demand(prov, gk, n) :-
+    call_recv_type(prov, e, gk), call_callee_name(prov, e, n).
+
+// A miss on a type whose hierarchy is incomplete is a BOUNDARY, not a blind spot.
+// Separated so the call-edge layer can classify the site correctly and so the
+// blind-spot count is not inflated by unstaged dependencies.
+member_lookup_miss_boundary(prov, gk, n) :-
+    member_lookup_miss(prov, gk, n), type_hierarchy_incomplete(prov, gk).
+member_lookup_miss_real(prov, gk, n) :-
+    member_lookup_miss(prov, gk, n), !type_hierarchy_incomplete(prov, gk).
+
+// ── METHOD MEMBERS, THE SET DISPATCH STARTS FROM ────────────────────────────
+// Narrowed to methods, and mapped through method_impl_target so a partial
+// definition hands off to its implementation before anything else reads it.
+member_method(prov, gk, n, m) :-
+    member_lookup(prov, gk, n, "method", decl),
+    method_impl_target(prov, decl, m).
+
+// ── AMBIGUITY ───────────────────────────────────────────────────────────────
+// Two declarations of one name at the best rank. On a class that means two parts of
+// a partial type declared it (which does not compile) or two unrelated interfaces
+// provide it (which C# reports as ambiguous and requires a cast to resolve). Either
+// way the engine keeps both and says so.
+member_lookup_count(prov, gk, n, c) :-
+    member_lookup(prov, gk, n, _, _),
+    c = count : { member_lookup(prov, gk, n, _, _) }.
+member_lookup_ambiguous(prov, gk, n) :- member_lookup_count(prov, gk, n, c), c >= 2.
+
+// ── STATIC VS INSTANCE ──────────────────────────────────────────────────────
+// `Foo.M()` is a static call on a type; `foo.M()` is an instance call on a value.
+// Both arrive as receiverKind NAME, so the engine decides -- and the decision is
+// made by which of the two the resolved member IS, not by guessing from the name's
+// case or shape. Named here so the call rules can require agreement: a static
+// member reached through an instance receiver, or the reverse, is a wrong edge.
+member_is_static(prov, mem) :- method_is_static(prov, mem).
+member_is_static(prov, mem) :- property_modifier(prov, mem, "static").
+member_is_static(prov, mem) :- field_is_static(prov, mem).
+member_is_static(prov, mem) :- enum_member_decl(prov, _, _, mem).
+
+// ── MEMBER VISIBILITY ───────────────────────────────────────────────────────
+// A `private` member is visible only inside its own type (and its nested types); a
+// `protected` one inside subclasses; `internal` inside the assembly. Applied where
+// it changes the ANSWER rather than everywhere: for a call site, visibility narrows
+// an otherwise ambiguous set, and a call to something genuinely invisible does not
+// compile, so a resolved-but-invisible member usually means the lookup was wrong.
+//
+// Not used as a hard filter. A source generator emitting a call to a private member
+// of a partial type is legal and common, and a visibility filter written from the
+// declaration site alone rejects it.
+member_access(prov, mem, a) :- method_decl(prov, _, _, _, mem), method_access_of(prov, mem, a).
+method_access_of("client", m, a) :-
+    cs_method(_, _, _, _, _, _, a, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+method_access_of("lib", m, a) :-
+    lib_cs_method(_, _, _, _, _, _, a, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).

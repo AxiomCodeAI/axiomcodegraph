@@ -24,7 +24,15 @@ export interface RawSource {
 /** Header names of one IR entity file that carry the core columns. */
 export interface MethodsIR {
   file: string; id: string; name: string; qualifiedName: string; kind: string;
-  ownerTypeId: string; filePath: string; startLine: string; endLine: string;
+  ownerTypeId: string; startLine: string; endLine: string;
+  /**
+   * absent where the entity row carries no path of its own, in which case the file is
+   * resolved through `moduleId` against the modules table. C# is that shape: a
+   * cs_method row names its module and its type and neither carries a path, and the
+   * type is legitimately blank for a top-level-statements entry point and for a local
+   * function -- so the type cannot be the route either.
+   */
+  filePath?: string;
   /** absent where the IR has no such column (JavaScript declares no signatures); the core column is then '' / NULL */
   signature?: string; ownerQualifiedName?: string;
   /** the column naming the owning module, where a LIBRARY row's names are relative to its own package root and need the package prefixed (see ModulesIR.packageName) */
@@ -32,7 +40,9 @@ export interface MethodsIR {
 }
 export interface TypesIR {
   file: string; id: string; name: string; qualifiedName: string; category: string;
-  filePath: string; startLine: string; endLine: string;
+  startLine: string; endLine: string;
+  /** absent where the row carries no path; resolved through `moduleId` (see MethodsIR). */
+  filePath?: string;
   moduleId?: string;
 }
 /**
@@ -52,9 +62,12 @@ export interface ModulesIR { file: string; id: string; filePath: string; package
 export interface FieldsIR {
   file: string; id: string; name: string; ownerTypeId: string;
   ownerQualifiedName?: string; typeName?: string; modifiers?: string;
-  filePath: string; startLine: string; endLine: string;
+  startLine: string; endLine: string;
+  /** absent where the row carries no path; resolved through `moduleId` (see MethodsIR). */
+  filePath?: string;
+  moduleId?: string;
   /** a second file holding enum constants, with the same column roles */
-  enumConstants?: { file: string; id: string; name: string; ownerTypeId: string; ownerQualifiedName?: string; filePath: string; startLine: string; endLine: string };
+  enumConstants?: { file: string; id: string; name: string; ownerTypeId: string; ownerQualifiedName?: string; filePath?: string; moduleId?: string; startLine: string; endLine: string };
 }
 /** The expressions table — the universal fallback for a site's position. */
 export interface ExpressionsIR {
@@ -291,7 +304,57 @@ const JAVASCRIPT: LanguageAdapter = {
   },
 };
 
-export const ADAPTERS: Record<Language, LanguageAdapter> = { java: JAVA, typescript: TYPESCRIPT, python: PYTHON, javascript: JAVASCRIPT };
+const CSHARP: LanguageAdapter = {
+  language: 'csharp',
+  prefixes: { method: 'CS_METHOD_', type: 'CS_TYPE_', expression: 'CS_EXPRESSION_', module: 'CS_MODULE_' },
+  raw: {
+    callEdges: CALL_EDGES,
+    typeAncestors: { file: 'resolution-type-ancestor.csv', columns: [1, 2] },
+    entryPoints: { file: 'entry-point.csv', columns: [0, 1] },
+    entryReachable: { file: 'entry-reachable.csv', columns: [0] },
+    dispatchCandidates: { file: 'dispatch-candidates.csv', columns: [0, 1, 2] },
+    // (prov, type) — no "how"; every row is a construction
+    typeInstantiated: { file: 'resolution-type-instantiated.csv', columns: [1], constant: 'new' },
+  },
+  ir: {
+    // A C# method row carries BOTH its module and its type, and the type is empty for a
+    // top-level-statements entry point and for a local function. ownerTypeId is therefore
+    // legitimately blank on some rows, and the file comes from moduleId rather than from
+    // the owning type — which is why moduleId is set here and is not on the Java adapter.
+    methods: {
+      file: 'all-csharp-methods.csv', id: 'csMethodUniqueHash', name: 'name', qualifiedName: 'qualifiedName',
+      signature: 'signature', kind: 'methodKind', ownerTypeId: 'csTypeLinkHash',
+      startLine: 'startLine', endLine: 'endLine', moduleId: 'csModuleLinkHash',
+    },
+    types: {
+      file: 'all-csharp-types.csv', id: 'csTypeUniqueHash', name: 'name', qualifiedName: 'qualifiedName',
+      category: 'typeCategory', startLine: 'startLine', endLine: 'endLine',
+      moduleId: 'csModuleLinkHash',
+    },
+    // cs_field carries ordinary fields AND const members; a C# enum member is its own
+    // relation and is not mapped here, because unlike a Java enum constant it has no
+    // declared type column and is reached through cs_enum_member instead.
+    fields: {
+      file: 'all-csharp-fields.csv', id: 'csFieldUniqueHash', name: 'name', ownerTypeId: 'csTypeLinkHash',
+      typeName: 'fieldTypeName', modifiers: 'fieldModifiers',
+      startLine: 'startLine', endLine: 'endLine', moduleId: 'csModuleLinkHash',
+    },
+    modules: { file: 'all-csharp-modules.csv', id: 'csModuleUniqueHash', filePath: 'filePath' },
+    // A C# expression row carries its own module, so the file comes straight off it.
+    expressions: {
+      file: 'all-csharp-expressions.csv', id: 'csExpressionUniqueHash', kind: 'kind',
+      startLine: 'startLine', startColumn: 'startColumn', endLine: 'endLine', endColumn: 'endColumn',
+      fileVia: { column: 'csModuleLinkHash', through: 'modules' },
+    },
+    callSites: {
+      file: 'all-csharp-call-sites.csv', expressionId: 'csExpressionLinkHash', calleeName: 'calleeName',
+      startLine: 'startLine', startColumn: 'startColumn',
+      fileVia: { column: 'csModuleLinkHash', through: 'modules' },
+    },
+  },
+};
+
+export const ADAPTERS: Record<Language, LanguageAdapter> = { java: JAVA, typescript: TYPESCRIPT, python: PYTHON, javascript: JAVASCRIPT, csharp: CSHARP };
 
 export function adapterFor(language: string): LanguageAdapter {
   const a = (ADAPTERS as Record<string, LanguageAdapter>)[language];

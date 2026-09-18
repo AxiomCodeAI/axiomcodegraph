@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    THE STATIC ORACLE. A ground-truth call graph for C#, produced by the compiler's
+    own semantic model rather than by anything this repository wrote.
+
+    WHY THE VERSIONS ARE PINNED HERE AND NOT FLOATING: an oracle whose answers move
+    when a package resolves differently is not an oracle. 4.12.0 is also the version
+    the parser's own corpus audit was measured against, so a parser number and an
+    engine number from this repository are comparable.
+
+    LanguageVersion 13 matches that audit too. A project written in C# 14 will have
+    constructs this oracle reads as errors; those files are REPORTED rather than
+    skipped silently, because a file the oracle could not read is not evidence about
+    the engine either way.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>axiom-cs-oracle</AssemblyName>
+    <RootNamespace>AxiomCsOracle</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.12.0" />
+  </ItemGroup>
+
+</Project>

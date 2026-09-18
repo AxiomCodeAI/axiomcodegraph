@@ -1,0 +1,275 @@
+// ============================================================================
+// RESOLUTION · VIRTUAL DISPATCH
+//
+// Member lookup says WHICH DECLARATION a name binds to. This file says WHICH BODY
+// RUNS. The two differ whenever the declaration is virtual, abstract, an interface
+// member, or a default interface implementation.
+//
+// THE FOUR C# FACTS THIS FILE IS BUILT ON:
+//
+//  1. DISPATCH IS OPT-IN. A C# method is non-virtual unless it says `virtual`,
+//     `abstract` or `override`, or is an interface member. This is the opposite of
+//     Java, where every instance method is virtual. So the DEFAULT here is an exact
+//     edge, and a fan-out has to be justified by a modifier. An engine that ports
+//     Java's assumption fans out on most of a C# codebase and reports
+//     multi_inferred where the answer is monomorphic.
+//
+//  2. `new` HIDES, IT DOES NOT OVERRIDE. A hiding method is NOT in the override set
+//     of the member it hides. Putting it there adds an edge the runtime never takes.
+//
+//  3. `base.M()` IS NON-VIRTUAL, ALWAYS. It calls the base implementation even
+//     though M is virtual. One exact edge, never a fan.
+//
+//  4. `sealed override` STOPS THE CHAIN. A receiver of that type is exact for that
+//     member even though the type itself can still be derived from.
+//
+// AND ONE ABOUT SOUNDNESS: the fan-out is over CONCRETE types only, because the
+// runtime receiver is always a concrete instance. Including abstract classes and
+// interfaces in the fan inflates every width with types that cannot be there.
+// ============================================================================
+
+// ── THE OVERRIDE RELATION ───────────────────────────────────────────────────
+// overrides(Prov, Derived, Base) -- Derived is `override` and Base is the nearest
+// declaration of the same name and shape up the class chain.
+//
+// MATCHED ON NAME, PARAMETER COUNT AND GENERIC ARITY. Not on the signature text: a
+// covariant return type, a nullable annotation difference, or a type parameter
+// renamed in the derived declaration all change the text without changing what is
+// overridden. Matching on text loses those, and each loss is an override chain that
+// silently breaks.
+override_cand(prov, derived, base, d) :-
+    method_is_override(prov, derived),
+    method_in_type(prov, dgk, derived),
+    type_base_chain(prov, dgk, bgk, d),
+    method_in_type(prov, bgk, base),
+    method_name(prov, derived, n), method_name(prov, base, n),
+    method_paramc(prov, derived, pc), method_paramc(prov, base, pc),
+    method_type_arity(prov, derived, ar), method_type_arity(prov, base, ar),
+    method_is_dispatchable(prov, base),
+    !method_hides_base(prov, base).
+override_cand("client", derived, base, d) :-
+    method_is_override("client", derived),
+    method_in_type("client", dgk, derived),
+    type_base_chain("client", dgk, bgk, d),
+    method_in_type("lib", bgk, base),
+    method_name("client", derived, n), method_name("lib", base, n),
+    method_paramc("client", derived, pc), method_paramc("lib", base, pc),
+    method_type_arity("client", derived, ar), method_type_arity("lib", base, ar),
+    method_is_dispatchable("lib", base).
+
+// The NEAREST base declaration is the one overridden. A three-level chain
+// A.M virtual, B.M override, C.M override makes C.M override B.M, and B.M override
+// A.M; C.M does not directly override A.M, and the transitive closure below is what
+// connects them.
+override_depth(prov, derived, base, d) :-
+    override_cand(prov, derived, base, _),
+    d = min k : { override_cand(prov, derived, _, k) }.
+overrides(prov, derived, base) :-
+    override_cand(prov, derived, base, d), override_depth(prov, derived, base, d).
+
+// overrides_transitive -- C.M answers for a call on an A-typed receiver.
+overrides_transitive(prov, derived, base) :- overrides(prov, derived, base).
+overrides_transitive(prov, derived, base) :-
+    overrides(prov, derived, mid), overrides_transitive(prov, mid, base).
+
+// ── INTERFACE IMPLEMENTATION ────────────────────────────────────────────────
+// implements_member(Prov, ClassMethod, InterfaceMethod) -- the class method that
+// satisfies an interface member. Two forms, and both are needed:
+//
+//   IMPLICIT: a public method of matching name and shape. It is an ordinary member
+//     of the class as well.
+//   EXPLICIT: `void IFoo.Bar()`. NOT a member of the class, reachable only through
+//     an IFoo-typed receiver, which is why member-lookup.dl excludes it and this
+//     rule includes it.
+implements_member(prov, impl, ifaceM) :-
+    type_satisfies(prov, gk, igk),
+    interface_member(prov, igk, n, "method", ifaceM),
+    member_method(prov, gk, n, impl),
+    method_paramc(prov, impl, pc), method_paramc(prov, ifaceM, pc),
+    method_type_arity(prov, impl, ar), method_type_arity(prov, ifaceM, ar).
+implements_member("client", impl, ifaceM) :-
+    type_satisfies("client", gk, igk),
+    interface_member("lib", igk, n, "method", ifaceM),
+    member_method("client", gk, n, impl),
+    method_paramc("client", impl, pc), method_paramc("lib", ifaceM, pc),
+    method_type_arity("client", impl, ar), method_type_arity("lib", ifaceM, ar).
+
+// The explicit form, matched by the interface NAME written on the declaration.
+implements_member(prov, impl, ifaceM) :-
+    method_explicit_interface(prov, impl, ifaceName),
+    method_in_type(prov, gk, impl),
+    type_satisfies(prov, gk, igk),
+    type_group(prov, it, igk), type_decl(prov, iname, iqn, _, _, it),
+    (ifaceName = iname ; ifaceName = iqn),
+    interface_member(prov, igk, n, "method", ifaceM),
+    method_name(prov, impl, n),
+    method_paramc(prov, impl, pc), method_paramc(prov, ifaceM, pc).
+
+// ── THE DISPATCH TARGET SET ─────────────────────────────────────────────────
+// dispatch_target(Prov, DeclaredMethod, RuntimeMethod, Reason) -- given the declared
+// member a call binds to, every body that could run. The reason is carried so a fan
+// can be explained rather than just counted.
+
+// A non-dispatchable method is its own only target. THIS IS THE COMMON CASE IN C#,
+// and stating it first is deliberate: most C# methods are not virtual, so most sites
+// are exact.
+dispatch_target(prov, m, m, "static_binding") :-
+    method_decl(prov, _, _, _, m), !method_is_dispatchable(prov, m).
+
+// A dispatchable method: itself (an instance of the declaring type may be the
+// receiver, unless it is abstract) plus every override below it.
+dispatch_target(prov, m, m, "declared") :-
+    method_is_dispatchable(prov, m), !method_is_abstract(prov, m).
+dispatch_target(prov, m, d, "override") :- overrides_transitive(prov, d, m).
+dispatch_target("client", m, d, "override") :- overrides_transitive("client", d, m).
+
+// An interface member dispatches to every implementation, in every type that
+// satisfies the interface.
+dispatch_target(prov, ifaceM, impl, "interface_impl") :- implements_member(prov, impl, ifaceM).
+dispatch_target("client", ifaceM, impl, "interface_impl") :- implements_member("client", impl, ifaceM).
+// ...and to the interface's own body where it has a DEFAULT implementation and the
+// type does not override it. The interface method is then a real target, not a stub.
+dispatch_target(prov, ifaceM, ifaceM, "default_interface_impl") :-
+    interface_has_default_impl(prov, ifaceM).
+
+// An override is also a target through everything IT overrides, transitively, which
+// the closure above gives. What it must NOT pick up is a HIDING method.
+dispatch_excluded_hiding(prov, m, h) :-
+    method_hides_base(prov, h),
+    method_in_type(prov, hgk, h), method_in_type(prov, bgk, m),
+    type_base_chain(prov, hgk, bgk, _),
+    method_name(prov, h, n), method_name(prov, m, n),
+    method_paramc(prov, h, pc), method_paramc(prov, m, pc).
+
+// ── NARROWING: WHEN THE FAN IS NOT NEEDED ───────────────────────────────────
+// Four conditions, each of which makes a site exact. Each is a language guarantee
+// rather than a heuristic, so applying them loses nothing.
+
+// (a) `base.M()` -- non-virtual by definition.
+dispatch_is_exact(prov, e) :- call_is_base(prov, e).
+
+// (b) EVERY possible receiver type cannot be derived from: a struct, an enum, or a
+// sealed class. UNIVERSAL, NOT EXISTENTIAL, and that distinction cost a whole
+// project's fan soundness.
+//
+// A receiver may have SEVERAL types -- a name that resolves to both a value and a
+// type, a field assigned two concrete types, a conditional. Serilog's `Logger`
+// resolves to both the static property (typed `ILogger`) and the sealed class
+// `Serilog.Core.Logger`, and an existential test made the site exact because ONE of
+// the two is sealed. The fan was then skipped and every implementor of ILogger
+// disappeared from it: 39 unsound fans, 38.10% soundness on that project, while the
+// dispatch relation underneath held the right answer all along.
+call_recv_open(prov, e) :- call_recv_type(prov, e, gk), !type_cannot_be_derived(prov, gk).
+dispatch_is_exact(prov, e) :- call_recv_type(prov, e, _), !call_recv_open(prov, e).
+
+// (c) and (d) EVERY member the name resolves to is statically bound -- `sealed
+// override`, or not dispatchable at all. Universal for the same reason: one
+// non-virtual overload among several must not make a virtual one exact.
+call_member_dispatches(prov, e) :-
+    call_recv_type(prov, e, gk), call_callee_name(prov, e, n),
+    member_method(prov, gk, n, m),
+    method_is_dispatchable(prov, m), !method_is_sealed(prov, m).
+call_has_member(prov, e) :-
+    call_recv_type(prov, e, gk), call_callee_name(prov, e, n), member_method(prov, gk, n, _).
+dispatch_is_exact(prov, e) :- call_has_member(prov, e), !call_member_dispatches(prov, e).
+
+// (e) The receiver is a NEWLY CONSTRUCTED object: `new Circle().Area()`. Its runtime
+// type is exactly what was constructed. This is the one case where the receiver's
+// type is known more precisely than its declaration.
+dispatch_is_exact(prov, e) :- call_recv_exact_type(prov, e, _).
+
+// ── THE FAN: ASKED PER POSSIBLE RUNTIME TYPE ────────────────────────────────
+// dispatch_concrete_target(Prov, DeclaredMethod, RuntimeMethod) -- the bodies that
+// can run for a call bound to DeclaredMethod.
+//
+// FORMULATED AS "FOR EACH TYPE THE RECEIVER COULD BE, WHAT DOES ITS OWN LOOKUP
+// GIVE", which is what CHA actually means. The first version of this rule filtered
+// dispatch_target by whether the TARGET'S DECLARING TYPE is concrete, and that is a
+// different and wrong question. `Shape` is abstract and declares `virtual Describe`;
+// `Square` is concrete and does not override it. So the body that runs on a Square
+// receiver is Shape.Describe -- declared in an abstract type, and dropped by a
+// filter on the declaring type. Measured on the probe project: `s.Describe()` on an
+// IShape receiver reported ONE target (Circle.Describe) and was labelled known_edge,
+// which is worse than a missing edge: it claims monomorphism while omitting the
+// target half the receivers take.
+//
+// Asking per runtime type gets all four cases right with no special casing:
+//   overridden          Circle -> Circle.Describe
+//   inherited           Square -> Shape.Describe
+//   interface impl      any implementor -> its own member
+//   `new`-hidden        member_lookup already returns the nearest declaration
+dispatch_runtime_target(prov, m, t) :-
+    method_in_type(prov, ogk, m),
+    method_name(prov, m, n),
+    type_self_or_ancestor(prov, cgk, ogk),
+    type_is_concrete(prov, cgk),
+    member_method(prov, cgk, n, t),
+    method_paramc(prov, m, pc), method_paramc(prov, t, pc),
+    method_type_arity(prov, m, ar), method_type_arity(prov, t, ar).
+// The same across the provenance boundary: a client type deriving from a staged
+// library base, and a client implementor of a library interface.
+dispatch_runtime_target("client", m, t) :-
+    method_in_type("lib", ogk, m),
+    method_name("lib", m, n),
+    type_self_or_ancestor("client", cgk, ogk),
+    type_is_concrete("client", cgk),
+    member_method("client", cgk, n, t),
+    method_paramc("lib", m, pc), method_paramc("client", t, pc),
+    method_type_arity("lib", m, ar), method_type_arity("client", t, ar).
+
+// A NON-DISPATCHABLE method is its own only target, and the clause above does not
+// cover it: a static or private method has no subtype whose lookup would find it
+// through the hierarchy, and a method on a type with no concrete subtype at all
+// (an abstract class nobody derives from in view) would otherwise have no target.
+dispatch_concrete_target(prov, m, m) :- method_decl(prov, _, _, _, m), !method_is_dispatchable(prov, m).
+
+// An interface member with a DEFAULT implementation is a real target: the interface
+// itself has no concrete declaring type, and the body still runs for any implementor
+// that does not override it.
+dispatch_concrete_target(prov, m, m) :- interface_has_default_impl(prov, m).
+
+// A dispatchable method whose declaring type has NO concrete subtype in view -- an
+// abstract base whose implementors are in an unstaged assembly, or an interface
+// nothing in the project implements. The declaration is then the only thing that can
+// be named, and naming it keeps the site in the graph; site_leaves_client marks it so
+// it is not presented as monomorphic.
+// KEYED ON dispatch_runtime_target, NOT ON dispatch_concrete_target. Negating the
+// relation this clause also writes puts the negation inside its own recursion, which
+// souffle refuses: `Unable to stratify relation(s) {dispatch_concrete_target,
+// dispatch_has_concrete}`. The per-runtime-type answer is purely positive, so asking
+// it instead keeps the fallback in a later stratum.
+dispatch_has_runtime(prov, m) :- dispatch_runtime_target(prov, m, _).
+dispatch_concrete_target(prov, m, t) :- dispatch_runtime_target(prov, m, t).
+dispatch_concrete_target(prov, m, m) :-
+    method_is_dispatchable(prov, m), !dispatch_has_runtime(prov, m).
+
+cha_override_count(m, n) :-
+    method_decl("client", _, _, _, m),
+    n = count : { dispatch_concrete_target("client", m, _) }.
+
+// ── THE DISPATCH CAP ────────────────────────────────────────────────────────
+// An OPT-IN width limit. Empty (the default) means uncapped, which is the answer
+// that cannot be wrong. Where a cap is set and a fan exceeds it, the fan is REFUSED
+// and the site is labelled fan_capped with the declared base as its single named
+// target -- not silently truncated, and not presented as monomorphic. A consumer
+// running a reverse closure from an override then finds no caller, and the tier is
+// what tells it why.
+dispatch_capped_at(k) :- dispatch_cap(s), k = to_number(s).
+cha_wide_base(m) :- cha_override_count(m, n), dispatch_capped_at(k), n > k.
+
+// ── TYPE INSTANTIATION, FOR RTA-STYLE NARROWING ─────────────────────────────
+// A type nobody constructs cannot be a runtime receiver. That narrows a fan
+// considerably on a codebase with many implementations of one interface and a
+// factory that builds two of them.
+//
+// SOUND ONLY IF EVERY CONSTRUCTION IS VISIBLE, and in C# it is not: a type is also
+// constructed by reflection, by a DI container, by a deserializer and by a source
+// generator. So this is RECORDED and exported, and it does NOT filter the fan. The
+// distinction is deliberate: a consumer may choose to narrow with it, but an engine
+// that narrows by default reports missing edges on every dependency-injected
+// application, which is most of them.
+type_instantiated(prov, gk) :- call_ctor_target(prov, _, ctor), method_in_type(prov, gk, ctor).
+// A type named in an attribute argument, which is how a framework is told to build
+// it: `[JsonConverter(typeof(FooConverter))]`.
+type_instantiated(prov, gk) :-
+    attribute_arg_type_ref(prov, _, tr), type_ref_resolves(prov, tr, gk).

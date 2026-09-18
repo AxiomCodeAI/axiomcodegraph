@@ -1,0 +1,151 @@
+// ============================================================================
+// CONTAINMENT · TYPE NESTING AND NAMESPACES
+//
+// Nesting comes from containingTypeLinkHash, which the C# IR gives as a LINK. The
+// Java engine has to infer the same relation from line ranges because its IR does
+// not carry it, and that inference is wrong whenever a generator writes a nested
+// type's braces on one line. Here it is a fact.
+//
+// WHAT NESTING IS FOR:
+//
+//  1. An unqualified call inside a nested type resolves in the nested type, then in
+//     each ENCLOSING type outward, then in the namespace. Without the outward chain,
+//     a helper called from an inner class is unresolved.
+//
+//  2. A simple type name resolves against types nested in the enclosing types before
+//     it resolves against the namespace. `Inner` inside `Outer` means `Outer.Inner`
+//     even if a top-level `Inner` exists.
+//
+// GROUP-SCOPED, because a partial type may declare a nested type in one file and be
+// used from another. The nesting relation is between merged entities.
+// ============================================================================
+
+// ── type_in_type(Prov, ChildGroup, ParentGroup) ─────────────────────────────
+// Immediate nesting, between merged entities.
+type_in_type(prov, cgk, pgk) :-
+    type_containing(prov, child, parent),
+    type_group(prov, child, cgk), type_group(prov, parent, pgk),
+    cgk != pgk.
+
+// type_nest_ancestor -- reflexive and transitive: the chain a name search walks
+// outward.
+type_nest_ancestor(prov, gk, gk) :- type_group(prov, _, gk).
+type_nest_ancestor(prov, gk, anc) :- type_in_type(prov, gk, mid), type_nest_ancestor(prov, mid, anc).
+
+// The outermost container. Its namespace is the namespace of the whole nest, which
+// matters because the parser writes the enclosing namespace on every nested
+// declaration and a qualified name has to be assembled consistently.
+type_is_top_level(prov, gk) :- type_group(prov, _, gk), !type_in_type(prov, gk, _).
+type_outermost(prov, gk, gk) :- type_is_top_level(prov, gk).
+type_outermost(prov, gk, top) :- type_in_type(prov, gk, mid), type_outermost(prov, mid, top).
+
+// ── NAMESPACES ──────────────────────────────────────────────────────────────
+// type_ns(Prov, GroupKey, Namespace) -- where a simple name is looked up. Read off
+// any declaration site; every part of a partial type must be in the same namespace,
+// which the language requires, so the parts cannot disagree.
+type_ns(prov, gk, ns) :- type_group(prov, t, gk), type_namespace(prov, t, ns).
+
+// ns_declares(Prov, Namespace, Name, Arity, GroupKey) -- THE NAME TABLE for
+// namespace-scoped lookup, keyed on (name, ARITY). Arity is in the key because
+// generics are reified: `Foo` and `Foo<T>` are two different types that share a
+// name, and matching on name alone resolves `new Foo()` to whichever of them the
+// join happened to reach.
+//
+// TOP-LEVEL ONLY. A nested type is NOT reachable by simple name from its namespace:
+// `Outer.Inner` has to be written, or the name has to be resolved from inside
+// Outer. Including nested types here would resolve names the compiler rejects, and
+// would do so most often for the generated nested types that framework code is full
+// of.
+ns_declares(prov, ns, n, ar, gk) :-
+    type_decl(prov, n, _, ar, _, t), type_group(prov, t, gk),
+    type_ns(prov, gk, ns),
+    type_is_top_level(prov, gk).
+
+// nested_declares(Prov, OuterGroup, Name, Arity, InnerGroup) -- the name table for
+// lookup from INSIDE a type. This is what makes `Inner` resolve to `Outer.Inner`.
+nested_declares(prov, ogk, n, ar, igk) :-
+    type_in_type(prov, igk, ogk),
+    type_decl(prov, n, _, ar, _, t), type_group(prov, t, igk).
+
+// ── ASSEMBLY SCOPE ──────────────────────────────────────────────────────────
+// type_assembly(Prov, GroupKey, AssemblyName). The assembly is the C# linkage unit:
+// two types with the same qualified name in two assemblies are two types, and an
+// `internal` member is visible only within one. A name match that crosses an
+// assembly boundary the compiler would not cross is a wrong edge, not a lucky one.
+//
+// A partial type's parts are all in one assembly (the language requires it), so any
+// part answers.
+type_assembly(prov, gk, asm) :-
+    type_group(prov, t, gk), type_module(prov, t, mod), module_assembly(prov, mod, asm, _).
+
+// ── THE FILE SCOPE A NAME IS RESOLVED IN ────────────────────────────────────
+// module_in_scope(Prov, ModuleHash, Namespace) -- every namespace whose types are
+// reachable by simple name from this file. Three sources, and all three are needed:
+//
+//   the namespace the file's own declarations sit in,
+//   every `using` written in the file,
+//   every `global using` written ANYWHERE in the compilation.
+//
+// The third is what modern C# depends on. A project with <ImplicitUsings>enable</>
+// and one GlobalUsings.cs has no using lines in any other file, so a resolver that
+// scopes usings to their own module finds nothing in scope anywhere.
+module_in_scope(prov, mod, ns) :- module_namespace_own(prov, mod, ns).
+module_in_scope(prov, mod, ns) :- using_namespace(prov, mod, ns).
+module_in_scope(prov, mod, ns) :-
+    module_decl(prov, _, _, _, mod),
+    using_namespace(prov, other, ns), using_decl(prov, _, ns, other, u), using_is_global(prov, u),
+    module_assembly(prov, mod, asm, _), module_assembly(prov, other, asm, _).
+
+// The namespace(s) a file's own declarations are written in. A file with several
+// block namespaces contributes several, which is correct: a type in one of them can
+// name a type in another by simple name only if it is also imported, and this
+// relation is per-namespace rather than per-file for that reason.
+module_namespace_own(prov, mod, ns) :- type_module(prov, t, mod), type_namespace(prov, t, ns).
+
+// An ENCLOSING namespace is also in scope: code in `A.B.C` sees types in `A.B` and
+// `A` by simple name. The enclosing name must itself be a namespace some declaration
+// sits in, so this cannot invent one.
+//
+// SEEDED FROM THE INNER NAME, NOT FROM PAIRS. The obvious way to write this is to
+// take every ordered pair of namespaces and keep those where one is a dotted prefix
+// of the other. That reads naturally and is QUADRATIC: the only variable the two
+// ns_exists atoms share is `prov`, so the body is |namespaces| x |namespaces|
+// candidate pairs, every one of them paying two strlen and two substr calls to be
+// rejected. It is invisible on a small project and it is the whole solve on a large
+// one -- namespaces are not few once a platform and its dependencies are staged, and
+// they cluster under a handful of roots, which is exactly the case where the prefix
+// test discriminates least and the cross product is widest.
+//
+// MEASURED on 16,860 namespaces in that shape (four roots, four levels deep): the
+// pair formulation takes 26.40s, this one 0.24s, and both produce the same 47,096
+// rows. The ten corpus members together declare 126 namespaces, so nothing here shows
+// up in the numbers this engine currently reports -- which is the point of fixing it
+// before it is load-bearing rather than after.
+//
+// The set being searched for is tiny and known from the inner name alone: a dotted
+// namespace has one candidate enclosing name per dot it contains. So enumerate THOSE
+// -- linear in the total text of the namespace names -- and use each as a lookup key
+// into ns_exists, which turns the scan into an indexed probe. Same rows, no cross
+// product. This is the lesson the TypeScript engine records for its qualified-name
+// walk and the Java engine for lib_shadow_cand, restated: when a filter is
+// selective, make it the index key rather than the last conjunct.
+ns_exists(prov, ns) :- type_ns(prov, _, ns), ns != "".
+
+// Every dot position in a namespace name. `range` with a computed bound walks the
+// string once per name.
+ns_dot_at(prov, ns, i) :-
+    ns_exists(prov, ns),
+    i = range(1, strlen(ns)),
+    substr(ns, i, 1) = ".".
+
+// The text before that dot -- a CANDIDATE enclosing name, not yet known to exist.
+ns_prefix(prov, inner, p) :- ns_dot_at(prov, inner, i), p = substr(inner, 0, i).
+
+// It encloses only if it is a namespace a declaration actually sits in. The probe on
+// ns_exists is what replaces the cross product.
+ns_encloses(prov, outer, inner) :- ns_prefix(prov, inner, outer), ns_exists(prov, outer).
+module_in_scope(prov, mod, outer) :-
+    module_namespace_own(prov, mod, inner), ns_encloses(prov, outer, inner).
+
+// The GLOBAL namespace ("") is always in scope.
+module_in_scope(prov, mod, "") :- module_decl(prov, _, _, _, mod).
