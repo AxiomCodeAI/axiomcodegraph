@@ -227,7 +227,7 @@ bin/axiomcode test                      # everything
 
 Each suite parses its fixture cases with the parser in this repository, solves them, guards that no call site was dropped, and diffs the normalised edges against a golden. `--keep` retains per-case work directories (`graph/test/<lang>/.work/<case>/out/graph.sqlite` is a real bundle to poke at); `--bless` regenerates goldens; review the diff. Torture harnesses under `graph/test/<lang>/torture/` score real projects against their oracles.
 
-Editing rules requires [Soufflé](https://souffle-lang.github.io) 2.5 locally (`brew install souffle`; the pinned version is in `graph/pipeline/engine.conf`); the engine recompiles on the first solve after a rule change. Publishing engines: *Actions → publish-npm → Run workflow* (dry run by default) or push a `v*` tag.
+Editing rules requires [Soufflé](https://souffle-lang.github.io) 2.5 locally (`brew install souffle`; the pinned version is in `graph/pipeline/engine.conf`); the engine recompiles on the first solve after a rule change. Publishing engines: the CI workflows are not in the tree yet, so the packages are assembled with `packaging/assemble-engine-package.sh` and published by hand for now.
 
 ## Known limits
 
