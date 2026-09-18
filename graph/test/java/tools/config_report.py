@@ -14,7 +14,7 @@ DECLARED UNKNOWNS ARE PART OF THE GOLDEN. config_unresolved is printed like any 
 section, so losing interpretation power and silently gaining a blind spot both show up
 as a diff — the same contract normalize_edges.py applies to ambiguous_unknown.
 
-usage: config_report.py <IR-dir> <OUT-dir>
+usage: config_report.py <IR-dir> <OUT-dir> [lib-IR-dir]
 """
 import csv, os, sys
 csv.field_size_limit(10**9)   # an IR literalValue can be a base64 asset; see test/tools/csv-limit-test.sh
@@ -94,6 +94,11 @@ def main():
     # (relation file, section title, row -> golden line)
     SECTIONS = [
         ('config-bean-def.csv', 'bean_def',
+         lambda r: f"{r[2]:<16} {r[0]:<22} <- {L.lbl(r[1])}"),
+        # bean_origin is printed next to bean_def deliberately: the pair is the answer to
+        # "which of these beans came from a dependency", and splitting them across the
+        # report would make that need a mental join.
+        ('config-bean-origin.csv', 'bean_origin',
          lambda r: f"{r[2]:<16} {r[0]:<22} <- {L.lbl(r[1])}"),
         ('config-inject-point.csv', 'inject_point',
          lambda r: f"{r[0]:<16} {L.lbl(r[1])} : {L.lbl(r[2])}"),
