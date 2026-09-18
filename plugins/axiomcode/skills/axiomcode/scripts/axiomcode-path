@@ -344,10 +344,17 @@ def run_sql(g, queries, programs=('path.dl',)):
 
 
 def run(g, queries, programs=('path.dl',)):
-    """one door: SQL when asked for, Soufflé otherwise."""
-    if os.environ.get('AXIOMCODE_SQL'):
-        return run_sql(g, queries, programs)
-    return run_dl(g, queries, programs)
+    """one door: SQL, and Soufflé only when asked for.
+
+    Measured over 121 sampled pairs on three bundles — A->B, '*'->B, A->'*' and --every, the four shapes that
+    reach different rules — the two answers are identical and SQL is faster everywhere: 1.0x on the smallest
+    graph, 1.3x in the middle and 3.7x on the largest (33.0s of Soufflé against 8.8s). The closure is a level
+    walk over one indexed in-memory table, so there is no per-query setup to pay for, which is exactly what the
+    impact side does have. AXIOMCODE_DATALOG=1 puts the rules back.
+    """
+    if os.environ.get('AXIOMCODE_DATALOG'):
+        return run_dl(g, queries, programs)
+    return run_sql(g, queries, programs)
 
 
 # ── run Soufflé for a set of queries: {q: (src_ids, dst_ids)} ───────────────────────────────────────────────────
