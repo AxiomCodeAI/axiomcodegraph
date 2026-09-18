@@ -251,7 +251,7 @@ def main():
     print()
     print(f"  CONFIRMED                  {b['CONFIRMED']}   the engine named it and the run took it")
     print(f"  MISSED                     {b['MISSED']}   the run took it and the engine did not name it")
-    print(f"  NOT_EXECUTED               {b['NOT_EXECUTED']}   named, never reached — NO INFORMATION")
+    print(f"  NOT_EXECUTED               {b['NOT_EXECUTED']}   named, never reached -- NO INFORMATION")
     print()
     print(f"  fans the engine emitted:")
     print(f"    NARROWABLE               {b['NARROWABLE']}   several named, exactly one ever taken")

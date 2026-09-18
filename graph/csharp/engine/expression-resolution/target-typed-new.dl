@@ -81,7 +81,7 @@ expr_target_type(prov, e, gk) :-
     expr_value_descendant(prov, root, e).
 
 // ── (d) A RETURN STATEMENT ──────────────────────────────────────────────────
-// `return new();` — the enclosing method's declared return type. rootContext
+// `return new();` -- the enclosing method's declared return type. rootContext
 // RETURN_VALUE is what marks it, and the enclosing method comes from containment, so
 // this works inside a lambda too (where the target is the lambda's own return type,
 // which is the right answer).

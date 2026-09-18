@@ -116,7 +116,7 @@ def table(runs, pset):
 def one(work):
     runs = load(work)
     if not runs:
-        sys.exit("aggregate: no score.json files found — did the run produce any?")
+        sys.exit("aggregate: no score.json files found -- did the run produce any?")
     print("CORPUS SUMMARY")
     d = table(runs, "dev")
     print()
@@ -127,7 +127,7 @@ def one(work):
             bad = 1
     print()
     if bad:
-        print("  VERDICT  FAIL — a site was dropped or an external target was wrongly")
+        print("  VERDICT  FAIL -- a site was dropped or an external target was wrongly")
         print("           resolved. Both are defects, not imprecision.")
     else:
         print("  VERDICT  no defects (0 dropped, 0 wrongly resolved). Recall is the")

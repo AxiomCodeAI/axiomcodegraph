@@ -27,7 +27,7 @@ type_in_type(prov, cgk, pgk) :-
     type_group(prov, child, cgk), type_group(prov, parent, pgk),
     cgk != pgk.
 
-// type_nest_ancestor — reflexive and transitive: the chain a name search walks
+// type_nest_ancestor -- reflexive and transitive: the chain a name search walks
 // outward.
 type_nest_ancestor(prov, gk, gk) :- type_group(prov, _, gk).
 type_nest_ancestor(prov, gk, anc) :- type_in_type(prov, gk, mid), type_nest_ancestor(prov, mid, anc).
@@ -40,12 +40,12 @@ type_outermost(prov, gk, gk) :- type_is_top_level(prov, gk).
 type_outermost(prov, gk, top) :- type_in_type(prov, gk, mid), type_outermost(prov, mid, top).
 
 // ── NAMESPACES ──────────────────────────────────────────────────────────────
-// type_ns(Prov, GroupKey, Namespace) — where a simple name is looked up. Read off
+// type_ns(Prov, GroupKey, Namespace) -- where a simple name is looked up. Read off
 // any declaration site; every part of a partial type must be in the same namespace,
 // which the language requires, so the parts cannot disagree.
 type_ns(prov, gk, ns) :- type_group(prov, t, gk), type_namespace(prov, t, ns).
 
-// ns_declares(Prov, Namespace, Name, Arity, GroupKey) — THE NAME TABLE for
+// ns_declares(Prov, Namespace, Name, Arity, GroupKey) -- THE NAME TABLE for
 // namespace-scoped lookup, keyed on (name, ARITY). Arity is in the key because
 // generics are reified: `Foo` and `Foo<T>` are two different types that share a
 // name, and matching on name alone resolves `new Foo()` to whichever of them the
@@ -61,7 +61,7 @@ ns_declares(prov, ns, n, ar, gk) :-
     type_ns(prov, gk, ns),
     type_is_top_level(prov, gk).
 
-// nested_declares(Prov, OuterGroup, Name, Arity, InnerGroup) — the name table for
+// nested_declares(Prov, OuterGroup, Name, Arity, InnerGroup) -- the name table for
 // lookup from INSIDE a type. This is what makes `Inner` resolve to `Outer.Inner`.
 nested_declares(prov, ogk, n, ar, igk) :-
     type_in_type(prov, igk, ogk),
@@ -79,7 +79,7 @@ type_assembly(prov, gk, asm) :-
     type_group(prov, t, gk), type_module(prov, t, mod), module_assembly(prov, mod, asm, _).
 
 // ── THE FILE SCOPE A NAME IS RESOLVED IN ────────────────────────────────────
-// module_in_scope(Prov, ModuleHash, Namespace) — every namespace whose types are
+// module_in_scope(Prov, ModuleHash, Namespace) -- every namespace whose types are
 // reachable by simple name from this file. Three sources, and all three are needed:
 //
 //   the namespace the file's own declarations sit in,

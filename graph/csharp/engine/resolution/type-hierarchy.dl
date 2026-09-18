@@ -23,7 +23,7 @@
 //
 // C# gives one ordering fact Java does not need: IF a base class is present it is
 // at position 0. That is a CROSS-CHECK, not the decision procedure, because
-// position 0 is an interface whenever the type derives from no class — which is
+// position 0 is an interface whenever the type derives from no class -- which is
 // most interfaces and most structs. The check is exported so a disagreement between
 // the two methods is visible.
 //
@@ -103,20 +103,20 @@ type_base_unresolved(prov, gk, pos, bn, ba) :-
     heritage_of_entity(prov, gk, pos, bn, ba, _),
     !heritage_resolves(prov, gk, pos, _).
 
-// type_hierarchy_incomplete(Prov, GroupKey) — this type has an unresolved base, so
+// type_hierarchy_incomplete(Prov, GroupKey) -- this type has an unresolved base, so
 // any "no such member" answer about it is a boundary rather than a fact. Consumed by
 // the call-edge layer, which classifies a miss on such a receiver as boundary_lib
 // instead of ambiguous_unknown.
 type_hierarchy_incomplete(prov, gk) :- type_base_unresolved(prov, gk, _, _, _).
 
 // ── ANCESTORS ───────────────────────────────────────────────────────────────
-// type_parent — one relation over both kinds, for reachability. The two are kept
+// type_parent -- one relation over both kinds, for reachability. The two are kept
 // distinct above because dispatch needs them distinct; here they are unioned because
 // "can this type be used where that one is expected" spans both.
 type_parent(prov, gk, pgk) :- type_extends(prov, gk, pgk).
 type_parent(prov, gk, pgk) :- type_implements(prov, gk, pgk).
 
-// type_ancestor — transitive, NOT reflexive. Crosses provenance: a client class
+// type_ancestor -- transitive, NOT reflexive. Crosses provenance: a client class
 // deriving from a staged library base has that base and everything above it as
 // ancestors, which is the whole point of staging library heritage.
 type_ancestor(prov, gk, agk) :- type_parent(prov, gk, agk).
@@ -131,7 +131,7 @@ type_ancestor("client", gk, agk) :-
 type_self_or_ancestor(prov, gk, gk) :- type_group(prov, _, gk).
 type_self_or_ancestor(prov, gk, agk) :- type_ancestor(prov, gk, agk).
 
-// type_subtype(Prov, Sub, Super) — the reverse direction, which is what CHA fan-out
+// type_subtype(Prov, Sub, Super) -- the reverse direction, which is what CHA fan-out
 // needs: given a declared receiver type, every type that could be there at runtime.
 type_subtype(prov, sub, super) :- type_ancestor(prov, sub, super).
 
@@ -156,7 +156,7 @@ type_base_chain("client", gk, bgk, d) :-
 type_hierarchy_cycle(prov, gk) :- type_ancestor(prov, gk, gk).
 
 // ── INTERFACE SATISFACTION ──────────────────────────────────────────────────
-// type_satisfies(Prov, GroupKey, InterfaceGroup) — every interface a type presents,
+// type_satisfies(Prov, GroupKey, InterfaceGroup) -- every interface a type presents,
 // including those inherited from its base class and from the interfaces' own
 // hierarchies. A call through an interface-typed receiver fans over the types that
 // satisfy it, and a type that satisfies an interface only through its base is

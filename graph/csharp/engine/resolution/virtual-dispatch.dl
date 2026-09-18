@@ -29,7 +29,7 @@
 // ============================================================================
 
 // ── THE OVERRIDE RELATION ───────────────────────────────────────────────────
-// overrides(Prov, Derived, Base) — Derived is `override` and Base is the nearest
+// overrides(Prov, Derived, Base) -- Derived is `override` and Base is the nearest
 // declaration of the same name and shape up the class chain.
 //
 // MATCHED ON NAME, PARAMETER COUNT AND GENERIC ARITY. Not on the signature text: a
@@ -67,13 +67,13 @@ override_depth(prov, derived, base, d) :-
 overrides(prov, derived, base) :-
     override_cand(prov, derived, base, d), override_depth(prov, derived, base, d).
 
-// overrides_transitive — C.M answers for a call on an A-typed receiver.
+// overrides_transitive -- C.M answers for a call on an A-typed receiver.
 overrides_transitive(prov, derived, base) :- overrides(prov, derived, base).
 overrides_transitive(prov, derived, base) :-
     overrides(prov, derived, mid), overrides_transitive(prov, mid, base).
 
 // ── INTERFACE IMPLEMENTATION ────────────────────────────────────────────────
-// implements_member(Prov, ClassMethod, InterfaceMethod) — the class method that
+// implements_member(Prov, ClassMethod, InterfaceMethod) -- the class method that
 // satisfies an interface member. Two forms, and both are needed:
 //
 //   IMPLICIT: a public method of matching name and shape. It is an ordinary member
@@ -106,7 +106,7 @@ implements_member(prov, impl, ifaceM) :-
     method_paramc(prov, impl, pc), method_paramc(prov, ifaceM, pc).
 
 // ── THE DISPATCH TARGET SET ─────────────────────────────────────────────────
-// dispatch_target(Prov, DeclaredMethod, RuntimeMethod, Reason) — given the declared
+// dispatch_target(Prov, DeclaredMethod, RuntimeMethod, Reason) -- given the declared
 // member a call binds to, every body that could run. The reason is carried so a fan
 // can be explained rather than just counted.
 
@@ -145,7 +145,7 @@ dispatch_excluded_hiding(prov, m, h) :-
 // Four conditions, each of which makes a site exact. Each is a language guarantee
 // rather than a heuristic, so applying them loses nothing.
 
-// (a) `base.M()` — non-virtual by definition.
+// (a) `base.M()` -- non-virtual by definition.
 dispatch_is_exact(prov, e) :- call_is_base(prov, e).
 
 // (b) EVERY possible receiver type cannot be derived from: a struct, an enum, or a
@@ -179,7 +179,7 @@ dispatch_is_exact(prov, e) :- call_has_member(prov, e), !call_member_dispatches(
 dispatch_is_exact(prov, e) :- call_recv_exact_type(prov, e, _).
 
 // ── THE FAN: ASKED PER POSSIBLE RUNTIME TYPE ────────────────────────────────
-// dispatch_concrete_target(Prov, DeclaredMethod, RuntimeMethod) — the bodies that
+// dispatch_concrete_target(Prov, DeclaredMethod, RuntimeMethod) -- the bodies that
 // can run for a call bound to DeclaredMethod.
 //
 // FORMULATED AS "FOR EACH TYPE THE RECEIVER COULD BE, WHAT DOES ITS OWN LOOKUP
@@ -251,7 +251,7 @@ cha_override_count(m, n) :-
 // An OPT-IN width limit. Empty (the default) means uncapped, which is the answer
 // that cannot be wrong. Where a cap is set and a fan exceeds it, the fan is REFUSED
 // and the site is labelled fan_capped with the declared base as its single named
-// target — not silently truncated, and not presented as monomorphic. A consumer
+// target -- not silently truncated, and not presented as monomorphic. A consumer
 // running a reverse closure from an override then finds no caller, and the tier is
 // what tells it why.
 dispatch_capped_at(k) :- dispatch_cap(s), k = to_number(s).

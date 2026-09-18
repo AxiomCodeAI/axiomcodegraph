@@ -5,7 +5,7 @@
 // `method`: constructors, destructors, operators, conversions, local functions, and
 // the accessors of properties, indexers and events. methodKind says which. That
 // matters for the call graph because several of them are invoked with no call syntax
-// at all — `x.Name` is a call to get_Name, `a + b` may be a call to op_Addition —
+// at all -- `x.Name` is a call to get_Name, `a + b` may be a call to op_Addition --
 // and an engine that only joins on INVOCATION expressions loses all of them.
 //
 // PARTIAL METHODS SPLIT. `partial void OnChanged();` and its implementation are two
@@ -147,7 +147,7 @@ method_partial_impl("client", m) :-
 method_partial_impl("lib", m) :-
     lib_cs_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
 
-// method_impl_target(Prov, MethodHash, TargetHash) — where a call to this method
+// method_impl_target(Prov, MethodHash, TargetHash) -- where a call to this method
 // actually lands. Identity for an ordinary method; the implementation for a partial
 // definition, matched within the same type group on name and both arities.
 //

@@ -1,7 +1,7 @@
 // ============================================================================
 // EXPRESSION RESOLUTION · TYPES
 //
-// expr_type(Prov, ExprHash, GroupKey) — the type an expression has. This is what a
+// expr_type(Prov, ExprHash, GroupKey) -- the type an expression has. This is what a
 // receiver's member lookup runs against, so every call edge on a qualified call
 // depends on it.
 //
@@ -10,12 +10,12 @@
 // stopping gives no type for most locals in a modern codebase, and therefore no
 // receiver type, and therefore no edge. The type comes from the initializer, and
 // most initializers are `new T(...)` or a call whose return type is declared, so
-// this is recoverable — but only if it is done.
+// this is recoverable -- but only if it is done.
 //
 // THE SECOND: A FOREACH VARIABLE'S TYPE IS ITS COLLECTION'S ELEMENT TYPE, not its
 // collection's type. `foreach (var s in shapes)` records `shapes` as the variable's
 // initializer, and treating that as a direct initializer types every foreach
-// variable as `IEnumerable<IShape>` — which then resolves `s.Area()` against
+// variable as `IEnumerable<IShape>` -- which then resolves `s.Area()` against
 // IEnumerable and finds nothing. The element type has to be extracted from the
 // generic argument, which is what makes cs_type_reference's nested argument tree
 // load-bearing rather than convenient.
@@ -73,11 +73,11 @@ var_type(prov, v, gk) :-
 
 // A foreach variable with an EXPLICIT type keeps it: `foreach (IShape s in shapes)`.
 // Handled by the explicit clauses above, and this comment records that the two do
-// not conflict — an explicit annotation and the element type should agree, and where
+// not conflict -- an explicit annotation and the element type should agree, and where
 // they do not the annotation is a downcast the author asserted.
 
 // ── ELEMENT TYPES ───────────────────────────────────────────────────────────
-// expr_element_type(Prov, ExprHash, GroupKey) — what iterating this expression
+// expr_element_type(Prov, ExprHash, GroupKey) -- what iterating this expression
 // yields. Three sources, in order of how much they can be trusted.
 
 // (a) An ARRAY. `IShape[]` yields IShape, and the element type is the same named
@@ -91,7 +91,7 @@ expr_element_type(prov, e, gk) :-
 
 // (b) A GENERIC COLLECTION. `IEnumerable<IShape>` yields IShape: the single type
 // ARGUMENT of a one-argument generic. This is where the nested argument tree pays
-// for itself — the alternative is parsing `Dictionary<string, List<IShape>>` out of
+// for itself -- the alternative is parsing `Dictionary<string, List<IShape>>` out of
 // a text column inside Datalog.
 expr_element_type(prov, e, gk) :-
     expr_type_via_ref(prov, e, tr),
@@ -114,7 +114,7 @@ expr_element_type(prov, e, gk) :-
     member_lookup(prov, enumGk, "Current", "property", cur),
     property_type(prov, cur, gk).
 
-// expr_type_via_ref — the TYPE REFERENCE behind an expression's type, where there is
+// expr_type_via_ref -- the TYPE REFERENCE behind an expression's type, where there is
 // one. Needed because array rank and generic arguments live on the reference and not
 // on the resolved type: `IShape[]` and `IShape` resolve to the same group.
 expr_type_via_ref(prov, e, tr) :- ref_denotes(prov, e, "PARAMETER", p), param_type_ref(prov, p, tr).
@@ -214,7 +214,7 @@ expr_type(prov, e, gk) :-
     type_ref_arg(prov, tr, "0", argRef),
     type_ref_resolves(prov, argRef, gk).
 
-// A MEMBER ACCESS used as a value: `a.B.C()` — the receiver `a.B` has the type of
+// A MEMBER ACCESS used as a value: `a.B.C()` -- the receiver `a.B` has the type of
 // the member B on a's type.
 expr_type(prov, e, gk) :-
     expr_kind(prov, e, "MEMBER_ACCESS"),
@@ -255,7 +255,7 @@ call_recv_type(prov, e, gk) :- call_is_unqualified(prov, e), expr_ultimate_type_
 // (c) `this.M()` written out.
 call_recv_type(prov, e, gk) :- call_is_this(prov, e), expr_ultimate_type_group(prov, e, gk).
 
-// (d) `base.M()` — the enclosing type's base. The call is non-virtual, which
+// (d) `base.M()` -- the enclosing type's base. The call is non-virtual, which
 // dispatch_is_exact already records.
 call_recv_type(prov, e, bgk) :-
     call_is_base(prov, e), expr_ultimate_type_group(prov, e, gk), type_extends(prov, gk, bgk).
@@ -264,7 +264,7 @@ call_recv_type(prov, e, bgk) :-
 // type, not a value, so its "type" is the type itself.
 call_recv_type(prov, e, gk) :- call_receiver_expr(prov, e, r), ref_names_type(prov, r, gk).
 
-// call_recv_exact_type — the receiver's runtime type is KNOWN, not merely declared.
+// call_recv_exact_type -- the receiver's runtime type is KNOWN, not merely declared.
 // `new Circle().Area()`. Read by dispatch to skip the fan entirely.
 call_recv_exact_type(prov, e, gk) :-
     call_receiver_expr(prov, e, r), expr_new_type(prov, r, gk).

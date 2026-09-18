@@ -40,7 +40,7 @@ done
 [ -n "$WORK" ] || { echo "usage: run-corpus.sh <work-dir> [--set dev|holdout|all] [--only a,b]" >&2; exit 2; }
 mkdir -p "$WORK"; WORK="$(cd "$WORK" && pwd)"
 
-[ -d "$CORPUS" ] || { echo "no corpus at $CORPUS — run fetch.sh (or set CS_CORPUS)" >&2; exit 77; }
+[ -d "$CORPUS" ] || { echo "no corpus at $CORPUS -- run fetch.sh (or set CS_CORPUS)" >&2; exit 77; }
 [ -x "$ORACLE" ] || {
   echo "the oracle is not built. Run:" >&2
   echo "  dotnet build -c Release $TESTDIR/ground-truth/AxiomCsOracle" >&2
@@ -62,7 +62,7 @@ echo "   set         $SET"
 echo "   node        $(node -v 2>/dev/null || echo '?')"
 echo "   souffle     $(souffle --version 2>/dev/null | sed -n 's/^Version: //p' | head -1)"
 if [ "${AXIOM_CS_HOLDOUT_INSPECT:-0}" = "1" ]; then
-  echo "   HOLDOUT INSPECTION IS ON — per-site failures will be printed for held-out"
+  echo "   HOLDOUT INSPECTION IS ON -- per-site failures will be printed for held-out"
   echo "   projects. Anything derived from them is derived from the validation set."
 fi
 echo "=============================================================="
@@ -84,7 +84,7 @@ run_one(){
   local t0 t1
   t0=$(date +%s)
   if ! node "$REPO/parser/dist/index.js" "$src" "$commit" false "$w/ir" --per-language > "$w/parse.log" 2>&1; then
-    echo "   PARSER FAILED — see $w/parse.log"; tail -3 "$w/parse.log"; return 1
+    echo "   PARSER FAILED -- see $w/parse.log"; tail -3 "$w/parse.log"; return 1
   fi
   [ -f "$w/ir/csharp/all-csharp-modules.csv" ] || { echo "   no C# IR extracted"; return 1; }
   t1=$(date +%s)
@@ -92,7 +92,7 @@ run_one(){
 
   t0=$(date +%s)
   if ! bash "$REPO/graph/csharp/souffle/devrun.sh" "$w/ir" "$w/engine" > "$w/engine.log" 2>&1; then
-    echo "   ENGINE FAILED — see $w/engine.log"; grep -m5 '^Error' "$w/engine.log"; return 1
+    echo "   ENGINE FAILED -- see $w/engine.log"; grep -m5 '^Error' "$w/engine.log"; return 1
   fi
   t1=$(date +%s)
   local solve_s=$((t1-t0))
@@ -100,13 +100,13 @@ run_one(){
   # ── the oracle ───────────────────────────────────────────────────────────
   t0=$(date +%s)
   if ! "$ORACLE" --src "$src" --out "$w/oracle.tsv" --out-dispatch "$w/oracle.dispatch.tsv" > "$w/oracle.log" 2>&1; then
-    echo "   ORACLE FAILED — see $w/oracle.log"; tail -3 "$w/oracle.log"; return 1
+    echo "   ORACLE FAILED -- see $w/oracle.log"; tail -3 "$w/oracle.log"; return 1
   fi
   t1=$(date +%s)
   local oracle_s=$((t1-t0))
   # The oracle's own compile-error count. A subject it could not fully read produces
   # fewer ground-truth rows, and a recall number computed against a partial oracle
-  # is not comparable with one computed against a complete one — so it is printed
+  # is not comparable with one computed against a complete one -- so it is printed
   # next to the score rather than buried in a log.
   local cerr cfiles
   cerr=$(sed -n 's/^compileErrors\t//p' "$w/oracle.manifest.tsv")

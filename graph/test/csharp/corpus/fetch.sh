@@ -65,7 +65,7 @@ while IFS=$'\t' read -r name set path repo commit note; do
     continue
   fi
   n=$(find "$d/$path" -name '*.cs' -not -path '*/obj/*' -not -path '*/bin/*' | wc -l | tr -d ' ')
-  echo "  $name [$set] $path — $n .cs files at ${commit:0:8}"
+  echo "  $name [$set] $path -- $n .cs files at ${commit:0:8}"
 done < "$HERE/corpus.tsv"
 
 if [ -s "$FAILED" ]; then

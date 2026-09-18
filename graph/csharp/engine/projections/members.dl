@@ -5,7 +5,7 @@
 // `x.Name` runs get_Name, `x.Name = v` runs set_Name, `a[i]` runs an indexer
 // accessor, `e += h` runs add_E. Each of those has a cs_method row of its own
 // (isAccessor=true, ownerMemberLinkHash pointing here), so the edge exists and is
-// reachable — but only if the member relations are projected and joined.
+// reachable -- but only if the member relations are projected and joined.
 //
 // A Java-shaped engine reads `x.Name` as a field access and emits no edge. On a
 // modern C# codebase that is not a small loss: properties are the default way to
@@ -77,7 +77,7 @@ property_initializer("lib", p, e) :-
     lib_cs_property(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e, _, _, _, _, _, _, _, _, p),
     e != "".
 
-// property_in_type(Prov, GroupKey, PropertyHash) — group-scoped, same reason as
+// property_in_type(Prov, GroupKey, PropertyHash) -- group-scoped, same reason as
 // method_in_type: a partial type may declare the property in another file.
 property_in_type(prov, gk, p) :- property_decl(prov, _, t, p), type_group(prov, t, gk).
 
