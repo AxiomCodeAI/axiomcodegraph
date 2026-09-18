@@ -14,7 +14,11 @@ DECLARED UNKNOWNS ARE PART OF THE GOLDEN. config_unresolved is printed like any 
 section, so losing interpretation power and silently gaining a blind spot both show up
 as a diff — the same contract normalize_edges.py applies to ambiguous_unknown.
 
-usage: config_report.py <IR-dir> <OUT-dir>
+A LIBRARY IR root may follow the two required arguments. config-resolution reads the
+staged lib_annotation relations, so a dependency contributes bean_def, inject_point and
+di_edge rows like any other source; without its IR those rows print as bare hashes.
+
+usage: config_report.py <IR-dir> <OUT-dir> [<LIB-IR-dir> ...]
 """
 import csv, os, sys
 csv.field_size_limit(10**9)   # an IR literalValue can be a base64 asset; see test/tools/csv-limit-test.sh
@@ -27,9 +31,15 @@ class Labels(Names):
     """Names, plus the entity kinds only config references: fields, parameters,
     XML elements/attributes and annotation uses."""
 
-    def __init__(self, ir):
-        super().__init__(ir)
+    def __init__(self, ir, *extra):
+        super().__init__(ir, *extra)
         self.f, self.p, self.x, self.a = {}, {}, {}, {}
+        for more in reversed(extra):
+            if more and os.path.isdir(more):
+                self._index_config(more)
+        self._index_config(ir)
+
+    def _index_config(self, ir):
         for r in rows(f'{ir}/all-fields.csv'):
             owner = r.get('ownerQualifiedName') or r.get('ownerTypeName') or '?'
             self.f[r['fieldRegistryUniqueHash']] = f"{owner}#{r['name']}"
@@ -67,7 +77,7 @@ def load(out, name):
 
 def main():
     ir, out = sys.argv[1], sys.argv[2]
-    L = Labels(ir)
+    L = Labels(ir, *sys.argv[3:])
 
     # (relation file, section title, row -> golden line)
     SECTIONS = [
