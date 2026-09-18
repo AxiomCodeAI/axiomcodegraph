@@ -8,7 +8,7 @@
 #
 # NO SOUFFLÉ NEEDED TO RUN. The rules compile to one self-contained executable that is
 # project-independent; CI builds it for every platform and publishes it on npm as
-# @axiomcode/engine-<os>-<cpu> (publish-npm.yml), which this package lists as an optional
+# @axiomcode/engine-<os>-<cpu>, which this package lists as an optional
 # dependency so `npm install` fetches exactly the one for the machine. The binary is
 # resolved in this order:
 #   1. node_modules/@axiomcode/engine-<platform>/<lang>/ — used only if its ENGINE_ID equals
