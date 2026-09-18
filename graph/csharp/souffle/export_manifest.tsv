@@ -3,3 +3,15 @@ call_chain_summary	call-chain-summary.csv
 call_site_dropped	call-site-dropped.csv
 site_unresolved_named	site-unresolved.csv
 client_calls_external	call-edges-external.csv
+expr_call_candidate	expression-call-candidate.csv
+expr_resolves_to_method	expression-resolves-to-method.csv
+dispatch_concrete_target	dispatch-concrete-target.csv
+call_class	call-class.csv
+type_ancestor	resolution-type-ancestor.csv
+member_lookup_miss_real	member-lookup-miss.csv
+caller_differs	crosscheck-caller-differs.csv
+binding_differs	crosscheck-binding-differs.csv
+hierarchy_base_not_first	crosscheck-base-not-first.csv
+type_base_unresolved	resolution-type-base-unresolved.csv
+type_multiple_bases	defect-multiple-bases.csv
+type_hierarchy_cycle	defect-hierarchy-cycle.csv
