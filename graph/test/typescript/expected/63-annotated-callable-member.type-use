@@ -1,0 +1,7 @@
+known_edge	FIELD_TYPE	0	PropNamed [FIELD] -> NamedCallable
+known_edge	METHOD_PARAM	0	members [METHOD_PARAM] -> PlainMethod
+known_edge	METHOD_PARAM	0	members [METHOD_PARAM] -> PropInline
+known_edge	METHOD_PARAM	0	members [METHOD_PARAM] -> PropNamed
+known_edge	SUPER_TYPE	0	CallableFunction [HERITAGE] -> Function
+known_edge	SUPER_TYPE	0	NewableFunction [HERITAGE] -> Function
+known_edge	VARIABLE_TYPE	0	members [VARIABLE] -> NamedCallable

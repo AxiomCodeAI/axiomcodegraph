@@ -448,9 +448,17 @@ fi
 # Java's, so the suite has one convention rather than two.
 if [ "$ORACLE_ONLY" = "0" ] && [ -d "$HERE/torture" ]; then
   printf '%-26s ' "torture (client+lib)"
-  if out=$(AXIOM_PARSER="$PARSER" bash "$HERE/torture/harness/run.sh" 2>&1); then
+  out=$(AXIOM_PARSER="$PARSER" bash "$HERE/torture/harness/run.sh" 2>&1); rc=$?
+  if [ "$rc" = "0" ]; then
     echo "ok ($(echo "$out" | grep -oE 'oracle=[0-9]+ engine=[0-9]+ agree=[0-9]+ missing=[0-9]+ extra=[0-9]+' | head -1))"
     pass=$((pass+1))
+  elif [ "$rc" = "77" ]; then
+    # 77 is this suite's skip code (see the parser check above). The torture case needs
+    # a NEWER interpreter than the tier-1 pin, and its ground truth is regenerated rather
+    # than committed, so with no such interpreter there is nothing to score. Counted as
+    # neither a pass nor a failure, and the reason is printed: a skip that reads as a tick
+    # is worse than a red one.
+    echo "SKIP"; echo "$out" | sed 's/^/    /'
   else
     echo "FAIL"; echo "$out" | tail -20 | sed 's/^/    /'
     fail=$((fail+1)); failed+=("torture")

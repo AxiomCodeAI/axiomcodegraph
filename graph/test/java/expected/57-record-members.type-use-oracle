@@ -1,0 +1,7 @@
+57-record-members
+  precision 1.0000   (5 correct, 0 wrong)
+  recall    1.0000   (5 of 5 in the bytecode)
+  references 28   resolved 16 (57.1%)
+  tiers ambiguous_unknown=12  boundary_lib=9  known_edge=7
+  not scored: 0 in a context the bytecode does not carry, 0 in a class the build did not compile, 0 local in a class compiled without -g
+  contexts FIELD_TYPE=6  LOCAL_VARIABLE=2  METHOD_PARAM=12  METHOD_RETURN=5  OBJECT_CREATION_TYPE=3

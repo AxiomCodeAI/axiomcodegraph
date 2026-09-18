@@ -124,7 +124,25 @@ if ! bash "$ROOT/graph/test/tools/bundle-test.sh"; then
   echo "aborting: the bundle stage does not produce the documented output"
   exit 1
 fi
+# ── The engine id and the packaged-engine path ───────────────────────────────
+# A machine without souffle finds its binary by the id the rules hash to, so the id must be
+# the same from any path and different for any rule change; and the engine package npm
+# installed must be used only when its ENGINE_ID matches. Both run without souffle or
+# network, in seconds.
+if ! bash "$ROOT/graph/test/tools/engine-id-test.sh"; then
+  echo "aborting: the engine id is not a function of the rules alone"
+  exit 1
+fi
+if ! bash "$ROOT/graph/test/tools/engine-package-test.sh"; then
+  echo "aborting: the packaged-engine path does not check what it runs"
+  exit 1
+fi
 PARSER="${AXIOM_PARSER:-$ROOT/parser/dist/index.js}"
+# The oracle's runtime flags, for the --oracle path below. Empty on JDK 24+, where
+# java.lang.classfile is final; --enable-preview on 22 and 23, where it is not and a
+# preview-compiled class refuses to load without it (#911).
+. "$HERE/tools/oracle-build.sh"
+ORACLE_FLAGS=""
 WORK="$HERE/.work"
 BLESS=0; KEEP=0; ORACLE=0; FILTERS=()
 for a in "$@"; do case "$a" in
@@ -156,6 +174,12 @@ fi
 # could not vouch for the numbers the scale runs report. Constructor rows are expected to
 # differ (the two decide "javac-synthesized?" differently, which is undecidable from a class
 # file); the counts are a golden so the debt cannot grow, or vanish, unreviewed.
+# The oracle's runtime flags: empty on JDK 24+, --enable-preview on 22 and 23, where a
+# preview-compiled ClassFileOracle refuses to load without it (#911). oracle_build is
+# idempotent and the agreement step compiles into this same directory.
+if [ "$ORACLE" = "1" ]; then
+  ORACLE_FLAGS="$(oracle_build "$WORK/.agreement/.oracle-classes" "$WORK/.agreement/oracle-javac.log" 2>/dev/null)" || ORACLE_FLAGS=""
+fi
 if [ "$ORACLE" = "1" ]; then
   mkdir -p "$WORK"
   agree_out="$WORK/oracle-agreement.txt"
@@ -281,7 +305,7 @@ for dir in "$HERE"/cases/*/; do
       # it silently discarded every edge whose caller is a constructor, and charged the engine
       # for sites whose receiver could only be typed through a library nobody staged.
       if [ -d "$w/lib-ir" ] && [ -d "$WORK/.agreement/.oracle-classes" ]; then
-        java -cp "$WORK/.agreement/.oracle-classes" ClassFileOracle --app "$w/oracle/classes" \
+        java ${ORACLE_FLAGS:-} -cp "$WORK/.agreement/.oracle-classes" ClassFileOracle --app "$w/oracle/classes" \
              --with-lines > "$w/boundary.gt" 2>/dev/null
         # The PREFIXES have to include the stub's own packages, or the report measures something
         # the case is not about: score_boundary defaults to java.,javax.,jdk., and a case whose stub

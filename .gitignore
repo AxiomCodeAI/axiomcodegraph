@@ -10,6 +10,8 @@
 # ── Dependencies ─────────────────────────────────────────────────────────────
 node_modules
 node_modules/
+# and the bare name: `node_modules/` matches a directory only, so a symlink named node_modules slips past it
+node_modules
 jspm_packages/
 web_modules/
 .pnp
@@ -46,12 +48,21 @@ dist/
 #
 # Both lines per directory are needed — git does not descend into an excluded directory,
 # so the directory itself must be re-included before its contents can be.
-!test/**/vendor/**/dist/
-!test/**/vendor/**/dist/**
-!test/**/vendor/**/build/
-!test/**/vendor/**/build/**
-!test/**/vendor/**/out/
-!test/**/vendor/**/out/**
+# ...and these six lines were DEAD for the whole time they existed. A pattern containing a
+# slash is anchored to the directory holding this file, so `test/**/vendor/**/dist/` matches
+# a TOP-LEVEL `test/` and the suites live under `graph/test/`. `git check-ignore` confirms
+# it: a vendored dist under graph/test/ was still ignored by the blanket above, and the one
+# such file in the index survived only because it was force-added. Case
+# 60-ts-emit-helpers shipped in #813 with four files and without its `lib/dist/`, so its
+# golden had been blessed against inputs that existed only in one working tree and the case
+# failed for everybody else from the day it landed.
+#
+# The rule is stated positively instead: a fixture's INPUTS are inputs whatever they are
+# called, and nothing under a cases/ or fixtures/ tree is ever build output of THIS
+# repository. `test/tools/no-ignored-fixtures.sh` still enforces the invariant; it could not
+# catch this one, because a file that was never added is not a file it can see.
+!graph/test/**/cases/**
+!graph/test/**/fixtures/**
 build/
 out/
 lib-cov/

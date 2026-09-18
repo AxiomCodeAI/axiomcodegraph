@@ -26,6 +26,12 @@
     "parser"
   ],
   "license": "FSL-1.1-Apache-2.0",
+  "optionalDependencies": {
+    "@axiomcode/engine-darwin-arm64": "0.1.0",
+    "@axiomcode/engine-linux-x64": "0.1.0",
+    "@axiomcode/engine-linux-arm64": "0.1.0",
+    "@axiomcode/engine-win32-x64": "0.1.0"
+  },
   "bin": {
     "axiomcode": "bin/axiomcode"
   },
@@ -44,7 +50,7 @@
     "tree-sitter": "^0.21.1",
     "tree-sitter-c-sharp": "0.23.1",
     "tree-sitter-groovy": "^0.1.2",
-    "tree-sitter-java": "^0.21.0",
+    "tree-sitter-java": "0.23.4",
     "tree-sitter-python": "^0.21.0",
     "typescript": "^6.0.0",
     "yaml": "^2.8.2"

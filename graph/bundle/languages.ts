@@ -108,6 +108,13 @@ export interface LanguageAdapter {
     fieldAccess?: RawSource;
     /** (ref, owner, ownerKind, enclType, enclMethod, type, prov, context, depth, tier) — #663 */
     typeUse?: RawSource;
+    /**
+     * (key, mechanism, siteKind, site, prov) — #890. A config key binds to a FIELD, and
+     * that is a reason to list the field, exactly as a field_access edge is. Without it
+     * a library field bound by @Value but read by nothing was referenced by an exported
+     * relation and absent from `fields`, so the join lost the row silently.
+     */
+    configBinding?: RawSource;
   };
   ir: {
     methods: MethodsIR;
@@ -139,6 +146,8 @@ const JAVA: LanguageAdapter = {
     fieldAccess: { file: 'field-access.csv', columns: [0, 1, 2, 3, 4, 5] },
     // ref, type, context, depth, ownerKind, owner, enclMethod, enclType, typeProv, tier
     typeUse: { file: 'type-use.csv', columns: [0, 5, 7, 8, 2, 1, 4, 3, 6, 9] },
+    // key, mechanism, siteKind, site, prov — the relation is already in this order
+    configBinding: { file: 'config-binding.csv', columns: [0, 1, 2, 3, 4] },
   },
   ir: {
     methods: {

@@ -172,7 +172,7 @@ export const CORE_TABLES: readonly TableSpec[] = [
   },
   {
     name: 'fields',
-    description: 'Every field-like storage location the graph refers to: all client fields and enum constants from the IR, plus every LIBRARY field some field_access edge reaches. A field is not a callable, so it has no row in `methods`; this is where `field_access.field_id` resolves to a name, an owner and a position.',
+    description: 'Every field-like storage location the graph refers to: all client fields and enum constants from the IR, plus every LIBRARY field some field_access edge reaches OR some config_binding row names. A field is not a callable, so it has no row in `methods`; this is where `field_access.field_id` resolves to a name, an owner and a position.',
     columns: [
       { name: 'id', type: 'TEXT', key: true, description: 'The parser\'s unique hash for the field or enum constant (FIELD_REGISTRY_… / ENUM_CONSTANT_…). The value field_access.field_id refers to.' },
       { name: 'name', type: 'TEXT', indexed: true, description: 'Simple name as written (`count`, `RED`).' },
@@ -699,7 +699,7 @@ export const NOTES: readonly NoteSpec[] = [
   { language: 'java', table: 'field_access', note: 'A field access written in a SWITCH CASE LABEL is deliberately absent. An enum constant in a case label is recorded TYPE for some arms and FIELD for others (#760), and javac compiles the switch through a $SwitchMap array rather than through a read of the constant, so there is no field access in the bytecode either.' },
   { language: 'java', table: 'field_access', note: 'A field read that PRECEDES a same-named local declared later in the same method is missing: the parser classifies such a name LOCAL_VARIABLE against the whole body rather than against the scope at the use site (#725), so the site never reaches the engine and is absent rather than ambiguous. Rare (1 in 5,647 local references measured) but it is an absence, not a declared unknown.' },
   { language: 'java', table: 'field_access', note: 'ARRAY ELEMENTS are not tracked: `a[i] = v` where `a` is a field is recorded as a READ of `a` (the array reference is read; the element write is not a field write). This matches the bytecode, where the instruction is `getfield a` followed by `aastore`.' },
-  { language: 'java', table: 'fields', note: 'A library field is listed only when some field_access edge reaches it, exactly as methods lists only the library methods an edge reaches.' },
+  { language: 'java', table: 'fields', note: 'A library field is listed when some field_access edge reaches it, exactly as methods lists only the library methods an edge reaches, OR when a config_binding row names it as the field a configuration key binds to. The second was added in #890: a @Value field on a library type that nothing reads has no access edge, so config_binding named a field the table did not list and the join lost the row silently.' },
   { language: 'all', table: 'call_edges', note: 'The raw relation has a seventh column, ToExpr, that is always `-` (reserved). It is dropped here.' },
   { language: 'all', table: 'call_edges', note: 'An unresolved site (tier ambiguous_*) has NULL callee_method_id, callee_label and callee_provenance. The raw relation writes `-` in those slots.' },
 ];
