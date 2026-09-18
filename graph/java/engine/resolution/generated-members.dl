@@ -275,3 +275,98 @@ virtual_override(base, override) :- client_overridden_lib_type(baseType),
     name != "", type_ancestor(sub, baseType),
     gen_method_live(sub, name, pc, override).
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 6. CONSTRUCTORS  (#878)
+//
+// The header above listed these as not done. A processor declares up to three:
+//
+//   @NoArgsConstructor        ()
+//   @AllArgsConstructor       every non-static instance field, in declaration order
+//   @RequiredArgsConstructor  the fields that must be set: final without an
+//                             initialiser, and @NonNull ones
+//   @Data                     implies @RequiredArgsConstructor
+//   @Value                    implies @AllArgsConstructor
+//   @Builder                  declares an all-args constructor of its own
+//
+// ARITY IS ENOUGH, and that is the whole reason this is tractable. Resolution needs
+// to pick a declaration for `new X(a, b)`; overload.dl's first tier is arity, and a
+// generated constructor has no overloads to disambiguate from (a class carries at
+// most one of each shape). So this synthesizes a COUNT, not a parameter list, and
+// says so rather than inventing types it cannot check.
+//
+// WHY IT MATTERS MORE THAN AN ACCESSOR. A class with @AllArgsConstructor has exactly
+// one constructor in the IR, the implicit no-arg one the parser emits per JLS 8.8.9,
+// so `new X(a, b)` matches no declaration and the site is ambiguous_unknown. Not a
+// degraded answer: the object's creation is absent from the graph entirely.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// gen_ctor_ann(Annotation, Shape)
+gen_ctor_ann("NoArgsConstructor",       "none").
+gen_ctor_ann("AllArgsConstructor",      "all").
+gen_ctor_ann("RequiredArgsConstructor", "required").
+gen_ctor_ann("Data",                    "required").
+gen_ctor_ann("Value",                   "all").
+gen_ctor_ann("Builder",                 "all").
+
+gen_ctor_demand(p, owner, shape) :-
+    annotation_on(p, ann, _, "TYPE_DECLARATION", owner, _), gen_ctor_ann(ann, shape).
+
+// ── which fields count ───────────────────────────────────────────────────────
+// A static field is not a constructor parameter, for the same reason it gets no
+// accessor: the processor skips it.
+gen_ctor_field(p, owner, f) :- gen_ctor_demand(p, owner, _),
+    field_decl(p, _, _, owner, f), !gen_field_static(f).
+// "Required" is final-without-initialiser plus @NonNull. A final field that is
+// already initialised is NOT a parameter, which is the case that would otherwise
+// overstate the arity by one on every class with a `= new ArrayList<>()` default.
+// Any expression whose owner is the field and whose context is FIELD_INITIALIZER is
+// an initialiser, whatever its kind: `= new ArrayList<>()`, `= 0`, `= someCall()`.
+// Keyed on the context rather than on OBJECT_CREATION, which is what field_init_new_type
+// narrows to for its own purpose.
+gen_field_initialized(f) :-
+    java_expression(_, _, "FIELD_INITIALIZER", "FIELD", _, f, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _).
+
+gen_ctor_required(p, owner, f) :- gen_ctor_field(p, owner, f),
+    field_modifier(p, _, mod, f), contains("FINAL", mod), !gen_field_initialized(f).
+gen_ctor_required(p, owner, f) :- gen_ctor_field(p, owner, f),
+    annotation_on(p, "NonNull", _, "FIELD_DECLARATION", f, _).
+
+gen_ctor_all_count(owner, n) :- gen_ctor_demand(_, owner, "all"),
+    n = count : { gen_ctor_field(_, owner, _) }.
+gen_ctor_req_count(owner, n) :- gen_ctor_demand(_, owner, "required"),
+    n = count : { gen_ctor_required(_, owner, _) }.
+
+// gen_ctor(OwnerType, Arity, CtorId)
+gen_ctor(owner, 0, id) :- gen_ctor_demand(p, owner, "none"),
+    type_decl(p, _, qname, _, _, _, owner),
+    id = cat("generated:", cat(qname, "#<init>/0")).
+gen_ctor(owner, n, id) :- gen_ctor_all_count(owner, n), n > 0,
+    type_decl(_, _, qname, _, _, _, owner),
+    id = cat("generated:", cat(qname, cat("#<init>/", to_string(n)))).
+gen_ctor(owner, n, id) :- gen_ctor_req_count(owner, n), n > 0,
+    type_decl(_, _, qname, _, _, _, owner),
+    id = cat("generated:", cat(qname, cat("#<init>/", to_string(n)))).
+
+// A HAND-WRITTEN constructor of the same arity wins, exactly as gen_shadowed drops a
+// generated accessor the source also writes out. Base facts only, so this adds no
+// cycle: see the note in section 4.
+gen_ctor_source_arity(owner, n) :-
+    java_method(_, _, _, _, _, _, _, owner, _, _, _, _, _, _, _, _, "CONSTRUCTOR", pc, _, _, _, _),
+    n = to_number(pc).
+// The IMPLICIT one counts too. @NoArgsConstructor declares exactly what JLS 8.8.9
+// already gives a class that writes no constructor, and the parser emits a
+// DEFAULT_CONSTRUCTOR row for it. Without this clause both exist, `new X()` matches
+// two declarations of the same thing, and a site that resolved cleanly before becomes
+// multi_inferred: a precision LOSS caused by adding a member that was already there.
+gen_ctor_source_arity(owner, 0) :-
+    java_method(_, _, _, _, _, _, _, owner, _, _, _, _, _, _, _, _, "DEFAULT_CONSTRUCTOR", _, _, _, _, _).
+gen_ctor_live(owner, n, id) :- gen_ctor(owner, n, id), !gen_ctor_source_arity(owner, n).
+
+// ── FEED THE LOOKUPS ────────────────────────────────────────────────────────
+// ctor_of is the one relation every `new` clause in callee-resolution.dl routes
+// through, so contributing there reaches object creation, anonymous creation and
+// this()/super() delegation without touching any of them.
+ctor_of("client", owner, id) :- gen_ctor_live(owner, _, id).
+method_paramc(id, n) :- gen_ctor_live(_, n, id), n > 0.
+method_owner("client", owner, id) :- gen_ctor_live(owner, _, id).

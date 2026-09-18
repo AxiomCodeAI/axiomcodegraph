@@ -1,0 +1,2 @@
+known_edge	write	probe.GenCtor.Explicit#<init>(String) -> probe.GenCtor.Explicit#only
+known_edge	write	probe.GenCtor.Plain#<init>(String) -> probe.GenCtor.Plain#v
