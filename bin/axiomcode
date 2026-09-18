@@ -104,7 +104,11 @@ case "$cmd" in
     lang=""; src=""; out=""; version=""; libs=""; popts=(); rest=(); pos=()
     while [ $# -gt 0 ]; do case "$1" in
       --language) lang="$2"; shift 2;; --src) src="$2"; shift 2;; --out) out="$2"; shift 2;;
-      --library) libs="$2"; shift 2;;
+      # APPEND, do not assign. `--library a --library b` is the natural spelling and was
+      # silently keeping only b, so every call into a came back unresolved while the run
+      # exited 0 and the totals went UP, because b's own calls resolved. Both spellings
+      # now mean the same thing. See #915.
+      --library) libs="${libs:+$libs,}$2"; shift 2;;
       --version|--slug) version="$2"; shift 2;; --exclude-tests) popts+=(--exclude-tests); shift;;
       --intermediate|--dispatch-cap|--lib-depth|--jdk-depth|--taint) rest+=("$1" "$2"); shift 2;;
       --debug) rest+=(--debug); shift;;
