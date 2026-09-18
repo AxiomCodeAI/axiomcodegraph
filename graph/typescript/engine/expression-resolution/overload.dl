@@ -100,6 +100,28 @@ arity_match(ce, m) :- expr_call_candidate(ce, m),
     n <= hi.
 arity_match(ce, m) :- expr_call_candidate(ce, m),
     call_has_spread(ce).
+// AN IMPLEMENTATION'S OWN MAXIMUM IS NOT A BOUND ON THE CALL.
+// `const assert: <L, R>(left, right) => R = x => x as any` is legal TypeScript:
+// assignability permits a function with FEWER parameters where more are expected,
+// and JavaScript ignores the excess arguments. So a call written against the
+// ANNOTATION (two arguments) reaches an implementation that declares one, and
+// `n <= hi` drops the only candidate that has a body while the bodiless signature
+// beside it survives as a known_edge -- an answer a reader cannot step into.
+//
+// Measured with the runtime oracle on immer: 139 executed call sites lost the
+// declaration that actually ran to `2 > max(1)`, every one of them this shape.
+//
+// Scoped to HAS_BODY so that OVERLOAD SELECTION is untouched: a bodiless overload
+// signature is a declared type and its maximum still prunes, which is what makes
+// picking between siblings work. The minimum still applies to both -- a call that
+// passes fewer arguments than a parameter the callee cannot default is still not
+// a call to it.
+arity_match(ce, m) :- expr_call_candidate(ce, m),
+    call_expr_argc(ce, n),
+    !call_has_spread(ce),
+    method_min_arity(m, lo),
+    n >= lo,
+    method_body_presence(m, "HAS_BODY").
 // A candidate with no arity facts at all (a synthesized or malformed signature) is
 // kept rather than dropped: prune-only means the absence of evidence never removes
 // the real callee.

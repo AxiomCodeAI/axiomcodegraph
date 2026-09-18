@@ -60,6 +60,51 @@ import {
   TsTypeReferenceExtractor,
 } from '@/parsers/typescript/extractors/ts-type-reference-extractor';
 import { EntityUtils } from '@/utils/entity-utils';
+
+/**
+ * How many of a signature's trailing parameters a caller may leave out.
+ *
+ * `p?` is not the only way a parameter becomes optional: `p = expr` is too, and
+ * so the count has to include initializers. Counting only `questionToken`
+ * OVERSTATES the required arity, and the engine's `arity_rejected` then drops the
+ * declaration that actually runs -- measured on immer, where
+ * `each(obj, iter, strict = true)` was reported as requiring three arguments and
+ * every two-argument call to it lost its real target.
+ *
+ * TRAILING, not "anywhere in the list", because a default in the middle does not
+ * make the call shorter: in `f(a, b = 1, c)` the caller must still pass three
+ * arguments to reach `c`. Counting from the end stops at the last parameter that
+ * a caller cannot omit.
+ *
+ * The rest parameter is excluded: `restParameterIndex` models it separately and
+ * the arity rules subtract for it already, so counting it here would subtract it
+ * twice.
+ */
+function omittableTrailingParameterCount(
+  parameters: readonly ts.ParameterDeclaration[],
+): number {
+  // Indexing is narrowed rather than asserted: `noUncheckedIndexedAccess` is on
+  // repository-wide, so `parameters[i]` is `ParameterDeclaration | undefined` however
+  // well the bounds are guarded by hand. Optional chaining and an explicit undefined
+  // branch state the same invariant in a form the compiler can check, and cost nothing
+  // at runtime: `i` never leaves range, so neither branch is reachable.
+  let i = parameters.length - 1;
+  if (parameters[i]?.dotDotDotToken !== undefined) {
+    i -= 1;
+  }
+  let n = 0;
+  for (; i >= 0; i -= 1) {
+    const p = parameters[i];
+    if (p === undefined) {
+      break;
+    }
+    if (p.questionToken === undefined && p.initializer === undefined) {
+      break;
+    }
+    n += 1;
+  }
+  return n;
+}
 import { TS_DEFAULT_EXPORT_NAME } from '@/constants/typescript-constants';
 
 /**
@@ -421,7 +466,7 @@ export class TsDeclarationExtractor {
       isGenerator: false,
       isAbstract: false,
       isStatic: false,
-      optionalParameterCount: member.parameters.filter((p) => p.questionToken !== undefined).length,
+      optionalParameterCount: omittableTrailingParameterCount(member.parameters),
       restParameterIndex: restIndex >= 0 ? restIndex : undefined,
       typeParameterCount: member.typeParameters?.length ?? 0,
       thisParameterTypeName: '',
@@ -535,7 +580,7 @@ export class TsDeclarationExtractor {
       isGenerator: false,
       isAbstract: false,
       isStatic: false,
-      optionalParameterCount: node.parameters.filter((p) => p.questionToken !== undefined).length,
+      optionalParameterCount: omittableTrailingParameterCount(node.parameters),
       restParameterIndex: restIndex >= 0 ? restIndex : undefined,
       typeParameterCount: node.typeParameters?.length ?? 0,
       thisParameterTypeName: '',
@@ -1613,7 +1658,7 @@ export class TsDeclarationExtractor {
       isGenerator: (node as { asteriskToken?: ts.AsteriskToken }).asteriskToken !== undefined,
       isAbstract: hasModifier(node, ts.SyntaxKind.AbstractKeyword),
       isStatic: hasModifier(node, ts.SyntaxKind.StaticKeyword),
-      optionalParameterCount: parameters.filter((p) => p.questionToken !== undefined).length,
+      optionalParameterCount: omittableTrailingParameterCount(parameters),
       restParameterIndex: restIndex >= 0 ? restIndex : undefined,
       typeParameterCount: typeParameters?.length ?? 0,
       thisParameterTypeName: thisParameter?.type
