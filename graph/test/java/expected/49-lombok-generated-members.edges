@@ -1,5 +1,12 @@
 ambiguous_unknown	method	probe.Lombok#libraryBuilder() -> -
 ambiguous_unknown	method	probe.Lombok#ownLogger() -> -
+boundary_lib	method	probe.Lombok#chainControls(Shelf) -> dep.Catalog#describe()
+boundary_lib	method	probe.Lombok#chainControls(Shelf) -> dep.Shelf#current()
+boundary_lib	method	probe.Lombok#chainControls(Shelf) -> generated:dep.Shelf#getCatalog/0
+boundary_lib	method	probe.Lombok#chainedOntoGenerated(Shelf) -> generated:dep.Catalog#getName/0
+boundary_lib	method	probe.Lombok#chainedOntoGenerated(Shelf) -> generated:dep.Shelf#getCatalog/0
+boundary_lib	method	probe.Lombok#handWrittenOntoGenerated(Shelf) -> dep.Catalog#describe()
+boundary_lib	method	probe.Lombok#handWrittenOntoGenerated(Shelf) -> generated:dep.Shelf#getCatalog/0
 boundary_lib	method	probe.Lombok#libraryAccessors(Catalog) -> generated:dep.Catalog#getName/0
 boundary_lib	method	probe.Lombok#libraryAccessors(Catalog) -> generated:dep.Catalog#getSize/0
 boundary_lib	method	probe.Lombok#libraryAccessors(Catalog) -> generated:dep.Catalog#setName/1
