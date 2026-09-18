@@ -55,24 +55,8 @@ def simple(t):
     return t.split('.')[-1].split('$')[-1] + arr
 
 class Names:
-    """Hash -> name, over one or more IR roots.
-
-    A row can name a LIBRARY entity, not just a client one: config-resolution reads the
-    staged lib_annotation relations, so a bean contributed by a dependency is a bean_def
-    like any other. Indexing only the client IR printed those rows as a bare
-    TYPE_REGISTRY_<32 hex> hash, which defeats the point of the golden. Extra roots are
-    merged in order and the FIRST root wins a collision, so the client's own name for a
-    hash is never displaced by a library's.
-    """
-
-    def __init__(self, ir, *extra):
+    def __init__(self, ir):
         self.m = {}
-        for more in reversed(extra):
-            if more and os.path.isdir(more):
-                self._index(more)
-        self._index(ir)
-
-    def _index(self, ir):
         tvars, mtvars = set(), set()
         for r in rows(f'{ir}/all-type-parameters.csv'):
             tvars.add((r.get('typeRegistryLinkHash', ''), r.get('paramName', '')))
@@ -86,7 +70,7 @@ class Names:
         for r in rows(f'{ir}/all-type-references.csv'):
             if r.get('context') == 'SUPER_TYPE' and (r.get('depth') or '0') == '0':
                 sup.setdefault(r.get('typeRegistryLinkHash'), r.get('typeName'))
-        self.anon = getattr(self, 'anon', {})
+        self.anon = {}
         for t in rows(f'{ir}/all-types.csv'):
             if t.get('typePlacement') == 'ANONYMOUS_PLACEMENT':
                 qn = t['qualifiedName']; pkg = qn[:qn.rindex('.')] if '.' in qn else ''
@@ -105,9 +89,7 @@ class Names:
             cls = r.get('ownerQualifiedName') or r.get('ownerTypeName')
             nm = '<init>' if r.get('methodKind') in ('CONSTRUCTOR', 'DEFAULT_CONSTRUCTOR') else r.get('name')
             self.m[h] = f"{self.anon.get(cls, cls)}#{nm}({','.join(ps)})"
-        self.types = getattr(self, 'types', {})
-        for t in rows(f'{ir}/all-types.csv'):
-            self.types[t['typeRegistryUniqueHash']] = t['qualifiedName']
+        self.types = {t['typeRegistryUniqueHash']: t['qualifiedName'] for t in rows(f'{ir}/all-types.csv')}
 
     def label(self, h):
         if h in ('-', ''): return '-'
