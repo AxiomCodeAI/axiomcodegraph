@@ -30,7 +30,30 @@
 # or is compiled locally when souffle is present).
 # ─────────────────────────────────────────────────────────────────────────────
 set -eu
-ROOT="$(d="$(cd "$(dirname "$0")" && pwd)"; while [ "$d" != / ] && { [ ! -f "$d/package.json" ] || [ ! -d "$d/graph" ]; }; do d="$(dirname "$d")"; done; echo "$d")"
+# RESOLVE $0 THROUGH SYMLINKS BEFORE THE WALK. npm installs a `bin` entry as a link in
+# node_modules/.bin, so under `npx axiomcode` or a global install $0 is that link and
+# dirname "$0" is .bin/, a directory this package does not live under. The walk below then
+# climbs the USER'S project, finds a package.json with no graph/ beside it, runs out of
+# parents and returns "/" -- and the run fails with `parser not built at
+# //parser/dist/index.js`, a path with a doubled slash that names nothing, plus advice to run
+# `npm install && npm run build`, which on an installed copy is neither possible nor correct.
+# readlink -f where it exists (GNU, macOS 12.3+), else walk the links by hand: the same
+# fallback souffle-include.sh uses, and for the same reason, no interpreter and no coreutils.
+self="$0"
+if [ -L "$self" ]; then
+  r="$(readlink -f "$self" 2>/dev/null)" || r=""
+  if [ -z "$r" ]; then
+    r="$self"; while [ -L "$r" ]; do
+      t="$(readlink "$r")"
+      case "$t" in /*) r="$t";; *) r="$(dirname "$r")/$t";; esac
+    done
+  fi
+  self="$r"
+fi
+ROOT="$(d="$(cd "$(dirname "$self")" && pwd)"; while [ "$d" != / ] && { [ ! -f "$d/package.json" ] || [ ! -d "$d/graph" ]; }; do d="$(dirname "$d")"; done; echo "$d")"
+# No marker found means every path built from ROOT is nonsense; say so here rather than fail
+# later on a path the user cannot interpret.
+[ -d "$ROOT/graph" ] || { echo "axiomcode: cannot locate the package root from $0 (resolved to $self)" >&2; exit 2; }
 PARSER="${AXIOM_PARSER:-$ROOT/parser/dist/index.js}"
 usage(){ sed -n '3,30p' "$0" | sed 's/^# \{0,1\}//'; }
 die(){ echo "axiomcode: $*" >&2; exit 2; }
