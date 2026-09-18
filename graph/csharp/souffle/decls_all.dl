@@ -483,4 +483,5 @@
 .decl var_type(c0:symbol,c1:symbol,c2:symbol)
 .decl var_type_name(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl var_type_ref(c0:symbol,c1:symbol,c2:symbol)
+.decl var_use_cand(c0:symbol,c1:symbol,c2:symbol)
 .decl var_value_initializer(c0:symbol,c1:symbol,c2:symbol)
