@@ -26,7 +26,7 @@
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"
-ORACLE="$HERE/oracle/AxiomCsOracle/bin/Release/net8.0/axiom-cs-oracle"
+ORACLE="$HERE/ground-truth/AxiomCsOracle/bin/Release/net8.0/axiom-cs-oracle"
 
 WORK="${1:-}"; ONLY=""; VERBOSE=0
 shift 2>/dev/null || true
@@ -43,7 +43,7 @@ mkdir -p "$WORK"; WORK="$(cd "$WORK" && pwd)"
 command -v souffle >/dev/null || { echo "souffle is not installed (brew install souffle)" >&2; exit 77; }
 [ -f "$REPO/parser/dist/index.js" ] || { echo "the parser is not built (npm run build)" >&2; exit 77; }
 [ -x "$ORACLE" ] || {
-  echo "the oracle is not built:  dotnet build -c Release $HERE/oracle/AxiomCsOracle" >&2; exit 77; }
+  echo "the oracle is not built:  dotnet build -c Release $HERE/ground-truth/AxiomCsOracle" >&2; exit 77; }
 
 PASS=0; FAIL=0; FAILED=""
 for dir in "$HERE"/cases/*/; do
@@ -69,7 +69,7 @@ for dir in "$HERE"/cases/*/; do
     FAIL=$((FAIL+1)); FAILED="$FAILED $name"; continue
   fi
 
-  out=$(python3 "$HERE/oracle/score.py" \
+  out=$(python3 "$HERE/ground-truth/score.py" \
         --engine-raw "$w/engine/out" --engine-ir "$w/ir/csharp" \
         --oracle "$w/oracle.tsv" --oracle-dispatch "$w/oracle.dispatch.tsv" \
         --json "$w/score.json" --label "$name" --verbose "$VERBOSE" 2>&1)
