@@ -107,6 +107,14 @@ if ! bash "$ROOT/graph/test/tools/engine-id-locale-test.sh"; then
   echo "aborting: the program text depends on the shell locale"
   exit 1
 fi
+# ── The published package must be installable ──────────────────────────────
+# Reads the pack manifest, so it costs a second. It guards defects that a source checkout
+# cannot show: here the parser is built, the CLI is run by path and the dependencies are
+# present, none of which is true of the tarball a user installs.
+if ! bash "$ROOT/graph/test/tools/package-contents-test.sh"; then
+  echo "aborting: the published package would not be installable"
+  exit 1
+fi
 # ── The bundle stage must build the language-neutral output ─────────────────
 # Every solve below ends by joining the raw relations to the IR and writing graph.sqlite
 # (graph/bundle/SCHEMA.md); graph/*.csv is the same core tables and is written only under
