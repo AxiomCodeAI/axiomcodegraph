@@ -33,8 +33,13 @@ CASES = [                                       # (target, extra args, [substrin
  ('Dollar$Types.declaringClassOf', [], ['Dollar$Types.declaringClassOf', '[method]']),
  ('Ctor.Ctor', [], ['Ctor.Ctor', '[method]']),
  ('Ctor', [], ['[type]']),
+ # --depends is the other direction (#761): what the target CALLS, which is what an agent editing it
+ # has to change alongside. Caller.a calls Svc.save; Svc.plain calls nothing.
+ ('Caller.a', ['--depends'], ['depends on (what it calls', 'Svc.save']),
+ ('Svc.plain', ['--depends'], ['depends on (what it calls', 'nothing resolved']),
 ]
 NEVER = {'Svc.plain': ['throws:'],
+         'Svc.save': ['depends on (what it calls'],   # the downstream section is opt-in, not default
          # the concrete case must NOT be given as a build-breaking reason
          'Impl.may': ['leaves the type without an implementation'],
          'Ctor.Ctor': ['[type]'],

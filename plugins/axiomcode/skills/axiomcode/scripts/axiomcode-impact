@@ -13,6 +13,9 @@ A target is a declaration, written as it appears in the code. Its kind is read f
                                                        engine's framework facts — an unknown key stops and says so, never a name match
     --kind method|field|type|param|typeparam|var|config  when the same name is declared as more than one kind
     --delete                                           add a verdict: is it safe to delete, and what the graph cannot vouch for
+    --depends                                          the OTHER direction: what this declaration calls, which is what an agent
+                                                       editing it usually has to change alongside. Dependents answer "who breaks
+                                                       if I change this"; this answers "what do I have to change with it"
     --from-text <file|->  [--top N]                    an ISSUE REPORT instead of a target: every identifier it names (stack
                                                        frames, file:line, code blocks, prose) resolved against the index and
                                                        ranked by where it was written, how specific it is and how central it
@@ -907,8 +910,8 @@ def rank_targets(I, g, text, top=5):
 
 def main(argv):
     args = list(argv); depth = 40; limit = 25; IN = None; want_tests = '--tests' in args; as_json = '--json' in args; kind = None
-    want_delete = '--delete' in args; want_warm = '--warm' in args
-    args = [a for a in args if a not in ('--tests', '--json', '--delete', '--warm')]
+    want_delete = '--delete' in args; want_warm = '--warm' in args; want_depends = '--depends' in args
+    args = [a for a in args if a not in ('--tests', '--json', '--delete', '--warm', '--depends')]
     from_text = None; take_top = 0
     if '--from-text' in args:
         i = args.index('--from-text'); from_text = args[i + 1]; del args[i:i + 2]
@@ -1179,6 +1182,33 @@ def main(argv):
         for m, (d, fx) in sorted(tests.items(), key=lambda x: (CERT_RANK[test_cert[x[0]]], x[1][0], g.sym[x[0]]['display'])):
             print(f"    [{test_cert[m]}] {g.sym[m]['owner'] or os.path.basename(g.sym[m]['file'])}::{g.sym[m]['name']}   {g.loc(m)}   {d} hop(s)" + (f" via {g.disp(fx)}" if fx else ''))
             if fx is None and d > 0 and len(chains.get(m, [])) > 1: print("        " + ' → '.join(g.disp(x) for x in chains[m]))
+    # --depends: the downstream direction (#761). `impact` walks callers only, so what the target itself calls is
+    # never reported, and that is what an agent editing it has to change alongside. Same edges, read the other way;
+    # the same certainty vocabulary, printed as its own section so the two questions are never confused.
+    if want_depends:
+        ph = ','.join('?' * len(seeds)) if seeds else "''"
+        out_rows = g.q(f"""SELECT DISTINCT e.callee_method_id id, e.tier, s.file_path f, s.start_line l
+                           FROM call_edges e LEFT JOIN call_sites s ON s.id = e.call_site_id
+                           WHERE e.caller_id IN ({ph}) AND e.callee_method_id IS NOT NULL
+                             AND e.callee_provenance = 'client' AND e.callee_method_id NOT IN ({ph})
+                           ORDER BY s.start_line""", *(list(seeds) + list(seeds))) if seeds else []
+        libs = g.q(f"""SELECT DISTINCT e.callee_label lab FROM call_edges e
+                       WHERE e.caller_id IN ({ph}) AND e.tier = 'boundary_lib' AND e.callee_label IS NOT NULL
+                       ORDER BY lab""", *seeds) if seeds else []
+        unres = g.q(f"SELECT count(*) n FROM unresolved_sites WHERE caller_id IN ({ph})", *seeds)[0]['n'] if seeds else 0
+        seen_d = {}
+        for r in out_rows:
+            if r['id'] in g.sym and r['id'] not in seen_d:
+                seen_d[r['id']] = ('one of a set' if r['tier'] == 'multi_inferred' else 'resolved', r['f'], r['l'])
+        print(f"\ndepends on (what it calls, so what may have to change with it): {len(seen_d)} callable(s)")
+        if not seen_d and not libs:
+            print("    nothing resolved" + (f" — but its body has {unres} unresolved call(s), so what it depends on is unknown, not nothing" if unres else ""))
+        for m, (cert, f, l) in sorted(seen_d.items(), key=lambda x: (CERT_RANK.get(x[1][0], 9), g.sym[x[0]]['display']))[:limit]:
+            print(f"    [{cert}] {g.disp(m)}   {g.loc(m)}")
+        if len(seen_d) > limit: print(f"    … +{len(seen_d) - limit} (--limit N)")
+        if libs: print("    into libraries (not traversed): " + ', '.join(str(x['lab']).split('(')[0] for x in libs[:6]) + (f" … +{len(libs) - 6}" if len(libs) > 6 else ''))
+        if unres and seen_d: print(f"    bound: {unres} unresolved call(s) in its body — what those reach is not here")
+
     # a green line over an empty set would be printed exactly where the answer is least trustworthy: say what was checked
     if want_delete:
         # is it safe to delete? every reason it is not, and — when there is none — what the graph cannot vouch for
