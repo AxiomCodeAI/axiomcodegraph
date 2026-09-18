@@ -580,7 +580,7 @@ def _bean_call(q, ids, sites):
     return callers, why
 
 
-def direct_for_method(q, ids):
+def direct_for_method(q, ids, code=None, rel=None):
     """direct(q,c,role,why,cert,f,l) for a method target — the rows the answer groups by *why* and *how sure*.
 
       calls it                                         resolved      a typed edge, any tier but multi_inferred
@@ -617,6 +617,9 @@ def direct_for_method(q, ids):
             rows.append((c, 'uses', 'calls a method of this name (receiver not typed)', 'by name', f or '', l or 0))
     # a method that DEFINES a bean: whoever the container injects the type it returns into (rule 189)
     rows += _bean_definition_consumers(q, ids)
+    # a barrel that re-exports it, or the whole module it is declared in (rules 396 and 399)
+    rows += reexport_rows(q, names, code, rel or (lambda x: x),
+                          {f for (f,) in q(f"SELECT file FROM symbols WHERE id IN ({ph}) AND file IS NOT NULL", *ids)})
     # alongside: siblings of the target's own type, then the other types declared in the same file
     owners = {r[0] for r in q(f"SELECT owner FROM symbols WHERE id IN ({ph})", *ids) if r[0]}
     memb, owner_disp, tfile, _tid, _by_tid = _members(q)
@@ -1184,6 +1187,9 @@ def direct_for_type(q, tids, at, inside, textuse, importuse, rel, code=None):
             rows.append((c, 'uses', f'receives it by dependency injection ({kind}) — the container hands it '
                                     f'over, no call site', 'resolved', '', 0))
 
+    # a barrel that re-exports it (rule 398), keyed on the type's NAME, not its display
+    rows += reexport_rows(q, {n for n, _k in names.values() if n}, code, rel)
+
     # ── an ENUM type: the switches over it (rule 343) ──────────────────────────────────────────────────────
     #   direct(q,c,"uses",cat("switches over the enum (",arms," of its constants named)"),"resolved","",0)
     #     :- target(q,"type",t,_), typ(t,_,"enum"), switch_over(c,t,arms), !inside_target(q,c)
@@ -1373,6 +1379,17 @@ def direct_for_field(q, fids, at, code, lines, inside, rel):
     rows, de = [], []
     memb, _od, _tf, tid_of, by_tid = _members(q)
     sym = _sym(q)
+    # `fref(q,c,rk,f,l)` does NOT carry the declaration it came from:
+    #   fref(q,c,rk,f,l) :- target(q,"field",fl,_), field(fl,_,n,ff,fll), ref(c,n,rk,ek,f,l), …, (f != ff ; l != fll)
+    # so when a query resolves to SEVERAL declarations of one name, the line guard only has to be satisfied by
+    # ONE of them, and the `scope` test downstream re-joins `field(fl,t,…)` over all of them independently. A
+    # reference sitting on declaration A's own line is therefore still a row — B elsewhere satisfies the guard.
+    # Pairing the two legs per declaration is more precise and does NOT match: two rows on a name declared 32
+    # times across the tree. The guard is per NAME, not per declaration.
+    decl_sites = {}
+    for f_ in fids:
+        r_ = field_rec(q, f_)
+        if r_ and r_[1]: decl_sites.setdefault(r_[1], set()).add((r_[2], r_[3]))
     for fid in fids:
         rec = field_rec(q, fid)
         if not rec: continue
@@ -1395,7 +1412,9 @@ def direct_for_field(q, fids, at, code, lines, inside, rel):
                 e = 'CLASS_LITERAL' if kk == 'CLASS_LITERAL' else (ek or '')
                 if e in LOCAL_KINDS: continue
                 if e in TYPE_OR_CALL_KINDS and not (fkind == 'enum_member' and e == 'TYPE'): continue
-                if rf == ff and rl == fll: continue                       # the declaration itself
+                # the declaration itself — unless another declaration of the same name is written elsewhere,
+                # which is what the rule's `(f != ff ; l != fll)` actually asks
+                if decl_sites.get(n, {(ff, fll)}) == {(rf, rl)}: continue
                 c = at(rf, rl)
                 if not c: continue
                 rk = 'qualified' if kk in QUALIFIED_REF_KINDS else 'bare'
@@ -1544,6 +1563,9 @@ def direct_for_field(q, fids, at, code, lines, inside, rel):
                         rows.append((c, 'produces',
                                      f'reflects on {hn}.class, which holds {tname} — deserialization '
                                      f'produces the value here', 'by name', rf, rl))
+    # a barrel that re-exports the field's name (rule 397)
+    fnames = {r[1] for r in (field_rec(q, f_) for f_ in fids) if r and r[1]}
+    rows += reexport_rows(q, fnames, code, rel)
     return rows, de
 
 
@@ -1694,6 +1716,68 @@ def _alongside_for_type(q, tids, inside, target_fields=(), at=None):
     return rows
 
 
+_REEXPORTS = {}
+REEXPORT_NAMED = re.compile(r'\s*export\s*(type\s*)?\{([^}]*)\}\s*from\s')
+REEXPORT_STAR = re.compile(r'\s*export\s*\*\s*from\s')
+MODULE_EXT = re.compile(r'\.(ts|tsx|js|jsx|mjs|cjs)$')
+
+
+def reexports(q, code):
+    """`reexport(c,n,f,l)` — a barrel: `export { alpha } from './core.js'`, and `export * from …` as the name `*`.
+
+    The parser records no reference for that line, so the file that has to change in the same commit as a rename
+    was invisible to every other relation. Read from the source per module, exactly as the exporter reads it —
+    this was the second reason a bundle with any JS or TS module in it declined here.
+    """
+    key = id(q)
+    if key in _REEXPORTS: return _REEXPORTS[key]
+    # `mod_of` the way the exporter builds it, which is not "every module row". It walks `g.sym`, and that is
+    #   {r['id']: dict(r) for r in SELECT * WHERE method_id IS NOT NULL OR type_id IS NOT NULL}
+    # — ONE row per id, the LAST, and only ids carrying a method or a type. A module row with neither is not in it
+    # at all, so its file is never scanned. Reading every module row instead found two more barrels on one bundle
+    # and put an `export *` row into every method target's answer that the rules do not have.
+    one = {}
+    for i, f, kind in q("SELECT id, file, kind FROM symbols "
+                        "WHERE method_id IS NOT NULL OR type_id IS NOT NULL"):
+        one[i] = (f, kind)
+    mod_of = {}
+    for i, (f, kind) in one.items():
+        if kind == 'module' and f: mod_of.setdefault(f, i)
+    rex = []
+    for f, mid in sorted(mod_of.items()):
+        if not MODULE_EXT.search(f): continue
+        for i, line in enumerate(code(f), 1):
+            m = REEXPORT_NAMED.match(line)
+            if m:
+                for part in m.group(2).split(','):
+                    w = re.findall(r'[A-Za-z_$][\w$]*', part)
+                    if w: rex.append((mid, w[0], f, i))
+            elif REEXPORT_STAR.match(line):
+                rex.append((mid, '*', f, i))
+    return _REEXPORTS.setdefault(key, sorted(set(rex)))
+
+
+def reexport_rows(q, names, code, rel, decl_files=()):
+    """Rules 396-399 — the barrel lines that must change with a rename of the target.
+
+    `decl_files` is given for a METHOD target only: rule 399 says that re-exporting the whole module a method is
+    declared in is a dependency too, but only from a DIFFERENT file than the one that declares it.
+    """
+    if code is None: return []
+    rows = []
+    for c, n, f, l in reexports(q, code):
+        if n in names:
+            rows.append((c, 'uses', 're-exports it (a barrel: this line must change with a rename)', 'text',
+                         rel(f) if f else '', l or 0))
+        # `… decl_file(m,df), reexport(c,"*",f,l), f != df` — m ranges over EVERY declaration the query resolved
+        # to, so the row exists when SOME target is declared outside this file, not when all of them are. A target
+        # that resolves to many declarations (an anonymous callable) has one in the barrel's own file often
+        # enough for the two readings to differ.
+        elif n == '*' and (decl_files - {f}):
+            rows.append((c, 'uses', 're-exports the whole module it is declared in (export * — a rename changes '
+                                    'what this file exports)', 'text', rel(f) if f else '', l or 0))
+    return rows
+
 def _target_fields(q, decls, tids, at):
     """`target_field(q,n)` — the fields of the target's own type that the target DECLARATIONS reference.
 
@@ -1739,9 +1823,7 @@ def _declines_type(q, tids):
     if q(f"SELECT 1 FROM symbols WHERE id IN ({ph}) AND kind='record' LIMIT 1", *tids): return True
     if _has(q, 'types') and q(f"SELECT 1 FROM types WHERE id IN ({ph}) "
                               f"AND category LIKE '%RECORD%' LIMIT 1", *tids): return True
-    # 397: a barrel is a JS/TS construct; a bundle with no such module can have no reexport row
-    if q("SELECT 1 FROM symbols WHERE kind='module' AND (file LIKE '%.ts' OR file LIKE '%.tsx' OR file LIKE '%.js'"
-         " OR file LIKE '%.jsx' OR file LIKE '%.mjs' OR file LIKE '%.cjs') LIMIT 1"): return True
+    # 397 (`reexport`) used to decline every bundle holding a single JS or TS module; it is derived now.
     # 276/277 — `gen(t,w)`, which has five sources. A decoration on the type, on an ancestor or on one of its
     # fields; a BASE CLASS whose written name is in the table (`class User(BaseModel)` — the base is usually a
     # library type `extends` never resolved, so only the written name sees it); and `gen_alias`, a project-local
@@ -1872,7 +1954,7 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
             mids = sorted(by_kind['method'])
             mph = ','.join('?' * len(mids))
             con += contract_for_method(q, mids)
-            d = direct_for_method(q, mids)
+            d = direct_for_method(q, mids, code, rel)
             dr += d
             # seed_of(q,m) for a method target is the target and what the contract binds to it
             seeds |= set(mids) | {c for c, _ in con}
