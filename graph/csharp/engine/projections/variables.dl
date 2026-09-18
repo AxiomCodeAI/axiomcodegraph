@@ -211,7 +211,7 @@ block_span("client", blk, sl, el) :-
 block_span("lib", blk, sl, el) :-
     lib_cs_block(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, sl, el, _, _, _, _, blk).
 
-// block_ancestor(Prov, Block, Ancestor) — the enclosing chain, reflexive. This is
+// block_ancestor(Prov, Block, Ancestor) -- the enclosing chain, reflexive. This is
 // what makes shadowing decidable: a name binds to the declaration in the NEAREST
 // enclosing block that declares it.
 block_ancestor(prov, blk, blk) :- block_decl(prov, _, _, blk).
@@ -244,6 +244,6 @@ parse_gap("lib", mod, gk, nt, sl, el, g) :-
 parse_gap_bytes("client", g, bl, cp) :- cs_parse_gap(_, _, _, _, _, _, _, bl, cp, _, _, g).
 parse_gap_bytes("lib", g, bl, cp)    :- lib_cs_parse_gap(_, _, _, _, _, _, _, bl, cp, _, _, g).
 
-// module_has_parse_gap(Prov, ModuleHash) — the file-level test. A missing call site
+// module_has_parse_gap(Prov, ModuleHash) -- the file-level test. A missing call site
 // in such a file is explained; the same absence in a clean file is a resolution bug.
 module_has_parse_gap(prov, mod) :- parse_gap(prov, mod, _, _, _, _, _).

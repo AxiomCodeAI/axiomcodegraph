@@ -9,7 +9,7 @@
 // construction, because syntax genuinely cannot tell them apart.
 //
 // So the hierarchy cannot be built from the heritage rows alone. It needs, for each
-// named type, that type's OWN typeCategory — which means resolving the name first,
+// named type, that type's OWN typeCategory -- which means resolving the name first,
 // and which is why cs_type_heritage is staged for libraries as a signature relation:
 // a client class deriving from a library base cannot be placed without it.
 //
@@ -85,7 +85,7 @@ type_ref_complete("client", tr, ctn) :-
 type_ref_complete("lib", tr, ctn) :-
     lib_cs_type_reference(_, _, _, _, _, _, _, _, ctn, _, _, _, _, _, _, _, _, _, _, _, _, tr).
 
-// type_ref_parent(Prov, RefHash, ParentRefHash, Position, Depth) — the generic
+// type_ref_parent(Prov, RefHash, ParentRefHash, Position, Depth) -- the generic
 // argument tree. Position is the argument index, so the VALUE type of a
 // `Dictionary<K, V>` reference is its child at position 1.
 type_ref_parent("client", tr, parent, pos, d) :-
@@ -95,7 +95,7 @@ type_ref_parent("lib", tr, parent, pos, d) :-
     lib_cs_type_reference(_, _, _, _, parent, pos, d, _, _, _, _, _, _, _, _, _, _, _, _, _, _, tr),
     parent != "".
 
-// type_ref_arg(Prov, ParentRefHash, Position, ArgRefHash) — the same edge downward.
+// type_ref_arg(Prov, ParentRefHash, Position, ArgRefHash) -- the same edge downward.
 type_ref_arg(prov, parent, pos, tr) :- type_ref_parent(prov, tr, parent, pos, _).
 
 type_ref_argc("client", tr, n) :-
@@ -146,10 +146,10 @@ using_decl("client", uk, nt, mod, u) :-
 using_decl("lib", uk, nt, mod, u) :-
     lib_cs_using(uk, nt, _, _, _, _, _, _, mod, _, _, _, _, _, u).
 
-// A plain `using System;` — brings a NAMESPACE's types into scope by simple name.
+// A plain `using System;` -- brings a NAMESPACE's types into scope by simple name.
 using_namespace(prov, mod, ns) :- using_decl(prov, _, ns, mod, u), !using_is_static(prov, u), !using_is_alias(prov, u).
 
-// `using static System.Math;` — brings a TYPE's STATIC MEMBERS into scope, so `PI`
+// `using static System.Math;` -- brings a TYPE's STATIC MEMBERS into scope, so `PI`
 // and `Sqrt(x)` resolve with no qualifier at all. This is the only way an
 // unqualified call can reach a member of a type the enclosing type has no relation
 // to, and an engine without it reports those sites unresolved.
@@ -157,7 +157,7 @@ using_is_static("client", u) :- cs_using(_, _, _, _, _, "true", _, _, _, _, _, _
 using_is_static("lib", u)    :- lib_cs_using(_, _, _, _, _, "true", _, _, _, _, _, _, _, _, u).
 using_static_type(prov, mod, tn) :- using_decl(prov, _, tn, mod, u), using_is_static(prov, u).
 
-// `using Foo = Bar.Baz;` — an ALIAS. The written name is Foo and it denotes Baz, so
+// `using Foo = Bar.Baz;` -- an ALIAS. The written name is Foo and it denotes Baz, so
 // name resolution must rewrite before it matches, or every use of the alias is
 // unresolved.
 using_alias("client", mod, alias, target) :-
@@ -254,7 +254,7 @@ query_clause_descending("lib", qc) :-
 //   13 serviceVersionLinkHash 14 csPreprocRegionUniqueHash
 //
 // A call inside an INACTIVE #if branch is not compiled and not called. The engine
-// does not filter on this — the parser already decides which branch it read — but the
+// does not filter on this -- the parser already decides which branch it read -- but the
 // region rows are what let a disagreement between the two be attributed rather than
 // argued about.
 preproc_region("client", mod, rk, active, sl, el, r) :-

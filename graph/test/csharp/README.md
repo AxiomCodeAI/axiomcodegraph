@@ -5,14 +5,14 @@ than the numbers.
 
 | | what it is | what it proves | cost |
 |---|---|---|---|
-| `run-cases.sh` | 5 cases, scored against Roslyn | a construct resolves, and its control does not over-resolve | seconds |
+| `run-tests.sh` | 5 cases, scored against Roslyn | a construct resolves, and its control does not over-resolve | seconds |
 | `corpus/run-corpus.sh` | 10 real projects, dev and holdout | the rules generalise beyond what they were written against | ~30 min |
 | `runtime-oracle/` | the subject's own test suite, traced | an edge was actually taken, and which taken edge was missed | ~5 min per subject |
 
 ## The cases
 
 ```
-run-cases.sh <work-dir> [--only NN-slug] [--verbose N]
+run-tests.sh <work-dir> [--only NN-slug] [--verbose N]
 ```
 
 | case | what it pins |
@@ -44,8 +44,8 @@ corpus/aggregate.py <before> <after>              # the diff, with a verdict
 
 Ten projects, five and five, defined in `corpus/corpus.tsv` with the split and the
 pins in the tree. The holdout set deliberately contains two dominant idioms the dev
-set does not have — NodaTime's operators and conversions, CsvHelper's expression
-trees and `dynamic` — because a held-out set that only repeats the dev set's shapes
+set does not have -- NodaTime's operators and conversions, CsvHelper's expression
+trees and `dynamic` -- because a held-out set that only repeats the dev set's shapes
 measures nothing.
 
 **The two sets are never summed.** A combined number cannot answer the question a
@@ -80,7 +80,7 @@ instrumenter that changes the program is not measuring the program. The caller c
 off a per-thread shadow stack pushed on entry and popped in a `finally`.
 
 The instrumenter RE-PARSES every rewrite before writing it and leaves any file that
-does not survive uninstrumented and counted — two bad rewrites got through before
+does not survive uninstrumented and counted -- two bad rewrites got through before
 that check existed, and both surfaced as "no trace produced", which reads as a
 harness failure rather than a bad rewrite.
 
@@ -95,7 +95,7 @@ The static oracle is pinned to the 8.0 SDK so a parser figure and an engine figu
 from this repository stay comparable. Several of these repositories' TEST projects
 target net10.0 only, and those cannot be traced on that SDK: `trace-subject.sh`
 reports them and skips rather than failing. At the pinned commits, the test projects
-that build on net8.0 are `dapper`, `fluentvalidation` and `csvhelper` — one
+that build on net8.0 are `dapper`, `fluentvalidation` and `csvhelper` -- one
 holdout among them, which is what makes the runtime numbers more than a dev-set
 anecdote.
 

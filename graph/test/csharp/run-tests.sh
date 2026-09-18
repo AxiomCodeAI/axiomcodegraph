@@ -1,8 +1,25 @@
 #!/bin/bash
 # =============================================================================
-# The C# case suite.
+# axiom-code-graph - C# engine regression suite
 #
-#   run-cases.sh [work-dir] [--only NN-slug] [--verbose N]
+#   ./run-tests.sh                     every case
+#   ./run-tests.sh --only 03-target-typed-new
+#   ./run-tests.sh --verbose 5         print the per-site failures for a red case
+#   ./run-tests.sh <work-dir>          keep the per-case work under <work-dir>
+#
+# Named run-tests.sh because that is the entry point `bin/axiomcode test csharp`
+# calls, the same as every other language in graph/test/.
+#
+# THERE IS NO --bless, AND THAT IS THE DESIGN. Every other suite here diffs against
+# a golden file that a human blessed; this one scores against the Roslyn oracle. A
+# blessed golden records what the engine did on the day it was blessed, so a rule
+# that is wrong in the same way as the golden passes forever, and the quickest way
+# past a red check is to re-bless. Scoring against the compiler removes both
+# problems: there is nothing to re-bless, and a case needs no update when an
+# unrelated relation changes shape.
+#
+# The CORPUS is separate and is not run here: it needs a network fetch and about
+# half an hour. See corpus/run-corpus.sh and README.md.
 #
 # THE GOLDEN IS THE COMPILER, NOT A FILE SOMEONE BLESSED. Each case is scored
 # against the Roslyn oracle exactly as a corpus project is, and the bar is the
@@ -64,7 +81,7 @@ for dir in "$HERE"/cases/*/; do
   # A case whose own source does not compile is not evidence about the engine.
   cerr=$(sed -n 's/^compileErrors\t//p' "$w/oracle.manifest.tsv")
   if [ "${cerr:-0}" != "0" ]; then
-    echo "  $name: THE CASE DOES NOT COMPILE ($cerr errors) — fix the case, not the engine"
+    echo "  $name: THE CASE DOES NOT COMPILE ($cerr errors) -- fix the case, not the engine"
     sed -n 's/^topErrorCodes\t/    /p' "$w/oracle.manifest.tsv"
     FAIL=$((FAIL+1)); FAILED="$FAILED $name"; continue
   fi

@@ -97,7 +97,7 @@ GLOBALJSON_RELAXED="no"
 if [ -f "$MIRROR/global.json" ]; then
   mv "$MIRROR/global.json" "$MIRROR/global.json.axiom-disabled"
   GLOBALJSON_RELAXED="yes ($(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$MIRROR/global.json.axiom-disabled" | head -1))"
-  echo "▶ $NAME: global.json pin relaxed — $GLOBALJSON_RELAXED"
+  echo "▶ $NAME: global.json pin relaxed -- $GLOBALJSON_RELAXED"
 fi
 
 echo "▶ $NAME: looking for a test project"

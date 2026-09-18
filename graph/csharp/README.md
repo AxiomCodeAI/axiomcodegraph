@@ -10,8 +10,8 @@ bin/axiomcode all <src-dir> <out-dir> --language csharp
 
 ## What makes C# different from Java, and where each difference lives
 
-The engine follows the Java engine's layering — projections, containment,
-resolution, expression-resolution, call-edge-generation — and five language
+The engine follows the Java engine's layering -- projections, containment,
+resolution, expression-resolution, call-edge-generation -- and five language
 differences decide most of the rules. Each is worth knowing before reading any
 file, because in every case the Java-shaped answer is not merely less precise, it
 is wrong.
@@ -22,7 +22,7 @@ is-virtual assumption, ported, reports `multi_inferred` over most of a C# codeba
 So `known_edge` is the common tier here and a fan has to be justified by a
 modifier. `resolution/virtual-dispatch.dl`
 
-**A heritage clause does not say what it is.** `class C : B, I1, I2` — nothing in
+**A heritage clause does not say what it is.** `class C : B, I1, I2` -- nothing in
 the syntax distinguishes the base class from the interfaces, and `heritageKind` is
 `BASE_OR_INTERFACE` for every entry by construction. The split is recovered by
 resolving each name and reading the resolved type's own category. Treat a base class
@@ -34,7 +34,7 @@ declaration" that `base.M()` resolves to ill-defined.
 **Most member access is a call.** `x.Name` invokes `get_Name`, `a[i]` an indexer
 accessor, `e += h` an add accessor. The static oracle reports 3,943
 property-accessor sites in Humanizer against 3,203 ordinary in-source invocation
-sites — so an engine that reads them as field accesses loses more call sites than it
+sites -- so an engine that reads them as field accesses loses more call sites than it
 finds. `resolution/properties.dl`
 
 **An extension method looks like an instance method and is not one.** It is
@@ -51,8 +51,8 @@ key. `projections/types.dl`
 
 Type inference and dispatch are mutually recursive in C#: a receiver's type may come
 from a call's return type, and that call's target depends on its own receiver's type.
-The recursion is fine while it stays positive. The exactness test is not — "fan out
-unless the receiver is exact" is a negation — so the engine is split:
+The recursion is fine while it stays positive. The exactness test is not -- "fan out
+unless the receiver is exact" is a negation -- so the engine is split:
 
 | relation | what it is | who reads it |
 |---|---|---|
@@ -84,17 +84,17 @@ count stays readable.
 Three instruments, in increasing cost:
 
 ```
-graph/test/csharp/run-cases.sh <work>              # 5 cases, golden = the compiler
+graph/test/csharp/run-tests.sh <work>              # 5 cases, golden = the compiler
 graph/test/csharp/corpus/fetch.sh                  # 10 projects at pinned commits
 graph/test/csharp/corpus/run-corpus.sh <work> --set all
 graph/test/csharp/runtime-oracle/trace-subject.sh <name> <work>
 graph/test/csharp/runtime-oracle/join.py <work> <raw> <ir>
 ```
 
-**The static oracle** (`oracle/AxiomCsOracle`) emits a ground-truth call graph from
+**The static oracle** (`ground-truth/AxiomCsOracle`) emits a ground-truth call graph from
 Roslyn's semantic model, compiled the way the engine runs: the subject's own source
 against reference assemblies and nothing else. Every site is labelled `in_source` or
-`external` and the two are scored as different questions — an in-source target must
+`external` and the two are scored as different questions -- an in-source target must
 be RESOLVED, an external one must be LABELLED. An oracle holding the full dependency
 closure would resolve calls into packages the engine was never given and report them
 as engine misses, which measures the harness.
@@ -108,7 +108,7 @@ holdout does not.
 
 **The runtime oracle** instruments a mirror and runs the subject's own test suite.
 Its buckets refuse to overclaim: `CONFIRMED`, `MISSED` (a recall gap with a
-witness), `NARROWABLE`, and `NOT_EXECUTED` — which is labelled NO INFORMATION and
+witness), `NARROWABLE`, and `NOT_EXECUTED` -- which is labelled NO INFORMATION and
 never scored as an engine error. Reading "709 named, 352 taken" as 50% precision is
 the mistake the file is written to prevent.
 

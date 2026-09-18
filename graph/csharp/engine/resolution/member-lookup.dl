@@ -1,7 +1,7 @@
 // ============================================================================
 // RESOLUTION · MEMBER LOOKUP
 //
-// member_lookup(Prov, GroupKey, Name, MemberKind, MemberHash) — what the name `Foo`
+// member_lookup(Prov, GroupKey, Name, MemberKind, MemberHash) -- what the name `Foo`
 // means on a receiver of this type. The DECLARED member, before dispatch: dispatch
 // (virtual-dispatch.dl) then asks which override actually runs.
 //
@@ -11,7 +11,7 @@
 //     HIDE a base member with `public new void M()`. That is not an override: a
 //     base-typed receiver reaches the BASE method and only a derived-typed receiver
 //     reaches the hiding one. So lookup is by DISTANCE up the hierarchy, and the
-//     nearest declaration is the answer — which also handles ordinary overriding.
+//     nearest declaration is the answer -- which also handles ordinary overriding.
 //
 //  2. AN EXPLICIT INTERFACE IMPLEMENTATION IS NOT A MEMBER OF THE CLASS.
 //     `void IFoo.Bar()` is reachable through an IFoo-typed receiver and NOT through
@@ -29,7 +29,7 @@
 //
 //  5. AN EXTENSION METHOD IS NOT A MEMBER AT ALL. It is a static method that LOOKS
 //     like one. It is deliberately absent from this file and handled in
-//     resolution/extensions.dl, which runs only where member lookup found nothing —
+//     resolution/extensions.dl, which runs only where member lookup found nothing,
 //     which is exactly the language's own rule.
 // ============================================================================
 
@@ -142,7 +142,7 @@ member_lookup_ambiguous(prov, gk, n) :- member_lookup_count(prov, gk, n, c), c >
 
 // ── STATIC VS INSTANCE ──────────────────────────────────────────────────────
 // `Foo.M()` is a static call on a type; `foo.M()` is an instance call on a value.
-// Both arrive as receiverKind NAME, so the engine decides — and the decision is
+// Both arrive as receiverKind NAME, so the engine decides -- and the decision is
 // made by which of the two the resolved member IS, not by guessing from the name's
 // case or shape. Named here so the call rules can require agreement: a static
 // member reached through an instance receiver, or the reverse, is a wrong edge.

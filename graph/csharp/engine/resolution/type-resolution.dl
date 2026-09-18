@@ -1,12 +1,12 @@
 // ============================================================================
 // RESOLUTION · TYPE NAMES
 //
-// type_name_resolves(Prov, ModuleHash, WrittenName, Arity, GroupKey) — what a type
+// type_name_resolves(Prov, ModuleHash, WrittenName, Arity, GroupKey) -- what a type
 // name written in a given file denotes. Everything downstream depends on this: a
 // receiver's type, a base class, a constructor's target, an extension method's
 // receiver constraint.
 //
-// C# RESOLVES A SIMPLE TYPE NAME IN THIS ORDER, and the order is not cosmetic —
+// C# RESOLVES A SIMPLE TYPE NAME IN THIS ORDER, and the order is not cosmetic --
 // getting it wrong resolves names to types the compiler would not choose:
 //
 //   1. a type PARAMETER in scope          (`T` is never a type called T)
@@ -63,8 +63,8 @@ type_name_cand(prov, mod, alias, ar, gk, 3) :-
 // module_in_scope already unions the file's own namespaces, its enclosing
 // namespaces, its usings and every global using in the same assembly. Splitting
 // rank 4 from rank 5 would require knowing which of those a namespace came from,
-// and the C# rule that matters in practice — a name in your own namespace beats a
-// name you imported — is captured by giving the file's own namespaces the better
+// and the C# rule that matters in practice -- a name in your own namespace beats a
+// name you imported -- is captured by giving the file's own namespaces the better
 // rank.
 type_name_cand(prov, mod, n, ar, gk, 4) :-
     module_namespace_own(prov, mod, ns),
@@ -142,7 +142,7 @@ type_name_unresolved(prov, mod, n, ar) :-
     type_ref_demand(prov, mod, n, ar),
     !type_name_resolves(prov, mod, n, ar, _).
 
-// type_ref_demand — every (module, name, arity) the engine actually needs an answer
+// type_ref_demand -- every (module, name, arity) the engine actually needs an answer
 // for. Demand-driven rather than "every name in the program", so the unresolved
 // count is a count of real failures and not of names nothing asked about.
 type_ref_demand(prov, mod, n, ar) :-
@@ -193,7 +193,7 @@ type_ref_demand(prov, mod, n, "0") :-
     method_return_type_name(prov, m, n), n != "", method_module(prov, m, mod).
 
 // ── RESOLVING A TYPE REFERENCE NODE ─────────────────────────────────────────
-// type_ref_resolves(Prov, RefHash, GroupKey) — a written type reference to the type
+// type_ref_resolves(Prov, RefHash, GroupKey) -- a written type reference to the type
 // it denotes. Goes through type_name_resolves, so it inherits the ordering and the
 // ambiguity handling rather than re-deriving them.
 //

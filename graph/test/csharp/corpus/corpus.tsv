@@ -1,4 +1,4 @@
-# The C# evaluation corpus — the DEFINITION, not a description of one.
+# The C# evaluation corpus -- the DEFINITION, not a description of one.
 #
 # Ten real projects, five designed against and five design-blind. The split is
 # recorded HERE, in the tree, at pinned commits, because a split that lives in an
@@ -15,7 +15,7 @@
 # dev      designed against. A rule may be derived from what these projects show.
 # holdout  DESIGN-BLIND. Measured, never used to derive a rule. When it surfaces a
 #          defect class, the shape is reproduced SYNTHETICALLY under cases/ and the
-#          rule is designed from that — never from the held-out site itself.
+#          rule is designed from that -- never from the held-out site itself.
 #          A change that closes the dev/holdout gap is suspicious rather than good:
 #          that gap IS the generalisation cost, and a fix that erases it usually
 #          means the dev set leaked.
@@ -24,20 +24,18 @@
 # Chosen so that between them they exercise every construct the engine claims to
 # handle, and so that the two sets are not the same program twice. A corpus of five
 # ASP.NET web applications reports excellent coverage of a subset; the parser's own
-# stratified audit is the precedent for caring about this — its `modern-app` stratum
+# stratified audit is the precedent for caring about this -- its `modern-app` stratum
 # had 547 files and 67 kind disagreements while `framework-bcl` had 2,217 and 1,620.
 #
 # The DEV set is weighted towards what a client-only engine can actually resolve:
 # library code whose calls are mostly into its own source. The HOLDOUT set
-# deliberately includes two projects whose dominant idiom the dev set does NOT have —
-# NodaTime's operators and conversions, CsvHelper's expression trees and `dynamic` —
-# because a held-out set that only repeats the dev set's shapes measures nothing.
+# deliberately includes two projects whose dominant idiom the dev set does NOT have -- # NodaTime's operators and conversions, CsvHelper's expression trees and `dynamic` -- # because a held-out set that only repeats the dev set's shapes measures nothing.
 #
 # ── PATH: why the project subdirectory, not the repository root ──────────────
 # The IR carries `filePath` relative to the parsed root. Pointing at a repository
 # root that holds src/, test/, benchmarks/ and samples/ measures the engine against
 # test doubles and benchmark harnesses as much as against the library, and the
-# oracle would compile all of them as one assembly — merging several `Program`
+# oracle would compile all of them as one assembly -- merging several `Program`
 # classes and every `internal`. Each entry therefore names the LIBRARY subtree.
 #
 # ── TARGET FRAMEWORKS, CHECKED RATHER THAN ASSUMED ───────────────────────────
@@ -57,7 +55,7 @@
 # LanguageVersion 13, matching the parser's own corpus audit so a parser figure and
 # an engine figure from this repository are comparable. A subject using a C# 14
 # construct parses as an error there, and a file the oracle could not read is not
-# evidence about the engine in either direction — so run-corpus.sh prints the
+# evidence about the engine in either direction -- so run-corpus.sh prints the
 # oracle's own compile-error count per project next to the score, and a pin that
 # drifts into that problem is visible instead of quietly lowering recall.
 #

@@ -107,7 +107,7 @@ var_declared_before(prov, v, e) :-
     var_span(prov, v, vsl, _, _), expr_span(prov, e, esl, _, _, _),
     to_number(vsl) <= to_number(esl).
 
-// block_ancestor_depth — the enclosing chain with a distance, so "nearest" is
+// block_ancestor_depth -- the enclosing chain with a distance, so "nearest" is
 // computable. Depth 0 is the block itself.
 block_ancestor_depth(prov, blk, blk, 0) :- block_decl(prov, _, _, blk).
 block_ancestor_depth(prov, blk, anc, d) :-
@@ -121,7 +121,7 @@ local_binds(prov, e, v) :-
     local_bind_cand(prov, e, v, d), local_bind_best_depth(prov, e, d).
 
 // ── THE UNIFIED VIEW ────────────────────────────────────────────────────────
-// ref_denotes(Prov, ExprHash, EntityKind, EntityHash) — what a name reference means,
+// ref_denotes(Prov, ExprHash, EntityKind, EntityHash) -- what a name reference means,
 // from either source. Every typing rule reads this rather than choosing between the
 // parser's answer and the engine's, so a name bound by either is handled once.
 ref_denotes(prov, e, k, h) :- expr_ref_entity(prov, e, k, h).
@@ -131,7 +131,7 @@ ref_denotes(prov, e, "PARAMETER", p) :- local_binds(prov, e, p), param_decl(prov
 // ── A NAME THE ENGINE ALSO COULD NOT BIND ───────────────────────────────────
 // Recorded, with the name, so an unresolved receiver has an explanation. Most of
 // these should be TYPE names used as static receivers (`Console.WriteLine`), which
-// is not a local binding failure at all and is resolved by type name instead — so
+// is not a local binding failure at all and is resolved by type name instead -- so
 // this relation subtracts those before reporting.
 ref_unbound(prov, e, n) :-
     unbound_ref(prov, e, n, _, _),

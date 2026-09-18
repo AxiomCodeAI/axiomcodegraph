@@ -27,7 +27,7 @@
 // ============================================================================
 
 // ── AN EXTERNAL TYPE ────────────────────────────────────────────────────────
-// external_type_name(Prov, ModuleHash, Name, Arity) — demanded, in scope, unstaged.
+// external_type_name(Prov, ModuleHash, Name, Arity) -- demanded, in scope, unstaged.
 external_type_name(prov, mod, n, ar) :-
     type_name_unresolved(prov, mod, n, ar),
     !cs_predefined_alias(n).

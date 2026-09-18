@@ -1,7 +1,7 @@
 // ============================================================================
 // EXPRESSION RESOLUTION · CALLEE
 //
-// expr_resolves_to_method(Prov, SiteExpr, MethodHash) — the disambiguated target set
+// expr_resolves_to_method(Prov, SiteExpr, MethodHash) -- the disambiguated target set
 // for a call site. 0, 1 or N. The call-edge layer turns the COUNT into a confidence
 // tier, so this relation's job is to be complete and sound: every target that could
 // run, and nothing that could not.
@@ -117,7 +117,7 @@ expr_resolves_to_method(prov, e, target) :-
     // the defect this whole block exists to prevent.
     call_argc(prov, e, ac), method_accepts_argc(prov, target, ac).
 
-// ── `base.M()` — NON-VIRTUAL, EXACTLY THE BASE'S BODY ───────────────────────
+// ── `base.M()` -- NON-VIRTUAL, EXACTLY THE BASE'S BODY ───────────────────────
 // Stated as its own rule rather than relying on dispatch_is_exact, because the
 // LOOKUP is different too: it starts at the base, so an override in the CURRENT type
 // must not be the answer. That override is precisely what `base.M()` exists to skip.
@@ -231,7 +231,7 @@ expr_exact_target(prov, e, ctor) :- call_ctor_target(prov, e, ctor).
 
 // A type with NO declared constructor has an implicit public parameterless one. The
 // parser does not synthesise a row for it, so `new Foo()` on such a type resolves to
-// nothing — and that is a REAL answer rather than a miss: there is no user code to
+// nothing -- and that is a REAL answer rather than a miss: there is no user code to
 // call. Recorded so the site is classified as a known structural case.
 call_ctor_implicit(prov, e, gk) :-
     call_needs_ctor_lookup(prov, e),
@@ -242,7 +242,7 @@ call_ctor_implicit(prov, e, gk) :-
 // ── CONSTRUCTOR DELEGATION ──────────────────────────────────────────────────
 // `: this(a)` targets another constructor of the SAME type; `: base(a)` targets one
 // of the base. Neither writes a name, so the target is structural and there is no
-// name to resolve — which is why a name-matching graph misses both entirely.
+// name to resolve -- which is why a name-matching graph misses both entirely.
 expr_exact_target(prov, e, ctor) :-
     call_is_this_ctor(prov, e),
     expr_ultimate_type_group(prov, e, gk),
@@ -270,7 +270,7 @@ primary_ctor_base_target(prov, gk, ctor) :-
 // goes wrong. A method of four parameters accepts a two-argument call if two have
 // defaults, and a `params` method accepts any count from its position onward.
 // Matching parameterCount exactly rejects both, and both are extremely common in
-// C# — optional parameters are the idiomatic alternative to overloads.
+// C# -- optional parameters are the idiomatic alternative to overloads.
 method_arity_min(prov, m, lo) :-
     method_paramc(prov, m, pcs), pc = to_number(pcs),
     opt = count : { param_of(prov, p, m), param_optional(prov, p) },

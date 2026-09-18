@@ -260,7 +260,7 @@ method_has_unknown_call(caller, e) :-
     call_class("client", e, "fan_capped"), call_from("client", e, caller).
 
 // ── THE CONSERVATION GUARD ──────────────────────────────────────────────────
-// call_site_dropped(SiteExpr) — a call site in the IR that produced NO row in the
+// call_site_dropped(SiteExpr) -- a call site in the IR that produced NO row in the
 // output. This must be empty. It is exported so that it is checked by a number
 // rather than believed, and the suite fails on a non-zero count.
 //
@@ -269,7 +269,7 @@ method_has_unknown_call(caller, e) :-
 site_in_output(e) :- call_chain_edge(e, _, _, _, _, _, _).
 call_site_dropped(e) :- csite("client", e), !site_in_output(e).
 
-// call_chain_summary(Tier, Count) — the per-tier tally, which is the one number a
+// call_chain_summary(Tier, Count) -- the per-tier tally, which is the one number a
 // run is judged on.
 call_chain_summary(cls, n) :-
     call_class("client", _, cls),

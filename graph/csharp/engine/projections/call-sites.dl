@@ -12,12 +12,12 @@
 // absence is not coverage. Two of them are this engine's work rather than a
 // permanent gap:
 //
-//   QUERY_DESUGARED_CALL — the parser emits cs_query_clause and the ENGINE desugars.
+//   QUERY_DESUGARED_CALL -- the parser emits cs_query_clause and the ENGINE desugars.
 //     `from x in xs where p select f` is three calls to Where/Select on a receiver
 //     type reached through extension methods in a using scope. See
 //     expression-resolution/linq.dl.
 //
-//   EXTENSION_REDUCED_CALL — the parser emits the `a.B()` SHAPE and never claims B
+//   EXTENSION_REDUCED_CALL -- the parser emits the `a.B()` SHAPE and never claims B
 //     resolved to an extension method. Deciding that is resolution/extensions.dl.
 //
 // DYNAMIC_CALL stays a gap on purpose: a call through a `dynamic` value is dispatched
@@ -31,8 +31,8 @@
 //   13 outArgumentCount 14 isConditional 15 isQueryDesugarCandidate 16 startLine
 //   17 startColumn 18 isExternal 19 serviceVersionLinkHash 20 csCallSiteUniqueHash
 //
-// KEYED ON THE EXPRESSION, NOT ON THE SITE HASH. Every downstream relation — the
-// resolved callee set, the edge, the oracle join — is keyed by csExpressionLinkHash,
+// KEYED ON THE EXPRESSION, NOT ON THE SITE HASH. Every downstream relation -- the
+// resolved callee set, the edge, the oracle join -- is keyed by csExpressionLinkHash,
 // because that is the node the receiver and arguments hang off and the thing a
 // position-based oracle can match. csCallSiteUniqueHash is carried for provenance
 // only.
@@ -44,7 +44,7 @@ call_decl("client", ck, cn, e, s) :-
 call_decl("lib", ck, cn, e, s) :-
     lib_cs_call_site(ck, cn, _, _, _, e, _, _, _, _, _, _, _, _, _, _, _, _, _, _, s).
 
-// csite(Prov, ExprHash) — the site universe, by expression. The conservation guard
+// csite(Prov, ExprHash) -- the site universe, by expression. The conservation guard
 // counts this against the emitted edges.
 csite(prov, e) :- call_decl(prov, _, _, e, _).
 
@@ -173,7 +173,7 @@ call_is_delegate_invoke(prov, e) :- call_kind(prov, e, "DELEGATE_INVOKE").
 call_is_operator(prov, e) :- call_kind(prov, e, "OPERATOR_CALL").
 call_is_conversion(prov, e) :- call_kind(prov, e, "CONVERSION_CALL").
 
-// `a[i]` through a user-defined indexer — an accessor call.
+// `a[i]` through a user-defined indexer -- an accessor call.
 call_is_element_access(prov, e) :- call_kind(prov, e, "ELEMENT_ACCESS_CALL").
 
 // A call through a `dynamic` value. RESERVED by the parser and declared unresolvable

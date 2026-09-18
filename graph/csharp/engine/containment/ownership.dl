@@ -1,15 +1,15 @@
 // ============================================================================
 // CONTAINMENT · OWNERSHIP  (caller attribution)
 //
-// expr_ultimate_method(Prov, ExprHash, MethodHash) — the method a call site
+// expr_ultimate_method(Prov, ExprHash, MethodHash) -- the method a call site
 // ultimately runs in. This is the FROM end of every call edge, so a site with no
 // answer here produces no edge no matter how well its callee resolved.
 //
 // C# IS EASIER HERE THAN JAVA, AND THE REASON IS WORTH STATING. The Java IR stamps
 // an expression with its innermost owner, which is a block about 40% of the time,
 // so the Java engine walks blocks and local variables to reach a method. The C#
-// parser stamps expressionOwnerHash with the owning DECLARATION — the method, field,
-// property, event or attribute — so the common case is one join.
+// parser stamps expressionOwnerHash with the owning DECLARATION -- the method, field,
+// property, event or attribute -- so the common case is one join.
 //
 // WHAT IS NOT ONE JOIN, AND IS THE WHOLE DIFFICULTY:
 //
@@ -25,7 +25,7 @@
 //     the static constructor, neither of which is written. The parser gives the
 //     expression a FIELD or PROPERTY owner. Those calls are real and must not be
 //     dropped, so they are attributed to the type's constructor where one exists,
-//     and to the enclosing TYPE otherwise — mirroring what the Java engine does
+//     and to the enclosing TYPE otherwise -- mirroring what the Java engine does
 //     with <init>/<clinit>.
 //
 //  3. TOP-LEVEL STATEMENTS HAVE NO ENCLOSING TYPE. The parser synthesises a
@@ -66,7 +66,7 @@ expr_ultimate_method(prov, e, cctor) :-
     method_is_static_ctor(prov, cctor).
 
 // ── Case 3: the owner is a PROPERTY initializer ─────────────────────────────
-// `public Foo F { get; } = new Foo();` — same reasoning as a field initializer.
+// `public Foo F { get; } = new Foo();` -- same reasoning as a field initializer.
 expr_in_property_initializer(prov, e, p) :- expr_owner(prov, p, "PROPERTY", e), property_decl(prov, _, _, p).
 expr_ultimate_method(prov, e, ctor) :-
     expr_in_property_initializer(prov, e, p),
@@ -86,14 +86,14 @@ expr_ultimate_method(prov, e, m) :-
 // ── expr_ultimate_type(Prov, ExprHash, TypeHash) ────────────────────────────
 // The type an expression is written in. This is what an unqualified call and an
 // implicit `this` resolve against. Taken from the stamped owner type where present,
-// and otherwise from the owning method's own type — the two can differ for a lambda
+// and otherwise from the owning method's own type -- the two can differ for a lambda
 // in a field initializer, and the method's type is the one that decides member
 // visibility.
 expr_ultimate_type(prov, e, t) :- expr_type_owner(prov, e, t).
 expr_ultimate_type(prov, e, t) :-
     expr_ultimate_method(prov, e, m), method_owner(prov, t, m).
 
-// expr_ultimate_type_group(Prov, ExprHash, GroupKey) — the MERGED enclosing type,
+// expr_ultimate_type_group(Prov, ExprHash, GroupKey) -- the MERGED enclosing type,
 // which is what member lookup needs: a call in one part of a partial class can
 // reach a private member declared in another part, and a site-scoped answer cannot
 // see it.
@@ -168,7 +168,7 @@ method_lexical_parent(prov, inner, outer) :-
     to_number(isl) > to_number(osl),
     to_number(isl) <= to_number(oel).
 
-// method_lexical_ancestor — reflexive and transitive, so a name in a lambda inside a
+// method_lexical_ancestor -- reflexive and transitive, so a name in a lambda inside a
 // lambda inside a method searches all three.
 method_lexical_ancestor(prov, m, m) :- method_decl(prov, _, _, _, m).
 method_lexical_ancestor(prov, m, anc) :-

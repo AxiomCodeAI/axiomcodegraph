@@ -6,7 +6,7 @@ public sealed class Builder : IBuilder { }
 
 public static class StringExtensions
 {
-    // `this string` — an EXTERNAL receiver type. In a client-only run `string`
+    // `this string` -- an EXTERNAL receiver type. In a client-only run `string`
     // resolves to nothing on both sides, so the match is by NAME, and this is the
     // commonest extension receiver in C#.
     public static string Shout(this string input) => input + "!";

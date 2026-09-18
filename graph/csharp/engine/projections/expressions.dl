@@ -10,7 +10,7 @@
 //                     METHOD_NAME, QUALIFIER, ASSIGNMENT_TARGET. This is the
 //                     structural edge label and it is how the receiver of a call is
 //                     found: the child of the INVOCATION whose role is RECEIVER.
-//   rootContext (c2)  WHERE THE WHOLE TREE IS ROOTED — EXPRESSION_BODY,
+//   rootContext (c2)  WHERE THE WHOLE TREE IS ROOTED -- EXPRESSION_BODY,
 //                     VARIABLE_INITIALIZER, LOOP_HEADER, RETURN_VALUE. A property
 //                     of the statement, not of this node.
 //
@@ -65,7 +65,7 @@ expr_parent("lib", e, p, pos, d) :-
     lib_cs_expression(_, _, _, _, _, p, pos, d, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
     p != "".
 
-// expr_child(Prov, ParentHash, Role, Position, ChildHash) — the same edge read
+// expr_child(Prov, ParentHash, Role, Position, ChildHash) -- the same edge read
 // downward, which is the direction every call rule wants: given an INVOCATION, find
 // the child whose role is RECEIVER or ARGUMENT.
 expr_child(prov, p, role, pos, e) :- expr_parent(prov, e, p, pos, _), expr_role(prov, e, role).
@@ -99,7 +99,7 @@ expr_ref_entity("lib", e, ek, eh) :-
     lib_cs_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ek, eh, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
     ek != "UNKNOWN", eh != "".
 
-// expr_ref_unknown(Prov, ExprHash) — a name the parser did not bind. The engine owes
+// expr_ref_unknown(Prov, ExprHash) -- a name the parser did not bind. The engine owes
 // this one an answer, and if it cannot produce one the site must say so rather than
 // disappear.
 expr_ref_unknown("client", e) :-
@@ -108,7 +108,7 @@ expr_ref_unknown("lib", e) :-
     lib_cs_expression("NAME_REFERENCE", _, _, _, _, _, _, _, _, _, _, _, _, _, _, "UNKNOWN", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e).
 
 // ── expr_written_name(Prov, ExprHash, Name) ─────────────────────────────────
-// potentialQualifiedName — the text as written, so `Math.PI` on a MEMBER_ACCESS and
+// potentialQualifiedName -- the text as written, so `Math.PI` on a MEMBER_ACCESS and
 // `Math` on its QUALIFIER child. The parser makes no claim about what it resolves to.
 expr_written_name("client", e, n) :-
     cs_expression(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, n, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, e),
