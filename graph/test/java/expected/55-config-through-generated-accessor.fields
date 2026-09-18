@@ -1,0 +1,4 @@
+known_edge	read	app.Caller#useEndpoint() -> app.Caller#settings
+known_edge	read	app.Caller#useHand() -> app.Caller#settings
+known_edge	read	app.Caller#useRetry() -> app.Caller#settings
+known_edge	read	app.Settings#getHand() -> app.Settings#hand
