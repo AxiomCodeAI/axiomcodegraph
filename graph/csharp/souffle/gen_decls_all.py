@@ -70,6 +70,17 @@ TUNING_INPUTS = {
     "dispatch_cap": ("symbol",),
     # --lib-depth: how far a client->lib chain is expanded. Empty means uncapped.
     "lib_max_depth": ("number",),
+    # The shared executor ALWAYS stages these two, for every language, and emits one
+    # .input directive per staged file. An undeclared one is a hard error at compile
+    # time ("Undefined relation jdk_max_depth"), so they are declared here whether or
+    # not a C# rule reads them.
+    #
+    # NEITHER IS READ BY A C# RULE, and that is deliberate rather than pending.
+    # jdk_max_depth caps how deep a Java run walks into the JDK; the C# equivalent is
+    # lib_max_depth, which the staging loop already uses. taint_gating switches on
+    # Java's taint-gated library expansion, and there is no taint layer here.
+    "jdk_max_depth": ("number",),
+    "taint_gating": ("symbol",),
 }
 
 

@@ -18,7 +18,9 @@
 // ============================================================================
 
 .decl dispatch_cap(c0:symbol)
+.decl jdk_max_depth(c0:number)
 .decl lib_max_depth(c0:number)
+.decl taint_gating(c0:symbol)
 
 .decl attribute_arg(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol)
 .decl attribute_arg_type_ref(c0:symbol,c1:symbol,c2:symbol)

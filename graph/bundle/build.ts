@@ -212,6 +212,19 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
   // there (`node_modules/delta/node_modules/gamma`, which is also how the runtime tells two
   // versions apart), else the package name; a name two roots share gets `#2`, `#3` appended.
   const libPrefix = new Map<string, string>(); // library module hash → prefix (no trailing slash)
+  /**
+   * The file an entity row belongs to: its own path column where it has one, and
+   * otherwise the path of the module it names. C# method, type and field rows carry
+   * no path -- the file is a property of the compilation unit, which is what
+   * cs_module is -- so the module map is the route. Returns '' rather than throwing
+   * when neither is available, because a row with no locatable file is a bundling
+   * gap and not a reason to fail the run.
+   */
+  const pathOf = (r: string[], own: number | undefined, viaModule: number | undefined): string => {
+    if (own !== undefined) return r[own] ?? '';
+    if (viaModule !== undefined) return modules.get(r[viaModule] ?? '') ?? '';
+    return '';
+  };
   const prefixed = (prov: 'client' | 'lib', moduleCol: number | undefined, r: string[], s: string): string => {
     if (prov !== 'lib' || moduleCol === undefined) return s;
     const p = libPrefix.get(r[moduleCol] ?? '');
@@ -219,7 +232,9 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
   };
   const readMethods = async (src: EntitySource, prov: 'client' | 'lib', only?: Set<string>) => {
     const h = src.header;
-    const [ci, cn, cq, ck, co, cf, cs1, ce1] = [M.id, M.name, M.qualifiedName, M.kind, M.ownerTypeId, M.filePath, M.startLine, M.endLine].map((n) => h.col(n));
+    const [ci, cn, cq, ck, co, cs1, ce1] = [M.id, M.name, M.qualifiedName, M.kind, M.ownerTypeId, M.startLine, M.endLine].map((n) => h.col(n));
+    const cf = M.filePath ? h.col(M.filePath) : undefined;
+    const cfmod = M.filePath ? undefined : (M.moduleId ? h.col(M.moduleId) : undefined);
     // optional columns: absent from the adapter means the language has no such thing
     const cs = M.signature ? h.col(M.signature) : undefined;
     const coq = M.ownerQualifiedName ? h.col(M.ownerQualifiedName) : undefined;
@@ -230,7 +245,7 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
       if (only && !only.has(id)) continue;
       if (methods.has(id)) continue;
       const owner = nul(r[co!]);
-      methods.set(id, [id, r[cn!] ?? '', prefixed(prov, cmod, r, r[cq!] ?? ''), cs === undefined ? '' : (r[cs] ?? ''), r[ck!] ?? '', owner, owner && coq !== undefined ? nul(r[coq]) : null, prefixed(prov, cmod, r, r[cf!] ?? ''), int(r[cs1!]), int(r[ce1!]), prov]);
+      methods.set(id, [id, r[cn!] ?? '', prefixed(prov, cmod, r, r[cq!] ?? ''), cs === undefined ? '' : (r[cs] ?? ''), r[ck!] ?? '', owner, owner && coq !== undefined ? nul(r[coq]) : null, prefixed(prov, cmod, r, pathOf(r, cf, cfmod)), int(r[cs1!]), int(r[ce1!]), prov]);
       if (owner) wantTypes.add(owner);
       n++;
     }
@@ -238,14 +253,16 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
   };
   const readTypes = async (src: EntitySource, prov: 'client' | 'lib', only?: Set<string>) => {
     const h = src.header;
-    const [ci, cn, cq, cc, cf, cs1, ce1] = [T.id, T.name, T.qualifiedName, T.category, T.filePath, T.startLine, T.endLine].map((n) => h.col(n));
+    const [ci, cn, cq, cc, cs1, ce1] = [T.id, T.name, T.qualifiedName, T.category, T.startLine, T.endLine].map((n) => h.col(n));
+    const cf = T.filePath ? h.col(T.filePath) : undefined;
+    const cfmod = T.filePath ? undefined : (T.moduleId ? h.col(T.moduleId) : undefined);
     const cmod = T.moduleId && libPrefix.size > 0 ? h.col(T.moduleId) : undefined;
     let n = 0;
     for await (const r of rowsOf(src)) {
       const id = r[ci!] ?? '';
       if (only && !only.has(id)) continue;
       if (types.has(id)) continue;
-      types.set(id, [id, r[cn!] ?? '', prefixed(prov, cmod, r, r[cq!] ?? ''), r[cc!] ?? '', prefixed(prov, cmod, r, r[cf!] ?? ''), int(r[cs1!]), int(r[ce1!]), prov]);
+      types.set(id, [id, r[cn!] ?? '', prefixed(prov, cmod, r, r[cq!] ?? ''), r[cc!] ?? '', prefixed(prov, cmod, r, pathOf(r, cf, cfmod)), int(r[cs1!]), int(r[ce1!]), prov]);
       n++;
     }
     return n;
@@ -254,9 +271,11 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
   // field_access row names, exactly as readMethods does for library methods; the CLIENT's fields
   // are all read, because the client is the subject.
   const fields = new Map<string, Row>();
-  const readFields = async (src: EntitySource, F: { id: string; name: string; ownerTypeId: string; ownerQualifiedName?: string; typeName?: string; modifiers?: string; filePath: string; startLine: string; endLine: string }, kind: string, prov: 'client' | 'lib', only?: Set<string>) => {
+  const readFields = async (src: EntitySource, F: { id: string; name: string; ownerTypeId: string; ownerQualifiedName?: string; typeName?: string; modifiers?: string; filePath?: string; moduleId?: string; startLine: string; endLine: string }, kind: string, prov: 'client' | 'lib', only?: Set<string>) => {
     const h = src.header;
-    const [ci, cn, co, cf, cs1, ce1] = [F.id, F.name, F.ownerTypeId, F.filePath, F.startLine, F.endLine].map((n) => h.col(n));
+    const [ci, cn, co, cs1, ce1] = [F.id, F.name, F.ownerTypeId, F.startLine, F.endLine].map((n) => h.col(n));
+    const cf = F.filePath ? h.col(F.filePath) : undefined;
+    const cfmod = F.filePath ? undefined : (F.moduleId ? h.col(F.moduleId) : undefined);
     const coq = F.ownerQualifiedName ? h.col(F.ownerQualifiedName) : undefined;
     const ct = F.typeName ? h.col(F.typeName) : undefined;
     const cmod = F.modifiers ? h.col(F.modifiers) : undefined;
@@ -268,7 +287,7 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
       const owner = nul(r[co!]);
       fields.set(id, [id, r[cn!] ?? '', kind, owner, coq !== undefined ? nul(r[coq]) : null,
         ct !== undefined ? nul(r[ct]) : null, cmod !== undefined ? nul(r[cmod]) : null,
-        nul(r[cf!]), int(r[cs1!]), int(r[ce1!]), prov]);
+        nul(pathOf(r, cf, cfmod)), int(r[cs1!]), int(r[ce1!]), prov]);
       if (owner) wantTypes.add(owner);
       n++;
     }
@@ -300,6 +319,19 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
     if (libPrefix.size > 0) log(`  library modules prefixed by package: ${libPrefix.size} (${[...new Set(labelOf.values())].length} roots)`);
   };
 
+  // MODULES FIRST. A language whose method and type rows carry no path of their own
+  // resolves the file through the module (see MethodsIR.filePath), so the map has to be
+  // populated before those rows are read. It used to be filled afterwards, which is
+  // invisible for every language that does carry a path and gives a NULL file for every
+  // row of one that does not.
+  if (A.ir.modules) {
+    const src = await clientSource(inp.clientIrDir, A.ir.modules.file);
+    if (src) {
+      const ci = src.header.col(A.ir.modules.id), cf = src.header.col(A.ir.modules.filePath);
+      for await (const r of rowsOf(src)) modules.set(r[ci] ?? '', r[cf] ?? '');
+    }
+  }
+
   const cm = await clientSource(inp.clientIrDir, M.file);
   if (cm) log(`  client methods: ${await readMethods(cm, 'client')}`);
   const ct = await clientSource(inp.clientIrDir, T.file);
@@ -311,13 +343,6 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
     if (FI.enumConstants) {
       const ce = await clientSource(inp.clientIrDir, FI.enumConstants.file);
       if (ce) log(`  client enum constants: ${await readFields(ce, FI.enumConstants, 'enum_constant', 'client')}`);
-    }
-  }
-  if (A.ir.modules) {
-    const src = await clientSource(inp.clientIrDir, A.ir.modules.file);
-    if (src) {
-      const ci = src.header.col(A.ir.modules.id), cf = src.header.col(A.ir.modules.filePath);
-      for await (const r of rowsOf(src)) modules.set(r[ci] ?? '', r[cf] ?? '');
     }
   }
 
