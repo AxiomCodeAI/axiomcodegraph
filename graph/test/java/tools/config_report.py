@@ -134,6 +134,17 @@ def main():
          lambda r: f"{r[1]:<7} {r[2]:<34} {L.lbl(r[0])}"),
         ('remote-undetermined.csv', 'remote_undetermined  [DECLARED UNKNOWNS]',
          lambda r: f"{r[1]:<7} {r[2]:<34} {L.lbl(r[0])}"),
+        # A query is a reference to a schema, so it belongs in the golden for the same
+        # reason a route does: a column that stops being linkable must show up as a diff.
+        ('persistence-query.csv', 'persistence_query',
+         lambda r: f"{r[1]:<12} {(r[2] if r[2] != '-' else ''):<26} {L.lbl(r[0])}\n"
+                   f"{'':<41}  \"{r[3]}\""),
+        ('persistence-entity.csv', 'persistence_entity',
+         lambda r: f"{L.lbl(r[1]):<30} {L.lbl(r[0])}"),
+        ('persistence-field.csv', 'persistence_field',
+         lambda r: f"{r[2]:<11}{L.lbl(r[1]):<38} {L.lbl(r[0])}"),
+        ('persistence-unresolved.csv', 'persistence_unresolved  [DECLARED UNKNOWNS]',
+         lambda r: f"{r[1]:<26} {L.lbl(r[0])}"),
     ]
 
     for fname, title, fmt in SECTIONS:

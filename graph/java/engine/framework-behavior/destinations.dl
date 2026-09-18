@@ -318,8 +318,15 @@ send_frag_segsum(call, n) :- send_frag_at(call, _, _),
 route_segments_of(f, n) :- send_frag_at(_, f, _),
     n = count : { i = range(0, strlen(f)), substr(f, i, 1) = "/" }.
 
-route_ends_with(s, f) :- serves_destination(_, "http", s), send_frag_at(_, f, _),
-    strlen(s) >= strlen(f), substr(s, strlen(s) - strlen(f), strlen(f)) = f.
+// The offset is CLAMPED rather than merely guarded. Soufflé inlines a simple helper
+// back into its caller, so splitting the length test into its own relation did not stop
+// `substr(s, strlen(s) - strlen(f), …)` being evaluated on the pairs where f is longer
+// than s — 657 warnings on one real codebase. Clamping makes the functor total; the
+// guard still decides the answer.
+route_suffix_ok(s, f, off) :- serves_destination(_, "http", s), send_frag_at(_, f, _),
+    strlen(s) >= strlen(f), off = max(0, strlen(s) - strlen(f)).
+route_ends_with(s, f) :- route_suffix_ok(s, f, off),
+    substr(s, off, min(strlen(f), strlen(s))) = f.
 
 remote_edge_via(call, from, to, "http", s, "route_built") :- sends_destination_at(call, from, "http", _),
     serves_destination(to, "http", s), from != to,
@@ -363,7 +370,7 @@ amqp_bean_name(mname, name) :- amqp_bean_demand(mname),
     expr_child("client", e, "ARGUMENT", a), expr_position("client", a, "0"),
     expr_kind("client", "LITERAL", _, a), expr_literal("client", name, a).
 
-amqp_binding(exchange, rk, queue) :- amqp_bind_chain(w, qref, eref, rk),
+amqp_binding(exchange, rk, queue) :- amqp_bind_chain(_, qref, eref, rk),
     amqp_bean_name(qref, queue), amqp_bean_name(eref, exchange).
 
 // what a publisher names. convertAndSend is overloaded: (routingKey, payload) names no
