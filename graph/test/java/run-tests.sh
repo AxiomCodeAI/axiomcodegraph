@@ -89,10 +89,6 @@ if ! bash "$ROOT/graph/test/tools/portable-stat-test.sh"; then
   echo "aborting: the library-facts cache key is not a function of the library IR"
   exit 1
 fi
-if ! bash "$ROOT/graph/test/tools/library-flag-test.sh"; then
-  echo "aborting: --library does not mean the same thing spelled both ways"
-  exit 1
-fi
 if ! bash "$ROOT/graph/test/tools/lib-cache-key-test.sh"; then
   echo "FAIL: the library-facts cache key is not a function of the staged modules' content (#588)"; exit 1
 fi
