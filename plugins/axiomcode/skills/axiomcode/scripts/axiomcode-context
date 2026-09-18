@@ -29,78 +29,10 @@ import importlib.machinery, importlib.util, math, os, re, sys, collections
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from ax_contract import (subtokens, TESTY, SPLIT, CAMEL, require_scope, budgeted, BOUND,
-                         dirs_with_counts, offer, task_text)
+                         dirs_with_counts, offer, task_text, task_terms, winnow)
 _spec = importlib.util.spec_from_loader('axpath', importlib.machinery.SourceFileLoader('axpath', os.path.join(HERE, 'axiomcode-path')))
 P = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(P)
 G, die = P.G, P.die
-
-# Question words and prose glue. A task is mostly English; the code words are the signal.
-STOP = set("""a an and are as at be been being but by can cannot could did do does doing done for from get
-gets getting had has have how i if in into is it its just like make makes making may might must no not of
-on once only or other our out over own same should so some such than that the their them then there these
-they this those through to too under until up use used uses using very was way we were what when where
-which while who why will with would you your about after all also am any because before below between both
-during each few further here him his more most no nor now off other own s same t too very
-bug issue fix fixed fixes broken break breaks error fails failing failure problem regression expected
-actual reproduce reproduction repro steps version
-""".split())
-
-
-
-HYPHEN = re.compile(r'[A-Za-z0-9]+(?:[-_.][A-Za-z0-9]+)+')
-
-
-def task_terms(text):
-    """The content words of the task, in order, deduped.
-
-    A fixed stoplist is a prior about ENGLISH, and the vocabulary here is a codebase's. `v-for` and `v-if`
-    are Vue's two most distinctive directive names, and splitting them on the hyphen leaves `v` (too short)
-    and `for`/`if` (stopwords) — so the single most discriminating word in an issue was being deleted before
-    scoring, while a file literally named vFor.ts sat in the answer. The compound is kept WHOLE and
-    unhyphenated alongside its parts, so `v-for` still reaches `vFor`; IDF then decides what a term is
-    worth, which is a judgement about this graph rather than about English.
-    """
-    words, seen = [], set()
-    def add(w):
-        w = w.lower()
-        if len(w) < 3 or w in seen: return
-        seen.add(w); words.append(w)
-    for compound in HYPHEN.findall(text or ''):
-        add(re.sub(r'[-_.]', '', compound))          # v-for -> vfor, api_create_app -> apicreateapp
-    for raw in SPLIT.split(text or ''):
-        if not raw: continue
-        add(raw)
-        for part in CAMEL.findall(raw): add(part)
-    content = [w for w in words if w not in STOP]
-    return content or words
-
-
-# A term the graph has never heard of cannot match anything, and a term half the graph uses cannot
-# discriminate -- yet both counted toward the coverage denominator. A real task carries a lot of both: a
-# reproduction link's base64 payload and an image hash are zero-frequency, and the prose around an issue is
-# high-frequency. One measured task arrived as 264 terms of which about a dozen were about the bug.
-#
-# Swept over 18 tasks on three languages: 8 or 12 terms scores 44%, 16 scores 50%, 24 scores 61%, and 40 or
-# unbounded 55%. Anything from 16 up is within a task or two of the best, so 24 is a knee and not a cliff.
-# An explicit "drop any term more common than X of the graph" threshold was also tried and DELETED: it
-# changed nothing at any value between 5% and 100%, because sorting by document frequency and keeping the
-# first MAX_TERMS already drops exactly those words.
-MAX_TERMS = 24
-
-
-def winnow(g, terms, name_df=None):
-    """The terms worth scoring, most discriminating first — by the graph's own document frequency."""
-    if name_df is None:
-        name_df = collections.Counter()
-        for sid, sym in g.sym.items():
-            for t in set(subtokens(sym.get('name') or '') + subtokens(sym.get('display') or '')):
-                name_df[t] += 1
-    keep = [t for t in terms if name_df.get(t, 0) > 0]
-    keep.sort(key=lambda t: name_df.get(t, 0))
-    # order is the caller's contract elsewhere (seeds are picked per term in task order), so restore it
-    chosen = set(keep[:MAX_TERMS])
-    return [t for t in terms if t in chosen] or terms[:MAX_TERMS]
-
 
 # How many declarations to name under each file. Swept over 31 real commits: 1 gives 18% function recall at
 # 987 tokens per correct answer, 2 gives 24% at 790, 3 gives 27% at 748 but takes precision from 4% to 2%.
