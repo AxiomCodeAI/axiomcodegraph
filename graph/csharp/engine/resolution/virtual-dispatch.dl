@@ -148,20 +148,30 @@ dispatch_excluded_hiding(prov, m, h) :-
 // (a) `base.M()` — non-virtual by definition.
 dispatch_is_exact(prov, e) :- call_is_base(prov, e).
 
-// (b) The receiver's type cannot be derived from: a struct, an enum, or a sealed
-// class. No other type can be there at runtime.
-dispatch_is_exact(prov, e) :- call_recv_type(prov, e, gk), type_cannot_be_derived(prov, gk).
+// (b) EVERY possible receiver type cannot be derived from: a struct, an enum, or a
+// sealed class. UNIVERSAL, NOT EXISTENTIAL, and that distinction cost a whole
+// project's fan soundness.
+//
+// A receiver may have SEVERAL types -- a name that resolves to both a value and a
+// type, a field assigned two concrete types, a conditional. Serilog's `Logger`
+// resolves to both the static property (typed `ILogger`) and the sealed class
+// `Serilog.Core.Logger`, and an existential test made the site exact because ONE of
+// the two is sealed. The fan was then skipped and every implementor of ILogger
+// disappeared from it: 39 unsound fans, 38.10% soundness on that project, while the
+// dispatch relation underneath held the right answer all along.
+call_recv_open(prov, e) :- call_recv_type(prov, e, gk), !type_cannot_be_derived(prov, gk).
+dispatch_is_exact(prov, e) :- call_recv_type(prov, e, _), !call_recv_open(prov, e).
 
-// (c) The resolved member is `sealed override`, so the chain stops at it even though
-// the type is open.
-dispatch_is_exact(prov, e) :-
+// (c) and (d) EVERY member the name resolves to is statically bound -- `sealed
+// override`, or not dispatchable at all. Universal for the same reason: one
+// non-virtual overload among several must not make a virtual one exact.
+call_member_dispatches(prov, e) :-
     call_recv_type(prov, e, gk), call_callee_name(prov, e, n),
-    member_method(prov, gk, n, m), method_is_sealed(prov, m).
-
-// (d) The member is not dispatchable at all.
-dispatch_is_exact(prov, e) :-
-    call_recv_type(prov, e, gk), call_callee_name(prov, e, n),
-    member_method(prov, gk, n, m), !method_is_dispatchable(prov, m).
+    member_method(prov, gk, n, m),
+    method_is_dispatchable(prov, m), !method_is_sealed(prov, m).
+call_has_member(prov, e) :-
+    call_recv_type(prov, e, gk), call_callee_name(prov, e, n), member_method(prov, gk, n, _).
+dispatch_is_exact(prov, e) :- call_has_member(prov, e), !call_member_dispatches(prov, e).
 
 // (e) The receiver is a NEWLY CONSTRUCTED object: `new Circle().Area()`. Its runtime
 // type is exactly what was constructed. This is the one case where the receiver's
