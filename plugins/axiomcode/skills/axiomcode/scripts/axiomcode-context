@@ -76,12 +76,16 @@ def task_terms(text):
 
 
 # A term the graph has never heard of cannot match anything, and a term half the graph uses cannot
-# discriminate. Both still counted toward the coverage denominator, and a real task carries a lot of both:
-# the harness boilerplate around an issue ("repository", "directory", "source", "commit", "run") is all
-# high-frequency, and a reproduction link's base64 payload and an image hash are all zero-frequency. One
-# measured task arrived as 264 terms of which about a dozen were about the bug.
-COMMON = 0.15            # a term in more than this share of symbol names tells you nothing
-MAX_TERMS = 24           # keep the most discriminating; beyond this it is all noise
+# discriminate -- yet both counted toward the coverage denominator. A real task carries a lot of both: a
+# reproduction link's base64 payload and an image hash are zero-frequency, and the prose around an issue is
+# high-frequency. One measured task arrived as 264 terms of which about a dozen were about the bug.
+#
+# Swept over 18 tasks on three languages: 8 or 12 terms scores 44%, 16 scores 50%, 24 scores 61%, and 40 or
+# unbounded 55%. Anything from 16 up is within a task or two of the best, so 24 is a knee and not a cliff.
+# An explicit "drop any term more common than X of the graph" threshold was also tried and DELETED: it
+# changed nothing at any value between 5% and 100%, because sorting by document frequency and keeping the
+# first MAX_TERMS already drops exactly those words.
+MAX_TERMS = 24
 
 
 def winnow(g, terms, name_df=None):
@@ -91,8 +95,7 @@ def winnow(g, terms, name_df=None):
         for sid, sym in g.sym.items():
             for t in set(subtokens(sym.get('name') or '') + subtokens(sym.get('display') or '')):
                 name_df[t] += 1
-    N = max(len(g.sym), 1)
-    keep = [t for t in terms if 0 < name_df.get(t, 0) <= COMMON * N]
+    keep = [t for t in terms if name_df.get(t, 0) > 0]
     keep.sort(key=lambda t: name_df.get(t, 0))
     # order is the caller's contract elsewhere (seeds are picked per term in task order), so restore it
     chosen = set(keep[:MAX_TERMS])
@@ -168,7 +171,10 @@ def score_symbols(g, terms, use_path=True):
     return scored
 
 
-DIR_EVIDENCE = 5          # how many of a directory's best symbols count toward its score
+# How many of a directory's best symbols count toward its score. Swept over the same 18 tasks: 1 scores
+# 44% (one lucky symbol decides a package), 2 or 3 score 55%, 5 and 8 both score 61%, 15 drops to 55% and
+# 50 to 50% -- by then the score is drifting back toward "how much does this directory contain".
+DIR_EVIDENCE = 5
 
 
 def rank_dirs(g, terms, depth=3, topk=DIR_EVIDENCE):
