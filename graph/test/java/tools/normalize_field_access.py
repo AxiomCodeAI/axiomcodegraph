@@ -60,6 +60,12 @@ def main():
         if h in fields:
             owner, name = fields[h]
             return f"{n.anon.get(owner, owner)}#{name}"
+        # A GENERATED field is a label, not a hash: `generated:<type>#<name>`, a member an
+        # annotation processor declares that no IR carries (resolution/generated-members.dl).
+        # Printed whole, as normalize_edges.py does for the same reason: truncated to 24
+        # characters two generated members on one type are the same string, so two rows
+        # collapse into one golden line and a regression in either is invisible.
+        if h.startswith('generated:'): return h
         return f"<unresolved:{h[:24]}>"
 
     path = f'{out}/field-access.csv'

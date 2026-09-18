@@ -754,6 +754,10 @@
 .decl gen_type_getter_ann(c0:symbol)                            // annotation on a TYPE declaring a getter per field
 .decl gen_type_setter_ann(c0:symbol)                            // annotation on a TYPE declaring a setter per field
 .decl gen_field_static(c0:symbol)                               // field hash carrying STATIC
+.decl gen_logger_ann(c0:symbol,c1:symbol)                       // (annotation, generated field name)
+.decl gen_field(c0:symbol,c1:symbol,c2:symbol)                  // (owner,name,generatedId)
+.decl gen_field_shadowed(c0:symbol,c1:symbol)                   // (owner,name) also written out in source
+.decl gen_field_live(c0:symbol,c1:symbol,c2:symbol)             // gen_field minus gen_field_shadowed
 .decl gen_accessor_demand(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol) // (prov,owner,fieldName,fieldType,kind)
 .decl gen_capitalized(c0:symbol,c1:symbol)                      // (name, Name)
 .decl gen_accessor(c0:symbol,c1:symbol,c2:symbol,c3:symbol)     // (prov,owner,methodName,arity)
