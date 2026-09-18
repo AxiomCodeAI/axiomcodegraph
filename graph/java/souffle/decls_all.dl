@@ -831,6 +831,15 @@
 .decl gen_field_shadowed(c0:symbol,c1:symbol)                   // (owner,name) also written out in source
 .decl gen_field_live(c0:symbol,c1:symbol,c2:symbol)             // gen_field minus gen_field_shadowed
 .decl gen_accessor_demand(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol) // (prov,owner,fieldName,fieldType,kind)
+.decl gen_effective_name(c0:symbol,c1:symbol,c2:symbol)         // (prov,fieldName,nameTheProcessorUses)
+.decl gen_prefix(c0:symbol,c1:symbol)                           // (prov,accessorPrefix)
+.decl gen_prefix_ambiguous(c0:symbol)
+.decl gen_prefix_applies(c0:symbol,c1:symbol,c2:symbol)
+.decl gen_prefix_key(c0:symbol)
+.decl gen_prefix_raw(c0:symbol,c1:symbol)
+.decl gen_prefix_value(c0:symbol,c1:symbol)
+.decl gen_pfx_junk(c0:symbol)
+.decl gen_pfx_step(c0:symbol,c1:symbol)
 .decl gen_accessor_src(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)    // (prov,owner,fieldName,fieldHash,kind)
 .decl gen_return_type(c0:symbol,c1:symbol,c2:symbol)            // (generatedGetterId, typeRef, type)
 .decl gen_capitalized(c0:symbol,c1:symbol)                      // (name, Name)

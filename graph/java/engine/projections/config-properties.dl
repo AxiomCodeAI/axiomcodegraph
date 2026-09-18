@@ -23,6 +23,7 @@
 // ── prop_key(Prov, Key, HasValue, FilePath, KeyHash) ────────────────────────
 // A property key, whether it has a value, and its file.
 prop_key("client", key, hasValue, filePath, h) :- java_property_key(key, _, _, hasValue, _, _, filePath, _, _, _, _, _, _, h).
+prop_key("lib", key, hasValue, filePath, h) :- lib_property_key(key, _, _, hasValue, _, _, filePath, _, _, _, _, _, _, h).
 
 // ── prop_segment(Prov, KeyHash, SegmentValue, SegmentType, DefaultValue, ParentSegmentHash, SegHash) ──
 // One segment of a property value. A LITERAL segment may be a class name; a
@@ -38,3 +39,4 @@ prop_key("client", key, hasValue, filePath, h) :- java_property_key(key, _, _, h
 //   RANDOM                     ${random...}
 //   EMPTY                      empty segment
 prop_segment("client", keyHash, value, segType, default, parentSeg, h) :- java_property_value_segment(value, segType, default, _, _, parentSeg, keyHash, _, _, _, _, h).
+prop_segment("lib", keyHash, value, segType, default, parentSeg, h) :- lib_property_value_segment(value, segType, default, _, _, parentSeg, keyHash, _, _, _, _, h).

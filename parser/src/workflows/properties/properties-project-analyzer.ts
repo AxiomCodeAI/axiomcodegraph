@@ -126,7 +126,35 @@ export class PropertiesProjectAnalyzer {
   private async findPropertiesFiles(dirPath: string): Promise<string[]> {
     const files: string[] = [];
     await this.scanForPropertiesFiles(dirPath, files);
+    await this.collectBubblingLombokConfigs(dirPath, files);
     return files;
+  }
+
+  /**
+   * lombok.config BUBBLES UP. The processor reads every lombok.config from the
+   * directory of the source file upward, so a module whose config sits at its root
+   * governs `src/main/java` below it. A scan rooted at `src/main/java` therefore never
+   * sees the file that decides its accessor NAMES, which is the common case: a library
+   * is normally supplied as its source root, not its module root.
+   *
+   * Only files named exactly `lombok.config` are read outside the scan root, and the
+   * walk stops at `config.stopBubbling = true`, which is the processor's own rule.
+   */
+  private async collectBubblingLombokConfigs(dirPath: string, files: string[]): Promise<void> {
+    let dir = path.dirname(path.resolve(dirPath));
+    let previous = '';
+    while (dir !== previous) {
+      const candidate = path.join(dir, FILE_EXTENSIONS.LOMBOK_CONFIG);
+      try {
+        const body = await fs.readFile(candidate, 'utf8');
+        if (!files.includes(candidate)) files.push(candidate);
+        if (/^\s*config\.stopBubbling\s*=\s*true\s*$/m.test(body)) return;
+      } catch {
+        // no config at this level: keep walking, exactly as the processor does
+      }
+      previous = dir;
+      dir = path.dirname(dir);
+    }
   }
 
   private async scanForPropertiesFiles(dirPath: string, files: string[]): Promise<void> {
@@ -139,7 +167,14 @@ export class PropertiesProjectAnalyzer {
             const subPath = path.join(dirPath, entry.name);
             await this.scanForPropertiesFiles(subPath, files);
           }
-        } else if (entry.isFile() && entry.name.endsWith(FILE_EXTENSIONS.PROPERTIES)) {
+        } else if (
+          entry.isFile() &&
+          (entry.name.endsWith(FILE_EXTENSIONS.PROPERTIES) ||
+            // Matched by NAME, not extension. `.config` is far too broad to scan
+            // wholesale, and lombok.config is the one file in that format whose
+            // contents change the API a caller compiles against.
+            entry.name === FILE_EXTENSIONS.LOMBOK_CONFIG)
+        ) {
           files.push(path.join(dirPath, entry.name));
         }
       }
