@@ -250,6 +250,12 @@
 .decl ts_export_star(c0:symbol, c1:symbol)
 .decl ts_export_star_helper(c0:symbol)
 .decl key_name(c0:symbol, c1:symbol)
+// #931: a computed read of an object literal that a default swallowed, and the
+// functions that literal holds. See call-edge-generation/partial-dispatch.dl.
+.decl default_op(c0:symbol)
+.decl swallowed_read(c0:symbol, c1:symbol)
+.decl partial_dispatch(c0:symbol)
+.decl partial_dispatch_target(c0:symbol, c1:symbol)
 .decl binary_op_passes_value(c0:symbol)
 .decl var_value(c0:symbol, c1:symbol, c2:symbol)
 .decl assignment_op_writes_value(c0:symbol)
