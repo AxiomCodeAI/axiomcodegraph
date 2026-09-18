@@ -595,7 +595,7 @@ The blind spots, attributed to the code that contains them: (caller, site) for e
 
 ### `fields`
 
-Every field-like storage location the graph refers to: all client fields and enum constants from the IR, plus every LIBRARY field some field_access edge reaches. A field is not a callable, so it has no row in `methods`; this is where `field_access.field_id` resolves to a name, an owner and a position.
+Every field-like storage location the graph refers to: all client fields and enum constants from the IR, plus every LIBRARY field some field_access edge reaches OR some config_binding row names. A field is not a callable, so it has no row in `methods`; this is where `field_access.field_id` resolves to a name, an owner and a position.
 
 | # | column | type | key | null | idx | meaning |
 |---|---|---|---|---|---|---|
@@ -630,7 +630,7 @@ Every field-like storage location the graph refers to: all client fields and enu
 
 - **all** — JAVA AND TYPESCRIPT, for the same reason as field_access: declared everywhere, populated by those two front ends.
 - **typescript** — An enum member is absent: the parser gives it its own table with no declared type, and the property-access relation resolves through the field table. `Colour.Red` is therefore an unresolved field access, unlike Java where an enum constant is a fields row.
-- **java** — A library field is listed only when some field_access edge reaches it, exactly as methods lists only the library methods an edge reaches.
+- **java** — A library field is listed when some field_access edge reaches it, exactly as methods lists only the library methods an edge reaches, OR when a config_binding row names it as the field a configuration key binds to. The second was added in #890: a @Value field on a library type that nothing reads has no access edge, so config_binding named a field the table did not list and the join lost the row silently.
 
 ### `field_access`
 
