@@ -1,0 +1,217 @@
+// ============================================================================
+// RESOLUTION · LOCAL NAME BINDING
+//
+// The parser binds a NAME_REFERENCE to the parameter, local, field, property or
+// event it names WHERE SYNTAX SETTLES IT. It leaves three families unbound, and the
+// receiver of a method call is very often one of them:
+//
+//   foreach variables      `foreach (var s in shapes) s.Area();`  <- `s` is UNKNOWN
+//   pattern bindings       `if (x is Circle c) c.Area();`         <- `c` is UNKNOWN
+//   query range variables  `from x in xs select x.Area()`         <- `x` is UNKNOWN
+//
+// These are not edge cases. A foreach over a collection calling a method on each
+// element is one of the most common shapes in any codebase, and it is exactly the
+// shape where a name-matching graph guesses and a typed engine should not have to.
+//
+// WHY THE PARSER STOPS THERE is worth stating, because it decides what this file
+// owes: binding `s` needs the SCOPE CHAIN. Two sibling blocks may each declare an
+// `s`, and the one that binds is the declaration in the nearest enclosing block.
+// That is reasoning over the block tree, not a syntactic property of the reference.
+//
+// SHADOWING IS DECIDED BY DISTANCE up the block chain, the same shape as member
+// lookup up the type chain. C# forbids a local from shadowing another local in an
+// enclosing scope of the same method, so within one method the answer is unique;
+// across a lambda boundary it is not, because a lambda parameter MAY shadow an outer
+// local, and that is what the method_lexical_ancestor term handles.
+// ============================================================================
+
+// ── THE NAME A REFERENCE WRITES, AND WHERE IT IS WRITTEN ────────────────────
+// Only unbound references are candidates. A reference the parser already bound is
+// taken as given, and cross-checked below rather than re-derived.
+unbound_ref(prov, e, n, m, blk) :-
+    expr_ref_unknown(prov, e),
+    expr_written_name(prov, e, n),
+    expr_ultimate_method(prov, e, m),
+    expr_enclosing_block(prov, e, blk).
+
+// The block an expression sits in. The parser stamps a method owner rather than a
+// block, so the block is recovered from the position: the innermost block of the
+// owning method whose span contains the expression. Line-based, which is a weaker
+// instrument than a link, and the reason the nearest-enclosing test below is by
+// block DEPTH rather than by identity.
+expr_enclosing_block(prov, e, blk) :-
+    expr_ultimate_method(prov, e, m),
+    block_method(prov, blk, m),
+    expr_span(prov, e, sl, _, _, _),
+    block_span(prov, blk, bsl, bel),
+    to_number(sl) >= to_number(bsl),
+    to_number(sl) <= to_number(bel).
+
+// An expression in a method with no blocks at all (an expression-bodied member)
+// still needs an answer, so the method itself stands in for the block.
+expr_enclosing_block(prov, e, m) :-
+    expr_ultimate_method(prov, e, m),
+    !method_has_block(prov, m).
+method_has_block(prov, m) :- block_method(prov, blk, m), blk != "".
+
+// ── CANDIDATE DECLARATIONS ──────────────────────────────────────────────────
+// local_bind_cand(Prov, RefExpr, VarHash, Distance). Distance is how far up the
+// block chain the declaration sits, so the nearest wins.
+
+// A variable declared in this block or an enclosing one, in the same method.
+local_bind_cand(prov, e, v, d) :-
+    unbound_ref(prov, e, n, m, blk),
+    block_ancestor_depth(prov, blk, anc, d),
+    var_block(prov, v, anc),
+    var_method(prov, v, m),
+    var_name(prov, v, n),
+    var_declared_before(prov, v, e).
+
+// A FOREACH or pattern variable whose scope is the loop or statement header rather
+// than a block body. Its csBlockLinkHash points at the header, which is an ancestor
+// of the body, so the clause above covers it; this one covers the case where the
+// parser scoped it to the method instead.
+local_bind_cand(prov, e, v, 50) :-
+    unbound_ref(prov, e, n, m, _),
+    var_method(prov, v, m),
+    var_name(prov, v, n),
+    !var_block(prov, v, _),
+    var_declared_before(prov, v, e).
+
+// A PARAMETER of the enclosing method, or of any lexically enclosing method (a
+// captured parameter). Distance 100 plus the lexical depth, so any local in the
+// method body wins over a parameter of the same name, which is the C# rule.
+local_bind_cand(prov, e, p, 100) :-
+    unbound_ref(prov, e, n, m, _),
+    param_decl(prov, m, _, n, p).
+local_bind_cand(prov, e, p, 120) :-
+    unbound_ref(prov, e, n, m, _),
+    method_lexical_ancestor(prov, m, outer), outer != m,
+    param_decl(prov, outer, _, n, p).
+
+// A local of a lexically ENCLOSING method: a captured variable. Further still.
+local_bind_cand(prov, e, v, 140) :-
+    unbound_ref(prov, e, n, m, _),
+    method_lexical_ancestor(prov, m, outer), outer != m,
+    var_method(prov, v, outer),
+    var_name(prov, v, n).
+
+// ── A DECLARATION MUST PRECEDE ITS USE ──────────────────────────────────────
+// C# locals are scoped to the whole block but cannot be used before their
+// declaration. Without this, a use of `s` in the first line of a method binds to a
+// same-named local declared at the end, which is a wrong type rather than a missing
+// one. Compared on start line, which is sufficient: a declaration and a use on the
+// same line is the declaration's own initializer, and that case is handled by
+// value-flow rather than by name binding.
+//
+// THE ORDERING TEST IS NOT A RELATION OF ITS OWN, and writing it as one is the most
+// expensive mistake in this engine. `var_span(v, ...), expr_span(e, ...), vsl <= esl`
+// shares NO variable between its two atoms, and an inequality cannot be an index key,
+// so it is a full cross product of every local against every expression in the
+// program, scanned pair by pair. MEASURED on a 427-type corpus member, which is not a
+// large project by any standard: 81,988,926 rows for a relation whose consumers
+// together ask about a few thousand pairs.
+//
+// Both consumers above already require the local to be in the SAME METHOD and to have
+// the SAME NAME as the reference. That pair set is what the ordering test is for, so
+// it is the seed: the join is then keyed on (name, method), both selective, and the
+// spans are indexed probes on an already-bound v and e rather than the thing being
+// enumerated. Same rows at both call sites, because each of them intersects this set
+// anyway -- clause one adds a block constraint, clause two adds the absence of one.
+//
+// MEASURED on that member, same binary cache, both runs warm, nothing else changed:
+//
+//   rows        81,988,926  ->  1,456
+//   solve            20.14s ->  2.77s
+//   peak RSS       1.13 GiB ->  75.8 MiB
+//
+// and every one of the 33 other exported relations is byte-identical, which is the
+// check that makes this a cost change rather than a behaviour change.
+//
+// This is the lesson the other engines record for their own products, restated: when
+// a filter is selective, make it the index key rather than the last conjunct.
+var_use_cand(prov, v, e) :-
+    unbound_ref(prov, e, n, m, _),
+    var_method(prov, v, m),
+    var_name(prov, v, n).
+
+var_declared_before(prov, v, e) :-
+    var_use_cand(prov, v, e),
+    var_span(prov, v, vsl, _, _), expr_span(prov, e, esl, _, _, _),
+    to_number(vsl) <= to_number(esl).
+
+// block_ancestor_depth -- the enclosing chain with a distance, so "nearest" is
+// computable. Depth 0 is the block itself.
+block_ancestor_depth(prov, blk, blk, 0) :- block_decl(prov, _, _, blk).
+block_ancestor_depth(prov, blk, anc, d) :-
+    block_parent(prov, blk, mid), block_ancestor_depth(prov, mid, anc, dm), d = dm + 1.
+
+// ── THE NEAREST BINDING ─────────────────────────────────────────────────────
+local_bind_best_depth(prov, e, d) :-
+    local_bind_cand(prov, e, _, _),
+    d = min k : { local_bind_cand(prov, e, _, k) }.
+local_binds(prov, e, v) :-
+    local_bind_cand(prov, e, v, d), local_bind_best_depth(prov, e, d).
+
+// ── THE UNIFIED VIEW ────────────────────────────────────────────────────────
+// ref_denotes(Prov, ExprHash, EntityKind, EntityHash) -- what a name reference means,
+// from either source. Every typing rule reads this rather than choosing between the
+// parser's answer and the engine's, so a name bound by either is handled once.
+ref_denotes(prov, e, k, h) :- expr_ref_entity(prov, e, k, h).
+ref_denotes(prov, e, "LOCAL_VARIABLE", v) :- local_binds(prov, e, v), var_decl(prov, _, _, _, v).
+ref_denotes(prov, e, "PARAMETER", p) :- local_binds(prov, e, p), param_decl(prov, _, _, _, p).
+
+// ── A NAME THE ENGINE ALSO COULD NOT BIND ───────────────────────────────────
+// Recorded, with the name, so an unresolved receiver has an explanation. Most of
+// these should be TYPE names used as static receivers (`Console.WriteLine`), which
+// is not a local binding failure at all and is resolved by type name instead -- so
+// this relation subtracts those before reporting.
+ref_unbound(prov, e, n) :-
+    unbound_ref(prov, e, n, _, _),
+    !local_binds(prov, e, _),
+    !ref_names_type(prov, e, _).
+
+// A reference that names a TYPE rather than a value: the receiver of a static call.
+// Resolved through type_name_resolves in the file's scope.
+//
+// NOT WHERE THE NAME ALSO BINDS TO A VALUE. C# allows a member and a type to share a
+// name (the language's own "Color Color" rule) and prefers the MEMBER in an
+// expression position. Serilog has a static property `Log.Logger` of type `ILogger`
+// and a sealed class `Serilog.Core.Logger` in scope; reading the receiver as both
+// gave the site two receiver types, one of them sealed, which then made the whole
+// site exact and deleted the interface fan.
+//
+// The guard is on the ENGINE's binding as well as the parser's, because a foreach or
+// pattern variable is bound by neither alone.
+ref_binds_value(prov, e) :- ref_denotes(prov, e, _, _).
+ref_binds_value(prov, e) :- local_binds(prov, e, _).
+
+ref_names_type(prov, e, gk) :-
+    expr_written_name(prov, e, n),
+    expr_ultimate_module(prov, e, mod),
+    !ref_binds_value(prov, e),
+    type_name_resolves(prov, mod, n, "0", gk).
+
+// ── IMPLICIT `this` ─────────────────────────────────────────────────────────
+// An unqualified instance member reference has an implicit `this` receiver whose
+// type is the enclosing type. This is what makes `Area()` inside `Shape.Describe()`
+// resolve, and it is the second most common receiver shape after a local.
+ref_denotes_this(prov, e, gk) :-
+    expr_is_this(prov, e), expr_ultimate_type_group(prov, e, gk).
+
+// `base` denotes the enclosing type's BASE, and a call through it is non-virtual.
+ref_denotes_base(prov, e, bgk) :-
+    expr_is_base(prov, e),
+    expr_ultimate_type_group(prov, e, gk),
+    type_extends(prov, gk, bgk).
+
+// ── CROSS-CHECK AGAINST THE PARSER ──────────────────────────────────────────
+// Where the parser bound a name and the engine would bind it differently, one of the
+// two is wrong. The engine does not override the parser (expr_ref_entity is taken as
+// given in ref_denotes), so this is a report rather than a behaviour, and it is how
+// a scope bug in either component becomes visible instead of becoming a wrong type.
+binding_agrees(prov, e, h) :- expr_ref_entity(prov, e, _, h), local_binds(prov, e, h).
+binding_differs(prov, e, parserH, engineH) :-
+    expr_ref_entity(prov, e, _, parserH),
+    local_binds(prov, e, engineH),
+    parserH != engineH.

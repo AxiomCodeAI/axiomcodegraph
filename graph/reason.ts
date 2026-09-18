@@ -14,7 +14,7 @@ export interface ReasoningOptions {
   intermediateDir?: string;
   /** Final output: graph.sqlite + graph/*.csv + raw/ (see graph/bundle/SCHEMA.md). */
   outputDir?: string;
-  /** Rule set to run — java (default), typescript, python. */
+  /** Rule set to run — java (default), typescript, javascript, python, csharp. */
   language?: string;
   /** Keep raw/ and also write csv/*.csv next to graph.sqlite. */
   debug?: boolean;

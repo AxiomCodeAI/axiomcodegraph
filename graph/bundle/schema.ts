@@ -15,8 +15,8 @@
 
 export const SCHEMA_VERSION = '1';
 
-export type Language = 'java' | 'typescript' | 'python' | 'javascript';
-export const LANGUAGES: readonly Language[] = ['java', 'typescript', 'python', 'javascript'];
+export type Language = 'java' | 'typescript' | 'python' | 'javascript' | 'csharp';
+export const LANGUAGES: readonly Language[] = ['java', 'typescript', 'python', 'javascript', 'csharp'];
 
 export interface ColumnSpec {
   name: string;
@@ -301,11 +301,63 @@ const J: readonly Language[] = ['java'];
 const T: readonly Language[] = ['typescript'];
 const P: readonly Language[] = ['python'];
 const S: readonly Language[] = ['javascript'];
+const C: readonly Language[] = ['csharp'];
 
 export const VOCAB: readonly VocabSpec[] = [
+  // ── C# ─────────────────────────────────────────────────────────────────────
+  // Authored because a run emits them and the bundle refuses to leave an emitted
+  // value undocumented. The C# values are the parser's own enums (CsMethodKind,
+  // CsTypeCategory) plus the tiers this engine's call-edge layer assigns, so the
+  // spelling here is the spelling in the data rather than a paraphrase of it.
+  { table: 'methods', column: 'kind', value: 'METHOD', languages: C, meaning: 'An ordinary method.' },
+  { table: 'methods', column: 'kind', value: 'CONSTRUCTOR', languages: C, meaning: 'A constructor, written as one. The parser names it `<constructor>`, while a `new Foo(...)` site carries `Foo`.' },
+  { table: 'methods', column: 'kind', value: 'PRIMARY_CONSTRUCTOR', languages: C, meaning: 'A constructor declared in the type header: `class Svc(IDep d)`, and every positional record. It is the only constructor such a type has.' },
+  { table: 'methods', column: 'kind', value: 'STATIC_CONSTRUCTOR', languages: C, meaning: 'The type initializer. Static field initializers run in it; the compiler emits one only where it is needed, so it is often absent.' },
+  { table: 'methods', column: 'kind', value: 'DESTRUCTOR', languages: C, meaning: 'A finalizer. Called by the garbage collector, so it has no caller in the graph.' },
+  { table: 'methods', column: 'kind', value: 'OPERATOR', languages: C, meaning: 'A user-defined operator. `a + b` on such a type is a static call to it, with no call syntax at the site.' },
+  { table: 'methods', column: 'kind', value: 'CONVERSION_OPERATOR', languages: C, meaning: 'A user-defined conversion. An implicit one runs with no syntax at the call site at all.' },
+  { table: 'methods', column: 'kind', value: 'LOCAL_FUNCTION', languages: C, meaning: 'A function declared inside a method body. Visible only there, and it may capture the enclosing locals.' },
+  { table: 'methods', column: 'kind', value: 'LAMBDA', languages: C, meaning: 'A lambda body, which is its own method. Calls written in it are attributed to it, not to the method containing the lambda: the runtime reaches it through a delegate.' },
+  { table: 'methods', column: 'kind', value: 'ANONYMOUS_METHOD', languages: C, meaning: 'A `delegate { ... }` body. Same shape as LAMBDA.' },
+  { table: 'methods', column: 'kind', value: 'TOP_LEVEL_ENTRY_POINT', languages: C, meaning: 'The synthetic method holding a file of C# 9 top-level statements. An entry point, and the caller every top-level call site is attributed to.' },
+  { table: 'methods', column: 'kind', value: 'PROPERTY_GET', languages: C, meaning: 'A property getter. `x.Name` is a call to it. An auto-property getter has no body, which is the correct answer rather than a gap.' },
+  { table: 'methods', column: 'kind', value: 'PROPERTY_SET', languages: C, meaning: 'A property setter. `x.Name = v` is a call to it.' },
+  { table: 'methods', column: 'kind', value: 'PROPERTY_INIT', languages: C, meaning: 'An `init` accessor: settable only in an object initializer or a constructor.' },
+  { table: 'methods', column: 'kind', value: 'INDEXER_GET', languages: C, meaning: 'An indexer getter. `a[i]` on the read side is a call to it.' },
+  { table: 'methods', column: 'kind', value: 'INDEXER_SET', languages: C, meaning: 'An indexer setter. `a[i] = v`.' },
+  { table: 'methods', column: 'kind', value: 'INDEXER_INIT', languages: C, meaning: 'An indexer `init` accessor.' },
+  { table: 'methods', column: 'kind', value: 'EVENT_ADD', languages: C, meaning: 'An event `add` accessor. `e += h` is a call to it.' },
+  { table: 'methods', column: 'kind', value: 'EVENT_REMOVE', languages: C, meaning: 'An event `remove` accessor. `e -= h`.' },
+
+  { table: 'types', column: 'category', value: 'CLASS', languages: C, meaning: 'A class.' },
+  { table: 'types', column: 'category', value: 'INTERFACE', languages: C, meaning: 'An interface. Its members may have bodies (C# 8 default implementations), so an interface method is not always an abstract stub.' },
+  { table: 'types', column: 'category', value: 'STRUCT', languages: C, meaning: 'A struct. It cannot be derived from, so a receiver of this type is exact and needs no dispatch fan.' },
+  { table: 'types', column: 'category', value: 'ENUM', languages: C, meaning: 'An enum. Cannot be derived from.' },
+  { table: 'types', column: 'category', value: 'DELEGATE', languages: C, meaning: 'A delegate type. It names a signature; a call through a value of it is resolved by value flow rather than by member lookup.' },
+  { table: 'types', column: 'category', value: 'RECORD', languages: C, meaning: 'A record declared with the `record` keyword. Also a CLASS or STRUCT underneath; the row says which via its modifiers.' },
+
+  { table: 'fields', column: 'kind', value: 'field', languages: C, meaning: 'A field declaration, including a `const`.' },
+  { table: 'fields', column: 'provenance', value: 'client', languages: C, meaning: 'Declared in the analysed project.' },
+  { table: 'fields', column: 'provenance', value: 'lib', languages: C, meaning: 'Declared in a staged library IR.' },
+
+  { table: 'call_edges', column: 'kind', value: 'method', languages: C, meaning: 'A call written with or without a receiver: `a.M()`, `M()`, `a?.M()`.' },
+  { table: 'call_edges', column: 'kind', value: 'new', languages: C, meaning: 'An object creation. The target is the constructed type\'s constructor, and it is never dispatched.' },
+  { table: 'call_edges', column: 'kind', value: 'ctor_delegate', languages: C, meaning: '`: this(...)` or `: base(...)`. No name is written, so the target is structural.' },
+  { table: 'call_edges', column: 'kind', value: 'primary_ctor_base', languages: C, meaning: 'SYNTHESISED. A primary constructor\'s base invocation, written in the heritage clause: `class D(int a) : B(a)`. There is no call syntax anywhere in the body. FromExpr is the heritage type reference.' },
+  { table: 'call_edges', column: 'kind', value: 'delegate', languages: C, meaning: 'A call through a delegate value: `handler(x)` or `handler.Invoke(x)`.' },
+  { table: 'call_edges', column: 'kind', value: 'operator', languages: C, meaning: 'A user-defined operator invoked by operator syntax.' },
+  { table: 'call_edges', column: 'kind', value: 'conversion', languages: C, meaning: 'A user-defined conversion. An implicit one has no syntax at the call site.' },
+  { table: 'call_edges', column: 'kind', value: 'indexer', languages: C, meaning: 'A user-defined indexer accessor, invoked by `a[i]`.' },
+  { table: 'call_edges', column: 'kind', value: 'dynamic', languages: C, meaning: 'A call through a `dynamic` value. Dispatched at runtime by the DLR, so the target is undecidable from source; the tier is ambiguous_dynamic and that is final, not a gap.' },
+  { table: 'call_edges', column: 'kind', value: 'other', languages: C, meaning: 'A call kind this engine has no rule for. Present so a kind added to the schema later is unresolved rather than invisible.' },
+
+  { table: 'call_edges', column: 'tier', value: 'ambiguous_dynamic', languages: C, meaning: 'A call through `dynamic`. Unresolvable BY DESIGN rather than by omission, and separated from ambiguous_unknown so a known-undecidable site is not counted as an engine failure.' },
+  { table: 'call_edges', column: 'tier', value: 'known_implicit_ctor', languages: C, meaning: '`new Foo()` where Foo declares no constructor. The compiler supplies a parameterless one, so there is no user code to call and nothing resolving is the right answer.' },
+  { table: 'call_edges', column: 'callee_provenance', value: 'external', languages: 'all', meaning: 'The target is outside every staged IR. callee_method_id is NULL and callee_label names it, as `external:<Type>.<Member>`. A client-only run of a C# project reaches the BCL this way for most of its calls.' },
+
   // run.key
   { table: 'run', column: 'key', value: 'schema_version', languages: 'all', meaning: 'Version of this contract (SCHEMA.md).' },
-  { table: 'run', column: 'key', value: 'language', languages: 'all', meaning: 'Front end: java | typescript | python | javascript. Selects the applicable vocabulary rows.' },
+  { table: 'run', column: 'key', value: 'language', languages: 'all', meaning: 'Front end: java | typescript | python | javascript | csharp. Selects the applicable vocabulary rows.' },
   { table: 'run', column: 'key', value: 'engine_commit', languages: 'all', meaning: 'Git commit of the rule set that produced the graph, when known.' },
   { table: 'run', column: 'key', value: 'client_ir', languages: 'all', meaning: 'Path of the client IR directory the engine read.' },
   { table: 'run', column: 'key', value: 'library_roots', languages: 'all', meaning: 'Comma-separated library IR roots staged as the type oracle; empty for a client-only run.' },

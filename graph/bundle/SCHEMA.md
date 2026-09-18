@@ -201,7 +201,7 @@ What produced this bundle: one key/value row per fact about the run (language, e
 | value | languages | meaning |
 |---|---|---|
 | `schema_version` | all | Version of this contract (SCHEMA.md). |
-| `language` | all | Front end: java \| typescript \| python \| javascript. Selects the applicable vocabulary rows. |
+| `language` | all | Front end: java \| typescript \| python \| javascript \| csharp. Selects the applicable vocabulary rows. |
 | `engine_commit` | all | Git commit of the rule set that produced the graph, when known. |
 | `client_ir` | all | Path of the client IR directory the engine read. |
 | `library_roots` | all | Comma-separated library IR roots staged as the type oracle; empty for a client-only run. |
@@ -234,18 +234,29 @@ Every callable the graph refers to: all client methods/functions from the IR, pl
 | 9 | `end_line` | INTEGER |  |  |  | 1-based last line of the declaration. |
 | 10 | `provenance` | TEXT |  |  |  | `client` — from the analysed project; `lib` — from a staged library IR; `generated` — declared by an annotation processor and synthesised here (Java). See vocabulary. |
 
-**`methods.provenance` values**
-
-| value | languages | meaning |
-|---|---|---|
-| `client` | all | Declared in the analysed project. |
-| `lib` | all | Declared in a staged library IR; listed because an edge reaches it. |
-| `generated` | java | Declared by a compile-time annotation processor: present in the compiled artefact and in every caller's source, and in no IR, so the bundle synthesises it to give the edge a target. id `generated:<owner qualified name>#<name>/<arity>`, no file and no line numbers. |
-
 **`methods.kind` values**
 
 | value | languages | meaning |
 |---|---|---|
+| `METHOD` | csharp | An ordinary method. |
+| `CONSTRUCTOR` | csharp | A constructor, written as one. The parser names it `<constructor>`, while a `new Foo(...)` site carries `Foo`. |
+| `PRIMARY_CONSTRUCTOR` | csharp | A constructor declared in the type header: `class Svc(IDep d)`, and every positional record. It is the only constructor such a type has. |
+| `STATIC_CONSTRUCTOR` | csharp | The type initializer. Static field initializers run in it; the compiler emits one only where it is needed, so it is often absent. |
+| `DESTRUCTOR` | csharp | A finalizer. Called by the garbage collector, so it has no caller in the graph. |
+| `OPERATOR` | csharp | A user-defined operator. `a + b` on such a type is a static call to it, with no call syntax at the site. |
+| `CONVERSION_OPERATOR` | csharp | A user-defined conversion. An implicit one runs with no syntax at the call site at all. |
+| `LOCAL_FUNCTION` | csharp | A function declared inside a method body. Visible only there, and it may capture the enclosing locals. |
+| `LAMBDA` | csharp | A lambda body, which is its own method. Calls written in it are attributed to it, not to the method containing the lambda: the runtime reaches it through a delegate. |
+| `ANONYMOUS_METHOD` | csharp | A `delegate { ... }` body. Same shape as LAMBDA. |
+| `TOP_LEVEL_ENTRY_POINT` | csharp | The synthetic method holding a file of C# 9 top-level statements. An entry point, and the caller every top-level call site is attributed to. |
+| `PROPERTY_GET` | csharp | A property getter. `x.Name` is a call to it. An auto-property getter has no body, which is the correct answer rather than a gap. |
+| `PROPERTY_SET` | csharp | A property setter. `x.Name = v` is a call to it. |
+| `PROPERTY_INIT` | csharp | An `init` accessor: settable only in an object initializer or a constructor. |
+| `INDEXER_GET` | csharp | An indexer getter. `a[i]` on the read side is a call to it. |
+| `INDEXER_SET` | csharp | An indexer setter. `a[i] = v`. |
+| `INDEXER_INIT` | csharp | An indexer `init` accessor. |
+| `EVENT_ADD` | csharp | An event `add` accessor. `e += h` is a call to it. |
+| `EVENT_REMOVE` | csharp | An event `remove` accessor. `e -= h`. |
 | `INSTANCE_METHOD` | java | Non-static method. |
 | `STATIC_METHOD` | java | Static method. |
 | `ABSTRACT_METHOD` | java | Abstract or interface method without a body. |
@@ -309,6 +320,14 @@ Every callable the graph refers to: all client methods/functions from the IR, pl
 | `STATIC_BLOCK` | javascript | `static {}` block of a class. |
 | `MODULE_INITIALIZER` | javascript | Synthetic method holding a module's top-level code. Every module has one; top-level call sites belong to it. |
 
+**`methods.provenance` values**
+
+| value | languages | meaning |
+|---|---|---|
+| `client` | all | Declared in the analysed project. |
+| `lib` | all | Declared in a staged library IR; listed because an edge reaches it. |
+| `generated` | java | Declared by a compile-time annotation processor: present in the compiled artefact and in every caller's source, and in no IR, so the bundle synthesises it to give the edge a target. id `generated:<owner qualified name>#<name>/<arity>`, no file and no line numbers. |
+
 **Notes**
 
 - **all** — Library rows are the subset an edge reaches. To see a library method nothing calls, query the library IR itself.
@@ -330,18 +349,16 @@ Every class-like declaration the graph refers to: all client types, plus every l
 | 6 | `end_line` | INTEGER |  | yes |  | 1-based last line; NULL for an external type. |
 | 7 | `provenance` | TEXT |  |  |  | `client`, `lib`, or `external` (Java: an unstaged ancestor, see vocabulary). |
 
-**`types.provenance` values**
-
-| value | languages | meaning |
-|---|---|---|
-| `client` | all | Declared in the analysed project. |
-| `lib` | all | Declared in a staged library IR. |
-| `external` | java | Named by the client as an ancestor (`extends`/`implements`) but declared in no staged IR: id `external:<qualified name>`, category EXTERNAL_TYPE, no file, no members. Kept so the subtype edge survives; stage the library to replace it with the real declaration. |
-
 **`types.category` values**
 
 | value | languages | meaning |
 |---|---|---|
+| `CLASS` | csharp | A class. |
+| `INTERFACE` | csharp | An interface. Its members may have bodies (C# 8 default implementations), so an interface method is not always an abstract stub. |
+| `STRUCT` | csharp | A struct. It cannot be derived from, so a receiver of this type is exact and needs no dispatch fan. |
+| `ENUM` | csharp | An enum. Cannot be derived from. |
+| `DELEGATE` | csharp | A delegate type. It names a signature; a call through a value of it is resolved by value flow rather than by member lookup. |
+| `RECORD` | csharp | A record declared with the `record` keyword. Also a CLASS or STRUCT underneath; the row says which via its modifiers. |
 | `CLASS_TYPE` | all | A class. |
 | `EXTERNAL_TYPE` | java | An unstaged ancestor named by the client — see provenance `external`. Class or interface is not known. |
 | `INTERFACE_TYPE` | java, typescript | An interface. |
@@ -367,6 +384,14 @@ Every class-like declaration the graph refers to: all client types, plus every l
 | `DATACLASS_TYPE` | python | A `@dataclass`. |
 | `METACLASS_TYPE` | python | A metaclass (derives from `type`). |
 | `GENERIC_TYPE` | python | A `Generic[…]` class. |
+
+**`types.provenance` values**
+
+| value | languages | meaning |
+|---|---|---|
+| `client` | all | Declared in the analysed project. |
+| `lib` | all | Declared in a staged library IR. |
+| `external` | java | Named by the client as an ancestor (`extends`/`implements`) but declared in no staged IR: id `external:<qualified name>`, category EXTERNAL_TYPE, no file, no members. Kept so the subtype edge survives; stage the library to replace it with the real declaration. |
 
 ### `call_sites`
 
@@ -411,37 +436,20 @@ THE GRAPH. One row per (site, resolved target). A site with N possible targets h
 | 5 | `tier` | TEXT |  |  | yes | Confidence class of this edge — see vocabulary. `known_edge` and `multi_inferred` are assertions about client code; `boundary_lib` leaves the client; the `ambiguous_*` tiers are declared blind spots, not edges. |
 | 6 | `kind` | TEXT |  |  |  | Syntactic form of the site — see vocabulary; language-specific sets, kept native. |
 
-**`call_edges.tier` values**
-
-| value | languages | meaning |
-|---|---|---|
-| `known_edge` | all | Exactly one target resolved. The strongest claim. |
-| `multi_inferred` | all | A sound SET of possible targets; each member is one row. The set over-approximates — every member is a real possibility, but not every member runs. HOW WIDE the set is differs by language: see the per-language notes on this table for whether the fan is narrowed by the instantiation set. |
-| `boundary_lib` | all | The target is outside the client (library, builtin, or unstaged external). The chain is not expanded past it here. |
-| `ambiguous_unknown` | all | Declared blind spot: the engine could not resolve the site (unresolved receiver, missing type, reflection…). callee is NULL. Never dropped. |
-| `ambiguous_anon` | java | Known structural gap: an anonymous-class creation has no candidate rule yet. callee is NULL. |
-| `ambient_terminal` | typescript | The target is an ambient declaration (a `.d.ts` signature with no body anywhere) — resolved, but there is nothing to expand into. |
-| `ambient_terminal` | javascript | The callee or receiver VALUE is the platform (`console.log`, `path.join`, `arr.forEach`) — a correct end, not a blind spot; callee is NULL. Beside a project edge it is the platform ALTERNATIVE of a `multi_inferred` site. |
-| `implicit_constructor` | javascript | `new C()` / `super()` where no constructor exists up the chain: the synthesized default runs. A correct end; callee is NULL. |
-| `dynamic_terminal` | javascript | `obj[expr]()`, `eval`, `import()`: no static target by construction; callee is NULL. |
-| `fan_capped` | javascript, java | More targets than --dispatch-cap: the set was refused rather than emitted. JavaScript: callee is NULL. Java: callee is the declared base method the fan would have started from; dispatch-capped-sites.csv carries the refused count. |
-| `callback_registered` | javascript | The site HANDS the callee this function (`xs.forEach(f)`, `p.then(f)`, `emitter.on('x', h)`, `setTimeout(f)`), which may invoke it. Not the site's own callee; a reachability edge, labelled so it is never read as a resolved call. |
-| `event_dispatch` | javascript | `x.emit('name')` reaching a handler registered by `x.on('name', h)` on a value x may hold — name-sensitive for literal names, every handler on that value for a computed one. |
-| `intrinsic_terminal` | typescript | The site is a JSX intrinsic element or a dynamic `import()` — a runtime intrinsic, not a function the graph can name. |
-
-**`call_edges.callee_provenance` values**
-
-| value | languages | meaning |
-|---|---|---|
-| `client` | all | Target is a client method (callee_method_id set). |
-| `lib` | all | Target is a method of a staged library IR (callee_method_id set, methods.provenance = lib). |
-| `builtin` | python | Target is a CPython builtin with no Python source (callee_label = `builtin:NAME`). |
-| `external` | python, java | Target is outside every staged IR and has no methods row. Python: an import path (callee_label = the written path). Java: a method of an unstaged ancestor type (callee_label = `external:<type>.<name>`), reached through a receiver declared as that type or inherited by a client subclass; see types.provenance external. |
-
 **`call_edges.kind` values**
 
 | value | languages | meaning |
 |---|---|---|
+| `method` | csharp | A call written with or without a receiver: `a.M()`, `M()`, `a?.M()`. |
+| `new` | csharp | An object creation. The target is the constructed type's constructor, and it is never dispatched. |
+| `ctor_delegate` | csharp | `: this(...)` or `: base(...)`. No name is written, so the target is structural. |
+| `primary_ctor_base` | csharp | SYNTHESISED. A primary constructor's base invocation, written in the heritage clause: `class D(int a) : B(a)`. There is no call syntax anywhere in the body. FromExpr is the heritage type reference. |
+| `delegate` | csharp | A call through a delegate value: `handler(x)` or `handler.Invoke(x)`. |
+| `operator` | csharp | A user-defined operator invoked by operator syntax. |
+| `conversion` | csharp | A user-defined conversion. An implicit one has no syntax at the call site. |
+| `indexer` | csharp | A user-defined indexer accessor, invoked by `a[i]`. |
+| `dynamic` | csharp | A call through a `dynamic` value. Dispatched at runtime by the DLR, so the target is undecidable from source; the tier is ambiguous_dynamic and that is final, not a gap. |
+| `other` | csharp | A call kind this engine has no rule for. Present so a kind added to the schema later is unresolved rather than invisible. |
 | `method` | java | `obj.m()`, `Class.m()`, `super.m()`, or an unqualified `m()`. |
 | `new` | java | `new X(…)`. |
 | `ref` | java | A method reference `X::m`, `obj::m`, `X::new`. |
@@ -493,6 +501,36 @@ THE GRAPH. One row per (site, resolved target). A site with N possible targets h
 | `PROPERTY_READ` | python | Reading `obj.attr` where `attr` is a `@property` runs the getter; reading `Cls.attr` where the METACLASS defines `attr` as a property runs that getter. No written call; the site is the attribute-access expression. |
 | `CONTEXT_MANAGER` | python | `with expr:` runs `__enter__` / `__exit__` (or the async pair). No written call; the site is the context-manager expression. |
 | `ITERATION_PROTOCOL` | python | `for x in expr:` (and comprehensions) runs `__iter__` / `__next__` (or the async pair). No written call; the site is the iterated expression. |
+
+**`call_edges.tier` values**
+
+| value | languages | meaning |
+|---|---|---|
+| `ambiguous_dynamic` | csharp | A call through `dynamic`. Unresolvable BY DESIGN rather than by omission, and separated from ambiguous_unknown so a known-undecidable site is not counted as an engine failure. |
+| `known_implicit_ctor` | csharp | `new Foo()` where Foo declares no constructor. The compiler supplies a parameterless one, so there is no user code to call and nothing resolving is the right answer. |
+| `known_edge` | all | Exactly one target resolved. The strongest claim. |
+| `multi_inferred` | all | A sound SET of possible targets; each member is one row. The set over-approximates — every member is a real possibility, but not every member runs. HOW WIDE the set is differs by language: see the per-language notes on this table for whether the fan is narrowed by the instantiation set. |
+| `boundary_lib` | all | The target is outside the client (library, builtin, or unstaged external). The chain is not expanded past it here. |
+| `ambiguous_unknown` | all | Declared blind spot: the engine could not resolve the site (unresolved receiver, missing type, reflection…). callee is NULL. Never dropped. |
+| `ambiguous_anon` | java | Known structural gap: an anonymous-class creation has no candidate rule yet. callee is NULL. |
+| `ambient_terminal` | typescript | The target is an ambient declaration (a `.d.ts` signature with no body anywhere) — resolved, but there is nothing to expand into. |
+| `ambient_terminal` | javascript | The callee or receiver VALUE is the platform (`console.log`, `path.join`, `arr.forEach`) — a correct end, not a blind spot; callee is NULL. Beside a project edge it is the platform ALTERNATIVE of a `multi_inferred` site. |
+| `implicit_constructor` | javascript | `new C()` / `super()` where no constructor exists up the chain: the synthesized default runs. A correct end; callee is NULL. |
+| `dynamic_terminal` | javascript | `obj[expr]()`, `eval`, `import()`: no static target by construction; callee is NULL. |
+| `fan_capped` | javascript, java | More targets than --dispatch-cap: the set was refused rather than emitted. JavaScript: callee is NULL. Java: callee is the declared base method the fan would have started from; dispatch-capped-sites.csv carries the refused count. |
+| `callback_registered` | javascript | The site HANDS the callee this function (`xs.forEach(f)`, `p.then(f)`, `emitter.on('x', h)`, `setTimeout(f)`), which may invoke it. Not the site's own callee; a reachability edge, labelled so it is never read as a resolved call. |
+| `event_dispatch` | javascript | `x.emit('name')` reaching a handler registered by `x.on('name', h)` on a value x may hold — name-sensitive for literal names, every handler on that value for a computed one. |
+| `intrinsic_terminal` | typescript | The site is a JSX intrinsic element or a dynamic `import()` — a runtime intrinsic, not a function the graph can name. |
+
+**`call_edges.callee_provenance` values**
+
+| value | languages | meaning |
+|---|---|---|
+| `external` | all | The target is outside every staged IR. callee_method_id is NULL and callee_label names it, as `external:<Type>.<Member>`. A client-only run of a C# project reaches the BCL this way for most of its calls. |
+| `client` | all | Target is a client method (callee_method_id set). |
+| `lib` | all | Target is a method of a staged library IR (callee_method_id set, methods.provenance = lib). |
+| `builtin` | python | Target is a CPython builtin with no Python source (callee_label = `builtin:NAME`). |
+| `external` | python, java | Target is outside every staged IR and has no methods row. Python: an import path (callee_label = the written path). Java: a method of an unstaged ancestor type (callee_label = `external:<type>.<name>`), reached through a receiver declared as that type or inherited by a client subclass; see types.provenance external. |
 
 **Notes**
 
@@ -615,6 +653,7 @@ Every field-like storage location the graph refers to: all client fields and enu
 
 | value | languages | meaning |
 |---|---|---|
+| `field` | csharp | A field declaration, including a `const`. |
 | `field` | java, typescript | An ordinary field declaration. |
 | `enum_constant` | java | An enum constant. It is a static final field of its enum, and is listed here so `Colour.RED` resolves like any other read; the parser gives it its own table and its own hash prefix. |
 
@@ -622,6 +661,8 @@ Every field-like storage location the graph refers to: all client fields and enu
 
 | value | languages | meaning |
 |---|---|---|
+| `client` | csharp | Declared in the analysed project. |
+| `lib` | csharp | Declared in a staged library IR. |
 | `client` | java, typescript | Declared in the analysed project. |
 | `lib` | java, typescript | Declared in a staged library IR. |
 | `generated` | java | Declared by a compile-time annotation processor and synthesised by the bundle, same shape and same reason as methods.provenance `generated`. |

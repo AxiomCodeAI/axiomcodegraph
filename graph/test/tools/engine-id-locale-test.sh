@@ -39,7 +39,7 @@ fi
 # Compared as TEXT rather than as a hash, so a failure names the line that moved instead of
 # only reporting two different hashes.
 have_lang(){ ls -d "$ROOT/graph/$1/engine" >/dev/null 2>&1; }
-for lang in java typescript python javascript; do
+for lang in java typescript python javascript csharp; do
   have_lang "$lang" || continue
   a="$W/$lang.C.dl"; b="$W/$lang.U.dl"
   LC_ALL=C            bash "$ROOT/graph/pipeline/run-souffle.sh" --language "$lang" --emit-program "$a" >/dev/null 2>&1

@@ -120,6 +120,17 @@ inter/
 # impact-compare agents (bytecode oracles, dynamic traces, diff reports).
 oracle/
 oracles/
+
+# .NET build output. The C# ground-truth tool and the runtime instrumenter are
+# real source under graph/test/csharp/, and `dotnet build` drops obj/ and bin/
+# beside them. This repository had no such pattern because nothing in it was C#
+# until now, and the first commit after those directories stopped matching the
+# `oracle/` rule above carried 50-odd generated files, a project.assets.json and
+# four binaries into the tree.
+[Oo]bj/
+[Bb]in/
+*.user
+
 reports/
 scratch/
 .scratch/
@@ -285,3 +296,7 @@ package-lock.json
 # A JavaScript fixture dependency is a real package under node_modules — that is the shape
 # the parser resolves and the shape the library join is written for.
 !graph/test/javascript/cases/*/src/node_modules/
+
+# C# engine dev scratch: compiled binaries and staged facts from run-tests.sh / devrun.sh
+.cs-case-work/
+.cs-dev-cache/

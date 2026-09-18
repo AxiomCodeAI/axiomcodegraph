@@ -66,7 +66,7 @@ has("bin/axiomcode") ? ok("ships bin/axiomcode") : bad("does NOT ship bin/axiomc
 count(/^graph\/test\//)===0 ? ok("does not ship graph/test") : bad("ships "+count(/^graph\/test\//)+" files under graph/test");
 count(/^parser\/src\/test-data\//)===0 ? ok("does not ship parser test-data") : bad("ships "+count(/^parser\/src\/test-data\//)+" files under parser/src/test-data");
 // The rules ARE the engine; the CLI without them installs a tool that cannot solve.
-for(const lang of ["java","typescript","python","javascript"]){
+for(const lang of ["java","typescript","python","javascript","csharp"]){
   const n=count(new RegExp("^graph/"+lang+"/.*\\.dl$"));
   n>0 ? ok("ships "+n+" "+lang+" rule files") : bad("ships no "+lang+" .dl rules");
 }
