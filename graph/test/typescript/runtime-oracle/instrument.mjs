@@ -38,7 +38,7 @@
 // =============================================================================
 import fs from 'node:fs'
 import path from 'node:path'
-import {createRequire} from 'node:module'
+import {loadTypeScript} from '../ground-truth/load-typescript.mjs'
 
 const argv = process.argv.slice(2)
 function arg(name, fallback) {
@@ -48,13 +48,22 @@ function arg(name, fallback) {
 const SRC = path.resolve(arg('src'))
 const OUT = path.resolve(arg('out'))
 const TABLES = path.resolve(arg('tables'))
-const TS_PATH = arg(
-  'ts',
-  process.env.AX_TYPESCRIPT ||
-    '/Users/swapnilpaliwal/Documents/AxiomCode/type-directed-graph/node_modules/typescript/lib/typescript.js',
-)
-const require_ = createRequire(import.meta.url)
-const ts = require_(TS_PATH)
+// THE COMPILER COMES FROM THE SHARED LOADER, like every other tool here.
+// It used to be `createRequire(...)` of a default that was an absolute path in one
+// developer's home directory, so the instrumenter ran on exactly one machine and
+// died with MODULE_NOT_FOUND everywhere else. Two things follow from routing it
+// through load-typescript.mjs instead of restoring a better default:
+//   - the PROJECT'S OWN compiler is preferred, which is what an instrumenter needs.
+//     It parses the subject's syntax, so a project pinned to an older TypeScript
+//     must be read by that TypeScript or the rewrite is against a different grammar.
+//   - the API-surface check applies. Loading a compiler package that does not ship
+//     the JavaScript API (see #239) now REFUSES and names what is missing, instead
+//     of failing somewhere inside the walk with a TypeError.
+// `--ts` and $AX_TYPESCRIPT still win, expressed as the loader's own override so
+// there is one precedence order in the tree rather than two.
+const TS_OVERRIDE = arg('ts', process.env.AX_TYPESCRIPT)
+if (TS_OVERRIDE) process.env.TS_MODULE_PATH = TS_OVERRIDE
+const ts = loadTypeScript(SRC, {toolName: 'instrument'})
 
 const SKIP_DIRS = new Set([
   'node_modules',
