@@ -2,6 +2,7 @@
 """Normalize the config-resolution CSVs into a stable, reviewable golden.
 
 The call-graph goldens (normalize_edges.py) say nothing about config: bean_def,
+bean_condition, bean_alternative,
 di_edge, config_binding, config_affects_method, config_entry_point, config_class_ref,
 config_key_ref and config_unresolved are separate relations, so they need their own
 golden or a change in them lands silently.
@@ -81,6 +82,15 @@ def main():
          lambda r: f"{r[0]:<12} {L.lbl(r[1]):<34} \"{r[2]}\" -> {L.lbl(r[3])} [{r[4]}]"),
         ('config-key-ref.csv', 'config_key_ref',
          lambda r: f"{r[0]} -> {r[1]}" + (f"  (default \"{r[2]}\")" if len(r) > 2 and r[2] else "")),
+        # A CONDITION on a bean, and the arms it creates (#857). They qualify bean_def:
+        # it says the bean exists, these say under what, and against which alternative.
+        # Printed just before config_binding, because the binding row below is the one
+        # they produce.
+        ('config-bean-condition.csv', 'bean_condition',
+         lambda r: f"{r[0]:<22} {r[1]:<14} {r[2]:<26} = \"{r[3]}\"" +
+                   (f"  [matchIfMissing]" if r[4] == 'true' else "")),
+        ('config-bean-alternative.csv', 'bean_alternative',
+         lambda r: f"{r[0]:<22} vs {r[1]:<22} on {r[2]}"),
         ('config-binding.csv', 'config_binding',
          lambda r: f"{r[0]:<26} {r[1]:<18} {r[2]:<8} {L.lbl(r[3])}"),
         ('config-affects-method.csv', 'config_affects_method',
