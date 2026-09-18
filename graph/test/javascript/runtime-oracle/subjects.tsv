@@ -27,5 +27,6 @@
 # from all nine projects mid-session.
 #
 # ── name    set      commit   test              note
-axios       dev      56a5f1a  npx vitest run    1075 tests, 1 failed, instrumented and not. 13,975 sites, 3,230 executed, 896 of them production. ESM, "type": "module", and the suite drives node and fetch adapters both
-koa         dev      c3c14b6  node --test       459 tests, 0 failed, instrumented and not. 3,918 sites, 1,043 executed, 78 of them production. CommonJS, and its runner is node's own, which is what the NODE_OPTIONS path is for. Small, so it is a shape probe and not a weight in the aggregate
+axios       dev      56a5f1a  npx vitest run    1075 tests, 1 failed, instrumented and not. 13,975 sites, 3,230 executed, 896 of them production. Joined: 761 exact, 68 outside, 26 lib callback, 20 missed, 13 agree-multi, 8 narrowable. ESM, "type": "module", and the suite drives the node and the fetch adapter both
+koa         dev      c3c14b6  node --test       459 tests, 0 failed, instrumented and not. 3,918 sites, 1,043 executed, 78 of them production. Joined: 54 exact, 15 missed, 5 lib callback, 3 outside, 1 narrowable. CommonJS, and its runner is node's own, which is what the NODE_OPTIONS path is for. Small, so it is a shape probe and not a weight in the aggregate
+lodash      dev      2b5e6f7  node test/test    6831 tests, 0 failed, instrumented and not. 32,698 sites, 6,729 executed, 20,329,808 invocations, the largest trace of the three. A single 17,000-line IIFE whose methods are installed over a runtime-built object, which is the shape the realapp harness already lists as unmodelled

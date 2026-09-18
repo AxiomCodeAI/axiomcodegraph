@@ -8,7 +8,7 @@ ones DID, in this workload". Neither is ground truth for the other, and the
 buckets below are written so that no bucket silently claims it is.
 
   AGREE_EXACT        engine named one target, the run hit exactly that one
-  NARROWABLE         engine named SEVERAL, the run only ever hit one of them.
+  NARROWABLE         engine named SEVERAL CALLEES, the run only ever hit one.
                      The engine is SOUND here and imprecise. This is the bucket
                      the question "where can a static engine close the gap"
                      is asking about: dispatch that is deterministic in fact.
@@ -29,6 +29,14 @@ buckets below are written so that no bucket silently claims it is.
 A site the trace saw and the bundle has no row for is a CONSERVATION failure of
 the join itself, and is reported separately: an unjoinable site must never be
 silently dropped into "missed".
+
+WHICH EDGES COUNT AS THE SITE'S CALLEE
+Not all of them, and the difference is most of the answer. `callback_registered`
+says this site HANDS A FUNCTION OVER, and `event_dispatch` says it dispatches; they
+are claims about a later invocation, not about what this site calls. On axios they
+are 21,683 of the graph's 37,000 edges, and counting them as targets reports 239
+production sites as over-wide where the true number is 13. Only the tiers that name
+a callee are counted here, and the rest are kept and reported separately.
 """
 import collections
 import csv
@@ -92,7 +100,12 @@ with open(os.path.join(work, "tables", "sites.tsv")) as fh:
 # ── the engine ──────────────────────────────────────────────────────────────
 con = sqlite3.connect(db_path)
 con.row_factory = sqlite3.Row
-engine = collections.defaultdict(lambda: {"tiers": set(), "targets": {}, "names": set()})
+# The tiers that name what the site CALLS. callback_registered and event_dispatch
+# name a function the site hands over or dispatches, which is a different claim.
+CALLEE_TIERS = {"known_edge", "multi_inferred", "fan_capped", "implicit_constructor"}
+engine = collections.defaultdict(
+    lambda: {"tiers": set(), "targets": {}, "callees": {}, "names": set()}
+)
 for row in con.execute(
     """
     SELECT s.file_path, s.start_line, s.start_column, s.end_line, s.end_column,
@@ -110,6 +123,8 @@ for row in con.execute(
          row["end_line"], row["end_column"])
     slot = engine[k]
     slot["tiers"].add(row["tier"])
+    if row["tf"] is not None and row["tier"] in CALLEE_TIERS:
+        slot["callees"][(row["tf"], row["tl"])] = (row["tq"], row["tp"])
     if row["callee_name"]:
         slot["names"].add(row["callee_name"])
     if row["tf"] is not None:
@@ -144,7 +159,7 @@ for key, rt in sorted(runtime.items()):
         continue
     tiers = eng["tiers"]
     et = eng["targets"]
-    client_targets = {k: v for k, v in et.items() if v[1] == "client"}
+    client_targets = {k: v for k, v in eng["callees"].items() if v[1] == "client"}
     rts = rt["targets"]
     inside = [k for k in rts if target_in(et, k)]
     outside = [k for k in rts if k not in inside]
@@ -173,6 +188,7 @@ for key, rt in sorted(runtime.items()):
         examples[b].append(
             {
                 "site": "%s:%d:%d-%d:%d" % key,
+                "engine_callees": len(eng["callees"]),
                 "written": rt["callee_text"][:50],
                 "tiers": sorted(tiers),
                 "engine_targets": len(et),
