@@ -19,3 +19,8 @@ accessor_edge	accessor-edges.csv
 extension_candidate	extension-candidate.csv
 extension_no_match	extension-no-match.csv
 call_arity_no_member	call-arity-no-member.csv
+runtime_closes_blind_spot	runtime-closes-blind-spot.csv
+runtime_unexplained_edge	runtime-unexplained-edge.csv
+runtime_narrowable_fan	runtime-narrowable-fan.csv
+runtime_confirms_edge	runtime-confirms-edge.csv
+runtime_entry_point	runtime-entry-point.csv
