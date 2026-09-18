@@ -140,9 +140,23 @@ ref_unbound(prov, e, n) :-
 
 // A reference that names a TYPE rather than a value: the receiver of a static call.
 // Resolved through type_name_resolves in the file's scope.
+//
+// NOT WHERE THE NAME ALSO BINDS TO A VALUE. C# allows a member and a type to share a
+// name (the language's own "Color Color" rule) and prefers the MEMBER in an
+// expression position. Serilog has a static property `Log.Logger` of type `ILogger`
+// and a sealed class `Serilog.Core.Logger` in scope; reading the receiver as both
+// gave the site two receiver types, one of them sealed, which then made the whole
+// site exact and deleted the interface fan.
+//
+// The guard is on the ENGINE's binding as well as the parser's, because a foreach or
+// pattern variable is bound by neither alone.
+ref_binds_value(prov, e) :- ref_denotes(prov, e, _, _).
+ref_binds_value(prov, e) :- local_binds(prov, e, _).
+
 ref_names_type(prov, e, gk) :-
     expr_written_name(prov, e, n),
     expr_ultimate_module(prov, e, mod),
+    !ref_binds_value(prov, e),
     type_name_resolves(prov, mod, n, "0", gk).
 
 // ── IMPLICIT `this` ─────────────────────────────────────────────────────────
