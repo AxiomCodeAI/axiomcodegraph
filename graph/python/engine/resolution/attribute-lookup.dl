@@ -267,6 +267,27 @@ type_attr_monkey_patched(p, t, n, m) :-
 // The name is rebound from outside, whether or not the new value could be typed.
 type_attr_rebound(p, t, n) :- type_attr_foreign_write(p, t, n, _).
 
+// ── type_attr_rebind_site(Prov, TypeHash, Name, ModuleHash, Line) ────────────
+// WHERE the rebinding is written. The relation above is a yes/no, and that is the
+// whole of what a consumer could ask: `T.name` is not what the class body says, so
+// every use of it is suppressed. A write has a POSITION, though, and module-level
+// code runs top to bottom, so for a use that is itself module-level the order is not
+// a guess -- it is read off the two line numbers.
+type_attr_rebind_site(p, t, n, mod, line) :-
+    type_attr_foreign_write(p, t, n, e),
+    expr_scope(p, _, mod, e),
+    expr_span(p, line, _, e).
+
+// ── mro_lookup_rebound_body(Prov, ReceiverType, Name, DefinerType, MethodHash) ─
+// EXACTLY THE ROWS `mro_lookup` DROPS because the winner's name was rebound from
+// outside its body. Kept as its own relation rather than folded into mro_lookup: the
+// suppression is right for a use whose position is unknown, and a consumer that CAN
+// order itself against the write needs the definition back, not a second guess at it.
+mro_lookup_rebound_body(p, t, n, c, m) :-
+    mro_winner(p, t, n, c),
+    type_defines_method(p, c, n, m),
+    type_attr_rebound(p, c, n).
+
 // ============================================================================
 // CALLABLE INSTANCES — `m(5)` where m is an object, not a function
 // ============================================================================
