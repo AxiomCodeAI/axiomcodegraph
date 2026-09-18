@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""path_sql_parity.py <repo> [N] — path.dl, path-opt.dl and path-every.dl against their SQL port.
+"""path_sql_parity.py <repo> [N] — path.dl, path-opt.dl and path-every.dl against the SQL port that replaced them.
 
-Runs `axiomcode path` twice per pair: once as shipped (Soufflé), once with AXIOMCODE_SQL=1, and compares the
+Runs `axiomcode path` twice per pair: once as shipped (SQL), once with AXIOMCODE_DATALOG=1, and compares the
 printed answer, which is what a user and the MCP tool see. A rule ported wrongly shows up as a changed answer
 rather than as a passing unit test.
 
@@ -31,7 +31,10 @@ for n in names[:max(2, N // 3)]:
 def run(a, b, extra, sql):
     # a pathological case (--every between two hubs) exceeds any bound on BOTH engines; record it rather than
     # aborting the sweep, so the aggregate covers every other case.
-    env = dict(os.environ); env['AXIOMCODE_SQL'] = '1' if sql else ''
+    # SQL is the default for this tool now, so the SOUFFLE side is the one that has to be asked for
+    env = dict(os.environ); env.pop('AXIOMCODE_SQL', None)
+    if sql: env.pop('AXIOMCODE_DATALOG', None)
+    else: env['AXIOMCODE_DATALOG'] = '1'
     t0 = time.time()
     try:
         r = subprocess.run(['python3', os.path.join(S, 'axiomcode-path'), a, b, repo] + extra,
