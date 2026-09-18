@@ -174,6 +174,42 @@ call_chain_edge(tr, caller, "-", ctor, "lib", "boundary_lib", "primary_ctor_base
     method_decl("lib", _, _, _, ctor),
     type_ctor("client", gk, caller).
 
+// ── ACCESSOR EDGES: A PROPERTY READ IS A CALL ───────────────────────────────
+// `x.Name` invokes get_Name, `a[i]` an indexer accessor, `e += h` an add accessor.
+// These have no cs_call_site row -- the parser cannot know whether `x.Name` is a
+// field, a property or an event, so the site is a MEMBER_ACCESS and the engine
+// decides -- which is why they are emitted here rather than through invocation_site.
+//
+// KINDED SEPARATELY (property_read, property_write, indexer, event_subscribe) so a
+// consumer asking "who calls this method" gets them while one asking "who calls it
+// explicitly" can exclude them. Folding them into `method` makes both questions
+// unanswerable.
+//
+// NOT invocation_site rows, deliberately: the conservation guard asks that every
+// invocation-shaped IR expression reach the output, and a MEMBER_ACCESS is not one.
+// Adding them to that universe would put rows on the other side of the ledger.
+call_chain_edge(e, caller, "-", acc, "client", tier, kind) :-
+    accessor_edge("client", e, acc, kind),
+    method_decl("client", _, _, _, acc),
+    call_from_expr("client", e, caller),
+    accessor_tier("client", e, tier).
+call_chain_edge(e, caller, "-", acc, "lib", "boundary_lib", kind) :-
+    accessor_edge("client", e, acc, kind),
+    method_decl("lib", _, _, _, acc),
+    call_from_expr("client", e, caller).
+
+// The tier of an accessor site, by the same rule as a call site: one target is
+// known_edge, several is a sound set. A property accessor can be virtual, so the fan
+// is real rather than theoretical.
+accessor_tier(prov, e, "known_edge") :- accessor_edge_count(prov, e, 1).
+accessor_tier(prov, e, "multi_inferred") :- accessor_edge_count(prov, e, c), c >= 2.
+
+// call_from_expr: the caller of an ARBITRARY expression, not only of a call site.
+// call_from is keyed on csite and an accessor site is not one, so it needs its own
+// attribution with the same guarantee -- never blank.
+call_from_expr(prov, e, m) :- expr_ultimate_method(prov, e, m).
+call_from_expr(prov, e, t) :- expr_ultimate_type(prov, e, t), !expr_ultimate_method(prov, e, _).
+
 // ── UNRESOLVED SITES KEEP A ROW ─────────────────────────────────────────────
 // Keyed on whether an edge was DERIVED, not on the tier. This is the clause that
 // makes a resolution gap visible instead of silent: any later filter that removes

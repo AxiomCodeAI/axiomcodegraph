@@ -1,0 +1,233 @@
+// ============================================================================
+// RESOLUTION · EXTENSION METHODS
+//
+// An extension method is a STATIC method that looks like an instance one.
+// `input.ToQuantity(2)` is `ToQuantityExtensions.ToQuantity(input, 2)`, and nothing
+// at the call site says so: the receiver is a `string`, the method is declared in an
+// unrelated static class, and the only thing that makes the call legal is a `using`
+// directive somewhere above.
+//
+// WHY THIS FILE IS THE BIGGEST SINGLE RECALL ITEM. Measured on the dev corpus
+// before it existed: 912 of Humanizer's 3,203 in-source call sites resolved to
+// nothing, and Humanizer is a library of extension methods. LINQ means every
+// project has them. Without this, an engine reports a library's own public surface
+// as unreachable.
+//
+// THE LANGUAGE'S OWN RULE IS THE ORDERING, AND IT IS LOAD-BEARING:
+//
+//   An extension method is considered ONLY IF instance member lookup found nothing
+//   applicable.
+//
+// So this file is gated on call_arity_no_member / member_lookup_miss rather than
+// competing with instance lookup. That is not an optimisation: a type with its own
+// `Select` must bind to its own, and an engine that offers both makes every LINQ
+// call ambiguous.
+//
+// THREE WAYS A RECEIVER CAN MATCH A `this` PARAMETER, and all three are needed:
+//
+//   1. NOMINAL. The `this` parameter names a type in view and the receiver's type is
+//      that type or derives from it.
+//   2. GENERIC. `this T source` or `this IEnumerable<T> source` -- the parameter is
+//      a type parameter, or generic in one, and matches anything its constraints
+//      allow. Constraints are NOT checked here (see the note below).
+//   3. BY NAME. The `this` parameter names an UNSTAGED type -- `this string`,
+//      `this DateTime`, `this IEnumerable<T>` -- and so does the receiver. Neither
+//      resolves to a group, so the match is on the written type name. This is the
+//      case that matters most in practice: `this string` is the commonest extension
+//      receiver in C# and in a client-only run `string` is external.
+//
+// WHAT IS DELIBERATELY NOT CHECKED: a generic constraint. `static T Max<T>(this
+// IEnumerable<T> xs) where T : IComparable<T>` is offered for any element type. A
+// constraint filter would need the instantiated type argument at the call site,
+// which is an inference problem, and getting it wrong REMOVES a correct edge. The
+// consequence is stated rather than hidden: an extension whose constraint the
+// receiver does not satisfy can appear as a candidate, which makes a site
+// multi_inferred where the compiler had one answer. Over-approximating a SET is the
+// error this engine is willing to make; deleting a true edge is not.
+// ============================================================================
+
+// ── WHAT AN EXTENSION METHOD IS ─────────────────────────────────────────────
+// `this` on the FIRST parameter, which is what the language requires. The parser's
+// isExtension flag is the primary source and the `this` parameter is the join, so a
+// method flagged without such a parameter (or the reverse) simply does not match
+// rather than producing a receiverless extension.
+extension_method(prov, m, p) :-
+    method_is_extension(prov, m),
+    param_decl(prov, m, "0", _, p),
+    param_is_this(prov, p).
+
+// The `this` parameter's written type name, and its resolved type where there is one.
+extension_recv_name(prov, m, tn) :- extension_method(prov, m, p), param_type_name(prov, p, tn, _), tn != "".
+extension_recv_type(prov, m, gk) :- extension_method(prov, m, p), param_type(prov, p, gk).
+
+// A generic `this` parameter: `this T source`. The parser resolves the reference to
+// a type parameter, which is how this is told apart from a type called T.
+extension_recv_is_generic(prov, m) :-
+    extension_method(prov, m, p),
+    type_ref_owner(prov, tr, p, "METHOD_PARAMETER"),
+    type_ref_type_param(prov, tr, _).
+
+// ── SCOPE ───────────────────────────────────────────────────────────────────
+// An extension method is in scope in a file when its declaring class's namespace is
+// in scope there. module_in_scope already unions the file's own namespaces, the
+// enclosing ones, its usings and every global using in the assembly -- which is
+// what makes this work on a project whose usings are all in one GlobalUsings.cs.
+extension_in_scope(prov, mod, m) :-
+    extension_method(prov, m, _),
+    method_in_type(prov, gk, m),
+    type_ns(prov, gk, ns),
+    module_in_scope(prov, mod, ns).
+
+// ── THE RECEIVER'S TYPE NAME, EVEN WHEN IT DOES NOT RESOLVE ─────────────────
+// Needed for match (3). A receiver typed `string` has no group in a client-only
+// run, and the extension's `this` parameter is typed `string` too, so the names are
+// all there is -- and they are enough, because both sides were written by the same
+// compiler against the same type.
+call_recv_type_name(prov, e, tn) :-
+    call_receiver_expr(prov, e, r),
+    ref_denotes(prov, r, "LOCAL_VARIABLE", v), var_type_name(prov, v, tn, _).
+call_recv_type_name(prov, e, tn) :-
+    call_receiver_expr(prov, e, r),
+    ref_denotes(prov, r, "PARAMETER", p), param_type_name(prov, p, tn, _).
+call_recv_type_name(prov, e, tn) :-
+    call_receiver_expr(prov, e, r),
+    ref_denotes(prov, r, "FIELD", f), field_type_name(prov, f, tn, _).
+call_recv_type_name(prov, e, tn) :-
+    call_receiver_expr(prov, e, r),
+    ref_denotes(prov, r, "PROPERTY", p), property_type_name(prov, p, tn, _).
+// A receiver that is itself a call: the callee's declared return type name.
+call_recv_type_name(prov, e, tn) :-
+    call_receiver_expr(prov, e, r),
+    expr_target_any(prov, r, m), method_return_type_name(prov, m, tn), tn != "".
+// A receiver whose type DID resolve: its own name, so the nominal and by-name paths
+// do not have to be kept apart by the consumer.
+call_recv_type_name(prov, e, tn) :-
+    call_recv_type(prov, e, gk), type_group(prov, t, gk), type_decl(prov, tn, _, _, _, t).
+// A string, character or numeric LITERAL receiver: `"request".ToQuantity(2)`. The
+// literal kind names the type, and this is a real idiom rather than a curiosity --
+// it is how most of a string-extension library's own tests and docs call it.
+call_recv_type_name(prov, e, "string") :-
+    call_receiver_expr(prov, e, r), expr_literal(prov, r, "STRING", _).
+call_recv_type_name(prov, e, "string") :-
+    call_receiver_expr(prov, e, r), expr_literal(prov, r, "VERBATIM_STRING", _).
+call_recv_type_name(prov, e, "int") :-
+    call_receiver_expr(prov, e, r), expr_literal(prov, r, "INTEGER", _).
+call_recv_type_name(prov, e, "double") :-
+    call_receiver_expr(prov, e, r), expr_literal(prov, r, "REAL", _).
+call_recv_type_name(prov, e, "char") :-
+    call_receiver_expr(prov, e, r), expr_literal(prov, r, "CHARACTER", _).
+call_recv_type_name(prov, e, "bool") :-
+    call_receiver_expr(prov, e, r), expr_literal(prov, r, "BOOLEAN", _).
+
+// ── ARITY, SHIFTED BY THE RECEIVER ──────────────────────────────────────────
+// An extension method's declared parameter count INCLUDES `this`, so a site with
+// two written arguments needs a three-parameter declaration. Getting this off by one
+// rejects every extension call, and it is the same off-by-one the oracle had in the
+// other direction (Roslyn hands back the REDUCED symbol, whose parameter list
+// excludes the receiver).
+method_accepts_extension_argc(prov, m, acs) :-
+    method_arity_min(prov, m, lo), method_arity_max(prov, m, hi),
+    call_argc_value(acs, ac),
+    ac + 1 >= lo, ac + 1 <= hi.
+
+// ── THE CANDIDATE ───────────────────────────────────────────────────────────
+// GATED ON INSTANCE LOOKUP HAVING FAILED, which is the language's rule. Two ways it
+// can fail and both count: the name is not a member of the receiver's type at all
+// (member_lookup found nothing), or it is a member but no overload accepts this
+// site's argument count (call_arity_no_member).
+call_instance_lookup_failed(prov, e) :- call_arity_no_member(prov, e).
+call_instance_lookup_failed(prov, e) :-
+    call_needs_member_lookup(prov, e),
+    call_recv_type(prov, e, gk), call_callee_name(prov, e, n),
+    !member_method(prov, gk, n, _).
+// A receiver whose type the engine could not resolve at all has, by definition, no
+// instance lookup -- and it is the commonest shape for an extension call, because
+// `this string` and `this IEnumerable<T>` receivers are external types.
+call_instance_lookup_failed(prov, e) :-
+    call_needs_member_lookup(prov, e), !call_recv_type(prov, e, _).
+
+// ── TWO STRATA, THE SAME SPLIT AS THE DISPATCH FAN ──────────────────────────
+// The gate ("instance lookup found nothing") is a NEGATION, and typing is recursive
+// with resolution, so gating inside the recursion makes the program unstratifiable:
+// souffle named the whole component, {call_arity_no_member,
+// call_instance_lookup_failed, call_recv_type, expr_type, extension_candidate, ...}.
+//
+// So the MATCH is positive and ungated, and the GATE is applied afterwards:
+//
+//   extension_match      POSITIVE. Every in-scope extension whose name, arity and
+//                        receiver fit. Feeds typing, so `x.Humanize().Trim()` can
+//                        type its receiver through the extension's return type.
+//   extension_candidate  GATED. Only where instance lookup found nothing, which is
+//                        the language's own rule. Feeds the edge layer.
+//
+// The cost is the same shape as the fan's and is bounded the same way: typing may
+// see a return type from an extension the compiler would not have chosen, which can
+// only widen a type set. Resolution -- what the edges say -- is gated correctly.
+
+// (1) NOMINAL: the receiver's type is the `this` type or derives from it.
+extension_match(prov, e, m) :-
+    call_callee_name(prov, e, n),
+    expr_ultimate_module(prov, e, mod),
+    extension_in_scope(prov, mod, m),
+    method_name(prov, m, n),
+    call_argc(prov, e, ac), method_accepts_extension_argc(prov, m, ac),
+    call_recv_type(prov, e, rgk),
+    extension_recv_type(prov, m, tgk),
+    type_self_or_ancestor(prov, rgk, tgk).
+
+// (2) GENERIC: `this T source` matches any receiver. Constraints are not applied --
+// see the file header for why.
+extension_match(prov, e, m) :-
+    call_needs_member_lookup(prov, e),
+    call_callee_name(prov, e, n),
+    expr_ultimate_module(prov, e, mod),
+    extension_in_scope(prov, mod, m),
+    method_name(prov, m, n),
+    call_argc(prov, e, ac), method_accepts_extension_argc(prov, m, ac),
+    extension_recv_is_generic(prov, m).
+
+// (3) BY NAME: neither side's type resolves, and both were written the same way.
+extension_match(prov, e, m) :-
+    call_callee_name(prov, e, n),
+    expr_ultimate_module(prov, e, mod),
+    extension_in_scope(prov, mod, m),
+    method_name(prov, m, n),
+    call_argc(prov, e, ac), method_accepts_extension_argc(prov, m, ac),
+    call_recv_type_name(prov, e, tn),
+    extension_recv_name(prov, m, tn).
+
+// THE GATE. An extension method is considered only where instance lookup found
+// nothing applicable, which is the language's rule and not an optimisation: a type
+// with its own `Select` must bind to its own, and offering both makes every LINQ
+// call ambiguous.
+extension_candidate(prov, e, m) :-
+    extension_match(prov, e, m),
+    call_instance_lookup_failed(prov, e).
+
+// An extension method is STATIC and is never virtually dispatched: the receiver is
+// an ordinary argument, so the target is exact and needs no fan.
+expr_resolves_to_method(prov, e, m) :- extension_candidate(prov, e, m).
+// The ungated match feeds typing, so a receiver that is itself an extension call can
+// be typed from the extension's declared return type.
+expr_target_any(prov, e, m) :- extension_match(prov, e, m).
+
+// ── AMBIGUITY, AND WHAT IT MEANS HERE ───────────────────────────────────────
+// Two extension methods of one name, both in scope, both accepting the receiver.
+// C# resolves this by specificity (the most derived `this` type wins) and reports an
+// error when it cannot. The engine keeps both, so the site is multi_inferred rather
+// than silently one of them. Counted, because a high count means the by-name match
+// is too loose and that is the rule most likely to need narrowing.
+extension_candidate_count(prov, e, c) :-
+    extension_candidate(prov, e, _),
+    c = count : { extension_candidate(prov, e, _) }.
+// The GATED count, because that is what reaches the edges.
+extension_ambiguous(prov, e) :- extension_candidate_count(prov, e, c), c >= 2.
+
+// A site that reached this file and STILL resolved to nothing: instance lookup
+// failed and no extension matched either. This is where the remaining recall gap
+// lives, and it is exported with the receiver name so the failures group.
+extension_no_match(prov, e, n, tn) :-
+    call_instance_lookup_failed(prov, e),
+    call_callee_name(prov, e, n),
+    !extension_candidate(prov, e, _),
+    call_recv_type_name(prov, e, tn).

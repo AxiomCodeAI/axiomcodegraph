@@ -26,11 +26,40 @@
 // ── QUALIFIED INSTANCE CALL ─────────────────────────────────────────────────
 // The receiver's type, the member of that name, then every body dispatch says could
 // run. Restricted to concrete targets, since the runtime receiver is concrete.
+//
+// NARROWED BY ARITY, AND THIS IS NOT OPTIONAL. `member_method` returns every
+// overload of the name; a site calls exactly one of them. Without the arity test:
+//
+//   * a 2-argument call matched a 1-parameter member, which on FluentValidation
+//     resolved `validator.Validate(instance, options => ...)` to
+//     `AbstractValidator.Validate/1` -- an edge the compiler does not make, and the
+//     kind of wrong answer that is worse than a missing one.
+//   * every overload entered the candidate set, so each one's dispatch fan was
+//     unioned into the site's targets. On Humanizer one site reported 43 targets
+//     spanning two different arities.
+//
+// ARITY IS A RANGE, NOT A NUMBER (method_accepts_argc): optional parameters and a
+// `params` array both widen it, and both are idiomatic C# rather than corner cases.
 expr_call_candidate(prov, e, m) :-
     call_needs_member_lookup(prov, e),
     call_recv_type(prov, e, gk),
     call_callee_name(prov, e, n),
-    member_method(prov, gk, n, m).
+    member_method(prov, gk, n, m),
+    call_argc(prov, e, ac),
+    method_accepts_argc(prov, m, ac).
+
+// A site whose arity matches NO overload of the name. Either the engine's receiver
+// type is wrong, or the target is an EXTENSION method (whose `this` parameter makes
+// the declared arity one greater than the argument count), or the overload is
+// declared in an unstaged base. Recorded so the three are separable, and consumed by
+// resolution/extensions.dl -- which is exactly the language's own rule: extension
+// methods are considered only where instance lookup found nothing.
+call_arity_no_member(prov, e) :-
+    call_needs_member_lookup(prov, e),
+    call_recv_type(prov, e, gk),
+    call_callee_name(prov, e, n),
+    member_method(prov, gk, n, _),
+    !expr_call_candidate(prov, e, _).
 
 // ── TWO STRATA, AND WHY ─────────────────────────────────────────────────────
 // TYPE INFERENCE AND DISPATCH ARE MUTUALLY RECURSIVE in C#: a receiver's type may
@@ -67,7 +96,8 @@ expr_target_any(prov, e, target) :-
 expr_call_candidate(prov, e, m) :-
     call_recv_exact_type(prov, e, gk),
     call_callee_name(prov, e, n),
-    member_method(prov, gk, n, m).
+    member_method(prov, gk, n, m),
+    call_argc(prov, e, ac), method_accepts_argc(prov, m, ac).
 
 // ── THE NARROWED ANSWER ─────────────────────────────────────────────────────
 // An EXACT site takes the declared member itself, with no fan. This is the COMMON
@@ -79,7 +109,13 @@ expr_resolves_to_method(prov, e, target) :-
     expr_call_candidate(prov, e, declared),
     !dispatch_is_exact(prov, e),
     dispatch_concrete_target(prov, declared, target),
-    !call_fan_refused(prov, e).
+    !call_fan_refused(prov, e),
+    // The fan is already arity-matched against the DECLARATION, and the declaration
+    // is arity-matched against the site, so this is redundant in principle. It is
+    // kept because the two matches use different relations and a future change to
+    // either could let an overload of another arity into a site's targets, which is
+    // the defect this whole block exists to prevent.
+    call_argc(prov, e, ac), method_accepts_argc(prov, target, ac).
 
 // ── `base.M()` — NON-VIRTUAL, EXACTLY THE BASE'S BODY ───────────────────────
 // Stated as its own rule rather than relying on dispatch_is_exact, because the
@@ -89,7 +125,8 @@ expr_exact_target(prov, e, m) :-
     call_is_base(prov, e),
     expr_ultimate_type_group(prov, e, gk), type_extends(prov, gk, bgk),
     call_callee_name(prov, e, n),
-    member_method(prov, bgk, n, m).
+    member_method(prov, bgk, n, m),
+    call_argc(prov, e, ac), method_accepts_argc(prov, m, ac).
 
 // ── QUALIFIED STATIC CALL ───────────────────────────────────────────────────
 // `Console.WriteLine(x)`, `Math.Sqrt(x)`. The receiver names a type. A static method
@@ -99,7 +136,8 @@ expr_exact_target(prov, e, m) :-
     call_receiver_expr(prov, e, r), ref_names_type(prov, r, gk),
     call_callee_name(prov, e, n),
     member_method(prov, gk, n, m),
-    method_is_static(prov, m).
+    method_is_static(prov, m),
+    call_argc(prov, e, ac), method_accepts_argc(prov, m, ac).
 
 // ── UNQUALIFIED CALL ────────────────────────────────────────────────────────
 // `M()`. Resolved in this order, which is the language's:
@@ -116,14 +154,16 @@ scope_cand(prov, e, n, m, 0) :-
     method_lexical_ancestor(prov, cm, anc),
     method_is_local_function(prov, m),
     method_lexical_parent(prov, m, anc),
-    method_name(prov, m, n).
+    method_name(prov, m, n),
+    call_argc(prov, e, ac), method_accepts_argc(prov, m, ac).
 
 // (2) a member of the enclosing type or its bases. member_method already walks the
 // base chain by distance, so this is one clause.
 scope_cand(prov, e, n, m, 1) :-
     call_is_unqualified(prov, e), call_callee_name(prov, e, n),
     expr_ultimate_type_group(prov, e, gk),
-    member_method(prov, gk, n, m).
+    member_method(prov, gk, n, m),
+    call_argc(prov, e, ac), method_accepts_argc(prov, m, ac).
 
 // (3) a member of an ENCLOSING type. A nested class calling a helper on its outer
 // class writes no receiver, and without this the site is unresolved.
@@ -131,7 +171,8 @@ scope_cand(prov, e, n, m, 2) :-
     call_is_unqualified(prov, e), call_callee_name(prov, e, n),
     expr_ultimate_type_group(prov, e, gk),
     type_nest_ancestor(prov, gk, anc), anc != gk,
-    member_method(prov, anc, n, m).
+    member_method(prov, anc, n, m),
+    call_argc(prov, e, ac), method_accepts_argc(prov, m, ac).
 
 // (4) `using static System.Math;` makes `Sqrt(x)` resolve with no qualifier at all.
 // This is the ONLY way an unqualified call reaches a type the enclosing type has no
@@ -143,7 +184,8 @@ scope_cand(prov, e, n, m, 3) :-
     using_static_type(prov, mod, tn),
     name_to_type(prov, mod, tn, gk),
     member_method(prov, gk, n, m),
-    method_is_static(prov, m).
+    method_is_static(prov, m),
+    call_argc(prov, e, ac), method_accepts_argc(prov, m, ac).
 
 scope_best_rank(prov, e, r) :-
     scope_cand(prov, e, _, _, _),

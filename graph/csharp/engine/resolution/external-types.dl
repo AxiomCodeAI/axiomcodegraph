@@ -111,6 +111,52 @@ external_target(prov, e, label) :-
     !expr_new_type(prov, e, _),
     label = cat("external:", cat(n, ".<constructor>")).
 
+// ── A CALL ON A FRAMEWORK-TYPED RECEIVER ────────────────────────────────────
+// `someString.Trim()`, `list.Add(x)`, `dict.TryGetValue(k, out v)`. The receiver's
+// declared type is a C# keyword alias or an unstaged framework type, so it resolves
+// to nothing and the call leaves the source.
+//
+// MEASURED: without this clause 1,562 of Humanizer's 2,235 external sites were
+// classified ambiguous_unknown -- counted as engine blind spots when every one is a
+// call into the BCL that a client-only run cannot expand. That made the blind-spot
+// number unreadable, which is the number the engine is judged on.
+//
+// GATED ON THE EXTENSION PATH HAVING FAILED. `someString.Humanize()` also has a
+// `string` receiver and DOES resolve, to an extension method in the project. Naming
+// it external as well would emit a boundary edge beside a correct one.
+external_target(prov, e, label) :-
+    call_receiver_expr(prov, e, r),
+    expr_predefined_recv_name(prov, r, tn),
+    call_callee_name(prov, e, m),
+    !call_recv_type(prov, e, _),
+    !extension_candidate(prov, e, _),
+    label = cat("external:", cat(tn, cat(".", m))).
+
+expr_predefined_recv_name(prov, e, n) :-
+    ref_denotes(prov, e, "LOCAL_VARIABLE", v), var_type_name(prov, v, n, _), cs_predefined_alias(n).
+expr_predefined_recv_name(prov, e, n) :-
+    ref_denotes(prov, e, "PARAMETER", p), param_type_name(prov, p, n, _), cs_predefined_alias(n).
+expr_predefined_recv_name(prov, e, n) :-
+    ref_denotes(prov, e, "FIELD", f), field_type_name(prov, f, n, _), cs_predefined_alias(n).
+expr_predefined_recv_name(prov, e, n) :-
+    ref_denotes(prov, e, "PROPERTY", p), property_type_name(prov, p, n, _), cs_predefined_alias(n).
+// A LITERAL receiver: `"text".Trim()`.
+expr_predefined_recv_name(prov, e, "string") :- expr_literal(prov, e, "STRING", _).
+expr_predefined_recv_name(prov, e, "string") :- expr_literal(prov, e, "VERBATIM_STRING", _).
+
+// A receiver typed by a name that is neither predefined nor resolvable -- an
+// unstaged NuGet or framework type reached through a local, a parameter, a field or
+// a property. The by-name relation extensions.dl already builds is reused, so the
+// two files agree about what a receiver's type is called.
+external_target(prov, e, label) :-
+    call_recv_type_name(prov, e, tn),
+    expr_ultimate_module(prov, e, mod),
+    external_type_name(prov, mod, tn, _),
+    call_callee_name(prov, e, m),
+    !call_recv_type(prov, e, _),
+    !extension_candidate(prov, e, _),
+    label = cat("external:", cat(tn, cat(".", m))).
+
 // ── AN INHERITED MEMBER FROM AN UNSTAGED BASE ───────────────────────────────
 // A client class deriving from a framework base calls an inherited method: the
 // receiver types fine (it is the client class), and the member is not found because

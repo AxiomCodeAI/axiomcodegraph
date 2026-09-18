@@ -15,3 +15,7 @@ hierarchy_base_not_first	crosscheck-base-not-first.csv
 type_base_unresolved	resolution-type-base-unresolved.csv
 type_multiple_bases	defect-multiple-bases.csv
 type_hierarchy_cycle	defect-hierarchy-cycle.csv
+accessor_edge	accessor-edges.csv
+extension_candidate	extension-candidate.csv
+extension_no_match	extension-no-match.csv
+call_arity_no_member	call-arity-no-member.csv
