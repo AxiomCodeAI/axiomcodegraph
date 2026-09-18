@@ -25,7 +25,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 TESTDIR="$(cd "$HERE/.." && pwd)"          # graph/test/csharp
 REPO="$(cd "$HERE/../../../.." && pwd)"    # repository root
 CORPUS="${CS_CORPUS:-$HOME/.cache/axiom-cs-corpus}"
-ORACLE="$TESTDIR/oracle/AxiomCsOracle/bin/Release/net8.0/axiom-cs-oracle"
+ORACLE="$TESTDIR/ground-truth/AxiomCsOracle/bin/Release/net8.0/axiom-cs-oracle"
 
 WORK=""; SET="all"; ONLY=""; VERBOSE=0
 while [ $# -gt 0 ]; do
@@ -43,7 +43,7 @@ mkdir -p "$WORK"; WORK="$(cd "$WORK" && pwd)"
 [ -d "$CORPUS" ] || { echo "no corpus at $CORPUS — run fetch.sh (or set CS_CORPUS)" >&2; exit 77; }
 [ -x "$ORACLE" ] || {
   echo "the oracle is not built. Run:" >&2
-  echo "  dotnet build -c Release $TESTDIR/oracle/AxiomCsOracle" >&2
+  echo "  dotnet build -c Release $TESTDIR/ground-truth/AxiomCsOracle" >&2
   exit 77; }
 
 command -v souffle >/dev/null || { echo "souffle is not installed (brew install souffle)" >&2; exit 77; }
@@ -118,7 +118,7 @@ run_one(){
   local vflag=0
   if [ "$pset" = "dev" ] || [ "${AXIOM_CS_HOLDOUT_INSPECT:-0}" = "1" ]; then vflag="$VERBOSE"; fi
 
-  python3 "$TESTDIR/oracle/score.py" \
+  python3 "$TESTDIR/ground-truth/score.py" \
     --engine-raw "$w/engine/out" --engine-ir "$w/ir/csharp" \
     --oracle "$w/oracle.tsv" --oracle-dispatch "$w/oracle.dispatch.tsv" \
     --json "$w/score.json" --label "$name/$pset" --verbose "$vflag"
