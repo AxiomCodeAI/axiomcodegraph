@@ -70,10 +70,14 @@ PER_QUERY = {'target', 'textuse', 'importuse', 'inside_target', 'nonsource', 'qu
 _REF_LAYER = {'qualifier', 'typeref', 'typeref_file', 'literal', 'dec_literal', 'field', 'accessor', 'gen_table',
               'base_name', 'field_type', 'reexport', 'switch_over'}
 _CONFIG = {'config', 'config_key_known', 'config_site'}
+# `reexport` is NOT out of a method's reach: rules 396 and 398 both start at target(q,"method",m,_) — the barrel
+# that names it, and the `export *` that re-exports the whole module it is declared in. Skipping it handed Soufflé
+# an empty relation and both rules silently yielded nothing, so a method, param or var target on a JS or TS bundle
+# lost those rows entirely. Invisible on a Java bundle, where the relation is empty either way.
 KIND_SKIPS = {                                     # relations a query of this kind can never reach
- 'method':    _REF_LAYER | _CONFIG,
- 'param':     _REF_LAYER | _CONFIG,
- 'var':       _REF_LAYER | _CONFIG,
+ 'method':    (_REF_LAYER - {'reexport'}) | _CONFIG,
+ 'param':     (_REF_LAYER - {'reexport'}) | _CONFIG,
+ 'var':       (_REF_LAYER - {'reexport'}) | _CONFIG,
  'decoration': _REF_LAYER | _CONFIG,
  'config':    _REF_LAYER,
  'newconst':  (_REF_LAYER - {'switch_over'}) | _CONFIG,
