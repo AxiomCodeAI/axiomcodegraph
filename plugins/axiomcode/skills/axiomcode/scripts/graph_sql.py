@@ -882,7 +882,63 @@ def contract_for_method(q, ids):
 
 # ── solve: the dict `Impact.run()` returns, without the .facts round trip ─────────────────────────────────────
 
-SOLVE_KINDS = {'method', 'type', 'field', 'decoration', 'string'}   # anything else falls back to the rules
+SOLVE_KINDS = {'method', 'type', 'field', 'decoration', 'string', 'config', 'newconst'}   # else: the rules
+
+
+def _ckey(k):
+    """the canonical form of a configuration key: a framework binds app.serverPrefix, app.server-prefix,
+    app.server_prefix and APP_SERVER_PREFIX to the same property, so every spelling collapses to one."""
+    return re.sub(r'[^a-z0-9.]', '', (k or '').lower())
+
+
+_DEC_LITS = {}
+def _dec_literals(q, at):
+    """`dec_literal(c,d,v,f,l)` — the strings written INSIDE a decoration.
+
+    @Listener(topics = "topicOne"), @RequestMapping("/a/{b}"), @Value("${app.prefix}"). `literals` does not carry
+    these at all, and they are how a topic, a queue, a route, a bean qualifier or a configuration key binds.
+    """
+    key = id(q)
+    if key not in _DEC_LITS:
+        rows = []
+        for oid, name, text, f, l in (q("SELECT owner_id, name, text, file, line FROM decorations "
+                                        "WHERE text IS NOT NULL AND text <> ''") if _has(q, 'decorations') else []):
+            c = at(f, l) or oid
+            if not c: continue
+            for v in set(re.findall(r'"{1,3}([^"]{1,120})"{1,3}', text or '')):
+                rows.append((c, (name or '').split('.')[-1], v, f or '', l or 0))
+        _DEC_LITS[key] = sorted(set(rows))
+    return _DEC_LITS[key]
+
+
+def direct_for_config(q, keys, at, rel):
+    """Rules 181/183 — a CONFIGURATION KEY as the target.
+
+        direct(q,m,"reads",cat("reads this configuration key (",why,")"),"resolved","",0) :- config(k,m,why)
+        direct(q,c,"produces",cat("BINDS the key here, at the @",dn," placeholder — …"),"resolved",f,l)
+                                                                                   :- config_site(k,c,dn,f,l)
+
+    No call reaches a method the container binds a key into, so nothing else in `direct` finds these. The binding
+    site is the one line that ties the key to the code, and the one a rename has to change with it.
+    Returns (rows, readers) — the readers are seeded by rule 371 directly, not only through the generic rule.
+    """
+    rows, readers = [], set()
+    if _has(q, 'ext_config_affects_method'):
+        for k, m, why in q("SELECT a.c0, a.c1, a.c2 FROM ext_config_affects_method a "
+                           "JOIN symbols s ON s.method_id = a.c1"):
+            if _ckey(k) not in keys: continue
+            readers.add(m)
+            rows.append((m, 'reads', f"reads this configuration key ({why or 'bound'})", 'resolved', '', 0))
+    # config_site(k,c,dn,f,l) :- dec_literal(c,dn,v,f,l), the ${…} placeholders written in v — or v itself when it
+    # is already a dotted key. Matched on the canonical key, so the spelling at the site need not be the one asked.
+    for c, dn, v, f, l in _dec_literals(q, at):
+        found = re.findall(r'\$\{\s*([A-Za-z0-9_.\-]+)\s*(?::[^}]*)?\}', v)
+        if not found and re.fullmatch(r'[A-Za-z0-9_.\-]+\.[A-Za-z0-9_.\-]+', v): found = [v]
+        for k in found:
+            if _ckey(k) in keys:
+                rows.append((c, 'produces', f"BINDS the key here, at the @{dn} placeholder — this is the line a "
+                                            f"rename must change", 'resolved', rel(f) if f else '', l or 0))
+    return sorted(set(rows)), readers
 
 
 def direct_for_decoration(q, ids):
@@ -912,15 +968,9 @@ def direct_for_string(q, vals, at, rel):
             if v not in vals or not re.fullmatch(r'[A-Za-z_]\w*', v): continue
             c = at(f, l)
             if c: rows.append((c, 'uses', 'names it in a string literal', 'text', rel(f) if f else '', l or 0))
-    if _has(q, 'decorations'):
-        for oid, name, text, f, l in q("SELECT owner_id, name, text, file, line FROM decorations "
-                                       "WHERE text IS NOT NULL AND text <> ''"):
-            c = at(f, l) or oid
-            if not c: continue
-            for v in set(re.findall(r'"{1,3}([^"]{1,120})"{1,3}', text or '')):
-                if v in vals:
-                    rows.append((c, 'uses', f"binds to it through @{(name or '').split('.')[-1]}", 'text',
-                                 rel(f) if f else '', l or 0))
+    for c, d, v, f, l in _dec_literals(q, at):
+        if v in vals:
+            rows.append((c, 'uses', f"binds to it through @{d}", 'text', rel(f) if f else '', l or 0))
     return sorted(set(rows))
 BASE_REF_SQL = ("SELECT name, line FROM type_refs WHERE file=? AND context IN "
                 "('BASE_CLASS','SUPER_TYPE','IMPLEMENTS_INTERFACE','EXTENDS_TYPE')")
@@ -961,11 +1011,79 @@ def inherited_tests(q, hits):
 
 
 NON_CALLABLE_KINDS = {'field', 'const', 'enum_member', 'variable'}
+
 MEMBER_KINDS = {'FIELD', 'PROPERTY', 'ATTRIBUTE', 'METHOD', 'FUNCTION'}
 CTOR_KINDS = {'new', 'anon_new', 'CONSTRUCTOR_CALL'}
 
 
-def direct_for_type(q, tids, at, inside, textuse, importuse, rel):
+SWITCH_RE = re.compile(r'\bswitch\s*[(\s]|\bmatch\s+\w+\s*:')
+CONST_RE = re.compile(r'\b[A-Z][A-Z0-9_]{1,}\b')
+_SWITCH_OVER = {}
+
+
+def switch_over(q, tids, code):
+    """`switch_over(m,t,arms)` — the callables that switch over an enum, and how many of its constants they name.
+
+    The one relation an enum target rests on, and the reason an enum used to decline here: the exporter reads it
+    from each callable's own text rather than from a table, because the parser mislabels switch arms. Same read,
+    restricted to the enums actually asked about, so it is one pass over the callables instead of a table scan.
+
+    Returns {type id: [(callable id, arms)…]}.
+    """
+    want = tuple(sorted(tids))
+    key = (id(q), want)
+    if key in _SWITCH_OVER: return _SWITCH_OVER[key]
+    consts = {}
+    for owner, name in q("SELECT owner, name FROM symbols WHERE kind='enum_member'"):
+        if owner and name: consts.setdefault(owner, set()).add(name)
+    # `enum_disp` is keyed on the DISPLAY, as the exporter builds it, and only the asked-for enums are kept
+    enums = {}
+    ph = ','.join('?' * len(want))
+    for disp, tid in q(f"SELECT display, id FROM symbols WHERE kind='enum' AND type_id IS NOT NULL "
+                       f"AND id IN ({ph})", *want):
+        if disp and consts.get(disp): enums[disp] = tid
+    out = {}
+    if not enums: return _SWITCH_OVER.setdefault(key, out)
+    for sid, f, ln, en in q("""SELECT id, file, line, end_line FROM symbols
+                               WHERE method_id IS NOT NULL AND file IS NOT NULL AND line > 0"""):
+        L = code(f)
+        if not L or ln > len(L): continue
+        body = '\n'.join(L[ln - 1:min(en or ln, len(L))])
+        if not SWITCH_RE.search(body): continue
+        names = set(CONST_RE.findall(body))
+        for disp, tid in enums.items():
+            hit = names & consts[disp]
+            if hit: out.setdefault(tid, []).append((sid, str(len(hit))))
+    return _SWITCH_OVER.setdefault(key, out)
+
+
+def direct_for_newconst(q, tids, code, inside):
+    """Rules 340/341 — a constant that DOES NOT EXIST YET (`Enum.<new>`).
+
+        direct(q,c,"uses",cat("switches over it (",arms," of its constants named) — a new constant needs an arm
+                              here"),"resolved","",0)                        :- switch_over(c,t,arms)
+        direct(q,c,"uses","a member of the enum","alongside","",0)           :- callable_member(t,c)
+
+    The question cannot be asked of a declaration, because the declaration is what the edit will add — so the
+    impact is every switch that would silently fall through, plus the enum's own members.
+    Returns (rows, switchers) — the switchers are seeded by rule 370 directly.
+    """
+    rows, switchers = [], set()
+    sw = switch_over(q, tids, code)
+    for t in tids:
+        for c, arms in sw.get(t, ()):
+            switchers.add(c)
+            rows.append((c, 'uses', f"switches over it ({arms} of its constants named) — a new constant needs "
+                                    f"an arm here", 'resolved', '', 0))
+    _memb, _od, _tf, _tid, by_tid = _members(q)
+    for t in tids:
+        for m, _n, k in by_tid.get(t, ()):
+            if k in NON_CALLABLE_KINDS: continue          # callable_member(t,c): k != field/const/enum_member/variable
+            rows.append((m, 'uses', 'a member of the enum', 'alongside', '', 0))
+    return sorted(set(rows)), switchers
+
+
+def direct_for_type(q, tids, at, inside, textuse, importuse, rel, code=None):
     """`direct(q,c,role,why,cert,f,l)` for a TYPE target — who instantiates it, calls into it, names it.
 
     `at(file, line)` is the impact object's own innermost-callable walk and `rel(path)` its site-file mapping;
@@ -992,6 +1110,19 @@ def direct_for_type(q, tids, at, inside, textuse, importuse, rel):
             if c in inside: continue
             rows.append((c, 'uses', f'receives it by dependency injection ({kind}) — the container hands it '
                                     f'over, no call site', 'resolved', '', 0))
+
+    # ── an ENUM type: the switches over it (rule 343) ──────────────────────────────────────────────────────
+    #   direct(q,c,"uses",cat("switches over the enum (",arms," of its constants named)"),"resolved","",0)
+    #     :- target(q,"type",t,_), typ(t,_,"enum"), switch_over(c,t,arms), !inside_target(q,c)
+    if code is not None:
+        enums = [t for t in tids if names.get(t, ('', ''))[1] == 'enum']
+        if enums:
+            sw = switch_over(q, enums, code)
+            for t in enums:
+                for c, arms in sw.get(t, ()):
+                    if c in inside: continue
+                    rows.append((c, 'uses', f'switches over the enum ({arms} of its constants named)',
+                                 'resolved', '', 0))
 
     # ── the type's own members, reached through their callers ──────────────────────────────────────────────
     #   tmember(q,m,n,k) :- target(q,"type",t,_), member(t,m,n,k)
@@ -1503,8 +1634,7 @@ def _declines_type(q, tids):
     Declining is not a silent wrong answer: the rules run and the user gets the same output, a little slower.
     """
     ph = ','.join('?' * len(tids))
-    # 343: an enum can be switched over
-    if q(f"SELECT 1 FROM symbols WHERE id IN ({ph}) AND kind='enum' LIMIT 1", *tids): return True
+    # 343 (`switch_over`) used to decline here; it is derived now, so an enum is answered like any other type.
     # `gen(t,"fluent_read")` and `gen(t,"ctor")` hold for a RECORD with no decoration at all — the shape
     # alone generates the accessors. 72 `reads it through the generated accessor name()` rows on one
     # record field, and nothing in `decorations` to see it by.
@@ -1597,8 +1727,12 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
     if not T or any(k not in SOLVE_KINDS for _, k, _, _ in T): return None
     tys = {s_ for _r, k, s_, _x in T if k == 'type'}
     flds = {s_ for _r, k, s_, _x in T if k == 'field'}
+    ncs = {s_ for _r, k, s_, _x in T if k == 'newconst'}
     if (tys or flds) and at is None: return None
     if flds and lines is None: return None
+    # `switch_over` is read from each callable's own text, so an enum target — or a field of one — needs the
+    # source accessor
+    if (ncs or tys or flds) and code is None: return None
     if tys and _declines_type(q, tys): return None
     if flds:
         # a FIELD reaches gen (245-249), switch_over (344) and reexport (396) through its owner type, so it
@@ -1616,12 +1750,18 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
         # A query can carry SEVERAL target kinds at once: a name match that hits both a method and a field
         # resolves to both, and the rules simply union what each kind derives. Dispatch per kind and union here
         # too — testing `any(kind == 'type')` and taking one branch drops the other kind's rows entirely.
-        mine = [(k, s_) for r, k, s_, _x in T if r == qq]
-        ids = sorted({s_ for _k, s_ in mine})
-        if not ids: continue
-        by_kind = {}
-        for k, s_ in mine: by_kind.setdefault(k, set()).add(s_)
-        ph = ','.join('?' * len(ids))
+        mine = [(k, s_, x) for r, k, s_, x in T if r == qq]
+        if not mine: continue
+        # `target(q,k,s,x)`: a STRING target is written (q,"string","",value) — no symbol at all — so the ids and
+        # the extras are kept apart rather than one standing in for the other.
+        ids = sorted({s_ for _k, s_, _x in mine if s_})
+        by_kind, extra = {}, {}
+        for k, s_, x in mine:
+            if s_: by_kind.setdefault(k, set()).add(s_)
+            if x: extra.setdefault(k, set()).add(x)
+        kinds = {k for k, _s, _x in mine}
+        if not ids and not extra: continue
+        ph = ','.join('?' * len(ids)) if ids else "''" 
         con, dr, seeds, de, byname = [], [], set(), [], []
         ins = {c for r, c in inside if r == qq}
 
@@ -1646,7 +1786,7 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
                 f"SELECT type_id FROM type_ancestors WHERE ancestor_type_id IN ({tph})", *tids)}) \
                 if _has(q, 'type_ancestors') else []
             con += tcon
-            d = direct_for_type(q, tids, at, ins, textuse, importuse, rel)
+            d = direct_for_type(q, tids, at, ins, textuse, importuse, rel, code)
             # alongside, through target_owner(q,t) :- target(q,"type",t,_) — the type IS its own owner here
             d += _alongside_for_type(q, tids, ins)
             dr += d
@@ -1675,11 +1815,52 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
             fnames = {r[1] for r in (field_rec(q, f_) for f_ in fids) if r and r[1]}
             if ftypes:
                 d += _alongside_for_type(q, sorted(ftypes), ins, fnames, at)
+            # rule 344 — the same switches as rule 343, reached through the field's OWNER when that owner is an
+            # enum: a constant is what a switch arm names, so its dependents are the switches over the enum.
+            if code is not None and ftypes:
+                eids = [t for (t,) in q("SELECT id FROM symbols WHERE kind='enum' AND id IN ({})".format(
+                    ','.join('?' * len(ftypes))), *sorted(ftypes))]
+                if eids:
+                    esw = switch_over(q, eids, code)
+                    for t in eids:
+                        for c, arms in esw.get(t, ()):
+                            if c in ins: continue
+                            d.append((c, 'uses', f'switches over the enum ({arms} of its constants named)',
+                                      'resolved', '', 0))
             dr += d
             de += fde
             # seed_of(q,t) :- target(q,"field",fl,_), field(fl,t,_,_,_)  (372), plus the generic rule 376:
             # every non-alongside direct row is a seed for a target kind that is not method/param/var
             seeds |= ftypes | {c for c, _r, _w, cert, _f, _l in d if cert != 'alongside'}
+
+        if 'decoration' in kinds:
+            dids = sorted(by_kind.get('decoration', ()))
+            d = direct_for_decoration(q, dids)
+            dr += d
+            # seed_of(q,m) :- target(q,"decoration",m,_)   (368), plus the generic rule 376 over the direct rows.
+            # There is no target_owner for a decoration, so no `alongside` tier exists for it at all.
+            seeds |= set(dids) | {c for c, _r, _w, cert, _f, _l in d if cert != 'alongside'}
+
+        if 'newconst' in kinds:
+            nids = sorted(by_kind.get('newconst', ()))
+            d, switchers = direct_for_newconst(q, nids, code, ins)
+            # alongside, through target_owner(q,t) :- target(q,"newconst",t,_) — the enum IS its own owner here
+            d += _alongside_for_type(q, nids, ins)
+            dr += d
+            # seed_of(q,t) (369), seed_of(q,c) :- switch_over(c,t,_) (370), plus the generic rule 376
+            seeds |= set(nids) | switchers | {c for c, _r, _w, cert, _f, _l in d if cert != 'alongside'}
+
+        if 'config' in kinds:
+            d, readers = direct_for_config(q, set(by_kind.get('config', ())), at, rel)
+            dr += d
+            # seed_of(q,m) :- target(q,"config",k,_), config(k,m,_)   (371), plus the generic rule 376
+            seeds |= readers | {c for c, _r, _w, cert, _f, _l in d if cert != 'alongside'}
+
+        if 'string' in kinds:
+            d = direct_for_string(q, extra.get('string', set()), at, rel)
+            dr += d
+            # seed_of(q,c) :- target(q,"string",_,_), direct(q,c,…,cert,…), cert != "alongside"   (403)
+            seeds |= {c for c, _r, _w, cert, _f, _l in d if cert != 'alongside'}
         seeds = sorted(seeds)
         out['contract'] += [[c, why, qq] for c, why in con]
         # a Soufflé relation is a SET. Two call_edges rows for the same caller, member and site — different
@@ -1749,8 +1930,11 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
                     for qn, d, n in q(f"SELECT qualified_name, display, name FROM symbols WHERE id IN ({kph})", *kl):
                         for x in (qn, d):
                             if x and x != n: full.setdefault(x, kind)
+            #   config: extbind(…,"defines or overrides the key") :- nonsource(n,f,l), n = k   (473)
+            ckeys = by_kind.get('config') or set()
             for n, f, l in nonsource:
-                if n in simple: out['extbind'].append([f, str(l), n, f'names the {simple[n]}', qq])
+                if n in ckeys: out['extbind'].append([f, str(l), n, 'defines or overrides the key', qq])
+                elif n in simple: out['extbind'].append([f, str(l), n, f'names the {simple[n]}', qq])
                 elif n in full: out['extbind'].append([f, str(l), n, f'names the {full[n]} in full', qq])
         # ── the throws contract ────────────────────────────────────────────────────────────────────────────
         #   target_throws(q,e)      :- target(q,"method",m,_), throws_(m,e)
@@ -1759,7 +1943,7 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
         # Only the human-readable output prints this, never --json, so a parity harness that compares --json
         # cannot see it missing — it was empty here while the rules gave 2 and 22 rows on the first method that
         # declares a `throws` at all.
-        if code is not None:
+        if code is not None and 'method' in kinds:
             tthrows = set()
             for f, ln, en in q(f"SELECT file, line, end_line FROM symbols WHERE id IN ({ph})", *ids):
                 tthrows |= _throws_catches(code, f, ln, en)[0]
