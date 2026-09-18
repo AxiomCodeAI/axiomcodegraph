@@ -36,6 +36,22 @@ const deps=j.dependencies||{}, pdeps=JSON.parse(fs.readFileSync(root+"/parser/pa
 Object.keys(deps).length ? ok("runtime dependencies are declared") : bad("package.json declares no runtime dependencies");
 for(const k of Object.keys(pdeps)) deps[k] ? ok("dependency hoisted: "+k) : bad("runtime dependency not hoisted from the parser workspace: "+k);
 
+// ---- the native grammar must not be duplicated ----
+// tree-sitter-groovy pins tree-sitter-java to an exact version. Asking for a different one
+// leaves npm two versions to satisfy and it nests a second copy, whose gyp config resolves
+// node-addon-api by a relative path that is wrong once nested -- so it cannot build even
+// with a full toolchain, and linux-arm64, which has no prebuilt core and must build, fails
+// outright. A caret range is not enough: ^0.23.4 resolves to 0.23.5 and nests again. The two
+// have to name the SAME version. See #901.
+try{
+  const groovy=JSON.parse(fs.readFileSync(root+"/node_modules/tree-sitter-groovy/package.json","utf8"));
+  const want=(groovy.dependencies||{})["tree-sitter-java"];
+  const have=(JSON.parse(fs.readFileSync(root+"/parser/package.json","utf8")).dependencies||{})["tree-sitter-java"];
+  if(!want) ok("tree-sitter-groovy no longer depends on tree-sitter-java");
+  else if(have===want) ok("tree-sitter-java matches the version tree-sitter-groovy pins ("+want+"), so it stays deduped");
+  else bad("tree-sitter-java is "+have+" but tree-sitter-groovy pins "+want+"; npm will nest a second copy that cannot build (#901)");
+}catch(e){ console.log("  skip  tree-sitter-groovy not installed; run npm install to assert the pin"); }
+
 // ---- what the tarball would contain ----
 let files;
 try{
