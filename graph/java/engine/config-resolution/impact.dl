@@ -146,6 +146,17 @@ cfg_field_read(f, m) :- java_field(name, _, _, _, _, _, _, _, owner, _, _, _, _,
     java_expression(_, _, _, _, sub, _, _, _, _, _, name, _, _, _, "FIELD", _, _, _, _, _, _, _, _, _, e),
     expr_ultimate_method("client", e, m).
 
+// A field read THROUGH A GENERATED ACCESSOR. A hand-written getter reads the field in
+// its body, so the clauses above already make it a reader and the closure then reaches
+// its callers. A generated getter has no body to read, so without this the chain
+// key -> field -> accessor -> caller never closes, and a settings holder whose fields
+// are only ever reached as cfg.getThing() reports that its keys affect nothing.
+//
+// The getter itself is the reader here, NOT its caller, so that a generated accessor and
+// a hand-written one over the same field produce the same shape and the closure does the
+// rest in both cases.
+cfg_field_read(f, id) :- gen_accessor_field(id, f).
+
 // config_bound_method(Key, Method, Via) — DISTANCE 0. The method that directly
 // touches the bound value.
 config_bound_method(k, m, "reads_field") :- config_binding_effective(k, _, "field", f, _),

@@ -481,6 +481,23 @@ method_owner("client", owner, id) :- gen_ctor_live(owner, _, id).
 // `this` is a different annotation with a different answer, deliberately not guessed
 // here.
 //
+// gen_accessor_field(MethodId, FieldHash) — which field a generated getter reads.
+//
+// The synthesiser knows the field it built the accessor from and then discards the link,
+// so anything asking "what reads this field" cannot see the accessor. That is what makes a
+// configuration key bound to such a field affect no method at all
+// (config-resolution/impact.dl), although every caller in the project reaches its value
+// through the generated getter.
+//
+// Getters only. A setter WRITES the field, and cfg_field_read is a read relation;
+// modelling the write is a separate question with a separate consumer.
+gen_accessor_field(id, f) :- gen_accessor_src(_, owner, fname, f, "get"),
+    gen_capitalized(fname, c),
+    gen_method_live(owner, cat("get", c), "0", id).
+gen_accessor_field(id, f) :- gen_accessor_src(_, owner, fname, f, "get"),
+    gen_capitalized(fname, c),
+    gen_method_live(owner, cat("is", c), "0", id).
+
 // The REF column is the field's own type reference. Reusing it rather than minting a
 // synthetic one keeps every downstream consumer that reads the reference (type
 // arguments, generic binding) pointing at a node the IR actually has.
