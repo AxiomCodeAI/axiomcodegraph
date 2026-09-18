@@ -1,0 +1,323 @@
+#!/usr/bin/env python3
+"""axiomcode context "<the task, in your own words>" [<repo>] [--in <path>] [--budget N] [--source]
+
+THE FRONT DOOR — the context an agent needs before it can ask anything precise. Every other verb needs a name you already have — a method, a type, a file:line. That is
+the wrong first question on an unfamiliar repository, and it is measurably where an agent gives up: in a
+recorded run the agent asked once, the word resolved to nothing it could use, and it never touched the
+graph again.
+
+This takes the problem statement instead. It is deterministic — no model, no embedding index, no network:
+
+  1. the task text is split into content terms (stopwords dropped, camelCase and snake_case split), so
+     "Vapor: onUnmounted never fires on app.unmount()" gives vapor · unmounted · app · unmount
+  2. every symbol is scored against those terms — exact name, prefix, substring, then the file path — each
+     weighted by INVERSE DOCUMENT FREQUENCY over the graph's own vocabulary, so a rare word like
+     `onUnmounted` outweighs a common one like `component`
+  3. a TEST or BENCHMARK declaration is demoted, not dropped. Asked "where is serialization handled", a
+     purely lexical ranker will answer `SerializationBenchmark` — the name matches perfectly and the file
+     is worthless. Demoting it costs nothing when the real answer exists and saves the query when it does not
+  4. the best seed per term is kept, so a multi-concept task gets several entry points rather than one
+  5. the closure is walked from those seeds and the answer is ranked by NEAREST HOP, then by how many of
+     the task's terms the file matches — not by how many methods the file happens to contain
+  6. the output is BUDGETED here rather than left for the reader to truncate arbitrarily
+
+It ends by saying what it could NOT see, because a partial list that reads as complete is what turns a
+5-file change into a 1-file patch.
+"""
+import importlib.machinery, importlib.util, math, os, re, sys, collections
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+from ax_contract import (subtokens, TESTY, SPLIT, CAMEL, require_scope, budgeted, BOUND,
+                         dirs_with_counts, offer)
+_spec = importlib.util.spec_from_loader('axpath', importlib.machinery.SourceFileLoader('axpath', os.path.join(HERE, 'axiomcode-path')))
+P = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(P)
+G, die = P.G, P.die
+
+# Question words and prose glue. A task is mostly English; the code words are the signal.
+STOP = set("""a an and are as at be been being but by can cannot could did do does doing done for from get
+gets getting had has have how i if in into is it its just like make makes making may might must no not of
+on once only or other our out over own same should so some such than that the their them then there these
+they this those through to too under until up use used uses using very was way we were what when where
+which while who why will with would you your about after all also am any because before below between both
+during each few further here him his more most no nor now off other own s same t too very
+bug issue fix fixed fixes broken break breaks error fails failing failure problem regression expected
+actual reproduce reproduction repro steps version
+""".split())
+
+
+
+HYPHEN = re.compile(r'[A-Za-z0-9]+(?:[-_.][A-Za-z0-9]+)+')
+
+
+def task_terms(text):
+    """The content words of the task, in order, deduped.
+
+    A fixed stoplist is a prior about ENGLISH, and the vocabulary here is a codebase's. `v-for` and `v-if`
+    are Vue's two most distinctive directive names, and splitting them on the hyphen leaves `v` (too short)
+    and `for`/`if` (stopwords) — so the single most discriminating word in an issue was being deleted before
+    scoring, while a file literally named vFor.ts sat in the answer. The compound is kept WHOLE and
+    unhyphenated alongside its parts, so `v-for` still reaches `vFor`; IDF then decides what a term is
+    worth, which is a judgement about this graph rather than about English.
+    """
+    words, seen = [], set()
+    def add(w):
+        w = w.lower()
+        if len(w) < 3 or w in seen: return
+        seen.add(w); words.append(w)
+    for compound in HYPHEN.findall(text or ''):
+        add(re.sub(r'[-_.]', '', compound))          # v-for -> vfor, api_create_app -> apicreateapp
+    for raw in SPLIT.split(text or ''):
+        if not raw: continue
+        add(raw)
+        for part in CAMEL.findall(raw): add(part)
+    content = [w for w in words if w not in STOP]
+    return content or words
+
+
+# How many declarations to name under each file. Swept over 31 real commits: 1 gives 18% function recall at
+# 987 tokens per correct answer, 2 gives 24% at 790, 3 gives 27% at 748 but takes precision from 4% to 2%.
+# Two is the knee — most of the recall, and the answer stays an answer rather than a listing.
+DECLS_PER_FILE = 2
+SOURCE_LINES = 12          # with --source, how much of each declaration to print before eliding
+
+EXACT, PREFIX, SUBSTR, PATH = 1000.0, 100.0, 1.0, 0.5
+# A path token is a near-exact signal, not a weak one: a monorepo puts the answer's PACKAGE in the path and
+# nowhere else. "Vapor: onUnmounted never fires" names the package, and four of that task's five files live
+# under runtime-vapor/ while the same basenames also exist under runtime-core/ — without weighting the path
+# the ranker cannot tell the two apart and picks whichever has more methods.
+PATH_TOKEN = 60.0
+TEST_PENALTY = 0.05          # demoted by 20x, never dropped: sometimes the test IS where the answer lives
+
+
+def score_symbols(g, terms):
+    """{symbol id: (score, matched terms)} — the lexical tier, IDF-weighted.
+
+    IDF is computed over the graph's OWN vocabulary rather than a general corpus: in a rendering library
+    `component` is in half the names and carries almost nothing, while `unmounted` is in three and carries
+    the query. Without it every common word drags the ranking toward the biggest files.
+    """
+    df = collections.Counter()
+    names = {}
+    for sid, s in g.sym.items():
+        toks = set(subtokens(s.get('name') or '') + subtokens(s.get('display') or ''))
+        names[sid] = toks
+        for t in toks: df[t] += 1
+    N = max(len(names), 1)
+    idf = {t: math.log(1 + N / (1 + df.get(t, 0))) for t in terms}
+
+    scored = {}
+    for sid, s in g.sym.items():
+        nm = (s.get('name') or '').lower()
+        disp = (s.get('display') or '').lower()
+        path = (s.get('file') or '').lower()
+        toks = names[sid]
+        ptoks = set(subtokens(s.get('file') or ''))
+        total, matched = 0.0, []
+        for t in terms:
+            w = idf.get(t, 1.0)
+            if nm == t or t in toks and nm == t: total += EXACT * w; matched.append(t)
+            elif nm.startswith(t) or any(x.startswith(t) for x in toks):
+                # A prefix match is only as good as how much of the token it covers. Flat-weighting it let
+                # the 3-letter term `app` (from "when the app is unmounted") score full prefix weight against
+                # applyDirectivesToElement, appendVnodeHook and applyDynamicModel — none of them related to the
+                # question. Scaled by coverage, `app`->`apply` is worth 0.6 of a prefix hit and
+                # `unmount`->`unmounted` 0.78, which is the ordering a reader would expect.
+                best = max([len(t) / len(x) for x in toks if x.startswith(t)] +
+                           ([len(t) / len(nm)] if nm.startswith(t) and nm else []), default=0.0)
+                total += PREFIX * w * min(best, 1.0); matched.append(t)
+            elif any(t.startswith(x) and len(x) >= 4 for x in toks):
+                # The TERM can be the longer one: prose says "unmounted"/"unmounting" where the code declares
+                # `unmount`. Only checking symbol-starts-with-term misses every inflected form, which is most
+                # of how a bug report refers to an action. Scored like a prefix match, scaled the same way.
+                best = max((len(x) / len(t) for x in toks if t.startswith(x) and len(x) >= 4), default=0.0)
+                total += PREFIX * w * min(best, 1.0); matched.append(t)
+            elif t in nm or t in disp: total += SUBSTR * w; matched.append(t)
+            elif t in ptoks: total += PATH_TOKEN * w; matched.append(t)      # the package, spelled out
+            elif t in path: total += PATH * w; matched.append(t)
+        if not total: continue
+        # coverage: a symbol matching three of the task's words beats one matching the same word thrice
+        total *= (1 + len(set(matched)) / max(len(terms), 1))
+        if s.get('is_test') or TESTY.search(s.get('file') or ''): total *= TEST_PENALTY
+        scored[sid] = (total, sorted(set(matched)))
+    return scored
+
+
+def pick_seeds(g, scored, terms, want):
+    """The best symbol for each term, then the best overall — so a task naming three concepts enters the
+    graph at three places instead of piling every seed onto whichever word happened to score highest."""
+    best = {}
+    for sid, (sc, matched) in scored.items():
+        for t in matched:
+            cur = best.get(t)
+            if cur is None or sc > cur[0]: best[t] = (sc, sid)
+    seeds, seen = [], set()
+    for t in terms:
+        if t in best and best[t][1] not in seen:
+            seen.add(best[t][1]); seeds.append((best[t][1], t, best[t][0]))
+    for sid, (sc, _m) in sorted(scored.items(), key=lambda kv: -kv[1][0]):
+        if len(seeds) >= want: break
+        if sid not in seen: seen.add(sid); seeds.append((sid, '', sc))
+    return seeds[:want]
+
+
+_SRC = {}
+def source_lines(repo, f):
+    """The file's lines, read once. The graph stores repo-relative paths; a run may be started anywhere."""
+    if f not in _SRC:
+        path = f if os.path.isabs(f) else os.path.join(repo, f)
+        try: _SRC[f] = open(path, errors='ignore').read().splitlines()
+        except Exception: _SRC[f] = []
+    return _SRC[f]
+
+
+def neighbourhood(g, seed_ids, cap=3):
+    """{symbol id: nearest hop} out to `cap` hops, both directions. Callers matter as much as callees for
+    "where is this handled" — the thing you are looking for is often what CALLS the name you recognised."""
+    adj = collections.defaultdict(set)
+    for a, b, _t in g.edges():
+        adj[a].add(b); adj[b].add(a)
+    depth = {s: 0 for s in seed_ids}
+    frontier = list(seed_ids)
+    for d in range(1, cap + 1):
+        nxt = []
+        for x in frontier:
+            for y in adj.get(x, ()):
+                if y not in depth: depth[y] = d; nxt.append(y)
+        frontier = nxt
+        if not frontier: break
+    return depth
+
+
+def main(argv):
+    budget, seeds_wanted, scope, args = 40, 6, '', []
+    show_source = False
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == '--budget' and i + 1 < len(argv): budget = int(argv[i + 1]); i += 2
+        elif a == '--seeds' and i + 1 < len(argv): seeds_wanted = int(argv[i + 1]); i += 2
+        elif a == '--in' and i + 1 < len(argv): scope = argv[i + 1]; i += 2
+        elif a == '--source': show_source = True; i += 1
+        elif a in ('-h', '--help'): print(__doc__); return 0
+        else: args.append(a); i += 1
+    if not args: print(__doc__); return 2
+    task = args[0]
+    repo = args[1] if len(args) > 1 else '.'
+    g = G(repo)
+
+    terms = task_terms(task)
+    if not terms: die("nothing to search for in that task description")
+    scored = score_symbols(g, terms)
+    # --in: the caller usually KNOWS roughly where it is — a stack frame, the file it just read, the package
+    # named in the issue's labels. That is worth more than any amount of inferring the package from prose,
+    # so a scope restricts the seeds outright rather than nudging a weight. Everything outside it is dropped
+    # BEFORE seeding, so the entry points come from the right package instead of its same-named twin.
+    bad = require_scope(g, scope, terms)
+    if bad is not None: return bad
+
+    scored = {sid: v for sid, v in scored.items() if scope in (g.sym.get(sid, {}).get('file') or '')}
+    if not scored:
+        # the scope is real (require_scope proved it) but holds nothing matching — offer what is under it
+        dirs = dirs_with_counts(g)
+        inside = sorted(((d, n) for d, n in dirs.items() if scope in d or d in scope),
+                        key=lambda kv: -(len(set(terms) & set(subtokens(kv[0]))) * 100000 + kv[1]))
+        return offer(f"'{scope}' exists, but none of these words appear under it: {', '.join(terms[:8])}.",
+                     inside or sorted(dirs.items(), key=lambda kv: -kv[1]), terms)
+
+    seeds = pick_seeds(g, scored, terms, seeds_wanted)
+
+    print(f"task terms: {' · '.join(terms[:10])}" + (f" (+{len(terms)-10})" if len(terms) > 10 else ''))
+    print(f"\nentry points ({len(seeds)}, best match per term — the graph's own words, not a guess):")
+    for sid, term, sc in seeds:
+        why = f"matches '{term}'" if term else "best overall match"
+        print(f"    {g.disp(sid):46.46}  {g.loc(sid):34.34}  {why}")
+
+    depth = neighbourhood(g, [s for s, _t, _sc in seeds])
+    # A file can match the task by NAME and be reachable by no call at all — an enum of flags, a constants
+    # module, a config surface. Those have no callers by construction, so a list built only from the call
+    # closure drops them however well they match: on one task the file was literally named for the word the
+    # issue led with, and it never appeared. They enter here at a nominal hop below the closure's, and the
+    # answer says how each file was found so a name match is never mistaken for a call path.
+    named_only = {}
+    for sid, (sc, matched) in scored.items():
+        if sid in depth: continue
+        f = (g.sym.get(sid) or {}).get('file') or ''
+        if not f or f.startswith('<') or not matched: continue
+        if len(matched) >= 2 or sc >= EXACT:          # a strong match, not an incidental substring
+            named_only[sid] = len(matched)
+    # rank a FILE by its nearest hop, then by how much of the task it matches, then by name for stability
+    files = {}
+    for sid, d in list(depth.items()) + [(k, 99) for k in named_only]:
+        s = g.sym.get(sid)
+        if not s or not s.get('file') or s['file'].startswith('<'): continue
+        f = s['file']
+        hit = len(scored.get(sid, (0, []))[1])
+        cur = files.get(f)
+        if cur is None or (d, -hit) < (cur[0], -cur[1]): files[f] = (d, max(hit, cur[1] if cur else 0), cur[2] + 1 if cur else 1)
+        else: files[f] = (cur[0], max(cur[1], hit), cur[2] + 1)
+    # rank = hop, discounted by how much of the task the file matches. Sorting on hop alone pinned a file
+    # matching three task words to rank 78 because it sat one band further out.
+    # A file's PATH is evidence in its own right, independent of the symbols inside it. The task names the
+    # package ("Vapor"), four of the five files that must change live under runtime-vapor/, and the same
+    # basenames exist under runtime-core/ — so without scoring the path at the FILE level the ranker keeps
+    # choosing the wrong package's twin. Hop still orders, but a file in the named package outranks a
+    # nearer one outside it.
+    tset = set(terms)
+    def file_rank(item):
+        f, (d, hit, n) = item
+        ptoks = set(subtokens(f))
+        pkg = len(tset & ptoks)
+        return (d - 0.8 * hit - 1.6 * pkg, d, f)
+    if scope: files = {f: v for f, v in files.items() if scope in f}
+    order = sorted(files.items(), key=file_rank)
+    shown, foot = budgeted([x for x in order if not TESTY.search(x[0])], budget, "file")
+    print(f"\nwhere the work is ({len(files)} file(s) within 3 hops of those entry points; "
+          f"nearest first, then by how much of the task each matches):")
+    # Name the DECLARATIONS, not only the file. Every symbol here was already scored — that is how the file
+    # got its rank — and then discarded, so the answer said "look in this file" where it could have said
+    # which functions to look at. Measured over 31 real commits, naming two declarations per file roughly
+    # doubled how many of the changed functions the answer contained, for about a 50% larger answer: what was
+    # missing had been computed and thrown away. They cost a line each and carry the evidence the rank used.
+    best_in_file, span_of = {}, {}
+    for sid, (sc, matched) in scored.items():
+        sy = g.sym.get(sid) or {}
+        f = sy.get('file') or ''
+        nm = sy.get('display') or sy.get('name') or ''
+        # a <module> node is the file itself, not a declaration in it, and the same name can carry several
+        # symbol ids (an overload, a re-declaration) — neither is worth a line of the answer
+        if not f or not nm or '<' in nm or not sy.get('method_id'): continue
+        cur = best_in_file.setdefault(f, {})
+        if nm not in cur or sc > cur[nm][0]:
+            cur[nm] = (sc, len(matched), nm)
+            if sy.get('line'): span_of[(f, nm)] = (sy['line'], sy.get('end_line') or sy['line'])
+    for f, (d, hit, n) in shown:
+        mark = f"  [{hit} task term(s)]" if hit else ""
+        how = "name only, no call path" if d == 99 else f"hop {d}"
+        print(f"    {how:22} {f}  ({n} symbol(s)){mark}")
+        top = sorted(best_in_file.get(f, {}).values(), key=lambda x: (-x[0], -x[1], x[2]))[:DECLS_PER_FILE]
+        if top and not show_source:
+            print(f"    {'':22}   -> " + ', '.join(nm for _sc, _m, nm in top))
+        elif top:
+            # --source: print the declaration itself, not a pointer to it. A list of paths makes the caller
+            # spend its own turns re-reading what this already located, which is where the context actually
+            # goes; the body it needs is a few lines and this has the span already.
+            for _sc, _m, nm in top:
+                sp = span_of.get((f, nm))
+                if not sp: continue
+                a, b = sp
+                body = source_lines(g.repo, f)[a - 1:min(b, a + SOURCE_LINES)]
+                if not body: continue
+                print(f"    {'':22}   {nm}  ({f}:{a})")
+                for k, ln in enumerate(body, a):
+                    print(f"    {'':22}   {k:5} | {ln.rstrip()[:110]}")
+                if b > a + SOURCE_LINES: print(f"    {'':22}   {'':5} | … +{b - a - SOURCE_LINES} more line(s)")
+    if foot: print(foot + ", tests and benchmarks not listed")
+
+    print("\n" + BOUND)
+    print("  narrow with `impact <name> --in <path>` or `path '*' <name> --in <path>`.")
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))

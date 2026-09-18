@@ -37,10 +37,11 @@ while [ $# -gt 0 ]; do
 done
 case "$cmd" in
   index|build) exec bash "$H/axiomcode-build" ${ARGS[@]+"${ARGS[@]}"} ;;
+  context) exec python3 "$H/axiomcode-context" ${ARGS[@]+"${ARGS[@]}"} ;;
   path)   exec python3 "$H/axiomcode-path" ${ARGS[@]+"${ARGS[@]}"} ;;
   impact) exec python3 "$H/axiomcode-impact" ${ARGS[@]+"${ARGS[@]}"} ;;
   changed) exec python3 "$H/axiomcode-changed" ${ARGS[@]+"${ARGS[@]}"} ;;
   graph)  exec python3 "$H/axiomcode-graph" build ${ARGS[@]+"${ARGS[@]}"} ;;
   ""|-h|--help|help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//' ;;
-  *) echo "axiomcode: unknown subcommand '$cmd' — the entry point has: index, graph, path, impact, changed" >&2; exit 2 ;;
+  *) echo "axiomcode: unknown subcommand '$cmd' — the entry point has: index, context, graph, path, impact, changed" >&2; exit 2 ;;
 esac
