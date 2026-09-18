@@ -11,6 +11,7 @@ import {
 } from '@/enums/javascript/modules';
 import { EntityIdentifiable } from '@/interfaces/EntityIdentifiable';
 import { EntityUtils } from '@/utils/entity-utils';
+import { stableRootId } from '../stable-root-id';
 
 /**
  * A JavaScript module — schema §3.1, 28 columns.
@@ -154,7 +155,7 @@ export class JsModuleRegistry implements EntityIdentifiable {
       ENTITY_IDENTIFIERS.JS_MODULE,
       keyOf(
         this.filePath,
-        this.baseMservPath,
+        stableRootId(this.baseMservPath),
         this.moduleSystem,
         this.emissionRegime,
         this.serviceVersionLinkHash
