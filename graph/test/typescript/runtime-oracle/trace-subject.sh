@@ -12,13 +12,21 @@
 # from a workload someone wrote while looking at the engine's output would be
 # measuring the author, not the program.
 #
+# IT IS RUN TWICE. Once untouched, once instrumented, and the two have to report the
+# same counts. That is the integrity check the method rests on, and taking only the
+# second run made a subject that cannot run look exactly like a rewrite that broke it.
+#
 # Usage: trace-subject.sh <project-dir> <work-dir> [<test-command>]
 # =============================================================================
 set -eu
 PROJECT="$(cd "$1" && pwd)"
 mkdir -p "$2"
 WORK="$(cd "$2" && pwd)"
-TEST_CMD="${3:-npx vitest run --reporter=basic}"
+# NO --reporter=basic. vitest 4 removed that reporter, so a subject pinned to it died
+# with `Failed to load custom Reporter from basic` before collecting a single test, and
+# the harness reported that as `suite exit status 1, 0 trace files` like any other
+# failure. The default reporter exists in every version and nothing here parses it.
+TEST_CMD="${3:-npx vitest run}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 NAME="$(basename "$PROJECT")"
 
@@ -34,6 +42,36 @@ echo "▶ $NAME: mirroring"
 rsync -a --exclude node_modules --exclude .git --exclude coverage --exclude dist \
       "$PROJECT"/ "$MIRROR"/
 [ -d "$PROJECT/node_modules" ] && ln -s "$PROJECT/node_modules" "$MIRROR/node_modules"
+
+# ── THE BASELINE, WHICH IS HALF OF THE METHOD ───────────────────────────────
+# The claim this harness makes is that the subject's own suite drives the trace AND
+# still passes unchanged. Only the second run was ever taken, so `suite exit status 1,
+# 0 trace files` meant either "the rewrite broke the suite" or "this subject could
+# never run here", and nothing distinguished them. Measured: both corpus subjects were
+# the second, and finding that out cost an hour of reading the instrumenter.
+#
+# Run on the MIRROR, not the checkout, so the comparison is between two states of one
+# tree and not between two trees.
+echo "▶ $NAME: baseline (uninstrumented)"
+set +e
+( cd "$MIRROR" && $TEST_CMD ) > "$WORK/baseline-output.txt" 2>&1
+BASE_STATUS=$?
+set -e
+# `Test Files  23 passed (23)` / `Tests  3764 passed | 8 skipped (3772)`. Kept as the
+# runner printed them: any normalisation here is a second opinion about what passing
+# means, and the point is that the two runs agree LITERALLY.
+counts() { grep -E '^[[:space:]]*(Test Files|Tests)[[:space:]]' "$1" 2>/dev/null | sed 's/^[[:space:]]*//'; }
+BASE_COUNTS="$(counts "$WORK/baseline-output.txt")"
+if [ "$BASE_STATUS" -ne 0 ]; then
+  echo "  the subject's OWN suite does not pass, uninstrumented:"
+  tail -12 "$WORK/baseline-output.txt" | sed 's/^/    /'
+  echo "▶ $NAME: REFUSING. This is a fact about the checkout, not about the tracer."
+  echo "  corpus/fetch.sh installs with --ignore-scripts and falls back to npm where the"
+  echo "  project ships another lockfile, which leaves peer and platform packages absent."
+  echo "  Fix the install, or pass a working test command as the third argument."
+  exit 3
+fi
+printf '  %s\n' "$BASE_COUNTS"
 
 echo "▶ $NAME: instrumenting"
 node "$HERE/instrument.mjs" --src "$MIRROR" --out "$MIRROR" --tables "$TABLES"
@@ -93,3 +131,19 @@ STATUS=$?
 set -e
 tail -8 "$WORK/test-output.txt"
 echo "▶ $NAME: suite exit status $STATUS, $(ls "$TRACE" | wc -l | tr -d ' ') trace files"
+
+# ── THE INTEGRITY CHECK, RUN RATHER THAN ASSERTED ───────────────────────────
+# A rewrite that changes what the suite reports has changed the program, and every
+# number downstream is then about a different program. This was done by eye before.
+TRACED_COUNTS="$(counts "$WORK/test-output.txt")"
+if [ "$STATUS" -eq 0 ] && [ "$TRACED_COUNTS" = "$BASE_COUNTS" ]; then
+  echo "▶ $NAME: integrity ok, identical to baseline"
+  printf '  %s\n' "$BASE_COUNTS"
+else
+  echo "▶ $NAME: INTEGRITY FAILED. The baseline passes and the instrumented run does not"
+  echo "  match it, so the rewrite changed the program and the trace describes something"
+  echo "  other than the subject."
+  echo "  baseline:"; printf '    %s\n' "$BASE_COUNTS"
+  echo "  instrumented:"; printf '    %s\n' "${TRACED_COUNTS:-(no counts; the run did not get that far)}"
+  exit 4
+fi
