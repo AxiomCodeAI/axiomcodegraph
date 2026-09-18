@@ -89,8 +89,14 @@ internal static class Program
         {
             ["instrumented"] = 0, ["no_body"] = 0, ["ref_return"] = 0,
             ["unsafe_skipped"] = 0, ["iterator"] = 0, ["files_rewritten"] = 0,
+            ["rewrite_rejected"] = 0,
         };
 
+        // ONE COUNTER FOR THE WHOLE RUN. It used to be a field of the rewriter, which
+        // is constructed per file, so every file started again at 0 and id 0 named 127
+        // different methods. The trace then merged unrelated edges and reported 74
+        // distinct methods out of 604 probes.
+        var nextId = new int[1];
         foreach (var f in files)
         {
             var text = File.ReadAllText(f);
@@ -100,11 +106,34 @@ internal static class Program
             // subject then fails to build for one bad file.
             if (tree.GetDiagnostics().Any(d => d.Severity == DiagnosticSeverity.Error)) continue;
 
-            var rw = new EntryProbeRewriter(tree, counts);
+            var rw = new EntryProbeRewriter(tree, counts, nextId);
             var newRoot = rw.Visit(tree.GetRoot());
             if (rw.Injected == 0) continue;
+            var rewritten = newRoot.ToFullString();
+
+            // THE REWRITE IS RE-PARSED BEFORE IT IS WRITTEN. An instrumenter that
+            // emits source the compiler rejects takes down the WHOLE subject for one
+            // file, and the failure surfaces as "no trace produced" -- which reads as
+            // a tracer or harness problem rather than as a bad rewrite. Two got
+            // through before this check existed: a missing space after `return`, and a
+            // preprocessor directive pushed off the start of its line.
+            //
+            // A file that does not survive is left as it was and COUNTED, so the trace
+            // is merely incomplete by a knowable amount instead of absent.
+            var check = CSharpSyntaxTree.ParseText(rewritten, parseOptions, path: f);
+            var broke = check.GetDiagnostics()
+                .Where(d => d.Severity == DiagnosticSeverity.Error)
+                .Take(3).ToList();
+            if (broke.Count > 0)
+            {
+                counts["rewrite_rejected"]++;
+                foreach (var d in broke)
+                    Console.Error.WriteLine($"  !! {Path.GetFileName(f)}: {d.Id} {d.GetMessage()} -- left uninstrumented");
+                continue;
+            }
+
             table.AddRange(rw.Table);
-            File.WriteAllText(f, newRoot.ToFullString(), new UTF8Encoding(false));
+            File.WriteAllText(f, rewritten, new UTF8Encoding(false));
             counts["files_rewritten"]++;
         }
 
@@ -121,7 +150,10 @@ internal static class Program
         Console.Error.WriteLine(
             $"instrument: {counts["files_rewritten"]} files, {counts["instrumented"]} probes, " +
             $"skipped {counts["no_body"]} bodiless / {counts["ref_return"]} ref-returning / " +
-            $"{counts["unsafe_skipped"]} unsafe, {counts["iterator"]} iterators (probe fires on first MoveNext)");
+            $"{counts["unsafe_skipped"]} unsafe, {counts["iterator"]} iterators (probe fires on first MoveNext)" +
+            (counts["rewrite_rejected"] > 0
+                ? $", {counts["rewrite_rejected"]} file(s) LEFT UNINSTRUMENTED because the rewrite did not parse"
+                : ""));
         return 0;
     }
 }
@@ -131,13 +163,14 @@ internal sealed class EntryProbeRewriter : CSharpSyntaxRewriter
     private readonly SyntaxTree _tree;
     private readonly Dictionary<string, int> _counts;
     private readonly List<string> _table = new();
-    private int _next;
+    private readonly int[] _next;     // shared across files; see the note at the call site
     private readonly Stack<string> _typeNames = new();
 
-    public EntryProbeRewriter(SyntaxTree tree, Dictionary<string, int> counts)
+    public EntryProbeRewriter(SyntaxTree tree, Dictionary<string, int> counts, int[] nextId)
     {
         _tree = tree;
         _counts = counts;
+        _next = nextId;
     }
 
     public int Injected { get; private set; }
@@ -241,7 +274,7 @@ internal sealed class EntryProbeRewriter : CSharpSyntaxRewriter
             node.ChildTokens().Any(t => t.IsKind(SyntaxKind.UnsafeKeyword)))
         { _counts["unsafe_skipped"]++; return node; }
 
-        var id = _next++;
+        var id = _next[0]++;
         var key = $"{TypePath()}.{name}/{paramc}";
         var line = _tree.GetLineSpan(node.Span).StartLinePosition.Line + 1;
         _table.Add(string.Join('\t', id.ToString(), key,
@@ -251,20 +284,51 @@ internal sealed class EntryProbeRewriter : CSharpSyntaxRewriter
         _counts["instrumented"]++;
         Injected++;
 
+        // ENTRY PUSHES AND A finally POPS. An entry probe alone is not enough: the
+        // tracer reads the caller off the top of a per-thread shadow stack, and
+        // without a matching pop the stack only grows. Measured on FluentValidation:
+        // 111,405 stack overflows in one run, after which every caller read as
+        // whatever happened to sit at depth 511 -- so the edges were fiction.
+        //
+        // try/finally is what a coverage tool does and is safe here: `yield return`
+        // is permitted inside a try that has a finally (it is only forbidden with a
+        // catch), `await` is fine, and ref-returning and unsafe members are skipped
+        // above. It does mean the body is re-indented, which changes only whitespace.
         var probe = ParseStatement($"global::AxiomCsTrace.E({id});")
             .WithTrailingTrivia(ElasticCarriageReturnLineFeed);
+        var pop = Block(ParseStatement("global::AxiomCsTrace.X();")
+            .WithTrailingTrivia(ElasticCarriageReturnLineFeed));
 
         // Recurse first, so a lambda or local function inside this body is probed too.
         if (body is not null)
         {
             var visited = (BlockSyntax)base.Visit(body)!;
-            return rebuild(visited.WithStatements(visited.Statements.Insert(0, probe)), null);
+            // THE ORIGINAL BLOCK NODE IS REUSED, not rebuilt from its statements.
+            // `Block(visited.Statements)` emits fresh braces with no trivia, so the
+            // new `{` lands immediately before the first statement's leading trivia --
+            // and when that trivia starts with a preprocessor directive the result is
+            // `{#region`, which is CS1040: a directive must be the first
+            // non-whitespace on its line. Measured on FluentValidation's
+            // DefaultValidatorExtensions.cs. Reusing the node keeps every byte of its
+            // trivia where the author put it.
+            var guarded = TryStatement(visited, default, FinallyClause(pop));
+            return rebuild(Block(probe, guarded), null);
         }
 
         var expr = (ArrowExpressionClauseSyntax)base.Visit(arrow!)!;
+        // THE SPACE AFTER `return` IS NOT OPTIONAL. ReturnStatement does not insert
+        // one, and an expression body whose expression begins with an identifier then
+        // emits `returnnew ValidatorDescriptor<T>(Rules);` -- which is a compile error
+        // in the MIRROR, so the subject does not build and the trace comes back empty
+        // with the failure looking like a tracer problem. The operand's own leading
+        // trivia is dropped and replaced, because `=> expr` usually has a space there
+        // already and keeping both produces `return  expr`.
+        var operand = expr.Expression.WithoutLeadingTrivia().WithLeadingTrivia(Space);
         StatementSyntax tail = isVoid
-            ? ExpressionStatement(expr.Expression)
-            : ReturnStatement(expr.Expression);
-        return rebuild(Block(probe, tail).WithTriviaFrom(arrow!), null);
+            ? ExpressionStatement(operand)
+            : ReturnStatement(operand);
+        return rebuild(
+            Block(probe, TryStatement(Block(tail), default, FinallyClause(pop))).WithTriviaFrom(arrow!),
+            null);
     }
 }
