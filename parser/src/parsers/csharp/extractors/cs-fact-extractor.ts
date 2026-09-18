@@ -2,6 +2,7 @@ import { CsModuleRegistry } from '@/analysis-types/csharp/CsModuleRegistry';
 import { CsParseGapRegistry } from '@/analysis-types/csharp/CsParseGapRegistry';
 import { reorderRefStructModifiers } from '@/parsers/csharp/extractors/cs-modifier-order';
 import { rewriteSemicolonBodies } from '@/parsers/csharp/extractors/cs-semicolon-body';
+import { flattenExtensionBlocks } from '@/parsers/csharp/extractors/cs-extension-block';
 import { CsUsingRegistry } from '@/analysis-types/csharp/CsUsingRegistry';
 import { CsAttributeArgumentRegistry } from '@/analysis-types/csharp/CsAttributeArgumentRegistry';
 import { CsAttributeRegistry } from '@/analysis-types/csharp/CsAttributeRegistry';
@@ -199,7 +200,19 @@ export class CsFactExtractor {
     // The most benign rewrite there is: nothing follows a trailing newline, so
     // no line, column or span can move. A file that already ends in one is
     // untouched, and a pragma that is not last never had the problem.
-    const parseText = rewritten.endsWith('\n') ? rewritten : `${rewritten}\n`;
+    // AND A C# 14 EXTENSION BLOCK IS FLATTENED INTO ITS STATIC CLASS. The
+    // published grammar reads `extension(string source) { ... }` as a
+    // CONSTRUCTOR named `extension` whose body holds the members as
+    // STATEMENTS, so extractMembers — which walks a declaration_list — sees
+    // none of them: 0 methods and 0 properties where the block declares them.
+    // Blanking the header and the block's two braces hands the grammar
+    // ordinary C#, and every member form inside then parses as the member it
+    // is. Length-preserving to the character; the receiver the blanking
+    // removes is returned in a side table. See cs-extension-block.ts.
+    const flattened = flattenExtensionBlocks(rewritten, (source) =>
+      this.parser.getRootNode(this.parser.parse(source))
+    );
+    const parseText = flattened.text.endsWith('\n') ? flattened.text : `${flattened.text}\n`;
     const tree = this.parser.parse(parseText);
     const root = this.parser.getRootNode(tree);
 
@@ -267,6 +280,9 @@ export class CsFactExtractor {
       activeSymbols,
       nullableContext,
       usingAliasNames,
+      // The flattened blocks, so a member the pass moved into its static class
+      // still knows the receiver the pass blanked away.
+      extensionBlocks: flattened.blocks,
     });
 
     // 3b. TOP-LEVEL STATEMENTS. A file with no type and no method: the member

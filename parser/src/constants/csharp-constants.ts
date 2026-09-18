@@ -48,7 +48,7 @@ export const CSHARP_PARSE_CHUNK_SIZE = 8_192;
 // fork is gone; the regime now names the published version and the blanking
 // pass, and it moves whenever either does.
 
-export const CSHARP_GRAMMAR_REGIME = 'ts-cs-0.23.1-npm-blank1';
+export const CSHARP_GRAMMAR_REGIME = 'ts-cs-0.23.1-npm-blank2';
 
 /**
  * The emission regime, in `cs_module`'s primary key beside the grammar regime.
