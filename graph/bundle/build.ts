@@ -347,6 +347,28 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
   // declares. The engine keeps the edge under the id `external:<qualified name>` rather than
   // dropping it, so the subtype relation stays visible to impact queries; this is the row that
   // makes the FK hold. No file, no lines, no members — the label is all that is known.
+  // A GENERATED member: one an annotation processor declares on the compile path, which is in
+  // the artefact and in every caller's source but in no IR. resolution/generated-members.dl keeps
+  // the edge under `generated:<owner qualified name>#<name>/<arity>`, the same shape
+  // `external:<qname>` uses below and for the same reason: without a row here the edge points at
+  // an id the methods table does not hold. Provenance `generated` is what lets a consumer tell an
+  // inferred member from one read out of source. No file and no lines, because there is no source
+  // to point at; the owner is carried so the member still hangs off its type.
+  let generated = 0;
+  for (const id of wantMethods) {
+    if (methods.has(id) || !id.startsWith('generated:')) continue;
+    const body = id.slice('generated:'.length);
+    const hash = body.indexOf('#');
+    const ownerQ = hash < 0 ? '' : body.slice(0, hash);
+    const rest = hash < 0 ? body : body.slice(hash + 1);
+    const slash = rest.lastIndexOf('/');
+    const name = slash < 0 ? rest : rest.slice(0, slash);
+    methods.set(id, [id, name, ownerQ ? `${ownerQ}.${name}` : name, '', 'GENERATED_METHOD',
+                     null, ownerQ || null, '', 0, 0, 'generated']);
+    generated++;
+  }
+  if (generated > 0) log(`  generated members named: ${generated}`);
+
   let external = 0;
   for (const id of wantTypes) {
     if (types.has(id) || !id.startsWith('external:')) continue;
