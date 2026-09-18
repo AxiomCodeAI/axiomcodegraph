@@ -1,0 +1,4 @@
+nominal	probe.GenOverride.Named.describe -> probe.GenOverride.Person.describe
+nominal	probe.GenOverride.Named.describe -> probe.GenOverride.Robot.describe
+nominal	probe.GenOverride.Named.getName -> lib:?
+nominal	probe.GenOverride.Named.getName -> probe.GenOverride.Robot.getName
