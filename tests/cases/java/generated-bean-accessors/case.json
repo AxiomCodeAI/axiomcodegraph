@@ -1,0 +1,8 @@
+{"lang": "java", "src": "src",
+ "checks": [
+  {"why": "a generated getter and setter have no declaration, so their callers are found by the convention list and not by an edge",
+   "run": ["impact", "User.name", "--kind", "field", "--limit", "50"],
+   "want": ["generated getter getName()", "Greeter.greet", "generated setter setName()", "Greeter.rename"]},
+  {"why": "asking about the TYPE finds the same generated accessors, through its fields",
+   "run": ["impact", "User", "--kind", "type", "--limit", "50"],
+   "want": ["generated getter getName()", "generated setter setName()"]}]}

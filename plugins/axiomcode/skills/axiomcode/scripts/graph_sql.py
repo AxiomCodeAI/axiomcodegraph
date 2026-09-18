@@ -1050,8 +1050,198 @@ def direct_for_string(q, vals, at, rel):
     return sorted(set(rows))
 BASE_REF_SQL = ("SELECT name, line FROM type_refs WHERE file=? AND context IN "
                 "('BASE_CLASS','SUPER_TYPE','IMPLEMENTS_INTERFACE','EXTENDS_TYPE')")
-GEN_DECOR = {'Data', 'Getter', 'Setter', 'Value', 'Builder', 'AllArgsConstructor',
-             'RequiredArgsConstructor', 'With', 'Accessors', 'dataclass', 'attrs', 'define', 'BaseModel'}
+# ── the generated-member layer: `gen`, and the eight rules that read it ───────────────────────────────────────
+# What a decoration or a shape GENERATES is not in any table — no accessor it creates has a declaration, and no
+# call into one has an edge. The rules stand in for the compiler here, and this was the last thing the SQL path
+# could not derive, so a record, a Lombok-style type or a base class named in the convention table declined.
+GENERATED = {'Data': {'get', 'set', 'is', 'ctor'}, 'Getter': {'get', 'is'}, 'Setter': {'set'},
+             'Value': {'get', 'is', 'ctor'}, 'Builder': {'builder'}, 'AllArgsConstructor': {'ctor'},
+             'RequiredArgsConstructor': {'ctor'}, 'With': {'with'}, 'Accessors': {'fluent'},
+             'dataclass': {'ctor'}, 'attrs': {'ctor'}, 'define': {'ctor'}, 'BaseModel': {'ctor'}}
+
+_SYM_VIEW = {}
+def _sym_view(q):
+    """`g.sym` — {id: row} over the symbols carrying a method or a type, ONE row per id (the LAST), in table
+    order. Several relations are built by walking it in that order and stopping at the first match, so a dict
+    built any other way is not the same walk."""
+    key = id(q)
+    if key not in _SYM_VIEW:
+        one = {}
+        for i, nm, f, ln, en, kind, tid in q("""SELECT id, name, file, line, end_line, kind, type_id FROM symbols
+                                                WHERE method_id IS NOT NULL OR type_id IS NOT NULL"""):
+            one[i] = (nm, f, ln, en, kind, tid)
+        _SYM_VIEW[key] = one
+    return _SYM_VIEW[key]
+
+
+_DECORATED = {}
+def _decorated(q):
+    """`decorated(s,d)` — the short name of every decoration on a symbol, field or type alike."""
+    key = id(q)
+    if key not in _DECORATED:
+        out = {}
+        for oid, nm in (q("SELECT owner_id, name FROM decorations") if _has(q, 'decorations') else []):
+            if oid: out.setdefault(oid, set()).add((nm or '').split('.')[-1])
+        _DECORATED[key] = out
+    return _DECORATED[key]
+
+
+_GEN_TABLE = {}
+def gen_table(q, code):
+    """`gen_table(d,w)` — what decoration d generates, plus a project's OWN decorator that wraps a generating one
+    (`def frozen(cls): return dataclass(frozen=True)(cls)`): if the declaration's own source names a generator, it
+    generates the same members. First declaration of that name wins, matched or not, as the exporter has it."""
+    key = id(q)
+    if key in _GEN_TABLE: return _GEN_TABLE[key]
+    tbl = {d: set(ws) for d, ws in GENERATED.items()}
+    used = {(nm or '').split('.')[-1] for (nm,) in q("SELECT name FROM decorations")} if _has(q, 'decorations') else set()
+    if used - set(tbl):
+        sym = _sym_view(q)
+        for d in sorted(used - set(tbl)):
+            for _i, (nm, f, ln, en, _k, _t) in sym.items():
+                if nm != d or not f or not ln: continue
+                body = '\n'.join(code(f)[ln - 1:(en or ln) + 1])
+                hit = {w for k, ws in GENERATED.items() if re.search(rf'\b{re.escape(k)}\b', body) for w in ws}
+                if hit: tbl[d] = hit
+                break
+    return _GEN_TABLE.setdefault(key, tbl)
+
+
+_GEN_ALIAS = {}
+def _gen_alias(q, code):
+    """`gen_alias(d,w) :- named(d,m), ref(m,g,…), gen_table(g,w), d != g`.
+
+    `named(d,m)` is METHODS only — an annotation TYPE of that name declares nothing here and cannot be an alias.
+    Matching any symbol treated two annotations that generate nothing as generators.
+    """
+    key = id(q)
+    if key in _GEN_ALIAS: return _GEN_ALIAS[key]
+    tbl = gen_table(q, code)
+    out = {}
+    used = {(nm or '').split('.')[-1] for (nm,) in q("SELECT name FROM decorations")} if _has(q, 'decorations') else set()
+    if used and _has(q, 'refs'):
+        for d in sorted(used):
+            for m, mf, ml, me in q("""SELECT id, file, line, end_line FROM symbols
+                                      WHERE name=? AND method_id IS NOT NULL AND kind<>'module'
+                                        AND file IS NOT NULL AND line > 0""", d):
+                for (g,) in q("SELECT name FROM refs WHERE file=? AND line BETWEEN ? AND ?", mf, ml, me or ml):
+                    if g in tbl and g != d: out.setdefault(d, set()).update(tbl[g])
+    return _GEN_ALIAS.setdefault(key, out)
+
+
+_TYPE_SPANS = {}
+def _type_at(q, f, line):
+    """`type_at(f,l)` — the innermost TYPE whose span contains the line, the exporter's own walk."""
+    key = id(q)
+    if key not in _TYPE_SPANS:
+        idx = {}
+        for i, (_nm, ff, ln, en, _k, tid) in _sym_view(q).items():
+            if tid and ff and ln and en: idx.setdefault(ff, []).append((ln, en, i))
+        for v in idx.values(): v.sort()
+        _TYPE_SPANS[key] = idx
+    best = None
+    for a, b, i in _TYPE_SPANS[key].get(f, ()):
+        if a <= line <= b and (best is None or (b - a) < best[0]): best = (b - a, i)
+    return best[1] if best else None
+
+
+_BASE_NAME = {}
+def _base_name(q):
+    """`base_name(t,n)` — the supertype as WRITTEN. A library base the engine never resolved is still a generator
+    when the convention table names it, and only the written name can see that. Java records no line for one, and
+    then it belongs to every type declared in that file."""
+    key = id(q)
+    if key in _BASE_NAME: return _BASE_NAME[key]
+    out = {}
+    if _has(q, 'type_refs'):
+        for nm, f, ln in q("""SELECT name, file, line FROM type_refs
+                              WHERE context IN ('BASE_CLASS','SUPER_TYPE','IMPLEMENTS_INTERFACE','EXTENDS_TYPE')"""):
+            short = (nm or '').split('.')[-1]
+            if ln and ln > 0:
+                t = _type_at(q, f, ln)
+                if t: out.setdefault(t, set()).add(short)
+            elif not ln:
+                for (x,) in q("SELECT id FROM symbols WHERE file = ? AND type_id IS NOT NULL", f):
+                    out.setdefault(x, set()).add(short)
+    return _BASE_NAME.setdefault(key, out)
+
+
+def gen_of(q, tids, code):
+    """`gen(t,w)` and `gen_source(t,d,why)` for the given types — seven legs, in rule order.
+
+        gen(t,w) :- decorated(t,d), gen_table(d,w)                              a decoration on the type
+        gen(t,w) :- extends(t,u), decorated(u,d), gen_table(d,w)                …or on a base class
+        gen(t,w) :- field(fl,t,…), decorated(fl,d), gen_table(d,w)              …or on one of its fields
+        gen(t,w) :- base_name(t,n), gen_table(n,w)                              …or the base as WRITTEN
+        gen(t,w) :- decorated(t,d), gen_alias(d,w)                              a project-local decorator
+        gen(t,w) :- field(fl,t,…), decorated(fl,d), gen_alias(d,w)
+        gen(t,"fluent_read") · gen(t,"ctor") :- typ(t,_,"record")               the shape alone generates them
+    """
+    tbl = gen_table(q, code); alias = _gen_alias(q, code)
+    dec = _decorated(q); bn = _base_name(q)
+    _memb, _od, _tf, _tid, by_tid = _members(q)
+    anc = {}
+    if _has(q, 'type_ancestors'):
+        for t_, a_ in q("SELECT type_id, ancestor_type_id FROM type_ancestors"): anc.setdefault(t_, []).append(a_)
+    kinds = {}
+    for t, k in q("SELECT id, kind FROM symbols WHERE id IN ({})".format(','.join('?' * len(tids))), *tids):
+        kinds[t] = k
+    cats = {}
+    if _has(q, 'types'):
+        for t, c in q("SELECT id, category FROM types WHERE id IN ({})".format(','.join('?' * len(tids))), *tids):
+            cats[t] = c or ''
+    gen, src = {}, {}
+    for t in tids:
+        w, s = set(), set()
+        for d in dec.get(t, ()):
+            if d in tbl: w |= tbl[d]; s.add((d, 'a decoration on the type'))
+            elif d in alias: w |= alias[d]; s.add((d, 'a project-local decorator wrapping one'))
+        for u in anc.get(t, ()):
+            for d in dec.get(u, ()):
+                if d in tbl: w |= tbl[d]
+        for fid, _n, k in by_tid.get(t, ()):
+            if k not in NON_CALLABLE_KINDS: continue
+            for d in dec.get(fid, ()):
+                if d in tbl: w |= tbl[d]; s.add((d, 'a decoration on a field'))
+                elif d in alias: w |= alias[d]
+        for n in bn.get(t, ()):
+            if n in tbl: w |= tbl[n]; s.add((n, 'a base class'))
+        if kinds.get(t) == 'record' or 'RECORD' in cats.get(t, ''):
+            w |= {'fluent_read', 'ctor'}
+        if w: gen[t] = w
+        if s: src[t] = sorted(s)
+    return gen, src
+
+
+def _accessors(name):
+    """`accessor(fl,n,rw)` — the bean names, the fluent name, and the same name without a leading underscore."""
+    cap = name[:1].upper() + name[1:]
+    out = [('get' + cap, 'read'), ('is' + cap, 'read'), ('set' + cap, 'write'), (name, 'read')]
+    if name.startswith('_') and len(name) > 1: out.append((name.lstrip('_'), 'read'))
+    return out
+
+
+_NAMED_SITES = {}
+def named_sites(q):
+    """`named_site(c,n,k,f,l)` — a call site whose name the engine did NOT bind to a client declaration: either
+    unresolved, or sent to a library because the callee is GENERATED (a dataclass constructor is a call to the
+    class itself). The generated-member rules look here, so an accessor is found whichever way it was classified.
+    """
+    key = id(q)
+    if key not in _NAMED_SITES:
+        idx = {}
+        for c, nm, kind, f, l in q("""SELECT s.caller_id, s.callee_name, s.kind, s.file_path, s.start_line
+                                      FROM call_sites s
+                                      WHERE s.callee_name IS NOT NULL AND s.callee_name <> ''
+                                        AND NOT EXISTS (SELECT 1 FROM call_edges e WHERE e.call_site_id = s.id
+                                                          AND e.callee_provenance='client'
+                                                          AND e.callee_method_id IS NOT NULL)"""):
+            idx.setdefault((nm or '').split('.')[-1], []).append(
+                (c, 'new' if kind in CTOR_KINDS else 'method', f, l))
+        _NAMED_SITES[key] = idx
+    return _NAMED_SITES[key]
+
+GEN_DECOR = set(GENERATED)      # the names alone, where only membership matters
 
 def inherited_tests(q, hits):
     """`inherited_test(q,s,m,d) :- test_hit(q,m,d,_), owner(m,t), extends(s,t), typ(s,_,_), s != t` — the test
@@ -1186,6 +1376,30 @@ def direct_for_type(q, tids, at, inside, textuse, importuse, rel, code=None):
             if c in inside: continue
             rows.append((c, 'uses', f'receives it by dependency injection ({kind}) — the container hands it '
                                     f'over, no call site', 'resolved', '', 0))
+
+    # ── the GENERATED accessors of the type's own fields: 276-277 ─────────────────────────────────────────
+    #   gen(t,"get"|"set"), field(fl,t,…), accessor(fl,an,…), unresolved(c,an,k,f,l), !ctor_kind(k),
+    #   !inside_target(q,c). `unresolved` here, not `named_site` — the type form is narrower than the field one.
+    if code is not None:
+        gen, _src = gen_of(q, tids, code)
+        if gen:
+            unres = {}
+            for c, nm, k, sf, sl in q("""SELECT s.caller_id, s.callee_name, s.kind, s.file_path, s.start_line
+                                         FROM call_sites s JOIN unresolved_sites u ON u.call_site_id=s.id
+                                         WHERE s.callee_name IS NOT NULL AND s.callee_name<>''"""):
+                unres.setdefault((nm or '').split('.')[-1], []).append((c, k, sf, sl))
+            for t in tids:
+                w = gen.get(t) or set()
+                if not w & {'get', 'set'}: continue
+                for _fid, fn, fk in by_tid.get(t, ()):
+                    if fk not in NON_CALLABLE_KINDS or not fn: continue
+                    for an, rw in _accessors(fn):
+                        if rw == 'read' and 'get' in w: role, why = 'reads', f'calls the generated getter {an}()'
+                        elif rw == 'write' and 'set' in w: role, why = 'writes', f'calls the generated setter {an}()'
+                        else: continue
+                        for c, k, sf, sl in unres.get(an, ()):
+                            if k in CTOR_KINDS or c in inside: continue
+                            rows.append((c, role, why, 'by name', rel(sf) if sf else '', sl or 0))
 
     # a barrel that re-exports it (rule 398), keyed on the type's NAME, not its display
     rows += reexport_rows(q, {n for n, _k in names.values() if n}, code, rel)
@@ -1499,6 +1713,8 @@ def direct_for_field(q, fids, at, code, lines, inside, rel):
                                          FROM call_sites s JOIN unresolved_sites u ON u.call_site_id=s.id
                                          WHERE s.callee_name IS NOT NULL AND s.callee_name<>''"""):
                 if (nm or '').split('.')[-1] == tname and k in CTOR_KINDS:
+                    # `… , !gen(t,"ctor")` — when the constructor is GENERATED the site is rule 249's row
+                    if code is not None and 'ctor' in (gen_of(q, [t], code)[0].get(t) or set()): continue
                     rows.append((c, 'produces', f'constructs {tname} (unresolved site)', 'by name',
                                  rel(f_) if f_ else '', l_ or 0))
             if _has(q, 'refs'):
@@ -1563,6 +1779,48 @@ def direct_for_field(q, fids, at, code, lines, inside, rel):
                         rows.append((c, 'produces',
                                      f'reflects on {hn}.class, which holds {tname} — deserialization '
                                      f'produces the value here', 'by name', rf, rl))
+    # ── the GENERATED members of the owning type: 245-249 ─────────────────────────────────────────────────
+    #   245  gen(t,"get"),  accessor(fl,an,"read"),  named_site(c,an,k,…), !ctor_kind(k)
+    #   246  gen(t,"set"),  accessor(fl,an,"write"), named_site(c,an,k,…), !ctor_kind(k)
+    #   247  gen(t,"builder" | "fluent"), named_site(c,n,k,…), !ctor_kind(k)
+    #   248  gen(t,"fluent_read"),        named_site(c,n,k,…), !ctor_kind(k)
+    #   249  gen(t,"ctor"), typ(t,tn,_),  named_site(c,tn,k,…)          — no ctor guard: this one IS the ctor
+    # None of these has a declaration to point at, so nothing else in `direct` reaches them.
+    if code is not None:
+        owners = sorted({r[0] for r in (field_rec(q, f_) for f_ in fids) if r and r[0]})
+        gen, _src = gen_of(q, owners, code) if owners else ({}, {})
+        if gen:
+            sites = named_sites(q)
+            tnames = dict(q("SELECT id, name FROM symbols WHERE id IN ({})".format(','.join('?' * len(owners))),
+                            *owners))
+            for f_ in fids:
+                r_ = field_rec(q, f_)
+                if not r_: continue
+                t_, n_ = r_[0], r_[1]
+                w = gen.get(t_) or set()
+                if not (w and n_): continue
+                for an, rw in _accessors(n_):
+                    if rw == 'read' and 'get' in w: legs = [('reads', f'calls the generated getter {an}() — receiver not typed')]
+                    elif rw == 'write' and 'set' in w: legs = [('writes', f'calls the generated setter {an}() — receiver not typed')]
+                    else: legs = []
+                    for role, why in legs:
+                        for c, k, sf, sl in sites.get(an, ()):
+                            if k == 'new': continue
+                            rows.append((c, role, why, 'by name', rel(sf) if sf else '', sl or 0))
+                if w & {'builder', 'fluent'}:
+                    for c, k, sf, sl in sites.get(n_, ()):
+                        if k == 'new': continue
+                        rows.append((c, 'writes', f'sets it through the generated builder / fluent {n_}()',
+                                     'by name', rel(sf) if sf else '', sl or 0))
+                if 'fluent_read' in w:
+                    for c, k, sf, sl in sites.get(n_, ()):
+                        if k == 'new': continue
+                        rows.append((c, 'reads', f'reads it through the generated accessor {n_}()',
+                                     'by name', rel(sf) if sf else '', sl or 0))
+                if 'ctor' in w:
+                    for c, k, sf, sl in sites.get(tnames.get(t_) or '', ()):
+                        rows.append((c, 'writes', 'passes it to the generated constructor', 'by name',
+                                     rel(sf) if sf else '', sl or 0))
     # a barrel that re-exports the field's name (rule 397)
     fnames = {r[1] for r in (field_rec(q, f_) for f_ in fids) if r and r[1]}
     rows += reexport_rows(q, fnames, code, rel)
@@ -1804,68 +2062,13 @@ def _target_fields(q, decls, tids, at):
 
 
 def _declines_type(q, tids):
-    """True when a TYPE target needs a rule this does not derive from the bundle, so the query goes to Soufflé.
+    """Kept as the one place a TYPE target can still be handed back, and it no longer fires.
 
-    Three of the type rules read relations the exporter builds by scanning source text rather than by reading a
-    table, and those are the only ones not ported:
-
-      343  switches over the enum (n of its constants named)   — `switch_over`, regex over each callable's body
-      397  re-exports it (a barrel)                            — `reexport`, regex over each JS/TS module
-      276  calls the generated getter/setter                   — `gen`, the convention table over decorations
-
-    Declining is not a silent wrong answer: the rules run and the user gets the same output, a little slower.
+    It used to stand in for the three relations the exporter reads from source text rather than from a table —
+    `switch_over` (an enum), `reexport` (a barrel) and `gen` (what a decoration or a shape generates). All three
+    are derived now, so nothing here declines. The hook stays because the next such relation will want it, and
+    because "the rules run and the user gets the same output, a little slower" is the right failure mode.
     """
-    ph = ','.join('?' * len(tids))
-    # 343 (`switch_over`) used to decline here; it is derived now, so an enum is answered like any other type.
-    # `gen(t,"fluent_read")` and `gen(t,"ctor")` hold for a RECORD with no decoration at all — the shape
-    # alone generates the accessors. 72 `reads it through the generated accessor name()` rows on one
-    # record field, and nothing in `decorations` to see it by.
-    if q(f"SELECT 1 FROM symbols WHERE id IN ({ph}) AND kind='record' LIMIT 1", *tids): return True
-    if _has(q, 'types') and q(f"SELECT 1 FROM types WHERE id IN ({ph}) "
-                              f"AND category LIKE '%RECORD%' LIMIT 1", *tids): return True
-    # 397 (`reexport`) used to decline every bundle holding a single JS or TS module; it is derived now.
-    # 276/277 — `gen(t,w)`, which has five sources. A decoration on the type, on an ancestor or on one of its
-    # fields; a BASE CLASS whose written name is in the table (`class User(BaseModel)` — the base is usually a
-    # library type `extends` never resolved, so only the written name sees it); and `gen_alias`, a project-local
-    # decorator whose own body calls a generator.
-    if _has(q, 'decorations'):
-        fam = set(tids)
-        if _has(q, 'type_ancestors'):
-            fam |= {r[0] for r in q(f"SELECT ancestor_type_id FROM type_ancestors WHERE type_id IN ({ph})", *tids)}
-        fph = ','.join('?' * len(fam))
-        owners = set(fam) | {r[0] for r in q(f"SELECT id FROM symbols WHERE owner IN "
-                                             f"(SELECT display FROM symbols WHERE id IN ({fph}))", *fam)}
-        oph = ','.join('?' * len(owners))
-        decs = {(nm or '').split('.')[-1]
-                for (nm,) in q(f"SELECT name FROM decorations WHERE owner_id IN ({oph})", *owners)}
-        if decs & GEN_DECOR: return True
-        # gen_alias(d,w) :- named(d,m), ref(m,g,…), gen_table(g,w) — the alias is recognised by what the
-        # decorator's own body calls, which is a source read. A decoration naming a declaration IN THIS PROJECT
-        # could be one; a library annotation (@Override, @Test) declares nothing here and cannot be.
-        for d in sorted(decs - GEN_DECOR):
-            # `named(d,m)` is METHODS only — an annotation TYPE of that name is not a candidate. Matching any
-            # symbol declined `@JacksonStdImpl` and `@JsonPOJOBuilder`, which generate nothing, and took jackson
-            # field coverage down to 4 of 14.
-            for m, mf, ml, me in q("""SELECT id, file, line, end_line FROM symbols
-                                      WHERE name=? AND method_id IS NOT NULL AND kind<>'module'
-                                      AND file IS NOT NULL AND line > 0""", d):
-                # ref(m,g,…), gen_table(g,_): the decorator's own body names a generator
-                if _has(q, 'refs') and q("""SELECT 1 FROM refs WHERE file=? AND line BETWEEN ? AND ?
-                                            AND name IN ({}) LIMIT 1""".format(','.join('?' * len(GEN_DECOR))),
-                                         mf, ml, me or ml, *sorted(GEN_DECOR)):
-                    return True
-    # `base_name(t,n)`: the supertype as WRITTEN. Checked per file rather than per span — broader than the rule,
-    # which costs a fallback on a file that happens to hold such a base, never a wrong answer.
-    if _has(q, 'type_refs'):
-        for f, ln, en in q(f"SELECT file, line, end_line FROM symbols WHERE id IN ({ph})", *tids):
-            if not f: continue
-            for nm, trl in q(BASE_REF_SQL, f):
-                if (nm or '').split('.')[-1] not in GEN_DECOR: continue
-                # the exporter resolves a base-class reference WITH a line through type_at — the nearest
-                # enclosing type — and only a LINELESS one falls back to every type in the file. Testing the
-                # whole file either way declined any file that merely contains a class called `Builder`.
-                if not trl: return True
-                if ln and en and ln <= trl <= en: return True
     return False
 
 
@@ -2176,6 +2379,25 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
         hits = sorted(tests_reaching(q, depth, sets, every=True), key=lambda r: (r[0], r[1], r[2]))
         out['test_hit'] += [[m, str(d), via, qq] for m, d, via in hits]
         out['inherited_test'] += [[s_, m, str(d), qq] for s_, m, d in inherited_tests(q, hits)]
+        # gen_fired(q,d,why) — WHICH decoration or shape made the generated rules apply, so the answer can say
+        # why it believes in members that have no declaration.
+        #   143 type · 144 clinit · 145 field (through its owner) · 146 method (through its owner)
+        if code is not None:
+            gtids = set(by_kind.get('type', ())) | set(by_kind.get('clinit', ()))
+            for f_ in by_kind.get('field', ()):
+                r_ = field_rec(q, f_)
+                if r_ and r_[0]: gtids.add(r_[0])
+            if 'method' in by_kind:
+                _i, owner_disp, _tf, tid_of, _bt = _members(q)
+                mph = ','.join('?' * len(by_kind['method']))
+                for (o,) in q(f"SELECT owner FROM symbols WHERE id IN ({mph})", *sorted(by_kind['method'])):
+                    d_ = owner_disp(o) if o else None
+                    if d_ and tid_of.get(d_): gtids.add(tid_of[d_])
+            if gtids:
+                _g, srcs = gen_of(q, sorted(gtids), code)
+                for _t, pairs in sorted(srcs.items()):
+                    for d_, why_ in pairs: out['gen_fired'].append([d_, why_, qq])
+
         # extbind: the target's name written in a NON-SOURCE file — an XSD, a template, a config. Nothing in the
         # graph carries these; run() regex-scans the tree for them and hands the hits over.
         #   extbind(q,f,l,n,"names the method")         :- target(q,"method",m,_), named(n,m),      nonsource(n,f,l)
