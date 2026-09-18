@@ -79,45 +79,45 @@ const_string_unique(n, v) :- const_string(n, v), const_string_values(n, 1).
 // 2. WHAT A METHOD SERVES
 // ─────────────────────────────────────────────────────────────────────────────
 // (a) a listener annotation naming its topic/queue.
-dest_raw(v) :- ann_on_method(a, n, _, _), cfg_serves_ann(n, _, arg), ann_arg(a, arg, v, _, _).
-serves_destination(m, tr, d) :- ann_on_method(a, n, m, _), cfg_serves_ann(n, tr, arg),
-    ann_arg(a, arg, v, _, _), dest_resolved(v, d).
+dest_raw(v) :- ann_on_method(_, a, n, _, _), cfg_serves_ann(n, _, arg), ann_arg(_, a, arg, v, _, _).
+serves_destination(m, tr, d) :- ann_on_method(_, a, n, m, _), cfg_serves_ann(n, tr, arg),
+    ann_arg(_, a, arg, v, _, _), dest_resolved(v, d).
 // … and the same annotation written with a constant instead of a literal.
-serves_destination(m, tr, d) :- ann_on_method(a, n, m, _), cfg_serves_ann(n, tr, arg),
-    ann_arg(a, arg, v, _, _), const_string_unique(v, d).
+serves_destination(m, tr, d) :- ann_on_method(_, a, n, m, _), cfg_serves_ann(n, tr, arg),
+    ann_arg(_, a, arg, v, _, _), const_string_unique(v, d).
 
 // (b) an HTTP route. The path is the type's prefix followed by the method's remainder,
 //     and either half may be absent.
-dest_raw(v) :- ann_on_type(a, n, _), cfg_route_ann(n), cfg_route_arg(arg), ann_arg(a, arg, v, _, _).
-dest_raw(v) :- ann_on_method(a, n, _, _), cfg_route_ann(n), cfg_route_arg(arg), ann_arg(a, arg, v, _, _).
+dest_raw(v) :- ann_on_type(_, a, n, _), cfg_route_ann(n), cfg_route_arg(arg), ann_arg(_, a, arg, v, _, _).
+dest_raw(v) :- ann_on_method(_, a, n, _, _), cfg_route_ann(n), cfg_route_arg(arg), ann_arg(_, a, arg, v, _, _).
 
-route_base(t, b) :- ann_on_type(a, n, t), cfg_route_ann(n), cfg_route_arg(arg),
-    ann_arg(a, arg, v, _, _), dest_resolved(v, b).
+route_base(t, b) :- ann_on_type(_, a, n, t), cfg_route_ann(n), cfg_route_arg(arg),
+    ann_arg(_, a, arg, v, _, _), dest_resolved(v, b).
 // A type with a route-annotated method but no route annotation of its own contributes
 // no prefix; without this clause such a method would have no route at all.
-route_base(t, "") :- ann_on_method(_, n, _, t), cfg_route_ann(n), !route_base_declared(t).
-route_base_declared(t) :- ann_on_type(a, n, t), cfg_route_ann(n), cfg_route_arg(arg),
-    ann_arg(a, arg, _, _, _).
+route_base(t, "") :- ann_on_method(_, _, n, _, t), cfg_route_ann(n), !route_base_declared(t).
+route_base_declared(t) :- ann_on_type(_, a, n, t), cfg_route_ann(n), cfg_route_arg(arg),
+    ann_arg(_, a, arg, _, _, _).
 
 // the method's own half — present, or absent (a bare @PostMapping on the class route).
-route_tail(m, s) :- ann_on_method(a, n, m, _), cfg_route_ann(n), cfg_route_arg(arg),
-    ann_arg(a, arg, v, _, _), dest_resolved(v, s).
-route_tail(m, "") :- ann_on_method(a, n, m, _), cfg_route_ann(n), !route_tail_declared(a).
-route_tail_declared(a) :- ann_on_method(a, n, _, _), cfg_route_ann(n), cfg_route_arg(arg),
-    ann_arg(a, arg, _, _, _).
+route_tail(m, s) :- ann_on_method(_, a, n, m, _), cfg_route_ann(n), cfg_route_arg(arg),
+    ann_arg(_, a, arg, v, _, _), dest_resolved(v, s).
+route_tail(m, "") :- ann_on_method(_, a, n, m, _), cfg_route_ann(n), !route_tail_declared(a).
+route_tail_declared(a) :- ann_on_method(_, a, n, _, _), cfg_route_ann(n), cfg_route_arg(arg),
+    ann_arg(_, a, arg, _, _, _).
 
 // Which END a route annotation describes is decided by the TYPE first. A Feign
 // interface declares its methods with @GetMapping — the same annotation a controller
 // uses — so keying off the annotation alone makes a client look like a handler, and it
 // then answers "who serves this route" with somebody else's outbound call.
-route_type_is_client(t) :- ann_on_type(_, n, t), cfg_client_type_ann(n).
+route_type_is_client(t) :- ann_on_type(_, _, n, t), cfg_client_type_ann(n).
 
-route_raw_of_method(m, path, "server") :- route_tail(m, tail), ann_on_method(_, n, m, owner),
+route_raw_of_method(m, path, "server") :- route_tail(m, tail), ann_on_method(_, _, n, m, owner),
     cfg_route_ann(n), cfg_route_server_ann(n), !route_type_is_client(owner),
     route_base(owner, base), path = cat(base, tail).
-route_raw_of_method(m, path, "client") :- route_tail(m, tail), ann_on_method(_, n, m, owner),
+route_raw_of_method(m, path, "client") :- route_tail(m, tail), ann_on_method(_, _, n, m, owner),
     cfg_route_ann(n), !cfg_route_server_ann(n), route_base(owner, base), path = cat(base, tail).
-route_raw_of_method(m, path, "client") :- route_tail(m, tail), ann_on_method(_, n, m, owner),
+route_raw_of_method(m, path, "client") :- route_tail(m, tail), ann_on_method(_, _, n, m, owner),
     cfg_route_ann(n), route_type_is_client(owner), route_base(owner, base), path = cat(base, tail).
 route_declared(raw) :- route_raw_of_method(_, raw, _).
 // A declared route goes through the same normalisation as a client's URL, so
@@ -365,7 +365,7 @@ amqp_bean_demand(n) :- amqp_bind_chain(_, n, _, _).
 amqp_bean_demand(n) :- amqp_bind_chain(_, _, n, _).
 amqp_bean_name(mname, name) :- amqp_bean_demand(mname),
     java_method(mname, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m),
-    ann_on_method(_, "Bean", m, _),
+    ann_on_method(_, _, "Bean", m, _),
     expr_ultimate_method("client", e, m), expr_kind("client", "OBJECT_CREATION", _, e),
     expr_child("client", e, "ARGUMENT", a), expr_position("client", a, "0"),
     expr_kind("client", "LITERAL", _, a), expr_literal("client", name, a).
@@ -398,8 +398,8 @@ http_verb_known("any"). http_verb_known("GET"). http_verb_known("POST").
 http_verb_known("PUT"). http_verb_known("DELETE"). http_verb_known("PATCH").
 
 // the server's verb comes from which mapping annotation it used …
-method_verb(m, v) :- ann_on_method(_, n, m, _), cfg_route_ann(n), cfg_route_verb(n, v).
-method_verb(m, "any") :- ann_on_method(_, n, m, _), cfg_route_ann(n), !cfg_route_verb_known(n).
+method_verb(m, v) :- ann_on_method(_, _, n, m, _), cfg_route_ann(n), cfg_route_verb(n, v).
+method_verb(m, "any") :- ann_on_method(_, _, n, m, _), cfg_route_ann(n), !cfg_route_verb_known(n).
 cfg_route_verb_known(n) :- cfg_route_verb(n, _).
 // … the client's from the call it made, or from its own exchange annotation.
 call_verb(call, v) :- call_site(call, name, _), cfg_sends_verb(name, v).

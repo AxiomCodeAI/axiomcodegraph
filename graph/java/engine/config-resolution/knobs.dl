@@ -111,6 +111,13 @@ cfg_handler_key_suffix("implementation").
 // over-narrow. Modelled on dispatch_cap: a policy knob, stated in one place.
 cfg_di_narrowing_enabled().
 
+// ── (12b) LIBRARY-BEAN NARROWING SWITCH ─────────────────────────────────────
+// Present = a slot declared as a type from a staged --library tree is narrowed on the
+// same "exactly one bean" test the client side uses (config-resolution/lib-bean-scope.dl).
+// Comment out this ONE line to keep every reporting relation and close only the
+// narrowing. Modelled on cfg_di_narrowing_enabled above: a policy knob, stated once.
+cfg_lib_bean_narrowing_enabled().
+
 // ── (13) GENERATED-STUB BASE CLASSES (gRPC, and anything shaped like it) ─────
 // A gRPC service is a class extending a GENERATED abstract base (GreeterImplBase)
 // and overriding its rpc methods. The container/server calls those overrides; no
@@ -231,3 +238,48 @@ cfg_query_method("createNativeQuery", "inline").
 // and there is no call site anywhere (Spring Data, and Micronaut Data's @Query).
 cfg_method_query_ann("Query").    cfg_method_query_ann("NativeQuery").
 cfg_query_arg("value").           cfg_query_arg("query").
+// ── (15) CONDITIONS: an annotation that decides whether a bean EXISTS ────────
+// A bean the container did not create has no methods that run, so a condition is
+// the difference between a live filter chain and a dead one. Three families, kept
+// apart because only the first is decidable from configuration alone.
+//
+// (a) PROPERTY conditions. The annotation names a config key and the value it
+//     expects; conditions.dl joins that against the resolved key space.
+//     cfg_property_condition_ann(Name, KeyArg, ExpectedArg)
+cfg_property_condition_ann("ConditionalOnProperty", "name", "havingValue").
+
+// (b) PROFILE conditions. The same question keyed on the active profile set,
+//     which is itself a config key (spring.profiles.active).
+cfg_profile_condition_ann("Profile").
+cfg_active_profile_key("spring.profiles.active").
+
+// (c) UNDECIDABLE conditions. These depend on the whole context and on the order
+//     the container evaluates it in, which this analysis does not model. They are
+//     listed so that a bean carrying one is reported as DECLARED UNDECIDED rather
+//     than silently assumed live: the blind spot is named, not hidden.
+//     cfg_opaque_condition_ann(Name, Reason)
+cfg_opaque_condition_ann("ConditionalOnBean",           "depends_on_context").
+cfg_opaque_condition_ann("ConditionalOnMissingBean",    "depends_on_context").
+cfg_opaque_condition_ann("ConditionalOnExpression",     "spel_expression").
+cfg_opaque_condition_ann("ConditionalOnClass",          "depends_on_classpath").
+cfg_opaque_condition_ann("ConditionalOnMissingClass",   "depends_on_classpath").
+cfg_opaque_condition_ann("Conditional",                 "custom_condition_class").
+
+// ── (16) REPOSITORY BASES: a bean with no stereotype and no implementation ───
+// Spring Data, and every framework shaped like it, registers a proxy for an
+// INTERFACE the application declares and never implements. There is no class in any
+// source tree and no annotation on the interface, so the two things that make a bean
+// elsewhere in this folder are both absent. Matched on the SUPERTYPE's simple-name
+// SUFFIX, the way cfg_stub_base_suffix matches a generated gRPC base, because the
+// base is chosen per store (MongoRepository, JpaRepository, ElasticsearchRepository,
+// a house base named FooRepository) and the list cannot be enumerated.
+//
+// The suffix is deliberately the whole word, so `PersonFinder` is not a repository
+// and neither is a plain interface. A base that carries the suffix is not itself a
+// bean: the rule requires a type to EXTEND one, so CrudRepository is excluded by
+// having no such supertype of its own.
+cfg_repository_base_suffix("Repository").
+cfg_repository_base_suffix("Dao").
+// An annotation that marks a repository base as NOT itself a bean. A house base over
+// a framework base carries it, and the framework does not register a proxy for it.
+cfg_no_repository_ann("NoRepositoryBean").

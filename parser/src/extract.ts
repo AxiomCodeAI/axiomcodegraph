@@ -56,30 +56,73 @@ export interface ExtractOptions {
  * A zero-byte relation (no rows, no header) contributes nothing but still ensures
  * the file exists in the merged set.
  */
+/**
+ * Copy `src` onto `dst`, STREAMING — never materialising the file as a string.
+ *
+ * `fsp.readFile(src, 'utf-8')` returns a JavaScript string, and V8 caps a string at
+ * 512 MiB (`buffer.constants.MAX_STRING_LENGTH`). On a large Python tree
+ * `all-python-expressions.csv` passes that on its own — 623 MB and 650 MB on two
+ * subject trees of roughly 3 000 and 4 400 files — and the read throws
+ * `RangeError: Invalid string length`, failing the WHOLE extraction: the project
+ * cannot be indexed at all (#809). Every other relation is far below the limit, so
+ * the failure arrives only once a tree is big enough to matter.
+ *
+ * Bytes are copied through untouched. The header of an appended file is dropped by
+ * skipping to the first `\n`, which may fall in any chunk, so the search continues
+ * across chunks until it is found. A trailing newline is added only when the source
+ * did not end with one, matching what the string version guaranteed.
+ */
+async function appendCsv(src: string, dst: string, opts: { append: boolean; skipHeader: boolean }): Promise<boolean> {
+  return new Promise<boolean>((resolve, reject) => {
+    const rs = fs.createReadStream(src);
+    const ws = fs.createWriteStream(dst, { flags: opts.append ? 'a' : 'w' });
+    let headerDropped = !opts.skipHeader;
+    let wroteAny = false;
+    let lastByte = -1;
+    rs.on('error', reject);
+    ws.on('error', reject);
+    rs.on('data', (c) => {
+      let chunk = c as Buffer;
+      if (!headerDropped) {
+        const nl = chunk.indexOf(0x0a);
+        if (nl < 0) return;                       // header spans this chunk; keep looking
+        headerDropped = true;
+        chunk = chunk.subarray(nl + 1);
+      }
+      if (chunk.length === 0) return;
+      wroteAny = true;
+      lastByte = chunk[chunk.length - 1] ?? lastByte;
+      if (!ws.write(chunk)) { rs.pause(); ws.once('drain', () => rs.resume()); }
+    });
+    rs.on('end', () => {
+      if (wroteAny && lastByte !== 0x0a) ws.write('\n');
+      ws.end();
+    });
+    ws.on('close', () => resolve(wroteAny));
+  });
+}
+
 async function mergeProjectOutputs(scratchDirs: string[], outputDir: string): Promise<void> {
-  const seen = new Map<string, boolean>(); // filename → header already written
+  const seen = new Map<string, boolean>(); // filename → rows already written
   for (const dir of scratchDirs) {
     let names: string[] = [];
     try { names = (await fsp.readdir(dir)).filter((n) => n.endsWith('.csv')); } catch { continue; }
     for (const name of names.sort()) {
       const src = path.join(dir, name);
       const dst = path.join(outputDir, name);
-      const text = await fsp.readFile(src, 'utf-8');
       if (!seen.has(name)) {
-        await fsp.writeFile(dst, text, 'utf-8');
-        seen.set(name, text.length > 0);
+        // first project to carry this relation: header and all, verbatim
+        const rows = await appendCsv(src, dst, { append: false, skipHeader: false });
+        seen.set(name, rows);
         continue;
       }
-      if (text.length === 0) continue;
-      const nl = text.indexOf('\n');
-      const header = nl < 0 ? text : text.slice(0, nl);
-      const body = nl < 0 ? '' : text.slice(nl + 1);
+      if ((await fsp.stat(src)).size === 0) continue;
       if (!seen.get(name)) {
         // the first project wrote a zero-byte file for this relation; this one has rows
-        await fsp.writeFile(dst, header + '\n' + body, 'utf-8');
-        seen.set(name, true);
-      } else if (body.length > 0) {
-        await fsp.appendFile(dst, body.endsWith('\n') ? body : body + '\n', 'utf-8');
+        const rows = await appendCsv(src, dst, { append: false, skipHeader: false });
+        seen.set(name, rows);
+      } else {
+        await appendCsv(src, dst, { append: true, skipHeader: true });
       }
     }
     await fsp.rm(dir, { recursive: true, force: true });

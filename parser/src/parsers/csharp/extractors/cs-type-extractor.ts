@@ -1,4 +1,5 @@
 import Parser from 'tree-sitter';
+import type { CsExtensionBlock } from '@/parsers/csharp/extractors/cs-extension-block';
 
 import { CsBlockRegistry } from '@/analysis-types/csharp/CsBlockRegistry';
 import { CsCallSiteRegistry } from '@/analysis-types/csharp/CsCallSiteRegistry';
@@ -106,6 +107,14 @@ export interface CsTypeExtractionOptions {
   readonly nullableContext: NullableContextMap;
   /** `using A = B.C;` aliases declared in this file, for USING_ALIAS references. */
   readonly usingAliasNames: ReadonlySet<string>;
+  /**
+   * C# 14 extension blocks the pre-parse pass flattened into their static
+   * class, with the receiver it blanked out of the tree.
+   *
+   * Threaded rather than re-derived: the header the receiver was written in is
+   * whitespace by the time this tree exists, so there is nothing left to read.
+   */
+  readonly extensionBlocks?: readonly CsExtensionBlock[];
 }
 
 export interface CsTypeExtractionResult {
@@ -287,6 +296,7 @@ export function extractTypes(options: CsTypeExtractionOptions): CsTypeExtraction
         usingAliasNames: options.usingAliasNames,
         // A type's members are the outermost scope; nothing encloses them.
         enclosingLocalFunctionNames: new Set(),
+        extensionBlocks: options.extensionBlocks ?? [],
       });
       methods.push(...members.methods);
       methodParameters.push(...members.parameters);

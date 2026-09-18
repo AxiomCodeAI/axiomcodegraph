@@ -478,14 +478,14 @@
 // config_affects_method, config_entry_point, config_key_ref, config_unresolved
 //                         the phase's exports (src/java/souffle/export_manifest.tsv)
 // ============================================================================
-.decl ann_arg(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
-.decl ann_arg_value(c0:symbol,c1:symbol)
-.decl ann_file(c0:symbol,c1:symbol)
-.decl ann_on_field(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
-.decl ann_on_method(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
-.decl ann_on_param(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
-.decl ann_on_type(c0:symbol,c1:symbol,c2:symbol)
-.decl ann_owner_type(c0:symbol,c1:symbol)
+.decl ann_arg(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol)
+.decl ann_arg_value(c0:symbol,c1:symbol,c2:symbol)
+.decl ann_file(c0:symbol,c1:symbol,c2:symbol)
+.decl ann_on_field(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
+.decl ann_on_method(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
+.decl ann_on_param(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
+.decl ann_on_type(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl ann_owner_type(c0:symbol,c1:symbol,c2:symbol)
 .decl bean_def(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl bean_qualifier(c0:symbol,c1:symbol)
 .decl bean_satisfies(c0:symbol,c1:symbol,c2:symbol)
@@ -501,7 +501,7 @@
 .decl cfg_di_narrowing_enabled()
 .decl cfg_dollar(c0:symbol,c1:number)
 .decl cfg_dollar_last(c0:symbol,c1:number)
-.decl cfg_factory(c0:symbol,c1:symbol,c2:symbol)
+.decl cfg_factory(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl cfg_factory_ann(c0:symbol)
 .decl cfg_factory_has_name(c0:symbol)
 .decl cfg_factory_named(c0:symbol,c1:symbol)
@@ -547,11 +547,17 @@
 .decl cfg_raw(c0:symbol)
 .decl cfg_ref_segment_type(c0:symbol)
 .decl cfg_registered_type(c0:symbol,c1:symbol)
+.decl cfg_no_repository_ann(c0:symbol)
+.decl cfg_repo_excluded(c0:symbol)
+.decl cfg_repo_iface(c0:symbol)
+.decl cfg_repo_name_matches(c0:symbol)
+.decl cfg_repo_super_name(c0:symbol,c1:symbol)
+.decl cfg_repository_base_suffix(c0:symbol)
 .decl cfg_satisfying_type(c0:symbol,c1:symbol)
 .decl cfg_scheduled_ann(c0:symbol)
 .decl cfg_setter_demand(c0:symbol)
 .decl cfg_setter_name(c0:symbol,c1:symbol)
-.decl cfg_stereotype(c0:symbol,c1:symbol)
+.decl cfg_stereotype(c0:symbol,c1:symbol,c2:symbol)
 .decl cfg_stereotype_has_name(c0:symbol)
 .decl cfg_stereotype_named(c0:symbol,c1:symbol)
 .decl cfg_strip(c0:symbol,c1:symbol)
@@ -583,6 +589,28 @@
 .decl config_key_ref(c0:symbol,c1:symbol,c2:symbol)
 .decl config_key_value(c0:symbol,c1:symbol,c2:symbol)
 .decl config_unresolved(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+// ── CONDITIONS (engine/config-resolution/conditions.dl, issue #852) ─────────
+// Whether the container creates a bean at all. Verdict is selected / excluded /
+// undecided; a key absent from every scanned source is UNDECIDED, never refuted.
+.decl config_bean_condition(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol)
+.decl cfg_active_profile(c0:symbol)
+.decl cfg_active_profile_key(c0:symbol)
+.decl cfg_active_profile_known()
+.decl cfg_cond_bean(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl cfg_cond_expected(c0:symbol,c1:symbol)
+.decl cfg_cond_has_expected(c0:symbol)
+.decl cfg_cond_has_prefix(c0:symbol)
+.decl cfg_cond_key(c0:symbol,c1:symbol)
+.decl cfg_cond_key_resolved(c0:symbol)
+.decl cfg_cond_key_value(c0:symbol,c1:symbol)
+.decl cfg_cond_match_if_missing(c0:symbol)
+.decl cfg_cond_name(c0:symbol,c1:symbol)
+.decl cfg_cond_prefix(c0:symbol,c1:symbol)
+.decl cfg_cond_profile(c0:symbol,c1:symbol)
+.decl cfg_cond_site(c0:symbol,c1:symbol,c2:symbol)
+.decl cfg_opaque_condition_ann(c0:symbol,c1:symbol)
+.decl cfg_profile_condition_ann(c0:symbol)
+.decl cfg_property_condition_ann(c0:symbol,c1:symbol,c2:symbol)
 .decl di_edge(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol)
 .decl di_field_mono(c0:symbol,c1:symbol)
 .decl di_field_multi(c0:symbol)
@@ -779,3 +807,40 @@
 .decl jpa_from(c0:symbol)
 .decl query_select_list(c0:symbol,c1:symbol)
 .decl query_projects_entity(c0:symbol)
+// ── GENERATED MEMBERS (engine/resolution/generated-members.dl) ───────────────
+// Members an annotation processor declares on the compile path: present in the
+// artefact and in every caller's source, absent from the IR. Issue #848.
+.decl gen_field_getter_ann(c0:symbol)                           // annotation on a FIELD declaring a getter
+.decl gen_field_setter_ann(c0:symbol)                           // annotation on a FIELD declaring a setter
+.decl gen_type_getter_ann(c0:symbol)                            // annotation on a TYPE declaring a getter per field
+.decl gen_type_setter_ann(c0:symbol)                            // annotation on a TYPE declaring a setter per field
+.decl gen_field_static(c0:symbol)                               // field hash carrying STATIC
+// generated CONSTRUCTORS (#878)
+.decl gen_ctor(c0:symbol,c1:number,c2:symbol)
+.decl gen_ctor_all_count(c0:symbol,c1:number)
+.decl gen_ctor_ann(c0:symbol,c1:symbol)
+.decl gen_ctor_demand(c0:symbol,c1:symbol,c2:symbol)
+.decl gen_ctor_field(c0:symbol,c1:symbol,c2:symbol)
+.decl gen_ctor_live(c0:symbol,c1:number,c2:symbol)
+.decl gen_ctor_req_count(c0:symbol,c1:number)
+.decl gen_ctor_required(c0:symbol,c1:symbol,c2:symbol)
+.decl gen_ctor_source_arity(c0:symbol,c1:number)
+.decl gen_field_initialized(c0:symbol)                          // field with an initialiser expression
+.decl gen_logger_ann(c0:symbol,c1:symbol)                       // (annotation, generated field name)
+.decl gen_field(c0:symbol,c1:symbol,c2:symbol)                  // (owner,name,generatedId)
+.decl gen_field_shadowed(c0:symbol,c1:symbol)                   // (owner,name) also written out in source
+.decl gen_field_live(c0:symbol,c1:symbol,c2:symbol)             // gen_field minus gen_field_shadowed
+.decl gen_accessor_demand(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol) // (prov,owner,fieldName,fieldType,kind)
+.decl gen_capitalized(c0:symbol,c1:symbol)                      // (name, Name)
+.decl gen_accessor(c0:symbol,c1:symbol,c2:symbol,c3:symbol)     // (prov,owner,methodName,arity)
+.decl gen_method(c0:symbol,c1:symbol,c2:symbol,c3:symbol)       // (owner,name,arity,generatedId)
+.decl gen_source_sig(c0:symbol,c1:symbol,c2:symbol)             // (owner,name,arity) the IR really carries
+.decl gen_shadowed(c0:symbol,c1:symbol,c2:symbol)               // (owner,name,arity) also written out in source
+.decl gen_method_live(c0:symbol,c1:symbol,c2:symbol,c3:symbol)  // gen_method minus gen_shadowed
+
+// ── config-resolution/lib-bean-scope.dl ─────────────────────────────────────
+.decl bean_origin(c0:symbol,c1:symbol,c2:symbol)
+.decl cfg_lib_bean_site(c0:symbol)
+.decl cfg_lib_bean_narrowing_enabled()
+.decl cfg_staged_lib_type(c0:symbol)
+.decl cfg_injectable_scope_type(c0:symbol)
