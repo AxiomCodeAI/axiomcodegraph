@@ -118,6 +118,76 @@ gen_accessor_src(p, owner, fname, f, "get") :-
     field_decl(p, fname, _, owner, f), !gen_field_static(f).
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 1b. THE ACCESSOR PREFIX  (lombok.config, #888)
+//
+// lombok.config decides the NAMES the processor generates, and reading only the field
+// spelling gets them wrong wherever it is set. `lombok.accessors.prefix += m` on a
+// field `mDepth` produces getDepth(), not getMDepth(). The wrong name is worse than no
+// name, for the reason section 2 gives: it DECLARES a member the artefact does not
+// have, and nothing downstream can tell it from a real one.
+//
+// The file is in .properties format with no .properties extension, so the parser
+// matches it by name (FILE_EXTENSIONS.LOMBOK_CONFIG).
+//
+// SCOPE. A lombok.config applies to the directory tree below it. Rather than model
+// that tree walk, the prefix is taken per PROVENANCE: one config per parsed root is
+// the shape every module in practice has, and a repository that sets a DIFFERENT
+// prefix in two subtrees of one module would need the walk. That case is declared, not
+// silently mis-named: gen_prefix_ambiguous drops both and section 2 falls back to the
+// unstripped name.
+//
+// STRIPPING RULE, and it is Lombok's, not a guess: the prefix only applies when the
+// character after it is NOT a lowercase letter. `mDepth` strips to `Depth`; `mode`
+// does NOT strip, because `o` is lowercase and the field is simply named "mode".
+// Getting that wrong would rename every field that happens to start with the prefix
+// letter.
+// ─────────────────────────────────────────────────────────────────────────────
+gen_prefix_key("lombok.accessors.prefix").
+
+// The value of the prefix key, from a lombok.config on either side.
+gen_prefix_value(prov, v) :- gen_prefix_key(k), prop_key(prov, k, "true", f, h),
+    contains("lombok.config", f), prop_segment(prov, h, v, _, _, _, _), v != "".
+
+// `+=` is the idiomatic spelling in this file and the properties scanner does not know
+// it: the line splits on the first space, so the VALUE arrives as "+= m". Peeled here
+// rather than taught to the scanner, because `+=` is a lombok.config-ism and a
+// .properties file that happens to contain one must keep splitting the way it does
+// today. Repeated single-character peeling, the same shape cfg_strip uses for quotes.
+// A prefix is an identifier fragment, so it can never legitimately start with one of
+// these three characters and nothing real is eaten.
+gen_pfx_junk(s) :- gen_pfx_step(_, s), strlen(s) > 0,
+    substr(s, 0, 1) = "+".
+gen_pfx_junk(s) :- gen_pfx_step(_, s), strlen(s) > 0,
+    substr(s, 0, 1) = "=".
+gen_pfx_junk(s) :- gen_pfx_step(_, s), strlen(s) > 0,
+    substr(s, 0, 1) = " ".
+gen_pfx_step(v, v) :- gen_prefix_value(_, v).
+gen_pfx_step(v, r) :- gen_pfx_step(v, s), gen_pfx_junk(s), strlen(s) > 1,
+    r = substr(s, 1, strlen(s) - 1).
+
+gen_prefix_raw(prov, c) :- gen_prefix_value(prov, v), gen_pfx_step(v, c),
+    !gen_pfx_junk(c), c != "".
+
+gen_prefix(prov, v) :- gen_prefix_raw(prov, v), !gen_prefix_ambiguous(prov).
+gen_prefix_ambiguous(prov) :- gen_prefix_raw(prov, a), gen_prefix_raw(prov, b), a != b.
+
+// A field name that the prefix applies to: it starts with the prefix AND the next
+// character is not lowercase.
+gen_prefix_applies(prov, fname, stripped) :- gen_accessor_demand(prov, _, fname, _, _),
+    gen_prefix(prov, pre), strlen(fname) > strlen(pre),
+    substr(fname, 0, strlen(pre)) = pre,
+    stripped = substr(fname, strlen(pre), strlen(fname) - strlen(pre)),
+    // cfg_lower maps UPPERCASE to lowercase, so a hit on its first column is the test
+    // for "this character is an uppercase letter". `mDepth` -> `Depth` strips; `mode`
+    // -> `ode` does not, because `o` is not a key there.
+    cfg_lower(substr(stripped, 0, 1), _).
+
+// gen_effective_name(Prov, FieldName, NameTheProcessorUses)
+gen_effective_name(prov, fname, stripped) :- gen_prefix_applies(prov, fname, stripped).
+gen_effective_name(prov, fname, fname) :- gen_accessor_demand(prov, _, fname, _, _),
+    !gen_prefix_applies(prov, fname, _).
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 2. THE NAME
 //
 // `label` -> `getLabel` / `setLabel`, and `ready` -> `isReady` when the declared
@@ -130,21 +200,30 @@ gen_accessor_src(p, owner, fname, f, "get") :-
 // is central in souffle/decls_all.dl and a rule may read a relation defined in any
 // phase folder, so the 26 facts stay in the one place that already holds them.
 // ─────────────────────────────────────────────────────────────────────────────
-gen_capitalized(n, c) :- gen_accessor_demand(_, _, n, _, _), strlen(n) > 0,
+// Capitalize the EFFECTIVE name, which is the field name with any configured accessor
+// prefix removed. gen_effective_name is the identity when no prefix is configured, so
+// a project without a lombok.config derives exactly what it derived before.
+gen_capitalized(n, c) :- gen_effective_name(_, _, n), strlen(n) > 0,
     cfg_upper(substr(n, 0, 1), up), c = cat(up, substr(n, 1, strlen(n) - 1)).
+// ALREADY capitalized, which is what stripping an accessor prefix leaves behind:
+// `mDepth` strips to `Depth`. cfg_upper maps lowercase to uppercase and has no key for
+// an uppercase letter, so without this clause the stripped name capitalizes to nothing
+// and the accessor is not declared at all, under either name.
+gen_capitalized(n, n) :- gen_effective_name(_, _, n), strlen(n) > 0,
+    cfg_lower(substr(n, 0, 1), _).
 
 // gen_accessor(Prov, OwnerType, MethodName, Arity)
 // Arity is a SYMBOL, not a number, because sig_declared_in carries parameterCount
 // as the symbol the IR wrote; a number here would not join with it.
 gen_accessor(p, owner, cat("get", c), "0") :-
     gen_accessor_demand(p, owner, fname, ftype, "get"), ftype != "boolean",
-    gen_capitalized(fname, c).
+    gen_effective_name(p, fname, eff), gen_capitalized(eff, c).
 gen_accessor(p, owner, cat("is", c), "0") :-
     gen_accessor_demand(p, owner, fname, "boolean", "get"),
-    gen_capitalized(fname, c).
+    gen_effective_name(p, fname, eff), gen_capitalized(eff, c).
 gen_accessor(p, owner, cat("set", c), "1") :-
     gen_accessor_demand(p, owner, fname, _, "set"),
-    gen_capitalized(fname, c).
+    gen_effective_name(p, fname, eff), gen_capitalized(eff, c).
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 3. THE MEMBERS, AND THEIR IDS

@@ -134,6 +134,11 @@ export const FILE_EXTENSIONS = {
   JAVASCRIPT: '.js',
   CSHARP: '.cs',
   PROPERTIES: '.properties',
+  // A file in .properties FORMAT whose name carries no such extension. Build config
+  // that decides the shape of the generated API belongs here: lombok.config sets
+  // lombok.accessors.prefix, which changes every generated accessor NAME in its tree,
+  // so a scan that matches on extension alone never sees the thing that decides them.
+  LOMBOK_CONFIG: 'lombok.config',
   XML: '.xml',
   YAML: '.yml',
   YAML_LONG: '.yaml',
