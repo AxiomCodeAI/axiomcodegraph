@@ -1078,8 +1078,8 @@ def main(argv):
                           # display AND every other component of the key, and without the id the order is
                           # whatever the solver happened to emit — which is not the same between backends.
                           'direct': [{'id': c, 'display': g.disp(c), 'role': role, 'why': why, 'certainty': cert, 'at': loc, 'sites': n, 'for': sorted(from_target[(c, why)])} for c, role, why, cert, loc, n in sorted(D, key=lambda x: (CERT[x[3]], x[1], g.disp(x[0]), x[2], x[4], x[0]))],
-                          'reached': [{'id': m, 'display': g.disp(m), 'hops': d, 'for': sorted(reach_from[m]), 'at': g.loc(m), 'test': bool(g.sym[m]['is_test'])} for m, d in sorted(reached.items(), key=lambda x: (x[1], g.disp(x[0]), g.loc(x[0])))],
-                          'tests': [{'id': m, 'display': g.disp(m), 'owner': g.sym[m]['owner'], 'name': g.sym[m]['name'], 'hops': d, 'via': g.disp(fx) if fx else None, 'at': g.loc(m), 'certainty': test_cert.get(m), 'chain': [g.disp(x) for x in chains.get(m, [])]} for m, (d, fx) in sorted(tests.items(), key=lambda kv: (kv[1][0], g.disp(kv[0]), g.loc(kv[0])))],
+                          'reached': [{'id': m, 'display': g.disp(m), 'hops': d, 'for': sorted(reach_from[m]), 'at': g.loc(m), 'test': bool(g.sym[m]['is_test'])} for m, d in sorted(reached.items(), key=lambda x: (x[1], g.disp(x[0]), g.loc(x[0]), x[0]))],
+                          'tests': [{'id': m, 'display': g.disp(m), 'owner': g.sym[m]['owner'], 'name': g.sym[m]['name'], 'hops': d, 'via': g.disp(fx) if fx else None, 'at': g.loc(m), 'certainty': test_cert.get(m), 'chain': [g.disp(x) for x in chains.get(m, [])]} for m, (d, fx) in sorted(tests.items(), key=lambda kv: (kv[1][0], g.disp(kv[0]), g.loc(kv[0]), kv[0]))],
                           'inherited_tests': [{'id': s_, 'display': g.disp(s_), 'at': g.loc(s_), 'inherits': sorted(g.disp(m) for m in ms)} for s_, ms in sorted(inh.items(), key=lambda kv: (g.disp(kv[0]), g.loc(kv[0])))],
                           'byname_callers': [{'id': c, 'display': g.disp(c), 'at': g.loc(c)} for c in sorted(byname_seeds, key=lambda x: (g.disp(x), x))],
                           'external': [{'at': f'{f}:{l}', 'name': n, 'how': how} for f, l, n, how in sorted({(r[0], int(r[1]), r[2], r[3]) for r in res.get('extbind', [])})],
@@ -1184,7 +1184,7 @@ def main(argv):
             print(f"    fan-in: {len(tfiles)} of {len(all_tfiles)} test file(s) reach this method — at that fan-in reaching says little about failing"
                   " (measured on this repo's own mutation truth: a hub answer is right about 3 test files in 10, a narrow one about 6 in 10, and a sound route within 3 hops about 9 in 10)")
     if want_tests:
-        for m, (d, fx) in sorted(tests.items(), key=lambda x: (CERT_RANK[test_cert[x[0]]], x[1][0], g.sym[x[0]]['display'])):
+        for m, (d, fx) in sorted(tests.items(), key=lambda x: (CERT_RANK[test_cert[x[0]]], x[1][0], g.sym[x[0]]['display'], x[0])):
             print(f"    [{test_cert[m]}] {g.sym[m]['owner'] or os.path.basename(g.sym[m]['file'])}::{g.sym[m]['name']}   {g.loc(m)}   {d} hop(s)" + (f" via {g.disp(fx)}" if fx else ''))
             if fx is None and d > 0 and len(chains.get(m, [])) > 1: print("        " + ' → '.join(g.disp(x) for x in chains[m]))
     # --depends: the downstream direction (#761). `impact` walks callers only, so what the target itself calls is
