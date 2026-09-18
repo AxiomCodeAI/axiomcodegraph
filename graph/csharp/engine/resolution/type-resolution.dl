@@ -157,6 +157,41 @@ type_ref_demand(prov, mod, n, ar) :-
     call_needs_ctor_lookup(prov, e), call_callee_name(prov, e, n), call_module(prov, e, mod),
     call_type_argc(prov, e, ar), ar != "0".
 
+// A CALL RECEIVER WRITTEN AS A BARE NAME. `Console.WriteLine(x)` asks whether
+// `Console` is a type, and that question has to be ASKED for the answer "it is a
+// type nobody staged" to exist. Without this clause `Console` is demanded by
+// nothing, so type_name_unresolved never mentions it, so external-types.dl cannot
+// name the target and every BCL call is counted as an engine blind spot instead of
+// as a boundary. Measured on the probe project: 3 of 3 unresolved sites.
+//
+// Restricted to a receiver NEITHER the parser NOR THE ENGINE bound to a value.
+// expr_ref_unknown is the parser's own flag and says nothing about whether local
+// binding later answered: `foreach (var s in xs) s.M()` leaves `s` unknown to the
+// parser and bound by the engine. Guarding only on the parser's flag demanded `s` as
+// a type name and produced `external:s.Describe` -- an external target named after a
+// local variable, which is a wrong answer rather than a missing one. The !ref_denotes
+// term is what makes the guard "unbound by anyone".
+type_ref_demand(prov, mod, n, "0") :-
+    call_receiver_expr(prov, e, r),
+    expr_ref_unknown(prov, r),
+    expr_written_name(prov, r, n),
+    !ref_denotes(prov, r, _, _),
+    call_module(prov, e, mod).
+
+// A DECLARED TYPE NAME that did not resolve. `List<IShape> xs` and `ILogger log`
+// name types the client does not declare, and the variable's type is what labels
+// every call made on it.
+type_ref_demand(prov, mod, n, "0") :-
+    var_type_name(prov, v, n, _), var_method(prov, v, m), method_module(prov, m, mod).
+type_ref_demand(prov, mod, n, "0") :-
+    param_type_name(prov, p, n, _), n != "", param_of(prov, p, m), method_module(prov, m, mod).
+type_ref_demand(prov, mod, n, "0") :-
+    field_type_name(prov, f, n, _), n != "", field_decl(prov, _, t, f), type_module(prov, t, mod).
+type_ref_demand(prov, mod, n, "0") :-
+    property_type_name(prov, p, n, _), n != "", property_decl(prov, _, t, p), type_module(prov, t, mod).
+type_ref_demand(prov, mod, n, "0") :-
+    method_return_type_name(prov, m, n), n != "", method_module(prov, m, mod).
+
 // ── RESOLVING A TYPE REFERENCE NODE ─────────────────────────────────────────
 // type_ref_resolves(Prov, RefHash, GroupKey) — a written type reference to the type
 // it denotes. Goes through type_name_resolves, so it inherits the ordering and the
@@ -190,6 +225,45 @@ attribute_module("client", a, mod) :-
     cs_attribute(_, _, _, _, _, _, mod, _, _, _, _, _, _, _, _, _, _, _, a).
 attribute_module("lib", a, mod) :-
     lib_cs_attribute(_, _, _, _, _, _, mod, _, _, _, _, _, _, _, _, _, _, _, a).
+
+// ── C# KEYWORD TYPE ALIASES ─────────────────────────────────────────────────
+// `int`, `string`, `double`, `void` and the rest are the language's own spellings of
+// framework types. They are not names the client declares, so in a client-only run
+// they resolve to nothing and land in type_name_unresolved beside a genuinely
+// missing dependency -- which is misleading in both directions: they are not a
+// blind spot, and they are not a third-party boundary either.
+//
+// Named here so they are classified as PREDEFINED. Where a library IR is staged they
+// resolve through it like any other type; where it is not, a call on a `string`
+// receiver is a boundary to the framework and is labelled as one, never as an
+// engine failure.
+//
+// `void` is in the list deliberately: it appears as a return type on most methods,
+// so leaving it out puts the most common return type in the unresolved column.
+cs_predefined_alias("void").
+cs_predefined_alias("object").
+cs_predefined_alias("string").
+cs_predefined_alias("bool").
+cs_predefined_alias("byte").
+cs_predefined_alias("sbyte").
+cs_predefined_alias("char").
+cs_predefined_alias("decimal").
+cs_predefined_alias("double").
+cs_predefined_alias("float").
+cs_predefined_alias("int").
+cs_predefined_alias("uint").
+cs_predefined_alias("long").
+cs_predefined_alias("ulong").
+cs_predefined_alias("short").
+cs_predefined_alias("ushort").
+cs_predefined_alias("nint").
+cs_predefined_alias("nuint").
+cs_predefined_alias("dynamic").
+cs_predefined_alias("var").
+
+// A predefined name that did not resolve is PREDEFINED-UNSTAGED, not unresolved.
+type_name_predefined_unstaged(prov, mod, n) :-
+    type_name_unresolved(prov, mod, n, "0"), cs_predefined_alias(n).
 
 // ── RESOLVING A WRITTEN TYPE NAME IN A MEMBER SIGNATURE ─────────────────────
 // A parameter, field, property or local carries its type as TEXT as well as as a

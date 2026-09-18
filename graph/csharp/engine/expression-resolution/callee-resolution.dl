@@ -1,0 +1,308 @@
+// ============================================================================
+// EXPRESSION RESOLUTION · CALLEE
+//
+// expr_resolves_to_method(Prov, SiteExpr, MethodHash) — the disambiguated target set
+// for a call site. 0, 1 or N. The call-edge layer turns the COUNT into a confidence
+// tier, so this relation's job is to be complete and sound: every target that could
+// run, and nothing that could not.
+//
+// ONE RULE PER CALL SHAPE, and the shapes are not interchangeable:
+//
+//   qualified instance call   receiver type -> member lookup -> dispatch fan
+//   qualified static call     receiver names a TYPE -> static member -> exact
+//   unqualified call          this, then enclosing types, then `using static`
+//   constructor call          type name -> its constructors -> overload by arity
+//   base/this ctor delegation no name at all; the target is structural
+//   base.M()                  non-virtual: the base's implementation, exactly
+//   delegate invoke           value flow, not member lookup (delegates.dl)
+//   operator / conversion     a static method wearing other syntax
+//   extension method          only where member lookup found nothing
+//
+// A SHAPE WITH NO RULE STILL REACHES THE OUTPUT as a declared unknown, because the
+// edge layer keys on the site universe rather than on what resolved. That is the
+// property that makes a missing rule a visible gap instead of a silent one.
+// ============================================================================
+
+// ── QUALIFIED INSTANCE CALL ─────────────────────────────────────────────────
+// The receiver's type, the member of that name, then every body dispatch says could
+// run. Restricted to concrete targets, since the runtime receiver is concrete.
+expr_call_candidate(prov, e, m) :-
+    call_needs_member_lookup(prov, e),
+    call_recv_type(prov, e, gk),
+    call_callee_name(prov, e, n),
+    member_method(prov, gk, n, m).
+
+// ── TWO STRATA, AND WHY ─────────────────────────────────────────────────────
+// TYPE INFERENCE AND DISPATCH ARE MUTUALLY RECURSIVE in C#: a receiver's type may
+// come from a call's return type, and that call's target depends on ITS receiver's
+// type. That recursion is fine as long as it stays POSITIVE. The exactness test is
+// not positive -- "fan out unless the receiver is exact" is a negation -- and
+// putting it inside the recursion makes the program unstratifiable, which souffle
+// reports as `Unable to stratify relation(s) {call_recv_type, dispatch_is_exact,
+// expr_resolves_to_method, expr_type, ...}`.
+//
+// So it is split:
+//
+//   expr_target_any        POSITIVE and recursive. The declared member AND its whole
+//                          dispatch fan. This is what expr-type.dl reads, so typing
+//                          has a monotone fixpoint to converge to.
+//   expr_resolves_to_method NARROWED, in a later stratum. Applies exactness and the
+//                          dispatch cap once types have settled. This is what the
+//                          edge layer reads.
+//
+// THE PRICE, STATED: a receiver typed through an invocation is typed from the whole
+// fan's return types rather than from the selected target's. In practice the fan's
+// members are overrides of one declaration, and an override's return type is the
+// same or covariant, so the type SET is the same or one element wider -- never
+// narrower, so nothing is lost, and a wider set can only make a downstream site
+// multi_inferred where it might have been known_edge. That trade buys a program
+// that stratifies; the alternative is no answer at all.
+expr_target_any(prov, e, declared) :- expr_call_candidate(prov, e, declared).
+expr_target_any(prov, e, target) :-
+    expr_call_candidate(prov, e, declared),
+    dispatch_concrete_target(prov, declared, target).
+
+// A site whose receiver is EXACTLY typed (a fresh `new`) resolves in that type
+// specifically, not in the declared type of whatever holds it.
+expr_call_candidate(prov, e, m) :-
+    call_recv_exact_type(prov, e, gk),
+    call_callee_name(prov, e, n),
+    member_method(prov, gk, n, m).
+
+// ── THE NARROWED ANSWER ─────────────────────────────────────────────────────
+// An EXACT site takes the declared member itself, with no fan. This is the COMMON
+// case in C#, where dispatch is opt-in.
+expr_resolves_to_method(prov, e, declared) :-
+    expr_call_candidate(prov, e, declared),
+    dispatch_is_exact(prov, e).
+expr_resolves_to_method(prov, e, target) :-
+    expr_call_candidate(prov, e, declared),
+    !dispatch_is_exact(prov, e),
+    dispatch_concrete_target(prov, declared, target),
+    !call_fan_refused(prov, e).
+
+// ── `base.M()` — NON-VIRTUAL, EXACTLY THE BASE'S BODY ───────────────────────
+// Stated as its own rule rather than relying on dispatch_is_exact, because the
+// LOOKUP is different too: it starts at the base, so an override in the CURRENT type
+// must not be the answer. That override is precisely what `base.M()` exists to skip.
+expr_exact_target(prov, e, m) :-
+    call_is_base(prov, e),
+    expr_ultimate_type_group(prov, e, gk), type_extends(prov, gk, bgk),
+    call_callee_name(prov, e, n),
+    member_method(prov, bgk, n, m).
+
+// ── QUALIFIED STATIC CALL ───────────────────────────────────────────────────
+// `Console.WriteLine(x)`, `Math.Sqrt(x)`. The receiver names a type. A static method
+// is never dispatched, so the target is exact.
+expr_exact_target(prov, e, m) :-
+    call_needs_member_lookup(prov, e),
+    call_receiver_expr(prov, e, r), ref_names_type(prov, r, gk),
+    call_callee_name(prov, e, n),
+    member_method(prov, gk, n, m),
+    method_is_static(prov, m).
+
+// ── UNQUALIFIED CALL ────────────────────────────────────────────────────────
+// `M()`. Resolved in this order, which is the language's:
+//   1. a LOCAL FUNCTION in the enclosing method (or a lexically enclosing one)
+//   2. a member of the enclosing type, then of its bases
+//   3. a member of each ENCLOSING type, outward
+//   4. a static member brought in by `using static`
+// Each source is a ranked candidate; the best rank wins, and ties survive as a set.
+
+// (1) a local function, in this method or an enclosing one.
+scope_cand(prov, e, n, m, 0) :-
+    call_is_unqualified(prov, e), call_callee_name(prov, e, n),
+    expr_ultimate_method(prov, e, cm),
+    method_lexical_ancestor(prov, cm, anc),
+    method_is_local_function(prov, m),
+    method_lexical_parent(prov, m, anc),
+    method_name(prov, m, n).
+
+// (2) a member of the enclosing type or its bases. member_method already walks the
+// base chain by distance, so this is one clause.
+scope_cand(prov, e, n, m, 1) :-
+    call_is_unqualified(prov, e), call_callee_name(prov, e, n),
+    expr_ultimate_type_group(prov, e, gk),
+    member_method(prov, gk, n, m).
+
+// (3) a member of an ENCLOSING type. A nested class calling a helper on its outer
+// class writes no receiver, and without this the site is unresolved.
+scope_cand(prov, e, n, m, 2) :-
+    call_is_unqualified(prov, e), call_callee_name(prov, e, n),
+    expr_ultimate_type_group(prov, e, gk),
+    type_nest_ancestor(prov, gk, anc), anc != gk,
+    member_method(prov, anc, n, m).
+
+// (4) `using static System.Math;` makes `Sqrt(x)` resolve with no qualifier at all.
+// This is the ONLY way an unqualified call reaches a type the enclosing type has no
+// relation to, so an engine without it reports those sites unresolved. Ranked last,
+// which matches the language: a member of your own type wins over an imported static.
+scope_cand(prov, e, n, m, 3) :-
+    call_is_unqualified(prov, e), call_callee_name(prov, e, n),
+    expr_ultimate_module(prov, e, mod),
+    using_static_type(prov, mod, tn),
+    name_to_type(prov, mod, tn, gk),
+    member_method(prov, gk, n, m),
+    method_is_static(prov, m).
+
+scope_best_rank(prov, e, r) :-
+    scope_cand(prov, e, _, _, _),
+    r = min k : { scope_cand(prov, e, _, _, k) }.
+
+// The unqualified candidate, and then its dispatch fan. An unqualified call to a
+// VIRTUAL member of the enclosing type is still a virtual call: `Area()` inside
+// `Shape.Describe()` dispatches to Circle.Area at runtime. Missing that is the
+// difference between a correct graph and one that stops at the abstract declaration.
+expr_call_candidate(prov, e, m) :-
+    scope_cand(prov, e, _, m, r), scope_best_rank(prov, e, r).
+
+// Same two-stratum split as the qualified case: the fan feeds typing positively,
+// and exactness narrows it afterwards. An unqualified call to a VIRTUAL member of
+// the enclosing type is still a virtual call -- `Area()` inside `Shape.Describe()`
+// dispatches to Circle.Area at runtime, and stopping at the abstract declaration is
+// the difference between a correct graph and one that ends at the base.
+
+// A STATIC unqualified call is never dispatched, so it is exact regardless of the
+// receiver rules above.
+dispatch_is_exact(prov, e) :-
+    call_is_unqualified(prov, e),
+    scope_cand(prov, e, _, m, r), scope_best_rank(prov, e, r),
+    method_is_static(prov, m).
+
+// ── CONSTRUCTOR CALL ────────────────────────────────────────────────────────
+// `new Foo(a, b)`. The callee NAME is the type name, and the target is the type's
+// constructor whose arity accepts the argument count. A constructor is never
+// dispatched: `new` constructs exactly what it names.
+//
+// PRIMARY CONSTRUCTORS AND RECORDS go through the same path, because
+// method_is_ctor includes PRIMARY_CONSTRUCTOR. Without that, every `new Point(1, 2)`
+// on a positional record is unresolved, and records are the normal way to write a
+// C# data type.
+call_ctor_target(prov, e, ctor) :-
+    call_needs_ctor_lookup(prov, e),
+    expr_new_type(prov, e, gk),
+    type_ctor(prov, gk, ctor),
+    call_argc(prov, e, ac),
+    ctor_accepts_argc(prov, ctor, ac).
+
+expr_exact_target(prov, e, ctor) :- call_ctor_target(prov, e, ctor).
+
+// A type with NO declared constructor has an implicit public parameterless one. The
+// parser does not synthesise a row for it, so `new Foo()` on such a type resolves to
+// nothing — and that is a REAL answer rather than a miss: there is no user code to
+// call. Recorded so the site is classified as a known structural case.
+call_ctor_implicit(prov, e, gk) :-
+    call_needs_ctor_lookup(prov, e),
+    expr_new_type(prov, e, gk),
+    !type_ctor(prov, gk, _),
+    call_argc(prov, e, "0").
+
+// ── CONSTRUCTOR DELEGATION ──────────────────────────────────────────────────
+// `: this(a)` targets another constructor of the SAME type; `: base(a)` targets one
+// of the base. Neither writes a name, so the target is structural and there is no
+// name to resolve — which is why a name-matching graph misses both entirely.
+expr_exact_target(prov, e, ctor) :-
+    call_is_this_ctor(prov, e),
+    expr_ultimate_type_group(prov, e, gk),
+    type_ctor(prov, gk, ctor),
+    call_argc(prov, e, ac), ctor_accepts_argc(prov, ctor, ac),
+    expr_ultimate_method(prov, e, self), ctor != self.
+expr_exact_target(prov, e, ctor) :-
+    call_is_base_ctor(prov, e),
+    expr_ultimate_type_group(prov, e, gk), type_extends(prov, gk, bgk),
+    type_ctor(prov, bgk, ctor),
+    call_argc(prov, e, ac), ctor_accepts_argc(prov, ctor, ac).
+
+// A PRIMARY CONSTRUCTOR'S BASE INVOCATION is written in the heritage clause:
+// `class D(int a) : B(a)`. There is no call syntax anywhere in the body, and the
+// parser's own corpus audit counted 2207 such sites as misses. The edge comes from
+// the heritage flag rather than from an expression, so it is emitted directly by
+// the call-edge layer; here the target is computed.
+primary_ctor_base_target(prov, gk, ctor) :-
+    heritage_has_ctor_args(prov, t, pos), type_group(prov, t, gk),
+    heritage_resolves(prov, gk, pos, bgk),
+    type_ctor(prov, bgk, ctor).
+
+// ── ARITY ACCEPTANCE ────────────────────────────────────────────────────────
+// ARITY IS A RANGE, NOT A NUMBER, and this is where most naive overload selection
+// goes wrong. A method of four parameters accepts a two-argument call if two have
+// defaults, and a `params` method accepts any count from its position onward.
+// Matching parameterCount exactly rejects both, and both are extremely common in
+// C# — optional parameters are the idiomatic alternative to overloads.
+method_arity_min(prov, m, lo) :-
+    method_paramc(prov, m, pcs), pc = to_number(pcs),
+    opt = count : { param_of(prov, p, m), param_optional(prov, p) },
+    lo = pc - opt.
+method_arity_max(prov, m, hi) :-
+    method_paramc(prov, m, pcs), pc = to_number(pcs),
+    !method_has_params_array(prov, m),
+    hi = pc.
+// A `params` array accepts an unbounded tail. 9999 stands in for unbounded, which is
+// sufficient against real argument counts and keeps the column a number.
+method_arity_max(prov, m, 9999) :- method_has_params_array(prov, m).
+
+param_optional(prov, p) :- param_has_default(prov, p).
+param_optional(prov, p) :- param_is_params(prov, p).
+method_has_params_array(prov, m) :- param_of(prov, p, m), param_is_params(prov, p).
+
+method_accepts_argc(prov, m, acs) :-
+    method_arity_min(prov, m, lo), method_arity_max(prov, m, hi),
+    call_argc_value(acs, ac),
+    ac >= lo, ac <= hi.
+ctor_accepts_argc(prov, ctor, ac) :- method_is_ctor(prov, ctor), method_accepts_argc(prov, ctor, ac).
+
+// The argument counts that actually occur, so the join above is over real values
+// rather than over every number.
+call_argc_value(acs, ac) :- call_argc(_, _, acs), ac = to_number(acs).
+
+// ── OPERATORS AND CONVERSIONS ───────────────────────────────────────────────
+// `a + b` where the operand type overloads `+` is a static call to op_Addition, and
+// an IMPLICIT conversion runs with no syntax at the call site at all. Both are edges
+// into user code that a syntactic reading never produces. The parser emits
+// OPERATOR_CALL and CONVERSION_CALL where it can see the shape; the target is found
+// by matching the operator token against the declaring type's operator methods.
+expr_exact_target(prov, e, m) :-
+    call_is_operator(prov, e),
+    expr_operator(prov, e, op),
+    call_recv_type(prov, e, gk),
+    method_in_type(prov, gk, m),
+    method_operator(prov, m, op).
+
+expr_exact_target(prov, e, m) :-
+    call_is_conversion(prov, e),
+    expr_cast_ref(prov, e, tr), type_ref_resolves(prov, tr, targetGk),
+    method_in_type(prov, targetGk, m),
+    method_conversion(prov, m, _).
+
+// ── AN INDEXER: `a[i]` ──────────────────────────────────────────────────────
+// A user-defined indexer is a property whose accessors are real methods. `a[i]` on
+// the read side calls the getter.
+expr_exact_target(prov, e, getter) :-
+    call_is_element_access(prov, e),
+    call_recv_type(prov, e, gk),
+    property_in_type(prov, gk, p), property_is_indexer(prov, p),
+    method_accessor_of(prov, getter, p, "INDEXER"),
+    method_kind(prov, getter, "INDEXER_GET").
+
+// ── THE EXACT SHAPES, FED INTO BOTH STRATA ──────────────────────────────────
+// Every shape above that is EXACT BY CONSTRUCTION -- a base call, a static call, a
+// constructor, `this(...)`/`base(...)` delegation, an operator, a conversion, an
+// indexer -- writes expr_exact_target. None of them is virtually dispatched, so its
+// answer needs no narrowing and is the same in both strata.
+//
+// They write expr_exact_target rather than expr_resolves_to_method directly because
+// the positive stratum has to be able to read them. Deriving expr_call_candidate
+// FROM expr_resolves_to_method is what put a negation back inside the recursion, and
+// souffle listed the whole component: {call_fan_refused, call_recv_type,
+// dispatch_is_exact, expr_call_candidate, expr_resolves_to_method, expr_target_any,
+// expr_type, ...}. The direction of these two rules is the fix.
+expr_target_any(prov, e, m) :- expr_exact_target(prov, e, m).
+expr_resolves_to_method(prov, e, m) :- expr_exact_target(prov, e, m).
+expr_target_any(prov, e, m) :- expr_call_candidate(prov, e, m).
+
+// ── THE DYNAMIC BLIND SPOT, DECLARED ────────────────────────────────────────
+// A call through a `dynamic` value is dispatched at runtime by the DLR. No reading
+// of the source settles it, so the engine resolves it to nothing and says why. This
+// is the one place where "unresolved" is the correct and final answer rather than a
+// gap to close.
+call_unresolvable_by_design(prov, e, "dynamic") :- call_is_dynamic(prov, e).
