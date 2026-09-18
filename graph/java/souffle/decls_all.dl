@@ -765,3 +765,21 @@
 .decl gen_source_sig(c0:symbol,c1:symbol,c2:symbol)             // (owner,name,arity) the IR really carries
 .decl gen_shadowed(c0:symbol,c1:symbol,c2:symbol)               // (owner,name,arity) also written out in source
 .decl gen_method_live(c0:symbol,c1:symbol,c2:symbol,c3:symbol)  // gen_method minus gen_shadowed
+// ── config-resolution/lib-beans.dl — beans a staged --library dependency declares ──
+.decl lib_ann_on_type(c0:symbol,c1:symbol,c2:symbol)
+.decl lib_ann_on_method(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl lib_ann_arg(c0:symbol,c1:symbol,c2:symbol)
+.decl lib_ann_arg_value(c0:symbol,c1:symbol)
+.decl cfg_lib_ann_of_interest(c0:symbol)
+.decl cfg_lib_stereotype(c0:symbol,c1:symbol)
+.decl cfg_lib_stereotype_named(c0:symbol,c1:symbol)
+.decl cfg_lib_stereotype_has_name(c0:symbol)
+.decl cfg_lib_factory(c0:symbol,c1:symbol,c2:symbol)
+.decl cfg_lib_factory_named(c0:symbol,c1:symbol)
+.decl cfg_lib_factory_has_name(c0:symbol)
+.decl cfg_lib_factory_type(c0:symbol,c1:symbol)
+.decl bean_origin(c0:symbol,c1:symbol,c2:symbol)
+.decl cfg_lib_bean_site(c0:symbol)
+.decl cfg_lib_bean_narrowing_enabled()
+.decl cfg_staged_lib_type(c0:symbol)
+.decl cfg_injectable_scope_type(c0:symbol)

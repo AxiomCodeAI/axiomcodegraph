@@ -111,6 +111,17 @@ cfg_handler_key_suffix("implementation").
 // over-narrow. Modelled on dispatch_cap: a policy knob, stated in one place.
 cfg_di_narrowing_enabled().
 
+// ── (12b) LIBRARY-BEAN SCOPE SWITCH ─────────────────────────────────────────
+// Present  = a dependency staged through --library contributes its stereotypes and
+//            @Bean factory methods to the bean set, and a slot declared as one of its
+//            types is narrowed on the same "exactly one bean" test the client side
+//            uses (config-resolution/lib-beans.dl).
+// Comment out this ONE line to go back to a client-only bean set. bean_def, di_edge
+// and bean_origin still report the library beans; only the narrowing gate closes, so
+// the switch is about which edges the call graph gets, not about what is reported.
+// Modelled on cfg_di_narrowing_enabled above: a policy knob, stated in one place.
+cfg_lib_bean_narrowing_enabled().
+
 // ── (13) GENERATED-STUB BASE CLASSES (gRPC, and anything shaped like it) ─────
 // A gRPC service is a class extending a GENERATED abstract base (GreeterImplBase)
 // and overriding its rpc methods. The container/server calls those overrides; no

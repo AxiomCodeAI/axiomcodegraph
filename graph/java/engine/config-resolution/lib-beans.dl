@@ -1,0 +1,175 @@
+// ============================================================================
+// CONFIG-RESOLUTION · LIBRARY-DECLARED BEANS  (the bean set beyond the client)
+//
+// Every annotation-driven rule in this folder reads the client projection only:
+// annotation-args.dl builds the four ann_on_* attach-point views from
+// annotation_on("client", ...), and impact.dl:112 does the same. Those two are the
+// folder's only readers of annotation_on. projections/annotations.dl also emits
+// annotation_on("lib", ...) for a dependency staged through --library, and until this
+// file nothing in graph/java read it. The consequence was not a
+// degraded answer but the wrong one: a dependency that declares beans exactly the
+// way the application does declared none, so every injection point whose declared
+// type came from that dependency was reported `unsatisfied`, and an interface-typed
+// slot never reached the dependency's only implementation. di.dl's own header
+// (section "WHAT THIS POINTS AT") named this as the reason the narrowing is inert
+// on a framework-heavy module.
+//
+// WHAT THIS FILE DOES, AND WHAT IT DELIBERATELY DOES NOT
+//
+//   does        contribute bean_def rows for a staged dependency's stereotypes and
+//               @Bean factory methods, with the same names the container would
+//               generate, plus their @Qualifier and @Primary ranks
+//   does        record every bean's ORIGIN, so a consumer can filter to one side
+//   does        bring a dependency type that is a bean into the lib slice, because
+//               the container instantiates it whether or not the client names it
+//   does NOT    add injection points. The application's own code is what asks for a
+//               bean; a dependency's internal wiring is its own business and adding
+//               it would report edges no client call reaches
+//   does NOT    touch entry-points.dl. A dependency's @Scheduled or @KafkaListener
+//               method is invoked by ITS container, and making those entry points
+//               would change entry_reachable for every project that stages a
+//               framework. That is a separate question, deliberately left open
+//   does NOT    widen ann_on_type / ann_on_method in annotation-args.dl. Those feed
+//               entry-points.dl and impact.dl as well as di.dl, so widening them in
+//               place would have made the two decisions above silently, as one edit
+//
+// COST. The unquoting scan is demand-bounded the same way cfg_raw is: only the
+// arguments of annotations a knob in knobs.dl actually names enter it, so a staged
+// library of any size contributes a handful of strings rather than all of them.
+//
+// lib_type (14):   0 simpleName 2 qualifiedName 13 hash
+// lib_method (22): 0 name 7 typeRegistryLinkHash(owner) 21 hash
+// ============================================================================
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. ATTACH POINTS, lib side
+// ─────────────────────────────────────────────────────────────────────────────
+// Same shape and the same double check as annotation-args.dl section 1: the parser's
+// Context column says what the annotation is on, and the join against the owner's own
+// base relation confirms it.
+lib_ann_on_type(a, n, t) :- annotation_on("lib", n, _, "TYPE_DECLARATION", t, a),
+    lib_type(_, _, _, _, _, _, _, _, _, _, _, _, _, t).
+lib_ann_on_method(a, n, m, owner) :- annotation_on("lib", n, _, "METHOD_DECLARATION", m, a),
+    lib_method(_, _, _, _, _, _, _, owner, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. ARGUMENTS, lib side  (demand-bounded)
+// ─────────────────────────────────────────────────────────────────────────────
+// Only the annotations whose NAME a knob selected are unquoted. Without this gate a
+// staged library's every annotation argument would enter cfg_raw and be walked
+// character by character by the quote-peeling scan, which is the one cost this phase
+// has always been careful about.
+cfg_lib_ann_of_interest(n) :- cfg_bean_ann(n).
+cfg_lib_ann_of_interest(n) :- cfg_factory_ann(n).
+cfg_lib_ann_of_interest(n) :- cfg_qualifier_ann(n).
+cfg_lib_ann_of_interest(n) :- cfg_primary_ann(n).
+
+cfg_raw(v) :- annotation_arg("lib", a, _, v, _, _, _, _, _), v != "",
+    annotation_on("lib", n, _, _, _, a), cfg_lib_ann_of_interest(n).
+
+lib_ann_arg(a, an, v) :- annotation_arg("lib", a, an, raw, _, _, _, _, _),
+    annotation_on("lib", n, _, _, _, a), cfg_lib_ann_of_interest(n),
+    cfg_clean(raw, v).
+lib_ann_arg_value(a, v) :- lib_ann_arg(a, "value", v).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. BEAN DEFINITIONS, lib side
+// ─────────────────────────────────────────────────────────────────────────────
+// (a) STEREOTYPE on a dependency type. Name generation is the client rule's, reused
+// rather than restated: cfg_decap is Spring's Introspector.decapitalize and a bean is
+// comparable against a live context's getBeanDefinitionNames() only if both sides
+// generate the name the same way.
+cfg_lib_stereotype(a, t) :- lib_ann_on_type(a, n, t), cfg_bean_ann(n).
+cfg_lib_stereotype_named(t, name) :- cfg_lib_stereotype(a, t), lib_ann_arg_value(a, name), name != "".
+cfg_lib_stereotype_has_name(t) :- cfg_lib_stereotype_named(t, _).
+cfg_decap_demand(sn) :- cfg_lib_stereotype(_, t),
+    lib_type(sn, _, _, _, _, _, _, _, _, _, _, _, _, t).
+
+bean_def(name, t, "stereotype", a) :- cfg_lib_stereotype(a, t), cfg_lib_stereotype_named(t, name).
+bean_def(name, t, "stereotype", a) :- cfg_lib_stereotype(a, t), !cfg_lib_stereotype_has_name(t),
+    lib_type(sn, _, _, _, _, _, _, _, _, _, _, _, _, t), cfg_decap(sn, name).
+
+// (b) FACTORY METHOD on a dependency @Configuration class. The bean's type is the
+// method's declared return type, resolved lib-side by lib_method_return_type. The
+// client rule additionally prefers a single `new T()` in the body over the declared
+// return type; there is no lib equivalent of method_return_mono (a library IR carries
+// signatures, and bodies only for the LIB_BODY slice), so the declared type is what
+// this side can state. A @Bean method that declares an interface and returns one
+// concrete implementation is therefore typed by the interface here, which is the
+// conservative direction: it widens the candidate set, never narrows it wrongly.
+cfg_lib_factory(a, m, owner) :- lib_ann_on_method(a, n, m, owner), cfg_factory_ann(n).
+cfg_lib_factory_named(m, name) :- cfg_lib_factory(a, m, _), lib_ann_arg_value(a, name), name != "".
+cfg_lib_factory_has_name(m) :- cfg_lib_factory_named(m, _).
+cfg_lib_factory_type(m, t) :- cfg_lib_factory(_, m, _), lib_method_return_type(m, t).
+
+bean_def(name, t, "factory_method", m) :- cfg_lib_factory_type(m, t), cfg_lib_factory_named(m, name).
+bean_def(name, t, "factory_method", m) :- cfg_lib_factory_type(m, t), !cfg_lib_factory_has_name(m),
+    lib_method(name, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. THE LIB SLICE  —  a bean is reached whether or not the client names it
+// ─────────────────────────────────────────────────────────────────────────────
+// reached_lib (resolution/lib-hierarchy.dl) is seeded from the types the CLIENT
+// references. A dependency's @Configuration class is typically named by nobody: the
+// container finds it by scanning, instantiates it, and calls its @Bean methods. Left
+// unreached, its methods get no return type resolved, so the bean it contributes has
+// no type and never enters bean_def at all.
+//
+// Being a bean is exactly the evidence that the container instantiates the type, so
+// it is a legitimate seed, and it is the same argument lib-hierarchy.dl already makes
+// for its expression-level seed. Both clauses read base facts plus the knob lists
+// only, so they add no cycle: nothing here reads expr_type, lib_method_return_type or
+// anything else downstream of reached_lib.
+reached_lib(t) :- cfg_lib_stereotype(_, t).
+reached_lib(t) :- lib_ann_on_method(_, n, _, t), cfg_factory_ann(n).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. RANKS: @Qualifier and @Primary on a dependency bean
+// ─────────────────────────────────────────────────────────────────────────────
+// A library bean answers to its @Qualifier and carries its @Primary rank for the same
+// reason a client one does; omitting these would make a dependency that ships a
+// @Primary default look like an ambiguity the container resolves fine.
+bean_qualifier(name, q) :- bean_def(name, t, "stereotype", _),
+    lib_ann_on_type(a, an, t), cfg_qualifier_ann(an), lib_ann_arg_value(a, q), q != "".
+bean_primary(name) :- bean_def(name, t, "stereotype", _),
+    lib_ann_on_type(_, an, t), cfg_primary_ann(an).
+bean_primary(name) :- bean_def(name, _, "factory_method", m),
+    lib_ann_on_method(_, an, m, _), cfg_primary_ann(an).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 6. ORIGIN  —  exported, so "where did this bean come from" is answerable
+// ─────────────────────────────────────────────────────────────────────────────
+// bean_origin(BeanName, TypeHash, Provenance), Provenance ∈ { client, lib }.
+//
+// A separate relation rather than a fifth column on bean_def: bean_def is exported and
+// pinned by every case golden, so widening it would churn goldens in cases that have
+// nothing to do with this change. Keyed on the bean's NAME and TYPE rather than on its
+// declaring site, because that is what di_edge and bean_satisfies join on, and because
+// a site hash alone is not readable in a report.
+//
+// Derived FROM bean_def so the two cannot disagree about which beans exist, and the
+// negation makes the client case the default: a mechanism this file does not know
+// about (today, XML) is client, which is where <bean> elements come from.
+cfg_lib_bean_site(a) :- cfg_lib_stereotype(a, _).
+cfg_lib_bean_site(m) :- cfg_lib_factory(_, m, _).
+bean_origin(name, t, "lib") :- bean_def(name, t, _, site), cfg_lib_bean_site(site).
+bean_origin(name, t, "client") :- bean_def(name, t, _, site), !cfg_lib_bean_site(site).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 7. THE NARROWING GATE  —  which declared types the bean set is complete for
+// ─────────────────────────────────────────────────────────────────────────────
+// di.dl's gate (1) admitted only client-declared types, and said why: "A library-typed
+// injection point can be satisfied by a library/auto-configuration bean this analysis
+// never sees, so 'exactly one client bean' would not mean 'exactly one bean'." That is
+// true of a dependency that was never staged, and it stops being true of one that was:
+// a staged tree's stereotypes and factory methods are all visible, which is the same
+// completeness argument the client side rests on.
+//
+// So the gate becomes "a type whose declaring tree was staged", and the knob below is
+// what keeps the old behaviour one line away. A type from a dependency that is on the
+// compile path but was NOT passed to --library does not resolve to a type hash at all,
+// so it never reaches this gate and is unaffected either way.
+cfg_staged_lib_type(t) :- cfg_lib_bean_narrowing_enabled(),
+    lib_type(_, _, _, _, _, _, _, _, _, _, _, _, _, t).
+cfg_injectable_scope_type(t) :- cfg_client_type(t).
+cfg_injectable_scope_type(t) :- cfg_staged_lib_type(t).
