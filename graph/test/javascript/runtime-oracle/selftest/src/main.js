@@ -71,4 +71,14 @@ assert.deepEqual([...counted()], [1, 2], 'a generator still yields')
 const twice = (x) => x * 2
 assert.equal(twice(21), 42, 'an expression-bodied arrow returns its expression')
 
+// ── a realm the tracer is not in ────────────────────────────────────────────
+// A rewritten file evaluated in a fresh V8 context has no `__ax` on its global. It
+// must still run, and it must say once that it ran untraced rather than throw.
+const vm = require('node:vm')
+const fs = require('node:fs')
+const realmSource = fs.readFileSync(require.resolve('./realm.js'), 'utf8')
+const realm = vm.createContext({module: {exports: {}}, exports: {}, require, console, process})
+vm.runInNewContext(realmSource, realm)
+assert.equal(realm.module.exports.twice(4), 8, 'a rewritten file must run in a realm with no tracer')
+
 console.log('selftest: ok')

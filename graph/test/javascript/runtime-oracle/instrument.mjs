@@ -37,6 +37,15 @@
 //                       positions worth joining on, and instrumenting it doubles
 //                       the file for nothing.
 //
+// A REALM THE TRACER IS NOT IN
+// `__ax` is a free identifier, so a rewritten file loaded into a FRESH V8 context
+// (`vm.runInNewContext`, a worker with its own global, a realm a test makes to check
+// `noConflict`) throws `__ax is not defined` and takes the test with it. One lodash
+// test does exactly this and the suite goes 6831/0 to 6829/2. Each rewritten file
+// therefore opens by binding `__ax` from the global, installing a no-op when there is
+// none, and saying so ONCE on stderr: a file that ran untraced has to be countable,
+// because silence is indistinguishable from a file with nothing in it.
+//
 // THE DIRECTIVE PROLOGUE, WHICH IS A JAVASCRIPT-ONLY HAZARD
 // `__ax.enter(n);` inserted straight after `{` moves a function's `'use strict'`
 // out of the prologue, and the function silently stops being strict: an
@@ -259,6 +268,26 @@ const declKind = (node) =>
               ? 'arrow'
               : 'function_expression'
 
+// Where a MODULE's own prologue ends: after a `#!` line, then after any leading
+// directive. Inserting at byte 0 would break a shebang, and inserting before a
+// module-level 'use strict' would silently make the module sloppy.
+function moduleInsertPos(sf, text) {
+  let pos = text.startsWith('#!') ? text.indexOf('\n') + 1 || text.length : 0
+  for (const st of sf.statements) {
+    if (ts.isExpressionStatement(st) && ts.isStringLiteral(st.expression)) pos = st.getEnd()
+    else break
+  }
+  return pos
+}
+
+// Bound per file rather than read from the global at every site: one property load
+// at module load instead of one per call, and it is what makes a fresh realm run.
+const GUARD =
+  ';var __ax=globalThis.__ax||(globalThis.__ax=(globalThis.__axWarned||' +
+  '(globalThis.__axWarned=1,globalThis.process&&process.stderr&&' +
+  'process.stderr.write("ax: no tracer in this realm, some files ran untraced\\n")),' +
+  '{s:function(){return 0},e:function(d,v){return v},enter:function(){},aux:function(){}}));'
+
 // The end of a function's DIRECTIVE PROLOGUE: the position after the last leading
 // `'use strict'`-shaped statement, or just after `{` when there is none. See the
 // header. A directive is an ExpressionStatement whose expression is a plain string
@@ -392,6 +421,7 @@ function instrumentFile(abs) {
 
   if (!edits.length) return {rel, changed: false}
 
+  edits.push({pos: moduleInsertPos(sf, text), text: GUARD, rank: 3, end: 0})
   edits.sort((a, b) => b.pos - a.pos || a.rank - b.rank || a.end - b.end)
   let out = text
   for (const e of edits) out = out.slice(0, e.pos) + e.text + out.slice(e.pos)
