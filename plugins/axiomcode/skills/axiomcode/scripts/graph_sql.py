@@ -391,7 +391,10 @@ FIXTURE_DECOR = _re.compile(r'^(Before\w*|BeforeEach|BeforeAll|BeforeClass|fixtu
 FIXTURE_NAMES = {'setUp', 'setUpClass', 'setup', 'setup_method', 'setup_class', 'setUpBeforeClass', 'beforeEach', 'beforeAll'}
 
 
-def _test_sets(q):
+TEST_REGISTRAR = re.compile(r'\b(it|test|bench)\s*(\.\w+)*\s*(\.\w+)?\s*[(<]')
+
+
+def _test_sets(q, lines=None):
     """test_method and fixture, the same two sets the exporter builds — the distinction the whole test layer rests on.
 
     A TEST is is_test, a method or function, and either carries a @Test-shaped decoration or is named test*/it*.
@@ -399,6 +402,11 @@ def _test_sets(q):
     it brings are the ones declared beside it. Counting every is_test callable as a test returned the helpers and
     lost the seven @Test methods they carry.
     A FIXTURE is a test type, a constructor or module, a known setUp name, or a Before*/fixture/setup* decoration.
+
+    A jest / vitest / mocha test is an ANONYMOUS callable handed to it(…) / test(…) / bench(…), so the name test
+    above it is the registrar's, not the callable's. Without that second leg the test layer of a JS or TS bundle
+    is all but empty — and the shown DENOMINATOR is read from the exported facts, not from here, so the answer
+    still says "N of 2846 test method(s)" and looks merely low rather than broken.
     """
     dec = {}
     for oid, name in q("SELECT owner_id, name FROM decorations") if _has(q, 'decorations') else []:
@@ -410,6 +418,13 @@ def _test_sets(q):
             tm.add(sid)
         if (tid and not mid) or kind in ('constructor', 'module') or name in FIXTURE_NAMES or any(FIXTURE_DECOR.match((x or '').split('.')[-1]) for x in d):
             fx.add(sid)
+    # …and the anonymous ones, named as tests by the registrar written on their own declaration line
+    if lines is not None:
+        for sid, name, f, ln in q("""SELECT id, name, file, line FROM symbols
+                                     WHERE is_test=1 AND method_id IS NOT NULL AND file IS NOT NULL AND line > 0"""):
+            if not (name or '').startswith('<'): continue
+            L = lines(f)
+            if ln - 1 < len(L) and TEST_REGISTRAR.search(L[ln - 1]): tm.add(sid)
     return tm, fx
 
 
@@ -600,6 +615,8 @@ def direct_for_method(q, ids):
                                   JOIN unresolved_sites u ON u.call_site_id=s.id WHERE s.callee_name=?""", n):
             if kind in ('new', 'anon_new', 'CONSTRUCTOR_CALL'): continue      # !ctor_kind(k)
             rows.append((c, 'uses', 'calls a method of this name (receiver not typed)', 'by name', f or '', l or 0))
+    # a method that DEFINES a bean: whoever the container injects the type it returns into (rule 189)
+    rows += _bean_definition_consumers(q, ids)
     # alongside: siblings of the target's own type, then the other types declared in the same file
     owners = {r[0] for r in q(f"SELECT owner FROM symbols WHERE id IN ({ph})", *ids) if r[0]}
     memb, owner_disp, tfile, _tid, _by_tid = _members(q)
@@ -764,6 +781,91 @@ def _owner_file(q, disp):
     return _OWNER_FILE[disp]
 
 
+_INJECTED = {}
+def _injected(q):
+    """`injected(t,into,kind)` — the exporter's own query, verbatim.
+
+    c4 is the method that receives the value and is '-' for a FIELD injection, the case with no call site at all;
+    a field injection is attributed to the type that declares it (c3). An inner join here drops about half of
+    every project's injection points, which is why both legs are LEFT.
+    """
+    key = id(q)
+    if key not in _INJECTED:
+        idx = {}
+        if _has(q, 'ext_inject_point'):
+            for t, into, kind in q("""SELECT i.c2, COALESCE(s.id, o.id), i.c0 FROM ext_inject_point i
+                                           LEFT JOIN symbols s ON s.method_id = i.c4
+                                           LEFT JOIN symbols o ON o.type_id = i.c3 AND o.method_id IS NULL
+                                      WHERE i.c2 <> '' AND COALESCE(s.id, o.id) IS NOT NULL"""):
+                idx.setdefault(t, set()).add((into, kind or 'injected'))
+        _INJECTED[key] = idx
+    return _INJECTED[key]
+
+
+def _bean_definition_consumers(q, ids):
+    """Rule 189 — a method that DEFINES a bean (@Bean): whoever the container injects that type into.
+
+        direct(q,c,"uses",cat("is injected with the bean this defines (",kind,")"),"resolved","",0) :-
+            target(q,"method",m,_), owner(m,ot), bean(_,ot,_), injected(ot,c,kind), c != m
+
+    There is no call site anywhere on this path — the container is the caller — so nothing else in `direct`
+    finds these rows.
+    """
+    if not (_has(q, 'ext_bean_def') and _has(q, 'ext_inject_point')): return []
+    _idx, owner_disp, _tf, tid_of, _bt = _members(q)
+    beans = {r[0] for r in q("SELECT c1 FROM ext_bean_def")}
+    inj = _injected(q)
+    out = set()
+    ph = ','.join('?' * len(ids))
+    for m, o in q(f"SELECT id, owner FROM symbols WHERE id IN ({ph})", *ids):
+        d = owner_disp(o) if o else None
+        ot = tid_of.get(d) if d else None
+        if not ot or ot not in beans: continue
+        for c, kind in inj.get(ot, ()):
+            if c != m:
+                out.add((c, 'uses', f'is injected with the bean this defines ({kind})', 'resolved', '', 0))
+    return sorted(out)
+
+
+def _name_match_contract(q, ids):
+    """Rules 166/168, which fire only under `flag("no_overrides")` — a bundle whose engine emits no override rows.
+
+        contract(q,o,"declares the same member in a subtype (…)")   :- owner(m,t), member(t,m,n,_),
+                                                                       extends(s,t), member(s,o,n,_), o != m
+        contract(q,o,"declares the same member in a supertype (…)") :- owner(m,t), member(t,m,n,_),
+                                                                       extends(t,u), member(u,o,n,_), o != m
+
+    Dropping this tier does not merely lose the contract rows: `seed_of(q,c) :- contract(q,c,_)`, so the closure
+    loses its seeds with them. On a JS bundle that took one method target from 18 tests reaching the change to 1.
+    """
+    if not _has(q, 'type_ancestors'): return []
+    _idx, owner_disp, _tf, tid_of, by_tid = _members(q)
+    ph = ','.join('?' * len(ids))
+    tgt = {}
+    for i, o, n in q(f"SELECT id, owner, name FROM symbols WHERE id IN ({ph})", *ids):
+        d = owner_disp(o) if o else None
+        t = tid_of.get(d) if d else None
+        if t and n: tgt[i] = (n, t)
+    if not tgt: return []
+    ts = sorted({t for _n, t in tgt.values()})
+    tph = ','.join('?' * len(ts))
+    subs, sups = {}, {}
+    for s_, t_ in q(f"SELECT type_id, ancestor_type_id FROM type_ancestors WHERE ancestor_type_id IN ({tph})", *ts):
+        subs.setdefault(t_, []).append(s_)
+    for s_, t_ in q(f"SELECT type_id, ancestor_type_id FROM type_ancestors WHERE type_id IN ({tph})", *ts):
+        sups.setdefault(s_, []).append(t_)
+    out = []
+    for m, (n, t) in tgt.items():
+        # `member(t,m,n,_)`: the target has to be a member of that type under that name
+        if not any(mm == m for mm, _n, _k in by_tid.get(t, ())): continue
+        for rel, why in ((subs, 'declares the same member in a subtype (a name match: this graph has no override table)'),
+                         (sups, 'declares the same member in a supertype (a name match: this graph has no override table)')):
+            for other in rel.get(t, ()):
+                for o, nn, _k in by_tid.get(other, ()):
+                    if nn == n and o != m: out.append((o, why))
+    return out
+
+
 def contract_for_method(q, ids):
     """contract(q,c,why) for a method target: `overrides it` / `it overrides this`, the target never itself."""
     ph = ','.join('?' * len(ids))
@@ -772,12 +874,54 @@ def contract_for_method(q, ids):
         if o not in ids: out.append((o, 'overrides it'))
     for (b,) in q(f"SELECT method_id FROM overrides WHERE overriding_method_id IN ({ph})", *ids):
         if b not in ids: out.append((b, 'it overrides this'))
+    # flag("no_overrides") :- the bundle has no `overrides` rows at all. The types are still there, so a same-named
+    # member of a sub- or supertype is bound by the same contract, said as a name match rather than as an override.
+    if not q("SELECT 1 FROM overrides LIMIT 1"): out += _name_match_contract(q, ids)
     return sorted(set(out))                       # a set, for the same reason
 
 
 # ── solve: the dict `Impact.run()` returns, without the .facts round trip ─────────────────────────────────────
 
-SOLVE_KINDS = {'method', 'type', 'field'}     # the kinds answered here; anything else falls back to the rules
+SOLVE_KINDS = {'method', 'type', 'field', 'decoration', 'string'}   # anything else falls back to the rules
+
+
+def direct_for_decoration(q, ids):
+    """Rule 336 — an ANNOTATION as the target: the declarations that carry it.
+
+        direct(q,c,"uses","carries this decoration","resolved","",0) :- target(q,"decoration",c,_)
+
+    The target ids ARE the carriers (the skill resolves `@Name` to them), so there is nothing to join. What the
+    framework DOES with the annotation is not in the graph, and no rule pretends otherwise.
+    """
+    return [(c, 'uses', 'carries this decoration', 'resolved', '', 0) for c in ids]
+
+
+def direct_for_string(q, vals, at, rel):
+    """Rules 401/402 — a STRING as the target: a topic, a queue, a route, a bean qualifier.
+
+        direct(q,c,"uses","names it in a string literal","text",f,l)      :- literal(c,v,f,l)
+        direct(q,c,"uses",cat("binds to it through @",d),"text",f,l)      :- dec_literal(c,d,v,f,l)
+
+    A name in a namespace that is not the code's: the compiler is silent about it and a rename breaks it at run
+    time. `literal` is the exporter's filtered view of `literals` — an identifier-shaped value under 64 chars —
+    and `dec_literal` is the strings written INSIDE a decoration, which `literals` does not carry at all.
+    """
+    rows = []
+    if _has(q, 'literals'):
+        for v, f, l in q("SELECT value, file, line FROM literals WHERE value GLOB '[A-Za-z_]*' AND length(value) < 64"):
+            if v not in vals or not re.fullmatch(r'[A-Za-z_]\w*', v): continue
+            c = at(f, l)
+            if c: rows.append((c, 'uses', 'names it in a string literal', 'text', rel(f) if f else '', l or 0))
+    if _has(q, 'decorations'):
+        for oid, name, text, f, l in q("SELECT owner_id, name, text, file, line FROM decorations "
+                                       "WHERE text IS NOT NULL AND text <> ''"):
+            c = at(f, l) or oid
+            if not c: continue
+            for v in set(re.findall(r'"{1,3}([^"]{1,120})"{1,3}', text or '')):
+                if v in vals:
+                    rows.append((c, 'uses', f"binds to it through @{(name or '').split('.')[-1]}", 'text',
+                                 rel(f) if f else '', l or 0))
+    return sorted(set(rows))
 BASE_REF_SQL = ("SELECT name, line FROM type_refs WHERE file=? AND context IN "
                 "('BASE_CLASS','SUPER_TYPE','IMPLEMENTS_INTERFACE','EXTENDS_TYPE')")
 GEN_DECOR = {'Data', 'Getter', 'Setter', 'Value', 'Builder', 'AllArgsConstructor',
@@ -837,6 +981,17 @@ def direct_for_type(q, tids, at, inside, textuse, importuse, rel):
     for t in tids:
         r = q("SELECT name, kind FROM symbols WHERE id=?", t)
         if r: names[t] = (r[0][0], r[0][1])
+
+    # ── a type the container INJECTS (rule 186) ────────────────────────────────────────────────────────────
+    #   direct(q,c,"uses",cat("receives it by dependency injection (",kind,") — …"),"resolved","",0)
+    #     :- target(q,"type",t,_), injected(t,c,kind), !inside_target(q,c)
+    # Its consumers receive it with no call site the graph can see, so no other rule in `direct` reaches them.
+    inj = _injected(q)
+    for t in tids:
+        for c, kind in sorted(inj.get(t, ())):
+            if c in inside: continue
+            rows.append((c, 'uses', f'receives it by dependency injection ({kind}) — the container hands it '
+                                    f'over, no call site', 'resolved', '', 0))
 
     # ── the type's own members, reached through their callers ──────────────────────────────────────────────
     #   tmember(q,m,n,k) :- target(q,"type",t,_), member(t,m,n,k)
@@ -1456,7 +1611,7 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
     out = {k: [] for k in ('contract', 'direct', 'direct_edge', 'seed', 'seed_byname', 'reach', 'reach_sure',
                            'parent_up', 'test_near', 'test_hit', 'inherited_test', 'extbind', 'gen_fired',
                            'caller_handles', 'caller_unhandled', 'target_throws')}
-    E = _edges(q); rev = _rev(E); sets = _test_sets(q)
+    E = _edges(q); rev = _rev(E); sets = _test_sets(q, lines)
     for qq in QS:
         # A query can carry SEVERAL target kinds at once: a name match that hits both a method and a field
         # resolves to both, and the rules simply union what each kind derives. Dispatch per kind and union here
@@ -1554,7 +1709,11 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
         weak = {c for c, _r, _w, cert, _f, _l in dr if cert in ('by name', 'text', 'one of a set')} - strong
         out['reach_sure'] += [[m, qq] for m in reach_from(rev, [m for m in seeds if m not in weak])]
         out['parent_up'] += [[a, b, t, qq] for a, b, t in parent_up(E, depth)]
-        hits = tests_reaching(q, depth, sets, every=True)
+        # a Soufflé relation comes out of `.output` in its own B-tree order, which for test_hit(q,m,d,via) is
+        # lexicographic on (q,m,d,via) with d NUMERIC. `hits` is a set, so without this the row order is not even
+        # stable between two runs of the same query, and the answer's test list came out shuffled against the
+        # rules' — same set, different order, which a byte comparison calls a disagreement.
+        hits = sorted(tests_reaching(q, depth, sets, every=True), key=lambda r: (r[0], r[1], r[2]))
         out['test_hit'] += [[m, str(d), via, qq] for m, d, via in hits]
         out['inherited_test'] += [[s_, m, str(d), qq] for s_, m, d in inherited_tests(q, hits)]
         # extbind: the target's name written in a NON-SOURCE file — an XSD, a template, a config. Nothing in the
@@ -1619,7 +1778,7 @@ def solve_from_targets(q, T, QS, site_file=None, nonsource=(), code=None, at=Non
                         if e in ct or e in cc: out['caller_handles'].append([c, e, qq])
                         else: out['caller_unhandled'].append([c, e, qq])
         th = tests_reaching(q, depth, sets)
-        out['test_near'] += [[m, str(d), qq] for m, (d, _v) in th.items()]
+        out['test_near'] += [[m, str(d), qq] for m, (d, _v) in sorted(th.items(), key=lambda r: (r[0], r[1][0]))]
     out['_targets'] = QS
     return out
 
