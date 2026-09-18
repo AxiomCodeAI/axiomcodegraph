@@ -3,6 +3,11 @@ import {
   isMisparsedExtensionBlockHeader,
 } from '@/parsers/csharp/extractors/cs-misparse';
 import Parser from 'tree-sitter';
+import {
+  extensionBlockAt,
+  type CsExtensionBlock,
+  type CsExtensionReceiver,
+} from '@/parsers/csharp/extractors/cs-extension-block';
 
 import { CsBlockRegistry } from '@/analysis-types/csharp/CsBlockRegistry';
 import { CsCallSiteRegistry } from '@/analysis-types/csharp/CsCallSiteRegistry';
@@ -163,6 +168,16 @@ export interface CsMemberExtractionOptions {
   readonly typeName: string;
   readonly serviceVersionLinkHash: string;
   readonly activeSymbols: ReadonlySet<string>;
+  /**
+   * C# 14 extension blocks the pre-parse pass flattened into this type.
+   *
+   * A member is governed by a block when its start offset falls inside the
+   * block's recorded body range — which survives because the flattening pass
+   * preserves every offset. Keyed on the RANGE, never on the node: the
+   * wrapper cache evicts, and the tree the range was measured in is not even
+   * the tree being walked.
+   */
+  readonly extensionBlocks?: readonly CsExtensionBlock[];
 }
 
 export interface CsMemberExtractionResult {
@@ -246,7 +261,29 @@ export function extractMembers(
     options.activeSymbols,
     extensionReceivers
   )) {
+    // THE GOVERNING EXTENSION RECEIVER, from either of the two ways a block
+    // can reach here — and they cannot both fire. `extension_declaration` is a
+    // node type only the FORK grammar produced; on the published grammar the
+    // pre-parse pass has already flattened the block and the receiver arrives
+    // in the side table instead. The fork path is kept because it costs
+    // nothing and the grammar may yet grow the rule.
+    const flattenedBlock = extensionBlockAt(
+      options.extensionBlocks ?? [],
+      member.startIndex
+    );
     const extensionReceiver = extensionReceivers.get(nodeId(member));
+    const receiverFacts =
+      flattenedBlock !== undefined
+        ? flattenedReceiverFacts(flattenedBlock.receiver)
+        : extensionReceiver === undefined
+          ? undefined
+          : receiverParameterFacts(extensionReceiver, options.activeSymbols);
+    // An extension block's members are extension members whether or not the
+    // block gives them a receiver VALUE: `extension(string)` declares static
+    // ones, which take none. So membership is the BLOCK, and the receiver is a
+    // separate question — conflating them made every static extension member
+    // look like an ordinary static member of the static class.
+    const inExtensionBlock = flattenedBlock !== undefined || extensionReceiver !== undefined;
     // Each member's references resolve against ITS declarations — the locals,
     // bindings and parameters its body, its lambdas and its local functions
     // minted — once they all exist.
@@ -267,18 +304,18 @@ export function extractMembers(
         if (isMisparsedExtensionBlockHeader(member)) {
           break;
         }
-        emitCallable(member, options, result, extensionReceiver);
+        emitCallable(member, options, result, receiverFacts);
         break;
       }
       case 'property_declaration':
       case 'indexer_declaration': {
-        // NOT given the receiver. cs_property has no isExtension column, so an
-        // extension PROPERTY cannot be marked as one without a schema change —
-        // it is emitted as an ordinary property of the enclosing static class,
-        // which is its correct owner, name and span. That is incomplete in one
-        // column and not wrong in any; it was a LOCAL_FUNCTION before. The
-        // column is CS-IMPL-1's remaining half, for cs-oracle.
-        emitProperty(member, options, result);
+        // GIVEN THE RECEIVER. `cs_property.isExtension` says the property is an
+        // extension member, and the receiver lives where the
+        // compiler puts it: parameter 0 of each ACCESSOR, which is a static
+        // method taking the receiver — `get_IsBlank(string source)`. That
+        // makes the C# 13 and C# 14 forms identical in the IR, which is the
+        // model cs_method.isExtension already follows.
+        emitProperty(member, options, result, receiverFacts, inExtensionBlock);
         break;
       }
       case 'event_declaration': {
@@ -496,6 +533,53 @@ function receiverParameterFacts(receiver: Parser.SyntaxNode, activeSymbols: Read
   return { ...facts, isThis: true, mode: CsParameterMode.THIS };
 }
 
+/**
+ * The receiver of a FLATTENED block, built from text rather than from a node.
+ *
+ * The pre-parse pass blanked the header the receiver was written in, so there
+ * is no `parameter` node left to read — by design: blanking is what lets every
+ * member form inside the block parse as the member it is. The facts are
+ * therefore synthesized from what the pass captured before blanking.
+ *
+ * Positions are the ORIGINAL ones and still correct, because the pass preserves
+ * length to the character.
+ *
+ * `typeNode` is undefined, and that is a NAMED ABSENCE rather than an
+ * oversight: the only node for the receiver's type belongs to the pre-blanking
+ * tree, which is discarded, and holding a node from a dead tree is the
+ * wrapper-cache mistake this codebase has already paid for twice. The
+ * consequence is precise and small — the receiver's TYPE REFERENCE row is not
+ * emitted, while the parameter row, its type NAME and `isThis` all are.
+ */
+function flattenedReceiverFacts(
+  receiver: CsExtensionReceiver | undefined
+): ParameterFacts | undefined {
+  if (receiver === undefined) {
+    return undefined;
+  }
+  return {
+    name: normalizeCSharpIdentifier(receiver.name),
+    // BOTH the flag and the MODE, for the reason receiverParameterFacts gives:
+    // `isThis` is what isExtension derives from and `parameterMode` is the
+    // column a consumer reads, and the two forms must be indistinguishable.
+    mode: CsParameterMode.THIS,
+    isThis: true,
+    typeName: baseTypeName(receiver.typeText),
+    completeTypeName: receiver.typeText,
+    isNullableAnnotated: hasNullableAnnotation(receiver.typeText),
+    hasDefaultValue: false,
+    defaultValueText: '',
+    isParams: false,
+    scoped: CsScopedModifier.NONE,
+    attributeCount: 0,
+    startLine: receiver.startLine,
+    startColumn: receiver.startColumn,
+    typeNode: undefined,
+    defaultValueNode: undefined,
+    node: undefined,
+  };
+}
+
 function memberNodes(
   declaration: Parser.SyntaxNode,
   activeSymbols: ReadonlySet<string>,
@@ -624,8 +708,13 @@ function emitCallable(
   node: Parser.SyntaxNode,
   options: CsMemberExtractionOptions,
   result: CsMemberExtractionResult,
-  /** The C# 14 extension-block receiver governing this member, if any. */
-  extensionReceiver?: Parser.SyntaxNode
+  /**
+   * The C# 14 extension-block receiver governing this member, ALREADY READ.
+   *
+   * Facts rather than a node, because a flattened block has no receiver node
+   * left to read — see flattenedReceiverFacts.
+   */
+  extensionReceiver?: ParameterFacts
 ): void {
   // The HEADER — the node itself, or the taken branch's `method_header` /
   // `constructor_header` when the header sits under a `#if` (fork rule 32).
@@ -647,7 +736,7 @@ function emitCallable(
   const receiverFacts =
     extensionReceiver === undefined || modifiers.has(CsMethodModifier.STATIC)
       ? undefined
-      : receiverParameterFacts(extensionReceiver, options.activeSymbols);
+      : extensionReceiver;
   const parameters = receiverFacts === undefined ? declared : [receiverFacts, ...declared];
   const explicitInterface = childOfType(header, 'explicit_interface_specifier');
   // NORMALISED. `@class` IS the identifier `class`, and `\u0041bc` IS `Abc`.
@@ -2584,7 +2673,17 @@ function buildParameterRows(
 function emitProperty(
   node: Parser.SyntaxNode,
   options: CsMemberExtractionOptions,
-  result: CsMemberExtractionResult
+  result: CsMemberExtractionResult,
+  /** The governing extension-block receiver, already read. */
+  extensionReceiver?: ParameterFacts,
+  /**
+   * Whether the property is declared in an extension block AT ALL.
+   *
+   * Separate from the receiver, because `extension(string)` declares STATIC
+   * extension members and gives them no receiver value: they are extension
+   * members with nothing to put in parameter 0.
+   */
+  isExtensionMember: boolean = false
 ): void {
   const isIndexer = node.type === 'indexer_declaration';
   const modifiers = readMethodModifiers(node, options.activeSymbols);
@@ -2632,6 +2731,11 @@ function emitProperty(
     isAbstract: modifiers.has(CsMethodModifier.ABSTRACT),
     isVirtual: modifiers.has(CsMethodModifier.VIRTUAL),
     isOverride: modifiers.has(CsMethodModifier.OVERRIDE),
+    // THE NEW COLUMN. An extension property is not an ordinary property of the
+    // static class that holds it, and until this column existed nothing said
+    // so — the row was right in owner, name and span, and silent on the one
+    // fact that makes it an extension member.
+    isExtension: isExtensionMember,
     explicitInterfaceName: explicitInterfaceNameOf(explicitInterface),
     csTypeLinkHash: options.csTypeLinkHash,
     // The declaration starts where its first ATTRIBUTE or MODIFIER is, not at a
@@ -2720,6 +2824,13 @@ function emitProperty(
     );
   }
 
+  // THE RECEIVER GOES ON THE ACCESSORS, not on the property.
+  //
+  // A property is not callable and has no parameter list; its ACCESSORS are
+  // the methods the compiler emits, and each takes the receiver as parameter 0
+  // — `get_IsBlank(string source)`. A `static` member of an extension block
+  // takes none, exactly as a static extension method does not.
+  const accessorReceiver = modifiers.has(CsMethodModifier.STATIC) ? undefined : extensionReceiver;
   for (const accessor of accessors) {
     const row = buildAccessorMethod({
       accessor,
@@ -2728,9 +2839,24 @@ function emitProperty(
       memberName: name,
       returnTypeName: accessor.keyword === 'get' ? completeTypeName : '',
       options,
+      receiver: accessorReceiver,
     });
     if (row !== undefined) {
       result.methods.push(row);
+      // The receiver's own parameter row, owned by the ACCESSOR that takes it.
+      // Emitted here rather than in buildAccessorMethod because the row needs
+      // the accessor's hash, which does not exist until the row is built.
+      if (accessorReceiver !== undefined) {
+        result.parameters.push(
+          ...buildParameterRows(
+            [accessorReceiver],
+            row.getHash(),
+            options.serviceVersionLinkHash,
+            result.declarationOwners,
+            { options, result }
+          )
+        );
+      }
       // AN ACCESSOR OWNS ITS OWN ATTRIBUTES. Without this registration the
       // attribute extractor never visits the accessor node, so `[Intrinsic]
       // get => …` and `{ get; [param: NotNull] set; }` produced NO attribute
@@ -3029,8 +3155,10 @@ function buildAccessorMethod(input: {
   memberName: string;
   returnTypeName: string;
   options: CsMemberExtractionOptions;
+  /** The extension-block receiver this accessor takes as parameter 0, if any. */
+  receiver?: ParameterFacts;
 }): CsMethodRegistry | undefined {
-  const { accessor, owner, ownerKind, memberName, options } = input;
+  const { accessor, owner, ownerKind, memberName, options, receiver } = input;
   // GUARDED. This lookup was unguarded and it THREW on two corpus files: the
   // grammar's recovery for `#if` inside an accessor list produces an accessor
   // whose name is the preprocessor SYMBOL, and `ACCESSOR_METHOD_KIND[that]` is
@@ -3054,7 +3182,7 @@ function buildAccessorMethod(input: {
     name,
     qualifiedName: `${options.typeQualifiedName}.${name}`,
     arity: 0,
-    signature: '',
+    signature: receiver === undefined ? '' : signatureOf([receiver]),
     methodKind: kind,
     returnTypeName: input.returnTypeName,
     methodAccess: accessor.access === '' ? CsTypeAccess.NONE : accessor.access,
@@ -3066,7 +3194,11 @@ function buildAccessorMethod(input: {
     isSealed: false,
     isAsync: false,
     isIterator: false,
-    isExtension: false,
+    // An extension property's accessor IS an extension method — the static
+    // method the compiler emits with the receiver in parameter 0. Derived from
+    // the receiver, exactly as emitCallable derives it from `isThis`, so the
+    // flag and the parameter can never disagree.
+    isExtension: receiver !== undefined,
     isPartialDefinition: false,
     isPartialImplementation: false,
     explicitInterfaceName: '',
@@ -3080,7 +3212,10 @@ function buildAccessorMethod(input: {
     isAccessor: true,
     ownerMemberLinkHash: owner,
     ownerMemberKind: ownerKind,
-    parameterCount: 0,
+    // The receiver is the accessor's only parameter row, so the count and the
+    // rows agree by construction. `value` on a setter is NOT counted: it is
+    // implied by the property's type and has never had a row.
+    parameterCount: receiver === undefined ? 0 : 1,
     startLine: accessor.startLine,
     endLine: accessor.endLine,
     startColumn: accessor.startColumn,

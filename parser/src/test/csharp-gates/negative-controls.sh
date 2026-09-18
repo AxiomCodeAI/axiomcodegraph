@@ -375,7 +375,7 @@ run_break "classify a record struct as a reference type" \
 run_break "stop honouring the pinned grammar regime" \
   src/constants/csharp-constants.ts \
   "regime pins" \
-  "s = s.replace(\"export const CSHARP_GRAMMAR_REGIME = 'ts-cs-0.23.1-npm-blank1';\", \"export const CSHARP_GRAMMAR_REGIME = 'ts-cs-0.23.1-npm-blank1-oops';\")"
+  "s = s.replace(\"export const CSHARP_GRAMMAR_REGIME = 'ts-cs-0.23.1-npm-blank2';\", \"export const CSHARP_GRAMMAR_REGIME = 'ts-cs-0.23.1-npm-blank2-oops';\")"
 
 run_break "drop targetFramework from the module key" \
   src/analysis-types/csharp/CsModuleRegistry.ts \
@@ -1232,10 +1232,42 @@ run_break "let the fallback report a file whose only error is a shape we read" \
   "a collection expression is not an index" \
   "s = s.replace('  if (rows.length === 0 && readShapes > 0) {', '  if (rows.length === 0 && readShapes < 0) {')" \
   "parse gap row"
+# ---------------------------------------------------------------------------
+# C# 14 extension blocks. The grammar reads `extension(T x) { ... }` as a
+# CONSTRUCTOR whose body holds the members as statements, so a declaration_list
+# walk sees none of them: 0 methods and 0 properties where three rows belong.
+# The pre-parse pass blanks the header and the two braces and hands the grammar
+# ordinary C#. Each control below re-applies one half of that.
+# ---------------------------------------------------------------------------
+run_break "never flatten an extension block" \
+  src/parsers/csharp/extractors/cs-extension-block.ts \
+  "C# 14 extension members are emitted" \
+  "s = s.replace('  if (!EXTENSION_PROBE.test(text)) {', '  if (true) {')" \
+  "missing"
+run_break "flatten a file whose blocks are not all accounted for" \
+  src/parsers/csharp/extractors/cs-extension-block.ts \
+  "an unreadable extension block leaves the file alone" \
+  "s = s.replace('  if (clean.length !== headersInText || clean.length === 0) {', '  if (clean.length === 0) {')" \
+  "isExtension"
+run_break "give a flattened receiver VALUE mode instead of THIS" \
+  src/parsers/csharp/extractors/cs-member-extractor.ts \
+  "C# 14 extension members are emitted" \
+  "s = s.replace('    mode: CsParameterMode.THIS,\n    isThis: true,', '    mode: CsParameterMode.VALUE,\n    isThis: true,')" \
+  "not THIS"
+run_break "record an extension property as an ordinary property" \
+  src/parsers/csharp/extractors/cs-member-extractor.ts \
+  "C# 14 extension members are emitted" \
+  "s = s.replace('    isExtension: isExtensionMember,', '    isExtension: false,')" \
+  "isExtension"
+run_break "give an extension property accessor no receiver" \
+  src/parsers/csharp/extractors/cs-member-extractor.ts \
+  "C# 14 extension members are emitted" \
+  "s = s.replace('    isExtension: receiver !== undefined,', '    isExtension: false,')" \
+  "get_IsBlank.isExtension"
 run_break "parse the file exactly as it ends" \
   src/parsers/csharp/extractors/cs-fact-extractor.ts \
   "a pragma at the end is not a gap" \
-  "s = s.replace(\"rewritten.endsWith('\\\\n') ? rewritten : \", \"true ? rewritten : \")" \
+  "s = s.replace(\"flattened.text.endsWith('\\\\n') ? flattened.text : \", \"true ? flattened.text : \")" \
   "parse gap row"
 run_break "read a call the grammar called a lambda as a lambda" \
   src/parsers/csharp/extractors/cs-misparse.ts \

@@ -4972,9 +4972,16 @@ async function theTortureCorpusStillBites(): Promise<number> {
   return bad;
 }
 
-async function extensionMembersAreARecordedGap(): Promise<number> {
+async function extensionMembersAreEmitted(): Promise<number> {
   return withTempDir(async (dir) => {
     const corpus = await fsp.mkdtemp(path.join(os.tmpdir(), 'cs-ext14-'));
+    // TWO blocks, with a C# 13 `this`-parameter method beside them.
+    //
+    // Both real files that use the construct — 2 of ~16,400 corpus files —
+    // declare exactly one block, but SEVERAL is where the pass had to be
+    // proven: a partial rewrite is the failure mode that loses rows, so this
+    // asserts that two blocks both flatten and that members of each are
+    // attributed to their own receiver.
     const source = `namespace Acme.App;
 
 public static class Ext14
@@ -4982,6 +4989,15 @@ public static class Ext14
     extension(string source)
     {
         public string Slug() => source.Trim();
+
+        public bool IsBlank => source.Length == 0;
+    }
+
+    extension(int value)
+    {
+        public int Doubled() => value * 2;
+
+        public bool IsZero => value == 0;
     }
 
     public static string Classic(this string s) => s + "!";
@@ -4991,59 +5007,227 @@ public static class Ext14
     await runAnalyzer(corpus, dir);
     const relations = new Map(readRelations(dir).map((r) => [r.name, r]));
     const methods = relations.get('all-csharp-methods.csv');
+    const properties = relations.get('all-csharp-properties.csv');
+    const parameters = relations.get('all-csharp-method-parameters.csv');
     const gaps = relations.get('all-csharp-parse-gaps.csv');
-    if (methods === undefined || gaps === undefined) {
+    if (
+      methods === undefined ||
+      properties === undefined ||
+      parameters === undefined ||
+      gaps === undefined
+    ) {
       return fail('a relation this check reads is missing');
     }
     let bad = 0;
-    const iName = methods.header.indexOf('name');
-    const iKind = methods.header.indexOf('methodKind');
-    const names = methods.rows.map((r) => r[iName]!);
+    const mName = methods.header.indexOf('name');
+    const mKind = methods.header.indexOf('methodKind');
+    const mExt = methods.header.indexOf('isExtension');
+    const mParams = methods.header.indexOf('parameterCount');
+    const names = methods.rows.map((r) => r[mName]!);
 
-    // 1. THE MEMBERS ARE ABSENT, and this asserts that rather than wishes
-    //    otherwise. `extension(...)` matches the constructor production, so the
-    //    block parses WITHOUT error and its members never become members of
-    //    anything. There is no ERROR node, so there is no cs_parse_gap either:
-    //    the absence is SILENT, which is the one property of this shape worth
-    //    fixing and the reason it sits in KNOWN_GRAMMAR_LIMITATIONS as a
-    //    MISPARSE rather than an ERROR.
-    //
-    //    Asserted as a known absence so that the day it changes — upstream
-    //    rule, or a gap emitted for the detected misparse — this check fails
-    //    and says so, instead of the fact base quietly gaining members.
-    if (names.includes('Slug')) {
-      bad += fail(
-        '`Slug`, a member of the extension block, is now emitted. Either upstream grew a rule ' +
-          'or a repair landed — reclassify the shape in KNOWN_GRAMMAR_LIMITATIONS and assert ' +
-          'the members properly, including where the receiver lives.'
-      );
-    }
-    if (gaps.rows.length !== 0) {
-      bad += fail(
-        `the block produced ${gaps.rows.length} parse-gap row(s). That is an IMPROVEMENT — the ` +
-          'silent absence became a recorded one — and this assertion should be inverted to ' +
-          'require it.'
-      );
+    // 1. THE INSTANCE METHOD IS A MEMBER, AND AN EXTENSION ONE. Before the
+    //    flattening pass the block's members were SILENTLY absent — 0 methods
+    //    and 0 properties where three rows belong — because the grammar reads
+    //    `extension(...)` as a constructor and its body as statements, which a
+    //    declaration_list walk never visits.
+    const slug = methods.rows.find((r) => r[mName] === 'Slug');
+    if (slug === undefined) {
+      bad += fail('`Slug`, an instance method of the extension block, is missing');
+    } else {
+      if (slug[mExt] !== 'true') {
+        bad += fail(`Slug.isExtension is ${slug[mExt]}, not true`);
+      }
+      // The receiver is parameter 0 — the whole model, and what makes the C# 13
+      // and C# 14 forms one fact.
+      if (slug[mParams] !== '1') {
+        bad += fail(`Slug takes ${slug[mParams]} parameters, not the 1 receiver`);
+      }
     }
 
-    // 2. NO PHANTOM CONSTRUCTOR. `extension(string source)` matches the
+    // 2. THE INSTANCE PROPERTY, and the column that says what it is. Nothing
+    //    said so before: cs_property had no isExtension, so an extension
+    //    property was indistinguishable from an ordinary property of the static
+    //    class — right in owner, name and span, silent on the one fact that
+    //    matters.
+    const pName = properties.header.indexOf('name');
+    const pExt = properties.header.indexOf('isExtension');
+    if (pExt === -1) {
+      bad += fail('cs_property has no isExtension column');
+    }
+    const isBlank = properties.rows.find((r) => r[pName] === 'IsBlank');
+    if (isBlank === undefined) {
+      bad += fail('`IsBlank`, an extension property, produced no cs_property row');
+    } else if (isBlank[pExt] !== 'true') {
+      bad += fail(`IsBlank.isExtension is ${isBlank[pExt]}, not true`);
+    }
+
+    // 3. WHERE THE RECEIVER OF A PROPERTY LIVES — the ruling this shape needed.
+    //    On the ACCESSOR, as parameter 0, because the accessor is the static
+    //    method the compiler emits: `get_IsBlank(string source)`. A property is
+    //    not callable and has no parameter list of its own, so a receiver
+    //    column on cs_property would have described a call that does not exist.
+    const getter = methods.rows.find((r) => r[mName] === 'get_IsBlank');
+    if (getter === undefined) {
+      bad += fail('`get_IsBlank`, the extension property`s accessor, is missing');
+    } else {
+      if (getter[mExt] !== 'true') {
+        bad += fail(`get_IsBlank.isExtension is ${getter[mExt]}, not true`);
+      }
+      if (getter[mParams] !== '1') {
+        bad += fail(`get_IsBlank takes ${getter[mParams]} parameters, not the 1 receiver`);
+      }
+      const qOwner = parameters.header.indexOf('csMethodLinkHash');
+      const qThis = parameters.header.indexOf('isThis');
+      const qMode = parameters.header.indexOf('parameterMode');
+      const qName = parameters.header.indexOf('name');
+      const mHash = methods.header.indexOf('csMethodUniqueHash');
+      const receiver = parameters.rows.find((r) => r[qOwner] === getter[mHash]);
+      if (receiver === undefined) {
+        bad += fail('the accessor`s receiver has no cs_method_parameter row');
+      } else {
+        if (receiver[qName] !== 'source') {
+          bad += fail(`the receiver is named ${receiver[qName]}, not source`);
+        }
+        // BOTH, because isExtension derives from isThis and parameterMode is
+        // what a consumer reads: setting one and not the other made the C# 14
+        // form distinguishable from the C# 13 one, which is the bug.
+        if (receiver[qThis] !== 'true') {
+          bad += fail('the receiver is not marked isThis');
+        }
+        if (receiver[qMode] !== CsEnums.CsParameterMode.THIS) {
+          bad += fail(`the receiver mode is ${receiver[qMode]}, not THIS`);
+        }
+      }
+    }
+
+    // 3b. THE SECOND BLOCK IS FLATTENED TOO, with ITS OWN receiver. A pass that
+    //     handled the first block and not the second would be the partial
+    //     rewrite that loses rows — see the companion check.
+    const doubled = methods.rows.find((r) => r[mName] === 'Doubled');
+    if (doubled === undefined) {
+      bad += fail('`Doubled`, a method of the SECOND extension block, is missing');
+    } else if (doubled[mExt] !== 'true') {
+      bad += fail(`Doubled.isExtension is ${doubled[mExt]}, not true`);
+    }
+    const isZero = properties.rows.find((r) => r[pName] === 'IsZero');
+    if (isZero === undefined) {
+      bad += fail('`IsZero`, a property of the SECOND extension block, is missing');
+    } else if (isZero[pExt] !== 'true') {
+      bad += fail(`IsZero.isExtension is ${isZero[pExt]}, not true`);
+    }
+    // Each block`s receiver is its own: the second takes an int, and a receiver
+    // leaking across blocks would show up here as a string.
+    const qOwner2 = parameters.header.indexOf('csMethodLinkHash');
+    const qType2 = parameters.header.indexOf('completeTypeName');
+    const mHash2 = methods.header.indexOf('csMethodUniqueHash');
+    if (doubled !== undefined) {
+      const recv = parameters.rows.find((r) => r[qOwner2] === doubled[mHash2]);
+      if (recv === undefined) {
+        bad += fail('`Doubled` has no receiver parameter row');
+      } else if (recv[qType2] !== 'int') {
+        bad += fail(`the second block receiver is ${recv[qType2]}, not int`);
+      }
+    }
+
+    // 4. NO PHANTOM CONSTRUCTOR. `extension(string source)` matches the
     //    constructor production — a constructor of a STATIC class taking one
     //    argument, which is not legal C# and resolves to nothing. A wrong row
     //    is worse than a missing one, because the missing one shows in a count.
-    if (methods.rows.some((r) => r[iKind] === CsEnums.CsMethodKind.CONSTRUCTOR)) {
+    if (methods.rows.some((r) => r[mKind] === CsEnums.CsMethodKind.CONSTRUCTOR)) {
       bad += fail(
         '`extension(string source)` produced a CONSTRUCTOR row. A static class has no ' +
           'constructor taking an argument; this is the phantom cs-misparse.ts removes.'
       );
     }
 
-    // 3. THE REST OF THE FILE SURVIVES. The error must stay local: a C# 13
-    //    `this`-parameter extension beside the block is ordinary code and its
-    //    loss would mean the recovery ran to end of file.
+    // 5. THE REST OF THE FILE SURVIVES, and the file is now read WHOLE: the
+    //    block used to leave parse gaps behind and no longer does.
     if (!names.includes('Classic')) {
       bad += fail(
         '`Classic`, an ordinary C# 13 extension method AFTER the block, is missing — the ' +
           'block`s parse error is running past its own braces and taking the file with it.'
+      );
+    }
+    if (gaps.rows.length !== 0) {
+      bad += fail(`the flattened block still leaves ${gaps.rows.length} parse-gap row(s)`);
+    }
+    return bad;
+  });
+}
+
+/**
+ * A block the grammar's recovery does not present cleanly: the pass declines
+ * for the WHOLE FILE, and that is the assertion.
+ *
+ * The boundary is not the NUMBER of blocks — several flatten fine, which the
+ * companion check proves. It is what the recovery makes of each one, and that
+ * MEASURED boundary is content-dependent:
+ *
+ *   a block with two or more members   recovers as a constructor with a `block`
+ *                                      child, and flattens
+ *   a block with ONE member            does not, and its presence degrades the
+ *                                      recovery of its neighbours too
+ *   a GENERIC block, `extension<T>(…)` does not — not detected at all
+ *
+ * So a file mixing the two has blocks the pass can read and blocks it cannot,
+ * and blanking only the readable ones is WORSE than blanking none: the
+ * unflattened block's ERROR debris swallows the tail of the one that was
+ * blanked, and a member the file declares goes missing. Measured at
+ * `clean=1, headers=2` for the fixture below — the guard's condition is
+ * reachable, which is why its negative control can fire.
+ */
+async function anUnreadableExtensionBlockLeavesTheFileAlone(): Promise<number> {
+  return withTempDir(async (dir) => {
+    const corpus = await fsp.mkdtemp(path.join(os.tmpdir(), 'cs-ext14-mixed-'));
+    // ONE readable block and ONE unreadable one. The second has a single
+    // member, which is the shape the recovery does not present cleanly.
+    const source = `namespace Acme.App;
+
+public static class Ext14Mixed
+{
+    extension(string source)
+    {
+        public string Slug() => source.Trim();
+
+        public bool IsBlank => source.Length == 0;
+    }
+
+    extension(int)
+    {
+        public static int Zero => 0;
+    }
+}
+`;
+    await fsp.writeFile(path.join(corpus, 'Ext14Mixed.cs'), source, 'utf-8');
+    await runAnalyzer(corpus, dir);
+    const relations = new Map(readRelations(dir).map((r) => [r.name, r]));
+    const methods = relations.get('all-csharp-methods.csv');
+    const properties = relations.get('all-csharp-properties.csv');
+    const gaps = relations.get('all-csharp-parse-gaps.csv');
+    if (methods === undefined || properties === undefined || gaps === undefined) {
+      return fail('a relation this check reads is missing');
+    }
+    let bad = 0;
+    const pExt = properties.header.indexOf('isExtension');
+    const mExt = methods.header.indexOf('isExtension');
+    const claimed =
+      properties.rows.filter((r) => r[pExt] === 'true').length +
+      methods.rows.filter((r) => r[mExt] === 'true').length;
+    if (claimed !== 0) {
+      bad += fail(
+        `${claimed} row(s) claim isExtension in a file whose blocks the pass cannot all ` +
+          'read. The pass rewrote PART of the file: either the all-or-nothing guard in ' +
+          'cs-extension-block.ts was weakened, or the recovery improved and this check ' +
+          'should be inverted to require the rows.'
+      );
+    }
+    // AND THE FILE IS STILL REPORTED AS INCOMPLETE. Declining is only defensible
+    // because the absence is RECORDED — a silent absence is the property that
+    // made this shape worth fixing in the first place.
+    if (gaps.rows.length === 0) {
+      bad += fail(
+        'a file whose extension blocks were left unflattened produced NO parse gap — its ' +
+          'members are absent and nothing says the text was not fully read.'
       );
     }
     return bad;
@@ -5742,10 +5926,10 @@ const FROZEN_EMISSION_REGIME = 'roslyn4-oop';
 // a rule change alters what the parser sees, and a module hash that did not
 // move with it would validate the wrong trees.
 //
-// Now `ts-cs-0.23.1-npm-blank1`: the PUBLISHED grammar, plus the pre-parse
+// Now `ts-cs-0.23.1-npm-blank2`: the PUBLISHED grammar, plus the pre-parse
 // blanking of inactive `#if` arms. Blanking is in the token because it changes
 // the text the grammar is given — the same reason a grammar rule was.
-const FROZEN_GRAMMAR_REGIME = 'ts-cs-0.23.1-npm-blank1';
+const FROZEN_GRAMMAR_REGIME = 'ts-cs-0.23.1-npm-blank2';
 // THE PROGRAM the gate corpus describes (v1.9.1's remaining item 2): the
 // target framework and the define set are INPUTS, both in cs_module's key,
 // and an expectation that does not say which program it is about can be
@@ -13341,12 +13525,20 @@ async function main(): Promise<number> {
         run: () => theTortureCorpusStillBites(),
       },
       {
-        name: 'C# 14 extension members are a known absence',
+        name: 'C# 14 extension members are emitted',
         proves:
-          'the published grammar misparses an extension block, so its members are SILENTLY ' +
-          'absent — asserted as a known absence, with no phantom constructor and the rest of ' +
-          'the file intact; the day either changes this check says so',
-        run: () => extensionMembersAreARecordedGap(),
+          'a flattened extension block yields its instance method, its instance PROPERTY with ' +
+          'cs_property.isExtension, and the receiver as parameter 0 of the accessor — the ' +
+          'members were SILENTLY absent, 0 rows where 3 belong, and no phantom constructor',
+        run: () => extensionMembersAreEmitted(),
+      },
+      {
+        name: 'an unreadable extension block leaves the file alone',
+        proves:
+          'a file with one readable block and one the recovery does not present cleanly is ' +
+          'left ENTIRELY alone rather than partly rewritten — a partial rewrite loses a ' +
+          'member the file declares, and the gap relation still reports the file',
+        run: () => anUnreadableExtensionBlockLeavesTheFileAlone(),
       },
       {
         name: 'a delegate is named by its name field',
