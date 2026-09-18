@@ -1,0 +1,219 @@
+#!/usr/bin/env python3
+"""axiomcode test-impact [<repo>] [--range <a>..<b> | --staged] [--in <path>] [--limit N] [--json] [--why]
+
+WHICH TESTS ACTUALLY HAVE TO RUN for the edit in front of you.
+
+A suite is run in full because nobody can say which part of it is affected, and the cost of that falls on
+every commit and every pipeline. The graph can say: a test reaches a change or it does not. This takes the
+edit (working tree by default, or a range, or the index), maps each changed line onto the declarations the
+graph knows there, and reports the test files that reach any of them — with the chain, so a selection can
+be checked rather than trusted.
+
+It is deliberately CONSERVATIVE about what it claims, because the failure that matters is not naming a
+test too many, it is missing one:
+
+  · a test reached only through an edge the graph does not encode — reflection, a service loader, a
+    framework that instantiates by name, a parameterized case built at runtime — will NOT appear;
+  · a test whose fixture reaches the change is included, since it runs before the test body;
+  · a subclass of a reached test class is included, because it inherits those methods;
+  · when a change is to a TYPE or a FIELD rather than a body, everything that names the type is treated as
+    reaching it.
+
+So the output is a lower bound, and it says so. A pipeline may use it to run the named tests FIRST and the
+rest after, which costs nothing if it is wrong and pays on every run where it is right; using it to skip
+the rest is a decision about risk that this tool cannot make for you.
+"""
+import importlib.machinery, importlib.util, json, os, re, subprocess, sys, collections
+
+TESTY = re.compile(r'(^|[/_.-])(test|tests|spec|specs|__tests__|it)([/_.-]|$)', re.I)
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+
+
+def run(script, args):
+    r = subprocess.run([sys.executable, os.path.join(HERE, script)] + args,
+                       capture_output=True, text=True)
+    return r.returncode, r.stdout, r.stderr
+
+
+# How a suite is invoked, per language. Only the shapes this graph is built for; anything else prints the
+# files and lets the reader decide, which is better than inventing a command that does not run.
+def command_for(lang, files, classes):
+    if lang == 'java' and classes:
+        return "mvn test -Dtest=" + ",".join(sorted({c.split('.')[-1] for c in classes})[:40])
+    if lang == 'python':
+        return "pytest " + " ".join(sorted(files)[:40])
+    if lang in ('typescript', 'javascript'):
+        return "npx vitest run " + " ".join(sorted(files)[:40])
+    return None
+
+
+
+# The call graph can be silent for a reason that has nothing to do with coverage. A function placed in an
+# ARRAY or a table and invoked by iteration -- a transform pipeline, a middleware chain, a plugin list, a
+# visitor map -- has no resolved caller, so a test that drives the pipeline reaches everything except the
+# one function the pipeline dispatches to. Measured on a compiler codebase: the test reached `transform`,
+# `transformFor` reached the changed function, and nothing joined the two, so a change with three test
+# files to its name selected one of them.
+#
+# Matching the declaration's NAME in test text does not recover it either: the tests that mattered assert
+# on generated output and never write the helper's name. What does contain them is the PACKAGE -- both the
+# changed file and its tests live under the same one. That is a weak claim and a useful one: in a monorepo
+# it still excludes most of the suite, and it cannot miss a test that sits beside the code it exercises.
+def package_of(rel):
+    """The package a path belongs to: its first two segments, or its first if that is all there is."""
+    parts = [x for x in rel.split('/') if x]
+    return '/'.join(parts[:2]) if len(parts) > 2 else (parts[0] if parts else '')
+
+
+def package_tier(repo, changed_files, limit=6000):
+    """Every test file under the same package as a changed file. Not a call-graph answer, and says so."""
+    pkgs = {package_of(f) for f in changed_files if f}
+    pkgs.discard('')
+    if not pkgs: return {}, pkgs
+    out = collections.defaultdict(list)
+    seen = 0
+    for root, dirs, fs in os.walk(repo):
+        dirs[:] = [d for d in dirs if d not in ('node_modules', '.git', 'dist', 'build', 'target', '.axiomcode')]
+        for f in fs:
+            if not f.endswith(('.ts', '.tsx', '.js', '.mjs', '.java', '.py')): continue
+            rel = os.path.relpath(os.path.join(root, f), repo)
+            if not TESTY.search(rel): continue
+            seen += 1
+            if seen > limit: return dict(out), pkgs
+            p = package_of(rel)
+            if p in pkgs: out[p].append(rel)
+    return dict(out), pkgs
+
+
+def main(argv):
+    as_json = '--json' in argv
+    why = '--why' in argv
+    limit = 40
+    if '--limit' in argv:
+        i = argv.index('--limit'); limit = int(argv[i + 1])
+    passthru = [a for a in argv if a not in ('--json', '--why')]
+    if '--limit' in passthru:
+        i = passthru.index('--limit'); del passthru[i:i + 2]
+    if '-h' in argv or '--help' in argv:
+        print(__doc__); return 0
+
+    rc, out, err = run('axiomcode-changed', passthru + ['--json'])
+    if rc != 0:
+        sys.stderr.write(err or out); return rc
+    try:
+        changed = json.loads(out)
+    except Exception:
+        sys.stderr.write(out); return 2
+
+    entries = changed.get('changed') or []
+    targets, by_target = [], {}
+    for e in entries:
+        t = e.get('target')
+        if not t: continue
+        if t not in by_target:
+            by_target[t] = e; targets.append(t)
+    if not targets:
+        print("no changed declaration the graph can name, so no test can be selected from it."
+              + ("\n  " + "; ".join(changed.get('notes') or []) if changed.get('notes') else ""))
+        return 0
+
+    # `impact` is asked once per changed declaration rather than once for all of them: a single call
+    # unions the answers and loses which change pulled in which test, and that is exactly what a reader
+    # needs to decide whether a selection is believable.
+    repo = next((a for a in passthru if os.path.isdir(a)), '.')
+    scope = []
+    if '--in' in passthru:
+        i = passthru.index('--in'); scope = ['--in', passthru[i + 1]]
+
+    tests = {}                      # test id -> record
+    pulled = collections.defaultdict(set)
+    unseen = []
+    for t in targets:
+        rc, o, e = run('axiomcode-impact', [t, repo, '--tests', '--json'] + scope)
+        if rc != 0:
+            unseen.append(t); continue
+        try:
+            d = json.loads(o)
+        except Exception:
+            unseen.append(t); continue
+        for rec in d.get('tests') or []:
+            tests.setdefault(rec['id'], rec)
+            pulled[rec['id']].add(t)
+        for rec in d.get('inherited_tests') or []:
+            rid = rec.get('id')
+            if rid and rid not in tests:
+                tests[rid] = dict(rec, hops=None, certainty='inherited')
+                pulled[rid].add(t)
+
+    files = sorted({r.get('at', '').split(':')[0] for r in tests.values() if r.get('at')})
+    # only when the graph found nothing, or found nothing in the changed files' own package: a text tier
+    # offered alongside a good call-graph answer is noise, offered instead of silence it is the difference
+    # between "run these first" and "there is nothing to run"
+    changed_files = [e.get('file') for e in entries if e.get('file')]
+    pkg_hits, pkgs = package_tier(repo, changed_files) if not files else ({}, set())
+    classes = sorted({r.get('owner') for r in tests.values() if r.get('owner')})
+    lang = (changed.get('lang') or '').lower() or _guess_lang(files)
+
+    if as_json:
+        print(json.dumps({'changed': [{'symbol': by_target[t]['symbol'], 'kind': by_target[t]['kind'],
+                                       'target': t} for t in targets],
+                          'test_files': files, 'test_classes': classes,
+                          'tests': [dict(r, pulled_in_by=sorted(pulled[i])) for i, r in tests.items()],
+                          'command': command_for(lang, files, classes),
+                          'not_reached_from': unseen,
+                          'same_package_only': pkg_hits,
+                          'bound': 'a lower bound: a test reached only by reflection, a service loader, a '
+                                   'framework instantiating by name, or a case built at runtime is not here'},
+                         indent=1))
+        return 0
+
+    print(f"changed declarations ({len(targets)}): " + ", ".join(
+        f"{by_target[t]['symbol']} [{by_target[t]['kind']}]" for t in targets[:8])
+        + (f" … +{len(targets)-8}" if len(targets) > 8 else ""))
+    if not tests:
+        print("\nno test in the graph reaches any of them.")
+        print("  that is not the same as 'no test covers this': a function invoked through an array, a")
+        print("  table or a plugin list has no resolved caller, so a test that drives it looks unrelated.")
+        if pkg_hits:
+            n = sum(len(v) for v in pkg_hits.values())
+            print(f"\n  BY PACKAGE ONLY — {n} test file(s) live under the same package as a changed file")
+            print(f"  ({', '.join(sorted(pkgs))}). This is proximity, not the call graph:")
+            for p, fs in sorted(pkg_hits.items()):
+                for f in sorted(fs)[:limit]:
+                    print(f"    {f}")
+    else:
+        print(f"\ntests to run: {len(tests)} test(s) in {len(files)} file(s)")
+        for f in files[:limit]:
+            n = sum(1 for r in tests.values() if r.get('at', '').startswith(f + ':'))
+            print(f"    {f}   ({n} test(s))")
+        if len(files) > limit:
+            print(f"    … +{len(files)-limit} more file(s) (--limit N)")
+        if why:
+            print("\n  why each one is here:")
+            for i, r in sorted(tests.items(), key=lambda kv: (kv[1].get('hops') or 99, kv[1].get('display', '')))[:limit]:
+                chain = " -> ".join(r.get('chain') or []) or "reaches it directly"
+                print(f"    {r.get('display')}  [{r.get('certainty')}]  {chain}")
+        cmd = command_for(lang, files, classes)
+        if cmd:
+            print(f"\n  {cmd}")
+    if unseen:
+        print(f"\n  {len(unseen)} changed declaration(s) could not be resolved to a graph symbol: "
+              + ", ".join(unseen[:6]))
+    print("\nbound: this is a LOWER bound. A test that reaches the change only through something the graph "
+          "does not encode — reflection, a service loader, a framework that instantiates by name, a case "
+          "built at runtime — does not appear here. Run these first; do not skip the rest on this alone.")
+    return 0
+
+
+def _guess_lang(files):
+    ext = collections.Counter(os.path.splitext(f)[1] for f in files)
+    if not ext: return ''
+    top = ext.most_common(1)[0][0]
+    return {'.java': 'java', '.py': 'python', '.ts': 'typescript', '.tsx': 'typescript',
+            '.js': 'javascript', '.mjs': 'javascript'}.get(top, '')
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))
