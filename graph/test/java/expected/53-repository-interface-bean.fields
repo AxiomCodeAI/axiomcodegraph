@@ -1,0 +1,3 @@
+known_edge	read	probe.Orders#audit() -> probe.Orders#audit
+known_edge	read	probe.Orders#describe() -> probe.Orders#store
+known_edge	read	probe.Orders#load(String) -> probe.Orders#repository

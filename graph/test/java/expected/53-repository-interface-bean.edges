@@ -1,0 +1,2 @@
+boundary_lib	method	probe.Orders#describe() -> dep.Store#describe()
+known_edge	method	probe.Orders#load(String) -> probe.OrderRepository#findByName(String)
