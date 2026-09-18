@@ -1,0 +1,8 @@
+known_edge	FUNCTION_CALL	members#callVarAmbient() @L66 -> NamedCallable#<arrow@22>(number)
+known_edge	METHOD_CALL	members#callPlainMethod(PlainMethod) @L61 -> PlainMethod#run(number)
+known_edge	METHOD_CALL	members#callPropInline(PropInline) @L53 -> PropInline#<arrow@38>(number)
+known_edge	METHOD_CALL	members#callPropNamed(PropNamed) @L54 -> NamedCallable#<arrow@22>(number)
+multi_inferred	FUNCTION_CALL	members#callVarInline() @L51 -> members#<arrow@26>(number)
+multi_inferred	FUNCTION_CALL	members#callVarInline() @L51 -> members#varInline(number)
+multi_inferred	FUNCTION_CALL	members#callVarNamed() @L52 -> NamedCallable#<arrow@22>(number)
+multi_inferred	FUNCTION_CALL	members#callVarNamed() @L52 -> members#varNamed(number)
