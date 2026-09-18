@@ -23,6 +23,7 @@ axiomcode index [<repo>] [--lang <l>] [--src <dir>] [--library <root>,…]   the
 axiomcode graph [<repo>] [--out <folder | page.html>] [same flags]        the graph as one page; runs the pipeline only when there is no up-to-date graph
 axiomcode path <from> <to> [<repo>] [--every|--paths N] [--in <path>]     the shortest chain of calls from A to B per target (--every: all routes) — or why there is none
 axiomcode path '*' <X>  ·  path <X> '*'                                   everything that can reach X (with its entry points) · everything X reaches
+axiomcode path <word> '*'                                                 no exact name yet? a bare word matches every declaration containing it
 axiomcode impact <target>… [<repo>] [--tests] [--depth N] [--in <path>]  what a change to a method / field / type / parameter / type parameter / local reaches, and how sure
 axiomcode changed [<repo>] [<file>…] [--range a..b | --staged] [--impact]  which declarations an edit changed and HOW (signature, field type, body …) — then impact on all of them
 ```
@@ -233,6 +234,12 @@ absent, never wrong, and the `? n` count says how many.
 
 ## path — asking the graph
 
+- **Start here when you do not have a name yet.** A bare word is every declaration containing it, so
+  `path decrypt '*'` answers "where is the decryption code and what does it touch" — 12 declarations, what they
+  reach, by hop and by file — without knowing a single exact name first. `path '*' <word>` is the same in reverse.
+  This is the way into an unfamiliar repository: get the real names out of the answer, then ask the precise
+  question with one of them. There is no separate search verb, and none is needed — a name you half remember stops
+  with the exact names that are close, which is the same lookup.
 - **Endpoints are names as written in the code**, never guesses: `Owner.method`, `Outer.Inner.method`, `method` (a free
   function, or that name under any owner), `Type` (every method it declares), `file.ts:123` (the callable at that
   line, top-level code included), `file.py` (every method in the file). `Outer$Inner.m`, `Outer.Inner#m`, `m(int,String)`
