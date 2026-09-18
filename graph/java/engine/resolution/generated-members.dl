@@ -221,3 +221,57 @@ recv_name_is_field(e) :- ident_field_recv(e, name), expr_ultimate_type("client",
 // The field's own provenance, so field_access.dl can tier the row it now emits.
 field_prov(p, id) :- gen_field_live(owner, fname, id),
     annotation_on(p, ann, _, "TYPE_DECLARATION", owner, _), gen_logger_ann(ann, fname).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. OVERRIDE, which is a sixth relation built off the IR tables
+//
+// A generated accessor can IMPLEMENT an interface method: `interface Named { String
+// getName(); }` against a class that declares the field annotated. The member is in
+// method_name_in_type, so the dispatch fan already reaches it and the call edge was
+// right. `overrides` was not: virtual-dispatch.dl builds method_override and
+// virtual_override from java_method / lib_method, and the OVERRIDE side of each
+// excludes anything the IR does not carry. Asking which types override an interface
+// method therefore under-reported, silently, and only for the types whose
+// implementation is annotation-declared. Fixes #867.
+//
+// Only the override side is mirrored. The base side is left alone deliberately: an
+// abstract or interface declaration is written out in source in every shape this
+// covers, and widening it would fan a generated member as a dispatch BASE, which is
+// the over-expansion FIX-16 removed.
+//
+// java_method (22): 0 name  7 owner  16 methodKind  17 parameterCount  21 hash
+// ─────────────────────────────────────────────────────────────────────────────
+
+// method_override clause 1: an ABSTRACT base, implemented by a generated accessor.
+method_override(concrete, base) :-
+    java_method(name, _, _, _, _, _, _, baseType, _, _, _, _, _, _, _, _, "ABSTRACT_METHOD", pc, _, _, _, base),
+    name != "", type_ancestor(subType, baseType), subType != baseType,
+    gen_method_live(subType, name, pc, concrete).
+
+// method_override clause 2: an INTERFACE base, same shape. Some interface methods are
+// not tagged ABSTRACT_METHOD, which is why the original has two clauses and so does this.
+method_override(concrete, base) :-
+    java_type(_, _, _, "INTERFACE_TYPE", _, _, _, _, _, _, _, _, _, ifaceType),
+    java_method(name, _, _, _, _, _, _, ifaceType, _, _, _, _, _, _, _, _, _, pc, _, _, _, base),
+    name != "", type_ancestor(implType, ifaceType),
+    gen_method_live(implType, name, pc, concrete).
+
+// virtual_override, client base. The body already reaches the member through
+// method_name_in_type; it is the final join, which confirms the override's own name
+// and arity against java_method, that dropped it. Owner is bound to `sub` here rather
+// than left free as the original leaves it, which is tighter and costs nothing.
+virtual_override(base, override) :-
+    java_method(name, _, _, _, _, _, _, baseType, _, _, _, _, _, _, _, _, _, pc, _, _, _, base),
+    name != "", baseType != "",
+    type_ancestor(sub, baseType), sub != baseType,
+    gen_method_live(sub, name, pc, override),
+    override != base.
+
+// virtual_override, LIBRARY base: a client type implements a library interface with a
+// generated accessor. Pinned on client_overridden_lib_type exactly as the hand-written
+// clause is, so this inherits that clause's cost bound rather than opening a new fan.
+virtual_override(base, override) :- client_overridden_lib_type(baseType),
+    lib_method(name, _, _, _, _, _, _, baseType, _, _, _, _, _, _, _, _, _, pc, _, _, _, base),
+    name != "", type_ancestor(sub, baseType),
+    gen_method_live(sub, name, pc, override).
+
