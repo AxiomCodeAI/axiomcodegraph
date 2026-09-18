@@ -1,5 +1,5 @@
-known_edge	read	probe.Compact#Compact(String,Point) -> probe.Compact#id
+known_edge	read	probe.Compact#<init>(String,Point) -> probe.Compact#id
 known_edge	read	probe.Compact#label() -> probe.Compact#id
-known_edge	write	probe.Compact#Compact(String,Point) -> probe.Compact#id
+known_edge	write	probe.Compact#<init>(String,Point) -> probe.Compact#id
 known_edge	write	probe.Explicit#<init>(String,Point) -> probe.Explicit#id
 known_edge	write	probe.Explicit#<init>(String,Point) -> probe.Explicit#origin

@@ -2,7 +2,7 @@ ambiguous_unknown	FIELD_TYPE	0	probe.Compact [FIELD] -> -
 ambiguous_unknown	FIELD_TYPE	0	probe.Explicit [FIELD] -> -
 ambiguous_unknown	FIELD_TYPE	0	probe.Plain [FIELD] -> -
 ambiguous_unknown	LOCAL_VARIABLE	0	probe.Records#viaOthers(Point) [LOCAL_VARIABLE] -> -
-ambiguous_unknown	METHOD_PARAM	0	probe.Compact#Compact(String,Point) [METHOD_PARAM] -> -
+ambiguous_unknown	METHOD_PARAM	0	probe.Compact#<init>(String,Point) [METHOD_PARAM] -> -
 ambiguous_unknown	METHOD_PARAM	0	probe.Explicit#<init>(String,Point) [METHOD_PARAM] -> -
 ambiguous_unknown	METHOD_PARAM	0	probe.Plain#<init>(String,Point) [METHOD_PARAM] -> -
 ambiguous_unknown	METHOD_RETURN	0	probe.Compact#label() [METHOD] -> -
@@ -14,7 +14,7 @@ boundary_lib	FIELD_TYPE	0	probe.Compact [FIELD] -> dep.Point
 boundary_lib	FIELD_TYPE	0	probe.Explicit [FIELD] -> dep.Point
 boundary_lib	FIELD_TYPE	0	probe.Plain [FIELD] -> dep.Point
 boundary_lib	LOCAL_VARIABLE	0	probe.Records#viaLocal(Plain) [LOCAL_VARIABLE] -> dep.Point
-boundary_lib	METHOD_PARAM	0	probe.Compact#Compact(String,Point) [METHOD_PARAM] -> dep.Point
+boundary_lib	METHOD_PARAM	0	probe.Compact#<init>(String,Point) [METHOD_PARAM] -> dep.Point
 boundary_lib	METHOD_PARAM	0	probe.Explicit#<init>(String,Point) [METHOD_PARAM] -> dep.Point
 boundary_lib	METHOD_PARAM	0	probe.Plain#<init>(String,Point) [METHOD_PARAM] -> dep.Point
 boundary_lib	METHOD_PARAM	0	probe.Records#viaCompact(Point) [METHOD_PARAM] -> dep.Point
