@@ -855,3 +855,4 @@
 .decl cfg_lib_bean_narrowing_enabled()
 .decl cfg_staged_lib_type(c0:symbol)
 .decl cfg_injectable_scope_type(c0:symbol)
+.decl gen_accessor_field(c0:symbol,c1:symbol)
