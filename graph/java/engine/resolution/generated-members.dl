@@ -1,0 +1,372 @@
+// ============================================================================
+// Resolution · GENERATED MEMBERS  (members an annotation declares, not the source)
+//
+// An annotation processor on the compile path adds members to a type. The source
+// file does not contain them, so the parser cannot emit them, and every call
+// through one lands in `ambiguous_unknown`: the type resolved, the member did not.
+// Lombok is the case that matters at scale, and the shape is general: an
+// annotation on a type or a field declares a member with a derivable name.
+//
+// This file puts those members back, so method-lookup.dl and field-lookup.dl see
+// the member set the compiler sees. Fixes #848.
+//
+// WHAT IT DOES NOT DO. It declares members, it does not give them bodies. A call
+// to a generated accessor is an edge to a member with no statements, which is the
+// truth: the accessor reads or writes a field and calls nothing further. Nothing
+// here invents a call edge out of a generated member.
+//
+// SCOPE: accessors, and the logger field a class-level annotation declares.
+// `@Builder` needs a synthesized nested type as well as methods, and
+// `@RequiredArgsConstructor` and friends need constructors; neither is here, and the
+// case pins both as still unresolved so the gaps stay visible rather than silent.
+//
+// THE LOGGER FIELD took two goes. Declaring it in `field_declared_in` did nothing,
+// because the site was never created to attach it to: field_access.dl:96 calls a
+// receiver with no visible field, no local and no static import a TYPE QUALIFIER
+// (FIX-13, for `URI.create(...)`) and excludes it. That test, `recv_name_is_field`
+// in expression-resolution/expr-type.dl, reads java_field / lib_field DIRECTLY
+// rather than field_declared_in, so it cannot see a member this file declares. The
+// clause at the end of section 4 is what closes that, and it is the same omission
+// as method_owner and method_paramc: a relation built only off the IR tables that a
+// generated member has to feed too. See #863.
+//
+// IDENTITY. A generated member has no hash in any IR, so it is given a derived id
+// `generated:<ownerQualifiedName>#<name>/<arity>`, following the `external:<qname>`
+// convention external-types.dl already uses for a type no IR declares. The bundle
+// synthesizes the row from the id, so the member is named in graph.sqlite and
+// carries provenance `generated`: a consumer can always tell a member read out of
+// source from one inferred from an annotation.
+//
+// STRATIFICATION. `gen_method_live` and everything it is derived from read only
+// PROJECTIONS OVER BASE RELATIONS (annotation_on, field_decl, field_modifier,
+// type_decl), never the expr_type fixpoint. That is what lets it feed
+// `sig_declared_in`, which is read under the `!shadowed_in_type` negation in
+// method-lookup.dl and for that reason may only be built from base facts. The
+// `method_declared_in` clause DOES read `lookup_type`, which is seeded from
+// expr_type, and so sits inside that fixpoint exactly as the two clauses beside it
+// in method-lookup.dl do.
+//
+// COST. One pass over the annotations already staged, bounded by the number of
+// annotated fields. It adds no join over the library method table.
+// ============================================================================
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 0. KNOBS  (the only per-ecosystem edit; no rule below names a framework)
+//
+// Matched on the SIMPLE name, as config-resolution/knobs.dl does: the parser
+// records @lombok.Getter as "Getter", so one fact covers every spelling of the
+// import.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// (a) on a FIELD: declares an accessor for that field alone.
+gen_field_getter_ann("Getter").
+gen_field_setter_ann("Setter").
+
+// (b) on a TYPE: declares the accessor for every instance field of the type.
+gen_type_getter_ann("Getter").   gen_type_getter_ann("Data").
+gen_type_setter_ann("Setter").   gen_type_setter_ann("Data").
+
+// `Value` is TWO different annotations sharing a simple name: the processor's, on
+// a TYPE, which declares a getter per field; and the framework's config injection,
+// on a FIELD or a PARAMETER, which declares no member at all (knobs.dl already
+// reads that one as cfg_value_ann). Keyed on the ATTACH POINT the two never
+// collide, which is why the type and field lists above are separate relations
+// rather than one list consulted from both places.
+gen_type_getter_ann("Value").
+
+// (c) on a TYPE: declares a logger FIELD of the given name.
+gen_logger_ann("Slf4j", "log").        gen_logger_ann("XSlf4j", "log").
+gen_logger_ann("Log4j", "log").        gen_logger_ann("Log4j2", "log").
+gen_logger_ann("CommonsLog", "log").   gen_logger_ann("JBossLog", "log").
+gen_logger_ann("Flogger", "log").      gen_logger_ann("Log", "log").
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. WHICH FIELDS CARRY AN ACCESSOR
+//
+// A static field gets no accessor from a TYPE-level annotation (the processor
+// skips it), so the type-level clauses exclude STATIC. A FIELD-level annotation is
+// explicit and is honoured whatever the modifiers, which is the
+// `@Setter private static` case that reaches a static setter.
+// ─────────────────────────────────────────────────────────────────────────────
+gen_field_static(f) :- field_modifier(_, _, mod, f), contains("STATIC", mod).
+
+// gen_accessor_demand(Prov, OwnerType, FieldName, FieldTypeName, Kind)
+gen_accessor_demand(p, owner, fname, ftype, "get") :-
+    annotation_on(p, ann, _, "FIELD_DECLARATION", f, _), gen_field_getter_ann(ann),
+    field_decl(p, fname, ftype, owner, f).
+gen_accessor_demand(p, owner, fname, ftype, "set") :-
+    annotation_on(p, ann, _, "FIELD_DECLARATION", f, _), gen_field_setter_ann(ann),
+    field_decl(p, fname, ftype, owner, f).
+gen_accessor_demand(p, owner, fname, ftype, "get") :-
+    annotation_on(p, ann, _, "TYPE_DECLARATION", owner, _), gen_type_getter_ann(ann),
+    field_decl(p, fname, ftype, owner, f), !gen_field_static(f).
+gen_accessor_demand(p, owner, fname, ftype, "set") :-
+    annotation_on(p, ann, _, "TYPE_DECLARATION", owner, _), gen_type_setter_ann(ann),
+    field_decl(p, fname, ftype, owner, f), !gen_field_static(f).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. THE NAME
+//
+// `label` -> `getLabel` / `setLabel`, and `ready` -> `isReady` when the declared
+// type is the PRIMITIVE boolean. `Boolean` takes `getReady`, which is the
+// processor's own rule and not a detail worth rounding off: getting it wrong
+// declares a method the artefact does not have, and an invented member is worse
+// than a missing one, because nothing downstream can tell it from a real edge.
+//
+// cfg_upper is reused rather than re-tabled. Souffle sees one program: every .decl
+// is central in souffle/decls_all.dl and a rule may read a relation defined in any
+// phase folder, so the 26 facts stay in the one place that already holds them.
+// ─────────────────────────────────────────────────────────────────────────────
+gen_capitalized(n, c) :- gen_accessor_demand(_, _, n, _, _), strlen(n) > 0,
+    cfg_upper(substr(n, 0, 1), up), c = cat(up, substr(n, 1, strlen(n) - 1)).
+
+// gen_accessor(Prov, OwnerType, MethodName, Arity)
+// Arity is a SYMBOL, not a number, because sig_declared_in carries parameterCount
+// as the symbol the IR wrote; a number here would not join with it.
+gen_accessor(p, owner, cat("get", c), "0") :-
+    gen_accessor_demand(p, owner, fname, ftype, "get"), ftype != "boolean",
+    gen_capitalized(fname, c).
+gen_accessor(p, owner, cat("is", c), "0") :-
+    gen_accessor_demand(p, owner, fname, "boolean", "get"),
+    gen_capitalized(fname, c).
+gen_accessor(p, owner, cat("set", c), "1") :-
+    gen_accessor_demand(p, owner, fname, _, "set"),
+    gen_capitalized(fname, c).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. THE MEMBERS, AND THEIR IDS
+// ─────────────────────────────────────────────────────────────────────────────
+// gen_method(OwnerType, Name, Arity, MethodId)
+gen_method(owner, name, pc, id) :- gen_accessor(p, owner, name, pc),
+    type_decl(p, _, qname, _, _, _, owner),
+    id = cat("generated:", cat(qname, cat("#", cat(name, cat("/", pc))))).
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. FEED THE LOOKUPS
+//
+// The same three heads an IR-declared method feeds in method-lookup.dl, and the
+// one a field feeds in field-lookup.dl, so a generated member is subject to every
+// law already written there: declared-wins over inherited, hiding, the ancestor
+// walk. A HAND-WRITTEN member always wins, because a type that writes `getLabel`
+// out AND annotates the field declares ONE method, and the source one is the one
+// with a body. The processor does the same thing, for the same reason.
+//
+// gen_shadowed reads java_method / lib_method DIRECTLY rather than
+// sig_declared_in, which this file itself feeds. Going through it put
+// gen_method_live, gen_shadowed and sig_declared_in in one cycle through a
+// negation and the program did not stratify. Base facts break the cycle, and are
+// the more honest test anyway: "the source declares it" means a method the IR
+// carries, not one this file just minted.
+// java_method / lib_method (22): 0 name  7 owner  17 parameterCount  21 hash
+// ─────────────────────────────────────────────────────────────────────────────
+gen_source_sig(owner, name, pc) :-
+    java_method(name, _, _, _, _, _, _, owner, _, _, _, _, _, _, _, _, _, pc, _, _, _, _), name != "".
+gen_source_sig(owner, name, pc) :-
+    lib_method(name, _, _, _, _, _, _, owner, _, _, _, _, _, _, _, _, _, pc, _, _, _, _), name != "".
+
+gen_shadowed(owner, name, pc) :- gen_method(owner, name, pc, _),
+    gen_source_sig(owner, name, pc).
+
+gen_method_live(owner, name, pc, id) :- gen_method(owner, name, pc, id),
+    !gen_shadowed(owner, name, pc).
+
+method_declared_in(name, t, m) :- gen_method_live(t, name, _, m), lookup_type(t).
+sig_declared_in(t, name, pc, m) :- gen_method_live(t, name, pc, m).
+sig_concrete_in(t, name, pc) :- gen_method_live(t, name, pc, _).
+
+// OWNERSHIP, which is what actually emits the edge. calls.dl gates every edge on
+// method_owner, and projections/methods.dl builds that from java_method /
+// lib_method alone. Without this clause a generated member reached expr_pruned and
+// then produced nothing: it owns no row there. The provenance carried through from
+// gen_accessor is what decides `known_edge` against `boundary_lib`, so a generated
+// member on a library type is a boundary edge exactly as a hand-written one is.
+method_owner(p, owner, id) :- gen_method_live(owner, name, pc, id),
+    gen_accessor(p, owner, name, pc).
+
+// ARITY. overload.dl counts parameters from java_method_parameter /
+// lib_method_parameter, so a generated method has no count and only the zero-arg
+// clause of arity_match can fire: every getter resolved and every SETTER was
+// dropped at the arity gate. A setter takes exactly one argument, which the
+// annotation determines without any parameter row, so state it directly. The
+// getters need no clause: zero args against zero params is already a match.
+method_paramc(m, 1) :- gen_method_live(_, _, "1", m).
+
+// gen_field(OwnerType, Name, FieldId)
+gen_field(owner, fname, id) :-
+    annotation_on(p, ann, _, "TYPE_DECLARATION", owner, _), gen_logger_ann(ann, fname),
+    type_decl(p, _, qname, _, _, _, owner),
+    id = cat("generated:", cat(qname, cat("#", fname))).
+
+// A field the source declares hides the generated one: same law, same reason.
+gen_field_shadowed(owner, name) :- gen_field(owner, name, _),
+    field_decl(_, name, _, owner, _).
+gen_field_live(owner, name, id) :- gen_field(owner, name, id), !gen_field_shadowed(owner, name).
+
+field_declared_in(name, t, f) :- gen_field_live(t, name, f), field_lookup_type(t).
+
+// THE CLAUSE THAT MAKES THE SITE EXIST. Without it the two above are dead: the read
+// is excluded as a type qualifier before any lookup runs, so the field is declared
+// and nothing ever asks for it. Measured on 8 services: 190 of 199 `type_qualifier`
+// exclusions were reads of a generated logger field, a 95% error rate on that
+// exclusion. The remaining 9 are genuine qualifiers (`UUID.randomUUID()`) and must
+// stay excluded, which is why this names the generated field rather than relaxing
+// the heuristic.
+recv_name_is_field(e) :- ident_field_recv(e, name), expr_ultimate_type("client", e, encl),
+    gen_field_live(encl, name, _).
+recv_name_is_field(e) :- ident_field_recv(e, name), expr_ultimate_type("client", e, encl),
+    type_ancestor(encl, anc), gen_field_live(anc, name, _).
+
+// The field's own provenance, so field_access.dl can tier the row it now emits.
+field_prov(p, id) :- gen_field_live(owner, fname, id),
+    annotation_on(p, ann, _, "TYPE_DECLARATION", owner, _), gen_logger_ann(ann, fname).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. OVERRIDE, which is a sixth relation built off the IR tables
+//
+// A generated accessor can IMPLEMENT an interface method: `interface Named { String
+// getName(); }` against a class that declares the field annotated. The member is in
+// method_name_in_type, so the dispatch fan already reaches it and the call edge was
+// right. `overrides` was not: virtual-dispatch.dl builds method_override and
+// virtual_override from java_method / lib_method, and the OVERRIDE side of each
+// excludes anything the IR does not carry. Asking which types override an interface
+// method therefore under-reported, silently, and only for the types whose
+// implementation is annotation-declared. Fixes #867.
+//
+// Only the override side is mirrored. The base side is left alone deliberately: an
+// abstract or interface declaration is written out in source in every shape this
+// covers, and widening it would fan a generated member as a dispatch BASE, which is
+// the over-expansion FIX-16 removed.
+//
+// java_method (22): 0 name  7 owner  16 methodKind  17 parameterCount  21 hash
+// ─────────────────────────────────────────────────────────────────────────────
+
+// method_override clause 1: an ABSTRACT base, implemented by a generated accessor.
+method_override(concrete, base) :-
+    java_method(name, _, _, _, _, _, _, baseType, _, _, _, _, _, _, _, _, "ABSTRACT_METHOD", pc, _, _, _, base),
+    name != "", type_ancestor(subType, baseType), subType != baseType,
+    gen_method_live(subType, name, pc, concrete).
+
+// method_override clause 2: an INTERFACE base, same shape. Some interface methods are
+// not tagged ABSTRACT_METHOD, which is why the original has two clauses and so does this.
+method_override(concrete, base) :-
+    java_type(_, _, _, "INTERFACE_TYPE", _, _, _, _, _, _, _, _, _, ifaceType),
+    java_method(name, _, _, _, _, _, _, ifaceType, _, _, _, _, _, _, _, _, _, pc, _, _, _, base),
+    name != "", type_ancestor(implType, ifaceType),
+    gen_method_live(implType, name, pc, concrete).
+
+// virtual_override, client base. The body already reaches the member through
+// method_name_in_type; it is the final join, which confirms the override's own name
+// and arity against java_method, that dropped it. Owner is bound to `sub` here rather
+// than left free as the original leaves it, which is tighter and costs nothing.
+virtual_override(base, override) :-
+    java_method(name, _, _, _, _, _, _, baseType, _, _, _, _, _, _, _, _, _, pc, _, _, _, base),
+    name != "", baseType != "",
+    type_ancestor(sub, baseType), sub != baseType,
+    gen_method_live(sub, name, pc, override),
+    override != base.
+
+// virtual_override, LIBRARY base: a client type implements a library interface with a
+// generated accessor. Pinned on client_overridden_lib_type exactly as the hand-written
+// clause is, so this inherits that clause's cost bound rather than opening a new fan.
+virtual_override(base, override) :- client_overridden_lib_type(baseType),
+    lib_method(name, _, _, _, _, _, _, baseType, _, _, _, _, _, _, _, _, _, pc, _, _, _, base),
+    name != "", type_ancestor(sub, baseType),
+    gen_method_live(sub, name, pc, override).
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 6. CONSTRUCTORS  (#878)
+//
+// The header above listed these as not done. A processor declares up to three:
+//
+//   @NoArgsConstructor        ()
+//   @AllArgsConstructor       every non-static instance field, in declaration order
+//   @RequiredArgsConstructor  the fields that must be set: final without an
+//                             initialiser, and @NonNull ones
+//   @Data                     implies @RequiredArgsConstructor
+//   @Value                    implies @AllArgsConstructor
+//   @Builder                  declares an all-args constructor of its own
+//
+// ARITY IS ENOUGH, and that is the whole reason this is tractable. Resolution needs
+// to pick a declaration for `new X(a, b)`; overload.dl's first tier is arity, and a
+// generated constructor has no overloads to disambiguate from (a class carries at
+// most one of each shape). So this synthesizes a COUNT, not a parameter list, and
+// says so rather than inventing types it cannot check.
+//
+// WHY IT MATTERS MORE THAN AN ACCESSOR. A class with @AllArgsConstructor has exactly
+// one constructor in the IR, the implicit no-arg one the parser emits per JLS 8.8.9,
+// so `new X(a, b)` matches no declaration and the site is ambiguous_unknown. Not a
+// degraded answer: the object's creation is absent from the graph entirely.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// gen_ctor_ann(Annotation, Shape)
+gen_ctor_ann("NoArgsConstructor",       "none").
+gen_ctor_ann("AllArgsConstructor",      "all").
+gen_ctor_ann("RequiredArgsConstructor", "required").
+gen_ctor_ann("Data",                    "required").
+gen_ctor_ann("Value",                   "all").
+gen_ctor_ann("Builder",                 "all").
+
+gen_ctor_demand(p, owner, shape) :-
+    annotation_on(p, ann, _, "TYPE_DECLARATION", owner, _), gen_ctor_ann(ann, shape).
+
+// ── which fields count ───────────────────────────────────────────────────────
+// A static field is not a constructor parameter, for the same reason it gets no
+// accessor: the processor skips it.
+gen_ctor_field(p, owner, f) :- gen_ctor_demand(p, owner, _),
+    field_decl(p, _, _, owner, f), !gen_field_static(f).
+// "Required" is final-without-initialiser plus @NonNull. A final field that is
+// already initialised is NOT a parameter, which is the case that would otherwise
+// overstate the arity by one on every class with a `= new ArrayList<>()` default.
+// Any expression whose owner is the field and whose context is FIELD_INITIALIZER is
+// an initialiser, whatever its kind: `= new ArrayList<>()`, `= 0`, `= someCall()`.
+// Keyed on the context rather than on OBJECT_CREATION, which is what field_init_new_type
+// narrows to for its own purpose.
+gen_field_initialized(f) :-
+    java_expression(_, _, "FIELD_INITIALIZER", "FIELD", _, f, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _).
+
+gen_ctor_required(p, owner, f) :- gen_ctor_field(p, owner, f),
+    field_modifier(p, _, mod, f), contains("FINAL", mod), !gen_field_initialized(f).
+gen_ctor_required(p, owner, f) :- gen_ctor_field(p, owner, f),
+    annotation_on(p, "NonNull", _, "FIELD_DECLARATION", f, _).
+
+gen_ctor_all_count(owner, n) :- gen_ctor_demand(_, owner, "all"),
+    n = count : { gen_ctor_field(_, owner, _) }.
+gen_ctor_req_count(owner, n) :- gen_ctor_demand(_, owner, "required"),
+    n = count : { gen_ctor_required(_, owner, _) }.
+
+// gen_ctor(OwnerType, Arity, CtorId)
+gen_ctor(owner, 0, id) :- gen_ctor_demand(p, owner, "none"),
+    type_decl(p, _, qname, _, _, _, owner),
+    id = cat("generated:", cat(qname, "#<init>/0")).
+gen_ctor(owner, n, id) :- gen_ctor_all_count(owner, n), n > 0,
+    type_decl(_, _, qname, _, _, _, owner),
+    id = cat("generated:", cat(qname, cat("#<init>/", to_string(n)))).
+gen_ctor(owner, n, id) :- gen_ctor_req_count(owner, n), n > 0,
+    type_decl(_, _, qname, _, _, _, owner),
+    id = cat("generated:", cat(qname, cat("#<init>/", to_string(n)))).
+
+// A HAND-WRITTEN constructor of the same arity wins, exactly as gen_shadowed drops a
+// generated accessor the source also writes out. Base facts only, so this adds no
+// cycle: see the note in section 4.
+gen_ctor_source_arity(owner, n) :-
+    java_method(_, _, _, _, _, _, _, owner, _, _, _, _, _, _, _, _, "CONSTRUCTOR", pc, _, _, _, _),
+    n = to_number(pc).
+// The IMPLICIT one counts too. @NoArgsConstructor declares exactly what JLS 8.8.9
+// already gives a class that writes no constructor, and the parser emits a
+// DEFAULT_CONSTRUCTOR row for it. Without this clause both exist, `new X()` matches
+// two declarations of the same thing, and a site that resolved cleanly before becomes
+// multi_inferred: a precision LOSS caused by adding a member that was already there.
+gen_ctor_source_arity(owner, 0) :-
+    java_method(_, _, _, _, _, _, _, owner, _, _, _, _, _, _, _, _, "DEFAULT_CONSTRUCTOR", _, _, _, _, _).
+gen_ctor_live(owner, n, id) :- gen_ctor(owner, n, id), !gen_ctor_source_arity(owner, n).
+
+// ── FEED THE LOOKUPS ────────────────────────────────────────────────────────
+// ctor_of is the one relation every `new` clause in callee-resolution.dl routes
+// through, so contributing there reaches object creation, anonymous creation and
+// this()/super() delegation without touching any of them.
+ctor_of("client", owner, id) :- gen_ctor_live(owner, _, id).
+method_paramc(id, n) :- gen_ctor_live(_, n, id), n > 0.
+method_owner("client", owner, id) :- gen_ctor_live(owner, _, id).

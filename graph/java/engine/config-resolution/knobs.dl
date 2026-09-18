@@ -111,6 +111,13 @@ cfg_handler_key_suffix("implementation").
 // over-narrow. Modelled on dispatch_cap: a policy knob, stated in one place.
 cfg_di_narrowing_enabled().
 
+// ── (12b) LIBRARY-BEAN NARROWING SWITCH ─────────────────────────────────────
+// Present = a slot declared as a type from a staged --library tree is narrowed on the
+// same "exactly one bean" test the client side uses (config-resolution/lib-bean-scope.dl).
+// Comment out this ONE line to keep every reporting relation and close only the
+// narrowing. Modelled on cfg_di_narrowing_enabled above: a policy knob, stated once.
+cfg_lib_bean_narrowing_enabled().
+
 // ── (13) GENERATED-STUB BASE CLASSES (gRPC, and anything shaped like it) ─────
 // A gRPC service is a class extending a GENERATED abstract base (GreeterImplBase)
 // and overriding its rpc methods. The container/server calls those overrides; no
@@ -122,3 +129,140 @@ cfg_di_narrowing_enabled().
 cfg_stub_base_suffix("ImplBase", "grpc_service").      // gRPC (protoc java)
 cfg_stub_base_suffix("Grpc", "grpc_service").          // gRPC outer holder
 cfg_stub_base_suffix("Skeleton", "rpc_service").       // older RPC generators
+
+// ── (8) DESTINATIONS: a name that identifies a place a message or request goes ──
+// A producer and the consumer that serves it live in different deployables and never
+// call each other, so the only thing tying them together is this string. These lists
+// are what destinations.dl joins on; adding a broker or an HTTP client is a fact here.
+
+// (a) an annotation that declares the destination a method SERVES, and the argument
+//     that carries it. @KafkaListener(topics = "orders.created") serves "orders.created".
+cfg_serves_ann("KafkaListener",  "kafka", "topics").
+cfg_serves_ann("KafkaHandler",   "kafka", "topics").
+cfg_serves_ann("RabbitListener", "amqp",  "queues").
+cfg_serves_ann("RabbitListener", "amqp",  "value").
+cfg_serves_ann("JmsListener",    "jms",   "destination").
+cfg_serves_ann("SqsListener",    "sqs",   "value").
+cfg_serves_ann("StreamListener", "stream", "value").
+
+// (b) an annotation that declares an HTTP ROUTE. On a type it is a prefix; on a
+//     method it is the remainder. Both the server (@GetMapping) and a declarative
+//     client (@GetExchange, @FeignClient) spell a route this way, which is what makes
+//     the two ends joinable at all.
+cfg_route_ann("RequestMapping"). cfg_route_ann("GetMapping").    cfg_route_ann("PostMapping").
+cfg_route_ann("PutMapping").     cfg_route_ann("DeleteMapping"). cfg_route_ann("PatchMapping").
+cfg_route_ann("Path").                                            // JAX-RS
+cfg_route_ann("FeignClient").    // its url= is the client's base
+cfg_route_ann("HttpExchange").   cfg_route_ann("GetExchange").   cfg_route_ann("PostExchange").
+cfg_route_ann("PutExchange").    cfg_route_ann("DeleteExchange"). cfg_route_ann("PatchExchange").
+
+// (c) a route annotation that marks the SERVER end. A route annotation that is not
+//     one of these is a client declaration, and the two must not be confused: a
+//     client interface and a controller in one repository would otherwise link to
+//     themselves.
+cfg_route_server_ann("RequestMapping"). cfg_route_server_ann("GetMapping").
+cfg_route_server_ann("PostMapping").    cfg_route_server_ann("PutMapping").
+cfg_route_server_ann("DeleteMapping").  cfg_route_server_ann("PatchMapping").
+cfg_route_server_ann("Path").
+
+// (d) the argument names a route annotation uses for the path.
+cfg_route_arg("value"). cfg_route_arg("path"). cfg_route_arg("url").
+
+// (e) a library method that SENDS to a destination, and which argument names it.
+//     KafkaTemplate.send(topic, key, value) names it first; RabbitTemplate's
+//     convertAndSend(exchange, routingKey, payload) names the routing key second.
+cfg_sends_method("send",           "kafka", "0").
+cfg_sends_method("sendDefault",    "kafka", "0").
+cfg_sends_method("convertAndSend", "amqp",  "1").
+cfg_sends_method("convertSendAndReceive", "amqp", "1").
+cfg_sends_method("convertAndSend", "jms",   "0").
+
+// (f) a library method that sends an HTTP request whose first argument is the URL.
+cfg_sends_http("getForObject").   cfg_sends_http("getForEntity").
+cfg_sends_http("postForObject").  cfg_sends_http("postForEntity").
+cfg_sends_http("postForLocation"). cfg_sends_http("put").
+cfg_sends_http("delete").         cfg_sends_http("patchForObject").
+cfg_sends_http("exchange").       cfg_sends_http("execute").
+cfg_sends_http("uri").            // RestClient / WebClient fluent builders
+
+// (g) the receiver type that makes a call a send. Without this a method merely NAMED
+//     `send` is read as a broker produce — measured: a notification dispatcher's own
+//     send("email", …) was reported as a Kafka topic called "email".
+cfg_sends_owner("KafkaTemplate", "kafka").      cfg_sends_owner("KafkaOperations", "kafka").
+cfg_sends_owner("RabbitTemplate", "amqp").      cfg_sends_owner("AmqpTemplate", "amqp").
+cfg_sends_owner("JmsTemplate", "jms").
+cfg_sends_owner("RestTemplate", "http").        cfg_sends_owner("RestClient", "http").
+cfg_sends_owner("WebClient", "http").
+// … and the builders those clients are reached through, because the fluent chain
+// starts on the builder: webClientBuilder.build().get().uri(path).
+cfg_sends_owner("WebClient.Builder", "http").   cfg_sends_owner("RestClient.Builder", "http").
+cfg_sends_owner("RestTemplateBuilder", "http").
+
+// (h) the HTTP verb each end names. A route is a path AND a verb; without the verb a
+//     GET to /owners is an edge to the @PostMapping that creates one.
+cfg_route_verb("GetMapping", "GET").       cfg_route_verb("PostMapping", "POST").
+cfg_route_verb("PutMapping", "PUT").       cfg_route_verb("DeleteMapping", "DELETE").
+cfg_route_verb("PatchMapping", "PATCH").
+cfg_route_verb("GetExchange", "GET").      cfg_route_verb("PostExchange", "POST").
+cfg_route_verb("PutExchange", "PUT").      cfg_route_verb("DeleteExchange", "DELETE").
+cfg_route_verb("PatchExchange", "PATCH").
+// @RequestMapping, @Path and @HttpExchange name no verb on their own — they stay "any".
+
+cfg_sends_verb("getForObject", "GET").     cfg_sends_verb("getForEntity", "GET").
+cfg_sends_verb("postForObject", "POST").   cfg_sends_verb("postForEntity", "POST").
+cfg_sends_verb("postForLocation", "POST"). cfg_sends_verb("put", "PUT").
+cfg_sends_verb("delete", "DELETE").        cfg_sends_verb("patchForObject", "PATCH").
+cfg_sends_verb("get", "GET").              cfg_sends_verb("post", "POST").
+cfg_sends_verb("patch", "PATCH").
+
+// (i) an annotation that makes a TYPE a declarative HTTP CLIENT. Its methods carry the
+//     same mapping annotations a controller does, so without this a Feign interface is
+//     read as a handler and answers "who serves this route".
+cfg_client_type_ann("FeignClient").  cfg_client_type_ann("HttpExchange").
+cfg_client_type_ann("RegisterRestClient").   // MicroProfile
+
+// ── (15) CONDITIONS: an annotation that decides whether a bean EXISTS ────────
+// A bean the container did not create has no methods that run, so a condition is
+// the difference between a live filter chain and a dead one. Three families, kept
+// apart because only the first is decidable from configuration alone.
+//
+// (a) PROPERTY conditions. The annotation names a config key and the value it
+//     expects; conditions.dl joins that against the resolved key space.
+//     cfg_property_condition_ann(Name, KeyArg, ExpectedArg)
+cfg_property_condition_ann("ConditionalOnProperty", "name", "havingValue").
+
+// (b) PROFILE conditions. The same question keyed on the active profile set,
+//     which is itself a config key (spring.profiles.active).
+cfg_profile_condition_ann("Profile").
+cfg_active_profile_key("spring.profiles.active").
+
+// (c) UNDECIDABLE conditions. These depend on the whole context and on the order
+//     the container evaluates it in, which this analysis does not model. They are
+//     listed so that a bean carrying one is reported as DECLARED UNDECIDED rather
+//     than silently assumed live: the blind spot is named, not hidden.
+//     cfg_opaque_condition_ann(Name, Reason)
+cfg_opaque_condition_ann("ConditionalOnBean",           "depends_on_context").
+cfg_opaque_condition_ann("ConditionalOnMissingBean",    "depends_on_context").
+cfg_opaque_condition_ann("ConditionalOnExpression",     "spel_expression").
+cfg_opaque_condition_ann("ConditionalOnClass",          "depends_on_classpath").
+cfg_opaque_condition_ann("ConditionalOnMissingClass",   "depends_on_classpath").
+cfg_opaque_condition_ann("Conditional",                 "custom_condition_class").
+
+// ── (16) REPOSITORY BASES: a bean with no stereotype and no implementation ───
+// Spring Data, and every framework shaped like it, registers a proxy for an
+// INTERFACE the application declares and never implements. There is no class in any
+// source tree and no annotation on the interface, so the two things that make a bean
+// elsewhere in this folder are both absent. Matched on the SUPERTYPE's simple-name
+// SUFFIX, the way cfg_stub_base_suffix matches a generated gRPC base, because the
+// base is chosen per store (MongoRepository, JpaRepository, ElasticsearchRepository,
+// a house base named FooRepository) and the list cannot be enumerated.
+//
+// The suffix is deliberately the whole word, so `PersonFinder` is not a repository
+// and neither is a plain interface. A base that carries the suffix is not itself a
+// bean: the rule requires a type to EXTEND one, so CrudRepository is excluded by
+// having no such supertype of its own.
+cfg_repository_base_suffix("Repository").
+cfg_repository_base_suffix("Dao").
+// An annotation that marks a repository base as NOT itself a bean. A house base over
+// a framework base carries it, and the framework does not register a proxy for it.
+cfg_no_repository_ann("NoRepositoryBean").

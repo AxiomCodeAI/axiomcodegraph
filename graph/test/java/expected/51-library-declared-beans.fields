@@ -1,0 +1,6 @@
+known_edge	read	app.Orders#viaClientBean() -> app.Orders#helper
+known_edge	read	app.Orders#viaConcrete(String) -> app.Orders#store
+known_edge	read	app.Orders#viaFactoryBean(String) -> app.Orders#cache
+known_edge	read	app.Orders#viaFan(String) -> app.Orders#sink
+known_edge	read	app.Orders#viaInterface(String) -> app.Orders#greeter
+known_edge	read	app.Orders#viaPlain() -> app.Orders#plain

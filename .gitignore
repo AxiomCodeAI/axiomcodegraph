@@ -239,6 +239,14 @@ $RECYCLE.BIN/
 # if any vendored package's declared `types` is missing from the index. A guard that
 # checks the property beats a pattern list that tries to anticipate it.
 
+# A work directory at the REPOSITORY ROOT, which the per-suite lines below do not
+# cover. Scratch written there is measurement scaffolding: run scripts, corpus
+# outputs and issue drafts, which routinely carry absolute paths to a machine and to
+# whatever corpus was measured. `git add -A` from the root stages all of it, and a
+# commit-message guard cannot catch it because the leak is in the FILE, not the
+# message. Ignored here so the safe habit is the default one.
+.work/
+
 # ── Java engine test suite: per-run work dirs and the generated JDK index ─────
 graph/test/java/.work/
 

@@ -1,0 +1,9 @@
+known_edge	method	probe.GenOverride#main(String[]) -> probe.GenOverride#viaInterface(Named)
+known_edge	new	probe.GenOverride#main(String[]) -> probe.GenOverride.Person#<init>()
+known_edge	new	probe.GenOverride#main(String[]) -> probe.GenOverride.Robot#<init>()
+multi_inferred	method	probe.GenOverride#viaInterface(Named) -> generated:probe.GenOverride.Person#getName/0
+multi_inferred	method	probe.GenOverride#viaInterface(Named) -> probe.GenOverride.Named#describe()
+multi_inferred	method	probe.GenOverride#viaInterface(Named) -> probe.GenOverride.Named#getName()
+multi_inferred	method	probe.GenOverride#viaInterface(Named) -> probe.GenOverride.Person#describe()
+multi_inferred	method	probe.GenOverride#viaInterface(Named) -> probe.GenOverride.Robot#describe()
+multi_inferred	method	probe.GenOverride#viaInterface(Named) -> probe.GenOverride.Robot#getName()

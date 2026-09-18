@@ -1,3 +1,4 @@
+import { CSharpParser } from '@/parsers/csharp/csharp-parser';
 import { JavaParser } from '@/parsers/java/java-parser';
 import { LanguageParser } from '@/parsers/language-parser';
 import { PythonParser } from '@/parsers/python/python-parser';
@@ -21,6 +22,12 @@ export class ParserFactory {
   private registerDefaultParsers(): void {
     this.registerParser(new JavaParser());
     this.registerParser(new PythonParser());
+    // Registered once cs-corpus's sweeps converged (7 and 8, zero new
+    // disagreements over a constant base) — the order was: sweeps clean,
+    // then registration, so every sweep from here exercises it rather than
+    // it being bolted on last. Constructing the parser runs the grammar
+    // gate, so a wrong grammar fails HERE, at factory construction.
+    this.registerParser(new CSharpParser());
   }
 
   /**

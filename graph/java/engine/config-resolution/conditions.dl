@@ -1,0 +1,152 @@
+// ============================================================================
+// CONFIG-RESOLUTION · CONDITIONS  (whether a bean EXISTS at all)
+//
+// di.dl answers "what can be injected here". This file answers the question one
+// step earlier: does the container create this bean in THIS deployment. A library
+// that ships two @Configuration classes guarded by one property key with opposite
+// havingValue is a two-arm switch over a whole request-filter chain, and the
+// consumer's application.yml picks an arm. Without this file both arms are
+// bean_def rows, both are reachable, and a call site in the live chain and one in
+// the dead chain are indistinguishable (#852).
+//
+// THREE STATES, AND WHY THE THIRD IS THE IMPORTANT ONE.
+//
+//   selected   a condition is present and the resolved configuration satisfies it
+//   excluded   a condition is present and the resolved configuration REFUTES it
+//   undecided  a condition is present and the configuration does not decide it
+//
+// A key that appears in no scanned source is UNDECIDED, never false. Spring's own
+// semantics say a missing property does not match, but "missing from the files this
+// analysis read" is not "missing at runtime": an environment variable, a -D flag, a
+// config server, a profile-specific file outside the scan or a container secret all
+// set properties this phase never sees. Treating not-found as refuted would turn a
+// recall gap into a SOUNDNESS bug, reporting live code as dead, which is a far worse
+// trade than the over-reporting this file exists to reduce. So an undecided bean
+// stays live and gets a config_unresolved row, exactly the contract the rest of the
+// folder applies to a key it cannot resolve.
+//
+// matchIfMissing is recorded and deliberately does NOT decide, for the same reason:
+// it only tells us what happens when the property is genuinely absent, and absence
+// is what this analysis cannot establish.
+//
+// NOTHING HERE REMOVES A ROW. bean_def, di_edge and the call graph are untouched;
+// this file adds a verdict beside them. Deleting an excluded bean's edges is a
+// separate change with its own soundness argument, and it should not ride in on the
+// back of the modelling.
+// ============================================================================
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. THE CONDITION ON A TYPE
+// ─────────────────────────────────────────────────────────────────────────────
+// A condition annotation sits on the bean's TYPE (class-level) or on a @Bean
+// FACTORY METHOD. Both are carried, keyed by the annotation so the arguments can be
+// read off it, and mapped to the bean they gate.
+
+// cfg_cond_site(Ann, Kind, Subject) -- Subject is a type hash or a method hash.
+cfg_cond_site(a, "property", t) :- ann_on_type(_, a, n, t), cfg_property_condition_ann(n, _, _).
+cfg_cond_site(a, "property", m) :- ann_on_method(_, a, n, m, _), cfg_property_condition_ann(n, _, _).
+cfg_cond_site(a, "profile", t)  :- ann_on_type(_, a, n, t), cfg_profile_condition_ann(n).
+cfg_cond_site(a, "profile", m)  :- ann_on_method(_, a, n, m, _), cfg_profile_condition_ann(n).
+cfg_cond_site(a, "opaque", t)   :- ann_on_type(_, a, n, t), cfg_opaque_condition_ann(n, _).
+cfg_cond_site(a, "opaque", m)   :- ann_on_method(_, a, n, m, _), cfg_opaque_condition_ann(n, _).
+
+// cfg_cond_bean(Ann, Kind, BeanName, BeanType) -- the bean the condition gates.
+cfg_cond_bean(a, k, name, t) :- cfg_cond_site(a, k, t), bean_def(name, t, "stereotype", _).
+cfg_cond_bean(a, k, name, t) :- cfg_cond_site(a, k, m), bean_def(name, t, "factory_method", m).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. THE KEY AND THE EXPECTED VALUE
+// ─────────────────────────────────────────────────────────────────────────────
+// @ConditionalOnProperty(name = "a.b", havingValue = "x"). `name` and `value` are
+// aliases for the same argument, and `prefix` is prepended with a dot when present.
+// An array of names is one row per element already (annotation-args.dl), so a
+// multi-key condition yields one condition row per key, which is the right shape:
+// Spring requires ALL of them, so one refuted key refutes the condition.
+cfg_cond_name(a, v) :- cfg_cond_site(a, "property", _), ann_arg(_, a, "name", v, _, _), v != "".
+cfg_cond_name(a, v) :- cfg_cond_site(a, "property", _), ann_arg(_, a, "value", v, _, _), v != "".
+cfg_cond_prefix(a, p) :- cfg_cond_site(a, "property", _), ann_arg(_, a, "prefix", p, _, _), p != "".
+cfg_cond_has_prefix(a) :- cfg_cond_prefix(a, _).
+
+cfg_cond_key(a, k) :- cfg_cond_name(a, k), !cfg_cond_has_prefix(a).
+cfg_cond_key(a, k) :- cfg_cond_name(a, n), cfg_cond_prefix(a, p), k = cat(p, cat(".", n)).
+
+// havingValue, and matchIfMissing, both optional.
+cfg_cond_expected(a, v) :- cfg_cond_site(a, "property", _),
+    ann_arg(_, a, "havingValue", v, _, _).
+cfg_cond_has_expected(a) :- cfg_cond_expected(a, _).
+cfg_cond_match_if_missing(a) :- cfg_cond_site(a, "property", _),
+    ann_arg(_, a, "matchIfMissing", "true", _, _).
+
+// A @Profile argument is the profile name. A leading "!" negates it.
+cfg_cond_profile(a, v) :- cfg_cond_site(a, "profile", _), ann_arg(_, a, "value", v, _, _), v != "".
+cfg_cond_profile(a, v) :- cfg_cond_site(a, "profile", _), ann_arg(_, a, "name", v, _, _), v != "".
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. THE EXPORT: one row per condition, whatever its verdict
+// ─────────────────────────────────────────────────────────────────────────────
+// config_bean_condition(BeanName, BeanType, Kind, Key, Expected, Verdict)
+//   Kind     ∈ { property, profile, opaque }
+//   Verdict  ∈ { selected, excluded, undecided }
+// Exported unconditionally: a reader that wants only the live beans filters on the
+// verdict, and a reader auditing the model needs to see the undecided ones.
+
+// ── property: the configuration resolves the key ─────────────────────────────
+cfg_cond_key_value(a, v) :- cfg_cond_key(a, k), config_key_value(_, k, v).
+cfg_cond_key_resolved(a) :- cfg_cond_key_value(a, _).
+
+// havingValue given: the resolved value must equal it.
+config_bean_condition(name, t, "property", k, exp, "selected") :-
+    cfg_cond_bean(a, "property", name, t), cfg_cond_key(a, k),
+    cfg_cond_expected(a, exp), cfg_cond_key_value(a, exp).
+config_bean_condition(name, t, "property", k, exp, "excluded") :-
+    cfg_cond_bean(a, "property", name, t), cfg_cond_key(a, k),
+    cfg_cond_expected(a, exp), cfg_cond_key_value(a, v), v != exp.
+
+// havingValue omitted: Spring matches unless the value is literally "false".
+config_bean_condition(name, t, "property", k, "-", "selected") :-
+    cfg_cond_bean(a, "property", name, t), cfg_cond_key(a, k),
+    !cfg_cond_has_expected(a), cfg_cond_key_value(a, v), v != "false".
+config_bean_condition(name, t, "property", k, "-", "excluded") :-
+    cfg_cond_bean(a, "property", name, t), cfg_cond_key(a, k),
+    !cfg_cond_has_expected(a), cfg_cond_key_value(a, "false").
+
+// the key resolves to nothing this analysis saw: UNDECIDED, and the bean stays live.
+config_bean_condition(name, t, "property", k, exp, "undecided") :-
+    cfg_cond_bean(a, "property", name, t), cfg_cond_key(a, k),
+    !cfg_cond_key_resolved(a), cfg_cond_expected(a, exp).
+config_bean_condition(name, t, "property", k, "-", "undecided") :-
+    cfg_cond_bean(a, "property", name, t), cfg_cond_key(a, k),
+    !cfg_cond_key_resolved(a), !cfg_cond_has_expected(a).
+
+// ── profile: decided only when the active profile set is itself configured ───
+cfg_active_profile(p) :- cfg_active_profile_key(k), config_key_value(_, k, p).
+cfg_active_profile_known() :- cfg_active_profile(_).
+
+config_bean_condition(name, t, "profile", "spring.profiles.active", p, "selected") :-
+    cfg_cond_bean(a, "profile", name, t), cfg_cond_profile(a, p), cfg_active_profile(p).
+config_bean_condition(name, t, "profile", "spring.profiles.active", p, "excluded") :-
+    cfg_cond_bean(a, "profile", name, t), cfg_cond_profile(a, p),
+    cfg_active_profile_known(), !cfg_active_profile(p).
+config_bean_condition(name, t, "profile", "spring.profiles.active", p, "undecided") :-
+    cfg_cond_bean(a, "profile", name, t), cfg_cond_profile(a, p),
+    !cfg_active_profile_known().
+
+// ── opaque: named, never guessed ─────────────────────────────────────────────
+config_bean_condition(name, t, "opaque", reason, "-", "undecided") :-
+    cfg_cond_bean(a, "opaque", name, t), cfg_cond_site(a, "opaque", _),
+    ann_on_type(_, a, n, _), cfg_opaque_condition_ann(n, reason).
+config_bean_condition(name, t, "opaque", reason, "-", "undecided") :-
+    cfg_cond_bean(a, "opaque", name, t), cfg_cond_site(a, "opaque", _),
+    ann_on_method(_, a, n, _, _), cfg_opaque_condition_ann(n, reason).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. DECLARED UNKNOWNS
+// ─────────────────────────────────────────────────────────────────────────────
+// Every undecided condition is a config_unresolved row, so losing decision power
+// shows up as a golden diff the same way every other blind spot in this folder does.
+config_unresolved("condition", t, k, "undecided_condition") :-
+    config_bean_condition(_, t, "property", k, _, "undecided").
+config_unresolved("condition", t, "spring.profiles.active", "undecided_condition") :-
+    config_bean_condition(_, t, "profile", _, _, "undecided").
+config_unresolved("condition", t, reason, "opaque_condition") :-
+    config_bean_condition(_, t, "opaque", reason, _, "undecided").

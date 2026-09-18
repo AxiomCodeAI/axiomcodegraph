@@ -1,0 +1,15 @@
+known_edge	read	testcases.destinations.ItemClient#viaConfiguredField(String) -> testcases.destinations.ItemClient#itemPath
+known_edge	read	testcases.destinations.ItemClient#viaConfiguredField(String) -> testcases.destinations.ItemClient#restTemplate
+known_edge	read	testcases.destinations.ItemClient#viaConstant(String) -> testcases.destinations.ItemClient#restTemplate
+known_edge	read	testcases.destinations.ItemClient#viaConstant(String) -> testcases.destinations.Routes#ITEM
+known_edge	read	testcases.destinations.ItemClient#viaLiteral(String) -> testcases.destinations.ItemClient#restTemplate
+known_edge	read	testcases.destinations.ItemClient#viaPost(String) -> testcases.destinations.ItemClient#restTemplate
+known_edge	read	testcases.destinations.Messaging#publishAudit(String) -> testcases.destinations.Messaging#auditTopic
+known_edge	read	testcases.destinations.Messaging#publishAudit(String) -> testcases.destinations.Messaging#kafkaTemplate
+known_edge	read	testcases.destinations.Messaging#publishCreated(String) -> testcases.destinations.Messaging#kafkaTemplate
+known_edge	read	testcases.destinations.Messaging#publishCreated(String) -> testcases.destinations.Routes#ORDERS_CREATED
+known_edge	read	testcases.destinations.Messaging#publishElsewhere(String) -> testcases.destinations.Messaging#kafkaTemplate
+known_edge	write	testcases.destinations.ItemClient#<init>(RestTemplate,String) -> testcases.destinations.ItemClient#itemPath
+known_edge	write	testcases.destinations.ItemClient#<init>(RestTemplate,String) -> testcases.destinations.ItemClient#restTemplate
+known_edge	write	testcases.destinations.Messaging#<init>(KafkaTemplate,String) -> testcases.destinations.Messaging#auditTopic
+known_edge	write	testcases.destinations.Messaging#<init>(KafkaTemplate,String) -> testcases.destinations.Messaging#kafkaTemplate

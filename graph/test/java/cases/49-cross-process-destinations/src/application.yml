@@ -1,0 +1,5 @@
+app:
+  items:
+    item-path: /api/items/{id}
+  topics:
+    audit: orders.audit

@@ -226,7 +226,7 @@ PROG="$INT/souffle-program.dl"
   # Souffle parses RFC4180 itself, so this costs one flag rather than a re-encode of
   # GB-scale input.
   for ff in "$FACTS"/*.facts; do r=$(basename "$ff" .facts); printf '.input %s(IO=file, filename="%s.facts", delimiter="\\t", rfc4180=true)\n' "$r" "$r"; done
-  for d in projections containment resolution config-resolution expression-resolution call-edge-generation; do
+  for d in projections containment resolution config-resolution expression-resolution call-edge-generation framework-behavior; do
     # [ -f ] guard: a phase directory that is empty (or absent for a language that has
     # not implemented that layer yet) leaves the glob unexpanded, and souffle's C
     # preprocessor then fails on a literal '*.dl' include.

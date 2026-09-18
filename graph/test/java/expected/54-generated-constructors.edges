@@ -1,0 +1,8 @@
+ambiguous_unknown	new	probe.GenCtor.Required#<type-initializer>() -> -
+known_edge	new	probe.GenCtor#make() -> generated:probe.GenCtor.AllArgs#<init>/2
+known_edge	new	probe.GenCtor#make() -> generated:probe.GenCtor.Built#<init>/2
+known_edge	new	probe.GenCtor#make() -> generated:probe.GenCtor.DataHolder#<init>/1
+known_edge	new	probe.GenCtor#make() -> generated:probe.GenCtor.Required#<init>/2
+known_edge	new	probe.GenCtor#make() -> probe.GenCtor.Explicit#<init>(String)
+known_edge	new	probe.GenCtor#make() -> probe.GenCtor.NoArgs#<init>()
+known_edge	new	probe.GenCtor#make() -> probe.GenCtor.Plain#<init>(String)

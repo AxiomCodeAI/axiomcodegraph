@@ -1,0 +1,3 @@
+known_edge	read	probe.Gateway#viaAlways(String) -> probe.Gateway#always
+known_edge	read	probe.Gateway#viaFallback(String) -> probe.Gateway#fallback
+known_edge	read	probe.Gateway#viaPrimary(String) -> probe.Gateway#primary

@@ -18,6 +18,7 @@ config_affects_method	config-affects-method.csv
 config_entry_point	config-entry-point.csv
 config_key_ref	config-key-ref.csv
 config_unresolved	config-unresolved.csv
+config_bean_condition	config-bean-condition.csv
 type_instantiated	type-instantiated.csv
 method_dispatch_candidate	dispatch-candidates.csv
 dispatch_capped_site	dispatch-capped-sites.csv
@@ -25,3 +26,8 @@ field_access	field-access.csv
 field_access_site	field-access-site.csv
 field_site_excluded	field-site-excluded.csv
 type_use	type-use.csv
+remote_edge	remote-edge.csv
+remote_unserved	remote-unserved.csv
+remote_unsent	remote-unsent.csv
+remote_undetermined	remote-undetermined.csv
+bean_origin	config-bean-origin.csv
