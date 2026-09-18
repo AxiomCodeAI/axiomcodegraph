@@ -349,7 +349,7 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
   // makes the FK hold. No file, no lines, no members — the label is all that is known.
   // A GENERATED member: one an annotation processor declares on the compile path, which is in
   // the artefact and in every caller's source but in no IR. resolution/generated-members.dl keeps
-  // the edge under `generated:<owner qualified name>#<name>[/<arity>]`, the same shape
+  // the edge under `generated:<owner qualified name>#<name>/<arity>`, the same shape
   // `external:<qname>` uses below and for the same reason: without a row here the edge points at
   // an id the methods table does not hold. Provenance `generated` is what lets a consumer tell an
   // inferred member from one read out of source. No file and no lines, because there is no source
@@ -365,18 +365,6 @@ export async function buildCore(inp: BuildInputs): Promise<CoreTables> {
     const name = slash < 0 ? rest : rest.slice(0, slash);
     methods.set(id, [id, name, ownerQ ? `${ownerQ}.${name}` : name, '', 'GENERATED_METHOD',
                      null, ownerQ || null, '', 0, 0, 'generated']);
-    generated++;
-  }
-  for (const id of wantFields) {
-    if (fields.has(id) || !id.startsWith('generated:')) continue;
-    const body = id.slice('generated:'.length);
-    const hash = body.indexOf('#');
-    const ownerQ = hash < 0 ? '' : body.slice(0, hash);
-    const name = hash < 0 ? body : body.slice(hash + 1);
-    // fields rows are [id, name, kind, ownerTypeId, ownerQualifiedName, typeName,
-    // modifiers, filePath, startLine, endLine, provenance] — a different shape from
-    // methods rows, so the columns are spelled out rather than copied from above.
-    fields.set(id, [id, name, 'field', null, ownerQ || null, null, null, null, 0, 0, 'generated']);
     generated++;
   }
   if (generated > 0) log(`  generated members named: ${generated}`);
