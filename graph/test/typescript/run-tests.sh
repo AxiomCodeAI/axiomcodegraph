@@ -144,6 +144,18 @@ if ! bash "$HERE/tools/compiler-load-test.sh"; then
   exit 1
 fi
 
+# ── PREFLIGHT: a proxy trap must not consume a call site's marker ────────────
+# The runtime oracle's whole claim is "this declaration ran at this site". A trap runs
+# when the LANGUAGE invokes it, inside whatever call happens to be open, so a trap
+# instrumented as an ordinary function is recorded as the target of native operations
+# all over the program: measured on immer, 19 of 366 executed production sites. The
+# object-literal form was covered; a handler filled in after it is declared was not.
+# The controls in that test are what keep the rule from swallowing ordinary code.
+if ! bash "$HERE/tools/proxy-trap-test.sh"; then
+  echo "aborting: the instrumenter is attributing proxy traps to call sites"
+  exit 1
+fi
+
 # ── PREFLIGHT: one library that declares nothing must not end the evaluation ──
 # `add_lib` returns 1 as an ordinary outcome — a deprecated `@types/<pkg>` stub is a
 # package.json and a README — and at one call site it was the command after the final
