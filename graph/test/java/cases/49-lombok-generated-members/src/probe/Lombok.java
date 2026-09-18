@@ -28,6 +28,34 @@ public class Lombok {
         return label;
     }
 
+    /**
+     * SUBJECT F: a call chained onto a GENERATED accessor's result (#885). `getCatalog`
+     * resolves as a callee; what its result IS has to come from the field's declared
+     * type, because a synthesized method has no METHOD_RETURN reference in the IR.
+     */
+    public String chainedOntoGenerated(dep.Shelf shelf) {
+        return shelf.getCatalog().getName();
+    }
+
+    /**
+     * SUBJECT G, the DISCRIMINATING one: a HAND-WRITTEN method on the result of a
+     * generated accessor. It fails for the same reason SUBJECT F does, which is what
+     * proves the missing piece is the return type and not the callee.
+     */
+    public String handWrittenOntoGenerated(dep.Shelf shelf) {
+        return shelf.getCatalog().describe();
+    }
+
+    /**
+     * CONTROL: the same two calls through a HAND-WRITTEN accessor, and through a
+     * declared intermediate. Both resolve at origin/main, so the subjects' failure is
+     * specific to the generated accessor's return type.
+     */
+    public String chainControls(dep.Shelf shelf) {
+        dep.Catalog viaLocal = shelf.getCatalog();
+        return shelf.current().describe() + viaLocal.describe();
+    }
+
     /** SUBJECT A: the accessors the field annotations declare on this class. */
     public String ownAccessors() {
         setLabel("x");

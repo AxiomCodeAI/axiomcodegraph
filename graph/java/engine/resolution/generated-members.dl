@@ -105,6 +105,18 @@ gen_accessor_demand(p, owner, fname, ftype, "set") :-
     annotation_on(p, ann, _, "TYPE_DECLARATION", owner, _), gen_type_setter_ann(ann),
     field_decl(p, fname, ftype, owner, f), !gen_field_static(f).
 
+// gen_accessor_src(Prov, OwnerType, FieldName, FieldHash, Kind) — the same four
+// derivations as above, keeping the FIELD so section 7 can give the getter a return
+// type. Carried separately rather than widening gen_accessor_demand, because that
+// relation is joined on in four places and its shape is the reason the name rules
+// below read cleanly.
+gen_accessor_src(p, owner, fname, f, "get") :-
+    annotation_on(p, ann, _, "FIELD_DECLARATION", f, _), gen_field_getter_ann(ann),
+    field_decl(p, fname, _, owner, f).
+gen_accessor_src(p, owner, fname, f, "get") :-
+    annotation_on(p, ann, _, "TYPE_DECLARATION", owner, _), gen_type_getter_ann(ann),
+    field_decl(p, fname, _, owner, f), !gen_field_static(f).
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 2. THE NAME
 //
@@ -370,3 +382,38 @@ gen_ctor_live(owner, n, id) :- gen_ctor(owner, n, id), !gen_ctor_source_arity(ow
 ctor_of("client", owner, id) :- gen_ctor_live(owner, _, id).
 method_paramc(id, n) :- gen_ctor_live(_, n, id), n > 0.
 method_owner("client", owner, id) :- gen_ctor_live(owner, _, id).
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 7. THE RETURN TYPE  (#885)
+//
+// A generated accessor resolved as a CALLEE and its result had no type, so anything
+// chained onto it resolved to nothing: `a.getB().getC()` lost the second hop, and so
+// did `a.getB().handWritten()`. The second is the proof that this is about the return
+// type and not about the callee being generated.
+//
+// expr-type.dl types a call's result from method_return_type_resolves, which is built
+// from a java_type_reference at context METHOD_RETURN. A synthesized method has no IR
+// reference and therefore no row. The field's own declared type is already resolved
+// next door as field_type_resolves, so this is a join, not new machinery: the getter
+// returns exactly what the field holds.
+//
+// Getters only. A setter returns void, and @Accessors(chain = true) making it return
+// `this` is a different annotation with a different answer, deliberately not guessed
+// here.
+//
+// The REF column is the field's own type reference. Reusing it rather than minting a
+// synthetic one keeps every downstream consumer that reads the reference (type
+// arguments, generic binding) pointing at a node the IR actually has.
+// ─────────────────────────────────────────────────────────────────────────────
+gen_return_type(id, ref, t) :- gen_accessor_src(p, owner, fname, f, "get"),
+    gen_capitalized(fname, c),
+    gen_method_live(owner, cat("get", c), "0", id),
+    field_type_resolves(p, f, ref, t).
+gen_return_type(id, ref, t) :- gen_accessor_src(p, owner, fname, f, "get"),
+    gen_capitalized(fname, c),
+    gen_method_live(owner, cat("is", c), "0", id),
+    field_type_resolves(p, f, ref, t).
+
+method_return_type_resolves(p, id, ref, t) :- gen_return_type(id, ref, t),
+    gen_method_live(owner, _, _, id), type_decl(p, _, _, _, _, _, owner).
