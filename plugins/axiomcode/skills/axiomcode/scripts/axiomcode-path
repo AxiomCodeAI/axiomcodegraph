@@ -91,6 +91,16 @@ class G:
         # same name is tried with leading segments dropped — Outer.Inner.m, then Inner.m — against display AND qualified name,
         # exact first, then as a dotted suffix. The label says which form matched when it was not the one written.
         s = re.sub(r'\(.*\)$', '', s).replace('#', '.').strip('.')
+        # EXACT SPELLING WINS. Two shapes were unreachable because a heuristic ran before the literal lookup:
+        #   $Pkg$Types.method — a type whose NAME contains $ (a common generated / internal idiom) was split as
+        #     Outer$Inner, giving outer=Pkg inner=Types, and the nested branch died instead of falling through.
+        #   Owner.Owner — a constructor spelled like its class resolved to the TYPE, which is a different question
+        #     (delete the whole class, not this constructor).
+        # A declaration whose display is exactly what was written is unambiguous intent, so it answers first.
+        exact = self.q("SELECT id FROM symbols WHERE display = ? AND method_id IS NOT NULL", s)
+        if exact:
+            ids = [x['id'] for x in exact]
+            return (s if len(ids) == 1 else f"{s} ({len(ids)} declarations)"), ids
         # Outer$Inner.m and Outer$1.m: the type is looked up STRUCTURALLY through the nesting table — Inner declared (at any
         # depth) inside Outer, or the 1st/2nd… anonymous class inside Outer in source order, as javac numbers them
         mn = re.match(r'^(.*?)([\w.]+)\$([\w$]+)\.(\w+)$', s)
