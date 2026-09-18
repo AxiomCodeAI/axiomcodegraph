@@ -124,6 +124,19 @@ if ! bash "$ROOT/graph/test/tools/bundle-test.sh"; then
   echo "aborting: the bundle stage does not produce the documented output"
   exit 1
 fi
+# ── The engine id and the packaged-engine path ───────────────────────────────
+# A machine without souffle finds its binary by the id the rules hash to, so the id must be
+# the same from any path and different for any rule change; and the engine package npm
+# installed must be used only when its ENGINE_ID matches. Both run without souffle or
+# network, in seconds.
+if ! bash "$ROOT/graph/test/tools/engine-id-test.sh"; then
+  echo "aborting: the engine id is not a function of the rules alone"
+  exit 1
+fi
+if ! bash "$ROOT/graph/test/tools/engine-package-test.sh"; then
+  echo "aborting: the packaged-engine path does not check what it runs"
+  exit 1
+fi
 PARSER="${AXIOM_PARSER:-$ROOT/parser/dist/index.js}"
 # The oracle's runtime flags, for the --oracle path below. Empty on JDK 24+, where
 # java.lang.classfile is final; --enable-preview on 22 and 23, where it is not and a
