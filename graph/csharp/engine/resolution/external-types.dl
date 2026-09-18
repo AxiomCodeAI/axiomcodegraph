@@ -206,6 +206,43 @@ external_target(prov, e, label) :-
     type_base_unresolved(prov, gk, _, bn, _),
     label = cat("external:", cat(bn, cat(".", n))).
 
+// ── A PROPERTY READ ON AN EXTERNAL RECEIVER ─────────────────────────────────
+// `someString.Length`, `dict.Count`, `ex.Message`. Reading a property IS a call, and
+// on a receiver whose type is not staged there is nothing to resolve -- but there is
+// something to NAME, exactly as for an external method call.
+//
+// MEASURED: 1,871 of one dev project's property-accessor sites are external reads.
+// Left unlabelled they are indistinguishable from a member the engine failed on, and
+// property accessors outnumber ordinary invocations on a property-heavy codebase, so
+// this is the difference between a readable blind-spot count and an unusable one.
+//
+// GATED ON EVERYTHING ELSE HAVING FAILED. A member access that resolves to a
+// property, a field, a generated record member, or that is the callee of an
+// invocation, is not this. The guard is the whole point: a wrong label here would
+// put a boundary edge beside a correct one.
+member_access_resolved(prov, acc) :- property_access(prov, acc, _, _).
+member_access_resolved(prov, acc) :- generated_accessor_read(prov, acc, _).
+member_access_resolved(prov, acc) :- member_access_is_callee(prov, acc).
+member_access_resolved(prov, acc) :-
+    expr_member_name_child(prov, acc, nameExpr), ref_denotes(prov, nameExpr, _, _).
+member_access_resolved(prov, acc) :-
+    expr_qualifier_child(prov, acc, q), ref_names_type(prov, q, _).
+
+external_property_read(prov, acc, label) :-
+    expr_kind(prov, acc, "MEMBER_ACCESS"),
+    !member_access_resolved(prov, acc),
+    expr_qualifier_child(prov, acc, q),
+    expr_member_name_child(prov, acc, nameExpr),
+    expr_written_name(prov, nameExpr, n),
+    external_recv_name(prov, q, tn),
+    label = cat("external:", cat(tn, cat(".get_", n))).
+
+// The receiver's type name, where that type is not staged. Both spellings: a C#
+// keyword alias, and a named type the project does not declare.
+external_recv_name(prov, e, tn) :- expr_predefined_recv_name(prov, e, tn).
+external_recv_name(prov, e, tn) :-
+    expr_external_type_name(prov, e, tn).
+
 // ── THE EXTERNAL EDGE ───────────────────────────────────────────────────────
 // client_calls_external(SiteExpr, Label). Kept separate from the client and lib
 // relations because the target is a LABEL rather than a method hash, and a consumer
