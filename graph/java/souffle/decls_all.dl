@@ -787,3 +787,10 @@
 .decl gen_source_sig(c0:symbol,c1:symbol,c2:symbol)             // (owner,name,arity) the IR really carries
 .decl gen_shadowed(c0:symbol,c1:symbol,c2:symbol)               // (owner,name,arity) also written out in source
 .decl gen_method_live(c0:symbol,c1:symbol,c2:symbol,c3:symbol)  // gen_method minus gen_shadowed
+
+// ── config-resolution/lib-bean-scope.dl ─────────────────────────────────────
+.decl bean_origin(c0:symbol,c1:symbol,c2:symbol)
+.decl cfg_lib_bean_site(c0:symbol)
+.decl cfg_lib_bean_narrowing_enabled()
+.decl cfg_staged_lib_type(c0:symbol)
+.decl cfg_injectable_scope_type(c0:symbol)
