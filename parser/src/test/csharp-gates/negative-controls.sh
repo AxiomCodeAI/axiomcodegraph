@@ -927,7 +927,7 @@ run_break "hand a constructor initializer itself back as its argument list" \
   src/parsers/csharp/extractors/cs-expression-extractor.ts \
   "expression spine" \
   "s = s.replace('  return isPrimaryBaseArgumentList(node) ? node : undefined;', '  return node;')"
-# The three existence-only links promoted to meaning (LINK-COLUMNS.md, risk
+# The three existence-only links promoted to meaning (the link-column risk
 # register 1-3): each control points the link at a NEIGHBOURING row, which
 # resolves and is wrong — the LINQ shape.
 run_break "link a heritage entry to the previous entry's type reference" \
