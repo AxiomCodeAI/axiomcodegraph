@@ -1,0 +1,125 @@
+// ============================================================================
+// PROJECTIONS · MODULES
+//
+// A cs_module row is ONE .cs FILE, not an assembly and not a namespace. C# has no
+// module declaration, so there is nothing here resembling Java's module-info: the
+// compilation unit is the file, and the assembly it compiles into is a column on it
+// (assemblyName) rather than an entity.
+//
+// EVERY projection in this engine carries a leading PROVENANCE column, "client" or
+// "lib". The two fact families are separate relations (cs_* and lib_cs_*) with
+// identical column order, so one projection per entity with a provenance term lets
+// every later rule be written once and hold for both. A rule that reads cs_module
+// directly instead of module_decl works on the client and silently answers nothing
+// for a staged library.
+//
+// cs_module cols: 0 name 1 qualifiedName 2 fileName 3 filePath 4 baseMservPath
+//   5 namespaceStyle 6 namespaceCount 7 targetFramework 8 defineConstantsKey
+//   9 langVersion 10 nullableContextDefault 11 hasTopLevelStatements
+//   12 implicitUsingsEnabled 13 projectPath 14 assemblyName 15 emissionRegime
+//   16 grammarRegime 17 startLine 18 endLine 19 parseErrorCount 20 parseErrorBytes
+//   21 isGeneratedOutput 22 csModuleInitMethodLinkHash 23 isExternal
+//   24 serviceVersionLinkHash 25 csModuleUniqueHash
+// ============================================================================
+
+// ── module_decl(Prov, Name, QualifiedName, FilePath, ModuleHash) ─────────────
+module_decl("client", n, qn, fp, m) :-
+    cs_module(n, qn, _, fp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+module_decl("lib", n, qn, fp, m) :-
+    lib_cs_module(n, qn, _, fp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+
+// ── module_file(Prov, ModuleHash, FilePath) ─────────────────────────────────
+module_file(prov, m, fp) :- module_decl(prov, _, _, fp, m).
+
+// ── module_assembly(Prov, ModuleHash, AssemblyName, ProjectPath) ────────────
+// The assembly is the C# LINKAGE unit: `internal` is visible within it and nowhere
+// else, and two types with the same qualified name in two assemblies are two types.
+// Name resolution reads this so a simple name is not matched across an assembly
+// boundary it could not cross in a real compilation.
+module_assembly("client", m, asm, proj) :-
+    cs_module(_, _, _, _, _, _, _, _, _, _, _, _, _, proj, asm, _, _, _, _, _, _, _, _, _, _, m).
+module_assembly("lib", m, asm, proj) :-
+    lib_cs_module(_, _, _, _, _, _, _, _, _, _, _, _, _, proj, asm, _, _, _, _, _, _, _, _, _, _, m).
+
+// ── module_target(Prov, ModuleHash, TargetFramework, DefineConstantsKey) ────
+// A file compiled under two target frameworks is TWO module rows, and they are
+// different program-readings: the #if branches differ, so the call sites differ.
+// Nothing here merges them, deliberately.
+module_target("client", m, tf, dck) :-
+    cs_module(_, _, _, _, _, _, _, tf, dck, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+module_target("lib", m, tf, dck) :-
+    lib_cs_module(_, _, _, _, _, _, _, tf, dck, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+
+// ── module_lang(Prov, ModuleHash, LangVersion, NullableDefault) ─────────────
+module_lang("client", m, lv, nd) :-
+    cs_module(_, _, _, _, _, _, _, _, _, lv, nd, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+module_lang("lib", m, lv, nd) :-
+    lib_cs_module(_, _, _, _, _, _, _, _, _, lv, nd, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+
+// ── module_regime(Prov, ModuleHash, EmissionRegime, GrammarRegime) ──────────
+// grammarRegime names the parse MECHANISM and is part of the module's identity. Two
+// rows whose regime differs describe different readings of the same text, so a
+// consumer comparing counts across a regime change is comparing two programs.
+module_regime("client", m, er, gr) :-
+    cs_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, er, gr, _, _, _, _, _, _, _, _, m).
+module_regime("lib", m, er, gr) :-
+    lib_cs_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, er, gr, _, _, _, _, _, _, _, _, m).
+
+// ── module_has_top_level(Prov, ModuleHash) ──────────────────────────────────
+// C# 9 top-level statements: executable code with no enclosing type written. The
+// parser synthesises the entry method and names it in csModuleInitMethodLinkHash, so
+// a call site in top-level code HAS a caller; what it does not have is an enclosing
+// type, which is why caller attribution (containment/ownership.dl) cannot assume one.
+module_has_top_level("client", m) :-
+    cs_module(_, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+module_has_top_level("lib", m) :-
+    lib_cs_module(_, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+
+// ── module_init_method(Prov, ModuleHash, MethodHash) ────────────────────────
+// The synthetic method holding a file's top-level statements. Empty for every file
+// that declares types normally, so the join is on a non-empty value.
+module_init_method("client", m, init) :-
+    cs_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, init, _, _, m),
+    init != "".
+module_init_method("lib", m, init) :-
+    lib_cs_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, init, _, _, m),
+    init != "".
+
+// ── module_implicit_usings(Prov, ModuleHash) ────────────────────────────────
+// `<ImplicitUsings>enable</ImplicitUsings>` puts a fixed set of namespaces in scope
+// with nothing written in the file. The parser emits those as cs_using rows with
+// isImplicit=true, so name resolution needs no special case here; this relation
+// exists so a resolution failure can be attributed to the SDK's default set rather
+// than to a missing using the author never wrote.
+module_implicit_usings("client", m) :-
+    cs_module(_, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, m).
+module_implicit_usings("lib", m) :-
+    lib_cs_module(_, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, m).
+
+// ── module_is_generated(Prov, ModuleHash) ───────────────────────────────────
+// Source-generator or designer output. NOT excluded: generated code calls real code
+// and is called by it, and dropping it would delete true edges. The flag is carried
+// so a consumer can attribute an edge to code no author wrote.
+module_is_generated("client", m) :-
+    cs_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, m).
+module_is_generated("lib", m) :-
+    lib_cs_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, m).
+
+// ── module_parse_errors(Prov, ModuleHash, ErrorCount, ErrorBytes) ───────────
+// Read by the coverage guard: a file the grammar could not fully read explains the
+// call sites missing from it, and that explanation has to be available rather than
+// inferred from an absence.
+module_parse_errors("client", m, cnt, bytes) :-
+    cs_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, cnt, bytes, _, _, _, _, m).
+module_parse_errors("lib", m, cnt, bytes) :-
+    lib_cs_module(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, cnt, bytes, _, _, _, _, m).
+
+// ── module_namespace_style(Prov, ModuleHash, Style, Count) ──────────────────
+// FILE_SCOPED (`namespace X;`) vs BLOCK (`namespace X { }`) vs none. The engine reads
+// this when it has to decide what namespace a declaration sits in without a
+// containing-type link, and the count distinguishes a file with several block
+// namespaces (where a single file-level answer is wrong) from the ordinary one.
+module_namespace_style("client", m, style, cnt) :-
+    cs_module(_, _, _, _, _, style, cnt, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+module_namespace_style("lib", m, style, cnt) :-
+    lib_cs_module(_, _, _, _, _, style, cnt, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).

@@ -1,0 +1,261 @@
+// ============================================================================
+// PROJECTIONS · METHODS
+//
+// A cs_method row is every INVOCABLE thing C# has, not only what the language spells
+// `method`: constructors, destructors, operators, conversions, local functions, and
+// the accessors of properties, indexers and events. methodKind says which. That
+// matters for the call graph because several of them are invoked with no call syntax
+// at all — `x.Name` is a call to get_Name, `a + b` may be a call to op_Addition —
+// and an engine that only joins on INVOCATION expressions loses all of them.
+//
+// PARTIAL METHODS SPLIT. `partial void OnChanged();` and its implementation are two
+// rows, one with isPartialDefinition and one with isPartialImplementation, and the
+// call goes to the IMPLEMENTATION. Resolving to the definition produces an edge into
+// a body that does not exist; resolving to both double-counts. method_impl_target
+// below is what every call rule joins through.
+//
+// ARITY IS GENERIC ARITY (c2), NOT PARAMETER COUNT (c26). They are different numbers
+// and confusing them silently breaks overload selection. This file names them
+// method_type_arity and method_paramc so the mistake is not spellable.
+//
+// cs_method cols: 0 name 1 qualifiedName 2 arity 3 signature 4 methodKind
+//   5 returnTypeName 6 methodAccess 7 methodModifiers 8 isStatic 9 isAbstract
+//   10 isVirtual 11 isOverride 12 isSealed 13 isAsync 14 isIterator 15 isExtension
+//   16 isPartialDefinition 17 isPartialImplementation 18 explicitInterfaceName
+//   19 operatorToken 20 conversionKind 21 csModuleLinkHash 22 csTypeLinkHash
+//   23 isAccessor 24 ownerMemberLinkHash 25 ownerMemberKind 26 parameterCount
+//   27 startLine 28 endLine 29 startColumn 30 bodyKind 31 attributeCount
+//   32 isExternal 33 serviceVersionLinkHash 34 csMethodUniqueHash
+// ============================================================================
+
+// ── method_decl(Prov, Name, QualifiedName, Kind, MethodHash) ────────────────
+method_decl("client", n, qn, k, m) :-
+    cs_method(n, qn, _, _, k, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+method_decl("lib", n, qn, k, m) :-
+    lib_cs_method(n, qn, _, _, k, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+
+// ── method_name(Prov, MethodHash, Name) ─────────────────────────────────────
+method_name(prov, m, n) :- method_decl(prov, n, _, _, m).
+method_kind(prov, m, k) :- method_decl(prov, _, _, k, m).
+
+// ── method_owner(Prov, TypeHash, MethodHash) ────────────────────────────────
+// The DECLARATION SITE that declares it. Empty for a method in top-level statements
+// and for a local function whose owner the parser records elsewhere, so the join is
+// on a non-empty value and the absent case is handled by method_module below.
+method_owner("client", t, m) :-
+    cs_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, _, _, _, m),
+    t != "".
+method_owner("lib", t, m) :-
+    lib_cs_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, t, _, _, _, _, _, _, _, _, _, _, _, m),
+    t != "".
+
+// ── method_module(Prov, MethodHash, ModuleHash) ─────────────────────────────
+// Always present, including for top-level statements. This is the scope key the
+// library stage↔solve loop uses, which is why it has to hold for every method.
+method_module("client", m, mod) :-
+    cs_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, mod, _, _, _, _, _, _, _, _, _, _, _, _, m).
+method_module("lib", m, mod) :-
+    lib_cs_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, mod, _, _, _, _, _, _, _, _, _, _, _, _, m).
+
+// ── method_in_type(Prov, GroupKey, MethodHash) ──────────────────────────────
+// THE LOOKUP KEY. A method belongs to the merged type, not to the file it was
+// written in, so every member-lookup rule joins here and a partial type declared
+// across five files answers as one type.
+method_in_type(prov, gk, m) :- method_owner(prov, t, m), type_group(prov, t, gk).
+
+// ── method_type_arity / method_paramc ───────────────────────────────────────
+method_type_arity("client", m, ar) :-
+    cs_method(_, _, ar, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+method_type_arity("lib", m, ar) :-
+    lib_cs_method(_, _, ar, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+method_paramc("client", m, pc) :-
+    cs_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, pc, _, _, _, _, _, _, _, m).
+method_paramc("lib", m, pc) :-
+    lib_cs_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, pc, _, _, _, _, _, _, _, m).
+
+// ── method_signature(Prov, MethodHash, Signature) ───────────────────────────
+// The written parameter-type list. Textual, so it is a tiebreak of last resort and
+// never the primary key for overload selection (a `var`-typed argument and a named
+// argument both defeat it).
+method_signature("client", m, sig) :-
+    cs_method(_, _, _, sig, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+method_signature("lib", m, sig) :-
+    lib_cs_method(_, _, _, sig, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+
+// ── method_return_type_name(Prov, MethodHash, TypeName) ─────────────────────
+// The WRITTEN name, unresolved. Resolution to a type hash is expr-type's job.
+method_return_type_name("client", m, rt) :-
+    cs_method(_, _, _, _, _, rt, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+method_return_type_name("lib", m, rt) :-
+    lib_cs_method(_, _, _, _, _, rt, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+
+// ── method_modifier(Prov, MethodHash, Modifier) ─────────────────────────────
+// One row per true flag. `virtual`, `abstract` and `override` are the three that
+// decide dispatch; `sealed` STOPS an override chain, which is what makes a receiver
+// of that type exact for this member even though the type itself is open.
+method_modifier("client", m, "static")    :- cs_method(_, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+method_modifier("client", m, "abstract")  :- cs_method(_, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+method_modifier("client", m, "virtual")   :- cs_method(_, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+method_modifier("client", m, "override")  :- cs_method(_, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+method_modifier("client", m, "sealed")    :- cs_method(_, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+method_modifier("client", m, "async")     :- cs_method(_, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+method_modifier("client", m, "iterator")  :- cs_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+method_modifier("client", m, "extension") :- cs_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+method_modifier("lib", m, "static")    :- lib_cs_method(_, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+method_modifier("lib", m, "abstract")  :- lib_cs_method(_, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+method_modifier("lib", m, "virtual")   :- lib_cs_method(_, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+method_modifier("lib", m, "override")  :- lib_cs_method(_, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+method_modifier("lib", m, "sealed")    :- lib_cs_method(_, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+method_modifier("lib", m, "async")     :- lib_cs_method(_, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+method_modifier("lib", m, "iterator")  :- lib_cs_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+method_modifier("lib", m, "extension") :- lib_cs_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+
+method_is_static(prov, m)   :- method_modifier(prov, m, "static").
+method_is_virtual(prov, m)  :- method_modifier(prov, m, "virtual").
+method_is_abstract(prov, m) :- method_modifier(prov, m, "abstract").
+method_is_override(prov, m) :- method_modifier(prov, m, "override").
+method_is_sealed(prov, m)   :- method_modifier(prov, m, "sealed").
+method_is_extension(prov, m):- method_modifier(prov, m, "extension").
+
+// A member that participates in virtual dispatch AT ALL. `virtual`, `abstract` and
+// `override` are the three C# spellings; an interface member is implicitly virtual
+// and has none of them, which is why the interface clause is separate. Anything else
+// is statically bound and a receiver's declared type settles it exactly.
+method_is_dispatchable(prov, m) :- method_is_virtual(prov, m).
+method_is_dispatchable(prov, m) :- method_is_abstract(prov, m).
+method_is_dispatchable(prov, m) :- method_is_override(prov, m).
+method_is_dispatchable(prov, m) :- method_owner(prov, t, m), type_is_interface(prov, t).
+
+// ── method_explicit_interface(Prov, MethodHash, InterfaceName) ──────────────
+// `void IFoo.Bar()` implements IFoo.Bar and is NOT callable on the class. A call
+// through an IFoo-typed receiver reaches it; a call through a class-typed receiver
+// must not. Named here so dispatch can apply that asymmetry.
+method_explicit_interface("client", m, iface) :-
+    cs_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, iface, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m),
+    iface != "".
+method_explicit_interface("lib", m, iface) :-
+    lib_cs_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, iface, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m),
+    iface != "".
+
+// ── PARTIAL METHODS ─────────────────────────────────────────────────────────
+method_partial_def("client", m) :-
+    cs_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+method_partial_def("lib", m) :-
+    lib_cs_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+method_partial_impl("client", m) :-
+    cs_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+method_partial_impl("lib", m) :-
+    lib_cs_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+
+// method_impl_target(Prov, MethodHash, TargetHash) — where a call to this method
+// actually lands. Identity for an ordinary method; the implementation for a partial
+// definition, matched within the same type group on name and both arities.
+//
+// A partial definition with NO implementation is legal C#: the call is REMOVED by the
+// compiler, along with its arguments. Mapping it to itself would put an edge into a
+// body that was never emitted, so it maps to nothing and the site degrades to a
+// declared unknown, which is the honest answer.
+method_impl_target(prov, m, m) :- method_decl(prov, _, _, _, m), !method_partial_def(prov, m).
+method_impl_target(prov, def, impl) :-
+    method_partial_def(prov, def),
+    method_in_type(prov, gk, def), method_in_type(prov, gk, impl),
+    method_name(prov, def, n), method_name(prov, impl, n),
+    method_paramc(prov, def, pc), method_paramc(prov, impl, pc),
+    method_type_arity(prov, def, ar), method_type_arity(prov, impl, ar),
+    method_partial_impl(prov, impl).
+
+// ── ACCESSORS ───────────────────────────────────────────────────────────────
+// A property/indexer/event accessor: its own method, linked to the member it belongs
+// to. `x.Name` is a call to the getter, so resolution/properties.dl turns a member
+// access into an edge through here.
+method_is_accessor("client", m) :-
+    cs_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, m).
+method_is_accessor("lib", m) :-
+    lib_cs_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, "true", _, _, _, _, _, _, _, _, _, _, m).
+
+// method_accessor_of(Prov, MethodHash, OwnerMemberHash, OwnerMemberKind)
+method_accessor_of("client", m, owner, ok) :-
+    cs_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, owner, ok, _, _, _, _, _, _, _, _, m),
+    owner != "".
+method_accessor_of("lib", m, owner, ok) :-
+    lib_cs_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, owner, ok, _, _, _, _, _, _, _, _, m),
+    owner != "".
+
+// ── OPERATORS AND CONVERSIONS ───────────────────────────────────────────────
+// `a + b` on a type that overloads `+` is a static method call, and an IMPLICIT
+// conversion is a call with no syntax at the call site at all. Both are edges into
+// user code that a purely syntactic reading never produces.
+method_operator("client", m, tok) :-
+    cs_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, tok, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m),
+    tok != "".
+method_operator("lib", m, tok) :-
+    lib_cs_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, tok, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m),
+    tok != "".
+method_conversion("client", m, ck) :-
+    cs_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ck, _, _, _, _, _, _, _, _, _, _, _, _, _, m),
+    ck != "", ck != "NONE".
+method_conversion("lib", m, ck) :-
+    lib_cs_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, ck, _, _, _, _, _, _, _, _, _, _, _, _, _, m),
+    ck != "", ck != "NONE".
+
+// ── method_body_kind(Prov, MethodHash, BodyKind) ────────────────────────────
+// BLOCK / EXPRESSION / NONE. NONE means no body was written: an abstract member, an
+// interface member, an `extern` declaration, or a partial definition. A caller
+// resolving to a NONE-bodied method is resolving to a declaration, and for dispatch
+// that is exactly right (the body is in the override); for reachability it is not a
+// body to walk into.
+method_body_kind("client", m, bk) :-
+    cs_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, bk, _, _, _, m).
+method_body_kind("lib", m, bk) :-
+    lib_cs_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, bk, _, _, _, m).
+method_has_body(prov, m) :- method_body_kind(prov, m, bk), bk != "NONE", bk != "".
+
+// ── method_span(Prov, MethodHash, StartLine, EndLine, StartColumn) ──────────
+method_span("client", m, sl, el, sc) :-
+    cs_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, sl, el, sc, _, _, _, _, m).
+method_span("lib", m, sl, el, sc) :-
+    lib_cs_method(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, sl, el, sc, _, _, _, _, m).
+
+// ── CONSTRUCTORS ────────────────────────────────────────────────────────────
+// The parser names a constructor `<constructor>`, while a `new Foo(...)` call site
+// carries calleeName `Foo`. Bridging that is resolution's job; naming the set here
+// keeps the constant in one place.
+//
+// PRIMARY_CONSTRUCTOR IS A SEPARATE KIND and must be in this set. `record Point(int
+// X, int Y)` and `class Svc(IDep d)` declare a constructor with no constructor
+// syntax, and it is the ONLY constructor those types have. Omitting the kind makes
+// every `new Point(1, 2)` in a record-heavy codebase an unresolved site, and records
+// are the normal way to write a C# data type.
+method_is_ctor(prov, m) :- method_kind(prov, m, "CONSTRUCTOR").
+method_is_ctor(prov, m) :- method_kind(prov, m, "PRIMARY_CONSTRUCTOR").
+method_is_static_ctor(prov, m) :- method_kind(prov, m, "STATIC_CONSTRUCTOR").
+type_ctor(prov, gk, m) :- method_is_ctor(prov, m), method_in_type(prov, gk, m).
+
+// ── LAMBDAS AND LOCAL FUNCTIONS ─────────────────────────────────────────────
+// A lambda IS a cs_method row (methodKind LAMBDA / ANONYMOUS_METHOD), which is what
+// makes a delegate edge reachable at all: the target of `Action a = () => Foo();` is
+// a method with a hash, not an anonymous blob. A local function is likewise a real
+// method, scoped to the body that declares it.
+method_is_lambda(prov, m) :- method_kind(prov, m, "LAMBDA").
+method_is_lambda(prov, m) :- method_kind(prov, m, "ANONYMOUS_METHOD").
+method_is_local_function(prov, m) :- method_kind(prov, m, "LOCAL_FUNCTION").
+
+// The synthetic method holding a file's top-level statements. An entry point, and
+// the caller every top-level call site is attributed to.
+method_is_top_level_entry(prov, m) :- method_kind(prov, m, "TOP_LEVEL_ENTRY_POINT").
+
+// ── `new` SHADOWING, WHICH IS NOT OVERRIDING ────────────────────────────────
+// `public new void M()` HIDES the base member instead of overriding it. The
+// distinction is the whole difference between two call graphs: a base-typed receiver
+// calling M reaches the BASE method, and only a derived-typed receiver reaches the
+// hiding one. Treating it as an override would add an edge the runtime never takes.
+//
+// There is no isNew boolean; `NEW` appears in the methodModifiers string, which is a
+// separator-joined set. `contains` is a substring test, and no other declared
+// modifier value has NEW as a substring, so the test is exact against this
+// vocabulary (checked against CsMethodModifier).
+method_modifiers_text("client", m, mods) :-
+    cs_method(_, _, _, _, _, _, _, mods, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+method_modifiers_text("lib", m, mods) :-
+    lib_cs_method(_, _, _, _, _, _, _, mods, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, m).
+method_hides_base(prov, m) :- method_modifiers_text(prov, m, mods), contains("NEW", mods).
