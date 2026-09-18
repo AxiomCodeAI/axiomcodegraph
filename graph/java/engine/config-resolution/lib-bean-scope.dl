@@ -1,0 +1,94 @@
+// ============================================================================
+// CONFIG-RESOLUTION · LIBRARY BEAN SCOPE  (reaching them, reporting them, trusting them)
+//
+// annotation-args.dl and di.dl now read a dependency's annotations, so a staged
+// --library tree contributes bean_def rows. Three things were still missing, and the
+// first is the one that decides whether any of it fires on a real project.
+//
+// (1) THE LIB SLICE. reached_lib (resolution/lib-hierarchy.dl:33) is seeded from
+//     type_ref_resolves("lib", ...), which is to say from the library types the CLIENT
+//     names. It gates lib_super_ref (:91) and lib_method_ret_ref, so for a library type
+//     outside the slice there is no lib_type_parent edge and no resolved return type.
+//
+//     That is exactly backwards for auto-configuration, whose whole idiom is a
+//     @Configuration class nobody imports, contributing beans behind interfaces. Three
+//     shapes fail without a seed here, and they are the common ones:
+//       - a library interface with one library implementation: the client names the
+//         interface and never the implementation, so lib_type_parent never fires,
+//         type_ancestor has no edge, and cfg_bean_fits cannot match bean to slot
+//       - the same with two implementations, which should be a fan and is instead nothing
+//       - a type contributed by a library @Bean method, whose owner is named by nobody,
+//         so lib_method_return_type never resolves it and it is not a bean at all
+//
+//     Being a bean IS the evidence that the container instantiates the type, which is
+//     what makes this a legitimate seed rather than a widening. Both clauses read
+//     annotation-derived facts and the knob lists only, so nothing here reads anything
+//     downstream of reached_lib and no cycle is added. Same argument lib-hierarchy.dl
+//     already makes for its own expression-level seed.
+//
+// (2) ORIGIN. Which side declared a bean is not recoverable from bean_def, whose Site
+//     column is an opaque hash, so a consumer cannot ask "which of these came from a
+//     dependency" without re-deriving the join.
+//
+// (3) TRUST. The narrowing's gate (1) admitted client-declared types only, and said why:
+//     a library-typed slot could be satisfied by a bean this analysis never sees. True of
+//     an unstaged dependency, and no longer true of a staged one.
+// ============================================================================
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. THE LIB SLICE
+// ─────────────────────────────────────────────────────────────────────────────
+// A library type carrying a stereotype, and the owner of a library factory method.
+reached_lib(t) :- cfg_stereotype("lib", _, t).
+reached_lib(t) :- cfg_factory("lib", _, _, t).
+
+// A library @Bean method's RETURN TYPE. di.dl types a factory bean from
+// method_return_mono or method_return_type_resolves, and both are built from
+// java_type_reference (reference-types.dl:119), which holds the client's references only.
+// A library method's declared return type is resolved on the library side instead, by
+// lib_method_return_type (lib-hierarchy.dl), so without this clause a library @Bean method
+// is recognised as a factory and its bean still has no type, and therefore is not a bean.
+//
+// This is additive rather than a second implementation: the two existing clauses cannot
+// reach a library method at all, and this one reaches nothing else.
+//
+// The client rule additionally prefers a single `new T()` in the body over the declared
+// return type. There is no library equivalent, because a library IR carries signatures and
+// only the LIB_BODY slice of bodies, so the declared type is what this side can state. That
+// is the conservative direction: it widens the candidate set, never narrows it wrongly.
+cfg_factory_type(m, t) :- cfg_factory("lib", _, m, _), lib_method_return_type(m, t).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. ORIGIN
+// ─────────────────────────────────────────────────────────────────────────────
+// bean_origin(BeanName, TypeHash, Provenance), Provenance ∈ { client, lib }.
+//
+// A separate relation rather than a fifth column on bean_def, because bean_def is
+// exported and pinned by every case golden and widening it would churn goldens in cases
+// that have nothing to do with this. Keyed on NAME and TYPE rather than on the declaring
+// site, because that is what di_edge and bean_satisfies join on and because a site hash
+// alone is not readable in a report.
+//
+// Derived FROM bean_def so the two cannot disagree about which beans exist. The negation
+// makes client the default, which is where XML <bean> elements come from.
+cfg_lib_bean_site(a) :- cfg_stereotype("lib", a, _).
+cfg_lib_bean_site(m) :- cfg_factory("lib", _, m, _).
+bean_origin(name, t, "lib") :- bean_def(name, t, _, site), cfg_lib_bean_site(site).
+bean_origin(name, t, "client") :- bean_def(name, t, _, site), !cfg_lib_bean_site(site).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. TRUST: which declared types the bean set is complete for
+// ─────────────────────────────────────────────────────────────────────────────
+// "Exactly one bean satisfies this slot" was trustworthy for a client type because the
+// client's bean set is complete. A staged dependency's stereotypes and factory methods
+// are all visible too, so it becomes trustworthy there for the same reason, and for no
+// other reason: a dependency on the compile path that was NOT passed to --library does
+// not resolve to a type hash at all, so it never reaches this gate either way.
+//
+// The knob keeps the old behaviour one line away, modelled on cfg_di_narrowing_enabled.
+// Turning it off closes the narrowing only: bean_def, di_edge and bean_origin still
+// report the library beans.
+cfg_staged_lib_type(t) :- cfg_lib_bean_narrowing_enabled(),
+    lib_type(_, _, _, _, _, _, _, _, _, _, _, _, _, t).
+cfg_injectable_scope_type(t) :- cfg_client_type(t).
+cfg_injectable_scope_type(t) :- cfg_staged_lib_type(t).

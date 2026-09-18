@@ -95,6 +95,11 @@ def main():
     SECTIONS = [
         ('config-bean-def.csv', 'bean_def',
          lambda r: f"{r[2]:<16} {r[0]:<22} <- {L.lbl(r[1])}"),
+        # bean_origin is printed next to bean_def deliberately: the pair is the answer to
+        # "which of these beans came from a dependency", and splitting them across the
+        # report would make that need a mental join.
+        ('config-bean-origin.csv', 'bean_origin',
+         lambda r: f"{r[2]:<16} {r[0]:<22} <- {L.lbl(r[1])}"),
         ('config-inject-point.csv', 'inject_point',
          lambda r: f"{r[0]:<16} {L.lbl(r[1])} : {L.lbl(r[2])}"),
         ('config-di-edge.csv', 'di_edge',
