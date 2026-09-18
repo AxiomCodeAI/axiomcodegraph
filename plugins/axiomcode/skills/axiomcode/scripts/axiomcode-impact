@@ -205,7 +205,11 @@ class Impact:
         raw = sel.strip()
         # a build coordinate (group:artifact[:version]) is not a declaration, and nothing in this graph is a build file.
         # Answering it by name matching gave a confident empty answer on a tree where 55 poms declare the artifact
-        if re.fullmatch(r'[A-Za-z_][\w.-]*\.[\w.-]+:[A-Za-z_][\w.-]*(:[\w.+-]+){0,3}', raw):
+        # …but `Owner.method:local` — the documented way to ask about a LOCAL — has that exact shape, and the
+        # guard swallowed every one of them whose owner is qualified, which is all of them in a language with
+        # packages. A coordinate's group names nothing in the graph; a local's owner names a method.
+        if (re.fullmatch(r'[A-Za-z_][\w.-]*\.[\w.-]+:[A-Za-z_][\w.-]*(:[\w.+-]+){0,3}', raw)
+                and not self.methods(raw.rsplit(':', 1)[0], soft=True)):
             die(f"'{raw}' is a build coordinate (group:artifact), not a declaration, and this graph indexes source only:\n"
                 f"  no pom, no build script, no dependency tree is in it, so what depends on that artifact is UNKNOWN here,\n"
                 f"  not empty. What this graph can answer: the declarations that name a type from the artifact, once you give\n"
