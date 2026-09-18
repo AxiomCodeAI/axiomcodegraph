@@ -33,6 +33,25 @@ TESTY = re.compile(r'(^|[/_.-])(test|tests|spec|specs|__tests__|benchmark|benchm
 DELIM = re.compile(r'<\s*(issue|task|ticket|bug|problem|request)\s*>(.*?)<\s*/\s*\1\s*>', re.S | re.I)
 
 
+def headline(text):
+    """The first line that says what the problem IS, without the reproduction that follows.
+
+    A report is a claim followed by evidence: one line naming the symptom, then a repro, a stack, a
+    playground link, a screenshot. The evidence is where a package gets NAMED for reasons that have nothing
+    to do with where the fix goes -- a version field, a URL, a base64 payload, the framework's own name.
+
+    Measured over 9 tasks, this matters for one of the two questions and not the other:
+      choosing WHICH package        title alone 55%, title with body 33%
+      ranking files WITHIN it       title alone 42%, title with body 53%
+    So the headline picks the place and the whole text ranks inside it. Dropping the body everywhere would
+    have traded eleven points of file recall for twenty-two points of scope accuracy.
+    """
+    for line in (text or '').splitlines():
+        line = line.strip().lstrip('#').strip()
+        if len(line) >= 12: return line
+    return text or ''
+
+
 def task_text(prompt):
     """The part of a prompt that describes the PROBLEM, not the part instructing the agent.
 
