@@ -164,3 +164,38 @@ switch_type_pattern_resolves(prov, expr, ref, t) :- java_type_reference(_, "SWIT
 
 record_pattern_type_resolves(prov, expr, ref, t) :- java_type_reference(_, "RECORD_PATTERN_TYPE", _, _, _, _, _, "0", _, _, _, _, _, _, _, expr, "EXPRESSION", ref),
     type_ref_resolves(prov, ref, t).
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RECORD ACCESSORS: the return type comes from the COMPONENT
+//
+// A record accessor is declared by the language, not written out, so it has no
+// java_type_reference at context METHOD_RETURN and method_return_type_resolves has no
+// row for it. It resolved as a CALLEE and its result had no type, so anything chained
+// onto it resolved to nothing: `o.origin().x()` lost the second hop, and so did
+// `o.origin().describe()`, which is what proves the missing piece is the return type
+// rather than the callee.
+//
+// The COMPONENT does have a reference: the parser emits components as fields, at
+// context FIELD_TYPE, with the declared type the record header gives them. An accessor
+// and its component share a name and an owner, which is the whole of the record
+// contract, so this is a join. Reusing the component's own reference keeps consumers
+// that read it (type arguments, generic binding) pointing at a node the IR has.
+//
+// TWO PROVENANCES, and conflating them is why the first draft derived nothing: the
+// component is declared on one side while the type it holds may live on the other. A
+// client record with a library-typed component is the ordinary case, so the accessor's
+// prov and the RESOLVED TYPE's prov are separate variables. The head takes the type's,
+// matching the rule at the top of this file.
+//
+// #885 did the same thing for accessors an annotation processor declares. That rule
+// keys on gen_accessor_src (generated-members.dl) and cannot see these: a record's are
+// the language's, and arrive as java_method rows of kind RECORD_ACCESSOR.
+// ─────────────────────────────────────────────────────────────────────────────
+rec_accessor_component(prov, m, f) :- method_kind(prov, "RECORD_ACCESSOR", _, m),
+    method_decl(prov, name, _, _, m), name != "",
+    method_owner(prov, owner, m),
+    field_decl(prov, name, _, owner, f).
+
+method_return_type_resolves(tprov, m, ref, t) :- rec_accessor_component(_, m, f),
+    field_type_resolves(tprov, f, ref, t).

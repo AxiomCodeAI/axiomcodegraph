@@ -243,6 +243,7 @@
 .decl mref_has_ok(c0:symbol)                                    // at least one candidate survived the filter
 .decl method_ref_qualifier_resolves(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl method_return_type_resolves(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
+.decl rec_accessor_component(c0:symbol,c1:symbol,c2:symbol)   // (prov, recordAccessor, itsComponentField)
 .decl method_type_param(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol)
 .decl msoe(c0:symbol,c1:symbol,c2:symbol,c3:symbol)
 .decl named_method_call(c0:symbol)
