@@ -122,3 +122,40 @@ cfg_di_narrowing_enabled().
 cfg_stub_base_suffix("ImplBase", "grpc_service").      // gRPC (protoc java)
 cfg_stub_base_suffix("Grpc", "grpc_service").          // gRPC outer holder
 cfg_stub_base_suffix("Skeleton", "rpc_service").       // older RPC generators
+
+// ── (14) CONDITIONAL BEANS: an annotation that GATES a bean on external state ─
+// Read by config-resolution/conditional-beans.dl (#857). A conditional annotation
+// does not define a bean, it decides whether one the stereotype list already found
+// exists at all, so this is its own list rather than a flag on cfg_bean_ann.
+// cfg_conditional_ann(AnnotationSimpleName, Kind)
+cfg_conditional_ann("ConditionalOnProperty",       "property").
+cfg_conditional_ann("Profile",                     "profile").
+cfg_conditional_ann("ConditionalOnExpression",     "expression").
+cfg_conditional_ann("ConditionalOnMissingBean",    "missing_bean").
+cfg_conditional_ann("ConditionalOnBean",           "bean").
+cfg_conditional_ann("ConditionalOnClass",          "class").
+cfg_conditional_ann("ConditionalOnMissingClass",   "missing_class").
+cfg_conditional_ann("ConditionalOnResource",       "resource").
+cfg_conditional_ann("ConditionalOnWebApplication", "web_application").
+cfg_conditional_ann("Conditional",                 "custom").
+cfg_conditional_ann("IfBuildProperty",             "property").   // Quarkus
+cfg_conditional_ann("Requires",                    "custom").     // Micronaut
+
+// The inverse, so a rule can go from a kind back to the names that carry it
+// without re-listing them.
+cfg_conditional_ann_name(n, kind) :- cfg_conditional_ann(n, kind).
+
+// Which ARGUMENT of that annotation carries the config key. It differs per
+// annotation (`name` on the property condition, the unnamed `value` on a profile)
+// and one annotation may accept either spelling, so it is a knob, not a literal in
+// a rule. cfg_conditional_key_arg(AnnotationSimpleName, ArgumentName)
+cfg_conditional_key_arg("ConditionalOnProperty", "name").
+cfg_conditional_key_arg("ConditionalOnProperty", "value").
+cfg_conditional_key_arg("IfBuildProperty",       "name").
+cfg_conditional_key_arg("Profile",               "value").
+
+// A profile names the VALUE, not the key: @Profile("batch") means the active-profiles
+// setting must contain "batch". The key is the setting itself, and it is a knob
+// because the property that carries it is per ecosystem.
+// cfg_conditional_fixed_key(Kind, Key)
+cfg_conditional_fixed_key("profile", "spring.profiles.active").

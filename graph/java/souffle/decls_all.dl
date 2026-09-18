@@ -656,3 +656,28 @@
 .decl type_use_has_type(c0:symbol)
 .decl type_use_type(c0:symbol,c1:symbol)
 .decl type_use(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol,c5:symbol,c6:symbol,c7:symbol,c8:symbol,c9:symbol)
+
+// ── CONDITIONAL BEANS (engine/config-resolution/conditional-beans.dl) ────────
+// A config key that decides whether a bean EXISTS, as opposed to one whose value a
+// bean reads. Issue #857.
+.decl cfg_conditional_ann(c0:symbol,c1:symbol)         // (annotation simple name, kind)
+.decl cfg_conditional_ann_name(c0:symbol,c1:symbol)    // (annotation simple name, kind), inverse view
+.decl cfg_conditional_key_arg(c0:symbol,c1:symbol)     // (annotation, argument carrying the key)
+.decl cfg_conditional_fixed_key(c0:symbol,c1:symbol)   // (kind, key) for a kind whose argument is the VALUE
+.decl cfg_cond_arg_value(c0:symbol,c1:symbol,c2:symbol)// (bean, kind, value) for a fixed-key kind
+.decl cfg_cond_fixed(c0:symbol)                        // kinds that have a fixed key
+.decl cfg_cond_on_bean(c0:symbol,c1:symbol,c2:symbol,c3:symbol)  // (bean, ownerType, kind, annotation)
+.decl cfg_cond_key_raw(c0:symbol,c1:symbol,c2:symbol)  // (bean, kind, key before any prefix)
+.decl cfg_cond_prefix(c0:symbol,c1:symbol)             // (bean, prefix)
+.decl cfg_cond_has_prefix(c0:symbol)
+.decl cfg_cond_key(c0:symbol,c1:symbol,c2:symbol)      // (bean, kind, full key)
+.decl cfg_cond_having_given(c0:symbol,c1:symbol)
+.decl cfg_cond_has_having(c0:symbol)
+.decl cfg_cond_having(c0:symbol,c1:symbol)             // (bean, value the key must hold)
+.decl cfg_cond_missing_given(c0:symbol,c1:symbol)
+.decl cfg_cond_has_missing(c0:symbol)
+.decl cfg_cond_missing(c0:symbol,c1:symbol)            // (bean, matchIfMissing)
+.decl cfg_cond_keyed(c0:symbol)
+.decl cfg_cond_has_value_kind(c0:symbol)
+.decl bean_condition(c0:symbol,c1:symbol,c2:symbol,c3:symbol,c4:symbol) // (bean,kind,key,havingValue,matchIfMissing)
+.decl bean_alternative(c0:symbol,c1:symbol,c2:symbol)  // (beanA, beanB, key) two arms of one key

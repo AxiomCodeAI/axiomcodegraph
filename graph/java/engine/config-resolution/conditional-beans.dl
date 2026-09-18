@@ -1,0 +1,154 @@
+// ============================================================================
+// CONFIG-RESOLUTION · CONDITIONAL BEANS  (a key that decides whether a bean EXISTS)
+//
+// The rest of this folder models which methods a config key AFFECTS: who reads its
+// value through @Value, @ConfigurationProperties, an XML <property>, a ${...}
+// placeholder, or a key whose value names a class. This file models the other
+// direction, which is at least as common: a key that decides whether a bean is
+// created at all.
+//
+// An auto-configuration library commonly ships two @Configuration classes on ONE
+// key with opposite havingValue, and the consumer's property file picks one. At
+// runtime exactly one exists. Before this file both existed in the graph with equal
+// standing, nothing recorded that they were alternatives, and the key that selects
+// between them was in the key set but `unbound_key`, so asking what it affects
+// answered nothing. Fixes #857.
+//
+// WHAT IT DOES NOT DO, deliberately. It does not PRUNE an arm. Deciding which arm a
+// given deployment selects needs that deployment's property values, and a graph that
+// silently dropped half a library because a default was guessed would be worse than
+// one that reports both. A conditional bean stays reachable; what changes is that
+// the condition is visible and the key is bound, so a consumer can filter to one
+// configuration and an impact query over the key reaches the gated code.
+//
+// SCOPE. ann_on_type is client-only, as every rule in this folder is, so these
+// relations cover client beans. A library bean gets no bean_def row yet and so no
+// condition; that scoping is a separate change and the rules below are written to
+// span provenance the moment bean_def does, since nothing here re-tests "client".
+// ============================================================================
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. THE CONDITION ON A BEAN
+//
+// Names live in knobs.dl, section 14. No rule below names a framework.
+// ─────────────────────────────────────────────────────────────────────────────
+// cfg_cond_on_bean(Bean, OwnerType, Kind, AnnotationHash)
+cfg_cond_on_bean(bean, t, kind, a) :- bean_def(bean, t, _, _),
+    ann_on_type(a, n, t), cfg_conditional_ann(n, kind).
+
+// ── the KEY, for the kinds that name one ────────────────────────────────────
+// The key argument differs per annotation (`name` on the property condition, the
+// unnamed `value` on a profile), and one annotation may accept either spelling, so
+// the argument name is a knob too rather than a literal here.
+cfg_cond_key_raw(bean, kind, k) :- cfg_cond_on_bean(bean, _, kind, a),
+    cfg_conditional_ann_name(n, kind), cfg_conditional_key_arg(n, argname),
+    ann_arg(a, argname, k, _, _), k != "".
+
+// A `prefix` is joined to the key with a dot, which is how the framework composes
+// them: prefix="app.gate" + name="enabled" is the key `app.gate.enabled`. A prefix
+// that already ends in a dot is not doubled.
+cfg_cond_prefix(bean, p) :- cfg_cond_on_bean(bean, _, "property", a),
+    ann_arg(a, "prefix", p, _, _), p != "".
+cfg_cond_has_prefix(bean) :- cfg_cond_prefix(bean, _).
+
+// A kind with a FIXED key takes it from the knob and its argument is the value.
+cfg_cond_arg_value(bean, kind, v) :- cfg_cond_key_raw(bean, kind, v),
+    cfg_conditional_fixed_key(kind, _).
+cfg_cond_key(bean, kind, fk) :- cfg_cond_key_raw(bean, kind, _),
+    cfg_conditional_fixed_key(kind, fk).
+cfg_cond_fixed(kind) :- cfg_conditional_fixed_key(kind, _).
+
+cfg_cond_key(bean, kind, k) :- cfg_cond_key_raw(bean, kind, k), !cfg_cond_has_prefix(bean),
+    !cfg_cond_fixed(kind).
+cfg_cond_key(bean, kind, full) :- cfg_cond_key_raw(bean, kind, k), cfg_cond_prefix(bean, p),
+    !cfg_cond_fixed(kind),
+    strlen(p) > 0, substr(p, strlen(p) - 1, 1) != ".", full = cat(p, cat(".", k)).
+cfg_cond_key(bean, kind, full) :- cfg_cond_key_raw(bean, kind, k), cfg_cond_prefix(bean, p),
+    !cfg_cond_fixed(kind),
+    strlen(p) > 0, substr(p, strlen(p) - 1, 1) = ".", full = cat(p, k).
+
+// ── the VALUE the key must hold ─────────────────────────────────────────────
+// `havingValue` defaults to "true" when the annotation omits it, which is the
+// framework's own default and the single most common spelling in real code. The
+// default is stated rather than left empty because the whole point of the relation
+// is to tell two arms of one key apart, and two arms both reading "" are not
+// distinguishable.
+cfg_cond_having_given(bean, v) :- cfg_cond_on_bean(bean, _, "property", a),
+    ann_arg(a, "havingValue", v, _, _).
+cfg_cond_has_having(bean) :- cfg_cond_having_given(bean, _).
+cfg_cond_having(bean, v) :- cfg_cond_having_given(bean, v).
+cfg_cond_having(bean, "true") :- cfg_cond_on_bean(bean, _, "property", _),
+    !cfg_cond_has_having(bean).
+// A profile's argument is the VALUE, not the key: @Profile("batch") means the
+// active-profiles setting must contain "batch". Keying it on the profile name
+// instead would give every profile its own key, and two beans on different profiles
+// of the same application would not be seen as the alternatives they are.
+cfg_cond_having(bean, v) :- cfg_cond_arg_value(bean, "profile", v).
+
+// `matchIfMissing` decides what happens when the key is absent entirely, which is
+// what makes one arm the default. Absent means "false", again the framework's own.
+cfg_cond_missing_given(bean, v) :- cfg_cond_on_bean(bean, _, "property", a),
+    ann_arg(a, "matchIfMissing", v, _, _).
+cfg_cond_has_missing(bean) :- cfg_cond_missing_given(bean, _).
+cfg_cond_missing(bean, v) :- cfg_cond_missing_given(bean, v).
+cfg_cond_missing(bean, "false") :- cfg_cond_on_bean(bean, _, "property", _),
+    !cfg_cond_has_missing(bean).
+cfg_cond_missing(bean, "false") :- cfg_cond_on_bean(bean, _, "profile", _).
+
+// ── bean_condition(Bean, Kind, Key, HavingValue, MatchIfMissing) ────────────
+// The reported relation. A condition with no key of its own (a bean condition, a
+// class condition, a custom @Conditional) still gets a row with an empty key: that
+// the bean is conditional AT ALL is the fact a consumer needs first, and reporting
+// only the keyed kinds would silently drop @ConditionalOnMissingBean, which is the
+// construct that makes a library's default overridable.
+bean_condition(bean, kind, k, hv, mim) :- cfg_cond_key(bean, kind, k),
+    cfg_cond_having(bean, hv), cfg_cond_missing(bean, mim).
+bean_condition(bean, kind, k, "", "false") :- cfg_cond_key(bean, kind, k),
+    !cfg_cond_has_value_kind(bean).
+bean_condition(bean, kind, "", "", "false") :- cfg_cond_on_bean(bean, _, kind, _),
+    !cfg_cond_keyed(bean).
+cfg_cond_keyed(bean) :- cfg_cond_key(bean, _, _).
+cfg_cond_has_value_kind(bean) :- cfg_cond_having(bean, _).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. THE ARMS
+//
+// Two beans gated on the SAME key with values that cannot both hold are
+// alternatives: the deployment gets one. This is the relation that makes the two
+// arms visible AS arms, which neither bean_def nor bean_condition alone can say.
+//
+// Symmetric, and emitted in both directions, so a consumer can ask the question
+// from either bean without a union. Distinctness is on the bean, not the value: a
+// bean is never its own alternative.
+// ─────────────────────────────────────────────────────────────────────────────
+bean_alternative(b1, b2, k) :- bean_condition(b1, kind, k, v1, _),
+    bean_condition(b2, kind, k, v2, _), k != "", b1 != b2, v1 != v2.
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. THE KEY BECOMES A BOUND KEY
+//
+// Without this the gating key is reported `unbound_key`: impact.dl binds a key
+// named in an annotation argument only through cfg_placeholder, and a conditional
+// annotation names its key as a bare literal, not as ${...}. So the key was known
+// and answered nothing.
+//
+// The binding TARGET is the bean's owning type, because that is what the key
+// decides the existence of, and the mechanism is its own name so a consumer can
+// tell "someone reads this value" from "this switches a type on".
+// ─────────────────────────────────────────────────────────────────────────────
+config_key_defined(k) :- bean_condition(_, _, k, _, _), k != "".
+// TargetKind is `bean`, not `type`, and the distinction is load-bearing:
+// impact.dl derives config_bound_method(..., "class_binding") from ANY binding whose
+// target kind is `type`, so spelling it `type` reported every gated method twice,
+// once as gates_bean and once as class_binding. The second label is also simply
+// wrong here: class_binding means a key whose VALUE names a class, and this key's
+// value is a flag.
+config_binding(k, "conditional_annotation", "bean", t, t) :-
+    bean_condition(bean, _, k, _, _), k != "", bean_def(bean, t, _, _).
+
+// Every method of a gated type only runs if the condition holds, so the key
+// affects it. `gates_bean` is a distinct kind from `reads_field` and
+// `receives_param`: the method does not read the value, it owes its existence to
+// it, and a consumer ranking impact will want to tell those apart.
+config_affects_method(k, m, "gates_bean") :- bean_condition(bean, _, k, _, _), k != "",
+    bean_def(bean, t, _, _), method_owner("client", t, m).
